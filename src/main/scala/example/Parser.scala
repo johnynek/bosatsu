@@ -53,7 +53,7 @@ object Parser {
   // We assume indent was already parsed
   def letParser(indent: String): P[Expr.Let] = {
     val line1 = P(variable ~ maybeSpace ~ "=" ~ maybeSpace ~/ expr ~ toEOL)
-    val rest = P(indent ~ expr)
+    val rest = P((indent ~ "\n").rep ~ indent ~ expr)
     (line1 ~ rest).map {
       case (Expr.Var(v), e1, e2) => Expr.Let(v, e1, e2)
     }

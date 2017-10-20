@@ -48,6 +48,9 @@ object Expr {
   private def evaluateUnsafe(e: Expr, env: Map[String, Any]): Any =
     e match {
       case Var(v) => env(v)
+      case App(Lambda(name, fn), arg) =>
+        val env1 = env + (name -> evaluateUnsafe(arg, env))
+        evaluateUnsafe(fn, env1)
       case App(fn, arg) =>
         evaluateUnsafe(fn, env).asInstanceOf[Any => Any](evaluateUnsafe(arg, env))
       case Lambda(name, expr) =>
