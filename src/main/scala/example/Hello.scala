@@ -37,8 +37,39 @@ object Expr {
   case class Let(arg: String, expr: Expr, in: Expr) extends Expr
   case class Literal(lit: Lit) extends Expr
   case class If(arg: Expr, ifTrue: Expr, ifFalse: Expr) extends Expr
-  case class Fix(exp: Expr) extends Expr
   case class Op(left: Expr, binOp: Operator, right: Expr) extends Expr
+
+  def evaluate(e: Expr): Either[TypeError, (Any, Scheme)] =
+    Inference.inferExpr(e).map { scheme =>
+      // if we type check, we can always evaluate
+      (evaluateUnsafe(e, Map.empty), scheme)
+    }
+
+  private def evaluateUnsafe(e: Expr, env: Map[String, Any]): Any =
+    e match {
+      case Var(v) => env(v)
+      case App(fn, arg) =>
+        evaluateUnsafe(fn, env).asInstanceOf[Any => Any](evaluateUnsafe(arg, env))
+      case Lambda(name, expr) =>
+        { x: Any => evaluateUnsafe(expr, env + (name -> x)) }
+      case Let(arg, e, in) =>
+        evaluateUnsafe(in, env + (arg -> evaluateUnsafe(e, env)))
+      case Literal(Lit.Integer(i)) => i
+      case Literal(Lit.Bool(b)) => b
+      case If(arg, t, f) =>
+        if (evaluateUnsafe(arg, env).asInstanceOf[Boolean]) evaluateUnsafe(t, env)
+        else evaluateUnsafe(f, env)
+      case Op(a, op, b) =>
+        val ai = evaluateUnsafe(a, env).asInstanceOf[Int]
+        val bi = evaluateUnsafe(b, env).asInstanceOf[Int]
+        import Operator._
+        op match {
+          case Plus => ai + bi
+          case Mul => ai * bi
+          case Sub => ai - bi
+          case Eql => ai == bi
+        }
+    }
 }
 
 case class Program(lets: List[(String, Expr)], result: Expr)
@@ -250,14 +281,6 @@ object Inference {
           s5 <- unify(t2, t3)
           tfinal = Substitutable[Type].apply(s5, t2)
         } yield (s5.compose(s4).compose(s3).compose(s2).compose(s1), tfinal)
-
-      case Expr.Fix(e) =>
-        for {
-          st <- infer(typeEnv, e)
-          (s, t) = st
-          tv <- fresh
-          s2 <- unify(Type.Arrow(tv, tv), t)
-        } yield (s2, Substitutable[Type].apply(s, tv))
     }
 }
 

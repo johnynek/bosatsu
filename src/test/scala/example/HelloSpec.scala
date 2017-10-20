@@ -33,5 +33,25 @@ class InferTest extends FunSuite {
     parseType("1 + 1", Type.intT)
     parseType("1 == 1", Type.boolT)
     parseType("(1+2) == 1", Type.boolT)
+    parseType("(lambda x: x + 1)(2)", Type.intT)
+
+    parseType(
+"""lambda x:
+  fn = lambda y: x + y
+  fn""", Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT)))
   }
+
+  def evalTest(str: String, v: Any) =
+    Parser.expr.parse(str) match {
+      case Parsed.Success(exp, _) =>
+        assert(Expr.evaluate(exp).right.get._1 == v)
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+    }
+
+  test("evaluation works") {
+    evalTest("1 + 1", 2)
+    evalTest("(2 + 4) == 6", true)
+  }
+
 }
