@@ -34,6 +34,7 @@ object Expr {
   case class Var(name: String) extends Expr
   case class App(fn: Expr, arg: Expr) extends Expr
   case class Lambda(arg: String, expr: Expr) extends Expr
+  case class Ffi(lang: String, callsite: String, scheme: Scheme) extends Expr
   case class Let(arg: String, expr: Expr, in: Expr) extends Expr
   case class Literal(lit: Lit) extends Expr
   case class If(arg: Expr, ifTrue: Expr, ifFalse: Expr) extends Expr
@@ -43,6 +44,18 @@ object Expr {
     Inference.inferExpr(e).map { scheme =>
       // if we type check, we can always evaluate
       (evaluateUnsafe(e, Map.empty), scheme)
+    }
+
+  private def getJavaType(t: Type): List[Class[_]] =
+    t match {
+      case Type.Con("Int") => classOf[java.lang.Integer] :: Nil
+      case Type.Con("Bool") => classOf[java.lang.Boolean] :: Nil
+      case Type.Arrow(a, b) =>
+        getJavaType(a) match {
+          case at :: Nil => at :: getJavaType(b)
+          case function => sys.error(s"unsupported function type $function in $t")
+        }
+      case t => sys.error(s"unsupported java ffi type: $t")
     }
 
   private def evaluateUnsafe(e: Expr, env: Map[String, Any]): Any =
@@ -55,6 +68,36 @@ object Expr {
         evaluateUnsafe(fn, env).asInstanceOf[Any => Any](evaluateUnsafe(arg, env))
       case Lambda(name, expr) =>
         { x: Any => evaluateUnsafe(expr, env + (name -> x)) }
+      case Ffi(lang, callsite, Scheme(_, t)) =>
+        val parts = callsite.split("\\.", -1).toList
+        val clsName0 = parts.init.mkString(".")
+        val clsName = lang match {
+          case "java" => clsName0
+          case "scala" => clsName0 + "$"
+          case _ => sys.error(s"unknown lang: $lang")
+        }
+        val cls = Class.forName(clsName)
+        val args = getJavaType(t).toArray
+        val m = cls.getMethod(parts.last, args.init :_*)
+        val inst = lang match {
+          case "java" =>
+            null
+          case "scala" =>
+            cls.getDeclaredField("MODULE$").get(null)
+          case _ => ???
+        }
+
+        def invoke(tpe: Type, args: List[AnyRef]): Any =
+          tpe match {
+            case Type.Con(_) =>
+              m.invoke(inst, args.reverse.toArray: _*)
+            case Type.Var(_) =>
+              m.invoke(inst, args.reverse.toArray: _*)
+            case Type.Arrow(_, tail) => { x: Any =>
+              invoke(tail, (x.asInstanceOf[AnyRef]) :: args)
+            }
+          }
+        invoke(t, Nil)
       case Let(arg, e, in) =>
         evaluateUnsafe(in, env + (arg -> evaluateUnsafe(e, env)))
       case Literal(Lit.Integer(i)) => i
@@ -235,6 +278,8 @@ object Inference {
           st <- infer(env2, e)
           (s1, t1) = st
         } yield (s1, Substitutable[Type].apply(s1, Type.Arrow(tv, t1)))
+      case Expr.Ffi(_, _, scheme) =>
+        Inference.instantiate(scheme).map((Subst.empty, _))
       case Expr.App(fn, arg) =>
         for {
           tv <- fresh

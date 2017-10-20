@@ -1,0 +1,13 @@
+x = 1
+
+def y(x):
+  x + 1
+
+z = if (x == 1):
+  y
+else:
+  \y: y + x
+
+hc = ffi "scala" "org.bykn.hindleymilner.Foo.times" Int -> Int
+
+z(hc(100))

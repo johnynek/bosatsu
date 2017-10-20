@@ -53,6 +53,7 @@ class InferTest extends FunSuite {
     evalTest("1 + 1", 2)
     evalTest("(2 + 4) == 6", true)
     evalTest("""(lambda x: x)(2)""", 2)
+    evalTest("(\\x: x)(2)", 2)
     evalTest("""x = 2
 y = lambda z:
   x * z

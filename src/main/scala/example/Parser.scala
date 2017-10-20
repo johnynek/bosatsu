@@ -52,25 +52,47 @@ object Parser {
 
   // We assume indent was already parsed
   def letParser(indent: String): P[Expr.Let] = {
-    val line1 = P(variable ~ maybeSpace ~ "=" ~ maybeSpace ~/ expr ~ toEOL)
-    val rest = P((indent ~ "\n").rep ~ indent ~ expr)
+    val line1 = P(variable ~ maybeSpace ~ "=" ~ (!"=") ~ maybeSpace ~/ expr ~ toEOL)
+    val rest = P((indent ~ "\n").rep ~ indent ~ expr(indent))
     (line1 ~ rest).map {
       case (Expr.Var(v), e1, e2) => Expr.Let(v, e1, e2)
     }
   }
 
-  def lambdaP(indent: String): P[Expr.Lambda] = {
+  def lambdaP(indent: String): P[Expr] = {
     val multiLine = P("\n" ~ indent ~ spaces.!).flatMap { i2 =>
       expr(indent + i2)
     }
     val body =
       P((maybeSpace ~ expr(indent)) | multiLine)
 
-    def parseL: P[Expr.Lambda] =
-      P(variable ~ maybeSpace ~ (("," ~/ maybeSpace ~ P(parseL)) | (":" ~ body)))
+    def parseL(suffix: P[Unit]): P[Expr.Lambda] =
+      P(variable ~ maybeSpace ~ (("," ~/ maybeSpace ~ P(parseL(suffix))) | (suffix ~ ":" ~ body)))
         .map { case (Expr.Var(v), body) => Expr.Lambda(v, body) }
 
-    P("lambda" ~ spaces ~/ parseL)
+    val lamP = P((("lambda" ~ spaces) | ("\\" ~ maybeSpace)) ~/ parseL(P("")))
+    val defP = P("def" ~ spaces ~/ variable ~ "(" ~/ parseL(P(")" ~ maybeSpace)) ~ ("\n" ~ indent).rep(1) ~ expr(indent)).map {
+      case (Expr.Var(v), lambda, in) => Expr.Let(v, lambda, in)
+    }
+    lamP | defP
+  }
+
+  val typeScheme: P[Scheme] = {
+    def con(s: String) = P(s).map(_ => Scheme(Nil, Type.Con(s)))
+
+    val item = con("Int") | con("Bool")
+    P(item ~ (spaces ~/ "->" ~ spaces ~ typeScheme).?).map {
+      case (t, None) => t
+      case (a, Some(b)) => Scheme(Nil, Type.Arrow(a.result, b.result)) // TODO this is ignoring type variables for now
+    }
+  }
+  val ffiP: P[Expr.Ffi] = {
+    val javaId = ('0' to '9').toSet | ('a' to 'z').toSet | ('A' to 'Z').toSet | Set('.', '$')
+    P("ffi" ~ spaces ~/ ("\"java\""|"\"scala\"").! ~/ spaces ~ "\"" ~ P(CharsWhile(javaId)).! ~ "\"" ~/ spaces ~ typeScheme).map {
+      case ("\"java\"", callsite, scheme) => Expr.Ffi("java", callsite, scheme)
+      case ("\"scala\"", callsite, scheme) => Expr.Ffi("scala", callsite, scheme)
+      case _ => sys.error("unreachable")
+    }
   }
 
   val intP: P[Int] = P(CharsWhile(isNum _).!).map(_.toInt)
@@ -83,7 +105,7 @@ object Parser {
       boolP.map { b => Expr.Literal(Lit.Bool(b)) }
 
   def nonInfixP(indent: String): P[Expr] =
-    litP | lambdaP(indent) | ifParser(indent) | letParser(indent) | variable | P(parens(expr(indent)))
+    litP | lambdaP(indent) | ifParser(indent) | letParser(indent) | ffiP | variable | P(parens(expr(indent)))
 
   def expr(indent: String): P[Expr] = {
     val item = P(nonInfixP(indent) ~ (maybeSpace ~ operatorParse ~/ maybeSpace).?).flatMap {
