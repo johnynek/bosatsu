@@ -49,20 +49,30 @@ object Unifier {
 }
 
 object Inference {
+
+  // this is a REPL test method we will remove
+  // later.
+  def infer(str: String): Scheme = {
+    import fastparse.all._
+    Parser.expr.parse(str) match {
+       case Parsed.Success(exp, _) =>
+         Expr.evaluate(exp).right.get._2
+      case _ => sys.error("failed")
+    }
+  }
+
   type Infer[A] = RWST[EitherT[Eval, TypeError, ?], TypeEnv, Set[Constraint], Unique, A]
 
   type Solve[A] = StateT[EitherT[Eval, TypeError, ?], Unifier, A]
 
   def addConstraint(t1: Type, t2: Type): Infer[Unit] =
-    RWST.tell(Set(Constraint(t1, t2), Constraint(t2, t1)))
+    RWST.tell(Set(Constraint(t1, t2)))
 
-  def inEnv[A](n: String, scheme: Scheme, inf: Infer[A]): Infer[A] = {
-    def scope(te: TypeEnv): TypeEnv = te.updated(n, scheme)
-    inf.local(scope _)
-  }
+  def inEnv[A](n: String, scheme: Scheme, inf: Infer[A]): Infer[A] =
+    inf.local(_.updated(n, scheme))
 
   def closeOver(t: Type): Scheme =
-    generalize(TypeEnv(Map.empty), t).normalized
+    Substitutable.generalize((), t).normalized
 
   def runSolve(cs: List[Constraint]): Either[TypeError, Unifier] =
     solver.runS(Unifier(Subst.empty, cs)).value.value
@@ -127,7 +137,8 @@ object Inference {
             sub1 = s1.compose(sub)
             tail1 = Substitutable[List[Constraint]].apply(s1, tail)
             cs = c1 reverse_::: tail1
-            _ <- StateT.set(Unifier(sub1, cs)): Solve[Unit]
+            newU = Unifier(sub1, cs)
+            _ <- StateT.set(newU): Solve[Unit]
           } yield Left(unit) // use u so we don't get a warning... dammit
       }
     }
@@ -136,15 +147,11 @@ object Inference {
   }
 
   def instantiate(s: Scheme): Infer[Type] =
-    for {
-      ts <- Traverse[List].traverse(s.vars)(_ => fresh)
-      subst = Subst(s.vars.zip(ts).toMap)
-    } yield Substitutable[Type].apply(subst, s.result)
-
-  def generalize(te: TypeEnv, t: Type): Scheme = {
-    val missing = Substitutable[Type].typeVars(t) -- Substitutable[TypeEnv].typeVars(te)
-    Scheme(missing.toList.sorted, t)
-  }
+    Traverse[List].traverse(s.vars)(_ => fresh)
+      .map { ts =>
+        val subst = Subst(s.vars.zip(ts).toMap)
+        Substitutable[Type].apply(subst, s.result)
+      }
 
   def inferExpr(expr: Expr): Either[TypeError, Scheme] =
     inferExpr(TypeEnv.empty, expr)
@@ -177,24 +184,31 @@ object Inference {
     }
   }
 
-  def solveNow[A](ia: Infer[A]): Infer[(A, Unifier)] =
+  /**
+   * Infer the type and generalize all free variables
+   */
+  def inferScheme(ex: Expr): Infer[Scheme] =
     for {
-      a <- ia
-      cons <- ia.written
-      solved = runSolve(cons.toList)
-      unif <- MonadError[Infer, TypeError].fromEither(solved)
-    } yield (a, unif)
+      env <- (RWST.ask: Infer[TypeEnv])
+      // we need to see current constraits, since they are not free variables
+      t1c <- infer(ex).transform { (l, s, a) => (l, s, (a, l)) }
+      (t1, cons) = t1c
+    } yield Substitutable.generalize((env, cons), t1)
 
   def infer(expr: Expr): Infer[Type] =
     expr match {
-      case Expr.Var(n) => lookup(n)
+      case Expr.Var(n) =>
+        lookup(n)
+
       case Expr.Lambda(arg, e) =>
         for {
           tv <- fresh
           t <- inEnv(arg, Scheme.fromType(tv), infer(e))
         } yield Type.Arrow(tv, t)
+
       case Expr.Ffi(_, _, scheme) =>
         instantiate(scheme)
+
       case Expr.App(fn, arg) =>
         for {
           t1 <- infer(fn)
@@ -205,13 +219,8 @@ object Inference {
 
       case Expr.Let(n, ex, in) =>
         for {
-          env <- (RWST.ask: Infer[TypeEnv])
-          t1u <- solveNow(infer(ex))
-          (t1, Unifier(subst, cs)) = t1u
-          env1 = Substitutable[TypeEnv].apply(subst, env)
-          t11 = Substitutable[Type].apply(subst, t1)
-          sc = generalize(env1, t11)
-          t2 <- inEnv(n, sc, infer(in).local(Substitutable[TypeEnv].apply(subst, _: TypeEnv)))
+          sc <- inferScheme(ex)
+          t2 <- inEnv(n, sc, infer(in))
         } yield t2
 
       case Expr.Op(e1, op, e2) =>
@@ -237,72 +246,3 @@ object Inference {
     }
 }
 
-trait Substitutable[T] {
-  def apply(sub: Subst, t: T): T
-  def typeVars(t: T): Set[String]
-
-  def occurs(tvar: String, t: T): Boolean =
-    typeVars(t).contains(tvar)
-}
-
-object Substitutable {
-  def apply[T](implicit s: Substitutable[T]): Substitutable[T] = s
-
-  implicit val forType: Substitutable[Type] =
-    new Substitutable[Type] {
-      def apply(sub: Subst, t: Type): Type =
-        t match {
-          case c@Type.Con(_) => c
-          case v@Type.Var(name) => sub.getOrElse(name, v)
-          case Type.Arrow(from, to) => Type.Arrow(apply(sub, from), apply(sub, to))
-        }
-
-      def typeVars(t: Type) =
-        t match {
-          case Type.Con(_) => Set.empty
-          case Type.Var(name) => Set(name)
-          case Type.Arrow(from, to) => typeVars(from) | typeVars(to)
-        }
-    }
-
-
-  implicit val forScheme: Substitutable[Scheme] =
-    new Substitutable[Scheme] {
-      def apply(sub: Subst, t: Scheme) = {
-        // all the names in scheme are shadows so we need
-        // to remove them:
-        val newSubst = Subst(t.vars.foldLeft(sub.toMap)(_ - _))
-        Scheme(t.vars, Substitutable[Type].apply(newSubst, t.result))
-      }
-      def typeVars(s: Scheme) =
-        Substitutable[Type].typeVars(s.result) -- s.vars
-    }
-
-  implicit def forList[A: Substitutable]: Substitutable[List[A]] =
-    new Substitutable[List[A]] {
-      def apply(sub: Subst, t: List[A]): List[A] =
-        t.map(Substitutable[A].apply(sub, _))
-
-      def typeVars(as: List[A]) =
-        as.foldLeft(Set.empty[String]) { _ | Substitutable[A].typeVars(_) }
-    }
-
-  implicit val forTypeEnv: Substitutable[TypeEnv] =
-    new Substitutable[TypeEnv] {
-      def apply(sub: Subst, te: TypeEnv): TypeEnv =
-        TypeEnv(te.toMap.map { case (s, scheme) =>
-          s -> Substitutable[Scheme].apply(sub, scheme)
-        })
-
-      def typeVars(te: TypeEnv) =
-        te.toMap.values.foldLeft(Set.empty[String])(_ | Substitutable[Scheme].typeVars(_))
-    }
-
-  implicit val forConstraint: Substitutable[Constraint] =
-    new Substitutable[Constraint] {
-      def apply(sub: Subst, c: Constraint): Constraint =
-        Constraint(Substitutable[Type].apply(sub, c.left), Substitutable[Type].apply(sub, c.right))
-      def typeVars(c: Constraint) =
-        Substitutable[Type].typeVars(c.left) | Substitutable[Type].typeVars(c.right)
-    }
-}
