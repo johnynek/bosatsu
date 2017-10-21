@@ -1,4 +1,4 @@
-package org.bykn.hindleymilner
+package org.bykn.edgemar
 
 object Syntax {
   sealed abstract class Expr

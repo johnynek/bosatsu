@@ -3,7 +3,7 @@ x = 1
 def y(x):
   x + 1
 
-z = if (x == 1):
+z = if x == 1:
   y
 else:
   \y: y + x

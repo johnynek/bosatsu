@@ -1,4 +1,4 @@
-package org.bykn.hindleymilner
+package org.bykn.edgemar
 
 import org.scalatest.FunSuite
 
