@@ -8,6 +8,6 @@ z = if x == 1:
 else:
   \y: y + x
 
-hc = ffi "scala" "org.bykn.hindleymilner.Foo.times" Int -> Int
+hc = ffi "scala" "org.bykn.edgemar.Foo.times" Int -> Int
 
 z(hc(100))
