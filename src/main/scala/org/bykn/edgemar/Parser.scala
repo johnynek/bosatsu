@@ -78,9 +78,9 @@ object Parser {
   }
 
   val typeScheme: P[Scheme] = {
-    def con(s: String) = P(s).map(_ => Scheme(Nil, Type.Con(s)))
+    def prim(s: String) = P(s).map(_ => Scheme(Nil, Type.Primitive(s)))
 
-    val item = con("Int") | con("Bool")
+    val item = prim("Int") | prim("Bool")
     P(item ~ (spaces ~/ "->" ~ spaces ~ typeScheme).?).map {
       case (t, None) => t
       case (a, Some(b)) => Scheme(Nil, Type.Arrow(a.result, b.result)) // TODO this is ignoring type variables for now

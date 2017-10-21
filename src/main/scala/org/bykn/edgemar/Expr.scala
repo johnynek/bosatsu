@@ -46,8 +46,8 @@ object Expr {
 
   private def getJavaType(t: Type): List[Class[_]] =
     t match {
-      case Type.Con("Int") => classOf[java.lang.Integer] :: Nil
-      case Type.Con("Bool") => classOf[java.lang.Boolean] :: Nil
+      case Type.Primitive("Int") => classOf[java.lang.Integer] :: Nil
+      case Type.Primitive("Bool") => classOf[java.lang.Boolean] :: Nil
       case Type.Arrow(a, b) =>
         getJavaType(a) match {
           case at :: Nil => at :: getJavaType(b)
@@ -87,13 +87,15 @@ object Expr {
 
         def invoke(tpe: Type, args: List[AnyRef]): Any =
           tpe match {
-            case Type.Con(_) =>
+            case Type.Primitive(_) =>
               m.invoke(inst, args.reverse.toArray: _*)
             case Type.Var(_) =>
               m.invoke(inst, args.reverse.toArray: _*)
             case Type.Arrow(_, tail) => { x: Any =>
               invoke(tail, (x.asInstanceOf[AnyRef]) :: args)
             }
+            case unsupported =>
+              sys.error(s"unsupported ffi type $unsupported")
           }
         invoke(t, Nil)
       case Let(arg, e, in) =>
@@ -117,61 +119,3 @@ object Expr {
 }
 
 case class Program(lets: List[(String, Expr)], result: Expr)
-
-sealed abstract class Type
-object Type {
-  case class Var(name: String) extends Type
-  case class Con(name: String) extends Type
-  case class Arrow(from: Type, to: Type) extends Type
-
-  val intT: Type = Con("Int")
-  val boolT: Type = Con("Bool")
-}
-
-
-case class Scheme(vars: List[String], result: Type) {
-  def normalized: Scheme = {
-
-    def inOrd(t: Type): List[String] =
-      t match {
-        case Type.Con(_) => Nil
-        case Type.Var(v) => v :: Nil
-        case Type.Arrow(a, b) => inOrd(a) ::: inOrd(b)
-      }
-
-    def idxToLetter(i: Int): String =
-      if (i < 26 && 0 <= i) ('a'.toInt + i).toChar.toString
-      else sys.error(s"too many type variables: $i") // TODO fix
-
-    val inOrdDistinct = inOrd(result).distinct
-    val mapping: List[(String, String)] =
-      inOrdDistinct.zipWithIndex.map { case (i, idx) =>
-        i -> idxToLetter(idx)
-      }
-
-    val mappingMap = mapping.toMap
-
-    def norm(t: Type): Type =
-      t match {
-        case c@Type.Con(_) => c
-        case Type.Var(v) => Type.Var(mappingMap(v))
-        case Type.Arrow(a, b) => Type.Arrow(norm(a), norm(b))
-      }
-
-    Scheme(mapping.map(_._2), norm(result))
-  }
-}
-
-object Scheme {
-  def fromType(t: Type): Scheme = Scheme(Nil, t)
-}
-
-case class TypeEnv(toMap: Map[String, Scheme]) {
-  def updated(v: String, scheme: Scheme): TypeEnv =
-    TypeEnv(toMap.updated(v, scheme))
-}
-
-object TypeEnv {
-  def empty: TypeEnv = TypeEnv(Map.empty)
-}
-

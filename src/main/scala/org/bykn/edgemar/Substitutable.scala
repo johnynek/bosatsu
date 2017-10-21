@@ -18,18 +18,26 @@ object Substitutable {
 
   implicit val forType: Substitutable[Type] =
     new Substitutable[Type] {
+      import Type._
+
       def apply(sub: Subst, t: Type): Type =
         t match {
-          case c@Type.Con(_) => c
-          case v@Type.Var(name) => sub.getOrElse(name, v)
-          case Type.Arrow(from, to) => Type.Arrow(apply(sub, from), apply(sub, to))
+          case Arrow(from, to) => Arrow(apply(sub, from), apply(sub, to))
+          case d@Declared(_) => d
+          case c@Primitive(_) => c
+          case TypeApply(hk, arg) => TypeApply(apply(sub, hk), apply(sub, arg))
+          case TypeLambda(param, in) => TypeLambda(param, apply(sub, in))
+          case v@Var(name) => sub.getOrElse(name, v)
         }
 
       def typeVars(t: Type) =
         t match {
-          case Type.Con(_) => Set.empty
-          case Type.Var(name) => Set(name)
-          case Type.Arrow(from, to) => typeVars(from) | typeVars(to)
+          case Arrow(from, to) => typeVars(from) | typeVars(to)
+          case Declared(_) => Set.empty
+          case Primitive(_) => Set.empty
+          case TypeApply(hk, arg) => typeVars(hk) | typeVars(arg)
+          case TypeLambda(_, in) => typeVars(in)
+          case Var(name) => Set(name)
         }
     }
 
