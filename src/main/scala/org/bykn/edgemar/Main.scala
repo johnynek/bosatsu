@@ -1,7 +1,6 @@
 package org.bykn.edgemar
 
 import fastparse.all._
-import cats.implicits._
 import com.monovore.decline._
 import java.nio.file.{Files, Path}
 
@@ -21,7 +20,7 @@ object Main extends CommandApp(
         case Parsed.Success(exp, _) =>
           Expr.evaluate(exp) match {
             case Right((t, tpe)) =>
-              println(t)
+              println(s"$t: $tpe")
             case Left(err) =>
               System.err.println(err)
               System.err.println(exp)
