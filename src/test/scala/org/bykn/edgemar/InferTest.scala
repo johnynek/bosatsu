@@ -34,6 +34,10 @@ class InferTest extends FunSuite {
     parseType("1 == 1", Type.boolT)
     parseType("(1+2) == 1", Type.boolT)
     parseType("(lambda x: x + 1)(2)", Type.intT)
+    parseType("(lambda x: x + 1)", Type.Arrow(Type.intT, Type.intT))
+    parseType(
+"""x = 1
+x""", Type.intT)
 
     parseType(
 """lambda x:

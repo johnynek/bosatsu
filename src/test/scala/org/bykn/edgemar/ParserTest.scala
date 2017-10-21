@@ -25,7 +25,7 @@ class ParserTest extends FunSuite {
   def expectFail[T](p: Parser[T], str: String, atIdx: Int) =
     p.parse(str) match {
       case Parsed.Success(t, idx) => fail(s"parsed $t to: $idx")
-      case Parsed.Failure(exp, idx, extra) =>
+      case Parsed.Failure(_, idx, _) =>
         assert(idx == atIdx)
     }
 

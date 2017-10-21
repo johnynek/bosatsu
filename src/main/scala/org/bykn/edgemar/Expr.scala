@@ -5,7 +5,6 @@ package org.bykn.edgemar
  * here: http://dev.stephendiehl.com/fun/006_hindley_milner.html
  */
 
-import cats.MonadError
 import cats.implicits._
 
 sealed abstract class Lit
@@ -163,15 +162,16 @@ case class Scheme(vars: List[String], result: Type) {
   }
 }
 
+object Scheme {
+  def fromType(t: Type): Scheme = Scheme(Nil, t)
+}
+
 case class TypeEnv(toMap: Map[String, Scheme]) {
   def updated(v: String, scheme: Scheme): TypeEnv =
     TypeEnv(toMap.updated(v, scheme))
-  def lookup(v: String): Inference.Infer[(Subst, Type)] =
-    toMap.get(v) match {
-      case None =>
-        MonadError[Inference.Infer, TypeError].raiseError(TypeError.Unbound(v))
-      case Some(scheme) =>
-        Inference.instantiate(scheme).map((Subst.empty, _))
-    }
+}
+
+object TypeEnv {
+  def empty: TypeEnv = TypeEnv(Map.empty)
 }
 
