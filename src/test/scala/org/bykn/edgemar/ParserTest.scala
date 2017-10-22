@@ -1,8 +1,10 @@
 package org.bykn.edgemar
 
-import org.scalatest.FunSuite
-
+import cats.data.NonEmptyList
+import Parser.Combinators
 import fastparse.all._
+import org.scalatest.FunSuite
+import org.scalatest.prop.PropertyChecks.forAll
 
 class ParserTest extends FunSuite {
 
@@ -28,6 +30,52 @@ class ParserTest extends FunSuite {
       case Parsed.Failure(_, idx, _) =>
         assert(idx == atIdx)
     }
+
+  test("we can parse integers") {
+    forAll { b: BigInt =>
+      parseTestAll(Parser.integerString, b.toString, b.toString)
+    }
+  }
+
+  test("we can parse lists") {
+    forAll { (ls: List[Long], spaceCnt0: Int) =>
+      val spaceCount = spaceCnt0 & 7
+      val str0 = ls.toString
+      val str = str0.flatMap {
+        case ',' => "," + (" " * spaceCount)
+        case c => c.toString
+      }
+      parseTestAll(Parser.integerString.list.wrappedSpace("List(", ")"),
+        str,
+        ls.map(_.toString))
+    }
+  }
+
+  test("we can parse comments") {
+    forAll { (str0: String, lines0: Int) =>
+      val str = str0.map { c => if (c == '\n') ' ' else c }
+      val lines = lines0 & 15
+      val comment = s"#$str" + ("\n" * lines)
+      parseTestAll(Declaration.commentP,
+        comment,
+        Declaration.Comment(str, lines, Declaration.EndOfFile))
+    }
+  }
+
+  test("we can parse TypeRefs") {
+    parseTestAll(TypeRef.parser, "foo", TypeRef.TypeVar("foo"))
+    parseTestAll(TypeRef.parser, "Foo", TypeRef.TypeName("Foo"))
+    parseTestAll(TypeRef.parser, "Foo -> Bar", TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeName("Bar")))
+    parseTestAll(TypeRef.parser, "Foo -> Bar -> baz",
+      TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeArrow(TypeRef.TypeName("Bar"), TypeRef.TypeVar("baz"))))
+    parseTestAll(TypeRef.parser, "(Foo -> Bar) -> baz",
+      TypeRef.TypeArrow(TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeName("Bar")), TypeRef.TypeVar("baz")))
+    parseTestAll(TypeRef.parser, "Foo[Bar]", TypeRef.TypeApply(Right(TypeRef.TypeName("Foo")), NonEmptyList.of(TypeRef.TypeName("Bar"))))
+
+    forAll(Generators.typeRefGen) { tref =>
+      parseTestAll(TypeRef.parser, tref.toDoc.render(80), tref)
+    }
+  }
 
   test("we can parse Expr.Var") {
     parseTest(Parser.variable, "a", v("a"), 1)

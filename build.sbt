@@ -35,7 +35,7 @@ scalacOptions ++= Seq(
   "-Xlint:unsound-match",              // Pattern match may not be typesafe.
   "-Yno-adapted-args",                 // Do not adapt an argument list (either by inserting () or creating a tuple) to match the receiver.
   "-Ypartial-unification",             // Enable partial unification in type constructor inference
-  "-Ywarn-dead-code",                  // Warn when dead code is identified.
+  //"-Ywarn-dead-code",                  // Warn when dead code is identified. // this kills ability to use ???
   "-Ywarn-extra-implicit",             // Warn when more than one implicit parameter section is defined.
   "-Ywarn-inaccessible",               // Warn about inaccessible types in method signatures.
   "-Ywarn-infer-any",                  // Warn when a type argument is inferred to be `Any`.
@@ -53,6 +53,8 @@ scalacOptions ++= Seq(
 
 scalacOptions in (Compile, console) --= Seq("-Ywarn-unused:imports", "-Xfatal-warnings")
 
+testOptions in Test += Tests.Argument("-oDF")
+
 lazy val root = (project in file(".")).
   settings(
     inThisBuild(List(
@@ -66,6 +68,8 @@ lazy val root = (project in file(".")).
         cats,
         decline,
         fastparse,
+        paiges,
+        scalaCheck % Test,
         scalaTest % Test
       )
   )
