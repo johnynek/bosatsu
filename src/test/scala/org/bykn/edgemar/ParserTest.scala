@@ -3,6 +3,7 @@ package org.bykn.edgemar
 import cats.data.NonEmptyList
 import Parser.Combinators
 import fastparse.all._
+import org.scalacheck.Gen
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.forAll
 
@@ -51,17 +52,6 @@ class ParserTest extends FunSuite {
     }
   }
 
-  test("we can parse comments") {
-    forAll { (str0: String, lines0: Int) =>
-      val str = str0.map { c => if (c == '\n') ' ' else c }
-      val lines = lines0 & 15
-      val comment = s"#$str" + ("\n" * lines)
-      parseTestAll(Declaration.commentP,
-        comment,
-        Declaration.Comment(str, lines, Declaration.EndOfFile))
-    }
-  }
-
   test("we can parse TypeRefs") {
     parseTestAll(TypeRef.parser, "foo", TypeRef.TypeVar("foo"))
     parseTestAll(TypeRef.parser, "Foo", TypeRef.TypeName("Foo"))
@@ -70,10 +60,42 @@ class ParserTest extends FunSuite {
       TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeArrow(TypeRef.TypeName("Bar"), TypeRef.TypeVar("baz"))))
     parseTestAll(TypeRef.parser, "(Foo -> Bar) -> baz",
       TypeRef.TypeArrow(TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeName("Bar")), TypeRef.TypeVar("baz")))
-    parseTestAll(TypeRef.parser, "Foo[Bar]", TypeRef.TypeApply(Right(TypeRef.TypeName("Foo")), NonEmptyList.of(TypeRef.TypeName("Bar"))))
+    parseTestAll(TypeRef.parser, "Foo[Bar]", TypeRef.TypeApply(TypeRef.TypeName("Foo"), NonEmptyList.of(TypeRef.TypeName("Bar"))))
 
     forAll(Generators.typeRefGen) { tref =>
       parseTestAll(TypeRef.parser, tref.toDoc.render(80), tref)
+    }
+  }
+
+  test("we can parse comments") {
+    val gen = Generators.commentGen(Gen.const(Declaration.EndOfFile))
+    forAll(gen) { comment =>
+      parseTestAll(Declaration.commentP,
+        comment.toDoc.render(80),
+        comment)
+    }
+  }
+
+  test("we can parse Declaration.LiteralInt") {
+    forAll { bi: BigInt =>
+      val litInt = Declaration.LiteralInt(bi.toString)
+      parseTestAll(Declaration.literalIntP, litInt.toDoc.render(80), litInt)
+    }
+  }
+  test("we can parse Declaration.LiteralBool") {
+    parseTestAll(Declaration.literalBoolP,
+      Declaration.LiteralBool(false).toDoc.render(80),
+      Declaration.LiteralBool(false))
+    parseTestAll(Declaration.literalBoolP,
+      Declaration.LiteralBool(true).toDoc.render(80),
+      Declaration.LiteralBool(true))
+  }
+
+  test("we can parse any Declaration") {
+    forAll(Generators.genDeclaration(5)) { decl =>
+      parseTestAll(Declaration.parser,
+        decl.toDoc.render(80),
+        decl)
     }
   }
 
