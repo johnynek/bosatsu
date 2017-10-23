@@ -13,20 +13,6 @@ object Lit {
   case class Bool(toBool: Boolean) extends Lit
 }
 
-sealed abstract class Operator
-object Operator {
-  case object Plus extends Operator
-  case object Sub extends Operator
-  case object Mul extends Operator
-  case object Eql extends Operator
-
-  def typeOf(o: Operator): Type =
-    o match {
-      case Eql => Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.boolT))
-      case _ => Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT))
-    }
-}
-
 sealed abstract class Expr
 object Expr {
   case class Var(name: String) extends Expr

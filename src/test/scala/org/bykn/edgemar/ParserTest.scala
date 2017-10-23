@@ -3,7 +3,6 @@ package org.bykn.edgemar
 import cats.data.NonEmptyList
 import Parser.Combinators
 import fastparse.all._
-import org.scalacheck.Gen
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.forAll
 
@@ -68,9 +67,9 @@ class ParserTest extends FunSuite {
   }
 
   test("we can parse comments") {
-    val gen = Generators.commentGen(Gen.const(Declaration.EndOfFile))
+    val gen = Generators.commentGen(Generators.genDeclaration(0))
     forAll(gen) { comment =>
-      parseTestAll(Declaration.commentP,
+      parseTestAll(Declaration.commentP(""),
         comment.toDoc.render(80),
         comment)
     }
@@ -91,9 +90,33 @@ class ParserTest extends FunSuite {
       Declaration.LiteralBool(true))
   }
 
+  test("we can parse Declaration.def") {
+    val defn = Declaration.DefFn("foo", NonEmptyList.of(("bar", None), ("baz", None)), None,
+      Declaration.Var("bar"))
+
+    val str = defn.toDoc.render(80)
+    parseTestAll(Declaration.defP(""),
+      str,
+      defn)
+
+    forAll(Generators.defGen(Generators.genDeclaration(0))) { defn =>
+      parseTestAll(Declaration.defP(""),
+        defn.toDoc.render(80),
+        defn)
+    }
+  }
+
+  test("we can parse Declaration.Binding") {
+    parseTestAll(Declaration.parser(""),
+      """foo = 5
+
+5""",
+      Declaration.Binding("foo", Declaration.LiteralInt("5"), 2, Some(Declaration.LiteralInt("5"))))
+  }
+
   test("we can parse any Declaration") {
     forAll(Generators.genDeclaration(5)) { decl =>
-      parseTestAll(Declaration.parser,
+      parseTestAll(Declaration.parser(""),
         decl.toDoc.render(80),
         decl)
     }

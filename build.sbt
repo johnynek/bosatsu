@@ -66,6 +66,7 @@ lazy val root = (project in file(".")).
     libraryDependencies ++=
       Seq(
         cats,
+        dagon,
         decline,
         fastparse,
         paiges,
