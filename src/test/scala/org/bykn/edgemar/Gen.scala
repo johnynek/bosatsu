@@ -50,20 +50,15 @@ object Generators {
       (1, tApply))
   }
 
-  def commentGen(dec: Gen[Declaration]): Gen[Declaration.Comment] = {
-    import Declaration._
+  def commentGen[T](dec: Gen[T]): Gen[CommentStatement[T]] = {
     def cleanNewLine(s: String): String = s.map { c => if (c == '\n') ' ' else c }
     for {
       cs <- nonEmpty(Arbitrary.arbitrary[String])
-      n <- Gen.choose(0, 10)
-      rest0 <- dec
-      rest = rest0 match { case Comment(_, _, _) => None; case o => Some(o) }
-    } yield Comment(cs.map(cleanNewLine _), n, rest)
+      t <- dec
+    } yield CommentStatement(cs.map(cleanNewLine _), t)
   }
 
-  def defGen(dec: Gen[Declaration]): Gen[Declaration.DefFn] = {
-    import Declaration._
-
+  def defGen[T](dec: Gen[T]): Gen[DefStatement[T]] = {
     val argGen =
       for {
         arg <- lowerIdent
@@ -75,7 +70,7 @@ object Generators {
       args <- nonEmpty(argGen)
       retType <- Gen.option(typeRefGen)
       body <- dec
-    } yield DefFn(name, args, retType, body)
+    } yield DefStatement(name, args, retType, body)
   }
 
   def opGen(dec: Gen[Declaration]): Gen[Declaration] = {
@@ -95,15 +90,22 @@ object Generators {
     } yield Apply(fn, args))
   }
 
-  def bindGen(dec: Gen[Declaration]): Gen[Declaration] = {
-    import Declaration._
+  def bindGen[T](dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[T]] =
     for {
       b <- lowerIdent
       value <- dec
-      empties <- Gen.choose(0, 5)
-      in <- dec
-    } yield Binding(b, value, empties, Some(in))
-  }
+      in <- tgen
+    } yield BindingStatement(b, value, in)
+
+  def padding[T](tgen: Gen[T], min: Int = 0): Gen[Padding[T]] =
+    Gen.zip(Gen.choose(min, 10), tgen)
+      .map { case (e, t) => Padding(e, t) }
+
+  def indented[T](tgen: Gen[T]): Gen[Indented[T]] =
+    for {
+      cnt <- Gen.choose(1, 16)
+      t <- tgen
+    } yield Indented(cnt, t)
 
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
@@ -117,8 +119,8 @@ object Generators {
     if (depth <= 0) unnested
     else Gen.frequency(
       (3, unnested),
-      (1, commentGen(recur)),
-      (1, defGen(recur)),
+      (1, commentGen(padding(recur, 1)).map(Comment(_))), // make sure we have 1 space to prevent comments following each other
+      (1, defGen(Gen.zip(padding(indented(recur)), padding(recur))).map(DefFn(_))),
       (1, opGen(recur))
       //(1, applyGen(recur))
       //(1, bindGen(Gen.oneOf(opGen(recur), lowerIdent.map(Var(_)), applyGen(recur))))

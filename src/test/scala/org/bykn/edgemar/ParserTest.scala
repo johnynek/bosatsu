@@ -5,6 +5,7 @@ import Parser.Combinators
 import fastparse.all._
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.forAll
+import org.typelevel.paiges.Document
 
 class ParserTest extends FunSuite {
 
@@ -67,12 +68,23 @@ class ParserTest extends FunSuite {
   }
 
   test("we can parse comments") {
-    val gen = Generators.commentGen(Generators.genDeclaration(0))
+    val gen = Generators.commentGen(Generators.padding(Generators.genDeclaration(0), 1))
     forAll(gen) { comment =>
-      parseTestAll(Declaration.commentP(""),
-        comment.toDoc.render(80),
+      parseTestAll(CommentStatement.parser("", Padding.parser(Declaration.parser(""))),
+        Document[CommentStatement[Padding[Declaration]]].document(comment).render(80),
         comment)
     }
+
+    val parensComment = """(#foo
+#bar
+
+1)"""
+    parseTestAll(
+      Declaration.parser(""),
+      parensComment,
+      Declaration.Parens(Declaration.Comment(
+        CommentStatement(NonEmptyList.of("foo", "bar"),
+          Padding(1, Declaration.LiteralInt("1"))))))
   }
 
   test("we can parse Declaration.LiteralInt") {
@@ -90,36 +102,97 @@ class ParserTest extends FunSuite {
       Declaration.LiteralBool(true))
   }
 
-  test("we can parse Declaration.def") {
-    val defn = Declaration.DefFn("foo", NonEmptyList.of(("bar", None), ("baz", None)), None,
-      Declaration.Var("bar"))
-
-    val str = defn.toDoc.render(80)
-    parseTestAll(Declaration.defP(""),
-      str,
-      defn)
-
-    forAll(Generators.defGen(Generators.genDeclaration(0))) { defn =>
-      parseTestAll(Declaration.defP(""),
-        defn.toDoc.render(80),
+  test("we can parse DefStatement") {
+    forAll(Generators.defGen(Generators.indented(Generators.genDeclaration(0)))) { defn =>
+      parseTestAll[DefStatement[Indented[Declaration]]](
+        DefStatement.parser(Indented.parser(Declaration.parser(_))),
+        Document[DefStatement[Indented[Declaration]]].document(defn).render(80),
         defn)
     }
+
+    val defWithComment = """def foo(a):
+  # comment here
+  a
+foo"""
+    parseTestAll(
+      Declaration.parser(""),
+      defWithComment,
+      Declaration.DefFn(DefStatement("foo", NonEmptyList.of(("a", None)), None,
+        (Padding(0, Indented(2, Declaration.Comment(CommentStatement(NonEmptyList.of(" comment here"),
+          Padding(0, Declaration.Var("a")))))),
+         Padding(0, Declaration.Var("foo"))))))
+
   }
 
-  test("we can parse Declaration.Binding") {
+  test("we can parse BindingStatement") {
     parseTestAll(Declaration.parser(""),
       """foo = 5
 
 5""",
-      Declaration.Binding("foo", Declaration.LiteralInt("5"), 2, Some(Declaration.LiteralInt("5"))))
+    Declaration.Binding(BindingStatement("foo", Declaration.LiteralInt("5"),
+      Padding(2, Declaration.LiteralInt("5")))))
   }
 
   test("we can parse any Declaration") {
-    forAll(Generators.genDeclaration(5)) { decl =>
+    def law(decl: Declaration) =
       parseTestAll(Declaration.parser(""),
         decl.toDoc.render(80),
         decl)
-    }
+
+    forAll(Generators.genDeclaration(5))(law _)
+
+    import Declaration._
+    import Operator._
+    import TypeRef._
+    // here are some previous failures:
+    val hard0 =
+      Op(Parens(LiteralBool(false)),Sub,
+        Parens(DefFn(
+          DefStatement("hKlsdabavsw",
+            NonEmptyList.of(("wlqc3hcyppP",None), ("qzbCqgrbe",Option(TypeVar("lvg")))),
+            None,
+            (Padding(6,Indented(12,LiteralInt("-8393308213904846225"))),
+              Padding(1,
+                DefFn(DefStatement("j",
+                  NonEmptyList.of(("kdco9d",None), ("ilmZf8modds",Option.empty[TypeRef])),
+                  None,
+                  (Padding(0,Indented(5,Var("whmloukl"))),
+                    Padding(9,Op(Parens(
+                      DefFn(
+                        DefStatement("vef",
+                          NonEmptyList.of(("o",Some(TypeArrow(TypeVar("gpjgctxq"),TypeName("G"))))),
+                          None,
+                          (Padding(3,Indented(5,LiteralBool(false))),
+                            Padding(3,LiteralBool(false)))))),Plus,Parens(LiteralBool(true))))))))
+              )))))
+    val hard1 =
+      Op(Parens(DefFn(
+        DefStatement("qvn9nctvpe",NonEmptyList.of(("ccetywawql",None)),None,
+          (Padding(8,Indented(3,
+            DefFn(DefStatement("iMpmafg",NonEmptyList.of(("btblmdnhnij",Some(TypeName("I0UdK")))),Some(TypeName("Pjwrd")),
+              (Padding(1,Indented(3,DefFn(
+                DefStatement("rcvWloarpN",
+                  NonEmptyList.of(("gicncD5v",Some(TypeVar("hlspaxy4c4")))),Some(TypeVar("xn")),
+                  (Padding(2,Indented(11,LiteralBool(true))),
+                    Padding(5,Comment(CommentStatement(NonEmptyList.of(""),Padding(10,LiteralInt("8784604272431575973")))))))))),
+                Padding(4,
+                  DefFn(DefStatement("e5g",NonEmptyList.of(("vjb0",Some(TypeArrow(TypeName("X3oaxhok"),TypeVar("bplm0x3"))))),None,
+                    (Padding(4,Indented(8,Op(Parens(Var("uw")),Plus,Parens(LiteralBool(false))))),
+                      Padding(9,Op(Parens(LiteralInt("4189753091618908546561077944446038042")),Plus,Parens(LiteralBool(true))))))))))))),
+            Padding(4,Comment(CommentStatement(NonEmptyList.of(""),Padding(5,Comment(CommentStatement(NonEmptyList.of(""),Padding(4,LiteralBool(false))))))))))
+      )),Mul,Parens(LiteralBool(false)))
+
+    // def showPos(i: Int, str: String): String =
+    //   str.substring(0, i) + "*" + str.substring(i + 1)
+
+    // println("-----------------------")
+    // println(hard1.toDoc.render(80))
+    // println("-----------------------")
+    // println(showPos(207, hard1.toDoc.render(80)))
+    // println("-----------------------")
+
+    val hardCases = List(hard0, hard1)
+    hardCases.foreach(law _)
   }
 
   test("we can parse Expr.Var") {

@@ -47,6 +47,9 @@ object Parser {
       }
   }
 
+  def indented[T](fn: String => P[T]): P[T] =
+    spaces.!.flatMap { extra => P(fn(extra)) }
+
   implicit class Combinators[T](val item: P[T]) extends AnyVal {
     def list: P[List[T]] = listN(0)
 
@@ -73,6 +76,9 @@ object Parser {
 
     def trailingSpace: P[T] =
       P(item ~ maybeSpace)
+
+    def prefixedBy(indent: String): P[T] =
+      P(indent ~ item)
 
     def wrappedSpace(left: P[Unit], right: P[Unit]): P[T] =
       P(left ~ maybeSpace ~ item ~ maybeSpace ~ right)

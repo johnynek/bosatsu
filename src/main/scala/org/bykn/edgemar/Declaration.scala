@@ -4,7 +4,113 @@ import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces }
 import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
 import fastparse.all._
-import org.typelevel.paiges.Doc
+import org.typelevel.paiges.{ Doc, Document }
+
+case class DefStatement[T](
+    name: String,
+    args: NonEmptyList[(String, Option[TypeRef])],
+    retType: Option[TypeRef], result: T)
+
+object DefStatement {
+  private[this] val defDoc = Doc.text("def ")
+
+  implicit def document[T: Document]: Document[DefStatement[T]] =
+    Document.instance[DefStatement[T]] { defs =>
+      import defs._
+      val res = retType.fold(Doc.empty) { t => Doc.text(" -> ") + t.toDoc }
+      val line0 = defDoc + Doc.text(name) + Doc.char('(') +
+        Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc _)) +
+        Doc.char(')') + res + Doc.text(":") + Doc.line
+      line0 + Document[T].document(result)
+    }
+
+    /**
+     * The resultTParser should parse some indentation
+     */
+    def parser[T](resultTParser: P[T]): P[DefStatement[T]] = {
+      val args = P(lowerIdent ~ (":" ~/ maybeSpace ~ TypeRef.parser).?).nonEmptyList
+      val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser ~ maybeSpace).?
+      P("def" ~ spaces ~/ Parser.lowerIdent ~ "(" ~ maybeSpace ~ args ~ maybeSpace ~ ")" ~
+        result ~ ":" ~ "\n" ~ resultTParser)
+        .map {
+          case (name, args, resType, res) => DefStatement(name, args, resType, res)
+        }
+    }
+}
+
+case class BindingStatement[T](name: String, value: Declaration, in: T)
+
+object BindingStatement {
+  private[this] val eqDoc = Doc.text(" = ")
+
+  implicit def document[T: Document]: Document[BindingStatement[T]] =
+    Document.instance[BindingStatement[T]] { let =>
+      import let._
+      Doc.text(name) + eqDoc + value.toDoc + Doc.line + Document[T].document(in)
+    }
+}
+
+case class CommentStatement[T](message: NonEmptyList[String], on: T)
+
+object CommentStatement {
+  implicit def document[T: Document]: Document[CommentStatement[T]] =
+    Document.instance[CommentStatement[T]] { comment =>
+      import comment._
+      val block = Doc.intercalate(Doc.line, message.toList.map { mes => Doc.char('#') + Doc.text(mes) })
+      block + Doc.line + Document[T].document(on)
+    }
+
+  /** on should make sure indent is matching
+   * this is to allow a P[Unit] that does nothing for testing or other applications
+   */
+  def parser[T](indent: String, onP: P[T]): P[CommentStatement[T]] = {
+    val commentPart: P[String] = P("#" ~/ CharsWhile(_ != '\n').?.!)
+    val commentBlock: P[NonEmptyList[String]] =
+      P(commentPart ~ ("\n" ~ indent ~ commentPart).rep() ~ ("\n" | End))
+        .map { case (c1, cs) => NonEmptyList(c1, cs.toList) }
+
+    P(commentBlock ~ onP)
+      .map { case (m, on) => CommentStatement(m, on) }
+  }
+}
+
+case class PackageStatement[T](name: String,
+  exports: List[String],
+  emptyLines: Int,
+  contents: T)
+
+// Represents vertical padding
+case class Padding[T](lines: Int, padded: T)
+object Padding {
+  implicit def document[T: Document]: Document[Padding[T]] =
+    Document.instance[Padding[T]] { padding =>
+      Doc.line.repeat(padding.lines) + Document[T].document(padding.padded)
+    }
+
+  def parser[T](p: P[T]): P[Padding[T]] =
+    P((maybeSpace ~ "\n").!.rep() ~ p).map { case (vec, t) => Padding(vec.size, t) }
+}
+
+case class Indented[T](spaces: Int, value: T) {
+  require(spaces > 0, s"need non-empty indentation: $spaces")
+}
+
+object Indented {
+  def spaceCount(str: String): Int =
+    str.foldLeft(0) {
+      case (s, ' ') => s + 1
+      case (s, '\t') => s + 4
+      case (_, c) => sys.error(s"unexpected space character($c) in $str")
+    }
+
+  implicit def document[T: Document]: Document[Indented[T]] =
+    Document.instance[Indented[T]] { case Indented(i, t) =>
+      Doc.spaces(i) + (Document[T].document(t).nested(i))
+    }
+
+  def parser[T](p: String => P[T]): P[Indented[T]] =
+    Parser.indented { i => p(i).map(Indented(spaceCount(i), _)) }
+}
 
 sealed abstract class TypeRef {
   import TypeRef._
@@ -26,6 +132,8 @@ object TypeRef {
   private val spaceArrow = Doc.text(" -> ")
   private val commaSpace = Doc.text(", ")
   private val colonSpace = Doc.text(": ")
+
+  implicit val document: Document[TypeRef] = Document.instance[TypeRef](_.toDoc)
 
   def argDoc(st: (String, Option[TypeRef])): Doc =
     st match {
@@ -69,6 +177,8 @@ object TypeRef {
 sealed abstract class Declaration {
   import Declaration._
 
+  val standardIndentation: Int = 4
+
   def toDoc: Doc = {
     this match {
       case Apply(fn, args) =>
@@ -77,18 +187,19 @@ sealed abstract class Declaration {
           case other => Doc.char('(') + other.toDoc + Doc.char(')')
         }
         fnDoc + Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(_.toDoc)) + Doc.char(')')
-      case Binding(name, value, lines, in) =>
-        Doc.text(name) + eqDoc + value.toDoc + Doc.line.repeat(lines) + (in.fold(Doc.empty)(_.toDoc))
-      case Comment(lines, empties, on) =>
-        val block = Doc.intercalate(Doc.line, lines.toList.map { mes => Doc.char('#') + Doc.text(mes) })
-        val emptyLines = Doc.line.repeat(empties + 1) // add 1 line for the comment
-        block + emptyLines + on.fold(Doc.empty)(_.toDoc)
-      case DefFn(name, args, retType, result) =>
-        val res = retType.fold(Doc.empty) { t => Doc.text(" -> ") + t.toDoc }
-        val line0 = defDoc + Doc.text(name) + Doc.char('(') +
-          Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc _)) +
-          Doc.char(')') + res + Doc.text(":") + Doc.line
-        (line0 + result.toDoc).nested(4)
+      case Binding(b) =>
+        BindingStatement.document[Padding[Declaration]].document(b)
+      case Comment(c) =>
+        CommentStatement.document[Padding[Declaration]].document(c)
+      case DefFn(d) =>
+        val pairDoc: Document[(Padding[Indented[Declaration]], Padding[Declaration])] =
+          Document.instance {
+            case (fnBody, letBody) =>
+                Document[Padding[Indented[Declaration]]].document(fnBody) +
+                Doc.line +
+                Document[Padding[Declaration]].document(letBody)
+          }
+        DefStatement.document(pairDoc).document(d)
       case LiteralBool(b) => if (b) trueDoc else falseDoc
       case LiteralInt(str) => Doc.text(str)
       case Op(left, op, right) =>
@@ -96,7 +207,8 @@ sealed abstract class Declaration {
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
       case Var(name) => Doc.text(name)
-      case _ => ???
+      case FfiLambda(_, _, _) => ???
+      case Lambda(_, _) => ???
     }
   }
 }
@@ -104,25 +216,17 @@ sealed abstract class Declaration {
 object Declaration {
   private val trueDoc = Doc.text("True")
   private val falseDoc = Doc.text("False")
-  private val defDoc = Doc.text("def ")
-  private val eqDoc = Doc.text(" = ")
+
+  implicit val document: Document[Declaration] = Document.instance[Declaration](_.toDoc)
 
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration]) extends Declaration
-  // in == None means end of file
-  case class Binding(name: String, value: Declaration, emptyLines: Int, in: Option[Declaration]) extends Declaration
-  // on == None means end of file
-  case class Comment(message: NonEmptyList[String], emptyLines: Int, on: Option[Declaration]) extends Declaration
-  case class DefFn(name: String,
-    args: NonEmptyList[(String, Option[TypeRef])],
-    retType: Option[TypeRef], result: Declaration) extends Declaration
+  case class Binding(binding: BindingStatement[Padding[Declaration]]) extends Declaration
+  case class Comment(comment: CommentStatement[Padding[Declaration]]) extends Declaration
+  case class DefFn(deffn: DefStatement[(Padding[Indented[Declaration]], Padding[Declaration])]) extends Declaration
   case class FfiLambda(lang: String, callsite: String, tpe: TypeRef) extends Declaration
   case class Lambda(args: NonEmptyList[String], body: Declaration) extends Declaration
   case class LiteralBool(toBoolean: Boolean) extends Declaration
   case class LiteralInt(asString: String) extends Declaration
-  case class Package(name: String,
-    exports: List[String],
-    emptyLines: Int,
-    decl: Declaration) extends Declaration
   case class Op(left: Declaration, op: Operator, right: Declaration) extends Declaration
   case class Parens(of: Declaration) extends Declaration
   case class Var(name: String) extends Declaration
@@ -130,36 +234,25 @@ object Declaration {
   // This is something we check after variables
   private def bindingOp(indent: String): P[String => Binding] = {
     val eqP = P("=" ~ !"=")
-    val eofP: P[Option[Declaration]] = P(End).map(_ => None)
 
-    val lines: P[Int] = P(End).map(_ => 0) | P((maybeSpace ~ "\n").!.rep(1)).map(_.size)
-    P(maybeSpace ~ eqP ~/ maybeSpace ~ parser(indent) ~ lines ~ ((indent ~ parser(indent)).? | eofP))
-      .map { case (value, lines, decl) => Binding(_, value, lines, decl) }
+    val restParser = Padding.parser(P(indent ~ parser(indent)))
+    P(maybeSpace ~ eqP ~/ maybeSpace ~ parser(indent) ~ restParser)
+      .map { case (value, rest) =>
+
+        { str: String => Binding(BindingStatement(str, value, rest)) }
+      }
   }
 
-  def commentP(indent: String): P[Comment] = {
-    val commentPart: P[String] = P("#" ~/ CharsWhile(_ != '\n').?.!)
-    val commentBlock: P[NonEmptyList[String]] =
-      P(commentPart ~ ("\n" ~ indent ~ commentPart).rep() ~ ("\n" | End))
-        .map { case (c1, cs) => NonEmptyList(c1, cs.toList) }
-
-    val newLines: P[Int] = P((maybeSpace ~ "\n").!.rep()).map(_.size)
-
-    val eofP: P[Option[Declaration]] = P(End).map(_ => None)
-
-    P(commentBlock ~ newLines ~ indent ~ (parser(indent).? | eofP) )
-      .map { case (m, ls, rest) => Comment(m, ls, rest) }
-  }
+  def commentP(indent: String): P[Comment] =
+    CommentStatement.parser(indent, Padding.parser(P(indent ~ parser(indent))))
+      .map(Comment(_))
 
   def defP(indent: String): P[DefFn] = {
-    val args = P(lowerIdent ~ (":" ~/ maybeSpace ~ TypeRef.parser).?).nonEmptyList
-    val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser ~ maybeSpace).?
-    P("def" ~ spaces ~/ Parser.lowerIdent ~ "(" ~ maybeSpace ~ args ~ maybeSpace ~ ")" ~
-      result ~ ":" ~ ("\n" ~ indent).rep(1) ~ spaces.!)
-      .flatMap {
-        case (name, args, res, nextIndent) =>
-          parser(nextIndent).map(DefFn(name, args, res, _))
-      }
+    val restParser: P[(Padding[Indented[Declaration]], Padding[Declaration])] =
+      P(Padding.parser(P(indent ~ Indented.parser { nextId => parser (indent + nextId) })) ~ maybeSpace ~ "\n" ~
+        Padding.parser(indent ~ parser(indent)))
+
+    DefStatement.parser(restParser).map(DefFn(_))
   }
 
   val literalBoolP: P[LiteralBool] =
