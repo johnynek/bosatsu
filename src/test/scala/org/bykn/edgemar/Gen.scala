@@ -107,6 +107,12 @@ object Generators {
       t <- tgen
     } yield Indented(cnt, t)
 
+  def lambdaGen(bodyGen: Gen[Declaration]): Gen[Declaration.Lambda] =
+    for {
+      args <- nonEmpty(lowerIdent)
+      body <- bodyGen
+    } yield Declaration.Lambda(args, body)
+
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
@@ -121,7 +127,8 @@ object Generators {
       (3, unnested),
       (1, commentGen(padding(recur, 1)).map(Comment(_))), // make sure we have 1 space to prevent comments following each other
       (1, defGen(Gen.zip(padding(indented(recur)), padding(recur))).map(DefFn(_))),
-      (1, opGen(recur))
+      (1, opGen(recur)),
+      (1, lambdaGen(recur))
       //(1, applyGen(recur))
       //(1, bindGen(Gen.oneOf(opGen(recur), lowerIdent.map(Var(_)), applyGen(recur))))
     )

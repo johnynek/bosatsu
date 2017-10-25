@@ -200,6 +200,8 @@ sealed abstract class Declaration {
                 Document[Padding[Declaration]].document(letBody)
           }
         DefStatement.document(pairDoc).document(d)
+      case Lambda(args, body) =>
+        Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Doc.text _)) + Doc.text(" -> ") + body.toDoc
       case LiteralBool(b) => if (b) trueDoc else falseDoc
       case LiteralInt(str) => Doc.text(str)
       case Op(left, op, right) =>
@@ -208,7 +210,6 @@ sealed abstract class Declaration {
         Doc.char('(') + p.toDoc + Doc.char(')')
       case Var(name) => Doc.text(name)
       case FfiLambda(_, _, _) => ???
-      case Lambda(_, _) => ???
     }
   }
 }
@@ -255,6 +256,10 @@ object Declaration {
     DefStatement.parser(restParser).map(DefFn(_))
   }
 
+  def lambdaP(indent: String): P[Lambda] =
+    P("\\" ~/ maybeSpace ~ lowerIdent.nonEmptyList ~ maybeSpace ~ "->" ~/ maybeSpace ~ parser(indent))
+      .map { case (args, body) => Lambda(args, body) }
+
   val literalBoolP: P[LiteralBool] =
     Parser.tokenP("True", LiteralBool(true)) | Parser.tokenP("False", LiteralBool(false))
 
@@ -282,8 +287,8 @@ object Declaration {
 
         applySuffix :: Operator.allOps.map(parseOp _)
       }
-      val prefix = defP(indent) | literalIntP | literalBoolP | varOrBind(indent) | commentP(indent) |
-        P(rec(indent).parens).map(Parens(_))
+      val prefix = defP(indent) | literalIntP | literalBoolP | lambdaP(indent) |
+        varOrBind(indent) | commentP(indent) | P(rec(indent).parens).map(Parens(_))
 
       def checkOps(head: P[Declaration], ops: List[P[Declaration => Declaration]]): P[Declaration] =
         ops match {
