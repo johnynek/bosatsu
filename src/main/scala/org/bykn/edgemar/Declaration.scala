@@ -46,7 +46,7 @@ object BindingStatement {
   implicit def document[T: Document]: Document[BindingStatement[T]] =
     Document.instance[BindingStatement[T]] { let =>
       import let._
-      Doc.text(name) + eqDoc + value.toDoc + Doc.line + Document[T].document(in)
+      Doc.text(name) + eqDoc + value.toDoc + Document[T].document(in)
     }
 }
 

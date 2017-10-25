@@ -170,6 +170,28 @@ foo"""
 
   }
 
+  test("we can parse bind") {
+    import Declaration._
+
+    parseTestAll(parser(""),
+      """x = 4
+x""",
+    Binding(BindingStatement("x", LiteralInt("4"), Padding(1, Var("x")))))
+
+    parseTestAll(parser(""),
+      """x = foo(4)
+
+x""",
+    Binding(BindingStatement("x", Apply(Var("foo"), NonEmptyList.of(LiteralInt("4"))), Padding(2, Var("x")))))
+
+    parseTestAll(parser(""),
+      """x = foo(4)
+# x is really great
+x""",
+    Binding(BindingStatement("x",Apply(Var("foo"),NonEmptyList.of(LiteralInt("4"))),Padding(1,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,Var("x"))))))))
+
+  }
+
   test("we can parse any Declaration") {
     def law(decl: Declaration) =
       parseTestAll(Declaration.parser(""),
