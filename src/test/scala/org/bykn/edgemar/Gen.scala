@@ -86,8 +86,9 @@ object Generators {
     import Declaration._
     Gen.lzy(for {
       fn <- dec
+      fnParens = fn match { case v@Declaration.Var(_) => v; case nonV => Parens(nonV) }
       args <- nonEmpty(dec)
-    } yield Apply(fn, args))
+    } yield Apply(fnParens, args))
   }
 
   def bindGen[T](dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[T]] =
@@ -128,8 +129,8 @@ object Generators {
       (1, commentGen(padding(recur, 1)).map(Comment(_))), // make sure we have 1 space to prevent comments following each other
       (1, defGen(Gen.zip(padding(indented(recur)), padding(recur))).map(DefFn(_))),
       (1, opGen(recur)),
-      (1, lambdaGen(recur))
-      //(1, applyGen(recur))
+      (1, lambdaGen(recur)),
+      (1, applyGen(recur))
       //(1, bindGen(Gen.oneOf(opGen(recur), lowerIdent.map(Var(_)), applyGen(recur))))
     )
   }

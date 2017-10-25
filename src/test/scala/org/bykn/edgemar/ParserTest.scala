@@ -133,6 +133,43 @@ foo"""
       Padding(2, Declaration.LiteralInt("5")))))
   }
 
+  test("we can parse any Apply") {
+    import Declaration._
+
+    parseTestAll(parser(""),
+      "x(f)",
+      Apply(Var("x"), NonEmptyList.of(Var("f"))))
+
+    parseTestAll(parser(""),
+      "(\\x -> x)(f)",
+      Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f"))))
+
+    parseTestAll(parser(""),
+      "((\\x -> x)(f))",
+      Parens(Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f")))))
+
+    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of("x"), Var("x")))), NonEmptyList.of(Var("f")))
+    parseTestAll(parser(""),
+      "((\\x -> x))(f)",
+      expected)
+
+    parseTestAll(parser(""),
+      expected.toDoc.render(80),
+      expected)
+
+    import Operator._
+
+    val hard = Lambda(NonEmptyList.of("zl"),Lambda(NonEmptyList.of("mbovroDewsy", "kapdcnqxt", "rwd"),
+      Op(Parens(Op(Parens(LiteralInt("-9223372036854775808")),Sub,Parens(Var("anbo7gkpfvj")))),Sub,
+        Parens(Apply(Parens(Lambda(NonEmptyList.of("uxu1i"),LiteralInt("35595864962462191423853794339110335496"))),
+          NonEmptyList.of(Op(Parens(LiteralInt("1678198301007947346")),Sub,Parens(LiteralInt("-2902090857627552045")))))))))
+
+    parseTestAll(parser(""),
+      hard.toDoc.render(80),
+      hard)
+
+  }
+
   test("we can parse any Declaration") {
     def law(decl: Declaration) =
       parseTestAll(Declaration.parser(""),

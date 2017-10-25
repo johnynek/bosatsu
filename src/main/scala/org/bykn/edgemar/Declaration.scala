@@ -184,6 +184,7 @@ sealed abstract class Declaration {
       case Apply(fn, args) =>
         val fnDoc = fn match {
           case Var(n) => Doc.text(n)
+          case p@Parens(_) => p.toDoc
           case other => Doc.char('(') + other.toDoc + Doc.char(')')
         }
         fnDoc + Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(_.toDoc)) + Doc.char(')')
