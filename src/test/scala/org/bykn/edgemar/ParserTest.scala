@@ -192,6 +192,26 @@ x""",
 
   }
 
+  test("we can parse if") {
+    import Declaration._
+
+    parseTestAll(parser(""),
+      """if x == 3:
+      x
+else:
+      y""",
+      IfElse(NonEmptyList.of((Op(Var("x"),Operator.Eql,LiteralInt("3")),Padding(0,Indented(6,Var("x"))))),Padding(0,Indented(6,Var("y")))))
+
+    parseTestAll(parser(""),
+      """if x == 3:
+      x
+elif foo:
+      z
+else:
+      y""",
+      IfElse(NonEmptyList.of((Op(Var("x"),Operator.Eql,LiteralInt("3")),Padding(0,Indented(6,Var("x")))), (Var("foo"),Padding(0,Indented(6,Var("z"))))),Padding(0,Indented(6,Var("y")))))
+  }
+
   test("we can parse any Declaration") {
     def law(decl: Declaration) =
       parseTestAll(Declaration.parser(""),

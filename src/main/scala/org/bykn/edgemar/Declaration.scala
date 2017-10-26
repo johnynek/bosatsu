@@ -109,7 +109,14 @@ object Indented {
     }
 
   def parser[T](p: String => P[T]): P[Indented[T]] =
-    Parser.indented { i => p(i).map(Indented(spaceCount(i), _)) }
+    Parser.indented { i =>
+      p(i).map(Indented(spaceCount(i), _))
+    }
+
+  def exactly[T](str: String, p: P[T]): P[Indented[T]] = {
+    val sc = spaceCount(str)
+    P(str ~ p).map(Indented(sc, _))
+  }
 }
 
 sealed abstract class TypeRef {
@@ -201,6 +208,15 @@ sealed abstract class Declaration {
                 Document[Padding[Declaration]].document(letBody)
           }
         DefStatement.document(pairDoc).document(d)
+      case IfElse(ifCases, elseCase) =>
+        def checkBody(cb: (Declaration, Padding[Indented[Declaration]])) = {
+          val (check, body) = cb
+          check.toDoc + Doc.char(':') + Doc.line + Document[Padding[Indented[Declaration]]].document(body)
+        }
+
+        val tail = Doc.text("else:") + Doc.line + Document[Padding[Indented[Declaration]]].document(elseCase) :: Nil
+        val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail.map(Doc.text("elif ") + checkBody(_))) ::: tail
+        Doc.intercalate(Doc.line, parts)
       case Lambda(args, body) =>
         Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Doc.text _)) + Doc.text(" -> ") + body.toDoc
       case LiteralBool(b) => if (b) trueDoc else falseDoc
@@ -226,6 +242,7 @@ object Declaration {
   case class Comment(comment: CommentStatement[Padding[Declaration]]) extends Declaration
   case class DefFn(deffn: DefStatement[(Padding[Indented[Declaration]], Padding[Declaration])]) extends Declaration
   case class FfiLambda(lang: String, callsite: String, tpe: TypeRef) extends Declaration
+  case class IfElse(ifCases: NonEmptyList[(Declaration, Padding[Indented[Declaration]])], elseCase: Padding[Indented[Declaration]]) extends Declaration
   case class Lambda(args: NonEmptyList[String], body: Declaration) extends Declaration
   case class LiteralBool(toBoolean: Boolean) extends Declaration
   case class LiteralInt(asString: String) extends Declaration
@@ -255,6 +272,36 @@ object Declaration {
         Padding.parser(indent ~ parser(indent)))
 
     DefStatement.parser(restParser).map(DefFn(_))
+  }
+
+  def ifElseP(indent: String): P[IfElse] = {
+    val toEOL = P(maybeSpace ~ "\n")
+    // prefix should be strict identifier like "if " or "elif "
+    def blockPart[T, U](prefix: String, condition: P[T], body: P[U]): P[(T, U)] =
+      P(prefix ~/ maybeSpace ~ condition ~ maybeSpace ~ ":" ~/ toEOL ~ body)
+
+    val ifDecl: P[Padding[Indented[(Declaration, String)]]] =
+      Padding.parser(P(indent ~ Indented.parser { nextId => parser(indent + nextId).map((_, nextId)) }))
+
+    def restDecl(str: String): P[Padding[Indented[Declaration]]] =
+      Padding.parser(P(indent ~ Indented.exactly(str, parser(indent + str))))
+
+    val lazyCond = P(parser(indent))
+    val ifP: P[(Declaration, Padding[Indented[(Declaration, String)]])] =
+      blockPart("if ", lazyCond, ifDecl)
+
+    ifP.flatMap {
+      case (cond, Padding(p, Indented(c, (decl, i)))) =>
+        val ifcase = (cond, Padding(p, Indented(c, decl)))
+        val nextDecls = restDecl(i)
+
+        val elifP = blockPart("elif ", lazyCond, nextDecls)
+        val elseP = P("\n" ~ indent ~ "else" ~ maybeSpace ~ ":" ~/ toEOL ~ nextDecls)
+        P(("\n" ~ indent ~ elifP).rep() ~ elseP)
+          .map { case (tail, end) =>
+            IfElse(NonEmptyList(ifcase, tail.toList), end)
+          }
+    }
   }
 
   def lambdaP(indent: String): P[Lambda] =
@@ -289,7 +336,7 @@ object Declaration {
         applySuffix :: Operator.allOps.map(parseOp _)
       }
       val prefix = defP(indent) | literalIntP | literalBoolP | lambdaP(indent) |
-        varOrBind(indent) | commentP(indent) | P(rec(indent).parens).map(Parens(_))
+        ifElseP(indent) | varOrBind(indent) | commentP(indent) | P(rec(indent).parens).map(Parens(_))
 
       def checkOps(head: P[Declaration], ops: List[P[Declaration => Declaration]]): P[Declaration] =
         ops match {

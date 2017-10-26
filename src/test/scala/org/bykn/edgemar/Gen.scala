@@ -15,6 +15,13 @@ object Generators {
       tail <- Gen.listOf(t)
     } yield NonEmptyList(h, tail)
 
+  def nonEmptyN[T](t: Gen[T], n: Int): Gen[NonEmptyList[T]] =
+    for {
+      h <- t
+      cnt <- Gen.choose(0, n)
+      tail <- Gen.listOfN(cnt, t)
+    } yield NonEmptyList(h, tail)
+
   val lowerIdent: Gen[String] =
     for {
       c <- lower
@@ -114,6 +121,22 @@ object Generators {
       body <- bodyGen
     } yield Declaration.Lambda(args, body)
 
+  def ifElseGen(bodyGen: Gen[Declaration]): Gen[Declaration.IfElse] = {
+    import Declaration._
+
+    val indentation = Gen.choose(1, 10)
+    indentation.flatMap { i =>
+
+      val padBody = padding(bodyGen.map(Indented(i, _)))
+
+      val genIf: Gen[(Declaration, Padding[Indented[Declaration]])] =
+        Gen.zip(bodyGen, padBody)
+
+      Gen.zip(nonEmptyN(genIf, 2), padBody)
+        .map { case (ifs, elsec) => IfElse(ifs, elsec) }
+    }
+  }
+
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
@@ -125,13 +148,14 @@ object Generators {
     val recur = Gen.lzy(genDeclaration(depth - 1))
     if (depth <= 0) unnested
     else Gen.frequency(
-      (6, unnested),
-      (1, commentGen(padding(recur, 1)).map(Comment(_))), // make sure we have 1 space to prevent comments following each other
-      (1, defGen(Gen.zip(padding(indented(recur)), padding(recur))).map(DefFn(_))),
-      (1, opGen(recur)),
-      (1, lambdaGen(recur)),
-      (1, applyGen(recur)),
-      (1, bindGen(recur, padding(recur, 1)).map(Binding(_)))
+      (12, unnested),
+      (2, commentGen(padding(recur, 1)).map(Comment(_))), // make sure we have 1 space to prevent comments following each other
+      (2, defGen(Gen.zip(padding(indented(recur)), padding(recur))).map(DefFn(_))),
+      (2, opGen(recur)),
+      (2, lambdaGen(recur)),
+      (2, applyGen(recur)),
+      (2, bindGen(recur, padding(recur, 1)).map(Binding(_))),
+      (1, ifElseGen(recur))
     )
   }
 }
