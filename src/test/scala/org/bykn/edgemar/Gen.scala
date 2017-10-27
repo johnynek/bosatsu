@@ -158,4 +158,18 @@ object Generators {
       (1, ifElseGen(recur))
     )
   }
+
+  val genStatement: Gen[Statement] = {
+    val recur = Gen.lzy(genStatement)
+    val decl = genDeclaration(5)
+    Gen.oneOf(
+      bindGen(decl, padding(recur)).map(Statement.Bind(_)),
+      commentGen(padding(recur)
+        .map {
+          case Padding(0, c@Statement.Comment(_)) => Padding[Statement](1, c) // make sure not two back to back comments
+          case other => other
+        }).map(Statement.Comment(_)),
+      defGen(Gen.zip(padding(indented(decl)), padding(recur))).map(Statement.Def(_)),
+      Gen.const(Statement.EndOfFile))
+  }
 }

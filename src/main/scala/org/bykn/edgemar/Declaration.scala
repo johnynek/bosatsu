@@ -119,6 +119,44 @@ object Indented {
   }
 }
 
+sealed abstract class Statement
+object Statement {
+  case class Bind(bind: BindingStatement[Padding[Statement]]) extends Statement
+  case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
+  case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
+  case object EndOfFile extends Statement
+
+  val parser: P[Statement] = {
+    val bP = P(Parser.lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ Padding.parser(parser))
+      .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
+
+    val cP = CommentStatement.parser("", P(Padding.parser(parser))).map(Comment(_))
+
+    val defBody = Padding.parser(Indented.parser(Declaration.parser(_)))
+    val dP: P[Def] = DefStatement.parser(P(defBody ~ Padding.parser(parser))).map(Def(_))
+
+    val end = P(End).map(_ => EndOfFile)
+
+    cP | dP | bP | end
+  }
+
+  implicit lazy val document: Document[Statement] =
+    Document.instance[Statement] {
+      case Bind(bs) =>
+        Document[BindingStatement[Padding[Statement]]].document(bs)
+      case Comment(cm) =>
+        Document[CommentStatement[Padding[Statement]]].document(cm)
+      case Def(d) =>
+        val pair = Document.instance[(Padding[Indented[Declaration]], Padding[Statement])] {
+          case (body, next) =>
+            Document[Padding[Indented[Declaration]]].document(body) +
+              Document[Padding[Statement]].document(next)
+        }
+        DefStatement.document(pair).document(d)
+      case EndOfFile => Doc.empty
+    }
+}
+
 sealed abstract class TypeRef {
   import TypeRef._
 

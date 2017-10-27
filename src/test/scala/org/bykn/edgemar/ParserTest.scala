@@ -274,6 +274,15 @@ else:
     hardCases.foreach(law _)
   }
 
+  test("we can parse any Statement") {
+    def law(statement: Statement) =
+      parseTestAll(Statement.parser,
+        Statement.document.document(statement).render(80),
+        statement)
+
+    forAll(Generators.genStatement)(law _)
+  }
+
   test("we can parse Expr.Var") {
     parseTest(Parser.variable, "a", v("a"), 1)
     parseTest(Parser.variable, "ab", v("ab"), 2)
