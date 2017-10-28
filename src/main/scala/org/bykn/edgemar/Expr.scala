@@ -6,6 +6,7 @@ package org.bykn.edgemar
  */
 
 import cats.implicits._
+import cats.evidence.Is
 import cats.{Applicative, Eval, Traverse}
 
 sealed abstract class Lit
@@ -221,4 +222,38 @@ object Expr {
           case Eql => ai == bi
         }
     }
+}
+
+case class Program[D, S](lets: List[(String, Expr[D])], from: S) {
+  /**
+   * main is the thing we evaluate. It is the last thing defined
+   */
+  def getMain(fn: (String, D, D) => D): Option[Expr[D]] = {
+    @annotation.tailrec
+    def loop(ls: List[(String, Expr[D])], acc: Expr[D]): Expr[D] =
+      ls match {
+        case Nil => acc
+        case (nm, expr) :: tail =>
+          val decl = fn(nm, expr.tag, acc.tag)
+          loop(tail, Expr.Let(nm, expr, acc, decl))
+      }
+
+    lets.reverse match {
+      case (_, h) :: tail =>
+        Some(loop(tail, h))
+      case Nil =>
+        None
+    }
+  }
+
+  def getMainDecl(implicit ev: D Is Declaration): Option[Expr[Declaration]] = {
+
+    val fn = { (nm: String, v: D, in: D) =>
+      ev.flip.coerce(Declaration.Binding(
+        BindingStatement(nm, ev.coerce(v), Padding(0, ev.coerce(in)))))
+    }
+
+    type F[T] = Option[Expr[T]]
+    ev.substitute[F](getMain(fn))
+  }
 }

@@ -67,6 +67,9 @@ object Scheme {
   def fromType(t: Type): Scheme = Scheme(Nil, t)
 }
 
+/**
+ * This is a mapping a variable names to their Schemes
+ */
 case class TypeEnv(toMap: Map[String, Scheme]) {
   def updated(v: String, scheme: Scheme): TypeEnv =
     TypeEnv(toMap.updated(v, scheme))

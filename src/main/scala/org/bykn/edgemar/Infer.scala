@@ -50,17 +50,6 @@ object Unifier {
 
 object Inference {
 
-  // this is a REPL test method we will remove
-  // later.
-  // def infer(str: String): Scheme = {
-  //   import fastparse.all._
-  //   Parser.expr.parse(str) match {
-  //      case Parsed.Success(exp, _) =>
-  //        Expr.evaluate(exp).right.get._2
-  //     case _ => sys.error("failed")
-  //   }
-  // }
-
   type Infer[A] = RWST[EitherT[Eval, TypeError, ?], TypeEnv, Set[Constraint], Unique, A]
 
   type Solve[A] = StateT[EitherT[Eval, TypeError, ?], Unifier, A]

@@ -6,8 +6,8 @@ def y(x):
 z = if x == 1:
   y
 else:
-  \y: y + x
+  \y -> y + x
 
-hc = ffi "scala" "org.bykn.edgemar.Foo.times" Int -> Int
+#hc = ffi "scala" "org.bykn.edgemar.Foo.times" Int -> Int
 
-z(hc(100))
+main = z(100)

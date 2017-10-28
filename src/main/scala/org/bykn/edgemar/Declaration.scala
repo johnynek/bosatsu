@@ -2,6 +2,7 @@ package org.bykn.edgemar
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces }
 import cats.data.NonEmptyList
+import cats.implicits._
 import com.stripe.dagon.Memoize
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
@@ -119,12 +120,51 @@ object Indented {
   }
 }
 
-sealed abstract class Statement
+sealed abstract class Statement {
+
+  final def toProgram: Program[Declaration, Statement] = {
+    import Statement._
+
+    def loop(s: Statement): Program[Declaration, Statement] =
+      s match {
+        case Bind(BindingStatement(nm, decl, Padding(_, rest))) =>
+          val Program(binds, _) = loop(rest)
+          Program((nm, decl.toExpr) :: binds, this)
+        case Comment(CommentStatement(_, Padding(_, on))) =>
+          loop(on).copy(from = s)
+        case Def(DefStatement(nm, args, _, (Padding(_, Indented(_, body)), Padding(_, in)))) =>
+          // using body for the outer here is a bummer, but not really a good outer otherwise
+          val eBody = body.toExpr
+          val lam = Declaration.buildLambda(args.map(_._1), eBody, body)
+          val Program(binds, _) = loop(in)
+          Program((nm, lam) :: binds, this)
+        case EndOfFile =>
+          Program(Nil, EndOfFile)
+      }
+
+    loop(this)
+  }
+}
+
 object Statement {
   case class Bind(bind: BindingStatement[Padding[Statement]]) extends Statement
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
   case object EndOfFile extends Statement
+
+  // this is a REPL test method we will remove
+  // later.
+  def infer(str: String): Option[(Any, Scheme)] = {
+    parser.parse(str) match {
+       case Parsed.Success(stmt, idx) if str.length == idx =>
+         val prog = stmt.toProgram
+         prog.getMainDecl.map { expr =>
+           Expr.evaluate(expr).right.get
+         }
+      case Parsed.Failure(exp, idx, extra) =>
+        sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+    }
+  }
 
   val parser: P[Statement] = {
     val bP = P(Parser.lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ maybeSpace ~ "\n" ~ Padding.parser(parser))
@@ -268,6 +308,50 @@ sealed abstract class Declaration {
       case FfiLambda(_, _, _) => ???
     }
   }
+
+  def toExpr: Expr[Declaration] =
+    this match {
+      case Apply(fn, args) =>
+        @annotation.tailrec
+        def loop(fn: Expr[Declaration], args: List[Expr[Declaration]]): Expr[Declaration] =
+          args match {
+            case Nil => fn
+            case h :: tail =>
+              loop(Expr.App(fn, h, this), tail)
+          }
+        loop(fn.toExpr, args.toList.map(_.toExpr))
+      case Binding(BindingStatement(arg, value, Padding(_, dec))) =>
+        Expr.Let(arg, value.toExpr, dec.toExpr, this)
+      case Comment(CommentStatement(_, Padding(_, decl))) =>
+        decl.toExpr.map(_ => this)
+      case DefFn(DefStatement(nm, args, _, (Padding(_, Indented(_, body)), Padding(_, in)))) =>
+        val lambda = buildLambda(args.map(_._1), body.toExpr, this)
+        val inExpr = in.toExpr
+        Expr.Let(nm, lambda, inExpr, this)
+      case IfElse(ifCases, Padding(_, Indented(_, elseCase))) =>
+        def loop(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
+          ifs match {
+            case NonEmptyList((cond, ifTrue), Nil) =>
+              Expr.If(cond, ifTrue, elseC, this)
+            case NonEmptyList(ifTrue, h :: tail) =>
+              val elseC1 = loop(NonEmptyList(h, tail), elseC)
+              loop(NonEmptyList.of(ifTrue), elseC1)
+          }
+        loop(ifCases.map { case (d0, Padding(_, Indented(_, d1))) => (d0.toExpr, d1.toExpr) }, elseCase.toExpr)
+      case Lambda(args, body) =>
+        buildLambda(args, body.toExpr, this)
+      case LiteralBool(b) =>
+        Expr.Literal(Lit.Bool(b), this)
+      case LiteralInt(str) =>
+        Expr.Literal(Lit.Integer(str.toInt), this) // TODO use BigInt
+      case Op(left, op, right) =>
+        Expr.Op(left.toExpr, op, right.toExpr, this)
+      case Parens(p) =>
+        p.toExpr.map(_ => this)
+      case Var(name) =>
+        Expr.Var(name, this)
+      case FfiLambda(_, _, _) => ???
+    }
 }
 
 object Declaration {
@@ -275,6 +359,15 @@ object Declaration {
   private val falseDoc = Doc.text("False")
 
   implicit val document: Document[Declaration] = Document.instance[Declaration](_.toDoc)
+
+  def buildLambda(args: NonEmptyList[String], body: Expr[Declaration], outer: Declaration): Expr.Lambda[Declaration] =
+    args match {
+      case NonEmptyList(arg, Nil) =>
+        Expr.Lambda(arg, body, outer)
+      case NonEmptyList(arg, h :: tail) =>
+        val body1 = buildLambda(NonEmptyList(h, tail), body, outer)
+        buildLambda(NonEmptyList.of(arg), body1, outer)
+    }
 
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration]) extends Declaration
   case class Binding(binding: BindingStatement[Padding[Declaration]]) extends Declaration
