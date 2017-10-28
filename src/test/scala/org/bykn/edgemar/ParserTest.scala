@@ -25,6 +25,13 @@ class ParserTest extends FunSuite {
   def parseTestAll[T](p: Parser[T], str: String, expected: T) =
     parseTest(p, str, expected, str.length)
 
+  def parseSuccessfully[T](p: Parser[T], str: String) =
+    p.parse(str) match {
+      case Parsed.Success(_, idx) => assert(idx == str.length)
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+    }
+
   def expectFail[T](p: Parser[T], str: String, atIdx: Int) =
     p.parse(str) match {
       case Parsed.Success(t, idx) => fail(s"parsed $t to: $idx")
@@ -130,7 +137,7 @@ foo"""
 
 5""",
     Declaration.Binding(BindingStatement("foo", Declaration.LiteralInt("5"),
-      Padding(2, Declaration.LiteralInt("5")))))
+      Padding(1, Declaration.LiteralInt("5")))))
   }
 
   test("we can parse any Apply") {
@@ -176,19 +183,19 @@ foo"""
     parseTestAll(parser(""),
       """x = 4
 x""",
-    Binding(BindingStatement("x", LiteralInt("4"), Padding(1, Var("x")))))
+    Binding(BindingStatement("x", LiteralInt("4"), Padding(0, Var("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 
 x""",
-    Binding(BindingStatement("x", Apply(Var("foo"), NonEmptyList.of(LiteralInt("4"))), Padding(2, Var("x")))))
+    Binding(BindingStatement("x", Apply(Var("foo"), NonEmptyList.of(LiteralInt("4"))), Padding(1, Var("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 # x is really great
 x""",
-    Binding(BindingStatement("x",Apply(Var("foo"),NonEmptyList.of(LiteralInt("4"))),Padding(1,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,Var("x"))))))))
+    Binding(BindingStatement("x",Apply(Var("foo"),NonEmptyList.of(LiteralInt("4"))),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,Var("x"))))))))
 
   }
 
@@ -281,6 +288,57 @@ else:
         statement)
 
     forAll(Generators.genStatement)(law _)
+
+    val hardCase0 = {
+      import TypeRef._
+      import Statement.{Def, EndOfFile}
+      import Declaration._
+
+      Def(DefStatement("qxGfrHvom",
+        NonEmptyList.of(("xvgv",Some(TypeName("IObfma8"))), ("uvajpvmKfI",Some(TypeName("Li9bou4io")))),None,
+        (Padding(6,Indented(12,Var("jbbytnfws"))),
+          Padding(0,Def(DefStatement("ik5xfx",NonEmptyList.of(("f8u0vVcix",Some(TypeVar("caf"))), ("nu",None), ("uv",Some(TypeName("R1"))),
+            ("gp",Some(TypeName("ANxKclqu"))), ("asszzmvJE",None)),Some(TypeVar("fxp")),
+          (Padding(2,Indented(4,LiteralInt("-9223372036854775809"))),
+            Padding(6,Statement.Comment(CommentStatement(
+              NonEmptyList.of("foo", "bar"),
+              Padding[Statement](1,EndOfFile)))))))))))
+    }
+    law(hardCase0)
+
+    val hardCase1 = {
+      import TypeRef.TypeVar
+      import Statement.{Def, EndOfFile, Bind, Comment}
+      import Declaration._
+
+  Bind(BindingStatement("gwvbRq", LiteralInt("3"),
+  Padding(10,Comment(CommentStatement(NonEmptyList.of(""),
+    Padding(2,Comment(CommentStatement(NonEmptyList.of(""),
+      Padding[Statement](10,Def(DefStatement("hf4yfc7B0gg",NonEmptyList.of(("xHZgqebwy",Some(TypeVar("fhlhxenBm")))),None,
+        (Padding(7,Indented(3,Declaration.Comment(CommentStatement(NonEmptyList.of(""),
+          Padding(10,Var("kyowgc")))))),
+  Padding(8,Def(DefStatement("xbvfkk",NonEmptyList.of(("wxtp",None)),None,
+    (Padding(10,Indented(11,Op(Parens(LiteralBool(true)),Operator.Mul,
+      Parens(LiteralInt("-30284323492203273957034407858667371620"))))),Padding(5,EndOfFile)))))))))))))))))
+    }
+    law(hardCase1)
+
+    parseSuccessfully(Statement.parser,
+"""# header
+y = if x == 2:
+  True
+else:
+  False
+
+def foo(x: Integer, y: String) -> String:
+  toString(x) + y
+
+# here is a lambda
+fn = \x, y -> x + y
+
+x = ( foo )
+
+""")
   }
 
   test("we can parse Expr.Var") {

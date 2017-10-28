@@ -101,7 +101,8 @@ object Generators {
   def bindGen[T](dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[T]] =
     for {
       b <- lowerIdent
-      value <- dec
+      value0 <- dec
+      value = value0 match { case Declaration.Binding(_) => Declaration.Parens(value0); case _ => value0 }
       in <- tgen
     } yield BindingStatement(b, value, in)
 

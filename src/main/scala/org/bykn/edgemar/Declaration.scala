@@ -46,7 +46,7 @@ object BindingStatement {
   implicit def document[T: Document]: Document[BindingStatement[T]] =
     Document.instance[BindingStatement[T]] { let =>
       import let._
-      Doc.text(name) + eqDoc + value.toDoc + Document[T].document(in)
+      Doc.text(name) + eqDoc + value.toDoc + Doc.line + Document[T].document(in)
     }
 }
 
@@ -127,13 +127,13 @@ object Statement {
   case object EndOfFile extends Statement
 
   val parser: P[Statement] = {
-    val bP = P(Parser.lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ Padding.parser(parser))
+    val bP = P(Parser.lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ maybeSpace ~ "\n" ~ Padding.parser(parser))
       .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
 
     val cP = CommentStatement.parser("", P(Padding.parser(parser))).map(Comment(_))
 
     val defBody = Padding.parser(Indented.parser(Declaration.parser(_)))
-    val dP: P[Def] = DefStatement.parser(P(defBody ~ Padding.parser(parser))).map(Def(_))
+    val dP: P[Def] = DefStatement.parser(P(defBody ~ "\n" ~ Padding.parser(parser))).map(Def(_))
 
     val end = P(End).map(_ => EndOfFile)
 
@@ -150,6 +150,7 @@ object Statement {
         val pair = Document.instance[(Padding[Indented[Declaration]], Padding[Statement])] {
           case (body, next) =>
             Document[Padding[Indented[Declaration]]].document(body) +
+              Doc.line +
               Document[Padding[Statement]].document(next)
         }
         DefStatement.document(pair).document(d)
@@ -293,7 +294,7 @@ object Declaration {
     val eqP = P("=" ~ !"=")
 
     val restParser = Padding.parser(P(indent ~ parser(indent)))
-    P(maybeSpace ~ eqP ~/ maybeSpace ~ parser(indent) ~ restParser)
+    P(maybeSpace ~ eqP ~/ maybeSpace ~ parser(indent) ~ maybeSpace ~ "\n" ~ restParser)
       .map { case (value, rest) =>
 
         { str: String => Binding(BindingStatement(str, value, rest)) }
