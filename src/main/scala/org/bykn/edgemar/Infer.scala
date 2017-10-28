@@ -52,14 +52,14 @@ object Inference {
 
   // this is a REPL test method we will remove
   // later.
-  def infer(str: String): Scheme = {
-    import fastparse.all._
-    Parser.expr.parse(str) match {
-       case Parsed.Success(exp, _) =>
-         Expr.evaluate(exp).right.get._2
-      case _ => sys.error("failed")
-    }
-  }
+  // def infer(str: String): Scheme = {
+  //   import fastparse.all._
+  //   Parser.expr.parse(str) match {
+  //      case Parsed.Success(exp, _) =>
+  //        Expr.evaluate(exp).right.get._2
+  //     case _ => sys.error("failed")
+  //   }
+  // }
 
   type Infer[A] = RWST[EitherT[Eval, TypeError, ?], TypeEnv, Set[Constraint], Unique, A]
 
@@ -153,10 +153,10 @@ object Inference {
         Substitutable[Type].apply(subst, s.result)
       }
 
-  def inferExpr(expr: Expr): Either[TypeError, Scheme] =
+  def inferExpr[T](expr: Expr[T]): Either[TypeError, Scheme] =
     inferExpr(TypeEnv.empty, expr)
 
-  def inferExpr(te: TypeEnv, expr: Expr): Either[TypeError, Scheme] = {
+  def inferExpr[T](te: TypeEnv, expr: Expr[T]): Either[TypeError, Scheme] = {
     // get the constraints
     val tcE = infer(expr)
       .run(te, Unique(0L))
@@ -187,7 +187,7 @@ object Inference {
   /**
    * Infer the type and generalize all free variables
    */
-  def inferScheme(ex: Expr): Infer[Scheme] =
+  def inferScheme[T](ex: Expr[T]): Infer[Scheme] =
     for {
       env <- (RWST.ask: Infer[TypeEnv])
       // we need to see current constraits, since they are not free variables
@@ -195,21 +195,21 @@ object Inference {
       (t1, cons) = t1c
     } yield Substitutable.generalize((env, cons), t1)
 
-  def infer(expr: Expr): Infer[Type] =
+  def infer[T](expr: Expr[T]): Infer[Type] =
     expr match {
-      case Expr.Var(n) =>
+      case Expr.Var(n, _) =>
         lookup(n)
 
-      case Expr.Lambda(arg, e) =>
+      case Expr.Lambda(arg, e, _) =>
         for {
           tv <- fresh
           t <- inEnv(arg, Scheme.fromType(tv), infer(e))
         } yield Type.Arrow(tv, t)
 
-      case Expr.Ffi(_, _, scheme) =>
+      case Expr.Ffi(_, _, scheme, _) =>
         instantiate(scheme)
 
-      case Expr.App(fn, arg) =>
+      case Expr.App(fn, arg, _) =>
         for {
           t1 <- infer(fn)
           t2 <- infer(arg)
@@ -217,13 +217,13 @@ object Inference {
           _ <- addConstraint(t1, Type.Arrow(t2, tv))
         } yield tv
 
-      case Expr.Let(n, ex, in) =>
+      case Expr.Let(n, ex, in, _) =>
         for {
           sc <- inferScheme(ex)
           t2 <- inEnv(n, sc, infer(in))
         } yield t2
 
-      case Expr.Op(e1, op, e2) =>
+      case Expr.Op(e1, op, e2, _) =>
         for {
           t1 <- infer(e1)
           t2 <- infer(e2)
@@ -233,9 +233,9 @@ object Inference {
           _ <- addConstraint(u1, u2)
         } yield tv
 
-      case Expr.Literal(Lit.Integer(_)) => Monad[Infer].pure(Type.intT)
-      case Expr.Literal(Lit.Bool(_)) => Monad[Infer].pure(Type.boolT)
-      case Expr.If(cond, te, fe) =>
+      case Expr.Literal(Lit.Integer(_), _) => Monad[Infer].pure(Type.intT)
+      case Expr.Literal(Lit.Bool(_), _) => Monad[Infer].pure(Type.boolT)
+      case Expr.If(cond, te, fe, _) =>
         for {
           tc <- infer(cond)
           t1 <- infer(te)
