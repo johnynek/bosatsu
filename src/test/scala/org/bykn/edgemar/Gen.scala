@@ -159,13 +159,28 @@ object Generators {
     )
   }
 
-  def genStruct(tail: Gen[Statement]): Gen[Statement] =
+  val constructorGen: Gen[(String, List[(String, Option[TypeRef])])] =
     for {
       name <- upperIdent
       argc <- Gen.choose(0, 5)
       args <- Gen.listOfN(argc, argGen)
+    } yield (name, args)
+
+  def genStruct(tail: Gen[Statement]): Gen[Statement] =
+    Gen.zip(constructorGen, padding(tail))
+      .map { case ((name, args), rest) =>
+        Statement.Struct(name, args, rest)
+      }
+
+  def genEnum(tail: Gen[Statement]): Gen[Statement] =
+    for {
+      name <- upperIdent
+      consc <- Gen.choose(1, 5)
+      i <- Gen.choose(1, 16)
+      padBody = padding(constructorGen.map(Indented(i, _)))
+      cons <- nonEmptyN(padBody, consc)
       rest <- padding(tail)
-    } yield Statement.Struct(name, args, rest)
+    } yield Statement.Enum(name, cons, rest)
 
   val genStatement: Gen[Statement] = {
     val recur = Gen.lzy(genStatement)
@@ -179,6 +194,7 @@ object Generators {
         }).map(Statement.Comment(_))),
       (1, defGen(Gen.zip(padding(indented(decl)), padding(recur))).map(Statement.Def(_))),
       (1, genStruct(recur)),
+      (1, genEnum(recur)),
       (3, Gen.const(Statement.EndOfFile)))
   }
 }

@@ -57,12 +57,22 @@ object BindingStatement {
 case class CommentStatement[T](message: NonEmptyList[String], on: T)
 
 object CommentStatement {
+  type Maybe[T] = Either[T, CommentStatement[T]]
+
   implicit def document[T: Document]: Document[CommentStatement[T]] =
     Document.instance[CommentStatement[T]] { comment =>
       import comment._
       val block = Doc.intercalate(Doc.line, message.toList.map { mes => Doc.char('#') + Doc.text(mes) })
       block + Doc.line + Document[T].document(on)
     }
+
+  implicit def maybeDocument[T: Document]: Document[Maybe[T]] = {
+    val docT = Document[T]
+    Document.instance[Maybe[T]] {
+      case Left(t) => docT.document(t)
+      case Right(c) => document[T](docT).document(c)
+    }
+  }
 
   /** on should make sure indent is matching
    * this is to allow a P[Unit] that does nothing for testing or other applications
@@ -76,6 +86,9 @@ object CommentStatement {
     P(commentBlock ~ onP)
       .map { case (m, on) => CommentStatement(m, on) }
   }
+
+  def maybeParser[T](indent: String, onP: P[T]): P[Maybe[T]] =
+    parser(indent, onP).map(Right(_)) | (onP.map(Left(_)))
 }
 
 case class PackageStatement[T](name: String,
@@ -144,6 +157,9 @@ sealed abstract class Statement {
         case Struct(_, _, Padding(_, rest)) =>
           // TODO
           loop(rest)
+        case Enum(_, _, Padding(_, rest)) =>
+          // TODO
+          loop(rest)
         case EndOfFile =>
           Program(Nil, EndOfFile)
       }
@@ -157,6 +173,9 @@ object Statement {
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
   case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends Statement
+  case class Enum(name: String,
+    items: NonEmptyList[Padding[Indented[(String, List[(String, Option[TypeRef])])]]],
+    rest: Padding[Statement]) extends Statement
   case object EndOfFile extends Statement
 
   // this is a REPL test method we will remove
@@ -174,7 +193,9 @@ object Statement {
   }
 
   val parser: P[Statement] = {
-    val bP = P(Parser.lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ maybeSpace ~ "\n" ~ Padding.parser(parser))
+    val toEOL = P(maybeSpace ~ "\n")
+
+    val bP = P(Parser.lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ toEOL ~ Padding.parser(parser))
       .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
 
     val cP = CommentStatement.parser("", P(Padding.parser(parser))).map(Comment(_))
@@ -184,12 +205,31 @@ object Statement {
 
     val end = P(End).map(_ => EndOfFile)
 
-    val struct = P("struct" ~ spaces ~/ Parser.upperIdent ~ (DefStatement.argParser).list.parens ~ maybeSpace ~ "\n" ~ Padding.parser(parser))
+    val constructorP = P(Parser.upperIdent ~ (DefStatement.argParser).list.parens.? ~ toEOL)
+      .map {
+        case (n, None) => (n, Nil)
+        case (n, Some(args)) => (n, args)
+      }
+
+    val struct = P("struct" ~ spaces ~/ constructorP ~ Padding.parser(parser))
       .map { case (name, args, rest) => Struct(name, args, rest) }
 
+    val enum = P("enum" ~ spaces ~/ Parser.upperIdent ~/ ":" ~ toEOL ~ Padding.parser(Indented.parser { i => constructorP.map((_, i)) }))
+      .flatMap { case (ename, Padding(p, Indented(i, (head, indent)))) =>
+        P(Padding.parser(Indented.exactly(indent, constructorP)).rep() ~ Padding.parser(parser))
+          .map { case (tail, rest) =>
+            Enum(ename, NonEmptyList(Padding(p, Indented(i, head)), tail.toList), rest)
+          }
+      }
+
     // bP should come last so there is no ambiguity about identifiers
-    cP | dP | struct | bP | end
+    cP | dP | struct | enum | bP | end
   }
+
+  private def constructor(name: String, args: List[(String, Option[TypeRef])]): Doc =
+    Doc.text(name) +
+      (if (args.nonEmpty) { Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc _)) + Doc.char(')') }
+      else Doc.empty)
 
   implicit lazy val document: Document[Statement] =
     Document.instance[Statement] {
@@ -203,13 +243,26 @@ object Statement {
             Document[Padding[Indented[Declaration]]].document(body) +
               Doc.line +
               Document[Padding[Statement]].document(next)
-        }
+        };
         DefStatement.document(pair).document(d)
-      case Struct(nm, args, next) =>
-        Doc.text("struct ") + Doc.text(nm) + Doc.char('(') +
-          Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc _)) + Doc.char(')') +
+      case Struct(nm, args, rest) =>
+        Doc.text("struct ") + constructor(nm, args) + Doc.line +
+          Document[Padding[Statement]].document(rest)
+      case Enum(nm, parts, rest) =>
+        implicit val consDoc = Document.instance[(String, List[(String, Option[TypeRef])])] {
+          case (nm, parts) => constructor(nm, parts)
+        }
+
+        val indentedCons =
+          Doc.intercalate(Doc.line, parts.toList.map { cons =>
+            Document[Padding[Indented[(String, List[(String, Option[TypeRef])])]]].document(cons)
+          })
+
+        Doc.text("enum ") + Doc.text(nm) + Doc.char(':') +
           Doc.line +
-          Document[Padding[Statement]].document(next)
+          indentedCons +
+          Doc.line +
+          Document[Padding[Statement]].document(rest)
       case EndOfFile => Doc.empty
     }
 }

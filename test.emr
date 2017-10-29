@@ -8,6 +8,22 @@ z = if x == 1:
 else:
   \y -> y + x
 
+struct Record(a, b)
+
+enum Either:
+  Left(left)
+  Right(right)
+
+enum Option:
+  None
+  Some(a)
+
+enum Bool:
+  True
+  False
+
+struct Unit
+
 #hc = ffi "scala" "org.bykn.edgemar.Foo.times" Int -> Int
 
 main = z(100)
