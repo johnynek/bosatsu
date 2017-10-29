@@ -29,7 +29,7 @@ object DefStatement {
      * The resultTParser should parse some indentation
      */
     def parser[T](resultTParser: P[T]): P[DefStatement[T]] = {
-      val args = P(lowerIdent ~ (":" ~/ maybeSpace ~ TypeRef.parser).?).nonEmptyList
+      val args = argParser.nonEmptyList
       val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser ~ maybeSpace).?
       P("def" ~ spaces ~/ Parser.lowerIdent ~ "(" ~ maybeSpace ~ args ~ maybeSpace ~ ")" ~
         result ~ ":" ~ "\n" ~ resultTParser)
@@ -37,6 +37,9 @@ object DefStatement {
           case (name, args, resType, res) => DefStatement(name, args, resType, res)
         }
     }
+
+    val argParser: P[(String, Option[TypeRef])] =
+      P(lowerIdent ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
 }
 
 case class BindingStatement[T](name: String, value: Declaration, in: T)
@@ -138,6 +141,9 @@ sealed abstract class Statement {
           val lam = Declaration.buildLambda(args.map(_._1), eBody, body)
           val Program(binds, _) = loop(in)
           Program((nm, lam) :: binds, this)
+        case Struct(_, _, Padding(_, rest)) =>
+          // TODO
+          loop(rest)
         case EndOfFile =>
           Program(Nil, EndOfFile)
       }
@@ -150,6 +156,7 @@ object Statement {
   case class Bind(bind: BindingStatement[Padding[Statement]]) extends Statement
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
+  case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends Statement
   case object EndOfFile extends Statement
 
   // this is a REPL test method we will remove
@@ -177,7 +184,11 @@ object Statement {
 
     val end = P(End).map(_ => EndOfFile)
 
-    cP | dP | bP | end
+    val struct = P("struct" ~ spaces ~/ Parser.upperIdent ~ (DefStatement.argParser).list.parens ~ maybeSpace ~ "\n" ~ Padding.parser(parser))
+      .map { case (name, args, rest) => Struct(name, args, rest) }
+
+    // bP should come last so there is no ambiguity about identifiers
+    cP | dP | struct | bP | end
   }
 
   implicit lazy val document: Document[Statement] =
@@ -194,6 +205,11 @@ object Statement {
               Document[Padding[Statement]].document(next)
         }
         DefStatement.document(pair).document(d)
+      case Struct(nm, args, next) =>
+        Doc.text("struct ") + Doc.text(nm) + Doc.char('(') +
+          Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc _)) + Doc.char(')') +
+          Doc.line +
+          Document[Padding[Statement]].document(next)
       case EndOfFile => Doc.empty
     }
 }

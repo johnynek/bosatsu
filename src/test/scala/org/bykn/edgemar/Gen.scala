@@ -65,20 +65,19 @@ object Generators {
     } yield CommentStatement(cs.map(cleanNewLine _), t)
   }
 
-  def defGen[T](dec: Gen[T]): Gen[DefStatement[T]] = {
-    val argGen =
-      for {
-        arg <- lowerIdent
-        t <- Gen.option(typeRefGen)
-      } yield (arg, t)
+  val argGen: Gen[(String, Option[TypeRef])] =
+    for {
+      arg <- lowerIdent
+      t <- Gen.option(typeRefGen)
+    } yield (arg, t)
 
+  def defGen[T](dec: Gen[T]): Gen[DefStatement[T]] =
     for {
       name <- lowerIdent
       args <- nonEmpty(argGen)
       retType <- Gen.option(typeRefGen)
       body <- dec
     } yield DefStatement(name, args, retType, body)
-  }
 
   def opGen(dec: Gen[Declaration]): Gen[Declaration] = {
     import Declaration._
@@ -160,17 +159,26 @@ object Generators {
     )
   }
 
+  def genStruct(tail: Gen[Statement]): Gen[Statement] =
+    for {
+      name <- upperIdent
+      argc <- Gen.choose(0, 5)
+      args <- Gen.listOfN(argc, argGen)
+      rest <- padding(tail)
+    } yield Statement.Struct(name, args, rest)
+
   val genStatement: Gen[Statement] = {
     val recur = Gen.lzy(genStatement)
     val decl = genDeclaration(5)
-    Gen.oneOf(
-      bindGen(decl, padding(recur)).map(Statement.Bind(_)),
-      commentGen(padding(recur)
+    Gen.frequency(
+      (1, bindGen(decl, padding(recur)).map(Statement.Bind(_))),
+      (1, commentGen(padding(recur)
         .map {
           case Padding(0, c@Statement.Comment(_)) => Padding[Statement](1, c) // make sure not two back to back comments
           case other => other
-        }).map(Statement.Comment(_)),
-      defGen(Gen.zip(padding(indented(decl)), padding(recur))).map(Statement.Def(_)),
-      Gen.const(Statement.EndOfFile))
+        }).map(Statement.Comment(_))),
+      (1, defGen(Gen.zip(padding(indented(decl)), padding(recur))).map(Statement.Def(_))),
+      (1, genStruct(recur)),
+      (3, Gen.const(Statement.EndOfFile)))
   }
 }
