@@ -24,6 +24,13 @@ enum Bool:
 
 struct Unit
 
+# e = Some(1)
+# match e:
+#   Some(x):
+#     z(x)
+#   None:
+#     0
+
 #hc = ffi "scala" "org.bykn.edgemar.Foo.times" Int -> Int
 
 main = z(100)

@@ -4,10 +4,24 @@ import cats.data.NonEmptyList
 import Parser.Combinators
 import fastparse.all._
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.forAll
+import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.Document
 
 class ParserTest extends FunSuite {
+  implicit val generatorDrivenConfig =
+    PropertyCheckConfiguration(minSuccessful = 500)
+
+  def region(s0: String, idx: Int): String = {
+    val s = s0.updated(idx, '*')
+    ("...(" + s.drop(idx - 20).take(20) + ")...")
+  }
+
+  def firstDiff(s1: String, s2: String): String =
+    if (s1 == s2) ""
+    else if (s1.isEmpty) s2
+    else if (s2.isEmpty) s1
+    else if (s1(0) == s2(0)) firstDiff(s1.tail, s2.tail)
+    else s"${s1(0).toInt}: ${s1.take(20)}... != ${s2(0).toInt}: ${s2.take(20)}..."
 
   def parseTest[T](p: Parser[T], str: String, expected: T, exidx: Int) =
     p.parse(str) match {
@@ -15,17 +29,26 @@ class ParserTest extends FunSuite {
         assert(t == expected)
         assert(idx == exidx)
       case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
 
   def parseTestAll[T](p: Parser[T], str: String, expected: T) =
     parseTest(p, str, expected, str.length)
 
-  def parseSuccessfully[T](p: Parser[T], str: String) =
+  def roundTrip[T: Document](p: Parser[T], str: String) =
     p.parse(str) match {
-      case Parsed.Success(_, idx) => assert(idx == str.length)
+      case Parsed.Success(t, idx) =>
+        assert(idx == str.length)
+        val tstr = Document[T].document(t).render(80)
+        p.parse(tstr) match {
+          case Parsed.Success(t1, _) =>
+            assert(t1 == t)
+          case Parsed.Failure(exp, idx, extra) =>
+            val diff = firstDiff(str, tstr)
+            fail(s"Diff: $diff.\nfailed to reparse: $tstr: $exp at $idx in region ${region(tstr, idx)} with trace: ${extra.traced.trace}")
+        }
       case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
 
   def expectFail[T](p: Parser[T], str: String, atIdx: Int) =
@@ -215,6 +238,57 @@ else:
       IfElse(NonEmptyList.of((Op(Var("x"),Operator.Eql,LiteralInt("3")),Padding(0,Indented(6,Var("x")))), (Var("foo"),Padding(0,Indented(6,Var("z"))))),Padding(0,Indented(6,Var("y")))))
   }
 
+  test("we can parse a match") {
+    roundTrip(Declaration.parser(""),
+"""match 1:
+  Foo(a, b):
+    a + b
+  Bar:
+    42""")
+
+    roundTrip(Declaration.parser(""),
+"""match 1:
+  Foo(a, b):
+    a + b
+  Bar:
+    match x:
+      True:
+        100
+      False:
+        99""")
+
+    roundTrip(Declaration.parser(""),
+"""foo(1, match 2:
+  Foo:
+
+    foo
+  Bar:
+
+    # this is the bar case
+    bar, 100)""")
+
+    roundTrip(Declaration.parser(""),
+"""if match 2:
+  Foo:
+
+    foo
+  Bar:
+
+    # this is the bar case
+    bar:
+  1
+else:
+  2""")
+
+    roundTrip(Declaration.parser(""),
+"""if True:
+  match 1:
+    Foo(f):
+      1
+else:
+  100""")
+  }
+
   test("we can parse any Declaration") {
     def law(decl: Declaration) =
       parseTestAll(Declaration.parser(""),
@@ -283,7 +357,7 @@ else:
         Statement.document.document(statement).render(80),
         statement)
 
-    forAll(Generators.genStatement)(law _)
+    //forAll(Generators.genStatement)(law _)
 
     val hardCase0 = {
       import TypeRef._
@@ -319,7 +393,7 @@ else:
     }
     law(hardCase1)
 
-    parseSuccessfully(Statement.parser,
+    roundTrip(Statement.parser,
 """# header
 y = if x == 2:
   True

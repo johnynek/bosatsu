@@ -22,12 +22,14 @@ object Generators {
       tail <- Gen.listOfN(cnt, t)
     } yield NonEmptyList(h, tail)
 
+  val keyWords = Set("if", "match", "struct", "enum", "else", "elif", "def")
+
   val lowerIdent: Gen[String] =
-    for {
+    (for {
       c <- lower
       cnt <- Gen.choose(0, 10)
       rest <- Gen.listOfN(cnt, identC)
-    } yield (c :: rest).mkString
+    } yield (c :: rest).mkString).filter { s=> !keyWords(s) }
 
   val upperIdent: Gen[String] =
     for {
@@ -137,6 +139,34 @@ object Generators {
     }
   }
 
+  def matchGen(bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
+    import Declaration._
+
+    val indentation = Gen.choose(1, 10)
+    indentation.flatMap { i =>
+      //case class Match(arg: Declaration, cases: NonEmptyList[Padding[Indented[(Pattern, Padding[Indented[Declaration]])]]]) extends Declaration
+
+      val padBody = padding(bodyGen.map(Indented(i, _)))
+
+      val genPattern = for {
+        nm <- upperIdent
+        cnt <- Gen.choose(0, 6)
+        args <- Gen.listOfN(cnt, lowerIdent)
+      } yield Pattern(nm, args)
+
+      val genCase: Gen[(Pattern, Padding[Indented[Declaration]])] =
+        Gen.zip(genPattern, padBody)
+
+      val padIndCase = padding(genCase.map(Indented(i, _)))
+
+      for {
+        cnt <- Gen.choose(1, 2)
+        expr <- bodyGen
+        cases <- nonEmptyN(padIndCase, cnt)
+      } yield Match(expr, cases)
+    }
+  }
+
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
@@ -155,7 +185,8 @@ object Generators {
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
       (2, bindGen(recur, padding(recur, 1)).map(Binding(_))),
-      (1, ifElseGen(recur))
+      (1, ifElseGen(recur)),
+      (1, matchGen(recur)),
     )
   }
 
