@@ -18,6 +18,10 @@ enum Option:
   None
   Some(a)
 
+enum List:
+  Empty
+  Cons(a: a, tail: List[a])
+
 enum Bool:
   True
   False

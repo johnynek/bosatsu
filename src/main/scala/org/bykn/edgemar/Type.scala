@@ -1,6 +1,18 @@
 package org.bykn.edgemar
 
-sealed abstract class Type
+import cats.data.NonEmptyList
+
+sealed abstract class Type {
+  import Type._
+
+  def varsIn: List[Type.Var] =
+    this match {
+      case v@Var(_) => v :: Nil
+      case _ =>
+        // TODO actually more vars can be burried in other types.
+        Nil
+    }
+}
 object Type {
   case class Arrow(from: Type, to: Type) extends Type
   case class Declared(name: String) extends Type
@@ -11,6 +23,11 @@ object Type {
 
   val intT: Type = Primitive("Int")
   val boolT: Type = Primitive("Bool")
+
+  private[this] val prims = Set("Int", "Bool")
+  def maybePrimitive(n: String): Type =
+    if (prims(n)) Primitive(n)
+    else Declared(n)
 }
 
 
@@ -67,15 +84,27 @@ object Scheme {
   def fromType(t: Type): Scheme = Scheme(Nil, t)
 }
 
+case class ConstructorName(asString: String)
+case class ParamName(asString: String)
+case class TypeName(asString: String)
+
+case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors: NonEmptyList[(ConstructorName, List[(ParamName, Type)])])
+
 /**
- * This is a mapping a variable names to their Schemes
+ * This is a mapping of variable names to their Schemes
  */
-case class TypeEnv(toMap: Map[String, Scheme]) {
+case class TypeEnv(toMap: Map[String, Scheme], constructors: Map[ConstructorName, DefinedType]) {
   def updated(v: String, scheme: Scheme): TypeEnv =
-    TypeEnv(toMap.updated(v, scheme))
+    TypeEnv(toMap.updated(v, scheme), constructors)
+
+  def addDefinedType(d: DefinedType): TypeEnv =
+    d.constructors.toList.foldLeft(this) { case (te, (nm, _)) =>
+      // TODO make sure this is not duplicated
+      TypeEnv(te.toMap, te.constructors + (nm -> d))
+    }
 }
 
 object TypeEnv {
-  def empty: TypeEnv = TypeEnv(Map.empty)
+  def empty: TypeEnv = TypeEnv(Map.empty, Map.empty)
 }
 

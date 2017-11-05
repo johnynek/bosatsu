@@ -1,5 +1,7 @@
 package org.bykn.edgemar
 
+import cats.data.NonEmptyList
+
 trait Substitutable[T] {
   def apply(sub: Subst, t: T): T
   def typeVars(t: T): Set[String]
@@ -54,6 +56,23 @@ object Substitutable {
         Substitutable[Type].typeVars(s.result) -- s.vars
     }
 
+  implicit val forDefinedType: Substitutable[DefinedType] =
+    new Substitutable[DefinedType] {
+      def apply(sub: Subst, t: DefinedType) = {
+
+        implicit val on: Substitutable[ConstructorName] = opaqueSubstitutable
+        implicit val op: Substitutable[ParamName] = opaqueSubstitutable
+
+        // all the names in typeParams are shadows so we need
+        // to remove them:
+        val newSubst = Subst(t.typeParams.map(_.name).foldLeft(sub.toMap)(_ - _))
+        val newCons = Substitutable[NonEmptyList[(ConstructorName, List[(ParamName, Type)])]].apply(newSubst, t.constructors)
+        t.copy(constructors = newCons)
+      }
+
+      def typeVars(d: DefinedType) = d.typeParams.iterator.map(_.name).toSet
+    }
+
   implicit def forList[A: Substitutable]: Substitutable[List[A]] =
     new Substitutable[List[A]] {
       def apply(sub: Subst, t: List[A]): List[A] =
@@ -62,6 +81,16 @@ object Substitutable {
       def typeVars(as: List[A]) =
         as.foldLeft(Set.empty[String]) { _ | Substitutable[A].typeVars(_) }
     }
+
+  implicit def forNonEmptyList[A: Substitutable]: Substitutable[NonEmptyList[A]] =
+    new Substitutable[NonEmptyList[A]] {
+      def apply(sub: Subst, t: NonEmptyList[A]): NonEmptyList[A] =
+        t.map(Substitutable[A].apply(sub, _))
+
+      def typeVars(as: NonEmptyList[A]) =
+        as.foldLeft(Set.empty[String]) { _ | Substitutable[A].typeVars(_) }
+    }
+
 
   implicit def forSet[A: Substitutable]: Substitutable[Set[A]] =
     new Substitutable[Set[A]] {
@@ -84,15 +113,26 @@ object Substitutable {
         Substitutable[A].typeVars(ab._1) | Substitutable[B].typeVars(ab._2)
     }
 
+  implicit def forMap[K, V: Substitutable]: Substitutable[Map[K, V]] =
+    new Substitutable[Map[K, V]] {
+      def apply(sub: Subst, m: Map[K, V]): Map[K, V] =
+        m.iterator.map { case (k, v) => k -> Substitutable[V].apply(sub, v) }.toMap
+
+      def typeVars(m: Map[K, V]) =
+        m.values.foldLeft(Set.empty[String]) { _ | Substitutable[V].typeVars(_) }
+    }
+
   implicit val forTypeEnv: Substitutable[TypeEnv] =
     new Substitutable[TypeEnv] {
       def apply(sub: Subst, te: TypeEnv): TypeEnv =
-        TypeEnv(te.toMap.map { case (s, scheme) =>
-          s -> Substitutable[Scheme].apply(sub, scheme)
-        })
+        TypeEnv(
+          Substitutable[Map[String, Scheme]].apply(sub, te.toMap),
+          Substitutable[Map[ConstructorName, DefinedType]].apply(sub, te.constructors)
+        )
 
       def typeVars(te: TypeEnv) =
-        te.toMap.values.foldLeft(Set.empty[String])(_ | Substitutable[Scheme].typeVars(_))
+        Substitutable[Map[String, Scheme]].typeVars(te.toMap) |
+        Substitutable[Map[ConstructorName, DefinedType]].typeVars(te.constructors)
     }
 
   implicit val forConstraint: Substitutable[Constraint] =
@@ -103,9 +143,13 @@ object Substitutable {
         Substitutable[Type].typeVars(c.left) | Substitutable[Type].typeVars(c.right)
     }
 
-  implicit val forUnit: Substitutable[Unit] =
-    new Substitutable[Unit] {
-      def apply(sub: Subst, c: Unit): Unit = ()
-      def typeVars(c: Unit) = Set.empty
+
+  def opaqueSubstitutable[T]: Substitutable[T] =
+    new Substitutable[T] {
+      def apply(sub: Subst, t: T): T = t
+      def typeVars(t: T) = Set.empty
     }
+
+  implicit val forUnit: Substitutable[Unit] =
+    opaqueSubstitutable[Unit]
 }

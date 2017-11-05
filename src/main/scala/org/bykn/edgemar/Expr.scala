@@ -224,7 +224,7 @@ object Expr {
     }
 }
 
-case class Program[D, S](lets: List[(String, Expr[D])], from: S) {
+case class Program[D, S](types: TypeEnv, lets: List[(String, Expr[D])], from: S) {
   /**
    * main is the thing we evaluate. It is the last thing defined
    */

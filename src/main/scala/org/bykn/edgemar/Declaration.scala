@@ -1,7 +1,7 @@
 package org.bykn.edgemar
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces }
-import cats.data.NonEmptyList
+import cats.data.{ NonEmptyList, State }
 import cats.implicits._
 import com.stripe.dagon.Memoize
 import fastparse.all._
@@ -33,7 +33,7 @@ object DefStatement {
     def parser[T](resultTParser: P[T]): P[DefStatement[T]] = {
       val args = argParser.nonEmptyList
       val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser ~ maybeSpace).?
-      P("def" ~ spaces ~/ Parser.lowerIdent ~ "(" ~ maybeSpace ~ args ~ maybeSpace ~ ")" ~
+      P("def" ~ spaces ~/ lowerIdent ~ "(" ~ maybeSpace ~ args ~ maybeSpace ~ ")" ~
         result ~ ":" ~ "\n" ~ resultTParser)
         .map {
           case (name, args, resType, res) => DefStatement(name, args, resType, res)
@@ -146,27 +146,76 @@ sealed abstract class Statement {
     def loop(s: Statement): Program[Declaration, Statement] =
       s match {
         case Bind(BindingStatement(nm, decl, Padding(_, rest))) =>
-          val Program(binds, _) = loop(rest)
-          Program((nm, decl.toExpr) :: binds, this)
+          val Program(te, binds, _) = loop(rest)
+          Program(te, (nm, decl.toExpr) :: binds, this)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
         case Def(DefStatement(nm, args, _, (Padding(_, Indented(_, body)), Padding(_, in)))) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
           val eBody = body.toExpr
           val lam = Declaration.buildLambda(args.map(_._1), eBody, body)
-          val Program(binds, _) = loop(in)
-          Program((nm, lam) :: binds, this)
-        case Struct(_, _, Padding(_, rest)) =>
-          // TODO
-          loop(rest)
-        case Enum(_, _, Padding(_, rest)) =>
-          // TODO
-          loop(rest)
+          val Program(te, binds, _) = loop(in)
+          Program(te, (nm, lam) :: binds, this)
+        case s@Struct(_, _, Padding(_, rest)) =>
+          val p = loop(rest)
+          p.copy(types = p.types.addDefinedType(s.toDefinition))
+        case e@Enum(_, _, Padding(_, rest)) =>
+          val p = loop(rest)
+          p.copy(types = p.types.addDefinedType(e.toDefinition))
         case EndOfFile =>
-          Program(Nil, EndOfFile)
+          Program(TypeEnv.empty, Nil, EndOfFile)
       }
 
     loop(this)
+  }
+}
+
+sealed abstract class TypeDefinitionStatement extends Statement {
+  import Statement._
+
+  def toDefinition: DefinedType = {
+    def typeVar(i: Int): Type.Var = Type.Var(s"typeVar$i")
+
+    type VarState[A] = State[Int, A]
+
+    def nextVar: VarState[Type.Var] =
+      for {
+        id <- State.get[Int]
+        _ <- State.modify[Int](_ + 1)
+      } yield typeVar(id)
+
+    def implicitParams: VarState[List[Type.Var]] =
+      State.get[Int].map { vUB =>
+        (0 until vUB).map(typeVar _).toList
+      }
+
+    def buildParam(p: (String, Option[TypeRef])): VarState[(ParamName, Type)] =
+      p match {
+        // TODO we need to be robust to var collisions with our gensym approach
+        case (pname, Some(typeRef)) => State.pure((ParamName(pname), typeRef.toType))
+        case (pname, None) => nextVar.map { v => (ParamName(pname), v) }
+      }
+
+    def buildParams(args: List[(String, Option[TypeRef])]): VarState[List[(ParamName, Type)]] =
+      args.traverse(buildParam _)
+
+    def explicits(ps: List[(ParamName, Type)]): List[Type.Var] =
+      ps.flatMap { case (_, t) => t.varsIn }.distinct
+
+    this match {
+      case Struct(nm, args, _) =>
+        val (params, implicitTps) = buildParams(args).product(implicitParams).runA(0).value
+        val explicitTps = explicits(params)
+        DefinedType(TypeName(nm), explicitTps ::: implicitTps, NonEmptyList((ConstructorName(nm), params), Nil))
+      case Enum(nm, items, _) =>
+        val constructorsS = items.traverse { case Padding(_, Indented(_, (nm, args))) =>
+          buildParams(args).map((ConstructorName(nm), _))
+        }
+
+        val (constructors, implicitTps) = constructorsS.product(implicitParams).runA(0).value
+        val allExplicits = explicits(constructors.map(_._2).toList.flatten)
+        DefinedType(TypeName(nm), allExplicits ::: implicitTps, constructors)
+    }
   }
 }
 
@@ -174,10 +223,10 @@ object Statement {
   case class Bind(bind: BindingStatement[Padding[Statement]]) extends Statement
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
-  case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends Statement
+  case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class Enum(name: String,
     items: NonEmptyList[Padding[Indented[(String, List[(String, Option[TypeRef])])]]],
-    rest: Padding[Statement]) extends Statement
+    rest: Padding[Statement]) extends TypeDefinitionStatement
   case object EndOfFile extends Statement
 
   // this is a REPL test method we will remove
@@ -195,7 +244,7 @@ object Statement {
   }
 
   val parser: P[Statement] = {
-    val bP = P(Parser.lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ toEOL ~ Padding.parser(parser))
+    val bP = P(lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ toEOL ~ Padding.parser(parser))
       .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
 
     val cP = CommentStatement.parser("", P(Padding.parser(parser))).map(Comment(_))
@@ -205,7 +254,7 @@ object Statement {
 
     val end = P(End).map(_ => EndOfFile)
 
-    val constructorP = P(Parser.upperIdent ~ (DefStatement.argParser).list.parens.? ~ toEOL)
+    val constructorP = P(upperIdent ~ (DefStatement.argParser).list.parens.? ~ toEOL)
       .map {
         case (n, None) => (n, Nil)
         case (n, Some(args)) => (n, args)
@@ -214,7 +263,7 @@ object Statement {
     val struct = P("struct" ~ spaces ~/ constructorP ~ Padding.parser(parser))
       .map { case (name, args, rest) => Struct(name, args, rest) }
 
-    val enum = P("enum" ~ spaces ~/ Parser.upperIdent ~/ ":" ~ toEOL ~ Padding.parser(Indented.parser { i => constructorP.map((_, i)) }))
+    val enum = P("enum" ~ spaces ~/ upperIdent ~/ ":" ~ toEOL ~ Padding.parser(Indented.parser { i => constructorP.map((_, i)) }))
       .flatMap { case (ename, Padding(p, Indented(i, (head, indent)))) =>
         P(Padding.parser(Indented.exactly(indent, constructorP)).rep() ~ Padding.parser(parser))
           .map { case (tail, rest) =>
@@ -267,65 +316,6 @@ object Statement {
     }
 }
 
-sealed abstract class TypeRef {
-  import TypeRef._
-
-  def toDoc: Doc =
-    this match {
-      case TypeVar(v) => Doc.text(v)
-      case TypeName(n) => Doc.text(n)
-      case TypeArrow(inner@TypeArrow(_, _), right) =>
-        Doc.char('(') + inner.toDoc + Doc.char(')') + spaceArrow + right.toDoc
-      case TypeArrow(left, right) =>
-        left.toDoc + spaceArrow + right.toDoc
-      case TypeApply(of, args) =>
-        of.toDoc + Doc.char('[') + Doc.intercalate(commaSpace, args.toList.map(_.toDoc)) + Doc.char(']')
-    }
-}
-
-object TypeRef {
-  private val spaceArrow = Doc.text(" -> ")
-  private val commaSpace = Doc.text(", ")
-  private val colonSpace = Doc.text(": ")
-
-  implicit val document: Document[TypeRef] = Document.instance[TypeRef](_.toDoc)
-
-  def argDoc(st: (String, Option[TypeRef])): Doc =
-    st match {
-      case (s, None) => Doc.text(s)
-      case (s, Some(tr)) => Doc.text(s) + colonSpace + (tr.toDoc)
-    }
-
-  case class TypeVar(asString: String) extends TypeRef {
-    require(asString.charAt(0).isLower)
-  }
-  case class TypeName(asString: String) extends TypeRef {
-    require(asString.charAt(0).isUpper)
-  }
-  case class TypeArrow(from: TypeRef, to: TypeRef) extends TypeRef
-  case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
-
-  lazy val parser: P[TypeRef] = {
-    val tvar = lowerIdent.map(TypeVar(_))
-    val tname = upperIdent.map(TypeName(_))
-
-    val maybeArrow: P[TypeRef => TypeRef] =
-      P((maybeSpace ~ "->" ~/ maybeSpace ~ parser))
-        .map { right => TypeArrow(_, right) }
-
-    val maybeApp: P[TypeRef => TypeRef] =
-      P(("[" ~/ maybeSpace ~ parser.nonEmptyList ~ maybeSpace ~ "]"))
-        .map { args => TypeApply(_, args) }
-
-    ((tvar | tname | P(parser.parens)) ~ maybeApp.? ~ maybeArrow.?)
-      .map {
-        case (t, optF1, optF2) =>
-          val t1 = optF1.fold(t)(_(t))
-          optF2.fold(t1)(_(t1))
-      }
-  }
-}
-
 // TODO, in the future, we could recursively have patterns in the args
 case class Pattern(typeName: String, bindings: List[String])
 object Pattern {
@@ -337,7 +327,7 @@ object Pattern {
           Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(Doc.text)) + Doc.char(')')
     }
   val parser: P[Pattern] =
-    P(Parser.upperIdent ~ (Parser.lowerIdent.listN(1).parens).?)
+    P(upperIdent ~ (lowerIdent.listN(1).parens).?)
       .map {
         case (n, None) => Pattern(n, Nil)
         case (n, Some(ls)) => Pattern(n, ls)
