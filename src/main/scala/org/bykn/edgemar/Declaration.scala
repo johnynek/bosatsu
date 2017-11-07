@@ -540,9 +540,12 @@ object Declaration {
     }
   }
 
-  def lambdaP(indent: String): P[Lambda] =
-    P("\\" ~/ maybeSpace ~ lowerIdent.nonEmptyList ~ maybeSpace ~ "->" ~/ maybeSpace ~ parser(indent))
+  def lambdaP(indent: String): P[Lambda] = {
+    val body0 = P(maybeSpace ~ parser(indent))
+    val body1 = P(toEOL ~/ padInP(indent).map(_.padded.value))
+    P("\\" ~/ maybeSpace ~ lowerIdent.nonEmptyList ~ maybeSpace ~ "->" ~/ (body0 | body1))
       .map { case (args, body) => Lambda(args, body) }
+  }
 
   val literalBoolP: P[LiteralBool] =
     Parser.tokenP("True", LiteralBool(true)) | Parser.tokenP("False", LiteralBool(false))

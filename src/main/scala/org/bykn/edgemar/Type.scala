@@ -88,12 +88,39 @@ case class ConstructorName(asString: String)
 case class ParamName(asString: String)
 case class TypeName(asString: String)
 
-case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors: NonEmptyList[(ConstructorName, List[(ParamName, Type)])])
+case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors: NonEmptyList[(ConstructorName, List[(ParamName, Type)])]) {
+  private[this] val consMap: Map[ConstructorName, List[(ParamName, Type)]] =
+    constructors.toList.toMap
+
+  def toScheme(n: ConstructorName): Option[Scheme] = {
+    def loop(fn: List[Type]): Type =
+      fn match {
+        case Nil => Type.Declared(name.asString)
+        case h :: tail => Type.Arrow(h, loop(tail))
+      }
+
+    // a constructor is either a constant value (no params) or a function
+    consMap.get(n).map { pts =>
+      val tpe = loop(pts.map(_._2))
+      Scheme(typeParams.map(_.name), tpe)
+    }
+  }
+}
 
 /**
  * This is a mapping of variable names to their Schemes
  */
 case class TypeEnv(toMap: Map[String, Scheme], constructors: Map[ConstructorName, DefinedType]) {
+  def schemeOf(name: String): Option[Scheme] =
+    toMap.get(name)
+      .orElse {
+        val cons = ConstructorName(name)
+        for {
+          dt <- constructors.get(cons)
+          scheme <- dt.toScheme(cons)
+        } yield scheme
+      }
+
   def updated(v: String, scheme: Scheme): TypeEnv =
     TypeEnv(toMap.updated(v, scheme), constructors)
 

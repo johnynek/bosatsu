@@ -166,7 +166,7 @@ object Inference {
   def lookup(n: String): Infer[Type] = {
     val it: Infer[TypeEnv] = RWST.ask
     it.flatMap { te =>
-      te.toMap.get(n) match {
+      te.schemeOf(n) match {
         case None => MonadError[Infer, TypeError].raiseError(TypeError.Unbound(n))
         case Some(scheme) => instantiate(scheme)
       }

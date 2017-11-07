@@ -1,6 +1,7 @@
 package org.bykn.edgemar
 
 import org.scalatest._
+import fastparse.all._
 
 class InferTest extends FunSuite {
   def simpleMatch[T](e: Expr[T], t: Type) = {
@@ -19,34 +20,78 @@ class InferTest extends FunSuite {
     simpleMatch(Expr.Op(i1, Operator.Eql, i1, ()), Type.boolT)
   }
 
-  // def parseType(str: String, t: Type) =
-  //   Parser.expr.parse(str) match {
-  //     case Parsed.Success(exp, _) =>
-  //       assert(Inference.inferExpr(exp) == Right(Scheme(Nil, t)), s"$exp")
-  //     case Parsed.Failure(exp, idx, extra) =>
-  //       fail(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
-  //   }
+  def parseType(str: String, t: Type) =
+    Declaration.parser("").parse(str) match {
+      case Parsed.Success(decl, _) =>
+        val expr = decl.toExpr
+        Inference.inferExpr(TypeEnv.empty, expr) match {
+          case Left(f) => fail(s"failed: $f")
+          case Right(s) => assert(s.result == t, s"$str => $decl => $expr => $s")
+        }
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+    }
 
-  // test("type check some expressions") {
-  //   parseType("1 + 1", Type.intT)
-  //   parseType("1 == 1", Type.boolT)
-  //   parseType("(1+2) == 1", Type.boolT)
-  //   parseType("(lambda x: x + 1)(2)", Type.intT)
-  //   parseType("(lambda x: x + 1)", Type.Arrow(Type.intT, Type.intT))
-  //   parseType(
-// """x = 1
-// y = x
-// y""", Type.intT)
+  def parseProgram(str: String, t: Type) =
+    Statement.parser.parse(str) match {
+      case Parsed.Success(exp, _) =>
+        val prog = exp.toProgram
+        prog.getMainDecl match {
+          case None => fail(s"found no main expression")
+          case Some(main) =>
+            Inference.inferExpr(prog.types, main) match {
+              case Left(f) => fail(s"failed: $f")
+              case Right(s) => assert(s.result == t, s"$str => $exp => $main => $s")
+            }
+        }
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+    }
 
-  //   parseType(
-// """fn = lambda x, y: x + y
-// fn""", Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT)))
+  test("type check some expressions") {
+    parseType("1 + 1", Type.intT)
+    parseType("1 == 1", Type.boolT)
+    parseType("(1+2) == 1", Type.boolT)
+    parseType("""(\x -> x + 1)(2)""", Type.intT)
+    parseType("""(\x -> x + 1)""", Type.Arrow(Type.intT, Type.intT))
+    parseType(
+"""x = 1
+y = x
+y""", Type.intT)
 
-  //   parseType(
-// """lambda x:
-  // fn = lambda y: x + y
-  // fn""", Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT)))
-  // }
+    parseType(
+"""fn = \x, y -> x + y
+fn""", Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT)))
+
+    parseType(
+"""\x ->
+  fn = \y -> x + y
+  fn""", Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT)))
+  }
+
+  test("test inference with some defined types") {
+    parseProgram("""#
+struct Unit
+
+main = Unit
+""", Type.Declared("Unit"))
+
+    parseProgram("""#
+enum Option:
+  None
+  Some(a)
+
+main = Some(1)
+""", Type.Declared("Option"))
+
+    parseProgram("""#
+enum Option:
+  None
+  Some(a)
+
+main = Some
+""", Type.Arrow(Type.Var("a"), Type.Declared("Option")))
+  }
 
   // def evalTest(str: String, v: Any) =
   //   Parser.expr.parse(str) match {
