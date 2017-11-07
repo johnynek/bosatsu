@@ -172,6 +172,7 @@ object Generators {
 
     val unnested = Gen.oneOf(
       lowerIdent.map(Var(_)),
+      upperIdent.map(Constructor(_)),
       Arbitrary.arbitrary[BigInt].map { bi => LiteralInt(bi.toString) },
       Gen.oneOf(true, false).map { b => LiteralBool(b) })
 

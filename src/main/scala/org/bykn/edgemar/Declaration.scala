@@ -355,6 +355,8 @@ sealed abstract class Declaration {
         BindingStatement.document[Padding[Declaration]].document(b)
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
+      case Constructor(name) =>
+        Doc.text(name)
       case DefFn(d) =>
         val pairDoc: Document[(Padding[Indented[Declaration]], Padding[Declaration])] =
           Document.instance {
@@ -411,6 +413,8 @@ sealed abstract class Declaration {
         Expr.Let(arg, value.toExpr, dec.toExpr, this)
       case Comment(CommentStatement(_, Padding(_, decl))) =>
         decl.toExpr.map(_ => this)
+      case Constructor(name) =>
+        Expr.Var(name, this)
       case DefFn(DefStatement(nm, args, _, (Padding(_, Indented(_, body)), Padding(_, in)))) =>
         val lambda = buildLambda(args.map(_._1), body.toExpr, this)
         val inExpr = in.toExpr
@@ -460,6 +464,7 @@ object Declaration {
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration]) extends Declaration
   case class Binding(binding: BindingStatement[Padding[Declaration]]) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]]) extends Declaration
+  case class Constructor(name: String) extends Declaration
   case class DefFn(deffn: DefStatement[(Padding[Indented[Declaration]], Padding[Declaration])]) extends Declaration
   case class FfiLambda(lang: String, callsite: String, tpe: TypeRef) extends Declaration
   case class IfElse(ifCases: NonEmptyList[(Declaration, Padding[Indented[Declaration]])], elseCase: Padding[Indented[Declaration]]) extends Declaration
@@ -482,6 +487,9 @@ object Declaration {
         { str: String => Binding(BindingStatement(str, value, rest)) }
       }
   }
+
+  val constructorP: P[Constructor] =
+    upperIdent.map(Constructor(_))
 
   def commentP(indent: String): P[Comment] =
     CommentStatement.parser(indent, Padding.parser(P(indent ~ parser(indent))))
@@ -586,7 +594,7 @@ object Declaration {
         applySuffix :: Operator.allOps.map(parseOp _)
       }
       val prefix = defP(indent) | literalIntP | literalBoolP | lambdaP(indent) | matchP(indent) |
-        ifElseP(indent) | varOrBind(indent) | commentP(indent) | P(rec(indent).parens).map(Parens(_))
+        ifElseP(indent) | varOrBind(indent) | constructorP | commentP(indent) | P(rec(indent).parens).map(Parens(_))
 
       def checkOps(head: P[Declaration], ops: List[P[Declaration => Declaration]]): P[Declaration] =
         ops match {
