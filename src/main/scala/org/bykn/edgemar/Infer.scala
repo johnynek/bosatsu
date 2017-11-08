@@ -5,7 +5,7 @@ package org.bykn.edgemar
  * here: http://dev.stephendiehl.com/fun/006_hindley_milner.html
  */
 
-import cats.data.{ EitherT, RWST, StateT }
+import cats.data.{ EitherT, RWST, StateT, NonEmptyList }
 import cats.{ Eval, Monad, MonadError, Traverse }
 import cats.implicits._
 
@@ -13,15 +13,6 @@ case class Unique(id: Long) {
   def next: Unique =
     if (id == Long.MaxValue) sys.error("overflow")
     else Unique(id + 1L)
-}
-
-sealed abstract class TypeError
-object TypeError {
-  case class UnificationFail(left: Type, right: Type) extends TypeError
-  // This is a logic error that should really never happen
-  case class UnificationMismatch(lefts: List[Type], rights: List[Type]) extends TypeError
-  case class InfiniteType(name: String, tpe: Type) extends TypeError
-  case class Unbound(name: String) extends TypeError
 }
 
 case class Subst(toMap: Map[String, Type]) {
@@ -81,6 +72,8 @@ object Inference {
       case (t, Type.Var(tvar)) => bind(tvar, t)
       case (Type.Arrow(fa, ta), Type.Arrow(fb, tb)) =>
         unifyMany(List(fa, ta), List(fb, tb))
+      case (Type.TypeApply(fa, ta), Type.TypeApply(fb, tb)) =>
+        unifyMany(List(fa, ta), List(fb, tb))
       case (faila, failb) =>
         MonadError[Solve, TypeError].raiseError(TypeError.UnificationFail(faila, failb))
     }
@@ -135,12 +128,57 @@ object Inference {
     Monad[Solve].tailRecM(())(step)
   }
 
-  def instantiate(s: Scheme): Infer[Type] =
+  private def substFor(s: Scheme): Infer[Subst] =
     Traverse[List].traverse(s.vars)(_ => fresh)
       .map { ts =>
-        val subst = Subst(s.vars.zip(ts).toMap)
-        Substitutable[Type].apply(subst, s.result)
+        Subst(s.vars.zip(ts).toMap)
       }
+
+  def instantiate(s: Scheme): Infer[Type] =
+    substFor(s).map { subst =>
+      Substitutable[Type].apply(subst, s.result)
+    }
+
+  private def instantiateMatch[T](arg: Type, dt: DefinedType, branches: NonEmptyList[(ConstructorName, List[String], Expr[T])]): Infer[Type] = {
+    def withBind(cn: ConstructorName, args: List[String], ts: List[Type], result: Expr[T]): Infer[Type] =
+      if (args.size != ts.size) MonadError[Infer, TypeError].raiseError(TypeError.InsufficientPatternBind(cn, args, ts, dt))
+      else {
+        infer(result)
+          .local { te: TypeEnv =>
+            args.zip(ts.map(Scheme.fromType _)).foldLeft(te) { case (te, (varName, tpe)) =>
+              te.updated(varName, tpe)
+            }
+          }
+      }
+
+    def inferBranch(mp: Map[ConstructorName, List[Type]], ce: (ConstructorName, List[String], Expr[T])): Infer[Type] = {
+      // TODO make sure we have proven that this map-get is safe:
+      val (cname, bindings, branchRes) = ce
+      val tpes = mp(cname)
+      withBind(cname, bindings, tpes, branchRes)
+    }
+
+    val scheme = dt.typeScheme
+    substFor(scheme).flatMap { subst =>
+      // TODO: we need to assert type annotations on each of the branches
+      val cMap = dt.consMap(subst)
+
+      val matchT = Substitutable[Type].apply(subst, scheme.result)
+
+      def constrain(n: NonEmptyList[(ConstructorName, List[String], Expr[T])]): Infer[Type] =
+        n.reduceLeftM(inferBranch(cMap, _)) { (tpe, tup) =>
+          for {
+            tpe1 <- inferBranch(cMap, tup)
+            _ <- addConstraint(tpe, tpe1)
+          } yield tpe1
+        }
+
+      for {
+        branchT <- constrain(branches)
+        _ <- addConstraint(arg, matchT)
+      } yield branchT
+    }
+  }
 
   def inferExpr[T](expr: Expr[T]): Either[TypeError, Scheme] =
     inferExpr(TypeEnv.empty, expr)
@@ -232,6 +270,13 @@ object Inference {
           _ <- addConstraint(Type.boolT, tc)
           _ <- addConstraint(t1, t2)
         } yield t2
+      case Expr.Match(arg, branches, _) =>
+        for {
+          env <- (RWST.ask: Infer[TypeEnv])
+          dt <- MonadError[Infer, TypeError].fromEither(env.getDefinedType(branches.map(_._1)))
+          targ <- infer(arg)
+          tbranch <- instantiateMatch(targ, dt, branches)
+        } yield tbranch
     }
 }
 

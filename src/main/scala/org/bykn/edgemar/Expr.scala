@@ -7,6 +7,7 @@ package org.bykn.edgemar
 
 import cats.implicits._
 import cats.evidence.Is
+import cats.data.NonEmptyList
 import cats.{Applicative, Eval, Traverse}
 
 sealed abstract class Lit
@@ -27,6 +28,7 @@ object Expr {
   case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class If[T](arg: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T) extends Expr[T]
+  case class Match[T](arg: Expr[T], branches: NonEmptyList[(ConstructorName, List[String], Expr[T])], tag: T) extends Expr[T]
   case class Op[T](left: Expr[T], binOp: Operator, right: Expr[T], tag: T) extends Expr[T]
 
   /**
@@ -49,12 +51,34 @@ object Expr {
         Literal(lit, e)
       case If(arg, ifTrue, ifFalse, _) =>
         If(nest(arg), nest(ifTrue), nest(ifFalse), e)
+      case Match(arg, branches, _) =>
+        Match(nest(arg), branches.map {
+          case (n, bindings, exp) =>
+            (n, bindings, nest(exp))
+        }, e)
       case Op(left, op, right, _) =>
         Op(nest(left), op, nest(right), e)
     }
 
   implicit val exprTraverse: Traverse[Expr] =
     new Traverse[Expr] {
+
+      // Traverse on NonEmptyList[(ConstructorName, Expr[?])]
+      private lazy val tne = {
+        type Tup[T] = (ConstructorName, List[String], T)
+        val tupTrav: Traverse[Tup] = new Traverse[Tup] {
+          def traverse[G[_]: Applicative, A, B](fa: Tup[A])(f: A => G[B]): G[Tup[B]] =
+            f(fa._3).map((fa._1, fa._2, _))
+          def foldLeft[A, B](fa: Tup[A], b: B)(f: (B, A) => B): B =
+            f(b, fa._3)
+          def foldRight[A, B](fa: Tup[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] =
+            f(fa._3, lb)
+        }
+        type TupExpr[T] = (ConstructorName, List[String], Expr[T])
+        val tup: Traverse[TupExpr] = tupTrav.compose(exprTraverse)
+        Traverse[NonEmptyList].compose(tup)
+      }
+
       def traverse[G[_]: Applicative, A, B](fa: Expr[A])(f: A => G[B]): G[Expr[B]] =
         fa match {
           case Var(s, t) =>
@@ -78,6 +102,12 @@ object Expr {
           case If(arg, ifTrue, ifFalse, tag) =>
             (arg.traverse(f), ifTrue.traverse(f), ifFalse.traverse(f), f(tag)).mapN { (a1, t1, f1, tag1) =>
               If(a1, t1, f1, tag1)
+            }
+          case Match(arg, branches, tag) =>
+            val argB = arg.traverse(f)
+            val branchB = tne.traverse(branches)(f)
+            (argB, branchB, f(tag)).mapN { (a, bs, t) =>
+              Match(a, bs, t)
             }
           case Op(left, op, right, tag) =>
             (left.traverse(f), right.traverse(f), f(tag)).mapN { (l, r, t) =>
@@ -108,6 +138,10 @@ object Expr {
             val b2 = foldLeft(ifTrue, b1)(f)
             val b3 = foldLeft(ifFalse, b2)(f)
             f(b3, tag)
+          case Match(arg, branches, tag) =>
+            val b1 = foldLeft(arg, b)(f)
+            val b2 = tne.foldLeft(branches, b1)(f)
+            f(b2, tag)
           case Op(left, _, right, tag) =>
             val b1 = foldLeft(left, b)(f)
             val b2 = foldLeft(right, b1)(f)
@@ -137,6 +171,10 @@ object Expr {
             val b2 = foldRight(ifFalse, b1)(f)
             val b3 = foldRight(ifTrue, b2)(f)
             foldRight(arg, b3)(f)
+          case Match(arg, branches, tag) =>
+            val b1 = f(tag, lb)
+            val b2 = tne.foldRight(branches, b1)(f)
+            foldRight(arg, b2)(f)
           case Op(left, _, right, tag) =>
             val b1 = f(tag, lb)
             val b2 = foldRight(right, b1)(f)
@@ -188,7 +226,7 @@ object Expr {
             null
           case "scala" =>
             cls.getDeclaredField("MODULE$").get(null)
-          case _ => ???
+          case other => sys.error(s"unknown ffi language: $other") // TODO don't throw here
         }
 
         def invoke(tpe: Type, args: List[AnyRef]): Any =
@@ -211,6 +249,7 @@ object Expr {
       case If(arg, t, f, _) =>
         if (evaluateUnsafe(arg, env).asInstanceOf[Boolean]) evaluateUnsafe(t, env)
         else evaluateUnsafe(f, env)
+      case Match(_, _, _) => ???  // TODO: evaluate matches
       case Op(a, op, b, _) =>
         val ai = evaluateUnsafe(a, env).asInstanceOf[Int]
         val bi = evaluateUnsafe(b, env).asInstanceOf[Int]

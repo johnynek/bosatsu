@@ -184,11 +184,6 @@ sealed abstract class TypeDefinitionStatement extends Statement {
         _ <- State.modify[Int](_ + 1)
       } yield typeVar(id)
 
-    def implicitParams: VarState[List[Type.Var]] =
-      State.get[Int].map { vUB =>
-        (0 until vUB).map(typeVar _).toList
-      }
-
     def buildParam(p: (String, Option[TypeRef])): VarState[(ParamName, Type)] =
       p match {
         // TODO we need to be robust to var collisions with our gensym approach
@@ -204,17 +199,17 @@ sealed abstract class TypeDefinitionStatement extends Statement {
 
     this match {
       case Struct(nm, args, _) =>
-        val (params, implicitTps) = buildParams(args).product(implicitParams).runA(0).value
+        val params = buildParams(args).runA(0).value
         val explicitTps = explicits(params)
-        DefinedType(TypeName(nm), explicitTps ::: implicitTps, NonEmptyList((ConstructorName(nm), params), Nil))
+        DefinedType(TypeName(nm), explicitTps, NonEmptyList((ConstructorName(nm), params), Nil))
       case Enum(nm, items, _) =>
         val constructorsS = items.traverse { case Padding(_, Indented(_, (nm, args))) =>
           buildParams(args).map((ConstructorName(nm), _))
         }
 
-        val (constructors, implicitTps) = constructorsS.product(implicitParams).runA(0).value
+        val constructors = constructorsS.runA(0).value
         val allExplicits = explicits(constructors.map(_._2).toList.flatten)
-        DefinedType(TypeName(nm), allExplicits ::: implicitTps, constructors)
+        DefinedType(TypeName(nm), allExplicits.distinct, constructors)
     }
   }
 }
@@ -442,7 +437,11 @@ sealed abstract class Declaration {
       case Var(name) =>
         Expr.Var(name, this)
       case FfiLambda(_, _, _) => ???
-      case Match(_, _) => ???
+      case Match(arg, branches) =>
+        val expBranches = branches.map { case Padding(_, Indented(_, (Pattern(nm, bs), Padding(_, Indented(_, decl))))) =>
+          (ConstructorName(nm), bs, decl.toExpr)
+        }
+        Expr.Match(arg.toExpr, expBranches, this)
     }
 }
 

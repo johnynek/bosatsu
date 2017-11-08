@@ -28,7 +28,7 @@ object Substitutable {
           case d@Declared(_) => d
           case c@Primitive(_) => c
           case TypeApply(hk, arg) => TypeApply(apply(sub, hk), apply(sub, arg))
-          case TypeLambda(param, in) => TypeLambda(param, apply(sub, in))
+          //case TypeLambda(param, in) => TypeLambda(param, apply(sub, in))
           case v@Var(name) => sub.getOrElse(name, v)
         }
 
@@ -38,7 +38,7 @@ object Substitutable {
           case Declared(_) => Set.empty
           case Primitive(_) => Set.empty
           case TypeApply(hk, arg) => typeVars(hk) | typeVars(arg)
-          case TypeLambda(_, in) => typeVars(in)
+          //case TypeLambda(_, in) => typeVars(in)
           case Var(name) => Set(name)
         }
     }
@@ -56,13 +56,12 @@ object Substitutable {
         Substitutable[Type].typeVars(s.result) -- s.vars
     }
 
+  implicit val forConstructorName: Substitutable[ConstructorName] = opaqueSubstitutable
+  implicit val forParamName: Substitutable[ParamName] = opaqueSubstitutable
+
   implicit val forDefinedType: Substitutable[DefinedType] =
     new Substitutable[DefinedType] {
       def apply(sub: Subst, t: DefinedType) = {
-
-        implicit val on: Substitutable[ConstructorName] = opaqueSubstitutable
-        implicit val op: Substitutable[ParamName] = opaqueSubstitutable
-
         // all the names in typeParams are shadows so we need
         // to remove them:
         val newSubst = Subst(t.typeParams.map(_.name).foldLeft(sub.toMap)(_ - _))

@@ -82,7 +82,7 @@ enum Option:
   Some(a)
 
 main = Some(1)
-""", Type.Declared("Option"))
+""", Type.TypeApply(Type.Declared("Option"), Type.intT))
 
     parseProgram("""#
 enum Option:
@@ -90,8 +90,34 @@ enum Option:
   Some(a)
 
 main = Some
-""", Type.Arrow(Type.Var("a"), Type.Declared("Option")))
-  }
+""", Type.Arrow(Type.Var("a"), Type.TypeApply(Type.Declared("Option"), Type.Var("a"))))
+
+   parseProgram("""#
+enum Option:
+  None
+  Some(a)
+
+x = Some(1)
+main = match x:
+  None:
+    0
+  Some(y):
+    y
+""", Type.intT)
+
+   parseProgram("""#
+enum List:
+  Empty
+  NonEmpty(a: a, tail: List[a])
+
+x = NonEmpty(1, Empty)
+main = match x:
+  Empty:
+    0
+  NonEmpty(y, z):
+    y + 1
+""", Type.intT)
+}
 
   // def evalTest(str: String, v: Any) =
   //   Parser.expr.parse(str) match {
