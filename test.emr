@@ -28,13 +28,19 @@ enum Bool:
 
 struct Unit
 
-# e = Some(1)
-# match e:
-#   Some(x):
-#     z(x)
-#   None:
-#     0
+e = Some(1)
+sz = match e:
+   Some(x):
+     z(x)
+   None:
+     0
 
 #hc = ffi "scala" "org.bykn.edgemar.Foo.times" Int -> Int
 
-main = z(100)
+foo = Cons(1, Cons(2, Empty))
+
+main = match foo:
+  Empty:
+    100
+  Cons(x, tail):
+    1

@@ -185,7 +185,15 @@ object Expr {
   def evaluate[T](e: Expr[T]): Either[TypeError, (Any, Scheme)] =
     Inference.inferExpr(e).map { scheme =>
       // if we type check, we can always evaluate
-      (evaluateUnsafe(e, Map.empty), scheme)
+      (evaluateUnsafe(e, Map.empty, Map.empty), scheme)
+    }
+
+  def evaluateProgram[S](p: Program[Declaration, S]): Option[Either[TypeError, (Any, Scheme)]] =
+    p.getMainDecl.map { case expr =>
+      Inference.inferExpr(p.types, expr).map { scheme =>
+        // if we type check, we can always evaluate
+        (evaluateUnsafe(expr, Map.empty, p.types.constructors), scheme)
+      }
     }
 
   private def getJavaType(t: Type): List[Class[_]] =
@@ -200,16 +208,52 @@ object Expr {
       case t => sys.error(s"unsupported java ffi type: $t")
     }
 
-  private def evaluateUnsafe[T](e: Expr[T], env: Map[String, Any]): Any =
+  private def constructor(c: ConstructorName, dt: DefinedType): Any = {
+    val (enum, arity) = dt.constructors
+      .toList
+      .iterator
+      .zipWithIndex
+      .collectFirst { case ((ctor, params), idx) if ctor == c => (idx, params.size) }
+      .get // the ctor must be in the list or we wouldn't typecheck
+
+    // TODO: this is a obviously terrible
+    // the encoding is inefficient, the implementation is inefficient
+    // and if we remembered the types we checked we wouldn't need to store the DefinedType
+    // since we know that statically
+    def loop(param: Int, args: List[Any]): Any =
+      if (param == 0) (dt, enum, args.reverse)
+      else {
+        { a: Any => loop(param - 1, a :: args) }
+      }
+
+    loop(arity, Nil)
+  }
+
+  private def evalBranch[T](arg: Any,
+    branches: NonEmptyList[(ConstructorName, List[String], Expr[T])],
+    env: Map[String, Any],
+    tpes: Map[ConstructorName, DefinedType]): Any =
+
+    arg match {
+      case (dt: DefinedType, enumId: Int, params: List[Any]) =>
+        val cname = dt.constructors.toList(enumId)._1
+        val (_, paramVars, next) = branches.find { case (ctor, _, _) => ctor == cname }.get
+        val localEnv = paramVars.zip(params).toMap
+        evaluateUnsafe(next, env ++ localEnv, tpes)
+
+      case other => sys.error(s"logic error, in match arg evaluated to $other")
+    }
+
+  private def evaluateUnsafe[T](e: Expr[T], env: Map[String, Any], tpes: Map[ConstructorName, DefinedType]): Any =
     e match {
-      case Var(v, _) => env(v)
+      case Var(v, _) => env.getOrElse(v, constructor(ConstructorName(v), tpes(ConstructorName(v))))
       case App(Lambda(name, fn, _), arg, _) =>
-        val env1 = env + (name -> evaluateUnsafe(arg, env))
-        evaluateUnsafe(fn, env1)
+        val env1 = env + (name -> evaluateUnsafe(arg, env, tpes))
+        evaluateUnsafe(fn, env1, tpes)
       case App(fn, arg, _) =>
-        evaluateUnsafe(fn, env).asInstanceOf[Any => Any](evaluateUnsafe(arg, env))
+        evaluateUnsafe(fn, env, tpes).asInstanceOf[Any => Any](evaluateUnsafe(arg, env, tpes))
       case Lambda(name, expr, _) =>
-        { x: Any => evaluateUnsafe(expr, env + (name -> x)) }
+        { x: Any => evaluateUnsafe(expr, env + (name -> x), tpes) }
       case Ffi(lang, callsite, Scheme(_, t), _) =>
         val parts = callsite.split("\\.", -1).toList
         val clsName0 = parts.init.mkString(".")
@@ -243,16 +287,18 @@ object Expr {
           }
         invoke(t, Nil)
       case Let(arg, e, in, _) =>
-        evaluateUnsafe(in, env + (arg -> evaluateUnsafe(e, env)))
+        evaluateUnsafe(in, env + (arg -> evaluateUnsafe(e, env, tpes)), tpes)
       case Literal(Lit.Integer(i), _) => i
       case Literal(Lit.Bool(b), _) => b
       case If(arg, t, f, _) =>
-        if (evaluateUnsafe(arg, env).asInstanceOf[Boolean]) evaluateUnsafe(t, env)
-        else evaluateUnsafe(f, env)
-      case Match(_, _, _) => ???  // TODO: evaluate matches
+        if (evaluateUnsafe(arg, env, tpes).asInstanceOf[Boolean]) evaluateUnsafe(t, env, tpes)
+        else evaluateUnsafe(f, env, tpes)
+      case Match(arg, branches, _) =>
+        val earg = evaluateUnsafe(arg, env, tpes)
+        evalBranch(earg, branches, env, tpes)
       case Op(a, op, b, _) =>
-        val ai = evaluateUnsafe(a, env).asInstanceOf[Int]
-        val bi = evaluateUnsafe(b, env).asInstanceOf[Int]
+        val ai = evaluateUnsafe(a, env, tpes).asInstanceOf[Int]
+        val bi = evaluateUnsafe(b, env, tpes).asInstanceOf[Int]
         import Operator._
         op match {
           case Plus => ai + bi

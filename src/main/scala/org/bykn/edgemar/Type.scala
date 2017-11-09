@@ -135,7 +135,6 @@ case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors:
 
   private def scheme(t: Type) = Scheme(typeParams.map(_.name), t)
 
-
   def consMap(subst: Subst): Map[ConstructorName, List[Type]] = {
     val newCons = Substitutable[NonEmptyList[(ConstructorName, List[(ParamName, Type)])]].apply(subst, constructors)
 
