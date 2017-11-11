@@ -389,7 +389,9 @@ sealed abstract class Declaration {
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
       case Var(name) => Doc.text(name)
-      case FfiLambda(_, _, _) => ???
+      case FfiLambda(lang, callsite, tpe) =>
+        Doc.intercalate(Doc.space,
+          List(Doc.text("ffi"), Doc.text(lang), Doc.text(callsite), Document[TypeRef].document(tpe)))
     }
   }
 
@@ -436,7 +438,8 @@ sealed abstract class Declaration {
         p.toExpr.map(_ => this)
       case Var(name) =>
         Expr.Var(name, this)
-      case FfiLambda(_, _, _) => ???
+      case FfiLambda(lang, callsite, tpe) =>
+        Expr.Ffi(lang, callsite, Scheme.fromType(tpe.toType), this)
       case Match(arg, branches) =>
         val expBranches = branches.map { case Padding(_, Indented(_, (Pattern(nm, bs), Padding(_, Indented(_, decl))))) =>
           (ConstructorName(nm), bs, decl.toExpr)
@@ -509,6 +512,10 @@ object Declaration {
 
     DefStatement.parser(restParser).map(DefFn(_))
   }
+
+  val ffiP: P[FfiLambda] =
+    P("ffi" ~ spaces ~/ Parser.nonSpaces ~/ spaces ~/ Parser.nonSpaces ~/ spaces ~ TypeRef.parser)
+      .map { case (l, c, t) => FfiLambda(l, c, t) }
 
   def ifElseP(indent: String): P[IfElse] = {
     // prefix should be strict identifier like "if " or "elif "
@@ -596,7 +603,7 @@ object Declaration {
         applySuffix :: Operator.allOps.map(parseOp _)
       }
       val prefix = defP(indent) | literalIntP | literalBoolP | lambdaP(indent) | matchP(indent) |
-        ifElseP(indent) | varOrBind(indent) | constructorP | commentP(indent) | P(rec(indent).parens).map(Parens(_))
+        ifElseP(indent) | ffiP | varOrBind(indent) | constructorP | commentP(indent) | P(rec(indent).parens).map(Parens(_))
 
       def checkOps(head: P[Declaration], ops: List[P[Declaration => Declaration]]): P[Declaration] =
         ops match {

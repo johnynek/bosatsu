@@ -20,6 +20,7 @@ object Parser {
     (c == ' ') | (c == '\t')
 
   val spaces: P[Unit] = P(CharsWhile(isSpace _))
+  val nonSpaces: P[String] = P(CharsWhile { c => !isSpace(c) }.!)
   val maybeSpace: P[Unit] = spaces.?
 
   val lowerIdent: P[String] =

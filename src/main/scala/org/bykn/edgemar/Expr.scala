@@ -196,17 +196,21 @@ object Expr {
       }
     }
 
-  private def getJavaType(t: Type): List[Class[_]] =
-    t match {
-      case Type.Primitive("Int") => classOf[java.lang.Integer] :: Nil
-      case Type.Primitive("Bool") => classOf[java.lang.Boolean] :: Nil
-      case Type.Arrow(a, b) =>
-        getJavaType(a) match {
-          case at :: Nil => at :: getJavaType(b)
-          case function => sys.error(s"unsupported function type $function in $t")
-        }
-      case t => sys.error(s"unsupported java ffi type: $t")
+  private def getJavaType(t: Type): List[Class[_]] = {
+    def loop(t: Type, top: Boolean): List[Class[_]] = {
+      t match {
+        case Type.Primitive("Int") => classOf[java.lang.Integer] :: Nil
+        case Type.Primitive("Bool") => classOf[java.lang.Boolean] :: Nil
+        case Type.Arrow(a, b) if top =>
+          loop(a, false) match {
+            case at :: Nil => at :: loop(b, top)
+            case function => sys.error(s"unsupported function type $function in $t")
+          }
+        case _ => classOf[AnyRef] :: Nil
+      }
     }
+    loop(t, true)
+  }
 
   private def constructor(c: ConstructorName, dt: DefinedType): Any = {
     val (enum, arity) = dt.constructors

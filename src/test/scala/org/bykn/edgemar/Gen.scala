@@ -22,7 +22,7 @@ object Generators {
       tail <- Gen.listOfN(cnt, t)
     } yield NonEmptyList(h, tail)
 
-  val keyWords = Set("if", "match", "struct", "enum", "else", "elif", "def")
+  val keyWords = Set("if", "ffi", "match", "struct", "enum", "else", "elif", "def")
 
   val lowerIdent: Gen[String] =
     (for {
@@ -167,12 +167,21 @@ object Generators {
     }
   }
 
+  val ffiGen: Gen[Declaration] =
+    for {
+      lang <- lowerIdent
+      parts <- Gen.choose(1, 4)
+      callsiteParts <- Gen.listOfN(parts, lowerIdent)
+      tpe <- typeRefGen
+    } yield Declaration.FfiLambda(lang, callsiteParts.mkString("."), tpe)
+
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
     val unnested = Gen.oneOf(
       lowerIdent.map(Var(_)),
       upperIdent.map(Constructor(_)),
+      ffiGen,
       Arbitrary.arbitrary[BigInt].map { bi => LiteralInt(bi.toString) },
       Gen.oneOf(true, false).map { b => LiteralBool(b) })
 
@@ -197,6 +206,7 @@ object Generators {
       argc <- Gen.choose(0, 5)
       args <- Gen.listOfN(argc, argGen)
     } yield (name, args)
+
 
   def genStruct(tail: Gen[Statement]): Gen[Statement] =
     Gen.zip(constructorGen, padding(tail))

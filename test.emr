@@ -1,3 +1,14 @@
+#package Foo::Bar
+#
+#import Baz::[
+#  Bippy, Bo -> Bop,
+#]
+#
+#export [
+#  x, z, Either
+#]
+
+
 x = 1
 
 def y(x):
@@ -20,7 +31,7 @@ enum Option:
 
 enum List:
   Empty
-  Cons(a: a, tail: List[a])
+  NonEmpty(head: a, tail: List[a])
 
 enum Bool:
   True
@@ -35,12 +46,12 @@ sz = match e:
    None:
      0
 
-#hc = ffi "scala" "org.bykn.edgemar.Foo.times" Int -> Int
+hc = ffi scala org.bykn.edgemar.Foo.times Int -> Int
 
-foo = Cons(1, Cons(2, Empty))
+foo = NonEmpty(1, NonEmpty(2, Empty))
 
 main = match foo:
   Empty:
-    100
-  Cons(x, tail):
-    1
+    0
+  NonEmpty(x, tail):
+    hc(1)
