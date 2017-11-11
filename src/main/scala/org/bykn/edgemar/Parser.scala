@@ -19,16 +19,19 @@ object Parser {
   def isSpace(c: Char): Boolean =
     (c == ' ') | (c == '\t')
 
+  def identifierChar(c: Char): Boolean =
+    isNum(c) || isUpper(c) || isLower(c) || (c == '_')
+
   val spaces: P[Unit] = P(CharsWhile(isSpace _))
   val nonSpaces: P[String] = P(CharsWhile { c => !isSpace(c) }.!)
   val maybeSpace: P[Unit] = spaces.?
 
   val lowerIdent: P[String] =
-    P(CharIn('a' to 'z').! ~ CharsWhile(c => isNum(c) || isUpper(c) || isLower(c)).?.!)
+    P(CharIn('a' to 'z').! ~ CharsWhile(identifierChar _).?.!)
       .map { case (a, b) => a + b }
 
   val upperIdent: P[String] =
-    P(CharIn('A' to 'Z').! ~ CharsWhile(c => isNum(c) || isUpper(c) || isLower(c)).?.!)
+    P(CharIn('A' to 'Z').! ~ CharsWhile(identifierChar _).?.!)
       .map { case (a, b) => a + b }
 
   def tokenP[T](s: String, t: T): P[T] = P(s).map(_ => t)

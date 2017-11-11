@@ -94,9 +94,13 @@ object Generators {
     import Declaration._
     Gen.lzy(for {
       fn <- dec
-      fnParens = fn match { case v@Declaration.Var(_) => v; case nonV => Parens(nonV) }
-      args <- nonEmpty(dec)
-    } yield Apply(fnParens, args))
+      varfnParens = fn match { case v@Declaration.Var(_) => (true, v); case nonV => (false, Parens(nonV)) }
+      (isVar, fnParens) = varfnParens
+      dotApply <- Gen.oneOf(true, false)
+      useDot = dotApply && isVar // f.bar needs the fn to be a var
+      argsGen = if (useDot) dec.map(NonEmptyList(_, Nil)) else nonEmpty(dec)
+      args <- argsGen
+    } yield Apply(fnParens, args, false)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
 
   def bindGen[T](dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[T]] =

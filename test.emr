@@ -41,8 +41,15 @@ def reverse(list):
   fold(list, Empty, \tail, item -> NonEmpty(item, tail))
 
 def map(list, fn):
-  revmap = fold(list, Empty, \tail, item -> NonEmpty(fn(item), tail))
-  reverse(revmap)
+  fold(list, Empty, \tail, item -> NonEmpty(fn(item), tail)).reverse
+
+def filter(list, fn):
+  rev_filter = fold(list, Empty, \tail, item -> if fn(item):
+    NonEmpty(item, tail)
+  else:
+    tail)
+
+  rev_filter.reverse
 
 def sum(items):
   fold(items, 0, \x, y -> x + y)
@@ -69,4 +76,4 @@ main = match foo:
   Empty:
     0
   NonEmpty(x, tail):
-    hc(1) + sum(map(foo, \x -> 10*x))
+    hc(1) + foo.map(\x -> 10*x).sum

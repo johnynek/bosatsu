@@ -339,13 +339,21 @@ sealed abstract class Declaration {
 
   def toDoc: Doc = {
     this match {
-      case Apply(fn, args) =>
+      case Apply(fn, args, dotApply) =>
         val fnDoc = fn match {
           case Var(n) => Doc.text(n)
           case p@Parens(_) => p.toDoc
           case other => Doc.char('(') + other.toDoc + Doc.char(')')
         }
-        fnDoc + Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(_.toDoc)) + Doc.char(')')
+        val (prefix, body) =
+          if (!dotApply) (fnDoc, args.toList)
+          else (args.head.toDoc + Doc.char('.') + fnDoc, args.tail)
+
+        body match {
+          case Nil => prefix
+          case notEmpty =>
+            prefix + Doc.char('(') + Doc.intercalate(Doc.text(", "), notEmpty.map(_.toDoc)) + Doc.char(')')
+        }
       case Binding(b) =>
         BindingStatement.document[Padding[Declaration]].document(b)
       case Comment(c) =>
@@ -397,7 +405,7 @@ sealed abstract class Declaration {
 
   def toExpr: Expr[Declaration] =
     this match {
-      case Apply(fn, args) =>
+      case Apply(fn, args, _) =>
         @annotation.tailrec
         def loop(fn: Expr[Declaration], args: List[Expr[Declaration]]): Expr[Declaration] =
           args match {
@@ -463,7 +471,7 @@ object Declaration {
         buildLambda(NonEmptyList.of(arg), body1, outer)
     }
 
-  case class Apply(fn: Declaration, args: NonEmptyList[Declaration]) extends Declaration
+  case class Apply(fn: Declaration, args: NonEmptyList[Declaration], useDotApply: Boolean) extends Declaration
   case class Binding(binding: BindingStatement[Padding[Declaration]]) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]]) extends Declaration
   case class Constructor(name: String) extends Declaration
@@ -595,28 +603,36 @@ object Declaration {
     Memoize.function[String, P[Declaration]] { (indent, rec) =>
 
       val postOperators: List[P[Declaration => Declaration]] = {
-        val applySuffix = P(rec(indent).nonEmptyList.parens).map { args => Apply(_: Declaration, args) }
+        val params = P(rec(indent).nonEmptyList.parens)
+        val dotApply =
+          P("." ~/ varP ~ params.?).map { case (fn, argsOpt) =>
+            val args = argsOpt.fold(List.empty[Declaration])(_.toList)
+
+            { head: Declaration => Apply(fn, NonEmptyList(head, args), true) }
+          }
+
+        val applySuffix = params.map { args =>
+          Apply(_: Declaration, args, false)
+        }
 
         def parseOp(o: Operator): P[Declaration => Declaration] =
           P(maybeSpace ~ o.asString ~/ maybeSpace ~ rec(indent)).map { right => Op(_, o, right) }
 
-        applySuffix :: Operator.allOps.map(parseOp _)
+        dotApply :: applySuffix :: Operator.allOps.map(parseOp _)
       }
       val prefix = defP(indent) | literalIntP | literalBoolP | lambdaP(indent) | matchP(indent) |
         ifElseP(indent) | ffiP | varOrBind(indent) | constructorP | commentP(indent) | P(rec(indent).parens).map(Parens(_))
 
-      def checkOps(head: P[Declaration], ops: List[P[Declaration => Declaration]]): P[Declaration] =
-        ops match {
-          case Nil => head
-          case h :: tail =>
-            val h1 = P(head ~ h.?).map {
-              case (h, None) => h
-              case (h, Some(f)) => f(h)
-            }
-            checkOps(h1, tail)
+      val opsList = postOperators.reduce(_ | _).rep().map(_.toList)
+
+      @annotation.tailrec
+      def loop[A](a: A, fns: List[A => A]): A =
+        fns match {
+          case Nil => a
+          case h :: tail => loop(h(a), tail)
         }
 
-      checkOps(prefix, postOperators)
+      P(prefix ~ opsList).map { case (arg, fns) => loop(arg, fns) }
     }
 
   def parser(indent: String): P[Declaration] =

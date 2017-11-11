@@ -165,17 +165,29 @@ foo"""
 
     parseTestAll(parser(""),
       "x(f)",
-      Apply(Var("x"), NonEmptyList.of(Var("f"))))
+      Apply(Var("x"), NonEmptyList.of(Var("f")), false))
+
+    parseTestAll(parser(""),
+      "f.x",
+      Apply(Var("x"), NonEmptyList.of(Var("f")), true))
+
+    parseTestAll(parser(""),
+      "f(foo).x",
+      Apply(Var("x"), NonEmptyList.of(Apply(Var("f"), NonEmptyList.of(Var("foo")), false)), true))
+
+    parseTestAll(parser(""),
+      "f.foo(x)", // foo(f, x)
+      Apply(Var("foo"), NonEmptyList.of(Var("f"), Var("x")), true))
 
     parseTestAll(parser(""),
       "(\\x -> x)(f)",
-      Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f"))))
+      Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f")), false))
 
     parseTestAll(parser(""),
       "((\\x -> x)(f))",
-      Parens(Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f")))))
+      Parens(Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f")), false)))
 
-    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of("x"), Var("x")))), NonEmptyList.of(Var("f")))
+    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of("x"), Var("x")))), NonEmptyList.of(Var("f")), false)
     parseTestAll(parser(""),
       "((\\x -> x))(f)",
       expected)
@@ -189,7 +201,7 @@ foo"""
     val hard = Lambda(NonEmptyList.of("zl"),Lambda(NonEmptyList.of("mbovroDewsy", "kapdcnqxt", "rwd"),
       Op(Parens(Op(Parens(LiteralInt("-9223372036854775808")),Sub,Parens(Var("anbo7gkpfvj")))),Sub,
         Parens(Apply(Parens(Lambda(NonEmptyList.of("uxu1i"),LiteralInt("35595864962462191423853794339110335496"))),
-          NonEmptyList.of(Op(Parens(LiteralInt("1678198301007947346")),Sub,Parens(LiteralInt("-2902090857627552045")))))))))
+          NonEmptyList.of(Op(Parens(LiteralInt("1678198301007947346")),Sub,Parens(LiteralInt("-2902090857627552045")))), false)))))
 
     parseTestAll(parser(""),
       hard.toDoc.render(80),
@@ -209,13 +221,13 @@ x""",
       """x = foo(4)
 
 x""",
-    Binding(BindingStatement("x", Apply(Var("foo"), NonEmptyList.of(LiteralInt("4"))), Padding(1, Var("x")))))
+    Binding(BindingStatement("x", Apply(Var("foo"), NonEmptyList.of(LiteralInt("4")), false), Padding(1, Var("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 # x is really great
 x""",
-    Binding(BindingStatement("x",Apply(Var("foo"),NonEmptyList.of(LiteralInt("4"))),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,Var("x"))))))))
+    Binding(BindingStatement("x",Apply(Var("foo"),NonEmptyList.of(LiteralInt("4")), false),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,Var("x"))))))))
 
   }
 
