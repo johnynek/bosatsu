@@ -5,7 +5,7 @@ import fastparse.all._
 
 class InferTest extends FunSuite {
   def simpleMatch[T](e: Expr[T], t: Type) = {
-    assert(Inference.inferExpr(e) == Right(Scheme(Nil, t)))
+    assert(Inference.inferExpr(e).map(_.tag._2) === Right(Scheme(Nil, t)))
   }
   val i1 = Expr.Literal(Lit.Integer(1), ())
   val b1 = Expr.Literal(Lit.Bool(true), ())
@@ -26,7 +26,7 @@ class InferTest extends FunSuite {
         val expr = decl.toExpr
         Inference.inferExpr(TypeEnv.empty, expr) match {
           case Left(f) => fail(s"failed: $f")
-          case Right(s) => assert(s.result == t, s"$str => $decl => $expr => $s")
+          case Right(s) => assert(s.tag._2.result === t, s"$str => $decl => $expr => $s")
         }
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
@@ -41,7 +41,7 @@ class InferTest extends FunSuite {
           case Some(main) =>
             Inference.inferExpr(prog.types, main) match {
               case Left(f) => fail(s"failed: $f")
-              case Right(s) => assert(s.result == t, s"$str => $exp => $main => $s")
+              case Right(s) => assert(s.tag._2.result == t, s"$str => $exp => $main => $s")
             }
         }
       case Parsed.Failure(exp, idx, extra) =>

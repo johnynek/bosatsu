@@ -17,7 +17,21 @@ object Lit {
 }
 
 sealed abstract class Expr[T] {
+  import Expr._
+
   def tag: T
+  def setTag(t: T): Expr[T] =
+    this match {
+      case v@Var(_, _) => v.copy(tag = t)
+      case a@App(_, _, _) => a.copy(tag = t)
+      case l@Lambda(_, _, _) => l.copy(tag = t)
+      case f@Ffi(_, _, _, _) => f.copy(tag = t)
+      case l@Let(_, _, _, _) => l.copy(tag = t)
+      case l@Literal(_, _) => l.copy(tag = t)
+      case i@If(_, _, _, _) => i.copy(tag = t)
+      case m@Match(_, _, _) => m.copy(tag = t)
+      case o@Op(_, _, _, _) => o.copy(tag = t)
+    }
 }
 
 object Expr {
@@ -185,14 +199,14 @@ object Expr {
   def evaluate[T](e: Expr[T]): Either[TypeError, (Any, Scheme)] =
     Inference.inferExpr(e).map { scheme =>
       // if we type check, we can always evaluate
-      (evaluateUnsafe(e, Map.empty, Map.empty), scheme)
+      (evaluateUnsafe(e, Map.empty, Map.empty), scheme.tag._2)
     }
 
   def evaluateProgram[S](p: Program[Declaration, S]): Option[Either[TypeError, (Any, Scheme)]] =
     p.getMainDecl.map { case expr =>
       Inference.inferExpr(p.types, expr).map { scheme =>
         // if we type check, we can always evaluate
-        (evaluateUnsafe(expr, Map.empty, p.types.constructors), scheme)
+        (evaluateUnsafe(expr, Map.empty, p.types.constructors), scheme.tag._2)
       }
     }
 

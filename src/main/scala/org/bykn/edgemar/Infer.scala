@@ -6,7 +6,7 @@ package org.bykn.edgemar
  */
 
 import cats.data.{ EitherT, RWST, StateT, NonEmptyList }
-import cats.{ Eval, Monad, MonadError, Traverse }
+import cats.{ Eval, Monad, MonadError, Traverse, Functor, Foldable }
 import cats.implicits._
 
 case class Unique(id: Long) {
@@ -139,11 +139,14 @@ object Inference {
       Substitutable[Type].apply(subst, s.result)
     }
 
-  private def instantiateMatch[T](arg: Type, dt: DefinedType, branches: NonEmptyList[(ConstructorName, List[String], Expr[T])]): Infer[Type] = {
-    def withBind(cn: ConstructorName, args: List[String], ts: List[Type], result: Expr[T]): Infer[Type] =
+  private def instantiateMatch[T](arg: Type,
+    dt: DefinedType,
+    branches: NonEmptyList[(ConstructorName, List[String], Expr[T])]): Infer[(Type, NonEmptyList[(ConstructorName, List[String], Expr[(T, Scheme)])])] = {
+
+    def withBind(cn: ConstructorName, args: List[String], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
       if (args.size != ts.size) MonadError[Infer, TypeError].raiseError(TypeError.InsufficientPatternBind(cn, args, ts, dt))
       else {
-        infer(result)
+        inferTypeTag(result)
           .local { te: TypeEnv =>
             args.zip(ts.map(Scheme.fromType _)).foldLeft(te) { case (te, (varName, tpe)) =>
               te.updated(varName, tpe)
@@ -151,54 +154,62 @@ object Inference {
           }
       }
 
-    def inferBranch(mp: Map[ConstructorName, List[Type]], ce: (ConstructorName, List[String], Expr[T])): Infer[Type] = {
+    type Element[A] = (ConstructorName, List[String], Expr[A])
+    def inferBranch(mp: Map[ConstructorName, List[Type]])(ce: Element[T]): Infer[(Type, Element[(T, Scheme)])] = {
       // TODO make sure we have proven that this map-get is safe:
       val (cname, bindings, branchRes) = ce
       val tpes = mp(cname)
-      withBind(cname, bindings, tpes, branchRes)
+      withBind(cname, bindings, tpes, branchRes).map { case (t, exp) =>
+        (t, (cname, bindings, exp))
+      }
     }
 
     val scheme = dt.typeScheme
     substFor(scheme).flatMap { subst =>
-      // TODO: we need to assert type annotations on each of the branches
       val cMap = dt.consMap(subst)
 
       val matchT = Substitutable[Type].apply(subst, scheme.result)
 
-      def constrain(n: NonEmptyList[(ConstructorName, List[String], Expr[T])]): Infer[Type] =
-        n.reduceLeftM(inferBranch(cMap, _)) { (tpe, tup) =>
-          for {
-            tpe1 <- inferBranch(cMap, tup)
-            _ <- addConstraint(tpe, tpe1)
-          } yield tpe1
-        }
-
       for {
-        branchT <- constrain(branches)
+        branchTypesExpr <- branches.traverse(inferBranch(cMap))
+        branchTypes = branchTypesExpr.map(_._1)
+        branchT <- branchTypes.reduceLeftM(Monad[Infer].pure(_)) { (leftT, rightT) =>
+            for {
+              _ <- addConstraint(leftT, rightT)
+            } yield rightT
+          }
         _ <- addConstraint(arg, matchT)
-      } yield branchT
+      } yield (branchT, branchTypesExpr.map(_._2))
     }
   }
 
-  def inferExpr[T](expr: Expr[T]): Either[TypeError, Scheme] =
+  def inferExpr[T](expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] =
     inferExpr(TypeEnv.empty, expr)
 
-  def inferExpr[T](te: TypeEnv, expr: Expr[T]): Either[TypeError, Scheme] = {
+  def inferExpr[T](te: TypeEnv, expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] = {
     // get the constraints
-    val tcE = infer(expr)
+    val tcE = inferTypeTag(expr)
       .run(te, Unique(0L))
       .map { case (s, _, a) => (a, s) }
       .value
       .value
 
+    val subExpr: Substitutable[Expr[(T, Scheme)]] =
+      Substitutable.fromMapFold[Lambda[x => Expr[(T, x)]], Scheme](
+        Functor[Expr].compose(Functor[(T, ?)]),
+        Foldable[Expr].compose(Foldable[(T, ?)]),
+        implicitly)
+
     // now solve
     for {
       tc <- tcE
-      (tpe, cons) = tc
+      ((tpe, expS), cons) = tc
       unif <- runSolve(cons.toList)
-      Unifier(subs, cs) = unif
-      st = Substitutable[Type].apply(subs, tpe)
-    } yield closeOver(st)
+      Unifier(subs, _) = unif
+      subT = Substitutable[Type].apply(subs, tpe)
+      expSsub = subExpr.apply(subs, expS)
+      scheme = closeOver(subT)
+    } yield expSsub.setTag((expr.tag, scheme))
   }
 
   def lookup(n: String): Infer[Type] = {
@@ -214,69 +225,92 @@ object Inference {
   /**
    * Infer the type and generalize all free variables
    */
-  def inferScheme[T](ex: Expr[T]): Infer[Scheme] =
+  def inferScheme[T](ex: Expr[T]): Infer[(Scheme, Expr[(T, Scheme)])] =
     for {
       env <- (RWST.ask: Infer[TypeEnv])
       // we need to see current constraits, since they are not free variables
-      t1c <- infer(ex).transform { (l, s, a) => (l, s, (a, l)) }
-      (t1, cons) = t1c
-    } yield Substitutable.generalize((env, cons), t1)
+      t1c <- inferTypeTag(ex).transform { (l, s, a) => (l, s, (a, l)) }
+      ((t1, exprS), cons) = t1c
+      scheme = Substitutable.generalize((env, cons), t1)
+    } yield (scheme, exprS.setTag((ex.tag, scheme)))
 
   def infer[T](expr: Expr[T]): Infer[Type] =
-    expr match {
-      case Expr.Var(n, _) =>
-        lookup(n)
+    inferTypeTag(expr).map { case (t, _) => t }
 
-      case Expr.Lambda(arg, e, _) =>
+  def inferTypeTag[T](expr: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
+    expr match {
+      case Expr.Var(n, tag) =>
+        lookup(n).map { t =>
+          (t, Expr.Var(n, (tag, Scheme.fromType(t))))
+        }
+
+      case Expr.Lambda(arg, e, tag) =>
         for {
           tv <- fresh
-          t <- inEnv(arg, Scheme.fromType(tv), infer(e))
-        } yield Type.Arrow(tv, t)
+          te <- inEnv(arg, Scheme.fromType(tv), inferTypeTag(e))
+          (t, expes) = te
+          lt = Type.Arrow(tv, t)
+        } yield (lt, Expr.Lambda(arg, expes, (tag, Scheme.fromType(lt))))
 
-      case Expr.Ffi(_, _, scheme, _) =>
-        instantiate(scheme)
+      case Expr.Ffi(lang, callsite, scheme, tag) =>
+        instantiate(scheme).map { t =>
+          (t, Expr.Ffi(lang, callsite, scheme, (tag, scheme)))
+        }
 
-      case Expr.App(fn, arg, _) =>
+      case Expr.App(fn, arg, tag) =>
         for {
-          t1 <- infer(fn)
-          t2 <- infer(arg)
+          ifn <- inferTypeTag(fn)
+          iarg <- inferTypeTag(arg)
+          (t1, efn) = ifn
+          (t2, earg) = iarg
           tv <- fresh
           _ <- addConstraint(t1, Type.Arrow(t2, tv))
-        } yield tv
+        } yield (tv, Expr.App(efn, earg, (tag, Scheme.fromType(tv))))
 
-      case Expr.Let(n, ex, in, _) =>
+      case Expr.Let(n, ex, in, tag) =>
         for {
-          sc <- inferScheme(ex)
-          t2 <- inEnv(n, sc, infer(in))
-        } yield t2
+          scEx <- inferScheme(ex)
+          (sc, exS) = scEx
+          iin <- inEnv(n, sc, inferTypeTag(in))
+          (t2, ein) = iin
+        } yield (t2, Expr.Let(n, exS, ein, (tag, Scheme.fromType(t2))))
 
-      case Expr.Op(e1, op, e2, _) =>
+      case Expr.Op(e1, op, e2, tag) =>
         for {
-          t1 <- infer(e1)
-          t2 <- infer(e2)
+          i1 <- inferTypeTag(e1)
+          i2 <- inferTypeTag(e2)
+          (t1, es1) = i1
+          (t2, es2) = i2
           tv <- fresh
           u1 = Type.Arrow(t1, Type.Arrow(t2, tv))
           u2 = Operator.typeOf(op)
           _ <- addConstraint(u1, u2)
-        } yield tv
+        } yield (tv, Expr.Op(es1, op, es2, (tag, Scheme.fromType(tv))))
 
-      case Expr.Literal(Lit.Integer(_), _) => Monad[Infer].pure(Type.intT)
-      case Expr.Literal(Lit.Bool(_), _) => Monad[Infer].pure(Type.boolT)
-      case Expr.If(cond, te, fe, _) =>
+      case Expr.Literal(Lit.Integer(i), tag) =>
+        Monad[Infer].pure((Type.intT, Expr.Literal(Lit.Integer(i), (tag, Scheme.fromType(Type.intT)))))
+      case Expr.Literal(Lit.Bool(b) ,tag) =>
+        Monad[Infer].pure((Type.boolT, Expr.Literal(Lit.Bool(b), (tag, Scheme.fromType(Type.boolT)))))
+      case Expr.If(cond, te, fe, tag) =>
         for {
-          tc <- infer(cond)
-          t1 <- infer(te)
-          t2 <- infer(fe)
+          ic <- inferTypeTag(cond)
+          i1 <- inferTypeTag(te)
+          i2 <- inferTypeTag(fe)
+          (tc, ec) = ic
+          (t1, e1) = i1
+          (t2, e2) = i2
           _ <- addConstraint(Type.boolT, tc)
           _ <- addConstraint(t1, t2)
-        } yield t2
-      case Expr.Match(arg, branches, _) =>
+        } yield (t2, Expr.If(ec, e1, e2, (tag, Scheme.fromType(t2))))
+      case Expr.Match(arg, branches, tag) =>
         for {
           env <- (RWST.ask: Infer[TypeEnv])
           dt <- MonadError[Infer, TypeError].fromEither(env.getDefinedType(branches.map(_._1)))
-          targ <- infer(arg)
-          tbranch <- instantiateMatch(targ, dt, branches)
-        } yield tbranch
+          iarg <- inferTypeTag(arg)
+          (targ, earg) = iarg
+          ibranch <- instantiateMatch(targ, dt, branches)
+          (tbranch, ebranches) = ibranch
+        } yield (tbranch, Expr.Match(earg, ebranches, (tag, Scheme.fromType(tbranch))))
     }
 }
 

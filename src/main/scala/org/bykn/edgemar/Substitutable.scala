@@ -1,6 +1,8 @@
 package org.bykn.edgemar
 
 import cats.data.NonEmptyList
+import cats.{Functor, Foldable}
+import cats.implicits._
 
 trait Substitutable[T] {
   def apply(sub: Subst, t: T): T
@@ -72,24 +74,21 @@ object Substitutable {
       def typeVars(d: DefinedType) = d.typeParams.iterator.map(_.name).toSet
     }
 
-  implicit def forList[A: Substitutable]: Substitutable[List[A]] =
-    new Substitutable[List[A]] {
-      def apply(sub: Subst, t: List[A]): List[A] =
+  def fromMapFold[F[_]: Functor: Foldable, A: Substitutable]: Substitutable[F[A]] =
+    new Substitutable[F[A]] {
+      def apply(sub: Subst, t: F[A]): F[A] =
         t.map(Substitutable[A].apply(sub, _))
 
-      def typeVars(as: List[A]) =
+      def typeVars(as: F[A]) =
         as.foldLeft(Set.empty[String]) { _ | Substitutable[A].typeVars(_) }
     }
+
+
+  implicit def forList[A: Substitutable]: Substitutable[List[A]] =
+    fromMapFold[List, A]
 
   implicit def forNonEmptyList[A: Substitutable]: Substitutable[NonEmptyList[A]] =
-    new Substitutable[NonEmptyList[A]] {
-      def apply(sub: Subst, t: NonEmptyList[A]): NonEmptyList[A] =
-        t.map(Substitutable[A].apply(sub, _))
-
-      def typeVars(as: NonEmptyList[A]) =
-        as.foldLeft(Set.empty[String]) { _ | Substitutable[A].typeVars(_) }
-    }
-
+    fromMapFold[NonEmptyList, A]
 
   implicit def forSet[A: Substitutable]: Substitutable[Set[A]] =
     new Substitutable[Set[A]] {
@@ -113,13 +112,7 @@ object Substitutable {
     }
 
   implicit def forMap[K, V: Substitutable]: Substitutable[Map[K, V]] =
-    new Substitutable[Map[K, V]] {
-      def apply(sub: Subst, m: Map[K, V]): Map[K, V] =
-        m.iterator.map { case (k, v) => k -> Substitutable[V].apply(sub, v) }.toMap
-
-      def typeVars(m: Map[K, V]) =
-        m.values.foldLeft(Set.empty[String]) { _ | Substitutable[V].typeVars(_) }
-    }
+    fromMapFold[Map[K, ?], V]
 
   implicit val forTypeEnv: Substitutable[TypeEnv] =
     new Substitutable[TypeEnv] {
