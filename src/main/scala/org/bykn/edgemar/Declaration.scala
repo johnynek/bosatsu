@@ -231,7 +231,7 @@ object Statement {
        case Parsed.Success(stmt, idx) if str.length == idx =>
          val prog = stmt.toProgram
          prog.getMainDecl.map { expr =>
-           Expr.evaluate(expr).right.get
+           Evaluation.evaluate(expr).right.get
          }
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")

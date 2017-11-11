@@ -26,6 +26,15 @@ object Type {
   val intT: Type = Primitive("Int")
   val boolT: Type = Primitive("Bool")
 
+
+  @annotation.tailrec
+  final def rootDeclared(t: Type): Option[Declared] =
+    t match {
+      case decl@Declared(_) => Some(decl)
+      case TypeApply(left, _) => rootDeclared(left)
+      case _ => None
+    }
+
   private[this] val prims = Set("Int", "Bool")
   def maybePrimitive(n: String): Type =
     if (prims(n)) Primitive(n)

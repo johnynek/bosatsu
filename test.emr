@@ -33,6 +33,20 @@ enum List:
   Empty
   NonEmpty(head: a, tail: List[a])
 
+# This gives us enough to implement useful List functions (and is total)
+# but not expressible directly
+fold = ffi scala org.bykn.edgemar.Std.fold List[a] -> b -> (b -> a -> b) -> b
+
+def reverse(list):
+  fold(list, Empty, \tail, item -> NonEmpty(item, tail))
+
+def map(list, fn):
+  revmap = fold(list, Empty, \tail, item -> NonEmpty(fn(item), tail))
+  reverse(revmap)
+
+def sum(items):
+  fold(items, 0, \x, y -> x + y)
+
 enum Bool:
   True
   False
@@ -50,8 +64,9 @@ hc = ffi scala org.bykn.edgemar.Foo.times Int -> Int
 
 foo = NonEmpty(1, NonEmpty(2, Empty))
 
+
 main = match foo:
   Empty:
     0
   NonEmpty(x, tail):
-    hc(1)
+    hc(1) + sum(map(foo, \x -> 10*x))

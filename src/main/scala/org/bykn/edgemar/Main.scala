@@ -9,6 +9,26 @@ object Foo {
     java.lang.Integer.valueOf(i.intValue + 42)
 }
 
+trait Fn[A, B] {
+  def apply(arg: A): B
+}
+
+object Std {
+  //fold = ffi scala org.bykn.edgemar.Std.fold List[a] -> b -> (b -> a -> b) -> b
+  @annotation.tailrec
+  final def fold(list: Any, bv: Any, fn: Any): Any = {
+    list match {
+      case (0, _) =>
+        // Empty
+        bv
+      case (1, head :: tail :: Nil) =>
+        val fnT = fn.asInstanceOf[Fn[Any, Fn[Any, Any]]]
+        fold(tail, fnT(bv)(head), fn)
+      case _ => sys.error(s"unexpected: $list")
+    }
+  }
+}
+
 object Main extends CommandApp(
   name = "edgemar",
   header = "a total language",
@@ -19,7 +39,7 @@ object Main extends CommandApp(
       Statement.parser.parse(str) match {
         case Parsed.Success(exp, _) =>
           val prog = exp.toProgram
-          Expr.evaluateProgram(prog) match {
+          Evaluation.evaluateProgram(prog) match {
             case None => sys.error("found no main expression")
             case Some(Left(err)) => sys.error(s"TypeError: $err")
             case Some(Right((res, scheme))) =>
