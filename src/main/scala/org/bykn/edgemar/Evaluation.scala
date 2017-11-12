@@ -107,16 +107,12 @@ object Evaluation {
 
         def invoke(tpe: Type, args: List[AnyRef]): Any =
           tpe match {
-            case Type.Primitive(_) =>
-              m.invoke(inst, args.reverse.toArray: _*)
-            case Type.Var(_) =>
-              m.invoke(inst, args.reverse.toArray: _*)
             case Type.Arrow(_, tail) =>
               new Fn[Any, Any] {
                 def apply(x: Any) = invoke(tail, (x.asInstanceOf[AnyRef]) :: args)
               }
-            case unsupported =>
-              sys.error(s"unsupported ffi type $unsupported")
+            case _ =>
+              m.invoke(inst, args.reverse.toArray: _*)
           }
         invoke(t, Nil)
       case Let(arg, e, in, _) =>

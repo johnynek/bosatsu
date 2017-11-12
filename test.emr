@@ -37,6 +37,13 @@ enum List:
 # but not expressible directly
 fold = ffi scala org.bykn.edgemar.Std.fold List[a] -> b -> (b -> a -> b) -> b
 
+external struct Action[a]
+print = ffi scala org.bykn.edgemar.Std.print Int -> Action[Unit]
+flatMap = ffi scala org.bykn.edgemar.Std.flatMap Action[a] -> (a -> Action[b]) -> Action[b]
+mapAction = ffi scala org.bykn.edgemar.Std.flatMap Action[a] -> (a -> b) -> Action[b]
+toAction = ffi scala org.bykn.edgemar.Std.toAction a -> Action[a]
+runAction = ffi scala org.bykn.edgemar.Std.runAction Action[a] -> a
+
 def reverse(list):
   fold(list, Empty, \tail, item -> NonEmpty(item, tail))
 
@@ -71,6 +78,8 @@ hc = ffi scala org.bykn.edgemar.Foo.times Int -> Int
 
 foo = NonEmpty(1, NonEmpty(2, Empty))
 
+act = print(42).flatMap(\u -> toAction(43))
+resA = runAction(act)
 
 main = match foo:
   Empty:

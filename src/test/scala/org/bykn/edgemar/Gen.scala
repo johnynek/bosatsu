@@ -22,7 +22,7 @@ object Generators {
       tail <- Gen.listOfN(cnt, t)
     } yield NonEmptyList(h, tail)
 
-  val keyWords = Set("if", "ffi", "match", "struct", "enum", "else", "elif", "def")
+  val keyWords = Set("if", "ffi", "match", "struct", "enum", "else", "elif", "def", "external", "package", "import", "export")
 
   val lowerIdent: Gen[String] =
     (for {
@@ -218,6 +218,14 @@ object Generators {
         Statement.Struct(name, args, rest)
       }
 
+  def genExternalStruct(tail: Gen[Statement]): Gen[Statement] =
+    for {
+      name <- upperIdent
+      argc <- Gen.choose(0, 5)
+      args <- Gen.listOfN(argc, lowerIdent)
+      rest <- padding(tail)
+    } yield Statement.ExternalStruct(name, args.map(TypeRef.TypeVar(_)), rest)
+
   def genEnum(tail: Gen[Statement]): Gen[Statement] =
     for {
       name <- upperIdent
@@ -240,6 +248,7 @@ object Generators {
         }).map(Statement.Comment(_))),
       (1, defGen(Gen.zip(padding(indented(decl)), padding(recur))).map(Statement.Def(_))),
       (1, genStruct(recur)),
+      (1, genExternalStruct(recur)),
       (1, genEnum(recur)),
       (3, Gen.const(Statement.EndOfFile)))
   }

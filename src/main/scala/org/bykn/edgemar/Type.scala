@@ -10,8 +10,11 @@ sealed abstract class Type {
   def varsIn: List[Type.Var] =
     this match {
       case v@Var(_) => v :: Nil
+      case Arrow(from, to) =>
+        (from.varsIn ::: to.varsIn).distinct
+      case TypeApply(hk, arg) =>
+        (hk.varsIn ::: arg.varsIn).distinct
       case _ =>
-        // TODO actually more vars can be burried in other types.
         Nil
     }
 }
@@ -127,6 +130,9 @@ case class Scheme(vars: List[String], result: Type) {
 
 object Scheme {
   def fromType(t: Type): Scheme = Scheme(Nil, t)
+
+  def typeConstructor(t: Type): Scheme =
+    Scheme(t.varsIn.map(_.name), t).normalized
 }
 
 case class ConstructorName(asString: String)
@@ -138,16 +144,16 @@ object ConstructorName {
 case class ParamName(asString: String)
 case class TypeName(asString: String)
 
-case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors: NonEmptyList[(ConstructorName, List[(ParamName, Type)])]) {
+case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors: List[(ConstructorName, List[(ParamName, Type)])]) {
   private[this] val consMap: Map[ConstructorName, List[(ParamName, Type)]] =
-    constructors.toList.toMap
+    constructors.toMap
 
   private def scheme(t: Type) = Scheme(typeParams.map(_.name), t)
 
   def consMap(subst: Subst): Map[ConstructorName, List[Type]] = {
-    val newCons = Substitutable[NonEmptyList[(ConstructorName, List[(ParamName, Type)])]].apply(subst, constructors)
+    val newCons = Substitutable[List[(ConstructorName, List[(ParamName, Type)])]].apply(subst, constructors)
 
-    newCons.toList.toMap.mapValues(_.map(_._2))
+    newCons.toMap.mapValues(_.map(_._2))
   }
 
   def fullyApplied(subst: Subst): Type = {
@@ -181,14 +187,14 @@ case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors:
 
   def checkTotality(matches: NonEmptyList[ConstructorName]): Either[TypeError, Unit] = {
     val expected = constructors.map(_._1)
-    if (expected.toList.toSet == matches.toList.toSet) Right(())
+    if (expected.toSet == matches.toList.toSet) Right(())
     else Left(TypeError.NonTotalMatch(matches, expected))
   }
 }
 
 object DefinedType {
   implicit val orderingDT: Order[DefinedType] =
-    Order[(String, List[String], NonEmptyList[(String, List[(String, Type)])])]
+    Order[(String, List[String], List[(String, List[(String, Type)])])]
       .contramap[DefinedType] { case DefinedType(TypeName(str), vars, cons) =>
         (str, vars.map { case Type.Var(n) => n }, cons.map { case (ConstructorName(n), lst) =>
           (n, lst.map { case (ParamName(pn), t) => (pn, t) })

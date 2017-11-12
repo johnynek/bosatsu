@@ -162,6 +162,9 @@ sealed abstract class Statement {
         case e@Enum(_, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = p.types.addDefinedType(e.toDefinition))
+        case x@ExternalStruct(_, _, Padding(_, rest)) =>
+          val p = loop(rest)
+          p.copy(types = p.types.addDefinedType(x.toDefinition))
         case EndOfFile =>
           Program(TypeEnv.empty, Nil, EndOfFile)
       }
@@ -201,7 +204,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
       case Struct(nm, args, _) =>
         val params = buildParams(args).runA(0).value
         val explicitTps = explicits(params)
-        DefinedType(TypeName(nm), explicitTps, NonEmptyList((ConstructorName(nm), params), Nil))
+        DefinedType(TypeName(nm), explicitTps, (ConstructorName(nm), params) :: Nil)
       case Enum(nm, items, _) =>
         val constructorsS = items.traverse { case Padding(_, Indented(_, (nm, args))) =>
           buildParams(args).map((ConstructorName(nm), _))
@@ -209,7 +212,9 @@ sealed abstract class TypeDefinitionStatement extends Statement {
 
         val constructors = constructorsS.runA(0).value
         val allExplicits = explicits(constructors.map(_._2).toList.flatten)
-        DefinedType(TypeName(nm), allExplicits.distinct, constructors)
+        DefinedType(TypeName(nm), allExplicits.distinct, constructors.toList)
+      case ExternalStruct(nm, targs, _) =>
+        DefinedType(TypeName(nm), targs.map { case TypeRef.TypeVar(v) => Type.Var(v) }, Nil)
     }
   }
 }
@@ -219,6 +224,7 @@ object Statement {
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
   case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
+  case class ExternalStruct(name: String, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class Enum(name: String,
     items: NonEmptyList[Padding[Indented[(String, List[(String, Option[TypeRef])])]]],
     rest: Padding[Statement]) extends TypeDefinitionStatement
@@ -239,13 +245,13 @@ object Statement {
   }
 
   val parser: P[Statement] = {
-    val bP = P(lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ toEOL ~ Padding.parser(parser))
+    val bindingP = P(lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ toEOL ~ Padding.parser(parser))
       .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
 
-    val cP = CommentStatement.parser("", P(Padding.parser(parser))).map(Comment(_))
+    val commentP = CommentStatement.parser("", P(Padding.parser(parser))).map(Comment(_))
 
     val defBody = Padding.parser(Indented.parser(Declaration.parser(_)))
-    val dP: P[Def] = DefStatement.parser(P(defBody ~ "\n" ~ Padding.parser(parser))).map(Def(_))
+    val defP: P[Def] = DefStatement.parser(P(defBody ~ "\n" ~ Padding.parser(parser))).map(Def(_))
 
     val end = P(End).map(_ => EndOfFile)
 
@@ -253,6 +259,13 @@ object Statement {
       .map {
         case (n, None) => (n, Nil)
         case (n, Some(args)) => (n, args)
+      }
+
+    val externalStruct = P("external" ~ spaces ~/ "struct" ~/ spaces ~ upperIdent ~
+      ("[" ~/ maybeSpace ~ lowerIdent.nonEmptyList ~ maybeSpace ~ "]").? ~ toEOL ~ Padding.parser(parser)).map {
+        case (name, targs, rest) =>
+          val tva = targs.fold(List.empty[TypeRef.TypeVar])(_.toList.map(TypeRef.TypeVar(_)))
+          ExternalStruct(name, tva, rest)
       }
 
     val struct = P("struct" ~ spaces ~/ constructorP ~ Padding.parser(parser))
@@ -267,7 +280,7 @@ object Statement {
       }
 
     // bP should come last so there is no ambiguity about identifiers
-    cP | dP | struct | enum | bP | end
+    commentP | defP | struct | enum | externalStruct | bindingP | end
   }
 
   private def constructor(name: String, args: List[(String, Option[TypeRef])]): Doc =
@@ -308,6 +321,15 @@ object Statement {
           Doc.line +
           Document[Padding[Statement]].document(rest)
       case EndOfFile => Doc.empty
+      case ExternalStruct(nm, targs, rest) =>
+        val argsDoc = targs match {
+          case Nil => Doc.empty
+          case nonEmpty =>
+            val params = nonEmpty.map { case TypeRef.TypeVar(v) => Doc.text(v) }
+            Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
+        }
+        Doc.text("external struct ") + Doc.text(nm) + argsDoc + Doc.line +
+          Document[Padding[Statement]].document(rest)
     }
 }
 
@@ -447,7 +469,7 @@ sealed abstract class Declaration {
       case Var(name) =>
         Expr.Var(name, this)
       case FfiLambda(lang, callsite, tpe) =>
-        Expr.Ffi(lang, callsite, Scheme.fromType(tpe.toType), this)
+        Expr.Ffi(lang, callsite, Scheme.typeConstructor(tpe.toType), this)
       case Match(arg, branches) =>
         val expBranches = branches.map { case Padding(_, Indented(_, (Pattern(nm, bs), Padding(_, Indented(_, decl))))) =>
           (ConstructorName(nm), bs, decl.toExpr)

@@ -67,7 +67,7 @@ object Substitutable {
         // all the names in typeParams are shadows so we need
         // to remove them:
         val newSubst = Subst(t.typeParams.map(_.name).foldLeft(sub.toMap)(_ - _))
-        val newCons = Substitutable[NonEmptyList[(ConstructorName, List[(ParamName, Type)])]].apply(newSubst, t.constructors)
+        val newCons = Substitutable[List[(ConstructorName, List[(ParamName, Type)])]].apply(newSubst, t.constructors)
         t.copy(constructors = newCons)
       }
 

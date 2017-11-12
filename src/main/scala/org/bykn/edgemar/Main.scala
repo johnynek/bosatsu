@@ -1,5 +1,6 @@
 package org.bykn.edgemar
 
+import cats.Eval
 import com.monovore.decline._
 import java.nio.file.{Files, Path}
 import fastparse.all._
@@ -27,6 +28,23 @@ object Std {
       case _ => sys.error(s"unexpected: $list")
     }
   }
+
+  def unitValue: AnyRef = (0, Nil)
+
+  def print(i: java.lang.Integer): Any =
+    Eval.always { println(i.toString); unitValue }
+
+  def flatMap(act: Any, fn: Any): Any =
+    act.asInstanceOf[Eval[Any]].flatMap { v =>
+      fn.asInstanceOf[Fn[Any, Eval[Any]]](v)
+    }
+  def mapAction(act: Any, fn: Any): Any =
+    act.asInstanceOf[Eval[Any]].map { v =>
+      fn.asInstanceOf[Fn[Any, Any]](v)
+    }
+
+  def toAction(a: Any): Any = Eval.now(a)
+  def runAction(a: Any): Any = a.asInstanceOf[Eval[Any]].value
 }
 
 object Main extends CommandApp(
