@@ -54,28 +54,41 @@ object Parser {
   def indented[T](fn: String => P[T]): P[T] =
     spaces.!.flatMap { extra => P(fn(extra)) }
 
+  def nonEmptyListToList[T](p: P[NonEmptyList[T]]): P[List[T]] =
+    p.?.map {
+      case None => Nil
+      case Some(ne) => ne.toList
+    }
+
+
   implicit class Combinators[T](val item: P[T]) extends AnyVal {
     def list: P[List[T]] = listN(0)
 
     def listN(min: Int): P[List[T]] =
-      if (min == 0) {
-        nonEmptyList.?
-          .map {
-            case None => Nil
-            case Some(nel) => nel.toList
-          }
-      } else nonEmptyListOf(min).map(_.toList)
+      if (min == 0) nonEmptyListToList(nonEmptyList)
+      else nonEmptyListOf(min).map(_.toList)
 
     def nonEmptyList: P[NonEmptyList[T]] = nonEmptyListOf(1)
 
-    def nonEmptyListOf(min: Int): P[NonEmptyList[T]] = {
+    def nonEmptyListOf(min: Int): P[NonEmptyList[T]] =
+      nonEmptyListOfWs(maybeSpace, min)
+
+    def nonEmptyListOfWs(ws: P[Unit], min: Int): P[NonEmptyList[T]] = {
       require(min >= 1, s"min is too small: $min")
-      val many = P(("," ~ maybeSpace ~ item ~ maybeSpace).rep())
-      P(item ~ maybeSpace ~ many.? ~ (",".?))
+      val many = P(("," ~ ws ~ item ~ ws).rep())
+      P(item ~ ws ~ many.? ~ (",".?))
         .map {
           case (h, None) => NonEmptyList(h, Nil)
           case (h, Some(nel)) => NonEmptyList(h, nel.toList)
         }
+    }
+
+    def bracketed(left: P[Unit], right: P[Unit]): P[T] =
+      left ~ item ~ right
+
+    def nonEmptyListSyntax: P[NonEmptyList[T]] = {
+      val ws = P(CharsWhile(_.isWhitespace)).?
+      nonEmptyListOfWs(ws, 1).bracketed(P("[" ~/ ws), P(ws ~ "]"))
     }
 
     def trailingSpace: P[T] =

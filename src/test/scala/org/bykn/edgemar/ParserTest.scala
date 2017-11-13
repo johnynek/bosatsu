@@ -52,6 +52,9 @@ class ParserTest extends FunSuite {
         fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
 
+  def law[T: Document](p: Parser[T])(t: T) =
+    parseTestAll(p, Document[T].document(t).render(80), t)
+
   def expectFail[T](p: Parser[T], str: String, atIdx: Int) =
     p.parse(str) match {
       case Parsed.Success(t, idx) => fail(s"parsed $t to: $idx")
@@ -303,12 +306,7 @@ else:
   }
 
   test("we can parse any Declaration") {
-    def law(decl: Declaration) =
-      parseTestAll(Declaration.parser(""),
-        decl.toDoc.render(80),
-        decl)
-
-    forAll(Generators.genDeclaration(5))(law _)
+    forAll(Generators.genDeclaration(5))(law(Declaration.parser("")))
 
     import Declaration._
     import Operator._
@@ -361,16 +359,12 @@ else:
     // println("-----------------------")
 
     val hardCases = List(hard0, hard1)
-    hardCases.foreach(law _)
+    val test = law(Declaration.parser(""))(_)
+    hardCases.foreach(test)
   }
 
   test("we can parse any Statement") {
-    def law(statement: Statement) =
-      parseTestAll(Statement.parser,
-        Statement.document.document(statement).render(80),
-        statement)
-
-    //forAll(Generators.genStatement)(law _)
+    forAll(Generators.genStatement)(law(Statement.parser))
 
     val hardCase0 = {
       import TypeRef._
@@ -387,7 +381,7 @@ else:
               NonEmptyList.of("foo", "bar"),
               Padding[Statement](1,EndOfFile)))))))))))
     }
-    law(hardCase0)
+    law(Statement.parser)(hardCase0)
 
     val hardCase1 = {
       import TypeRef.TypeVar
@@ -404,7 +398,7 @@ else:
     (Padding(10,Indented(11,Op(Parens(LiteralBool(true)),Operator.Mul,
       Parens(LiteralInt("-30284323492203273957034407858667371620"))))),Padding(5,EndOfFile)))))))))))))))))
     }
-    law(hardCase1)
+    law(Statement.parser)(hardCase1)
 
     roundTrip(Statement.parser,
 """# header
@@ -422,5 +416,18 @@ fn = \x, y -> x + y
 x = ( foo )
 
 """)
+  }
+
+  test("we can parse any package") {
+    roundTrip(Package.parser,
+"""
+package Foo/Bar
+import Baz [Bippy]
+export [foo]
+
+foo = 1
+""")
+
+    forAll(Generators.packageGen)(law(Package.parser))
   }
 }

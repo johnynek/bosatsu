@@ -1,13 +1,11 @@
-#package Foo::Bar
-#
-#import Baz::[
-#  Bippy, Bo -> Bop,
-#]
-#
-#export [
-#  x, z, Either
-#]
+package Foo/Bar
 
+import Std [ List, Option ]
+import Baz/Bippy [ Bo as BazBo, Bippy ]
+
+export [
+  x, z, Either(), Record(), Option()
+]
 
 x = 1
 
@@ -38,6 +36,7 @@ enum List:
 fold = ffi scala org.bykn.edgemar.Std.fold List[a] -> b -> (b -> a -> b) -> b
 
 external struct Action[a]
+
 print = ffi scala org.bykn.edgemar.Std.print Int -> Action[Unit]
 flatMap = ffi scala org.bykn.edgemar.Std.flatMap Action[a] -> (a -> Action[b]) -> Action[b]
 mapAction = ffi scala org.bykn.edgemar.Std.flatMap Action[a] -> (a -> b) -> Action[b]

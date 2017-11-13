@@ -252,4 +252,45 @@ object Generators {
       (1, genEnum(recur)),
       (3, Gen.const(Statement.EndOfFile)))
   }
+
+  val packageNameGen: Gen[PackageName] =
+    for {
+      pc <- Gen.choose(1, 5)
+      (h :: tail) <- Gen.listOfN(pc, upperIdent)
+    } yield PackageName(NonEmptyList(h, tail))
+
+  val importedNameGen: Gen[ImportedName] = {
+    def rename(g: Gen[String]): Gen[ImportedName] =
+      Gen.zip(g, g).map { case (f, t) => ImportedName.Renamed(f, t) }
+
+    def orig(g: Gen[String]): Gen[ImportedName] =
+      g.map(ImportedName.OriginalName(_))
+
+    def in(g: Gen[String]) = Gen.oneOf(rename(g), orig(g))
+
+    Gen.oneOf(in(lowerIdent), in(upperIdent))
+  }
+
+  val importGen: Gen[Import] =
+    for {
+      p <- packageNameGen
+      importCount <- Gen.choose(1, 10)
+      (h :: tail) <- Gen.listOfN(importCount, importedNameGen)
+    } yield Import(p, NonEmptyList(h, tail))
+
+  val exportedNameGen: Gen[ExportedName] =
+    Gen.oneOf(
+      lowerIdent.map(ExportedName.Binding(_)),
+      upperIdent.map(ExportedName.TypeName(_)),
+      upperIdent.map(ExportedName.Constructor(_)))
+
+  val packageGen: Gen[Package] =
+    for {
+      p <- packageNameGen
+      ic <- Gen.choose(0, 8)
+      ec <- Gen.choose(0, 10)
+      imports <- Gen.listOfN(ic, importGen)
+      exports <- Gen.listOfN(ec, exportedNameGen)
+      body <- genStatement
+    } yield Package(p, imports, exports, body)
 }

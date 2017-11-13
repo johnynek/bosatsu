@@ -54,9 +54,9 @@ object Main extends CommandApp(
     val opt = Opts.option[Path]("input", help = "file to execute")
     opt.map { path =>
       val str = new String(Files.readAllBytes(path), "utf-8")
-      Statement.parser.parse(str) match {
+      Package.parser.parse(str) match {
         case Parsed.Success(exp, _) =>
-          val prog = exp.toProgram
+          val prog = exp.body.toProgram
           Evaluation.evaluateProgram(prog) match {
             case None => sys.error("found no main expression")
             case Some(Left(err)) => sys.error(s"TypeError: $err")
