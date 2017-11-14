@@ -271,7 +271,7 @@ object Generators {
     Gen.oneOf(in(lowerIdent), in(upperIdent))
   }
 
-  val importGen: Gen[Import] =
+  val importGen: Gen[Import[PackageName]] =
     for {
       p <- packageNameGen
       importCount <- Gen.choose(1, 10)
@@ -284,7 +284,7 @@ object Generators {
       upperIdent.map(ExportedName.TypeName(_)),
       upperIdent.map(ExportedName.Constructor(_)))
 
-  val packageGen: Gen[Package] =
+  val packageGen: Gen[Package[PackageName]] =
     for {
       p <- packageNameGen
       ic <- Gen.choose(0, 8)

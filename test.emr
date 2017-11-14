@@ -3,9 +3,9 @@ package Foo/Bar
 import Std [ List, Option ]
 import Baz/Bippy [ Bo as BazBo, Bippy ]
 
-export [
-  x, z, Either(), Record(), Option()
-]
+# export [
+#   x, z, Either [ Left, Right ], Record [ Record ], Option [ None, Some ]
+# ]
 
 x = 1
 
@@ -34,6 +34,8 @@ enum List:
 # This gives us enough to implement useful List functions (and is total)
 # but not expressible directly
 fold = ffi scala org.bykn.edgemar.Std.fold List[a] -> b -> (b -> a -> b) -> b
+# TODO: change syntax to, and a special ffi file to control the mapping.
+#external def fold(l: List[A], init: b, fn: (b -> a -> b)) -> b
 
 external struct Action[a]
 
