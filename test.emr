@@ -45,6 +45,13 @@ mapAction = ffi scala org.bykn.edgemar.Std.flatMap Action[a] -> (a -> b) -> Acti
 toAction = ffi scala org.bykn.edgemar.Std.toAction a -> Action[a]
 runAction = ffi scala org.bykn.edgemar.Std.runAction Action[a] -> a
 
+def reduce(list, fn):
+  match list:
+    Empty:
+        None
+    NonEmpty(head, tail):
+        Some(tail.fold(head, fn))
+
 def reverse(list):
   fold(list, Empty, \tail, item -> NonEmpty(item, tail))
 
