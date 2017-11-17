@@ -19,6 +19,12 @@ object Evaluation {
       }
     }
 
+  /**
+   * Evaluate a typechecked package map
+   */
+  // def evaluatePackage(p: PackageName, pm: PackageMap[FixPackage[Referant, Referant], Referant, Referant]]): Option[(Any, Scheme)] =
+  //   pm.toMap.get(p).map {
+
   private def getJavaType(t: Type): List[Class[_]] = {
     def loop(t: Type, top: Boolean): List[Class[_]] = {
       t match {

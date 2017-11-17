@@ -157,6 +157,11 @@ case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors:
   }
 
   def rename(n: String): DefinedType = copy(name = TypeName(n))
+  def renameConstructor(orig: ConstructorName, to: String): DefinedType =
+    copy(constructors = constructors.map {
+      case (cn, params) if cn == orig => (ConstructorName(to), params)
+      case noMatch => noMatch
+    })
 
   def fullyApplied(subst: Subst): Type = {
     def loop(ts: List[Type.Var]): Type => Type =

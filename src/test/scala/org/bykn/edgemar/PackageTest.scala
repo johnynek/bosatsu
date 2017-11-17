@@ -15,6 +15,9 @@ class PackageTest extends FunSuite {
         sys.error(s"failed to parse: $s: $exp at $idx with trace: ${extra.traced.trace}")
     }
 
+  def parseUnit(ss: Iterable[String]) =
+    PackageMap.resolveThenInfer(ss.map(parse(_)))
+
   def valid[A, B](v: Validated[A, B]) =
     v match {
       case Validated.Valid(_) => succeed
@@ -31,6 +34,7 @@ class PackageTest extends FunSuite {
     val p1 = parse(
 """
 package Foo
+export [ main ]
 
 main = 1
 """)
@@ -38,8 +42,9 @@ main = 1
 """
 package Foo2
 import Foo [ main as mainFoo ]
+export [ main, ]
 
-main = 1
+main = mainFoo
 """)
 
     val p3 = parse(
@@ -50,8 +55,72 @@ import Foo2 [ main as mainFoo ]
 main = 1
 """)
 
-    valid(PackageMap.resolveAll(List(p1)))
-    valid(PackageMap.resolveAll(List(p1, p2)))
+    valid(PackageMap.resolveThenInfer(List(p1)))
+    valid(PackageMap.resolveThenInfer(List(p1, p2)))
     invalid(PackageMap.resolveAll(List(p2, p3))) // loop here
+
+    val p4 = parse(
+"""
+package P4
+import Foo2 [ main as one ]
+
+# should equal 42
+main = one + 41
+""")
+    valid(PackageMap.resolveThenInfer(List(p1, p2, p4)))
+
+    val p5 = parse(
+"""
+package P5
+
+export [ Option(), List(), head, tail ]
+
+enum Option:
+  None
+  Some(a)
+
+enum List:
+  Empty
+  NonEmpty(head: a, tail: List[a])
+
+def head(list):
+  match list:
+    Empty:
+      None
+    NonEmpty(h, tail):
+      Some(h)
+
+def tail(list):
+  match list:
+    Empty:
+      None
+    NonEmpty(h, tail):
+      Some(tail)
+""")
+
+    val p6 = parse(
+"""
+package P6
+import P5 [ Option, List, NonEmpty, Empty, head,  tail ]
+export [ data ]
+
+data = NonEmpty(1, NonEmpty(2, Empty))
+
+main = head(data)
+""")
+    valid(PackageMap.resolveThenInfer(List(p5, p6)))
+
+    val p7 = parse(
+"""
+package P7
+import P6 [ data as p6_data ]
+import P5 [ Option, List, NonEmpty as Cons, Empty as Nil, head,  tail ]
+
+data = Cons(1, Cons(2, Nil))
+data1 = Cons(0, p6_data)
+
+main = head(data1)
+""")
+    valid(PackageMap.resolveThenInfer(List(p5, p6, p7)).leftMap(_.map(_.message)))
   }
 }

@@ -20,18 +20,27 @@ object PackageName {
     P(upperIdent ~ ("/" ~ upperIdent).rep()).map { case (head, tail) =>
       PackageName(NonEmptyList(head, tail.toList))
     }
+
+  def parse(s: String): Option[PackageName] =
+    parser.parse(s) match {
+      case Parsed.Success(pn, _) => Some(pn)
+      case _ => None
+    }
 }
 
 sealed abstract class ImportedName[T] {
+  def originalName: String
+  def localName: String
   def tag: T
   def setTag(t: T): ImportedName[T]
 }
 object ImportedName {
-  case class OriginalName[T](asString: String, tag: T) extends ImportedName[T] {
-    def setTag(t: T): ImportedName[T] = OriginalName(asString, t)
+  case class OriginalName[T](originalName: String, tag: T) extends ImportedName[T] {
+    def localName = originalName
+    def setTag(t: T): ImportedName[T] = OriginalName(originalName, t)
   }
-  case class Renamed[T](remote: String, local: String, tag: T) extends ImportedName[T] {
-    def setTag(t: T): ImportedName[T] = Renamed(remote, local, t)
+  case class Renamed[T](originalName: String, localName: String, tag: T) extends ImportedName[T] {
+    def setTag(t: T): ImportedName[T] = Renamed(originalName, localName, t)
   }
 
   implicit val document: Document[ImportedName[Unit]] =
@@ -93,6 +102,22 @@ object ExportedName {
         case (n, None) => TypeName(n, ())
         case (n, Some(_)) => Constructor(n, ())
       }
+
+  /**
+   * The only subtlety here is that for Constructor, we export everything in the type
+   */
+  private[edgemar] def buildExportMap(exs: List[ExportedName[Referant]]): Map[String, ExportedName[Referant]] =
+    exs.flatMap {
+      case b@Binding(n, _) => (n, b) :: Nil
+      case t@TypeName(n, _) => (n, t) :: Nil
+      case Constructor(_, Referant.Constructor(_, dt)) =>
+        // we actually export all constructors in this case
+        val tname = dt.name.asString
+        (tname, TypeName(tname, Referant.DefinedT(dt): Referant)) :: dt.constructors.map { case (c@ConstructorName(n), _) =>
+          (n, Constructor(n, Referant.Constructor(c, dt): Referant))
+        }
+      case invalid@Constructor(_, _) => sys.error(s"this should be unreachable: $invalid")
+    }.toMap[String, ExportedName[Referant]]
 }
 
 case class Package[A, B, C](name: PackageName, imports: List[Import[A, B]], exports: List[ExportedName[C]], body: Statement)
@@ -129,6 +154,13 @@ object Package {
       Package(p, i, e, b)
     }
   }
+}
+
+sealed abstract class Referant
+object Referant {
+  case class Value(scheme: Scheme) extends Referant
+  case class DefinedT(dtype: DefinedType) extends Referant
+  case class Constructor(name: ConstructorName, dtype: DefinedType) extends Referant
 }
 
 case class PackageMap[A, B, C](toMap: Map[PackageName, Package[A, B, C]])
@@ -188,7 +220,6 @@ object PackageMap {
   def resolveAll(ps: Iterable[Package[PackageName, Unit, Unit]]): ValidatedNel[PackageError, PackageMap[FixPackage[Unit, Unit], Unit, Unit]] =
     build(ps).andThen(resolvePackages(_))
 
-  type Referant = Either[DefinedType, Scheme]
 
   def inferAll(ps: PackageMap[FixPackage[Unit, Unit], Unit, Unit]):
     ValidatedNel[PackageError, PackageMap[FixPackage[Referant, Referant], Referant, Referant]] = {
@@ -201,7 +232,8 @@ object PackageMap {
               exMap: Map[String, ExportedName[Referant]],
               i: ImportedName[Unit]): ValidatedNel[PackageError, ImportedName[Referant]] = {
 
-              def err = Validated.invalidNel(PackageError.UnknownImportName(p, packF, i))
+              def err =
+                Validated.invalidNel(PackageError.UnknownImportName(p, packF, i, exMap))
 
               i match {
                 case ImportedName.OriginalName(nm, _) =>
@@ -220,7 +252,7 @@ object PackageMap {
             def stepImport(i: Import[FixPackage[Unit, Unit], Unit]): ValidatedNel[PackageError, Import[FixPackage[Referant, Referant], Referant]] = {
               val Import(fixpack, items) = i
               recurse(fixpack.unfix).andThen { packF =>
-                val exMap = packF.exports.groupBy(_.name).mapValues(_.head) // TODO make sure we check exports have each name once
+                val exMap = ExportedName.buildExportMap(packF.exports)
                 items.traverse(getImport(packF, exMap, _))
                   .map(Import(Fix[Lambda[a => Package[a, Referant, Referant]]](packF), _))
               }
@@ -236,8 +268,9 @@ object PackageMap {
 
               def addRef(te: TypeEnv, nm: String, ref: Referant): TypeEnv =
                 ref match {
-                  case Right(scheme) => te.updated(nm, scheme)
-                  case Left(dt) => te.addDefinedType(dt.rename(nm))
+                  case Referant.Value(scheme) => te.updated(nm, scheme)
+                  case Referant.DefinedT(dt) => te.addDefinedType(dt.rename(nm))
+                  case Referant.Constructor(orig, dt) => te.addDefinedType(dt.renameConstructor(orig, nm))
                 }
 
               val prog@Program(te, lets, _) = body.toProgram
@@ -258,21 +291,21 @@ object PackageMap {
                       case ExportedName.Binding(n, _) =>
                         letMap.get(n) match {
                           case Some(exprDeclScheme) =>
-                            Validated.valid(ExportedName.Binding(n, Right(exprDeclScheme.tag._2)))
+                            Validated.valid(ExportedName.Binding(n, Referant.Value(exprDeclScheme.tag._2.normalized)))
                           case None => err
                         }
                       case ExportedName.TypeName(n, _) =>
                         // export the opaque type
                         te.definedTypes.get(TypeName(n)) match {
                           case Some(dt) =>
-                            Validated.valid(ExportedName.Constructor(n, Left(dt.toOpaque)))
+                            Validated.valid(ExportedName.Constructor(n, Referant.DefinedT(dt.toOpaque)))
                           case None => err
                         }
                       case ExportedName.Constructor(n, _) =>
                         // export the type and all constructors
                         te.definedTypes.get(TypeName(n)) match {
                           case Some(dt) =>
-                            Validated.valid(ExportedName.Constructor(n, Left(dt)))
+                            Validated.valid(ExportedName.Constructor(n, Referant.Constructor(ConstructorName(n), dt)))
                           case None => err
                         }
                     }
@@ -294,13 +327,41 @@ object PackageMap {
 
       ps.toMap.traverse(infer).map(PackageMap(_))
     }
+
+    def resolveThenInfer(ps: Iterable[Package[PackageName, Unit, Unit]]):
+      ValidatedNel[PackageError, PackageMap[FixPackage[Referant, Referant], Referant, Referant]] =
+        resolveAll(ps).andThen(inferAll(_))
 }
 
-sealed abstract class PackageError
+sealed abstract class PackageError {
+  def message: String = toString
+}
 object PackageError {
   case class UnknownExport(ex: ExportedName[Unit], in: Program[Declaration, Statement]) extends PackageError
   case class UnknownImportPackage[A, B](pack: PackageName, from: Package[PackageName, A, B]) extends PackageError
-  case class UnknownImportName(in: Package.PackageF[Unit], importing: Package.PackageF[PackageMap.Referant], iname: ImportedName[Unit]) extends PackageError
+  // We could check if we forgot to export the name in the package and give that error
+  case class UnknownImportName(in: Package.PackageF[Unit],
+    importing: Package.PackageF[Referant],
+    iname: ImportedName[Unit],
+    exports: Map[String, ExportedName[Referant]]) extends PackageError {
+      override def message = {
+        val ls = importing
+          .body
+          .toProgram
+          .lets
+
+        ls
+          .toMap
+          .get(iname.originalName) match {
+            case Some(_) =>
+              s"package: ${importing.name} has ${iname.originalName} but it is not exported. Add to exports"
+            case None =>
+              val dist = Memoize.function[String, Int] { (s, _) => EditDistance(iname.originalName.toIterable, s.toIterable) }
+              val nearest = ls.map { case (n, _) => (dist(n), n) }.sorted.take(3).map { case (_, n) => n }.mkString(", ")
+              s"package: ${importing.name} does not have name ${iname.originalName}. Nearest: $nearest"
+          }
+      }
+    }
   case class DuplicatePackages(head: Package[PackageName, Unit, Unit], collisions: NonEmptyList[Package[PackageName, Unit, Unit]]) extends PackageError
   case class CircularDependency[A, B](from: Package[PackageName, A, B], path: NonEmptyList[PackageName]) extends PackageError
   case class TypeErrorIn(tpeErr: TypeError, pack: Package.PackageF[Unit]) extends PackageError
