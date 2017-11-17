@@ -156,6 +156,8 @@ case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors:
     newCons.toMap.mapValues(_.map(_._2))
   }
 
+  def rename(n: String): DefinedType = copy(name = TypeName(n))
+
   def fullyApplied(subst: Subst): Type = {
     def loop(ts: List[Type.Var]): Type => Type =
       ts match {
@@ -169,6 +171,8 @@ case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors:
 
     loop(typeParams)(Type.Declared(name.asString))
   }
+
+  def toOpaque: DefinedType = copy(constructors = Nil)
 
   def typeScheme: Scheme = scheme(fullyApplied(Subst.empty))
 
@@ -205,7 +209,7 @@ object DefinedType {
 /**
  * This is a mapping of variable names to their Schemes
  */
-case class TypeEnv(toMap: Map[String, Scheme], constructors: Map[ConstructorName, DefinedType]) {
+case class TypeEnv(toMap: Map[String, Scheme], constructors: Map[ConstructorName, DefinedType], definedTypes: Map[TypeName, DefinedType]) {
   def schemeOf(name: String): Option[Scheme] =
     toMap.get(name)
       .orElse {
@@ -217,13 +221,13 @@ case class TypeEnv(toMap: Map[String, Scheme], constructors: Map[ConstructorName
       }
 
   def updated(v: String, scheme: Scheme): TypeEnv =
-    TypeEnv(toMap.updated(v, scheme), constructors)
+    copy(toMap = toMap.updated(v, scheme))
 
   def addDefinedType(d: DefinedType): TypeEnv =
     d.constructors.toList.foldLeft(this) { case (te, (nm, _)) =>
       // TODO make sure this is not duplicated
-      TypeEnv(te.toMap, te.constructors + (nm -> d))
-    }
+      te.copy(constructors = te.constructors + (nm -> d))
+    }.copy(definedTypes = definedTypes + (d.name -> d))
 
   def getDefinedType(matches: NonEmptyList[ConstructorName]): Either[TypeError, DefinedType] = {
     def dtOrCn(c: ConstructorName): Either[ConstructorName, DefinedType] =
@@ -242,6 +246,6 @@ case class TypeEnv(toMap: Map[String, Scheme], constructors: Map[ConstructorName
 }
 
 object TypeEnv {
-  def empty: TypeEnv = TypeEnv(Map.empty, Map.empty)
+  val empty: TypeEnv = TypeEnv(Map.empty, Map.empty, Map.empty)
 }
 

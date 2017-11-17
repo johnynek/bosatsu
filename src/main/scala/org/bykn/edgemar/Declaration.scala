@@ -140,7 +140,7 @@ object Indented {
 
 sealed abstract class Statement {
 
-  final def toProgram: Program[Declaration, Statement] = {
+  final lazy val toProgram: Program[Declaration, Statement] = {
     import Statement._
 
     def loop(s: Statement): Program[Declaration, Statement] =

@@ -3,9 +3,9 @@ package Foo/Bar
 import Std [ List, Option ]
 import Baz/Bippy [ Bo as BazBo, Bippy ]
 
-# export [
-#   x, z, Either [ Left, Right ], Record [ Record ], Option [ None, Some ]
-# ]
+export [
+   x, z, Either(), Record(), Option()
+]
 
 x = 1
 

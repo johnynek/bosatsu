@@ -6,7 +6,7 @@ package org.bykn.edgemar
  */
 
 import cats.data.{ EitherT, RWST, StateT, NonEmptyList }
-import cats.{ Eval, Monad, MonadError, Traverse, Functor, Foldable }
+import cats.{ Eval, Monad, MonadError, Traverse }
 import cats.implicits._
 
 case class Unique(id: Long) {
@@ -187,29 +187,33 @@ object Inference {
     inferExpr(TypeEnv.empty, expr)
 
   def inferExpr[T](te: TypeEnv, expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] = {
+
+    implicit val subT: Substitutable[T] = Substitutable.opaqueSubstitutable[T]
+    implicit val subExpr: Substitutable[Expr[(T, Scheme)]] =
+      Substitutable.fromMapFold[Expr, (T, Scheme)]
+
+    runInfer(te, inferTypeTag(expr)).map { case (subT, exprS) =>
+      val scheme = closeOver(subT)
+      exprS.setTag((expr.tag, scheme))
+    }
+  }
+
+  def runInfer[A: Substitutable](te: TypeEnv, infa: Infer[A]): Either[TypeError, A] = {
     // get the constraints
-    val tcE = inferTypeTag(expr)
+    val acE = infa
       .run(te, Unique(0L))
       .map { case (s, _, a) => (a, s) }
       .value
       .value
 
-    val subExpr: Substitutable[Expr[(T, Scheme)]] =
-      Substitutable.fromMapFold[Lambda[x => Expr[(T, x)]], Scheme](
-        Functor[Expr].compose(Functor[(T, ?)]),
-        Foldable[Expr].compose(Foldable[(T, ?)]),
-        implicitly)
-
     // now solve
     for {
-      tc <- tcE
-      ((tpe, expS), cons) = tc
+      ac <- acE
+      (a, cons) = ac
       unif <- runSolve(cons.toList)
       Unifier(subs, _) = unif
-      subT = Substitutable[Type].apply(subs, tpe)
-      expSsub = subExpr.apply(subs, expS)
-      scheme = closeOver(subT)
-    } yield expSsub.setTag((expr.tag, scheme))
+      subA = Substitutable[A].apply(subs, a)
+    } yield subA
   }
 
   def lookup(n: String): Infer[Type] = {
@@ -236,6 +240,21 @@ object Inference {
 
   def infer[T](expr: Expr[T]): Infer[Type] =
     inferTypeTag(expr).map { case (t, _) => t }
+
+  /**
+   * Packages are generally just lists of lets, this allows you to infer
+   * the scheme for each in the context of the list
+   */
+  def inferLets[T](ls: List[(String, Expr[T])]): Infer[List[(String, Expr[(T, Scheme)])]] =
+    ls match {
+      case Nil => Monad[Infer].pure(Nil)
+      case (n, ex) :: tail =>
+        for {
+          scEx <- inferScheme(ex)
+          (sc, exS) = scEx
+          taili <- inEnv(n, sc, inferLets(tail))
+        } yield (n, exS) :: taili
+    }
 
   def inferTypeTag[T](expr: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
     expr match {
