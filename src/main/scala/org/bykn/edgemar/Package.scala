@@ -120,14 +120,15 @@ object ExportedName {
     }.toMap[String, ExportedName[Referant]]
 }
 
-case class Package[A, B, C](name: PackageName, imports: List[Import[A, B]], exports: List[ExportedName[C]], body: Statement)
+case class Package[A, B, C, D](name: PackageName, imports: List[Import[A, B]], exports: List[ExportedName[C]], program: D)
 
 object Package {
-  type FixPackage[B, C] = Fix[Lambda[a => Package[a, B, C]]]
-  type PackageF[A] = Package[FixPackage[A, A], A, A]
+  type FixPackage[B, C, D] = Fix[Lambda[a => Package[a, B, C, D]]]
+  type PackageF[A, B] = Package[FixPackage[A, A, B], A, A, B]
+  type Parsed = Package[PackageName, Unit, Unit, Program[Declaration, Statement]]
 
-  implicit val document: Document[Package[PackageName, Unit, Unit]] =
-    Document.instance[Package[PackageName, Unit, Unit]] { case Package(name, imports, exports, body) =>
+  implicit val document: Document[Package[PackageName, Unit, Unit, Program[Declaration, Statement]]] =
+    Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
       val p = Doc.text("package ") + Document[PackageName].document(name) + Doc.line
       val i = imports match {
         case Nil => Doc.empty
@@ -140,18 +141,18 @@ object Package {
           Doc.text("export ") + Doc.text("[ ") +
           Doc.intercalate(Doc.text(", "), nonEmptyExports.map(Document[ExportedName[Unit]].document _)) + Doc.text(" ]") + Doc.line
       }
-      val b = Document[Statement].document(body)
+      val b = Document[Statement].document(program.from)
       // add an extra line between each group
       Doc.intercalate(Doc.line, List(p, i, e, b))
     }
 
-  val parser: P[Package[PackageName, Unit, Unit]] = {
+  val parser: P[Package[PackageName, Unit, Unit, Program[Declaration, Statement]]] = {
     val pname = Padding.parser(P("package" ~ spaces ~ PackageName.parser)).map(_.padded)
     val im = Padding.parser(Import.parser).map(_.padded).rep().map(_.toList)
     val ex = Padding.parser(P("export" ~ maybeSpace ~ ExportedName.parser.nonEmptyListSyntax)).map(_.padded)
     val body = Padding.parser(Statement.parser).map(_.padded)
     (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ body).map { case (p, i, e, b) =>
-      Package(p, i, e, b)
+      Package(p, i, e, b.toProgram)
     }
   }
 }
@@ -163,12 +164,12 @@ object Referant {
   case class Constructor(name: ConstructorName, dtype: DefinedType) extends Referant
 }
 
-case class PackageMap[A, B, C](toMap: Map[PackageName, Package[A, B, C]])
+case class PackageMap[A, B, C, D](toMap: Map[PackageName, Package[A, B, C, D]])
 
 object PackageMap {
-  def build(ps: Iterable[Package[PackageName, Unit, Unit]]): ValidatedNel[PackageError.DuplicatePackages, PackageMap[PackageName, Unit, Unit]] = {
+  def build(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError.DuplicatePackages, PackageMap[PackageName, Unit, Unit, Program[Declaration, Statement]]] = {
 
-    def toPackage(it: Iterable[Package[PackageName, Unit, Unit]]): ValidatedNel[PackageError.DuplicatePackages, Package[PackageName, Unit, Unit]] =
+    def toPackage(it: Iterable[Package.Parsed]): ValidatedNel[PackageError.DuplicatePackages, Package.Parsed] =
       it.toList match {
         case Nil => sys.error("unreachable, groupBy never produces an empty list")
         case h :: Nil => Validated.valid(h)
@@ -180,14 +181,19 @@ object PackageMap {
 
   import Package.{ FixPackage, PackageF }
 
-  def resolvePackages[A, B](map: PackageMap[PackageName, A, B]): ValidatedNel[PackageError, PackageMap[FixPackage[A, B], A, B]] = {
-    def getPackage(i: Import[PackageName, A], from: Package[PackageName, A, B]): ValidatedNel[PackageError, Import[Package[PackageName, A, B], A]] =
+  type MapF3[A, B, C] = PackageMap[FixPackage[A, B, C], A, B, C]
+  type MapF2[A, B] = MapF3[A, A, B]
+  type Parsed = MapF2[Unit, Program[Declaration, Statement]]
+  type Inferred = MapF2[Referant, Program[(Declaration, Scheme), Statement]]
+
+  def resolvePackages[A, B, C](map: PackageMap[PackageName, A, B, C]): ValidatedNel[PackageError, MapF3[A, B, C]] = {
+    def getPackage(i: Import[PackageName, A], from: Package[PackageName, A, B, C]): ValidatedNel[PackageError, Import[Package[PackageName, A, B, C], A]] =
       map.toMap.get(i.pack) match {
         case None => Validated.invalidNel(PackageError.UnknownImportPackage(i.pack, from))
         case Some(pack) => Validated.valid(Import(pack, i.items))
       }
 
-    def step(p: Package[PackageName, A, B]): ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], Package[FixPackage[A, B], A, B]] = {
+    def step(p: Package[PackageName, A, B, C]): ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], Package[FixPackage[A, B, C], A, B, C]] = {
       val edeps = ReaderT.ask[Either[NonEmptyList[PackageError], ?], List[PackageName]]
         .flatMapF {
           case nonE@(h :: tail) if nonE.contains(p.name) =>
@@ -202,33 +208,35 @@ object PackageMap {
           deps.traverse { i =>
             step(i.pack)
               .local[List[PackageName]](p.name :: _) // add this package into the path of all the deps
-              .map { p => Import(Fix[Lambda[a => Package[a, A, B]]](p), i.items) }
+              .map { p => Import(Fix[Lambda[a => Package[a, A, B, C]]](p), i.items) }
           }
           .map { imports =>
-            Package(p.name, imports, p.exports, p.body)
+            Package(p.name, imports, p.exports, p.program)
           }
         }
     }
 
-    type M = Map[PackageName, Package[FixPackage[A, B], A, B]]
+    type M = Map[PackageName, Package[FixPackage[A, B, C], A, B, C]]
     val r: ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], M] =
       map.toMap.traverse(step)
     val m: Either[NonEmptyList[PackageError], M] = r.run(Nil)
     m.map(PackageMap(_)).toValidated
   }
 
-  def resolveAll(ps: Iterable[Package[PackageName, Unit, Unit]]): ValidatedNel[PackageError, PackageMap[FixPackage[Unit, Unit], Unit, Unit]] =
+  def resolveAll(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, Parsed] =
     build(ps).andThen(resolvePackages(_))
 
 
-  def inferAll(ps: PackageMap[FixPackage[Unit, Unit], Unit, Unit]):
-    ValidatedNel[PackageError, PackageMap[FixPackage[Referant, Referant], Referant, Referant]] = {
+  def inferAll(ps: Parsed): ValidatedNel[PackageError, Inferred] = {
 
-      val infer: PackageF[Unit] => ValidatedNel[PackageError, PackageF[Referant]] =
-        Memoize.function[PackageF[Unit], ValidatedNel[PackageError, PackageF[Referant]]] {
-          case (p@Package(nm, imports, exports, body), recurse) =>
+      type PackIn = PackageF[Unit, Program[Declaration, Statement]]
+      type PackOut = PackageF[Referant, Program[(Declaration, Scheme), Statement]]
 
-            def getImport(packF: PackageF[Referant],
+      val infer: PackIn => ValidatedNel[PackageError, PackOut] =
+        Memoize.function[PackIn, ValidatedNel[PackageError, PackOut]] {
+          case (p@Package(nm, imports, exports, prog), recurse) =>
+
+            def getImport(packF: PackOut,
               exMap: Map[String, ExportedName[Referant]],
               i: ImportedName[Unit]): ValidatedNel[PackageError, ImportedName[Referant]] = {
 
@@ -249,16 +257,18 @@ object PackageMap {
               }
             }
 
-            def stepImport(i: Import[FixPackage[Unit, Unit], Unit]): ValidatedNel[PackageError, Import[FixPackage[Referant, Referant], Referant]] = {
+            def stepImport(i: Import[FixPackage[Unit, Unit, Program[Declaration, Statement]], Unit]):
+              ValidatedNel[PackageError, Import[FixPackage[Referant, Referant, Program[(Declaration, Scheme), Statement]], Referant]] = {
               val Import(fixpack, items) = i
               recurse(fixpack.unfix).andThen { packF =>
                 val exMap = ExportedName.buildExportMap(packF.exports)
                 items.traverse(getImport(packF, exMap, _))
-                  .map(Import(Fix[Lambda[a => Package[a, Referant, Referant]]](packF), _))
+                  .map(Import(Fix[Lambda[a => Package[a, Referant, Referant, Program[(Declaration, Scheme), Statement]]]](packF), _))
               }
             }
 
-            def inferExports(imps: List[Import[FixPackage[Referant, Referant], Referant]]): ValidatedNel[PackageError, List[ExportedName[Referant]]] = {
+            def inferExports(imps: List[Import[FixPackage[Referant, Referant, Program[(Declaration, Scheme), Statement]], Referant]]):
+              ValidatedNel[PackageError, (List[ExportedName[Referant]], List[(String, Expr[(Declaration, Scheme)])])] = {
               implicit val subD: Substitutable[Declaration] = Substitutable.opaqueSubstitutable[Declaration]
               implicit val subS: Substitutable[String] = Substitutable.opaqueSubstitutable[String]
               implicit val subExpr: Substitutable[Expr[(Declaration, Scheme)]] =
@@ -273,7 +283,7 @@ object PackageMap {
                   case Referant.Constructor(orig, dt) => te.addDefinedType(dt.renameConstructor(orig, nm))
                 }
 
-              val prog@Program(te, lets, _) = body.toProgram
+              val Program(te, lets, _) = prog
               val updatedTE = foldNest.foldLeft(imps.map(_.items), te) {
                 case (te, ImportedName.OriginalName(nm, ref)) => addRef(te, nm, ref)
                 case (te, ImportedName.Renamed(_, nm, ref)) => addRef(te, nm, ref)
@@ -310,8 +320,7 @@ object PackageMap {
                         }
                     }
                   }
-                  // TODO need to keep the ilets around since we already typechecked, can do with Program
-                  exports.traverse(expName)
+                  exports.traverse(expName).map((_, lets))
               }
             }
 
@@ -320,16 +329,17 @@ object PackageMap {
               .andThen { imps =>
                 inferExports(imps).map((imps, _))
               }
-              .map { case (imps, exps) =>
-                 Package(nm, imps, exps, body)
+              .map { case (imps, (exps, lets)) => // TODO put the lets into the package
+                val Program(types, _, statement) = prog
+                Package(nm, imps, exps, Program(types, lets, statement))
               }
         }
 
       ps.toMap.traverse(infer).map(PackageMap(_))
     }
 
-    def resolveThenInfer(ps: Iterable[Package[PackageName, Unit, Unit]]):
-      ValidatedNel[PackageError, PackageMap[FixPackage[Referant, Referant], Referant, Referant]] =
+    def resolveThenInfer(ps: Iterable[Package.Parsed]):
+      ValidatedNel[PackageError, MapF2[Referant, Program[(Declaration, Scheme), Statement]]] =
         resolveAll(ps).andThen(inferAll(_))
 }
 
@@ -338,16 +348,15 @@ sealed abstract class PackageError {
 }
 object PackageError {
   case class UnknownExport(ex: ExportedName[Unit], in: Program[Declaration, Statement]) extends PackageError
-  case class UnknownImportPackage[A, B](pack: PackageName, from: Package[PackageName, A, B]) extends PackageError
+  case class UnknownImportPackage[A, B, C](pack: PackageName, from: Package[PackageName, A, B, C]) extends PackageError
   // We could check if we forgot to export the name in the package and give that error
-  case class UnknownImportName(in: Package.PackageF[Unit],
-    importing: Package.PackageF[Referant],
+  case class UnknownImportName(in: Package.PackageF[Unit, Program[Declaration, Statement]],
+    importing: Package.PackageF[Referant, Program[(Declaration, Scheme), Statement]],
     iname: ImportedName[Unit],
     exports: Map[String, ExportedName[Referant]]) extends PackageError {
       override def message = {
         val ls = importing
-          .body
-          .toProgram
+          .program
           .lets
 
         ls
@@ -362,7 +371,7 @@ object PackageError {
           }
       }
     }
-  case class DuplicatePackages(head: Package[PackageName, Unit, Unit], collisions: NonEmptyList[Package[PackageName, Unit, Unit]]) extends PackageError
-  case class CircularDependency[A, B](from: Package[PackageName, A, B], path: NonEmptyList[PackageName]) extends PackageError
-  case class TypeErrorIn(tpeErr: TypeError, pack: Package.PackageF[Unit]) extends PackageError
+  case class DuplicatePackages(head: Package.Parsed, collisions: NonEmptyList[Package.Parsed]) extends PackageError
+  case class CircularDependency[A, B, C](from: Package[PackageName, A, B, C], path: NonEmptyList[PackageName]) extends PackageError
+  case class TypeErrorIn(tpeErr: TypeError, pack: Package.PackageF[Unit, Program[Declaration, Statement]]) extends PackageError
 }

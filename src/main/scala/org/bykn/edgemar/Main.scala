@@ -56,7 +56,7 @@ object Main extends CommandApp(
       val str = new String(Files.readAllBytes(path), "utf-8")
       Package.parser.parse(str) match {
         case Parsed.Success(exp, _) =>
-          val prog = exp.body.toProgram
+          val prog = exp.program
           Evaluation.evaluateProgram(prog) match {
             case None => sys.error("found no main expression")
             case Some(Left(err)) => sys.error(s"TypeError: $err")

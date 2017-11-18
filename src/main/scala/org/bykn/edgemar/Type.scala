@@ -102,9 +102,15 @@ case class Scheme(vars: List[String], result: Type) {
           }
       }
 
-    def idxToLetter(i: Int): String =
-      if (i < 26 && 0 <= i) ('a'.toInt + i).toChar.toString
-      else sys.error(s"too many type variables: $i") // TODO fix
+    def iToC(i: Int): Char = ('a'.toInt + i).toChar
+    @annotation.tailrec
+    def idxToLetter(i: Int, acc: List[Char] = Nil): String =
+      if (i < 26 && 0 <= i) (iToC(i) :: acc).mkString
+      else {
+        val rem = i % 26
+        val next = i / 26
+        idxToLetter(next, iToC(rem) :: acc)
+      }
 
     val inOrdDistinct = inOrd(result, Nil, Nil).distinct
     val mapping: List[(String, String)] =

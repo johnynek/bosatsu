@@ -6,7 +6,7 @@ import org.scalatest.FunSuite
 
 class PackageTest extends FunSuite {
 
-  def parse(s: String): Package[PackageName, Unit, Unit] =
+  def parse(s: String): Package.Parsed =
     Package.parser.parse(s) match {
       case Parsed.Success(p, idx) =>
         assert(idx == s.length)

@@ -186,7 +186,8 @@ object Generators {
       lowerIdent.map(Var(_)),
       upperIdent.map(Constructor(_)),
       ffiGen,
-      Arbitrary.arbitrary[BigInt].map { bi => LiteralInt(bi.toString) },
+      //Arbitrary.arbitrary[BigInt].map { bi => LiteralInt(bi.toString) }, // TODO enable bigint
+      Arbitrary.arbitrary[Int].map { bi => LiteralInt(bi.toString) },
       Gen.oneOf(true, false).map { b => LiteralBool(b) })
 
     val recur = Gen.lzy(genDeclaration(depth - 1))
@@ -284,7 +285,7 @@ object Generators {
       upperIdent.map(ExportedName.TypeName(_, ())),
       upperIdent.map(ExportedName.Constructor(_, ())))
 
-  val packageGen: Gen[Package[PackageName, Unit, Unit]] =
+  val packageGen: Gen[Package.Parsed] =
     for {
       p <- packageNameGen
       ic <- Gen.choose(0, 8)
@@ -292,5 +293,5 @@ object Generators {
       imports <- Gen.listOfN(ic, importGen)
       exports <- Gen.listOfN(ec, exportedNameGen)
       body <- genStatement
-    } yield Package(p, imports, exports, body)
+    } yield Package(p, imports, exports, body.toProgram)
 }

@@ -1,6 +1,7 @@
 package org.bykn.edgemar
 
 import cats.data.NonEmptyList
+//import cats.Eval
 
 object Evaluation {
   import Expr._
@@ -12,7 +13,7 @@ object Evaluation {
     }
 
   def evaluateProgram[S](p: Program[Declaration, S]): Option[Either[TypeError, (Any, Scheme)]] =
-    p.getMainDecl.map { case expr =>
+    p.getMainDecl.map { expr =>
       Inference.inferExpr(p.types, expr).map { escheme =>
         // if we type check, we can always evaluate
         (evaluateUnsafe(escheme, Map.empty, p.types.constructors), escheme.tag._2)
@@ -22,8 +23,19 @@ object Evaluation {
   /**
    * Evaluate a typechecked package map
    */
-  // def evaluatePackage(p: PackageName, pm: PackageMap[FixPackage[Referant, Referant], Referant, Referant]]): Option[(Any, Scheme)] =
-  //   pm.toMap.get(p).map {
+  // def evaluatePackage(p: PackageName, pm: PackageMap.Inferred): Option[(Any, Scheme)] = {
+  //   def evalName(n
+  // }
+  //   pm.toMap.get(p).map { pack =>
+
+  //   }
+  //   for {
+  //     pack <- pm.toMap.get(p)
+  //     expr <- evaluateProgram(pack.program
+  //   }
+  //   pm.toMap.get(p).flatMap { pack =>
+  //     pack.body.toProgram.getMain
+  //   }
 
   private def getJavaType(t: Type): List[Class[_]] = {
     def loop(t: Type, top: Boolean): List[Class[_]] = {

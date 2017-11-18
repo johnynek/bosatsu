@@ -158,13 +158,13 @@ sealed abstract class Statement {
           Program(te, (nm, lam) :: binds, this)
         case s@Struct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(s.toDefinition))
+          p.copy(types = p.types.addDefinedType(s.toDefinition), from = s)
         case e@Enum(_, _, Padding(_, rest)) =>
           val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(e.toDefinition))
+          p.copy(types = p.types.addDefinedType(e.toDefinition), from = e)
         case x@ExternalStruct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(x.toDefinition))
+          p.copy(types = p.types.addDefinedType(x.toDefinition), from = x)
         case EndOfFile =>
           Program(TypeEnv.empty, Nil, EndOfFile)
       }
