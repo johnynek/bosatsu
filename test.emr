@@ -1,8 +1,5 @@
 package Foo/Bar
 
-import Std [ List, Option ]
-import Baz/Bippy [ Bo as BazBo, Bippy ]
-
 export [
    x, z, Either(), Record(), Option()
 ]

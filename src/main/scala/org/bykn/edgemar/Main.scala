@@ -1,6 +1,7 @@
 package org.bykn.edgemar
 
 import cats.Eval
+import cats.data.Validated
 import com.monovore.decline._
 import java.nio.file.{Files, Path}
 import fastparse.all._
@@ -55,13 +56,16 @@ object Main extends CommandApp(
     opt.map { path =>
       val str = new String(Files.readAllBytes(path), "utf-8")
       Package.parser.parse(str) match {
-        case Parsed.Success(exp, _) =>
-          val prog = exp.program
-          Evaluation.evaluateProgram(prog) match {
-            case None => sys.error("found no main expression")
-            case Some(Left(err)) => sys.error(s"TypeError: $err")
-            case Some(Right((res, scheme))) =>
-              println(s"$res: ${scheme.result}")
+        case Parsed.Success(pack, _) =>
+          PackageMap.resolveThenInfer(List(pack)) match {
+            case Validated.Valid(packMap) =>
+              Evaluation.evaluatePackage(packMap.toMap.keys.head, packMap) match {
+                case None => sys.error("found no main expression")
+                case Some((res, scheme)) =>
+                  println(s"$res: ${scheme.result}")
+              }
+            case Validated.Invalid(errs) =>
+              sys.error("failed: " + errs.toList.mkString("\n"))
           }
         case Parsed.Failure(exp, idx, extra) =>
           sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")

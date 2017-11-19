@@ -147,6 +147,7 @@ object Package {
     }
 
   val parser: P[Package[PackageName, Unit, Unit, Program[Declaration, Statement]]] = {
+    // TODO: support comments before the Statement
     val pname = Padding.parser(P("package" ~ spaces ~ PackageName.parser)).map(_.padded)
     val im = Padding.parser(Import.parser).map(_.padded).rep().map(_.toList)
     val ex = Padding.parser(P("export" ~ maybeSpace ~ ExportedName.parser.nonEmptyListSyntax)).map(_.padded)
@@ -268,7 +269,7 @@ object PackageMap {
             }
 
             def inferExports(imps: List[Import[FixPackage[Referant, Referant, Program[(Declaration, Scheme), Statement]], Referant]]):
-              ValidatedNel[PackageError, (List[ExportedName[Referant]], List[(String, Expr[(Declaration, Scheme)])])] = {
+              ValidatedNel[PackageError, (List[ExportedName[Referant]], TypeEnv, List[(String, Expr[(Declaration, Scheme)])])] = {
               implicit val subD: Substitutable[Declaration] = Substitutable.opaqueSubstitutable[Declaration]
               implicit val subS: Substitutable[String] = Substitutable.opaqueSubstitutable[String]
               implicit val subExpr: Substitutable[Expr[(Declaration, Scheme)]] =
@@ -320,7 +321,7 @@ object PackageMap {
                         }
                     }
                   }
-                  exports.traverse(expName).map((_, lets))
+                  exports.traverse(expName).map((_, updatedTE, lets))
               }
             }
 
@@ -329,8 +330,8 @@ object PackageMap {
               .andThen { imps =>
                 inferExports(imps).map((imps, _))
               }
-              .map { case (imps, (exps, lets)) => // TODO put the lets into the package
-                val Program(types, _, statement) = prog
+              .map { case (imps, (exps, types, lets)) =>
+                val Program(_, _, statement) = prog
                 Package(nm, imps, exps, Program(types, lets, statement))
               }
         }
@@ -338,8 +339,7 @@ object PackageMap {
       ps.toMap.traverse(infer).map(PackageMap(_))
     }
 
-    def resolveThenInfer(ps: Iterable[Package.Parsed]):
-      ValidatedNel[PackageError, MapF2[Referant, Program[(Declaration, Scheme), Statement]]] =
+    def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, Inferred] =
         resolveAll(ps).andThen(inferAll(_))
 }
 

@@ -23,19 +23,12 @@ object Evaluation {
   /**
    * Evaluate a typechecked package map
    */
-  // def evaluatePackage(p: PackageName, pm: PackageMap.Inferred): Option[(Any, Scheme)] = {
-  //   def evalName(n
-  // }
-  //   pm.toMap.get(p).map { pack =>
-
-  //   }
-  //   for {
-  //     pack <- pm.toMap.get(p)
-  //     expr <- evaluateProgram(pack.program
-  //   }
-  //   pm.toMap.get(p).flatMap { pack =>
-  //     pack.body.toProgram.getMain
-  //   }
+  def evaluatePackage(p: PackageName, pm: PackageMap.Inferred): Option[(Any, Scheme)] =
+    for {
+      pack <- pm.toMap.get(p)
+      p = pack.program
+      escheme <- p.getMain { (_, _, res) => res }
+    } yield (evaluateUnsafe(escheme, Map.empty, p.types.constructors), escheme.tag._2)
 
   private def getJavaType(t: Type): List[Class[_]] = {
     def loop(t: Type, top: Boolean): List[Class[_]] = {
