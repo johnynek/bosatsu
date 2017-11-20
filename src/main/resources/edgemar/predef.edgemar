@@ -1,0 +1,7 @@
+package Edgemar/Predef
+
+export [ Option() ]
+
+enum Option:
+  Some(v)
+  None

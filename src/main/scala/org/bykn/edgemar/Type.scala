@@ -162,6 +162,8 @@ case class DefinedType(name: TypeName, typeParams: List[Type.Var], constructors:
     newCons.toMap.mapValues(_.map(_._2))
   }
 
+  // This is not okay. We are going to wind up making two different identical types
+  // a defined type probably needs to know its package
   def rename(n: String): DefinedType = copy(name = TypeName(n))
   def renameConstructor(orig: ConstructorName, to: String): DefinedType =
     copy(constructors = constructors.map {

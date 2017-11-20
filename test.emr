@@ -1,7 +1,7 @@
 package Foo/Bar
 
 export [
-   x, z, Either(), Record(), Option()
+   x, z, Either(), Record()
 ]
 
 x = 1
@@ -19,10 +19,6 @@ struct Record(a, b)
 enum Either:
   Left(left)
   Right(right)
-
-enum Option:
-  None
-  Some(a)
 
 enum List:
   Empty

@@ -120,12 +120,33 @@ object ExportedName {
     }.toMap[String, ExportedName[Referant]]
 }
 
-case class Package[A, B, C, D](name: PackageName, imports: List[Import[A, B]], exports: List[ExportedName[C]], program: D)
+case class Package[A, B, C, D](name: PackageName, imports: List[Import[A, B]], exports: List[ExportedName[C]], program: D) {
+  private[this] lazy val importMap: Map[String, (A, ImportedName[B])] =
+    imports.flatMap { case Import(p, imports) =>
+      imports.toList.map { i => (i.localName, (p, i)) }
+    }.toMap
+
+  def localImport(n: String): Option[(A, ImportedName[B])] = importMap.get(n)
+
+  def withImport(i: Import[A, B]): Package[A, B, C, D] =
+    copy(imports = i :: imports)
+}
 
 object Package {
   type FixPackage[B, C, D] = Fix[Lambda[a => Package[a, B, C, D]]]
   type PackageF[A, B] = Package[FixPackage[A, A, B], A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Program[Declaration, Statement]]
+  type Inferred = FixPackage[Referant, Referant, Program[(Declaration, Scheme), Statement]]
+
+
+  def fromStatement(pn: PackageName, st: Statement): Package.Parsed =
+    Package(pn, Nil, Nil, st.toProgram)
+
+  /** add a Fix wrapper
+   *  it is combersome to write the correct type here
+   */
+  def asInferred(p: PackageF[Referant, Program[(Declaration, Scheme), Statement]]): Inferred =
+    Fix[Lambda[a => Package[a, Referant, Referant, Program[(Declaration, Scheme), Statement]]]](p)
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Program[Declaration, Statement]]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
@@ -165,9 +186,18 @@ object Referant {
   case class Constructor(name: ConstructorName, dtype: DefinedType) extends Referant
 }
 
-case class PackageMap[A, B, C, D](toMap: Map[PackageName, Package[A, B, C, D]])
+case class PackageMap[A, B, C, D](toMap: Map[PackageName, Package[A, B, C, D]]) {
+  def +(pack: Package[A, B, C, D]): PackageMap[A, B, C, D] =
+    PackageMap(toMap + (pack.name -> pack))
+
+  def ++(packs: Iterable[Package[A, B, C, D]]): PackageMap[A, B, C, D] =
+    packs.foldLeft(this)(_ + _)
+}
 
 object PackageMap {
+  def empty[A, B, C, D]: PackageMap[A, B, C, D] =
+    PackageMap(Map.empty)
+
   def build(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError.DuplicatePackages, PackageMap[PackageName, Unit, Unit, Program[Declaration, Statement]]] = {
 
     def toPackage(it: Iterable[Package.Parsed]): ValidatedNel[PackageError.DuplicatePackages, Package.Parsed] =

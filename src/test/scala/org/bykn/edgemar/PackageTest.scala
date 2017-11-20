@@ -123,4 +123,21 @@ main = head(data1)
 """)
     valid(PackageMap.resolveThenInfer(List(p5, p6, p7)).leftMap(_.map(_.message)))
   }
+
+  test("test Predef working") {
+
+    val p = parse(
+"""
+package UsePredef
+
+def maybeOne(x):
+  if x == 1:
+    Some(x)
+  else:
+    None
+
+main = maybeOne(42)
+""")
+    valid(PackageMap.resolveThenInfer(Predef.withPredef(p :: Nil)).leftMap(_.map(_.message)))
+  }
 }

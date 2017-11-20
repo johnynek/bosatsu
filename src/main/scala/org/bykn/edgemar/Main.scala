@@ -1,7 +1,8 @@
 package org.bykn.edgemar
 
 import cats.Eval
-import cats.data.Validated
+import cats.data.{Validated, ValidatedNel}
+import cats.implicits._
 import com.monovore.decline._
 import java.nio.file.{Files, Path}
 import fastparse.all._
@@ -52,23 +53,39 @@ object Main extends CommandApp(
   name = "edgemar",
   header = "a total language",
   main = {
-    val opt = Opts.option[Path]("input", help = "file to execute")
-    opt.map { path =>
-      val str = new String(Files.readAllBytes(path), "utf-8")
-      Package.parser.parse(str) match {
-        case Parsed.Success(pack, _) =>
-          PackageMap.resolveThenInfer(List(pack)) match {
-            case Validated.Valid(packMap) =>
-              Evaluation.evaluatePackage(packMap.toMap.keys.head, packMap) match {
-                case None => sys.error("found no main expression")
-                case Some((res, scheme)) =>
-                  println(s"$res: ${scheme.result}")
-              }
-            case Validated.Invalid(errs) =>
-              sys.error("failed: " + errs.toList.mkString("\n"))
+    implicit val argPack: Argument[PackageName] =
+      new Argument[PackageName] {
+        def defaultMetavar: String = "packageName"
+        def read(string: String): ValidatedNel[String, PackageName] =
+          PackageName.parse(string) match {
+            case Some(pn) => Validated.valid(pn)
+            case None => Validated.invalidNel(s"could not parse $string as a package name. Must be capitalized strings separated by /")
           }
-        case Parsed.Failure(exp, idx, extra) =>
-          sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+      }
+    val opt = Opts.options[Path]("inputs", help = "input files")
+    val mainP = Opts.option[PackageName]("main", help = "main package")
+    (opt, mainP).mapN { (paths, mainPack) =>
+
+      val parsedPaths = paths.map { path =>
+        val str = new String(Files.readAllBytes(path), "utf-8")
+        Package.parser.parse(str) match {
+          case Parsed.Success(pack, _) => pack
+          case Parsed.Failure(exp, idx, extra) =>
+            sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+        }
+      }
+
+      PackageMap.resolveThenInfer(Predef.withPredef(parsedPaths.toList)) match {
+        case Validated.Valid(packMap) =>
+          val ev = Evaluation(packMap)
+          ev.evaluateLast(mainPack) match {
+            case None => sys.error("found no main expression")
+            case Some(eval) =>
+              val (res, scheme) = eval.value
+              println(s"$res: ${scheme.result}")
+          }
+        case Validated.Invalid(errs) =>
+          sys.error("failed: " + errs.map(_.message).toList.mkString("\n"))
       }
     }
   }

@@ -198,6 +198,9 @@ object Expr {
 }
 
 case class Program[D, S](types: TypeEnv, lets: List[(String, Expr[D])], from: S) {
+  private[this] lazy val letMap: Map[String, Expr[D]] = lets.toMap
+
+  def getLet(name: String): Option[Expr[D]] = letMap.get(name)
   /**
    * main is the thing we evaluate. It is the last thing defined
    */

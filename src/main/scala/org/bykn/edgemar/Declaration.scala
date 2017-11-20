@@ -230,20 +230,6 @@ object Statement {
     rest: Padding[Statement]) extends TypeDefinitionStatement
   case object EndOfFile extends Statement
 
-  // this is a REPL test method we will remove
-  // later.
-  def infer(str: String): Option[(Any, Scheme)] = {
-    parser.parse(str) match {
-       case Parsed.Success(stmt, idx) if str.length == idx =>
-         val prog = stmt.toProgram
-         prog.getMainDecl.map { expr =>
-           Evaluation.evaluate(expr).right.get
-         }
-      case Parsed.Failure(exp, idx, extra) =>
-        sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
-    }
-  }
-
   val parser: P[Statement] = {
     val bindingP = P(lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ toEOL ~ Padding.parser(parser))
       .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
