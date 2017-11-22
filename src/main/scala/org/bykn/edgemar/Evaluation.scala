@@ -30,10 +30,9 @@ case class Evaluation(pm: PackageMap.Inferred) {
         Eval.later {
           val dtName = Type.rootDeclared(scheme.result).get // this is safe because it has type checked
           // TODO this can be memoized once per package
-          // TODO does this include imports?
           val dt = p.unfix.program.types.definedTypes
              .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get // one must match
-          val cname = dt.constructors.toList(enumId)._1
+          val cname = dt.constructors(enumId)._1
           val (_, paramVars, next) = branches.find { case (ctor, _, _) => ctor == cname }.get
           val localEnv = paramVars.zip(params).collect { case (Some(p1), p2) => (p1, p2) }.toMap
 
