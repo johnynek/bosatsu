@@ -12,7 +12,7 @@ def y(x):
 z = if x == 1:
   y
 else:
-  \y -> y + x
+  \q -> q + x
 
 struct Record(a, b)
 
@@ -28,7 +28,7 @@ enum List:
 # but not expressible directly
 fold = ffi scala org.bykn.edgemar.Std.fold List[a] -> b -> (b -> a -> b) -> b
 # TODO: change syntax to, and a special ffi file to control the mapping.
-#external def fold(l: List[A], init: b, fn: (b -> a -> b)) -> b
+#external def fold(l: List[a], init: b, fn: (b -> a -> b)) -> b
 
 external struct Action[a]
 

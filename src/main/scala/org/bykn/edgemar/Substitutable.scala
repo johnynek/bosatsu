@@ -27,7 +27,7 @@ object Substitutable {
       def apply(sub: Subst, t: Type): Type =
         t match {
           case Arrow(from, to) => Arrow(apply(sub, from), apply(sub, to))
-          case d@Declared(_) => d
+          case d@Declared(_, _) => d
           case c@Primitive(_) => c
           case TypeApply(hk, arg) => TypeApply(apply(sub, hk), apply(sub, arg))
           //case TypeLambda(param, in) => TypeLambda(param, apply(sub, in))
@@ -37,7 +37,7 @@ object Substitutable {
       def typeVars(t: Type) =
         t match {
           case Arrow(from, to) => typeVars(from) | typeVars(to)
-          case Declared(_) => Set.empty
+          case Declared(_, _) => Set.empty
           case Primitive(_) => Set.empty
           case TypeApply(hk, arg) => typeVars(hk) | typeVars(arg)
           //case TypeLambda(_, in) => typeVars(in)
@@ -116,16 +116,33 @@ object Substitutable {
 
   implicit val forTypeEnv: Substitutable[TypeEnv] =
     new Substitutable[TypeEnv] {
+      implicit def eSub[A: Substitutable, B: Substitutable]: Substitutable[Either[A, B]] =
+        new Substitutable[Either[A, B]] {
+          def apply(sub: Subst, eab: Either[A, B]) =
+            eab match {
+              case Right(b) => Right(Substitutable[B].apply(sub, b))
+              case Left(a) => Left(Substitutable[A].apply(sub, a))
+            }
+          def typeVars(eab: Either[A, B]) =
+            eab match {
+              case Right(b) => Substitutable[B].typeVars(b)
+              case Left(a) => Substitutable[A].typeVars(a)
+            }
+        }
+
       def apply(sub: Subst, te: TypeEnv): TypeEnv =
         TypeEnv(
           Substitutable[Map[String, Scheme]].apply(sub, te.toMap),
           Substitutable[Map[ConstructorName, DefinedType]].apply(sub, te.constructors),
-          Substitutable[Map[TypeName, DefinedType]].apply(sub, te.definedTypes)
+          Substitutable[Map[(PackageName, TypeName), DefinedType]].apply(sub, te.definedTypes),
+          Substitutable[Map[String, Either[(ConstructorName, DefinedType), DefinedType]]].apply(sub, te.imported)
         )
 
       def typeVars(te: TypeEnv) =
         Substitutable[Map[String, Scheme]].typeVars(te.toMap) |
-        Substitutable[Map[ConstructorName, DefinedType]].typeVars(te.constructors)
+        Substitutable[Map[ConstructorName, DefinedType]].typeVars(te.constructors) |
+        Substitutable[Map[(PackageName, TypeName), DefinedType]].typeVars(te.definedTypes) |
+        Substitutable[Map[String, Either[(ConstructorName, DefinedType), DefinedType]]].typeVars(te.imported)
     }
 
   implicit val forConstraint: Substitutable[Constraint] =

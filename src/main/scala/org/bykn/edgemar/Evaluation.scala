@@ -159,20 +159,21 @@ case class Evaluation(pm: PackageMap.Inferred) {
         prog.getLet(item) match {
           case Some(expr) => recurse((pack, Right(expr), env))
           case None =>
-            // This could be an import, or constructor
-            pack.unfix.localImport(item) match {
-              case Some((originalPackage, i)) =>
-                // import case, the original can't see the scope
-                recurse((originalPackage, Left(i.originalName), Map.empty))
-              case None =>
-                // constructor case
+            // This could be an import or constructor
+            // first check a local constructor:
+            // constructor case
+            val cn = ConstructorName(item)
+            prog.types.constructors.get(cn) match {
+              case Some(dtype) =>
                 Eval.later {
-                  val cn = ConstructorName(item)
-                  val dtype = prog.types.constructors(cn)
                   val scheme = dtype.toScheme(cn).get // this should never throw
                   val fn = constructor(cn, dtype)
                   (fn, scheme)
                 }
+              case None =>
+                // it must be an import or we shouldn't have typechecked
+                val (originalPackage, i) = pack.unfix.localImport(item).get
+                recurse((originalPackage, Left(i.originalName), Map.empty))
             }
         }
     }

@@ -20,18 +20,18 @@ sealed abstract class TypeRef {
         of.toDoc + Doc.char('[') + Doc.intercalate(commaSpace, args.toList.map(_.toDoc)) + Doc.char(']')
     }
 
-  def toType: Type =
+  def toType(p: PackageName): Type =
     this match {
       case TypeVar(v) => Type.Var(v)
-      case TypeName(n) => Type.maybePrimitive(n)
-      case TypeArrow(a, b) => Type.Arrow(a.toType, b.toType)
+      case TypeName(n) => Type.maybePrimitive(p, n)
+      case TypeArrow(a, b) => Type.Arrow(a.toType(p), b.toType(p))
       case TypeApply(a, bs) =>
         def loop(fn: Type, args: NonEmptyList[TypeRef]): Type =
           args match {
-            case NonEmptyList(a0, Nil) => Type.TypeApply(fn, a0.toType)
-            case NonEmptyList(a0, a1 :: as) => loop(Type.TypeApply(fn, a0.toType), NonEmptyList(a1, as))
+            case NonEmptyList(a0, Nil) => Type.TypeApply(fn, a0.toType(p))
+            case NonEmptyList(a0, a1 :: as) => loop(Type.TypeApply(fn, a0.toType(p)), NonEmptyList(a1, as))
           }
-        loop(a.toType, bs)
+        loop(a.toType(p), bs)
     }
 }
 

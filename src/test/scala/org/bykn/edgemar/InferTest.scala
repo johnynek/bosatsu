@@ -1,5 +1,6 @@
 package org.bykn.edgemar
 
+import cats.data.NonEmptyList
 import org.scalatest._
 import fastparse.all._
 
@@ -9,6 +10,8 @@ class InferTest extends FunSuite {
   }
   val i1 = Expr.Literal(Lit.Integer(1), ())
   val b1 = Expr.Literal(Lit.Bool(true), ())
+
+  val testPack = PackageName(NonEmptyList("Test", Nil))
 
   test("int") {
     simpleMatch(i1, Type.intT)
@@ -23,7 +26,7 @@ class InferTest extends FunSuite {
   def parseType(str: String, t: Type) =
     Declaration.parser("").parse(str) match {
       case Parsed.Success(decl, _) =>
-        val expr = decl.toExpr
+        val expr = decl.toExpr(testPack)
         Inference.inferExpr(TypeEnv.empty, expr) match {
           case Left(f) => fail(s"failed: $f")
           case Right(s) => assert(s.tag._2.result === t, s"$str => $decl => $expr => $s")
@@ -35,7 +38,7 @@ class InferTest extends FunSuite {
   def parseProgram(str: String, t: Type) =
     Statement.parser.parse(str) match {
       case Parsed.Success(exp, _) =>
-        val prog = exp.toProgram
+        val prog = exp.toProgram(testPack)
         prog.getMainDecl match {
           case None => fail(s"found no main expression")
           case Some(main) =>
@@ -74,7 +77,7 @@ fn""", Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT)))
 struct Unit
 
 main = Unit
-""", Type.Declared("Unit"))
+""", Type.Declared(testPack, "Unit"))
 
     parseProgram("""#
 enum Option:
@@ -82,7 +85,7 @@ enum Option:
   Some(a)
 
 main = Some(1)
-""", Type.TypeApply(Type.Declared("Option"), Type.intT))
+""", Type.TypeApply(Type.Declared(testPack, "Option"), Type.intT))
 
     parseProgram("""#
 enum Option:
@@ -90,7 +93,7 @@ enum Option:
   Some(a)
 
 main = Some
-""", Type.Arrow(Type.Var("a"), Type.TypeApply(Type.Declared("Option"), Type.Var("a"))))
+""", Type.Arrow(Type.Var("a"), Type.TypeApply(Type.Declared(testPack, "Option"), Type.Var("a"))))
 
    parseProgram("""#
 enum Option:

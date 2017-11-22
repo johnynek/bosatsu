@@ -140,4 +140,41 @@ main = maybeOne(42)
 """)
     valid(PackageMap.resolveThenInfer(Predef.withPredef(p :: Nil)).leftMap(_.map(_.message)))
   }
+
+  test("test using a renamed type") {
+
+  val p1 = parse(
+"""
+package R1
+
+export [ Foo(), mkFoo, takeFoo ]
+
+struct Foo
+
+mkFoo = Foo
+def takeFoo(foo):
+  match foo:
+    Foo:
+      0
+""")
+
+  val p2 = parse(
+"""
+package R2
+import R1 [ Foo as Bar, mkFoo, takeFoo ]
+
+# note Bar is the same as foo
+struct Baz(b: Bar)
+
+baz = Baz(mkFoo)
+
+main = takeFoo(mkFoo)
+
+main2 = match baz:
+  Baz(fooAsBar):
+    # here we pass a fooAsBar which has type Bar =:= Foo to takeFoo
+    takeFoo(fooAsBar)
+""")
+    valid(PackageMap.resolveThenInfer(List(p1, p2)).leftMap(_.map(_.message)))
+  }
 }
