@@ -155,7 +155,7 @@ object Generators {
       val genPattern = for {
         nm <- upperIdent
         cnt <- Gen.choose(0, 6)
-        args <- Gen.listOfN(cnt, lowerIdent)
+        args <- Gen.listOfN(cnt, Gen.option(lowerIdent))
       } yield Pattern(nm, args)
 
       val genCase: Gen[(Pattern, Padding[Indented[Declaration]])] =

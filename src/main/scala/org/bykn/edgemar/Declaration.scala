@@ -10,21 +10,24 @@ import org.typelevel.paiges.{ Doc, Document }
 import Parser.toEOL
 
 // TODO, in the future, we could recursively have patterns in the args
-case class Pattern(typeName: String, bindings: List[String])
+case class Pattern(typeName: String, bindings: List[Option[String]])
 object Pattern {
   implicit val document: Document[Pattern] =
     Document.instance[Pattern] {
       case Pattern(n, Nil) => Doc.text(n)
       case Pattern(n, nonEmpty) =>
+        def bind(o: Option[String]): Doc = o.fold(Doc.char('_'))(Doc.text)
         Doc.text(n) +
-          Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(Doc.text)) + Doc.char(')')
+          Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(bind)) + Doc.char(')')
     }
-  val parser: P[Pattern] =
-    P(upperIdent ~ (lowerIdent.listN(1).parens).?)
+  val parser: P[Pattern] = {
+    val item = lowerIdent.map(Some(_)) | P("_").map(_ => None)
+    P(upperIdent ~ (item.listN(1).parens).?)
       .map {
         case (n, None) => Pattern(n, Nil)
         case (n, Some(ls)) => Pattern(n, ls)
       }
+  }
 }
 
 /**

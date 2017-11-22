@@ -141,20 +141,21 @@ object Inference {
 
   private def instantiateMatch[T](arg: Type,
     dt: DefinedType,
-    branches: NonEmptyList[(ConstructorName, List[String], Expr[T])]): Infer[(Type, NonEmptyList[(ConstructorName, List[String], Expr[(T, Scheme)])])] = {
+    branches: NonEmptyList[(ConstructorName, List[Option[String]], Expr[T])]): Infer[(Type, NonEmptyList[(ConstructorName, List[Option[String]], Expr[(T, Scheme)])])] = {
 
-    def withBind(cn: ConstructorName, args: List[String], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
+    def withBind(cn: ConstructorName, args: List[Option[String]], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
       if (args.size != ts.size) MonadError[Infer, TypeError].raiseError(TypeError.InsufficientPatternBind(cn, args, ts, dt))
       else {
         inferTypeTag(result)
           .local { te: TypeEnv =>
-            args.zip(ts.map(Scheme.fromType _)).foldLeft(te) { case (te, (varName, tpe)) =>
-              te.updated(varName, tpe)
+            args.zip(ts.map(Scheme.fromType _)).foldLeft(te) {
+              case (te, (Some(varName), tpe)) => te.updated(varName, tpe)
+              case (te, (None, _)) => te
             }
           }
       }
 
-    type Element[A] = (ConstructorName, List[String], Expr[A])
+    type Element[A] = (ConstructorName, List[Option[String]], Expr[A])
     def inferBranch(mp: Map[ConstructorName, List[Type]])(ce: Element[T]): Infer[(Type, Element[(T, Scheme)])] = {
       // TODO make sure we have proven that this map-get is safe:
       val (cname, bindings, branchRes) = ce

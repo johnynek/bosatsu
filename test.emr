@@ -24,6 +24,13 @@ enum List:
   Empty
   NonEmpty(head: a, tail: List[a])
 
+def is_empty(list):
+  match list:
+    Empty:
+      True
+    NonEmpty(_, _):
+      False
+
 # This gives us enough to implement useful List functions (and is total)
 # but not expressible directly
 fold = ffi scala org.bykn.edgemar.Std.fold List[a] -> b -> (b -> a -> b) -> b

@@ -42,7 +42,7 @@ object Expr {
   case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class If[T](arg: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T) extends Expr[T]
-  case class Match[T](arg: Expr[T], branches: NonEmptyList[(ConstructorName, List[String], Expr[T])], tag: T) extends Expr[T]
+  case class Match[T](arg: Expr[T], branches: NonEmptyList[(ConstructorName, List[Option[String]], Expr[T])], tag: T) extends Expr[T]
   case class Op[T](left: Expr[T], binOp: Operator, right: Expr[T], tag: T) extends Expr[T]
 
   /**
@@ -79,7 +79,7 @@ object Expr {
 
       // Traverse on NonEmptyList[(ConstructorName, Expr[?])]
       private lazy val tne = {
-        type Tup[T] = (ConstructorName, List[String], T)
+        type Tup[T] = (ConstructorName, List[Option[String]], T)
         val tupTrav: Traverse[Tup] = new Traverse[Tup] {
           def traverse[G[_]: Applicative, A, B](fa: Tup[A])(f: A => G[B]): G[Tup[B]] =
             f(fa._3).map((fa._1, fa._2, _))
@@ -88,7 +88,7 @@ object Expr {
           def foldRight[A, B](fa: Tup[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] =
             f(fa._3, lb)
         }
-        type TupExpr[T] = (ConstructorName, List[String], Expr[T])
+        type TupExpr[T] = (ConstructorName, List[Option[String]], Expr[T])
         val tup: Traverse[TupExpr] = tupTrav.compose(exprTraverse)
         Traverse[NonEmptyList].compose(tup)
       }

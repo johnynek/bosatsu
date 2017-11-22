@@ -9,8 +9,8 @@ import org.typelevel.paiges.Document
 
 class ParserTest extends FunSuite {
   implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 500)
-    PropertyCheckConfiguration(minSuccessful = 5)
+    PropertyCheckConfiguration(minSuccessful = 500)
+    //PropertyCheckConfiguration(minSuccessful = 5)
 
   def region(s0: String, idx: Int): String = {
     val s = s0.updated(idx, '*')
