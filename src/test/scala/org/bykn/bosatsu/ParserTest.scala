@@ -3,13 +3,15 @@ package org.bykn.bosatsu
 import cats.data.NonEmptyList
 import Parser.Combinators
 import fastparse.all._
+import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.Document
 
 class ParserTest extends FunSuite {
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 500)
+    //PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 50)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   def region(s0: String, idx: Int): String = {
@@ -66,6 +68,22 @@ class ParserTest extends FunSuite {
     forAll { b: BigInt =>
       parseTestAll(Parser.integerString, b.toString, b.toString)
     }
+  }
+
+  test("we can parse quoted strings") {
+    val qstr = for {
+      qchar <- Gen.oneOf('\'', '"')
+      qstr = qchar.toString
+      str <- Arbitrary.arbitrary[String]
+    } yield (qstr + Parser.escape(Set(qchar), str) + qstr, str, qchar)
+
+    forAll(qstr) { case (quoted, str, char) =>
+      parseTestAll(Parser.escapedString(char), quoted, str)
+    }
+
+    parseTestAll(Parser.escapedString('\''), "''", "")
+    parseTestAll(Parser.escapedString('"'), "\"\"", "")
+    parseTestAll(Parser.escapedString('\''), "'foo\tbar'", "foo\tbar")
   }
 
   test("we can parse lists") {

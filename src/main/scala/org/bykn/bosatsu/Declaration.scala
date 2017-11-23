@@ -84,18 +84,7 @@ sealed abstract class Declaration {
       case LiteralBool(b) => if (b) trueDoc else falseDoc
       case LiteralInt(str) => Doc.text(str)
       case LiteralString(str, q) =>
-        def doc(s: String): Doc =
-          Doc.char(q) + Doc.text(s) + Doc.char(q)
-
-        if (str.contains(q)) {
-          // need to replace q with \q
-          val qs = s"\$q"
-          doc(str.flatMap {
-            case c if c == q => qs
-            case c => c.toString
-          })
-        }
-        else doc(str)
+          Doc.char(q) + Doc.text(Parser.escape(Set(q), str)) + Doc.char(q)
       case Match(typeName, args) =>
         val pid = Document[Padding[Indented[Declaration]]]
         implicit val patDoc: Document[(Pattern, Padding[Indented[Declaration]])] =

@@ -57,6 +57,17 @@ object Parser {
     P(qstr ~ char.rep() ~ qstr).map(_.mkString)
   }
 
+  def escape(chars: Set[Char], str: String): String = {
+    val escaped = chars + '\\'
+    if (str.exists(escaped)) {
+      str.flatMap {
+        case c if chars(c) => s"\\$c"
+        case c => c.toString
+      }
+    }
+    else str
+  }
+
   def indented[T](fn: String => P[T]): P[T] =
     spaces.!.flatMap { extra => P(fn(extra)) }
 

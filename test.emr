@@ -31,6 +31,10 @@ def is_empty(list):
     NonEmpty(_, _):
       False
 
+struct Monoid(empty: a, combine: a -> a -> a)
+
+intMonoid = Monoid(0, \x, y -> x + y)
+
 # This gives us enough to implement useful List functions (and is total)
 # but not expressible directly
 fold = ffi scala org.bykn.bosatsu.Std.fold List[a] -> b -> (b -> a -> b) -> b
