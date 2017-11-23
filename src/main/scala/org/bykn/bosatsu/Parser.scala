@@ -1,4 +1,4 @@
-package org.bykn.edgemar
+package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import fastparse.all._

@@ -1,4 +1,4 @@
-package org.bykn.edgemar
+package org.bykn.bosatsu
 
 import cats.Eval
 import cats.data.{Validated, ValidatedNel}
@@ -17,7 +17,7 @@ trait Fn[A, B] {
 }
 
 object Std {
-  //fold = ffi scala org.bykn.edgemar.Std.fold List[a] -> b -> (b -> a -> b) -> b
+  //fold = ffi scala org.bykn.bosatsu.Std.fold List[a] -> b -> (b -> a -> b) -> b
   @annotation.tailrec
   final def fold(list: Any, bv: Any, fn: Any): Any = {
     list match {
@@ -50,7 +50,7 @@ object Std {
 }
 
 object Main extends CommandApp(
-  name = "edgemar",
+  name = "bosatsu",
   header = "a total language",
   main = {
     implicit val argPack: Argument[PackageName] =

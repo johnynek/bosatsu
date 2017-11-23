@@ -1,4 +1,4 @@
-package org.bykn.edgemar
+package org.bykn.bosatsu
 
 sealed abstract class Operator(val asString: String, val tpe: Type)
 object Operator {

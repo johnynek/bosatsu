@@ -1,4 +1,4 @@
-package org.bykn.edgemar
+package org.bykn.bosatsu
 
 import com.stripe.dagon.Memoize
 import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
@@ -84,7 +84,7 @@ object ExportedName {
         case (n, Some(_)) => Constructor(n, ())
       }
 
-  private[edgemar] def buildExportMap[T](exs: List[ExportedName[T]]): Map[String, NonEmptyList[ExportedName[T]]] =
+  private[bosatsu] def buildExportMap[T](exs: List[ExportedName[T]]): Map[String, NonEmptyList[ExportedName[T]]] =
     exs match {
       case Nil => Map.empty
       case h :: tail => NonEmptyList(h, tail).groupBy(_.name)

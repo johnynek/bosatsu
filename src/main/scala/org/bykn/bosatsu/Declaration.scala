@@ -1,4 +1,4 @@
-package org.bykn.edgemar
+package org.bykn.bosatsu
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces }
 import cats.data.NonEmptyList

@@ -1,4 +1,4 @@
-package org.bykn.edgemar
+package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import fastparse.all._
@@ -11,9 +11,9 @@ object Predef {
   }
 
   private val predefString: String =
-    resourceToString("edgemar/predef.edgemar")
+    resourceToString("bosatsu/predef.bosatsu")
       .getOrElse {
-        scala.io.Source.fromFile("target/scala-2.12/classes/edgemar/predef.edgemar").mkString
+        scala.io.Source.fromFile("target/scala-2.12/classes/bosatsu/predef.bosatsu").mkString
       }
 
   val predefPackage: Package.Parsed =
@@ -23,7 +23,7 @@ object Predef {
     }
 
   val predefImports: Import[PackageName, Unit] =
-    Import(PackageName(NonEmptyList.of("Edgemar", "Predef")),
+    Import(PackageName(NonEmptyList.of("Bosatsu", "Predef")),
       NonEmptyList.of(
         "Option",
         "Some",

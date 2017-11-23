@@ -1,4 +1,4 @@
-package org.bykn.edgemar
+package org.bykn.bosatsu
 
 /**
  * This is a scala port of the example of Hindley Milner inference

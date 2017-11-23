@@ -62,7 +62,7 @@ lazy val root = (project in file(".")).
       scalaVersion := "2.12.3",
       version      := "0.1.0-SNAPSHOT"
     )),
-    name := "edgemar",
+    name := "bosatsu",
     libraryDependencies ++=
       Seq(
         cats,
