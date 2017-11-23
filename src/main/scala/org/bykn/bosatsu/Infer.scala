@@ -311,6 +311,8 @@ object Inference {
         Monad[Infer].pure((Type.intT, Expr.Literal(Lit.Integer(i), (tag, Scheme.fromType(Type.intT)))))
       case Expr.Literal(Lit.Bool(b) ,tag) =>
         Monad[Infer].pure((Type.boolT, Expr.Literal(Lit.Bool(b), (tag, Scheme.fromType(Type.boolT)))))
+      case Expr.Literal(str@Lit.Str(_) ,tag) =>
+        Monad[Infer].pure((Type.strT, Expr.Literal(str, (tag, Scheme.fromType(Type.strT)))))
       case Expr.If(cond, te, fe, tag) =>
         for {
           ic <- inferTypeTag(cond)

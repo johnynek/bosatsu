@@ -182,12 +182,19 @@ object Generators {
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
+    val str = for {
+      q <- Gen.oneOf('\'', '"')
+      //str <- Arbitrary.arbitrary[String]
+      str <- lowerIdent // TODO
+    } yield LiteralString(str, q)
+
     val unnested = Gen.oneOf(
       lowerIdent.map(Var(_)),
       upperIdent.map(Constructor(_)),
       ffiGen,
       //Arbitrary.arbitrary[BigInt].map { bi => LiteralInt(bi.toString) }, // TODO enable bigint
       Arbitrary.arbitrary[Int].map { bi => LiteralInt(bi.toString) },
+      str,
       Gen.oneOf(true, false).map { b => LiteralBool(b) })
 
     val recur = Gen.lzy(genDeclaration(depth - 1))

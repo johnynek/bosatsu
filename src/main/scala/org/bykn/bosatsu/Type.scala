@@ -28,6 +28,7 @@ object Type {
 
   val intT: Type = Primitive("Int")
   val boolT: Type = Primitive("Bool")
+  val strT: Type = Primitive("String")
 
   def transformDeclared(in: Type)(fn: Declared => Declared): Type =
     in match {
@@ -48,7 +49,7 @@ object Type {
       case _ => None
     }
 
-  private[this] val prims = Set("Int", "Bool")
+  private[this] val prims = Set("Int", "Bool", "String")
   def maybePrimitive(p: PackageName, n: String): Type =
     if (prims(n)) Primitive(n) // this is not really right in a package world
     else Declared(p, n)

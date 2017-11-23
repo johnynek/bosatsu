@@ -112,6 +112,7 @@ case class Evaluation(pm: PackageMap.Inferred) {
         .map { case (r, _) => (r, scheme) }
       case Literal(Lit.Integer(i), (_, scheme)) => Eval.now((i, scheme))
       case Literal(Lit.Bool(b), (_, scheme)) => Eval.now((b, scheme))
+      case Literal(Lit.Str(str), (_, scheme)) => Eval.now((str, scheme))
       case If(arg, t, f, (_, scheme)) =>
         recurse((p, Right(arg), env)).flatMap { case (a, _) =>
           if (a.asInstanceOf[Boolean]) recurse((p, Right(t), env))

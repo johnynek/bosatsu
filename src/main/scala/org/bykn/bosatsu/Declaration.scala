@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces }
+import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces, escapedString }
 import cats.data.NonEmptyList
 import cats.implicits._
 import com.stripe.dagon.Memoize
@@ -83,6 +83,19 @@ sealed abstract class Declaration {
         Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Doc.text _)) + Doc.text(" -> ") + body.toDoc
       case LiteralBool(b) => if (b) trueDoc else falseDoc
       case LiteralInt(str) => Doc.text(str)
+      case LiteralString(str, q) =>
+        def doc(s: String): Doc =
+          Doc.char(q) + Doc.text(s) + Doc.char(q)
+
+        if (str.contains(q)) {
+          // need to replace q with \q
+          val qs = s"\$q"
+          doc(str.flatMap {
+            case c if c == q => qs
+            case c => c.toString
+          })
+        }
+        else doc(str)
       case Match(typeName, args) =>
         val pid = Document[Padding[Indented[Declaration]]]
         implicit val patDoc: Document[(Pattern, Padding[Indented[Declaration]])] =
@@ -141,6 +154,8 @@ sealed abstract class Declaration {
         Expr.Literal(Lit.Bool(b), this)
       case LiteralInt(str) =>
         Expr.Literal(Lit.Integer(str.toInt), this) // TODO use BigInt
+      case LiteralString(str, _) =>
+        Expr.Literal(Lit.Str(str), this)
       case Op(left, op, right) =>
         Expr.Op(left.toExpr(pn), op, right.toExpr(pn), this)
       case Parens(p) =>
@@ -182,6 +197,7 @@ object Declaration {
   case class Lambda(args: NonEmptyList[String], body: Declaration) extends Declaration
   case class LiteralBool(toBoolean: Boolean) extends Declaration
   case class LiteralInt(asString: String) extends Declaration
+  case class LiteralString(asString: String, quoteChar: Char) extends Declaration
   case class Match(arg: Declaration, cases: NonEmptyList[Padding[Indented[(Pattern, Padding[Indented[Declaration]])]]]) extends Declaration
   case class Op(left: Declaration, op: Operator, right: Declaration) extends Declaration
   case class Parens(of: Declaration) extends Declaration
@@ -268,6 +284,13 @@ object Declaration {
   val literalIntP: P[LiteralInt] =
     Parser.integerString.map(LiteralInt(_))
 
+  val literalStringP: P[LiteralString] = {
+    val q1 = '\''
+    val q2 = '"'
+    escapedString(q1).map(LiteralString(_, q1)) |
+      escapedString(q2).map(LiteralString(_, q2))
+  }
+
   def matchP(indent: String): P[Match] = {
     val firstCase: P[Padding[Indented[(Pattern, String, Padding[Indented[Declaration]])]]] = {
       def inner(str: String): P[(Pattern, String, Padding[Indented[Declaration]])] =
@@ -321,7 +344,7 @@ object Declaration {
 
         dotApply :: applySuffix :: Operator.allOps.map(parseOp _)
       }
-      val prefix = defP(indent) | literalIntP | literalBoolP | lambdaP(indent) | matchP(indent) |
+      val prefix = defP(indent) | literalIntP | literalBoolP | literalStringP | lambdaP(indent) | matchP(indent) |
         ifElseP(indent) | ffiP | varOrBind(indent) | constructorP | commentP(indent) | P(rec(indent).parens).map(Parens(_))
 
       val opsList = postOperators.reduce(_ | _).rep().map(_.toList)

@@ -403,5 +403,7 @@ object PackageError {
     }
   case class DuplicatePackages(head: Package.Parsed, collisions: NonEmptyList[Package.Parsed]) extends PackageError
   case class CircularDependency[A, B, C](from: Package[PackageName, A, B, C], path: NonEmptyList[PackageName]) extends PackageError
-  case class TypeErrorIn(tpeErr: TypeError, pack: Package.PackageF[Unit, Program[Declaration, Statement]]) extends PackageError
+  case class TypeErrorIn(tpeErr: TypeError, pack: Package.PackageF[Unit, Program[Declaration, Statement]]) extends PackageError {
+    override def message = s"$tpeErr in ${pack.name}"
+  }
 }

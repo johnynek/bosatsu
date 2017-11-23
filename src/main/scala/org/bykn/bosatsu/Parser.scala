@@ -51,6 +51,12 @@ object Parser {
       }
   }
 
+  def escapedString(q: Char): P[String] = {
+    val qstr = q.toString
+    val char = P((!qstr ~ AnyChar) | ("\\" ~ AnyChar)).!
+    P(qstr ~ char.rep() ~ qstr).map(_.mkString)
+  }
+
   def indented[T](fn: String => P[T]): P[T] =
     spaces.!.flatMap { extra => P(fn(extra)) }
 

@@ -33,7 +33,7 @@ object Std {
 
   def unitValue: AnyRef = (0, Nil)
 
-  def print(i: java.lang.Integer): Any =
+  def print(i: Any): Any =
     Eval.always { println(i.toString); unitValue }
 
   def flatMap(act: Any, fn: Any): Any =

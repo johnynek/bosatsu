@@ -39,7 +39,7 @@ fold = ffi scala org.bykn.bosatsu.Std.fold List[a] -> b -> (b -> a -> b) -> b
 
 external struct Action[a]
 
-print = ffi scala org.bykn.bosatsu.Std.print Int -> Action[Unit]
+print = ffi scala org.bykn.bosatsu.Std.print String -> Action[Unit]
 flatMap = ffi scala org.bykn.bosatsu.Std.flatMap Action[a] -> (a -> Action[b]) -> Action[b]
 mapAction = ffi scala org.bykn.bosatsu.Std.flatMap Action[a] -> (a -> b) -> Action[b]
 toAction = ffi scala org.bykn.bosatsu.Std.toAction a -> Action[a]
@@ -86,11 +86,11 @@ hc = ffi scala org.bykn.bosatsu.Foo.times Int -> Int
 
 foo = NonEmpty(1, NonEmpty(2, Empty))
 
-act = print(42).flatMap(\u -> toAction(43))
+act = print("42").flatMap(\u -> toAction(43))
 resA = runAction(act)
 
 main = match foo:
   Empty:
     0
   NonEmpty(x, tail):
-    hc(1) + foo.map(\x -> 10*x).sum
+    hc(resA) + foo.map(\x -> 10*x).sum
