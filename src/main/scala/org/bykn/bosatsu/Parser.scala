@@ -77,7 +77,6 @@ object Parser {
       case Some(ne) => ne.toList
     }
 
-
   implicit class Combinators[T](val item: P[T]) extends AnyVal {
     def list: P[List[T]] = listN(0)
 
@@ -107,6 +106,11 @@ object Parser {
       val ws = P(CharsWhile(_.isWhitespace)).?
       nonEmptyListOfWs(ws, 1).bracketed(P("[" ~/ ws), P(ws ~ "]"))
     }
+
+    def region: P[(Region, T)] =
+      P(Index ~ item ~ Index).map { case (s, t, e) =>
+        (Region(s, e), t)
+      }
 
     def trailingSpace: P[T] =
       P(item ~ maybeSpace)

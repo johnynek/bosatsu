@@ -6,7 +6,8 @@ import java.util.Arrays
  * Build a cache of the rows and columns in a given
  * string. This is for showing error messages to users
  */
-case class LocationMap(fromString: String) {
+case class LocationMap(fromString: String) { self =>
+
   private[this] val lines: Array[String] =
     fromString.split("\n", -1)
 

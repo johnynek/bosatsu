@@ -36,7 +36,7 @@ object Pattern {
 sealed abstract class Declaration {
   import Declaration._
 
-  val standardIndentation: Int = 4
+  def region: Region
 
   def toDoc: Doc = {
     this match {
@@ -176,40 +176,56 @@ object Declaration {
         buildLambda(NonEmptyList.of(arg), body1, outer)
     }
 
-  case class Apply(fn: Declaration, args: NonEmptyList[Declaration], useDotApply: Boolean) extends Declaration
-  case class Binding(binding: BindingStatement[Padding[Declaration]]) extends Declaration
-  case class Comment(comment: CommentStatement[Padding[Declaration]]) extends Declaration
-  case class Constructor(name: String) extends Declaration
-  case class DefFn(deffn: DefStatement[(Padding[Indented[Declaration]], Padding[Declaration])]) extends Declaration
-  case class FfiLambda(lang: String, callsite: String, tpe: TypeRef) extends Declaration
-  case class IfElse(ifCases: NonEmptyList[(Declaration, Padding[Indented[Declaration]])], elseCase: Padding[Indented[Declaration]]) extends Declaration
-  case class Lambda(args: NonEmptyList[String], body: Declaration) extends Declaration
-  case class LiteralBool(toBoolean: Boolean) extends Declaration
-  case class LiteralInt(asString: String) extends Declaration
-  case class LiteralString(asString: String, quoteChar: Char) extends Declaration
-  case class Match(arg: Declaration, cases: NonEmptyList[Padding[Indented[(Pattern, Padding[Indented[Declaration]])]]]) extends Declaration
-  case class Op(left: Declaration, op: Operator, right: Declaration) extends Declaration
-  case class Parens(of: Declaration) extends Declaration
-  case class Var(name: String) extends Declaration
+  //
+  // We use the pattern of an implicit region for two reasons:
+  // 1. we don't want the region to play a role in pattern matching or equality, since it is about
+  //    error reporting, and if we include it in equality it massively complicates tests.
+  // 2. we want to be able to construct these for tests dummy values, so we can set up an implicit
+  //    value in tests and construct them.
+  // These reasons are a bit abusive, and we may revisit this in the future
+  //
+
+  case class Apply(fn: Declaration, args: NonEmptyList[Declaration], useDotApply: Boolean)(implicit val region: Region) extends Declaration
+  case class Binding(binding: BindingStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class Constructor(name: String)(implicit val region: Region) extends Declaration
+  case class DefFn(deffn: DefStatement[(Padding[Indented[Declaration]], Padding[Declaration])])(implicit val region: Region) extends Declaration
+  case class FfiLambda(lang: String, callsite: String, tpe: TypeRef)(implicit val region: Region) extends Declaration
+  case class IfElse(ifCases: NonEmptyList[(Declaration, Padding[Indented[Declaration]])],
+    elseCase: Padding[Indented[Declaration]])(implicit val region: Region) extends Declaration
+  case class Lambda(args: NonEmptyList[String], body: Declaration)(implicit val region: Region) extends Declaration
+  case class LiteralBool(toBoolean: Boolean)(implicit val region: Region) extends Declaration
+  case class LiteralInt(asString: String)(implicit val region: Region) extends Declaration
+  case class LiteralString(asString: String, quoteChar: Char)(implicit val region: Region) extends Declaration
+  case class Match(arg: Declaration,
+    cases: NonEmptyList[Padding[Indented[(Pattern, Padding[Indented[Declaration]])]]])(
+    implicit val region: Region) extends Declaration
+  case class Op(left: Declaration, op: Operator, right: Declaration) extends Declaration {
+    def region = left.region + right.region
+  }
+  case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
+  case class Var(name: String)(implicit val region: Region) extends Declaration
 
   // This is something we check after variables
-  private def bindingOp(indent: String): P[String => Binding] = {
+  private def bindingOp(indent: String): P[(String, Region) => Binding] = {
     val eqP = P("=" ~ !"=")
 
     val restParser = Padding.parser(P(indent ~ parser(indent)))
     P(maybeSpace ~ eqP ~/ maybeSpace ~ parser(indent) ~ maybeSpace ~ "\n" ~ restParser)
-      .map { case (value, rest) =>
+      .region
+      .map { case (region, (value, rest)) =>
 
-        { str: String => Binding(BindingStatement(str, value, rest)) }
+        { (str: String, r: Region) => Binding(BindingStatement(str, value, rest))(r + region) }
       }
   }
 
   val constructorP: P[Constructor] =
-    upperIdent.map(Constructor(_))
+    upperIdent.region.map { case (r, c) => Constructor(c)(r) }
 
   def commentP(indent: String): P[Comment] =
     CommentStatement.parser(indent, Padding.parser(P(indent ~ parser(indent))))
-      .map(Comment(_))
+      .region
+      .map { case (r, c) => Comment(c)(r) }
 
   private def padIn[T](indent: String)(fn: String => P[T]): P[Padding[Indented[T]]] =
     P(Padding.parser(P(indent ~ Indented.parser(fn))))
@@ -224,12 +240,15 @@ object Declaration {
     val restParser: P[(Padding[Indented[Declaration]], Padding[Declaration])] =
       P(padInP(indent) ~ toEOL ~ Padding.parser(indent ~ parser(indent)))
 
-    DefStatement.parser(restParser).map(DefFn(_))
+    DefStatement.parser(restParser)
+      .region
+      .map { case (r, d) => DefFn(d)(r) }
   }
 
   val ffiP: P[FfiLambda] =
     P("ffi" ~ spaces ~/ Parser.nonSpaces ~/ spaces ~/ Parser.nonSpaces ~/ spaces ~ TypeRef.parser)
-      .map { case (l, c, t) => FfiLambda(l, c, t) }
+      .region
+      .map { case (r, (l, c, t)) => FfiLambda(l, c, t)(r) }
 
   def ifElseP(indent: String): P[IfElse] = {
     // prefix should be strict identifier like "if " or "elif "
@@ -246,16 +265,17 @@ object Declaration {
     val ifP: P[(Declaration, Padding[Indented[(Declaration, String)]])] =
       blockPart("if ", lazyCond, ifDecl)
 
-    ifP.flatMap {
-      case (cond, Padding(p, Indented(c, (decl, i)))) =>
+    ifP.region.flatMap {
+      case (r1, (cond, Padding(p, Indented(c, (decl, i))))) =>
         val ifcase = (cond, Padding(p, Indented(c, decl)))
         val nextDecls = restDecl(i)
 
         val elifP = blockPart("elif ", lazyCond, nextDecls)
         val elseP = P("\n" ~ indent ~ "else" ~ maybeSpace ~ ":" ~/ toEOL ~ nextDecls)
         P(("\n" ~ indent ~ elifP).rep() ~ elseP)
-          .map { case (tail, end) =>
-            IfElse(NonEmptyList(ifcase, tail.toList), end)
+          .region
+          .map { case (r2, (tail, end)) =>
+            IfElse(NonEmptyList(ifcase, tail.toList), end)(r1 + r2)
           }
     }
   }
@@ -264,20 +284,29 @@ object Declaration {
     val body0 = P(maybeSpace ~ parser(indent))
     val body1 = P(toEOL ~/ padInP(indent).map(_.padded.value))
     P("\\" ~/ maybeSpace ~ lowerIdent.nonEmptyList ~ maybeSpace ~ "->" ~/ (body0 | body1))
-      .map { case (args, body) => Lambda(args, body) }
+      .region
+      .map { case (r, (args, body)) => Lambda(args, body)(r) }
   }
 
-  val literalBoolP: P[LiteralBool] =
-    Parser.tokenP("True", LiteralBool(true)) | Parser.tokenP("False", LiteralBool(false))
+  val literalBoolP: P[LiteralBool] = {
+    def b(str: String, v: Boolean): P[LiteralBool] =
+      P(str).region.map { case (r, _) => LiteralBool(v)(r) }
+
+    b("True", true) | b("False", false)
+  }
 
   val literalIntP: P[LiteralInt] =
-    Parser.integerString.map(LiteralInt(_))
+    Parser.integerString
+      .region
+      .map { case (r, i) => LiteralInt(i)(r) }
 
   val literalStringP: P[LiteralString] = {
     val q1 = '\''
     val q2 = '"'
-    escapedString(q1).map(LiteralString(_, q1)) |
-      escapedString(q2).map(LiteralString(_, q2))
+    def str(q: Char): P[LiteralString] =
+      escapedString(q).region.map { case (r, str) => LiteralString(str, q)(r) }
+
+    str(q1) | str(q2)
   }
 
   def matchP(indent: String): P[Match] = {
@@ -293,23 +322,25 @@ object Declaration {
         P(Pattern.parser ~ ":" ~/ toEOL ~ padInP(indent + i)))
 
     P("match" ~ spaces ~/ parser(indent) ~ maybeSpace ~ ":" ~ toEOL ~ firstCase)
-      .flatMap { case (exp, Padding(pad, Indented(i, (p1, ind, dec1)))) =>
+      .region
+      .flatMap { case (r1, (exp, Padding(pad, Indented(i, (p1, ind, dec1))))) =>
         (toEOL ~ restCases(ind)).rep()
-          .map { rest =>
+          .region
+          .map { case (r2, rest) =>
             val head = Padding(pad, Indented(i, (p1, dec1)))
-            Match(exp, NonEmptyList(head, rest.toList))
+            Match(exp, NonEmptyList(head, rest.toList))(r1 + r2)
           }
       }
   }
 
   val varP: P[Var] =
-    lowerIdent.map(Var(_))
+    lowerIdent.region.map { case (r, v) => Var(v)(r) }
 
   private def varOrBind(indent: String): P[Declaration] =
     P(varP ~ bindingOp(indent).?)
       .map {
         case (v, None) => v
-        case (Var(v), Some(fn)) => fn(v)
+        case (varD@Var(v), Some(fn)) => fn(v, varD.region)
       }
 
   private[this] val parserCache: String => P[Declaration] =
@@ -318,23 +349,29 @@ object Declaration {
       val postOperators: List[P[Declaration => Declaration]] = {
         val params = P(rec(indent).nonEmptyList.parens)
         val dotApply =
-          P("." ~/ varP ~ params.?).map { case (fn, argsOpt) =>
+          P("." ~/ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
             val args = argsOpt.fold(List.empty[Declaration])(_.toList)
 
-            { head: Declaration => Apply(fn, NonEmptyList(head, args), true) }
+            { head: Declaration => Apply(fn, NonEmptyList(head, args), true)(head.region + r2) }
           }
 
-        val applySuffix = params.map { args =>
-          Apply(_: Declaration, args, false)
+        val applySuffix = params.region.map { case (r, args) =>
+
+          { fn: Declaration => Apply(fn, args, false)(fn.region + r) }
         }
 
         def parseOp(o: Operator): P[Declaration => Declaration] =
-          P(maybeSpace ~ o.asString ~/ maybeSpace ~ rec(indent)).map { right => Op(_, o, right) }
+          P(maybeSpace ~ o.asString ~/ maybeSpace ~ rec(indent))
+            .map { right =>
+
+              { left: Declaration => Op(left, o, right) }
+            }
 
         dotApply :: applySuffix :: Operator.allOps.map(parseOp _)
       }
       val prefix = defP(indent) | literalIntP | literalBoolP | literalStringP | lambdaP(indent) | matchP(indent) |
-        ifElseP(indent) | ffiP | varOrBind(indent) | constructorP | commentP(indent) | P(rec(indent).parens).map(Parens(_))
+        ifElseP(indent) | ffiP | varOrBind(indent) | constructorP | commentP(indent) |
+        P(rec(indent).parens).region.map { case (r, p) => Parens(p)(r) }
 
       val opsList = postOperators.reduce(_ | _).rep().map(_.toList)
 

@@ -9,6 +9,8 @@ object Generators {
   val num: Gen[Char] = Gen.oneOf('0' to '9')
   val identC: Gen[Char] = Gen.frequency((10, lower), (1, upper), (1, num))
 
+  private val emptyRegion: Region = Region(0, 0)
+
   def nonEmpty[T](t: Gen[T]): Gen[NonEmptyList[T]] =
     for {
       h <- t
@@ -87,27 +89,27 @@ object Generators {
       op <- Gen.oneOf(Operator.allOps)
       left <- dec
       right <- dec
-    } yield Op(Parens(left), op, Parens(right))
+    } yield Op(Parens(left)(emptyRegion), op, Parens(right)(emptyRegion))
   }
 
   def applyGen(dec: Gen[Declaration]): Gen[Declaration] = {
     import Declaration._
     Gen.lzy(for {
       fn <- dec
-      varfnParens = fn match { case v@Declaration.Var(_) => (true, v); case nonV => (false, Parens(nonV)) }
+      varfnParens = fn match { case v@Declaration.Var(_) => (true, v); case nonV => (false, Parens(nonV)(emptyRegion)) }
       (isVar, fnParens) = varfnParens
       dotApply <- Gen.oneOf(true, false)
       useDot = dotApply && isVar // f.bar needs the fn to be a var
       argsGen = if (useDot) dec.map(NonEmptyList(_, Nil)) else nonEmpty(dec)
       args <- argsGen
-    } yield Apply(fnParens, args, false)) // TODO this should pass if we use `foo.bar(a, b)` syntax
+    } yield Apply(fnParens, args, false)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
 
   def bindGen[T](dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[T]] =
     for {
       b <- lowerIdent
       value0 <- dec
-      value = value0 match { case Declaration.Binding(_) => Declaration.Parens(value0); case _ => value0 }
+      value = value0 match { case Declaration.Binding(_) => Declaration.Parens(value0)(emptyRegion); case _ => value0 }
       in <- tgen
     } yield BindingStatement(b, value, in)
 
@@ -125,7 +127,7 @@ object Generators {
     for {
       args <- nonEmpty(lowerIdent)
       body <- bodyGen
-    } yield Declaration.Lambda(args, body)
+    } yield Declaration.Lambda(args, body)(emptyRegion)
 
   def ifElseGen(bodyGen: Gen[Declaration]): Gen[Declaration.IfElse] = {
     import Declaration._
@@ -139,7 +141,7 @@ object Generators {
         Gen.zip(bodyGen, padBody)
 
       Gen.zip(nonEmptyN(genIf, 2), padBody)
-        .map { case (ifs, elsec) => IfElse(ifs, elsec) }
+        .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
     }
   }
 
@@ -148,7 +150,6 @@ object Generators {
 
     val indentation = Gen.choose(1, 10)
     indentation.flatMap { i =>
-      //case class Match(arg: Declaration, cases: NonEmptyList[Padding[Indented[(Pattern, Padding[Indented[Declaration]])]]]) extends Declaration
 
       val padBody = padding(bodyGen.map(Indented(i, _)))
 
@@ -167,7 +168,7 @@ object Generators {
         cnt <- Gen.choose(1, 2)
         expr <- bodyGen
         cases <- nonEmptyN(padIndCase, cnt)
-      } yield Match(expr, cases)
+      } yield Match(expr, cases)(emptyRegion)
     }
   }
 
@@ -177,7 +178,7 @@ object Generators {
       parts <- Gen.choose(1, 4)
       callsiteParts <- Gen.listOfN(parts, lowerIdent)
       tpe <- typeRefGen
-    } yield Declaration.FfiLambda(lang, callsiteParts.mkString("."), tpe)
+    } yield Declaration.FfiLambda(lang, callsiteParts.mkString("."), tpe)(emptyRegion)
 
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
@@ -186,27 +187,27 @@ object Generators {
       q <- Gen.oneOf('\'', '"')
       //str <- Arbitrary.arbitrary[String]
       str <- lowerIdent // TODO
-    } yield LiteralString(str, q)
+    } yield LiteralString(str, q)(emptyRegion)
 
     val unnested = Gen.oneOf(
-      lowerIdent.map(Var(_)),
-      upperIdent.map(Constructor(_)),
+      lowerIdent.map(Var(_)(emptyRegion)),
+      upperIdent.map(Constructor(_)(emptyRegion)),
       ffiGen,
       //Arbitrary.arbitrary[BigInt].map { bi => LiteralInt(bi.toString) }, // TODO enable bigint
-      Arbitrary.arbitrary[Int].map { bi => LiteralInt(bi.toString) },
+      Arbitrary.arbitrary[Int].map { bi => LiteralInt(bi.toString)(emptyRegion) },
       str,
-      Gen.oneOf(true, false).map { b => LiteralBool(b) })
+      Gen.oneOf(true, false).map { b => LiteralBool(b)(emptyRegion) })
 
     val recur = Gen.lzy(genDeclaration(depth - 1))
     if (depth <= 0) unnested
     else Gen.frequency(
       (12, unnested),
-      (2, commentGen(padding(recur, 1)).map(Comment(_))), // make sure we have 1 space to prevent comments following each other
-      (2, defGen(Gen.zip(padding(indented(recur)), padding(recur))).map(DefFn(_))),
+      (2, commentGen(padding(recur, 1)).map(Comment(_)(emptyRegion))), // make sure we have 1 space to prevent comments following each other
+      (2, defGen(Gen.zip(padding(indented(recur)), padding(recur))).map(DefFn(_)(emptyRegion))),
       (2, opGen(recur)),
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
-      (2, bindGen(recur, padding(recur, 1)).map(Binding(_))),
+      (2, bindGen(recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
       (1, ifElseGen(recur)),
       (1, matchGen(recur)),
     )

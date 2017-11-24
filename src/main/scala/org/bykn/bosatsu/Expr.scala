@@ -226,8 +226,9 @@ case class Program[D, S](types: TypeEnv, lets: List[(String, Expr[D])], from: S)
   def getMainDecl(implicit ev: D Is Declaration): Option[Expr[Declaration]] = {
 
     val fn = { (nm: String, v: D, in: D) =>
+      val r = ev.coerce(v).region + ev.coerce(in).region
       ev.flip.coerce(Declaration.Binding(
-        BindingStatement(nm, ev.coerce(v), Padding(0, ev.coerce(in)))))
+        BindingStatement(nm, ev.coerce(v), Padding(0, ev.coerce(in))))(r))
     }
 
     type F[T] = Option[Expr[T]]

@@ -9,6 +9,9 @@ import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.Document
 
 class ParserTest extends FunSuite {
+  // This is so we can make Declarations without the region
+  private[this] implicit val emptyRegion: Region = Region(0, 0)
+
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 500)
     PropertyCheckConfiguration(minSuccessful = 50)
