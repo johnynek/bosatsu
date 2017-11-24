@@ -11,9 +11,9 @@ case class LocationMap(fromString: String) { self =>
   private[this] val lines: Array[String] =
     fromString.split("\n", -1)
 
-  // The position of the last element of this line including the newline
-  private[this] val endPos: Array[Int] = {
-    val it = lines.map(_.length).iterator
+  // The position of the first element of the ith line
+  private[this] val firstPos: Array[Int] = {
+    val it = lines.iterator.map(_.length)
     val it2 = new Iterator[(Int, Boolean)] {
       def hasNext = it.hasNext
       def next = {
@@ -28,7 +28,6 @@ case class LocationMap(fromString: String) { self =>
     }
     .toArray
     .scanLeft(0)(_ + _)
-    .drop(1) // remove the 0 added
   }
 
   /**
@@ -37,8 +36,8 @@ case class LocationMap(fromString: String) { self =>
   def toLineCol(offset: Int): Option[(Int, Int)] =
     if (offset < 0 || offset >= fromString.length ) None
     else {
-      val idx = Arrays.binarySearch(endPos, offset)
-      if (idx == endPos.length) {
+      val idx = Arrays.binarySearch(firstPos, offset)
+      if (idx == firstPos.length) {
         // greater than all elements
         None
       }
@@ -51,16 +50,13 @@ case class LocationMap(fromString: String) { self =>
         // so insertion pos = ~(idx + 1)
         val row = ~(idx + 1)
         // so we are pointing into a row
-        val rowStart = if (row <= 0) 0 else endPos(row - 1)
+        val rowStart = firstPos(row)
         val col = offset - rowStart
-        Some((math.max(row, 0), col))
+        Some((row, col))
       }
       else {
-        // idx is exactly the right value because offset is the end of a line
-        val row = idx
-        val newlineInc = if (row == (lines.length - 1)) 0 else 1 // +1 because we are pointing at the newline we removed
-        val col = lines(row).length + newlineInc
-        Some((row, col))
+        // idx is exactly the right value because offset is beginning of a line
+        Some((idx, 0))
       }
     }
   /**
@@ -69,6 +65,30 @@ case class LocationMap(fromString: String) { self =>
   def getLine(i: Int): Option[String] =
     if (i >= 0 && i < lines.length) Some(lines(i))
     else None
+
+
+  def showContext(offset: Int, previousLines: Int = 2): Option[String] =
+    toLineCol(offset)
+      .map { case (r, c) =>
+        val lines = (r - previousLines to r)
+          .toList
+          .filter(_ >= 0)
+          .map { r =>
+            val liner = getLine(r).get // should never throw
+            // lines are usually 1 offset labeled
+            (r + 1, liner)
+          }
+
+        val padding = lines.iterator.map { case (l, _) => LocationMap.charsLineNumber(l) }.max
+        def toLineStr(i: Int) = {
+          val istr = i.toString
+          val pad = padding - istr.length
+          (" " * pad) + istr + "|"
+        }
+        val pointerPad = " " * toLineStr(r).length
+        lines.map { case (no, l) => s"${toLineStr(no)}$l" }
+          .mkString("", "\n", "\n" + pointerPad + LocationMap.pointerTo(c) + "\n")
+      }
 }
 
 object LocationMap {
@@ -77,6 +97,16 @@ object LocationMap {
    * with 0 based indexing:
    * e.g. pointerTo(2) == "  ^"
    */
-  def pointerTo(column: Int): String =
-    (" " * column) + "^"
+  def pointerTo(column: Int, colorString: Option[String] = Some(Console.RED)): String =
+    (" " * column) + colorString.getOrElse("") + "^" + colorString.map(_ => Console.RESET).getOrElse("")
+
+  def charsLineNumber(i: Int): Int = {
+    require(i >= 0, s"expect line > 0, found $i")
+    def go(i: Int, acc: Int): Int =
+      if (i < 10) acc
+      else go(i / 10, acc + 1)
+
+    go(i, 1)
+  }
+
 }

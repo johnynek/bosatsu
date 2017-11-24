@@ -4,8 +4,7 @@ import cats.Eval
 import cats.data.{Validated, ValidatedNel}
 import cats.implicits._
 import com.monovore.decline._
-import java.nio.file.{Files, Path}
-import fastparse.all._
+import java.nio.file.Path
 
 object Foo {
   def times(i: java.lang.Integer): java.lang.Integer =
@@ -66,13 +65,37 @@ object Main extends CommandApp(
     val mainP = Opts.option[PackageName]("main", help = "main package")
     (opt, mainP).mapN { (paths, mainPack) =>
 
-      val parsedPaths = paths.map { path =>
-        val str = new String(Files.readAllBytes(path), "utf-8")
-        Package.parser.parse(str) match {
-          case Parsed.Success(pack, _) => pack
-          case Parsed.Failure(exp, idx, extra) =>
-            sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
-        }
+      val parsedPathsV = paths.traverse { path =>
+        Parser.parseFile(Package.parser, path)
+      }
+
+      val parsedPaths = parsedPathsV match {
+        case Validated.Valid(p) => p.map(_._2)
+        case Validated.Invalid(errs) =>
+          errs.toList.foreach {
+            case Parser.Error.PartialParse(_, pos, map, Some(path)) =>
+              // we should never be partial here
+              val (r, c) = map.toLineCol(pos).get
+              val ctx = map.showContext(pos).get
+              System.err.println(s"failed to parse $path at line ${r + 1}, column ${c + 1}")
+              System.err.println(ctx)
+              System.exit(1)
+            case Parser.Error.ParseFailure(pos, map, Some(path)) =>
+              // we should never be partial here
+              val (r, c) = map.toLineCol(pos).get
+              val ctx = map.showContext(pos).get
+              System.err.println(s"failed to parse $path at line ${r + 1}, column ${c + 1}")
+              System.err.println(ctx)
+              System.exit(1)
+            case Parser.Error.FileError(path, err) =>
+              System.err.println(s"failed to parse $path")
+              System.err.println(err.getMessage)
+              System.exit(1)
+            case other =>
+              System.err.println(s"unexpected error $other")
+              System.exit(1)
+          }
+          sys.error("unreachable")
       }
 
       PackageMap.resolveThenInfer(Predef.withPredef(parsedPaths.toList)) match {
