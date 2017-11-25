@@ -207,10 +207,10 @@ case class DefinedType(packageName: PackageName, name: TypeName, typeParams: Lis
     }
   }
 
-  def checkTotality(matches: NonEmptyList[ConstructorName]): Either[TypeError, Unit] = {
+  def checkTotality(matches: NonEmptyList[ConstructorName], matchRegion: Region): Either[TypeError, Unit] = {
     val expected = constructors.map(_._1)
     if (expected.toSet == matches.toList.toSet) Right(())
-    else Left(TypeError.NonTotalMatch(matches, expected))
+    else Left(TypeError.NonTotalMatch(matches, expected, matchRegion))
   }
 }
 
@@ -291,7 +291,7 @@ case class TypeEnv(
       .addDefinedType(dt)
   }
 
-  def getDefinedType(matches: NonEmptyList[ConstructorName]): Either[TypeError, DefinedType] = {
+  def getDefinedType[T: HasRegion](matches: NonEmptyList[(ConstructorName, T)]): Either[TypeError, DefinedType] = {
     def getCons(c: ConstructorName): Option[Either[(ConstructorName, DefinedType), DefinedType]] =
       constructors.get(c) match {
         case Some(dt) => Some(Right(dt))
@@ -303,9 +303,9 @@ case class TypeEnv(
       }
 
     // Find all the constructor, dt pairs
-    val matches1 = matches.traverse { cn =>
+    val matches1 = matches.traverse { case (cn, t) =>
       getCons(cn) match {
-        case None => Left(TypeError.UnknownConstuctor(cn))
+        case None => Left(TypeError.UnknownConstuctor(cn, HasRegion.region(t)))
         case Some(Right(dt)) => Right((cn, dt))
         case Some(Left(pair)) => Right(pair)
       }
@@ -317,10 +317,11 @@ case class TypeEnv(
       dts match {
         case NonEmptyList(dt, Nil) =>
           // this is the good case
-          dt.checkTotality(distinctMatch.map(_._1)).map(_ => dt)
+          dt.checkTotality(distinctMatch.map(_._1),
+            matches.reduceMap { case (_, t) => HasRegion.region(t) }).map(_ => dt)
         case _ =>
           // we have at least 2 DefinedTypes
-          Left(TypeError.TypeConstructorCollision(matches, this))
+          Left(TypeError.TypeConstructorCollision(matches.map { case (m, t) => (m, HasRegion.region(t)) }, this))
       }
     }
   }

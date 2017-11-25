@@ -1,10 +1,13 @@
 package org.bykn.bosatsu
 
-import cats.data.Validated
+import cats.data.{Validated, ValidatedNel}
 import fastparse.all._
 import org.scalatest.FunSuite
 
 class PackageTest extends FunSuite {
+
+  def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] =
+    PackageMap.resolveThenInfer(ps.toList.map { p => ((), p) })._2
 
   def parse(s: String): Package.Parsed =
     Package.parser.parse(s) match {
@@ -16,7 +19,7 @@ class PackageTest extends FunSuite {
     }
 
   def parseUnit(ss: Iterable[String]) =
-    PackageMap.resolveThenInfer(ss.map(parse(_)))
+    resolveThenInfer(ss.map(parse(_)))
 
   def valid[A, B](v: Validated[A, B]) =
     v match {
@@ -55,9 +58,9 @@ import Foo2 [ main as mainFoo ]
 main = 1
 """)
 
-    valid(PackageMap.resolveThenInfer(List(p1)))
-    valid(PackageMap.resolveThenInfer(List(p1, p2)))
-    invalid(PackageMap.resolveAll(List(p2, p3))) // loop here
+    valid(resolveThenInfer(List(p1)))
+    valid(resolveThenInfer(List(p1, p2)))
+    invalid(resolveThenInfer(List(p2, p3))) // loop here
 
     val p4 = parse(
 """
@@ -67,7 +70,7 @@ import Foo2 [ main as one ]
 # should equal 42
 main = one + 41
 """)
-    valid(PackageMap.resolveThenInfer(List(p1, p2, p4)))
+    valid(resolveThenInfer(List(p1, p2, p4)))
 
     val p5 = parse(
 """
@@ -108,7 +111,7 @@ data = NonEmpty(1, NonEmpty(2, Empty))
 
 main = head(data)
 """)
-    valid(PackageMap.resolveThenInfer(List(p5, p6)))
+    valid(resolveThenInfer(List(p5, p6)))
 
     val p7 = parse(
 """
@@ -121,7 +124,7 @@ data1 = Cons(0, p6_data)
 
 main = head(data1)
 """)
-    valid(PackageMap.resolveThenInfer(List(p5, p6, p7)).leftMap(_.map(_.message)))
+    valid(resolveThenInfer(List(p5, p6, p7)))
   }
 
   test("test Predef working") {
@@ -138,7 +141,7 @@ def maybeOne(x):
 
 main = maybeOne(42)
 """)
-    valid(PackageMap.resolveThenInfer(Predef.withPredef(p :: Nil)).leftMap(_.map(_.message)))
+    valid(resolveThenInfer(Predef.withPredef(p :: Nil)))
   }
 
   test("test using a renamed type") {
@@ -175,6 +178,6 @@ main2 = match baz:
     # here we pass a fooAsBar which has type Bar =:= Foo to takeFoo
     takeFoo(fooAsBar)
 """)
-    valid(PackageMap.resolveThenInfer(List(p1, p2)).leftMap(_.map(_.message)))
+    valid(resolveThenInfer(List(p1, p2)))
   }
 }

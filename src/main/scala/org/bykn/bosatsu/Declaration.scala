@@ -166,6 +166,8 @@ object Declaration {
   private val falseDoc = Doc.text("False")
 
   implicit val document: Document[Declaration] = Document.instance[Declaration](_.toDoc)
+  implicit val hasRegion: HasRegion[Declaration] =
+    HasRegion.instance[Declaration](_.region)
 
   def buildLambda(args: NonEmptyList[String], body: Expr[Declaration], outer: Declaration): Expr.Lambda[Declaration] =
     args match {

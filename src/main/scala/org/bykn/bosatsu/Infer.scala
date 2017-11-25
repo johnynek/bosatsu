@@ -31,7 +31,7 @@ object Subst {
   def empty: Subst = Subst(Map.empty)
 }
 
-case class Constraint(left: Type, right: Type)
+case class Constraint(left: Type, right: Type, leftRegion: Region, rightRegion: Region)
 
 case class Unifier(subst: Subst, constraints: List[Constraint])
 
@@ -45,8 +45,8 @@ object Inference {
 
   type Solve[A] = StateT[EitherT[Eval, TypeError, ?], Unifier, A]
 
-  def addConstraint(t1: Type, t2: Type): Infer[Unit] =
-    RWST.tell(Set(Constraint(t1, t2)))
+  def addConstraint(t1: Type, t2: Type, lr: Region, rr: Region): Infer[Unit] =
+    RWST.tell(Set(Constraint(t1, t2, lr, rr)))
 
   def inEnv[A](n: String, scheme: Scheme, inf: Infer[A]): Infer[A] =
     inf.local(_.updated(n, scheme))
@@ -64,44 +64,40 @@ object Inference {
       _ <- (RWST.set(u1): Infer[Unit])
     } yield Type.Var(s"anon${u.id}")
 
-  def unifies(a: Type, b: Type): Solve[Unifier] =
+  def unifies(a: Type, b: Type, ar: Region, br: Region): Solve[Unifier] =
     (a, b) match {
       case (left, right) if left == right =>
         Monad[Solve].pure(Unifier.empty)
-      case (Type.Var(tvar), t) => bind(tvar, t)
-      case (t, Type.Var(tvar)) => bind(tvar, t)
+      case (Type.Var(tvar), t) => bind(tvar, t, ar, br)
+      case (t, Type.Var(tvar)) => bind(tvar, t, br, ar)
       case (Type.Arrow(fa, ta), Type.Arrow(fb, tb)) =>
-        unifyMany(List(fa, ta), List(fb, tb))
+        unifyMany(List((fa, fb), (ta, tb)), ar, br)
       case (Type.TypeApply(fa, ta), Type.TypeApply(fb, tb)) =>
-        unifyMany(List(fa, ta), List(fb, tb))
+        unifyMany(List((fa, fb), (ta, tb)), ar, br)
       case (faila, failb) =>
-        MonadError[Solve, TypeError].raiseError(TypeError.UnificationFail(faila, failb))
+        MonadError[Solve, TypeError].raiseError(TypeError.UnificationFail(faila, failb, ar, br))
     }
 
   // do a pointwise unification
-  def unifyMany(as: List[Type], bs: List[Type]): Solve[Unifier] =
-    (as, bs) match {
-      case (Nil, Nil) => Monad[Solve].pure(Unifier.empty)
-      case (ha :: ta, hb :: tb) =>
+  def unifyMany(ts: List[(Type, Type)], ar: Region, br: Region): Solve[Unifier] =
+    ts match {
+      case Nil => Monad[Solve].pure(Unifier.empty)
+      case (ha, hb) :: tail =>
         for {
-          sc1 <- unifies(ha, hb)
+          sc1 <- unifies(ha, hb, ar, br)
           Unifier(s1, c1) = sc1
-          ta1 = Substitutable[List[Type]].apply(s1, ta)
-          tb1 = Substitutable[List[Type]].apply(s1, tb)
-          sc2 <- unifyMany(ta1, tb1)
+          tail1 = Substitutable[List[(Type, Type)]].apply(s1, tail)
+          sc2 <- unifyMany(tail1, ar, br)
           Unifier(s2, c2) = sc2
         } yield Unifier(s2.compose(s1), c1 reverse_::: c2)
-      case (ma, mb) =>
-        MonadError[Solve, TypeError].raiseError(TypeError.UnificationMismatch(ma, mb))
-
     }
 
-  def bind(tvar: String, tpe: Type): Solve[Unifier] =
+  def bind(tvar: String, tpe: Type, varRegion: Region, tpeRegion: Region): Solve[Unifier] =
     tpe match {
       case Type.Var(v) if tvar == v =>
         Monad[Solve].pure(Unifier.empty)
       case t if Substitutable[Type].occurs(tvar, t) =>
-        MonadError[Solve, TypeError].raiseError(TypeError.InfiniteType(tvar, t))
+        MonadError[Solve, TypeError].raiseError(TypeError.InfiniteType(tvar, t, varRegion, tpeRegion))
       case _ =>
         Monad[Solve].pure(Unifier(Subst(Map(tvar -> tpe)), Nil))
     }
@@ -112,9 +108,9 @@ object Inference {
       val u = StateT.get: Solve[Unifier]
       u.flatMap {
         case Unifier(sub, Nil) => Monad[Solve].pure(Right(sub))
-        case Unifier(sub, Constraint(a, b) :: tail) =>
+        case Unifier(sub, Constraint(a, b, ra, rb) :: tail) =>
           for {
-            su1 <- unifies(a, b)
+            su1 <- unifies(a, b, ra, rb)
             Unifier(s1, c1) = su1
             sub1 = s1.compose(sub)
             tail1 = Substitutable[List[Constraint]].apply(s1, tail)
@@ -139,28 +135,26 @@ object Inference {
       Substitutable[Type].apply(subst, s.result)
     }
 
-  private def instantiateMatch[T](arg: Type,
+  private def instantiateMatch[T: HasRegion](arg: Type,
     dt: DefinedType,
-    branches: NonEmptyList[(ConstructorName, List[Option[String]], Expr[T])]): Infer[(Type, NonEmptyList[(ConstructorName, List[Option[String]], Expr[(T, Scheme)])])] = {
+    branches: NonEmptyList[(ConstructorName, List[Option[String]], Expr[T])],
+    matchTag: T): Infer[(Type, NonEmptyList[(ConstructorName, List[Option[String]], Expr[(T, Scheme)])])] = {
 
-    def withBind(cn: ConstructorName, args: List[Option[String]], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
-      if (args.size != ts.size) MonadError[Infer, TypeError].raiseError(TypeError.InsufficientPatternBind(cn, args, ts, dt))
-      else {
-        inferTypeTag(result)
-          .local { te: TypeEnv =>
-            args.zip(ts.map(Scheme.fromType _)).foldLeft(te) {
-              case (te, (Some(varName), tpe)) => te.updated(varName, tpe)
-              case (te, (None, _)) => te
-            }
+    def withBind(args: List[Option[String]], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
+      inferTypeTag(result)
+        .local { te: TypeEnv =>
+          args.zip(ts.map(Scheme.fromType _)).foldLeft(te) {
+            case (te, (Some(varName), tpe)) => te.updated(varName, tpe)
+            case (te, (None, _)) => te
           }
-      }
+        }
 
     type Element[A] = (ConstructorName, List[Option[String]], Expr[A])
     def inferBranch(mp: Map[ConstructorName, List[Type]])(ce: Element[T]): Infer[(Type, Element[(T, Scheme)])] = {
       // TODO make sure we have proven that this map-get is safe:
       val (cname, bindings, branchRes) = ce
       val tpes = mp(cname)
-      withBind(cname, bindings, tpes, branchRes).map { case (t, exp) =>
+      withBind(bindings, tpes, branchRes).map { case (t, exp) =>
         (t, (cname, bindings, exp))
       }
     }
@@ -173,21 +167,22 @@ object Inference {
 
       for {
         branchTypesExpr <- branches.traverse(inferBranch(cMap))
-        branchTypes = branchTypesExpr.map(_._1)
-        branchT <- branchTypes.reduceLeftM(Monad[Infer].pure(_)) { (leftT, rightT) =>
+        branchTypes = branchTypesExpr.map { case (tpe, (_, _, expr)) => (tpe, HasRegion.region(expr.tag._1)) }
+        branchTR <- branchTypes.reduceLeftM(Monad[Infer].pure(_)) { case ((leftT, lr), (rightT, rr)) =>
             for {
-              _ <- addConstraint(leftT, rightT)
-            } yield rightT
+              _ <- addConstraint(leftT, rightT, lr, rr)
+            } yield (rightT, rr)
           }
-        _ <- addConstraint(arg, matchT)
+        (branchT, branchR) = branchTR
+        _ <- addConstraint(arg, matchT, HasRegion.region(matchTag), branchR)
       } yield (branchT, branchTypesExpr.map(_._2))
     }
   }
 
-  def inferExpr[T](expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] =
+  def inferExpr[T: HasRegion](expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] =
     inferExpr(TypeEnv.empty, expr)
 
-  def inferExpr[T](te: TypeEnv, expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] = {
+  def inferExpr[T: HasRegion](te: TypeEnv, expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] = {
 
     implicit val subT: Substitutable[T] = Substitutable.opaqueSubstitutable[T]
     implicit val subExpr: Substitutable[Expr[(T, Scheme)]] =
@@ -217,11 +212,11 @@ object Inference {
     } yield subA
   }
 
-  def lookup(n: String): Infer[Type] = {
+  def lookup(n: String, r: Region): Infer[Type] = {
     val it: Infer[TypeEnv] = RWST.ask
     it.flatMap { te =>
       te.schemeOf(n) match {
-        case None => MonadError[Infer, TypeError].raiseError(TypeError.Unbound(n))
+        case None => MonadError[Infer, TypeError].raiseError(TypeError.Unbound(n, r))
         case Some(scheme) => instantiate(scheme)
       }
     }
@@ -230,7 +225,7 @@ object Inference {
   /**
    * Infer the type and generalize all free variables
    */
-  def inferScheme[T](ex: Expr[T]): Infer[(Scheme, Expr[(T, Scheme)])] =
+  def inferScheme[T: HasRegion](ex: Expr[T]): Infer[(Scheme, Expr[(T, Scheme)])] =
     for {
       env <- (RWST.ask: Infer[TypeEnv])
       // we need to see current constraits, since they are not free variables
@@ -239,14 +234,14 @@ object Inference {
       scheme = Substitutable.generalize((env, cons), t1)
     } yield (scheme, exprS.setTag((ex.tag, scheme)))
 
-  def infer[T](expr: Expr[T]): Infer[Type] =
+  def infer[T: HasRegion](expr: Expr[T]): Infer[Type] =
     inferTypeTag(expr).map { case (t, _) => t }
 
   /**
    * Packages are generally just lists of lets, this allows you to infer
    * the scheme for each in the context of the list
    */
-  def inferLets[T](ls: List[(String, Expr[T])]): Infer[List[(String, Expr[(T, Scheme)])]] =
+  def inferLets[T: HasRegion](ls: List[(String, Expr[T])]): Infer[List[(String, Expr[(T, Scheme)])]] =
     ls match {
       case Nil => Monad[Infer].pure(Nil)
       case (n, ex) :: tail =>
@@ -257,10 +252,10 @@ object Inference {
         } yield (n, exS) :: taili
     }
 
-  def inferTypeTag[T](expr: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
+  def inferTypeTag[T: HasRegion](expr: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
     expr match {
       case Expr.Var(n, tag) =>
-        lookup(n).map { t =>
+        lookup(n, HasRegion.region(expr.tag)).map { t =>
           (t, Expr.Var(n, (tag, Scheme.fromType(t))))
         }
 
@@ -284,7 +279,7 @@ object Inference {
           (t1, efn) = ifn
           (t2, earg) = iarg
           tv <- fresh
-          _ <- addConstraint(t1, Type.Arrow(t2, tv))
+          _ <- addConstraint(t1, Type.Arrow(t2, tv), HasRegion.region(fn.tag), HasRegion.region(arg.tag))
         } yield (tv, Expr.App(efn, earg, (tag, Scheme.fromType(tv))))
 
       case Expr.Let(n, ex, in, tag) =>
@@ -304,7 +299,7 @@ object Inference {
           tv <- fresh
           u1 = Type.Arrow(t1, Type.Arrow(t2, tv))
           u2 = Operator.typeOf(op)
-          _ <- addConstraint(u1, u2)
+          _ <- addConstraint(u1, u2, HasRegion.region(e1.tag), HasRegion.region(e2.tag))
         } yield (tv, Expr.Op(es1, op, es2, (tag, Scheme.fromType(tv))))
 
       case Expr.Literal(Lit.Integer(i), tag) =>
@@ -321,16 +316,16 @@ object Inference {
           (tc, ec) = ic
           (t1, e1) = i1
           (t2, e2) = i2
-          _ <- addConstraint(Type.boolT, tc)
-          _ <- addConstraint(t1, t2)
+          _ <- addConstraint(Type.boolT, tc, HasRegion.region(tag), HasRegion.region(cond))
+          _ <- addConstraint(t1, t2, HasRegion.region(te), HasRegion.region(fe))
         } yield (t2, Expr.If(ec, e1, e2, (tag, Scheme.fromType(t2))))
       case Expr.Match(arg, branches, tag) =>
         for {
           env <- (RWST.ask: Infer[TypeEnv])
-          dt <- MonadError[Infer, TypeError].fromEither(env.getDefinedType(branches.map(_._1)))
+          dt <- MonadError[Infer, TypeError].fromEither(env.getDefinedType(branches.map { case (b, _, r) => (b, r) }))
           iarg <- inferTypeTag(arg)
           (targ, earg) = iarg
-          ibranch <- instantiateMatch(targ, dt, branches)
+          ibranch <- instantiateMatch(targ, dt, branches, tag)
           (tbranch, ebranches) = ibranch
         } yield (tbranch, Expr.Match(earg, ebranches, (tag, Scheme.fromType(tbranch))))
     }

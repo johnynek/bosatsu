@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import com.stripe.dagon.Memoize
 import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
-import cats.Foldable
+import cats.{Foldable, Order}
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
@@ -180,19 +180,30 @@ object PackageMap {
     PackageMap(Map.empty)
 
   /**
-   * This method takes parsed packages simply makes sure there are no duplicate names
+   * Either return a unique mapping from B to A, or return a pair of duplicates
+   * and the unque subset
    */
-  def build(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError.DuplicatePackages, PackageMap[PackageName, Unit, Unit, Program[Declaration, Statement]]] = {
+  def uniqueByKey[A, B: Order](as: List[A])(fn: A => B): Either[(Map[B, (A, NonEmptyList[A])], Map[B, A]), Map[B, A]] =
+    as match {
+      case Nil => Right(Map.empty)
+      case h :: tail =>
+        val nea = NonEmptyList(h, tail)
+        val m: Map[B, NonEmptyList[A]] = nea.groupBy(fn)
+        def check(as: NonEmptyList[A]): Either[(A, NonEmptyList[A]), A] =
+          as match {
+            case NonEmptyList(a, Nil) =>
+              Right(a)
+            case NonEmptyList(a0, a1 :: tail) =>
+              Left((a0, NonEmptyList(a1, tail)))
+          }
 
-    def toPackage(it: Iterable[Package.Parsed]): ValidatedNel[PackageError.DuplicatePackages, Package.Parsed] =
-      it.toList match {
-        case Nil => sys.error("unreachable, groupBy never produces an empty list")
-        case h :: Nil => Validated.valid(h)
-        case h :: h1 :: tail => Validated.invalidNel(PackageError.DuplicatePackages(h, NonEmptyList(h1, tail)))
-      }
+        val checked = m.map { case (b, as) => (b, check(as)) }
+        val good = checked.collect { case (b, Right(a)) => (b, a) }.toMap
+        val bad = checked.collect { case (b, Left(a)) => (b, a) }.toMap
 
-    ps.groupBy(_.name).traverse(toPackage _).map(PackageMap(_))
-  }
+        if (bad.isEmpty) Right(good)
+        else Left((bad, good))
+    }
 
   import Package.{ FixPackage, PackageF }
 
@@ -245,8 +256,14 @@ object PackageMap {
   /**
    * Convenience method to create a PackageMap then resolve it
    */
-  def resolveAll(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, Resolved] =
-    build(ps).andThen(resolvePackages(_))
+  def resolveAll[A](ps: List[(A, Package.Parsed)]): (Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], ValidatedNel[PackageError, Resolved]) =
+    uniqueByKey(ps)(_._2.name) match {
+      case Right(unique) =>
+        (Map.empty, resolvePackages(PackageMap(unique.mapValues(_._2))))
+      case Left((bad, good)) =>
+        // at least try to resolve what we can
+        (bad, resolvePackages(PackageMap(good.mapValues(_._2))))
+    }
 
   /**
    * Infer all the types in a resolved PackageMap
@@ -321,7 +338,7 @@ object PackageMap {
                 case Right(lets) =>
                   val letMap = lets.toMap
                   def expName(n: ExportedName[Unit]): ValidatedNel[PackageError, NonEmptyList[ExportedName[Referant]]] = {
-                    def err = Validated.invalidNel(PackageError.UnknownExport(n, prog))
+                    def err = Validated.invalidNel(PackageError.UnknownExport(n, p))
                     n match {
                       case ExportedName.Binding(n, _) =>
                         letMap.get(n) match {
@@ -369,41 +386,83 @@ object PackageMap {
       ps.toMap.traverse(infer).map(PackageMap(_))
     }
 
-    def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, Inferred] =
-        resolveAll(ps).andThen(inferAll(_))
+  def resolveThenInfer[A](
+    ps: List[(A, Package.Parsed)]): (Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], ValidatedNel[PackageError, Inferred]) = {
+      val (bad, good) = resolveAll(ps)
+      (bad, good.andThen(inferAll(_)))
+    }
 }
 
 sealed abstract class PackageError {
-  def message: String = toString
+  def message(sourceMap: Map[PackageName, (LocationMap, String)]): String
 }
+
 object PackageError {
-  case class UnknownExport(ex: ExportedName[Unit], in: Program[Declaration, Statement]) extends PackageError
-  case class UnknownImportPackage[A, B, C](pack: PackageName, from: Package[PackageName, A, B, C]) extends PackageError
+  case class UnknownExport(ex: ExportedName[Unit],
+    in: Package.PackageF[Unit, Program[Declaration, Statement]]) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
+      val (lm, sourceName) = sourceMap(in.name)
+      val header =
+        s"in $sourceName unknown export ${ex.name}"
+      val candidates = in.program.lets
+        .map { case (n, expr) => (EditDistance.string(n, ex.name), n, HasRegion.region(expr)) }
+        .sorted
+        .take(3)
+        .map { case (_, n, r) =>
+          val pos = lm.toLineCol(r.start).map { case (l, c) => s" at line: ${l + 1}, column: ${c + 1}" }.getOrElse("")
+          s"$n$pos"
+        }
+      val candstr = candidates.mkString("\n\t", "\n\t", "\n")
+      val suggestion = s"perhaps you meant:$candstr"
+      header + "\n" + suggestion
+    }
+  }
+
+  case class UnknownImportPackage[A, B, C](pack: PackageName, from: Package[PackageName, A, B, C]) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
+      val (_, sourceName) = sourceMap(pack)
+      s"in $sourceName package ${pack.asString} imports unknown package ${from.name.asString}"
+    }
+  }
+
   // We could check if we forgot to export the name in the package and give that error
   case class UnknownImportName(in: Package.PackageF[Unit, Program[Declaration, Statement]],
     importing: Package.PackageF[Referant, Program[(Declaration, Scheme), Statement]],
     iname: ImportedName[Unit],
     exports: List[ExportedName[Referant]]) extends PackageError {
-      override def message = {
+      def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
         val ls = importing
           .program
           .lets
 
+        val (_, sourceName) = sourceMap(in.name)
         ls
           .toMap
           .get(iname.originalName) match {
             case Some(_) =>
-              s"package: ${importing.name} has ${iname.originalName} but it is not exported. Add to exports"
+              s"in $sourceName package: ${importing.name} has ${iname.originalName} but it is not exported. Add to exports"
             case None =>
               val dist = Memoize.function[String, Int] { (s, _) => EditDistance(iname.originalName.toIterable, s.toIterable) }
               val nearest = ls.map { case (n, _) => (dist(n), n) }.sorted.take(3).map { case (_, n) => n }.mkString(", ")
-              s"package: ${importing.name} does not have name ${iname.originalName}. Nearest: $nearest"
+              s"in $sourceName package: ${importing.name} does not have name ${iname.originalName}. Nearest: $nearest"
           }
       }
     }
-  case class DuplicatePackages(head: Package.Parsed, collisions: NonEmptyList[Package.Parsed]) extends PackageError
-  case class CircularDependency[A, B, C](from: Package[PackageName, A, B, C], path: NonEmptyList[PackageName]) extends PackageError
+  case class CircularDependency[A, B, C](from: Package[PackageName, A, B, C], path: NonEmptyList[PackageName]) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
+      val packs = from.name :: (path.toList)
+      val msg = packs.map { p =>
+        val (_, src) = sourceMap(p)
+        s"${p.asString} in $src"
+      }
+      val tab = "\n\t"
+      s"circular package dependency:\n${msg.mkString(tab)}"
+    }
+  }
   case class TypeErrorIn(tpeErr: TypeError, pack: Package.PackageF[Unit, Program[Declaration, Statement]]) extends PackageError {
-    override def message = s"$tpeErr in ${pack.name}"
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
+      val (lm, sourceName) = sourceMap(pack.name)
+      tpeErr.message(sourceName + s" in package ${pack.name.asString}", lm)
+    }
   }
 }

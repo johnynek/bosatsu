@@ -66,11 +66,13 @@ object Main extends CommandApp(
     (opt, mainP).mapN { (paths, mainPack) =>
 
       val parsedPathsV = paths.traverse { path =>
-        Parser.parseFile(Package.parser, path)
+        Parser.parseFile(Package.parser, path).map { case (lm, parsed) =>
+          ((path.toString, lm), parsed)
+        }
       }
 
       val parsedPaths = parsedPathsV match {
-        case Validated.Valid(p) => p.map(_._2)
+        case Validated.Valid(p) => p
         case Validated.Invalid(errs) =>
           errs.toList.foreach {
             case Parser.Error.PartialParse(_, pos, map, Some(path)) =>
@@ -98,8 +100,15 @@ object Main extends CommandApp(
           sys.error("unreachable")
       }
 
-      PackageMap.resolveThenInfer(Predef.withPredef(parsedPaths.toList)) match {
-        case Validated.Valid(packMap) =>
+      PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths.toList)) match {
+        case (duplicatePackages, Validated.Valid(_)) if duplicatePackages.nonEmpty =>
+          // we have duplications, but those that are duplicated are okay
+          duplicatePackages.foreach { case (pname, (((src, _), _), nelist)) =>
+            val dupsrcs = (src :: nelist.map { case ((s, _), _) => s }.toList).sorted.mkString(", ")
+            System.err.println(s"package ${pname.asString} duplicated in $dupsrcs")
+          }
+          System.exit(1)
+        case (_, Validated.Valid(packMap)) =>
           val ev = Evaluation(packMap)
           ev.evaluateLast(mainPack) match {
             case None => sys.error("found no main expression")
@@ -107,8 +116,15 @@ object Main extends CommandApp(
               val (res, scheme) = eval.value
               println(s"$res: ${scheme.result}")
           }
-        case Validated.Invalid(errs) =>
-          sys.error("failed: " + errs.map(_.message).toList.mkString("\n"))
+        case (duplicatePackages, Validated.Invalid(errs)) =>
+          val sourceMap = parsedPaths.map { case ((src, lm), pack) => (pack.name, (lm, src)) }.toList.toMap
+          sys.error("failed: " + errs.map(_.message(sourceMap)).toList.mkString("\n"))
+          // we have duplications, but those that are duplicated are okay
+          duplicatePackages.foreach { case (pname, (((src, _), _), nelist)) =>
+            val dupsrcs = (src :: nelist.map { case ((s, _), _) => s }.toList).sorted.mkString(", ")
+            System.err.println(s"package ${pname.asString} duplicated in $dupsrcs")
+          }
+          System.exit(1)
       }
     }
   }

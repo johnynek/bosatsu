@@ -32,4 +32,7 @@ object Predef {
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
+
+  def withPredefA[A](predefA: A, ps: List[(A, Package.Parsed)]): List[(A, Package.Parsed)] =
+    (predefA, predefPackage) :: ps.map { case (a, p) => (a, p.withImport(predefImports)) }
 }

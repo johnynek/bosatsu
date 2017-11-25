@@ -10,4 +10,7 @@ object EditDistance {
           case (h, ((d, v), y)) => min(min(h + 1, v + 1), d + (if (x == y) 0 else 1))
         }
       }.last
+
+  def string(a: String, b: String): Int =
+    apply(a, b)
 }

@@ -46,6 +46,9 @@ object Expr {
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(ConstructorName, List[Option[String]], Expr[T])], tag: T) extends Expr[T]
   case class Op[T](left: Expr[T], binOp: Operator, right: Expr[T], tag: T) extends Expr[T]
 
+  implicit def hasRegion[T: HasRegion]: HasRegion[Expr[T]] =
+    HasRegion.instance[Expr[T]] { e => HasRegion.region(e.tag) }
+
   /**
    * Return a value so next(e).tag == e and also this is true
    * recursively

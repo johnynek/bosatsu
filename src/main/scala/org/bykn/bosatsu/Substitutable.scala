@@ -148,7 +148,7 @@ object Substitutable {
   implicit val forConstraint: Substitutable[Constraint] =
     new Substitutable[Constraint] {
       def apply(sub: Subst, c: Constraint): Constraint =
-        Constraint(Substitutable[Type].apply(sub, c.left), Substitutable[Type].apply(sub, c.right))
+        Constraint(Substitutable[Type].apply(sub, c.left), Substitutable[Type].apply(sub, c.right), c.leftRegion, c.rightRegion)
       def typeVars(c: Constraint) =
         Substitutable[Type].typeVars(c.left) | Substitutable[Type].typeVars(c.right)
     }
