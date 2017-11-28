@@ -172,14 +172,6 @@ object Generators {
     }
   }
 
-  val ffiGen: Gen[Declaration] =
-    for {
-      lang <- lowerIdent
-      parts <- Gen.choose(1, 4)
-      callsiteParts <- Gen.listOfN(parts, lowerIdent)
-      tpe <- typeRefGen
-    } yield Declaration.FfiLambda(lang, callsiteParts.mkString("."), tpe)(emptyRegion)
-
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
@@ -192,7 +184,6 @@ object Generators {
     val unnested = Gen.oneOf(
       lowerIdent.map(Var(_)(emptyRegion)),
       upperIdent.map(Constructor(_)(emptyRegion)),
-      ffiGen,
       //Arbitrary.arbitrary[BigInt].map { bi => LiteralInt(bi.toString) }, // TODO enable bigint
       Arbitrary.arbitrary[Int].map { bi => LiteralInt(bi.toString)(emptyRegion) },
       str,
@@ -235,6 +226,16 @@ object Generators {
       rest <- padding(tail)
     } yield Statement.ExternalStruct(name, args.map(TypeRef.TypeVar(_)), rest)
 
+  def genExternalDef(tail: Gen[Statement]): Gen[Statement] =
+    for {
+      name <- lowerIdent
+      argc <- Gen.choose(0, 5)
+      argG = Gen.zip(lowerIdent, typeRefGen)
+      args <- Gen.listOfN(argc, argG)
+      res <- typeRefGen
+      rest <- padding(tail)
+    } yield Statement.ExternalDef(name, args, res, rest)
+
   def genEnum(tail: Gen[Statement]): Gen[Statement] =
     for {
       name <- upperIdent
@@ -258,6 +259,7 @@ object Generators {
       (1, defGen(Gen.zip(padding(indented(decl)), padding(recur))).map(Statement.Def(_))),
       (1, genStruct(recur)),
       (1, genExternalStruct(recur)),
+      (1, genExternalDef(recur)),
       (1, genEnum(recur)),
       (3, Gen.const(Statement.EndOfFile)))
   }

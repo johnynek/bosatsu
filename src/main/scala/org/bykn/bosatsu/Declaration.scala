@@ -100,9 +100,6 @@ sealed abstract class Declaration {
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
       case Var(name) => Doc.text(name)
-      case FfiLambda(lang, callsite, tpe) =>
-        Doc.intercalate(Doc.space,
-          List(Doc.text("ffi"), Doc.text(lang), Doc.text(callsite), Document[TypeRef].document(tpe)))
     }
   }
 
@@ -151,8 +148,6 @@ sealed abstract class Declaration {
         p.toExpr(pn).map(_ => this)
       case Var(name) =>
         Expr.Var(name, this)
-      case FfiLambda(lang, callsite, tpe) =>
-        Expr.Ffi(lang, callsite, Scheme.typeConstructor(tpe.toType(pn)), this)
       case Match(arg, branches) =>
         val expBranches = branches.map { case Padding(_, Indented(_, (Pattern(nm, bs), Padding(_, Indented(_, decl))))) =>
           (ConstructorName(nm), bs, decl.toExpr(pn))
@@ -192,7 +187,6 @@ object Declaration {
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Constructor(name: String)(implicit val region: Region) extends Declaration
   case class DefFn(deffn: DefStatement[(Padding[Indented[Declaration]], Padding[Declaration])])(implicit val region: Region) extends Declaration
-  case class FfiLambda(lang: String, callsite: String, tpe: TypeRef)(implicit val region: Region) extends Declaration
   case class IfElse(ifCases: NonEmptyList[(Declaration, Padding[Indented[Declaration]])],
     elseCase: Padding[Indented[Declaration]])(implicit val region: Region) extends Declaration
   case class Lambda(args: NonEmptyList[String], body: Declaration)(implicit val region: Region) extends Declaration
@@ -246,11 +240,6 @@ object Declaration {
       .region
       .map { case (r, d) => DefFn(d)(r) }
   }
-
-  val ffiP: P[FfiLambda] =
-    P("ffi" ~ spaces ~/ Parser.nonSpaces ~/ spaces ~/ Parser.nonSpaces ~/ spaces ~ TypeRef.parser)
-      .region
-      .map { case (r, (l, c, t)) => FfiLambda(l, c, t)(r) }
 
   def ifElseP(indent: String): P[IfElse] = {
     // prefix should be strict identifier like "if " or "elif "
@@ -372,7 +361,7 @@ object Declaration {
         dotApply :: applySuffix :: Operator.allOps.map(parseOp _)
       }
       val prefix = defP(indent) | literalIntP | literalBoolP | literalStringP | lambdaP(indent) | matchP(indent) |
-        ifElseP(indent) | ffiP | varOrBind(indent) | constructorP | commentP(indent) |
+        ifElseP(indent) | varOrBind(indent) | constructorP | commentP(indent) |
         P(rec(indent).parens).region.map { case (r, p) => Parens(p)(r) }
 
       val opsList = postOperators.reduce(_ | _).rep().map(_.toList)

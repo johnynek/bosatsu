@@ -61,9 +61,18 @@ object Main extends CommandApp(
             case None => Validated.invalidNel(s"could not parse $string as a package name. Must be capitalized strings separated by /")
           }
       }
-    val opt = Opts.options[Path]("inputs", help = "input files")
+    val ins = Opts.options[Path]("input", help = "input files")
+    val extern = Opts.options[Path]("external", help = "input files").orNone
     val mainP = Opts.option[PackageName]("main", help = "main package")
-    (opt, mainP).mapN { (paths, mainPack) =>
+    (ins, extern, mainP).mapN { (paths, optExt, mainPack) =>
+
+
+      val extV = optExt match {
+        case None => Validated.valid(Externals.empty)
+        case Some(epaths) =>
+          epaths.traverse(Parser.parseFile(Externals.parser, _))
+            .map(_.toList.map(_._2).reduce(_ ++ _))
+      }
 
       val parsedPathsV = paths.traverse { path =>
         Parser.parseFile(Package.parser, path).map { case (lm, parsed) =>
@@ -71,8 +80,8 @@ object Main extends CommandApp(
         }
       }
 
-      val parsedPaths = parsedPathsV match {
-        case Validated.Valid(p) => p
+      val (parsedPaths, extern) = parsedPathsV.product(extV) match {
+        case Validated.Valid(res) => res
         case Validated.Invalid(errs) =>
           errs.toList.foreach {
             case Parser.Error.PartialParse(_, pos, map, Some(path)) =>
@@ -92,6 +101,7 @@ object Main extends CommandApp(
             case Parser.Error.FileError(path, err) =>
               System.err.println(s"failed to parse $path")
               System.err.println(err.getMessage)
+              System.err.println(err.getClass)
               System.exit(1)
             case other =>
               System.err.println(s"unexpected error $other")
@@ -109,7 +119,7 @@ object Main extends CommandApp(
           }
           System.exit(1)
         case (_, Validated.Valid(packMap)) =>
-          val ev = Evaluation(packMap)
+          val ev = Evaluation(packMap, extern)
           ev.evaluateLast(mainPack) match {
             case None => sys.error("found no main expression")
             case Some(eval) =>

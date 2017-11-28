@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
 import cats.Eval
 
-case class Evaluation(pm: PackageMap.Inferred) {
+case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   def evaluate(p: PackageName, varName: String): Option[Eval[(Any, Scheme)]] =
     pm.toMap.get(p).map { pack =>
       eval((Package.asInferred(pack), Left(varName), Map.empty))
@@ -74,37 +74,6 @@ case class Evaluation(pm: PackageMap.Inferred) {
             recurse((p, Right(expr), env + (name -> x))).value._1
         }
         Eval.now((fn, scheme))
-      case Ffi(lang, callsite, s@Scheme(_, t), _) =>
-        Eval.later {
-          val parts = callsite.split("\\.", -1).toList
-          val clsName0 = parts.init.mkString(".")
-          val clsName = lang match {
-            case "java" => clsName0
-            case "scala" => clsName0 + "$"
-            case _ => sys.error(s"unknown lang: $lang")
-          }
-          val cls = Class.forName(clsName)
-          val args = Evaluation.getJavaType(t).toArray
-          val m = cls.getMethod(parts.last, args.init :_*)
-          val inst = lang match {
-            case "java" =>
-              null
-            case "scala" =>
-              cls.getDeclaredField("MODULE$").get(null)
-            case other => sys.error(s"unknown ffi language: $other") // TODO don't throw here
-          }
-
-          def invoke(tpe: Type, args: List[AnyRef]): Any =
-            tpe match {
-              case Type.Arrow(_, tail) =>
-                new Fn[Any, Any] {
-                  def apply(x: Any) = invoke(tail, (x.asInstanceOf[AnyRef]) :: args)
-                }
-              case _ =>
-                m.invoke(inst, args.reverse.toArray: _*)
-            }
-          (invoke(t, Nil), s)
-        }
       case Let(arg, e, in, (_, scheme)) =>
         recurse((p, Right(e), env)).flatMap { case (ae, _) =>
           recurse((p, Right(in), env + (arg -> ae)))
@@ -154,29 +123,66 @@ case class Evaluation(pm: PackageMap.Inferred) {
       case ((pack, Right(expr), env), recurse) =>
         evalExpr(pack, expr, env, recurse)
       case ((pack, Left(item), env), recurse) =>
-        // This name is either a let, a constructor or it is an import
-        val prog = pack.unfix.program
-        prog.getLet(item) match {
-          case Some(expr) => recurse((pack, Right(expr), env))
-          case None =>
-            // This could be an import or constructor
-            // first check a local constructor:
-            // constructor case
-            val cn = ConstructorName(item)
-            prog.types.constructors.get(cn) match {
-              case Some(dtype) =>
-                Eval.later {
-                  val scheme = dtype.toScheme(cn).get // this should never throw
-                  val fn = constructor(cn, dtype)
-                  (fn, scheme)
-                }
-              case None =>
-                // it must be an import or we shouldn't have typechecked
-                val (originalPackage, i) = pack.unfix.localImport(item).get
-                recurse((originalPackage, Left(i.originalName), Map.empty))
-            }
+        NameKind(pack, item).get match { // this get should never fail due to type checking
+          case NameKind.Let(expr) =>
+            recurse((pack, Right(expr), env))
+          case NameKind.Constructor(fnEval) =>
+            fnEval
+          case NameKind.Import(from, orig) =>
+            // we reset the environment in the other package
+            recurse((from, Left(orig), Map.empty))
+          case NameKind.ExternalDef(pn, n, scheme) =>
+            externals.toMap((pn, n))
+              .call(scheme.result)
+              .map((_, scheme))
         }
     }
+
+  private sealed abstract class NameKind
+  private object NameKind {
+    case class Let(value: Expr[(Declaration, Scheme)]) extends NameKind
+    case class Constructor(fn: Eval[(Any, Scheme)]) extends NameKind
+    case class Import(fromPack: Package.Inferred, originalName: String) extends NameKind
+    case class ExternalDef(pack: PackageName, defName: String, defType: Scheme) extends NameKind
+
+    def apply(from: Package.Inferred, item: String): Option[NameKind] = {
+      val prog = from.unfix.program
+
+      def getLet: Option[NameKind] =
+        prog.getLet(item).map(Let(_))
+
+      def getConstructor: Option[NameKind] = {
+        // This could be an import or constructor
+        // first check a local constructor:
+        // constructor case
+        val cn = ConstructorName(item)
+        prog.types.constructors.get(cn).map { dtype =>
+          Constructor(Eval.later {
+            val scheme = dtype.toScheme(cn).get // this should never throw
+            val fn = constructor(cn, dtype)
+            (fn, scheme)
+          })
+        }
+      }
+
+      def getImport: Option[NameKind] =
+        from.unfix.localImport(item).map { case (originalPackage, i) =>
+          Import(originalPackage, i.originalName)
+        }
+
+      def getExternal: Option[NameKind] =
+        // there should not be duplicate top level names TODO lint for this
+        prog.from.toStream.collectFirst {
+          case d@Statement.ExternalDef(n, _, _, _) if n == item =>
+            val pn = from.unfix.name
+            ExternalDef(pn, item, d.scheme(pn))
+        }
+
+      getLet.orElse(
+        getConstructor.orElse(getImport.orElse(getExternal))
+      )
+    }
+  }
 
   private def constructor(c: ConstructorName, dt: DefinedType): Any = {
     val (enum, arity) = dt.constructors
@@ -196,24 +202,4 @@ case class Evaluation(pm: PackageMap.Inferred) {
 
     loop(arity, Nil)
   }
-}
-
-object Evaluation {
-
-  def getJavaType(t: Type): List[Class[_]] = {
-    def loop(t: Type, top: Boolean): List[Class[_]] = {
-      t match {
-        case Type.Primitive("Int") => classOf[java.lang.Integer] :: Nil
-        case Type.Primitive("Bool") => classOf[java.lang.Boolean] :: Nil
-        case Type.Arrow(a, b) if top =>
-          loop(a, false) match {
-            case at :: Nil => at :: loop(b, top)
-            case function => sys.error(s"unsupported function type $function in $t")
-          }
-        case _ => classOf[AnyRef] :: Nil
-      }
-    }
-    loop(t, true)
-  }
-
 }

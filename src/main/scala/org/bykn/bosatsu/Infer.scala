@@ -267,11 +267,6 @@ object Inference {
           lt = Type.Arrow(tv, t)
         } yield (lt, Expr.Lambda(arg, expes, (tag, Scheme.fromType(lt))))
 
-      case Expr.Ffi(lang, callsite, scheme, tag) =>
-        instantiate(scheme).map { t =>
-          (t, Expr.Ffi(lang, callsite, scheme, (tag, scheme)))
-        }
-
       case Expr.App(fn, arg, tag) =>
         for {
           ifn <- inferTypeTag(fn)

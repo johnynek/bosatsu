@@ -439,6 +439,23 @@ x = ( foo )
 """)
   }
 
+  test("parse external defs") {
+    roundTrip(Statement.parser,
+"""# header
+external def foo -> String
+""")
+    roundTrip(Statement.parser,
+"""# header
+external def foo(i: Integer) -> String
+""")
+    roundTrip(Statement.parser,
+"""# header
+external def foo(i: Integer, b: a) -> String
+
+external def foo2(i: Integer, b: a) -> String
+""")
+  }
+
   test("we can parse any package") {
     roundTrip(Package.parser,
 """
@@ -450,5 +467,16 @@ foo = 1
 """)
 
     forAll(Generators.packageGen)(law(Package.parser))
+  }
+
+  test("we can parse Externals") {
+    parseTestAll(Externals.parser,
+"""
+Foo/Bar flatMap scala org.bykn.bosatsu.Std.flatMap
+Foo/Bar fold scala org.bykn.bosatsu.Std.fold
+""",
+   Externals.empty
+     .add(PackageName.parse("Foo/Bar").get, "flatMap", FfiCall.ScalaCall("org.bykn.bosatsu.Std.flatMap"))
+     .add(PackageName.parse("Foo/Bar").get, "fold", FfiCall.ScalaCall("org.bykn.bosatsu.Std.fold")))
   }
 }

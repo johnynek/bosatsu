@@ -37,17 +37,15 @@ intMonoid = Monoid(0, \x, y -> x + y)
 
 # This gives us enough to implement useful List functions (and is total)
 # but not expressible directly
-fold = ffi scala org.bykn.bosatsu.Std.fold List[a] -> b -> (b -> a -> b) -> b
-# TODO: change syntax to, and a special ffi file to control the mapping.
-#external def fold(l: List[a], init: b, fn: (b -> a -> b)) -> b
+external def fold(l: List[a], init: b, fn: (b -> a -> b)) -> b
 
 external struct Action[a]
 
-print = ffi scala org.bykn.bosatsu.Std.print String -> Action[Unit]
-flatMap = ffi scala org.bykn.bosatsu.Std.flatMap Action[a] -> (a -> Action[b]) -> Action[b]
-mapAction = ffi scala org.bykn.bosatsu.Std.flatMap Action[a] -> (a -> b) -> Action[b]
-toAction = ffi scala org.bykn.bosatsu.Std.toAction a -> Action[a]
-runAction = ffi scala org.bykn.bosatsu.Std.runAction Action[a] -> a
+external def print(msg: String) -> Action[Unit]
+external def flatMap(act: Action[a], fn: a -> Action[b]) -> Action[b]
+external def mapAction(act: Action[a], fn: (a -> b)) -> Action[b]
+external def toAction(a: a) -> Action[a]
+external def runAction(a: Action[a]) -> a
 
 def reduce(list, fn):
   match list:
@@ -86,7 +84,7 @@ sz = match e:
    None:
      0
 
-hc = ffi scala org.bykn.bosatsu.Foo.times Int -> Int
+external def hc(i: Int) -> Int
 
 foo = NonEmpty(1, NonEmpty(2, Empty))
 

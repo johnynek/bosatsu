@@ -26,7 +26,6 @@ sealed abstract class Expr[T] {
       case v@Var(_, _) => v.copy(tag = t)
       case a@App(_, _, _) => a.copy(tag = t)
       case l@Lambda(_, _, _) => l.copy(tag = t)
-      case f@Ffi(_, _, _, _) => f.copy(tag = t)
       case l@Let(_, _, _, _) => l.copy(tag = t)
       case l@Literal(_, _) => l.copy(tag = t)
       case i@If(_, _, _, _) => i.copy(tag = t)
@@ -39,7 +38,6 @@ object Expr {
   case class Var[T](name: String, tag: T) extends Expr[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
   case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
-  case class Ffi[T](lang: String, callsite: String, scheme: Scheme, tag: T) extends Expr[T]
   case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class If[T](arg: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T) extends Expr[T]
@@ -61,8 +59,6 @@ object Expr {
         App(nest(fn), nest(a), e)
       case Lambda(arg, expr, _) =>
         Lambda(arg, nest(expr), e)
-      case Ffi(lang, call, scheme, _) =>
-        Ffi(lang, call, scheme, e)
       case Let(arg, exp, in, _) =>
         Let(arg, nest(exp), nest(in), e)
       case Literal(lit, _) =>
@@ -109,8 +105,6 @@ object Expr {
             (expr.traverse(f), f(t)).mapN { (e1, t1) =>
               Lambda(arg, e1, t1)
             }
-          case Ffi(lang, call, scheme, tag) =>
-            f(tag).map(Ffi(lang, call, scheme, _))
           case Let(arg, exp, in, tag) =>
             (exp.traverse(f), in.traverse(f), f(tag)).mapN { (e1, i1, t1) =>
               Let(arg, e1, i1, t1)
@@ -143,8 +137,6 @@ object Expr {
           case Lambda(_, expr, tag) =>
             val b1 = foldLeft(expr, b)(f)
             f(b1, tag)
-          case Ffi(_, _, _, tag) =>
-            f(b, tag)
           case Let(_, exp, in, tag) =>
             val b1 = foldLeft(exp, b)(f)
             val b2 = foldLeft(in, b1)(f)
@@ -176,8 +168,6 @@ object Expr {
           case Lambda(_, expr, tag) =>
             val b1 = f(tag, lb)
             foldRight(expr, b1)(f)
-          case Ffi(_, _, _, tag) =>
-            f(tag, lb)
           case Let(_, exp, in, tag) =>
             val b1 = f(tag, lb)
             val b2 = foldRight(in, b1)(f)
