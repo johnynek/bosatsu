@@ -21,14 +21,16 @@ sealed abstract class Type {
 object Type {
   case class Arrow(from: Type, to: Type) extends Type
   case class Declared(packageName: PackageName, name: String) extends Type
-  case class Primitive(name: String) extends Type
   case class TypeApply(hk: Type, arg: Type) extends Type
   //case class TypeLambda(param: String, in: Type) extends Type
   case class Var(name: String) extends Type
 
-  val intT: Type = Primitive("Int")
-  val boolT: Type = Primitive("Bool")
-  val strT: Type = Primitive("String")
+  private def predef(t: String): Type =
+    Declared(PackageName(NonEmptyList.of("Bosatsu", "Predef")), t)
+
+  val intT: Type = predef("Int")
+  val boolT: Type = predef("Bool")
+  val strT: Type = predef("String")
 
   def transformDeclared(in: Type)(fn: Declared => Declared): Type =
     in match {
@@ -37,7 +39,6 @@ object Type {
       case TypeApply(t, a) =>
         TypeApply(transformDeclared(t)(fn), transformDeclared(a)(fn))
       case d@Declared(_, _) => fn(d)
-      case p@Primitive(_) => p
       case v@Var(_) => v
     }
 
@@ -48,11 +49,6 @@ object Type {
       case TypeApply(left, _) => rootDeclared(left)
       case _ => None
     }
-
-  private[this] val prims = Set("Int", "Bool", "String")
-  def maybePrimitive(p: PackageName, n: String): Type =
-    if (prims(n)) Primitive(n) // this is not really right in a package world
-    else Declared(p, n)
 
   implicit val ordType: Order[Type] =
     new Order[Type] {
@@ -69,10 +65,6 @@ object Type {
             else c
           case (Declared(_, _), Arrow(_, _)) => 1 // we are after Arrow
           case (Declared(_, _), _) => -1 // before everything else
-          case (Primitive(na), Primitive(nb)) => na.compareTo(nb)
-          case (Primitive(_), Arrow(_, _)) => 1
-          case (Primitive(_), Declared(_, _)) => 1
-          case (Primitive(_), _) => -1
           case (TypeApply(aa, ab), TypeApply(ba, bb)) =>
             val c = compare(aa, ba)
             if (c == 0) compare(ab, bb)
@@ -102,7 +94,7 @@ case class Scheme(vars: List[String], result: Type) {
     def inOrd(t: Type, toVisit: List[Type], acc: List[String]): List[String] =
       t match {
         case Arrow(a, b) => inOrd(a, b :: toVisit, acc)
-        case Declared(_, _) | Primitive(_) =>
+        case Declared(_, _) =>
           toVisit match {
             case Nil => acc.reverse
             case h :: tail => inOrd(h, tail, acc)
@@ -138,7 +130,6 @@ case class Scheme(vars: List[String], result: Type) {
       t match {
         case Arrow(a, b) => Arrow(norm(a), norm(b))
         case d@Declared(_, _) => d
-        case c@Primitive(_) => c
         case TypeApply(hk, arg) => TypeApply(norm(hk), norm(arg))
         //case TypeLambda(v, t) => TypeLambda(v, norm(t))
         case Var(v) => Var(mappingMap(v))
@@ -267,10 +258,10 @@ case class TypeEnv(
     /**
      * When we add an imported type, some of our defined types may refer to it
      */
+    val replaced = Type.Declared(dt.packageName, dt.name.asString)
+
     def translate(dec: Type.Declared): Type.Declared =
-      if (dec.packageName === packageName && dec.name === local) {
-        Type.Declared(dt.packageName, dt.name.asString)
-      }
+      if (dec.packageName === packageName && dec.name === local) replaced
       else dec
 
     val functor = Functor[List]
@@ -283,7 +274,12 @@ case class TypeEnv(
       dt.copy(constructors = fixedCons)
     }
 
+    val fixedValues = Functor[Map[String, ?]].map(toMap) { scm =>
+      Scheme(scm.vars, Type.transformDeclared(scm.result)(translate _))
+    }
+
     copy(
+      toMap = fixedValues,
       imported = imported + (local -> Right(dt)),
       constructors = constructors.map { case (c, d) => c -> fixDT(d) }.toMap,
       definedTypes = definedTypes.map { case (k, d) => k -> fixDT(d) }.toMap

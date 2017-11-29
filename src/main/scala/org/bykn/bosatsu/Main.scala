@@ -119,7 +119,7 @@ object Main extends CommandApp(
           }
           System.exit(1)
         case (_, Validated.Valid(packMap)) =>
-          val ev = Evaluation(packMap, extern)
+          val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
           ev.evaluateLast(mainPack) match {
             case None => sys.error("found no main expression")
             case Some(eval) =>

@@ -329,6 +329,8 @@ object PackageMap {
                 }
 
               val Program(te, lets, _) = prog
+
+              // Add all the imports to the type environment
               val updatedTE = foldNest.foldLeft(imps.map(_.items), te)(addRef(_, _))
 
               val ilets = Inference.inferLets(lets)
@@ -344,18 +346,24 @@ object PackageMap {
                         letMap.get(n) match {
                           case Some(exprDeclScheme) =>
                             Validated.valid(NonEmptyList(ExportedName.Binding(n, Referant.Value(exprDeclScheme.tag._2.normalized)), Nil))
-                          case None => err
+                          case None =>
+                            // It could be an external or imported value in the TypeEnv
+                            updatedTE.toMap.get(n) match {
+                              case Some(scheme) =>
+                                Validated.valid(NonEmptyList(ExportedName.Binding(n, Referant.Value(scheme.normalized)), Nil))
+                              case None => err
+                            }
                         }
                       case ExportedName.TypeName(n, _) =>
                         // export the opaque type
-                        te.definedTypes.get((nm, TypeName(n))) match {
+                        updatedTE.definedTypes.get((nm, TypeName(n))) match {
                           case Some(dt) =>
                             Validated.valid(NonEmptyList(ExportedName.TypeName(n, Referant.DefinedT(dt.toOpaque)), Nil))
                           case None => err
                         }
                       case ExportedName.Constructor(n, _) =>
                         // export the type and all constructors
-                        te.definedTypes.get((nm, TypeName(n))) match {
+                        updatedTE.definedTypes.get((nm, TypeName(n))) match {
                           case Some(dt) =>
                             val cons = dt.constructors.map { case (n, _) =>
                               ExportedName.Constructor(n.asString, Referant.Constructor(n, dt))

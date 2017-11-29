@@ -23,7 +23,7 @@ sealed abstract class TypeRef {
   def toType(p: PackageName): Type =
     this match {
       case TypeVar(v) => Type.Var(v)
-      case TypeName(n) => Type.maybePrimitive(p, n)
+      case TypeName(n) => Type.Declared(p, n)
       case TypeArrow(a, b) => Type.Arrow(a.toType(p), b.toType(p))
       case TypeApply(a, bs) =>
         def loop(fn: Type, args: NonEmptyList[TypeRef]): Type =

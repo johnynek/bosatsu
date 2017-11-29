@@ -173,9 +173,12 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       def getExternal: Option[NameKind] =
         // there should not be duplicate top level names TODO lint for this
         prog.from.toStream.collectFirst {
-          case d@Statement.ExternalDef(n, _, _, _) if n == item =>
+          case Statement.ExternalDef(n, _, _, _) if n == item =>
+            // The type could be an import, so we need to check for the type
+            // in the TypeEnv
+            val scheme = prog.types.toMap(n)
             val pn = from.unfix.name
-            ExternalDef(pn, item, d.scheme(pn))
+            ExternalDef(pn, item, scheme)
         }
 
       getLet.orElse(

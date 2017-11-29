@@ -61,8 +61,8 @@ object FfiCall {
   def getJavaType(t: Type): List[Class[_]] = {
     def loop(t: Type, top: Boolean): List[Class[_]] = {
       t match {
-        case Type.Primitive("Int") => classOf[java.lang.Integer] :: Nil
-        case Type.Primitive("Bool") => classOf[java.lang.Boolean] :: Nil
+        case t if t == Type.intT => classOf[java.lang.Integer] :: Nil
+        case t if t == Type.boolT => classOf[java.lang.Boolean] :: Nil
         case Type.Arrow(a, b) if top =>
           loop(a, false) match {
             case at :: Nil => at :: loop(b, top)

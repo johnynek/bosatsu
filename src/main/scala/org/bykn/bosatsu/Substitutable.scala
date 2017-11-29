@@ -28,7 +28,6 @@ object Substitutable {
         t match {
           case Arrow(from, to) => Arrow(apply(sub, from), apply(sub, to))
           case d@Declared(_, _) => d
-          case c@Primitive(_) => c
           case TypeApply(hk, arg) => TypeApply(apply(sub, hk), apply(sub, arg))
           //case TypeLambda(param, in) => TypeLambda(param, apply(sub, in))
           case v@Var(name) => sub.getOrElse(name, v)
@@ -38,7 +37,6 @@ object Substitutable {
         t match {
           case Arrow(from, to) => typeVars(from) | typeVars(to)
           case Declared(_, _) => Set.empty
-          case Primitive(_) => Set.empty
           case TypeApply(hk, arg) => typeVars(hk) | typeVars(arg)
           //case TypeLambda(_, in) => typeVars(in)
           case Var(name) => Set(name)

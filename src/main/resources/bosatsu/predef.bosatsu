@@ -1,7 +1,30 @@
 package Bosatsu/Predef
 
-export [ Option() ]
+export [
+  Bool(),
+  Int,
+  Option(),
+  String,
+  add,
+  eq_Int,
+  sub,
+  times,
+]
+
+enum Bool:
+  False
+  True
 
 enum Option:
   Some(v)
   None
+
+external struct Int
+
+external def add(a: Int, b: Int) -> Int
+external def sub(a: Int, b: Int) -> Int
+external def times(a: Int, b: Int) -> Int
+external def eq_Int(a: Int, b: Int) -> Bool
+
+external struct String
+

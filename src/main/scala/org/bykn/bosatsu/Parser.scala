@@ -167,18 +167,4 @@ object Parser {
 
 
   val toEOL: P[Unit] = P(maybeSpace ~ "\n")
-
-  val typeScheme: P[Scheme] = {
-    def prim(s: String) = P(s).map(_ => Scheme(Nil, Type.Primitive(s)))
-
-    val item = prim("Int") | prim("Bool")
-    P(item ~ (spaces ~/ "->" ~ spaces ~ typeScheme).?).map {
-      case (t, None) => t
-      case (a, Some(b)) => Scheme(Nil, Type.Arrow(a.result, b.result)) // TODO this is ignoring type variables for now
-    }
-  }
-
-  val intP: P[Int] = P(CharsWhile(isNum _).!).map(_.toInt)
-  val boolP: P[Boolean] =
-    P("True").map(_ => true) | P("False").map(_ => false)
 }
