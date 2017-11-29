@@ -303,17 +303,6 @@ object Inference {
         Monad[Infer].pure((Type.boolT, Expr.Literal(Lit.Bool(b), (tag, Scheme.fromType(Type.boolT)))))
       case Expr.Literal(str@Lit.Str(_) ,tag) =>
         Monad[Infer].pure((Type.strT, Expr.Literal(str, (tag, Scheme.fromType(Type.strT)))))
-      case Expr.If(cond, te, fe, tag) =>
-        for {
-          ic <- inferTypeTag(cond)
-          i1 <- inferTypeTag(te)
-          i2 <- inferTypeTag(fe)
-          (tc, ec) = ic
-          (t1, e1) = i1
-          (t2, e2) = i2
-          _ <- addConstraint(Type.boolT, tc, HasRegion.region(tag), HasRegion.region(cond))
-          _ <- addConstraint(t1, t2, HasRegion.region(te), HasRegion.region(fe))
-        } yield (t2, Expr.If(ec, e1, e2, (tag, Scheme.fromType(t2))))
       case Expr.Match(arg, branches, tag) =>
         for {
           env <- (RWST.ask: Infer[TypeEnv])

@@ -28,7 +28,6 @@ sealed abstract class Expr[T] {
       case l@Lambda(_, _, _) => l.copy(tag = t)
       case l@Let(_, _, _, _) => l.copy(tag = t)
       case l@Literal(_, _) => l.copy(tag = t)
-      case i@If(_, _, _, _) => i.copy(tag = t)
       case m@Match(_, _, _) => m.copy(tag = t)
       case o@Op(_, _, _, _) => o.copy(tag = t)
     }
@@ -40,7 +39,6 @@ object Expr {
   case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
   case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
-  case class If[T](arg: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T) extends Expr[T]
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(ConstructorName, List[Option[String]], Expr[T])], tag: T) extends Expr[T]
   case class Op[T](left: Expr[T], binOp: Operator, right: Expr[T], tag: T) extends Expr[T]
 
@@ -63,8 +61,6 @@ object Expr {
         Let(arg, nest(exp), nest(in), e)
       case Literal(lit, _) =>
         Literal(lit, e)
-      case If(arg, ifTrue, ifFalse, _) =>
-        If(nest(arg), nest(ifTrue), nest(ifFalse), e)
       case Match(arg, branches, _) =>
         Match(nest(arg), branches.map {
           case (n, bindings, exp) =>
@@ -111,10 +107,6 @@ object Expr {
             }
           case Literal(lit, tag) =>
             f(tag).map(Literal(lit, _))
-          case If(arg, ifTrue, ifFalse, tag) =>
-            (arg.traverse(f), ifTrue.traverse(f), ifFalse.traverse(f), f(tag)).mapN { (a1, t1, f1, tag1) =>
-              If(a1, t1, f1, tag1)
-            }
           case Match(arg, branches, tag) =>
             val argB = arg.traverse(f)
             val branchB = tne.traverse(branches)(f)
@@ -143,11 +135,6 @@ object Expr {
             f(b2, tag)
           case Literal(_, tag) =>
             f(b, tag)
-          case If(arg, ifTrue, ifFalse, tag) =>
-            val b1 = foldLeft(arg, b)(f)
-            val b2 = foldLeft(ifTrue, b1)(f)
-            val b3 = foldLeft(ifFalse, b2)(f)
-            f(b3, tag)
           case Match(arg, branches, tag) =>
             val b1 = foldLeft(arg, b)(f)
             val b2 = tne.foldLeft(branches, b1)(f)
@@ -174,11 +161,6 @@ object Expr {
             foldRight(exp, b2)(f)
           case Literal(_, tag) =>
             f(tag, lb)
-          case If(arg, ifTrue, ifFalse, tag) =>
-            val b1 = f(tag, lb)
-            val b2 = foldRight(ifFalse, b1)(f)
-            val b3 = foldRight(ifTrue, b2)(f)
-            foldRight(arg, b3)(f)
           case Match(arg, branches, tag) =>
             val b1 = f(tag, lb)
             val b2 = tne.foldRight(branches, b1)(f)

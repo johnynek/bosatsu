@@ -125,10 +125,17 @@ sealed abstract class Declaration {
         val inExpr = in.toExpr(pn)
         Expr.Let(nm, lambda, inExpr, this)
       case IfElse(ifCases, Padding(_, Indented(_, elseCase))) =>
+
+        // TODO: we need a way to have an full name to the constructor in order for this "macro" to
+        // be safe. So, we want to say Bosatsu/Predef#True or something.
+        // we could just have ConstructorName require a PackageName
+        def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
+          Expr.Match(cond, NonEmptyList.of((ConstructorName("True"), Nil, ifTrue), (ConstructorName("False"), Nil, ifFalse)), this)
+
         def loop(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
           ifs match {
             case NonEmptyList((cond, ifTrue), Nil) =>
-              Expr.If(cond, ifTrue, elseC, this)
+              ifExpr(cond, ifTrue, elseC)
             case NonEmptyList(ifTrue, h :: tail) =>
               val elseC1 = loop(NonEmptyList(h, tail), elseC)
               loop(NonEmptyList.of(ifTrue), elseC1)
