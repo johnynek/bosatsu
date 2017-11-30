@@ -122,8 +122,8 @@ object Main extends CommandApp(
           val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
           ev.evaluateLast(mainPack) match {
             case None => sys.error("found no main expression")
-            case Some(eval) =>
-              val (res, scheme) = eval.value
+            case Some((eval, scheme)) =>
+              val res = eval.value
               println(s"$res: ${scheme.result}")
           }
         case (duplicatePackages, Validated.Invalid(errs)) =>

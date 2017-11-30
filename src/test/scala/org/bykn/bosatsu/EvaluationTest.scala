@@ -25,9 +25,8 @@ class EvaluationTest extends FunSuite {
         val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
         ev.evaluateLast(mainPack) match {
           case None => fail("found no main expression")
-          case Some(eval) =>
-            val (res, _) = eval.value
-            assert(res == expected)
+          case Some((eval, _)) =>
+            assert(eval.value == expected)
         }
 
       case other =>
