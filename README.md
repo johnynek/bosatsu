@@ -64,6 +64,36 @@ that starts with an uppercase character. Constructors, the functions that create
 structs or enums also start with an upper case. Like bindings, all type parameters must be
 lower case.
 
+## Partially evaluated Functions and methods
+Like Haskell, Bosatu naturally curries functions. Put another way, all functions
+take one argument and return one value. So a function like:
+```python
+def foo(a, b, c):
+  bar(a, b, c)
+
+foo1 = \a -> \b -> \c -> bar(a, b, c)
+```
+Both, foo and foo1 are the same. Both can be called with 1 to 3 arguments:
+```python
+# all valid
+
+f1 = foo(1)
+frest1 = f1(2, 3)
+
+f2 = foo(1, 2)
+frest2 = f2(3)
+
+f3 = foo(1, 2, 3)
+
+# frest1 same as frest2 as f3
+```
+
+Even though there are only functions, syntactically a method-like syntax is nice. To this end
+Bosatsu has a `.` operator. It is defined as: `a.f` being the same as `f(a)`. Combined with
+the above natural partial application, that means `a.f(b, c)` is the same as `f(a, b, c)`.
+So, like python, you should make the first parameter of a function the `self` parameter and
+you can use a method like syntax.
+
 ## Packages
 Each bosatsu file is a package which is declared at the beginning:
 ```

@@ -84,6 +84,11 @@ sz = match e:
    None:
      0
 
+def plus(a, b):
+  a + b
+
+three = 1.plus(2)
+
 external def hc(i: Int) -> Int
 
 foo = NonEmpty(1, NonEmpty(2, Empty))
