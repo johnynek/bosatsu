@@ -57,7 +57,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case None => recurse((p, Left(v), env))
         }
       case App(Lambda(name, fn, _), arg, (_, scheme)) =>
-        (recurse((p, Right(arg), env))._1.flatMap { case (a, _) =>
+        (recurse((p, Right(arg), env))._1.flatMap { a =>
           val env1 = env + (name -> a)
           recurse((p, Right(fn), env1))._1
         }, scheme)
