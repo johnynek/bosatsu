@@ -170,7 +170,7 @@ sealed abstract class Statement {
           val p = loop(rest)
           p.copy(types = p.types.addDefinedType(x.toDefinition(pn)), from = x)
         case EndOfFile =>
-          Program(TypeEnv.empty, Nil, EndOfFile)
+          Program(TypeEnv.empty(pn), Nil, EndOfFile)
       }
 
     loop(this)

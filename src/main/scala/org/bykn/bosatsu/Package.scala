@@ -348,7 +348,7 @@ object PackageMap {
                             Validated.valid(NonEmptyList(ExportedName.Binding(n, Referant.Value(exprDeclScheme.tag._2.normalized)), Nil))
                           case None =>
                             // It could be an external or imported value in the TypeEnv
-                            updatedTE.toMap.get(n) match {
+                            updatedTE.values.get(n) match {
                               case Some(scheme) =>
                                 Validated.valid(NonEmptyList(ExportedName.Binding(n, Referant.Value(scheme.normalized)), Nil))
                               case None => err

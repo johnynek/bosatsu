@@ -23,8 +23,11 @@ object Predef {
       case Parsed.Failure(_, _, _) => sys.error(s"could not parse $predefString")
     }
 
+  val packageName: PackageName =
+    PackageName(NonEmptyList.of("Bosatsu", "Predef"))
+
   val predefImports: Import[PackageName, Unit] =
-    Import(PackageName(NonEmptyList.of("Bosatsu", "Predef")),
+    Import(packageName,
       NonEmptyList.of(
         "Bool",
         "False",

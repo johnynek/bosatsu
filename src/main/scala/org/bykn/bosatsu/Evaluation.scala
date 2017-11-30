@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
 import cats.Eval
+import cats.implicits._
 
 case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   def evaluate(p: PackageName, varName: String): Option[Eval[(Any, Scheme)]] =
@@ -20,7 +21,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
   private def evalBranch(arg: Any,
     scheme: Scheme,
-    branches: NonEmptyList[(ConstructorName, List[Option[String]], Expr[(Declaration, Scheme)])],
+    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[(Declaration, Scheme)])],
     p: Package.Inferred,
     env: Map[String, Any],
     recurse: ((Package.Inferred, Ref, Map[String, Any])) => Eval[(Any, Scheme)]): Eval[Any] =
@@ -33,7 +34,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           val dt = p.unfix.program.types.definedTypes
              .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get // one must match
           val cname = dt.constructors(enumId)._1
-          val (_, paramVars, next) = branches.find { case (ctor, _, _) => ctor == cname }.get
+          val (Pattern(_, paramVars), next) = branches.find { case (Pattern((_, ctor), _), _) => ctor === cname }.get
           val localEnv = paramVars.zip(params).collect { case (Some(p1), p2) => (p1, p2) }.toMap
 
           recurse((p, Right(next), env ++ localEnv)).map(_._1)
@@ -100,13 +101,18 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
               case Plus => ai + bi
               case Mul => ai * bi
               case Sub => ai - bi
-              case Eql => ai == bi
+              case Eql =>
+                //
+                if (ai == bi) True else False
             }
           }
         }
         .map((_, scheme))
     }
   }
+
+  private[this] val True = (1, Nil)
+  private[this] val False = (0, Nil)
 
   /**
    * We only call this on typechecked names, which means we know
@@ -146,11 +152,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         prog.getLet(item).map(Let(_))
 
       def getConstructor: Option[NameKind] = {
-        // This could be an import or constructor
-        // first check a local constructor:
-        // constructor case
         val cn = ConstructorName(item)
-        prog.types.constructors.get(cn).map { dtype =>
+        prog.types.constructors.get((from.unfix.name, cn)).map { dtype =>
           Constructor(Eval.later {
             val scheme = dtype.toScheme(cn).get // this should never throw
             val fn = constructor(cn, dtype)
@@ -170,7 +173,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case Statement.ExternalDef(n, _, _, _) if n == item =>
             // The type could be an import, so we need to check for the type
             // in the TypeEnv
-            val scheme = prog.types.toMap(n)
+            val scheme = prog.types.values(n)
             val pn = from.unfix.name
             ExternalDef(pn, item, scheme)
         }

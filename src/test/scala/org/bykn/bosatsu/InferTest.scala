@@ -29,7 +29,7 @@ class InferTest extends FunSuite {
     Declaration.parser("").parse(str) match {
       case Parsed.Success(decl, _) =>
         val expr = decl.toExpr(testPack)
-        Inference.inferExpr(TypeEnv.empty, expr) match {
+        Inference.inferExpr(TypeEnv.empty(PackageName(NonEmptyList.of("InferTest", "ParseType"))), expr) match {
           case Left(f) => fail(s"failed: $f")
           case Right(s) => assert(s.tag._2.result === t, s"$str => $decl => $expr => $s")
         }

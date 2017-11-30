@@ -137,8 +137,8 @@ object Inference {
 
   private def instantiateMatch[T: HasRegion](arg: Type,
     dt: DefinedType,
-    branches: NonEmptyList[(ConstructorName, List[Option[String]], Expr[T])],
-    matchTag: T): Infer[(Type, NonEmptyList[(ConstructorName, List[Option[String]], Expr[(T, Scheme)])])] = {
+    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[T])],
+    matchTag: T): Infer[(Type, NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[(T, Scheme)])])] = {
 
     def withBind(args: List[Option[String]], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
       inferTypeTag(result)
@@ -149,13 +149,13 @@ object Inference {
           }
         }
 
-    type Element[A] = (ConstructorName, List[Option[String]], Expr[A])
+    type Element[A] = (Pattern[(PackageName, ConstructorName)], Expr[A])
     def inferBranch(mp: Map[ConstructorName, List[Type]])(ce: Element[T]): Infer[(Type, Element[(T, Scheme)])] = {
       // TODO make sure we have proven that this map-get is safe:
-      val (cname, bindings, branchRes) = ce
+      val (p@Pattern((_, cname), bindings), branchRes) = ce
       val tpes = mp(cname)
       withBind(bindings, tpes, branchRes).map { case (t, exp) =>
-        (t, (cname, bindings, exp))
+        (t, (p, exp))
       }
     }
 
@@ -167,7 +167,7 @@ object Inference {
 
       for {
         branchTypesExpr <- branches.traverse(inferBranch(cMap))
-        branchTypes = branchTypesExpr.map { case (tpe, (_, _, expr)) => (tpe, HasRegion.region(expr.tag._1)) }
+        branchTypes = branchTypesExpr.map { case (tpe, (_, expr)) => (tpe, HasRegion.region(expr.tag._1)) }
         branchTR <- branchTypes.reduceLeftM(Monad[Infer].pure(_)) { case ((leftT, lr), (rightT, rr)) =>
             for {
               _ <- addConstraint(leftT, rightT, lr, rr)
@@ -180,7 +180,7 @@ object Inference {
   }
 
   def inferExpr[T: HasRegion](expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] =
-    inferExpr(TypeEnv.empty, expr)
+    inferExpr(TypeEnv.empty(PackageName(NonEmptyList.of("Infer", "InferExpr"))), expr)
 
   def inferExpr[T: HasRegion](te: TypeEnv, expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] = {
 
@@ -306,7 +306,7 @@ object Inference {
       case Expr.Match(arg, branches, tag) =>
         for {
           env <- (RWST.ask: Infer[TypeEnv])
-          dt <- MonadError[Infer, TypeError].fromEither(env.getDefinedType(branches.map { case (b, _, r) => (b, r) }))
+          dt <- MonadError[Infer, TypeError].fromEither(env.getDefinedType(branches.map { case (Pattern(pc, _), r) => (pc, r) }))
           iarg <- inferTypeTag(arg)
           (targ, earg) = iarg
           ibranch <- instantiateMatch(targ, dt, branches, tag)

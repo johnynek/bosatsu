@@ -219,18 +219,19 @@ object DefinedType {
  * This is a mapping of variable names to their Schemes
  */
 case class TypeEnv(
-  toMap: Map[String, Scheme],
-  constructors: Map[ConstructorName, DefinedType],
+  packageName: PackageName,
+  values: Map[String, Scheme],
+  constructors: Map[(PackageName, ConstructorName), DefinedType],
   definedTypes: Map[(PackageName, TypeName), DefinedType],
   imported: Map[String, Either[(ConstructorName, DefinedType), DefinedType]]
   ) {
 
   def schemeOf(name: String): Option[Scheme] =
-    toMap.get(name)
+    values.get(name)
       .orElse {
         val cons = ConstructorName(name)
         for {
-          dt <- constructors.get(cons)
+          dt <- constructors.get((packageName, cons))
           scheme <- dt.toScheme(cons)
         } yield scheme
       }
@@ -243,12 +244,12 @@ case class TypeEnv(
       }
 
   def updated(v: String, scheme: Scheme): TypeEnv =
-    copy(toMap = toMap.updated(v, scheme))
+    copy(values = values.updated(v, scheme))
 
   def addDefinedType(d: DefinedType): TypeEnv =
     d.constructors.toList.foldLeft(this) { case (te, (nm, _)) =>
       // TODO make sure this is not duplicated
-      te.copy(constructors = te.constructors + (nm -> d))
+      te.copy(constructors = te.constructors + ((d.packageName, nm) -> d))
     }.copy(definedTypes = definedTypes + ((d.packageName, d.name) -> d))
 
   def addImportedConstructor(local: String, remote: ConstructorName, in: DefinedType): TypeEnv =
@@ -274,12 +275,12 @@ case class TypeEnv(
       dt.copy(constructors = fixedCons)
     }
 
-    val fixedValues = Functor[Map[String, ?]].map(toMap) { scm =>
+    val fixedValues = Functor[Map[String, ?]].map(values) { scm =>
       Scheme(scm.vars, Type.transformDeclared(scm.result)(translate _))
     }
 
     copy(
-      toMap = fixedValues,
+      values = fixedValues,
       imported = imported + (local -> Right(dt)),
       constructors = constructors.map { case (c, d) => c -> fixDT(d) }.toMap,
       definedTypes = definedTypes.map { case (k, d) => k -> fixDT(d) }.toMap
@@ -287,20 +288,20 @@ case class TypeEnv(
       .addDefinedType(dt)
   }
 
-  def getDefinedType[T: HasRegion](matches: NonEmptyList[(ConstructorName, T)]): Either[TypeError, DefinedType] = {
-    def getCons(c: ConstructorName): Option[Either[(ConstructorName, DefinedType), DefinedType]] =
-      constructors.get(c) match {
+  def getDefinedType[T: HasRegion](matches: NonEmptyList[((PackageName, ConstructorName), T)]): Either[TypeError, DefinedType] = {
+    def getCons(p: PackageName, c: ConstructorName): Option[Either[(ConstructorName, DefinedType), DefinedType]] =
+      constructors.get((p, c)) match {
         case Some(dt) => Some(Right(dt))
-        case None =>
+        case _ =>
           imported.get(c.asString) match {
-            case Some(Left(c)) => Some(Left(c))
+            case Some(Left(pair)) if packageName == p => Some(Left(pair))
             case _ => None
           }
       }
 
     // Find all the constructor, dt pairs
-    val matches1 = matches.traverse { case (cn, t) =>
-      getCons(cn) match {
+    val matches1 = matches.traverse { case ((p, cn), t) =>
+      getCons(p, cn) match {
         case None => Left(TypeError.UnknownConstuctor(cn, HasRegion.region(t)))
         case Some(Right(dt)) => Right((cn, dt))
         case Some(Left(pair)) => Right(pair)
@@ -324,6 +325,7 @@ case class TypeEnv(
 }
 
 object TypeEnv {
-  val empty: TypeEnv = TypeEnv(Map.empty, Map.empty, Map.empty, Map.empty)
+  def empty(pn: PackageName): TypeEnv =
+    TypeEnv(pn, Map.empty, Map.empty, Map.empty, Map.empty)
 }
 

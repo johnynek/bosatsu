@@ -130,15 +130,16 @@ object Substitutable {
 
       def apply(sub: Subst, te: TypeEnv): TypeEnv =
         TypeEnv(
-          Substitutable[Map[String, Scheme]].apply(sub, te.toMap),
-          Substitutable[Map[ConstructorName, DefinedType]].apply(sub, te.constructors),
+          te.packageName,
+          Substitutable[Map[String, Scheme]].apply(sub, te.values),
+          Substitutable[Map[(PackageName, ConstructorName), DefinedType]].apply(sub, te.constructors),
           Substitutable[Map[(PackageName, TypeName), DefinedType]].apply(sub, te.definedTypes),
           Substitutable[Map[String, Either[(ConstructorName, DefinedType), DefinedType]]].apply(sub, te.imported)
         )
 
       def typeVars(te: TypeEnv) =
-        Substitutable[Map[String, Scheme]].typeVars(te.toMap) |
-        Substitutable[Map[ConstructorName, DefinedType]].typeVars(te.constructors) |
+        Substitutable[Map[String, Scheme]].typeVars(te.values) |
+        Substitutable[Map[(PackageName, ConstructorName), DefinedType]].typeVars(te.constructors) |
         Substitutable[Map[(PackageName, TypeName), DefinedType]].typeVars(te.definedTypes) |
         Substitutable[Map[String, Either[(ConstructorName, DefinedType), DefinedType]]].typeVars(te.imported)
     }

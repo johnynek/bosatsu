@@ -159,7 +159,7 @@ object Generators {
         args <- Gen.listOfN(cnt, Gen.option(lowerIdent))
       } yield Pattern(nm, args)
 
-      val genCase: Gen[(Pattern, Padding[Indented[Declaration]])] =
+      val genCase: Gen[(Pattern[String], Padding[Indented[Declaration]])] =
         Gen.zip(genPattern, padBody)
 
       val padIndCase = padding(genCase.map(Indented(i, _)))
