@@ -13,7 +13,6 @@ import cats.{Applicative, Eval, Traverse}
 sealed abstract class Lit
 object Lit {
   case class Integer(toInt: Int) extends Lit
-  case class Bool(toBool: Boolean) extends Lit
   case class Str(toStr: String) extends Lit
 }
 

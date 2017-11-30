@@ -80,7 +80,6 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           recurse((p, Right(in), env + (arg -> ae)))._1
         }, scheme)
       case Literal(Lit.Integer(i), (_, scheme)) => (Eval.now(i), scheme)
-      case Literal(Lit.Bool(b), (_, scheme)) => (Eval.now(if (b) True else False), scheme)
       case Literal(Lit.Str(str), (_, scheme)) => (Eval.now(str), scheme)
       case Match(arg, branches, (_, scheme)) =>
         val (earg, sarg) = recurse((p, Right(arg), env))

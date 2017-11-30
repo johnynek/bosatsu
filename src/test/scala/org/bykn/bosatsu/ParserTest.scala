@@ -144,14 +144,6 @@ class ParserTest extends FunSuite {
       parseTestAll(Declaration.literalIntP, litInt.toDoc.render(80), litInt)
     }
   }
-  test("we can parse Declaration.LiteralBool") {
-    parseTestAll(Declaration.literalBoolP,
-      Declaration.LiteralBool(false).toDoc.render(80),
-      Declaration.LiteralBool(false))
-    parseTestAll(Declaration.literalBoolP,
-      Declaration.LiteralBool(true).toDoc.render(80),
-      Declaration.LiteralBool(true))
-  }
 
   test("we can parse DefStatement") {
     forAll(Generators.defGen(Generators.indented(Generators.genDeclaration(0)))) { defn =>
@@ -328,60 +320,6 @@ else:
 
   test("we can parse any Declaration") {
     forAll(Generators.genDeclaration(5))(law(Declaration.parser("")))
-
-    import Declaration._
-    import Operator._
-    import TypeRef._
-    // here are some previous failures:
-    val hard0 =
-      Op(Parens(LiteralBool(false)),Sub,
-        Parens(DefFn(
-          DefStatement("hKlsdabavsw",
-            NonEmptyList.of(("wlqc3hcyppP",None), ("qzbCqgrbe",Option(TypeVar("lvg")))),
-            None,
-            (Padding(6,Indented(12,LiteralInt("-8393308213904846225"))),
-              Padding(1,
-                DefFn(DefStatement("j",
-                  NonEmptyList.of(("kdco9d",None), ("ilmZf8modds",Option.empty[TypeRef])),
-                  None,
-                  (Padding(0,Indented(5,Var("whmloukl"))),
-                    Padding(9,Op(Parens(
-                      DefFn(
-                        DefStatement("vef",
-                          NonEmptyList.of(("o",Some(TypeArrow(TypeVar("gpjgctxq"),TypeName("G"))))),
-                          None,
-                          (Padding(3,Indented(5,LiteralBool(false))),
-                            Padding(3,LiteralBool(false)))))),Plus,Parens(LiteralBool(true))))))))
-              )))))
-    val hard1 =
-      Op(Parens(DefFn(
-        DefStatement("qvn9nctvpe",NonEmptyList.of(("ccetywawql",None)),None,
-          (Padding(8,Indented(3,
-            DefFn(DefStatement("iMpmafg",NonEmptyList.of(("btblmdnhnij",Some(TypeName("I0UdK")))),Some(TypeName("Pjwrd")),
-              (Padding(1,Indented(3,DefFn(
-                DefStatement("rcvWloarpN",
-                  NonEmptyList.of(("gicncD5v",Some(TypeVar("hlspaxy4c4")))),Some(TypeVar("xn")),
-                  (Padding(2,Indented(11,LiteralBool(true))),
-                    Padding(5,Comment(CommentStatement(NonEmptyList.of(""),Padding(10,LiteralInt("8784604272431575973")))))))))),
-                Padding(4,
-                  DefFn(DefStatement("e5g",NonEmptyList.of(("vjb0",Some(TypeArrow(TypeName("X3oaxhok"),TypeVar("bplm0x3"))))),None,
-                    (Padding(4,Indented(8,Op(Parens(Var("uw")),Plus,Parens(LiteralBool(false))))),
-                      Padding(9,Op(Parens(LiteralInt("4189753091618908546561077944446038042")),Plus,Parens(LiteralBool(true))))))))))))),
-            Padding(4,Comment(CommentStatement(NonEmptyList.of(""),Padding(5,Comment(CommentStatement(NonEmptyList.of(""),Padding(4,LiteralBool(false))))))))))
-      )),Mul,Parens(LiteralBool(false)))
-
-    // def showPos(i: Int, str: String): String =
-    //   str.substring(0, i) + "*" + str.substring(i + 1)
-
-    // println("-----------------------")
-    // println(hard1.toDoc.render(80))
-    // println("-----------------------")
-    // println(showPos(207, hard1.toDoc.render(80)))
-    // println("-----------------------")
-
-    val hardCases = List(hard0, hard1)
-    val test = law(Declaration.parser(""))(_)
-    hardCases.foreach(test)
   }
 
   test("we can parse any Statement") {
@@ -403,23 +341,6 @@ else:
               Padding[Statement](1,EndOfFile)))))))))))
     }
     law(Statement.parser)(hardCase0)
-
-    val hardCase1 = {
-      import TypeRef.TypeVar
-      import Statement.{Def, EndOfFile, Bind, Comment}
-      import Declaration._
-
-  Bind(BindingStatement("gwvbRq", LiteralInt("3"),
-  Padding(10,Comment(CommentStatement(NonEmptyList.of(""),
-    Padding(2,Comment(CommentStatement(NonEmptyList.of(""),
-      Padding[Statement](10,Def(DefStatement("hf4yfc7B0gg",NonEmptyList.of(("xHZgqebwy",Some(TypeVar("fhlhxenBm")))),None,
-        (Padding(7,Indented(3,Declaration.Comment(CommentStatement(NonEmptyList.of(""),
-          Padding(10,Var("kyowgc")))))),
-  Padding(8,Def(DefStatement("xbvfkk",NonEmptyList.of(("wxtp",None)),None,
-    (Padding(10,Indented(11,Op(Parens(LiteralBool(true)),Operator.Mul,
-      Parens(LiteralInt("-30284323492203273957034407858667371620"))))),Padding(5,EndOfFile)))))))))))))))))
-    }
-    law(Statement.parser)(hardCase1)
 
     roundTrip(Statement.parser,
 """# header

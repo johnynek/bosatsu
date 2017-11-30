@@ -186,8 +186,7 @@ object Generators {
       upperIdent.map(Constructor(_)(emptyRegion)),
       //Arbitrary.arbitrary[BigInt].map { bi => LiteralInt(bi.toString) }, // TODO enable bigint
       Arbitrary.arbitrary[Int].map { bi => LiteralInt(bi.toString)(emptyRegion) },
-      str,
-      Gen.oneOf(true, false).map { b => LiteralBool(b)(emptyRegion) })
+      str)
 
     val recur = Gen.lzy(genDeclaration(depth - 1))
     if (depth <= 0) unnested

@@ -11,7 +11,6 @@ class InferTest extends FunSuite {
     assert(Inference.inferExpr(e).map(_.tag._2) === Right(Scheme(Nil, t)))
   }
   val i1 = Expr.Literal(Lit.Integer(1), ())
-  val b1 = Expr.Literal(Lit.Bool(true), ())
 
   val testPack = PackageName(NonEmptyList("Test", Nil))
 
@@ -21,7 +20,6 @@ class InferTest extends FunSuite {
   }
 
   test("bool") {
-    simpleMatch(b1, Type.boolT)
     simpleMatch(Expr.Op(i1, Operator.Eql, i1, ()), Type.boolT)
   }
 

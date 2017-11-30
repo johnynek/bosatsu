@@ -58,7 +58,6 @@ sealed abstract class Declaration {
         Doc.intercalate(Doc.line, parts)
       case Lambda(args, body) =>
         Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Doc.text _)) + Doc.text(" -> ") + body.toDoc
-      case LiteralBool(b) => if (b) trueDoc else falseDoc
       case LiteralInt(str) => Doc.text(str)
       case LiteralString(str, q) =>
           Doc.char(q) + Doc.text(Parser.escape(Set(q), str)) + Doc.char(q)
@@ -124,8 +123,6 @@ sealed abstract class Declaration {
         loop(ifCases.map { case (d0, Padding(_, Indented(_, d1))) => (d0.toExpr(pn), d1.toExpr(pn)) }, elseCase.toExpr(pn))
       case Lambda(args, body) =>
         buildLambda(args, body.toExpr(pn), this)
-      case LiteralBool(b) =>
-        Expr.Literal(Lit.Bool(b), this)
       case LiteralInt(str) =>
         Expr.Literal(Lit.Integer(str.toInt), this) // TODO use BigInt
       case LiteralString(str, _) =>
@@ -145,9 +142,6 @@ sealed abstract class Declaration {
 }
 
 object Declaration {
-  private val trueDoc = Doc.text("True")
-  private val falseDoc = Doc.text("False")
-
   implicit val document: Document[Declaration] = Document.instance[Declaration](_.toDoc)
   implicit val hasRegion: HasRegion[Declaration] =
     HasRegion.instance[Declaration](_.region)
@@ -178,7 +172,6 @@ object Declaration {
   case class IfElse(ifCases: NonEmptyList[(Declaration, Padding[Indented[Declaration]])],
     elseCase: Padding[Indented[Declaration]])(implicit val region: Region) extends Declaration
   case class Lambda(args: NonEmptyList[String], body: Declaration)(implicit val region: Region) extends Declaration
-  case class LiteralBool(toBoolean: Boolean)(implicit val region: Region) extends Declaration
   case class LiteralInt(asString: String)(implicit val region: Region) extends Declaration
   case class LiteralString(asString: String, quoteChar: Char)(implicit val region: Region) extends Declaration
   case class Match(arg: Declaration,
@@ -267,13 +260,6 @@ object Declaration {
       .map { case (r, (args, body)) => Lambda(args, body)(r) }
   }
 
-  val literalBoolP: P[LiteralBool] = {
-    def b(str: String, v: Boolean): P[LiteralBool] =
-      P(str).region.map { case (r, _) => LiteralBool(v)(r) }
-
-    b("True", true) | b("False", false)
-  }
-
   val literalIntP: P[LiteralInt] =
     Parser.integerString
       .region
@@ -348,7 +334,7 @@ object Declaration {
 
         dotApply :: applySuffix :: Operator.allOps.map(parseOp _)
       }
-      val prefix = defP(indent) | literalIntP | literalBoolP | literalStringP | lambdaP(indent) | matchP(indent) |
+      val prefix = defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(indent) |
         ifElseP(indent) | varOrBind(indent) | constructorP | commentP(indent) |
         P(rec(indent).parens).region.map { case (r, p) => Parens(p)(r) }
 
