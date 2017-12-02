@@ -83,15 +83,6 @@ object Generators {
       body <- dec
     } yield DefStatement(name, args, retType, body)
 
-  def opGen(dec: Gen[Declaration]): Gen[Declaration] = {
-    import Declaration._
-    for {
-      op <- Gen.oneOf(Operator.allOps)
-      left <- dec
-      right <- dec
-    } yield Op(Parens(left)(emptyRegion), op, Parens(right)(emptyRegion))
-  }
-
   def applyGen(dec: Gen[Declaration]): Gen[Declaration] = {
     import Declaration._
     Gen.lzy(for {
@@ -194,7 +185,6 @@ object Generators {
       (12, unnested),
       (2, commentGen(padding(recur, 1)).map(Comment(_)(emptyRegion))), // make sure we have 1 space to prevent comments following each other
       (2, defGen(Gen.zip(padding(indented(recur)), padding(recur))).map(DefFn(_)(emptyRegion))),
-      (2, opGen(recur)),
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
       (2, bindGen(recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),

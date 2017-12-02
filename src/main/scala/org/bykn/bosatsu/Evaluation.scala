@@ -86,31 +86,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         (earg.flatMap { a =>
           evalBranch(a, sarg, branches, p, env, recurse)
         }, scheme)
-
-      case Op(a, op, b, (_, scheme)) =>
-        val ea = recurse((p, Right(a), env))._1
-        val eb = recurse((p, Right(b), env))._1
-
-        (ea.flatMap { a =>
-          eb.map { b =>
-            import Operator._
-            val ai = a.asInstanceOf[Int]
-            val bi = b.asInstanceOf[Int]
-            op match {
-              case Plus => ai + bi
-              case Mul => ai * bi
-              case Sub => ai - bi
-              case Eql =>
-                //
-                if (ai == bi) True else False
-            }
-          }
-        }, scheme)
     }
   }
-
-  private[this] val True = (1, Nil)
-  private[this] val False = (0, Nil)
 
   /**
    * We only call this on typechecked names, which means we know

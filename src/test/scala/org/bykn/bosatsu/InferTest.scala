@@ -16,11 +16,6 @@ class InferTest extends FunSuite {
 
   test("int") {
     simpleMatch(i1, Type.intT)
-    simpleMatch(Expr.Op(i1, Operator.Plus, i1, ()), Type.intT)
-  }
-
-  test("bool") {
-    simpleMatch(Expr.Op(i1, Operator.Eql, i1, ()), Type.boolT)
   }
 
   def parseType(str: String, t: Type) =
@@ -52,24 +47,12 @@ class InferTest extends FunSuite {
     }
 
   test("type check some expressions") {
-    parseType("1 + 1", Type.intT)
-    parseType("1 == 1", Type.boolT)
-    parseType("(1+2) == 1", Type.boolT)
-    parseType("""(\x -> x + 1)(2)""", Type.intT)
-    parseType("""(\x -> x + 1)""", Type.Arrow(Type.intT, Type.intT))
+    parseType("""(\x -> x)(2)""", Type.intT)
     parseType(
 """x = 1
 y = x
 y""", Type.intT)
 
-    parseType(
-"""fn = \x, y -> x + y
-fn""", Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT)))
-
-    parseType(
-"""\x ->
-  fn = \y -> x + y
-  fn""", Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT)))
   }
 
   test("test inference with some defined types") {
@@ -118,7 +101,7 @@ main = match x:
   Empty:
     0
   NonEmpty(y, z):
-    y + 1
+    y
 """, Type.intT)
 }
 

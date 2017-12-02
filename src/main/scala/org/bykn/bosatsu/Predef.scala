@@ -44,28 +44,13 @@ object Predef {
         )
         .map(ImportedName.OriginalName(_, ())))
 
-  object Impl {
-
-    def add(a: JInteger, b: JInteger): JInteger =
-      JInteger.valueOf(a.intValue + b.intValue)
-
-    def sub(a: JInteger, b: JInteger): JInteger =
-      JInteger.valueOf(a.intValue - b.intValue)
-
-    def times(a: JInteger, b: JInteger): JInteger =
-      JInteger.valueOf(a.intValue * b.intValue)
-
-    def eq_Int(a: JInteger, b: JInteger): java.lang.Boolean =
-      java.lang.Boolean.valueOf(a.intValue == b.intValue)
-  }
-
   val jvmExternals: Externals =
     Externals
       .empty
-      .add(predefPackage.name, "add", FfiCall.ScalaCall("org.bykn.bosatsu.Predef.Impl.add"))
-      .add(predefPackage.name, "sub", FfiCall.ScalaCall("org.bykn.bosatsu.Predef.Impl.sub"))
-      .add(predefPackage.name, "times", FfiCall.ScalaCall("org.bykn.bosatsu.Predef.Impl.times"))
-      .add(predefPackage.name, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.Predef.Impl.eq_Int"))
+      .add(predefPackage.name, "add", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.add"))
+      .add(predefPackage.name, "sub", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.sub"))
+      .add(predefPackage.name, "times", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.times"))
+      .add(predefPackage.name, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.eq_Int"))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -73,3 +58,21 @@ object Predef {
   def withPredefA[A](predefA: A, ps: List[(A, Package.Parsed)]): List[(A, Package.Parsed)] =
     (predefA, predefPackage) :: ps.map { case (a, p) => (a, p.withImport(predefImports)) }
 }
+
+object PredefImpl {
+  val True: AnyRef = (1, Nil)
+  val False: AnyRef = (0, Nil)
+
+  def add(a: JInteger, b: JInteger): JInteger =
+    JInteger.valueOf(a.intValue + b.intValue)
+
+  def sub(a: JInteger, b: JInteger): JInteger =
+    JInteger.valueOf(a.intValue - b.intValue)
+
+  def times(a: JInteger, b: JInteger): JInteger =
+    JInteger.valueOf(a.intValue * b.intValue)
+
+  def eq_Int(a: JInteger, b: JInteger): AnyRef =
+    if (a.intValue == b.intValue) True else False
+}
+

@@ -67,8 +67,9 @@ main = 1
 package P4
 import Foo2 [ main as one ]
 
-# should equal 42
-main = one + 41
+external def add(a: a, b: a) -> a
+
+main = add(one, 42)
 """)
     valid(resolveThenInfer(List(p1, p2, p4)))
 
@@ -134,7 +135,7 @@ main = head(data1)
 package UsePredef
 
 def maybeOne(x):
-  if x == 1:
+  if x.eq_Int(1):
     Some(x)
   else:
     None

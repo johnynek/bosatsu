@@ -50,7 +50,7 @@ package Foo
 
 x = 1
 
-z = if x == 1:
+z = if x.eq_Int(1):
   "foo"
 else:
   "bar"

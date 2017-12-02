@@ -71,8 +71,6 @@ sealed abstract class Declaration {
         val piPat = Document[Padding[Indented[(Pattern[String], Padding[Indented[Declaration]])]]]
         Doc.text("match ") + typeName.toDoc + Doc.char(':') + Doc.line +
           Doc.intercalate(Doc.line, args.toList.map(piPat.document _))
-      case Op(left, op, right) =>
-        left.toDoc + Doc.space + Doc.text(op.asString) + Doc.space + right.toDoc
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
       case Var(name) => Doc.text(name)
@@ -127,8 +125,6 @@ sealed abstract class Declaration {
         Expr.Literal(Lit.Integer(str.toInt), this) // TODO use BigInt
       case LiteralString(str, _) =>
         Expr.Literal(Lit.Str(str), this)
-      case Op(left, op, right) =>
-        Expr.Op(left.toExpr(pn), op, right.toExpr(pn), this)
       case Parens(p) =>
         p.toExpr(pn).map(_ => this)
       case Var(name) =>
@@ -177,9 +173,6 @@ object Declaration {
   case class Match(arg: Declaration,
     cases: NonEmptyList[Padding[Indented[(Pattern[String], Padding[Indented[Declaration]])]]])(
     implicit val region: Region) extends Declaration
-  case class Op(left: Declaration, op: Operator, right: Declaration) extends Declaration {
-    def region = left.region + right.region
-  }
   case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
   case class Var(name: String)(implicit val region: Region) extends Declaration
 
@@ -325,14 +318,7 @@ object Declaration {
           { fn: Declaration => Apply(fn, args, false)(fn.region + r) }
         }
 
-        def parseOp(o: Operator): P[Declaration => Declaration] =
-          P(maybeSpace ~ o.asString ~/ maybeSpace ~ rec(indent))
-            .map { right =>
-
-              { left: Declaration => Op(left, o, right) }
-            }
-
-        dotApply :: applySuffix :: Operator.allOps.map(parseOp _)
+        dotApply :: applySuffix :: Nil
       }
       val prefix = defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(indent) |
         ifElseP(indent) | varOrBind(indent) | constructorP | commentP(indent) |

@@ -7,12 +7,12 @@ export [
 x = 1
 
 def y(x):
-  x + 1
+  x.add(1)
 
-z = if x == 1:
+z = if eq_Int(x, 1):
   y
 else:
-  \q -> q + x
+  \q -> q.add(x)
 
 struct Record(a, b)
 
@@ -33,7 +33,7 @@ def is_empty(list):
 
 struct Monoid(empty: a, combine: a -> a -> a)
 
-intMonoid = Monoid(0, \x, y -> x + y)
+intMonoid = Monoid(0, \x, y -> x.add(y))
 
 # This gives us enough to implement useful List functions (and is total)
 # but not expressible directly
@@ -69,7 +69,7 @@ def filter(list, fn):
   rev_filter.reverse
 
 def sum(items):
-  fold(items, 0, \x, y -> x + y)
+  fold(items, 0, add)
 
 enum Bool:
   True
@@ -85,7 +85,7 @@ sz = match e:
      0
 
 def plus(a, b):
-  a + b
+  add(a, b)
 
 three = 1.plus(2)
 
@@ -100,4 +100,4 @@ main = match foo:
   Empty:
     0
   NonEmpty(x, tail):
-    hc(resA) + foo.map(\x -> 10*x).sum
+    hc(resA).add(foo.map(\x -> 10.times(x)).sum)

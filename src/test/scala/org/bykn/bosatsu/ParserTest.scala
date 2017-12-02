@@ -212,17 +212,6 @@ foo"""
       expected.toDoc.render(80),
       expected)
 
-    import Operator._
-
-    val hard = Lambda(NonEmptyList.of("zl"),Lambda(NonEmptyList.of("mbovroDewsy", "kapdcnqxt", "rwd"),
-      Op(Parens(Op(Parens(LiteralInt("-9223372036854775808")),Sub,Parens(Var("anbo7gkpfvj")))),Sub,
-        Parens(Apply(Parens(Lambda(NonEmptyList.of("uxu1i"),LiteralInt("35595864962462191423853794339110335496"))),
-          NonEmptyList.of(Op(Parens(LiteralInt("1678198301007947346")),Sub,Parens(LiteralInt("-2902090857627552045")))), false)))))
-
-    parseTestAll(parser(""),
-      hard.toDoc.render(80),
-      hard)
-
   }
 
   test("we can parse bind") {
@@ -250,35 +239,33 @@ x""",
   test("we can parse if") {
     import Declaration._
 
-    parseTestAll(parser(""),
-      """if x == 3:
+    roundTrip(parser(""),
+      """if eq_Int(x, 3):
       x
 else:
-      y""",
-      IfElse(NonEmptyList.of((Op(Var("x"),Operator.Eql,LiteralInt("3")),Padding(0,Indented(6,Var("x"))))),Padding(0,Indented(6,Var("y")))))
+      y""")
 
-    parseTestAll(parser(""),
-      """if x == 3:
+    roundTrip(parser(""),
+      """if eq_Int(x, 3):
       x
 elif foo:
       z
 else:
-      y""",
-      IfElse(NonEmptyList.of((Op(Var("x"),Operator.Eql,LiteralInt("3")),Padding(0,Indented(6,Var("x")))), (Var("foo"),Padding(0,Indented(6,Var("z"))))),Padding(0,Indented(6,Var("y")))))
+      y""")
   }
 
   test("we can parse a match") {
     roundTrip(Declaration.parser(""),
 """match 1:
   Foo(a, b):
-    a + b
+    a.plus(b)
   Bar:
     42""")
 
     roundTrip(Declaration.parser(""),
 """match 1:
   Foo(a, b):
-    a + b
+    a.plus(b)
   Bar:
     match x:
       True:
@@ -344,16 +331,16 @@ else:
 
     roundTrip(Statement.parser,
 """# header
-y = if x == 2:
+y = if eq_Int(x, 2):
   True
 else:
   False
 
 def foo(x: Integer, y: String) -> String:
-  toString(x) + y
+  toString(x).append_str(y)
 
 # here is a lambda
-fn = \x, y -> x + y
+fn = \x, y -> x.plus(y)
 
 x = ( foo )
 

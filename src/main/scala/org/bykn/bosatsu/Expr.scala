@@ -28,7 +28,6 @@ sealed abstract class Expr[T] {
       case l@Let(_, _, _, _) => l.copy(tag = t)
       case l@Literal(_, _) => l.copy(tag = t)
       case m@Match(_, _, _) => m.copy(tag = t)
-      case o@Op(_, _, _, _) => o.copy(tag = t)
     }
 }
 
@@ -39,7 +38,6 @@ object Expr {
   case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[T])], tag: T) extends Expr[T]
-  case class Op[T](left: Expr[T], binOp: Operator, right: Expr[T], tag: T) extends Expr[T]
 
   implicit def hasRegion[T: HasRegion]: HasRegion[Expr[T]] =
     HasRegion.instance[Expr[T]] { e => HasRegion.region(e.tag) }
@@ -64,8 +62,6 @@ object Expr {
         Match(nest(arg), branches.map {
           case (pat, exp) => (pat, nest(exp))
         }, e)
-      case Op(left, op, right, _) =>
-        Op(nest(left), op, nest(right), e)
     }
 
   implicit val exprTraverse: Traverse[Expr] =
@@ -103,10 +99,6 @@ object Expr {
             (argB, branchB, f(tag)).mapN { (a, bs, t) =>
               Match(a, bs, t)
             }
-          case Op(left, op, right, tag) =>
-            (left.traverse(f), right.traverse(f), f(tag)).mapN { (l, r, t) =>
-              Op(l, op, r, t)
-            }
         }
 
       def foldLeft[A, B](fa: Expr[A], b: B)(f: (B, A) => B): B =
@@ -128,10 +120,6 @@ object Expr {
           case Match(arg, branches, tag) =>
             val b1 = foldLeft(arg, b)(f)
             val b2 = tne.foldLeft(branches, b1)(f)
-            f(b2, tag)
-          case Op(left, _, right, tag) =>
-            val b1 = foldLeft(left, b)(f)
-            val b2 = foldLeft(right, b1)(f)
             f(b2, tag)
         }
 
@@ -155,10 +143,6 @@ object Expr {
             val b1 = f(tag, lb)
             val b2 = tne.foldRight(branches, b1)(f)
             foldRight(arg, b2)(f)
-          case Op(left, _, right, tag) =>
-            val b1 = f(tag, lb)
-            val b2 = foldRight(right, b1)(f)
-            foldRight(left, b2)(f)
         }
     }
 }

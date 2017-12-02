@@ -11,11 +11,11 @@ borrows from [Python](https://www.python.org/), [Haskell](https://www.haskell.or
 ## Brief Syntax Introduction
 
 Syntax is like Python where it makes sense. Python lambda syntax is not
-ideal so we borrow from haskell: `\x -> x + 1`. Also, there is no `return`
+ideal so we borrow from haskell: `\x -> add(x, 1)`. Also, there is no `return`
 so the last value in an expression is the result, similar to ruby or scala:
 ```python
 def inc(x):
-  x + 1
+  add(x, 1)
 ```
 
 Bosatsu is statically typed using the
@@ -48,7 +48,7 @@ Unlike many functional languages, let bindings require no extra syntax and just 
 ```
 def incBy(y):
   x = y
-  \z -> z + x
+  \z -> z.add(x)
 ```
 Here we introduce a binding of x to the value of y. Then we return a lambda which increments
 by the same amount.

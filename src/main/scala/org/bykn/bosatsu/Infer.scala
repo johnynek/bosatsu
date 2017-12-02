@@ -285,18 +285,6 @@ object Inference {
           (t2, ein) = iin
         } yield (t2, Expr.Let(n, exS, ein, (tag, Scheme.fromType(t2))))
 
-      case Expr.Op(e1, op, e2, tag) =>
-        for {
-          i1 <- inferTypeTag(e1)
-          i2 <- inferTypeTag(e2)
-          (t1, es1) = i1
-          (t2, es2) = i2
-          tv <- fresh
-          u1 = Type.Arrow(t1, Type.Arrow(t2, tv))
-          u2 = Operator.typeOf(op)
-          _ <- addConstraint(u1, u2, HasRegion.region(e1.tag), HasRegion.region(e2.tag))
-        } yield (tv, Expr.Op(es1, op, es2, (tag, Scheme.fromType(tv))))
-
       case Expr.Literal(Lit.Integer(i), tag) =>
         Monad[Infer].pure((Type.intT, Expr.Literal(Lit.Integer(i), (tag, Scheme.fromType(Type.intT)))))
       case Expr.Literal(str@Lit.Str(_) ,tag) =>
