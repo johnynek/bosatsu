@@ -1,0 +1,242 @@
+package org.bykn.bosatsu
+
+import org.typelevel.paiges.Doc
+import cats.{Id, Monoid, Traverse, Monad, Foldable}
+import cats.data.{RWST, NonEmptyList}
+import cats.implicits._
+import java.nio.file.Path
+import scala.util.Try
+import java.io.PrintWriter
+
+trait CodeGen {
+  import Expr._
+  import CodeGen._
+
+  def toFieldName(s: String, i: Long): String =
+    s + "$" + (i.toString)
+
+  def toExportedName(s: String): String =
+    s
+
+  def toConstructorName(s: String): String =
+    "cons$" + s
+
+  def toPackage(p: PackageName): String =
+    p.parts.map(_.toLowerCase).toList.mkString(".")
+
+  def tell(d: Doc): Output[Unit] =
+    RWST.tell[Id, Scope, Doc, Unique](d)
+
+  def genPackage(p: Package.Inferred): Output[Unit] = {
+    val unfix = p.unfix
+
+    def packageName: Doc =
+      Doc.text("package ") +
+        Doc.text(toPackage(unfix.name)) +
+        Doc.char(';') + Doc.line
+
+    def enclose(d: Doc): Doc =
+      Doc.char('{') + (Doc.line + d).nested(2) + Doc.line + Doc.char('}')
+
+    val isExported: Set[String] =
+      unfix.exports.map(_.name).toSet
+
+    /**
+     * add the imports and return a list of lines to set up inside
+     * Values
+     */
+    val imps: Output[List[NonEmptyList[Option[(Package.Inferred, String, String)]]]] =
+      Traverse[List].traverse(unfix.imports) { case Import(pack, items) =>
+        Traverse[NonEmptyList].traverse(items) { imp =>
+          def go(fn: String => Option[String]): Output[Option[(Package.Inferred, String, String)]] =
+            if (imp.isRenamed || isExported(imp.localName)) {
+              // we make a new field for this.
+              val opt = for {
+                o <- fn(imp.originalName)
+                l <- fn(imp.localName)
+              } yield (pack, o, l)
+              Monad[Output].pure(opt)
+            }
+            else {
+              // we can just do a static import
+              (fn(imp.originalName) match {
+                case None =>
+                  Monad[Output].pure(())
+                case Some(n) =>
+                  tell(Doc.text("static import ") + Doc.text(toPackage(pack.unfix.name)) +
+                    Doc.text(".Values.") + Doc.text(n) + Doc.char(';') + Doc.line)
+              }).map(_ => None)
+            }
+
+          val fn = imp.tag match {
+            case Referant.Value(_) => { s: String => Some(toExportedName(s)) }
+            case Referant.DefinedT(_) => { s: String => None }
+            case Referant.Constructor(_, _) => { s: String => Some(toConstructorName(s)) }
+          }
+
+          go(fn)
+        }
+      }
+
+    def flatten[A](fn: List[NonEmptyList[Option[A]]]): List[A] =
+      fn.flatMap(_.toList.flatMap(_.toList))
+
+    val flatImps: Output[List[(Package.Inferred, String, String)]] = imps.map(flatten(_))
+
+    def makeImportFields(ls: List[(Package.Inferred, String, String)]): Doc =
+      Foldable[List].foldMap(ls) { case (p, orig, local) =>
+        val priv = if (isExported(local)) "" else "private "
+        Doc.text(priv) + Doc.text("final static Object ") + Doc.text(toExportedName(local)) + Doc.text(" = ") +
+          Doc.text(toPackage(p.unfix.name)) + Doc.text(".Values.") + Doc.text(toExportedName(orig)) + Doc.text(";") + Doc.line
+      }
+
+    val impsDoc: Output[Doc] = flatImps.map(makeImportFields)
+
+    val body = Traverse[List].traverse(unfix.program.lets) { case (f, e) =>
+      val priv = if (isExported(f)) "" else "private "
+      val left = Doc.text(s"${priv}final static Object ") + Doc.text(toExportedName(f)) + Doc.text(" = ")
+      for {
+        eDoc <- apply(e, true)
+        _ <- tell(left + eDoc + Doc.char(';') + Doc.line)
+      } yield ()
+    }.map(_ => ())
+
+    impsDoc.map { valueImports =>
+      val fullBody = tell(valueImports).flatMap(_ => body)
+      fullBody.mapWritten { d: Doc =>
+        Doc.text("class Values ") + enclose(d)
+      }
+    }
+    .flatMap { o => o }
+    .mapWritten { d: Doc =>
+      packageName + Doc.line + d
+    }
+  }
+
+  def nameIn[T](n: String)(out: Unique => Output[T]): Output[T] =
+    for {
+      id0 <- RWST.get[Id, Scope, Doc, Unique]
+      id1 = id0.next
+      _ <- RWST.set[Id, Scope, Doc, Unique](id1)
+      t <- out(id0).local { s: Scope => Scope(s.toMap.updated(n, id0)) }
+    } yield t
+
+  /**
+   * To codegen an expression, we first do any
+   * setup side effect writing, in Output, then
+   * return a Doc holding an expression that can
+   * be a right-hand-side of an equation in java.
+   */
+  def apply[T](e: Expr[T], topLevel: Boolean): Output[Doc] =
+    e match {
+      case Var(n, _) =>
+        for {
+          scope <- RWST.ask[Id, Scope, Doc, Unique]
+          // TODO: see Evaluation for the other cases here: imports, constructors and externals
+          v = scope.toMap.get(n).fold(toExportedName(n)) { u => toFieldName(n, u.id) }
+        } yield Doc.text(v)
+      case App(fn, arg, _) =>
+        for {
+          fnDoc <- apply(fn, topLevel)
+          aDoc <- apply(arg, topLevel)
+        } yield fnDoc + Doc.text(".apply(") + aDoc + Doc.char(')')
+
+      case Lambda(arg, exp, _) =>
+        nameIn(arg) { ua =>
+          nameIn("anon") { uanon =>
+            val attr = if (topLevel) "private final static" else "final"
+            for {
+              _ <- tell(Doc.text(s"$attr Object anon${uanon.id} = "))
+              _ <- tell((Doc.text("new Fn() {") + Doc.line +
+                Doc.text(s"@Override public Object apply(final Object ${toFieldName(arg, ua.id)}) {") + Doc.line).nested(2))
+              eDoc <- apply(exp, false)
+              _ <- tell(Doc.text("return ") + eDoc + Doc.char(';') + Doc.line + Doc.text("}") + Doc.line + Doc.text("};") + Doc.line)
+            } yield Doc.text(s"anon${uanon.id}")
+          }
+        }
+
+      case Let(nm, nmv, in, _) =>
+        nameIn(nm) { ua =>
+          nameIn("anon") { uanon =>
+            for {
+              nmDoc <- apply(nmv, topLevel)
+              _ <- tell(Doc.text(s"final Object ${toFieldName(nm, ua.id)} = ") + nmDoc + Doc.char(';') + Doc.line)
+              inDoc <- apply(in, topLevel)
+            } yield inDoc
+          }
+        }
+      case Literal(Lit.Integer(i), _) =>
+        Monad[Output].pure(Doc.text("java.lang.Integer.valueOf(") + quote(i.toString) + Doc.char(')'))
+      case Literal(Lit.Str(s), _) =>
+        Monad[Output].pure(quote(s))
+      case Match(_, _, _) =>
+        Monad[Output].pure(Doc.text("throw new Exception(\"\")"))
+    }
+
+  def quote(str: String): Doc =
+    Doc.char('"') + Doc.text(str) + Doc.char('"')
+
+  // case class Var[T](name: String, tag: T) extends Expr[T]
+  // case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
+  // case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
+  // case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
+  // case class Literal[T](lit: Lit, tag: T) extends Expr[T]
+  // case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[T])], tag: T) extends Expr[T]
+}
+
+object CodeGen {
+  case class Scope(toMap: Map[String, Unique])
+
+  implicit val docMonoid: Monoid[Doc] =
+    new Monoid[Doc] {
+      def empty: Doc = Doc.empty
+      def combine(a: Doc, b: Doc): Doc = a + b
+    }
+
+  type Output[A] = RWST[Id, Scope, Doc, Unique, A]
+
+  def run[T](o: Output[T]): (Doc, T) =
+    o.run(Scope(Map.empty), Unique(0L)) match {
+      case (doc, _, t) => (doc, t)
+    }
+
+  @annotation.tailrec
+  final def toPath(root: Path, pn: PackageName): Path =
+    pn.parts match {
+      case NonEmptyList(h, Nil) => root.resolve(h + ".java")
+      case NonEmptyList(h0, h1 :: tail) =>
+        toPath(root.resolve(h0), PackageName(NonEmptyList(h1, tail)))
+    }
+
+  def writeDoc(p: Path, d: Doc): Try[Unit] =
+    Try {
+      p.getParent.toFile.mkdirs
+      val pw = new PrintWriter(p.toFile, "UTF-8")
+      val res = Try {
+        d.renderStream(80).foreach(pw.print(_))
+      }
+      pw.close
+      res
+    }
+    .flatten
+
+  def write(root: Path, packages: PackageMap.Inferred): Try[Unit] = {
+    val cg = new CodeGen { }
+    packages.toMap.traverse_ { pack =>
+      val (d, _) = run(cg.genPackage(Package.asInferred(pack)))
+      val path = toPath(root, pack.name)
+      writeDoc(path, d)
+    }
+  }
+}
+
+case class JavaFile(packageName: Option[String], imports: Set[String], values: List[String])
+
+object JavaFile {
+  implicit val javaFileMonoid: Monoid[JavaFile] =
+    new Monoid[JavaFile] {
+      val empty: JavaFile = JavaFile(None, Set.empty, Nil)
+      def combine(a: JavaFile, b: JavaFile) =
+        JavaFile(b.packageName.orElse(a.packageName), a.imports | b.imports, a.values ::: b.values)
+    }
+}

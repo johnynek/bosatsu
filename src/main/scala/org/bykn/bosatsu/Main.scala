@@ -63,8 +63,9 @@ object Main extends CommandApp(
       }
     val ins = Opts.options[Path]("input", help = "input files")
     val extern = Opts.options[Path]("external", help = "input files").orNone
+    val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output").orNone
     val mainP = Opts.option[PackageName]("main", help = "main package")
-    (ins, extern, mainP).mapN { (paths, optExt, mainPack) =>
+    (ins, extern, mainP, compileRoot).mapN { (paths, optExt, mainPack, croot) =>
 
 
       val extV = optExt match {
@@ -119,13 +120,19 @@ object Main extends CommandApp(
           }
           System.exit(1)
         case (_, Validated.Valid(packMap)) =>
-          val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
-          ev.evaluateLast(mainPack) match {
-            case None => sys.error("found no main expression")
-            case Some((eval, scheme)) =>
-              val res = eval.value
-              println(s"$res: ${scheme.result}")
+          croot match {
+            case None =>
+              val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
+              ev.evaluateLast(mainPack) match {
+                case None => sys.error("found no main expression")
+                case Some((eval, scheme)) =>
+                  val res = eval.value
+                  println(s"$res: ${scheme.result}")
+              }
+            case Some(rootPath) =>
+              CodeGen.write(rootPath,  packMap).get
           }
+
         case (duplicatePackages, Validated.Invalid(errs)) =>
           val sourceMap = parsedPaths.map { case ((src, lm), pack) => (pack.name, (lm, src)) }.toList.toMap
           sys.error("failed: " + errs.map(_.message(sourceMap)).toList.mkString("\n"))

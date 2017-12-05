@@ -15,6 +15,7 @@ sealed abstract class ImportedName[T] {
   def setTag(t: T): ImportedName[T]
   def isRenamed: Boolean = originalName != localName
 }
+
 object ImportedName {
   case class OriginalName[T](originalName: String, tag: T) extends ImportedName[T] {
     def localName = originalName
