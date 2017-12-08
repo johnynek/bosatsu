@@ -288,7 +288,7 @@ object CodeGen {
 
   def writeDoc(p: Path, d: Doc): Try[Unit] =
     Try {
-      p.getParent.toFile.mkdirs
+      Option(p.getParent).foreach(_.toFile.mkdirs)
       val pw = new PrintWriter(p.toFile, "UTF-8")
       val res = Try {
         d.renderStream(80).foreach(pw.print(_))

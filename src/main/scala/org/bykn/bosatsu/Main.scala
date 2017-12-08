@@ -5,6 +5,7 @@ import cats.data.{Validated, ValidatedNel}
 import cats.implicits._
 import com.monovore.decline._
 import java.nio.file.Path
+import org.typelevel.paiges.Doc
 
 object Foo {
   def times(i: java.lang.Integer): java.lang.Integer =
@@ -58,11 +59,12 @@ object Main extends CommandApp(
           }
       }
     val ins = Opts.options[Path]("input", help = "input files")
+    val outputPath = Opts.option[Path]("output", help = "output path").orNone
     val extern = Opts.options[Path]("external", help = "input files").orNone
     val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output").orNone
     val jsonOutput = Opts.flag("json", help = "evaluate to a json value").orFalse
-    val mainP = Opts.option[PackageName]("main", help = "main package")
-    (ins, extern, mainP, compileRoot, jsonOutput).mapN { (paths, optExt, mainPack, croot, toJson) =>
+    val mainP = Opts.option[PackageName]("main", help = "main package to evaluate").orNone
+    (ins, extern, mainP, compileRoot, jsonOutput, outputPath).mapN { (paths, optExt, mainPack, croot, toJson, outPath) =>
 
 
       val extV = optExt match {
@@ -119,15 +121,29 @@ object Main extends CommandApp(
         case (_, Validated.Valid(packMap)) =>
           croot match {
             case None =>
-              val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
-              ev.evaluateLast(mainPack) match {
-                case None => sys.error("found no main expression")
-                case Some((eval, scheme)) =>
-                  val res = eval.value
-                  if (toJson) {
-                    println(ev.toJson(res, scheme).get.toDoc.render(80))
+              mainPack match {
+                case None =>
+                  // Just type check
+                  println(s"typechecked ${packMap.toMap.size} packages")
+
+                case Some(main) =>
+                  // Something to evaluate
+                  val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
+                  ev.evaluateLast(main) match {
+                    case None => sys.error("found no main expression")
+                    case Some((eval, scheme)) =>
+                      val res = eval.value
+                      (outPath, toJson) match {
+                        case (None, true) =>
+                          println(ev.toJson(res, scheme).get.toDoc.render(80))
+                        case (Some(p), true) =>
+                          CodeGen.writeDoc(p, ev.toJson(res, scheme).get.toDoc).get
+                        case (None, false) =>
+                          println(s"$res: ${scheme.result}")
+                        case (Some(p), false) =>
+                          CodeGen.writeDoc(p, Doc.text(s"$res: ${scheme.result}")).get
+                      }
                   }
-                  else println(s"$res: ${scheme.result}")
               }
             case Some(rootPath) =>
               CodeGen.write(rootPath,  packMap, Predef.jvmExternals ++ extern).get
