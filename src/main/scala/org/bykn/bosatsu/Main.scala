@@ -11,10 +11,6 @@ object Foo {
     java.lang.Integer.valueOf(i.intValue + 42)
 }
 
-trait Fn[A, B] {
-  def apply(arg: A): B
-}
-
 object Std {
   //fold = ffi scala org.bykn.bosatsu.Std.fold List[a] -> b -> (b -> a -> b) -> b
   @annotation.tailrec
@@ -64,8 +60,9 @@ object Main extends CommandApp(
     val ins = Opts.options[Path]("input", help = "input files")
     val extern = Opts.options[Path]("external", help = "input files").orNone
     val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output").orNone
+    val jsonOutput = Opts.flag("json", help = "evaluate to a json value").orFalse
     val mainP = Opts.option[PackageName]("main", help = "main package")
-    (ins, extern, mainP, compileRoot).mapN { (paths, optExt, mainPack, croot) =>
+    (ins, extern, mainP, compileRoot, jsonOutput).mapN { (paths, optExt, mainPack, croot, toJson) =>
 
 
       val extV = optExt match {
@@ -127,10 +124,13 @@ object Main extends CommandApp(
                 case None => sys.error("found no main expression")
                 case Some((eval, scheme)) =>
                   val res = eval.value
-                  println(s"$res: ${scheme.result}")
+                  if (toJson) {
+                    println(ev.toJson(res, scheme).get.toDoc.render(80))
+                  }
+                  else println(s"$res: ${scheme.result}")
               }
             case Some(rootPath) =>
-              CodeGen.write(rootPath,  packMap).get
+              CodeGen.write(rootPath,  packMap, Predef.jvmExternals ++ extern).get
           }
 
         case (duplicatePackages, Validated.Invalid(errs)) =>

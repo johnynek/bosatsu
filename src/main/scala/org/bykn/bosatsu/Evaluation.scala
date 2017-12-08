@@ -129,4 +129,130 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
     loop(arity, Nil)
   }
+
+  def toJson(a: Any, schm: Scheme): Option[Json] = {
+    def defined(pn: PackageName, t: TypeName): Option[DefinedType] =
+      for {
+        pack <- pm.toMap.get(pn)
+        dts = pack.program.types.definedTypes
+        dt <- dts.get((pn, t))
+      } yield dt
+
+    def applyDT(dt: DefinedType, arg: Type): DefinedType =
+      dt.typeParams match {
+        case Type.Var(h) :: rest =>
+          val subst = Subst(Map(h -> arg))
+          val dt0 = dt.copy(typeParams = rest)
+          Substitutable[DefinedType].apply(subst, dt0)
+        case _ => sys.error(s"ill-typed no typeparams: $dt, $arg")
+      }
+
+    def applyT(t: Type, arg: Type): Either[Type, DefinedType] =
+      t match {
+        case Type.Arrow(_, _) => sys.error(s"ill-typed: $t[$arg]")
+        case Type.TypeApply(t0, a0) =>
+          applyT(t0, a0) match {
+            case Right(dt) =>
+              Right(applyDT(dt, arg))
+            case Left(t) =>
+              Left(Type.TypeApply(t, arg))
+          }
+        case Type.Declared(pn, typeName) =>
+          val dt = defined(pn, TypeName(typeName)).getOrElse(sys.error(s"ill-typed: unknown $t"))
+          Right(applyDT(dt, arg))
+        case v@Type.Var(_) =>
+          Left(Type.TypeApply(v, arg))
+      }
+
+    def definedToJson(a: Any, dt: DefinedType): Option[Json] =
+      if (dt.packageName == Predef.packageName) {
+        dt.name.asString match {
+          case "Option" =>
+            a match {
+              case (0, Nil) =>
+                Some(Json.JNull)
+              case (1, v :: Nil) =>
+                dt.constructors match {
+                  case _ :: ((ConstructorName("Some"), (_, t) :: Nil)) :: Nil =>
+                    loop(v, t)
+                  case other =>
+                    sys.error(s"expect to find Some constructor for $v: $other")
+                }
+              case other => sys.error(s"some kind of type-error: $other for $dt")
+            }
+          case "String" =>
+            Some(Json.JString(a.asInstanceOf[String]))
+          case "Bool" =>
+            a match {
+              case (0, Nil) =>
+                Some(Json.JBool(false))
+              case (1, Nil) =>
+                Some(Json.JBool(true))
+              case other => sys.error(s"type error, expected boolean: $other")
+            }
+          case "Int" =>
+            Some(Json.JNumberStr(a.asInstanceOf[java.lang.Integer].toString))
+          case "List" =>
+            // convert the list into a JArray
+            val tpe = dt.constructors match {
+              case _ :: ((ConstructorName("NonEmptyList"), (_, t) :: (_, _) :: Nil)) :: Nil => t
+              case other => sys.error(s"unexpected constructors for list: $other")
+            }
+
+            @annotation.tailrec
+            def toVec(a: Any, acc: List[Json]): Option[Vector[Json]] =
+              a match {
+                case (0, Nil) => Some(acc.reverse.toVector)
+                case (1, head :: tail :: Nil) =>
+                  loop(head, tpe) match {
+                    case None => None
+                    case Some(h) =>
+                      toVec(tail, h :: acc)
+                  }
+                case other => sys.error(s"ill-typed list: $other, List[$tpe]")
+              }
+
+            toVec(a, Nil).map(Json.JArray(_))
+          case other =>
+            sys.error(s"unknown predef type: $other")
+        }
+      }
+      else  {
+        a match {
+          case (variant: Int, parts: List[Any]) =>
+            val cons = dt.constructors
+            cons.lift(variant).flatMap { case (_, params) =>
+              parts.zip(params).traverse { case (a1, (ParamName(pn), t)) =>
+                loop(a1, t).map((pn, _))
+              }
+              .map { ps => Json.JObject(ps.toMap) }
+            }
+          case _ =>
+            // Should never happen
+            None
+        }
+      }
+
+    def loop(a: Any, t: Type): Option[Json] = {
+      t match {
+        case Type.Arrow(_, _) =>
+          // We can't convert a function to Json
+          None
+        case Type.Declared(pn, typeName) =>
+          defined(pn, TypeName(typeName))
+            .flatMap(definedToJson(a, _))
+        case Type.TypeApply(tpe, arg) =>
+          applyT(tpe, arg) match {
+            case Right(dt) =>
+              definedToJson(a, dt)
+            case Left(t) =>
+              sys.error(s"expected a defined type. Found: $t")
+          }
+        case Type.Var(_) =>
+          // we should have fully resolved the type
+          sys.error(s"should have fully resolved the type of: $a: $t")
+      }
+    }
+    loop(a, schm.result)
+  }
 }

@@ -7,6 +7,18 @@ object NameKind {
   case class Import(fromPack: Package.Inferred, originalName: String) extends NameKind
   case class ExternalDef(pack: PackageName, defName: String, defType: Scheme) extends NameKind
 
+  def externals(from: Package.Inferred): Stream[ExternalDef] = {
+    val prog = from.unfix.program
+    prog.from.toStream.collect {
+      case Statement.ExternalDef(n, _, _, _) =>
+        // The type could be an import, so we need to check for the type
+        // in the TypeEnv
+        val scheme = prog.types.values(n)
+        val pn = from.unfix.name
+        ExternalDef(pn, n, scheme)
+    }
+  }
+
   def apply(from: Package.Inferred, item: String): Option[NameKind] = {
     val prog = from.unfix.program
 

@@ -20,15 +20,11 @@ enum Either:
   Left(left)
   Right(right)
 
-enum List:
-  Empty
-  NonEmpty(head: a, tail: List[a])
-
 def is_empty(list):
   match list:
-    Empty:
+    EmptyList:
       True
-    NonEmpty(_, _):
+    NonEmptyList(_, _):
       False
 
 struct Monoid(empty: a, combine: a -> a -> a)
@@ -49,20 +45,20 @@ external def runAction(a: Action[a]) -> a
 
 def reduce(list, fn):
   match list:
-    Empty:
+    EmptyList:
         None
-    NonEmpty(head, tail):
+    NonEmptyList(head, tail):
         Some(tail.fold(head, fn))
 
 def reverse(list):
-  fold(list, Empty, \tail, item -> NonEmpty(item, tail))
+  fold(list, EmptyList, \tail, item -> NonEmptyList(item, tail))
 
 def map(list, fn):
-  fold(list, Empty, \tail, item -> NonEmpty(fn(item), tail)).reverse
+  fold(list, EmptyList, \tail, item -> NonEmptyList(fn(item), tail)).reverse
 
 def filter(list, fn):
-  rev_filter = fold(list, Empty, \tail, item -> if fn(item):
-    NonEmpty(item, tail)
+  rev_filter = fold(list, EmptyList, \tail, item -> if fn(item):
+    NonEmptyList(item, tail)
   else:
     tail)
 
@@ -70,10 +66,6 @@ def filter(list, fn):
 
 def sum(items):
   fold(items, 0, add)
-
-enum Bool:
-  True
-  False
 
 struct Unit
 
@@ -91,13 +83,17 @@ three = 1.plus(2)
 
 external def hc(i: Int) -> Int
 
-foo = NonEmpty(1, NonEmpty(2, Empty))
+foo = NonEmptyList(1, NonEmptyList(2, EmptyList))
 
 act = print("42").flatMap(\u -> toAction(43))
 resA = runAction(act)
 
 main = match foo:
-  Empty:
+  EmptyList:
     0
-  NonEmpty(x, tail):
+  NonEmptyList(x, tail):
     hc(resA).add(foo.map(\x -> 10.times(x)).sum)
+
+struct File(file: String, executable: Bool, size: Int, children: List[File])
+
+last = File("foo", False, 100, EmptyList)

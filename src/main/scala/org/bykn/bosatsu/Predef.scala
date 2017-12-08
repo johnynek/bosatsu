@@ -30,8 +30,11 @@ object Predef {
     Import(packageName,
       NonEmptyList.of(
         "Bool",
+        "EmptyList",
         "False",
         "Int",
+        "List",
+        "NonEmptyList",
         "None",
         "Option",
         "Some",

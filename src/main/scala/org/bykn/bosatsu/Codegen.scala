@@ -27,7 +27,7 @@ trait CodeGen {
   def tell(d: Doc): Output[Unit] =
     RWST.tell[Id, Scope, Doc, Unique](d)
 
-  def genPackage(p: Package.Inferred): Output[Unit] = {
+  def genPackage(p: Package.Inferred, ext: Externals): Output[Unit] = {
     val unfix = p.unfix
 
     def packageName: Doc =
@@ -63,7 +63,7 @@ trait CodeGen {
                 case None =>
                   Monad[Output].pure(())
                 case Some(n) =>
-                  tell(Doc.text("static import ") + Doc.text(toPackage(pack.unfix.name)) +
+                  tell(Doc.text("import static ") + Doc.text(toPackage(pack.unfix.name)) +
                     Doc.text(".Values.") + Doc.text(n) + Doc.char(';') + Doc.line)
               }).map(_ => None)
             }
@@ -85,26 +85,72 @@ trait CodeGen {
 
     def makeImportFields(ls: List[(Package.Inferred, String, String)]): Doc =
       Foldable[List].foldMap(ls) { case (p, orig, local) =>
-        val priv = if (isExported(local)) "" else "private "
+        val priv = if (isExported(local)) "public " else "private "
         Doc.text(priv) + Doc.text("final static Object ") + Doc.text(toExportedName(local)) + Doc.text(" = ") +
           Doc.text(toPackage(p.unfix.name)) + Doc.text(".Values.") + Doc.text(toExportedName(orig)) + Doc.text(";") + Doc.line
       }
 
-    val impsDoc: Output[Doc] = flatImps.map(makeImportFields)
+    val internalImports = List("Fn", "EnumValue")
+      .map { i => Doc.text(s"import org.bykn.bosatsu.$i;") + Doc.line }
+      .reduce(_ + _)
+
+    val impsDoc: Output[Doc] = (tell(internalImports) >> flatImps).map(makeImportFields)
+
+    /*
+     * build the constructors
+     */
+    val definedTypes = unfix.program.types.definedTypes.values.toList.sortBy(_.name.asString)
+
+    def mkConstructor(i: Int, cn: ConstructorName, args: List[(ParamName, Type)]): Output[Doc] = {
+      val argC = args.size
+
+      def go(offset: Long, arg: Int): Doc =
+        if (arg == argC) {
+          // actually create the instance:
+          val ids = (0 until argC)
+          val objs = ids.map { i => "x$" + s"${offset + i}" }.mkString(", ")
+          Doc.text(s"new EnumValue($i, new Object[]{$objs})")
+        }
+        else {
+          val argName = "x$" + s"${offset + arg}"
+          val next = go(offset, arg + 1)
+          Doc.text(s"new Fn<Object, Object>() { public Object apply(final Object $argName) { return ") + next + Doc.text("; } }")
+        }
+
+      getIds(argC).map { init =>
+        val fn = go(init.id, 0)
+        val cname = toConstructorName(cn.asString)
+        // TODO check exports to see if this should be private
+        Doc.text(s"public final static Object $cname = ") + fn + Doc.text(";") + Doc.line
+      }
+    }
+
+    val constructors: Output[Unit] =
+      definedTypes.flatMap(_.constructors.zipWithIndex).traverse_ { case ((cn, args), idx) =>
+        mkConstructor(idx, cn, args).flatMap(tell)
+      }
+    /**
+     * Build the externals
+     */
+    val externals = NameKind.externals(p)
+    val extDoc: Output[Unit] =
+      externals.traverse_ { case NameKind.ExternalDef(p, n, scheme) =>
+        outputExternal(n, ext.toMap((p, n)), scheme)
+      }
 
     val body = Traverse[List].traverse(unfix.program.lets) { case (f, e) =>
-      val priv = if (isExported(f)) "" else "private "
+      val priv = if (isExported(f)) "public " else "private "
       val left = Doc.text(s"${priv}final static Object ") + Doc.text(toExportedName(f)) + Doc.text(" = ")
       for {
-        eDoc <- apply(e, true)
+        eDoc <- apply(e, true, p)
         _ <- tell(left + eDoc + Doc.char(';') + Doc.line)
       } yield ()
     }.map(_ => ())
 
     impsDoc.map { valueImports =>
-      val fullBody = tell(valueImports).flatMap(_ => body)
+      val fullBody = tell(valueImports) >> extDoc >> constructors >> body
       fullBody.mapWritten { d: Doc =>
-        Doc.text("class Values ") + enclose(d)
+        Doc.text("public class Values ") + enclose(d)
       }
     }
     .flatMap { o => o }
@@ -112,6 +158,14 @@ trait CodeGen {
       packageName + Doc.line + d
     }
   }
+
+  def getIds(cnt: Int): Output[Unique] =
+    for {
+      id0 <- RWST.get[Id, Scope, Doc, Unique]
+      _ = require(cnt >= 0, s"$cnt < 0")
+      id1 = Unique(id0.id + cnt)
+      _ <- RWST.set[Id, Scope, Doc, Unique](id1)
+    } yield id0
 
   def nameIn[T](n: String)(out: Unique => Output[T]): Output[T] =
     for {
@@ -121,25 +175,49 @@ trait CodeGen {
       t <- out(id0).local { s: Scope => Scope(s.toMap.updated(n, id0)) }
     } yield t
 
+  def outputExternal(n: String, apicall: FfiCall, scheme: Scheme): Output[Unit] = {
+    def getArity(t: Type): Int = {
+      def loop(t: Type, top: Boolean): Int = {
+        t match {
+          case Type.Arrow(a, b) if top =>
+            loop(a, false) + loop(b, top)
+          case _ => 1 // inner functions are just functions Objects
+        }
+      }
+      loop(t, true)
+    }
+
+    val arity = getArity(scheme.result)
+    assert((n, apicall, arity) != null)
+          // case Some(NameKind.ExternalDef(p, n, scheme)) =>
+          //   outputExternal(n, ext.toMap((p, n)), scheme)
+    ???
+  }
+
   /**
    * To codegen an expression, we first do any
    * setup side effect writing, in Output, then
    * return a Doc holding an expression that can
    * be a right-hand-side of an equation in java.
    */
-  def apply[T](e: Expr[T], topLevel: Boolean): Output[Doc] =
+  def apply[T](e: Expr[T], topLevel: Boolean, pack: Package.Inferred): Output[Doc] =
     e match {
       case Var(n, _) =>
-        for {
-          scope <- RWST.ask[Id, Scope, Doc, Unique]
-          // TODO: see Evaluation for the other cases here: imports, constructors and externals
-          v = scope.toMap.get(n).fold(toExportedName(n)) { u => toFieldName(n, u.id) }
-        } yield Doc.text(v)
+        NameKind(pack, n) match {
+          case Some(NameKind.Constructor(_, _, _)) =>
+            Monad[Output].pure(Doc.text(toConstructorName(n)))
+          case _ =>
+            for {
+              scope <- RWST.ask[Id, Scope, Doc, Unique]
+              // TODO: see Evaluation for the other cases here: imports, constructors and externals
+              v = scope.toMap.get(n).fold(toExportedName(n)) { u => toFieldName(n, u.id) }
+            } yield Doc.text(v)
+        }
       case App(fn, arg, _) =>
         for {
-          fnDoc <- apply(fn, topLevel)
-          aDoc <- apply(arg, topLevel)
-        } yield fnDoc + Doc.text(".apply(") + aDoc + Doc.char(')')
+          fnDoc <- apply(fn, topLevel, pack)
+          aDoc <- apply(arg, topLevel, pack)
+        } yield Doc.text("((Fn<Object, Object>)") + fnDoc + Doc.char(')') + Doc.text(".apply(") + aDoc + Doc.char(')')
 
       case Lambda(arg, exp, _) =>
         nameIn(arg) { ua =>
@@ -149,7 +227,7 @@ trait CodeGen {
               _ <- tell(Doc.text(s"$attr Object anon${uanon.id} = "))
               _ <- tell((Doc.text("new Fn() {") + Doc.line +
                 Doc.text(s"@Override public Object apply(final Object ${toFieldName(arg, ua.id)}) {") + Doc.line).nested(2))
-              eDoc <- apply(exp, false)
+              eDoc <- apply(exp, false, pack)
               _ <- tell(Doc.text("return ") + eDoc + Doc.char(';') + Doc.line + Doc.text("}") + Doc.line + Doc.text("};") + Doc.line)
             } yield Doc.text(s"anon${uanon.id}")
           }
@@ -159,9 +237,9 @@ trait CodeGen {
         nameIn(nm) { ua =>
           nameIn("anon") { uanon =>
             for {
-              nmDoc <- apply(nmv, topLevel)
+              nmDoc <- apply(nmv, topLevel, pack)
               _ <- tell(Doc.text(s"final Object ${toFieldName(nm, ua.id)} = ") + nmDoc + Doc.char(';') + Doc.line)
-              inDoc <- apply(in, topLevel)
+              inDoc <- apply(in, topLevel, pack)
             } yield inDoc
           }
         }
@@ -170,7 +248,7 @@ trait CodeGen {
       case Literal(Lit.Str(s), _) =>
         Monad[Output].pure(quote(s))
       case Match(_, _, _) =>
-        Monad[Output].pure(Doc.text("throw new Exception(\"\")"))
+        Monad[Output].pure(Doc.text("null"))
     }
 
   def quote(str: String): Doc =
@@ -203,7 +281,7 @@ object CodeGen {
   @annotation.tailrec
   final def toPath(root: Path, pn: PackageName): Path =
     pn.parts match {
-      case NonEmptyList(h, Nil) => root.resolve(h + ".java")
+      case NonEmptyList(h, Nil) => root.resolve(h).resolve("Values.java")
       case NonEmptyList(h0, h1 :: tail) =>
         toPath(root.resolve(h0), PackageName(NonEmptyList(h1, tail)))
     }
@@ -220,23 +298,12 @@ object CodeGen {
     }
     .flatten
 
-  def write(root: Path, packages: PackageMap.Inferred): Try[Unit] = {
+  def write(root: Path, packages: PackageMap.Inferred, ext: Externals): Try[Unit] = {
     val cg = new CodeGen { }
     packages.toMap.traverse_ { pack =>
-      val (d, _) = run(cg.genPackage(Package.asInferred(pack)))
+      val (d, _) = run(cg.genPackage(Package.asInferred(pack), ext))
       val path = toPath(root, pack.name)
       writeDoc(path, d)
     }
   }
-}
-
-case class JavaFile(packageName: Option[String], imports: Set[String], values: List[String])
-
-object JavaFile {
-  implicit val javaFileMonoid: Monoid[JavaFile] =
-    new Monoid[JavaFile] {
-      val empty: JavaFile = JavaFile(None, Set.empty, Nil)
-      def combine(a: JavaFile, b: JavaFile) =
-        JavaFile(b.packageName.orElse(a.packageName), a.imports | b.imports, a.values ::: b.values)
-    }
 }

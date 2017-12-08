@@ -5,7 +5,13 @@ import cats.implicits._
 import org.scalatest.FunSuite
 
 class EvaluationTest extends FunSuite {
-  def evalTest(packages: List[String], mainPackS: String, expected: Any, extern: Externals = Externals.empty) = {
+  def evalTest(packages: List[String], mainPackS: String, expected: Any, extern: Externals = Externals.empty) =
+    evalTestEither(packages, mainPackS, Left(expected), extern)
+
+  def evalTestJson(packages: List[String], mainPackS: String, expected: Json, extern: Externals = Externals.empty) =
+    evalTestEither(packages, mainPackS, Right(expected), extern)
+
+  def evalTestEither(packages: List[String], mainPackS: String, expected: Either[Any, Json], extern: Externals = Externals.empty) = {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
@@ -25,8 +31,12 @@ class EvaluationTest extends FunSuite {
         val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
         ev.evaluateLast(mainPack) match {
           case None => fail("found no main expression")
-          case Some((eval, _)) =>
-            assert(eval.value == expected)
+          case Some((eval, schm)) =>
+            expected match {
+              case Left(exp) => assert(eval.value == exp)
+              case Right(json) =>
+                assert(ev.toJson(eval.value, schm) === Some(json))
+            }
         }
 
       case other =>
@@ -70,5 +80,25 @@ z = match x:
   None:
     0
 """), "Foo", 1)
+  }
+
+  test("exercise struct creation") {
+    evalTest(
+      List("""
+package Foo
+
+struct Bar(a: Int)
+
+main = Bar(1)
+"""), "Foo", (0, List(1)))
+
+    evalTestJson(
+      List("""
+package Foo
+
+struct Bar(a: Int, s: String)
+
+main = Bar(1, "foo")
+"""), "Foo", Json.JObject(Map("a" -> Json.JNumberStr("1"), "s" -> Json.JString("foo"))))
   }
 }
