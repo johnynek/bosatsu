@@ -50,8 +50,11 @@ def reduce(list, fn):
     NonEmptyList(head, tail):
         Some(tail.fold(head, fn))
 
+def flip(fn):
+  \a, b -> fn(b, a)
+
 def reverse(list):
-  fold(list, EmptyList, \tail, item -> NonEmptyList(item, tail))
+  fold(list, EmptyList, flip(NonEmptyList))
 
 def map(list, fn):
   fold(list, EmptyList, \tail, item -> NonEmptyList(fn(item), tail)).reverse
