@@ -22,3 +22,7 @@ project/plugins/project/
 
 # emacs
 TAGS
+
+# bazel
+bazel-*
+.bazelrc

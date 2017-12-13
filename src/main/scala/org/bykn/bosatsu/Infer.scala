@@ -15,23 +15,17 @@ case class Unique(id: Long) {
     else Unique(id + 1L)
 }
 
-case class Subst(toMap: Map[String, Type]) {
-  def getOrElse(s: String, t: => Type): Type =
-    toMap.getOrElse(s, t)
-
-  def compose(that: Subst): Subst = {
-    val m1 = that.toMap.iterator.map { case (s, t) =>
-      s -> Substitutable[Type].apply(this, t)
-    }.toMap
-
-    Subst(m1 ++ toMap)
-  }
-}
-object Subst {
-  def empty: Subst = Subst(Map.empty)
-}
-
 case class Constraint(left: Type, right: Type, leftRegion: Region, rightRegion: Region)
+
+object Constraint {
+  implicit val forConstraint: Substitutable[Constraint] =
+    new Substitutable[Constraint] {
+      def apply(sub: Subst, c: Constraint): Constraint =
+        Constraint(Substitutable[Type].apply(sub, c.left), Substitutable[Type].apply(sub, c.right), c.leftRegion, c.rightRegion)
+      def typeVars(c: Constraint) =
+        Substitutable[Type].typeVars(c.left) | Substitutable[Type].typeVars(c.right)
+    }
+}
 
 case class Unifier(subst: Subst, constraints: List[Constraint])
 

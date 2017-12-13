@@ -4,6 +4,23 @@ import cats.data.NonEmptyList
 import cats.{Functor, Foldable}
 import cats.implicits._
 
+case class Subst(toMap: Map[String, Type]) {
+  def getOrElse(s: String, t: => Type): Type =
+    toMap.getOrElse(s, t)
+
+  def compose(that: Subst): Subst = {
+    val m1 = that.toMap.iterator.map { case (s, t) =>
+      s -> Substitutable[Type].apply(this, t)
+    }.toMap
+
+    Subst(m1 ++ toMap)
+  }
+}
+
+object Subst {
+  def empty: Subst = Subst(Map.empty)
+}
+
 trait Substitutable[T] {
   def apply(sub: Subst, t: T): T
   def typeVars(t: T): Set[String]
@@ -59,19 +76,6 @@ object Substitutable {
   implicit val forConstructorName: Substitutable[ConstructorName] = opaqueSubstitutable
   implicit val forParamName: Substitutable[ParamName] = opaqueSubstitutable
 
-  implicit val forDefinedType: Substitutable[DefinedType] =
-    new Substitutable[DefinedType] {
-      def apply(sub: Subst, t: DefinedType) = {
-        // all the names in typeParams are shadows so we need
-        // to remove them:
-        val newSubst = Subst(t.typeParams.map(_.name).foldLeft(sub.toMap)(_ - _))
-        val newCons = Substitutable[List[(ConstructorName, List[(ParamName, Type)])]].apply(newSubst, t.constructors)
-        t.copy(constructors = newCons)
-      }
-
-      def typeVars(d: DefinedType) = d.typeParams.iterator.map(_.name).toSet
-    }
-
   def fromMapFold[F[_]: Functor: Foldable, A: Substitutable]: Substitutable[F[A]] =
     new Substitutable[F[A]] {
       def apply(sub: Subst, t: F[A]): F[A] =
@@ -112,45 +116,6 @@ object Substitutable {
   implicit def forMap[K, V: Substitutable]: Substitutable[Map[K, V]] =
     fromMapFold[Map[K, ?], V]
 
-  implicit val forTypeEnv: Substitutable[TypeEnv] =
-    new Substitutable[TypeEnv] {
-      implicit def eSub[A: Substitutable, B: Substitutable]: Substitutable[Either[A, B]] =
-        new Substitutable[Either[A, B]] {
-          def apply(sub: Subst, eab: Either[A, B]) =
-            eab match {
-              case Right(b) => Right(Substitutable[B].apply(sub, b))
-              case Left(a) => Left(Substitutable[A].apply(sub, a))
-            }
-          def typeVars(eab: Either[A, B]) =
-            eab match {
-              case Right(b) => Substitutable[B].typeVars(b)
-              case Left(a) => Substitutable[A].typeVars(a)
-            }
-        }
-
-      def apply(sub: Subst, te: TypeEnv): TypeEnv =
-        TypeEnv(
-          te.packageName,
-          Substitutable[Map[String, Scheme]].apply(sub, te.values),
-          Substitutable[Map[(PackageName, ConstructorName), DefinedType]].apply(sub, te.constructors),
-          Substitutable[Map[(PackageName, TypeName), DefinedType]].apply(sub, te.definedTypes),
-          Substitutable[Map[String, Either[(ConstructorName, DefinedType), DefinedType]]].apply(sub, te.imported)
-        )
-
-      def typeVars(te: TypeEnv) =
-        Substitutable[Map[String, Scheme]].typeVars(te.values) |
-        Substitutable[Map[(PackageName, ConstructorName), DefinedType]].typeVars(te.constructors) |
-        Substitutable[Map[(PackageName, TypeName), DefinedType]].typeVars(te.definedTypes) |
-        Substitutable[Map[String, Either[(ConstructorName, DefinedType), DefinedType]]].typeVars(te.imported)
-    }
-
-  implicit val forConstraint: Substitutable[Constraint] =
-    new Substitutable[Constraint] {
-      def apply(sub: Subst, c: Constraint): Constraint =
-        Constraint(Substitutable[Type].apply(sub, c.left), Substitutable[Type].apply(sub, c.right), c.leftRegion, c.rightRegion)
-      def typeVars(c: Constraint) =
-        Substitutable[Type].typeVars(c.left) | Substitutable[Type].typeVars(c.right)
-    }
 
 
   def opaqueSubstitutable[T]: Substitutable[T] =

@@ -42,7 +42,7 @@ object TypeError {
       List(header, ctx).mkString("\n")
     }
   }
-  case class TypeConstructorCollision(matches: NonEmptyList[((PackageName, ConstructorName), Region)], env: TypeEnv) extends TypeError {
+  case class TypeConstructorCollision(matches: NonEmptyList[((PackageName, ConstructorName), Region)]) extends TypeError {
     def message(sourceName: String, lm: LocationMap) = {
       val region = matches.reduceMap { case (_, r) => r }
       val header =

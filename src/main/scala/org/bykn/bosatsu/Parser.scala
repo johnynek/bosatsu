@@ -158,13 +158,5 @@ object Parser {
       wrappedSpace("(", ")")
   }
 
-
-  val operatorParse: P[Operator] =
-    tokenP("+", Operator.Plus) |
-      tokenP("-", Operator.Sub) |
-      tokenP("*", Operator.Mul) |
-      tokenP("==", Operator.Eql)
-
-
   val toEOL: P[Unit] = P(maybeSpace ~ "\n")
 }
