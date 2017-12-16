@@ -52,5 +52,5 @@ def scala_module(name, all_srcs, srcs_deps = {}, deps = [], runtime_deps = [], d
     upstream_scala_library(name = name, srcs = top_srcs, deps = deps + ts, runtime_deps = runtime_deps,
                   plugins = _plugins,
                   resources = resources, resource_strip_prefix = resource_strip_prefix, scalacopts = scalacopts, javacopts=javacopts,
-                  jvm_flags = jvm_flags, main_class = main_class, exports = exports + ts)
+                  jvm_flags = jvm_flags, main_class = main_class, exports = exports + ts, visibility = visibility)
 

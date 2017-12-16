@@ -12,7 +12,7 @@ object Predef {
   }
 
   private val predefString: String =
-    resourceToString("bosatsu/predef.bosatsu")
+    resourceToString("/bosatsu/predef.bosatsu")
       .getOrElse {
         scala.io.Source.fromFile("target/scala-2.12/classes/bosatsu/predef.bosatsu").mkString
       }
