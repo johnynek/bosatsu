@@ -8,7 +8,7 @@ class InferTest extends FunSuite {
   implicit val unitRegion: HasRegion[Unit] = HasRegion.instance[Unit](_ => Region(0, 0))
 
   def simpleMatch[T: HasRegion](e: Expr[T], t: Type) = {
-    assert(Inference.inferExpr(e).map(_.tag._2) === Right(Scheme(Nil, t)))
+    assert(Inference.inferExpr(e).right.map(_.tag._2) === Right(Scheme(Nil, t)))
   }
   val i1 = Expr.Literal(Lit.Integer(1), ())
 

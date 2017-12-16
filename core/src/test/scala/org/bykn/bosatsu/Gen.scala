@@ -189,7 +189,7 @@ object Generators {
       (2, applyGen(recur)),
       (2, bindGen(recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
       (1, ifElseGen(recur)),
-      (1, matchGen(recur)),
+      (1, matchGen(recur))
     )
   }
 
