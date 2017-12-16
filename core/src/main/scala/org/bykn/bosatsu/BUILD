@@ -2,7 +2,7 @@ load("@io_bazel_rules_scala//scala:scala.bzl", "scala_binary", "scala_test", "sc
 load("@org_bykn_bosatsu//tools:scala.bzl", "scala_library", "scala_module", "strict_scalacopts")
 
 common_deps = [
-      "//src/main/java/org/bykn/bosatsu",
+      "//base/src/main/java/org/bykn/bosatsu",
       "//3rdparty/jvm/org/typelevel:cats_core",
       "//3rdparty/jvm/org/typelevel:cats_kernel",
       "//3rdparty/jvm/org/typelevel:cats_macros",
@@ -39,7 +39,7 @@ scala_binary(
     name = "bosatsu_main",
     srcs = ["Main.scala"],
     deps = [":bosatsu"] + common_deps,
-    runtime_deps = ["//src/main:resources"],
+    runtime_deps = ["//core/src/main:resources"],
     main_class = "org.bykn.bosatsu.Main",
     scalacopts = strict_scalacopts(),
     visibility = ["//visibility:public"],

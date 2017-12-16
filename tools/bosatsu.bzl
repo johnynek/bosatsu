@@ -53,7 +53,7 @@ bosatsu_library = rule(
     attrs = {
         "srcs": attr.label_list(mandatory=False, allow_files=FileType([".bosatsu"])),
         "deps": attr.label_list(),
-        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//src/main/scala/org/bykn/bosatsu:bosatsu_main")),
+        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
     },
     outputs = {
       "signature": "%{name}.bosatsig",
@@ -90,7 +90,7 @@ bosatsu_json = rule(
         "srcs": attr.label_list(mandatory=False, allow_files=FileType([".bosatsu"])),
         "deps": attr.label_list(),
         "package": attr.string(),
-        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//src/main/scala/org/bykn/bosatsu:bosatsu_main")),
+        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
     },
     outputs = {
       "json": "%{name}.json",

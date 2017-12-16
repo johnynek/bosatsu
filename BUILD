@@ -12,10 +12,9 @@ bosatsu_library(
 bosatsu_json(
     name = "testjson",
     package = "Foo/Bar",
-    srcs = ["test.bosatsu"])
+    deps = [":test"])
 
 bosatsu_json(
     name = "test2json",
-    deps = [":test"],
-    package = "Foo/Bar2",
-    srcs = ["test2.bosatsu"])
+    deps = [":test", ":test2"],
+    package = "Foo/Bar2")
