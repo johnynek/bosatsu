@@ -3,7 +3,6 @@ import Dependencies._
 
 lazy val commonSettings = Seq(
   organization := "org.bykn",
-  scalaVersion := "2.12.3",
   version      := "0.1.0-SNAPSHOT",
   addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.4"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
