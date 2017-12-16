@@ -111,11 +111,11 @@ All bindings in Bosatsu are private to the file unless exported:
 package List/Utils
 export [ head, List(), Option() ]
 
-enum List
+enum List:
   Empty
   NonEmpty(head: a, tail: List[a])
 
-enum Option
+enum Option:
   None
   Some(a)
 
@@ -128,7 +128,7 @@ def head(list):
 
 def isEmpty(list):
   match list:
-    Empty
+    Empty:
       True
     NonEmpty(_, _):
       False
@@ -146,6 +146,17 @@ already be useful if you want to give some programmability to configuration that
 before executing the rest of the scala or java code.
 
 We intend to add examples or using this to produce a case class value that the scala application takes as input.
+
+### As a JSON templating engine
+
+Along with [Bazel](https://github.com/bazelbuild/bazel/) Bosatsu can be used as a JSON generation
+system, which could be useful for generating complex configurations in a way that has type-checking
+and ability to compose. For a working example see [this example](test_workspace/).
+```
+cd test_workspace
+bazel build ...
+cat bazel-build/testjson.json
+```
 
 ## Future features
 
