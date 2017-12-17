@@ -1,0 +1,3 @@
+package Example/Test
+
+tests = TestList(NonEmptyList(TestLabel("example", TestAssert(True)), NonEmptyList(TestLabel("example2", TestAssert(True)), EmptyList)))

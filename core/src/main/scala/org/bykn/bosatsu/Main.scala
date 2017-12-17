@@ -51,7 +51,7 @@ sealed abstract class MainResult[+A] {
   def flatMap[B](fn: A => MainResult[B]): MainResult[B]
 }
 object MainResult {
-  case class Error(code: Int, errLines: List[String]) extends MainResult[Nothing] {
+  case class Error(code: Int, errLines: List[String], stdOut: List[String] = Nil) extends MainResult[Nothing] {
     def map[B](fn: Nothing => B) = this
     def flatMap[B](fn: Nothing => MainResult[B]) = this
   }
@@ -70,9 +70,9 @@ object MainResult {
 
   def product[A, B](a: MainResult[A], b: MainResult[B])(errs: (Int, Int) => Int): MainResult[(A, B)] =
     (a, b) match {
-      case (Error(a, la), Error(b, lb)) => Error(errs(a, b), la ::: lb)
-      case (e@Error(_, _), _) => e
-      case (_, e@Error(_, _)) => e
+      case (Error(a, la, sa), Error(b, lb, sb)) => Error(errs(a, b), la ::: lb, sa ::: sb)
+      case (e@Error(_, _, _), _) => e
+      case (_, e@Error(_, _, _)) => e
       case (Success(a), Success(b)) => Success((a, b))
     }
 }
@@ -80,26 +80,28 @@ object MainResult {
 sealed abstract class MainCommand {
   def run(): MainResult[List[String]]
 }
+
 object MainCommand {
 
-  def typeCheck(inputs: NonEmptyList[Path], externals: List[Path]): MainResult[(Externals, PackageMap.Inferred)] = {
+  def typeCheck(inputs: NonEmptyList[Path], externals: List[Path]): MainResult[(Externals, PackageMap.Inferred, List[(Path, PackageName)])] = {
     val ins = parseInputs(inputs)
     val exts = readExternals(externals)
 
     toResult(ins.product(exts))
       .flatMap { case (packs, exts) =>
+        val pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
         val (dups, resPacks) = PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), packs.toList))
-        val checkD = checkDuplicatePackages(dups)(_._1)
-        val map = packs.map { case ((path, lm), pack) => (pack.name, (lm, path)) }.toList.toMap
+        val checkD = checkDuplicatePackages(dups)(_._1.toString)
+        val map = packs.map { case ((path, lm), pack) => (pack.name, (lm, path.toString)) }.toList.toMap
         val checkPacks = fromPackageError(map, resPacks)
         MainResult.product(checkD, checkPacks)(_ max _)
-          .map { case (_, p) => (exts, p) }
+          .map { case (_, p) => (exts, p, pathToName) }
       }
   }
 
   case class Evaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
     def run() =
-      typeCheck(inputs, externals).flatMap { case (ext, packs) =>
+      typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
@@ -111,7 +113,7 @@ object MainCommand {
   }
   case class ToJson(inputs: NonEmptyList[Path], externals: List[Path], signatures: List[Path], mainPackage: PackageName, output: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs, externals).flatMap { case (ext, packs) =>
+      typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
@@ -129,16 +131,42 @@ object MainCommand {
   }
   case class TypeCheck(inputs: NonEmptyList[Path], signatures: List[Path], output: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs, Nil).flatMap { case (_, packs) =>
+      typeCheck(inputs, Nil).flatMap { case (_, packs, _) =>
         MainResult.fromTry(CodeGen.writeDoc(output, Doc.text(s"checked ${packs.toMap.size} packages")))
           .map(_ => Nil)
       }
   }
   case class Compile(inputs: NonEmptyList[Path], externals: List[Path], compileRoot: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs, externals).flatMap { case (ext, packs) =>
+      typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         MainResult.fromTry(CodeGen.write(compileRoot, packs, Predef.jvmExternals ++ ext))
           .map { _ => List(s"wrote ${packs.toMap.size} packages") }
+      }
+  }
+
+  case class RunTests(tests: NonEmptyList[Path], dependencies: List[Path], externals: List[Path]) extends MainCommand {
+    def run() =
+      typeCheck(NonEmptyList(tests.head, tests.tail ::: dependencies), externals).flatMap { case (ext, packs, nameMap) =>
+        val testSet = tests.toList.toSet
+        val testPackages: List[PackageName] = nameMap.collect { case (p, name) if testSet(p) => name }
+        val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
+        val resMap = testPackages.map { p => (p, ev.evalTest(p)) }
+        val noTests = resMap.collect { case (p, None) => p }.toList
+        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t)) }.toList.sortBy(_._1)
+
+        val success = noTests.isEmpty && results.forall { case (_, (_, f, _)) => f == 0 }
+        def stdOut: List[String] =
+          results.map { case (p, (_, _, d)) =>
+            val res = Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
+            res.render(80)
+          }
+        if (success) MainResult.Success(stdOut)
+        else {
+          val missingDoc = Doc.text("packages with missing tests: ") +
+            Doc.intercalate(Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) }).nested(2)
+
+          MainResult.Error(1, missingDoc.render(80) :: Nil, stdOut)
+        }
       }
   }
 
@@ -150,10 +178,10 @@ object MainCommand {
           .map(_.toList.map(_._2).reduce(_ ++ _))
     }
 
-  def parseInputs(paths: NonEmptyList[Path]): ValidatedNel[Parser.Error, NonEmptyList[((String, LocationMap), Package.Parsed)]] =
+  def parseInputs(paths: NonEmptyList[Path]): ValidatedNel[Parser.Error, NonEmptyList[((Path, LocationMap), Package.Parsed)]] =
     paths.traverse { path =>
       Parser.parseFile(Package.parser, path).map { case (lm, parsed) =>
-        ((path.toString, lm), parsed)
+        ((path, lm), parsed)
       }
     }
 
@@ -218,6 +246,7 @@ object MainCommand {
       }
 
     val ins = Opts.options[Path]("input", help = "input files")
+    val deps = Opts.options[Path]("test_deps", help = "test dependencies").orNone.map(toList(_))
     val extern = Opts.options[Path]("external", help = "input files").orNone.map(toList(_))
     val sigs = Opts.options[Path]("signature", help = "signature files").orNone.map(toList(_))
 
@@ -229,11 +258,13 @@ object MainCommand {
     val toJsonOpt = (ins, extern, sigs, mainP, outputPath).mapN(ToJson(_, _, _, _, _))
     val typeCheckOpt = (ins, sigs, outputPath).mapN(TypeCheck(_, _, _))
     val compileOpt = (ins, extern, compileRoot).mapN(Compile(_, _, _))
+    val testOpt = (ins, deps, extern).mapN(RunTests(_, _, _))
 
     Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
       .orElse(Opts.subcommand("write-json", "evaluate a data expression into json")(toJsonOpt))
       .orElse(Opts.subcommand("type-check", "type check a set of packages")(typeCheckOpt))
       .orElse(Opts.subcommand("compile", "compile bosatsu to Java code")(compileOpt))
+      .orElse(Opts.subcommand("test", "test a set of bosatsu modules")(testOpt))
   }
 }
 
@@ -245,8 +276,9 @@ object Main {
     command.parse(args.toList) match {
       case Right(cmd) =>
         cmd.run() match {
-          case MainResult.Error(code, errs) =>
+          case MainResult.Error(code, errs, stdout) =>
             errs.foreach(System.err.println)
+            stdout.foreach(println)
             System.exit(code)
           case MainResult.Success(lines) =>
             lines.foreach(println)
