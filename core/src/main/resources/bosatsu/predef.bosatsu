@@ -6,6 +6,7 @@ export [
   Option(),
   List(),
   String,
+  Test(),
   add,
   eq_Int,
   sub,
@@ -32,4 +33,9 @@ external def times(a: Int, b: Int) -> Int
 external def eq_Int(a: Int, b: Int) -> Bool
 
 external struct String
+
+enum Test:
+  TestAssert(value: Bool)
+  TestLabel(label: String, test: Test)
+  TestList(tests: List[Test])
 

@@ -17,6 +17,50 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       (_, expr) <- pack.program.lets.lastOption
     } yield eval((Package.asInferred(pack), Right(expr), Map.empty))
 
+  def evalTest(ps: PackageName): Option[Test] =
+    evaluateLast(ps).flatMap { case (ea, scheme) =>
+
+// enum Test:
+//   TestAssert(value: Bool)
+//   TestLabel(label: String, test: Test)
+//   TestList(tests: List[Test])
+
+      def toTest(a: Any): Test =
+        a match {
+          case (0, assertValue :: Nil) => Test.Assert(toBool(assertValue))
+          case (1, (label: String) :: test :: Nil) => Test.Label(label, toTest(test))
+          case (2, listOfTests :: Nil) => Test.TestList(toList(listOfTests))
+          case other => sys.error(s"expected test value: $other")
+        }
+
+      def toBool(a: Any): Boolean =
+        a match {
+          case (0, Nil) => false
+          case (1, Nil) => true
+          case other => sys.error(s"expected Boolean: $other")
+        }
+
+      def toList(a: Any): List[Test] =
+        a match {
+          case (0, Nil) => Nil
+          case (1, t :: rest :: Nil) => toTest(t) :: toList(rest)
+          case other => sys.error(s"expected List: $other")
+        }
+
+      toType[Test](ea.value, scheme.result) { (any, dt, rec) =>
+        if (dt.packageName == Predef.packageName) {
+          dt.name.asString match {
+            case "Test" =>
+              // due to type checking, none of the above errors should hit
+              Some(toTest(any))
+            case _ =>
+              None
+          }
+        }
+        else None
+      }
+    }
+
   private type Ref = Either[String, Expr[(Declaration, Scheme)]]
 
   private def evalBranch(arg: Any,
@@ -130,7 +174,79 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     loop(arity, Nil)
   }
 
-  def toJson(a: Any, schm: Scheme): Option[Json] = {
+  private def definedToJson(a: Any, dt: DefinedType, rec: (Any, Type) => Option[Json]): Option[Json] =
+    if (dt.packageName == Predef.packageName) {
+      dt.name.asString match {
+        case "Option" =>
+          a match {
+            case (0, Nil) =>
+              Some(Json.JNull)
+            case (1, v :: Nil) =>
+              dt.constructors match {
+                case _ :: ((ConstructorName("Some"), (_, t) :: Nil)) :: Nil =>
+                  rec(v, t)
+                case other =>
+                  sys.error(s"expect to find Some constructor for $v: $other")
+              }
+            case other => sys.error(s"some kind of type-error: $other for $dt")
+          }
+        case "String" =>
+          Some(Json.JString(a.asInstanceOf[String]))
+        case "Bool" =>
+          a match {
+            case (0, Nil) =>
+              Some(Json.JBool(false))
+            case (1, Nil) =>
+              Some(Json.JBool(true))
+            case other => sys.error(s"type error, expected boolean: $other")
+          }
+        case "Int" =>
+          Some(Json.JNumberStr(a.asInstanceOf[java.lang.Integer].toString))
+        case "List" =>
+          // convert the list into a JArray
+          val tpe = dt.constructors match {
+            case _ :: ((ConstructorName("NonEmptyList"), (_, t) :: (_, _) :: Nil)) :: Nil => t
+            case other => sys.error(s"unexpected constructors for list: $other")
+          }
+
+          @annotation.tailrec
+          def toVec(a: Any, acc: List[Json]): Option[Vector[Json]] =
+            a match {
+              case (0, Nil) => Some(acc.reverse.toVector)
+              case (1, head :: tail :: Nil) =>
+                rec(head, tpe) match {
+                  case None => None
+                  case Some(h) =>
+                    toVec(tail, h :: acc)
+                }
+              case other => sys.error(s"ill-typed list: $other, List[$tpe]")
+            }
+
+          toVec(a, Nil).map(Json.JArray(_))
+        case other =>
+          sys.error(s"unknown predef type: $other")
+      }
+    }
+    else  {
+      a match {
+        case (variant: Int, parts: List[Any]) =>
+          val cons = dt.constructors
+          cons.lift(variant).flatMap { case (_, params) =>
+            parts.zip(params).traverse { case (a1, (ParamName(pn), t)) =>
+              rec(a1, t).map((pn, _))
+            }
+            .map { ps => Json.JObject(ps.toMap) }
+          }
+        case _ =>
+          // Should never happen
+          None
+      }
+    }
+
+  def toJson(a: Any, schm: Scheme): Option[Json] =
+    toType[Json](a, schm.result)(definedToJson(_, _, _))
+
+  def toType[T](a: Any, t: Type)(fn: (Any, DefinedType, (Any, Type) => Option[T]) => Option[T]): Option[T] = {
     def defined(pn: PackageName, t: TypeName): Option[DefinedType] =
       for {
         pack <- pm.toMap.get(pn)
@@ -164,87 +280,18 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           Left(Type.TypeApply(v, arg))
       }
 
-    def definedToJson(a: Any, dt: DefinedType): Option[Json] =
-      if (dt.packageName == Predef.packageName) {
-        dt.name.asString match {
-          case "Option" =>
-            a match {
-              case (0, Nil) =>
-                Some(Json.JNull)
-              case (1, v :: Nil) =>
-                dt.constructors match {
-                  case _ :: ((ConstructorName("Some"), (_, t) :: Nil)) :: Nil =>
-                    loop(v, t)
-                  case other =>
-                    sys.error(s"expect to find Some constructor for $v: $other")
-                }
-              case other => sys.error(s"some kind of type-error: $other for $dt")
-            }
-          case "String" =>
-            Some(Json.JString(a.asInstanceOf[String]))
-          case "Bool" =>
-            a match {
-              case (0, Nil) =>
-                Some(Json.JBool(false))
-              case (1, Nil) =>
-                Some(Json.JBool(true))
-              case other => sys.error(s"type error, expected boolean: $other")
-            }
-          case "Int" =>
-            Some(Json.JNumberStr(a.asInstanceOf[java.lang.Integer].toString))
-          case "List" =>
-            // convert the list into a JArray
-            val tpe = dt.constructors match {
-              case _ :: ((ConstructorName("NonEmptyList"), (_, t) :: (_, _) :: Nil)) :: Nil => t
-              case other => sys.error(s"unexpected constructors for list: $other")
-            }
-
-            @annotation.tailrec
-            def toVec(a: Any, acc: List[Json]): Option[Vector[Json]] =
-              a match {
-                case (0, Nil) => Some(acc.reverse.toVector)
-                case (1, head :: tail :: Nil) =>
-                  loop(head, tpe) match {
-                    case None => None
-                    case Some(h) =>
-                      toVec(tail, h :: acc)
-                  }
-                case other => sys.error(s"ill-typed list: $other, List[$tpe]")
-              }
-
-            toVec(a, Nil).map(Json.JArray(_))
-          case other =>
-            sys.error(s"unknown predef type: $other")
-        }
-      }
-      else  {
-        a match {
-          case (variant: Int, parts: List[Any]) =>
-            val cons = dt.constructors
-            cons.lift(variant).flatMap { case (_, params) =>
-              parts.zip(params).traverse { case (a1, (ParamName(pn), t)) =>
-                loop(a1, t).map((pn, _))
-              }
-              .map { ps => Json.JObject(ps.toMap) }
-            }
-          case _ =>
-            // Should never happen
-            None
-        }
-      }
-
-    def loop(a: Any, t: Type): Option[Json] = {
+    def loop(a: Any, t: Type): Option[T] = {
       t match {
         case Type.Arrow(_, _) =>
           // We can't convert a function to Json
           None
         case Type.Declared(pn, typeName) =>
           defined(pn, TypeName(typeName))
-            .flatMap(definedToJson(a, _))
+            .flatMap(fn(a, _, toType[T](_, _)(fn)))
         case Type.TypeApply(tpe, arg) =>
           applyT(tpe, arg) match {
             case Right(dt) =>
-              definedToJson(a, dt)
+              fn(a, dt, toType[T](_, _)(fn))
             case Left(t) =>
               sys.error(s"expected a defined type. Found: $t")
           }
@@ -253,6 +300,6 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           sys.error(s"should have fully resolved the type of: $a: $t")
       }
     }
-    loop(a, schm.result)
+    loop(a, t)
   }
 }

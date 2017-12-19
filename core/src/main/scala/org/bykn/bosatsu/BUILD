@@ -26,6 +26,7 @@ scala_module(
         "Parser.scala": ["Region.scala", "LocationMap.scala"],
         "Region.scala": [],
         "Substitutable.scala": ["Type.scala"],
+        "Test.scala": [],
         "Type.scala": ["Region.scala", "PackageName.scala", "LocationMap.scala"],
         "TypeEnv.scala": ["Type.scala", "Substitutable.scala", "TypeError.scala", "DefinedType.scala"],
         "TypeError.scala": ["Type.scala"],
