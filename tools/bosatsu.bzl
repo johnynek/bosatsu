@@ -1,4 +1,4 @@
-BosatsuProvider = provider(fields = ["transitive_deps", "transitive_sigs"])
+BosatsuProvider = provider(fields = ["transitive_deps", "transitive_sigs", "runfiles"])
 
 def _collect_deps(ctx):
   transitive_deps = depset()
@@ -13,7 +13,8 @@ def _collect_deps(ctx):
       fail("expected a Bosatsu provider but missing in: %s" % dep_target)
 
   return BosatsuProvider(transitive_deps = transitive_deps,
-                             transitive_sigs = transitive_sigs)
+                         transitive_sigs = transitive_sigs,
+                         runfiles = None)
 
 def _add_self(ctx, prov):
   outs = []
@@ -95,3 +96,37 @@ bosatsu_json = rule(
     outputs = {
       "json": "%{name}.json",
     })
+
+def _bosatsu_test_impl(ctx):
+  provider = _collect_deps(ctx)
+
+  all_inputs = provider.transitive_deps + ctx.files.srcs + [ctx.executable._bosatsu_main]
+  rfs = ctx.runfiles(transitive_files = all_inputs, collect_default = True)
+
+  all_inputs = provider.transitive_deps + ctx.files.srcs
+  args = ["test"]
+  for f in ctx.files.srcs:
+    args += ["--input", f.short_path]
+  for f in provider.transitive_deps:
+    args += ["--test_deps", f.short_path]
+
+  ctx.file_action(
+      output = ctx.outputs.executable,
+      content = """#!/bin/sh
+{path} {arg}
+""".format(path = ctx.executable._bosatsu_main.short_path,
+           arg = " ".join(args)))
+
+  return [DefaultInfo(runfiles = rfs)]
+
+bosatsu_test = rule(
+    implementation = _bosatsu_test_impl,
+    attrs = {
+        "srcs": attr.label_list(mandatory=False, allow_files=FileType([".bosatsu"])),
+        "deps": attr.label_list(),
+        "package": attr.string(),
+        "data": attr.label_list(cfg="data",default=[Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")]),
+        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
+    },
+    executable=True,
+    test=True)
