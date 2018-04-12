@@ -1,4 +1,4 @@
-load("@org_bykn_bosatsu//tools:bosatsu.bzl", "bosatsu_library", "bosatsu_json")
+load("@org_bykn_bosatsu//tools:bosatsu.bzl", "bosatsu_library", "bosatsu_json", "bosatsu_test")
 
 bosatsu_library(
     name = "test",
@@ -18,3 +18,7 @@ bosatsu_json(
     name = "test2json",
     deps = [":test", ":test2"],
     package = "Foo/Bar2")
+
+bosatsu_test(
+    name = "test_rule",
+    srcs = ["bo_test.bosatsu"])
