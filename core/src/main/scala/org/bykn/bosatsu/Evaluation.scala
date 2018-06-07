@@ -151,7 +151,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             // we reset the environment in the other package
             recurse((from, Left(orig), Map.empty))
           case NameKind.ExternalDef(pn, n, scheme) =>
-            (externals.toMap((pn, n)).call(scheme.result), scheme)
+            externals.toMap.get((pn, n)) match {
+              case None =>
+                throw EvaluationException(s"Missing External defintion of '${pn.parts.toList.mkString("/")} $n'. Check that your 'external' parameter is correct.")
+              case Some(ext) => (ext.call(scheme.result), scheme)
+            }
         }
     }
 
@@ -303,3 +307,5 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     loop(a, t)
   }
 }
+
+case class EvaluationException(message: String) extends Exception(message)
