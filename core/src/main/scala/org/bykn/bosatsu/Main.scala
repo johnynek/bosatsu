@@ -145,7 +145,7 @@ object MainCommand {
   }
   case class Normalize(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
     def run() = typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
-      val norm = Normalization(packs, Predef.jvmExternals ++ ext)
+      val norm = Normalization(packs)
       norm.normalizeLast(mainPackage) match {
         case None => MainResult.Error(1, List("found no main expression"))
         case Some((expr, scheme)) =>

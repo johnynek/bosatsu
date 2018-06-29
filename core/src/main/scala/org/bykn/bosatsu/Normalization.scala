@@ -5,7 +5,7 @@ import com.stripe.dagon.Memoize
 import cats.Eval
 import cats.implicits._
 
-case class Normalization(pm: PackageMap.Inferred, externals: Externals) {
+case class Normalization(pm: PackageMap.Inferred) {
 
   def normalizeLast(p: PackageName): Option[(NormalizedResult, Scheme)] =
     for {
