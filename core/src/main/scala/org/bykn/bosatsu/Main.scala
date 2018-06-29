@@ -143,6 +143,16 @@ object MainCommand {
           .map { _ => List(s"wrote ${packs.toMap.size} packages") }
       }
   }
+  case class Normalize(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
+    def run() = typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
+      val norm = Normalization(packs, Predef.jvmExternals ++ ext)
+      norm.normalizeLast(mainPackage) match {
+        case None => MainResult.Error(1, List("found no main expression"))
+        case Some((expr, scheme)) =>
+          MainResult.Success(List(s"$expr: $scheme"))
+      }
+    }
+  }
 
   case class RunTests(tests: NonEmptyList[Path], dependencies: List[Path], externals: List[Path]) extends MainCommand {
     def run() =
@@ -255,12 +265,14 @@ object MainCommand {
     val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output")
 
     val evalOpt = (ins, extern, mainP).mapN(Evaluate(_, _, _))
+    val normOpt = (ins, extern, mainP).mapN(Normalize(_, _, _))
     val toJsonOpt = (ins, extern, sigs, mainP, outputPath).mapN(ToJson(_, _, _, _, _))
     val typeCheckOpt = (ins, sigs, outputPath).mapN(TypeCheck(_, _, _))
     val compileOpt = (ins, extern, compileRoot).mapN(Compile(_, _, _))
     val testOpt = (ins, deps, extern).mapN(RunTests(_, _, _))
 
     Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
+      .orElse(Opts.subcommand("normalize", "apply a beta-normalization to the program")(normOpt))
       .orElse(Opts.subcommand("write-json", "evaluate a data expression into json")(toJsonOpt))
       .orElse(Opts.subcommand("type-check", "type check a set of packages")(typeCheckOpt))
       .orElse(Opts.subcommand("compile", "compile bosatsu to Java code")(compileOpt))
