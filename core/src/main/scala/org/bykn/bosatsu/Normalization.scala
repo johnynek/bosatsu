@@ -11,7 +11,9 @@ case class Normalization(pm: PackageMap.Inferred) {
     for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
-    } yield norm((Package.asInferred(pack), Right(expr), Map.empty))
+    } yield {
+      norm((Package.asInferred(pack), Right(expr), Map.empty))
+    }
   
   private type Ref = Either[String, Expr[(Declaration, Scheme)]]
 
@@ -26,11 +28,21 @@ case class Normalization(pm: PackageMap.Inferred) {
       case Var(v, (_, scheme)) =>
         env.get(v) match {
           case Some(a) => (Right(a), scheme)
-          case None => ???
+          case None => recurse((p, Left(v), env))
         }
-      case App(Lambda(name, fn, _), arg, (_, scheme)) => ???
-      case App(fn, arg, (_, scheme)) => ???
-      case Lambda(name, expr, (_, scheme)) => ???
+      case App(Lambda(name, fn, _), arg, (_, scheme)) => {
+        val localEnv: Map[String, Expr[(Declaration, Scheme)]] = Map(name -> arg) 
+        recurse((p, Right(fn), env ++ localEnv))
+      }
+      case App(fn, arg, t) => {
+        val efn = recurse((p, Right(fn), env))._1
+        val earg = recurse((p, Right(arg), env))._1
+        efn match {
+          case Right(lam @ Lambda(_, _, _)) => recurse((p, Right(App(lam, earg.right.get, t)), env))
+          case _ => (Right(App(efn.right.get, arg, t)), t._2)
+        }
+      }
+      case lam @ Lambda(name, expr, (d,s)) => (Right(lam), s)
       case Let(arg, e, in, (_, scheme)) => ???
       case lit @ Literal(_, (_, scheme)) => (Right(lit), scheme)
       case Match(arg, branches, (_, scheme)) => ???
@@ -53,7 +65,7 @@ case class Normalization(pm: PackageMap.Inferred) {
           case NameKind.Import(from, orig) =>
             // we reset the environment in the other package
             recurse((from, Left(orig), Map.empty))
-          case ext @ NameKind.ExternalDef(pn, n, scheme) => (Left(item), scheme)
+          case ext @ NameKind.ExternalDef(pn, n, scheme) => (Right(Expr.Var(item, (Declaration.Var(item)(Region(0,0)), scheme))), scheme)
         }
     }
 }
