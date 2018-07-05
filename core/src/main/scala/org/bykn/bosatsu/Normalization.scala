@@ -31,19 +31,22 @@ case class Normalization(pm: PackageMap.Inferred) {
           case None => recurse((p, Left(v), env))
         }
       case App(Lambda(name, fn, _), arg, scheme) => {
-        val localEnv: Map[String, Expr[Scheme]] = Map(name -> arg) 
-        recurse((p, Right(fn), env ++ localEnv))
+        val earg = recurse((p, Right(arg), env))._1.right.get
+        recurse((p, Right(fn), env ++ Map(name -> earg)))
       }
       case App(fn, arg, scheme) => {
         val efn = recurse((p, Right(fn), env))._1
         val earg = recurse((p, Right(arg), env))._1
         efn match {
           case Right(lam @ Lambda(_, _, _)) => recurse((p, Right(App(lam, earg.right.get, scheme)), env))
-          case _ => (Right(App(efn.right.get, arg, scheme)), scheme)
+          case _ => (Right(App(efn.right.get, earg.right.get, scheme)), scheme)
         }
       }
       case lam @ Lambda(name, expr, scheme) => (Right(lam), scheme)
-      case Let(arg, e, in, scheme) => recurse((p, Right(in), env ++ Map(arg -> e)))
+      case Let(arg, e, in, scheme) => {
+        val ee = recurse((p, Right(e), env))._1.right.get
+        recurse((p, Right(in), env ++ Map(arg -> ee)))
+      }
       case lit @ Literal(_, scheme) => (Right(lit), scheme)
       case Match(arg, branches, scheme) => ???
     }
