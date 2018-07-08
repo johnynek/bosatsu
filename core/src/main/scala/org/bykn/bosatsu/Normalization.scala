@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
-import cats.Eval
+import cats.Id
 import cats.implicits._
 
 case class Normalization(pm: PackageMap.Inferred) {
@@ -12,7 +12,7 @@ case class Normalization(pm: PackageMap.Inferred) {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
     } yield {
-      norm((Package.asInferred(pack), Right(expr.mapTag(_._2)), Map.empty))
+      norm((Package.asInferred(pack), Right(expr.traverse[Id, Scheme](_._2)), Map.empty))
     }
   
   private type Ref = Either[String, Expr[Scheme]]
@@ -63,7 +63,7 @@ case class Normalization(pm: PackageMap.Inferred) {
       case ((pack, Left(item), env), recurse) =>
         NameKind(pack, item).get match { // this get should never fail due to type checking
           case NameKind.Let(expr) =>
-            recurse((pack, Right(expr.mapTag(_._2)), env))
+            recurse((pack, Right(expr.traverse[Id, Scheme](_._2)), env))
           case NameKind.Constructor(cn, dt, schm) => ???
           case NameKind.Import(from, orig) =>
             // we reset the environment in the other package

@@ -29,15 +29,6 @@ sealed abstract class Expr[T] {
       case l@Literal(_, _) => l.copy(tag = t)
       case m@Match(_, _, _) => m.copy(tag = t)
     }
-  def mapTag[S](mapper: T => S): Expr[S] =
-    this match {
-      case v@Var(_, t) => v.copy(tag = mapper(t))
-      case App(f, a, t) => App(f.mapTag(mapper), a.mapTag(mapper), mapper(t))
-      case l@Lambda(_, e, t) => l.copy(expr = e.mapTag(mapper), tag = mapper(t))
-      case l@Let(_, e, i, t) => l.copy(expr = e.mapTag(mapper), in = i.mapTag(mapper), tag = mapper(t))
-      case l@Literal(_, t) => l.copy(tag = mapper(t))
-      case Match(a, b, t) => Match(a.mapTag(mapper), b.map { case(p, e) => (p, e.mapTag(mapper))}, tag = mapper(t))
-    }
 }
 
 object Expr {
