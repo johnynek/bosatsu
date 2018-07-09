@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Eval
+import cats.{Eval, Id}
 import cats.data.{Validated, ValidatedNel, NonEmptyList}
 import cats.implicits._
 import com.monovore.decline._
@@ -149,7 +149,7 @@ object MainCommand {
       norm.normalizeLast(mainPackage) match {
         case None => MainResult.Error(1, List("found no main expression"))
         case Some((expr, scheme)) =>
-          MainResult.Success(List(s"${expr.mapTag(_ => ())}: $scheme"))
+          MainResult.Success(List(s"${expr.traverse[Id, Unit](_ => ())}: $scheme"))
       }
     }
   }

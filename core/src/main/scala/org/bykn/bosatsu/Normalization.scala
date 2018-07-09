@@ -5,6 +5,20 @@ import com.stripe.dagon.Memoize
 import cats.Id
 import cats.implicits._
 
+sealed abstract class NormalExpression {
+
+}
+
+object NormalExpression {
+  case class App(fn: NormalExpression, arg: NormalExpression) extends NormalExpression
+  case class ExternalVar(pack: PackageName, defName: String) extends NormalExpression
+  case class Match(arg: NormalExpression, branches: NonEmptyList[(Pattern[Int], NormalExpression)]) extends NormalExpression
+  case class LambdaVar(index: Int) extends NormalExpression
+  case class Lambda(expr: NormalExpression) extends NormalExpression
+  case class Struct(enum: Int, args: List[NormalExpression]) extends NormalExpression
+  case class Literal(lit: Lit) extends NormalExpression
+}
+
 case class Normalization(pm: PackageMap.Inferred) {
 
   def normalizeLast(p: PackageName): Option[(Expr[Scheme], Scheme)] =
