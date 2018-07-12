@@ -26,21 +26,22 @@ case class Normalization(pm: PackageMap.Inferred) {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
     } yield {
-      norm((Package.asInferred(pack), Right(expr.traverse[Id, Scheme](_._2)), Map.empty))
+      norm((Package.asInferred(pack), Right(expr.traverse[Id, Scheme](_._2)), (Map.empty, Nil)))
     }
   
   private type Ref = Either[String, Expr[Scheme]]
+  private type Env = (Map[String, NormalExpression], List[String])
 
   private def normExpr(p: Package.Inferred,
     expr: Expr[Scheme],
-    env: Map[String, NormalExpression],
-    recurse: ((Package.Inferred, Ref, Map[String, NormalExpression])) => NormalExpression): NormalExpression = {
+    env: Env,
+    recurse: ((Package.Inferred, Ref, Env)) => NormalExpression): NormalExpression = {
 
     import NormalExpression._
 
     expr match {
       case Expr.Var(v, scheme) =>
-        env.get(v) match {
+        env._1.get(v) match {
           case Some(a) => a
           case None => recurse((p, Left(v), env))
         }
@@ -49,10 +50,15 @@ case class Normalization(pm: PackageMap.Inferred) {
         val earg = recurse((p, Right(arg), env))
         App(efn, earg)
       }
-      case Expr.Lambda(name, expr, scheme) => Lambda(recurse((p, Right(expr), env ++ Map(name -> LambdaVar(0)))))
+      case Expr.Lambda(name, expr, scheme) => {
+        val lambdaVars = name :: env._2
+        val nextEnv = (env._1 ++ lambdaVars.zipWithIndex.toMap.mapValues(LambdaVar(_)), lambdaVars)
+        Lambda(recurse((p, Right(expr), nextEnv)))
+      }
       case Expr.Let(arg, e, in, scheme) => {
         val ee = recurse((p, Right(e), env))
-        recurse((p, Right(in), env ++ Map(arg -> ee)))
+        val nextEnv = (env._1 ++ Map(arg -> ee), env._2)
+        recurse((p, Right(in), nextEnv))
       }
       case Expr.Literal(lit, scheme) => Literal(lit)
       case Expr.Match(arg, branches, scheme) => {
@@ -78,8 +84,8 @@ case class Normalization(pm: PackageMap.Inferred) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val norm: ((Package.Inferred, Ref, Map[String, NormalExpression])) => NormalExpression =
-    Memoize.function[(Package.Inferred, Ref, Map[String, NormalExpression]), NormalExpression] {
+  private[this] val norm: ((Package.Inferred, Ref, Env)) => NormalExpression =
+    Memoize.function[(Package.Inferred, Ref, Env), NormalExpression] {
       case ((pack, Right(expr), env), recurse) =>
         normExpr(pack, expr, env, recurse)
       case ((pack, Left(item), env), recurse) =>
@@ -89,7 +95,7 @@ case class Normalization(pm: PackageMap.Inferred) {
           case NameKind.Constructor(cn, dt, schm) => ???
           case NameKind.Import(from, orig) =>
             // we reset the environment in the other package
-            recurse((from, Left(orig), Map.empty))
+            recurse((from, Left(orig), (Map.empty, Nil)))
           case NameKind.ExternalDef(pn, n, scheme) => NormalExpression.ExternalVar(pn, n)
         }
     }
