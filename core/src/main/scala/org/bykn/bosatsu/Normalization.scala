@@ -92,11 +92,29 @@ case class Normalization(pm: PackageMap.Inferred) {
         NameKind(pack, item).get match { // this get should never fail due to type checking
           case NameKind.Let(expr) =>
             recurse((pack, Right(expr.traverse[Id, Scheme](_._2)), env))
-          case NameKind.Constructor(cn, dt, schm) => ???
+          case NameKind.Constructor(cn, dt, schm) => constructor(cn, dt)
           case NameKind.Import(from, orig) =>
             // we reset the environment in the other package
             recurse((from, Left(orig), (Map.empty, Nil)))
           case NameKind.ExternalDef(pn, n, scheme) => NormalExpression.ExternalVar(pn, n)
         }
     }
+
+  private def constructor(c: ConstructorName, dt: DefinedType): NormalExpression = {
+    val (enum, arity) = dt.constructors
+      .toList
+      .iterator
+      .zipWithIndex
+      .collectFirst { case ((ctor, params), idx) if ctor == c => (idx, params.size) }
+      .get // the ctor must be in the list or we wouldn't typecheck
+
+
+    import NormalExpression._
+
+    def loop(params: Int, expr: NormalExpression): NormalExpression =
+      if (params == 0) expr
+      else loop(params - 1, Lambda(expr))
+
+    loop(arity, Struct(enum, (arity to 0 by -1).map(LambdaVar(_)).toList))
+  }
 }
