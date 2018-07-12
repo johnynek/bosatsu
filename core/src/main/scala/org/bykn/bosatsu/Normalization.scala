@@ -21,7 +21,7 @@ object NormalExpression {
 
 case class Normalization(pm: PackageMap.Inferred) {
 
-  def normalizeLast(p: PackageName): Option[(Expr[Scheme], Scheme)] =
+  def normalizeLast(p: PackageName): Option[NormalExpression] =
     for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
@@ -33,36 +33,44 @@ case class Normalization(pm: PackageMap.Inferred) {
 
   private def normExpr(p: Package.Inferred,
     expr: Expr[Scheme],
-    env: Map[String, Expr[Scheme]],
-    recurse: ((Package.Inferred, Ref, Map[String, Expr[Scheme]])) => (Expr[Scheme], Scheme)): (Expr[Scheme], Scheme) = {
+    env: Map[String, NormalExpression],
+    recurse: ((Package.Inferred, Ref, Map[String, NormalExpression])) => NormalExpression): NormalExpression = {
 
-    import Expr._
+    import NormalExpression._
 
     expr match {
-      case Var(v, scheme) =>
+      case Expr.Var(v, scheme) =>
         env.get(v) match {
-          case Some(a) => (a, scheme)
+          case Some(a) => a
           case None => recurse((p, Left(v), env))
         }
-      case App(Lambda(name, fn, _), arg, scheme) => {
-        val earg = recurse((p, Right(arg), env))._1
-        recurse((p, Right(fn), env ++ Map(name -> earg)))
+      case Expr.App(fn, arg, scheme) => {
+        val efn = recurse((p, Right(fn), env))
+        val earg = recurse((p, Right(arg), env))
+        App(efn, earg)
       }
-      case App(fn, arg, scheme) => {
-        val efn = recurse((p, Right(fn), env))._1
-        val earg = recurse((p, Right(arg), env))._1
-        efn match {
-          case lam @ Lambda(_, _, _) => recurse((p, Right(App(lam, earg, scheme)), env))
-          case _ => (App(efn, earg, scheme), scheme)
-        }
-      }
-      case lam @ Lambda(name, expr, scheme) => (lam, scheme)
-      case Let(arg, e, in, scheme) => {
-        val ee = recurse((p, Right(e), env))._1
+      case Expr.Lambda(name, expr, scheme) => Lambda(recurse((p, Right(expr), env ++ Map(name -> LambdaVar(0)))))
+      case Expr.Let(arg, e, in, scheme) => {
+        val ee = recurse((p, Right(e), env))
         recurse((p, Right(in), env ++ Map(arg -> ee)))
       }
-      case lit @ Literal(_, scheme) => (lit, scheme)
-      case Match(arg, branches, scheme) => ???
+      case Expr.Literal(lit, scheme) => Literal(lit)
+      case Expr.Match(arg, branches, scheme) => {
+        val nArg = recurse((p, Right(arg), env))
+        val scheme = expr.tag
+        val dtName = Type.rootDeclared(scheme.result).get
+        val dt = p.unfix.program.types.definedTypes
+          .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get
+        val enumLookup = dt.constructors.map(_._1.asString).zipWithIndex.toMap
+
+        val nBranches = branches.map { case(pattern, e) => 
+          (
+            pattern.map { case(_, ConstructorName(cname)) => enumLookup(cname)},
+            recurse((p, Right(e), env))
+          )
+        }
+        Match(nArg, nBranches)
+      }
     }
   }
 
@@ -70,8 +78,8 @@ case class Normalization(pm: PackageMap.Inferred) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val norm: ((Package.Inferred, Ref, Map[String, Expr[Scheme]])) => (Expr[Scheme], Scheme) =
-    Memoize.function[(Package.Inferred, Ref, Map[String, Expr[Scheme]]), (Expr[Scheme], Scheme)] {
+  private[this] val norm: ((Package.Inferred, Ref, Map[String, NormalExpression])) => NormalExpression =
+    Memoize.function[(Package.Inferred, Ref, Map[String, NormalExpression]), NormalExpression] {
       case ((pack, Right(expr), env), recurse) =>
         normExpr(pack, expr, env, recurse)
       case ((pack, Left(item), env), recurse) =>
@@ -82,7 +90,7 @@ case class Normalization(pm: PackageMap.Inferred) {
           case NameKind.Import(from, orig) =>
             // we reset the environment in the other package
             recurse((from, Left(orig), Map.empty))
-          case NameKind.ExternalDef(pn, n, scheme) => (Expr.Var(item, scheme), scheme)
+          case NameKind.ExternalDef(pn, n, scheme) => NormalExpression.ExternalVar(pn, n)
         }
     }
 }

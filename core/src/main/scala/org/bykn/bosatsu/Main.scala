@@ -148,8 +148,8 @@ object MainCommand {
       val norm = Normalization(packs)
       norm.normalizeLast(mainPackage) match {
         case None => MainResult.Error(1, List("found no main expression"))
-        case Some((expr, scheme)) =>
-          MainResult.Success(List(s"${expr.traverse[Id, Unit](_ => ())}: $scheme"))
+        case Some(expr) =>
+          MainResult.Success(List(s"$expr"))
       }
     }
   }
