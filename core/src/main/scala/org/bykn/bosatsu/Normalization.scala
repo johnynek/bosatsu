@@ -12,7 +12,7 @@ sealed abstract class NormalExpression {
 object NormalExpression {
   case class App(fn: NormalExpression, arg: NormalExpression) extends NormalExpression
   case class ExternalVar(pack: PackageName, defName: String) extends NormalExpression
-  case class Match(arg: NormalExpression, branches: NonEmptyList[(Pattern[Int], NormalExpression)]) extends NormalExpression
+  case class Match(arg: NormalExpression, branches: NonEmptyList[(Int, NormalExpression)]) extends NormalExpression
   case class LambdaVar(index: Int) extends NormalExpression
   case class Lambda(expr: NormalExpression) extends NormalExpression
   case class Struct(enum: Int, args: List[NormalExpression]) extends NormalExpression
@@ -30,7 +30,7 @@ case class Normalization(pm: PackageMap.Inferred) {
     }).map(normalOrderReduction(_))
   
   private type Ref = Either[String, Expr[Scheme]]
-  private type Env = (Map[String, NormalExpression], List[String])
+  private type Env = (Map[String, NormalExpression], List[Option[String]])
 
   private def normExpr(p: Package.Inferred,
     expr: Expr[Scheme],
@@ -51,8 +51,8 @@ case class Normalization(pm: PackageMap.Inferred) {
         App(efn, earg)
       }
       case Expr.Lambda(name, expr, scheme) => {
-        val lambdaVars = name :: env._2
-        val nextEnv = (env._1 ++ lambdaVars.zipWithIndex.toMap.mapValues(LambdaVar(_)), lambdaVars)
+        val lambdaVars = Some(name) :: env._2
+        val nextEnv = (env._1 ++ lambdaVars.zipWithIndex.collect { case(Some(n), i) => (n,i) }.toMap.mapValues(LambdaVar(_)), lambdaVars)
         Lambda(recurse((p, Right(expr), nextEnv)))
       }
       case Expr.Let(arg, e, in, scheme) => {
@@ -69,12 +69,12 @@ case class Normalization(pm: PackageMap.Inferred) {
           .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get
         val enumLookup = dt.constructors.map(_._1.asString).zipWithIndex.toMap
 
-        val nBranches = branches.map { case(pattern, e) => 
-          (
-            pattern.map { case(_, ConstructorName(cname)) => enumLookup(cname)},
-            recurse((p, Right(e), env))
-          )
-        }
+        val nBranches = branches.map { case(pattern, e) => {
+          val enum = enumLookup(pattern.typeName._2.asString)
+          val lambdaVars = pattern.bindings.reverse ++ env._2
+          val nextEnv = (env._1 ++ lambdaVars.zipWithIndex.collect { case(Some(n), i) => (n,i) }.toMap.mapValues(LambdaVar(_)), lambdaVars)
+          (enum, recurse((p, Right(e), nextEnv)))
+        }}
         Match(nArg, nBranches)
       }
     }
