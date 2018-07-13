@@ -132,9 +132,9 @@ case class Normalization(pm: PackageMap.Inferred) {
     }
     nextExpr match {
       case al @ App(Lambda(_), _) => normalOrderReduction(al)
-      case App(fn, arg) => App(fn, normalOrderReduction(arg))
+      case App(fn, arg) => App(fn, normalOrderReduction(arg)) // I need a proof here or to fix this
       case extVar @ ExternalVar(_, _) => extVar
-      case Match(_, _) => ???
+      case Match(arg, branches) => Match(normalOrderReduction(arg), branches.map { case(enum, expr) => (enum, normalOrderReduction(expr)) })
       case lv @ LambdaVar(_) => lv
       case Lambda(expr) => Lambda(normalOrderReduction(expr))
       case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
@@ -147,7 +147,7 @@ case class Normalization(pm: PackageMap.Inferred) {
     expr match {
       case App(fn, arg) => App(applyLambdaSubstituion(fn, subst, idx), applyLambdaSubstituion(arg, subst, idx))
       case ext @ ExternalVar(_, _) => ext
-      case Match(arg, branches) => ???
+      case Match(arg, branches) => Match(applyLambdaSubstituion(arg, subst, idx), branches.map { case(enum, expr) => (enum, applyLambdaSubstituion(arg, subst, idx)) })
       case LambdaVar(varIndex) if varIndex == idx => subst
       case lv @ LambdaVar(_) => lv
       case Lambda(fn) => Lambda(applyLambdaSubstituion(fn, subst, idx + 1))
