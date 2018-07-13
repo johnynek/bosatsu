@@ -22,12 +22,12 @@ object NormalExpression {
 case class Normalization(pm: PackageMap.Inferred) {
 
   def normalizeLast(p: PackageName): Option[NormalExpression] =
-    for {
+    (for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
     } yield {
       norm((Package.asInferred(pack), Right(expr.traverse[Id, Scheme](_._2)), (Map.empty, Nil)))
-    }
+    }).map(normalOrderReduction(_))
   
   private type Ref = Either[String, Expr[Scheme]]
   private type Env = (Map[String, NormalExpression], List[String])
@@ -116,5 +116,43 @@ case class Normalization(pm: PackageMap.Inferred) {
       else loop(params - 1, Lambda(expr))
 
     loop(arity, Struct(enum, (arity to 0 by -1).map(LambdaVar(_)).toList))
+  }
+
+  private def normalOrderReduction(expr: NormalExpression): NormalExpression = {
+    import NormalExpression._
+    val nextExpr = expr match {
+      case App(Lambda(nextExpr), arg) => {
+        applyLambdaSubstituion(nextExpr, arg, 0)
+      }
+      case App(fn, arg) => {
+        val nextFn = normalOrderReduction(fn)
+        App(nextFn, arg)
+      }
+      case _ => expr
+    }
+    nextExpr match {
+      case al @ App(Lambda(_), _) => normalOrderReduction(al)
+      case App(fn, arg) => App(fn, normalOrderReduction(arg))
+      case extVar @ ExternalVar(_, _) => extVar
+      case Match(_, _) => ???
+      case lv @ LambdaVar(_) => lv
+      case Lambda(expr) => Lambda(normalOrderReduction(expr))
+      case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
+      case l @ Literal(_) => l
+    }
+  }
+
+  private def applyLambdaSubstituion(expr: NormalExpression, subst: NormalExpression, idx: Int): NormalExpression = {
+    import NormalExpression._
+    expr match {
+      case App(fn, arg) => App(applyLambdaSubstituion(fn, subst, idx), applyLambdaSubstituion(arg, subst, idx))
+      case ext @ ExternalVar(_, _) => ext
+      case Match(arg, branches) => ???
+      case LambdaVar(varIndex) if varIndex == idx => subst
+      case lv @ LambdaVar(_) => lv
+      case Lambda(fn) => Lambda(applyLambdaSubstituion(fn, subst, idx + 1))
+      case Struct(enum, args) => Struct(enum, args.map(applyLambdaSubstituion(_, subst, idx)))
+      case l @ Literal(_) => l
+    }
   }
 }
