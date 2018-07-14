@@ -153,6 +153,7 @@ case class Normalization(pm: PackageMap.Inferred) {
       case ext @ ExternalVar(_, _) => ext
       case Match(arg, branches) => Match(applyLambdaSubstituion(arg, subst, idx), branches.map { case(enum, expr) => (enum, applyLambdaSubstituion(arg, subst, idx)) })
       case LambdaVar(varIndex) if varIndex == idx => subst
+      case LambdaVar(varIndex) if varIndex > idx => LambdaVar(varIndex - 1)
       case lv @ LambdaVar(_) => lv
       case Lambda(fn) => Lambda(applyLambdaSubstituion(fn, subst, idx + 1))
       case Struct(enum, args) => Struct(enum, args.map(applyLambdaSubstituion(_, subst, idx)))
