@@ -114,7 +114,7 @@ case class Normalization(pm: PackageMap.Inferred) {
       if (params == 0) expr
       else loop(params - 1, Lambda(expr))
 
-    loop(arity, Struct(enum, (arity to 0 by -1).map(LambdaVar(_)).toList))
+    loop(arity, Struct(enum, ((arity - 1) to 0 by -1).map(LambdaVar(_)).toList))
   }
 
   private def normalOrderReduction(expr: NormalExpression): NormalExpression = {
