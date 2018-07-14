@@ -63,7 +63,7 @@ case class Normalization(pm: PackageMap.Inferred) {
       case Expr.Literal(lit, scheme) => Literal(lit)
       case Expr.Match(arg, branches, scheme) => {
         val nArg = recurse((p, Right(arg), env))
-        val scheme = expr.tag
+        val scheme = arg.tag
         val dtName = Type.rootDeclared(scheme.result).get
         val dt = p.unfix.program.types.definedTypes
           .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get
@@ -106,8 +106,7 @@ case class Normalization(pm: PackageMap.Inferred) {
       .iterator
       .zipWithIndex
       .collectFirst { case ((ctor, params), idx) if ctor == c => (idx, params.size) }
-      .get // the ctor must be in the list or we wouldn't typecheck
-
+      .get
 
     import NormalExpression._
 
@@ -132,7 +131,12 @@ case class Normalization(pm: PackageMap.Inferred) {
     }
     nextExpr match {
       case al @ App(Lambda(_), _) => normalOrderReduction(al)
-      case App(fn, arg) => App(fn, normalOrderReduction(arg)) // I need a proof here or to fix this
+      case App(fn, arg) => {
+        normalOrderReduction(fn) match {
+          case l @ Lambda(_) => normalOrderReduction(App(l, arg))
+          case nfn @ _ => App(nfn, normalOrderReduction(arg))
+        }
+      }
       case extVar @ ExternalVar(_, _) => extVar
       case Match(arg, branches) => Match(normalOrderReduction(arg), branches.map { case(enum, expr) => (enum, normalOrderReduction(expr)) })
       case lv @ LambdaVar(_) => lv
