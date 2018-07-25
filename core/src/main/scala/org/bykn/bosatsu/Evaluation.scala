@@ -6,12 +6,12 @@ import cats.Eval
 import cats.implicits._
 
 case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
-  def evaluate(p: PackageName, varName: String): Option[(Eval[Any], Scheme)] =
+  def evaluate(p: PackageName, varName: String): Option[(Value, Scheme)] =
     pm.toMap.get(p).map { pack =>
       eval((Package.asInferred(pack), Left(varName), Map.empty))
     }
 
-  def evaluateLast(p: PackageName): Option[(Eval[Any], Scheme)] =
+  def evaluateLast(p: PackageName): Option[(Value, Scheme)] =
     for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
@@ -62,13 +62,15 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     }
 
   private type Ref = Either[String, Expr[(Declaration, Scheme)]]
+  private type Value = Eval[Any]
+  private type Env = Map[String, Any]
 
   private def evalBranch(arg: Any,
     scheme: Scheme,
     branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[(Declaration, Scheme)])],
     p: Package.Inferred,
-    env: Map[String, Any],
-    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme)): Eval[Any] =
+    env: Env,
+    recurse: ((Package.Inferred, Ref, Env)) => (Value, Scheme)): Value =
 
     arg match {
       case (enumId: Int, params: List[Any]) =>
@@ -89,8 +91,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
   private def evalExpr(p: Package.Inferred,
     expr: Expr[(Declaration, Scheme)],
-    env: Map[String, Any],
-    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme)): (Eval[Any], Scheme) = {
+    env: Env,
+    recurse: ((Package.Inferred, Ref, Env)) => (Value, Scheme)): (Value, Scheme) = {
 
     import Expr._
 
@@ -137,8 +139,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme) =
-    Memoize.function[(Package.Inferred, Ref, Map[String, Any]), (Eval[Any], Scheme)] {
+  private[this] val eval: ((Package.Inferred, Ref, Env)) => (Value, Scheme) =
+    Memoize.function[(Package.Inferred, Ref, Env), (Value, Scheme)] {
       case ((pack, Right(expr), env), recurse) =>
         evalExpr(pack, expr, env, recurse)
       case ((pack, Left(item), env), recurse) =>
