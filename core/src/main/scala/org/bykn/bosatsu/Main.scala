@@ -1,10 +1,12 @@
 package org.bykn.bosatsu
 
+import better.files.{File, FileMonitor}
 import cats.{Eval, Id}
 import cats.data.{Validated, ValidatedNel, NonEmptyList}
 import cats.implicits._
 import com.monovore.decline._
 import java.nio.file.Path
+import java.util.concurrent.LinkedBlockingQueue
 import org.typelevel.paiges.Doc
 import scala.util.Try
 
@@ -49,13 +51,14 @@ object Std {
 sealed abstract class MainResult[+A] {
   def map[B](fn: A => B): MainResult[B]
   def flatMap[B](fn: A => MainResult[B]): MainResult[B]
+  def intermediate: Boolean
 }
 object MainResult {
-  case class Error(code: Int, errLines: List[String], stdOut: List[String] = Nil) extends MainResult[Nothing] {
+  case class Error(code: Int, errLines: List[String], stdOut: List[String] = Nil, intermediate: Boolean = false) extends MainResult[Nothing] {
     def map[B](fn: Nothing => B) = this
     def flatMap[B](fn: Nothing => MainResult[B]) = this
   }
-  case class Success[A](result: A) extends MainResult[A] {
+  case class Success[A](result: A, intermediate: Boolean = false) extends MainResult[A] {
     def map[B](fn: A => B) = Success(fn(result))
     def flatMap[B](fn: A => MainResult[B]) = fn(result)
   }
@@ -70,15 +73,15 @@ object MainResult {
 
   def product[A, B](a: MainResult[A], b: MainResult[B])(errs: (Int, Int) => Int): MainResult[(A, B)] =
     (a, b) match {
-      case (Error(a, la, sa), Error(b, lb, sb)) => Error(errs(a, b), la ::: lb, sa ::: sb)
-      case (e@Error(_, _, _), _) => e
-      case (_, e@Error(_, _, _)) => e
-      case (Success(a), Success(b)) => Success((a, b))
+      case (Error(a, la, sa, ia), Error(b, lb, sb, ib)) => Error(errs(a, b), la ::: lb, sa ::: sb, ia && ib)
+      case (e@Error(_, _, _, _), _) => e
+      case (_, e@Error(_, _, _, _)) => e
+      case (Success(a, ia), Success(b, ib)) => Success((a, b), ia && ib)
     }
 }
 
 sealed abstract class MainCommand {
-  def run(): MainResult[List[String]]
+  def run(): LinkedBlockingQueue[MainResult[List[String]]]
 }
 
 object MainCommand {
@@ -99,9 +102,15 @@ object MainCommand {
       }
   }
 
+  def blockingQueue(mainResult: MainResult[List[String]]) = {
+    val bq: LinkedBlockingQueue[MainResult[List[String]]] = new LinkedBlockingQueue()
+    bq.put(mainResult)
+    bq
+  }
+
   case class Evaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
     def run() =
-      typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
+      blockingQueue(typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
@@ -109,11 +118,31 @@ object MainCommand {
             val res = eval.value
             MainResult.Success(List(s"$res: $scheme"))
         }
+      })
+  }
+  case class Revaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
+
+    def result = Evaluate(inputs, externals, mainPackage).run.take match {
+      case e @ MainResult.Error(_,_,_,_) => e.copy(intermediate = true)
+      case s @ MainResult.Success(_,_) => s.copy(intermediate = true)
+    }
+
+    def run() = {
+      import scala.concurrent.ExecutionContext.Implicits.global
+
+      val bq = blockingQueue(result)
+      (inputs ++ externals).toList.foreach { p =>
+        val watcher = new FileMonitor(p, recursive=false) {
+          override def onModify(file: File, count: Int): Unit = bq.put(result)
+        }
+        watcher.start
       }
+      bq
+    }
   }
   case class ToJson(inputs: NonEmptyList[Path], externals: List[Path], signatures: List[Path], mainPackage: PackageName, output: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
+      blockingQueue(typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
@@ -127,36 +156,36 @@ object MainCommand {
                   .map { _ => Nil }
             }
         }
-      }
+      })
   }
   case class TypeCheck(inputs: NonEmptyList[Path], signatures: List[Path], output: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs, Nil).flatMap { case (_, packs, _) =>
+      blockingQueue(typeCheck(inputs, Nil).flatMap { case (_, packs, _) =>
         MainResult.fromTry(CodeGen.writeDoc(output, Doc.text(s"checked ${packs.toMap.size} packages")))
           .map(_ => Nil)
-      }
+      })
   }
   case class Compile(inputs: NonEmptyList[Path], externals: List[Path], compileRoot: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
+      blockingQueue(typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         MainResult.fromTry(CodeGen.write(compileRoot, packs, Predef.jvmExternals ++ ext))
           .map { _ => List(s"wrote ${packs.toMap.size} packages") }
-      }
+      })
   }
   case class Normalize(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
-    def run() = typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
+    def run() = blockingQueue(typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
       val norm = Normalization(packs)
       norm.normalizeLast(mainPackage) match {
         case None => MainResult.Error(1, List("found no main expression"))
         case Some(expr) =>
           MainResult.Success(List(s"$expr"))
       }
-    }
+    })
   }
 
   case class RunTests(tests: NonEmptyList[Path], dependencies: List[Path], externals: List[Path]) extends MainCommand {
     def run() =
-      typeCheck(NonEmptyList(tests.head, tests.tail ::: dependencies), externals).flatMap { case (ext, packs, nameMap) =>
+      blockingQueue(typeCheck(NonEmptyList(tests.head, tests.tail ::: dependencies), externals).flatMap { case (ext, packs, nameMap) =>
         val testSet = tests.toList.toSet
         val testPackages: List[PackageName] = nameMap.collect { case (p, name) if testSet(p) => name }
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
@@ -177,7 +206,7 @@ object MainCommand {
 
           MainResult.Error(1, missingDoc.render(80) :: Nil, stdOut)
         }
-      }
+      })
   }
 
   def readExternals(epaths: List[Path]): ValidatedNel[Parser.Error, Externals] =
@@ -265,6 +294,7 @@ object MainCommand {
     val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output")
 
     val evalOpt = (ins, extern, mainP).mapN(Evaluate(_, _, _))
+    val revalOpt = (ins, extern, mainP).mapN(Revaluate(_, _, _))
     val normOpt = (ins, extern, mainP).mapN(Normalize(_, _, _))
     val toJsonOpt = (ins, extern, sigs, mainP, outputPath).mapN(ToJson(_, _, _, _, _))
     val typeCheckOpt = (ins, sigs, outputPath).mapN(TypeCheck(_, _, _))
@@ -272,6 +302,7 @@ object MainCommand {
     val testOpt = (ins, deps, extern).mapN(RunTests(_, _, _))
 
     Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
+      .orElse(Opts.subcommand("reval", "re-evaluate an expression on file change and print the output")(revalOpt))
       .orElse(Opts.subcommand("normalize", "apply a beta-normalization to the program")(normOpt))
       .orElse(Opts.subcommand("write-json", "evaluate a data expression into json")(toJsonOpt))
       .orElse(Opts.subcommand("type-check", "type check a set of packages")(typeCheckOpt))
@@ -284,18 +315,20 @@ object Main {
   def command: Command[MainCommand] =
     Command("bosatsu", "a total and functional programming language")(MainCommand.opts)
 
+  def runLoop(resultQueue: LinkedBlockingQueue[MainResult[List[String]]]): Unit = resultQueue.take match {
+    case MainResult.Error(code, errs, stdout, intermediate) =>
+      errs.foreach(System.err.println)
+      stdout.foreach(println)
+      if(intermediate) runLoop(resultQueue) else System.exit(code)
+    case MainResult.Success(lines, intermediate) =>
+      lines.foreach(println)
+      if(intermediate) runLoop(resultQueue) else System.exit(0)
+  }
+
   def main(args: Array[String]): Unit =
     command.parse(args.toList) match {
       case Right(cmd) =>
-        cmd.run() match {
-          case MainResult.Error(code, errs, stdout) =>
-            errs.foreach(System.err.println)
-            stdout.foreach(println)
-            System.exit(code)
-          case MainResult.Success(lines) =>
-            lines.foreach(println)
-            System.exit(0)
-        }
+        runLoop(cmd.run())
       case Left(help) =>
         System.err.println(help.toString)
         System.exit(1)
