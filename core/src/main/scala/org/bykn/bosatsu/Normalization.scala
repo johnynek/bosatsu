@@ -26,14 +26,14 @@ case class Normalization(pm: PackageMap.Inferred) {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
     } yield {
-      norm((Package.asInferred(pack), Right(expr.traverse[Id, Scheme](_._2)), (Map.empty, Nil)))
+      norm((Package.asInferred(pack), Right(expr), (Map.empty, Nil)))
     }).map(normalOrderReduction(_))
   
-  private type Ref = Either[String, Expr[Scheme]]
+  private type Ref = Either[String, Expr[(Declaration, Scheme)]]
   private type Env = (Map[String, NormalExpression], List[Option[String]])
 
   private def normExpr(p: Package.Inferred,
-    expr: Expr[Scheme],
+    expr: Expr[(Declaration, Scheme)],
     env: Env,
     recurse: ((Package.Inferred, Ref, Env)) => NormalExpression): NormalExpression = {
 
@@ -63,7 +63,7 @@ case class Normalization(pm: PackageMap.Inferred) {
       case Expr.Literal(lit, scheme) => Literal(lit)
       case Expr.Match(arg, branches, scheme) => {
         val nArg = recurse((p, Right(arg), env))
-        val scheme = arg.tag
+        val scheme = arg.tag._2
         val dtName = Type.rootDeclared(scheme.result).get
         val dt = p.unfix.program.types.definedTypes
           .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get
@@ -91,7 +91,7 @@ case class Normalization(pm: PackageMap.Inferred) {
       case ((pack, Left(item), env), recurse) =>
         NameKind(pack, item).get match { // this get should never fail due to type checking
           case NameKind.Let(expr) =>
-            recurse((pack, Right(expr.traverse[Id, Scheme](_._2)), env))
+            recurse((pack, Right(expr), env))
           case NameKind.Constructor(cn, dt, schm) => constructor(cn, dt)
           case NameKind.Import(from, orig) =>
             // we reset the environment in the other package
