@@ -27,55 +27,64 @@ case class Normalization(pm: PackageMap.Inferred) {
       (_, expr) <- pack.program.lets.lastOption
     } yield {
       norm((Package.asInferred(pack), Right(expr), (Map.empty, Nil)))
-    }).map(normalOrderReduction(_))
+    }).map(_.tag._3)
   
-  private type Ref = Either[String, Expr[(Declaration, Scheme)]]
+  private type Ref = Either[(String, (Declaration, Scheme)), Expr[(Declaration, Scheme)]]
+  private type ResultingRef = Expr[(Declaration, Scheme, NormalExpression)]
   private type Env = (Map[String, NormalExpression], List[Option[String]])
+  private def addNEToTag(tag: (Declaration, Scheme), ne: NormalExpression) = tag match { case(t1, t2) => (t1, t2, ne) }
 
   private def normExpr(p: Package.Inferred,
     expr: Expr[(Declaration, Scheme)],
     env: Env,
-    recurse: ((Package.Inferred, Ref, Env)) => NormalExpression): NormalExpression = {
+    recurse: ((Package.Inferred, Ref, Env)) => ResultingRef): ResultingRef = {
 
     import NormalExpression._
 
     expr match {
-      case Expr.Var(v, scheme) =>
+      case Expr.Var(v, t) =>
         env._1.get(v) match {
-          case Some(a) => a
-          case None => recurse((p, Left(v), env))
+          case Some(ne) => Expr.Var(v, addNEToTag(t, ne))
+          case None => recurse((p, Left((v, t)), env))
         }
-      case Expr.App(fn, arg, scheme) => {
+      case Expr.App(fn, arg, t) => {
         val efn = recurse((p, Right(fn), env))
         val earg = recurse((p, Right(arg), env))
-        App(efn, earg)
+        val ne = normalOrderReduction(App(efn.tag._3, earg.tag._3))
+        Expr.App(efn, earg, addNEToTag(t, ne))
       }
-      case Expr.Lambda(name, expr, scheme) => {
+      case Expr.Lambda(name, expr, t) => {
         val lambdaVars = Some(name) :: env._2
         val nextEnv = (env._1 ++ lambdaVars.zipWithIndex.collect { case(Some(n), i) => (n,i) }.toMap.mapValues(LambdaVar(_)), lambdaVars)
-        Lambda(recurse((p, Right(expr), nextEnv)))
+        val eExpr = recurse((p, Right(expr), nextEnv))
+        val ne = Lambda(eExpr.tag._3)
+        Expr.Lambda(name, eExpr, addNEToTag(t, ne))
       }
-      case Expr.Let(arg, e, in, scheme) => {
+      case Expr.Let(arg, e, in, t) => {
         val ee = recurse((p, Right(e), env))
-        val nextEnv = (env._1 ++ Map(arg -> ee), env._2)
-        recurse((p, Right(in), nextEnv))
+        val nextEnv = (env._1 ++ Map(arg -> ee.tag._3), env._2)
+        val eIn = recurse((p, Right(in), nextEnv)) // need a better solution here because eIn cannot be represented with an NE because it might contain unsubstituted variables
+        val ne = eIn.tag._3
+        Expr.Let(arg, ee, eIn, addNEToTag(t, ne)) 
       }
-      case Expr.Literal(lit, scheme) => Literal(lit)
-      case Expr.Match(arg, branches, scheme) => {
-        val nArg = recurse((p, Right(arg), env))
+      case Expr.Literal(lit, t) => Expr.Literal(lit, addNEToTag(t, Literal(lit)))
+      case Expr.Match(arg, branches, t) => {
+        val eArg = recurse((p, Right(arg), env))
         val scheme = arg.tag._2
         val dtName = Type.rootDeclared(scheme.result).get
         val dt = p.unfix.program.types.definedTypes
           .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get
         val enumLookup = dt.constructors.map(_._1.asString).zipWithIndex.toMap
 
-        val nBranches = branches.map { case(pattern, e) => {
+        val eBranches = branches.map { case(pattern, e) => {
           val enum = enumLookup(pattern.typeName._2.asString)
           val lambdaVars = pattern.bindings.reverse ++ env._2
           val nextEnv = (env._1 ++ lambdaVars.zipWithIndex.collect { case(Some(n), i) => (n,i) }.toMap.mapValues(LambdaVar(_)), lambdaVars)
-          (enum, recurse((p, Right(e), nextEnv)))
+          val ee = recurse((p, Right(e), nextEnv))
+          (pattern, enum, ee)
         }}
-        Match(nArg, nBranches)
+        val ne = Match(eArg.tag._3, eBranches.map { case (p,i,b) => (i,b.tag._3) })
+        Expr.Match(eArg, eBranches.map {case (p,i,b) => (p,b) }, addNEToTag(t, ne))
       }
     }
   }
@@ -84,19 +93,28 @@ case class Normalization(pm: PackageMap.Inferred) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val norm: ((Package.Inferred, Ref, Env)) => NormalExpression =
-    Memoize.function[(Package.Inferred, Ref, Env), NormalExpression] {
+  private[this] val norm: ((Package.Inferred, Ref, Env)) => ResultingRef =
+    Memoize.function[(Package.Inferred, Ref, Env), ResultingRef] {
       case ((pack, Right(expr), env), recurse) =>
         normExpr(pack, expr, env, recurse)
-      case ((pack, Left(item), env), recurse) =>
+      case ((pack, Left((item, t)), env), recurse) =>
         NameKind(pack, item).get match { // this get should never fail due to type checking
-          case NameKind.Let(expr) =>
-            recurse((pack, Right(expr), env))
-          case NameKind.Constructor(cn, dt, schm) => constructor(cn, dt)
-          case NameKind.Import(from, orig) =>
+          case NameKind.Let(expr) => {
+            val ne = recurse((pack, Right(expr), env)).tag._3
+            Expr.Var(item, addNEToTag(t, ne))
+          }
+          case NameKind.Constructor(cn, dt, schm) => {
+            val ne = constructor(cn, dt)
+            Expr.Var(item, addNEToTag(t, ne))
+          }
+          case NameKind.Import(from, orig) => {
             // we reset the environment in the other package
-            recurse((from, Left(orig), (Map.empty, Nil)))
-          case NameKind.ExternalDef(pn, n, scheme) => NormalExpression.ExternalVar(pn, n)
+            recurse((from, Left((orig, t)), (Map.empty, Nil)))
+          }
+          case NameKind.ExternalDef(pn, n, scheme) => {
+            val ne = NormalExpression.ExternalVar(pn, n)
+            Expr.Var(item, addNEToTag(t, ne))
+          }
         }
     }
 
