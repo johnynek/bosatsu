@@ -21,13 +21,13 @@ object NormalExpression {
 
 case class Normalization(pm: PackageMap.Inferred) {
 
-  def normalizeLast(p: PackageName): Option[NormalExpression] =
+  def normalizeLast(p: PackageName): Option[ResultingRef] =
     (for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
     } yield {
       norm((Package.asInferred(pack), Right(expr), (Map.empty, Nil)))
-    }).map(_.tag._3)
+    })
   
   private type Ref = Either[(String, (Declaration, Scheme)), Expr[(Declaration, Scheme)]]
   private type ResultingRef = Expr[(Declaration, Scheme, NormalExpression)]

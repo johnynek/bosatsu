@@ -178,7 +178,7 @@ object MainCommand {
       norm.normalizeLast(mainPackage) match {
         case None => MainResult.Error(1, List("found no main expression"))
         case Some(expr) =>
-          MainResult.Success(List(s"$expr"))
+          MainResult.Success(List(s"${expr.tag._3}"))
       }
     })
   }
