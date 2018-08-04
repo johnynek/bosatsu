@@ -112,6 +112,7 @@ object Package {
   type PackageF[A, B] = Package[FixPackage[A, A, B], A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Program[Declaration, Statement]]
   type Inferred = FixPackage[Referant, Referant, Program[(Declaration, Scheme), Statement]]
+  type Normalized = FixPackage[Referant, Referant, Program[(Declaration, Scheme, NormalExpression), Statement]]
 
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
@@ -212,6 +213,7 @@ object PackageMap {
   type MapF2[A, B] = MapF3[A, A, B]
   type Resolved = MapF2[Unit, Program[Declaration, Statement]]
   type Inferred = MapF2[Referant, Program[(Declaration, Scheme), Statement]]
+  type Normalized = MapF2[Referant, Program[(Declaration, Scheme, NormalExpression), Statement]]
 
   /**
    * This builds a DAG of actual packages where names have been replaced by the fully resolved
