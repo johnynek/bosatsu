@@ -26,9 +26,42 @@ case class Normalization(pm: PackageMap.Inferred) {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
     } yield {
-      norm((Package.asInferred(pack), Right(expr), (Map.empty, Nil)))
+      normalizeExpression(Package.asInferred(pack), expr)
     })
-  
+
+  // def normalizeProgram(p: Program[Int]) = {
+  //  val newLets = 
+
+  def normalizeExpression(pack: Package.Inferred, expr: Expr[(Declaration, Scheme)]): ResultingRef =
+    norm((pack, Right(expr), (Map.empty, Nil)))
+
+  def normalizePackageMap(pm: PackageMap.Inferred): PackageMap.Normalized = {
+    val emptyLetsMap = Map[(PackageName, String), ResultingRef]()
+    val letsMap: Map[(PackageName, String), ResultingRef] = pm.toMap.foldLeft(emptyLetsMap) { case (lets, (pn, pack)) =>
+      pack.program.lets.foldLeft(lets) { case (lets, (name, expr)) =>
+        val key = (pn, name)
+        lets
+      }
+    }
+    type PackInf = Package.PackageF[Referant, Program[(Declaration, Scheme), Statement]]
+    type PackNorm = Package.PackageF[Referant, Program[(Declaration, Scheme, NormalExpression), Statement]]
+    def normalizePack(pack: PackInf): PackNorm = {
+      val Package(pn, imports, _, program) = pack
+      val lets = program.lets.map { case (name, _) =>
+        name -> letsMap((pn, name))
+      }
+      val mappedImports = imports.map { case Import(iPack, items) =>
+        val p = Fix[Lambda[a => Package[a, Referant, Referant, Program[(Declaration, Scheme, NormalExpression), Statement]]]](
+          normalizePack(iPack.unfix)
+        )
+        Import(p, items)
+      }
+      pack.copy(program = program.copy(lets = lets), imports = mappedImports)
+    }
+    val toMap = pm.toMap.map { case (pn, pack) => (pn, normalizePack(pack)) }
+    PackageMap(toMap)
+  }
+
   private type Ref = Either[(String, (Declaration, Scheme)), Expr[(Declaration, Scheme)]]
   private type ResultingRef = Expr[(Declaration, Scheme, NormalExpression)]
   private type Env = (Map[String, NormalExpression], List[Option[String]])

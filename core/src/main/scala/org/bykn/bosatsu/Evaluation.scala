@@ -27,10 +27,12 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   def evaluateLast(p: PackageName): Option[(Value, Scheme)] =
     for {
       pack <- pm.toMap.get(p)
-      exprWithNe <- Normalization(pm).normalizeLast(p)
+      (_, expr) <- pack.program.lets.lastOption
     } yield {
-      val expr = exprWithNe.traverse[Id, (Declaration, Scheme, Option[NormalExpression])] { t => (t._1,t._2,Some(t._3)) }
-      eval((Package.asInferred(pack), Right(expr), Map.empty))
+      val exprWithNe = Normalization(pm)
+        .normalizeExpression(Package.asInferred(pack), expr)
+        .traverse[Id, (Declaration, Scheme, Option[NormalExpression])] { t => (t._1,t._2,Some(t._3)) }
+      eval((Package.asInferred(pack), Right(exprWithNe), Map.empty))
     }
 
   def evalTest(ps: PackageName): Option[Test] =
