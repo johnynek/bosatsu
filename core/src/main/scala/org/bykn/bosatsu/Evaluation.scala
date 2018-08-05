@@ -19,19 +19,22 @@ object CacheEval {
 }
 
 case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
+
+  private lazy val npm: PackageMap.Normalized = Normalization(pm).normalizePackageMap
+
   def evaluate(p: PackageName, varName: String): Option[(Value, Scheme)] =
-    pm.toMap.get(p).map { pack =>
-      eval((Package.asInferred(pack), Left(varName), Map.empty))
+    npm.toMap.get(p).map { pack =>
+      eval((Package.asFixed(pack), Left(varName), Map.empty))
     }
 
   def evaluateLast(p: PackageName): Option[(Value, Scheme)] =
     for {
-      pack <- pm.toMap.get(p)
-      (_, expr) <- pack.program.lets.lastOption
+      pack <- npm.toMap.get(p)
+      (_, exprWithNe) <- pack.program.lets.lastOption
     } yield {
-      val exprWithNe = expr
-        .traverse[Id, (Declaration, Scheme, Option[NormalExpression])] { t => (t._1,t._2,None) }
-      eval((Package.asInferred(pack), Right(exprWithNe), Map.empty))
+      // val exprWithNe = expr
+      //  .traverse[Id, (Declaration, Scheme, Option[NormalExpression])] { t => (t._1,t._2,None) }
+      eval((Package.asFixed(pack), Right(exprWithNe), Map.empty))
     }
 
   def evalTest(ps: PackageName): Option[Test] =
@@ -78,16 +81,16 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       }
     }
 
-  private type Ref = Either[String, Expr[(Declaration, Scheme, Option[NormalExpression])]]
+  private type Ref = Either[String, Expr[(Declaration, Scheme, NormalExpression)]]
   private type Value = CacheEval[Any]
   private type Env = Map[String, Any]
 
   private def evalBranch(arg: Any,
     scheme: Scheme,
-    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[(Declaration, Scheme, Option[NormalExpression])])],
-    p: Package.Inferred,
+    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[(Declaration, Scheme, NormalExpression)])],
+    p: Package.Normalized,
     env: Env,
-    recurse: ((Package.Inferred, Ref, Env)) => (Value, Scheme)): Value =
+    recurse: ((Package.Normalized, Ref, Env)) => (Value, Scheme)): Value =
 
     arg match {
       case (enumId: Int, params: List[Any]) =>
@@ -106,10 +109,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       case other => sys.error(s"logic error, in match arg evaluated to $other")
     }
 
-  private def evalExpr(p: Package.Inferred,
-    expr: Expr[(Declaration, Scheme, Option[NormalExpression])],
+  private def evalExpr(p: Package.Normalized,
+    expr: Expr[(Declaration, Scheme, NormalExpression)],
     env: Env,
-    recurse: ((Package.Inferred, Ref, Env)) => (Value, Scheme)): (Value, Scheme) = {
+    recurse: ((Package.Normalized, Ref, Env)) => (Value, Scheme)): (Value, Scheme) = {
 
     import Expr._
 
@@ -156,14 +159,14 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Inferred, Ref, Env)) => (Value, Scheme) =
-    Memoize.function[(Package.Inferred, Ref, Env), (Value, Scheme)] {
+  private[this] val eval: ((Package.Normalized, Ref, Env)) => (Value, Scheme) =
+    Memoize.function[(Package.Normalized, Ref, Env), (Value, Scheme)] {
       case ((pack, Right(expr), env), recurse) =>
         evalExpr(pack, expr, env, recurse)
       case ((pack, Left(item), env), recurse) =>
         NameKind(pack, item).get match { // this get should never fail due to type checking
           case NameKind.Let(expr) =>
-            recurse((pack, Right(expr.traverse[Id, (Declaration, Scheme, Option[NormalExpression])] { case(d,s) => (d,s,None)}), env))
+            recurse((pack, Right(expr), env))
           case NameKind.Constructor(cn, dt, schm) =>
             (CacheEval.later(constructor(cn, dt)), schm)
           case NameKind.Import(from, orig) =>

@@ -126,6 +126,9 @@ object Package {
    */
   def asInferred(p: PackageF[Referant, Program[(Declaration, Scheme), Statement]]): Inferred =
     Fix[Lambda[a => Package[a, Referant, Referant, Program[(Declaration, Scheme), Statement]]]](p)
+  
+  def asFixed[T](p: PackageF[Referant, T]): FixPackage[Referant, Referant, T] =
+    Fix[Lambda[a => Package[a, Referant, Referant, T]]](p)
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Program[Declaration, Statement]]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>

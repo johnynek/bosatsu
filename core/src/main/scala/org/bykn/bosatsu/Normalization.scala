@@ -21,21 +21,16 @@ object NormalExpression {
 
 case class Normalization(pm: PackageMap.Inferred) {
 
-  def normalizeLast(p: PackageName): Option[ResultingRef] = ???
-  //  (for {
-  //    pack <- pm.toMap.get(p)
-  //    (_, expr) <- pack.program.lets.lastOption
-  //  } yield {
-  //    normalizeExpression(Package.asInferred(pack), expr)
-  //  })
+  def normalizeLast(p: PackageName): Option[ResultingRef] = 
+    for {
+      pack <- normalizePackageMap.toMap.get(p)
+      (_, expr) <- pack.program.lets.lastOption
+    } yield expr
 
-  // def normalizeProgram(p: Program[Int]) = {
-  //  val newLets = 
+  private def normalizeExpression(pack: Package.Inferred, expr: Expr[(Declaration, Scheme)]): State[Map[(PackageName, String), ResultingRef], ResultingRef] =
+    norm((pack, Right(expr), (Map.empty, Nil)))
 
-  def normalizeExpression(pack: Package.Inferred, expr: Expr[(Declaration, Scheme)]): State[Map[(PackageName, String), ResultingRef], ResultingRef] = ???
-  //  norm((pack, Right(expr), (Map.empty, Nil)))
-
-  def normalizePackageMap(pm: PackageMap.Inferred): PackageMap.Normalized = {
+  lazy val normalizePackageMap: PackageMap.Normalized = {
     val emptyLetsMap = Map[(PackageName, String), ResultingRef]()
     val letsMap: Map[(PackageName, String), ResultingRef] = (pm.toMap.toList.map  { case (pn, pack) =>
       (pack.program.lets.map { case (name, expr) =>
