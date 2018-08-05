@@ -144,20 +144,19 @@ case class Normalization(pm: PackageMap.Inferred) {
         normExpr(pack, expr, env, recurse)
       case ((pack, Left((item, t)), env), recurse) =>
         NameKind(pack, item).get match { // this get should never fail due to type checking
-          case NameKind.Let(expr) => {
-            State.inspect { lets: Map[(PackageName, String), ResultingRef] =>
+          case NameKind.Let(expr) => for {
+            lookup <- State.inspect { lets: Map[(PackageName, String), ResultingRef] =>
               lets.get((pack.unfix.name, item))
             }
-              .flatMap { lookup: Option[ResultingRef] => lookup match {
-                case Some(res) => State.pure(res)
-                case None => for {
-                  res <- recurse((pack, Right(expr), env))
-                  _ <- State.modify { lets: Map[(PackageName, String), ResultingRef] => lets + ((pack.unfix.name, item) -> res)}
-                } yield res
+            res <- lookup match {
+              case Some(res) => State.pure(res): State[Map[(PackageName, String), ResultingRef], ResultingRef]
+              case None => for {
+                res <- recurse((pack, Right(expr), env))
+                _ <- State.modify { lets: Map[(PackageName, String), ResultingRef] => lets + ((pack.unfix.name, item) -> res)}
+              } yield res
 
-              }}
-              .map(res => Expr.Var(item, addNEToTag(t, res.tag._3)))
-          }
+            }
+          } yield Expr.Var(item, addNEToTag(t, res.tag._3))
           case NameKind.Constructor(cn, dt, schm) => {
             val ne = constructor(cn, dt)
             State.pure(Expr.Var(item, addNEToTag(t, ne)))
