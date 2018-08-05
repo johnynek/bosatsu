@@ -45,9 +45,7 @@ case class Normalization(pm: PackageMap.Inferred) {
         name -> letsMap((pn, name))
       }
       val mappedImports = imports.map { case Import(iPack, items) =>
-        val p = Fix[Lambda[a => Package[a, Referant, Referant, Program[(Declaration, Scheme, NormalExpression), Statement]]]](
-          normalizePack(iPack.unfix)
-        )
+        val p = Package.asFixed(normalizePack(iPack.unfix))
         Import(p, items)
       }
       pack.copy(program = program.copy(lets = lets), imports = mappedImports)
