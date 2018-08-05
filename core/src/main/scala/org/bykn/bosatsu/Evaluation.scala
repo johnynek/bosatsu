@@ -29,9 +29,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
     } yield {
-      val exprWithNe = Normalization(pm)
-        .normalizeExpression(Package.asInferred(pack), expr)
-        .traverse[Id, (Declaration, Scheme, Option[NormalExpression])] { t => (t._1,t._2,Some(t._3)) }
+      val exprWithNe = expr
+        .traverse[Id, (Declaration, Scheme, Option[NormalExpression])] { t => (t._1,t._2,None) }
       eval((Package.asInferred(pack), Right(exprWithNe), Map.empty))
     }
 
