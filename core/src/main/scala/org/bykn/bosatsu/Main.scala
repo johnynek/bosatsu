@@ -114,9 +114,9 @@ object MainCommand {
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
-          case Some((eval, scheme)) =>
+          case Some((eval, scheme, ne)) =>
             val res = eval.value
-            MainResult.Success(List(s"$res: $scheme"))
+            MainResult.Success(List(s"res: ($res), scheme: $scheme, expression: $ne"))
         }
       })
   }
@@ -146,7 +146,7 @@ object MainCommand {
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
-          case Some((eval, scheme)) =>
+          case Some((eval, scheme, _)) =>
             val res = eval.value
             ev.toJson(res, scheme) match {
               case None =>

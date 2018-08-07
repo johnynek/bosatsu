@@ -117,7 +117,11 @@ case class Normalization(pm: PackageMap.Inferred) {
             val enum = enumLookup(pattern.typeName._2.asString)
             val lambdaVars = pattern.bindings.reverse ++ env._2
             val nextEnv = (env._1 ++ lambdaVars.zipWithIndex.collect { case(Some(n), i) => (n,i) }.toMap.mapValues(LambdaVar(_)), lambdaVars)
-            for(ee <- recurse((p, Right(e), nextEnv))) yield (pattern, enum, ee)
+            for(ee <- recurse((p, Right(e), nextEnv))) yield {
+              val tag = ee.tag
+              val ne = (1 to pattern.bindings.length).foldLeft(tag._3) { case (e,_) => Lambda(e) }
+              (pattern, enum, ee.setTag((tag._1, tag._2, ne)))
+            }
           }}.sequence
         } yield {
           val ne = Match(eArg.tag._3, eBranches.map { case (p,i,b) => (i,b.tag._3) })
@@ -192,18 +196,27 @@ case class Normalization(pm: PackageMap.Inferred) {
         val nextFn = normalOrderReduction(fn)
         App(nextFn, arg)
       }
+      case Match(Struct(enum, args), branches) => {
+        val branch = branches.find(_._1 == enum).get._2
+        args.reverse.foldLeft(branch) { case (expr, arg) => App(branch, arg) }
+      }
+      case Match(struct, branches) => {
+        val nextStruct = normalOrderReduction(struct)
+        Match(nextStruct, branches)
+      }
       case _ => expr
     }
     nextExpr match {
       case al @ App(Lambda(_), _) => normalOrderReduction(al)
-      case App(fn, arg) => {
-        normalOrderReduction(fn) match {
-          case l @ Lambda(_) => normalOrderReduction(App(l, arg))
-          case nfn @ _ => App(nfn, normalOrderReduction(arg))
-        }
+      case App(fn, arg) => normalOrderReduction(fn) match {
+        case l @ Lambda(_) => normalOrderReduction(App(l, arg))
+        case nfn @ _ => App(nfn, normalOrderReduction(arg))
       }
       case extVar @ ExternalVar(_, _) => extVar
-      case Match(arg, branches) => Match(normalOrderReduction(arg), branches.map { case(enum, expr) => (enum, normalOrderReduction(expr)) })
+      case Match(arg, branches) => normalOrderReduction(arg) match {
+        case s @ Struct(_, _) => normalOrderReduction(Match(s, branches))
+        case ns @ _ => Match(ns, branches.map { case(enum, expr) => (enum, normalOrderReduction(expr)) })
+      }
       case lv @ LambdaVar(_) => lv
       case Lambda(expr) => Lambda(normalOrderReduction(expr))
       case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
@@ -216,7 +229,7 @@ case class Normalization(pm: PackageMap.Inferred) {
     expr match {
       case App(fn, arg) => App(applyLambdaSubstituion(fn, subst, idx), applyLambdaSubstituion(arg, subst, idx))
       case ext @ ExternalVar(_, _) => ext
-      case Match(arg, branches) => Match(applyLambdaSubstituion(arg, subst, idx), branches.map { case(enum, expr) => (enum, applyLambdaSubstituion(arg, subst, idx)) })
+      case Match(arg, branches) => Match(applyLambdaSubstituion(arg, subst, idx), branches.map { case(enum, expr) => (enum, applyLambdaSubstituion(expr, subst, idx)) })
       case LambdaVar(varIndex) if varIndex == idx => subst
       case LambdaVar(varIndex) if varIndex > idx => LambdaVar(varIndex - 1)
       case lv @ LambdaVar(_) => lv

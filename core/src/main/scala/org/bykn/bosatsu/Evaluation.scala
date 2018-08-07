@@ -27,18 +27,17 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       eval((Package.asFixed(pack), Left(varName), Map.empty))
     }
 
-  def evaluateLast(p: PackageName): Option[(Value, Scheme)] =
+  def evaluateLast(p: PackageName): Option[(Value, Scheme, NormalExpression)] =
     for {
       pack <- npm.toMap.get(p)
       (_, exprWithNe) <- pack.program.lets.lastOption
     } yield {
-      // val exprWithNe = expr
-      //  .traverse[Id, (Declaration, Scheme, Option[NormalExpression])] { t => (t._1,t._2,None) }
-      eval((Package.asFixed(pack), Right(exprWithNe), Map.empty))
+      val (value, scheme) = eval((Package.asFixed(pack), Right(exprWithNe), Map.empty))
+      (value, scheme, exprWithNe.tag._3)
     }
 
   def evalTest(ps: PackageName): Option[Test] =
-    evaluateLast(ps).flatMap { case (ea, scheme) =>
+    evaluateLast(ps).flatMap { case (ea, scheme, _) =>
 
 // enum Test:
 //   TestAssert(value: Bool)
