@@ -112,7 +112,7 @@ object MainCommand {
     def run() =
       blockingQueue(typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
-        ev.evaluateLast(mainPackage) match {
+        ev.evaluateLast(mainPackage, Map()) match {
           case None => MainResult.Error(1, List("found no main expression"))
           case Some((eval, scheme, ne)) =>
             val res = eval.value
@@ -144,7 +144,7 @@ object MainCommand {
     def run() =
       blockingQueue(typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
-        ev.evaluateLast(mainPackage) match {
+        ev.evaluateLast(mainPackage, Map()) match {
           case None => MainResult.Error(1, List("found no main expression"))
           case Some((eval, scheme, _)) =>
             val res = eval.value
