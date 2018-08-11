@@ -7,6 +7,7 @@ import cats.implicits._
 import com.monovore.decline._
 import java.nio.file.Path
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicReference
 import org.typelevel.paiges.Doc
 import scala.util.Try
 
@@ -58,7 +59,7 @@ object MainResult {
     def map[B](fn: Nothing => B) = this
     def flatMap[B](fn: Nothing => MainResult[B]) = this
   }
-  case class Success[A](result: A, intermediate: Boolean = false) extends MainResult[A] {
+  case class Success[A](result: A, intermediate: Boolean = false, cache: Map[NormalExpression, Eval[Any]] = Map()) extends MainResult[A] {
     def map[B](fn: A => B) = Success(fn(result))
     def flatMap[B](fn: A => MainResult[B]) = fn(result)
   }
@@ -76,7 +77,7 @@ object MainResult {
       case (Error(a, la, sa, ia), Error(b, lb, sb, ib)) => Error(errs(a, b), la ::: lb, sa ::: sb, ia && ib)
       case (e@Error(_, _, _, _), _) => e
       case (_, e@Error(_, _, _, _)) => e
-      case (Success(a, ia), Success(b, ib)) => Success((a, b), ia && ib)
+      case (Success(a, ia, ca), Success(b, ib, cb)) => Success((a, b), ia && ib, ca ++ cb)
     }
 }
 
@@ -108,11 +109,11 @@ object MainCommand {
     bq
   }
 
-  case class Evaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
+  case class Evaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName, cache: Map[NormalExpression, Eval[Any]] = Map()) extends MainCommand {
     def run() =
       blockingQueue(typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
-        ev.evaluateLast(mainPackage, Map()) match {
+        ev.evaluateLast(mainPackage, cache) match {
           case None => MainResult.Error(1, List("found no main expression"))
           case Some((eval, scheme, ne)) =>
             val res = eval.value
@@ -122,9 +123,14 @@ object MainCommand {
   }
   case class Revaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
 
-    def result = Evaluate(inputs, externals, mainPackage).run.take match {
+    val cache: AtomicReference[Map[NormalExpression, Eval[Any]]] = new AtomicReference(Map())
+
+    def result = Evaluate(inputs, externals, mainPackage, cache.get).run.take match {
       case e @ MainResult.Error(_,_,_,_) => e.copy(intermediate = true)
-      case s @ MainResult.Success(_,_) => s.copy(intermediate = true)
+      case s @ MainResult.Success(_,_,c) => {
+        cache.set(c)
+        s.copy(intermediate = true)
+      }
     }
 
     def run() = {
@@ -320,7 +326,7 @@ object Main {
       errs.foreach(System.err.println)
       stdout.foreach(println)
       if(intermediate) runLoop(resultQueue) else System.exit(code)
-    case MainResult.Success(lines, intermediate) =>
+    case MainResult.Success(lines, intermediate, _) =>
       lines.foreach(println)
       if(intermediate) runLoop(resultQueue) else System.exit(0)
   }
