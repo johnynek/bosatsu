@@ -123,12 +123,14 @@ object MainCommand {
   }
   case class Revaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
 
-    val cache: AtomicReference[Map[NormalExpression, Eval[Any]]] = new AtomicReference(Map())
+    val cache: LinkedBlockingQueue[Map[NormalExpression, Eval[Any]]] = new LinkedBlockingQueue()
 
-    def result = Evaluate(inputs, externals, mainPackage, cache.get).run.take match {
+    def combinedCache: Map[NormalExpression, Eval[Any]] = cache.toArray.map(_.asInstanceOf[Map[NormalExpression, Eval[Any]]]).foldLeft(Map[NormalExpression, Eval[Any]]())(_ ++ _)
+
+    def result = Evaluate(inputs, externals, mainPackage, combinedCache).run.take match {
       case e @ MainResult.Error(_,_,_,_) => e.copy(intermediate = true)
       case s @ MainResult.Success(_,_,c) => {
-        cache.set(c)
+        cache.put(c)
         s.copy(intermediate = true)
       }
     }
