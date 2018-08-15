@@ -147,7 +147,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         }
       case Let(arg, e, in, (_, scheme, ne)) =>
         recurse((p, Right(e), env)).flatMap { case (ae, _) =>
-          recurse((p, Right(in), env + (arg -> ae)))
+          recurse((p, Right(in), env + (arg -> ae.value)))
             .map(vs => (vs._1, scheme))
         }
       case Literal(Lit.Integer(i), (_, scheme, ne)) => State.pure((Eval.now(i), scheme))
