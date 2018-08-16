@@ -6,15 +6,24 @@ import cats.{Eval, Id}
 import cats.implicits._
 
 object EvalCache {
-  def apply(expr: Expr[(Declaration, Scheme, NormalExpression)], eval: State[Map[NormalExpression, Eval[Any]], (Eval[Any], Scheme)]): State[Map[NormalExpression, Eval[Any]], (Eval[Any], Scheme)] = {
+  def apply(
+    expr: Expr[(Declaration, Scheme, NormalExpression)]
+  )(
+    eval: => State[Map[NormalExpression, (Eval[Any], Scheme)], (Eval[Any], Scheme)]
+  ): State[Map[NormalExpression, (Eval[Any], Scheme)], (Eval[Any], Scheme)] = {
     val key = expr.tag._3
     for{
-      es <- eval
-      cacheHit <- State.inspect[Map[NormalExpression, Eval[Any]], Option[Eval[Any]]](_.get(key))
+      cacheHit <- State.inspect[Map[NormalExpression, (Eval[Any], Scheme)], Option[(Eval[Any], Scheme)]](_.get(key))
       result <- cacheHit match {
-        case Some(v) => State.pure[Map[NormalExpression, Eval[Any]], (Eval[Any], Scheme)]((v, es._2))
-        case None => State.modify[Map[NormalExpression, Eval[Any]]](_ + (key -> es._1))
-          .map(_ => es)
+        case Some((v,s)) => State.pure[Map[NormalExpression, (Eval[Any], Scheme)], (Eval[Any], Scheme)]((v, s))
+        case None => {
+          for {
+            es <- eval
+            ee = Eval.later { es._1.value }
+            s = es._2
+            _ <- State.modify[Map[NormalExpression, (Eval[Any], Scheme)]](_ + (key -> ((ee, s))))
+          } yield (ee,s)
+        }
       }
     } yield result
   }
@@ -29,17 +38,18 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       eval((Package.asFixed(pack), Left(varName), Map.empty)).run(Map()).value._2
     }
 
-  def evaluateLast(p: PackageName, evalCache: Map[NormalExpression, Eval[Any]]): Option[(Value, Scheme, NormalExpression)] =
+  def evaluateLast(p: PackageName, evalCache: Map[NormalExpression, (Value, Scheme)]): Option[(Value, Scheme, NormalExpression, Map[NormalExpression, (Value, Scheme)])] =
     for {
       pack <- npm.toMap.get(p)
       (_, exprWithNe) <- pack.program.lets.lastOption
     } yield {
-      val (value, scheme) = eval((Package.asFixed(pack), Right(exprWithNe), Map.empty)).run(evalCache).value._2
-      (value, scheme, exprWithNe.tag._3)
+      val a = eval
+      val (cache, (value, scheme)) = eval((Package.asFixed(pack), Right(exprWithNe), Map.empty)).run(evalCache).value
+      (value, scheme, exprWithNe.tag._3, cache)
     }
 
   def evalTest(ps: PackageName): Option[Test] =
-    evaluateLast(ps, Map()).flatMap { case (ea, scheme, _) =>
+    evaluateLast(ps, Map()).flatMap { case (ea, scheme, _, _) =>
 
 // enum Test:
 //   TestAssert(value: Bool)
@@ -85,7 +95,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   private type Ref = Either[String, Expr[(Declaration, Scheme, NormalExpression)]]
   private type Value = Eval[Any]
   private type Env = Map[String, Any]
-  private type StateEvalCache[T] = State[Map[NormalExpression, Value], T]
+  private type StateEvalCache[T] = State[Map[NormalExpression, (Value, Scheme)], T]
 
   private def evalBranch(arg: Any,
     scheme: Scheme,
@@ -117,15 +127,16 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       case Var(v, (_, scheme, ne)) =>
         env.get(v) match {
           case Some(a) => State.pure((Eval.now(a), scheme))
-          case None => EvalCache(expr, recurse((p, Left(v), env)))
+          case None => EvalCache(expr) { recurse((p, Left(v), env)) }
         }
       case App(Lambda(name, fn, _), arg, (_, scheme, ne)) =>
-        EvalCache(expr, recurse((p, Right(arg), env)).flatMap { case (arg,_) =>
-          val env1 = env + (name -> arg)
-          recurse((p, Right(fn), env1)).map { case(v,_) => (v, scheme) }
-        })
+        EvalCache(expr) {
+          recurse((p, Right(arg), env)).flatMap { case (arg,_) =>
+            val env1 = env + (name -> arg.value)
+            recurse((p, Right(fn), env1)).map { case(v,_) => (v, scheme) }
+          }}
       case App(fn, arg, (_, scheme, ne)) =>
-        EvalCache(expr, 
+        EvalCache(expr) {
           for {
             efn <- recurse((p, Right(fn), env)).map(_._1)
             earg <- recurse((p, Right(arg), env)).map(_._1)
@@ -134,7 +145,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             afn = fn.asInstanceOf[Fn[Any, Any]] // safe because we typecheck
             a <- earg
           } yield afn(a), scheme)
-        )
+        }
       case Lambda(name, expr, (_, scheme, ne)) =>
         State.inspect { c =>
           val fn = new Fn[Any, Any] {
@@ -153,12 +164,12 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       case Literal(Lit.Integer(i), (_, scheme, ne)) => State.pure((Eval.now(i), scheme))
       case Literal(Lit.Str(str), (_, scheme, ne)) => State.pure((Eval.now(str), scheme))
       case Match(arg, branches, (_, scheme, ne)) =>
-        EvalCache(expr, for {
+        EvalCache(expr) { for {
           es <- recurse((p, Right(arg), env))
           } yield (es._1.flatMap { a =>
               evalBranch(a, es._2, branches, p, env, recurse)
           }, scheme)
-        )
+        }
     }
   }
 

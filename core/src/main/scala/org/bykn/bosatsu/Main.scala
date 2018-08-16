@@ -47,6 +47,11 @@ object Std {
 
   def toAction(a: Any): Any = Eval.now(a)
   def runAction(a: Any): Any = a.asInstanceOf[Eval[Any]].value
+
+  def waitReturn(a: Any): Any = {
+    println(s"a waitReturn ${a.toString}")
+    a
+  }
 }
 
 sealed abstract class MainResult[+A] {
@@ -59,7 +64,7 @@ object MainResult {
     def map[B](fn: Nothing => B) = this
     def flatMap[B](fn: Nothing => MainResult[B]) = this
   }
-  case class Success[A](result: A, intermediate: Boolean = false, cache: Map[NormalExpression, Eval[Any]] = Map()) extends MainResult[A] {
+  case class Success[A](result: A, intermediate: Boolean = false, cache: Map[NormalExpression, (Eval[Any], Scheme)] = Map()) extends MainResult[A] {
     def map[B](fn: A => B) = Success(fn(result))
     def flatMap[B](fn: A => MainResult[B]) = fn(result)
   }
@@ -109,23 +114,26 @@ object MainCommand {
     bq
   }
 
-  case class Evaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName, cache: Map[NormalExpression, Eval[Any]] = Map()) extends MainCommand {
-    def run() =
+  case class Evaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName, cache: Map[NormalExpression, (Eval[Any], Scheme)] = Map()) extends MainCommand {
+    def run() = {
       blockingQueue(typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
         ev.evaluateLast(mainPackage, cache) match {
           case None => MainResult.Error(1, List("found no main expression"))
-          case Some((eval, scheme, ne)) =>
+          case Some((eval, scheme, ne, cache)) =>
             val res = eval.value
-            MainResult.Success(List(s"res: ($res), scheme: $scheme, expression: $ne"))
+            MainResult.Success(List(s"res: ($res), scheme: $scheme, expression: $ne"), false, cache)
         }
       })
+    }
   }
   case class Revaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
 
-    val cache: LinkedBlockingQueue[Map[NormalExpression, Eval[Any]]] = new LinkedBlockingQueue()
+    val cache: LinkedBlockingQueue[Map[NormalExpression, (Eval[Any], Scheme)]] = new LinkedBlockingQueue()
 
-    def combinedCache: Map[NormalExpression, Eval[Any]] = cache.toArray.map(_.asInstanceOf[Map[NormalExpression, Eval[Any]]]).foldLeft(Map[NormalExpression, Eval[Any]]())(_ ++ _)
+    def combinedCache: Map[NormalExpression, (Eval[Any], Scheme)] = cache.toArray
+      .map(_.asInstanceOf[Map[NormalExpression, (Eval[Any], Scheme)]])
+      .foldLeft(Map[NormalExpression, (Eval[Any], Scheme)]())(_ ++ _)
 
     def result = Evaluate(inputs, externals, mainPackage, combinedCache).run.take match {
       case e @ MainResult.Error(_,_,_,_) => e.copy(intermediate = true)
@@ -154,7 +162,7 @@ object MainCommand {
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
         ev.evaluateLast(mainPackage, Map()) match {
           case None => MainResult.Error(1, List("found no main expression"))
-          case Some((eval, scheme, _)) =>
+          case Some((eval, scheme, _, _)) =>
             val res = eval.value
             ev.toJson(res, scheme) match {
               case None =>
