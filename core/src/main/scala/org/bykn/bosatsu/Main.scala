@@ -52,6 +52,19 @@ object Std {
     println(s"a waitReturn ${a.toString}")
     a
   }
+
+  import java.net.Socket
+  import java.io.OutputStreamWriter
+
+  def hitNetwork(a: Any): Any = {
+    val socket = new Socket("127.0.0.1", 5555)
+    val osw = new OutputStreamWriter(socket.getOutputStream(), "UTF-8")
+    val str = "test test\n"
+    osw.write(str, 0, str.length)
+    osw.flush()
+    socket.close()
+    a
+  }
 }
 
 sealed abstract class MainResult[+A] {
