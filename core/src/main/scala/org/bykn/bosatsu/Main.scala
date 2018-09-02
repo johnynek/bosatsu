@@ -56,10 +56,10 @@ object Std {
   import java.net.Socket
   import java.io.OutputStreamWriter
 
-  def hitNetwork(a: Any): Any = {
+  def expensiveFunction(a: Any, b: Any): Any = {
     val socket = new Socket("127.0.0.1", 5555)
     val osw = new OutputStreamWriter(socket.getOutputStream(), "UTF-8")
-    val str = "test test\n"
+    val str = s"logging a: '${a.toString}' b: '${b.toString}'\n"
     osw.write(str, 0, str.length)
     osw.flush()
     socket.close()
@@ -135,7 +135,7 @@ object MainCommand {
           case None => MainResult.Error(1, List("found no main expression"))
           case Some((eval, scheme, ne, cache)) =>
             val res = eval.value
-            MainResult.Success(List(s"res: ($res), scheme: $scheme, expression: $ne"), false, cache)
+            MainResult.Success(List(s"res: ($res)", s"scheme: $scheme", s"expression: $ne"), false, cache)
         }
       })
     }
@@ -162,7 +162,10 @@ object MainCommand {
       val bq = blockingQueue(result)
       (inputs ++ externals).toList.foreach { p =>
         val watcher = new FileMonitor(p, recursive=false) {
-          override def onModify(file: File, count: Int): Unit = bq.put(result)
+          override def onModify(file: File, count: Int): Unit = {
+            Thread.sleep(10)
+            bq.put(result)
+          }
         }
         watcher.start
       }
