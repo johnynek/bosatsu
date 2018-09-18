@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.Validated
 import cats.implicits._
+import cats.Eval
 import org.scalatest.FunSuite
 
 class EvaluationTest extends FunSuite {
@@ -10,6 +11,8 @@ class EvaluationTest extends FunSuite {
 
   def evalTestJson(packages: List[String], mainPackS: String, expected: Json, extern: Externals = Externals.empty) =
     evalTestEither(packages, mainPackS, Right(expected), extern)
+
+  def evalCache(packages: List[String], mainPackS: String, expectedResult: Any, expectedCache: Map[NormalExpression, (Eval[Any], Scheme)]) = ???
 
   def evalTestEither(packages: List[String], mainPackS: String, expected: Either[Any, Json], extern: Externals = Externals.empty) = {
     val mainPack = PackageName.parse(mainPackS).get
@@ -31,7 +34,7 @@ class EvaluationTest extends FunSuite {
         val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
         ev.evaluateLast(mainPack, Map()) match {
           case None => fail("found no main expression")
-          case Some((eval, schm, _, _)) =>
+          case Some((eval, schm, normalExpression, cache)) =>
             expected match {
               case Left(exp) => assert(eval.value == exp)
               case Right(json) =>
