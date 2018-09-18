@@ -29,9 +29,9 @@ class EvaluationTest extends FunSuite {
     PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
       case (dups, Validated.Valid(packMap)) if dups.isEmpty =>
         val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
-        ev.evaluateLast(mainPack) match {
+        ev.evaluateLast(mainPack, Map()) match {
           case None => fail("found no main expression")
-          case Some((eval, schm)) =>
+          case Some((eval, schm, _, _)) =>
             expected match {
               case Left(exp) => assert(eval.value == exp)
               case Right(json) =>
