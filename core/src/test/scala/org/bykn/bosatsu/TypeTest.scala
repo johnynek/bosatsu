@@ -26,6 +26,7 @@ class TypeTest extends FunSuite {
     assert(normalize(TypeLambda("z", Var("z"))) == TypeLambda("a", Var("a")))
     assert(normalize(TypeLambda("z", Var("b"))) == TypeLambda("a", Var("b")))
     assert(normalize(TypeLambda("z", TypeLambda("q", Var("b")))) == TypeLambda("a", TypeLambda("c", Var("b"))))
+    assert(normalize(Arrow(Var("a"), TypeLambda("z", Var("b")))) == Arrow(Var("a"), TypeLambda("c", Var("b"))))
   }
 
   test("apply lambda simplifies") {

@@ -113,8 +113,7 @@ object Type {
 
       lazy val next: State[NormState, String] =
         for {
-          counterMap <- State.get[NormState]
-          (counter, map) = counterMap
+          counter <- State.get[NormState].map(_._1)
           newVar0 = idxToLetter(counter)
           newVar <- if (avoid(newVar0)) incCounter >> next else incCounter.as(newVar0)
         } yield newVar
@@ -122,18 +121,17 @@ object Type {
       for {
         initMap <- getMap
         newVar <- next
-        newMap = initMap.updated(v, newVar)
-        _ <- setMap(newMap)
+        _ <- setMap(initMap.updated(v, newVar))
         a <- recurse(newVar)
         _ <- setMap(initMap)
       } yield a
     }
 
 
+    val freeVars = tpe.varsIn.iterator.map(_.name).toSet
     def loop(t: Type): State[NormState, Type] =
       t match {
         case TypeLambda(p, expr) =>
-          val freeVars = t.varsIn.iterator.map(_.name).toSet
           nextMapping(p, freeVars) { newVar =>
             loop(expr).map(TypeLambda(newVar, _))
           }
