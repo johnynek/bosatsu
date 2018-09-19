@@ -282,6 +282,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           Right(applyDT(dt, arg))
         case v@Type.Var(_) =>
           Left(Type.TypeApply(v, arg))
+        case Type.TypeLambda(param, expr) =>
+          // the param == arg in the expr
+          sys.error(s"TODO: let $param = $arg in $expr")
       }
 
     def loop(a: Any, t: Type): Option[T] = {
@@ -302,6 +305,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         case Type.Var(_) =>
           // we should have fully resolved the type
           sys.error(s"should have fully resolved the type of: $a: $t")
+        case Type.TypeLambda(_, _) =>
+          sys.error(s"unexepected type lambda: $a has type $t")
       }
     }
     loop(a, t)
