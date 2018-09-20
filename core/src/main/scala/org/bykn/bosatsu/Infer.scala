@@ -58,7 +58,7 @@ object Inference {
       _ <- (RWST.set(u1): Infer[Unit])
     } yield Type.Var(s"anon${u.id}")
 
-  def unifies(a: Type, b: Type, ar: Region, br: Region): Solve[Unifier] =
+  private def unifies(a: Type, b: Type, ar: Region, br: Region): Solve[Unifier] =
     (a, b) match {
       case (left, right) if left == right =>
         Monad[Solve].pure(Unifier.empty)
@@ -68,12 +68,15 @@ object Inference {
         unifyMany(List((fa, fb), (ta, tb)), ar, br)
       case (Type.TypeApply(fa, ta), Type.TypeApply(fb, tb)) =>
         unifyMany(List((fa, fb), (ta, tb)), ar, br)
+      case (Type.TypeLambda(va, ea), Type.TypeLambda(vb, eb)) =>
+        // unify the vars, then unify the rest:
+        unifyMany(List((Type.Var(va), Type.Var(vb)), (ea, eb)), ar, br)
       case (faila, failb) =>
         MonadError[Solve, TypeError].raiseError(TypeError.UnificationFail(faila, failb, ar, br))
     }
 
   // do a pointwise unification
-  def unifyMany(ts: List[(Type, Type)], ar: Region, br: Region): Solve[Unifier] =
+  private def unifyMany(ts: List[(Type, Type)], ar: Region, br: Region): Solve[Unifier] =
     ts match {
       case Nil => Monad[Solve].pure(Unifier.empty)
       case (ha, hb) :: tail =>
@@ -102,7 +105,9 @@ object Inference {
       val u = StateT.get: Solve[Unifier]
       u.flatMap {
         case Unifier(sub, Nil) => Monad[Solve].pure(Right(sub))
-        case Unifier(sub, Constraint(a, b, ra, rb) :: tail) =>
+        case Unifier(sub, Constraint(a0, b0, ra, rb) :: tail) =>
+          val a = Type.simplifyApply(a0)
+          val b = Type.simplifyApply(b0)
           for {
             su1 <- unifies(a, b, ra, rb)
             Unifier(s1, c1) = su1

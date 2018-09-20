@@ -18,6 +18,28 @@ class InferTest extends FunSuite {
     simpleMatch(i1, Type.intT)
   }
 
+
+  def typeFrom(str: String): Type =
+    TypeRef.parser.parse(str) match {
+      case Parsed.Success(typeRef, _) =>
+        typeRef.toType(PackageName.parse("Foo").get)
+      case Parsed.Failure(exp, idx, extra) =>
+        sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+    }
+
+  def runUnify(left: String, right: String) = {
+    val t1 = typeFrom(left)
+    val t2 = typeFrom(right)
+    val emptyR = Region(0, 0)
+    Inference.runSolve(List(Constraint(t1, t2, emptyR, emptyR)))
+  }
+
+  def assertTypesUnify(left: String, right: String) =
+    assert(runUnify(left, right).isRight, s"$left does not unify with $right")
+
+  def assertTypesDisjoint(left: String, right: String) =
+    assert(runUnify(left, right).isLeft, s"$left unexpectedly unifies with $right")
+
   def parseType(str: String, t: Type) =
     Declaration.parser("").parse(str) match {
       case Parsed.Success(decl, _) =>
@@ -53,6 +75,23 @@ class InferTest extends FunSuite {
 y = x
 y""", Type.intT)
 
+  }
+
+  test("assert some basic unifications") {
+    assertTypesUnify("a", "b")
+    assertTypesUnify("Int", "a")
+    assertTypesUnify("a -> b", "b -> Int")
+    assertTypesUnify("a -> b", "b -> (c -> Int)")
+    assertTypesUnify("forall a. a", "b")
+    assertTypesUnify("(forall a. a)[Int]", "Int")
+    assertTypesUnify("(forall a. Int)[b]", "Int")
+    assertTypesUnify("forall a. f[b]", "forall x. List[x]")
+    assertTypesUnify("(forall a, b. a -> b)[x, y]", "z -> w")
+
+    assertTypesDisjoint("Int", "String")
+    assertTypesDisjoint("Int -> Unit", "String")
+    assertTypesDisjoint("Int -> Unit", "String -> a")
+    assertTypesDisjoint("forall a. Int", "Int") // the type on the left has * -> * but the right is *
   }
 
   test("test inference with some defined types") {
