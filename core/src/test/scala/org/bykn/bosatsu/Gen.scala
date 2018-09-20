@@ -24,7 +24,7 @@ object Generators {
       tail <- Gen.listOfN(cnt, t)
     } yield NonEmptyList(h, tail)
 
-  val keyWords = Set("if", "ffi", "match", "struct", "enum", "else", "elif", "def", "external", "package", "import", "export")
+  val keyWords = Set("if", "ffi", "match", "struct", "enum", "else", "elif", "def", "external", "package", "import", "export", "forall")
 
   val lowerIdent: Gen[String] =
     (for {
@@ -40,7 +40,16 @@ object Generators {
       rest <- Gen.listOfN(cnt, identC)
     } yield (c :: rest).mkString
 
-  val typeRefGen: Gen[TypeRef] = {
+  val typeRefLambdaGen: Gen[TypeRef.TypeLambda] =
+    for {
+      e <- Gen.lzy(typeRefGen)
+      cnt <- Gen.choose(1, 3)
+      tvar = lowerIdent.map(TypeRef.TypeVar(_))
+      args <- Gen.listOfN(cnt, tvar)
+      nel = NonEmptyList.fromListUnsafe(args)
+    } yield TypeRef.TypeLambda(nel, e)
+
+  lazy val typeRefGen: Gen[TypeRef] = {
     import TypeRef._
 
     val tvar = lowerIdent.map(TypeVar(_))
@@ -54,10 +63,13 @@ object Generators {
         nel = NonEmptyList.fromListUnsafe(args)
       } yield TypeApply(e, nel)
 
+    val tLambda = typeRefLambdaGen
+
     Gen.frequency(
       (4, tvar),
       (4, tname),
       (1, Gen.zip(Gen.lzy(typeRefGen), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
+      (1, tLambda),
       (1, tApply))
   }
 

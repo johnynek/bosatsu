@@ -17,10 +17,12 @@ class ParserTest extends FunSuite {
     PropertyCheckConfiguration(minSuccessful = 50)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
-  def region(s0: String, idx: Int): String = {
-    val s = s0.updated(idx, '*')
-    ("...(" + s.drop(idx - 20).take(20) + ")...")
-  }
+  def region(s0: String, idx: Int): String =
+    if (s0.isEmpty) s"empty string, idx = $idx"
+    else {
+      val s = s0.updated(idx, '*')
+      ("...(" + s.drop(idx - 20).take(20) + ")...")
+    }
 
   def firstDiff(s1: String, s2: String): String =
     if (s1 == s2) ""
@@ -106,6 +108,17 @@ class ParserTest extends FunSuite {
   test("we can parse TypeRefs") {
     parseTestAll(TypeRef.parser, "foo", TypeRef.TypeVar("foo"))
     parseTestAll(TypeRef.parser, "Foo", TypeRef.TypeName("Foo"))
+
+    parseTestAll(TypeRef.parser, "forall a. a", TypeRef.TypeLambda(NonEmptyList.of(TypeRef.TypeVar("a")), TypeRef.TypeVar("a")))
+    parseTestAll(TypeRef.parser, "forall a, b. f[a] -> f[b]",
+      TypeRef.TypeLambda(NonEmptyList.of(TypeRef.TypeVar("a"), TypeRef.TypeVar("b")),
+        TypeRef.TypeArrow(
+          TypeRef.TypeApply(TypeRef.TypeVar("f"), NonEmptyList.of(TypeRef.TypeVar("a"))),
+          TypeRef.TypeApply(TypeRef.TypeVar("f"), NonEmptyList.of(TypeRef.TypeVar("b"))))))
+    roundTrip(TypeRef.parser, "forall a, b. f[a] -> f[b]")
+    roundTrip(TypeRef.parser, "(forall a, b. f[a]) -> f[b]")
+    roundTrip(TypeRef.parser, "(forall a, b. f[a])[Int]") // apply a type
+
     parseTestAll(TypeRef.parser, "Foo -> Bar", TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeName("Bar")))
     parseTestAll(TypeRef.parser, "Foo -> Bar -> baz",
       TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeArrow(TypeRef.TypeName("Bar"), TypeRef.TypeVar("baz"))))
@@ -344,6 +357,23 @@ fn = \x, y -> x.plus(y)
 
 x = ( foo )
 
+""")
+
+    roundTrip(Statement.parser,
+"""# header
+def foo(x: forall f. f[a] -> f[b], y: a) -> b:
+  x(y)
+
+# here is a lambda
+fn = \x, y -> x.plus(y)
+
+x = ( foo )
+
+""")
+
+    roundTrip(Statement.parser,
+"""# MONADS!!!!
+struct Monad(pure: forall a. a -> f[a], flatMap: forall a, b. f[a] -> (a -> f[b]) -> f[b])
 """)
   }
 
