@@ -70,18 +70,29 @@ object Type {
       case _ => None
     }
 
-  def simplifyApply(t: Type): Type =
+  def simplifyApply(t: Type): Type = {
+    def applyCase(name: String, expr: Type, arg: Type): Type = {
+      val r0 = Substitutable.forType(Subst.pair(name, arg), expr)
+      simplifyApply(r0)
+    }
+
     t match {
       case TypeApply(TypeLambda(name, expr), arg) =>
-        Substitutable.forType(Subst.pair(name, arg), expr)
+        applyCase(name, expr, arg)
       case TypeApply(fn, arg) =>
-        TypeApply(simplifyApply(fn), simplifyApply(arg))
+        simplifyApply(fn) match {
+          case TypeLambda(name, expr) =>
+            applyCase(name, expr, arg)
+          case nonLambda =>
+            TypeApply(nonLambda, simplifyApply(arg))
+          }
       case Arrow(a, b) =>
         Arrow(simplifyApply(a), simplifyApply(b))
       case TypeLambda(p, t) => TypeLambda(p, simplifyApply(t))
       case d@Declared(_, _) => d
       case v@Var(_) => v
     }
+  }
 
   /**
    * This reassigns lambda variables from a increasing
@@ -194,13 +205,22 @@ object Type {
 case class Scheme(vars: List[String], result: Type) {
   import Type._
 
-  lazy val toType: Type = {
-    def loop(vars: List[String], expr: Type): Type =
-      vars match {
+  /**
+   * Inverse of fromType, puts top level lambdas
+   * back on
+   *
+   * Note, this is different from typeConstructor
+   * which removes all free variables by making
+   * a lambda
+   */
+  def toType: Type = {
+    @annotation.tailrec
+    def loop(revVars: List[String], expr: Type): Type =
+      revVars match {
         case Nil => expr
-        case h :: tail => TypeLambda(h, loop(tail, expr))
+        case h :: tail => loop(tail, TypeLambda(h, expr))
       }
-    loop(vars, result)
+    loop(vars.reverse, result)
   }
 
   def normalized: Scheme =
@@ -208,15 +228,22 @@ case class Scheme(vars: List[String], result: Type) {
 }
 
 object Scheme {
+  /**
+   * Strips top level lambdas into a Scheme
+   */
   def fromType(t: Type): Scheme =
-    t match {
+    Type.simplifyApply(t) match {
       case Type.TypeLambda(h, rest) =>
         val Scheme(vars, expr) = fromType(rest)
         Scheme(h :: vars, expr)
       case notLambda =>
-        Scheme(Nil, t)
+        Scheme(Nil, notLambda)
     }
 
+  /**
+   * This makes a lambda of all the free
+   * variables in the current type
+   */
   def typeConstructor(t: Type): Scheme =
     Scheme(t.varsIn.map(_.name), t).normalized
 }
