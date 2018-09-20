@@ -15,10 +15,16 @@ case class Subst(toMap: Map[String, Type]) {
 
     Subst(m1 ++ toMap)
   }
+
+  def shadow(s: String): Subst =
+    Subst(toMap - s)
 }
 
 object Subst {
   def empty: Subst = Subst(Map.empty)
+
+  def pair(varName: String, tpe: Type): Subst =
+    Subst(Map((varName, tpe)))
 }
 
 trait Substitutable[T] {
@@ -46,7 +52,7 @@ object Substitutable {
           case Arrow(from, to) => Arrow(apply(sub, from), apply(sub, to))
           case d@Declared(_, _) => d
           case TypeApply(hk, arg) => TypeApply(apply(sub, hk), apply(sub, arg))
-          //case TypeLambda(param, in) => TypeLambda(param, apply(sub, in))
+          case TypeLambda(param, in) => TypeLambda(param, apply(sub.shadow(param), in))
           case v@Var(name) => sub.getOrElse(name, v)
         }
 
@@ -55,7 +61,7 @@ object Substitutable {
           case Arrow(from, to) => typeVars(from) | typeVars(to)
           case Declared(_, _) => Set.empty
           case TypeApply(hk, arg) => typeVars(hk) | typeVars(arg)
-          //case TypeLambda(_, in) => typeVars(in)
+          case TypeLambda(bound, in) => typeVars(in) - bound
           case Var(name) => Set(name)
         }
     }
