@@ -35,10 +35,10 @@ class InferTest extends FunSuite {
   }
 
   def assertTypesUnify(left: String, right: String) =
-    assert(runUnify(left, right).isRight)
+    assert(runUnify(left, right).isRight, s"$left does not unify with $right")
 
   def assertTypesDisjoint(left: String, right: String) =
-    assert(runUnify(left, right).isLeft)
+    assert(runUnify(left, right).isLeft, s"$left unexpectedly unifies with $right")
 
   def parseType(str: String, t: Type) =
     Declaration.parser("").parse(str) match {
@@ -83,11 +83,15 @@ y""", Type.intT)
     assertTypesUnify("a -> b", "b -> Int")
     assertTypesUnify("a -> b", "b -> (c -> Int)")
     assertTypesUnify("forall a. a", "b")
-    //assertTypesUnify("forall a. Int", "Int")
+    assertTypesUnify("(forall a. a)[Int]", "Int")
+    assertTypesUnify("(forall a. Int)[b]", "Int")
+    assertTypesUnify("forall a. f[b]", "forall x. List[x]")
+    assertTypesUnify("(forall a, b. a -> b)[x, y]", "z -> w")
 
     assertTypesDisjoint("Int", "String")
     assertTypesDisjoint("Int -> Unit", "String")
     assertTypesDisjoint("Int -> Unit", "String -> a")
+    assertTypesDisjoint("forall a. Int", "Int") // the type on the left has * -> * but the right is *
   }
 
   test("test inference with some defined types") {

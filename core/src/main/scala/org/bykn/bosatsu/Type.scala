@@ -41,7 +41,10 @@ object Type {
   case class Arrow(from: Type, to: Type) extends Type
   case class Declared(packageName: PackageName, name: String) extends Type
   case class TypeApply(hk: Type, arg: Type) extends Type
-  case class TypeLambda(param: String, in: Type) extends Type
+  case class TypeLambda(param: String, in: Type) extends Type {
+    def apply(arg: Type): Type =
+      Substitutable.forType(Subst.pair(param, arg), in)
+  }
   case class Var(name: String) extends Type
 
   private def predef(t: String): Type =
@@ -70,19 +73,14 @@ object Type {
       case _ => None
     }
 
-  def simplifyApply(t: Type): Type = {
-    def applyCase(name: String, expr: Type, arg: Type): Type = {
-      val r0 = Substitutable.forType(Subst.pair(name, arg), expr)
-      simplifyApply(r0)
-    }
-
+  def simplifyApply(t: Type): Type =
     t match {
-      case TypeApply(TypeLambda(name, expr), arg) =>
-        applyCase(name, expr, arg)
+      case TypeApply(tl@TypeLambda(_, _), arg) =>
+        simplifyApply(tl(arg))
       case TypeApply(fn, arg) =>
         simplifyApply(fn) match {
-          case TypeLambda(name, expr) =>
-            applyCase(name, expr, arg)
+          case tl@TypeLambda(_, _) =>
+            simplifyApply(tl(arg))
           case nonLambda =>
             TypeApply(nonLambda, simplifyApply(arg))
           }
@@ -92,7 +90,6 @@ object Type {
       case d@Declared(_, _) => d
       case v@Var(_) => v
     }
-  }
 
   /**
    * This reassigns lambda variables from a increasing
