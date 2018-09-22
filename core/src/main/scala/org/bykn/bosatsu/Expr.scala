@@ -22,9 +22,11 @@ sealed abstract class Expr[T] {
   def tag: T
   def setTag(t: T): Expr[T] =
     this match {
+      case a@Annotation(_, _, _) => a.copy(tag = t)
       case v@Var(_, _) => v.copy(tag = t)
       case a@App(_, _, _) => a.copy(tag = t)
       case l@Lambda(_, _, _) => l.copy(tag = t)
+      case a@AnnotatedLambda(_, _, _, _) => a.copy(tag = t)
       case l@Let(_, _, _, _) => l.copy(tag = t)
       case l@Literal(_, _) => l.copy(tag = t)
       case m@Match(_, _, _) => m.copy(tag = t)
@@ -32,6 +34,10 @@ sealed abstract class Expr[T] {
 }
 
 object Expr {
+  case class Annotation[T](expr: Expr[T], tpe: Type, tag: T) extends Expr[T]
+  case class AnnotatedLambda[T](arg: String, tpe: Type, expr: Expr[T], tag: T) extends Expr[T] {
+    def toLambda: Lambda[T] = Lambda(arg, expr, tag)
+  }
   case class Var[T](name: String, tag: T) extends Expr[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
   case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
@@ -48,6 +54,10 @@ object Expr {
    */
   def nest[T](e: Expr[T]): Expr[Expr[T]] =
     e match {
+      case Annotation(expr, tpe, _) =>
+        Annotation(nest(expr), tpe, e)
+      case AnnotatedLambda(arg, tpe, expr, _) =>
+        AnnotatedLambda(arg, tpe, nest(expr), e)
       case Var(s, _) =>
         Var(s, e)
       case App(fn, a, _) =>
@@ -77,6 +87,10 @@ object Expr {
 
       def traverse[G[_]: Applicative, A, B](fa: Expr[A])(f: A => G[B]): G[Expr[B]] =
         fa match {
+          case Annotation(e, tpe, a) =>
+            (e.traverse(f), f(a)).mapN(Annotation(_, tpe, _))
+          case AnnotatedLambda(arg, tpe, expr, a) =>
+            (expr.traverse(f), f(a)).mapN(AnnotatedLambda(arg, tpe, _, _))
           case Var(s, t) =>
             f(t).map(Var(s, _))
           case App(fn, a, t) =>
@@ -103,6 +117,12 @@ object Expr {
 
       def foldLeft[A, B](fa: Expr[A], b: B)(f: (B, A) => B): B =
         fa match {
+          case Annotation(e, _, tag) =>
+            val b1 = foldLeft(e, b)(f)
+            f(b1, tag)
+          case AnnotatedLambda(_, _, e, tag) =>
+            val b1 = foldLeft(e, b)(f)
+            f(b1, tag)
           case Var(_, tag) => f(b, tag)
           case App(fn, a, tag) =>
             val b1 = foldLeft(fn, b)(f)
@@ -125,6 +145,12 @@ object Expr {
 
       def foldRight[A, B](fa: Expr[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] =
         fa match {
+          case Annotation(e, _, tag) =>
+            val lb1 = foldRight(e, lb)(f)
+            f(tag, lb1)
+          case AnnotatedLambda(_, _, e, tag) =>
+            val lb1 = foldRight(e, lb)(f)
+            f(tag, lb1)
           case Var(_, tag) => f(tag, lb)
           case App(fn, a, tag) =>
             val b1 = f(tag, lb)

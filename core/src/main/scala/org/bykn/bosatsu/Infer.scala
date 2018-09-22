@@ -253,6 +253,12 @@ object Inference {
 
   def inferTypeTag[T: HasRegion](expr: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
     expr match {
+      case Expr.Annotation(expr, _, _) =>
+        println(s"warning, ignoring annotation: $expr")
+        inferTypeTag(expr)
+      case al@Expr.AnnotatedLambda(_, _, _, _) =>
+        println(s"warning, ignoring annotation: $expr")
+        inferTypeTag(al.toLambda)
       case Expr.Var(n, tag) =>
         lookup(n, HasRegion.region(expr.tag)).map { t =>
           (t, Expr.Var(n, (tag, Scheme.fromType(t))))
