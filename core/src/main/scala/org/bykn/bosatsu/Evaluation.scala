@@ -95,6 +95,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     import Expr._
 
     expr match {
+      case Annotation(e, _, _) => evalExpr(p, e, env, recurse)
+      case al@AnnotatedLambda(_, _, _, _) => evalExpr(p, al.toLambda, env, recurse)
       case Var(v, (_, scheme)) =>
         env.get(v) match {
           case Some(a) => (Eval.now(a), scheme)

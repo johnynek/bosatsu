@@ -8,7 +8,7 @@ import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 
 /**
- * Represents the syntax of declarations
+ * Represents the syntax version of Expr
  */
 sealed abstract class Declaration {
   import Declaration._

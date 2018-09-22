@@ -202,6 +202,12 @@ trait CodeGen {
    */
   def apply[T](e: Expr[T], topLevel: Boolean, pack: Package.Inferred): Output[Doc] =
     e match {
+      case Annotation(expr, _, _) =>
+        // TODO we might want to use the type info
+        apply(expr, topLevel, pack)
+      case AnnotatedLambda(arg, _, exp, t) =>
+        // TODO we might want to use the type info
+        apply(Lambda(arg, exp, t), topLevel, pack)
       case Var(n, _) =>
         NameKind(pack, n) match {
           case Some(NameKind.Constructor(_, _, _)) =>
