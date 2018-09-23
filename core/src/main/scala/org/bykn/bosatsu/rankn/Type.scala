@@ -44,5 +44,16 @@ object Type {
 
   case class Meta(id: Long, ref: Ref[Option[Type]])
 
-  def metaTvs(s: List[Type]): Set[Meta] = ???
+  def metaTvs(s: List[Type]): Set[Meta] = {
+    @annotation.tailrec
+    def go(check: List[Type], acc: Set[Meta]): Set[Meta] =
+      check match {
+        case Nil => acc
+        case ForAll(_, r) :: tail => go(r :: tail, acc)
+        case Fun(a, r) :: tail => go(a :: r :: tail, acc)
+        case TyMeta(m) :: tail => go(tail, acc + m)
+        case _ :: tail => go(tail, acc)
+      }
+    go(s, Set.empty)
+  }
 }

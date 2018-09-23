@@ -12,6 +12,8 @@ sealed abstract class Tc[+A] {
   final def runVar(v: Map[String, Type]): RefSpace[Either[String, A]] =
     Tc.Env.init(v).flatMap(run(_))
 
+  final def runFully(v: Map[String, Type]): Either[String, A] =
+    runVar(v).run.value
 }
 
 object Tc {
@@ -253,6 +255,7 @@ object Tc {
       ref <- lift(RefSpace.newRef[Either[String, Type.Rho]](Left(s"inferRho not complete for $t")))
       _ <- typeCheckRho(t, Expected.Infer(ref))
       rho <- (Lift(ref.get): Tc[Type.Rho])
+      _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
     } yield rho
 
   private def substTy(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], t: Type): Type = {
