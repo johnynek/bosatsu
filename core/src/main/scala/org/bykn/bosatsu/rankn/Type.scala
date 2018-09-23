@@ -14,16 +14,32 @@ object Type {
   case class TyVar(toVar: Var) extends Type
   case class TyMeta(toMeta: Meta) extends Type
 
+  val intType: Type = TyConst(Const.IntType)
+
   sealed abstract class Const
   object Const {
     case object IntType extends Const
     case object BoolType extends Const
   }
 
-  sealed abstract class Var
+  sealed abstract class Var {
+    def name: String
+  }
   object Var {
     case class Bound(name: String) extends Var
-    case class Skolem(id: Long) extends Var
+    case class Skolem(name: String, id: Long) extends Var
+  }
+
+  val allBinders: Stream[Var.Bound] = {
+    val letters = ('a' to 'z').toStream
+    val allIntegers = Stream.iterate(0L)(_ + 1L)
+    val lettersWithNumber =
+      for {
+        num <- allIntegers
+        l <- letters
+      } yield Var.Bound(s"$l$num")
+
+    letters.map { c => Var.Bound(c.toString) } #::: lettersWithNumber
   }
 
   case class Meta(id: Long, ref: Ref[Option[Type]])
