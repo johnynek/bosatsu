@@ -153,12 +153,14 @@ object Tc {
         zonkType(rho)
       case ne@(h :: tail) =>
         val used = tyVarBinders(List(rho), Set.empty)
-        val newBinders = Type.allBinders.filterNot(used)
+        // on 2.11 without the iterator this seems to run forever
+        def newBinders = Type.allBinders.iterator.filterNot(used)
         val newBindersNE =
           NonEmptyList.fromListUnsafe(newBinders.take(forAlls.size).toList)
         val bound = ne
-          .toStream
+          .iterator
           .zip(newBinders)
+          .toStream
           .traverse_ { case (m, n) =>
             writeMeta(m, Type.TyVar(n))
           }
