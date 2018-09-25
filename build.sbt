@@ -79,6 +79,7 @@ lazy val core = (project in file("core")).
     name := "bosatsu-core",
     libraryDependencies ++=
       Seq(
+        alleycats,
         cats,
         dagon,
         decline,

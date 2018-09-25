@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import alleycats.std.map._ // TODO use SortedMap everywhere
 import com.stripe.dagon.Memoize
 import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
 import cats.{Foldable, Order}

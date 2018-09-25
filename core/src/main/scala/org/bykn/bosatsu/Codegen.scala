@@ -8,6 +8,8 @@ import java.nio.file.Path
 import scala.util.Try
 import java.io.PrintWriter
 
+import alleycats.std.map._ // TODO use SortedMap everywhere
+
 trait CodeGen {
   import Expr._
   import CodeGen._
