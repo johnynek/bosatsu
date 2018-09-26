@@ -29,6 +29,17 @@ class RankNTcTest extends FunSuite {
     testType(App(Lam("x", Var("x")), Lit(100L)), Type.intType)
     testType(Ann(App(Lam("x", Var("x")), Lit(100L)), Type.intType), Type.intType)
     testType(App(ALam("x", Type.intType, Var("x")), Lit(100L)), Type.intType)
+
+    // test branches
+    testType(If(Lit(true), Lit(0), Lit(1)), Type.intType)
+    testType(Let("x", Lit(0), If(Lit(true), Var("x"), Lit(1))), Type.intType)
+
+    val identFnType =
+      ForAll(NonEmptyList.of(Bound("a")),
+        Type.Fun(Type.TyVar(Bound("a")), Type.TyVar(Bound("a"))))
+    testType(Let("x", Lam("y", Var("y")),
+      If(Lit(true), Var("x"),
+        Ann(Lam("x", Var("x")), identFnType))), identFnType)
   }
 
   test("test all binders") {
