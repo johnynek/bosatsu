@@ -15,6 +15,7 @@ object Type {
   case class TyMeta(toMeta: Meta) extends Type
 
   val intType: Type = TyConst(Const.IntType)
+  val boolType: Type = TyConst(Const.BoolType)
 
   sealed abstract class Const
   object Const {

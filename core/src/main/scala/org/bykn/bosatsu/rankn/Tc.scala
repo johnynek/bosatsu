@@ -415,8 +415,10 @@ object Tc {
     import Term._
 
     term match {
-      case Lit(_) =>
+      case Lit(Term.Literal.Integer(_)) =>
         instSigma(Type.intType, expect)
+      case Lit(Term.Literal.Bool(_)) =>
+        instSigma(Type.boolType, expect)
       case Var(name) =>
         for {
           vSigma <- lookupVarType(name)
@@ -426,8 +428,9 @@ object Tc {
          for {
            fnT <- inferRho(fn)
            argRes <- unifyFn(fnT)
-           _ <- checkSigma(arg, argRes._1)
-           _ <- instSigma(argRes._2, expect)
+           (argT, resT) = argRes
+           _ <- checkSigma(arg, argT)
+           _ <- instSigma(resT, expect)
          } yield ()
       case Lam(name, result) =>
         expect match {
@@ -467,6 +470,26 @@ object Tc {
         } yield ()
       case Ann(term, tpe) =>
         checkSigma(term, tpe) *> instSigma(tpe, expect)
+      case If(cond, ifTrue, ifFalse) =>
+        val condTpe =
+          typeCheckRho(cond,
+            Expected.Check(Type.boolType))
+        val rest = expect match {
+          case check@Expected.Check(_) =>
+            typeCheckRho(ifTrue, check) *>
+              typeCheckRho(ifFalse, check)
+
+          case infer@Expected.Infer(_) =>
+            for {
+              rT <- inferRho(ifTrue)
+              rF <- inferRho(ifFalse)
+              _ <- subsCheck(rT, rF)
+              _ <- subsCheck(rF, rT)
+              _ <- infer.set(rT) // see section 7.1
+            } yield ()
+
+        }
+        condTpe *> rest
     }
   }
 
