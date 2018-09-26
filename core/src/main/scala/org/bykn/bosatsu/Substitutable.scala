@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.data.NonEmptyList
 import cats.{Functor, Foldable}
 import cats.implicits._
+import alleycats.std.map.alleycatsStdInstancesForMap // TODO use SortedMap everywhere
 
 case class Subst(toMap: Map[String, Type]) {
   def getOrElse(s: String, t: => Type): Type =
@@ -120,7 +121,7 @@ object Substitutable {
     }
 
   implicit def forMap[K, V: Substitutable]: Substitutable[Map[K, V]] =
-    fromMapFold[Map[K, ?], V]
+    fromMapFold[Map[K, ?], V](alleycatsStdInstancesForMap, alleycatsStdInstancesForMap, implicitly)
 
 
 
