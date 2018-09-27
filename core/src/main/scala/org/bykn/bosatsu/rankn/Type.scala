@@ -9,18 +9,33 @@ object Type {
   type Tau = Type // no forall anywhere
 
   case class ForAll(vars: NonEmptyList[Var], in: Rho) extends Type
-  case class Fun(arg: Type, res: Type) extends Type
   case class TyConst(tpe: Const) extends Type
   case class TyVar(toVar: Var) extends Type
   case class TyMeta(toMeta: Meta) extends Type
+  case class TyApply(on: Type, arg: Type) extends Type
 
   val intType: Type = TyConst(Const.IntType)
   val boolType: Type = TyConst(Const.BoolType)
+  val fnType: Type = TyConst(Const.FnType)
+
+  object Fun {
+    def unapply(t: Type): Option[(Type, Type)] =
+      t match {
+        case TyApply(TyApply(TyConst(Const.FnType), from), to) =>
+          Some((from, to))
+        case _ => None
+      }
+
+    def apply(from: Type, to: Type): Type =
+      TyApply(TyApply(fnType, from), to)
+  }
+
 
   sealed abstract class Const
   object Const {
     case object IntType extends Const
     case object BoolType extends Const
+    case object FnType extends Const
     case class Defined(name: String) extends Const
   }
 
@@ -52,7 +67,7 @@ object Type {
       check match {
         case Nil => acc
         case ForAll(_, r) :: tail => go(r :: tail, acc)
-        case Fun(a, r) :: tail => go(a :: r :: tail, acc)
+        case TyApply(a, r) :: tail => go(a :: r :: tail, acc)
         case TyMeta(m) :: tail => go(tail, acc + m)
         case _ :: tail => go(tail, acc)
       }
