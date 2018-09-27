@@ -508,6 +508,18 @@ object Tc {
         condTpe *> rest
       case Match(term, branches) =>
         // all of the branches must return the same type:
+
+        // TODO: it's fishy that both branches have to
+        // infer the type of term and then push it down
+        // as a Check, if we only ever call check there, why accept an Expect?
+        // The paper is not clear on this (they didn't implement this
+        // method as far as I can see)
+        // on the other hand, the patterns in some cases should be enough
+        // to see the type of matching term, but we are only accessing that
+        // via check currently.
+        //
+        // It feels like there should be another inference rule, which we
+        // are missing here.
         expect match {
           case Expected.Check(resT) =>
             for {
