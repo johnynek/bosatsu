@@ -155,7 +155,7 @@ class RankNTcTest extends FunSuite {
     testWithOpt(
       Match(App(Var("Some"), App(Var("Some"), Lit(1))),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), Var("a")),
+          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), Var("a"))
           )), Type.TyApply(optType, Type.intType))
 
     // this should fail, the pattern for Some has too many positions
