@@ -21,6 +21,7 @@ object Type {
   object Const {
     case object IntType extends Const
     case object BoolType extends Const
+    case class Defined(name: String) extends Const
   }
 
   sealed abstract class Var {
