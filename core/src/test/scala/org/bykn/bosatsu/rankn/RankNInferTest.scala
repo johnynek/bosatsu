@@ -3,10 +3,10 @@ package org.bykn.bosatsu.rankn
 import cats.data.NonEmptyList
 import org.scalatest.FunSuite
 
-class RankNTcTest extends FunSuite {
+class RankNInferTest extends FunSuite {
 
   def testType(term: Term, ty: Type) =
-    Tc.typeCheck(term).runFully(Map.empty, Map.empty) match {
+    Infer.typeCheck(term).runFully(Map.empty, Map.empty) match {
       case Left(err) => assert(false, err)
       case Right(tpe) => assert(tpe == ty, term.toString)
     }
@@ -74,13 +74,13 @@ class RankNTcTest extends FunSuite {
     )
 
     def testWithOpt(term: Term, ty: Type) =
-      Tc.typeCheck(term).runFully(constructors, definedOption) match {
+      Infer.typeCheck(term).runFully(constructors, definedOption) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe == ty, term.toString)
       }
 
     def failWithOpt(term: Term, ty: Type) =
-      Tc.typeCheck(term).runFully(constructors, definedOption) match {
+      Infer.typeCheck(term).runFully(constructors, definedOption) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -125,13 +125,13 @@ class RankNTcTest extends FunSuite {
     )
 
     def testWithOpt(term: Term, ty: Type) =
-      Tc.typeCheck(term).runFully(constructors, definedOption) match {
+      Infer.typeCheck(term).runFully(constructors, definedOption) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe == ty, term.toString)
       }
 
     def failWithOpt(term: Term, ty: Type) =
-      Tc.typeCheck(term).runFully(constructors, definedOption) match {
+      Infer.typeCheck(term).runFully(constructors, definedOption) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -194,7 +194,7 @@ class RankNTcTest extends FunSuite {
     )
 
     def testWithTypes(term: Term, ty: Type) =
-      Tc.typeCheck(term).runFully(constructors, defined) match {
+      Infer.typeCheck(term).runFully(constructors, defined) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe == ty, term.toString)
       }

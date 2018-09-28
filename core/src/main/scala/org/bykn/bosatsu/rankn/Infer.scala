@@ -3,25 +3,27 @@ import cats.Monad
 import cats.data.NonEmptyList
 import cats.implicits._
 
-sealed abstract class Tc[+A] {
-  def run(env: Tc.Env): RefSpace[Either[String, A]]
+sealed abstract class Infer[+A] {
+  import Infer.Error
 
-  final def flatMap[B](fn: A => Tc[B]): Tc[B] =
-    Tc.FlatMap(this, fn)
+  def run(env: Infer.Env): RefSpace[Either[Error, A]]
 
-  final def runVar(v: Map[String, Type], tpes: Map[String, Tc.Cons]): RefSpace[Either[String, A]] =
-    Tc.Env.init(v, tpes).flatMap(run(_))
+  final def flatMap[B](fn: A => Infer[B]): Infer[B] =
+    Infer.FlatMap(this, fn)
 
-  final def runFully(v: Map[String, Type], tpes: Map[String, Tc.Cons]): Either[String, A] =
+  final def runVar(v: Map[String, Type], tpes: Map[String, Infer.Cons]): RefSpace[Either[Error, A]] =
+    Infer.Env.init(v, tpes).flatMap(run(_))
+
+  final def runFully(v: Map[String, Type], tpes: Map[String, Infer.Cons]): Either[Error, A] =
     runVar(v, tpes).run.value
 }
 
-object Tc {
-  implicit val tcMonad: Monad[Tc] =
-    new Monad[Tc] {
-      def pure[A](a: A) = Tc.pure(a)
-      def flatMap[A, B](fa: Tc[A])(fn: A => Tc[B]): Tc[B] = fa.flatMap(fn)
-      def tailRecM[A, B](a: A)(fn: A => Tc[Either[A, B]]): Tc[B] =
+object Infer {
+  implicit val tcMonad: Monad[Infer] =
+    new Monad[Infer] {
+      def pure[A](a: A) = Infer.pure(a)
+      def flatMap[A, B](fa: Infer[A])(fn: A => Infer[B]): Infer[B] = fa.flatMap(fn)
+      def tailRecM[A, B](a: A)(fn: A => Infer[Either[A, B]]): Infer[B] =
         TailRecM(a, fn)
     }
 
@@ -40,18 +42,18 @@ object Tc {
       RefSpace.newRef(0L).map(Env(_, vars, tpes))
   }
 
-  sealed abstract class Expected[A]
-  object Expected {
-    case class Infer[A](ref: Ref[Either[String, A]]) extends Expected[A] {
-      def set(a: A): Tc[Unit] =
-        Tc.lift(ref.set(Right(a)))
+  private sealed abstract class Expected[A]
+  private object Expected {
+    case class Inf[A](ref: Ref[Either[Error, A]]) extends Expected[A] {
+      def set(a: A): Infer[Unit] =
+        Infer.lift(ref.set(Right(a)))
     }
     case class Check[A](value: A) extends Expected[A]
   }
 
-  private case class Defer[A](tc: () => Tc[A]) extends Tc[A] {
-    lazy val finalTc = {
-      def loop(tc: Tc[A]): Tc[A] =
+  private case class Defer[A](tc: () => Infer[A]) extends Infer[A] {
+    lazy val finalInfer = {
+      def loop(tc: Infer[A]): Infer[A] =
         tc match {
           case Defer(next) => loop(next())
           case nonDefer => nonDefer
@@ -60,19 +62,19 @@ object Tc {
       loop(tc())
     }
 
-    def run(env: Env) = finalTc.run(env)
+    def run(env: Env) = finalInfer.run(env)
   }
 
-  private case class FlatMap[A, B](fa: Tc[A], fn: A => Tc[B]) extends Tc[B] {
+  private case class FlatMap[A, B](fa: Infer[A], fn: A => Infer[B]) extends Infer[B] {
     def run(env: Env) =
       fa.run(env).flatMap {
         case Left(msg) => RefSpace.pure(Left(msg))
         case Right(a) => fn(a).run(env)
       }
   }
-  private case class TailRecM[A, B](init: A, fn: A => Tc[Either[A, B]]) extends Tc[B] {
+  private case class TailRecM[A, B](init: A, fn: A => Infer[Either[A, B]]) extends Infer[B] {
     def run(env: Env) = {
-      def step(a: A): RefSpace[Either[A, Either[String, B]]] =
+      def step(a: A): RefSpace[Either[A, Either[Error, B]]] =
         fn(a).run(env).map {
           case Left(err) => Right(Left(err))
           case Right(Left(a)) => Left(a)
@@ -83,30 +85,30 @@ object Tc {
     }
   }
 
-  private case object GetEnv extends Tc[Map[String, Type]] {
+  private case object GetEnv extends Infer[Map[String, Type]] {
     def run(env: Env) = RefSpace.pure(Right(env.vars))
   }
 
-  private case class GetDataCons(name: String) extends Tc[Cons] {
+  private case class GetDataCons(name: String) extends Infer[Cons] {
     def run(env: Env) =
       RefSpace.pure(
         env.typeCons.get(name) match {
           case None =>
-            Left(s"unknown Constructor $name. Known: ${env.typeCons.keys.toList.sorted}")
+            Left(Error.UnknownConstructor(name, env))
           case Some(res) =>
             Right(res)
         })
   }
 
-  private case class ExtendEnvs[A](vt: List[(String, Type)], in: Tc[A]) extends Tc[A] {
+  private case class ExtendEnvs[A](vt: List[(String, Type)], in: Infer[A]) extends Infer[A] {
     def run(env: Env) = in.run(env.copy(vars = vt.foldLeft(env.vars)(_ + _)))
   }
 
-  private case class Lift[A](res: RefSpace[Either[String, A]]) extends Tc[A] {
+  private case class Lift[A](res: RefSpace[Either[Error, A]]) extends Infer[A] {
     def run(env: Env) = res
   }
 
-  private case object NextId extends Tc[Long] {
+  private case object NextId extends Infer[Long] {
     def run(env: Env) =
       for {
         thisId <- env.uniq.get
@@ -114,38 +116,86 @@ object Tc {
       } yield Right(thisId)
   }
 
-  def getEnv: Tc[Map[String, Type]] = GetEnv
+  sealed abstract class Error {
+    def message: String
+  }
+  object Error {
 
-  def lift[A](rs: RefSpace[A]): Tc[A] =
+    sealed abstract class PatternError extends Error
+
+    case class UnexpectedMeta(m: Type.Meta, in: Type) extends Error {
+      def message = s"meta $m occurs in $in and should not"
+    }
+
+    case class VarNotInScope(varName: String, vars: Map[String, Type]) extends Error {
+      def message = s"$varName not in scope: $vars"
+    }
+
+    case class UnexpectedBound(v: Type.Var.Bound, in: Type) extends Error {
+      def message = s"unexpected bound ${v.name} in unification with $in"
+    }
+
+    case class NotUnifiable(left: Type, right: Type) extends Error {
+      def message = s"$left cannot be unified with $right"
+    }
+
+    case class NotPolymorphicEnough(tpe: Type, in: Term) extends Error {
+      def message = s"type $tpe not polymorphic enough in $in"
+    }
+
+    case class SubsumptionCheckFailure(inferred: Type, declared: Type) extends Error {
+      def message = s"subsumption check failed: $inferred $declared"
+    }
+
+    case class UnknownConstructor(name: String, env: Env) extends Error {
+      def message = s"unknown Constructor $name. Known: ${env.typeCons.keys.toList.sorted}"
+    }
+
+    case class ConstructorArityError(name: String, expectedSize: Int, foundSize: Int) extends PatternError {
+      def message = s"constructor $name expects $expectedSize parameters, found $foundSize"
+    }
+
+    // This is a logic error which should never happen
+    case class InferPatIncomplete(pattern: Pattern) extends Error {
+      def message = s"inferPat not complete for $pattern"
+    }
+    case class InferIncomplete(method: String, term: Term) extends Error {
+      def message = s"$method not complete for $term"
+    }
+  }
+
+  def getEnv: Infer[Map[String, Type]] = GetEnv
+
+  def lift[A](rs: RefSpace[A]): Infer[A] =
     Lift(rs.map(Right(_)))
 
-  def fail(msg: String): Tc[Nothing] =
-    Lift(RefSpace.pure(Left(msg)))
+  def fail(err: Error): Infer[Nothing] =
+    Lift(RefSpace.pure(Left(err)))
 
-  def pure[A](a: A): Tc[A] =
+  def pure[A](a: A): Infer[A] =
     Lift(RefSpace.pure(Right(a)))
 
-  def defer[A](tc: => Tc[A]): Tc[A] =
+  def defer[A](tc: => Infer[A]): Infer[A] =
     Defer(() => tc)
 
-  def require(b: Boolean, msg: String): Tc[Unit] =
-    if (b) pure(()) else fail(msg)
+  def require(b: Boolean, err: => Error): Infer[Unit] =
+    if (b) pure(()) else fail(err)
 
   // Fails if v is not in the env
-  def lookupVarType(v: String): Tc[Type] =
+  def lookupVarType(v: String): Infer[Type] =
     getEnv.flatMap { env =>
       env.get(v) match {
-        case None => fail(s"$v not in scope: $env")
+        case None => fail(Error.VarNotInScope(v, env))
         case Some(t) => pure(t)
       }
     }
 
-  def nextId: Tc[Long] = NextId
+  def nextId: Infer[Long] = NextId
 
-  def typeCheck(t: Term): Tc[Type] =
+  def typeCheck(t: Term): Infer[Type] =
     inferSigma(t).flatMap(zonkType _)
 
-  def getMetaTyVars(tpes: List[Type]): Tc[Set[Type.Meta]] =
+  private def getMetaTyVars(tpes: List[Type]): Infer[Set[Type.Meta]] =
     tpes.traverse(zonkType).map(Type.metaTvs(_))
 
   private def tyVarBinders(tpes: List[Type], acc: Set[Type.Var]): Set[Type.Var] =
@@ -161,7 +211,7 @@ object Tc {
   /**
    * Quantify over the specified type variables (all flexible)
    */
-  def quantify(forAlls: List[Type.Meta], rho: Type.Rho): Tc[Type] =
+  private def quantify(forAlls: List[Type.Meta], rho: Type.Rho): Infer[Type] =
     forAlls match {
       case Nil =>
         // this case is not really discussed in the paper
@@ -182,7 +232,7 @@ object Tc {
         (bound *> zonkType(rho)).map(Type.ForAll(newBindersNE, _))
     }
 
-  def inferSigma(e: Term): Tc[Type] =
+  def inferSigma(e: Term): Infer[Type] =
     for {
       expTy <- inferRho(e)
       envTys <- getEnv
@@ -192,7 +242,7 @@ object Tc {
       q <- quantify(forAllTvs.toList, expTy)
     } yield q
 
-  def skolemize(t: Type): Tc[(List[Type.Var], Type.Rho)] =
+  private def skolemize(t: Type): Infer[(List[Type.Var], Type.Rho)] =
     t match {
       case Type.ForAll(tvs, ty) =>
         // Rule PRPOLY
@@ -231,10 +281,10 @@ object Tc {
     }
   }
 
-  private def getFreeTyVars(ts: List[Type]): Tc[Set[Type.Var]] =
+  private def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
     ts.traverse(zonkType).map(freeTyVars(_))
 
-  def checkSigma(t: Term, tpe: Type): Tc[Unit] =
+  def checkSigma(t: Term, tpe: Type): Infer[Unit] =
     for {
       skolRho <- skolemize(tpe)
       (skols, rho) = skolRho
@@ -242,10 +292,10 @@ object Tc {
       envTys <- getEnv
       escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
       badTvs = skols.filter(escTvs)
-      _ <- require(badTvs.isEmpty, s"type $tpe not polymorphic enough in $t")
+      _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t))
     } yield ()
 
-  def zonkType(t: Type): Tc[Type] =
+  private def zonkType(t: Type): Infer[Type] =
     t match {
       case Type.ForAll(ns, ty) =>
         zonkType(ty).map(Type.ForAll(ns, _))
@@ -264,14 +314,18 @@ object Tc {
         }
     }
 
-  def checkRho(t: Term, rho: Type.Rho): Tc[Unit] =
+  def checkRho(t: Term, rho: Type.Rho): Infer[Unit] =
     typeCheckRho(t, Expected.Check(rho))
 
-  def inferRho(t: Term): Tc[Type.Rho] =
+  private def initRef[A](err: Error): Infer[Ref[Either[Error, A]]] =
+    lift(RefSpace.newRef[Either[Error, A]](Left(err)))
+
+
+  def inferRho(t: Term): Infer[Type.Rho] =
     for {
-      ref <- lift(RefSpace.newRef[Either[String, Type.Rho]](Left(s"inferRho not complete for $t")))
-      _ <- typeCheckRho(t, Expected.Infer(ref))
-      rho <- (Lift(ref.get): Tc[Type.Rho])
+      ref <- initRef[Type.Rho](Error.InferIncomplete("inferRho", t))
+      _ <- typeCheckRho(t, Expected.Inf(ref))
+      rho <- (Lift(ref.get): Infer[Type.Rho])
       _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
     } yield rho
 
@@ -294,7 +348,7 @@ object Tc {
   }
 
   // Return a Rho type (not a Forall)
-  def instantiate(t: Type): Tc[Type.Rho] =
+  private def instantiate(t: Type): Infer[Type.Rho] =
     t match {
       case Type.ForAll(vars, ty) =>
         for {
@@ -304,12 +358,12 @@ object Tc {
       case rho => pure(rho)
     }
 
-  private def subsCheckFn(a1: Type, r1: Type.Rho, a2: Type, r2: Type.Rho): Tc[Unit] =
+  private def subsCheckFn(a1: Type, r1: Type.Rho, a2: Type, r2: Type.Rho): Infer[Unit] =
     // note due to contravariance in input, we reverse the order there
     subsCheck(a2, a1) *> subsCheckRho(r1, r2)
 
   // invariant: second argument is in weak prenex form
-  private def subsCheckRho(t: Type, rho: Type.Rho): Tc[Unit] =
+  private def subsCheckRho(t: Type, rho: Type.Rho): Infer[Unit] =
     (t, rho) match {
       case (fa@Type.ForAll(_, _), rho) =>
         // Rule SPEC
@@ -331,15 +385,15 @@ object Tc {
         unify(t1, t2)
     }
 
-  def instSigma(sigma: Type, expect: Expected[Type.Rho]): Tc[Unit] =
+  private def instSigma(sigma: Type, expect: Expected[Type.Rho]): Infer[Unit] =
     expect match {
       case Expected.Check(t) =>
         subsCheckRho(sigma, t)
-      case infer@Expected.Infer(_) =>
+      case infer@Expected.Inf(_) =>
         instantiate(sigma).flatMap(infer.set(_))
     }
 
-  private def unifyFn(fnType: Type): Tc[(Type, Type)] =
+  private def unifyFn(fnType: Type): Infer[(Type, Type)] =
     fnType match {
       case Type.Fun(arg, res) => pure((arg, res))
       case tau =>
@@ -350,11 +404,11 @@ object Tc {
         } yield (argT, resT)
     }
 
-  private def occursCheckErr(m: Type.Meta, t: Type): Tc[Unit] =
-    fail(s"meta $m occurs in $t and should not")
+  private def occursCheckErr(m: Type.Meta, t: Type): Infer[Unit] =
+    fail(Error.UnexpectedMeta(m, t))
 
   // invariant the flexible type variable tv1 is not bound
-  private def unifyUnboundVar(m: Type.Meta, ty2: Type): Tc[Unit] =
+  private def unifyUnboundVar(m: Type.Meta, ty2: Type): Infer[Unit] =
     ty2 match {
       case Type.TyMeta(m2) =>
         readMeta(m2).flatMap {
@@ -369,18 +423,18 @@ object Tc {
           }
     }
 
-  private def unifyVar(tv: Type.Meta, t: Type): Tc[Unit] =
+  private def unifyVar(tv: Type.Meta, t: Type): Infer[Unit] =
     readMeta(tv).flatMap {
       case None => unifyUnboundVar(tv, t)
       case Some(ty1) => unify(ty1, t)
     }
 
-  private def unify(t1: Type.Tau, t2: Type.Tau): Tc[Unit] =
+  private def unify(t1: Type.Tau, t2: Type.Tau): Infer[Unit] =
     (t1, t2) match {
-      case (Type.TyVar(Type.Var.Bound(v)), _) =>
-        fail(s"unexpected bound $v in unification with $t2")
-      case (_, Type.TyVar(Type.Var.Bound(v))) =>
-        fail(s"unexpected bound $v in unification with $t1")
+      case (Type.TyVar(b@Type.Var.Bound(_)), _) =>
+        fail(Error.UnexpectedBound(b, t2))
+      case (_, Type.TyVar(b@Type.Var.Bound(_))) =>
+        fail(Error.UnexpectedBound(b, t1))
       case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => pure(())
       case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => pure(())
       case (Type.TyMeta(m), tpe) => unifyVar(m, tpe)
@@ -388,48 +442,48 @@ object Tc {
       case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
         unify(a1, a2) *> unify(b1, b2)
       case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => pure(())
-      case (left, right) => fail(s"$left cannot be unified with $right")
+      case (left, right) => fail(Error.NotUnifiable(left, right))
     }
 
-  def extendEnv[A](varName: String, tpe: Type)(of: Tc[A]): Tc[A] =
+  def extendEnv[A](varName: String, tpe: Type)(of: Infer[A]): Infer[A] =
     extendEnvList(List((varName, tpe)))(of)
 
-  def extendEnvList[A](bindings: List[(String, Type)])(of: Tc[A]): Tc[A] =
-    Tc.ExtendEnvs(bindings, of)
+  def extendEnvList[A](bindings: List[(String, Type)])(of: Infer[A]): Infer[A] =
+    Infer.ExtendEnvs(bindings, of)
 
-  private def newTyVarTy: Tc[Type.Tau] =
+  private def newTyVarTy: Infer[Type.Tau] =
     newMetaTyVar.map(Type.TyMeta(_))
 
-  private def newMetaTyVar: Tc[Type.Meta] =
+  private def newMetaTyVar: Infer[Type.Meta] =
     for {
       id <- nextId
       ref <- lift(RefSpace.newRef[Option[Type]](None))
     } yield Type.Meta(id, ref)
 
-  private def newSkolemTyVar(tv: Type.Var): Tc[Type.Var] =
+  private def newSkolemTyVar(tv: Type.Var): Infer[Type.Var] =
     nextId.map(Type.Var.Skolem(tv.name, _))
 
-  private def readMeta(m: Type.Meta): Tc[Option[Type.Tau]] =
+  private def readMeta(m: Type.Meta): Infer[Option[Type.Tau]] =
     lift(m.ref.get)
 
-  private def writeMeta(m: Type.Meta, v: Type.Tau): Tc[Unit] =
+  private def writeMeta(m: Type.Meta, v: Type.Tau): Infer[Unit] =
     lift(m.ref.set(Some(v)))
 
   // DEEP-SKOL rule
-  private def subsCheck(inferred: Type, declared: Type): Tc[Unit] =
+  private def subsCheck(inferred: Type, declared: Type): Infer[Unit] =
     for {
       skolRho <- skolemize(declared)
       (skolTvs, rho2) = skolRho
       _ <- subsCheckRho(inferred, rho2)
       escTvs <- getFreeTyVars(List(inferred, declared))
       badTvs = skolTvs.filter(escTvs)
-      _ <- require(badTvs.isEmpty, s"subsumption check failed: $inferred $declared")
+      _ <- require(badTvs.isEmpty, Error.SubsumptionCheckFailure(inferred, declared))
     } yield ()
 
   /**
    * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
    */
-  private def typeCheckRho(term: Term, expect: Expected[Type.Rho]): Tc[Unit] = {
+  private def typeCheckRho(term: Term, expect: Expected[Type.Rho]): Infer[Unit] = {
     import Term._
 
     term match {
@@ -459,7 +513,7 @@ object Tc {
                   checkRho(result, bodyT)
                 }
               }
-          case infer@Expected.Infer(_) =>
+          case infer@Expected.Inf(_) =>
             for {
               varT <- newTyVarTy
               bodyT <- extendEnv(name, varT)(inferRho(result))
@@ -475,7 +529,7 @@ object Tc {
                   subsCheck(tpe, varT) *> checkRho(result, bodyT)
                 }
               }
-          case infer@Expected.Infer(_) =>
+          case infer@Expected.Inf(_) =>
             for {
               bodyT <- extendEnv(name, tpe)(inferRho(result))
               _ <- infer.set(Type.Fun(tpe, bodyT))
@@ -497,7 +551,7 @@ object Tc {
             typeCheckRho(ifTrue, check) *>
               typeCheckRho(ifFalse, check)
 
-          case infer@Expected.Infer(_) =>
+          case infer@Expected.Inf(_) =>
             for {
               rT <- inferRho(ifTrue)
               rF <- inferRho(ifFalse)
@@ -528,12 +582,12 @@ object Tc {
               tsigma <- inferSigma(term)
               _ <- branches.traverse_ { case (p, r) => checkBranch(p, Expected.Check(tsigma), r, resT) }
             } yield ()
-          case infer@Expected.Infer(_) =>
+          case infer@Expected.Inf(_) =>
             for {
               tsigma <- inferSigma(term)
               resTs <- branches.traverse { case (p, r) => inferBranch(p, Expected.Check(tsigma), r) }
               _ <- resTs.flatMap { t0 => resTs.map((t0, _)) }.traverse_ {
-                case (t0, t1) if t0 eq t1 => Tc.pure(())
+                case (t0, t1) if t0 eq t1 => Infer.pure(())
                 case (t0, t1) => subsCheck(t0, t1)
               }
               _ <- infer.set(resTs.head)
@@ -542,13 +596,13 @@ object Tc {
     }
   }
 
-  private def checkBranch(p: Pattern, sigma: Expected[Type], res: Term, resT: Type): Tc[Unit] =
+  private def checkBranch(p: Pattern, sigma: Expected[Type], res: Term, resT: Type): Infer[Unit] =
     for {
       bindings <- typeCheckPattern(p, sigma)
       _ <- extendEnvList(bindings)(checkRho(res, resT))
     } yield ()
 
-  private def inferBranch(p: Pattern, sigma: Expected[Type], res: Term): Tc[Type] =
+  private def inferBranch(p: Pattern, sigma: Expected[Type], res: Term): Infer[Type] =
     for {
       bindings <- typeCheckPattern(p, sigma)
       res <- extendEnvList(bindings)(inferRho(res))
@@ -558,13 +612,13 @@ object Tc {
    * patterns can be a sigma type, not neccesarily a rho/tau
    * return a list of bound names and their (sigma) types
    */
-  private def typeCheckPattern(pat: Pattern, sigma: Expected[Type]): Tc[List[(String, Type)]] =
+  private def typeCheckPattern(pat: Pattern, sigma: Expected[Type]): Infer[List[(String, Type)]] =
     pat match {
-      case Pattern.WildCard => Tc.pure(Nil)
+      case Pattern.WildCard => Infer.pure(Nil)
       case Pattern.Var(n) =>
         sigma match {
-          case Expected.Check(t) => Tc.pure(List((n, t)))
-          case infer@Expected.Infer(_) =>
+          case Expected.Check(t) => Infer.pure(List((n, t)))
+          case infer@Expected.Inf(_) =>
             for {
               t <- newTyVarTy
               _ <- infer.set(t)
@@ -574,38 +628,39 @@ object Tc {
         for {
           paramRes <- instDataCon(nm)
           (params, res) = paramRes
-          _ <- require(args.size == params.size, s"constructor $nm expects ${params.size} parameters, found ${args.size}")
+          _ <- require(args.size == params.size,
+            Error.ConstructorArityError(nm, params.size, args.size))
           envs <- args.zip(params).traverse { case (p, t) => checkPat(p, t) }
           _ <- instPatSigma(res, sigma)
         } yield envs.flatten
     }
 
 
-  private def checkPat(pat: Pattern, sigma: Type): Tc[List[(String, Type)]] =
+  private def checkPat(pat: Pattern, sigma: Type): Infer[List[(String, Type)]] =
     typeCheckPattern(pat, Expected.Check(sigma))
 
-  private def inferPat(pat: Pattern): Tc[Type] =
+  private def inferPat(pat: Pattern): Infer[Type] =
     for {
-      ref <- lift(RefSpace.newRef[Either[String, Type]](Left(s"inferPat not complete for $pat")))
-      _ <- typeCheckPattern(pat, Expected.Infer(ref))
-      sigma <- (Lift(ref.get): Tc[Type])
+      ref <- initRef[Type](Error.InferPatIncomplete(pat))
+      _ <- typeCheckPattern(pat, Expected.Inf(ref))
+      sigma <- (Lift(ref.get): Infer[Type])
       _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
     } yield sigma
 
-  private def instPatSigma(sigma: Type, exp: Expected[Type]): Tc[Unit] =
+  private def instPatSigma(sigma: Type, exp: Expected[Type]): Infer[Unit] =
     exp match {
-      case infer@Expected.Infer(_) => infer.set(sigma)
+      case infer@Expected.Inf(_) => infer.set(sigma)
       case Expected.Check(texp) => subsCheck(texp, sigma)
     }
 
   /**
-   * To do this, Tc will need to know the names of the type
+   * To do this, Infer will need to know the names of the type
    * constructors in scope
    */
-  private def instDataCon(consName: String): Tc[(List[Type], Type.Tau)] =
+  private def instDataCon(consName: String): Infer[(List[Type], Type.Tau)] =
     GetDataCons(consName).flatMap {
       case (Nil, consParams, tpeName) =>
-        Tc.pure((consParams, Type.TyConst(tpeName)))
+        Infer.pure((consParams, Type.TyConst(tpeName)))
       case (v0 :: vs, consParams, tpeName) =>
         val vars = NonEmptyList(v0, vs)
         vars.traverse(_ => newMetaTyVar)
