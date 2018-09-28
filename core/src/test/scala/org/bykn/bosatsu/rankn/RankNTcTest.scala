@@ -186,8 +186,8 @@ class RankNTcTest extends FunSuite {
       ("None", (List(b("a")), Nil, optName)))
 
     val constructors = Map(
-      ("Pure", Type.ForAll(NonEmptyList.of(b("f"), b("a")),
-        Type.Fun(Type.Fun(v("a"), Type.TyApply(v("f"), v("a"))),
+      ("Pure", Type.ForAll(NonEmptyList.of(b("f")),
+        Type.Fun(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(v("a"), Type.TyApply(v("f"), v("a")))),
           Type.TyApply(Type.TyConst(pureName), v("f")) ))),
       ("Some", Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(v("a"), Type.TyApply(optType, v("a"))))),
       ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, v("a"))))
