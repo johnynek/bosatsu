@@ -121,45 +121,57 @@ object Infer {
   }
   object Error {
 
-    sealed abstract class PatternError extends Error
+    /**
+     * These are errors in the ability to type the code
+     * Generally these cannot be caught by other phases
+     */
+    sealed abstract class TypeError extends Error
 
-    case class UnexpectedMeta(m: Type.Meta, in: Type) extends Error {
-      def message = s"meta $m occurs in $in and should not"
-    }
-
-    case class VarNotInScope(varName: String, vars: Map[String, Type]) extends Error {
-      def message = s"$varName not in scope: $vars"
-    }
-
-    case class UnexpectedBound(v: Type.Var.Bound, in: Type) extends Error {
-      def message = s"unexpected bound ${v.name} in unification with $in"
-    }
-
-    case class NotUnifiable(left: Type, right: Type) extends Error {
+    case class NotUnifiable(left: Type, right: Type) extends TypeError {
       def message = s"$left cannot be unified with $right"
     }
 
-    case class NotPolymorphicEnough(tpe: Type, in: Term) extends Error {
+    case class NotPolymorphicEnough(tpe: Type, in: Term) extends TypeError {
       def message = s"type $tpe not polymorphic enough in $in"
     }
 
-    case class SubsumptionCheckFailure(inferred: Type, declared: Type) extends Error {
+    case class SubsumptionCheckFailure(inferred: Type, declared: Type) extends TypeError {
       def message = s"subsumption check failed: $inferred $declared"
     }
 
-    case class UnknownConstructor(name: String, env: Env) extends Error {
+    /**
+     * These are errors that prevent typing due to unknown names,
+     * They could be caught in a phase that collects all the naming errors
+     */
+    sealed abstract class NameError extends Error
+
+    // This could be a user error if we don't check scoping before typing
+    case class VarNotInScope(varName: String, vars: Map[String, Type]) extends NameError {
+      def message = s"$varName not in scope: $vars"
+    }
+
+    // This could be a user error if we don't check scoping before typing
+    case class UnexpectedBound(v: Type.Var.Bound, in: Type) extends NameError {
+      def message = s"unexpected bound ${v.name} in unification with $in"
+    }
+
+    case class UnknownConstructor(name: String, env: Env) extends NameError {
       def message = s"unknown Constructor $name. Known: ${env.typeCons.keys.toList.sorted}"
     }
 
-    case class ConstructorArityError(name: String, expectedSize: Int, foundSize: Int) extends PatternError {
-      def message = s"constructor $name expects $expectedSize parameters, found $foundSize"
+    /**
+     * These can only happen if the compiler has bugs at some point
+     */
+    sealed abstract class InternalError extends Error
+    case class UnexpectedMeta(m: Type.Meta, in: Type) extends InternalError {
+      def message = s"meta $m occurs in $in and should not"
     }
 
     // This is a logic error which should never happen
-    case class InferPatIncomplete(pattern: Pattern) extends Error {
+    case class InferPatIncomplete(pattern: Pattern) extends InternalError {
       def message = s"inferPat not complete for $pattern"
     }
-    case class InferIncomplete(method: String, term: Term) extends Error {
+    case class InferIncomplete(method: String, term: Term) extends InternalError {
       def message = s"$method not complete for $term"
     }
   }
@@ -628,8 +640,10 @@ object Infer {
         for {
           paramRes <- instDataCon(nm)
           (params, res) = paramRes
-          _ <- require(args.size == params.size,
-            Error.ConstructorArityError(nm, params.size, args.size))
+          // we need to do a pattern linting phase and probably error
+          // if the pattern arity does not match the arity of the constructor
+          // but we don't want to error type-checking since we want to show
+          // the maximimum number of errors to the user
           envs <- args.zip(params).traverse { case (p, t) => checkPat(p, t) }
           _ <- instPatSigma(res, sigma)
         } yield envs.flatten
