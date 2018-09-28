@@ -1,5 +1,7 @@
 package org.bykn.bosatsu.rankn
 
+import cats.data.NonEmptyList
+
 sealed abstract class Term {
   import Term._
 
@@ -28,6 +30,7 @@ object Term {
   case class Let(name: String, value: Term, in: Term) extends Term
   case class Ann(term: Term, tpe: Type) extends Term
   case class If(cond: Term, ifTrue: Term, ifFalse: Term) extends Term
+  case class Match(term: Term, branches: NonEmptyList[(Pattern, Term)]) extends Term
 
   object Lit {
     def apply(l: Long): Lit = Lit(Literal(l))

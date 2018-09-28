@@ -9,11 +9,11 @@ sealed abstract class Tc[+A] {
   final def flatMap[B](fn: A => Tc[B]): Tc[B] =
     Tc.FlatMap(this, fn)
 
-  final def runVar(v: Map[String, Type]): RefSpace[Either[String, A]] =
-    Tc.Env.init(v).flatMap(run(_))
+  final def runVar(v: Map[String, Type], tpes: Map[String, Tc.Cons]): RefSpace[Either[String, A]] =
+    Tc.Env.init(v, tpes).flatMap(run(_))
 
-  final def runFully(v: Map[String, Type]): Either[String, A] =
-    runVar(v).run.value
+  final def runFully(v: Map[String, Type], tpes: Map[String, Tc.Cons]): Either[String, A] =
+    runVar(v, tpes).run.value
 }
 
 object Tc {
@@ -26,14 +26,18 @@ object Tc {
     }
 
 
-  case class Env(uniq: Ref[Long], vars: Map[String, Type])
+  type Cons = (List[Type.Var], List[Type], Type.Const.Defined)
+
+  case class Env(uniq: Ref[Long],
+    vars: Map[String, Type],
+    typeCons: Map[String, Cons])
 
   object Env {
     def empty: RefSpace[Env] =
-      init(Map.empty)
+      init(Map.empty, Map.empty)
 
-    def init(vars: Map[String, Type]): RefSpace[Env] =
-      RefSpace.newRef(0L).map(Env(_, vars))
+    def init(vars: Map[String, Type], tpes: Map[String, Cons]): RefSpace[Env] =
+      RefSpace.newRef(0L).map(Env(_, vars, tpes))
   }
 
   sealed abstract class Expected[A]
@@ -83,8 +87,19 @@ object Tc {
     def run(env: Env) = RefSpace.pure(Right(env.vars))
   }
 
-  private case class ExtendEnv[A](varName: String, tpe: Type, in: Tc[A]) extends Tc[A] {
-    def run(env: Env) = in.run(env.copy(vars = env.vars.updated(varName, tpe)))
+  private case class GetDataCons(name: String) extends Tc[Cons] {
+    def run(env: Env) =
+      RefSpace.pure(
+        env.typeCons.get(name) match {
+          case None =>
+            Left(s"unknown Constructor $name. Known: ${env.typeCons.keys.toList.sorted}")
+          case Some(res) =>
+            Right(res)
+        })
+  }
+
+  private case class ExtendEnvs[A](vt: List[(String, Type)], in: Tc[A]) extends Tc[A] {
+    def run(env: Env) = in.run(env.copy(vars = vt.foldLeft(env.vars)(_ + _)))
   }
 
   private case class Lift[A](res: RefSpace[Either[String, A]]) extends Tc[A] {
@@ -138,7 +153,7 @@ object Tc {
       case Nil => acc
       case Type.ForAll(tvs, body) :: rest =>
         tyVarBinders(rest, acc ++ tvs.toList)
-      case Type.Fun(arg, res) :: rest =>
+      case Type.TyApply(arg, res) :: rest =>
         tyVarBinders(arg :: res :: rest, acc)
       case _ :: rest => tyVarBinders(rest, acc)
     }
@@ -206,7 +221,7 @@ object Tc {
         case Type.TyVar(tv) :: rest =>
           if (bound(tv)) go(rest, bound, acc)
           else go(rest, bound, acc + tv)
-        case Type.Fun(a, b) :: rest => go(a :: b :: rest, bound, acc)
+        case Type.TyApply(a, b) :: rest => go(a :: b :: rest, bound, acc)
         case Type.ForAll(tvs, ty) :: rest => go(ty :: rest, bound ++ tvs.toList, acc)
         case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
       }
@@ -234,8 +249,8 @@ object Tc {
     t match {
       case Type.ForAll(ns, ty) =>
         zonkType(ty).map(Type.ForAll(ns, _))
-      case Type.Fun(arg, res) =>
-        (zonkType(arg), zonkType(res)).mapN(Type.Fun(_, _))
+      case Type.TyApply(on, arg) =>
+        (zonkType(on), zonkType(arg)).mapN(Type.TyApply(_, _))
       case c@Type.TyConst(_) => pure(c)
       case v@Type.TyVar(_) => pure(v)
       case t@Type.TyMeta(m) =>
@@ -264,7 +279,7 @@ object Tc {
 
     def subst(env: Map[Type.Var, Type], t: Type): Type =
       t match {
-        case Type.Fun(arg, res) => Type.Fun(subst(env, arg), subst(env, res))
+        case Type.TyApply(on, arg) => Type.TyApply(subst(env, on), subst(env, arg))
         case v@Type.TyVar(n) => env.getOrElse(n, v)
         case Type.ForAll(ns, rho) =>
           val boundSet: Set[Type.Var] = ns.toList.toSet
@@ -370,14 +385,17 @@ object Tc {
       case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => pure(())
       case (Type.TyMeta(m), tpe) => unifyVar(m, tpe)
       case (tpe, Type.TyMeta(m)) => unifyVar(m, tpe)
-      case (Type.Fun(a1, r1), Type.Fun(a2, r2)) =>
-        unify(a1, a2) *> unify(r1, r2)
+      case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
+        unify(a1, a2) *> unify(b1, b2)
       case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => pure(())
       case (left, right) => fail(s"$left cannot be unified with $right")
     }
 
   def extendEnv[A](varName: String, tpe: Type)(of: Tc[A]): Tc[A] =
-    Tc.ExtendEnv(varName, tpe, of)
+    extendEnvList(List((varName, tpe)))(of)
+
+  def extendEnvList[A](bindings: List[(String, Type)])(of: Tc[A]): Tc[A] =
+    Tc.ExtendEnvs(bindings, of)
 
   private def newTyVarTy: Tc[Type.Tau] =
     newMetaTyVar.map(Type.TyMeta(_))
@@ -490,8 +508,112 @@ object Tc {
 
         }
         condTpe *> rest
+      case Match(term, branches) =>
+        // all of the branches must return the same type:
+
+        // TODO: it's fishy that both branches have to
+        // infer the type of term and then push it down
+        // as a Check, if we only ever call check there, why accept an Expect?
+        // The paper is not clear on this (they didn't implement this
+        // method as far as I can see)
+        // on the other hand, the patterns in some cases should be enough
+        // to see the type of matching term, but we are only accessing that
+        // via check currently.
+        //
+        // It feels like there should be another inference rule, which we
+        // are missing here.
+        expect match {
+          case Expected.Check(resT) =>
+            for {
+              tsigma <- inferSigma(term)
+              _ <- branches.traverse_ { case (p, r) => checkBranch(p, Expected.Check(tsigma), r, resT) }
+            } yield ()
+          case infer@Expected.Infer(_) =>
+            for {
+              tsigma <- inferSigma(term)
+              resTs <- branches.traverse { case (p, r) => inferBranch(p, Expected.Check(tsigma), r) }
+              _ <- resTs.flatMap { t0 => resTs.map((t0, _)) }.traverse_ {
+                case (t0, t1) if t0 eq t1 => Tc.pure(())
+                case (t0, t1) => subsCheck(t0, t1)
+              }
+              _ <- infer.set(resTs.head)
+            } yield ()
+        }
     }
   }
 
+  private def checkBranch(p: Pattern, sigma: Expected[Type], res: Term, resT: Type): Tc[Unit] =
+    for {
+      bindings <- typeCheckPattern(p, sigma)
+      _ <- extendEnvList(bindings)(checkRho(res, resT))
+    } yield ()
 
+  private def inferBranch(p: Pattern, sigma: Expected[Type], res: Term): Tc[Type] =
+    for {
+      bindings <- typeCheckPattern(p, sigma)
+      res <- extendEnvList(bindings)(inferRho(res))
+    } yield res
+
+  /**
+   * patterns can be a sigma type, not neccesarily a rho/tau
+   * return a list of bound names and their (sigma) types
+   */
+  private def typeCheckPattern(pat: Pattern, sigma: Expected[Type]): Tc[List[(String, Type)]] =
+    pat match {
+      case Pattern.WildCard => Tc.pure(Nil)
+      case Pattern.Var(n) =>
+        sigma match {
+          case Expected.Check(t) => Tc.pure(List((n, t)))
+          case infer@Expected.Infer(_) =>
+            for {
+              t <- newTyVarTy
+              _ <- infer.set(t)
+            } yield List((n, t))
+        }
+      case Pattern.PositionalStruct(nm, args) =>
+        for {
+          paramRes <- instDataCon(nm)
+          (params, res) = paramRes
+          _ <- require(args.size == params.size, s"constructor $nm expects ${params.size} parameters, found ${args.size}")
+          envs <- args.zip(params).traverse { case (p, t) => checkPat(p, t) }
+          _ <- instPatSigma(res, sigma)
+        } yield envs.flatten
+    }
+
+
+  private def checkPat(pat: Pattern, sigma: Type): Tc[List[(String, Type)]] =
+    typeCheckPattern(pat, Expected.Check(sigma))
+
+  private def inferPat(pat: Pattern): Tc[Type] =
+    for {
+      ref <- lift(RefSpace.newRef[Either[String, Type]](Left(s"inferPat not complete for $pat")))
+      _ <- typeCheckPattern(pat, Expected.Infer(ref))
+      sigma <- (Lift(ref.get): Tc[Type])
+      _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
+    } yield sigma
+
+  private def instPatSigma(sigma: Type, exp: Expected[Type]): Tc[Unit] =
+    exp match {
+      case infer@Expected.Infer(_) => infer.set(sigma)
+      case Expected.Check(texp) => subsCheck(texp, sigma)
+    }
+
+  /**
+   * To do this, Tc will need to know the names of the type
+   * constructors in scope
+   */
+  private def instDataCon(consName: String): Tc[(List[Type], Type.Tau)] =
+    GetDataCons(consName).flatMap {
+      case (Nil, consParams, tpeName) =>
+        Tc.pure((consParams, Type.TyConst(tpeName)))
+      case (v0 :: vs, consParams, tpeName) =>
+        val vars = NonEmptyList(v0, vs)
+        vars.traverse(_ => newMetaTyVar)
+          .map { vars1 =>
+            val vars1T = vars1.map(Type.TyMeta(_))
+            val params1 = consParams.map(substTy(vars, vars1T, _))
+            val res = vars1T.foldLeft(Type.TyConst(tpeName): Type)(Type.TyApply(_, _))
+            (params1, res)
+          }
+    }
 }
