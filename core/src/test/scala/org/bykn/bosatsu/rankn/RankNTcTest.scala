@@ -166,6 +166,45 @@ class RankNTcTest extends FunSuite {
           )), Type.intType)
   }
 
+  test("Test a constructor with ForAll") {
+    def b(a: String): Type.Var = Type.Var.Bound(a)
+    def v(a: String): Type = Type.TyVar(b(a))
+
+    val pureName = Type.Const.Defined("Pure")
+    val pureType: Type.Tau = Type.TyConst(pureName)
+    val optName = Type.Const.Defined("Option")
+    val optType: Type.Tau = Type.TyConst(optName)
+
+    /**
+     * struct Pure(pure: forall a. a -> f[a])
+     */
+    val defined = Map(
+      ("Pure", (List(b("f")),
+        List(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(v("a"), Type.TyApply(v("f"), v("a"))))),
+        pureName)),
+      ("Some", (List(b("a")), List(v("a")), optName)),
+      ("None", (List(b("a")), Nil, optName)))
+
+    val constructors = Map(
+      ("Pure", Type.ForAll(NonEmptyList.of(b("f"), b("a")),
+        Type.Fun(Type.Fun(v("a"), Type.TyApply(v("f"), v("a"))),
+          Type.TyApply(Type.TyConst(pureName), v("f")) ))),
+      ("Some", Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(v("a"), Type.TyApply(optType, v("a"))))),
+      ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, v("a"))))
+    )
+
+    def testWithTypes(term: Term, ty: Type) =
+      Tc.typeCheck(term).runFully(constructors, defined) match {
+        case Left(err) => assert(false, err)
+        case Right(tpe) => assert(tpe == ty, term.toString)
+      }
+
+    import Term._
+
+    testWithTypes(
+      App(Var("Pure"), Var("Some")), Type.TyApply(Type.TyConst(pureName), optType))
+  }
+
   test("test all binders") {
     assert(Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
       ("a" #:: Stream.iterate(0)(_ + 1).map { i => s"a$i" }).take(100))
