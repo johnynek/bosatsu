@@ -8,7 +8,12 @@ object Type {
   type Rho = Type // no top level ForAll
   type Tau = Type // no forall anywhere
 
-  case class ForAll(vars: NonEmptyList[Var], in: Rho) extends Type
+  case class ForAll(vars: NonEmptyList[Var], in: Rho) extends Type {
+    in match {
+      case ForAll(_, _) => sys.error(s"invalid nested ForAll")
+      case _ => ()
+    }
+  }
   case class TyConst(tpe: Const) extends Type
   case class TyVar(toVar: Var) extends Type
   case class TyMeta(toMeta: Meta) extends Type
