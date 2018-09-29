@@ -79,7 +79,7 @@ class RankNInferTest extends FunSuite {
         case Right(tpe) => assert(tpe == ty, term.toString)
       }
 
-    def failWithOpt(term: Term, ty: Type) =
+    def failWithOpt(term: Term) =
       Infer.typeCheck(term).runFully(constructors, definedOption) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
@@ -100,12 +100,11 @@ class RankNInferTest extends FunSuite {
           (Pattern.PositionalStruct("None", Nil), Lit(42))
           )), Type.intType)
 
-    // this should fail, the pattern for Some has too many positions
     failWithOpt(
       Match(App(Var("Some"), Lit(1)),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.WildCard, Pattern.WildCard)), Lit(0))
-          )), Type.intType)
+          (Pattern.PositionalStruct("Foo", List(Pattern.WildCard)), Lit(0))
+          )))
   }
 
   test("Match with custom generic types") {
@@ -130,7 +129,7 @@ class RankNInferTest extends FunSuite {
         case Right(tpe) => assert(tpe == ty, term.toString)
       }
 
-    def failWithOpt(term: Term, ty: Type) =
+    def failWithOpt(term: Term) =
       Infer.typeCheck(term).runFully(constructors, definedOption) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
@@ -158,12 +157,11 @@ class RankNInferTest extends FunSuite {
           (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), Var("a"))
           )), Type.TyApply(optType, Type.intType))
 
-    // this should fail, the pattern for Some has too many positions
     failWithOpt(
       Match(App(Var("Some"), Lit(1)),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.WildCard, Pattern.WildCard)), Lit(0))
-          )), Type.intType)
+          (Pattern.PositionalStruct("Foo", List(Pattern.WildCard)), Lit(0))
+          )))
   }
 
   test("Test a constructor with ForAll") {
