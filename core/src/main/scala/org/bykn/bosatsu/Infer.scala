@@ -139,19 +139,21 @@ object Inference {
     branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[T])],
     matchTag: T): Infer[(Type, NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[(T, Scheme)])])] = {
 
-    def withBind(args: List[Option[String]], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
+    def withBind(args: List[Pattern[(PackageName, ConstructorName)]], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
       inferTypeTag(result)
         .local { te: TypeEnv =>
           args.zip(ts.map(Scheme.fromType _)).foldLeft(te) {
-            case (te, (Some(varName), tpe)) => te.updated(varName, tpe)
-            case (te, (None, _)) => te
+            case (te, (Pattern.Var(varName), tpe)) => te.updated(varName, tpe)
+            case (te, (Pattern.WildCard, _)) => te
+            case (_, (Pattern.PositionalStruct(_, _), _)) =>
+              sys.error(s"nested patterns not supported")
           }
         }
 
     type Element[A] = (Pattern[(PackageName, ConstructorName)], Expr[A])
     def inferBranch(mp: Map[ConstructorName, List[Type]])(ce: Element[T]): Infer[(Type, Element[(T, Scheme)])] = {
       // TODO make sure we have proven that this map-get is safe:
-      val (p@Pattern((_, cname), bindings), branchRes) = ce
+      val (p@Pattern.PositionalStruct((_, cname), bindings), branchRes) = ce
       val tpes = mp(cname)
       withBind(bindings, tpes, branchRes).map { case (t, exp) =>
         (t, (p, exp))
@@ -300,7 +302,11 @@ object Inference {
       case Expr.Match(arg, branches, tag) =>
         for {
           env <- (RWST.ask: Infer[TypeEnv])
-          dt <- MonadError[Infer, TypeError].fromEither(env.getDefinedType(branches.map { case (Pattern(pc, _), r) => (pc, r) }))
+          dt <- MonadError[Infer, TypeError].fromEither(
+            env.getDefinedType(branches.map {
+              case (Pattern.PositionalStruct(pc, _), r) => (pc, r)
+              case (other, _) => sys.error(s"unsuppored pattern $other")
+            }))
           iarg <- inferTypeTag(arg)
           (targ, earg) = iarg
           ibranch <- instantiateMatch(targ, dt, branches, tag)

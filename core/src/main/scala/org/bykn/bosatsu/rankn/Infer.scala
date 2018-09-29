@@ -3,6 +3,8 @@ import cats.Monad
 import cats.data.NonEmptyList
 import cats.implicits._
 
+import org.bykn.bosatsu.{Pattern => GenPattern}
+
 sealed abstract class Infer[+A] {
   import Infer.Error
 
@@ -19,6 +21,9 @@ sealed abstract class Infer[+A] {
 }
 
 object Infer {
+
+  type Pattern = GenPattern[String]
+  val Pattern = GenPattern
 
   // Import our private implementation functions
   import Impl._

@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import org.scalatest.FunSuite
-import org.bykn.bosatsu.PackageName
+import org.bykn.bosatsu.{PackageName, Pattern}
 
 class RankNInferTest extends FunSuite {
 

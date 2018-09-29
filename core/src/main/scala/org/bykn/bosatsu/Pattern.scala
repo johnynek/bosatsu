@@ -3,29 +3,50 @@ package org.bykn.bosatsu
 import Parser.{ Combinators, lowerIdent, upperIdent }
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
+import cats.Functor
 
-// TODO, in the future, we could recursively have patterns in the args
-case class Pattern[T](typeName: T, bindings: List[Option[String]]) {
+sealed abstract class Pattern[+T] {
   def map[U](fn: T => U): Pattern[U] =
-    Pattern(fn(typeName), bindings)
+    this match {
+      case Pattern.WildCard => Pattern.WildCard
+      case Pattern.Var(v) => Pattern.Var(v)
+      case Pattern.PositionalStruct(name, params) =>
+        Pattern.PositionalStruct(fn(name), params.map(_.map(fn)))
+    }
 }
 
 object Pattern {
-  implicit val document: Document[Pattern[String]] =
-    Document.instance[Pattern[String]] {
-      case Pattern(n, Nil) => Doc.text(n)
-      case Pattern(n, nonEmpty) =>
-        def bind(o: Option[String]): Doc = o.fold(Doc.char('_'))(Doc.text)
-        Doc.text(n) +
-          Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(bind)) + Doc.char(')')
+  implicit val patternFunctor: Functor[Pattern] =
+    new Functor[Pattern] {
+      def map[A, B](fa: Pattern[A])(fn: A => B): Pattern[B] =
+        fa.map(fn)
     }
-  val parser: P[Pattern[String]] = {
-    val item = lowerIdent.map(Some(_)) | P("_").map(_ => None)
-    P(upperIdent ~ (item.listN(1).parens).?)
+
+  case object WildCard extends Pattern[Nothing]
+  case class Var(name: String) extends Pattern[Nothing]
+  case class PositionalStruct[T](name: T, params: List[Pattern[T]]) extends Pattern[T]
+
+  implicit lazy val document: Document[Pattern[String]] =
+    Document.instance[Pattern[String]] {
+      case WildCard => Doc.char('_')
+      case Var(n) => Doc.text(n)
+      case PositionalStruct(n, Nil) => Doc.text(n)
+      case PositionalStruct(n, nonEmpty) =>
+        Doc.text(n) +
+          Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(document.document(_))) + Doc.char(')')
+    }
+
+  lazy val parser: P[Pattern[String]] = {
+    val recurse = P(parser) // this is lazy
+    val pwild = P("_").map(_ => WildCard)
+    val pvar = lowerIdent.map(Var(_))
+    val positional = P(upperIdent ~/ (recurse.listN(1).parens).?)
       .map {
-        case (n, None) => Pattern(n, Nil)
-        case (n, Some(ls)) => Pattern(n, ls)
+        case (n, None) => PositionalStruct(n, Nil)
+        case (n, Some(ls)) => PositionalStruct(n, ls)
       }
+
+    pvar | pwild | positional
   }
 }
 

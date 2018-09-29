@@ -106,8 +106,8 @@ sealed abstract class Declaration {
         def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
           Expr.Match(cond,
             NonEmptyList.of(
-              (Pattern((Predef.packageName, ConstructorName("True")), Nil), ifTrue),
-              (Pattern((Predef.packageName, ConstructorName("False")), Nil), ifFalse)),
+              (Pattern.PositionalStruct((Predef.packageName, ConstructorName("True")), Nil), ifTrue),
+              (Pattern.PositionalStruct((Predef.packageName, ConstructorName("False")), Nil), ifFalse)),
             this)
 
         def loop(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
@@ -130,8 +130,9 @@ sealed abstract class Declaration {
       case Var(name) =>
         Expr.Var(name, this)
       case Match(arg, branches) =>
-        val expBranches = branches.map { case Padding(_, Indented(_, (Pattern(nm, bs), Padding(_, Indented(_, decl))))) =>
-          (Pattern((pn, ConstructorName(nm)), bs), decl.toExpr(pn))
+        val expBranches = branches.map { case Padding(_, Indented(_, (pat, Padding(_, Indented(_, decl))))) =>
+          val newPattern = pat.map { nm => (pn, ConstructorName(nm)) }
+          (newPattern, decl.toExpr(pn))
         }
         Expr.Match(arg.toExpr(pn), expBranches, this)
     }

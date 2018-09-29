@@ -70,22 +70,49 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     env: Map[String, Any],
     recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme)): Eval[Any] =
 
-    arg match {
-      case (enumId: Int, params: List[Any]) =>
-        Eval.later {
-          val dtName = Type.rootDeclared(scheme.result).get // this is safe because it has type checked
-          // TODO this can be memoized once per package
-          val dt = p.unfix.program.types.definedTypes
-             .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get // one must match
-          val cname = dt.constructors(enumId)._1
-          val (Pattern(_, paramVars), next) = branches.find { case (Pattern((_, ctor), _), _) => ctor === cname }.get
-          val localEnv = paramVars.zip(params).collect { case (Some(p1), p2) => (p1, p2) }.toMap
+    Eval.defer {
+      val dtName = Type.rootDeclared(scheme.result).get // this is safe because it has type checked
+      // TODO this can be memoized once per package
+      val dt = p.unfix.program.types.definedTypes
+         .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get // one must match
 
-          recurse((p, Right(next), env ++ localEnv))._1
-        }.flatMap { e => e }
+      def bindEnv(arg: Any,
+        branches: List[(Pattern[(PackageName, ConstructorName)], Expr[(Declaration, Scheme)])],
+        acc: Map[String, Any]): Option[(Map[String, Any], Expr[(Declaration, Scheme)])] =
+        branches match {
+          case Nil => None
+          case (Pattern.WildCard, next):: tail => Some((acc, next))
+          case (Pattern.Var(n), next) :: tail => Some((acc + (n -> arg), next))
+          case (Pattern.PositionalStruct((pack, ctor), items), next) :: tail =>
+            // let's see if this matches
+            arg match {
+              case (enumId: Int, params: List[Any]) =>
+                val cname = dt.constructors(enumId)._1
+                if (cname == ctor) {
+                  // this is the pattern
+                  // note passing in a List here we could have union patterns
+                  // if all the pattern bindings were known to be of the same type
+                  params.zip(items).foldM(acc) { case (e, (arg, pat)) =>
+                    bindEnv(arg, List((pat, next)), e).map(_._1)
+                  }.map((_, next))
+                }
+                else {
+                  bindEnv(arg, tail, acc)
+                }
+              case other => sys.error(s"logic error, in match arg evaluated to $other")
+            }
+        }
 
-      case other => sys.error(s"logic error, in match arg evaluated to $other")
+
+
+      val (localEnv, next) = bindEnv(arg, branches.toList, env)
+        .getOrElse(
+            // TODO make sure we rule this out statically
+            sys.error(s"non-total match: arg: $arg, branches: ${branches.map(_._1)}")
+          )
+      recurse((p, Right(next), localEnv))._1
     }
+    .memoize
 
   private def evalExpr(p: Package.Inferred,
     expr: Expr[(Declaration, Scheme)],

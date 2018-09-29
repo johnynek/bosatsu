@@ -160,7 +160,11 @@ object Generators {
         nm <- upperIdent
         cnt <- Gen.choose(0, 6)
         args <- Gen.listOfN(cnt, Gen.option(lowerIdent))
-      } yield Pattern(nm, args)
+        argPat = args.map {
+          case None => Pattern.WildCard
+          case Some(v) => Pattern.Var(v)
+        }
+      } yield Pattern.PositionalStruct(nm, argPat)
 
       val genCase: Gen[(Pattern[String], Padding[Indented[Declaration]])] =
         Gen.zip(genPattern, padBody)
