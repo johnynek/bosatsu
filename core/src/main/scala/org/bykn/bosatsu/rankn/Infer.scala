@@ -3,6 +3,8 @@ import cats.Monad
 import cats.data.NonEmptyList
 import cats.implicits._
 
+import org.bykn.bosatsu.{Pattern => GenPattern}
+
 sealed abstract class Infer[+A] {
   import Infer.Error
 
@@ -19,6 +21,8 @@ sealed abstract class Infer[+A] {
 }
 
 object Infer {
+
+  type Pattern = GenPattern[String]
 
   // Import our private implementation functions
   import Impl._
@@ -596,8 +600,8 @@ object Infer {
      */
     def typeCheckPattern(pat: Pattern, sigma: Expected[Type]): Infer[List[(String, Type)]] =
       pat match {
-        case Pattern.WildCard => Infer.pure(Nil)
-        case Pattern.Var(n) =>
+        case GenPattern.WildCard => Infer.pure(Nil)
+        case GenPattern.Var(n) =>
           sigma match {
             case Expected.Check(t) => Infer.pure(List((n, t)))
             case infer@Expected.Inf(_) =>
@@ -606,7 +610,7 @@ object Infer {
                 _ <- infer.set(t)
               } yield List((n, t))
           }
-        case Pattern.PositionalStruct(nm, args) =>
+        case GenPattern.PositionalStruct(nm, args) =>
           for {
             paramRes <- instDataCon(nm)
             (params, res) = paramRes
