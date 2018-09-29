@@ -294,6 +294,9 @@ object Inference {
         Monad[Infer].pure((Type.intT, Expr.Literal(Lit.Integer(i), (tag, Scheme.fromType(Type.intT)))))
       case Expr.Literal(str@Lit.Str(_) ,tag) =>
         Monad[Infer].pure((Type.strT, Expr.Literal(str, (tag, Scheme.fromType(Type.strT)))))
+      case Expr.If(_, _, _, _) =>
+        // We plan to remove this inference engine and we don't generate If nodes anyway
+        ???
       case Expr.Match(arg, branches, tag) =>
         for {
           env <- (RWST.ask: Infer[TypeEnv])

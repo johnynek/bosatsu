@@ -127,6 +127,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         }, scheme)
       case Literal(Lit.Integer(i), (_, scheme)) => (Eval.now(i), scheme)
       case Literal(Lit.Str(str), (_, scheme)) => (Eval.now(str), scheme)
+      case If(cond, ifT, ifF, (_, scheme)) =>
+        // TODO
+        // evaluate the condition the either the left or right
+        ???
       case Match(arg, branches, (_, scheme)) =>
         val (earg, sarg) = recurse((p, Right(arg), env))
         (earg.flatMap { a =>
