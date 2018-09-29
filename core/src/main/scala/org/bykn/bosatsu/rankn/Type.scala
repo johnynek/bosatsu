@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
+import org.bykn.bosatsu.PackageName
 
 sealed abstract class Type
 
@@ -41,7 +42,7 @@ object Type {
     case object IntType extends Const
     case object BoolType extends Const
     case object FnType extends Const
-    case class Defined(name: String) extends Const
+    case class Defined(packageName: PackageName, name: String) extends Const
   }
 
   sealed abstract class Var {

@@ -48,7 +48,7 @@ object Type {
   case class Var(name: String) extends Type
 
   private def predef(t: String): Type =
-    Declared(PackageName(NonEmptyList.of("Bosatsu", "Predef")), t)
+    Declared(PackageName.predef, t)
 
   val intT: Type = predef("Int")
   val boolT: Type = predef("Bool")

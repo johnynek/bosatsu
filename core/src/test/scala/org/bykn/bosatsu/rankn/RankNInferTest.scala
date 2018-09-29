@@ -2,8 +2,12 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import org.scalatest.FunSuite
+import org.bykn.bosatsu.PackageName
 
 class RankNInferTest extends FunSuite {
+
+  def defType(n: String): Type.Const.Defined =
+    Type.Const.Defined(PackageName.parts("Test"), n)
 
   def testType(term: Term, ty: Type) =
     Infer.typeCheck(term).runFully(Map.empty, Map.empty) match {
@@ -62,7 +66,7 @@ class RankNInferTest extends FunSuite {
     def b(a: String): Type.Var = Type.Var.Bound(a)
     def v(a: String): Type = Type.TyVar(b(a))
 
-    val optName = Type.Const.Defined("Option")
+    val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 
     val definedOption = Map(
@@ -111,7 +115,7 @@ class RankNInferTest extends FunSuite {
     def b(a: String): Type.Var = Type.Var.Bound(a)
     def v(a: String): Type = Type.TyVar(b(a))
 
-    val optName = Type.Const.Defined("Option")
+    val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 
     val definedOption = Map(
@@ -168,9 +172,9 @@ class RankNInferTest extends FunSuite {
     def b(a: String): Type.Var = Type.Var.Bound(a)
     def v(a: String): Type = Type.TyVar(b(a))
 
-    val pureName = Type.Const.Defined("Pure")
+    val pureName = defType("Pure")
     val pureType: Type.Tau = Type.TyConst(pureName)
-    val optName = Type.Const.Defined("Option")
+    val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 
     /**

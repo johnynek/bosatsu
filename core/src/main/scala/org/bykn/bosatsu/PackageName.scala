@@ -12,6 +12,10 @@ case class PackageName(parts: NonEmptyList[String]) {
 }
 
 object PackageName {
+
+  def parts(first: String, rest: String*): PackageName =
+    PackageName(NonEmptyList.of(first, rest :_*))
+
   implicit val document: Document[PackageName] =
     Document.instance[PackageName] { pn => Doc.text(pn.asString) }
 
@@ -28,5 +32,8 @@ object PackageName {
 
   implicit val order: Order[PackageName] =
     Order[NonEmptyList[String]].contramap[PackageName](_.parts)
+
+  val predef: PackageName =
+    PackageName(NonEmptyList.of("Bosatsu", "Predef"))
 }
 
