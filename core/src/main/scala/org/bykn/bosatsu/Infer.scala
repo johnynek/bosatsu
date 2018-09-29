@@ -39,19 +39,19 @@ object Inference {
 
   type Solve[A] = StateT[EitherT[Eval, TypeError, ?], Unifier, A]
 
-  def addConstraint(t1: Type, t2: Type, lr: Region, rr: Region): Infer[Unit] =
+  private def addConstraint(t1: Type, t2: Type, lr: Region, rr: Region): Infer[Unit] =
     RWST.tell(Set(Constraint(t1, t2, lr, rr)))
 
-  def inEnv[A](n: String, scheme: Scheme, inf: Infer[A]): Infer[A] =
+  private def inEnv[A](n: String, scheme: Scheme, inf: Infer[A]): Infer[A] =
     inf.local(_.updated(n, scheme))
 
-  def closeOver(t: Type): Scheme =
+  private def closeOver(t: Type): Scheme =
     Substitutable.generalize((), t).normalized
 
   def runSolve(cs: List[Constraint]): Either[TypeError, Unifier] =
     solver.runS(Unifier(Subst.empty, cs)).value.value
 
-  val fresh: Infer[Type] =
+  private val fresh: Infer[Type] =
     for {
       u <- (RWST.get: Infer[Unique])
       u1 = u.next
@@ -89,7 +89,7 @@ object Inference {
         } yield Unifier(s2.compose(s1), c1 reverse_::: c2)
     }
 
-  def bind(tvar: String, tpe: Type, varRegion: Region, tpeRegion: Region): Solve[Unifier] =
+  private def bind(tvar: String, tpe: Type, varRegion: Region, tpeRegion: Region): Solve[Unifier] =
     tpe match {
       case Type.Var(v) if tvar == v =>
         Monad[Solve].pure(Unifier.empty)
@@ -129,7 +129,7 @@ object Inference {
         Subst(s.vars.zip(ts).toMap)
       }
 
-  def instantiate(s: Scheme): Infer[Type] =
+  private def instantiate(s: Scheme): Infer[Type] =
     substFor(s).map { subst =>
       Substitutable[Type].apply(subst, s.result)
     }
@@ -211,7 +211,7 @@ object Inference {
     } yield subA
   }
 
-  def lookup(n: String, r: Region): Infer[Type] = {
+  private def lookup(n: String, r: Region): Infer[Type] = {
     val it: Infer[TypeEnv] = RWST.ask
     it.flatMap { te =>
       te.schemeOf(n) match {
@@ -224,7 +224,7 @@ object Inference {
   /**
    * Infer the type and generalize all free variables
    */
-  def inferScheme[T: HasRegion](ex: Expr[T]): Infer[(Scheme, Expr[(T, Scheme)])] =
+  private def inferScheme[T: HasRegion](ex: Expr[T]): Infer[(Scheme, Expr[(T, Scheme)])] =
     for {
       env <- (RWST.ask: Infer[TypeEnv])
       // we need to see current constraits, since they are not free variables
@@ -233,7 +233,7 @@ object Inference {
       scheme = Substitutable.generalize((env, cons), t1)
     } yield (scheme, exprS.setTag((ex.tag, scheme)))
 
-  def infer[T: HasRegion](expr: Expr[T]): Infer[Type] =
+  private def infer[T: HasRegion](expr: Expr[T]): Infer[Type] =
     inferTypeTag(expr).map { case (t, _) => t }
 
   /**
@@ -251,7 +251,7 @@ object Inference {
         } yield (n, exS) :: taili
     }
 
-  def inferTypeTag[T: HasRegion](expr: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
+  private def inferTypeTag[T: HasRegion](expr: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
     expr match {
       case Expr.Annotation(expr, _, _) =>
         println(s"warning, ignoring annotation: $expr")
