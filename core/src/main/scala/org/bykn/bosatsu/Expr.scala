@@ -191,6 +191,18 @@ object Expr {
             foldRight(arg, b2)(f)
         }
     }
+
+  def buildLambda[A](args: NonEmptyList[(String, Option[rankn.Type])], body: Expr[A], outer: A): Expr[A] =
+    args match {
+      case NonEmptyList((arg, None), Nil) =>
+        Expr.Lambda(arg, body, outer)
+      case NonEmptyList((arg, Some(tpe)), Nil) =>
+        Expr.AnnotatedLambda(arg, tpe, body, outer)
+      case NonEmptyList(arg, h :: tail) =>
+        val body1 = buildLambda(NonEmptyList(h, tail), body, outer)
+        buildLambda(NonEmptyList.of(arg), body1, outer)
+    }
+
 }
 
 case class Program[D, S](types: TypeEnv, lets: List[(String, Expr[D])], from: S) {

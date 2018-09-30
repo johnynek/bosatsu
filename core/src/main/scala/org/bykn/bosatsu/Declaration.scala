@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces, escapedString, toEOL }
 import cats.data.NonEmptyList
+import cats.Functor
 import cats.implicits._
 import com.stripe.dagon.Memoize
 import fastparse.all._
@@ -94,10 +95,13 @@ sealed abstract class Declaration {
         decl.toExpr(pn).map(_ => this)
       case Constructor(name) =>
         Expr.Var(name, this)
-      case DefFn(DefStatement(nm, args, _, (Padding(_, Indented(_, body)), Padding(_, in)))) =>
-        val lambda = buildLambda(args.map(_._1), body.toExpr(pn), this)
-        val inExpr = in.toExpr(pn)
-        Expr.Let(nm, lambda, inExpr, this)
+      case DefFn(defstmt@DefStatement(_, _, _, _)) =>
+        val (bodyExpr, inExpr) = defstmt.result match {
+          case (Padding(_, Indented(_, body)), Padding(_, in)) =>
+            (body.toExpr(pn), in.toExpr(pn))
+        }
+        val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toNType(pn))
+        Expr.Let(defstmt.name, lambda, inExpr, this)
       case IfElse(ifCases, Padding(_, Indented(_, elseCase))) =>
 
         // TODO: we need a way to have an full name to the constructor in order for this "macro" to
@@ -120,7 +124,7 @@ sealed abstract class Declaration {
           }
         loop(ifCases.map { case (d0, Padding(_, Indented(_, d1))) => (d0.toExpr(pn), d1.toExpr(pn)) }, elseCase.toExpr(pn))
       case Lambda(args, body) =>
-        buildLambda(args, body.toExpr(pn), this)
+        Expr.buildLambda(args.map((_, None)), body.toExpr(pn), this)
       case LiteralInt(str) =>
         Expr.Literal(Lit.Integer(str.toInt), this) // TODO use BigInt
       case LiteralString(str, _) =>
@@ -142,15 +146,6 @@ object Declaration {
   implicit val document: Document[Declaration] = Document.instance[Declaration](_.toDoc)
   implicit val hasRegion: HasRegion[Declaration] =
     HasRegion.instance[Declaration](_.region)
-
-  def buildLambda(args: NonEmptyList[String], body: Expr[Declaration], outer: Declaration): Expr.Lambda[Declaration] =
-    args match {
-      case NonEmptyList(arg, Nil) =>
-        Expr.Lambda(arg, body, outer)
-      case NonEmptyList(arg, h :: tail) =>
-        val body1 = buildLambda(NonEmptyList(h, tail), body, outer)
-        buildLambda(NonEmptyList.of(arg), body1, outer)
-    }
 
   //
   // We use the pattern of an implicit region for two reasons:

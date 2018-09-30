@@ -73,6 +73,9 @@ sealed abstract class TypeRef {
             case NonEmptyList(a0, a1 :: as) => loop(TyApply(fn, a0.toNType(p)), NonEmptyList(a1, as))
           }
         loop(a.toNType(p), bs)
+      case TypeLambda(pars0, TypeLambda(pars1, e)) =>
+        // we normalize to lifting all the foralls to the outside
+        TypeLambda(pars0 ::: pars1, e).toNType(p)
       case TypeLambda(pars, e) =>
         ForAll(pars.map { case TypeVar(v) => NType.Var.Bound(v) }, e.toNType(p))
     }
