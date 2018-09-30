@@ -1,52 +1,86 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, lowerIdent, upperIdent }
+import cats.Functor
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
-import cats.Functor
 
-sealed abstract class Pattern[+T] {
-  def map[U](fn: T => U): Pattern[U] =
+import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace }
+
+sealed abstract class Pattern[+N, +T] {
+  def mapName[U](fn: N => U): Pattern[U, T] =
     this match {
       case Pattern.WildCard => Pattern.WildCard
       case Pattern.Var(v) => Pattern.Var(v)
+      case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapName(fn), tpe)
       case Pattern.PositionalStruct(name, params) =>
-        Pattern.PositionalStruct(fn(name), params.map(_.map(fn)))
+        Pattern.PositionalStruct(fn(name), params.map(_.mapName(fn)))
+    }
+  def mapType[U](fn: T => U): Pattern[N, U] =
+    this match {
+      case Pattern.WildCard => Pattern.WildCard
+      case Pattern.Var(v) => Pattern.Var(v)
+      case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapType(fn), fn(tpe))
+      case Pattern.PositionalStruct(name, params) =>
+        Pattern.PositionalStruct(name, params.map(_.mapType(fn)))
     }
 }
 
 object Pattern {
-  implicit val patternFunctor: Functor[Pattern] =
-    new Functor[Pattern] {
-      def map[A, B](fa: Pattern[A])(fn: A => B): Pattern[B] =
-        fa.map(fn)
-    }
 
-  case object WildCard extends Pattern[Nothing]
-  case class Var(name: String) extends Pattern[Nothing]
-  case class PositionalStruct[T](name: T, params: List[Pattern[T]]) extends Pattern[T]
+  case object WildCard extends Pattern[Nothing, Nothing]
+  case class Var(name: String) extends Pattern[Nothing, Nothing]
+  case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
+  case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
 
-  implicit lazy val document: Document[Pattern[String]] =
-    Document.instance[Pattern[String]] {
+  implicit lazy val document: Document[Pattern[String, TypeRef]] =
+    Document.instance[Pattern[String, TypeRef]] {
       case WildCard => Doc.char('_')
       case Var(n) => Doc.text(n)
+      case Annotation(_, _) =>
+        /*
+         * We need to know what package we are in and what imports we depend on here.
+         * This creates some challenges we need to deal with:
+         *   1. how do we make sure we don't have duplicate short names
+         *   2. how do we make sure we have imported the names we need
+         *   3. at the top level we need parens to distinguish a: Integer from being the rhs of a
+         *      case
+         */
+        ???
       case PositionalStruct(n, Nil) => Doc.text(n)
       case PositionalStruct(n, nonEmpty) =>
         Doc.text(n) +
           Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(document.document(_))) + Doc.char(')')
     }
 
-  lazy val parser: P[Pattern[String]] = {
-    val recurse = P(parser) // this is lazy
-    val pwild = P("_").map(_ => WildCard)
-    val pvar = lowerIdent.map(Var(_))
-    val positional = P(upperIdent ~/ (recurse.listN(1).parens).?)
-      .map {
-        case (n, None) => PositionalStruct(n, Nil)
-        case (n, Some(ls)) => PositionalStruct(n, ls)
+  lazy val parser: P[Pattern[String, TypeRef]] = {
+
+    def go(isTop: Boolean): P[Pattern[String, TypeRef]] = {
+      val recurse = P(go(false)) // this is lazy
+
+      val pwild = P("_").map(_ => WildCard)
+      val pvar = lowerIdent.map(Var(_))
+      val pparen = recurse.parens
+
+      val positional = P(upperIdent ~/ (recurse.listN(1).parens).?)
+        .map {
+          case (n, None) => PositionalStruct(n, Nil)
+          case (n, Some(ls)) => PositionalStruct(n, ls)
+        }
+
+      val nonAnnotated = pvar | pwild | pparen | positional
+      val typeAnnot = P(maybeSpace ~ ":" ~/ maybeSpace ~ TypeRef.parser)
+      val withType = (nonAnnotated ~ typeAnnot.?).map {
+        case (p, None) => p
+        case (p, Some(t)) => Annotation(p, t)
       }
 
-    pvar | pwild | positional
+      // We only allow type annotation not at the top level, must be inside
+      // Struct or parens
+      if (isTop) nonAnnotated
+      else withType
+    }
+
+    go(true)
   }
 }
 

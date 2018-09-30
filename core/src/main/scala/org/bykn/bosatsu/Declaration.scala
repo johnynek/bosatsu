@@ -63,12 +63,12 @@ sealed abstract class Declaration {
           Doc.char(q) + Doc.text(Parser.escape(Set(q), str)) + Doc.char(q)
       case Match(typeName, args) =>
         val pid = Document[Padding[Indented[Declaration]]]
-        implicit val patDoc: Document[(Pattern[String], Padding[Indented[Declaration]])] =
-          Document.instance[(Pattern[String], Padding[Indented[Declaration]])] {
+        implicit val patDoc: Document[(Pattern[String, TypeRef], Padding[Indented[Declaration]])] =
+          Document.instance[(Pattern[String, TypeRef], Padding[Indented[Declaration]])] {
             case (pat, decl) =>
-              Document[Pattern[String]].document(pat) + Doc.text(":") + Doc.line + pid.document(decl)
+              Document[Pattern[String, TypeRef]].document(pat) + Doc.text(":") + Doc.line + pid.document(decl)
           }
-        val piPat = Document[Padding[Indented[(Pattern[String], Padding[Indented[Declaration]])]]]
+        val piPat = Document[Padding[Indented[(Pattern[String, TypeRef], Padding[Indented[Declaration]])]]]
         Doc.text("match ") + typeName.toDoc + Doc.char(':') + Doc.line +
           Doc.intercalate(Doc.line, args.toList.map(piPat.document _))
       case Parens(p) =>
@@ -131,7 +131,7 @@ sealed abstract class Declaration {
         Expr.Var(name, this)
       case Match(arg, branches) =>
         val expBranches = branches.map { case Padding(_, Indented(_, (pat, Padding(_, Indented(_, decl))))) =>
-          val newPattern = pat.map { nm => (pn, ConstructorName(nm)) }
+          val newPattern = pat.mapName { nm => (pn, ConstructorName(nm)) }.mapType(_.toNType(pn))
           (newPattern, decl.toExpr(pn))
         }
         Expr.Match(arg.toExpr(pn), expBranches, this)
@@ -172,7 +172,7 @@ object Declaration {
   case class LiteralInt(asString: String)(implicit val region: Region) extends Declaration
   case class LiteralString(asString: String, quoteChar: Char)(implicit val region: Region) extends Declaration
   case class Match(arg: Declaration,
-    cases: NonEmptyList[Padding[Indented[(Pattern[String], Padding[Indented[Declaration]])]]])(
+    cases: NonEmptyList[Padding[Indented[(Pattern[String, TypeRef], Padding[Indented[Declaration]])]]])(
     implicit val region: Region) extends Declaration
   case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
   case class Var(name: String)(implicit val region: Region) extends Declaration
@@ -269,14 +269,14 @@ object Declaration {
   }
 
   def matchP(indent: String): P[Match] = {
-    val firstCase: P[Padding[Indented[(Pattern[String], String, Padding[Indented[Declaration]])]]] = {
-      def inner(str: String): P[(Pattern[String], String, Padding[Indented[Declaration]])] =
+    val firstCase: P[Padding[Indented[(Pattern[String, TypeRef], String, Padding[Indented[Declaration]])]]] = {
+      def inner(str: String): P[(Pattern[String, TypeRef], String, Padding[Indented[Declaration]])] =
         P(Pattern.parser ~ ":" ~/ toEOL ~ padInP(indent + str))
           .map { case (p, pidoc) => (p, str, pidoc) }
       padIn(indent)(inner)
     }
 
-    def restCases(i: String): P[Padding[Indented[(Pattern[String], Padding[Indented[Declaration]])]]] =
+    def restCases(i: String): P[Padding[Indented[(Pattern[String, TypeRef], Padding[Indented[Declaration]])]]] =
       exactlyIn(indent, i,
         P(Pattern.parser ~ ":" ~/ toEOL ~ padInP(indent + i)))
 

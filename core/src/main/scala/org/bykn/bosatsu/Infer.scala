@@ -136,10 +136,10 @@ object Inference {
 
   private def instantiateMatch[T: HasRegion](arg: Type,
     dt: DefinedType,
-    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[T])],
-    matchTag: T): Infer[(Type, NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[(T, Scheme)])])] = {
+    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])],
+    matchTag: T): Infer[(Type, NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[(T, Scheme)])])] = {
 
-    def withBind(args: List[Pattern[(PackageName, ConstructorName)]], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
+    def withBind(args: List[Pattern[(PackageName, ConstructorName), rankn.Type]], ts: List[Type], result: Expr[T]): Infer[(Type, Expr[(T, Scheme)])] =
       inferTypeTag(result)
         .local { te: TypeEnv =>
           args.zip(ts.map(Scheme.fromType _)).foldLeft(te) {
@@ -150,7 +150,7 @@ object Inference {
           }
         }
 
-    type Element[A] = (Pattern[(PackageName, ConstructorName)], Expr[A])
+    type Element[A] = (Pattern[(PackageName, ConstructorName), rankn.Type], Expr[A])
     def inferBranch(mp: Map[ConstructorName, List[Type]])(ce: Element[T]): Infer[(Type, Element[(T, Scheme)])] = {
       // TODO make sure we have proven that this map-get is safe:
       val (p@Pattern.PositionalStruct((_, cname), bindings), branchRes) = ce

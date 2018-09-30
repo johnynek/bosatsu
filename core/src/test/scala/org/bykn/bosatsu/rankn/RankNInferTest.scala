@@ -35,10 +35,10 @@ class RankNInferTest extends FunSuite {
   def alam(arg: String, tpe: Type, res: Expr[Unit]): Expr[Unit] = AnnotatedLambda(arg, tpe, res, ())
 
   def ife(cond: Expr[Unit], ift: Expr[Unit], iff: Expr[Unit]): Expr[Unit] = If(cond, ift, iff, ())
-  def matche(arg: Expr[Unit], branches: NonEmptyList[(Pattern[String], Expr[Unit])]): Expr[Unit] =
+  def matche(arg: Expr[Unit], branches: NonEmptyList[(Pattern[String, Type], Expr[Unit])]): Expr[Unit] =
     Match(arg,
       branches.map { case (p, e) =>
-        val p1 = p.map { n => (PackageName.parts("Test"), ConstructorName(n)) }
+        val p1 = p.mapName { n => (PackageName.parts("Test"), ConstructorName(n)) }
         (p1, e)
       },
       ())
@@ -82,6 +82,12 @@ class RankNInferTest extends FunSuite {
       matche(lit(true),
         NonEmptyList.of(
           (Pattern.WildCard, lit(0))
+          )), Type.IntType)
+
+    testType(
+      matche(lit(true),
+        NonEmptyList.of(
+          (Pattern.Annotation(Pattern.WildCard, Type.BoolType), lit(0))
           )), Type.IntType)
   }
 

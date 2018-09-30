@@ -22,7 +22,7 @@ sealed abstract class Infer[+A] {
 
 object Infer {
 
-  type Pattern = GenPattern[String]
+  type Pattern = GenPattern[String, Type]
 
   // Import our private implementation functions
   import Impl._
@@ -564,8 +564,8 @@ object Infer {
           // are missing here.
 
           // TODO we need to use the full type name
-          def toStr(p: GenPattern[(PackageName, ConstructorName)]): Pattern =
-            p.map { case (_, c) => c.asString }
+          def toStr(p: GenPattern[(PackageName, ConstructorName), Type]): GenPattern[String, Type] =
+            p.mapName { case (_, c) => c.asString }
 
           expect match {
             case Expected.Check(resT) =>
@@ -615,6 +615,14 @@ object Infer {
                 _ <- infer.set(t)
               } yield List((n, t))
           }
+        case GenPattern.Annotation(p, tpe) =>
+          // like in the case of an annotation, we check the type, then
+          // instantiate a sigma type
+          // checkSigma(term, tpe) *> instSigma(tpe, expect)
+          for {
+            binds <- checkPat(p, tpe)
+            _ <- instPatSigma(tpe, sigma)
+          } yield binds
         case GenPattern.PositionalStruct(nm, args) =>
           for {
             paramRes <- instDataCon(nm)

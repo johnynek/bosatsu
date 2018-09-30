@@ -65,7 +65,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
   private def evalBranch(arg: Any,
     scheme: Scheme,
-    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[(Declaration, Scheme)])],
+    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[(Declaration, Scheme)])],
     p: Package.Inferred,
     env: Map[String, Any],
     recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme)): Eval[Any] =
@@ -77,12 +77,15 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get // one must match
 
       def bindEnv(arg: Any,
-        branches: List[(Pattern[(PackageName, ConstructorName)], Expr[(Declaration, Scheme)])],
+        branches: List[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[(Declaration, Scheme)])],
         acc: Map[String, Any]): Option[(Map[String, Any], Expr[(Declaration, Scheme)])] =
         branches match {
           case Nil => None
           case (Pattern.WildCard, next):: tail => Some((acc, next))
           case (Pattern.Var(n), next) :: tail => Some((acc + (n -> arg), next))
+          case (Pattern.Annotation(p, _), next) :: tail =>
+            // TODO we may need to use the type here
+            bindEnv(arg, (p, next) :: tail, acc)
           case (Pattern.PositionalStruct((pack, ctor), items), next) :: tail =>
             // let's see if this matches
             arg match {

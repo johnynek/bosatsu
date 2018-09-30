@@ -4,6 +4,7 @@ import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace }
 import cats.data.NonEmptyList
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
+import org.bykn.bosatsu.rankn.{Type => NType}
 
 /**
  * This AST is the syntactic version of Type
@@ -58,6 +59,24 @@ sealed abstract class TypeRef {
           }
         loop(pars.reverse, e.toType(p))
     }
+
+  def toNType(p: PackageName): NType = {
+    import rankn.Type._
+    this match {
+      case TypeVar(v) => TyVar(NType.Var.Bound(v))
+      case TypeName(n) => TyConst(NType.Const.Defined(p, n))
+      case TypeArrow(a, b) => Fun(a.toNType(p), b.toNType(p))
+      case TypeApply(a, bs) =>
+        def loop(fn: NType, args: NonEmptyList[TypeRef]): NType =
+          args match {
+            case NonEmptyList(a0, Nil) => TyApply(fn, a0.toNType(p))
+            case NonEmptyList(a0, a1 :: as) => loop(TyApply(fn, a0.toNType(p)), NonEmptyList(a1, as))
+          }
+        loop(a.toNType(p), bs)
+      case TypeLambda(pars, e) =>
+        ForAll(pars.map { case TypeVar(v) => NType.Var.Bound(v) }, e.toNType(p))
+    }
+  }
 }
 
 object TypeRef {

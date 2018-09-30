@@ -166,7 +166,7 @@ object Generators {
         }
       } yield Pattern.PositionalStruct(nm, argPat)
 
-      val genCase: Gen[(Pattern[String], Padding[Indented[Declaration]])] =
+      val genCase: Gen[(Pattern[String, TypeRef], Padding[Indented[Declaration]])] =
         Gen.zip(genPattern, padBody)
 
       val padIndCase = padding(genCase.map(Indented(i, _)))
