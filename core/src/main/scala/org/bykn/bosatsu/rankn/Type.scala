@@ -20,29 +20,30 @@ object Type {
   case class TyMeta(toMeta: Meta) extends Type
   case class TyApply(on: Type, arg: Type) extends Type
 
-  val intType: Type = TyConst(Const.IntType)
-  val boolType: Type = TyConst(Const.BoolType)
-  val fnType: Type = TyConst(Const.FnType)
+  val IntType: Type = TyConst(Const.predef("Integer"))
+  val BoolType: Type = TyConst(Const.predef("Boolean"))
+  val StrType: Type = TyConst(Const.predef("String"))
+  val FnType: Type = TyConst(Const.predef("Fn"))
 
   object Fun {
     def unapply(t: Type): Option[(Type, Type)] =
       t match {
-        case TyApply(TyApply(TyConst(Const.FnType), from), to) =>
+        case TyApply(TyApply(FnType, from), to) =>
           Some((from, to))
         case _ => None
       }
 
     def apply(from: Type, to: Type): Type =
-      TyApply(TyApply(fnType, from), to)
+      TyApply(TyApply(FnType, from), to)
   }
 
 
   sealed abstract class Const
   object Const {
-    case object IntType extends Const
-    case object BoolType extends Const
-    case object FnType extends Const
     case class Defined(packageName: PackageName, name: String) extends Const
+
+    def predef(name: String): Defined =
+      Defined(PackageName.predef, name)
   }
 
   sealed abstract class Var {
