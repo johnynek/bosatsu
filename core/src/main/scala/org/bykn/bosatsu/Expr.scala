@@ -48,7 +48,7 @@ object Expr {
   case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class If[T](cond: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T) extends Expr[T]
-  case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[T])], tag: T) extends Expr[T]
+  case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])], tag: T) extends Expr[T]
 
   implicit def hasRegion[T: HasRegion]: HasRegion[Expr[T]] =
     HasRegion.instance[Expr[T]] { e => HasRegion.region(e.tag) }
@@ -86,8 +86,8 @@ object Expr {
 
       // Traverse on NonEmptyList[(Pattern[_], Expr[?])]
       private lazy val tne = {
-        type Tup[T] = (Pattern[(PackageName, ConstructorName)], T)
-        type TupExpr[T] = (Pattern[(PackageName, ConstructorName)], Expr[T])
+        type Tup[T] = (Pattern[(PackageName, ConstructorName), rankn.Type], T)
+        type TupExpr[T] = (Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])
         val tup: Traverse[TupExpr] = Traverse[Tup].compose(exprTraverse)
         Traverse[NonEmptyList].compose(tup)
       }
