@@ -2,175 +2,194 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import org.scalatest.FunSuite
-import org.bykn.bosatsu.{PackageName, Pattern}
+import org.bykn.bosatsu.{Expr, Lit, PackageName, Pattern, ConstructorName}
+
+import Expr._
+import Type.Var.Bound
+import Type.ForAll
 
 class RankNInferTest extends FunSuite {
 
   def defType(n: String): Type.Const.Defined =
     Type.Const.Defined(PackageName.parts("Test"), n)
 
-  def testType(term: Term, ty: Type) =
-    Infer.typeCheck(term).runFully(Map.empty, Map.empty) match {
+  val withBools: Map[String, Type] =
+    Map(
+      "True" -> Type.BoolType,
+      "False" -> Type.BoolType)
+
+  def testType(term: Expr[_], ty: Type) =
+    Infer.typeCheck(term).runFully(withBools, Map.empty) match {
       case Left(err) => assert(false, err)
       case Right(tpe) => assert(tpe == ty, term.toString)
     }
 
-  test("Basic inferences") {
-    import Term._
-    import Type.Var.Bound
-    import Type.ForAll
+  def lit(i: Int): Expr[Unit] = Literal(Lit(i), ())
+  def lit(b: Boolean): Expr[Unit] = if (b) Var("True", ()) else Var("False", ())
+  def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] = Let(n, expr, in, ())
+  def lambda(arg: String, result: Expr[Unit]): Expr[Unit] = Lambda(arg, result, ())
+  def v(name: String): Expr[Unit] = Var(name, ())
+  def ann(expr: Expr[Unit], t: Type): Expr[Unit] = Annotation(expr, t, ())
 
-    testType(Lit(100L), Type.intType)
-    testType(Let("x", Lam("y", Var("y")), Lit(100L)), Type.intType)
-    testType(Lam("y", Var("y")),
+  def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, arg, ())
+  def alam(arg: String, tpe: Type, res: Expr[Unit]): Expr[Unit] = AnnotatedLambda(arg, tpe, res, ())
+
+  def ife(cond: Expr[Unit], ift: Expr[Unit], iff: Expr[Unit]): Expr[Unit] = If(cond, ift, iff, ())
+  def matche(arg: Expr[Unit], branches: NonEmptyList[(Pattern[String], Expr[Unit])]): Expr[Unit] =
+    Match(arg,
+      branches.map { case (p, e) =>
+        val p1 = p.map { n => (PackageName.parts("Test"), ConstructorName(n)) }
+        (p1, e)
+      },
+      ())
+
+  test("Basic inferences") {
+
+    testType(lit(100), Type.IntType)
+    testType(let("x", lambda("y", v("y")), lit(100)), Type.IntType)
+    testType(lambda("y", v("y")),
       ForAll(NonEmptyList.of(Bound("a")),
         Type.Fun(Type.TyVar(Bound("a")),Type.TyVar(Bound("a")))))
-    testType(Lam("y", Lam("z", Var("y"))),
+    testType(lambda("y", lambda("z", v("y"))),
       ForAll(NonEmptyList.of(Bound("a"), Bound("b")),
         Type.Fun(Type.TyVar(Bound("a")),
           Type.Fun(Type.TyVar(Bound("b")),Type.TyVar(Bound("a"))))))
 
-    testType(App(Lam("x", Var("x")), Lit(100L)), Type.intType)
-    testType(Ann(App(Lam("x", Var("x")), Lit(100L)), Type.intType), Type.intType)
-    testType(App(ALam("x", Type.intType, Var("x")), Lit(100L)), Type.intType)
+    testType(app(lambda("x", v("x")), lit(100)), Type.IntType)
+    testType(ann(app(lambda("x", v("x")), lit(100)), Type.IntType), Type.IntType)
+    testType(app(alam("x", Type.IntType, v("x")), lit(100)), Type.IntType)
 
     // test branches
-    testType(If(Lit(true), Lit(0), Lit(1)), Type.intType)
-    testType(Let("x", Lit(0), If(Lit(true), Var("x"), Lit(1))), Type.intType)
+    testType(ife(lit(true), lit(0), lit(1)), Type.IntType)
+    testType(let("x", lit(0), ife(lit(true), v("x"), lit(1))), Type.IntType)
 
     val identFnType =
       ForAll(NonEmptyList.of(Bound("a")),
         Type.Fun(Type.TyVar(Bound("a")), Type.TyVar(Bound("a"))))
-    testType(Let("x", Lam("y", Var("y")),
-      If(Lit(true), Var("x"),
-        Ann(Lam("x", Var("x")), identFnType))), identFnType)
+    testType(let("x", lambda("y", v("y")),
+      ife(lit(true), v("x"),
+        ann(lambda("x", v("x")), identFnType))), identFnType)
   }
 
-  test("Match inference") {
-    import Term._
+  test("matche inference") {
+    testType(
+      matche(lit(10),
+        NonEmptyList.of(
+          (Pattern.WildCard, lit(0))
+          )), Type.IntType)
 
     testType(
-      Match(Lit(10),
+      matche(lit(true),
         NonEmptyList.of(
-          (Pattern.WildCard, Lit(0))
-          )), Type.intType)
-
-    testType(
-      Match(Lit(true),
-        NonEmptyList.of(
-          (Pattern.WildCard, Lit(0))
-          )), Type.intType)
+          (Pattern.WildCard, lit(0))
+          )), Type.IntType)
   }
 
-  test("Match with custom non-generic types") {
+  test("matche with custom non-generic types") {
     def b(a: String): Type.Var = Type.Var.Bound(a)
-    def v(a: String): Type = Type.TyVar(b(a))
+    def tv(a: String): Type = Type.TyVar(b(a))
 
     val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 
     val definedOption = Map(
-      ("Some", (Nil, List(Type.intType), optName)),
+      ("Some", (Nil, List(Type.IntType), optName)),
       ("None", (Nil, Nil, optName)))
 
     val constructors = Map(
-      ("Some", Type.Fun(Type.intType, optType))
+      ("Some", Type.Fun(Type.IntType, optType))
     )
 
-    def testWithOpt(term: Term, ty: Type) =
-      Infer.typeCheck(term).runFully(constructors, definedOption) match {
+    def testWithOpt(term: Expr[_], ty: Type) =
+      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe == ty, term.toString)
       }
 
-    def failWithOpt(term: Term) =
-      Infer.typeCheck(term).runFully(constructors, definedOption) match {
+    def failWithOpt(term: Expr[_]) =
+      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
 
-    import Term._
+    testWithOpt(
+      matche(app(v("Some"), lit(1)),
+        NonEmptyList.of(
+          (Pattern.WildCard, lit(0))
+          )), Type.IntType)
 
     testWithOpt(
-      Match(App(Var("Some"), Lit(1)),
+      matche(app(v("Some"), lit(1)),
         NonEmptyList.of(
-          (Pattern.WildCard, Lit(0))
-          )), Type.intType)
-
-    testWithOpt(
-      Match(App(Var("Some"), Lit(1)),
-        NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), Var("a")),
-          (Pattern.PositionalStruct("None", Nil), Lit(42))
-          )), Type.intType)
+          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), v("a")),
+          (Pattern.PositionalStruct("None", Nil), lit(42))
+          )), Type.IntType)
 
     failWithOpt(
-      Match(App(Var("Some"), Lit(1)),
+      matche(app(v("Some"), lit(1)),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Foo", List(Pattern.WildCard)), Lit(0))
+          (Pattern.PositionalStruct("Foo", List(Pattern.WildCard)), lit(0))
           )))
   }
 
-  test("Match with custom generic types") {
+  test("matche with custom generic types") {
     def b(a: String): Type.Var = Type.Var.Bound(a)
-    def v(a: String): Type = Type.TyVar(b(a))
+    def tv(a: String): Type = Type.TyVar(b(a))
 
     val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 
     val definedOption = Map(
-      ("Some", (List(b("a")), List(v("a")), optName)),
+      ("Some", (List(b("a")), List(tv("a")), optName)),
       ("None", (List(b("a")), Nil, optName)))
 
     val constructors = Map(
-      ("Some", Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(v("a"), Type.TyApply(optType, v("a"))))),
-      ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, v("a"))))
+      ("Some", Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
+      ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
-    def testWithOpt(term: Term, ty: Type) =
-      Infer.typeCheck(term).runFully(constructors, definedOption) match {
+    def testWithOpt(term: Expr[_], ty: Type) =
+      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe == ty, term.toString)
       }
 
-    def failWithOpt(term: Term) =
-      Infer.typeCheck(term).runFully(constructors, definedOption) match {
+    def failWithOpt(term: Expr[_]) =
+      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
 
-    import Term._
+    testWithOpt(
+      matche(app(v("Some"), lit(1)),
+        NonEmptyList.of(
+          (Pattern.WildCard, lit(0))
+          )), Type.IntType)
 
     testWithOpt(
-      Match(App(Var("Some"), Lit(1)),
+      matche(app(v("Some"), lit(1)),
         NonEmptyList.of(
-          (Pattern.WildCard, Lit(0))
-          )), Type.intType)
-
-    testWithOpt(
-      Match(App(Var("Some"), Lit(1)),
-        NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), Var("a")),
-          (Pattern.PositionalStruct("None", Nil), Lit(42))
-          )), Type.intType)
+          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), v("a")),
+          (Pattern.PositionalStruct("None", Nil), lit(42))
+          )), Type.IntType)
 
     // Nested Some
     testWithOpt(
-      Match(App(Var("Some"), App(Var("Some"), Lit(1))),
+      matche(app(v("Some"), app(v("Some"), lit(1))),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), Var("a"))
-          )), Type.TyApply(optType, Type.intType))
+          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), v("a"))
+          )), Type.TyApply(optType, Type.IntType))
 
     failWithOpt(
-      Match(App(Var("Some"), Lit(1)),
+      matche(app(v("Some"), lit(1)),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Foo", List(Pattern.WildCard)), Lit(0))
+          (Pattern.PositionalStruct("Foo", List(Pattern.WildCard)), lit(0))
           )))
   }
 
   test("Test a constructor with ForAll") {
     def b(a: String): Type.Var = Type.Var.Bound(a)
-    def v(a: String): Type = Type.TyVar(b(a))
+    def tv(a: String): Type = Type.TyVar(b(a))
 
     val pureName = defType("Pure")
     val pureType: Type.Tau = Type.TyConst(pureName)
@@ -182,29 +201,27 @@ class RankNInferTest extends FunSuite {
      */
     val defined = Map(
       ("Pure", (List(b("f")),
-        List(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(v("a"), Type.TyApply(v("f"), v("a"))))),
+        List(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
-      ("Some", (List(b("a")), List(v("a")), optName)),
+      ("Some", (List(b("a")), List(tv("a")), optName)),
       ("None", (List(b("a")), Nil, optName)))
 
     val constructors = Map(
       ("Pure", Type.ForAll(NonEmptyList.of(b("f")),
-        Type.Fun(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(v("a"), Type.TyApply(v("f"), v("a")))),
-          Type.TyApply(Type.TyConst(pureName), v("f")) ))),
-      ("Some", Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(v("a"), Type.TyApply(optType, v("a"))))),
-      ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, v("a"))))
+        Type.Fun(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))),
+          Type.TyApply(Type.TyConst(pureName), tv("f")) ))),
+      ("Some", Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
+      ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
-    def testWithTypes(term: Term, ty: Type) =
-      Infer.typeCheck(term).runFully(constructors, defined) match {
+    def testWithTypes(term: Expr[_], ty: Type) =
+      Infer.typeCheck(term).runFully(withBools ++ constructors, defined) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe == ty, term.toString)
       }
 
-    import Term._
-
     testWithTypes(
-      App(Var("Pure"), Var("Some")), Type.TyApply(Type.TyConst(pureName), optType))
+      app(v("Pure"), v("Some")), Type.TyApply(Type.TyConst(pureName), optType))
   }
 
   test("test all binders") {

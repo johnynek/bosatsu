@@ -3,7 +3,7 @@ import cats.Monad
 import cats.data.NonEmptyList
 import cats.implicits._
 
-import org.bykn.bosatsu.{Pattern => GenPattern}
+import org.bykn.bosatsu.{Pattern => GenPattern, Expr, Lit, ConstructorName, PackageName}
 
 sealed abstract class Infer[+A] {
   import Infer.Error
@@ -92,7 +92,7 @@ object Infer {
       def message = s"$left cannot be unified with $right"
     }
 
-    case class NotPolymorphicEnough(tpe: Type, in: Term) extends TypeError {
+    case class NotPolymorphicEnough(tpe: Type, in: Expr[_]) extends TypeError {
       def message = s"type $tpe not polymorphic enough in $in"
     }
 
@@ -132,7 +132,7 @@ object Infer {
     case class InferPatIncomplete(pattern: Pattern) extends InternalError {
       def message = s"inferPat not complete for $pattern"
     }
-    case class InferIncomplete(method: String, term: Term) extends InternalError {
+    case class InferIncomplete(method: String, term: Expr[_]) extends InternalError {
       def message = s"$method not complete for $term"
     }
   }
@@ -469,20 +469,20 @@ object Infer {
     /**
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
      */
-    def typeCheckRho(term: Term, expect: Expected[Type.Rho]): Infer[Unit] = {
-      import Term._
+    def typeCheckRho(term: Expr[_], expect: Expected[Type.Rho]): Infer[Unit] = {
+      import Expr._
 
       term match {
-        case Lit(Term.Literal.Integer(_)) =>
-          instSigma(Type.intType, expect)
-        case Lit(Term.Literal.Bool(_)) =>
-          instSigma(Type.boolType, expect)
-        case Var(name) =>
+        case Literal(Lit.Integer(_), _) =>
+          instSigma(Type.IntType, expect)
+        case Literal(Lit.Str(_), _) =>
+          instSigma(Type.StrType, expect)
+        case Var(name, _) =>
           for {
             vSigma <- lookupVarType(name)
             _ <- instSigma(vSigma, expect)
            } yield ()
-        case App(fn, arg) =>
+        case App(fn, arg, _) =>
            for {
              fnT <- inferRho(fn)
              argRes <- unifyFn(fnT)
@@ -490,7 +490,7 @@ object Infer {
              _ <- checkSigma(arg, argT)
              _ <- instSigma(resT, expect)
            } yield ()
-        case Lam(name, result) =>
+        case Lambda(name, result, _) =>
           expect match {
             case Expected.Check(expTy) =>
               unifyFn(expTy).flatMap {
@@ -506,7 +506,7 @@ object Infer {
                 _ <- infer.set(Type.Fun(varT, bodyT))
               } yield ()
           }
-        case ALam(name, tpe, result) =>
+        case AnnotatedLambda(name, tpe, result, _) =>
           expect match {
             case Expected.Check(expTy) =>
               unifyFn(expTy).flatMap {
@@ -521,17 +521,17 @@ object Infer {
                 _ <- infer.set(Type.Fun(tpe, bodyT))
               } yield ()
           }
-        case Let(name, rhs, body) =>
+        case Let(name, rhs, body, _) =>
           for {
             varT <- inferSigma(rhs)
             _ <- extendEnv(name, varT)(typeCheckRho(body, expect))
           } yield ()
-        case Ann(term, tpe) =>
+        case Annotation(term, tpe, _) =>
           checkSigma(term, tpe) *> instSigma(tpe, expect)
-        case If(cond, ifTrue, ifFalse) =>
+        case If(cond, ifTrue, ifFalse, _) =>
           val condTpe =
             typeCheckRho(cond,
-              Expected.Check(Type.boolType))
+              Expected.Check(Type.BoolType))
           val rest = expect match {
             case check@Expected.Check(_) =>
               typeCheckRho(ifTrue, check) *>
@@ -548,7 +548,7 @@ object Infer {
 
           }
           condTpe *> rest
-        case Match(term, branches) =>
+        case Match(term, branches, _) =>
           // all of the branches must return the same type:
 
           // TODO: it's fishy that both branches have to
@@ -562,16 +562,21 @@ object Infer {
           //
           // It feels like there should be another inference rule, which we
           // are missing here.
+
+          // TODO we need to use the full type name
+          def toStr(p: GenPattern[(PackageName, ConstructorName)]): Pattern =
+            p.map { case (_, c) => c.asString }
+
           expect match {
             case Expected.Check(resT) =>
               for {
                 tsigma <- inferSigma(term)
-                _ <- branches.traverse_ { case (p, r) => checkBranch(p, Expected.Check(tsigma), r, resT) }
+                _ <- branches.traverse_ { case (p, r) => checkBranch(toStr(p), Expected.Check(tsigma), r, resT) }
               } yield ()
             case infer@Expected.Inf(_) =>
               for {
                 tsigma <- inferSigma(term)
-                resTs <- branches.traverse { case (p, r) => inferBranch(p, Expected.Check(tsigma), r) }
+                resTs <- branches.traverse { case (p, r) => inferBranch(toStr(p), Expected.Check(tsigma), r) }
                 _ <- resTs.flatMap { t0 => resTs.map((t0, _)) }.traverse_ {
                   case (t0, t1) if t0 eq t1 => Infer.pure(())
                   case (t0, t1) => subsCheck(t0, t1)
@@ -582,13 +587,13 @@ object Infer {
       }
     }
 
-    def checkBranch(p: Pattern, sigma: Expected[Type], res: Term, resT: Type): Infer[Unit] =
+    def checkBranch(p: Pattern, sigma: Expected[Type], res: Expr[_], resT: Type): Infer[Unit] =
       for {
         bindings <- typeCheckPattern(p, sigma)
         _ <- extendEnvList(bindings)(checkRho(res, resT))
       } yield ()
 
-    def inferBranch(p: Pattern, sigma: Expected[Type], res: Term): Infer[Type] =
+    def inferBranch(p: Pattern, sigma: Expected[Type], res: Expr[_]): Infer[Type] =
       for {
         bindings <- typeCheckPattern(p, sigma)
         res <- extendEnvList(bindings)(inferRho(res))
@@ -662,10 +667,10 @@ object Infer {
   }
 
 
-  def typeCheck(t: Term): Infer[Type] =
+  def typeCheck(t: Expr[_]): Infer[Type] =
     inferSigma(t).flatMap(zonkType _)
 
-  def inferSigma(e: Term): Infer[Type] =
+  def inferSigma(e: Expr[_]): Infer[Type] =
     for {
       expTy <- inferRho(e)
       envTys <- getEnv
@@ -675,7 +680,7 @@ object Infer {
       q <- quantify(forAllTvs.toList, expTy)
     } yield q
 
-  def checkSigma(t: Term, tpe: Type): Infer[Unit] =
+  def checkSigma(t: Expr[_], tpe: Type): Infer[Unit] =
     for {
       skolRho <- skolemize(tpe)
       (skols, rho) = skolRho
@@ -686,10 +691,10 @@ object Infer {
       _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t))
     } yield ()
 
-  def checkRho(t: Term, rho: Type.Rho): Infer[Unit] =
+  def checkRho(t: Expr[_], rho: Type.Rho): Infer[Unit] =
     typeCheckRho(t, Expected.Check(rho))
 
-  def inferRho(t: Term): Infer[Type.Rho] =
+  def inferRho(t: Expr[_]): Infer[Type.Rho] =
     for {
       ref <- initRef[Type.Rho](Error.InferIncomplete("inferRho", t))
       _ <- typeCheckRho(t, Expected.Inf(ref))

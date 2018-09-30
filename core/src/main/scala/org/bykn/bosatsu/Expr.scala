@@ -14,6 +14,9 @@ sealed abstract class Lit
 object Lit {
   case class Integer(toInt: Int) extends Lit
   case class Str(toStr: String) extends Lit
+
+  def apply(i: Int): Lit = Integer(i)
+  def apply(str: String): Lit = Str(str)
 }
 
 sealed abstract class Expr[T] {
@@ -35,8 +38,8 @@ sealed abstract class Expr[T] {
 }
 
 object Expr {
-  case class Annotation[T](expr: Expr[T], tpe: Type, tag: T) extends Expr[T]
-  case class AnnotatedLambda[T](arg: String, tpe: Type, expr: Expr[T], tag: T) extends Expr[T] {
+  case class Annotation[T](expr: Expr[T], tpe: rankn.Type, tag: T) extends Expr[T]
+  case class AnnotatedLambda[T](arg: String, tpe: rankn.Type, expr: Expr[T], tag: T) extends Expr[T] {
     def toLambda: Lambda[T] = Lambda(arg, expr, tag)
   }
   case class Var[T](name: String, tag: T) extends Expr[T]
