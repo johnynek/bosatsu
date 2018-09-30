@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces }
+import cats.Functor
 import cats.data.{ NonEmptyList, State }
 import cats.implicits._
 import fastparse.all._
@@ -11,7 +12,24 @@ import Parser.toEOL
 case class DefStatement[T](
     name: String,
     args: NonEmptyList[(String, Option[TypeRef])],
-    retType: Option[TypeRef], result: T)
+    retType: Option[TypeRef], result: T) {
+
+
+  /**
+   * This ignores the name completely and just returns the lambda expression here
+   *
+   * This could be a traversal: TypeRef => F[rankn.Type] for an Applicative F[_]
+   */
+  def toLambdaExpr[A](resultExpr: Expr[A], tag: A)(trFn: TypeRef => rankn.Type): Expr[A] = {
+    val unTypedBody = resultExpr
+    val bodyExp =
+      retType.fold(unTypedBody) { t =>
+        Expr.Annotation(unTypedBody, trFn(t), tag)
+      }
+    val deepFunctor = Functor[NonEmptyList].compose[(String, ?)].compose[Option]
+    Expr.buildLambda(deepFunctor.map(args)(trFn), bodyExp, tag)
+  }
+}
 
 object DefStatement {
   private[this] val defDoc = Doc.text("def ")
@@ -150,12 +168,14 @@ sealed abstract class Statement {
           Program(te, (nm, decl.toExpr(pn)) :: binds, this)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
-        case Def(DefStatement(nm, args, _, (Padding(_, Indented(_, body)), Padding(_, in)))) =>
-          // using body for the outer here is a bummer, but not really a good outer otherwise
-          val eBody = body.toExpr(pn)
-          val lam = Declaration.buildLambda(args.map(_._1), eBody, body)
-          val Program(te, binds, _) = loop(in)
-          Program(te, (nm, lam) :: binds, this)
+        case Def(defstmt@DefStatement(_, _, _, _)) =>
+          val (lam, Program(te, binds, _)) = defstmt.result match {
+            case (Padding(_, Indented(_, body)), Padding(_, in)) =>
+              // using body for the outer here is a bummer, but not really a good outer otherwise
+              val l = defstmt.toLambdaExpr(body.toExpr(pn), body)(_.toNType(pn))
+              (l, loop(in))
+          }
+          Program(te, (defstmt.name, lam) :: binds, this)
         case s@Struct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = p.types.addDefinedType(s.toDefinition(pn)), from = s)
