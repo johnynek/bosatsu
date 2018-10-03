@@ -3,7 +3,7 @@ import cats.Monad
 import cats.data.NonEmptyList
 import cats.implicits._
 
-import org.bykn.bosatsu.{Pattern => GenPattern, Expr, Lit, ConstructorName, PackageName}
+import org.bykn.bosatsu.{Pattern => GenPattern, Expr, Lit, ConstructorName, PackageName, TypedExpr}
 
 sealed abstract class Infer[+A] {
   import Infer.Error
@@ -236,13 +236,13 @@ object Infer {
     /**
      * Quantify over the specified type variables (all flexible)
      */
-    def quantify(forAlls: List[Type.Meta], rho: Type.Rho): Infer[Type] =
+    def quantify[A](forAlls: List[Type.Meta], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
       forAlls match {
         case Nil =>
           // this case is not really discussed in the paper
-          zonkType(rho)
+          zonkTypedExpr(rho)
         case ne@(h :: tail) =>
-          val used = tyVarBinders(List(rho), Set.empty)
+          val used = tyVarBinders(List(rho.getType), Set.empty)
           // on 2.11 without the iterator this seems to run forever
           def newBinders = Type.allBinders.iterator.filterNot(used)
           val newBindersNE =
@@ -254,7 +254,7 @@ object Infer {
             .traverse_ { case (m, n) =>
               writeMeta(m, Type.TyVar(n))
             }
-          (bound *> zonkType(rho)).map(Type.ForAll(newBindersNE, _))
+          (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(newBindersNE, _))//map(Type.ForAll(newBindersNE, _))
       }
 
     def skolemize(t: Type): Infer[(List[Type.Var], Type.Rho)] =
@@ -299,6 +299,10 @@ object Infer {
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
       ts.traverse(zonkType).map(freeTyVars(_))
 
+    /**
+     * This fills in any meta vars that have been
+     * quantified and replaces them with what they point to
+     */
     def zonkType(t: Type): Infer[Type] =
       t match {
         case Type.ForAll(ns, ty) =>
@@ -317,6 +321,9 @@ object Infer {
               }
           }
       }
+
+    def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
+      e.typeTraverse(zonkType _)
 
     def initRef[A](err: Error): Infer[Ref[Either[Error, A]]] =
       lift(RefSpace.newRef[Either[Error, A]](Left(err)))
@@ -350,12 +357,15 @@ object Infer {
         case rho => pure(rho)
       }
 
-    def subsCheckFn(a1: Type, r1: Type.Rho, a2: Type, r2: Type.Rho): Infer[Unit] =
+    def subsCheckFn(a1: Type, r1: Type.Rho, a2: Type, r2: Type.Rho): Infer[TypedExpr.Coerce] =
       // note due to contravariance in input, we reverse the order there
-      subsCheck(a2, a1) *> subsCheckRho(r1, r2)
+      for {
+        coarg <- subsCheck(a2, a1)
+        cores <- subsCheckRho(r1, r2)
+      } yield TypedExpr.coerceFn(a1, coarg, cores)
 
     // invariant: second argument is in weak prenex form
-    def subsCheckRho(t: Type, rho: Type.Rho): Infer[Unit] =
+    def subsCheckRho(t: Type, rho: Type.Rho): Infer[TypedExpr.Coerce] =
       (t, rho) match {
         case (fa@Type.ForAll(_, _), rho) =>
           // Rule SPEC
@@ -374,15 +384,18 @@ object Infer {
           }
         case (t1, t2) =>
           // rule: MONO
-          unify(t1, t2)
+          unify(t1, t2).as(TypedExpr.coerceRho(t1)) // TODO this coerce seems right, since we have unified
       }
 
-    def instSigma(sigma: Type, expect: Expected[Type.Rho]): Infer[Unit] =
+    def instSigma(sigma: Type, expect: Expected[Type.Rho]): Infer[TypedExpr.Coerce] =
       expect match {
         case Expected.Check(t) =>
           subsCheckRho(sigma, t)
         case infer@Expected.Inf(_) =>
-          instantiate(sigma).flatMap(infer.set(_))
+          for {
+            rho <- instantiate(sigma)
+            _ <- infer.set(rho)
+          } yield TypedExpr.coerceRho(rho)
       }
 
     def unifyFn(fnType: Type): Infer[(Type, Type)] =
@@ -456,99 +469,119 @@ object Infer {
       lift(m.ref.set(Some(v)))
 
     // DEEP-SKOL rule
-    def subsCheck(inferred: Type, declared: Type): Infer[Unit] =
+    def subsCheck(inferred: Type, declared: Type): Infer[TypedExpr.Coerce] =
       for {
         skolRho <- skolemize(declared)
         (skolTvs, rho2) = skolRho
-        _ <- subsCheckRho(inferred, rho2)
+        coerce <- subsCheckRho(inferred, rho2)
         escTvs <- getFreeTyVars(List(inferred, declared))
         badTvs = skolTvs.filter(escTvs)
         _ <- require(badTvs.isEmpty, Error.SubsumptionCheckFailure(inferred, declared))
-      } yield ()
+      } yield coerce
 
     /**
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
      */
-    def typeCheckRho(term: Expr[_], expect: Expected[Type.Rho]): Infer[Unit] = {
+    def typeCheckRho[A](term: Expr[A], expect: Expected[Type.Rho]): Infer[TypedExpr.Rho[A]] = {
       import Expr._
 
       term match {
-        case Literal(Lit.Integer(_), _) =>
-          instSigma(Type.IntType, expect)
-        case Literal(Lit.Str(_), _) =>
-          instSigma(Type.StrType, expect)
-        case Var(name, _) =>
+        case Literal(lit, t) =>
+          val tpe = lit match {
+            case Lit.Integer(_) => Type.IntType
+            case Lit.Str(_) => Type.StrType
+          }
+          instSigma(tpe, expect).map(_(TypedExpr.Literal(lit, tpe, t)))
+        case Var(name, tag) =>
           for {
             vSigma <- lookupVarType(name)
-            _ <- instSigma(vSigma, expect)
-           } yield ()
-        case App(fn, arg, _) =>
+            coerce <- instSigma(vSigma, expect)
+           } yield coerce(TypedExpr.Var(name, vSigma, tag))
+        case App(fn, arg, tag) =>
            for {
-             fnT <- inferRho(fn)
+             typedFn <- inferRho(fn)
+             fnT = typedFn.getType
              argRes <- unifyFn(fnT)
              (argT, resT) = argRes
-             _ <- checkSigma(arg, argT)
-             _ <- instSigma(resT, expect)
-           } yield ()
-        case Lambda(name, result, _) =>
+             typedArg <- checkSigma(arg, argT)
+             coerce <- instSigma(resT, expect)
+           } yield coerce(TypedExpr.App(typedFn, typedArg, tag))
+        case Lambda(name, result, tag) =>
           expect match {
             case Expected.Check(expTy) =>
-              unifyFn(expTy).flatMap {
-                case (varT, bodyT) =>
-                  extendEnv(name, varT) {
+              for {
+                vb <- unifyFn(expTy)
+                (varT, bodyT) = vb
+                typedBody <- extendEnv(name, varT) {
                     checkRho(result, bodyT)
                   }
-                }
+              } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
             case infer@Expected.Inf(_) =>
               for {
                 varT <- newTyVarTy
-                bodyT <- extendEnv(name, varT)(inferRho(result))
+                typedBody <- extendEnv(name, varT)(inferRho(result))
+                bodyT = typedBody.getType
                 _ <- infer.set(Type.Fun(varT, bodyT))
-              } yield ()
+              } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
           }
-        case AnnotatedLambda(name, tpe, result, _) =>
+        case AnnotatedLambda(name, tpe, result, tag) =>
           expect match {
             case Expected.Check(expTy) =>
-              unifyFn(expTy).flatMap {
-                case (varT, bodyT) =>
-                  extendEnv(name, varT) {
+              for {
+                vb <- unifyFn(expTy)
+                (varT, bodyT) = vb
+                typedBody <- extendEnv(name, varT) {
+                    // TODO we are ignoring the result of subsCheck here
+                    // should we be coercing a var?
                     subsCheck(tpe, varT) *> checkRho(result, bodyT)
                   }
-                }
+              } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
             case infer@Expected.Inf(_) =>
-              for {
-                bodyT <- extendEnv(name, tpe)(inferRho(result))
+              for { // TODO do we need to narrow or instantiate tpe?
+                typedBody <- extendEnv(name, tpe)(inferRho(result))
+                bodyT = typedBody.getType
                 _ <- infer.set(Type.Fun(tpe, bodyT))
-              } yield ()
+              } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
           }
-        case Let(name, rhs, body, _) =>
+        case Let(name, rhs, body, tag) =>
           for {
-            varT <- inferSigma(rhs)
-            _ <- extendEnv(name, varT)(typeCheckRho(body, expect))
-          } yield ()
-        case Annotation(term, tpe, _) =>
-          checkSigma(term, tpe) *> instSigma(tpe, expect)
-        case If(cond, ifTrue, ifFalse, _) =>
+            typedRhs <- inferSigma(rhs)
+            varT = typedRhs.getType
+            typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
+          } yield TypedExpr.Let(name, typedRhs, typedBody, tag)
+        case Annotation(term, tpe, tag) =>
+          for {
+            typedTerm <- checkSigma(term, tpe)
+            coerce <- instSigma(tpe, expect)
+          } yield TypedExpr.Annotation(coerce(typedTerm), tag)
+        case If(cond, ifTrue, ifFalse, tag) =>
           val condTpe =
             typeCheckRho(cond,
               Expected.Check(Type.BoolType))
           val rest = expect match {
             case check@Expected.Check(_) =>
-              typeCheckRho(ifTrue, check) *>
-                typeCheckRho(ifFalse, check)
+              typeCheckRho(ifTrue, check)
+                .product(typeCheckRho(ifFalse, check))
 
             case infer@Expected.Inf(_) =>
               for {
-                rT <- inferRho(ifTrue)
-                rF <- inferRho(ifFalse)
-                _ <- subsCheck(rT, rF)
-                _ <- subsCheck(rF, rT)
+                tExp <- inferRho(ifTrue)
+                fExp <- inferRho(ifFalse)
+                rT = tExp.getType
+                rF = tExp.getType
+                cT <- subsCheck(rT, rF)
+                cF <- subsCheck(rF, rT)
                 _ <- infer.set(rT) // see section 7.1
-              } yield ()
+              } yield (cT(tExp), cF(fExp))
 
           }
-          condTpe *> rest
-        case Match(term, branches, _) =>
+
+          for {
+           c <- condTpe
+           branches <- rest
+           (tb, fb) = branches
+          } yield TypedExpr.If(c, tb, fb, tag)
+        case Match(term, branches, tag) =>
           // all of the branches must return the same type:
 
           // TODO: it's fishy that both branches have to
@@ -567,62 +600,78 @@ object Infer {
           def toStr(p: GenPattern[(PackageName, ConstructorName), Type]): GenPattern[String, Type] =
             p.mapName { case (_, c) => c.asString }
 
+         def unStr(p: Pattern): GenPattern[(PackageName, ConstructorName), Type] =
+           p.mapName { c => (PackageName.parts("TODO"), ConstructorName(c)) }
+
           expect match {
             case Expected.Check(resT) =>
               for {
                 tsigma <- inferSigma(term)
-                _ <- branches.traverse_ { case (p, r) => checkBranch(toStr(p), Expected.Check(tsigma), r, resT) }
-              } yield ()
+                tbranches <- branches.traverse { case (p, r) =>
+                  checkBranch(toStr(p), Expected.Check(tsigma.getType), r, resT)
+                }
+              } yield TypedExpr.Match(tsigma, tbranches.map { case (p, t) => (unStr(p), t) }, tag)
             case infer@Expected.Inf(_) =>
               for {
                 tsigma <- inferSigma(term)
-                resTs <- branches.traverse { case (p, r) => inferBranch(toStr(p), Expected.Check(tsigma), r) }
-                _ <- resTs.flatMap { t0 => resTs.map((t0, _)) }.traverse_ {
+                tbranches <- branches.traverse { case (p, r) =>
+                  inferBranch(toStr(p), Expected.Check(tsigma.getType), r)
+                }
+                resT = tbranches.map { case (p, te) => te.getType }
+                _ <- resT.flatMap { t0 => resT.map((t0, _)) }.traverse_ {
                   case (t0, t1) if t0 eq t1 => Infer.pure(())
+                  // TODO
+                  // we do N^2 subsCheck, which to coerce with, composed?
                   case (t0, t1) => subsCheck(t0, t1)
                 }
-                _ <- infer.set(resTs.head)
-              } yield ()
+                _ <- infer.set(resT.head)
+              } yield TypedExpr.Match(tsigma, tbranches.map { case (p, t) => (unStr(p), t) }, tag)
           }
       }
     }
 
-    def checkBranch(p: Pattern, sigma: Expected[Type], res: Expr[_], resT: Type): Infer[Unit] =
+    def checkBranch[A](p: Pattern, sigma: Expected[Type], res: Expr[A], resT: Type): Infer[(Pattern, TypedExpr[A])] =
       for {
-        bindings <- typeCheckPattern(p, sigma)
-        _ <- extendEnvList(bindings)(checkRho(res, resT))
-      } yield ()
+        patBind <- typeCheckPattern(p, sigma)
+        (pattern, bindings) = patBind
+        tres <- extendEnvList(bindings)(checkRho(res, resT))
+      } yield (pattern, tres)
 
-    def inferBranch(p: Pattern, sigma: Expected[Type], res: Expr[_]): Infer[Type] =
+    def inferBranch[A](p: Pattern, sigma: Expected[Type], res: Expr[A]): Infer[(Pattern, TypedExpr[A])] =
       for {
-        bindings <- typeCheckPattern(p, sigma)
+        patBind <- typeCheckPattern(p, sigma)
+        (pattern, bindings) = patBind
         res <- extendEnvList(bindings)(inferRho(res))
-      } yield res
+      } yield (pattern, res)
 
     /**
      * patterns can be a sigma type, not neccesarily a rho/tau
      * return a list of bound names and their (sigma) types
      */
-    def typeCheckPattern(pat: Pattern, sigma: Expected[Type]): Infer[List[(String, Type)]] =
+    def typeCheckPattern(pat: Pattern, sigma: Expected[Type]): Infer[(Pattern, List[(String, Type)])] =
       pat match {
-        case GenPattern.WildCard => Infer.pure(Nil)
+        case GenPattern.WildCard => Infer.pure((pat, Nil))
         case GenPattern.Var(n) =>
+          // We always return an annotation here, which is the only
+          // place we need to be careful
           sigma match {
-            case Expected.Check(t) => Infer.pure(List((n, t)))
+            case Expected.Check(t) =>
+              Infer.pure((GenPattern.Annotation(pat, t), List((n, t))))
             case infer@Expected.Inf(_) =>
               for {
                 t <- newTyVarTy
                 _ <- infer.set(t)
-              } yield List((n, t))
+              } yield (GenPattern.Annotation(pat, t), List((n, t)))
           }
         case GenPattern.Annotation(p, tpe) =>
           // like in the case of an annotation, we check the type, then
           // instantiate a sigma type
           // checkSigma(term, tpe) *> instSigma(tpe, expect)
           for {
-            binds <- checkPat(p, tpe)
+            patBind <- checkPat(p, tpe)
+            (p1, binds) = patBind
             _ <- instPatSigma(tpe, sigma)
-          } yield binds
+          } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
             paramRes <- instDataCon(nm)
@@ -632,12 +681,14 @@ object Infer {
             // but we don't want to error type-checking since we want to show
             // the maximimum number of errors to the user
             envs <- args.zip(params).traverse { case (p, t) => checkPat(p, t) }
+            pats = envs.map(_._1)
+            bindings = envs.map(_._2)
             _ <- instPatSigma(res, sigma)
-          } yield envs.flatten
+          } yield (GenPattern.PositionalStruct(nm, pats), bindings.flatten)
       }
 
 
-    def checkPat(pat: Pattern, sigma: Type): Infer[List[(String, Type)]] =
+    def checkPat(pat: Pattern, sigma: Type): Infer[(Pattern, List[(String, Type)])] =
       typeCheckPattern(pat, Expected.Check(sigma))
 
     def inferPat(pat: Pattern): Infer[Type] =
@@ -651,7 +702,7 @@ object Infer {
     def instPatSigma(sigma: Type, exp: Expected[Type]): Infer[Unit] =
       exp match {
         case infer@Expected.Inf(_) => infer.set(sigma)
-        case Expected.Check(texp) => subsCheck(texp, sigma)
+        case Expected.Check(texp) => subsCheck(texp, sigma).as(()) // this unit does not seem right
       }
 
     /**
@@ -675,40 +726,41 @@ object Infer {
   }
 
 
-  def typeCheck(t: Expr[_]): Infer[Type] =
-    inferSigma(t).flatMap(zonkType _)
+  def typeCheck[A](t: Expr[A]): Infer[TypedExpr[A]] =
+    inferSigma(t).flatMap(zonkTypedExpr _)
 
-  def inferSigma(e: Expr[_]): Infer[Type] =
+  def inferSigma[A](e: Expr[A]): Infer[TypedExpr[A]] =
     for {
-      expTy <- inferRho(e)
+      rho <- inferRho(e)
+      expTy = rho.getType
       envTys <- getEnv
       envTypeVars <- getMetaTyVars(envTys.values.toList)
       resTypeVars <- getMetaTyVars(List(expTy))
       forAllTvs = resTypeVars -- envTypeVars
-      q <- quantify(forAllTvs.toList, expTy)
+      q <- quantify(forAllTvs.toList, rho)
     } yield q
 
-  def checkSigma(t: Expr[_], tpe: Type): Infer[Unit] =
+  def checkSigma[A](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
     for {
       skolRho <- skolemize(tpe)
       (skols, rho) = skolRho
-      _ <- checkRho(t, rho)
+      te <- checkRho(t, rho)
       envTys <- getEnv
       escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
       badTvs = skols.filter(escTvs)
       _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t))
-    } yield ()
+    } yield te // should be fine since the everything after te is just checking
 
-  def checkRho(t: Expr[_], rho: Type.Rho): Infer[Unit] =
+  def checkRho[A](t: Expr[A], rho: Type.Rho): Infer[TypedExpr[A]] =
     typeCheckRho(t, Expected.Check(rho))
 
-  def inferRho(t: Expr[_]): Infer[Type.Rho] =
+  def inferRho[A](t: Expr[A]): Infer[TypedExpr.Rho[A]] =
     for {
       ref <- initRef[Type.Rho](Error.InferIncomplete("inferRho", t))
-      _ <- typeCheckRho(t, Expected.Inf(ref))
+      expr <- typeCheckRho(t, Expected.Inf(ref))
       rho <- (Lift(ref.get): Infer[Type.Rho])
       _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
-    } yield rho
+    } yield expr
 
 
   def extendEnv[A](varName: String, tpe: Type)(of: Infer[A]): Infer[A] =

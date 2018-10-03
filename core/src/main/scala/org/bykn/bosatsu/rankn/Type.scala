@@ -9,6 +9,10 @@ object Type {
   type Rho = Type // no top level ForAll
   type Tau = Type // no forall anywhere
 
+  /**
+   * TODO: I think vars can be NonEmptyList[Var.Bound]
+   * we never put skolem vars there, that's the whole point
+   */
   case class ForAll(vars: NonEmptyList[Var], in: Rho) extends Type {
     in match {
       case ForAll(_, _) => sys.error(s"invalid nested ForAll")
@@ -80,4 +84,11 @@ object Type {
       }
     go(s, Set.empty)
   }
+
+  /**
+   * This is used in generating TypedExpr. When we have
+   * a parametric type, we should instantiate that type
+   * with the param
+   */
+  def instantiate(parametric: Type, param: Tau): Type = ???
 }

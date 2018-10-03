@@ -10,15 +10,6 @@ import cats.evidence.Is
 import cats.data.NonEmptyList
 import cats.{Applicative, Eval, Traverse}
 
-sealed abstract class Lit
-object Lit {
-  case class Integer(toInt: Int) extends Lit
-  case class Str(toStr: String) extends Lit
-
-  def apply(i: Int): Lit = Integer(i)
-  def apply(str: String): Lit = Str(str)
-}
-
 sealed abstract class Expr[T] {
   import Expr._
 
