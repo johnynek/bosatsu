@@ -92,7 +92,7 @@ class RankNInferTest extends FunSuite {
   }
 
   test("matche with custom non-generic types") {
-    def b(a: String): Type.Var = Type.Var.Bound(a)
+    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
     def tv(a: String): Type = Type.TyVar(b(a))
 
     val optName = defType("Option")
@@ -139,7 +139,7 @@ class RankNInferTest extends FunSuite {
   }
 
   test("matche with custom generic types") {
-    def b(a: String): Type.Var = Type.Var.Bound(a)
+    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
     def tv(a: String): Type = Type.TyVar(b(a))
 
     val optName = defType("Option")
@@ -194,7 +194,7 @@ class RankNInferTest extends FunSuite {
   }
 
   test("Test a constructor with ForAll") {
-    def b(a: String): Type.Var = Type.Var.Bound(a)
+    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
     def tv(a: String): Type = Type.TyVar(b(a))
 
     val pureName = defType("Pure")
