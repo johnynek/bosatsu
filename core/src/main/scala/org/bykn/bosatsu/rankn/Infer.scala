@@ -263,7 +263,7 @@ object Infer {
             .traverse_ { case (m, n) =>
               writeMeta(m, Type.TyVar(n))
             }
-          (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(newBindersNE, _))//map(Type.ForAll(newBindersNE, _))
+          (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(newBindersNE, _))
       }
 
     /**
