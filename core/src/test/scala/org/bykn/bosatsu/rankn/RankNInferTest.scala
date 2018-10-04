@@ -21,7 +21,7 @@ class RankNInferTest extends FunSuite {
   def testType(term: Expr[_], ty: Type) =
     Infer.typeCheck(term).runFully(withBools, Map.empty) match {
       case Left(err) => assert(false, err)
-      case Right(tpe) => assert(tpe == ty, term.toString)
+      case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
   def lit(i: Int): Expr[Unit] = Literal(Lit(i), ())
@@ -109,7 +109,7 @@ class RankNInferTest extends FunSuite {
     def testWithOpt(term: Expr[_], ty: Type) =
       Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
         case Left(err) => assert(false, err)
-        case Right(tpe) => assert(tpe == ty, term.toString)
+        case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt(term: Expr[_]) =
@@ -157,7 +157,7 @@ class RankNInferTest extends FunSuite {
     def testWithOpt(term: Expr[_], ty: Type) =
       Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
         case Left(err) => assert(false, err)
-        case Right(tpe) => assert(tpe == ty, term.toString)
+        case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt(term: Expr[_]) =
@@ -223,7 +223,7 @@ class RankNInferTest extends FunSuite {
     def testWithTypes(term: Expr[_], ty: Type) =
       Infer.typeCheck(term).runFully(withBools ++ constructors, defined) match {
         case Left(err) => assert(false, err)
-        case Right(tpe) => assert(tpe == ty, term.toString)
+        case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     testWithTypes(

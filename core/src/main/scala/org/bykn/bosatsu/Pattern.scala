@@ -1,10 +1,11 @@
 package org.bykn.bosatsu
 
-import cats.Functor
+import cats.{ Applicative, Functor }
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace }
+import cats.implicits._
 
 sealed abstract class Pattern[+N, +T] {
   def mapName[U](fn: N => U): Pattern[U, T] =
@@ -26,6 +27,20 @@ sealed abstract class Pattern[+N, +T] {
 }
 
 object Pattern {
+
+  implicit class InvariantPattern[N, T](val pat: Pattern[N, T]) extends AnyVal {
+    def traverseType[F[_]: Applicative, T1](fn: T => F[T1]): F[Pattern[N, T1]] =
+      pat match {
+        case Pattern.WildCard => Applicative[F].pure(Pattern.WildCard)
+        case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
+        case Pattern.Annotation(p, tpe) =>
+          (p.traverseType(fn), fn(tpe)).mapN(Pattern.Annotation(_, _))
+        case Pattern.PositionalStruct(name, params) =>
+          params.traverse(_.traverseType(fn)).map { ps =>
+            Pattern.PositionalStruct(name, ps)
+          }
+      }
+  }
 
   case object WildCard extends Pattern[Nothing, Nothing]
   case class Var(name: String) extends Pattern[Nothing, Nothing]

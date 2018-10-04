@@ -220,9 +220,17 @@ object Infer {
 
     def nextId: Infer[Long] = NextId
 
+    /**
+     * Meta vars point to unknown instantiated parametric types
+     */
     def getMetaTyVars(tpes: List[Type]): Infer[Set[Type.Meta]] =
       tpes.traverse(zonkType).map(Type.metaTvs(_))
 
+    /**
+     * Report bound variables which are used in quantify. When we
+     * infer a sigmal type
+     */
+    @annotation.tailrec
     def tyVarBinders(tpes: List[Type], acc: Set[Type.Var]): Set[Type.Var] =
       tpes match {
         case Nil => acc
@@ -244,6 +252,7 @@ object Infer {
         case ne@(h :: tail) =>
           val used = tyVarBinders(List(rho.getType), Set.empty)
           // on 2.11 without the iterator this seems to run forever
+          // must be a "def" because we call it twice
           def newBinders = Type.allBinders.iterator.filterNot(used)
           val newBindersNE =
             NonEmptyList.fromListUnsafe(newBinders.take(forAlls.size).toList)
@@ -257,6 +266,14 @@ object Infer {
           (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(newBindersNE, _))//map(Type.ForAll(newBindersNE, _))
       }
 
+    /**
+     * Skolemize on a function just recurses on the result type.
+     *
+     * Skolemize replaces ForAll parameters with skolem variables
+     * and then skolemizes recurses on the substituted value
+     *
+     * otherwise we return the type.
+     */
     def skolemize(t: Type): Infer[(List[Type.Var], Type.Rho)] =
       t match {
         case Type.ForAll(tvs, ty) =>
@@ -323,7 +340,7 @@ object Infer {
       }
 
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
-      e.typeTraverse(zonkType _)
+      e.traverseType(zonkType _)
 
     def initRef[A](err: Error): Infer[Ref[Either[Error, A]]] =
       lift(RefSpace.newRef[Either[Error, A]](Left(err)))
@@ -351,8 +368,7 @@ object Infer {
       t match {
         case Type.ForAll(vars, ty) =>
           for {
-            vars1 <- vars.traverse(_ => newMetaTyVar)
-            vars1T = vars1.map(Type.TyMeta(_))
+            vars1T <- vars.traverse(_ => newTyVarTy)
           } yield substTy(vars, vars1T, ty)
         case rho => pure(rho)
       }
@@ -362,7 +378,7 @@ object Infer {
       for {
         coarg <- subsCheck(a2, a1)
         cores <- subsCheckRho(r1, r2)
-      } yield TypedExpr.coerceFn(a1, coarg, cores)
+      } yield TypedExpr.coerceFn(a1, r2, coarg, cores)
 
     // invariant: second argument is in weak prenex form
     def subsCheckRho(t: Type, rho: Type.Rho): Infer[TypedExpr.Coerce] =
@@ -413,7 +429,7 @@ object Infer {
       fail(Error.UnexpectedMeta(m, t))
 
     // invariant the flexible type variable tv1 is not bound
-    def unifyUnboundVar(m: Type.Meta, ty2: Type): Infer[Unit] =
+    def unifyUnboundVar(m: Type.Meta, ty2: Type.Tau): Infer[Unit] =
       ty2 match {
         case Type.TyMeta(m2) =>
           readMeta(m2).flatMap {
@@ -428,7 +444,7 @@ object Infer {
             }
       }
 
-    def unifyVar(tv: Type.Meta, t: Type): Infer[Unit] =
+    def unifyVar(tv: Type.Meta, t: Type.Tau): Infer[Unit] =
       readMeta(tv).flatMap {
         case None => unifyUnboundVar(tv, t)
         case Some(ty1) => unify(ty1, t)
@@ -440,6 +456,7 @@ object Infer {
           fail(Error.UnexpectedBound(b, t2))
         case (_, Type.TyVar(b@Type.Var.Bound(_))) =>
           fail(Error.UnexpectedBound(b, t1))
+        // the only vars that should appear are skolem variables, we check here
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => pure(())
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => pure(())
         case (Type.TyMeta(m), tpe) => unifyVar(m, tpe)
@@ -450,21 +467,29 @@ object Infer {
         case (left, right) => fail(Error.NotUnifiable(left, right))
       }
 
+    /**
+     * Allocate a new Meta variable which
+     * will point to a Tau (no forall anywhere) type
+     */
     def newTyVarTy: Infer[Type.Tau] =
-      newMetaTyVar.map(Type.TyMeta(_))
-
-    def newMetaTyVar: Infer[Type.Meta] =
       for {
         id <- nextId
         ref <- lift(RefSpace.newRef[Option[Type]](None))
-      } yield Type.Meta(id, ref)
+      } yield Type.TyMeta(Type.Meta(id, ref))
 
     def newSkolemTyVar(tv: Type.Var): Infer[Type.Var] =
       nextId.map(Type.Var.Skolem(tv.name, _))
 
+    /**
+     * See if the meta variable has been set with a Tau
+     * type
+     */
     def readMeta(m: Type.Meta): Infer[Option[Type.Tau]] =
       lift(m.ref.get)
 
+    /**
+     * Set the meta variable to point to a Tau type
+     */
     def writeMeta(m: Type.Meta, v: Type.Tau): Infer[Unit] =
       lift(m.ref.set(Some(v)))
 
@@ -505,7 +530,7 @@ object Infer {
              (argT, resT) = argRes
              typedArg <- checkSigma(arg, argT)
              coerce <- instSigma(resT, expect)
-           } yield coerce(TypedExpr.App(typedFn, typedArg, tag))
+           } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
         case Lambda(name, result, tag) =>
           expect match {
             case Expected.Check(expTy) =>
@@ -553,7 +578,7 @@ object Infer {
           for {
             typedTerm <- checkSigma(term, tpe)
             coerce <- instSigma(tpe, expect)
-          } yield TypedExpr.Annotation(coerce(typedTerm), tag)
+          } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
         case If(cond, ifTrue, ifFalse, tag) =>
           val condTpe =
             typeCheckRho(cond,
@@ -707,7 +732,9 @@ object Infer {
 
     /**
      * To do this, Infer will need to know the names of the type
-     * constructors in scope
+     * constructors in scope.
+     *
+     * Instantiation fills in all
      */
     def instDataCon(consName: String): Infer[(List[Type], Type.Tau)] =
       GetDataCons(consName).flatMap {
@@ -715,9 +742,8 @@ object Infer {
           Infer.pure((consParams, Type.TyConst(tpeName)))
         case (v0 :: vs, consParams, tpeName) =>
           val vars = NonEmptyList(v0, vs)
-          vars.traverse(_ => newMetaTyVar)
-            .map { vars1 =>
-              val vars1T = vars1.map(Type.TyMeta(_))
+          vars.traverse(_ => newTyVarTy)
+            .map { vars1T =>
               val params1 = consParams.map(substTy(vars, vars1T, _))
               val res = vars1T.foldLeft(Type.TyConst(tpeName): Type)(Type.TyApply(_, _))
               (params1, res)
