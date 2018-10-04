@@ -386,7 +386,7 @@ object Infer {
       t match {
         case Type.ForAll(vars, ty) =>
           for {
-            vars1T <- vars.traverse(_ => newTyVarTy)
+            vars1T <- vars.traverse(_ => newMetaType)
           } yield substTy(vars, vars1T, ty)
         case rho => pure(rho)
       }
@@ -437,8 +437,8 @@ object Infer {
         case Type.Fun(arg, res) => pure((arg, res))
         case tau =>
           for {
-            argT <- newTyVarTy
-            resT <- newTyVarTy
+            argT <- newMetaType
+            resT <- newMetaType
             _ <- unify(tau, Type.Fun(argT, resT))
           } yield (argT, resT)
       }
@@ -488,8 +488,11 @@ object Infer {
     /**
      * Allocate a new Meta variable which
      * will point to a Tau (no forall anywhere) type
+     *
+     * this is called newTyVarTy for some reason in
+     * the paper's implementation
      */
-    def newTyVarTy: Infer[Type.Tau] =
+    def newMetaType: Infer[Type.Tau] =
       for {
         id <- nextId
         ref <- lift(RefSpace.newRef[Option[Type]](None))
@@ -561,7 +564,7 @@ object Infer {
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
             case infer@Expected.Inf(_) =>
               for {
-                varT <- newTyVarTy
+                varT <- newMetaType
                 typedBody <- extendEnv(name, varT)(inferRho(result))
                 bodyT = typedBody.getType
                 _ <- infer.set(Type.Fun(varT, bodyT))
@@ -702,7 +705,7 @@ object Infer {
               Infer.pure((GenPattern.Annotation(pat, t), List((n, t))))
             case infer@Expected.Inf(_) =>
               for {
-                t <- newTyVarTy
+                t <- newMetaType
                 _ <- infer.set(t)
               } yield (GenPattern.Annotation(pat, t), List((n, t)))
           }
@@ -760,7 +763,7 @@ object Infer {
           Infer.pure((consParams, Type.TyConst(tpeName)))
         case (v0 :: vs, consParams, tpeName) =>
           val vars = NonEmptyList(v0, vs)
-          vars.traverse(_ => newTyVarTy)
+          vars.traverse(_ => newMetaType)
             .map { vars1T =>
               val params1 = consParams.map(substTy(vars, vars1T, _))
               val res = vars1T.foldLeft(Type.TyConst(tpeName): Type)(Type.TyApply(_, _))
