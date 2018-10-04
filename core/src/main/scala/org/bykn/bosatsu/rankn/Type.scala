@@ -9,10 +9,6 @@ object Type {
   type Rho = Type // no top level ForAll
   type Tau = Type // no forall anywhere
 
-  /**
-   * TODO: I think vars can be NonEmptyList[Var.Bound]
-   * we never put skolem vars there, that's the whole point
-   */
   case class ForAll(vars: NonEmptyList[Var.Bound], in: Rho) extends Type {
     in match {
       case ForAll(_, _) => sys.error(s"invalid nested ForAll")
@@ -24,6 +20,10 @@ object Type {
   case class TyMeta(toMeta: Meta) extends Type
   case class TyApply(on: Type, arg: Type) extends Type
 
+  /**
+   * These are upper-case to leverage scala's pattern
+   * matching on upper-cased vals
+   */
   val IntType: Type = TyConst(Const.predef("Integer"))
   val BoolType: Type = TyConst(Const.predef("Boolean"))
   val StrType: Type = TyConst(Const.predef("String"))

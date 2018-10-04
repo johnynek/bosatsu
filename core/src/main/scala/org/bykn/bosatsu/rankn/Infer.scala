@@ -274,7 +274,7 @@ object Infer {
      *
      * otherwise we return the type.
      */
-    def skolemize(t: Type): Infer[(List[Type.Var], Type.Rho)] =
+    def skolemize(t: Type): Infer[(List[Type.Var.Skolem], Type.Rho)] =
       t match {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
@@ -295,16 +295,34 @@ object Infer {
           pure((Nil, other))
       }
 
+    /**
+     * Return the Bound and Skolem variables that
+     * are free in the given list of types
+     */
     def freeTyVars(ts: List[Type]): Set[Type.Var] = {
+
+      // usually we can recurse in a loop, but sometimes not
+      def cheat(ts: List[Type], bound: Set[Type.Var.Bound], acc: Set[Type.Var]): Set[Type.Var] =
+        go(ts, bound, acc)
+
       @annotation.tailrec
-      def go(ts: List[Type], bound: Set[Type.Var], acc: Set[Type.Var]): Set[Type.Var] =
+      def go(ts: List[Type], bound: Set[Type.Var.Bound], acc: Set[Type.Var]): Set[Type.Var] =
         ts match {
           case Nil => acc
           case Type.TyVar(tv) :: rest =>
-            if (bound(tv)) go(rest, bound, acc)
+            // we only check here, we don't add
+            val isBound =
+              tv match {
+                case b@Type.Var.Bound(_) => bound(b)
+                case Type.Var.Skolem(_, _) => false
+              }
+            if (isBound) go(rest, bound, acc)
             else go(rest, bound, acc + tv)
           case Type.TyApply(a, b) :: rest => go(a :: b :: rest, bound, acc)
-          case Type.ForAll(tvs, ty) :: rest => go(ty :: rest, bound ++ tvs.toList, acc)
+          case Type.ForAll(tvs, ty) :: rest =>
+            val acc1 = cheat(ty :: Nil, bound ++ tvs.toList, acc)
+            // note, tvs ARE NOT bound in rest
+            go(rest, bound, acc1)
           case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
         }
 
@@ -477,7 +495,7 @@ object Infer {
         ref <- lift(RefSpace.newRef[Option[Type]](None))
       } yield Type.TyMeta(Type.Meta(id, ref))
 
-    def newSkolemTyVar(tv: Type.Var): Infer[Type.Var] =
+    def newSkolemTyVar(tv: Type.Var): Infer[Type.Var.Skolem] =
       nextId.map(Type.Var.Skolem(tv.name, _))
 
     /**
