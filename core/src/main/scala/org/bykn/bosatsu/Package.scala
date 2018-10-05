@@ -9,109 +9,32 @@ import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 import Parser.{lowerIdent, upperIdent, spaces, maybeSpace, Combinators}
 
-sealed abstract class ImportedName[T] {
-  def originalName: String
-  def localName: String
-  def tag: T
-  def setTag(t: T): ImportedName[T]
-  def isRenamed: Boolean = originalName != localName
-}
-
-object ImportedName {
-  case class OriginalName[T](originalName: String, tag: T) extends ImportedName[T] {
-    def localName = originalName
-    def setTag(t: T): ImportedName[T] = OriginalName(originalName, t)
-  }
-  case class Renamed[T](originalName: String, localName: String, tag: T) extends ImportedName[T] {
-    def setTag(t: T): ImportedName[T] = Renamed(originalName, localName, t)
-  }
-
-  implicit val document: Document[ImportedName[Unit]] =
-    Document.instance[ImportedName[Unit]] {
-      case ImportedName.OriginalName(nm, _) => Doc.text(nm)
-      case ImportedName.Renamed(from, to, _) => Doc.text(from) + Doc.text(" as ") + Doc.text(to)
-    }
-
-  val parser: P[ImportedName[Unit]] = {
-    def basedOn(of: P[String]): P[ImportedName[Unit]] =
-      P(of ~ (spaces ~ "as" ~ spaces ~ of).?).map {
-        case (from, Some(to)) => ImportedName.Renamed(from, to, ())
-        case (orig, None) => ImportedName.OriginalName(orig, ())
-      }
-
-    basedOn(lowerIdent) | basedOn(upperIdent)
-  }
-}
-
-case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]])
-
-object Import {
-  implicit val document: Document[Import[PackageName, Unit]] =
-    Document.instance[Import[PackageName, Unit]] { case Import(pname, items) =>
-      Doc.text("import ") + Document[PackageName].document(pname) + Doc.space +
-        // TODO: use paiges to pack this in nicely using .group or something
-        Doc.char('[') + Doc.intercalate(Doc.text(", "), items.toList.map(Document[ImportedName[Unit]].document _)) + Doc.char(']')
-    }
-
-  val parser: P[Import[PackageName, Unit]] = {
-    P("import" ~ spaces ~/ PackageName.parser ~ maybeSpace ~
-      ImportedName.parser.nonEmptyListSyntax).map { case (pname, imported) =>
-        Import(pname, imported)
-      }
-  }
-}
-
-sealed abstract class ExportedName[+T] {
-  def name: String
-  def tag: T
-}
-object ExportedName {
-  case class Binding[T](name: String, tag: T) extends ExportedName[T]
-  case class TypeName[T](name: String, tag: T) extends ExportedName[T]
-  case class Constructor[T](name: String, tag: T) extends ExportedName[T]
-
-  private[this] val consDoc = Doc.text("()")
-
-  implicit val document: Document[ExportedName[Unit]] =
-    Document.instance[ExportedName[Unit]] {
-      case Binding(n, _) => Doc.text(n)
-      case TypeName(n, _) => Doc.text(n)
-      case Constructor(n, _) => Doc.text(n) + consDoc
-    }
-
-  val parser: P[ExportedName[Unit]] =
-    lowerIdent.map(Binding(_, ())) |
-      P(upperIdent ~ "()".!.?).map {
-        case (n, None) => TypeName(n, ())
-        case (n, Some(_)) => Constructor(n, ())
-      }
-
-  private[bosatsu] def buildExportMap[T](exs: List[ExportedName[T]]): Map[String, NonEmptyList[ExportedName[T]]] =
-    exs match {
-      case Nil => Map.empty
-      case h :: tail => NonEmptyList(h, tail).groupBy(_.name)
-    }
-}
-
 /**
  * Represents a package over its life-cycle: from parsed to resolved to inferred
  */
-case class Package[A, B, C, D](name: PackageName, imports: List[Import[A, B]], exports: List[ExportedName[C]], program: D) {
-  private[this] lazy val importMap: Map[String, (A, ImportedName[B])] =
-    imports.flatMap { case Import(p, imports) =>
-      imports.toList.map { i => (i.localName, (p, i)) }
-    }.toMap
+case class Package[A, B, C, D](
+  name: PackageName,
+  imports: List[Import[A, B]],
+  exports: List[ExportedName[C]],
+  program: D) {
 
-  def localImport(n: String): Option[(A, ImportedName[B])] = importMap.get(n)
+  // TODO, this isn't great
+  private lazy val importMap: ImportMap[A, B] =
+    ImportMap.fromImports(imports)._2
+
+  def localImport(n: String): Option[(A, ImportedName[B])] = importMap(n)
 
   def withImport(i: Import[A, B]): Package[A, B, C, D] =
     copy(imports = i :: imports)
+
+  def mapProgram[D1](fn: D => D1): Package[A, B, C, D1] =
+    Package(name, imports, exports, fn(program))
 }
 
 object Package {
   type FixPackage[B, C, D] = Fix[Lambda[a => Package[a, B, C, D]]]
   type PackageF[A, B] = Package[FixPackage[A, A, B], A, A, B]
-  type Parsed = Package[PackageName, Unit, Unit, Program[Declaration, Statement]]
+  type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Inferred = FixPackage[Referant, Referant, Program[(Declaration, Scheme), Statement]]
 
   /**
@@ -119,15 +42,16 @@ object Package {
    * library usages.
    */
   def fromStatement(pn: PackageName, st: Statement): Package.Parsed =
-    Package(pn, Nil, Nil, st.toProgram(pn))
+    Package(pn, Nil, Nil, st)
 
   /** add a Fix wrapper
    *  it is combersome to write the correct type here
    */
   def asInferred(p: PackageF[Referant, Program[(Declaration, Scheme), Statement]]): Inferred =
-    Fix[Lambda[a => Package[a, Referant, Referant, Program[(Declaration, Scheme), Statement]]]](p)
+    Fix[Lambda[a =>
+      Package[a, Referant, Referant, Program[(Declaration, Scheme), Statement]]]](p)
 
-  implicit val document: Document[Package[PackageName, Unit, Unit, Program[Declaration, Statement]]] =
+  implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
       val p = Doc.text("package ") + Document[PackageName].document(name) + Doc.line
       val i = imports match {
@@ -141,19 +65,19 @@ object Package {
           Doc.text("export ") + Doc.text("[ ") +
           Doc.intercalate(Doc.text(", "), nonEmptyExports.map(Document[ExportedName[Unit]].document _)) + Doc.text(" ]") + Doc.line
       }
-      val b = Document[Statement].document(program.from)
+      val b = Document[Statement].document(program)
       // add an extra line between each group
       Doc.intercalate(Doc.line, List(p, i, e, b))
     }
 
-  val parser: P[Package[PackageName, Unit, Unit, Program[Declaration, Statement]]] = {
+  val parser: P[Package[PackageName, Unit, Unit, Statement]] = {
     // TODO: support comments before the Statement
     val pname = Padding.parser(P("package" ~ spaces ~ PackageName.parser)).map(_.padded)
     val im = Padding.parser(Import.parser).map(_.padded).rep().map(_.toList)
     val ex = Padding.parser(P("export" ~ maybeSpace ~ ExportedName.parser.nonEmptyListSyntax)).map(_.padded)
     val body = Padding.parser(Statement.parser).map(_.padded)
     (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ body).map { case (p, i, e, b) =>
-      Package(p, i, e, b.toProgram(p))
+      Package(p, i, e, b)
     }
   }
 }
@@ -211,6 +135,7 @@ object PackageMap {
 
   type MapF3[A, B, C] = PackageMap[FixPackage[A, B, C], A, B, C]
   type MapF2[A, B] = MapF3[A, A, B]
+  type ParsedImp = PackageMap[PackageName, Unit, Unit, Program[Declaration, Statement]]
   type Resolved = MapF2[Unit, Program[Declaration, Statement]]
   type Inferred = MapF2[Referant, Program[(Declaration, Scheme), Statement]]
 
@@ -258,14 +183,54 @@ object PackageMap {
   /**
    * Convenience method to create a PackageMap then resolve it
    */
-  def resolveAll[A](ps: List[(A, Package.Parsed)]): (Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], ValidatedNel[PackageError, Resolved]) =
-    uniqueByKey(ps)(_._2.name) match {
-      case Right(unique) =>
-        (Map.empty, resolvePackages(PackageMap(unique.mapValues(_._2))))
-      case Left((bad, good)) =>
-        // at least try to resolve what we can
-        (bad, resolvePackages(PackageMap(good.mapValues(_._2))))
+  def resolveAll[A](ps: List[(A, Package.Parsed)]): (Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], ValidatedNel[PackageError, Resolved]) = {
+
+    type AP = (A, Package.Parsed)
+    val (nonUnique, unique): (Map[PackageName, (AP, NonEmptyList[AP])], Map[PackageName, AP]) =
+      uniqueByKey(ps)(_._2.name) match {
+        case Right(unique) =>
+          (Map.empty, unique)
+        case Left(res) => res
+      }
+
+    def toProg(p: Package.Parsed):
+      (Option[PackageError],
+        Package[PackageName, Unit, Unit, Program[Declaration, Statement]]) = {
+
+      val (errs0, imap) = ImportMap.fromImports(p.imports)
+      val errs = errs0 match {
+        case Nil => None
+        case h :: tail =>
+          Some(PackageError.DuplicatedImport(NonEmptyList(h, tail)))
+      }
+      (errs, p.mapProgram(_.toProgram(p.name, imap)))
     }
+
+    // we know all the package names are unique here
+    def foldMap(m: Map[PackageName, (A, Package.Parsed)]): (List[PackageError], PackageMap.ParsedImp) = {
+      val initPm = PackageMap
+        .empty[PackageName, Unit, Unit, Program[Declaration, Statement]]
+
+      m.iterator.foldLeft((List.empty[PackageError], initPm)) {
+        case ((errs, pm), (_, (_, pack))) =>
+          val (lerrs, pp) = toProg(pack)
+          (lerrs.toList ::: errs, pm + pp)
+      }
+    }
+
+    val (errs, pmap) = foldMap(unique)
+    val res = resolvePackages(pmap)
+    // combine the import errors now:
+    val check =
+      errs match {
+        case Nil =>
+          Validated.valid(())
+        case h :: tail =>
+          Validated.invalid(NonEmptyList(h, tail))
+      }
+    // keep all the errors
+    (nonUnique, check *> res)
+  }
 
   /**
    * Infer all the types in a resolved PackageMap
@@ -433,6 +398,18 @@ object PackageError {
       val (_, sourceName) = sourceMap(pack)
       s"in $sourceName package ${pack.asString} imports unknown package ${from.name.asString}"
     }
+  }
+
+  case class DuplicatedImport(duplicates: NonEmptyList[(PackageName, ImportedName[Unit])]) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) =
+      duplicates.sortBy(_._2.localName)
+        .toList
+        .iterator
+        .map { case (pack, imp) =>
+          val (_, sourceName) = sourceMap(pack)
+          s"duplicate import in $sourceName package ${pack.asString} imports ${imp.originalName} as ${imp.localName}"
+        }
+        .mkString("\n")
   }
 
   // We could check if we forgot to export the name in the package and give that error
