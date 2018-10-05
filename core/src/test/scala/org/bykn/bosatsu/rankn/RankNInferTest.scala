@@ -21,7 +21,7 @@ class RankNInferTest extends FunSuite {
   def testType(term: Expr[_], ty: Type) =
     Infer.typeCheck(term).runFully(withBools, Map.empty) match {
       case Left(err) => assert(false, err)
-      case Right(tpe) => assert(tpe == ty, term.toString)
+      case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
   def lit(i: Int): Expr[Unit] = Literal(Lit(i), ())
@@ -92,7 +92,7 @@ class RankNInferTest extends FunSuite {
   }
 
   test("matche with custom non-generic types") {
-    def b(a: String): Type.Var = Type.Var.Bound(a)
+    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
     def tv(a: String): Type = Type.TyVar(b(a))
 
     val optName = defType("Option")
@@ -109,7 +109,7 @@ class RankNInferTest extends FunSuite {
     def testWithOpt(term: Expr[_], ty: Type) =
       Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
         case Left(err) => assert(false, err)
-        case Right(tpe) => assert(tpe == ty, term.toString)
+        case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt(term: Expr[_]) =
@@ -139,7 +139,7 @@ class RankNInferTest extends FunSuite {
   }
 
   test("matche with custom generic types") {
-    def b(a: String): Type.Var = Type.Var.Bound(a)
+    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
     def tv(a: String): Type = Type.TyVar(b(a))
 
     val optName = defType("Option")
@@ -157,7 +157,7 @@ class RankNInferTest extends FunSuite {
     def testWithOpt(term: Expr[_], ty: Type) =
       Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
         case Left(err) => assert(false, err)
-        case Right(tpe) => assert(tpe == ty, term.toString)
+        case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt(term: Expr[_]) =
@@ -194,7 +194,7 @@ class RankNInferTest extends FunSuite {
   }
 
   test("Test a constructor with ForAll") {
-    def b(a: String): Type.Var = Type.Var.Bound(a)
+    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
     def tv(a: String): Type = Type.TyVar(b(a))
 
     val pureName = defType("Pure")
@@ -223,7 +223,7 @@ class RankNInferTest extends FunSuite {
     def testWithTypes(term: Expr[_], ty: Type) =
       Infer.typeCheck(term).runFully(withBools ++ constructors, defined) match {
         case Left(err) => assert(false, err)
-        case Right(tpe) => assert(tpe == ty, term.toString)
+        case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     testWithTypes(

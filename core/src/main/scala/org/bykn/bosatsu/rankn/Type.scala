@@ -9,7 +9,7 @@ object Type {
   type Rho = Type // no top level ForAll
   type Tau = Type // no forall anywhere
 
-  case class ForAll(vars: NonEmptyList[Var], in: Rho) extends Type {
+  case class ForAll(vars: NonEmptyList[Var.Bound], in: Rho) extends Type {
     in match {
       case ForAll(_, _) => sys.error(s"invalid nested ForAll")
       case _ => ()
@@ -20,6 +20,10 @@ object Type {
   case class TyMeta(toMeta: Meta) extends Type
   case class TyApply(on: Type, arg: Type) extends Type
 
+  /**
+   * These are upper-case to leverage scala's pattern
+   * matching on upper-cased vals
+   */
   val IntType: Type = TyConst(Const.predef("Integer"))
   val BoolType: Type = TyConst(Const.predef("Boolean"))
   val StrType: Type = TyConst(Const.predef("String"))
