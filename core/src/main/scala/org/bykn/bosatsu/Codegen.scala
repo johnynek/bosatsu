@@ -70,11 +70,12 @@ trait CodeGen {
               }).map(_ => None)
             }
 
-          val fn = imp.tag match {
-            case Referant.Value(_) => { s: String => Some(toExportedName(s)) }
-            case Referant.DefinedT(_) => { s: String => None }
-            case Referant.Constructor(_, _) => { s: String => Some(toConstructorName(s)) }
-          }
+          val fn = ???
+          // imp.tag match {
+          //   case Referant.Value(_) => { s: String => Some(toExportedName(s)) }
+          //   case Referant.DefinedT(_) => { s: String => None }
+          //   case Referant.Constructor(_, _) => { s: String => Some(toConstructorName(s)) }
+          // }
 
           go(fn)
         }

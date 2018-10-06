@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Functor
 import cats.data.NonEmptyList
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
@@ -12,6 +13,22 @@ sealed abstract class ImportedName[T] {
   def tag: T
   def setTag(t: T): ImportedName[T]
   def isRenamed: Boolean = originalName != localName
+
+  def map[U](fn: T => U): ImportedName[U] =
+    this match {
+      case o@ImportedName.OriginalName(n, t) =>
+        ImportedName.OriginalName(n, fn(t))
+      case r@ImportedName.Renamed(o, l, t) =>
+        ImportedName.Renamed(o, l, fn(t))
+    }
+
+  def traverse[F[_], U](fn: T => F[U])(implicit F: Functor[F]): F[ImportedName[U]] =
+    this match {
+      case o@ImportedName.OriginalName(n, t) =>
+        F.map(fn(t))(ImportedName.OriginalName(n, _))
+      case r@ImportedName.Renamed(o, l, t) =>
+        F.map(fn(t))(ImportedName.Renamed(o, l, _))
+    }
 }
 
 object ImportedName {
