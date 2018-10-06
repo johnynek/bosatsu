@@ -24,6 +24,18 @@ class RankNInferTest extends FunSuite {
       case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
+  def testLetTypes[A](terms: List[(String, Expr[A], Type)]) =
+    Infer.typeCheckLets(terms.map { case (k, v, _) => (k, v) })
+      .runFully(withBools, Map.empty) match {
+        case Left(err) => assert(false, err)
+        case Right(tpes) =>
+          assert(tpes.size == terms.size)
+          terms.zip(tpes).foreach { case ((n, exp, expt), (n1, te)) =>
+            assert(n == n1, s"the name changed: $n != $n1")
+            assert(te.getType == expt, s"$n = $exp failed to typecheck to $expt, got ${te.getType}")
+          }
+      }
+
   def lit(i: Int): Expr[Unit] = Literal(Lit(i), ())
   def lit(b: Boolean): Expr[Unit] = if (b) Var("True", ()) else Var("False", ())
   def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] = Let(n, expr, in, ())
@@ -69,6 +81,12 @@ class RankNInferTest extends FunSuite {
     testType(let("x", lambda("y", v("y")),
       ife(lit(true), v("x"),
         ann(lambda("x", v("x")), identFnType))), identFnType)
+
+    // test some lets
+    testLetTypes(
+      List(
+        ("x", lit(100), Type.IntType),
+        ("y", v("x"), Type.IntType)))
   }
 
   test("matche inference") {
