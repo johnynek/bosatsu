@@ -65,6 +65,9 @@ case class ImportMap[A, B](toMap: Map[String, (A, ImportedName[B])]) {
   def apply(name: String): Option[(A, ImportedName[B])] =
     toMap.get(name)
 
+  def originalOf(name: String): Option[(A, String)] =
+    apply(name).map { case (p, im) => (p, im.originalName) }
+
   def +(that: (A, ImportedName[B])): ImportMap[A, B] =
     ImportMap(toMap.updated(that._2.localName, that))
 }

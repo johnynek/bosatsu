@@ -181,7 +181,7 @@ object Inference {
   }
 
   def inferExpr[T: HasRegion](expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] =
-    inferExpr(TypeEnv.empty(PackageName(NonEmptyList.of("Infer", "InferExpr"))), expr)
+    inferExpr(TypeEnv.empty(PackageName(NonEmptyList.of("Infer", "InferExpr")), ImportMap.empty), expr)
 
   def inferExpr[T: HasRegion](te: TypeEnv, expr: Expr[T]): Either[TypeError, Expr[(T, Scheme)]] = {
 
