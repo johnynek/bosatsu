@@ -158,45 +158,6 @@ object Indented {
 
 sealed abstract class Statement {
 
-  def toProgram(pn0: PackageName, importMap: ImportMap[PackageName, Unit]): Program[Declaration, Statement] = {
-    import Statement._
-    // TODO use the importMap to see what names come from where
-
-    def loop(s: Statement): Program[Declaration, Statement] =
-      s match {
-        case Bind(BindingStatement(nm, decl, Padding(_, rest))) =>
-          val Program(te, binds, _) = loop(rest)
-          Program(te, (nm, decl.toExpr(pn0, importMap)) :: binds, this)
-        case Comment(CommentStatement(_, Padding(_, on))) =>
-          loop(on).copy(from = s)
-        case Def(defstmt@DefStatement(_, _, _, _)) =>
-          val (lam, Program(te, binds, _)) = defstmt.result match {
-            case (Padding(_, Indented(_, body)), Padding(_, in)) =>
-              // using body for the outer here is a bummer, but not really a good outer otherwise
-              val l = defstmt.toLambdaExpr(body.toExpr(pn0, importMap), body)(_.toNType(pn0, importMap))
-              (l, loop(in))
-          }
-          Program(te, (defstmt.name, lam) :: binds, this)
-        case s@Struct(_, _, Padding(_, rest)) =>
-          val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(s.toDefinition(pn0, importMap)), from = s)
-        case e@Enum(_, _, Padding(_, rest)) =>
-          val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(e.toDefinition(pn0, importMap)), from = e)
-        case d@ExternalDef(name, _, _, Padding(_, rest)) =>
-           val scheme = d.scheme(pn0, importMap)
-           val p = loop(rest)
-           p.copy(types = p.types.updated(name, scheme), from = d)
-        case x@ExternalStruct(_, _, Padding(_, rest)) =>
-          val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(x.toDefinition(pn0, importMap)), from = x)
-        case EndOfFile =>
-          Program(TypeEnv.empty(pn0, importMap), Nil, EndOfFile)
-      }
-
-    loop(this)
-  }
-
   def toStream: Stream[Statement] = {
     import Statement._
     def loop(s: Statement): Stream[Statement] =

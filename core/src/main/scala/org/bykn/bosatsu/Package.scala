@@ -9,6 +9,8 @@ import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 import Parser.{lowerIdent, upperIdent, spaces, maybeSpace, Combinators}
 
+import rankn.Infer
+
 /**
  * Represents a package over its life-cycle: from parsed to resolved to inferred
  */
@@ -35,7 +37,7 @@ object Package {
   type FixPackage[B, C, D] = Fix[Lambda[a => Package[a, B, C, D]]]
   type PackageF[A, B] = Package[FixPackage[A, A, B], A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Statement]
-  type Inferred = FixPackage[Referant, Referant, Program[(Declaration, Scheme), Statement]]
+  type Inferred = FixPackage[Referant, Referant, Program[Expr[(Declaration, Scheme)], Statement]]
 
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
@@ -47,9 +49,9 @@ object Package {
   /** add a Fix wrapper
    *  it is combersome to write the correct type here
    */
-  def asInferred(p: PackageF[Referant, Program[(Declaration, Scheme), Statement]]): Inferred =
+  def asInferred(p: PackageF[Referant, Program[Expr[(Declaration, Scheme)], Statement]]): Inferred =
     Fix[Lambda[a =>
-      Package[a, Referant, Referant, Program[(Declaration, Scheme), Statement]]]](p)
+      Package[a, Referant, Referant, Program[Expr[(Declaration, Scheme)], Statement]]]](p)
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
@@ -124,9 +126,9 @@ object PackageMap {
 
   type MapF3[A, B, C] = PackageMap[FixPackage[A, B, C], A, B, C]
   type MapF2[A, B] = MapF3[A, A, B]
-  type ParsedImp = PackageMap[PackageName, Unit, Unit, Program[Declaration, Statement]]
-  type Resolved = MapF2[Unit, Program[Declaration, Statement]]
-  type Inferred = MapF2[Referant, Program[(Declaration, Scheme), Statement]]
+  type ParsedImp = PackageMap[PackageName, Unit, Unit, Program[Expr[Declaration], Statement]]
+  type Resolved = MapF2[Unit, Program[Expr[Declaration], Statement]]
+  type Inferred = MapF2[Referant, Program[Expr[(Declaration, Scheme)], Statement]]
 
   /**
    * This builds a DAG of actual packages where names have been replaced by the fully resolved
@@ -184,7 +186,7 @@ object PackageMap {
 
     def toProg(p: Package.Parsed):
       (Option[PackageError],
-        Package[PackageName, Unit, Unit, Program[Declaration, Statement]]) = {
+        Package[PackageName, Unit, Unit, Program[Expr[Declaration], Statement]]) = {
 
       val (errs0, imap) = ImportMap.fromImports(p.imports)
       val errs = errs0 match {
@@ -192,13 +194,13 @@ object PackageMap {
         case h :: tail =>
           Some(PackageError.DuplicatedImport(NonEmptyList(h, tail)))
       }
-      (errs, p.mapProgram(_.toProgram(p.name, imap)))
+      (errs, p.mapProgram { s => Program.fromStatement(p.name, imap, s) })
     }
 
     // we know all the package names are unique here
     def foldMap(m: Map[PackageName, (A, Package.Parsed)]): (List[PackageError], PackageMap.ParsedImp) = {
       val initPm = PackageMap
-        .empty[PackageName, Unit, Unit, Program[Declaration, Statement]]
+        .empty[PackageName, Unit, Unit, Program[Expr[Declaration], Statement]]
 
       m.iterator.foldLeft((List.empty[PackageError], initPm)) {
         case ((errs, pm), (_, (_, pack))) =>
@@ -226,8 +228,8 @@ object PackageMap {
    */
   def inferAll(ps: Resolved): ValidatedNel[PackageError, Inferred] = {
 
-      type PackIn = PackageF[Unit, Program[Declaration, Statement]]
-      type PackOut = PackageF[Referant, Program[(Declaration, Scheme), Statement]]
+      type PackIn = PackageF[Unit, Program[Expr[Declaration], Statement]]
+      type PackOut = PackageF[Referant, Program[Expr[(Declaration, Scheme)], Statement]]
 
       val infer: PackIn => ValidatedNel[PackageError, PackOut] =
         Memoize.function[PackIn, ValidatedNel[PackageError, PackOut]] {
@@ -254,19 +256,19 @@ object PackageMap {
               }
             }
 
-            def stepImport(i: Import[FixPackage[Unit, Unit, Program[Declaration, Statement]], Unit]):
-              ValidatedNel[PackageError, Import[FixPackage[Referant, Referant, Program[(Declaration, Scheme), Statement]], Referant]] = {
+            def stepImport(i: Import[FixPackage[Unit, Unit, Program[Expr[Declaration], Statement]], Unit]):
+              ValidatedNel[PackageError, Import[FixPackage[Referant, Referant, Program[Expr[(Declaration, Scheme)], Statement]], Referant]] = {
               val Import(fixpack, items) = i
               recurse(fixpack.unfix).andThen { packF =>
                 val exMap = ExportedName.buildExportMap(packF.exports)
                 items.traverse(getImport(packF, exMap, _))
                   .map { imps =>
-                    Import(Fix[Lambda[a => Package[a, Referant, Referant, Program[(Declaration, Scheme), Statement]]]](packF), imps.flatten)
+                    Import(Fix[Lambda[a => Package[a, Referant, Referant, Program[Expr[(Declaration, Scheme)], Statement]]]](packF), imps.flatten)
                   }
               }
             }
 
-            def inferExports(imps: List[Import[FixPackage[Referant, Referant, Program[(Declaration, Scheme), Statement]], Referant]]):
+            def inferExports(imps: List[Import[FixPackage[Referant, Referant, Program[Expr[(Declaration, Scheme)], Statement]], Referant]]):
               ValidatedNel[PackageError, (List[ExportedName[Referant]], TypeEnv, List[(String, Expr[(Declaration, Scheme)])])] = {
               implicit val subD: Substitutable[Declaration] = Substitutable.opaqueSubstitutable[Declaration]
               implicit val subS: Substitutable[String] = Substitutable.opaqueSubstitutable[String]
@@ -353,7 +355,7 @@ sealed abstract class PackageError {
 
 object PackageError {
   case class UnknownExport(ex: ExportedName[Unit],
-    in: Package.PackageF[Unit, Program[Declaration, Statement]]) extends PackageError {
+    in: Package.PackageF[Unit, Program[Expr[Declaration], Statement]]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
       val (lm, sourceName) = sourceMap(in.name)
       val header =
@@ -392,8 +394,8 @@ object PackageError {
   }
 
   // We could check if we forgot to export the name in the package and give that error
-  case class UnknownImportName(in: Package.PackageF[Unit, Program[Declaration, Statement]],
-    importing: Package.PackageF[Referant, Program[(Declaration, Scheme), Statement]],
+  case class UnknownImportName(in: Package.PackageF[Unit, Program[Expr[Declaration], Statement]],
+    importing: Package.PackageF[Referant, Program[Expr[(Declaration, Scheme)], Statement]],
     iname: ImportedName[Unit],
     exports: List[ExportedName[Referant]]) extends PackageError {
       def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
@@ -425,7 +427,7 @@ object PackageError {
       s"circular package dependency:\n${msg.mkString(tab)}"
     }
   }
-  case class TypeErrorIn(tpeErr: TypeError, pack: Package.PackageF[Unit, Program[Declaration, Statement]]) extends PackageError {
+  case class TypeErrorIn(tpeErr: TypeError, pack: Package.PackageF[Unit, Program[Expr[Declaration], Statement]]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
       val (lm, sourceName) = sourceMap(pack.name)
       tpeErr.message(sourceName + s" in package ${pack.name.asString}", lm)
