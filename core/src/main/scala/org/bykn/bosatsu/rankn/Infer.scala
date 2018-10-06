@@ -39,7 +39,8 @@ object Infer {
 
   type Cons = (List[Type.Var], List[Type], Type.Const.Defined)
 
-  case class Env(uniq: Ref[Long],
+  case class Env(
+    uniq: Ref[Long],
     vars: Map[String, Type],
     typeCons: Map[String, Cons])
 
@@ -770,44 +771,47 @@ object Infer {
               (params1, res)
             }
       }
+
+    def inferSigma[A](e: Expr[A]): Infer[TypedExpr[A]] =
+      for {
+        rho <- inferRho(e)
+        expTy = rho.getType
+        envTys <- getEnv
+        envTypeVars <- getMetaTyVars(envTys.values.toList)
+        resTypeVars <- getMetaTyVars(List(expTy))
+        forAllTvs = resTypeVars -- envTypeVars
+        q <- quantify(forAllTvs.toList, rho)
+      } yield q
+
+    def checkSigma[A](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
+      for {
+        skolRho <- skolemize(tpe)
+        (skols, rho) = skolRho
+        te <- checkRho(t, rho)
+        envTys <- getEnv
+        escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
+        badTvs = skols.filter(escTvs)
+        _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t))
+      } yield te // should be fine since the everything after te is just checking
+
+    def checkRho[A](t: Expr[A], rho: Type.Rho): Infer[TypedExpr[A]] =
+      typeCheckRho(t, Expected.Check(rho))
+
+    /**
+     * recall a rho type never has a top level Forall
+     */
+    def inferRho[A](t: Expr[A]): Infer[TypedExpr.Rho[A]] =
+      for {
+        ref <- initRef[Type.Rho](Error.InferIncomplete("inferRho", t))
+        expr <- typeCheckRho(t, Expected.Inf(ref))
+        rho <- (Lift(ref.get): Infer[Type.Rho])
+        _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
+      } yield expr
   }
 
 
   def typeCheck[A](t: Expr[A]): Infer[TypedExpr[A]] =
     inferSigma(t).flatMap(zonkTypedExpr _)
-
-  def inferSigma[A](e: Expr[A]): Infer[TypedExpr[A]] =
-    for {
-      rho <- inferRho(e)
-      expTy = rho.getType
-      envTys <- getEnv
-      envTypeVars <- getMetaTyVars(envTys.values.toList)
-      resTypeVars <- getMetaTyVars(List(expTy))
-      forAllTvs = resTypeVars -- envTypeVars
-      q <- quantify(forAllTvs.toList, rho)
-    } yield q
-
-  def checkSigma[A](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
-    for {
-      skolRho <- skolemize(tpe)
-      (skols, rho) = skolRho
-      te <- checkRho(t, rho)
-      envTys <- getEnv
-      escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
-      badTvs = skols.filter(escTvs)
-      _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t))
-    } yield te // should be fine since the everything after te is just checking
-
-  def checkRho[A](t: Expr[A], rho: Type.Rho): Infer[TypedExpr[A]] =
-    typeCheckRho(t, Expected.Check(rho))
-
-  def inferRho[A](t: Expr[A]): Infer[TypedExpr.Rho[A]] =
-    for {
-      ref <- initRef[Type.Rho](Error.InferIncomplete("inferRho", t))
-      expr <- typeCheckRho(t, Expected.Inf(ref))
-      rho <- (Lift(ref.get): Infer[Type.Rho])
-      _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
-    } yield expr
 
 
   def extendEnv[A](varName: String, tpe: Type)(of: Infer[A]): Infer[A] =
@@ -816,4 +820,17 @@ object Infer {
   def extendEnvList[A](bindings: List[(String, Type)])(of: Infer[A]): Infer[A] =
     Infer.Impl.ExtendEnvs(bindings, of)
 
+  /**
+   * Packages are generally just lists of lets, this allows you to infer
+   * the scheme for each in the context of the list
+   */
+  def typeCheckLets[A](ls: List[(String, Expr[A])]): Infer[List[(String, TypedExpr[A])]] =
+    ls match {
+      case Nil => Infer.pure(Nil)
+      case (nm, expr) :: tail =>
+        for {
+          te <- typeCheck(expr)
+          rest <- extendEnv(nm, te.getType)(typeCheckLets(tail))
+        } yield (nm, te) :: rest
+    }
 }
