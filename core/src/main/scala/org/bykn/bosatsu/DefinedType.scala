@@ -4,7 +4,12 @@ import cats.data.NonEmptyList
 import cats.Order
 import cats.implicits._
 
-case class DefinedType(packageName: PackageName, name: TypeName, typeParams: List[Type.Var], constructors: List[(ConstructorName, List[(ParamName, Type)])]) {
+case class DefinedType(
+  packageName: PackageName,
+  name: TypeName,
+  typeParams: List[Type.Var],
+  constructors: List[(ConstructorName, List[(ParamName, Type)])]) {
+
   private[this] val consMap: Map[ConstructorName, List[(ParamName, Type)]] =
     constructors.toMap
 

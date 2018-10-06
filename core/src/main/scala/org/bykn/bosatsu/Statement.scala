@@ -158,7 +158,7 @@ object Indented {
 
 sealed abstract class Statement {
 
-  def toProgram(pn: PackageName, importMap: ImportMap[PackageName, Unit]): Program[Declaration, Statement] = {
+  def toProgram(pn0: PackageName, importMap: ImportMap[PackageName, Unit]): Program[Declaration, Statement] = {
     import Statement._
     // TODO use the importMap to see what names come from where
 
@@ -166,32 +166,32 @@ sealed abstract class Statement {
       s match {
         case Bind(BindingStatement(nm, decl, Padding(_, rest))) =>
           val Program(te, binds, _) = loop(rest)
-          Program(te, (nm, decl.toExpr(pn)) :: binds, this)
+          Program(te, (nm, decl.toExpr(pn0, importMap)) :: binds, this)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
         case Def(defstmt@DefStatement(_, _, _, _)) =>
           val (lam, Program(te, binds, _)) = defstmt.result match {
             case (Padding(_, Indented(_, body)), Padding(_, in)) =>
               // using body for the outer here is a bummer, but not really a good outer otherwise
-              val l = defstmt.toLambdaExpr(body.toExpr(pn), body)(_.toNType(pn))
+              val l = defstmt.toLambdaExpr(body.toExpr(pn0, importMap), body)(_.toNType(pn0, importMap))
               (l, loop(in))
           }
           Program(te, (defstmt.name, lam) :: binds, this)
         case s@Struct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(s.toDefinition(pn)), from = s)
+          p.copy(types = p.types.addDefinedType(s.toDefinition(pn0, importMap)), from = s)
         case e@Enum(_, _, Padding(_, rest)) =>
           val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(e.toDefinition(pn)), from = e)
+          p.copy(types = p.types.addDefinedType(e.toDefinition(pn0, importMap)), from = e)
         case d@ExternalDef(name, _, _, Padding(_, rest)) =>
-           val scheme = d.scheme(pn)
+           val scheme = d.scheme(pn0, importMap)
            val p = loop(rest)
            p.copy(types = p.types.updated(name, scheme), from = d)
         case x@ExternalStruct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(x.toDefinition(pn)), from = x)
+          p.copy(types = p.types.addDefinedType(x.toDefinition(pn0, importMap)), from = x)
         case EndOfFile =>
-          Program(TypeEnv.empty(pn), Nil, EndOfFile)
+          Program(TypeEnv.empty(pn0, importMap), Nil, EndOfFile)
       }
 
     loop(this)
@@ -227,7 +227,7 @@ sealed abstract class Statement {
 sealed abstract class TypeDefinitionStatement extends Statement {
   import Statement._
 
-  def toDefinition(pname: PackageName): DefinedType = {
+  def toDefinition(pname: PackageName, importMap: ImportMap[PackageName, Unit]): DefinedType = {
     def typeVar(i: Int): Type.Var = Type.Var(s"typeVar$i")
 
     type VarState[A] = State[Int, A]
@@ -276,7 +276,7 @@ object Statement {
   case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
   case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class ExternalDef(name: String, params: List[(String, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends Statement {
-    def scheme(pn: PackageName): Scheme = {
+    def scheme(pn: PackageName, im: ImportMap[PackageName, Unit]): Scheme = {
        def buildType(ts: List[Type]): Type =
          ts match {
            case Nil => result.toType(pn)

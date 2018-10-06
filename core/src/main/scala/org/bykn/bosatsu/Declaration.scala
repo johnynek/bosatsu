@@ -78,7 +78,7 @@ sealed abstract class Declaration {
     }
   }
 
-  def toExpr(pn: PackageName): Expr[Declaration] =
+  def toExpr(pn: PackageName, im: ImportMap[PackageName, Unit]): Expr[Declaration] =
     this match {
       case Apply(fn, args, _) =>
         @annotation.tailrec
@@ -88,19 +88,19 @@ sealed abstract class Declaration {
             case h :: tail =>
               loop(Expr.App(fn, h, this), tail)
           }
-        loop(fn.toExpr(pn), args.toList.map(_.toExpr(pn)))
+        loop(fn.toExpr(pn, im), args.toList.map(_.toExpr(pn, im)))
       case Binding(BindingStatement(arg, value, Padding(_, dec))) =>
-        Expr.Let(arg, value.toExpr(pn), dec.toExpr(pn), this)
+        Expr.Let(arg, value.toExpr(pn, im), dec.toExpr(pn, im), this)
       case Comment(CommentStatement(_, Padding(_, decl))) =>
-        decl.toExpr(pn).map(_ => this)
+        decl.toExpr(pn, im).map(_ => this)
       case Constructor(name) =>
         Expr.Var(name, this)
       case DefFn(defstmt@DefStatement(_, _, _, _)) =>
         val (bodyExpr, inExpr) = defstmt.result match {
           case (Padding(_, Indented(_, body)), Padding(_, in)) =>
-            (body.toExpr(pn), in.toExpr(pn))
+            (body.toExpr(pn, im), in.toExpr(pn, im))
         }
-        val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toNType(pn))
+        val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toNType(pn, im))
         Expr.Let(defstmt.name, lambda, inExpr, this)
       case IfElse(ifCases, Padding(_, Indented(_, elseCase))) =>
 
@@ -122,23 +122,25 @@ sealed abstract class Declaration {
               val elseC1 = loop(NonEmptyList(h, tail), elseC)
               loop(NonEmptyList.of(ifTrue), elseC1)
           }
-        loop(ifCases.map { case (d0, Padding(_, Indented(_, d1))) => (d0.toExpr(pn), d1.toExpr(pn)) }, elseCase.toExpr(pn))
+        loop(ifCases.map { case (d0, Padding(_, Indented(_, d1))) =>
+          (d0.toExpr(pn, im), d1.toExpr(pn, im))
+        }, elseCase.toExpr(pn, im))
       case Lambda(args, body) =>
-        Expr.buildLambda(args.map((_, None)), body.toExpr(pn), this)
+        Expr.buildLambda(args.map((_, None)), body.toExpr(pn, im), this)
       case LiteralInt(str) =>
         Expr.Literal(Lit.Integer(str.toInt), this) // TODO use BigInt
       case LiteralString(str, _) =>
         Expr.Literal(Lit.Str(str), this)
       case Parens(p) =>
-        p.toExpr(pn).map(_ => this)
+        p.toExpr(pn, im).map(_ => this)
       case Var(name) =>
         Expr.Var(name, this)
       case Match(arg, branches) =>
         val expBranches = branches.map { case Padding(_, Indented(_, (pat, Padding(_, Indented(_, decl))))) =>
-          val newPattern = pat.mapName { nm => (pn, ConstructorName(nm)) }.mapType(_.toNType(pn))
-          (newPattern, decl.toExpr(pn))
+          val newPattern = pat.mapName { nm => (pn, ConstructorName(nm)) }.mapType(_.toNType(pn, im))
+          (newPattern, decl.toExpr(pn, im))
         }
-        Expr.Match(arg.toExpr(pn), expBranches, this)
+        Expr.Match(arg.toExpr(pn, im), expBranches, this)
     }
 }
 

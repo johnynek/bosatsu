@@ -60,25 +60,34 @@ sealed abstract class TypeRef {
         loop(pars.reverse, e.toType(p))
     }
 
-  def toNType(p: PackageName): NType = {
+  def toNType(p: PackageName, importMap: ImportMap[PackageName, Unit]): NType = {
     import rankn.Type._
-    this match {
-      case TypeVar(v) => TyVar(NType.Var.Bound(v))
-      case TypeName(n) => TyConst(NType.Const.Defined(p, n))
-      case TypeArrow(a, b) => Fun(a.toNType(p), b.toNType(p))
-      case TypeApply(a, bs) =>
-        def loop(fn: NType, args: NonEmptyList[TypeRef]): NType =
-          args match {
-            case NonEmptyList(a0, Nil) => TyApply(fn, a0.toNType(p))
-            case NonEmptyList(a0, a1 :: as) => loop(TyApply(fn, a0.toNType(p)), NonEmptyList(a1, as))
+    def loop(t: TypeRef): NType =
+      t match {
+        case TypeVar(v) => TyVar(NType.Var.Bound(v))
+        case TypeName(n) =>
+          importMap.originalOf(n) match {
+            case None =>
+              TyConst(NType.Const.Defined(p, n))
+            case Some((p0, n0)) =>
+              TyConst(NType.Const.Defined(p0, n0))
           }
-        loop(a.toNType(p), bs)
-      case TypeLambda(pars0, TypeLambda(pars1, e)) =>
-        // we normalize to lifting all the foralls to the outside
-        TypeLambda(pars0 ::: pars1, e).toNType(p)
-      case TypeLambda(pars, e) =>
-        ForAll(pars.map { case TypeVar(v) => NType.Var.Bound(v) }, e.toNType(p))
-    }
+        case TypeArrow(a, b) => Fun(loop(a), loop(b))
+        case TypeApply(a, bs) =>
+          def loop1(fn: NType, args: NonEmptyList[TypeRef]): NType =
+            args match {
+              case NonEmptyList(a0, Nil) => TyApply(fn, loop(a0))
+              case NonEmptyList(a0, a1 :: as) => loop1(TyApply(fn, loop(a0)), NonEmptyList(a1, as))
+            }
+          loop1(loop(a), bs)
+        case TypeLambda(pars0, TypeLambda(pars1, e)) =>
+          // we normalize to lifting all the foralls to the outside
+          loop(TypeLambda(pars0 ::: pars1, e))
+        case TypeLambda(pars, e) =>
+          ForAll(pars.map { case TypeVar(v) => NType.Var.Bound(v) }, loop(e))
+      }
+
+    loop(this)
   }
 }
 

@@ -82,17 +82,6 @@ object Package {
   }
 }
 
-/**
- * A Referant is something that can be exported or imported after resolving
- * Before resolving, imports and exports are just names.
- */
-sealed abstract class Referant
-object Referant {
-  case class Value(scheme: Scheme) extends Referant
-  case class DefinedT(dtype: DefinedType) extends Referant
-  case class Constructor(name: ConstructorName, dtype: DefinedType) extends Referant
-}
-
 case class PackageMap[A, B, C, D](toMap: Map[PackageName, Package[A, B, C, D]]) {
   def +(pack: Package[A, B, C, D]): PackageMap[A, B, C, D] =
     PackageMap(toMap + (pack.name -> pack))
@@ -285,20 +274,10 @@ object PackageMap {
                 Substitutable.fromMapFold[Expr, (Declaration, Scheme)]
 
               val foldNest = Foldable[List].compose(Foldable[NonEmptyList])
-
-              def addRef(te: TypeEnv, imp: ImportedName[Referant]): TypeEnv =
-                imp.tag match {
-                  case Referant.Value(scheme) => te.updated(imp.localName, scheme)
-                  case Referant.DefinedT(dt) =>
-                    te.addImportedType(nm, imp.localName, dt)
-                  case Referant.Constructor(cn, dt) =>
-                    te.addImportedConstructor(imp.localName, cn, dt)
-                }
-
               val Program(te, lets, _) = prog
 
               // Add all the imports to the type environment
-              val updatedTE = foldNest.foldLeft(imps.map(_.items), te)(addRef(_, _))
+              val updatedTE = foldNest.foldLeft(imps.map(_.items), te)(_.addRef(_))
 
               val ilets = Inference.inferLets(lets)
 

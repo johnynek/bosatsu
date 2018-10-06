@@ -15,6 +15,16 @@ case class TypeEnv(
   imported: Map[String, Either[(ConstructorName, DefinedType), DefinedType]]
   ) {
 
+  def addRef(imp: ImportedName[Referant]): TypeEnv =
+    imp.tag match {
+      case Referant.Value(scheme) =>
+        updated(imp.localName, scheme)
+      case Referant.DefinedT(dt) =>
+        addImportedType(packageName, imp.localName, dt)
+      case Referant.Constructor(cn, dt) =>
+        addImportedConstructor(imp.localName, cn, dt)
+    }
+
   def schemeOf(name: String): Option[Scheme] =
     values.get(name)
       .orElse {
@@ -114,7 +124,7 @@ case class TypeEnv(
 }
 
 object TypeEnv {
-  def empty(pn: PackageName): TypeEnv =
+  def empty(pn: PackageName, im: ImportMap[PackageName, Unit]): TypeEnv =
     TypeEnv(pn, Map.empty, Map.empty, Map.empty, Map.empty)
 
   implicit val forTypeEnv: Substitutable[TypeEnv] =
