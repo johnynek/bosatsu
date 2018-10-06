@@ -6,7 +6,6 @@ package org.bykn.bosatsu
  */
 
 import cats.implicits._
-import cats.evidence.Is
 import cats.data.NonEmptyList
 import cats.{Applicative, Eval, Traverse}
 
@@ -196,40 +195,3 @@ object Expr {
 
 }
 
-case class Program[D, S](types: TypeEnv, lets: List[(String, Expr[D])], from: S) {
-  private[this] lazy val letMap: Map[String, Expr[D]] = lets.toMap
-
-  def getLet(name: String): Option[Expr[D]] = letMap.get(name)
-  /**
-   * main is the thing we evaluate. It is the last thing defined
-   */
-  def getMain(fn: (String, D, D) => D): Option[Expr[D]] = {
-    @annotation.tailrec
-    def loop(ls: List[(String, Expr[D])], acc: Expr[D]): Expr[D] =
-      ls match {
-        case Nil => acc
-        case (nm, expr) :: tail =>
-          val decl = fn(nm, expr.tag, acc.tag)
-          loop(tail, Expr.Let(nm, expr, acc, decl))
-      }
-
-    lets.reverse match {
-      case (_, h) :: tail =>
-        Some(loop(tail, h))
-      case Nil =>
-        None
-    }
-  }
-
-  def getMainDecl(implicit ev: D Is Declaration): Option[Expr[Declaration]] = {
-
-    val fn = { (nm: String, v: D, in: D) =>
-      val r = ev.coerce(v).region + ev.coerce(in).region
-      ev.flip.coerce(Declaration.Binding(
-        BindingStatement(nm, ev.coerce(v), Padding(0, ev.coerce(in))))(r))
-    }
-
-    type F[T] = Option[Expr[T]]
-    ev.substitute[F](getMain(fn))
-  }
-}
