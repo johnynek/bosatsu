@@ -23,7 +23,7 @@ object NameKind {
     val prog = from.unfix.program
 
     def getLet: Option[NameKind] =
-      prog.getLet(item).map(Let(_))
+      prog.getLet(item).map(_ => ???)
 
     def getConstructor: Option[NameKind] = {
       val cn = ConstructorName(item)

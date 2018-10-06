@@ -15,7 +15,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
-    } yield eval((Package.asInferred(pack), Right(expr), Map.empty))
+    } yield eval((Package.asInferred(pack), Right(???), Map.empty))
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, scheme) =>
@@ -61,11 +61,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       }
     }
 
-  private type Ref = Either[String, Expr[(Declaration, Scheme)]]
+  private type Ref = Either[String, TypedExpr[(Declaration, Scheme)]]
 
   private def evalBranch(arg: Any,
     scheme: Scheme,
-    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[(Declaration, Scheme)])],
+    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[(Declaration, Scheme)])],
     p: Package.Inferred,
     env: Map[String, Any],
     recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme)): Eval[Any] =
@@ -77,8 +77,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get // one must match
 
       def bindEnv(arg: Any,
-        branches: List[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[(Declaration, Scheme)])],
-        acc: Map[String, Any]): Option[(Map[String, Any], Expr[(Declaration, Scheme)])] =
+        branches: List[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[(Declaration, Scheme)])],
+        acc: Map[String, Any]): Option[(Map[String, Any], TypedExpr[(Declaration, Scheme)])] =
         branches match {
           case Nil => None
           case (Pattern.WildCard, next):: tail => Some((acc, next))
@@ -117,56 +117,57 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     }
     .memoize
 
-  private def evalExpr(p: Package.Inferred,
-    expr: Expr[(Declaration, Scheme)],
+  private def evalTypedExpr(p: Package.Inferred,
+    expr: TypedExpr[(Declaration, Scheme)],
     env: Map[String, Any],
     recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme)): (Eval[Any], Scheme) = {
 
-    import Expr._
+    import TypedExpr._
 
-    expr match {
-      case Annotation(e, _, _) => evalExpr(p, e, env, recurse)
-      case al@AnnotatedLambda(_, _, _, _) => evalExpr(p, al.toLambda, env, recurse)
-      case Var(v, (_, scheme)) =>
-        env.get(v) match {
-          case Some(a) => (Eval.now(a), scheme)
-          case None => recurse((p, Left(v), env))
-        }
-      case App(Lambda(name, fn, _), arg, (_, scheme)) =>
-        (recurse((p, Right(arg), env))._1.flatMap { a =>
-          val env1 = env + (name -> a)
-          recurse((p, Right(fn), env1))._1
-        }, scheme)
-      case App(fn, arg, (_, scheme)) =>
-        val efn = recurse((p, Right(fn), env))._1
-        val earg = recurse((p, Right(arg), env))._1
-        (for {
-          fn <- efn
-          afn = fn.asInstanceOf[Fn[Any, Any]] // safe because we typecheck
-          a <- earg
-        } yield afn(a), scheme)
-      case Lambda(name, expr, (_, scheme)) =>
-        val fn = new Fn[Any, Any] {
-          def apply(x: Any) =
-            recurse((p, Right(expr), env + (name -> x)))._1.value
-        }
-        (Eval.now(fn), scheme)
-      case Let(arg, e, in, (_, scheme)) =>
-        (recurse((p, Right(e), env))._1.flatMap { ae =>
-          recurse((p, Right(in), env + (arg -> ae)))._1
-        }, scheme)
-      case Literal(Lit.Integer(i), (_, scheme)) => (Eval.now(i), scheme)
-      case Literal(Lit.Str(str), (_, scheme)) => (Eval.now(str), scheme)
-      case If(cond, ifT, ifF, (_, scheme)) =>
-        // TODO
-        // evaluate the condition the either the left or right
-        ???
-      case Match(arg, branches, (_, scheme)) =>
-        val (earg, sarg) = recurse((p, Right(arg), env))
-        (earg.flatMap { a =>
-          evalBranch(a, sarg, branches, p, env, recurse)
-        }, scheme)
-    }
+    // expr match {
+    //   case Annotation(e, _, _) => evalTypedExpr(p, e, env, recurse)
+    //   case al@AnnotatedLambda(_, _, _, _) => evalTypedExpr(p, al.toLambda, env, recurse)
+    //   case Var(v, (_, scheme)) =>
+    //     env.get(v) match {
+    //       case Some(a) => (Eval.now(a), scheme)
+    //       case None => recurse((p, Left(v), env))
+    //     }
+    //   case App(Lambda(name, fn, _), arg, (_, scheme)) =>
+    //     (recurse((p, Right(arg), env))._1.flatMap { a =>
+    //       val env1 = env + (name -> a)
+    //       recurse((p, Right(fn), env1))._1
+    //     }, scheme)
+    //   case App(fn, arg, (_, scheme)) =>
+    //     val efn = recurse((p, Right(fn), env))._1
+    //     val earg = recurse((p, Right(arg), env))._1
+    //     (for {
+    //       fn <- efn
+    //       afn = fn.asInstanceOf[Fn[Any, Any]] // safe because we typecheck
+    //       a <- earg
+    //     } yield afn(a), scheme)
+    //   case Lambda(name, expr, (_, scheme)) =>
+    //     val fn = new Fn[Any, Any] {
+    //       def apply(x: Any) =
+    //         recurse((p, Right(expr), env + (name -> x)))._1.value
+    //     }
+    //     (Eval.now(fn), scheme)
+    //   case Let(arg, e, in, (_, scheme)) =>
+    //     (recurse((p, Right(e), env))._1.flatMap { ae =>
+    //       recurse((p, Right(in), env + (arg -> ae)))._1
+    //     }, scheme)
+    //   case Literal(Lit.Integer(i), (_, scheme)) => (Eval.now(i), scheme)
+    //   case Literal(Lit.Str(str), (_, scheme)) => (Eval.now(str), scheme)
+    //   case If(cond, ifT, ifF, (_, scheme)) =>
+    //     // TODO
+    //     // evaluate the condition the either the left or right
+    //     ???
+    //   case Match(arg, branches, (_, scheme)) =>
+    //     val (earg, sarg) = recurse((p, Right(arg), env))
+    //     (earg.flatMap { a =>
+    //       evalBranch(a, sarg, branches, p, env, recurse)
+    //    }, scheme)
+    //}
+    ???
   }
 
   /**
@@ -176,11 +177,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   private[this] val eval: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme) =
     Memoize.function[(Package.Inferred, Ref, Map[String, Any]), (Eval[Any], Scheme)] {
       case ((pack, Right(expr), env), recurse) =>
-        evalExpr(pack, expr, env, recurse)
+        evalTypedExpr(pack, expr, env, recurse)
       case ((pack, Left(item), env), recurse) =>
         NameKind(pack, item).get match { // this get should never fail due to type checking
           case NameKind.Let(expr) =>
-            recurse((pack, Right(expr), env))
+            recurse((pack, Right(???), env))
           case NameKind.Constructor(cn, dt, schm) =>
             (Eval.later(constructor(cn, dt)), schm)
           case NameKind.Import(from, orig) =>
