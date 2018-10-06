@@ -282,94 +282,33 @@ object PackageMap {
              * in order to type check the exports
              */
             def inferBody(imps: List[Import[Package.Inferred, NonEmptyList[Referant]]]):
-                ValidatedNel[PackageError,
-                  (List[ExportedName[Referant]], TypeEnv, List[(String, TypedExpr[Declaration])])] = {
+                ValidatedNel[PackageError, (TypeEnv, List[(String, TypedExpr[Declaration])])] = {
 
-//              val foldNest = Foldable[List].compose(Foldable[NonEmptyList])
-//              //val Program(te, lets, _) = prog
-//              val lets: List[(String, Expr[Declaration])] = ???
+             val foldNest = Foldable[List].compose(Foldable[NonEmptyList])
+             //val Program(te, lets, _) = prog
+             val lets: List[(String, Expr[Declaration])] = ???
 
-//              // Add all the imports to the type environment
-//              val updatedTE: TypeEnv = ??? // = foldNest.foldLeft(imps.map(_.items), te)(_.addRef(_))
+             // Add all the imports to the type environment
+             val updatedTE: TypeEnv = ??? // = foldNest.foldLeft(imps.map(_.items), te)(_.addRef(_))
 
-//              // This is for mapping exports, so these are names relative to the current package
-//              def onDefined[A](typeName: String)(fn: DefinedType => A): Option[A] =
-//                updatedTE
-//                  .definedTypes
-//                  .get((nm, TypeName(typeName)))
-//                  .map(fn)
+             /**
+              * These are values, including all constructor functions
+              * that have been imported
+              */
+             val importedValues: Map[String, rankn.Type] = ???
+             /**
+              * These are used in pattern matching
+              */
+             val importedConstructors: Map[String, Infer.Cons] = ???
 
-//              /**
-//               * These are values, including all constructor functions
-//               * that have been imported
-//               */
-//              val importedValues: Map[String, rankn.Type] = ???
-//              /**
-//               * These are used in pattern matching
-//               */
-//              val importedConstructors: Map[String, Infer.Cons] = ???
-
-//              val ilets = Infer.typeCheckLets(lets)
-//              ilets.runFully(importedValues, importedConstructors) match {
-//                case Left(typeerr) =>
-//                  Validated.invalidNel(PackageError.TypeErrorIn(typeerr, p)) // TODO give better errors
-//                case Right(lets) =>
-//                  val letMap = lets.toMap
-//                  def ranknToScheme(t: rankn.Type): Scheme = ???
-//                  /*
-//                   * Now it's time to fully resolve the export values and types.
-//                   *
-//                   * The only error we have have here is if we name an export we didn't define
-//                   * Note a name can be two things:
-//                   *   1. a type
-//                   *   2. a value (e.g. a constructor)
-//                   */
-//                  def err[A](n: ExportedName[Unit]): ValidatedNel[PackageError, A] =
-//                    Validated.invalidNel(PackageError.UnknownExport(n, p, lets))
-
-//                  def onDefinedErr[A](
-//                    expName: ExportedName[Unit],
-//                    typeName: String)(fn: DefinedType => A): ValidatedNel[PackageError, A] =
-//                      onDefined(typeName)(fn)
-//                        .fold(err[A](expName))(Validated.valid(_))
-
-//                  def expName(ename: ExportedName[Unit]): ValidatedNel[PackageError, NonEmptyList[ExportedName[Referant]]] = {
-//                    ename match {
-//                      case ExportedName.Binding(n, _) =>
-//                        letMap.get(n) match {
-//                          case Some(exprDeclScheme) =>
-//                            val tpe = exprDeclScheme.getType
-//                            val scheme = ranknToScheme(tpe).normalized
-//                            Validated.valid(NonEmptyList(ExportedName.Binding(n, Referant.Value(scheme)), Nil))
-//                          case None =>
-//                            // It could be an external or imported value in the TypeEnv
-//                            updatedTE.values.get(n) match {
-//                              case Some(scheme) =>
-//                                Validated.valid(NonEmptyList(ExportedName.Binding(n, Referant.Value(scheme.normalized)), Nil))
-//                              case None => err(ename)
-//                            }
-//                        }
-//                      case ExportedName.TypeName(nm, _) =>
-//                        // export the opaque type
-//                        onDefinedErr(ename, nm) { dt =>
-//                          NonEmptyList(ExportedName.TypeName(nm, Referant.DefinedT(dt.toOpaque)), Nil)
-//                        }
-//                      case ExportedName.Constructor(nm, _) =>
-//                        // export the type and all constructors
-//                        onDefinedErr(ename, nm) { dt =>
-//                          val cons = dt.constructors.map { case (n, _) =>
-//                            ExportedName.Constructor(n.asString, Referant.Constructor(n, dt))
-//                          }
-//                          val t = ExportedName.TypeName(nm, Referant.DefinedT(dt))
-//                          NonEmptyList(t, cons)
-//                        }
-//                    }
-//                  }
-//                  exports.traverse(expName)
-//                    .map(_.flatMap(_.toList))
-//                    .map((_, updatedTE, lets))
-//              }
-                ???
+             val ilets = Infer.typeCheckLets(lets)
+             ilets.runFully(importedValues, importedConstructors) match {
+               case Left(typeerr) =>
+                 Validated.invalidNel(PackageError.TypeErrorIn(typeerr, p)) // TODO give better errors
+               case Right(lets) =>
+                 val finalTypeEnv: TypeEnv = ???
+                 Validated.valid((finalTypeEnv, lets))
+             }
             }
 
             imports
@@ -377,8 +316,16 @@ object PackageMap {
               .andThen { imps =>
                 inferBody(imps).map((imps, _))
               }
-              .map { case (imps, (exps, types, lets)) =>
-                Package(nm, imps, exps, Program(types, lets, stmt))
+              .andThen { case (imps, (types, lets)) =>
+                ExportedName.buildExports(nm, exports, types, lets)
+                  .map { exps =>
+                    Package(nm, imps, exps, Program(types, lets, stmt))
+                  }
+                  .leftMap { badPackages =>
+                    badPackages.map { n =>
+                      PackageError.UnknownExport(n, p, lets)
+                    }
+                  }
               }
         }
 
@@ -397,7 +344,7 @@ sealed abstract class PackageError {
 }
 
 object PackageError {
-  case class UnknownExport(ex: ExportedName[Unit],
+  case class UnknownExport[A](ex: ExportedName[A],
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],
     lets: List[(String, TypedExpr[Declaration])]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
