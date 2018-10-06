@@ -308,5 +308,5 @@ object Generators {
       imports <- Gen.listOfN(ic, importGen)
       exports <- Gen.listOfN(ec, exportedNameGen)
       body <- genStatement
-    } yield Package(p, imports, exports, body.toProgram(p))
+    } yield Package(p, imports, exports, body)
 }

@@ -158,8 +158,9 @@ object Indented {
 
 sealed abstract class Statement {
 
-  def toProgram(pn: PackageName): Program[Declaration, Statement] = {
+  def toProgram(pn: PackageName, importMap: ImportMap[PackageName, Unit]): Program[Declaration, Statement] = {
     import Statement._
+    // TODO use the importMap to see what names come from where
 
     def loop(s: Statement): Program[Declaration, Statement] =
       s match {

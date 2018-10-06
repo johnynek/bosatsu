@@ -55,7 +55,7 @@ class InferTest extends FunSuite {
   def parseProgram(str: String, t: Type) =
     Statement.parser.parse(str) match {
       case Parsed.Success(exp, _) =>
-        val prog = exp.toProgram(testPack)
+        val prog = exp.toProgram(testPack, ImportMap.empty)
         prog.getMainDecl match {
           case None => fail(s"found no main expression")
           case Some(main) =>
