@@ -91,31 +91,46 @@ object Package {
     p: PackageName,
     imps: List[Import[Package.Inferred, NonEmptyList[Referant]]],
     stmt: Statement):
-      Either[Infer.Error, (TypeEnv, List[(String, TypedExpr[Declaration])])] = {
+      Either[Infer.Error, (rankn.TypeEnv, List[(String, TypedExpr[Declaration])])] = {
 
-   val foldNest = Foldable[List].compose(Foldable[NonEmptyList])
-   //val Program(te, lets, _) = prog
-   val lets: List[(String, Expr[Declaration])] = ???
+    /**
+     * we have already checked we don't have duplicate imports,
+     * so here, we just take the last imported value, which
+     * should be unique
+     */
+    val (_, importMap) = ImportMap.fromImports(
+      imps.map(_.mapPackage(_.unfix.name))
+    )
+    val importedTypes: Map[String, (PackageName, String)] =
+      Referant.importedTypes(imps)
 
-   // Add all the imports to the type environment
-   val updatedTE: TypeEnv = ??? // = foldNest.foldLeft(imps.map(_.items), te)(_.addRef(_))
+    val importedCons: Map[String, (PackageName, ConstructorName)] =
+      Referant.importedCons(imps)
 
-   /**
+    val Program(typeEnv, lets, _) =
+      Program.fromStatement(
+        p,
+        { s =>
+          // TODO, we could use a mutable map here to cache so we can save
+          // some allocations on seeing the same types over and over
+          val (p1, s1) = importedTypes.getOrElse(s, (p, s))
+          rankn.Type.Const.Defined(p1, s1)
+        }, // name to type
+        { s => importedCons.getOrElse(s, (p, ConstructorName(s))) }, // name to cons
+        stmt)
+
+    /**
     * These are values, including all constructor functions
-    * that have been imported
+    * that have been imported, this includes local external
+    * defs
     */
-   val importedValues: Map[String, rankn.Type] = ???
-   /**
-    * These are used in pattern matching
-    */
-   val importedConstructors: Map[String, Infer.Cons] = ???
+    val importedValues: Map[String, rankn.Type] = typeEnv.values
 
-   val ilets = Infer.typeCheckLets(lets)
-   ilets.runFully(importedValues, importedConstructors)
-     .map { lets =>
-       val finalTypeEnv: TypeEnv = ???
-       (finalTypeEnv, lets)
-     }
-  }
+    val ilets = Infer.typeCheckLets(lets)
+      ilets.runFully(importedValues, typeEnv.typeConstructors)
+        .map { lets =>
+          (typeEnv, lets)
+        }
+    }
 }
 

@@ -130,7 +130,7 @@ trait CodeGen {
 
     val constructors: Output[Unit] =
       definedTypes.flatMap(_.constructors.zipWithIndex).traverse_ { case ((cn, args), idx) =>
-        mkConstructor(idx, cn, args).flatMap(tell)
+        mkConstructor(idx, cn, ???).flatMap(tell)
       }
     /**
      * Build the externals
@@ -138,7 +138,7 @@ trait CodeGen {
     val externals = NameKind.externals(p)
     val extDoc: Output[Unit] =
       externals.traverse_ { case NameKind.ExternalDef(p, n, scheme) =>
-        outputExternal(n, ext.toMap((p, n)), scheme)
+        outputExternal(n, ext.toMap((p, n)), ???/*scheme*/)
       }
 
     val body = Traverse[List].traverse(unfix.program.lets) { case (f, e) =>

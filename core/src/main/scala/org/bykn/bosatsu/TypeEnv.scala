@@ -16,14 +16,15 @@ case class TypeEnv(
   ) {
 
   def addRef(imp: ImportedName[Referant]): TypeEnv =
-    imp.tag match {
-      case Referant.Value(scheme) =>
-        updated(imp.localName, scheme)
-      case Referant.DefinedT(dt) =>
-        addImportedType(packageName, imp.localName, dt)
-      case Referant.Constructor(cn, dt) =>
-        addImportedConstructor(imp.localName, cn, dt)
-    }
+    ???
+    // imp.tag match {
+    //   case Referant.Value(scheme) =>
+    //     updated(imp.localName, scheme)
+    //   case Referant.DefinedT(dt) =>
+    //     addImportedType(packageName, imp.localName, dt)
+    //   case Referant.Constructor(cn, dt) =>
+    //     addImportedConstructor(imp.localName, cn, dt)
+    // }
 
   def schemeOf(name: String): Option[Scheme] =
     values.get(name)

@@ -78,70 +78,77 @@ sealed abstract class Declaration {
     }
   }
 
-  def toExpr(pn: PackageName, im: ImportMap[PackageName, Unit]): Expr[Declaration] =
-    this match {
-      case Apply(fn, args, _) =>
-        @annotation.tailrec
-        def loop(fn: Expr[Declaration], args: List[Expr[Declaration]]): Expr[Declaration] =
-          args match {
-            case Nil => fn
-            case h :: tail =>
-              loop(Expr.App(fn, h, this), tail)
-          }
-        loop(fn.toExpr(pn, im), args.toList.map(_.toExpr(pn, im)))
-      case Binding(BindingStatement(arg, value, Padding(_, dec))) =>
-        Expr.Let(arg, value.toExpr(pn, im), dec.toExpr(pn, im), this)
-      case Comment(CommentStatement(_, Padding(_, decl))) =>
-        decl.toExpr(pn, im).map(_ => this)
-      case Constructor(name) =>
-        Expr.Var(name, this)
-      case DefFn(defstmt@DefStatement(_, _, _, _)) =>
-        val (bodyExpr, inExpr) = defstmt.result match {
-          case (Padding(_, Indented(_, body)), Padding(_, in)) =>
-            (body.toExpr(pn, im), in.toExpr(pn, im))
-        }
-        val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toNType(pn, im))
-        Expr.Let(defstmt.name, lambda, inExpr, this)
-      case IfElse(ifCases, Padding(_, Indented(_, elseCase))) =>
+  def toExpr(
+    nameToType: String => rankn.Type.Const,
+    nameToCons: String => (PackageName, ConstructorName)): Expr[Declaration] = {
 
-        // TODO: we need a way to have an full name to the constructor in order for this "macro" to
-        // be safe. So, we want to say Bosatsu/Predef#True or something.
-        // we could just have ConstructorName require a PackageName
-        def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
-          Expr.Match(cond,
-            NonEmptyList.of(
-              (Pattern.PositionalStruct((Predef.packageName, ConstructorName("True")), Nil), ifTrue),
-              (Pattern.PositionalStruct((Predef.packageName, ConstructorName("False")), Nil), ifFalse)),
-            this)
-
-        def loop(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
-          ifs match {
-            case NonEmptyList((cond, ifTrue), Nil) =>
-              ifExpr(cond, ifTrue, elseC)
-            case NonEmptyList(ifTrue, h :: tail) =>
-              val elseC1 = loop(NonEmptyList(h, tail), elseC)
-              loop(NonEmptyList.of(ifTrue), elseC1)
+    def loop(decl: Declaration): Expr[Declaration] =
+      decl match {
+        case Apply(fn, args, _) =>
+          @annotation.tailrec
+          def loop0(fn: Expr[Declaration], args: List[Expr[Declaration]]): Expr[Declaration] =
+            args match {
+              case Nil => fn
+              case h :: tail =>
+                loop0(Expr.App(fn, h, this), tail)
+            }
+          loop0(loop(fn), args.toList.map(loop(_)))
+        case Binding(BindingStatement(arg, value, Padding(_, dec))) =>
+          Expr.Let(arg, loop(value), loop(dec), this)
+        case Comment(CommentStatement(_, Padding(_, decl))) =>
+          loop(decl).map(_ => this)
+        case Constructor(name) =>
+          Expr.Var(name, this)
+        case DefFn(defstmt@DefStatement(_, _, _, _)) =>
+          val (bodyExpr, inExpr) = defstmt.result match {
+            case (Padding(_, Indented(_, body)), Padding(_, in)) =>
+              (loop(body), loop(in))
           }
-        loop(ifCases.map { case (d0, Padding(_, Indented(_, d1))) =>
-          (d0.toExpr(pn, im), d1.toExpr(pn, im))
-        }, elseCase.toExpr(pn, im))
-      case Lambda(args, body) =>
-        Expr.buildLambda(args.map((_, None)), body.toExpr(pn, im), this)
-      case LiteralInt(str) =>
-        Expr.Literal(Lit.Integer(str.toInt), this) // TODO use BigInt
-      case LiteralString(str, _) =>
-        Expr.Literal(Lit.Str(str), this)
-      case Parens(p) =>
-        p.toExpr(pn, im).map(_ => this)
-      case Var(name) =>
-        Expr.Var(name, this)
-      case Match(arg, branches) =>
-        val expBranches = branches.map { case Padding(_, Indented(_, (pat, Padding(_, Indented(_, decl))))) =>
-          val newPattern = pat.mapName { nm => (pn, ConstructorName(nm)) }.mapType(_.toNType(pn, im))
-          (newPattern, decl.toExpr(pn, im))
-        }
-        Expr.Match(arg.toExpr(pn, im), expBranches, this)
-    }
+          val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toNType(nameToType))
+          Expr.Let(defstmt.name, lambda, inExpr, this)
+        case IfElse(ifCases, Padding(_, Indented(_, elseCase))) =>
+
+          // TODO: we need a way to have an full name to the constructor in order for this "macro" to
+          // be safe. So, we want to say Bosatsu/Predef#True or something.
+          // we could just have ConstructorName require a PackageName
+          def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
+            Expr.Match(cond,
+              NonEmptyList.of(
+                (Pattern.PositionalStruct((Predef.packageName, ConstructorName("True")), Nil), ifTrue),
+                (Pattern.PositionalStruct((Predef.packageName, ConstructorName("False")), Nil), ifFalse)),
+              this)
+
+          def loop0(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
+            ifs match {
+              case NonEmptyList((cond, ifTrue), Nil) =>
+                ifExpr(cond, ifTrue, elseC)
+              case NonEmptyList(ifTrue, h :: tail) =>
+                val elseC1 = loop0(NonEmptyList(h, tail), elseC)
+                loop0(NonEmptyList.of(ifTrue), elseC1)
+            }
+          loop0(ifCases.map { case (d0, Padding(_, Indented(_, d1))) =>
+            (loop(d0), loop(d1))
+          }, loop(elseCase))
+        case Lambda(args, body) =>
+          Expr.buildLambda(args.map((_, None)), loop(body), this)
+        case LiteralInt(str) =>
+          Expr.Literal(Lit.Integer(str.toInt), this) // TODO use BigInt
+        case LiteralString(str, _) =>
+          Expr.Literal(Lit.Str(str), this)
+        case Parens(p) =>
+          loop(p).map(_ => this)
+        case Var(name) =>
+          Expr.Var(name, this)
+        case Match(arg, branches) =>
+          val expBranches = branches.map { case Padding(_, Indented(_, (pat, Padding(_, Indented(_, decl))))) =>
+            val newPattern = pat.mapName(nameToCons).mapType(_.toNType(nameToType))
+            (newPattern, loop(decl))
+          }
+          Expr.Match(loop(arg), expBranches, this)
+      }
+
+    loop(this)
+  }
 }
 
 object Declaration {

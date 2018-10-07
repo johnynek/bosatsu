@@ -21,6 +21,44 @@ object Type {
   case class TyApply(on: Type, arg: Type) extends Type
 
   /**
+   * Return the Bound and Skolem variables that
+   * are free in the given list of types
+   */
+  def freeTyVars(ts: List[Type]): List[Type.Var] = {
+
+    // usually we can recurse in a loop, but sometimes not
+    def cheat(ts: List[Type], bound: Set[Type.Var.Bound], acc: List[Type.Var]): List[Type.Var] =
+      go(ts, bound, acc)
+
+    @annotation.tailrec
+    def go(ts: List[Type], bound: Set[Type.Var.Bound], acc: List[Type.Var]): List[Type.Var] =
+      ts match {
+        case Nil => acc
+        case Type.TyVar(tv) :: rest =>
+          // we only check here, we don't add
+          val isBound =
+            tv match {
+              case b@Type.Var.Bound(_) => bound(b)
+              case Type.Var.Skolem(_, _) => false
+            }
+          if (isBound) go(rest, bound, acc)
+          else go(rest, bound, tv :: acc)
+        case Type.TyApply(a, b) :: rest => go(a :: b :: rest, bound, acc)
+        case Type.ForAll(tvs, ty) :: rest =>
+          val acc1 = cheat(ty :: Nil, bound ++ tvs.toList, acc)
+          // note, tvs ARE NOT bound in rest
+          go(rest, bound, acc1)
+        case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
+      }
+
+    ts.foldLeft(List.empty[Type.Var]) { (acc, t) =>
+      go(t :: Nil, Set.empty, acc)
+    }
+    .reverse
+  }
+
+
+  /**
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals
    */

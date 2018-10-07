@@ -2,10 +2,13 @@ package org.bykn.bosatsu
 
 sealed abstract class NameKind
 object NameKind {
-  case class Let(value: Expr[(Declaration, Scheme)]) extends NameKind
-  case class Constructor(cn: ConstructorName, dt: DefinedType, scheme: Scheme) extends NameKind
+  case class Let(value: TypedExpr[Declaration]) extends NameKind
+  case class Constructor(
+    cn: ConstructorName,
+    params: List[(ParamName, rankn.Type)],
+    defined: rankn.DefinedType) extends NameKind
   case class Import(fromPack: Package.Inferred, originalName: String) extends NameKind
-  case class ExternalDef(pack: PackageName, defName: String, defType: Scheme) extends NameKind
+  case class ExternalDef(pack: PackageName, defName: String, defType: rankn.Type) extends NameKind
 
   def externals(from: Package.Inferred): Stream[ExternalDef] = {
     val prog = from.unfix.program
@@ -23,14 +26,16 @@ object NameKind {
     val prog = from.unfix.program
 
     def getLet: Option[NameKind] =
-      prog.getLet(item).map(_ => ???)
+      prog.getLet(item).map(Let(_))
 
     def getConstructor: Option[NameKind] = {
       val cn = ConstructorName(item)
-      prog.types.constructors.get((from.unfix.name, cn)).map { dtype =>
-        val scheme = dtype.toScheme(cn).get // this should never throw
-        Constructor(cn, dtype, scheme)
-      }
+      prog.types
+        .constructors
+        .get((from.unfix.name, cn))
+        .map { case (params, dt) =>
+          Constructor(cn, params, dt)
+        }
     }
 
     def getImport: Option[NameKind] =

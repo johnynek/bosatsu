@@ -188,45 +188,64 @@ sealed abstract class Statement {
 sealed abstract class TypeDefinitionStatement extends Statement {
   import Statement._
 
-  def toDefinition(pname: PackageName, importMap: ImportMap[PackageName, Unit]): DefinedType = {
-    def typeVar(i: Int): Type.Var = Type.Var(s"typeVar$i")
+  def toDefinition(pname: PackageName, nameToType: String => rankn.Type.Const): rankn.DefinedType = {
+    import rankn.Type
 
-    type VarState[A] = State[Int, A]
+    def typeVar(i: Long): Type.TyVar =
+      Type.TyVar(Type.Var.Bound(s"anon$i"))
 
-    def nextVar: VarState[Type.Var] =
+    type StT = ((Set[Type.TyVar], List[Type.TyVar]), Long)
+    type VarState[A] = State[StT, A]
+
+    def add(t: Type.TyVar): VarState[Type.TyVar] =
+      State.modify[StT] { case ((ss, sl), i) => ((ss + t, t :: sl), i) }.as(t)
+
+    lazy val nextVar: VarState[Type.TyVar] =
       for {
-        id <- State.get[Int]
-        _ <- State.modify[Int](_ + 1)
-      } yield typeVar(id)
+        vsid <- State.get[StT]
+        ((existing, _), id) = vsid
+        _ <- State.modify[StT] { case (s, id) => (s, id + 1L) }
+        candidate = typeVar(id)
+        tv <- if (existing(candidate)) nextVar else add(candidate)
+      } yield tv
 
-    def buildParam(p: (String, Option[TypeRef])): VarState[(ParamName, Type)] =
+    def buildParam(p: (String, Option[Type])): VarState[(ParamName, Type)] =
       p match {
-        // TODO we need to be robust to var collisions with our gensym approach
-        case (parname, Some(typeRef)) => State.pure((ParamName(parname), typeRef.toType(pname)))
-        case (parname, None) => nextVar.map { v => (ParamName(parname), v) }
+        case (parname, Some(tpe)) =>
+          State.pure((ParamName(parname), tpe))
+        case (parname, None) =>
+          nextVar.map { v => (ParamName(parname), v) }
       }
 
-    def buildParams(args: List[(String, Option[TypeRef])]): VarState[List[(ParamName, Type)]] =
-      args.traverse(buildParam _)
+    def existingVars[A](ps: List[(A, Option[Type])]): List[Type.TyVar] =
+      Type.freeTyVars(ps.flatMap(_._2)).map(Type.TyVar(_))
 
-    def explicits(ps: List[(ParamName, Type)]): List[Type.Var] =
-      ps.flatMap { case (_, t) => t.varsIn }.distinct
+    def buildParams(args: List[(String, Option[Type])]): VarState[List[(ParamName, Type)]] =
+      args.traverse(buildParam _)
 
     this match {
       case Struct(nm, args, _) =>
-        val params = buildParams(args).runA(0).value
-        val explicitTps = explicits(params)
-        DefinedType(pname, TypeName(nm), explicitTps, (ConstructorName(nm), params) :: Nil)
+        val deep = Functor[List].compose(Functor[(String, ?)]).compose(Functor[Option])
+        val argsType = deep.map(args)(_.toNType(nameToType))
+        val initVars = existingVars(argsType)
+        val initState = ((initVars.toSet, initVars.reverse), 0L)
+        val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
+        rankn.DefinedType(pname, TypeName(nm), typeVars.map(_.toVar), (ConstructorName(nm), params) :: Nil)
       case Enum(nm, items, _) =>
-        val constructorsS = items.traverse { case Padding(_, Indented(_, (nm, args))) =>
-          buildParams(args).map((ConstructorName(nm), _))
+        val deep = Functor[List].compose(Functor[(String, ?)]).compose(Functor[Option])
+        val conArgs = items.map { case Padding(_, Indented(_, (nm, args))) =>
+          val argsType = deep.map(args)(_.toNType(nameToType))
+          (nm, argsType)
         }
-
-        val constructors = constructorsS.runA(0).value
-        val allExplicits = explicits(constructors.map(_._2).toList.flatten)
-        DefinedType(pname, TypeName(nm), allExplicits.distinct, constructors.toList)
+        val constructorsS = conArgs.traverse { case (nm, argsType) =>
+          buildParams(argsType).map((ConstructorName(nm), _))
+        }
+        val initVars = existingVars(conArgs.toList.flatMap(_._2))
+        val initState = ((initVars.toSet, initVars.reverse), 0L)
+        val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
+        rankn.DefinedType(pname, TypeName(nm), typeVars.map(_.toVar), constructors.toList)
       case ExternalStruct(nm, targs, _) =>
-        DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => Type.Var(v) }, Nil)
+        rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => Type.Var.Bound(v) }, Nil)
     }
   }
 }
@@ -237,15 +256,16 @@ object Statement {
   case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
   case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class ExternalDef(name: String, params: List[(String, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends Statement {
-    def scheme(pn: PackageName, im: ImportMap[PackageName, Unit]): Scheme = {
-       def buildType(ts: List[Type]): Type =
-         ts match {
-           case Nil => result.toType(pn)
-           case h :: tail => Type.Arrow(h, buildType(tail))
-         }
-       val fullType = buildType(params.map(_._2.toType(pn)))
-       Scheme.typeConstructor(fullType)
+
+    def toType(nameToType: String => rankn.Type.Const): rankn.Type = {
+      def buildType(ts: List[rankn.Type]): rankn.Type =
+        ts match {
+          case Nil => result.toNType(nameToType)
+          case h :: tail => rankn.Type.Fun(h, buildType(tail))
+        }
+      buildType(params.map(_._2.toNType(nameToType)))
     }
+
   }
   case class ExternalStruct(name: String, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class Enum(name: String,

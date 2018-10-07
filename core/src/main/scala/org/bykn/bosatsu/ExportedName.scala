@@ -17,13 +17,11 @@ sealed abstract class ExportedName[+T] {
   */
   def toReferants(
     letValue: Option[rankn.Type],
-    definedType: Option[DefinedType]): Option[NonEmptyList[ExportedName[Referant]]] =
+    definedType: Option[rankn.DefinedType]): Option[NonEmptyList[ExportedName[Referant]]] =
      this match {
        case ExportedName.Binding(n, _) =>
          letValue.map { tpe =>
-           def ranknToScheme(t: rankn.Type): Scheme = ???
-           val scheme = ranknToScheme(tpe).normalized
-           NonEmptyList(ExportedName.Binding(n, Referant.Value(scheme)), Nil)
+           NonEmptyList(ExportedName.Binding(n, Referant.Value(tpe)), Nil)
          }
        case ExportedName.TypeName(nm, _) =>
          // export the opaque type
@@ -79,7 +77,7 @@ object ExportedName {
   def buildExports[E](
     nm: PackageName,
     exports: List[ExportedName[E]],
-    typeEnv: TypeEnv,
+    typeEnv: rankn.TypeEnv,
     lets: List[(String, TypedExpr[Declaration])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant]]] = {
 
      val letMap = lets.toMap
@@ -91,8 +89,7 @@ object ExportedName {
            .map(_.getType)
            .orElse {
              // It could be an external or imported value in the TypeEnv
-             def schemeToRankn(scheme: Scheme): rankn.Type = ???
-             typeEnv.values.get(name).map(schemeToRankn)
+             typeEnv.values.get(name)
            }
        val optDT = typeEnv
          .definedTypes

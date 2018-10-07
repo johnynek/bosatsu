@@ -155,8 +155,13 @@ object PackageMap {
     type PackIn = PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])]
     type PackOut = PackageF[NonEmptyList[Referant], Referant, Program[TypedExpr[Declaration], Statement]]
 
+    /**
+     * We memoize this function to avoid recomputing diamond dependencies
+     */
     val infer: PackIn => ValidatedNel[PackageError, PackOut] =
       Memoize.function[PackIn, ValidatedNel[PackageError, PackOut]] {
+        // TODO, we ignore importMap here, we only check earlier we don't
+        // have duplicate imports
         case (p@Package(nm, imports, exports, (stmt, importMap)), recurse) =>
 
           def getImport[A, B](packF: PackOut,

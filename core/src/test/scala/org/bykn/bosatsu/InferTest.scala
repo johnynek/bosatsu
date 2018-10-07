@@ -43,7 +43,7 @@ class InferTest extends FunSuite {
   def parseType(str: String, t: Type) =
     Declaration.parser("").parse(str) match {
       case Parsed.Success(decl, _) =>
-        val expr = decl.toExpr(testPack, ImportMap.empty)
+        val expr = ???//decl.toExpr(testPack, ImportMap.empty)
         Inference.inferExpr(
           TypeEnv.empty(PackageName(NonEmptyList.of("InferTest", "ParseType")), ImportMap.empty), expr) match {
           case Left(f) => fail(s"failed: $f")
@@ -56,11 +56,11 @@ class InferTest extends FunSuite {
   def parseProgram(str: String, t: Type) =
     Statement.parser.parse(str) match {
       case Parsed.Success(exp, _) =>
-        val prog = Program.fromStatement(testPack, ImportMap.empty, exp)
+        val prog: Program[Expr[Declaration], Statement] = ??? //Program.fromStatement(testPack, ImportMap.empty, exp)
         prog.getMainDecl match {
           case None => fail(s"found no main expression")
           case Some(main) =>
-            Inference.inferExpr(prog.types, main) match {
+            Inference.inferExpr(???, main) match {
               case Left(f) => fail(s"failed: $f")
               case Right(s) => assert(s.tag._2.result == t, s"$str => $exp => $main => $s")
             }

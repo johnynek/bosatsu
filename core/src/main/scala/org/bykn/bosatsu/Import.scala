@@ -1,7 +1,8 @@
 package org.bykn.bosatsu
 
-import cats.Functor
+import cats.{Foldable, Functor}
 import cats.data.NonEmptyList
+import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 
@@ -57,7 +58,10 @@ object ImportedName {
   }
 }
 
-case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]])
+case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
+  def mapPackage[A1](fn: A => A1): Import[A1, B] =
+    Import(fn(pack), items)
+}
 
 object Import {
   implicit val document: Document[Import[PackageName, Unit]] =
@@ -72,6 +76,22 @@ object Import {
       ImportedName.parser.nonEmptyListSyntax).map { case (pname, imported) =>
         Import(pname, imported)
       }
+  }
+
+  /**
+   * This only keeps the last name if there are duplicate local names
+   * checking for duplicate local names should be done at another layer
+   */
+  def locals[F[_], A, B, C](imp: Import[A, F[B]])(pn: PartialFunction[B, C])(implicit F: Foldable[F]): Map[String, C] = {
+    val fn = pn.lift
+    imp.items.foldLeft(Map.empty[String, C]) { case (m0, impName) =>
+      impName.tag.foldLeft(m0) { (m1, b) =>
+        fn(b) match {
+          case None => m1
+          case Some(c) => m1.updated(impName.localName, c)
+        }
+      }
+    }
   }
 }
 
