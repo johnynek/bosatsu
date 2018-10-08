@@ -203,7 +203,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       .toList
       .iterator
       .zipWithIndex
-      .collectFirst { case ((ctor, params), idx) if ctor == c => (idx, params.size) }
+      .collectFirst { case ((ctor, params, resType), idx) if ctor == c => (idx, params.size) }
       .get // the ctor must be in the list or we wouldn't typecheck
 
     // TODO: this is a obviously terrible
@@ -226,7 +226,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
               Some(Json.JNull)
             case (1, v :: Nil) =>
               dt.constructors match {
-                case _ :: ((ConstructorName("Some"), (_, t) :: Nil)) :: Nil =>
+                case _ :: ((ConstructorName("Some"), (_, t) :: Nil, _)) :: Nil =>
                   rec(v, t)
                 case other =>
                   sys.error(s"expect to find Some constructor for $v: $other")
@@ -248,7 +248,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         case "List" =>
           // convert the list into a JArray
           val tpe = dt.constructors match {
-            case _ :: ((ConstructorName("NonEmptyList"), (_, t) :: (_, _) :: Nil)) :: Nil => t
+            case _ :: ((ConstructorName("NonEmptyList"), (_, t) :: (_, _) :: Nil, _)) :: Nil => t
             case other => sys.error(s"unexpected constructors for list: $other")
           }
 
@@ -274,7 +274,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       a match {
         case (variant: Int, parts: List[Any]) =>
           val cons = dt.constructors
-          cons.lift(variant).flatMap { case (_, params) =>
+          cons.lift(variant).flatMap { case (_, params, _) =>
             parts.zip(params).traverse { case (a1, (ParamName(pn), t)) =>
               rec(a1, t).map((pn, _))
             }

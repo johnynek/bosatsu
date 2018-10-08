@@ -230,7 +230,24 @@ sealed abstract class TypeDefinitionStatement extends Statement {
         val initVars = existingVars(argsType)
         val initState = ((initVars.toSet, initVars.reverse), 0L)
         val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
-        rankn.DefinedType(pname, TypeName(nm), typeVars.map(_.toVar), (ConstructorName(nm), params) :: Nil)
+        val typeParams = typeVars.map { tv =>
+          tv.toVar match {
+            case b@Type.Var.Bound(_) => b
+            case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+          }
+        }
+        val tname = TypeName(nm)
+        val consValueType =
+          rankn.DefinedType
+            .constructorValueType(
+              pname,
+              tname,
+              typeParams,
+              params.map(_._2))
+        rankn.DefinedType(pname,
+          tname,
+          typeParams,
+          (ConstructorName(nm), params, consValueType) :: Nil)
       case Enum(nm, items, _) =>
         val deep = Functor[List].compose(Functor[(String, ?)]).compose(Functor[Option])
         val conArgs = items.map { case Padding(_, Indented(_, (nm, args))) =>
@@ -238,12 +255,30 @@ sealed abstract class TypeDefinitionStatement extends Statement {
           (nm, argsType)
         }
         val constructorsS = conArgs.traverse { case (nm, argsType) =>
-          buildParams(argsType).map((ConstructorName(nm), _))
+          buildParams(argsType).map { params =>
+            (ConstructorName(nm), params)
+          }
         }
         val initVars = existingVars(conArgs.toList.flatMap(_._2))
         val initState = ((initVars.toSet, initVars.reverse), 0L)
         val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
-        rankn.DefinedType(pname, TypeName(nm), typeVars.map(_.toVar), constructors.toList)
+        val typeParams = typeVars.map { tv =>
+          tv.toVar match {
+            case b@Type.Var.Bound(_) => b
+            case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+          }
+        }
+        val tname = TypeName(nm)
+        val finalCons = constructors.toList.map { case (c, params) =>
+          val consValueType =
+            rankn.DefinedType.constructorValueType(
+              pname,
+              tname,
+              typeParams,
+              params.map(_._2))
+          (c, params, consValueType)
+        }
+        rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
       case ExternalStruct(nm, targs, _) =>
         rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => Type.Var.Bound(v) }, Nil)
     }

@@ -129,7 +129,7 @@ trait CodeGen {
     }
 
     val constructors: Output[Unit] =
-      definedTypes.flatMap(_.constructors.zipWithIndex).traverse_ { case ((cn, args), idx) =>
+      definedTypes.flatMap(_.constructors.zipWithIndex).traverse_ { case ((cn, args, ct), idx) =>
         mkConstructor(idx, cn, ???).flatMap(tell)
       }
     /**

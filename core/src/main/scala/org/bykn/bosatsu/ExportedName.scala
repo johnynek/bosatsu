@@ -31,8 +31,8 @@ sealed abstract class ExportedName[+T] {
        case ExportedName.Constructor(nm, _) =>
          // export the type and all constructors
          definedType.map { dt =>
-           val cons = dt.constructors.map { case (n, _) =>
-             ExportedName.Constructor(n.asString, Referant.Constructor(n, dt))
+           val cons = dt.constructors.map { case (n, _, tpe) =>
+             ExportedName.Constructor(n.asString, Referant.Constructor(n, dt, tpe))
            }
            val t = ExportedName.TypeName(nm, Referant.DefinedT(dt))
            NonEmptyList(t, cons)
@@ -89,7 +89,7 @@ object ExportedName {
            .map(_.getType)
            .orElse {
              // It could be an external or imported value in the TypeEnv
-             typeEnv.values.get(name)
+             typeEnv.values.get((nm, name))
            }
        val optDT = typeEnv
          .definedTypes

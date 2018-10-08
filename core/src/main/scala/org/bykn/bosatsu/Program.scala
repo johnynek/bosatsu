@@ -80,7 +80,7 @@ object Program {
         case d@ExternalDef(name, _, _, Padding(_, rest)) =>
           val tpe = d.toType(nameToType)
            val p = loop(rest)
-           p.copy(types = p.types.addExternalValue(name, tpe), from = d)
+           p.copy(types = p.types.addExternalValue(pn0, name, tpe), from = d)
         case x@ExternalStruct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = defToT(p.types, x), from = x)

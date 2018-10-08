@@ -11,19 +11,31 @@ sealed abstract class Referant
 object Referant {
   case class Value(scheme: rankn.Type) extends Referant
   case class DefinedT(dtype: rankn.DefinedType) extends Referant
-  case class Constructor(name: ConstructorName, dtype: rankn.DefinedType) extends Referant
+  case class Constructor(name: ConstructorName, dtype: rankn.DefinedType, consValue: rankn.Type) extends Referant
 
-  def importedTypes[A](imps: List[Import[A, NonEmptyList[Referant]]]): Map[String, (PackageName, String)] =
-    imps.foldLeft(Map.empty[String, (PackageName, String)]) { (m0, imp) =>
-      m0 ++ Import.locals(imp) {
-        case Referant.DefinedT(dt) => (dt.packageName, dt.name.asString)
-      }
+  private def imported[A, B](imps: List[Import[A, NonEmptyList[Referant]]])(fn: PartialFunction[Referant, B]): Map[String, B] =
+    imps.foldLeft(Map.empty[String, B]) { (m0, imp) =>
+      m0 ++ Import.locals(imp)(fn)
     }
 
+  def importedTypes[A](imps: List[Import[A, NonEmptyList[Referant]]]): Map[String, (PackageName, String)] =
+    imported(imps) {
+      case Referant.DefinedT(dt) => (dt.packageName, dt.name.asString)
+    }
+
+  /**
+   * These are all the imported items that may be used in a match
+   */
   def importedCons[A](imps: List[Import[A, NonEmptyList[Referant]]]): Map[String, (PackageName, ConstructorName)] =
-    imps.foldLeft(Map.empty[String, (PackageName, ConstructorName)]) { (m0, imp) =>
-      m0 ++ Import.locals(imp) {
-        case Referant.Constructor(cn, dt) => (dt.packageName, cn)
-      }
+    imported(imps) {
+      case Referant.Constructor(cn, dt, _) => (dt.packageName, cn)
+    }
+  /**
+   * There are all the imported values, including the constructor functions
+   */
+  def importedValues[A](imps: List[Import[A, NonEmptyList[Referant]]]): Map[String, rankn.Type] =
+    imported(imps) {
+      case Referant.Value(t) => t
+      case Referant.Constructor(cn, _, t) => t
     }
 }

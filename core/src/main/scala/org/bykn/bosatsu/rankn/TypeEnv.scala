@@ -3,28 +3,36 @@ package org.bykn.bosatsu.rankn
 import org.bykn.bosatsu.{ConstructorName, TypeName, PackageName, ParamName}
 
 case class TypeEnv(
-  values: Map[String, Type],
+  values: Map[(PackageName, String), Type],
   constructors: Map[(PackageName, ConstructorName), (List[(ParamName, Type)], DefinedType)],
   definedTypes: Map[(PackageName, TypeName), DefinedType]) {
 
+
+  def localValuesOf(p: PackageName): Map[String, Type] =
+    values.iterator.collect { case ((pn, n), v) if pn == p => (n, v) }.toMap
 
   def addDefinedType(dt: DefinedType): TypeEnv = {
     val dt1 = definedTypes.updated((dt.packageName, dt.name), dt)
     val cons1 =
       dt.constructors
         .foldLeft(constructors) {
-          case (cons0, (cname, params)) =>
+          case (cons0, (cname, params, _)) =>
             cons0.updated((dt.packageName, cname), (params, dt))
         }
-    copy(constructors = cons1, definedTypes = dt1)
+    // here we have to actually add the constructor values:
+    val v1 = dt.constructors.foldLeft(values) { case (v0, (cn, _, tpe)) =>
+      v0.updated((dt.packageName, cn.asString), tpe)
+    }
+
+    copy(constructors = cons1, definedTypes = dt1, values = v1)
   }
 
   /**
    * External values cannot be inferred and have to be fully
    * annotated
    */
-  def addExternalValue(name: String, t: Type): TypeEnv =
-    copy(values = values.updated(name, t))
+  def addExternalValue(pack: PackageName, name: String, t: Type): TypeEnv =
+    copy(values = values.updated((pack, name), t))
 
   // TODO to support parameter named patterns we'd need to know the
   // parameter names

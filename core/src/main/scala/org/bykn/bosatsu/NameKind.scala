@@ -16,9 +16,9 @@ object NameKind {
       case Statement.ExternalDef(n, _, _, _) =>
         // The type could be an import, so we need to check for the type
         // in the TypeEnv
-        val scheme = prog.types.values(n)
         val pn = from.unfix.name
-        ExternalDef(pn, n, scheme)
+        val tpe = prog.types.values((pn, n))
+        ExternalDef(pn, n, tpe)
     }
   }
 
@@ -49,8 +49,8 @@ object NameKind {
         case Statement.ExternalDef(n, _, _, _) if n == item =>
           // The type could be an import, so we need to check for the type
           // in the TypeEnv
-          val scheme = prog.types.values(n)
           val pn = from.unfix.name
+          val scheme = prog.types.values((pn, n))
           ExternalDef(pn, item, scheme)
       }
 

@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import org.scalatest.FunSuite
-import org.bykn.bosatsu.{Expr, Lit, PackageName, Pattern, TypeRef, ConstructorName}
+import org.bykn.bosatsu.{Expr, Lit, PackageName, Package, Pattern, TypeRef, ConstructorName, Statement}
 
 import fastparse.all.Parsed
 
@@ -15,7 +15,12 @@ class RankNInferTest extends FunSuite {
   def typeFrom(str: String): Type =
     TypeRef.parser.parse(str) match {
       case Parsed.Success(typeRef, _) =>
-        typeRef.toNType(s => Type.Const.Defined(PackageName.parts("Test"), s))
+        typeRef.toNType {
+          case "Integer" => Type.Const.predef("Integer")
+          case "String" => Type.Const.predef("String")
+          case s =>
+            Type.Const.Defined(PackageName.parts("Test"), s)
+        }
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
     }
@@ -78,6 +83,22 @@ class RankNInferTest extends FunSuite {
         (p1, e)
       },
       ())
+
+  /**
+   * Check that a no import program has a given type
+   */
+  def parseProgram(statement: String, tpe: String) =
+    Statement.parser.parse(statement) match {
+      case Parsed.Success(stmt, _) =>
+        Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
+          case Left(err) => fail(err.message)
+          case Right((tpeEnv, lets)) =>
+            val parsedType = typeFrom(tpe)
+            assert(lets.last._2.getType == parsedType)
+        }
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
+    }
 
   test("assert some basic unifications") {
     assertTypesUnify("forall a. a", "forall b. b")
@@ -297,4 +318,55 @@ class RankNInferTest extends FunSuite {
     assert(Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
       ("a" #:: Stream.iterate(0)(_ + 1).map { i => s"a$i" }).take(100))
   }
+
+  test("test inference with some defined types") {
+    parseProgram("""#
+struct Unit
+
+main = Unit
+""", "Unit")
+
+    parseProgram("""#
+enum Option:
+  None
+  Some(a)
+
+main = Some(1)
+""", "Option[Integer]")
+
+    parseProgram("""#
+enum Option:
+  None
+  Some(a)
+
+main = Some
+""", "forall a. a -> Option[a]")
+
+   parseProgram("""#
+enum Option:
+  None
+  Some(a)
+
+x = Some(1)
+main = match x:
+  None:
+    0
+  Some(y):
+    y
+""", "Integer")
+  }
+  // TODO this does not unify with rankn types
+   // parseProgram("""#
+// enum List:
+  // Empty
+  // NonEmpty(a: a, tail: List[a])
+
+// x = NonEmpty(1, Empty)
+// main = match x:
+  // Empty:
+   //  0
+  // NonEmpty(y, z):
+   //  y
+// """, "Integer")
+  // }
 }

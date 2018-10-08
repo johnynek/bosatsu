@@ -124,7 +124,8 @@ object Package {
     * that have been imported, this includes local external
     * defs
     */
-    val importedValues: Map[String, rankn.Type] = typeEnv.values
+    val importedValues: Map[String, rankn.Type] =
+      Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
 
     val ilets = Infer.typeCheckLets(lets)
       ilets.runFully(importedValues, typeEnv.typeConstructors)
