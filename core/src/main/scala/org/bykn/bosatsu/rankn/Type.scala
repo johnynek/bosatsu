@@ -54,9 +54,13 @@ object Type {
     ts.foldLeft(List.empty[Type.Var]) { (acc, t) =>
       go(t :: Nil, Set.empty, acc)
     }
-    .reverse
+    // reverse and distinct in one go
+    .foldLeft((Set.empty[Type.Var], List.empty[Type.Var])) {
+      case (res@(vset, vs), v) if vset(v) => res
+      case ((vset, vs), v) => (vset + v, v :: vs)
+    }
+    ._2
   }
-
 
   /**
    * These are upper-case to leverage scala's pattern
@@ -122,4 +126,23 @@ object Type {
       }
     go(s, Set.empty)
   }
+
+  /**
+   * Report bound variables which are used in quantify. When we
+   * infer a sigma type
+   */
+  def tyVarBinders(tpes: List[Type]): Set[Type.Var] = {
+    @annotation.tailrec
+    def loop(tpes: List[Type], acc: Set[Type.Var]): Set[Type.Var] =
+      tpes match {
+        case Nil => acc
+        case Type.ForAll(tvs, body) :: rest =>
+          loop(rest, acc ++ tvs.toList)
+        case Type.TyApply(arg, res) :: rest =>
+          loop(arg :: res :: rest, acc)
+        case _ :: rest => loop(rest, acc)
+      }
+    loop(tpes, Set.empty)
+  }
+
 }

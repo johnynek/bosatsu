@@ -314,11 +314,6 @@ class RankNInferTest extends FunSuite {
       app(v("Pure"), v("Some")), Type.TyApply(Type.TyConst(pureName), optType))
   }
 
-  test("test all binders") {
-    assert(Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
-      ("a" #:: Stream.iterate(0)(_ + 1).map { i => s"a$i" }).take(100))
-  }
-
   test("test inference with some defined types") {
     parseProgram("""#
 struct Unit
@@ -354,19 +349,20 @@ main = match x:
   Some(y):
     y
 """, "Integer")
-  }
-  // TODO this does not unify with rankn types
-   // parseProgram("""#
-// enum List:
-  // Empty
-  // NonEmpty(a: a, tail: List[a])
 
-// x = NonEmpty(1, Empty)
-// main = match x:
-  // Empty:
-   //  0
-  // NonEmpty(y, z):
-   //  y
-// """, "Integer")
-  // }
+  // TODO this does not unify with rankn types
+   parseProgram("""#
+enum List:
+  Empty
+  NonEmpty(a: a, tail: List[a])
+
+x = NonEmpty(1, Empty)
+#x = Empty
+main = match x:
+  Empty:
+    0
+  NonEmpty(y, z):
+    y
+""", "Integer")
+  }
 }

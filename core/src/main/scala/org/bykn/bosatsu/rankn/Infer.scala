@@ -228,21 +228,6 @@ object Infer {
       tpes.traverse(zonkType).map(Type.metaTvs(_))
 
     /**
-     * Report bound variables which are used in quantify. When we
-     * infer a sigmal type
-     */
-    @annotation.tailrec
-    def tyVarBinders(tpes: List[Type], acc: Set[Type.Var]): Set[Type.Var] =
-      tpes match {
-        case Nil => acc
-        case Type.ForAll(tvs, body) :: rest =>
-          tyVarBinders(rest, acc ++ tvs.toList)
-        case Type.TyApply(arg, res) :: rest =>
-          tyVarBinders(arg :: res :: rest, acc)
-        case _ :: rest => tyVarBinders(rest, acc)
-      }
-
-    /**
      * Quantify over the specified type variables (all flexible)
      */
     def quantify[A](forAlls: List[Type.Meta], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
@@ -251,7 +236,7 @@ object Infer {
           // this case is not really discussed in the paper
           zonkTypedExpr(rho)
         case ne@(h :: tail) =>
-          val used = tyVarBinders(List(rho.getType), Set.empty)
+          val used = Type.tyVarBinders(List(rho.getType))
           // on 2.11 without the iterator this seems to run forever
           // must be a "def" because we call it twice
           def newBinders = Type.allBinders.iterator.filterNot(used)

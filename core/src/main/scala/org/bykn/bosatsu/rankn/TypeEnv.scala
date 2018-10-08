@@ -7,7 +7,6 @@ case class TypeEnv(
   constructors: Map[(PackageName, ConstructorName), (List[(ParamName, Type)], DefinedType)],
   definedTypes: Map[(PackageName, TypeName), DefinedType]) {
 
-
   def localValuesOf(p: PackageName): Map[String, Type] =
     values.iterator.collect { case ((pn, n), v) if pn == p => (n, v) }.toMap
 

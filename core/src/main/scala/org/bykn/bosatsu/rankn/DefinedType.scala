@@ -8,6 +8,9 @@ case class DefinedType(
   name: TypeName,
   typeParams: List[Type.Var.Bound],
   constructors: List[(ConstructorName, List[(ParamName, Type)], Type)]) {
+
+  require(typeParams.distinct == typeParams, typeParams.toString)
+
   /**
    * This is not the full type, since the full type
    * has a ForAll(typeParams, ... in front if the
