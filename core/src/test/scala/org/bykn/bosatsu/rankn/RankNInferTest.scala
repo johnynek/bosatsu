@@ -364,5 +364,25 @@ main = match x:
   NonEmpty(y, z):
     y
 """, "Integer")
+
+   parseProgram("""#
+enum Opt:
+  None
+  Some(a)
+
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+
+def optPure(a):
+  Some(a)
+
+def optBind(opt, bindFn):
+  match opt:
+    None:
+      None
+    Some(a):
+      bindFn(a)
+
+main = Monad(optPure, optBind)
+""", "Monad[Opt]")
   }
 }
