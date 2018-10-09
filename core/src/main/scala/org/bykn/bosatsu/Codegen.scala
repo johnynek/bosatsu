@@ -70,15 +70,13 @@ trait CodeGen {
               }).map(_ => None)
             }
 
-          val fn = ???
-          // imp.tag match {
-          //   case Referant.Value(_) => { s: String => Some(toExportedName(s)) }
-          //   case Referant.DefinedT(_) => { s: String => None }
-          //   case Referant.Constructor(_, _) => { s: String => Some(toConstructorName(s)) }
-          // }
-
-          go(fn)
+            Traverse[NonEmptyList].traverse(imp.tag) {
+              case Referant.Value(_) => go { s => Some(toExportedName(s)) }
+              case Referant.DefinedT(_) => go { _ => None }
+              case Referant.Constructor(_, _, _, _) => go { s=> Some(toConstructorName(s)) }
+            }
         }
+        .map(_.flatten)
       }
 
     def flatten[A](fn: List[NonEmptyList[Option[A]]]): List[A] =
@@ -205,7 +203,7 @@ trait CodeGen {
    */
   def apply[T](e: TypedExpr[T], topLevel: Boolean, pack: Package.Inferred): Output[Doc] =
     e match {
-      case Generic(_, _, _) => ???
+      case Generic(_, e, _) => apply(e, topLevel, pack)
       case Annotation(expr, _, _) =>
         // TODO we might want to use the type info
         apply(expr, topLevel, pack)
