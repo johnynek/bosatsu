@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.evidence.Is
+import cats.data.NonEmptyList
 
 case class Program[D, S](types: rankn.TypeEnv, lets: List[(String, D)], from: S) {
   private[this] lazy val letMap: Map[String, D] = lets.toMap
@@ -77,10 +78,28 @@ object Program {
         case e@Enum(_, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = defToT(p.types, e), from = e)
-        case d@ExternalDef(name, _, _, Padding(_, rest)) =>
-          val tpe = d.toType(nameToType)
-           val p = loop(rest)
-           p.copy(types = p.types.addExternalValue(pn0, name, tpe), from = d)
+        case ExternalDef(name, params, result, Padding(_, rest)) =>
+          val tpe: rankn.Type = {
+            def buildType(ts: List[rankn.Type]): rankn.Type =
+              ts match {
+                case Nil => result.toNType(nameToType)
+                case h :: tail => rankn.Type.Fun(h, buildType(tail))
+              }
+            buildType(params.map(_._2.toNType(nameToType)))
+          }
+          val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
+          // these vars were parsed so they are never skolem vars
+          val freeBound = freeVars.map {
+            case b@rankn.Type.Var.Bound(_) => b
+            case s@rankn.Type.Var.Skolem(_, _) => sys.error(s"invariant violation: parsed a skolem var: $s")
+          }
+          val maybeForAll = freeBound match {
+            case Nil => tpe
+            case h :: tail =>
+              rankn.Type.ForAll(NonEmptyList(h, tail), tpe)
+          }
+          val p = loop(rest)
+          p.copy(types = p.types.addExternalValue(pn0, name, maybeForAll), from = s)
         case x@ExternalStruct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = defToT(p.types, x), from = x)

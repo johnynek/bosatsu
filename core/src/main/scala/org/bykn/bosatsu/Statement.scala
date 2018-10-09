@@ -290,18 +290,7 @@ object Statement {
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
   case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
-  case class ExternalDef(name: String, params: List[(String, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends Statement {
-
-    def toType(nameToType: String => rankn.Type.Const): rankn.Type = {
-      def buildType(ts: List[rankn.Type]): rankn.Type =
-        ts match {
-          case Nil => result.toNType(nameToType)
-          case h :: tail => rankn.Type.Fun(h, buildType(tail))
-        }
-      buildType(params.map(_._2.toNType(nameToType)))
-    }
-
-  }
+  case class ExternalDef(name: String, params: List[(String, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends Statement
   case class ExternalStruct(name: String, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class Enum(name: String,
     items: NonEmptyList[Padding[Indented[(String, List[(String, Option[TypeRef])])]]],
