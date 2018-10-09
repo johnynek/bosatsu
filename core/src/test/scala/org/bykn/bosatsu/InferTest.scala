@@ -69,14 +69,15 @@ class InferTest extends FunSuite {
         fail(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
     }
 
-  test("type check some expressions") {
-    parseType("""(\x -> x)(2)""", Type.intT)
-    parseType(
-"""x = 1
-y = x
-y""", Type.intT)
+  // moved to rankn tests
+  // test("type check some expressions") {
+  //   parseType("""(\x -> x)(2)""", Type.intT)
+  //   parseType(
+// """x = 1
+// y = x
+// y""", Type.intT)
 
-  }
+  // }
 
   test("assert some basic unifications") {
     assertTypesUnify("a", "b")
@@ -95,54 +96,55 @@ y""", Type.intT)
     assertTypesDisjoint("forall a. Int", "Int") // the type on the left has * -> * but the right is *
   }
 
-  test("test inference with some defined types") {
-    parseProgram("""#
-struct Unit
+  // this was moved to rankn infer tests
+  // test("test inference with some defined types") {
+  //   parseProgram("""#
+// struct Unit
 
-main = Unit
-""", Type.Declared(testPack, "Unit"))
+// main = Unit
+// """, Type.Declared(testPack, "Unit"))
 
-    parseProgram("""#
-enum Option:
-  None
-  Some(a)
+  //   parseProgram("""#
+// enum Option:
+  // None
+  // Some(a)
 
-main = Some(1)
-""", Type.TypeApply(Type.Declared(testPack, "Option"), Type.intT))
+// main = Some(1)
+// """, Type.TypeApply(Type.Declared(testPack, "Option"), Type.intT))
 
-    parseProgram("""#
-enum Option:
-  None
-  Some(a)
+  //   parseProgram("""#
+// enum Option:
+  // None
+  // Some(a)
 
-main = Some
-""", Type.Arrow(Type.Var("a"), Type.TypeApply(Type.Declared(testPack, "Option"), Type.Var("a"))))
+// main = Some
+// """, Type.Arrow(Type.Var("a"), Type.TypeApply(Type.Declared(testPack, "Option"), Type.Var("a"))))
 
-   parseProgram("""#
-enum Option:
-  None
-  Some(a)
+  //  parseProgram("""#
+// enum Option:
+  // None
+  // Some(a)
 
-x = Some(1)
-main = match x:
-  None:
-    0
-  Some(y):
-    y
-""", Type.intT)
+// x = Some(1)
+// main = match x:
+  // None:
+  //   0
+  // Some(y):
+  //   y
+// """, Type.intT)
 
-   parseProgram("""#
-enum List:
-  Empty
-  NonEmpty(a: a, tail: List[a])
+  //  parseProgram("""#
+// enum List:
+  // Empty
+  // NonEmpty(a: a, tail: List[a])
 
-x = NonEmpty(1, Empty)
-main = match x:
-  Empty:
-    0
-  NonEmpty(y, z):
-    y
-""", Type.intT)
+// x = NonEmpty(1, Empty)
+// main = match x:
+  // Empty:
+  //   0
+  // NonEmpty(y, z):
+  //   y
+// """, Type.intT)
 
    // parseProgram("""#
 // enum Opt:
@@ -163,7 +165,7 @@ main = match x:
 
 // main = Monad(optPure, optBind)
 // """, Type.intT)
-}
+//}
 
   // def evalTest(str: String, v: Any) =
   //   Parser.expr.parse(str) match {

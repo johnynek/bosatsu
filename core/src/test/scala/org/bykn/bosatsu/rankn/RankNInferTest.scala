@@ -12,15 +12,18 @@ import Type.ForAll
 
 class RankNInferTest extends FunSuite {
 
+  private def strToConst(str: String): Type.Const =
+    str match {
+      case "Int" => Type.Const.predef("Int")
+      case "String" => Type.Const.predef("String")
+      case s =>
+        Type.Const.Defined(PackageName.parts("Test"), s)
+    }
+
   def typeFrom(str: String): Type =
     TypeRef.parser.parse(str) match {
       case Parsed.Success(typeRef, _) =>
-        typeRef.toNType {
-          case "Int" => Type.Const.predef("Int")
-          case "String" => Type.Const.predef("String")
-          case s =>
-            Type.Const.Defined(PackageName.parts("Test"), s)
-        }
+        typeRef.toNType(strToConst _)
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
     }
@@ -64,6 +67,7 @@ class RankNInferTest extends FunSuite {
             assert(te.getType == expt, s"$n = $exp failed to typecheck to $expt, got ${te.getType}")
           }
       }
+
 
   def lit(i: Int): Expr[Unit] = Literal(Lit(i), ())
   def lit(b: Boolean): Expr[Unit] = if (b) Var("True", ()) else Var("False", ())
@@ -312,6 +316,18 @@ class RankNInferTest extends FunSuite {
 
     testWithTypes(
       app(v("Pure"), v("Some")), Type.TyApply(Type.TyConst(pureName), optType))
+  }
+
+  test("test inference of basic expressions") {
+    parseProgram("""#
+main = (\x -> x)(1)
+""", "Int")
+
+    parseProgram("""#
+x = 1
+y = x
+main = y
+""", "Int")
   }
 
   test("test inference with some defined types") {
