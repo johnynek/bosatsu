@@ -21,6 +21,17 @@ object Type {
   case class TyMeta(toMeta: Meta) extends Type
   case class TyApply(on: Type, arg: Type) extends Type
 
+  @annotation.tailrec
+  final def forAll(vars: List[Var.Bound], in: Type): Type =
+    vars match {
+      case Nil => in
+      case ne@(h :: tail) =>
+        in match {
+          case Type.ForAll(nes, tt) => forAll(ne ::: nes.toList, tt)
+          case notForAll => Type.ForAll(NonEmptyList(h, tail), notForAll)
+        }
+    }
+
   implicit val typeEq: Eq[Type] =
     new Eq[Type] {
       def eqv(left: Type, right: Type): Boolean =
@@ -152,9 +163,9 @@ object Type {
    * Report bound variables which are used in quantify. When we
    * infer a sigma type
    */
-  def tyVarBinders(tpes: List[Type]): Set[Type.Var] = {
+  def tyVarBinders(tpes: List[Type]): Set[Type.Var.Bound] = {
     @annotation.tailrec
-    def loop(tpes: List[Type], acc: Set[Type.Var]): Set[Type.Var] =
+    def loop(tpes: List[Type], acc: Set[Type.Var.Bound]): Set[Type.Var.Bound] =
       tpes match {
         case Nil => acc
         case Type.ForAll(tvs, body) :: rest =>

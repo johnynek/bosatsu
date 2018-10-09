@@ -15,7 +15,7 @@ sealed abstract class ExportedName[+T] {
   * Given name, in the current type environment and fully typed lets
   * what does it correspond to?
   */
-  def toReferants(
+  private def toReferants(
     letValue: Option[rankn.Type],
     definedType: Option[rankn.DefinedType]): Option[NonEmptyList[ExportedName[Referant]]] =
      this match {

@@ -93,11 +93,7 @@ object Program {
             case b@rankn.Type.Var.Bound(_) => b
             case s@rankn.Type.Var.Skolem(_, _) => sys.error(s"invariant violation: parsed a skolem var: $s")
           }
-          val maybeForAll = freeBound match {
-            case Nil => tpe
-            case h :: tail =>
-              rankn.Type.ForAll(NonEmptyList(h, tail), tpe)
-          }
+          val maybeForAll = rankn.Type.forAll(freeBound, tpe)
           val p = loop(rest)
           p.copy(types = p.types.addExternalValue(pn0, name, maybeForAll), from = s)
         case x@ExternalStruct(_, _, Padding(_, rest)) =>

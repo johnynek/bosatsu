@@ -44,9 +44,6 @@ object DefinedType {
        }
 
     val resT = loop(fnParams)
-    tparams match {
-      case Nil => resT
-      case b :: tail => Type.ForAll(NonEmptyList(b, tail), resT)
-    }
+    Type.forAll(tparams, resT)
   }
 }

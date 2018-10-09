@@ -236,7 +236,7 @@ object Infer {
           // this case is not really discussed in the paper
           zonkTypedExpr(rho)
         case ne@(h :: tail) =>
-          val used = Type.tyVarBinders(List(rho.getType))
+          val used: Set[Type.Var.Bound] = Type.tyVarBinders(List(rho.getType))
           // on 2.11 without the iterator this seems to run forever
           // must be a "def" because we call it twice
           def newBinders = Type.allBinders.iterator.filterNot(used)

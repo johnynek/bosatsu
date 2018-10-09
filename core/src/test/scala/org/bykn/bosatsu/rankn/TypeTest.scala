@@ -25,16 +25,6 @@ object NTypeGen {
       case other => other :: Nil
     }
 
-  def forAllType(bs: List[Type.Var.Bound], t: Type): Type =
-    bs match {
-      case Nil => t
-      case h :: tail =>
-        t match {
-          case Type.ForAll(nes, tt) => Type.ForAll(NonEmptyList(h, tail) ++ (nes.toList), tt)
-          case notForAll => Type.ForAll(NonEmptyList(h, tail), notForAll)
-        }
-    }
-
   def genDepth(d: Int): Gen[Type] =
     if (d <= 0) genRootType
     else {
@@ -45,7 +35,7 @@ object NTypeGen {
           c <- Gen.choose(1, 5)
           as <- Gen.listOfN(c, args)
           in <- recurse
-        } yield forAllType(as, in)
+        } yield Type.forAll(as, in)
 
       val genApply = Gen.zip(recurse, recurse).map { case (a, b) => Type.TyApply(a, b) }
 
@@ -74,7 +64,7 @@ class TypeTest extends FunSuite {
     forAll(Gen.listOf(Generators.lowerIdent), NTypeGen.genDepth03) { (vs, t) =>
       val vsD = vs.distinct
       val bs = vsD.map(Type.Var.Bound(_))
-      val fa = NTypeGen.forAllType(bs, t)
+      val fa = Type.forAll(bs, t)
       val binders = Type.tyVarBinders(List(fa))
       assert(bs.toSet.subsetOf(binders))
     }

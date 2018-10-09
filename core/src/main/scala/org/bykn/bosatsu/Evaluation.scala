@@ -74,16 +74,12 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], NType)): Eval[Any] =
 
     Eval.defer {
-      val dtConst@rankn.Type.TyConst(rankn.Type.Const.Defined(pn0, _)) =
+      val dtConst@rankn.Type.TyConst(rankn.Type.Const.Defined(pn0, tn)) =
         rankn.Type.rootConst(tpe).get // this is safe because it has type checked
 
       val packageForType = pm.toMap(pn0)
-      // TODO this can be memoized once per package
-      val dt = packageForType.program.types.definedTypes
-        .collectFirst {
-          case (_, dtValue) if Eq[rankn.Type].eqv(dtValue.toTypeTyConst, dtConst) =>
-            dtValue
-        }.getOrElse(sys.error(s"$tpe -> $dtConst")) // one must match
+      // this is calling apply on a map, but is safe because of type-checking
+      val dt = packageForType.program.types.definedTypes((pn0, TypeName(tn)))
 
       def bindEnv(arg: Any,
         branches: List[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[Declaration])],

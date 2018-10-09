@@ -73,7 +73,7 @@ trait CodeGen {
             Traverse[NonEmptyList].traverse(imp.tag) {
               case Referant.Value(_) => go { s => Some(toExportedName(s)) }
               case Referant.DefinedT(_) => go { _ => None }
-              case Referant.Constructor(_, _, _, _) => go { s=> Some(toConstructorName(s)) }
+              case Referant.Constructor(_, _, _, _) => go { s => Some(toConstructorName(s)) }
             }
         }
         .map(_.flatten)
@@ -260,13 +260,6 @@ trait CodeGen {
 
   def quote(str: String): Doc =
     Doc.char('"') + Doc.text(str) + Doc.char('"')
-
-  // case class Var[T](name: String, tag: T) extends TypedExpr[T]
-  // case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], tag: T) extends TypedExpr[T]
-  // case class Lambda[T](arg: String, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
-  // case class Let[T](arg: String, expr: TypedExpr[T], in: TypedExpr[T], tag: T) extends TypedExpr[T]
-  // case class Literal[T](lit: Lit, tag: T) extends TypedExpr[T]
-  // case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], TypedExpr[T])], tag: T) extends TypedExpr[T]
 }
 
 object CodeGen {

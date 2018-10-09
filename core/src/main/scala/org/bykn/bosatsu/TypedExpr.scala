@@ -19,7 +19,7 @@ sealed abstract class TypedExpr[T] {
   def getType: rankn.Type =
     this match {
       case Generic(params, expr, _) =>
-        rankn.Type.ForAll(params, expr.getType)
+        rankn.Type.forAll(params.toList, expr.getType)
       case Annotation(_, tpe, _) =>
         tpe
       case a@AnnotatedLambda(arg, tpe, res, _) =>
