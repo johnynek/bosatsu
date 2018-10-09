@@ -93,19 +93,11 @@ object Package {
     stmt: Statement):
       Either[Infer.Error, (rankn.TypeEnv, List[(String, TypedExpr[Declaration])])] = {
 
-    /**
-     * we have already checked we don't have duplicate imports,
-     * so here, we just take the last imported value, which
-     * should be unique
-     */
-    val (_, importMap) = ImportMap.fromImports(
-      imps.map(_.mapPackage(_.unfix.name))
-    )
     val importedTypes: Map[String, (PackageName, String)] =
       Referant.importedTypes(imps)
 
-    val importedCons: Map[String, (PackageName, ConstructorName)] =
-      Referant.importedCons(imps)
+    val resolveImportedCons: Map[String, (PackageName, ConstructorName)] =
+      Referant.importedConsNames(imps)
 
     val Program(typeEnv, lets, _) =
       Program.fromStatement(
@@ -116,7 +108,7 @@ object Package {
           val (p1, s1) = importedTypes.getOrElse(s, (p, s))
           rankn.Type.Const.Defined(p1, s1)
         }, // name to type
-        { s => importedCons.getOrElse(s, (p, ConstructorName(s))) }, // name to cons
+        { s => resolveImportedCons.getOrElse(s, (p, ConstructorName(s))) }, // name to cons
         stmt)
 
     /**
@@ -127,11 +119,11 @@ object Package {
     val importedValues: Map[String, rankn.Type] =
       Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
 
-    val ilets = Infer.typeCheckLets(lets)
-      ilets.runFully(importedValues, typeEnv.typeConstructors)
-        .map { lets =>
-          (typeEnv, lets)
-        }
-    }
+    Infer.typeCheckLets(lets)
+      .runFully(importedValues,
+        Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
+      )
+      .map { lets => (typeEnv, lets) }
+  }
 }
 

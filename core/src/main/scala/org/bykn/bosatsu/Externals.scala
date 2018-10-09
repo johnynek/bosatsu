@@ -4,7 +4,7 @@ import cats.Eval
 import fastparse.all._
 
 sealed abstract class FfiCall {
-  def call(t: Type): Eval[Any] = {
+  def call(t: rankn.Type): Eval[Any] = {
     def breakDots(m: String): List[String] =
       m.split("\\.", -1).toList
 
@@ -31,9 +31,9 @@ sealed abstract class FfiCall {
       val m = cls.getMethod(parts.last, args.init :_*)
       val inst = instFn(cls)
 
-      def invoke(tpe: Type, args: List[AnyRef]): Any =
+      def invoke(tpe: rankn.Type, args: List[AnyRef]): Any =
         tpe match {
-          case Type.Arrow(_, tail) =>
+          case rankn.Type.Fun(_, tail) =>
             new Fn[Any, Any] {
               def apply(x: Any) = invoke(tail, (x.asInstanceOf[AnyRef]) :: args)
             }
@@ -58,12 +58,12 @@ object FfiCall {
     (lang ~ rest).map { case (l, m) => l(m) }
   }
 
-  def getJavaType(t: Type): List[Class[_]] = {
-    def loop(t: Type, top: Boolean): List[Class[_]] = {
+  def getJavaType(t: rankn.Type): List[Class[_]] = {
+    def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
       t match {
-        case t if t == Type.intT => classOf[java.lang.Integer] :: Nil
-        case t if t == Type.boolT => classOf[java.lang.Boolean] :: Nil
-        case Type.Arrow(a, b) if top =>
+        case t if t == rankn.Type.IntType => classOf[java.lang.Integer] :: Nil
+        case t if t == rankn.Type.BoolType => classOf[java.lang.Boolean] :: Nil
+        case rankn.Type.Fun(a, b) if top =>
           loop(a, false) match {
             case at :: Nil => at :: loop(b, top)
             case function => sys.error(s"unsupported function type $function in $t")

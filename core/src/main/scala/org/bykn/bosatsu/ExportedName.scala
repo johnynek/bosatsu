@@ -31,8 +31,8 @@ sealed abstract class ExportedName[+T] {
        case ExportedName.Constructor(nm, _) =>
          // export the type and all constructors
          definedType.map { dt =>
-           val cons = dt.constructors.map { case (n, _, tpe) =>
-             ExportedName.Constructor(n.asString, Referant.Constructor(n, dt, tpe))
+           val cons = dt.constructors.map { case (n, params, tpe) =>
+             ExportedName.Constructor(n.asString, Referant.Constructor(n, dt, params, tpe))
            }
            val t = ExportedName.TypeName(nm, Referant.DefinedT(dt))
            NonEmptyList(t, cons)

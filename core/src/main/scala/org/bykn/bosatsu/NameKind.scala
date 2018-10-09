@@ -6,7 +6,8 @@ object NameKind {
   case class Constructor(
     cn: ConstructorName,
     params: List[(ParamName, rankn.Type)],
-    defined: rankn.DefinedType) extends NameKind
+    defined: rankn.DefinedType,
+    valueType: rankn.Type) extends NameKind
   case class Import(fromPack: Package.Inferred, originalName: String) extends NameKind
   case class ExternalDef(pack: PackageName, defName: String, defType: rankn.Type) extends NameKind
 
@@ -33,8 +34,8 @@ object NameKind {
       prog.types
         .constructors
         .get((from.unfix.name, cn))
-        .map { case (params, dt) =>
-          Constructor(cn, params, dt)
+        .map { case (params, dt, tpe) =>
+          Constructor(cn, params, dt, tpe)
         }
     }
 

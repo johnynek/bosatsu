@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
+import cats.Eq
 import org.bykn.bosatsu.PackageName
 
 sealed abstract class Type
@@ -19,6 +20,26 @@ object Type {
   case class TyVar(toVar: Var) extends Type
   case class TyMeta(toMeta: Meta) extends Type
   case class TyApply(on: Type, arg: Type) extends Type
+
+  implicit val typeEq: Eq[Type] =
+    new Eq[Type] {
+      def eqv(left: Type, right: Type): Boolean =
+        left == right
+    }
+
+  /**
+   * types are var, meta, or const, or applied or forall on one of
+   * those. This returns the Type.TyConst found
+   * by recursing
+   */
+  @annotation.tailrec
+  final def rootConst(t: Type): Option[Type.TyConst] =
+    t match {
+      case tyc@TyConst(_) => Some(tyc)
+      case TyVar(_) | TyMeta(_) => None
+      case Type.ForAll(_, r) => rootConst(r)
+      case TyApply(left, _) => rootConst(left)
+    }
 
   /**
    * Return the Bound and Skolem variables that
@@ -66,8 +87,8 @@ object Type {
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals
    */
-  val IntType: Type = TyConst(Const.predef("Integer"))
-  val BoolType: Type = TyConst(Const.predef("Boolean"))
+  val IntType: Type = TyConst(Const.predef("Int"))
+  val BoolType: Type = TyConst(Const.predef("Bool"))
   val StrType: Type = TyConst(Const.predef("String"))
   val FnType: Type = TyConst(Const.predef("Fn"))
 

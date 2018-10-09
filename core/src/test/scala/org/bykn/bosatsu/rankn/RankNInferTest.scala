@@ -16,7 +16,7 @@ class RankNInferTest extends FunSuite {
     TypeRef.parser.parse(str) match {
       case Parsed.Success(typeRef, _) =>
         typeRef.toNType {
-          case "Integer" => Type.Const.predef("Integer")
+          case "Int" => Type.Const.predef("Int")
           case "String" => Type.Const.predef("String")
           case s =>
             Type.Const.Defined(PackageName.parts("Test"), s)
@@ -327,7 +327,7 @@ enum Option:
   Some(a)
 
 main = Some(1)
-""", "Option[Integer]")
+""", "Option[Int]")
 
     parseProgram("""#
 enum Option:
@@ -348,7 +348,7 @@ main = match x:
     0
   Some(y):
     y
-""", "Integer")
+""", "Int")
 
   // TODO this does not unify with rankn types
    parseProgram("""#
@@ -363,7 +363,7 @@ main = match x:
     0
   NonEmpty(y, z):
     y
-""", "Integer")
+""", "Int")
 
    parseProgram("""#
 enum Opt:

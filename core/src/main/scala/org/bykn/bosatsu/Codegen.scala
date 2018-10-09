@@ -211,7 +211,7 @@ trait CodeGen {
         apply(expr, topLevel, pack)
       case Var(n, _, _) =>
         NameKind(pack, n) match {
-          case Some(NameKind.Constructor(_, _, _)) =>
+          case Some(NameKind.Constructor(_, _, _, _)) =>
             Monad[Output].pure(Doc.text(toConstructorName(n)))
           case _ =>
             for {

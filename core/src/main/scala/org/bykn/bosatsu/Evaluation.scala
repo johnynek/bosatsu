@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Eq
 import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
 import cats.Eval
@@ -17,7 +18,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
-    } yield eval((Package.asInferred(pack), Right(???), Map.empty))
+    } yield eval((Package.asInferred(pack), Right(expr), Map.empty))
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
@@ -73,10 +74,16 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], NType)): Eval[Any] =
 
     Eval.defer {
-      val dtName = ??? //Type.rootDeclared(tpe.result).get // this is safe because it has type checked
+      val dtConst@rankn.Type.TyConst(rankn.Type.Const.Defined(pn0, _)) =
+        rankn.Type.rootConst(tpe).get // this is safe because it has type checked
+
+      val packageForType = pm.toMap(pn0)
       // TODO this can be memoized once per package
-      val dt = p.unfix.program.types.definedTypes
-         .collectFirst { case (_, dtValue) if dtValue.name.asString == ??? => dtValue }.get // one must match
+      val dt = packageForType.program.types.definedTypes
+        .collectFirst {
+          case (_, dtValue) if Eq[rankn.Type].eqv(dtValue.toTypeTyConst, dtConst) =>
+            dtValue
+        }.getOrElse(sys.error(s"$tpe -> $dtConst")) // one must match
 
       def bindEnv(arg: Any,
         branches: List[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[Declaration])],
@@ -119,6 +126,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     }
     .memoize
 
+  /**
+   * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
+   * can see.
+   */
   private def evalTypedExpr(p: Package.Inferred,
     expr: TypedExpr[Declaration],
     env: Map[String, Any],
@@ -126,50 +137,49 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
     import TypedExpr._
 
-    // expr match {
-    //   case Annotation(e, _, _) => evalTypedExpr(p, e, env, recurse)
-    //   case al@AnnotatedLambda(_, _, _, _) => evalTypedExpr(p, al.toLambda, env, recurse)
-    //   case Var(v, (_, tpe)) =>
-    //     env.get(v) match {
-    //       case Some(a) => (Eval.now(a), tpe)
-    //       case None => recurse((p, Left(v), env))
-    //     }
-    //   case App(Lambda(name, fn, _), arg, (_, tpe)) =>
-    //     (recurse((p, Right(arg), env))._1.flatMap { a =>
-    //       val env1 = env + (name -> a)
-    //       recurse((p, Right(fn), env1))._1
-    //     }, tpe)
-    //   case App(fn, arg, (_, tpe)) =>
-    //     val efn = recurse((p, Right(fn), env))._1
-    //     val earg = recurse((p, Right(arg), env))._1
-    //     (for {
-    //       fn <- efn
-    //       afn = fn.asInstanceOf[Fn[Any, Any]] // safe because we typecheck
-    //       a <- earg
-    //     } yield afn(a), tpe)
-    //   case Lambda(name, expr, (_, tpe)) =>
-    //     val fn = new Fn[Any, Any] {
-    //       def apply(x: Any) =
-    //         recurse((p, Right(expr), env + (name -> x)))._1.value
-    //     }
-    //     (Eval.now(fn), tpe)
-    //   case Let(arg, e, in, (_, tpe)) =>
-    //     (recurse((p, Right(e), env))._1.flatMap { ae =>
-    //       recurse((p, Right(in), env + (arg -> ae)))._1
-    //     }, tpe)
-    //   case Literal(Lit.Integer(i), (_, tpe)) => (Eval.now(i), tpe)
-    //   case Literal(Lit.Str(str), (_, tpe)) => (Eval.now(str), tpe)
-    //   case If(cond, ifT, ifF, (_, tpe)) =>
-    //     // TODO
-    //     // evaluate the condition the either the left or right
-    //     ???
-    //   case Match(arg, branches, (_, tpe)) =>
-    //     val (earg, sarg) = recurse((p, Right(arg), env))
-    //     (earg.flatMap { a =>
-    //       evalBranch(a, sarg, branches, p, env, recurse)
-    //    }, tpe)
-    //}
-    ???
+     expr match {
+       case Generic(_, _, _) => ???
+       case Annotation(e, _, _) => evalTypedExpr(p, e, env, recurse)
+       case Var(v, tpe, _) =>
+         env.get(v) match {
+           case Some(a) => (Eval.now(a), tpe)
+           case None => recurse((p, Left(v), env))
+         }
+       case App(AnnotatedLambda(name, argt, fn, _), arg, resT, _) =>
+         (recurse((p, Right(arg), env))._1.flatMap { a =>
+           val env1 = env + (name -> a)
+           recurse((p, Right(fn), env1))._1
+         }, resT)
+       case App(fn, arg, resT, _) =>
+         val efn = recurse((p, Right(fn), env))._1
+         val earg = recurse((p, Right(arg), env))._1
+         (for {
+           fn <- efn
+           afn = fn.asInstanceOf[Fn[Any, Any]] // safe because we typecheck
+           a <- earg
+         } yield afn(a), resT)
+       case AnnotatedLambda(name, argt, expr, _) =>
+         val fn = new Fn[Any, Any] {
+           def apply(x: Any) =
+             recurse((p, Right(expr), env + (name -> x)))._1.value
+         }
+         (Eval.now(fn), rankn.Type.Fun(argt, expr.getType))
+       case Let(arg, e, in, _) =>
+         (recurse((p, Right(e), env))._1.flatMap { ae =>
+           recurse((p, Right(in), env + (arg -> ae)))._1
+         }, in.getType)
+       case Literal(Lit.Integer(i), tpe, _) => (Eval.now(i), tpe)
+       case Literal(Lit.Str(str), tpe, _) => (Eval.now(str), tpe)
+       case If(cond, ifT, ifF, _) =>
+         // TODO
+         // evaluate the condition the either the left or right
+         ???
+       case Match(arg, branches, _) =>
+         val (earg, sarg) = recurse((p, Right(arg), env))
+         (earg.flatMap { a =>
+           evalBranch(a, sarg, branches, p, env, recurse)
+        }, expr.getType)
+    }
   }
 
   /**
@@ -183,9 +193,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       case ((pack, Left(item), env), recurse) =>
         NameKind(pack, item).get match { // this get should never fail due to type checking
           case NameKind.Let(expr) =>
-            recurse((pack, Right(???), env))
-          case NameKind.Constructor(cn, dt, tpe) =>
-            (Eval.later(constructor(cn, ???/*dt*/)), ???/*tpe*/)
+            recurse((pack, Right(expr), env))
+          case NameKind.Constructor(cn, _, dt, tpe) =>
+            (Eval.later(constructor(cn, dt)), tpe)
           case NameKind.Import(from, orig) =>
             // we reset the environment in the other package
             recurse((from, Left(orig), Map.empty))
@@ -193,7 +203,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             externals.toMap.get((pn, n)) match {
               case None =>
                 throw EvaluationException(s"Missing External defintion of '${pn.parts.toList.mkString("/")} $n'. Check that your 'external' parameter is correct.")
-              case Some(ext) => (ext.call(???/*tpe.result*/), ???/*tpe*/)
+              case Some(ext) => (ext.call(tpe), tpe)
             }
         }
     }
@@ -291,12 +301,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
   def toType[T](a: Any, t: NType)(fn: (Any, rankn.DefinedType, (Any, NType) => Option[T]) => Option[T]): Option[T] = {
     def defined(pn: PackageName, t: TypeName): Option[rankn.DefinedType] =
-      ???
-      // for {
-      //   pack <- pm.toMap.get(pn)
-      //   dts = pack.program.types.definedTypes
-      //   dt <- dts.get((pn, t))
-      // } yield dt
+      for {
+        pack <- pm.toMap.get(pn)
+        dts = pack.program.types.definedTypes
+        dt <- dts.get((pn, t))
+      } yield dt
 
     def applyDT(dt: rankn.DefinedType, arg: Type): rankn.DefinedType =
       dt.typeParams match {
@@ -308,50 +317,50 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         case _ => sys.error(s"ill-typed no typeparams: $dt, $arg")
       }
 
-    // def applyT(t: Type, arg: Type): Either[Type, rankn.DefinedType] =
-    //   t match {
-    //     case Type.Arrow(_, _) => sys.error(s"ill-typed: $t[$arg]")
-    //     case Type.TypeApply(t0, a0) =>
-    //       applyT(t0, a0) match {
-    //         case Right(dt) =>
-    //           Right(applyDT(dt, arg))
-    //         case Left(t) =>
-    //           Left(Type.TypeApply(t, arg))
-    //       }
-    //     case Type.Declared(pn, typeName) =>
-    //       val dt = defined(pn, TypeName(typeName)).getOrElse(sys.error(s"ill-typed: unknown $t"))
-    //       Right(applyDT(dt, arg))
-    //     case v@Type.Var(_) =>
-    //       Left(Type.TypeApply(v, arg))
-    //     case Type.TypeLambda(param, expr) =>
-    //       // the param == arg in the expr
-    //       sys.error(s"TODO: let $param = $arg in $expr")
-    //   }
+    def applyT(t: rankn.Type, arg: rankn.Type): Either[rankn.Type, rankn.DefinedType] =
+      //t match {
+        // case Type.Arrow(_, _) => sys.error(s"ill-typed: $t[$arg]")
+        // case Type.TypeApply(t0, a0) =>
+        //   applyT(t0, a0) match {
+        //     case Right(dt) =>
+        //       Right(applyDT(dt, arg))
+        //     case Left(t) =>
+        //       Left(Type.TypeApply(t, arg))
+        //   }
+        // case Type.Declared(pn, typeName) =>
+        //   val dt = defined(pn, TypeName(typeName)).getOrElse(sys.error(s"ill-typed: unknown $t"))
+        //   Right(applyDT(dt, arg))
+        // case v@Type.Var(_) =>
+        //   Left(Type.TypeApply(v, arg))
+        // case Type.TypeLambda(param, expr) =>
+        //   // the param == arg in the expr
+        //   sys.error(s"TODO: let $param = $arg in $expr")
+      //}
+      ???
 
-    // def loop(a: Any, t: NType): Option[T] = {
-    //   t match {
-    //     case Type.Arrow(_, _) =>
-    //       // We can't convert a function to Json
-    //       None
-    //     case Type.Declared(pn, typeName) =>
-    //       defined(pn, TypeName(typeName))
-    //         .flatMap(fn(a, _, toType[T](_, _)(fn)))
-    //     case Type.TypeApply(tpe, arg) =>
-    //       applyT(tpe, arg) match {
-    //         case Right(dt) =>
-    //           fn(a, dt, toType[T](_, _)(fn))
-    //         case Left(t) =>
-    //           sys.error(s"expected a defined type. Found: $t")
-    //       }
-    //     case Type.Var(_) =>
-    //       // we should have fully resolved the type
-    //       sys.error(s"should have fully resolved the type of: $a: $t")
-    //     case Type.TypeLambda(_, _) =>
-    //       sys.error(s"unexepected type lambda: $a has type $t")
-    //   }
-    // }
-    // loop(a, t)
-    ???
+    def loop(a: Any, t: NType): Option[T] = {
+      t match {
+        case rankn.Type.Fun(_, _) =>
+          // We can't convert a function to Json
+          None
+        case rankn.Type.TyConst(rankn.Type.Const.Defined(pn, typeName)) =>
+          defined(pn, TypeName(typeName))
+            .flatMap(fn(a, _, toType[T](_, _)(fn)))
+        case rankn.Type.TyApply(tpe, arg) =>
+          applyT(tpe, arg) match {
+            case Right(dt) =>
+              fn(a, dt, toType[T](_, _)(fn))
+            case Left(t) =>
+              sys.error(s"expected a defined type. Found: $t")
+          }
+        case rankn.Type.TyVar(_) | rankn.Type.TyMeta(_) =>
+          // we should have fully resolved the type
+          sys.error(s"should have fully resolved the type of: $a: $t")
+        case rankn.Type.ForAll(_, _) =>
+          sys.error(s"unexpected type universally quantified: $a has type $t")
+      }
+    }
+    loop(a, t)
   }
 }
 

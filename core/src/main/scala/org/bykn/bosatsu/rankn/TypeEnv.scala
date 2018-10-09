@@ -4,7 +4,7 @@ import org.bykn.bosatsu.{ConstructorName, TypeName, PackageName, ParamName}
 
 case class TypeEnv(
   values: Map[(PackageName, String), Type],
-  constructors: Map[(PackageName, ConstructorName), (List[(ParamName, Type)], DefinedType)],
+  constructors: Map[(PackageName, ConstructorName), (List[(ParamName, Type)], DefinedType, Type)],
   definedTypes: Map[(PackageName, TypeName), DefinedType]) {
 
   def localValuesOf(p: PackageName): Map[String, Type] =
@@ -15,8 +15,8 @@ case class TypeEnv(
     val cons1 =
       dt.constructors
         .foldLeft(constructors) {
-          case (cons0, (cname, params, _)) =>
-            cons0.updated((dt.packageName, cname), (params, dt))
+          case (cons0, (cname, params, vtpe)) =>
+            cons0.updated((dt.packageName, cname), (params, dt, vtpe))
         }
     // here we have to actually add the constructor values:
     val v1 = dt.constructors.foldLeft(values) { case (v0, (cn, _, tpe)) =>
@@ -36,7 +36,7 @@ case class TypeEnv(
   // TODO to support parameter named patterns we'd need to know the
   // parameter names
   def typeConstructors: Map[(PackageName, ConstructorName), (List[Type.Var], List[Type], Type.Const.Defined)] =
-    constructors.map { case (pc, (params, dt)) =>
+    constructors.map { case (pc, (params, dt, _)) =>
       (pc,
         (dt.typeParams,
           params.map(_._2),
