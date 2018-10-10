@@ -1,6 +1,8 @@
 package org.bykn.bosatsu
 
+import cats.{Foldable, Functor}
 import cats.data.NonEmptyList
+import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 
@@ -12,6 +14,22 @@ sealed abstract class ImportedName[T] {
   def tag: T
   def setTag(t: T): ImportedName[T]
   def isRenamed: Boolean = originalName != localName
+
+  def map[U](fn: T => U): ImportedName[U] =
+    this match {
+      case o@ImportedName.OriginalName(n, t) =>
+        ImportedName.OriginalName(n, fn(t))
+      case r@ImportedName.Renamed(o, l, t) =>
+        ImportedName.Renamed(o, l, fn(t))
+    }
+
+  def traverse[F[_], U](fn: T => F[U])(implicit F: Functor[F]): F[ImportedName[U]] =
+    this match {
+      case o@ImportedName.OriginalName(n, t) =>
+        F.map(fn(t))(ImportedName.OriginalName(n, _))
+      case r@ImportedName.Renamed(o, l, t) =>
+        F.map(fn(t))(ImportedName.Renamed(o, l, _))
+    }
 }
 
 object ImportedName {
@@ -40,7 +58,10 @@ object ImportedName {
   }
 }
 
-case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]])
+case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
+  def mapPackage[A1](fn: A => A1): Import[A1, B] =
+    Import(fn(pack), items)
+}
 
 object Import {
   implicit val document: Document[Import[PackageName, Unit]] =
@@ -55,6 +76,22 @@ object Import {
       ImportedName.parser.nonEmptyListSyntax).map { case (pname, imported) =>
         Import(pname, imported)
       }
+  }
+
+  /**
+   * This only keeps the last name if there are duplicate local names
+   * checking for duplicate local names should be done at another layer
+   */
+  def locals[F[_], A, B, C](imp: Import[A, F[B]])(pn: PartialFunction[B, C])(implicit F: Foldable[F]): Map[String, C] = {
+    val fn = pn.lift
+    imp.items.foldLeft(Map.empty[String, C]) { case (m0, impName) =>
+      impName.tag.foldLeft(m0) { (m1, b) =>
+        fn(b) match {
+          case None => m1
+          case Some(c) => m1.updated(impName.localName, c)
+        }
+      }
+    }
   }
 }
 

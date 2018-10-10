@@ -11,7 +11,7 @@ import java.io.PrintWriter
 import alleycats.std.map._ // TODO use SortedMap everywhere
 
 trait CodeGen {
-  import Expr._
+  import TypedExpr._
   import CodeGen._
 
   def toFieldName(s: String, i: Long): String =
@@ -70,14 +70,13 @@ trait CodeGen {
               }).map(_ => None)
             }
 
-          val fn = imp.tag match {
-            case Referant.Value(_) => { s: String => Some(toExportedName(s)) }
-            case Referant.DefinedT(_) => { s: String => None }
-            case Referant.Constructor(_, _) => { s: String => Some(toConstructorName(s)) }
-          }
-
-          go(fn)
+            Traverse[NonEmptyList].traverse(imp.tag) {
+              case Referant.Value(_) => go { s => Some(toExportedName(s)) }
+              case Referant.DefinedT(_) => go { _ => None }
+              case Referant.Constructor(_, _, _, _) => go { s => Some(toConstructorName(s)) }
+            }
         }
+        .map(_.flatten)
       }
 
     def flatten[A](fn: List[NonEmptyList[Option[A]]]): List[A] =
@@ -128,8 +127,8 @@ trait CodeGen {
     }
 
     val constructors: Output[Unit] =
-      definedTypes.flatMap(_.constructors.zipWithIndex).traverse_ { case ((cn, args), idx) =>
-        mkConstructor(idx, cn, args).flatMap(tell)
+      definedTypes.flatMap(_.constructors.zipWithIndex).traverse_ { case ((cn, args, ct), idx) =>
+        mkConstructor(idx, cn, ???).flatMap(tell)
       }
     /**
      * Build the externals
@@ -137,7 +136,7 @@ trait CodeGen {
     val externals = NameKind.externals(p)
     val extDoc: Output[Unit] =
       externals.traverse_ { case NameKind.ExternalDef(p, n, scheme) =>
-        outputExternal(n, ext.toMap((p, n)), scheme)
+        outputExternal(n, ext.toMap((p, n)), ???/*scheme*/)
       }
 
     val body = Traverse[List].traverse(unfix.program.lets) { case (f, e) =>
@@ -202,17 +201,15 @@ trait CodeGen {
    * return a Doc holding an expression that can
    * be a right-hand-side of an equation in java.
    */
-  def apply[T](e: Expr[T], topLevel: Boolean, pack: Package.Inferred): Output[Doc] =
+  def apply[T](e: TypedExpr[T], topLevel: Boolean, pack: Package.Inferred): Output[Doc] =
     e match {
+      case Generic(_, e, _) => apply(e, topLevel, pack)
       case Annotation(expr, _, _) =>
         // TODO we might want to use the type info
         apply(expr, topLevel, pack)
-      case AnnotatedLambda(arg, _, exp, t) =>
-        // TODO we might want to use the type info
-        apply(Lambda(arg, exp, t), topLevel, pack)
-      case Var(n, _) =>
+      case Var(n, _, _) =>
         NameKind(pack, n) match {
-          case Some(NameKind.Constructor(_, _, _)) =>
+          case Some(NameKind.Constructor(_, _, _, _)) =>
             Monad[Output].pure(Doc.text(toConstructorName(n)))
           case _ =>
             for {
@@ -221,13 +218,13 @@ trait CodeGen {
               v = scope.toMap.get(n).fold(toExportedName(n)) { u => toFieldName(n, u.id) }
             } yield Doc.text(v)
         }
-      case App(fn, arg, _) =>
+      case App(fn, arg, _,  _) =>
         for {
           fnDoc <- apply(fn, topLevel, pack)
           aDoc <- apply(arg, topLevel, pack)
         } yield Doc.text("((Fn<Object, Object>)") + fnDoc + Doc.char(')') + Doc.text(".apply(") + aDoc + Doc.char(')')
 
-      case Lambda(arg, exp, _) =>
+      case AnnotatedLambda(arg, _, exp, _) =>
         nameIn(arg) { ua =>
           nameIn("anon") { uanon =>
             val attr = if (topLevel) "private final static" else "final"
@@ -251,9 +248,9 @@ trait CodeGen {
             } yield inDoc
           }
         }
-      case Literal(Lit.Integer(i), _) =>
+      case Literal(Lit.Integer(i), _, _) =>
         Monad[Output].pure(Doc.text("java.lang.Integer.valueOf(") + quote(i.toString) + Doc.char(')'))
-      case Literal(Lit.Str(s), _) =>
+      case Literal(Lit.Str(s), _,  _) =>
         Monad[Output].pure(quote(s))
       case If(cond, ift, iff, _) =>
         Monad[Output].pure(Doc.text("null"))
@@ -263,13 +260,6 @@ trait CodeGen {
 
   def quote(str: String): Doc =
     Doc.char('"') + Doc.text(str) + Doc.char('"')
-
-  // case class Var[T](name: String, tag: T) extends Expr[T]
-  // case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
-  // case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
-  // case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
-  // case class Literal[T](lit: Lit, tag: T) extends Expr[T]
-  // case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName)], Expr[T])], tag: T) extends Expr[T]
 }
 
 object CodeGen {

@@ -1,8 +1,9 @@
 package org.bykn.bosatsu
 
 import cats.evidence.Is
+import cats.data.NonEmptyList
 
-case class Program[D, S](types: TypeEnv, lets: List[(String, D)], from: S) {
+case class Program[D, S](types: rankn.TypeEnv, lets: List[(String, D)], from: S) {
   private[this] lazy val letMap: Map[String, D] = lets.toMap
 
   def getLet(name: String): Option[D] = letMap.get(name)
@@ -42,42 +43,64 @@ case class Program[D, S](types: TypeEnv, lets: List[(String, D)], from: S) {
 object Program {
   def fromStatement(
     pn0: PackageName,
-    importMap: ImportMap[PackageName, Unit],
+    nameToType: String => rankn.Type.Const,
+    nameToCons: String => (PackageName, ConstructorName),
     stmt: Statement): Program[Expr[Declaration], Statement] = {
 
     import Statement._
-    // TODO use the importMap to see what names come from where
+
+    def declToE(d: Declaration): Expr[Declaration] =
+      d.toExpr(nameToType, nameToCons)
+
+    def defToT(
+      types: rankn.TypeEnv,
+      d: TypeDefinitionStatement): rankn.TypeEnv =
+      types.addDefinedType(d.toDefinition(pn0, nameToType))
 
     def loop(s: Statement): Program[Expr[Declaration], Statement] =
       s match {
         case Bind(BindingStatement(nm, decl, Padding(_, rest))) =>
           val Program(te, binds, _) = loop(rest)
-          Program(te, (nm, decl.toExpr(pn0, importMap)) :: binds, stmt)
+          Program(te, (nm, declToE(decl)) :: binds, stmt)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
         case Def(defstmt@DefStatement(_, _, _, _)) =>
           val (lam, Program(te, binds, _)) = defstmt.result match {
             case (Padding(_, Indented(_, body)), Padding(_, in)) =>
               // using body for the outer here is a bummer, but not really a good outer otherwise
-              val l = defstmt.toLambdaExpr(body.toExpr(pn0, importMap), body)(_.toNType(pn0, importMap))
+              val l = defstmt.toLambdaExpr(declToE(body), body)(_.toNType(nameToType))
               (l, loop(in))
           }
           Program(te, (defstmt.name, lam) :: binds, stmt)
         case s@Struct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(s.toDefinition(pn0, importMap)), from = s)
+          p.copy(types = defToT(p.types, s), from = s)
         case e@Enum(_, _, Padding(_, rest)) =>
           val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(e.toDefinition(pn0, importMap)), from = e)
-        case d@ExternalDef(name, _, _, Padding(_, rest)) =>
-           val scheme = d.scheme(pn0, importMap)
-           val p = loop(rest)
-           p.copy(types = p.types.updated(name, scheme), from = d)
+          p.copy(types = defToT(p.types, e), from = e)
+        case ExternalDef(name, params, result, Padding(_, rest)) =>
+          val tpe: rankn.Type = {
+            def buildType(ts: List[rankn.Type]): rankn.Type =
+              ts match {
+                case Nil => result.toNType(nameToType)
+                case h :: tail => rankn.Type.Fun(h, buildType(tail))
+              }
+            buildType(params.map(_._2.toNType(nameToType)))
+          }
+          val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
+          // these vars were parsed so they are never skolem vars
+          val freeBound = freeVars.map {
+            case b@rankn.Type.Var.Bound(_) => b
+            case s@rankn.Type.Var.Skolem(_, _) => sys.error(s"invariant violation: parsed a skolem var: $s")
+          }
+          val maybeForAll = rankn.Type.forAll(freeBound, tpe)
+          val p = loop(rest)
+          p.copy(types = p.types.addExternalValue(pn0, name, maybeForAll), from = s)
         case x@ExternalStruct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
-          p.copy(types = p.types.addDefinedType(x.toDefinition(pn0, importMap)), from = x)
+          p.copy(types = defToT(p.types, x), from = x)
         case EndOfFile =>
-          Program(TypeEnv.empty(pn0, importMap), Nil, EndOfFile)
+          Program(rankn.TypeEnv.empty, Nil, EndOfFile)
       }
 
     loop(stmt)

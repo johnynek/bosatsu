@@ -13,16 +13,16 @@ sealed abstract class Infer[+A] {
   final def flatMap[B](fn: A => Infer[B]): Infer[B] =
     Infer.Impl.FlatMap(this, fn)
 
-  final def runVar(v: Map[String, Type], tpes: Map[String, Infer.Cons]): RefSpace[Either[Error, A]] =
+  final def runVar(v: Map[String, Type], tpes: Map[(PackageName, ConstructorName), Infer.Cons]): RefSpace[Either[Error, A]] =
     Infer.Env.init(v, tpes).flatMap(run(_))
 
-  final def runFully(v: Map[String, Type], tpes: Map[String, Infer.Cons]): Either[Error, A] =
+  final def runFully(v: Map[String, Type], tpes: Map[(PackageName, ConstructorName), Infer.Cons]): Either[Error, A] =
     runVar(v, tpes).run.value
 }
 
 object Infer {
 
-  type Pattern = GenPattern[String, Type]
+  type Pattern = GenPattern[(PackageName, ConstructorName), Type]
 
   // Import our private implementation functions
   import Impl._
@@ -42,13 +42,13 @@ object Infer {
   case class Env(
     uniq: Ref[Long],
     vars: Map[String, Type],
-    typeCons: Map[String, Cons])
+    typeCons: Map[(PackageName, ConstructorName), Cons])
 
   object Env {
     def empty: RefSpace[Env] =
       init(Map.empty, Map.empty)
 
-    def init(vars: Map[String, Type], tpes: Map[String, Cons]): RefSpace[Env] =
+    def init(vars: Map[String, Type], tpes: Map[(PackageName, ConstructorName), Cons]): RefSpace[Env] =
       RefSpace.newRef(0L).map(Env(_, vars, tpes))
   }
 
@@ -117,7 +117,7 @@ object Infer {
       def message = s"unexpected bound ${v.name} in unification with $in"
     }
 
-    case class UnknownConstructor(name: String, env: Env) extends NameError {
+    case class UnknownConstructor(name: (PackageName, ConstructorName), env: Env) extends NameError {
       def message = s"unknown Constructor $name. Known: ${env.typeCons.keys.toList.sorted}"
     }
 
@@ -192,12 +192,12 @@ object Infer {
       def run(env: Env) = RefSpace.pure(Right(env.vars))
     }
 
-    case class GetDataCons(name: String) extends Infer[Cons] {
+    case class GetDataCons(fqn: (PackageName, ConstructorName)) extends Infer[Cons] {
       def run(env: Env) =
         RefSpace.pure(
-          env.typeCons.get(name) match {
+          env.typeCons.get(fqn) match {
             case None =>
-              Left(Error.UnknownConstructor(name, env))
+              Left(Error.UnknownConstructor(fqn, env))
             case Some(res) =>
               Right(res)
           })
@@ -228,21 +228,6 @@ object Infer {
       tpes.traverse(zonkType).map(Type.metaTvs(_))
 
     /**
-     * Report bound variables which are used in quantify. When we
-     * infer a sigmal type
-     */
-    @annotation.tailrec
-    def tyVarBinders(tpes: List[Type], acc: Set[Type.Var]): Set[Type.Var] =
-      tpes match {
-        case Nil => acc
-        case Type.ForAll(tvs, body) :: rest =>
-          tyVarBinders(rest, acc ++ tvs.toList)
-        case Type.TyApply(arg, res) :: rest =>
-          tyVarBinders(arg :: res :: rest, acc)
-        case _ :: rest => tyVarBinders(rest, acc)
-      }
-
-    /**
      * Quantify over the specified type variables (all flexible)
      */
     def quantify[A](forAlls: List[Type.Meta], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
@@ -251,7 +236,7 @@ object Infer {
           // this case is not really discussed in the paper
           zonkTypedExpr(rho)
         case ne@(h :: tail) =>
-          val used = tyVarBinders(List(rho.getType), Set.empty)
+          val used: Set[Type.Var.Bound] = Type.tyVarBinders(List(rho.getType))
           // on 2.11 without the iterator this seems to run forever
           // must be a "def" because we call it twice
           def newBinders = Type.allBinders.iterator.filterNot(used)
@@ -296,44 +281,8 @@ object Infer {
           pure((Nil, other))
       }
 
-    /**
-     * Return the Bound and Skolem variables that
-     * are free in the given list of types
-     */
-    def freeTyVars(ts: List[Type]): Set[Type.Var] = {
-
-      // usually we can recurse in a loop, but sometimes not
-      def cheat(ts: List[Type], bound: Set[Type.Var.Bound], acc: Set[Type.Var]): Set[Type.Var] =
-        go(ts, bound, acc)
-
-      @annotation.tailrec
-      def go(ts: List[Type], bound: Set[Type.Var.Bound], acc: Set[Type.Var]): Set[Type.Var] =
-        ts match {
-          case Nil => acc
-          case Type.TyVar(tv) :: rest =>
-            // we only check here, we don't add
-            val isBound =
-              tv match {
-                case b@Type.Var.Bound(_) => bound(b)
-                case Type.Var.Skolem(_, _) => false
-              }
-            if (isBound) go(rest, bound, acc)
-            else go(rest, bound, acc + tv)
-          case Type.TyApply(a, b) :: rest => go(a :: b :: rest, bound, acc)
-          case Type.ForAll(tvs, ty) :: rest =>
-            val acc1 = cheat(ty :: Nil, bound ++ tvs.toList, acc)
-            // note, tvs ARE NOT bound in rest
-            go(rest, bound, acc1)
-          case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
-        }
-
-      ts.foldLeft(Set.empty[Type.Var]) { (acc, t) =>
-        go(t :: Nil, Set.empty, acc)
-      }
-    }
-
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
-      ts.traverse(zonkType).map(freeTyVars(_))
+      ts.traverse(zonkType).map(Type.freeTyVars(_).toSet)
 
     /**
      * This fills in any meta vars that have been
@@ -643,26 +592,19 @@ object Infer {
           // It feels like there should be another inference rule, which we
           // are missing here.
 
-          // TODO we need to use the full type name
-          def toStr(p: GenPattern[(PackageName, ConstructorName), Type]): GenPattern[String, Type] =
-            p.mapName { case (_, c) => c.asString }
-
-         def unStr(p: Pattern): GenPattern[(PackageName, ConstructorName), Type] =
-           p.mapName { c => (PackageName.parts("TODO"), ConstructorName(c)) }
-
           expect match {
             case Expected.Check(resT) =>
               for {
                 tsigma <- inferSigma(term)
                 tbranches <- branches.traverse { case (p, r) =>
-                  checkBranch(toStr(p), Expected.Check(tsigma.getType), r, resT)
+                  checkBranch(p, Expected.Check(tsigma.getType), r, resT)
                 }
-              } yield TypedExpr.Match(tsigma, tbranches.map { case (p, t) => (unStr(p), t) }, tag)
+              } yield TypedExpr.Match(tsigma, tbranches, tag)
             case infer@Expected.Inf(_) =>
               for {
                 tsigma <- inferSigma(term)
                 tbranches <- branches.traverse { case (p, r) =>
-                  inferBranch(toStr(p), Expected.Check(tsigma.getType), r)
+                  inferBranch(p, Expected.Check(tsigma.getType), r)
                 }
                 resT = tbranches.map { case (p, te) => te.getType }
                 _ <- resT.flatMap { t0 => resT.map((t0, _)) }.traverse_ {
@@ -672,7 +614,7 @@ object Infer {
                   case (t0, t1) => subsCheck(t0, t1)
                 }
                 _ <- infer.set(resT.head)
-              } yield TypedExpr.Match(tsigma, tbranches.map { case (p, t) => (unStr(p), t) }, tag)
+              } yield TypedExpr.Match(tsigma, tbranches, tag)
           }
       }
     }
@@ -758,7 +700,7 @@ object Infer {
      *
      * Instantiation fills in all
      */
-    def instDataCon(consName: String): Infer[(List[Type], Type.Tau)] =
+    def instDataCon(consName: (PackageName, ConstructorName)): Infer[(List[Type], Type.Tau)] =
       GetDataCons(consName).flatMap {
         case (Nil, consParams, tpeName) =>
           Infer.pure((consParams, Type.TyConst(tpeName)))
@@ -833,4 +775,13 @@ object Infer {
           rest <- extendEnv(nm, te.getType)(typeCheckLets(tail))
         } yield (nm, te) :: rest
     }
+
+  /**
+   * This is useful to testing purposes.
+   *
+   * Given types a and b, can we substitute
+   * a for for b
+   */
+  def substitutionCheck(a: Type, b: Type): Infer[Unit] =
+    subsCheck(a, b).map(_ => ())
 }

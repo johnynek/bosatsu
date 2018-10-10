@@ -2,10 +2,14 @@ package org.bykn.bosatsu
 
 sealed abstract class NameKind
 object NameKind {
-  case class Let(value: Expr[(Declaration, Scheme)]) extends NameKind
-  case class Constructor(cn: ConstructorName, dt: DefinedType, scheme: Scheme) extends NameKind
+  case class Let(value: TypedExpr[Declaration]) extends NameKind
+  case class Constructor(
+    cn: ConstructorName,
+    params: List[(ParamName, rankn.Type)],
+    defined: rankn.DefinedType,
+    valueType: rankn.Type) extends NameKind
   case class Import(fromPack: Package.Inferred, originalName: String) extends NameKind
-  case class ExternalDef(pack: PackageName, defName: String, defType: Scheme) extends NameKind
+  case class ExternalDef(pack: PackageName, defName: String, defType: rankn.Type) extends NameKind
 
   def externals(from: Package.Inferred): Stream[ExternalDef] = {
     val prog = from.unfix.program
@@ -13,9 +17,9 @@ object NameKind {
       case Statement.ExternalDef(n, _, _, _) =>
         // The type could be an import, so we need to check for the type
         // in the TypeEnv
-        val scheme = prog.types.values(n)
         val pn = from.unfix.name
-        ExternalDef(pn, n, scheme)
+        val tpe = prog.types.values((pn, n))
+        ExternalDef(pn, n, tpe)
     }
   }
 
@@ -27,10 +31,12 @@ object NameKind {
 
     def getConstructor: Option[NameKind] = {
       val cn = ConstructorName(item)
-      prog.types.constructors.get((from.unfix.name, cn)).map { dtype =>
-        val scheme = dtype.toScheme(cn).get // this should never throw
-        Constructor(cn, dtype, scheme)
-      }
+      prog.types
+        .constructors
+        .get((from.unfix.name, cn))
+        .map { case (params, dt, tpe) =>
+          Constructor(cn, params, dt, tpe)
+        }
     }
 
     def getImport: Option[NameKind] =
@@ -44,9 +50,9 @@ object NameKind {
         case Statement.ExternalDef(n, _, _, _) if n == item =>
           // The type could be an import, so we need to check for the type
           // in the TypeEnv
-          val scheme = prog.types.values(n)
           val pn = from.unfix.name
-          ExternalDef(pn, item, scheme)
+          val tpe = prog.types.values((pn, n))
+          ExternalDef(pn, item, tpe)
       }
 
     getLet.orElse(

@@ -60,18 +60,12 @@ sealed abstract class TypeRef {
         loop(pars.reverse, e.toType(p))
     }
 
-  def toNType(p: PackageName, importMap: ImportMap[PackageName, Unit]): NType = {
+  def toNType(nameToType: String => NType.Const): NType = {
     import rankn.Type._
     def loop(t: TypeRef): NType =
       t match {
         case TypeVar(v) => TyVar(NType.Var.Bound(v))
-        case TypeName(n) =>
-          importMap.originalOf(n) match {
-            case None =>
-              TyConst(NType.Const.Defined(p, n))
-            case Some((p0, n0)) =>
-              TyConst(NType.Const.Defined(p0, n0))
-          }
+        case TypeName(n) => TyConst(nameToType(n))
         case TypeArrow(a, b) => Fun(loop(a), loop(b))
         case TypeApply(a, bs) =>
           def loop1(fn: NType, args: NonEmptyList[TypeRef]): NType =

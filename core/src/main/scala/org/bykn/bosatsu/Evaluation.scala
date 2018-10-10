@@ -1,24 +1,27 @@
 package org.bykn.bosatsu
 
+import cats.Eq
 import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
 import cats.Eval
 import cats.implicits._
 
+import org.bykn.bosatsu.rankn.{Type => NType}
+
 case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
-  def evaluate(p: PackageName, varName: String): Option[(Eval[Any], Scheme)] =
+  def evaluate(p: PackageName, varName: String): Option[(Eval[Any], NType)] =
     pm.toMap.get(p).map { pack =>
       eval((Package.asInferred(pack), Left(varName), Map.empty))
     }
 
-  def evaluateLast(p: PackageName): Option[(Eval[Any], Scheme)] =
+  def evaluateLast(p: PackageName): Option[(Eval[Any], NType)] =
     for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
     } yield eval((Package.asInferred(pack), Right(expr), Map.empty))
 
   def evalTest(ps: PackageName): Option[Test] =
-    evaluateLast(ps).flatMap { case (ea, scheme) =>
+    evaluateLast(ps).flatMap { case (ea, tpe) =>
 
 // enum Test:
 //   TestAssert(value: Bool)
@@ -47,7 +50,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case other => sys.error(s"expected List: $other")
         }
 
-      toType[Test](ea.value, scheme.result) { (any, dt, rec) =>
+      toType[Test](ea.value, tpe) { (any, dt, rec) =>
         if (dt.packageName == Predef.packageName) {
           dt.name.asString match {
             case "Test" =>
@@ -61,24 +64,26 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       }
     }
 
-  private type Ref = Either[String, Expr[(Declaration, Scheme)]]
+  private type Ref = Either[String, TypedExpr[Declaration]]
 
   private def evalBranch(arg: Any,
-    scheme: Scheme,
-    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[(Declaration, Scheme)])],
+    tpe: NType,
+    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[Declaration])],
     p: Package.Inferred,
     env: Map[String, Any],
-    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme)): Eval[Any] =
+    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], NType)): Eval[Any] =
 
     Eval.defer {
-      val dtName = Type.rootDeclared(scheme.result).get // this is safe because it has type checked
-      // TODO this can be memoized once per package
-      val dt = p.unfix.program.types.definedTypes
-         .collectFirst { case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue }.get // one must match
+      val dtConst@rankn.Type.TyConst(rankn.Type.Const.Defined(pn0, tn)) =
+        rankn.Type.rootConst(tpe).get // this is safe because it has type checked
+
+      val packageForType = pm.toMap(pn0)
+      // this is calling apply on a map, but is safe because of type-checking
+      val dt = packageForType.program.types.definedTypes((pn0, TypeName(tn)))
 
       def bindEnv(arg: Any,
-        branches: List[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[(Declaration, Scheme)])],
-        acc: Map[String, Any]): Option[(Map[String, Any], Expr[(Declaration, Scheme)])] =
+        branches: List[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[Declaration])],
+        acc: Map[String, Any]): Option[(Map[String, Any], TypedExpr[Declaration])] =
         branches match {
           case Nil => None
           case (Pattern.WildCard, next):: tail => Some((acc, next))
@@ -117,55 +122,59 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     }
     .memoize
 
-  private def evalExpr(p: Package.Inferred,
-    expr: Expr[(Declaration, Scheme)],
+  /**
+   * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
+   * can see.
+   */
+  private def evalTypedExpr(p: Package.Inferred,
+    expr: TypedExpr[Declaration],
     env: Map[String, Any],
-    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme)): (Eval[Any], Scheme) = {
+    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], NType)): (Eval[Any], NType) = {
 
-    import Expr._
+    import TypedExpr._
 
-    expr match {
-      case Annotation(e, _, _) => evalExpr(p, e, env, recurse)
-      case al@AnnotatedLambda(_, _, _, _) => evalExpr(p, al.toLambda, env, recurse)
-      case Var(v, (_, scheme)) =>
-        env.get(v) match {
-          case Some(a) => (Eval.now(a), scheme)
-          case None => recurse((p, Left(v), env))
-        }
-      case App(Lambda(name, fn, _), arg, (_, scheme)) =>
-        (recurse((p, Right(arg), env))._1.flatMap { a =>
-          val env1 = env + (name -> a)
-          recurse((p, Right(fn), env1))._1
-        }, scheme)
-      case App(fn, arg, (_, scheme)) =>
-        val efn = recurse((p, Right(fn), env))._1
-        val earg = recurse((p, Right(arg), env))._1
-        (for {
-          fn <- efn
-          afn = fn.asInstanceOf[Fn[Any, Any]] // safe because we typecheck
-          a <- earg
-        } yield afn(a), scheme)
-      case Lambda(name, expr, (_, scheme)) =>
-        val fn = new Fn[Any, Any] {
-          def apply(x: Any) =
-            recurse((p, Right(expr), env + (name -> x)))._1.value
-        }
-        (Eval.now(fn), scheme)
-      case Let(arg, e, in, (_, scheme)) =>
-        (recurse((p, Right(e), env))._1.flatMap { ae =>
-          recurse((p, Right(in), env + (arg -> ae)))._1
-        }, scheme)
-      case Literal(Lit.Integer(i), (_, scheme)) => (Eval.now(i), scheme)
-      case Literal(Lit.Str(str), (_, scheme)) => (Eval.now(str), scheme)
-      case If(cond, ifT, ifF, (_, scheme)) =>
-        // TODO
-        // evaluate the condition the either the left or right
-        ???
-      case Match(arg, branches, (_, scheme)) =>
-        val (earg, sarg) = recurse((p, Right(arg), env))
-        (earg.flatMap { a =>
-          evalBranch(a, sarg, branches, p, env, recurse)
-        }, scheme)
+     expr match {
+       case Generic(_, _, _) => ???
+       case Annotation(e, _, _) => evalTypedExpr(p, e, env, recurse)
+       case Var(v, tpe, _) =>
+         env.get(v) match {
+           case Some(a) => (Eval.now(a), tpe)
+           case None => recurse((p, Left(v), env))
+         }
+       case App(AnnotatedLambda(name, argt, fn, _), arg, resT, _) =>
+         (recurse((p, Right(arg), env))._1.flatMap { a =>
+           val env1 = env + (name -> a)
+           recurse((p, Right(fn), env1))._1
+         }, resT)
+       case App(fn, arg, resT, _) =>
+         val efn = recurse((p, Right(fn), env))._1
+         val earg = recurse((p, Right(arg), env))._1
+         (for {
+           fn <- efn
+           afn = fn.asInstanceOf[Fn[Any, Any]] // safe because we typecheck
+           a <- earg
+         } yield afn(a), resT)
+       case AnnotatedLambda(name, argt, expr, _) =>
+         val fn = new Fn[Any, Any] {
+           def apply(x: Any) =
+             recurse((p, Right(expr), env + (name -> x)))._1.value
+         }
+         (Eval.now(fn), rankn.Type.Fun(argt, expr.getType))
+       case Let(arg, e, in, _) =>
+         (recurse((p, Right(e), env))._1.flatMap { ae =>
+           recurse((p, Right(in), env + (arg -> ae)))._1
+         }, in.getType)
+       case Literal(Lit.Integer(i), tpe, _) => (Eval.now(i), tpe)
+       case Literal(Lit.Str(str), tpe, _) => (Eval.now(str), tpe)
+       case If(cond, ifT, ifF, _) =>
+         // TODO
+         // evaluate the condition the either the left or right
+         ???
+       case Match(arg, branches, _) =>
+         val (earg, sarg) = recurse((p, Right(arg), env))
+         (earg.flatMap { a =>
+           evalBranch(a, sarg, branches, p, env, recurse)
+        }, expr.getType)
     }
   }
 
@@ -173,34 +182,34 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Scheme) =
-    Memoize.function[(Package.Inferred, Ref, Map[String, Any]), (Eval[Any], Scheme)] {
+  private[this] val eval: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], NType) =
+    Memoize.function[(Package.Inferred, Ref, Map[String, Any]), (Eval[Any], NType)] {
       case ((pack, Right(expr), env), recurse) =>
-        evalExpr(pack, expr, env, recurse)
+        evalTypedExpr(pack, expr, env, recurse)
       case ((pack, Left(item), env), recurse) =>
         NameKind(pack, item).get match { // this get should never fail due to type checking
           case NameKind.Let(expr) =>
             recurse((pack, Right(expr), env))
-          case NameKind.Constructor(cn, dt, schm) =>
-            (Eval.later(constructor(cn, dt)), schm)
+          case NameKind.Constructor(cn, _, dt, tpe) =>
+            (Eval.later(constructor(cn, dt)), tpe)
           case NameKind.Import(from, orig) =>
             // we reset the environment in the other package
             recurse((from, Left(orig), Map.empty))
-          case NameKind.ExternalDef(pn, n, scheme) =>
+          case NameKind.ExternalDef(pn, n, tpe) =>
             externals.toMap.get((pn, n)) match {
               case None =>
                 throw EvaluationException(s"Missing External defintion of '${pn.parts.toList.mkString("/")} $n'. Check that your 'external' parameter is correct.")
-              case Some(ext) => (ext.call(scheme.result), scheme)
+              case Some(ext) => (ext.call(tpe), tpe)
             }
         }
     }
 
-  private def constructor(c: ConstructorName, dt: DefinedType): Any = {
+  private def constructor(c: ConstructorName, dt: rankn.DefinedType): Any = {
     val (enum, arity) = dt.constructors
       .toList
       .iterator
       .zipWithIndex
-      .collectFirst { case ((ctor, params), idx) if ctor == c => (idx, params.size) }
+      .collectFirst { case ((ctor, params, resType), idx) if ctor == c => (idx, params.size) }
       .get // the ctor must be in the list or we wouldn't typecheck
 
     // TODO: this is a obviously terrible
@@ -214,7 +223,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     loop(arity, Nil)
   }
 
-  private def definedToJson(a: Any, dt: DefinedType, rec: (Any, Type) => Option[Json]): Option[Json] =
+  private def definedToJson(a: Any, dt: rankn.DefinedType, rec: (Any, NType) => Option[Json]): Option[Json] =
     if (dt.packageName == Predef.packageName) {
       dt.name.asString match {
         case "Option" =>
@@ -223,7 +232,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
               Some(Json.JNull)
             case (1, v :: Nil) =>
               dt.constructors match {
-                case _ :: ((ConstructorName("Some"), (_, t) :: Nil)) :: Nil =>
+                case _ :: ((ConstructorName("Some"), (_, t) :: Nil, _)) :: Nil =>
                   rec(v, t)
                 case other =>
                   sys.error(s"expect to find Some constructor for $v: $other")
@@ -245,7 +254,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         case "List" =>
           // convert the list into a JArray
           val tpe = dt.constructors match {
-            case _ :: ((ConstructorName("NonEmptyList"), (_, t) :: (_, _) :: Nil)) :: Nil => t
+            case _ :: ((ConstructorName("NonEmptyList"), (_, t) :: (_, _) :: Nil, _)) :: Nil => t
             case other => sys.error(s"unexpected constructors for list: $other")
           }
 
@@ -271,7 +280,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       a match {
         case (variant: Int, parts: List[Any]) =>
           val cons = dt.constructors
-          cons.lift(variant).flatMap { case (_, params) =>
+          cons.lift(variant).flatMap { case (_, params, _) =>
             parts.zip(params).traverse { case (a1, (ParamName(pn), t)) =>
               rec(a1, t).map((pn, _))
             }
@@ -283,66 +292,68 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       }
     }
 
-  def toJson(a: Any, schm: Scheme): Option[Json] =
-    toType[Json](a, schm.result)(definedToJson(_, _, _))
+  def toJson(a: Any, tpe: NType): Option[Json] =
+    toType[Json](a, tpe)(definedToJson(_, _, _))
 
-  def toType[T](a: Any, t: Type)(fn: (Any, DefinedType, (Any, Type) => Option[T]) => Option[T]): Option[T] = {
-    def defined(pn: PackageName, t: TypeName): Option[DefinedType] =
+  def toType[T](a: Any, t: NType)(fn: (Any, rankn.DefinedType, (Any, NType) => Option[T]) => Option[T]): Option[T] = {
+    def defined(pn: PackageName, t: TypeName): Option[rankn.DefinedType] =
       for {
         pack <- pm.toMap.get(pn)
         dts = pack.program.types.definedTypes
         dt <- dts.get((pn, t))
       } yield dt
 
-    def applyDT(dt: DefinedType, arg: Type): DefinedType =
+    def applyDT(dt: rankn.DefinedType, arg: Type): rankn.DefinedType =
       dt.typeParams match {
-        case Type.Var(h) :: rest =>
-          val subst = Subst(Map(h -> arg))
-          val dt0 = dt.copy(typeParams = rest)
-          Substitutable[DefinedType].apply(subst, dt0)
+        case NType.Var.Bound(h) :: rest =>
+          // val subst = Subst(Map(h -> arg))
+          // val dt0 = dt.copy(typeParams = rest)
+          // Substitutable[rankn.DefinedType].apply(subst, dt0)
+          ???
         case _ => sys.error(s"ill-typed no typeparams: $dt, $arg")
       }
 
-    def applyT(t: Type, arg: Type): Either[Type, DefinedType] =
-      t match {
-        case Type.Arrow(_, _) => sys.error(s"ill-typed: $t[$arg]")
-        case Type.TypeApply(t0, a0) =>
-          applyT(t0, a0) match {
-            case Right(dt) =>
-              Right(applyDT(dt, arg))
-            case Left(t) =>
-              Left(Type.TypeApply(t, arg))
-          }
-        case Type.Declared(pn, typeName) =>
-          val dt = defined(pn, TypeName(typeName)).getOrElse(sys.error(s"ill-typed: unknown $t"))
-          Right(applyDT(dt, arg))
-        case v@Type.Var(_) =>
-          Left(Type.TypeApply(v, arg))
-        case Type.TypeLambda(param, expr) =>
-          // the param == arg in the expr
-          sys.error(s"TODO: let $param = $arg in $expr")
-      }
+    def applyT(t: rankn.Type, arg: rankn.Type): Either[rankn.Type, rankn.DefinedType] =
+      //t match {
+        // case Type.Arrow(_, _) => sys.error(s"ill-typed: $t[$arg]")
+        // case Type.TypeApply(t0, a0) =>
+        //   applyT(t0, a0) match {
+        //     case Right(dt) =>
+        //       Right(applyDT(dt, arg))
+        //     case Left(t) =>
+        //       Left(Type.TypeApply(t, arg))
+        //   }
+        // case Type.Declared(pn, typeName) =>
+        //   val dt = defined(pn, TypeName(typeName)).getOrElse(sys.error(s"ill-typed: unknown $t"))
+        //   Right(applyDT(dt, arg))
+        // case v@Type.Var(_) =>
+        //   Left(Type.TypeApply(v, arg))
+        // case Type.TypeLambda(param, expr) =>
+        //   // the param == arg in the expr
+        //   sys.error(s"TODO: let $param = $arg in $expr")
+      //}
+      ???
 
-    def loop(a: Any, t: Type): Option[T] = {
+    def loop(a: Any, t: NType): Option[T] = {
       t match {
-        case Type.Arrow(_, _) =>
+        case rankn.Type.Fun(_, _) =>
           // We can't convert a function to Json
           None
-        case Type.Declared(pn, typeName) =>
+        case rankn.Type.TyConst(rankn.Type.Const.Defined(pn, typeName)) =>
           defined(pn, TypeName(typeName))
             .flatMap(fn(a, _, toType[T](_, _)(fn)))
-        case Type.TypeApply(tpe, arg) =>
+        case rankn.Type.TyApply(tpe, arg) =>
           applyT(tpe, arg) match {
             case Right(dt) =>
               fn(a, dt, toType[T](_, _)(fn))
             case Left(t) =>
               sys.error(s"expected a defined type. Found: $t")
           }
-        case Type.Var(_) =>
+        case rankn.Type.TyVar(_) | rankn.Type.TyMeta(_) =>
           // we should have fully resolved the type
           sys.error(s"should have fully resolved the type of: $a: $t")
-        case Type.TypeLambda(_, _) =>
-          sys.error(s"unexepected type lambda: $a has type $t")
+        case rankn.Type.ForAll(_, _) =>
+          sys.error(s"unexpected type universally quantified: $a has type $t")
       }
     }
     loop(a, t)

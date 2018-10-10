@@ -2,13 +2,45 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import org.scalatest.FunSuite
-import org.bykn.bosatsu.{Expr, Lit, PackageName, Pattern, ConstructorName}
+import org.bykn.bosatsu.{Expr, Lit, PackageName, Package, Pattern, TypeRef, ConstructorName, Statement}
+
+import fastparse.all.Parsed
 
 import Expr._
 import Type.Var.Bound
 import Type.ForAll
 
 class RankNInferTest extends FunSuite {
+
+  private def strToConst(str: String): Type.Const =
+    str match {
+      case "Int" => Type.Const.predef("Int")
+      case "String" => Type.Const.predef("String")
+      case s =>
+        Type.Const.Defined(PackageName.parts("Test"), s)
+    }
+
+  def typeFrom(str: String): Type =
+    TypeRef.parser.parse(str) match {
+      case Parsed.Success(typeRef, _) =>
+        typeRef.toNType(strToConst _)
+      case Parsed.Failure(exp, idx, extra) =>
+        sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
+    }
+
+  def runUnify(left: String, right: String) = {
+    val t1 = typeFrom(left)
+    val t2 = typeFrom(right)
+
+    Infer.substitutionCheck(t1, t2)
+      .runFully(Map.empty, Map.empty)
+  }
+
+  def assertTypesUnify(left: String, right: String) =
+    assert(runUnify(left, right).isRight, s"$left does not unify with $right")
+
+  def assertTypesDisjoint(left: String, right: String) =
+    assert(runUnify(left, right).isLeft, s"$left unexpectedly unifies with $right")
 
   def defType(n: String): Type.Const.Defined =
     Type.Const.Defined(PackageName.parts("Test"), n)
@@ -36,6 +68,7 @@ class RankNInferTest extends FunSuite {
           }
       }
 
+
   def lit(i: Int): Expr[Unit] = Literal(Lit(i), ())
   def lit(b: Boolean): Expr[Unit] = if (b) Var("True", ()) else Var("False", ())
   def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] = Let(n, expr, in, ())
@@ -54,6 +87,38 @@ class RankNInferTest extends FunSuite {
         (p1, e)
       },
       ())
+
+  /**
+   * Check that a no import program has a given type
+   */
+  def parseProgram(statement: String, tpe: String) =
+    Statement.parser.parse(statement) match {
+      case Parsed.Success(stmt, _) =>
+        Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
+          case Left(err) => fail(err.message)
+          case Right((tpeEnv, lets)) =>
+            val parsedType = typeFrom(tpe)
+            assert(lets.last._2.getType == parsedType)
+        }
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
+    }
+
+  test("assert some basic unifications") {
+    assertTypesUnify("forall a. a", "forall b. b")
+    assertTypesUnify("forall a. a", "Int")
+    assertTypesUnify("forall a, b. a -> b", "forall b. b -> Int")
+    assertTypesUnify("forall a, b. a -> b", "forall b, c. b -> (c -> Int)")
+    // assertTypesUnify("(forall a. a)[Int]", "Int")
+    // assertTypesUnify("(forall a. Int)[b]", "Int")
+    assertTypesUnify("forall a, f. f[a]", "forall x. List[x]")
+    //assertTypesUnify("(forall a, b. a -> b)[x, y]", "z -> w")
+
+    assertTypesDisjoint("Int", "String")
+    assertTypesDisjoint("Int -> Unit", "String")
+    assertTypesDisjoint("Int -> Unit", "String -> a")
+    //assertTypesDisjoint("forall a. Int", "Int") // the type on the left has * -> * but the right is *
+  }
 
   test("Basic inferences") {
 
@@ -89,7 +154,7 @@ class RankNInferTest extends FunSuite {
         ("y", v("x"), Type.IntType)))
   }
 
-  test("matche inference") {
+  test("match inference") {
     testType(
       matche(lit(10),
         NonEmptyList.of(
@@ -109,16 +174,25 @@ class RankNInferTest extends FunSuite {
           )), Type.IntType)
   }
 
-  test("matche with custom non-generic types") {
-    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
-    def tv(a: String): Type = Type.TyVar(b(a))
-
+  object OptionTypes {
     val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 
+    val pn = PackageName.parts("Test")
     val definedOption = Map(
-      ("Some", (Nil, List(Type.IntType), optName)),
-      ("None", (Nil, Nil, optName)))
+      ((pn, ConstructorName("Some")), (Nil, List(Type.IntType), optName)),
+      ((pn, ConstructorName("None")), (Nil, Nil, optName)))
+
+    val definedOptionGen = Map(
+      ((pn, ConstructorName("Some")), (List(Bound("a")), List(Type.TyVar(Bound("a"))), optName)),
+      ((pn, ConstructorName("None")), (List(Bound("a")), Nil, optName)))
+  }
+
+  test("match with custom non-generic types") {
+    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
+    def tv(a: String): Type = Type.TyVar(b(a))
+
+    import OptionTypes._
 
     val constructors = Map(
       ("Some", Type.Fun(Type.IntType, optType))
@@ -156,16 +230,11 @@ class RankNInferTest extends FunSuite {
           )))
   }
 
-  test("matche with custom generic types") {
+  test("match with custom generic types") {
     def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
     def tv(a: String): Type = Type.TyVar(b(a))
 
-    val optName = defType("Option")
-    val optType: Type.Tau = Type.TyConst(optName)
-
-    val definedOption = Map(
-      ("Some", (List(b("a")), List(tv("a")), optName)),
-      ("None", (List(b("a")), Nil, optName)))
+    import OptionTypes._
 
     val constructors = Map(
       ("Some", Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
@@ -173,13 +242,13 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithOpt(term: Expr[_], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
+      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOptionGen) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt(term: Expr[_]) =
-      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
+      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOptionGen) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -220,15 +289,16 @@ class RankNInferTest extends FunSuite {
     val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 
+    val pn = PackageName.parts("Test")
     /**
      * struct Pure(pure: forall a. a -> f[a])
      */
     val defined = Map(
-      ("Pure", (List(b("f")),
+      ((pn, ConstructorName("Pure")), (List(b("f")),
         List(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
-      ("Some", (List(b("a")), List(tv("a")), optName)),
-      ("None", (List(b("a")), Nil, optName)))
+      ((pn, ConstructorName("Some")), (List(b("a")), List(tv("a")), optName)),
+      ((pn, ConstructorName("None")), (List(b("a")), Nil, optName)))
 
     val constructors = Map(
       ("Pure", Type.ForAll(NonEmptyList.of(b("f")),
@@ -248,8 +318,87 @@ class RankNInferTest extends FunSuite {
       app(v("Pure"), v("Some")), Type.TyApply(Type.TyConst(pureName), optType))
   }
 
-  test("test all binders") {
-    assert(Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
-      ("a" #:: Stream.iterate(0)(_ + 1).map { i => s"a$i" }).take(100))
+  test("test inference of basic expressions") {
+    parseProgram("""#
+main = (\x -> x)(1)
+""", "Int")
+
+    parseProgram("""#
+x = 1
+y = x
+main = y
+""", "Int")
+  }
+
+  test("test inference with some defined types") {
+    parseProgram("""#
+struct Unit
+
+main = Unit
+""", "Unit")
+
+    parseProgram("""#
+enum Option:
+  None
+  Some(a)
+
+main = Some(1)
+""", "Option[Int]")
+
+    parseProgram("""#
+enum Option:
+  None
+  Some(a)
+
+main = Some
+""", "forall a. a -> Option[a]")
+
+   parseProgram("""#
+enum Option:
+  None
+  Some(a)
+
+x = Some(1)
+main = match x:
+  None:
+    0
+  Some(y):
+    y
+""", "Int")
+
+  // TODO this does not unify with rankn types
+   parseProgram("""#
+enum List:
+  Empty
+  NonEmpty(a: a, tail: List[a])
+
+x = NonEmpty(1, Empty)
+#x = Empty
+main = match x:
+  Empty:
+    0
+  NonEmpty(y, z):
+    y
+""", "Int")
+
+   parseProgram("""#
+enum Opt:
+  None
+  Some(a)
+
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+
+def optPure(a):
+  Some(a)
+
+def optBind(opt, bindFn):
+  match opt:
+    None:
+      None
+    Some(a):
+      bindFn(a)
+
+main = Monad(optPure, optBind)
+""", "Monad[Opt]")
   }
 }
