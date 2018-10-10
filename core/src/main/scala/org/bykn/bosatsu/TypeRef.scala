@@ -37,29 +37,6 @@ sealed abstract class TypeRef {
           Doc.char('.') + Doc.space + expr.toDoc
     }
 
-  def toType(p: PackageName): Type =
-    this match {
-      case TypeVar(v) => Type.Var(v)
-      case TypeName(n) => Type.Declared(p, n)
-      case TypeArrow(a, b) => Type.Arrow(a.toType(p), b.toType(p))
-      case TypeApply(a, bs) =>
-        def loop(fn: Type, args: NonEmptyList[TypeRef]): Type =
-          args match {
-            case NonEmptyList(a0, Nil) => Type.TypeApply(fn, a0.toType(p))
-            case NonEmptyList(a0, a1 :: as) => loop(Type.TypeApply(fn, a0.toType(p)), NonEmptyList(a1, as))
-          }
-        loop(a.toType(p), bs)
-      case TypeLambda(pars, e) =>
-        def loop(args: NonEmptyList[TypeVar], expr: Type): Type =
-          args match {
-            case NonEmptyList(TypeVar(a0), Nil) =>
-              Type.TypeLambda(a0, expr)
-            case NonEmptyList(TypeVar(a0), a1 :: as) =>
-              loop(NonEmptyList(a1, as), Type.TypeLambda(a0, expr))
-          }
-        loop(pars.reverse, e.toType(p))
-    }
-
   def toNType(nameToType: String => NType.Const): NType = {
     import rankn.Type._
     def loop(t: TypeRef): NType =

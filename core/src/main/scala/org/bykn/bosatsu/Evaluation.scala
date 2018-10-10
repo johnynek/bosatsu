@@ -6,15 +6,15 @@ import com.stripe.dagon.Memoize
 import cats.Eval
 import cats.implicits._
 
-import org.bykn.bosatsu.rankn.{Type => NType}
+import org.bykn.bosatsu.rankn.Type
 
 case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
-  def evaluate(p: PackageName, varName: String): Option[(Eval[Any], NType)] =
+  def evaluate(p: PackageName, varName: String): Option[(Eval[Any], Type)] =
     pm.toMap.get(p).map { pack =>
       eval((Package.asInferred(pack), Left(varName), Map.empty))
     }
 
-  def evaluateLast(p: PackageName): Option[(Eval[Any], NType)] =
+  def evaluateLast(p: PackageName): Option[(Eval[Any], Type)] =
     for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
@@ -67,11 +67,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   private type Ref = Either[String, TypedExpr[Declaration]]
 
   private def evalBranch(arg: Any,
-    tpe: NType,
+    tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[Declaration])],
     p: Package.Inferred,
     env: Map[String, Any],
-    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], NType)): Eval[Any] =
+    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Type)): Eval[Any] =
 
     Eval.defer {
       val dtConst@rankn.Type.TyConst(rankn.Type.Const.Defined(pn0, tn)) =
@@ -129,7 +129,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   private def evalTypedExpr(p: Package.Inferred,
     expr: TypedExpr[Declaration],
     env: Map[String, Any],
-    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], NType)): (Eval[Any], NType) = {
+    recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Type)): (Eval[Any], Type) = {
 
     import TypedExpr._
 
@@ -182,8 +182,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], NType) =
-    Memoize.function[(Package.Inferred, Ref, Map[String, Any]), (Eval[Any], NType)] {
+  private[this] val eval: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Type) =
+    Memoize.function[(Package.Inferred, Ref, Map[String, Any]), (Eval[Any], Type)] {
       case ((pack, Right(expr), env), recurse) =>
         evalTypedExpr(pack, expr, env, recurse)
       case ((pack, Left(item), env), recurse) =>
@@ -223,7 +223,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     loop(arity, Nil)
   }
 
-  private def definedToJson(a: Any, dt: rankn.DefinedType, rec: (Any, NType) => Option[Json]): Option[Json] =
+  private def definedToJson(a: Any, dt: rankn.DefinedType, rec: (Any, Type) => Option[Json]): Option[Json] =
     if (dt.packageName == Predef.packageName) {
       dt.name.asString match {
         case "Option" =>
@@ -292,10 +292,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       }
     }
 
-  def toJson(a: Any, tpe: NType): Option[Json] =
+  def toJson(a: Any, tpe: Type): Option[Json] =
     toType[Json](a, tpe)(definedToJson(_, _, _))
 
-  def toType[T](a: Any, t: NType)(fn: (Any, rankn.DefinedType, (Any, NType) => Option[T]) => Option[T]): Option[T] = {
+  def toType[T](a: Any, t: Type)(fn: (Any, rankn.DefinedType, (Any, Type) => Option[T]) => Option[T]): Option[T] = {
     def defined(pn: PackageName, t: TypeName): Option[rankn.DefinedType] =
       for {
         pack <- pm.toMap.get(pn)
@@ -305,7 +305,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
     def applyDT(dt: rankn.DefinedType, arg: Type): rankn.DefinedType =
       dt.typeParams match {
-        case NType.Var.Bound(h) :: rest =>
+        case Type.Var.Bound(h) :: rest =>
           // val subst = Subst(Map(h -> arg))
           // val dt0 = dt.copy(typeParams = rest)
           // Substitutable[rankn.DefinedType].apply(subst, dt0)
@@ -334,7 +334,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       //}
       ???
 
-    def loop(a: Any, t: NType): Option[T] = {
+    def loop(a: Any, t: Type): Option[T] = {
       t match {
         case rankn.Type.Fun(_, _) =>
           // We can't convert a function to Json
