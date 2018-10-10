@@ -45,9 +45,9 @@ lazy val commonSettings = Seq(
     "-Ywarn-nullary-override",           // Warn when non-nullary `def f()' overrides nullary `def f'.
     "-Ywarn-nullary-unit",               // Warn when nullary methods return Unit.
     "-Ywarn-numeric-widen",              // Warn when numerics are widened.
+    "-Ywarn-unused-import",             // Warn if an import selector is not referenced.
     //"-Ywarn-unused",
     //"-Ywarn-unused:implicits",           // Warn if an implicit parameter is unused.
-    //"-Ywarn-unused:imports",             // Warn if an import selector is not referenced.
     /* "-Ywarn-unused:locals",              // Warn if a local definition is unused. */
     /* "-Ywarn-unused:params",              // Warn if a value parameter is unused. */
     /* "-Ywarn-unused:patvars",             // Warn if a variable bound in a pattern is unused. */

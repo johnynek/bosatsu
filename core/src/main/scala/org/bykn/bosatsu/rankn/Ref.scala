@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
+
 import cats.{Eval, Monad}
-import cats.data.State
 // java HashMap performs better than scala in most benchmarks
 import java.util.{HashMap => MutableMap}
 

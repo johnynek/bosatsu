@@ -1,6 +1,5 @@
 package org.bykn.bosatsu.rankn
 
-import cats.data.NonEmptyList
 import org.bykn.bosatsu.{ConstructorName, TypeName, PackageName, ParamName}
 
 case class DefinedType(

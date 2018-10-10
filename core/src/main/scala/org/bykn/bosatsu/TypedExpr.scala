@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Eval, Traverse}
+import cats.Applicative
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._

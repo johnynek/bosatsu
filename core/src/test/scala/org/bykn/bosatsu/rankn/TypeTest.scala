@@ -1,6 +1,5 @@
 package org.bykn.bosatsu.rankn
 
-import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.forAll
 import org.scalatest.FunSuite
