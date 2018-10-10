@@ -1,11 +1,10 @@
 package org.bykn.bosatsu
 
-import cats.data.{NonEmptyList, Validated, ValidatedNel}
-import cats.Foldable
+import cats.data.NonEmptyList
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
-import Parser.{lowerIdent, upperIdent, spaces, maybeSpace, Combinators}
+import Parser.{spaces, maybeSpace, Combinators}
 
 import rankn.Infer
 

@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces, escapedString, toEOL }
 import cats.data.NonEmptyList
-import cats.Functor
 import cats.implicits._
 import com.stripe.dagon.Memoize
 import fastparse.all._

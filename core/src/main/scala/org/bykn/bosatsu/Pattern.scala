@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{ Applicative, Functor }
+import cats.Applicative
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 

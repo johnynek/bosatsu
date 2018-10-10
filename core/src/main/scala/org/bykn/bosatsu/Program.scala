@@ -1,7 +1,6 @@
 package org.bykn.bosatsu
 
 import cats.evidence.Is
-import cats.data.NonEmptyList
 
 case class Program[D, S](types: rankn.TypeEnv, lets: List[(String, D)], from: S) {
   private[this] lazy val letMap: Map[String, D] = lets.toMap

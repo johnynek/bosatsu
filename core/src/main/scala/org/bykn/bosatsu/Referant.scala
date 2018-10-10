@@ -1,7 +1,6 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import cats.implicits._
 
 /**
  * A Referant is something that can be exported or imported after resolving

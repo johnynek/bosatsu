@@ -1,6 +1,5 @@
 package org.bykn.bosatsu
 
-import cats.Eq
 import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
 import cats.Eval
