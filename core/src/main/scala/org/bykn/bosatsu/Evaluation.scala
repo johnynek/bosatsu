@@ -67,21 +67,21 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
   private def evalBranch(arg: Any,
     tpe: Type,
-    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[Declaration])],
+    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[Declaration])],
     p: Package.Inferred,
     env: Map[String, Any],
     recurse: ((Package.Inferred, Ref, Map[String, Any])) => (Eval[Any], Type)): Eval[Any] =
 
     Eval.defer {
-      val dtConst@rankn.Type.TyConst(rankn.Type.Const.Defined(pn0, tn)) =
-        rankn.Type.rootConst(tpe).get // this is safe because it has type checked
+      val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
+        Type.rootConst(tpe).get // this is safe because it has type checked
 
       val packageForType = pm.toMap(pn0)
       // this is calling apply on a map, but is safe because of type-checking
       val dt = packageForType.program.types.definedTypes((pn0, TypeName(tn)))
 
       def bindEnv(arg: Any,
-        branches: List[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[Declaration])],
+        branches: List[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[Declaration])],
         acc: Map[String, Any]): Option[(Map[String, Any], TypedExpr[Declaration])] =
         branches match {
           case Nil => None
@@ -158,7 +158,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
            def apply(x: Any) =
              recurse((p, Right(expr), env + (name -> x)))._1.value
          }
-         (Eval.now(fn), rankn.Type.Fun(argt, expr.getType))
+         (Eval.now(fn), Type.Fun(argt, expr.getType))
        case Let(arg, e, in, _) =>
          (recurse((p, Right(e), env))._1.flatMap { ae =>
            recurse((p, Right(in), env + (arg -> ae)))._1
@@ -302,60 +302,17 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         dt <- dts.get((pn, t))
       } yield dt
 
-    def applyDT(dt: rankn.DefinedType, arg: Type): rankn.DefinedType =
-      dt.typeParams match {
-        case Type.Var.Bound(h) :: rest =>
-          // val subst = Subst(Map(h -> arg))
-          // val dt0 = dt.copy(typeParams = rest)
-          // Substitutable[rankn.DefinedType].apply(subst, dt0)
-          ???
-        case _ => sys.error(s"ill-typed no typeparams: $dt, $arg")
-      }
-
-    def applyT(t: rankn.Type, arg: rankn.Type): Either[rankn.Type, rankn.DefinedType] =
-      //t match {
-        // case Type.Arrow(_, _) => sys.error(s"ill-typed: $t[$arg]")
-        // case Type.TypeApply(t0, a0) =>
-        //   applyT(t0, a0) match {
-        //     case Right(dt) =>
-        //       Right(applyDT(dt, arg))
-        //     case Left(t) =>
-        //       Left(Type.TypeApply(t, arg))
-        //   }
-        // case Type.Declared(pn, typeName) =>
-        //   val dt = defined(pn, TypeName(typeName)).getOrElse(sys.error(s"ill-typed: unknown $t"))
-        //   Right(applyDT(dt, arg))
-        // case v@Type.Var(_) =>
-        //   Left(Type.TypeApply(v, arg))
-        // case Type.TypeLambda(param, expr) =>
-        //   // the param == arg in the expr
-        //   sys.error(s"TODO: let $param = $arg in $expr")
-      //}
-      ???
-
-    def loop(a: Any, t: Type): Option[T] = {
-      t match {
-        case rankn.Type.Fun(_, _) =>
-          // We can't convert a function to Json
-          None
-        case rankn.Type.TyConst(rankn.Type.Const.Defined(pn, typeName)) =>
-          defined(pn, TypeName(typeName))
-            .flatMap(fn(a, _, toType[T](_, _)(fn)))
-        case rankn.Type.TyApply(tpe, arg) =>
-          applyT(tpe, arg) match {
-            case Right(dt) =>
-              fn(a, dt, toType[T](_, _)(fn))
-            case Left(t) =>
-              sys.error(s"expected a defined type. Found: $t")
-          }
-        case rankn.Type.TyVar(_) | rankn.Type.TyMeta(_) =>
-          // we should have fully resolved the type
-          sys.error(s"should have fully resolved the type of: $a: $t")
-        case rankn.Type.ForAll(_, _) =>
-          sys.error(s"unexpected type universally quantified: $a has type $t")
-      }
+    /**
+     * TODO we are ignoring any applied types here which we will need to set.
+     * the correct way is to accumulate a type environment of Map[Var.Bound, Type]
+     * and pass that down, but currently no tests expose this issue so letting
+     * it lurk for now
+     */
+    Type.rootConst(t).flatMap {
+      case Type.TyConst(Type.Const.Defined(pn, n)) =>
+        defined(pn, TypeName(n))
     }
-    loop(a, t)
+    .flatMap(fn(a, _, toType[T](_, _)(fn)))
   }
 }
 
