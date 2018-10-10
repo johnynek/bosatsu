@@ -1,15 +1,17 @@
 package org.bykn.bosatsu
 
+import org.bykn.bosatsu.rankn.Type
+
 sealed abstract class Operator(val asString: String, val tpe: Type)
 object Operator {
   private val intintint =
-    Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.intT))
+    Type.Fun(Type.IntType, Type.Fun(Type.IntType, Type.IntType))
 
   case object Plus extends Operator("+", intintint)
   case object Sub extends Operator("-", intintint)
   case object Mul extends Operator("*", intintint)
   case object Eql extends Operator("==",
-    Type.Arrow(Type.intT, Type.Arrow(Type.intT, Type.boolT)))
+    Type.Fun(Type.IntType, Type.Fun(Type.IntType, Type.BoolType)))
 
   def typeOf(o: Operator): Type = o.tpe
 

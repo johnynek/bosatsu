@@ -10,6 +10,8 @@ import java.io.PrintWriter
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
 
+import org.bykn.bosatsu.rankn.Type
+
 trait CodeGen {
   import TypedExpr._
   import CodeGen._
@@ -176,11 +178,11 @@ trait CodeGen {
       t <- out(id0).local { s: Scope => Scope(s.toMap.updated(n, id0)) }
     } yield t
 
-  def outputExternal(n: String, apicall: FfiCall, scheme: Scheme): Output[Unit] = {
+  def outputExternal(n: String, apicall: FfiCall, tpe: Type): Output[Unit] = {
     def getArity(t: Type): Int = {
       def loop(t: Type, top: Boolean): Int = {
         t match {
-          case Type.Arrow(a, b) if top =>
+          case Type.Fun(a, b) if top =>
             loop(a, false) + loop(b, top)
           case _ => 1 // inner functions are just functions Objects
         }
@@ -188,7 +190,7 @@ trait CodeGen {
       loop(t, true)
     }
 
-    val arity = getArity(scheme.result)
+    val arity = getArity(tpe)
     assert((n, apicall, arity) != null)
           // case Some(NameKind.ExternalDef(p, n, scheme)) =>
           //   outputExternal(n, ext.toMap((p, n)), scheme)
