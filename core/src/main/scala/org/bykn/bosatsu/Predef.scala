@@ -46,6 +46,7 @@ object Predef {
         "TestList",
         "add",
         "eq_Int",
+        "foldLeft",
         "sub",
         "times"
         )
@@ -58,6 +59,7 @@ object Predef {
       .add(predefPackage.name, "sub", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.sub"))
       .add(predefPackage.name, "times", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.times"))
       .add(predefPackage.name, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.eq_Int"))
+      .add(predefPackage.name, "foldLeft", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.foldLeft"))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -70,16 +72,38 @@ object PredefImpl {
   val True: AnyRef = (1, Nil)
   val False: AnyRef = (0, Nil)
 
-  def add(a: JInteger, b: JInteger): JInteger =
-    JInteger.valueOf(a.intValue + b.intValue)
+  private def i(a: Any): JInteger = a.asInstanceOf[JInteger]
 
-  def sub(a: JInteger, b: JInteger): JInteger =
-    JInteger.valueOf(a.intValue - b.intValue)
+  def add(a: Any, b: Any): Any =
+    JInteger.valueOf(i(a).intValue + i(b).intValue)
 
-  def times(a: JInteger, b: JInteger): JInteger =
-    JInteger.valueOf(a.intValue * b.intValue)
+  def sub(a: Any, b: Any): Any =
+    JInteger.valueOf(i(a).intValue - i(b).intValue)
 
-  def eq_Int(a: JInteger, b: JInteger): AnyRef =
-    if (a.intValue == b.intValue) True else False
+  def times(a: Any, b: Any): Any =
+    JInteger.valueOf(i(a).intValue * i(b).intValue)
+
+  def eq_Int(a: Any, b: Any): Any =
+    if (i(a).intValue == i(b).intValue) True else False
+
+  def foldLeft(list: Any, bv: Any, fn: Any): Any = {
+    val fnT = fn.asInstanceOf[Fn[Any, Fn[Any, Any]]]
+    @annotation.tailrec
+    def loop(list: Any, bv: Any): Any =
+      list match {
+        case (0, _) =>
+          // Empty
+          println(s"empty: $bv, $list")
+          bv
+        case (1, head :: tail :: Nil) =>
+          val nextBv = fnT(bv)(head)
+          println(s"nonempty: $bv, $head, $tail, $nextBv")
+          loop(tail, fnT(bv)(head))
+        case _ => sys.error(s"unexpected: $list")
+      }
+
+    println(s"foldLeft($list, $bv, $fn)")
+    loop(list, bv)
+  }
 }
 

@@ -76,10 +76,24 @@ x = Some(1)
 
 z = match x:
   Some(v):
-    v
+    add(v, 10)
   None:
     0
-"""), "Foo", 1)
+"""), "Foo", 11)
+  }
+
+  test("do a fold") {
+    evalTest(
+      List("""
+package Foo
+
+three = NonEmptyList(1, NonEmptyList(2, EmptyList))
+
+sum0 = three.foldLeft(0, add)
+sum1 = three.foldLeft(0, \x, y -> add(x, y))
+
+same = sum0.eq_Int(sum1)
+"""), "Foo", PredefImpl.True)
   }
 
   test("exercise struct creation") {
