@@ -104,9 +104,7 @@ package Foo
 
 three = NonEmptyList(1, NonEmptyList(2, EmptyList))
 
-# passing the external directly fails
 sum0 = three.foldLeft(0, add)
-# this passes
 sum1 = three.foldLeft(0, \x, y -> add(x, y))
 
 same = sum0.eq_Int(sum1)
