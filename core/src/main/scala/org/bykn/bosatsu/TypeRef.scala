@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace }
+import cats.Applicative
 import cats.data.NonEmptyList
 import cats.implicits._
 import fastparse.all._
@@ -87,23 +88,30 @@ object TypeRef {
 
   case class TypeLambda(params: NonEmptyList[TypeVar], in: TypeRef) extends TypeRef
 
-  def fromType(tpe: Type): Option[TypeRef] = {
+  def fromType(tpe: Type): Option[TypeRef] =
+    fromTypeA[Option](tpe, None) {
+      case Type.Const.Defined(pn, n) =>
+        Some(TypeName(s"${pn.asString}#$n"))
+    }
+
+  def fromTypeA[F[_]: Applicative](tpe: Type, orElse: F[TypeRef])(fn: Type.Const.Defined => F[TypeRef]): F[TypeRef] = {
     import rankn.Type._
+    def loop(tpe: Type) = fromTypeA(tpe, orElse)(fn)
     tpe match {
       case ForAll(vs, in) =>
         val args = vs.map { case Type.Var.Bound(b) => TypeVar(b) }
-        fromType(in).map(TypeLambda(args, _))
-      case TyConst(Type.Const.Defined(pn, n)) =>
-        Some(TypeName(s"${pn.asString}#$n"))
-      case TyVar(Type.Var.Bound(v)) => Some(TypeVar(v))
+        loop(in).map(TypeLambda(args, _))
+      case TyConst(defined@Type.Const.Defined(_, _)) => fn(defined)
+      case TyVar(Type.Var.Bound(v)) =>
+        Applicative[F].pure(TypeVar(v))
       case TyApply(on, arg) =>
-        (fromType(on), fromType(arg)).mapN {
+        (loop(on), loop(arg)).mapN {
           case (TypeApply(of, args1), arg) =>
             TypeApply(of, args1 :+ arg)
           case (of, arg1) =>
             TypeApply(of, NonEmptyList(arg1, Nil))
         }
-      case TyVar(Type.Var.Skolem(_, _)) | TyMeta(_) => None
+      case TyVar(Type.Var.Skolem(_, _)) | TyMeta(_) => orElse
     }
   }
 
