@@ -18,9 +18,8 @@ def inc(x):
   add(x, 1)
 ```
 
-Bosatsu is statically typed using the
-[Hindley-Milner](https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system) (or Damas-Milner) type system.
-This means except when defining data types, users never need to add explicit type annotations (though on
+Bosatsu is statically typed using the algorithm of [Practical type inference for arbitrary-rank types by Jones et. al](https://www.microsoft.com/en-us/research/publication/practical-type-inference-for-arbitrary-rank-types/).
+This means except when defining data types, users generally never need to add explicit type annotations (though on
 defs they are permitted as documentation).
 
 Bosatsu borrows a Rust-like syntax for data types, of which there are two: struct and enum:
@@ -141,7 +140,7 @@ and instead supply functions to work with types.
 
 ## Use cases
 
-Currently we have only implemented type-checking, the package system, and an interpretter to evalute expressions. This could
+Currently we have only implemented type-checking, the package system, and an interpreter to evalute expressions. This could
 already be useful if you want to give some programmability to configuration that can load, type-check and evaluate the configuration
 before executing the rest of the scala or java code.
 
@@ -164,5 +163,4 @@ We would like to implement a number of features:
 
 1. a REPL
 2. a java backend and bazel rules which can call java and scala functions
-3. expand the type inference to rank-n types using the algorithm of [Practical type inference for arbitrary-rank types by Jones et. al](https://www.microsoft.com/en-us/research/publication/practical-type-inference-for-arbitrary-rank-types/)
-4. a skylark backend to allow writing strongly typed bazel rules compiling to untyped skylark
+3. a skylark backend to allow writing strongly typed bazel rules compiling to untyped skylark
