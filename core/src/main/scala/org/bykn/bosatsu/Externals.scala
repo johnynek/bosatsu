@@ -28,22 +28,21 @@ sealed abstract class FfiCall {
     Eval.later {
       val cls = Class.forName(clsName)
       val args = FfiCall.getJavaType(t).toArray
-      //println(s"$this $t -> ${args.toList}")
       val m = cls.getMethod(parts.last, args.init :_*)
       val inst = instFn(cls)
 
       def invoke(tpe: rankn.Type, args: List[Any]): Any =
         tpe match {
           case rankn.Type.ForAll(_, t) => invoke(t, args)
-          case rankn.Type.Fun(_, tail) =>
+          case rankn.Type.Fun(a, tail) =>
             new Fn[Any, Any] {
+              val tpeStr = TypeRef.fromType(tpe).get.toDoc.render(80)
+              override def toString = s"$tpeStr, args: $args"
               def apply(x: Any) = {
-                println(s"x = $x")
                 invoke(tail, x :: args)
               }
             }
           case _ =>
-            println(s"$m.invoke(${args.reverse})")
             m.invoke(inst, args.reverse.toArray.asInstanceOf[Array[AnyRef]]: _*)
         }
 

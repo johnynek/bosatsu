@@ -2,9 +2,10 @@ package org.bykn.bosatsu
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace }
 import cats.data.NonEmptyList
+import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
-import org.bykn.bosatsu.rankn.{Type => NType}
+import org.bykn.bosatsu.rankn.Type
 
 /**
  * This AST is the syntactic version of Type
@@ -37,15 +38,15 @@ sealed abstract class TypeRef {
           Doc.char('.') + Doc.space + expr.toDoc
     }
 
-  def toNType(nameToType: String => NType.Const): NType = {
+  def toType(nameToType: String => Type.Const): Type = {
     import rankn.Type._
-    def loop(t: TypeRef): NType =
+    def loop(t: TypeRef): Type =
       t match {
-        case TypeVar(v) => TyVar(NType.Var.Bound(v))
+        case TypeVar(v) => TyVar(Type.Var.Bound(v))
         case TypeName(n) => TyConst(nameToType(n))
         case TypeArrow(a, b) => Fun(loop(a), loop(b))
         case TypeApply(a, bs) =>
-          def loop1(fn: NType, args: NonEmptyList[TypeRef]): NType =
+          def loop1(fn: Type, args: NonEmptyList[TypeRef]): Type =
             args match {
               case NonEmptyList(a0, Nil) => TyApply(fn, loop(a0))
               case NonEmptyList(a0, a1 :: as) => loop1(TyApply(fn, loop(a0)), NonEmptyList(a1, as))
@@ -55,7 +56,7 @@ sealed abstract class TypeRef {
           // we normalize to lifting all the foralls to the outside
           loop(TypeLambda(pars0 ::: pars1, e))
         case TypeLambda(pars, e) =>
-          ForAll(pars.map { case TypeVar(v) => NType.Var.Bound(v) }, loop(e))
+          ForAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }, loop(e))
       }
 
     loop(this)
@@ -85,6 +86,26 @@ object TypeRef {
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
   case class TypeLambda(params: NonEmptyList[TypeVar], in: TypeRef) extends TypeRef
+
+  def fromType(tpe: Type): Option[TypeRef] = {
+    import rankn.Type._
+    tpe match {
+      case ForAll(vs, in) =>
+        val args = vs.map { case Type.Var.Bound(b) => TypeVar(b) }
+        fromType(in).map(TypeLambda(args, _))
+      case TyConst(Type.Const.Defined(pn, n)) =>
+        Some(TypeName(s"${pn.asString}#$n"))
+      case TyVar(Type.Var.Bound(v)) => Some(TypeVar(v))
+      case TyApply(on, arg) =>
+        (fromType(on), fromType(arg)).mapN {
+          case (TypeApply(of, args1), arg) =>
+            TypeApply(of, args1 :+ arg)
+          case (of, arg1) =>
+            TypeApply(of, NonEmptyList(arg1, Nil))
+        }
+      case TyVar(Type.Var.Skolem(_, _)) | TyMeta(_) => None
+    }
+  }
 
   lazy val parser: P[TypeRef] = {
     val tvar = lowerIdent.map(TypeVar(_))

@@ -67,7 +67,7 @@ object Program {
           val (lam, Program(te, binds, _)) = defstmt.result match {
             case (Padding(_, Indented(_, body)), Padding(_, in)) =>
               // using body for the outer here is a bummer, but not really a good outer otherwise
-              val l = defstmt.toLambdaExpr(declToE(body), body)(_.toNType(nameToType))
+              val l = defstmt.toLambdaExpr(declToE(body), body)(_.toType(nameToType))
               (l, loop(in))
           }
           Program(te, (defstmt.name, lam) :: binds, stmt)
@@ -81,10 +81,10 @@ object Program {
           val tpe: rankn.Type = {
             def buildType(ts: List[rankn.Type]): rankn.Type =
               ts match {
-                case Nil => result.toNType(nameToType)
+                case Nil => result.toType(nameToType)
                 case h :: tail => rankn.Type.Fun(h, buildType(tail))
               }
-            buildType(params.map(_._2.toNType(nameToType)))
+            buildType(params.map(_._2.toType(nameToType)))
           }
           val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
           // these vars were parsed so they are never skolem vars

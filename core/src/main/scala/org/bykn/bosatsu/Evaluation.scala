@@ -153,8 +153,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
            afn = fn.asInstanceOf[Fn[Any, Any]] // safe because we typecheck
            a <- earg
          } yield afn(a), resT)
-       case AnnotatedLambda(name, argt, expr, _) =>
+       case a@AnnotatedLambda(name, argt, expr, _) =>
          val fn = new Fn[Any, Any] {
+           override def toString = a.repr
            def apply(x: Any) =
              recurse((p, Right(expr), env + (name -> x)))._1.value
          }
@@ -216,6 +217,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     def loop(param: Int, args: List[Any]): Any =
       if (param == 0) (enum, args.reverse)
       else new Fn[Any, Any] {
+        override def toString = s"Constructor($c, $dt)"
         def apply(a: Any) = loop(param - 1, a :: args)
       }
 

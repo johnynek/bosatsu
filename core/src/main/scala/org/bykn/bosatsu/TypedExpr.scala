@@ -5,6 +5,8 @@ import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
 
+import org.bykn.bosatsu.rankn.Type
+
 sealed abstract class TypedExpr[T] {
   import TypedExpr._
 
@@ -16,14 +18,14 @@ sealed abstract class TypedExpr[T] {
    * for each expression
    *
    */
-  def getType: rankn.Type =
+  def getType: Type =
     this match {
       case Generic(params, expr, _) =>
-        rankn.Type.forAll(params.toList, expr.getType)
+        Type.forAll(params.toList, expr.getType)
       case Annotation(_, tpe, _) =>
         tpe
       case a@AnnotatedLambda(arg, tpe, res, _) =>
-        rankn.Type.Fun(tpe, res.getType)
+        Type.Fun(tpe, res.getType)
       case Var(_, tpe, _) => tpe
       case App(_, _, tpe, _) => tpe
       case Let(_, _, in, _) =>
@@ -38,7 +40,36 @@ sealed abstract class TypedExpr[T] {
         branches.head._2.getType
     }
 
-  def traverseType[F[_]: Applicative](fn: rankn.Type => F[rankn.Type]): F[TypedExpr[T]] =
+  def repr: String = {
+    def rept(t: Type): String =
+      TypeRef.fromType(t).get.toDoc.renderWideStream.mkString
+
+    this match {
+      case Generic(params, expr, _) =>
+        val pstr = params.toList.map(_.name).mkString(",")
+        s"(generic [$pstr] ${expr.repr})"
+      case Annotation(expr, tpe, _) =>
+        s"(ann ${rept(tpe)} ${expr.repr})"
+      case a@AnnotatedLambda(arg, tpe, res, _) =>
+        s"(lambda $arg ${rept(tpe)} ${res.repr})"
+      case Var(v, tpe, _) =>
+        s"(var $v ${rept(tpe)})"
+      case App(fn, arg, tpe, _) =>
+        s"(ap ${fn.repr} ${arg.repr} ${rept(tpe)})"
+      case Let(n, b, in, _) =>
+        s"(let $n ${b.repr} ${in.repr})"
+      case Literal(v, tpe, _) =>
+        s"(lit ${v.repr} ${rept(tpe)})"
+      case If(arg, ift, iff, _) =>
+        s"(if ${arg.repr} ${ift.repr} ${iff.repr})"
+      case Match(arg, branches, _) =>
+        // TODO print the pattern
+        val bstr = branches.toList.map { case (_, t) => t.repr }.mkString
+        s"(match ${arg.repr} $bstr)"
+    }
+  }
+
+  def traverseType[F[_]: Applicative](fn: Type => F[Type]): F[TypedExpr[T]] =
     this match {
       case Generic(params, expr, tag) =>
         // The parameters are are like strings, but this
@@ -86,19 +117,19 @@ object TypedExpr {
    *
    * The paper says to add TyLam and TyApp nodes, but it never mentions what to do with them
    */
-  case class Generic[T](typeVars: NonEmptyList[rankn.Type.Var.Bound], in: TypedExpr[T], tag: T) extends TypedExpr[T]
-  case class Annotation[T](term: TypedExpr[T], coerce: rankn.Type, tag: T) extends TypedExpr[T]
-  case class AnnotatedLambda[T](arg: String, tpe: rankn.Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
-  case class Var[T](name: String, tpe: rankn.Type, tag: T) extends TypedExpr[T]
-  case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: rankn.Type, tag: T) extends TypedExpr[T]
+  case class Generic[T](typeVars: NonEmptyList[Type.Var.Bound], in: TypedExpr[T], tag: T) extends TypedExpr[T]
+  case class Annotation[T](term: TypedExpr[T], coerce: Type, tag: T) extends TypedExpr[T]
+  case class AnnotatedLambda[T](arg: String, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
+  case class Var[T](name: String, tpe: Type, tag: T) extends TypedExpr[T]
+  case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
   case class Let[T](arg: String, expr: TypedExpr[T], in: TypedExpr[T], tag: T) extends TypedExpr[T]
-  case class Literal[T](lit: Lit, tpe: rankn.Type, tag: T) extends TypedExpr[T]
+  case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class If[T](cond: TypedExpr[T], ifTrue: TypedExpr[T], ifFalse: TypedExpr[T], tag: T) extends TypedExpr[T]
-  case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
+  case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
 
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
-  def coerceRho(tpe: rankn.Type.Rho): Coerce =
+  def coerceRho(tpe: Type.Rho): Coerce =
     new FunctionK[TypedExpr, TypedExpr] { self =>
       def apply[A](expr: TypedExpr[A]) =
         expr match {
@@ -127,14 +158,70 @@ object TypedExpr {
         }
     }
 
-  def coerceFn(arg: rankn.Type, result: rankn.Type.Rho, coarg: Coerce, cores: Coerce): Coerce =
+  /**
+   * Return the list of the free vars
+   */
+  def freeVars[A](ts: List[TypedExpr[A]]): List[String] = {
+
+    // usually we can recurse in a loop, but sometimes not
+    def cheat(ts: List[TypedExpr[A]], bound: Set[String], acc: List[String]): List[String] =
+      go(ts, bound, acc)
+
+    @annotation.tailrec
+    def go(ts: List[TypedExpr[A]], bound: Set[String], acc: List[String]): List[String] =
+      ts match {
+        case Nil => acc
+        case Generic(_, expr, _) :: tail =>
+          go(expr :: tail, bound, acc)
+        case Annotation(t, _, _) :: tail =>
+          go(t :: tail, bound, acc)
+        case Var(name, _, _) :: tail if bound(name) => go(tail, bound, acc)
+        case Var(name, _, _) :: tail => go(tail, bound, name :: acc)
+        case AnnotatedLambda(arg, _, res, _) :: tail =>
+          val acc1 = cheat(res :: Nil, bound + arg, acc)
+          go(tail, bound, acc1)
+        case App(fn, arg, _, _) :: tail =>
+          go(fn :: arg :: tail, bound, acc)
+        case Let(arg, argE, in, _) :: tail =>
+          val acc1 = cheat(in :: Nil, bound + arg, acc)
+          go(argE :: tail, bound, acc1)
+        case Literal(_, _, _) :: tail =>
+          go(tail, bound, acc)
+        case If(c, ift, iff, _) :: tail =>
+          go(c :: ift :: iff :: tail, bound, acc)
+        case Match(arg, branches, _) :: tail =>
+          go(arg :: branches.toList.map(_._2) ::: tail, bound, acc)
+      }
+
+    ts.foldLeft(List.empty[String]) { (acc, t) =>
+      go(t :: Nil, Set.empty, acc)
+    }
+    // reverse and distinct in one go
+    .foldLeft((Set.empty[String], List.empty[String])) {
+      case (res@(vset, vs), v) if vset(v) => res
+      case ((vset, vs), v) => (vset + v, v :: vs)
+    }
+    ._2
+  }
+
+  /**
+   * TODO this seems pretty expensive to blindly apply: we are deoptimizing
+   * the nodes pretty heavily
+   */
+  def coerceFn(arg: Type, result: Type.Rho, coarg: Coerce, cores: Coerce): Coerce =
     new FunctionK[TypedExpr, TypedExpr] { self =>
-      def apply[A](expr: TypedExpr[A]) =
-        AnnotatedLambda("x", arg, cores(App(expr, coarg(Var("x", arg, expr.tag)), result, expr.tag)), expr.tag)
+      def apply[A](expr: TypedExpr[A]) = {
+        /**
+         * We have to be careful not to collide with the free vars in expr
+         */
+        val free = freeVars(expr :: Nil).toSet
+        val name = Type.allBinders.iterator.map(_.name).filterNot(free).next
+        AnnotatedLambda(name, arg, cores(App(expr, coarg(Var(name, arg, expr.tag)), result, expr.tag)), expr.tag)
+      }
     }
 
 
-  def forAll[A](params: NonEmptyList[rankn.Type.Var.Bound], expr: TypedExpr[A]): TypedExpr[A] =
+  def forAll[A](params: NonEmptyList[Type.Var.Bound], expr: TypedExpr[A]): TypedExpr[A] =
     Generic(params, expr, expr.tag)
 
   implicit def typedExprHasRegion[T: HasRegion]: HasRegion[TypedExpr[T]] =

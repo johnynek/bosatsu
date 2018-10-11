@@ -93,16 +93,13 @@ object PredefImpl {
       list match {
         case (0, _) =>
           // Empty
-          println(s"empty: $bv, $list")
           bv
         case (1, head :: tail :: Nil) =>
           val nextBv = fnT(bv)(head)
-          println(s"nonempty: $bv, $head, $tail, $nextBv")
-          loop(tail, fnT(bv)(head))
+          loop(tail, nextBv)
         case _ => sys.error(s"unexpected: $list")
       }
 
-    println(s"foldLeft($list, $bv, $fn)")
     loop(list, bv)
   }
 }
