@@ -4,6 +4,8 @@ import cats.data.Validated
 import cats.implicits._
 import org.scalatest.FunSuite
 
+import Evaluation.Value._
+
 class EvaluationTest extends FunSuite {
   def evalTest(packages: List[String], mainPackS: String, expected: Any, extern: Externals = Externals.empty) =
     evalTestEither(packages, mainPackS, Left(expected), extern)
@@ -50,7 +52,7 @@ class EvaluationTest extends FunSuite {
 package Foo
 
 x = 1
-"""), "Foo", 1)
+"""), "Foo", ExternalValue(1))
   }
 
   test("test if/else with collision in True/False") {
@@ -64,7 +66,7 @@ z = if x.eq_Int(1):
   "foo"
 else:
   "bar"
-"""), "Foo", "foo")
+"""), "Foo", ExternalValue("foo"))
   }
 
   test("exercise option from predef") {
@@ -79,7 +81,7 @@ z = match x:
     add(v, 10)
   None:
     0
-"""), "Foo", 11)
+"""), "Foo", ExternalValue(11))
   }
 
   test("do a fold") {
@@ -96,7 +98,7 @@ sum0 = sum(three)
 sum1 = three.foldLeft(0, \x, y -> add(x, y))
 
 same = sum0.eq_Int(sum1)
-"""), "Foo", PredefImpl.True)
+"""), "Foo", True)
 
     evalTest(
       List("""
@@ -108,7 +110,7 @@ sum0 = three.foldLeft(0, add)
 sum1 = three.foldLeft(0, \x, y -> add(x, y))
 
 same = sum0.eq_Int(sum1)
-"""), "Foo", PredefImpl.True)
+"""), "Foo", True)
 
   }
 
@@ -120,7 +122,8 @@ package Foo
 struct Bar(a: Int)
 
 main = Bar(1)
-"""), "Foo", (0, List(1)))
+"""), "Foo",
+  ConsValue(VInt(1), UnitValue))
 
     evalTestJson(
       List("""

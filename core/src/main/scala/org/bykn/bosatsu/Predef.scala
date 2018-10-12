@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import fastparse.all._
-import java.lang.{Integer => JInteger}
 
 object Predef {
   private def resourceToString(path: String): Option[String] = {
@@ -69,38 +68,40 @@ object Predef {
 }
 
 object PredefImpl {
-  val True: AnyRef = (1, Nil)
-  val False: AnyRef = (0, Nil)
 
-  private def i(a: Any): JInteger = a.asInstanceOf[JInteger]
+  import Evaluation.Value
+  import Value._
+
+  private def i(a: Any): Int =
+    VInt.unapply(a.asInstanceOf[Value]).get
 
   def add(a: Any, b: Any): Any =
-    JInteger.valueOf(i(a).intValue + i(b).intValue)
+    VInt(i(a) + i(b))
 
   def sub(a: Any, b: Any): Any =
-    JInteger.valueOf(i(a).intValue - i(b).intValue)
+    VInt(i(a) - i(b))
 
   def times(a: Any, b: Any): Any =
-    JInteger.valueOf(i(a).intValue * i(b).intValue)
+    VInt(i(a) * i(b))
 
   def eq_Int(a: Any, b: Any): Any =
-    if (i(a).intValue == i(b).intValue) True else False
+    if (i(a) == i(b)) True else False
 
   def foldLeft(list: Any, bv: Any, fn: Any): Any = {
-    val fnT = fn.asInstanceOf[Fn[Any, Fn[Any, Any]]]
+    val fnT = fn.asInstanceOf[FnValue]
     @annotation.tailrec
-    def loop(list: Any, bv: Any): Any =
+    def loop(list: Value, bv: Value): Value =
       list match {
-        case (0, _) =>
+        case SumValue(0, _) =>
           // Empty
           bv
-        case (1, head :: tail :: Nil) =>
-          val nextBv = fnT(bv)(head)
+        case SumValue(1, ConsValue(head, ConsValue(tail, UnitValue))) =>
+          val nextBv = fnT(bv).flatMap(_.asFn(head)).value
           loop(tail, nextBv)
         case _ => sys.error(s"unexpected: $list")
       }
 
-    loop(list, bv)
+    loop(list.asInstanceOf[Value], bv.asInstanceOf[Value])
   }
 }
 
