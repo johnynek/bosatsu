@@ -31,20 +31,26 @@ sealed abstract class FfiCall {
       val m = cls.getMethod(parts.last, args.init :_*)
       val inst = instFn(cls)
 
-      def invoke(tpe: rankn.Type, args: List[AnyRef]): Any =
+      def invoke(tpe: rankn.Type, args: List[Any]): Any =
         tpe match {
-          case rankn.Type.Fun(_, tail) =>
+          case rankn.Type.ForAll(_, t) => invoke(t, args)
+          case rankn.Type.Fun(a, tail) =>
             new Fn[Any, Any] {
-              def apply(x: Any) = invoke(tail, (x.asInstanceOf[AnyRef]) :: args)
+              val tpeStr = TypeRef.fromType(tpe).get.toDoc.render(80)
+              override def toString = s"$tpeStr, args: $args"
+              def apply(x: Any) = {
+                invoke(tail, x :: args)
+              }
             }
           case _ =>
-            m.invoke(inst, args.reverse.toArray: _*)
+            m.invoke(inst, args.reverse.toArray.asInstanceOf[Array[AnyRef]]: _*)
         }
 
       invoke(t, Nil)
     }
   }
 }
+
 object FfiCall {
   case class ScalaCall(methodName: String) extends FfiCall
   case class JavaCall(methodName: String) extends FfiCall
@@ -61,13 +67,15 @@ object FfiCall {
   def getJavaType(t: rankn.Type): List[Class[_]] = {
     def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
       t match {
-        case t if t == rankn.Type.IntType => classOf[java.lang.Integer] :: Nil
-        case t if t == rankn.Type.BoolType => classOf[java.lang.Boolean] :: Nil
+        //case t if t == rankn.Type.IntType => classOf[java.lang.Integer] :: Nil
+        //case t if t == rankn.Type.BoolType => classOf[java.lang.Boolean] :: Nil
         case rankn.Type.Fun(a, b) if top =>
           loop(a, false) match {
             case at :: Nil => at :: loop(b, top)
             case function => sys.error(s"unsupported function type $function in $t")
           }
+        case rankn.Type.ForAll(_, t) =>
+          loop(t, top)
         case _ => classOf[AnyRef] :: Nil
       }
     }

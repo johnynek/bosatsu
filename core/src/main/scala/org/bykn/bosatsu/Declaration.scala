@@ -103,7 +103,7 @@ sealed abstract class Declaration {
             case (Padding(_, Indented(_, body)), Padding(_, in)) =>
               (loop(body), loop(in))
           }
-          val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toNType(nameToType))
+          val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toType(nameToType))
           Expr.Let(defstmt.name, lambda, inExpr, this)
         case IfElse(ifCases, Padding(_, Indented(_, elseCase))) =>
 
@@ -140,7 +140,7 @@ sealed abstract class Declaration {
           Expr.Var(name, this)
         case Match(arg, branches) =>
           val expBranches = branches.map { case Padding(_, Indented(_, (pat, Padding(_, Indented(_, decl))))) =>
-            val newPattern = pat.mapName(nameToCons).mapType(_.toNType(nameToType))
+            val newPattern = pat.mapName(nameToCons).mapType(_.toType(nameToType))
             (newPattern, loop(decl))
           }
           Expr.Match(loop(arg), expBranches, this)

@@ -23,7 +23,7 @@ class RankNInferTest extends FunSuite {
   def typeFrom(str: String): Type =
     TypeRef.parser.parse(str) match {
       case Parsed.Success(typeRef, _) =>
-        typeRef.toNType(strToConst _)
+        typeRef.toType(strToConst _)
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
     }

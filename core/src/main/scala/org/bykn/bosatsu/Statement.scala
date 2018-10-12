@@ -226,7 +226,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
     this match {
       case Struct(nm, args, _) =>
         val deep = Functor[List].compose(Functor[(String, ?)]).compose(Functor[Option])
-        val argsType = deep.map(args)(_.toNType(nameToType))
+        val argsType = deep.map(args)(_.toType(nameToType))
         val initVars = existingVars(argsType)
         val initState = ((initVars.toSet, initVars.reverse), 0L)
         val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
@@ -251,7 +251,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
       case Enum(nm, items, _) =>
         val deep = Functor[List].compose(Functor[(String, ?)]).compose(Functor[Option])
         val conArgs = items.map { case Padding(_, Indented(_, (nm, args))) =>
-          val argsType = deep.map(args)(_.toNType(nameToType))
+          val argsType = deep.map(args)(_.toType(nameToType))
           (nm, argsType)
         }
         val constructorsS = conArgs.traverse { case (nm, argsType) =>

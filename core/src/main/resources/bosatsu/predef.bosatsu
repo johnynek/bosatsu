@@ -9,6 +9,7 @@ export [
   Test(),
   add,
   eq_Int,
+  foldLeft,
   sub,
   times,
 ]
@@ -20,6 +21,8 @@ enum Bool:
 enum List:
   EmptyList
   NonEmptyList(head: a, tail: List[a])
+
+external def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b
 
 enum Option:
   None
