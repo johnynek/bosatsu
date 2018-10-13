@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import fastparse.all._
+import java.math.BigInteger
 
 object Predef {
   private def resourceToString(path: String): Option[String] = {
@@ -72,20 +73,21 @@ object PredefImpl {
   import Evaluation.Value
   import Value._
 
-  private def i(a: Value): Int =
+  private def i(a: Value): BigInteger =
     VInt.unapply(a).get
 
   def add(a: Value, b: Value): Value =
-    VInt(i(a) + i(b))
+    VInt(i(a).add(i(b)))
 
   def sub(a: Value, b: Value): Value =
-    VInt(i(a) - i(b))
+    VInt(i(a).subtract(i(b)))
 
   def times(a: Value, b: Value): Value =
-    VInt(i(a) * i(b))
+    VInt(i(a).multiply(i(b)))
 
   def eq_Int(a: Value, b: Value): Value =
-    if (i(a) == i(b)) True else False
+    // since we have already typechecked, standard equals works
+    if (a.equals(b)) True else False
 
   def foldLeft(list: Value, bv: Value, fn: Value): Value = {
     val fnT = fn.asFn

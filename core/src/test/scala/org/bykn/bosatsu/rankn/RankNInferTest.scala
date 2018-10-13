@@ -69,7 +69,7 @@ class RankNInferTest extends FunSuite {
       }
 
 
-  def lit(i: Int): Expr[Unit] = Literal(Lit(i), ())
+  def lit(i: Int): Expr[Unit] = Literal(Lit(i.toLong), ())
   def lit(b: Boolean): Expr[Unit] = if (b) Var("True", ()) else Var("False", ())
   def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] = Let(n, expr, in, ())
   def lambda(arg: String, result: Expr[Unit]): Expr[Unit] = Lambda(arg, result, ())
