@@ -259,7 +259,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     import TypedExpr._
 
      expr match {
-       case Generic(_, _, _) => ???
+       case Generic(_, e, _) =>
+         // TODO, we need to probably do something with this
+         evalTypedExpr(p, e, env, recurse)
        case Annotation(e, _, _) => evalTypedExpr(p, e, env, recurse)
        case Var(v, tpe, _) =>
          env.get(v) match {

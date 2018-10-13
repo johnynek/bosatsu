@@ -114,6 +114,18 @@ same = sum0.eq_Int(sum1)
 
   }
 
+  test("test generics in defs") {
+    evalTest(
+      List("""
+package Foo
+
+def id(x: a) -> a:
+  x
+
+main = id(1)
+"""), "Foo", VInt(1))
+  }
+
   test("exercise struct creation") {
     evalTest(
       List("""

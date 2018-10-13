@@ -366,14 +366,12 @@ main = match x:
     y
 """, "Int")
 
-  // TODO this does not unify with rankn types
    parseProgram("""#
 enum List:
   Empty
   NonEmpty(a: a, tail: List[a])
 
 x = NonEmpty(1, Empty)
-#x = Empty
 main = match x:
   Empty:
     0

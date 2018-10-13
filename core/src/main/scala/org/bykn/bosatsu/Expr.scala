@@ -43,6 +43,38 @@ object Expr {
   implicit def hasRegion[T: HasRegion]: HasRegion[Expr[T]] =
     HasRegion.instance[Expr[T]] { e => HasRegion.region(e.tag) }
 
+
+  def traverseType[T, F[_]](expr: Expr[T], fn: rankn.Type => F[rankn.Type])(implicit F: Applicative[F]): F[Expr[T]] =
+    expr match {
+      case Annotation(e, tpe, a) =>
+        (traverseType(e, fn), fn(tpe)).mapN(Annotation(_, _, a))
+      case AnnotatedLambda(arg, tpe, expr, a) =>
+        (fn(tpe), traverseType(expr, fn)).mapN(AnnotatedLambda(arg, _, _, a))
+      case v@Var(_, _) => F.pure(v)
+      case App(f, a, t) =>
+        (traverseType(f, fn), traverseType(a, fn)).mapN(App(_, _, t))
+      case Lambda(arg, expr, t) =>
+        traverseType(expr, fn).map(Lambda(arg, _, t))
+      case Let(arg, exp, in, tag) =>
+        (traverseType(exp, fn), traverseType(in, fn)).mapN(Let(arg, _, _, tag))
+      case l@Literal(_, _) => F.pure(l)
+      case If(cond, ift, iff, tag) =>
+        (traverseType(cond, fn), traverseType(ift, fn), traverseType(iff, fn)).mapN {
+          If(_, _, _, tag)
+        }
+      case Match(arg, branches, tag) =>
+        val argB = traverseType(arg, fn)
+        type B = (Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])
+        def branchFn(b: B): F[B] =
+          b match {
+            case (pat, expr) =>
+              pat.traverseType(fn)
+                .product(traverseType(expr, fn))
+          }
+        val branchB = branches.traverse(branchFn _)
+        (argB, branchB).mapN(Match(_, _, tag))
+    }
+
   /**
    * Return a value so next(e).tag == e and also this is true
    * recursively
