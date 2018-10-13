@@ -1,0 +1,7 @@
+package Euler/One
+
+xs = NonEmptyList(1, NonEmptyList(2, EmptyList))
+
+sum = xs.foldLeft(0, add)
+
+test = TestAssert(sum.eq_Int(3))

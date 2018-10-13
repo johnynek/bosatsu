@@ -2,6 +2,7 @@ package Bosatsu/Predef
 
 export [
   Bool(),
+  Comparison(),
   Int,
   Option(),
   List(),
@@ -9,8 +10,10 @@ export [
   Test(),
   add,
   eq_Int,
+  cmp_Int,
   foldLeft,
   sub,
+  range,
   times,
 ]
 
@@ -24,6 +27,13 @@ enum List:
 
 external def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b
 
+external def range(exclusiveUpper: Int) -> List[Int]
+
+enum Comparison:
+  LT
+  EQ
+  GT
+
 enum Option:
   None
   Some(v)
@@ -34,6 +44,7 @@ external def add(a: Int, b: Int) -> Int
 external def sub(a: Int, b: Int) -> Int
 external def times(a: Int, b: Int) -> Int
 external def eq_Int(a: Int, b: Int) -> Bool
+external def cmp_Int(a: Int, b: Int) -> Comparison
 
 external struct String
 

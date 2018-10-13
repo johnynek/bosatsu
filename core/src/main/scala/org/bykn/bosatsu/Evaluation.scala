@@ -55,6 +55,15 @@ object Evaluation {
     val False: Value = SumValue(0, UnitValue)
     val True: Value = SumValue(1, UnitValue)
 
+    object Comparison {
+      def fromInt(i: Int): Value =
+        if (i < 0) LT else if (i > 0) GT else EQ
+
+      val LT: Value = SumValue(0, UnitValue)
+      val EQ: Value = SumValue(1, UnitValue)
+      val GT: Value = SumValue(2, UnitValue)
+    }
+
     def fromLit(l: Lit): Value =
       l match {
         case Lit.Str(s) => ExternalValue(s)
@@ -94,6 +103,9 @@ object Evaluation {
     object VList {
       val VNil: Value = SumValue(0, UnitValue)
       object Cons {
+        def apply(head: Value, tail: Value): Value =
+          SumValue(1, ConsValue(head, ConsValue(tail, UnitValue)))
+
         def unapply(v: Value): Option[(Value, Value)] =
           v match {
             case SumValue(1, ConsValue(head, ConsValue(rest, UnitValue))) =>

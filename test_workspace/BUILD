@@ -22,3 +22,7 @@ bosatsu_json(
 bosatsu_test(
     name = "test_rule",
     srcs = ["bo_test.bosatsu"])
+
+bosatsu_test(
+    name = "euler1",
+    srcs = ["euler1.bosatsu"])

@@ -25,6 +25,9 @@ class EvaluationTest extends FunSuite {
     val parsedPaths = parsed match {
       case Validated.Valid(vs) => vs
       case Validated.Invalid(errs) =>
+        errs.toList.foreach { p =>
+          p.showContext.foreach(System.err.println)
+        }
         sys.error(errs.toString)
     }
 
@@ -41,8 +44,13 @@ class EvaluationTest extends FunSuite {
             }
         }
 
-      case other =>
-        fail(other.toString)
+      case (other, Validated.Invalid(errs)) =>
+        val tes = errs.toList.collect {
+          case PackageError.TypeErrorIn(te, _) =>
+            te.message
+        }
+        .mkString("\n")
+        fail(tes + "\n" + errs.toString)
     }
   }
 
@@ -112,6 +120,52 @@ sum1 = three.foldLeft(0, \x, y -> add(x, y))
 same = sum0.eq_Int(sum1)
 """), "Foo", True)
 
+  }
+
+  test("use range") {
+    evalTest(
+      List("""
+package Foo
+
+three = NonEmptyList(1, NonEmptyList(2, EmptyList))
+threer = range(3)
+
+def reverse(ls):
+  ls.foldLeft(EmptyList, \tail, h -> NonEmptyList(h, tail))
+
+struct Pair(fst, sec)
+
+def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
+  def cons(pair, item: Int):
+    match pair:
+      Pair(acc, EmptyList):
+        Pair(acc, EmptyList)
+      Pair(acc, NonEmptyList(h, tail)):
+        Pair(NonEmptyList(Pair(item, h), acc), tail)
+
+  rev = as.foldLeft(Pair(EmptyList, bs), cons)
+  reverse(rev)
+
+def and(a, b):
+  match a:
+    True:
+      b
+    False:
+      False
+
+def same_items(items, eq):
+  def test(p):
+    match p:
+      Pair(a, b):
+        eq(a, b)
+
+  items.foldLeft(True, \res, t -> and(res, test(t)))
+
+def eq_list(a, b, fn):
+  same_items(zip(a, b), fn)
+
+same = eq_list(three, threer)
+"""), "Foo", True)
   }
 
   test("exercise struct creation") {
