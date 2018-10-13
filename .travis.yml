@@ -4,13 +4,13 @@ matrix:
       language: scala
       jdk: oraclejdk8
       env: PLATFORM="jvm"
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}!" test doc
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" test doc
 
     - scala: 2.12.7
       language: scala
       jdk: oraclejdk8
       env: PLATFORM="jvm"
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}!" coverage test coverageReport doc && codecov
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coverage test coverageReport doc && codecov
 
 install:
  - pip install --user codecov
