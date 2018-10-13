@@ -104,6 +104,21 @@ class RankNInferTest extends FunSuite {
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
     }
 
+  /**
+   * Test that a program is ill-typed
+   */
+  def parseProgramIllTyped(statement: String) =
+    Statement.parser.parse(statement) match {
+      case Parsed.Success(stmt, _) =>
+        Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
+          case Left(_) => assert(true)
+          case Right((tpeEnv, lets)) =>
+            fail(lets.toString)
+        }
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
+    }
+
   test("assert some basic unifications") {
     assertTypesUnify("forall a. a", "forall b. b")
     assertTypesUnify("forall a. a", "Int")
@@ -398,5 +413,15 @@ def optBind(opt, bindFn):
 
 main = Monad(optPure, optBind)
 """, "Monad[Opt]")
+  }
+
+  test("test that we see some ill typed programs") {
+  parseProgramIllTyped("""#
+
+def foo(i: Int):
+  i
+
+main = foo("Not an Int")
+""")
   }
 }

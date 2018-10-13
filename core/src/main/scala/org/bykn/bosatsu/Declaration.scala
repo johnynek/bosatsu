@@ -111,11 +111,7 @@ sealed abstract class Declaration {
           // be safe. So, we want to say Bosatsu/Predef#True or something.
           // we could just have ConstructorName require a PackageName
           def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
-            Expr.Match(cond,
-              NonEmptyList.of(
-                (Pattern.PositionalStruct((Predef.packageName, ConstructorName("True")), Nil), ifTrue),
-                (Pattern.PositionalStruct((Predef.packageName, ConstructorName("False")), Nil), ifFalse)),
-              this)
+            Expr.If(cond, ifTrue, ifFalse, this)
 
           def loop0(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
             ifs match {

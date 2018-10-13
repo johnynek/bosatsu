@@ -294,9 +294,18 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          }, in.getType)
        case Literal(lit, tpe, _) => (Eval.now(Value.fromLit(lit)), tpe)
        case If(cond, ifT, ifF, _) =>
-         // TODO
-         // evaluate the condition the either the left or right
-         ???
+         val tpe = expr.getType
+         val res = recurse((p, Right(cond), env))
+           ._1
+           .flatMap {
+             case True =>
+               recurse((p, Right(ifT), env))._1
+              case False =>
+                recurse((p, Right(ifF), env))._1
+              case other => sys.error(s"ill-typed, expected boolean: $other")
+           }
+        (res, tpe)
+
        case Match(arg, branches, _) =>
          val (earg, sarg) = recurse((p, Right(arg), env))
          (earg.flatMap { a =>
