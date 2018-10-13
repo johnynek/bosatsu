@@ -11,6 +11,10 @@ case class DefinedType(
   require(typeParams.distinct == typeParams, typeParams.toString)
 
   /**
+   * A type with exactly one constructor is a struct
+   */
+  def isStruct: Boolean = constructors.lengthCompare(1) == 0
+  /**
    * This is not the full type, since the full type
    * has a ForAll(typeParams, ... in front if the
    * typeParams is nonEmpty

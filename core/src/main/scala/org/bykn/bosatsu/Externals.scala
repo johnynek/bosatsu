@@ -3,8 +3,10 @@ package org.bykn.bosatsu
 import cats.Eval
 import fastparse.all._
 
+import Evaluation.Value
+
 sealed abstract class FfiCall {
-  def call(t: rankn.Type): Eval[Any] = {
+  def call(t: rankn.Type): Eval[Evaluation.Value] = {
     def breakDots(m: String): List[String] =
       m.split("\\.", -1).toList
 
@@ -31,19 +33,15 @@ sealed abstract class FfiCall {
       val m = cls.getMethod(parts.last, args.init :_*)
       val inst = instFn(cls)
 
-      def invoke(tpe: rankn.Type, args: List[Any]): Any =
+      def invoke(tpe: rankn.Type, args: List[Value]): Value =
         tpe match {
           case rankn.Type.ForAll(_, t) => invoke(t, args)
           case rankn.Type.Fun(a, tail) =>
-            new Fn[Any, Any] {
-              val tpeStr = TypeRef.fromType(tpe).get.toDoc.render(80)
-              override def toString = s"$tpeStr, args: $args"
-              def apply(x: Any) = {
-                invoke(tail, x :: args)
-              }
+            Value.FnValue { x =>
+              Eval.always(invoke(tail, x :: args))
             }
           case _ =>
-            m.invoke(inst, args.reverse.toArray.asInstanceOf[Array[AnyRef]]: _*)
+            m.invoke(inst, args.reverse.toArray: _*).asInstanceOf[Value]
         }
 
       invoke(t, Nil)
@@ -67,8 +65,6 @@ object FfiCall {
   def getJavaType(t: rankn.Type): List[Class[_]] = {
     def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
       t match {
-        //case t if t == rankn.Type.IntType => classOf[java.lang.Integer] :: Nil
-        //case t if t == rankn.Type.BoolType => classOf[java.lang.Boolean] :: Nil
         case rankn.Type.Fun(a, b) if top =>
           loop(a, false) match {
             case at :: Nil => at :: loop(b, top)
@@ -76,7 +72,7 @@ object FfiCall {
           }
         case rankn.Type.ForAll(_, t) =>
           loop(t, top)
-        case _ => classOf[AnyRef] :: Nil
+        case _ => classOf[Evaluation.Value] :: Nil
       }
     }
     loop(t, true)

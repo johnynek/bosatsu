@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import fastparse.all._
-import java.lang.{Integer => JInteger}
 
 object Predef {
   private def resourceToString(path: String): Option[String] = {
@@ -69,35 +68,35 @@ object Predef {
 }
 
 object PredefImpl {
-  val True: AnyRef = (1, Nil)
-  val False: AnyRef = (0, Nil)
 
-  private def i(a: Any): JInteger = a.asInstanceOf[JInteger]
+  import Evaluation.Value
+  import Value._
 
-  def add(a: Any, b: Any): Any =
-    JInteger.valueOf(i(a).intValue + i(b).intValue)
+  private def i(a: Value): Int =
+    VInt.unapply(a).get
 
-  def sub(a: Any, b: Any): Any =
-    JInteger.valueOf(i(a).intValue - i(b).intValue)
+  def add(a: Value, b: Value): Value =
+    VInt(i(a) + i(b))
 
-  def times(a: Any, b: Any): Any =
-    JInteger.valueOf(i(a).intValue * i(b).intValue)
+  def sub(a: Value, b: Value): Value =
+    VInt(i(a) - i(b))
 
-  def eq_Int(a: Any, b: Any): Any =
-    if (i(a).intValue == i(b).intValue) True else False
+  def times(a: Value, b: Value): Value =
+    VInt(i(a) * i(b))
 
-  def foldLeft(list: Any, bv: Any, fn: Any): Any = {
-    val fnT = fn.asInstanceOf[Fn[Any, Fn[Any, Any]]]
+  def eq_Int(a: Value, b: Value): Value =
+    if (i(a) == i(b)) True else False
+
+  def foldLeft(list: Value, bv: Value, fn: Value): Value = {
+    val fnT = fn.asFn
     @annotation.tailrec
-    def loop(list: Any, bv: Any): Any =
+    def loop(list: Value, bv: Value): Value =
       list match {
-        case (0, _) =>
-          // Empty
-          bv
-        case (1, head :: tail :: Nil) =>
-          val nextBv = fnT(bv)(head)
+        case VList.VNil => bv
+        case VList.Cons(head, tail) =>
+          val nextBv = fnT(bv).flatMap(_.asFn(head)).value
           loop(tail, nextBv)
-        case _ => sys.error(s"unexpected: $list")
+        case _ => sys.error(s"expected a list, found: loop($list, $bv)")
       }
 
     loop(list, bv)
