@@ -72,36 +72,34 @@ object PredefImpl {
   import Evaluation.Value
   import Value._
 
-  private def i(a: Any): Int =
-    VInt.unapply(a.asInstanceOf[Value]).get
+  private def i(a: Value): Int =
+    VInt.unapply(a).get
 
-  def add(a: Any, b: Any): Any =
+  def add(a: Value, b: Value): Value =
     VInt(i(a) + i(b))
 
-  def sub(a: Any, b: Any): Any =
+  def sub(a: Value, b: Value): Value =
     VInt(i(a) - i(b))
 
-  def times(a: Any, b: Any): Any =
+  def times(a: Value, b: Value): Value =
     VInt(i(a) * i(b))
 
-  def eq_Int(a: Any, b: Any): Any =
+  def eq_Int(a: Value, b: Value): Value =
     if (i(a) == i(b)) True else False
 
-  def foldLeft(list: Any, bv: Any, fn: Any): Any = {
-    val fnT = fn.asInstanceOf[FnValue]
+  def foldLeft(list: Value, bv: Value, fn: Value): Value = {
+    val fnT = fn.asFn
     @annotation.tailrec
     def loop(list: Value, bv: Value): Value =
       list match {
-        case SumValue(0, _) =>
-          // Empty
-          bv
-        case SumValue(1, ConsValue(head, ConsValue(tail, UnitValue))) =>
+        case VList.VNil => bv
+        case VList.Cons(head, tail) =>
           val nextBv = fnT(bv).flatMap(_.asFn(head)).value
           loop(tail, nextBv)
-        case _ => sys.error(s"unexpected: $list")
+        case _ => sys.error(s"expected a list, found: loop($list, $bv)")
       }
 
-    loop(list.asInstanceOf[Value], bv.asInstanceOf[Value])
+    loop(list, bv)
   }
 }
 

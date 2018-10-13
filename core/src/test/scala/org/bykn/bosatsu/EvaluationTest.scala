@@ -52,7 +52,7 @@ class EvaluationTest extends FunSuite {
 package Foo
 
 x = 1
-"""), "Foo", ExternalValue(1))
+"""), "Foo", VInt(1))
   }
 
   test("test if/else with collision in True/False") {
@@ -66,7 +66,7 @@ z = if x.eq_Int(1):
   "foo"
 else:
   "bar"
-"""), "Foo", ExternalValue("foo"))
+"""), "Foo", Str("foo"))
   }
 
   test("exercise option from predef") {
@@ -81,7 +81,7 @@ z = match x:
     add(v, 10)
   None:
     0
-"""), "Foo", ExternalValue(11))
+"""), "Foo", VInt(11))
   }
 
   test("do a fold") {

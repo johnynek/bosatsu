@@ -19,9 +19,9 @@ object Evaluation {
    * most of the API
    */
   sealed abstract class Value {
-    def asFn: FnValue =
+    def asFn: Value => Eval[Value] =
       this match {
-        case f@FnValue(_) => f
+        case FnValue(f) => f
         case other => sys.error(s"invalid cast to Fn: $other")
       }
   }
@@ -33,6 +33,7 @@ object Evaluation {
           case UnitValue => Nil
           case ConsValue(head, tail) => head :: tail.toList
         }
+
     }
 
     object ProductValue {
@@ -53,6 +54,12 @@ object Evaluation {
 
     val False: Value = SumValue(0, UnitValue)
     val True: Value = SumValue(1, UnitValue)
+
+    def fromLit(l: Lit): Value =
+      l match {
+        case Lit.Str(s) => ExternalValue(s)
+        case Lit.Integer(i) => ExternalValue(i)
+      }
 
     object VInt {
       def apply(v: Int): Value = ExternalValue(java.lang.Integer.valueOf(v))
@@ -84,10 +91,20 @@ object Evaluation {
     }
 
     object VList {
+      val VNil: Value = SumValue(0, UnitValue)
+      object Cons {
+        def unapply(v: Value): Option[(Value, Value)] =
+          v match {
+            case SumValue(1, ConsValue(head, ConsValue(rest, UnitValue))) =>
+              Some((head, rest))
+            case _ => None
+          }
+      }
+
       def unapply(v: Value): Option[List[Value]] =
         v match {
-          case SumValue(0, UnitValue) => Some(Nil)
-          case SumValue(1, ConsValue(head, ConsValue(rest, UnitValue))) =>
+          case VNil => Some(Nil)
+          case Cons(head, rest) =>
             unapply(rest).map(head :: _)
           case _ => None
         }
@@ -186,7 +203,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case (Pattern.PositionalStruct((pack, ctor), items), next) :: tail =>
             // let's see if this matches
             val optParams =
-              if (dt.constructors.lengthCompare(1) == 0) {
+              if (dt.isStruct) {
                 // this is a struct, which means we expect it
                 arg match {
                   case p: ProductValue =>
@@ -258,9 +275,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          val earg = recurse((p, Right(arg), env))._1
          (for {
            fn <- efn
-           afn = fn.asInstanceOf[FnValue] // safe because we typecheck
+           afn = fn.asFn // safe because we typecheck
            a <- earg
-           res <- afn.toFn(a)
+           res <- afn(a)
          } yield res, resT)
        case a@AnnotatedLambda(name, argt, expr, _) =>
          val fn =
@@ -272,8 +289,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          (recurse((p, Right(e), env))._1.flatMap { ae =>
            recurse((p, Right(in), env + (arg -> ae)))._1
          }, in.getType)
-       case Literal(Lit.Integer(i), tpe, _) => (Eval.now(VInt(i)), tpe)
-       case Literal(Lit.Str(str), tpe, _) => (Eval.now(Str(str)), tpe)
+       case Literal(lit, tpe, _) => (Eval.now(Value.fromLit(lit)), tpe)
        case If(cond, ifT, ifF, _) =>
          // TODO
          // evaluate the condition the either the left or right
@@ -320,7 +336,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       .collectFirst { case ((ctor, params, resType), idx) if ctor == c => (idx, params.size) }
       .get // the ctor must be in the list or we wouldn't typecheck
 
-    val singleItemStruct = dt.constructors.lengthCompare(1) == 0
+    val singleItemStruct = dt.isStruct
 
     // TODO: this is a obviously terrible
     // the encoding is inefficient, the implementation is inefficient

@@ -41,8 +41,7 @@ sealed abstract class FfiCall {
               Eval.always(invoke(tail, x :: args))
             }
           case _ =>
-            m.invoke(inst, args.reverse.toArray.asInstanceOf[Array[AnyRef]]: _*)
-              .asInstanceOf[Value]
+            m.invoke(inst, args.reverse.toArray: _*).asInstanceOf[Value]
         }
 
       invoke(t, Nil)
@@ -66,8 +65,6 @@ object FfiCall {
   def getJavaType(t: rankn.Type): List[Class[_]] = {
     def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
       t match {
-        //case t if t == rankn.Type.IntType => classOf[java.lang.Integer] :: Nil
-        //case t if t == rankn.Type.BoolType => classOf[java.lang.Boolean] :: Nil
         case rankn.Type.Fun(a, b) if top =>
           loop(a, false) match {
             case at :: Nil => at :: loop(b, top)
@@ -75,7 +72,7 @@ object FfiCall {
           }
         case rankn.Type.ForAll(_, t) =>
           loop(t, top)
-        case _ => classOf[AnyRef] :: Nil
+        case _ => classOf[Evaluation.Value] :: Nil
       }
     }
     loop(t, true)
