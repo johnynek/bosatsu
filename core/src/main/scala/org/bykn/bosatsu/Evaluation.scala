@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
 import cats.Eval
 import cats.implicits._
-
+import java.math.BigInteger
 import org.bykn.bosatsu.rankn.Type
 
 object Evaluation {
@@ -62,10 +62,11 @@ object Evaluation {
       }
 
     object VInt {
-      def apply(v: Int): Value = ExternalValue(java.lang.Integer.valueOf(v))
-      def unapply(v: Value): Option[Int] =
+      def apply(v: Int): Value = apply(BigInt(v))
+      def apply(v: BigInt): Value = ExternalValue(v.bigInteger)
+      def unapply(v: Value): Option[BigInteger] =
         v match {
-          case ExternalValue(v: java.lang.Integer) => Some(v.intValue)
+          case ExternalValue(v: BigInteger) => Some(v)
           case _ => None
         }
     }

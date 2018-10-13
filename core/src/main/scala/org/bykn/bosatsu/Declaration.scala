@@ -131,7 +131,7 @@ sealed abstract class Declaration {
         case Lambda(args, body) =>
           Expr.buildLambda(args.map((_, None)), loop(body), this)
         case LiteralInt(str) =>
-          Expr.Literal(Lit.Integer(str.toInt), this) // TODO use BigInt
+          Expr.Literal(Lit.Integer(new java.math.BigInteger(str)), this)
         case LiteralString(str, _) =>
           Expr.Literal(Lit.Str(str), this)
         case Parens(p) =>

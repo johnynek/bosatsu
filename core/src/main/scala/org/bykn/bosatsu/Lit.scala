@@ -1,5 +1,7 @@
 package org.bykn.bosatsu
 
+import java.math.BigInteger
+
 sealed abstract class Lit {
   def repr: String =
     this match {
@@ -8,10 +10,11 @@ sealed abstract class Lit {
     }
 }
 object Lit {
-  case class Integer(toInt: Int) extends Lit
+  case class Integer(toBigInteger: BigInteger) extends Lit
   case class Str(toStr: String) extends Lit
 
-  def apply(i: Int): Lit = Integer(i)
+  def apply(i: Long): Lit = apply(BigInteger.valueOf(i))
+  def apply(bi: BigInteger): Lit = Integer(bi)
   def apply(str: String): Lit = Str(str)
 }
 
