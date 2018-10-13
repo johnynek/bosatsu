@@ -45,7 +45,7 @@ trait CodeGen {
     val isExported: Set[String] =
       unfix.exports.map(_.name).toSet
 
-    /**
+    /*
      * add the imports and return a list of lines to set up inside
      * Values
      */
@@ -132,7 +132,7 @@ trait CodeGen {
       definedTypes.flatMap(_.constructors.zipWithIndex).traverse_ { case ((cn, args, ct), idx) =>
         mkConstructor(idx, cn, ???).flatMap(tell)
       }
-    /**
+    /*
      * Build the externals
      */
     val externals = NameKind.externals(p)

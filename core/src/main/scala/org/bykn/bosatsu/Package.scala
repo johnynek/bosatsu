@@ -110,7 +110,7 @@ object Package {
         { s => resolveImportedCons.getOrElse(s, (p, ConstructorName(s))) }, // name to cons
         stmt)
 
-    /**
+    /*
     * These are values, including all constructor functions
     * that have been imported, this includes local external
     * defs
