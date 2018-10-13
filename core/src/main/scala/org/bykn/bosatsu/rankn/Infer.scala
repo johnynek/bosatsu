@@ -544,7 +544,7 @@ object Infer {
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
           }
         case AnnotatedLambda(name, tpe0, result0, tag) =>
-          /**
+          /*
            * This is a deviation from the paper.
            * We are allowing a syntax like:
            *
