@@ -211,7 +211,7 @@ object TypedExpr {
   def coerceFn(arg: Type, result: Type.Rho, coarg: Coerce, cores: Coerce): Coerce =
     new FunctionK[TypedExpr, TypedExpr] { self =>
       def apply[A](expr: TypedExpr[A]) = {
-        /**
+        /*
          * We have to be careful not to collide with the free vars in expr
          */
         val free = freeVars(expr :: Nil).toSet

@@ -155,7 +155,7 @@ object PackageMap {
     type PackIn = PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])]
     type PackOut = PackageF[NonEmptyList[Referant], Referant, Program[TypedExpr[Declaration], Statement]]
 
-    /**
+    /*
      * We memoize this function to avoid recomputing diamond dependencies
      */
     val infer: PackIn => ValidatedNel[PackageError, PackOut] =

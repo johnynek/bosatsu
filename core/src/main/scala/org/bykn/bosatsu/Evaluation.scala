@@ -418,7 +418,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         dt <- dts.get((pn, t))
       } yield dt
 
-    /**
+    /*
      * TODO we are ignoring any applied types here which we will need to set.
      * the correct way is to accumulate a type environment of Map[Var.Bound, Type]
      * and pass that down, but currently no tests expose this issue so letting
