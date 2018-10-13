@@ -600,7 +600,7 @@ object Infer {
                 tExp <- inferRho(ifTrue)
                 fExp <- inferRho(ifFalse)
                 rT = tExp.getType
-                rF = tExp.getType
+                rF = fExp.getType
                 cT <- subsCheck(rT, rF)
                 cF <- subsCheck(rF, rT)
                 _ <- infer.set(rT) // see section 7.1

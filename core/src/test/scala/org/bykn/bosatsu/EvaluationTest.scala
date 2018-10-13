@@ -46,6 +46,32 @@ class EvaluationTest extends FunSuite {
     }
   }
 
+  def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty) = {
+    val mainPack = PackageName.parse(mainPackS).get
+
+    val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
+      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
+        ((i.toString, lm), parsed)
+      }
+    }
+
+    val parsedPaths = parsed match {
+      case Validated.Valid(vs) => vs
+      case Validated.Invalid(errs) =>
+        sys.error(errs.toString)
+    }
+
+    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
+      case (_, Validated.Valid(_)) =>
+        fail("expected to fail type checking")
+
+      case (_, Validated.Invalid(errs)) if errs.collect { case PackageError.TypeErrorIn(_, _) => () }.nonEmpty =>
+        assert(true)
+      case (_, Validated.Invalid(errs)) =>
+          fail(s"failed, but no type errors: $errs")
+    }
+  }
+
   test("simple evaluation") {
     evalTest(
       List("""
@@ -145,5 +171,17 @@ struct Bar(a: Int, s: String)
 
 main = Bar(1, "foo")
 """), "Foo", Json.JObject(Map("a" -> Json.JNumberStr("1"), "s" -> Json.JString("foo"))))
+  }
+
+  test("test some type errors") {
+    evalFail(
+      List("""
+package Foo
+
+main = if True:
+  1
+else:
+  "1"
+"""), "Foo")
   }
 }
