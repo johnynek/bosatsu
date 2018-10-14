@@ -3,7 +3,7 @@ import cats.Monad
 import cats.data.NonEmptyList
 import cats.implicits._
 
-import org.bykn.bosatsu.{Pattern => GenPattern, Expr, Lit, ConstructorName, PackageName, TypedExpr}
+import org.bykn.bosatsu.{Pattern => GenPattern, Expr, Lit, ConstructorName, PackageName, TypedExpr, TypeRef}
 
 sealed abstract class Infer[+A] {
   import Infer.Error
@@ -89,16 +89,22 @@ object Infer {
      */
     sealed abstract class TypeError extends Error
 
+    private def tStr(t: Type): String =
+      TypeRef.fromType(t) match {
+        case Some(tr) => tr.toDoc.render(80)
+        case None => t.toString
+      }
+
     case class NotUnifiable(left: Type, right: Type) extends TypeError {
-      def message = s"$left cannot be unified with $right"
+      def message = s"${tStr(left)} cannot be unified with ${tStr(right)}"
     }
 
     case class NotPolymorphicEnough(tpe: Type, in: Expr[_]) extends TypeError {
-      def message = s"type $tpe not polymorphic enough in $in"
+      def message = s"type ${tStr(tpe)} not polymorphic enough in $in"
     }
 
     case class SubsumptionCheckFailure(inferred: Type, declared: Type) extends TypeError {
-      def message = s"subsumption check failed: $inferred $declared"
+      def message = s"subsumption check failed: ${tStr(inferred)} ${tStr(declared)}"
     }
 
     /**

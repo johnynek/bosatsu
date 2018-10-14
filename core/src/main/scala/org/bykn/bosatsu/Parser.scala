@@ -6,7 +6,17 @@ import java.nio.file.{Files, Path}
 import scala.util.{ Failure, Success, Try }
 
 object Parser {
-  sealed trait Error
+  sealed trait Error {
+    def showContext: Option[String] =
+      this match {
+        case Error.PartialParse(_, pos, loc, _) =>
+          loc.showContext(pos)
+        case Error.ParseFailure(pos, loc, _) =>
+          loc.showContext(pos)
+        case Error.FileError(_, _) =>
+          None
+      }
+  }
   object Error {
      case class PartialParse[A](got: A, position: Int, locations: LocationMap, path: Option[Path]) extends Error
      case class ParseFailure(position: Int, locations: LocationMap, path: Option[Path]) extends Error

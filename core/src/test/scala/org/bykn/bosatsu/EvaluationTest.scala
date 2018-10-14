@@ -25,11 +25,8 @@ class EvaluationTest extends FunSuite {
     val parsedPaths = parsed match {
       case Validated.Valid(vs) => vs
       case Validated.Invalid(errs) =>
-        errs.toList.foreach {
-          case Parser.Error.ParseFailure(pos, lm, _) =>
-            println(lm.showContext(pos))
-          case other =>
-            println(other)
+        errs.toList.foreach { p =>
+          p.showContext.foreach(System.err.println)
         }
         sys.error(errs.toString)
     }
@@ -47,8 +44,13 @@ class EvaluationTest extends FunSuite {
             }
         }
 
-      case other =>
-        fail(other.toString)
+      case (other, Validated.Invalid(errs)) =>
+        val tes = errs.toList.collect {
+          case PackageError.TypeErrorIn(te, _) =>
+            te.message
+        }
+        .mkString("\n")
+        fail(tes + "\n" + errs.toString)
     }
   }
 
@@ -94,10 +96,11 @@ package Foo
 
 x = 1
 
-z = if x.eq_Int(1):
-  "foo"
-else:
-  "bar"
+z = match x.cmp_Int(1):
+  EQ:
+    "foo"
+  _:
+    "bar"
 """), "Foo", Str("foo"))
 
     evalTest(
@@ -154,6 +157,68 @@ sum1 = three.foldLeft(0, \x, y -> add(x, y))
 same = sum0.eq_Int(sum1)
 """), "Foo", True)
 
+  }
+
+  test("test Int functions") {
+    evalTest(
+      List("""
+package Foo
+
+main = 6.mod_Int(4)
+"""), "Foo", VInt(2))
+  }
+
+  test("use range") {
+    evalTest(
+      List("""
+package Foo
+
+three = NonEmptyList(0, NonEmptyList(1, EmptyList))
+# exercise the built-in range function (not implementable in bosatsu)
+threer = range(3)
+
+def reverse(ls):
+  # note foldLeft is also built in, and not implementable
+  ls.foldLeft(EmptyList, \tail, h -> NonEmptyList(h, tail))
+
+struct Pair(fst, sec)
+
+def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
+  # TODO if we write pair: Pair[a, b] below we get an internal
+  # error about unexpected meta variables. Maybe we need skolem vars, not meta vars
+  # in defs with abstract types
+  def cons(pair, item: Int):
+    match pair:
+      Pair(acc, EmptyList):
+        Pair(acc, EmptyList)
+      Pair(acc, NonEmptyList(h, tail)):
+        Pair(NonEmptyList(Pair(item, h), acc), tail)
+
+  rev = as.foldLeft(Pair(EmptyList, bs), cons)
+  match rev:
+    Pair(res, _):
+      reverse(res)
+
+def and(a, b):
+  match a:
+    True:
+      b
+    False:
+      False
+
+def same_items(items, eq):
+  def test(p):
+    match trace("in same items", p):
+      Pair(a, b):
+        eq(a, b)
+
+  items.foldLeft(True, \res, t -> and(res, test(t)))
+
+def eq_list(a, b, fn):
+  same_items(zip(a, b), fn)
+
+same = eq_list(three, threer)(eq_Int)
+"""), "Foo", True)
   }
 
   test("test generics in defs") {
