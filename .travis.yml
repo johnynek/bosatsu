@@ -1,4 +1,28 @@
-matrix:
+addons:
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - gcc-4.8
+      - g++-4.8
+      - libxml2-utils
+      - wget
+      # Package list from http://bazel.io/docs/install.html
+      - pkg-config
+      - zip
+      - unzip
+      - zlib1g-dev
+jdk:
+  - oraclejdk8
+
+before_install:
+  - wget 'https://github.com/bazelbuild/bazel/releases/download/0.14.1/bazel-0.14.1-installer-linux-x86_64.sh'
+  - sha256sum -c .bazel-installer-linux-x86_64.sh.sha256
+  - chmod +x bazel-0.14.1-installer-linux-x86_64.sh
+  - ./bazel-0.14.1-installer-linux-x86_64.sh --user
+  - cp .bazelrc.travis .bazelrc
+
+ matrix:
   include:
     - scala: 2.11.12
       language: scala
@@ -11,6 +35,10 @@ matrix:
       jdk: oraclejdk8
       env: PLATFORM="jvm"
       script: sbt "++ ${TRAVIS_SCALA_VERSION}" coverage test coverageReport doc && codecov
+
+    - script:
+      - bazel build //...
+      - bazel test --test_output errors //...
 
 install:
  - pip install --user codecov
