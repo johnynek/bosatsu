@@ -25,6 +25,12 @@ class EvaluationTest extends FunSuite {
     val parsedPaths = parsed match {
       case Validated.Valid(vs) => vs
       case Validated.Invalid(errs) =>
+        errs.toList.foreach {
+          case Parser.Error.ParseFailure(pos, lm, _) =>
+            println(lm.showContext(pos))
+          case other =>
+            println(other)
+        }
         sys.error(errs.toString)
     }
 
@@ -81,7 +87,7 @@ x = 1
 """), "Foo", VInt(1))
   }
 
-  test("test if/else with collision in True/False") {
+  test("test if/else") {
     evalTest(
       List("""
 package Foo
@@ -93,6 +99,16 @@ z = if x.eq_Int(1):
 else:
   "bar"
 """), "Foo", Str("foo"))
+
+    evalTest(
+      List("""
+package Foo
+
+x = 1
+
+# here if the single expression python style
+z = "foo" if x.eq_Int(2) else "bar"
+"""), "Foo", Str("bar"))
   }
 
   test("exercise option from predef") {
