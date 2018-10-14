@@ -29,4 +29,8 @@ def keep(i):
 def sum(as):
   as.foldLeft(0)(add)
 
-test = TestAssert(under1000.filter(keep).sum.eq_Int(788882))
+# >>> sum(i for i in xrange(1000) if keep_fn(i))
+# 233168
+computed = trace("computed", under1000.filter(keep).sum)
+
+test = TestAssert(computed.eq_Int(233168))

@@ -96,10 +96,11 @@ package Foo
 
 x = 1
 
-z = if x.eq_Int(1):
-  "foo"
-else:
-  "bar"
+z = match x.cmp_Int(1):
+  EQ:
+    "foo"
+  _:
+    "bar"
 """), "Foo", Str("foo"))
 
     evalTest(

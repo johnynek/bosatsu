@@ -49,9 +49,7 @@ object Evaluation {
       override val hashCode = (head, tail).hashCode
     }
     case class SumValue(variant: Int, value: ProductValue) extends Value
-    case class FnValue(toFn: Value => Eval[Value]) extends Value {
-      def apply(a: Value): Eval[Value] = toFn(a)
-    }
+    case class FnValue(toFn: Value => Eval[Value]) extends Value
     case class ExternalValue(toAny: Any) extends Value
 
     val False: Value = SumValue(0, UnitValue)
