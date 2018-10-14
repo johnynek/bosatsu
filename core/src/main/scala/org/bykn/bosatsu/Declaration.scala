@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces, escapedString, toEOL }
+import cats.Functor
 import cats.data.NonEmptyList
 import cats.implicits._
 import com.stripe.dagon.Memoize
@@ -48,12 +49,26 @@ sealed abstract class Declaration {
           }
         DefStatement.document(pairDoc).document(d)
       case IfElse(ifCases, elseCase) =>
-        def checkBody(cb: (Declaration, Padding[Indented[Declaration]])) = {
-          val (check, body) = cb
-          check.toDoc + Doc.char(':') + Doc.line + Document[Padding[Indented[Declaration]]].document(body)
+        // TODO, we could make this ternary if it is small enough
+        def checkBody(cb: (Declaration, OptIndent[Declaration])) = {
+          val (check, optbody) = cb
+          val rest = optbody match {
+            case Right(body) =>
+              Doc.line + Document[Padding[Indented[Declaration]]].document(body)
+            case Left(body) =>
+              Doc.space + body.toDoc
+          }
+          check.toDoc + Doc.char(':') + rest
         }
 
-        val tail = Doc.text("else:") + Doc.line + Document[Padding[Indented[Declaration]]].document(elseCase) :: Nil
+        val elseDoc = elseCase match {
+          case Right(padElse) =>
+            Doc.line + Document[Padding[Indented[Declaration]]].document(padElse)
+          case Left(sameLine) =>
+            Doc.space + sameLine.toDoc
+        }
+
+        val tail = Doc.text("else:") + elseDoc :: Nil
         val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail.map(Doc.text("elif ") + checkBody(_))) ::: tail
         Doc.intercalate(Doc.line, parts)
       case Lambda(args, body) =>
@@ -105,17 +120,13 @@ sealed abstract class Declaration {
           }
           val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toType(nameToType))
           Expr.Let(defstmt.name, lambda, inExpr, this)
-        case IfElse(ifCases, Padding(_, Indented(_, elseCase))) =>
+        case IfElse(ifCases, elseCase) =>
 
           // TODO: we need a way to have an full name to the constructor in order for this "macro" to
           // be safe. So, we want to say Bosatsu/Predef#True or something.
           // we could just have ConstructorName require a PackageName
           def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
-            Expr.Match(cond,
-              NonEmptyList.of(
-                (Pattern.PositionalStruct((Predef.packageName, ConstructorName("True")), Nil), ifTrue),
-                (Pattern.PositionalStruct((Predef.packageName, ConstructorName("False")), Nil), ifFalse)),
-              this)
+            Expr.If(cond, ifTrue, ifFalse, this)
 
           def loop0(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
             ifs match {
@@ -125,9 +136,9 @@ sealed abstract class Declaration {
                 val elseC1 = loop0(NonEmptyList(h, tail), elseC)
                 loop0(NonEmptyList.of(ifTrue), elseC1)
             }
-          loop0(ifCases.map { case (d0, Padding(_, Indented(_, d1))) =>
-            (loop(d0), loop(d1))
-          }, loop(elseCase))
+          loop0(ifCases.map { case (d0, d1) =>
+            (loop(d0), loop(extractOptIndent(d1)))
+          }, loop(extractOptIndent(elseCase)))
         case Lambda(args, body) =>
           Expr.buildLambda(args.map((_, None)), loop(body), this)
         case LiteralInt(str) =>
@@ -164,13 +175,20 @@ object Declaration {
   // These reasons are a bit abusive, and we may revisit this in the future
   //
 
+  type OptIndent[A] = Either[A, Padding[Indented[A]]]
+  def extractOptIndent[A](opt: OptIndent[A]): A =
+    opt match {
+      case Left(e) => e
+      case Right(Padding(_, Indented(_, e))) => e
+    }
+
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration], useDotApply: Boolean)(implicit val region: Region) extends Declaration
   case class Binding(binding: BindingStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Constructor(name: String)(implicit val region: Region) extends Declaration
   case class DefFn(deffn: DefStatement[(Padding[Indented[Declaration]], Padding[Declaration])])(implicit val region: Region) extends Declaration
-  case class IfElse(ifCases: NonEmptyList[(Declaration, Padding[Indented[Declaration]])],
-    elseCase: Padding[Indented[Declaration]])(implicit val region: Region) extends Declaration
+  case class IfElse(ifCases: NonEmptyList[(Declaration, OptIndent[Declaration])],
+    elseCase: OptIndent[Declaration])(implicit val region: Region) extends Declaration
   case class Lambda(args: NonEmptyList[String], body: Declaration)(implicit val region: Region) extends Declaration
   case class LiteralInt(asString: String)(implicit val region: Region) extends Declaration
   case class LiteralString(asString: String, quoteChar: Char)(implicit val region: Region) extends Declaration
@@ -244,7 +262,11 @@ object Declaration {
         P(("\n" ~ indent ~ elifP).rep() ~ elseP)
           .region
           .map { case (r2, (tail, end)) =>
-            IfElse(NonEmptyList(ifcase, tail.toList), end)(r1 + r2)
+            def toOpt[A](p: Padding[Indented[A]]): OptIndent[A] = Right(p)
+            val tupF = Functor[(Declaration, ?)]
+            val deepNE = Functor[NonEmptyList].compose(tupF)
+            IfElse(deepNE.map(NonEmptyList(ifcase, tail.toList))(toOpt _),
+              toOpt(end))(r1 + r2)
           }
     }
   }
@@ -310,6 +332,7 @@ object Declaration {
 
       val postOperators: List[P[Declaration => Declaration]] = {
         val params = P(rec(indent).nonEmptyList.parens)
+        // here we are using . syntax foo.bar(1, 2)
         val dotApply =
           P("." ~/ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
             val args = argsOpt.fold(List.empty[Declaration])(_.toList)
@@ -317,12 +340,24 @@ object Declaration {
             { head: Declaration => Apply(fn, NonEmptyList(head, args), true)(head.region + r2) }
           }
 
+        // here we directly call a function foo(1, 2)
         val applySuffix = params.region.map { case (r, args) =>
 
           { fn: Declaration => Apply(fn, args, false)(fn.region + r) }
         }
 
-        dotApply :: applySuffix :: Nil
+        // here is if/ternary operator
+        val ternary =
+          P(spaces ~ P("if") ~ spaces ~/ rec(indent) ~ spaces ~ "else" ~ spaces ~ rec(indent))
+            .region
+            .map { case (region, (cond, falseCase)) =>
+              { trueCase: Declaration =>
+                  val ifcase = NonEmptyList.of((cond, Left(trueCase)))
+                IfElse(ifcase, Left(falseCase))(trueCase.region + region)
+              }
+            }
+
+        dotApply :: applySuffix :: ternary :: Nil
       }
       val prefix = defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(indent) |
         ifElseP(indent) | varOrBind(indent) | constructorP | commentP(indent) |

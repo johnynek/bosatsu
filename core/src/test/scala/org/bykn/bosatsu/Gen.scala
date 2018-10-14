@@ -138,9 +138,14 @@ object Generators {
     val indentation = Gen.choose(1, 10)
     indentation.flatMap { i =>
 
-      val padBody = padding(bodyGen.map(Indented(i, _)))
+      val padBody =
+        // TODO support parsing if foo: bar
+        //Gen.oneOf(
+          padding(bodyGen.map(Indented(i, _))).map(Right(_): OptIndent[Declaration])
+          //,
+          //bodyGen.map(Left(_): OptIndent[Declaration]))
 
-      val genIf: Gen[(Declaration, Padding[Indented[Declaration]])] =
+      val genIf: Gen[(Declaration, Declaration.OptIndent[Declaration])] =
         Gen.zip(bodyGen, padBody)
 
       Gen.zip(nonEmptyN(genIf, 2), padBody)

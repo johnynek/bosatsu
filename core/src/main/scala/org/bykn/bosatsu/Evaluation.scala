@@ -271,7 +271,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     import TypedExpr._
 
      expr match {
-       case Generic(_, _, _) => ???
+       case Generic(_, e, _) =>
+         // TODO, we need to probably do something with this
+         evalTypedExpr(p, e, env, recurse)
        case Annotation(e, _, _) => evalTypedExpr(p, e, env, recurse)
        case Var(v, tpe, _) =>
          env.get(v) match {
@@ -304,9 +306,18 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          }, in.getType)
        case Literal(lit, tpe, _) => (Eval.now(Value.fromLit(lit)), tpe)
        case If(cond, ifT, ifF, _) =>
-         // TODO
-         // evaluate the condition the either the left or right
-         ???
+         val tpe = expr.getType
+         val res = recurse((p, Right(cond), env))
+           ._1
+           .flatMap {
+             case True =>
+               recurse((p, Right(ifT), env))._1
+              case False =>
+                recurse((p, Right(ifF), env))._1
+              case other => sys.error(s"ill-typed, expected boolean: $other")
+           }
+        (res, tpe)
+
        case Match(arg, branches, _) =>
          val (earg, sarg) = recurse((p, Right(arg), env))
          (earg.flatMap { a =>
@@ -428,7 +439,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         dt <- dts.get((pn, t))
       } yield dt
 
-    /**
+    /*
      * TODO we are ignoring any applied types here which we will need to set.
      * the correct way is to accumulate a type environment of Map[Var.Bound, Type]
      * and pass that down, but currently no tests expose this issue so letting

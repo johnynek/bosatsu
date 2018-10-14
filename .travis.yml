@@ -1,4 +1,16 @@
-language: scala
-scala:
-  - 2.11.12
-  - 2.12.4
+matrix:
+  include:
+    - scala: 2.11.12
+      language: scala
+      jdk: oraclejdk8
+      env: PLATFORM="jvm"
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" test doc
+
+    - scala: 2.12.7
+      language: scala
+      jdk: oraclejdk8
+      env: PLATFORM="jvm"
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coverage test coverageReport doc && codecov
+
+install:
+ - pip install --user codecov

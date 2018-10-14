@@ -337,6 +337,14 @@ object Infer {
       subst(env, t)
     }
 
+    def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], expr: Expr[A]): Expr[A] = {
+
+      // TODO: I don't think we can introduce new forall bindings in annotations,
+      // the forall would only apply for the scope of the type
+      val fn = substTy(keys, vals, _: Type)
+      Expr.traverseType[A, cats.Id](expr, fn)
+    }
+
     // Return a Rho type (not a Forall)
     def instantiate(t: Type): Infer[Type.Rho] =
       t match {
@@ -470,6 +478,21 @@ object Infer {
     def writeMeta(m: Type.Meta, v: Type.Tau): Infer[Unit] =
       lift(m.ref.set(Some(v)))
 
+    /**
+     * Here we substitute any free variables in t with meta and
+     * do the same substitution inside expr
+     */
+    def freeLambdaMeta[A](t: Type, expr: Expr[A]): Infer[(Type, Expr[A])] =
+      Type.freeTyVars(t :: Nil) match {
+        case Nil => Infer.pure((t, expr))
+        case h :: tail =>
+          val frees = NonEmptyList(h, tail)
+          val metas = frees.traverse(_ => newMetaType)
+          metas.map { ms =>
+            (substTy(frees, ms, t), substExpr(frees, ms, expr))
+          }
+      }
+
     // DEEP-SKOL rule
     def subsCheck(inferred: Type, declared: Type): Infer[TypedExpr.Coerce] =
       for {
@@ -526,24 +549,37 @@ object Infer {
                 _ <- infer.set(Type.Fun(varT, bodyT))
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
           }
-        case AnnotatedLambda(name, tpe, result, tag) =>
-          expect match {
-            case Expected.Check(expTy) =>
-              for {
-                vb <- unifyFn(expTy)
-                (varT, bodyT) = vb
-                typedBody <- extendEnv(name, varT) {
-                    // TODO we are ignoring the result of subsCheck here
-                    // should we be coercing a var?
-                    subsCheck(tpe, varT) *> checkRho(result, bodyT)
-                  }
-              } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
-            case infer@Expected.Inf(_) =>
-              for { // TODO do we need to narrow or instantiate tpe?
-                typedBody <- extendEnv(name, tpe)(inferRho(result))
-                bodyT = typedBody.getType
-                _ <- infer.set(Type.Fun(tpe, bodyT))
-              } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
+        case AnnotatedLambda(name, tpe0, result0, tag) =>
+          /*
+           * This is a deviation from the paper.
+           * We are allowing a syntax like:
+           *
+           * def indentity(x: a) -> a:
+           *   x
+           *
+           * here, we want to treat a like we would a forAll. So
+           * if we see a free Type.Var.Bound in the annotation type
+           * we replace it with a meta variable
+           */
+          freeLambdaMeta(tpe0, result0).flatMap { case (tpe, result) =>
+            expect match {
+              case Expected.Check(expTy) =>
+                for {
+                  vb <- unifyFn(expTy)
+                  (varT, bodyT) = vb
+                  typedBody <- extendEnv(name, varT) {
+                      // TODO we are ignoring the result of subsCheck here
+                      // should we be coercing a var?
+                      subsCheck(tpe, varT) *> checkRho(result, bodyT)
+                    }
+                } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
+              case infer@Expected.Inf(_) =>
+                for { // TODO do we need to narrow or instantiate tpe?
+                  typedBody <- extendEnv(name, tpe)(inferRho(result))
+                  bodyT = typedBody.getType
+                  _ <- infer.set(Type.Fun(tpe, bodyT))
+                } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
+            }
           }
         case Let(name, rhs, body, tag) =>
           for {
@@ -570,7 +606,7 @@ object Infer {
                 tExp <- inferRho(ifTrue)
                 fExp <- inferRho(ifFalse)
                 rT = tExp.getType
-                rF = tExp.getType
+                rF = fExp.getType
                 cT <- subsCheck(rT, rF)
                 cF <- subsCheck(rF, rT)
                 _ <- infer.set(rT) // see section 7.1

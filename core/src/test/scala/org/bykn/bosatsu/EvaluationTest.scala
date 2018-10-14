@@ -54,6 +54,32 @@ class EvaluationTest extends FunSuite {
     }
   }
 
+  def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty) = {
+    val mainPack = PackageName.parse(mainPackS).get
+
+    val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
+      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
+        ((i.toString, lm), parsed)
+      }
+    }
+
+    val parsedPaths = parsed match {
+      case Validated.Valid(vs) => vs
+      case Validated.Invalid(errs) =>
+        sys.error(errs.toString)
+    }
+
+    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
+      case (_, Validated.Valid(_)) =>
+        fail("expected to fail type checking")
+
+      case (_, Validated.Invalid(errs)) if errs.collect { case PackageError.TypeErrorIn(_, _) => () }.nonEmpty =>
+        assert(true)
+      case (_, Validated.Invalid(errs)) =>
+          fail(s"failed, but no type errors: $errs")
+    }
+  }
+
   test("simple evaluation") {
     evalTest(
       List("""
@@ -63,7 +89,7 @@ x = 1
 """), "Foo", VInt(1))
   }
 
-  test("test if/else with collision in True/False") {
+  test("test if/else") {
     evalTest(
       List("""
 package Foo
@@ -75,6 +101,16 @@ z = if x.eq_Int(1):
 else:
   "bar"
 """), "Foo", Str("foo"))
+
+    evalTest(
+      List("""
+package Foo
+
+x = 1
+
+# here if the single expression python style
+z = "foo" if x.eq_Int(2) else "bar"
+"""), "Foo", Str("bar"))
   }
 
   test("exercise option from predef") {
@@ -122,20 +158,34 @@ same = sum0.eq_Int(sum1)
 
   }
 
+  test("test Int functions") {
+    evalTest(
+      List("""
+package Foo
+
+main = 6.mod_Int(4)
+"""), "Foo", VInt(2))
+  }
+
   test("use range") {
     evalTest(
       List("""
 package Foo
 
-three = NonEmptyList(1, NonEmptyList(2, EmptyList))
+three = NonEmptyList(0, NonEmptyList(1, EmptyList))
+# exercise the built-in range function (not implementable in bosatsu)
 threer = range(3)
 
 def reverse(ls):
+  # note foldLeft is also built in, and not implementable
   ls.foldLeft(EmptyList, \tail, h -> NonEmptyList(h, tail))
 
 struct Pair(fst, sec)
 
 def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
+  # TODO if we write pair: Pair[a, b] below we get an internal
+  # error about unexpected meta variables. Maybe we need skolem vars, not meta vars
+  # in defs with abstract types
   def cons(pair, item: Int):
     match pair:
       Pair(acc, EmptyList):
@@ -144,7 +194,9 @@ def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
         Pair(NonEmptyList(Pair(item, h), acc), tail)
 
   rev = as.foldLeft(Pair(EmptyList, bs), cons)
-  reverse(rev)
+  match rev:
+    Pair(res, _):
+      reverse(res)
 
 def and(a, b):
   match a:
@@ -155,7 +207,7 @@ def and(a, b):
 
 def same_items(items, eq):
   def test(p):
-    match p:
+    match trace("in same items", p):
       Pair(a, b):
         eq(a, b)
 
@@ -164,8 +216,20 @@ def same_items(items, eq):
 def eq_list(a, b, fn):
   same_items(zip(a, b), fn)
 
-same = eq_list(three, threer)
+same = eq_list(three, threer)(eq_Int)
 """), "Foo", True)
+  }
+
+  test("test generics in defs") {
+    evalTest(
+      List("""
+package Foo
+
+def id(x: a) -> a:
+  x
+
+main = id(1)
+"""), "Foo", VInt(1))
   }
 
   test("exercise struct creation") {
@@ -187,5 +251,17 @@ struct Bar(a: Int, s: String)
 
 main = Bar(1, "foo")
 """), "Foo", Json.JObject(Map("a" -> Json.JNumberStr("1"), "s" -> Json.JString("foo"))))
+  }
+
+  test("test some type errors") {
+    evalFail(
+      List("""
+package Foo
+
+main = if True:
+  1
+else:
+  "1"
+"""), "Foo")
   }
 }
