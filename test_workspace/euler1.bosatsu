@@ -1,7 +1,32 @@
 package Euler/One
 
-xs = NonEmptyList(1, NonEmptyList(2, EmptyList))
+# see:
+# https://projecteuler.net/problem=1
+# Find the sum of all the multiples of 3 or 5 below 1000.
 
-sum = xs.foldLeft(0, add)
+def reverse(as):
+  as.foldLeft(EmptyList, \tail, head -> NonEmptyList(head, tail))
 
-test = TestAssert(sum.eq_Int(3))
+def filter(as, fn):
+  as.foldLeft(EmptyList, \tail, item ->
+    if fn(item):
+      NonEmptyList(item, tail)
+    else:
+      tail)
+
+under1000 = range(1000)
+
+def or(a, b):
+  match a:
+    True:
+      True
+    False:
+      b
+
+def keep(i):
+  or(i.mod_Int(3).eq_Int(0), i.mod_Int(5).eq_Int(0))
+
+def sum(as):
+  as.foldLeft(0)(add)
+
+test = TestAssert(under1000.filter(keep).sum.eq_Int(788882))

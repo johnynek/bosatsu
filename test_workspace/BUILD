@@ -25,4 +25,5 @@ bosatsu_test(
 
 bosatsu_test(
     name = "euler1",
-    srcs = ["euler1.bosatsu"])
+    srcs = ["euler1.bosatsu"],
+    size = "enormous")

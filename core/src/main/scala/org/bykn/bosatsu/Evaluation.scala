@@ -5,7 +5,7 @@ import com.stripe.dagon.Memoize
 import cats.Eval
 import cats.implicits._
 import java.math.BigInteger
-import org.bykn.bosatsu.rankn.Type
+import org.bykn.bosatsu.rankn.{DefinedType, Type}
 
 object Evaluation {
   import Value._
@@ -45,7 +45,9 @@ object Evaluation {
     }
 
     case object UnitValue extends ProductValue
-    case class ConsValue(head: Value, tail: ProductValue) extends ProductValue
+    case class ConsValue(head: Value, tail: ProductValue) extends ProductValue {
+      override val hashCode = (head, tail).hashCode
+    }
     case class SumValue(variant: Int, value: ProductValue) extends Value
     case class FnValue(toFn: Value => Eval[Value]) extends Value {
       def apply(a: Value): Eval[Value] = toFn(a)
@@ -203,6 +205,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       // this is calling apply on a map, but is safe because of type-checking
       val dt = packageForType.program.types.definedTypes((pn0, TypeName(tn)))
 
+      def definedForCons(pc: (PackageName, ConstructorName)): DefinedType =
+        pm.toMap(pc._1).program.types.constructors(pc)._2
+
       def bindEnv(arg: Value,
         branches: List[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[Declaration])],
         acc: Map[String, Value]): Option[(Map[String, Value], TypedExpr[Declaration])] =
@@ -213,15 +218,23 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case (Pattern.Annotation(p, _), next) :: tail =>
             // TODO we may need to use the type here
             bindEnv(arg, (p, next) :: tail, acc)
-          case (Pattern.PositionalStruct((pack, ctor), items), next) :: tail =>
-            // let's see if this matches
+          case (Pattern.PositionalStruct(pc@(pack, ctor), items), next) :: tail =>
+            /*
+             * The type in question is not the outer dt, but the type associated
+             * with this current constructor
+             */
+            val dt = definedForCons(pc)
             val optParams =
               if (dt.isStruct) {
                 // this is a struct, which means we expect it
                 arg match {
                   case p: ProductValue =>
                     Some(p.toList)
-                  case other => sys.error(s"ill typed in match: $other")
+
+                  case other =>
+                    val ts = TypeRef.fromType(tpe).fold(tpe.toString)(_.toDoc.render(80))
+                    val matchPos = branches.head._2.tag.toDoc.render(80)
+                    sys.error(s"ill typed in match (${ctor.asString}${items.mkString}): $ts\n$matchPos\n\n$other")
                 }
               }
               else {
@@ -231,20 +244,24 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                     if (cname == ctor) {
                       Some(v.toList)
                     }
-                    else None
+                    else {
+                      None
+                    }
                   case other => sys.error(s"ill typed in match: $other")
                 }
               }
 
-            optParams match {
-              case Some(params) =>
-                  // this is the pattern
-                  // note passing in a List here we could have union patterns
-                  // if all the pattern bindings were known to be of the same type
-                  params.zip(items).foldM(acc) { case (e, (arg, pat)) =>
-                    bindEnv(arg, List((pat, next)), e).map(_._1)
-                  }.map((_, next))
-              case None =>
+            optParams.flatMap { params =>
+              // this is the pattern
+              // note passing in a List here we could have union patterns
+              // if all the pattern bindings were known to be of the same type
+              params.zip(items)
+                .foldM(acc) { case (e, (arg, pat)) =>
+                  bindEnv(arg, List((pat, next)), e).map(_._1)
+                }
+                .map((_, next))
+            }
+            .orElse {
                   // we didn't match, go to the next branch
                   bindEnv(arg, tail, acc)
             }
@@ -253,7 +270,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       val (localEnv, next) = bindEnv(arg, branches.toList, env)
         .getOrElse(
             // TODO make sure we rule this out statically
-            sys.error(s"non-total match: arg: $arg, branches: ${branches.map(_._1)}")
+            sys.error(s"non-total match: arg: $arg, branches: ${branches.head._2.tag.toDoc.render(80)}")
           )
       recurse((p, Right(next), localEnv))._1
     }

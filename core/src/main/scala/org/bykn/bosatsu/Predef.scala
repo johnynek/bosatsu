@@ -53,10 +53,12 @@ object Predef {
         "add",
         "eq_Int",
         "cmp_Int",
+        "mod_Int",
         "foldLeft",
         "range",
         "sub",
-        "times"
+        "times",
+        "trace"
         )
         .map(ImportedName.OriginalName(_, ())))
 
@@ -69,7 +71,9 @@ object Predef {
       .add(predefPackage.name, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.eq_Int"))
       .add(predefPackage.name, "cmp_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.cmp_Int"))
       .add(predefPackage.name, "foldLeft", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.foldLeft"))
+      .add(predefPackage.name, "mod_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.mod_Int"))
       .add(predefPackage.name, "range", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.range"))
+      .add(predefPackage.name, "trace", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.trace"))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -101,6 +105,9 @@ object PredefImpl {
 
   def cmp_Int(a: Value, b: Value): Value =
     Comparison.fromInt(i(a).compareTo(i(b)))
+
+  def mod_Int(a: Value, b: Value): Value =
+    VInt(i(a).mod(i(b).abs()))
 
   def foldLeft(list: Value, bv: Value, fn: Value): Value = {
     val fnT = fn.asFn
@@ -138,6 +145,12 @@ object PredefImpl {
     }
 
     loop(BigInteger.ZERO, Nil)
+  }
+
+  def trace(prefix: Value, v: Value): Value = {
+    val Value.Str(prestr) = prefix
+    println(s"$prestr: $v")
+    v
   }
 }
 
