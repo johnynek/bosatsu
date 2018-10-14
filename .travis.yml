@@ -22,7 +22,7 @@ before_install:
   - ./bazel-0.14.1-installer-linux-x86_64.sh --user
   - cp .bazelrc.travis .bazelrc
 
- matrix:
+matrix:
   include:
     - scala: 2.11.12
       language: scala
