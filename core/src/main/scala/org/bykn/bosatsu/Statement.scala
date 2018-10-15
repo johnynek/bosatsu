@@ -231,7 +231,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
         val initState = ((initVars.toSet, initVars.reverse), 0L)
         val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
         // we reverse to make sure we see in traversal order
-        val typeParams = typeVars.reverse.map { tv =>
+        val typeParams = typeVars.reverseMap { tv =>
           tv.toVar match {
             case b@Type.Var.Bound(_) => b
             case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
@@ -264,7 +264,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
         val initState = ((initVars.toSet, initVars.reverse), 0L)
         val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
         // we reverse to make sure we see in traversal order
-        val typeParams = typeVars.reverse.map { tv =>
+        val typeParams = typeVars.reverseMap { tv =>
           tv.toVar match {
             case b@Type.Var.Bound(_) => b
             case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
