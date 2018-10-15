@@ -200,11 +200,7 @@ def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
       reverse(res)
 
 def and(a, b):
-  match a:
-    True:
-      b
-    False:
-      False
+  b if a else False
 
 def same_items(items, eq):
   def test(p):
@@ -219,6 +215,33 @@ def eq_list(a, b, fn):
 
 same = eq_list(three, threer)(eq_Int)
 """), "Foo", True)
+
+evalTest(
+  List("""
+package Foo
+
+def reverse(ls):
+  # note foldLeft is also built in, and not implementable
+  ls.foldLeft(EmptyList, \tail, h -> NonEmptyList(h, tail))
+
+struct Pair(fst, sec)
+
+def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
+  def cons(pair: Pair[List[Pair[a, b]], List[b]], item: a) -> Pair[List[Pair[a, b]], List[b]]:
+    match pair:
+      Pair(acc, EmptyList):
+        Pair(acc, EmptyList)
+      Pair(acc, NonEmptyList(h, tail)):
+        Pair(NonEmptyList(Pair(item, h), acc), tail)
+
+  rev = as.foldLeft(Pair(EmptyList, bs), cons)
+  match rev:
+    Pair(res, _):
+      reverse(res)
+
+main = 1
+"""), "Foo", VInt(1))
+
   }
 
   test("test generics in defs") {
