@@ -415,6 +415,20 @@ main = Monad(optPure, optBind)
 """, "Monad[Opt]")
   }
 
+  test("def with type annotation and use the types inside") {
+   parseProgram("""#
+
+struct Pair(fst, snd)
+
+def fst(p: Pair[a, b]) -> a:
+  match p:
+    Pair(f, _):
+      f
+
+main = fst(Pair(1, "1"))
+""", "Int")
+  }
+
   test("test that we see some ill typed programs") {
   parseProgramIllTyped("""#
 
