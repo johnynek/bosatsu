@@ -15,13 +15,6 @@ addons:
 jdk:
   - oraclejdk8
 
-before_install:
-  - wget 'https://github.com/bazelbuild/bazel/releases/download/0.17.2/bazel-0.17.2-installer-linux-x86_64.sh'
-  - sha256sum -c .bazel-installer-linux-x86_64.sh.sha256
-  - chmod +x bazel-0.17.2-installer-linux-x86_64.sh
-  - ./bazel-0.17.2-installer-linux-x86_64.sh --user
-  - cp .bazelrc.travis .bazelrc
-
 matrix:
   include:
     - scala: 2.11.12
@@ -36,9 +29,16 @@ matrix:
       env: PLATFORM="jvm"
       script: sbt "++ ${TRAVIS_SCALA_VERSION}" coverage test coverageReport doc && codecov
 
-    - script:
-      - bazel build //...
-      - bazel test --test_output errors //...
+    - language: generic
+      before_install:
+        - wget 'https://github.com/bazelbuild/bazel/releases/download/0.17.2/bazel-0.17.2-installer-linux-x86_64.sh'
+        - sha256sum -c .bazel-installer-linux-x86_64.sh.sha256
+        - chmod +x bazel-0.17.2-installer-linux-x86_64.sh
+        - ./bazel-0.17.2-installer-linux-x86_64.sh --user
+        - cp .bazelrc.travis .bazelrc
+      script:
+        - bazel build //...
+        - bazel test --test_output errors //...
 
 install:
  - pip install --user codecov
