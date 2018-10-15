@@ -37,6 +37,12 @@ object Infer {
     }
 
 
+  /**
+   * The first element of the tuple are the the bound type
+   * vars for this type.
+   * the next are the types of the args of the constructor
+   * the final is the defined type this creates
+   */
   type Cons = (List[Type.Var], List[Type], Type.Const.Defined)
 
   case class Env(
