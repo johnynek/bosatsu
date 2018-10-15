@@ -184,10 +184,7 @@ def reverse(ls):
 struct Pair(fst, sec)
 
 def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
-  # TODO if we write pair: Pair[a, b] below we get an internal
-  # error about unexpected meta variables. Maybe we need skolem vars, not meta vars
-  # in defs with abstract types
-  def cons(pair, item: Int):
+  def cons(pair, item):
     match pair:
       Pair(acc, EmptyList):
         Pair(acc, EmptyList)
