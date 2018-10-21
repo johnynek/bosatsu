@@ -72,9 +72,6 @@ object Parser {
           pa.rep(min, sep = sep)
         }
 
-      def ~/[B](that: Indy[B]): Indy[(A, B)] =
-        Indy { indent => toKleisli(indent) ~/ that(indent) }
-
       def nonEmptyList(sepIndy: Indy[Unit]): Indy[NonEmptyList[A]] =
         rep(1, sepIndy).map { as =>
           as.toList match {
@@ -190,9 +187,6 @@ object Parser {
     else str
   }
 
-  def indented[T](indy: Indy[T]): P[T] =
-    spaces.!.flatMap { extra => P(indy.run(extra)) }
-
   def nonEmptyListToList[T](p: P[NonEmptyList[T]]): P[List[T]] =
     p.?.map {
       case None => Nil
@@ -233,12 +227,6 @@ object Parser {
       P(Index ~ item ~ Index).map { case (s, t, e) =>
         (Region(s, e), t)
       }
-
-    def trailingSpace: P[T] =
-      P(item ~ maybeSpace)
-
-    def prefixedBy(indent: String): P[T] =
-      P(indent ~ item)
 
     def wrappedSpace(left: P[Unit], right: P[Unit]): P[T] =
       P(left ~ maybeSpace ~ item ~ maybeSpace ~ right)
