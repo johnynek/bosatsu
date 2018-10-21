@@ -5,6 +5,7 @@ package(default_visibility = ["//visibility:public"])
 
 common_deps = [
       "//base/src/main/java/org/bykn/bosatsu",
+      "//3rdparty/jvm/org/bykn:fastparse_cats_core",
       "//3rdparty/jvm/org/typelevel:alleycats_core",
       "//3rdparty/jvm/org/typelevel:cats_core",
       "//3rdparty/jvm/org/typelevel:cats_kernel",

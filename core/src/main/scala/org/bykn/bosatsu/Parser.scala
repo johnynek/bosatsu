@@ -1,11 +1,90 @@
 package org.bykn.bosatsu
 
-import cats.data.{Validated, ValidatedNel, NonEmptyList}
+import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
 import fastparse.all._
 import java.nio.file.{Files, Path}
 import scala.util.{ Failure, Success, Try }
 
+import org.bykn.fastparse_cats.StringInstances._
+import cats.implicits._
+
 object Parser {
+  /**
+   * This is an indentation aware
+   * parser, the input is the string that
+   * should be parsed after a new-line to
+   * continue the current indentation block
+   */
+  type Indy[A] = Kleisli[P, String, A]
+
+  object Indy {
+    def apply[A](fn: String => P[A]): Indy[A] =
+      Kleisli(fn)
+
+    def lift[A](p: P[A]): Indy[A] =
+      Kleisli.liftF(p)
+
+    def suspend[A](ind: => Indy[A]): Indy[A] = {
+      lazy val force = ind
+      Indy { i => force(i) }
+    }
+
+    /**
+     * Without parsing anything return
+     * the current indentation level
+     */
+    val currentIndentation: Indy[String] =
+      Kleisli.ask
+
+    /**
+     * Parse exactly the current indentation
+     * starting now
+     */
+    val parseIndent: Indy[Unit] =
+      apply(indent => P(indent))
+
+    val toEOLIndent: Indy[Unit] =
+      lift(toEOL) *> parseIndent
+
+    /**
+     * A: B or
+     * A:
+     *   B
+     */
+    def block[A, B](first: Indy[A], next: Indy[B]): Indy[(A, OptIndent[B])] =
+      blockLike(first, next, ":")
+
+    def blockLike[A, B](first: Indy[A], next: Indy[B], sep: String): Indy[(A, OptIndent[B])] =
+      (first <* lift(P(sep ~/ maybeSpace)))
+        .product(OptIndent.indy(next))
+
+    implicit class IndyMethods[A](val toKleisli: Indy[A]) extends AnyVal {
+      def region: Indy[(Region, A)] =
+        toKleisli.mapF(_.region)
+
+      def ? : Indy[Option[A]] =
+        toKleisli.mapF(_.? : P[Option[A]])
+
+      def rep(min: Int = 0, sepIndy: Indy[Unit]): Indy[Seq[A]] =
+        Indy { indent =>
+          val pa = toKleisli(indent)
+          val sep = sepIndy(indent)
+          pa.rep(min, sep = sep)
+        }
+
+      def ~/[B](that: Indy[B]): Indy[(A, B)] =
+        Indy { indent => toKleisli(indent) ~/ that(indent) }
+
+      def nonEmptyList(sepIndy: Indy[Unit]): Indy[NonEmptyList[A]] =
+        rep(1, sepIndy).map { as =>
+          as.toList match {
+            case h :: tail => NonEmptyList(h, tail)
+            case Nil => sys.error("rep 1 matched 0")
+          }
+        }
+    }
+  }
+
   sealed trait Error {
     def showContext: Option[String] =
       this match {
@@ -79,7 +158,7 @@ object Parser {
 
   def tokenP[T](s: String, t: T): P[T] = P(s).map(_ => t)
 
-  def integerString: P[String] = {
+  val integerString: P[String] = {
     val nonZero: P[String] = P(CharIn('1' to '9').! ~ (CharsWhile(isNum _).!.?))
       .map {
         case (f, None) => f
@@ -111,8 +190,8 @@ object Parser {
     else str
   }
 
-  def indented[T](fn: String => P[T]): P[T] =
-    spaces.!.flatMap { extra => P(fn(extra)) }
+  def indented[T](indy: Indy[T]): P[T] =
+    spaces.!.flatMap { extra => P(indy.run(extra)) }
 
   def nonEmptyListToList[T](p: P[NonEmptyList[T]]): P[List[T]] =
     p.?.map {

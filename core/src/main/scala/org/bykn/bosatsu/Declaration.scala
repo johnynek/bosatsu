@@ -1,12 +1,14 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace, spaces, escapedString, toEOL }
-import cats.Functor
+import Parser.{ Combinators, Indy, lowerIdent, upperIdent, maybeSpace, spaces, escapedString, toEOL }
 import cats.data.NonEmptyList
 import cats.implicits._
 import com.stripe.dagon.Memoize
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
+
+import Indy.IndyMethods
+import org.bykn.fastparse_cats.StringInstances._
 
 /**
  * Represents the syntax version of Expr
@@ -24,6 +26,7 @@ sealed abstract class Declaration {
           case p@Parens(_) => p.toDoc
           case other => Doc.char('(') + other.toDoc + Doc.char(')')
         }
+
         val (prefix, body) =
           if (!dotApply) (fnDoc, args.toList)
           else (args.head.toDoc + Doc.char('.') + fnDoc, args.tail)
@@ -34,40 +37,35 @@ sealed abstract class Declaration {
             prefix + Doc.char('(') + Doc.intercalate(Doc.text(", "), notEmpty.map(_.toDoc)) + Doc.char(')')
         }
       case Binding(b) =>
-        BindingStatement.document[Padding[Declaration]].document(b)
+        val d0 = Document[Padding[Declaration]]
+        val withNewLine = Document.instance[Padding[Declaration]] { pd =>
+           Doc.line + d0.document(pd)
+        }
+        BindingStatement.document(withNewLine).document(b)
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
       case Constructor(name) =>
         Doc.text(name)
       case DefFn(d) =>
-        val pairDoc: Document[(Padding[Indented[Declaration]], Padding[Declaration])] =
+        val pairDoc: Document[(OptIndent[Declaration], Padding[Declaration])] =
           Document.instance {
             case (fnBody, letBody) =>
-                Document[Padding[Indented[Declaration]]].document(fnBody) +
+                fnBody.sepDoc +
+                Document[OptIndent[Declaration]].document(fnBody) +
                 Doc.line +
                 Document[Padding[Declaration]].document(letBody)
           }
         DefStatement.document(pairDoc).document(d)
       case IfElse(ifCases, elseCase) =>
         // TODO, we could make this ternary if it is small enough
-        def checkBody(cb: (Declaration, OptIndent[Declaration])) = {
+        def checkBody(cb: (Declaration, OptIndent[Declaration])): Doc = {
           val (check, optbody) = cb
-          val rest = optbody match {
-            case Right(body) =>
-              Doc.line + Document[Padding[Indented[Declaration]]].document(body)
-            case Left(body) =>
-              Doc.space + body.toDoc
-          }
+          val sep = optbody.sepDoc
+          val rest = sep + Document[OptIndent[Declaration]].document(optbody)
           check.toDoc + Doc.char(':') + rest
         }
 
-        val elseDoc = elseCase match {
-          case Right(padElse) =>
-            Doc.line + Document[Padding[Indented[Declaration]]].document(padElse)
-          case Left(sameLine) =>
-            Doc.space + sameLine.toDoc
-        }
-
+        val elseDoc = elseCase.sepDoc + Document[OptIndent[Declaration]].document(elseCase)
         val tail = Doc.text("else:") + elseDoc :: Nil
         val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail.map(Doc.text("elif ") + checkBody(_))) ::: tail
         Doc.intercalate(Doc.line, parts)
@@ -77,15 +75,20 @@ sealed abstract class Declaration {
       case LiteralString(str, q) =>
           Doc.char(q) + Doc.text(Parser.escape(Set(q), str)) + Doc.char(q)
       case Match(typeName, args) =>
-        val pid = Document[Padding[Indented[Declaration]]]
-        implicit val patDoc: Document[(Pattern[String, TypeRef], Padding[Indented[Declaration]])] =
-          Document.instance[(Pattern[String, TypeRef], Padding[Indented[Declaration]])] {
+        val pid = Document[OptIndent[Declaration]]
+
+        implicit val patDoc: Document[(Pattern[String, TypeRef], OptIndent[Declaration])] =
+          Document.instance[(Pattern[String, TypeRef], OptIndent[Declaration])] {
             case (pat, decl) =>
-              Document[Pattern[String, TypeRef]].document(pat) + Doc.text(":") + Doc.line + pid.document(decl)
+              Document[Pattern[String, TypeRef]].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
           }
-        val piPat = Document[Padding[Indented[(Pattern[String, TypeRef], Padding[Indented[Declaration]])]]]
-        Doc.text("match ") + typeName.toDoc + Doc.char(':') + Doc.line +
-          Doc.intercalate(Doc.line, args.toList.map(piPat.document _))
+        implicit def linesDoc[T: Document]: Document[NonEmptyList[T]] =
+          Document.instance { ts => Doc.intercalate(Doc.line, ts.toList.map(Document[T].document _)) }
+
+        val piPat = Document[OptIndent[NonEmptyList[(Pattern[String, TypeRef], OptIndent[Declaration])]]]
+        // TODO this isn't quite right
+        Doc.text("match ") + typeName.toDoc + Doc.char(':') + args.sepDoc +
+          piPat.document(args)
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
       case Var(name) => Doc.text(name)
@@ -115,8 +118,8 @@ sealed abstract class Declaration {
           Expr.Var(name, this)
         case DefFn(defstmt@DefStatement(_, _, _, _)) =>
           val (bodyExpr, inExpr) = defstmt.result match {
-            case (Padding(_, Indented(_, body)), Padding(_, in)) =>
-              (loop(body), loop(in))
+            case (oaBody, Padding(_, in)) =>
+              (loop(oaBody.get), loop(in))
           }
           val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toType(nameToType))
           Expr.Let(defstmt.name, lambda, inExpr, this)
@@ -137,8 +140,8 @@ sealed abstract class Declaration {
                 loop0(NonEmptyList.of(ifTrue), elseC1)
             }
           loop0(ifCases.map { case (d0, d1) =>
-            (loop(d0), loop(extractOptIndent(d1)))
-          }, loop(extractOptIndent(elseCase)))
+            (loop(d0), loop(d1.get))
+          }, loop(elseCase.get))
         case Lambda(args, body) =>
           Expr.buildLambda(args.map((_, None)), loop(body), this)
         case LiteralInt(str) =>
@@ -150,7 +153,8 @@ sealed abstract class Declaration {
         case Var(name) =>
           Expr.Var(name, this)
         case Match(arg, branches) =>
-          val expBranches = branches.map { case Padding(_, Indented(_, (pat, Padding(_, Indented(_, decl))))) =>
+          val expBranches = branches.get.map { case (pat, oidecl) =>
+            val decl = oidecl.get
             val newPattern = pat.mapName(nameToCons).mapType(_.toType(nameToType))
             (newPattern, loop(decl))
           }
@@ -175,35 +179,31 @@ object Declaration {
   // These reasons are a bit abusive, and we may revisit this in the future
   //
 
-  type OptIndent[A] = Either[A, Padding[Indented[A]]]
-  def extractOptIndent[A](opt: OptIndent[A]): A =
-    opt match {
-      case Left(e) => e
-      case Right(Padding(_, Indented(_, e))) => e
-    }
-
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration], useDotApply: Boolean)(implicit val region: Region) extends Declaration
   case class Binding(binding: BindingStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Constructor(name: String)(implicit val region: Region) extends Declaration
-  case class DefFn(deffn: DefStatement[(Padding[Indented[Declaration]], Padding[Declaration])])(implicit val region: Region) extends Declaration
+  case class DefFn(deffn: DefStatement[(OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
   case class IfElse(ifCases: NonEmptyList[(Declaration, OptIndent[Declaration])],
     elseCase: OptIndent[Declaration])(implicit val region: Region) extends Declaration
   case class Lambda(args: NonEmptyList[String], body: Declaration)(implicit val region: Region) extends Declaration
   case class LiteralInt(asString: String)(implicit val region: Region) extends Declaration
   case class LiteralString(asString: String, quoteChar: Char)(implicit val region: Region) extends Declaration
   case class Match(arg: Declaration,
-    cases: NonEmptyList[Padding[Indented[(Pattern[String, TypeRef], Padding[Indented[Declaration]])]]])(
+    cases: OptIndent[NonEmptyList[(Pattern[String, TypeRef], OptIndent[Declaration])]])(
     implicit val region: Region) extends Declaration
   case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
   case class Var(name: String)(implicit val region: Region) extends Declaration
 
+  private val restP: Indy[Padding[Declaration]] =
+    (Indy.parseIndent *> parser).mapF(Padding.parser(_))
+
   // This is something we check after variables
-  private def bindingOp(indent: String): P[(String, Region) => Binding] = {
+  private val bindingOp: Indy[(String, Region) => Binding] = {
     val eqP = P("=" ~ !"=")
 
-    val restParser = Padding.parser(P(indent ~ parser(indent)))
-    P(maybeSpace ~ eqP ~/ maybeSpace ~ parser(indent) ~ maybeSpace ~ "\n" ~ restParser)
+    (Indy.lift(P(maybeSpace ~ eqP ~/ maybeSpace)) *> parser <* Indy.lift(toEOL))
+      .product(restP)
       .region
       .map { case (region, (value, rest)) =>
 
@@ -214,69 +214,57 @@ object Declaration {
   val constructorP: P[Constructor] =
     upperIdent.region.map { case (r, c) => Constructor(c)(r) }
 
-  def commentP(indent: String): P[Comment] =
-    CommentStatement.parser(indent, Padding.parser(P(indent ~ parser(indent))))
+  val commentP: Parser.Indy[Comment] =
+    CommentStatement.parser(Parser.Indy { indent => Padding.parser(P(indent ~ parser(indent)))})
       .region
       .map { case (r, c) => Comment(c)(r) }
 
-  private def padIn[T](indent: String)(fn: String => P[T]): P[Padding[Indented[T]]] =
-    P(Padding.parser(P(indent ~ Indented.parser(fn))))
+  val defP: Indy[DefFn] = {
+    val restParser: Indy[(OptIndent[Declaration], Padding[Declaration])] =
+      OptIndent.indy(parser).product(Indy.lift(toEOL) *> restP)
 
-  private def padInP(indent: String): P[Padding[Indented[Declaration]]] =
-    padIn(indent) { nextId => parser(nextId + indent) }
-
-  private def exactlyIn[T](indent: String, nextId: String, p: P[T]): P[Padding[Indented[T]]] =
-    Padding.parser(P(indent ~ Indented.exactly(nextId, p)))
-
-  def defP(indent: String): P[DefFn] = {
-    val restParser: P[(Padding[Indented[Declaration]], Padding[Declaration])] =
-      P(padInP(indent) ~ toEOL ~ Padding.parser(indent ~ parser(indent)))
-
-    DefStatement.parser(restParser)
-      .region
-      .map { case (r, d) => DefFn(d)(r) }
-  }
-
-  def ifElseP(indent: String): P[IfElse] = {
-    // prefix should be strict identifier like "if " or "elif "
-    def blockPart[T, U](prefix: String, condition: P[T], body: P[U]): P[(T, U)] =
-      P(prefix ~/ maybeSpace ~ condition ~ maybeSpace ~ ":" ~/ toEOL ~ body)
-
-    val ifDecl: P[Padding[Indented[(Declaration, String)]]] =
-      padIn(indent) { nextId => parser(indent + nextId).map((_, nextId)) }
-
-    def restDecl(str: String): P[Padding[Indented[Declaration]]] =
-      exactlyIn(indent, str, parser(indent + str))
-
-    val lazyCond = P(parser(indent))
-    val ifP: P[(Declaration, Padding[Indented[(Declaration, String)]])] =
-      blockPart("if ", lazyCond, ifDecl)
-
-    ifP.region.flatMap {
-      case (r1, (cond, Padding(p, Indented(c, (decl, i))))) =>
-        val ifcase = (cond, Padding(p, Indented(c, decl)))
-        val nextDecls = restDecl(i)
-
-        val elifP = blockPart("elif ", lazyCond, nextDecls)
-        val elseP = P("\n" ~ indent ~ "else" ~ maybeSpace ~ ":" ~/ toEOL ~ nextDecls)
-        P(("\n" ~ indent ~ elifP).rep() ~ elseP)
-          .region
-          .map { case (r2, (tail, end)) =>
-            def toOpt[A](p: Padding[Indented[A]]): OptIndent[A] = Right(p)
-            val tupF = Functor[(Declaration, ?)]
-            val deepNE = Functor[NonEmptyList].compose(tupF)
-            IfElse(deepNE.map(NonEmptyList(ifcase, tail.toList))(toOpt _),
-              toOpt(end))(r1 + r2)
-          }
+    restParser.mapF { rp =>
+      DefStatement.parser(maybeSpace ~ rp)
+        .region
+        .map { case (r, d) => DefFn(d)(r) }
     }
   }
 
-  def lambdaP(indent: String): P[Lambda] = {
-    val body0 = P(maybeSpace ~ parser(indent))
-    val body1 = P(toEOL ~/ padInP(indent).map(_.padded.value))
-    P("\\" ~/ maybeSpace ~ lowerIdent.nonEmptyList ~ maybeSpace ~ "->" ~/ (body0 | body1))
+  def ifElseP(expr: Indy[Declaration]): Indy[IfElse] = {
+
+    def ifelif(str: String): Indy[(Declaration, OptIndent[Declaration])] =
+      Indy.block(Indy.lift(P(str ~ spaces ~/ maybeSpace)) *> expr, expr)
+
+    /*
+     * We don't need to parse the else term to the end,
+     * EOL is a kind of a separator we only have in between
+     */
+    val elseTerm: Indy[OptIndent[Declaration]] =
+      Indy.block(Indy.lift(P("else" ~ maybeSpace)), expr).map(_._2)
+
+    val elifs1 = ifelif("elif").rep(1, sepIndy = Indy.toEOLIndent) <* Indy.toEOLIndent
+
+    (ifelif("if") <* Indy.toEOLIndent)
+      .product(elifs1.?)
+      .product(elseTerm)
       .region
-      .map { case (r, (args, body)) => Lambda(args, body)(r) }
+      .map {
+        case (region, ((ifcase, optElses), elseBody)) =>
+          val elses =
+            optElses match {
+              case None => Nil
+              case Some(s) => s.toList // type inference works better than fold sadly
+            }
+          IfElse(NonEmptyList(ifcase, elses), elseBody)(region)
+      }
+  }
+
+  val lambdaP: Indy[Lambda] = {
+    val params = Indy.lift(P("\\" ~/ maybeSpace ~ lowerIdent.nonEmptyList))
+
+    Indy.blockLike(params, parser, "->")
+      .region
+      .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
   }
 
   val literalIntP: P[LiteralInt] =
@@ -293,35 +281,22 @@ object Declaration {
     str(q1) | str(q2)
   }
 
-  def matchP(indent: String): P[Match] = {
-    val firstCase: P[Padding[Indented[(Pattern[String, TypeRef], String, Padding[Indented[Declaration]])]]] = {
-      def inner(str: String): P[(Pattern[String, TypeRef], String, Padding[Indented[Declaration]])] =
-        P(Pattern.parser ~ ":" ~/ toEOL ~ padInP(indent + str))
-          .map { case (p, pidoc) => (p, str, pidoc) }
-      padIn(indent)(inner)
-    }
+  def matchP(expr: Indy[Declaration]): Indy[Match] = {
+    val withTrailing = expr <* Indy.lift(maybeSpace)
+    val branch = Indy.block(Indy.lift(Pattern.parser), withTrailing)
 
-    def restCases(i: String): P[Padding[Indented[(Pattern[String, TypeRef], Padding[Indented[Declaration]])]]] =
-      exactlyIn(indent, i,
-        P(Pattern.parser ~ ":" ~/ toEOL ~ padInP(indent + i)))
-
-    P("match" ~ spaces ~/ parser(indent) ~ maybeSpace ~ ":" ~ toEOL ~ firstCase)
+    Indy.block(Indy.lift(P("match" ~ spaces)) *> withTrailing, branch.nonEmptyList(Indy.toEOLIndent))
       .region
-      .flatMap { case (r1, (exp, Padding(pad, Indented(i, (p1, ind, dec1))))) =>
-        (toEOL ~ restCases(ind)).rep()
-          .region
-          .map { case (r2, rest) =>
-            val head = Padding(pad, Indented(i, (p1, dec1)))
-            Match(exp, NonEmptyList(head, rest.toList))(r1 + r2)
-          }
+      .map { case (r, (exp, branches)) =>
+        Match(exp, branches)(r)
       }
   }
 
   val varP: P[Var] =
     lowerIdent.region.map { case (r, v) => Var(v)(r) }
 
-  private def varOrBind(indent: String): P[Declaration] =
-    P(varP ~ bindingOp(indent).?)
+  private val varOrBind: Indy[Declaration] =
+    Indy.lift(varP).product(bindingOp.?)
       .map {
         case (v, None) => v
         case (varD@Var(v), Some(fn)) => fn(v, varD.region)
@@ -352,16 +327,19 @@ object Declaration {
             .region
             .map { case (region, (cond, falseCase)) =>
               { trueCase: Declaration =>
-                  val ifcase = NonEmptyList.of((cond, Left(trueCase)))
-                IfElse(ifcase, Left(falseCase))(trueCase.region + region)
+                val ifcase = NonEmptyList.of((cond, OptIndent.same(trueCase)))
+                IfElse(ifcase, OptIndent.same(falseCase))(trueCase.region + region)
               }
             }
 
         dotApply :: applySuffix :: ternary :: Nil
       }
-      val prefix = defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(indent) |
-        ifElseP(indent) | varOrBind(indent) | constructorP | commentP(indent) |
-        P(rec(indent).parens).region.map { case (r, p) => Parens(p)(r) }
+
+      val recIndy = Indy(rec)
+
+      val prefix = P(defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(recIndy)(indent) |
+        ifElseP(recIndy)(indent) | varOrBind(indent) | constructorP | commentP(indent) |
+        P(rec(indent).parens).region.map { case (r, p) => Parens(p)(r) })
 
       val opsList = postOperators.reduce(_ | _).rep().map(_.toList)
 
@@ -375,6 +353,6 @@ object Declaration {
       P(prefix ~ opsList).map { case (arg, fns) => loop(arg, fns) }
     }
 
-  def parser(indent: String): P[Declaration] =
-    parserCache(indent)
+  lazy val parser: Indy[Declaration] =
+    Indy.suspend(Indy(parserCache))
 }

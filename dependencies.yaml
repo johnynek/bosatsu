@@ -32,6 +32,11 @@ dependencies:
       lang: scala
       version: "0.2.2"
   
+  org.bykn:
+    fastparse-cats-core:
+      lang: scala
+      version: "0.1.0"
+
   org.scala-lang.modules:
     scala-xml:
       lang: scala

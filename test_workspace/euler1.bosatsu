@@ -17,11 +17,7 @@ def filter(as, fn):
 under1000 = range(1000)
 
 def or(a, b):
-  match a:
-    True:
-      True
-    False:
-      b
+  True if a else b
 
 def keep(i):
   or(i.mod_Int(3).eq_Int(0), i.mod_Int(5).eq_Int(0))
