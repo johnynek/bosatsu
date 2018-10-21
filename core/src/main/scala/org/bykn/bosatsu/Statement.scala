@@ -109,9 +109,6 @@ object CommentStatement {
   }
 
   val commentPart: P[String] = P("#" ~/ CharsWhile(_ != '\n').?.!)
-
-  // def maybeParser[T](indent: String, onP: P[T]): P[Maybe[T]] =
-  //   parser(indent, onP).map(Right(_)) | (onP.map(Left(_)))
 }
 
 case class PackageStatement[T](name: String,
@@ -283,10 +280,11 @@ object Statement {
       }
 
     val external = {
-      val externalStruct = P("struct" ~/ spaces ~ upperIdent ~
-        ("[" ~/ maybeSpace ~ lowerIdent.nonEmptyList ~ maybeSpace ~ "]").? ~ maybeSpace ~ Padding.parser(parser)).map {
+      val typeParams = Parser.nonEmptyListToList(lowerIdent.nonEmptyListSyntax)
+      val externalStruct =
+        P("struct" ~/ spaces ~ upperIdent ~ typeParams ~ maybeSpace ~ Padding.parser(parser)).map {
           case (name, targs, rest) =>
-            val tva = targs.fold(List.empty[TypeRef.TypeVar])(_.toList.map(TypeRef.TypeVar(_)))
+            val tva = targs.map(TypeRef.TypeVar(_))
             ExternalStruct(name, tva, rest)
         }
 
