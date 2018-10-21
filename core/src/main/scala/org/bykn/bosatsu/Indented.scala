@@ -35,10 +35,5 @@ object Indented {
         t <- p.run(indent + thisIndent)
       } yield Indented(Indented.spaceCount(thisIndent), t)
     }
-
-  def exactly[T](str: String, p: P[T]): P[Indented[T]] = {
-    val sc = spaceCount(str)
-    P(str ~ p).map(Indented(sc, _))
-  }
 }
 
