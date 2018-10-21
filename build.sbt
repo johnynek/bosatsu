@@ -84,6 +84,7 @@ lazy val core = (project in file("core")).
         dagon,
         decline,
         fastparse,
+        fastparseCats,
         paiges,
         scalaCheck % Test,
         scalaTest % Test

@@ -8,6 +8,10 @@ import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.Document
 
+import Parser.Indy
+
+import Generators.shrinkDecl
+
 class ParserTest extends FunSuite {
   // This is so we can make Declarations without the region
   private[this] implicit val emptyRegion: Region = Region(0, 0)
@@ -19,6 +23,10 @@ class ParserTest extends FunSuite {
 
   def region(s0: String, idx: Int): String =
     if (s0.isEmpty) s"empty string, idx = $idx"
+    else if (s0.length == idx) {
+      val s = s0 + "*"
+      ("...(" + s.drop(idx - 20).take(20) + ")...")
+    }
     else {
       val s = s0.updated(idx, '*')
       ("...(" + s.drop(idx - 20).take(20) + ")...")
@@ -46,7 +54,7 @@ class ParserTest extends FunSuite {
   def roundTrip[T: Document](p: Parser[T], str: String) =
     p.parse(str) match {
       case Parsed.Success(t, idx) =>
-        assert(idx == str.length)
+        assert(idx == str.length, s"parsed: $t from: $str")
         val tstr = Document[T].document(t).render(80)
         p.parse(tstr) match {
           case Parsed.Success(t1, _) =>
@@ -79,7 +87,7 @@ class ParserTest extends FunSuite {
     val qstr = for {
       qchar <- Gen.oneOf('\'', '"')
       qstr = qchar.toString
-      str <- Arbitrary.arbitrary[String]
+      str <- Arbitrary.arbitrary[String].filter { s => !s.contains('\u0000') }
     } yield (qstr + Parser.escape(Set(qchar), str) + qstr, str, qchar)
 
     forAll(qstr) { case (quoted, str, char) =>
@@ -103,6 +111,41 @@ class ParserTest extends FunSuite {
         str,
         ls.map(_.toString))
     }
+  }
+
+  test("we can parse blocks") {
+    val indy = Indy.block(Indy.lift(P("if foo")), Indy.lift(P("bar")))
+    val p = indy.run("")
+    parseTestAll(p, "if foo: bar", ((), OptIndent.same(())))
+    parseTestAll(p, "if foo:\n\tbar", ((), OptIndent.paddedIndented(1, 4, ())))
+    parseTestAll(p, "if foo:\n    bar", ((), OptIndent.paddedIndented(1, 4, ())))
+    parseTestAll(p, "if foo:\n  bar", ((), OptIndent.paddedIndented(1, 2, ())))
+
+    import Indy.IndyMethods
+    val repeated = indy.nonEmptyList(Indy.lift(Parser.toEOL))
+
+    val single = ((), OptIndent.notSame(Padding(1, Indented(2, ()))))
+    parseTestAll(repeated.run(""), "if foo:\n  bar\nif foo:\n  bar",
+      NonEmptyList.of(single, single))
+
+    // we can nest blocks
+    parseTestAll(Indy.block(Indy.lift(P("nest")), indy)(""), "nest: if foo: bar",
+      ((), OptIndent.same(((), OptIndent.same(())))))
+    parseTestAll(Indy.block(Indy.lift(P("nest")), indy)(""), "nest:\n  if foo: bar",
+      ((), OptIndent.paddedIndented(1, 2, ((), OptIndent.same(())))))
+    parseTestAll(Indy.block(Indy.lift(P("nest")), indy)(""), "nest:\n  if foo:\n    bar",
+      ((), OptIndent.paddedIndented(1, 2, ((), OptIndent.paddedIndented(1, 2, ())))))
+
+    val simpleBlock = Indy.block(Indy.lift(Parser.lowerIdent ~ Parser.maybeSpace), Indy.lift(Parser.lowerIdent))
+      .nonEmptyList(Indy.toEOLIndent)
+
+    val sbRes = NonEmptyList.of(("x1", OptIndent.paddedIndented(1, 2, "x2")),
+        ("y1", OptIndent.paddedIndented(1, 3, "y2")))
+    parseTestAll(simpleBlock(""), "x1:\n  x2\ny1:\n   y2", sbRes)
+
+    parseTestAll(Indy.block(Indy.lift(Parser.lowerIdent), simpleBlock)(""),
+      "block:\n  x1:\n    x2\n  y1:\n     y2",
+      ("block", OptIndent.paddedIndented(1, 2, sbRes)))
   }
 
   test("we can parse TypeRefs") {
@@ -134,7 +177,7 @@ class ParserTest extends FunSuite {
   test("we can parse comments") {
     val gen = Generators.commentGen(Generators.padding(Generators.genDeclaration(0), 1))
     forAll(gen) { comment =>
-      parseTestAll(CommentStatement.parser("", Padding.parser(Declaration.parser(""))),
+      parseTestAll(CommentStatement.parser(Parser.Indy.lift(Padding.parser(Declaration.parser("")))).run(""),
         Document[CommentStatement[Padding[Declaration]]].document(comment).render(80),
         comment)
     }
@@ -159,10 +202,12 @@ class ParserTest extends FunSuite {
   }
 
   test("we can parse DefStatement") {
-    forAll(Generators.defGen(Generators.indented(Generators.genDeclaration(0)))) { defn =>
-      parseTestAll[DefStatement[Indented[Declaration]]](
-        DefStatement.parser(Indented.parser(Declaration.parser(_))),
-        Document[DefStatement[Indented[Declaration]]].document(defn).render(80),
+    val indDoc = Document[Indented[Declaration]]
+
+    forAll(Generators.defGen(Generators.optIndent(Generators.genDeclaration(0)))) { defn =>
+      parseTestAll[DefStatement[OptIndent[Declaration]]](
+        DefStatement.parser(Parser.maybeSpace ~ OptIndent.indy(Declaration.parser).run("")),
+        Document[DefStatement[OptIndent[Declaration]]].document(defn).render(80),
         defn)
     }
 
@@ -174,9 +219,18 @@ foo"""
       Declaration.parser(""),
       defWithComment,
       Declaration.DefFn(DefStatement("foo", NonEmptyList.of(("a", None)), None,
-        (Padding(0, Indented(2, Declaration.Comment(CommentStatement(NonEmptyList.of(" comment here"),
-          Padding(0, Declaration.Var("a")))))),
+        (OptIndent.paddedIndented(1, 2, Declaration.Comment(CommentStatement(NonEmptyList.of(" comment here"),
+          Padding(0, Declaration.Var("a"))))),
          Padding(0, Declaration.Var("foo"))))))
+
+    roundTrip(Declaration.parser(""), defWithComment)
+
+    // Here is a pretty brutal randomly generated case
+    roundTrip(Declaration.parser(""),
+"""def uwr(dw: h6lmZhgg) -> forall lnNR. Z5syis -> Mhgm:
+  -349743008
+
+foo""")
 
   }
 
@@ -252,6 +306,11 @@ x""",
   test("we can parse if") {
     import Declaration._
 
+    roundTrip[Declaration](ifElseP(Parser.Indy.lift(varP))(""),
+      """if w:
+      x
+else:
+      y""")
     roundTrip(parser(""),
       """if eq_Int(x, 3):
       x
@@ -262,12 +321,31 @@ else:
       """if eq_Int(x, 3):
       x
 elif foo:
-      z
+   z
 else:
       y""")
+
+    roundTrip[Declaration](ifElseP(Parser.Indy.lift(varP))(""),
+      """if w: x
+else: y""")
+    roundTrip(parser(""),
+      """if eq_Int(x, 3): x
+else: y""")
+
+    roundTrip(parser(""),
+      """if eq_Int(x, 3): x
+elif foo:
+      z
+else: y""")
   }
 
   test("we can parse a match") {
+    roundTrip[Declaration](Declaration.matchP(Parser.Indy.lift(Declaration.varP))(""),
+"""match x:
+  y:
+    z
+  w:
+    r""")
     roundTrip(Declaration.parser(""),
 """match 1:
   Foo(a, b):
@@ -316,6 +394,23 @@ else:
       1
 else:
   100""")
+
+    roundTrip(Declaration.parser(""),
+"""match x:
+  Bar(_, _):
+    10""")
+
+    roundTrip(Declaration.parser(""),
+"""match x:
+  Bar(_, _):
+      if True: 0
+      else: 10""")
+
+    roundTrip(Declaration.parser(""),
+"""match x:
+  Bar(_, _):
+      if True: 0
+      else: 10""")
   }
 
   test("we can parse any Declaration") {
@@ -323,24 +418,16 @@ else:
   }
 
   test("we can parse any Statement") {
-    forAll(Generators.genStatement)(law(Statement.parser))
+    forAll(Generators.genStatement(5))(law(Statement.parser))
 
-    val hardCase0 = {
-      import TypeRef._
-      import Statement.{Def, EndOfFile}
-      import Declaration._
+    roundTrip(Statement.parser,
+"""#
+def foo(x): x""")
 
-      Def(DefStatement("qxGfrHvom",
-        NonEmptyList.of(("xvgv",Some(TypeName("IObfma8"))), ("uvajpvmKfI",Some(TypeName("Li9bou4io")))),None,
-        (Padding(6,Indented(12,Var("jbbytnfws"))),
-          Padding(0,Def(DefStatement("ik5xfx",NonEmptyList.of(("f8u0vVcix",Some(TypeVar("caf"))), ("nu",None), ("uv",Some(TypeName("R1"))),
-            ("gp",Some(TypeName("ANxKclqu"))), ("asszzmvJE",None)),Some(TypeVar("fxp")),
-          (Padding(2,Indented(4,LiteralInt("-9223372036854775809"))),
-            Padding(6,Statement.Comment(CommentStatement(
-              NonEmptyList.of("foo", "bar"),
-              Padding[Statement](1,EndOfFile)))))))))))
-    }
-    law(Statement.parser)(hardCase0)
+    roundTrip(Statement.parser,
+"""#
+def foo(x):
+  x""")
 
     roundTrip(Statement.parser,
 """# header
@@ -375,6 +462,34 @@ x = ( foo )
 """# MONADS!!!!
 struct Monad(pure: forall a. a -> f[a], flatMap: forall a, b. f[a] -> (a -> f[b]) -> f[b])
 """)
+
+    roundTrip(Statement.parser, """enum Option: None, Some(a)""")
+
+    roundTrip(Statement.parser,
+"""enum Option:
+  None
+  Some(a)""")
+
+    roundTrip(Statement.parser,
+"""enum Option:
+  None, Some(a)""")
+  }
+
+  test("Any statement may append a newline and continue to parse") {
+    forAll(Generators.genStatement(5)) {
+      case Statement.EndOfFile => ()
+      case s =>
+        val str = Document[Statement].document(s).render(80) + "\n"
+        roundTrip(Statement.parser, str)
+    }
+  }
+
+  test("Any statement ending in a newline may have it removed and continue to parse") {
+    forAll(Generators.genStatement(5)) { s =>
+      val str = Document[Statement].document(s).render(80)
+
+      roundTrip(Statement.parser, str.reverse.dropWhile(_ == '\n').reverse)
+    }
   }
 
   test("parse external defs") {
@@ -404,7 +519,7 @@ export [foo]
 foo = 1
 """)
 
-    forAll(Generators.packageGen)(law(Package.parser))
+    forAll(Generators.packageGen(5))(law(Package.parser))
   }
 
   test("we can parse Externals") {

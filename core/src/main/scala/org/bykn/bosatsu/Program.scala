@@ -65,9 +65,9 @@ object Program {
           loop(on).copy(from = s)
         case Def(defstmt@DefStatement(_, _, _, _)) =>
           val (lam, Program(te, binds, _)) = defstmt.result match {
-            case (Padding(_, Indented(_, body)), Padding(_, in)) =>
+            case (body, Padding(_, in)) =>
               // using body for the outer here is a bummer, but not really a good outer otherwise
-              val l = defstmt.toLambdaExpr(declToE(body), body)(_.toType(nameToType))
+              val l = defstmt.toLambdaExpr(declToE(body.get), body.get)(_.toType(nameToType))
               (l, loop(in))
           }
           Program(te, (defstmt.name, lam) :: binds, stmt)

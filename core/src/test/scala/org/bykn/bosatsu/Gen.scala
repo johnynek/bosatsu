@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.{Arbitrary, Gen, Shrink}
 
 object Generators {
   val lower: Gen[Char] = Gen.oneOf('a' to 'z')
@@ -130,58 +130,54 @@ object Generators {
     for {
       args <- nonEmpty(lowerIdent)
       body <- bodyGen
-    } yield Declaration.Lambda(args, body)(emptyRegion)
+   } yield Declaration.Lambda(args, body)(emptyRegion)
+
+  def optIndent[A](genA: Gen[A]): Gen[OptIndent[A]] = {
+    val indentation = Gen.choose(1, 10)
+    indentation.flatMap { i =>
+
+        // TODO support parsing if foo: bar
+        //Gen.oneOf(
+          padding(genA.map(Indented(i, _)), min = 1).map(OptIndent.notSame(_))
+          //,
+          //bodyGen.map(Left(_): OptIndent[Declaration]))
+    }
+  }
 
   def ifElseGen(bodyGen: Gen[Declaration]): Gen[Declaration.IfElse] = {
     import Declaration._
 
-    val indentation = Gen.choose(1, 10)
-    indentation.flatMap { i =>
+    val padBody = optIndent(bodyGen)
+    val genIf: Gen[(Declaration, OptIndent[Declaration])] =
+      Gen.zip(bodyGen, padBody)
 
-      val padBody =
-        // TODO support parsing if foo: bar
-        //Gen.oneOf(
-          padding(bodyGen.map(Indented(i, _))).map(Right(_): OptIndent[Declaration])
-          //,
-          //bodyGen.map(Left(_): OptIndent[Declaration]))
-
-      val genIf: Gen[(Declaration, Declaration.OptIndent[Declaration])] =
-        Gen.zip(bodyGen, padBody)
-
-      Gen.zip(nonEmptyN(genIf, 2), padBody)
-        .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
-    }
+    Gen.zip(nonEmptyN(genIf, 2), padBody)
+      .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
   }
 
   def matchGen(bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
     import Declaration._
 
-    val indentation = Gen.choose(1, 10)
-    indentation.flatMap { i =>
+    val padBody = optIndent(bodyGen)
 
-      val padBody = padding(bodyGen.map(Indented(i, _)))
+    val genPattern = for {
+      nm <- upperIdent
+      cnt <- Gen.choose(0, 6)
+      args <- Gen.listOfN(cnt, Gen.option(lowerIdent))
+      argPat = args.map {
+        case None => Pattern.WildCard
+        case Some(v) => Pattern.Var(v)
+      }
+    } yield Pattern.PositionalStruct(nm, argPat)
 
-      val genPattern = for {
-        nm <- upperIdent
-        cnt <- Gen.choose(0, 6)
-        args <- Gen.listOfN(cnt, Gen.option(lowerIdent))
-        argPat = args.map {
-          case None => Pattern.WildCard
-          case Some(v) => Pattern.Var(v)
-        }
-      } yield Pattern.PositionalStruct(nm, argPat)
+    val genCase: Gen[(Pattern[String, TypeRef], OptIndent[Declaration])] =
+      Gen.zip(genPattern, padBody)
 
-      val genCase: Gen[(Pattern[String, TypeRef], Padding[Indented[Declaration]])] =
-        Gen.zip(genPattern, padBody)
-
-      val padIndCase = padding(genCase.map(Indented(i, _)))
-
-      for {
-        cnt <- Gen.choose(1, 2)
-        expr <- bodyGen
-        cases <- nonEmptyN(padIndCase, cnt)
-      } yield Match(expr, cases)(emptyRegion)
-    }
+    for {
+      cnt <- Gen.choose(1, 2)
+      expr <- bodyGen
+      cases <- optIndent(nonEmptyN(genCase, cnt))
+    } yield Match(expr, cases)(emptyRegion)
   }
 
   def genDeclaration(depth: Int): Gen[Declaration] = {
@@ -205,7 +201,7 @@ object Generators {
     else Gen.frequency(
       (12, unnested),
       (2, commentGen(padding(recur, 1)).map(Comment(_)(emptyRegion))), // make sure we have 1 space to prevent comments following each other
-      (2, defGen(Gen.zip(padding(indented(recur)), padding(recur))).map(DefFn(_)(emptyRegion))),
+      (2, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
       (2, bindGen(recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
@@ -213,6 +209,39 @@ object Generators {
       (1, matchGen(recur))
     )
   }
+
+  implicit val shrinkDecl: Shrink[Declaration] =
+    Shrink[Declaration](new Function1[Declaration, Stream[Declaration]] {
+      import Declaration._
+
+      def apply(d: Declaration): Stream[Declaration] =
+        d match {
+          case Apply(fn, args, _) =>
+            val next = fn #:: args.toList.toStream
+            next.flatMap(apply _)
+          case Binding(b) =>
+            val next = b.value #:: b.in.padded #:: Stream.empty
+            next #::: next.flatMap(apply _)
+          case DefFn(d) =>
+            val (b, r) = d.result
+            val inner = b.get #:: r.padded #:: Stream.empty
+            inner #::: inner.flatMap(apply _)
+          case IfElse(ifCases, elseCase) =>
+            elseCase.get #:: ifCases.toList.toStream.map(_._2.get)
+          case Match(typeName, args) =>
+            args.get.toList.toStream.flatMap {
+              case (_, decl) => decl.get #:: apply(decl.get)
+            }
+          // the rest can't be shrunk
+          case Comment(c) => Stream.empty
+          case Constructor(name) => Stream.empty
+          case Lambda(args, body) => body #:: Stream.empty
+          case LiteralInt(str) => Stream.empty
+          case LiteralString(str, q) => Stream.empty
+          case Parens(p) => p #:: Stream.empty
+          case Var(_) => Stream.empty
+        }
+    })
 
   val constructorGen: Gen[(String, List[(String, Option[TypeRef])])] =
     for {
@@ -223,7 +252,7 @@ object Generators {
 
 
   def genStruct(tail: Gen[Statement]): Gen[Statement] =
-    Gen.zip(constructorGen, padding(tail))
+    Gen.zip(constructorGen, padding(tail, 1))
       .map { case ((name, args), rest) =>
         Statement.Struct(name, args, rest)
       }
@@ -233,7 +262,7 @@ object Generators {
       name <- upperIdent
       argc <- Gen.choose(0, 5)
       args <- Gen.listOfN(argc, lowerIdent)
-      rest <- padding(tail)
+      rest <- padding(tail, 1)
     } yield Statement.ExternalStruct(name, args.map(TypeRef.TypeVar(_)), rest)
 
   def genExternalDef(tail: Gen[Statement]): Gen[Statement] =
@@ -243,7 +272,7 @@ object Generators {
       argG = Gen.zip(lowerIdent, typeRefGen)
       args <- Gen.listOfN(argc, argG)
       res <- typeRefGen
-      rest <- padding(tail)
+      rest <- padding(tail, 1)
     } yield Statement.ExternalDef(name, args, res, rest)
 
   def genEnum(tail: Gen[Statement]): Gen[Statement] =
@@ -251,22 +280,21 @@ object Generators {
       name <- upperIdent
       consc <- Gen.choose(1, 5)
       i <- Gen.choose(1, 16)
-      padBody = padding(constructorGen.map(Indented(i, _)))
-      cons <- nonEmptyN(padBody, consc)
-      rest <- padding(tail)
+      cons <- optIndent(nonEmptyN(constructorGen, consc))
+      rest <- padding(tail, 1)
     } yield Statement.Enum(name, cons, rest)
 
-  val genStatement: Gen[Statement] = {
-    val recur = Gen.lzy(genStatement)
-    val decl = genDeclaration(5)
+  def genStatement(depth: Int): Gen[Statement] = {
+    val recur = Gen.lzy(genStatement(depth-1))
+    val decl = genDeclaration(depth)
     Gen.frequency(
-      (1, bindGen(decl, padding(recur)).map(Statement.Bind(_))),
-      (1, commentGen(padding(recur)
+      (1, bindGen(decl, padding(recur, 1)).map(Statement.Bind(_))),
+      (1, commentGen(padding(recur, 1)
         .map {
           case Padding(0, c@Statement.Comment(_)) => Padding[Statement](1, c) // make sure not two back to back comments
           case other => other
         }).map(Statement.Comment(_))),
-      (1, defGen(Gen.zip(padding(indented(decl)), padding(recur))).map(Statement.Def(_))),
+      (1, defGen(Gen.zip(optIndent(decl), padding(recur, 1))).map(Statement.Def(_))),
       (1, genStruct(recur)),
       (1, genExternalStruct(recur)),
       (1, genExternalDef(recur)),
@@ -305,13 +333,13 @@ object Generators {
       upperIdent.map(ExportedName.TypeName(_, ())),
       upperIdent.map(ExportedName.Constructor(_, ())))
 
-  val packageGen: Gen[Package.Parsed] =
+  def packageGen(depth: Int): Gen[Package.Parsed] =
     for {
       p <- packageNameGen
       ic <- Gen.choose(0, 8)
       ec <- Gen.choose(0, 10)
       imports <- Gen.listOfN(ic, importGen)
       exports <- Gen.listOfN(ec, exportedNameGen)
-      body <- genStatement
+      body <- genStatement(depth)
     } yield Package(p, imports, exports, body)
 }

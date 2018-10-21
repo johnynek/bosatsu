@@ -7,7 +7,10 @@ import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 
-import Parser.toEOL
+import org.bykn.fastparse_cats.StringInstances._
+import Parser.Indy
+
+import Indy.IndyMethods
 
 case class DefStatement[T](
     name: String,
@@ -40,18 +43,18 @@ object DefStatement {
       val res = retType.fold(Doc.empty) { t => Doc.text(" -> ") + t.toDoc }
       val line0 = defDoc + Doc.text(name) + Doc.char('(') +
         Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc _)) +
-        Doc.char(')') + res + Doc.text(":") + Doc.line
+        Doc.char(')') + res + Doc.text(":")
       line0 + Document[T].document(result)
     }
 
     /**
-     * The resultTParser should parse some indentation
+     * The resultTParser should parse some indentation any newlines
      */
     def parser[T](resultTParser: P[T]): P[DefStatement[T]] = {
       val args = argParser.nonEmptyList
-      val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser ~ maybeSpace).?
+      val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser).?
       P("def" ~ spaces ~/ lowerIdent ~ "(" ~ maybeSpace ~ args ~ maybeSpace ~ ")" ~
-        result ~ ":" ~ "\n" ~ resultTParser)
+        result ~ maybeSpace ~ ":" ~/ resultTParser)
         .map {
           case (name, args, resType, res) => DefStatement(name, args, resType, res)
         }
@@ -69,7 +72,7 @@ object BindingStatement {
   implicit def document[T: Document]: Document[BindingStatement[T]] =
     Document.instance[BindingStatement[T]] { let =>
       import let._
-      Doc.text(name) + eqDoc + value.toDoc + Doc.line + Document[T].document(in)
+      Doc.text(name) + eqDoc + value.toDoc + Document[T].document(in)
     }
 }
 
@@ -96,65 +99,22 @@ object CommentStatement {
   /** on should make sure indent is matching
    * this is to allow a P[Unit] that does nothing for testing or other applications
    */
-  def parser[T](indent: String, onP: P[T]): P[CommentStatement[T]] = {
+  def parser[T](onP: Parser.Indy[T]): Parser.Indy[CommentStatement[T]] = Parser.Indy { indent =>
     val commentBlock: P[NonEmptyList[String]] =
       P(commentPart ~ ("\n" ~ indent ~ commentPart).rep() ~ ("\n" | End))
         .map { case (c1, cs) => NonEmptyList(c1, cs.toList) }
 
-    P(commentBlock ~ onP)
+    P(commentBlock ~ onP(indent))
       .map { case (m, on) => CommentStatement(m, on) }
   }
 
   val commentPart: P[String] = P("#" ~/ CharsWhile(_ != '\n').?.!)
-
-  def maybeParser[T](indent: String, onP: P[T]): P[Maybe[T]] =
-    parser(indent, onP).map(Right(_)) | (onP.map(Left(_)))
 }
 
 case class PackageStatement[T](name: String,
   exports: List[String],
   emptyLines: Int,
   contents: T)
-
-// Represents vertical padding
-case class Padding[T](lines: Int, padded: T)
-object Padding {
-  implicit def document[T: Document]: Document[Padding[T]] =
-    Document.instance[Padding[T]] { padding =>
-      Doc.line.repeat(padding.lines) + Document[T].document(padding.padded)
-    }
-
-  def parser[T](p: P[T]): P[Padding[T]] =
-    P((maybeSpace ~ "\n").!.rep() ~ p).map { case (vec, t) => Padding(vec.size, t) }
-}
-
-case class Indented[T](spaces: Int, value: T) {
-  require(spaces > 0, s"need non-empty indentation: $spaces")
-}
-
-object Indented {
-  def spaceCount(str: String): Int =
-    str.foldLeft(0) {
-      case (s, ' ') => s + 1
-      case (s, '\t') => s + 4
-      case (_, c) => sys.error(s"unexpected space character($c) in $str")
-    }
-
-  implicit def document[T: Document]: Document[Indented[T]] =
-    Document.instance[Indented[T]] { case Indented(i, t) =>
-      Doc.spaces(i) + (Document[T].document(t).nested(i))
-    }
-
-  def parser[T](p: String => P[T]): P[Indented[T]] =
-    Parser.indented { i =>
-      p(i).map(Indented(spaceCount(i), _))
-    }
-
-  def exactly[T](str: String, p: P[T]): P[Indented[T]] = {
-    val sc = spaceCount(str)
-    P(str ~ p).map(Indented(sc, _))
-  }
-}
 
 sealed abstract class Statement {
 
@@ -166,7 +126,7 @@ sealed abstract class Statement {
           s #:: loop(rest)
         case Comment(CommentStatement(_, Padding(_, rest))) =>
           s #:: loop(rest)
-        case Def(DefStatement(_, _, _, (Padding(_, Indented(_, _)), Padding(_, rest)))) =>
+        case Def(DefStatement(_, _, _, (_, Padding(_, rest)))) =>
           s #:: loop(rest)
         case Struct(_, _, Padding(_, rest)) =>
           s #:: loop(rest)
@@ -251,7 +211,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
           (ConstructorName(nm), params, consValueType) :: Nil)
       case Enum(nm, items, _) =>
         val deep = Functor[List].compose(Functor[(String, ?)]).compose(Functor[Option])
-        val conArgs = items.map { case Padding(_, Indented(_, (nm, args))) =>
+        val conArgs = items.get.map { case (nm, args) =>
           val argsType = deep.map(args)(_.toType(nameToType))
           (nm, argsType)
         }
@@ -290,37 +250,41 @@ sealed abstract class TypeDefinitionStatement extends Statement {
 object Statement {
   case class Bind(bind: BindingStatement[Padding[Statement]]) extends Statement
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
-  case class Def(defstatement: DefStatement[(Padding[Indented[Declaration]], Padding[Statement])]) extends Statement
+  case class Def(defstatement: DefStatement[(OptIndent[Declaration], Padding[Statement])]) extends Statement
   case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class ExternalDef(name: String, params: List[(String, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends Statement
   case class ExternalStruct(name: String, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class Enum(name: String,
-    items: NonEmptyList[Padding[Indented[(String, List[(String, Option[TypeRef])])]]],
+    items: OptIndent[NonEmptyList[(String, List[(String, Option[TypeRef])])]],
     rest: Padding[Statement]) extends TypeDefinitionStatement
   case object EndOfFile extends Statement
 
   val parser: P[Statement] = {
-    val bindingP = P(lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ toEOL ~ Padding.parser(parser))
+    val recurse = P(parser)
+    val padding = Padding.parser(recurse)
+
+    val bindingP = P(lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ maybeSpace ~ padding)
       .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
 
-    val commentP = CommentStatement.parser("", P(Padding.parser(parser))).map(Comment(_))
+    val commentP = CommentStatement.parser(Indy.lift(padding)).map(Comment(_)).run("")
 
-    val defBody = Padding.parser(Indented.parser(Declaration.parser(_)))
-    val defP: P[Def] = DefStatement.parser(P(defBody ~ "\n" ~ Padding.parser(parser))).map(Def(_))
+    val defBody = maybeSpace ~ OptIndent.indy(Declaration.parser).run("")
+    val defP: P[Def] = DefStatement.parser(P(defBody ~ maybeSpace ~ padding)).map(Def(_))
 
     val end = P(End).map(_ => EndOfFile)
 
-    val constructorP = P(upperIdent ~ (DefStatement.argParser).list.parens.? ~ toEOL)
+    val constructorP = P(upperIdent ~ (DefStatement.argParser).list.parens.?)
       .map {
         case (n, None) => (n, Nil)
         case (n, Some(args)) => (n, args)
       }
 
     val external = {
-      val externalStruct = P("struct" ~/ spaces ~ upperIdent ~
-        ("[" ~/ maybeSpace ~ lowerIdent.nonEmptyList ~ maybeSpace ~ "]").? ~ toEOL ~ Padding.parser(parser)).map {
+      val typeParams = Parser.nonEmptyListToList(lowerIdent.nonEmptyListSyntax)
+      val externalStruct =
+        P("struct" ~/ spaces ~ upperIdent ~ typeParams ~ maybeSpace ~ Padding.parser(parser)).map {
           case (name, targs, rest) =>
-            val tva = targs.fold(List.empty[TypeRef.TypeVar])(_.toList.map(TypeRef.TypeVar(_)))
+            val tva = targs.map(TypeRef.TypeVar(_))
             ExternalStruct(name, tva, rest)
         }
 
@@ -328,26 +292,32 @@ object Statement {
         val argParser: P[(String, TypeRef)] = P(lowerIdent ~ ":" ~/ maybeSpace ~ TypeRef.parser)
         val args = P("(" ~ maybeSpace ~ argParser.nonEmptyList ~ maybeSpace ~ ")")
         val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser ~ maybeSpace)
-        P("def" ~ spaces ~/ lowerIdent ~ args.? ~ result ~ toEOL ~ Padding.parser(parser))
+        P("def" ~ spaces ~/ lowerIdent ~ args.? ~ result ~ maybeSpace ~ Padding.parser(parser))
           .map {
             case (name, None, resType, res) => ExternalDef(name, Nil, resType, res)
             case (name, Some(args), resType, res) => ExternalDef(name, args.toList, resType, res)
           }
       }
 
-      P("external" ~ spaces ~ (externalStruct|externalDef))
+      P("external" ~ spaces ~/ (externalStruct|externalDef))
     }
 
     val struct = P("struct" ~ spaces ~/ constructorP ~ Padding.parser(parser))
       .map { case (name, args, rest) => Struct(name, args, rest) }
 
-    val enum = P("enum" ~ spaces ~/ upperIdent ~/ ":" ~ toEOL ~ Padding.parser(Indented.parser { i => constructorP.map((_, i)) }))
-      .flatMap { case (ename, Padding(p, Indented(i, (head, indent)))) =>
-        P(Padding.parser(Indented.exactly(indent, constructorP)).rep() ~ Padding.parser(parser))
-          .map { case (tail, rest) =>
-            Enum(ename, NonEmptyList(Padding(p, Indented(i, head)), tail.toList), rest)
-          }
-      }
+    val enum = {
+      val sep = Indy.lift(P("," ~ maybeSpace)).combineK(Indy.toEOLIndent).map(_ => ())
+      val variants = Indy.lift(constructorP ~ maybeSpace).nonEmptyList(sep)
+
+      val nameVars = Indy.block(
+        Indy.lift(P("enum" ~ spaces ~/ upperIdent)),
+        variants).run("")
+
+      (nameVars ~ padding)
+        .map { case (ename, vars, rest) =>
+          Enum(ename, vars, rest)
+        }
+    }
 
     // bP should come last so there is no ambiguity about identifiers
     commentP | defP | struct | enum | external | bindingP | end
@@ -365,30 +335,36 @@ object Statement {
       case Comment(cm) =>
         Document[CommentStatement[Padding[Statement]]].document(cm)
       case Def(d) =>
-        val pair = Document.instance[(Padding[Indented[Declaration]], Padding[Statement])] {
+        val pair = Document.instance[(OptIndent[Declaration], Padding[Statement])] {
           case (body, next) =>
-            Document[Padding[Indented[Declaration]]].document(body) +
-              Doc.line +
+            body.sepDoc +
+            Document[OptIndent[Declaration]].document(body) +
               Document[Padding[Statement]].document(next)
         };
         DefStatement.document(pair).document(d)
       case Struct(nm, args, rest) =>
-        Doc.text("struct ") + constructor(nm, args) + Doc.line +
+        Doc.text("struct ") + constructor(nm, args) +
           Document[Padding[Statement]].document(rest)
       case Enum(nm, parts, rest) =>
         implicit val consDoc = Document.instance[(String, List[(String, Option[TypeRef])])] {
           case (nm, parts) => constructor(nm, parts)
         }
 
-        val indentedCons =
-          Doc.intercalate(Doc.line, parts.toList.map { cons =>
-            Document[Padding[Indented[(String, List[(String, Option[TypeRef])])]]].document(cons)
-          })
+        val (colonSep, itemSep) = parts match {
+          case OptIndent.SameLine(_) => (Doc.space, Doc.text(", "))
+          case OptIndent.NotSameLine(_) => (Doc.empty, Doc.line)
+        }
+
+        implicit def neDoc[T: Document]: Document[NonEmptyList[T]] =
+          Document.instance { ne =>
+            Doc.intercalate(itemSep, ne.toList.map(Document[T].document _))
+          }
+
+        val indentedCons = OptIndent.document(neDoc(consDoc)).document(parts)
 
         Doc.text("enum ") + Doc.text(nm) + Doc.char(':') +
-          Doc.line +
+          colonSep +
           indentedCons +
-          Doc.line +
           Document[Padding[Statement]].document(rest)
       case EndOfFile => Doc.empty
       case ExternalDef(name, args, res, rest) =>
@@ -400,7 +376,7 @@ object Statement {
             })
             Doc.char('(') + da + Doc.char(')')
         }
-        Doc.text("external def ") + Doc.text(name) + argDoc + Doc.text(" -> ") + res.toDoc + Doc.line +
+        Doc.text("external def ") + Doc.text(name) + argDoc + Doc.text(" -> ") + res.toDoc +
           Document[Padding[Statement]].document(rest)
       case ExternalStruct(nm, targs, rest) =>
         val argsDoc = targs match {
@@ -409,7 +385,7 @@ object Statement {
             val params = nonEmpty.map { case TypeRef.TypeVar(v) => Doc.text(v) }
             Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
         }
-        Doc.text("external struct ") + Doc.text(nm) + argsDoc + Doc.line +
+        Doc.text("external struct ") + Doc.text(nm) + argsDoc +
           Document[Padding[Statement]].document(rest)
     }
 }
