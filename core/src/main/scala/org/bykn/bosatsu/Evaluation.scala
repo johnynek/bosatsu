@@ -123,22 +123,103 @@ object Evaluation {
         }
     }
   }
+
+  sealed abstract class Scoped {
+    import Scoped.fromFn
+
+    def inEnv(env: Map[String, Value]): Eval[(Map[String, Value], Value)]
+
+    def named(name: String): Scoped =
+      fromFn { env =>
+        inEnv(env).map { case (env1, v) =>
+          val env2 = env1.updated(name, v)
+          (env2, v)
+        }
+      }
+
+    def inScopeFor(next: Scoped): Scoped =
+      fromFn { env =>
+        inEnv(env).flatMap { case (env1, _) =>
+          next.inEnv(env1)
+        }
+      }
+
+    def flatMap(fn: (Map[String, Value], Value) => Eval[(Map[String, Value], Value)]): Scoped =
+      fromFn { env =>
+        inEnv(env).flatMap { case (env1, v) =>
+          fn(env1, v)
+        }
+      }
+
+    def asLambda(name: String): Scoped =
+      fromFn { env =>
+
+        val fn =
+          FnValue { x =>
+            val env1 = env.updated(name, x)
+
+            inEnv(env1).map(_._2)
+          }
+
+        Eval.now((env, fn))
+      }
+
+    def emptyScope: Scoped =
+      fromFn(_ => inEnv(Map.empty))
+
+    def applyArg(arg: Scoped): Scoped =
+      fromFn { env =>
+        for {
+          fn <- inEnv(env)
+          a <- arg.inEnv(env)
+          res <- fn._2.asFn(a._2) // safe because we typecheck
+        } yield (env, res) // apply does not introduce new scope
+      }
+  }
+
+  object Scoped {
+    def const(e: Eval[Value]): Scoped =
+      fromFn { env =>
+        e.map((env, _))
+      }
+
+    def unreachable: Scoped =
+      fromFn(_ => Eval.later(sys.error("unreachable reached")))
+
+    def orElse(name: String, next: Scoped): Scoped =
+      fromFn { env =>
+        env.get(name) match {
+          case None => next.inEnv(env)
+          case Some(v) => Eval.now((env, v))
+        }
+      }
+
+    private def fromFn(fn: Map[String, Value] => Eval[(Map[String, Value], Value)]): Scoped =
+      FromFn(fn)
+
+    private case class FromFn(fn: Map[String, Value] => Eval[(Map[String, Value], Value)]) extends Scoped {
+      def inEnv(env: Map[String, Value]) = fn(env)
+    }
+  }
+
 }
 
 case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
-  import Evaluation.Value
+  import Evaluation.{Value, Scoped}
   import Value._
 
   def evaluate(p: PackageName, varName: String): Option[(Eval[Value], Type)] =
     pm.toMap.get(p).map { pack =>
-      eval((Package.asInferred(pack), Left(varName), Map.empty))
+      val (s, t) = eval((Package.asInferred(pack), Left(varName)))
+      (s.inEnv(Map.empty).map(_._2), t)
     }
 
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
-    } yield eval((Package.asInferred(pack), Right(expr), Map.empty))
+      tup = eval((Package.asInferred(pack), Right(expr)))
+    } yield (tup._1.inEnv(Map.empty).map(_._2), tup._2)
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
@@ -188,14 +269,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
   private type Ref = Either[String, TypedExpr[Declaration]]
 
-  private def evalBranch(arg: Value,
+  private def evalBranch(
     tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[Declaration])],
     p: Package.Inferred,
-    env: Map[String, Value],
-    recurse: ((Package.Inferred, Ref, Map[String, Value])) => (Eval[Value], Type)): Eval[Value] =
-
-    Eval.defer {
+    recurse: ((Package.Inferred, Ref)) => (Scoped, Type)): (Value, Map[String, Value]) => Eval[(Map[String, Value], Value)] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
         Type.rootConst(tpe).get // this is safe because it has type checked
 
@@ -206,9 +284,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       def definedForCons(pc: (PackageName, ConstructorName)): DefinedType =
         pm.toMap(pc._1).program.types.constructors(pc)._2
 
-      def bindEnv(arg: Value,
-        branches: List[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[Declaration])],
-        acc: Map[String, Value]): Option[(Map[String, Value], TypedExpr[Declaration])] =
+      def bindEnv[E](arg: Value,
+        branches: List[(Pattern[(PackageName, ConstructorName), Type], E)],
+        acc: Map[String, Value]): Option[(Map[String, Value], E)] =
         branches match {
           case Nil => None
           case (Pattern.WildCard, next):: tail => Some((acc, next))
@@ -231,8 +309,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
                   case other =>
                     val ts = TypeRef.fromType(tpe).fold(tpe.toString)(_.toDoc.render(80))
-                    val matchPos = branches.head._2.tag.toDoc.render(80)
-                    sys.error(s"ill typed in match (${ctor.asString}${items.mkString}): $ts\n$matchPos\n\n$other")
+                    sys.error(s"ill typed in match (${ctor.asString}${items.mkString}): $ts\n\n$other")
                 }
               }
               else {
@@ -265,14 +342,20 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             }
         }
 
-      val (localEnv, next) = bindEnv(arg, branches.toList, env)
-        .getOrElse(
-            // TODO make sure we rule this out statically
-            sys.error(s"non-total match: arg: $arg, branches: ${branches.head._2.tag.toDoc.render(80)}")
-          )
-      recurse((p, Right(next), localEnv))._1
+      // recurse on all the branches:
+      val compiledBranches = branches.map { case (pattern, branch) =>
+        (pattern, recurse((p, Right(branch)))._1)
+      }
+
+      { (arg, env) =>
+        val (localEnv, next) = bindEnv(arg, compiledBranches.toList, env)
+          .getOrElse(
+              // TODO make sure we rule this out statically
+              sys.error(s"non-total match: arg: $arg, branches: ${branches.head._2.tag.toDoc.render(80)}")
+            )
+        next.inEnv(localEnv)
+      }
     }
-    .memoize
 
   /**
    * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
@@ -280,64 +363,60 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
    */
   private def evalTypedExpr(p: Package.Inferred,
     expr: TypedExpr[Declaration],
-    env: Map[String, Value],
-    recurse: ((Package.Inferred, Ref, Map[String, Value])) => (Eval[Value], Type)): (Eval[Value], Type) = {
+    recurse: ((Package.Inferred, Ref)) => (Scoped, Type)): Scoped = {
 
     import TypedExpr._
 
      expr match {
        case Generic(_, e, _) =>
          // TODO, we need to probably do something with this
-         evalTypedExpr(p, e, env, recurse)
-       case Annotation(e, _, _) => evalTypedExpr(p, e, env, recurse)
-       case Var(v, tpe, _) =>
-         env.get(v) match {
-           case Some(a) => (Eval.now(a), tpe)
-           case None => recurse((p, Left(v), env))
-         }
-       case App(AnnotatedLambda(name, argt, fn, _), arg, resT, _) =>
-         (recurse((p, Right(arg), env))._1.flatMap { a =>
-           val env1 = env + (name -> a)
-           recurse((p, Right(fn), env1))._1
-         }, resT)
-       case App(fn, arg, resT, _) =>
-         val efn = recurse((p, Right(fn), env))._1
-         val earg = recurse((p, Right(arg), env))._1
-         (for {
-           fn <- efn
-           afn = fn.asFn // safe because we typecheck
-           a <- earg
-           res <- afn(a)
-         } yield res, resT)
-       case a@AnnotatedLambda(name, argt, expr, _) =>
-         val fn =
-           FnValue { x =>
-             recurse((p, Right(expr), env + (name -> x)))._1
-           }
-         (Eval.now(fn), Type.Fun(argt, expr.getType))
+         evalTypedExpr(p, e, recurse)
+       case Annotation(e, _, _) => evalTypedExpr(p, e, recurse)
+       case Var(v, _, _) =>
+         val onMissing = recurse((p, Left(v)))._1
+
+         Scoped.orElse(v, onMissing)
+       case App(AnnotatedLambda(name, _, fn, _), arg, _, _) =>
+         val argE = recurse((p, Right(arg)))._1
+         val fnE = recurse((p, Right(fn)))._1
+
+         argE.named(name).inScopeFor(fnE)
+       case App(fn, arg, _, _) =>
+         val efn = recurse((p, Right(fn)))._1
+         val earg = recurse((p, Right(arg)))._1
+
+         efn.applyArg(earg)
+       case a@AnnotatedLambda(name, _, expr, _) =>
+         val inner = recurse((p, Right(expr)))._1
+
+         inner.asLambda(name)
        case Let(arg, e, in, _) =>
-         (recurse((p, Right(e), env))._1.flatMap { ae =>
-           recurse((p, Right(in), env + (arg -> ae)))._1
-         }, in.getType)
-       case Literal(lit, tpe, _) => (Eval.now(Value.fromLit(lit)), tpe)
+         val eres = recurse((p, Right(e)))._1
+         val inres = recurse((p, Right(in)))._1
+
+         eres.named(arg).inScopeFor(inres)
+       case Literal(lit, _, _) =>
+         val res = Eval.now(Value.fromLit(lit))
+
+         Scoped.const(res)
        case If(cond, ifT, ifF, _) =>
-         val tpe = expr.getType
-         val res = recurse((p, Right(cond), env))
-           ._1
-           .flatMap {
-             case True =>
-               recurse((p, Right(ifT), env))._1
-              case False =>
-                recurse((p, Right(ifF), env))._1
-              case other => sys.error(s"ill-typed, expected boolean: $other")
-           }
-        (res, tpe)
+         val condR = recurse((p, Right(cond)))._1
+         val ifR = recurse((p, Right(ifT)))._1
+         val elseR = recurse((p, Right(ifF)))._1
+
+         condR.flatMap {
+           case (env, True) => ifR.inEnv(env)
+           case (env, False) => elseR.inEnv(env)
+           case other => sys.error(s"ill-typed, expected boolean: $other")
+         }
 
        case Match(arg, branches, _) =>
-         val (earg, sarg) = recurse((p, Right(arg), env))
-         (earg.flatMap { a =>
-           evalBranch(a, sarg, branches, p, env, recurse)
-        }, expr.getType)
+         val argR = recurse((p, Right(arg)))._1
+         val branchR = evalBranch(arg.getType, branches, p, recurse)
+
+         argR.flatMap { (env, a) =>
+           branchR(a, env)
+         }
     }
   }
 
@@ -345,24 +424,31 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Inferred, Ref, Map[String, Value])) => (Eval[Value], Type) =
-    Memoize.function[(Package.Inferred, Ref, Map[String, Value]), (Eval[Value], Type)] {
-      case ((pack, Right(expr), env), recurse) =>
-        evalTypedExpr(pack, expr, env, recurse)
-      case ((pack, Left(item), env), recurse) =>
-        NameKind(pack, item).get match { // this get should never fail due to type checking
-          case NameKind.Let(expr) =>
-            recurse((pack, Right(expr), env))
-          case NameKind.Constructor(cn, _, dt, tpe) =>
-            (constructor(cn, dt), tpe)
-          case NameKind.Import(from, orig) =>
+  private[this] val eval: ((Package.Inferred, Ref)) => (Scoped, Type) =
+    Memoize.function[(Package.Inferred, Ref), (Scoped, Type)] {
+      case ((pack, Right(expr)), recurse) =>
+        (evalTypedExpr(pack, expr, recurse), expr.getType)
+      case ((pack, Left(item)), recurse) =>
+        NameKind(pack, item) match {
+          case None =>
+            // this isn't great, but since we fully compile, even when
+            // we don't use a branch, we hit this now
+            (Scoped.unreachable, Type.IntType)
+          case Some(NameKind.Let(expr)) =>
+            recurse((pack, Right(expr)))
+          case Some(NameKind.Constructor(cn, _, dt, tpe)) =>
+            (Scoped.const(constructor(cn, dt)), tpe)
+          case Some(NameKind.Import(from, orig)) =>
+            val other = recurse((from, Left(orig)))
+
             // we reset the environment in the other package
-            recurse((from, Left(orig), Map.empty))
-          case NameKind.ExternalDef(pn, n, tpe) =>
+            (other._1.emptyScope, other._2)
+          case Some(NameKind.ExternalDef(pn, n, tpe)) =>
             externals.toMap.get((pn, n)) match {
               case None =>
                 throw EvaluationException(s"Missing External defintion of '${pn.parts.toList.mkString("/")} $n'. Check that your 'external' parameter is correct.")
-              case Some(ext) => (ext.call(tpe), tpe)
+              case Some(ext) =>
+                (Scoped.const(ext.call(tpe)), tpe)
             }
         }
     }

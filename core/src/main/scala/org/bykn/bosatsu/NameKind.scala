@@ -55,8 +55,9 @@ object NameKind {
           ExternalDef(pn, item, tpe)
       }
 
-    getLet.orElse(
-      getConstructor.orElse(getImport.orElse(getExternal))
-    )
+    getLet
+      .orElse(getConstructor)
+      .orElse(getImport)
+      .orElse(getExternal)
   }
 }
