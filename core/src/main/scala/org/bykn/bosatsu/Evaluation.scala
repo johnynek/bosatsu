@@ -127,27 +127,15 @@ object Evaluation {
   sealed abstract class Scoped {
     import Scoped.fromFn
 
-    def inEnv(env: Map[String, Value]): Eval[(Map[String, Value], Value)]
+    def inEnv(env: Map[String, Value]): Eval[Value]
 
-    def named(name: String): Scoped =
-      fromFn { env =>
-        inEnv(env).map { case (env1, v) =>
-          val env2 = env1.updated(name, v)
-          (env2, v)
-        }
-      }
+    def letNameIn(name: String, in: Scoped): Scoped =
+      Scoped.Let(name, this, in)
 
-    def inScopeFor(next: Scoped): Scoped =
+    def flatMap(fn: (Map[String, Value], Value) => Eval[Value]): Scoped =
       fromFn { env =>
-        inEnv(env).flatMap { case (env1, _) =>
-          next.inEnv(env1)
-        }
-      }
-
-    def flatMap(fn: (Map[String, Value], Value) => Eval[(Map[String, Value], Value)]): Scoped =
-      fromFn { env =>
-        inEnv(env).flatMap { case (env1, v) =>
-          fn(env1, v)
+        inEnv(env).flatMap { v =>
+          fn(env, v)
         }
       }
 
@@ -156,12 +144,10 @@ object Evaluation {
 
         val fn =
           FnValue { x =>
-            val env1 = env.updated(name, x)
-
-            inEnv(env1).map(_._2)
+            inEnv(env.updated(name, x))
           }
 
-        Eval.now((env, fn))
+        Eval.now(fn)
       }
 
     def emptyScope: Scoped =
@@ -172,32 +158,37 @@ object Evaluation {
         for {
           fn <- inEnv(env)
           a <- arg.inEnv(env)
-          res <- fn._2.asFn(a._2) // safe because we typecheck
-        } yield (env, res) // apply does not introduce new scope
+          res <- fn.asFn(a) // safe because we typecheck
+        } yield res
       }
   }
 
   object Scoped {
     def const(e: Eval[Value]): Scoped =
-      fromFn { env =>
-        e.map((env, _))
-      }
+      fromFn(_ => e)
 
     def unreachable: Scoped =
-      fromFn(_ => Eval.later(sys.error("unreachable reached")))
+      const(Eval.later(sys.error("unreachable reached")))
 
     def orElse(name: String, next: Scoped): Scoped =
       fromFn { env =>
         env.get(name) match {
           case None => next.inEnv(env)
-          case Some(v) => Eval.now((env, v))
+          case Some(v) => Eval.now(v)
         }
       }
 
-    private def fromFn(fn: Map[String, Value] => Eval[(Map[String, Value], Value)]): Scoped =
+    private case class Let(name: String, arg: Scoped, in: Scoped) extends Scoped {
+      def inEnv(env: Map[String, Value]) =
+        arg.inEnv(env).flatMap { v =>
+          in.inEnv(env.updated(name, v))
+        }.memoize
+    }
+
+    private def fromFn(fn: Map[String, Value] => Eval[Value]): Scoped =
       FromFn(fn)
 
-    private case class FromFn(fn: Map[String, Value] => Eval[(Map[String, Value], Value)]) extends Scoped {
+    private case class FromFn(fn: Map[String, Value] => Eval[Value]) extends Scoped {
       def inEnv(env: Map[String, Value]) = fn(env)
     }
   }
@@ -211,7 +202,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   def evaluate(p: PackageName, varName: String): Option[(Eval[Value], Type)] =
     pm.toMap.get(p).map { pack =>
       val (s, t) = eval((Package.asInferred(pack), Left(varName)))
-      (s.inEnv(Map.empty).map(_._2), t)
+      (s.inEnv(Map.empty), t)
     }
 
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
@@ -219,7 +210,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
       tup = eval((Package.asInferred(pack), Right(expr)))
-    } yield (tup._1.inEnv(Map.empty).map(_._2), tup._2)
+    } yield (tup._1.inEnv(Map.empty), tup._2)
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
@@ -273,7 +264,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[Declaration])],
     p: Package.Inferred,
-    recurse: ((Package.Inferred, Ref)) => (Scoped, Type)): (Value, Map[String, Value]) => Eval[(Map[String, Value], Value)] = {
+    recurse: ((Package.Inferred, Ref)) => (Scoped, Type)): (Value, Map[String, Value]) => Eval[Value] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
         Type.rootConst(tpe).get // this is safe because it has type checked
 
@@ -380,7 +371,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          val argE = recurse((p, Right(arg)))._1
          val fnE = recurse((p, Right(fn)))._1
 
-         argE.named(name).inScopeFor(fnE)
+         argE.letNameIn(name, fnE)
        case App(fn, arg, _, _) =>
          val efn = recurse((p, Right(fn)))._1
          val earg = recurse((p, Right(arg)))._1
@@ -394,7 +385,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          val eres = recurse((p, Right(e)))._1
          val inres = recurse((p, Right(in)))._1
 
-         eres.named(arg).inScopeFor(inres)
+         eres.letNameIn(arg, inres)
        case Literal(lit, _, _) =>
          val res = Eval.now(Value.fromLit(lit))
 

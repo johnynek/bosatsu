@@ -9,10 +9,8 @@ def reverse(as):
 
 def filter(as, fn):
   as.foldLeft(EmptyList, \tail, item ->
-    if fn(item):
-      NonEmptyList(item, tail)
-    else:
-      tail)
+    if fn(item): NonEmptyList(item, tail)
+    else: tail)
 
 under1000 = range(1000)
 
