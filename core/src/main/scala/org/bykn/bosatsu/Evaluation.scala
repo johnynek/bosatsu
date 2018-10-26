@@ -313,7 +313,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                     else {
                       None
                     }
-                  case other => sys.error(s"ill typed in match: $other")
+                  case other =>
+                    // $COVERAGE-OFF$this should be unreachable
+                    sys.error(s"ill typed in match: $other")
+                    // $COVERAGE-ON$
                 }
               }
 
@@ -398,7 +401,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          condR.flatMap {
            case (env, True) => ifR.inEnv(env)
            case (env, False) => elseR.inEnv(env)
-           case other => sys.error(s"ill-typed, expected boolean: $other")
+           case other =>
+             // $COVERAGE-OFF$this should be unreachable
+             sys.error(s"ill-typed, expected boolean: $other")
+             // $COVERAGE-ON$
          }
 
        case Match(arg, branches, _) =>

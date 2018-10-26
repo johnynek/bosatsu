@@ -87,6 +87,14 @@ package Foo
 
 x = 1
 """), "Foo", VInt(1))
+
+    evalTest(
+      List("""
+package Foo
+
+# exercise calling directly a lambda
+x = (\y -> y)("hello")
+"""), "Foo", Str("hello"))
   }
 
   test("test if/else") {
