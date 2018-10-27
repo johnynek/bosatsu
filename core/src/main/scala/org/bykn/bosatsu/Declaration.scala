@@ -23,6 +23,7 @@ sealed abstract class Declaration {
       case Apply(fn, args, dotApply) =>
         val fnDoc = fn match {
           case Var(n) => Doc.text(n)
+          case Constructor(c) => Doc.text(c)
           case p@Parens(_) => p.toDoc
           case other => Doc.char('(') + other.toDoc + Doc.char(')')
         }
@@ -359,7 +360,7 @@ object Declaration {
 
         // here is if/ternary operator
         val ternary =
-          P(spaces ~ P("if") ~ spaces ~/ rec(indent) ~ spaces ~ "else" ~ spaces ~ rec(indent))
+          P(spaces ~ P("if") ~ spaces ~ rec(indent) ~ spaces ~ "else" ~ spaces ~/ rec(indent))
             .region
             .map { case (region, (cond, falseCase)) =>
               { trueCase: Declaration =>
@@ -373,7 +374,7 @@ object Declaration {
 
       val recIndy = Indy(rec)
 
-      val prefix = P(listP(rec("")) | defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(recIndy)(indent) |
+      val prefix = P(listP(rec(indent)) | defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(recIndy)(indent) |
         ifElseP(recIndy)(indent) | varOrBind(indent) | constructorP | commentP(indent) |
         P(rec(indent).parens).region.map { case (r, p) => Parens(p)(r) })
 
@@ -386,7 +387,9 @@ object Declaration {
           case h :: tail => loop(h(a), tail)
         }
 
-      P(prefix ~ opsList).map { case (arg, fns) => loop(arg, fns) }
+      P(prefix ~ opsList)
+        .map { case (arg, fns) => loop(arg, fns) }
+        .opaque(s"Declaration.parser($indent)")
     }
 
   lazy val parser: Indy[Declaration] =

@@ -142,7 +142,7 @@ z = match x:
       List("""
 package Foo
 
-three = NonEmptyList(1, NonEmptyList(2, EmptyList))
+three = [1, 2]
 
 def sum(ls):
   ls.foldLeft(0, add)
@@ -185,21 +185,17 @@ three = NonEmptyList(0, NonEmptyList(1, EmptyList))
 # exercise the built-in range function (not implementable in bosatsu)
 threer = range(3)
 
-def reverse(ls):
-  # note foldLeft is also built in, and not implementable
-  ls.foldLeft(EmptyList, \tail, h -> NonEmptyList(h, tail))
-
 struct Pair(fst, sec)
 
 def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
   def cons(pair, item):
     match pair:
       Pair(acc, EmptyList):
-        Pair(acc, EmptyList)
+        Pair(acc, [])
       Pair(acc, NonEmptyList(h, tail)):
-        Pair(NonEmptyList(Pair(item, h), acc), tail)
+        Pair([Pair(item, h), *acc], tail)
 
-  rev = as.foldLeft(Pair(EmptyList, bs), cons)
+  rev = as.foldLeft(Pair([], bs), cons)
   match rev:
     Pair(res, _):
       reverse(res)
@@ -225,10 +221,6 @@ evalTest(
   List("""
 package Foo
 
-def reverse(ls):
-  # note foldLeft is also built in, and not implementable
-  ls.foldLeft(EmptyList, \tail, h -> NonEmptyList(h, tail))
-
 struct Pair(fst, sec)
 
 def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
@@ -237,7 +229,7 @@ def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
       Pair(acc, EmptyList):
         Pair(acc, [])
       Pair(acc, NonEmptyList(h, tail)):
-        Pair(NonEmptyList(Pair(item, h), acc), tail)
+        Pair([Pair(item, h), *acc], tail)
 
   rev = as.foldLeft(Pair([], bs), cons)
   match rev:

@@ -28,23 +28,34 @@ object ListLang {
   }
 
   case class Cons[A](items: List[SpliceOrItem[A]]) extends ListLang[A]
-  case class Comprehension[A](expr: A, binding: A, in: A, filter: Option[A]) extends ListLang[A]
+  case class Comprehension[A](expr: SpliceOrItem[A], binding: A, in: A, filter: Option[A]) extends ListLang[A]
 
   def parser[A](pa: P[A]): P[ListLang[A]] = {
-    val cons = SpliceOrItem.parser(pa)
-      .rep(sep = P(maybeSpacesAndLines ~ "," ~ maybeSpacesAndLines))
-      .map { splices => Cons(splices.toList) }
+    val sia = SpliceOrItem.parser(pa) ~ maybeSpacesAndLines
+    val comma = P("," ~ maybeSpacesAndLines)
+    val cons = sia
+      .rep(sep = comma)
+      .map { tail => { a: SpliceOrItem[A] => Cons(a :: tail.toList) } }
+      .opaque("ConsListTail")
 
     val filterExpr = P("if" ~ spacesAndLines ~/ pa).?
-    val comp = P(pa ~ spacesAndLines ~
-      "for" ~ spacesAndLines ~/ pa ~ spacesAndLines ~/
-      "in" ~ spacesAndLines ~/ pa ~ maybeSpacesAndLines ~
-      filterExpr
-      ).map { case (e, b, i, f) => Comprehension(e, b, i, f) }
+    val comp = P(
+      "for" ~ spacesAndLines ~ pa ~ spacesAndLines ~
+      "in" ~ spacesAndLines ~ pa ~ maybeSpacesAndLines ~
+      filterExpr)
+        .map { case (b, i, f) =>
+          { e: SpliceOrItem[A] => Comprehension(e, b, i, f) }
+        }
+        .opaque("ListComprehension")
 
-    val inner = comp | cons
+    val inner = (comma ~ cons) | comp
 
-    P("[" ~ maybeSpacesAndLines ~ inner ~ maybeSpacesAndLines ~ "]")
+    P("[" ~ maybeSpacesAndLines ~ (sia ~ inner.?).? ~ maybeSpacesAndLines ~ "]")
+      .map {
+        case None => Cons(Nil)
+        case Some((a, None)) => Cons(a :: Nil)
+        case Some((a, Some(rest))) => rest(a)
+      }
   }
 
   implicit def document[A](implicit A: Document[A]): Document[ListLang[A]] =
@@ -58,7 +69,7 @@ object ListLang {
           case None => Doc.empty
           case Some(e) => Doc.text(" if ") + A.document(e)
         }
-        Doc.char('[') + A.document(e) + Doc.text(" for ") +
+        Doc.char('[') + SpliceOrItem.document(A).document(e) + Doc.text(" for ") +
           A.document(b) + Doc.text(" in ") +
           A.document(i) + filt +
           Doc.char(']')

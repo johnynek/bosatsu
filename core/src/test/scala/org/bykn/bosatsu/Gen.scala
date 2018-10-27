@@ -115,7 +115,7 @@ object Generators {
     val cons = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genSplice).map(ListLang.Cons(_)))
 
     // TODO we can't parse if since we get confused about it being a ternary expression
-    val comp = Gen.zip(dec, dec, dec, Gen.option(dec))
+    val comp = Gen.zip(genSplice, dec, dec, Gen.option(dec))
       .map { case (a, b, c, _) => ListLang.Comprehension(a, b, c, None) }
 
     Gen.oneOf(cons, comp).map(Declaration.ListDecl(_)(emptyRegion))
@@ -270,7 +270,7 @@ object Generators {
           case ListDecl(ListLang.Cons(items)) =>
             items.map(_.value).toStream
           case ListDecl(ListLang.Comprehension(a, b, c, d)) =>
-            (a :: b :: c :: d.toList).toStream
+            (a.value :: b :: c :: d.toList).toStream
         }
     })
 

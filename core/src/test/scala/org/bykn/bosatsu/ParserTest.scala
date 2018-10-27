@@ -51,10 +51,12 @@ class ParserTest extends FunSuite {
   def parseTestAll[T](p: Parser[T], str: String, expected: T) =
     parseTest(p, str, expected, str.length)
 
-  def roundTrip[T: Document](p: Parser[T], str: String) =
+  def roundTrip[T: Document](p: Parser[T], str: String, lax: Boolean = false) =
     p.parse(str) match {
       case Parsed.Success(t, idx) =>
-        assert(idx == str.length, s"parsed: $t from: $str")
+        if (!lax) {
+          assert(idx == str.length, s"parsed: $t from: $str")
+        }
         val tstr = Document[T].document(t).render(80)
         p.parse(tstr) match {
           case Parsed.Success(t1, _) =>
@@ -186,6 +188,9 @@ class ParserTest extends FunSuite {
     roundTrip(ListLang.parser(pident), "[a ,\n*b,\n c]")
     roundTrip(ListLang.parser(pident), "[x for y in z]")
     roundTrip(ListLang.parser(pident), "[x for y in z if w]")
+
+    roundTrip(ListLang.SpliceOrItem.parser(pident), "a")
+    roundTrip(ListLang.SpliceOrItem.parser(pident), "*a")
   }
 
   test("we can parse comments") {
@@ -433,8 +438,12 @@ else:
     roundTrip(Declaration.parser(""), "[1, 2, 3]")
     roundTrip(Declaration.parser(""), "[1, *x, 3]")
     roundTrip(Declaration.parser(""), "[Foo(a, b), *acc]")
+    roundTrip(ListLang.parser(Declaration.parser("")), "[foo(a, b)]")
+    roundTrip(ListLang.SpliceOrItem.parser(Declaration.parser("")), "a")
+    roundTrip(ListLang.SpliceOrItem.parser(Declaration.parser("")), "foo(a, b)")
+    roundTrip(ListLang.SpliceOrItem.parser(Declaration.parser("")), "*foo(a, b)")
     roundTrip(Declaration.parser(""), "[x for y in [1, 2]]")
-    //roundTrip(Declaration.parser(""), "[x for y in [1, 2] if foo]")
+    roundTrip(Declaration.parser(""), "[x for y in [1, 2] if foo]")
   }
 
   test("we can parse any Declaration") {
@@ -513,6 +522,14 @@ struct Monad(pure: forall a. a -> f[a], flatMap: forall a, b. f[a] -> (a -> f[b]
       val str = Document[Statement].document(s).render(80)
 
       roundTrip(Statement.parser, str.reverse.dropWhile(_ == '\n').reverse)
+    }
+  }
+
+  test("Any declaration may append any whitespace and optionally a comma and parse") {
+    forAll(Generators.genDeclaration(5), Gen.listOf(Gen.oneOf(' ', '\t')).map(_.mkString), Gen.oneOf(true, false)) {
+      case (s, ws, comma) =>
+        val str = Document[Declaration].document(s).render(80) + ws + (if (comma) "," else "")
+        roundTrip(Declaration.parser(""), str, lax = true)
     }
   }
 

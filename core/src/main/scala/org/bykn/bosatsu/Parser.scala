@@ -147,8 +147,10 @@ object Parser {
 
   val spacesAndLines: P[Unit] = P(CharsWhile { c =>
     isSpace(c) || (c == '\n' || c == '\r')
-  })
-  val maybeSpacesAndLines: P[Unit] = spacesAndLines.?
+  }).opaque("spacesAndLines")
+
+  val maybeSpacesAndLines: P[Unit] =
+    spacesAndLines.?.opaque("maybeSpacesAndLines")
 
   val lowerIdent: P[String] =
     P(CharIn('a' to 'z').! ~ CharsWhile(identifierChar _).?.!)
