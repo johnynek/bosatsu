@@ -52,10 +52,13 @@ object Predef {
         "TestList",
         "add",
         "eq_Int",
+        "concat",
         "cmp_Int",
         "mod_Int",
         "foldLeft",
         "range",
+        "reverse",
+        "reverse_concat",
         "sub",
         "times",
         "trace"

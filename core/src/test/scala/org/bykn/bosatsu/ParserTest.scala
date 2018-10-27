@@ -6,7 +6,7 @@ import fastparse.all._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
-import org.typelevel.paiges.Document
+import org.typelevel.paiges.{Doc, Document}
 
 import Parser.Indy
 
@@ -172,6 +172,20 @@ class ParserTest extends FunSuite {
     forAll(Generators.typeRefGen) { tref =>
       parseTestAll(TypeRef.parser, tref.toDoc.render(80), tref)
     }
+  }
+
+  test("we can parse python style list expressions") {
+    val pident = Parser.lowerIdent
+    implicit val stringDoc: Document[String] = Document.instance[String](Doc.text(_))
+
+    roundTrip(ListLang.parser(pident), "[a]")
+    roundTrip(ListLang.parser(pident), "[]")
+    roundTrip(ListLang.parser(pident), "[a , b]")
+    roundTrip(ListLang.parser(pident), "[a , b]")
+    roundTrip(ListLang.parser(pident), "[a , *b]")
+    roundTrip(ListLang.parser(pident), "[a ,\n*b,\n c]")
+    roundTrip(ListLang.parser(pident), "[x for y in z]")
+    roundTrip(ListLang.parser(pident), "[x for y in z if w]")
   }
 
   test("we can parse comments") {
@@ -411,6 +425,16 @@ else:
   Bar(_, _):
       if True: 0
       else: 10""")
+  }
+
+  test("we can parse declaration lists") {
+    roundTrip(Declaration.parser(""), "[]")
+    roundTrip(Declaration.parser(""), "[1]")
+    roundTrip(Declaration.parser(""), "[1, 2, 3]")
+    roundTrip(Declaration.parser(""), "[1, *x, 3]")
+    roundTrip(Declaration.parser(""), "[Foo(a, b), *acc]")
+    roundTrip(Declaration.parser(""), "[x for y in [1, 2]]")
+    //roundTrip(Declaration.parser(""), "[x for y in [1, 2] if foo]")
   }
 
   test("we can parse any Declaration") {

@@ -235,11 +235,11 @@ def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
   def cons(pair: Pair[List[Pair[a, b]], List[b]], item: a) -> Pair[List[Pair[a, b]], List[b]]:
     match pair:
       Pair(acc, EmptyList):
-        Pair(acc, EmptyList)
+        Pair(acc, [])
       Pair(acc, NonEmptyList(h, tail)):
         Pair(NonEmptyList(Pair(item, h), acc), tail)
 
-  rev = as.foldLeft(Pair(EmptyList, bs), cons)
+  rev = as.foldLeft(Pair([], bs), cons)
   match rev:
     Pair(res, _):
       reverse(res)
