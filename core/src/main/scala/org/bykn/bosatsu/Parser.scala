@@ -146,7 +146,7 @@ object Parser {
   val maybeSpace: P[Unit] = spaces.?
 
   val spacesAndLines: P[Unit] = P(CharsWhile { c =>
-    isSpace(c) || (c == '\n' || c == '\r')
+    c.isWhitespace
   }).opaque("spacesAndLines")
 
   val maybeSpacesAndLines: P[Unit] =
@@ -226,8 +226,14 @@ object Parser {
       left ~ item ~ right
 
     def nonEmptyListSyntax: P[NonEmptyList[T]] = {
-      val ws = P(CharsWhile(_.isWhitespace)).?
+      val ws = maybeSpacesAndLines
       nonEmptyListOfWs(ws, 1).bracketed(P("[" ~/ ws), P(ws ~ "]"))
+    }
+
+    def listSyntax: P[List[T]] = {
+      val ws = maybeSpacesAndLines
+      nonEmptyListToList(nonEmptyListOfWs(ws, 1))
+        .bracketed(P("[" ~/ ws), P(ws ~ "]"))
     }
 
     def region: P[(Region, T)] =

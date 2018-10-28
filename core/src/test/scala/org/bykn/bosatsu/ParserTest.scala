@@ -429,6 +429,12 @@ else:
   Bar(_, _):
       if True: 0
       else: 10""")
+
+    roundTrip(Declaration.parser(""),
+"""match x:
+  []: 0
+  [x]: 1
+  _: 2""")
   }
 
   test("we can parse declaration lists") {

@@ -17,9 +17,9 @@ package Euler/Two
 def fib(n):
   range(n).foldLeft([], \revFib, item ->
     match revFib:
-      EmptyList: [1]
-      NonEmptyList(h, EmptyList): [2, h]
-      NonEmptyList(h1, NonEmptyList(h2, _)): [h1.add(h2), *revFib])
+      []: [1]
+      [h]: [2, h]
+      [h1, h2, *_]: [h1.add(h2), *revFib])
 
 def filter(as, fn):
   as.foldLeft([], \tail, item ->

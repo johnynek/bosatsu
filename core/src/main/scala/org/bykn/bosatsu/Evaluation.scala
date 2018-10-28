@@ -114,6 +114,25 @@ object Evaluation {
           }
       }
 
+      @annotation.tailrec
+      def reverse(v: Value, acc: Value = VNil): Value =
+        v match {
+          case VNil => acc
+          case Cons(h, tail) =>
+            reverse(tail, Cons(h, acc))
+          case _ => sys.error(s"expected list, found: $v")
+        }
+
+      def apply(items: List[Value]): Value = {
+        @annotation.tailrec
+        def go(vs: List[Value], acc: Value): Value =
+          vs match {
+            case Nil => acc
+            case h :: tail => go(tail, Cons(h, acc))
+          }
+        go(items.reverse, VNil)
+      }
+
       def unapply(v: Value): Option[List[Value]] =
         v match {
           case VNil => Some(Nil)
@@ -266,7 +285,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     p: Package.Inferred,
     recurse: ((Package.Inferred, Ref)) => (Scoped, Type)): (Value, Map[String, Value]) => Eval[Value] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
-        Type.rootConst(tpe).get // this is safe because it has type checked
+        Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
 
       val packageForType = pm.toMap(pn0)
       // this is calling apply on a map, but is safe because of type-checking
@@ -285,6 +304,48 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case (Pattern.Literal(lit), next) :: tail if arg == Value.fromLit(lit) =>
             Some((acc, next))
           case (Pattern.Var(n), next) :: tail => Some((acc + (n -> arg), next))
+          case (Pattern.ListPat(items), next) :: tail =>
+            def skip = bindEnv(arg, tail, acc)
+            items match {
+              case Nil =>
+                arg match {
+                  case VList.VNil => Some((acc, next))
+                  case _ => skip
+                }
+              case Right(ph) :: ptail =>
+                // a right hand side pattern never matches the empty list
+                arg match {
+                  case VList.Cons(argHead, argTail) =>
+                    val ifMatch = for {
+                      acc1u <- bindEnv(argHead, (ph, ()) :: Nil, acc)
+                      acc2u <- bindEnv(argTail, (Pattern.ListPat(ptail), ()) :: Nil, acc1u._1)
+                    } yield (acc2u._1, next)
+
+                    ifMatch.orElse(skip)
+                  case _ => skip
+                }
+              case Left(splice) :: ptail =>
+                arg match {
+                  case VList(asList) =>
+                  // we reverse the tails, do the match, and take the rest into
+                    // the splice
+                    val revPat = Pattern.ListPat(ptail.reverse)
+                    // we only allow one splice, so we assume the rest of the patterns
+                    val (revArgTail, spliceVals) = asList.reverse.splitAt(ptail.size)
+                    bindEnv(VList(revArgTail), (revPat, ()) :: Nil, acc)
+                      .map { case (acc1, _) =>
+                        // now bind the rest into splice:
+                        splice match {
+                          case None => (acc1, next)
+                          case Some(nm) =>
+                            val rest = VList(spliceVals.reverse)
+                            (acc1.updated(nm, rest), next)
+                        }
+                      }
+                      .orElse(skip)
+                  case _ => skip
+                }
+              }
           case (Pattern.Annotation(p, _), next) :: tail =>
             // TODO we may need to use the type here
             bindEnv(arg, (p, next) :: tail, acc)
