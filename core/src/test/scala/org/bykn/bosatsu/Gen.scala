@@ -213,13 +213,12 @@ object Generators {
       q <- Gen.oneOf('\'', '"')
       //str <- Arbitrary.arbitrary[String]
       str <- lowerIdent // TODO
-    } yield LiteralString(str, q)(emptyRegion)
+    } yield Literal(Lit.Str(str))(emptyRegion)
 
     val unnested = Gen.oneOf(
       lowerIdent.map(Var(_)(emptyRegion)),
       upperIdent.map(Constructor(_)(emptyRegion)),
-      //Arbitrary.arbitrary[BigInt].map { bi => LiteralInt(bi.toString) }, // TODO enable bigint
-      Arbitrary.arbitrary[Int].map { bi => LiteralInt(bi.toString)(emptyRegion) },
+      Arbitrary.arbitrary[BigInt].map { bi => Literal(Lit.Integer(bi.bigInteger))(emptyRegion) },
       str)
 
     val recur = Gen.lzy(genDeclaration(depth - 1))
@@ -263,8 +262,7 @@ object Generators {
           case Comment(c) => Stream.empty
           case Constructor(name) => Stream.empty
           case Lambda(args, body) => body #:: Stream.empty
-          case LiteralInt(str) => Stream.empty
-          case LiteralString(str, q) => Stream.empty
+          case Literal(_) => Stream.empty
           case Parens(p) => p #:: Stream.empty
           case Var(_) => Stream.empty
           case ListDecl(ListLang.Cons(items)) =>

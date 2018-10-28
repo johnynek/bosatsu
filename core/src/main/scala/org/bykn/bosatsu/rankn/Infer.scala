@@ -692,6 +692,7 @@ object Infer {
     def typeCheckPattern(pat: Pattern, sigma: Expected[Type]): Infer[(Pattern, List[(String, Type)])] =
       pat match {
         case GenPattern.WildCard => Infer.pure((pat, Nil))
+        case GenPattern.Literal(_) => Infer.pure((pat, Nil))
         case GenPattern.Var(n) =>
           // We always return an annotation here, which is the only
           // place we need to be careful
