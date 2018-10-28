@@ -15,15 +15,15 @@ package Euler/Two
 # so n = 35 is enough
 
 def fib(n):
-  range(n).foldLeft(EmptyList, \revFib, item ->
+  range(n).foldLeft([], \revFib, item ->
     match revFib:
-      EmptyList: NonEmptyList(1, EmptyList)
-      NonEmptyList(h, EmptyList): NonEmptyList(2, NonEmptyList(h, EmptyList))
-      NonEmptyList(h1, NonEmptyList(h2, _)): NonEmptyList(h1.add(h2), revFib))
+      EmptyList: [1]
+      NonEmptyList(h, EmptyList): [2, h]
+      NonEmptyList(h1, NonEmptyList(h2, _)): [h1.add(h2), *revFib])
 
 def filter(as, fn):
-  as.foldLeft(EmptyList, \tail, item ->
-    if fn(item): NonEmptyList(item, tail)
+  as.foldLeft([], \tail, item ->
+    if fn(item): [item, *tail]
     else: tail)
 
 def keep(i):

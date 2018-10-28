@@ -41,7 +41,9 @@ def reverse(as: List[a]) -> List[a]:
   reverse_concat(as, EmptyList)
 
 def concat(front: List[a], back: List[a]) -> List[a]:
-  reverse_concat(reverse(front), back)
+  match back:
+    EmptyList: front
+    _: reverse_concat(reverse(front), back)
 
 enum Comparison:
   LT
