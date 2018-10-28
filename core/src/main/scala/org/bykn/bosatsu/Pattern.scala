@@ -13,6 +13,8 @@ sealed abstract class Pattern[+N, +T] {
       case Pattern.WildCard => Pattern.WildCard
       case Pattern.Literal(lit) => Pattern.Literal(lit)
       case Pattern.Var(v) => Pattern.Var(v)
+      case Pattern.ListPat(items) =>
+        Pattern.ListPat(items.map(_.right.map(_.mapName(fn))))
       case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapName(fn), tpe)
       case Pattern.PositionalStruct(name, params) =>
         Pattern.PositionalStruct(fn(name), params.map(_.mapName(fn)))
@@ -22,6 +24,8 @@ sealed abstract class Pattern[+N, +T] {
       case Pattern.WildCard => Pattern.WildCard
       case Pattern.Literal(lit) => Pattern.Literal(lit)
       case Pattern.Var(v) => Pattern.Var(v)
+      case Pattern.ListPat(items) =>
+        Pattern.ListPat(items.map(_.right.map(_.mapType(fn))))
       case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapType(fn), fn(tpe))
       case Pattern.PositionalStruct(name, params) =>
         Pattern.PositionalStruct(name, params.map(_.mapType(fn)))
@@ -36,6 +40,11 @@ object Pattern {
         case Pattern.WildCard => Applicative[F].pure(Pattern.WildCard)
         case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
         case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
+        case Pattern.ListPat(items) =>
+          items.traverse {
+            case Left(v) => Applicative[F].pure(Left(v): Either[String, Pattern[N, T1]])
+            case Right(p) => p.traverseType(fn).map(Right(_): Either[String, Pattern[N, T1]])
+          }.map(Pattern.ListPat(_))
         case Pattern.Annotation(p, tpe) =>
           (p.traverseType(fn), fn(tpe)).mapN(Pattern.Annotation(_, _))
         case Pattern.PositionalStruct(name, params) =>
@@ -48,6 +57,7 @@ object Pattern {
   case object WildCard extends Pattern[Nothing, Nothing]
   case class Literal(toLit: Lit) extends Pattern[Nothing, Nothing]
   case class Var(name: String) extends Pattern[Nothing, Nothing]
+  case class ListPat[N, T](parts: List[Either[String, Pattern[N, T]]]) extends Pattern[N, T]
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
 
@@ -56,6 +66,12 @@ object Pattern {
       case WildCard => Doc.char('_')
       case Literal(lit) => Document[Lit].document(lit)
       case Var(n) => Doc.text(n)
+      case ListPat(items) =>
+        Doc.char('[') + Doc.intercalate(Doc.text(", "),
+          items.map {
+            case Left(glob) => Doc.char('*') + Doc.text(glob)
+            case Right(p) => document.document(p)
+          }) + Doc.char(']')
       case Annotation(_, _) =>
         /*
          * We need to know what package we are in and what imports we depend on here.

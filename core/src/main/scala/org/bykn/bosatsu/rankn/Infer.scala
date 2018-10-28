@@ -705,6 +705,13 @@ object Infer {
                 _ <- infer.set(t)
               } yield (GenPattern.Annotation(pat, t), List((n, t)))
           }
+        case GenPattern.ListPat(items) =>
+          /*
+           * Here we unify the sigma with List[A] for some type A
+           * any *a patterns have type List[A], all the rest
+           * of them have type A.
+           */
+          ???
         case GenPattern.Annotation(p, tpe) =>
           // like in the case of an annotation, we check the type, then
           // instantiate a sigma type
