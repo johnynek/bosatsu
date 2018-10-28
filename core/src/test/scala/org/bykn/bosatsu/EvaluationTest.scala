@@ -130,11 +130,46 @@ package Foo
 x = Some(1)
 
 z = match x:
-  Some(v):
-    add(v, 10)
-  None:
-    0
+  Some(v): add(v, 10)
+  None: 0
 """), "Foo", VInt(11))
+  }
+
+  test("test matching literals") {
+    evalTest(
+      List("""
+package Foo
+
+x = 1
+
+main = match x:
+  1: "good"
+  _: "bad"
+"""), "Foo", Str("good"))
+
+    evalTest(
+      List("""
+package Foo
+
+x = "1"
+
+main = match x:
+  "1": "good"
+  _: "bad"
+"""), "Foo", Str("good"))
+
+    evalTest(
+      List("""
+package Foo
+
+struct Pair(fst, snd)
+
+x = Pair(1, "1")
+
+main = match x:
+  Pair(_, "1"): "good"
+  _: "bad"
+"""), "Foo", Str("good"))
   }
 
   test("do a fold") {

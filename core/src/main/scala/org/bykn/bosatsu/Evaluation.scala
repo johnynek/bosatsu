@@ -280,7 +280,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         acc: Map[String, Value]): Option[(Map[String, Value], E)] =
         branches match {
           case Nil => None
-          case (Pattern.WildCard, next):: tail => Some((acc, next))
+          case (Pattern.WildCard, next):: tail =>
+            Some((acc, next))
+          case (Pattern.Literal(lit), next) :: tail if arg == Value.fromLit(lit) =>
+            Some((acc, next))
           case (Pattern.Var(n), next) :: tail => Some((acc + (n -> arg), next))
           case (Pattern.Annotation(p, _), next) :: tail =>
             // TODO we may need to use the type here

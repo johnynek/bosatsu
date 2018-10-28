@@ -11,6 +11,7 @@ sealed abstract class Pattern[+N, +T] {
   def mapName[U](fn: N => U): Pattern[U, T] =
     this match {
       case Pattern.WildCard => Pattern.WildCard
+      case Pattern.Literal(lit) => Pattern.Literal(lit)
       case Pattern.Var(v) => Pattern.Var(v)
       case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapName(fn), tpe)
       case Pattern.PositionalStruct(name, params) =>
@@ -19,6 +20,7 @@ sealed abstract class Pattern[+N, +T] {
   def mapType[U](fn: T => U): Pattern[N, U] =
     this match {
       case Pattern.WildCard => Pattern.WildCard
+      case Pattern.Literal(lit) => Pattern.Literal(lit)
       case Pattern.Var(v) => Pattern.Var(v)
       case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapType(fn), fn(tpe))
       case Pattern.PositionalStruct(name, params) =>
@@ -32,6 +34,7 @@ object Pattern {
     def traverseType[F[_]: Applicative, T1](fn: T => F[T1]): F[Pattern[N, T1]] =
       pat match {
         case Pattern.WildCard => Applicative[F].pure(Pattern.WildCard)
+        case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
         case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
         case Pattern.Annotation(p, tpe) =>
           (p.traverseType(fn), fn(tpe)).mapN(Pattern.Annotation(_, _))
@@ -43,6 +46,7 @@ object Pattern {
   }
 
   case object WildCard extends Pattern[Nothing, Nothing]
+  case class Literal(toLit: Lit) extends Pattern[Nothing, Nothing]
   case class Var(name: String) extends Pattern[Nothing, Nothing]
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
@@ -50,6 +54,7 @@ object Pattern {
   implicit lazy val document: Document[Pattern[String, TypeRef]] =
     Document.instance[Pattern[String, TypeRef]] {
       case WildCard => Doc.char('_')
+      case Literal(lit) => Document[Lit].document(lit)
       case Var(n) => Doc.text(n)
       case Annotation(_, _) =>
         /*
@@ -74,6 +79,7 @@ object Pattern {
 
       val pwild = P("_").map(_ => WildCard)
       val pvar = lowerIdent.map(Var(_))
+      val plit = Lit.parser.map(Literal(_))
       val pparen = recurse.parens
 
       val positional = P(upperIdent ~/ (recurse.listN(1).parens).?)
@@ -82,7 +88,7 @@ object Pattern {
           case (n, Some(ls)) => PositionalStruct(n, ls)
         }
 
-      val nonAnnotated = pvar | pwild | pparen | positional
+      val nonAnnotated = pvar | plit | pwild | pparen | positional
       val typeAnnot = P(maybeSpace ~ ":" ~/ maybeSpace ~ TypeRef.parser)
       val withType = (nonAnnotated ~ typeAnnot.?).map {
         case (p, None) => p

@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, Indy, lowerIdent, upperIdent, maybeSpace, spaces, escapedString, toEOL }
+import Parser.{ Combinators, Indy, lowerIdent, upperIdent, maybeSpace, spaces, toEOL }
 import cats.data.NonEmptyList
 import cats.implicits._
 import com.stripe.dagon.Memoize
@@ -72,9 +72,7 @@ sealed abstract class Declaration {
         Doc.intercalate(Doc.line, parts)
       case Lambda(args, body) =>
         Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Doc.text _)) + Doc.text(" -> ") + body.toDoc
-      case LiteralInt(str) => Doc.text(str)
-      case LiteralString(str, q) =>
-          Doc.char(q) + Doc.text(Parser.escape(Set(q), str)) + Doc.char(q)
+      case Literal(lit) => Document[Lit].document(lit)
       case Match(typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
 
@@ -144,10 +142,8 @@ sealed abstract class Declaration {
           }, loop(elseCase.get))
         case Lambda(args, body) =>
           Expr.buildLambda(args.map((_, None)), loop(body), this)
-        case LiteralInt(str) =>
-          Expr.Literal(Lit.Integer(new java.math.BigInteger(str)), this)
-        case LiteralString(str, _) =>
-          Expr.Literal(Lit.Str(str), this)
+        case Literal(lit) =>
+          Expr.Literal(lit, this)
         case Parens(p) =>
           loop(p).map(_ => this)
         case Var(name) =>
@@ -215,8 +211,7 @@ object Declaration {
   case class IfElse(ifCases: NonEmptyList[(Declaration, OptIndent[Declaration])],
     elseCase: OptIndent[Declaration])(implicit val region: Region) extends Declaration
   case class Lambda(args: NonEmptyList[String], body: Declaration)(implicit val region: Region) extends Declaration
-  case class LiteralInt(asString: String)(implicit val region: Region) extends Declaration
-  case class LiteralString(asString: String, quoteChar: Char)(implicit val region: Region) extends Declaration
+  case class Literal(lit: Lit)(implicit val region: Region) extends Declaration
   case class Match(arg: Declaration,
     cases: OptIndent[NonEmptyList[(Pattern[String, TypeRef], OptIndent[Declaration])]])(
     implicit val region: Region) extends Declaration
@@ -300,20 +295,6 @@ object Declaration {
       .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
   }
 
-  val literalIntP: P[LiteralInt] =
-    Parser.integerString
-      .region
-      .map { case (r, i) => LiteralInt(i)(r) }
-
-  val literalStringP: P[LiteralString] = {
-    val q1 = '\''
-    val q2 = '"'
-    def str(q: Char): P[LiteralString] =
-      escapedString(q).region.map { case (r, str) => LiteralString(str, q)(r) }
-
-    str(q1) | str(q2)
-  }
-
   def matchP(expr: Indy[Declaration]): Indy[Match] = {
     val withTrailing = expr <* Indy.lift(maybeSpace)
     val branch = Indy.block(Indy.lift(Pattern.parser), withTrailing)
@@ -375,7 +356,8 @@ object Declaration {
 
       val recIndy = Indy(rec)
 
-      val prefix = P(listP(rec(indent)) | defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(recIndy)(indent) |
+      val lits = Lit.parser.region.map { case (r, l) => Literal(l)(r) }
+      val prefix = P(listP(rec(indent)) | defP(indent) | lits | lambdaP(indent) | matchP(recIndy)(indent) |
         ifElseP(recIndy)(indent) | varOrBind(indent) | constructorP | commentP(indent) |
         P(rec(indent).parens).region.map { case (r, p) => Parens(p)(r) })
 
