@@ -37,6 +37,22 @@ object Referant {
       case Referant.Value(t) => t
       case Referant.Constructor(_, _, _, t) => t
     }
+  /**
+   * Fully qualified original names
+   */
+  def fullyQualifiedImportedValues[A](imps: List[Import[A, NonEmptyList[Referant]]])(nameOf: A => PackageName): Map[(PackageName, String), rankn.Type] =
+    imps.iterator.flatMap { item =>
+      val pn = nameOf(item.pack)
+      item.items.toList.iterator.flatMap { i =>
+        val orig = i.originalName
+        val key = (pn, orig)
+        i.tag.toList.iterator.collect {
+          case Referant.Value(t) => (key, t)
+          case Referant.Constructor(_, _, _, t) => (key, t)
+        }
+      }
+    }
+    .toMap
 
   def typeConstructors[A](imps: List[Import[A, NonEmptyList[Referant]]]): Map[(PackageName, ConstructorName), (List[rankn.Type.Var], List[rankn.Type], rankn.Type.Const.Defined)] = {
     val refs: Iterator[Referant] = imps.iterator.flatMap(_.items.toList.iterator.flatMap(_.tag.toList))

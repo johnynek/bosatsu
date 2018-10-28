@@ -13,10 +13,10 @@ sealed abstract class Infer[+A] {
   final def flatMap[B](fn: A => Infer[B]): Infer[B] =
     Infer.Impl.FlatMap(this, fn)
 
-  final def runVar(v: Map[String, Type], tpes: Map[(PackageName, ConstructorName), Infer.Cons]): RefSpace[Either[Error, A]] =
+  final def runVar(v: Map[Infer.Name, Type], tpes: Map[(PackageName, ConstructorName), Infer.Cons]): RefSpace[Either[Error, A]] =
     Infer.Env.init(v, tpes).flatMap(run(_))
 
-  final def runFully(v: Map[String, Type], tpes: Map[(PackageName, ConstructorName), Infer.Cons]): Either[Error, A] =
+  final def runFully(v: Map[Infer.Name, Type], tpes: Map[(PackageName, ConstructorName), Infer.Cons]): Either[Error, A] =
     runVar(v, tpes).run.value
 }
 
@@ -44,21 +44,25 @@ object Infer {
    * the final is the defined type this creates
    */
   type Cons = (List[Type.Var], List[Type], Type.Const.Defined)
+  type Name = (Option[PackageName], String)
+
+  def asFullyQualified(ns: Iterable[(String, Type)]): Map[Name, Type] =
+    ns.iterator.map { case (n, t) => ((None, n), t) }.toMap
 
   case class Env(
     uniq: Ref[Long],
-    vars: Map[String, Type],
+    vars: Map[Name, Type],
     typeCons: Map[(PackageName, ConstructorName), Cons])
 
   object Env {
     def empty: RefSpace[Env] =
       init(Map.empty, Map.empty)
 
-    def init(vars: Map[String, Type], tpes: Map[(PackageName, ConstructorName), Cons]): RefSpace[Env] =
+    def init(vars: Map[Name, Type], tpes: Map[(PackageName, ConstructorName), Cons]): RefSpace[Env] =
       RefSpace.newRef(0L).map(Env(_, vars, tpes))
   }
 
-  def getEnv: Infer[Map[String, Type]] = GetEnv
+  def getEnv: Infer[Map[Name, Type]] = GetEnv
 
   def lift[A](rs: RefSpace[A]): Infer[A] =
     Lift(rs.map(Right(_)))
@@ -76,7 +80,7 @@ object Infer {
     if (b) pure(()) else fail(err)
 
   // Fails if v is not in the env
-  def lookupVarType(v: String): Infer[Type] =
+  def lookupVarType(v: Name): Infer[Type] =
     getEnv.flatMap { env =>
       env.get(v) match {
         case None => fail(Error.VarNotInScope(v, env))
@@ -120,7 +124,7 @@ object Infer {
     sealed abstract class NameError extends Error
 
     // This could be a user error if we don't check scoping before typing
-    case class VarNotInScope(varName: String, vars: Map[String, Type]) extends NameError {
+    case class VarNotInScope(varName: Name, vars: Map[Name, Type]) extends NameError {
       def message = s"$varName not in scope: $vars"
     }
 
@@ -200,7 +204,7 @@ object Infer {
       }
     }
 
-    case object GetEnv extends Infer[Map[String, Type]] {
+    case object GetEnv extends Infer[Map[Name, Type]] {
       def run(env: Env) = RefSpace.pure(Right(env.vars))
     }
 
@@ -215,7 +219,7 @@ object Infer {
           })
     }
 
-    case class ExtendEnvs[A](vt: List[(String, Type)], in: Infer[A]) extends Infer[A] {
+    case class ExtendEnvs[A](vt: List[(Name, Type)], in: Infer[A]) extends Infer[A] {
       def run(env: Env) = in.run(env.copy(vars = vt.foldLeft(env.vars)(_ + _)))
     }
 
@@ -523,11 +527,11 @@ object Infer {
             case Lit.Str(_) => Type.StrType
           }
           instSigma(tpe, expect).map(_(TypedExpr.Literal(lit, tpe, t)))
-        case Var(name, tag) =>
+        case Var(optPack, name, tag) =>
           for {
-            vSigma <- lookupVarType(name)
+            vSigma <- lookupVarType((optPack, name))
             coerce <- instSigma(vSigma, expect)
-           } yield coerce(TypedExpr.Var(name, vSigma, tag))
+           } yield coerce(TypedExpr.Var(optPack, name, vSigma, tag))
         case App(fn, arg, tag) =>
            for {
              typedFn <- inferRho(fn)
@@ -808,7 +812,7 @@ object Infer {
     extendEnvList(List((varName, tpe)))(of)
 
   def extendEnvList[A](bindings: List[(String, Type)])(of: Infer[A]): Infer[A] =
-    Infer.Impl.ExtendEnvs(bindings, of)
+    Infer.Impl.ExtendEnvs(bindings.map { case (n, t) => ((None, n), t) }, of)
 
   /**
    * Packages are generally just lists of lets, this allows you to infer
