@@ -285,4 +285,36 @@ else:
   "1"
 """), "Foo")
   }
+
+  test("test the list literals work even when we have conflicting local names") {
+    evalTest(
+      List("""
+package Foo
+
+struct EmptyList
+
+main = [1, 2]
+"""), "Foo",
+  ConsValue(VInt(1), UnitValue))
+
+    evalTest(
+      List("""
+package Foo
+
+struct NonEmptyList
+
+main = [1, 2]
+"""), "Foo",
+  ConsValue(VInt(1), UnitValue))
+
+    evalTest(
+      List("""
+package Foo
+
+def concat(a): a
+
+main = [1, 2]
+"""), "Foo",
+  ConsValue(VInt(1), UnitValue))
+  }
 }
