@@ -438,4 +438,25 @@ def foo(i: Int):
 main = foo("Not an Int")
 """)
   }
+
+  test("using a literal the wrong type is ill-typed") {
+
+  parseProgramIllTyped("""#
+
+x = "foo"
+
+main = match x:
+  1: "can't really be an int"
+  y: y
+""")
+
+  parseProgramIllTyped("""#
+
+x = 1
+
+main = match x:
+  "1": "can't really be a string"
+  y: y
+""")
+  }
 }

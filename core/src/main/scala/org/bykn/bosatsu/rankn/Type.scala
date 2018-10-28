@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.Eq
-import org.bykn.bosatsu.PackageName
+import org.bykn.bosatsu.{PackageName, Lit}
 
 sealed abstract class Type
 
@@ -36,6 +36,12 @@ object Type {
     new Eq[Type] {
       def eqv(left: Type, right: Type): Boolean =
         left == right
+    }
+
+  def getTypeOf(lit: Lit): Type =
+    lit match {
+      case Lit.Integer(_) => Type.IntType
+      case Lit.Str(_) => Type.StrType
     }
 
   /**
