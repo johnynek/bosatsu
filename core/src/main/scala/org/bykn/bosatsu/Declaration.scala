@@ -115,7 +115,7 @@ sealed abstract class Declaration {
         case Comment(CommentStatement(_, Padding(_, decl))) =>
           loop(decl).map(_ => this)
         case Constructor(name) =>
-          Expr.Var(name, this)
+          Expr.Var(None, name, this)
         case DefFn(defstmt@DefStatement(_, _, _, _)) =>
           val (bodyExpr, inExpr) = defstmt.result match {
             case (oaBody, Padding(_, in)) =>
@@ -151,7 +151,7 @@ sealed abstract class Declaration {
         case Parens(p) =>
           loop(p).map(_ => this)
         case Var(name) =>
-          Expr.Var(name, this)
+          Expr.Var(None, name, this)
         case Match(arg, branches) =>
           val expBranches = branches.get.map { case (pat, oidecl) =>
             val decl = oidecl.get

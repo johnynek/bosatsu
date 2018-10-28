@@ -366,10 +366,14 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          // TODO, we need to probably do something with this
          evalTypedExpr(p, e, recurse)
        case Annotation(e, _, _) => evalTypedExpr(p, e, recurse)
-       case Var(v, _, _) =>
+       case Var(None, v, _, _) =>
          val onMissing = recurse((p, Left(v)))._1
 
          Scoped.orElse(v, onMissing)
+       case Var(Some(p), v, _, _) =>
+         val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
+         val (scoped, _) = eval((Package.asInferred(pack), Left(v)))
+         scoped
        case App(AnnotatedLambda(name, _, fn, _), arg, _, _) =>
          val argE = recurse((p, Right(arg)))._1
          val fnE = recurse((p, Right(fn)))._1
