@@ -209,7 +209,7 @@ trait CodeGen {
       case Annotation(expr, _, _) =>
         // TODO we might want to use the type info
         apply(expr, topLevel, pack)
-      case Var(n, _, _) =>
+      case Var(None, n, _, _) =>
         NameKind(pack, n) match {
           case Some(NameKind.Constructor(_, _, _, _)) =>
             Monad[Output].pure(Doc.text(toConstructorName(n)))
@@ -220,6 +220,8 @@ trait CodeGen {
               v = scope.toMap.get(n).fold(toExportedName(n)) { u => toFieldName(n, u.id) }
             } yield Doc.text(v)
         }
+      case Var(Some(_), n, _, _) =>
+        sys.error("TODO: handle fully qualified names")
       case App(fn, arg, _,  _) =>
         for {
           fnDoc <- apply(fn, topLevel, pack)

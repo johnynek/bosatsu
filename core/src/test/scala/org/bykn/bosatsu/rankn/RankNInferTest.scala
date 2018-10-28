@@ -51,14 +51,14 @@ class RankNInferTest extends FunSuite {
       "False" -> Type.BoolType)
 
   def testType(term: Expr[_], ty: Type) =
-    Infer.typeCheck(term).runFully(withBools, Map.empty) match {
+    Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools), Map.empty) match {
       case Left(err) => assert(false, err)
       case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
   def testLetTypes[A](terms: List[(String, Expr[A], Type)]) =
     Infer.typeCheckLets(terms.map { case (k, v, _) => (k, v) })
-      .runFully(withBools, Map.empty) match {
+      .runFully(Infer.asFullyQualified(withBools), Map.empty) match {
         case Left(err) => assert(false, err)
         case Right(tpes) =>
           assert(tpes.size == terms.size)
@@ -70,10 +70,10 @@ class RankNInferTest extends FunSuite {
 
 
   def lit(i: Int): Expr[Unit] = Literal(Lit(i.toLong), ())
-  def lit(b: Boolean): Expr[Unit] = if (b) Var("True", ()) else Var("False", ())
+  def lit(b: Boolean): Expr[Unit] = if (b) Var(None, "True", ()) else Var(None, "False", ())
   def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] = Let(n, expr, in, ())
   def lambda(arg: String, result: Expr[Unit]): Expr[Unit] = Lambda(arg, result, ())
-  def v(name: String): Expr[Unit] = Var(name, ())
+  def v(name: String): Expr[Unit] = Var(None, name, ())
   def ann(expr: Expr[Unit], t: Type): Expr[Unit] = Annotation(expr, t, ())
 
   def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, arg, ())
@@ -214,13 +214,13 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithOpt(term: Expr[_], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt(term: Expr[_]) =
-      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOption) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -257,13 +257,13 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithOpt(term: Expr[_], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOptionGen) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt(term: Expr[_]) =
-      Infer.typeCheck(term).runFully(withBools ++ constructors, definedOptionGen) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -324,7 +324,7 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithTypes(term: Expr[_], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ constructors, defined) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), defined) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }

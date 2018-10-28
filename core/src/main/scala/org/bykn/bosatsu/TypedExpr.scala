@@ -26,7 +26,7 @@ sealed abstract class TypedExpr[T] {
         tpe
       case a@AnnotatedLambda(arg, tpe, res, _) =>
         Type.Fun(tpe, res.getType)
-      case Var(_, tpe, _) => tpe
+      case Var(_, _, tpe, _) => tpe
       case App(_, _, tpe, _) => tpe
       case Let(_, _, in, _) =>
         in.getType
@@ -52,8 +52,8 @@ sealed abstract class TypedExpr[T] {
         s"(ann ${rept(tpe)} ${expr.repr})"
       case a@AnnotatedLambda(arg, tpe, res, _) =>
         s"(lambda $arg ${rept(tpe)} ${res.repr})"
-      case Var(v, tpe, _) =>
-        s"(var $v ${rept(tpe)})"
+      case Var(p, v, tpe, _) =>
+        s"(var $p $v ${rept(tpe)})"
       case App(fn, arg, tpe, _) =>
         s"(ap ${fn.repr} ${arg.repr} ${rept(tpe)})"
       case Let(n, b, in, _) =>
@@ -82,8 +82,8 @@ sealed abstract class TypedExpr[T] {
         (fn(tpe), res.traverseType(fn)).mapN {
           AnnotatedLambda(arg, _, _, tag)
         }
-      case Var(v, tpe, tag) =>
-        fn(tpe).map(Var(v, _, tag))
+      case Var(p, v, tpe, tag) =>
+        fn(tpe).map(Var(p, v, _, tag))
       case App(f, arg, tpe, tag) =>
         (f.traverseType(fn), arg.traverseType(fn), fn(tpe)).mapN {
           App(_, _, _, tag)
@@ -120,7 +120,7 @@ object TypedExpr {
   case class Generic[T](typeVars: NonEmptyList[Type.Var.Bound], in: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Annotation[T](term: TypedExpr[T], coerce: Type, tag: T) extends TypedExpr[T]
   case class AnnotatedLambda[T](arg: String, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
-  case class Var[T](name: String, tpe: Type, tag: T) extends TypedExpr[T]
+  case class Var[T](pack: Option[PackageName], name: String, tpe: Type, tag: T) extends TypedExpr[T]
   case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
   case class Let[T](arg: String, expr: TypedExpr[T], in: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
@@ -138,7 +138,7 @@ object TypedExpr {
             // but without this, I don't see what else we can do
             Generic(params, self(expr), tag)
           case Annotation(t, _, tag) => Annotation(self(t), tpe, tag)
-          case Var(name, _, t) => Var(name, tpe, t)
+          case Var(p, name, _, t) => Var(p, name, tpe, t)
           case AnnotatedLambda(arg, argT, res, tag) =>
             // only some coercions would make sense here
             // how to handle?
@@ -175,8 +175,8 @@ object TypedExpr {
           go(expr :: tail, bound, acc)
         case Annotation(t, _, _) :: tail =>
           go(t :: tail, bound, acc)
-        case Var(name, _, _) :: tail if bound(name) => go(tail, bound, acc)
-        case Var(name, _, _) :: tail => go(tail, bound, name :: acc)
+        case Var(opt, name, _, _) :: tail if bound(name) || opt.isDefined => go(tail, bound, acc)
+        case Var(None, name, _, _) :: tail => go(tail, bound, name :: acc)
         case AnnotatedLambda(arg, _, res, _) :: tail =>
           val acc1 = cheat(res :: Nil, bound + arg, acc)
           go(tail, bound, acc1)
@@ -216,7 +216,7 @@ object TypedExpr {
          */
         val free = freeVars(expr :: Nil).toSet
         val name = Type.allBinders.iterator.map(_.name).filterNot(free).next
-        AnnotatedLambda(name, arg, cores(App(expr, coarg(Var(name, arg, expr.tag)), result, expr.tag)), expr.tag)
+        AnnotatedLambda(name, arg, cores(App(expr, coarg(Var(None, name, arg, expr.tag)), result, expr.tag)), expr.tag)
       }
     }
 

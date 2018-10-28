@@ -16,7 +16,7 @@ sealed abstract class Expr[T] {
   def setTag(t: T): Expr[T] =
     this match {
       case a@Annotation(_, _, _) => a.copy(tag = t)
-      case v@Var(_, _) => v.copy(tag = t)
+      case v@Var(_, _, _) => v.copy(tag = t)
       case a@App(_, _, _) => a.copy(tag = t)
       case l@Lambda(_, _, _) => l.copy(tag = t)
       case a@AnnotatedLambda(_, _, _, _) => a.copy(tag = t)
@@ -32,7 +32,7 @@ object Expr {
   case class AnnotatedLambda[T](arg: String, tpe: rankn.Type, expr: Expr[T], tag: T) extends Expr[T] {
     def toLambda: Lambda[T] = Lambda(arg, expr, tag)
   }
-  case class Var[T](name: String, tag: T) extends Expr[T]
+  case class Var[T](pack: Option[PackageName], name: String, tag: T) extends Expr[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
   case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
   case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
@@ -50,7 +50,7 @@ object Expr {
         (traverseType(e, fn), fn(tpe)).mapN(Annotation(_, _, a))
       case AnnotatedLambda(arg, tpe, expr, a) =>
         (fn(tpe), traverseType(expr, fn)).mapN(AnnotatedLambda(arg, _, _, a))
-      case v@Var(_, _) => F.pure(v)
+      case v@Var(_, _, _) => F.pure(v)
       case App(f, a, t) =>
         (traverseType(f, fn), traverseType(a, fn)).mapN(App(_, _, t))
       case Lambda(arg, expr, t) =>
@@ -85,8 +85,8 @@ object Expr {
         Annotation(nest(expr), tpe, e)
       case AnnotatedLambda(arg, tpe, expr, _) =>
         AnnotatedLambda(arg, tpe, nest(expr), e)
-      case Var(s, _) =>
-        Var(s, e)
+      case Var(p, s, _) =>
+        Var(p, s, e)
       case App(fn, a, _) =>
         App(nest(fn), nest(a), e)
       case Lambda(arg, expr, _) =>
@@ -120,8 +120,8 @@ object Expr {
             (e.traverse(f), f(a)).mapN(Annotation(_, tpe, _))
           case AnnotatedLambda(arg, tpe, expr, a) =>
             (expr.traverse(f), f(a)).mapN(AnnotatedLambda(arg, tpe, _, _))
-          case Var(s, t) =>
-            f(t).map(Var(s, _))
+          case Var(p, s, t) =>
+            f(t).map(Var(p, s, _))
           case App(fn, a, t) =>
             (fn.traverse(f), a.traverse(f), f(t)).mapN { (fn1, a1, b) =>
               App(fn1, a1, b)
@@ -155,7 +155,7 @@ object Expr {
           case AnnotatedLambda(_, _, e, tag) =>
             val b1 = foldLeft(e, b)(f)
             f(b1, tag)
-          case Var(_, tag) => f(b, tag)
+          case Var(_, _, tag) => f(b, tag)
           case App(fn, a, tag) =>
             val b1 = foldLeft(fn, b)(f)
             val b2 = foldLeft(a, b1)(f)
@@ -188,7 +188,7 @@ object Expr {
           case AnnotatedLambda(_, _, e, tag) =>
             val lb1 = foldRight(e, lb)(f)
             f(tag, lb1)
-          case Var(_, tag) => f(tag, lb)
+          case Var(_, _, tag) => f(tag, lb)
           case App(fn, a, tag) =>
             val b1 = f(tag, lb)
             val b2 = foldRight(a, b1)(f)

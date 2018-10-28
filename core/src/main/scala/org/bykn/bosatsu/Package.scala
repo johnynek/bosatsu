@@ -118,8 +118,15 @@ object Package {
     val importedValues: Map[String, rankn.Type] =
       Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
 
+    val withFQN: Map[(Option[PackageName], String), rankn.Type] =
+      (Referant.fullyQualifiedImportedValues(imps)(_.unfix.name)
+        .iterator
+        .map { case ((p, n), t) => ((Some(p), n), t) } ++
+          importedValues.iterator.map { case (n, t) => ((None, n), t) }
+        ).toMap
+
     Infer.typeCheckLets(lets)
-      .runFully(importedValues,
+      .runFully(withFQN,
         Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
       )
       .map { lets => (typeEnv, lets) }
