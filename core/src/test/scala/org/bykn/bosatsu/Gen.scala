@@ -95,6 +95,32 @@ object Generators {
       body <- dec
     } yield DefStatement(name, args, retType, body)
 
+  def listGen(dec0: Gen[Declaration]): Gen[Declaration.ListDecl] = {
+    lazy val filterFn: Declaration => Boolean = {
+      case Declaration.Comment(_) => false
+      case Declaration.DefFn(_) => false
+      case Declaration.Binding(_) => false
+      case Declaration.Parens(p) => filterFn(p)
+      case Declaration.IfElse(_, _) => false
+      case Declaration.Match(_, _) => false
+      case Declaration.Lambda(_, body) => filterFn(body)
+      case Declaration.Apply(f, args, _) =>
+        filterFn(f) && args.forall(filterFn)
+      case _ => true
+    }
+    val dec = dec0.filter(filterFn)
+
+    val genSplice = Gen.oneOf(dec.map(ListLang.SpliceOrItem.Splice(_)),
+      dec.map(ListLang.SpliceOrItem.Item(_)))
+    val cons = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genSplice).map(ListLang.Cons(_)))
+
+    // TODO we can't parse if since we get confused about it being a ternary expression
+    val comp = Gen.zip(genSplice, dec, dec, Gen.option(dec))
+      .map { case (a, b, c, _) => ListLang.Comprehension(a, b, c, None) }
+
+    Gen.oneOf(cons, comp).map(Declaration.ListDecl(_)(emptyRegion))
+  }
+
   def applyGen(dec: Gen[Declaration]): Gen[Declaration] = {
     import Declaration._
     Gen.lzy(for {
@@ -206,6 +232,7 @@ object Generators {
       (2, applyGen(recur)),
       (2, bindGen(recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
       (1, ifElseGen(recur)),
+      (1, listGen(recur)),
       (1, matchGen(recur))
     )
   }
@@ -240,6 +267,10 @@ object Generators {
           case LiteralString(str, q) => Stream.empty
           case Parens(p) => p #:: Stream.empty
           case Var(_) => Stream.empty
+          case ListDecl(ListLang.Cons(items)) =>
+            items.map(_.value).toStream
+          case ListDecl(ListLang.Comprehension(a, b, c, d)) =>
+            (a.value :: b :: c :: d.toList).toStream
         }
     })
 

@@ -145,6 +145,13 @@ object Parser {
   val nonSpaces: P[String] = P(CharsWhile { c => !isSpace(c) }.!)
   val maybeSpace: P[Unit] = spaces.?
 
+  val spacesAndLines: P[Unit] = P(CharsWhile { c =>
+    isSpace(c) || (c == '\n' || c == '\r')
+  }).opaque("spacesAndLines")
+
+  val maybeSpacesAndLines: P[Unit] =
+    spacesAndLines.?.opaque("maybeSpacesAndLines")
+
   val lowerIdent: P[String] =
     P(CharIn('a' to 'z').! ~ CharsWhile(identifierChar _).?.!)
       .map { case (a, b) => a + b }
@@ -233,6 +240,9 @@ object Parser {
 
     def parens: P[T] =
       wrappedSpace("(", ")")
+
+    def parensCut: P[T] =
+      P("(" ~/ maybeSpace ~ item ~ maybeSpace ~ ")")
   }
 
   val toEOL: P[Unit] = P(maybeSpace ~ "\n")

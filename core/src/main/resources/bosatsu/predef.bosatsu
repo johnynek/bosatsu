@@ -9,12 +9,15 @@ export [
   String,
   Test(),
   add,
-  eq_Int,
   cmp_Int,
+  concat,
+  eq_Int,
   foldLeft,
   mod_Int,
-  sub,
   range,
+  reverse,
+  reverse_concat,
+  sub,
   times,
   trace,
 ]
@@ -30,6 +33,17 @@ enum List:
 external def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b
 
 external def range(exclusiveUpper: Int) -> List[Int]
+
+def reverse_concat(front: List[a], back: List[a]) -> List[a]:
+  foldLeft(front, back, \tail, h -> NonEmptyList(h, tail))
+
+def reverse(as: List[a]) -> List[a]:
+  reverse_concat(as, EmptyList)
+
+def concat(front: List[a], back: List[a]) -> List[a]:
+  match back:
+    EmptyList: front
+    _: reverse_concat(reverse(front), back)
 
 enum Comparison:
   LT

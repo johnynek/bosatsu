@@ -23,6 +23,7 @@ sealed abstract class Declaration {
       case Apply(fn, args, dotApply) =>
         val fnDoc = fn match {
           case Var(n) => Doc.text(n)
+          case Constructor(c) => Doc.text(c)
           case p@Parens(_) => p.toDoc
           case other => Doc.char('(') + other.toDoc + Doc.char(')')
         }
@@ -92,6 +93,9 @@ sealed abstract class Declaration {
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
       case Var(name) => Doc.text(name)
+
+      case ListDecl(list) =>
+        ListLang.document.document(list)
     }
   }
 
@@ -124,10 +128,6 @@ sealed abstract class Declaration {
           val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toType(nameToType))
           Expr.Let(defstmt.name, lambda, inExpr, this)
         case IfElse(ifCases, elseCase) =>
-
-          // TODO: we need a way to have an full name to the constructor in order for this "macro" to
-          // be safe. So, we want to say Bosatsu/Predef#True or something.
-          // we could just have ConstructorName require a PackageName
           def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
             Expr.If(cond, ifTrue, ifFalse, this)
 
@@ -159,6 +159,34 @@ sealed abstract class Declaration {
             (newPattern, loop(decl))
           }
           Expr.Match(loop(arg), expBranches, this)
+        case l@ListDecl(list) =>
+          list match {
+            case ListLang.Cons(items) =>
+              val revDecs: List[ListLang.SpliceOrItem[Expr[Declaration]]] = items.reverseMap {
+                case ListLang.SpliceOrItem.Splice(s) =>
+                  ListLang.SpliceOrItem.Splice(loop(s))
+                case ListLang.SpliceOrItem.Item(item) =>
+                  ListLang.SpliceOrItem.Item(loop(item))
+              }
+
+              // TODO we need to refer to Predef/EmptyList no matter what here
+              // but we have no way to fully refer to an item
+              val pn = Option(Predef.packageName)
+              val empty: Expr[Declaration] = Expr.Var(pn, "EmptyList", l)
+              def cons(head: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
+                Expr.App(Expr.App(Expr.Var(pn, "NonEmptyList", l), head, l), tail, l)
+
+              def concat(headList: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
+                Expr.App(Expr.App(Expr.Var(pn, "concat", l), headList, l), tail, l)
+
+              revDecs.foldLeft(empty) {
+                case (tail, ListLang.SpliceOrItem.Item(i)) =>
+                  cons(i, tail)
+                case (tail, ListLang.SpliceOrItem.Splice(s)) =>
+                  concat(s, tail)
+              }
+            case ListLang.Comprehension(_, _, _, _) => ???
+          }
       }
 
     loop(this)
@@ -194,6 +222,11 @@ object Declaration {
     implicit val region: Region) extends Declaration
   case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
   case class Var(name: String)(implicit val region: Region) extends Declaration
+
+  /**
+   * This represents the list construction language
+   */
+  case class ListDecl(list: ListLang[Declaration])(implicit val region: Region) extends Declaration
 
   private val restP: Indy[Padding[Declaration]] =
     (Indy.parseIndent *> parser).mapF(Padding.parser(_))
@@ -302,11 +335,16 @@ object Declaration {
         case (varD@Var(v), Some(fn)) => fn(v, varD.region)
       }
 
+  private def listP(p: P[Declaration]): P[ListDecl] =
+    ListLang.parser(p)
+      .region
+      .map { case (r, l) => ListDecl(l)(r) }
+
   private[this] val parserCache: String => P[Declaration] =
     Memoize.function[String, P[Declaration]] { (indent, rec) =>
 
       val postOperators: List[P[Declaration => Declaration]] = {
-        val params = P(rec(indent).nonEmptyList.parens)
+        val params = P(rec(indent).nonEmptyList.parensCut)
         // here we are using . syntax foo.bar(1, 2)
         val dotApply =
           P("." ~/ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
@@ -323,7 +361,7 @@ object Declaration {
 
         // here is if/ternary operator
         val ternary =
-          P(spaces ~ P("if") ~ spaces ~/ rec(indent) ~ spaces ~ "else" ~ spaces ~ rec(indent))
+          P(spaces ~ P("if") ~ spaces ~ rec(indent) ~ spaces ~ "else" ~ spaces ~/ rec(indent))
             .region
             .map { case (region, (cond, falseCase)) =>
               { trueCase: Declaration =>
@@ -337,7 +375,7 @@ object Declaration {
 
       val recIndy = Indy(rec)
 
-      val prefix = P(defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(recIndy)(indent) |
+      val prefix = P(listP(rec(indent)) | defP(indent) | literalIntP | literalStringP | lambdaP(indent) | matchP(recIndy)(indent) |
         ifElseP(recIndy)(indent) | varOrBind(indent) | constructorP | commentP(indent) |
         P(rec(indent).parens).region.map { case (r, p) => Parens(p)(r) })
 
@@ -350,7 +388,9 @@ object Declaration {
           case h :: tail => loop(h(a), tail)
         }
 
-      P(prefix ~ opsList).map { case (arg, fns) => loop(arg, fns) }
+      P(prefix ~ opsList)
+        .map { case (arg, fns) => loop(arg, fns) }
+        .opaque(s"Declaration.parser($indent)")
     }
 
   lazy val parser: Indy[Declaration] =

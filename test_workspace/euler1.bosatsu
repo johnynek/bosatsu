@@ -4,12 +4,9 @@ package Euler/One
 # https://projecteuler.net/problem=1
 # Find the sum of all the multiples of 3 or 5 below 1000.
 
-def reverse(as):
-  as.foldLeft(EmptyList, \tail, head -> NonEmptyList(head, tail))
-
 def filter(as, fn):
-  as.foldLeft(EmptyList, \tail, item ->
-    if fn(item): NonEmptyList(item, tail)
+  as.foldLeft([], \tail, item ->
+    if fn(item): [item, *tail]
     else: tail)
 
 under1000 = range(1000)
