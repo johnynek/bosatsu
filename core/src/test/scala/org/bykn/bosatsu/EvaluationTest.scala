@@ -295,7 +295,7 @@ struct EmptyList
 
 main = [1, 2]
 """), "Foo",
-  ConsValue(VInt(1), UnitValue))
+  VList.Cons(VInt(1), VList.Cons(VInt(2), VList.VNil)))
 
     evalTest(
       List("""
@@ -305,7 +305,7 @@ struct NonEmptyList
 
 main = [1, 2]
 """), "Foo",
-  ConsValue(VInt(1), UnitValue))
+  VList.Cons(VInt(1), VList.Cons(VInt(2), VList.VNil)))
 
     evalTest(
       List("""
@@ -315,6 +315,6 @@ def concat(a): a
 
 main = [1, 2]
 """), "Foo",
-  ConsValue(VInt(1), UnitValue))
+  VList.Cons(VInt(1), VList.Cons(VInt(2), VList.VNil)))
   }
 }

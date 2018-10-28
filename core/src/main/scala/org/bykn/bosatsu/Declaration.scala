@@ -171,12 +171,13 @@ sealed abstract class Declaration {
 
               // TODO we need to refer to Predef/EmptyList no matter what here
               // but we have no way to fully refer to an item
-              val empty: Expr[Declaration] = Expr.Var("EmptyList", l)
+              val pn = Option(Predef.packageName)
+              val empty: Expr[Declaration] = Expr.Var(pn, "EmptyList", l)
               def cons(head: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
-                Expr.App(Expr.App(Expr.Var("NonEmptyList", l), head, l), tail, l)
+                Expr.App(Expr.App(Expr.Var(pn, "NonEmptyList", l), head, l), tail, l)
 
               def concat(headList: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
-                Expr.App(Expr.App(Expr.Var("concat", l), headList, l), tail, l)
+                Expr.App(Expr.App(Expr.Var(pn, "concat", l), headList, l), tail, l)
 
               revDecs.foldLeft(empty) {
                 case (tail, ListLang.SpliceOrItem.Item(i)) =>
