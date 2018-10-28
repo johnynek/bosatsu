@@ -3,7 +3,7 @@ import cats.Monad
 import cats.data.NonEmptyList
 import cats.implicits._
 
-import org.bykn.bosatsu.{Pattern => GenPattern, Expr, Lit, ConstructorName, PackageName, TypedExpr, TypeRef}
+import org.bykn.bosatsu.{Pattern => GenPattern, Expr, ConstructorName, PackageName, TypedExpr, TypeRef}
 
 sealed abstract class Infer[+A] {
   import Infer.Error
@@ -522,10 +522,7 @@ object Infer {
 
       term match {
         case Literal(lit, t) =>
-          val tpe = lit match {
-            case Lit.Integer(_) => Type.IntType
-            case Lit.Str(_) => Type.StrType
-          }
+          val tpe = Type.getTypeOf(lit)
           instSigma(tpe, expect).map(_(TypedExpr.Literal(lit, tpe, t)))
         case Var(optPack, name, tag) =>
           for {
@@ -692,7 +689,9 @@ object Infer {
     def typeCheckPattern(pat: Pattern, sigma: Expected[Type]): Infer[(Pattern, List[(String, Type)])] =
       pat match {
         case GenPattern.WildCard => Infer.pure((pat, Nil))
-        case GenPattern.Literal(_) => Infer.pure((pat, Nil))
+        case GenPattern.Literal(lit) =>
+          val tpe = Type.getTypeOf(lit)
+          instSigma(tpe, sigma).as((pat, Nil))
         case GenPattern.Var(n) =>
           // We always return an annotation here, which is the only
           // place we need to be careful
