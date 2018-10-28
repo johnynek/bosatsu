@@ -225,9 +225,9 @@ struct Pair(fst, sec)
 def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
   def cons(pair, item):
     match pair:
-      Pair(acc, EmptyList):
+      Pair(acc, []):
         Pair(acc, [])
-      Pair(acc, NonEmptyList(h, tail)):
+      Pair(acc, [h, *tail]):
         Pair([Pair(item, h), *acc], tail)
 
   rev = as.foldLeft(Pair([], bs), cons)
@@ -261,9 +261,9 @@ struct Pair(fst, sec)
 def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
   def cons(pair: Pair[List[Pair[a, b]], List[b]], item: a) -> Pair[List[Pair[a, b]], List[b]]:
     match pair:
-      Pair(acc, EmptyList):
+      Pair(acc, []):
         Pair(acc, [])
-      Pair(acc, NonEmptyList(h, tail)):
+      Pair(acc, [h, *tail]):
         Pair([Pair(item, h), *acc], tail)
 
   rev = as.foldLeft(Pair([], bs), cons)
@@ -274,6 +274,20 @@ def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
 main = 1
 """), "Foo", VInt(1))
 
+  }
+
+  test("test some list matches") {
+    evalTest(
+      List("""
+package Foo
+
+def headOption(as):
+  match as:
+    []: None
+    [a, *_]: Some(a)
+
+main = headOption([1])
+"""), "Foo", SumValue(1, ConsValue(VInt(1), UnitValue)))
   }
 
   test("test generics in defs") {

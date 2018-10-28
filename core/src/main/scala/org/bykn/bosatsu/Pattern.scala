@@ -42,8 +42,8 @@ object Pattern {
         case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
         case Pattern.ListPat(items) =>
           items.traverse {
-            case Left(v) => Applicative[F].pure(Left(v): Either[String, Pattern[N, T1]])
-            case Right(p) => p.traverseType(fn).map(Right(_): Either[String, Pattern[N, T1]])
+            case Left(v) => Applicative[F].pure(Left(v): Either[Option[String], Pattern[N, T1]])
+            case Right(p) => p.traverseType(fn).map(Right(_): Either[Option[String], Pattern[N, T1]])
           }.map(Pattern.ListPat(_))
         case Pattern.Annotation(p, tpe) =>
           (p.traverseType(fn), fn(tpe)).mapN(Pattern.Annotation(_, _))
@@ -57,7 +57,7 @@ object Pattern {
   case object WildCard extends Pattern[Nothing, Nothing]
   case class Literal(toLit: Lit) extends Pattern[Nothing, Nothing]
   case class Var(name: String) extends Pattern[Nothing, Nothing]
-  case class ListPat[N, T](parts: List[Either[String, Pattern[N, T]]]) extends Pattern[N, T]
+  case class ListPat[N, T](parts: List[Either[Option[String], Pattern[N, T]]]) extends Pattern[N, T]
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
 
@@ -69,7 +69,8 @@ object Pattern {
       case ListPat(items) =>
         Doc.char('[') + Doc.intercalate(Doc.text(", "),
           items.map {
-            case Left(glob) => Doc.char('*') + Doc.text(glob)
+            case Left(None) => Doc.text("*_")
+            case Left(Some(glob)) => Doc.char('*') + Doc.text(glob)
             case Right(p) => document.document(p)
           }) + Doc.char(']')
       case Annotation(_, _) =>
@@ -104,7 +105,16 @@ object Pattern {
           case (n, Some(ls)) => PositionalStruct(n, ls)
         }
 
-      val nonAnnotated = pvar | plit | pwild | pparen | positional
+      val listItem: P[Either[Option[String], Pattern[String, TypeRef]]] = {
+        val maybeNamed: P[Option[String]] =
+          P("_").map(_ => None) | lowerIdent.map(Some(_))
+
+        P("*" ~ maybeNamed).map(Left(_)) | recurse.map(Right(_))
+      }
+
+      val listP = listItem.listSyntax.map(ListPat(_))
+
+      val nonAnnotated = pvar | plit | pwild | pparen | positional | listP
       val typeAnnot = P(maybeSpace ~ ":" ~/ maybeSpace ~ TypeRef.parser)
       val withType = (nonAnnotated ~ typeAnnot.?).map {
         case (p, None) => p

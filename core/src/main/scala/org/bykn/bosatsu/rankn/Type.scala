@@ -102,6 +102,7 @@ object Type {
   val BoolType: Type = TyConst(Const.predef("Bool"))
   val StrType: Type = TyConst(Const.predef("String"))
   val FnType: Type = TyConst(Const.predef("Fn"))
+  val ListType: Type = TyConst(Const.predef("List"))
 
   object Fun {
     def unapply(t: Type): Option[(Type, Type)] =

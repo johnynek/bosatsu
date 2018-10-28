@@ -711,7 +711,30 @@ object Infer {
            * any *a patterns have type List[A], all the rest
            * of them have type A.
            */
-          ???
+          def checkEither(
+            inner: Type,
+            lst: Type,
+            e: Either[Option[String], Pattern]): Infer[(Either[Option[String], Pattern], List[(String, Type)])] =
+              e match {
+                case l@Left(None) =>
+                  // this is *a pattern that has list type, and binds that type to the name
+                  Infer.pure((l, Nil))
+                case l@Left(Some(splice)) =>
+                  // this is *a pattern that has list type, and binds that type to the name
+                  Infer.pure((l, (splice, lst) :: Nil))
+                case Right(p) =>
+                  // This is a non-splice
+                  checkPat(p, inner).map { case (p, l) => (Right(p), l) }
+              }
+          for {
+            tpeA <- newMetaType
+            listA = Type.TyApply(Type.ListType, tpeA)
+            _ <- instPatSigma(listA, sigma)
+            inners <- items.traverse(checkEither(tpeA, listA, _))
+            innerPat = inners.map(_._1)
+            innerBinds = inners.flatMap(_._2)
+          } yield (GenPattern.Annotation(GenPattern.ListPat(innerPat), listA), innerBinds)
+
         case GenPattern.Annotation(p, tpe) =>
           // like in the case of an annotation, we check the type, then
           // instantiate a sigma type
