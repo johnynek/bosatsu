@@ -47,17 +47,34 @@ Bosatsu files are UTF-8 files and between `"` or `'` characters we can create an
 ```
 message1 = 'bar'
 message2 = "this has 'single quotes'"
+
 ```
+## Variables
+All bindings start with a lowercase character and do not contain whitespace.
 
 ## Functions
+All functions internally a functions of a single value returning a single value. We have syntax to
+call multiple variable functions, but that is just syntactic sugar over curried functions.
 
 ## Custom Data Types
+All type names start with an uppercase character
+
 ### Structs
 ### Enums
 
 ## Types
+Type variables are all lower case. There is an explicit syntax for function type: `a -> b`. There is
+support for quantification: `forall a. a -> List[a]`.
+
+## The Bosatsu Predef
+The predef includes List, Option, Either types and some associated functions.
 
 ## Packages
+All names are private unless exported. All names from external 
+
+## External functions and values
+There is syntax for declaring external values and functions. This is obviously dangerous since it
+gives the user a chance to violate totality. Use with caution.
 
 # Note on Totality
 Totality is an interesting property that limits a language below being turing complete, however, it is not obvious if that is much of a limit. People often criticize fully general languages for configuration, but it is not clear that non-termination or partial functions are the problems.
