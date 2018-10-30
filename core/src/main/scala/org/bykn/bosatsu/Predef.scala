@@ -17,7 +17,7 @@ object Predef {
         scala.io.Source.fromFile("target/scala-2.12/classes/bosatsu/predef.bosatsu").mkString
       }
 
-  val predefPackage: Package.Parsed =
+  lazy val predefPackage: Package.Parsed =
     Package.parser.parse(predefString) match {
       case Parsed.Success(pack, _) => pack
       case Parsed.Failure(exp, idx, extra) =>
@@ -31,26 +31,25 @@ object Predef {
   val predefImports: Import[PackageName, Unit] =
     Import(packageName,
       NonEmptyList.of(
+        "Assertion",
         "Bool",
         "Comparison",
         "LT",
         "EQ",
         "GT",
-        "EmptyList",
         "False",
         "Int",
         "List",
-        "NonEmptyList",
         "None",
         "Option",
         "Some",
         "String",
         "True",
         "Test",
-        "TestAssert",
-        "TestLabel",
-        "TestList",
+        "TestSuite",
         "add",
+        "consList",
+        "emptyList",
         "eq_Int",
         "concat",
         "cmp_Int",
@@ -68,15 +67,17 @@ object Predef {
   val jvmExternals: Externals =
     Externals
       .empty
-      .add(predefPackage.name, "add", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.add"))
-      .add(predefPackage.name, "sub", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.sub"))
-      .add(predefPackage.name, "times", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.times"))
-      .add(predefPackage.name, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.eq_Int"))
-      .add(predefPackage.name, "cmp_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.cmp_Int"))
-      .add(predefPackage.name, "foldLeft", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.foldLeft"))
-      .add(predefPackage.name, "mod_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.mod_Int"))
-      .add(predefPackage.name, "range", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.range"))
-      .add(predefPackage.name, "trace", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.trace"))
+      .add(packageName, "add", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.add"))
+      .add(packageName, "sub", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.sub"))
+      .add(packageName, "times", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.times"))
+      .add(packageName, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.eq_Int"))
+      .add(packageName, "emptyList", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.emptyList"))
+      .add(packageName, "consList", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.consList"))
+      .add(packageName, "cmp_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.cmp_Int"))
+      .add(packageName, "foldLeft", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.foldLeft"))
+      .add(packageName, "mod_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.mod_Int"))
+      .add(packageName, "range", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.range"))
+      .add(packageName, "trace", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.trace"))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -126,6 +127,10 @@ object PredefImpl {
 
     loop(list, bv)
   }
+
+  def emptyList: Value = VList.VNil
+  def consList(head: Value, tail: Value): Value =
+    VList.Cons(head, tail)
 
   def range(v: Value): Value = {
     val max = i(v)

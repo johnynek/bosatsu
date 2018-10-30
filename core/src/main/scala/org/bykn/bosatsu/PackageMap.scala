@@ -208,8 +208,8 @@ object PackageMap {
             .traverse(stepImport(_))
             .andThen { imps =>
               Package.inferBody(nm, imps, stmt) match {
-                case Left(typeerr) =>
-                  Validated.invalidNel(PackageError.TypeErrorIn(typeerr, p)) // TODO give better errors
+                case Left(err) =>
+                  Validated.invalidNel(err) // TODO give better errors
                 case Right(good) =>
                   Validated.valid((imps, good))
               }
@@ -317,12 +317,19 @@ object PackageError {
       s"circular package dependency:\n${msg.mkString(tab)}"
     }
   }
-  case class TypeErrorIn(tpeErr: Infer.Error, pack: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])]) extends PackageError {
+
+  case class CircularType(from: PackageName, path: NonEmptyList[rankn.DefinedType]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
-      val (lm, sourceName) = sourceMap(pack.name)
+      s"circular types in ${from.asString}" + path.toList.reverse.map(_.name.asString).mkString(" -> ")
+    }
+  }
+
+  case class TypeErrorIn(tpeErr: Infer.Error, pack: PackageName) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
+      val (lm, sourceName) = sourceMap(pack)
       val teMessage = tpeErr.message
       // TODO use the sourceMap/regiouns in Infer.Error
-      s"in file: $sourceName, package ${pack.name.asString}, $teMessage"
+      s"in file: $sourceName, package ${pack.asString}, $teMessage"
     }
   }
 }

@@ -1,16 +1,20 @@
 package Bosatsu/Predef
 
 export [
+  Assertion(),
   Bool(),
   Comparison(),
   Int,
   Option(),
-  List(),
+  List,
   String,
   Test(),
+  TestSuite(),
   add,
   cmp_Int,
   concat,
+  consList,
+  emptyList,
   eq_Int,
   foldLeft,
   mod_Int,
@@ -26,23 +30,24 @@ enum Bool:
   False
   True
 
-enum List:
-  EmptyList
-  NonEmptyList(head: a, tail: List[a])
+external struct List[a]
+
+external def emptyList -> List[a]
+external def consList(head: a, tail: List[a]) -> List[a]
 
 external def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b
 
 external def range(exclusiveUpper: Int) -> List[Int]
 
 def reverse_concat(front: List[a], back: List[a]) -> List[a]:
-  foldLeft(front, back, \tail, h -> NonEmptyList(h, tail))
+  foldLeft(front, back, \tail, h -> consList(h, tail))
 
 def reverse(as: List[a]) -> List[a]:
-  reverse_concat(as, EmptyList)
+  reverse_concat(as, emptyList)
 
 def concat(front: List[a], back: List[a]) -> List[a]:
   match back:
-    EmptyList: front
+    []: front
     _: reverse_concat(reverse(front), back)
 
 enum Comparison:
@@ -65,9 +70,8 @@ external def mod_Int(a: Int, mod: Int) -> Int
 
 external struct String
 
-enum Test:
-  TestAssert(value: Bool)
-  TestLabel(label: String, test: Test)
-  TestList(tests: List[Test])
+struct Assertion(value: Bool, message: String)
+struct Test(name: String, assertions: List[Assertion])
+struct TestSuite(name: String, tests: List[Test])
 
 external def trace(prefix: String, item: a) -> a

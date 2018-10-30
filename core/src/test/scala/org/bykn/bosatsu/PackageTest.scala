@@ -85,7 +85,7 @@ enum Option:
 
 enum List:
   Empty
-  NonEmpty(head: a, tail: List[a])
+  NonEmpty(head, tail)
 
 def head(list):
   match list:
@@ -129,6 +129,8 @@ main = head(data1)
   }
 
   test("test Predef working") {
+
+    assert(Predef.predefPackage != null)
 
     val p = parse(
 """

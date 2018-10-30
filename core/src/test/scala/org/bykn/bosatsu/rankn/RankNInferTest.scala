@@ -95,7 +95,7 @@ class RankNInferTest extends FunSuite {
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmt, _) =>
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
-          case Left(err) => fail(err.message)
+          case Left(err) => fail(err.message(Map.empty))
           case Right((tpeEnv, lets)) =>
             val parsedType = typeFrom(tpe)
             assert(lets.last._2.getType == parsedType)
@@ -384,7 +384,7 @@ main = match x:
    parseProgram("""#
 enum List:
   Empty
-  NonEmpty(a: a, tail: List[a])
+  NonEmpty(a: a, tail: b)
 
 x = NonEmpty(1, Empty)
 main = match x:
