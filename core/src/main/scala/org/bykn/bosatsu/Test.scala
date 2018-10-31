@@ -3,22 +3,20 @@ package org.bykn.bosatsu
 import org.typelevel.paiges.Doc
 
 sealed abstract class Test
+
 object Test {
-  case class Assert(value: Boolean) extends Test
-  case class TestList(tests: List[Test]) extends Test
-  case class Label(label: String, test: Test) extends Test
+  case class Assertion(value: Boolean, message: String) extends Test
+  case class Suite(name: String, tests: List[Test]) extends Test
 
   def assertions(t: Test): Int = {
     @annotation.tailrec
     def go(ts: List[Test], acc: Int): Int =
       ts match {
         case Nil => acc
-        case Assert(_) :: tail =>
+        case Assertion(_, _) :: tail =>
           go(tail, acc + 1)
-        case TestList(rest) :: tail =>
-          go(rest ::: tail, acc)
-        case Label(_, test) :: tail =>
-          go(test :: tail, acc)
+        case Suite(_, test) :: tail =>
+          go(test ::: tail, acc)
       }
 
     go(t :: Nil, 0)
@@ -45,22 +43,11 @@ object Test {
     def loop(ts: List[Test], passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
       ts match {
         case Nil => (passes, fails, front + Doc.line + summary(passes, fails))
-        case Assert(true) :: tail =>
-          loop(tail, passes + 1, fails, front)
-        case Assert(false) :: tail =>
-          loop(tail, passes, fails + 1, front)
-        case TestList(rest) :: tail =>
-          loop(rest ::: tail, passes, fails, front)
-        case Label(label, Assert(true)) :: rest =>
-          loop(rest, passes + 1, fails, front + (Doc.line + Doc.text(label) + colonSpace + passDoc))
-        case Label(label, Assert(false)) :: rest =>
+        case Assertion(true, _) :: rest =>
+          loop(rest, passes + 1, fails, front)
+        case Assertion(false, label) :: rest =>
           loop(rest, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
-        case Label(label, Label(_, test)) :: rest =>
-          // we are overwriting a label
-          loop(Label(label, test) :: rest, passes, fails, front)
-        case Label(label, TestList(t :: Nil)) :: tail =>
-          loop(Label(label, t) :: tail, passes, fails, front)
-        case Label(label, TestList(rest)) :: tail =>
+        case Suite(label, rest) :: tail =>
           // Now we have at least two tests
           val (p, f, d) = init(rest)
           val res = Doc.line + Doc.text(label) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)

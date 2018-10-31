@@ -21,6 +21,15 @@ object Type {
   case class TyMeta(toMeta: Meta) extends Type
   case class TyApply(on: Type, arg: Type) extends Type
 
+
+  def constantsOf(t: Type): List[Const] =
+    t match {
+      case ForAll(_, t) => constantsOf(t)
+      case TyApply(on, arg) => constantsOf(on) ::: constantsOf(arg)
+      case TyConst(c) => c :: Nil
+      case TyVar(_) | TyMeta(_) => Nil
+    }
+
   @annotation.tailrec
   final def forAll(vars: List[Var.Bound], in: Type): Type =
     vars match {

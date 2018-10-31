@@ -19,9 +19,15 @@ object Evaluation {
    * most of the API
    */
   sealed abstract class Value {
-    def asFn: Value => Eval[Value] =
+    def asLazyFn: Eval[Value] => Eval[Value] =
       this match {
         case FnValue(f) => f
+        case other => sys.error(s"invalid cast to Fn: $other")
+      }
+
+    def asFn: Value => Eval[Value] =
+      this match {
+        case FnValue(f) => { v => f(Eval.now(v)) }
         case other => sys.error(s"invalid cast to Fn: $other")
       }
   }
@@ -49,7 +55,7 @@ object Evaluation {
       override val hashCode = (head, tail).hashCode
     }
     case class SumValue(variant: Int, value: ProductValue) extends Value
-    case class FnValue(toFn: Value => Eval[Value]) extends Value
+    case class FnValue(toFn: Eval[Value] => Eval[Value]) extends Value
     case class ExternalValue(toAny: Any) extends Value
 
     val False: Value = SumValue(0, UnitValue)
@@ -143,15 +149,17 @@ object Evaluation {
     }
   }
 
+  type Env = Map[String, Eval[Value]]
+
   sealed abstract class Scoped {
     import Scoped.fromFn
 
-    def inEnv(env: Map[String, Value]): Eval[Value]
+    def inEnv(env: Env): Eval[Value]
 
     def letNameIn(name: String, in: Scoped): Scoped =
       Scoped.Let(name, this, in)
 
-    def flatMap(fn: (Map[String, Value], Value) => Eval[Value]): Scoped =
+    def flatMap(fn: (Env, Value) => Eval[Value]): Scoped =
       fromFn { env =>
         inEnv(env).flatMap { v =>
           fn(env, v)
@@ -174,11 +182,10 @@ object Evaluation {
 
     def applyArg(arg: Scoped): Scoped =
       fromFn { env =>
-        for {
-          fn <- inEnv(env)
-          a <- arg.inEnv(env)
-          res <- fn.asFn(a) // safe because we typecheck
-        } yield res
+        // safe because we typecheck
+        inEnv(env).flatMap { fn =>
+          fn.asLazyFn(arg.inEnv(env))
+        }
       }
   }
 
@@ -193,29 +200,29 @@ object Evaluation {
       fromFn { env =>
         env.get(name) match {
           case None => next.inEnv(env)
-          case Some(v) => Eval.now(v)
+          case Some(v) => v
         }
       }
 
     private case class Let(name: String, arg: Scoped, in: Scoped) extends Scoped {
-      def inEnv(env: Map[String, Value]) =
-        arg.inEnv(env).flatMap { v =>
-          in.inEnv(env.updated(name, v))
-        }.memoize
+      def inEnv(env: Env) = {
+        val let = arg.inEnv(env)
+        in.inEnv(env.updated(name, let))
+      }
     }
 
-    private def fromFn(fn: Map[String, Value] => Eval[Value]): Scoped =
+    private def fromFn(fn: Env => Eval[Value]): Scoped =
       FromFn(fn)
 
-    private case class FromFn(fn: Map[String, Value] => Eval[Value]) extends Scoped {
-      def inEnv(env: Map[String, Value]) = fn(env)
+    private case class FromFn(fn: Env => Eval[Value]) extends Scoped {
+      def inEnv(env: Env) = fn(env)
     }
   }
 
 }
 
 case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
-  import Evaluation.{Value, Scoped}
+  import Evaluation.{Value, Scoped, Env}
   import Value._
 
   def evaluate(p: PackageName, varName: String): Option[(Eval[Value], Type)] =
@@ -234,41 +241,40 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
 
-// enum Test:
-//   TestAssert(value: Bool)
-//   TestLabel(label: String, test: Test)
-//   TestList(tests: List[Test])
-//
-      def toTest(a: Value): Test =
+      // struct Assertion(value: Bool, message: String)
+      // struct Test(name: String, assertions: List[Assertion])
+      // struct TestSuite(name: String, tests: List[Test])
+      def toAssert(a: Value): Test =
         a match {
-          case SumValue(0, ConsValue(assertValue, _)) =>
-            Test.Assert(toBool(assertValue))
-          case SumValue(1, ConsValue(Str(label), ConsValue(test, _))) =>
-            Test.Label(label, toTest(test))
-          case SumValue(2, ConsValue(listOfTests, _)) =>
-            Test.TestList(toList(listOfTests))
+          case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
+            Test.Assertion(true, message)
+          case ConsValue(False, ConsValue(Str(message), UnitValue)) =>
+            Test.Assertion(false, message)
           case other => sys.error(s"expected test value: $other")
         }
-
-      def toBool(a: Value): Boolean =
+      def toTest(a: Value): Test =
         a match {
-          case False => false
-          case True => true
-          case other => sys.error(s"expected Boolean: $other")
+          case ConsValue(Str(name), ConsValue(VList(asserts), UnitValue)) =>
+            Test.Suite(name, asserts.map(toAssert(_)))
+          case other => sys.error(s"expected test value: $other")
         }
-
-      def toList(a: Value): List[Test] =
+      def toSuite(a: Value): Test =
         a match {
-          case VList(ls) => ls.map(toTest)
-          case other => sys.error(s"expected List: $other")
+          case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
+            Test.Suite(name, tests.map(toTest(_)))
+          case other => sys.error(s"expected test value: $other")
         }
 
       toType[Test](ea.value, tpe) { (any, dt, rec) =>
         if (dt.packageName == Predef.packageName) {
           dt.name.asString match {
+            case "Assertion" =>
+              Some(toAssert(any))
             case "Test" =>
               // due to type checking, none of the above errors should hit
               Some(toTest(any))
+            case "TestSuite" =>
+              Some(toSuite(any))
             case _ =>
               None
           }
@@ -283,7 +289,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[Declaration])],
     p: Package.Inferred,
-    recurse: ((Package.Inferred, Ref)) => (Scoped, Type)): (Value, Map[String, Value]) => Eval[Value] = {
+    recurse: ((Package.Inferred, Ref)) => (Scoped, Type)): (Value, Env) => Eval[Value] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
         Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
 
@@ -296,15 +302,16 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
       def bindEnv[E](arg: Value,
         branches: List[(Pattern[(PackageName, ConstructorName), Type], E)],
-        acc: Map[String, Value]): Option[(Map[String, Value], E)] =
+        acc: Env): Option[(Env, E)] =
         branches match {
           case Nil => None
           case (Pattern.WildCard, next):: tail =>
             Some((acc, next))
           case (Pattern.Literal(lit), next) :: tail if arg == Value.fromLit(lit) =>
             Some((acc, next))
-          case (Pattern.Var(n), next) :: tail => Some((acc + (n -> arg), next))
+          case (Pattern.Var(n), next) :: tail => Some((acc + (n -> Eval.now(arg)), next))
           case (Pattern.ListPat(items), next) :: tail =>
+            // we need this to be lazy, thus the def
             def skip = bindEnv(arg, tail, acc)
             items match {
               case Nil =>
@@ -338,7 +345,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                         splice match {
                           case None => (acc1, next)
                           case Some(nm) =>
-                            val rest = VList(spliceVals.reverse)
+                            val rest = Eval.later(VList(spliceVals.reverse))
                             (acc1.updated(nm, rest), next)
                         }
                       }
@@ -536,8 +543,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         if (singleItemStruct) prod
         else SumValue(enum, prod)
       }
-      else FnValue { a =>
-        Eval.always(loop(param - 1, a :: args))
+      else FnValue { ea =>
+        ea.map { a => loop(param - 1, a :: args) }.memoize
       }
 
     Eval.later(loop(arity, Nil))

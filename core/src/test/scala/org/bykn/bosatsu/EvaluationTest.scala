@@ -54,7 +54,7 @@ class EvaluationTest extends FunSuite {
     }
   }
 
-  def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty) = {
+  def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
@@ -73,7 +73,7 @@ class EvaluationTest extends FunSuite {
       case (_, Validated.Valid(_)) =>
         fail("expected to fail type checking")
 
-      case (_, Validated.Invalid(errs)) if errs.collect { case PackageError.TypeErrorIn(_, _) => () }.nonEmpty =>
+      case (_, Validated.Invalid(errs)) if errs.collect(errFn).nonEmpty =>
         assert(true)
       case (_, Validated.Invalid(errs)) =>
           fail(s"failed, but no type errors: $errs")
@@ -192,7 +192,7 @@ same = sum0.eq_Int(sum1)
       List("""
 package Foo
 
-three = NonEmptyList(1, NonEmptyList(2, EmptyList))
+three = [1, 2]
 
 sum0 = three.foldLeft(0, add)
 sum1 = three.foldLeft(0, \x, y -> add(x, y))
@@ -216,7 +216,7 @@ main = 6.mod_Int(4)
       List("""
 package Foo
 
-three = NonEmptyList(0, NonEmptyList(1, EmptyList))
+three = [0, 1]
 # exercise the built-in range function (not implementable in bosatsu)
 threer = range(3)
 
@@ -332,7 +332,7 @@ main = if True:
   1
 else:
   "1"
-"""), "Foo")
+"""), "Foo") { case PackageError.TypeErrorIn(_, _) => () }
   }
 
   test("test the list literals work even when we have conflicting local names") {
@@ -365,5 +365,31 @@ def concat(a): a
 main = [1, 2]
 """), "Foo",
   VList.Cons(VInt(1), VList.Cons(VInt(2), VList.VNil)))
+  }
+
+  test("forbid the y-combinator") {
+    evalFail(
+      List("""
+package Y
+
+struct W(fn: W[a, b] -> a -> b)
+
+def call(w0, w1):
+  match w0:
+    W(fn): trace("fn(w1)", fn(w1))
+
+def y(f):
+  g = \w -> \a -> trace("calling f", f(call(w, w), a))
+  g(W(g))
+
+def ltEqZero(i):
+  match i.cmp_Int(0):
+    GT: False
+    _: True
+
+fac = trace("made fac", y(\f, i -> 1 if ltEqZero(i) else f(i).times(i)))
+
+main = fac(6)
+"""), "Y") { case PackageError.CircularType(_, _) => () }
   }
 }

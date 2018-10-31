@@ -6,7 +6,7 @@ import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 import Parser.{spaces, maybeSpace, Combinators}
 
-import rankn.Infer
+import rankn._
 
 /**
  * Represents a package over its life-cycle: from parsed to resolved to inferred
@@ -90,7 +90,7 @@ object Package {
     p: PackageName,
     imps: List[Import[Package.Inferred, NonEmptyList[Referant]]],
     stmt: Statement):
-      Either[Infer.Error, (rankn.TypeEnv, List[(String, TypedExpr[Declaration])])] = {
+      Either[PackageError, (TypeEnv, List[(String, TypedExpr[Declaration])])] = {
 
     val importedTypes: Map[String, (PackageName, String)] =
       Referant.importedTypes(imps)
@@ -105,31 +105,77 @@ object Package {
           // TODO, we could use a mutable map here to cache so we can save
           // some allocations on seeing the same types over and over
           val (p1, s1) = importedTypes.getOrElse(s, (p, s))
-          rankn.Type.Const.Defined(p1, s1)
+          Type.Const.Defined(p1, s1)
         }, // name to type
         { s => resolveImportedCons.getOrElse(s, (p, ConstructorName(s))) }, // name to cons
         stmt)
+
+    /*
+     * Check that the types defined here are not circular.
+     * Since the packages already form a DAG we know
+     * that we don't need to check across package boundaries
+     */
+    def typeDepends(dt: DefinedType): List[DefinedType] =
+      (for {
+        cons <- dt.constructors
+        Type.Const.Defined(p, n) <- cons._2.flatMap { case (_, t) => Type.constantsOf(t) }
+        dt1 <- typeEnv.definedTypes.get((p, TypeName(n))).toList
+      } yield dt1).distinct
+
+    val circularCheck: Either[PackageError, Unit] =
+      typeEnv.definedTypes.values.toList.traverse_ { dt =>
+        Impl.dagToTree(dt)(typeDepends _)
+          .left
+          .map(PackageError.CircularType(p, _))
+      }
 
     /*
     * These are values, including all constructor functions
     * that have been imported, this includes local external
     * defs
     */
-    val importedValues: Map[String, rankn.Type] =
+    val importedValues: Map[String, Type] =
       Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
 
-    val withFQN: Map[(Option[PackageName], String), rankn.Type] =
+    val withFQN: Map[(Option[PackageName], String), Type] =
       (Referant.fullyQualifiedImportedValues(imps)(_.unfix.name)
         .iterator
         .map { case ((p, n), t) => ((Some(p), n), t) } ++
           importedValues.iterator.map { case (n, t) => ((None, n), t) }
         ).toMap
 
-    Infer.typeCheckLets(lets)
+    circularCheck >> Infer.typeCheckLets(lets)
       .runFully(withFQN,
         Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
       )
       .map { lets => (typeEnv, lets) }
+      .left
+      .map(PackageError.TypeErrorIn(_, p))
+
+  }
+
+  private object Impl {
+    sealed trait Tree[+A]
+    object Tree {
+      case object Empty extends Tree[Nothing]
+      case class Node[A](item: A, children: List[Tree[A]]) extends Tree[A]
+    }
+
+    // either return a tree representation of this dag or a cycle
+    def dagToTree[A](node: A)(nfn: A => List[A]): Either[NonEmptyList[A], Tree[A]] = {
+      def treeOf(as: NonEmptyList[A], visited: Set[A]): Either[NonEmptyList[A], Tree[A]] = {
+        val children = nfn(as.head)
+        children.find(visited) match {
+          case Some(loop) => Left(loop :: as)
+          case None =>
+            children.traverse { a =>
+              treeOf(a :: as, visited + a)
+            }
+            .map(Tree.Node(as.head, _))
+        }
+      }
+      treeOf(NonEmptyList(node, Nil), Set(node))
+    }
   }
 }
 
