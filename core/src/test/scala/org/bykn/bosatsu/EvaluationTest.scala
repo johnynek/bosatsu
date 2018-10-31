@@ -392,4 +392,21 @@ fac = trace("made fac", y(\f, i -> 1 if ltEqZero(i) else f(i).times(i)))
 main = fac(6)
 """), "Y") { case PackageError.CircularType(_, _) => () }
   }
+
+  test("check type aligned enum") {
+  evalTest(
+    List("""
+package A
+
+enum GoodOrBad:
+  Bad(a: a), Good(a: a)
+
+def unbox(gb: GoodOrBad[a]):
+  match gb:
+    Good(g): g
+    Bad(b): b
+
+main = unbox(Good(42))
+"""), "A", VInt(42))
+  }
 }
