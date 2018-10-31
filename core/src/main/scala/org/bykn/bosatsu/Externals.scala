@@ -37,8 +37,8 @@ sealed abstract class FfiCall {
         tpe match {
           case rankn.Type.ForAll(_, t) => invoke(t, args)
           case rankn.Type.Fun(a, tail) =>
-            Value.FnValue { x =>
-              Eval.always(invoke(tail, x :: args))
+            Value.FnValue { ex =>
+              ex.map { x => invoke(tail, x :: args) }
             }
           case _ =>
             m.invoke(inst, args.reverse.toArray: _*).asInstanceOf[Value]

@@ -39,4 +39,4 @@ def sum(as):
 # 4613732
 computed = fib(35).filter(keep).sum
 
-test = TestAssert(computed.eq_Int(4613732))
+test = Assertion(computed.eq_Int(4613732), "expected 4613732")

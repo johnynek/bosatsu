@@ -125,7 +125,7 @@ object Infer {
 
     // This could be a user error if we don't check scoping before typing
     case class VarNotInScope(varName: Name, vars: Map[Name, Type]) extends NameError {
-      def message = s"$varName not in scope: $vars"
+      def message = s"$varName not in scope: ${vars.keys.toList.sorted}"
     }
 
     // This could be a user error if we don't check scoping before typing
