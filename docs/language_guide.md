@@ -56,7 +56,7 @@ message2 = "this has 'single quotes'"
 ```
 We plan to support Ruby's string interpolation syntax:
 ```
-profile = 'my favorite animal is #{animal}"
+profile = 'my favorite animal is #{animal}'
 ```
 
 ### Lists
@@ -143,7 +143,7 @@ All type names start with an uppercase character. We can think of a definition a
 2. defining a set of constructor functions to create that type
 
 ### Structs
-In the case of a struct, there is a single constructor function that can take a number of arguments which we can think of as fields to the struct. The constructor function has the same name as the type for Struct.
+In the case of a `struct`, there is a single constructor function that can take a number of arguments which we can think of as fields to the struct. The constructor function has the same name as the type for `struct`s.
 
 ```
 struct HashResult(as_string: String)
@@ -253,7 +253,7 @@ most_fav = match mammals:
 
 ```
 
-We export types slightly differently. We can export just the type, or the type and the constructors. To export the type and the constructors use `Type()` where as `Type` exports on they the type to be visible.
+We export types slightly differently. We can export just the type, or the type and the constructors. To export the type and the constructors use `Type()` where as `Type` exports only the type to be visible.
 
 ```
 
