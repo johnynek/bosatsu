@@ -35,13 +35,19 @@ case class TypeEnv(
 
   // TODO to support parameter named patterns we'd need to know the
   // parameter names
-  def typeConstructors: Map[(PackageName, ConstructorName), (List[Type.Var], List[Type], Type.Const.Defined)] =
+  lazy val typeConstructors: Map[(PackageName, ConstructorName), (List[Type.Var], List[Type], Type.Const.Defined)] =
     constructors.map { case (pc, (params, dt, _)) =>
       (pc,
         (dt.typeParams,
           params.map(_._2),
           dt.toTypeConst))
     }
+
+  def definedTypeFor(c: (PackageName, ConstructorName)): Option[DefinedType] =
+    typeConstructors.get(c).flatMap { case (_, _, d) => toDefinedType(d) }
+
+  def toDefinedType(t: Type.Const.Defined): Option[DefinedType] =
+    definedTypes.get((t.packageName, TypeName(t.name)))
 
 }
 

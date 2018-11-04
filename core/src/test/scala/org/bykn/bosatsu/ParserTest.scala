@@ -12,15 +12,7 @@ import Parser.Indy
 
 import Generators.shrinkDecl
 
-class ParserTest extends FunSuite {
-  // This is so we can make Declarations without the region
-  private[this] implicit val emptyRegion: Region = Region(0, 0)
-
-  implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 500)
-    PropertyCheckConfiguration(minSuccessful = 50)
-    //PropertyCheckConfiguration(minSuccessful = 5)
-
+object TestParseUtils {
   def region(s0: String, idx: Int): String =
     if (s0.isEmpty) s"empty string, idx = $idx"
     else if (s0.length == idx) {
@@ -38,6 +30,18 @@ class ParserTest extends FunSuite {
     else if (s2.isEmpty) s1
     else if (s1(0) == s2(0)) firstDiff(s1.tail, s2.tail)
     else s"${s1(0).toInt}: ${s1.take(20)}... != ${s2(0).toInt}: ${s2.take(20)}..."
+
+}
+
+class ParserTest extends FunSuite {
+  import TestParseUtils._
+  // This is so we can make Declarations without the region
+  private[this] implicit val emptyRegion: Region = Region(0, 0)
+
+  implicit val generatorDrivenConfig =
+    //PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 50)
+    //PropertyCheckConfiguration(minSuccessful = 5)
 
   def parseTest[T](p: Parser[T], str: String, expected: T, exidx: Int) =
     p.parse(str) match {

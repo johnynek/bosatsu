@@ -30,6 +30,13 @@ object Type {
       case TyVar(_) | TyMeta(_) => Nil
     }
 
+  def hasNoVars(t: Type): Boolean =
+    t match {
+      case TyConst(c) => true
+      case TyVar(_) | TyMeta(_) | ForAll(_, _) => false
+      case TyApply(on, arg) => hasNoVars(on) && hasNoVars(arg)
+    }
+
   @annotation.tailrec
   final def forAll(vars: List[Var.Bound], in: Type): Type =
     vars match {
