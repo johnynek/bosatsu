@@ -47,6 +47,12 @@ case class TotalityCheck(inEnv: TypeEnv) {
     Monad[Res].tailRecM((branches, List(WildCard): Patterns))(step _)
   }
 
+  /**
+   * Return true of this set of branches represents a total match
+   *
+   * useful for testing, but a better error message will be obtained from using
+   * missingBranches
+   */
   def isTotal(branches: Patterns): Res[Boolean] =
     missingBranches(branches).map(_.isEmpty)
 
@@ -313,35 +319,6 @@ case class TotalityCheck(inEnv: TypeEnv) {
         else Left(NonEmptyList.of(ArityMismatch(nm, pat, inEnv, size, params.size)))
     }
 
-  // def typeOf(p: Pattern[Cons, Type]): Res[Type] = {
-  //   def err = Left(NonEmptyList.of(UntypedPattern(p, inEnv)))
-  //   p match {
-  //     case Annotation(_, t) => Right(t)
-  //     case Literal(lit) => Right(Type.getTypeOf(lit))
-  //     case WildCard | Var(_) => err
-  //     case ListPat(pats) =>
-  //       // we assume we are well typed, so the first right hand side tells us
-  //       val listTypeParam =
-  //         pats.foldLeft(err: Res[Type]) {
-  //           case (e, Right(p)) =>
-  //             typeOf(p) match {
-  //               case Left(_) => e
-  //               case right => right
-  //             }
-  //           case (e, _) => e
-  //         }
-
-  //       listTypeParam.map { a => Type.TyApply(Type.ListType, a) }
-  //     case PositionalStruct(nm, _) =>
-  //       inEnv.definedTypeFor(nm) match {
-  //         case None =>
-  //           Left(NonEmptyList.of(UnknownConstructor(nm, p, inEnv)))
-  //         case Some(dt) =>
-  //           Right(dt.fullType)
-  //       }
-  //   }
-  // }
-
   /**
    * Can a given pattern match everything for a the current type
    */
@@ -349,7 +326,11 @@ case class TotalityCheck(inEnv: TypeEnv) {
     p match {
       case Pattern.WildCard | Pattern.Var(_) => Right(true)
       case Pattern.Literal(_) => Right(false) // literals are not total
-      case Pattern.ListPat(_) => Right(false) // empty list pattern matching *COULD* be total, if we understood Void
+      case Pattern.ListPat(Left(_) :: rest) =>
+        Right(matchesEmpty(ListPat(rest)))
+      case Pattern.ListPat(_) =>
+        // either can't match everything on the front or back
+        Right(false)
       case Pattern.Annotation(p, _) => isTotal(p)
       case Pattern.PositionalStruct(name, params) =>
         // This is total if the struct has a single constructor AND each of the patterns is total
