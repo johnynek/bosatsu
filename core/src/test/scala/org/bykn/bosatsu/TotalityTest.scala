@@ -7,6 +7,8 @@ import rankn._
 import Parser.Combinators
 import fastparse.all.Parsed
 
+import org.typelevel.paiges.Document
+
 class TotalityTest extends FunSuite {
   import TestParseUtils._
 
@@ -49,8 +51,14 @@ class TotalityTest extends FunSuite {
     }
 
   def testTotality(te: TypeEnv, pats: List[Pattern[(PackageName, ConstructorName), Type]], tight: Boolean = false) = {
-    TotalityCheck(te).isTotal(pats) match {
-      case Right(res) => assert(res)
+    TotalityCheck(te).missingBranches(pats) match {
+      case Right(res) =>
+        val asStr = res.map { pat =>
+          val pat0 = pat.mapName { case (_, ConstructorName(n)) => n }
+            .mapType { t => TypeRef.fromType(t).get }
+          Document[Pattern[String, TypeRef]].document(pat0).render(80)
+        }
+        assert(asStr == Nil)
       case Left(errs) => fail(errs.toString)
     }
     // any missing pattern shouldn't be total:
@@ -129,9 +137,11 @@ enum Either: Left(l), Right(r)
     val te = typeEnvOf("""#
 enum Either: Left(l), Right(r)
 enum Option: None, Some(get)
+struct Tuple2(fst, snd)
 """)
 
     testTotality(te, patterns("[None, Some(Left(_)), Some(Right(_))]"), tight = true)
+    testTotality(te, patterns("[None, Some(Tuple2(Left(_), _)), Some(Tuple2(_, Right(_))), Some(Tuple2(Right(_), Left(_)))]"), tight = true)
   }
 
   test("compose List with structs") {
@@ -139,5 +149,6 @@ enum Option: None, Some(get)
 enum Either: Left(l), Right(r)
 """)
     testTotality(te, patterns("[[Left(_), *_], [Right(_), *_], [], [_, _, *_]]"), tight = true)
+    testTotality(te, patterns("[Left([]), Left([h, *_]), Right([]), Right([h, *_])]"), tight = true)
   }
 }
