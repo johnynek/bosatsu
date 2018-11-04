@@ -70,6 +70,64 @@ case class TotalityCheck(inEnv: TypeEnv) {
       case Right(_) :: _ => false
     }
 
+  private def difference0List(
+    lp: List[Either[Option[String], Pattern[Cons, Type]]],
+    rp: List[Either[Option[String], Pattern[Cons, Type]]]): Res[Patterns] = {
+    (lp, rp) match {
+      case (Nil, Nil) =>
+        // total overlap
+        Right(Nil)
+      case (Nil, Right(_) :: _) =>
+        // a list of 1 or more, can't match less
+        Right(ListPat(lp) :: Nil)
+      case (Nil, Left(_) :: tail) =>
+        // we can have zero or more, 1 or more clearly can't match:
+        // if the tail can match 0, we anhilate, otherwise not
+        if (matchesEmpty(ListPat(tail))) Right(Nil)
+        else Right(ListPat(lp) :: Nil)
+      case (Right(_) :: _, Nil) =>
+        // left has at least one
+        Right(ListPat(lp) :: Nil)
+      case (Right(lhead) :: ltail, Right(rhead) :: rtail) =>
+        // we use productDifference here
+        productDifference((lhead, rhead) :: (ListPat(ltail), ListPat(rtail)) :: Nil)
+          .map { listOfList =>
+            listOfList.map {
+              case h :: ListPat(tail) :: Nil =>
+                ListPat(Right(h) :: tail)
+              case other =>
+                sys.error(s"expected exactly two items: $other")
+            }
+          }
+      case (Left(_) :: tail, Nil) =>
+        // if tail matches empty, then we can only match 1 or more
+        // else, these are disjoint
+        if (matchesEmpty(ListPat(tail)))
+          Right(ListPat(Right(WildCard) :: lp) :: Nil)
+        else Right(ListPat(lp) :: Nil)
+      case (Left(_) :: tail, Right(_) :: _) =>
+        // The right hand side can't match a zero length list
+        val zero = ListPat(tail)
+        val oneOrMore = Right(WildCard) :: lp
+        difference0List(oneOrMore, rp)
+          .map(zero :: _)
+      case (_, Left(_) :: rtail) if matchesEmpty(ListPat(rtail)) =>
+        // this is a total match
+        Right(Nil)
+      case (_, Left(_) :: _) =>
+        // In this branch, the right cannot match
+        // the empty list, but the left side can
+        // we could in principle match a finite
+        // list from either direction, so we reverse
+        // and try again
+        difference0List(lp.reverse, rp.reverse)
+          .map(_.map {
+            case ListPat(diff) => ListPat(diff.reverse)
+            case other => sys.error(s"unreachable: list patterns can't difference to non-list: $other")
+          })
+    }
+  }
+
   def difference0(left: Pattern[Cons, Type], right: Pattern[Cons, Type]): Res[Patterns] = {
     isTotal(right).flatMap {
       case true => Right(Nil): Res[Patterns]
@@ -82,59 +140,7 @@ case class TotalityCheck(inEnv: TypeEnv) {
             // _ is the same as [*_] for well typed expressions
             difference0(ListPat(Left(None) :: Nil), lp)
           case (ListPat(lp), rightList@ListPat(rp)) =>
-            (lp, rp) match {
-              case (Nil, Nil) =>
-                // total overlap
-                Right(Nil)
-              case (Nil, Right(_) :: _) =>
-                // a list of 1 or more, can't match less
-                Right(left :: Nil)
-              case (Nil, Left(_) :: tail) =>
-                // we can have zero or more, 1 or more clearly can't match:
-                // if the tail can match 0, we anhilate, otherwise not
-                if (matchesEmpty(ListPat(tail))) Right(Nil)
-                else Right(left :: Nil)
-              case (Right(_) :: _, Nil) =>
-                // left has at least one
-                Right(left :: Nil)
-              case (Right(lhead) :: ltail, Right(rhead) :: rtail) =>
-                // we use productDifference here
-                productDifference((lhead, rhead) :: (ListPat(ltail), ListPat(rtail)) :: Nil)
-                  .map { listOfList =>
-                    listOfList.map {
-                      case h :: ListPat(tail) :: Nil =>
-                        ListPat(Right(h) :: tail)
-                      case other =>
-                        sys.error(s"expected exactly two items: $other")
-                    }
-                  }
-              case (Left(_) :: tail, Nil) =>
-                // if tail matches empty, then we can only match 1 or more
-                // else, these are disjoint
-                if (matchesEmpty(ListPat(tail)))
-                  Right(ListPat(Right(WildCard) :: lp) :: Nil)
-                else Right(left :: Nil)
-              case (Left(_) :: tail, Right(_) :: _) =>
-                // The right hand side can't match a zero length list
-                val zero = ListPat(tail)
-                val oneOrMore = ListPat(Right(WildCard) :: lp)
-                difference0(oneOrMore, right)
-                  .map(zero :: _)
-              case (_, Left(_) :: rtail) if matchesEmpty(ListPat(rtail)) =>
-                // this is a total match
-                Right(Nil)
-              case (_, Left(_) :: rtail) =>
-                // In this branch, the right cannot match
-                // the empty list, but the left side can
-                // we could in principle match a finite
-                // list from either direction, so we reverse
-                // and try again
-                difference0(ListPat(lp.reverse), ListPat(rp.reverse))
-                  .map(_.map {
-                    case ListPat(diff) => ListPat(diff.reverse)
-                    case other => sys.error(s"unreachable: list patterns can't difference to non-list: $other")
-                  })
-            }
+            difference0List(lp, rp)
           case (WildCard | Var(_), PositionalStruct(nm, ps)) =>
             inEnv.definedTypeFor(nm) match {
               case None => Left(NonEmptyList.of(UnknownConstructor(nm, right, inEnv)))
@@ -183,7 +189,8 @@ case class TotalityCheck(inEnv: TypeEnv) {
               checkArity(ln, lp.size, left)
                 .product(checkArity(rn, rp.size, right))
                 .as(())
-            productDifference(lp zip rp).map { pats =>
+
+            arityMatch >> productDifference(lp zip rp).map { pats =>
               pats.map(PositionalStruct(ln, _))
             }
           case _ =>
@@ -252,13 +259,13 @@ case class TotalityCheck(inEnv: TypeEnv) {
 
             type ResList[A] = Res[List[A]]
             implicit val app = Applicative[Res].compose(Applicative[List])
-            val parts = check.flatMap { _ =>
-              lps.zip(rps).traverse[ResList, Pattern[Cons, Type]] {
-                case (l, r) => intersection(l, r)
+            check >>
+              check.flatMap { _ =>
+                lps.zip(rps).traverse[ResList, Pattern[Cons, Type]] {
+                  case (l, r) => intersection(l, r)
+                }
               }
-            }
-
-            parts.map(_.map(PositionalStruct(ln, _)))
+              .map(_.map(PositionalStruct(ln, _)))
           }
           else Right(Nil)
       }
