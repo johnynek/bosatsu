@@ -110,7 +110,15 @@ case class TotalityCheck(inEnv: TypeEnv) {
       case (Left(_) :: tail, Right(_) :: _) =>
         val zero = tail
         val oneOrMore = Right(WildCard) :: lp
-        (difference0List(zero, rp), difference0List(oneOrMore, rp)).mapN(_ ::: _)
+        // If the left and right are disjoint,
+        // this creates a different representation
+        // of the left
+        (difference0List(zero, rp), difference0List(oneOrMore, rp))
+          .mapN {
+            case ((z :: Nil), (o :: Nil)) if eqPat.eqv(z, ListPat(zero)) && eqPat.eqv(o, ListPat(oneOrMore)) =>
+              ListPat(lp) :: Nil
+            case (zz, oo) => zz ::: oo
+          }
       case (_, Left(_) :: rtail) if matchesEmpty(rtail) =>
         // this is a total match
         Right(Nil)

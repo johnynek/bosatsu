@@ -353,8 +353,9 @@ enum Either: Left(l), Right(r)
      */
     manualTest("[[_, _], [[*foo]]]")
     manualTest("[['foo'], [*foo, [*_]]]")
+    manualTest("[[*_, [_]], [1]]")
 
-    //forAll(genPattern, genPattern)(law(_, _))
+    forAll(genPattern, genPattern)(law(_, _))
   }
 
   test("difference returns distinct values") {
@@ -430,7 +431,7 @@ enum Either: Left(l), Right(r)
     }
 
     manualTest("[[*foo, bar], [baz]]")
-    //forAll(genPattern, genPattern)(law)
+    forAll(genPattern, genPattern)(law)
   }
 
   test("a - a = 0") {
