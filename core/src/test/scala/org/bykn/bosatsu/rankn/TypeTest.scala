@@ -69,4 +69,20 @@ class TypeTest extends FunSuite {
     }
   }
 
+  test("if Type.hasNoVars then freeVars is empty") {
+    forAll(NTypeGen.genDepth03) { t =>
+      if (Type.hasNoVars(t)) assert(Type.freeTyVars(t :: Nil).isEmpty)
+      else ()
+    }
+  }
+
+  test("hasNoVars fully recurses") {
+    forAll(NTypeGen.genDepth03) { t =>
+      val allT = NTypeGen.allTypesIn(t)
+      val hnv = Type.hasNoVars(t)
+
+      if (hnv) assert(allT.forall(Type.hasNoVars), "hasNoVars == true")
+      else assert(allT.exists { t => !Type.hasNoVars(t) }, "hasNoVars == false")
+    }
+  }
 }

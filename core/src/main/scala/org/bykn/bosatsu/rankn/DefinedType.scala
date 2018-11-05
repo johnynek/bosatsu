@@ -27,12 +27,6 @@ case class DefinedType(
 
   def toOpaque: DefinedType =
     copy(constructors = Nil)
-
-  /**
-   * This may be a ForAll type if there are typeParams
-   */
-  def fullType: Type =
-    Type.forAll(typeParams, toTypeTyConst)
 }
 
 object DefinedType {
