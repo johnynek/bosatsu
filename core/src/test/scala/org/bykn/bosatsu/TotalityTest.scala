@@ -16,7 +16,7 @@ class TotalityTest extends FunSuite {
   import TestParseUtils._
 
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 20000)
+    PropertyCheckConfiguration(minSuccessful = 50000)
     //PropertyCheckConfiguration(minSuccessful = 50)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
@@ -197,15 +197,15 @@ enum Either: Left(l), Right(r)
     val p0 :: p1 :: Nil = patterns("[[*_], [*_, _]]")
       TotalityCheck(TypeEnv.empty).intersection(p0, p1) match {
         case Left(err) => fail(err.toString)
-        case Right(intr :: Nil) => assert(p1 == intr)
-        case Right(many) => fail(s"expected exactly one intersection: ${many.map(showPat)}")
+        case Right(Some(intr)) => assert(p1 == intr)
+        case Right(None) => fail("expected exactly one intersection")
       }
 
     val p2 :: p3 :: Nil = patterns("[[*_], [_, _]]")
       TotalityCheck(TypeEnv.empty).intersection(p2, p3) match {
         case Left(err) => fail(err.toString)
-        case Right(intr :: Nil) => assert(p3 == intr)
-        case Right(many) => fail(s"expected exactly one intersection: ${many.map(showPat)}")
+        case Right(Some(intr)) => assert(p3 == intr)
+        case Right(None) => fail("expected exactly one intersection")
       }
   }
 
@@ -244,8 +244,8 @@ enum Either: Left(l), Right(r)
       TotalityCheck(TypeEnv.empty)
         .intersection(p, p) match {
           case Left(_) => () // we can often fail now due to bad patterns
-          case Right(h :: Nil) => assert(h == p)
-          case Right(many) => fail(s"expected one intersection, found many: $many")
+          case Right(Some(h)) => assert(h == p)
+          case Right(None) => fail(s"expected one intersection, found none")
         }
 
     forAll(genPattern)(law)
@@ -304,7 +304,7 @@ enum Either: Left(l), Right(r)
       val tc = TotalityCheck(TypeEnv.empty)
       tc.intersection(a, b) match {
         case Left(_) => () // we can often fail now due to bad patterns
-        case Right(Nil) =>
+        case Right(None) =>
           tc.difference0(a, b) match {
             case Left(err) => () // due to our generators, we fail a lot
             case Right(h :: Nil) =>
@@ -354,6 +354,11 @@ enum Either: Left(l), Right(r)
     manualTest("[[_, _], [[*foo]]]")
     manualTest("[['foo'], [*foo, [*_]]]")
     manualTest("[[*_, [_]], [1]]")
+    /*
+     * This is hard because they are orthogonal, one is list of 2, one is a list of three,
+     * but the first element has a difference
+     */
+    manualTest("[[[cvspypdahs, *_], ['jnC']], [[*_, 5921457613766301145, 'j'], p, bmhvhs]]")
 
     forAll(genPattern, genPattern)(law(_, _))
   }
@@ -365,18 +370,6 @@ enum Either: Left(l), Right(r)
       // type Env... thats a TODO)
       val tc = TotalityCheck(TypeEnv.empty)
       tc.difference0(a, b) match {
-        case Left(_) => () // we can often fail now due to bad patterns
-        case Right(c) => assert(c == c.distinct)
-      }
-    }
-  }
-  test("intersection returns distinct values") {
-    forAll(genPattern, genPattern) { (a, b) =>
-      // this would be better if we could get
-      // generate random patterns from a sane
-      // type Env... thats a TODO)
-      val tc = TotalityCheck(TypeEnv.empty)
-      tc.intersection(a, b) match {
         case Left(_) => () // we can often fail now due to bad patterns
         case Right(c) => assert(c == c.distinct)
       }
@@ -462,6 +455,19 @@ enum Either: Left(l), Right(r)
             case Right(rest1) =>
               fail(s"after adding $rest we still need $rest1")
           }
+      }
+    }
+  }
+
+  test("missing branches are distinct") {
+    val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genPattern))
+
+    forAll(pats) { pats =>
+      val tc = TotalityCheck(TypeEnv.empty)
+      tc.missingBranches(pats) match {
+        case Left(_) => ()
+        case Right(rest) =>
+          assert(rest == rest.distinct)
       }
     }
   }
