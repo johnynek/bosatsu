@@ -181,23 +181,61 @@ object Generators {
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
   }
 
+  def genPattern(depth: Int): Gen[Pattern[String, TypeRef]] = {
+    val recurse = Gen.lzy(genPattern(depth - 1))
+    val genVar = lowerIdent.map(Pattern.Var(_))
+    val genWild = Gen.const(Pattern.WildCard)
+    val genLitPat = genLit.map(Pattern.Literal(_))
+
+    if (depth <= 0) Gen.oneOf(genVar, genWild, genLitPat)
+    else {
+      val genTyped = Gen.zip(recurse, typeRefGen)
+        .map { case (p, t) => Pattern.Annotation(p, t) }
+
+      val genStruct =  for {
+        nm <- upperIdent
+        cnt <- Gen.choose(0, 6)
+        args <- Gen.listOfN(cnt, recurse)
+      } yield Pattern.PositionalStruct(nm, args)
+
+      def makeOneSplice(ps: List[Either[Option[String], Pattern[String, TypeRef]]]) = {
+        val sz = ps.size
+        if (sz == 0) Gen.const(ps)
+        else Gen.choose(0, sz - 1).flatMap { idx =>
+          val splice = Gen.oneOf(
+            Gen.const(Left(None)),
+            lowerIdent.map { v => Left(Some(v)) })
+
+          splice.map { v => ps.updated(idx, v) }
+        }
+      }
+
+      val genListItem: Gen[Either[Option[String], Pattern[String, TypeRef]]] =
+        recurse.map(Right(_))
+
+      val genList = Gen.choose(0, 5)
+        .flatMap(Gen.listOfN(_, genListItem))
+        .flatMap { ls =>
+          Gen.oneOf(true, false)
+            .flatMap {
+              case true => Gen.const(ls)
+              case false => makeOneSplice(ls)
+            }
+        }
+        .map(Pattern.ListPat(_))
+
+      Gen.oneOf(genVar, genWild, genLitPat, genStruct, genList /*, genTyped */)
+    }
+  }
+
   def matchGen(bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
     import Declaration._
 
     val padBody = optIndent(bodyGen)
 
-    val genPattern = for {
-      nm <- upperIdent
-      cnt <- Gen.choose(0, 6)
-      args <- Gen.listOfN(cnt, Gen.option(lowerIdent))
-      argPat = args.map {
-        case None => Pattern.WildCard
-        case Some(v) => Pattern.Var(v)
-      }
-    } yield Pattern.PositionalStruct(nm, argPat)
 
     val genCase: Gen[(Pattern[String, TypeRef], OptIndent[Declaration])] =
-      Gen.zip(genPattern, padBody)
+      Gen.zip(genPattern(3), padBody)
 
     for {
       cnt <- Gen.choose(1, 2)
@@ -206,20 +244,25 @@ object Generators {
     } yield Match(expr, cases)(emptyRegion)
   }
 
-  def genDeclaration(depth: Int): Gen[Declaration] = {
-    import Declaration._
-
+  val genLit: Gen[Lit] = {
     val str = for {
       q <- Gen.oneOf('\'', '"')
       //str <- Arbitrary.arbitrary[String]
       str <- lowerIdent // TODO
-    } yield Literal(Lit.Str(str))(emptyRegion)
+    } yield Lit.Str(str)
+
+    val bi = Arbitrary.arbitrary[BigInt].map { bi => Lit.Integer(bi.bigInteger) }
+    Gen.oneOf(str, bi)
+  }
+
+
+  def genDeclaration(depth: Int): Gen[Declaration] = {
+    import Declaration._
 
     val unnested = Gen.oneOf(
       lowerIdent.map(Var(_)(emptyRegion)),
       upperIdent.map(Constructor(_)(emptyRegion)),
-      Arbitrary.arbitrary[BigInt].map { bi => Literal(Lit.Integer(bi.bigInteger))(emptyRegion) },
-      str)
+      genLit.map(Literal(_)(emptyRegion)))
 
     val recur = Gen.lzy(genDeclaration(depth - 1))
     if (depth <= 0) unnested

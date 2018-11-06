@@ -52,6 +52,24 @@ object Pattern {
             Pattern.PositionalStruct(name, ps)
           }
       }
+
+  /**
+   * Return the pattern with all the binding names removed
+   */
+    def unbind: Pattern[N, T] =
+      pat match {
+        case Pattern.WildCard | Pattern.Literal(_) => pat
+        case Pattern.Var(_) => Pattern.WildCard
+        case Pattern.ListPat(items) =>
+          Pattern.ListPat(items.map {
+            case Left(_) => Left(None)
+            case Right(p) => Right(p.unbind)
+          })
+        case Pattern.Annotation(p, tpe) =>
+          Pattern.Annotation(p.unbind, tpe)
+        case Pattern.PositionalStruct(name, params) =>
+          Pattern.PositionalStruct(name, params.map(_.unbind))
+      }
   }
 
   case object WildCard extends Pattern[Nothing, Nothing]
@@ -60,6 +78,7 @@ object Pattern {
   case class ListPat[N, T](parts: List[Either[Option[String], Pattern[N, T]]]) extends Pattern[N, T]
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
+
 
   implicit lazy val document: Document[Pattern[String, TypeRef]] =
     Document.instance[Pattern[String, TypeRef]] {
