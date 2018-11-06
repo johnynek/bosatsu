@@ -112,7 +112,7 @@ case class TotalityCheck(inEnv: TypeEnv) {
           Right(ListPat(Right(WildCard) :: lp) :: Nil)
         else Right(ListPat(lp) :: Nil)
       case (Left(_) :: tail, Right(_) :: _) =>
-        /**
+        /*
          * Note since we only allow a single splice,
          * tail has no splices, and is thus finite
          *
