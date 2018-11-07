@@ -177,27 +177,9 @@ case class TotalityCheck(inEnv: TypeEnv) {
           case Some(dt) =>
             dt.constructors.traverse {
               case (c, params, _) if (dt.packageName, c) == nm =>
-                /*
-                 * At each position we compute the difference with _
-                 * then make:
-                 * Struct(d1, _, _), Struct(_, d2, _), ...
-                 */
-                def poke[M[_]: Applicative, A](items: List[A])(fn: A => M[List[A]]): M[List[List[A]]] =
-                  items match {
-                    case Nil => Applicative[M].pure(Nil)
-                    case h :: tail =>
-                      val ptail = poke(tail)(fn)
-                      val head = fn(h)
-                      (head, ptail).mapN { (heads, tails) =>
-                        val t2 = tails.map(h :: _)
-                        val h1 = heads.map(_ :: tail)
-                        h1 ::: t2
-                      }
-                  }
-
-                // for this one, we need to compute the difference for each:
-                poke(ps) { p => difference0(WildCard, p) }
-                  .map(_.map(PositionalStruct(nm, _)))
+                // we can replace _ with Struct(_, _...)
+                val newWild = PositionalStruct(nm, params.map(_ => WildCard))
+                difference0(newWild, right)
 
               case (c, params, _) =>
                 // TODO, this could be smarter

@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Eq
+import cats.implicits._
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalacheck.Gen
@@ -16,7 +17,7 @@ class TotalityTest extends FunSuite {
   import TestParseUtils._
 
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 50000)
+    PropertyCheckConfiguration(minSuccessful = 5000)
     //PropertyCheckConfiguration(minSuccessful = 50)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
@@ -260,6 +261,51 @@ enum Either: Left(l), Right(r)
     manualTest("[[*_]]")
   }
 
+  test("intersection is associative") {
+    def law(
+      a: Pattern[(PackageName, ConstructorName), Type],
+      b: Pattern[(PackageName, ConstructorName), Type],
+      c: Pattern[(PackageName, ConstructorName), Type]
+    ) = {
+      // this would be better if we could get
+      // generate random patterns from a sane
+      // type Env... thats a TODO)
+      val tc = TotalityCheck(TypeEnv.empty)
+      import tc.intersection
+
+      val left = for {
+        abO <- intersection(a, b)
+        abc <- abO match {
+          case None => Right(None)
+          case Some(ab) => intersection(ab, c)
+        }
+      } yield abc
+
+      val right = for {
+        bcO <- intersection(b, c)
+        abc <- bcO match {
+          case None => Right(None)
+          case Some(bc) => intersection(a, bc)
+        }
+      } yield abc
+
+      (left, right) match {
+        case (Right(rl), Right(rr)) => assert(rl == rr)
+        case (_, _) =>
+          // since our random patterns are ill-typed, there
+          // is no guarantee we get errors in both directions
+          ()
+      }
+    }
+
+    forAll(genPattern, genPattern, genPattern)(law)
+
+    def manualTest(str: String) = {
+      val a :: b :: c :: Nil = patterns(str)
+      law(a, b, c)
+    }
+  }
+
   test("intersection(a, b) == intersection(b, a)") {
     def law(
       a: Pattern[(PackageName, ConstructorName), Type],
@@ -439,6 +485,29 @@ enum Either: Left(l), Right(r)
         case Right(many) => fail(s"expected empty difference: $many")
       }
     }
+  }
+
+  test("(a - b) n c = (a n c) - (b n c)") {
+    def law(
+      a: Pattern[(PackageName, ConstructorName), Type],
+      b: Pattern[(PackageName, ConstructorName), Type],
+      c: Pattern[(PackageName, ConstructorName), Type]) = {
+      val tc = TotalityCheck(TypeEnv.empty)
+      val left = tc.difference0(a, b)
+        .flatMap(_.traverse(tc.intersection(_, c)).map(_.flatten))
+      val right = (tc.intersection(a, c), tc.intersection(b, c))
+        .mapN {
+          case (Some(a), Some(b)) => tc.difference0(a, b)
+          case _ => Right(Nil)
+        }
+        .flatMap(e => e)
+
+      (left, right) match {
+        case (Right(lr), Right(rr)) => assert(lr == rr)
+        case _ =>()
+      }
+    }
+
   }
 
   test("missing branches, if added is total") {
