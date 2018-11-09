@@ -409,4 +409,20 @@ def unbox(gb: GoodOrBad[a]):
 main = unbox(Good(42))
 """), "A", VInt(42))
   }
+
+  test("nontotal matches fail even if not at runtime") {
+    evalFail(
+      List("""
+package Total
+
+enum Opt: Nope, Yep(get)
+
+something = Yep(1)
+
+one = match something:
+  Yep(a): a
+
+main = one
+"""), "Total") { case PackageError.TotalityCheckError(_, _) => () }
+  }
 }

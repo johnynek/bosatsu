@@ -207,12 +207,8 @@ object PackageMap {
           imports
             .traverse(stepImport(_))
             .andThen { imps =>
-              Package.inferBody(nm, imps, stmt) match {
-                case Left(err) =>
-                  Validated.invalidNel(err) // TODO give better errors
-                case Right(good) =>
-                  Validated.valid((imps, good))
-              }
+              Package.inferBody(nm, imps, stmt)
+                .map((imps, _))
             }
             .andThen { case (imps, (types, lets)) =>
               ExportedName.buildExports(nm, exports, types, lets)
@@ -328,6 +324,15 @@ object PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
       val (lm, sourceName) = sourceMap(pack)
       val teMessage = tpeErr.message
+      // TODO use the sourceMap/regiouns in Infer.Error
+      s"in file: $sourceName, package ${pack.asString}, $teMessage"
+    }
+  }
+
+  case class TotalityCheckError(pack: PackageName, err: TotalityCheck.ExprError[Declaration]) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
+      val (lm, sourceName) = sourceMap(pack)
+      val teMessage = err.toString
       // TODO use the sourceMap/regiouns in Infer.Error
       s"in file: $sourceName, package ${pack.asString}, $teMessage"
     }

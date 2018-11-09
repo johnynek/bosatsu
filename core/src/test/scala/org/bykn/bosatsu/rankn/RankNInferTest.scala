@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
 
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, Validated}
 import org.scalatest.FunSuite
 import org.bykn.bosatsu.{Expr, Lit, PackageName, Package, Pattern, TypeRef, ConstructorName, Statement}
 
@@ -95,8 +95,8 @@ class RankNInferTest extends FunSuite {
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmt, _) =>
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
-          case Left(err) => fail(err.message(Map.empty))
-          case Right((tpeEnv, lets)) =>
+          case Validated.Invalid(errs) => fail(errs.toList.map(_.message(Map.empty)).mkString("\n"))
+          case Validated.Valid((tpeEnv, lets)) =>
             val parsedType = typeFrom(tpe)
             assert(lets.last._2.getType == parsedType)
         }
@@ -111,8 +111,8 @@ class RankNInferTest extends FunSuite {
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmt, _) =>
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
-          case Left(_) => assert(true)
-          case Right((tpeEnv, lets)) =>
+          case Validated.Invalid(_) => assert(true)
+          case Validated.Valid((tpeEnv, lets)) =>
             fail(lets.toString)
         }
       case Parsed.Failure(exp, idx, extra) =>

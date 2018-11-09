@@ -49,6 +49,10 @@ case class TypeEnv(
   def toDefinedType(t: Type.Const.Defined): Option[DefinedType] =
     definedTypes.get((t.packageName, TypeName(t.name)))
 
+  def ++(that: TypeEnv): TypeEnv =
+    TypeEnv(values ++ that.values,
+      constructors ++ that.constructors,
+      definedTypes ++ that.definedTypes)
 }
 
 object TypeEnv {
