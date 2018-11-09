@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.{Monad, Applicative, Eq}
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
 
 import rankn.{Type, TypeEnv}
@@ -16,8 +16,11 @@ object TotalityCheck {
   sealed abstract class Error
   case class ArityMismatch(cons: Cons, in: Pattern[Cons, Type], env: TypeEnv, expected: Int, found: Int) extends Error
   case class UnknownConstructor(cons: Cons, in: Pattern[Cons, Type], env: TypeEnv) extends Error
-  case class UntypedPattern(pat: Pattern[Cons, Type], env: TypeEnv) extends Error
   case class MultipleSplicesInPattern(pat: ListPat[Cons, Type], env: TypeEnv) extends Error
+
+  sealed abstract class ExprError[A]
+  case class NonTotalMatch[A](matchExpr: Expr.Match[A], missing: NonEmptyList[Pattern[Cons, Type]]) extends ExprError[A]
+  case class InvalidPattern[A](matchExpr: Expr.Match[A], err: Error) extends ExprError[A]
 }
 
 case class TotalityCheck(inEnv: TypeEnv) {
@@ -57,6 +60,37 @@ case class TotalityCheck(inEnv: TypeEnv) {
    */
   def isTotal(branches: Patterns): Res[Boolean] =
     missingBranches(branches).map(_.isEmpty)
+
+  /**
+   * Check that an expression, and all inner expressions, are total, or return
+   * a NonEmptyList of matches that are not total
+   */
+  def checkExpr[A](expr: Expr[A]): ValidatedNel[ExprError[A], Unit] = {
+    import Expr._
+    expr match {
+      case Annotation(e, _, _) => checkExpr(e)
+      case AnnotatedLambda(_, _, e, _) => checkExpr(e)
+      case Lambda(_, e, _) => checkExpr(e)
+      case Var(_, _, _) | Literal(_, _) => Validated.valid(())
+      case App(fn, arg, _) => checkExpr(fn) *> checkExpr(arg)
+      case Let(_, e1, e2, _) => checkExpr(e1) *> checkExpr(e2)
+      case If(c, e1, e2, _) => checkExpr(c) *> checkExpr(e1) *> checkExpr(e2)
+      case m@Match(arg, branches, _) =>
+        val argAndBranchExprs = arg :: branches.toList.map(_._2)
+        val recursion = argAndBranchExprs.traverse_(checkExpr)
+
+        val theseBranchs: ValidatedNel[ExprError[A], Unit] =
+          missingBranches(branches.toList.map(_._1)) match {
+            case Left(errs) =>
+              Validated.invalid(errs.map { err => InvalidPattern(m, err) })
+            case Right(Nil) =>
+              Validated.valid(())
+            case Right(head :: tail) =>
+              Validated.invalidNel(NonTotalMatch(m, NonEmptyList(head, tail)))
+          }
+        theseBranchs *> recursion
+    }
+  }
 
   /**
    * This is like a non-symmetric set difference, where we are removing the right from the left
