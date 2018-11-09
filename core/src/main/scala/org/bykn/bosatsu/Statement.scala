@@ -148,6 +148,22 @@ sealed abstract class Statement {
 sealed abstract class TypeDefinitionStatement extends Statement {
   import Statement._
 
+  /**
+   * This is the name of the type being defined
+   */
+  def name: String
+
+  /**
+   * here are the names of the constructors for this type
+   */
+  def constructors: List[String] =
+    this match {
+      case Struct(nm, _, _) => nm :: Nil
+      case Enum(_, items, _) =>
+        items.get.toList.map { case (nm, _) => nm }
+      case ExternalStruct(_, _, _) => Nil
+    }
+
   def toDefinition(pname: PackageName, nameToType: String => rankn.Type.Const): rankn.DefinedType = {
     import rankn.Type
 
@@ -248,6 +264,12 @@ sealed abstract class TypeDefinitionStatement extends Statement {
 }
 
 object Statement {
+
+  def definitionsOf(s: Statement): Stream[TypeDefinitionStatement] =
+    s.toStream.collect {
+      case tds: TypeDefinitionStatement => tds
+    }
+
   case class Bind(bind: BindingStatement[Padding[Statement]]) extends Statement
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[(OptIndent[Declaration], Padding[Statement])]) extends Statement

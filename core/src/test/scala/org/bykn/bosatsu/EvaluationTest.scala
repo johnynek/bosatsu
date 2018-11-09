@@ -133,6 +133,20 @@ z = match x:
   Some(v): add(v, 10)
   None: 0
 """), "Foo", VInt(11))
+
+    // Use a local name collision and see it not have a problem
+    evalTest(
+      List("""
+package Foo
+
+enum Option: None, Some(get)
+
+x = Some(1)
+
+z = match x:
+  Some(v): add(v, 10)
+  None: 0
+"""), "Foo", VInt(11))
   }
 
   test("test matching literals") {

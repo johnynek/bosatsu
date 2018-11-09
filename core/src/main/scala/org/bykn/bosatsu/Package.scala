@@ -4,8 +4,9 @@ import cats.data.{ValidatedNel, Validated, NonEmptyList}
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
-import Parser.{spaces, maybeSpace, Combinators}
+import scala.collection.mutable.{Map => MMap}
 
+import Parser.{spaces, maybeSpace, Combinators}
 import rankn._
 
 /**
@@ -98,16 +99,37 @@ object Package {
     val resolveImportedCons: Map[String, (PackageName, ConstructorName)] =
       Referant.importedConsNames(imps)
 
+    // here we make a pass to get all the local names
+    val localDefs = Statement.definitionsOf(stmt)
+
+    /*
+     * We should probably error for non-predef name collisions.
+     * Maybe we should even error even or predef collisions that
+     * are not renamed
+     */
+    val localTypeNames = localDefs.map(_.name).toSet
+    val localConstructors = localDefs.flatMap(_.constructors).toSet
+
+    val typeCache: MMap[String, Type.Const] = MMap.empty
+    val consCache: MMap[String, (PackageName, ConstructorName)] = MMap.empty
+
     val Program(typeEnv, lets, _) =
       Program.fromStatement(
         p,
         { s =>
-          // TODO, we could use a mutable map here to cache so we can save
-          // some allocations on seeing the same types over and over
-          val (p1, s1) = importedTypes.getOrElse(s, (p, s))
-          Type.Const.Defined(p1, s1)
+          typeCache.getOrElseUpdate(s, {
+            val (p1, s1) =
+              if (localTypeNames(s)) (p, s)
+              else importedTypes.getOrElse(s, (p, s))
+            Type.Const.Defined(p1, s1)
+          })
         }, // name to type
-        { s => resolveImportedCons.getOrElse(s, (p, ConstructorName(s))) }, // name to cons
+        { s =>
+          consCache.getOrElseUpdate(s, {
+            if (localConstructors(s)) (p, ConstructorName(s))
+            else resolveImportedCons.getOrElse(s, (p, ConstructorName(s)))
+          })
+        }, // name to cons
         stmt)
 
     /*
