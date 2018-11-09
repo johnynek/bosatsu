@@ -84,7 +84,4 @@ object Referant {
           }
         }
     }
-  // case class Value(scheme: rankn.Type) extends Referant
-  // case class DefinedT(dtype: rankn.DefinedType) extends Referant
-  // case class Constructor(name: ConstructorName, dtype: rankn.DefinedType, params: List[(ParamName, rankn.Type)], consValue: rankn.Type) extends Referant
 }
