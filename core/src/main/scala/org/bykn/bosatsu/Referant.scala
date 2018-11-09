@@ -2,6 +2,8 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 
+import rankn.TypeEnv
+
 /**
  * A Referant is something that can be exported or imported after resolving
  * Before resolving, imports and exports are just names.
@@ -61,4 +63,25 @@ object Referant {
     }
     .toMap
   }
+
+  /**
+   * Build the TypeEnv view of the given imports
+   */
+  def importedTypeEnv[A](inps: List[Import[A, NonEmptyList[Referant]]])(nameOf: A => PackageName): TypeEnv =
+    inps.foldLeft(TypeEnv.empty) {
+      case (te, imps) =>
+        val pack = nameOf(imps.pack)
+        imps.items.foldLeft(te) { (te, imp) =>
+          val nm = imp.localName
+          imp.tag.foldLeft(te) {
+            case (te1, Referant.Value(t)) =>
+              te1.addExternalValue(pack, nm, t)
+            case (te1, Referant.Constructor(n, dt, params, v)) =>
+              val nec = te1.constructors.updated((pack, n), (params, dt, v))
+              te1.copy(constructors = nec)
+            case (te1, Referant.DefinedT(dt)) =>
+              te1.addDefinedType(dt)
+          }
+        }
+    }
 }

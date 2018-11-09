@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.NonEmptyList
+import cats.data.{ValidatedNel, Validated, NonEmptyList}
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
@@ -90,7 +90,7 @@ object Package {
     p: PackageName,
     imps: List[Import[Package.Inferred, NonEmptyList[Referant]]],
     stmt: Statement):
-      Either[PackageError, (TypeEnv, List[(String, TypedExpr[Declaration])])] = {
+      ValidatedNel[PackageError, (TypeEnv, List[(String, TypedExpr[Declaration])])] = {
 
     val importedTypes: Map[String, (PackageName, String)] =
       Referant.importedTypes(imps)
@@ -122,11 +122,13 @@ object Package {
         dt1 <- typeEnv.definedTypes.get((p, TypeName(n))).toList
       } yield dt1).distinct
 
-    val circularCheck: Either[PackageError, Unit] =
+    val circularCheck: ValidatedNel[PackageError, Unit] =
       typeEnv.definedTypes.values.toList.traverse_ { dt =>
-        Impl.dagToTree(dt)(typeDepends _)
-          .left
-          .map(PackageError.CircularType(p, _))
+        Validated.fromEither(
+          Impl.dagToTree(dt)(typeDepends _)
+            .left
+            .map(PackageError.CircularType(p, _)))
+            .leftMap(NonEmptyList.of(_))
       }
 
     /*
@@ -144,7 +146,13 @@ object Package {
           importedValues.iterator.map { case (n, t) => ((None, n), t) }
         ).toMap
 
-    circularCheck >> Infer.typeCheckLets(lets)
+    val fullTypeEnv = Referant.importedTypeEnv(imps)(_.unfix.name) ++ typeEnv
+    val totalityCheck =
+      lets
+        .traverse { case (_, expr) => TotalityCheck(fullTypeEnv).checkExpr(expr) }
+        .leftMap { errs => errs.map(PackageError.TotalityCheckError(p, _)) }
+
+    val inferenceEither = Infer.typeCheckLets(lets)
       .runFully(withFQN,
         Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
       )
@@ -152,6 +160,9 @@ object Package {
       .left
       .map(PackageError.TypeErrorIn(_, p))
 
+    val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
+
+    circularCheck *> totalityCheck *> inference
   }
 
   private object Impl {
