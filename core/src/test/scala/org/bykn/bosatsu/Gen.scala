@@ -134,9 +134,9 @@ object Generators {
     } yield Apply(fnParens, args, false)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
 
-  def bindGen[T](dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[T]] =
+  def bindGen[A, T](patGen: Gen[A], dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[A, T]] =
     for {
-      b <- lowerIdent
+      b <- patGen
       value0 <- dec
       value = value0 match { case Declaration.Binding(_) => Declaration.Parens(value0)(emptyRegion); case _ => value0 }
       in <- tgen
@@ -264,6 +264,8 @@ object Generators {
       upperIdent.map(Constructor(_)(emptyRegion)),
       genLit.map(Literal(_)(emptyRegion)))
 
+    val varPat: Gen[Pattern[String, TypeRef]] = lowerIdent.map(Pattern.Var(_))
+
     val recur = Gen.lzy(genDeclaration(depth - 1))
     if (depth <= 0) unnested
     else Gen.frequency(
@@ -272,7 +274,7 @@ object Generators {
       (2, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
-      (2, bindGen(recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
+      (2, bindGen(varPat, recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
       (1, ifElseGen(recur)),
       (1, listGen(recur)),
       (1, matchGen(recur))
@@ -360,7 +362,7 @@ object Generators {
     val recur = Gen.lzy(genStatement(depth-1))
     val decl = genDeclaration(depth)
     Gen.frequency(
-      (1, bindGen(decl, padding(recur, 1)).map(Statement.Bind(_))),
+      (1, bindGen(lowerIdent, decl, padding(recur, 1)).map(Statement.Bind(_))),
       (1, commentGen(padding(recur, 1)
         .map {
           case Padding(0, c@Statement.Comment(_)) => Padding[Statement](1, c) // make sure not two back to back comments

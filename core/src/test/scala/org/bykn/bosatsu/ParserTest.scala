@@ -261,7 +261,7 @@ foo""")
       """foo = 5
 
 5""",
-    Declaration.Binding(BindingStatement("foo", Declaration.Literal(Lit.fromInt(5)),
+    Declaration.Binding(BindingStatement(Pattern.Var("foo"), Declaration.Literal(Lit.fromInt(5)),
       Padding(1, Declaration.Literal(Lit.fromInt(5))))))
   }
 
@@ -309,19 +309,19 @@ foo""")
     parseTestAll(parser(""),
       """x = 4
 x""",
-    Binding(BindingStatement("x", Literal(Lit.fromInt(4)), Padding(0, Var("x")))))
+    Binding(BindingStatement(Pattern.Var("x"), Literal(Lit.fromInt(4)), Padding(0, Var("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 
 x""",
-    Binding(BindingStatement("x", Apply(Var("foo"), NonEmptyList.of(Literal(Lit.fromInt(4))), false), Padding(1, Var("x")))))
+    Binding(BindingStatement(Pattern.Var("x"), Apply(Var("foo"), NonEmptyList.of(Literal(Lit.fromInt(4))), false), Padding(1, Var("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 # x is really great
 x""",
-    Binding(BindingStatement("x",Apply(Var("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), false),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,Var("x"))))))))
+    Binding(BindingStatement(Pattern.Var("x"),Apply(Var("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), false),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,Var("x"))))))))
 
   }
 
