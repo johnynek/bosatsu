@@ -439,4 +439,67 @@ one = match something:
 main = one
 """), "Total") { case PackageError.TotalityCheckError(_, _) => () }
   }
+
+  test("Leibniz type equality example") {
+  evalTest(
+    List("""
+package A
+
+struct Leib(subst: forall f. f[a] -> f[b])
+
+struct Id(a)
+
+def coerce(a, leib):
+  match leib:
+    Leib(subst):
+      match subst(Id(a)):
+        Id(b): b
+
+# there is really only one (polymorphic) value of Leib
+refl = Leib(\x -> x)
+
+enum StringOrInt:
+  IsStr(s: String, leib: Leib[String, a])
+  IsInt(i: Int, leib: Leib[Int, a])
+
+str = IsStr("foo", refl)
+int = IsInt(42, refl)
+
+# this takes StringOrInt[a] and returns a
+def getValue(v):
+  match v:
+    IsStr(s, leib): coerce(s, leib)
+    IsInt(i, leib): coerce(i, leib)
+
+main = getValue(int)
+"""), "A", VInt(42))
+
+  // If we leave out the coerce it fails
+  evalFail(
+    List("""
+package A
+
+struct Leib(subst: forall f. f[a] -> f[b])
+
+# there is really only one (polymorphic) value of Leib
+refl = Leib(\x -> x)
+
+enum StringOrInt:
+  IsStr(s: String, leib: Leib[String, a])
+  IsInt(i: Int, leib: Leib[Int, a])
+
+str = IsStr("foo", refl)
+int = IsInt(42, refl)
+
+# this takes StringOrInt[a] and returns a
+def getValue(v):
+  match v:
+    IsStr(s, _): s
+    IsInt(i, _): i
+
+main = getValue(int)
+"""), "A"){ case PackageError.TypeErrorIn(_, _) => () }
+
+  }
+
 }
