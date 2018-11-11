@@ -235,6 +235,17 @@ enum Either: Left(l), Right(r)
         case Right(many) => fail(s"expected exactly one difference: ${many.map(showPat)}")
       }
     }
+
+    {
+      // this test isn't complete, but this a list of size one matches
+      // both sides, but the intersection currently has a minimum size 2
+      val p0 :: p1 :: Nil = patterns("[[*_, _], [_, *_]]")
+      TotalityCheck(TypeEnv.empty).intersection(p0, p1) match {
+        case Right(Some(err)) => fail(err.toString)
+        case Right(None) => succeed
+        case Left(err) => fail(err.toString)
+      }
+    }
   }
 
   test("intersection(a, a) == a") {
@@ -304,6 +315,8 @@ enum Either: Left(l), Right(r)
       val a :: b :: c :: Nil = patterns(str)
       law(a, b, c)
     }
+
+    manualTest("[[a, b, *c], [d, *_, _], [[e], _]]")
   }
 
   test("intersection(a, b) == intersection(b, a)") {

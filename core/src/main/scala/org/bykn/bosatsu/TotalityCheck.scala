@@ -333,7 +333,6 @@ case class TotalityCheck(inEnv: TypeEnv) {
         //
         // This leaves only the case of
         //   [a, b... *c] n [*d, e, f].
-        // which is [a, b, ... ,*_, e, f...]
         lt.lastOption match {
           case None =>
             // we have a singleton list matching at least one after the splice:
@@ -346,6 +345,17 @@ case class TotalityCheck(inEnv: TypeEnv) {
                 case ListPat(res) => ListPat(res.reverse)
               })
           case Some(Left(_)) =>
+            /*
+             * This branch is currently wrong...
+             *
+             *   [a, *_] n [*_, b] = [a n b] | [a, *_, b]
+             *   we basically need all the windows of overlap,
+             *   plus the [a1, a2, ... *_, b1, b2, ..] case.
+             *
+             *   so the rights can maximally to minimally
+             *   overlap and we have the union of all those
+             *   cases.
+             */
             // left side can have infinite right, right side can have infinite left:
             val leftSide = leftL.init
             val rightSide = rt
