@@ -42,7 +42,7 @@ sealed abstract class Declaration {
         val withNewLine = Document.instance[Padding[Declaration]] { pd =>
            Doc.line + d0.document(pd)
         }
-        BindingStatement.document(withNewLine).document(b)
+        BindingStatement.document(Document[Pattern[String, TypeRef]], withNewLine).document(b)
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
       case Constructor(name) =>
@@ -112,8 +112,16 @@ sealed abstract class Declaration {
                 loop0(Expr.App(fn, h, this), tail)
             }
           loop0(loop(fn), args.toList.map(loop(_)))
-        case Binding(BindingStatement(arg, value, Padding(_, dec))) =>
-          Expr.Let(arg, loop(value), loop(dec), this)
+        case Binding(BindingStatement(pat, value, Padding(_, dec))) =>
+          pat match {
+            case Pattern.Var(arg) =>
+              Expr.Let(arg, loop(value), loop(dec), this)
+            case pat =>
+              val newPattern = pat.mapName(nameToCons).mapType(_.toType(nameToType))
+              val res = loop(decl)
+              val expBranches = NonEmptyList.of((newPattern, res))
+              Expr.Match(loop(value), expBranches, decl)
+          }
         case Comment(CommentStatement(_, Padding(_, decl))) =>
           loop(decl).map(_ => this)
         case Constructor(name) =>
@@ -204,7 +212,7 @@ object Declaration {
   //
 
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration], useDotApply: Boolean)(implicit val region: Region) extends Declaration
-  case class Binding(binding: BindingStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class Binding(binding: BindingStatement[Pattern[String, TypeRef], Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Constructor(name: String)(implicit val region: Region) extends Declaration
   case class DefFn(deffn: DefStatement[(OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
@@ -235,7 +243,8 @@ object Declaration {
       .region
       .map { case (region, (value, rest)) =>
 
-        { (str: String, r: Region) => Binding(BindingStatement(str, value, rest))(r + region) }
+        // TODO support parsing more patterns here
+        { (str: String, r: Region) => Binding(BindingStatement(Pattern.Var(str), value, rest))(r + region) }
       }
   }
 

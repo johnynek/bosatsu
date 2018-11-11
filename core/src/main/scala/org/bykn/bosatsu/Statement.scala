@@ -64,15 +64,15 @@ object DefStatement {
       P(lowerIdent ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
 }
 
-case class BindingStatement[T](name: String, value: Declaration, in: T)
+case class BindingStatement[B, T](name: B, value: Declaration, in: T)
 
 object BindingStatement {
   private[this] val eqDoc = Doc.text(" = ")
 
-  implicit def document[T: Document]: Document[BindingStatement[T]] =
-    Document.instance[BindingStatement[T]] { let =>
+  implicit def document[A: Document, T: Document]: Document[BindingStatement[A, T]] =
+    Document.instance[BindingStatement[A, T]] { let =>
       import let._
-      Doc.text(name) + eqDoc + value.toDoc + Document[T].document(in)
+      Document[A].document(name) + eqDoc + value.toDoc + Document[T].document(in)
     }
 }
 
@@ -270,7 +270,7 @@ object Statement {
       case tds: TypeDefinitionStatement => tds
     }
 
-  case class Bind(bind: BindingStatement[Padding[Statement]]) extends Statement
+  case class Bind(bind: BindingStatement[String, Padding[Statement]]) extends Statement
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[(OptIndent[Declaration], Padding[Statement])]) extends Statement
   case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
@@ -353,7 +353,7 @@ object Statement {
   implicit lazy val document: Document[Statement] =
     Document.instance[Statement] {
       case Bind(bs) =>
-        Document[BindingStatement[Padding[Statement]]].document(bs)
+        Document[BindingStatement[String, Padding[Statement]]].document(bs)
       case Comment(cm) =>
         Document[CommentStatement[Padding[Statement]]].document(cm)
       case Def(d) =>

@@ -32,7 +32,7 @@ case class Program[D, S](types: rankn.TypeEnv, lets: List[(String, D)], from: S)
 
     val fn = { (nm: String, v: Declaration, in: Declaration) =>
       val r = v.region + in.region
-      Declaration.Binding(BindingStatement(nm, v, Padding(0, in)))(r)
+      Declaration.Binding(BindingStatement(Pattern.Var(nm), v, Padding(0, in)))(r)
     }
 
     getMain[Declaration](fn)
