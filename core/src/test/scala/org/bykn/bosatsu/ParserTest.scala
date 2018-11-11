@@ -39,7 +39,7 @@ class ParserTest extends FunSuite {
   private[this] implicit val emptyRegion: Region = Region(0, 0)
 
   implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 500)
+    //PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 50)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
@@ -89,20 +89,44 @@ class ParserTest extends FunSuite {
     }
   }
 
+  test("string escape/unescape round trips") {
+    forAll(Gen.oneOf('\'', '"'), Arbitrary.arbitrary[String]) { (c, str) =>
+      val str1 = Parser.escape(c, str)
+      try {
+        Parser.unescape(str1) match {
+          case Right(str2) => assert(str2 == str)
+          case Left(idx) => fail(s"failed at idx: $idx in $str: ${region(str, idx)}")
+        }
+      }
+      catch {
+        case t: Throwable => fail(s"failed to decode: $str1 from $str, exception: $t")
+      }
+    }
+  }
+
   test("we can parse quoted strings") {
     val qstr = for {
       qchar <- Gen.oneOf('\'', '"')
-      qstr = qchar.toString
-      str <- Arbitrary.arbitrary[String].filter { s => !s.contains('\u0000') }
-    } yield (qstr + Parser.escape(Set(qchar), str) + qstr, str, qchar)
+      str <- Arbitrary.arbitrary[String]
+    } yield (str, qchar)
 
-    forAll(qstr) { case (quoted, str, char) =>
-      parseTestAll(Parser.escapedString(char), quoted, str)
+    def law(str: String, qchar: Char) = {
+      // we have to do this here, or otherwise broken scalacheck shrinking gets us
+      val qstr = qchar.toString
+      val quoted = qstr + Parser.escape(qchar, str) + qstr
+      parseTestAll(Parser.escapedString(qchar), quoted, str)
     }
 
+    forAll(qstr) { case (s, c) => law(s, c) }
+
+    parseTestAll(Parser.escapedString('\''), "''", "")
     parseTestAll(Parser.escapedString('\''), "''", "")
     parseTestAll(Parser.escapedString('"'), "\"\"", "")
     parseTestAll(Parser.escapedString('\''), "'foo\tbar'", "foo\tbar")
+
+    val regressions = List(("'", '\''))
+
+    regressions.foreach { case (s, c) => law(s, c) }
   }
 
   test("we can parse lists") {

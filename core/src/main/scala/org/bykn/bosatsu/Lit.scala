@@ -40,7 +40,7 @@ object Lit {
         Doc.text(i.toString)
       case Str(str) =>
         val q = if (str.contains('\'') && !str.contains('"')) '"' else '\''
-        Doc.char(q) + Doc.text(Parser.escape(Set(q), str)) + Doc.char(q)
+        Doc.char(q) + Doc.text(Parser.escape(q, str)) + Doc.char(q)
     }
 }
 
