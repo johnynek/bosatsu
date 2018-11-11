@@ -243,12 +243,15 @@ object Parser {
     val sb = new java.lang.StringBuilder
     def decodeNum(idx: Int, size: Int, base: Int): Int = {
       val end = idx + size
-      sb.append(Integer.parseInt(str.substring(idx, end), base).toChar)
-      end
+      if (end <= str.length) {
+        sb.append(Integer.parseInt(str.substring(idx, end), base).toChar)
+        end
+      } else ~(str.length)
     }
     @annotation.tailrec
     def loop(idx: Int): Option[Int] =
       if (idx >= str.length) None
+      else if (idx < 0) Some(~idx) // error from decodeNum
       else {
         val c0 = str.charAt(idx)
         if (c0 != '\\') {

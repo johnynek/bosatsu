@@ -105,6 +105,17 @@ class ParserTest extends FunSuite {
 
     assert(Parser.escape('"', "\t") == "\\t")
     assert(Parser.escape('"', "\n") == "\\n")
+
+    // unescape never throws:
+    assert(Parser.unescape("\\x0").isLeft)
+    assert(Parser.unescape("\\o0").isLeft)
+    assert(Parser.unescape("\\u0").isLeft)
+    assert(Parser.unescape("\\u00").isLeft)
+    assert(Parser.unescape("\\u000").isLeft)
+    assert(Parser.unescape("\\U0000").isLeft)
+    forAll { s: String => Parser.unescape(s); succeed }
+
+    assert(Parser.unescape("\\u0020") == Right(" "))
   }
 
   test("we can parse quoted strings") {
