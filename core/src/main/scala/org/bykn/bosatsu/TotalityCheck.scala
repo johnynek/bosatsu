@@ -133,7 +133,7 @@ case class TotalityCheck(inEnv: TypeEnv) {
         productDifference((lhead, rhead) :: (ListPat(ltail), ListPat(rtail)) :: Nil)
           .map { listOfList =>
             listOfList.map {
-              case h :: ListPat(tail) :: Nil =>
+              case NonEmptyList(h, ListPat(tail) :: Nil) =>
                 ListPat(Right(h) :: tail)
               case other =>
                 sys.error(s"expected exactly two items: $other")
@@ -237,7 +237,7 @@ case class TotalityCheck(inEnv: TypeEnv) {
             .as(())
 
         arityMatch >> productDifference(lp zip rp).map { pats =>
-          pats.map(PositionalStruct(ln, _))
+          pats.map { tup => PositionalStruct(ln, tup.toList) }
         }
       case (PositionalStruct(_, _), PositionalStruct(_, _)) =>
         Right(left :: Nil)
@@ -260,25 +260,25 @@ case class TotalityCheck(inEnv: TypeEnv) {
 
   def intersection(
     left: Pattern[Cons, Type],
-    right: Pattern[Cons, Type]): Res[Option[Pattern[Cons, Type]]] =
+    right: Pattern[Cons, Type]): Res[List[Pattern[Cons, Type]]] =
       (left, right) match {
-        case (Var(va), Var(vb)) => Right(Some(Var(Ordering[String].min(va, vb))))
-        case (WildCard, v) => Right(Some(v))
-        case (v, WildCard) => Right(Some(v))
-        case (Var(_), v) => Right(Some(v))
-        case (v, Var(_)) => Right(Some(v))
+        case (Var(va), Var(vb)) => Right(List(Var(Ordering[String].min(va, vb))))
+        case (WildCard, v) => Right(List(v))
+        case (v, WildCard) => Right(List(v))
+        case (Var(_), v) => Right(List(v))
+        case (v, Var(_)) => Right(List(v))
         case (Annotation(p, _), t) => intersection(p, t)
         case (t, Annotation(p, _)) => intersection(t, p)
         case (Literal(a), Literal(b)) =>
-          if (a == b) Right(Some(left))
-          else Right(None)
-        case (Literal(_), _) => Right(None)
-        case (_, Literal(_)) => Right(None)
+          if (a == b) Right(List(left))
+          else Right(Nil)
+        case (Literal(_), _) => Right(Nil)
+        case (_, Literal(_)) => Right(Nil)
         case (lp@ListPat(leftL), rp@ListPat(rightL)) =>
           checkListPats(lp :: rp :: Nil) *>
             intersectionList(leftL, rightL)
-        case (ListPat(_), _) => Right(None)
-        case (_, ListPat(_)) => Right(None)
+        case (ListPat(_), _) => Right(Nil)
+        case (_, ListPat(_)) => Right(Nil)
         case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
           if (ln == rn) {
             val check = for {
@@ -286,43 +286,94 @@ case class TotalityCheck(inEnv: TypeEnv) {
               _ <- checkArity(rn, rps.size, right)
             } yield ()
 
-            type ResOption[A] = Res[Option[A]]
-            implicit val app = Applicative[Res].compose(Applicative[Option])
+            type ResList[A] = Res[List[A]]
+            implicit val app = Applicative[Res].compose(Applicative[List])
             check >>
-              lps.zip(rps).traverse[ResOption, Pattern[Cons, Type]] {
+              lps.zip(rps).traverse[ResList, Pattern[Cons, Type]] {
                 case (l, r) => intersection(l, r)
               }
               .map(_.map(PositionalStruct(ln, _)))
           }
-          else Right(None)
+          else Right(Nil)
       }
 
+  /**
+   * invariants:
+   * 1. items has no Lefts
+   * 2. each or items is longer than the next, or, they are trivally disjoint in matching different
+   *    length lists
+   */
+  private def unionDisjointList(items: List[List[ListPatElem]], withLeft: List[ListPatElem]): List[ListPat[Cons, Type]] = {
+    def maybeAbsorb(item: List[ListPatElem], into: List[ListPatElem], recurse: Boolean): Option[List[ListPatElem]] =
+      /*
+       * [] can be absorbed into [*_, _], [_, *_] => [*_]
+       * [_] can be absorbed into [*_, _] => [_, *_]
+       * [a] can be absorbed into [_, *_] => [_, *_]
+       * [a] can be absorbed into [a, *_, _], [a, _, *_] or [_, *_, a], [*_, _, a] => [a, *_], [*_, a]
+       * [a, b] can be absorbed into [a, b, *_, _] => [a, b, *_]
+       * [a, b] can be absorbed into [_, *_, a, b] => [*_, a, b]
+       */
+      (item, into) match {
+        case (_, Left(_) :: Nil) => Some(Left(None) :: Nil)
+        case (Nil, Left(_) :: Right(WildCard | Var(_)) :: Nil | Right(WildCard | Var(_)) :: Left(_) :: Nil) =>
+          Some(Left(None) :: Nil)
+        case (Nil, _) => None
+        case (Right(it) :: ittail, Right(into) :: intotail) if leftIsSuperSet(into :: Nil, it) =>
+          // we can recurse here:
+          maybeAbsorb(ittail, intotail, true).map(Right(into) :: _)
+        case (Right(_) :: _, _ :: _) =>
+          // we have at least one Right on the right side, try to absorb from there
+          if (recurse) maybeAbsorb(item.reverse, into.reverse, false).map(_.reverse)
+          else None
+        case (Right(_) :: _, Nil) => sys.error(s"expected left longer than right: $items, $withLeft")
+        case (Left(_) :: _, _) => sys.error(s"invariant violation: $items")
+      }
+
+    def loop(its: List[List[ListPatElem]], withLeft: List[ListPatElem]): List[ListPat[Cons, Type]] =
+      its match {
+        case Nil => ListPat(withLeft) :: Nil
+        case h :: tail =>
+          maybeAbsorb(h, withLeft, true) match {
+            case None =>
+              // due to the invariants, if we can't absorb this, we can't absorb any
+              // we reverse here to go in increasing size for the final result
+              (its.reverse ::: (withLeft :: Nil)).map(ListPat(_))
+            case Some(newLeft) =>
+              loop(tail, newLeft)
+          }
+      }
+
+    loop(items, withLeft)
+  }
+
   // invariant: each input has at most 1 splice pattern. This should be checked by callers.
-  private def intersectionList(leftL: List[ListPatElem], rightL: List[ListPatElem]): Res[Option[ListPat[Cons, Type]]] = {
+  private def intersectionList(leftL: List[ListPatElem], rightL: List[ListPatElem]): Res[List[ListPat[Cons, Type]]] = {
     def left = ListPat(leftL)
     (leftL, rightL) match {
       case (_, Left(_) :: tail) if matchesEmpty(tail) =>
         // the right hand side is a top value, it can match any list, so intersection with top is
         // left
-        Right(Some(left))
+        Right(List(left))
       case (Left(_) :: tail, _) if matchesEmpty(tail) =>
         // the left hand side is a top value, it can match any list, so intersection with top is
         // right
-        Right(Some(ListPat(rightL)))
-      case (Nil, Nil) => Right(Some(left))
-      case (Nil, Right(_) :: _) => Right(None)
+        Right(List(ListPat(rightL)))
+      case (Nil, Nil) => Right(List(left))
+      case (Nil, Right(_) :: _) => Right(Nil)
       case (Nil, Left(_) :: _) | (Left(_) :: _, Nil) =>
         // the non Nil patterns can't match empty due to the above:
-        Right(None)
-      case (Right(_) :: _, Nil) => Right(None)
+        Right(Nil)
+      case (Right(_) :: _, Nil) => Right(Nil)
       case (Right(lh) :: lt, Right(rh) :: rt) =>
-        intersection(lh, rh).flatMap {
-          case None => Right(None)
-          case Some(h) =>
-            intersectionList(lt, rt)
-              .map(_.map {
-                case ListPat(ts) => ListPat(Right(h) :: ts)
-              })
+        intersection(lh, rh).flatMap { heads =>
+          intersectionList(lt, rt)
+            .map { inner =>
+              heads.flatMap { h =>
+                inner.map {
+                  case ListPat(ts) => ListPat(Right(h) :: ts)
+                }
+              }
+            }
         }
       case (Right(lh) :: lt, Left(rh) :: rt) =>
         // we know rt is not empty, because otherwise it would
@@ -359,7 +410,27 @@ case class TotalityCheck(inEnv: TypeEnv) {
             // left side can have infinite right, right side can have infinite left:
             val leftSide = leftL.init
             val rightSide = rt
-            Right(Some(ListPat(leftSide ::: (Left(None) :: rightSide))))
+            // return a union of list patterns
+            def overlap(n: Int): Res[List[List[ListPatElem]]] = {
+              require(n > 0, s"invalid overlap: $n")
+              val windowL = leftSide.takeRight(n)
+              val windowR = rightSide.take(n)
+              val farLeft = leftSide.dropRight(n)
+              val farRight = rightSide.drop(n)
+              // compute the intersection of the window, then append
+              // to either side:
+              intersectionList(windowL, windowR)
+                .map(_.map { case ListPat(middle) =>
+                  farLeft ::: middle ::: farRight
+                })
+            }
+            val zeroOverlap: List[ListPatElem] = leftSide ::: (Left(None) :: rightSide)
+            val maxOverlapSize = leftSide.size min rightSide.size
+            // these should be in largest to smallest order
+            val overlapSizes = (1 to maxOverlapSize).toList.reverse
+            val ovs = overlapSizes.traverse(overlap)
+            // put them in size order from smallest to largest
+            ovs.map { ovList => unionDisjointList(ovList.flatten, zeroOverlap) }
         }
       case (Left(_) :: _, Right(_) :: _) =>
         // intersection is symmetric
@@ -469,10 +540,12 @@ case class TotalityCheck(inEnv: TypeEnv) {
    * There the list is a tuple or product pattern
    * the left and right should be the same size and the result will be a list of lists
    * with the inner having the same size
+   *
+   * The result is a union
    */
   private def productDifference(
     zip: List[(Pattern[Cons, Type], Pattern[Cons, Type])]
-  ): Res[List[List[Pattern[Cons, Type]]]] =
+  ): Res[List[NonEmptyList[Pattern[Cons, Type]]]] =
     /*
      * (Left(_), _) -- (Right(_), Right(_)) = (Left(_), _)
      * (Left(_), _) -- (Left(_), Right(_)) = (Left(_), Left(_))
@@ -497,32 +570,41 @@ case class TotalityCheck(inEnv: TypeEnv) {
     zip match {
       case Nil => Right(Nil) // complete match
       case (lh, rh) :: tail =>
-        type Result = Res[List[List[Pattern[Cons, Type]]]]
+        type Result = Res[List[NonEmptyList[Pattern[Cons, Type]]]]
 
         val headDiff = difference0(lh, rh)
 
-        def noDiffResult: List[Patterns] = zip.map(_._1) :: Nil
+        def noDiffResult: List[NonEmptyList[Pattern[Cons, Type]]] =
+          NonEmptyList(lh, tail.map(_._1)) :: Nil
 
-        headDiff.right.flatMap {
+        headDiff.flatMap {
           case noDiff if leftIsSuperSet(noDiff, lh) =>
             Right(noDiffResult)
           case hd =>
             val tailDiff: Result =
               intersection(lh, rh).flatMap {
-                case None =>
-                  // we don't need to recurse on the rest
+                case Nil =>
+                  // There is no intersection in head
                   Right(Nil)
-                case Some(intr) =>
-                  productDifference(tail).map { pats =>
-                    pats.map(intr :: _)
+                case intrs =>
+                  // note that the each item in the inner list
+                  // has the same size as tail
+                  val taild = productDifference(tail)
+                  intrs.traverse { intr: Pattern[Cons, Type] =>
+                    // intrs is a non empty list
+                    // of to union
+                    taild.map { union: List[NonEmptyList[Pattern[Cons, Type]]] =>
+                      // union is a list of patterns of the same size as tail
+                      union.map(intr :: _)
+                    }
                   }
+                  .map(_.flatten)
               }
 
             def productAsList(prod: List[Pattern[Cons, Type]]): Pattern[Cons, Type] =
               ListPat(prod.map(Right(_)))
 
             tailDiff.map { union =>
-              // we have already attached on each inner list
               val unionAsList = union.map { t => productAsList(t.tail) }
               val tailProd = productAsList(tail.map(_._1))
 
@@ -533,7 +615,7 @@ case class TotalityCheck(inEnv: TypeEnv) {
                 noDiffResult
               }
               else {
-                val headDiffWithRest = hd.map(_ :: tail.map(_._1))
+                val headDiffWithRest = hd.map { h => NonEmptyList(h, tail.map(_._1)) }
                 headDiffWithRest ::: union
               }
             }
