@@ -244,7 +244,11 @@ object Parser {
     def decodeNum(idx: Int, size: Int, base: Int): Int = {
       val end = idx + size
       if (end <= str.length) {
-        sb.append(Integer.parseInt(str.substring(idx, end), base).toChar)
+        val intStr = str.substring(idx, end)
+        val asInt =
+          try Integer.parseInt(intStr, base)
+          catch { case _: NumberFormatException => ~idx }
+        sb.append(asInt.toChar)
         end
       } else ~(str.length)
     }

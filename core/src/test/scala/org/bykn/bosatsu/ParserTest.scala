@@ -114,6 +114,14 @@ class ParserTest extends FunSuite {
     assert(Parser.unescape("\\u000").isLeft)
     assert(Parser.unescape("\\U0000").isLeft)
     forAll { s: String => Parser.unescape(s); succeed }
+    // more brutal tests
+    forAll { s: String =>
+      val prefixes = List('x', 'o', 'u', 'U').map { c => s"\\$c" }
+      prefixes.foreach { p =>
+        Parser.unescape(s"$p$s")
+        succeed
+      }
+    }
 
     assert(Parser.unescape("\\u0020") == Right(" "))
   }
