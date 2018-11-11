@@ -263,19 +263,23 @@ object Parser {
           loop(idx + 1)
         }
         else {
-          val c = str.charAt(idx + 1)
-          decodeTable.get(c) match {
-            case Some(d) =>
-              sb.append(d)
-              loop(idx + 2)
-            case None =>
-              c match {
-                case 'o' => loop(decodeNum(idx + 2, 2, 8))
-                case 'x' => loop(decodeNum(idx + 2, 2, 16))
-                case 'u' => loop(decodeNum(idx + 2, 4, 16))
-                case 'U' => loop(decodeNum(idx + 2, 8, 16))
-                case _ => Some(idx)
-              }
+          val nextIdx = idx + 1
+          if (nextIdx >= str.length) Some(idx)
+          else {
+            val c = str.charAt(nextIdx)
+            decodeTable.get(c) match {
+              case Some(d) =>
+                sb.append(d)
+                loop(idx + 2)
+              case None =>
+                c match {
+                  case 'o' => loop(decodeNum(idx + 2, 2, 8))
+                  case 'x' => loop(decodeNum(idx + 2, 2, 16))
+                  case 'u' => loop(decodeNum(idx + 2, 4, 16))
+                  case 'U' => loop(decodeNum(idx + 2, 8, 16))
+                  case _ => Some(idx)
+                }
+            }
           }
         }
       }
