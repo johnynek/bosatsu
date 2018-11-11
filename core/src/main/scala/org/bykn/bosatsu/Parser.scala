@@ -230,9 +230,10 @@ object Parser {
     val ignoreEscape = if (quoteChar == '\'') '"' else if (quoteChar == '"') '\'' else 'x'
     str.flatMap { c =>
       if (c == ignoreEscape) c.toString
-      else if (c < ' ') nonPrintEscape(c.toInt)
       else encodeTable.get(c) match {
-        case None => c.toString
+        case None =>
+          if (c < ' ') nonPrintEscape(c.toInt)
+          else c.toString
         case Some(esc) => esc
       }
     }

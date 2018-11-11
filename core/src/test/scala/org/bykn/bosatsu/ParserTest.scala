@@ -102,6 +102,9 @@ class ParserTest extends FunSuite {
         case t: Throwable => fail(s"failed to decode: $str1 from $str, exception: $t")
       }
     }
+
+    assert(Parser.escape('"', "\t") == "\\t")
+    assert(Parser.escape('"', "\n") == "\\n")
   }
 
   test("we can parse quoted strings") {
