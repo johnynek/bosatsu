@@ -55,7 +55,7 @@ object Parser {
       blockLike(first, next, ":")
 
     def blockLike[A, B](first: Indy[A], next: Indy[B], sep: String): Indy[(A, OptIndent[B])] =
-      (first <* lift(P(sep ~/ maybeSpace)))
+      (first <* lift(P(sep ~ maybeSpace)))
         .product(OptIndent.indy(next))
 
     implicit class IndyMethods[A](val toKleisli: Indy[A]) extends AnyVal {
@@ -319,13 +319,13 @@ object Parser {
 
     def nonEmptyListSyntax: P[NonEmptyList[T]] = {
       val ws = maybeSpacesAndLines
-      nonEmptyListOfWs(ws, 1).bracketed(P("[" ~/ ws), P(ws ~ "]"))
+      nonEmptyListOfWs(ws, 1).bracketed(P("[" ~ ws), P(ws ~ "]"))
     }
 
     def listSyntax: P[List[T]] = {
       val ws = maybeSpacesAndLines
       nonEmptyListToList(nonEmptyListOfWs(ws, 1))
-        .bracketed(P("[" ~/ ws), P(ws ~ "]"))
+        .bracketed(P("[" ~ ws), P(ws ~ "]"))
     }
 
     def region: P[(Region, T)] =
@@ -338,9 +338,6 @@ object Parser {
 
     def parens: P[T] =
       wrappedSpace("(", ")")
-
-    def parensCut: P[T] =
-      P("(" ~/ maybeSpace ~ item ~ maybeSpace ~ ")")
   }
 
   val toEOL: P[Unit] = P(maybeSpace ~ "\n")

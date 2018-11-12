@@ -118,7 +118,7 @@ object Pattern {
       val plit = Lit.parser.map(Literal(_))
       val pparen = recurse.parens
 
-      val positional = P(upperIdent ~/ (recurse.listN(1).parens).?)
+      val positional = P(upperIdent ~ (recurse.listN(1).parens).?)
         .map {
           case (n, None) => PositionalStruct(n, Nil)
           case (n, Some(ls)) => PositionalStruct(n, ls)
@@ -134,7 +134,7 @@ object Pattern {
       val listP = listItem.listSyntax.map(ListPat(_))
 
       val nonAnnotated = pvar | plit | pwild | pparen | positional | listP
-      val typeAnnot = P(maybeSpace ~ ":" ~/ maybeSpace ~ TypeRef.parser)
+      val typeAnnot = P(maybeSpace ~ ":" ~ maybeSpace ~ TypeRef.parser)
       val withType = (nonAnnotated ~ typeAnnot.?).map {
         case (p, None) => p
         case (p, Some(t)) => Annotation(p, t)

@@ -2,15 +2,15 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import Parser.Combinators
-import fastparse.all._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.{Doc, Document}
 
+import fastparse.all._
 import Parser.Indy
 
-import Generators.shrinkDecl
+import Generators.{shrinkDecl, shrinkStmt}
 
 object TestParseUtils {
   def region(s0: String, idx: Int): String =
@@ -40,7 +40,7 @@ class ParserTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 50)
+    PropertyCheckConfiguration(minSuccessful = 300)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   def parseTest[T](p: Parser[T], str: String, expected: T, exidx: Int) =
@@ -303,12 +303,19 @@ foo""")
   }
 
   test("we can parse BindingStatement") {
-    parseTestAll(Declaration.parser(""),
+    val dp = Declaration.parser("")
+    parseTestAll(dp,
       """foo = 5
 
 5""",
     Declaration.Binding(BindingStatement(Pattern.Var("foo"), Declaration.Literal(Lit.fromInt(5)),
       Padding(1, Declaration.Literal(Lit.fromInt(5))))))
+
+
+    roundTrip(dp,
+"""#
+Pair(_, x) = z
+x""")
   }
 
   test("we can parse any Apply") {
@@ -347,6 +354,11 @@ foo""")
       expected.toDoc.render(80),
       expected)
 
+  }
+
+  test("we can parse patterns") {
+    roundTrip(Pattern.parser, "Foo([])")
+    roundTrip(Pattern.parser, "Foo([], bar)")
   }
 
   test("we can parse bind") {
@@ -485,6 +497,10 @@ else:
   []: 0
   [x]: 1
   _: 2""")
+
+    roundTrip(Declaration.parser(""),
+"""Foo(x) = bar
+x""")
   }
 
   test("we can parse declaration lists") {
@@ -544,6 +560,12 @@ fn = \x, y -> x.plus(y)
 
 x = ( foo )
 
+""")
+
+    roundTrip(Statement.parser,
+"""#
+
+x = Pair([], b)
 """)
 
     roundTrip(Statement.parser,

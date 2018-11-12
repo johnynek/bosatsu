@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen, Shrink}
+import cats.implicits._
 
 object Generators {
   val lower: Gen[Char] = Gen.oneOf('a' to 'z')
@@ -264,7 +265,8 @@ object Generators {
       upperIdent.map(Constructor(_)(emptyRegion)),
       genLit.map(Literal(_)(emptyRegion)))
 
-    val varPat: Gen[Pattern[String, TypeRef]] = lowerIdent.map(Pattern.Var(_))
+    val pat: Gen[Pattern[String, TypeRef]] = lowerIdent.map(Pattern.Var(_))
+    //val pat = genPattern(0)
 
     val recur = Gen.lzy(genDeclaration(depth - 1))
     if (depth <= 0) unnested
@@ -274,7 +276,7 @@ object Generators {
       (2, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
-      (2, bindGen(varPat, recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
+      (2, bindGen(pat, recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
       (1, ifElseGen(recur)),
       (1, listGen(recur)),
       (1, matchGen(recur))
@@ -315,6 +317,28 @@ object Generators {
           case ListDecl(ListLang.Comprehension(a, b, c, d)) =>
             (a.value :: b :: c :: d.toList).toStream
         }
+    })
+
+  implicit val shrinkStmt: Shrink[Statement] =
+    Shrink[Statement](new Function1[Statement, Stream[Statement]] {
+      import Statement._
+
+      def apply(s: Statement): Stream[Statement] = s match {
+        case EndOfFile => Stream.empty
+        case Bind(bs@BindingStatement(_, d, _)) =>
+          shrinkDecl.shrink(d).flatMap { sd =>
+            Bind(bs.copy(value = sd)).toStream
+          }
+        case Def(ds) =>
+          ds.result match {
+            case (body, Padding(l, in)) =>
+              body.traverse(shrinkDecl.shrink(_))
+                .flatMap { bod =>
+                  apply(in).map { rest => Def(ds.copy(result = (bod, Padding(1, rest)))) }
+                }
+          }
+        case rest => rest.toStream.tail
+      }
     })
 
   val constructorGen: Gen[(String, List[(String, Option[TypeRef])])] =

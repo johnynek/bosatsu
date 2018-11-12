@@ -112,13 +112,13 @@ sealed abstract class Declaration {
                 loop0(Expr.App(fn, h, this), tail)
             }
           loop0(loop(fn), args.toList.map(loop(_)))
-        case Binding(BindingStatement(pat, value, Padding(_, dec))) =>
+        case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
           pat match {
             case Pattern.Var(arg) =>
-              Expr.Let(arg, loop(value), loop(dec), this)
+              Expr.Let(arg, loop(value), loop(rest), this)
             case pat =>
               val newPattern = pat.mapName(nameToCons).mapType(_.toType(nameToType))
-              val res = loop(decl)
+              val res = loop(rest)
               val expBranches = NonEmptyList.of((newPattern, res))
               Expr.Match(loop(value), expBranches, decl)
           }
@@ -231,25 +231,53 @@ object Declaration {
    */
   case class ListDecl(list: ListLang[Declaration])(implicit val region: Region) extends Declaration
 
+  /**
+   * A pattern can also be a declaration in some cases
+   *
+   * TODO, patterns don't parse with regions, so we lose track of precise position information
+   * if we want to point to an inner portion of it
+   */
+  def toPattern(d: Declaration): Option[Pattern[String, TypeRef]] =
+    d match {
+      case Var(v) => Some(Pattern.Var(v))
+      case Literal(lit) => Some(Pattern.Literal(lit))
+      case ListDecl(ListLang.Cons(elems)) =>
+        val optParts: Option[List[Either[Option[String], Pattern[String, TypeRef]]]] =
+          elems.traverse {
+            case ListLang.SpliceOrItem.Splice(Var(n)) =>
+              Some(Left(Some(n)))
+            case ListLang.SpliceOrItem.Item(p) =>
+              toPattern(p).map(Right(_))
+            case _ => None
+          }
+        optParts.map(Pattern.ListPat(_))
+      case Constructor(nm) => Some(Pattern.PositionalStruct(nm, Nil))
+      case Apply(Constructor(nm), args, false) =>
+        args.traverse(toPattern(_)).map { argPats =>
+          Pattern.PositionalStruct(nm, argPats.toList)
+        }
+      case Parens(p) => toPattern(p)
+      case _ => None
+    }
+
   private val restP: Indy[Padding[Declaration]] =
     (Indy.parseIndent *> parser).mapF(Padding.parser(_))
 
   // This is something we check after variables
-  private val bindingOp: Indy[(String, Region) => Binding] = {
+  private val bindingOp: Indy[(Pattern[String, TypeRef], Region) => Binding] = {
     val eqP = P("=" ~ !"=")
 
-    (Indy.lift(P(maybeSpace ~ eqP ~/ maybeSpace)) *> parser <* Indy.lift(toEOL))
+    (Indy.lift(P(maybeSpace ~ eqP ~ maybeSpace)) *> parser <* Indy.lift(toEOL))
       .product(restP)
       .region
       .map { case (region, (value, rest)) =>
 
-        // TODO support parsing more patterns here
-        { (str: String, r: Region) => Binding(BindingStatement(Pattern.Var(str), value, rest))(r + region) }
+        { (pat: Pattern[String, TypeRef], r: Region) => Binding(BindingStatement(pat, value, rest))(r + region) }
       }
   }
 
   val constructorP: P[Constructor] =
-    upperIdent.region.map { case (r, c) => Constructor(c)(r) }
+    upperIdent.region.map { case (r, c) => Constructor(c)(r) }.opaque("Constructor")
 
   val commentP: Parser.Indy[Comment] =
     CommentStatement.parser(Parser.Indy { indent => Padding.parser(P(indent ~ parser(indent)))})
@@ -318,11 +346,22 @@ object Declaration {
   val varP: P[Var] =
     lowerIdent.region.map { case (r, v) => Var(v)(r) }
 
-  private val varOrBind: Indy[Declaration] =
-    Indy.lift(varP).product(bindingOp.?)
+  private val patternBind: Indy[Declaration] =
+    Indy.lift(Pattern.parser.region).product(bindingOp)
       .map {
-        case (v, None) => v
-        case (varD@Var(v), Some(fn)) => fn(v, varD.region)
+        case ((reg, pat), fn) => fn(pat, reg)
+      }
+
+  private def decOrBind(p: P[Declaration], indent: String): P[Declaration] =
+    (p ~ bindingOp(indent).?)
+      .flatMap {
+        case (d, None) => PassWith(d)
+        case (d, Some(op)) =>
+          toPattern(d) match {
+            case None => Fail
+            case Some(dpat) =>
+              PassWith(op(dpat, d.region))
+          }
       }
 
   private def listP(p: P[Declaration]): P[ListDecl] =
@@ -334,20 +373,20 @@ object Declaration {
     Memoize.function[String, P[Declaration]] { (indent, rec) =>
 
       val postOperators: List[P[Declaration => Declaration]] = {
-        val params = P(rec(indent).nonEmptyList.parensCut)
+        val params = P(rec(indent).nonEmptyList.parens)
         // here we are using . syntax foo.bar(1, 2)
         val dotApply =
           P("." ~/ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
             val args = argsOpt.fold(List.empty[Declaration])(_.toList)
 
             { head: Declaration => Apply(fn, NonEmptyList(head, args), true)(head.region + r2) }
-          }
+          }.opaque(". apply operator")
 
         // here we directly call a function foo(1, 2)
         val applySuffix = params.region.map { case (r, args) =>
 
           { fn: Declaration => Apply(fn, args, false)(fn.region + r) }
-        }
+        }.opaque("apply opereator")
 
         // here is if/ternary operator
         val ternary =
@@ -358,7 +397,7 @@ object Declaration {
                 val ifcase = NonEmptyList.of((cond, OptIndent.same(trueCase)))
                 IfElse(ifcase, OptIndent.same(falseCase))(trueCase.region + region)
               }
-            }
+            }.opaque("ternary operator")
 
         dotApply :: applySuffix :: ternary :: Nil
       }
@@ -366,9 +405,23 @@ object Declaration {
       val recIndy = Indy(rec)
 
       val lits = Lit.parser.region.map { case (r, l) => Literal(l)(r) }
-      val prefix = P(listP(rec(indent)) | defP(indent) | lits | lambdaP(indent) | matchP(recIndy)(indent) |
-        ifElseP(recIndy)(indent) | varOrBind(indent) | constructorP | commentP(indent) |
-        P(rec(indent).parens).region.map { case (r, p) => Parens(p)(r) })
+      /*
+       * Note pattern bind needs to be before anything that looks like a pattern that can't handle
+       * bind
+       */
+      val prefix = P(
+        // these have keywords which need to be parsed before var (def, match, if)
+        defP(indent) |
+        lambdaP(indent) |
+        matchP(recIndy)(indent) |
+        ifElseP(recIndy)(indent) |
+        // vars are so common, try to parse them before the generic pattern
+        decOrBind(varP | listP(rec(indent)), indent) |
+        patternBind(indent) |
+        lits | // technically this can be a pattern: 3 = x, so it has to be after patternBind, but it is never total.
+        constructorP |
+        commentP(indent) |
+        rec(indent).parens.region.map { case (r, p) => Parens(p)(r) })
 
       val opsList = postOperators.reduce(_ | _).rep().map(_.toList)
 
