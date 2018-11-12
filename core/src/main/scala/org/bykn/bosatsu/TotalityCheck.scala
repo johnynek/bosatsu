@@ -99,6 +99,18 @@ case class TotalityCheck(inEnv: TypeEnv) {
     left.traverse(difference0(_, right)).map(_.flatten)
 
   @annotation.tailrec
+  final def differenceAll(left: Patterns, right: Patterns): Res[Patterns] =
+    right match {
+      case Nil => Right(left)
+      case h :: tail =>
+        difference(left, h) match {
+          case err@Left(_) => err
+          case Right(left0) => differenceAll(left0, tail)
+        }
+    }
+
+
+  @annotation.tailrec
   private def matchesEmpty(lp: List[ListPatElem]): Boolean =
     lp match {
       case Nil => true
