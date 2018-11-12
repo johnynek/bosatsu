@@ -17,8 +17,8 @@ class TotalityTest extends FunSuite {
   import TestParseUtils._
 
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 500000)
-    //PropertyCheckConfiguration(minSuccessful = 5000)
+    //PropertyCheckConfiguration(minSuccessful = 500000)
+    PropertyCheckConfiguration(minSuccessful = 5000)
 
   val pack = PackageName.parts("Test")
   def const(t: String): Type =
