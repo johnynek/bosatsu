@@ -136,7 +136,9 @@ case class TotalityCheck(inEnv: TypeEnv) {
               case NonEmptyList(h, ListPat(tail) :: Nil) =>
                 ListPat(Right(h) :: tail)
               case other =>
+                // $COVERAGE-OFF$this should be unreachable
                 sys.error(s"expected exactly two items: $other")
+                // $COVERAGE-ON$
             }
           }
       case (Left(_) :: tail, Nil) =>
@@ -325,8 +327,14 @@ case class TotalityCheck(inEnv: TypeEnv) {
           // we have at least one Right on the right side, try to absorb from there
           if (recurse) maybeAbsorb(item.reverse, into.reverse, false).map(_.reverse)
           else None
-        case (Right(_) :: _, Nil) => sys.error(s"expected left longer than right: $items, $withLeft")
-        case (Left(_) :: _, _) => sys.error(s"invariant violation: $items")
+        case (Right(_) :: _, Nil) =>
+          // $COVERAGE-OFF$this should be unreachable
+          sys.error(s"expected left longer than right: $items, $withLeft")
+          // $COVERAGE-ON$
+        case (Left(_) :: _, _) =>
+          // $COVERAGE-OFF$this should be unreachable
+          sys.error(s"invariant violation: $items")
+          // $COVERAGE-ON$
       }
 
     def loop(its: List[List[ListPatElem]], withLeft: List[ListPatElem]): List[ListPat[Cons, Type]] =
@@ -365,14 +373,20 @@ case class TotalityCheck(inEnv: TypeEnv) {
         Right(Nil)
       case (Right(_) :: _, Nil) => Right(Nil)
       case (Right(lh) :: lt, Right(rh) :: rt) =>
-        intersection(lh, rh).flatMap { heads =>
-          intersectionList(lt, rt)
-            .map { inner =>
-              heads.flatMap { h =>
-                inner.map {
-                  case ListPat(ts) => ListPat(Right(h) :: ts)
+        intersection(lh, rh).flatMap {
+          /*
+           * If heads is empty, we don't need to recurse
+           */
+          case Nil => Right(Nil)
+          case heads =>
+            // heads is not empty, now let's do intersection on the rest
+            intersectionList(lt, rt)
+              .map { inner =>
+                heads.flatMap { h =>
+                  inner.map {
+                    case ListPat(ts) => ListPat(Right(h) :: ts)
+                  }
                 }
-              }
             }
         }
       case (Right(lh) :: lt, Left(rh) :: rt) =>
@@ -397,11 +411,12 @@ case class TotalityCheck(inEnv: TypeEnv) {
               })
           case Some(Left(_)) =>
             /*
-             * This branch is currently wrong...
-             *
-             *   [a, *_] n [*_, b] = [a n b] | [a, *_, b]
              *   we basically need all the windows of overlap,
-             *   plus the [a1, a2, ... *_, b1, b2, ..] case.
+             *
+             *   consider the simpliest case:
+             *   [a, *_] n [*_, b] = [a n b] | [a, *_, b]
+             *
+             *   also we have any number of non Left items on each side
              *
              *   so the rights can maximally to minimally
              *   overlap and we have the union of all those
@@ -410,7 +425,8 @@ case class TotalityCheck(inEnv: TypeEnv) {
             // left side can have infinite right, right side can have infinite left:
             val leftSide = leftL.init
             val rightSide = rt
-            // return a union of list patterns
+            // return a union of list patterns for all the cases where the lefts don't overlap
+            // i.e. the lefts are only used to pad out some number of rights on the other side
             def overlap(n: Int): Res[List[List[ListPatElem]]] = {
               require(n > 0, s"invalid overlap: $n")
               val windowL = leftSide.takeRight(n)
@@ -539,7 +555,10 @@ case class TotalityCheck(inEnv: TypeEnv) {
   /**
    * There the list is a tuple or product pattern
    * the left and right should be the same size and the result will be a list of lists
-   * with the inner having the same size
+   * with the inner having the same size.
+   *
+   * Note, we return a NonEmptyList because if we have a Nil input, then, there is
+   * no difference so we always return Right(Nil) in that case.
    *
    * The result is a union
    */
