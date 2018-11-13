@@ -43,6 +43,24 @@ class ParserTest extends FunSuite {
     PropertyCheckConfiguration(minSuccessful = 300)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
+  def parseUnsafe[A](p: Parser[A], str: String): A =
+    p.parse(str) match {
+      case Parsed.Success(a, idx) =>
+        assert(idx == str.length)
+        a
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
+        sys.error("nope")
+    }
+  def parseOpt[A](p: Parser[A], str: String): Option[A] =
+    p.parse(str) match {
+      case Parsed.Success(a, idx) if idx == str.length =>
+        Some(a)
+      case _ =>
+        None
+    }
+
+
   def parseTest[T](p: Parser[T], str: String, expected: T, exidx: Int) =
     p.parse(str) match {
       case Parsed.Success(t, idx) =>
@@ -359,6 +377,46 @@ x""")
   test("we can parse patterns") {
     roundTrip(Pattern.parser, "Foo([])")
     roundTrip(Pattern.parser, "Foo([], bar)")
+  }
+
+  test("Declaration.toPattern works for all Pattern-like declarations") {
+    forAll(Generators.patternDecl(5)) { dec =>
+      Declaration.toPattern(dec) match {
+        case None => fail("expected to convert to pattern")
+        case Some(pat) =>
+          // if we convert to string this parses the same as a pattern:
+          val decStr = dec.toDoc.render(80)
+          val parsePat = parseUnsafe(Pattern.parser, decStr)
+          assert(pat == parsePat)
+      }
+    }
+
+    // for all Declarations, either it parses like a pattern or toPattern is None
+    forAll(Generators.genDeclaration(5)) { dec =>
+      val decStr = dec.toDoc.render(80)
+      val parsePat = parseOpt(Pattern.parser, decStr)
+      (Declaration.toPattern(dec), parsePat) match {
+        case (None, None) => succeed
+        case (Some(p0), Some(p1)) => assert(p0 == p1)
+        case (None, Some(_)) => fail(s"toPattern failed, but parsed $decStr to: $parsePat")
+        case (Some(p), None) => fail(s"toPattern succeeded: $p but pattern parse failed")
+      }
+    }
+
+
+    def testEqual(decl: String) = {
+      val dec = parseUnsafe(Declaration.parser(""), decl)
+      val patt = parseUnsafe(Pattern.parser, decl)
+      Declaration.toPattern(dec) match {
+        case Some(p2) => assert(p2 == patt)
+        case None => fail(s"could not convert $decl to pattern")
+      }
+    }
+
+    testEqual("a")
+    testEqual("Foo(a)")
+    testEqual("[1, Foo, a]")
+    testEqual("[*a, Foo([]), bar]")
   }
 
   test("we can parse bind") {
