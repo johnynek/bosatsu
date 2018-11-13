@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen, Shrink}
+import cats.implicits._
 
 object Generators {
   val lower: Gen[Char] = Gen.oneOf('a' to 'z')
@@ -95,6 +96,16 @@ object Generators {
       body <- dec
     } yield DefStatement(name, args, retType, body)
 
+  def genSpliceOrItem[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.SpliceOrItem[A]] =
+    Gen.oneOf(spliceGen.map(ListLang.SpliceOrItem.Splice(_)),
+      itemGen.map(ListLang.SpliceOrItem.Item(_)))
+
+  def genListLangCons[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.Cons[A]] = {
+    Gen.choose(0, 10)
+      .flatMap(Gen.listOfN(_, genSpliceOrItem(spliceGen, itemGen))
+      .map(ListLang.Cons(_)))
+  }
+
   def listGen(dec0: Gen[Declaration]): Gen[Declaration.ListDecl] = {
     lazy val filterFn: Declaration => Boolean = {
       case Declaration.Comment(_) => false
@@ -110,28 +121,43 @@ object Generators {
     }
     val dec = dec0.filter(filterFn)
 
-    val genSplice = Gen.oneOf(dec.map(ListLang.SpliceOrItem.Splice(_)),
-      dec.map(ListLang.SpliceOrItem.Item(_)))
-    val cons = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genSplice).map(ListLang.Cons(_)))
+    val cons = genListLangCons(dec, dec)
 
     // TODO we can't parse if since we get confused about it being a ternary expression
-    val comp = Gen.zip(genSplice, dec, dec, Gen.option(dec))
+    val comp = Gen.zip(genSpliceOrItem(dec, dec), dec, dec, Gen.option(dec))
       .map { case (a, b, c, _) => ListLang.Comprehension(a, b, c, None) }
 
     Gen.oneOf(cons, comp).map(Declaration.ListDecl(_)(emptyRegion))
   }
 
-  def applyGen(dec: Gen[Declaration]): Gen[Declaration] = {
+  def applyGen(decl: Gen[Declaration]): Gen[Declaration] = {
+    val fnGen =
+      for {
+        fn <- decl
+        vp = fn match {
+          case v@Declaration.Var(_) => v
+          case c@Declaration.Constructor(_) => c
+          case nonV => Declaration.Parens(nonV)(emptyRegion)
+        }
+      } yield vp
+    applyGen(fnGen, decl, Gen.oneOf(true, false))
+  }
+
+  def isVar(d: Declaration): Boolean =
+    d match {
+      case Declaration.Var(_) => true
+      case _ => false
+    }
+
+  def applyGen(fnGen: Gen[Declaration], arg: Gen[Declaration], dotApplyGen: Gen[Boolean]): Gen[Declaration] = {
     import Declaration._
     Gen.lzy(for {
-      fn <- dec
-      varfnParens = fn match { case v@Declaration.Var(_) => (true, v); case nonV => (false, Parens(nonV)(emptyRegion)) }
-      (isVar, fnParens) = varfnParens
-      dotApply <- Gen.oneOf(true, false)
-      useDot = dotApply && isVar // f.bar needs the fn to be a var
-      argsGen = if (useDot) dec.map(NonEmptyList(_, Nil)) else nonEmpty(dec)
+      fn <- fnGen
+      dotApply <- dotApplyGen
+      useDot = dotApply && isVar(fn) // f.bar needs the fn to be a var
+      argsGen = if (useDot) arg.map(NonEmptyList(_, Nil)) else nonEmpty(arg)
       args <- argsGen
-    } yield Apply(fnParens, args, false)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
+    } yield Apply(fn, args, false)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
 
   def bindGen[A, T](patGen: Gen[A], dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[A, T]] =
@@ -255,6 +281,29 @@ object Generators {
     Gen.oneOf(str, bi)
   }
 
+  /**
+   * Generate a Declaration that can be parsed as a pattern
+   */
+  def patternDecl(depth: Int): Gen[Declaration] = {
+    import Declaration._
+    val recur = Gen.lzy(patternDecl(depth - 1))
+    val cons0 = upperIdent.map(Constructor(_)(emptyRegion))
+    val varGen = lowerIdent.map(Var(_)(emptyRegion))
+    val unnested = Gen.oneOf(
+      cons0,
+      varGen,
+      genLit.map(Literal(_)(emptyRegion)))
+
+    val applyCons = applyGen(cons0, recur, Gen.const(false))
+
+    if (depth <= 0) unnested
+    else Gen.frequency(
+      (12, unnested),
+      (2, applyCons),
+      (1, recur.map(Parens(_)(emptyRegion))),
+      (1, genListLangCons(varGen, recur).map(ListDecl(_)(emptyRegion))))
+  }
+
 
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
@@ -264,7 +313,8 @@ object Generators {
       upperIdent.map(Constructor(_)(emptyRegion)),
       genLit.map(Literal(_)(emptyRegion)))
 
-    val varPat: Gen[Pattern[String, TypeRef]] = lowerIdent.map(Pattern.Var(_))
+    val pat: Gen[Pattern[String, TypeRef]] = lowerIdent.map(Pattern.Var(_))
+    //val pat = genPattern(0)
 
     val recur = Gen.lzy(genDeclaration(depth - 1))
     if (depth <= 0) unnested
@@ -274,7 +324,7 @@ object Generators {
       (2, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
-      (2, bindGen(varPat, recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
+      (2, bindGen(pat, recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
       (1, ifElseGen(recur)),
       (1, listGen(recur)),
       (1, matchGen(recur))
@@ -315,6 +365,28 @@ object Generators {
           case ListDecl(ListLang.Comprehension(a, b, c, d)) =>
             (a.value :: b :: c :: d.toList).toStream
         }
+    })
+
+  implicit val shrinkStmt: Shrink[Statement] =
+    Shrink[Statement](new Function1[Statement, Stream[Statement]] {
+      import Statement._
+
+      def apply(s: Statement): Stream[Statement] = s match {
+        case EndOfFile => Stream.empty
+        case Bind(bs@BindingStatement(_, d, _)) =>
+          shrinkDecl.shrink(d).flatMap { sd =>
+            Bind(bs.copy(value = sd)).toStream
+          }
+        case Def(ds) =>
+          ds.result match {
+            case (body, Padding(l, in)) =>
+              body.traverse(shrinkDecl.shrink(_))
+                .flatMap { bod =>
+                  apply(in).map { rest => Def(ds.copy(result = (bod, Padding(1, rest)))) }
+                }
+          }
+        case rest => rest.toStream.tail
+      }
     })
 
   val constructorGen: Gen[(String, List[(String, Option[TypeRef])])] =

@@ -38,7 +38,7 @@ object ListLang {
       .map { tail => { a: SpliceOrItem[A] => Cons(a :: tail.toList) } }
       .opaque("ConsListTail")
 
-    val filterExpr = P("if" ~ spacesAndLines ~/ pa).?
+    val filterExpr = P("if" ~ spacesAndLines ~ pa).?
     val comp = P(
       "for" ~ spacesAndLines ~ pa ~ spacesAndLines ~
       "in" ~ spacesAndLines ~ pa ~ maybeSpacesAndLines ~

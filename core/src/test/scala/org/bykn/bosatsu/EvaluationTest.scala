@@ -28,7 +28,7 @@ class EvaluationTest extends FunSuite {
         errs.toList.foreach { p =>
           p.showContext.foreach(System.err.println)
         }
-        sys.error(errs.toString)
+        sys.error("failed to parse") //errs.toString)
     }
 
     PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
@@ -244,19 +244,16 @@ def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
       Pair(acc, [h, *tail]):
         Pair([Pair(item, h), *acc], tail)
 
-  rev = as.foldLeft(Pair([], bs), cons)
-  match rev:
-    Pair(res, _):
-      reverse(res)
+  Pair(res, _) = as.foldLeft(Pair([], bs), cons)
+  reverse(res)
 
 def and(a, b):
   b if a else False
 
 def same_items(items, eq):
   def test(p):
-    match trace("in same items", p):
-      Pair(a, b):
-        eq(a, b)
+    Pair(a, b) = p
+    eq(a, b)
 
   items.foldLeft(True, \res, t -> and(res, test(t)))
 
