@@ -9,4 +9,9 @@ object Dependencies {
   lazy val scalaTest = "org.scalatest" %% "scalatest" % "3.0.3"
   lazy val scalaCheck = "org.scalacheck" %% "scalacheck" % "1.13.5"
   lazy val betterFiles = "com.github.pathikrit"  %% "better-files" % "3.5.0"
+  lazy val scalatra = "org.scalatra" %% "scalatra" % "2.6.3"
+  lazy val jettyWebapp = "org.eclipse.jetty" % "jetty-webapp" % jettyVersion
+  lazy val jettyPlus = "org.eclipse.jetty" % "jetty-plus" % jettyVersion
+
+  private val jettyVersion = "9.4.6.v20170531"
 }

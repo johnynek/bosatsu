@@ -85,6 +85,9 @@ lazy val core = (project in file("core")).
         fastparse,
         paiges,
         betterFiles,
+        scalatra,
+        jettyWebapp,
+        jettyPlus,
         scalaCheck % Test,
         scalaTest % Test
       )

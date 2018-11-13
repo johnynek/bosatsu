@@ -1,0 +1,3 @@
+ncat -k -l 5555
+sbt "core/run reval --input ../bosatsu_examples/example.bosatsu --external ../bosatsu_examples/externs --main Snoble/Example"
+

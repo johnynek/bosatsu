@@ -10,6 +10,11 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicReference
 import org.typelevel.paiges.Doc
 import scala.util.Try
+import org.eclipse.jetty.server.Server
+import org.eclipse.jetty.servlet.{DefaultServlet, ServletContextHandler}
+import org.eclipse.jetty.webapp.WebAppContext
+import org.scalatra.servlet.ScalatraListener
+
 
 object Foo {
   def times(i: java.lang.Integer): java.lang.Integer =
