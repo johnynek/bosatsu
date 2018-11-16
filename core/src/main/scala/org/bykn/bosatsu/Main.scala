@@ -14,6 +14,7 @@ import org.eclipse.jetty.server.Server
 import org.eclipse.jetty.servlet.{DefaultServlet, ServletContextHandler}
 import org.eclipse.jetty.webapp.WebAppContext
 import org.scalatra.servlet.ScalatraListener
+import org.scalatra.ScalatraServlet
 
 
 object Foo {
@@ -108,6 +109,30 @@ sealed abstract class MainCommand {
   def run(): LinkedBlockingQueue[MainResult[List[String]]]
 }
 
+object JettyLauncher { // this is my entry object as specified in sbt project definition
+  def startServer() : Unit = {
+    val server = new Server(8080)
+    val context = new WebAppContext()
+    context setContextPath "/"
+    context.setResourceBase("src/main/webapp")
+    context.addEventListener(new ScalatraListener)
+    context.addServlet(classOf[DefaultServlet], "/")
+
+    server.setHandler(context)
+
+    server.start
+    // server.join
+  }
+}
+
+class ReactiveBosatsuServlet extends ScalatraServlet {
+
+  get("/") {
+    "hello!"
+  }
+
+}
+
 object MainCommand {
 
   def typeCheck(inputs: NonEmptyList[Path], externals: List[Path]): MainResult[(Externals, PackageMap.Inferred, List[(Path, PackageName)])] = {
@@ -164,6 +189,7 @@ object MainCommand {
     def run() = {
       import scala.concurrent.ExecutionContext.Implicits.global
 
+      JettyLauncher.startServer()
       val bq = blockingQueue(result)
       (inputs ++ externals).toList.foreach { p =>
         val watcher = new FileMonitor(p, recursive=false) {

@@ -86,6 +86,7 @@ lazy val core = (project in file("core")).
         paiges,
         betterFiles,
         scalatra,
+        scalatraForms,
         jettyWebapp,
         jettyPlus,
         scalaCheck % Test,
