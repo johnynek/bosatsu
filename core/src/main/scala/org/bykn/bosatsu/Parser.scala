@@ -310,7 +310,7 @@ object Parser {
 
     def nonEmptyListOfWs(ws: P[Unit], min: Int): P[NonEmptyList[T]] = {
       require(min >= 1, s"min is too small: $min")
-      val many = P(("," ~ ws ~ item ~ ws).rep())
+      val many = P(("," ~ ws ~ item ~ ws).rep(min = min - 1))
       P(item ~ ws ~ many.? ~ (",".?))
         .map {
           case (h, None) => NonEmptyList(h, Nil)
@@ -342,6 +342,27 @@ object Parser {
 
     def parens: P[T] =
       wrappedSpace("(", ")")
+
+    /**
+     * Parse a python-like tuple or a parens
+     */
+    def tupleOrParens: P[Either[T, List[T]]] = {
+      val ws = maybeSpacesAndLines
+      val single = item ~ ws
+      val sep = P("," ~ ws)
+      val twoAndMore = (item ~ ws).rep(sep = sep)
+      val trailing = sep
+
+      (single ~ (sep ~ twoAndMore.? ~ trailing.?).?).?
+        .map {
+          case None => Right(Nil)
+          case Some((h, None)) => Left(h)
+          case Some((h, Some(None))) => Right(h :: Nil)
+          case Some((h, Some(Some(tail)))) => Right(h :: tail.toList)
+        }
+        .bracketed(P("(" ~ ws), P(ws ~ ")"))
+
+    }
   }
 
   val toEOL: P[Unit] = P(maybeSpace ~ "\n")

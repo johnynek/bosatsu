@@ -90,6 +90,12 @@ sealed abstract class Declaration {
           piPat.document(args)
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
+      case TupleCons(h :: Nil) =>
+        // we need a trailing comma here:
+        Doc.char('(') + h.toDoc + Doc.char(',') + Doc.char(')')
+      case TupleCons(items) =>
+        Doc.char('(') + Doc.intercalate(Doc.text(", "),
+          items.map(_.toDoc)) + Doc.char(')')
       case Var(name) => Doc.text(name)
 
       case ListDecl(list) =>
@@ -163,6 +169,9 @@ sealed abstract class Declaration {
             (newPattern, loop(decl))
           }
           Expr.Match(loop(arg), expBranches, this)
+        case TupleCons(its) =>
+          // Need support for a tupleCons expression type or another approach
+          ???
         case l@ListDecl(list) =>
           list match {
             case ListLang.Cons(items) =>
@@ -224,6 +233,7 @@ object Declaration {
     cases: OptIndent[NonEmptyList[(Pattern[String, TypeRef], OptIndent[Declaration])]])(
     implicit val region: Region) extends Declaration
   case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
+  case class TupleCons(items: List[Declaration])(implicit val region: Region) extends Declaration
   case class Var(name: String)(implicit val region: Region) extends Declaration
 
   /**
@@ -372,8 +382,10 @@ object Declaration {
   private[this] val parserCache: String => P[Declaration] =
     Memoize.function[String, P[Declaration]] { (indent, rec) =>
 
+      val recurse = P(rec(indent)) // needs to be inside a P for laziness
+
       val postOperators: List[P[Declaration => Declaration]] = {
-        val params = P(rec(indent).nonEmptyList.parens)
+        val params = recurse.nonEmptyList.parens
         // here we are using . syntax foo.bar(1, 2)
         val dotApply =
           P("." ~/ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
@@ -390,7 +402,7 @@ object Declaration {
 
         // here is if/ternary operator
         val ternary =
-          P(spaces ~ P("if") ~ spaces ~ rec(indent) ~ spaces ~ "else" ~ spaces ~/ rec(indent))
+          P(spaces ~ "if" ~ spaces ~ recurse ~ spaces ~ "else" ~ spaces ~/ recurse)
             .region
             .map { case (region, (cond, falseCase)) =>
               { trueCase: Declaration =>
@@ -405,6 +417,16 @@ object Declaration {
       val recIndy = Indy(rec)
 
       val lits = Lit.parser.region.map { case (r, l) => Literal(l)(r) }
+
+      val tupOrPar =
+        recurse
+          .tupleOrParens
+          .region
+          .map {
+            case (r, Left(p)) => Parens(p)(r)
+            case (r, Right(tup)) => TupleCons(tup)(r)
+          }
+
       /*
        * Note pattern bind needs to be before anything that looks like a pattern that can't handle
        * bind
@@ -416,12 +438,12 @@ object Declaration {
         matchP(recIndy)(indent) |
         ifElseP(recIndy)(indent) |
         // vars are so common, try to parse them before the generic pattern
-        decOrBind(varP | listP(rec(indent)), indent) |
+        decOrBind(varP | listP(recurse), indent) |
         patternBind(indent) |
         lits | // technically this can be a pattern: 3 = x, so it has to be after patternBind, but it is never total.
         constructorP |
         commentP(indent) |
-        rec(indent).parens.region.map { case (r, p) => Parens(p)(r) })
+        tupOrPar)
 
       val opsList = postOperators.reduce(_ | _).rep().map(_.toList)
 

@@ -327,7 +327,8 @@ object Generators {
       (2, bindGen(pat, recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
       (1, ifElseGen(recur)),
       (1, listGen(recur)),
-      (1, matchGen(recur))
+      (1, matchGen(recur)),
+      (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recur)).map(TupleCons(_)(emptyRegion)))
     )
   }
 
@@ -359,6 +360,8 @@ object Generators {
           case Lambda(args, body) => body #:: Stream.empty
           case Literal(_) => Stream.empty
           case Parens(p) => p #:: Stream.empty
+          case TupleCons(Nil) => Stream.empty
+          case TupleCons(h :: tail) => h #:: TupleCons(tail)(emptyRegion) #:: apply(TupleCons(tail)(emptyRegion))
           case Var(_) => Stream.empty
           case ListDecl(ListLang.Cons(items)) =>
             items.map(_.value).toStream
