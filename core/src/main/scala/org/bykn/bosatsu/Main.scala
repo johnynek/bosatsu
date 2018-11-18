@@ -173,6 +173,7 @@ object MainCommand {
   case class Revaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
 
     val cache: LinkedBlockingQueue[Map[NormalExpression, (Eval[Any], Scheme)]] = new LinkedBlockingQueue()
+    JettyLauncher.startServer()
 
     def combinedCache: Map[NormalExpression, (Eval[Any], Scheme)] = cache.toArray
       .map(_.asInstanceOf[Map[NormalExpression, (Eval[Any], Scheme)]])
@@ -189,7 +190,6 @@ object MainCommand {
     def run() = {
       import scala.concurrent.ExecutionContext.Implicits.global
 
-      JettyLauncher.startServer()
       val bq = blockingQueue(result)
       (inputs ++ externals).toList.foreach { p =>
         val watcher = new FileMonitor(p, recursive=false) {
