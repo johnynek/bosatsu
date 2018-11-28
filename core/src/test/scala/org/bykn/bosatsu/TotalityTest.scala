@@ -30,19 +30,17 @@ class TotalityTest extends FunSuite {
   val consFn: String => (PackageName, ConstructorName) =
     { cons => (pack, ConstructorName(cons)) }
 
-  def parsedToExpr(pat: Pattern[String, TypeRef]): Pattern[(PackageName, ConstructorName), Type] =
-    pat
-      .mapName(consFn)
-      .mapType(_.toType(tpeFn))
+  def parsedToExpr(pat: Pattern[Option[String], TypeRef]): Pattern[(PackageName, ConstructorName), Type] =
+    Declaration.unTuplePattern(pat, tpeFn, consFn)
 
   val genPattern: Gen[Pattern[(PackageName, ConstructorName), Type]] =
     Generators.genPattern(5)
       .map(parsedToExpr _)
 
   def showPat(pat: Pattern[(PackageName, ConstructorName), Type]): String = {
-    val pat0 = pat.mapName { case (_, ConstructorName(n)) => n }
+    val pat0 = pat.mapName { case (_, ConstructorName(n)) => Some(n) }
       .mapType { t => TypeRef.fromType(t).get }
-    Document[Pattern[String, TypeRef]].document(pat0).render(80)
+    Document[Pattern[Option[String], TypeRef]].document(pat0).render(80)
   }
   def showPatU(pat: Pattern[(PackageName, ConstructorName), Type]): String =
     showPat(pat.unbind)

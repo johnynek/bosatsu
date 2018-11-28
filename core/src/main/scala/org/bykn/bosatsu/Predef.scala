@@ -47,6 +47,8 @@ object Predef {
         "True",
         "Test",
         "TestSuite",
+        "Tuple2",
+        "Unit",
         "add",
         "consList",
         "emptyList",

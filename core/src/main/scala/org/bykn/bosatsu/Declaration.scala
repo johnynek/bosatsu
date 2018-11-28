@@ -42,7 +42,7 @@ sealed abstract class Declaration {
         val withNewLine = Document.instance[Padding[Declaration]] { pd =>
            Doc.line + d0.document(pd)
         }
-        BindingStatement.document(Document[Pattern[String, TypeRef]], withNewLine).document(b)
+        BindingStatement.document(Document[Pattern[Option[String], TypeRef]], withNewLine).document(b)
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
       case Constructor(name) =>
@@ -76,15 +76,15 @@ sealed abstract class Declaration {
       case Match(typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
 
-        implicit val patDoc: Document[(Pattern[String, TypeRef], OptIndent[Declaration])] =
-          Document.instance[(Pattern[String, TypeRef], OptIndent[Declaration])] {
+        implicit val patDoc: Document[(Pattern[Option[String], TypeRef], OptIndent[Declaration])] =
+          Document.instance[(Pattern[Option[String], TypeRef], OptIndent[Declaration])] {
             case (pat, decl) =>
-              Document[Pattern[String, TypeRef]].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
+              Document[Pattern[Option[String], TypeRef]].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
           }
         implicit def linesDoc[T: Document]: Document[NonEmptyList[T]] =
           Document.instance { ts => Doc.intercalate(Doc.line, ts.toList.map(Document[T].document _)) }
 
-        val piPat = Document[OptIndent[NonEmptyList[(Pattern[String, TypeRef], OptIndent[Declaration])]]]
+        val piPat = Document[OptIndent[NonEmptyList[(Pattern[Option[String], TypeRef], OptIndent[Declaration])]]]
         // TODO this isn't quite right
         Doc.text("match ") + typeName.toDoc + Doc.char(':') + args.sepDoc +
           piPat.document(args)
@@ -123,7 +123,7 @@ sealed abstract class Declaration {
             case Pattern.Var(arg) =>
               Expr.Let(arg, loop(value), loop(rest), this)
             case pat =>
-              val newPattern = pat.mapName(nameToCons).mapType(_.toType(nameToType))
+              val newPattern = unTuplePattern(pat, nameToType, nameToCons)
               val res = loop(rest)
               val expBranches = NonEmptyList.of((newPattern, res))
               Expr.Match(loop(value), expBranches, decl)
@@ -165,7 +165,7 @@ sealed abstract class Declaration {
         case Match(arg, branches) =>
           val expBranches = branches.get.map { case (pat, oidecl) =>
             val decl = oidecl.get
-            val newPattern = pat.mapName(nameToCons).mapType(_.toType(nameToType))
+            val newPattern = unTuplePattern(pat, nameToType, nameToCons)
             (newPattern, loop(decl))
           }
           Expr.Match(loop(arg), expBranches, this)
@@ -211,6 +211,36 @@ object Declaration {
   implicit val hasRegion: HasRegion[Declaration] =
     HasRegion.instance[Declaration](_.region)
 
+  /**
+   * Tuples are converted into standard types using an HList strategy
+   */
+  def unTuplePattern(pat: Pattern[Option[String], TypeRef],
+    nameToType: String => rankn.Type.Const,
+    nameToCons: String => (PackageName, ConstructorName)): Pattern[(PackageName, ConstructorName), rankn.Type] =
+      pat.mapStruct[(PackageName, ConstructorName)] {
+        case (None, args) =>
+          // this is a tuple pattern
+          def loop(args: List[Pattern[(PackageName, ConstructorName), TypeRef]]): Pattern[(PackageName, ConstructorName), TypeRef] =
+            args match {
+              case Nil =>
+                // ()
+                Pattern.PositionalStruct(
+                  (Predef.packageName, ConstructorName("Unit")),
+                  Nil)
+              case h :: tail =>
+                val tailP = loop(tail)
+                Pattern.PositionalStruct(
+                  (Predef.packageName, ConstructorName("Tuple2")),
+                  h :: tailP :: Nil)
+            }
+
+          loop(args)
+        case (Some(nm), args) =>
+          // this is a struct pattern
+          Pattern.PositionalStruct(nameToCons(nm), args)
+      }
+      .mapType(_.toType(nameToType))
+
   //
   // We use the pattern of an implicit region for two reasons:
   // 1. we don't want the region to play a role in pattern matching or equality, since it is about
@@ -221,7 +251,7 @@ object Declaration {
   //
 
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration], useDotApply: Boolean)(implicit val region: Region) extends Declaration
-  case class Binding(binding: BindingStatement[Pattern[String, TypeRef], Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class Binding(binding: BindingStatement[Pattern[Option[String], TypeRef], Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Constructor(name: String)(implicit val region: Region) extends Declaration
   case class DefFn(deffn: DefStatement[(OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
@@ -230,7 +260,7 @@ object Declaration {
   case class Lambda(args: NonEmptyList[String], body: Declaration)(implicit val region: Region) extends Declaration
   case class Literal(lit: Lit)(implicit val region: Region) extends Declaration
   case class Match(arg: Declaration,
-    cases: OptIndent[NonEmptyList[(Pattern[String, TypeRef], OptIndent[Declaration])]])(
+    cases: OptIndent[NonEmptyList[(Pattern[Option[String], TypeRef], OptIndent[Declaration])]])(
     implicit val region: Region) extends Declaration
   case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
   case class TupleCons(items: List[Declaration])(implicit val region: Region) extends Declaration
@@ -247,12 +277,12 @@ object Declaration {
    * TODO, patterns don't parse with regions, so we lose track of precise position information
    * if we want to point to an inner portion of it
    */
-  def toPattern(d: Declaration): Option[Pattern[String, TypeRef]] =
+  def toPattern(d: Declaration): Option[Pattern[Option[String], TypeRef]] =
     d match {
       case Var(v) => Some(Pattern.Var(v))
       case Literal(lit) => Some(Pattern.Literal(lit))
       case ListDecl(ListLang.Cons(elems)) =>
-        val optParts: Option[List[Either[Option[String], Pattern[String, TypeRef]]]] =
+        val optParts: Option[List[Either[Option[String], Pattern[Option[String], TypeRef]]]] =
           elems.traverse {
             case ListLang.SpliceOrItem.Splice(Var(n)) =>
               Some(Left(Some(n)))
@@ -261,10 +291,14 @@ object Declaration {
             case _ => None
           }
         optParts.map(Pattern.ListPat(_))
-      case Constructor(nm) => Some(Pattern.PositionalStruct(nm, Nil))
+      case Constructor(nm) => Some(Pattern.PositionalStruct(Some(nm), Nil))
       case Apply(Constructor(nm), args, false) =>
         args.traverse(toPattern(_)).map { argPats =>
-          Pattern.PositionalStruct(nm, argPats.toList)
+          Pattern.PositionalStruct(Some(nm), argPats.toList)
+        }
+      case TupleCons(ps) =>
+        ps.traverse(toPattern(_)).map { argPats =>
+          Pattern.PositionalStruct(None, argPats.toList)
         }
       case Parens(p) => toPattern(p)
       case _ => None
@@ -274,7 +308,7 @@ object Declaration {
     (Indy.parseIndent *> parser).mapF(Padding.parser(_))
 
   // This is something we check after variables
-  private val bindingOp: Indy[(Pattern[String, TypeRef], Region) => Binding] = {
+  private val bindingOp: Indy[(Pattern[Option[String], TypeRef], Region) => Binding] = {
     val eqP = P("=" ~ !"=")
 
     (Indy.lift(P(maybeSpace ~ eqP ~ maybeSpace)) *> parser <* Indy.lift(toEOL))
@@ -282,7 +316,7 @@ object Declaration {
       .region
       .map { case (region, (value, rest)) =>
 
-        { (pat: Pattern[String, TypeRef], r: Region) => Binding(BindingStatement(pat, value, rest))(r + region) }
+        { (pat: Pattern[Option[String], TypeRef], r: Region) => Binding(BindingStatement(pat, value, rest))(r + region) }
       }
   }
 
