@@ -66,11 +66,17 @@ object Generators {
 
     val tLambda = typeRefLambdaGen
 
+    val tTup = Gen
+      .choose(0, 3)
+      .flatMap(Gen.listOfN(_, typeRefGen))
+      .map(TypeRef.TypeTuple(_))
+
     Gen.frequency(
       (4, tvar),
       (4, tname),
       (1, Gen.zip(Gen.lzy(typeRefGen), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
       (1, tLambda),
+      (1, tTup),
       (1, tApply))
   }
 
@@ -219,11 +225,10 @@ object Generators {
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
       val genStruct =  for {
-        //nm <- Gen.option(upperIdent) // TODO: turn this on when parsing is working
-        nm <- upperIdent
+        nm <- Gen.option(upperIdent)
         cnt <- Gen.choose(0, 6)
         args <- Gen.listOfN(cnt, recurse)
-      } yield Pattern.PositionalStruct(Some(nm), args)
+      } yield Pattern.PositionalStruct(nm, args)
 
       def makeOneSplice(ps: List[Either[Option[String], Pattern[Option[String], TypeRef]]]) = {
         val sz = ps.size

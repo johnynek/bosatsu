@@ -123,6 +123,9 @@ object Pattern {
           case None => Doc.text("()")
           case Some(nm) => Doc.text(nm)
         }
+      case PositionalStruct(None, h :: Nil) =>
+        // single item tuples need a comma:
+        Doc.char('(') + document.document(h) + Doc.text(",)")
       case PositionalStruct(n, nonEmpty) =>
         val prefix = n match {
           case None => Doc.empty
@@ -140,13 +143,17 @@ object Pattern {
       val pwild = P("_").map(_ => WildCard)
       val pvar = lowerIdent.map(Var(_))
       val plit = Lit.parser.map(Literal(_))
-      val pparen = recurse.parens
 
       val positional = P(upperIdent ~ (recurse.listN(1).parens).?)
         .map {
           case (n, None) => PositionalStruct(Some(n), Nil)
           case (n, Some(ls)) => PositionalStruct(Some(n), ls)
         }
+
+      val tupleOrParens = recurse.tupleOrParens.map {
+        case Left(parens) => parens
+        case Right(tup) => PositionalStruct(None, tup)
+      }
 
       val listItem: P[Either[Option[String], Pattern[Option[String], TypeRef]]] = {
         val maybeNamed: P[Option[String]] =
@@ -157,7 +164,7 @@ object Pattern {
 
       val listP = listItem.listSyntax.map(ListPat(_))
 
-      val nonAnnotated = pvar | plit | pwild | pparen | positional | listP
+      val nonAnnotated = pvar | plit | pwild | tupleOrParens | positional | listP
       val typeAnnot = P(maybeSpace ~ ":" ~ maybeSpace ~ TypeRef.parser)
       val withType = (nonAnnotated ~ typeAnnot.?).map {
         case (p, None) => p

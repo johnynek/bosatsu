@@ -169,9 +169,20 @@ sealed abstract class Declaration {
             (newPattern, loop(decl))
           }
           Expr.Match(loop(arg), expBranches, this)
-        case TupleCons(its) =>
-          // Need support for a tupleCons expression type or another approach
-          ???
+        case tc@TupleCons(its) =>
+          val tup0: Expr[Declaration] = Expr.Var(Some(Predef.packageName), "Unit", tc)
+          val tup2: Expr[Declaration] = Expr.Var(Some(Predef.packageName), "Tuple2", tc)
+          def tup(args: List[Declaration]): Expr[Declaration] =
+            args match {
+              case Nil => tup0
+              case h :: tail =>
+                val tailExp = tup(tail)
+                val headExp = loop(h)
+                val withH = Expr.App(tup2, headExp, tc)
+                Expr.App(withH, tailExp, tc)
+            }
+
+          tup(its)
         case l@ListDecl(list) =>
           list match {
             case ListLang.Cons(items) =>

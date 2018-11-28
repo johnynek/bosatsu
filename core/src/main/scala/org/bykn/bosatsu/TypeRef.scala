@@ -37,6 +37,13 @@ sealed abstract class TypeRef {
         Doc.text("forall ") + Doc.intercalate(commaSpace,
           params.toList.map(_.toDoc)) +
           Doc.char('.') + Doc.space + expr.toDoc
+      case TypeTuple(ts) =>
+        ts match {
+          case Nil => Doc.text("()")
+          case h :: Nil => Doc.char('(') + h.toDoc + Doc.text(",)")
+          case twoAndMore =>
+            Doc.char('(') + Doc.intercalate(Doc.text(", "), twoAndMore.map(_.toDoc)) + Doc.char(')')
+        }
     }
 
   def toType(nameToType: String => Type.Const): Type = {
@@ -58,6 +65,18 @@ sealed abstract class TypeRef {
           loop(TypeLambda(pars0 ::: pars1, e))
         case TypeLambda(pars, e) =>
           ForAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }, loop(e))
+        case TypeTuple(ts) =>
+          val tup0 = TyConst(Type.Const.predef("Unit"))
+          val tup2 = TyConst(Type.Const.predef("Tuple2"))
+          def tup(ts: List[TypeRef]): Type =
+            ts match {
+              case Nil => tup0
+              case h :: tail =>
+                val tailT = tup(tail)
+                val hT = loop(h)
+                TyApply(TyApply(tup2, hT), tailT)
+            }
+          tup(ts)
       }
 
     loop(this)
@@ -87,6 +106,7 @@ object TypeRef {
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
   case class TypeLambda(params: NonEmptyList[TypeVar], in: TypeRef) extends TypeRef
+  case class TypeTuple(params: List[TypeRef]) extends TypeRef
 
   def fromType(tpe: Type): Option[TypeRef] =
     fromTypeA[Option](tpe, None) {
@@ -115,23 +135,30 @@ object TypeRef {
     }
   }
 
-  lazy val parser: P[TypeRef] = {
+  val parser: P[TypeRef] = {
     val tvar = lowerIdent.map(TypeVar(_))
     val tname = upperIdent.map(TypeName(_))
+    val recurse = P(parser)
 
     val lambda: P[TypeLambda] =
-      P("forall" ~ Parser.spaces ~/ tvar.nonEmptyList ~ maybeSpace ~ "." ~ maybeSpace ~ parser)
+      P("forall" ~ Parser.spaces ~/ tvar.nonEmptyList ~ maybeSpace ~ "." ~ maybeSpace ~ recurse)
         .map { case (args, e) => TypeLambda(args, e) }
 
     val maybeArrow: P[TypeRef => TypeRef] =
-      P((maybeSpace ~ "->" ~/ maybeSpace ~ parser))
+      P((maybeSpace ~ "->" ~/ maybeSpace ~ recurse))
         .map { right => TypeArrow(_, right) }
 
     val maybeApp: P[TypeRef => TypeRef] =
-      P(("[" ~/ maybeSpace ~ parser.nonEmptyList ~ maybeSpace ~ "]"))
+      P(("[" ~/ maybeSpace ~ recurse.nonEmptyList ~ maybeSpace ~ "]"))
         .map { args => TypeApply(_, args) }
 
-    ((lambda | tvar | tname | P(parser.parens)) ~ maybeApp.? ~ maybeArrow.?)
+    val tupleOrParens: P[TypeRef] =
+      recurse.tupleOrParens.map {
+        case Left(par) => par
+        case Right(tup) => TypeTuple(tup)
+      }
+
+    ((lambda | tvar | tname | tupleOrParens) ~ maybeApp.? ~ maybeArrow.?)
       .map {
         case (t, optF1, optF2) =>
           val t1 = optF1.fold(t)(_(t))
