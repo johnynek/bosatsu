@@ -166,6 +166,7 @@ class ParserTest extends FunSuite {
 
     val regressions = List(("'", '\''))
 
+
     regressions.foreach { case (s, c) => law(s, c) }
   }
 
@@ -180,6 +181,32 @@ class ParserTest extends FunSuite {
       parseTestAll(Parser.integerString.list.wrappedSpace("List(", ")"),
         str,
         ls.map(_.toString))
+    }
+  }
+
+  test("we can parse tuples") {
+    forAll { (ls: List[Long], spaceCnt0: Int) =>
+      val spaceCount = spaceCnt0 & 7
+      val pad = " " * spaceCount
+      val str =
+        ls match {
+          case h :: Nil => s"($h,$pad)"
+          case _ =>
+            ls.mkString("(", "," + pad, ")")
+        }
+      parseTestAll(Parser.integerString.tupleOrParens,
+        str,
+        Right(ls.map(_.toString)))
+    }
+
+    // a single item is parsed as parens
+    forAll { (it: Long, spaceCnt0: Int) =>
+      val spaceCount = spaceCnt0 & 7
+      val pad = " " * spaceCount
+      val str = s"($it$pad)"
+      parseTestAll(Parser.integerString.tupleOrParens,
+        str,
+        Left(it.toString))
     }
   }
 
