@@ -51,6 +51,7 @@ object Predef {
         "Unit",
         "add",
         "consList",
+        "div",
         "emptyList",
         "eq_Int",
         "concat",
@@ -72,6 +73,7 @@ object Predef {
     Externals
       .empty
       .add(packageName, "add", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.add"))
+      .add(packageName, "div", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.div"))
       .add(packageName, "sub", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.sub"))
       .add(packageName, "times", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.times"))
       .add(packageName, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.eq_Int"))
@@ -104,6 +106,12 @@ object PredefImpl {
 
   def add(a: Value, b: Value): Value =
     VInt(i(a).add(i(b)))
+
+  def div(a: Value, b: Value): Value = {
+    val bi = i(b)
+    if (bi.equals(BigInteger.ZERO)) VOption.none
+    else VOption.some(VInt(i(a).divide(bi)))
+  }
 
   def sub(a: Value, b: Value): Value =
     VInt(i(a).subtract(i(b)))
