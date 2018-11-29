@@ -55,9 +55,11 @@ object Predef {
         "eq_Int",
         "concat",
         "cmp_Int",
-        "mod_Int",
         "foldLeft",
+        "intLoop",
+        "mod_Int",
         "range",
+        "rangeFold",
         "reverse",
         "reverse_concat",
         "sub",
@@ -79,6 +81,7 @@ object Predef {
       .add(packageName, "foldLeft", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.foldLeft"))
       .add(packageName, "mod_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.mod_Int"))
       .add(packageName, "range", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.range"))
+      .add(packageName, "intLoop", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.intLoop"))
       .add(packageName, "trace", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.trace"))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
@@ -94,7 +97,10 @@ object PredefImpl {
   import Value._
 
   private def i(a: Value): BigInteger =
-    VInt.unapply(a).get
+    a match {
+      case VInt(bi) => bi
+      case other => sys.error(s"expected integer: $a")
+    }
 
   def add(a: Value, b: Value): Value =
     VInt(i(a).add(i(b)))
@@ -155,6 +161,28 @@ object PredefImpl {
     }
 
     loop(BigInteger.ZERO, Nil)
+  }
+
+  //def intLoop(intValue: Int, state: a, fn: Int -> a -> Tuple2[Int, Tuple2[a, Unit]]) -> a
+  final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
+    val fnT = fn.asFn
+    @annotation.tailrec
+    def loop(biValue: Value, bi: BigInteger, state: Value): Value =
+      if (bi.compareTo(BigInteger.ZERO) <= 0) state
+      else {
+        fnT(biValue).flatMap(_.asFn(state)).value match {
+          case ConsValue(nextI, ConsValue(ConsValue(nextA, _), _)) =>
+            val n = i(nextI)
+            if (n.compareTo(bi) >= 0) {
+              // we are done in this case
+              nextA
+            }
+            else loop(nextI, n, nextA)
+          case other => sys.error(s"unexpected ill-typed value: at $bi, $state, $other")
+        }
+      }
+
+    loop(intValue, i(intValue), state)
   }
 
   def trace(prefix: Value, v: Value): Value = {
