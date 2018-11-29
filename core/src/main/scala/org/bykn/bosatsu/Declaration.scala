@@ -115,13 +115,13 @@ sealed abstract class Declaration {
             args match {
               case Nil => fn
               case h :: tail =>
-                loop0(Expr.App(fn, h, this), tail)
+                loop0(Expr.App(fn, h, decl), tail)
             }
           loop0(loop(fn), args.toList.map(loop(_)))
         case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
           pat match {
             case Pattern.Var(arg) =>
-              Expr.Let(arg, loop(value), loop(rest), this)
+              Expr.Let(arg, loop(value), loop(rest), decl)
             case pat =>
               val newPattern = unTuplePattern(pat, nameToType, nameToCons)
               val res = loop(rest)
@@ -129,19 +129,19 @@ sealed abstract class Declaration {
               Expr.Match(loop(value), expBranches, decl)
           }
         case Comment(CommentStatement(_, Padding(_, decl))) =>
-          loop(decl).map(_ => this)
+          loop(decl).map(_ => decl)
         case Constructor(name) =>
-          Expr.Var(None, name, this)
+          Expr.Var(None, name, decl)
         case DefFn(defstmt@DefStatement(_, _, _, _)) =>
           val (bodyExpr, inExpr) = defstmt.result match {
             case (oaBody, Padding(_, in)) =>
               (loop(oaBody.get), loop(in))
           }
-          val lambda = defstmt.toLambdaExpr(bodyExpr, this)(_.toType(nameToType))
-          Expr.Let(defstmt.name, lambda, inExpr, this)
+          val lambda = defstmt.toLambdaExpr(bodyExpr, decl)(_.toType(nameToType))
+          Expr.Let(defstmt.name, lambda, inExpr, decl)
         case IfElse(ifCases, elseCase) =>
           def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
-            Expr.If(cond, ifTrue, ifFalse, this)
+            Expr.If(cond, ifTrue, ifFalse, decl)
 
           def loop0(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
             ifs match {
@@ -155,20 +155,20 @@ sealed abstract class Declaration {
             (loop(d0), loop(d1.get))
           }, loop(elseCase.get))
         case Lambda(args, body) =>
-          Expr.buildLambda(args.map((_, None)), loop(body), this)
+          Expr.buildLambda(args.map((_, None)), loop(body), decl)
         case Literal(lit) =>
-          Expr.Literal(lit, this)
+          Expr.Literal(lit, decl)
         case Parens(p) =>
-          loop(p).map(_ => this)
+          loop(p).map(_ => decl)
         case Var(name) =>
-          Expr.Var(None, name, this)
+          Expr.Var(None, name, decl)
         case Match(arg, branches) =>
           val expBranches = branches.get.map { case (pat, oidecl) =>
             val decl = oidecl.get
             val newPattern = unTuplePattern(pat, nameToType, nameToCons)
             (newPattern, loop(decl))
           }
-          Expr.Match(loop(arg), expBranches, this)
+          Expr.Match(loop(arg), expBranches, decl)
         case tc@TupleCons(its) =>
           val tup0: Expr[Declaration] = Expr.Var(Some(Predef.packageName), "Unit", tc)
           val tup2: Expr[Declaration] = Expr.Var(Some(Predef.packageName), "Tuple2", tc)
