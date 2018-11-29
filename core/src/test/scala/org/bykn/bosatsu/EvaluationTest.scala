@@ -186,6 +186,34 @@ main = match x:
 """), "Foo", Str("good"))
   }
 
+  test("test tuples") {
+    evalTest(
+      List("""
+package Foo
+
+x = (1, "1")
+
+main = match x:
+  (_, "1"): "good"
+  _: "bad"
+"""), "Foo", Str("good"))
+
+    evalTest(
+      List("""
+package Foo
+
+x = (1, "1")
+
+def go(u):
+  (_, y) = x
+  match y:
+    "1": "good"
+    _: "bad"
+
+main = go(())
+"""), "Foo", Str("good"))
+  }
+
   test("do a fold") {
     evalTest(
       List("""
@@ -234,17 +262,14 @@ three = [0, 1]
 # exercise the built-in range function (not implementable in bosatsu)
 threer = range(3)
 
-struct Pair(fst, sec)
-
-def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
+def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
   def cons(pair, item):
     match pair:
-      Pair(acc, []):
-        Pair(acc, [])
-      Pair(acc, [h, *tail]):
-        Pair([Pair(item, h), *acc], tail)
+      (acc, []): (acc, [])
+      (acc, [h, *tail]):
+        ([(item, h), *acc], tail)
 
-  Pair(res, _) = as.foldLeft(Pair([], bs), cons)
+  (res, _) = as.foldLeft(([], bs), cons)
   reverse(res)
 
 def and(a, b):
@@ -252,7 +277,7 @@ def and(a, b):
 
 def same_items(items, eq):
   def test(p):
-    Pair(a, b) = p
+    (a, b) = p
     eq(a, b)
 
   items.foldLeft(True, \res, t -> and(res, test(t)))
@@ -267,20 +292,15 @@ evalTest(
   List("""
 package Foo
 
-struct Pair(fst, sec)
-
-def zip(as: List[a], bs: List[b]) -> List[Pair[a, b]]:
-  def cons(pair: Pair[List[Pair[a, b]], List[b]], item: a) -> Pair[List[Pair[a, b]], List[b]]:
+def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
+  def cons(pair: (List[(a, b)], List[b]), item: a) -> (List[(a, b)], List[b]):
     match pair:
-      Pair(acc, []):
-        Pair(acc, [])
-      Pair(acc, [h, *tail]):
-        Pair([Pair(item, h), *acc], tail)
+      (acc, []): (acc, [])
+      (acc, [h, *tail]):
+        ([(item, h), *acc], tail)
 
-  rev = as.foldLeft(Pair([], bs), cons)
-  match rev:
-    Pair(res, _):
-      reverse(res)
+  (res, _) = as.foldLeft(([], bs), cons)
+  reverse(res)
 
 main = 1
 """), "Foo", VInt(1))

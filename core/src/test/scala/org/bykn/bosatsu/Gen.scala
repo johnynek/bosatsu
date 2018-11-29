@@ -66,11 +66,17 @@ object Generators {
 
     val tLambda = typeRefLambdaGen
 
+    val tTup = Gen
+      .choose(0, 3)
+      .flatMap(Gen.listOfN(_, typeRefGen))
+      .map(TypeRef.TypeTuple(_))
+
     Gen.frequency(
       (4, tvar),
       (4, tname),
       (1, Gen.zip(Gen.lzy(typeRefGen), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
       (1, tLambda),
+      (1, tTup),
       (1, tApply))
   }
 
@@ -207,7 +213,7 @@ object Generators {
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
   }
 
-  def genPattern(depth: Int): Gen[Pattern[String, TypeRef]] = {
+  def genPattern(depth: Int): Gen[Pattern[Option[String], TypeRef]] = {
     val recurse = Gen.lzy(genPattern(depth - 1))
     val genVar = lowerIdent.map(Pattern.Var(_))
     val genWild = Gen.const(Pattern.WildCard)
@@ -219,12 +225,12 @@ object Generators {
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
       val genStruct =  for {
-        nm <- upperIdent
+        nm <- Gen.option(upperIdent)
         cnt <- Gen.choose(0, 6)
         args <- Gen.listOfN(cnt, recurse)
       } yield Pattern.PositionalStruct(nm, args)
 
-      def makeOneSplice(ps: List[Either[Option[String], Pattern[String, TypeRef]]]) = {
+      def makeOneSplice(ps: List[Either[Option[String], Pattern[Option[String], TypeRef]]]) = {
         val sz = ps.size
         if (sz == 0) Gen.const(ps)
         else Gen.choose(0, sz - 1).flatMap { idx =>
@@ -236,7 +242,7 @@ object Generators {
         }
       }
 
-      val genListItem: Gen[Either[Option[String], Pattern[String, TypeRef]]] =
+      val genListItem: Gen[Either[Option[String], Pattern[Option[String], TypeRef]]] =
         recurse.map(Right(_))
 
       val genList = Gen.choose(0, 5)
@@ -260,7 +266,7 @@ object Generators {
     val padBody = optIndent(bodyGen)
 
 
-    val genCase: Gen[(Pattern[String, TypeRef], OptIndent[Declaration])] =
+    val genCase: Gen[(Pattern[Option[String], TypeRef], OptIndent[Declaration])] =
       Gen.zip(genPattern(3), padBody)
 
     for {
@@ -313,7 +319,7 @@ object Generators {
       upperIdent.map(Constructor(_)(emptyRegion)),
       genLit.map(Literal(_)(emptyRegion)))
 
-    val pat: Gen[Pattern[String, TypeRef]] = lowerIdent.map(Pattern.Var(_))
+    val pat: Gen[Pattern[Option[String], TypeRef]] = lowerIdent.map(Pattern.Var(_))
     //val pat = genPattern(0)
 
     val recur = Gen.lzy(genDeclaration(depth - 1))

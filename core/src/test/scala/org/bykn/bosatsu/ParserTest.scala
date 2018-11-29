@@ -517,6 +517,21 @@ else: y""")
     a.plus(b)
   Bar:
     42""")
+    roundTrip(Declaration.parser(""),
+
+"""match 1:
+  (a, b):
+    a.plus(b)
+  ():
+    42""")
+
+    roundTrip(Declaration.parser(""),
+
+"""match 1:
+  (a, (b, c)):
+    a.plus(b).plus(e)
+  (1,):
+    42""")
 
     roundTrip(Declaration.parser(""),
 """match 1:

@@ -9,16 +9,10 @@ import cats.implicits._
 
 sealed abstract class Pattern[+N, +T] {
   def mapName[U](fn: N => U): Pattern[U, T] =
-    this match {
-      case Pattern.WildCard => Pattern.WildCard
-      case Pattern.Literal(lit) => Pattern.Literal(lit)
-      case Pattern.Var(v) => Pattern.Var(v)
-      case Pattern.ListPat(items) =>
-        Pattern.ListPat(items.map(_.right.map(_.mapName(fn))))
-      case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapName(fn), tpe)
-      case Pattern.PositionalStruct(name, params) =>
-        Pattern.PositionalStruct(fn(name), params.map(_.mapName(fn)))
+    (new Pattern.InvariantPattern(this)).mapStruct[U] { (n, parts) =>
+      Pattern.PositionalStruct(fn(n), parts)
     }
+
   def mapType[U](fn: T => U): Pattern[N, U] =
     this match {
       case Pattern.WildCard => Pattern.WildCard
@@ -53,6 +47,28 @@ object Pattern {
           }
       }
 
+    def mapStruct[N1](parts: (N, List[Pattern[N1, T]]) => Pattern[N1, T]): Pattern[N1, T] =
+      pat match {
+        case Pattern.WildCard => Pattern.WildCard
+        case Pattern.Literal(lit) => Pattern.Literal(lit)
+        case Pattern.Var(v) => Pattern.Var(v)
+        case Pattern.ListPat(items) =>
+          val items1 = items.map {
+            case Left(v) =>
+              Left(v): Either[Option[String], Pattern[N1, T]]
+            case Right(p) =>
+              val p1 = p.mapStruct(parts)
+              Right(p1): Either[Option[String], Pattern[N1, T]]
+          }
+          Pattern.ListPat(items1)
+        case Pattern.Annotation(p, tpe) =>
+          Pattern.Annotation(p.mapStruct(parts), tpe)
+        case Pattern.PositionalStruct(name, params) =>
+          val p1 = params.map(_.mapStruct(parts))
+          parts(name, p1)
+      }
+
+
   /**
    * Return the pattern with all the binding names removed
    */
@@ -80,8 +96,8 @@ object Pattern {
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
 
 
-  implicit lazy val document: Document[Pattern[String, TypeRef]] =
-    Document.instance[Pattern[String, TypeRef]] {
+  implicit lazy val document: Document[Pattern[Option[String], TypeRef]] =
+    Document.instance[Pattern[Option[String], TypeRef]] {
       case WildCard => Doc.char('_')
       case Literal(lit) => Document[Lit].document(lit)
       case Var(n) => Doc.text(n)
@@ -102,29 +118,44 @@ object Pattern {
          *      case
          */
         ???
-      case PositionalStruct(n, Nil) => Doc.text(n)
+      case PositionalStruct(n, Nil) =>
+        n match {
+          case None => Doc.text("()")
+          case Some(nm) => Doc.text(nm)
+        }
+      case PositionalStruct(None, h :: Nil) =>
+        // single item tuples need a comma:
+        Doc.char('(') + document.document(h) + Doc.text(",)")
       case PositionalStruct(n, nonEmpty) =>
-        Doc.text(n) +
+        val prefix = n match {
+          case None => Doc.empty
+          case Some(n) => Doc.text(n)
+        }
+        prefix +
           Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(document.document(_))) + Doc.char(')')
     }
 
-  lazy val parser: P[Pattern[String, TypeRef]] = {
+  lazy val parser: P[Pattern[Option[String], TypeRef]] = {
 
-    def go(isTop: Boolean): P[Pattern[String, TypeRef]] = {
+    def go(isTop: Boolean): P[Pattern[Option[String], TypeRef]] = {
       val recurse = P(go(false)) // this is lazy
 
       val pwild = P("_").map(_ => WildCard)
       val pvar = lowerIdent.map(Var(_))
       val plit = Lit.parser.map(Literal(_))
-      val pparen = recurse.parens
 
       val positional = P(upperIdent ~ (recurse.listN(1).parens).?)
         .map {
-          case (n, None) => PositionalStruct(n, Nil)
-          case (n, Some(ls)) => PositionalStruct(n, ls)
+          case (n, None) => PositionalStruct(Some(n), Nil)
+          case (n, Some(ls)) => PositionalStruct(Some(n), ls)
         }
 
-      val listItem: P[Either[Option[String], Pattern[String, TypeRef]]] = {
+      val tupleOrParens = recurse.tupleOrParens.map {
+        case Left(parens) => parens
+        case Right(tup) => PositionalStruct(None, tup)
+      }
+
+      val listItem: P[Either[Option[String], Pattern[Option[String], TypeRef]]] = {
         val maybeNamed: P[Option[String]] =
           P("_").map(_ => None) | lowerIdent.map(Some(_))
 
@@ -133,7 +164,7 @@ object Pattern {
 
       val listP = listItem.listSyntax.map(ListPat(_))
 
-      val nonAnnotated = pvar | plit | pwild | pparen | positional | listP
+      val nonAnnotated = pvar | plit | pwild | tupleOrParens | positional | listP
       val typeAnnot = P(maybeSpace ~ ":" ~ maybeSpace ~ TypeRef.parser)
       val withType = (nonAnnotated ~ typeAnnot.?).map {
         case (p, None) => p
