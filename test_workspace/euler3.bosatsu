@@ -11,13 +11,13 @@ def smallest_factor(n):
   match n:
     1: 1
     _:
-      intLoop(n, -1, \i, res ->
+      int_loop(n, -1, \i, res ->
         trial = n.sub(i).add(2)
         if n.mod_Int(trial).eq_Int(0): (0, trial)
         else: (i.sub(1), -1))
 
 def all_factors(n):
-  intLoop(n, [], \i, facs ->
+  int_loop(n, [], \i, facs ->
     next_factor = smallest_factor(i)
     next_facs = [next_factor, *facs]
     match i.div(next_factor):

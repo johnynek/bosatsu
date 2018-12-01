@@ -318,26 +318,26 @@ main = 1
 
   }
 
-  test("test rangeFold") {
+  test("test range_fold") {
 evalTest(
   List("""
 package Foo
 
-main = rangeFold(0, 10, 0, add)
+main = range_fold(0, 10, 0, add)
 """), "Foo", VInt(45))
 
 evalTest(
   List("""
 package Foo
 
-main = rangeFold(0, 10, 0, \x, y -> y)
+main = range_fold(0, 10, 0, \x, y -> y)
 """), "Foo", VInt(9))
 
 evalTest(
   List("""
 package Foo
 
-main = rangeFold(0, 10, 100, \x, y -> x)
+main = range_fold(0, 10, 100, \x, y -> x)
 """), "Foo", VInt(100))
   }
 

@@ -57,10 +57,10 @@ object Predef {
         "concat",
         "cmp_Int",
         "foldLeft",
-        "intLoop",
+        "int_loop",
         "mod_Int",
         "range",
-        "rangeFold",
+        "range_fold",
         "reverse",
         "reverse_concat",
         "sub",
@@ -83,7 +83,7 @@ object Predef {
       .add(packageName, "foldLeft", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.foldLeft"))
       .add(packageName, "mod_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.mod_Int"))
       .add(packageName, "range", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.range"))
-      .add(packageName, "intLoop", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.intLoop"))
+      .add(packageName, "int_loop", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.intLoop"))
       .add(packageName, "trace", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.trace"))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
