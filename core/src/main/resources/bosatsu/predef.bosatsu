@@ -16,11 +16,14 @@ export [
   cmp_Int,
   concat,
   consList,
+  div,
   emptyList,
   eq_Int,
   foldLeft,
+  int_loop,
   mod_Int,
   range,
+  range_fold,
   reverse,
   reverse_concat,
   sub,
@@ -41,8 +44,6 @@ external def emptyList -> List[a]
 external def consList(head: a, tail: List[a]) -> List[a]
 
 external def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b
-
-external def range(exclusiveUpper: Int) -> List[Int]
 
 def reverse_concat(front: List[a], back: List[a]) -> List[a]:
   foldLeft(front, back, \tail, h -> consList(h, tail))
@@ -69,9 +70,22 @@ external struct Int
 external def add(a: Int, b: Int) -> Int
 external def sub(a: Int, b: Int) -> Int
 external def times(a: Int, b: Int) -> Int
+external def div(a: Int, b: Int) -> Option[Int]
 external def eq_Int(a: Int, b: Int) -> Bool
 external def cmp_Int(a: Int, b: Int) -> Comparison
 external def mod_Int(a: Int, mod: Int) -> Int
+
+external def range(exclusiveUpper: Int) -> List[Int]
+
+# this loops until the returned Int is <= 0 or the returned Int is >= intValue
+external def int_loop(intValue: Int, state: a, fn: Int -> a -> Tuple2[Int, Tuple2[a, Unit]]) -> a
+
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: a -> Int -> a) -> a:
+  diff = exclusiveUpper.sub(inclusiveLower)
+  int_loop(diff, init, \diff0, a ->
+    idx = exclusiveUpper.sub(diff0)
+    a1 = fn(a, idx)
+    Tuple2(diff0.sub(1), Tuple2(a1, Unit)))
 
 external struct String
 

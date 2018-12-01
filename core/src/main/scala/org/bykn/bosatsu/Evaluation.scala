@@ -96,6 +96,9 @@ object Evaluation {
     }
 
     object VOption {
+      val none: Value = SumValue(0, UnitValue)
+      def some(v: Value): Value = SumValue(1, ConsValue(v, UnitValue))
+
       def unapply(v: Value): Option[Option[Value]] =
         v match {
           case UnitValue =>
@@ -307,8 +310,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case Nil => None
           case (Pattern.WildCard, next):: tail =>
             Some((acc, next))
-          case (Pattern.Literal(lit), next) :: tail if arg == Value.fromLit(lit) =>
-            Some((acc, next))
+          case (Pattern.Literal(lit), next) :: tail =>
+            if (arg == Value.fromLit(lit)) Some((acc, next))
+            else bindEnv(arg, tail, acc)
           case (Pattern.Var(n), next) :: tail => Some((acc + (n -> Eval.now(arg)), next))
           case (Pattern.ListPat(items), next) :: tail =>
             // we need this to be lazy, thus the def

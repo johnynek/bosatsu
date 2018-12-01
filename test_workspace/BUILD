@@ -33,3 +33,8 @@ bosatsu_test(
     name = "euler2",
     srcs = ["euler2.bosatsu"],
     size = "small")
+
+bosatsu_test(
+    name = "euler3",
+    srcs = ["euler3.bosatsu"],
+    size = "small")

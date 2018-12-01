@@ -251,6 +251,17 @@ package Foo
 
 main = 6.mod_Int(4)
 """), "Foo", VInt(2))
+
+    evalTest(
+      List("""
+package Foo
+
+main = match 6.div(4):
+  Some(0): 42
+  Some(1): 100
+  Some(x): x
+  None: -1
+"""), "Foo", VInt(100))
   }
 
   test("use range") {
@@ -305,6 +316,29 @@ def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
 main = 1
 """), "Foo", VInt(1))
 
+  }
+
+  test("test range_fold") {
+evalTest(
+  List("""
+package Foo
+
+main = range_fold(0, 10, 0, add)
+"""), "Foo", VInt(45))
+
+evalTest(
+  List("""
+package Foo
+
+main = range_fold(0, 10, 0, \x, y -> y)
+"""), "Foo", VInt(9))
+
+evalTest(
+  List("""
+package Foo
+
+main = range_fold(0, 10, 100, \x, y -> x)
+"""), "Foo", VInt(100))
   }
 
   test("test some list matches") {
