@@ -251,6 +251,17 @@ package Foo
 
 main = 6.mod_Int(4)
 """), "Foo", VInt(2))
+
+    evalTest(
+      List("""
+package Foo
+
+main = match 6.div(4):
+  Some(0): 42
+  Some(1): 100
+  Some(x): x
+  None: -1
+"""), "Foo", VInt(100))
   }
 
   test("use range") {
