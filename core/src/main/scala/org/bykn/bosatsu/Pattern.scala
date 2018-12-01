@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Applicative
+import cats.data.NonEmptyList
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 
@@ -23,6 +24,7 @@ sealed abstract class Pattern[+N, +T] {
       case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapType(fn), fn(tpe))
       case Pattern.PositionalStruct(name, params) =>
         Pattern.PositionalStruct(name, params.map(_.mapType(fn)))
+      case Pattern.Union(h, t) => Pattern.Union(h.mapType(fn), t.map(_.mapType(fn)))
     }
 }
 
@@ -45,6 +47,10 @@ object Pattern {
           params.traverse(_.traverseType(fn)).map { ps =>
             Pattern.PositionalStruct(name, ps)
           }
+        case Pattern.Union(h, tail) =>
+          (h.traverseType(fn), tail.traverse(_.traverseType(fn))).mapN { (h, t) =>
+            Pattern.Union(h, t)
+          }
       }
 
     def mapStruct[N1](parts: (N, List[Pattern[N1, T]]) => Pattern[N1, T]): Pattern[N1, T] =
@@ -66,6 +72,8 @@ object Pattern {
         case Pattern.PositionalStruct(name, params) =>
           val p1 = params.map(_.mapStruct(parts))
           parts(name, p1)
+        case Pattern.Union(h, tail) =>
+          Pattern.Union(h.mapStruct(parts), tail.map(_.mapStruct(parts)))
       }
 
 
@@ -85,6 +93,8 @@ object Pattern {
           Pattern.Annotation(p.unbind, tpe)
         case Pattern.PositionalStruct(name, params) =>
           Pattern.PositionalStruct(name, params.map(_.unbind))
+        case Pattern.Union(h, t) =>
+          Pattern.Union(h.unbind, t.map(_.unbind))
       }
   }
 
@@ -94,7 +104,7 @@ object Pattern {
   case class ListPat[N, T](parts: List[Either[Option[String], Pattern[N, T]]]) extends Pattern[N, T]
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
-
+  case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
 
   implicit lazy val document: Document[Pattern[Option[String], TypeRef]] =
     Document.instance[Pattern[Option[String], TypeRef]] {
@@ -133,6 +143,8 @@ object Pattern {
         }
         prefix +
           Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(document.document(_))) + Doc.char(')')
+      case Union(head, rest) =>
+        Doc.intercalate(Doc.text(" | "), (head :: rest.toList).map(document.document(_)))
     }
 
   lazy val parser: P[Pattern[Option[String], TypeRef]] = {
@@ -165,16 +177,31 @@ object Pattern {
       val listP = listItem.listSyntax.map(ListPat(_))
 
       val nonAnnotated = pvar | plit | pwild | tupleOrParens | positional | listP
-      val typeAnnot = P(maybeSpace ~ ":" ~ maybeSpace ~ TypeRef.parser)
-      val withType = (nonAnnotated ~ typeAnnot.?).map {
-        case (p, None) => p
-        case (p, Some(t)) => Annotation(p, t)
+      // A union can't have an annotation, we need to be inside a parens for that
+      val unionOp: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]] = {
+        val unionSep = P("|" ~ maybeSpace)
+        (unionSep ~ nonAnnotated ~ maybeSpace).nonEmptyList
+          .map { ne =>
+            { pat: Pattern[Option[String], TypeRef] => Union(pat, ne) }
+          }
       }
+      val typeAnnotOp: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]] = {
+        P(":" ~ maybeSpace ~ TypeRef.parser)
+          .map { tpe =>
+            { pat: Pattern[Option[String], TypeRef] => Annotation(pat, tpe) }
+          }
+      }
+
+      def maybeOp(opP: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]]): P[Pattern[Option[String], TypeRef]] = (nonAnnotated ~ opP.?)
+        .map {
+          case (p, None) => p
+          case (p, Some(op)) => op(p)
+        }
 
       // We only allow type annotation not at the top level, must be inside
       // Struct or parens
-      if (isTop) nonAnnotated
-      else withType
+      if (isTop) maybeOp(unionOp)
+      else maybeOp(unionOp | typeAnnotOp)
     }
 
     go(true)

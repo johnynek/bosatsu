@@ -756,8 +756,19 @@ object Infer {
             bindings = envs.map(_._2)
             _ <- instPatSigma(res, sigma)
           } yield (GenPattern.PositionalStruct(nm, pats), bindings.flatten)
+        case u@GenPattern.Union(h, t) =>
+          (typeCheckPattern(h, sigma), t.traverse(typeCheckPattern(_, sigma)))
+            .mapN { case ((h, binds), neList) =>
+              val pat = GenPattern.Union(h, neList.map(_._1))
+              val allBinds = binds :: (neList.map(_._2).toList)
+              indenticalBinds(u, allBinds).as((pat, binds))
+            }
+            .flatten
       }
 
+    // Unions have to have identical bindings in all branches
+    def indenticalBinds(u: Pattern, binds: List[List[(String, Type)]]): Infer[Unit] =
+      ???
 
     def checkPat(pat: Pattern, sigma: Type): Infer[(Pattern, List[(String, Type)])] =
       typeCheckPattern(pat, Expected.Check(sigma))

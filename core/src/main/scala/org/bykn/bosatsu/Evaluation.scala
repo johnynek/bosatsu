@@ -360,6 +360,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case (Pattern.Annotation(p, _), next) :: tail =>
             // TODO we may need to use the type here
             bindEnv(arg, (p, next) :: tail, acc)
+          case (Pattern.Union(h, t), next) :: tail =>
+            // we can just loop expanding these out:
+            bindEnv(arg, (h, next) :: t.toList.map((_, next)) ::: tail, acc)
           case (Pattern.PositionalStruct(pc@(pack, ctor), items), next) :: tail =>
             /*
              * The type in question is not the outer dt, but the type associated

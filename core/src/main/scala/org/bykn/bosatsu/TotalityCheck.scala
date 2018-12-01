@@ -281,6 +281,10 @@ case class TotalityCheck(inEnv: TypeEnv) {
         case (v, WildCard) => Right(List(v))
         case (Var(_), v) => Right(List(v))
         case (v, Var(_)) => Right(List(v))
+        case (Union(h, t), p) =>
+          (h :: t.toList).traverse(intersection(_, p)).map(_.flatten)
+        case (p, Union(h, t)) =>
+          (h :: t.toList).traverse(intersection(p, _)).map(_.flatten)
         case (Annotation(p, _), t) => intersection(p, t)
         case (t, Annotation(p, _)) => intersection(t, p)
         case (Literal(a), Literal(b)) =>
@@ -687,6 +691,7 @@ case class TotalityCheck(inEnv: TypeEnv) {
             if (dt.isStruct) params.forallM(isTotal)
             else Right(false)
         }
+      case Pattern.Union(h, t) => isTotal(h :: t.toList)
     }
 
   /**
@@ -714,6 +719,7 @@ case class TotalityCheck(inEnv: TypeEnv) {
           case Annotation(p, t) => Annotation(normalizePattern(p), t)
           case PositionalStruct(n, params) =>
             PositionalStruct(n, params.map(normalizePattern))
+          case Union(h, t) => Union(normalizePattern(h), t.map(normalizePattern(_)))
         }
     }
   /**
