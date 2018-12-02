@@ -159,7 +159,8 @@ nm = match my_file:
   File(name, _, _, ): name
 ```
 
-All matches in Bosatsu are total: one of the branches must match. We intend to support destructuring style syntax when matches are total:
+All matches in Bosatsu are total: one of the branches must match.
+We support destructuring style syntax when matches are total:
 ```
 File(nm, _, _, _) = my_file
 ```
@@ -204,6 +205,18 @@ x = NonEmpty(0, NonEmpty(1, NonEmpty(2, Empty)))
 ```
 However, this should rarely be needed due to the built in `List` support.
 
+### Tuples
+A built-in family of structs are tuples, which you can think of as either lists with potentially a
+different type in each position and a statically known size, or as an anonymous struct. We write and
+match them exactly as you might imagine:
+```
+x = (1, "2", ["three"])
+# this match is total, so we can do a destructuring assignment:
+(a, b, c) = x
+# or we can use match syntax if that is more appropriate
+match x:
+  (x, y, z): do_something(x, y, z)
+```
 
 ### Enums
 While `struct` represents a named tuple or product type, an `enum` represents a named sum type. This is something similar to `union` in C, `sealed trait` subclasses in Scala, or its namesake `enum` from Rust. Perhaps the most famous example is below:
@@ -220,6 +233,36 @@ enum GoodOrBad:
   Bad(bad: a), Good(good: a)
 ```
 In the above example, `GoodOrBad` has a single type parameter `a`. So `Bad(1)` and `Good(1)` are of the same type.
+
+### Pattern Matching
+As we have already seen examples of, Bosatsu features powerful pattern matching. Literal values,
+such as integers or strings, as well as lists and tuples can appear in pattern matches. Patterns can
+be nested and combined in unions. There is a special wildcard term that can appear in a pattern
+match that is written as `_`. The wildcard matches everything but introduces no new bindings.
+
+On restriction is that all match expressions in Bosatsu must be complete matches. It is a
+compilation error if a pattern match can fail. Remember, Bosatsu is a total language, so we must
+check for match totality in order to preserve totality of our functions.
+
+Here are some examples of pattern matches:
+```
+enum Either: Left(a), Right(b)
+
+match x:
+  Left(Left(Left(_)) | Right(_)): 0
+  Left(Left(Right(_))): 1
+  Right(_): 2
+
+match y:
+  Left(Left(x)) | Right(x):
+    # here we require that the bindings in the left and right sides of
+    # the union are the same and that they have the same type
+    Some(x)
+  Left(Right(_)): None
+
+# if we can write a match in a single arm, we can write it as a binding:
+Left(x) | Right(x) = y
+```
 
 ## Types
 Type variables are all lower case. There is an explicit syntax for function type: `a -> b`. There is
