@@ -33,6 +33,9 @@ object PackageName {
   implicit val order: Order[PackageName] =
     Order[NonEmptyList[String]].contramap[PackageName](_.parts)
 
+  implicit val packageNameOrdering: Ordering[PackageName] =
+    order.toOrdering
+
   val predef: PackageName =
     PackageName(NonEmptyList.of("Bosatsu", "Predef"))
 }

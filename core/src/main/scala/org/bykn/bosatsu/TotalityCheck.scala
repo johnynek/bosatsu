@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Monad, Applicative, Eq}
+import cats.{Monad, Order, Applicative, Eq}
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
 
@@ -194,6 +194,34 @@ case class TotalityCheck(inEnv: TypeEnv) {
           })
     }
 
+  def patternsToPattern(ps: Patterns): Option[Pattern[Cons, Type]] =
+    ps match {
+      case Nil => None
+      case h :: Nil => Some(h)
+      case h0 :: h1 :: tail => Some(Pattern.Union(h0, NonEmptyList(h1, tail)))
+    }
+
+  def normalizeUnion(u: Pattern.Union[Cons, Type]): Patterns = {
+    val list = u.head :: u.rest.toList
+    def defTotal(u: Pattern[Cons, Type]): Boolean =
+      isTotal(u) match {
+        case Right(true) => true
+        case _ => false
+      }
+    val flattened =
+      list
+        .flatMap {
+          case u@Pattern.Union(_, _) =>
+            normalizeUnion(u)
+          case p => p :: Nil
+        }
+        .distinct
+        .sorted
+
+    if (flattened.exists(defTotal)) WildCard :: Nil
+    else flattened
+  }
+
   def difference0(left: Pattern[Cons, Type], right: Pattern[Cons, Type]): Res[Patterns] =
     (left, right) match {
       case (_, WildCard | Var(_)) => Right(Nil)
@@ -210,6 +238,10 @@ case class TotalityCheck(inEnv: TypeEnv) {
         // v is the same as [*v] for well typed expressions
         checkListPats(listPat :: Nil) *>
           difference0List(Left(Some(v)) :: Nil, rp)
+      case (u@Union(_, _), right) =>
+        difference(normalizeUnion(u), right).map(_.distinct.sorted)
+      case (left, u@Union(_, _)) =>
+        differenceAll(left :: Nil, normalizeUnion(u)).map(_.distinct.sorted)
       case (left@ListPat(lp), right@ListPat(rp)) =>
         checkListPats(left :: right :: Nil) *>
           difference0List(lp, rp)
@@ -276,15 +308,19 @@ case class TotalityCheck(inEnv: TypeEnv) {
     left: Pattern[Cons, Type],
     right: Pattern[Cons, Type]): Res[List[Pattern[Cons, Type]]] =
       (left, right) match {
+        case (u@Union(_, _), p) =>
+          normalizeUnion(u)
+            .traverse(intersection(_, p))
+            .map(_.flatten.distinct.sorted)
+        case (p, u@Union(_, _)) =>
+          normalizeUnion(u)
+            .traverse(intersection(p, _))
+            .map(_.flatten.distinct.sorted)
         case (Var(va), Var(vb)) => Right(List(Var(Ordering[String].min(va, vb))))
         case (WildCard, v) => Right(List(v))
         case (v, WildCard) => Right(List(v))
         case (Var(_), v) => Right(List(v))
         case (v, Var(_)) => Right(List(v))
-        case (Union(h, t), p) =>
-          (h :: t.toList).traverse(intersection(_, p)).map(_.flatten)
-        case (p, Union(h, t)) =>
-          (h :: t.toList).traverse(intersection(p, _)).map(_.flatten)
         case (Annotation(p, _), t) => intersection(p, t)
         case (t, Annotation(p, _)) => intersection(t, p)
         case (Literal(a), Literal(b)) =>
@@ -294,7 +330,7 @@ case class TotalityCheck(inEnv: TypeEnv) {
         case (_, Literal(_)) => Right(Nil)
         case (lp@ListPat(leftL), rp@ListPat(rightL)) =>
           checkListPats(lp :: rp :: Nil) *>
-            intersectionList(leftL, rightL)
+            intersectionList(leftL, rightL).map { ps => (ps: Patterns).sorted }
         case (ListPat(_), _) => Right(Nil)
         case (_, ListPat(_)) => Right(Nil)
         case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
@@ -310,7 +346,8 @@ case class TotalityCheck(inEnv: TypeEnv) {
               lps.zip(rps).traverse[ResList, Pattern[Cons, Type]] {
                 case (l, r) => intersection(l, r)
               }
-              .map(_.map(PositionalStruct(ln, _)))
+              .map(_.map(PositionalStruct(ln, _): Pattern[Cons, Type]))
+              .map(_.sorted)
           }
           else Right(Nil)
       }
@@ -521,7 +558,12 @@ case class TotalityCheck(inEnv: TypeEnv) {
         case ((WildCard | Var(_)) :: _, _) => true
         case (_, Annotation(p, _)) => loop(superSet, p)
         case (_, (WildCard | Var(_))) => false // we never call this on a total superset
-        case ((Literal(a) :: tail), Literal(b)) if a == b => true
+        case (Union(h, t) :: rest, sub) =>
+          loop(h :: t.toList ::: rest, sub)
+        case (items, Union(h, t)) =>
+          loop(items, h) && t.forall(loop(items, _))
+        case ((Literal(a) :: tail), lit@Literal(b)) =>
+          (a == b) || loop(tail, lit)
         case ((Literal(_) :: tail), notLit) => loop(tail, notLit)
         case (Annotation(p, _) :: tail, sub) => loop(p :: tail, sub)
         case (_, PositionalStruct(psub, partsSub)) =>
@@ -540,6 +582,8 @@ case class TotalityCheck(inEnv: TypeEnv) {
           }
           val tailLists: List[ListPat[Cons, Type]] = tail.collect { case lp@ListPat(_) => lp }
           loop(nonList, right) || listSuper(left :: tailLists, right)
+        case ((ListPat(_)) :: tail, notList) =>
+          loop(tail, notList)
         case (Nil, _) => false
       }
 
@@ -719,7 +763,15 @@ case class TotalityCheck(inEnv: TypeEnv) {
           case Annotation(p, t) => Annotation(normalizePattern(p), t)
           case PositionalStruct(n, params) =>
             PositionalStruct(n, params.map(normalizePattern))
-          case Union(h, t) => Union(normalizePattern(h), t.map(normalizePattern(_)))
+          case u@Union(h, t) =>
+            implicit val ordP: Order[Pattern[Cons, Type]] = Order.fromOrdering
+            val pats = (normalizePattern(h) :: t.map(normalizePattern(_))).distinct.sorted
+            pats match {
+              case NonEmptyList(h, Nil) => h
+              case NonEmptyList(h0, h1 :: tail) =>
+                val ps = normalizeUnion(Union(h0, NonEmptyList(h1, tail)))
+                patternsToPattern(ps).getOrElse(sys.error(s"expected at least one pattern from $u"))
+            }
         }
     }
   /**

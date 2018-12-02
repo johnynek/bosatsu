@@ -106,6 +106,53 @@ object Pattern {
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
   case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
 
+  implicit def patternOrdering[N: Ordering, T: Ordering]: Ordering[Pattern[N, T]] =
+    new Ordering[Pattern[N, T]] {
+      val ordN = implicitly[Ordering[N]]
+      val ordT = implicitly[Ordering[T]]
+      val list = ListOrdering.onType(this)
+      def eOrd[A, B](ordA: Ordering[A], ordB: Ordering[B]): Ordering[Either[A, B]] =
+        new Ordering[Either[A, B]] {
+          def compare(a: Either[A, B], b: Either[A, B]) =
+            (a, b) match {
+              case (Left(_), Right(_)) => -1
+              case (Right(_), Left(_)) => 1
+              case (Left(a), Left(b)) => ordA.compare(a, b)
+              case (Right(a), Right(b)) => ordB.compare(a, b)
+            }
+        }
+
+      val listE = ListOrdering.onType(eOrd[Option[String], Pattern[N, T]](implicitly, this))
+
+      def compare(a: Pattern[N, T], b: Pattern[N, T]): Int =
+        (a, b) match {
+          case (WildCard, WildCard) => 0
+          case (WildCard, _) => -1
+          case (Literal(_), WildCard) => 1
+          case (Literal(a), Literal(b)) => Lit.litOrdering.compare(a, b)
+          case (Literal(_), _) => -1
+          case (Var(_), WildCard | Literal(_)) => 1
+          case (Var(a), Var(b)) => a.compareTo(b)
+          case (Var(_), _) => -1
+          case (ListPat(_), WildCard | Literal(_) | Var(_)) => 1
+          case (ListPat(as), ListPat(bs)) => listE.compare(as, bs)
+          case (ListPat(_), _) => -1
+          case (Annotation(a0, t0), Annotation(a1, t1)) =>
+            val c = compare(a0, a1)
+            if (c == 0) ordT.compare(t0, t1) else c
+          case (Annotation(_, _), PositionalStruct(_, _) | Union(_, _)) => -1
+          case (Annotation(_, _), _) => 1
+          case (PositionalStruct(n0, a0), PositionalStruct(n1, a1)) =>
+            val c = ordN.compare(n0, n1)
+            if (c == 0) list.compare(a0, a1) else c
+          case (PositionalStruct(_, _), Union(_, _)) => -1
+          case (PositionalStruct(_, _), _) => 1
+          case (Union(h0, t0), Union(h1, t1)) =>
+            list.compare(h0 :: t0.toList, h1 :: t1.toList)
+          case (Union(_, _), _) => 1
+        }
+    }
+
   implicit lazy val document: Document[Pattern[Option[String], TypeRef]] =
     Document.instance[Pattern[Option[String], TypeRef]] {
       case WildCard => Doc.char('_')

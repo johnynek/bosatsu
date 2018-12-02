@@ -54,6 +54,12 @@ class TypeTest extends FunSuite {
     }
   }
 
+  test("types are well ordered") {
+    forAll(NTypeGen.genDepth03, NTypeGen.genDepth03, NTypeGen.genDepth03) {
+      org.bykn.bosatsu.OrderingLaws.law(_, _, _)
+    }
+  }
+
   test("test all binders") {
     assert(Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
       ("a" #:: Stream.iterate(0)(_ + 1).map { i => s"a$i" }).take(100))

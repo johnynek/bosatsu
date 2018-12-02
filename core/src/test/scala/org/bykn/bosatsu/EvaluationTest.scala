@@ -149,6 +149,36 @@ z = match x:
 """), "Foo", VInt(11))
   }
 
+  test("test matching unions") {
+    evalTest(
+      List("""
+package Foo
+
+struct Pair(a, b)
+
+x = Pair(Pair(1, "1"), "2")
+
+main = match x:
+  Pair(_, "2" | "3"): "good"
+  _: "bad"
+"""), "Foo", Str("good"))
+
+    evalTest(
+      List("""
+package Foo
+
+enum Res: Err(a), Good(a)
+
+x = Err("good")
+
+def run(z):
+  Err(y) | Good(y) = z
+  y
+
+main = run(x)
+"""), "Foo", Str("good"))
+  }
+
   test("test matching literals") {
     evalTest(
       List("""
