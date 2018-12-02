@@ -194,31 +194,31 @@ case class TotalityCheck(inEnv: TypeEnv) {
           })
     }
 
-  def patternsToPattern(ps: Patterns): Option[Pattern[Cons, Type]] =
+  def patternsToPattern(ps: NonEmptyList[Pattern[Cons, Type]]): Pattern[Cons, Type] =
     ps match {
-      case Nil => None
-      case h :: Nil => Some(h)
-      case h0 :: h1 :: tail => Some(Pattern.Union(h0, NonEmptyList(h1, tail)))
+      case NonEmptyList(h, Nil) => h
+      case NonEmptyList(h0, h1 :: tail) => Pattern.Union(h0, NonEmptyList(h1, tail))
     }
 
-  def normalizeUnion(u: Pattern.Union[Cons, Type]): Patterns = {
-    val list = u.head :: u.rest.toList
+  def normalizeUnion(u: Pattern.Union[Cons, Type]): NonEmptyList[Pattern[Cons, Type]] = {
+    val list = NonEmptyList(u.head, u.rest.toList)
     def defTotal(u: Pattern[Cons, Type]): Boolean =
       isTotal(u) match {
         case Right(true) => true
         case _ => false
       }
+    implicit val ordPat: Order[Pattern[Cons, Type]] = Order.fromOrdering
     val flattened =
       list
         .flatMap {
           case u@Pattern.Union(_, _) =>
             normalizeUnion(u)
-          case p => p :: Nil
+          case p => NonEmptyList(p, Nil)
         }
         .distinct
         .sorted
 
-    if (flattened.exists(defTotal)) WildCard :: Nil
+    if (flattened.exists(defTotal)) NonEmptyList(WildCard, Nil)
     else flattened
   }
 
@@ -239,9 +239,9 @@ case class TotalityCheck(inEnv: TypeEnv) {
         checkListPats(listPat :: Nil) *>
           difference0List(Left(Some(v)) :: Nil, rp)
       case (u@Union(_, _), right) =>
-        difference(normalizeUnion(u), right).map(_.distinct.sorted)
+        difference(normalizeUnion(u).toList, right).map(_.distinct.sorted)
       case (left, u@Union(_, _)) =>
-        differenceAll(left :: Nil, normalizeUnion(u)).map(_.distinct.sorted)
+        differenceAll(left :: Nil, normalizeUnion(u).toList).map(_.distinct.sorted)
       case (left@ListPat(lp), right@ListPat(rp)) =>
         checkListPats(left :: right :: Nil) *>
           difference0List(lp, rp)
@@ -310,10 +310,12 @@ case class TotalityCheck(inEnv: TypeEnv) {
       (left, right) match {
         case (u@Union(_, _), p) =>
           normalizeUnion(u)
+            .toList
             .traverse(intersection(_, p))
             .map(_.flatten.distinct.sorted)
         case (p, u@Union(_, _)) =>
           normalizeUnion(u)
+            .toList
             .traverse(intersection(p, _))
             .map(_.flatten.distinct.sorted)
         case (Var(va), Var(vb)) => Right(List(Var(Ordering[String].min(va, vb))))
@@ -770,7 +772,7 @@ case class TotalityCheck(inEnv: TypeEnv) {
               case NonEmptyList(h, Nil) => h
               case NonEmptyList(h0, h1 :: tail) =>
                 val ps = normalizeUnion(Union(h0, NonEmptyList(h1, tail)))
-                patternsToPattern(ps).getOrElse(sys.error(s"expected at least one pattern from $u"))
+                patternsToPattern(ps)
             }
         }
     }
