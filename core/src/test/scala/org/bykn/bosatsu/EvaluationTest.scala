@@ -182,6 +182,20 @@ main = run(x)
       List("""
 package Err
 
+enum IntOrString: IntCase(i: Int), StringCase(i: Int, s: String)
+
+def go(x):
+  # if we remove z, this is well typed, but an error nonetheless
+  IntCase(y) | StringCase(y, z) = x
+  y
+
+main = go(IntCase(42))
+"""), "Err") { case PackageError.TypeErrorIn(_, _) => () }
+
+    evalFail(
+      List("""
+package Err
+
 enum IntOrString: IntCase(i: Int), StringCase(s: String)
 
 def go(x):

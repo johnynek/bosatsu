@@ -764,17 +764,16 @@ object Infer {
           (typeCheckPattern(h, sigma), t.traverse(typeCheckPattern(_, sigma)))
             .mapN { case ((h, binds), neList) =>
               val pat = GenPattern.Union(h, neList.map(_._1))
-              val allBinds = binds :: (neList.map(_._2).toList)
-              indenticalBinds(u, allBinds).as((pat, binds))
+              val allBinds = NonEmptyList(binds, (neList.map(_._2).toList))
+              identicalBinds(u, allBinds).as((pat, binds))
             }
             .flatten
       }
 
     // Unions have to have identical bindings in all branches
-    def indenticalBinds(u: Pattern, binds: List[List[(String, Type)]]): Infer[Unit] =
+    def identicalBinds(u: Pattern, binds: NonEmptyList[List[(String, Type)]]): Infer[Unit] =
       binds.map(_.map(_._1)) match {
-        case Nil => pure(())
-        case h :: t =>
+        case NonEmptyList(h, t) =>
           val bs = h.toSet
           val rest = t.map(_.toSet)
           if (rest.forall(_ == bs)) {
