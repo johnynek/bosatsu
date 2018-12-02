@@ -256,7 +256,15 @@ object Generators {
         }
         .map(Pattern.ListPat(_))
 
-      Gen.oneOf(genVar, genWild, genLitPat, genStruct, genList /*, genTyped */)
+      val genUnion = Gen.choose(2, 4)
+        .flatMap(Gen.listOfN(_, recurse))
+        .map {
+          case h0 :: h1 :: tail =>
+            Pattern.Union(h0, NonEmptyList(h1, tail))
+          case other => sys.error(s"unreachable due to size: $other")
+        }
+
+      Gen.oneOf(genVar, genWild, genLitPat, genStruct, genList, genUnion /*, genTyped */)
     }
   }
 

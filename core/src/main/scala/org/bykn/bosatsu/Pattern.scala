@@ -144,17 +144,26 @@ object Pattern {
         prefix +
           Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(document.document(_))) + Doc.char(')')
       case Union(head, rest) =>
-        Doc.intercalate(Doc.text(" | "), (head :: rest.toList).map(document.document(_)))
+        def doc(p: Pattern[Option[String], TypeRef]): Doc =
+          p match {
+            case Annotation(_, _) | Union(_, _) =>
+              // if an annotation or union is embedded, we need to put parens for parsing
+              // to round trip. Note, we will never parse a nested union, but generators or could
+              // code produce one
+              Doc.char('(') + document.document(p) + Doc.char(')')
+            case nonParen => document.document(nonParen)
+          }
+        Doc.intercalate(Doc.text(" | "), (head :: rest.toList).map(doc(_)))
     }
 
   lazy val parser: P[Pattern[Option[String], TypeRef]] = {
 
-    def go(isTop: Boolean): P[Pattern[Option[String], TypeRef]] = {
-      val recurse = P(go(false)) // this is lazy
+    val pwild = P("_").map(_ => WildCard)
+    val pvar = lowerIdent.map(Var(_))
+    val plit = Lit.parser.map(Literal(_))
+    lazy val recurse = P(go(false))
 
-      val pwild = P("_").map(_ => WildCard)
-      val pvar = lowerIdent.map(Var(_))
-      val plit = Lit.parser.map(Literal(_))
+    def go(isTop: Boolean): P[Pattern[Option[String], TypeRef]] = {
 
       val positional = P(upperIdent ~ (recurse.listN(1).parens).?)
         .map {
@@ -180,8 +189,11 @@ object Pattern {
       // A union can't have an annotation, we need to be inside a parens for that
       val unionOp: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]] = {
         val unionSep = P("|" ~ maybeSpace)
-        (unionSep ~ nonAnnotated ~ maybeSpace).nonEmptyList
-          .map { ne =>
+        val one = (unionSep ~ nonAnnotated ~ maybeSpace)
+        (one ~ one.rep())
+          .map { case (h, tailSeq) =>
+            val ne = NonEmptyList(h, tailSeq.toList)
+
             { pat: Pattern[Option[String], TypeRef] => Union(pat, ne) }
           }
       }
@@ -192,11 +204,12 @@ object Pattern {
           }
       }
 
-      def maybeOp(opP: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]]): P[Pattern[Option[String], TypeRef]] = (nonAnnotated ~ opP.?)
-        .map {
-          case (p, None) => p
-          case (p, Some(op)) => op(p)
-        }
+      def maybeOp(opP: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]]): P[Pattern[Option[String], TypeRef]] =
+        (nonAnnotated ~ maybeSpace ~ opP.?)
+          .map {
+            case (p, None) => p
+            case (p, Some(op)) => op(p)
+          }
 
       // We only allow type annotation not at the top level, must be inside
       // Struct or parens
