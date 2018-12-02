@@ -213,8 +213,8 @@ object Generators {
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
   }
 
-  def genPattern(depth: Int): Gen[Pattern[Option[String], TypeRef]] = {
-    val recurse = Gen.lzy(genPattern(depth - 1))
+  def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern[Option[String], TypeRef]] = {
+    val recurse = Gen.lzy(genPattern(depth - 1, useUnion))
     val genVar = lowerIdent.map(Pattern.Var(_))
     val genWild = Gen.const(Pattern.WildCard)
     val genLitPat = genLit.map(Pattern.Literal(_))
@@ -256,7 +256,15 @@ object Generators {
         }
         .map(Pattern.ListPat(_))
 
-      Gen.oneOf(genVar, genWild, genLitPat, genStruct, genList /*, genTyped */)
+      val genUnion = Gen.choose(0, 2)
+        .flatMap { sz => Gen.zip(recurse, recurse, Gen.listOfN(sz, recurse)) }
+        .map {
+          case (h0, h1, tail) =>
+            Pattern.Union(h0, NonEmptyList(h1, tail))
+        }
+
+      if (useUnion) Gen.oneOf(genVar, genWild, genLitPat, genStruct, genList, genUnion /*, genTyped */)
+      else Gen.oneOf(genVar, genWild, genLitPat, genStruct, genList/*, genTyped */)
     }
   }
 

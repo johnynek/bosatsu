@@ -21,6 +21,39 @@ object Type {
   case class TyMeta(toMeta: Meta) extends Type
   case class TyApply(on: Type, arg: Type) extends Type
 
+  implicit val typeOrdering: Ordering[Type] =
+    new Ordering[Type] {
+      val boundOrd: Ordering[Var.Bound] =
+        Ordering[String].on[Var.Bound] { case Var.Bound(v) => v }
+
+      val list = org.bykn.bosatsu.ListOrdering.onType(boundOrd)
+
+      def compare(a: Type, b: Type): Int =
+        (a, b) match {
+          case (ForAll(v0, i0), ForAll(v1, i1)) =>
+            val c = list.compare(v0.toList, v1.toList)
+            if (c == 0) compare(i0, i1) else c
+          case (ForAll(_, _), _) => -1
+          case (TyConst(Const.Defined(p0, n0)), TyConst(Const.Defined(p1, n1))) =>
+            val c = Ordering[PackageName].compare(p0, p1)
+            if (c == 0) n0.compareTo(n1) else c
+          case (TyConst(_), ForAll(_, _)) => 1
+          case (TyConst(_), _) => -1
+          case (TyVar(v0), TyVar(v1)) =>
+            Ordering[Var].compare(v0, v1)
+          case (TyVar(_), ForAll(_, _) | TyConst(_)) => 1
+          case (TyVar(_), _) => -1
+          case (TyMeta(Meta(i0, _)), TyMeta(Meta(i1, _))) =>
+            java.lang.Long.compare(i0, i1)
+          case (TyMeta(_), TyApply(_, _)) => -1
+          case (TyMeta(_), _) => 1
+          case (TyApply(a0, b0), TyApply(a1, b1)) =>
+            val c = compare(a0, a1)
+            if (c == 0) compare(b0, b1) else c
+          case (TyApply(_, _), _) => 1
+        }
+    }
+
 
   def constantsOf(t: Type): List[Const] =
     t match {
@@ -153,6 +186,19 @@ object Type {
   object Var {
     case class Bound(name: String) extends Var
     case class Skolem(name: String, id: Long) extends Var
+
+    implicit val varOrdering: Ordering[Var] =
+      new Ordering[Var] {
+        def compare(a: Var, b: Var): Int =
+          (a, b) match {
+            case (Bound(a), Bound(b)) => a.compareTo(b)
+            case (Bound(_), _) => -1
+            case (Skolem(n0, i0), Skolem(n1, i1)) =>
+              val c = java.lang.Long.compare(i0, i1)
+              if (c == 0) n0.compareTo(n1) else c
+            case (Skolem(_, _), _) => 1
+          }
+      }
   }
 
   val allBinders: Stream[Var.Bound] = {

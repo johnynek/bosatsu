@@ -137,6 +137,10 @@ object Infer {
       def message = s"unknown Constructor $name. Known: ${env.typeCons.keys.toList.sorted}"
     }
 
+    case class UnionPatternBindMismatch(pattern: Pattern, names: List[List[String]]) extends NameError {
+      def message = s"$pattern doesn't bind the same names in all union branches: $names"
+    }
+
     /**
      * These can only happen if the compiler has bugs at some point
      */
@@ -756,8 +760,36 @@ object Infer {
             bindings = envs.map(_._2)
             _ <- instPatSigma(res, sigma)
           } yield (GenPattern.PositionalStruct(nm, pats), bindings.flatten)
+        case u@GenPattern.Union(h, t) =>
+          (typeCheckPattern(h, sigma), t.traverse(typeCheckPattern(_, sigma)))
+            .mapN { case ((h, binds), neList) =>
+              val pat = GenPattern.Union(h, neList.map(_._1))
+              val allBinds = NonEmptyList(binds, (neList.map(_._2).toList))
+              identicalBinds(u, allBinds).as((pat, binds))
+            }
+            .flatten
       }
 
+    // Unions have to have identical bindings in all branches
+    def identicalBinds(u: Pattern, binds: NonEmptyList[List[(String, Type)]]): Infer[Unit] =
+      binds.map(_.map(_._1)) match {
+        case NonEmptyList(h, t) =>
+          val bs = h.toSet
+          val rest = t.map(_.toSet)
+          if (rest.forall(_ == bs)) {
+            val bm = binds.map(_.toMap)
+            bs.toList.traverse_ { v =>
+              val bmh = bm.head
+              val bmt = bm.tail
+              val tpe = bmh(v)
+              bmt.traverse_ { m2 =>
+                val tpe2 = m2(v)
+                unify(tpe, tpe2)
+              }
+            }
+          }
+          else fail(Error.UnionPatternBindMismatch(u, h :: t))
+      }
 
     def checkPat(pat: Pattern, sigma: Type): Infer[(Pattern, List[(String, Type)])] =
       typeCheckPattern(pat, Expected.Check(sigma))

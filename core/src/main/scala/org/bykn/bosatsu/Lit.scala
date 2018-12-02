@@ -32,6 +32,17 @@ object Lit {
     str(q1) | str(q2)
   }
 
+  implicit val litOrdering: Ordering[Lit] =
+    new Ordering[Lit] {
+      def compare(a: Lit, b: Lit): Int =
+        (a, b) match {
+          case (Integer(a), Integer(b)) => a.compareTo(b)
+          case (Integer(_), Str(_)) => -1
+          case (Str(_), Integer(_)) => 1
+          case (Str(a), Str(b)) => a.compareTo(b)
+        }
+    }
+
   val parser: P[Lit] = integerParser | stringParser
 
   implicit val document: Document[Lit] =

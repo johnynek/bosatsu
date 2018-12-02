@@ -601,6 +601,21 @@ else:
     roundTrip(Declaration.parser(""),
 """Foo(x) = bar
 x""")
+
+    roundTrip(Declaration.parser(""),
+"""match x:
+  Some(_) | None: 1""")
+
+    roundTrip(Declaration.parser(""),
+"""match x:
+  Some(_) | None: 1
+  y: y
+  [x | y, _]: z""")
+
+
+    roundTrip(Declaration.parser(""),
+"""Foo(x) | Bar(x) = bar
+x""")
   }
 
   test("we can parse declaration lists") {

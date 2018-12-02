@@ -135,6 +135,39 @@ object TypeRef {
     }
   }
 
+  implicit val typeRefOrdering: Ordering[TypeRef] =
+    new Ordering[TypeRef] {
+      val list = ListOrdering.onType(this)
+
+      def compare(a: TypeRef, b: TypeRef): Int =
+        (a, b) match {
+          case (TypeVar(v0), TypeVar(v1)) => v0.compareTo(v1)
+          case (TypeVar(_), _) => -1
+          case (TypeName(v0), TypeName(v1)) => v0.compareTo(v1)
+          case (TypeName(_), TypeVar(_)) => 1
+          case (TypeName(_), _) => -1
+          case (TypeArrow(a0, b0), TypeArrow(a1, b1)) =>
+            val c = compare(a0, a1)
+            if (c == 0) compare(b0, b1) else c
+          case (TypeArrow(_, _), TypeVar(_) | TypeName(_)) => 1
+          case (TypeArrow(_, _), _) => -1
+          case (TypeApply(o0, a0), TypeApply(o1, a1)) =>
+            val c = compare(o0, o1)
+            if (c != 0) c
+            else list.compare(a0.toList, a1.toList)
+          case (TypeApply(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _)) => 1
+          case (TypeApply(_, _), _) => -1
+          case (TypeLambda(p0, in0), TypeLambda(p1, in1)) =>
+            // TODO, we could normalize the parmeters here
+            val c = list.compare(p0.toList, p1.toList)
+            if (c == 0) compare(in0, in1) else c
+          case (TypeLambda(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)) => 1
+          case (TypeLambda(_, _), _) => -1
+          case (TypeTuple(t0), TypeTuple(t1)) => list.compare(t0, t1)
+          case (TypeTuple(_), _) => 1
+        }
+    }
+
   val parser: P[TypeRef] = {
     val tvar = lowerIdent.map(TypeVar(_))
     val tname = upperIdent.map(TypeName(_))

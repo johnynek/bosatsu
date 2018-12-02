@@ -18,7 +18,7 @@ def keep(i):
   or(i.mod_Int(3).eq_Int(0), i.mod_Int(5).eq_Int(0))
 
 def sum(as):
-  as.foldLeft(0)(add)
+  as.foldLeft(0, add)
 
 # >>> sum(i for i in xrange(1000) if keep_fn(i))
 # 233168

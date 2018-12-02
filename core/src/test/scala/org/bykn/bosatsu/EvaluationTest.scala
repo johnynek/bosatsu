@@ -149,6 +149,79 @@ z = match x:
 """), "Foo", VInt(11))
   }
 
+  test("test matching unions") {
+    evalTest(
+      List("""
+package Foo
+
+struct Pair(a, b)
+
+x = Pair(Pair(1, "1"), "2")
+
+main = match x:
+  Pair(_, "2" | "3"): "good"
+  _: "bad"
+"""), "Foo", Str("good"))
+
+    evalTest(
+      List("""
+package Foo
+
+enum Res: Err(a), Good(a)
+
+x = Err("good")
+
+def run(z):
+  Err(y) | Good(y) = z
+  y
+
+main = run(x)
+"""), "Foo", Str("good"))
+
+    evalFail(
+      List("""
+package Err
+
+enum IntOrString: IntCase(i: Int), StringCase(i: Int, s: String)
+
+def go(x):
+  # if we remove z, this is well typed, but an error nonetheless
+  IntCase(y) | StringCase(y, z) = x
+  y
+
+main = go(IntCase(42))
+"""), "Err") { case PackageError.TypeErrorIn(_, _) => () }
+
+    evalFail(
+      List("""
+package Err
+
+enum IntOrString: IntCase(i: Int), StringCase(s: String)
+
+def go(x):
+  # this is illtyped
+  IntCase(y) | StringCase(y) = x
+  y
+
+main = go(IntCase(42))
+"""), "Err") { case PackageError.TypeErrorIn(_, _) => () }
+
+    evalTest(
+      List("""
+package Union
+
+enum IntOrString: IntCase(i: Int), StringCase(s: String)
+
+def go(x):
+  # this is a total match, and doesn't bind incompatible
+  # types to the same name
+  IntCase(_) | StringCase(_) = x
+  42
+
+main = go(IntCase(42))
+"""), "Union", VInt(42))
+  }
+
   test("test matching literals") {
     evalTest(
       List("""
