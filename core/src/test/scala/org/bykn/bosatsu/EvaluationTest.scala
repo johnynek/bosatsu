@@ -177,6 +177,35 @@ def run(z):
 
 main = run(x)
 """), "Foo", Str("good"))
+
+    evalFail(
+      List("""
+package Err
+
+enum IntOrString: IntCase(i: Int), StringCase(s: String)
+
+def go(x):
+  # this is illtyped
+  IntCase(y) | StringCase(y) = x
+  y
+
+main = go(IntCase(42))
+"""), "Err") { case PackageError.TypeErrorIn(_, _) => () }
+
+    evalTest(
+      List("""
+package Union
+
+enum IntOrString: IntCase(i: Int), StringCase(s: String)
+
+def go(x):
+  # this is a total match, and doesn't bind incompatible
+  # types to the same name
+  IntCase(_) | StringCase(_) = x
+  42
+
+main = go(IntCase(42))
+"""), "Union", VInt(42))
   }
 
   test("test matching literals") {

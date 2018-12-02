@@ -152,8 +152,10 @@ enum Option: None, Some(get)
     testTotality(te, patterns("[Some(_), _]"))
     testTotality(te, patterns("[Some(1), Some(x), None]"))
     testTotality(te, patterns("[Some(Some(_)), Some(None), None]"), tight = true)
+    testTotality(te, patterns("[Some(Some(_) | None), None]"), tight = true)
 
     notTotal(te, patterns("[Some(_)]"))
+    notTotal(te, patterns("[Some(Some(1) | None), None]"))
     notTotal(te, patterns("[Some(Some(_)), None]"))
     notTotal(te, patterns("[None]"))
     notTotal(te, patterns("[]"))
@@ -168,9 +170,14 @@ enum Either: Left(l), Right(r)
       patterns("[Left(Right(_)), Left(Left(_)), Right(Left(_)), Right(Right(_))]"),
       tight = true)
 
+    testTotality(te,
+      patterns("[Left(Right(_) | Left(_)), Right(Left(_) | Right(_))]"),
+      tight = true)
+
     notTotal(te, patterns("[Left(_)]"))
     notTotal(te, patterns("[Right(_)]"))
     notTotal(te, patterns("[Left(Right(_)), Right(_)]"))
+    notTotal(te, patterns("[Left(Right(_)) | Right(_)]"))
   }
 
   test("test List matching") {

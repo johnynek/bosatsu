@@ -32,7 +32,7 @@ def keep(i):
     _: i.mod_Int(2).eq_Int(0)
 
 def sum(as):
-  as.foldLeft(0)(add)
+  as.foldLeft(0, add)
 
 # lazy val fibStream: Stream[BigInt] = BigInt(1) #:: BigInt(1) #:: (fibStream.drop(1).zip(fibStream).map { case (a, b) => a + b })
 # fibStream.filter(_ < BigInt(4000000)).filter(_ % 2 == 0).sum
