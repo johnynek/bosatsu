@@ -1,0 +1,75 @@
+package Euler/Four
+
+# see:
+# https://projecteuler.net/problem=4
+# A palindromic number reads the same both ways.
+# The largest palindrome made from the product of two 2-digit numbers is 9009 = 91 × 99.
+# Find the largest palindrome made from the product of two 3-digit numbers.
+
+# given a maximum value, and a function to Option[Int], return
+# the maximum value of the function for inputs greater than 0
+# if the starting number is <= 0, we return None
+def max_of(n, fn):
+  int_loop(n, None, \i, res ->
+    next_i = i.sub(1)
+    res1 = match fn(i):
+      None: res
+      Some(m1):
+        match res:
+          None: Some(m1)
+          Some(m):
+            match m1.cmp_Int(m):
+              GT: Some(m1)
+              _: res
+    (next_i, res1))
+
+# return the first defined value from largest to smallest
+# of the given function, if it is defined
+def first_of(n, fn):
+  int_loop(n, None, \i, res ->
+    match fn(i):
+      None: (i.sub(1), None)
+      nonNone: (0, nonNone))
+
+def digit_list(n):
+  rev_list = int_loop(n, [], \n, acc ->
+    this_digit = n.mod_Int(10)
+    next_acc = [this_digit, *acc]
+    next_n = match n.div(10):
+      None:
+        # can't really happen because 10 is not zero
+        n
+      Some(next): next
+    (next_n, next_acc))
+  reverse(rev_list)
+
+def is_palindrome(lst, eq_fn):
+  (res, _) = lst.foldLeft((True, reverse(lst)), \res, item ->
+    match res:
+      (False, _): res
+      (_, []):
+        # can't really happen, the lists are the same length
+        (False, [])
+      (True, [h, *t]): (eq_fn(item, h), t))
+  res
+
+def eq_Int(a, b):
+  match a.cmp_Int(b):
+    EQ: True
+    _: False
+
+def num_is_palindrome(n):
+  digits = digit_list(n)
+  is_palindrome(digits, eq_Int)
+
+def product_palindrome(n1, n2):
+  prod = n1.times(n2)
+  Some(prod) if num_is_palindrome(prod) else None
+
+max_pal_opt = max_of(99, \n1 -> first_of(99, product_palindrome(n1)))
+
+max_pal = match max_pal_opt:
+  Some(m): m
+  None: 0
+
+test = Assertion(trace("factor:", max_pal).eq_Int(9009), "maximum palindrome")
