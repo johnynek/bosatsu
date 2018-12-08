@@ -150,6 +150,13 @@ object Type {
   }
 
   /**
+   * Return the Bound variables that
+   * are free in the given list of types
+   */
+  def freeBoundTyVars(ts: List[Type]): List[Type.Var.Bound] =
+    freeTyVars(ts).collect { case b@Type.Var.Bound(_) => b }
+
+  /**
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals
    */

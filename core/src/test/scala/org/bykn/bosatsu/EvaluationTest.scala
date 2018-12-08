@@ -626,4 +626,16 @@ main = getValue(int)
 
   }
 
+  test("overly generic methods fail compilation") {
+    evalFail(
+      List("""
+package A
+
+# this shouldn't compile, a is too generic
+def plus(x: a, y):
+  x.add(y)
+
+main = plus(1, 2)
+"""), "A"){ case PackageError.TypeErrorIn(_, _) => () }
+  }
 }

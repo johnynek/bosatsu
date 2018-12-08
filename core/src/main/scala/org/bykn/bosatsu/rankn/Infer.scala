@@ -493,11 +493,11 @@ object Infer {
       lift(m.ref.set(Some(v)))
 
     /**
-     * Here we substitute any free variables in t with meta and
+     * Here we substitute any free bound variables in t with meta and
      * do the same substitution inside expr
      */
     def freeLambdaMeta[A](t: Type, expr: Expr[A]): Infer[(Type, Expr[A])] =
-      Type.freeTyVars(t :: Nil) match {
+      Type.freeBoundTyVars(t :: Nil) match {
         case Nil => Infer.pure((t, expr))
         case h :: tail =>
           val frees = NonEmptyList(h, tail)
