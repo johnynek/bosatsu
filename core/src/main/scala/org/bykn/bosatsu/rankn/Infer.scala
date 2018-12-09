@@ -3,7 +3,9 @@ import cats.Monad
 import cats.data.NonEmptyList
 import cats.implicits._
 
-import org.bykn.bosatsu.{Pattern => GenPattern, Expr, ConstructorName, PackageName, TypedExpr, TypeRef}
+import org.bykn.bosatsu.{Pattern => GenPattern, Expr, ConstructorName, HasRegion, PackageName, Region, TypedExpr, TypeRef}
+
+import HasRegion.region
 
 sealed abstract class Infer[+A] {
   import Infer.Error
@@ -99,14 +101,14 @@ object Infer {
      */
     sealed abstract class TypeError extends Error
 
-    private def tStr(t: Type): String =
+    def tStr(t: Type): String =
       TypeRef.fromType(t) match {
         case Some(tr) => tr.toDoc.render(80)
         case None => t.toString
       }
 
-    case class NotUnifiable(left: Type, right: Type) extends TypeError {
-      def message = s"${tStr(left)} cannot be unified with ${tStr(right)}"
+    case class NotUnifiable(left: Type, right: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
+      def message = s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
     }
 
     case class NotPolymorphicEnough(tpe: Type, in: Expr[_]) extends TypeError {
@@ -369,55 +371,55 @@ object Infer {
         case rho => pure(rho)
       }
 
-    def subsCheckFn(a1: Type, r1: Type.Rho, a2: Type, r2: Type.Rho): Infer[TypedExpr.Coerce] =
+    def subsCheckFn(a1: Type, r1: Type.Rho, a2: Type, r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       // note due to contravariance in input, we reverse the order there
       for {
-        coarg <- subsCheck(a2, a1)
-        cores <- subsCheckRho(r1, r2)
+        coarg <- subsCheck(a2, a1, left, right)
+        cores <- subsCheckRho(r1, r2, left, right)
       } yield TypedExpr.coerceFn(a1, r2, coarg, cores)
 
     // invariant: second argument is in weak prenex form
-    def subsCheckRho(t: Type, rho: Type.Rho): Infer[TypedExpr.Coerce] =
+    def subsCheckRho(t: Type, rho: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       (t, rho) match {
         case (fa@Type.ForAll(_, _), rho) =>
           // Rule SPEC
-          instantiate(fa).flatMap(subsCheckRho(_, rho))
+          instantiate(fa).flatMap(subsCheckRho(_, rho, left, right))
         case (rho1, Type.Fun(a2, r2)) =>
           // Rule FUN
-          unifyFn(rho1).flatMap {
+          unifyFn(rho1, left, right).flatMap {
             case (a1, r1) =>
-              subsCheckFn(a1, r1, a2, r2)
+              subsCheckFn(a1, r1, a2, r2, left, right)
           }
         case (Type.Fun(a1, r1), rho2) =>
           // Rule FUN
-          unifyFn(rho2).flatMap {
+          unifyFn(rho2, right, left).flatMap {
             case (a2, r2) =>
-              subsCheckFn(a1, r1, a2, r2)
+              subsCheckFn(a1, r1, a2, r2, left, right)
           }
         case (t1, t2) =>
           // rule: MONO
-          unify(t1, t2).as(TypedExpr.coerceRho(t1)) // TODO this coerce seems right, since we have unified
+          unify(t1, t2, left, right).as(TypedExpr.coerceRho(t1)) // TODO this coerce seems right, since we have unified
       }
 
-    def instSigma(sigma: Type, expect: Expected[Type.Rho]): Infer[TypedExpr.Coerce] =
+    def instSigma(sigma: Type, expect: Expected[(Type.Rho, Region)], r: Region): Infer[TypedExpr.Coerce] =
       expect match {
-        case Expected.Check(t) =>
-          subsCheckRho(sigma, t)
+        case Expected.Check((t, tr)) =>
+          subsCheckRho(sigma, t, r, tr)
         case infer@Expected.Inf(_) =>
           for {
             rho <- instantiate(sigma)
-            _ <- infer.set(rho)
+            _ <- infer.set((rho, r))
           } yield TypedExpr.coerceRho(rho)
       }
 
-    def unifyFn(fnType: Type): Infer[(Type, Type)] =
+    def unifyFn(fnType: Type, fnRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
       fnType match {
         case Type.Fun(arg, res) => pure((arg, res))
         case tau =>
           for {
             argT <- newMetaType
             resT <- newMetaType
-            _ <- unify(tau, Type.Fun(argT, resT))
+            _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
           } yield (argT, resT)
       }
 
@@ -425,11 +427,11 @@ object Infer {
       fail(Error.UnexpectedMeta(m, t))
 
     // invariant the flexible type variable tv1 is not bound
-    def unifyUnboundVar(m: Type.Meta, ty2: Type.Tau): Infer[Unit] =
+    def unifyUnboundVar(m: Type.Meta, ty2: Type.Tau, left: Region, right: Region): Infer[Unit] =
       ty2 match {
         case Type.TyMeta(m2) =>
           readMeta(m2).flatMap {
-            case Some(ty2) => unify(Type.TyMeta(m), ty2)
+            case Some(ty2) => unify(Type.TyMeta(m), ty2, left, right)
             case None => writeMeta(m, ty2)
           }
         case nonMeta =>
@@ -440,13 +442,13 @@ object Infer {
             }
       }
 
-    def unifyVar(tv: Type.Meta, t: Type.Tau): Infer[Unit] =
+    def unifyVar(tv: Type.Meta, t: Type.Tau, left: Region, right: Region): Infer[Unit] =
       readMeta(tv).flatMap {
-        case None => unifyUnboundVar(tv, t)
-        case Some(ty1) => unify(ty1, t)
+        case None => unifyUnboundVar(tv, t, left, right)
+        case Some(ty1) => unify(ty1, t, left, right)
       }
 
-    def unify(t1: Type.Tau, t2: Type.Tau): Infer[Unit] =
+    def unify(t1: Type.Tau, t2: Type.Tau, r1: Region, r2: Region): Infer[Unit] =
       (t1, t2) match {
         case (Type.TyVar(b@Type.Var.Bound(_)), _) =>
           fail(Error.UnexpectedBound(b, t2))
@@ -455,12 +457,12 @@ object Infer {
         // the only vars that should appear are skolem variables, we check here
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => pure(())
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => pure(())
-        case (Type.TyMeta(m), tpe) => unifyVar(m, tpe)
-        case (tpe, Type.TyMeta(m)) => unifyVar(m, tpe)
+        case (Type.TyMeta(m), tpe) => unifyVar(m, tpe, r1, r2)
+        case (tpe, Type.TyMeta(m)) => unifyVar(m, tpe, r1, r2)
         case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
-          unify(a1, a2) *> unify(b1, b2)
+          unify(a1, a2, r1, r2) *> unify(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => pure(())
-        case (left, right) => fail(Error.NotUnifiable(left, right))
+        case (left, right) => fail(Error.NotUnifiable(left, right, r1, r2))
       }
 
     /**
@@ -508,11 +510,11 @@ object Infer {
       }
 
     // DEEP-SKOL rule
-    def subsCheck(inferred: Type, declared: Type): Infer[TypedExpr.Coerce] =
+    def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       for {
         skolRho <- skolemize(declared)
         (skolTvs, rho2) = skolRho
-        coerce <- subsCheckRho(inferred, rho2)
+        coerce <- subsCheckRho(inferred, rho2, left, right)
         escTvs <- getFreeTyVars(List(inferred, declared))
         badTvs = skolTvs.filter(escTvs)
         _ <- require(badTvs.isEmpty, Error.SubsumptionCheckFailure(inferred, declared))
@@ -521,32 +523,32 @@ object Infer {
     /**
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
      */
-    def typeCheckRho[A](term: Expr[A], expect: Expected[Type.Rho]): Infer[TypedExpr.Rho[A]] = {
+    def typeCheckRho[A: HasRegion](term: Expr[A], expect: Expected[(Type.Rho, Region)]): Infer[TypedExpr.Rho[A]] = {
       import Expr._
 
       term match {
         case Literal(lit, t) =>
           val tpe = Type.getTypeOf(lit)
-          instSigma(tpe, expect).map(_(TypedExpr.Literal(lit, tpe, t)))
+          instSigma(tpe, expect, region(term)).map(_(TypedExpr.Literal(lit, tpe, t)))
         case Var(optPack, name, tag) =>
           for {
             vSigma <- lookupVarType((optPack, name))
-            coerce <- instSigma(vSigma, expect)
+            coerce <- instSigma(vSigma, expect, region(term))
            } yield coerce(TypedExpr.Var(optPack, name, vSigma, tag))
         case App(fn, arg, tag) =>
            for {
              typedFn <- inferRho(fn)
              fnT = typedFn.getType
-             argRes <- unifyFn(fnT)
+             argRes <- unifyFn(fnT, region(fn), region(term))
              (argT, resT) = argRes
              typedArg <- checkSigma(arg, argT)
-             coerce <- instSigma(resT, expect)
+             coerce <- instSigma(resT, expect, region(term))
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
         case Lambda(name, result, tag) =>
           expect match {
-            case Expected.Check(expTy) =>
+            case Expected.Check((expTy, rr)) =>
               for {
-                vb <- unifyFn(expTy)
+                vb <- unifyFn(expTy, rr, region(term))
                 (varT, bodyT) = vb
                 typedBody <- extendEnv(name, varT) {
                     checkRho(result, bodyT)
@@ -557,7 +559,7 @@ object Infer {
                 varT <- newMetaType
                 typedBody <- extendEnv(name, varT)(inferRho(result))
                 bodyT = typedBody.getType
-                _ <- infer.set(Type.Fun(varT, bodyT))
+                _ <- infer.set((Type.Fun(varT, bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
           }
         case AnnotatedLambda(name, tpe0, result0, tag) =>
@@ -574,21 +576,22 @@ object Infer {
            */
           freeLambdaMeta(tpe0, result0).flatMap { case (tpe, result) =>
             expect match {
-              case Expected.Check(expTy) =>
+              case Expected.Check((expTy, rr)) =>
                 for {
-                  vb <- unifyFn(expTy)
+                  vb <- unifyFn(expTy, rr, region(term))
                   (varT, bodyT) = vb
                   typedBody <- extendEnv(name, varT) {
                       // TODO we are ignoring the result of subsCheck here
                       // should we be coercing a var?
-                      subsCheck(tpe, varT) *> checkRho(result, bodyT)
+                      subsCheck(tpe, varT, region(term), rr) *>
+                        checkRho(result, bodyT)
                     }
                 } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
               case infer@Expected.Inf(_) =>
                 for { // TODO do we need to narrow or instantiate tpe?
                   typedBody <- extendEnv(name, tpe)(inferRho(result))
                   bodyT = typedBody.getType
-                  _ <- infer.set(Type.Fun(tpe, bodyT))
+                  _ <- infer.set((Type.Fun(tpe, bodyT), region(term)))
                 } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
             }
           }
@@ -601,12 +604,12 @@ object Infer {
         case Annotation(term, tpe, tag) =>
           for {
             typedTerm <- checkSigma(term, tpe)
-            coerce <- instSigma(tpe, expect)
+            coerce <- instSigma(tpe, expect, region(term))
           } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
         case If(cond, ifTrue, ifFalse, tag) =>
           val condTpe =
             typeCheckRho(cond,
-              Expected.Check(Type.BoolType))
+              Expected.Check((Type.BoolType, region(cond))))
           val rest = expect match {
             case check@Expected.Check(_) =>
               typeCheckRho(ifTrue, check)
@@ -618,9 +621,9 @@ object Infer {
                 fExp <- inferRho(ifFalse)
                 rT = tExp.getType
                 rF = fExp.getType
-                cT <- subsCheck(rT, rF)
-                cF <- subsCheck(rF, rT)
-                _ <- infer.set(rT) // see section 7.1
+                cT <- subsCheck(rT, rF, region(ifTrue), region(ifFalse))
+                cF <- subsCheck(rF, rT, region(ifFalse), region(ifTrue))
+                _ <- infer.set((rT, region(ifTrue))) // see section 7.1
               } yield (cT(tExp), cF(fExp))
 
           }
@@ -646,25 +649,25 @@ object Infer {
           // are missing here.
 
           expect match {
-            case Expected.Check(resT) =>
+            case Expected.Check((resT, resReg)) =>
               for {
                 tsigma <- inferSigma(term)
                 tbranches <- branches.traverse { case (p, r) =>
-                  checkBranch(p, Expected.Check(tsigma.getType), r, resT)
+                  checkBranch(p, Expected.Check((tsigma.getType, region(term))), r, resT)
                 }
               } yield TypedExpr.Match(tsigma, tbranches, tag)
             case infer@Expected.Inf(_) =>
               for {
                 tsigma <- inferSigma(term)
                 tbranches <- branches.traverse { case (p, r) =>
-                  inferBranch(p, Expected.Check(tsigma.getType), r)
+                  inferBranch(p, Expected.Check((tsigma.getType, region(term))), r)
                 }
-                resT = tbranches.map { case (p, te) => te.getType }
+                resT = tbranches.map { case (p, te) => (te.getType, region(te)) }
                 _ <- resT.flatMap { t0 => resT.map((t0, _)) }.traverse_ {
                   case (t0, t1) if t0 eq t1 => Infer.pure(())
                   // TODO
                   // we do N^2 subsCheck, which to coerce with, composed?
-                  case (t0, t1) => subsCheck(t0, t1)
+                  case ((t0, r0), (t1, r1)) => subsCheck(t0, t1, r0, r1)
                 }
                 _ <- infer.set(resT.head)
               } yield TypedExpr.Match(tsigma, tbranches, tag)
@@ -672,16 +675,16 @@ object Infer {
       }
     }
 
-    def checkBranch[A](p: Pattern, sigma: Expected[Type], res: Expr[A], resT: Type): Infer[(Pattern, TypedExpr[A])] =
+    def checkBranch[A: HasRegion](p: Pattern, sigma: Expected[(Type, Region)], res: Expr[A], resT: Type): Infer[(Pattern, TypedExpr[A])] =
       for {
-        patBind <- typeCheckPattern(p, sigma)
+        patBind <- typeCheckPattern(p, sigma, region(res))
         (pattern, bindings) = patBind
         tres <- extendEnvList(bindings)(checkRho(res, resT))
       } yield (pattern, tres)
 
-    def inferBranch[A](p: Pattern, sigma: Expected[Type], res: Expr[A]): Infer[(Pattern, TypedExpr[A])] =
+    def inferBranch[A: HasRegion](p: Pattern, sigma: Expected[(Type, Region)], res: Expr[A]): Infer[(Pattern, TypedExpr[A])] =
       for {
-        patBind <- typeCheckPattern(p, sigma)
+        patBind <- typeCheckPattern(p, sigma, region(res))
         (pattern, bindings) = patBind
         res <- extendEnvList(bindings)(inferRho(res))
       } yield (pattern, res)
@@ -689,23 +692,25 @@ object Infer {
     /**
      * patterns can be a sigma type, not neccesarily a rho/tau
      * return a list of bound names and their (sigma) types
+     *
+     * TODO: Pattern needs to have a region for each part
      */
-    def typeCheckPattern(pat: Pattern, sigma: Expected[Type]): Infer[(Pattern, List[(String, Type)])] =
+    def typeCheckPattern(pat: Pattern, sigma: Expected[(Type, Region)], reg: Region): Infer[(Pattern, List[(String, Type)])] =
       pat match {
         case GenPattern.WildCard => Infer.pure((pat, Nil))
         case GenPattern.Literal(lit) =>
           val tpe = Type.getTypeOf(lit)
-          instSigma(tpe, sigma).as((pat, Nil))
+          instSigma(tpe, sigma, reg).as((pat, Nil))
         case GenPattern.Var(n) =>
           // We always return an annotation here, which is the only
           // place we need to be careful
           sigma match {
-            case Expected.Check(t) =>
+            case Expected.Check((t, _)) =>
               Infer.pure((GenPattern.Annotation(pat, t), List((n, t))))
             case infer@Expected.Inf(_) =>
               for {
                 t <- newMetaType
-                _ <- infer.set(t)
+                _ <- infer.set((t, reg))
               } yield (GenPattern.Annotation(pat, t), List((n, t)))
           }
         case GenPattern.ListPat(items) =>
@@ -727,12 +732,12 @@ object Infer {
                   Infer.pure((l, (splice, lst) :: Nil))
                 case Right(p) =>
                   // This is a non-splice
-                  checkPat(p, inner).map { case (p, l) => (Right(p), l) }
+                  checkPat(p, inner, reg).map { case (p, l) => (Right(p), l) }
               }
           for {
             tpeA <- newMetaType
             listA = Type.TyApply(Type.ListType, tpeA)
-            _ <- instPatSigma(listA, sigma)
+            _ <- instPatSigma(listA, sigma, reg)
             inners <- items.traverse(checkEither(tpeA, listA, _))
             innerPat = inners.map(_._1)
             innerBinds = inners.flatMap(_._2)
@@ -743,9 +748,9 @@ object Infer {
           // instantiate a sigma type
           // checkSigma(term, tpe) *> instSigma(tpe, expect)
           for {
-            patBind <- checkPat(p, tpe)
+            patBind <- checkPat(p, tpe, reg)
             (p1, binds) = patBind
-            _ <- instPatSigma(tpe, sigma)
+            _ <- instPatSigma(tpe, sigma, reg)
           } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
@@ -755,23 +760,23 @@ object Infer {
             // if the pattern arity does not match the arity of the constructor
             // but we don't want to error type-checking since we want to show
             // the maximimum number of errors to the user
-            envs <- args.zip(params).traverse { case (p, t) => checkPat(p, t) }
+            envs <- args.zip(params).traverse { case (p, t) => checkPat(p, t, reg) }
             pats = envs.map(_._1)
             bindings = envs.map(_._2)
-            _ <- instPatSigma(res, sigma)
+            _ <- instPatSigma(res, sigma, reg)
           } yield (GenPattern.PositionalStruct(nm, pats), bindings.flatten)
         case u@GenPattern.Union(h, t) =>
-          (typeCheckPattern(h, sigma), t.traverse(typeCheckPattern(_, sigma)))
+          (typeCheckPattern(h, sigma, reg), t.traverse(typeCheckPattern(_, sigma, reg)))
             .mapN { case ((h, binds), neList) =>
               val pat = GenPattern.Union(h, neList.map(_._1))
               val allBinds = NonEmptyList(binds, (neList.map(_._2).toList))
-              identicalBinds(u, allBinds).as((pat, binds))
+              identicalBinds(u, allBinds, reg).as((pat, binds))
             }
             .flatten
       }
 
     // Unions have to have identical bindings in all branches
-    def identicalBinds(u: Pattern, binds: NonEmptyList[List[(String, Type)]]): Infer[Unit] =
+    def identicalBinds(u: Pattern, binds: NonEmptyList[List[(String, Type)]], reg: Region): Infer[Unit] =
       binds.map(_.map(_._1)) match {
         case NonEmptyList(h, t) =>
           val bs = h.toSet
@@ -784,28 +789,30 @@ object Infer {
               val tpe = bmh(v)
               bmt.traverse_ { m2 =>
                 val tpe2 = m2(v)
-                unify(tpe, tpe2)
+                unify(tpe, tpe2, reg, reg)
               }
             }
           }
           else fail(Error.UnionPatternBindMismatch(u, h :: t))
       }
 
-    def checkPat(pat: Pattern, sigma: Type): Infer[(Pattern, List[(String, Type)])] =
-      typeCheckPattern(pat, Expected.Check(sigma))
+    // TODO: we should be able to derive a region for any pattern
+    def checkPat(pat: Pattern, sigma: Type, reg: Region): Infer[(Pattern, List[(String, Type)])] =
+      typeCheckPattern(pat, Expected.Check((sigma, reg)), reg)
 
-    def inferPat(pat: Pattern): Infer[Type] =
+    // TODO, Pattern should have a region
+    def inferPat(pat: Pattern, reg: Region): Infer[Type] =
       for {
-        ref <- initRef[Type](Error.InferPatIncomplete(pat))
-        _ <- typeCheckPattern(pat, Expected.Inf(ref))
-        sigma <- (Lift(ref.get): Infer[Type])
+        ref <- initRef[(Type, Region)](Error.InferPatIncomplete(pat))
+        _ <- typeCheckPattern(pat, Expected.Inf(ref), reg)
+        sigma <- (Lift(ref.get): Infer[(Type, Region)])
         _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
-      } yield sigma
+      } yield sigma._1
 
-    def instPatSigma(sigma: Type, exp: Expected[Type]): Infer[Unit] =
+    def instPatSigma(sigma: Type, exp: Expected[(Type, Region)], sRegion: Region): Infer[Unit] =
       exp match {
-        case infer@Expected.Inf(_) => infer.set(sigma)
-        case Expected.Check(texp) => subsCheck(texp, sigma).as(()) // this unit does not seem right
+        case infer@Expected.Inf(_) => infer.set((sigma, sRegion))
+        case Expected.Check((texp, tr)) => subsCheck(texp, sigma, tr, sRegion).as(()) // this unit does not seem right
       }
 
     /**
@@ -828,7 +835,7 @@ object Infer {
             }
       }
 
-    def inferSigma[A](e: Expr[A]): Infer[TypedExpr[A]] =
+    def inferSigma[A: HasRegion](e: Expr[A]): Infer[TypedExpr[A]] =
       for {
         rho <- inferRho(e)
         expTy = rho.getType
@@ -839,7 +846,7 @@ object Infer {
         q <- quantify(forAllTvs.toList, rho)
       } yield q
 
-    def checkSigma[A](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
+    def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
       for {
         skolRho <- skolemize(tpe)
         (skols, rho) = skolRho
@@ -850,23 +857,23 @@ object Infer {
         _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t))
       } yield te // should be fine since the everything after te is just checking
 
-    def checkRho[A](t: Expr[A], rho: Type.Rho): Infer[TypedExpr[A]] =
-      typeCheckRho(t, Expected.Check(rho))
+    def checkRho[A: HasRegion](t: Expr[A], rho: Type.Rho): Infer[TypedExpr[A]] =
+      typeCheckRho(t, Expected.Check((rho, region(t))))
 
     /**
      * recall a rho type never has a top level Forall
      */
-    def inferRho[A](t: Expr[A]): Infer[TypedExpr.Rho[A]] =
+    def inferRho[A: HasRegion](t: Expr[A]): Infer[TypedExpr.Rho[A]] =
       for {
-        ref <- initRef[Type.Rho](Error.InferIncomplete("inferRho", t))
+        ref <- initRef[(Type.Rho, Region)](Error.InferIncomplete("inferRho", t))
         expr <- typeCheckRho(t, Expected.Inf(ref))
-        rho <- (Lift(ref.get): Infer[Type.Rho])
+        rho <- (Lift(ref.get): Infer[(Type.Rho, Region)])
         _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
       } yield expr
   }
 
 
-  def typeCheck[A](t: Expr[A]): Infer[TypedExpr[A]] =
+  def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] =
     inferSigma(t).flatMap(zonkTypedExpr _)
 
 
@@ -880,7 +887,7 @@ object Infer {
    * Packages are generally just lists of lets, this allows you to infer
    * the scheme for each in the context of the list
    */
-  def typeCheckLets[A](ls: List[(String, Expr[A])]): Infer[List[(String, TypedExpr[A])]] =
+  def typeCheckLets[A: HasRegion](ls: List[(String, Expr[A])]): Infer[List[(String, TypedExpr[A])]] =
     ls match {
       case Nil => Infer.pure(Nil)
       case (nm, expr) :: tail =>
@@ -896,6 +903,6 @@ object Infer {
    * Given types a and b, can we substitute
    * a for for b
    */
-  def substitutionCheck(a: Type, b: Type): Infer[Unit] =
-    subsCheck(a, b).map(_ => ())
+  def substitutionCheck(a: Type, b: Type, ra: Region, rb: Region): Infer[Unit] =
+    subsCheck(a, b, ra, rb).map(_ => ())
 }

@@ -2,6 +2,8 @@ package org.bykn.bosatsu
 
 import java.util.Arrays
 
+import cats.implicits._
+
 /**
  * Build a cache of the rows and columns in a given
  * string. This is for showing error messages to users
@@ -66,29 +68,55 @@ case class LocationMap(fromString: String) { self =>
     if (i >= 0 && i < lines.length) Some(lines(i))
     else None
 
+  private def lineRange(start: Int, end: Int): List[(Int, String)] =
+    (start to end)
+      .iterator
+      .filter(_ >= 0)
+      .map { r =>
+        val liner = getLine(r).get // should never throw
+        // lines are usually 1 offset labeled
+        (r + 1, liner)
+      }
+      .toList
+
 
   def showContext(offset: Int, previousLines: Int = 2): Option[String] =
     toLineCol(offset)
       .map { case (r, c) =>
-        val lines = (r - previousLines to r)
-          .toList
-          .filter(_ >= 0)
-          .map { r =>
-            val liner = getLine(r).get // should never throw
-            // lines are usually 1 offset labeled
-            (r + 1, liner)
-          }
+        val lines = lineRange(r - previousLines, r)
 
-        val padding = lines.iterator.map { case (l, _) => LocationMap.charsLineNumber(l) }.max
-        def toLineStr(i: Int) = {
-          val istr = i.toString
-          val pad = padding - istr.length
-          (" " * pad) + istr + "|"
-        }
+        val maxLine = lines.iterator.map(_._1).max
+        val toLineStr = LocationMap.lineNumberToString(maxLine)
+
+        // here is how much extra we need for the pointer
         val pointerPad = " " * toLineStr(r).length
         lines.map { case (no, l) => s"${toLineStr(no)}$l" }
           .mkString("", "\n", "\n" + pointerPad + LocationMap.pointerTo(c) + "\n")
       }
+
+  def showRegion(region: Region, previousLines: Int = 2): Option[String] =
+    (toLineCol(region.start), toLineCol(region.end - 1))
+      .mapN { case ((l0, c0), (l1, c1)) =>
+        val lines = lineRange(l0 - previousLines, l1)
+        val maxLine = lines.iterator.map(_._1).max
+        val toLineStr = LocationMap.lineNumberToString(maxLine)
+
+        if (l0 == l1) {
+          // same line
+          // here is how much extra we need for the pointer
+          val pointerPad = " " * toLineStr(l0).length
+          lines.map { case (no, l) => s"${toLineStr(no)}$l" }
+            .mkString("", "\n", "\n" + pointerPad + LocationMap.pointerRange(c0, c1 + 1) + "\n")
+        }
+        else {
+          // we span multiple lines, show the start and the end:
+          val newPrev = l1 - l0
+          showContext(region.start, previousLines).get +
+            "\nto:\n" +
+            showContext(region.end - 1, newPrev)
+        }
+      }
+
 }
 
 object LocationMap {
@@ -100,6 +128,17 @@ object LocationMap {
   def pointerTo(column: Int, colorString: Option[String] = Some(Console.RED)): String =
     (" " * column) + colorString.getOrElse("") + "^" + colorString.map(_ => Console.RESET).getOrElse("")
 
+  def pointerRange(start: Int, exEnd: Int, colorString: Option[String] = Some(Console.RED)): String = {
+    val width = exEnd - start
+    if (width <= 0) ""
+    else {
+      val cs = colorString.getOrElse("")
+      val rs = colorString.map(_ => Console.RESET).getOrElse("")
+
+      (" " * start) + cs + ("^" * width) + rs
+    }
+  }
+
   def charsLineNumber(i: Int): Int = {
     require(i >= 0, s"expect line > 0, found $i")
     def go(i: Int, acc: Int): Int =
@@ -109,4 +148,13 @@ object LocationMap {
     go(i, 1)
   }
 
+  def lineNumberToString(maxLine: Int): Int => String = {
+    val padding = LocationMap.charsLineNumber(maxLine)
+
+    { (i: Int) =>
+      val istr = i.toString
+      val pad = padding - istr.length
+      (" " * pad) + istr + "|"
+    }
+  }
 }
