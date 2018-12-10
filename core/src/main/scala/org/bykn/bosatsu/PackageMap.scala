@@ -323,7 +323,21 @@ object PackageError {
   case class TypeErrorIn(tpeErr: Infer.Error, pack: PackageName) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
       val (lm, sourceName) = sourceMap(pack)
-      val teMessage = tpeErr.message
+      val teMessage = tpeErr match {
+        case Infer.Error.NotUnifiable(t0, t1, r0, r1) =>
+          import Infer.Error.tStr
+          val context0 =
+            if (r0 == r1) " " // sometimes the region of the error is the same on right and left
+            else {
+              val m = lm.showRegion(r0).getOrElse(r0.toString) // we should highlight the whole region
+              s"\n$m\n"
+            }
+          val context1 =
+            lm.showRegion(r1).getOrElse(r1.toString) // we should highlight the whole region
+
+          s"type ${tStr(t0)}${context0}does not unify with type ${tStr(t1)}\n$context1"
+        case err => err.message
+      }
       // TODO use the sourceMap/regiouns in Infer.Error
       s"in file: $sourceName, package ${pack.asString}, $teMessage"
     }
