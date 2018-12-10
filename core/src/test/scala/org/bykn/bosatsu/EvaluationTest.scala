@@ -207,7 +207,7 @@ main = go(IntCase(42))
     val packs = Map((PackageName.parts("Err"), (LocationMap(errPack), "Err.bosatsu")))
     evalFail(List(errPack), "Err") { case te@PackageError.TypeErrorIn(_, _) =>
       val msg = te.message(packs)
-      assert(msg.contains("Bosatsu/Predef#Int does not unify with type Bosatsu/Predef#String"))
+      assert(msg.contains("Bosatsu/Predef::Int does not unify with type Bosatsu/Predef::String"))
       ()
     }
 
@@ -340,6 +340,13 @@ main = match 6.div(4):
   Some(x): x
   None: -1
 """), "Foo", VInt(100))
+
+    evalTest(
+      List("""
+package Foo
+
+main = 6.gcd_Int(3)
+"""), "Foo", VInt(3))
   }
 
   test("use range") {

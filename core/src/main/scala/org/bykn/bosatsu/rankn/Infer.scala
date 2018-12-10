@@ -82,10 +82,10 @@ object Infer {
     if (b) pure(()) else fail(err)
 
   // Fails if v is not in the env
-  def lookupVarType(v: Name): Infer[Type] =
+  def lookupVarType(v: Name, reg: Region): Infer[Type] =
     getEnv.flatMap { env =>
       env.get(v) match {
-        case None => fail(Error.VarNotInScope(v, env))
+        case None => fail(Error.VarNotInScope(v, env, reg))
         case Some(t) => pure(t)
       }
     }
@@ -101,7 +101,7 @@ object Infer {
      */
     sealed abstract class TypeError extends Error
 
-    def tStr(t: Type): String =
+    private def tStr(t: Type): String =
       TypeRef.fromType(t) match {
         case Some(tr) => tr.toDoc.render(80)
         case None => t.toString
@@ -126,7 +126,7 @@ object Infer {
     sealed abstract class NameError extends Error
 
     // This could be a user error if we don't check scoping before typing
-    case class VarNotInScope(varName: Name, vars: Map[Name, Type]) extends NameError {
+    case class VarNotInScope(varName: Name, vars: Map[Name, Type], region: Region) extends NameError {
       def message = s"$varName not in scope: ${vars.keys.toList.sorted}"
     }
 
@@ -532,7 +532,7 @@ object Infer {
           instSigma(tpe, expect, region(term)).map(_(TypedExpr.Literal(lit, tpe, t)))
         case Var(optPack, name, tag) =>
           for {
-            vSigma <- lookupVarType((optPack, name))
+            vSigma <- lookupVarType((optPack, name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
            } yield coerce(TypedExpr.Var(optPack, name, vSigma, tag))
         case App(fn, arg, tag) =>
