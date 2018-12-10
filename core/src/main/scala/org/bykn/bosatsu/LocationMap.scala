@@ -113,7 +113,7 @@ case class LocationMap(fromString: String) { self =>
           val newPrev = l1 - l0
           showContext(region.start, previousLines).get +
             "\nto:\n" +
-            showContext(region.end - 1, newPrev)
+            showContext(region.end - 1, newPrev).get
         }
       }
 
