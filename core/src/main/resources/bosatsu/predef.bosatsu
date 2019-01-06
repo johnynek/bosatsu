@@ -20,6 +20,7 @@ export [
   emptyList,
   eq_Int,
   foldLeft,
+  gcd_Int,
   int_loop,
   mod_Int,
   range,
@@ -72,6 +73,7 @@ external def sub(a: Int, b: Int) -> Int
 external def times(a: Int, b: Int) -> Int
 external def div(a: Int, b: Int) -> Option[Int]
 external def eq_Int(a: Int, b: Int) -> Bool
+external def gcd_Int(a: Int, b: Int) -> Int
 external def cmp_Int(a: Int, b: Int) -> Comparison
 external def mod_Int(a: Int, mod: Int) -> Int
 

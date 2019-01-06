@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import com.stripe.dagon.Memoize
-import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
+import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT, State}
 import cats.Order
 import cats.implicits._
 
@@ -323,6 +323,46 @@ object PackageError {
   case class TypeErrorIn(tpeErr: Infer.Error, pack: PackageName) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
       val (lm, sourceName) = sourceMap(pack)
+
+      import rankn.Type
+
+      def tStr(tpe: Type): String = {
+        type S = (Map[Long, TypeRef], Stream[String])
+        def encodeSkolem(sk: Type.Var.Skolem): State[S, TypeRef] =
+          // Make use a typevar
+          State.pure(TypeRef.TypeVar("$" + sk.name))
+
+        def encodeMeta(id: Long): State[S, TypeRef] =
+          State { s: S =>
+            val (idMap, vars) = s
+            idMap.get(id) match {
+              case Some(tr) => (s, tr)
+              case None =>
+                val nextId = vars.head
+                val tr = TypeRef.TypeVar("?" + nextId)
+                val nextMap = idMap.updated(id, tr)
+                ((nextMap, vars.tail), tr)
+            }
+          }
+
+        def onConst(c: Type.Const.Defined): State[S, TypeRef] = {
+          val Type.Const.Defined(pn, n) = c
+          val tn =
+            if (pn == pack) n
+            else s"${pn.asString}::$n"
+
+          State.pure(TypeRef.TypeName(tn))
+        }
+
+        val state0: S = (Map.empty, Type.allBinders.map(_.name))
+        val (_, tr) = TypeRef.fromTypeA[State[S, ?]](
+          tpe,
+          encodeSkolem _,
+          encodeMeta _,
+          onConst _).run(state0).value
+        tr.toDoc.render(80)
+      }
+
       val teMessage = tpeErr match {
         case Infer.Error.NotUnifiable(t0, t1, r0, r1) =>
           import Infer.Error.tStr
@@ -336,6 +376,27 @@ object PackageError {
             lm.showRegion(r1).getOrElse(r1.toString) // we should highlight the whole region
 
           s"type ${tStr(t0)}${context0}does not unify with type ${tStr(t1)}\n$context1"
+        case Infer.Error.VarNotInScope((pack, name), scope, region) =>
+          val ctx = lm.showRegion(region).getOrElse("<unknown location>")
+          val candidates = scope
+            .keys
+            .iterator
+            .collect { case (None, n) =>
+              // we only print imported names, which are written with None
+              (EditDistance.string(name, n), n)
+            }
+            .filter(_._1 < name.length) // don't show things that require total edits
+            .toList
+            .distinct
+            .sortBy(_._1)
+            .map(_._2)
+            .take(3)
+
+          val cmessage =
+            if (candidates.nonEmpty) candidates.mkString("\nClosest: ", ", ", ".\n")
+            else ""
+          val qname = "\"" + name + "\""
+          s"name $qname unknown.$cmessage\n$ctx"
         case err => err.message
       }
       // TODO use the sourceMap/regiouns in Infer.Error
