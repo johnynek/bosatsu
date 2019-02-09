@@ -253,26 +253,36 @@ object Infer {
      * Quantify over the specified type variables (all flexible)
      */
     def quantify[A](forAlls: List[Type.Meta], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
-      forAlls match {
-        case Nil =>
+      NonEmptyList.fromList(forAlls) match {
+        case None =>
           // this case is not really discussed in the paper
           zonkTypedExpr(rho)
-        case ne@(h :: tail) =>
+        case Some(metas) =>
           val used: Set[Type.Var.Bound] = Type.tyVarBinders(List(rho.getType))
-          // on 2.11 without the iterator this seems to run forever
-          // must be a "def" because we call it twice
-          def newBinders = Type.allBinders.iterator.filterNot(used)
-          val newBindersNE =
-            NonEmptyList.fromListUnsafe(newBinders.take(forAlls.size).toList)
-          val bound = ne
-            .iterator
-            .zip(newBinders)
-            .toStream
-            .traverse_ { case (m, n) =>
-              writeMeta(m, Type.TyVar(n))
-            }
-          (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(newBindersNE, _))
+          val aligned = Type.alignBinders(metas, used)
+          val bound = aligned.traverse_ { case (m, n) => writeMeta(m, Type.TyVar(n)) }
+          (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(aligned.map(_._2), _))
       }
+
+    def makeGeneric[B, A](forAlls: List[Type.Var.Skolem], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
+      NonEmptyList.fromList(forAlls) match {
+        case None =>
+          zonkTypedExpr(rho)
+        case Some(skols) =>
+          val used: Set[Type.Var.Bound] = Type.tyVarBinders(List(rho.getType))
+          val aligned = Type.alignBinders(skols, used)
+          val rho1 = substTyExpr(skols, aligned.map { case (_, n) => Type.TyVar(n) }, rho)
+          zonkTypedExpr(rho1).map(TypedExpr.forAll(aligned.map(_._2), _))
+      }
+
+    def skolemizeVars(tvs: NonEmptyList[Type.Var.Bound],
+      ty: Type): Infer[(NonEmptyList[Type.Var.Skolem], NonEmptyList[Type.TyVar], Type.Rho)] =
+      for {
+        sks1 <- tvs.traverse(newSkolemTyVar)
+        sksT = sks1.map(Type.TyVar(_))
+        sks2ty <- skolemize(substTy(tvs, sksT, ty))
+        (sks2, ty2) = sks2ty
+      } yield (sks1.concat(sks2), sksT, ty2)
 
     /**
      * Skolemize on a function just recurses on the result type.
@@ -286,12 +296,7 @@ object Infer {
       t match {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
-          for {
-            sks1 <- tvs.traverse(newSkolemTyVar)
-            sksT = sks1.map(Type.TyVar(_))
-            sks2ty <- skolemize(substTy(tvs, sksT, ty))
-            (sks2, ty2) = sks2ty
-          } yield (sks1.toList ::: sks2, ty2)
+          skolemizeVars(tvs, ty).map { case (vs, _, r) => (vs.toList, r) }
         case Type.Fun(argTy, resTy) =>
           skolemize(resTy).map {
             case (sks, resTy) =>
@@ -359,6 +364,14 @@ object Infer {
       // the forall would only apply for the scope of the type
       val fn = substTy(keys, vals, _: Type)
       Expr.traverseType[A, cats.Id](expr, fn)
+    }
+
+    def substTyExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], expr: TypedExpr[A]): TypedExpr[A] = {
+
+      // TODO: I don't think we can introduce new forall bindings in annotations,
+      // the forall would only apply for the scope of the type
+      val fn = substTy(keys, vals, _: Type)
+      expr.traverseType[cats.Id](fn)
     }
 
     // Return a Rho type (not a Forall)
@@ -498,15 +511,15 @@ object Infer {
      * Here we substitute any free bound variables in t with meta and
      * do the same substitution inside expr
      */
-    def freeLambdaMeta[A](t: Type, expr: Expr[A]): Infer[(Type, Expr[A])] =
-      Type.freeBoundTyVars(t :: Nil) match {
-        case Nil => Infer.pure((t, expr))
-        case h :: tail =>
-          val frees = NonEmptyList(h, tail)
-          val metas = frees.traverse(_ => newMetaType)
-          metas.map { ms =>
-            (substTy(frees, ms, t), substExpr(frees, ms, expr))
-          }
+    def freeLambdaSkolem[A](t: Type, expr: Expr[A]): Infer[(List[Type.Var.Skolem], Type.Rho, Expr[A])] =
+      NonEmptyList.fromList(Type.freeBoundTyVars(t :: Nil)) match {
+        case None => Infer.pure((Nil, t, expr))
+        case Some(tvs) =>
+          for {
+            skr <- skolemizeVars(tvs, t)
+            (skols, replace, rho) = skr
+            expr1 = substExpr(tvs, replace, expr)
+          } yield (skols.toList, rho, expr1)
       }
 
     // DEEP-SKOL rule
@@ -567,15 +580,16 @@ object Infer {
            * This is a deviation from the paper.
            * We are allowing a syntax like:
            *
-           * def indentity(x: a) -> a:
+           * def identity(x: a) -> a:
            *   x
            *
            * here, we want to treat a like we would a forAll. So
            * if we see a free Type.Var.Bound in the annotation type
-           * we replace it with a meta variable
+           * we replace it with a skolem variable
            */
-          freeLambdaMeta(tpe0, result0).flatMap { case (tpe, result) =>
-            expect match {
+
+          freeLambdaSkolem(tpe0, result0).flatMap { case (skols, tpe, result) =>
+            val inferInner = expect match {
               case Expected.Check((expTy, rr)) =>
                 for {
                   vb <- unifyFn(expTy, rr, region(term))
@@ -594,6 +608,8 @@ object Infer {
                   _ <- infer.set((Type.Fun(tpe, bodyT), region(term)))
                 } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
             }
+
+            inferInner.flatMap(makeGeneric(skols, _))
           }
         case Let(name, rhs, body, tag) =>
           for {
@@ -601,11 +617,15 @@ object Infer {
             varT = typedRhs.getType
             typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
           } yield TypedExpr.Let(name, typedRhs, typedBody, tag)
-        case Annotation(term, tpe, tag) =>
-          for {
-            typedTerm <- checkSigma(term, tpe)
-            coerce <- instSigma(tpe, expect, region(term))
-          } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
+        case Annotation(term0, tpe0, tag) =>
+          freeLambdaSkolem(tpe0, term0).flatMap { case (skols, tpe, term) =>
+            val inferInner = for {
+              typedTerm <- checkSigma(term, tpe)
+              coerce <- instSigma(tpe, expect, region(term))
+            } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
+
+            inferInner.flatMap(makeGeneric(skols, _))
+          }
         case If(cond, ifTrue, ifFalse, tag) =>
           val condTpe =
             typeCheckRho(cond,

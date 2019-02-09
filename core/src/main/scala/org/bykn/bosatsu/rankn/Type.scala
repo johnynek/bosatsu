@@ -220,6 +220,12 @@ object Type {
     letters.map { c => Var.Bound(c.toString) } #::: lettersWithNumber
   }
 
+  def alignBinders[A](items: NonEmptyList[A], avoid: Set[Var.Bound]): NonEmptyList[(A, Var.Bound)] = {
+    val sz = items.size
+    val bs = NonEmptyList.fromListUnsafe(allBinders.filterNot(avoid).take(sz).toList)
+    NonEmptyList((items.head, bs.head), items.tail.zip(bs.tail))
+  }
+
   case class Meta(id: Long, ref: Ref[Option[Type]])
 
   def metaTvs(s: List[Type]): Set[Meta] = {

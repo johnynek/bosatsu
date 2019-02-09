@@ -586,10 +586,9 @@ struct Leib(subst: forall f. f[a] -> f[b])
 struct Id(a)
 
 def coerce(a, leib):
-  match leib:
-    Leib(subst):
-      match subst(Id(a)):
-        Id(b): b
+  Leib(subst) = leib
+  Id(b) = subst(Id(a))
+  b
 
 # there is really only one (polymorphic) value of Leib
 refl = Leib(\x -> x)
@@ -602,7 +601,7 @@ str = IsStr("foo", refl)
 int = IsInt(42, refl)
 
 # this takes StringOrInt[a] and returns a
-def getValue(v):
+def getValue(v: StringOrInt[a]) -> a:
   match v:
     IsStr(s, leib): coerce(s, leib)
     IsInt(i, leib): coerce(i, leib)
