@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.{NonEmptyList, Validated}
 import org.scalatest.FunSuite
-import org.bykn.bosatsu.{Expr, Lit, PackageName, Package, Pattern, TypeRef, ConstructorName, Statement}
+import org.bykn.bosatsu.{Expr, HasRegion, Lit, PackageName, Package, Pattern, TypeRef, ConstructorName, Region, Statement}
 
 import fastparse.all.Parsed
 
@@ -11,6 +11,10 @@ import Type.Var.Bound
 import Type.ForAll
 
 class RankNInferTest extends FunSuite {
+
+  val emptyRegion: Region = Region(0, 0)
+
+  implicit val unitRegion: HasRegion[Unit] = HasRegion.instance(_ => emptyRegion)
 
   private def strToConst(str: String): Type.Const =
     str match {
@@ -32,7 +36,7 @@ class RankNInferTest extends FunSuite {
     val t1 = typeFrom(left)
     val t2 = typeFrom(right)
 
-    Infer.substitutionCheck(t1, t2)
+    Infer.substitutionCheck(t1, t2, emptyRegion, emptyRegion)
       .runFully(Map.empty, Map.empty)
   }
 
@@ -50,13 +54,13 @@ class RankNInferTest extends FunSuite {
       "True" -> Type.BoolType,
       "False" -> Type.BoolType)
 
-  def testType(term: Expr[_], ty: Type) =
+  def testType[A: HasRegion](term: Expr[A], ty: Type) =
     Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools), Map.empty) match {
       case Left(err) => assert(false, err)
       case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
-  def testLetTypes[A](terms: List[(String, Expr[A], Type)]) =
+  def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
     Infer.typeCheckLets(terms.map { case (k, v, _) => (k, v) })
       .runFully(Infer.asFullyQualified(withBools), Map.empty) match {
         case Left(err) => assert(false, err)
@@ -213,13 +217,13 @@ class RankNInferTest extends FunSuite {
       ("Some", Type.Fun(Type.IntType, optType))
     )
 
-    def testWithOpt(term: Expr[_], ty: Type) =
+    def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
       Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
-    def failWithOpt(term: Expr[_]) =
+    def failWithOpt[A: HasRegion](term: Expr[A]) =
       Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
@@ -256,13 +260,13 @@ class RankNInferTest extends FunSuite {
       ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
-    def testWithOpt(term: Expr[_], ty: Type) =
+    def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
       Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
-    def failWithOpt(term: Expr[_]) =
+    def failWithOpt[A: HasRegion](term: Expr[A]) =
       Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
@@ -323,7 +327,7 @@ class RankNInferTest extends FunSuite {
       ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
-    def testWithTypes(term: Expr[_], ty: Type) =
+    def testWithTypes[A: HasRegion](term: Expr[A], ty: Type) =
       Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), defined) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)

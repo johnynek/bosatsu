@@ -57,6 +57,7 @@ object Predef {
         "concat",
         "cmp_Int",
         "foldLeft",
+        "gcd_Int",
         "int_loop",
         "mod_Int",
         "range",
@@ -81,6 +82,7 @@ object Predef {
       .add(packageName, "consList", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.consList"))
       .add(packageName, "cmp_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.cmp_Int"))
       .add(packageName, "foldLeft", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.foldLeft"))
+      .add(packageName, "gcd_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.gcd_Int"))
       .add(packageName, "mod_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.mod_Int"))
       .add(packageName, "range", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.range"))
       .add(packageName, "int_loop", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.intLoop"))
@@ -143,6 +145,9 @@ object PredefImpl {
 
     loop(list, bv)
   }
+
+  def gcd_Int(a: Value, b: Value): Value =
+    VInt(i(a).gcd(i(b)))
 
   def emptyList: Value = VList.VNil
   def consList(head: Value, tail: Value): Value =

@@ -96,12 +96,8 @@ object TypeRef {
       case (s, Some(tr)) => Doc.text(s) + colonSpace + (tr.toDoc)
     }
 
-  case class TypeVar(asString: String) extends TypeRef {
-    require(asString.charAt(0).isLower)
-  }
-  case class TypeName(asString: String) extends TypeRef {
-    require(asString.charAt(0).isUpper)
-  }
+  case class TypeVar(asString: String) extends TypeRef
+  case class TypeName(asString: String) extends TypeRef
   case class TypeArrow(from: TypeRef, to: TypeRef) extends TypeRef
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
@@ -109,19 +105,25 @@ object TypeRef {
   case class TypeTuple(params: List[TypeRef]) extends TypeRef
 
   def fromType(tpe: Type): Option[TypeRef] =
-    fromTypeA[Option](tpe, None) {
+    fromTypeA[Option](tpe, _ => None, _ => None, {
       case Type.Const.Defined(pn, n) =>
         Some(TypeName(s"${pn.asString}#$n"))
-    }
+      })
 
-  def fromTypeA[F[_]: Applicative](tpe: Type, orElse: F[TypeRef])(fn: Type.Const.Defined => F[TypeRef]): F[TypeRef] = {
+  def fromTypeA[F[_]: Applicative](
+    tpe: Type,
+    onSkolem: rankn.Type.Var.Skolem => F[TypeRef],
+    onMeta: Long => F[TypeRef],
+    onConst: Type.Const.Defined => F[TypeRef]): F[TypeRef] = {
     import rankn.Type._
-    def loop(tpe: Type) = fromTypeA(tpe, orElse)(fn)
+    def loop(tpe: Type) = fromTypeA(tpe, onSkolem, onMeta, onConst)
+
     tpe match {
       case ForAll(vs, in) =>
         val args = vs.map { case Type.Var.Bound(b) => TypeVar(b) }
         loop(in).map(TypeLambda(args, _))
-      case TyConst(defined@Type.Const.Defined(_, _)) => fn(defined)
+      case TyConst(defined@Type.Const.Defined(_, _)) =>
+        onConst(defined)
       case TyVar(Type.Var.Bound(v)) =>
         Applicative[F].pure(TypeVar(v))
       case TyApply(on, arg) =>
@@ -131,7 +133,10 @@ object TypeRef {
           case (of, arg1) =>
             TypeApply(of, NonEmptyList(arg1, Nil))
         }
-      case TyVar(Type.Var.Skolem(_, _)) | TyMeta(_) => orElse
+      case TyVar(sk@Type.Var.Skolem(_, _)) =>
+        onSkolem(sk)
+      case TyMeta(Type.Meta(id, _)) =>
+        onMeta(id)
     }
   }
 
