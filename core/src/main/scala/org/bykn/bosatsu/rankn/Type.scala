@@ -222,7 +222,8 @@ object Type {
 
   def alignBinders[A](items: NonEmptyList[A], avoid: Set[Var.Bound]): NonEmptyList[(A, Var.Bound)] = {
     val sz = items.size
-    val bs = NonEmptyList.fromListUnsafe(allBinders.filterNot(avoid).take(sz).toList)
+    // for some reason on 2.11 we need to do .iterator or this will be an infinite loop
+    val bs = NonEmptyList.fromListUnsafe(allBinders.iterator.filterNot(avoid).take(sz).toList)
     NonEmptyList((items.head, bs.head), items.tail.zip(bs.tail))
   }
 

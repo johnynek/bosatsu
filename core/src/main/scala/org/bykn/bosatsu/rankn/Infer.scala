@@ -264,7 +264,7 @@ object Infer {
           (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(aligned.map(_._2), _))
       }
 
-    def makeGeneric[B, A](forAlls: List[Type.Var.Skolem], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
+    def makeGeneric[A](forAlls: List[Type.Var.Skolem], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
       NonEmptyList.fromList(forAlls) match {
         case None =>
           zonkTypedExpr(rho)
