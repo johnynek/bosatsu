@@ -150,6 +150,13 @@ object Type {
   }
 
   /**
+   * Return the Bound variables that
+   * are free in the given list of types
+   */
+  def freeBoundTyVars(ts: List[Type]): List[Type.Var.Bound] =
+    freeTyVars(ts).collect { case b@Type.Var.Bound(_) => b }
+
+  /**
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals
    */
@@ -211,6 +218,13 @@ object Type {
       } yield Var.Bound(s"$l$num")
 
     letters.map { c => Var.Bound(c.toString) } #::: lettersWithNumber
+  }
+
+  def alignBinders[A](items: NonEmptyList[A], avoid: Set[Var.Bound]): NonEmptyList[(A, Var.Bound)] = {
+    val sz = items.size
+    // for some reason on 2.11 we need to do .iterator or this will be an infinite loop
+    val bs = NonEmptyList.fromListUnsafe(allBinders.iterator.filterNot(avoid).take(sz).toList)
+    NonEmptyList((items.head, bs.head), items.tail.zip(bs.tail))
   }
 
   case class Meta(id: Long, ref: Ref[Option[Type]])
