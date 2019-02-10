@@ -322,6 +322,17 @@ same = sum0.eq_Int(sum1)
 
   }
 
+  test("test zero arg defs") {
+    evalTest(
+      List("""
+package Foo
+
+def foo: 42
+
+main = foo
+"""), "Foo", VInt(42))
+  }
+
   test("test Int functions") {
     evalTest(
       List("""
