@@ -97,7 +97,7 @@ object Generators {
   def defGen[T](dec: Gen[T]): Gen[DefStatement[T]] =
     for {
       name <- lowerIdent
-      args <- nonEmpty(argGen)
+      args <- Gen.listOf(argGen)
       retType <- Gen.option(typeRefGen)
       body <- dec
     } yield DefStatement(name, args, retType, body)
