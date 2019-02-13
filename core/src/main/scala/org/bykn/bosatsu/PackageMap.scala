@@ -322,7 +322,10 @@ object PackageError {
 
   case class TypeErrorIn(tpeErr: Infer.Error, pack: PackageName) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
-      val (lm, sourceName) = sourceMap(pack)
+      val (lm, sourceName) = sourceMap.get(pack) match {
+        case None => (LocationMap(""), "<unknown source>")
+        case Some(found) => found
+      }
 
       import rankn.Type
 

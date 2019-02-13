@@ -1,10 +1,9 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.{NonEmptyList, Validated}
-import org.scalatest.FunSuite
-import org.bykn.bosatsu.{Expr, HasRegion, Lit, PackageName, Package, Pattern, TypeRef, ConstructorName, Region, Statement}
-
 import fastparse.all.Parsed
+import org.scalatest.{Assertion, FunSuite}
+import org.bykn.bosatsu.{Declaration, Expr, HasRegion, Lit, PackageName, Package, Pattern, TypeRef, TypedExpr, ConstructorName, Region, Statement}
 
 import Expr._
 import Type.Var.Bound
@@ -92,21 +91,26 @@ class RankNInferTest extends FunSuite {
       },
       ())
 
-  /**
-   * Check that a no import program has a given type
-   */
-  def parseProgram(statement: String, tpe: String) =
+  def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion =
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmt, _) =>
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
           case Validated.Invalid(errs) => fail(errs.toList.map(_.message(Map.empty)).mkString("\n"))
-          case Validated.Valid((tpeEnv, lets)) =>
-            val parsedType = typeFrom(tpe)
-            assert(lets.last._2.getType == parsedType)
+          case Validated.Valid((_, lets)) =>
+            fn(lets.last._2)
         }
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
     }
+  /**
+   * Check that a no import program has a given type
+   */
+  def parseProgram(statement: String, tpe: String) =
+    checkLast(statement) { te => assert(te.getType == typeFrom(tpe)) }
+
+  // this could be used to test the string representation of expressions
+  def checkTERepr(statement: String, repr: String) =
+    checkLast(statement) { te => assert(te.repr == repr) }
 
   /**
    * Test that a program is ill-typed
@@ -372,6 +376,16 @@ enum Option:
 main = Some
 """, "forall a. a -> Option[a]")
 
+    parseProgram("""#
+id = \x -> x
+main = id
+""", "forall a. a -> a")
+
+    parseProgram("""#
+id = \x -> x
+main = id(1)
+""", "Int")
+
    parseProgram("""#
 enum Option:
   None
@@ -379,10 +393,8 @@ enum Option:
 
 x = Some(1)
 main = match x:
-  None:
-    0
-  Some(y):
-    y
+  None: 0
+  Some(y): y
 """, "Int")
 
    parseProgram("""#
@@ -392,31 +404,47 @@ enum List:
 
 x = NonEmpty(1, Empty)
 main = match x:
-  Empty:
-    0
-  NonEmpty(y, z):
-    y
+  Empty: 0
+  NonEmpty(y, z): y
 """, "Int")
 
    parseProgram("""#
 enum Opt:
-  None
-  Some(a)
+  None, Some(a)
 
 struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
 
-def optPure(a):
-  Some(a)
-
 def optBind(opt, bindFn):
   match opt:
-    None:
-      None
-    Some(a):
-      bindFn(a)
+    None: None
+    Some(a): bindFn(a)
 
-main = Monad(optPure, optBind)
+main = Monad(Some, optBind)
 """, "Monad[Opt]")
+
+   parseProgram("""#
+enum Opt:
+  None, Some(a)
+
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+
+def opt_bind(opt, bind_fn):
+  match opt:
+    None: None
+    Some(a): bind_fn(a)
+
+option_monad = Monad(Some, opt_bind)
+
+def use_bind(a, b, c, m: Monad[f]):
+  Monad(pure, bind) = m
+  a1 = bind(a, pure)
+  b1 = bind(b, pure)
+  c1 = bind(c, pure)
+  bind(a1)(\x -> bind(b1)(\x -> c1))
+
+main = use_bind(None, None, None, option_monad)
+""", "Int")
+//""", "forall a -> Opt[a]")
   }
 
   test("def with type annotation and use the types inside") {
@@ -425,9 +453,8 @@ main = Monad(optPure, optBind)
 struct Pair(fst, snd)
 
 def fst(p: Pair[a, b]) -> a:
-  match p:
-    Pair(f, _):
-      f
+  Pair(f, _) = p
+  f
 
 main = fst(Pair(1, "1"))
 """, "Int")
@@ -436,8 +463,7 @@ main = fst(Pair(1, "1"))
   test("test that we see some ill typed programs") {
   parseProgramIllTyped("""#
 
-def foo(i: Int):
-  i
+def foo(i: Int): i
 
 main = foo("Not an Int")
 """)
