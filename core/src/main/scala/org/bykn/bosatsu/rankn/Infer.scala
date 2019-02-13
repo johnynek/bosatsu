@@ -265,24 +265,16 @@ object Infer {
       }
 
     def makeGeneric[A](forAlls: List[Type.Var.Skolem], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
-      NonEmptyList.fromList(forAlls) match {
-        case None =>
-          zonkTypedExpr(rho)
-        case Some(skols) =>
-          val used: Set[Type.Var.Bound] = Type.tyVarBinders(List(rho.getType))
-          val aligned = Type.alignBinders(skols, used)
-          val rho1 = substTyExpr(skols, aligned.map { case (_, n) => Type.TyVar(n) }, rho)
-          zonkTypedExpr(rho1).map(TypedExpr.forAll(aligned.map(_._2), _))
+      zonkTypedExpr(rho).map { rho1 =>
+        NonEmptyList.fromList(forAlls) match {
+          case None => rho1
+          case Some(skols) =>
+            val used: Set[Type.Var.Bound] = Type.tyVarBinders(List(rho1.getType))
+            val aligned = Type.alignBinders(skols, used)
+            val rho2 = substTyExpr(skols, aligned.map { case (_, n) => Type.TyVar(n) }, rho1)
+            TypedExpr.forAll(aligned.map(_._2), rho2)
+        }
       }
-
-    def skolemizeVars(tvs: NonEmptyList[Type.Var.Bound],
-      ty: Type): Infer[(NonEmptyList[Type.Var.Skolem], NonEmptyList[Type.TyVar], Type.Rho)] =
-      for {
-        sks1 <- tvs.traverse(newSkolemTyVar)
-        sksT = sks1.map(Type.TyVar(_))
-        sks2ty <- skolemize(substTy(tvs, sksT, ty))
-        (sks2, ty2) = sks2ty
-      } yield (sks1.concat(sks2), sksT, ty2)
 
     /**
      * Skolemize on a function just recurses on the result type.
@@ -296,7 +288,12 @@ object Infer {
       t match {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
-          skolemizeVars(tvs, ty).map { case (vs, _, r) => (vs.toList, r) }
+          for {
+            sks1 <- tvs.traverse(newSkolemTyVar)
+            sksT = sks1.map(Type.TyVar(_))
+            sks2ty <- skolemize(substTy(tvs, sksT, ty))
+            (sks2, ty2) = sks2ty
+          } yield (sks1.toList ::: sks2, ty2)
         case Type.Fun(argTy, resTy) =>
           skolemize(resTy).map {
             case (sks, resTy) =>
@@ -471,7 +468,7 @@ object Infer {
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => pure(())
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => pure(())
         case (Type.TyMeta(m), tpe) => unifyVar(m, tpe, r1, r2)
-        case (tpe, Type.TyMeta(m)) => unifyVar(m, tpe, r1, r2)
+        case (tpe, Type.TyMeta(m)) => unifyVar(m, tpe, r2, r1)
         case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
           unify(a1, a2, r1, r2) *> unify(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => pure(())
@@ -510,17 +507,44 @@ object Infer {
     /**
      * Here we substitute any free bound variables in t with meta and
      * do the same substitution inside expr
+     *
+     * The probem is there is no guarantee that we don't put one of these skolems
+     * in a metavar, and it won't be replaced at that point
+     *
+     * An alternate idea could be to make a new meta variable, and at the very
+     * end unify that meta variable with Bound Var, leveraging the metas more directly
      */
     def freeLambdaSkolem[A](t: Type, expr: Expr[A]): Infer[(List[Type.Var.Skolem], Type.Rho, Expr[A])] =
       NonEmptyList.fromList(Type.freeBoundTyVars(t :: Nil)) match {
         case None => Infer.pure((Nil, t, expr))
         case Some(tvs) =>
+          // for {
+          //   skVs <- tvs.traverse(newSkolemTyVar)
+          //   skols = skVs.map(Type.TyVar(_))
+          //   rho = substTy(tvs, skols, t)
+          //   expr1 = substExpr(tvs, skols, expr)
+          // } yield (skVs.toList, rho, expr1)
           for {
-            skr <- skolemizeVars(tvs, t)
-            (skols, replace, rho) = skr
-            expr1 = substExpr(tvs, replace, expr)
-          } yield (skols.toList, rho, expr1)
+            skVs <- tvs.traverse(_ => newMetaType)
+            rho = substTy(tvs, skVs, t)
+            expr1 = substExpr(tvs, skVs, expr)
+          } yield (Nil, rho, expr1)
       }
+
+    // def freeLambdaSkolem1[A](t: Type, expr: Expr[A])(fn: (Type, Expr[A]) => Infer[TypedExpr[A]]): Infer[TypedExpr[A]] =
+    //   NonEmptyList.fromList(Type.freeBoundTyVars(t :: Nil)) match {
+    //     case None => fn(t, expr)
+    //     case Some(tvs) =>
+    //       // we have free variables, we convert these to
+    //       // meta variables, and then annotate the type with the free variables:
+    //       // \x: a -> y
+    //       // (\x: ?a -> y): forall a. ta -> ?b
+    //       for {
+    //         skVs <- tvs.traverse(_ => newMetaType)
+    //         rho = substTy(tvs, skVs, t)
+    //         expr1 = substExpr(tvs, skVs, expr)
+    //       } yield (Nil, rho, expr1)
+    //   }
 
     // DEEP-SKOL rule
     def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
@@ -609,7 +633,8 @@ object Infer {
                 } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
             }
 
-            inferInner.flatMap(makeGeneric(skols, _))
+            inferInner
+            //inferInner.flatMap(makeGeneric(skols, _))
           }
         case Let(name, rhs, body, tag) =>
           for {
@@ -624,7 +649,8 @@ object Infer {
               coerce <- instSigma(tpe, expect, region(term))
             } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
 
-            inferInner.flatMap(makeGeneric(skols, _))
+            inferInner
+            //inferInner.flatMap(makeGeneric(skols, _))
           }
         case If(cond, ifTrue, ifFalse, tag) =>
           val condTpe =
@@ -894,7 +920,13 @@ object Infer {
 
 
   def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] =
-    inferSigma(t).flatMap(zonkTypedExpr _)
+    inferSigma(t)
+      .flatMap(zonkTypedExpr _)
+      // todo this should be a law...
+      .map { te =>
+        scala.Predef.require(Type.freeTyVars(te.getType :: Nil).isEmpty, te.getType.toString)
+        te
+      }
 
 
   def extendEnv[A](varName: String, tpe: Type)(of: Infer[A]): Infer[A] =

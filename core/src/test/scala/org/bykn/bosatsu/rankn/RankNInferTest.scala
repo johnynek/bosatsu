@@ -353,6 +353,29 @@ main = y
 """, "Int")
   }
 
+  test("test inference with partial def annotation") {
+    parseProgram("""#
+
+def ident(x: a): x
+
+main = ident(1)
+""", "Int")
+
+    parseProgram("""#
+
+struct Pair(fst: a, snd: a)
+
+def mkPair(y, x: a):
+  Pair(x, y)
+
+def fst:
+  Pair(fst, _) = mkPair(1, 2)
+  fst
+
+main = fst
+""", "Int")
+  }
+
   test("test inference with some defined types") {
     parseProgram("""#
 struct Unit
@@ -435,6 +458,35 @@ def opt_bind(opt, bind_fn):
 
 option_monad = Monad(Some, opt_bind)
 
+def use_bind(m: Monad[f], a, b, c):
+  Monad(pure, bind) = m
+  a1 = bind(a, pure)
+  b1 = bind(b, pure)
+  c1 = bind(c, pure)
+  bind(a1)(\x -> bind(b1)(\x -> c1))
+
+main = use_bind(option_monad, None, None, None)
+""", "forall a. Opt[a]")
+
+   // TODO:
+   // The challenge here is that the naive curried form of the
+   // def will not see the forall until the final parameter
+   // we need to bubble up the forall on the whole function.
+   //
+   // same as the above with a different order in use_bind
+   parseProgram("""#
+enum Opt:
+  None, Some(a)
+
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+
+def opt_bind(opt, bind_fn):
+  match opt:
+    None: None
+    Some(a): bind_fn(a)
+
+option_monad = Monad(Some, opt_bind)
+
 def use_bind(a, b, c, m: Monad[f]):
   Monad(pure, bind) = m
   a1 = bind(a, pure)
@@ -443,8 +495,7 @@ def use_bind(a, b, c, m: Monad[f]):
   bind(a1)(\x -> bind(b1)(\x -> c1))
 
 main = use_bind(None, None, None, option_monad)
-""", "Int")
-//""", "forall a -> Opt[a]")
+""", "forall a. Opt[a]")
   }
 
   test("def with type annotation and use the types inside") {
