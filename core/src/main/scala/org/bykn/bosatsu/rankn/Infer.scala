@@ -325,16 +325,12 @@ object Infer {
           }
       }
 
-    def assertMetaIsUnknown[A: HasRegion](expr: Expr[A], t: Type): Infer[Unit] =
-      t match {
-        case Type.TyMeta(m) =>
-          readMeta(m).flatMap {
-            case None => Infer.unit
-            case Some(m@Type.TyMeta(_)) => assertMetaIsUnknown(expr, m)
-            case Some(notMeta) =>
-              fail(Error.UnexpectedSolvedMeta(notMeta, expr, region(expr)))
-          }
-        case _ => Infer.unit
+    def assertMetaIsUnknown[A: HasRegion](expr: Expr[A], t: Type.TyMeta): Infer[Unit] =
+      readMeta(t.toMeta).flatMap {
+        case None => Infer.unit
+        case Some(m@Type.TyMeta(_)) => assertMetaIsUnknown(expr, m)
+        case Some(notMeta) =>
+          fail(Error.UnexpectedSolvedMeta(notMeta, expr, region(expr)))
       }
 
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =

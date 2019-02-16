@@ -371,6 +371,24 @@ main = ident(1)
 
     parseProgram("""#
 
+enum MyBool: T, F
+struct Pair(fst, snd)
+
+def swap_maybe(x: a, y, swap) -> Pair[a, a]:
+  match swap:
+    T: Pair(y, x)
+    F: Pair(x, y)
+
+def res:
+  Pair(r, _) = swap_maybe(1, 2, F)
+  r
+
+main = res
+""", "Int")
+
+
+    parseProgram("""#
+
 struct Pair(fst: a, snd: a)
 
 def mkPair(y, x: a):
