@@ -113,10 +113,6 @@ object Infer {
       def message = s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
     }
 
-    case class UnexpectedSolvedMeta(tpe: Type, in: Expr[_], reg: Region) extends TypeError {
-      def message = s"solved: $tpe expected to be generic in expr: $in at $reg"
-    }
-
     case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type.Var.Skolem], reg: Region) extends TypeError {
       def message = s"type ${tStr(tpe)} not polymorphic enough in $in, bad type variables: $badTvs, at $reg"
     }
