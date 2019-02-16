@@ -325,14 +325,6 @@ object Infer {
           }
       }
 
-    def assertMetaIsUnknown[A: HasRegion](expr: Expr[A], t: Type.TyMeta): Infer[Unit] =
-      readMeta(t.toMeta).flatMap {
-        case None => Infer.unit
-        case Some(m@Type.TyMeta(_)) => assertMetaIsUnknown(expr, m)
-        case Some(notMeta) =>
-          fail(Error.UnexpectedSolvedMeta(notMeta, expr, region(expr)))
-      }
-
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
       e.traverseType(zonkType _)
 
@@ -509,7 +501,7 @@ object Infer {
     /**
      * Here we substitute any free bound variables with skolem variables
      */
-    def rewriteGeneric[A](expr: Expr[A]): Option[Infer[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
+    def skolemizeFreeVars[A](expr: Expr[A]): Option[Infer[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
       val w = Expr.traverseType[A, Writer[List[Type.Var.Bound], ?]](expr, { t =>
         val frees = Type.freeBoundTyVars(t :: Nil)
         Writer(frees, t)
@@ -895,7 +887,7 @@ object Infer {
      * variable. We require that the meta variable is still
      * unknown before we quantify.
      */
-    val res = rewriteGeneric(t) match {
+    val res = skolemizeFreeVars(t) match {
       case None => run(t)
       case Some(replace) =>
         for {
