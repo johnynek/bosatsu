@@ -897,8 +897,7 @@ object Infer {
         (skols, rho) = skolRho
         te <- checkRho(t, rho)
         envTys <- getEnv
-        zonked <- (tpe :: envTys.values.toList).traverse(zonkType)
-        escTvs = Type.freeTyVars(zonked).toSet
+        escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
         badTvs = skols.filter(escTvs)
         _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
       } yield te // should be fine since the everything after te is just checking
