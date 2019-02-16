@@ -13,7 +13,6 @@ case class DefStatement[T](
     args: List[(String, Option[TypeRef])],
     retType: Option[TypeRef], result: T) {
 
-
   /**
    * This ignores the name completely and just returns the lambda expression here
    *

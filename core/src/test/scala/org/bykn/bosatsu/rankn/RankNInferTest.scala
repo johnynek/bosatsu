@@ -356,6 +356,14 @@ main = y
   test("test inference with partial def annotation") {
     parseProgram("""#
 
+def ident -> forall a. a -> a:
+  \x -> x
+
+main = ident(1)
+""", "Int")
+
+    parseProgram("""#
+
 def ident(x: a): x
 
 main = ident(1)
@@ -496,6 +504,27 @@ def use_bind(a, b, c, m: Monad[f]):
 
 main = use_bind(None, None, None, option_monad)
 """, "forall a. Opt[a]")
+  }
+
+  test("test zero arg defs") {
+   parseProgram("""#
+
+struct Foo
+
+def fst -> Foo: Foo
+
+main = fst
+""", "Foo")
+
+   parseProgram("""#
+
+enum Foo:
+  Bar, Baz(a)
+
+def fst -> Foo[a]: Bar
+
+main = fst
+""", "forall a. Foo[a]")
   }
 
   test("def with type annotation and use the types inside") {
