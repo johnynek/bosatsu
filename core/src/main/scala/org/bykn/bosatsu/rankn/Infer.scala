@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
 import cats.Monad
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
 
 import org.bykn.bosatsu.{Pattern => GenPattern, Expr, ConstructorName, HasRegion, PackageName, Region, TypedExpr, TypeRef}
@@ -507,20 +507,21 @@ object Infer {
       lift(m.ref.set(Some(v)))
 
     /**
-     * Here we substitute any free bound variables in t with meta and
-     * do the same substitution inside expr
+     * Here we substitute any free bound variables with skolem variables
      */
-    def rewriteGeneric[A](expr: Expr[A], tpe: Type): Option[Infer[(NonEmptyList[Type.TyMeta], Expr[A], Type.Rho)]] = {
-      NonEmptyList.fromList(Type.freeBoundTyVars(tpe :: Nil))
+    def rewriteGeneric[A](expr: Expr[A]): Option[Infer[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
+      val w = Expr.traverseType[A, Writer[List[Type.Var.Bound], ?]](expr, { t =>
+        val frees = Type.freeBoundTyVars(t :: Nil)
+        Writer(frees, t)
+      })
+      val frees = w.written.distinct
+      NonEmptyList.fromList(frees)
         .map { tvs =>
-          // make meta variables for all the internal types
-          // then add an annotation
-          // for the result type:
           for {
-            skVs <- tvs.traverse(_ => newMetaType)
-            rho = substTy(tvs, skVs, tpe)
-            expr1 = substExpr(tvs, skVs, expr)
-          } yield (skVs, expr1, rho)
+            skVs <- tvs.traverse(newSkolemTyVar)
+            sksT = skVs.map(Type.TyVar(_))
+            expr1 = substExpr(tvs, sksT, expr)
+          } yield (skVs, expr1)
         }
     }
 
@@ -578,54 +579,24 @@ object Infer {
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
           }
         case AnnotatedLambda(name, tpe, result, tag) =>
-          /*
-           * This is a deviation from the paper.
-           * We are allowing a syntax like:
-           *
-           * def identity(x: a) -> a:
-           *   x
-           *
-           * or:
-           *
-           * def foo(x: a): x
-           *
-           * We handle this by converting a to a meta variable,
-           * running inference, then quantifying over that meta
-           * variable. We require that the meta variable is still
-           * unknown before we quantify.
-           */
-
-          rewriteGeneric(result, tpe) match {
-            case Some(run) =>
+          expect match {
+            case Expected.Check((expTy, rr)) =>
               for {
-                mrt <- run
-                (ms, result1, tpe1) = mrt
-                te <- typeCheckRho(AnnotatedLambda(name, tpe1, result1, tag), expect)
-                // we can't have solved for any of these
-                _ <- ms.traverse_(assertMetaIsUnknown(term, _))
-                generalized <- quantify(ms.toList.map(_.toMeta), te)
-              } yield generalized
-            case None =>
-              // there are no free bound variables here:
-              expect match {
-                case Expected.Check((expTy, rr)) =>
-                  for {
-                    vb <- unifyFn(expTy, rr, region(term))
-                    (varT, bodyT) = vb
-                    typedBody <- extendEnv(name, varT) {
-                        // TODO we are ignoring the result of subsCheck here
-                        // should we be coercing a var?
-                        subsCheck(tpe, varT, region(term), rr) *>
-                          checkRho(result, bodyT)
-                      }
-                  } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
-                case infer@Expected.Inf(_) =>
-                  for { // TODO do we need to narrow or instantiate tpe?
-                    typedBody <- extendEnv(name, tpe)(inferRho(result))
-                    bodyT = typedBody.getType
-                    _ <- infer.set((Type.Fun(tpe, bodyT), region(term)))
-                  } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
-              }
+                vb <- unifyFn(expTy, rr, region(term))
+                (varT, bodyT) = vb
+                typedBody <- extendEnv(name, varT) {
+                    // TODO we are ignoring the result of subsCheck here
+                    // should we be coercing a var?
+                    subsCheck(tpe, varT, region(term), rr) *>
+                      checkRho(result, bodyT)
+                  }
+              } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
+            case infer@Expected.Inf(_) =>
+              for { // TODO do we need to narrow or instantiate tpe?
+                typedBody <- extendEnv(name, tpe)(inferRho(result))
+                bodyT = typedBody.getType
+                _ <- infer.set((Type.Fun(tpe, bodyT), region(term)))
+              } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
           }
         case Let(name, rhs, body, tag) =>
           for {
@@ -634,23 +605,11 @@ object Infer {
             typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
           } yield TypedExpr.Let(name, typedRhs, typedBody, tag)
         case Annotation(term, tpe, tag) =>
-          rewriteGeneric(term, tpe) match {
-            case Some(run) =>
-              for {
-                mtt <- run
-                (ms, term1, tpe1) = mtt
-                te <- typeCheckRho(Annotation(term1, tpe1, tag), expect)
-                // we can't have solved for any of these
-                _ <- ms.traverse_(assertMetaIsUnknown(term, _))
-                generalized <- quantify(ms.toList.map(_.toMeta), te)
-              } yield generalized
-            case None =>
-              for {
-                typedTerm <- checkSigma(term, tpe)
-                coerce <- instSigma(tpe, expect, region(term))
-                res = coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
-              } yield res
-          }
+          for {
+            typedTerm <- checkSigma(term, tpe)
+            coerce <- instSigma(tpe, expect, region(term))
+            res = coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
+          } yield res
         case If(cond, ifTrue, ifFalse, tag) =>
           val condTpe =
             typeCheckRho(cond,
@@ -918,14 +877,46 @@ object Infer {
   }
 
 
-  def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] =
-    inferSigma(t)
-      .flatMap(zonkTypedExpr _)
+  def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] = {
+    def run(t: Expr[A]) = inferSigma(t).flatMap(zonkTypedExpr _)
+    /*
+     * This is a deviation from the paper.
+     * We are allowing a syntax like:
+     *
+     * def identity(x: a) -> a:
+     *   x
+     *
+     * or:
+     *
+     * def foo(x: a): x
+     *
+     * We handle this by converting a to a meta variable,
+     * running inference, then quantifying over that meta
+     * variable. We require that the meta variable is still
+     * unknown before we quantify.
+     */
+    val res = rewriteGeneric(t) match {
+      case None => run(t)
+      case Some(replace) =>
+        for {
+          mt <- replace
+          (skols, t1) = mt
+          te <- run(t1)
+          // now replace the skols with generics
+          used = Type.tyVarBinders(te.getType :: Nil)
+          aligned = Type.alignBinders(skols, used)
+          newVars = aligned.map(_._2)
+          te2 = substTyExpr(skols, newVars.map(Type.TyVar(_)), te)
+          forall = TypedExpr.forAll(newVars, te2)
+        } yield forall
+    }
+
       // todo this should be a law...
-      .map { te =>
-        scala.Predef.require(Type.freeTyVars(te.getType :: Nil).isEmpty, te.getType.toString)
-        te
-      }
+    res.map { te =>
+      scala.Predef.require(Type.freeTyVars(te.getType :: Nil).isEmpty, te.getType.toString)
+      te
+    }
+  }
 
 
   def extendEnv[A](varName: String, tpe: Type)(of: Infer[A]): Infer[A] =

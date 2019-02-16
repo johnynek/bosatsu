@@ -371,6 +371,13 @@ main = ident(1)
 
     parseProgram("""#
 
+def ident(x) -> a: x
+
+main = ident(1)
+""", "Int")
+
+    parseProgram("""#
+
 enum MyBool: T, F
 struct Pair(fst, snd)
 

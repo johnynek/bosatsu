@@ -49,8 +49,8 @@ object NTypeGen {
 class TypeTest extends FunSuite {
 
   test("free vars are not duplicated") {
-    forAll(NTypeGen.genDepth03) { t =>
-      val frees = Type.freeTyVars(t :: Nil)
+    forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
+      val frees = Type.freeTyVars(ts)
       assert(frees.distinct == frees)
     }
   }
