@@ -878,10 +878,9 @@ object Infer {
      *
      * def foo(x: a): x
      *
-     * We handle this by converting a to a meta variable,
-     * running inference, then quantifying over that meta
-     * variable. We require that the meta variable is still
-     * unknown before we quantify.
+     * We handle this by converting a to a skolem variable,
+     * running inference, then quantifying over that skolem
+     * variable.
      */
     val res = skolemizeFreeVars(t) match {
       case None => run(t)
