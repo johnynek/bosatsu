@@ -133,11 +133,11 @@ object TypedExpr {
     new FunctionK[TypedExpr, TypedExpr] { self =>
       def apply[A](expr: TypedExpr[A]) =
         expr match {
+          case Annotation(t, _, _) => self(t)
           case Generic(params, expr, tag) =>
             // This definitely feels wrong,
             // but without this, I don't see what else we can do
             Generic(params, self(expr), tag)
-          case Annotation(t, _, tag) => Annotation(self(t), tpe, tag)
           case Var(p, name, _, t) => Var(p, name, tpe, t)
           case AnnotatedLambda(arg, argT, res, tag) =>
             // only some coercions would make sense here

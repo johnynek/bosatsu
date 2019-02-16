@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
 import cats.Monad
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
 
 import org.bykn.bosatsu.{Pattern => GenPattern, Expr, ConstructorName, HasRegion, PackageName, Region, TypedExpr, TypeRef}
@@ -75,11 +75,13 @@ object Infer {
   def pure[A](a: A): Infer[A] =
     Lift(RefSpace.pure(Right(a)))
 
+  val unit: Infer[Unit] = pure(())
+
   def defer[A](tc: => Infer[A]): Infer[A] =
     Defer(() => tc)
 
   def require(b: Boolean, err: => Error): Infer[Unit] =
-    if (b) pure(()) else fail(err)
+    if (b) unit else fail(err)
 
   // Fails if v is not in the env
   def lookupVarType(v: Name, reg: Region): Infer[Type] =
@@ -111,8 +113,8 @@ object Infer {
       def message = s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
     }
 
-    case class NotPolymorphicEnough(tpe: Type, in: Expr[_]) extends TypeError {
-      def message = s"type ${tStr(tpe)} not polymorphic enough in $in"
+    case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type.Var.Skolem], reg: Region) extends TypeError {
+      def message = s"type ${tStr(tpe)} not polymorphic enough in $in, bad type variables: $badTvs, at $reg"
     }
 
     case class SubsumptionCheckFailure(inferred: Type, declared: Type) extends TypeError {
@@ -264,26 +266,6 @@ object Infer {
           (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(aligned.map(_._2), _))
       }
 
-    def makeGeneric[A](forAlls: List[Type.Var.Skolem], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
-      NonEmptyList.fromList(forAlls) match {
-        case None =>
-          zonkTypedExpr(rho)
-        case Some(skols) =>
-          val used: Set[Type.Var.Bound] = Type.tyVarBinders(List(rho.getType))
-          val aligned = Type.alignBinders(skols, used)
-          val rho1 = substTyExpr(skols, aligned.map { case (_, n) => Type.TyVar(n) }, rho)
-          zonkTypedExpr(rho1).map(TypedExpr.forAll(aligned.map(_._2), _))
-      }
-
-    def skolemizeVars(tvs: NonEmptyList[Type.Var.Bound],
-      ty: Type): Infer[(NonEmptyList[Type.Var.Skolem], NonEmptyList[Type.TyVar], Type.Rho)] =
-      for {
-        sks1 <- tvs.traverse(newSkolemTyVar)
-        sksT = sks1.map(Type.TyVar(_))
-        sks2ty <- skolemize(substTy(tvs, sksT, ty))
-        (sks2, ty2) = sks2ty
-      } yield (sks1.concat(sks2), sksT, ty2)
-
     /**
      * Skolemize on a function just recurses on the result type.
      *
@@ -296,7 +278,12 @@ object Infer {
       t match {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
-          skolemizeVars(tvs, ty).map { case (vs, _, r) => (vs.toList, r) }
+          for {
+            sks1 <- tvs.traverse(newSkolemTyVar)
+            sksT = sks1.map(Type.TyVar(_))
+            sks2ty <- skolemize(substTy(tvs, sksT, ty))
+            (sks2, ty2) = sks2ty
+          } yield (sks1.toList ::: sks2, ty2)
         case Type.Fun(argTy, resTy) =>
           skolemize(resTy).map {
             case (sks, resTy) =>
@@ -468,13 +455,13 @@ object Infer {
         case (_, Type.TyVar(b@Type.Var.Bound(_))) =>
           fail(Error.UnexpectedBound(b, t1))
         // the only vars that should appear are skolem variables, we check here
-        case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => pure(())
-        case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => pure(())
+        case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => unit
+        case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (Type.TyMeta(m), tpe) => unifyVar(m, tpe, r1, r2)
-        case (tpe, Type.TyMeta(m)) => unifyVar(m, tpe, r1, r2)
+        case (tpe, Type.TyMeta(m)) => unifyVar(m, tpe, r2, r1)
         case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
           unify(a1, a2, r1, r2) *> unify(b1, b2, r1, r2)
-        case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => pure(())
+        case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
         case (left, right) => fail(Error.NotUnifiable(left, right, r1, r2))
       }
 
@@ -485,7 +472,7 @@ object Infer {
      * this is called newTyVarTy for some reason in
      * the paper's implementation
      */
-    def newMetaType: Infer[Type.Tau] =
+    def newMetaType: Infer[Type.TyMeta] =
       for {
         id <- nextId
         ref <- lift(RefSpace.newRef[Option[Type]](None))
@@ -508,19 +495,23 @@ object Infer {
       lift(m.ref.set(Some(v)))
 
     /**
-     * Here we substitute any free bound variables in t with meta and
-     * do the same substitution inside expr
+     * Here we substitute any free bound variables with skolem variables
      */
-    def freeLambdaSkolem[A](t: Type, expr: Expr[A]): Infer[(List[Type.Var.Skolem], Type.Rho, Expr[A])] =
-      NonEmptyList.fromList(Type.freeBoundTyVars(t :: Nil)) match {
-        case None => Infer.pure((Nil, t, expr))
-        case Some(tvs) =>
+    def skolemizeFreeVars[A](expr: Expr[A]): Option[Infer[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
+      val w = Expr.traverseType[A, Writer[List[Type.Var.Bound], ?]](expr, { t =>
+        val frees = Type.freeBoundTyVars(t :: Nil)
+        Writer(frees, t)
+      })
+      val frees = w.written.distinct
+      NonEmptyList.fromList(frees)
+        .map { tvs =>
           for {
-            skr <- skolemizeVars(tvs, t)
-            (skols, replace, rho) = skr
-            expr1 = substExpr(tvs, replace, expr)
-          } yield (skols.toList, rho, expr1)
-      }
+            skVs <- tvs.traverse(newSkolemTyVar)
+            sksT = skVs.map(Type.TyVar(_))
+            expr1 = substExpr(tvs, sksT, expr)
+          } yield (skVs, expr1)
+        }
+    }
 
     // DEEP-SKOL rule
     def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
@@ -575,41 +566,25 @@ object Infer {
                 _ <- infer.set((Type.Fun(varT, bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
           }
-        case AnnotatedLambda(name, tpe0, result0, tag) =>
-          /*
-           * This is a deviation from the paper.
-           * We are allowing a syntax like:
-           *
-           * def identity(x: a) -> a:
-           *   x
-           *
-           * here, we want to treat a like we would a forAll. So
-           * if we see a free Type.Var.Bound in the annotation type
-           * we replace it with a skolem variable
-           */
-
-          freeLambdaSkolem(tpe0, result0).flatMap { case (skols, tpe, result) =>
-            val inferInner = expect match {
-              case Expected.Check((expTy, rr)) =>
-                for {
-                  vb <- unifyFn(expTy, rr, region(term))
-                  (varT, bodyT) = vb
-                  typedBody <- extendEnv(name, varT) {
-                      // TODO we are ignoring the result of subsCheck here
-                      // should we be coercing a var?
-                      subsCheck(tpe, varT, region(term), rr) *>
-                        checkRho(result, bodyT)
-                    }
-                } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
-              case infer@Expected.Inf(_) =>
-                for { // TODO do we need to narrow or instantiate tpe?
-                  typedBody <- extendEnv(name, tpe)(inferRho(result))
-                  bodyT = typedBody.getType
-                  _ <- infer.set((Type.Fun(tpe, bodyT), region(term)))
-                } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
-            }
-
-            inferInner.flatMap(makeGeneric(skols, _))
+        case AnnotatedLambda(name, tpe, result, tag) =>
+          expect match {
+            case Expected.Check((expTy, rr)) =>
+              for {
+                vb <- unifyFn(expTy, rr, region(term))
+                (varT, bodyT) = vb
+                typedBody <- extendEnv(name, varT) {
+                    // TODO we are ignoring the result of subsCheck here
+                    // should we be coercing a var?
+                    subsCheck(tpe, varT, region(term), rr) *>
+                      checkRho(result, bodyT)
+                  }
+              } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
+            case infer@Expected.Inf(_) =>
+              for { // TODO do we need to narrow or instantiate tpe?
+                typedBody <- extendEnv(name, tpe)(inferRho(result))
+                bodyT = typedBody.getType
+                _ <- infer.set((Type.Fun(tpe, bodyT), region(term)))
+              } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
           }
         case Let(name, rhs, body, tag) =>
           for {
@@ -617,15 +592,12 @@ object Infer {
             varT = typedRhs.getType
             typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
           } yield TypedExpr.Let(name, typedRhs, typedBody, tag)
-        case Annotation(term0, tpe0, tag) =>
-          freeLambdaSkolem(tpe0, term0).flatMap { case (skols, tpe, term) =>
-            val inferInner = for {
-              typedTerm <- checkSigma(term, tpe)
-              coerce <- instSigma(tpe, expect, region(term))
-            } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
-
-            inferInner.flatMap(makeGeneric(skols, _))
-          }
+        case Annotation(term, tpe, tag) =>
+          for {
+            typedTerm <- checkSigma(term, tpe)
+            coerce <- instSigma(tpe, expect, region(term))
+            res = coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
+          } yield res
         case If(cond, ifTrue, ifFalse, tag) =>
           val condTpe =
             typeCheckRho(cond,
@@ -684,7 +656,7 @@ object Infer {
                 }
                 resT = tbranches.map { case (p, te) => (te.getType, region(te)) }
                 _ <- resT.flatMap { t0 => resT.map((t0, _)) }.traverse_ {
-                  case (t0, t1) if t0 eq t1 => Infer.pure(())
+                  case (t0, t1) if t0 eq t1 => Infer.unit
                   // TODO
                   // we do N^2 subsCheck, which to coerce with, composed?
                   case ((t0, r0), (t1, r1)) => subsCheck(t0, t1, r0, r1)
@@ -874,7 +846,7 @@ object Infer {
         envTys <- getEnv
         escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
         badTvs = skols.filter(escTvs)
-        _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t))
+        _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
       } yield te // should be fine since the everything after te is just checking
 
     def checkRho[A: HasRegion](t: Expr[A], rho: Type.Rho): Infer[TypedExpr[A]] =
@@ -893,8 +865,45 @@ object Infer {
   }
 
 
-  def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] =
-    inferSigma(t).flatMap(zonkTypedExpr _)
+  def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] = {
+    def run(t: Expr[A]) = inferSigma(t).flatMap(zonkTypedExpr _)
+    /*
+     * This is a deviation from the paper.
+     * We are allowing a syntax like:
+     *
+     * def identity(x: a) -> a:
+     *   x
+     *
+     * or:
+     *
+     * def foo(x: a): x
+     *
+     * We handle this by converting a to a skolem variable,
+     * running inference, then quantifying over that skolem
+     * variable.
+     */
+    val res = skolemizeFreeVars(t) match {
+      case None => run(t)
+      case Some(replace) =>
+        for {
+          mt <- replace
+          (skols, t1) = mt
+          te <- run(t1)
+          // now replace the skols with generics
+          used = Type.tyVarBinders(te.getType :: Nil)
+          aligned = Type.alignBinders(skols, used)
+          newVars = aligned.map(_._2)
+          te2 = substTyExpr(skols, newVars.map(Type.TyVar(_)), te)
+          forall = TypedExpr.forAll(newVars, te2)
+        } yield forall
+    }
+
+      // todo this should be a law...
+    res.map { te =>
+      scala.Predef.require(Type.freeTyVars(te.getType :: Nil).isEmpty, te.getType.toString)
+      te
+    }
+  }
 
 
   def extendEnv[A](varName: String, tpe: Type)(of: Infer[A]): Infer[A] =

@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.rankn
 
+import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.forAll
 import org.scalatest.FunSuite
@@ -48,8 +49,8 @@ object NTypeGen {
 class TypeTest extends FunSuite {
 
   test("free vars are not duplicated") {
-    forAll(NTypeGen.genDepth03) { t =>
-      val frees = Type.freeTyVars(t :: Nil)
+    forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
+      val frees = Type.freeTyVars(ts)
       assert(frees.distinct == frees)
     }
   }
@@ -90,5 +91,14 @@ class TypeTest extends FunSuite {
       if (hnv) assert(allT.forall(Type.hasNoVars), "hasNoVars == true")
       else assert(allT.exists { t => !Type.hasNoVars(t) }, "hasNoVars == false")
     }
+  }
+
+  test("Type.freeTyVars is empty for ForAll fully bound") {
+    val ba = Type.Var.Bound("a")
+    val fa = Type.ForAll(NonEmptyList.of(ba), Type.TyVar(ba))
+    assert(Type.freeTyVars(fa :: Nil).isEmpty)
+
+    val fb = Type.ForAll(NonEmptyList.of(ba), Type.Fun(Type.TyVar(ba), Type.IntType))
+    assert(Type.freeTyVars(fb :: Nil).isEmpty)
   }
 }
