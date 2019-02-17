@@ -162,8 +162,13 @@ object MainCommand {
           }
         if (success) MainResult.Success(stdOut)
         else {
-          val missingDoc = Doc.text("packages with missing tests: ") +
-            Doc.intercalate(Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) }).nested(2)
+          val missingDoc =
+            if (noTests.isEmpty) Doc.empty
+            else {
+              val prefix = Doc.text("packages with missing tests: ")
+              val missingDoc = Doc.intercalate(Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
+              (prefix + missingDoc.nested(2))
+            }
 
           MainResult.Error(1, missingDoc.render(80) :: Nil, stdOut)
         }

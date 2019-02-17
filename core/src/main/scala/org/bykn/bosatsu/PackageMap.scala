@@ -333,7 +333,7 @@ object PackageError {
         type S = (Map[Long, TypeRef], Stream[String])
         def encodeSkolem(sk: Type.Var.Skolem): State[S, TypeRef] =
           // Make use a typevar
-          State.pure(TypeRef.TypeVar("$" + sk.name))
+          State.pure(TypeRef.TypeVar("$" + s"${sk.name}${sk.id}"))
 
         def encodeMeta(id: Long): State[S, TypeRef] =
           State { s: S =>
