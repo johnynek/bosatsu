@@ -56,11 +56,18 @@ object Program {
       d: TypeDefinitionStatement): rankn.TypeEnv =
       types.addDefinedType(d.toDefinition(pn0, nameToType))
 
+
+    def bindings(b: Pattern[Option[String], TypeRef], decl: Expr[Declaration]): List[(String, Expr[Declaration])] =
+      b match {
+        case Pattern.Var(nm) => (nm, decl) :: Nil
+        case unsupported => sys.error(s"unsupported pattern: $unsupported")
+      }
+
     def loop(s: Statement): Program[Expr[Declaration], Statement] =
       s match {
-        case Bind(BindingStatement(nm, decl, Padding(_, rest))) =>
+        case Bind(BindingStatement(bound, decl, Padding(_, rest))) =>
           val Program(te, binds, _) = loop(rest)
-          Program(te, (nm, declToE(decl)) :: binds, stmt)
+          Program(te, bindings(bound, declToE(decl)) ::: binds, stmt)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
         case Def(defstmt@DefStatement(_, _, _, _)) =>

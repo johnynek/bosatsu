@@ -320,14 +320,10 @@ object Declaration {
 
   // This is something we check after variables
   private val bindingOp: Indy[(Pattern[Option[String], TypeRef], Region) => Binding] = {
-    val eqP = P("=" ~ !"=")
-
-    (Indy.lift(P(maybeSpace ~ eqP ~ maybeSpace)) *> parser <* Indy.lift(toEOL))
-      .product(restP)
+    BindingStatement.bindingParser[Pattern[Option[String], TypeRef], Padding[Declaration]](parser <* Indy.lift(toEOL), restP)
       .region
-      .map { case (region, (value, rest)) =>
-
-        { (pat: Pattern[Option[String], TypeRef], r: Region) => Binding(BindingStatement(pat, value, rest))(r + region) }
+      .map { case (region, fn) =>
+        { (pat: Pattern[Option[String], TypeRef], r: Region) => Binding(fn(pat))(r + region) }
       }
   }
 

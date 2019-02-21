@@ -11,18 +11,6 @@ import org.bykn.fastparse_cats.StringInstances._
 
 import Indy.IndyMethods
 
-case class BindingStatement[B, T](name: B, value: Declaration, in: T)
-
-object BindingStatement {
-  private[this] val eqDoc = Doc.text(" = ")
-
-  implicit def document[A: Document, T: Document]: Document[BindingStatement[A, T]] =
-    Document.instance[BindingStatement[A, T]] { let =>
-      import let._
-      Document[A].document(name) + eqDoc + value.toDoc + Document[T].document(in)
-    }
-}
-
 case class CommentStatement[T](message: NonEmptyList[String], on: T)
 
 object CommentStatement {
@@ -217,7 +205,7 @@ object Statement {
       case tds: TypeDefinitionStatement => tds
     }
 
-  case class Bind(bind: BindingStatement[String, Padding[Statement]]) extends Statement
+  case class Bind(bind: BindingStatement[Pattern[Option[String], TypeRef], Padding[Statement]]) extends Statement
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[(OptIndent[Declaration], Padding[Statement])]) extends Statement
   case class Struct(name: String, args: List[(String, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
@@ -232,8 +220,18 @@ object Statement {
     val recurse = P(parser)
     val padding = Padding.parser(recurse)
 
-    val bindingP = P(lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ maybeSpace ~ padding)
-      .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
+    // val bindingP = P(lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ maybeSpace ~ padding)
+    //   .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
+    val bindingP = {
+      val patP = Indy.lift(Pattern.parser)
+      val bop = BindingStatement
+        .bindingParser[Pattern[Option[String], TypeRef], Padding[Statement]](
+          Declaration.parser, Indy.lift(maybeSpace ~ padding))("")
+
+      (Pattern.parser ~ bop).map { case (p, fn) =>
+        Bind(fn(p))
+      }
+    }
 
     val commentP = CommentStatement.parser(Indy.lift(padding)).map(Comment(_)).run("")
 
@@ -300,7 +298,7 @@ object Statement {
   implicit lazy val document: Document[Statement] =
     Document.instance[Statement] {
       case Bind(bs) =>
-        Document[BindingStatement[String, Padding[Statement]]].document(bs)
+        Document[BindingStatement[Pattern[Option[String], TypeRef], Padding[Statement]]].document(bs)
       case Comment(cm) =>
         Document[CommentStatement[Padding[Statement]]].document(cm)
       case Def(d) =>
