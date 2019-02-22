@@ -684,6 +684,12 @@ x = Pair([], b)
 """)
 
     roundTrip(Statement.parser,
+"""#
+
+Pair(x, _) = Pair([], b)
+""")
+
+    roundTrip(Statement.parser,
 """# MONADS!!!!
 struct Monad(pure: forall a. a -> f[a], flatMap: forall a, b. f[a] -> (a -> f[b]) -> f[b])
 """)

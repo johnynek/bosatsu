@@ -450,8 +450,10 @@ object Generators {
   def genStatement(depth: Int): Gen[Statement] = {
     val recur = Gen.lzy(genStatement(depth-1))
     val decl = genDeclaration(depth)
+    // TODO make more powerful
+    val pat: Gen[Pattern[Option[String], TypeRef]] = genPattern(1)
     Gen.frequency(
-      (1, bindGen(lowerIdent, decl, padding(recur, 1)).map(Statement.Bind(_))),
+      (1, bindGen(pat, decl, padding(recur, 1)).map(Statement.Bind(_))),
       (1, commentGen(padding(recur, 1)
         .map {
           case Padding(0, c@Statement.Comment(_)) => Padding[Statement](1, c) // make sure not two back to back comments
