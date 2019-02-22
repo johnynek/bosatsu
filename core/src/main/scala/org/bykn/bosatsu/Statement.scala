@@ -220,8 +220,6 @@ object Statement {
     val recurse = P(parser)
     val padding = Padding.parser(recurse)
 
-    // val bindingP = P(lowerIdent ~ maybeSpace ~ "=" ~/ maybeSpace ~ Declaration.parser("") ~ maybeSpace ~ padding)
-    //   .map { case (ident, value, rest) => Bind(BindingStatement(ident, value, rest)) }
     val bindingP = {
       val patP = Indy.lift(Pattern.parser)
       val bop = BindingStatement

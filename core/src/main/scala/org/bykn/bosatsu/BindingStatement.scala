@@ -18,7 +18,6 @@ object BindingStatement {
       Document[A].document(name) + eqDoc + value.toDoc + Document[T].document(in)
     }
 
-  // This is something we check after variables
   def bindingParser[B, T](parser: Indy[Declaration], rest: Indy[T]): Indy[B => BindingStatement[B, T]] = {
     val eqP = P("=" ~ !"=")
 

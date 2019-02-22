@@ -451,7 +451,7 @@ object Generators {
     val recur = Gen.lzy(genStatement(depth-1))
     val decl = genDeclaration(depth)
     // TODO make more powerful
-    val pat: Gen[Pattern[Option[String], TypeRef]] = lowerIdent.map(Pattern.Var(_))
+    val pat: Gen[Pattern[Option[String], TypeRef]] = genPattern(1)
     Gen.frequency(
       (1, bindGen(pat, decl, padding(recur, 1)).map(Statement.Bind(_))),
       (1, commentGen(padding(recur, 1)
