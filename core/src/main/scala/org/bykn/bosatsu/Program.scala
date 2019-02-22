@@ -1,8 +1,11 @@
 package org.bykn.bosatsu
 
 import cats.evidence.Is
+import cats.data.NonEmptyList
 
-case class Program[D, S](types: rankn.TypeEnv, lets: List[(String, D)], from: S) {
+import org.bykn.bosatsu.rankn.{Type, TypeEnv}
+
+case class Program[D, S](types: TypeEnv, lets: List[(String, D)], from: S) {
   private[this] lazy val letMap: Map[String, D] = lets.toMap
 
   def getLet(name: String): Option[D] = letMap.get(name)
@@ -42,7 +45,7 @@ case class Program[D, S](types: rankn.TypeEnv, lets: List[(String, D)], from: S)
 object Program {
   def fromStatement(
     pn0: PackageName,
-    nameToType: String => rankn.Type.Const,
+    nameToType: String => Type.Const,
     nameToCons: String => (PackageName, ConstructorName),
     stmt: Statement): Program[Expr[Declaration], Statement] = {
 
@@ -52,22 +55,50 @@ object Program {
       d.toExpr(nameToType, nameToCons)
 
     def defToT(
-      types: rankn.TypeEnv,
-      d: TypeDefinitionStatement): rankn.TypeEnv =
+      types: TypeEnv,
+      d: TypeDefinitionStatement): TypeEnv =
       types.addDefinedType(d.toDefinition(pn0, nameToType))
 
+    val allNames = stmt.toStream.flatMap {
+      case Bind(BindingStatement(bound, _, _)) => bound.names
+      case _ => Nil
+    }.toSet
 
-    def bindings(b: Pattern[Option[String], TypeRef], decl: Expr[Declaration]): List[(String, Expr[Declaration])] =
+    // Each time we need a name, we can call anonNames.next()
+    // it is mutable, but in a limited scope
+    val anonNames = rankn.Type.allBinders.iterator.map(_.name).filterNot(allNames)
+
+    def bindings(b: Pattern[(PackageName, ConstructorName), Type], decl: Expr[Declaration]): List[(String, Expr[Declaration])] =
       b match {
         case Pattern.Var(nm) => (nm, decl) :: Nil
-        case unsupported => sys.error(s"unsupported pattern: $unsupported")
+        case Pattern.Annotation(p, tpe) =>
+          // we can just move the annotation to the expr:
+          bindings(p, Expr.Annotation(decl, tpe, decl.tag))
+        case complex =>
+          val (prefix, left) = decl match {
+            case v@Expr.Var(_, _, _) =>
+              // no need to make a new var to point to a var
+              (Nil, v)
+            case _ =>
+              val thisName = anonNames.next()
+              val v = Expr.Var(None, thisName, decl.tag)
+              ((thisName, decl) :: Nil, v)
+          }
+
+          val tail = complex.names.map { nm =>
+            val pat = complex.filterVars(Set(nm))
+            (nm, Expr.Match(left,
+              NonEmptyList.of((pat, Expr.Var(None, nm, decl.tag))), decl.tag))
+          }
+          prefix ::: tail
       }
 
     def loop(s: Statement): Program[Expr[Declaration], Statement] =
       s match {
         case Bind(BindingStatement(bound, decl, Padding(_, rest))) =>
           val Program(te, binds, _) = loop(rest)
-          Program(te, bindings(bound, declToE(decl)) ::: binds, stmt)
+          val pat = Declaration.unTuplePattern(bound, nameToType, nameToCons)
+          Program(te, bindings(pat, declToE(decl)) ::: binds, stmt)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
         case Def(defstmt@DefStatement(_, _, _, _)) =>
@@ -106,7 +137,7 @@ object Program {
           val p = loop(rest)
           p.copy(types = defToT(p.types, x), from = x)
         case EndOfFile =>
-          Program(rankn.TypeEnv.empty, Nil, EndOfFile)
+          Program(TypeEnv.empty, Nil, EndOfFile)
       }
 
     loop(stmt)

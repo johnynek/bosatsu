@@ -92,6 +92,14 @@ x = 1
       List("""
 package Foo
 
+# test shadowing
+x = match 1: x: x
+"""), "Foo", VInt(1))
+
+    evalTest(
+      List("""
+package Foo
+
 # exercise calling directly a lambda
 x = (\y -> y)("hello")
 """), "Foo", Str("hello"))
@@ -474,6 +482,37 @@ main = Bar(1)
 """), "Foo",
   ConsValue(VInt(1), UnitValue))
 
+    evalTest(
+      List("""
+package Foo
+
+struct Bar(a: Int)
+
+# destructuring top-level let
+Bar(main) = Bar(1)
+"""), "Foo", VInt(1))
+
+    evalTest(
+      List("""
+package Foo
+
+struct Bar(a: Int)
+
+# destructuring top-level let
+Bar(main: Int) = Bar(1)
+"""), "Foo", VInt(1))
+
+    evalTest(
+      List("""
+package Foo
+
+struct Bar(a: Int)
+
+y = Bar(1)
+# destructuring top-level let
+Bar(main: Int) = y
+"""), "Foo", VInt(1))
+
     evalTestJson(
       List("""
 package Foo
@@ -567,7 +606,17 @@ def unbox(gb: GoodOrBad[a]):
     Good(g): g
     Bad(b): b
 
-main = unbox(Good(42))
+(main: Int) = unbox(Good(42))
+"""), "A", VInt(42))
+
+  evalTest(
+    List("""
+package A
+
+enum GoodOrBad:
+  Bad(a: a), Good(a: a)
+
+Bad(main) | Good(main) = Good(42)
 """), "A", VInt(42))
   }
 
