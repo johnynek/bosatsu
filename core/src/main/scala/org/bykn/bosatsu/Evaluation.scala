@@ -199,13 +199,15 @@ object Evaluation {
     def unreachable: Scoped =
       const(Eval.later(sys.error("unreachable reached")))
 
-    def orElse(name: String, next: Scoped): Scoped =
+    def orElse(name: String)(next: => Scoped): Scoped = {
+      lazy val nextComputed = next
       fromFn { env =>
         env.get(name) match {
-          case None => next.inEnv(env)
+          case None => nextComputed.inEnv(env)
           case Some(v) => v
         }
       }
+    }
 
     private case class Let(name: String, arg: Scoped, in: Scoped) extends Scoped {
       def inEnv(env: Env) = {
@@ -445,9 +447,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          evalTypedExpr(p, e, recurse)
        case Annotation(e, _, _) => evalTypedExpr(p, e, recurse)
        case Var(None, v, _, _) =>
-         val onMissing = recurse((p, Left(v)))._1
-
-         Scoped.orElse(v, onMissing)
+         Scoped.orElse(v) {
+         // this needs to be lazy
+           recurse((p, Left(v)))._1
+         }
        case Var(Some(p), v, _, _) =>
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
          val (scoped, _) = eval((Package.asInferred(pack), Left(v)))

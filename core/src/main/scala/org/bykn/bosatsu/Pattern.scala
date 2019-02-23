@@ -26,6 +26,61 @@ sealed abstract class Pattern[+N, +T] {
         Pattern.PositionalStruct(name, params.map(_.mapType(fn)))
       case Pattern.Union(h, t) => Pattern.Union(h.mapType(fn), t.map(_.mapType(fn)))
     }
+
+  /**
+   * List all the names that are bound in Vars inside this pattern
+   * in the left to right order they are encountered, without any duplication
+   */
+  def names: List[String] = {
+    @annotation.tailrec
+    def loop(stack: List[Pattern[N, T]], seen: Set[String], acc: List[String]): List[String] =
+      stack match {
+        case Nil => acc.reverse
+        case (Pattern.WildCard | Pattern.Literal(_)) :: tail => loop(tail, seen, acc)
+        case Pattern.Var(v) :: tail =>
+          if (seen(v)) loop(tail, seen, acc)
+          else loop(tail, seen + v, v :: acc)
+        case Pattern.ListPat(items) :: tail =>
+          val globs = items.collect { case Left(Some(glob)) => glob }.filterNot(seen)
+          val next = items.collect { case Right(inner) => inner }
+          loop(next ::: tail, seen ++ globs, globs reverse_::: acc)
+        case Pattern.Annotation(p, _) :: tail => loop(p :: tail, seen, acc)
+        case Pattern.PositionalStruct(name, params) :: tail =>
+          loop(params ::: tail, seen, acc)
+        case Pattern.Union(h, t) :: tail =>
+          loop(h :: (t.toList) ::: tail, seen, acc)
+      }
+
+    loop(this :: Nil, Set.empty, Nil)
+  }
+
+  /**
+   * Return the pattern with all the binding names removed
+   */
+  def unbind: Pattern[N, T] =
+    filterVars(Set.empty)
+
+  /**
+   * replace all Var names with Wildcard that are not
+   * satifying the keep predicate
+   */
+  def filterVars(keep: String => Boolean): Pattern[N, T] =
+    this match {
+      case Pattern.WildCard | Pattern.Literal(_) => this
+      case p@Pattern.Var(v) =>
+        if (keep(v)) p else Pattern.WildCard
+      case Pattern.ListPat(items) =>
+        Pattern.ListPat(items.map {
+          case Left(opt) => Left(opt.filter(keep))
+          case Right(p) => Right(p.filterVars(keep))
+        })
+      case Pattern.Annotation(p, tpe) =>
+        Pattern.Annotation(p.filterVars(keep), tpe)
+      case Pattern.PositionalStruct(name, params) =>
+        Pattern.PositionalStruct(name, params.map(_.filterVars(keep)))
+      case Pattern.Union(h, t) =>
+        Pattern.Union(h.filterVars(keep), t.map(_.filterVars(keep)))
+    }
 }
 
 object Pattern {
@@ -74,27 +129,6 @@ object Pattern {
           parts(name, p1)
         case Pattern.Union(h, tail) =>
           Pattern.Union(h.mapStruct(parts), tail.map(_.mapStruct(parts)))
-      }
-
-
-  /**
-   * Return the pattern with all the binding names removed
-   */
-    def unbind: Pattern[N, T] =
-      pat match {
-        case Pattern.WildCard | Pattern.Literal(_) => pat
-        case Pattern.Var(_) => Pattern.WildCard
-        case Pattern.ListPat(items) =>
-          Pattern.ListPat(items.map {
-            case Left(_) => Left(None)
-            case Right(p) => Right(p.unbind)
-          })
-        case Pattern.Annotation(p, tpe) =>
-          Pattern.Annotation(p.unbind, tpe)
-        case Pattern.PositionalStruct(name, params) =>
-          Pattern.PositionalStruct(name, params.map(_.unbind))
-        case Pattern.Union(h, t) =>
-          Pattern.Union(h.unbind, t.map(_.unbind))
       }
   }
 
