@@ -45,7 +45,7 @@ class TotalityTest extends FunSuite {
   def showPatU(pat: Pattern[(PackageName, ConstructorName), Type]): String =
     showPat(pat.unbind)
 
-  def typeEnvOf(str: String): TypeEnv =
+  def typeEnvOf(str: String): TypeEnv[Unit] =
     Statement.parser.parse(str) match {
       case Parsed.Success(stmt, idx) =>
         assert(idx == str.length)
@@ -74,7 +74,7 @@ struct Tuple2(fst, snd)
         sys.error("could not produce TypeEnv")
     }
 
-  def notTotal(te: TypeEnv, pats: List[Pattern[(PackageName, ConstructorName), Type]], testMissing: Boolean = true): Unit = {
+  def notTotal(te: TypeEnv[Any], pats: List[Pattern[(PackageName, ConstructorName), Type]], testMissing: Boolean = true): Unit = {
     TotalityCheck(te).isTotal(pats) match {
       case Right(res) => assert(!res, pats.toString)
       case Left(errs) => fail(errs.toString)
@@ -97,7 +97,7 @@ struct Tuple2(fst, snd)
     }
   }
 
-  def testTotality(te: TypeEnv, pats: List[Pattern[(PackageName, ConstructorName), Type]], tight: Boolean = false) = {
+  def testTotality(te: TypeEnv[Any], pats: List[Pattern[(PackageName, ConstructorName), Type]], tight: Boolean = false) = {
     TotalityCheck(te).missingBranches(pats) match {
       case Right(res) =>
         val asStr = res.map(showPat)

@@ -37,7 +37,7 @@ object Package {
   type PackageF2[A, B] = PackageF[A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = FixPackage[NonEmptyList[Referant], Referant, Program[TypedExpr[Declaration], Statement]]
+  type Inferred = FixPackage[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypedExpr[Declaration], Statement]]
 
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
@@ -49,9 +49,9 @@ object Package {
   /** add a Fix wrapper
    *  it is combersome to write the correct type here
    */
-  def asInferred(p: PackageF[NonEmptyList[Referant], Referant, Program[TypedExpr[Declaration], Statement]]): Inferred =
+  def asInferred(p: PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypedExpr[Declaration], Statement]]): Inferred =
     Fix[Lambda[a =>
-      Package[a, NonEmptyList[Referant], Referant, Program[TypedExpr[Declaration], Statement]]]](p)
+      Package[a, NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypedExpr[Declaration], Statement]]]](p)
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
@@ -89,9 +89,9 @@ object Package {
    */
   def inferBody(
     p: PackageName,
-    imps: List[Import[Package.Inferred, NonEmptyList[Referant]]],
+    imps: List[Import[Package.Inferred, NonEmptyList[Referant[Unit]]]],
     stmt: Statement):
-      ValidatedNel[PackageError, (TypeEnv, List[(String, TypedExpr[Declaration])])] = {
+      ValidatedNel[PackageError, (TypeEnv[Unit], List[(String, TypedExpr[Declaration])])] = {
 
     val importedTypes: Map[String, (PackageName, String)] =
       Referant.importedTypes(imps)
@@ -137,7 +137,7 @@ object Package {
      * Since the packages already form a DAG we know
      * that we don't need to check across package boundaries
      */
-    def typeDepends(dt: DefinedType): List[DefinedType] =
+    def typeDepends(dt: DefinedType[Unit]): List[DefinedType[Unit]] =
       (for {
         cons <- dt.constructors
         Type.Const.Defined(p, n) <- cons._2.flatMap { case (_, t) => Type.constantsOf(t) }

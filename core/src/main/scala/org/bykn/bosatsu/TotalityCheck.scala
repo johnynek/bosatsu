@@ -14,16 +14,16 @@ object TotalityCheck {
   type ListPatElem = Either[Option[String], Pattern[Cons, Type]]
 
   sealed abstract class Error
-  case class ArityMismatch(cons: Cons, in: Pattern[Cons, Type], env: TypeEnv, expected: Int, found: Int) extends Error
-  case class UnknownConstructor(cons: Cons, in: Pattern[Cons, Type], env: TypeEnv) extends Error
-  case class MultipleSplicesInPattern(pat: ListPat[Cons, Type], env: TypeEnv) extends Error
+  case class ArityMismatch(cons: Cons, in: Pattern[Cons, Type], env: TypeEnv[Any], expected: Int, found: Int) extends Error
+  case class UnknownConstructor(cons: Cons, in: Pattern[Cons, Type], env: TypeEnv[Any]) extends Error
+  case class MultipleSplicesInPattern(pat: ListPat[Cons, Type], env: TypeEnv[Any]) extends Error
 
   sealed abstract class ExprError[A]
   case class NonTotalMatch[A](matchExpr: Expr.Match[A], missing: NonEmptyList[Pattern[Cons, Type]]) extends ExprError[A]
   case class InvalidPattern[A](matchExpr: Expr.Match[A], err: Error) extends ExprError[A]
 }
 
-case class TotalityCheck(inEnv: TypeEnv) {
+case class TotalityCheck(inEnv: TypeEnv[Any]) {
   import TotalityCheck._
 
   /**

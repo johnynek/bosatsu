@@ -5,7 +5,7 @@ import cats.data.NonEmptyList
 
 import org.bykn.bosatsu.rankn.{Type, TypeEnv}
 
-case class Program[D, S](types: TypeEnv, lets: List[(String, D)], from: S) {
+case class Program[D, S](types: TypeEnv[Unit], lets: List[(String, D)], from: S) {
   private[this] lazy val letMap: Map[String, D] = lets.toMap
 
   def getLet(name: String): Option[D] = letMap.get(name)
@@ -55,8 +55,8 @@ object Program {
       d.toExpr(nameToType, nameToCons)
 
     def defToT(
-      types: TypeEnv,
-      d: TypeDefinitionStatement): TypeEnv =
+      types: TypeEnv[Unit],
+      d: TypeDefinitionStatement): TypeEnv[Unit] =
       types.addDefinedType(d.toDefinition(pn0, nameToType))
 
     val allNames = stmt.toStream.flatMap {
@@ -155,7 +155,7 @@ object Program {
           val p = loop(rest)
           p.copy(types = defToT(p.types, x), from = x)
         case EndOfFile =>
-          Program(TypeEnv.empty, Nil, EndOfFile)
+          Program(TypeEnv.empty: TypeEnv[Unit], Nil, EndOfFile)
       }
 
     loop(stmt)
