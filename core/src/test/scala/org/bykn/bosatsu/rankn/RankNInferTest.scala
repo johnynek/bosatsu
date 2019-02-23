@@ -600,6 +600,9 @@ struct Foo
 
 (idFoo: Foo -> Foo) = id
 
+(id2: Foo -> Foo) = \x -> x
+(idGen2: (forall a. a) -> Foo) = id2
+
 main = Foo
 """, "Foo")
 
@@ -616,17 +619,46 @@ main = Foo
     parseProgram("""#
 enum Foo: Bar, Baz
 
+(bar1: forall a. (Foo -> a) -> a) = \fn -> fn(Bar)
+(baz1: forall a. (Foo -> a) -> a) = \fn -> fn(Baz)
+(bar2: forall a. (a -> Foo) -> Foo) = \fn -> Bar
+(baz2: forall a. (a -> Foo) -> Foo) = \fn -> Baz
+(bar3: ((forall a. a) -> Foo) -> Foo) = \fn -> Bar
+(baz3: ((forall a. a) -> Foo) -> Foo) = \fn -> Baz
+
+(bar41: (Foo -> Foo) -> Foo) = bar1
+(bar42: (Foo -> Foo) -> Foo) = bar2
+(baz41: (Foo -> Foo) -> Foo) = baz1
+(baz42: (Foo -> Foo) -> Foo) = baz2
+# since (a -> b) -> b is covariant in a, we can substitute bar3 and baz3
+(baz43: (Foo -> Foo) -> Foo) = baz3
+(baz43: (Foo -> Foo) -> Foo) = baz3
+
+(producer: Foo -> (forall a. (Foo -> a) -> a)) = \x -> bar1
+# in the covariant position, we can substitute
+(producer1: Foo -> ((Foo -> Foo) -> Foo)) = producer
+
+main = Bar
+""", "Foo")
+    parseProgram("""#
+enum Foo: Bar, Baz
+
 struct Cont(cont: (b -> a) -> a)
 
 (bar1: forall a. Cont[Foo, a]) = Cont(\fn -> fn(Bar))
 (baz1: forall a. Cont[Foo, a]) = Cont(\fn -> fn(Baz))
 (bar2: forall a. Cont[a, Foo]) = Cont(\fn -> Bar)
 (baz2: forall a. Cont[a, Foo]) = Cont(\fn -> Baz)
+(bar3: Cont[forall a. a, Foo]) = Cont(\fn -> Bar)
+(baz3: Cont[forall a. a, Foo]) = Cont(\fn -> Baz)
 
-(bar31: Cont[Foo, Foo]) = bar1
-(bar32: Cont[Foo, Foo]) = bar2
-(baz31: Cont[Foo, Foo]) = baz1
-(baz32: Cont[Foo, Foo]) = baz2
+(bar41: Cont[Foo, Foo]) = bar1
+(bar42: Cont[Foo, Foo]) = bar2
+(baz41: Cont[Foo, Foo]) = baz1
+(baz42: Cont[Foo, Foo]) = baz2
+# Cont is covariant in a, this should be allowed
+# (baz43: Cont[Foo, Foo]) = baz3
+# (baz43: Cont[Foo, Foo]) = baz3
 
 (producer: Foo -> (forall a. Cont[Foo, a])) = \x -> bar1
 # in the covariant position, we can substitute
