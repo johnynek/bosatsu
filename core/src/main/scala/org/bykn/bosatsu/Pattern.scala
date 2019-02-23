@@ -27,6 +27,10 @@ sealed abstract class Pattern[+N, +T] {
       case Pattern.Union(h, t) => Pattern.Union(h.mapType(fn), t.map(_.mapType(fn)))
     }
 
+  /**
+   * List all the names that are bound in Vars inside this pattern
+   * in the left to right order they are encountered, without any duplication
+   */
   def names: List[String] = {
     @annotation.tailrec
     def loop(stack: List[Pattern[N, T]], seen: Set[String], acc: List[String]): List[String] =
@@ -56,22 +60,26 @@ sealed abstract class Pattern[+N, +T] {
   def unbind: Pattern[N, T] =
     filterVars(Set.empty)
 
-  def filterVars(set: Set[String]): Pattern[N, T] =
+  /**
+   * replace all Var names with Wildcard that are not
+   * satifying the keep predicate
+   */
+  def filterVars(keep: String => Boolean): Pattern[N, T] =
     this match {
       case Pattern.WildCard | Pattern.Literal(_) => this
       case p@Pattern.Var(v) =>
-        if (set(v)) p else Pattern.WildCard
+        if (keep(v)) p else Pattern.WildCard
       case Pattern.ListPat(items) =>
         Pattern.ListPat(items.map {
-          case Left(opt) => Left(opt.filter(set))
-          case Right(p) => Right(p.filterVars(set))
+          case Left(opt) => Left(opt.filter(keep))
+          case Right(p) => Right(p.filterVars(keep))
         })
       case Pattern.Annotation(p, tpe) =>
-        Pattern.Annotation(p.filterVars(set), tpe)
+        Pattern.Annotation(p.filterVars(keep), tpe)
       case Pattern.PositionalStruct(name, params) =>
-        Pattern.PositionalStruct(name, params.map(_.filterVars(set)))
+        Pattern.PositionalStruct(name, params.map(_.filterVars(keep)))
       case Pattern.Union(h, t) =>
-        Pattern.Union(h.filterVars(set), t.map(_.filterVars(set)))
+        Pattern.Union(h.filterVars(keep), t.map(_.filterVars(keep)))
     }
 }
 

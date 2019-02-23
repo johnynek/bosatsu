@@ -68,14 +68,14 @@ object Program {
     // it is mutable, but in a limited scope
     val anonNames = rankn.Type.allBinders.iterator.map(_.name).filterNot(allNames)
 
-    def bindings(b: Pattern[(PackageName, ConstructorName), Type], decl: Expr[Declaration]): List[(String, Expr[Declaration])] =
+    def bindings(b: Pattern[(PackageName, ConstructorName), Type], decl: Expr[Declaration]): NonEmptyList[(String, Expr[Declaration])] =
       b match {
-        case Pattern.Var(nm) => (nm, decl) :: Nil
+        case Pattern.Var(nm) => NonEmptyList((nm, decl), Nil)
         case Pattern.Annotation(p, tpe) =>
           // we can just move the annotation to the expr:
           bindings(p, Expr.Annotation(decl, tpe, decl.tag))
         case complex =>
-          val (prefix, left) = decl match {
+          val (prefix, rightHandSide) = decl match {
             case v@Expr.Var(_, _, _) =>
               // no need to make a new var to point to a var
               (Nil, v)
@@ -86,11 +86,29 @@ object Program {
           }
 
           val tail = complex.names.map { nm =>
-            val pat = complex.filterVars(Set(nm))
-            (nm, Expr.Match(left,
+            val pat = complex.filterVars(_ == nm)
+            (nm, Expr.Match(rightHandSide,
               NonEmptyList.of((pat, Expr.Var(None, nm, decl.tag))), decl.tag))
           }
-          prefix ::: tail
+
+          def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
+            ls match {
+              case Nil => tail
+              case h :: t => NonEmptyList(h, t ::: tail.toList)
+            }
+
+          NonEmptyList.fromList(tail) match {
+            case Some(netail) =>
+              concat(prefix, netail)
+            case None =>
+              // there are no names to bind here, but we still need to typecheck the match
+              val dummy = anonNames.next()
+              val pat = complex.unbind
+              val shapeMatch = (dummy,
+                Expr.Match(rightHandSide,
+                  NonEmptyList.of((pat, Expr.Literal(Lit.fromInt(0), decl.tag))), decl.tag))
+              concat(prefix, NonEmptyList(shapeMatch, Nil))
+            }
       }
 
     def loop(s: Statement): Program[Expr[Declaration], Statement] =
@@ -98,7 +116,7 @@ object Program {
         case Bind(BindingStatement(bound, decl, Padding(_, rest))) =>
           val Program(te, binds, _) = loop(rest)
           val pat = Declaration.unTuplePattern(bound, nameToType, nameToCons)
-          Program(te, bindings(pat, declToE(decl)) ::: binds, stmt)
+          Program(te, bindings(pat, declToE(decl)).toList ::: binds, stmt)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
         case Def(defstmt@DefStatement(_, _, _, _)) =>

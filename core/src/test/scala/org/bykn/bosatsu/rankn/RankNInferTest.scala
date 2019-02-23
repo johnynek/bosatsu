@@ -594,4 +594,24 @@ main = match x:
   y: y
 """)
   }
+
+  test("badly shaped top-level match fails to compile") {
+    parseProgramIllTyped("""#
+
+struct Foo(x)
+x = 1
+
+Foo(_) = x
+main = 1
+""")
+
+    parseProgramIllTyped("""#
+
+enum LR: L(a), R(b)
+
+# this isn't legit: it is a non-total match
+L(_) = L(1)
+main = 1
+""")
+  }
 }
