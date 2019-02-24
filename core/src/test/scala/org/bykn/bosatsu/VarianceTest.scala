@@ -27,9 +27,21 @@ class VarianceTest extends FunSuite {
     }
   }
 
-  test("variance is associative") {
+  test("variance combine is associative") {
     forAll { (v1: Variance, v2: Variance, v3: Variance) =>
       assert(V.combine(v1, V.combine(v2, v3)) == V.combine(V.combine(v1, v2), v3))
+    }
+  }
+
+  test("variance * is associative") {
+    forAll { (v1: Variance, v2: Variance, v3: Variance) =>
+      assert(((v1 * v2) * v3) == (v1 * (v2 * v3)))
+    }
+  }
+
+  test("combine matches combineAll") {
+    forAll { (vs: List[Variance]) =>
+      assert(V.combineAllOption(vs) == vs.reduceOption(_ + _))
     }
   }
 
