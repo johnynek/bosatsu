@@ -33,6 +33,43 @@ class VarianceTest extends FunSuite {
     }
   }
 
+  test("variance is distributive") {
+    forAll { (v1: Variance, v2: Variance, v3: Variance) =>
+      val left =  v1 * (v2 + v3)
+      val right = (v1 * v2) + (v1 * v3)
+      assert(left == right, s"$left != $right")
+    }
+
+    // previous failures:
+    {
+      val v1 = Variance.in
+      val v2 = Variance.phantom
+      val v3 = Variance.co
+
+      val left =  v1 * (v2 + v3)
+      val right = (v1 * v2) + (v1 * v3)
+      assert(left == right, s"$left != $right")
+    }
+  }
+
+  test("negate is the same as muliplying by contra") {
+    forAll { (v1: Variance) =>
+      assert(-v1 == (Variance.contra * v1))
+    }
+  }
+
+  test("double negation is identity") {
+    forAll { (v1: Variance) =>
+      assert(-(-v1) == v1)
+    }
+  }
+
+  test("times is commutative") {
+    forAll { (v1: Variance, v2: Variance) =>
+      assert((v1 * v2) == (v2 * v1))
+    }
+  }
+
   test("variance is idempotent") {
     forAll { (v1: Variance) =>
       assert(V.combine(v1, v1) == v1)
@@ -56,10 +93,10 @@ class VarianceTest extends FunSuite {
 
   test("negate combine gives either Phantom or Invariant") {
     forAll { (v1: Variance) =>
-      if (v1 == Variance.Phantom) assert(v1.negate == v1)
+      if (v1 == Variance.Phantom) assert(-v1 == v1)
       else {
-        assert(V.combine(v1.negate, v1) == Variance.Invariant)
-        assert(V.combine(v1, v1.negate) == Variance.Invariant)
+        assert(V.combine(-v1, v1) == Variance.Invariant)
+        assert(V.combine(v1, -v1) == Variance.Invariant)
       }
     }
   }
@@ -111,5 +148,26 @@ class VarianceTest extends FunSuite {
     }
 
     assert(phantomv == Some(Variance.phantom))
+
+    val f2v = Variance.varianceOf[Id](x, Type.Fun(Type.Fun(Type.TyVar(x), Type.TyVar(y)), Type.TyVar(y))) {
+      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
+      case _ => None
+    }
+
+    assert(f2v == Some(Variance.co))
+
+    val tup = Type.Const.predef("Tup")
+    val ftv = Variance.varianceOf[Id](x,
+        Type.TyApply(
+          Type.TyApply(
+            Type.TyConst(tup),
+              Type.Fun(Type.TyVar(x), Type.TyVar(y))),
+              Type.TyVar(x))) {
+      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
+      case t if t == tup => Some(Stream(Variance.co, Variance.co))
+      case _ => None
+    }
+
+    assert(ftv == Some(Variance.in))
   }
 }
