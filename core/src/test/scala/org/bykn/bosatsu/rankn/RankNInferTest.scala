@@ -552,6 +552,214 @@ main = fst
 """, "forall a. Foo[a]")
   }
 
+
+  test("substition works correctly") {
+
+    parseProgram("""#
+(id: forall a. a -> a) = \x -> x
+
+struct Foo
+
+def apply(fn, arg: Foo): fn(arg)
+
+main = apply(id, Foo)
+""", "Foo")
+
+    parseProgram("""#
+(id: forall a. a -> a) = \x -> x
+
+struct Foo
+
+(idFoo: Foo -> Foo) = id
+
+def apply(fn, arg: Foo): fn(arg)
+
+main = apply(id, Foo)
+""", "Foo")
+
+    parseProgram("""#
+
+struct FnWrapper(fn: a -> a)
+
+(id: forall a. FnWrapper[a]) = FnWrapper(\x -> x)
+
+struct Foo
+
+(idFoo: FnWrapper[Foo]) = id
+
+def apply(fn, arg: Foo):
+  FnWrapper(f) = fn
+  f(arg)
+
+main = apply(id, Foo)
+""", "Foo")
+
+    parseProgram("""#
+struct Foo
+(id: forall a. a -> Foo) = \x -> Foo
+
+(idFoo: Foo -> Foo) = id
+
+(id2: Foo -> Foo) = \x -> x
+(idGen2: (forall a. a) -> Foo) = id2
+
+main = Foo
+""", "Foo")
+
+    parseProgramIllTyped("""#
+
+struct Foo
+(idFooRet: forall a. a -> Foo) = \x -> Foo
+
+(id: forall a. a -> a) = idFooRet
+
+main = Foo
+""")
+
+    parseProgram("""#
+enum Foo: Bar, Baz
+
+(bar1: forall a. (Foo -> a) -> a) = \fn -> fn(Bar)
+(baz1: forall a. (Foo -> a) -> a) = \fn -> fn(Baz)
+(bar2: forall a. (a -> Foo) -> Foo) = \fn -> Bar
+(baz2: forall a. (a -> Foo) -> Foo) = \fn -> Baz
+(bar3: ((forall a. a) -> Foo) -> Foo) = \fn -> Bar
+(baz3: ((forall a. a) -> Foo) -> Foo) = \fn -> Baz
+
+(bar41: (Foo -> Foo) -> Foo) = bar1
+(bar42: (Foo -> Foo) -> Foo) = bar2
+(baz41: (Foo -> Foo) -> Foo) = baz1
+(baz42: (Foo -> Foo) -> Foo) = baz2
+# since (a -> b) -> b is covariant in a, we can substitute bar3 and baz3
+(baz43: (Foo -> Foo) -> Foo) = baz3
+(baz43: (Foo -> Foo) -> Foo) = baz3
+
+(producer: Foo -> (forall a. (Foo -> a) -> a)) = \x -> bar1
+# in the covariant position, we can substitute
+(producer1: Foo -> ((Foo -> Foo) -> Foo)) = producer
+
+main = Bar
+""", "Foo")
+    parseProgram("""#
+enum Foo: Bar, Baz
+
+struct Cont(cont: (b -> a) -> a)
+
+(bar1: forall a. Cont[Foo, a]) = Cont(\fn -> fn(Bar))
+(baz1: forall a. Cont[Foo, a]) = Cont(\fn -> fn(Baz))
+(bar2: forall a. Cont[a, Foo]) = Cont(\fn -> Bar)
+(baz2: forall a. Cont[a, Foo]) = Cont(\fn -> Baz)
+(bar3: Cont[forall a. a, Foo]) = Cont(\fn -> Bar)
+(baz3: Cont[forall a. a, Foo]) = Cont(\fn -> Baz)
+
+(bar41: Cont[Foo, Foo]) = bar1
+(bar42: Cont[Foo, Foo]) = bar2
+(baz41: Cont[Foo, Foo]) = baz1
+(baz42: Cont[Foo, Foo]) = baz2
+# Cont is covariant in a, this should be allowed
+# (baz43: Cont[Foo, Foo]) = baz3
+# (baz43: Cont[Foo, Foo]) = baz3
+
+(producer: Foo -> (forall a. Cont[Foo, a])) = \x -> bar1
+# in the covariant position, we can substitute
+(producer1: Foo -> Cont[Foo, Foo]) = producer
+
+main = Bar
+""", "Foo")
+
+    parseProgramIllTyped("""#
+enum Foo: Bar, Baz
+
+struct Cont(cont: (b -> a) -> a)
+
+(consumer: (forall a. Cont[Foo, a]) -> Foo) = \x -> Bar
+# in the contravariant position, we cannot substitute
+(consumer1: Cont[Foo, Foo] -> Foo) = consumer
+
+main = Bar
+""")
+
+     parseProgram("""#
+struct Foo
+enum Opt: Nope, Yep(a)
+
+(producer: Foo -> forall a. Opt[a]) = \x -> Nope
+# in the covariant position, we can substitute
+(producer1: Foo -> Opt[Foo]) = producer
+(consumer: Opt[Foo]-> Foo) = \x -> Foo
+# in the contravariant position, we can generalize
+(consumer1: (forall a. Opt[a])  -> Foo) = consumer
+
+main = Foo
+""", "Foo")
+
+     parseProgramIllTyped("""#
+struct Foo
+enum Opt: Nope, Yep(a)
+
+(consumer: (forall a. Opt[a]) -> Foo) = \x -> Foo
+# in the contravariant position, we cannot substitute
+(consumer1: Opt[Foo] -> Foo) = consumer
+
+main = Foo
+""")
+     parseProgramIllTyped("""#
+struct Foo
+enum Opt: Nope, Yep(a)
+
+(producer: Foo -> Opt[Foo]) = \x -> Nope
+# the variance forbid generalizing in this direction
+(producer1: Foo -> forall a. Opt[a]) = producer
+
+main = Foo
+""")
+
+    parseProgram("""#
+struct Foo
+enum Opt: Nope, Yep(a)
+
+struct FnWrapper(fn: a -> b)
+
+# TODO: this should pass because FnWrapper is covariant, but skolemization ignores custom types
+#(producer: FnWrapper[Foo, forall a. Opt[a]]) = FnWrapper(\x -> Nope)
+# in the covariant position, we can substitute
+#(producer1: FnWrapper[Foo, Opt[Foo]]) = producer
+(consumer: FnWrapper[Opt[Foo], Foo]) = FnWrapper(\x -> Foo)
+# in the contravariant position, we can generalize
+# TODO: this should pass because FnWrapper is contravariant in the first type
+# but subsCheck only knows about contravariance in the Fn type
+#(consumer1: FnWrapper[forall a. Opt[a], Foo]) = consumer
+
+main = Foo
+""", "Foo")
+
+    parseProgramIllTyped("""#
+struct Foo
+enum Opt: Nope, Yep(a)
+
+struct FnWrapper(fn: a -> b)
+
+(consumer: FnWrapper[forall a. Opt[a], Foo]) = FnWrapper(\x -> Foo)
+# in the contravariant position, we cannot substitute
+(consumer1: FnWrapper[Opt[Foo], Foo]) = consumer
+
+main = Foo
+""")
+    parseProgramIllTyped("""#
+struct Foo
+enum Opt: Nope, Yep(a)
+
+struct FnWrapper(fn: a -> b)
+
+(producer: FnWrapper[Foo, Opt[Foo]]) = FnWrapper(\x -> Nope)
+# in the covariant position, we can't generalize
+(producer1: FnWrapper[Foo, forall a. Opt[a]]) = producer
+
+main = Foo
+""")
+
+  }
+
   test("def with type annotation and use the types inside") {
    parseProgram("""#
 
