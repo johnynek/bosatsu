@@ -99,7 +99,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
       case ExternalStruct(_, _, _) => Nil
     }
 
-  def toDefinition(pname: PackageName, nameToType: String => rankn.Type.Const): rankn.DefinedType = {
+  def toDefinition(pname: PackageName, nameToType: String => rankn.Type.Const): rankn.DefinedType[Unit] = {
     import rankn.Type
 
     def typeVar(i: Long): Type.TyVar =
@@ -158,7 +158,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
               params.map(_._2))
         rankn.DefinedType(pname,
           tname,
-          typeParams,
+          typeParams.map((_, ())),
           (ConstructorName(nm), params, consValueType) :: Nil)
       case Enum(nm, items, _) =>
         val deep = Functor[List].compose(Functor[(String, ?)]).compose(Functor[Option])
@@ -191,9 +191,9 @@ sealed abstract class TypeDefinitionStatement extends Statement {
               params.map(_._2))
           (c, params, consValueType)
         }
-        rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
+        rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
       case ExternalStruct(nm, targs, _) =>
-        rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => Type.Var.Bound(v) }, Nil)
+        rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), ()) }, Nil)
     }
   }
 }

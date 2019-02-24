@@ -2,11 +2,14 @@ package org.bykn.bosatsu.rankn
 
 import org.bykn.bosatsu.{ConstructorName, TypeName, PackageName, ParamName}
 
-case class DefinedType(
+case class DefinedType[+A](
   packageName: PackageName,
   name: TypeName,
-  typeParams: List[Type.Var.Bound],
+  annotatedTypeParams: List[(Type.Var.Bound, A)],
   constructors: List[(ConstructorName, List[(ParamName, Type)], Type)]) {
+
+  val typeParams: List[Type.Var.Bound] =
+    annotatedTypeParams.map(_._1)
 
   require(typeParams.distinct == typeParams, typeParams.toString)
 
@@ -25,7 +28,7 @@ case class DefinedType(
   def toTypeTyConst: Type.TyConst =
     Type.TyConst(toTypeConst)
 
-  def toOpaque: DefinedType =
+  def toOpaque: DefinedType[A] =
     copy(constructors = Nil)
 }
 

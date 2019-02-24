@@ -8,18 +8,18 @@ import rankn.TypeEnv
  * A Referant is something that can be exported or imported after resolving
  * Before resolving, imports and exports are just names.
  */
-sealed abstract class Referant
+sealed abstract class Referant[+A]
 object Referant {
-  case class Value(scheme: rankn.Type) extends Referant
-  case class DefinedT(dtype: rankn.DefinedType) extends Referant
-  case class Constructor(name: ConstructorName, dtype: rankn.DefinedType, params: List[(ParamName, rankn.Type)], consValue: rankn.Type) extends Referant
+  case class Value(scheme: rankn.Type) extends Referant[Nothing]
+  case class DefinedT[A](dtype: rankn.DefinedType[A]) extends Referant[A]
+  case class Constructor[A](name: ConstructorName, dtype: rankn.DefinedType[A], params: List[(ParamName, rankn.Type)], consValue: rankn.Type) extends Referant[A]
 
-  private def imported[A, B](imps: List[Import[A, NonEmptyList[Referant]]])(fn: PartialFunction[Referant, B]): Map[String, B] =
+  private def imported[A, B, C](imps: List[Import[A, NonEmptyList[Referant[C]]]])(fn: PartialFunction[Referant[C], B]): Map[String, B] =
     imps.foldLeft(Map.empty[String, B]) { (m0, imp) =>
       m0 ++ Import.locals(imp)(fn)
     }
 
-  def importedTypes[A](imps: List[Import[A, NonEmptyList[Referant]]]): Map[String, (PackageName, String)] =
+  def importedTypes[A, B](imps: List[Import[A, NonEmptyList[Referant[B]]]]): Map[String, (PackageName, String)] =
     imported(imps) {
       case Referant.DefinedT(dt) => (dt.packageName, dt.name.asString)
     }
@@ -27,14 +27,14 @@ object Referant {
   /**
    * These are all the imported items that may be used in a match
    */
-  def importedConsNames[A](imps: List[Import[A, NonEmptyList[Referant]]]): Map[String, (PackageName, ConstructorName)] =
+  def importedConsNames[A, B](imps: List[Import[A, NonEmptyList[Referant[B]]]]): Map[String, (PackageName, ConstructorName)] =
     imported(imps) {
       case Referant.Constructor(cn, dt, _, _) => (dt.packageName, cn)
     }
   /**
    * There are all the imported values, including the constructor functions
    */
-  def importedValues[A](imps: List[Import[A, NonEmptyList[Referant]]]): Map[String, rankn.Type] =
+  def importedValues[A, B](imps: List[Import[A, NonEmptyList[Referant[B]]]]): Map[String, rankn.Type] =
     imported(imps) {
       case Referant.Value(t) => t
       case Referant.Constructor(_, _, _, t) => t
@@ -42,7 +42,7 @@ object Referant {
   /**
    * Fully qualified original names
    */
-  def fullyQualifiedImportedValues[A](imps: List[Import[A, NonEmptyList[Referant]]])(nameOf: A => PackageName): Map[(PackageName, String), rankn.Type] =
+  def fullyQualifiedImportedValues[A, B](imps: List[Import[A, NonEmptyList[Referant[B]]]])(nameOf: A => PackageName): Map[(PackageName, String), rankn.Type] =
     imps.iterator.flatMap { item =>
       val pn = nameOf(item.pack)
       item.items.toList.iterator.flatMap { i =>
@@ -56,8 +56,10 @@ object Referant {
     }
     .toMap
 
-  def typeConstructors[A](imps: List[Import[A, NonEmptyList[Referant]]]): Map[(PackageName, ConstructorName), (List[rankn.Type.Var], List[rankn.Type], rankn.Type.Const.Defined)] = {
-    val refs: Iterator[Referant] = imps.iterator.flatMap(_.items.toList.iterator.flatMap(_.tag.toList))
+  def typeConstructors[A, B](
+    imps: List[Import[A, NonEmptyList[Referant[B]]]]):
+      Map[(PackageName, ConstructorName), (List[rankn.Type.Var], List[rankn.Type], rankn.Type.Const.Defined)] = {
+    val refs: Iterator[Referant[B]] = imps.iterator.flatMap(_.items.toList.iterator.flatMap(_.tag.toList))
     refs.collect { case Constructor(cn, dt, params, _) =>
       ((dt.packageName, cn), (dt.typeParams, params.map(_._2), dt.toTypeConst))
     }
@@ -67,8 +69,8 @@ object Referant {
   /**
    * Build the TypeEnv view of the given imports
    */
-  def importedTypeEnv[A](inps: List[Import[A, NonEmptyList[Referant]]])(nameOf: A => PackageName): TypeEnv =
-    inps.foldLeft(TypeEnv.empty) {
+  def importedTypeEnv[A, B](inps: List[Import[A, NonEmptyList[Referant[B]]]])(nameOf: A => PackageName): TypeEnv[B] =
+    inps.foldLeft((TypeEnv.empty): TypeEnv[B]) {
       case (te, imps) =>
         val pack = nameOf(imps.pack)
         imps.items.foldLeft(te) { (te, imp) =>

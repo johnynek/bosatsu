@@ -15,9 +15,9 @@ sealed abstract class ExportedName[+T] {
   * Given name, in the current type environment and fully typed lets
   * what does it correspond to?
   */
-  private def toReferants(
+  private def toReferants[A](
     letValue: Option[rankn.Type],
-    definedType: Option[rankn.DefinedType]): Option[NonEmptyList[ExportedName[Referant]]] =
+    definedType: Option[rankn.DefinedType[A]]): Option[NonEmptyList[ExportedName[Referant[A]]]] =
      this match {
        case ExportedName.Binding(n, _) =>
          letValue.map { tpe =>
@@ -74,15 +74,15 @@ object ExportedName {
    *   1. a type
    *   2. a value (e.g. a let or a constructor function)
    */
-  def buildExports[E](
+  def buildExports[E, V](
     nm: PackageName,
     exports: List[ExportedName[E]],
-    typeEnv: rankn.TypeEnv,
-    lets: List[(String, TypedExpr[Declaration])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant]]] = {
+    typeEnv: rankn.TypeEnv[V],
+    lets: List[(String, TypedExpr[Declaration])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
 
      val letMap = lets.toMap
 
-     def expName[A](ename: ExportedName[A]): Option[NonEmptyList[ExportedName[Referant]]] = {
+     def expName[A](ename: ExportedName[A]): Option[NonEmptyList[ExportedName[Referant[V]]]] = {
        import ename.name
        val letValue: Option[rankn.Type] =
          letMap.get(name)
@@ -98,7 +98,7 @@ object ExportedName {
        ename.toReferants(letValue, optDT)
      }
 
-     def expName1[A](ename: ExportedName[A]): ValidatedNel[ExportedName[A], List[ExportedName[Referant]]] =
+     def expName1[A](ename: ExportedName[A]): ValidatedNel[ExportedName[A], List[ExportedName[Referant[V]]]] =
        expName(ename) match {
          case None => Validated.invalid(NonEmptyList.of(ename))
          case Some(v) => Validated.valid(v.toList)

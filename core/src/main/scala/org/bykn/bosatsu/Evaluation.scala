@@ -302,7 +302,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       // this is calling apply on a map, but is safe because of type-checking
       val dt = packageForType.program.types.definedTypes((pn0, TypeName(tn)))
 
-      def definedForCons(pc: (PackageName, ConstructorName)): DefinedType =
+      def definedForCons(pc: (PackageName, ConstructorName)): DefinedType[Any] =
         pm.toMap(pc._1).program.types.constructors(pc)._2
 
       def bindEnv[E](arg: Value,
@@ -535,7 +535,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         }
     }
 
-  private def constructor(c: ConstructorName, dt: rankn.DefinedType): Eval[Value] = {
+  private def constructor(c: ConstructorName, dt: rankn.DefinedType[Any]): Eval[Value] = {
     val (enum, arity) = dt.constructors
       .toList
       .iterator
@@ -560,7 +560,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     Eval.later(loop(arity, Nil))
   }
 
-  private def definedToJson(a: Value, dt: rankn.DefinedType, rec: (Value, Type) => Option[Json]): Option[Json] = if (dt.packageName == Predef.packageName) {
+  private def definedToJson(a: Value, dt: rankn.DefinedType[Any], rec: (Value, Type) => Option[Json]): Option[Json] = if (dt.packageName == Predef.packageName) {
       (dt.name.asString, a) match {
         case ("Option", VOption(None)) => Some(Json.JNull)
         case ("Option", VOption(Some(v))) =>
@@ -614,8 +614,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   def toJson(a: Value, tpe: Type): Option[Json] =
     toType[Json](a, tpe)(definedToJson(_, _, _))
 
-  def toType[T](a: Value, t: Type)(fn: (Value, rankn.DefinedType, (Value, Type) => Option[T]) => Option[T]): Option[T] = {
-    def defined(pn: PackageName, t: TypeName): Option[rankn.DefinedType] =
+  def toType[T](a: Value, t: Type)(fn: (Value, rankn.DefinedType[Any], (Value, Type) => Option[T]) => Option[T]): Option[T] = {
+    def defined(pn: PackageName, t: TypeName): Option[rankn.DefinedType[Any]] =
       for {
         pack <- pm.toMap.get(pn)
         dts = pack.program.types.definedTypes
