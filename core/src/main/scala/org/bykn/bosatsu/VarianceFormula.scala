@@ -14,6 +14,8 @@ sealed abstract class VarianceFormula {
       case (Known(a), Known(b)) => Known(a * b)
       case (p@Known(Phantom), _) => p
       case (_, p@Known(Phantom)) => p
+      case (Known(Covariant), r) => r
+      case (l, Known(Covariant)) => l
       // at least one unknown, and they could be phantom:
       case (a, b) => Times(a, b)
     }

@@ -18,9 +18,8 @@ sealed abstract class Variance {
       case (_, Phantom) => Phantom
       case (Invariant, _) => Invariant
       case (_, Invariant) => Invariant
-      case (Covariant, Covariant) => Covariant
+      case (Covariant, r) => r
       case (Contravariant, Contravariant) => Covariant
-      case (Covariant, Contravariant) => Contravariant
       case (Contravariant, Covariant) => Contravariant
     }
 
