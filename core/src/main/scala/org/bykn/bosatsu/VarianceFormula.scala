@@ -57,19 +57,37 @@ object VarianceFormula {
 
   case class SolutionState(
     next: Identifier,
-    constraints: List[(VarianceFormula, VarianceFormula)],
+    constraints: Map[Unknown, VarianceFormula],
     solutions: Map[Unknown, Variance],
     unknowns: Set[Unknown]) {
 
+    /**
+     * After we have processed all the constraints, then all the remaining unknowns must be Phantom
+     */
+    def isSolved: Boolean = constraints.isEmpty
 
-    def isSolved: Boolean = unknowns.isEmpty
+    def isUnsolved(u: Unknown): Boolean = constraints.get(u).isDefined
 
-    // add constraints and update any knowns
-    def constrain(left: VarianceFormula, right: VarianceFormula): SolutionState = ???
+    /**
+     * constrain the left to equal the right
+     */
+    def constrain(left: Unknown, right: VarianceFormula): SolutionState = {
+      val newRight = constraints.get(left) match {
+        case Some(ex) => ex + right
+        case None => right
+      }
+      copy(constraints = constraints.updated(left, right))
+    }
+
+    /**
+     * remove any constraints we can solve for. This is the main meat
+     * of the algorithm
+     */
+    def simplify: SolutionState = ???
   }
 
   object SolutionState {
-    val empty: SolutionState = SolutionState(Identifier.init, Nil, Map.empty, Set.empty)
+    val empty: SolutionState = SolutionState(Identifier.init, Map.empty, Map.empty, Set.empty)
   }
 
   case class Known(toVariance: Variance) extends VarianceFormula
@@ -91,24 +109,51 @@ object VarianceFormula {
       State { case s@SolutionState(_, _, _, unknowns) => (s.copy(unknowns = unknowns + u), u) }
     }
 
-  def constrain(left: VarianceFormula, right: VarianceFormula): State[SolutionState, Unit] =
+  def constrain(left: Unknown, right: VarianceFormula): State[SolutionState, Unit] =
     State { ss: SolutionState => (ss.constrain(left, right), ()) }
 
   def solve(imports: TypeEnv[Variance], current: TypeEnv[Unit]): Either[List[DefinedType[Unit]], TypeEnv[Variance]] = {
     implicit val travTE: Traverse[TypeEnv] = ???
+    implicit val travDT: Traverse[DefinedType] = ???
 
     val initImport = imports.map(Known(_))
 
-    def constrain(dt: DefinedType[Unknown]): State[SolutionState, Unit] = ???
+    def constrain(unknowns: TypeEnv[Unknown], dt: DefinedType[Unknown]): State[SolutionState, Unit] = {
 
-    def finish(te: TypeEnv[Unknown], ss: SolutionState): Either[List[DefinedType[Unit]], TypeEnv[Variance]] = ???
+      val umap: Map[Type.Var.Bound, Unknown] = dt.annotatedTypeParams.toMap
+
+      // What are the constraints on bound with the given unknown, in the current dt
+      def constrainTpe(bound: Type.Var.Bound, u: Unknown, tpe: Type): State[SolutionState, Unit] = ???
+
+      dt.annotatedTypeParams.traverse_ { case (b, u) =>
+        dt.constructors.traverse_ { case (_, _, tpe) =>
+          constrainTpe(b, u, tpe)
+        }
+      }
+    }
+
+    // invariant, assume we have a solved ss
+    def finish(te: TypeEnv[Unknown], ss: SolutionState): Either[List[DefinedType[Unit]], TypeEnv[Variance]] =
+      if (ss.isSolved) Right {
+        te.map(ss.solutions.getOrElse(_, Phantom))
+      }
+      else
+        Left {
+          te.definedTypes
+            .iterator
+            .filter { case (_, dt) => dt.annotatedTypeParams.exists { case (_, u) => ss.isUnsolved(u) } }
+            .toList
+            .sortBy(_._1)
+            .map(_._2.as(()))
+        }
 
     val state = for {
       initCurrent <- current.traverse(_ => newUnknown)
       dts = initCurrent.definedTypes.toList.sortBy(_._1).map(_._2)
-      _ <- dts.traverse_(constrain)
+      _ <- dts.traverse_(constrain(initCurrent, _))
       ss <- State.get[SolutionState]
-    } yield finish(initCurrent, ss)
+      simplified = ss.simplify
+    } yield finish(initCurrent, simplified)
 
     state.run(SolutionState.empty).value._2
   }
