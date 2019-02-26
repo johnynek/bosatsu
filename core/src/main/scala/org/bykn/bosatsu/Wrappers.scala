@@ -12,6 +12,15 @@ object ConstructorName {
 case class ParamName(asString: String)
 case class TypeName(asString: String)
 
+object TypeName {
+
+  implicit val typeNameOrder: Order[TypeName] =
+    Order.by { tn: TypeName => tn.asString }
+
+  implicit val typeNameOrdering: Ordering[TypeName] =
+    Ordering.by { tn: TypeName => tn.asString }
+}
+
 case class Unique(id: Long) {
   def next: Unique =
     if (id == Long.MaxValue) sys.error("overflow")
