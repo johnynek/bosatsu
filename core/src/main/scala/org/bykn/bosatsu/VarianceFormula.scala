@@ -21,9 +21,11 @@ sealed abstract class VarianceFormula {
 
   def +(that: VarianceFormula): VarianceFormula =
     (this, that) match {
-      case (Known(a), Known(b)) => Known(a + b)
+      case (Known(Phantom), r) => r
+      case (l, Known(Phantom)) => l
       case (i@Known(Invariant), _) => i
       case (_, i@Known(Invariant)) => i
+      case (Known(a), Known(b)) => Known(a + b)
       // at least one unknown, and they could be invariant:
       case (a, b) => Plus(a, b)
     }
