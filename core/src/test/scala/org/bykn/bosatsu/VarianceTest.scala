@@ -133,53 +133,56 @@ class VarianceTest extends FunSuite {
     val x = Type.Var.Bound("x")
     val y = Type.Var.Bound("y")
 
-    val xv = Variance.varianceOf[Id](x, Type.Fun(Type.TyVar(x), Type.TyVar(y))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
+    import VarianceFormula.VarianceExtensions
+    import VarianceFormula.varianceOf
+
+    val xv = varianceOf[Id](x, Type.Fun(Type.TyVar(x), Type.TyVar(y))) {
+      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra.toF, Variance.co.toF))
       case _ => None
     }
 
-    assert(xv == Some(Variance.contra))
+    assert(xv == Some(Variance.contra.toF))
 
-    val yv = Variance.varianceOf[Id](y, Type.Fun(Type.TyVar(x), Type.TyVar(y))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
+    val yv = varianceOf[Id](y, Type.Fun(Type.TyVar(x), Type.TyVar(y))) {
+      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra.toF, Variance.co.toF))
       case _ => None
     }
 
-    assert(yv == Some(Variance.co))
+    assert(yv == Some(Variance.co.toF))
 
-    val xxv = Variance.varianceOf[Id](x, Type.Fun(Type.TyVar(x), Type.TyVar(x))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
+    val xxv = varianceOf[Id](x, Type.Fun(Type.TyVar(x), Type.TyVar(x))) {
+      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra.toF, Variance.co.toF))
       case _ => None
     }
 
-    assert(xxv == Some(Variance.in))
+    assert(xxv == Some(Variance.in.toF))
 
-    val phantomv = Variance.varianceOf[Id](y, Type.Fun(Type.TyVar(x), Type.TyVar(x))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
+    val phantomv = varianceOf[Id](y, Type.Fun(Type.TyVar(x), Type.TyVar(x))) {
+      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra.toF, Variance.co.toF))
       case _ => None
     }
 
-    assert(phantomv == Some(Variance.phantom))
+    assert(phantomv == Some(Variance.phantom.toF))
 
-    val f2v = Variance.varianceOf[Id](x, Type.Fun(Type.Fun(Type.TyVar(x), Type.TyVar(y)), Type.TyVar(y))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
+    val f2v = varianceOf[Id](x, Type.Fun(Type.Fun(Type.TyVar(x), Type.TyVar(y)), Type.TyVar(y))) {
+      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra.toF, Variance.co.toF))
       case _ => None
     }
 
-    assert(f2v == Some(Variance.co))
+    assert(f2v == Some(Variance.co.toF))
 
     val tup = Type.Const.predef("Tup")
-    val ftv = Variance.varianceOf[Id](x,
+    val ftv = varianceOf[Id](x,
         Type.TyApply(
           Type.TyApply(
             Type.TyConst(tup),
               Type.Fun(Type.TyVar(x), Type.TyVar(y))),
               Type.TyVar(x))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
-      case t if t == tup => Some(Stream(Variance.co, Variance.co))
+      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra.toF, Variance.co.toF))
+      case t if t == tup => Some(Stream(Variance.co.toF, Variance.co.toF))
       case _ => None
     }
 
-    assert(ftv == Some(Variance.in))
+    assert(ftv == Some(Variance.in.toF))
   }
 }

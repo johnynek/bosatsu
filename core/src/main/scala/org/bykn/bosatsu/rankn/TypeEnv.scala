@@ -2,6 +2,8 @@ package org.bykn.bosatsu.rankn
 
 import org.bykn.bosatsu.{ConstructorName, TypeName, PackageName, ParamName}
 
+// TODO, we should be using SortedMap for reproducibility
+
 case class TypeEnv[+A](
   values: Map[(PackageName, String), Type],
   constructors: Map[(PackageName, ConstructorName), (List[(ParamName, Type)], DefinedType[A], Type)],
