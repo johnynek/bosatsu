@@ -102,7 +102,7 @@ trait CodeGen {
     /*
      * build the constructors
      */
-    val definedTypes = unfix.program.types.definedTypes.values.toList.sortBy(_.name.asString)
+    val definedTypes = unfix.program.types.allDefinedTypes.toList.sortBy(_.name.asString)
 
     def mkConstructor(i: Int, cn: ConstructorName, args: List[(ParamName, Type)]): Output[Doc] = {
       val argC = args.size

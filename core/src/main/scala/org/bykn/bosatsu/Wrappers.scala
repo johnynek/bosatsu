@@ -7,6 +7,7 @@ case class ConstructorName(asString: String)
 
 object ConstructorName {
   implicit val orderCN: Order[ConstructorName] = Order[String].contramap[ConstructorName](_.asString)
+  implicit val orderingCN: Ordering[ConstructorName] = orderCN.toOrdering
 }
 
 case class ParamName(asString: String)

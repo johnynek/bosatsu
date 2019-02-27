@@ -141,11 +141,11 @@ object Package {
       (for {
         cons <- dt.constructors
         Type.Const.Defined(p, n) <- cons._2.flatMap { case (_, t) => Type.constantsOf(t) }
-        dt1 <- typeEnv.definedTypes.get((p, TypeName(n))).toList
+        dt1 <- typeEnv.getType(p, TypeName(n)).toList
       } yield dt1).distinct
 
     val circularCheck: ValidatedNel[PackageError, Unit] =
-      typeEnv.definedTypes.values.toList.traverse_ { dt =>
+      typeEnv.allDefinedTypes.traverse_ { dt =>
         Validated.fromEither(
           Impl.dagToTree(dt)(typeDepends _)
             .left
