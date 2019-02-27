@@ -101,4 +101,15 @@ class TypeTest extends FunSuite {
     val fb = Type.ForAll(NonEmptyList.of(ba), Type.Fun(Type.TyVar(ba), Type.IntType))
     assert(Type.freeTyVars(fb :: Nil).isEmpty)
   }
+
+  test("Type.freeTyVars is left to right for functions") {
+    val ba = Type.Var.Bound("a")
+    val bb = Type.Var.Bound("b")
+
+    val ta = Type.TyVar(ba)
+    val tb = Type.TyVar(bb)
+    val fb = Type.Fun(ta, tb)
+    assert(Type.freeTyVars(fb :: ta :: Nil) == List(ba, bb))
+    assert(Type.freeTyVars(fb :: tb :: Nil) == List(ba, bb))
+  }
 }
