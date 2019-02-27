@@ -79,8 +79,7 @@ object Referant {
             case (te1, Referant.Value(t)) =>
               te1.addExternalValue(pack, nm, t)
             case (te1, Referant.Constructor(n, dt, params, v)) =>
-              val nec = te1.constructors.updated((pack, n), (params, dt, v))
-              te1.copy(constructors = nec)
+              te1.addConstructor(pack, n, params, dt, v)
             case (te1, Referant.DefinedT(dt)) =>
               te1.addDefinedType(dt)
           }

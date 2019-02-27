@@ -89,11 +89,10 @@ object ExportedName {
            .map(_.getType)
            .orElse {
              // It could be an external or imported value in the TypeEnv
-             typeEnv.values.get((nm, name))
+             typeEnv.getValue(nm, name)
            }
        val optDT = typeEnv
-         .definedTypes
-         .get((nm, org.bykn.bosatsu.TypeName(name)))
+         .getType(nm, org.bykn.bosatsu.TypeName(name))
 
        ename.toReferants(letValue, optDT)
      }
