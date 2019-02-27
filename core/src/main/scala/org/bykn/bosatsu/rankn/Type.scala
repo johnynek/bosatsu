@@ -138,15 +138,9 @@ object Type {
         case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
       }
 
-    ts.foldLeft(List.empty[Type.Var]) { (acc, t) =>
-      go(t :: Nil, Set.empty, acc)
-    }
-    // reverse and distinct in one go
-    .foldLeft((Set.empty[Type.Var], List.empty[Type.Var])) {
-      case (res@(vset, vs), v) if vset(v) => res
-      case ((vset, vs), v) => (vset + v, v :: vs)
-    }
-    ._2
+    go(ts, Set.empty, Nil)
+      .reverse
+      .distinct
   }
 
   /**

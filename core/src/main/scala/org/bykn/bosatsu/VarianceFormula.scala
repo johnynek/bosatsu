@@ -1,7 +1,9 @@
 package org.bykn.bosatsu
 
+import cats.Traverse
 import cats.data.State
 import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
+import scala.collection.immutable.SortedMap
 
 import cats.implicits._
 
@@ -33,6 +35,14 @@ sealed abstract class VarianceFormula {
     this match {
       case Known(_) => true
       case _ => false
+    }
+
+  def substitute(uk: Unknown, v: Variance): VarianceFormula =
+    this match {
+      case k@Known(_) => k
+      case u0@Unknown(_) => if (u0 == uk) Known(v) else u0
+      case Times(left, right) => left.substitute(uk, v) * right.substitute(uk, v)
+      case Plus(left, right) => left.substitute(uk, v) + right.substitute(uk, v)
     }
 }
 
@@ -75,7 +85,7 @@ object VarianceFormula {
         case Some(ex) => ex + right
         case None => right
       }
-      copy(constraints = constraints.updated(left, right))
+      copy(constraints = constraints.updated(left, newRight))
     }
 
     /**
@@ -87,14 +97,29 @@ object VarianceFormula {
       def loop(ss: SolutionState): SolutionState = {
         // look for anything solved:
         val solved = ss.constraints.iterator.collect { case (u, Known(v)) => (u, v) }.toMap
-        if (solved.isEmpty) ss
+        if (solved.isEmpty) {
+          if (!ss.isSolved) {
+            val (solves, _, finish) =
+              iteration(ss.constraints.mapValues(_ => Phantom), ss.constraints, ss.constraints.size + 100)
+
+            if (finish) {
+              copy(constraints = Map.empty,
+                solutions = ss.solutions ++ solves,
+                unknowns = unknowns -- solves.keys)
+            }
+            else ss
+          }
+          else {
+            ss
+          }
+        }
         else {
           // we can substitute those known values in:
           val newConstraints = solved.foldLeft(ss.constraints) { case (cons, (u, v)) =>
             cons
               .iterator
               .collect {
-                case (u1, f) if u1 != u => (u1, substitute(f, u, v))
+                case (u1, f) if u1 != u => (u1, f.substitute(u, v))
               }
               .toMap
           }
@@ -105,6 +130,38 @@ object VarianceFormula {
             unknowns = ss.unknowns -- solved.keys)
 
           loop(nextSs)
+        }
+      }
+
+      // do power iteration starting from Phantom to finish
+      @annotation.tailrec
+      def iteration(m: Map[Unknown, Variance],
+        constraints: Map[Unknown, VarianceFormula], trials: Int): (Map[Unknown, Variance], Map[Unknown, VarianceFormula], Boolean) = {
+        if (trials <= 0) (m, constraints, false)
+        else {
+          var diff: Boolean = false
+
+          def evaluate(vf: VarianceFormula): Variance =
+            vf match {
+              case Known(v) => v
+              case u@Unknown(_) => m.getOrElse(u, Phantom)
+              case Times(left, right) => evaluate(left) * evaluate(right)
+              case Plus(left, right) => evaluate(left) + evaluate(right)
+            }
+
+
+          val nextM: Map[Unknown, Variance] =
+            m.iterator.map { case (u, v) =>
+              val nextV = constraints.get(u) match {
+                case None => Phantom
+                case Some(vf) => evaluate(vf)
+              }
+              diff = diff || (nextV != v)
+              (u, nextV)
+            }.toMap
+
+          if (diff) iteration(nextM, constraints, trials - 1)
+          else (nextM, constraints, true)
         }
       }
 
@@ -125,13 +182,6 @@ object VarianceFormula {
     require(!(left.isKnown && right.isKnown), s"both $left and $right cannot be known")
   }
 
-  def substitute(in: VarianceFormula, uk: Unknown, v: Variance): VarianceFormula =
-    in match {
-      case k@Known(_) => k
-      case u0@Unknown(_) => if (u0 == uk) Known(v) else u0
-      case Times(left, right) => substitute(left, uk, v) * substitute(right, uk, v)
-      case Plus(left, right) => substitute(left, uk, v) + substitute(right, uk, v)
-    }
 
   implicit class VarianceExtensions(val variance: Variance) extends AnyVal {
     def toF: Known = Known(variance)
@@ -143,13 +193,10 @@ object VarianceFormula {
       State { case s@SolutionState(_, _, _, unknowns) => (s.copy(unknowns = unknowns + u), u) }
     }
 
-  def constrain(left: Unknown, right: VarianceFormula): State[SolutionState, Unit] =
-    State { ss: SolutionState => (ss.constrain(left, right), ()) }
+  def solve(imports: TypeEnv[Variance], current: List[DefinedType[Unit]]): Either[List[DefinedType[Unit]], List[DefinedType[Variance]]] = {
+    val travListDT = Traverse[List].compose[DefinedType]
 
-  def solve(imports: TypeEnv[Variance], current: TypeEnv[Unit]): Either[List[DefinedType[Unit]], TypeEnv[Variance]] = {
-    val initImport = imports.map(Known(_))
-
-    def constrain(unknowns: TypeEnv[Unknown], dt: DefinedType[Unknown]): State[SolutionState, Unit] = {
+    def constrain(unknowns: SortedMap[(PackageName, TypeName), DefinedType[Unknown]], dt: DefinedType[Unknown]): State[SolutionState, Unit] = {
       import Type._
 
       val umap: Map[Var, Unknown] = dt.annotatedTypeParams.toMap
@@ -158,12 +205,12 @@ object VarianceFormula {
         tpe match {
           case FnType => Stream(Contravariant.toF, Covariant.toF)
           case TyConst(Const.Defined(p, t)) =>
-            val fullName = (p, TypeName(t))
+            val tn = TypeName(t)
             // TODO need error handling if we don't know about this type
             val thisDt: DefinedType[VarianceFormula] =
-              unknowns.definedTypes.get(fullName)
-                .orElse(imports.definedTypes.get(fullName).map(_.map(Known(_))))
-                .getOrElse(sys.error(s"unknown: $fullName in $dt"))
+              unknowns.get((p, tn))
+                .orElse(imports.getType(p, tn).map(_.map(Known(_))))
+                .getOrElse(sys.error(s"unknown: $p, $tn in $dt"))
 
             thisDt.annotatedTypeParams.map(_._2).toStream
           case TyApply(_, _) => sys.error(s"invariant violation: never called on TyApply: $tpe")
@@ -225,27 +272,26 @@ object VarianceFormula {
     }
 
     // invariant, assume we have a solved ss
-    def finish(te: TypeEnv[Unknown], ss: SolutionState): Either[List[DefinedType[Unit]], TypeEnv[Variance]] =
+    def finish(te: List[DefinedType[Unknown]], ss: SolutionState): Either[List[DefinedType[Unit]], List[DefinedType[Variance]]] =
       if (ss.isSolved) Right {
-        te.map(ss.solutions.getOrElse(_, Phantom))
+          travListDT.map(te)(ss.solutions.getOrElse(_, Phantom))
       }
       else
         Left {
-          te.definedTypes
-            .iterator
-            .filter { case (_, dt) => dt.annotatedTypeParams.exists { case (_, u) => ss.isUnsolved(u) } }
+          te.iterator
+            .filter { dt => dt.annotatedTypeParams.exists { case (_, u) => ss.isUnsolved(u) } }
             .toList
-            .sortBy(_._1)
-            .map(_._2.as(()))
+            .sortBy { dt => (dt.packageName, dt.name) }
+            .map(_.as(()))
         }
 
     val state = for {
-      initCurrent <- current.traverse(_ => newUnknown)
-      dts = initCurrent.definedTypes.toList.sortBy(_._1).map(_._2)
-      _ <- dts.traverse_(constrain(initCurrent, _))
+      dts <- travListDT.traverse(current)(_ => newUnknown)
+      dtsMap = DefinedType.listToMap(dts)
+      _ <- dts.traverse_(constrain(dtsMap, _))
       ss <- State.get[SolutionState]
       simplified = ss.simplify
-    } yield finish(initCurrent, simplified)
+    } yield finish(dts, simplified)
 
     state.run(SolutionState.empty).value._2
   }

@@ -128,8 +128,10 @@ sealed abstract class TypeDefinitionStatement extends Statement {
           nextVar.map { v => (ParamName(parname), v) }
       }
 
-    def existingVars[A](ps: List[(A, Option[Type])]): List[Type.TyVar] =
-      Type.freeTyVars(ps.flatMap(_._2)).map(Type.TyVar(_))
+    def existingVars[A](ps: List[(A, Option[Type])]): List[Type.TyVar] = {
+      val pt = ps.flatMap(_._2)
+      Type.freeTyVars(pt).map(Type.TyVar(_))
+    }
 
     def buildParams(args: List[(String, Option[Type])]): VarState[List[(ParamName, Type)]] =
       args.traverse(buildParam _)
