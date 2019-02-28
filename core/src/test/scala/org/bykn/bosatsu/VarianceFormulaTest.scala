@@ -55,5 +55,51 @@ enum Opt: None, Some(a)
     testVariance("""#
 enum Lst: E, NE(head: a, tail: Lst[a])
 """, Map("Lst" -> List(Variance.co)))
+
+    testVariance("""#
+enum EitherFn: LeftFn(fn: a -> b), RightV(a: a)
+""", Map("EitherFn" -> List(Variance.in, Variance.co)))
+  }
+
+  test("test cases with references to other types") {
+    testVariance("""#
+enum Opt: N, S(a)
+
+struct Pair(fst, snd)
+
+struct Lst(m: Opt[Pair[a, Lst[a]]])
+""", Map(
+  "Lst" -> List(Variance.co),
+  "Pair" -> List(Variance.co, Variance.co),
+  "Opt" -> List(Variance.co)))
+  }
+
+  test("test with higher-kinder vars (always invariant now)") {
+    testVariance("""#
+enum Lst: E, NE(head: a, tail: f[Lst[a]])
+""", Map("Lst" -> List(Variance.in, Variance.in)))
+
+    testVariance("""#
+enum Lst: E, NE(head: a, tail: Lst[f[a]])
+""", Map("Lst" -> List(Variance.in, Variance.in)))
+
+    testVariance("""#
+struct Foo(a: f[a])
+""", Map("Foo" -> List(Variance.in, Variance.in)))
+
+    testVariance("""#
+struct Leibniz(view: forall f. f[a] -> f[b])
+""", Map("Leibniz" -> List(Variance.in, Variance.in)))
+  }
+
+  test("test mutual recursion in data types") {
+    testVariance("""#
+enum Opt: N, S(as: NEList[a])
+
+struct NEList(head: a, tail: Opt[a])
+""", Map(
+  "NEList" -> List(Variance.co),
+  "Opt" -> List(Variance.co)))
+
   }
 }

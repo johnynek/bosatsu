@@ -55,7 +55,8 @@ object VarianceFormula {
 
   object Identifier {
     private case class IdImpl(toLong: Long) extends Identifier
-    def nextIdent: State[SolutionState, Identifier] =
+
+    val nextIdent: State[SolutionState, Identifier] =
       State { ss: SolutionState =>
         require(ss.next.toLong < Long.MaxValue, "we shouldn't run long enough to overflow Long")
         (ss.copy(next = IdImpl(ss.next.toLong + 1L)), ss.next)
@@ -199,7 +200,36 @@ object VarianceFormula {
     def constrain(unknowns: SortedMap[(PackageName, TypeName), DefinedType[Unknown]], dt: DefinedType[Unknown]): State[SolutionState, Unit] = {
       import Type._
 
+      /*
+       * We assume all higher kinded type variables are invariant, which is a worst
+       * case assumption, although also meeting with expectations for a generic type
+       */
+      val unit: State[SolutionState, Unit] = State.pure(())
+      def constrainHKinParam(tpe: Type, umap: Map[Var, Unknown]): State[SolutionState, Unit] =
+        tpe match {
+          case TyApply(TyVar(v), right) =>
+            val left = umap.get(v) match {
+              case Some(u) =>
+                State.modify[SolutionState](_.constrain(u, Invariant.toF))
+              case None => unit
+            }
+            left *> constrainHKinParam(right, umap)
+          case TyApply(left, right) =>
+            constrainHKinParam(left, umap) *> constrainHKinParam(right, umap)
+          case TyConst(_) => unit
+          case TyVar(_) => unit // not in the apply position
+          case TyMeta(_) => unit // probably should be an error
+          case ForAll(bound, in) =>
+            // remove these bound variables:
+            constrainHKinParam(in, umap -- bound.toList)
+        }
+
       val umap: Map[Var, Unknown] = dt.annotatedTypeParams.toMap
+      val hks = dt.constructors.traverse_ { case (_, ps, _) =>
+        ps.traverse_ { case (_, tpe) =>
+          constrainHKinParam(tpe, umap)
+        }
+      }
 
       def constructorVariance(tpe: Type): Stream[VarianceFormula] =
         tpe match {
@@ -261,7 +291,7 @@ object VarianceFormula {
         loop(Set.empty, tpe)
       }
 
-      dt.annotatedTypeParams.traverse_ { case (b, u) =>
+      hks *> dt.annotatedTypeParams.traverse_ { case (b, u) =>
         dt.constructors.traverse_ { case (_, argType, _) =>
           argType.traverse_ { case (_, tpe) =>
             val formula = constrainTpe(b, u, tpe)
