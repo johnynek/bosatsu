@@ -78,8 +78,7 @@ class TypeTest extends FunSuite {
 
   test("if Type.hasNoVars then freeVars is empty") {
     forAll(NTypeGen.genDepth03) { t =>
-      if (Type.hasNoVars(t)) assert(Type.freeTyVars(t :: Nil).isEmpty)
-      else ()
+      assert(Type.hasNoVars(t) == Type.freeTyVars(t :: Nil).isEmpty)
     }
   }
 
@@ -111,5 +110,16 @@ class TypeTest extends FunSuite {
     val fb = Type.Fun(ta, tb)
     assert(Type.freeTyVars(fb :: ta :: Nil) == List(ba, bb))
     assert(Type.freeTyVars(fb :: tb :: Nil) == List(ba, bb))
+  }
+
+  test("types are in order in freeTyVars") {
+    forAll(NTypeGen.genDepth03, NTypeGen.genDepth03) { (t1, t2) =>
+      val left = Type.freeTyVars(t1 :: Nil)
+      val right = Type.freeTyVars(t2 :: Nil)
+      val both = Type.freeTyVars(t1 :: t2 :: Nil)
+
+      assert((left.toSet | right.toSet) == both.toSet)
+      assert(left ::: (right.filterNot(left.toSet)) == both)
+    }
   }
 }

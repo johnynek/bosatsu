@@ -66,8 +66,9 @@ object Type {
   def hasNoVars(t: Type): Boolean =
     t match {
       case TyConst(c) => true
-      case TyVar(_) | TyMeta(_) | ForAll(_, _) => false
+      case TyVar(_) | TyMeta(_) => false
       case TyApply(on, arg) => hasNoVars(on) && hasNoVars(arg)
+      case fa@ForAll(_, _) => freeTyVars(fa :: Nil).isEmpty
     }
 
   @annotation.tailrec
