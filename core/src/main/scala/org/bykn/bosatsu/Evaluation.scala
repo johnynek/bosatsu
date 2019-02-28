@@ -299,11 +299,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
 
       val packageForType = pm.toMap(pn0)
-      // this is calling apply on a map, but is safe because of type-checking
-      val dt = packageForType.program.types.definedTypes((pn0, TypeName(tn)))
 
       def definedForCons(pc: (PackageName, ConstructorName)): DefinedType[Any] =
-        pm.toMap(pc._1).program.types.constructors(pc)._2
+        pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
 
       def bindEnv[E](arg: Value,
         branches: List[(Pattern[(PackageName, ConstructorName), Type], E)],
@@ -618,8 +616,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     def defined(pn: PackageName, t: TypeName): Option[rankn.DefinedType[Any]] =
       for {
         pack <- pm.toMap.get(pn)
-        dts = pack.program.types.definedTypes
-        dt <- dts.get((pn, t))
+        dt <- pack.program.types.getType(pn, t)
       } yield dt
 
     /*

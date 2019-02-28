@@ -18,7 +18,7 @@ object NameKind {
         // The type could be an import, so we need to check for the type
         // in the TypeEnv
         val pn = from.unfix.name
-        val tpe = prog.types.values((pn, n))
+        val tpe = prog.types.getValue(pn, n).get
         ExternalDef(pn, n, tpe)
     }
   }
@@ -32,8 +32,7 @@ object NameKind {
     def getConstructor: Option[NameKind] = {
       val cn = ConstructorName(item)
       prog.types
-        .constructors
-        .get((from.unfix.name, cn))
+        .getConstructor(from.unfix.name, cn)
         .map { case (params, dt, tpe) =>
           Constructor(cn, params, dt, tpe)
         }
@@ -51,7 +50,7 @@ object NameKind {
           // The type could be an import, so we need to check for the type
           // in the TypeEnv
           val pn = from.unfix.name
-          val tpe = prog.types.values((pn, n))
+          val tpe = prog.types.getValue(pn, n).get
           ExternalDef(pn, item, tpe)
       }
 

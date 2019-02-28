@@ -1,6 +1,8 @@
 package org.bykn.bosatsu.rankn
 
+import cats.{Applicative, Eval, Traverse}
 import org.bykn.bosatsu.{ConstructorName, TypeName, PackageName, ParamName}
+import cats.implicits._
 
 case class DefinedType[+A](
   packageName: PackageName,
@@ -52,4 +54,22 @@ object DefinedType {
     val resT = loop(fnParams)
     Type.forAll(tparams, resT)
   }
+
+  implicit val definedTypeTraverse: Traverse[DefinedType] =
+    new Traverse[DefinedType] {
+      val listTup = Traverse[List].compose[(Type.Var.Bound, ?)]
+      def traverse[F[_]: Applicative, A, B](da: DefinedType[A])(fn: A => F[B]): F[DefinedType[B]] =
+        listTup.traverse(da.annotatedTypeParams)(fn).map { ap =>
+          da.copy(annotatedTypeParams = ap)
+        }
+
+      def foldRight[A, B](fa: DefinedType[A], b: Eval[B])(fn: (A, Eval[B]) => Eval[B]): Eval[B] =
+        listTup.foldRight(fa.annotatedTypeParams, b)(fn)
+
+      def foldLeft[A, B](fa: DefinedType[A], b: B)(fn: (B, A) => B): B =
+        listTup.foldLeft(fa.annotatedTypeParams, b)(fn)
+
+      override def map[A, B](fa: DefinedType[A])(fn: A => B): DefinedType[B] =
+        fa.copy(annotatedTypeParams = listTup.map(fa.annotatedTypeParams)(fn))
+    }
 }
