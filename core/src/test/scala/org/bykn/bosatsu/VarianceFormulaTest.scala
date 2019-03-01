@@ -59,6 +59,19 @@ enum Lst: E, NE(head: a, tail: Lst[a])
     testVariance("""#
 enum EitherFn: LeftFn(fn: a -> b), RightV(a: a)
 """, Map("EitherFn" -> List(Variance.in, Variance.co)))
+
+    testVariance("""#
+struct Foo(produceB: forall a. a -> b)
+""", Map("Foo" -> List(Variance.co)))
+
+    testVariance("""#
+struct Foo(produceB: (forall a. a) -> b)
+""", Map("Foo" -> List(Variance.co)))
+
+    testVariance("""#
+struct F(fn: a -> b)
+struct Foo(produceB: (forall a. F[a])[b])
+""", Map("Foo" -> List(Variance.co)))
   }
 
   test("test cases with references to other types") {

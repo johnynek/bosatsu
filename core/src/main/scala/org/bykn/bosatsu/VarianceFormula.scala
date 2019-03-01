@@ -243,14 +243,15 @@ object VarianceFormula {
                 .getOrElse(sys.error(s"unknown: $p, $tn in $dt"))
 
             thisDt.annotatedTypeParams.map(_._2).toStream
-          case TyApply(_, _) => sys.error(s"invariant violation: never called on TyApply: $tpe")
+          case TyApply(tpe, _) =>
+            constructorVariance(tpe).tail
           case TyVar(_) =>
             // TODO: we assume the worst case: this is invariant, is this safe?
             Stream.continually(Invariant.toF)
           case TyMeta(_) =>
             // TODO: error here:
             Stream.continually(Invariant.toF)
-          case ForAll(_, _) => ???
+          case ForAll(_, tpe) => constructorVariance(tpe)
         }
 
       // What are the constraints on bound with the given unknown, in the current dt
