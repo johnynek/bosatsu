@@ -2,6 +2,8 @@ package org.bykn.bosatsu.rankn
 
 import cats.{Applicative, Eval, Traverse}
 import org.bykn.bosatsu.{ConstructorName, TypeName, PackageName, ParamName}
+import scala.collection.immutable.SortedMap
+
 import cats.implicits._
 
 case class DefinedType[+A](
@@ -54,6 +56,9 @@ object DefinedType {
     val resT = loop(fnParams)
     Type.forAll(tparams, resT)
   }
+
+  def listToMap[A](dts: List[DefinedType[A]]): SortedMap[(PackageName, TypeName), DefinedType[A]] =
+    SortedMap(dts.map { dt => (dt.packageName, dt.name) -> dt }: _*)
 
   implicit val definedTypeTraverse: Traverse[DefinedType] =
     new Traverse[DefinedType] {

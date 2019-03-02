@@ -46,19 +46,7 @@ class TotalityTest extends FunSuite {
     showPat(pat.unbind)
 
   def typeEnvOf(str: String): TypeEnv[Unit] =
-    Statement.parser.parse(str) match {
-      case Parsed.Success(stmt, idx) =>
-        assert(idx == str.length)
-        val prog = Program.fromStatement(
-          Predef.packageName,
-          tpeFn,
-          consFn,
-          stmt)
-        prog.types
-      case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
-        sys.error("could not produce TypeEnv")
-    }
+    TestUtils.typeEnvOf(Predef.packageName, str)
 
   val predefTE = typeEnvOf("""#
 struct Unit

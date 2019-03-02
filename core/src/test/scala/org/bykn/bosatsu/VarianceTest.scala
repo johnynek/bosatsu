@@ -1,7 +1,5 @@
 package org.bykn.bosatsu
 
-import cats.Id
-import org.bykn.bosatsu.rankn.Type
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.prop.PropertyChecks.forAll
 import org.scalatest.FunSuite
@@ -127,59 +125,5 @@ class VarianceTest extends FunSuite {
     forAll { (v1: Variance) =>
       assert(results(V.combine(v1, Variance.Contravariant)))
     }
-  }
-
-  test("some example variance inferences") {
-    val x = Type.Var.Bound("x")
-    val y = Type.Var.Bound("y")
-
-    val xv = Variance.varianceOf[Id](x, Type.Fun(Type.TyVar(x), Type.TyVar(y))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
-      case _ => None
-    }
-
-    assert(xv == Some(Variance.contra))
-
-    val yv = Variance.varianceOf[Id](y, Type.Fun(Type.TyVar(x), Type.TyVar(y))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
-      case _ => None
-    }
-
-    assert(yv == Some(Variance.co))
-
-    val xxv = Variance.varianceOf[Id](x, Type.Fun(Type.TyVar(x), Type.TyVar(x))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
-      case _ => None
-    }
-
-    assert(xxv == Some(Variance.in))
-
-    val phantomv = Variance.varianceOf[Id](y, Type.Fun(Type.TyVar(x), Type.TyVar(x))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
-      case _ => None
-    }
-
-    assert(phantomv == Some(Variance.phantom))
-
-    val f2v = Variance.varianceOf[Id](x, Type.Fun(Type.Fun(Type.TyVar(x), Type.TyVar(y)), Type.TyVar(y))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
-      case _ => None
-    }
-
-    assert(f2v == Some(Variance.co))
-
-    val tup = Type.Const.predef("Tup")
-    val ftv = Variance.varianceOf[Id](x,
-        Type.TyApply(
-          Type.TyApply(
-            Type.TyConst(tup),
-              Type.Fun(Type.TyVar(x), Type.TyVar(y))),
-              Type.TyVar(x))) {
-      case fn if Type.TyConst(fn) == Type.FnType => Some(Stream(Variance.contra, Variance.co))
-      case t if t == tup => Some(Stream(Variance.co, Variance.co))
-      case _ => None
-    }
-
-    assert(ftv == Some(Variance.in))
   }
 }

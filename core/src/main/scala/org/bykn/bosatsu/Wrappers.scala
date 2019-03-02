@@ -14,7 +14,6 @@ case class ParamName(asString: String)
 case class TypeName(asString: String)
 
 object TypeName {
-
   implicit val typeNameOrder: Order[TypeName] =
     Order.by { tn: TypeName => tn.asString }
 

@@ -96,4 +96,7 @@ object TypeEnv {
       SortedMap.empty[(PackageName, String), Type],
       SortedMap.empty[(PackageName, ConstructorName), (List[(ParamName, Type)], DefinedType[Nothing], Type)],
       SortedMap.empty[(PackageName, TypeName), DefinedType[Nothing]])
+
+  def fromDefinitions[A](defs: List[DefinedType[A]]): TypeEnv[A] =
+    defs.foldLeft(empty: TypeEnv[A])(_.addDefinedType(_))
 }
