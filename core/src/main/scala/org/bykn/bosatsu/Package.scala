@@ -132,26 +132,16 @@ object Package {
         }, // name to cons
         stmt)
 
+    val importedTypeEnv = Referant.importedTypeEnv(imps)(_.unfix.name)
+
     /*
      * Check that the types defined here are not circular.
-     * Since the packages already form a DAG we know
-     * that we don't need to check across package boundaries
      */
-    def typeDepends(dt: DefinedType[Unit]): List[DefinedType[Unit]] =
-      (for {
-        cons <- dt.constructors
-        Type.Const.Defined(p, n) <- cons._2.flatMap { case (_, t) => Type.constantsOf(t) }
-        dt1 <- typeEnv.getType(p, TypeName(n)).toList
-      } yield dt1).distinct
-
     val circularCheck: ValidatedNel[PackageError, Unit] =
-      typeEnv.allDefinedTypes.traverse_ { dt =>
-        Validated.fromEither(
-          Impl.dagToTree(dt)(typeDepends _)
-            .left
-            .map(PackageError.CircularType(p, _)))
-            .leftMap(NonEmptyList.of(_))
-      }
+      TypeRecursionCheck.check(importedTypeEnv, typeEnv.allDefinedTypes)
+        .leftMap { badPaths =>
+          badPaths.map(PackageError.CircularType(p, _))
+        }
 
     /*
     * These are values, including all constructor functions
@@ -168,7 +158,7 @@ object Package {
           importedValues.iterator.map { case (n, t) => ((None, n), t) }
         ).toMap
 
-    val fullTypeEnv = Referant.importedTypeEnv(imps)(_.unfix.name) ++ typeEnv
+    val fullTypeEnv = importedTypeEnv ++ typeEnv
     val totalityCheck =
       lets
         .traverse { case (_, expr) => TotalityCheck(fullTypeEnv).checkExpr(expr) }
@@ -185,30 +175,6 @@ object Package {
     val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
 
     circularCheck *> totalityCheck *> inference
-  }
-
-  private object Impl {
-    sealed trait Tree[+A]
-    object Tree {
-      case object Empty extends Tree[Nothing]
-      case class Node[A](item: A, children: List[Tree[A]]) extends Tree[A]
-    }
-
-    // either return a tree representation of this dag or a cycle
-    def dagToTree[A](node: A)(nfn: A => List[A]): Either[NonEmptyList[A], Tree[A]] = {
-      def treeOf(as: NonEmptyList[A], visited: Set[A]): Either[NonEmptyList[A], Tree[A]] = {
-        val children = nfn(as.head)
-        children.find(visited) match {
-          case Some(loop) => Left(loop :: as)
-          case None =>
-            children.traverse { a =>
-              treeOf(a :: as, visited + a)
-            }
-            .map(Tree.Node(as.head, _))
-        }
-      }
-      treeOf(NonEmptyList(node, Nil), Set(node))
-    }
   }
 }
 
