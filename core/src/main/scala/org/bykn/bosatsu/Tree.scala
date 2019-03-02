@@ -4,7 +4,7 @@ import cats.data.{NonEmptyList, Validated, ValidatedNel}
 
 import cats.implicits._
 
-case class Tree[A](item: A, children: List[Tree[A]])
+case class Tree[+A](item: A, children: List[Tree[A]])
 
 object Tree {
 

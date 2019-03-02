@@ -51,9 +51,10 @@ object VarianceFormula {
 
   sealed abstract class Identifier {
     def toLong: Long
+    override def toString = s"Identifier($toLong)"
   }
 
-  object Identifier {
+  private object Identifier {
     private case class IdImpl(toLong: Long) extends Identifier
 
     val nextIdent: State[SolutionState, Identifier] =
@@ -65,7 +66,7 @@ object VarianceFormula {
     val init: Identifier = IdImpl(0L)
   }
 
-  case class SolutionState(
+  private case class SolutionState(
     next: Identifier,
     constraints: Map[Unknown, VarianceFormula],
     solutions: Map[Unknown, Variance],
@@ -170,7 +171,7 @@ object VarianceFormula {
     }
   }
 
-  object SolutionState {
+  private object SolutionState {
     val empty: SolutionState = SolutionState(Identifier.init, Map.empty, Map.empty, Set.empty)
   }
 
@@ -188,12 +189,19 @@ object VarianceFormula {
     def toF: Known = Known(variance)
   }
 
-  val newUnknown: State[SolutionState, Unknown] =
+  private val newUnknown: State[SolutionState, Unknown] =
     Identifier.nextIdent.flatMap { id =>
       val u = Unknown(id)
       State { case s@SolutionState(_, _, _, unknowns) => (s.copy(unknowns = unknowns + u), u) }
     }
 
+  /**
+   * Solve the variance of the given list of current items or return
+   * a list of of those items we cannot infer the variance of.
+   *
+   * It may be the case that we can always infer the variance, we don't actually
+   * have a proof on how often this fails (if ever).
+   */
   def solve(imports: TypeEnv[Variance], current: List[DefinedType[Unit]]): Either[List[DefinedType[Unit]], List[DefinedType[Variance]]] = {
     val travListDT = Traverse[List].compose[DefinedType]
 

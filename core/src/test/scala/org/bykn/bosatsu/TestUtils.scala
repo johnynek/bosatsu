@@ -23,7 +23,7 @@ object TestUtils {
           tpeFn,
           consFn,
           stmt)
-        prog.types
+        TypeEnv.fromParsed(prog.types)
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
