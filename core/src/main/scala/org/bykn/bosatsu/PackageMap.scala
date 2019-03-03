@@ -52,7 +52,7 @@ object PackageMap {
   type MapF2[A, B] = MapF3[A, A, B]
   type ParsedImp = PackageMap[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
   type Resolved = MapF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = MapF3[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]
+  type Inferred = MapF3[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
 
   /**
    * This builds a DAG of actual packages where names have been replaced by the fully resolved
@@ -153,7 +153,7 @@ object PackageMap {
   def inferAll(ps: Resolved): ValidatedNel[PackageError, Inferred] = {
 
     type PackIn = PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-    type PackOut = PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]
+    type PackOut = PackageF[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
 
     /*
      * We memoize this function to avoid recomputing diamond dependencies
@@ -186,7 +186,7 @@ object PackageMap {
            * distinct object has its own entry in the list
            */
           def stepImport(i: Import[Package.Resolved, Unit]):
-            ValidatedNel[PackageError, Import[Package.Inferred, NonEmptyList[Referant[Unit]]]] = {
+            ValidatedNel[PackageError, Import[Package.Inferred, NonEmptyList[Referant[Variance]]]] = {
             val Import(fixpack, items) = i
             recurse(fixpack.unfix).andThen { packF =>
               val exMap = ExportedName.buildExportMap(packF.exports)
@@ -195,9 +195,9 @@ object PackageMap {
                   Import(
                     Fix[Lambda[a =>
                           Package[a,
-                            NonEmptyList[Referant[Unit]],
-                            Referant[Unit],
-                            Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]]](
+                            NonEmptyList[Referant[Variance]],
+                            Referant[Variance],
+                            Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]]](
                       packF),
                     imps)
                 }
@@ -281,7 +281,7 @@ object PackageError {
   // We could check if we forgot to export the name in the package and give that error
   case class UnknownImportName[A, B](
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],
-    importing: Package.PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]],
+    importing: Package.PackageF[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]],
     iname: ImportedName[A],
     exports: List[ExportedName[B]]) extends PackageError {
       def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
@@ -316,7 +316,13 @@ object PackageError {
 
   case class CircularType[A](from: PackageName, path: NonEmptyList[rankn.DefinedType[A]]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
-      s"circular types in ${from.asString}" + path.toList.reverse.map(_.name.asString).mkString(" -> ")
+      s"circular types in ${from.asString} " + path.toList.reverse.map(_.name.asString).mkString(" -> ")
+    }
+  }
+
+  case class VarianceInferenceFailure(from: PackageName, failed: NonEmptyList[rankn.DefinedType[Unit]]) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
+      s"failed to infer variance in ${from.asString} of " + failed.toList.map(_.name.asString).sorted.mkString(", ")
     }
   }
 

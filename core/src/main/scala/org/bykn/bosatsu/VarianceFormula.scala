@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Traverse
-import cats.data.State
+import cats.data.{NonEmptyList, State}
 import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
 import scala.collection.immutable.SortedMap
 
@@ -202,8 +202,8 @@ object VarianceFormula {
    * It may be the case that we can always infer the variance, we don't actually
    * have a proof on how often this fails (if ever).
    */
-  def solve(imports: TypeEnv[Variance], current: List[DefinedType[Unit]]): Either[List[DefinedType[Unit]], List[DefinedType[Variance]]] = {
-    val travListDT = Traverse[List].compose[DefinedType]
+  def solve(imports: TypeEnv[Variance], current: List[DefinedType[Unit]]): Either[NonEmptyList[DefinedType[Unit]], List[DefinedType[Variance]]] = {
+    val travListDT = Traverse[NonEmptyList].compose[DefinedType]
 
     def constrain(unknowns: SortedMap[(PackageName, TypeName), DefinedType[Unknown]], dt: DefinedType[Unknown]): State[SolutionState, Unit] = {
       import Type._
@@ -311,27 +311,35 @@ object VarianceFormula {
     }
 
     // invariant, assume we have a solved ss
-    def finish(te: List[DefinedType[Unknown]], ss: SolutionState): Either[List[DefinedType[Unit]], List[DefinedType[Variance]]] =
-      if (ss.isSolved) Right {
-          travListDT.map(te)(ss.solutions.getOrElse(_, Phantom))
+    def finish(te: NonEmptyList[DefinedType[Unknown]], ss: SolutionState): Either[NonEmptyList[DefinedType[Unit]], List[DefinedType[Variance]]] = {
+      def isUn(dt: DefinedType[Unknown]): Boolean =
+        dt.annotatedTypeParams.exists { case (_, u) => ss.isUnsolved(u) }
+
+      val unknowns = te.toList.filter(isUn)
+      NonEmptyList.fromList(unknowns) match {
+        case None =>
+          /*
+           * TODO: external defs have no constructors, we should assume their types
+           * are invariant, but this may be setting them to phantom, which is unsound
+           */
+          Right(travListDT.map(te)(ss.solutions.getOrElse(_, Phantom)).toList)
+        case Some(err) =>
+          Left(err.sortBy { dt => (dt.packageName, dt.name) }.map(_.as(())))
       }
-      else
-        Left {
-          te.iterator
-            .filter { dt => dt.annotatedTypeParams.exists { case (_, u) => ss.isUnsolved(u) } }
-            .toList
-            .sortBy { dt => (dt.packageName, dt.name) }
-            .map(_.as(()))
-        }
+    }
 
-    val state = for {
-      dts <- travListDT.traverse(current)(_ => newUnknown)
-      dtsMap = DefinedType.listToMap(dts)
-      _ <- dts.traverse_(constrain(dtsMap, _))
-      ss <- State.get[SolutionState]
-      simplified = ss.simplify
-    } yield finish(dts, simplified)
+    NonEmptyList.fromList(current) match {
+      case None => Right(Nil)
+      case Some(current) =>
+        val state = for {
+          dts <- travListDT.traverse(current)(_ => newUnknown)
+          dtsMap = DefinedType.listToMap(dts.toList)
+          _ <- dts.traverse_(constrain(dtsMap, _))
+          ss <- State.get[SolutionState]
+          simplified = ss.simplify
+        } yield finish(dts, simplified)
 
-    state.run(SolutionState.empty).value._2
+        state.run(SolutionState.empty).value._2
+    }
   }
 }

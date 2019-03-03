@@ -6,7 +6,7 @@ object NameKind {
   case class Constructor(
     cn: ConstructorName,
     params: List[(ParamName, rankn.Type)],
-    defined: rankn.DefinedType[Unit],
+    defined: rankn.DefinedType[Variance],
     valueType: rankn.Type) extends NameKind
   case class Import(fromPack: Package.Inferred, originalName: String) extends NameKind
   case class ExternalDef(pack: PackageName, defName: String, defType: rankn.Type) extends NameKind
