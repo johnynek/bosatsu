@@ -99,4 +99,9 @@ object TypeEnv {
 
   def fromDefinitions[A](defs: List[DefinedType[A]]): TypeEnv[A] =
     defs.foldLeft(empty: TypeEnv[A])(_.addDefinedType(_))
+
+  def fromParsed[A](p: ParsedTypeEnv[A]): TypeEnv[A] = {
+    val t1 = p.allDefinedTypes.foldLeft(empty: TypeEnv[A])(_.addDefinedType(_))
+    p.externalDefs.foldLeft(t1) { case (t1, (p, n, t)) => t1.addExternalValue(p, n, t) }
+  }
 }

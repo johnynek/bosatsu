@@ -6,7 +6,7 @@ import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT, State}
 import cats.Order
 import cats.implicits._
 
-import rankn.Infer
+import rankn.{Infer, TypeEnv}
 
 case class PackageMap[A, B, C, D](toMap: Map[PackageName, Package[A, B, C, D]]) {
   def +(pack: Package[A, B, C, D]): PackageMap[A, B, C, D] =
@@ -52,7 +52,7 @@ object PackageMap {
   type MapF2[A, B] = MapF3[A, A, B]
   type ParsedImp = PackageMap[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
   type Resolved = MapF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = MapF3[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypedExpr[Declaration], Statement]]
+  type Inferred = MapF3[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]
 
   /**
    * This builds a DAG of actual packages where names have been replaced by the fully resolved
@@ -153,7 +153,7 @@ object PackageMap {
   def inferAll(ps: Resolved): ValidatedNel[PackageError, Inferred] = {
 
     type PackIn = PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-    type PackOut = PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypedExpr[Declaration], Statement]]
+    type PackOut = PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]
 
     /*
      * We memoize this function to avoid recomputing diamond dependencies
@@ -197,7 +197,7 @@ object PackageMap {
                           Package[a,
                             NonEmptyList[Referant[Unit]],
                             Referant[Unit],
-                            Program[TypedExpr[Declaration], Statement]]]](
+                            Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]]](
                       packF),
                     imps)
                 }
@@ -281,7 +281,7 @@ object PackageError {
   // We could check if we forgot to export the name in the package and give that error
   case class UnknownImportName[A, B](
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],
-    importing: Package.PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypedExpr[Declaration], Statement]],
+    importing: Package.PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]],
     iname: ImportedName[A],
     exports: List[ExportedName[B]]) extends PackageError {
       def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {

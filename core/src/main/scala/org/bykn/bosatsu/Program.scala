@@ -3,9 +3,9 @@ package org.bykn.bosatsu
 import cats.evidence.Is
 import cats.data.NonEmptyList
 
-import org.bykn.bosatsu.rankn.{Type, TypeEnv}
+import org.bykn.bosatsu.rankn.{Type, ParsedTypeEnv}
 
-case class Program[D, S](types: TypeEnv[Unit], lets: List[(String, D)], from: S) {
+case class Program[T, D, S](types: T, lets: List[(String, D)], from: S) {
   private[this] lazy val letMap: Map[String, D] = lets.toMap
 
   def getLet(name: String): Option[D] = letMap.get(name)
@@ -47,7 +47,7 @@ object Program {
     pn0: PackageName,
     nameToType: String => Type.Const,
     nameToCons: String => (PackageName, ConstructorName),
-    stmt: Statement): Program[Expr[Declaration], Statement] = {
+    stmt: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] = {
 
     import Statement._
 
@@ -55,8 +55,8 @@ object Program {
       d.toExpr(nameToType, nameToCons)
 
     def defToT(
-      types: TypeEnv[Unit],
-      d: TypeDefinitionStatement): TypeEnv[Unit] =
+      types: ParsedTypeEnv[Unit],
+      d: TypeDefinitionStatement): ParsedTypeEnv[Unit] =
       types.addDefinedType(d.toDefinition(pn0, nameToType))
 
     val allNames = stmt.toStream.flatMap {
@@ -111,7 +111,7 @@ object Program {
             }
       }
 
-    def loop(s: Statement): Program[Expr[Declaration], Statement] =
+    def loop(s: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] =
       s match {
         case Bind(BindingStatement(bound, decl, Padding(_, rest))) =>
           val Program(te, binds, _) = loop(rest)
@@ -155,7 +155,7 @@ object Program {
           val p = loop(rest)
           p.copy(types = defToT(p.types, x), from = x)
         case EndOfFile =>
-          Program(TypeEnv.empty: TypeEnv[Unit], Nil, EndOfFile)
+          Program(ParsedTypeEnv.empty[Unit], Nil, EndOfFile)
       }
 
     loop(stmt)

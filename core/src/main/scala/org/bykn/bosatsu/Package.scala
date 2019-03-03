@@ -37,7 +37,7 @@ object Package {
   type PackageF2[A, B] = PackageF[A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = FixPackage[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypedExpr[Declaration], Statement]]
+  type Inferred = FixPackage[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]
 
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
@@ -49,9 +49,9 @@ object Package {
   /** add a Fix wrapper
    *  it is combersome to write the correct type here
    */
-  def asInferred(p: PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypedExpr[Declaration], Statement]]): Inferred =
+  def asInferred(p: PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]): Inferred =
     Fix[Lambda[a =>
-      Package[a, NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypedExpr[Declaration], Statement]]]](p)
+      Package[a, NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]]](p)
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
@@ -113,7 +113,7 @@ object Package {
     val typeCache: MMap[String, Type.Const] = MMap.empty
     val consCache: MMap[String, (PackageName, ConstructorName)] = MMap.empty
 
-    val Program(typeEnv, lets, _) =
+    val Program(parsedTypeEnv, lets, _) =
       Program.fromStatement(
         p,
         { s =>
@@ -138,11 +138,12 @@ object Package {
      * Check that the types defined here are not circular.
      */
     val circularCheck: ValidatedNel[PackageError, Unit] =
-      TypeRecursionCheck.check(importedTypeEnv, typeEnv.allDefinedTypes)
+      TypeRecursionCheck.check(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
         .leftMap { badPaths =>
           badPaths.map(PackageError.CircularType(p, _))
         }
 
+    val typeEnv = TypeEnv.fromParsed(parsedTypeEnv)
     /*
     * These are values, including all constructor functions
     * that have been imported, this includes local external
