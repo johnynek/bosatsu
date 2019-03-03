@@ -12,8 +12,8 @@ import cats.implicits._
  */
 object TypeRecursionCheck {
 
-  def check(imports: TypeEnv[Unit],
-    packageDefinedTypes: List[DefinedType[Unit]]): ValidatedNel[NonEmptyList[DefinedType[Unit]], Unit] = {
+  def check[A](imports: TypeEnv[A],
+    packageDefinedTypes: List[DefinedType[A]]): ValidatedNel[NonEmptyList[DefinedType[A]], Unit] = {
 
     val typeMap = DefinedType.listToMap(packageDefinedTypes)
     /*
@@ -21,7 +21,7 @@ object TypeRecursionCheck {
      * Since the packages already form a DAG we know
      * that we don't need to check across package boundaries
      */
-    def typeDepends(dt: DefinedType[Unit]): List[DefinedType[Unit]] =
+    def typeDepends(dt: DefinedType[A]): List[DefinedType[A]] =
       (for {
         cons <- dt.constructors
         Type.Const.Defined(p, n) <- cons._2.flatMap { case (_, t) => Type.constantsOf(t) }

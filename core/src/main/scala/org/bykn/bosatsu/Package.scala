@@ -37,7 +37,7 @@ object Package {
   type PackageF2[A, B] = PackageF[A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = FixPackage[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]
+  type Inferred = FixPackage[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
 
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
@@ -49,9 +49,9 @@ object Package {
   /** add a Fix wrapper
    *  it is combersome to write the correct type here
    */
-  def asInferred(p: PackageF[NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]): Inferred =
+  def asInferred(p: PackageF[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]): Inferred =
     Fix[Lambda[a =>
-      Package[a, NonEmptyList[Referant[Unit]], Referant[Unit], Program[TypeEnv[Unit], TypedExpr[Declaration], Statement]]]](p)
+      Package[a, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]]](p)
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
@@ -89,9 +89,9 @@ object Package {
    */
   def inferBody(
     p: PackageName,
-    imps: List[Import[Package.Inferred, NonEmptyList[Referant[Unit]]]],
+    imps: List[Import[Package.Inferred, NonEmptyList[Referant[Variance]]]],
     stmt: Statement):
-      ValidatedNel[PackageError, (TypeEnv[Unit], List[(String, TypedExpr[Declaration])])] = {
+      ValidatedNel[PackageError, (TypeEnv[Variance], List[(String, TypedExpr[Declaration])])] = {
 
     val importedTypes: Map[String, (PackageName, String)] =
       Referant.importedTypes(imps)
@@ -134,48 +134,55 @@ object Package {
 
     val importedTypeEnv = Referant.importedTypeEnv(imps)(_.unfix.name)
 
-    /*
-     * Check that the types defined here are not circular.
-     */
-    val circularCheck: ValidatedNel[PackageError, Unit] =
-      TypeRecursionCheck.check(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
-        .leftMap { badPaths =>
-          badPaths.map(PackageError.CircularType(p, _))
-        }
+    val inferVarianceParsed: Either[PackageError, ParsedTypeEnv[Variance]] =
+      VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
+        .map { infDTs => ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs) }
+        .leftMap(PackageError.VarianceInferenceFailure(p, _))
 
-    val typeEnv = TypeEnv.fromParsed(parsedTypeEnv)
-    /*
-    * These are values, including all constructor functions
-    * that have been imported, this includes local external
-    * defs
-    */
-    val importedValues: Map[String, Type] =
-      Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
+    inferVarianceParsed.toValidatedNel.andThen { parsedTypeEnv =>
+      /*
+       * Check that the types defined here are not circular.
+       */
+      val circularCheck: ValidatedNel[PackageError, Unit] =
+        TypeRecursionCheck.check(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
+          .leftMap { badPaths =>
+            badPaths.map(PackageError.CircularType(p, _))
+          }
 
-    val withFQN: Map[(Option[PackageName], String), Type] =
-      (Referant.fullyQualifiedImportedValues(imps)(_.unfix.name)
-        .iterator
-        .map { case ((p, n), t) => ((Some(p), n), t) } ++
-          importedValues.iterator.map { case (n, t) => ((None, n), t) }
-        ).toMap
+      val typeEnv = TypeEnv.fromParsed(parsedTypeEnv)
+      /*
+      * These are values, including all constructor functions
+      * that have been imported, this includes local external
+      * defs
+      */
+      val importedValues: Map[String, Type] =
+        Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
 
-    val fullTypeEnv = importedTypeEnv ++ typeEnv
-    val totalityCheck =
-      lets
-        .traverse { case (_, expr) => TotalityCheck(fullTypeEnv).checkExpr(expr) }
-        .leftMap { errs => errs.map(PackageError.TotalityCheckError(p, _)) }
+      val withFQN: Map[(Option[PackageName], String), Type] =
+        (Referant.fullyQualifiedImportedValues(imps)(_.unfix.name)
+          .iterator
+          .map { case ((p, n), t) => ((Some(p), n), t) } ++
+            importedValues.iterator.map { case (n, t) => ((None, n), t) }
+          ).toMap
 
-    val inferenceEither = Infer.typeCheckLets(lets)
-      .runFully(withFQN,
-        Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
-      )
-      .map { lets => (typeEnv, lets) }
-      .left
-      .map(PackageError.TypeErrorIn(_, p))
+      val fullTypeEnv = importedTypeEnv ++ typeEnv
+      val totalityCheck =
+        lets
+          .traverse { case (_, expr) => TotalityCheck(fullTypeEnv).checkExpr(expr) }
+          .leftMap { errs => errs.map(PackageError.TotalityCheckError(p, _)) }
 
-    val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
+      val inferenceEither = Infer.typeCheckLets(lets)
+        .runFully(withFQN,
+          Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
+        )
+        .map { lets => (typeEnv, lets) }
+        .left
+        .map(PackageError.TypeErrorIn(_, p))
 
-    circularCheck *> totalityCheck *> inference
+      val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
+
+      circularCheck *> totalityCheck *> inference
+    }
   }
 }
 
