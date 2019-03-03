@@ -208,17 +208,32 @@ object VarianceFormula {
     def constrain(unknowns: SortedMap[(PackageName, TypeName), DefinedType[Unknown]], dt: DefinedType[Unknown]): State[SolutionState, Unit] = {
       import Type._
 
+      val unit: State[SolutionState, Unit] = State.pure(())
+
+      def constrainUnknown(u: Unknown, f: VarianceFormula): State[SolutionState, Unit] =
+        State.modify[SolutionState](_.constrain(u, f))
+      /*
+       * defined types with no constructors can only be external types, and we assume they are
+       * invariant.
+       */
+      val external =
+        if (dt.constructors.isEmpty) {
+          // all type params are invariant
+          dt.annotatedTypeParams.traverse_ { case (_, u) =>
+            constrainUnknown(u, Invariant.toF)
+          }
+        }
+        else unit
+
       /*
        * We assume all higher kinded type variables are invariant, which is a worst
        * case assumption, although also meeting with expectations for a generic type
        */
-      val unit: State[SolutionState, Unit] = State.pure(())
       def constrainHKinParam(tpe: Type, umap: Map[Var, Unknown]): State[SolutionState, Unit] =
         tpe match {
           case TyApply(TyVar(v), right) =>
             val left = umap.get(v) match {
-              case Some(u) =>
-                State.modify[SolutionState](_.constrain(u, Invariant.toF))
+              case Some(u) => constrainUnknown(u, Invariant.toF)
               case None => unit
             }
             left *> constrainHKinParam(right, umap)
@@ -300,11 +315,11 @@ object VarianceFormula {
         loop(Set.empty, tpe)
       }
 
-      hks *> dt.annotatedTypeParams.traverse_ { case (b, u) =>
+      external *> hks *> dt.annotatedTypeParams.traverse_ { case (b, u) =>
         dt.constructors.traverse_ { case (_, argType, _) =>
           argType.traverse_ { case (_, tpe) =>
             val formula = constrainTpe(b, u, tpe)
-            State.modify[SolutionState](_.constrain(u, formula))
+            constrainUnknown(u, formula)
           }
         }
       }
