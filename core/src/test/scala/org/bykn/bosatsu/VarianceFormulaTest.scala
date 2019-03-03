@@ -85,6 +85,14 @@ struct Lst(m: Opt[Pair[a, Lst[a]]])
   "Lst" -> List(Variance.co),
   "Pair" -> List(Variance.co, Variance.co),
   "Opt" -> List(Variance.co)))
+
+    testVariance("""#
+enum Lst: E, NE(head: a, tail: Lst[a])
+
+struct Tree(root: a, children: Lst[Tree[a]])
+""", Map(
+  "Lst" -> List(Variance.co),
+  "Tree" -> List(Variance.co)))
   }
 
   test("test with higher-kinder vars (always invariant now)") {
@@ -114,5 +122,20 @@ struct NEList(head: a, tail: Opt[a])
   "NEList" -> List(Variance.co),
   "Opt" -> List(Variance.co)))
 
+  }
+
+  test("test with external structs") {
+    testVariance("""#
+external struct Lst[a]
+""", Map(
+  "Lst" -> List(Variance.in)))
+
+    testVariance("""#
+external struct Lst[a]
+
+struct Tree(root: a, children: Lst[Tree[a]])
+""", Map(
+  "Lst" -> List(Variance.in),
+  "Tree" -> List(Variance.in)))
   }
 }
