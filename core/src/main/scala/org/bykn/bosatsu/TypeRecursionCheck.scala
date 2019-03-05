@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import org.bykn.bosatsu.rankn.{ DefinedType, Type, TypeEnv }
+import org.bykn.bosatsu.graph.{Tree, Paths}
 
 import cats.implicits._
 
@@ -29,7 +30,7 @@ object TypeRecursionCheck {
       } yield dt1).distinct
 
     packageDefinedTypes.traverse_ { dt =>
-      graph.Tree.dagToTree(dt)(typeDepends _)
+      Tree.dagToTree(dt)(typeDepends _)
     }
   }
 
@@ -42,19 +43,15 @@ object TypeRecursionCheck {
     packageDefinedTypes: List[DefinedType[Variance]]): ValidatedNel[NonEmptyList[DefinedType[Variance]], Unit] = {
 
     val typeMap = DefinedType.listToMap(packageDefinedTypes)
-    /*
-     * Check that the types defined here are not circular.
-     * Since the packages already form a DAG we know
-     * that we don't need to check across package boundaries
-     */
-    def typeDepends(dt: DefinedType[Variance]): List[(Variance, DefinedType[Variance])] = {
-      /**
+
+
+    def buildEdges(dt: DefinedType[Variance]): List[(DefinedType[Variance], Variance, DefinedType[Variance])] = ???
+      /*
        * enum L: E, N(head: a, tail: L[a])
        *
        * struct Tree(root: a, children: L[Tree[a]])
        *
-       * Tree[a] -> + L[Tree[a]]
-       * L[Tree[a]] -> + Tree[a], +L[Tree[a]]
+       * Tree[a] -> + L[Tree[a]] => Tree -> + L, L -> + Tree
        */
       // val next = for {
       //   cons <- dt.constructors
@@ -64,8 +61,21 @@ object TypeRecursionCheck {
       // } yield dt1
 
       // next.distinct
-      ???
-    }
+
+    val fullEdgeList = packageDefinedTypes.flatMap(buildEdges)
+    val graph = fullEdgeList
+      .groupBy(_._1)
+      .iterator
+      .map { case (src, edges) =>
+        (src, edges.map { case (_, v, r) => (v, r) })
+      }
+      .toMap
+
+    def typeDepends(dt: DefinedType[Variance]): List[(Variance, DefinedType[Variance])] =
+      graph.get(dt) match {
+        case None => Nil
+        case Some(es) => es
+      }
 
     def checkCycle(
       start: DefinedType[Variance],
@@ -79,7 +89,7 @@ object TypeRecursionCheck {
     }
 
     packageDefinedTypes.traverse_ { dt =>
-      val cycles = graph.Paths.allCycles(dt)(typeDepends _)
+      val cycles = Paths.allCycles(dt)(typeDepends _)
       cycles.traverse_(checkCycle(dt, _))
     }
   }
