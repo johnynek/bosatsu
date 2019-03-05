@@ -1,9 +1,11 @@
-package org.bykn.bosatsu
+package org.bykn.bosatsu.graph
 
 import cats.data.Validated
 import org.scalacheck.Gen
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.forAll
+
+import cats.implicits._
 
 class TreeTest extends FunSuite {
 
@@ -32,6 +34,7 @@ class TreeTest extends FunSuite {
           val treeFn = Tree.neighborsFn(tree)
           val tree2 = Tree.dagToTree(tree.item)(treeFn)
           assert(tree2 == v)
+          assert(Paths.allCycle0(start)(nfn).isEmpty)
         case Validated.Invalid(circs) =>
           fail(s"circular paths found: $circs")
       }
@@ -58,6 +61,17 @@ class TreeTest extends FunSuite {
       }
 
     forAll(dagFn) { case (start, nfn) =>
+      // all the cycles should be the same
+      val cycles = Paths.allCycle0(start)(nfn).map(_.sorted)
+      assert(cycles.tail.forall(_ == cycles.head))
+
+      def reachable(s: Set[Int]): Set[Int] = {
+        val s1 = s ++ s.iterator.flatMap(nfn)
+        if (s1 != s) reachable(s1)
+        else s
+      }
+
+      assert(reachable(Set(start)).toList.sorted == cycles.head.toList)
       assert(Tree.dagToTree(start)(nfn).isInvalid)
     }
   }
