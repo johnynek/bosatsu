@@ -150,8 +150,11 @@ object TypeRecursionCheck {
       val loops = Paths.allCycles(dt)(graph.getOrElse(_, Nil))
       // filter bad loops:
       val bad = loops.filter { loop =>
-        val variances: NonEmptyList[Variance] = loop.map(_._1)
-        val variance = variances.reduce[Variance](_ * _)
+        val variance =
+          loop.toList
+            .iterator
+            .map(_._1)
+            .reduce(_ * _) // reduce is safe since we have a non-empty list
         (variance == Variance.in) || (variance == Variance.contra)
       }
 
