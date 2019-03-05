@@ -108,6 +108,16 @@ object Type {
       case TyApply(left, _) => rootConst(left)
     }
 
+  def applicationArgs(t: Type): (Type, List[Type]) = {
+    @annotation.tailrec
+    def loop(t: Type, tail: List[Type]): (Type, List[Type]) =
+      t match {
+        case TyApply(left, right) => loop(left, right :: tail)
+        case notApply => (notApply, tail)
+      }
+    loop(t, Nil)
+  }
+
   /**
    * Return the Bound and Skolem variables that
    * are free in the given list of types
