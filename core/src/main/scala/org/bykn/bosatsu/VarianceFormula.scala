@@ -333,10 +333,6 @@ object VarianceFormula {
       val unknowns = te.toList.filter(isUn)
       NonEmptyList.fromList(unknowns) match {
         case None =>
-          /*
-           * TODO: external defs have no constructors, we should assume their types
-           * are invariant, but this may be setting them to phantom, which is unsound
-           */
           Right(travListDT.map(te)(ss.solutions.getOrElse(_, Phantom)).toList)
         case Some(err) =>
           Left(err.sortBy { dt => (dt.packageName, dt.name) }.map(_.as(())))

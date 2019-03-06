@@ -1,4 +1,4 @@
-package org.bykn.bosatsu
+package org.bykn.bosatsu.graph
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 
@@ -45,5 +45,6 @@ object Tree {
     }
     treeOf(NonEmptyList(node, Nil), Set(node))
   }
+
 }
 

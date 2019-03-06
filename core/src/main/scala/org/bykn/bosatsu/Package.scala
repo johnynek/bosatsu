@@ -144,7 +144,7 @@ object Package {
        * Check that the types defined here are not circular.
        */
       val circularCheck: ValidatedNel[PackageError, Unit] =
-        TypeRecursionCheck.check(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
+        TypeRecursionCheck.checkLegitRecursion(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
           .leftMap { badPaths =>
             badPaths.map(PackageError.CircularType(p, _))
           }
