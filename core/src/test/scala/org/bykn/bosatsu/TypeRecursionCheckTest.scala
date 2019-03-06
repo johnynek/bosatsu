@@ -70,4 +70,17 @@ struct Tree(root: a, children: ICont[Tree[a]])
 struct W(fn: W[a, b] -> a -> b)
 """)
   }
+
+  test("mutual recursion is (currently) completely unallowed") {
+    disallowed("""#
+struct Foo(bar: Bar)
+struct Bar(foo: Foo)
+""")
+  }
+
+  test("recursion with type construtors is disallowed") {
+    disallowed("""#
+struct Tree(root: a, children: f[Tree[a]])
+""")
+  }
 }

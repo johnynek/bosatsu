@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
-import org.bykn.bosatsu.graph.{Tree, Paths}
+import org.bykn.bosatsu.graph.Paths
 
 import cats.implicits._
 
@@ -12,27 +12,6 @@ import cats.implicits._
  * in imports cannot refer to packageDefinedTypes
  */
 object TypeRecursionCheck {
-
-  def check[A](imports: TypeEnv[A],
-    packageDefinedTypes: List[DefinedType[A]]): ValidatedNel[NonEmptyList[DefinedType[A]], Unit] = {
-
-    val typeMap = DefinedType.listToMap(packageDefinedTypes)
-    /*
-     * Check that the types defined here are not circular.
-     * Since the packages already form a DAG we know
-     * that we don't need to check across package boundaries
-     */
-    def typeDepends(dt: DefinedType[A]): List[DefinedType[A]] =
-      (for {
-        cons <- dt.constructors
-        Type.Const.Defined(p, n) <- cons._2.flatMap { case (_, t) => Type.constantsOf(t) }
-        dt1 <- typeMap.get((p, TypeName(n))).toList
-      } yield dt1).distinct
-
-    packageDefinedTypes.traverse_ { dt =>
-      Tree.dagToTree(dt)(typeDepends _)
-    }
-  }
 
   /**
    * We require that defined types form a DAG excluding any links to themselves.
