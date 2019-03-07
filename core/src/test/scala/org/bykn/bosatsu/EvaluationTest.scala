@@ -251,6 +251,18 @@ main = match x:
       List("""
 package Foo
 
+x = [1]
+
+# test using List literals
+main = match x:
+  EmptyList: "empty"
+  NonEmptyList(_, _): "notempty"
+"""), "Foo", Str("notempty"))
+
+    evalTest(
+      List("""
+package Foo
+
 x = "1"
 
 main = match x:
