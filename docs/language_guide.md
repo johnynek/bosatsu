@@ -181,7 +181,15 @@ neg = Pair(1, -1)
 ```
 Types are assigned left to right when they are omitted.
 
-Structs may not be recursive. The following is not allowed:
+Types must form a directed acyclic graph (DAG) with the exception that they
+may refer to themselves in covariant positions (i.e. not in the inputs to functions).
+
+E.g. in Predef we will find a standard linked list:
+```
+enum List: EmptyList, NonEmptyList(head: a, tail: List[a])
+```
+
+On the other hand, the following is disallowed:
 ```
 struct W(fn: W[a, b] -> a -> b)
 ```
@@ -328,11 +336,8 @@ There is syntax for declaring external values and functions. This is obviously d
 gives the user a chance to violate totality. Use with caution.
 
 
-As we discussed above, we cannot implement `List` in Bosatu. In the predef, we can find the following:
+As we discussed above, we cannot implement `foldLeft` in Bosatu. In the predef, we can find the following:
 ```
-external struct List[a]
-external def emptyList -> List[a]
-external def consList(head: a, tail: List[a]) -> List[a]
 external def foldLeft(lst: List[a], init: b, fn: b -> a -> b) -> b
 external def range(exclusive_upper: Int): List[Int]
 ```

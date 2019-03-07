@@ -6,7 +6,7 @@ export [
   Comparison(),
   Int,
   Option(),
-  List,
+  List(),
   String,
   Test(),
   TestSuite(),
@@ -15,9 +15,7 @@ export [
   add,
   cmp_Int,
   concat,
-  consList,
   div,
-  emptyList,
   eq_Int,
   foldLeft,
   gcd_Int,
@@ -39,18 +37,16 @@ enum Bool:
   False
   True
 
-external struct List[a]
-
-external def emptyList -> List[a]
-external def consList(head: a, tail: List[a]) -> List[a]
+enum List:
+  EmptyList, NonEmptyList(head: a, tail: List[a])
 
 external def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b
 
 def reverse_concat(front: List[a], back: List[a]) -> List[a]:
-  foldLeft(front, back, \tail, h -> consList(h, tail))
+  foldLeft(front, back, \tail, h -> NonEmptyList(h, tail))
 
 def reverse(as: List[a]) -> List[a]:
-  reverse_concat(as, emptyList)
+  reverse_concat(as, EmptyList)
 
 def concat(front: List[a], back: List[a]) -> List[a]:
   match back:
