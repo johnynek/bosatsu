@@ -32,7 +32,7 @@ trait CodeGen {
     RWST.tell[Id, Scope, Doc, Unique](d)
 
   def genPackage(p: Package.Inferred, ext: Externals): Output[Unit] = {
-    val unfix = p.unfix
+    val unfix = p
 
     def packageName: Doc =
       Doc.text("package ") +
@@ -49,10 +49,10 @@ trait CodeGen {
      * add the imports and return a list of lines to set up inside
      * Values
      */
-    val imps: Output[List[NonEmptyList[Option[(Package.Inferred, String, String)]]]] =
+    val imps: Output[List[NonEmptyList[Option[(Package.Interface, String, String)]]]] =
       Traverse[List].traverse(unfix.imports) { case Import(pack, items) =>
         Traverse[NonEmptyList].traverse(items) { imp =>
-          def go(fn: String => Option[String]): Output[Option[(Package.Inferred, String, String)]] =
+          def go(fn: String => Option[String]): Output[Option[(Package.Interface, String, String)]] =
             if (imp.isRenamed || isExported(imp.localName)) {
               // we make a new field for this.
               val opt = for {
@@ -84,9 +84,9 @@ trait CodeGen {
     def flatten[A](fn: List[NonEmptyList[Option[A]]]): List[A] =
       fn.flatMap(_.toList.flatMap(_.toList))
 
-    val flatImps: Output[List[(Package.Inferred, String, String)]] = imps.map(flatten(_))
+    val flatImps: Output[List[(Package.Interface, String, String)]] = imps.map(flatten(_))
 
-    def makeImportFields(ls: List[(Package.Inferred, String, String)]): Doc =
+    def makeImportFields(ls: List[(Package.Interface, String, String)]): Doc =
       Foldable[List].foldMap(ls) { case (p, orig, local) =>
         val priv = if (isExported(local)) "public " else "private "
         Doc.text(priv) + Doc.text("final static Object ") + Doc.text(toExportedName(local)) + Doc.text(" = ") +
@@ -305,7 +305,7 @@ object CodeGen {
   def write(root: Path, packages: PackageMap.Inferred, ext: Externals): Try[Unit] = {
     val cg = new CodeGen { }
     packages.toMap.traverse_ { pack =>
-      val (d, _) = run(cg.genPackage(Package.asInferred(pack), ext))
+      val (d, _) = run(cg.genPackage(pack, ext))
       val path = toPath(root, pack.name)
       writeDoc(path, d)
     }

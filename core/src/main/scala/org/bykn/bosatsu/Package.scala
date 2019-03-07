@@ -37,7 +37,8 @@ object Package {
   type PackageF2[A, B] = PackageF[A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = FixPackage[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
+  type Interface = FixPackage[NonEmptyList[Referant[Variance]], Referant[Variance], Unit]
+  type Inferred = Package[Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
 
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
@@ -46,12 +47,12 @@ object Package {
   def fromStatement(pn: PackageName, st: Statement): Package.Parsed =
     Package(pn, Nil, Nil, st)
 
-  /** add a Fix wrapper
-   *  it is combersome to write the correct type here
-   */
-  def asInferred(p: PackageF[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]): Inferred =
-    Fix[Lambda[a =>
-      Package[a, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]]](p)
+  def interfaceOf(inferred: Inferred): Interface =
+    Fix[Lambda[A =>
+      Package[A,
+        NonEmptyList[Referant[Variance]],
+        Referant[Variance],
+        Unit]]](inferred.mapProgram(_ => ()))
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
@@ -89,7 +90,7 @@ object Package {
    */
   def inferBody(
     p: PackageName,
-    imps: List[Import[Package.Inferred, NonEmptyList[Referant[Variance]]]],
+    imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
     stmt: Statement):
       ValidatedNel[PackageError, (TypeEnv[Variance], List[(String, TypedExpr[Declaration])])] = {
 

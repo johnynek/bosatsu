@@ -232,7 +232,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
   def evaluate(p: PackageName, varName: String): Option[(Eval[Value], Type)] =
     pm.toMap.get(p).map { pack =>
-      val (s, t) = eval((Package.asInferred(pack), Left(varName)))
+      val (s, t) = eval((pack, Left(varName)))
       (s.inEnv(Map.empty), t)
     }
 
@@ -240,7 +240,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     for {
       pack <- pm.toMap.get(p)
       (_, expr) <- pack.program.lets.lastOption
-      tup = eval((Package.asInferred(pack), Right(expr)))
+      tup = eval((pack, Right(expr)))
     } yield (tup._1.inEnv(Map.empty), tup._2)
 
   def evalTest(ps: PackageName): Option[Test] =
@@ -451,7 +451,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          }
        case Var(Some(p), v, _, _) =>
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
-         val (scoped, _) = eval((Package.asInferred(pack), Left(v)))
+         val (scoped, _) = eval((pack, Left(v)))
          scoped
        case App(AnnotatedLambda(name, _, fn, _), arg, _, _) =>
          val argE = recurse((p, Right(arg)))._1
@@ -519,7 +519,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case Some(NameKind.Constructor(cn, _, dt, tpe)) =>
             (Scoped.const(constructor(cn, dt)), tpe)
           case Some(NameKind.Import(from, orig)) =>
-            val other = recurse((from, Left(orig)))
+            val infFrom = pm.toMap(from.unfix.name)
+            val other = recurse((infFrom, Left(orig)))
 
             // we reset the environment in the other package
             (other._1.emptyScope, other._2)
