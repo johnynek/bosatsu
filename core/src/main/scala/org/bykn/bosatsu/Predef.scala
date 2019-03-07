@@ -34,25 +34,25 @@ object Predef {
         "Assertion",
         "Bool",
         "Comparison",
-        "LT",
         "EQ",
-        "GT",
+        "EmptyList",
         "False",
+        "GT",
         "Int",
+        "LT",
         "List",
+        "NonEmptyList",
         "None",
         "Option",
         "Some",
         "String",
-        "True",
         "Test",
         "TestSuite",
+        "True",
         "Tuple2",
         "Unit",
         "add",
-        "consList",
         "div",
-        "emptyList",
         "eq_Int",
         "concat",
         "cmp_Int",
@@ -78,8 +78,6 @@ object Predef {
       .add(packageName, "sub", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.sub"))
       .add(packageName, "times", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.times"))
       .add(packageName, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.eq_Int"))
-      .add(packageName, "emptyList", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.emptyList"))
-      .add(packageName, "consList", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.consList"))
       .add(packageName, "cmp_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.cmp_Int"))
       .add(packageName, "foldLeft", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.foldLeft"))
       .add(packageName, "gcd_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.gcd_Int"))
@@ -148,10 +146,6 @@ object PredefImpl {
 
   def gcd_Int(a: Value, b: Value): Value =
     VInt(i(a).gcd(i(b)))
-
-  def emptyList: Value = VList.VNil
-  def consList(head: Value, tail: Value): Value =
-    VList.Cons(head, tail)
 
   def range(v: Value): Value = {
     val max = i(v)
