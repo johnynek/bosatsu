@@ -78,7 +78,7 @@ struct Bar(foo: Foo)
 """)
   }
 
-  test("recursion with type construtors is disallowed") {
+  test("recursion with type constructors is disallowed") {
     disallowed("""#
 struct Tree(root: a, children: f[Tree[a]])
 """)
