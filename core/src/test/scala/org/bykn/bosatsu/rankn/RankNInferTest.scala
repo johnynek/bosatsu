@@ -3,7 +3,7 @@ package org.bykn.bosatsu.rankn
 import cats.data.{NonEmptyList, Validated}
 import fastparse.all.Parsed
 import org.scalatest.{Assertion, FunSuite}
-import org.bykn.bosatsu.{Declaration, Expr, HasRegion, Lit, PackageName, Package, Pattern, TypeRef, TypedExpr, ConstructorName, Region, Statement}
+import org.bykn.bosatsu.{Declaration, Expr, HasRegion, Lit, PackageName, Package, Pattern, TypeRef, TypedExpr, ConstructorName, Region, Statement, Variance}
 
 import Expr._
 import Type.Var.Bound
@@ -207,8 +207,8 @@ class RankNInferTest extends FunSuite {
       ((pn, ConstructorName("None")), (Nil, Nil, optName)))
 
     val definedOptionGen = Map(
-      ((pn, ConstructorName("Some")), (List(Bound("a")), List(Type.TyVar(Bound("a"))), optName)),
-      ((pn, ConstructorName("None")), (List(Bound("a")), Nil, optName)))
+      ((pn, ConstructorName("Some")), (List((Bound("a"), Variance.co)), List(Type.TyVar(Bound("a"))), optName)),
+      ((pn, ConstructorName("None")), (List((Bound("a"), Variance.co)), Nil, optName)))
   }
 
   test("match with custom non-generic types") {
@@ -317,11 +317,11 @@ class RankNInferTest extends FunSuite {
      * struct Pure(pure: forall a. a -> f[a])
      */
     val defined = Map(
-      ((pn, ConstructorName("Pure")), (List(b("f")),
+      ((pn, ConstructorName("Pure")), (List((b("f"), Variance.in)),
         List(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
-      ((pn, ConstructorName("Some")), (List(b("a")), List(tv("a")), optName)),
-      ((pn, ConstructorName("None")), (List(b("a")), Nil, optName)))
+      ((pn, ConstructorName("Some")), (List((b("a"), Variance.co)), List(tv("a")), optName)),
+      ((pn, ConstructorName("None")), (List((b("a"), Variance.co)), Nil, optName)))
 
     val constructors = Map(
       ("Pure", Type.ForAll(NonEmptyList.of(b("f")),

@@ -3,7 +3,16 @@ import cats.Monad
 import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
 
-import org.bykn.bosatsu.{Pattern => GenPattern, Expr, ConstructorName, HasRegion, PackageName, Region, TypedExpr, TypeRef}
+import org.bykn.bosatsu.{
+  ConstructorName,
+  Expr,
+  HasRegion,
+  PackageName,
+  Pattern => GenPattern,
+  Region,
+  TypeRef,
+  TypedExpr,
+  Variance}
 
 import HasRegion.region
 
@@ -45,7 +54,7 @@ object Infer {
    * the next are the types of the args of the constructor
    * the final is the defined type this creates
    */
-  type Cons = (List[Type.Var], List[Type], Type.Const.Defined)
+  type Cons = (List[(Type.Var, Variance)], List[Type], Type.Const.Defined)
   type Name = (Option[PackageName], String)
 
   def asFullyQualified(ns: Iterable[(String, Type)]): Map[Name, Type] =
@@ -818,7 +827,8 @@ object Infer {
         case (Nil, consParams, tpeName) =>
           Infer.pure((consParams, Type.TyConst(tpeName)))
         case (v0 :: vs, consParams, tpeName) =>
-          val vars = NonEmptyList(v0, vs)
+          val vars0 = NonEmptyList(v0, vs)
+          val vars = vars0.map(_._1) // TODO actually use the variance
           vars.traverse(_ => newMetaType)
             .map { vars1T =>
               val params1 = consParams.map(substTy(vars, vars1T, _))

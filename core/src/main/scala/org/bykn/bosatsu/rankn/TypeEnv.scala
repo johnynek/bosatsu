@@ -70,10 +70,10 @@ class TypeEnv[+A] private (
 
   // TODO to support parameter named patterns we'd need to know the
   // parameter names
-  lazy val typeConstructors: SortedMap[(PackageName, ConstructorName), (List[Type.Var], List[Type], Type.Const.Defined)] =
+  lazy val typeConstructors: SortedMap[(PackageName, ConstructorName), (List[(Type.Var, A)], List[Type], Type.Const.Defined)] =
     constructors.map { case (pc, (params, dt, _)) =>
       (pc,
-        (dt.typeParams,
+        (dt.annotatedTypeParams,
           params.map(_._2),
           dt.toTypeConst))
     }
