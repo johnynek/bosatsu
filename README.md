@@ -1,4 +1,5 @@
 # The Bosatsu Programming Language
+![Codecov](https://img.shields.io/codecov/c/github/johnynek/bosatsu.svg?style=flat-square)
 
 Bosatsu (菩薩) is the transliteration in Japanese of the sanskrit bodhisattva.
 A bodhisattva is someone who can reach enlightenment but decides not to, to
