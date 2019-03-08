@@ -46,13 +46,13 @@ object PackageMap {
         else Left((bad, good))
     }
 
-  import Package.{ FixPackage, PackageF2, PackageF }
+  import Package.{ FixPackage, PackageF2 }
 
   type MapF3[A, B, C] = PackageMap[FixPackage[A, B, C], A, B, C]
   type MapF2[A, B] = MapF3[A, A, B]
   type ParsedImp = PackageMap[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
   type Resolved = MapF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = MapF3[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
+  type Inferred = PackageMap[Package.Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
 
   /**
    * This builds a DAG of actual packages where names have been replaced by the fully resolved
@@ -152,19 +152,18 @@ object PackageMap {
    */
   def inferAll(ps: Resolved): ValidatedNel[PackageError, Inferred] = {
 
-    type PackIn = PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-    type PackOut = PackageF[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
-
+    // This is unfixed resolved
+    type ResolvedU = PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])]
     /*
      * We memoize this function to avoid recomputing diamond dependencies
      */
-    val infer: PackIn => ValidatedNel[PackageError, PackOut] =
-      Memoize.function[PackIn, ValidatedNel[PackageError, PackOut]] {
+    val infer: ResolvedU => ValidatedNel[PackageError, Package.Inferred] =
+      Memoize.function[ResolvedU, ValidatedNel[PackageError, Package.Inferred]] {
         // TODO, we ignore importMap here, we only check earlier we don't
         // have duplicate imports
         case (p@Package(nm, imports, exports, (stmt, importMap)), recurse) =>
 
-          def getImport[A, B](packF: PackOut,
+          def getImport[A, B](packF: Package.Inferred,
             exMap: Map[String, NonEmptyList[ExportedName[A]]],
             i: ImportedName[B]): ValidatedNel[PackageError, ImportedName[NonEmptyList[A]]] =
             exMap.get(i.originalName) match {
@@ -186,21 +185,13 @@ object PackageMap {
            * distinct object has its own entry in the list
            */
           def stepImport(i: Import[Package.Resolved, Unit]):
-            ValidatedNel[PackageError, Import[Package.Inferred, NonEmptyList[Referant[Variance]]]] = {
+            ValidatedNel[PackageError, Import[Package.Interface, NonEmptyList[Referant[Variance]]]] = {
             val Import(fixpack, items) = i
             recurse(fixpack.unfix).andThen { packF =>
+              val packInterface = Package.interfaceOf(packF)
               val exMap = ExportedName.buildExportMap(packF.exports)
               items.traverse(getImport(packF, exMap, _))
-                .map { imps =>
-                  Import(
-                    Fix[Lambda[a =>
-                          Package[a,
-                            NonEmptyList[Referant[Variance]],
-                            Referant[Variance],
-                            Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]]](
-                      packF),
-                    imps)
-                }
+                .map(Import(packInterface, _))
             }
           }
 
@@ -281,7 +272,7 @@ object PackageError {
   // We could check if we forgot to export the name in the package and give that error
   case class UnknownImportName[A, B](
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],
-    importing: Package.PackageF[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]],
+    importing: Package.Inferred,
     iname: ImportedName[A],
     exports: List[ExportedName[B]]) extends PackageError {
       def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {

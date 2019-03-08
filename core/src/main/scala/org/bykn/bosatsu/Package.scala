@@ -29,6 +29,9 @@ case class Package[A, B, C, D](
 
   def mapProgram[D1](fn: D => D1): Package[A, B, C, D1] =
     Package(name, imports, exports, fn(program))
+
+  def replaceImports[A1, B1](newImports: List[Import[A1, B1]]): Package[A1, B1, C, D] =
+    Package(name, newImports, exports, program)
 }
 
 object Package {
@@ -37,7 +40,8 @@ object Package {
   type PackageF2[A, B] = PackageF[A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = FixPackage[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
+  type Interface = FixPackage[Nothing, Referant[Variance], Unit]
+  type Inferred = Package[Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
 
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
@@ -46,12 +50,12 @@ object Package {
   def fromStatement(pn: PackageName, st: Statement): Package.Parsed =
     Package(pn, Nil, Nil, st)
 
-  /** add a Fix wrapper
-   *  it is combersome to write the correct type here
-   */
-  def asInferred(p: PackageF[NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]): Inferred =
-    Fix[Lambda[a =>
-      Package[a, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]]](p)
+  def interfaceOf(inferred: Inferred): Interface =
+    Fix[Lambda[A =>
+      Package[A,
+        Nothing,
+        Referant[Variance],
+        Unit]]](inferred.mapProgram(_ => ()).replaceImports(Nil))
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
@@ -89,7 +93,7 @@ object Package {
    */
   def inferBody(
     p: PackageName,
-    imps: List[Import[Package.Inferred, NonEmptyList[Referant[Variance]]]],
+    imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
     stmt: Statement):
       ValidatedNel[PackageError, (TypeEnv[Variance], List[(String, TypedExpr[Declaration])])] = {
 

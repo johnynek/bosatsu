@@ -47,8 +47,8 @@ z = x
     def packToDoc(p: Package.Inferred): Doc =
       CodeGen.run(cg.genPackage(p, Externals.empty))._1
 
-    val doc1 = packToDoc(Package.asInferred(pm.toMap.toList(0)._2))
-    val doc2 = packToDoc(Package.asInferred(pm.toMap.toList(1)._2))
+    val doc1 = packToDoc(pm.toMap.toList(0)._2)
+    val doc2 = packToDoc(pm.toMap.toList(1)._2)
     assert(doc1.render(80).nonEmpty) // TODO
     assert(doc2.render(80).nonEmpty)
   }
