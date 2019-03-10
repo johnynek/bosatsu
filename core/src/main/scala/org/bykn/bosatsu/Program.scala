@@ -5,26 +5,27 @@ import cats.data.NonEmptyList
 
 import org.bykn.bosatsu.rankn.{Type, ParsedTypeEnv}
 
-case class Program[T, D, S](types: T, lets: List[(String, D)], from: S) {
-  private[this] lazy val letMap: Map[String, D] = lets.toMap
+case class Program[T, D, S](types: T, lets: List[(String, RecursionKind, D)], from: S) {
+  private[this] lazy val letMap: Map[String, (RecursionKind, D)] =
+    lets.iterator.map { case (n, r, d) => (n, (r, d)) }.toMap
 
-  def getLet(name: String): Option[D] = letMap.get(name)
+  def getLet(name: String): Option[(RecursionKind, D)] = letMap.get(name)
   /**
    * main is the thing we evaluate. It is the last thing defined
    */
   def getMain[D1](fn: (String, D1, D1) => D1)(implicit ev: D Is Expr[D1]): Option[Expr[D1]] = {
     @annotation.tailrec
-    def loop(ls: List[(String, Expr[D1])], acc: Expr[D1]): Expr[D1] =
+    def loop(ls: List[(String, RecursionKind, Expr[D1])], acc: Expr[D1]): Expr[D1] =
       ls match {
         case Nil => acc
-        case (nm, expr) :: tail =>
+        case (nm, rec, expr) :: tail =>
           val decl = fn(nm, expr.tag, acc.tag)
-          loop(tail, Expr.Let(nm, expr, acc, decl))
+          loop(tail, Expr.Let(nm, expr, acc, recursive = rec, decl))
       }
 
     lets.reverse match {
-      case (_, h) :: tail =>
-        type L[X] = List[(String, X)]
+      case (_, _, h) :: tail =>
+        type L[X] = List[(String, RecursionKind, X)]
         Some(loop(ev.substitute[L](tail), ev.coerce(h)))
       case Nil =>
         None
@@ -116,17 +117,19 @@ object Program {
         case Bind(BindingStatement(bound, decl, Padding(_, rest))) =>
           val Program(te, binds, _) = loop(rest)
           val pat = Declaration.unTuplePattern(bound, nameToType, nameToCons)
-          Program(te, bindings(pat, declToE(decl)).toList ::: binds, stmt)
+          val binds1 = bindings(pat, declToE(decl))
+          val nonRec = binds1.toList.map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
+          Program(te, nonRec ::: binds, stmt)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
-        case Def(defstmt@DefStatement(_, _, _, _)) =>
+        case Def(defstmt@DefStatement(kind, _, _, _, _)) =>
           val (lam, Program(te, binds, _)) = defstmt.result match {
             case (body, Padding(_, in)) =>
               // using body for the outer here is a bummer, but not really a good outer otherwise
               val l = defstmt.toLambdaExpr(declToE(body.get), body.get)(_.toType(nameToType))
               (l, loop(in))
           }
-          Program(te, (defstmt.name, lam) :: binds, stmt)
+          Program(te, (defstmt.name, kind, lam) :: binds, stmt)
         case s@Struct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = defToT(p.types, s), from = s)

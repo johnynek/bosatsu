@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 sealed abstract class NameKind
 object NameKind {
-  case class Let(value: TypedExpr[Declaration]) extends NameKind
+  case class Let(recursive: RecursionKind, value: TypedExpr[Declaration]) extends NameKind
   case class Constructor(
     cn: ConstructorName,
     params: List[(ParamName, rankn.Type)],
@@ -27,7 +27,7 @@ object NameKind {
     val prog = from.program
 
     def getLet: Option[NameKind] =
-      prog.getLet(item).map(Let(_))
+      prog.getLet(item).map { case (rec, d) => Let(rec, d) }
 
     def getConstructor: Option[NameKind] = {
       val cn = ConstructorName(item)

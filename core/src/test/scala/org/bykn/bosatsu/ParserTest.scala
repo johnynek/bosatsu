@@ -331,7 +331,7 @@ foo"""
     parseTestAll(
       Declaration.parser(""),
       defWithComment,
-      Declaration.DefFn(DefStatement("foo", List(("a", None)), None,
+      Declaration.DefFn(DefStatement(RecursionKind.NonRecursive, "foo", List(("a", None)), None,
         (OptIndent.paddedIndented(1, 2, Declaration.Comment(CommentStatement(NonEmptyList.of(" comment here"),
           Padding(0, Declaration.Var("a"))))),
          Padding(0, Declaration.Var("foo"))))))

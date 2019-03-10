@@ -9,6 +9,7 @@ import org.bykn.fastparse_cats.StringInstances._
 import org.typelevel.paiges.{ Doc, Document }
 
 case class DefStatement[T](
+    kind: RecursionKind,
     name: String,
     args: List[(String, Option[TypeRef])],
     retType: Option[TypeRef], result: T) {
@@ -35,6 +36,7 @@ case class DefStatement[T](
 
 object DefStatement {
   private[this] val defDoc = Doc.text("def ")
+  private[this] val recDefDoc = Doc.text("recursive def ")
 
   implicit def document[T: Document]: Document[DefStatement[T]] =
     Document.instance[DefStatement[T]] { defs =>
@@ -47,7 +49,11 @@ object DefStatement {
             Doc.intercalate(Doc.text(", "), args.map(TypeRef.argDoc _)) +
             Doc.char(')')
         }
-      val line0 = defDoc + Doc.text(name) + argDoc + res + Doc.text(":")
+      val dd = kind match {
+        case RecursionKind.NonRecursive => defDoc
+        case RecursionKind.Recursive => recDefDoc
+      }
+      val line0 = dd + Doc.text(name) + argDoc + res + Doc.text(":")
 
       line0 + Document[T].document(result)
     }
@@ -58,15 +64,17 @@ object DefStatement {
     def parser[T](resultTParser: P[T]): P[DefStatement[T]] = {
       val args = argParser.nonEmptyList
       val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser).?
-      P("def" ~ spaces ~/ lowerIdent ~ ("(" ~ maybeSpace ~ args ~ maybeSpace ~ ")").? ~
+      val recKind = P("recursive" ~ spaces ~ "def").map(_ => RecursionKind.Recursive)
+      val notRec = P("def").map(_ => RecursionKind.NonRecursive)
+      P((recKind | notRec) ~ spaces ~/ lowerIdent ~ ("(" ~ maybeSpace ~ args ~ maybeSpace ~ ")").? ~
         result ~ maybeSpace ~ ":" ~/ resultTParser)
         .map {
-          case (name, optArgs, resType, res) =>
+          case (kind, name, optArgs, resType, res) =>
             val args = optArgs match {
               case None => Nil
               case Some(ne) => ne.toList
             }
-            DefStatement(name, args, resType, res)
+            DefStatement(kind, name, args, resType, res)
         }
     }
 

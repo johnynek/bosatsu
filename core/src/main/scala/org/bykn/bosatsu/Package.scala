@@ -95,7 +95,7 @@ object Package {
     p: PackageName,
     imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
     stmt: Statement):
-      ValidatedNel[PackageError, (TypeEnv[Variance], List[(String, TypedExpr[Declaration])])] = {
+      ValidatedNel[PackageError, (TypeEnv[Variance], List[(String, RecursionKind, TypedExpr[Declaration])])] = {
 
     val importedTypes: Map[String, (PackageName, String)] =
       Referant.importedTypes(imps)
@@ -152,6 +152,14 @@ object Package {
           .leftMap { badPaths =>
             badPaths.map(PackageError.CircularType(p, _))
           }
+      /*
+       * Check that all recursion is allowable
+       */
+      val defRecursionCheck: ValidatedNel[PackageError, Unit] =
+        DefRecursionCheck.checkStatement(stmt)
+          .leftMap { badRecursions =>
+            badRecursions.map(PackageError.RecursionError(p, _))
+          }
 
       val typeEnv = TypeEnv.fromParsed(parsedTypeEnv)
       /*
@@ -172,7 +180,7 @@ object Package {
       val fullTypeEnv = importedTypeEnv ++ typeEnv
       val totalityCheck =
         lets
-          .traverse { case (_, expr) => TotalityCheck(fullTypeEnv).checkExpr(expr) }
+          .traverse { case (_, _, expr) => TotalityCheck(fullTypeEnv).checkExpr(expr) }
           .leftMap { errs => errs.map(PackageError.TotalityCheckError(p, _)) }
 
       val inferenceEither = Infer.typeCheckLets(lets)

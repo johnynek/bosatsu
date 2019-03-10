@@ -24,4 +24,10 @@ class PatternTest extends FunSuite {
       assert(p.filterVars(p.names.toSet) == p)
     }
   }
+
+  test("substructures is a subset of names") {
+    forAll(patGen) { p =>
+      p.substructures.toSet.subsetOf(p.names.toSet)
+    }
+  }
 }

@@ -199,6 +199,15 @@ object Evaluation {
     def unreachable: Scoped =
       const(Eval.later(sys.error("unreachable reached")))
 
+    def recursive(name: String, item: => Scoped): Scoped = {
+      lazy val itemEval = item
+      fromFn { env =>
+        lazy val env1: Map[String, Eval[Value]] =
+          env + (name -> Eval.defer(itemEval.inEnv(env1)))
+        itemEval.inEnv(env1)
+      }
+    }
+
     def orElse(name: String)(next: => Scoped): Scoped = {
       lazy val nextComputed = next
       fromFn { env =>
@@ -239,7 +248,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
-      (_, expr) <- pack.program.lets.lastOption
+      (_, rec, expr) <- pack.program.lets.lastOption
       tup = eval((pack, Right(expr)))
     } yield (tup._1.inEnv(Map.empty), tup._2)
 
@@ -467,8 +476,13 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          val inner = recurse((p, Right(expr)))._1
 
          inner.asLambda(name)
-       case Let(arg, e, in, _) =>
-         val eres = recurse((p, Right(e)))._1
+       case Let(arg, e, in, rec, _) =>
+         val eres =
+           if (rec.isRecursive) {
+             Scoped.recursive(arg,
+               recurse((p, Right(e)))._1)
+           }
+           else recurse((p, Right(e)))._1
          val inres = recurse((p, Right(in)))._1
 
          eres.letNameIn(arg, inres)
@@ -514,7 +528,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             // this isn't great, but since we fully compile, even when
             // we don't use a branch, we hit this now
             (Scoped.unreachable, Type.IntType)
-          case Some(NameKind.Let(expr)) =>
+          case Some(NameKind.Let(recursive, expr)) =>
+            // TODO handle recursion
             recurse((pack, Right(expr)))
           case Some(NameKind.Constructor(cn, _, dt, tpe)) =>
             (Scoped.const(constructor(cn, dt)), tpe)

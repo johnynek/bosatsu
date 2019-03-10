@@ -78,9 +78,9 @@ object ExportedName {
     nm: PackageName,
     exports: List[ExportedName[E]],
     typeEnv: rankn.TypeEnv[V],
-    lets: List[(String, TypedExpr[Declaration])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
+    lets: List[(String, RecursionKind, TypedExpr[Declaration])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
 
-     val letMap = lets.toMap
+     val letMap = lets.iterator.map { case (n, _, t) => (n, t) }.toMap
 
      def expName[A](ename: ExportedName[A]): Option[NonEmptyList[ExportedName[Referant[V]]]] = {
        import ename.name
