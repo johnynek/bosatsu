@@ -763,5 +763,14 @@ recursive def bad(foo):
 
 main = bad(Bar)
 """), "A"){ case PackageError.RecursionError(_, _) => () }
+
+  evalTest(
+    List("""
+package A
+
+big_list = range(3000)
+
+main = big_list.foldLeft(0, \x, y -> x.add(y))
+"""), "A", VInt((0 until 3000).sum))
   }
 }

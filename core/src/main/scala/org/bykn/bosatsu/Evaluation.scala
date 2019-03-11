@@ -171,10 +171,14 @@ object Evaluation {
 
     def asLambda(name: String): Scoped =
       fromFn { env =>
-
+        import cats.Now
         val fn =
-          FnValue { x =>
-            inEnv(env.updated(name, x))
+          FnValue {
+            case n@Now(v) =>
+              inEnv(env.updated(name, n))
+            case v => v.flatMap { v0 =>
+              inEnv(env.updated(name, Eval.now(v0)))
+            }
           }
 
         Eval.now(fn)
@@ -185,9 +189,11 @@ object Evaluation {
 
     def applyArg(arg: Scoped): Scoped =
       fromFn { env =>
-        // safe because we typecheck
-        inEnv(env).flatMap { fn =>
-          fn.asLazyFn(arg.inEnv(env))
+        val fnE = inEnv(env)
+        val argE = arg.inEnv(env)
+        fnE.flatMap { fn =>
+          // safe because we typecheck
+          fn.asLazyFn(argE)
         }
       }
   }
@@ -202,7 +208,7 @@ object Evaluation {
     def recursive(name: String, item: Scoped): Scoped = {
       fromFn { env =>
         lazy val env1: Map[String, Eval[Value]] =
-          env + (name -> Eval.defer(item.inEnv(env1)))
+          env + (name -> Eval.defer(item.inEnv(env1)).memoize)
         item.inEnv(env1)
       }
     }
@@ -358,7 +364,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                         splice match {
                           case None => (acc1, next)
                           case Some(nm) =>
-                            val rest = Eval.later(VList(spliceVals.reverse))
+                            val rest = Eval.now(VList(spliceVals.reverse))
                             (acc1.updated(nm, rest), next)
                         }
                       }
@@ -573,7 +579,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         ea.map { a => loop(param - 1, a :: args) }.memoize
       }
 
-    Eval.later(loop(arity, Nil))
+    Eval.now(loop(arity, Nil))
   }
 
   private def definedToJson(a: Value, dt: rankn.DefinedType[Any], rec: (Value, Type) => Option[Json]): Option[Json] = if (dt.packageName == Predef.packageName) {
