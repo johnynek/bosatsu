@@ -166,8 +166,11 @@ sealed abstract class Declaration {
           loop(p).map(_ => decl)
         case Var(name) =>
           Expr.Var(None, name, decl)
-        case Match(kind, arg, branches) =>
-          // TODO handle recursive matches
+        case Match(_, arg, branches) =>
+          /*
+           * The recursion kind is only there for DefRecursionCheck, once
+           * that passes, the expr only cares if lets are recursive or not
+           */
           val expBranches = branches.get.map { case (pat, oidecl) =>
             val decl = oidecl.get
             val newPattern = unTuplePattern(pat, nameToType, nameToCons)

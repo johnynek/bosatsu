@@ -199,12 +199,11 @@ object Evaluation {
     def unreachable: Scoped =
       const(Eval.later(sys.error("unreachable reached")))
 
-    def recursive(name: String, item: => Scoped): Scoped = {
-      lazy val itemEval = item
+    def recursive(name: String, item: Scoped): Scoped = {
       fromFn { env =>
         lazy val env1: Map[String, Eval[Value]] =
-          env + (name -> Eval.defer(itemEval.inEnv(env1)))
-        itemEval.inEnv(env1)
+          env + (name -> Eval.defer(item.inEnv(env1)))
+        item.inEnv(env1)
       }
     }
 
@@ -248,9 +247,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
-      (_, rec, expr) <- pack.program.lets.lastOption
-      tup = eval((pack, Right(expr)))
-    } yield (tup._1.inEnv(Map.empty), tup._2)
+      (name, rec, expr) <- pack.program.lets.lastOption
+      (scope0, tpe) = eval((pack, Right(expr)))
+      scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
+    } yield (scope.inEnv(Map.empty), tpe)
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
@@ -477,12 +477,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
          inner.asLambda(name)
        case Let(arg, e, in, rec, _) =>
+         val e0 = recurse((p, Right(e)))._1
          val eres =
-           if (rec.isRecursive) {
-             Scoped.recursive(arg,
-               recurse((p, Right(e)))._1)
-           }
-           else recurse((p, Right(e)))._1
+           if (rec.isRecursive) Scoped.recursive(arg, e0)
+           else e0
          val inres = recurse((p, Right(in)))._1
 
          eres.letNameIn(arg, inres)
@@ -528,9 +526,13 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             // this isn't great, but since we fully compile, even when
             // we don't use a branch, we hit this now
             (Scoped.unreachable, Type.IntType)
-          case Some(NameKind.Let(recursive, expr)) =>
-            // TODO handle recursion
-            recurse((pack, Right(expr)))
+          case Some(NameKind.Let(name, recursive, expr)) =>
+            val res0 = recurse((pack, Right(expr)))
+            val s1 =
+              if (recursive.isRecursive) Scoped.recursive(name, res0._1)
+              else res0._1
+
+            (s1, res0._2)
           case Some(NameKind.Constructor(cn, _, dt, tpe)) =>
             (Scoped.const(constructor(cn, dt)), tpe)
           case Some(NameKind.Import(from, orig)) =>

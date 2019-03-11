@@ -600,7 +600,7 @@ object Infer {
           if (isRecursive.isRecursive) {
             // We have elsewhere checked that this is legitimate recursion,
             // here we are only typechecking. To typecheck a recursive let,
-            // first allocate a metavariable
+            // first allocate a metavariable to extend the environment first
             newMetaType
               .flatMap { rhsTpe =>
                 extendEnv(name, rhsTpe) {
@@ -613,6 +613,9 @@ object Infer {
               }
           }
           else {
+            // In this branch, we typecheck the rhs *without* name in the environment
+            // so any recursion in this case won't typecheck, and shadowing rules are
+            // in place
             for {
               typedRhs <- inferSigma(rhs)
               varT = typedRhs.getType

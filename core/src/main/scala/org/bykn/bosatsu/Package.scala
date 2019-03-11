@@ -193,7 +193,7 @@ object Package {
 
       val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
 
-      circularCheck *> totalityCheck *> inference
+      defRecursionCheck *> circularCheck *> totalityCheck *> inference
     }
   }
 }

@@ -59,6 +59,9 @@ sealed abstract class Pattern[+N, +T] {
    * e.g. a top level var, would not be returned
    */
   def substructures: List[String] = {
+    def cheat(stack: List[(Pattern[N, T], Boolean)], seen: Set[String], acc: List[String]): List[String] =
+      loop(stack, seen, acc)
+
     @annotation.tailrec
     def loop(stack: List[(Pattern[N, T], Boolean)], seen: Set[String], acc: List[String]): List[String] =
       stack match {
@@ -78,7 +81,10 @@ sealed abstract class Pattern[+N, +T] {
         case (Pattern.PositionalStruct(name, params), _) :: tail =>
           loop(params.map((_, false)) ::: tail, seen, acc)
         case (Pattern.Union(h, t), isTop) :: tail =>
-          loop((h, isTop) :: (t.toList.map((_, isTop))) ::: tail, seen, acc)
+          val all = (h :: t.toList).map { p => cheat((p, isTop) :: tail, seen, acc) }
+          // we need to be substructual on all:
+          val intr = all.map(_.toSet).reduce(_.intersect(_))
+          all.flatMap(_.filter(intr)).distinct
       }
 
     loop((this, true) :: Nil, Set.empty, Nil)

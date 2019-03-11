@@ -15,22 +15,27 @@ import cats.implicits._
  * 2. a recur match must occur on one of the literal parameters to the recursive def
  * 3. inside each branch of the recur match, we may only recur on on substructures in the match
  *    position
+ * 4. recursive defs may not be nested: you cannot define a new recursive def inside a recursive def
  */
 object DefRecursionCheck {
 
   type Res = ValidatedNel[RecursionError, Unit]
+
   sealed abstract class RecursionError
   case class InvalidRecusion(name: String, illegalPosition: Region) extends RecursionError
-  case class ZeroArgRecursiveDef(name: String) extends RecursionError
-  case class ExpectedRecur(name: String, found: Declaration) extends RecursionError
   case class IllegalNesting(scope: Set[String], insideDefName: String, nextDef: String, region: Region) extends RecursionError
   case class IllegalShadow(fnname: String, decl: Declaration) extends RecursionError
   case class UnexpectedRecur(decl: Declaration.Match) extends RecursionError
   case class RecurNotOnArg(decl: Declaration.Match, fnname: String, args: List[String]) extends RecursionError
-  case class RecurNotOnVar(decl: Declaration.Match, fnname: String) extends RecursionError
   case class RecursionArgNotVar(fnname: String, invalidArg: Declaration) extends RecursionError
   case class RecursionNotSubstructural(fnname: String, recurPat: Pattern[Option[String], TypeRef], arg: Declaration.Var) extends RecursionError
 
+  /**
+   * Check a statement that all inner statements and declarations contain legal
+   * recursion, or none at all. Note, we don't check for cases that will be caught
+   * by typechecking: namely, when we have nonrecursive defs, their names are not
+   * in scope during typechecking, so illegal recursion there simply won't typecheck.
+   */
   def checkStatement(s: Statement): Res = {
     import Statement._
     import Impl._
@@ -59,6 +64,12 @@ object DefRecursionCheck {
   private object Impl {
     val unitValid: Res = Validated.valid(())
 
+    /*
+     * While checking a def we have three states we can be in:
+     * 1. we are in a normal def, but have 0 or more outer recursive defs to avoid
+     * 2. we are in a recursive def, but have not yet found the recur match.
+     * 3. we are checking the branches of the recur match
+     */
     sealed abstract class State {
       def outerRecs: Set[String]
     }
@@ -69,7 +80,9 @@ object DefRecursionCheck {
     }
     case class InRecurBranch(outerRecs: Set[String], branch: Pattern[Option[String], TypeRef], defname: String, index: Int) extends State
 
-
+    /*
+     * What is the index into the list of def arguments where we are doing our recursion
+     */
     def getRecurIndex(
       fnname: String,
       args: List[String],
@@ -81,10 +94,14 @@ object DefRecursionCheck {
           if (idx < 0) Validated.invalidNel(RecurNotOnArg(m, fnname, args))
           else Validated.valid(idx)
         case _ =>
-          Validated.invalidNel(RecurNotOnVar(m, fnname))
+          Validated.invalidNel(RecurNotOnArg(m, fnname, args))
       }
     }
 
+    /*
+     * Check that decl is a strict substructure of pat. We do this by making sure decl is a Var
+     * and that var is one of the strict substrutures of the pattern.
+     */
     def strictSubstructure(fnname: String, pat: Pattern[Option[String], TypeRef], decl: Declaration): Res =
       decl match {
         case v@Declaration.Var(nm) =>
@@ -95,6 +112,13 @@ object DefRecursionCheck {
           Validated.invalidNel(RecursionArgNotVar(fnname, decl))
       }
 
+    /*
+     * We disallow shadowing recursive defs. This code checks that we have not done so as we
+     * introduce new bindings.
+     *
+     * We disallow such shadowing currently only in this code. We do it to make it easier
+     * for the algorithm here, but also for human readers to see that recursion is total
+     */
     def checkForIllegalBinds[A](
       state: State,
       bs: Iterable[String],
@@ -106,6 +130,10 @@ object DefRecursionCheck {
           next
       }
 
+    /*
+     * With the given state, check the given Declaration to see if
+     * we have valid recursion
+     */
     def checkDecl(state: State, decl: Declaration): Res = {
       import Declaration._
       decl match {
@@ -115,9 +143,13 @@ object DefRecursionCheck {
               // without any recursion, normal typechecking will detect bad states:
               args.traverse_(checkDecl(state, _))
             case ir@InRecursive(_, defname, _) =>
+              // we have not yet gotten inside the recur match, so it is premature to
+              // access the recursive function
               if (nm == defname) Validated.invalidNel(InvalidRecusion(nm, decl.region))
               else args.traverse_(checkDecl(state, _))
             case InRecurBranch(_, branch, defname, idx) =>
+              // here we are calling our recursive function
+              // make sure we do so on a substructural match
               if (nm == defname) {
                 args.get(idx.toLong) match {
                   case None =>
@@ -178,8 +210,10 @@ object DefRecursionCheck {
             case ir@InRecursive(_, defname, args) =>
               getRecurIndex(defname, args, recur).andThen { idx =>
                 cases.get.traverse_ { case (pat, next) =>
-                  val bstate = ir.branchState(idx, pat)
-                  checkDecl(bstate, next.get)
+                  checkForIllegalBinds(state, pat.names, decl) {
+                    val bstate = ir.branchState(idx, pat)
+                    checkDecl(bstate, next.get)
+                  }
                 }
               }
             }
@@ -193,9 +227,11 @@ object DefRecursionCheck {
               // without any recursion, normal typechecking will detect bad states:
               unitValid
             case ir@InRecursive(_, defname, _) =>
+              // if this were an apply, it would have been handled by Apply(Var(...
               if (v == defname) Validated.invalidNel(InvalidRecusion(v, decl.region))
               else unitValid
             case InRecurBranch(_, _, defname, _) =>
+              // if this were an apply, it would have been handled by Apply(Var(...
               if (v == defname) Validated.invalidNel(InvalidRecusion(v, decl.region))
               else unitValid
             }
@@ -216,9 +252,6 @@ object DefRecursionCheck {
      * Binds are not allowed to be recursive, only defs, so here we just make sure
      * none of the free variables of the pattern are used in decl
      */
-    // def checkBind(pat: Pattern[Option[String], TypeRef], decl: Declaration): Res =
-    //   ensureUnused(pat.names, decl)
-
     def checkDef[A](state: State, defstmt: DefStatement[(OptIndent[Declaration], Padding[A])])(next: A => Res): Res = {
       val body = defstmt.result._1.get
       val args = defstmt.args.map(_._1)

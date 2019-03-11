@@ -151,6 +151,14 @@ recursive def len(lst):
       fn = \len -> len(tail)
       fn(len)
 """)
+    disallowed("""#
+recursive def len(lst):
+  recur lst:
+    []: 0
+    [_, *len]:
+      # shadowing len is not okay
+      12
+""")
   }
 
   test("infinite loop isn't okay") {
@@ -173,6 +181,24 @@ recursive def len(lst):
   def foo(x):
     recur lst:
       0: 1
+  recur lst:
+    []: 0
+    [_, *tail]: 1
+""")
+  }
+
+  test("nested recursion is not allowed") {
+    disallowed("""#
+recursive def len(lst):
+  recursive def foo(x): x
+  recur lst:
+    []: 0
+    [_, *tail]: 1
+""")
+
+    allowed("""#
+recursive def len(lst):
+  def foo(x): x
   recur lst:
     []: 0
     [_, *tail]: 1

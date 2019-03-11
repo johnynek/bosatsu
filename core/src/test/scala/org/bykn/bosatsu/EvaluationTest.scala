@@ -749,5 +749,19 @@ recursive def toInt(pnat):
 
 main = toInt(Even(Even(One)))
 """), "A", VInt(4))
+
+  evalFail(
+    List("""
+package A
+
+enum Foo: Bar, Baz
+
+recursive def bad(foo):
+  recur foo:
+    Bar: 0
+    baz: bad(baz)
+
+main = bad(Bar)
+"""), "A"){ case PackageError.RecursionError(_, _) => () }
   }
 }

@@ -79,7 +79,6 @@ object Predef {
       .add(packageName, "times", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.times"))
       .add(packageName, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.eq_Int"))
       .add(packageName, "cmp_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.cmp_Int"))
-      .add(packageName, "foldLeft", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.foldLeft"))
       .add(packageName, "gcd_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.gcd_Int"))
       .add(packageName, "mod_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.mod_Int"))
       .add(packageName, "range", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.range"))
@@ -128,21 +127,6 @@ object PredefImpl {
 
   def mod_Int(a: Value, b: Value): Value =
     VInt(i(a).mod(i(b).abs()))
-
-  def foldLeft(list: Value, bv: Value, fn: Value): Value = {
-    val fnT = fn.asFn
-    @annotation.tailrec
-    def loop(list: Value, bv: Value): Value =
-      list match {
-        case VList.VNil => bv
-        case VList.Cons(head, tail) =>
-          val nextBv = fnT(bv).flatMap(_.asFn(head)).value
-          loop(tail, nextBv)
-        case _ => sys.error(s"expected a list, found: loop($list, $bv)")
-      }
-
-    loop(list, bv)
-  }
 
   def gcd_Int(a: Value, b: Value): Value =
     VInt(i(a).gcd(i(b)))
