@@ -13,7 +13,7 @@ import cats.implicits._
  * 0. recursive defs may not be shadowed. This makes checking for legal recursion easier
  * 1. until we reach a recur match, we cannot call a recursive def
  * 2. a recur match must occur on one of the literal parameters to the recursive def
- * 3. inside each branch of the recur match, we may only recur on on substructures in the match
+ * 3. inside each branch of the recur match, we may only recur on substructures in the match
  *    position
  * 4. recursive defs may not be nested: you cannot define a new recursive def inside a recursive def
  */

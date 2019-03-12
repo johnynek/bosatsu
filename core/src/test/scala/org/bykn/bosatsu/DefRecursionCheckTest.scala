@@ -159,6 +159,18 @@ recursive def len(lst):
       # shadowing len is not okay
       12
 """)
+    disallowed("""#
+len = 2
+recursive def len(lst):
+  # even though len exists above, it is shadowed
+  # by this method, and currently inaccessible
+  x = len
+  recur lst:
+    []: 0
+    [_, *_]:
+      # shadowing len is not okay
+      12
+""")
   }
 
   test("infinite loop isn't okay") {
