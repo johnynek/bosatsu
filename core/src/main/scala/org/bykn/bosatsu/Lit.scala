@@ -21,7 +21,7 @@ object Lit {
   def apply(str: String): Lit = Str(str)
 
   val integerParser: P[Integer] =
-    Parser.integerString.map { str => Integer(new BigInteger(str)) }
+    Parser.integerString.map { str => Integer(new BigInteger(str.filterNot(_ == '_'))) }
 
   val stringParser: P[Str] = {
     val q1 = '\''

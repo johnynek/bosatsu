@@ -163,11 +163,11 @@ object Parser {
   def tokenP[T](s: String, t: T): P[T] = P(s).map(_ => t)
 
   val integerString: P[String] = {
-    val nonZero: P[String] = P(CharIn('1' to '9').! ~ (CharsWhile(isNum _).!.?))
-      .map {
-        case (f, None) => f
-        case (f, Some(r)) => f + r
-      }
+
+    val digit1 = CharIn('1' to '9')
+    val digit0 = CharIn('0' to '9')
+    val rest = P("_".? ~ digit0).rep()
+    val nonZero: P[String] = P(digit1 ~ rest).!
 
     val positive: P[String] = tokenP("0", "0") | nonZero
     P(CharIn("+-").!.? ~ positive)

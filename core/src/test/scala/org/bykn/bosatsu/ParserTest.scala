@@ -103,7 +103,31 @@ class ParserTest extends FunSuite {
 
   test("we can parse integers") {
     forAll { b: BigInt =>
-      parseTestAll(Parser.integerString, b.toString, b.toString)
+      val bstr = b.toString
+      parseTestAll(Parser.integerString, bstr, bstr)
+    }
+
+    // we can also add _ in between any two digits
+    case class Opaque(toS: String) // no shrinking
+    val strGen: Gen[Opaque] =
+      Arbitrary.arbitrary[BigInt].flatMap { b =>
+        val bstr = b.abs.toString.take(5) // don't go nuts in size
+        // randomly put some _ in between
+        val sep = Gen.frequency((10, Gen.const("")), (1, Gen.const("_")))
+
+        def loop(b: String): Gen[String] =
+          if (b.length <= 1) Gen.const(b)
+          else for {
+            s <- sep
+            tail <- loop(b.tail)
+          } yield s"${b.charAt(0)}$s$tail"
+
+        loop(bstr).map(Opaque(_))
+      }
+
+    parseTestAll(Parser.integerString, "1_000", "1_000")
+    forAll(strGen) { case Opaque(s) =>
+      parseTestAll(Parser.integerString, s, s)
     }
   }
 
