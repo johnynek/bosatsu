@@ -32,7 +32,7 @@ bosatsu_test(
 bosatsu_test(
     name = "euler2",
     srcs = ["euler2.bosatsu"],
-    size = "small")
+    size = "medium")
 
 bosatsu_test(
     name = "euler3",
@@ -57,4 +57,4 @@ bosatsu_test(
 bosatsu_test(
     name = "euler7",
     srcs = ["euler7.bosatsu"],
-    size = "small")
+    size = "medium")

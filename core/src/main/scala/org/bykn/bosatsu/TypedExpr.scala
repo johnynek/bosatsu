@@ -28,7 +28,7 @@ sealed abstract class TypedExpr[T] {
         Type.Fun(tpe, res.getType)
       case Var(_, _, tpe, _) => tpe
       case App(_, _, tpe, _) => tpe
-      case Let(_, _, in, _) =>
+      case Let(_, _, in, _, _) =>
         in.getType
       case Literal(_, tpe, _) =>
         tpe
@@ -56,8 +56,9 @@ sealed abstract class TypedExpr[T] {
         s"(var $p $v ${rept(tpe)})"
       case App(fn, arg, tpe, _) =>
         s"(ap ${fn.repr} ${arg.repr} ${rept(tpe)})"
-      case Let(n, b, in, _) =>
-        s"(let $n ${b.repr} ${in.repr})"
+      case Let(n, b, in, rec, _) =>
+        val nm = if (rec.isRecursive) "letrec" else "let"
+        s"($nm $n ${b.repr} ${in.repr})"
       case Literal(v, tpe, _) =>
         s"(lit ${v.repr} ${rept(tpe)})"
       case If(arg, ift, iff, _) =>
@@ -88,9 +89,9 @@ sealed abstract class TypedExpr[T] {
         (f.traverseType(fn), arg.traverseType(fn), fn(tpe)).mapN {
           App(_, _, _, tag)
         }
-      case Let(v, exp, in, tag) =>
+      case Let(v, exp, in, rec, tag) =>
         (exp.traverseType(fn), in.traverseType(fn)).mapN {
-          Let(v, _, _, tag)
+          Let(v, _, _, rec, tag)
         }
       case Literal(lit, tpe, tag) =>
         fn(tpe).map(Literal(lit, _, tag))
@@ -122,7 +123,7 @@ object TypedExpr {
   case class AnnotatedLambda[T](arg: String, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Var[T](pack: Option[PackageName], name: String, tpe: Type, tag: T) extends TypedExpr[T]
   case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
-  case class Let[T](arg: String, expr: TypedExpr[T], in: TypedExpr[T], tag: T) extends TypedExpr[T]
+  case class Let[T](arg: String, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class If[T](cond: TypedExpr[T], ifTrue: TypedExpr[T], ifFalse: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
@@ -148,8 +149,8 @@ object TypedExpr {
           case App(fn, arg, _, tag) =>
             // do we need to coerce fn into the right shape?
             App(fn, arg, tpe, tag)
-          case Let(arg, argE, in, tag) =>
-            Let(arg, argE, self(in), tag)
+          case Let(arg, argE, in, rec, tag) =>
+            Let(arg, argE, self(in), rec, tag)
           case Literal(l, _, tag) => Literal(l, tpe, tag)
           case If(c, ift, iff, tag) =>
             If(c, self(ift), self(iff), tag)
@@ -182,7 +183,7 @@ object TypedExpr {
           go(tail, bound, acc1)
         case App(fn, arg, _, _) :: tail =>
           go(fn :: arg :: tail, bound, acc)
-        case Let(arg, argE, in, _) :: tail =>
+        case Let(arg, argE, in, _, _) :: tail =>
           val acc1 = cheat(in :: Nil, bound + arg, acc)
           go(argE :: tail, bound, acc1)
         case Literal(_, _, _) :: tail =>

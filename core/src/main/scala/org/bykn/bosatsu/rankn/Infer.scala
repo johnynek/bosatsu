@@ -10,6 +10,7 @@ import org.bykn.bosatsu.{
   PackageName,
   Pattern => GenPattern,
   Region,
+  RecursionKind,
   TypeRef,
   TypedExpr,
   Variance}
@@ -595,12 +596,32 @@ object Infer {
                 _ <- infer.set((Type.Fun(tpe, bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
           }
-        case Let(name, rhs, body, tag) =>
-          for {
-            typedRhs <- inferSigma(rhs)
-            varT = typedRhs.getType
-            typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
-          } yield TypedExpr.Let(name, typedRhs, typedBody, tag)
+        case Let(name, rhs, body, isRecursive, tag) =>
+          if (isRecursive.isRecursive) {
+            // We have elsewhere checked that this is legitimate recursion,
+            // here we are only typechecking. To typecheck a recursive let,
+            // first allocate a metavariable to extend the environment first
+            newMetaType
+              .flatMap { rhsTpe =>
+                extendEnv(name, rhsTpe) {
+                  for {
+                    typedRhs <- inferSigma(rhs)
+                    varT = typedRhs.getType
+                    typedBody <- typeCheckRho(body, expect)
+                  } yield TypedExpr.Let(name, typedRhs, typedBody, isRecursive, tag)
+                }
+              }
+          }
+          else {
+            // In this branch, we typecheck the rhs *without* name in the environment
+            // so any recursion in this case won't typecheck, and shadowing rules are
+            // in place
+            for {
+              typedRhs <- inferSigma(rhs)
+              varT = typedRhs.getType
+              typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
+            } yield TypedExpr.Let(name, typedRhs, typedBody, isRecursive, tag)
+          }
         case Annotation(term, tpe, tag) =>
           for {
             typedTerm <- checkSigma(term, tpe)
@@ -874,8 +895,14 @@ object Infer {
       } yield expr
   }
 
+  def recursiveTypeCheck[A: HasRegion](name: String, expr: Expr[A]): Infer[TypedExpr[A]] =
+    newMetaType.flatMap { tpe =>
+      extendEnv(name, tpe)(typeCheck(expr))
+    }
+
 
   def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] = {
+    // TODO handle rec
     def run(t: Expr[A]) = inferSigma(t).flatMap(zonkTypedExpr _)
     /*
      * This is a deviation from the paper.
@@ -926,14 +953,14 @@ object Infer {
    * Packages are generally just lists of lets, this allows you to infer
    * the scheme for each in the context of the list
    */
-  def typeCheckLets[A: HasRegion](ls: List[(String, Expr[A])]): Infer[List[(String, TypedExpr[A])]] =
+  def typeCheckLets[A: HasRegion](ls: List[(String, RecursionKind, Expr[A])]): Infer[List[(String, RecursionKind, TypedExpr[A])]] =
     ls match {
       case Nil => Infer.pure(Nil)
-      case (nm, expr) :: tail =>
+      case (nm, rec, expr) :: tail =>
         for {
-          te <- typeCheck(expr)
+          te <- if (rec.isRecursive) recursiveTypeCheck(nm, expr) else typeCheck(expr)
           rest <- extendEnv(nm, te.getType)(typeCheckLets(tail))
-        } yield (nm, te) :: rest
+        } yield (nm, rec, te) :: rest
     }
 
   /**

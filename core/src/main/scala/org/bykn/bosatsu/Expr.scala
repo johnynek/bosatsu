@@ -20,7 +20,7 @@ sealed abstract class Expr[T] {
       case a@App(_, _, _) => a.copy(tag = t)
       case l@Lambda(_, _, _) => l.copy(tag = t)
       case a@AnnotatedLambda(_, _, _, _) => a.copy(tag = t)
-      case l@Let(_, _, _, _) => l.copy(tag = t)
+      case l@Let(_, _, _, _, _) => l.copy(tag = t)
       case l@Literal(_, _) => l.copy(tag = t)
       case i@If(_, _, _, _) => i.copy(tag = t)
       case m@Match(_, _, _) => m.copy(tag = t)
@@ -35,7 +35,7 @@ object Expr {
   case class Var[T](pack: Option[PackageName], name: String, tag: T) extends Expr[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
   case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
-  case class Let[T](arg: String, expr: Expr[T], in: Expr[T], tag: T) extends Expr[T]
+  case class Let[T](arg: String, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class If[T](cond: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T) extends Expr[T]
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])], tag: T) extends Expr[T]
@@ -55,8 +55,8 @@ object Expr {
         (traverseType(f, fn), traverseType(a, fn)).mapN(App(_, _, t))
       case Lambda(arg, expr, t) =>
         traverseType(expr, fn).map(Lambda(arg, _, t))
-      case Let(arg, exp, in, tag) =>
-        (traverseType(exp, fn), traverseType(in, fn)).mapN(Let(arg, _, _, tag))
+      case Let(arg, exp, in, rec, tag) =>
+        (traverseType(exp, fn), traverseType(in, fn)).mapN(Let(arg, _, _, rec, tag))
       case l@Literal(_, _) => F.pure(l)
       case If(cond, ift, iff, tag) =>
         (traverseType(cond, fn), traverseType(ift, fn), traverseType(iff, fn)).mapN {
@@ -91,8 +91,8 @@ object Expr {
         App(nest(fn), nest(a), e)
       case Lambda(arg, expr, _) =>
         Lambda(arg, nest(expr), e)
-      case Let(arg, exp, in, _) =>
-        Let(arg, nest(exp), nest(in), e)
+      case Let(arg, exp, in, rec, _) =>
+        Let(arg, nest(exp), nest(in), rec, e)
       case Literal(lit, _) =>
         Literal(lit, e)
       case If(cond, ift, iff, _) =>
@@ -130,9 +130,9 @@ object Expr {
             (expr.traverse(f), f(t)).mapN { (e1, t1) =>
               Lambda(arg, e1, t1)
             }
-          case Let(arg, exp, in, tag) =>
+          case Let(arg, exp, in, rec, tag) =>
             (exp.traverse(f), in.traverse(f), f(tag)).mapN { (e1, i1, t1) =>
-              Let(arg, e1, i1, t1)
+              Let(arg, e1, i1, rec, t1)
             }
           case Literal(lit, tag) =>
             f(tag).map(Literal(lit, _))
@@ -163,7 +163,7 @@ object Expr {
           case Lambda(_, expr, tag) =>
             val b1 = foldLeft(expr, b)(f)
             f(b1, tag)
-          case Let(_, exp, in, tag) =>
+          case Let(_, exp, in, _, tag) =>
             val b1 = foldLeft(exp, b)(f)
             val b2 = foldLeft(in, b1)(f)
             f(b2, tag)
@@ -196,7 +196,7 @@ object Expr {
           case Lambda(_, expr, tag) =>
             val b1 = f(tag, lb)
             foldRight(expr, b1)(f)
-          case Let(_, exp, in, tag) =>
+          case Let(_, exp, in, _, tag) =>
             val b1 = f(tag, lb)
             val b2 = foldRight(in, b1)(f)
             foldRight(exp, b2)(f)

@@ -73,7 +73,7 @@ sealed abstract class Declaration {
       case Lambda(args, body) =>
         Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Doc.text _)) + Doc.text(" -> ") + body.toDoc
       case Literal(lit) => Document[Lit].document(lit)
-      case Match(typeName, args) =>
+      case Match(kind, typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
 
         implicit val patDoc: Document[(Pattern[Option[String], TypeRef], OptIndent[Declaration])] =
@@ -85,8 +85,12 @@ sealed abstract class Declaration {
           Document.instance { ts => Doc.intercalate(Doc.line, ts.toList.map(Document[T].document _)) }
 
         val piPat = Document[OptIndent[NonEmptyList[(Pattern[Option[String], TypeRef], OptIndent[Declaration])]]]
+        val kindDoc = kind match {
+          case RecursionKind.NonRecursive => Doc.text("match ")
+          case RecursionKind.Recursive => Doc.text("recur ")
+        }
         // TODO this isn't quite right
-        Doc.text("match ") + typeName.toDoc + Doc.char(':') + args.sepDoc +
+        kindDoc + typeName.toDoc + Doc.char(':') + args.sepDoc +
           piPat.document(args)
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
@@ -121,7 +125,7 @@ sealed abstract class Declaration {
         case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
           pat match {
             case Pattern.Var(arg) =>
-              Expr.Let(arg, loop(value), loop(rest), decl)
+              Expr.Let(arg, loop(value), loop(rest), RecursionKind.NonRecursive, decl)
             case pat =>
               val newPattern = unTuplePattern(pat, nameToType, nameToCons)
               val res = loop(rest)
@@ -132,13 +136,13 @@ sealed abstract class Declaration {
           loop(decl).map(_ => decl)
         case Constructor(name) =>
           Expr.Var(None, name, decl)
-        case DefFn(defstmt@DefStatement(_, _, _, _)) =>
+        case DefFn(defstmt@DefStatement(kind, _, _, _, _)) =>
           val (bodyExpr, inExpr) = defstmt.result match {
             case (oaBody, Padding(_, in)) =>
               (loop(oaBody.get), loop(in))
           }
           val lambda = defstmt.toLambdaExpr(bodyExpr, decl)(_.toType(nameToType))
-          Expr.Let(defstmt.name, lambda, inExpr, decl)
+          Expr.Let(defstmt.name, lambda, inExpr, recursive = kind, decl)
         case IfElse(ifCases, elseCase) =>
           def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
             Expr.If(cond, ifTrue, ifFalse, decl)
@@ -162,7 +166,11 @@ sealed abstract class Declaration {
           loop(p).map(_ => decl)
         case Var(name) =>
           Expr.Var(None, name, decl)
-        case Match(arg, branches) =>
+        case Match(_, arg, branches) =>
+          /*
+           * The recursion kind is only there for DefRecursionCheck, once
+           * that passes, the expr only cares if lets are recursive or not
+           */
           val expBranches = branches.get.map { case (pat, oidecl) =>
             val decl = oidecl.get
             val newPattern = unTuplePattern(pat, nameToType, nameToCons)
@@ -270,7 +278,9 @@ object Declaration {
     elseCase: OptIndent[Declaration])(implicit val region: Region) extends Declaration
   case class Lambda(args: NonEmptyList[String], body: Declaration)(implicit val region: Region) extends Declaration
   case class Literal(lit: Lit)(implicit val region: Region) extends Declaration
-  case class Match(arg: Declaration,
+  case class Match(
+    kind: RecursionKind,
+    arg: Declaration,
     cases: OptIndent[NonEmptyList[(Pattern[Option[String], TypeRef], OptIndent[Declaration])]])(
     implicit val region: Region) extends Declaration
   case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
@@ -281,6 +291,9 @@ object Declaration {
    * This represents the list construction language
    */
   case class ListDecl(list: ListLang[Declaration])(implicit val region: Region) extends Declaration
+
+  val matchKindParser: P[RecursionKind] =
+    (P("match").map(_ => RecursionKind.NonRecursive) | P("recur").map(_ => RecursionKind.Recursive))
 
   /**
    * A pattern can also be a declaration in some cases
@@ -387,10 +400,10 @@ object Declaration {
     val withTrailing = expr <* Indy.lift(maybeSpace)
     val branch = Indy.block(Indy.lift(Pattern.parser), withTrailing)
 
-    Indy.block(Indy.lift(P("match" ~ spaces)) *> withTrailing, branch.nonEmptyList(Indy.toEOLIndent))
+    Indy.block(Indy.lift(P(matchKindParser ~ spaces)).product(withTrailing), branch.nonEmptyList(Indy.toEOLIndent))
       .region
-      .map { case (r, (exp, branches)) =>
-        Match(exp, branches)(r)
+      .map { case (r, ((kind, exp), branches)) =>
+        Match(kind, exp, branches)(r)
       }
   }
 

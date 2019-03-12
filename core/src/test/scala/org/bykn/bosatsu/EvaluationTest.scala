@@ -721,4 +721,56 @@ def plus(x: a, y):
 main = plus(1, 2)
 """), "A"){ case PackageError.TypeErrorIn(_, _) => () }
   }
+
+  test("structual recursion is allowed") {
+  evalTest(
+    List("""
+package A
+
+recursive def len(lst, acc):
+  recur lst:
+    []: acc
+    [_, *tail]: len(tail, acc.add(1))
+
+main = len([1, 2, 3], 0)
+"""), "A", VInt(3))
+
+  evalTest(
+    List("""
+package A
+
+enum PNat: One, Even(of: PNat), Odd(of: PNat)
+
+recursive def toInt(pnat):
+  recur pnat:
+    One: 1
+    Even(of): toInt(of).times(2)
+    Odd(of): toInt(of).times(2).add(1)
+
+main = toInt(Even(Even(One)))
+"""), "A", VInt(4))
+
+  evalFail(
+    List("""
+package A
+
+enum Foo: Bar, Baz
+
+recursive def bad(foo):
+  recur foo:
+    Bar: 0
+    baz: bad(baz)
+
+main = bad(Bar)
+"""), "A"){ case PackageError.RecursionError(_, _) => () }
+
+  evalTest(
+    List("""
+package A
+
+big_list = range(3000)
+
+main = big_list.foldLeft(0, \x, y -> x.add(y))
+"""), "A", VInt((0 until 3000).sum))
+  }
 }

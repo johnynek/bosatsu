@@ -55,6 +55,42 @@ sealed abstract class Pattern[+N, +T] {
   }
 
   /**
+   * List all the names that strictly smaller than anything that would match this pattern
+   * e.g. a top level var, would not be returned
+   */
+  def substructures: List[String] = {
+    def cheat(stack: List[(Pattern[N, T], Boolean)], seen: Set[String], acc: List[String]): List[String] =
+      loop(stack, seen, acc)
+
+    @annotation.tailrec
+    def loop(stack: List[(Pattern[N, T], Boolean)], seen: Set[String], acc: List[String]): List[String] =
+      stack match {
+        case Nil => acc.reverse
+        case ((Pattern.WildCard, _) | (Pattern.Literal(_), _)) :: tail => loop(tail, seen, acc)
+        case (Pattern.Var(v), isTop) :: tail =>
+          if (seen(v) || isTop) loop(tail, seen, acc)
+          else loop(tail, seen + v, v :: acc)
+        case (Pattern.ListPat(Left(Some(_)) :: Nil), true) :: tail =>
+            // this is a total match at the top level, not a substructue
+            loop(tail, seen, acc)
+        case (Pattern.ListPat(items), _) :: tail =>
+          val globs = items.collect { case Left(Some(glob)) => glob }.filterNot(seen)
+          val next = items.collect { case Right(inner) => (inner, false) }
+          loop(next ::: tail, seen ++ globs, globs reverse_::: acc)
+        case (Pattern.Annotation(p, _), isTop) :: tail => loop((p, isTop) :: tail, seen, acc)
+        case (Pattern.PositionalStruct(name, params), _) :: tail =>
+          loop(params.map((_, false)) ::: tail, seen, acc)
+        case (Pattern.Union(h, t), isTop) :: tail =>
+          val all = (h :: t.toList).map { p => cheat((p, isTop) :: tail, seen, acc) }
+          // we need to be substructual on all:
+          val intr = all.map(_.toSet).reduce(_.intersect(_))
+          all.flatMap(_.filter(intr)).distinct
+      }
+
+    loop((this, true) :: Nil, Set.empty, Nil)
+  }
+
+  /**
    * Return the pattern with all the binding names removed
    */
   def unbind: Pattern[N, T] =

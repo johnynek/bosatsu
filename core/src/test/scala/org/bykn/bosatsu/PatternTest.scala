@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.forAll
@@ -23,5 +24,24 @@ class PatternTest extends FunSuite {
     forAll(patGen, Gen.listOf(Gen.identifier)) { (p, ids) =>
       assert(p.filterVars(p.names.toSet) == p)
     }
+  }
+
+  test("substructures is a subset of names") {
+    forAll(patGen) { p =>
+      p.substructures.toSet.subsetOf(p.names.toSet)
+    }
+  }
+
+  test("substructures don't include total matches") {
+    assert(Pattern.Var("foo").substructures.isEmpty)
+    assert(Pattern.Annotation(Pattern.Var("foo"), "Type").substructures.isEmpty)
+    assert(Pattern.Union(Pattern.Var("foo"), NonEmptyList.of(Pattern.Var("bar"))).substructures.isEmpty)
+  }
+
+  test("unions with total matches work correctly") {
+    val inner = Pattern.Var("foo")
+    val struct = Pattern.PositionalStruct("Foo", inner :: Nil)
+    // Note, foo can't be substructural because on the right it is total
+    assert(Pattern.Union(struct, NonEmptyList.of(inner)).substructures.isEmpty)
   }
 }

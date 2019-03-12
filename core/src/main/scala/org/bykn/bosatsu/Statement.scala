@@ -61,7 +61,7 @@ sealed abstract class Statement {
           s #:: loop(rest)
         case Comment(CommentStatement(_, Padding(_, rest))) =>
           s #:: loop(rest)
-        case Def(DefStatement(_, _, _, (_, Padding(_, rest)))) =>
+        case Def(DefStatement(_, _, _, _, (_, Padding(_, rest)))) =>
           s #:: loop(rest)
         case Struct(_, _, Padding(_, rest)) =>
           s #:: loop(rest)

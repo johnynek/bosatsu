@@ -171,10 +171,14 @@ object Evaluation {
 
     def asLambda(name: String): Scoped =
       fromFn { env =>
-
+        import cats.Now
         val fn =
-          FnValue { x =>
-            inEnv(env.updated(name, x))
+          FnValue {
+            case n@Now(v) =>
+              inEnv(env.updated(name, n))
+            case v => v.flatMap { v0 =>
+              inEnv(env.updated(name, Eval.now(v0)))
+            }
           }
 
         Eval.now(fn)
@@ -185,9 +189,11 @@ object Evaluation {
 
     def applyArg(arg: Scoped): Scoped =
       fromFn { env =>
-        // safe because we typecheck
-        inEnv(env).flatMap { fn =>
-          fn.asLazyFn(arg.inEnv(env))
+        val fnE = inEnv(env)
+        val argE = arg.inEnv(env)
+        fnE.flatMap { fn =>
+          // safe because we typecheck
+          fn.asLazyFn(argE)
         }
       }
   }
@@ -198,6 +204,14 @@ object Evaluation {
 
     def unreachable: Scoped =
       const(Eval.later(sys.error("unreachable reached")))
+
+    def recursive(name: String, item: Scoped): Scoped = {
+      fromFn { env =>
+        lazy val env1: Map[String, Eval[Value]] =
+          env + (name -> Eval.defer(item.inEnv(env1)).memoize)
+        item.inEnv(env1)
+      }
+    }
 
     def orElse(name: String)(next: => Scoped): Scoped = {
       lazy val nextComputed = next
@@ -239,9 +253,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
-      (_, expr) <- pack.program.lets.lastOption
-      tup = eval((pack, Right(expr)))
-    } yield (tup._1.inEnv(Map.empty), tup._2)
+      (name, rec, expr) <- pack.program.lets.lastOption
+      (scope0, tpe) = eval((pack, Right(expr)))
+      scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
+    } yield (scope.inEnv(Map.empty), tpe)
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
@@ -349,7 +364,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                         splice match {
                           case None => (acc1, next)
                           case Some(nm) =>
-                            val rest = Eval.later(VList(spliceVals.reverse))
+                            val rest = Eval.now(VList(spliceVals.reverse))
                             (acc1.updated(nm, rest), next)
                         }
                       }
@@ -467,8 +482,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          val inner = recurse((p, Right(expr)))._1
 
          inner.asLambda(name)
-       case Let(arg, e, in, _) =>
-         val eres = recurse((p, Right(e)))._1
+       case Let(arg, e, in, rec, _) =>
+         val e0 = recurse((p, Right(e)))._1
+         val eres =
+           if (rec.isRecursive) Scoped.recursive(arg, e0)
+           else e0
          val inres = recurse((p, Right(in)))._1
 
          eres.letNameIn(arg, inres)
@@ -514,8 +532,13 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             // this isn't great, but since we fully compile, even when
             // we don't use a branch, we hit this now
             (Scoped.unreachable, Type.IntType)
-          case Some(NameKind.Let(expr)) =>
-            recurse((pack, Right(expr)))
+          case Some(NameKind.Let(name, recursive, expr)) =>
+            val res0 = recurse((pack, Right(expr)))
+            val s1 =
+              if (recursive.isRecursive) Scoped.recursive(name, res0._1)
+              else res0._1
+
+            (s1, res0._2)
           case Some(NameKind.Constructor(cn, _, dt, tpe)) =>
             (Scoped.const(constructor(cn, dt)), tpe)
           case Some(NameKind.Import(from, orig)) =>
@@ -556,7 +579,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         ea.map { a => loop(param - 1, a :: args) }.memoize
       }
 
-    Eval.later(loop(arity, Nil))
+    Eval.now(loop(arity, Nil))
   }
 
   private def definedToJson(a: Value, dt: rankn.DefinedType[Any], rec: (Value, Type) => Option[Json]): Option[Json] = if (dt.packageName == Predef.packageName) {

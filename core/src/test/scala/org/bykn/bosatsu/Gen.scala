@@ -25,7 +25,10 @@ object Generators {
       tail <- Gen.listOfN(cnt, t)
     } yield NonEmptyList(h, tail)
 
-  val keyWords = Set("if", "ffi", "match", "struct", "enum", "else", "elif", "def", "external", "package", "import", "export", "forall")
+  val keyWords = Set(
+    "if", "ffi", "match", "struct", "enum", "else", "elif",
+    "def", "external", "package", "import", "export", "forall",
+    "recur", "recursive")
 
   val lowerIdent: Gen[String] =
     (for {
@@ -96,11 +99,12 @@ object Generators {
 
   def defGen[T](dec: Gen[T]): Gen[DefStatement[T]] =
     for {
+      recKind <- Gen.frequency((10, Gen.const(RecursionKind.NonRecursive)), (1, Gen.const(RecursionKind.Recursive)))
       name <- lowerIdent
       args <- Gen.listOf(argGen)
       retType <- Gen.option(typeRefGen)
       body <- dec
-    } yield DefStatement(name, args, retType, body)
+    } yield DefStatement(recKind, name, args, retType, body)
 
   def genSpliceOrItem[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.SpliceOrItem[A]] =
     Gen.oneOf(spliceGen.map(ListLang.SpliceOrItem.Splice(_)),
@@ -119,7 +123,7 @@ object Generators {
       case Declaration.Binding(_) => false
       case Declaration.Parens(p) => filterFn(p)
       case Declaration.IfElse(_, _) => false
-      case Declaration.Match(_, _) => false
+      case Declaration.Match(_, _, _) => false
       case Declaration.Lambda(_, body) => filterFn(body)
       case Declaration.Apply(f, args, _) =>
         filterFn(f) && args.forall(filterFn)
@@ -279,9 +283,10 @@ object Generators {
 
     for {
       cnt <- Gen.choose(1, 2)
+      kind <- Gen.frequency((10, Gen.const(RecursionKind.NonRecursive)), (1, Gen.const(RecursionKind.Recursive)))
       expr <- bodyGen
       cases <- optIndent(nonEmptyN(genCase, cnt))
-    } yield Match(expr, cases)(emptyRegion)
+    } yield Match(kind, expr, cases)(emptyRegion)
   }
 
   val genLit: Gen[Lit] = {
@@ -364,7 +369,7 @@ object Generators {
             inner #::: inner.flatMap(apply _)
           case IfElse(ifCases, elseCase) =>
             elseCase.get #:: ifCases.toList.toStream.map(_._2.get)
-          case Match(typeName, args) =>
+          case Match(_, typeName, args) =>
             args.get.toList.toStream.flatMap {
               case (_, decl) => decl.get #:: apply(decl.get)
             }

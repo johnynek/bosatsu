@@ -3,7 +3,7 @@ package org.bykn.bosatsu.rankn
 import cats.data.{NonEmptyList, Validated}
 import fastparse.all.Parsed
 import org.scalatest.{Assertion, FunSuite}
-import org.bykn.bosatsu.{Declaration, Expr, HasRegion, Lit, PackageName, Package, Pattern, TypeRef, TypedExpr, ConstructorName, Region, Statement, Variance}
+import org.bykn.bosatsu.{Declaration, Expr, HasRegion, Lit, PackageName, Package, Pattern, TypeRef, TypedExpr, ConstructorName, Region, Statement, Variance, RecursionKind}
 
 import Expr._
 import Type.Var.Bound
@@ -60,12 +60,12 @@ class RankNInferTest extends FunSuite {
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
-    Infer.typeCheckLets(terms.map { case (k, v, _) => (k, v) })
+    Infer.typeCheckLets(terms.map { case (k, v, _) => (k, RecursionKind.NonRecursive, v) })
       .runFully(Infer.asFullyQualified(withBools), Map.empty) match {
         case Left(err) => assert(false, err)
         case Right(tpes) =>
           assert(tpes.size == terms.size)
-          terms.zip(tpes).foreach { case ((n, exp, expt), (n1, te)) =>
+          terms.zip(tpes).foreach { case ((n, exp, expt), (n1, _, te)) =>
             assert(n == n1, s"the name changed: $n != $n1")
             assert(te.getType == expt, s"$n = $exp failed to typecheck to $expt, got ${te.getType}")
           }
@@ -74,7 +74,7 @@ class RankNInferTest extends FunSuite {
 
   def lit(i: Int): Expr[Unit] = Literal(Lit(i.toLong), ())
   def lit(b: Boolean): Expr[Unit] = if (b) Var(None, "True", ()) else Var(None, "False", ())
-  def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] = Let(n, expr, in, ())
+  def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] = Let(n, expr, in, RecursionKind.NonRecursive, ())
   def lambda(arg: String, result: Expr[Unit]): Expr[Unit] = Lambda(arg, result, ())
   def v(name: String): Expr[Unit] = Var(None, name, ())
   def ann(expr: Expr[Unit], t: Type): Expr[Unit] = Annotation(expr, t, ())
@@ -97,7 +97,7 @@ class RankNInferTest extends FunSuite {
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
           case Validated.Invalid(errs) => fail(errs.toList.map(_.message(Map.empty)).mkString("\n"))
           case Validated.Valid((_, lets)) =>
-            fn(lets.last._2)
+            fn(lets.last._3)
         }
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
@@ -821,5 +821,33 @@ enum LR: L(a), R(b)
 L(_) = L(1)
 main = 1
 """)
+  }
+
+  test("structural recursion can be typed") {
+    parseProgram("""#
+
+enum Nat: Zero, Succ(prev: Nat)
+
+recursive def len(l):
+  recur l:
+    Zero: 0
+    Succ(p): len(p)
+
+main = len(Succ(Succ(Zero)))
+""", "Int")
+
+    parseProgram("""#
+
+enum Nat: Zero, Succ(prev: Nat)
+
+def len(l):
+  recursive def len0(l):
+    recur l:
+      Zero: 0
+      Succ(p): len0(p)
+  len0(l)
+
+main = len(Succ(Succ(Zero)))
+""", "Int")
   }
 }

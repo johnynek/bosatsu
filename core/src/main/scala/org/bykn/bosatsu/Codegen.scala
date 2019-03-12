@@ -141,7 +141,7 @@ trait CodeGen {
         outputExternal(n, ext.toMap((p, n)), ???/*scheme*/)
       }
 
-    val body = Traverse[List].traverse(unfix.program.lets) { case (f, e) =>
+    val body = Traverse[List].traverse(unfix.program.lets) { case (f, rec, e) =>
       val priv = if (isExported(f)) "public " else "private "
       val left = Doc.text(s"${priv}final static Object ") + Doc.text(toExportedName(f)) + Doc.text(" = ")
       for {
@@ -242,7 +242,7 @@ trait CodeGen {
           }
         }
 
-      case Let(nm, nmv, in, _) =>
+      case Let(nm, nmv, in, _, _) =>
         nameIn(nm) { ua =>
           nameIn("anon") { uanon =>
             for {

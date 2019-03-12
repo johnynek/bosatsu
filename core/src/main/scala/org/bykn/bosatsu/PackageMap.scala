@@ -231,13 +231,13 @@ sealed abstract class PackageError {
 object PackageError {
   case class UnknownExport[A](ex: ExportedName[A],
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],
-    lets: List[(String, TypedExpr[Declaration])]) extends PackageError {
+    lets: List[(String, RecursionKind, TypedExpr[Declaration])]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
       val (lm, sourceName) = sourceMap(in.name)
       val header =
         s"in $sourceName unknown export ${ex.name}"
       val candidates = lets
-        .map { case (n, expr) => (EditDistance.string(n, ex.name), n, HasRegion.region(expr)) }
+        .map { case (n, _, expr) => (EditDistance.string(n, ex.name), n, HasRegion.region(expr)) }
         .sorted
         .take(3)
         .map { case (_, n, r) =>
@@ -281,14 +281,14 @@ object PackageError {
           .lets
 
         val (_, sourceName) = sourceMap(in.name)
-        ls
+        ls.iterator.map { case (n, _, d) => (n, d) }
           .toMap
           .get(iname.originalName) match {
             case Some(_) =>
               s"in $sourceName package: ${importing.name} has ${iname.originalName} but it is not exported. Add to exports"
             case None =>
               val dist = Memoize.function[String, Int] { (s, _) => EditDistance(iname.originalName.toIterable, s.toIterable) }
-              val nearest = ls.map { case (n, _) => (dist(n), n) }.sorted.take(3).map { case (_, n) => n }.mkString(", ")
+              val nearest = ls.map { case (n, _, _) => (dist(n), n) }.sorted.take(3).map { case (_, n) => n }.mkString(", ")
               s"in $sourceName package: ${importing.name} does not have name ${iname.originalName}. Nearest: $nearest"
           }
       }
@@ -408,8 +408,17 @@ object PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
       val (lm, sourceName) = sourceMap(pack)
       val teMessage = err.toString
-      // TODO use the sourceMap/regiouns in Infer.Error
+      // TODO use the sourceMap/regions in Infer.Error
       s"in file: $sourceName, package ${pack.asString}, $teMessage"
+    }
+  }
+
+  case class RecursionError(pack: PackageName, err: DefRecursionCheck.RecursionError) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
+      val (lm, sourceName) = sourceMap(pack)
+      val errMessage = err.toString
+      // TODO use the sourceMap/regions in RecursionError
+      s"in file: $sourceName, package ${pack.asString}, $errMessage"
     }
   }
 }
