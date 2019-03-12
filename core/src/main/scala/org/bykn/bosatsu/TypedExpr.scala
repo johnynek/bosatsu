@@ -191,7 +191,14 @@ object TypedExpr {
         case If(c, ift, iff, _) :: tail =>
           go(c :: ift :: iff :: tail, bound, acc)
         case Match(arg, branches, _) :: tail =>
-          go(arg :: branches.toList.map(_._2) ::: tail, bound, acc)
+          // Maintain the order we encounter things:
+          val acc1 = cheat(arg, bound, acc)
+          val acc2 = branches.foldLeft(acc1) { case (acc1, (p, b)) =>
+            // these are not free variables in this branch
+            val newBinds = p.names
+            cheat(b, bound ++ newBinds, acc1)
+          }
+          go(tail, bound, acc2)
       }
 
     go(ts, Set.empty, Nil)

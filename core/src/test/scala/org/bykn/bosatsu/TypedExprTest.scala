@@ -21,5 +21,13 @@ struct Tup2(a, b)
 
 x = Tup2(1, 2)
 """) { te => assert(TypedExpr.freeVars(te :: Nil) == List("Tup2")) }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+x = Tup2(1, 2)
+y = match x:
+  Tup2(a, _): a
+""") { te => assert(TypedExpr.freeVars(te :: Nil) == List("x")) }
   }
 }
