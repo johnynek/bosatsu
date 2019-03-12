@@ -2,12 +2,14 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.{NonEmptyList, Validated}
 import fastparse.all.Parsed
-import org.scalatest.{Assertion, FunSuite}
-import org.bykn.bosatsu.{Declaration, Expr, HasRegion, Lit, PackageName, Package, Pattern, TypeRef, TypedExpr, ConstructorName, Region, Statement, Variance, RecursionKind}
+import org.scalatest.FunSuite
+import org.bykn.bosatsu._
 
 import Expr._
 import Type.Var.Bound
 import Type.ForAll
+
+import TestUtils.checkLast
 
 class RankNInferTest extends FunSuite {
 
@@ -91,17 +93,6 @@ class RankNInferTest extends FunSuite {
       },
       ())
 
-  def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion =
-    Statement.parser.parse(statement) match {
-      case Parsed.Success(stmt, _) =>
-        Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
-          case Validated.Invalid(errs) => fail(errs.toList.map(_.message(Map.empty)).mkString("\n"))
-          case Validated.Valid((_, lets)) =>
-            fn(lets.last._3)
-        }
-      case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
-    }
   /**
    * Check that a no import program has a given type
    */

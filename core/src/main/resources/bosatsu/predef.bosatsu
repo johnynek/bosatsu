@@ -40,10 +40,13 @@ enum Bool:
 enum List:
   EmptyList, NonEmptyList(head: a, tail: List[a])
 
-recursive def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
-  recur lst:
-    EmptyList: item
-    NonEmptyList(head, tail): foldLeft(tail, fn(item, head), fn)
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  # make the loop function as small as possible
+  recursive def loop(lst, item):
+    recur lst:
+      EmptyList: item
+      NonEmptyList(head, tail): loop(tail, fn(item, head))
+  loop(lst, item)
 
 def reverse_concat(front: List[a], back: List[a]) -> List[a]:
   foldLeft(front, back, \tail, h -> NonEmptyList(h, tail))
