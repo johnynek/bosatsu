@@ -169,9 +169,11 @@ object Evaluation {
         }
       }
 
-    def asLambda(name: String): Scoped =
-      fromFn { env =>
+    def asLambda(name: String, set: Set[String]): Scoped =
+      fromFn { env0 =>
         import cats.Now
+        // we can remove anything not captured by the closure
+        val env = env0.filter { case (k, _) => set(k) }
         val fn =
           FnValue {
             case n@Now(v) =>
@@ -481,7 +483,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
        case a@AnnotatedLambda(name, _, expr, _) =>
          val inner = recurse((p, Right(expr)))._1
 
-         inner.asLambda(name)
+         val freeVars = TypedExpr.freeVars(a :: Nil).toSet
+         inner.asLambda(name, freeVars)
        case Let(arg, e, in, rec, _) =>
          val e0 = recurse((p, Right(e)))._1
          val eres =

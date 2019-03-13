@@ -165,8 +165,8 @@ object TypedExpr {
   def freeVars[A](ts: List[TypedExpr[A]]): List[String] = {
 
     // usually we can recurse in a loop, but sometimes not
-    def cheat(ts: List[TypedExpr[A]], bound: Set[String], acc: List[String]): List[String] =
-      go(ts, bound, acc)
+    def cheat(te: TypedExpr[A], bound: Set[String], acc: List[String]): List[String] =
+      go(te :: Nil, bound, acc)
 
     @annotation.tailrec
     def go(ts: List[TypedExpr[A]], bound: Set[String], acc: List[String]): List[String] =
@@ -179,30 +179,31 @@ object TypedExpr {
         case Var(opt, name, _, _) :: tail if bound(name) || opt.isDefined => go(tail, bound, acc)
         case Var(None, name, _, _) :: tail => go(tail, bound, name :: acc)
         case AnnotatedLambda(arg, _, res, _) :: tail =>
-          val acc1 = cheat(res :: Nil, bound + arg, acc)
+          val acc1 = cheat(res, bound + arg, acc)
           go(tail, bound, acc1)
         case App(fn, arg, _, _) :: tail =>
           go(fn :: arg :: tail, bound, acc)
         case Let(arg, argE, in, _, _) :: tail =>
-          val acc1 = cheat(in :: Nil, bound + arg, acc)
+          val acc1 = cheat(in, bound + arg, acc)
           go(argE :: tail, bound, acc1)
         case Literal(_, _, _) :: tail =>
           go(tail, bound, acc)
         case If(c, ift, iff, _) :: tail =>
           go(c :: ift :: iff :: tail, bound, acc)
         case Match(arg, branches, _) :: tail =>
-          go(arg :: branches.toList.map(_._2) ::: tail, bound, acc)
+          // Maintain the order we encounter things:
+          val acc1 = cheat(arg, bound, acc)
+          val acc2 = branches.foldLeft(acc1) { case (acc1, (p, b)) =>
+            // these are not free variables in this branch
+            val newBinds = p.names
+            cheat(b, bound ++ newBinds, acc1)
+          }
+          go(tail, bound, acc2)
       }
 
-    ts.foldLeft(List.empty[String]) { (acc, t) =>
-      go(t :: Nil, Set.empty, acc)
-    }
-    // reverse and distinct in one go
-    .foldLeft((Set.empty[String], List.empty[String])) {
-      case (res@(vset, vs), v) if vset(v) => res
-      case ((vset, vs), v) => (vset + v, v :: vs)
-    }
-    ._2
+    go(ts, Set.empty, Nil)
+      .reverse
+      .distinct
   }
 
   /**
