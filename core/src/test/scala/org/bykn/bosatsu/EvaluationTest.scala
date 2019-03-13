@@ -768,7 +768,7 @@ main = bad(Bar)
     List("""
 package A
 
-big_list = range(3000)
+big_list = range(3_000)
 
 main = big_list.foldLeft(0, \x, y -> x.add(y))
 """), "A", VInt((0 until 3000).sum))
