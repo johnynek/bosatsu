@@ -208,6 +208,50 @@ class ParserTest extends FunSuite {
     }
   }
 
+  test("we can parse dicts") {
+    val strDict = Parser.dictLikeParser(Parser.escapedString('\''), Parser.escapedString('\''))
+    parseTestAll(strDict, "{}", Nil)
+    parseTestAll(strDict, "{'a': 'b'}", List(("a", "b")))
+    parseTestAll(strDict, "{ 'a' : 'b' }", List(("a", "b")))
+    parseTestAll(strDict, "{'a' : 'b', 'c': 'd'}", List(("a", "b"), ("c", "d")))
+    parseTestAll(strDict, "{'a' : 'b',\n'c': 'd'}", List(("a", "b"), ("c", "d")))
+    parseTestAll(strDict, "{'a' : 'b',\n\t'c': 'd'}", List(("a", "b"), ("c", "d")))
+    parseTestAll(strDict, "{'a' : 'b',\n  'c': 'd'}", List(("a", "b"), ("c", "d")))
+
+    case class WildDict(stringRepNoCurlies: List[String], original: List[(String, String)]) {
+      def stringRep: String = stringRepNoCurlies.mkString("{", "", "}")
+
+      def addEntry(strings: List[String], k: String, v: String): WildDict =
+        if (stringRepNoCurlies.isEmpty) WildDict(strings, (k, v) :: original)
+        else WildDict(strings ::: ("," :: stringRepNoCurlies), (k, v) :: original)
+    }
+
+    val genString = Arbitrary.arbitrary[String]
+    val wsGen = Gen.listOf(Gen.oneOf(' ', '\t', '\n')).map(_.mkString)
+    def q(s: String): String = "'" + Parser.escape('\'', s) + "'"
+
+    val genItem: Gen[(List[String], (String, String))] =
+      for {
+        preK <- wsGen
+        k <- genString
+        postK <- wsGen
+        preV <- wsGen
+        v <- genString
+        postV <- wsGen
+      } yield (List(preK, q(k), postK, ":", preV, q(v), postV), (k, v))
+
+    val genWild: Gen[WildDict] =
+      Gen.listOf(genItem).map { items =>
+        items.foldLeft(WildDict(Nil, Nil)) { case (wd, (s, (k, v))) =>
+          wd.addEntry(s, k, v)
+        }
+      }
+
+    forAll(genWild) { wd =>
+      parseTestAll(strDict, wd.stringRep, wd.original)
+    }
+  }
+
   test("we can parse tuples") {
     forAll { (ls: List[Long], spaceCnt0: Int) =>
       val spaceCount = spaceCnt0 & 7
