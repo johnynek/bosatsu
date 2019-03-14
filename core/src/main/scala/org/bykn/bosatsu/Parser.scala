@@ -162,6 +162,16 @@ object Parser {
 
   def tokenP[T](s: String, t: T): P[T] = P(s).map(_ => t)
 
+  /**
+   * This parser allows _ between any two digits to allow
+   * literals such as:
+   * 1_000_000
+   *
+   * It will also parse terrible examples like:
+   * 1_0_0_0_0_0_0
+   * but I think banning things like that shouldn't
+   * be done by the parser
+   */
   val integerString: P[String] = {
 
     val digit1 = CharIn('1' to '9')
@@ -295,6 +305,18 @@ object Parser {
       case None => Nil
       case Some(ne) => ne.toList
     }
+
+  /**
+   * Parse python-like dicts: delimited by curlies "{" "}" and
+   * keys separated by colon
+   */
+  def dictLikeParser[K, V](pkey: P[K], pvalue: P[V]): P[List[(K, V)]] = {
+    val ws = maybeSpacesAndLines
+    val kv = P(pkey ~ ws ~ ":" ~ ws ~ pvalue)
+    val kvs = kv.nonEmptyListOfWs(ws, 1)
+    nonEmptyListToList(kvs)
+      .bracketed(P("{" ~ ws), P(ws ~ "}"))
+  }
 
   implicit class Combinators[T](val item: P[T]) extends AnyVal {
     def list: P[List[T]] = listN(0)

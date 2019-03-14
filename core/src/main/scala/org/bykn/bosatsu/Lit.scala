@@ -4,11 +4,13 @@ import org.typelevel.paiges.{Document, Doc}
 import java.math.BigInteger
 import fastparse.all._
 
+import Parser.escape
+
 sealed abstract class Lit {
   def repr: String =
     this match {
       case Lit.Integer(i) => i.toString
-      case Lit.Str(s) => "\"" + s + "\"" // TODO this should escape
+      case Lit.Str(s) => "\"" + escape('"', s) + "\""
     }
 }
 object Lit {
@@ -51,7 +53,7 @@ object Lit {
         Doc.text(i.toString)
       case Str(str) =>
         val q = if (str.contains('\'') && !str.contains('"')) '"' else '\''
-        Doc.char(q) + Doc.text(Parser.escape(q, str)) + Doc.char(q)
+        Doc.char(q) + Doc.text(escape(q, str)) + Doc.char(q)
     }
 }
 
