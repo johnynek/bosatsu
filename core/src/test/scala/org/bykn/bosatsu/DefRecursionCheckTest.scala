@@ -216,4 +216,20 @@ recursive def len(lst):
     [_, *tail]: 1
 """)
   }
+
+  test("all recursions must be on the same variable") {
+    // if not, we can make an infinite loop, e.g.:
+    // this a great example from @snoble
+    // https://github.com/johnynek/bosatsu/pull/168#issuecomment-472724055
+    disallowed("""#
+recursive def foo(lstA, lstB):
+  x = recur lstA:
+    []: 1
+    [a, *as]: foo(as, [1,*lstB])
+  y = recur lstB:
+    []: 2
+    [b, *bs]: foo([1, *lstA], bs)
+  x.add(y)
+""")
+  }
 }

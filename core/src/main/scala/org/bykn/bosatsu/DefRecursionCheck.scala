@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.{NonEmptyList, Validated, ValidatedNel}
+import cats.data.{NonEmptyList, Validated, ValidatedNel, StateT}
 
 import cats.implicits._
 
@@ -11,11 +11,13 @@ import cats.implicits._
  *
  * The rules are as follows:
  * 0. recursive defs may not be shadowed. This makes checking for legal recursion easier
- * 1. until we reach a recur match, we cannot call a recursive def
+ * 1. until we reach a recur match, we cannot access a recursive name. We want to avoid aliasing
  * 2. a recur match must occur on one of the literal parameters to the recursive def
  * 3. inside each branch of the recur match, we may only recur on substructures in the match
  *    position
  * 4. recursive defs may not be nested: you cannot define a new recursive def inside a recursive def
+ * 5. if there are multiple recursions, they must all happen on the same position, otherwise we
+ *     can loop infinitely.
  */
 object DefRecursionCheck {
 
@@ -29,6 +31,7 @@ object DefRecursionCheck {
   case class RecurNotOnArg(decl: Declaration.Match, fnname: String, args: List[String]) extends RecursionError
   case class RecursionArgNotVar(fnname: String, invalidArg: Declaration) extends RecursionError
   case class RecursionNotSubstructural(fnname: String, recurPat: Pattern[Option[String], TypeRef], arg: Declaration.Var) extends RecursionError
+  case class RecursionOnManyArgs(fnname: String, arg1: String, arg2: String) extends RecursionError
 
   /**
    * Check a statement that all inner statements and declarations contain legal
@@ -42,12 +45,12 @@ object DefRecursionCheck {
     s match {
       case Bind(BindingStatement(pat, decl, rest)) =>
         val state = Default(Set.empty)
-        checkDecl(state, decl) *> checkStatement(rest.padded)
+        checkDeclV(state, decl) *> checkStatement(rest.padded)
       case Comment(cs) =>
         checkStatement(cs.on.padded)
       case Def(defn) =>
         val state = Default(Set.empty)
-        checkDef(state, defn)(checkStatement(_))
+        checkDef(state, defn) *> checkStatement(defn.result._2.padded)
       case Struct(_, _, rest) =>
         checkStatement(rest.padded)
       case ExternalDef(_, _, _, rest) =>
@@ -74,7 +77,8 @@ object DefRecursionCheck {
       def outerRecs: Set[String]
     }
     case class Default(outerRecs: Set[String]) extends State
-    case class InRecursive(outerRecs: Set[String], defname: String, args: List[String]) extends State {
+    case class InRecursive(outerRecs: Set[String], defname: String, args: List[String], recIndex: Option[Int]) extends State {
+
       def branchState(index: Int, branchPat: Pattern[Option[String], TypeRef]): State =
         InRecurBranch(outerRecs, branchPat, defname, index)
     }
@@ -131,22 +135,46 @@ object DefRecursionCheck {
       }
 
     /*
+     * Unfortunately we lose the Applicative structure inside Declaration checking.
+     * This is because the state changes are not nested: if we see a recur on one
+     * variable, we cannot later recur on a different one. During checkDecl, we switch
+     * to a sequential (Monadic) State tracking, and can only accumulate errors
+     * until we hit the first one
+     */
+    type St[A] = StateT[Either[NonEmptyList[RecursionError], ?], State, A]
+
+    def failSt[A](err: RecursionError): St[A] =
+      StateT.liftF(Left(NonEmptyList.of(err)))
+    val getSt: St[State] = StateT.get
+    def setSt(s: State): St[Unit] = StateT.set(s)
+    def pureSt[A](a: A): St[A] = StateT.pure(a)
+    def toSt[A](v: ValidatedNel[RecursionError, A]): St[A] =
+      StateT.liftF(v.toEither)
+    val unitSt: St[Unit] = StateT.pure(())
+
+    def checkForIllegalBindsSt[A](
+      bs: Iterable[String],
+      decl: Declaration): St[Unit] =
+        getSt.flatMap { state =>
+        toSt(checkForIllegalBinds(state, bs, decl)(unitValid))
+      }
+    /*
      * With the given state, check the given Declaration to see if
      * we have valid recursion
      */
-    def checkDecl(state: State, decl: Declaration): Res = {
+    def checkDecl(decl: Declaration): St[Unit] = {
       import Declaration._
       decl match {
         case Apply(Var(nm), args, _) =>
-          state match {
+          getSt.flatMap {
             case Default(_) =>
               // without any recursion, normal typechecking will detect bad states:
-              args.traverse_(checkDecl(state, _))
-            case ir@InRecursive(_, defname, _) =>
+              args.traverse_(checkDecl)
+            case ir@InRecursive(_, defname, _, _) =>
               // we have not yet gotten inside the recur match, so it is premature to
               // access the recursive function
-              if (nm == defname) Validated.invalidNel(InvalidRecusion(nm, decl.region))
-              else args.traverse_(checkDecl(state, _))
+              if (nm == defname) failSt(InvalidRecusion(nm, decl.region))
+              else args.traverse_(checkDecl)
             case InRecurBranch(_, branch, defname, idx) =>
               // here we are calling our recursive function
               // make sure we do so on a substructural match
@@ -154,131 +182,144 @@ object DefRecursionCheck {
                 args.get(idx.toLong) match {
                   case None =>
                     // not enough args to check recursion
-                    Validated.invalidNel(InvalidRecusion(nm, decl.region))
+                    failSt(InvalidRecusion(nm, decl.region))
                   case Some(arg) =>
-                    strictSubstructure(defname, branch, arg)
+                    toSt(strictSubstructure(defname, branch, arg))
                 }
               }
               else {
                 // not a recursive call
-                args.traverse_(checkDecl(state, _))
+                args.traverse_(checkDecl)
               }
             }
         case Apply(fn, args, _) =>
-          checkDecl(state, fn) *> args.traverse_(checkDecl(state, _))
+          checkDecl(fn) *> args.traverse_(checkDecl)
         case Binding(BindingStatement(pat, thisDecl, next)) =>
-            checkForIllegalBinds(state, pat.names, decl) {
-              checkDecl(state, thisDecl) *> checkDecl(state, next.padded)
-            }
+          checkForIllegalBindsSt(pat.names, decl) *>
+              checkDecl(thisDecl) *>
+              checkDecl(next.padded)
         case Comment(cs) =>
-          checkDecl(state, cs.on.padded)
+          checkDecl(cs.on.padded)
         case Constructor(_) =>
           // constructors can't be bindings:
-          unitValid
+          unitSt
         case DefFn(defstmt) =>
           // we can use the name of the def after we have defined it, which is the next part
-          checkDef(state, defstmt) { decl =>
-            checkDecl(state, decl)
+          getSt.flatMap { state =>
+            val defn = toSt(checkDef(state, defstmt))
+            val nextRes = checkDecl(defstmt.result._2.padded)
+            defn *> nextRes
           }
         case IfElse(ifCases, elseCase) =>
           val ifs = ifCases.traverse_ { case (d, od) =>
-            checkDecl(state, d) *> checkDecl(state, od.get)
+            checkDecl(d) *> checkDecl(od.get)
           }
-          val e = checkDecl(state, elseCase.get)
+          val e = checkDecl(elseCase.get)
           ifs *> e
         case Lambda(args, body) =>
           // these args create new bindings:
-          checkForIllegalBinds(state, args.toList, decl) {
-            checkDecl(state, body)
-          }
+          checkForIllegalBindsSt(args.toList, decl) *> checkDecl(body)
         case Literal(_) =>
-          unitValid
+          unitSt
         case Match(RecursionKind.NonRecursive, arg, cases) =>
           // the arg can't use state, but cases introduce new bindings:
-          val argRes = checkDecl(state, arg)
+          val argRes = checkDecl(arg)
           val optRes = cases.get.traverse_ { case (pat, next) =>
-            checkForIllegalBinds(state, pat.names, decl) {
-              checkDecl(state, next.get)
-            }
+            checkForIllegalBindsSt(pat.names, decl) *>
+              checkDecl(next.get)
           }
           argRes *> optRes
         case recur@Match(RecursionKind.Recursive, _, cases) =>
           // this is a state change
-          state match {
+          getSt.flatMap {
             case Default(_) | InRecurBranch(_, _, _, _) =>
-              Validated.invalidNel(UnexpectedRecur(recur))
-            case ir@InRecursive(_, defname, args) =>
-              getRecurIndex(defname, args, recur).andThen { idx =>
-                cases.get.traverse_ { case (pat, next) =>
-                  checkForIllegalBinds(state, pat.names, decl) {
-                    val bstate = ir.branchState(idx, pat)
-                    checkDecl(bstate, next.get)
-                  }
+              failSt(UnexpectedRecur(recur))
+            case ir@InRecursive(_, defname, args, optIdx) =>
+              toSt(getRecurIndex(defname, args, recur)).flatMap { idx =>
+                val idxCheck: St[InRecursive] = optIdx match {
+                  case None =>
+                    val ir1 = ir.copy(recIndex = Some(idx))
+                    setSt(ir1) *> pureSt(ir1)
+                  case Some(idx0) if idx0 == idx =>
+                    StateT.pure(ir)
+                  case Some(idx0) =>
+                    failSt(RecursionOnManyArgs(defname, args(idx0), args(idx)))
+                }
+                idxCheck.flatMap { ir =>
+                  // on all these branchs, use the the same
+                  // parent state
+                  cases.get.traverse_ { case (pat, next) =>
+                    for {
+                      _ <- checkForIllegalBindsSt(pat.names, decl)
+                      _ <- setSt(ir.branchState(idx, pat))
+                      _ <- checkDecl(next.get)
+                    } yield ()
+                  } *> setSt(ir)
                 }
               }
             }
         case Parens(p) =>
-          checkDecl(state, p)
+          checkDecl(p)
         case TupleCons(tups) =>
-          tups.traverse_(checkDecl(state, _))
+          tups.traverse_(checkDecl)
         case Var(v) =>
-          state match {
+          getSt.flatMap {
             case Default(_) =>
               // without any recursion, normal typechecking will detect bad states:
-              unitValid
-            case ir@InRecursive(_, defname, _) =>
+              unitSt
+            case ir@InRecursive(_, defname, _, _) =>
               // if this were an apply, it would have been handled by Apply(Var(...
-              if (v == defname) Validated.invalidNel(InvalidRecusion(v, decl.region))
-              else unitValid
+              if (v == defname) failSt(InvalidRecusion(v, decl.region))
+              else unitSt
             case InRecurBranch(_, _, defname, _) =>
               // if this were an apply, it would have been handled by Apply(Var(...
-              if (v == defname) Validated.invalidNel(InvalidRecusion(v, decl.region))
-              else unitValid
+              if (v == defname) failSt(InvalidRecusion(v, decl.region))
+              else unitSt
             }
         case ListDecl(ll) =>
           ll match {
             case ListLang.Cons(items) =>
-              items.traverse_ { s => checkDecl(state, s.value) }
+              items.traverse_ { s => checkDecl(s.value) }
             case ListLang.Comprehension(e, b, i, f) =>
-              checkDecl(state, e.value) *>
-                checkDecl(state, b) *>
-                checkDecl(state, i) *>
-                (f.traverse_(checkDecl(state, _)))
+              checkDecl(e.value) *>
+                checkDecl(b) *>
+                checkDecl(i) *>
+                (f.traverse_(checkDecl))
           }
       }
     }
+
+    def checkDeclV(state: State, decl: Declaration): Res =
+      Validated.fromEither(checkDecl(decl).as(()).runA(state))
 
     /*
      * Binds are not allowed to be recursive, only defs, so here we just make sure
      * none of the free variables of the pattern are used in decl
      */
-    def checkDef[A](state: State, defstmt: DefStatement[(OptIndent[Declaration], Padding[A])])(next: A => Res): Res = {
+    def checkDef[A](state: State, defstmt: DefStatement[(OptIndent[Declaration], Padding[A])]): Res = {
       val body = defstmt.result._1.get
       val args = defstmt.args.map(_._1)
-      val thisItem =
-        checkForIllegalBinds(state, defstmt.name :: args, body) {
-          defstmt.kind match {
-            case RecursionKind.NonRecursive =>
-              // this is a non-recursive binding, so the name is not
-              // in scope, however, of course, the arguments are
-              checkDecl(Default(state.outerRecs), body)
-            case RecursionKind.Recursive =>
-              state match {
-                case default@Default(_) =>
-                  // we change state
-                  val newState = InRecursive(default.outerRecs + defstmt.name, defstmt.name, args)
-                  checkDecl(newState, body)
-                case InRecursive(scope, defname, _) =>
-                  // illegal nested recursion
-                  Validated.invalidNel(IllegalNesting(scope, defname, defstmt.name, body.region))
-                case InRecurBranch(scope, _, defname, _) =>
-                  // illegal nested recursion
-                  Validated.invalidNel(IllegalNesting(scope, defname, defstmt.name, body.region))
-                }
-          }
+      checkForIllegalBinds(state, defstmt.name :: args, body) {
+        defstmt.kind match {
+          case RecursionKind.NonRecursive =>
+            // this is a non-recursive binding, so the name is not
+            // in scope, however, of course, the arguments are
+            checkDeclV(Default(state.outerRecs), body)
+          case RecursionKind.Recursive =>
+            state match {
+              case default@Default(_) =>
+                // we change state
+                val newState = InRecursive(default.outerRecs + defstmt.name, defstmt.name, args, None)
+                checkDeclV(newState, body)
+              case InRecursive(scope, defname, _, _) =>
+                // illegal nested recursion
+                Validated.invalidNel(IllegalNesting(scope, defname, defstmt.name, body.region))
+              case InRecurBranch(scope, _, defname, _) =>
+                // illegal nested recursion
+                Validated.invalidNel(IllegalNesting(scope, defname, defstmt.name, body.region))
+              }
         }
-      val nextRes = next(defstmt.result._2.padded)
-      thisItem *> nextRes
+      }
     }
   }
 }
