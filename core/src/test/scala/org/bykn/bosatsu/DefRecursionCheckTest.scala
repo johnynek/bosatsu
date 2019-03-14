@@ -232,4 +232,73 @@ recursive def foo(lstA, lstB):
   x.add(y)
 """)
   }
+
+  test("multiple arguments") {
+    allowed("""#
+recursive def len(lst, a):
+  recur lst:
+    []: a
+    [_, *tail]: len(tail, a.plus(1))
+""")
+    allowed("""#
+recursive def len(a, lst):
+  recur lst:
+    []: a
+    [_, *tail]: len(a.plus(1), tail)
+""")
+  }
+  test("recur is not return") {
+    allowed("""#
+recursive def dots(lst):
+  a = recur lst:
+    []: ""
+    [head, *tail]: dots(tail).concat(head)
+  a.concat(".")
+""")
+  }
+  test("multiple recur") {
+    allowed("""#
+recursive def foo(lst):
+  a = recur lst:
+    []: 0
+    [_, *tail]: foo(tail).plus(1)
+
+  b = recur lst:
+    []: 1
+    [_, *tail]: foo(tail).plus(2)
+
+  a.plus(b)
+""")
+
+    disallowed("""#
+recursive def foo(lstA, lstB):
+  a = recur lstA:
+    []: 0
+    [_, *tail]: foo(tail, listB).plus(1)
+
+  b = recur lstB:
+    []: 1
+    [_, *tail]: foo(lstA.concat(1), tail).plus(2)
+
+  a.plus(b)
+""")
+  }
+  test("zip") {
+    allowed("""#
+recursive def zip(lstA, lstB):
+  match lstA:
+    []: []
+    [headA, *tailA]: recur lstB:
+      []: []
+      [headB, *tailB]: [(headA, headB)].concat(zip(tailA, tailB))
+""")
+    allowed("""#
+recursive def zip(lstA, lstB):
+  recur lstA:
+    []: []
+    [headA, *tailA]: match lstB:
+      []: []
+      [headB, *tailB]: [(headA, headB)].concat(zip(tailA, tailB))
+""")
+  }
 }
