@@ -389,15 +389,13 @@ three = [0, 1]
 # exercise the built-in range function (not implementable in bosatsu)
 threer = range(3)
 
-def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
-  def cons(pair, item):
-    match pair:
-      (acc, []): (acc, [])
-      (acc, [h, *tail]):
-        ([(item, h), *acc], tail)
-
-  (res, _) = as.foldLeft(([], bs), cons)
-  reverse(res)
+recursive def zip(as, bs):
+  recur as:
+    []: []
+    [ah, *atail]:
+      match bs:
+        []: []
+        [bh, *btail]: [(ah, bh), *zip(atail, btail)]
 
 def and(a, b):
   b if a else False
@@ -419,15 +417,13 @@ evalTest(
   List("""
 package Foo
 
-def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
-  def cons(pair: (List[(a, b)], List[b]), item: a) -> (List[(a, b)], List[b]):
-    match pair:
-      (acc, []): (acc, [])
-      (acc, [h, *tail]):
-        ([(item, h), *acc], tail)
-
-  (res, _) = as.foldLeft(([], bs), cons)
-  reverse(res)
+recursive def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
+  recur as:
+    []: []
+    [ah, *atail]:
+      match bs:
+        []: []
+        [bh, *btail]: [(ah, bh), *zip(atail, btail)]
 
 main = 1
 """), "Foo", VInt(1))
@@ -772,5 +768,35 @@ big_list = range(3_000)
 
 main = big_list.foldLeft(0, \x, y -> x.add(y))
 """), "A", VInt((0 until 3000).sum))
+
+  def sumFn(n: Int): Int = {
+    val s1 = if (n <= 0) 0 else { sumFn(n-1) + n }
+    2*s1
+  }
+  evalTest(
+    List("""
+package A
+
+enum Nat: Zero, Succ(of: Nat)
+
+recursive def toInt(pnat):
+  recur pnat:
+    Zero: 0
+    Succ(n): toInt(n).add(1)
+
+recursive def sum(nat):
+  s1 = recur nat:
+    Zero: 0
+    Succ(n): sum(n).add(toInt(nat))
+
+  s2 = recur nat:
+    Zero: 0
+    Succ(n): sum(n).add(toInt(nat))
+
+  s1.add(s2)
+
+main = sum(Succ(Succ(Succ(Zero))))
+"""), "A", VInt(sumFn(3)))
+
   }
 }
