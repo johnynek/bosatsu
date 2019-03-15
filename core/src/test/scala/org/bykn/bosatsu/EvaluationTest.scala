@@ -769,10 +769,7 @@ big_list = range(3_000)
 main = big_list.foldLeft(0, \x, y -> x.add(y))
 """), "A", VInt((0 until 3000).sum))
 
-  def sumFn(n: Int): Int = {
-    val s1 = if (n <= 0) 0 else { sumFn(n-1) + n }
-    2*s1
-  }
+  def sumFn(n: Int): Int = if (n <= 0) 0 else { sumFn(n-1) + n }
   evalTest(
     List("""
 package A
@@ -785,15 +782,9 @@ recursive def toInt(pnat):
     Succ(n): toInt(n).add(1)
 
 recursive def sum(nat):
-  s1 = recur nat:
+  recur nat:
     Zero: 0
     Succ(n): sum(n).add(toInt(nat))
-
-  s2 = recur nat:
-    Zero: 0
-    Succ(n): sum(n).add(toInt(nat))
-
-  s1.add(s2)
 
 main = sum(Succ(Succ(Succ(Zero))))
 """), "A", VInt(sumFn(3)))
