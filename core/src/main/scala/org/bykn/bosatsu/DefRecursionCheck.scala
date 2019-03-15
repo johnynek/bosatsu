@@ -170,11 +170,12 @@ object DefRecursionCheck {
      */
     type St[A] = StateT[Either[NonEmptyList[RecursionError], ?], State, A]
 
+    // Scala has trouble infering types like St, we we make these typed
+    // helper functions to use below
     def failSt[A](err: RecursionError): St[A] =
       StateT.liftF(Left(NonEmptyList.of(err)))
     val getSt: St[State] = StateT.get
     def setSt(s: State): St[Unit] = StateT.set(s)
-    def pureSt[A](a: A): St[A] = StateT.pure(a)
     def toSt[A](v: ValidatedNel[RecursionError, A]): St[A] =
       StateT.liftF(v.toEither)
     val unitSt: St[Unit] = StateT.pure(())
