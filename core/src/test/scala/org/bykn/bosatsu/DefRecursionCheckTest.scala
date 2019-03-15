@@ -171,6 +171,15 @@ recursive def len(lst):
       # shadowing len is not okay
       12
 """)
+    disallowed("""#
+recursive def len(lst):
+  def len_helper(l, r):
+    len = l.add(r)
+    len
+  recur lst:
+    []: 0
+    [_, *t]: len_helper(len(t), 1)
+""")
   }
 
   test("infinite loop isn't okay") {
@@ -207,15 +216,44 @@ recursive def len(lst):
     []: 0
     [_, *tail]: 1
 """)
+    disallowed("""#
+recursive def len(lst):
+  def bar(x):
+    recursive def foo(x):
+      recur x:
+        []: 0
+        [_, *t]: foo(t)
+    foo(x)
+  recur lst:
+    []: 0
+    [_, *tail]: 1
+""")
 
     allowed("""#
 recursive def len(lst):
   def foo(x): x
   recur lst:
     []: 0
-    [_, *tail]: 1
+    [_, *tail]: len(tail)
 """)
   }
+
+  test("all recursions must be on the same variable") {
+    // if not, we can make an infinite loop, e.g.:
+    // this a great example from @snoble
+    // https://github.com/johnynek/bosatsu/pull/168#issuecomment-472724055
+    disallowed("""#
+recursive def foo(lstA, lstB):
+  x = recur lstA:
+    []: 1
+    [a, *as]: foo(as, [1,*lstB])
+  y = recur lstB:
+    []: 2
+    [b, *bs]: foo([1, *lstA], bs)
+  x.add(y)
+""")
+  }
+
   test("multiple arguments") {
     allowed("""#
 recursive def len(lst, a):
@@ -239,8 +277,8 @@ recursive def dots(lst):
   a.concat(".")
 """)
   }
-  test("multiple recur") {
-    allowed("""#
+  test("multiple recur is not allowed") {
+    disallowed("""#
 recursive def foo(lst):
   a = recur lst:
     []: 0
@@ -253,7 +291,7 @@ recursive def foo(lst):
   a.plus(b)
 """)
 
-    allowed("""#
+    disallowed("""#
 recursive def foo(lstA, lstB):
   a = recur lstA:
     []: 0
@@ -282,6 +320,66 @@ recursive def zip(lstA, lstB):
     [headA, *tailA]: match lstB:
       []: []
       [headB, *tailB]: [(headA, headB)].concat(zip(tailA, tailB))
+""")
+  }
+
+  test("recursive defs must recur") {
+    disallowed("""#
+recursive def foo(x): x
+""")
+  }
+
+  test("two side by side recursive defs are allowed") {
+    allowed("""#
+def foo(x):
+  recursive def bar(x):
+    recur x:
+      []: 0
+      [_, *t]: bar(t)
+
+  recursive def baz(x):
+    recur x:
+      []: 0
+      [_, *t]: baz(t)
+  baz([bar([1])])
+""")
+  }
+
+  test("we must recur on a literal arg") {
+    allowed("""#
+recursive def foo(x):
+  recur x:
+    []: 0
+    [_, *t]: foo(t)
+""")
+    disallowed("""#
+recursive def foo(x):
+  recur bar(x):
+    []: 0
+    [_, *t]: foo(t)
+""")
+    disallowed("""#
+recursive def foo(x):
+  recur y:
+    []: 0
+    [_, *t]: foo(t)
+""")
+  }
+
+  test("we must recur in the right argument position") {
+    disallowed("""#
+recursive def len(acc, x):
+  recur x:
+    []: acc
+    [_, *t]: len(t)
+""")
+  }
+  test("we can use a list comprehension") {
+    allowed("""#
+recursive def nest(lst):
+  recur lst:
+    []: []
+    [_, *tail]: [NonEmptyList(h, nest(tail)) for h in lst]
 """)
   }
 }
