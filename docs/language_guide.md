@@ -32,7 +32,10 @@ The smaller differences come from adding features found in functional programmin
 1. a highly Python-inspired syntax including function definition, literal integers and strings, literal lists, list comprehensions, tuples [(todo)](https://github.com/johnynek/bosatsu/issues/18) and (string key) dictionaries [(todo)](https://github.com/johnynek/bosatsu/issues/14). Generally, if a syntax is possible to support in the current type system with immutable values, we generally intend to support it.
 
 There are also some un-features, or items we don't currently and may never support
-1. There is no recursion at all. The name of the current function or let binding is not in scope as we are creating a value, so it is impossible to explicitly write recursion or infinite data structures. 
+1. There is very limited recursion. We only allow recursion which can never be used to make an
+   infinite loop. So data structures can only be recurrsive in covariant positions (not the
+   arguments of functions), and recursive functions have to be a certain form that will always
+   terminate
 1. There is no `while` syntax. The closest we have is a built in foldLeft function over lists. There is a design sketch of automatically translating for loops on lists into folds [issue 20](https://github.com/johnynek/bosatsu/issues/20).
 
 # Language Guide
@@ -136,6 +139,29 @@ inc10_again = 10.add
 ```
 both of these two values `inc10` and `inc10_again` have the type `Int -> Int` and do the same thing: they add `10` to an integer.
 
+### Recursive functions
+We have very limited support for recursion so that we may prove that all recursive functions
+terminate. Here is an example:
+```
+enum List: Empty, NonEmpty(head: a, tail: List[a])
+
+recursive def len(lst):
+  recur lst:
+    Empty: 0
+    NonEmpty(_, tail): len(tail).add(1)
+```
+
+1. recursive defs must be labeled `recursive def`
+2. recursive defs cannot be nested inside other recursive defs
+3. there must be exactly one recur inside each recursive def, which is like a match that must take one of the def arguments.
+4. in at least one branch of the recur match there must be a recursive call that must take a
+   substructure of the argument the recur is matching on. In the above example, tail is a
+   substructure of lst, and is used in the same parameter as list appeared in.
+
+These are strict rules, but they guarantee that each recursive function terminates in a finite
+number of steps, and can never loop forever. The recommendation is to avoid recursive defs as much
+as possible and limit the number of arguments as much as possible.
+
 ## Custom Data Types
 All type names start with an uppercase character. We can think of a definition as two things:
 
@@ -195,23 +221,16 @@ struct W(fn: W[a, b] -> a -> b)
 ```
 Here `W` is in scope inside the definition of W. The types, like packages, must form an acyclic graph. If we allow types like the above, we actually open the door to recursion at the value level since we allow the y-combinator to be typed. By banning recursive types, the type of fix-point combinators becomes infinite, and thus ill-typed. This restriction is currently required to preserve totality in Bosatsu (a more advanced language can allow some recursion that it can prove does not violate totality).
 
-An import recursive type we cannot write is `List`:
+An import recursive type we can write is `List`:
 ```
 enum List:
   Empty, NonEmpty(head: a, tail: List[a])
 ```
-While this is a restriction, List is safely total as long as we only allow construction of finite lists. Thus, List and foldLeft are supplied as built-ins within `Bosatsu/Predef`.
 
-Note, a kind of `HList` or heterogeneous list is not banned:
-```
-enum HList:
-  Empty, NonEmpty(head, tail)
-```
-So, if you know statically the size of the list you can represent it with the above:
-```
-x = NonEmpty(0, NonEmpty(1, NonEmpty(2, Empty)))
-```
-However, this should rarely be needed due to the built in `List` support.
+Data-structures have two simple rules:
+1. they must form a DAG
+2. if they refer to themselves, they do so in covariant positions (rougly, not as inputs to
+   functions).
 
 ### Tuples
 A built-in family of structs are tuples, which you can think of as either lists with potentially a

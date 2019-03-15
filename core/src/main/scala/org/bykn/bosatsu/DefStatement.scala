@@ -14,6 +14,9 @@ case class DefStatement[T](
     args: List[(String, Option[TypeRef])],
     retType: Option[TypeRef], result: T) {
 
+
+  def map[A](fn: T => A): DefStatement[A] =
+    copy(result = fn(result))
   /**
    * This ignores the name completely and just returns the lambda expression here
    *

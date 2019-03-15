@@ -213,7 +213,7 @@ recursive def len(lst):
   def foo(x): x
   recur lst:
     []: 0
-    [_, *tail]: 1
+    [_, *tail]: len(tail)
 """)
   }
 
@@ -257,7 +257,7 @@ recursive def dots(lst):
 """)
   }
   test("multiple recur") {
-    allowed("""#
+    disallowed("""#
 recursive def foo(lst):
   a = recur lst:
     []: 0
@@ -299,6 +299,12 @@ recursive def zip(lstA, lstB):
     [headA, *tailA]: match lstB:
       []: []
       [headB, *tailB]: [(headA, headB)].concat(zip(tailA, tailB))
+""")
+  }
+
+  test("recursive defs must recur") {
+    disallowed("""#
+recursive def foo(x): x
 """)
   }
 }
