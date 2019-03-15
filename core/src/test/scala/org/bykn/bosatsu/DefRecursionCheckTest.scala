@@ -307,4 +307,20 @@ recursive def zip(lstA, lstB):
 recursive def foo(x): x
 """)
   }
+
+  test("two side by side recursive defs are allowed") {
+    allowed("""#
+def foo(x):
+  recursive def bar(x):
+    recur x:
+      []: 0
+      [_, *t]: bar(t)
+
+  recursive def baz(x):
+    recur x:
+      []: 0
+      [_, *t]: baz(t)
+  baz([bar([1])])
+""")
+  }
 }

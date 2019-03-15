@@ -356,6 +356,11 @@ object DefRecursionCheck {
                     sys.error(s"we would like to prove in the types we can't get here: $unreachable, $defstmt"): St[Unit]
                     // $COVERAGE-ON$
                 })
+                // Note a def can't change the state
+                // we either have a valid nested def, or we don't
+                // but that can't change the state of the outer
+                // def that is calling this. So, we don't
+                // return the final state in this method
                 Validated.fromEither(st.runA(state))
               case Some(defname) =>
                 Validated.invalidNel(IllegalNesting(defname, defstmt.name, body.region))
