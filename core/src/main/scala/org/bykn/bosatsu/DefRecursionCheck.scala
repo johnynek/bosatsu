@@ -310,7 +310,7 @@ object DefRecursionCheck {
               unitSt
             case ir: RecState =>
               // if this were an apply, it would have been handled by Apply(Var(...
-              if (v === ir.defname) failSt(InvalidRecusion(v, decl.region))
+              if (v == ir.defname) failSt(InvalidRecusion(v, decl.region))
               else unitSt
           }
         case ListDecl(ll) =>
