@@ -42,7 +42,7 @@ enum List:
 
 def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
   # make the loop function as small as possible
-  recursive def loop(lst, item):
+  def loop(lst, item):
     recur lst:
       EmptyList: item
       NonEmptyList(head, tail): loop(tail, fn(item, head))

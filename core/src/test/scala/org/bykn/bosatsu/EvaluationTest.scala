@@ -389,7 +389,7 @@ three = [0, 1]
 # exercise the built-in range function (not implementable in bosatsu)
 threer = range(3)
 
-recursive def zip(as, bs):
+def zip(as, bs):
   recur as:
     []: []
     [ah, *atail]:
@@ -417,7 +417,7 @@ evalTest(
   List("""
 package Foo
 
-recursive def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
+def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
   recur as:
     []: []
     [ah, *atail]:
@@ -723,7 +723,7 @@ main = plus(1, 2)
     List("""
 package A
 
-recursive def len(lst, acc):
+def len(lst, acc):
   recur lst:
     []: acc
     [_, *tail]: len(tail, acc.add(1))
@@ -737,7 +737,7 @@ package A
 
 enum PNat: One, Even(of: PNat), Odd(of: PNat)
 
-recursive def toInt(pnat):
+def toInt(pnat):
   recur pnat:
     One: 1
     Even(of): toInt(of).times(2)
@@ -752,7 +752,7 @@ package A
 
 enum Foo: Bar, Baz
 
-recursive def bad(foo):
+def bad(foo):
   recur foo:
     Bar: 0
     baz: bad(baz)
@@ -776,12 +776,12 @@ package A
 
 enum Nat: Zero, Succ(of: Nat)
 
-recursive def toInt(pnat):
+def toInt(pnat):
   recur pnat:
     Zero: 0
     Succ(n): toInt(n).add(1)
 
-recursive def sum(nat):
+def sum(nat):
   recur nat:
     Zero: 0
     Succ(n): sum(n).add(toInt(nat))

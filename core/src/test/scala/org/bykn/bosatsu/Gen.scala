@@ -99,12 +99,11 @@ object Generators {
 
   def defGen[T](dec: Gen[T]): Gen[DefStatement[T]] =
     for {
-      recKind <- Gen.frequency((10, Gen.const(RecursionKind.NonRecursive)), (1, Gen.const(RecursionKind.Recursive)))
       name <- lowerIdent
       args <- Gen.listOf(argGen)
       retType <- Gen.option(typeRefGen)
       body <- dec
-    } yield DefStatement(recKind, name, args, retType, body)
+    } yield DefStatement(name, args, retType, body)
 
   def genSpliceOrItem[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.SpliceOrItem[A]] =
     Gen.oneOf(spliceGen.map(ListLang.SpliceOrItem.Splice(_)),

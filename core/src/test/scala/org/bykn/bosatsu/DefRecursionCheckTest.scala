@@ -42,7 +42,7 @@ def foo:
 """)
 
     disallowed("""#
-recursive def foo: foo
+def foo: foo
 """)
 
     // typechecking catches this issue
@@ -58,56 +58,56 @@ def foo:
 """)
   }
 
-  test("shadowing is okay") {
-    allowed("""#
+  test("shadowing defs is never okay") {
+    disallowed("""#
 def foo(x):
   foo = \x -> 1
   foo(x)
 """)
-    allowed("""#
+    disallowed("""#
 def foo(x):
   def foo(x): x
   foo(x)
 """)
 
-    allowed("""#
+    disallowed("""#
 def foo(foo): foo
 """)
   }
 
   test("substructural recursion is okay") {
     allowed("""#
-recursive def len(lst):
+def len(lst):
   recur lst:
     []: 0
     [_, *tail]: len(tail)
 """)
     allowed("""#
-recursive def len(lst):
+def len(lst):
   empty = 0
   recur lst:
     []: empty
     [_, *tail]: len(tail).add(1)
 """)
     allowed("""#
-recursive def len(lst, acc):
+def len(lst, acc):
   recur lst:
     []: acc
     [_, *tail]: len(tail, acc.add(1))
 """)
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   recur lst:
     [*list]: len(list)
 """)
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   recur lst:
     [h, *t]: len(lst)
     []: 0
 """)
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   recur lst:
     []: 0
     [_, *tail]:
@@ -117,9 +117,9 @@ recursive def len(lst):
 """)
   }
 
-  test("shadowing recursive def isn't okay") {
+  test("shadowing def isn't okay") {
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   recur lst:
     []:
       len = \x -> 0
@@ -128,14 +128,14 @@ recursive def len(lst):
 """)
 
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   len = "shadow"
   recur lst:
     []: 0
     [_, *tail]: len(tail)
 """)
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   recur lst:
     []: 0
     [_, *tail]:
@@ -143,7 +143,7 @@ recursive def len(lst):
       len(tail)
 """)
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   recur lst:
     []: 0
     [_, *tail]:
@@ -152,7 +152,7 @@ recursive def len(lst):
       fn(len)
 """)
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   recur lst:
     []: 0
     [_, *len]:
@@ -161,7 +161,7 @@ recursive def len(lst):
 """)
     disallowed("""#
 len = 2
-recursive def len(lst):
+def len(lst):
   # even though len exists above, it is shadowed
   # by this method, and currently inaccessible
   x = len
@@ -172,7 +172,7 @@ recursive def len(lst):
       12
 """)
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   def len_helper(l, r):
     len = l.add(r)
     len
@@ -183,13 +183,13 @@ recursive def len(lst):
   }
 
   test("infinite loop isn't okay") {
-    allowed("""#
+    disallowed("""#
 def loop(x):
   loop(x)
 """)
   }
 
-  test("recur can only appear in a recursive def") {
+  test("recur can only appear in a def") {
     disallowed("""#
 def len(lst):
   recur lst:
@@ -198,7 +198,7 @@ def len(lst):
 """)
 
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   def foo(x):
     recur lst:
       0: 1
@@ -210,16 +210,16 @@ recursive def len(lst):
 
   test("nested recursion is not allowed") {
     disallowed("""#
-recursive def len(lst):
-  recursive def foo(x): x
+def len(lst):
+  def foo(x): x
   recur lst:
     []: 0
     [_, *tail]: 1
 """)
     disallowed("""#
-recursive def len(lst):
+def len(lst):
   def bar(x):
-    recursive def foo(x):
+    def foo(x):
       recur x:
         []: 0
         [_, *t]: foo(t)
@@ -230,7 +230,7 @@ recursive def len(lst):
 """)
 
     allowed("""#
-recursive def len(lst):
+def len(lst):
   def foo(x): x
   recur lst:
     []: 0
@@ -243,7 +243,7 @@ recursive def len(lst):
     // this a great example from @snoble
     // https://github.com/johnynek/bosatsu/pull/168#issuecomment-472724055
     disallowed("""#
-recursive def foo(lstA, lstB):
+def foo(lstA, lstB):
   x = recur lstA:
     []: 1
     [a, *as]: foo(as, [1,*lstB])
@@ -256,13 +256,13 @@ recursive def foo(lstA, lstB):
 
   test("multiple arguments") {
     allowed("""#
-recursive def len(lst, a):
+def len(lst, a):
   recur lst:
     []: a
     [_, *tail]: len(tail, a.plus(1))
 """)
     allowed("""#
-recursive def len(a, lst):
+def len(a, lst):
   recur lst:
     []: a
     [_, *tail]: len(a.plus(1), tail)
@@ -270,7 +270,7 @@ recursive def len(a, lst):
   }
   test("recur is not return") {
     allowed("""#
-recursive def dots(lst):
+def dots(lst):
   a = recur lst:
     []: ""
     [head, *tail]: dots(tail).concat(head)
@@ -279,7 +279,7 @@ recursive def dots(lst):
   }
   test("multiple recur is not allowed") {
     disallowed("""#
-recursive def foo(lst):
+def foo(lst):
   a = recur lst:
     []: 0
     [_, *tail]: foo(tail).plus(1)
@@ -292,7 +292,7 @@ recursive def foo(lst):
 """)
 
     disallowed("""#
-recursive def foo(lstA, lstB):
+def foo(lstA, lstB):
   a = recur lstA:
     []: 0
     [_, *tail]: foo(tail, listB).plus(1)
@@ -306,7 +306,7 @@ recursive def foo(lstA, lstB):
   }
   test("zip") {
     allowed("""#
-recursive def zip(lstA, lstB):
+def zip(lstA, lstB):
   match lstA:
     []: []
     [headA, *tailA]: recur lstB:
@@ -314,7 +314,7 @@ recursive def zip(lstA, lstB):
       [headB, *tailB]: [(headA, headB)].concat(zip(tailA, tailB))
 """)
     allowed("""#
-recursive def zip(lstA, lstB):
+def zip(lstA, lstB):
   recur lstA:
     []: []
     [headA, *tailA]: match lstB:
@@ -323,21 +323,15 @@ recursive def zip(lstA, lstB):
 """)
   }
 
-  test("recursive defs must recur") {
-    disallowed("""#
-recursive def foo(x): x
-""")
-  }
-
-  test("two side by side recursive defs are allowed") {
+  test("two side by side defs are allowed") {
     allowed("""#
 def foo(x):
-  recursive def bar(x):
+  def bar(x):
     recur x:
       []: 0
       [_, *t]: bar(t)
 
-  recursive def baz(x):
+  def baz(x):
     recur x:
       []: 0
       [_, *t]: baz(t)
@@ -347,19 +341,19 @@ def foo(x):
 
   test("we must recur on a literal arg") {
     allowed("""#
-recursive def foo(x):
+def foo(x):
   recur x:
     []: 0
     [_, *t]: foo(t)
 """)
     disallowed("""#
-recursive def foo(x):
+def foo(x):
   recur bar(x):
     []: 0
     [_, *t]: foo(t)
 """)
     disallowed("""#
-recursive def foo(x):
+def foo(x):
   recur y:
     []: 0
     [_, *t]: foo(t)
@@ -368,7 +362,7 @@ recursive def foo(x):
 
   test("we must recur in the right argument position") {
     disallowed("""#
-recursive def len(acc, x):
+def len(acc, x):
   recur x:
     []: acc
     [_, *t]: len(t)
@@ -376,10 +370,34 @@ recursive def len(acc, x):
   }
   test("we can use a list comprehension") {
     allowed("""#
-recursive def nest(lst):
+def nest(lst):
   recur lst:
     []: []
     [_, *tail]: [NonEmptyList(h, nest(tail)) for h in lst]
+""")
+  }
+
+  test("we can't use an outer def recursively") {
+disallowed("""#
+def foo(x):
+  def bar(y):
+    foo(y)
+  bar(x)
+""")
+  }
+
+  test("we can make a recursive def in another recursive def") {
+allowed("""#
+def len(lst):
+  # this is doing nothing, but is a nested recursion
+  def len0(lst):
+    recur lst:
+      []: 0
+      [_, *t]: len0(t).add(1)
+
+  recur lst:
+    []: 0
+    [_, *t]: len(t)
 """)
   }
 }

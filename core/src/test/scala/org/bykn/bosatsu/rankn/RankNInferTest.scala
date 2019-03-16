@@ -393,8 +393,8 @@ def mkPair(y, x: a):
   Pair(x, y)
 
 def fst:
-  Pair(fst, _) = mkPair(1, 2)
-  fst
+  Pair(f, _) = mkPair(1, 2)
+  f
 
 main = fst
 """, "Int")
@@ -819,7 +819,7 @@ main = 1
 
 enum Nat: Zero, Succ(prev: Nat)
 
-recursive def len(l):
+def len(l):
   recur l:
     Zero: 0
     Succ(p): len(p)
@@ -832,7 +832,7 @@ main = len(Succ(Succ(Zero)))
 enum Nat: Zero, Succ(prev: Nat)
 
 def len(l):
-  recursive def len0(l):
+  def len0(l):
     recur l:
       Zero: 0
       Succ(p): len0(p)

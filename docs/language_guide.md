@@ -111,7 +111,7 @@ So, we can write:
 def add_with_three(x, y):
   add_Int(add_Int(x, y), 3)
 ```
-using the `add_Int` function from the `Bosatsu/Predef`. Bosatsu also has anonymous function syntax similar to Haskell. The above is exactly the same as:
+using the `add_Int` function from the `Bosatsu/Predef`. Bosatsu also has anonymous function syntax similar to Haskell. The above is almost exactly the same as:
 ```
 add_with_three = \x, y -> add_Int(add_Int(x, y), 3)
 ```
@@ -123,6 +123,13 @@ add_with_three = \x -> \y -> add_Int(add_Int(x, y), 3)
 Think of `\` ans an ASCII version of `λ`.
 
 All of these functions have type `Int -> Int -> Int`, which is to say, given two integers (the two on the left) we can produce a new integer (always! remember Bosatsu is total, no exceptions!).
+
+### Scope difference for defs
+Unlike normal bindings, defs ARE in scope in their body. However, in order to prevent unbounded
+loops there are strict rules on accessing defs inside themselves. If you don't intend to write
+a recursive def, then you can never reuse or access the defs name anywhere inside the body.
+Specifically, shadowing the def name is not allowed. To write a recursive def see the section
+on recursive functions below.
 
 ### Method syntax
 Bosatu does not have methods, only functions, it does however have method syntax.
@@ -145,18 +152,19 @@ terminate. Here is an example:
 ```
 enum List: Empty, NonEmpty(head: a, tail: List[a])
 
-recursive def len(lst):
+def len(lst):
   recur lst:
     Empty: 0
     NonEmpty(_, tail): len(tail).add(1)
 ```
+In the above, we see the `recur` syntax. This is a normal match with two restrictions: 1. it can only be
+on a literal parameter of the nearest enclosing def, 2. a function may have at most one recur in a
+body, which is not enclosed by a inner def. Inside the branches of such a recur, recursion
+on the enclosing def is permitted if it meets certain constraints which prevent unbounded loops:
 
-1. recursive defs must be labeled `recursive def`
-2. recursive defs cannot be nested inside other recursive defs
-3. there must be exactly one recur inside each recursive def, which is like a match that must take one of the def arguments.
-4. in at least one branch of the recur match there must be a recursive call that must take a
-   substructure of the argument the recur is matching on. In the above example, tail is a
-   substructure of lst, and is used in the same parameter as list appeared in.
+In at least one branch of the recur match there must be a recursive call that must take a
+substructure of the argument the recur is matching on. In the above example, tail is a
+substructure of lst, and is used in the same parameter as list appeared in.
 
 These are strict rules, but they guarantee that each recursive function terminates in a finite
 number of steps, and can never loop forever. The recommendation is to avoid recursive defs as much
