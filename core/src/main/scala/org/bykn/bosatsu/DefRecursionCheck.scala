@@ -206,14 +206,13 @@ object DefRecursionCheck {
               val idx = inrec.index
               // here we are calling our recursive function
               // make sure we do so on a substructural match
-              val defname = inrec.defname
-              if (nm == defname) {
+              if (nm == irb.defname) {
                 args.get(idx.toLong) match {
                   case None =>
                     // not enough args to check recursion
                     failSt(InvalidRecursion(nm, decl.region))
                   case Some(arg) =>
-                    toSt(strictSubstructure(defname, branch, arg)) *>
+                    toSt(strictSubstructure(irb.defname, branch, arg)) *>
                       setSt(irb.incRecCount) // we have recurred again
                 }
               }
@@ -271,7 +270,7 @@ object DefRecursionCheck {
           getSt.flatMap {
             case TopLevel | InRecurBranch(_, _) | InDefRecurred(_, _, _, _) =>
               failSt(UnexpectedRecur(recur))
-            case ir@InDef(_, defname, args) =>
+            case InDef(_, defname, args) =>
               toSt(getRecurIndex(defname, args, recur)).flatMap { idx =>
                 // on all these branchs, use the the same
                 // parent state
@@ -284,7 +283,7 @@ object DefRecursionCheck {
                       setSt(InRecurBranch(irr, pat))
                     case illegal =>
                       // $COVERAGE-OFF$ this should be unreachable
-                      sys.error(s"unreachable: $ir -> $pat -> $illegal")
+                      sys.error(s"unreachable: $pat -> $illegal")
                       // $COVERAGE-ON$
                     }
 

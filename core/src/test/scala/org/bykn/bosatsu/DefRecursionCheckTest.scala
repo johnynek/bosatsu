@@ -400,4 +400,15 @@ def len(lst):
     [_, *t]: len(t)
 """)
   }
+
+  test("we can call a non-outer function in a recur branch") {
+allowed("""#
+def id(x): x
+
+def len(lst):
+  recur lst:
+    []: 0
+    [_, *t]: id(len(t))
+""")
+  }
 }
