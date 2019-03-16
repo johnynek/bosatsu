@@ -136,13 +136,15 @@ sealed abstract class Declaration {
           loop(decl).map(_ => decl)
         case Constructor(name) =>
           Expr.Var(None, name, decl)
-        case DefFn(defstmt@DefStatement(kind, _, _, _, _)) =>
+        case DefFn(defstmt@DefStatement(_, _, _, _)) =>
           val (bodyExpr, inExpr) = defstmt.result match {
             case (oaBody, Padding(_, in)) =>
               (loop(oaBody.get), loop(in))
           }
           val lambda = defstmt.toLambdaExpr(bodyExpr, decl)(_.toType(nameToType))
-          Expr.Let(defstmt.name, lambda, inExpr, recursive = kind, decl)
+          // we assume all defs are recursive: we put them in scope before the method
+          // is called. We rely on DefRecursionCheck to rule out bad recursions
+          Expr.Let(defstmt.name, lambda, inExpr, recursive = RecursionKind.Recursive, decl)
         case IfElse(ifCases, elseCase) =>
           def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
             Expr.If(cond, ifTrue, ifFalse, decl)

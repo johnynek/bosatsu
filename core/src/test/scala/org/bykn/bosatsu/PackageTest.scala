@@ -96,10 +96,8 @@ def head(list):
 
 def tail(list):
   match list:
-    Empty:
-      None
-    NonEmpty(h, tail):
-      Some(tail)
+    Empty: None
+    NonEmpty(h, t): Some(t)
 """)
 
     val p6 = parse(
