@@ -614,7 +614,8 @@ object Infer {
                     typedRhs <- inferSigma(rhs)
                     varT = typedRhs.getType
                     // the type variable needs to be unified with varT
-                    _ <- unify(rhsTpe, varT, region(term), region(term))
+                    // note, varT could be a sigma type, it is not a Tau or Rho
+                    _ <- subsCheck(rhsTpe, varT, region(term), region(term))
                     typedBody <- typeCheckRho(body, expect)
                     // TODO: a more efficient algorithm would do this top down
                     // for each top level TypedExpr and build it bottom up.
