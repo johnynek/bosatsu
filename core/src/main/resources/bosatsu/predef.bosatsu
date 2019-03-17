@@ -17,9 +17,11 @@ export [
   concat,
   div,
   eq_Int,
+  flat_map_List,
   foldLeft,
   gcd_Int,
   int_loop,
+  map_List,
   mod_Int,
   range,
   range_fold,
@@ -53,6 +55,12 @@ def reverse_concat(front: List[a], back: List[a]) -> List[a]:
 
 def reverse(as: List[a]) -> List[a]:
   reverse_concat(as, EmptyList)
+
+def map_List(lst: List[a], fn: a -> b) -> List[b]:
+  lst.foldLeft(EmptyList, \t, a -> NonEmptyList(fn(a), t)).reverse
+
+def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
+  lst.foldLeft(EmptyList, \t, a -> fn(a).reverse_concat(t)).reverse
 
 def concat(front: List[a], back: List[a]) -> List[a]:
   match back:

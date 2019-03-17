@@ -305,12 +305,10 @@ object Pattern {
       val nonAnnotated = pvar | plit | pwild | tupleOrParens | positional | listP
       // A union can't have an annotation, we need to be inside a parens for that
       val unionOp: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]] = {
-        val unionSep = P("|" ~ maybeSpace)
-        val one = (unionSep ~ nonAnnotated ~ maybeSpace)
-        (one ~ one.rep())
-          .map { case (h, tailSeq) =>
-            val ne = NonEmptyList(h, tailSeq.toList)
-
+        val unionRest = nonAnnotated
+          .nonEmptyListOfWsSep(maybeSpace, P("|"), allowTrailing = false, 1)
+        ("|" ~ maybeSpace ~ unionRest)
+          .map { ne =>
             { pat: Pattern[Option[String], TypeRef] => Union(pat, ne) }
           }
       }
@@ -322,7 +320,7 @@ object Pattern {
       }
 
       def maybeOp(opP: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]]): P[Pattern[Option[String], TypeRef]] =
-        (nonAnnotated ~ maybeSpace ~ opP.?)
+        (nonAnnotated ~ (maybeSpace ~ opP).?)
           .map {
             case (p, None) => p
             case (p, Some(op)) => op(p)
