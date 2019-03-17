@@ -369,34 +369,65 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                     case _ => None
                   }
                 }
+              case Left(splice) :: Nil =>
+                // this is the common and easy case: a total match of the tail
+                splice match {
+                  case Some(nm) =>
+                    { (arg, acc) =>
+                      arg match {
+                        case VList(_) =>
+                          // now bind the rest into splice:
+                          val rest = Eval.now(arg)
+                          Some(acc.updated(nm, rest))
+                        case _ => None
+                      }
+                    }
+                  case None =>
+                    { (arg, acc) =>
+                      arg match {
+                        case VList(asList) => Some(acc)
+                        case _ => None
+                      }
+                    }
+                }
               case Left(splice) :: ptail =>
+                // this is more costly, since we have to match a non infinite tail.
                 // we reverse the tails, do the match, and take the rest into
                 // the splice
                 val revPat = Pattern.ListPat(ptail.reverse)
                 val fnMatchTail = maybeBind(revPat)
                 val ptailSize = ptail.size
 
-                { (arg, acc) =>
-                  arg match {
-                    case VList(asList) =>
-                      // we only allow one splice, so we assume the rest of the patterns
-                      val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
-                      fnMatchTail(VList(revArgTail), acc) match {
-                        case None => None
-                        case Some(acc1) => Some {
-                          // now bind the rest into splice:
-                          splice match {
-                            case None => acc1
-                            case Some(nm) =>
+                splice match {
+                  case Some(nm) =>
+                    { (arg, acc) =>
+                      arg match {
+                        case VList(asList) =>
+                          // we only allow one splice, so we assume the rest of the patterns
+                          val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
+                          fnMatchTail(VList(revArgTail), acc) match {
+                            case None => None
+                            case Some(acc1) => Some {
+                              // now bind the rest into splice:
                               val rest = Eval.now(VList(spliceVals.reverse))
                               acc1.updated(nm, rest)
+                            }
                           }
-                        }
+                        case _ => None
                       }
-                    case _ => None
-                  }
+                    }
+                  case None =>
+                    { (arg, acc) =>
+                      arg match {
+                        case VList(asList) =>
+                          // we only allow one splice, so we assume the rest of the patterns
+                          val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
+                          fnMatchTail(VList(revArgTail), acc)
+                        case _ => None
+                      }
+                    }
                 }
-              }
+            }
           case Pattern.Annotation(p, _) =>
             // TODO we may need to use the type here
             maybeBind(p)
