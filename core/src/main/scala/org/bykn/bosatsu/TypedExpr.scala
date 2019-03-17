@@ -32,9 +32,6 @@ sealed abstract class TypedExpr[T] {
         in.getType
       case Literal(_, tpe, _) =>
         tpe
-      case If(_, ift, _, _) =>
-        // all branches have the same type:
-        ift.getType
       case Match(_, branches, _) =>
         // all branches have the same type:
         branches.head._2.getType
@@ -61,8 +58,6 @@ sealed abstract class TypedExpr[T] {
         s"($nm $n ${b.repr} ${in.repr})"
       case Literal(v, tpe, _) =>
         s"(lit ${v.repr} ${rept(tpe)})"
-      case If(arg, ift, iff, _) =>
-        s"(if ${arg.repr} ${ift.repr} ${iff.repr})"
       case Match(arg, branches, _) =>
         // TODO print the pattern
         val bstr = branches.toList.map { case (_, t) => t.repr }.mkString
@@ -95,11 +90,6 @@ sealed abstract class TypedExpr[T] {
         }
       case Literal(lit, tpe, tag) =>
         fn(tpe).map(Literal(lit, _, tag))
-      case If(cond, ift, iff, tag) =>
-        // all branches have the same type:
-        (cond.traverseType(fn),
-          ift.traverseType(fn),
-          iff.traverseType(fn)).mapN(If(_, _, _, tag))
       case Match(expr, branches, tag) =>
         // all branches have the same type:
         val tbranch = branches.traverse {
@@ -125,7 +115,6 @@ object TypedExpr {
   case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
   case class Let[T](arg: String, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
-  case class If[T](cond: TypedExpr[T], ifTrue: TypedExpr[T], ifFalse: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
 
 
@@ -152,8 +141,6 @@ object TypedExpr {
           case Let(arg, argE, in, rec, tag) =>
             Let(arg, argE, self(in), rec, tag)
           case Literal(l, _, tag) => Literal(l, tpe, tag)
-          case If(c, ift, iff, tag) =>
-            If(c, self(ift), self(iff), tag)
           case Match(arg, branches, tag) =>
             Match(arg, branches.map { case (p, expr) => (p, self(expr)) }, tag)
         }
@@ -188,8 +175,6 @@ object TypedExpr {
           go(argE :: tail, bound, acc1)
         case Literal(_, _, _) :: tail =>
           go(tail, bound, acc)
-        case If(c, ift, iff, _) :: tail =>
-          go(c :: ift :: iff :: tail, bound, acc)
         case Match(arg, branches, _) :: tail =>
           // Maintain the order we encounter things:
           val acc1 = cheat(arg, bound, acc)

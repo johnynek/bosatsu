@@ -54,16 +54,20 @@ class RankNInferTest extends FunSuite {
     Map(
       "True" -> Type.BoolType,
       "False" -> Type.BoolType)
+  val boolTypes: Map[(PackageName, ConstructorName), Infer.Cons] =
+    Map(
+      ((Predef.packageName, ConstructorName("True")), (Nil, Nil, Type.Const.predef("Bool"))),
+      ((Predef.packageName, ConstructorName("False")), (Nil, Nil, Type.Const.predef("Bool"))))
 
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
-    Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools), Map.empty) match {
+    Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools), boolTypes) match {
       case Left(err) => assert(false, err)
       case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
     Infer.typeCheckLets(terms.map { case (k, v, _) => (k, RecursionKind.NonRecursive, v) })
-      .runFully(Infer.asFullyQualified(withBools), Map.empty) match {
+      .runFully(Infer.asFullyQualified(withBools), boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpes) =>
           assert(tpes.size == terms.size)
@@ -84,7 +88,7 @@ class RankNInferTest extends FunSuite {
   def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, arg, ())
   def alam(arg: String, tpe: Type, res: Expr[Unit]): Expr[Unit] = AnnotatedLambda(arg, tpe, res, ())
 
-  def ife(cond: Expr[Unit], ift: Expr[Unit], iff: Expr[Unit]): Expr[Unit] = If(cond, ift, iff, ())
+  def ife(cond: Expr[Unit], ift: Expr[Unit], iff: Expr[Unit]): Expr[Unit] = Expr.ifExpr(cond, ift, iff, ())
   def matche(arg: Expr[Unit], branches: NonEmptyList[(Pattern[String, Type], Expr[Unit])]): Expr[Unit] =
     Match(arg,
       branches.map { case (p, e) =>
@@ -213,13 +217,13 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption ++ boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption ++ boolTypes) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -256,13 +260,13 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen ++ boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen ++ boolTypes) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -323,7 +327,7 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithTypes[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), defined) match {
+      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), defined ++ boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }

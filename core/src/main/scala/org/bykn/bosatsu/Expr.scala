@@ -22,7 +22,6 @@ sealed abstract class Expr[T] {
       case a@AnnotatedLambda(_, _, _, _) => a.copy(tag = t)
       case l@Let(_, _, _, _, _) => l.copy(tag = t)
       case l@Literal(_, _) => l.copy(tag = t)
-      case i@If(_, _, _, _) => i.copy(tag = t)
       case m@Match(_, _, _) => m.copy(tag = t)
     }
 }
@@ -37,12 +36,19 @@ object Expr {
   case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
   case class Let[T](arg: String, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
-  case class If[T](cond: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T) extends Expr[T]
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])], tag: T) extends Expr[T]
 
   implicit def hasRegion[T: HasRegion]: HasRegion[Expr[T]] =
     HasRegion.instance[Expr[T]] { e => HasRegion.region(e.tag) }
 
+  /**
+   * build a Match expression that is equivalent to if/else using Predef::True and Predef::False
+   */
+  def ifExpr[T](cond: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T): Expr[T] = {
+    val TruePat = Pattern.PositionalStruct((Predef.packageName, ConstructorName("True")), Nil)
+    val FalsePat = Pattern.PositionalStruct((Predef.packageName, ConstructorName("False")), Nil)
+    Match(cond, NonEmptyList.of((TruePat, ifTrue), (FalsePat, ifFalse)), tag)
+  }
 
   def traverseType[T, F[_]](expr: Expr[T], fn: rankn.Type => F[rankn.Type])(implicit F: Applicative[F]): F[Expr[T]] =
     expr match {
@@ -58,10 +64,6 @@ object Expr {
       case Let(arg, exp, in, rec, tag) =>
         (traverseType(exp, fn), traverseType(in, fn)).mapN(Let(arg, _, _, rec, tag))
       case l@Literal(_, _) => F.pure(l)
-      case If(cond, ift, iff, tag) =>
-        (traverseType(cond, fn), traverseType(ift, fn), traverseType(iff, fn)).mapN {
-          If(_, _, _, tag)
-        }
       case Match(arg, branches, tag) =>
         val argB = traverseType(arg, fn)
         type B = (Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])
@@ -95,8 +97,6 @@ object Expr {
         Let(arg, nest(exp), nest(in), rec, e)
       case Literal(lit, _) =>
         Literal(lit, e)
-      case If(cond, ift, iff, _) =>
-        If(nest(cond), nest(ift), nest(iff), e)
       case Match(arg, branches, _) =>
         Match(nest(arg), branches.map {
           case (pat, exp) => (pat, nest(exp))
@@ -136,9 +136,6 @@ object Expr {
             }
           case Literal(lit, tag) =>
             f(tag).map(Literal(lit, _))
-          case If(cond, ift, iff, tag) =>
-            (cond.traverse(f), ift.traverse(f), iff.traverse(f), f(tag))
-              .mapN(If(_, _, _, _))
           case Match(arg, branches, tag) =>
             val argB = arg.traverse(f)
             val branchB = tne.traverse(branches)(f)
@@ -169,11 +166,6 @@ object Expr {
             f(b2, tag)
           case Literal(_, tag) =>
             f(b, tag)
-          case If(cond, ift, iff, tag) =>
-            val b1 = foldLeft(cond, b)(f)
-            val b2 = foldLeft(ift, b1)(f)
-            val b3 = foldLeft(iff, b2)(f)
-            f(b3, tag)
           case Match(arg, branches, tag) =>
             val b1 = foldLeft(arg, b)(f)
             val b2 = tne.foldLeft(branches, b1)(f)
@@ -202,11 +194,6 @@ object Expr {
             foldRight(exp, b2)(f)
           case Literal(_, tag) =>
             f(tag, lb)
-          case If(cond, ift, iff, tag) =>
-            val b1 = f(tag, lb)
-            val b2 = foldRight(iff, b1)(f)
-            val b3 = foldRight(ift, b2)(f)
-            foldRight(cond, b3)(f)
           case Match(arg, branches, tag) =>
             val b1 = f(tag, lb)
             val b2 = tne.foldRight(branches, b1)(f)

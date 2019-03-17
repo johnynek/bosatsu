@@ -74,7 +74,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case Var(_, _, _) | Literal(_, _) => Validated.valid(())
       case App(fn, arg, _) => checkExpr(fn) *> checkExpr(arg)
       case Let(_, e1, e2, _, _) => checkExpr(e1) *> checkExpr(e2)
-      case If(c, e1, e2, _) => checkExpr(c) *> checkExpr(e1) *> checkExpr(e2)
       case m@Match(arg, branches, _) =>
         val argAndBranchExprs = arg :: branches.toList.map(_._2)
         val recursion = argAndBranchExprs.traverse_(checkExpr)
