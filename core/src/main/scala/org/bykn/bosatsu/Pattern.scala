@@ -19,6 +19,7 @@ sealed abstract class Pattern[+N, +T] {
       case Pattern.WildCard => Pattern.WildCard
       case Pattern.Literal(lit) => Pattern.Literal(lit)
       case Pattern.Var(v) => Pattern.Var(v)
+      case Pattern.Named(n, p) => Pattern.Named(n, p.mapType(fn))
       case Pattern.ListPat(items) =>
         Pattern.ListPat(items.map(_.right.map(_.mapType(fn))))
       case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapType(fn), fn(tpe))
@@ -40,6 +41,9 @@ sealed abstract class Pattern[+N, +T] {
         case Pattern.Var(v) :: tail =>
           if (seen(v)) loop(tail, seen, acc)
           else loop(tail, seen + v, v :: acc)
+        case Pattern.Named(v, p) :: tail =>
+          if (seen(v)) loop(p :: tail, seen, acc)
+          else loop(p :: tail, seen + v, v :: acc)
         case Pattern.ListPat(items) :: tail =>
           val globs = items.collect { case Left(Some(glob)) => glob }.filterNot(seen)
           val next = items.collect { case Right(inner) => inner }
@@ -70,6 +74,9 @@ sealed abstract class Pattern[+N, +T] {
         case (Pattern.Var(v), isTop) :: tail =>
           if (seen(v) || isTop) loop(tail, seen, acc)
           else loop(tail, seen + v, v :: acc)
+        case (Pattern.Named(v, p), isTop) :: tail =>
+          if (seen(v) || isTop) loop((p, isTop) :: tail, seen, acc)
+          else loop((p, isTop) :: tail, seen + v, v :: acc)
         case (Pattern.ListPat(Left(Some(_)) :: Nil), true) :: tail =>
             // this is a total match at the top level, not a substructue
             loop(tail, seen, acc)
@@ -105,6 +112,10 @@ sealed abstract class Pattern[+N, +T] {
       case Pattern.WildCard | Pattern.Literal(_) => this
       case p@Pattern.Var(v) =>
         if (keep(v)) p else Pattern.WildCard
+      case n@Pattern.Named(v, p) =>
+        val inner = p.filterVars(keep)
+        if (keep(v)) Pattern.Named(v, inner)
+        else inner
       case Pattern.ListPat(items) =>
         Pattern.ListPat(items.map {
           case Left(opt) => Left(opt.filter(keep))
@@ -127,6 +138,7 @@ object Pattern {
         case Pattern.WildCard => Applicative[F].pure(Pattern.WildCard)
         case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
         case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
+        case Pattern.Named(n, p) => p.traverseType(fn).map(Pattern.Named(n, _))
         case Pattern.ListPat(items) =>
           items.traverse {
             case Left(v) => Applicative[F].pure(Left(v): Either[Option[String], Pattern[N, T1]])
@@ -149,6 +161,7 @@ object Pattern {
         case Pattern.WildCard => Pattern.WildCard
         case Pattern.Literal(lit) => Pattern.Literal(lit)
         case Pattern.Var(v) => Pattern.Var(v)
+        case Pattern.Named(v, p) => Pattern.Named(v, p.mapStruct(parts))
         case Pattern.ListPat(items) =>
           val items1 = items.map {
             case Left(v) =>
@@ -171,6 +184,11 @@ object Pattern {
   case object WildCard extends Pattern[Nothing, Nothing]
   case class Literal(toLit: Lit) extends Pattern[Nothing, Nothing]
   case class Var(name: String) extends Pattern[Nothing, Nothing]
+  /**
+   * Patterns like foo @ Some(_)
+   * @ binds tighter than |, so use ( ) with groups you want to bind
+   */
+  case class Named[N, T](name: String, pat: Pattern[N, T]) extends Pattern[N, T]
   case class ListPat[N, T](parts: List[Either[Option[String], Pattern[N, T]]]) extends Pattern[N, T]
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
@@ -204,18 +222,23 @@ object Pattern {
           case (Var(_), WildCard | Literal(_)) => 1
           case (Var(a), Var(b)) => a.compareTo(b)
           case (Var(_), _) => -1
-          case (ListPat(_), WildCard | Literal(_) | Var(_)) => 1
+          case (Named(_, _), WildCard | Literal(_) | Var(_)) => 1
+          case (Named(n1, p1), Named(n2, p2)) =>
+            val c = n1.compareTo(n2)
+            if (c == 0) compare(p1, p2) else c
+          case (Named(_, _), _) => -1
+          case (ListPat(_), WildCard | Literal(_) | Var(_) | Named(_, _)) => 1
           case (ListPat(as), ListPat(bs)) => listE.compare(as, bs)
           case (ListPat(_), _) => -1
+          case (Annotation(_, _), PositionalStruct(_, _) | Union(_, _)) => -1
           case (Annotation(a0, t0), Annotation(a1, t1)) =>
             val c = compare(a0, a1)
             if (c == 0) ordT.compare(t0, t1) else c
-          case (Annotation(_, _), PositionalStruct(_, _) | Union(_, _)) => -1
           case (Annotation(_, _), _) => 1
+          case (PositionalStruct(_, _), Union(_, _)) => -1
           case (PositionalStruct(n0, a0), PositionalStruct(n1, a1)) =>
             val c = ordN.compare(n0, n1)
             if (c == 0) list.compare(a0, a1) else c
-          case (PositionalStruct(_, _), Union(_, _)) => -1
           case (PositionalStruct(_, _), _) => 1
           case (Union(h0, t0), Union(h1, t1)) =>
             list.compare(h0 :: t0.toList, h1 :: t1.toList)
@@ -228,6 +251,10 @@ object Pattern {
       case WildCard => Doc.char('_')
       case Literal(lit) => Document[Lit].document(lit)
       case Var(n) => Doc.text(n)
+      case Named(n, u@Union(_, _)) =>
+        // union is also an operator, explicitly bind | more tightly
+        Doc.text(n) + Doc.char('@') + Doc.char('(') + document.document(u) + Doc.char(')')
+      case Named(n, p) => Doc.text(n) + Doc.char('@') + document.document(p)
       case ListPat(items) =>
         Doc.char('[') + Doc.intercalate(Doc.text(", "),
           items.map {
@@ -276,7 +303,6 @@ object Pattern {
   lazy val parser: P[Pattern[Option[String], TypeRef]] = {
 
     val pwild = P("_").map(_ => WildCard)
-    val pvar = lowerIdent.map(Var(_))
     val plit = Lit.parser.map(Literal(_))
     lazy val recurse = P(go(false))
 
@@ -302,7 +328,14 @@ object Pattern {
 
       val listP = listItem.listSyntax.map(ListPat(_))
 
-      val nonAnnotated = pvar | plit | pwild | tupleOrParens | positional | listP
+      lazy val named: P[Pattern[Option[String], TypeRef]] =
+        P(maybeSpace ~ "@" ~ maybeSpace ~ nonAnnotated)
+      lazy val pvarOrName = (lowerIdent ~ named.?)
+        .map {
+          case (n, None) => Var(n)
+          case (n, Some(p)) => Named(n, p)
+        }
+      lazy val nonAnnotated = plit | pwild | tupleOrParens | positional | listP | pvarOrName
       // A union can't have an annotation, we need to be inside a parens for that
       val unionOp: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]] = {
         val unionRest = nonAnnotated

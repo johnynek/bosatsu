@@ -735,6 +735,29 @@ object Infer {
                 _ <- infer.set((t, reg))
               } yield (GenPattern.Annotation(pat, t), List((n, t)))
           }
+        case GenPattern.Named(n, p) =>
+          def inner(pat: Pattern) = {
+            def mkP(t: Type): (Pattern, Type) =
+              (GenPattern.Annotation(GenPattern.Named(n, pat), t), t)
+
+            sigma match {
+              case Expected.Check((t, _)) =>
+                Infer.pure(mkP(t))
+              case infer@Expected.Inf(_) =>
+                for {
+                  t <- newMetaType
+                  _ <- infer.set((t, reg))
+                } yield mkP(t)
+            }
+          }
+          // We always return an annotation here, which is the only
+          // place we need to be careful
+          for {
+            pair0 <- typeCheckPattern(p, sigma, reg)
+            (p0, ts0) = pair0
+            pair1 <- inner(p0)
+            (p1, t1) = pair1
+          } yield (p1, (n, t1) :: ts0)
         case GenPattern.ListPat(items) =>
           /*
            * Here we unify the sigma with List[A] for some type A

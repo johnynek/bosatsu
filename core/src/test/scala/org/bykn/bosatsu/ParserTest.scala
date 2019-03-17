@@ -477,6 +477,9 @@ x""")
     roundTrip(Pattern.parser, "_")
     roundTrip(Pattern.parser, "(a, b)")
     roundTrip(Pattern.parser, "(a, b) | _")
+    roundTrip(Pattern.parser, "foo @ _")
+    roundTrip(Pattern.parser, "foo @ Some(_) | None")
+    roundTrip(Pattern.parser, "Bar | foo @ Some(_) | None")
   }
 
   test("Declaration.toPattern works for all Pattern-like declarations") {

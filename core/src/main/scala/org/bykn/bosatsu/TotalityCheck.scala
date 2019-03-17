@@ -230,6 +230,10 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         Right(left :: Nil)
       case (WildCard | Var(_), _) if isTotal(right) == Right(true) =>
         Right(Nil)
+      case (Named(_, p), r) => difference0(p, r)
+      case (l, Named(_, p)) => difference0(l, p)
+      case (Annotation(p, _), r) => difference0(p, r)
+      case (l, Annotation(p, _)) => difference0(l, p)
       case (WildCard, listPat@ListPat(rp)) =>
         // _ is the same as [*_] for well typed expressions
         checkListPats(listPat :: Nil) *>
@@ -319,6 +323,10 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             .traverse(intersection(p, _))
             .map(_.flatten.distinct.sorted)
         case (Var(va), Var(vb)) => Right(List(Var(Ordering[String].min(va, vb))))
+        case (Named(va, pa), Named(vb, pb)) if va == vb =>
+          intersection(pa, pb).map(_.map(Named(va, _)))
+        case (Named(va, pa), r) => intersection(pa, r)
+        case (l, Named(vb, pb)) => intersection(l, pb)
         case (WildCard, v) => Right(List(v))
         case (v, WildCard) => Right(List(v))
         case (Var(_), v) => Right(List(v))
@@ -558,6 +566,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     def loop(superSet: Patterns, subSet: Pattern[Cons, Type]): Boolean =
       (superSet, subSet) match {
         case ((WildCard | Var(_)) :: _, _) => true
+        case (Named(_, p) :: t, r) => loop(p :: t, r)
+        case (sup, Named(_, sub)) => loop(sup, sub)
         case (_, Annotation(p, _)) => loop(superSet, p)
         case (_, (WildCard | Var(_))) => false // we never call this on a total superset
         case (Union(h, t) :: rest, sub) =>
@@ -721,6 +731,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
   private def isTotal(p: Pattern[Cons, Type]): Res[Boolean] =
     p match {
       case Pattern.WildCard | Pattern.Var(_) => Right(true)
+      case Pattern.Named(_, p) => isTotal(p)
       case Pattern.Literal(_) => Right(false) // literals are not total
       case Pattern.ListPat(Left(_) :: rest) =>
         Right(matchesEmpty(rest))
@@ -752,6 +763,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         p match {
           case WildCard | Literal(_) => p
           case Var(_) => WildCard
+          case Named(_, p) => normalizePattern(p)
           case ListPat(ls) =>
             val normLs: List[ListPatElem] =
               ls.map {

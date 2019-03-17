@@ -852,4 +852,22 @@ main = match (eq_List(lst1, lst2), eq_List(lst1, lst3)):
   notTrue: 0
 """), "A", VInt(1))
   }
+
+  test("test fib using recursion") {
+  evalTest(
+    List("""
+package A
+
+enum Nat: Z, S(p: Nat)
+
+def fib(n):
+  recur n:
+    Z: 1
+    S(Z): 1
+    S(n1@S(n2)): fib(n1).add(fib(n2))
+
+# fib(4) = 1, 1, 2, 3, 5, 8
+main = fib(S(S(S(S(S(Z))))))
+"""), "A", VInt(8))
+  }
 }

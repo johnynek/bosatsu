@@ -225,6 +225,7 @@ object Generators {
 
     if (depth <= 0) Gen.oneOf(genVar, genWild, genLitPat)
     else {
+      val genNamed = lowerIdent.flatMap { n => recurse.map(Pattern.Named(n, _)) }
       val genTyped = Gen.zip(recurse, typeRefGen)
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
@@ -267,8 +268,8 @@ object Generators {
             Pattern.Union(h0, NonEmptyList(h1, tail))
         }
 
-      if (useUnion) Gen.oneOf(genVar, genWild, genLitPat, genStruct, genList, genUnion /*, genTyped */)
-      else Gen.oneOf(genVar, genWild, genLitPat, genStruct, genList/*, genTyped */)
+      if (useUnion) Gen.oneOf(genVar, genWild, genNamed, genLitPat, genStruct, genList, genUnion /*, genTyped */)
+      else Gen.oneOf(genVar, genWild, genNamed, genLitPat, genStruct, genList/*, genTyped */)
     }
   }
 
