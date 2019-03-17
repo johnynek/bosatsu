@@ -252,7 +252,8 @@ object Pattern {
       case Literal(lit) => Document[Lit].document(lit)
       case Var(n) => Doc.text(n)
       case Named(n, u@Union(_, _)) =>
-        // union is also an operator, explicitly bind | more tightly
+        // union is also an operator, so we need to use parens to explicitly bind | more tightly
+        // than the @ on the left.
         Doc.text(n) + Doc.char('@') + Doc.char('(') + document.document(u) + Doc.char(')')
       case Named(n, p) => Doc.text(n) + Doc.char('@') + document.document(p)
       case ListPat(items) =>

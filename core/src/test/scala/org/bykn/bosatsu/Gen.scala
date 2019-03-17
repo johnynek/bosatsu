@@ -225,7 +225,7 @@ object Generators {
 
     if (depth <= 0) Gen.oneOf(genVar, genWild, genLitPat)
     else {
-      val genNamed = lowerIdent.flatMap { n => recurse.map(Pattern.Named(n, _)) }
+      val genNamed = Gen.zip(lowerIdent, recurse).map { case (n, p) => Pattern.Named(n, p) }
       val genTyped = Gen.zip(recurse, typeRefGen)
         .map { case (p, t) => Pattern.Annotation(p, t) }
 

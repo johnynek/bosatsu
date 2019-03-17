@@ -866,7 +866,7 @@ def fib(n):
     S(Z): 1
     S(n1@S(n2)): fib(n1).add(fib(n2))
 
-# fib(4) = 1, 1, 2, 3, 5, 8
+# fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
 """), "A", VInt(8))
   }

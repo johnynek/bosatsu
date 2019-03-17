@@ -320,6 +320,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       def definedForCons(pc: (PackageName, ConstructorName)): DefinedType[Any] =
         pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
 
+      /*
+       * This is used in a loop internally, so I am avoiding map and flatMap
+       * in favor of pattern matching for performance
+       */
       def maybeBind[E](arg: Value,
         pat: Pattern[(PackageName, ConstructorName), Type],
         acc: Env): Option[Env] =
@@ -346,8 +350,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                 // a right hand side pattern never matches the empty list
                 arg match {
                   case VList.Cons(argHead, argTail) =>
-                    maybeBind(argHead, ph, acc)
-                      .flatMap(maybeBind(argTail, Pattern.ListPat(ptail), _))
+                    maybeBind(argHead, ph, acc) match {
+                      case None => None
+                      case Some(acc1) =>
+                        maybeBind(argTail, Pattern.ListPat(ptail), acc1)
+                    }
                   case _ => None
                 }
               case Left(splice) :: ptail =>
@@ -358,8 +365,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                     val revPat = Pattern.ListPat(ptail.reverse)
                     // we only allow one splice, so we assume the rest of the patterns
                     val (revArgTail, spliceVals) = asList.reverse.splitAt(ptail.size)
-                    maybeBind(VList(revArgTail), revPat, acc)
-                      .map { acc1 =>
+                    maybeBind(VList(revArgTail), revPat, acc) match {
+                      case None => None
+                      case Some(acc1) => Some {
                         // now bind the rest into splice:
                         splice match {
                           case None => acc1
@@ -368,6 +376,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                             acc1.updated(nm, rest)
                         }
                       }
+                    }
                   case _ => None
                 }
               }
@@ -376,10 +385,17 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             maybeBind(arg, p, acc)
           case Pattern.Union(h, t) =>
             // we can just loop expanding these out:
-            (h :: t.toList).foldLeft(Option.empty[Env]) {
-              case (None, p) => maybeBind(arg, p, acc)
-              case (some, _) => some
-            }
+            @annotation.tailrec
+            def loop(ps: List[Pattern[(PackageName, ConstructorName), Type]]): Option[Env] =
+              ps match {
+                case Nil => None
+                case head :: tail =>
+                  maybeBind(arg, head, acc) match {
+                    case None => loop(tail)
+                    case some => some
+                  }
+              }
+            loop(h :: t.toList)
           case Pattern.PositionalStruct(pc@(pack, ctor), items) =>
             /*
              * The type in question is not the outer dt, but the type associated
@@ -541,7 +557,6 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case None =>
             // this isn't great, but since we fully compile, even when
             // we don't use a branch, we hit this now
-            println(s"${pack.name}::$item")
             (Scoped.unreachable, Type.IntType)
           case Some(NameKind.Let(name, recursive, expr)) =>
             val res0 = recurse((pack, Right(expr)))
