@@ -21,11 +21,6 @@ def fib(n):
       [h]: [2, h]
       [h1, h2, *_]: [h1.add(h2), *revFib])
 
-def filter(as, fn):
-  as.foldLeft([], \tail, item ->
-    if fn(item): [item, *tail]
-    else: tail)
-
 def keep(i):
   match i.cmp_Int(4000000):
     GT: False
@@ -37,6 +32,6 @@ def sum(as):
 # lazy val fibStream: Stream[BigInt] = BigInt(1) #:: BigInt(1) #:: (fibStream.drop(1).zip(fibStream).map { case (a, b) => a + b })
 # fibStream.filter(_ < BigInt(4000000)).filter(_ % 2 == 0).sum
 # 4613732
-computed = fib(35).filter(keep).sum
+computed = sum([f for f in fib(35) if keep(f)])
 
 test = Assertion(computed.eq_Int(4613732), "expected 4613732")

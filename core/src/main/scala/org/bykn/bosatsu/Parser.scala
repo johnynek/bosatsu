@@ -52,10 +52,10 @@ object Parser {
      *   B
      */
     def block[A, B](first: Indy[A], next: Indy[B]): Indy[(A, OptIndent[B])] =
-      blockLike(first, next, ":")
+      blockLike(first, next, P(maybeSpace ~ ":"))
 
-    def blockLike[A, B](first: Indy[A], next: Indy[B], sep: String): Indy[(A, OptIndent[B])] =
-      (first <* lift(P(sep ~ maybeSpace)))
+    def blockLike[A, B](first: Indy[A], next: Indy[B], sep: P[Unit]): Indy[(A, OptIndent[B])] =
+      (first <* lift(sep ~ maybeSpace))
         .product(OptIndent.indy(next))
 
     implicit class IndyMethods[A](val toKleisli: Indy[A]) extends AnyVal {
@@ -330,10 +330,15 @@ object Parser {
     def nonEmptyListOf(min: Int): P[NonEmptyList[T]] =
       nonEmptyListOfWs(maybeSpace, min)
 
-    def nonEmptyListOfWs(ws: P[Unit], min: Int): P[NonEmptyList[T]] = {
+    def nonEmptyListOfWs(ws: P[Unit], min: Int): P[NonEmptyList[T]] =
+      nonEmptyListOfWsSep(ws, P(","), allowTrailing = true, min)
+
+    def nonEmptyListOfWsSep(ws: P[Unit], sep: P[Unit], allowTrailing: Boolean, min: Int): P[NonEmptyList[T]] = {
       require(min >= 1, s"min is too small: $min")
-      val many = P(("," ~ ws ~ item ~ ws).rep(min = min - 1))
-      P(item ~ ws ~ many.? ~ (",".?))
+      val wsSep = ws ~ sep ~ ws
+      val many = item.rep(sep = wsSep, min = min - 1)
+      val trail = if (allowTrailing) (ws ~ sep).? else Pass
+      P(item ~ (wsSep ~ many).? ~ trail)
         .map {
           case (h, None) => NonEmptyList(h, Nil)
           case (h, Some(nel)) => NonEmptyList(h, nel.toList)

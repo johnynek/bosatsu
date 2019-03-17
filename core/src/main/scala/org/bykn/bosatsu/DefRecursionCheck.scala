@@ -324,9 +324,8 @@ object DefRecursionCheck {
           ll match {
             case ListLang.Cons(items) =>
               items.traverse_ { s => checkDecl(s.value) }
-            case ListLang.Comprehension(e, b, i, f) =>
+            case ListLang.Comprehension(e, _, i, f) =>
               checkDecl(e.value) *>
-                checkDecl(b) *>
                 checkDecl(i) *>
                 (f.traverse_(checkDecl))
           }

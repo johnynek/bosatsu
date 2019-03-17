@@ -53,11 +53,6 @@ def is_palindrome(lst, eq_fn):
       (True, [h, *t]): (eq_fn(item, h), t))
   res
 
-def eq_Int(a, b):
-  match a.cmp_Int(b):
-    EQ: True
-    _: False
-
 def num_is_palindrome(n):
   digits = digit_list(n)
   is_palindrome(digits, eq_Int)

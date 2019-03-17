@@ -343,15 +343,16 @@ class ParserTest extends FunSuite {
     val pident = Parser.lowerIdent
     implicit val stringDoc: Document[String] = Document.instance[String](Doc.text(_))
 
-    roundTrip(ListLang.parser(pident), "[a]")
-    roundTrip(ListLang.parser(pident), "[]")
-    roundTrip(ListLang.parser(pident), "[a , b]")
-    roundTrip(ListLang.parser(pident), "[a , b]")
-    roundTrip(ListLang.parser(pident), "[a , *b]")
-    roundTrip(ListLang.parser(pident), "[a ,\n*b,\n c]")
-    roundTrip(ListLang.parser(pident), "[x for y in z]")
-    roundTrip(ListLang.parser(pident), "[x for y in z if w]")
-
+    val llp = ListLang.parser(pident, pident)
+    roundTrip(llp, "[a]")
+    roundTrip(llp, "[]")
+    roundTrip(llp, "[  ]")
+    roundTrip(llp, "[a , b]")
+    roundTrip(llp, "[a , b]")
+    roundTrip(llp, "[a , *b]")
+    roundTrip(llp, "[a ,\n*b,\n c]")
+    roundTrip(llp, "[x for y in z]")
+    roundTrip(llp, "[x for y in z if w]")
     roundTrip(ListLang.SpliceOrItem.parser(pident), "a")
     roundTrip(ListLang.SpliceOrItem.parser(pident), "*a")
   }
@@ -472,6 +473,10 @@ x""")
   test("we can parse patterns") {
     roundTrip(Pattern.parser, "Foo([])")
     roundTrip(Pattern.parser, "Foo([], bar)")
+    roundTrip(Pattern.parser, "x")
+    roundTrip(Pattern.parser, "_")
+    roundTrip(Pattern.parser, "(a, b)")
+    roundTrip(Pattern.parser, "(a, b) | _")
   }
 
   test("Declaration.toPattern works for all Pattern-like declarations") {
@@ -692,7 +697,15 @@ x""")
     roundTrip(Declaration.parser(""), "[1, 2, 3]")
     roundTrip(Declaration.parser(""), "[1, *x, 3]")
     roundTrip(Declaration.parser(""), "[Foo(a, b), *acc]")
-    roundTrip(ListLang.parser(Declaration.parser("")), "[foo(a, b)]")
+    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.parser), "[foo(a, b)]")
+    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.parser), "[x for y in z]")
+    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.parser), "[x for (y, z) in w]")
+    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.parser), "[x for (y, z) in w if w1]")
+    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.parser), "[*x for y in z]")
+    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.parser), "[*x for (y, z) in w]")
+    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.parser), "[*x for (y, z) in w if w1]")
+    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.parser),
+      "[x for x in range(4) if x.eq_Int(2)]")
     roundTrip(ListLang.SpliceOrItem.parser(Declaration.parser("")), "a")
     roundTrip(ListLang.SpliceOrItem.parser(Declaration.parser("")), "foo(a, b)")
     roundTrip(ListLang.SpliceOrItem.parser(Declaration.parser("")), "*foo(a, b)")

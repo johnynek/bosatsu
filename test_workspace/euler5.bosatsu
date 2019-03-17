@@ -15,10 +15,11 @@ max_candidate = factorial(10)
 # is divisible by all
 
 def for_all(items, fn):
-  items.foldLeft(True, \res, item ->
-    match res:
-      True: fn(item)
-      False: False)
+  def loop(items):
+    recur items:
+      []: True
+      [h, *t]: loop(t) if fn(h) else False
+  loop(items)
 
 def int_loop_up(top, res, fn):
   int_loop(top, res, \i, res ->

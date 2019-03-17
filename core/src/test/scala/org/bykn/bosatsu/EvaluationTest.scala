@@ -790,4 +790,66 @@ main = sum(Succ(Succ(Succ(Zero))))
 """), "A", VInt(sumFn(3)))
 
   }
+
+  test("list comphension test") {
+  evalTest(
+    List("""
+package A
+
+main = [x for x in range(4)].foldLeft(0, add)
+"""), "A", VInt(6))
+  evalTest(
+    List("""
+package A
+
+main = [*[x] for x in range(4)].foldLeft(0, add)
+"""), "A", VInt(6))
+
+  evalTest(
+    List("""
+package A
+
+doub = [(x, x) for x in range(4)]
+
+main = [x.times(y) for (x, y) in doub].foldLeft(0, add)
+"""), "A", VInt(1 + 4 + 9))
+  evalTest(
+    List("""
+package A
+
+main = [x for x in range(4) if x.eq_Int(2)].foldLeft(0, add)
+"""), "A", VInt(2))
+
+  evalTest(
+    List("""
+package A
+
+main = [*[x, x] for x in range(4) if x.eq_Int(2)].foldLeft(0, add)
+"""), "A", VInt(4))
+
+  evalTest(
+    List("""
+package A
+
+def eq_List(lst1, lst2):
+  recur lst1:
+    []:
+      match lst2:
+        []: True
+        _: False
+    [h1, *t1]:
+      match lst2:
+        []: False
+        [h2, *t2]:
+          eq_List(t1, t2) if eq_Int(h1, h2) else False
+
+lst1 = [0, 0, 1, 1, 2, 2, 3, 3]
+lst2 = [*[x, x] for x in range(4)]
+lst3 = [*[y, y] for (y, y) in [(x, x) for x in range(4)]]
+
+main = match (eq_List(lst1, lst2), eq_List(lst1, lst3)):
+  (True, True): 1
+  notTrue: 0
+"""), "A", VInt(1))
+  }
 }

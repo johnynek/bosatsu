@@ -4,24 +4,15 @@ package Euler/One
 # https://projecteuler.net/problem=1
 # Find the sum of all the multiples of 3 or 5 below 1000.
 
-def filter(as, fn):
-  as.foldLeft([], \tail, item ->
-    if fn(item): [item, *tail]
-    else: tail)
-
-under1000 = range(1000)
-
-def or(a, b):
-  True if a else b
+def or(a, b): True if a else b
 
 def keep(i):
   or(i.mod_Int(3).eq_Int(0), i.mod_Int(5).eq_Int(0))
 
-def sum(as):
-  as.foldLeft(0, add)
+def sum(as): as.foldLeft(0, add)
 
 # >>> sum(i for i in xrange(1000) if keep_fn(i))
 # 233168
-computed = trace("computed", under1000.filter(keep).sum)
+computed = [i for i in range(1000) if keep(i)].sum
 
 test = Assertion(computed.eq_Int(233168), "expected 233168")

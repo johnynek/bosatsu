@@ -103,7 +103,7 @@ sealed abstract class Declaration {
       case Var(name) => Doc.text(name)
 
       case ListDecl(list) =>
-        ListLang.document.document(list)
+        ListLang.document[Declaration, Pattern[Option[String], TypeRef]].document(list)
     }
   }
 
@@ -200,8 +200,6 @@ sealed abstract class Declaration {
                   ListLang.SpliceOrItem.Item(loop(item))
               }
 
-              // TODO we need to refer to Predef/EmptyList no matter what here
-              // but we have no way to fully refer to an item
               val pn = Option(Predef.packageName)
               val empty: Expr[Declaration] = Expr.Var(pn, "EmptyList", l)
               def cons(head: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
@@ -216,7 +214,70 @@ sealed abstract class Declaration {
                 case (tail, ListLang.SpliceOrItem.Splice(s)) =>
                   concat(s, tail)
               }
-            case ListLang.Comprehension(_, _, _, _) => ???
+            case ListLang.Comprehension(res, binding, in, filter) =>
+              /*
+               * [x for y in z] ==
+               * z.map_List(\v ->
+               *   y = v
+               *   x)
+               *
+               * [x for y in z if w] =
+               * z.flat_map_List(\v ->
+               *   y = v
+               *   if w: [x]
+               *   else: []
+               * )
+               *
+               * [*x for y in z] =
+               * z.flat_map_List(\v ->
+               *   y = v
+               *   x
+               * )
+               *
+               * [*x for y in z if w] =
+               * z.flat_map_List(\v ->
+               *   y = v
+               *   if w: x
+               *   else: []
+               * )
+               */
+              val pn = Option(Predef.packageName)
+              val opName = (res, filter) match {
+                case (ListLang.SpliceOrItem.Item(_), None) =>
+                  "map_List"
+                case (ListLang.SpliceOrItem.Item(_) | ListLang.SpliceOrItem.Splice(_), _) =>
+                  "flat_map_List"
+              }
+              val opExpr: Expr[Declaration] = Expr.Var(pn, opName, l)
+              val resExpr: Expr[Declaration] = (res, filter) match {
+                case (itOrSp, None) =>
+                  loop(itOrSp.value)
+                case (itOrSp, Some(cond)) =>
+                  val empty: Expr[Declaration] = Expr.Var(pn, "EmptyList", cond)
+                  // we need theReturn
+                  val r = itOrSp.value
+                  val ritem = loop(r)
+                  val sing = itOrSp match {
+                    case ListLang.SpliceOrItem.Item(_) =>
+                      Expr.App(
+                        Expr.App(Expr.Var(pn, "NonEmptyList", r), ritem, r),
+                        empty,
+                        r)
+                    case ListLang.SpliceOrItem.Splice(_) => ritem
+                  }
+
+                  Expr.If(loop(cond),
+                    sing,
+                    empty,
+                    cond)
+              }
+              val unusedSymbol0: String = "$a" // TODO we should have better ways to gensym
+              val newPattern = unTuplePattern(binding, nameToType, nameToCons)
+              val body: Expr[Declaration] =
+                Expr.Match(Expr.Var(None, unusedSymbol0, l),
+                  NonEmptyList.of((newPattern, resExpr)), l)
+              val fnExpr: Expr[Declaration] = Expr.Lambda(unusedSymbol0, body, l)
+              Expr.App(Expr.App(opExpr, loop(in), l), fnExpr, l)
           }
       }
 
@@ -289,7 +350,7 @@ object Declaration {
   /**
    * This represents the list construction language
    */
-  case class ListDecl(list: ListLang[Declaration])(implicit val region: Region) extends Declaration
+  case class ListDecl(list: ListLang[Declaration, Pattern[Option[String], TypeRef]])(implicit val region: Region) extends Declaration
 
   val matchKindParser: P[RecursionKind] =
     (P("match").map(_ => RecursionKind.NonRecursive) | P("recur").map(_ => RecursionKind.Recursive))
@@ -361,7 +422,7 @@ object Declaration {
   def ifElseP(expr: Indy[Declaration]): Indy[IfElse] = {
 
     def ifelif(str: String): Indy[(Declaration, OptIndent[Declaration])] =
-      Indy.block(Indy.lift(P(str ~ spaces ~/ maybeSpace)) *> expr, expr)
+      Indy.block(Indy.lift(P(str ~ spaces ~ maybeSpace)) *> expr, expr)
 
     /*
      * We don't need to parse the else term to the end,
@@ -390,7 +451,7 @@ object Declaration {
   val lambdaP: Indy[Lambda] = {
     val params = Indy.lift(P("\\" ~/ maybeSpace ~ lowerIdent.nonEmptyList))
 
-    Indy.blockLike(params, parser, "->")
+    Indy.blockLike(params, parser, P(maybeSpace ~ "->"))
       .region
       .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
   }
@@ -428,7 +489,7 @@ object Declaration {
       }
 
   private def listP(p: P[Declaration]): P[ListDecl] =
-    ListLang.parser(p)
+    ListLang.parser(p, Pattern.parser)
       .region
       .map { case (r, l) => ListDecl(l)(r) }
 
@@ -441,7 +502,7 @@ object Declaration {
         val params = recurse.nonEmptyList.parens
         // here we are using . syntax foo.bar(1, 2)
         val dotApply =
-          P("." ~/ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
+          P("." ~ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
             val args = argsOpt.fold(List.empty[Declaration])(_.toList)
 
             { head: Declaration => Apply(fn, NonEmptyList(head, args), true)(head.region + r2) }
@@ -455,7 +516,7 @@ object Declaration {
 
         // here is if/ternary operator
         val ternary =
-          P(spaces ~ "if" ~ spaces ~ recurse ~ spaces ~ "else" ~ spaces ~/ recurse)
+          P(spaces ~ "if" ~ spaces ~ recurse ~ spaces ~ "else" ~ spaces ~ recurse)
             .region
             .map { case (region, (cond, falseCase)) =>
               { trueCase: Declaration =>

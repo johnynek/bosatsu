@@ -28,6 +28,9 @@ object Predef {
   def packageName: PackageName =
     PackageName.predef
 
+  /*
+   * TODO: we should be able to compute this from predefPackage
+   */
   val predefImports: Import[PackageName, Unit] =
     Import(packageName,
       NonEmptyList.of(
@@ -56,9 +59,11 @@ object Predef {
         "eq_Int",
         "concat",
         "cmp_Int",
+        "flat_map_List",
         "foldLeft",
         "gcd_Int",
         "int_loop",
+        "map_List",
         "mod_Int",
         "range",
         "range_fold",
