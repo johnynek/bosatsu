@@ -628,33 +628,6 @@ object Infer {
             coerce <- instSigma(tpe, expect, region(term))
             res = coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
           } yield res
-        case If(cond, ifTrue, ifFalse, tag) =>
-          val condTpe =
-            typeCheckRho(cond,
-              Expected.Check((Type.BoolType, region(cond))))
-          val rest = expect match {
-            case check@Expected.Check(_) =>
-              typeCheckRho(ifTrue, check)
-                .product(typeCheckRho(ifFalse, check))
-
-            case infer@Expected.Inf(_) =>
-              for {
-                tExp <- inferRho(ifTrue)
-                fExp <- inferRho(ifFalse)
-                rT = tExp.getType
-                rF = fExp.getType
-                cT <- subsCheck(rT, rF, region(ifTrue), region(ifFalse))
-                cF <- subsCheck(rF, rT, region(ifFalse), region(ifTrue))
-                _ <- infer.set((rT, region(ifTrue))) // see section 7.1
-              } yield (cT(tExp), cF(fExp))
-
-          }
-
-          for {
-           c <- condTpe
-           branches <- rest
-           (tb, fb) = branches
-          } yield TypedExpr.If(c, tb, fb, tag)
         case Match(term, branches, tag) =>
           // all of the branches must return the same type:
 
