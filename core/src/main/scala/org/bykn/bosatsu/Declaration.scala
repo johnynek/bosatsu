@@ -266,7 +266,7 @@ sealed abstract class Declaration {
                     case ListLang.SpliceOrItem.Splice(_) => ritem
                   }
 
-                  Expr.If(loop(cond),
+                  Expr.ifExpr(loop(cond),
                     sing,
                     empty,
                     cond)

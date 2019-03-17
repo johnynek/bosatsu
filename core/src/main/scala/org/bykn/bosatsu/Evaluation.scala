@@ -204,8 +204,8 @@ object Evaluation {
     def const(e: Eval[Value]): Scoped =
       fromFn(_ => e)
 
-    def unreachable: Scoped =
-      const(Eval.later(sys.error("unreachable reached")))
+    val unreachable: Scoped =
+      const(Eval.always(sys.error("unreachable reached")))
 
     def recursive(name: String, item: Scoped): Scoped = {
       fromFn { env =>
@@ -320,67 +320,83 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       def definedForCons(pc: (PackageName, ConstructorName)): DefinedType[Any] =
         pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
 
-      def bindEnv[E](arg: Value,
-        branches: List[(Pattern[(PackageName, ConstructorName), Type], E)],
-        acc: Env): Option[(Env, E)] =
-        branches match {
-          case Nil => None
-          case (Pattern.WildCard, next):: tail =>
-            Some((acc, next))
-          case (Pattern.Literal(lit), next) :: tail =>
-            if (arg == Value.fromLit(lit)) Some((acc, next))
-            else bindEnv(arg, tail, acc)
-          case (Pattern.Var(n), next) :: tail => Some((acc + (n -> Eval.now(arg)), next))
-          case (Pattern.ListPat(items), next) :: tail =>
-            // we need this to be lazy, thus the def
-            def skip = bindEnv(arg, tail, acc)
+      /*
+       * This is used in a loop internally, so I am avoiding map and flatMap
+       * in favor of pattern matching for performance
+       */
+      def maybeBind[E](arg: Value,
+        pat: Pattern[(PackageName, ConstructorName), Type],
+        acc: Env): Option[Env] =
+        pat match {
+          case Pattern.WildCard => Some(acc)
+          case Pattern.Literal(lit) =>
+            if (arg == Value.fromLit(lit)) Some(acc)
+            else None
+          case Pattern.Var(n) => Some(acc + (n -> Eval.now(arg)))
+          case Pattern.Named(n, p) =>
+            maybeBind(arg, p, acc) match {
+              case None => None
+              case Some(acc1) =>
+                Some(acc1 + (n -> Eval.now(arg)))
+            }
+          case Pattern.ListPat(items) =>
             items match {
               case Nil =>
                 arg match {
-                  case VList.VNil => Some((acc, next))
-                  case _ => skip
+                  case VList.VNil => Some(acc)
+                  case _ => None
                 }
               case Right(ph) :: ptail =>
                 // a right hand side pattern never matches the empty list
                 arg match {
                   case VList.Cons(argHead, argTail) =>
-                    val ifMatch = for {
-                      acc1u <- bindEnv(argHead, (ph, ()) :: Nil, acc)
-                      acc2u <- bindEnv(argTail, (Pattern.ListPat(ptail), ()) :: Nil, acc1u._1)
-                    } yield (acc2u._1, next)
-
-                    ifMatch.orElse(skip)
-                  case _ => skip
+                    maybeBind(argHead, ph, acc) match {
+                      case None => None
+                      case Some(acc1) =>
+                        maybeBind(argTail, Pattern.ListPat(ptail), acc1)
+                    }
+                  case _ => None
                 }
               case Left(splice) :: ptail =>
                 arg match {
                   case VList(asList) =>
-                  // we reverse the tails, do the match, and take the rest into
+                    // we reverse the tails, do the match, and take the rest into
                     // the splice
                     val revPat = Pattern.ListPat(ptail.reverse)
                     // we only allow one splice, so we assume the rest of the patterns
                     val (revArgTail, spliceVals) = asList.reverse.splitAt(ptail.size)
-                    bindEnv(VList(revArgTail), (revPat, ()) :: Nil, acc)
-                      .map { case (acc1, _) =>
+                    maybeBind(VList(revArgTail), revPat, acc) match {
+                      case None => None
+                      case Some(acc1) => Some {
                         // now bind the rest into splice:
                         splice match {
-                          case None => (acc1, next)
+                          case None => acc1
                           case Some(nm) =>
                             val rest = Eval.now(VList(spliceVals.reverse))
-                            (acc1.updated(nm, rest), next)
+                            acc1.updated(nm, rest)
                         }
                       }
-                      .orElse(skip)
-                  case _ => skip
+                    }
+                  case _ => None
                 }
               }
-          case (Pattern.Annotation(p, _), next) :: tail =>
+          case Pattern.Annotation(p, _) =>
             // TODO we may need to use the type here
-            bindEnv(arg, (p, next) :: tail, acc)
-          case (Pattern.Union(h, t), next) :: tail =>
+            maybeBind(arg, p, acc)
+          case Pattern.Union(h, t) =>
             // we can just loop expanding these out:
-            bindEnv(arg, (h, next) :: t.toList.map((_, next)) ::: tail, acc)
-          case (Pattern.PositionalStruct(pc@(pack, ctor), items), next) :: tail =>
+            @annotation.tailrec
+            def loop(ps: List[Pattern[(PackageName, ConstructorName), Type]]): Option[Env] =
+              ps match {
+                case Nil => None
+                case head :: tail =>
+                  maybeBind(arg, head, acc) match {
+                    case None => loop(tail)
+                    case some => some
+                  }
+              }
+            loop(h :: t.toList)
+          case Pattern.PositionalStruct(pc@(pack, ctor), items) =>
             /*
              * The type in question is not the outer dt, but the type associated
              * with this current constructor
@@ -421,13 +437,20 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
               // if all the pattern bindings were known to be of the same type
               params.zip(items)
                 .foldM(acc) { case (e, (arg, pat)) =>
-                  bindEnv(arg, List((pat, next)), e).map(_._1)
+                  maybeBind(arg, pat, e)
                 }
-                .map((_, next))
             }
-            .orElse {
-                  // we didn't match, go to the next branch
-                  bindEnv(arg, tail, acc)
+        }
+      @annotation.tailrec
+      def bindEnv[E](arg: Value,
+        branches: List[(Pattern[(PackageName, ConstructorName), Type], E)],
+        acc: Env): Option[(Env, E)] =
+        branches match {
+          case Nil => None
+          case (p, e) :: tail =>
+            maybeBind(arg, p, acc) match {
+              case None => bindEnv(arg, tail, acc)
+              case Some(acc1) => Some((acc1, e))
             }
         }
 
