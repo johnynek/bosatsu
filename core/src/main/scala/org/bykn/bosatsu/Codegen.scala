@@ -256,8 +256,6 @@ trait CodeGen {
         Monad[Output].pure(Doc.text("java.lang.Integer.valueOf(") + quote(i.toString) + Doc.char(')'))
       case Literal(Lit.Str(s), _,  _) =>
         Monad[Output].pure(quote(s))
-      case If(cond, ift, iff, _) =>
-        Monad[Output].pure(Doc.text("null"))
       case Match(_, _, _) =>
         Monad[Output].pure(Doc.text("null"))
     }

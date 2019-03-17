@@ -518,22 +518,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          eres.letNameIn(arg, inres)
        case Literal(lit, _, _) =>
          val res = Eval.now(Value.fromLit(lit))
-
          Scoped.const(res)
-       case If(cond, ifT, ifF, _) =>
-         val condR = recurse((p, Right(cond)))._1
-         val ifR = recurse((p, Right(ifT)))._1
-         val elseR = recurse((p, Right(ifF)))._1
-
-         condR.flatMap {
-           case (env, True) => ifR.inEnv(env)
-           case (env, False) => elseR.inEnv(env)
-           case other =>
-             // $COVERAGE-OFF$this should be unreachable
-             sys.error(s"ill-typed, expected boolean: $other")
-             // $COVERAGE-ON$
-         }
-
        case Match(arg, branches, _) =>
          val argR = recurse((p, Right(arg)))._1
          val branchR = evalBranch(arg.getType, branches, p, recurse)

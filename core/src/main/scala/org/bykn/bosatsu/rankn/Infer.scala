@@ -598,16 +598,30 @@ object Infer {
           }
         case Let(name, rhs, body, isRecursive, tag) =>
           if (isRecursive.isRecursive) {
+            // all defs are marked at potentially recursive.
             // We have elsewhere checked that this is legitimate recursion,
             // here we are only typechecking. To typecheck a recursive let,
-            // first allocate a metavariable to extend the environment first
+            // first allocate a metavariable to extend the environment before
+            // typechecking the rhs.
+            //
+            // After we typecheck we see if this is truly recursive so
+            // compilers/evaluation can possibly optimize non-recursive
+            // cases differently
             newMetaType
               .flatMap { rhsTpe =>
                 extendEnv(name, rhsTpe) {
                   for {
                     typedRhs <- inferSigma(rhs)
                     varT = typedRhs.getType
+                    // the type variable needs to be unified with varT
+                    // note, varT could be a sigma type, it is not a Tau or Rho
+                    _ <- subsCheck(rhsTpe, varT, region(term), region(term))
                     typedBody <- typeCheckRho(body, expect)
+                    // TODO: a more efficient algorithm would do this top down
+                    // for each top level TypedExpr and build it bottom up.
+                    // we could do this after all typechecking is done
+                    frees = TypedExpr.freeVars(typedRhs :: Nil)
+                    isRecursive = RecursionKind.recursive(frees.contains(name))
                   } yield TypedExpr.Let(name, typedRhs, typedBody, isRecursive, tag)
                 }
               }
@@ -628,33 +642,6 @@ object Infer {
             coerce <- instSigma(tpe, expect, region(term))
             res = coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
           } yield res
-        case If(cond, ifTrue, ifFalse, tag) =>
-          val condTpe =
-            typeCheckRho(cond,
-              Expected.Check((Type.BoolType, region(cond))))
-          val rest = expect match {
-            case check@Expected.Check(_) =>
-              typeCheckRho(ifTrue, check)
-                .product(typeCheckRho(ifFalse, check))
-
-            case infer@Expected.Inf(_) =>
-              for {
-                tExp <- inferRho(ifTrue)
-                fExp <- inferRho(ifFalse)
-                rT = tExp.getType
-                rF = fExp.getType
-                cT <- subsCheck(rT, rF, region(ifTrue), region(ifFalse))
-                cF <- subsCheck(rF, rT, region(ifFalse), region(ifTrue))
-                _ <- infer.set((rT, region(ifTrue))) // see section 7.1
-              } yield (cT(tExp), cF(fExp))
-
-          }
-
-          for {
-           c <- condTpe
-           branches <- rest
-           (tb, fb) = branches
-          } yield TypedExpr.If(c, tb, fb, tag)
         case Match(term, branches, tag) =>
           // all of the branches must return the same type:
 

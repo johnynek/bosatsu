@@ -146,13 +146,10 @@ sealed abstract class Declaration {
           // is called. We rely on DefRecursionCheck to rule out bad recursions
           Expr.Let(defstmt.name, lambda, inExpr, recursive = RecursionKind.Recursive, decl)
         case IfElse(ifCases, elseCase) =>
-          def ifExpr(cond: Expr[Declaration], ifTrue: Expr[Declaration], ifFalse: Expr[Declaration]): Expr[Declaration] =
-            Expr.If(cond, ifTrue, ifFalse, decl)
-
           def loop0(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
             ifs match {
               case NonEmptyList((cond, ifTrue), Nil) =>
-                ifExpr(cond, ifTrue, elseC)
+                Expr.ifExpr(cond, ifTrue, elseC, decl)
               case NonEmptyList(ifTrue, h :: tail) =>
                 val elseC1 = loop0(NonEmptyList(h, tail), elseC)
                 loop0(NonEmptyList.of(ifTrue), elseC1)
