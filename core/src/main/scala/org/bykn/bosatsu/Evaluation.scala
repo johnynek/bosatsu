@@ -374,12 +374,13 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                 // the splice
                 val revPat = Pattern.ListPat(ptail.reverse)
                 val fnMatchTail = maybeBind(revPat)
+                val ptailSize = ptail.size
 
                 { (arg, acc) =>
                   arg match {
                     case VList(asList) =>
                       // we only allow one splice, so we assume the rest of the patterns
-                      val (revArgTail, spliceVals) = asList.reverse.splitAt(ptail.size)
+                      val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
                       fnMatchTail(VList(revArgTail), acc) match {
                         case None => None
                         case Some(acc1) => Some {
@@ -424,12 +425,24 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             val dt = definedForCons(pc)
             val itemFns = items.map(maybeBind(_))
 
-            def processArgs(as: List[Value], acc: Env): Option[Env] =
-              as
-                .zip(itemFns)
-                .foldM(acc) { case (acc, (arg, fn)) =>
-                  fn(arg, acc)
+            def processArgs(as: List[Value], acc: Env): Option[Env] = {
+              // manually write out foldM hoping for performance improvements
+              @annotation.tailrec
+              def loop(vs: List[Value], fns: List[(Value, Env) => Option[Env]], env: Env): Option[Env] =
+                vs match {
+                  case Nil => Some(env)
+                  case vh :: vt =>
+                    fns match {
+                      case fh :: ft =>
+                        fh(vh, env) match {
+                          case None => None
+                          case Some(env1) => loop(vt, ft, env1)
+                        }
+                      case Nil => Some(env) // mismatch in size, shouldn't happen statically
+                    }
                 }
+              loop(as, itemFns, acc)
+            }
 
             if (dt.isStruct) {
               // this is a struct, which means we expect it
@@ -448,16 +461,15 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
               }
             }
             else {
+              // compute the index of ctor, so we can compare integers later
+              val idx = dt.constructors.map(_._1).indexOf(ctor)
+
+              // we don't check if idx < 0, because if we compiled, it can't be
               { (arg: Value, acc: Env) =>
                 arg match {
                   case SumValue(enumId, v) =>
-                    val cname = dt.constructors(enumId)._1
-                    if (cname == ctor) {
-                      processArgs(v.toList, acc)
-                    }
-                    else {
-                      None
-                    }
+                    if (enumId == idx) processArgs(v.toList, acc)
+                    else None
                   case other =>
                     // $COVERAGE-OFF$this should be unreachable
                     sys.error(s"ill typed in match: $other")
