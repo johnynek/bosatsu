@@ -41,14 +41,18 @@ object Expr {
   implicit def hasRegion[T: HasRegion]: HasRegion[Expr[T]] =
     HasRegion.instance[Expr[T]] { e => HasRegion.region(e.tag) }
 
+  /*
+   * Allocate these once
+   */
+  private[this] val TruePat: Pattern[(PackageName, ConstructorName), rankn.Type] =
+    Pattern.PositionalStruct((Predef.packageName, ConstructorName("True")), Nil)
+  private[this] val FalsePat: Pattern[(PackageName, ConstructorName), rankn.Type] =
+    Pattern.PositionalStruct((Predef.packageName, ConstructorName("False")), Nil)
   /**
    * build a Match expression that is equivalent to if/else using Predef::True and Predef::False
    */
-  def ifExpr[T](cond: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T): Expr[T] = {
-    val TruePat = Pattern.PositionalStruct((Predef.packageName, ConstructorName("True")), Nil)
-    val FalsePat = Pattern.PositionalStruct((Predef.packageName, ConstructorName("False")), Nil)
+  def ifExpr[T](cond: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T): Expr[T] =
     Match(cond, NonEmptyList.of((TruePat, ifTrue), (FalsePat, ifFalse)), tag)
-  }
 
   def traverseType[T, F[_]](expr: Expr[T], fn: rankn.Type => F[rankn.Type])(implicit F: Applicative[F]): F[Expr[T]] =
     expr match {
