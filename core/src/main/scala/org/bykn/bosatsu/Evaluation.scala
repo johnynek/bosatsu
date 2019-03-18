@@ -371,24 +371,13 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                 }
               case Left(splice) :: Nil =>
                 // this is the common and easy case: a total match of the tail
+                // we don't need to match on it being a list, because we have
+                // already type checked
                 splice match {
                   case Some(nm) =>
-                    { (arg, acc) =>
-                      arg match {
-                        case VList(_) =>
-                          // now bind the rest into splice:
-                          val rest = Eval.now(arg)
-                          Some(acc.updated(nm, rest))
-                        case _ => None
-                      }
-                    }
+                    { (v, env) => Some(env.updated(nm, Eval.now(v))) }
                   case None =>
-                    { (arg, acc) =>
-                      arg match {
-                        case VList(asList) => Some(acc)
-                        case _ => None
-                      }
-                    }
+                    noop
                 }
               case Left(splice) :: ptail =>
                 // this is more costly, since we have to match a non infinite tail.
@@ -413,7 +402,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                               acc1.updated(nm, rest)
                             }
                           }
-                        case _ => None
+                        case notlist =>
+                          // it has to be a list due to type checking
+                          // $COVERAGE-OFF$this should be unreachable
+                          sys.error(s"ill typed in match, expected list found: $notlist")
+                          // $COVERAGE-ON$
                       }
                     }
                   case None =>
@@ -423,7 +416,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                           // we only allow one splice, so we assume the rest of the patterns
                           val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
                           fnMatchTail(VList(revArgTail), acc)
-                        case _ => None
+                        case notlist =>
+                          // it has to be a list due to type checking
+                          // $COVERAGE-OFF$this should be unreachable
+                          sys.error(s"ill typed in match, expected list found: $notlist")
+                          // $COVERAGE-ON$
                       }
                     }
                 }
@@ -486,8 +483,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                     processArgs(p.toList, acc)
 
                   case other =>
+                    // $COVERAGE-OFF$this should be unreachable
                     val ts = TypeRef.fromType(tpe).fold(tpe.toString)(_.toDoc.render(80))
                     sys.error(s"ill typed in match (${ctor.asString}${items.mkString}): $ts\n\n$other")
+                    // $COVERAGE-ON$
                 }
               }
             }

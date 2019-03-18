@@ -870,4 +870,43 @@ def fib(n):
 main = fib(S(S(S(S(S(Z))))))
 """), "A", VInt(8))
   }
+
+  test("test matching the front of a list") {
+    evalTest(List("""
+package A
+
+def bad_len(list):
+  recur list:
+    []: 0
+    [*init, _]: bad_len(init).add(1)
+
+main = bad_len([1, 2, 3, 5])
+"""), "A", VInt(4))
+
+    evalTest(List("""
+package A
+
+def last(list):
+  match list:
+    []: -1
+    [*_, s]: s
+
+main = last([1, 2, 3, 5])
+"""), "A", VInt(5))
+  }
+  test("test a named pattern that doesn't match") {
+    evalTest(List("""
+package A
+
+def bad_len(list):
+  recur list:
+    []: 0
+    [2] | [3]: -1
+    [*_, four@4]: -1
+    [100, *_]: -1
+    [*init, last@(_: Int)]: bad_len(init).add(1)
+
+main = bad_len([1, 2, 3, 5])
+"""), "A", VInt(4))
+  }
 }
