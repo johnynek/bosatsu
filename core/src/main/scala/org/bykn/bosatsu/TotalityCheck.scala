@@ -23,6 +23,16 @@ object TotalityCheck {
   case class InvalidPattern[A](matchExpr: Expr.Match[A], err: Error) extends ExprError[A]
 }
 
+/**
+ * Here is code for performing totality checks of matches.
+ * One key thing: we can assume that any two patterns are describing the same type, or otherwise
+ * typechecking cannot pass. So, this allows us to make certain inferences, e.g.
+ * _ - [_] = [_, _, *_]
+ * because we know the type must be a list of some kind of [_] is to be a well typed pattern.
+ *
+ * similarly, some things are ill-typed: `1 - 'foo'` doesn't make any sense. Those two patterns
+ * don't describe the same type.
+ */
 case class TotalityCheck(inEnv: TypeEnv[Any]) {
   import TotalityCheck._
 

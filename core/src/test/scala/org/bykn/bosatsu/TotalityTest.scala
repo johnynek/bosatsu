@@ -476,8 +476,8 @@ enum Either: Left(l), Right(r)
           tc.difference(c, b) match {
             case Left(err) => () // due to our generators, we fail a lot
             case Right(c1) =>
-              // this quadradic, but order independent
-              val eqList = new Eq[TotalityCheck.Patterns] {
+              // // this quadradic, but order independent
+              val eqList1 = new Eq[TotalityCheck.Patterns] {
                 def eqv(a: TotalityCheck.Patterns, b: TotalityCheck.Patterns) = {
                   (a, b) match {
                     case (ah :: taila, _) if taila.exists(tc.eqPat.eqv(ah, _)) =>
@@ -497,8 +497,27 @@ enum Either: Left(l), Right(r)
                   }
                 }
               }
-
-              assert(eqList.eqv(c1, c),
+              // now we check that c - c1 is empty and c1 - c is empty
+              val eqList2 = new Eq[TotalityCheck.Patterns] {
+                def eqv(a: TotalityCheck.Patterns, b: TotalityCheck.Patterns) = {
+                  (a, b) match {
+                    case (Nil, Nil) => true
+                    case (Nil, _) => false
+                    case (_, Nil) => false
+                    case (ah :: at, bh :: bt) =>
+                      val ua = Pattern.union(ah, at)
+                      val ub = Pattern.union(bh, bt)
+                      (tc.difference0(ua, ub), tc.difference0(ub, ua)) match {
+                        case (Right(Nil), Right(Nil)) => true
+                        case _ => false
+                      }
+                  }
+                }
+              }
+              // if we are equal according to either of these, we are equal,
+              // but sometimes we are equal and one or the other won't see it
+              // due to this analysis making almost no use of types.
+              assert(eqList1.eqv(c1, c) || eqList2.eqv(c1, c),
                 s"${showPat(a)} - (b=${showPat(b)}) = ${c.map(showPat)} - b = ${c1.map(showPat)} diff = ${
                   c.map(showPatU).diff(c1.map(showPatU))}" )
           }
@@ -510,6 +529,9 @@ enum Either: Left(l), Right(r)
     }
 
     manualTest("[[*foo, bar], [baz]]")
+    manualTest("[_, [_, _] | [*_, _]]")
+    // see issue #147, this was minimized from that
+    manualTest("[_, [_, _] | [*_, ([1], [*ad, s3] | (3, _) | 2)]]")
     forAll(genPattern, genPattern)(law)
   }
 

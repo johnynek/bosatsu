@@ -132,6 +132,12 @@ sealed abstract class Pattern[+N, +T] {
 
 object Pattern {
 
+  def union[N, T](head: Pattern[N, T], tail: List[Pattern[N, T]]): Pattern[N, T] =
+    tail match {
+      case Nil => head
+      case th :: tt => Union(head, NonEmptyList(th, tt))
+    }
+
   implicit class InvariantPattern[N, T](val pat: Pattern[N, T]) extends AnyVal {
     def traverseType[F[_]: Applicative, T1](fn: T => F[T1]): F[Pattern[N, T1]] =
       pat match {
