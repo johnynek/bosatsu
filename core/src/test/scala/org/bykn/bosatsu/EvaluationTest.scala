@@ -528,7 +528,7 @@ package Foo
 struct Bar(a: Int, s: String)
 
 main = Bar(1, "foo")
-"""), "Foo", Json.JObject(Map("a" -> Json.JNumberStr("1"), "s" -> Json.JString("foo"))))
+"""), "Foo", Json.JObject(List("a" -> Json.JNumberStr("1"), "s" -> Json.JString("foo"))))
   }
 
   test("test some type errors") {

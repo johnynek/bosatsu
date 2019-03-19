@@ -719,7 +719,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           prod.toList.zip(params).traverse { case (a1, (ParamName(pn), t)) =>
             rec(a1, t).map((pn, _))
           }
-          .map { ps => Json.JObject(ps.toMap) }
+          .map { ps => Json.JObject(ps) }
         }
       }
     }
