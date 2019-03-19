@@ -87,6 +87,8 @@ lazy val core = (project in file("core")).
         fastparseCats,
         paiges,
         scalaCheck % Test,
-        scalaTest % Test
+        scalaTest % Test,
+        jawnParser % Test,
+        jawnAst % Test
       )
   ).dependsOn(base)

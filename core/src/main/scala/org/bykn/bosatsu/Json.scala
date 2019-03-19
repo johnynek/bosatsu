@@ -7,21 +7,15 @@ import org.typelevel.paiges.Doc
  */
 sealed abstract class Json {
   def toDoc: Doc
+
+  def render: String = toDoc.render(80)
 }
 
 object Json {
   import Doc.{text, str}
 
-  def escape(str: String): String =
-    str.flatMap {
-      case '\\' => "\\\\"
-      case '\n' => "\\n"
-      case '"' => "\""
-      case other => other.toString
-    }
-
   case class JString(str: String) extends Json {
-    def toDoc = text("\"%s\"".format(escape(str)))
+    def toDoc = text("\"%s\"".format(JsonStringUtil.escape('"', str)))
   }
   case class JNumber(toDouble: Double) extends Json {
     def toDoc = str(toDouble)
@@ -41,10 +35,16 @@ object Json {
       "[" +: ((parts :+ " ]").nested(2))
     }
   }
-  case class JObject(toMap: Map[String, Json]) extends Json {
+  // we use a List here to preserve the order in which items
+  // were given to us
+  case class JObject(items: List[(String, Json)]) extends Json {
+    val toMap: Map[String, Json] = items.toMap
+    val keys: List[String] = items.map(_._1).distinct
+
     def toDoc = {
-      val kvs = toMap.map { case (s, j) =>
-        JString(s).toDoc + text(":") + ((Doc.lineOrSpace + j.toDoc).nested(2))
+      val kvs = keys.map { k =>
+        val j = toMap(k)
+        JString(k).toDoc + text(":") + ((Doc.lineOrSpace + j.toDoc).nested(2))
       }
       val parts = Doc.intercalate(Doc.comma + Doc.line, kvs).grouped
       parts.bracketBy(text("{"), text("}"))
