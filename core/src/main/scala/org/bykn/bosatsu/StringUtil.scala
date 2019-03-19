@@ -28,8 +28,8 @@ abstract class GenericStringUtil {
 
   def escapedString(q: Char): P[String] = {
     val qstr = q.toString
-    val char = P(escapeString | (!qstr ~ AnyChar)).!
-    P(qstr ~ char.rep() ~ qstr).map(_.mkString)
+    val char = P(escapeString | (!qstr ~ AnyChar))
+    P(qstr ~ char.rep().! ~ qstr)
       .flatMap { str =>
         unescape(str) match {
           case Right(str1) => PassWith(str1)
