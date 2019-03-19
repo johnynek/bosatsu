@@ -8,11 +8,10 @@ import org.typelevel.paiges.{Doc, Document}
 
 import Parser.{lowerIdent, upperIdent, spaces, maybeSpace, Combinators}
 
-sealed abstract class ImportedName[T] {
+sealed abstract class ImportedName[+T] {
   def originalName: String
   def localName: String
   def tag: T
-  def setTag(t: T): ImportedName[T]
   def isRenamed: Boolean = originalName != localName
 
   def map[U](fn: T => U): ImportedName[U] =
@@ -35,11 +34,8 @@ sealed abstract class ImportedName[T] {
 object ImportedName {
   case class OriginalName[T](originalName: String, tag: T) extends ImportedName[T] {
     def localName = originalName
-    def setTag(t: T): ImportedName[T] = OriginalName(originalName, t)
   }
-  case class Renamed[T](originalName: String, localName: String, tag: T) extends ImportedName[T] {
-    def setTag(t: T): ImportedName[T] = Renamed(originalName, localName, t)
-  }
+  case class Renamed[T](originalName: String, localName: String, tag: T) extends ImportedName[T]
 
   implicit val document: Document[ImportedName[Unit]] =
     Document.instance[ImportedName[Unit]] {
@@ -58,10 +54,7 @@ object ImportedName {
   }
 }
 
-case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
-  def mapPackage[A1](fn: A => A1): Import[A1, B] =
-    Import(fn(pack), items)
-}
+case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]])
 
 object Import {
   implicit val document: Document[Import[PackageName, Unit]] =
@@ -101,9 +94,6 @@ object Import {
 case class ImportMap[A, B](toMap: Map[String, (A, ImportedName[B])]) {
   def apply(name: String): Option[(A, ImportedName[B])] =
     toMap.get(name)
-
-  def originalOf(name: String): Option[(A, String)] =
-    apply(name).map { case (p, im) => (p, im.originalName) }
 
   def +(that: (A, ImportedName[B])): ImportMap[A, B] =
     ImportMap(toMap.updated(that._2.localName, that))

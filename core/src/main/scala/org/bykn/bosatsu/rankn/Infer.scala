@@ -67,9 +67,6 @@ object Infer {
     typeCons: Map[(PackageName, ConstructorName), Cons])
 
   object Env {
-    def empty: RefSpace[Env] =
-      init(Map.empty, Map.empty)
-
     def init(vars: Map[Name, Type], tpes: Map[(PackageName, ConstructorName), Cons]): RefSpace[Env] =
       RefSpace.newRef(0L).map(Env(_, vars, tpes))
   }
@@ -86,9 +83,6 @@ object Infer {
     Lift(RefSpace.pure(Right(a)))
 
   val unit: Infer[Unit] = pure(())
-
-  def defer[A](tc: => Infer[A]): Infer[A] =
-    Defer(() => tc)
 
   def require(b: Boolean, err: => Error): Infer[Unit] =
     if (b) unit else fail(err)
@@ -188,20 +182,6 @@ object Infer {
       case class Check[A](value: A) extends Expected[A]
     }
 
-    case class Defer[A](tc: () => Infer[A]) extends Infer[A] {
-      lazy val finalInfer = {
-        def loop(tc: Infer[A]): Infer[A] =
-          tc match {
-            case Defer(next) => loop(next())
-            case nonDefer => nonDefer
-          }
-
-        loop(tc())
-      }
-
-      def run(env: Env) = finalInfer.run(env)
-    }
-
     case class FlatMap[A, B](fa: Infer[A], fn: A => Infer[B]) extends Infer[B] {
       def run(env: Env) =
         fa.run(env).flatMap {
@@ -211,14 +191,14 @@ object Infer {
     }
     case class TailRecM[A, B](init: A, fn: A => Infer[Either[A, B]]) extends Infer[B] {
       def run(env: Env) = {
-        def step(a: A): RefSpace[Either[A, Either[Error, B]]] =
-          fn(a).run(env).map {
-            case Left(err) => Right(Left(err))
-            case Right(Left(a)) => Left(a)
-            case Right(Right(a)) => Right(Right(a))
+        // RefSpace uses Eval so this is fine, if not maybe the fastest thing ever
+        def loop(a: A): RefSpace[Either[Error, B]] =
+          fn(a).run(env).flatMap {
+            case Left(err) => RefSpace.pure(Left(err))
+            case Right(Left(a)) => loop(a)
+            case Right(Right(b)) => RefSpace.pure(Right(b))
           }
-
-        Monad[RefSpace].tailRecM(init)(step _)
+        loop(init)
       }
     }
 

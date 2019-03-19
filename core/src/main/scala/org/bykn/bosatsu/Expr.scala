@@ -10,27 +10,12 @@ import cats.data.NonEmptyList
 import cats.{Applicative, Eval, Traverse}
 
 sealed abstract class Expr[T] {
-  import Expr._
-
   def tag: T
-  def setTag(t: T): Expr[T] =
-    this match {
-      case a@Annotation(_, _, _) => a.copy(tag = t)
-      case v@Var(_, _, _) => v.copy(tag = t)
-      case a@App(_, _, _) => a.copy(tag = t)
-      case l@Lambda(_, _, _) => l.copy(tag = t)
-      case a@AnnotatedLambda(_, _, _, _) => a.copy(tag = t)
-      case l@Let(_, _, _, _, _) => l.copy(tag = t)
-      case l@Literal(_, _) => l.copy(tag = t)
-      case m@Match(_, _, _) => m.copy(tag = t)
-    }
 }
 
 object Expr {
   case class Annotation[T](expr: Expr[T], tpe: rankn.Type, tag: T) extends Expr[T]
-  case class AnnotatedLambda[T](arg: String, tpe: rankn.Type, expr: Expr[T], tag: T) extends Expr[T] {
-    def toLambda: Lambda[T] = Lambda(arg, expr, tag)
-  }
+  case class AnnotatedLambda[T](arg: String, tpe: rankn.Type, expr: Expr[T], tag: T) extends Expr[T]
   case class Var[T](pack: Option[PackageName], name: String, tag: T) extends Expr[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
   case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
@@ -79,32 +64,6 @@ object Expr {
           }
         val branchB = branches.traverse(branchFn _)
         (argB, branchB).mapN(Match(_, _, tag))
-    }
-
-  /**
-   * Return a value so next(e).tag == e and also this is true
-   * recursively
-   */
-  def nest[T](e: Expr[T]): Expr[Expr[T]] =
-    e match {
-      case Annotation(expr, tpe, _) =>
-        Annotation(nest(expr), tpe, e)
-      case AnnotatedLambda(arg, tpe, expr, _) =>
-        AnnotatedLambda(arg, tpe, nest(expr), e)
-      case Var(p, s, _) =>
-        Var(p, s, e)
-      case App(fn, a, _) =>
-        App(nest(fn), nest(a), e)
-      case Lambda(arg, expr, _) =>
-        Lambda(arg, nest(expr), e)
-      case Let(arg, exp, in, rec, _) =>
-        Let(arg, nest(exp), nest(in), rec, e)
-      case Literal(lit, _) =>
-        Literal(lit, e)
-      case Match(arg, branches, _) =>
-        Match(nest(arg), branches.map {
-          case (pat, exp) => (pat, nest(exp))
-        }, e)
     }
 
   implicit val exprTraverse: Traverse[Expr] =
