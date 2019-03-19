@@ -22,13 +22,19 @@ object Evaluation {
     def asLazyFn: Eval[Value] => Eval[Value] =
       this match {
         case FnValue(f) => f
-        case other => sys.error(s"invalid cast to Fn: $other")
+        case other =>
+          // $COVERAGE-OFF$this should be unreachable
+          sys.error(s"invalid cast to Fn: $other")
+          // $COVERAGE-ON$
       }
 
     def asFn: Value => Eval[Value] =
       this match {
         case FnValue(f) => { v => f(Eval.now(v)) }
-        case other => sys.error(s"invalid cast to Fn: $other")
+        case other =>
+          // $COVERAGE-OFF$this should be unreachable
+          sys.error(s"invalid cast to Fn: $other")
+          // $COVERAGE-ON$
       }
   }
 
@@ -122,15 +128,6 @@ object Evaluation {
             case _ => None
           }
       }
-
-      @annotation.tailrec
-      def reverse(v: Value, acc: Value = VNil): Value =
-        v match {
-          case VNil => acc
-          case Cons(h, tail) =>
-            reverse(tail, Cons(h, acc))
-          case _ => sys.error(s"expected list, found: $v")
-        }
 
       def apply(items: List[Value]): Value = {
         @annotation.tailrec
