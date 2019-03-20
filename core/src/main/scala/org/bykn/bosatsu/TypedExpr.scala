@@ -20,6 +20,7 @@ sealed abstract class TypedExpr[T] {
    * for each expression
    *
    */
+  def updatedTag(t: T): TypedExpr[T]
   def getType: Type =
     this match {
       case Generic(params, expr, _) =>
@@ -110,14 +111,30 @@ object TypedExpr {
    *
    * The paper says to add TyLam and TyApp nodes, but it never mentions what to do with them
    */
-  case class Generic[T](typeVars: NonEmptyList[Type.Var.Bound], in: TypedExpr[T], tag: T) extends TypedExpr[T]
-  case class Annotation[T](term: TypedExpr[T], coerce: Type, tag: T) extends TypedExpr[T]
-  case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
-  case class Var[T](pack: Option[PackageName], name: Identifier, tpe: Type, tag: T) extends TypedExpr[T]
-  case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
-  case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
-  case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
-  case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
+  case class Generic[T](typeVars: NonEmptyList[Type.Var.Bound], in: TypedExpr[T], tag: T) extends TypedExpr[T] {
+   def updatedTag(t: T) = this.copy(tag=t)
+  }
+  case class Annotation[T](term: TypedExpr[T], coerce: Type, tag: T) extends TypedExpr[T] {
+   def updatedTag(t: T) = this.copy(tag=t)
+  }
+  case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T] {
+   def updatedTag(t: T) = this.copy(tag=t)
+  }
+  case class Var[T](pack: Option[PackageName], name: Identifier, tpe: Type, tag: T) extends TypedExpr[T] {
+   def updatedTag(t: T) = this.copy(tag=t)
+  }
+  case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T] {
+   def updatedTag(t: T) = this.copy(tag=t)
+  }
+  case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T] {
+   def updatedTag(t: T) = this.copy(tag=t)
+  }
+  case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T] {
+   def updatedTag(t: T) = this.copy(tag=t)
+  }
+  case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T] {
+   def updatedTag(t: T) = this.copy(tag=t)
+  }
 
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
