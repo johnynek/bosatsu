@@ -845,4 +845,19 @@ def len(l):
 main = len(Succ(Succ(Zero)))
 """, "Int")
   }
+
+  test("nested def example") {
+
+    parseProgram("""#
+struct Pair(first, second)
+
+def bar(x):
+  def baz(y):
+    Pair(x, y)
+
+  baz(10)
+
+main = bar(5)
+""", "Pair[Int, Int]")
+  }
 }
