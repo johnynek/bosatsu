@@ -909,4 +909,32 @@ def bad_len(list):
 main = bad_len([1, 2, 3, 5])
 """), "A", VInt(4))
   }
+  test("uncurry2") {
+    evalTest(List("""
+package A
+
+struct TwoVar(one, two)
+
+tuple = (1, "two")
+constructed = uncurry2(TwoVar, tuple)
+
+main = match constructed:
+  TwoVar(1, "two"): "good"
+  _: "bad"
+"""), "A", Str("good"))
+  }
+  test("uncurry3") {
+    evalTest(List("""
+package A
+
+struct ThreeVar(one, two, three)
+
+tuple = (1, "two", 3)
+constructed = uncurry3(ThreeVar, tuple)
+
+main = match constructed:
+  ThreeVar(1, "two", 3): "good"
+  _: "bad"
+"""), "A", Str("good"))
+  }
 }

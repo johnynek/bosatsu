@@ -71,7 +71,9 @@ object Predef {
         "reverse_concat",
         "sub",
         "times",
-        "trace"
+        "trace",
+        "uncurry2",
+        "uncurry3"
         )
         .map(ImportedName.OriginalName(_, ())))
 

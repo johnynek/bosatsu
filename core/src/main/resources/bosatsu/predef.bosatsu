@@ -30,6 +30,8 @@ export [
   sub,
   times,
   trace,
+  uncurry2,
+  uncurry3
 ]
 
 struct Unit
@@ -66,6 +68,16 @@ def concat(front: List[a], back: List[a]) -> List[a]:
   match back:
     []: front
     _: reverse_concat(reverse(front), back)
+
+def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
+  \tuple ->
+    (x1, x2) = tuple
+    f(x1, x2)
+
+def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
+  \tuple ->
+    (x1, x2, x3) = tuple
+    f(x1, x2, x3)
 
 enum Comparison:
   LT
