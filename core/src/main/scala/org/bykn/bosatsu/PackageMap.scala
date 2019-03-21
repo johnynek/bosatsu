@@ -6,7 +6,7 @@ import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT, State}
 import cats.Order
 import cats.implicits._
 
-import rankn.{Infer, TypeEnv}
+import rankn.{Infer, Type, TypeEnv}
 
 case class PackageMap[A, B, C, D](toMap: Map[PackageName, Package[A, B, C, D]]) {
   def +(pack: Package[A, B, C, D]): PackageMap[A, B, C, D] =
@@ -229,6 +229,47 @@ sealed abstract class PackageError {
 }
 
 object PackageError {
+  def showTypes(pack: PackageName, tpes: List[Type]): Map[Type, String] = {
+    type S = (Map[Long, TypeRef], Stream[String])
+    def encodeSkolem(sk: Type.Var.Skolem): State[S, TypeRef] =
+      // Make use a typevar
+      State.pure(TypeRef.TypeVar("$" + s"${sk.name}${sk.id}"))
+
+    def encodeMeta(id: Long): State[S, TypeRef] =
+      State { s: S =>
+        val (idMap, vars) = s
+        idMap.get(id) match {
+          case Some(tr) => (s, tr)
+          case None =>
+            val nextId = vars.head
+            val tr = TypeRef.TypeVar("?" + nextId)
+            val nextMap = idMap.updated(id, tr)
+            ((nextMap, vars.tail), tr)
+        }
+      }
+
+    def onConst(c: Type.Const.Defined): State[S, TypeRef] = {
+      val Type.Const.Defined(pn, n) = c
+      val tn =
+        if (pn == pack) n
+        else s"${pn.asString}::$n"
+
+      State.pure(TypeRef.TypeName(tn))
+    }
+
+    val state0: S = (Map.empty, Type.allBinders.map(_.name))
+    tpes.traverse { tpe =>
+      TypeRef.fromTypeA[State[S, ?]](
+        tpe,
+        encodeSkolem _,
+        encodeMeta _,
+        onConst _).map { tr => (tpe, tr.toDoc.render(80)) }
+    }
+    .runA(state0)
+    .value
+    .toMap
+  }
+
   case class UnknownExport[A](ex: ExportedName[A],
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],
     lets: List[(String, RecursionKind, TypedExpr[Declaration])]) extends PackageError {
@@ -324,48 +365,8 @@ object PackageError {
         case Some(found) => found
       }
 
-      import rankn.Type
-
-      def tStr(tpe: Type): String = {
-        type S = (Map[Long, TypeRef], Stream[String])
-        def encodeSkolem(sk: Type.Var.Skolem): State[S, TypeRef] =
-          // Make use a typevar
-          State.pure(TypeRef.TypeVar("$" + s"${sk.name}${sk.id}"))
-
-        def encodeMeta(id: Long): State[S, TypeRef] =
-          State { s: S =>
-            val (idMap, vars) = s
-            idMap.get(id) match {
-              case Some(tr) => (s, tr)
-              case None =>
-                val nextId = vars.head
-                val tr = TypeRef.TypeVar("?" + nextId)
-                val nextMap = idMap.updated(id, tr)
-                ((nextMap, vars.tail), tr)
-            }
-          }
-
-        def onConst(c: Type.Const.Defined): State[S, TypeRef] = {
-          val Type.Const.Defined(pn, n) = c
-          val tn =
-            if (pn == pack) n
-            else s"${pn.asString}::$n"
-
-          State.pure(TypeRef.TypeName(tn))
-        }
-
-        val state0: S = (Map.empty, Type.allBinders.map(_.name))
-        val (_, tr) = TypeRef.fromTypeA[State[S, ?]](
-          tpe,
-          encodeSkolem _,
-          encodeMeta _,
-          onConst _).run(state0).value
-        tr.toDoc.render(80)
-      }
-
       val teMessage = tpeErr match {
         case Infer.Error.NotUnifiable(t0, t1, r0, r1) =>
-          import Infer.Error.tStr
           val context0 =
             if (r0 == r1) " " // sometimes the region of the error is the same on right and left
             else {
@@ -375,7 +376,8 @@ object PackageError {
           val context1 =
             lm.showRegion(r1).getOrElse(r1.toString) // we should highlight the whole region
 
-          s"type ${tStr(t0)}${context0}does not unify with type ${tStr(t1)}\n$context1"
+          val tmap = showTypes(pack, List(t0, t1))
+          s"type ${tmap(t0)}${context0}does not unify with type ${tmap(t1)}\n$context1"
         case Infer.Error.VarNotInScope((pack, name), scope, region) =>
           val ctx = lm.showRegion(region).getOrElse("<unknown location>")
           val candidates = scope
@@ -397,6 +399,18 @@ object PackageError {
             else ""
           val qname = "\"" + name + "\""
           s"name $qname unknown.$cmessage\n$ctx"
+        case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, tvs) =>
+          val context0 =
+            if (r0 == r1) " " // sometimes the region of the error is the same on right and left
+            else {
+              val m = lm.showRegion(r0).getOrElse(r0.toString) // we should highlight the whole region
+              s"\n$m\n"
+            }
+          val context1 =
+            lm.showRegion(r1).getOrElse(r1.toString) // we should highlight the whole region
+
+          val tmap = showTypes(pack, List(t0, t1))
+          s"type ${tmap(t0)}${context0}does not subsume type ${tmap(t1)}\n$context1"
         case err => err.message
       }
       // TODO use the sourceMap/regiouns in Infer.Error

@@ -126,6 +126,10 @@ object TypeRef {
         onConst(defined)
       case TyVar(Type.Var.Bound(v)) =>
         Applicative[F].pure(TypeVar(v))
+      case Type.Fun(from, to) =>
+        (loop(from), loop(to)).mapN { (ftr, ttr) =>
+          TypeArrow(ftr, ttr)
+        }
       case TyApply(on, arg) =>
         (loop(on), loop(arg)).mapN {
           case (TypeApply(of, args1), arg) =>
