@@ -121,8 +121,8 @@ object Infer {
       def message = s"type ${tStr(tpe)} not polymorphic enough in $in, bad type variables: $badTvs, at $reg"
     }
 
-    case class SubsumptionCheckFailure(inferred: Type, declared: Type) extends TypeError {
-      def message = s"subsumption check failed: ${tStr(inferred)} ${tStr(declared)}"
+    case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type.Var]) extends TypeError {
+      def message = s"subsumption check failed: ${tStr(inferred)} ${tStr(declared)}, bad types: $badTvs"
     }
 
     /**
@@ -510,8 +510,10 @@ object Infer {
         (skolTvs, rho2) = skolRho
         coerce <- subsCheckRho(inferred, rho2, left, right)
         escTvs <- getFreeTyVars(List(inferred, declared))
-        badTvs = skolTvs.filter(escTvs)
-        _ <- require(badTvs.isEmpty, Error.SubsumptionCheckFailure(inferred, declared))
+        _ <- NonEmptyList.fromList(skolTvs.filter(escTvs)) match {
+          case None => pure(())
+          case Some(badTvs) => fail(Error.SubsumptionCheckFailure(inferred, declared, left, right, badTvs))
+        }
       } yield coerce
 
     /**
@@ -591,11 +593,10 @@ object Infer {
               .flatMap { rhsTpe =>
                 extendEnv(name, rhsTpe) {
                   for {
-                    typedRhs <- inferSigma(rhs)
-                    varT = typedRhs.getType
                     // the type variable needs to be unified with varT
                     // note, varT could be a sigma type, it is not a Tau or Rho
-                    _ <- subsCheck(rhsTpe, varT, region(term), region(term))
+                    typedRhs <- inferSigmaMeta(rhs, Some((rhsTpe, region(rhs))))
+                    varT = typedRhs.getType
                     typedBody <- typeCheckRho(body, expect)
                     // TODO: a more efficient algorithm would do this top down
                     // for each top level TypedExpr and build it bottom up.
@@ -849,9 +850,16 @@ object Infer {
       }
 
     def inferSigma[A: HasRegion](e: Expr[A]): Infer[TypedExpr[A]] =
+      inferSigmaMeta(e, None)
+
+    def inferSigmaMeta[A: HasRegion](e: Expr[A], meta: Option[(Type.TyMeta, Region)]): Infer[TypedExpr[A]] =
       for {
         rho <- inferRho(e)
         expTy = rho.getType
+        _ <- meta match {
+          case None => pure(())
+          case Some((m, r)) => unify(expTy, m, region(e), r)
+        }
         envTys <- getEnv
         envTypeVars <- getMetaTyVars(envTys.values.toList)
         resTypeVars <- getMetaTyVars(List(expTy))
