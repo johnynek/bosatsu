@@ -170,6 +170,8 @@ object Type {
   val StrType: Type = TyConst(Const.predef("String"))
   val FnType: Type = TyConst(Const.predef("Fn"))
   val ListType: Type = TyConst(Const.predef("List"))
+  val UnitType = TyConst(Type.Const.predef("Unit"))
+  val Tuple2Type = TyConst(Type.Const.predef("Tuple2"))
 
   object Fun {
     def unapply(t: Type): Option[(Type, Type)] =
@@ -183,6 +185,30 @@ object Type {
       TyApply(TyApply(FnType, from), to)
   }
 
+  object Tuple {
+    def unapply(t: Type): Option[List[Type]] = {
+      t match {
+        case UnitType => Some(Nil)
+        case TyApply(TyApply(Tuple2Type, h), t) =>
+          unapply(t) match {
+            case None => None
+            case Some(ts) => Some(h :: ts)
+          }
+        case _ => None
+      }
+    }
+
+    def apply(ts: List[Type]): Type = {
+      def tup(ts: List[Type]): Type =
+        ts match {
+          case Nil => UnitType
+          case h :: tail =>
+            val tailT = tup(tail)
+            TyApply(TyApply(Tuple2Type, h), tailT)
+        }
+      tup(ts)
+    }
+  }
 
   sealed abstract class Const
   object Const {

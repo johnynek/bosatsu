@@ -83,6 +83,30 @@ object Generators {
       (1, tApply))
   }
 
+  implicit val shrinkTypeRef: Shrink[TypeRef] =
+    Shrink[TypeRef](new Function1[TypeRef, Stream[TypeRef]] {
+      def apply(tr: TypeRef): Stream[TypeRef] = {
+        import TypeRef._
+        tr match {
+          case TypeVar(v) => Stream.empty
+          case TypeName(n) => Stream.empty
+          case TypeArrow(l, r) => Stream(l, r)
+          case TypeApply(of, args) => of #:: args.toList.toStream
+          case TypeLambda(params, expr) => expr #:: Stream.empty
+          case TypeTuple(ts) =>
+            def drop(as: List[TypeRef]): Stream[TypeTuple] =
+              as match {
+                case Nil => Stream.empty
+                case h :: tail =>
+                  TypeTuple(tail) #:: (drop(tail).map { case TypeTuple(ts) =>
+                    TypeTuple(h :: ts)
+                  })
+              }
+            ts.toStream #::: (drop(ts): Stream[TypeRef])
+        }
+      }
+    })
+
   def commentGen[T](dec: Gen[T]): Gen[CommentStatement[T]] = {
     def cleanNewLine(s: String): String = s.map { c => if (c == '\n') ' ' else c }
     for {

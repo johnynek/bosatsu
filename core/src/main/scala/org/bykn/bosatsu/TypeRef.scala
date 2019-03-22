@@ -64,23 +64,31 @@ sealed abstract class TypeRef {
           // we normalize to lifting all the foralls to the outside
           loop(TypeLambda(pars0 ::: pars1, e))
         case TypeLambda(pars, e) =>
-          ForAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }, loop(e))
+          Type.forAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }.toList, loop(e))
         case TypeTuple(ts) =>
-          val tup0 = TyConst(Type.Const.predef("Unit"))
-          val tup2 = TyConst(Type.Const.predef("Tuple2"))
-          def tup(ts: List[TypeRef]): Type =
-            ts match {
-              case Nil => tup0
-              case h :: tail =>
-                val tailT = tup(tail)
-                val hT = loop(h)
-                TyApply(TyApply(tup2, hT), tailT)
-            }
-          tup(ts)
+          Type.Tuple(ts.map(loop(_)))
       }
 
     loop(this)
   }
+
+  /**
+   * Nested TypeLambda can be combined, and should be generally
+   */
+  def normalizeForAll: TypeRef =
+    this match {
+      case TypeVar(_) | TypeName(_) => this
+      case TypeArrow(a, b) => TypeArrow(a.normalizeForAll, b.normalizeForAll)
+      case TypeApply(a, bs) =>
+        TypeApply(a.normalizeForAll, bs.map(_.normalizeForAll))
+      case TypeLambda(pars0, TypeLambda(pars1, e)) =>
+        // we normalize to lifting all the foralls to the outside
+        TypeLambda(pars0 ::: pars1, e).normalizeForAll
+      case TypeLambda(pars, e) =>
+        TypeLambda(pars, e.normalizeForAll)
+      case TypeTuple(ts) =>
+        TypeTuple(ts.map(_.normalizeForAll))
+    }
 }
 
 object TypeRef {
@@ -116,6 +124,9 @@ object TypeRef {
       case ForAll(vs, in) =>
         val args = vs.map { case Type.Var.Bound(b) => TypeVar(b) }
         loop(in).map(TypeLambda(args, _))
+      case Type.Tuple(ts) =>
+        // this needs to be above TyConst
+        ts.traverse(loop(_)).map(TypeTuple(_))
       case TyConst(defined@Type.Const.Defined(_, _)) =>
         onConst(defined)
       case TyVar(Type.Var.Bound(v)) =>
