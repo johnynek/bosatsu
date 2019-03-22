@@ -4,37 +4,6 @@ import cats.data.{ Validated, ValidatedNel}
 import fastparse.all._
 import org.scalatest.FunSuite
 
-object NormalizationHelpers {
-  def normalizeExpr(expr: TypedExpr[Declaration]): TypedExpr[(Declaration, Normalization.NormalExpressionTag)] = {
-    ???
-  }
-
-  def normalizeLet(inferredExpr: (String, RecursionKind, TypedExpr[Declaration])): (String, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)]) = {
-    println(inferredExpr)
-
-    println(s"let ${inferredExpr._1} = ${inferredExpr._3}")
-    (inferredExpr._1, inferredExpr._2, normalizeExpr(inferredExpr._3))
-  }
-
-  def normalizeProgram[T, S](inferredProgram: Program[T, TypedExpr[Declaration], S]): Program[T, TypedExpr[(Declaration, Normalization.NormalExpressionTag)], S] = {
-    inferredProgram.copy(
-      lets  = inferredProgram.lets.map(normalizeLet),
-    )
-  }
-
-  def normalizePackage(pkg: Package.Inferred): Package.Normalized = {
-    pkg.copy(
-      program = normalizeProgram(pkg.program)
-    )
-  }
-
-  def normalizePackageMap(pkgMap: PackageMap.Inferred): PackageMap.Normalized = {
-    PackageMap(pkgMap.toMap.map { case (name, pkg) => {
-      (name, normalizePackage(pkg))
-    }})
-  }
-}
-
 class NormalizationTest extends FunSuite {
 
   def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] =
@@ -100,7 +69,7 @@ main = bar(5)
     // println("Input packageMap")
     // println(packageMap)
 
-    val normalizedMap = NormalizationHelpers.normalizePackageMap(packageMap)
+    val normalizedMap = Normalization.normalizePackageMap(packageMap)
 
     // println("Output packageMap")
     // println(normalizedMap)
