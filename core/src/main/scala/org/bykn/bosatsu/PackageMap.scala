@@ -52,39 +52,23 @@ object PackageMap {
   type MapF2[A, B] = MapF3[A, A, B]
   type ParsedImp = PackageMap[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
   type Resolved = MapF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = PackageMap[
+  type Typed[T] = PackageMap[
     Package.Interface,
     NonEmptyList[Referant[Variance]],
     Referant[Variance],
     Program[
       TypeEnv[Variance],
-      TypedExpr[Declaration],
+      TypedExpr[T],
       Statement
     ]
   ]
+  
+  type Inferred = Typed[Declaration]
 
-  type Normalized = PackageMap[
-    Package.Interface,
-    NonEmptyList[Referant[Variance]],
-    Referant[Variance],
-    Program[
-      TypeEnv[Variance],
-      TypedExpr[Declaration],
-      Statement
-    ]
-  ]
+  type Normalized = Typed[(Declaration, Normalization.NormalExpressionTag)]
 
   def normalizePackages[A, B, C, D](map: Inferred): Normalized = {
-    PackageMap.empty[
-      Package.Interface,
-      NonEmptyList[Referant[Variance]],
-      Referant[Variance],
-      Program[
-        TypeEnv[Variance],
-        TypedExpr[Declaration],
-        Statement
-      ]
-    ]
+    PackageMap.empty
   }
 
   /**

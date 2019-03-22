@@ -43,7 +43,7 @@ object Package {
   type Interface = FixPackage[Nothing, Referant[Variance], Unit]
   type Typed[T] = Package[Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[T], Statement]]
   type Inferred = Typed[Declaration]
-  type Normalized = Typed[Declaration]
+  type Normalized = Typed[(Declaration, Normalization.NormalExpressionTag)]
 
   /**
    * build a Parsed Package from a Statement. This is useful for testing or

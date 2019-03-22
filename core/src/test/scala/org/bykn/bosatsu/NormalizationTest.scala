@@ -4,32 +4,21 @@ import cats.data.{ Validated, ValidatedNel}
 import fastparse.all._
 import org.scalatest.FunSuite
 
-object Normalization {
-
-  def normalizeDeclaration[D](declaration: D): D = {
-    declaration
+object NormalizationHelpers {
+  def normalizeExpr(expr: TypedExpr[Declaration]): TypedExpr[(Declaration, Normalization.NormalExpressionTag)] = {
+    ???
   }
 
-  def normalizeLet[D](inferredExpr: (String, RecursionKind, D)): (String, RecursionKind, D) = {
+  def normalizeLet(inferredExpr: (String, RecursionKind, TypedExpr[Declaration])): (String, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)]) = {
     println(inferredExpr)
 
     println(s"let ${inferredExpr._1} = ${inferredExpr._3}")
-    (inferredExpr._1, inferredExpr._2, normalizeDeclaration(inferredExpr._3))
+    (inferredExpr._1, inferredExpr._2, normalizeExpr(inferredExpr._3))
   }
 
-  def normalizeImport[E](inferredImport: Import[Package.Inferred, E]): Import[Package.Normalized, E] = {
-    println("Import")
-    println(inferredImport.pack)
-    println(inferredImport.items)
-
-    inferredImport
-  }
-
-  def normalizeProgram[T, D, S](inferredProgram: Program[T, D, S]): Program[T, D, S] = {
+  def normalizeProgram[T, S](inferredProgram: Program[T, TypedExpr[Declaration], S]): Program[T, TypedExpr[(Declaration, Normalization.NormalExpressionTag)], S] = {
     inferredProgram.copy(
-      types = inferredProgram.types,
       lets  = inferredProgram.lets.map(normalizeLet),
-      from  = inferredProgram.from
     )
   }
 
@@ -41,7 +30,7 @@ object Normalization {
 
   def normalizePackageMap(pkgMap: PackageMap.Inferred): PackageMap.Normalized = {
     PackageMap(pkgMap.toMap.map { case (name, pkg) => {
-      (name, Normalization.normalizePackage(pkg))
+      (name, normalizePackage(pkg))
     }})
   }
 }
@@ -111,7 +100,7 @@ main = bar(5)
     // println("Input packageMap")
     // println(packageMap)
 
-    val normalizedMap = Normalization.normalizePackageMap(packageMap)
+    val normalizedMap = NormalizationHelpers.normalizePackageMap(packageMap)
 
     // println("Output packageMap")
     // println(normalizedMap)
