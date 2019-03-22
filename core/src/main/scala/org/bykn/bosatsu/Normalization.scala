@@ -17,27 +17,45 @@ object Normalization {
 
   def normalizeExpr(expr: TypedExpr[Declaration]): TypedExpr[(Declaration, Normalization.NormalExpressionTag)] = {
       expr match {
-        case a@Annotation(term, _, tag) => a.copy(term=normalizeExpr(term), tag=normalizeTag(tag))
-        case g@Generic(_, in, tag) =>
-          g.copy(in=normalizeExpr(in), tag=normalizeTag(tag))
-        case v@Var(_, _, _, tag) => v.copy(tag=normalizeTag(tag))
-        case al@AnnotatedLambda(_, _, expr, tag) =>
-          al.copy(expr=normalizeExpr(expr), tag=normalizeTag(tag))
-        case a@App(fn, arg, _, tag) =>
-          a.copy(fn=normalizeExpr(fn), arg=normalizeExpr(arg), tag=normalizeTag(tag))
-        case l@Let(_, expr, in, _, tag) =>
-          l.copy(expr=normalizeExpr(expr), in=normalizeExpr(in), tag=normalizeTag(tag))
-        case l@Literal(_, _, tag) => l.copy(tag=normalizeTag(tag))
-        case Match(arg, branches, tag) =>
-          Match(
-            normalizeExpr(arg),
-            branches=branches.map { case (p, expr) => (p, normalizeExpr(expr)) },
-            tag=normalizeTag(tag)
-          )
+        case a@Annotation(_, _, _) => normalizeAnotation(a)
+        case g@Generic(_, _, _) => normalizeGeneric(g)
+        case v@Var(_, _, _, _) => normalizeVar(v)
+        case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al)
+        case a@App(_, _, _, _) => normalizeApp(a)
+        case l@Let(_, _, _, _, _) => normalizeLet(l)
+        case l@Literal(_, _, _) => normalizeLiteral(l)
+        case m@Match(_, _, _) => normalizeMatch(m)
       }
   }
 
-  def normalizeLet(inferredExpr: (String, RecursionKind, TypedExpr[Declaration])): (String, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)]) = {
+  def normalizeAnotation(a: Annotation[Declaration]) =
+    a.copy(term=normalizeExpr(a.term), tag=normalizeTag(a.tag))
+
+  def normalizeGeneric(g: Generic[Declaration]) =
+    g.copy(in=normalizeExpr(g.in), tag=normalizeTag(g.tag))
+
+  def normalizeVar(v: Var[Declaration]) =
+    v.copy(tag=normalizeTag(v.tag))
+
+  def normalizeAnnotatedLambda(al: AnnotatedLambda[Declaration]) =
+    al.copy(expr=normalizeExpr(al.expr), tag=normalizeTag(al.tag))
+
+  def normalizeApp(a: App[Declaration]) =
+    a.copy(fn=normalizeExpr(a.fn), arg=normalizeExpr(a.arg), tag=normalizeTag(a.tag))
+
+  def normalizeLet(l: Let[Declaration]) =
+    l.copy(expr=normalizeExpr(l.expr), in=normalizeExpr(l.in), tag=normalizeTag(l.tag))
+
+  def normalizeLiteral(l: Literal[Declaration]) =
+    l.copy(tag=normalizeTag(l.tag))
+
+  def normalizeMatch(m: Match[Declaration]) =
+    Match(arg=normalizeExpr(m.arg),
+      branches=m.branches.map { case (p, expr) => (p, normalizeExpr(expr))},
+      tag=normalizeTag(m.tag)
+      )
+
+  def normalizePackageLet(inferredExpr: (String, RecursionKind, TypedExpr[Declaration])): (String, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)]) = {
     println(inferredExpr)
 
     println(s"let ${inferredExpr._1} = ${inferredExpr._3}")
@@ -46,7 +64,7 @@ object Normalization {
 
   def normalizeProgram[T, S](inferredProgram: Program[T, TypedExpr[Declaration], S]): Program[T, TypedExpr[(Declaration, Normalization.NormalExpressionTag)], S] = {
     inferredProgram.copy(
-      lets  = inferredProgram.lets.map(normalizeLet),
+      lets  = inferredProgram.lets.map(normalizePackageLet),
     )
   }
 
