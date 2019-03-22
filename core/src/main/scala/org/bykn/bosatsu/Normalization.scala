@@ -28,7 +28,12 @@ object Normalization {
         case l@Let(_, expr, in, _, tag) =>
           l.copy(expr=normalizeExpr(expr), in=normalizeExpr(in), tag=normalizeTag(tag))
         case l@Literal(_, _, tag) => l.copy(tag=normalizeTag(tag))
-        case m@Match(arg, branches, tag) => ???
+        case Match(arg, branches, tag) =>
+          Match(
+            normalizeExpr(arg),
+            branches=branches.map { case (p, expr) => (p, normalizeExpr(expr)) },
+            tag=normalizeTag(tag)
+          )
       }
   }
 
