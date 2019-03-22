@@ -937,4 +937,40 @@ main = match constructed:
   _: "bad"
 """), "A", Str("good"))
   }
+
+  test("Dict methods") {
+    evalTest(List("""
+package A
+
+e = empty_Dict(string_Order)
+
+e1 = e.add_key("hello", "world")
+
+main = e1.get_key("hello")
+"""), "A", VOption.some(Str("world")))
+
+    evalTest(List("""
+package A
+
+e = empty_Dict(string_Order)
+
+e1 = e.add_key("hello", "world")
+e2 = e1.remove_key("hello")
+
+main = e2.get_key("hello")
+"""), "A", VOption.none)
+
+    evalTest(List("""
+package A
+
+e1 = empty_Dict(string_Order)
+e2 = e1.add_key("hello", "world").add_key("hello1", "world1")
+lst = e2.dict_to_List
+
+main = match lst:
+  [("hello", "world"), ("hello1", "world1")]: "good"
+  _: "bad"
+"""), "A", Str("good"))
+
+  }
 }

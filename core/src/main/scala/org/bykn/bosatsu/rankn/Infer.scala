@@ -107,22 +107,30 @@ object Infer {
      */
     sealed abstract class TypeError extends Error
 
-    private def tStr(t: Type): String =
-      TypeRef.fromType(t) match {
-        case Some(tr) => tr.toDoc.render(80)
-        case None => t.toString
-      }
-
     case class NotUnifiable(left: Type, right: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
-      def message = s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
+      def message = {
+        val tStrMap = TypeRef.fromTypes(None, left :: right :: Nil)
+        def tStr(t: Type): String = tStrMap(t).toDoc.render(80)
+        s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
+      }
     }
 
     case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type.Var.Skolem], reg: Region) extends TypeError {
-      def message = s"type ${tStr(tpe)} not polymorphic enough in $in, bad type variables: $badTvs, at $reg"
+      def message = {
+        val bads = badTvs.map(Type.TyVar(_))
+        val tStrMap = TypeRef.fromTypes(None, tpe :: bads.toList)
+        def tStr(t: Type): String = tStrMap(t).toDoc.render(80)
+        s"type ${tStr(tpe)} not polymorphic enough in $in, bad type variables: ${bads.map(tStr).toList.mkString(", ")}, at $reg"
+      }
     }
 
     case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type.Var]) extends TypeError {
-      def message = s"subsumption check failed: ${tStr(inferred)} ${tStr(declared)}, bad types: $badTvs"
+      def message = {
+        val bads = badTvs.map(Type.TyVar(_))
+        val tStrMap = TypeRef.fromTypes(None, inferred :: declared :: bads.toList)
+        def tStr(t: Type): String = tStrMap(t).toDoc.render(80)
+        s"subsumption check failed: ${tStr(inferred)} ${tStr(declared)}, bad types: ${bads.map(tStr).toList.mkString(", ")}"
+      }
     }
 
     /**

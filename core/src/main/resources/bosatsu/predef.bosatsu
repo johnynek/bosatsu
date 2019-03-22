@@ -11,27 +11,36 @@ export [
   Test(),
   TestSuite(),
   Tuple2(),
+  Order,
   Unit(),
+  Dict,
   add,
+  add_key,
   cmp_Int,
   concat,
+  dict_to_List,
   div,
+  empty_Dict,
   eq_Int,
   flat_map_List,
   foldLeft,
   gcd_Int,
+  get_key,
   int_loop,
   map_List,
   mod_Int,
   range,
   range_fold,
+  remove_key,
   reverse,
   reverse_concat,
   sub,
+  string_Order_fn,
+  string_Order,
   times,
   trace,
   uncurry2,
-  uncurry3
+  uncurry3,
 ]
 
 struct Unit
@@ -88,6 +97,15 @@ enum Option:
   None
   Some(v)
 
+struct Order(fn: a -> a -> Comparison)
+
+external struct Dict[k, v]
+external def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]
+external def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]
+external def get_key(dict: Dict[k, v], key: k) -> Option[v]
+external def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]
+external def dict_to_List(dict: Dict[k, v]) -> List[(k, v)]
+
 external struct Int
 
 external def add(a: Int, b: Int) -> Int
@@ -112,6 +130,8 @@ def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: a -> Int -
     Tuple2(diff0.sub(1), Tuple2(a1, Unit)))
 
 external struct String
+external def string_Order_fn(str0: String, str1: String) -> Comparison
+string_Order = Order(string_Order_fn)
 
 struct Assertion(value: Bool, message: String)
 struct Test(name: String, assertions: List[Assertion])

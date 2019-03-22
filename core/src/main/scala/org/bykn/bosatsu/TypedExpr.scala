@@ -39,7 +39,7 @@ sealed abstract class TypedExpr[T] {
 
   def repr: String = {
     def rept(t: Type): String =
-      TypeRef.fromType(t).get.toDoc.renderWideStream.mkString
+      TypeRef.fromTypes(None, t :: Nil)(t).toDoc.renderWideStream.mkString
 
     this match {
       case Generic(params, expr, _) =>
