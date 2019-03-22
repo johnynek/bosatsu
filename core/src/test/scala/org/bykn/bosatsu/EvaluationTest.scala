@@ -965,7 +965,7 @@ package A
 
 e1 = empty_Dict(string_Order)
 e2 = e1.add_key("hello", "world").add_key("hello1", "world1")
-lst = e2.dict_to_List
+lst = e2.items
 
 main = match lst:
   [("hello", "world"), ("hello1", "world1")]: "good"

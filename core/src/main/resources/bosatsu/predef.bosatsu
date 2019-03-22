@@ -18,7 +18,6 @@ export [
   add_key,
   cmp_Int,
   concat,
-  dict_to_List,
   div,
   empty_Dict,
   eq_Int,
@@ -27,6 +26,7 @@ export [
   gcd_Int,
   get_key,
   int_loop,
+  items,
   map_List,
   mod_Int,
   range,
@@ -104,7 +104,7 @@ external def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]
 external def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]
 external def get_key(dict: Dict[k, v], key: k) -> Option[v]
 external def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]
-external def dict_to_List(dict: Dict[k, v]) -> List[(k, v)]
+external def items(dict: Dict[k, v]) -> List[(k, v)]
 
 external struct Int
 

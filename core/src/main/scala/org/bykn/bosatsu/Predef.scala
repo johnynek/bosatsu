@@ -61,7 +61,6 @@ object Predef {
         "add_key",
         "cmp_Int",
         "concat",
-        "dict_to_List",
         "div",
         "empty_Dict",
         "eq_Int",
@@ -70,6 +69,7 @@ object Predef {
         "gcd_Int",
         "get_key",
         "int_loop",
+        "items",
         "map_List",
         "mod_Int",
         "range",
@@ -83,7 +83,7 @@ object Predef {
         "times",
         "trace",
         "uncurry2",
-        "uncurry3",
+        "uncurry3"
         )
         .map(ImportedName.OriginalName(_, ())))
 
@@ -105,8 +105,8 @@ object Predef {
       .add(packageName, "empty_Dict", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.empty_Dict"))
       .add(packageName, "add_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.add_key"))
       .add(packageName, "get_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.get_key"))
+      .add(packageName, "items", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.items"))
       .add(packageName, "remove_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.remove_key"))
-      .add(packageName, "dict_to_List", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.dict_to_List"))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -248,7 +248,7 @@ object PredefImpl {
   def remove_key(dict: Value, k: Value): Value =
     ExternalValue(toDict(dict) - k)
 
-  def dict_to_List(dict: Value): Value = {
+  def items(dict: Value): Value = {
     val d = toDict(dict)
     Value.VList(d.iterator.map { case (k, v) =>
       ProductValue.fromList(k :: ProductValue.fromList(v :: Nil) :: Nil)
