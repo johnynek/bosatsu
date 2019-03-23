@@ -69,6 +69,31 @@ object Evaluation {
     val False: Value = SumValue(0, UnitValue)
     val True: Value = SumValue(1, UnitValue)
 
+    object Tuple2 {
+      def unapply(v: Value): Option[(Value, Value)] =
+        v match {
+          case ConsValue(a, ConsValue(b, UnitValue)) => Some((a, b))
+          case _ => None
+        }
+    }
+
+    object Tuple {
+      /**
+       * Tuples are encoded as:
+       * (1, 2, 3) => Tuple2(1, Tuple2(2, Tuple2(3, ())))
+       * since a Tuple(a, b) is encoded as
+       * ConsValue(a, ConsValue(b, UnitValue))
+       * this gives double wrapping
+       */
+      def unapply(v: Value): Option[List[Value]] =
+        v match {
+          case Tuple2(a, b) =>
+            unapply(b).map(a :: _)
+          case UnitValue => Some(Nil)
+          case _ => None
+        }
+    }
+
     object Comparison {
       def fromInt(i: Int): Value =
         if (i < 0) LT else if (i > 0) GT else EQ
@@ -741,6 +766,14 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           toJson(v, vt).map((kstr, _))
         }
         .map(Json.JObject(_))
+      case Type.Tuple(ts) =>
+        val Tuple(as) = a
+        as.zip(ts)
+          .toVector
+          .traverse { case (a, t) =>
+            toJson(a, t)
+          }
+          .map(Json.JArray(_))
       case Type.ForAll(_, inner) =>
         // we assume the generic positions don't matter and to continue
         toJson(a, inner)

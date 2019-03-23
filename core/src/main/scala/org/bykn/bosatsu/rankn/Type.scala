@@ -203,10 +203,20 @@ object Type {
 
   object Tuple {
     def unapply(t: Type): Option[List[Type]] = {
+      def inner(t: Type): Option[List[Type]] =
+        t match {
+          case UnitType => Some(Nil)
+          case TyApply(TyApply(Tuple2Type, h), t) =>
+            inner(t) match {
+              case None => None
+              case Some(ts) => Some(h :: ts)
+            }
+          case _ => None
+        }
+
       t match {
-        case UnitType => Some(Nil)
         case TyApply(TyApply(Tuple2Type, h), t) =>
-          unapply(t) match {
+          inner(t) match {
             case None => None
             case Some(ts) => Some(h :: ts)
           }

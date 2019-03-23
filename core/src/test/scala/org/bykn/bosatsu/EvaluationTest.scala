@@ -1075,5 +1075,15 @@ main = bar
 """), "Foo", Json.JObject(
   List("a" -> Json.JBool(true),
        "s" -> Json.JBool(false))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+main = (1, "1", ())
+"""), "Foo", Json.JArray(
+  Vector(Json.JNumberStr("1"),
+    Json.JString("1"),
+    Json.JNull)))
   }
 }
