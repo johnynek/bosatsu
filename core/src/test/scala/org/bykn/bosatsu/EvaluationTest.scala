@@ -972,5 +972,59 @@ main = match lst:
   _: "bad"
 """), "A", Str("good"))
 
+    evalTest(List("""
+package A
+
+e1 = {}
+e2 = e1.add_key("hello", "world").add_key("hello1", "world1")
+lst = e2.items
+
+main = match lst:
+  [("hello", "world"), ("hello1", "world1")]: "good"
+  _: "bad"
+"""), "A", Str("good"))
+
+    evalTest(List("""
+package A
+
+e = { "hello": "world",
+      "hello1": "world1" }
+lst = e.items
+
+main = match lst:
+  [("hello", "world"), ("hello1", "world1")]: "good"
+  _: "bad"
+"""), "A", Str("good"))
+
+    evalTest(List("""
+package A
+
+pairs = [("hello", "world"), ("hello1", "world1")]
+
+e = { k: v for (k, v) in pairs }
+lst = e.items
+
+main = match lst:
+  [("hello", "world"), ("hello1", "world1")]: "good"
+  _: "bad"
+"""), "A", Str("good"))
+
+    evalTest(List("""
+package A
+
+pairs = [("hello", 42), ("hello1", 24)]
+
+def is_hello(s):
+  match s.string_Order_fn("hello"):
+    EQ: True
+    _: False
+
+e = { k: v for (k, v) in pairs if is_hello(k) }
+lst = e.items
+
+main = match lst:
+  [("hello", res)]: res
+  _: -1
+"""), "A", VInt(42))
   }
 }
