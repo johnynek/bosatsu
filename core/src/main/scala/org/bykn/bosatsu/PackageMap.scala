@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import com.stripe.dagon.Memoize
-import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT, State}
+import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
 import cats.Order
 import cats.implicits._
 
@@ -229,46 +229,10 @@ sealed abstract class PackageError {
 }
 
 object PackageError {
-  def showTypes(pack: PackageName, tpes: List[Type]): Map[Type, String] = {
-    type S = (Map[Long, TypeRef], Stream[String])
-    def encodeSkolem(sk: Type.Var.Skolem): State[S, TypeRef] =
-      // Make use a typevar
-      State.pure(TypeRef.TypeVar("$" + s"${sk.name}${sk.id}"))
-
-    def encodeMeta(id: Long): State[S, TypeRef] =
-      State { s: S =>
-        val (idMap, vars) = s
-        idMap.get(id) match {
-          case Some(tr) => (s, tr)
-          case None =>
-            val nextId = vars.head
-            val tr = TypeRef.TypeVar("?" + nextId)
-            val nextMap = idMap.updated(id, tr)
-            ((nextMap, vars.tail), tr)
-        }
-      }
-
-    def onConst(c: Type.Const.Defined): State[S, TypeRef] = {
-      val Type.Const.Defined(pn, n) = c
-      val tn =
-        if (pn == pack) n
-        else s"${pn.asString}::$n"
-
-      State.pure(TypeRef.TypeName(tn))
-    }
-
-    val state0: S = (Map.empty, Type.allBinders.map(_.name))
-    tpes.traverse { tpe =>
-      TypeRef.fromTypeA[State[S, ?]](
-        tpe,
-        encodeSkolem _,
-        encodeMeta _,
-        onConst _).map { tr => (tpe, tr.toDoc.render(80)) }
-    }
-    .runA(state0)
-    .value
-    .toMap
-  }
+  def showTypes(pack: PackageName, tpes: List[Type]): Map[Type, String] =
+    TypeRef.fromTypes(Some(pack), tpes).map { case (k, v) =>
+      (k, v.toDoc.render(80))
+    }.toMap
 
   case class UnknownExport[A](ex: ExportedName[A],
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],

@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.{Applicative, Eq}
+import cats.data.{Chain, Writer}
 import cats.implicits._
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
@@ -38,8 +39,10 @@ class TotalityTest extends FunSuite {
       .map(parsedToExpr _)
 
   def showPat(pat: Pattern[(PackageName, ConstructorName), Type]): String = {
+    val allTypes = pat.traverseType { t => Writer(Chain.one(t), ()) }.run._1.toList
+    val toStr = TypeRef.fromTypes(None, allTypes)
     val pat0 = pat.mapName { case (_, ConstructorName(n)) => Some(n) }
-      .mapType { t => TypeRef.fromType(t).get }
+      .mapType { t => toStr(t) }
     Document[Pattern[Option[String], TypeRef]].document(pat0).render(80)
   }
   def showPatU(pat: Pattern[(PackageName, ConstructorName), Type]): String =

@@ -481,7 +481,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
                   case other =>
                     // $COVERAGE-OFF$this should be unreachable
-                    val ts = TypeRef.fromType(tpe).fold(tpe.toString)(_.toDoc.render(80))
+                    val ts = TypeRef.fromTypes(Some(p.name), tpe :: Nil)(tpe).toDoc.render(80)
                     sys.error(s"ill typed in match (${ctor.asString}${items.mkString}): $ts\n\n$other")
                     // $COVERAGE-ON$
                 }

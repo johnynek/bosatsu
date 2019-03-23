@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace }
 import cats.Applicative
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, State}
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
@@ -64,23 +64,31 @@ sealed abstract class TypeRef {
           // we normalize to lifting all the foralls to the outside
           loop(TypeLambda(pars0 ::: pars1, e))
         case TypeLambda(pars, e) =>
-          ForAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }, loop(e))
+          Type.forAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }.toList, loop(e))
         case TypeTuple(ts) =>
-          val tup0 = TyConst(Type.Const.predef("Unit"))
-          val tup2 = TyConst(Type.Const.predef("Tuple2"))
-          def tup(ts: List[TypeRef]): Type =
-            ts match {
-              case Nil => tup0
-              case h :: tail =>
-                val tailT = tup(tail)
-                val hT = loop(h)
-                TyApply(TyApply(tup2, hT), tailT)
-            }
-          tup(ts)
+          Type.Tuple(ts.map(loop(_)))
       }
 
     loop(this)
   }
+
+  /**
+   * Nested TypeLambda can be combined, and should be generally
+   */
+  def normalizeForAll: TypeRef =
+    this match {
+      case TypeVar(_) | TypeName(_) => this
+      case TypeArrow(a, b) => TypeArrow(a.normalizeForAll, b.normalizeForAll)
+      case TypeApply(a, bs) =>
+        TypeApply(a.normalizeForAll, bs.map(_.normalizeForAll))
+      case TypeLambda(pars0, TypeLambda(pars1, e)) =>
+        // we normalize to lifting all the foralls to the outside
+        TypeLambda(pars0 ::: pars1, e).normalizeForAll
+      case TypeLambda(pars, e) =>
+        TypeLambda(pars, e.normalizeForAll)
+      case TypeTuple(ts) =>
+        TypeTuple(ts.map(_.normalizeForAll))
+    }
 }
 
 object TypeRef {
@@ -104,12 +112,6 @@ object TypeRef {
   case class TypeLambda(params: NonEmptyList[TypeVar], in: TypeRef) extends TypeRef
   case class TypeTuple(params: List[TypeRef]) extends TypeRef
 
-  def fromType(tpe: Type): Option[TypeRef] =
-    fromTypeA[Option](tpe, _ => None, _ => None, {
-      case Type.Const.Defined(pn, n) =>
-        Some(TypeName(s"${pn.asString}#$n"))
-      })
-
   def fromTypeA[F[_]: Applicative](
     tpe: Type,
     onSkolem: rankn.Type.Var.Skolem => F[TypeRef],
@@ -122,6 +124,9 @@ object TypeRef {
       case ForAll(vs, in) =>
         val args = vs.map { case Type.Var.Bound(b) => TypeVar(b) }
         loop(in).map(TypeLambda(args, _))
+      case Type.Tuple(ts) =>
+        // this needs to be above TyConst
+        ts.traverse(loop(_)).map(TypeTuple(_))
       case TyConst(defined@Type.Const.Defined(_, _)) =>
         onConst(defined)
       case TyVar(Type.Var.Bound(v)) =>
@@ -206,6 +211,56 @@ object TypeRef {
           val t1 = optF1.fold(t)(_(t))
           optF2.fold(t1)(_(t1))
       }
+  }
+
+  /**
+   * In a given PackageName, convert the
+   * Type back to a TypeRef, which should parse correctly for non-meta
+   * types
+   *
+   * A common use case it to build up all the types you are going to work
+   * with into the map, then consult the map as needed to convert them back
+   * to TypeRef
+   */
+  def fromTypes(pack: Option[PackageName], tpes: List[Type]): Map[Type, TypeRef] = {
+    type S = (Map[Long, TypeRef], Stream[String])
+    def encodeSkolem(sk: Type.Var.Skolem): State[S, TypeRef] =
+      // Make use a typevar
+      State.pure(TypeRef.TypeVar("$" + s"${sk.name}${sk.id}"))
+
+    def encodeMeta(id: Long): State[S, TypeRef] =
+      State { s: S =>
+        val (idMap, vars) = s
+        idMap.get(id) match {
+          case Some(tr) => (s, tr)
+          case None =>
+            val nextId = vars.head
+            val tr = TypeRef.TypeVar("?" + nextId)
+            val nextMap = idMap.updated(id, tr)
+            ((nextMap, vars.tail), tr)
+        }
+      }
+
+    def onConst(c: Type.Const.Defined): State[S, TypeRef] = {
+      val Type.Const.Defined(pn, n) = c
+      val tn =
+        if (Some(pn) == pack) n
+        else s"${pn.asString}::$n"
+
+      State.pure(TypeRef.TypeName(tn))
+    }
+
+    val state0: S = (Map.empty, Type.allBinders.map(_.name))
+    tpes.traverse { tpe =>
+      TypeRef.fromTypeA[State[S, ?]](
+        tpe,
+        encodeSkolem _,
+        encodeMeta _,
+        onConst _).map { tr => (tpe, tr) }
+    }
+    .runA(state0)
+    .value
+    .toMap
   }
 }
 
