@@ -1026,5 +1026,54 @@ main = match lst:
   [("hello", res)]: res
   _: -1
 """), "A", VInt(42))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': '1', 's': 'foo' }
+
+main = bar
+"""), "Foo", Json.JObject(List("a" -> Json.JString("1"), "s" -> Json.JString("foo"))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': None, 's': None }
+
+main = bar
+"""), "Foo", Json.JObject(List("a" -> Json.JNull, "s" -> Json.JNull)))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': None, 's': Some(1) }
+
+main = bar
+"""), "Foo", Json.JObject(List("a" -> Json.JNull, "s" -> Json.JNumberStr("1"))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': [], 's': [1] }
+
+main = bar
+"""), "Foo", Json.JObject(
+  List("a" -> Json.JArray(Vector.empty),
+       "s" -> Json.JArray(Vector(Json.JNumberStr("1"))))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': True, 's': False }
+
+main = bar
+"""), "Foo", Json.JObject(
+  List("a" -> Json.JBool(true),
+       "s" -> Json.JBool(false))))
   }
 }
