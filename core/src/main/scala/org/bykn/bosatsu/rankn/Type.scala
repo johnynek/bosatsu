@@ -202,38 +202,24 @@ object Type {
   }
 
   object Tuple {
-    def unapply(t: Type): Option[List[Type]] = {
-      def inner(t: Type): Option[List[Type]] =
-        t match {
-          case UnitType => Some(Nil)
-          case TyApply(TyApply(Tuple2Type, h), t) =>
-            inner(t) match {
-              case None => None
-              case Some(ts) => Some(h :: ts)
-            }
-          case _ => None
-        }
-
+    def unapply(t: Type): Option[List[Type]] =
       t match {
+        case UnitType => Some(Nil)
         case TyApply(TyApply(Tuple2Type, h), t) =>
-          inner(t) match {
+          unapply(t) match {
             case None => None
             case Some(ts) => Some(h :: ts)
           }
         case _ => None
       }
-    }
 
-    def apply(ts: List[Type]): Type = {
-      def tup(ts: List[Type]): Type =
-        ts match {
-          case Nil => UnitType
-          case h :: tail =>
-            val tailT = tup(tail)
-            TyApply(TyApply(Tuple2Type, h), tailT)
-        }
-      tup(ts)
-    }
+    def apply(ts: List[Type]): Type =
+      ts match {
+        case Nil => UnitType
+        case h :: tail =>
+          val tailT = apply(tail)
+          TyApply(TyApply(Tuple2Type, h), tailT)
+      }
   }
 
   object OptionT {
