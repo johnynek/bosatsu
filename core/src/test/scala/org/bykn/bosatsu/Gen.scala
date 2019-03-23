@@ -133,10 +133,16 @@ object Generators {
     Gen.oneOf(spliceGen.map(ListLang.SpliceOrItem.Splice(_)),
       itemGen.map(ListLang.SpliceOrItem.Item(_)))
 
-  def genListLangCons[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.Cons[A]] = {
+  def genListLangCons[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.Cons[ListLang.SpliceOrItem, A]] = {
     Gen.choose(0, 10)
-      .flatMap(Gen.listOfN(_, genSpliceOrItem(spliceGen, itemGen))
-      .map(ListLang.Cons(_)))
+      .flatMap(Gen.listOfN(_, genSpliceOrItem(spliceGen, itemGen)))
+      .map(ListLang.Cons(_))
+  }
+  def genListLangDictCons[A](itemGen: Gen[A]): Gen[ListLang.Cons[ListLang.KVPair, A]] = {
+    Gen.choose(0, 10)
+      .flatMap(Gen.listOfN(_,
+        Gen.zip(itemGen, itemGen).map { case (k, v) => ListLang.KVPair(k, v) }))
+      .map(ListLang.Cons(_))
   }
 
   def listGen(dec0: Gen[Declaration]): Gen[Declaration.ListDecl] = {
@@ -162,6 +168,31 @@ object Generators {
       .map { case (a, b, c, _) => ListLang.Comprehension(a, b, c, None) }
 
     Gen.oneOf(cons, comp).map(Declaration.ListDecl(_)(emptyRegion))
+  }
+
+  def dictGen(dec0: Gen[Declaration]): Gen[Declaration.DictDecl] = {
+    lazy val filterFn: Declaration => Boolean = {
+      case Declaration.Comment(_) => false
+      case Declaration.DefFn(_) => false
+      case Declaration.Binding(_) => false
+      case Declaration.Parens(p) => filterFn(p)
+      case Declaration.IfElse(_, _) => false
+      case Declaration.Match(_, _, _) => false
+      case Declaration.Lambda(_, body) => filterFn(body)
+      case Declaration.Apply(f, args, _) =>
+        filterFn(f) && args.forall(filterFn)
+      case _ => true
+    }
+    val dec = dec0.filter(filterFn)
+
+    val cons = genListLangDictCons(dec)
+
+    // TODO we can't parse if since we get confused about it being a ternary expression
+    val pat = genPattern(1, useUnion = true)
+    val comp = Gen.zip(dec, dec, pat, dec, Gen.option(dec))
+      .map { case (k, v, b, c, _) => ListLang.Comprehension(ListLang.KVPair(k, v), b, c, None) }
+
+    Gen.oneOf(cons, comp).map(Declaration.DictDecl(_)(emptyRegion))
   }
 
   def applyGen(decl: Gen[Declaration]): Gen[Declaration] = {
@@ -363,7 +394,7 @@ object Generators {
     val recur = Gen.lzy(genDeclaration(depth - 1))
     if (depth <= 0) unnested
     else Gen.frequency(
-      (12, unnested),
+      (13, unnested),
       (2, commentGen(padding(recur, 1)).map(Comment(_)(emptyRegion))), // make sure we have 1 space to prevent comments following each other
       (2, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
       (2, lambdaGen(recur)),
@@ -371,6 +402,7 @@ object Generators {
       (2, bindGen(pat, recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
       (1, ifElseGen(recur)),
       (1, listGen(recur)),
+      (1, dictGen(recur)),
       (1, matchGen(recur)),
       (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recur)).map(TupleCons(_)(emptyRegion)))
     )
@@ -411,6 +443,10 @@ object Generators {
             items.map(_.value).toStream
           case ListDecl(ListLang.Comprehension(a, _, c, d)) =>
             (a.value :: c :: d.toList).toStream
+          case DictDecl(ListLang.Cons(items)) =>
+            items.toStream.flatMap { kv => Stream(kv.key, kv.value) }
+          case DictDecl(ListLang.Comprehension(a, _, c, d)) =>
+            (a.key :: a.value :: c :: d.toList).toStream
         }
     })
 
