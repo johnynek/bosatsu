@@ -101,6 +101,9 @@ class ParserTest extends FunSuite {
         assert(idx == atIdx)
     }
 
+  def mkVar(n: String): Declaration.Var =
+    Declaration.Var(Identifier.Name(n))
+
   test("we can parse integers") {
     forAll { b: BigInt =>
       val bstr = b.toString
@@ -402,8 +405,8 @@ foo"""
       defWithComment,
       Declaration.DefFn(DefStatement("foo", List(("a", None)), None,
         (OptIndent.paddedIndented(1, 2, Declaration.Comment(CommentStatement(NonEmptyList.of(" comment here"),
-          Padding(0, Declaration.Var("a"))))),
-         Padding(0, Declaration.Var("foo"))))))
+          Padding(0, mkVar("a"))))),
+         Padding(0, mkVar("foo"))))))
 
     roundTrip(Declaration.parser(""), defWithComment)
 
@@ -437,29 +440,29 @@ x""")
 
     parseTestAll(parser(""),
       "x(f)",
-      Apply(Var("x"), NonEmptyList.of(Var("f")), false))
+      Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), false))
 
     parseTestAll(parser(""),
       "f.x",
-      Apply(Var("x"), NonEmptyList.of(Var("f")), true))
+      Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), true))
 
     parseTestAll(parser(""),
       "f(foo).x",
-      Apply(Var("x"), NonEmptyList.of(Apply(Var("f"), NonEmptyList.of(Var("foo")), false)), true))
+      Apply(mkVar("x"), NonEmptyList.of(Apply(mkVar("f"), NonEmptyList.of(mkVar("foo")), false)), true))
 
     parseTestAll(parser(""),
       "f.foo(x)", // foo(f, x)
-      Apply(Var("foo"), NonEmptyList.of(Var("f"), Var("x")), true))
+      Apply(mkVar("foo"), NonEmptyList.of(mkVar("f"), mkVar("x")), true))
 
     parseTestAll(parser(""),
       "(\\x -> x)(f)",
-      Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f")), false))
+      Apply(Parens(Lambda(NonEmptyList.of("x"), mkVar("x"))), NonEmptyList.of(mkVar("f")), false))
 
     parseTestAll(parser(""),
       "((\\x -> x)(f))",
-      Parens(Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f")), false)))
+      Parens(Apply(Parens(Lambda(NonEmptyList.of("x"), mkVar("x"))), NonEmptyList.of(mkVar("f")), false)))
 
-    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of("x"), Var("x")))), NonEmptyList.of(Var("f")), false)
+    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of("x"), mkVar("x")))), NonEmptyList.of(mkVar("f")), false)
     parseTestAll(parser(""),
       "((\\x -> x))(f)",
       expected)
@@ -528,19 +531,19 @@ x""")
     parseTestAll(parser(""),
       """x = 4
 x""",
-    Binding(BindingStatement(Pattern.Var("x"), Literal(Lit.fromInt(4)), Padding(0, Var("x")))))
+    Binding(BindingStatement(Pattern.Var("x"), Literal(Lit.fromInt(4)), Padding(0, mkVar("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 
 x""",
-    Binding(BindingStatement(Pattern.Var("x"), Apply(Var("foo"), NonEmptyList.of(Literal(Lit.fromInt(4))), false), Padding(1, Var("x")))))
+    Binding(BindingStatement(Pattern.Var("x"), Apply(mkVar("foo"), NonEmptyList.of(Literal(Lit.fromInt(4))), false), Padding(1, mkVar("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 # x is really great
 x""",
-    Binding(BindingStatement(Pattern.Var("x"),Apply(Var("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), false),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,Var("x"))))))))
+    Binding(BindingStatement(Pattern.Var("x"),Apply(mkVar("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), false),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,mkVar("x"))))))))
 
   }
 

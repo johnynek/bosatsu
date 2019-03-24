@@ -209,7 +209,8 @@ trait CodeGen {
       case Annotation(expr, _, _) =>
         // TODO we might want to use the type info
         apply(expr, topLevel, pack)
-      case Var(None, n, _, _) =>
+      case Var(None, ident, _, _) =>
+        val n = ident.asString
         NameKind(pack, n) match {
           case Some(NameKind.Constructor(_, _, _, _)) =>
             Monad[Output].pure(Doc.text(toConstructorName(n)))

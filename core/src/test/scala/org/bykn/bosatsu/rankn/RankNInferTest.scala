@@ -79,10 +79,12 @@ class RankNInferTest extends FunSuite {
 
 
   def lit(i: Int): Expr[Unit] = Literal(Lit(i.toLong), ())
-  def lit(b: Boolean): Expr[Unit] = if (b) Var(None, "True", ()) else Var(None, "False", ())
+  def lit(b: Boolean): Expr[Unit] =
+    if (b) Var(None, Identifier.Constructor("True"), ())
+    else Var(None, Identifier.Constructor("False"), ())
   def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] = Let(n, expr, in, RecursionKind.NonRecursive, ())
   def lambda(arg: String, result: Expr[Unit]): Expr[Unit] = Lambda(arg, result, ())
-  def v(name: String): Expr[Unit] = Var(None, name, ())
+  def v(name: String): Expr[Unit] = Var(None, Identifier.unsafe(name), ())
   def ann(expr: Expr[Unit], t: Type): Expr[Unit] = Annotation(expr, t, ())
 
   def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, arg, ())

@@ -16,7 +16,7 @@ sealed abstract class Expr[T] {
 object Expr {
   case class Annotation[T](expr: Expr[T], tpe: rankn.Type, tag: T) extends Expr[T]
   case class AnnotatedLambda[T](arg: String, tpe: rankn.Type, expr: Expr[T], tag: T) extends Expr[T]
-  case class Var[T](pack: Option[PackageName], name: String, tag: T) extends Expr[T]
+  case class Var[T](pack: Option[PackageName], name: Identifier, tag: T) extends Expr[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
   case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
   case class Let[T](arg: String, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]

@@ -111,7 +111,7 @@ object TypedExpr {
   case class Generic[T](typeVars: NonEmptyList[Type.Var.Bound], in: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Annotation[T](term: TypedExpr[T], coerce: Type, tag: T) extends TypedExpr[T]
   case class AnnotatedLambda[T](arg: String, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
-  case class Var[T](pack: Option[PackageName], name: String, tpe: Type, tag: T) extends TypedExpr[T]
+  case class Var[T](pack: Option[PackageName], name: Identifier, tpe: Type, tag: T) extends TypedExpr[T]
   case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
   case class Let[T](arg: String, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
@@ -163,8 +163,8 @@ object TypedExpr {
           go(expr :: tail, bound, acc)
         case Annotation(t, _, _) :: tail =>
           go(t :: tail, bound, acc)
-        case Var(opt, name, _, _) :: tail if bound(name) || opt.isDefined => go(tail, bound, acc)
-        case Var(None, name, _, _) :: tail => go(tail, bound, name :: acc)
+        case Var(opt, ident, _, _) :: tail if bound(ident.asString) || opt.isDefined => go(tail, bound, acc)
+        case Var(None, name, _, _) :: tail => go(tail, bound, name.asString :: acc)
         case AnnotatedLambda(arg, _, res, _) :: tail =>
           val acc1 = cheat(res, bound + arg, acc)
           go(tail, bound, acc1)
@@ -202,8 +202,8 @@ object TypedExpr {
          * We have to be careful not to collide with the free vars in expr
          */
         val free = freeVars(expr :: Nil).toSet
-        val name = Type.allBinders.iterator.map(_.name).filterNot(free).next
-        AnnotatedLambda(name, arg, cores(App(expr, coarg(Var(None, name, arg, expr.tag)), result, expr.tag)), expr.tag)
+        val name = Identifier.Name(Type.allBinders.iterator.map(_.name).filterNot(free).next)
+        AnnotatedLambda(name.asString, arg, cores(App(expr, coarg(Var(None, name, arg, expr.tag)), result, expr.tag)), expr.tag)
       }
     }
 

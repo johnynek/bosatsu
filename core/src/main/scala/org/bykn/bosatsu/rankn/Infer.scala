@@ -536,7 +536,7 @@ object Infer {
           instSigma(tpe, expect, region(term)).map(_(TypedExpr.Literal(lit, tpe, t)))
         case Var(optPack, name, tag) =>
           for {
-            vSigma <- lookupVarType((optPack, name), region(term))
+            vSigma <- lookupVarType((optPack, name.asString), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
            } yield coerce(TypedExpr.Var(optPack, name, vSigma, tag))
         case App(fn, arg, tag) =>

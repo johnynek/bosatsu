@@ -201,7 +201,6 @@ object Generators {
         fn <- decl
         vp = fn match {
           case v@Declaration.Var(_) => v
-          case c@Declaration.Constructor(_) => c
           case nonV => Declaration.Parens(nonV)(emptyRegion)
         }
       } yield vp
@@ -356,24 +355,38 @@ object Generators {
     Gen.oneOf(str, bi)
   }
 
+  val identBindableGen: Gen[Identifier.Bindable] =
+    lowerIdent.map { n => Identifier.Name(n) }
+
+  val identConsGen: Gen[Identifier.Constructor] =
+    upperIdent.map { n => Identifier.Constructor(n) }
+
+  val identifierGen: Gen[Identifier] =
+    Gen.oneOf(identBindableGen, identConsGen)
+
+  val varGen: Gen[Declaration.Var] =
+    identBindableGen.map(Declaration.Var(_)(emptyRegion))
+
+  val consDeclGen: Gen[Declaration.Var] =
+    identConsGen.map(Declaration.Var(_)(emptyRegion))
+
+  val unnestedDeclGen: Gen[Declaration] =
+    Gen.frequency(
+      (1, consDeclGen),
+      (2, varGen),
+      (1, genLit.map(Declaration.Literal(_)(emptyRegion))))
   /**
    * Generate a Declaration that can be parsed as a pattern
    */
   def patternDecl(depth: Int): Gen[Declaration] = {
     import Declaration._
     val recur = Gen.lzy(patternDecl(depth - 1))
-    val cons0 = upperIdent.map(Constructor(_)(emptyRegion))
-    val varGen = lowerIdent.map(Var(_)(emptyRegion))
-    val unnested = Gen.oneOf(
-      cons0,
-      varGen,
-      genLit.map(Literal(_)(emptyRegion)))
 
-    val applyCons = applyGen(cons0, recur, Gen.const(false))
+    val applyCons = applyGen(consDeclGen, recur, Gen.const(false))
 
-    if (depth <= 0) unnested
+    if (depth <= 0) unnestedDeclGen
     else Gen.frequency(
-      (12, unnested),
+      (12, unnestedDeclGen),
       (2, applyCons),
       (1, recur.map(Parens(_)(emptyRegion))),
       (1, genListLangCons(varGen, recur).map(ListDecl(_)(emptyRegion))))
@@ -383,10 +396,7 @@ object Generators {
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
-    val unnested = Gen.oneOf(
-      lowerIdent.map(Var(_)(emptyRegion)),
-      upperIdent.map(Constructor(_)(emptyRegion)),
-      genLit.map(Literal(_)(emptyRegion)))
+    val unnested = unnestedDeclGen
 
     val pat: Gen[Pattern[Option[String], TypeRef]] = lowerIdent.map(Pattern.Var(_))
     //val pat = genPattern(0)
@@ -432,7 +442,6 @@ object Generators {
             }
           // the rest can't be shrunk
           case Comment(c) => Stream.empty
-          case Constructor(name) => Stream.empty
           case Lambda(args, body) => body #:: Stream.empty
           case Literal(_) => Stream.empty
           case Parens(p) => p #:: Stream.empty

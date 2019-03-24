@@ -120,7 +120,7 @@ object DefRecursionCheck {
       import Declaration._
       m.arg match {
         case Var(v) =>
-          val idx = args.indexOf(v)
+          val idx = args.indexOf(v.asString)
           if (idx < 0) Validated.invalidNel(RecurNotOnArg(m, fnname, args))
           else Validated.valid(idx)
         case notVar =>
@@ -135,7 +135,7 @@ object DefRecursionCheck {
     def strictSubstructure(fnname: String, pat: Pattern[Option[String], TypeRef], decl: Declaration): Res =
       decl match {
         case v@Declaration.Var(nm) =>
-          if (pat.substructures.contains(nm)) unitValid
+          if (pat.substructures.contains(nm.asString)) unitValid
           else Validated.invalidNel(RecursionNotSubstructural(fnname, pat, v))
         case notVar =>
           // we can only recur with vars
@@ -197,7 +197,8 @@ object DefRecursionCheck {
     def checkDecl(decl: Declaration): St[Unit] = {
       import Declaration._
       decl match {
-        case Apply(Var(nm), args, _) =>
+        case Apply(Var(ident), args, _) =>
+          val nm = ident.asString
           getSt.flatMap {
             case TopLevel =>
               // without any recursion, normal typechecking will detect bad states:
@@ -236,9 +237,6 @@ object DefRecursionCheck {
               checkDecl(next.padded)
         case Comment(cs) =>
           checkDecl(cs.on.padded)
-        case Constructor(_) =>
-          // constructors can't be bindings:
-          unitSt
         case DefFn(defstmt) =>
           // we can use the name of the def after we have defined it, which is the next part
           getSt.flatMap { state =>
@@ -310,7 +308,10 @@ object DefRecursionCheck {
           checkDecl(p)
         case TupleCons(tups) =>
           tups.traverse_(checkDecl)
-        case Var(v) =>
+        case Var(Identifier.Constructor(_)) =>
+          unitSt
+        case Var(ident: Identifier.Bindable) =>
+          val v = ident.asString
           getSt.flatMap {
             case TopLevel =>
               // without any recursion, normal typechecking will detect bad states:

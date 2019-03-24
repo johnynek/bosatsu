@@ -82,14 +82,17 @@ object Program {
               (Nil, v)
             case _ =>
               val thisName = anonNames.next()
-              val v = Expr.Var(None, thisName, decl.tag)
+              val ident = Identifier.Name(thisName)
+              val v = Expr.Var(None, ident, decl.tag)
               ((thisName, decl) :: Nil, v)
           }
 
           val tail = complex.names.map { nm =>
             val pat = complex.filterVars(_ == nm)
+            // TODO, Pattern should use bindable name
+            val nmIdent = Identifier.Name(nm)
             (nm, Expr.Match(rightHandSide,
-              NonEmptyList.of((pat, Expr.Var(None, nm, decl.tag))), decl.tag))
+              NonEmptyList.of((pat, Expr.Var(None, nmIdent, decl.tag))), decl.tag))
           }
 
           def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
