@@ -13,11 +13,11 @@ object TestUtils {
 
   def typeEnvOf(pack: PackageName, str: String): TypeEnv[Unit] = {
 
-    val tpeFn: String => Type.Const =
-      { tpe => Type.Const.Defined(pack, tpe) }
+    val tpeFn: Identifier.Constructor => Type.Const =
+      { tpe => Type.Const.Defined(pack, TypeName(tpe)) }
 
-    val consFn: String => (PackageName, ConstructorName) =
-      { cons => (pack, ConstructorName(cons)) }
+    val consFn: Identifier.Constructor => (PackageName, Identifier.Constructor) =
+      { cons => (pack, cons) }
 
     val stmt = statementOf(pack, str)
     val prog = Program.fromStatement(
@@ -30,11 +30,11 @@ object TestUtils {
 
   def statementOf(pack: PackageName, str: String): Statement = {
 
-    val tpeFn: String => Type.Const =
-      { tpe => Type.Const.Defined(pack, tpe) }
+    val tpeFn: Identifier.Constructor => Type.Const =
+      { tpe => Type.Const.Defined(pack, TypeName(tpe)) }
 
-    val consFn: String => (PackageName, ConstructorName) =
-      { cons => (pack, ConstructorName(cons)) }
+    val consFn: Identifier.Constructor => (PackageName, Identifier.Constructor) =
+      { cons => (pack, cons) }
 
     Statement.parser.parse(str) match {
       case Parsed.Success(stmt, idx) =>

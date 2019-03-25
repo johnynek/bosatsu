@@ -7,6 +7,8 @@ import cats.implicits._
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type}
 
+import Identifier.{Bindable, Constructor}
+
 object Evaluation {
   import Value._
 
@@ -149,14 +151,14 @@ object Evaluation {
     }
   }
 
-  type Env = Map[String, Eval[Value]]
+  type Env = Map[Identifier, Eval[Value]]
 
   sealed abstract class Scoped {
     import Scoped.fromFn
 
     def inEnv(env: Env): Eval[Value]
 
-    def letNameIn(name: String, in: Scoped): Scoped =
+    def letNameIn(name: Bindable, in: Scoped): Scoped =
       Scoped.Let(name, this, in)
 
     def flatMap(fn: (Env, Value) => Eval[Value]): Scoped =
@@ -166,7 +168,7 @@ object Evaluation {
         }
       }
 
-    def asLambda(name: String, set: Set[String]): Scoped =
+    def asLambda(name: Bindable, set: Set[Identifier]): Scoped =
       fromFn { env0 =>
         import cats.Now
         // we can remove anything not captured by the closure
@@ -204,15 +206,15 @@ object Evaluation {
     val unreachable: Scoped =
       const(Eval.always(sys.error("unreachable reached")))
 
-    def recursive(name: String, item: Scoped): Scoped = {
+    def recursive(name: Bindable, item: Scoped): Scoped = {
       fromFn { env =>
-        lazy val env1: Map[String, Eval[Value]] =
+        lazy val env1: Map[Identifier, Eval[Value]] =
           env + (name -> Eval.defer(item.inEnv(env1)).memoize)
         item.inEnv(env1)
       }
     }
 
-    def orElse(name: String)(next: => Scoped): Scoped = {
+    def orElse(name: Identifier)(next: => Scoped): Scoped = {
       lazy val nextComputed = next
       fromFn { env =>
         env.get(name) match {
@@ -222,7 +224,7 @@ object Evaluation {
       }
     }
 
-    private case class Let(name: String, arg: Scoped, in: Scoped) extends Scoped {
+    private case class Let(name: Bindable, arg: Scoped, in: Scoped) extends Scoped {
       def inEnv(env: Env) = {
         val let = arg.inEnv(env)
         in.inEnv(env.updated(name, let))
@@ -243,7 +245,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   import Evaluation.{Value, Scoped, Env}
   import Value._
 
-  def evaluate(p: PackageName, varName: String): Option[(Eval[Value], Type)] =
+  def evaluate(p: PackageName, varName: Identifier): Option[(Eval[Value], Type)] =
     pm.toMap.get(p).map { pack =>
       val (s, t) = eval((pack, Left(varName)))
       (s.inEnv(Map.empty), t)
@@ -286,7 +288,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
       toType[Test](ea.value, tpe) { (any, dt, rec) =>
         if (dt.packageName == Predef.packageName) {
-          dt.name.asString match {
+          dt.name.ident.asString match {
             case "Assertion" =>
               Some(toAssert(any))
             case "Test" =>
@@ -302,11 +304,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       }
     }
 
-  private type Ref = Either[String, TypedExpr[Declaration]]
+  private type Ref = Either[Identifier, TypedExpr[Declaration]]
 
   private def evalBranch(
     tpe: Type,
-    branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[Declaration])],
+    branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[Declaration])],
     p: Package.Inferred,
     recurse: ((Package.Inferred, Ref)) => (Scoped, Type)): (Value, Env) => Eval[Value] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
@@ -314,7 +316,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
       val packageForType = pm.toMap(pn0)
 
-      def definedForCons(pc: (PackageName, ConstructorName)): DefinedType[Any] =
+      def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =
         pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
 
       val noop: (Value, Env) => Option[Env] = { (_, env) => Some(env) }
@@ -323,7 +325,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
        * This is used in a loop internally, so I am avoiding map and flatMap
        * in favor of pattern matching for performance
        */
-      def maybeBind[E](pat: Pattern[(PackageName, ConstructorName), Type]): (Value, Env) => Option[Env] =
+      def maybeBind[E](pat: Pattern[(PackageName, Constructor), Type]): (Value, Env) => Option[Env] =
         pat match {
           case Pattern.WildCard => noop
           case Pattern.Literal(lit) =>
@@ -331,10 +333,10 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
             { (v, env) => if (v == vlit) Some(env) else None }
           case Pattern.Var(n) =>
+
             { (v, env) => Some(env.updated(n, Eval.now(v))) }
           case Pattern.Named(n, p) =>
             val inner = maybeBind(p)
-            // now transform this function:
 
             { (v, env) =>
               inner(v, env) match {
@@ -371,8 +373,9 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
                 // we don't need to match on it being a list, because we have
                 // already type checked
                 splice match {
-                  case Some(nm) =>
-                    { (v, env) => Some(env.updated(nm, Eval.now(v))) }
+                  case Some(ident) =>
+
+                    { (v, env) => Some(env.updated(ident, Eval.now(v))) }
                   case None =>
                     noop
                 }
@@ -427,7 +430,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             maybeBind(p)
           case Pattern.Union(h, t) =>
             // we can just loop expanding these out:
-            def loop(ps: List[Pattern[(PackageName, ConstructorName), Type]]): (Value, Env) => Option[Env] =
+            def loop(ps: List[Pattern[(PackageName, Constructor), Type]]): (Value, Env) => Option[Env] =
               ps match {
                 case Nil => neverMatch
                 case head :: tail =>
@@ -505,7 +508,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
               }
             }
         }
-      def bindEnv[E](branches: List[(Pattern[(PackageName, ConstructorName), Type], E)]): (Value, Env) => (Env, E) =
+      def bindEnv[E](branches: List[(Pattern[(PackageName, Constructor), Type], E)]): (Value, Env) => (Env, E) =
         branches match {
           case Nil =>
             // This is ruled out by typechecking, we know all our matches are total
@@ -565,15 +568,13 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
          evalTypedExpr(p, e, recurse)
        case Annotation(e, _, _) => evalTypedExpr(p, e, recurse)
        case Var(None, ident, _, _) =>
-         val v = ident.asString
-         Scoped.orElse(v) {
+         Scoped.orElse(ident) {
          // this needs to be lazy
-           recurse((p, Left(v)))._1
+           recurse((p, Left(ident)))._1
          }
        case Var(Some(p), ident, _, _) =>
-         val v = ident.asString
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
-         val (scoped, _) = eval((pack, Left(v)))
+         val (scoped, _) = eval((pack, Left(ident)))
          scoped
        case App(AnnotatedLambda(name, _, fn, _), arg, _, _) =>
          val argE = recurse((p, Right(arg)))._1
@@ -641,7 +642,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
             // we reset the environment in the other package
             (other._1.emptyScope, other._2)
           case Some(NameKind.ExternalDef(pn, n, tpe)) =>
-            externals.toMap.get((pn, n)) match {
+            externals.toMap.get((pn, n.asString)) match {
               case None =>
                 throw EvaluationException(s"Missing External defintion of '${pn.parts.toList.mkString("/")} $n'. Check that your 'external' parameter is correct.")
               case Some(ext) =>
@@ -650,7 +651,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         }
     }
 
-  private def constructor(c: ConstructorName, dt: rankn.DefinedType[Any]): Eval[Value] = {
+  private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value] = {
     val (enum, arity) = dt.constructors
       .toList
       .iterator
@@ -676,11 +677,11 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
   }
 
   private def definedToJson(a: Value, dt: rankn.DefinedType[Any], rec: (Value, Type) => Option[Json]): Option[Json] = if (dt.packageName == Predef.packageName) {
-      (dt.name.asString, a) match {
+      (dt.name.ident.asString, a) match {
         case ("Option", VOption(None)) => Some(Json.JNull)
         case ("Option", VOption(Some(v))) =>
           dt.constructors match {
-            case _ :: ((ConstructorName("Some"), (_, t) :: Nil, _)) :: Nil =>
+            case _ :: ((Constructor("Some"), (_, t) :: Nil, _)) :: Nil =>
               rec(v, t)
             case other =>
               sys.error(s"expect to find Some constructor for $v: $other")
@@ -696,7 +697,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
         case ("List", VList(vs)) =>
           // convert the list into a JArray
           val tpe = dt.constructors match {
-            case _ :: ((ConstructorName("NonEmptyList"), (_, t) :: (_, _) :: Nil, _)) :: Nil => t
+            case _ :: ((Constructor("NonEmptyList"), (_, t) :: (_, _) :: Nil, _)) :: Nil => t
             case other => sys.error(s"unexpected constructors for list: $other")
           }
 
@@ -718,8 +719,8 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
       vp.flatMap { case (variant, prod) =>
         val cons = dt.constructors
         cons.lift(variant).flatMap { case (_, params, _) =>
-          prod.toList.zip(params).traverse { case (a1, (ParamName(pn), t)) =>
-            rec(a1, t).map((pn, _))
+          prod.toList.zip(params).traverse { case (a1, (bn, t)) =>
+            rec(a1, t).map((bn.asString, _))
           }
           .map { ps => Json.JObject(ps) }
         }
@@ -744,7 +745,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
      */
     Type.rootConst(t).flatMap {
       case Type.TyConst(Type.Const.Defined(pn, n)) =>
-        defined(pn, TypeName(n))
+        defined(pn, n)
     }
     .flatMap(fn(a, _, toType[T](_, _)(fn)))
   }

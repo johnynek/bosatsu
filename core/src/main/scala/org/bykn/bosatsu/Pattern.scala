@@ -5,8 +5,10 @@ import cats.data.NonEmptyList
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 
-import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace }
+import Parser.{ Combinators, maybeSpace }
 import cats.implicits._
+
+import Identifier.{Bindable, Constructor}
 
 sealed abstract class Pattern[+N, +T] {
   def mapName[U](fn: N => U): Pattern[U, T] =
@@ -32,9 +34,9 @@ sealed abstract class Pattern[+N, +T] {
    * List all the names that are bound in Vars inside this pattern
    * in the left to right order they are encountered, without any duplication
    */
-  def names: List[String] = {
+  def names: List[Bindable] = {
     @annotation.tailrec
-    def loop(stack: List[Pattern[N, T]], seen: Set[String], acc: List[String]): List[String] =
+    def loop(stack: List[Pattern[N, T]], seen: Set[Bindable], acc: List[Bindable]): List[Bindable] =
       stack match {
         case Nil => acc.reverse
         case (Pattern.WildCard | Pattern.Literal(_)) :: tail => loop(tail, seen, acc)
@@ -62,12 +64,12 @@ sealed abstract class Pattern[+N, +T] {
    * List all the names that strictly smaller than anything that would match this pattern
    * e.g. a top level var, would not be returned
    */
-  def substructures: List[String] = {
-    def cheat(stack: List[(Pattern[N, T], Boolean)], seen: Set[String], acc: List[String]): List[String] =
+  def substructures: List[Bindable] = {
+    def cheat(stack: List[(Pattern[N, T], Boolean)], seen: Set[Bindable], acc: List[Bindable]): List[Bindable] =
       loop(stack, seen, acc)
 
     @annotation.tailrec
-    def loop(stack: List[(Pattern[N, T], Boolean)], seen: Set[String], acc: List[String]): List[String] =
+    def loop(stack: List[(Pattern[N, T], Boolean)], seen: Set[Bindable], acc: List[Bindable]): List[Bindable] =
       stack match {
         case Nil => acc.reverse
         case ((Pattern.WildCard, _) | (Pattern.Literal(_), _)) :: tail => loop(tail, seen, acc)
@@ -107,7 +109,7 @@ sealed abstract class Pattern[+N, +T] {
    * replace all Var names with Wildcard that are not
    * satifying the keep predicate
    */
-  def filterVars(keep: String => Boolean): Pattern[N, T] =
+  def filterVars(keep: Bindable => Boolean): Pattern[N, T] =
     this match {
       case Pattern.WildCard | Pattern.Literal(_) => this
       case p@Pattern.Var(v) =>
@@ -132,6 +134,8 @@ sealed abstract class Pattern[+N, +T] {
 
 object Pattern {
 
+  type Parsed = Pattern[Option[Constructor], TypeRef]
+
   def union[N, T](head: Pattern[N, T], tail: List[Pattern[N, T]]): Pattern[N, T] =
     tail match {
       case Nil => head
@@ -147,8 +151,8 @@ object Pattern {
         case Pattern.Named(n, p) => p.traverseType(fn).map(Pattern.Named(n, _))
         case Pattern.ListPat(items) =>
           items.traverse {
-            case Left(v) => Applicative[F].pure(Left(v): Either[Option[String], Pattern[N, T1]])
-            case Right(p) => p.traverseType(fn).map(Right(_): Either[Option[String], Pattern[N, T1]])
+            case Left(v) => Applicative[F].pure(Left(v): Either[Option[Bindable], Pattern[N, T1]])
+            case Right(p) => p.traverseType(fn).map(Right(_): Either[Option[Bindable], Pattern[N, T1]])
           }.map(Pattern.ListPat(_))
         case Pattern.Annotation(p, tpe) =>
           (p.traverseType(fn), fn(tpe)).mapN(Pattern.Annotation(_, _))
@@ -171,10 +175,10 @@ object Pattern {
         case Pattern.ListPat(items) =>
           val items1 = items.map {
             case Left(v) =>
-              Left(v): Either[Option[String], Pattern[N1, T]]
+              Left(v): Either[Option[Bindable], Pattern[N1, T]]
             case Right(p) =>
               val p1 = p.mapStruct(parts)
-              Right(p1): Either[Option[String], Pattern[N1, T]]
+              Right(p1): Either[Option[Bindable], Pattern[N1, T]]
           }
           Pattern.ListPat(items1)
         case Pattern.Annotation(p, tpe) =>
@@ -189,13 +193,13 @@ object Pattern {
 
   case object WildCard extends Pattern[Nothing, Nothing]
   case class Literal(toLit: Lit) extends Pattern[Nothing, Nothing]
-  case class Var(name: String) extends Pattern[Nothing, Nothing]
+  case class Var(name: Bindable) extends Pattern[Nothing, Nothing]
   /**
    * Patterns like foo @ Some(_)
    * @ binds tighter than |, so use ( ) with groups you want to bind
    */
-  case class Named[N, T](name: String, pat: Pattern[N, T]) extends Pattern[N, T]
-  case class ListPat[N, T](parts: List[Either[Option[String], Pattern[N, T]]]) extends Pattern[N, T]
+  case class Named[N, T](name: Bindable, pat: Pattern[N, T]) extends Pattern[N, T]
+  case class ListPat[N, T](parts: List[Either[Option[Bindable], Pattern[N, T]]]) extends Pattern[N, T]
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
   case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
@@ -216,7 +220,9 @@ object Pattern {
             }
         }
 
-      val listE = ListOrdering.onType(eOrd[Option[String], Pattern[N, T]](implicitly, this))
+      val listE = ListOrdering.onType(eOrd[Option[Bindable], Pattern[N, T]](implicitly, this))
+
+      val compIdent: Ordering[Identifier] = implicitly[Ordering[Identifier]]
 
       def compare(a: Pattern[N, T], b: Pattern[N, T]): Int =
         (a, b) match {
@@ -226,11 +232,11 @@ object Pattern {
           case (Literal(a), Literal(b)) => Lit.litOrdering.compare(a, b)
           case (Literal(_), _) => -1
           case (Var(_), WildCard | Literal(_)) => 1
-          case (Var(a), Var(b)) => a.compareTo(b)
+          case (Var(a), Var(b)) => compIdent.compare(a, b)
           case (Var(_), _) => -1
           case (Named(_, _), WildCard | Literal(_) | Var(_)) => 1
           case (Named(n1, p1), Named(n2, p2)) =>
-            val c = n1.compareTo(n2)
+            val c = compIdent.compare(n1, n2)
             if (c == 0) compare(p1, p2) else c
           case (Named(_, _), _) => -1
           case (ListPat(_), WildCard | Literal(_) | Var(_) | Named(_, _)) => 1
@@ -252,21 +258,22 @@ object Pattern {
         }
     }
 
-  implicit lazy val document: Document[Pattern[Option[String], TypeRef]] =
-    Document.instance[Pattern[Option[String], TypeRef]] {
+  implicit lazy val document: Document[Pattern[Option[Constructor], TypeRef]] =
+    Document.instance[Pattern[Option[Constructor], TypeRef]] {
       case WildCard => Doc.char('_')
       case Literal(lit) => Document[Lit].document(lit)
-      case Var(n) => Doc.text(n)
+      case Var(n) => Document[Identifier].document(n)
       case Named(n, u@Union(_, _)) =>
         // union is also an operator, so we need to use parens to explicitly bind | more tightly
         // than the @ on the left.
-        Doc.text(n) + Doc.char('@') + Doc.char('(') + document.document(u) + Doc.char(')')
-      case Named(n, p) => Doc.text(n) + Doc.char('@') + document.document(p)
+        Document[Identifier].document(n) + Doc.char('@') + Doc.char('(') + document.document(u) + Doc.char(')')
+      case Named(n, p) =>
+        Document[Identifier].document(n) + Doc.char('@') + document.document(p)
       case ListPat(items) =>
         Doc.char('[') + Doc.intercalate(Doc.text(", "),
           items.map {
             case Left(None) => Doc.text("*_")
-            case Left(Some(glob)) => Doc.char('*') + Doc.text(glob)
+            case Left(Some(glob)) => Doc.char('*') + Document[Identifier].document(glob)
             case Right(p) => document.document(p)
           }) + Doc.char(']')
       case Annotation(_, _) =>
@@ -282,7 +289,7 @@ object Pattern {
       case PositionalStruct(n, Nil) =>
         n match {
           case None => Doc.text("()")
-          case Some(nm) => Doc.text(nm)
+          case Some(nm) => Document[Identifier].document(nm)
         }
       case PositionalStruct(None, h :: Nil) =>
         // single item tuples need a comma:
@@ -290,12 +297,12 @@ object Pattern {
       case PositionalStruct(n, nonEmpty) =>
         val prefix = n match {
           case None => Doc.empty
-          case Some(n) => Doc.text(n)
+          case Some(n) => Document[Identifier].document(n)
         }
         prefix +
           Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(document.document(_))) + Doc.char(')')
       case Union(head, rest) =>
-        def doc(p: Pattern[Option[String], TypeRef]): Doc =
+        def doc(p: Pattern[Option[Constructor], TypeRef]): Doc =
           p match {
             case Annotation(_, _) | Union(_, _) =>
               // if an annotation or union is embedded, we need to put parens for parsing
@@ -307,15 +314,15 @@ object Pattern {
         Doc.intercalate(Doc.text(" | "), (head :: rest.toList).map(doc(_)))
     }
 
-  lazy val parser: P[Pattern[Option[String], TypeRef]] = {
+  lazy val parser: P[Pattern[Option[Constructor], TypeRef]] = {
 
     val pwild = P("_").map(_ => WildCard)
     val plit = Lit.parser.map(Literal(_))
     lazy val recurse = P(go(false))
 
-    def go(isTop: Boolean): P[Pattern[Option[String], TypeRef]] = {
+    def go(isTop: Boolean): P[Pattern[Option[Constructor], TypeRef]] = {
 
-      val positional = P(upperIdent ~ (recurse.listN(1).parens).?)
+      val positional = P(Identifier.consParser ~ (recurse.listN(1).parens).?)
         .map {
           case (n, None) => PositionalStruct(Some(n), Nil)
           case (n, Some(ls)) => PositionalStruct(Some(n), ls)
@@ -326,40 +333,40 @@ object Pattern {
         case Right(tup) => PositionalStruct(None, tup)
       }
 
-      val listItem: P[Either[Option[String], Pattern[Option[String], TypeRef]]] = {
-        val maybeNamed: P[Option[String]] =
-          P("_").map(_ => None) | lowerIdent.map(Some(_))
+      val listItem: P[Either[Option[Bindable], Pattern[Option[Constructor], TypeRef]]] = {
+        val maybeNamed: P[Option[Bindable]] =
+          P("_").map(_ => None) | Identifier.bindableParser.map(Some(_))
 
         P("*" ~ maybeNamed).map(Left(_)) | recurse.map(Right(_))
       }
 
       val listP = listItem.listSyntax.map(ListPat(_))
 
-      lazy val named: P[Pattern[Option[String], TypeRef]] =
+      lazy val named: P[Pattern[Option[Constructor], TypeRef]] =
         P(maybeSpace ~ "@" ~ maybeSpace ~ nonAnnotated)
-      lazy val pvarOrName = (lowerIdent ~ named.?)
+      lazy val pvarOrName = (Identifier.bindableParser ~ named.?)
         .map {
           case (n, None) => Var(n)
           case (n, Some(p)) => Named(n, p)
         }
       lazy val nonAnnotated = plit | pwild | tupleOrParens | positional | listP | pvarOrName
       // A union can't have an annotation, we need to be inside a parens for that
-      val unionOp: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]] = {
+      val unionOp: P[Pattern[Option[Constructor], TypeRef] => Pattern[Option[Constructor], TypeRef]] = {
         val unionRest = nonAnnotated
           .nonEmptyListOfWsSep(maybeSpace, P("|"), allowTrailing = false, 1)
         ("|" ~ maybeSpace ~ unionRest)
           .map { ne =>
-            { pat: Pattern[Option[String], TypeRef] => Union(pat, ne) }
+            { pat: Pattern[Option[Constructor], TypeRef] => Union(pat, ne) }
           }
       }
-      val typeAnnotOp: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]] = {
+      val typeAnnotOp: P[Pattern[Option[Constructor], TypeRef] => Pattern[Option[Constructor], TypeRef]] = {
         P(":" ~ maybeSpace ~ TypeRef.parser)
           .map { tpe =>
-            { pat: Pattern[Option[String], TypeRef] => Annotation(pat, tpe) }
+            { pat: Pattern[Option[Constructor], TypeRef] => Annotation(pat, tpe) }
           }
       }
 
-      def maybeOp(opP: P[Pattern[Option[String], TypeRef] => Pattern[Option[String], TypeRef]]): P[Pattern[Option[String], TypeRef]] =
+      def maybeOp(opP: P[Pattern[Option[Constructor], TypeRef] => Pattern[Option[Constructor], TypeRef]]): P[Pattern[Option[Constructor], TypeRef]] =
         (nonAnnotated ~ (maybeSpace ~ opP).?)
           .map {
             case (p, None) => p

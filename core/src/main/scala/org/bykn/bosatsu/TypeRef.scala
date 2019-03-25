@@ -1,12 +1,14 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, lowerIdent, upperIdent, maybeSpace }
+import Parser.{ Combinators, lowerIdent, maybeSpace }
 import cats.Applicative
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 import org.bykn.bosatsu.rankn.Type
+
+import org.bykn.bosatsu.{TypeName => Name}
 
 /**
  * This AST is the syntactic version of Type
@@ -20,7 +22,7 @@ sealed abstract class TypeRef {
   def toDoc: Doc =
     this match {
       case TypeVar(v) => Doc.text(v)
-      case TypeName(n) => Doc.text(n)
+      case TypeName(n) => Document[Identifier].document(n.ident)
       case TypeArrow(inner@TypeArrow(_, _), right) =>
         Doc.char('(') + inner.toDoc + Doc.char(')') + spaceArrow + right.toDoc
       case TypeArrow(inner@TypeLambda(_, _), right) =>
@@ -46,12 +48,12 @@ sealed abstract class TypeRef {
         }
     }
 
-  def toType(nameToType: String => Type.Const): Type = {
+  def toType(nameToType: Identifier.Constructor => Type.Const): Type = {
     import rankn.Type._
     def loop(t: TypeRef): Type =
       t match {
         case TypeVar(v) => TyVar(Type.Var.Bound(v))
-        case TypeName(n) => TyConst(nameToType(n))
+        case TypeName(n) => TyConst(nameToType(n.ident))
         case TypeArrow(a, b) => Fun(loop(a), loop(b))
         case TypeApply(a, bs) =>
           def loop1(fn: Type, args: NonEmptyList[TypeRef]): Type =
@@ -98,14 +100,14 @@ object TypeRef {
 
   implicit val document: Document[TypeRef] = Document.instance[TypeRef](_.toDoc)
 
-  def argDoc(st: (String, Option[TypeRef])): Doc =
+  def argDoc[A: Document](st: (A, Option[TypeRef])): Doc =
     st match {
-      case (s, None) => Doc.text(s)
-      case (s, Some(tr)) => Doc.text(s) + colonSpace + (tr.toDoc)
+      case (s, None) => Document[A].document(s)
+      case (s, Some(tr)) => Document[A].document(s) + colonSpace + (tr.toDoc)
     }
 
   case class TypeVar(asString: String) extends TypeRef
-  case class TypeName(asString: String) extends TypeRef
+  case class TypeName(name: Name) extends TypeRef
   case class TypeArrow(from: TypeRef, to: TypeRef) extends TypeRef
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
@@ -157,7 +159,7 @@ object TypeRef {
         (a, b) match {
           case (TypeVar(v0), TypeVar(v1)) => v0.compareTo(v1)
           case (TypeVar(_), _) => -1
-          case (TypeName(v0), TypeName(v1)) => v0.compareTo(v1)
+          case (TypeName(v0), TypeName(v1)) => Ordering[Name].compare(v0, v1)
           case (TypeName(_), TypeVar(_)) => 1
           case (TypeName(_), _) => -1
           case (TypeArrow(a0, b0), TypeArrow(a1, b1)) =>
@@ -184,7 +186,7 @@ object TypeRef {
 
   val parser: P[TypeRef] = {
     val tvar = lowerIdent.map(TypeVar(_))
-    val tname = upperIdent.map(TypeName(_))
+    val tname = Identifier.consParser.map { cn => TypeName(Name(cn)) }
     val recurse = P(parser)
 
     val lambda: P[TypeLambda] =
@@ -243,11 +245,11 @@ object TypeRef {
 
     def onConst(c: Type.Const.Defined): State[S, TypeRef] = {
       val Type.Const.Defined(pn, n) = c
-      val tn =
-        if (Some(pn) == pack) n
-        else s"${pn.asString}::$n"
+      val tn: TypeName =
+        if (Some(pn) == pack) TypeName(n)
+        else TypeName(Name(Identifier.Constructor(s"${pn.asString}::${n.ident.asString}")))
 
-      State.pure(TypeRef.TypeName(tn))
+      State.pure(tn)
     }
 
     val state0: S = (Map.empty, Type.allBinders.map(_.name))

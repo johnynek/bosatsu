@@ -1,15 +1,17 @@
 package org.bykn.bosatsu
 
+import Identifier.Bindable
+
 sealed abstract class NameKind
 object NameKind {
-  case class Let(name: String, recursive: RecursionKind, value: TypedExpr[Declaration]) extends NameKind
+  case class Let(name: Bindable, recursive: RecursionKind, value: TypedExpr[Declaration]) extends NameKind
   case class Constructor(
-    cn: ConstructorName,
-    params: List[(ParamName, rankn.Type)],
+    cn: Identifier.Constructor,
+    params: List[(Bindable, rankn.Type)],
     defined: rankn.DefinedType[Variance],
     valueType: rankn.Type) extends NameKind
-  case class Import(fromPack: Package.Interface, originalName: String) extends NameKind
-  case class ExternalDef(pack: PackageName, defName: String, defType: rankn.Type) extends NameKind
+  case class Import(fromPack: Package.Interface, originalName: Identifier) extends NameKind
+  case class ExternalDef(pack: PackageName, defName: Identifier, defType: rankn.Type) extends NameKind
 
   def externals(from: Package.Inferred): Stream[ExternalDef] = {
     val prog = from.program
@@ -23,20 +25,22 @@ object NameKind {
     }
   }
 
-  def apply(from: Package.Inferred, item: String): Option[NameKind] = {
+  def apply(from: Package.Inferred, item: Identifier): Option[NameKind] = {
     val prog = from.program
 
     def getLet: Option[NameKind] =
-      prog.getLet(item).map { case (rec, d) => Let(item, rec, d) }
+      item.toBindable.flatMap { b =>
+        prog.getLet(b).map { case (rec, d) => Let(b, rec, d) }
+      }
 
-    def getConstructor: Option[NameKind] = {
-      val cn = ConstructorName(item)
-      prog.types
-        .getConstructor(from.name, cn)
-        .map { case (params, dt, tpe) =>
-          Constructor(cn, params, dt, tpe)
-        }
-    }
+    def getConstructor: Option[NameKind] =
+      item.toConstructor.flatMap { cn =>
+        prog.types
+          .getConstructor(from.name, cn)
+          .map { case (params, dt, tpe) =>
+            Constructor(cn, params, dt, tpe)
+          }
+      }
 
     def getImport: Option[NameKind] =
       from.localImport(item).map { case (originalPackage, i) =>

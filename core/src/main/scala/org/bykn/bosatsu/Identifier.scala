@@ -1,12 +1,27 @@
 package org.bykn.bosatsu
 
-import org.typelevel.paiges.{ Doc, Document }
+import cats.Order
 import fastparse.all._
+import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.{lowerIdent, upperIdent}
 
+import cats.implicits._
+
 sealed abstract class Identifier {
   def asString: String
+
+  def toBindable: Option[Identifier.Bindable] =
+    this match {
+      case b: Identifier.Bindable => Some(b)
+      case _ => None
+    }
+
+  def toConstructor: Option[Identifier.Constructor] =
+    this match {
+      case c: Identifier.Constructor => Some(c)
+      case _ => None
+    }
 }
 
 object Identifier {
@@ -19,8 +34,8 @@ object Identifier {
   final case class Constructor(asString: String) extends Identifier
   final case class Name(asString: String) extends Bindable
 
-  implicit val document: Document[Identifier] =
-    Document.instance[Identifier] { ident => Doc.text(ident.asString) }
+  implicit def document[A <: Identifier]: Document[A] =
+    Document.instance[A] { ident => Doc.text(ident.asString) }
 
   val bindableParser: P[Bindable] =
     lowerIdent.map(Name(_))
@@ -43,4 +58,10 @@ object Identifier {
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx: (${str.substring(idx)}) with trace: ${extra.traced.trace}")
     }
+
+  implicit def order[A <: Identifier]: Order[A] =
+    Order.by { ident: Identifier => ident.asString }
+
+  implicit def ordering[A <: Identifier]: Ordering[A] =
+    order[A].toOrdering
 }

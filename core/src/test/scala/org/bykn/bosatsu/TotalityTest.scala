@@ -14,6 +14,8 @@ import fastparse.all.Parsed
 
 import org.typelevel.paiges.Document
 
+import Identifier.Constructor
+
 class TotalityTest extends FunSuite {
   import TestParseUtils._
 
@@ -21,31 +23,31 @@ class TotalityTest extends FunSuite {
     //PropertyCheckConfiguration(minSuccessful = 500000)
     PropertyCheckConfiguration(minSuccessful = 5000)
 
-  val tpeFn: String => Type.Const =
-    { tpe => Type.Const.Defined(Predef.packageName, tpe) }
+  val tpeFn: Constructor => Type.Const =
+    { tpe => Type.Const.Defined(Predef.packageName, TypeName(tpe)) }
 
-  val consFn: String => (PackageName, ConstructorName) =
-    { cons => (Predef.packageName, ConstructorName(cons)) }
+  val consFn: Constructor => (PackageName, Constructor) =
+    { cons => (Predef.packageName, cons) }
 
-  def parsedToExpr(pat: Pattern[Option[String], TypeRef]): Pattern[(PackageName, ConstructorName), Type] =
+  def parsedToExpr(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), Type] =
     Declaration.unTuplePattern(pat, tpeFn, consFn)
 
-  val genPattern: Gen[Pattern[(PackageName, ConstructorName), Type]] =
+  val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genPattern(5)
       .map(parsedToExpr _)
 
-  val genPatternNoUnion: Gen[Pattern[(PackageName, ConstructorName), Type]] =
+  val genPatternNoUnion: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genPattern(5, useUnion = false)
       .map(parsedToExpr _)
 
-  def showPat(pat: Pattern[(PackageName, ConstructorName), Type]): String = {
+  def showPat(pat: Pattern[(PackageName, Constructor), Type]): String = {
     val allTypes = pat.traverseType { t => Writer(Chain.one(t), ()) }.run._1.toList
     val toStr = TypeRef.fromTypes(None, allTypes)
-    val pat0 = pat.mapName { case (_, ConstructorName(n)) => Some(n) }
+    val pat0 = pat.mapName { case (_, n) => Some(n) }
       .mapType { t => toStr(t) }
-    Document[Pattern[Option[String], TypeRef]].document(pat0).render(80)
+    Document[Pattern[Option[Identifier.Constructor], TypeRef]].document(pat0).render(80)
   }
-  def showPatU(pat: Pattern[(PackageName, ConstructorName), Type]): String =
+  def showPatU(pat: Pattern[(PackageName, Constructor), Type]): String =
     showPat(pat.unbind)
 
   def typeEnvOf(str: String): TypeEnv[Unit] =
@@ -56,7 +58,7 @@ struct Unit
 struct Tuple2(fst, snd)
 """)
 
-  def patterns(str: String): List[Pattern[(PackageName, ConstructorName), Type]] =
+  def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] =
     Pattern.parser.listSyntax.parse(str) match {
       case Parsed.Success(pats, idx) =>
         pats.map(parsedToExpr _)
@@ -65,7 +67,7 @@ struct Tuple2(fst, snd)
         sys.error("could not produce TypeEnv")
     }
 
-  def notTotal(te: TypeEnv[Any], pats: List[Pattern[(PackageName, ConstructorName), Type]], testMissing: Boolean = true): Unit = {
+  def notTotal(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], testMissing: Boolean = true): Unit = {
     TotalityCheck(te).isTotal(pats) match {
       case Right(res) => assert(!res, pats.toString)
       case Left(errs) => fail(errs.toString)
@@ -88,7 +90,7 @@ struct Tuple2(fst, snd)
     }
   }
 
-  def testTotality(te: TypeEnv[Any], pats: List[Pattern[(PackageName, ConstructorName), Type]], tight: Boolean = false) = {
+  def testTotality(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], tight: Boolean = false) = {
     TotalityCheck(te).missingBranches(pats) match {
       case Right(res) =>
         val asStr = res.map(showPat)
@@ -255,7 +257,7 @@ enum Either: Left(l), Right(r)
   }
 
   test("intersection(a, a) == a") {
-    def law(p: Pattern[(PackageName, ConstructorName), Type]) =
+    def law(p: Pattern[(PackageName, Constructor), Type]) =
       // this would be better if we could get
       // generate random patterns from a sane
       // type Env... thats a TODO)
@@ -282,9 +284,9 @@ enum Either: Left(l), Right(r)
 
   test("intersection is associative") {
     def law(
-      a: Pattern[(PackageName, ConstructorName), Type],
-      b: Pattern[(PackageName, ConstructorName), Type],
-      c: Pattern[(PackageName, ConstructorName), Type]
+      a: Pattern[(PackageName, Constructor), Type],
+      b: Pattern[(PackageName, Constructor), Type],
+      c: Pattern[(PackageName, Constructor), Type]
     ) = {
       // this would be better if we could get
       // generate random patterns from a sane
@@ -338,8 +340,8 @@ enum Either: Left(l), Right(r)
 
   test("intersection(a, b) == intersection(b, a)") {
     def law(
-      a: Pattern[(PackageName, ConstructorName), Type],
-      b: Pattern[(PackageName, ConstructorName), Type]) = {
+      a: Pattern[(PackageName, Constructor), Type],
+      b: Pattern[(PackageName, Constructor), Type]) = {
       // this would be better if we could get
       // generate random patterns from a sane
       // type Env... thats a TODO)
@@ -372,8 +374,8 @@ enum Either: Left(l), Right(r)
 
   test("if intersection(a, b) = 0, then a - b == a") {
     def law(
-      a: Pattern[(PackageName, ConstructorName), Type],
-      b: Pattern[(PackageName, ConstructorName), Type]) = {
+      a: Pattern[(PackageName, Constructor), Type],
+      b: Pattern[(PackageName, Constructor), Type]) = {
 
       // this would be better if we could get
       // generate random patterns from a sane
@@ -467,8 +469,8 @@ enum Either: Left(l), Right(r)
 
   test("a - b = c then c - b == c, because we have already removed all of b") {
     def law(
-      a: Pattern[(PackageName, ConstructorName), Type],
-      b: Pattern[(PackageName, ConstructorName), Type]) = {
+      a: Pattern[(PackageName, Constructor), Type],
+      b: Pattern[(PackageName, Constructor), Type]) = {
       // this would be better if we could get
       // generate random patterns from a sane
       // type Env... thats a TODO)
@@ -554,9 +556,9 @@ enum Either: Left(l), Right(r)
 
   test("(a - b) n c = (a n c) - (b n c)") {
     def law(
-      a: Pattern[(PackageName, ConstructorName), Type],
-      b: Pattern[(PackageName, ConstructorName), Type],
-      c: Pattern[(PackageName, ConstructorName), Type]) = {
+      a: Pattern[(PackageName, Constructor), Type],
+      b: Pattern[(PackageName, Constructor), Type],
+      c: Pattern[(PackageName, Constructor), Type]) = {
       val tc = TotalityCheck(predefTE)
       val left = tc.difference0(a, b)
         .flatMap(_.traverse(tc.intersection(_, c)).map(_.flatten))

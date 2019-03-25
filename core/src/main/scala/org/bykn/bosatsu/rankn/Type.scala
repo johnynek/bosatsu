@@ -4,6 +4,8 @@ import cats.data.NonEmptyList
 import cats.Eq
 import org.bykn.bosatsu.{PackageName, Lit}
 
+import org.bykn.bosatsu.{TypeName, Identifier}
+
 sealed abstract class Type
 
 object Type {
@@ -36,7 +38,7 @@ object Type {
           case (ForAll(_, _), _) => -1
           case (TyConst(Const.Defined(p0, n0)), TyConst(Const.Defined(p1, n1))) =>
             val c = Ordering[PackageName].compare(p0, p1)
-            if (c == 0) n0.compareTo(n1) else c
+            if (c == 0) Ordering[TypeName].compare(n0, n1) else c
           case (TyConst(_), ForAll(_, _)) => 1
           case (TyConst(_), _) => -1
           case (TyVar(v0), TyVar(v1)) =>
@@ -212,10 +214,10 @@ object Type {
 
   sealed abstract class Const
   object Const {
-    case class Defined(packageName: PackageName, name: String) extends Const
+    case class Defined(packageName: PackageName, name: TypeName) extends Const
 
     def predef(name: String): Defined =
-      Defined(PackageName.predef, name)
+      Defined(PackageName.predef, TypeName(Identifier.Constructor(name)))
   }
 
   sealed abstract class Var {

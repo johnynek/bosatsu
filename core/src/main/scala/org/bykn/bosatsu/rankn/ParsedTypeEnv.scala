@@ -1,12 +1,14 @@
 package org.bykn.bosatsu.rankn
 
-import org.bykn.bosatsu.PackageName
+import org.bykn.bosatsu.{PackageName, Identifier}
 
-case class ParsedTypeEnv[+A](allDefinedTypes: List[DefinedType[A]], externalDefs: List[(PackageName, String, Type)]) {
+import Identifier.Bindable
+
+case class ParsedTypeEnv[+A](allDefinedTypes: List[DefinedType[A]], externalDefs: List[(PackageName, Bindable, Type)]) {
   def addDefinedType[A1 >: A](dt: DefinedType[A1]): ParsedTypeEnv[A1] =
     copy(allDefinedTypes = dt :: allDefinedTypes)
 
-  def addExternalValue(pn: PackageName, name: String, tpe: Type): ParsedTypeEnv[A] =
+  def addExternalValue(pn: PackageName, name: Bindable, tpe: Type): ParsedTypeEnv[A] =
     copy(externalDefs = (pn, name, tpe) :: externalDefs)
 }
 

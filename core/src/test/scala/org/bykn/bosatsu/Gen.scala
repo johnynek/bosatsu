@@ -53,11 +53,20 @@ object Generators {
       nel = NonEmptyList.fromListUnsafe(args)
     } yield TypeRef.TypeLambda(nel, e)
 
+  val bindIdentGen: Gen[Identifier.Bindable] =
+    lowerIdent.map { n => Identifier.Name(n) }
+
+  val consIdentGen: Gen[Identifier.Constructor] =
+    upperIdent.map { n => Identifier.Constructor(n) }
+
+  val typeNameGen: Gen[TypeName] =
+    consIdentGen.map(TypeName(_))
+
   lazy val typeRefGen: Gen[TypeRef] = {
     import TypeRef._
 
     val tvar = lowerIdent.map(TypeVar(_))
-    val tname = upperIdent.map(TypeName(_))
+    val tname = typeNameGen.map(TypeRef.TypeName(_))
 
     val tApply =
       for {
@@ -115,15 +124,15 @@ object Generators {
     } yield CommentStatement(cs.map(cleanNewLine _), t)
   }
 
-  val argGen: Gen[(String, Option[TypeRef])] =
+  val argGen: Gen[(Identifier.Bindable, Option[TypeRef])] =
     for {
-      arg <- lowerIdent
+      arg <- bindIdentGen
       t <- Gen.option(typeRefGen)
     } yield (arg, t)
 
   def defGen[T](dec: Gen[T]): Gen[DefStatement[T]] =
     for {
-      name <- lowerIdent
+      name <- bindIdentGen
       args <- Gen.listOf(argGen)
       retType <- Gen.option(typeRefGen)
       body <- dec
@@ -244,7 +253,7 @@ object Generators {
 
   def lambdaGen(bodyGen: Gen[Declaration]): Gen[Declaration.Lambda] =
     for {
-      args <- nonEmpty(lowerIdent)
+      args <- nonEmpty(bindIdentGen)
       body <- bodyGen
    } yield Declaration.Lambda(args, body)(emptyRegion)
 
@@ -271,37 +280,37 @@ object Generators {
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
   }
 
-  def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern[Option[String], TypeRef]] = {
+  def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern.Parsed] = {
     val recurse = Gen.lzy(genPattern(depth - 1, useUnion))
-    val genVar = lowerIdent.map(Pattern.Var(_))
+    val genVar = bindIdentGen.map(Pattern.Var(_))
     val genWild = Gen.const(Pattern.WildCard)
     val genLitPat = genLit.map(Pattern.Literal(_))
 
     if (depth <= 0) Gen.oneOf(genVar, genWild, genLitPat)
     else {
-      val genNamed = Gen.zip(lowerIdent, recurse).map { case (n, p) => Pattern.Named(n, p) }
+      val genNamed = Gen.zip(bindIdentGen, recurse).map { case (n, p) => Pattern.Named(n, p) }
       val genTyped = Gen.zip(recurse, typeRefGen)
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
       val genStruct =  for {
-        nm <- Gen.option(upperIdent)
+        nm <- Gen.option(consIdentGen)
         cnt <- Gen.choose(0, 6)
         args <- Gen.listOfN(cnt, recurse)
       } yield Pattern.PositionalStruct(nm, args)
 
-      def makeOneSplice(ps: List[Either[Option[String], Pattern[Option[String], TypeRef]]]) = {
+      def makeOneSplice(ps: List[Either[Option[Identifier.Bindable], Pattern.Parsed]]) = {
         val sz = ps.size
         if (sz == 0) Gen.const(ps)
         else Gen.choose(0, sz - 1).flatMap { idx =>
           val splice = Gen.oneOf(
             Gen.const(Left(None)),
-            lowerIdent.map { v => Left(Some(v)) })
+            bindIdentGen.map { v => Left(Some(v)) })
 
           splice.map { v => ps.updated(idx, v) }
         }
       }
 
-      val genListItem: Gen[Either[Option[String], Pattern[Option[String], TypeRef]]] =
+      val genListItem: Gen[Either[Option[Identifier.Bindable], Pattern.Parsed]] =
         recurse.map(Right(_))
 
       val genList = Gen.choose(0, 5)
@@ -333,7 +342,7 @@ object Generators {
     val padBody = optIndent(bodyGen)
 
 
-    val genCase: Gen[(Pattern[Option[String], TypeRef], OptIndent[Declaration])] =
+    val genCase: Gen[(Pattern.Parsed, OptIndent[Declaration])] =
       Gen.zip(genPattern(3), padBody)
 
     for {
@@ -398,7 +407,7 @@ object Generators {
 
     val unnested = unnestedDeclGen
 
-    val pat: Gen[Pattern[Option[String], TypeRef]] = lowerIdent.map(Pattern.Var(_))
+    val pat: Gen[Pattern.Parsed] = bindIdentGen.map(Pattern.Var(_))
     //val pat = genPattern(0)
 
     val recur = Gen.lzy(genDeclaration(depth - 1))
@@ -481,9 +490,9 @@ object Generators {
       }
     })
 
-  val constructorGen: Gen[(String, List[(String, Option[TypeRef])])] =
+  val constructorGen: Gen[(Identifier.Constructor, List[(Identifier.Bindable, Option[TypeRef])])] =
     for {
-      name <- upperIdent
+      name <- consIdentGen
       argc <- Gen.choose(0, 5)
       args <- Gen.listOfN(argc, argGen)
     } yield (name, args)
@@ -497,7 +506,7 @@ object Generators {
 
   def genExternalStruct(tail: Gen[Statement]): Gen[Statement] =
     for {
-      name <- upperIdent
+      name <- consIdentGen
       argc <- Gen.choose(0, 5)
       args <- Gen.listOfN(argc, lowerIdent)
       rest <- padding(tail, 1)
@@ -505,9 +514,9 @@ object Generators {
 
   def genExternalDef(tail: Gen[Statement]): Gen[Statement] =
     for {
-      name <- lowerIdent
+      name <- bindIdentGen
       argc <- Gen.choose(0, 5)
-      argG = Gen.zip(lowerIdent, typeRefGen)
+      argG = Gen.zip(bindIdentGen, typeRefGen)
       args <- Gen.listOfN(argc, argG)
       res <- typeRefGen
       rest <- padding(tail, 1)
@@ -515,7 +524,7 @@ object Generators {
 
   def genEnum(tail: Gen[Statement]): Gen[Statement] =
     for {
-      name <- upperIdent
+      name <- consIdentGen
       consc <- Gen.choose(1, 5)
       i <- Gen.choose(1, 16)
       cons <- optIndent(nonEmptyN(constructorGen, consc))
@@ -526,7 +535,7 @@ object Generators {
     val recur = Gen.lzy(genStatement(depth-1))
     val decl = genDeclaration(depth)
     // TODO make more powerful
-    val pat: Gen[Pattern[Option[String], TypeRef]] = genPattern(1)
+    val pat: Gen[Pattern.Parsed] = genPattern(1)
     Gen.frequency(
       (1, bindGen(pat, decl, padding(recur, 1)).map(Statement.Bind(_))),
       (1, commentGen(padding(recur, 1)
@@ -549,15 +558,15 @@ object Generators {
     } yield PackageName(NonEmptyList(h, tail))
 
   val importedNameGen: Gen[ImportedName[Unit]] = {
-    def rename(g: Gen[String]): Gen[ImportedName[Unit]] =
+    def rename(g: Gen[Identifier]): Gen[ImportedName[Unit]] =
       Gen.zip(g, g).map { case (f, t) => ImportedName.Renamed(f, t, ()) }
 
-    def orig(g: Gen[String]): Gen[ImportedName[Unit]] =
+    def orig(g: Gen[Identifier]): Gen[ImportedName[Unit]] =
       g.map(ImportedName.OriginalName(_, ()))
 
-    def in(g: Gen[String]) = Gen.oneOf(rename(g), orig(g))
+    def in(g: Gen[Identifier]) = Gen.oneOf(rename(g), orig(g))
 
-    Gen.oneOf(in(lowerIdent), in(upperIdent))
+    Gen.oneOf(in(bindIdentGen), in(consIdentGen))
   }
 
   val importGen: Gen[Import[PackageName, Unit]] =
@@ -569,9 +578,9 @@ object Generators {
 
   val exportedNameGen: Gen[ExportedName[Unit]] =
     Gen.oneOf(
-      lowerIdent.map(ExportedName.Binding(_, ())),
-      upperIdent.map(ExportedName.TypeName(_, ())),
-      upperIdent.map(ExportedName.Constructor(_, ())))
+      bindIdentGen.map(ExportedName.Binding(_, ())),
+      consIdentGen.map(ExportedName.TypeName(_, ())),
+      consIdentGen.map(ExportedName.Constructor(_, ())))
 
   def packageGen(depth: Int): Gen[Package.Parsed] =
     for {

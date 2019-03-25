@@ -20,7 +20,7 @@ class TypeRefTest extends FunSuite {
   test("TypeRef -> Type -> TypeRef") {
     val pn = PackageName.parts("Test")
     forAll(typeRefGen) { tr =>
-      val tpe = tr.toType(Type.Const.Defined(pn, _))
+      val tpe = tr.toType { c => Type.Const.Defined(pn, TypeName(c)) }
       val tr1 = TypeRef.fromTypes(Some(pn), tpe :: Nil)(tpe)
       assert(tr1 == tr.normalizeForAll)
     }

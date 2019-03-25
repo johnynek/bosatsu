@@ -15,8 +15,9 @@ class PatternTest extends FunSuite {
   }
 
   test("filtering for names not in a pattern is unbind") {
-    forAll(patGen, Gen.listOf(Gen.identifier)) { (p, ids) =>
-      assert(p.unbind == p.filterVars(ids.toSet.filterNot(p.names.toSet)))
+    forAll(patGen, Gen.listOf(Gen.identifier)) { (p, ids0) =>
+      val ids = ids0.map(Identifier.unsafe(_))
+      assert(p.unbind == p.filterVars(ids.toSet.filterNot(p.names.toSet[Identifier])))
     }
   }
 
@@ -33,13 +34,16 @@ class PatternTest extends FunSuite {
   }
 
   test("substructures don't include total matches") {
-    assert(Pattern.Var("foo").substructures.isEmpty)
-    assert(Pattern.Annotation(Pattern.Var("foo"), "Type").substructures.isEmpty)
-    assert(Pattern.Union(Pattern.Var("foo"), NonEmptyList.of(Pattern.Var("bar"))).substructures.isEmpty)
+    val foo = Identifier.Name("foo")
+    val bar = Identifier.Name("bar")
+    assert(Pattern.Var(foo).substructures.isEmpty)
+    assert(Pattern.Annotation(Pattern.Var(foo), "Type").substructures.isEmpty)
+    assert(Pattern.Union(Pattern.Var(foo), NonEmptyList.of(Pattern.Var(bar))).substructures.isEmpty)
   }
 
   test("unions with total matches work correctly") {
-    val inner = Pattern.Var("foo")
+    val foo = Identifier.Name("foo")
+    val inner = Pattern.Var(foo)
     val struct = Pattern.PositionalStruct("Foo", inner :: Nil)
     // Note, foo can't be substructural because on the right it is total
     assert(Pattern.Union(struct, NonEmptyList.of(inner)).substructures.isEmpty)
