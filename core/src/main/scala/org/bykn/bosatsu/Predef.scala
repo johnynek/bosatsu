@@ -29,6 +29,10 @@ object Predef {
   def packageName: PackageName =
     PackageName.predef
 
+  // For pattern matching
+  val Name: PackageName =
+    PackageName.predef
+
   /*
    * TODO: we should be able to compute this from predefPackage
    */

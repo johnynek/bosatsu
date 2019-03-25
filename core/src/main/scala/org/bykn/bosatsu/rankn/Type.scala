@@ -104,7 +104,7 @@ object Type {
     t match {
       case tyc@TyConst(_) => Some(tyc)
       case TyVar(_) | TyMeta(_) => None
-      case Type.ForAll(_, r) => rootConst(r)
+      case ForAll(_, r) => rootConst(r)
       case TyApply(left, _) => rootConst(left)
     }
 
@@ -117,6 +117,20 @@ object Type {
       }
     loop(t, Nil)
   }
+
+  def substituteVar(t: Type, replace: Map[Var.Bound, Type]): Type =
+    t match {
+      case v@TyVar(b@Var.Bound(_)) =>
+        replace.get(b) match {
+          case None => v
+          case Some(t) => t
+        }
+      case ForAll(bs, r) =>
+        ForAll(bs, substituteVar(r, replace -- bs.toList))
+      case TyApply(l, r) =>
+        TyApply(substituteVar(l, replace), substituteVar(r, replace))
+      case TyConst(_) | TyVar(_) | TyMeta(_) => t
+    }
 
   /**
    * Return the Bound and Skolem variables that
@@ -170,6 +184,8 @@ object Type {
   val StrType: Type = TyConst(Const.predef("String"))
   val FnType: Type = TyConst(Const.predef("Fn"))
   val ListType: Type = TyConst(Const.predef("List"))
+  val DictType: Type = TyConst(Const.predef("Dict"))
+  val OptionType: Type = TyConst(Const.predef("Option"))
   val UnitType = TyConst(Type.Const.predef("Unit"))
   val Tuple2Type = TyConst(Type.Const.predef("Tuple2"))
 
@@ -186,7 +202,7 @@ object Type {
   }
 
   object Tuple {
-    def unapply(t: Type): Option[List[Type]] = {
+    def unapply(t: Type): Option[List[Type]] =
       t match {
         case UnitType => Some(Nil)
         case TyApply(TyApply(Tuple2Type, h), t) =>
@@ -196,18 +212,38 @@ object Type {
           }
         case _ => None
       }
-    }
 
-    def apply(ts: List[Type]): Type = {
-      def tup(ts: List[Type]): Type =
-        ts match {
-          case Nil => UnitType
-          case h :: tail =>
-            val tailT = tup(tail)
-            TyApply(TyApply(Tuple2Type, h), tailT)
-        }
-      tup(ts)
-    }
+    def apply(ts: List[Type]): Type =
+      ts match {
+        case Nil => UnitType
+        case h :: tail =>
+          val tailT = apply(tail)
+          TyApply(TyApply(Tuple2Type, h), tailT)
+      }
+  }
+
+  object OptionT {
+    def unapply(t: Type): Option[Type] =
+      t match {
+        case TyApply(OptionType, t) => Some(t)
+        case _ => None
+      }
+  }
+
+  object DictT {
+    def unapply(t: Type): Option[(Type, Type)] =
+      t match {
+        case TyApply(TyApply(DictType, kt), vt) => Some((kt, vt))
+        case _ => None
+      }
+  }
+
+  object ListT {
+    def unapply(t: Type): Option[Type] =
+      t match {
+        case TyApply(ListType, t) => Some(t)
+        case _ => None
+      }
   }
 
   sealed abstract class Const
