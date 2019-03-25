@@ -69,7 +69,7 @@ main = bar(5)
     // println("Input packageMap")
     // println(packageMap)
 
-    val normalizedMap = Normalization.normalizePackageMap(packageMap)
+    val normalizedMap = NormalizePackageMap(packageMap).normalizePackageMap
 
     // println("Output packageMap")
     // println(normalizedMap)
