@@ -1,11 +1,13 @@
 package org.bykn.bosatsu
 
+import cats.Eval
 import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
-import cats.Eval
-import cats.implicits._
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type}
+import scala.collection.immutable.SortedMap
+
+import cats.implicits._
 
 object Evaluation {
   import Value._
@@ -67,6 +69,31 @@ object Evaluation {
     val False: Value = SumValue(0, UnitValue)
     val True: Value = SumValue(1, UnitValue)
 
+    object Tuple2 {
+      def unapply(v: Value): Option[(Value, Value)] =
+        v match {
+          case ConsValue(a, ConsValue(b, UnitValue)) => Some((a, b))
+          case _ => None
+        }
+    }
+
+    object Tuple {
+      /**
+       * Tuples are encoded as:
+       * (1, 2, 3) => Tuple2(1, Tuple2(2, Tuple2(3, ())))
+       * since a Tuple(a, b) is encoded as
+       * ConsValue(a, ConsValue(b, UnitValue))
+       * this gives double wrapping
+       */
+      def unapply(v: Value): Option[List[Value]] =
+        v match {
+          case Tuple2(a, b) =>
+            unapply(b).map(a :: _)
+          case UnitValue => Some(Nil)
+          case _ => None
+        }
+    }
+
     object Comparison {
       def fromInt(i: Int): Value =
         if (i < 0) LT else if (i > 0) GT else EQ
@@ -107,9 +134,9 @@ object Evaluation {
 
       def unapply(v: Value): Option[Option[Value]] =
         v match {
-          case UnitValue =>
+          case SumValue(0, UnitValue) =>
             Some(None)
-          case ConsValue(head, UnitValue) =>
+          case SumValue(1, ConsValue(head, UnitValue)) =>
             Some(Some(head))
           case _ => None
         }
@@ -144,6 +171,14 @@ object Evaluation {
           case VNil => Some(Nil)
           case Cons(head, rest) =>
             unapply(rest).map(head :: _)
+          case _ => None
+        }
+    }
+
+    object VDict {
+      def unapply(v: Value): Option[SortedMap[Value, Value]] =
+        v match {
+          case ExternalValue(v: SortedMap[_, _]) => Some(v.asInstanceOf[SortedMap[Value, Value]])
           case _ => None
         }
     }
@@ -284,21 +319,19 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
           case other => sys.error(s"expected test value: $other")
         }
 
-      toType[Test](ea.value, tpe) { (any, dt, rec) =>
-        if (dt.packageName == Predef.packageName) {
-          dt.name.asString match {
+      tpe match {
+        case Type.TyConst(Type.Const.Defined(Predef.Name, tn)) =>
+          tn match {
             case "Assertion" =>
-              Some(toAssert(any))
+              Some(toAssert(ea.value))
             case "Test" =>
-              // due to type checking, none of the above errors should hit
-              Some(toTest(any))
+              Some(toTest(ea.value))
             case "TestSuite" =>
-              Some(toSuite(any))
+              Some(toSuite(ea.value))
             case _ =>
               None
           }
-        }
-        else None
+        case _ => None
       }
     }
 
@@ -481,7 +514,7 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
 
                   case other =>
                     // $COVERAGE-OFF$this should be unreachable
-                    val ts = TypeRef.fromType(tpe).fold(tpe.toString)(_.toDoc.render(80))
+                    val ts = TypeRef.fromTypes(Some(p.name), tpe :: Nil)(tpe).toDoc.render(80)
                     sys.error(s"ill typed in match (${ctor.asString}${items.mkString}): $ts\n\n$other")
                     // $COVERAGE-ON$
                 }
@@ -673,79 +706,110 @@ case class Evaluation(pm: PackageMap.Inferred, externals: Externals) {
     Eval.now(loop(arity, Nil))
   }
 
-  private def definedToJson(a: Value, dt: rankn.DefinedType[Any], rec: (Value, Type) => Option[Json]): Option[Json] = if (dt.packageName == Predef.packageName) {
-      (dt.name.asString, a) match {
-        case ("Option", VOption(None)) => Some(Json.JNull)
-        case ("Option", VOption(Some(v))) =>
-          dt.constructors match {
-            case _ :: ((ConstructorName("Some"), (_, t) :: Nil, _)) :: Nil =>
-              rec(v, t)
-            case other =>
-              sys.error(s"expect to find Some constructor for $v: $other")
-          }
-        case ("String", Str(s)) =>
-          Some(Json.JString(s))
-        case ("Bool", True) =>
-          Some(Json.JBool(true))
-        case ("Bool", False) =>
-          Some(Json.JBool(false))
-        case ("Int", VInt(v)) =>
-          Some(Json.JNumberStr(v.toString))
-        case ("List", VList(vs)) =>
-          // convert the list into a JArray
-          val tpe = dt.constructors match {
-            case _ :: ((ConstructorName("NonEmptyList"), (_, t) :: (_, _) :: Nil, _)) :: Nil => t
-            case other => sys.error(s"unexpected constructors for list: $other")
-          }
-
-          vs.toVector
-            .traverse { v => rec(v, tpe) }
-            .map(Json.JArray(_))
-        case (tname, other) =>
-          sys.error(s"unknown predef type: $tname: $other")
+  /**
+   * Convert a typechecked value to Json
+   * this code ASSUMES the type is correct. If not, we may throw or return
+   * incorrect data.
+   */
+  def toJson(a: Value, tpe: Type): Option[Json] = {
+    def canEncodeToNull(t: Type): Boolean =
+      t match {
+        case Type.UnitType | Type.OptionT(_) => true
+        case Type.ForAll(_, inner) => canEncodeToNull(inner)
+        case _ => false
       }
-    }
-    else  {
-      val vp =
+    tpe match {
+      case Type.IntType =>
+        val ExternalValue(v) = a
+        Some(Json.JNumberStr(v.toString))
+      case Type.StrType =>
+        val ExternalValue(v) = a
+        Some(Json.JString(v.toString))
+      case Type.BoolType =>
         a match {
-          case SumValue(variant, p) => Some((variant, p))
-          case p: ProductValue => Some((0, p))
-          case _ => None
+          case True => Some(Json.JBool(true))
+          case False => Some(Json.JBool(false))
+          case other =>
+            // $COVERAGE-OFF$this should be unreachable
+            sys.error(s"invalid cast to Boolean: $other")
+            // $COVERAGE-ON$
         }
-
-      vp.flatMap { case (variant, prod) =>
-        val cons = dt.constructors
-        cons.lift(variant).flatMap { case (_, params, _) =>
-          prod.toList.zip(params).traverse { case (a1, (ParamName(pn), t)) =>
-            rec(a1, t).map((pn, _))
+      case Type.UnitType =>
+        // encode this as null
+        Some(Json.JNull)
+      case Type.OptionT(tpe) =>
+        if (canEncodeToNull(tpe)) {
+          // we can't encode Option[Option[T]] as null or not, so we encode
+          // as list of 0 or 1 items
+          a match {
+            case VOption(None) => Some(Json.JArray(Vector.empty))
+            case VOption(Some(a)) =>
+              toJson(a, tpe).map { j => Json.JArray(Vector(j)) }
           }
-          .map { ps => Json.JObject(ps) }
         }
-      }
+        else {
+          // not a nested option
+          a match {
+            case VOption(None) => Some(Json.JNull)
+            case VOption(Some(a)) => toJson(a, tpe)
+          }
+        }
+      case Type.ListT(t) =>
+        val VList(vs) = a
+        vs.toVector
+          .traverse { v => toJson(v, t) }
+          .map(Json.JArray(_))
+      case Type.DictT(Type.StrType, vt) =>
+        val VDict(d) = a
+        d.toList.traverse { case (k, v) =>
+          val Str(kstr) = k
+          toJson(v, vt).map((kstr, _))
+        }
+        .map(Json.JObject(_))
+      case Type.Tuple(ts) =>
+        val Tuple(as) = a
+        as.zip(ts)
+          .toVector
+          .traverse { case (a, t) =>
+            toJson(a, t)
+          }
+          .map(Json.JArray(_))
+      case Type.ForAll(_, inner) =>
+        // we assume the generic positions don't matter and to continue
+        toJson(a, inner)
+      case _ =>
+        val vp =
+          a match {
+            case SumValue(variant, p) => Some((variant, p))
+            case p: ProductValue => Some((0, p))
+            case _ => None
+          }
+        val optDt = Type.rootConst(tpe)
+          .flatMap {
+            case Type.TyConst(Type.Const.Defined(pn, n)) =>
+              defined(pn, TypeName(n))
+          }
+
+        (vp, optDt).mapN { case ((variant, prod), dt) =>
+          val cons = dt.constructors
+          val (_, targs) = Type.applicationArgs(tpe)
+          val replaceMap = dt.typeParams.zip(targs).toMap
+          cons.lift(variant).flatMap { case (_, params, _) =>
+            prod.toList.zip(params).traverse { case (a1, (ParamName(pn), t)) =>
+              toJson(a1, Type.substituteVar(t, replaceMap)).map((pn, _))
+            }
+          }
+        }
+        .flatten
+        .map { ps => Json.JObject(ps) }
     }
-
-  def toJson(a: Value, tpe: Type): Option[Json] =
-    toType[Json](a, tpe)(definedToJson(_, _, _))
-
-  def toType[T](a: Value, t: Type)(fn: (Value, rankn.DefinedType[Any], (Value, Type) => Option[T]) => Option[T]): Option[T] = {
-    def defined(pn: PackageName, t: TypeName): Option[rankn.DefinedType[Any]] =
-      for {
-        pack <- pm.toMap.get(pn)
-        dt <- pack.program.types.getType(pn, t)
-      } yield dt
-
-    /*
-     * TODO we are ignoring any applied types here which we will need to set.
-     * the correct way is to accumulate a type environment of Map[Var.Bound, Type]
-     * and pass that down, but currently no tests expose this issue so letting
-     * it lurk for now
-     */
-    Type.rootConst(t).flatMap {
-      case Type.TyConst(Type.Const.Defined(pn, n)) =>
-        defined(pn, TypeName(n))
-    }
-    .flatMap(fn(a, _, toType[T](_, _)(fn)))
   }
+
+  def defined(pn: PackageName, t: TypeName): Option[rankn.DefinedType[Any]] =
+    for {
+      pack <- pm.toMap.get(pn)
+      dt <- pack.program.types.getType(pn, t)
+    } yield dt
 }
 
 case class EvaluationException(message: String) extends Exception(message)

@@ -909,4 +909,209 @@ def bad_len(list):
 main = bad_len([1, 2, 3, 5])
 """), "A", VInt(4))
   }
+  test("uncurry2") {
+    evalTest(List("""
+package A
+
+struct TwoVar(one, two)
+
+tuple = (1, "two")
+constructed = uncurry2(TwoVar, tuple)
+
+main = match constructed:
+  TwoVar(1, "two"): "good"
+  _: "bad"
+"""), "A", Str("good"))
+  }
+  test("uncurry3") {
+    evalTest(List("""
+package A
+
+struct ThreeVar(one, two, three)
+
+tuple = (1, "two", 3)
+constructed = uncurry3(ThreeVar, tuple)
+
+main = match constructed:
+  ThreeVar(1, "two", 3): "good"
+  _: "bad"
+"""), "A", Str("good"))
+  }
+
+  test("Dict methods") {
+    evalTest(List("""
+package A
+
+e = empty_Dict(string_Order)
+
+e1 = e.add_key("hello", "world")
+
+main = e1.get_key("hello")
+"""), "A", VOption.some(Str("world")))
+
+    evalTest(List("""
+package A
+
+e = empty_Dict(string_Order)
+
+e1 = e.add_key("hello", "world")
+e2 = e1.remove_key("hello")
+
+main = e2.get_key("hello")
+"""), "A", VOption.none)
+
+    evalTest(List("""
+package A
+
+e1 = empty_Dict(string_Order)
+e2 = e1.add_key("hello", "world").add_key("hello1", "world1")
+lst = e2.items
+
+main = match lst:
+  [("hello", "world"), ("hello1", "world1")]: "good"
+  _: "bad"
+"""), "A", Str("good"))
+
+    evalTest(List("""
+package A
+
+e1 = {}
+e2 = e1.add_key("hello", "world").add_key("hello1", "world1")
+lst = e2.items
+
+main = match lst:
+  [("hello", "world"), ("hello1", "world1")]: "good"
+  _: "bad"
+"""), "A", Str("good"))
+
+    evalTest(List("""
+package A
+
+e = { "hello": "world",
+      "hello1": "world1" }
+lst = e.items
+
+main = match lst:
+  [("hello", "world"), ("hello1", "world1")]: "good"
+  _: "bad"
+"""), "A", Str("good"))
+
+    evalTest(List("""
+package A
+
+pairs = [("hello", "world"), ("hello1", "world1")]
+
+e = { k: v for (k, v) in pairs }
+lst = e.items
+
+main = match lst:
+  [("hello", "world"), ("hello1", "world1")]: "good"
+  _: "bad"
+"""), "A", Str("good"))
+
+    evalTest(List("""
+package A
+
+pairs = [("hello", 42), ("hello1", 24)]
+
+def is_hello(s):
+  match s.string_Order_fn("hello"):
+    EQ: True
+    _: False
+
+e = { k: v for (k, v) in pairs if is_hello(k) }
+lst = e.items
+
+main = match lst:
+  [("hello", res)]: res
+  _: -1
+"""), "A", VInt(42))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': '1', 's': 'foo' }
+
+main = bar
+"""), "Foo", Json.JObject(List("a" -> Json.JString("1"), "s" -> Json.JString("foo"))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': None, 's': None }
+
+main = bar
+"""), "Foo", Json.JObject(List("a" -> Json.JNull, "s" -> Json.JNull)))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': None, 's': Some(1) }
+
+main = bar
+"""), "Foo", Json.JObject(List("a" -> Json.JNull, "s" -> Json.JNumberStr("1"))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': [], 's': [1] }
+
+main = bar
+"""), "Foo", Json.JObject(
+  List("a" -> Json.JArray(Vector.empty),
+       "s" -> Json.JArray(Vector(Json.JNumberStr("1"))))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': True, 's': False }
+
+main = bar
+"""), "Foo", Json.JObject(
+  List("a" -> Json.JBool(true),
+       "s" -> Json.JBool(false))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+main = (1, "1", ())
+"""), "Foo", Json.JArray(
+  Vector(Json.JNumberStr("1"),
+    Json.JString("1"),
+    Json.JNull)))
+
+    evalTestJson(
+      List("""
+package Foo
+
+main = [Some(Some(1)), Some(None), None]
+"""), "Foo",
+  Json.JArray(
+    Vector(
+      Json.JArray(Vector(Json.JNumberStr("1"))),
+      Json.JArray(Vector(Json.JNull)),
+      Json.JArray(Vector.empty)
+      )))
+
+    evalTestJson(
+      List("""
+package Foo
+
+enum FooBar: Foo(foo), Bar(bar)
+
+main = [Foo(1), Bar("1")]
+"""), "Foo",
+  Json.JArray(
+    Vector(
+      Json.JObject(
+        List("foo" -> Json.JNumberStr("1"))),
+      Json.JObject(
+        List("bar" -> Json.JString("1"))))))
+  }
 }

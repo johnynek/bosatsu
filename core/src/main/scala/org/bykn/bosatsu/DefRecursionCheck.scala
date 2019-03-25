@@ -329,6 +329,16 @@ object DefRecursionCheck {
                 checkDecl(i) *>
                 (f.traverse_(checkDecl))
           }
+        case DictDecl(ll) =>
+          ll match {
+            case ListLang.Cons(items) =>
+              items.traverse_ { s => checkDecl(s.key) *> checkDecl(s.value) }
+            case ListLang.Comprehension(e, _, i, f) =>
+              checkDecl(e.key) *>
+                checkDecl(e.value) *>
+                checkDecl(i) *>
+                (f.traverse_(checkDecl))
+          }
       }
     }
 

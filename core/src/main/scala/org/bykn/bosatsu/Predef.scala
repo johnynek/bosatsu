@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.data.NonEmptyList
 import fastparse.all._
 import java.math.BigInteger
+import scala.collection.immutable.SortedMap
 
 object Predef {
   private def resourceToString(path: String): Option[String] = {
@@ -28,6 +29,10 @@ object Predef {
   def packageName: PackageName =
     PackageName.predef
 
+  // For pattern matching
+  val Name: PackageName =
+    PackageName.predef
+
   /*
    * TODO: we should be able to compute this from predefPackage
    */
@@ -37,6 +42,7 @@ object Predef {
         "Assertion",
         "Bool",
         "Comparison",
+        "Dict",
         "EQ",
         "EmptyList",
         "False",
@@ -47,6 +53,7 @@ object Predef {
         "NonEmptyList",
         "None",
         "Option",
+        "Order",
         "Some",
         "String",
         "Test",
@@ -55,23 +62,32 @@ object Predef {
         "Tuple2",
         "Unit",
         "add",
-        "div",
-        "eq_Int",
-        "concat",
+        "add_key",
         "cmp_Int",
+        "concat",
+        "div",
+        "empty_Dict",
+        "eq_Int",
         "flat_map_List",
         "foldLeft",
         "gcd_Int",
+        "get_key",
         "int_loop",
+        "items",
         "map_List",
         "mod_Int",
         "range",
         "range_fold",
+        "remove_key",
         "reverse",
         "reverse_concat",
         "sub",
+        "string_Order_fn",
+        "string_Order",
         "times",
-        "trace"
+        "trace",
+        "uncurry2",
+        "uncurry3"
         )
         .map(ImportedName.OriginalName(_, ())))
 
@@ -89,6 +105,12 @@ object Predef {
       .add(packageName, "range", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.range"))
       .add(packageName, "int_loop", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.intLoop"))
       .add(packageName, "trace", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.trace"))
+      .add(packageName, "string_Order_fn", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.string_Order_Fn"))
+      .add(packageName, "empty_Dict", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.empty_Dict"))
+      .add(packageName, "add_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.add_key"))
+      .add(packageName, "get_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.get_key"))
+      .add(packageName, "items", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.items"))
+      .add(packageName, "remove_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.remove_key"))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -185,6 +207,57 @@ object PredefImpl {
     val Value.Str(prestr) = prefix
     println(s"$prestr: $v")
     v
+  }
+
+  def string_Order_Fn(a: Value, b: Value): Value =
+    (a, b) match {
+      case (Value.Str(sa), Value.Str(sb)) =>
+        Value.Comparison.fromInt(sa.compareTo(sb))
+      case other => sys.error(s"type error: $other")
+    }
+
+  def empty_Dict(ord: Value): Value =
+    ord match {
+      case ConsValue(fn, _) =>
+        implicit val ordValue: Ordering[Value] =
+          new Ordering[Value] {
+            val fnV = fn.asFn
+            def compare(a: Value, b: Value): Int =
+              fnV(a).flatMap(_.asFn(b)).value match {
+                case SumValue(v, _) =>
+                  v - 1
+                case other => sys.error(s"type error: $other")
+              }
+          }
+        ExternalValue(SortedMap.empty[Value, Value])
+      case other => sys.error(s"type error: $other")
+    }
+
+  def toDict(v: Value): SortedMap[Value, Value] =
+    v match {
+      case ExternalValue(sm) =>
+        sm.asInstanceOf[SortedMap[Value, Value]]
+      case other => sys.error(s"type error: $other")
+    }
+
+  def add_key(dict: Value, k: Value, value: Value): Value =
+    ExternalValue(toDict(dict).updated(k, value))
+
+  def get_key(dict: Value, k: Value): Value =
+    toDict(dict).get(k) match {
+      case None => VOption.none
+      case Some(v) => VOption.some(v)
+    }
+
+  def remove_key(dict: Value, k: Value): Value =
+    ExternalValue(toDict(dict) - k)
+
+  def items(dict: Value): Value = {
+    val d = toDict(dict)
+    Value.VList(d.iterator.map { case (k, v) =>
+      ProductValue.fromList(k :: ProductValue.fromList(v :: Nil) :: Nil)
+    }
+    .toList)
   }
 }
 

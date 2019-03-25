@@ -10,6 +10,8 @@ import org.typelevel.paiges.{ Doc, Document }
 import Indy.IndyMethods
 import org.bykn.fastparse_cats.StringInstances._
 
+import ListLang.{KVPair, SpliceOrItem}
+
 /**
  * Represents the syntax version of Expr
  */
@@ -104,6 +106,9 @@ sealed abstract class Declaration {
 
       case ListDecl(list) =>
         ListLang.document[Declaration, Pattern[Option[String], TypeRef]].document(list)
+
+      case DictDecl(dict) =>
+        ListLang.documentDict[Declaration, Pattern[Option[String], TypeRef]].document(dict)
     }
   }
 
@@ -193,11 +198,11 @@ sealed abstract class Declaration {
         case l@ListDecl(list) =>
           list match {
             case ListLang.Cons(items) =>
-              val revDecs: List[ListLang.SpliceOrItem[Expr[Declaration]]] = items.reverseMap {
-                case ListLang.SpliceOrItem.Splice(s) =>
-                  ListLang.SpliceOrItem.Splice(loop(s))
-                case ListLang.SpliceOrItem.Item(item) =>
-                  ListLang.SpliceOrItem.Item(loop(item))
+              val revDecs: List[SpliceOrItem[Expr[Declaration]]] = items.reverseMap {
+                case SpliceOrItem.Splice(s) =>
+                  SpliceOrItem.Splice(loop(s))
+                case SpliceOrItem.Item(item) =>
+                  SpliceOrItem.Item(loop(item))
               }
 
               val pn = Option(Predef.packageName)
@@ -209,9 +214,9 @@ sealed abstract class Declaration {
                 Expr.App(Expr.App(Expr.Var(pn, "concat", l), headList, l), tail, l)
 
               revDecs.foldLeft(empty) {
-                case (tail, ListLang.SpliceOrItem.Item(i)) =>
+                case (tail, SpliceOrItem.Item(i)) =>
                   cons(i, tail)
-                case (tail, ListLang.SpliceOrItem.Splice(s)) =>
+                case (tail, SpliceOrItem.Splice(s)) =>
                   concat(s, tail)
               }
             case ListLang.Comprehension(res, binding, in, filter) =>
@@ -243,9 +248,9 @@ sealed abstract class Declaration {
                */
               val pn = Option(Predef.packageName)
               val opName = (res, filter) match {
-                case (ListLang.SpliceOrItem.Item(_), None) =>
+                case (SpliceOrItem.Item(_), None) =>
                   "map_List"
-                case (ListLang.SpliceOrItem.Item(_) | ListLang.SpliceOrItem.Splice(_), _) =>
+                case (SpliceOrItem.Item(_) | SpliceOrItem.Splice(_), _) =>
                   "flat_map_List"
               }
               val opExpr: Expr[Declaration] = Expr.Var(pn, opName, l)
@@ -258,12 +263,12 @@ sealed abstract class Declaration {
                   val r = itOrSp.value
                   val ritem = loop(r)
                   val sing = itOrSp match {
-                    case ListLang.SpliceOrItem.Item(_) =>
+                    case SpliceOrItem.Item(_) =>
                       Expr.App(
                         Expr.App(Expr.Var(pn, "NonEmptyList", r), ritem, r),
                         empty,
                         r)
-                    case ListLang.SpliceOrItem.Splice(_) => ritem
+                    case SpliceOrItem.Splice(_) => ritem
                   }
 
                   Expr.ifExpr(loop(cond),
@@ -279,6 +284,75 @@ sealed abstract class Declaration {
               val fnExpr: Expr[Declaration] = Expr.Lambda(unusedSymbol0, body, l)
               Expr.App(Expr.App(opExpr, loop(in), l), fnExpr, l)
           }
+        case l@DictDecl(dict) =>
+          val pn = Option(Predef.packageName)
+          val empty: Expr[Declaration] = {
+            val efn: Expr[Declaration] = Expr.Var(pn, "empty_Dict", l)
+            val sord: Expr[Declaration] = Expr.Var(pn, "string_Order", l)
+            Expr.App(efn, sord, l)
+          }
+          def add(dict: Expr[Declaration], k: Expr[Declaration], v: Expr[Declaration]): Expr[Declaration] = {
+            val fn: Expr[Declaration] = Expr.Var(pn, "add_key", l)
+            Expr.App(Expr.App(Expr.App(fn, dict, l), k, l), v, l)
+          }
+          dict match {
+            case ListLang.Cons(items) =>
+              val revDecs: List[KVPair[Expr[Declaration]]] = items.reverseMap {
+                case KVPair(k, v) => KVPair(loop(k), loop(v))
+              }
+              revDecs.foldLeft(empty) {
+                case (dict, KVPair(k, v)) => add(dict, k, v)
+              }
+            case ListLang.Comprehension(KVPair(k, v), binding, in, filter) =>
+              /*
+               * { x: y for p in z} ==
+               * z.foldLeft(empty_Dict(stringOrder), \dict, v ->
+               *   p = v
+               *   dict.add_key(x, y)
+               *   )
+               *
+               * { x: y for p in z if w } =
+               * z.foldLeft(empty_Dict(stringOrder), \dict, v ->
+               *   p = v
+               *   if w: dict.add_key(x, y)
+               *   else: dict
+               *   )
+               */
+              val pn = Option(Predef.packageName)
+              val opExpr: Expr[Declaration] = Expr.Var(pn, "foldLeft", l)
+              val dictSymbol: String = "$d" // TODO we should have better ways to gensym
+              val elemSymbol: String = "$e"
+              val init: Expr[Declaration] = Expr.Var(None, dictSymbol, l)
+              val added = add(init, loop(k), loop(v))
+
+              val resExpr: Expr[Declaration] = filter match {
+                case None => added
+                case Some(cond) =>
+                  Expr.ifExpr(loop(cond),
+                    added,
+                    init,
+                    cond)
+              }
+              val newPattern = unTuplePattern(binding, nameToType, nameToCons)
+              val body: Expr[Declaration] =
+                Expr.Match(Expr.Var(None, elemSymbol, l),
+                  NonEmptyList.of((newPattern, resExpr)), l)
+              val foldFn = Expr.Lambda(dictSymbol,
+                Expr.Lambda(elemSymbol,
+                  body,
+                  l),
+                l)
+              Expr.App(
+                Expr.App(
+                  Expr.App(
+                    opExpr,
+                    loop(in),
+                    l),
+                  empty,
+                  l),
+                foldFn,
+                l)
+            }
       }
 
     loop(this)
@@ -350,7 +424,11 @@ object Declaration {
   /**
    * This represents the list construction language
    */
-  case class ListDecl(list: ListLang[Declaration, Pattern[Option[String], TypeRef]])(implicit val region: Region) extends Declaration
+  case class ListDecl(list: ListLang[SpliceOrItem, Declaration, Pattern[Option[String], TypeRef]])(implicit val region: Region) extends Declaration
+  /**
+   * Here are dict constructors and comprehensions
+   */
+  case class DictDecl(list: ListLang[ListLang.KVPair, Declaration, Pattern[Option[String], TypeRef]])(implicit val region: Region) extends Declaration
 
   val matchKindParser: P[RecursionKind] =
     (P("match").map(_ => RecursionKind.NonRecursive) | P("recur").map(_ => RecursionKind.Recursive))
@@ -368,9 +446,9 @@ object Declaration {
       case ListDecl(ListLang.Cons(elems)) =>
         val optParts: Option[List[Either[Option[String], Pattern[Option[String], TypeRef]]]] =
           elems.traverse {
-            case ListLang.SpliceOrItem.Splice(Var(n)) =>
+            case SpliceOrItem.Splice(Var(n)) =>
               Some(Left(Some(n)))
-            case ListLang.SpliceOrItem.Item(p) =>
+            case SpliceOrItem.Item(p) =>
               toPattern(p).map(Right(_))
             case _ => None
           }
@@ -493,6 +571,11 @@ object Declaration {
       .region
       .map { case (r, l) => ListDecl(l)(r) }
 
+  private def dictP(p: P[Declaration]): P[DictDecl] =
+    ListLang.dictParser(p, Pattern.parser)
+      .region
+      .map { case (r, l) => DictDecl(l)(r) }
+
   private[this] val parserCache: String => P[Declaration] =
     Memoize.function[String, P[Declaration]] { (indent, rec) =>
 
@@ -551,6 +634,7 @@ object Declaration {
         lambdaP(indent) |
         matchP(recIndy)(indent) |
         ifElseP(recIndy)(indent) |
+        dictP(recurse) |
         // vars are so common, try to parse them before the generic pattern
         decOrBind(varP | listP(recurse), indent) |
         patternBind(indent) |
