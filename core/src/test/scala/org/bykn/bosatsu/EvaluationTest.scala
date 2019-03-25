@@ -1026,5 +1026,92 @@ main = match lst:
   [("hello", res)]: res
   _: -1
 """), "A", VInt(42))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': '1', 's': 'foo' }
+
+main = bar
+"""), "Foo", Json.JObject(List("a" -> Json.JString("1"), "s" -> Json.JString("foo"))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': None, 's': None }
+
+main = bar
+"""), "Foo", Json.JObject(List("a" -> Json.JNull, "s" -> Json.JNull)))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': None, 's': Some(1) }
+
+main = bar
+"""), "Foo", Json.JObject(List("a" -> Json.JNull, "s" -> Json.JNumberStr("1"))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': [], 's': [1] }
+
+main = bar
+"""), "Foo", Json.JObject(
+  List("a" -> Json.JArray(Vector.empty),
+       "s" -> Json.JArray(Vector(Json.JNumberStr("1"))))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+bar = {'a': True, 's': False }
+
+main = bar
+"""), "Foo", Json.JObject(
+  List("a" -> Json.JBool(true),
+       "s" -> Json.JBool(false))))
+
+    evalTestJson(
+      List("""
+package Foo
+
+main = (1, "1", ())
+"""), "Foo", Json.JArray(
+  Vector(Json.JNumberStr("1"),
+    Json.JString("1"),
+    Json.JNull)))
+
+    evalTestJson(
+      List("""
+package Foo
+
+main = [Some(Some(1)), Some(None), None]
+"""), "Foo",
+  Json.JArray(
+    Vector(
+      Json.JArray(Vector(Json.JNumberStr("1"))),
+      Json.JArray(Vector(Json.JNull)),
+      Json.JArray(Vector.empty)
+      )))
+
+    evalTestJson(
+      List("""
+package Foo
+
+enum FooBar: Foo(foo), Bar(bar)
+
+main = [Foo(1), Bar("1")]
+"""), "Foo",
+  Json.JArray(
+    Vector(
+      Json.JObject(
+        List("foo" -> Json.JNumberStr("1"))),
+      Json.JObject(
+        List("bar" -> Json.JString("1"))))))
   }
 }

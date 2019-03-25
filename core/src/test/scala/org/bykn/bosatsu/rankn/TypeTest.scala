@@ -122,4 +122,37 @@ class TypeTest extends FunSuite {
       assert(left ::: (right.filterNot(left.toSet)) == both)
     }
   }
+
+  def genSubs(depth: Int): Gen[Map[Type.Var.Bound, Type]] = {
+    val pair = Gen.zip(
+      Gen.identifier.map(Type.Var.Bound(_)),
+      NTypeGen.genDepth(depth))
+    Gen.mapOf(pair)
+  }
+
+  test("substitute is a no-op if there are no freeTyVars") {
+    forAll(NTypeGen.genDepth03, genSubs(3)) { (t, subs) =>
+      val subs1 = subs -- Type.freeBoundTyVars(t :: Nil)
+      assert(Type.substituteVar(t, subs) == t)
+    }
+  }
+
+  test("substitute is idempotent") {
+    forAll(NTypeGen.genDepth03, genSubs(3)) { (t, subs) =>
+      val t1 = Type.substituteVar(t, subs)
+      val t2 = Type.substituteVar(t1, subs)
+      assert(t2 == t1)
+    }
+  }
+
+  test("after substitution, none of the keys are free") {
+    forAll(NTypeGen.genDepth03, genSubs(3)) { (t, subs) =>
+      // don't substitute back onto the keys
+      val subs1 = subs.filter { case (_, v) =>
+        (Type.freeBoundTyVars(v :: Nil).toSet & subs.keySet).isEmpty
+      }
+      val t1 = Type.substituteVar(t, subs1)
+      assert((Type.freeBoundTyVars(t1 :: Nil).toSet & subs.keySet) == Set.empty)
+    }
+  }
 }
