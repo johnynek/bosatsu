@@ -11,18 +11,20 @@ import Type.ForAll
 
 import TestUtils.checkLast
 
+import Identifier.Constructor
+
 class RankNInferTest extends FunSuite {
 
   val emptyRegion: Region = Region(0, 0)
 
   implicit val unitRegion: HasRegion[Unit] = HasRegion.instance(_ => emptyRegion)
 
-  private def strToConst(str: String): Type.Const =
-    str match {
+  private def strToConst(str: Identifier.Constructor): Type.Const =
+    str.asString match {
       case "Int" => Type.Const.predef("Int")
       case "String" => Type.Const.predef("String")
       case s =>
-        Type.Const.Defined(PackageName.parts("Test"), s)
+        Type.Const.Defined(PackageName.parts("Test"), TypeName(str))
     }
 
   def typeFrom(str: String): Type =
@@ -48,16 +50,16 @@ class RankNInferTest extends FunSuite {
     assert(runUnify(left, right).isLeft, s"$left unexpectedly unifies with $right")
 
   def defType(n: String): Type.Const.Defined =
-    Type.Const.Defined(PackageName.parts("Test"), n)
+    Type.Const.Defined(PackageName.parts("Test"), TypeName(Identifier.Constructor(n)))
 
-  val withBools: Map[String, Type] =
+  val withBools: Map[Identifier, Type] =
     Map(
-      "True" -> Type.BoolType,
-      "False" -> Type.BoolType)
-  val boolTypes: Map[(PackageName, ConstructorName), Infer.Cons] =
+      Identifier.unsafe("True") -> Type.BoolType,
+      Identifier.unsafe("False") -> Type.BoolType)
+  val boolTypes: Map[(PackageName, Constructor), Infer.Cons] =
     Map(
-      ((Predef.packageName, ConstructorName("True")), (Nil, Nil, Type.Const.predef("Bool"))),
-      ((Predef.packageName, ConstructorName("False")), (Nil, Nil, Type.Const.predef("Bool"))))
+      ((Predef.packageName, Constructor("True")), (Nil, Nil, Type.Const.predef("Bool"))),
+      ((Predef.packageName, Constructor("False")), (Nil, Nil, Type.Const.predef("Bool"))))
 
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
     Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools), boolTypes) match {
@@ -66,33 +68,38 @@ class RankNInferTest extends FunSuite {
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
-    Infer.typeCheckLets(terms.map { case (k, v, _) => (k, RecursionKind.NonRecursive, v) })
+    Infer.typeCheckLets(terms.map { case (k, v, _) => (Identifier.Name(k), RecursionKind.NonRecursive, v) })
       .runFully(Infer.asFullyQualified(withBools), boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpes) =>
           assert(tpes.size == terms.size)
           terms.zip(tpes).foreach { case ((n, exp, expt), (n1, _, te)) =>
-            assert(n == n1, s"the name changed: $n != $n1")
+            assert(n == n1.asString, s"the name changed: $n != $n1")
             assert(te.getType == expt, s"$n = $exp failed to typecheck to $expt, got ${te.getType}")
           }
       }
 
 
   def lit(i: Int): Expr[Unit] = Literal(Lit(i.toLong), ())
-  def lit(b: Boolean): Expr[Unit] = if (b) Var(None, "True", ()) else Var(None, "False", ())
-  def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] = Let(n, expr, in, RecursionKind.NonRecursive, ())
-  def lambda(arg: String, result: Expr[Unit]): Expr[Unit] = Lambda(arg, result, ())
-  def v(name: String): Expr[Unit] = Var(None, name, ())
+  def lit(b: Boolean): Expr[Unit] =
+    if (b) Var(None, Identifier.Constructor("True"), ())
+    else Var(None, Identifier.Constructor("False"), ())
+  def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] =
+    Let(Identifier.Name(n), expr, in, RecursionKind.NonRecursive, ())
+  def lambda(arg: String, result: Expr[Unit]): Expr[Unit] =
+    Lambda(Identifier.Name(arg), result, ())
+  def v(name: String): Expr[Unit] = Var(None, Identifier.unsafe(name), ())
   def ann(expr: Expr[Unit], t: Type): Expr[Unit] = Annotation(expr, t, ())
 
   def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, arg, ())
-  def alam(arg: String, tpe: Type, res: Expr[Unit]): Expr[Unit] = AnnotatedLambda(arg, tpe, res, ())
+  def alam(arg: String, tpe: Type, res: Expr[Unit]): Expr[Unit] =
+    AnnotatedLambda(Identifier.Name(arg), tpe, res, ())
 
   def ife(cond: Expr[Unit], ift: Expr[Unit], iff: Expr[Unit]): Expr[Unit] = Expr.ifExpr(cond, ift, iff, ())
   def matche(arg: Expr[Unit], branches: NonEmptyList[(Pattern[String, Type], Expr[Unit])]): Expr[Unit] =
     Match(arg,
       branches.map { case (p, e) =>
-        val p1 = p.mapName { n => (PackageName.parts("Test"), ConstructorName(n)) }
+        val p1 = p.mapName { n => (PackageName.parts("Test"), Constructor(n)) }
         (p1, e)
       },
       ())
@@ -198,12 +205,12 @@ class RankNInferTest extends FunSuite {
 
     val pn = PackageName.parts("Test")
     val definedOption = Map(
-      ((pn, ConstructorName("Some")), (Nil, List(Type.IntType), optName)),
-      ((pn, ConstructorName("None")), (Nil, Nil, optName)))
+      ((pn, Constructor("Some")), (Nil, List(Type.IntType), optName)),
+      ((pn, Constructor("None")), (Nil, Nil, optName)))
 
     val definedOptionGen = Map(
-      ((pn, ConstructorName("Some")), (List((Bound("a"), Variance.co)), List(Type.TyVar(Bound("a"))), optName)),
-      ((pn, ConstructorName("None")), (List((Bound("a"), Variance.co)), Nil, optName)))
+      ((pn, Constructor("Some")), (List((Bound("a"), Variance.co)), List(Type.TyVar(Bound("a"))), optName)),
+      ((pn, Constructor("None")), (List((Bound("a"), Variance.co)), Nil, optName)))
   }
 
   test("match with custom non-generic types") {
@@ -213,7 +220,7 @@ class RankNInferTest extends FunSuite {
     import OptionTypes._
 
     val constructors = Map(
-      ("Some", Type.Fun(Type.IntType, optType))
+      (Identifier.unsafe("Some"), Type.Fun(Type.IntType, optType))
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
@@ -237,7 +244,7 @@ class RankNInferTest extends FunSuite {
     testWithOpt(
       matche(app(v("Some"), lit(1)),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), v("a")),
+          (Pattern.PositionalStruct("Some", List(Pattern.Var(Identifier.Name("a")))), v("a")),
           (Pattern.PositionalStruct("None", Nil), lit(42))
           )), Type.IntType)
 
@@ -255,8 +262,8 @@ class RankNInferTest extends FunSuite {
     import OptionTypes._
 
     val constructors = Map(
-      ("Some", Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
-      ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
+      (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
+      (Identifier.unsafe("None"), Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
@@ -280,7 +287,7 @@ class RankNInferTest extends FunSuite {
     testWithOpt(
       matche(app(v("Some"), lit(1)),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), v("a")),
+          (Pattern.PositionalStruct("Some", List(Pattern.Var(Identifier.Name("a")))), v("a")),
           (Pattern.PositionalStruct("None", Nil), lit(42))
           )), Type.IntType)
 
@@ -288,7 +295,7 @@ class RankNInferTest extends FunSuite {
     testWithOpt(
       matche(app(v("Some"), app(v("Some"), lit(1))),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var("a"))), v("a"))
+          (Pattern.PositionalStruct("Some", List(Pattern.Var(Identifier.Name("a")))), v("a"))
           )), Type.TyApply(optType, Type.IntType))
 
     failWithOpt(
@@ -312,18 +319,18 @@ class RankNInferTest extends FunSuite {
      * struct Pure(pure: forall a. a -> f[a])
      */
     val defined = Map(
-      ((pn, ConstructorName("Pure")), (List((b("f"), Variance.in)),
+      ((pn, Constructor("Pure")), (List((b("f"), Variance.in)),
         List(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
-      ((pn, ConstructorName("Some")), (List((b("a"), Variance.co)), List(tv("a")), optName)),
-      ((pn, ConstructorName("None")), (List((b("a"), Variance.co)), Nil, optName)))
+      ((pn, Constructor("Some")), (List((b("a"), Variance.co)), List(tv("a")), optName)),
+      ((pn, Constructor("None")), (List((b("a"), Variance.co)), Nil, optName)))
 
     val constructors = Map(
-      ("Pure", Type.ForAll(NonEmptyList.of(b("f")),
+      (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b("f")),
         Type.Fun(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))),
           Type.TyApply(Type.TyConst(pureName), tv("f")) ))),
-      ("Some", Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
-      ("None", Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
+      (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
+      (Identifier.unsafe("None"), Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
     def testWithTypes[A: HasRegion](term: Expr[A], ty: Type) =

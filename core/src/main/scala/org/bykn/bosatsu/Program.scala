@@ -5,17 +5,19 @@ import cats.data.NonEmptyList
 
 import org.bykn.bosatsu.rankn.{Type, ParsedTypeEnv}
 
-case class Program[T, D, S](types: T, lets: List[(String, RecursionKind, D)], from: S) {
-  private[this] lazy val letMap: Map[String, (RecursionKind, D)] =
+import Identifier.{Bindable, Constructor}
+
+case class Program[T, D, S](types: T, lets: List[(Bindable, RecursionKind, D)], from: S) {
+  private[this] lazy val letMap: Map[Bindable, (RecursionKind, D)] =
     lets.iterator.map { case (n, r, d) => (n, (r, d)) }.toMap
 
-  def getLet(name: String): Option[(RecursionKind, D)] = letMap.get(name)
+  def getLet(name: Bindable): Option[(RecursionKind, D)] = letMap.get(name)
   /**
    * main is the thing we evaluate. It is the last thing defined
    */
-  def getMain[D1](fn: (String, D1, D1) => D1)(implicit ev: D Is Expr[D1]): Option[Expr[D1]] = {
+  def getMain[D1](fn: (Bindable, D1, D1) => D1)(implicit ev: D Is Expr[D1]): Option[Expr[D1]] = {
     @annotation.tailrec
-    def loop(ls: List[(String, RecursionKind, Expr[D1])], acc: Expr[D1]): Expr[D1] =
+    def loop(ls: List[(Bindable, RecursionKind, Expr[D1])], acc: Expr[D1]): Expr[D1] =
       ls match {
         case Nil => acc
         case (nm, rec, expr) :: tail =>
@@ -25,7 +27,7 @@ case class Program[T, D, S](types: T, lets: List[(String, RecursionKind, D)], fr
 
     lets.reverse match {
       case (_, _, h) :: tail =>
-        type L[X] = List[(String, RecursionKind, X)]
+        type L[X] = List[(Identifier.Bindable, RecursionKind, X)]
         Some(loop(ev.substitute[L](tail), ev.coerce(h)))
       case Nil =>
         None
@@ -34,7 +36,7 @@ case class Program[T, D, S](types: T, lets: List[(String, RecursionKind, D)], fr
 
   def getMainDecl(implicit ev: D Is Expr[Declaration]): Option[Expr[Declaration]] = {
 
-    val fn = { (nm: String, v: Declaration, in: Declaration) =>
+    val fn = { (nm: Bindable, v: Declaration, in: Declaration) =>
       val r = v.region + in.region
       Declaration.Binding(BindingStatement(Pattern.Var(nm), v, Padding(0, in)))(r)
     }
@@ -46,8 +48,8 @@ case class Program[T, D, S](types: T, lets: List[(String, RecursionKind, D)], fr
 object Program {
   def fromStatement(
     pn0: PackageName,
-    nameToType: String => Type.Const,
-    nameToCons: String => (PackageName, ConstructorName),
+    nameToType: Constructor => Type.Const,
+    nameToCons: Constructor => (PackageName, Constructor),
     stmt: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] = {
 
     import Statement._
@@ -60,18 +62,28 @@ object Program {
       d: TypeDefinitionStatement): ParsedTypeEnv[Unit] =
       types.addDefinedType(d.toDefinition(pn0, nameToType))
 
-    val allNames = stmt.toStream.flatMap {
-      case Bind(BindingStatement(bound, _, _)) => bound.names
-      case _ => Nil
-    }.toSet
-
     // Each time we need a name, we can call anonNames.next()
     // it is mutable, but in a limited scope
-    val anonNames = rankn.Type.allBinders.iterator.map(_.name).filterNot(allNames)
+    val anonNames: Iterator[Bindable] = {
+      val allNames = stmt.toStream.flatMap {
+        case Bind(BindingStatement(bound, _, _)) => bound.names.map(_.asString) // TODO Keep identifiers
+        case _ => Nil
+      }.toSet
 
-    def bindings(b: Pattern[(PackageName, ConstructorName), Type], decl: Expr[Declaration]): NonEmptyList[(String, Expr[Declaration])] =
+      rankn.Type
+        .allBinders
+        .iterator
+        .map(_.name)
+        .filterNot(allNames)
+        .map(Identifier.Name(_))
+    }
+
+    def bindings(
+      b: Pattern[(PackageName, Constructor), Type],
+      decl: Expr[Declaration]): NonEmptyList[(Identifier.Bindable, Expr[Declaration])] =
       b match {
-        case Pattern.Var(nm) => NonEmptyList((nm, decl), Nil)
+        case Pattern.Var(nm) =>
+          NonEmptyList((nm, decl), Nil)
         case Pattern.Annotation(p, tpe) =>
           // we can just move the annotation to the expr:
           bindings(p, Expr.Annotation(decl, tpe, decl.tag))
@@ -81,9 +93,9 @@ object Program {
               // no need to make a new var to point to a var
               (Nil, v)
             case _ =>
-              val thisName = anonNames.next()
-              val v = Expr.Var(None, thisName, decl.tag)
-              ((thisName, decl) :: Nil, v)
+              val ident = anonNames.next()
+              val v = Expr.Var(None, ident, decl.tag)
+              ((ident, decl) :: Nil, v)
           }
 
           val tail = complex.names.map { nm =>

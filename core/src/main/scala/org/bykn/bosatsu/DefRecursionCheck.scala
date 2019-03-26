@@ -4,6 +4,8 @@ import cats.data.{NonEmptyList, Validated, ValidatedNel, StateT}
 
 import cats.implicits._
 
+import Identifier.Bindable
+
 /**
  * Recursion in bosatsu is only allowed on a substructural match
  * of one of the parameters to the def. This strict rule, along
@@ -23,12 +25,12 @@ object DefRecursionCheck {
   type Res = ValidatedNel[RecursionError, Unit]
 
   sealed abstract class RecursionError
-  case class InvalidRecursion(name: String, illegalPosition: Region) extends RecursionError
-  case class IllegalShadow(fnname: String, decl: Declaration) extends RecursionError
+  case class InvalidRecursion(name: Bindable, illegalPosition: Region) extends RecursionError
+  case class IllegalShadow(fnname: Bindable, decl: Declaration) extends RecursionError
   case class UnexpectedRecur(decl: Declaration.Match) extends RecursionError
-  case class RecurNotOnArg(decl: Declaration.Match, fnname: String, args: List[String]) extends RecursionError
-  case class RecursionArgNotVar(fnname: String, invalidArg: Declaration) extends RecursionError
-  case class RecursionNotSubstructural(fnname: String, recurPat: Pattern[Option[String], TypeRef], arg: Declaration.Var) extends RecursionError
+  case class RecurNotOnArg(decl: Declaration.Match, fnname: Bindable, args: List[Bindable]) extends RecursionError
+  case class RecursionArgNotVar(fnname: Bindable, invalidArg: Declaration) extends RecursionError
+  case class RecursionNotSubstructural(fnname: Bindable, recurPat: Pattern.Parsed, arg: Declaration.Var) extends RecursionError
   case class RecursiveDefNoRecur(defstmt: DefStatement[Declaration], recur: Declaration.Match) extends RecursionError
 
   /**
@@ -70,7 +72,7 @@ object DefRecursionCheck {
      * 3. we are checking the branches of the recur match
      */
     sealed abstract class State {
-      final def outerDefNames: List[String] =
+      final def outerDefNames: List[Bindable] =
         this match {
           case TopLevel => Nil
           case InDef(outer, n, _) => n :: outer.outerDefNames
@@ -78,7 +80,7 @@ object DefRecursionCheck {
           case InRecurBranch(ir, _) => ir.outerDefNames
         }
 
-      final def defNamesContain(n: String): Boolean =
+      final def defNamesContain(n: Bindable): Boolean =
         this match {
           case TopLevel => false
           case InDef(outer, dn, _) => (dn == n) || outer.defNamesContain(n)
@@ -86,11 +88,11 @@ object DefRecursionCheck {
           case InRecurBranch(ir, _) => ir.defNamesContain(n)
         }
 
-      def inDef(fnname: String, args: List[String]): InDef =
+      def inDef(fnname: Bindable, args: List[Bindable]): InDef =
         InDef(this, fnname, args)
     }
     sealed abstract class InDefState extends State {
-      final def defname: String =
+      final def defname: Bindable =
         this match {
           case InDef(_, defname, _) => defname
           case InDefRecurred(ir, _, _, _) => ir.defname
@@ -98,7 +100,7 @@ object DefRecursionCheck {
         }
     }
     case object TopLevel extends State
-    case class InDef(outer: State, fnname: String, args: List[String]) extends InDefState {
+    case class InDef(outer: State, fnname: Bindable, args: List[Bindable]) extends InDefState {
 
       def setRecur(index: Int, m: Declaration.Match): InDefRecurred =
         InDefRecurred(this, index, m, 0)
@@ -106,7 +108,7 @@ object DefRecursionCheck {
     case class InDefRecurred(inRec: InDef, index: Int, recur: Declaration.Match, recCount: Int) extends InDefState {
       def incRecCount: InDefRecurred = copy(recCount = recCount + 1)
     }
-    case class InRecurBranch(inRec: InDefRecurred, branch: Pattern[Option[String], TypeRef]) extends InDefState {
+    case class InRecurBranch(inRec: InDefRecurred, branch: Pattern.Parsed) extends InDefState {
       def incRecCount: InRecurBranch = copy(inRec = inRec.incRecCount)
     }
 
@@ -114,8 +116,8 @@ object DefRecursionCheck {
      * What is the index into the list of def arguments where we are doing our recursion
      */
     def getRecurIndex(
-      fnname: String,
-      args: List[String],
+      fnname: Bindable,
+      args: List[Bindable],
       m: Declaration.Match): ValidatedNel[RecursionError, Int] = {
       import Declaration._
       m.arg match {
@@ -132,7 +134,7 @@ object DefRecursionCheck {
      * Check that decl is a strict substructure of pat. We do this by making sure decl is a Var
      * and that var is one of the strict substrutures of the pattern.
      */
-    def strictSubstructure(fnname: String, pat: Pattern[Option[String], TypeRef], decl: Declaration): Res =
+    def strictSubstructure(fnname: Bindable, pat: Pattern.Parsed, decl: Declaration): Res =
       decl match {
         case v@Declaration.Var(nm) =>
           if (pat.substructures.contains(nm)) unitValid
@@ -151,7 +153,7 @@ object DefRecursionCheck {
      */
     def checkForIllegalBinds[A](
       state: State,
-      bs: Iterable[String],
+      bs: Iterable[Bindable],
       decl: Declaration)(next: ValidatedNel[RecursionError, A]): ValidatedNel[RecursionError, A] =
       state.outerDefNames match {
         case Nil=> next
@@ -185,7 +187,7 @@ object DefRecursionCheck {
     val unitSt: St[Unit] = pureSt(())
 
     def checkForIllegalBindsSt[A](
-      bs: Iterable[String],
+      bs: Iterable[Bindable],
       decl: Declaration): St[Unit] =
         getSt.flatMap { state =>
           toSt(checkForIllegalBinds(state, bs, decl)(unitValid))
@@ -197,7 +199,7 @@ object DefRecursionCheck {
     def checkDecl(decl: Declaration): St[Unit] = {
       import Declaration._
       decl match {
-        case Apply(Var(nm), args, _) =>
+        case Apply(Var(nm: Bindable), args, _) =>
           getSt.flatMap {
             case TopLevel =>
               // without any recursion, normal typechecking will detect bad states:
@@ -236,9 +238,6 @@ object DefRecursionCheck {
               checkDecl(next.padded)
         case Comment(cs) =>
           checkDecl(cs.on.padded)
-        case Constructor(_) =>
-          // constructors can't be bindings:
-          unitSt
         case DefFn(defstmt) =>
           // we can use the name of the def after we have defined it, which is the next part
           getSt.flatMap { state =>
@@ -274,7 +273,7 @@ object DefRecursionCheck {
               toSt(getRecurIndex(defname, args, recur)).flatMap { idx =>
                 // on all these branchs, use the the same
                 // parent state
-                def beginBranch(pat: Pattern[Option[String], TypeRef]): St[Unit] =
+                def beginBranch(pat: Pattern.Parsed): St[Unit] =
                   getSt.flatMap {
                     case ir@InDef(_, _, _) =>
                       val rec = ir.setRecur(idx, recur)
@@ -310,7 +309,9 @@ object DefRecursionCheck {
           checkDecl(p)
         case TupleCons(tups) =>
           tups.traverse_(checkDecl)
-        case Var(v) =>
+        case Var(Identifier.Constructor(_)) =>
+          unitSt
+        case Var(v: Bindable) =>
           getSt.flatMap {
             case TopLevel =>
               // without any recursion, normal typechecking will detect bad states:

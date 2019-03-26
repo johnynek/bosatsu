@@ -1,16 +1,18 @@
 package org.bykn.bosatsu.rankn
 
 import cats.{Applicative, Eval, Traverse}
-import org.bykn.bosatsu.{ConstructorName, TypeName, PackageName, ParamName}
+import org.bykn.bosatsu.{TypeName, PackageName}
 import scala.collection.immutable.SortedMap
 
 import cats.implicits._
+
+import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
 
 case class DefinedType[+A](
   packageName: PackageName,
   name: TypeName,
   annotatedTypeParams: List[(Type.Var.Bound, A)],
-  constructors: List[(ConstructorName, List[(ParamName, Type)], Type)]) {
+  constructors: List[(Constructor, List[(Bindable, Type)], Type)]) {
 
   val typeParams: List[Type.Var.Bound] =
     annotatedTypeParams.map(_._1)
@@ -38,7 +40,7 @@ case class DefinedType[+A](
 
 object DefinedType {
   def toTypeConst(pn: PackageName, nm: TypeName): Type.Const.Defined =
-    Type.Const.Defined(pn, nm.asString)
+    Type.Const.Defined(pn, nm)
 
   def constructorValueType(pn: PackageName, name: TypeName, tparams: List[Type.Var.Bound], fnParams: List[Type]): Type = {
     val tc: Type = Type.TyConst(toTypeConst(pn, name))

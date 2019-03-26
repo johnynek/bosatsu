@@ -6,11 +6,11 @@ import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 
-import Parser.{lowerIdent, upperIdent, spaces, maybeSpace, Combinators}
+import Parser.{spaces, maybeSpace, Combinators}
 
 sealed abstract class ImportedName[+T] {
-  def originalName: String
-  def localName: String
+  def originalName: Identifier
+  def localName: Identifier
   def tag: T
   def isRenamed: Boolean = originalName != localName
 
@@ -32,25 +32,27 @@ sealed abstract class ImportedName[+T] {
 }
 
 object ImportedName {
-  case class OriginalName[T](originalName: String, tag: T) extends ImportedName[T] {
+  case class OriginalName[T](originalName: Identifier, tag: T) extends ImportedName[T] {
     def localName = originalName
   }
-  case class Renamed[T](originalName: String, localName: String, tag: T) extends ImportedName[T]
+  case class Renamed[T](originalName: Identifier, localName: Identifier, tag: T) extends ImportedName[T]
 
   implicit val document: Document[ImportedName[Unit]] =
     Document.instance[ImportedName[Unit]] {
-      case ImportedName.OriginalName(nm, _) => Doc.text(nm)
-      case ImportedName.Renamed(from, to, _) => Doc.text(from) + Doc.text(" as ") + Doc.text(to)
+      case ImportedName.OriginalName(nm, _) => Document[Identifier].document(nm)
+      case ImportedName.Renamed(from, to, _) =>
+        Document[Identifier].document(from) + Doc.text(" as ") +
+          Document[Identifier].document(to)
     }
 
   val parser: P[ImportedName[Unit]] = {
-    def basedOn(of: P[String]): P[ImportedName[Unit]] =
+    def basedOn(of: P[Identifier]): P[ImportedName[Unit]] =
       P(of ~ (spaces ~ "as" ~ spaces ~ of).?).map {
         case (from, Some(to)) => ImportedName.Renamed(from, to, ())
         case (orig, None) => ImportedName.OriginalName(orig, ())
       }
 
-    basedOn(lowerIdent) | basedOn(upperIdent)
+    basedOn(Identifier.bindableParser) | basedOn(Identifier.consParser)
   }
 }
 
@@ -75,9 +77,9 @@ object Import {
    * This only keeps the last name if there are duplicate local names
    * checking for duplicate local names should be done at another layer
    */
-  def locals[F[_], A, B, C](imp: Import[A, F[B]])(pn: PartialFunction[B, C])(implicit F: Foldable[F]): Map[String, C] = {
+  def locals[F[_], A, B, C](imp: Import[A, F[B]])(pn: PartialFunction[B, C])(implicit F: Foldable[F]): Map[Identifier, C] = {
     val fn = pn.lift
-    imp.items.foldLeft(Map.empty[String, C]) { case (m0, impName) =>
+    imp.items.foldLeft(Map.empty[Identifier, C]) { case (m0, impName) =>
       impName.tag.foldLeft(m0) { (m1, b) =>
         fn(b) match {
           case None => m1
@@ -91,8 +93,8 @@ object Import {
 /**
  * There are all the distinct imported names and the original ImportedName
  */
-case class ImportMap[A, B](toMap: Map[String, (A, ImportedName[B])]) {
-  def apply(name: String): Option[(A, ImportedName[B])] =
+case class ImportMap[A, B](toMap: Map[Identifier, (A, ImportedName[B])]) {
+  def apply(name: Identifier): Option[(A, ImportedName[B])] =
     toMap.get(name)
 
   def +(that: (A, ImportedName[B])): ImportMap[A, B] =

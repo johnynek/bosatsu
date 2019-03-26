@@ -5,10 +5,8 @@ import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 
-import Parser.{lowerIdent, upperIdent}
-
 sealed abstract class ExportedName[+T] {
-  def name: String
+  def name: Identifier
   def tag: T
 
  /**
@@ -32,7 +30,7 @@ sealed abstract class ExportedName[+T] {
          // export the type and all constructors
          definedType.map { dt =>
            val cons = dt.constructors.map { case (n, params, tpe) =>
-             ExportedName.Constructor(n.asString, Referant.Constructor(n, dt, params, tpe))
+             ExportedName.Constructor(n, Referant.Constructor(n, dt, params, tpe))
            }
            val t = ExportedName.TypeName(nm, Referant.DefinedT(dt))
            NonEmptyList(t, cons)
@@ -40,27 +38,29 @@ sealed abstract class ExportedName[+T] {
      }
 }
 object ExportedName {
-  case class Binding[T](name: String, tag: T) extends ExportedName[T]
-  case class TypeName[T](name: String, tag: T) extends ExportedName[T]
-  case class Constructor[T](name: String, tag: T) extends ExportedName[T]
+  case class Binding[T](name: Identifier.Bindable, tag: T) extends ExportedName[T]
+  case class TypeName[T](name: Identifier.Constructor, tag: T) extends ExportedName[T]
+  case class Constructor[T](name: Identifier.Constructor, tag: T) extends ExportedName[T]
 
   private[this] val consDoc = Doc.text("()")
 
-  implicit val document: Document[ExportedName[Unit]] =
+  implicit val document: Document[ExportedName[Unit]] = {
+    val di = Document[Identifier]
     Document.instance[ExportedName[Unit]] {
-      case Binding(n, _) => Doc.text(n)
-      case TypeName(n, _) => Doc.text(n)
-      case Constructor(n, _) => Doc.text(n) + consDoc
+      case Binding(n, _) => di.document(n)
+      case TypeName(n, _) => di.document(n)
+      case Constructor(n, _) => di.document(n) + consDoc
     }
+  }
 
   val parser: P[ExportedName[Unit]] =
-    lowerIdent.map(Binding(_, ())) |
-      P(upperIdent ~ "()".!.?).map {
+    Identifier.bindableParser.map(Binding(_, ())) |
+      P(Identifier.consParser ~ "()".!.?).map {
         case (n, None) => TypeName(n, ())
         case (n, Some(_)) => Constructor(n, ())
       }
 
-  private[bosatsu] def buildExportMap[T](exs: List[ExportedName[T]]): Map[String, NonEmptyList[ExportedName[T]]] =
+  private[bosatsu] def buildExportMap[T](exs: List[ExportedName[T]]): Map[Identifier, NonEmptyList[ExportedName[T]]] =
     exs match {
       case Nil => Map.empty
       case h :: tail => NonEmptyList(h, tail).groupBy(_.name)
@@ -78,21 +78,28 @@ object ExportedName {
     nm: PackageName,
     exports: List[ExportedName[E]],
     typeEnv: rankn.TypeEnv[V],
-    lets: List[(String, RecursionKind, TypedExpr[Declaration])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
+    lets: List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
 
      val letMap = lets.iterator.map { case (n, _, t) => (n, t) }.toMap
 
      def expName[A](ename: ExportedName[A]): Option[NonEmptyList[ExportedName[Referant[V]]]] = {
        import ename.name
        val letValue: Option[rankn.Type] =
-         letMap.get(name)
-           .map(_.getType)
-           .orElse {
-             // It could be an external or imported value in the TypeEnv
-             typeEnv.getValue(nm, name)
+         name.toBindable
+           .flatMap { bn =>
+             letMap.get(bn)
+               .map(_.getType)
+               .orElse {
+                 // It could be an external or imported value in the TypeEnv
+                 typeEnv.getValue(nm, bn)
+               }
            }
-       val optDT = typeEnv
-         .getType(nm, org.bykn.bosatsu.TypeName(name))
+       val optDT =
+         name.toConstructor
+           .flatMap { cn =>
+             typeEnv
+             .getType(nm, org.bykn.bosatsu.TypeName(cn))
+           }
 
        ename.toReferants(letValue, optDT)
      }

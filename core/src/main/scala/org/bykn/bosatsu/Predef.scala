@@ -89,6 +89,7 @@ object Predef {
         "uncurry2",
         "uncurry3"
         )
+        .map(Identifier.unsafe(_))
         .map(ImportedName.OriginalName(_, ())))
 
   val jvmExternals: Externals =

@@ -7,11 +7,13 @@ import cats.implicits._
 import rankn.{Type, TypeEnv}
 import Pattern._
 
+import Identifier.{Bindable, Constructor}
+
 object TotalityCheck {
-  type Cons = (PackageName, ConstructorName)
+  type Cons = (PackageName, Constructor)
   type Res[+A] = Either[NonEmptyList[Error], A]
   type Patterns = List[Pattern[Cons, Type]]
-  type ListPatElem = Either[Option[String], Pattern[Cons, Type]]
+  type ListPatElem = Either[Option[Bindable], Pattern[Cons, Type]]
 
   sealed abstract class Error
   case class ArityMismatch(cons: Cons, in: Pattern[Cons, Type], env: TypeEnv[Any], expected: Int, found: Int) extends Error
@@ -132,8 +134,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
    * this method
    */
   private def difference0List(
-    lp: List[Either[Option[String], Pattern[Cons, Type]]],
-    rp: List[Either[Option[String], Pattern[Cons, Type]]]): Res[List[ListPat[Cons, Type]]] =
+    lp: List[Either[Option[Identifier.Bindable], Pattern[Cons, Type]]],
+    rp: List[Either[Option[Identifier.Bindable], Pattern[Cons, Type]]]): Res[List[ListPat[Cons, Type]]] =
     (lp, rp) match {
       case (Nil, Nil) =>
         // total overlap
@@ -277,7 +279,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               case (c, params, _) =>
                 // TODO, this could be smarter
                 // we need to learn how to deal with typed generics
-                def argToPat(t: (ParamName, Type)): Pattern[Cons, Type] =
+                def argToPat[A](t: (A, Type)): Pattern[Cons, Type] =
                   if (Type.hasNoVars(t._2)) Annotation(WildCard, t._2)
                   else WildCard
 
@@ -331,7 +333,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             .toList
             .traverse(intersection(p, _))
             .map(_.flatten.distinct.sorted)
-        case (Var(va), Var(vb)) => Right(List(Var(Ordering[String].min(va, vb))))
+        case (Var(va), Var(vb)) => Right(List(Var(Ordering[Identifier.Bindable].min(va, vb))))
         case (Named(va, pa), Named(vb, pb)) if va == vb =>
           intersection(pa, pb).map(_.map(Named(va, _)))
         case (Named(va, pa), r) => intersection(pa, r)

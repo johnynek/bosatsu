@@ -101,6 +101,9 @@ class ParserTest extends FunSuite {
         assert(idx == atIdx)
     }
 
+  def mkVar(n: String): Declaration.Var =
+    Declaration.Var(Identifier.Name(n))
+
   test("we can parse integers") {
     forAll { b: BigInt =>
       val bstr = b.toString
@@ -313,9 +316,12 @@ class ParserTest extends FunSuite {
       ("block", OptIndent.paddedIndented(1, 2, sbRes)))
   }
 
+  def trName(s: String): TypeRef.TypeName =
+    TypeRef.TypeName(TypeName(Identifier.Constructor(s)))
+
   test("we can parse TypeRefs") {
     parseTestAll(TypeRef.parser, "foo", TypeRef.TypeVar("foo"))
-    parseTestAll(TypeRef.parser, "Foo", TypeRef.TypeName("Foo"))
+    parseTestAll(TypeRef.parser, "Foo", trName("Foo"))
 
     parseTestAll(TypeRef.parser, "forall a. a", TypeRef.TypeLambda(NonEmptyList.of(TypeRef.TypeVar("a")), TypeRef.TypeVar("a")))
     parseTestAll(TypeRef.parser, "forall a, b. f[a] -> f[b]",
@@ -327,12 +333,12 @@ class ParserTest extends FunSuite {
     roundTrip(TypeRef.parser, "(forall a, b. f[a]) -> f[b]")
     roundTrip(TypeRef.parser, "(forall a, b. f[a])[Int]") // apply a type
 
-    parseTestAll(TypeRef.parser, "Foo -> Bar", TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeName("Bar")))
+    parseTestAll(TypeRef.parser, "Foo -> Bar", TypeRef.TypeArrow(trName("Foo"), trName("Bar")))
     parseTestAll(TypeRef.parser, "Foo -> Bar -> baz",
-      TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeArrow(TypeRef.TypeName("Bar"), TypeRef.TypeVar("baz"))))
+      TypeRef.TypeArrow(trName("Foo"), TypeRef.TypeArrow(trName("Bar"), TypeRef.TypeVar("baz"))))
     parseTestAll(TypeRef.parser, "(Foo -> Bar) -> baz",
-      TypeRef.TypeArrow(TypeRef.TypeArrow(TypeRef.TypeName("Foo"), TypeRef.TypeName("Bar")), TypeRef.TypeVar("baz")))
-    parseTestAll(TypeRef.parser, "Foo[Bar]", TypeRef.TypeApply(TypeRef.TypeName("Foo"), NonEmptyList.of(TypeRef.TypeName("Bar"))))
+      TypeRef.TypeArrow(TypeRef.TypeArrow(trName("Foo"), trName("Bar")), TypeRef.TypeVar("baz")))
+    parseTestAll(TypeRef.parser, "Foo[Bar]", TypeRef.TypeApply(trName("Foo"), NonEmptyList.of(trName("Bar"))))
 
     forAll(Generators.typeRefGen) { tref =>
       parseTestAll(TypeRef.parser, tref.toDoc.render(80), tref)
@@ -400,10 +406,10 @@ foo"""
     parseTestAll(
       Declaration.parser(""),
       defWithComment,
-      Declaration.DefFn(DefStatement("foo", List(("a", None)), None,
+      Declaration.DefFn(DefStatement(Identifier.Name("foo"), List((Identifier.Name("a"), None)), None,
         (OptIndent.paddedIndented(1, 2, Declaration.Comment(CommentStatement(NonEmptyList.of(" comment here"),
-          Padding(0, Declaration.Var("a"))))),
-         Padding(0, Declaration.Var("foo"))))))
+          Padding(0, mkVar("a"))))),
+         Padding(0, mkVar("foo"))))))
 
     roundTrip(Declaration.parser(""), defWithComment)
 
@@ -422,7 +428,7 @@ foo""")
       """foo = 5
 
 5""",
-    Declaration.Binding(BindingStatement(Pattern.Var("foo"), Declaration.Literal(Lit.fromInt(5)),
+    Declaration.Binding(BindingStatement(Pattern.Var(Identifier.Name("foo")), Declaration.Literal(Lit.fromInt(5)),
       Padding(1, Declaration.Literal(Lit.fromInt(5))))))
 
 
@@ -437,29 +443,29 @@ x""")
 
     parseTestAll(parser(""),
       "x(f)",
-      Apply(Var("x"), NonEmptyList.of(Var("f")), false))
+      Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), false))
 
     parseTestAll(parser(""),
       "f.x",
-      Apply(Var("x"), NonEmptyList.of(Var("f")), true))
+      Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), true))
 
     parseTestAll(parser(""),
       "f(foo).x",
-      Apply(Var("x"), NonEmptyList.of(Apply(Var("f"), NonEmptyList.of(Var("foo")), false)), true))
+      Apply(mkVar("x"), NonEmptyList.of(Apply(mkVar("f"), NonEmptyList.of(mkVar("foo")), false)), true))
 
     parseTestAll(parser(""),
       "f.foo(x)", // foo(f, x)
-      Apply(Var("foo"), NonEmptyList.of(Var("f"), Var("x")), true))
+      Apply(mkVar("foo"), NonEmptyList.of(mkVar("f"), mkVar("x")), true))
 
     parseTestAll(parser(""),
       "(\\x -> x)(f)",
-      Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f")), false))
+      Apply(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x"))), NonEmptyList.of(mkVar("f")), false))
 
     parseTestAll(parser(""),
       "((\\x -> x)(f))",
-      Parens(Apply(Parens(Lambda(NonEmptyList.of("x"), Var("x"))), NonEmptyList.of(Var("f")), false)))
+      Parens(Apply(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x"))), NonEmptyList.of(mkVar("f")), false)))
 
-    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of("x"), Var("x")))), NonEmptyList.of(Var("f")), false)
+    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x")))), NonEmptyList.of(mkVar("f")), false)
     parseTestAll(parser(""),
       "((\\x -> x))(f)",
       expected)
@@ -528,19 +534,19 @@ x""")
     parseTestAll(parser(""),
       """x = 4
 x""",
-    Binding(BindingStatement(Pattern.Var("x"), Literal(Lit.fromInt(4)), Padding(0, Var("x")))))
+    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")), Literal(Lit.fromInt(4)), Padding(0, mkVar("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 
 x""",
-    Binding(BindingStatement(Pattern.Var("x"), Apply(Var("foo"), NonEmptyList.of(Literal(Lit.fromInt(4))), false), Padding(1, Var("x")))))
+    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")), Apply(mkVar("foo"), NonEmptyList.of(Literal(Lit.fromInt(4))), false), Padding(1, mkVar("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 # x is really great
 x""",
-    Binding(BindingStatement(Pattern.Var("x"),Apply(Var("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), false),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,Var("x"))))))))
+    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")),Apply(mkVar("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), false),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,mkVar("x"))))))))
 
   }
 

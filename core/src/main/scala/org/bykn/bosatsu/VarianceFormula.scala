@@ -257,8 +257,7 @@ object VarianceFormula {
       def constructorVariance(tpe: Type): Stream[VarianceFormula] =
         tpe match {
           case FnType => Stream(Contravariant.toF, Covariant.toF)
-          case TyConst(Const.Defined(p, t)) =>
-            val tn = TypeName(t)
+          case TyConst(Const.Defined(p, tn)) =>
             // TODO need error handling if we don't know about this type
             val thisDt: DefinedType[VarianceFormula] =
               unknowns.get((p, tn))
