@@ -33,12 +33,20 @@ object Identifier {
 
   final case class Constructor(asString: String) extends Identifier
   final case class Name(asString: String) extends Bindable
+  final case class Backticked(asString: String) extends Bindable
 
   implicit def document[A <: Identifier]: Document[A] =
-    Document.instance[A] { ident => Doc.text(ident.asString) }
+    Document.instance[A] {
+      case Backticked(lit) =>
+        Doc.char('`') + Doc.text(Parser.escape('`', lit)) + Doc.char('`')
+      case ident => Doc.text(ident.asString)
+    }
+
+  val nameParser: P[Name] =
+    lowerIdent.map(Name(_))
 
   val bindableParser: P[Bindable] =
-    lowerIdent.map(Name(_))
+    nameParser | Parser.escapedString('`').map(Backticked(_))
 
   val consParser: P[Constructor] =
     upperIdent.map(Constructor(_))
@@ -50,7 +58,10 @@ object Identifier {
    * Build an Identifier by parsing a string
    */
   def unsafe(str: String): Identifier =
-    parser.parse(str) match {
+    unsafeParse(parser, str)
+
+  def unsafeParse[A <: Identifier](pa: P[A], str: String): A =
+    pa.parse(str) match {
       case Parsed.Success(ident, idx) if idx == str.length =>
         ident
       case Parsed.Success(_, idx) =>

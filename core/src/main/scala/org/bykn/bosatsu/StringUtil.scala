@@ -12,7 +12,7 @@ abstract class GenericStringUtil {
       val strHex = c.toHexString
       val strPad = List.fill(4 - strHex.length)('0').mkString
       s"\\u$strPad$strHex"
-    }.toArray
+   }.toArray
 
   private val escapeString: P[Unit] = {
     val escapes = CharIn(decodeTable.keys.toSeq)
@@ -42,9 +42,10 @@ abstract class GenericStringUtil {
     // We can ignore escaping the opposite character used for the string
     // x isn't escaped anyway and is kind of a hack here
     val ignoreEscape = if (quoteChar == '\'') '"' else if (quoteChar == '"') '\'' else 'x'
+    val tab = if (encodeTable.contains(quoteChar)) encodeTable else encodeTable.updated(quoteChar, s"\\$quoteChar")
     str.flatMap { c =>
       if (c == ignoreEscape) c.toString
-      else encodeTable.get(c) match {
+      else tab.get(c) match {
         case None =>
           if (c < ' ') nonPrintEscape(c.toInt)
           else c.toString

@@ -54,7 +54,11 @@ object Generators {
     } yield TypeRef.TypeLambda(nel, e)
 
   val bindIdentGen: Gen[Identifier.Bindable] =
-    lowerIdent.map { n => Identifier.Name(n) }
+    Gen.frequency(
+      (10, lowerIdent.map { n => Identifier.Name(n) }),
+      (1, Arbitrary.arbitrary[String].map { s =>
+        Identifier.Backticked(s)
+      }))
 
   val consIdentGen: Gen[Identifier.Constructor] =
     upperIdent.map { n => Identifier.Constructor(n) }
