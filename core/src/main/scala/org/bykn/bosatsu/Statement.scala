@@ -241,10 +241,10 @@ object Statement {
 
     val end = P(End).map(_ => EndOfFile)
 
-    val constructorP = P(Identifier.consParser ~ (DefStatement.argParser).list.parens.?)
+    val constructorP = P(Identifier.consParser ~ (DefStatement.argParser).parensLines1.?)
       .map {
         case (n, None) => (n, Nil)
-        case (n, Some(args)) => (n, args)
+        case (n, Some(args)) => (n, args.toList)
       }
 
     val external = {
