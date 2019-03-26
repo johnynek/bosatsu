@@ -42,10 +42,9 @@ abstract class GenericStringUtil {
     // We can ignore escaping the opposite character used for the string
     // x isn't escaped anyway and is kind of a hack here
     val ignoreEscape = if (quoteChar == '\'') '"' else if (quoteChar == '"') '\'' else 'x'
-    val tab = if (encodeTable.contains(quoteChar)) encodeTable else encodeTable.updated(quoteChar, s"\\$quoteChar")
     str.flatMap { c =>
       if (c == ignoreEscape) c.toString
-      else tab.get(c) match {
+      else encodeTable.get(c) match {
         case None =>
           if (c < ' ') nonPrintEscape(c.toInt)
           else c.toString
@@ -113,6 +112,7 @@ object StringUtil extends GenericStringUtil {
       ('\\', '\\'),
       ('\'', '\''),
       ('\"', '\"'),
+      ('`', '`'),
       ('a', 7.toChar), // bell
       ('b', 8.toChar), // backspace
       ('f', 12.toChar), // form-feed

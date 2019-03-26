@@ -368,20 +368,14 @@ object Generators {
     Gen.oneOf(str, bi)
   }
 
-  val identBindableGen: Gen[Identifier.Bindable] =
-    lowerIdent.map { n => Identifier.Name(n) }
-
-  val identConsGen: Gen[Identifier.Constructor] =
-    upperIdent.map { n => Identifier.Constructor(n) }
-
   val identifierGen: Gen[Identifier] =
-    Gen.oneOf(identBindableGen, identConsGen)
+    Gen.oneOf(bindIdentGen, consIdentGen)
 
   val varGen: Gen[Declaration.Var] =
-    identBindableGen.map(Declaration.Var(_)(emptyRegion))
+    bindIdentGen.map(Declaration.Var(_)(emptyRegion))
 
   val consDeclGen: Gen[Declaration.Var] =
-    identConsGen.map(Declaration.Var(_)(emptyRegion))
+    consIdentGen.map(Declaration.Var(_)(emptyRegion))
 
   val unnestedDeclGen: Gen[Declaration] =
     Gen.frequency(

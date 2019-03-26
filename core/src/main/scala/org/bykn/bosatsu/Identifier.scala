@@ -11,6 +11,15 @@ import cats.implicits._
 sealed abstract class Identifier {
   def asString: String
 
+  override def equals(that: Any): Boolean =
+    that match {
+      case ident: Identifier =>
+        asString == ident.asString
+      case _ => false
+    }
+
+  override def hashCode: Int = asString.hashCode
+
   def toBindable: Option[Identifier.Bindable] =
     this match {
       case b: Identifier.Bindable => Some(b)
@@ -39,7 +48,8 @@ object Identifier {
     Document.instance[A] {
       case Backticked(lit) =>
         Doc.char('`') + Doc.text(Parser.escape('`', lit)) + Doc.char('`')
-      case ident => Doc.text(ident.asString)
+      case Constructor(n) => Doc.text(n)
+      case Name(n) => Doc.text(n)
     }
 
   val nameParser: P[Name] =
@@ -71,7 +81,11 @@ object Identifier {
     }
 
   implicit def order[A <: Identifier]: Order[A] =
-    Order.by { ident: Identifier => ident.asString }
+    Order.by[A, String] {
+      case Name(s) => s
+      case Backticked(s) => s
+      case Constructor(s) => s
+    }
 
   implicit def ordering[A <: Identifier]: Ordering[A] =
     order[A].toOrdering
