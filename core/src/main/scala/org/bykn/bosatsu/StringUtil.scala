@@ -12,7 +12,7 @@ abstract class GenericStringUtil {
       val strHex = c.toHexString
       val strPad = List.fill(4 - strHex.length)('0').mkString
       s"\\u$strPad$strHex"
-    }.toArray
+   }.toArray
 
   private val escapeString: P[Unit] = {
     val escapes = CharIn(decodeTable.keys.toSeq)
@@ -112,6 +112,7 @@ object StringUtil extends GenericStringUtil {
       ('\\', '\\'),
       ('\'', '\''),
       ('\"', '\"'),
+      ('`', '`'),
       ('a', 7.toChar), // bell
       ('b', 8.toChar), // backspace
       ('f', 12.toChar), // form-feed

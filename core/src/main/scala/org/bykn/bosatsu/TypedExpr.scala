@@ -4,8 +4,8 @@ import cats.Applicative
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
-
 import org.bykn.bosatsu.rankn.Type
+import scala.collection.immutable.SortedSet
 
 import Identifier.{Bindable, Constructor}
 
@@ -203,8 +203,8 @@ object TypedExpr {
         /*
          * We have to be careful not to collide with the free vars in expr
          */
-        val free = freeVars(expr :: Nil).iterator.map(_.asString).toSet
-        val name = Identifier.Name(Type.allBinders.iterator.map(_.name).filterNot(free).next)
+        val free = SortedSet(freeVars(expr :: Nil): _*)
+        val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next
         AnnotatedLambda(name, arg, cores(App(expr, coarg(Var(None, name, arg, expr.tag)), result, expr.tag)), expr.tag)
       }
     }

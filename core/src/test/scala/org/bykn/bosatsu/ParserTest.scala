@@ -197,6 +197,15 @@ class ParserTest extends FunSuite {
     regressions.foreach { case (s, c) => law(s, c) }
   }
 
+  test("Identifier round trips") {
+    forAll(Generators.identifierGen)(law(Identifier.parser))
+
+    val examples = List("foo", "`bar`", "`bar foo`",
+      "`with \\`internal`")
+
+    examples.foreach(roundTrip(Identifier.parser, _))
+  }
+
   test("we can parse lists") {
     forAll { (ls: List[Long], spaceCnt0: Int) =>
       val spaceCount = spaceCnt0 & 7

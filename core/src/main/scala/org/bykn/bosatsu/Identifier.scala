@@ -11,6 +11,15 @@ import cats.implicits._
 sealed abstract class Identifier {
   def asString: String
 
+  override def equals(that: Any): Boolean =
+    that match {
+      case ident: Identifier =>
+        asString == ident.asString
+      case _ => false
+    }
+
+  override def hashCode: Int = asString.hashCode
+
   def toBindable: Option[Identifier.Bindable] =
     this match {
       case b: Identifier.Bindable => Some(b)
@@ -33,12 +42,21 @@ object Identifier {
 
   final case class Constructor(asString: String) extends Identifier
   final case class Name(asString: String) extends Bindable
+  final case class Backticked(asString: String) extends Bindable
 
   implicit def document[A <: Identifier]: Document[A] =
-    Document.instance[A] { ident => Doc.text(ident.asString) }
+    Document.instance[A] {
+      case Backticked(lit) =>
+        Doc.char('`') + Doc.text(Parser.escape('`', lit)) + Doc.char('`')
+      case Constructor(n) => Doc.text(n)
+      case Name(n) => Doc.text(n)
+    }
+
+  val nameParser: P[Name] =
+    lowerIdent.map(Name(_))
 
   val bindableParser: P[Bindable] =
-    lowerIdent.map(Name(_))
+    nameParser | Parser.escapedString('`').map(Backticked(_))
 
   val consParser: P[Constructor] =
     upperIdent.map(Constructor(_))
@@ -50,7 +68,10 @@ object Identifier {
    * Build an Identifier by parsing a string
    */
   def unsafe(str: String): Identifier =
-    parser.parse(str) match {
+    unsafeParse(parser, str)
+
+  def unsafeParse[A <: Identifier](pa: P[A], str: String): A =
+    pa.parse(str) match {
       case Parsed.Success(ident, idx) if idx == str.length =>
         ident
       case Parsed.Success(_, idx) =>
@@ -60,7 +81,11 @@ object Identifier {
     }
 
   implicit def order[A <: Identifier]: Order[A] =
-    Order.by { ident: Identifier => ident.asString }
+    Order.by[A, String] {
+      case Name(s) => s
+      case Backticked(s) => s
+      case Constructor(s) => s
+    }
 
   implicit def ordering[A <: Identifier]: Ordering[A] =
     order[A].toOrdering

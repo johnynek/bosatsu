@@ -1114,4 +1114,24 @@ main = [Foo(1), Bar("1")]
       Json.JObject(
         List("bar" -> Json.JString("1"))))))
   }
+
+  test("json with backticks") {
+    evalTestJson(
+      List("""
+package Foo
+
+struct Foo(`struct`, `second key`, `enum`, `def`)
+
+`package` = 2
+
+main = Foo(1, `package`, 3, 4)
+"""), "Foo",
+  Json.JObject(
+    List(
+      ("struct" -> Json.JNumberStr("1")),
+      ("second key" -> Json.JNumberStr("2")),
+      ("enum" -> Json.JNumberStr("3")),
+      ("def" -> Json.JNumberStr("4")))
+    ))
+  }
 }

@@ -2,8 +2,8 @@ package org.bykn.bosatsu
 
 import cats.evidence.Is
 import cats.data.NonEmptyList
-
 import org.bykn.bosatsu.rankn.{Type, ParsedTypeEnv}
+import scala.collection.immutable.SortedSet
 
 import Identifier.{Bindable, Constructor}
 
@@ -65,17 +65,18 @@ object Program {
     // Each time we need a name, we can call anonNames.next()
     // it is mutable, but in a limited scope
     val anonNames: Iterator[Bindable] = {
-      val allNames = stmt.toStream.flatMap {
-        case Bind(BindingStatement(bound, _, _)) => bound.names.map(_.asString) // TODO Keep identifiers
-        case _ => Nil
-      }.toSet
+      val allNames =
+        SortedSet(stmt.toStream.flatMap {
+          case Bind(BindingStatement(bound, _, _)) => bound.names // TODO Keep identifiers
+          case _ => Nil
+        }: _*)
 
       rankn.Type
         .allBinders
         .iterator
         .map(_.name)
-        .filterNot(allNames)
         .map(Identifier.Name(_))
+        .filterNot(allNames)
     }
 
     def bindings(
