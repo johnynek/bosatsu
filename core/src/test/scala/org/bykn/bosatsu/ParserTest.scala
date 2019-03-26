@@ -784,6 +784,22 @@ Pair(x, _) = Pair([], b)
 struct Monad(pure: forall a. a -> f[a], flatMap: forall a, b. f[a] -> (a -> f[b]) -> f[b])
 """)
 
+    // we can put new-lines in structs
+    roundTrip(Statement.parser,
+"""# MONADS!!!!
+struct Monad(
+  pure: forall a. a -> f[a],
+  flatMap: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+""")
+
+    // we can put new-lines in defs
+    roundTrip(Statement.parser,
+"""#
+def foo(
+  x,
+  y: Int): x.add(y)
+""")
+
     roundTrip(Statement.parser, """enum Option: None, Some(a)""")
 
     roundTrip(Statement.parser,

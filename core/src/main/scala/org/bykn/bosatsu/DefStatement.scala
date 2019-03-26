@@ -61,9 +61,9 @@ object DefStatement {
      * The resultTParser should parse some indentation any newlines
      */
     def parser[T](resultTParser: P[T]): P[DefStatement[T]] = {
-      val args = argParser.nonEmptyList
+      val args = argParser.parensLines1
       val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser).?
-      P("def" ~ spaces ~/ Identifier.bindableParser ~ ("(" ~ maybeSpace ~ args ~ maybeSpace ~ ")").? ~
+      P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~
         result ~ maybeSpace ~ ":" ~/ resultTParser)
         .map {
           case (name, optArgs, resType, res) =>
@@ -76,5 +76,5 @@ object DefStatement {
     }
 
     val argParser: P[(Bindable, Option[TypeRef])] =
-      P(Identifier.bindableParser ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
+      P(Identifier.bindableParser ~ maybeSpace ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
 }
