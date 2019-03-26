@@ -38,6 +38,9 @@ object NormalExpression {
   case class Literal(lit: Lit) extends NormalExpression {
     val maxLambdaVar = None
   }
+  case class Recursion(lambda: NormalExpression) {
+    val maxLambdaVar = None
+  }
   case class NormalNothing() extends NormalExpression {
     val maxLambdaVar = None
   }
@@ -65,12 +68,15 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case a@Annotation(_, _, _) => normalizeAnotation(a, env, p)
         case g@Generic(_, _, _) => normalizeGeneric(g, env, p)
         case v@Var(_, _, _, _) => normalizeVar(v, env, p)
-        case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al, env, p)
-        case a@App(_, _, _, _) => normalizeApp(a, env, p)
+        case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al, env, p).map(_.asInstanceOf[TypedExpr[(Declaration, NormalExpressionTag)]])
+        case a@App(_, _, _, _) => normalizeApp(a, env, p).map(_.asInstanceOf[TypedExpr[(Declaration, NormalExpressionTag)]])
         case l@Let(_, _, _, _, _) => normalizeLet(l, env, p)
         case l@Literal(_, _, _) => normalizeLiteral(l, env, p)
         case m@Match(_, _, _) => normalizeMatch(m, env, p)
       }
+
+  private def combineWithChildren(nt: NormalExpressionTag) = nt.children + nt.ne
+
   def normalizeAnotation(a: Annotation[Declaration], env: Env, p: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] =
@@ -104,32 +110,60 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
 
   def normalizeAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred): State[
     Map[(PackageName, String), ResultingRef],
-    TypedExpr[(Declaration, NormalExpressionTag)]] =
+    AnnotatedLambda[(Declaration, NormalExpressionTag)]] = {
+      val lambdaVars = Some(al.arg) :: env._2
+      val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
+        .collect { case (Some(n), i) => (n, i) }
+        .toMap
+        .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
+        lambdaVars)
       for {
-        expr <- normalizeExpr(al.expr, env, p)
-      }
-        yield al.copy(expr=expr, tag=normalizeTag(al.tag))
+        eExpr <- normalizeExpr(al.expr, nextEnv, p)
+        ne = NormalExpression.Lambda(eExpr.tag._2.ne)
+        children = combineWithChildren(eExpr.tag._2)
+        neTag = NormalExpressionTag(ne, children)
+      } yield al.copy(expr=eExpr, tag=(al.tag, neTag))
+    }
 
   def normalizeApp(a: App[Declaration], env: Env, p: Package.Inferred): State[
-    Map[(PackageName, String), ResultingRef],
-    TypedExpr[(Declaration, NormalExpressionTag)]] =
-      for {
-        fn <- normalizeExpr(a.fn, env, p)
-        arg <- normalizeExpr(a.arg, env, p)
-      } yield a.copy(fn=fn, arg=arg, tag=normalizeTag(a.tag))
+  Map[(PackageName, String), ResultingRef],
+  App[(Declaration, NormalExpressionTag)]] =
+    for {
+      efn <- normalizeExpr(a.fn, env, p)
+      earg <- normalizeExpr(a.arg, env, p)
+      ne = NormalExpression.App(efn.tag._2.ne, earg.tag._2.ne)
+      children = combineWithChildren(efn.tag._2) ++ combineWithChildren(earg.tag._2)
+      neTag = NormalExpressionTag(ne, children)
+    } yield a.copy(fn=efn, arg=earg, tag=(a.tag, neTag))
 
   def normalizeLet(l: Let[Declaration], env: Env, p: Package.Inferred): State[
-    Map[(PackageName, String), ResultingRef],
-    TypedExpr[(Declaration, NormalExpressionTag)]] =
+  Map[(PackageName, String), ResultingRef],
+  TypedExpr[(Declaration, NormalExpressionTag)]] = {
+    val (nextEnv, neWrapper) = l.recursive match {
+    case RecursionKind.Recursive => {
+      val lambdaVars = Some(l.arg) :: env._2
+      val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
+        .collect { case (Some(n), i) => (n, i) }
+        .toMap
+        .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
+        lambdaVars)
+      val neWrapper = {ne: NormalExpression => NormalExpression.Recursion(NormalExpression.Lambda(ne)).asInstanceOf[NormalExpression]}
+      (nextEnv, neWrapper)
+    }
+    case _ => (env, {ne: NormalExpression => ne})
+    }
+      val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
       for {
-        expr <- normalizeExpr(l.expr, env, p)
-        in <- normalizeExpr(l.in, env, p)
-      } yield l.copy(expr=expr, in=in, tag=normalizeTag(l.tag))
+        lambda <- normalizeAnnotatedLambda(originalLambda, env, p)
+        app <- normalizeApp(App(fn=originalLambda, arg=l.expr, result=l.in.getType, tag=l.tag), env, p)
+        neTag = app.tag._2.copy(ne= neWrapper(app.tag._2.ne))
+      } yield l.copy(expr=app.arg, in=lambda.expr, tag=(l.tag, neTag))
+    }
 
   def normalizeLiteral(l: Literal[Declaration], env: Env, p: Package.Inferred): State[
     Map[(PackageName, String), ResultingRef],
     TypedExpr[(Declaration, NormalExpressionTag)]] =
-    State.pure(l.copy(tag=normalizeTag(l.tag)))
+    State.pure(l.copy(tag=(l.tag, NormalExpressionTag(NormalExpression.Literal(l.lit), Set()))))
 
   def normalizeMatch(m: Match[Declaration], env: Env, p: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef],
