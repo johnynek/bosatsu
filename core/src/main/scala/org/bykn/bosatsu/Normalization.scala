@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
+import rankn._
 
 sealed abstract class NormalExpression {
   val maxLambdaVar: Option[Int]
@@ -57,102 +58,109 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         normalizePackage(name, pkg).map((name, _))
     }}.sequence.run(Map()).value._2.toMap)
 
-  def normalizeExpr(expr: TypedExpr[Declaration], env: Env): State[
+  def normalizeExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred): State[
     Map[(PackageName, String), ResultingRef],
     TypedExpr[(Declaration, NormalExpressionTag)]] =
       expr match {
-        case a@Annotation(_, _, _) => normalizeAnotation(a, env)
-        case g@Generic(_, _, _) => normalizeGeneric(g, env)
-        case v@Var(_, _, _, _) => normalizeVar(v, env)
-        case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al, env)
-        case a@App(_, _, _, _) => normalizeApp(a, env)
-        case l@Let(_, _, _, _, _) => normalizeLet(l, env)
-        case l@Literal(_, _, _) => normalizeLiteral(l, env)
-        case m@Match(_, _, _) => normalizeMatch(m, env)
+        case a@Annotation(_, _, _) => normalizeAnotation(a, env, p)
+        case g@Generic(_, _, _) => normalizeGeneric(g, env, p)
+        case v@Var(_, _, _, _) => normalizeVar(v, env, p)
+        case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al, env, p)
+        case a@App(_, _, _, _) => normalizeApp(a, env, p)
+        case l@Let(_, _, _, _, _) => normalizeLet(l, env, p)
+        case l@Literal(_, _, _) => normalizeLiteral(l, env, p)
+        case m@Match(_, _, _) => normalizeMatch(m, env, p)
       }
-  def normalizeAnotation(a: Annotation[Declaration], env: Env): State[
+  def normalizeAnotation(a: Annotation[Declaration], env: Env, p: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] =
     for {
-      term <- normalizeExpr(a.term, env)
+      term <- normalizeExpr(a.term, env, p)
       neTag = term.tag._2
       newNeTag = neTag.copy(children = (neTag.children + neTag.ne))
       tag = (a.tag, newNeTag)
     }  yield a.copy(term=term, tag=tag)
 
-  def normalizeGeneric(g: Generic[Declaration], env: Env): State[
+  def normalizeGeneric(g: Generic[Declaration], env: Env, p: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] =
     for {
-      in <- normalizeExpr(g.in, env)
+      in <- normalizeExpr(g.in, env, p)
       neTag = in.tag._2
       newNeTag = neTag.copy(children = neTag.children + neTag.ne)
       tag = (g.tag, newNeTag)
     } yield g.copy(in=in, tag=tag)
 
-  def normalizeVar(v: Var[Declaration], env: Env): State[
+  def normalizeVar(v: Var[Declaration], env: Env, p: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef],
-  TypedExpr[(Declaration, NormalExpressionTag)]] = ???
+  TypedExpr[(Declaration, NormalExpressionTag)]] = env._1.get(v.name) match {
+    case None => for {
+      ne <- norm((p, Left((v.name, v.tag)), env))
+      neTag = getTag(ne)._2
+    } yield v.copy(tag=(v.tag, neTag))
+    case Some(neTag) =>
+      State.pure(v.copy(tag=(v.tag, neTag)))
+  }
 
-  def normalizeAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env): State[
+  def normalizeAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred): State[
     Map[(PackageName, String), ResultingRef],
     TypedExpr[(Declaration, NormalExpressionTag)]] =
       for {
-        expr <- normalizeExpr(al.expr, env)
+        expr <- normalizeExpr(al.expr, env, p)
       }
         yield al.copy(expr=expr, tag=normalizeTag(al.tag))
 
-  def normalizeApp(a: App[Declaration], env: Env): State[
+  def normalizeApp(a: App[Declaration], env: Env, p: Package.Inferred): State[
     Map[(PackageName, String), ResultingRef],
     TypedExpr[(Declaration, NormalExpressionTag)]] =
       for {
-        fn <- normalizeExpr(a.fn, env)
-        arg <- normalizeExpr(a.arg, env)
+        fn <- normalizeExpr(a.fn, env, p)
+        arg <- normalizeExpr(a.arg, env, p)
       } yield a.copy(fn=fn, arg=arg, tag=normalizeTag(a.tag))
 
-  def normalizeLet(l: Let[Declaration], env: Env): State[
+  def normalizeLet(l: Let[Declaration], env: Env, p: Package.Inferred): State[
     Map[(PackageName, String), ResultingRef],
     TypedExpr[(Declaration, NormalExpressionTag)]] =
       for {
-        expr <- normalizeExpr(l.expr, env)
-        in <- normalizeExpr(l.in, env)
+        expr <- normalizeExpr(l.expr, env, p)
+        in <- normalizeExpr(l.in, env, p)
       } yield l.copy(expr=expr, in=in, tag=normalizeTag(l.tag))
 
-  def normalizeLiteral(l: Literal[Declaration], env: Env): State[
+  def normalizeLiteral(l: Literal[Declaration], env: Env, p: Package.Inferred): State[
     Map[(PackageName, String), ResultingRef],
     TypedExpr[(Declaration, NormalExpressionTag)]] =
     State.pure(l.copy(tag=normalizeTag(l.tag)))
 
-  def normalizeMatch(m: Match[Declaration], env: Env): State[
+  def normalizeMatch(m: Match[Declaration], env: Env, p: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] =
     for {
-      arg <- normalizeExpr(m.arg, env)
-      branches <- (m.branches.map { case (p, expr) => normalizeExpr(expr, env).map((p, _))}).sequence
+      arg <- normalizeExpr(m.arg, env, p)
+      branches <- (m.branches.map { case (pat, expr) => normalizeExpr(expr, env, p).map((pat, _))}).sequence
     }
     yield Match(arg=arg,
       branches=branches,
       tag=normalizeTag(m.tag)
       )
 
-  def normalizePackageLet(pkgName: PackageName, inferredExpr: (String, RecursionKind, TypedExpr[Declaration])): State[
+  def normalizePackageLet(pkgName: PackageName, inferredExpr: (String, RecursionKind, TypedExpr[Declaration]), pack: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef], (String, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)])] = {
     println(inferredExpr)
 
     println(s"let ${inferredExpr._1} = ${inferredExpr._3}")
     for {
-      expr <- normalizeExpr(inferredExpr._3, (Map(), Nil))
+      expr <- normalizeExpr(inferredExpr._3, (Map(), Nil), pack)
       _ <- State.modify { cache: Map[(PackageName, String), ResultingRef] => cache + ((pkgName, inferredExpr._1) -> Right(expr))}
     }
       yield (inferredExpr._1, inferredExpr._2, expr)
   }
 
-  def normalizeProgram[T, S](pkgName: PackageName, inferredProgram: Program[T, TypedExpr[Declaration], S]): State[
+  def normalizeProgram(pkgName: PackageName, pack: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef],
-  Program[T, TypedExpr[(Declaration, Normalization.NormalExpressionTag)], S]] = {
+  Program[TypeEnv[Variance], TypedExpr[(Declaration, Normalization.NormalExpressionTag)], Statement]] = {
     for { 
-      lets <- inferredProgram.lets.map(normalizePackageLet(pkgName, _)).sequence
-    } yield inferredProgram.copy(
+      lets <- pack.program.lets.map(normalizePackageLet(pkgName, _, pack)).sequence
+    } yield pack.program.copy(
       lets  = lets
     )
   }
@@ -160,7 +168,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   def normalizePackage(pkgName: PackageName, pack: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef],
   Package.Normalized] = for {
-    program <- normalizeProgram(pkgName, pack.program)
+    program <- normalizeProgram(pkgName, pack)
   } yield pack.copy(program = program)
 
   def getTag(ref: ResultingRef) = ref match {
@@ -179,7 +187,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     ResultingRef] = input match {
         case ((pack, Right(expr), env)) =>
           for {
-            expr <- normalizeExpr(expr, env)
+            expr <- normalizeExpr(expr, env, pack)
           } yield Right(expr)
         case (pack, Left((item, t)), env) =>
           NameKind(pack, item).get match { // this get should never fail due to type checking
