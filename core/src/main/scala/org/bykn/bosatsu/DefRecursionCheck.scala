@@ -153,7 +153,7 @@ object DefRecursionCheck {
      */
     def checkForIllegalBinds[A](
       state: State,
-      bs: Iterable[Identifier.Bindable],
+      bs: Iterable[Bindable],
       decl: Declaration)(next: ValidatedNel[RecursionError, A]): ValidatedNel[RecursionError, A] =
       state.outerDefNames match {
         case Nil=> next
@@ -187,7 +187,7 @@ object DefRecursionCheck {
     val unitSt: St[Unit] = pureSt(())
 
     def checkForIllegalBindsSt[A](
-      bs: Iterable[Identifier.Bindable],
+      bs: Iterable[Bindable],
       decl: Declaration): St[Unit] =
         getSt.flatMap { state =>
           toSt(checkForIllegalBinds(state, bs, decl)(unitValid))
@@ -311,7 +311,7 @@ object DefRecursionCheck {
           tups.traverse_(checkDecl)
         case Var(Identifier.Constructor(_)) =>
           unitSt
-        case Var(v: Identifier.Bindable) =>
+        case Var(v: Bindable) =>
           getSt.flatMap {
             case TopLevel =>
               // without any recursion, normal typechecking will detect bad states:
