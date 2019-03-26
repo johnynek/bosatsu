@@ -43,13 +43,13 @@ object NormalExpression {
 }
 
 object Normalization {
-  case class NormalExpressionTag(ne: NormalExpression, children: List[NormalExpression])
+  case class NormalExpressionTag(ne: NormalExpression, children: Set[NormalExpression])
 }
 
 case class NormalizePackageMap(pm: PackageMap.Inferred) {
   import Normalization._
   import TypedExpr._
-  def normalizeTag(tag: Declaration) = (tag, NormalExpressionTag(NormalExpression.NormalNothing(), Nil))
+  def normalizeTag(tag: Declaration) = (tag, NormalExpressionTag(NormalExpression.NormalNothing(), Set()))
 
   val normalizePackageMap: PackageMap.Normalized = 
     PackageMap(
@@ -70,25 +70,29 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case l@Literal(_, _, _) => normalizeLiteral(l, env)
         case m@Match(_, _, _) => normalizeMatch(m, env)
       }
-
   def normalizeAnotation(a: Annotation[Declaration], env: Env): State[
-    Map[(PackageName, String), ResultingRef],
-    TypedExpr[(Declaration, NormalExpressionTag)]] =
+  Map[(PackageName, String), ResultingRef],
+  TypedExpr[(Declaration, NormalExpressionTag)]] =
     for {
       term <- normalizeExpr(a.term, env)
-    }  yield a.copy(term=term, tag=normalizeTag(a.tag))
+      neTag = term.tag._2
+      newNeTag = neTag.copy(children = (neTag.children + neTag.ne))
+      tag = (a.tag, newNeTag)
+    }  yield a.copy(term=term, tag=tag)
 
   def normalizeGeneric(g: Generic[Declaration], env: Env): State[
-    Map[(PackageName, String), ResultingRef],
-    TypedExpr[(Declaration, NormalExpressionTag)]] =
+  Map[(PackageName, String), ResultingRef],
+  TypedExpr[(Declaration, NormalExpressionTag)]] =
     for {
       in <- normalizeExpr(g.in, env)
-    } yield g.copy(in=in, tag=normalizeTag(g.tag))
+      neTag = in.tag._2
+      newNeTag = neTag.copy(children = neTag.children + neTag.ne)
+      tag = (g.tag, newNeTag)
+    } yield g.copy(in=in, tag=tag)
 
   def normalizeVar(v: Var[Declaration], env: Env): State[
-    Map[(PackageName, String), ResultingRef],
-    TypedExpr[(Declaration, NormalExpressionTag)]] =
-    State.pure(v.copy(tag=normalizeTag(v.tag)))
+  Map[(PackageName, String), ResultingRef],
+  TypedExpr[(Declaration, NormalExpressionTag)]] = ???
 
   def normalizeAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env): State[
     Map[(PackageName, String), ResultingRef],
@@ -202,7 +206,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
                 }
               } yield Left((item, getTag(res)))
             case NameKind.Constructor(cn, params, schm, vt) => {
-              val neTag = NormalExpressionTag(NormalExpression.NormalNothing(), Nil)
+              val neTag = NormalExpressionTag(NormalExpression.NormalNothing(), Set())
               // constructor(cn, dt)
               State.pure(Left((item, (t, neTag))))
             }
@@ -214,7 +218,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
               } yield Left((item, (t, neTag)))
             }
             case NameKind.ExternalDef(pn, n, scheme) => {
-              val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n), Nil)
+              val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n), Set())
               State.pure(Left((item, (t, neTag))))
             }
           }
