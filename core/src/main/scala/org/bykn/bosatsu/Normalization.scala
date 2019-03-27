@@ -4,23 +4,25 @@ import cats.data.{NonEmptyList, State}
 import cats.implicits._
 import rankn._
 
+import Identifier.Constructor
+
 sealed abstract class NormalExpression {
   val maxLambdaVar: Option[Int]
 }
 
 object NormalExpression {
   case class App(fn: NormalExpression, arg: NormalExpression)
-      extends NormalExpression {
+  extends NormalExpression {
     val maxLambdaVar = (fn.maxLambdaVar.toList ++ arg.maxLambdaVar.toList)
       .reduceLeftOption(Math.max)
   }
   case class ExternalVar(pack: PackageName, defName: Identifier)
-      extends NormalExpression {
+  extends NormalExpression {
     val maxLambdaVar = None
   }
   case class Match(arg: NormalExpression,
-                   branches: NonEmptyList[(Int, NormalExpression)])
-      extends NormalExpression {
+    branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], NormalExpression)])
+  extends NormalExpression {
     val maxLambdaVar =
       (arg.maxLambdaVar.toList ++ branches.toList.flatMap(_._2.maxLambdaVar))
         .reduceLeftOption(Math.max)
@@ -32,7 +34,7 @@ object NormalExpression {
     val maxLambdaVar = expr.maxLambdaVar.map(_ - 1).filter(_ >= 0)
   }
   case class Struct(enum: Int, args: List[NormalExpression])
-      extends NormalExpression {
+  extends NormalExpression {
     val maxLambdaVar = args.flatMap(_.maxLambdaVar).reduceLeftOption(Math.max)
   }
   case class Literal(lit: Lit) extends NormalExpression {
@@ -167,44 +169,37 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
 
   def normalizeMatch(m: Match[Declaration], env: Env, p: Package.Inferred): State[
   Map[(PackageName, Identifier), ResultingRef],
-  TypedExpr[(Declaration, NormalExpressionTag)]] = ???
-/*    for {
-      eArg <- normalizeExpr(m.arg, env, p)
-      dtName = Type.rootDeclared(scheme.result).get
-      dt = p.unfix.program.types.definedTypes.collectFirst {
-        case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue
-      }.get
-      enumLookup = dt.constructors.map(_._1.asString).zipWithIndex.toMap
+  TypedExpr[(Declaration, NormalExpressionTag)]] = {
+    for {
+      arg <- normalizeExpr(m.arg, env, p)
+      branches <- (m.branches.map { case branch => normalizeBranch(branch, env, p)}).sequence
+      normalBranches = branches.map { case (p, e) => (p, e.tag._2.ne)}
+      neTag = NormalExpressionTag(ne=NormalExpression.Match(arg.tag._2.ne, normalBranches), children=Set())
+    }
+    yield Match(arg=arg,
+      branches=branches,
+      tag=(m.tag, neTag)
+      )
+  }
 
-      eBranches <- branches.map {
-        case (pattern, e) => {
-          val enum = enumLookup(pattern.typeName._2.asString)
-          val lambdaVars = pattern.bindings.reverse ++ env._2
-          val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
-            .collect { case (Some(n), i) => (n, i) }
-            .toMap
-            .mapValues(idx => NETag(LambdaVar(idx), Set())),
-            lambdaVars)
-          for (ee <- recurse((p, Right(e), nextEnv))) yield {
-            val tag = ee.tag
-            val ne = (1 to pattern.bindings.length).foldLeft(tag._3.ne) {
-              case (e, _) => Lambda(e)
-            }
-            (pattern, enum, ee.setTag((tag._1, tag._2, NETag(ne, tag._3.children))))
-          }
-        }
-      }.sequence
-      } yield {
-        val ne = Match(eArg.tag._3.ne, eBranches.map {
-          case (p, i, b) => (i, b.tag._3.ne)
-        })
-        val children = eBranches.foldLeft(combineWithChildren(eArg.tag._3)) {
-          case (s, (_, _, b)) => s ++ combineWithChildren(b.tag._3)
-        }
-        Expr.Match(eArg,
-          eBranches.map { case (p, i, b) => (p, b) },
-          addNEToTag(t, NETag(ne, children)))
-      }*/
+  def normalizeBranch(b: (Pattern[(PackageName, Constructor), Type], TypedExpr[Declaration]), env: Env, p: Package.Inferred): State[
+  Map[(PackageName, Identifier), ResultingRef],
+  (Pattern[(PackageName, Constructor), Type], TypedExpr[(Declaration, NormalExpressionTag)])] = {
+    val (pattern, expr) = b
+    val names = pattern.names.collect { case b: Identifier.Bindable => b}.map(Some(_))
+    val lambdaVars = names ++ env._2
+    val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
+      .collect { case (Some(n), i) => (n, i) }
+      .toMap
+      .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
+      lambdaVars)
+    for {
+      innerExpr <- normalizeExpr(expr, nextEnv, p)
+      normalExpr = names.foldLeft(innerExpr.tag._2.ne) { case (expr, _) => NormalExpression.Lambda(expr) }
+      finalExpression = innerExpr.updatedTag((innerExpr.tag._1, innerExpr.tag._2.copy(ne=normalExpr)))
+    } yield (pattern, finalExpression)
+
+  }
 
   def normalizePackageLet(pkgName: PackageName, inferredExpr: (Identifier.Bindable, RecursionKind, TypedExpr[Declaration]), pack: Package.Inferred): State[
   Map[(PackageName, Identifier), ResultingRef], (Identifier.Bindable, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)])] = {
