@@ -9,6 +9,8 @@ import scala.collection.mutable.{Map => MMap}
 import Parser.{spaces, maybeSpace, Combinators}
 import rankn._
 
+import Identifier.{Bindable, Constructor}
+
 /**
  * Represents a package over its life-cycle: from parsed to resolved to inferred
  */
@@ -22,7 +24,7 @@ case class Package[A, B, C, D](
   private lazy val importMap: ImportMap[A, B] =
     ImportMap.fromImports(imports)._2
 
-  def localImport(n: String): Option[(A, ImportedName[B])] = importMap(n)
+  def localImport(n: Identifier): Option[(A, ImportedName[B])] = importMap(n)
 
   def withImport(i: Import[A, B]): Package[A, B, C, D] =
     copy(imports = i :: imports)
@@ -97,12 +99,12 @@ object Package {
     p: PackageName,
     imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
     stmt: Statement):
-      ValidatedNel[PackageError, (TypeEnv[Variance], List[(String, RecursionKind, TypedExpr[Declaration])])] = {
+      ValidatedNel[PackageError, (TypeEnv[Variance], List[(Bindable, RecursionKind, TypedExpr[Declaration])])] = {
 
-    val importedTypes: Map[String, (PackageName, String)] =
+    val importedTypes: Map[Identifier, (PackageName, TypeName)] =
       Referant.importedTypes(imps)
 
-    val resolveImportedCons: Map[String, (PackageName, ConstructorName)] =
+    val resolveImportedCons: Map[Identifier, (PackageName, Constructor)] =
       Referant.importedConsNames(imps)
 
     // here we make a pass to get all the local names
@@ -116,24 +118,25 @@ object Package {
     val localTypeNames = localDefs.map(_.name).toSet
     val localConstructors = localDefs.flatMap(_.constructors).toSet
 
-    val typeCache: MMap[String, Type.Const] = MMap.empty
-    val consCache: MMap[String, (PackageName, ConstructorName)] = MMap.empty
+    val typeCache: MMap[Constructor, Type.Const] = MMap.empty
+    val consCache: MMap[Constructor, (PackageName, Constructor)] = MMap.empty
 
     val Program(parsedTypeEnv, lets, _) =
       Program.fromStatement(
         p,
         { s =>
           typeCache.getOrElseUpdate(s, {
+            val ts = TypeName(s)
             val (p1, s1) =
-              if (localTypeNames(s)) (p, s)
-              else importedTypes.getOrElse(s, (p, s))
+              if (localTypeNames(s)) (p, ts)
+              else importedTypes.getOrElse(s, (p, ts))
             Type.Const.Defined(p1, s1)
           })
         }, // name to type
         { s =>
           consCache.getOrElseUpdate(s, {
-            if (localConstructors(s)) (p, ConstructorName(s))
-            else resolveImportedCons.getOrElse(s, (p, ConstructorName(s)))
+            if (localConstructors(s)) (p, s)
+            else resolveImportedCons.getOrElse(s, (p, s))
           })
         }, // name to cons
         stmt)
@@ -169,10 +172,10 @@ object Package {
       * that have been imported, this includes local external
       * defs
       */
-      val importedValues: Map[String, Type] =
+      val importedValues: Map[Identifier, Type] =
         Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
 
-      val withFQN: Map[(Option[PackageName], String), Type] =
+      val withFQN: Map[(Option[PackageName], Identifier), Type] =
         (Referant.fullyQualifiedImportedValues(imps)(_.unfix.name)
           .iterator
           .map { case ((p, n), t) => ((Some(p), n), t) } ++

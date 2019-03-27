@@ -14,7 +14,7 @@ object NormalExpression {
     val maxLambdaVar = (fn.maxLambdaVar.toList ++ arg.maxLambdaVar.toList)
       .reduceLeftOption(Math.max)
   }
-  case class ExternalVar(pack: PackageName, defName: String)
+  case class ExternalVar(pack: PackageName, defName: Identifier)
       extends NormalExpression {
     val maxLambdaVar = None
   }
@@ -62,7 +62,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     }}.sequence.run(Map()).value._2.toMap)
 
   def normalizeExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred): State[
-    Map[(PackageName, String), ResultingRef],
+    Map[(PackageName, Identifier), ResultingRef],
     TypedExpr[(Declaration, NormalExpressionTag)]] =
       expr match {
         case a@Annotation(_, _, _) => normalizeAnotation(a, env, p)
@@ -78,7 +78,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   private def combineWithChildren(nt: NormalExpressionTag) = nt.children + nt.ne
 
   def normalizeAnotation(a: Annotation[Declaration], env: Env, p: Package.Inferred): State[
-  Map[(PackageName, String), ResultingRef],
+  Map[(PackageName, Identifier), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] =
     for {
       term <- normalizeExpr(a.term, env, p)
@@ -88,7 +88,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     }  yield a.copy(term=term, tag=tag)
 
   def normalizeGeneric(g: Generic[Declaration], env: Env, p: Package.Inferred): State[
-  Map[(PackageName, String), ResultingRef],
+  Map[(PackageName, Identifier), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] =
     for {
       in <- normalizeExpr(g.in, env, p)
@@ -98,7 +98,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     } yield g.copy(in=in, tag=tag)
 
   def normalizeVar(v: Var[Declaration], env: Env, p: Package.Inferred): State[
-  Map[(PackageName, String), ResultingRef],
+  Map[(PackageName, Identifier), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] = env._1.get(v.name) match {
     case None => for {
       ne <- norm((p, Left((v.name, v.tag)), env))
@@ -109,10 +109,10 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def normalizeAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred): State[
-    Map[(PackageName, String), ResultingRef],
+    Map[(PackageName, Identifier), ResultingRef],
     AnnotatedLambda[(Declaration, NormalExpressionTag)]] = {
       val lambdaVars = Some(al.arg) :: env._2
-      val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
+      val nextEnv: Env = (env._1 ++ lambdaVars.zipWithIndex
         .collect { case (Some(n), i) => (n, i) }
         .toMap
         .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
@@ -126,7 +126,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     }
 
   def normalizeApp(a: App[Declaration], env: Env, p: Package.Inferred): State[
-  Map[(PackageName, String), ResultingRef],
+  Map[(PackageName, Identifier), ResultingRef],
   App[(Declaration, NormalExpressionTag)]] =
     for {
       efn <- normalizeExpr(a.fn, env, p)
@@ -137,7 +137,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     } yield a.copy(fn=efn, arg=earg, tag=(a.tag, neTag))
 
   def normalizeLet(l: Let[Declaration], env: Env, p: Package.Inferred): State[
-  Map[(PackageName, String), ResultingRef],
+  Map[(PackageName, Identifier), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] = {
     val (nextEnv, neWrapper) = l.recursive match {
     case RecursionKind.Recursive => {
@@ -161,14 +161,14 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     }
 
   def normalizeLiteral(l: Literal[Declaration], env: Env, p: Package.Inferred): State[
-    Map[(PackageName, String), ResultingRef],
+    Map[(PackageName, Identifier), ResultingRef],
     TypedExpr[(Declaration, NormalExpressionTag)]] =
     State.pure(l.copy(tag=(l.tag, NormalExpressionTag(NormalExpression.Literal(l.lit), Set()))))
 
   def normalizeMatch(m: Match[Declaration], env: Env, p: Package.Inferred): State[
-  Map[(PackageName, String), ResultingRef],
-  TypedExpr[(Declaration, NormalExpressionTag)]] =
-    for {
+  Map[(PackageName, Identifier), ResultingRef],
+  TypedExpr[(Declaration, NormalExpressionTag)]] = ???
+/*    for {
       eArg <- normalizeExpr(m.arg, env, p)
       dtName = Type.rootDeclared(scheme.result).get
       dt = p.unfix.program.types.definedTypes.collectFirst {
@@ -204,22 +204,22 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         Expr.Match(eArg,
           eBranches.map { case (p, i, b) => (p, b) },
           addNEToTag(t, NETag(ne, children)))
-      }
+      }*/
 
-  def normalizePackageLet(pkgName: PackageName, inferredExpr: (String, RecursionKind, TypedExpr[Declaration]), pack: Package.Inferred): State[
-  Map[(PackageName, String), ResultingRef], (String, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)])] = {
+  def normalizePackageLet(pkgName: PackageName, inferredExpr: (Identifier.Bindable, RecursionKind, TypedExpr[Declaration]), pack: Package.Inferred): State[
+  Map[(PackageName, Identifier), ResultingRef], (Identifier.Bindable, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)])] = {
     println(inferredExpr)
 
     println(s"let ${inferredExpr._1} = ${inferredExpr._3}")
     for {
       expr <- normalizeExpr(inferredExpr._3, (Map(), Nil), pack)
-      _ <- State.modify { cache: Map[(PackageName, String), ResultingRef] => cache + ((pkgName, inferredExpr._1) -> Right(expr))}
+      _ <- State.modify { cache: Map[(PackageName, Identifier), ResultingRef] => cache + ((pkgName, inferredExpr._1) -> Right(expr))}
     }
       yield (inferredExpr._1, inferredExpr._2, expr)
   }
 
   def normalizeProgram(pkgName: PackageName, pack: Package.Inferred): State[
-  Map[(PackageName, String), ResultingRef],
+  Map[(PackageName, Identifier), ResultingRef],
   Program[TypeEnv[Variance], TypedExpr[(Declaration, Normalization.NormalExpressionTag)], Statement]] = {
     for { 
       lets <- pack.program.lets.map(normalizePackageLet(pkgName, _, pack)).sequence
@@ -229,7 +229,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def normalizePackage(pkgName: PackageName, pack: Package.Inferred): State[
-  Map[(PackageName, String), ResultingRef],
+  Map[(PackageName, Identifier), ResultingRef],
   Package.Normalized] = for {
     program <- normalizeProgram(pkgName, pack)
   } yield pack.copy(program = program)
@@ -240,13 +240,13 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   private type Ref[T] =
-    Either[(String, T), TypedExpr[T]]
+    Either[(Identifier, T), TypedExpr[T]]
 
   private type SourceRef = Ref[Declaration]
   private type ResultingRef = Ref[(Declaration,  NormalExpressionTag)]
-  private type Env = (Map[String, NormalExpressionTag], List[Option[String]])
+  private type Env = (Map[Identifier, NormalExpressionTag], List[Option[Identifier]])
   private def norm(input: (Package.Inferred, SourceRef, Env)): State[
-    Map[(PackageName, String), ResultingRef],
+    Map[(PackageName, Identifier), ResultingRef],
     ResultingRef] = input match {
         case ((pack, Right(expr), env)) =>
           for {
@@ -257,19 +257,19 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
             case NameKind.Let(_, _, expr) =>
               for {
                 lookup <- State.inspect {
-                  lets: Map[(PackageName, String), ResultingRef] =>
+                  lets: Map[(PackageName, Identifier), ResultingRef] =>
                     lets.get((pack.name, item))
                 }
                 res <- lookup match {
                   case Some(res) =>
                     State.pure(res): State[
-                      Map[(PackageName, String), ResultingRef],
+                      Map[(PackageName, Identifier), ResultingRef],
                       ResultingRef]
                   case None =>
                     for {
                       res <- norm((pack, Right(expr), env))
                       _ <- State.modify {
-                        lets: Map[(PackageName, String), ResultingRef] =>
+                        lets: Map[(PackageName, Identifier), ResultingRef] =>
                           lets + ((pack.name, item) -> res)
                       }
                     } yield res

@@ -31,7 +31,7 @@ object TypeRecursionCheck {
       val depends = for {
         cons <- dt.constructors
         Type.Const.Defined(p, n) <- cons._2.flatMap { case (_, t) => Type.constantsOf(t) }
-        dt1 <- typeMap.get((p, TypeName(n))).toList // we only need edges into this package,
+        dt1 <- typeMap.get((p, n)).toList // we only need edges into this package,
       } yield dt1
 
       // we handle self loops separtely
@@ -49,7 +49,7 @@ object TypeRecursionCheck {
       }
 
     def getDT(dt: Type.Const.Defined): Option[DefinedType[Variance]] = {
-      val tn = TypeName(dt.name)
+      val tn = dt.name
       typeMap.get((dt.packageName, tn))
         .orElse(imports.getType(dt.packageName, tn))
     }

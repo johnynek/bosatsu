@@ -3,22 +3,14 @@ package org.bykn.bosatsu
 import cats.Order
 import cats.implicits._
 
-case class ConstructorName(asString: String)
-
-object ConstructorName {
-  implicit val orderCN: Order[ConstructorName] = Order[String].contramap[ConstructorName](_.asString)
-  implicit val orderingCN: Ordering[ConstructorName] = orderCN.toOrdering
-}
-
-case class ParamName(asString: String)
-case class TypeName(asString: String)
+case class TypeName(ident: Identifier.Constructor)
 
 object TypeName {
   implicit val typeNameOrder: Order[TypeName] =
-    Order.by { tn: TypeName => tn.asString }
+    Order.by { tn: TypeName => tn.ident }
 
   implicit val typeNameOrdering: Ordering[TypeName] =
-    Ordering.by { tn: TypeName => tn.asString }
+    Ordering.by { tn: TypeName => tn.ident }
 }
 
 case class Unique(id: Long) {

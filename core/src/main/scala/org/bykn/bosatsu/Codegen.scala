@@ -12,6 +12,8 @@ import alleycats.std.map._ // TODO use SortedMap everywhere
 
 import org.bykn.bosatsu.rankn.Type
 
+import Identifier.{Bindable, Constructor}
+
 trait CodeGen {
   import TypedExpr._
   import CodeGen._
@@ -22,7 +24,7 @@ trait CodeGen {
   def toExportedName(s: String): String =
     s
 
-  def toConstructorName(s: String): String =
+  def toConstructor(s: String): String =
     "cons$" + s
 
   def toPackage(p: PackageName): String =
@@ -43,7 +45,7 @@ trait CodeGen {
       Doc.char('{') + (Doc.line + d).nested(2) + Doc.line + Doc.char('}')
 
     val isExported: Set[String] =
-      unfix.exports.map(_.name).toSet
+      unfix.exports.map(_.name.asString).toSet
 
     /*
      * add the imports and return a list of lines to set up inside
@@ -52,8 +54,8 @@ trait CodeGen {
     val imps: Output[List[NonEmptyList[Option[(Package.Interface, String, String)]]]] =
       Traverse[List].traverse(unfix.imports) { case Import(pack, items) =>
         Traverse[NonEmptyList].traverse(items) { imp =>
-          def go(fn: String => Option[String]): Output[Option[(Package.Interface, String, String)]] =
-            if (imp.isRenamed || isExported(imp.localName)) {
+          def go(fn: Identifier => Option[String]): Output[Option[(Package.Interface, String, String)]] =
+            if (imp.isRenamed || isExported(imp.localName.asString)) {
               // we make a new field for this.
               val opt = for {
                 o <- fn(imp.originalName)
@@ -73,9 +75,9 @@ trait CodeGen {
             }
 
             Traverse[NonEmptyList].traverse(imp.tag) {
-              case Referant.Value(_) => go { s => Some(toExportedName(s)) }
+              case Referant.Value(_) => go { s => Some(toExportedName(s.asString)) }
               case Referant.DefinedT(_) => go { _ => None }
-              case Referant.Constructor(_, _, _, _) => go { s => Some(toConstructorName(s)) }
+              case Referant.Constructor(_, _, _, _) => go { s => Some(toConstructor(s.asString)) }
             }
         }
         .map(_.flatten)
@@ -102,9 +104,9 @@ trait CodeGen {
     /*
      * build the constructors
      */
-    val definedTypes = unfix.program.types.allDefinedTypes.toList.sortBy(_.name.asString)
+    val definedTypes = unfix.program.types.allDefinedTypes.toList.sortBy(_.name)
 
-    def mkConstructor(i: Int, cn: ConstructorName, args: List[(ParamName, Type)]): Output[Doc] = {
+    def mkConstructor(i: Int, cn: Constructor, args: List[(Bindable, Type)]): Output[Doc] = {
       val argC = args.size
 
       def go(offset: Long, arg: Int): Doc =
@@ -122,7 +124,7 @@ trait CodeGen {
 
       getIds(argC).map { init =>
         val fn = go(init.id, 0)
-        val cname = toConstructorName(cn.asString)
+        val cname = toConstructor(cn.asString)
         // TODO check exports to see if this should be private
         Doc.text(s"public final static Object $cname = ") + fn + Doc.text(";") + Doc.line
       }
@@ -138,12 +140,13 @@ trait CodeGen {
     val externals = NameKind.externals(p)
     val extDoc: Output[Unit] =
       externals.traverse_ { case NameKind.ExternalDef(p, n, scheme) =>
-        outputExternal(n, ext.toMap((p, n)), ???/*scheme*/)
+        outputExternal(n.asString, ext.toMap((p, n.asString)), ???/*scheme*/)
       }
 
     val body = Traverse[List].traverse(unfix.program.lets) { case (f, rec, e) =>
-      val priv = if (isExported(f)) "public " else "private "
-      val left = Doc.text(s"${priv}final static Object ") + Doc.text(toExportedName(f)) + Doc.text(" = ")
+      // TODO use Identifier
+      val priv = if (isExported(f.asString)) "public " else "private "
+      val left = Doc.text(s"${priv}final static Object ") + Doc.text(toExportedName(f.asString)) + Doc.text(" = ")
       for {
         eDoc <- apply(e, true, p)
         _ <- tell(left + eDoc + Doc.char(';') + Doc.line)
@@ -209,10 +212,12 @@ trait CodeGen {
       case Annotation(expr, _, _) =>
         // TODO we might want to use the type info
         apply(expr, topLevel, pack)
-      case Var(None, n, _, _) =>
-        NameKind(pack, n) match {
+      case Var(None, ident, _, _) =>
+        // TODO never use asString
+        val n = ident.asString
+        NameKind(pack, ident) match {
           case Some(NameKind.Constructor(_, _, _, _)) =>
-            Monad[Output].pure(Doc.text(toConstructorName(n)))
+            Monad[Output].pure(Doc.text(toConstructor(n)))
           case _ =>
             for {
               scope <- RWST.ask[Id, Scope, Doc, Unique]
@@ -229,13 +234,13 @@ trait CodeGen {
         } yield Doc.text("((Fn<Object, Object>)") + fnDoc + Doc.char(')') + Doc.text(".apply(") + aDoc + Doc.char(')')
 
       case AnnotatedLambda(arg, _, exp, _) =>
-        nameIn(arg) { ua =>
+        nameIn(arg.asString) { ua =>
           nameIn("anon") { uanon =>
             val attr = if (topLevel) "private final static" else "final"
             for {
               _ <- tell(Doc.text(s"$attr Object anon${uanon.id} = "))
               _ <- tell((Doc.text("new Fn() {") + Doc.line +
-                Doc.text(s"@Override public Object apply(final Object ${toFieldName(arg, ua.id)}) {") + Doc.line).nested(2))
+                Doc.text(s"@Override public Object apply(final Object ${toFieldName(arg.asString, ua.id)}) {") + Doc.line).nested(2))
               eDoc <- apply(exp, false, pack)
               _ <- tell(Doc.text("return ") + eDoc + Doc.char(';') + Doc.line + Doc.text("}") + Doc.line + Doc.text("};") + Doc.line)
             } yield Doc.text(s"anon${uanon.id}")
@@ -243,11 +248,11 @@ trait CodeGen {
         }
 
       case Let(nm, nmv, in, _, _) =>
-        nameIn(nm) { ua =>
+        nameIn(nm.asString) { ua =>
           nameIn("anon") { uanon =>
             for {
               nmDoc <- apply(nmv, topLevel, pack)
-              _ <- tell(Doc.text(s"final Object ${toFieldName(nm, ua.id)} = ") + nmDoc + Doc.char(';') + Doc.line)
+              _ <- tell(Doc.text(s"final Object ${toFieldName(nm.asString, ua.id)} = ") + nmDoc + Doc.char(';') + Doc.line)
               inDoc <- apply(in, topLevel, pack)
             } yield inDoc
           }

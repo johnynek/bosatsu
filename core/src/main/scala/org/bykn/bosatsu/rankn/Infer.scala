@@ -4,9 +4,9 @@ import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
 
 import org.bykn.bosatsu.{
-  ConstructorName,
   Expr,
   HasRegion,
+  Identifier,
   PackageName,
   Pattern => GenPattern,
   Region,
@@ -17,6 +17,8 @@ import org.bykn.bosatsu.{
 
 import HasRegion.region
 
+import Identifier.{Bindable, Constructor}
+
 sealed abstract class Infer[+A] {
   import Infer.Error
 
@@ -25,16 +27,16 @@ sealed abstract class Infer[+A] {
   final def flatMap[B](fn: A => Infer[B]): Infer[B] =
     Infer.Impl.FlatMap(this, fn)
 
-  final def runVar(v: Map[Infer.Name, Type], tpes: Map[(PackageName, ConstructorName), Infer.Cons]): RefSpace[Either[Error, A]] =
+  final def runVar(v: Map[Infer.Name, Type], tpes: Map[(PackageName, Constructor), Infer.Cons]): RefSpace[Either[Error, A]] =
     Infer.Env.init(v, tpes).flatMap(run(_))
 
-  final def runFully(v: Map[Infer.Name, Type], tpes: Map[(PackageName, ConstructorName), Infer.Cons]): Either[Error, A] =
+  final def runFully(v: Map[Infer.Name, Type], tpes: Map[(PackageName, Constructor), Infer.Cons]): Either[Error, A] =
     runVar(v, tpes).run.value
 }
 
 object Infer {
 
-  type Pattern = GenPattern[(PackageName, ConstructorName), Type]
+  type Pattern = GenPattern[(PackageName, Constructor), Type]
 
   // Import our private implementation functions
   import Impl._
@@ -56,18 +58,18 @@ object Infer {
    * the final is the defined type this creates
    */
   type Cons = (List[(Type.Var, Variance)], List[Type], Type.Const.Defined)
-  type Name = (Option[PackageName], String)
+  type Name = (Option[PackageName], Identifier)
 
-  def asFullyQualified(ns: Iterable[(String, Type)]): Map[Name, Type] =
+  def asFullyQualified(ns: Iterable[(Identifier, Type)]): Map[Name, Type] =
     ns.iterator.map { case (n, t) => ((None, n), t) }.toMap
 
   case class Env(
     uniq: Ref[Long],
     vars: Map[Name, Type],
-    typeCons: Map[(PackageName, ConstructorName), Cons])
+    typeCons: Map[(PackageName, Constructor), Cons])
 
   object Env {
-    def init(vars: Map[Name, Type], tpes: Map[(PackageName, ConstructorName), Cons]): RefSpace[Env] =
+    def init(vars: Map[Name, Type], tpes: Map[(PackageName, Constructor), Cons]): RefSpace[Env] =
       RefSpace.newRef(0L).map(Env(_, vars, tpes))
   }
 
@@ -149,11 +151,11 @@ object Infer {
       def message = s"unexpected bound ${v.name} in unification with $in"
     }
 
-    case class UnknownConstructor(name: (PackageName, ConstructorName), env: Env) extends NameError {
+    case class UnknownConstructor(name: (PackageName, Constructor), env: Env) extends NameError {
       def message = s"unknown Constructor $name. Known: ${env.typeCons.keys.toList.sorted}"
     }
 
-    case class UnionPatternBindMismatch(pattern: Pattern, names: List[List[String]]) extends NameError {
+    case class UnionPatternBindMismatch(pattern: Pattern, names: List[List[Identifier.Bindable]]) extends NameError {
       def message = s"$pattern doesn't bind the same names in all union branches: $names"
     }
 
@@ -214,7 +216,7 @@ object Infer {
       def run(env: Env) = RefSpace.pure(Right(env.vars))
     }
 
-    case class GetDataCons(fqn: (PackageName, ConstructorName)) extends Infer[Cons] {
+    case class GetDataCons(fqn: (PackageName, Constructor)) extends Infer[Cons] {
       def run(env: Env) =
         RefSpace.pure(
           env.typeCons.get(fqn) match {
@@ -693,7 +695,7 @@ object Infer {
      *
      * TODO: Pattern needs to have a region for each part
      */
-    def typeCheckPattern(pat: Pattern, sigma: Expected[(Type, Region)], reg: Region): Infer[(Pattern, List[(String, Type)])] =
+    def typeCheckPattern(pat: Pattern, sigma: Expected[(Type, Region)], reg: Region): Infer[(Pattern, List[(Bindable, Type)])] =
       pat match {
         case GenPattern.WildCard => Infer.pure((pat, Nil))
         case GenPattern.Literal(lit) =>
@@ -743,7 +745,7 @@ object Infer {
           def checkEither(
             inner: Type,
             lst: Type,
-            e: Either[Option[String], Pattern]): Infer[(Either[Option[String], Pattern], List[(String, Type)])] =
+            e: Either[Option[Bindable], Pattern]): Infer[(Either[Option[Bindable], Pattern], List[(Bindable, Type)])] =
               e match {
                 case l@Left(None) =>
                   // this is *a pattern that has list type, and binds that type to the name
@@ -797,7 +799,7 @@ object Infer {
       }
 
     // Unions have to have identical bindings in all branches
-    def identicalBinds(u: Pattern, binds: NonEmptyList[List[(String, Type)]], reg: Region): Infer[Unit] =
+    def identicalBinds(u: Pattern, binds: NonEmptyList[List[(Bindable, Type)]], reg: Region): Infer[Unit] =
       binds.map(_.map(_._1)) match {
         case NonEmptyList(h, t) =>
           val bs = h.toSet
@@ -818,7 +820,7 @@ object Infer {
       }
 
     // TODO: we should be able to derive a region for any pattern
-    def checkPat(pat: Pattern, sigma: Type, reg: Region): Infer[(Pattern, List[(String, Type)])] =
+    def checkPat(pat: Pattern, sigma: Type, reg: Region): Infer[(Pattern, List[(Bindable, Type)])] =
       typeCheckPattern(pat, Expected.Check((sigma, reg)), reg)
 
     // TODO, Pattern should have a region
@@ -842,7 +844,7 @@ object Infer {
      *
      * Instantiation fills in all
      */
-    def instDataCon(consName: (PackageName, ConstructorName)): Infer[(List[Type], Type.Tau)] =
+    def instDataCon(consName: (PackageName, Constructor)): Infer[(List[Type], Type.Tau)] =
       GetDataCons(consName).flatMap {
         case (Nil, consParams, tpeName) =>
           Infer.pure((consParams, Type.TyConst(tpeName)))
@@ -901,7 +903,7 @@ object Infer {
       } yield expr
   }
 
-  def recursiveTypeCheck[A: HasRegion](name: String, expr: Expr[A]): Infer[TypedExpr[A]] =
+  def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
     newMetaType.flatMap { tpe =>
       extendEnv(name, tpe)(typeCheck(expr))
     }
@@ -949,17 +951,17 @@ object Infer {
   }
 
 
-  def extendEnv[A](varName: String, tpe: Type)(of: Infer[A]): Infer[A] =
+  def extendEnv[A](varName: Bindable, tpe: Type)(of: Infer[A]): Infer[A] =
     extendEnvList(List((varName, tpe)))(of)
 
-  def extendEnvList[A](bindings: List[(String, Type)])(of: Infer[A]): Infer[A] =
+  def extendEnvList[A](bindings: List[(Bindable, Type)])(of: Infer[A]): Infer[A] =
     Infer.Impl.ExtendEnvs(bindings.map { case (n, t) => ((None, n), t) }, of)
 
   /**
    * Packages are generally just lists of lets, this allows you to infer
    * the scheme for each in the context of the list
    */
-  def typeCheckLets[A: HasRegion](ls: List[(String, RecursionKind, Expr[A])]): Infer[List[(String, RecursionKind, TypedExpr[A])]] =
+  def typeCheckLets[A: HasRegion](ls: List[(Bindable, RecursionKind, Expr[A])]): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] =
     ls match {
       case Nil => Infer.pure(Nil)
       case (nm, rec, expr) :: tail =>

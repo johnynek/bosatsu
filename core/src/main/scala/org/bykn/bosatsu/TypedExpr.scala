@@ -4,8 +4,10 @@ import cats.Applicative
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
-
 import org.bykn.bosatsu.rankn.Type
+import scala.collection.immutable.SortedSet
+
+import Identifier.{Bindable, Constructor}
 
 sealed abstract class TypedExpr[T] {
   import TypedExpr._
@@ -110,12 +112,12 @@ object TypedExpr {
    */
   case class Generic[T](typeVars: NonEmptyList[Type.Var.Bound], in: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Annotation[T](term: TypedExpr[T], coerce: Type, tag: T) extends TypedExpr[T]
-  case class AnnotatedLambda[T](arg: String, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
-  case class Var[T](pack: Option[PackageName], name: String, tpe: Type, tag: T) extends TypedExpr[T]
+  case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
+  case class Var[T](pack: Option[PackageName], name: Identifier, tpe: Type, tag: T) extends TypedExpr[T]
   case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
-  case class Let[T](arg: String, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
+  case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
-  case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
+  case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
 
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
@@ -149,21 +151,21 @@ object TypedExpr {
   /**
    * Return the list of the free vars
    */
-  def freeVars[A](ts: List[TypedExpr[A]]): List[String] = {
+  def freeVars[A](ts: List[TypedExpr[A]]): List[Identifier] = {
 
     // usually we can recurse in a loop, but sometimes not
-    def cheat(te: TypedExpr[A], bound: Set[String], acc: List[String]): List[String] =
+    def cheat(te: TypedExpr[A], bound: Set[Identifier], acc: List[Identifier]): List[Identifier] =
       go(te :: Nil, bound, acc)
 
     @annotation.tailrec
-    def go(ts: List[TypedExpr[A]], bound: Set[String], acc: List[String]): List[String] =
+    def go(ts: List[TypedExpr[A]], bound: Set[Identifier], acc: List[Identifier]): List[Identifier] =
       ts match {
         case Nil => acc
         case Generic(_, expr, _) :: tail =>
           go(expr :: tail, bound, acc)
         case Annotation(t, _, _) :: tail =>
           go(t :: tail, bound, acc)
-        case Var(opt, name, _, _) :: tail if bound(name) || opt.isDefined => go(tail, bound, acc)
+        case Var(opt, ident, _, _) :: tail if bound(ident) || opt.isDefined => go(tail, bound, acc)
         case Var(None, name, _, _) :: tail => go(tail, bound, name :: acc)
         case AnnotatedLambda(arg, _, res, _) :: tail =>
           val acc1 = cheat(res, bound + arg, acc)
@@ -201,8 +203,8 @@ object TypedExpr {
         /*
          * We have to be careful not to collide with the free vars in expr
          */
-        val free = freeVars(expr :: Nil).toSet
-        val name = Type.allBinders.iterator.map(_.name).filterNot(free).next
+        val free = SortedSet(freeVars(expr :: Nil): _*)
+        val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next
         AnnotatedLambda(name, arg, cores(App(expr, coarg(Var(None, name, arg, expr.tag)), result, expr.tag)), expr.tag)
       }
     }

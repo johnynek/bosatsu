@@ -181,7 +181,7 @@ object PackageMap {
         case (p@Package(nm, imports, exports, (stmt, importMap)), recurse) =>
 
           def getImport[A, B](packF: Package.Inferred,
-            exMap: Map[String, NonEmptyList[ExportedName[A]]],
+            exMap: Map[Identifier, NonEmptyList[ExportedName[A]]],
             i: ImportedName[B]): ValidatedNel[PackageError, ImportedName[NonEmptyList[A]]] =
             exMap.get(i.originalName) match {
               case None =>
@@ -253,13 +253,13 @@ object PackageError {
 
   case class UnknownExport[A](ex: ExportedName[A],
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],
-    lets: List[(String, RecursionKind, TypedExpr[Declaration])]) extends PackageError {
+    lets: List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
       val (lm, sourceName) = sourceMap(in.name)
       val header =
         s"in $sourceName unknown export ${ex.name}"
       val candidates = lets
-        .map { case (n, _, expr) => (EditDistance.string(n, ex.name), n, HasRegion.region(expr)) }
+        .map { case (n, _, expr) => (EditDistance.string(n.asString, ex.name.asString), n, HasRegion.region(expr)) }
         .sorted
         .take(3)
         .map { case (_, n, r) =>
@@ -303,13 +303,15 @@ object PackageError {
           .lets
 
         val (_, sourceName) = sourceMap(in.name)
-        ls.iterator.map { case (n, _, d) => (n, d) }
+        ls.iterator.map { case (n, _, d) => (n: Identifier, d) }
           .toMap
           .get(iname.originalName) match {
             case Some(_) =>
               s"in $sourceName package: ${importing.name} has ${iname.originalName} but it is not exported. Add to exports"
             case None =>
-              val dist = Memoize.function[String, Int] { (s, _) => EditDistance(iname.originalName.toIterable, s.toIterable) }
+              val dist = Memoize.function[Identifier, Int] { (s, _) =>
+                EditDistance(iname.originalName.asString.toIterable, s.asString.toIterable)
+              }
               val nearest = ls.map { case (n, _, _) => (dist(n), n) }.sorted.take(3).map { case (_, n) => n }.mkString(", ")
               s"in $sourceName package: ${importing.name} does not have name ${iname.originalName}. Nearest: $nearest"
           }
@@ -329,13 +331,13 @@ object PackageError {
 
   case class CircularType[A](from: PackageName, path: NonEmptyList[rankn.DefinedType[A]]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
-      s"circular types in ${from.asString} " + path.toList.reverse.map(_.name.asString).mkString(" -> ")
+      s"circular types in ${from.asString} " + path.toList.reverse.map(_.name.ident.asString).mkString(" -> ")
     }
   }
 
   case class VarianceInferenceFailure(from: PackageName, failed: NonEmptyList[rankn.DefinedType[Unit]]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
-      s"failed to infer variance in ${from.asString} of " + failed.toList.map(_.name.asString).sorted.mkString(", ")
+      s"failed to infer variance in ${from.asString} of " + failed.toList.map(_.name.ident.asString).sorted.mkString(", ")
     }
   }
 
@@ -366,9 +368,9 @@ object PackageError {
             .iterator
             .collect { case (None, n) =>
               // we only print imported names, which are written with None
-              (EditDistance.string(name, n), n)
+              (EditDistance.string(name.asString, n.asString), n.asString)
             }
-            .filter(_._1 < name.length) // don't show things that require total edits
+            .filter(_._1 < name.asString.length) // don't show things that require total edits
             .toList
             .distinct
             .sortBy(_._1)

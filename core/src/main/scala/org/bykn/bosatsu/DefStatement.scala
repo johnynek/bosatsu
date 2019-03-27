@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, lowerIdent, maybeSpace, spaces }
+import Parser.{ Combinators, maybeSpace, spaces }
 import cats.Functor
 import cats.data.NonEmptyList
 import cats.implicits._
@@ -8,9 +8,11 @@ import fastparse.all._
 import org.bykn.fastparse_cats.StringInstances._
 import org.typelevel.paiges.{ Doc, Document }
 
+import Identifier.Bindable
+
 case class DefStatement[T](
-  name: String,
-  args: List[(String, Option[TypeRef])],
+  name: Bindable,
+  args: List[(Bindable, Option[TypeRef])],
   retType: Option[TypeRef], result: T) {
 
 
@@ -30,7 +32,7 @@ case class DefStatement[T](
     NonEmptyList.fromList(args) match {
       case None => bodyExp
       case Some(neargs) =>
-        val deepFunctor = Functor[NonEmptyList].compose[(String, ?)].compose[Option]
+        val deepFunctor = Functor[NonEmptyList].compose[(Bindable, ?)].compose[Option]
         Expr.buildLambda(deepFunctor.map(neargs)(trFn), bodyExp, tag)
     }
   }
@@ -47,10 +49,10 @@ object DefStatement {
         if (args.isEmpty) Doc.empty
         else {
           Doc.char('(') +
-            Doc.intercalate(Doc.text(", "), args.map(TypeRef.argDoc _)) +
+            Doc.intercalate(Doc.text(", "), args.map(TypeRef.argDoc[Bindable] _)) +
             Doc.char(')')
         }
-      val line0 = defDoc + Doc.text(name) + argDoc + res + Doc.text(":")
+      val line0 = defDoc + Document[Bindable].document(name) + argDoc + res + Doc.text(":")
 
       line0 + Document[T].document(result)
     }
@@ -59,9 +61,9 @@ object DefStatement {
      * The resultTParser should parse some indentation any newlines
      */
     def parser[T](resultTParser: P[T]): P[DefStatement[T]] = {
-      val args = argParser.nonEmptyList
+      val args = argParser.parensLines1
       val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser).?
-      P("def" ~ spaces ~/ lowerIdent ~ ("(" ~ maybeSpace ~ args ~ maybeSpace ~ ")").? ~
+      P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~
         result ~ maybeSpace ~ ":" ~/ resultTParser)
         .map {
           case (name, optArgs, resType, res) =>
@@ -73,6 +75,6 @@ object DefStatement {
         }
     }
 
-    val argParser: P[(String, Option[TypeRef])] =
-      P(lowerIdent ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
+    val argParser: P[(Bindable, Option[TypeRef])] =
+      P(Identifier.bindableParser ~ maybeSpace ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
 }

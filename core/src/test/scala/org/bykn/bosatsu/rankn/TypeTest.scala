@@ -9,7 +9,7 @@ import org.bykn.bosatsu.Generators
 object NTypeGen {
   val genRootType: Gen[Type] = {
     val genConst =
-      Gen.zip(Generators.packageNameGen, Generators.upperIdent)
+      Gen.zip(Generators.packageNameGen, Generators.typeNameGen)
         .map { case (p, n) => Type.TyConst(Type.Const.Defined(p, n)) }
 
     val genVar =

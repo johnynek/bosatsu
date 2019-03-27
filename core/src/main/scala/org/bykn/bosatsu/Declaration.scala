@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, Indy, lowerIdent, upperIdent, maybeSpace, spaces, toEOL }
+import Parser.{ Combinators, Indy, maybeSpace, spaces, toEOL }
 import cats.data.NonEmptyList
 import cats.implicits._
 import com.stripe.dagon.Memoize
@@ -11,6 +11,8 @@ import Indy.IndyMethods
 import org.bykn.fastparse_cats.StringInstances._
 
 import ListLang.{KVPair, SpliceOrItem}
+
+import Identifier.{Bindable, Constructor}
 
 /**
  * Represents the syntax version of Expr
@@ -24,8 +26,7 @@ sealed abstract class Declaration {
     this match {
       case Apply(fn, args, dotApply) =>
         val fnDoc = fn match {
-          case Var(n) => Doc.text(n)
-          case Constructor(c) => Doc.text(c)
+          case Var(n) => Identifier.document.document(n)
           case p@Parens(_) => p.toDoc
           case other => Doc.char('(') + other.toDoc + Doc.char(')')
         }
@@ -44,11 +45,9 @@ sealed abstract class Declaration {
         val withNewLine = Document.instance[Padding[Declaration]] { pd =>
            Doc.line + d0.document(pd)
         }
-        BindingStatement.document(Document[Pattern[Option[String], TypeRef]], withNewLine).document(b)
+        BindingStatement.document(Document[Pattern.Parsed], withNewLine).document(b)
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
-      case Constructor(name) =>
-        Doc.text(name)
       case DefFn(d) =>
         val pairDoc: Document[(OptIndent[Declaration], Padding[Declaration])] =
           Document.instance {
@@ -73,20 +72,20 @@ sealed abstract class Declaration {
         val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail.map(Doc.text("elif ") + checkBody(_))) ::: tail
         Doc.intercalate(Doc.line, parts)
       case Lambda(args, body) =>
-        Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Doc.text _)) + Doc.text(" -> ") + body.toDoc
+        Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Bindable].document(_))) + Doc.text(" -> ") + body.toDoc
       case Literal(lit) => Document[Lit].document(lit)
       case Match(kind, typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
 
-        implicit val patDoc: Document[(Pattern[Option[String], TypeRef], OptIndent[Declaration])] =
-          Document.instance[(Pattern[Option[String], TypeRef], OptIndent[Declaration])] {
+        implicit val patDoc: Document[(Pattern.Parsed, OptIndent[Declaration])] =
+          Document.instance[(Pattern.Parsed, OptIndent[Declaration])] {
             case (pat, decl) =>
-              Document[Pattern[Option[String], TypeRef]].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
+              Document[Pattern.Parsed].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
           }
         implicit def linesDoc[T: Document]: Document[NonEmptyList[T]] =
           Document.instance { ts => Doc.intercalate(Doc.line, ts.toList.map(Document[T].document _)) }
 
-        val piPat = Document[OptIndent[NonEmptyList[(Pattern[Option[String], TypeRef], OptIndent[Declaration])]]]
+        val piPat = Document[OptIndent[NonEmptyList[(Pattern.Parsed, OptIndent[Declaration])]]]
         val kindDoc = kind match {
           case RecursionKind.NonRecursive => Doc.text("match ")
           case RecursionKind.Recursive => Doc.text("recur ")
@@ -102,19 +101,19 @@ sealed abstract class Declaration {
       case TupleCons(items) =>
         Doc.char('(') + Doc.intercalate(Doc.text(", "),
           items.map(_.toDoc)) + Doc.char(')')
-      case Var(name) => Doc.text(name)
+      case Var(name) => Document[Identifier].document(name)
 
       case ListDecl(list) =>
-        ListLang.document[Declaration, Pattern[Option[String], TypeRef]].document(list)
+        ListLang.document[Declaration, Pattern.Parsed].document(list)
 
       case DictDecl(dict) =>
-        ListLang.documentDict[Declaration, Pattern[Option[String], TypeRef]].document(dict)
+        ListLang.documentDict[Declaration, Pattern.Parsed].document(dict)
     }
   }
 
   def toExpr(
-    nameToType: String => rankn.Type.Const,
-    nameToCons: String => (PackageName, ConstructorName)): Expr[Declaration] = {
+    nameToType: Constructor => rankn.Type.Const,
+    nameToCons: Constructor => (PackageName, Constructor)): Expr[Declaration] = {
 
     def loop(decl: Declaration): Expr[Declaration] =
       decl match {
@@ -139,8 +138,6 @@ sealed abstract class Declaration {
           }
         case Comment(CommentStatement(_, Padding(_, decl))) =>
           loop(decl).map(_ => decl)
-        case Constructor(name) =>
-          Expr.Var(None, name, decl)
         case DefFn(defstmt@DefStatement(_, _, _, _)) =>
           val (bodyExpr, inExpr) = defstmt.result match {
             case (oaBody, Padding(_, in)) =>
@@ -168,8 +165,8 @@ sealed abstract class Declaration {
           Expr.Literal(lit, decl)
         case Parens(p) =>
           loop(p).map(_ => decl)
-        case Var(name) =>
-          Expr.Var(None, name, decl)
+        case Var(ident) =>
+          Expr.Var(None, ident, decl)
         case Match(_, arg, branches) =>
           /*
            * The recursion kind is only there for DefRecursionCheck, once
@@ -182,8 +179,8 @@ sealed abstract class Declaration {
           }
           Expr.Match(loop(arg), expBranches, decl)
         case tc@TupleCons(its) =>
-          val tup0: Expr[Declaration] = Expr.Var(Some(Predef.packageName), "Unit", tc)
-          val tup2: Expr[Declaration] = Expr.Var(Some(Predef.packageName), "Tuple2", tc)
+          val tup0: Expr[Declaration] = Expr.Var(Some(Predef.packageName), Identifier.Constructor("Unit"), tc)
+          val tup2: Expr[Declaration] = Expr.Var(Some(Predef.packageName), Identifier.Constructor("Tuple2"), tc)
           def tup(args: List[Declaration]): Expr[Declaration] =
             args match {
               case Nil => tup0
@@ -206,12 +203,17 @@ sealed abstract class Declaration {
               }
 
               val pn = Option(Predef.packageName)
-              val empty: Expr[Declaration] = Expr.Var(pn, "EmptyList", l)
+              def mkC(c: String): Expr[Declaration] =
+                Expr.Var(pn, Identifier.Constructor(c), l)
+              def mkN(c: String): Expr[Declaration] =
+                Expr.Var(pn, Identifier.Name(c), l)
+
+              val empty: Expr[Declaration] = mkC("EmptyList")
               def cons(head: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
-                Expr.App(Expr.App(Expr.Var(pn, "NonEmptyList", l), head, l), tail, l)
+                Expr.App(Expr.App(mkC("NonEmptyList"), head, l), tail, l)
 
               def concat(headList: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
-                Expr.App(Expr.App(Expr.Var(pn, "concat", l), headList, l), tail, l)
+                Expr.App(Expr.App(mkN("concat"), headList, l), tail, l)
 
               revDecs.foldLeft(empty) {
                 case (tail, SpliceOrItem.Item(i)) =>
@@ -253,19 +255,20 @@ sealed abstract class Declaration {
                 case (SpliceOrItem.Item(_) | SpliceOrItem.Splice(_), _) =>
                   "flat_map_List"
               }
-              val opExpr: Expr[Declaration] = Expr.Var(pn, opName, l)
+              val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name(opName), l)
               val resExpr: Expr[Declaration] = (res, filter) match {
                 case (itOrSp, None) =>
                   loop(itOrSp.value)
                 case (itOrSp, Some(cond)) =>
-                  val empty: Expr[Declaration] = Expr.Var(pn, "EmptyList", cond)
+                  val empty: Expr[Declaration] =
+                    Expr.Var(pn, Identifier.Constructor("EmptyList"), cond)
                   // we need theReturn
                   val r = itOrSp.value
                   val ritem = loop(r)
                   val sing = itOrSp match {
                     case SpliceOrItem.Item(_) =>
                       Expr.App(
-                        Expr.App(Expr.Var(pn, "NonEmptyList", r), ritem, r),
+                        Expr.App(Expr.Var(pn, Identifier.Constructor("NonEmptyList"), r), ritem, r),
                         empty,
                         r)
                     case SpliceOrItem.Splice(_) => ritem
@@ -276,7 +279,7 @@ sealed abstract class Declaration {
                     empty,
                     cond)
               }
-              val unusedSymbol0: String = "$a" // TODO we should have better ways to gensym
+              val unusedSymbol0 = Identifier.Name("$a") // TODO we should have better ways to gensym
               val newPattern = unTuplePattern(binding, nameToType, nameToCons)
               val body: Expr[Declaration] =
                 Expr.Match(Expr.Var(None, unusedSymbol0, l),
@@ -286,13 +289,13 @@ sealed abstract class Declaration {
           }
         case l@DictDecl(dict) =>
           val pn = Option(Predef.packageName)
-          val empty: Expr[Declaration] = {
-            val efn: Expr[Declaration] = Expr.Var(pn, "empty_Dict", l)
-            val sord: Expr[Declaration] = Expr.Var(pn, "string_Order", l)
-            Expr.App(efn, sord, l)
-          }
+          def mkN(n: String): Expr[Declaration] =
+            Expr.Var(pn, Identifier.Name(n), l)
+          val empty: Expr[Declaration] =
+            Expr.App(mkN("empty_Dict"), mkN("string_Order"), l)
+
           def add(dict: Expr[Declaration], k: Expr[Declaration], v: Expr[Declaration]): Expr[Declaration] = {
-            val fn: Expr[Declaration] = Expr.Var(pn, "add_key", l)
+            val fn = mkN("add_key")
             Expr.App(Expr.App(Expr.App(fn, dict, l), k, l), v, l)
           }
           dict match {
@@ -319,9 +322,9 @@ sealed abstract class Declaration {
                *   )
                */
               val pn = Option(Predef.packageName)
-              val opExpr: Expr[Declaration] = Expr.Var(pn, "foldLeft", l)
-              val dictSymbol: String = "$d" // TODO we should have better ways to gensym
-              val elemSymbol: String = "$e"
+              val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name("foldLeft"), l)
+              val dictSymbol = Identifier.Name("$d") // TODO we should have better ways to gensym
+              val elemSymbol = Identifier.Name("$e")
               val init: Expr[Declaration] = Expr.Var(None, dictSymbol, l)
               val added = add(init, loop(k), loop(v))
 
@@ -367,23 +370,23 @@ object Declaration {
   /**
    * Tuples are converted into standard types using an HList strategy
    */
-  def unTuplePattern(pat: Pattern[Option[String], TypeRef],
-    nameToType: String => rankn.Type.Const,
-    nameToCons: String => (PackageName, ConstructorName)): Pattern[(PackageName, ConstructorName), rankn.Type] =
-      pat.mapStruct[(PackageName, ConstructorName)] {
+  def unTuplePattern(pat: Pattern.Parsed,
+    nameToType: Constructor => rankn.Type.Const,
+    nameToCons: Constructor => (PackageName, Constructor)): Pattern[(PackageName, Constructor), rankn.Type] =
+      pat.mapStruct[(PackageName, Constructor)] {
         case (None, args) =>
           // this is a tuple pattern
-          def loop(args: List[Pattern[(PackageName, ConstructorName), TypeRef]]): Pattern[(PackageName, ConstructorName), TypeRef] =
+          def loop(args: List[Pattern[(PackageName, Constructor), TypeRef]]): Pattern[(PackageName, Constructor), TypeRef] =
             args match {
               case Nil =>
                 // ()
                 Pattern.PositionalStruct(
-                  (Predef.packageName, ConstructorName("Unit")),
+                  (Predef.packageName, Constructor("Unit")),
                   Nil)
               case h :: tail =>
                 val tailP = loop(tail)
                 Pattern.PositionalStruct(
-                  (Predef.packageName, ConstructorName("Tuple2")),
+                  (Predef.packageName, Constructor("Tuple2")),
                   h :: tailP :: Nil)
             }
 
@@ -404,31 +407,30 @@ object Declaration {
   //
 
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration], useDotApply: Boolean)(implicit val region: Region) extends Declaration
-  case class Binding(binding: BindingStatement[Pattern[Option[String], TypeRef], Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class Binding(binding: BindingStatement[Pattern.Parsed, Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
-  case class Constructor(name: String)(implicit val region: Region) extends Declaration
   case class DefFn(deffn: DefStatement[(OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
   case class IfElse(ifCases: NonEmptyList[(Declaration, OptIndent[Declaration])],
     elseCase: OptIndent[Declaration])(implicit val region: Region) extends Declaration
-  case class Lambda(args: NonEmptyList[String], body: Declaration)(implicit val region: Region) extends Declaration
+  case class Lambda(args: NonEmptyList[Bindable], body: Declaration)(implicit val region: Region) extends Declaration
   case class Literal(lit: Lit)(implicit val region: Region) extends Declaration
   case class Match(
     kind: RecursionKind,
     arg: Declaration,
-    cases: OptIndent[NonEmptyList[(Pattern[Option[String], TypeRef], OptIndent[Declaration])]])(
+    cases: OptIndent[NonEmptyList[(Pattern.Parsed, OptIndent[Declaration])]])(
     implicit val region: Region) extends Declaration
   case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
   case class TupleCons(items: List[Declaration])(implicit val region: Region) extends Declaration
-  case class Var(name: String)(implicit val region: Region) extends Declaration
+  case class Var(name: Identifier)(implicit val region: Region) extends Declaration
 
   /**
    * This represents the list construction language
    */
-  case class ListDecl(list: ListLang[SpliceOrItem, Declaration, Pattern[Option[String], TypeRef]])(implicit val region: Region) extends Declaration
+  case class ListDecl(list: ListLang[SpliceOrItem, Declaration, Pattern.Parsed])(implicit val region: Region) extends Declaration
   /**
    * Here are dict constructors and comprehensions
    */
-  case class DictDecl(list: ListLang[ListLang.KVPair, Declaration, Pattern[Option[String], TypeRef]])(implicit val region: Region) extends Declaration
+  case class DictDecl(list: ListLang[ListLang.KVPair, Declaration, Pattern.Parsed])(implicit val region: Region) extends Declaration
 
   val matchKindParser: P[RecursionKind] =
     (P("match").map(_ => RecursionKind.NonRecursive) | P("recur").map(_ => RecursionKind.Recursive))
@@ -439,22 +441,23 @@ object Declaration {
    * TODO, patterns don't parse with regions, so we lose track of precise position information
    * if we want to point to an inner portion of it
    */
-  def toPattern(d: Declaration): Option[Pattern[Option[String], TypeRef]] =
+  def toPattern(d: Declaration): Option[Pattern.Parsed] =
     d match {
-      case Var(v) => Some(Pattern.Var(v))
+      case Var(nm@Identifier.Constructor(_)) =>
+        Some(Pattern.PositionalStruct(Some(nm), Nil))
+      case Var(v: Bindable) => Some(Pattern.Var(v))
       case Literal(lit) => Some(Pattern.Literal(lit))
       case ListDecl(ListLang.Cons(elems)) =>
-        val optParts: Option[List[Either[Option[String], Pattern[Option[String], TypeRef]]]] =
+        val optParts: Option[List[Either[Option[Bindable], Pattern.Parsed]]] =
           elems.traverse {
-            case SpliceOrItem.Splice(Var(n)) =>
-              Some(Left(Some(n)))
+            case SpliceOrItem.Splice(Var(bn: Bindable)) =>
+              Some(Left(Some(bn)))
             case SpliceOrItem.Item(p) =>
               toPattern(p).map(Right(_))
             case _ => None
           }
         optParts.map(Pattern.ListPat(_))
-      case Constructor(nm) => Some(Pattern.PositionalStruct(Some(nm), Nil))
-      case Apply(Constructor(nm), args, false) =>
+      case Apply(Var(nm@Identifier.Constructor(_)), args, false) =>
         args.traverse(toPattern(_)).map { argPats =>
           Pattern.PositionalStruct(Some(nm), argPats.toList)
         }
@@ -470,16 +473,13 @@ object Declaration {
     (Indy.parseIndent *> parser).mapF(Padding.parser(_))
 
   // This is something we check after variables
-  private val bindingOp: Indy[(Pattern[Option[String], TypeRef], Region) => Binding] = {
-    BindingStatement.bindingParser[Pattern[Option[String], TypeRef], Padding[Declaration]](parser <* Indy.lift(toEOL), restP)
+  private val bindingOp: Indy[(Pattern.Parsed, Region) => Binding] = {
+    BindingStatement.bindingParser[Pattern.Parsed, Padding[Declaration]](parser <* Indy.lift(toEOL), restP)
       .region
       .map { case (region, fn) =>
-        { (pat: Pattern[Option[String], TypeRef], r: Region) => Binding(fn(pat))(r + region) }
+        { (pat: Pattern.Parsed, r: Region) => Binding(fn(pat))(r + region) }
       }
   }
-
-  val constructorP: P[Constructor] =
-    upperIdent.region.map { case (r, c) => Constructor(c)(r) }.opaque("Constructor")
 
   val commentP: Parser.Indy[Comment] =
     CommentStatement.parser(Parser.Indy { indent => Padding.parser(P(indent ~ parser(indent)))})
@@ -527,7 +527,7 @@ object Declaration {
   }
 
   val lambdaP: Indy[Lambda] = {
-    val params = Indy.lift(P("\\" ~/ maybeSpace ~ lowerIdent.nonEmptyList))
+    val params = Indy.lift(P("\\" ~/ maybeSpace ~ Identifier.bindableParser.nonEmptyList))
 
     Indy.blockLike(params, parser, P(maybeSpace ~ "->"))
       .region
@@ -546,7 +546,10 @@ object Declaration {
   }
 
   val varP: P[Var] =
-    lowerIdent.region.map { case (r, v) => Var(v)(r) }
+    Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
+
+  val constructorP: P[Var] =
+    Identifier.consParser.region.map { case (r, i) => Var(i)(r) }
 
   private val patternBind: Indy[Declaration] =
     Indy.lift(Pattern.parser.region).product(bindingOp)

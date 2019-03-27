@@ -9,19 +9,21 @@ import cats.implicits._
 import cats.data.NonEmptyList
 import cats.{Applicative, Eval, Traverse}
 
+import Identifier.{Bindable, Constructor}
+
 sealed abstract class Expr[T] {
   def tag: T
 }
 
 object Expr {
   case class Annotation[T](expr: Expr[T], tpe: rankn.Type, tag: T) extends Expr[T]
-  case class AnnotatedLambda[T](arg: String, tpe: rankn.Type, expr: Expr[T], tag: T) extends Expr[T]
-  case class Var[T](pack: Option[PackageName], name: String, tag: T) extends Expr[T]
+  case class AnnotatedLambda[T](arg: Bindable, tpe: rankn.Type, expr: Expr[T], tag: T) extends Expr[T]
+  case class Var[T](pack: Option[PackageName], name: Identifier, tag: T) extends Expr[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
-  case class Lambda[T](arg: String, expr: Expr[T], tag: T) extends Expr[T]
-  case class Let[T](arg: String, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
+  case class Lambda[T](arg: Bindable, expr: Expr[T], tag: T) extends Expr[T]
+  case class Let[T](arg: Bindable, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
-  case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])], tag: T) extends Expr[T]
+  case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), rankn.Type], Expr[T])], tag: T) extends Expr[T]
 
   implicit def hasRegion[T: HasRegion]: HasRegion[Expr[T]] =
     HasRegion.instance[Expr[T]] { e => HasRegion.region(e.tag) }
@@ -29,10 +31,10 @@ object Expr {
   /*
    * Allocate these once
    */
-  private[this] val TruePat: Pattern[(PackageName, ConstructorName), rankn.Type] =
-    Pattern.PositionalStruct((Predef.packageName, ConstructorName("True")), Nil)
-  private[this] val FalsePat: Pattern[(PackageName, ConstructorName), rankn.Type] =
-    Pattern.PositionalStruct((Predef.packageName, ConstructorName("False")), Nil)
+  private[this] val TruePat: Pattern[(PackageName, Constructor), rankn.Type] =
+    Pattern.PositionalStruct((Predef.packageName, Constructor("True")), Nil)
+  private[this] val FalsePat: Pattern[(PackageName, Constructor), rankn.Type] =
+    Pattern.PositionalStruct((Predef.packageName, Constructor("False")), Nil)
   /**
    * build a Match expression that is equivalent to if/else using Predef::True and Predef::False
    */
@@ -55,7 +57,7 @@ object Expr {
       case l@Literal(_, _) => F.pure(l)
       case Match(arg, branches, tag) =>
         val argB = traverseType(arg, fn)
-        type B = (Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])
+        type B = (Pattern[(PackageName, Constructor), rankn.Type], Expr[T])
         def branchFn(b: B): F[B] =
           b match {
             case (pat, expr) =>
@@ -71,8 +73,8 @@ object Expr {
 
       // Traverse on NonEmptyList[(Pattern[_], Expr[?])]
       private lazy val tne = {
-        type Tup[T] = (Pattern[(PackageName, ConstructorName), rankn.Type], T)
-        type TupExpr[T] = (Pattern[(PackageName, ConstructorName), rankn.Type], Expr[T])
+        type Tup[T] = (Pattern[(PackageName, Constructor), rankn.Type], T)
+        type TupExpr[T] = (Pattern[(PackageName, Constructor), rankn.Type], Expr[T])
         val tup: Traverse[TupExpr] = Traverse[Tup].compose(exprTraverse)
         Traverse[NonEmptyList].compose(tup)
       }
@@ -164,7 +166,7 @@ object Expr {
         }
     }
 
-  def buildLambda[A](args: NonEmptyList[(String, Option[rankn.Type])], body: Expr[A], outer: A): Expr[A] =
+  def buildLambda[A](args: NonEmptyList[(Bindable, Option[rankn.Type])], body: Expr[A], outer: A): Expr[A] =
     args match {
       case NonEmptyList((arg, None), Nil) =>
         Expr.Lambda(arg, body, outer)
