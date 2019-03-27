@@ -43,6 +43,9 @@ object Identifier {
   final case class Constructor(asString: String) extends Identifier
   final case class Name(asString: String) extends Bindable
   final case class Backticked(asString: String) extends Bindable
+  final case class Operator(asString: String) extends Bindable
+
+  private[this] val opPrefix = Doc.text("operator ")
 
   implicit def document[A <: Identifier]: Document[A] =
     Document.instance[A] {
@@ -50,16 +53,34 @@ object Identifier {
         Doc.char('`') + Doc.text(Parser.escape('`', lit)) + Doc.char('`')
       case Constructor(n) => Doc.text(n)
       case Name(n) => Doc.text(n)
+      case Operator(n) => opPrefix + Doc.text(n)
     }
 
   val nameParser: P[Name] =
     lowerIdent.map(Name(_))
 
-  val bindableParser: P[Bindable] =
-    nameParser | Parser.escapedString('`').map(Backticked(_))
-
   val consParser: P[Constructor] =
     upperIdent.map(Constructor(_))
+
+  /**
+   * This is used to apply operators, it is the
+   * raw operator tokens without an `operator` prefix
+   */
+  val rawOperator: P[Operator] =
+    Parser.operatorToken.map(Operator(_))
+
+  /**
+   * the keyword operator preceding a rawOperator
+   */
+  val operator: P[Operator] =
+    P("operator" ~ Parser.spaces ~ rawOperator)
+
+  /**
+   * Name, Backticked or non-raw operator
+   */
+  val bindableParser: P[Bindable] =
+    // operator has to come first to not look like a Name
+    operator | nameParser | Parser.escapedString('`').map(Backticked(_))
 
   val parser: P[Identifier] =
     bindableParser | consParser
@@ -81,11 +102,7 @@ object Identifier {
     }
 
   implicit def order[A <: Identifier]: Order[A] =
-    Order.by[A, String] {
-      case Name(s) => s
-      case Backticked(s) => s
-      case Constructor(s) => s
-    }
+    Order.by[A, String](_.asString)
 
   implicit def ordering[A <: Identifier]: Ordering[A] =
     order[A].toOrdering

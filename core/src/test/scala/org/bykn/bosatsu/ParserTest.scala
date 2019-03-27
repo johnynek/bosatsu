@@ -7,6 +7,7 @@ import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.{Doc, Document}
 
+import cats.implicits._
 import fastparse.all._
 import Parser.Indy
 
@@ -33,15 +34,11 @@ object TestParseUtils {
 
 }
 
-class ParserTest extends FunSuite {
+abstract class ParserTestBase extends FunSuite {
   import TestParseUtils._
-  // This is so we can make Declarations without the region
-  private[this] implicit val emptyRegion: Region = Region(0, 0)
 
-  implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 300)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  // This is so we can make Declarations without the region
+  protected implicit val emptyRegion: Region = Region(0, 0)
 
   def parseUnsafe[A](p: Parser[A], str: String): A =
     p.parse(str) match {
@@ -101,8 +98,14 @@ class ParserTest extends FunSuite {
         assert(idx == atIdx)
     }
 
-  def mkVar(n: String): Declaration.Var =
-    Declaration.Var(Identifier.Name(n))
+}
+
+class ParserTest extends ParserTestBase {
+  import TestParseUtils._
+  implicit val generatorDrivenConfig =
+    //PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = 300)
+    //PropertyCheckConfiguration(minSuccessful = 5)
 
   test("we can parse integers") {
     forAll { b: BigInt =>
@@ -201,7 +204,7 @@ class ParserTest extends FunSuite {
     forAll(Generators.identifierGen)(law(Identifier.parser))
 
     val examples = List("foo", "`bar`", "`bar foo`",
-      "`with \\`internal`")
+      "`with \\`internal`", "operator +")
 
     examples.foreach(roundTrip(Identifier.parser, _))
   }
@@ -372,6 +375,37 @@ class ParserTest extends FunSuite {
     roundTrip(ListLang.SpliceOrItem.parser(pident), "*a")
   }
 
+  test("we can parse operators") {
+    val singleToks = List(
+      "+", "-", "*", "!", "$", "%",
+      "^", "&", "*", "|", "?", "/", "<",
+      ">", "~")
+    val withEq = "=" :: singleToks
+
+    val allLen2 = (withEq, withEq).mapN(_ + _)
+    val allLen3 = (allLen2, withEq).mapN(_ + _)
+
+    (singleToks ::: allLen2 ::: allLen3).foreach { opStr =>
+      roundTrip(Parser.operatorToken, opStr)
+    }
+
+    expectFail(Parser.operatorToken, "=", 0)
+  }
+}
+
+/**
+ * This is a separate class since some of these are very slow
+ */
+class SyntaxParseTest extends ParserTestBase {
+
+  implicit val generatorDrivenConfig =
+    //PropertyCheckConfiguration(minSuccessful = 5000)
+    //PropertyCheckConfiguration(minSuccessful = 300)
+    PropertyCheckConfiguration(minSuccessful = 5)
+
+  def mkVar(n: String): Declaration.Var =
+    Declaration.Var(Identifier.Name(n))
+
   test("we can parse comments") {
     val gen = Generators.commentGen(Generators.padding(Generators.genDeclaration(0), 1))
     forAll(gen) { comment =>
@@ -450,31 +484,33 @@ x""")
   test("we can parse any Apply") {
     import Declaration._
 
+    import ApplyKind.{Dot => ADot, Parens => AParens }
+
     parseTestAll(parser(""),
       "x(f)",
-      Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), false))
+      Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), AParens))
 
     parseTestAll(parser(""),
       "f.x",
-      Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), true))
+      Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), ADot))
 
     parseTestAll(parser(""),
       "f(foo).x",
-      Apply(mkVar("x"), NonEmptyList.of(Apply(mkVar("f"), NonEmptyList.of(mkVar("foo")), false)), true))
+      Apply(mkVar("x"), NonEmptyList.of(Apply(mkVar("f"), NonEmptyList.of(mkVar("foo")), AParens)), ADot))
 
     parseTestAll(parser(""),
       "f.foo(x)", // foo(f, x)
-      Apply(mkVar("foo"), NonEmptyList.of(mkVar("f"), mkVar("x")), true))
+      Apply(mkVar("foo"), NonEmptyList.of(mkVar("f"), mkVar("x")), ADot))
 
     parseTestAll(parser(""),
       "(\\x -> x)(f)",
-      Apply(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x"))), NonEmptyList.of(mkVar("f")), false))
+      Apply(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x"))), NonEmptyList.of(mkVar("f")), AParens))
 
     parseTestAll(parser(""),
       "((\\x -> x)(f))",
-      Parens(Apply(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x"))), NonEmptyList.of(mkVar("f")), false)))
+      Parens(Apply(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x"))), NonEmptyList.of(mkVar("f")), AParens)))
 
-    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x")))), NonEmptyList.of(mkVar("f")), false)
+    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x")))), NonEmptyList.of(mkVar("f")), AParens)
     parseTestAll(parser(""),
       "((\\x -> x))(f)",
       expected)
@@ -549,13 +585,13 @@ x""",
       """x = foo(4)
 
 x""",
-    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")), Apply(mkVar("foo"), NonEmptyList.of(Literal(Lit.fromInt(4))), false), Padding(1, mkVar("x")))))
+    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")), Apply(mkVar("foo"), NonEmptyList.of(Literal(Lit.fromInt(4))), ApplyKind.Parens), Padding(1, mkVar("x")))))
 
     parseTestAll(parser(""),
       """x = foo(4)
 # x is really great
 x""",
-    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")),Apply(mkVar("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), false),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,mkVar("x"))))))))
+    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")),Apply(mkVar("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), ApplyKind.Parens),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,mkVar("x"))))))))
 
   }
 
@@ -746,6 +782,13 @@ def foo(x): x""")
 """#
 def foo(x):
   x""")
+
+    roundTrip(Statement.parser,
+"""#
+operator + = plus
+
+x = 1+2
+""")
 
     roundTrip(Statement.parser,
 """# header

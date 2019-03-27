@@ -234,7 +234,7 @@ object Generators {
       useDot = dotApply && isVar(fn) // f.bar needs the fn to be a var
       argsGen = if (useDot) arg.map(NonEmptyList(_, Nil)) else nonEmpty(arg)
       args <- argsGen
-    } yield Apply(fn, args, false)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
+    } yield Apply(fn, args, ApplyKind.Parens)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
 
   def bindGen[A, T](patGen: Gen[A], dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[A, T]] =

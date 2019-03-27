@@ -294,4 +294,24 @@ object Parser {
   }
 
   val toEOL: P[Unit] = P(maybeSpace ~ "\n")
+
+  /**
+   * Here are a list of operators we allow
+   */
+  val operatorToken: P[String] = {
+    def from(strs: Iterable[String]): P[Unit] =
+      strs.map(P(_)).reduce(_ | _)
+
+    val singleToks = List(
+      "+", "-", "*", "!", "$", "%",
+      "^", "&", "|", "?", "/", "<",
+      ">", "~")
+
+    val singles = from(singleToks)
+    // = can appear with at least one other character
+    val withEqual = from("=" :: singleToks).rep(min = 2)
+    // we can also repeat core operators one or more times
+    val noEqual = singles.rep(min = 1)
+    (withEqual | noEqual).!
+  }
 }
