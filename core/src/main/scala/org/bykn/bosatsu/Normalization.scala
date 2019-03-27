@@ -169,13 +169,42 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   Map[(PackageName, String), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] =
     for {
-      arg <- normalizeExpr(m.arg, env, p)
-      branches <- (m.branches.map { case (pat, expr) => normalizeExpr(expr, env, p).map((pat, _))}).sequence
-    }
-    yield Match(arg=arg,
-      branches=branches,
-      tag=normalizeTag(m.tag)
-      )
+      eArg <- normalizeExpr(m.arg, env, p)
+      dtName = Type.rootDeclared(scheme.result).get
+      dt = p.unfix.program.types.definedTypes.collectFirst {
+        case (_, dtValue) if dtValue.name.asString == dtName.name => dtValue
+      }.get
+      enumLookup = dt.constructors.map(_._1.asString).zipWithIndex.toMap
+
+      eBranches <- branches.map {
+        case (pattern, e) => {
+          val enum = enumLookup(pattern.typeName._2.asString)
+          val lambdaVars = pattern.bindings.reverse ++ env._2
+          val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
+            .collect { case (Some(n), i) => (n, i) }
+            .toMap
+            .mapValues(idx => NETag(LambdaVar(idx), Set())),
+            lambdaVars)
+          for (ee <- recurse((p, Right(e), nextEnv))) yield {
+            val tag = ee.tag
+            val ne = (1 to pattern.bindings.length).foldLeft(tag._3.ne) {
+              case (e, _) => Lambda(e)
+            }
+            (pattern, enum, ee.setTag((tag._1, tag._2, NETag(ne, tag._3.children))))
+          }
+        }
+      }.sequence
+      } yield {
+        val ne = Match(eArg.tag._3.ne, eBranches.map {
+          case (p, i, b) => (i, b.tag._3.ne)
+        })
+        val children = eBranches.foldLeft(combineWithChildren(eArg.tag._3)) {
+          case (s, (_, _, b)) => s ++ combineWithChildren(b.tag._3)
+        }
+        Expr.Match(eArg,
+          eBranches.map { case (p, i, b) => (p, b) },
+          addNEToTag(t, NETag(ne, children)))
+      }
 
   def normalizePackageLet(pkgName: PackageName, inferredExpr: (String, RecursionKind, TypedExpr[Declaration]), pack: Package.Inferred): State[
   Map[(PackageName, String), ResultingRef], (String, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)])] = {
