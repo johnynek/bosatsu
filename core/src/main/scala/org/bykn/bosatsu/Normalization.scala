@@ -7,7 +7,16 @@ import rankn._
 import Identifier.Constructor
 
 sealed abstract class NormalExpression {
-  val maxLambdaVar: Option[Int]
+  /*
+   * maxLambdaVar is to keep track of what is the largest de bruijn index
+   * of lambda variables in the expression. This is useful because if this number
+   * is positive then there are unbound variables and it should not be cached (unless
+   * you want to be clever about cacheing values for when they are bound in an outer
+   * scope). And when they are negative it implies there are eta reduction opportunities.
+   * None essentially means -Infinity as either there are no linked expressions
+   * or there are no lambda variables used in the linked expressions
+   */
+  def maxLambdaVar: Option[Int]
 }
 
 object NormalExpression {
