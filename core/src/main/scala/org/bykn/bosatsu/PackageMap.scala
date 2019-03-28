@@ -52,7 +52,18 @@ object PackageMap {
   type MapF2[A, B] = MapF3[A, A, B]
   type ParsedImp = PackageMap[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
   type Resolved = MapF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = PackageMap[Package.Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
+  type Typed[T] = PackageMap[
+    Package.Interface,
+    NonEmptyList[Referant[Variance]],
+    Referant[Variance],
+    Program[
+      TypeEnv[Variance],
+      TypedExpr[T],
+      Statement
+    ]
+  ]
+  
+  type Inferred = Typed[Declaration]
 
   /**
    * This builds a DAG of actual packages where names have been replaced by the fully resolved
