@@ -82,7 +82,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     Map[(PackageName, Identifier), ResultingRef],
     TypedExpr[(Declaration, NormalExpressionTag)]] =
       expr match {
-        case a@Annotation(_, _, _) => normalizeAnotation(a, env, p)
+        case a@Annotation(_, _, _) => normalizeAnnotation(a, env, p)
         case g@Generic(_, _, _) => normalizeGeneric(g, env, p)
         case v@Var(_, _, _, _) => normalizeVar(v, env, p)
         case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al, env, p).map(_.asInstanceOf[TypedExpr[(Declaration, NormalExpressionTag)]])
@@ -94,7 +94,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
 
   private def combineWithChildren(nt: NormalExpressionTag) = nt.children + nt.ne
 
-  def normalizeAnotation(a: Annotation[Declaration], env: Env, p: Package.Inferred): State[
+  def normalizeAnnotation(a: Annotation[Declaration], env: Env, p: Package.Inferred): State[
   Map[(PackageName, Identifier), ResultingRef],
   TypedExpr[(Declaration, NormalExpressionTag)]] =
     for {
