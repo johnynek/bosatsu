@@ -6,7 +6,8 @@ import org.scalatest.{Assertion, Assertions}
 
 import fastparse.all.Parsed
 
-import Assertions.fail
+import Assertions.{succeed, fail}
+import cats.implicits._
 
 object TestUtils {
   import TestParseUtils.region
@@ -56,4 +57,102 @@ object TestUtils {
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
     }
+
+  sealed abstract class EvaluationMode[A] {
+    def expected: A
+  }
+  object EvaluationMode {
+    case class JsonMode(expected: Json) extends EvaluationMode[Json]
+    case class EvalMode(expected: Evaluation.Value) extends EvaluationMode[Evaluation.Value]
+    case class TestMode(expected: Int) extends EvaluationMode[Int] {
+    }
+  }
+
+  def evalTest(packages: List[String], mainPackS: String, expected: Evaluation.Value, extern: Externals = Externals.empty) =
+    evalTestMode(packages, mainPackS, EvaluationMode.EvalMode(expected), extern)
+
+  def evalTestJson(packages: List[String], mainPackS: String, expected: Json, extern: Externals = Externals.empty) =
+    evalTestMode(packages, mainPackS, EvaluationMode.JsonMode(expected), extern)
+
+  def runBosatsuTest(packages: List[String], mainPackS: String, assertionCount: Int, extern: Externals = Externals.empty) =
+    evalTestMode(packages, mainPackS, EvaluationMode.TestMode(assertionCount), extern)
+
+  def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals = Externals.empty) = {
+    val mainPack = PackageName.parse(mainPackS).get
+
+    val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
+      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
+        ((i.toString, lm), parsed)
+      }
+    }
+
+    val parsedPaths = parsed match {
+      case Validated.Valid(vs) => vs
+      case Validated.Invalid(errs) =>
+        errs.toList.foreach { p =>
+          p.showContext.foreach(System.err.println)
+        }
+        sys.error("failed to parse") //errs.toString)
+    }
+
+    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
+      case (dups, Validated.Valid(packMap)) if dups.isEmpty =>
+        val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
+        ev.evaluateLast(mainPack) match {
+          case None => fail("found no main expression")
+          case Some((eval, schm)) =>
+            expected match {
+              case EvaluationMode.EvalMode(exp) => assert(eval.value == exp)
+              case EvaluationMode.JsonMode(json) =>
+                assert(ev.toJson(eval.value, schm) == Some(json))
+              case EvaluationMode.TestMode(cnt) =>
+                ev.evalTest(mainPack) match {
+                  case None => fail(s"$mainPack had no tests evaluted")
+                  case Some(t) =>
+                    assert(t.assertions == cnt)
+                    val (suc, failcount, message) = Test.report(t)
+                    assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
+                    if (failcount > 0) fail(message.render(80))
+                    else succeed
+                }
+            }
+        }
+
+      case (other, Validated.Invalid(errs)) =>
+        val tes = errs.toList.collect {
+          case PackageError.TypeErrorIn(te, _) =>
+            te.message
+        }
+        .mkString("\n")
+        fail(tes + "\n" + errs.toString)
+    }
+  }
+
+  def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
+    val mainPack = PackageName.parse(mainPackS).get
+
+    val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
+      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
+        ((i.toString, lm), parsed)
+      }
+    }
+
+    val parsedPaths = parsed match {
+      case Validated.Valid(vs) => vs
+      case Validated.Invalid(errs) =>
+        sys.error(errs.toString)
+    }
+
+    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
+      case (_, Validated.Valid(_)) =>
+        fail("expected to fail type checking")
+
+      case (_, Validated.Invalid(errs)) if errs.collect(errFn).nonEmpty =>
+        assert(true)
+      case (_, Validated.Invalid(errs)) =>
+          fail(s"failed, but no type errors: $errs")
+    }
+  }
+
+
 }
