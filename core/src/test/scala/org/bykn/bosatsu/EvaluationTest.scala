@@ -1,84 +1,12 @@
 package org.bykn.bosatsu
 
-import cats.data.Validated
-import cats.implicits._
 import org.scalatest.FunSuite
 
 import Evaluation.Value._
 
 class EvaluationTest extends FunSuite {
-  def evalTest(packages: List[String], mainPackS: String, expected: Any, extern: Externals = Externals.empty) =
-    evalTestEither(packages, mainPackS, Left(expected), extern)
 
-  def evalTestJson(packages: List[String], mainPackS: String, expected: Json, extern: Externals = Externals.empty) =
-    evalTestEither(packages, mainPackS, Right(expected), extern)
-
-  def evalTestEither(packages: List[String], mainPackS: String, expected: Either[Any, Json], extern: Externals = Externals.empty) = {
-    val mainPack = PackageName.parse(mainPackS).get
-
-    val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
-      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
-        ((i.toString, lm), parsed)
-      }
-    }
-
-    val parsedPaths = parsed match {
-      case Validated.Valid(vs) => vs
-      case Validated.Invalid(errs) =>
-        errs.toList.foreach { p =>
-          p.showContext.foreach(System.err.println)
-        }
-        sys.error("failed to parse") //errs.toString)
-    }
-
-    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
-      case (dups, Validated.Valid(packMap)) if dups.isEmpty =>
-        val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
-        ev.evaluateLast(mainPack) match {
-          case None => fail("found no main expression")
-          case Some((eval, schm)) =>
-            expected match {
-              case Left(exp) => assert(eval.value == exp)
-              case Right(json) =>
-                assert(ev.toJson(eval.value, schm) === Some(json))
-            }
-        }
-
-      case (other, Validated.Invalid(errs)) =>
-        val tes = errs.toList.collect {
-          case PackageError.TypeErrorIn(te, _) =>
-            te.message
-        }
-        .mkString("\n")
-        fail(tes + "\n" + errs.toString)
-    }
-  }
-
-  def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
-    val mainPack = PackageName.parse(mainPackS).get
-
-    val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
-      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
-        ((i.toString, lm), parsed)
-      }
-    }
-
-    val parsedPaths = parsed match {
-      case Validated.Valid(vs) => vs
-      case Validated.Invalid(errs) =>
-        sys.error(errs.toString)
-    }
-
-    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
-      case (_, Validated.Valid(_)) =>
-        fail("expected to fail type checking")
-
-      case (_, Validated.Invalid(errs)) if errs.collect(errFn).nonEmpty =>
-        assert(true)
-      case (_, Validated.Invalid(errs)) =>
-          fail(s"failed, but no type errors: $errs")
-    }
-  }
+  import TestUtils._
 
   test("simple evaluation") {
     evalTest(
@@ -104,6 +32,30 @@ package Foo
 x = (\y -> y)("hello")
 """), "Foo", Str("hello"))
   }
+
+    runBosatsuTest(
+      List("""
+package Foo
+
+foo = "hello"
+
+def eq_String(a, b):
+  match string_Order_fn(a, b):
+    EQ: True
+    _: False
+
+test = Assertion(eq_String("hello", foo), "checking equality")
+"""), "Foo", 1)
+
+    runBosatsuTest(
+      List("""
+package Foo
+
+test = Test("three trivial tests", [ Assertion(True, "t0"),
+    Assertion(True, "t1"),
+    Assertion(True, "t2"),
+    ])
+"""), "Foo", 3)
 
   test("test if/else") {
     evalTest(

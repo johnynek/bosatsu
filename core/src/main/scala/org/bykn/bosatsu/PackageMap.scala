@@ -64,12 +64,7 @@ object PackageMap {
   ]
   
   type Inferred = Typed[Declaration]
-
   type Normalized = Typed[(Declaration, Normalization.NormalExpressionTag)]
-
-  def normalizePackages[A, B, C, D](map: Inferred): Normalized = {
-    PackageMap.empty
-  }
 
   /**
    * This builds a DAG of actual packages where names have been replaced by the fully resolved

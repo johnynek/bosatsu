@@ -276,11 +276,10 @@ object Evaluation {
 
 }
 
-case class Evaluation(inferredPm: PackageMap.Inferred, externals: Externals) {
+case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   import Evaluation.{Value, Scoped, Env}
   import Value._
 
-  val pm = NormalizePackageMap(inferredPm).normalizePackageMap
   def evaluate(p: PackageName, varName: Identifier): Option[(Eval[Value], Type)] =
     pm.toMap.get(p).map { pack =>
       val (s, t) = eval((pack, Left(varName)))
@@ -338,13 +337,13 @@ case class Evaluation(inferredPm: PackageMap.Inferred, externals: Externals) {
       }
     }
 
-  private type Ref = Either[Identifier, TypedExpr[(Declaration, Normalization.NormalExpressionTag)]]
+  private type Ref = Either[Identifier, TypedExpr[T]]
 
   private def evalBranch(
     tpe: Type,
-    branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[(Declaration, Normalization.NormalExpressionTag)])],
-    p: Package.Normalized,
-    recurse: ((Package.Normalized, Ref)) => (Scoped, Type)): (Value, Env) => Eval[Value] = {
+    branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
+    p: Package.Typed[T],
+    recurse: ((Package.Typed[T], Ref)) => (Scoped, Type)): (Value, Env) => Eval[Value] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
         Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
 
@@ -590,9 +589,9 @@ case class Evaluation(inferredPm: PackageMap.Inferred, externals: Externals) {
    * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
    * can see.
    */
-  private def evalTypedExpr(p: Package.Normalized,
-    expr: TypedExpr[(Declaration, Normalization.NormalExpressionTag)],
-    recurse: ((Package.Normalized, Ref)) => (Scoped, Type)): Scoped = {
+  private def evalTypedExpr(p: Package.Typed[T],
+    expr: TypedExpr[T],
+    recurse: ((Package.Typed[T], Ref)) => (Scoped, Type)): Scoped = {
 
     import TypedExpr._
 
@@ -650,8 +649,8 @@ case class Evaluation(inferredPm: PackageMap.Inferred, externals: Externals) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Normalized, Ref)) => (Scoped, Type) =
-    Memoize.function[(Package.Normalized, Ref), (Scoped, Type)] {
+  private[this] val eval: ((Package.Typed[T], Ref)) => (Scoped, Type) =
+    Memoize.function[(Package.Typed[T], Ref), (Scoped, Type)] {
       case ((pack, Right(expr)), recurse) =>
         (evalTypedExpr(pack, expr, recurse), expr.getType)
       case ((pack, Left(item)), recurse) =>
