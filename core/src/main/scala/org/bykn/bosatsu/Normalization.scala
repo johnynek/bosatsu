@@ -39,8 +39,18 @@ object NormalExpression {
   case class LambdaVar(index: Int) extends NormalExpression {
     val maxLambdaVar = Some(index)
   }
+  /*
+   * It is reasonable to ask how you can define a lambda without an identifier
+   * for its argument in its expression. This is a benefit of de bruijn indexing.
+   * When all lambdas have exactly one argument you identify the var by how many
+   * lambdas out you have to travel.
+   *
+   * eg \x -> \y -> [y,x] would have normalization Lambda(Lambda(Apply(Apply(List, LambdaVar(1)), LambdaVar(0))))
+   *
+   * ref: https://en.wikipedia.org/wiki/De_Bruijn_index
+   */
   case class Lambda(expr: NormalExpression) extends NormalExpression {
-    val maxLambdaVar = expr.maxLambdaVar.map(_ - 1).filter(_ >= 0)
+    val maxLambdaVar = expr.maxLambdaVar.map(_ - 1)
   }
   case class Struct(enum: Int, args: List[NormalExpression])
   extends NormalExpression {
@@ -50,7 +60,7 @@ object NormalExpression {
     val maxLambdaVar = None
   }
   case class Recursion(lambda: NormalExpression) {
-    val maxLambdaVar = None
+    val maxLambdaVar = lambda.maxLambdaVar
   }
 }
 
