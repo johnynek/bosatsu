@@ -98,29 +98,29 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
 
   def normalizeAnnotation(a: Annotation[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
-      for {
-        term <- normalizeExpr(a.term, env, p)
-        neTag = term.tag._2
-        newNeTag = neTag.copy(children = (neTag.children + neTag.ne))
-        tag = (a.tag, newNeTag)
-      }  yield a.copy(term=term, tag=tag)
+      normalizeExpr(a.term, env, p).map { term =>
+        val neTag = term.tag._2
+        val newNeTag = neTag.copy(children = (neTag.children + neTag.ne))
+        val tag = (a.tag, newNeTag)
+        a.copy(term=term, tag=tag)
+      }
 
   def normalizeGeneric(g: Generic[Declaration], env: Env, p: Package.Inferred): 
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
-      for {
-        in <- normalizeExpr(g.in, env, p)
-        neTag = in.tag._2
-        newNeTag = neTag.copy(children = neTag.children + neTag.ne)
-        tag = (g.tag, newNeTag)
-      } yield g.copy(in=in, tag=tag)
+      normalizeExpr(g.in, env, p).map { in =>
+        val neTag = in.tag._2
+        val newNeTag = neTag.copy(children = neTag.children + neTag.ne)
+        val tag = (g.tag, newNeTag)
+        g.copy(in=in, tag=tag)
+      }
 
   def normalizeVar(v: Var[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
       env._1.get(v.name) match {
-        case None => for {
-          ne <- norm((p, Left((v.name, v.tag)), env))
-          neTag = getTag(ne)._2
-        } yield v.copy(tag=(v.tag, neTag))
+        case None => norm((p, Left((v.name, v.tag)), env)).map {ne =>
+          val neTag = getTag(ne)._2
+          v.copy(tag=(v.tag, neTag))
+        }
         case Some(neTag) =>
           State.pure(v.copy(tag=(v.tag, neTag)))
       }
