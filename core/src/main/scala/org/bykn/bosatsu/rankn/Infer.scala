@@ -945,7 +945,12 @@ object Infer {
 
       // todo this should be a law...
     res.map { te =>
-      scala.Predef.require(Type.freeTyVars(te.getType :: Nil).isEmpty, te.getType.toString)
+      val tp = te.getType
+      lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
+      scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
+
+      scala.Predef.require(Type.innerMetas(tp).isEmpty,
+        s"illegal inferred type: $teStr")
       te
     }
   }

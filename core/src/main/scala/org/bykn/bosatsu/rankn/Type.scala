@@ -134,6 +134,13 @@ object Type {
       case TyConst(_) | TyVar(_) | TyMeta(_) => t
     }
 
+  def innerMetas(t: Type): List[Meta] =
+    t match {
+      case TyMeta(m) => m :: Nil
+      case TyVar(_) | TyConst(_) => Nil
+      case ForAll(_, r) => innerMetas(r)
+      case TyApply(l, r) => innerMetas(l) ::: innerMetas(r)
+    }
   /**
    * Return the Bound and Skolem variables that
    * are free in the given list of types
