@@ -862,24 +862,27 @@ object Infer {
     def inferSigma[A: HasRegion](e: Expr[A]): Infer[TypedExpr[A]] =
       inferSigmaMeta(e, None)
 
-    def inferSigmaMeta[A: HasRegion](e: Expr[A], meta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] =
+    def inferSigmaMeta[A: HasRegion](e: Expr[A], meta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] = {
+      def unifySelf(tpe: Type): Infer[Map[Name, Type]] =
+        meta match {
+          case None => getEnv
+          case Some((nm, m, r)) =>
+            (unify(tpe, m, region(e), r) *> getEnv).map { envTys =>
+              // we have to remove the recursive binding from the environment
+              envTys - ((None, nm))
+            }
+        }
+
       for {
         rho <- inferRho(e)
         expTy = rho.getType
-        _ <- meta match {
-          case None =>
-            pure(())
-          case Some((_, m, r)) =>
-            unify(expTy, m, region(e), r)
-        }
-        envTys0 <- getEnv
-        // we have to remove the recursive binding from the environment
-        envTys = envTys0 -- meta.toList.map { case (i, _, _) => (None, i) }
+        envTys <- unifySelf(expTy)
         envTypeVars <- getMetaTyVars(envTys.values.toList)
         resTypeVars <- getMetaTyVars(expTy :: Nil)
         forAllTvs = resTypeVars -- envTypeVars
         q <- quantify(forAllTvs.toList, rho)
       } yield q
+    }
 
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
       for {

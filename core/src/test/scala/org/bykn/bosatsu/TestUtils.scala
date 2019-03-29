@@ -64,8 +64,7 @@ object TestUtils {
   object EvaluationMode {
     case class JsonMode(expected: Json) extends EvaluationMode[Json]
     case class EvalMode(expected: Evaluation.Value) extends EvaluationMode[Evaluation.Value]
-    case class TestMode(expected: Int) extends EvaluationMode[Int] {
-    }
+    case class TestMode(expected: Int) extends EvaluationMode[Int]
   }
 
   def evalTest(packages: List[String], mainPackS: String, expected: Evaluation.Value, extern: Externals = Externals.empty) =
