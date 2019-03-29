@@ -2,9 +2,8 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.Eq
-import org.bykn.bosatsu.{PackageName, Lit}
-
-import org.bykn.bosatsu.{TypeName, Identifier}
+import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier}
+import scala.collection.immutable.SortedSet
 
 sealed abstract class Type
 
@@ -134,13 +133,6 @@ object Type {
       case TyConst(_) | TyVar(_) | TyMeta(_) => t
     }
 
-  def innerMetas(t: Type): List[Meta] =
-    t match {
-      case TyMeta(m) => m :: Nil
-      case TyVar(_) | TyConst(_) => Nil
-      case ForAll(_, r) => innerMetas(r)
-      case TyApply(l, r) => innerMetas(l) ::: innerMetas(r)
-    }
   /**
    * Return the Bound and Skolem variables that
    * are free in the given list of types
@@ -305,9 +297,17 @@ object Type {
 
   case class Meta(id: Long, ref: Ref[Option[Type]])
 
-  def metaTvs(s: List[Type]): Set[Meta] = {
+  object Meta {
+    implicit val orderingMeta: Ordering[Meta] =
+      Ordering.by { m: Meta => m.id }
+  }
+
+  /**
+   * Final the set of all of Metas inside the list of given types
+   */
+  def metaTvs(s: List[Type]): SortedSet[Meta] = {
     @annotation.tailrec
-    def go(check: List[Type], acc: Set[Meta]): Set[Meta] =
+    def go(check: List[Type], acc: SortedSet[Meta]): SortedSet[Meta] =
       check match {
         case Nil => acc
         case ForAll(_, r) :: tail => go(r :: tail, acc)
@@ -315,7 +315,7 @@ object Type {
         case TyMeta(m) :: tail => go(tail, acc + m)
         case _ :: tail => go(tail, acc)
       }
-    go(s, Set.empty)
+    go(s, SortedSet.empty)
   }
 
   /**
