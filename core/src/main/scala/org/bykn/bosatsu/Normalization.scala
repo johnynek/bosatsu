@@ -72,11 +72,14 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   import Normalization._
   import TypedExpr._
 
-  val normalizePackageMap: PackageMap.Normalized = 
-    PackageMap(
-      pm.toMap.toList.map { case (name, pkg) => {
-        normalizePackage(name, pkg).map((name, _))
-    }}.sequence.run(Map()).value._2.toMap)
+  val normalizePackageMap: PackageMap.Normalized = {
+    val packs = pm.toMap.toList
+    val normAll = packs.traverse { case (name, pack) =>
+      normalizePackage(name, pack)
+        .map((name, _))
+    }
+    PackageMap(normAll.run(Map()).value._2.toMap)
+  }
 
   def normalizeExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
