@@ -430,7 +430,7 @@ object Infer {
       ty2 match {
         case Type.TyMeta(m2) =>
           readMeta(m2).flatMap {
-            case Some(ty2) => unify(Type.TyMeta(m), ty2, right, left)
+            case Some(ty2) => unify(Type.TyMeta(m), ty2, left, right)
             case None => writeMeta(m, ty2)
           }
         case nonMeta =>
