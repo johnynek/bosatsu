@@ -675,26 +675,24 @@ object Declaration {
       // now parse an operator apply
       val postOperators: P[Declaration] = {
 
-        def convert(form: Operators.Formula[(Region, Declaration)]): (Region, Declaration) =
+        def convert(form: Operators.Formula[Declaration]): Declaration =
           form match {
             case Operators.Formula.Sym(r) => r
             case Operators.Formula.Op(left, op, right) =>
-              val (leftr, leftD) = convert(left)
-              val (rightr, rightD) = convert(right)
-              val appRegion = leftr + rightr
-              val opRegion = Region(leftr.end, rightr.start)
+              val leftD = convert(left)
+              val rightD = convert(right)
               // `op`(l, r)
-              (appRegion, ApplyOp(leftD, Identifier.Operator(op), rightD))
+              ApplyOp(leftD, Identifier.Operator(op), rightD)
           }
 
         // one or more operators
-        val ops: P[((Region, Declaration)) => Operators.Formula[(Region, Declaration)]] =
-          Operators.Formula.infixOps1(applied.region)
+        val ops: P[Declaration => Operators.Formula[Declaration]] =
+          Operators.Formula.infixOps1(applied)
 
         // This already parses as many as it can, so we don't need repFn
         val form = ops.map { fn =>
 
-          { d: Declaration => convert(fn((d.region, d)))._2 }
+          { d: Declaration => convert(fn(d)) }
         }
 
         maybeAp(applied, form)
