@@ -434,6 +434,8 @@ object Generators {
           case Apply(fn, args, _) =>
             val next = fn #:: args.toList.toStream
             next.flatMap(apply _)
+          case ao@ApplyOp(left, op, right) =>
+            left #:: ao.opVar #:: right #:: Stream.empty
           case Binding(b) =>
             val next = b.value #:: b.in.padded #:: Stream.empty
             next #::: next.flatMap(apply _)

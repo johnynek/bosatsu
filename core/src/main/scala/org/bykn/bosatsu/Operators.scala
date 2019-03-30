@@ -38,8 +38,11 @@ object Operators {
       "&", "|", "^",
       "?", "~").map(_.intern)
 
+  private val multiToks: List[String] =
+    ".".intern :: singleToks ::: List("=".intern)
+
   private val priorityMap: Map[String, Int] =
-    (singleToks ::: List("="))
+    multiToks
       .iterator
       .zipWithIndex
       .toMap
@@ -53,10 +56,10 @@ object Operators {
 
     val singles = from(singleToks)
     // = can appear with at least one other character
-    val withEqual = from("=" :: singleToks).rep(min = 2)
+    val twoOrMore: P[Unit] = from(multiToks).rep(min = 2)
     // we can also repeat core operators one or more times
-    val noEqual = singles.rep(min = 1)
-    (withEqual | noEqual).!.map(_.intern)
+    val singleP = singles.rep(min = 1)
+    (twoOrMore | singleP).!.map(_.intern)
   }
 
   sealed abstract class Formula[+A] {

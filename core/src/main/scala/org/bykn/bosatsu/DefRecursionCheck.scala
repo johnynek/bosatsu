@@ -192,6 +192,38 @@ object DefRecursionCheck {
         getSt.flatMap { state =>
           toSt(checkForIllegalBinds(state, bs, decl)(unitValid))
         }
+
+    def checkApply(nm: Bindable, args: NonEmptyList[Declaration], region: Region): St[Unit] =
+      getSt.flatMap {
+        case TopLevel =>
+          // without any recursion, normal typechecking will detect bad states:
+          args.traverse_(checkDecl)
+        case irb@InRecurBranch(inrec, branch) =>
+          val idx = inrec.index
+          // here we are calling our recursive function
+          // make sure we do so on a substructural match
+          if (nm == irb.defname) {
+            args.get(idx.toLong) match {
+              case None =>
+                // not enough args to check recursion
+                failSt(InvalidRecursion(nm, region))
+              case Some(arg) =>
+                toSt(strictSubstructure(irb.defname, branch, arg)) *>
+                  setSt(irb.incRecCount) // we have recurred again
+            }
+          }
+          else if (irb.defNamesContain(nm)) {
+            failSt(InvalidRecursion(nm, region))
+          }
+          else {
+            // not a recursive call
+            args.traverse_(checkDecl)
+          }
+        case ir: InDefState =>
+          // we have either not yet, or already done the recursion
+          if (ir.defNamesContain(nm)) failSt(InvalidRecursion(nm, region))
+          else args.traverse_(checkDecl)
+        }
     /*
      * With the given state, check the given Declaration to see if
      * we have valid recursion
@@ -200,38 +232,11 @@ object DefRecursionCheck {
       import Declaration._
       decl match {
         case Apply(Var(nm: Bindable), args, _) =>
-          getSt.flatMap {
-            case TopLevel =>
-              // without any recursion, normal typechecking will detect bad states:
-              args.traverse_(checkDecl)
-            case irb@InRecurBranch(inrec, branch) =>
-              val idx = inrec.index
-              // here we are calling our recursive function
-              // make sure we do so on a substructural match
-              if (nm == irb.defname) {
-                args.get(idx.toLong) match {
-                  case None =>
-                    // not enough args to check recursion
-                    failSt(InvalidRecursion(nm, decl.region))
-                  case Some(arg) =>
-                    toSt(strictSubstructure(irb.defname, branch, arg)) *>
-                      setSt(irb.incRecCount) // we have recurred again
-                }
-              }
-              else if (irb.defNamesContain(nm)) {
-                failSt(InvalidRecursion(nm, decl.region))
-              }
-              else {
-                // not a recursive call
-                args.traverse_(checkDecl)
-              }
-            case ir: InDefState =>
-              // we have either not yet, or already done the recursion
-              if (ir.defNamesContain(nm)) failSt(InvalidRecursion(nm, decl.region))
-              else args.traverse_(checkDecl)
-            }
+          checkApply(nm, args, decl.region)
         case Apply(fn, args, _) =>
           checkDecl(fn) *> args.traverse_(checkDecl)
+        case ApplyOp(left, op, right) =>
+          checkApply(op, NonEmptyList(left, right :: Nil), decl.region)
         case Binding(BindingStatement(pat, thisDecl, next)) =>
           checkForIllegalBindsSt(pat.names, decl) *>
               checkDecl(thisDecl) *>

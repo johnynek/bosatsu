@@ -54,6 +54,8 @@ class OperatorTest extends ParserTestBase {
     parseSame("3 * 1 ** 2", "3 * (1 ** 2)")
     parseSame("1 + 2 == 2 + 1", "(1 + 2) == (2 + 1)")
     parseSame("1 + 2 * 3 == 1 + (2 * 3)", "(1 + (2*3)) == (1 + (2 * 3))")
+    parseSame("1 +. 2 * 3 == 1 +. (2 * 3)", "(1 +. (2*3)) == (1 +. (2 * 3))")
+    parseSame("1 .+ 2 * 3 == (1 .+ 2) * 3", "((1 .+ 2) *3) == ((1 .+ 2) * 3)")
   }
 
   test("test operator precedence in real programs") {
@@ -63,12 +65,36 @@ package Test
 operator + = add
 operator * = times
 operator == = eq_Int
+def operator %(a, b): mod_Int(a, b)
 
-test = Test("precedence", [
-   Assertion(1 + 2 * 3 == 1 + (2 * 3), "p1"),
-   Assertion(1 + 2 * 3 == 1 + (2 * 3), "p1"),
-   Assertion(1 + 2 * 3 == 1 + (2 * 3), "p1")
-   ])
+test = Test("precedence",
+  [
+    Assertion(1 + 2 * 3 == 1 + (2 * 3), "p1"),
+    Assertion(1 * 2 * 3 == (1 * 2) * 3, "p1"),
+    Assertion(1 + 2 % 3 == 1 + (2 % 3), "p1")
+  ])
 """), "Test", 3)
+
+    runBosatsuTest(List("""
+package T1
+
+export [ operator +, operator *, operator == ]
+
+operator + = add
+operator * = times
+operator == = eq_Int
+""",
+  """
+package T2
+
+import T1 [ operator + as operator ++, `*`, `==` ]
+
+`.+` = `++`
+`+.` = `++`
+
+test = Test("import export",
+  [ Assertion(1 +. (2 * 3) == 1 .+ (2 * 3), "p1"),
+    Assertion(1 .+ 2 * 3 == (1 .+ 2) * 3, "p1") ])
+"""), "T2", 2)
   }
 }

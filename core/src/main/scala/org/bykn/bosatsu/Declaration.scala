@@ -26,8 +26,6 @@ sealed abstract class Declaration {
     this match {
       case Apply(fn, args, kind) =>
         val fnDoc = fn match {
-          case Var(Identifier.Operator(str)) if kind == ApplyKind.Operator =>
-            Doc.text(str)
           case Var(n) => Identifier.document.document(n)
           case p@Parens(_) => p.toDoc
           case other => Doc.char('(') + other.toDoc + Doc.char(')')
@@ -39,8 +37,6 @@ sealed abstract class Declaration {
               (fnDoc, args.toList)
             case ApplyKind.Dot =>
               (args.head.toDoc + Doc.char('.') + fnDoc, args.tail)
-            case ApplyKind.Operator =>
-              (Doc.intercalate(fnDoc, args.toList.map(_.toDoc)), Nil)
           }
 
         body match {
@@ -48,6 +44,8 @@ sealed abstract class Declaration {
           case notEmpty =>
             prefix + Doc.char('(') + Doc.intercalate(Doc.text(", "), notEmpty.map(_.toDoc)) + Doc.char(')')
         }
+      case ApplyOp(left, Identifier.Operator(opStr), right) =>
+        left.toDoc space Doc.text(opStr) space right.toDoc
       case Binding(b) =>
         val d0 = Document[Padding[Declaration]]
         val withNewLine = Document.instance[Padding[Declaration]] { pd =>
@@ -126,14 +124,10 @@ sealed abstract class Declaration {
     def loop(decl: Declaration): Expr[Declaration] =
       decl match {
         case Apply(fn, args, _) =>
-          @annotation.tailrec
-          def loop0(fn: Expr[Declaration], args: List[Expr[Declaration]]): Expr[Declaration] =
-            args match {
-              case Nil => fn
-              case h :: tail =>
-                loop0(Expr.App(fn, h, decl), tail)
-            }
-          loop0(loop(fn), args.toList.map(loop(_)))
+          Expr.buildApp(loop(fn), args.toList.map(loop(_)), decl)
+        case ao@ApplyOp(left, op, right) =>
+          val opVar: Expr[Declaration] = Expr.Var(None, op, ao.opVar)
+          Expr.buildApp(opVar, loop(left) :: loop(right) :: Nil, decl)
         case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
           pat match {
             case Pattern.Var(arg) =>
@@ -409,7 +403,6 @@ object Declaration {
   object ApplyKind {
     case object Dot extends ApplyKind
     case object Parens extends ApplyKind
-    case object Operator extends ApplyKind
   }
   //
   // We use the pattern of an implicit region for two reasons:
@@ -421,6 +414,10 @@ object Declaration {
   //
 
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration], kind: ApplyKind)(implicit val region: Region) extends Declaration
+  case class ApplyOp(left: Declaration, op: Identifier.Operator, right: Declaration) extends Declaration {
+    val region = left.region + right.region
+    def opVar: Var = Var(op)(Region(left.region.end, right.region.start))
+  }
   case class Binding(binding: BindingStatement[Pattern.Parsed, Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class DefFn(deffn: DefStatement[(OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
@@ -687,9 +684,7 @@ object Declaration {
               val appRegion = leftr + rightr
               val opRegion = Region(leftr.end, rightr.start)
               // `op`(l, r)
-              (appRegion, Apply(Var(Identifier.Operator(op))(opRegion),
-                NonEmptyList.of(leftD, rightD),
-                ApplyKind.Operator)(appRegion))
+              (appRegion, ApplyOp(leftD, Identifier.Operator(op), rightD))
           }
 
         // one or more operators

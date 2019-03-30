@@ -41,6 +41,17 @@ object Expr {
   def ifExpr[T](cond: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T): Expr[T] =
     Match(cond, NonEmptyList.of((TruePat, ifTrue), (FalsePat, ifFalse)), tag)
 
+  /**
+   * Build an apply expression by appling these args left to right
+   */
+  @annotation.tailrec
+  def buildApp[A](fn: Expr[A], args: List[Expr[A]], appTag: A): Expr[A] =
+    args match {
+      case Nil => fn
+      case h :: tail =>
+        buildApp(App(fn, h, appTag), tail, appTag)
+    }
+
   def traverseType[T, F[_]](expr: Expr[T], fn: rankn.Type => F[rankn.Type])(implicit F: Applicative[F]): F[Expr[T]] =
     expr match {
       case Annotation(e, tpe, a) =>
