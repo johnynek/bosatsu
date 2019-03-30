@@ -20,7 +20,9 @@ object TotalityCheck {
   case class UnknownConstructor(cons: Cons, in: Pattern[Cons, Type], env: TypeEnv[Any]) extends Error
   case class MultipleSplicesInPattern(pat: ListPat[Cons, Type], env: TypeEnv[Any]) extends Error
 
-  sealed abstract class ExprError[A]
+  sealed abstract class ExprError[A] {
+    def matchExpr: Expr.Match[A]
+  }
   case class NonTotalMatch[A](matchExpr: Expr.Match[A], missing: NonEmptyList[Pattern[Cons, Type]]) extends ExprError[A]
   case class InvalidPattern[A](matchExpr: Expr.Match[A], err: Error) extends ExprError[A]
 }

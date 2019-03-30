@@ -64,8 +64,7 @@ object TestUtils {
   object EvaluationMode {
     case class JsonMode(expected: Json) extends EvaluationMode[Json]
     case class EvalMode(expected: Evaluation.Value) extends EvaluationMode[Evaluation.Value]
-    case class TestMode(expected: Int) extends EvaluationMode[Int] {
-    }
+    case class TestMode(expected: Int) extends EvaluationMode[Int]
   }
 
   def evalTest(packages: List[String], mainPackS: String, expected: Evaluation.Value, extern: Externals = Externals.empty) =
@@ -101,10 +100,15 @@ object TestUtils {
         ev.evaluateLast(mainPack) match {
           case None => fail("found no main expression")
           case Some((eval, schm)) =>
+            val typeStr = TypeRef.fromTypes(Some(mainPack), schm :: Nil)(schm).toDoc.render(80)
             expected match {
-              case EvaluationMode.EvalMode(exp) => assert(eval.value == exp)
+              case EvaluationMode.EvalMode(exp) =>
+                val left = eval.value
+                assert(left == exp,
+                  s"failed: for type: $typeStr, ${left} != $exp")
               case EvaluationMode.JsonMode(json) =>
-                assert(ev.toJson(eval.value, schm) == Some(json))
+                val leftJson = ev.toJson(eval.value, schm)
+                assert(leftJson == Some(json), s"type: $typeStr, $leftJson != $json")
               case EvaluationMode.TestMode(cnt) =>
                 ev.evalTest(mainPack) match {
                   case None => fail(s"$mainPack had no tests evaluted")

@@ -3,6 +3,8 @@ import cats.Monad
 import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
 
+import scala.collection.immutable.SortedSet
+
 import org.bykn.bosatsu.{
   Expr,
   HasRegion,
@@ -147,8 +149,8 @@ object Infer {
     }
 
     // This could be a user error if we don't check scoping before typing
-    case class UnexpectedBound(v: Type.Var.Bound, in: Type) extends NameError {
-      def message = s"unexpected bound ${v.name} in unification with $in"
+    case class UnexpectedBound(v: Type.Var.Bound, in: Type, rb: Region, rt: Region) extends NameError {
+      def message = s"unexpected bound ${v.name} at $rb in unification with $in at $rt"
     }
 
     case class UnknownConstructor(name: (PackageName, Constructor), env: Env) extends NameError {
@@ -163,8 +165,8 @@ object Infer {
      * These can only happen if the compiler has bugs at some point
      */
     sealed abstract class InternalError extends Error
-    case class UnexpectedMeta(m: Type.Meta, in: Type) extends InternalError {
-      def message = s"meta $m occurs in $in and should not"
+    case class UnexpectedMeta(m: Type.Meta, in: Type, left: Region, right: Region) extends InternalError {
+      def message = s"meta $m at $left occurs in $in at $right and should not. This implies an infinite type."
     }
 
     // This is a logic error which should never happen
@@ -248,7 +250,7 @@ object Infer {
     /**
      * Meta vars point to unknown instantiated parametric types
      */
-    def getMetaTyVars(tpes: List[Type]): Infer[Set[Type.Meta]] =
+    def getMetaTyVars(tpes: List[Type]): Infer[SortedSet[Type.Meta]] =
       tpes.traverse(zonkType).map(Type.metaTvs(_))
 
     /**
@@ -423,9 +425,6 @@ object Infer {
           } yield (argT, resT)
       }
 
-    def occursCheckErr(m: Type.Meta, t: Type): Infer[Unit] =
-      fail(Error.UnexpectedMeta(m, t))
-
     // invariant the flexible type variable tv1 is not bound
     def unifyUnboundVar(m: Type.Meta, ty2: Type.Tau, left: Region, right: Region): Infer[Unit] =
       ty2 match {
@@ -437,7 +436,7 @@ object Infer {
         case nonMeta =>
           getMetaTyVars(List(nonMeta))
             .flatMap { tvs2 =>
-              if (tvs2(m)) occursCheckErr(m, nonMeta)
+              if (tvs2(m)) fail(Error.UnexpectedMeta(m, nonMeta, left, right))
               else writeMeta(m, nonMeta)
             }
       }
@@ -451,9 +450,9 @@ object Infer {
     def unify(t1: Type.Tau, t2: Type.Tau, r1: Region, r2: Region): Infer[Unit] =
       (t1, t2) match {
         case (Type.TyVar(b@Type.Var.Bound(_)), _) =>
-          fail(Error.UnexpectedBound(b, t2))
+          fail(Error.UnexpectedBound(b, t2, r1, r2))
         case (_, Type.TyVar(b@Type.Var.Bound(_))) =>
-          fail(Error.UnexpectedBound(b, t1))
+          fail(Error.UnexpectedBound(b, t1, r2, r1))
         // the only vars that should appear are skolem variables, we check here
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => unit
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
@@ -605,9 +604,10 @@ object Infer {
                   for {
                     // the type variable needs to be unified with varT
                     // note, varT could be a sigma type, it is not a Tau or Rho
-                    typedRhs <- inferSigmaMeta(rhs, Some((rhsTpe, region(rhs))))
+                    typedRhs <- inferSigmaMeta(rhs, Some((name, rhsTpe, region(rhs))))
                     varT = typedRhs.getType
-                    typedBody <- typeCheckRho(body, expect)
+                    // we need to overwrite the metavariable now with the full type
+                    typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
                     // TODO: a more efficient algorithm would do this top down
                     // for each top level TypedExpr and build it bottom up.
                     // we could do this after all typechecking is done
@@ -862,20 +862,27 @@ object Infer {
     def inferSigma[A: HasRegion](e: Expr[A]): Infer[TypedExpr[A]] =
       inferSigmaMeta(e, None)
 
-    def inferSigmaMeta[A: HasRegion](e: Expr[A], meta: Option[(Type.TyMeta, Region)]): Infer[TypedExpr[A]] =
+    def inferSigmaMeta[A: HasRegion](e: Expr[A], meta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] = {
+      def unifySelf(tpe: Type): Infer[Map[Name, Type]] =
+        meta match {
+          case None => getEnv
+          case Some((nm, m, r)) =>
+            (unify(tpe, m, region(e), r) *> getEnv).map { envTys =>
+              // we have to remove the recursive binding from the environment
+              envTys - ((None, nm))
+            }
+        }
+
       for {
         rho <- inferRho(e)
         expTy = rho.getType
-        _ <- meta match {
-          case None => pure(())
-          case Some((m, r)) => unify(expTy, m, region(e), r)
-        }
-        envTys <- getEnv
+        envTys <- unifySelf(expTy)
         envTypeVars <- getMetaTyVars(envTys.values.toList)
-        resTypeVars <- getMetaTyVars(List(expTy))
+        resTypeVars <- getMetaTyVars(expTy :: Nil)
         forAllTvs = resTypeVars -- envTypeVars
         q <- quantify(forAllTvs.toList, rho)
       } yield q
+    }
 
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
       for {
@@ -905,13 +912,16 @@ object Infer {
 
   def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
     newMetaType.flatMap { tpe =>
-      extendEnv(name, tpe)(typeCheck(expr))
+      extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))
     }
 
 
-  def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] = {
-    // TODO handle rec
-    def run(t: Expr[A]) = inferSigma(t).flatMap(zonkTypedExpr _)
+  def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] =
+    typeCheckMeta(t, None)
+
+
+  private def typeCheckMeta[A: HasRegion](t: Expr[A], optMeta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] = {
+    def run(t: Expr[A]) = inferSigmaMeta(t, optMeta).flatMap(zonkTypedExpr _)
     /*
      * This is a deviation from the paper.
      * We are allowing a syntax like:
@@ -945,7 +955,12 @@ object Infer {
 
       // todo this should be a law...
     res.map { te =>
-      scala.Predef.require(Type.freeTyVars(te.getType :: Nil).isEmpty, te.getType.toString)
+      val tp = te.getType
+      lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
+      scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
+
+      scala.Predef.require(Type.metaTvs(tp :: Nil).isEmpty,
+        s"illegal inferred type: $teStr")
       te
     }
   }
