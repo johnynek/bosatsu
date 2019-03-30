@@ -67,7 +67,7 @@ object Identifier {
    * raw operator tokens without an `operator` prefix
    */
   val rawOperator: P[Operator] =
-    Parser.operatorToken.map(Operator(_))
+    Operators.operatorToken.map(Operator(_))
 
   /**
    * the keyword operator preceding a rawOperator

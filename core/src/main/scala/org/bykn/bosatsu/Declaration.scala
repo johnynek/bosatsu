@@ -598,52 +598,6 @@ object Declaration {
 
       val recurse = P(rec(indent)) // needs to be inside a P for laziness
 
-      val postOperators: P[Declaration => Declaration] = {
-        val params = recurse.nonEmptyList.parens
-        // here we are using . syntax foo.bar(1, 2)
-        val dotApply =
-          P("." ~ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
-            val args = argsOpt.fold(List.empty[Declaration])(_.toList)
-
-            { head: Declaration => Apply(fn, NonEmptyList(head, args), ApplyKind.Dot)(head.region + r2) }
-          }.opaque(". apply operator")
-
-        // here we directly call a function foo(1, 2)
-        val applySuffix = params.region.map { case (r, args) =>
-
-          { fn: Declaration => Apply(fn, args, ApplyKind.Parens)(fn.region + r) }
-        }.opaque("apply opereator")
-
-        // parse an operator apply
-        val opApply =  {
-          val op = Identifier.rawOperator.region
-
-          (op ~ maybeSpace ~ recurse).map { case (r, op, right) =>
-
-            { left: Declaration =>
-              Apply(Var(op)(r),
-                NonEmptyList.of(left, right),
-                ApplyKind.Operator)(left.region + r + right.region)
-            }
-          }
-        }
-
-        // here is if/ternary operator
-        val ternary =
-          P("if" ~ spaces ~ recurse ~ spaces ~ "else" ~ spaces ~ recurse)
-            .region
-            .map { case (region, (cond, falseCase)) =>
-              { trueCase: Declaration =>
-                val ifcase = NonEmptyList.of((cond, OptIndent.same(trueCase)))
-                IfElse(ifcase, OptIndent.same(falseCase))(trueCase.region + region)
-              }
-            }.opaque("ternary operator")
-
-        val noSpace = P(dotApply | applySuffix | opApply)
-        val withSpace = P(spaces ~ (opApply | ternary))
-        noSpace | withSpace
-      }
-
       val recIndy = Indy(rec)
 
       val lits = Lit.parser.region.map { case (r, l) => Literal(l)(r) }
@@ -676,17 +630,96 @@ object Declaration {
         commentP(indent) |
         tupOrPar)
 
-      val opsList = postOperators.rep().map(_.toList)
+      def repFn[A](fn: P[A => A]): P[A => A] = {
+        @annotation.tailrec
+        def loop(a: A, fns: List[A => A]): A =
+          fns match {
+            case Nil => a
+            case h :: tail => loop(h(a), tail)
+          }
 
-      @annotation.tailrec
-      def loop[A](a: A, fns: List[A => A]): A =
-        fns match {
-          case Nil => a
-          case h :: tail => loop(h(a), tail)
+        fn.rep().map { opList =>
+
+          { (a: A) => loop(a, opList.toList) }
+        }
+      }
+
+      def apP[A](arg: P[A], fn: P[A => A]): P[A] =
+        (arg ~ fn).map { case (a, f) => f(a) }
+
+      def maybeAp[A](arg: P[A], fn: P[A => A]): P[A] =
+        (arg ~ fn.?)
+          .map {
+            case (a, None) => a
+            case (a, Some(f)) => f(a)
+          }
+
+      val applied: P[Declaration] = {
+        val params = recurse.parensLines1
+        // here we are using . syntax foo.bar(1, 2)
+        val dotApply: P[Declaration => Declaration] =
+          P("." ~ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
+            val args = argsOpt.fold(List.empty[Declaration])(_.toList)
+
+            { head: Declaration => Apply(fn, NonEmptyList(head, args), ApplyKind.Dot)(head.region + r2) }
+          }.opaque(". apply operator")
+
+        // here we directly call a function foo(1, 2)
+        val applySuffix: P[Declaration => Declaration] = params.region.map { case (r, args) =>
+
+          { fn: Declaration => Apply(fn, args, ApplyKind.Parens)(fn.region + r) }
+        }.opaque("apply operator")
+
+        apP(prefix, repFn(dotApply | applySuffix))
+      }
+
+      // Applying is higher precedence than any operators
+
+      // now parse an operator apply
+      val postOperators: P[Declaration] = {
+
+        def convert(form: Operators.Formula[(Region, Declaration)]): (Region, Declaration) =
+          form match {
+            case Operators.Formula.Sym(r) => r
+            case Operators.Formula.Op(left, op, right) =>
+              val (leftr, leftD) = convert(left)
+              val (rightr, rightD) = convert(right)
+              val appRegion = leftr + rightr
+              val opRegion = Region(leftr.end, rightr.start)
+              // `op`(l, r)
+              (appRegion, Apply(Var(Identifier.Operator(op))(opRegion),
+                NonEmptyList.of(leftD, rightD),
+                ApplyKind.Operator)(appRegion))
+          }
+
+        // one or more operators
+        val ops: P[((Region, Declaration)) => Operators.Formula[(Region, Declaration)]] =
+          Operators.Formula.infixOps1(applied.region)
+
+        // This already parses as many as it can, so we don't need repFn
+        val form = ops.map { fn =>
+
+          { d: Declaration => convert(fn((d.region, d)))._2 }
         }
 
-      P(prefix ~ opsList)
-        .map { case (arg, fns) => loop(arg, fns) }
+        maybeAp(applied, form)
+      }
+
+      // here is if/ternary operator
+      // it fully recurses on the else branch, which will parse any repeated ternaryies
+      // so no need to repeat here for correct precedence
+      val ternary: P[Declaration => Declaration] =
+        P("if" ~ spaces ~ recurse ~ spaces ~ "else" ~ spaces ~ recurse)
+          .region
+          .map { case (region, (cond, falseCase)) =>
+            { trueCase: Declaration =>
+              val ifcase = NonEmptyList.of((cond, OptIndent.same(trueCase)))
+              IfElse(ifcase, OptIndent.same(falseCase))(trueCase.region + region)
+            }
+          }.opaque("ternary operator")
+
+
+      maybeAp(postOperators, (spaces ~ ternary))
         .opaque(s"Declaration.parser($indent)")
     }
 

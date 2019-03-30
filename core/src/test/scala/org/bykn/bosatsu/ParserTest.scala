@@ -386,10 +386,10 @@ class ParserTest extends ParserTestBase {
     val allLen3 = (allLen2, withEq).mapN(_ + _)
 
     (singleToks ::: allLen2 ::: allLen3).foreach { opStr =>
-      roundTrip(Parser.operatorToken, opStr)
+      roundTrip(Operators.operatorToken, opStr)
     }
 
-    expectFail(Parser.operatorToken, "=", 0)
+    expectFail(Operators.operatorToken, "=", 0)
   }
 }
 
