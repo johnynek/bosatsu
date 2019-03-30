@@ -400,8 +400,8 @@ class SyntaxParseTest extends ParserTestBase {
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 300)
-    PropertyCheckConfiguration(minSuccessful = 5)
+    PropertyCheckConfiguration(minSuccessful = 300)
+    //PropertyCheckConfiguration(minSuccessful = 5)
 
   def mkVar(n: String): Declaration.Var =
     Declaration.Var(Identifier.Name(n))
