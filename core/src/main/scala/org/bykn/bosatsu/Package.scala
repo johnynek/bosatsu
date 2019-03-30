@@ -43,7 +43,8 @@ object Package {
   type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
   type Interface = FixPackage[Nothing, Referant[Variance], Unit]
-  type Inferred = Package[Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
+  type Typed[T] = Package[Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[T], Statement]]
+  type Inferred = Typed[Declaration]
 
   /**
    * build a Parsed Package from a Statement. This is useful for testing or

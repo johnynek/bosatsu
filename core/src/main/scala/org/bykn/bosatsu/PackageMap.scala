@@ -52,7 +52,18 @@ object PackageMap {
   type MapF2[A, B] = MapF3[A, A, B]
   type ParsedImp = PackageMap[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
   type Resolved = MapF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Inferred = PackageMap[Package.Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]]
+  type Typed[T] = PackageMap[
+    Package.Interface,
+    NonEmptyList[Referant[Variance]],
+    Referant[Variance],
+    Program[
+      TypeEnv[Variance],
+      TypedExpr[T],
+      Statement
+    ]
+  ]
+
+  type Inferred = Typed[Declaration]
 
   /**
    * This builds a DAG of actual packages where names have been replaced by the fully resolved
@@ -386,10 +397,16 @@ object PackageError {
 
   case class TotalityCheckError(pack: PackageName, err: TotalityCheck.ExprError[Declaration]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
-      val (lm, sourceName) = sourceMap(pack)
+      val (lm, sourceName) = sourceMap.get(pack) match {
+        case None => (LocationMap(""), "<unknown source>")
+        case Some(found) => found
+      }
       val teMessage = err.toString
+      val region = err.matchExpr.tag.region
+      val context1 =
+        lm.showRegion(region).getOrElse(region.toString) // we should highlight the whole region
       // TODO use the sourceMap/regions in Infer.Error
-      s"in file: $sourceName, package ${pack.asString}, $teMessage"
+      s"in file: $sourceName, package ${pack.asString}\n$context1"
     }
   }
 

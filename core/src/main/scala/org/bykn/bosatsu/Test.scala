@@ -2,7 +2,21 @@ package org.bykn.bosatsu
 
 import org.typelevel.paiges.Doc
 
-sealed abstract class Test
+sealed abstract class Test {
+  def assertions: Int =
+    Test.assertions(this)
+
+  def failures: Option[Test] =
+    this match {
+      case Test.Assertion(true, _) => None
+      case f@Test.Assertion(false, _) => Some(f)
+      case Test.Suite(nm, ts) => {
+        val innerFails = ts.flatMap(_.failures.toList)
+        if (innerFails.isEmpty) None
+        else Some(Test.Suite(nm, innerFails))
+      }
+    }
+}
 
 object Test {
   case class Assertion(value: Boolean, message: String) extends Test
