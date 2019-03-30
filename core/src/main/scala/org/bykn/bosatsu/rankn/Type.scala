@@ -128,7 +128,7 @@ object Type {
           case Some(t) => t
         }
       case ForAll(bs, r) =>
-        ForAll(bs, substituteVar(r, replace -- bs.toList))
+        forAll(bs.toList, substituteVar(r, replace -- bs.toList))
       case TyApply(l, r) =>
         TyApply(substituteVar(l, replace), substituteVar(r, replace))
       case TyConst(_) | TyVar(_) | TyMeta(_) => t
