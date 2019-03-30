@@ -1086,4 +1086,33 @@ main = Foo(1, `package`, 3, 4)
       ("def" -> Json.JNumberStr("4")))
     ))
   }
+
+  test("patterns in lambdas") {
+    runBosatsuTest(List("""
+package A
+
+inc = \(x: Int) -> x.add(1)
+
+test = Assertion(inc(1).eq_Int(2), "inc(1) == 2")
+"""), "A", 1)
+
+    runBosatsuTest(List("""
+package A
+
+struct Foo(v)
+
+inc = \Foo(x) -> x.add(1)
+
+test0 = Assertion(inc(Foo(1)).eq_Int(2), "inc(Foo(1)) == 2")
+
+enum FooBar: F(x), B(x)
+
+inc2 = \F(x) | B(x), Foo(y) -> x.add(y)
+test1 = Assertion(inc2(F(1), Foo(1)).eq_Int(2), "inc2(F(1), Foo(1)) == 2")
+test2 = Assertion(inc2(B(1), Foo(1)).eq_Int(2), "inc2(B(1), Foo(1)) == 2")
+
+
+suite = Test("match tests", [test0, test1, test2])
+"""), "A", 3)
+  }
 }

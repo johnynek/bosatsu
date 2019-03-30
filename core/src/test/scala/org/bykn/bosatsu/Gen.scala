@@ -259,7 +259,7 @@ object Generators {
     for {
       args <- nonEmpty(bindIdentGen)
       body <- bodyGen
-   } yield Declaration.Lambda(args, body)(emptyRegion)
+   } yield Declaration.Lambda(args.map(Pattern.Var(_)), body)(emptyRegion)
 
   def optIndent[A](genA: Gen[A]): Gen[OptIndent[A]] = {
     val indentation = Gen.choose(1, 10)
