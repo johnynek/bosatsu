@@ -62,7 +62,7 @@ object PackageMap {
       Statement
     ]
   ]
-  
+
   type Inferred = Typed[Declaration]
   type Normalized = Typed[(Declaration, Normalization.NormalExpressionTag)]
 
@@ -398,10 +398,16 @@ object PackageError {
 
   case class TotalityCheckError(pack: PackageName, err: TotalityCheck.ExprError[Declaration]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
-      val (lm, sourceName) = sourceMap(pack)
+      val (lm, sourceName) = sourceMap.get(pack) match {
+        case None => (LocationMap(""), "<unknown source>")
+        case Some(found) => found
+      }
       val teMessage = err.toString
+      val region = err.matchExpr.tag.region
+      val context1 =
+        lm.showRegion(region).getOrElse(region.toString) // we should highlight the whole region
       // TODO use the sourceMap/regions in Infer.Error
-      s"in file: $sourceName, package ${pack.asString}, $teMessage"
+      s"in file: $sourceName, package ${pack.asString}\n$context1"
     }
   }
 
