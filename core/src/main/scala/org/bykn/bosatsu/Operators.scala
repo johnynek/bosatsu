@@ -87,7 +87,9 @@ object Operators {
           val c = compareOperator(op1, op2)
           if (c > 0) {
             // right binds tighter
-            // 1 + 2 * 3 .... => 1 + toFormula(2 * 3 ...)
+            // 1 + 2 * 3 .... => toFormula(1 + (2 * 3) ...)
+            // f2 is putting parents around (2 * 3)
+            // in this example, then starting again
             val f2 = Op(next1, op2, next2)
             toFormula(init, (op1, f2) :: tail)
           }

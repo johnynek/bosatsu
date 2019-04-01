@@ -76,6 +76,25 @@ test = Test("precedence",
 """), "Test", 3)
 
     runBosatsuTest(List("""
+package Test
+
+# this is non-associative so we can test order
+operator *> = \x, y -> (x, y)
+
+operator == = \x, y ->
+  # kind of an interesting style to make local operators
+  `=*=` = eq_Int
+  `&` = \x, y -> y if x else False
+  (((a, b), c), ((d, e), f)) = (x, y)
+  (a =*= d) & (b =*= e) & (c =*= f)
+
+test = Test("precedence",
+  [
+    Assertion(1 *> 2 *> 3 == (1 *> 2) *> 3, "p1"),
+  ])
+"""), "Test", 1)
+
+    runBosatsuTest(List("""
 package T1
 
 export [ operator +, operator *, operator == ]
