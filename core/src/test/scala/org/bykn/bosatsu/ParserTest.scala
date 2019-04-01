@@ -534,7 +534,7 @@ x""")
   }
 
   test("Declaration.toPattern works for all Pattern-like declarations") {
-    forAll(Generators.patternDecl(5)) { dec =>
+    def law1(dec: Declaration) = {
       Declaration.toPattern(dec) match {
         case None => fail("expected to convert to pattern")
         case Some(pat) =>
@@ -543,6 +543,15 @@ x""")
           val parsePat = parseUnsafe(Pattern.parser, decStr)
           assert(pat == parsePat)
       }
+    }
+    forAll(Generators.patternDecl(5))(law1(_))
+
+    {
+      import Declaration._
+      import Identifier.{Name, Operator}
+      // this operator application can be a pattern
+      val regression = ApplyOp(Var(Name("q")),Operator("|"),Var(Name("npzma")))
+      law1(regression)
     }
 
     // for all Declarations, either it parses like a pattern or toPattern is None

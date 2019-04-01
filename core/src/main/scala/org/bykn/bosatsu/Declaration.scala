@@ -468,6 +468,11 @@ object Declaration {
             case _ => None
           }
         optParts.map(Pattern.ListPat(_))
+      case ApplyOp(left, Identifier.Operator("|"), right) =>
+        // this could be a pattern
+        (toPattern(left), toPattern(right)).mapN { (l, r) =>
+          Pattern.union(l, r :: Nil)
+        }
       case Apply(Var(nm@Identifier.Constructor(_)), args, ApplyKind.Parens) =>
         args.traverse(toPattern(_)).map { argPats =>
           Pattern.PositionalStruct(Some(nm), argPats.toList)
