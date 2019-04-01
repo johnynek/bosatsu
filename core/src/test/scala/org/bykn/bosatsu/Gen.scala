@@ -53,9 +53,21 @@ object Generators {
       nel = NonEmptyList.fromListUnsafe(args)
     } yield TypeRef.TypeLambda(nel, e)
 
+  val opGen: Gen[Identifier.Operator] = {
+    val sing = Gen.oneOf(Operators.singleToks).map(Identifier.Operator(_))
+    val multi = for {
+      c <- Gen.choose(2, 5)
+      multiGen = Gen.oneOf(Operators.multiToks)
+      ms <- Gen.listOfN(c, multiGen)
+    } yield Identifier.Operator(ms.mkString)
+
+    Gen.frequency((4, sing), (1, multi))
+  }
+
   val bindIdentGen: Gen[Identifier.Bindable] =
     Gen.frequency(
       (10, lowerIdent.map { n => Identifier.Name(n) }),
+      (1, opGen),
       (1, Arbitrary.arbitrary[String].map { s =>
         Identifier.Backticked(s)
       }))
@@ -237,6 +249,21 @@ object Generators {
     } yield Apply(fn, args, ApplyKind.Parens)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
 
+  def applyOpGen(arg: Gen[Declaration]): Gen[Declaration] =
+    Gen.zip(arg, opGen, arg).map { case (l, op, r) =>
+      // a few types of things should be in raw ApplyOp, since
+      // \x -> x + y is parsed as \x -> (x + y), for instance
+      // also, parsing knows about precedence, but randomly
+      // making expressions doesn't, so we have to wrap ApplyOp
+      import Declaration._
+      def protect(d: Declaration): Declaration =
+        d match {
+          case Var(_) | Apply(_, _, _) | Parens(_) => d
+          case notSafe => Parens(d)(emptyRegion)
+        }
+      ApplyOp(protect(l), op, protect(r))
+    }
+
   def bindGen[A, T](patGen: Gen[A], dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[A, T]] =
     for {
       b <- patGen
@@ -399,6 +426,23 @@ object Generators {
       (1, genListLangCons(varGen, recur).map(ListDecl(_)(emptyRegion))))
   }
 
+  def simpleDecl(depth: Int): Gen[Declaration] = {
+    import Declaration._
+
+    val unnested = unnestedDeclGen
+
+    val recur = Gen.lzy(simpleDecl(depth - 1))
+    if (depth <= 0) unnested
+    else Gen.frequency(
+      (13, unnested),
+      (2, lambdaGen(recur)),
+      (2, applyGen(recur)),
+      (1, applyOpGen(recur)),
+      (1, listGen(recur)),
+      (1, dictGen(recur)),
+      (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recur)).map(TupleCons(_)(emptyRegion)))
+    )
+  }
 
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
@@ -416,6 +460,7 @@ object Generators {
       (2, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
+      (1, applyOpGen(simpleDecl(depth - 1))),
       (2, bindGen(pat, recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
       (1, ifElseGen(recur)),
       (1, listGen(recur)),

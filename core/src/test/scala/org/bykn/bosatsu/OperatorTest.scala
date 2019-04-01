@@ -116,4 +116,27 @@ test = Test("import export",
     Assertion(1 .+ 2 * 3 == (1 .+ 2) * 3, "p1") ])
 """), "T2", 2)
   }
+
+  test("test ternary operator precedence") {
+    runBosatsuTest(List("""
+package Test
+
+operator == = eq_Int
+operator + = add
+
+left1 = 1 + 2 if False else 4
+# should be 4 not 1 + 4
+right1 = 4
+
+left2 = 1 if True else 2 + 3
+# above should be 1 not (1 + 3)
+right2 = 1
+
+test = Test("precedence",
+  [
+    Assertion(left1 == right1, "p1"),
+    Assertion(left2 == right2, "p2"),
+  ])
+"""), "Test", 2)
+  }
 }

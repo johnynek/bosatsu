@@ -29,7 +29,11 @@ object Operators {
     else loop(0)
   }
 
-  private val singleToks =
+  /**
+   * strings for operators allowed in single character
+   * operators (excludes = and .)
+   */
+  val singleToks =
     List(
       "*", "/", "%",
       "+", "-",
@@ -38,7 +42,11 @@ object Operators {
       "&", "|", "^",
       "?", "~").map(_.intern)
 
-  private val multiToks: List[String] =
+  /**
+   * strings for operators allowed in single character
+   * operators includes singleToks and . and =
+   */
+  val multiToks: List[String] =
     ".".intern :: singleToks ::: List("=".intern)
 
   private val priorityMap: Map[String, Int] =
@@ -102,6 +110,7 @@ object Operators {
 
     /**
      * Parse a chain of at least 1 operator being applied
+     * with the operator precedence handled by the formula
      */
     def infixOps1[A](p: P[A]): P[A => Formula[A]] = {
       val chain: P[List[(String, A)]] =
