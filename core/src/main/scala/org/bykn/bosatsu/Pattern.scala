@@ -136,11 +136,21 @@ object Pattern {
 
   type Parsed = Pattern[Option[Constructor], TypeRef]
 
-  def union[N, T](head: Pattern[N, T], tail: List[Pattern[N, T]]): Pattern[N, T] =
-    tail match {
-      case Nil => head
-      case th :: tt => Union(head, NonEmptyList(th, tt))
+  /**
+   * Create a normalized pattern, which doesn't have nested top level unions
+   */
+  def union[N, T](head: Pattern[N, T], tail: List[Pattern[N, T]]): Pattern[N, T] = {
+    def flatten(p: Pattern[N, T]): NonEmptyList[Pattern[N, T]] =
+      p match {
+        case Union(h, t) => NonEmptyList(h, t.toList).flatMap(flatten(_))
+        case nonU => NonEmptyList(nonU, Nil)
+      }
+
+    NonEmptyList(head, tail).flatMap(flatten(_)) match {
+      case NonEmptyList(h, Nil) => h
+      case NonEmptyList(h0, h1 :: tail) => Union(h0, NonEmptyList(h1, tail))
     }
+  }
 
   implicit class InvariantPattern[N, T](val pat: Pattern[N, T]) extends AnyVal {
     def traverseType[F[_]: Applicative, T1](fn: T => F[T1]): F[Pattern[N, T1]] =

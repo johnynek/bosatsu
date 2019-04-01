@@ -1087,6 +1087,17 @@ main = Foo(1, `package`, 3, 4)
     ))
   }
 
+  test("test operators") {
+    evalTest(List("""
+package A
+
+operator + = add
+operator * = times
+
+main = 1 + 2 * 3
+"""), "A", VInt(7))
+  }
+
   test("patterns in lambdas") {
     runBosatsuTest(List("""
 package A
