@@ -253,7 +253,7 @@ object DefRecursionCheck {
           ifs *> e
         case Lambda(args, body) =>
           // these args create new bindings:
-          checkForIllegalBindsSt(args.toList, decl) *> checkDecl(body)
+          checkForIllegalBindsSt(args.toList.flatMap(_.names), decl) *> checkDecl(body)
         case Literal(_) =>
           unitSt
         case Match(RecursionKind.NonRecursive, arg, cases) =>

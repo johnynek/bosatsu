@@ -177,5 +177,35 @@ object Expr {
         buildLambda(NonEmptyList.of(arg), body1, outer)
     }
 
+  def buildPatternLambda[A](
+    args: NonEmptyList[Pattern[(PackageName, Constructor), rankn.Type]],
+    body: Expr[A],
+    outer: A): Expr[A] = {
+
+    def makeBindBody(matchPat: Pattern[(PackageName, Constructor), rankn.Type]): (Bindable, Expr[A]) =
+      // We don't need to worry about shadowing here
+      // because we immediately match the pattern but still this is ugly
+      matchPat match {
+        case Pattern.Var(arg) =>
+          (arg, body)
+        case _ =>
+          val anonBind: Bindable = Identifier.Name("$anon") // TODO we should have better ways to gensym
+          val matchBody: Expr[A] =
+            Match(Var(None, anonBind, outer), NonEmptyList.of((matchPat, body)), outer)
+          (anonBind, matchBody)
+      }
+
+    args match {
+      case NonEmptyList(Pattern.Annotation(pat, tpe), Nil) =>
+        val (arg, newBody) = makeBindBody(pat)
+        Expr.AnnotatedLambda(arg, tpe, newBody, outer)
+      case NonEmptyList(matchPat, Nil) =>
+        val (arg, newBody) = makeBindBody(matchPat)
+        Expr.Lambda(arg, newBody, outer)
+      case NonEmptyList(arg, h :: tail) =>
+        val body1 = buildPatternLambda(NonEmptyList(h, tail), body, outer)
+        buildPatternLambda(NonEmptyList.of(arg), body1, outer)
+    }
+  }
 }
 

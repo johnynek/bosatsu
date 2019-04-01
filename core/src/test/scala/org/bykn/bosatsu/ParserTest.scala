@@ -468,13 +468,13 @@ x""")
 
     parseTestAll(parser(""),
       "(\\x -> x)(f)",
-      Apply(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x"))), NonEmptyList.of(mkVar("f")), false))
+      Apply(Parens(Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x"))), NonEmptyList.of(mkVar("f")), false))
 
     parseTestAll(parser(""),
       "((\\x -> x)(f))",
-      Parens(Apply(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x"))), NonEmptyList.of(mkVar("f")), false)))
+      Parens(Apply(Parens(Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x"))), NonEmptyList.of(mkVar("f")), false)))
 
-    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of(Identifier.Name("x")), mkVar("x")))), NonEmptyList.of(mkVar("f")), false)
+    val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x")))), NonEmptyList.of(mkVar("f")), false)
     parseTestAll(parser(""),
       "((\\x -> x))(f)",
       expected)
