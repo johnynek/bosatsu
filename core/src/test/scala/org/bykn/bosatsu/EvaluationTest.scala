@@ -1111,8 +1111,18 @@ inc2 = \F(x) | B(x), Foo(y) -> x.add(y)
 test1 = Assertion(inc2(F(1), Foo(1)).eq_Int(2), "inc2(F(1), Foo(1)) == 2")
 test2 = Assertion(inc2(B(1), Foo(1)).eq_Int(2), "inc2(B(1), Foo(1)) == 2")
 
+# with an outer tuple wrapping
+inc3 = \(F(x) | B(x), Foo(y)) -> x.add(y)
+test3 = Assertion(inc3((F(1), Foo(1))).eq_Int(2), "inc3((F(1), Foo(1))) == 2")
+test4 = Assertion(inc3((B(1), Foo(1))).eq_Int(2), "inc3((B(1), Foo(1))) == 2")
 
-suite = Test("match tests", [test0, test1, test2])
-"""), "A", 3)
+# with a custom struct
+struct Pair(x, y)
+inc4 = \Pair(F(x) | B(x), Foo(y)) -> x.add(y)
+test5 = Assertion(inc4(Pair(F(1), Foo(1))).eq_Int(2), "inc4(Pair(F(1), Foo(1))) == 2")
+test6 = Assertion(inc4(Pair(B(1), Foo(1))).eq_Int(2), "inc4(Pair(B(1), Foo(1))) == 2")
+
+suite = Test("match tests", [test0, test1, test2, test3, test4, test5, test6])
+"""), "A", 7)
   }
 }
