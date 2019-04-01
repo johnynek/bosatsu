@@ -168,8 +168,10 @@ class TypeTest extends FunSuite {
       val subs1 = subs.filter { case (_, v) =>
         (Type.freeBoundTyVars(v :: Nil).toSet & subs.keySet).isEmpty
       }
+      // now subs1 has keys that can be completely removed, so
+      // after substitution, those keys should be gone
       val t1 = Type.substituteVar(t, subs1)
-      assert((Type.freeBoundTyVars(t1 :: Nil).toSet & subs.keySet) == Set.empty)
+      assert((Type.freeBoundTyVars(t1 :: Nil).toSet & subs1.keySet) == Set.empty)
     }
 
     forAll(NTypeGen.genDepth03, genSubs(3))(law _)
