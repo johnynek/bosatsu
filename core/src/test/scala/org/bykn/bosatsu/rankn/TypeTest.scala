@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
-import org.scalatest.prop.PropertyChecks.forAll
+import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import org.bykn.bosatsu.Generators
 
@@ -17,13 +17,6 @@ object NTypeGen {
 
     Gen.oneOf(genVar, genConst)
   }
-
-  def allTypesIn(t: Type): List[Type] =
-    t match {
-      case f@Type.ForAll(_, in) => f :: allTypesIn(in)
-      case t@Type.TyApply(a, b) => t :: allTypesIn(a) ::: allTypesIn(b)
-      case other => other :: Nil
-    }
 
   def genDepth(d: Int): Gen[Type] =
     if (d <= 0) genRootType
@@ -47,6 +40,10 @@ object NTypeGen {
 }
 
 class TypeTest extends FunSuite {
+  implicit val generatorDrivenConfig =
+    //PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = 500)
+    //PropertyCheckConfiguration(minSuccessful = 5)
 
   test("free vars are not duplicated") {
     forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
@@ -83,13 +80,33 @@ class TypeTest extends FunSuite {
   }
 
   test("hasNoVars fully recurses") {
-    forAll(NTypeGen.genDepth03) { t =>
-      val allT = NTypeGen.allTypesIn(t)
+    def allTypesIn(t: Type): List[Type] =
+      t match {
+        case f@Type.ForAll(bounds, in) =>
+          // filter bounds out, since they are shadowed
+          val boundSet: Set[Type] = bounds.toList.map(Type.TyVar(_)).toSet
+          f :: (allTypesIn(in).filter { it =>
+            (boundSet -- Type.freeBoundTyVars(it :: Nil).map(Type.TyVar(_))).isEmpty
+          })
+        case t@Type.TyApply(a, b) => t :: allTypesIn(a) ::: allTypesIn(b)
+        case other => other :: Nil
+      }
+
+    def law(t: Type) = {
+      val allT = allTypesIn(t)
       val hnv = Type.hasNoVars(t)
 
       if (hnv) assert(allT.forall(Type.hasNoVars), "hasNoVars == true")
       else assert(allT.exists { t => !Type.hasNoVars(t) }, "hasNoVars == false")
     }
+
+    forAll(NTypeGen.genDepth03)(law _)
+
+    val pastFails =
+      List(
+        Type.ForAll(NonEmptyList.of(Type.Var.Bound("x"), Type.Var.Bound("ogtumm"), Type.Var.Bound("t")),
+          Type.TyVar(Type.Var.Bound("x")))
+        )
   }
 
   test("Type.freeTyVars is empty for ForAll fully bound") {
@@ -130,10 +147,10 @@ class TypeTest extends FunSuite {
     Gen.mapOf(pair)
   }
 
-  test("substitute is a no-op if there are no freeTyVars") {
+  test("substitute is a no-op if none of the substitutions are free") {
     forAll(NTypeGen.genDepth03, genSubs(3)) { (t, subs) =>
       val subs1 = subs -- Type.freeBoundTyVars(t :: Nil)
-      assert(Type.substituteVar(t, subs) == t)
+      assert(Type.substituteVar(t, subs1) == t)
     }
   }
 
@@ -146,13 +163,17 @@ class TypeTest extends FunSuite {
   }
 
   test("after substitution, none of the keys are free") {
-    forAll(NTypeGen.genDepth03, genSubs(3)) { (t, subs) =>
+    def law(t: Type, subs: Map[Type.Var.Bound, Type]) = {
       // don't substitute back onto the keys
       val subs1 = subs.filter { case (_, v) =>
         (Type.freeBoundTyVars(v :: Nil).toSet & subs.keySet).isEmpty
       }
+      // now subs1 has keys that can be completely removed, so
+      // after substitution, those keys should be gone
       val t1 = Type.substituteVar(t, subs1)
-      assert((Type.freeBoundTyVars(t1 :: Nil).toSet & subs.keySet) == Set.empty)
+      assert((Type.freeBoundTyVars(t1 :: Nil).toSet & subs1.keySet) == Set.empty)
     }
+
+    forAll(NTypeGen.genDepth03, genSubs(3))(law _)
   }
 }

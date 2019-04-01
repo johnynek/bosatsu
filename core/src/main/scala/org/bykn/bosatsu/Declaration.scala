@@ -78,7 +78,7 @@ sealed abstract class Declaration {
         val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail.map(Doc.text("elif ") + checkBody(_))) ::: tail
         Doc.intercalate(Doc.line, parts)
       case Lambda(args, body) =>
-        Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Bindable].document(_))) + Doc.text(" -> ") + body.toDoc
+        Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Pattern.Parsed].document(_))) + Doc.text(" -> ") + body.toDoc
       case Literal(lit) => Document[Lit].document(lit)
       case Match(kind, typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
@@ -162,7 +162,9 @@ sealed abstract class Declaration {
             (loop(d0), loop(d1.get))
           }, loop(elseCase.get))
         case Lambda(args, body) =>
-          Expr.buildLambda(args.map((_, None)), loop(body), decl)
+          Expr.buildPatternLambda(
+            args.map(unTuplePattern(_, nameToType, nameToCons)),
+            loop(body), decl)
         case Literal(lit) =>
           Expr.Literal(lit, decl)
         case Parens(p) =>
@@ -423,7 +425,7 @@ object Declaration {
   case class DefFn(deffn: DefStatement[(OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
   case class IfElse(ifCases: NonEmptyList[(Declaration, OptIndent[Declaration])],
     elseCase: OptIndent[Declaration])(implicit val region: Region) extends Declaration
-  case class Lambda(args: NonEmptyList[Bindable], body: Declaration)(implicit val region: Region) extends Declaration
+  case class Lambda(args: NonEmptyList[Pattern.Parsed], body: Declaration)(implicit val region: Region) extends Declaration
   case class Literal(lit: Lit)(implicit val region: Region) extends Declaration
   case class Match(
     kind: RecursionKind,
@@ -543,7 +545,7 @@ object Declaration {
   }
 
   val lambdaP: Indy[Lambda] = {
-    val params = Indy.lift(P("\\" ~/ maybeSpace ~ Identifier.bindableParser.nonEmptyList))
+    val params = Indy.lift(P("\\" ~/ maybeSpace ~ Pattern.parser.nonEmptyList))
 
     Indy.blockLike(params, parser, P(maybeSpace ~ "->"))
       .region
