@@ -23,17 +23,23 @@ package Euler/P6
 # diff(2) = diff(1) + 1*2^2 = 4
 # diff(n) = sum(\x -> x*(x+1)*(x+1), n)
 
+operator + = add
+operator - = sub
+operator * = times
+operator == = eq_Int
+
 # sum 0 to n on the given function
 def sum(fn, n):
   int_loop(n, 0, \i, r ->
-    i = i.sub(1)
-    (i, r.add(fn(i))))
+    i = i - 1
+    (i, r + fn(i)))
 
 # keeping n curried here, note diff is a function
 diff = sum(\x ->
-  x1 = x.add(1)
-  x2 = x1.times(x1)
-  x.times(x2))
+  x1 = x + 1
+  x2 = x1 * x1
+  x * x2)
 
-test0 = Assertion(trace("result", diff(10)).eq_Int(2640), "matched problem")
-test1 = Assertion(trace("result", diff(100)).eq_Int(25164150), "matched problem")
+test0 = Assertion(diff(10) == 2640, "matched problem")
+test1 = Assertion(diff(100) == 25164150, "matched problem")
+tests = Test("two examples", [test0, test1])

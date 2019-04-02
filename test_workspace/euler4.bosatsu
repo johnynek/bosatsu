@@ -6,6 +6,13 @@ package Euler/Four
 # The largest palindrome made from the product of two 2-digit numbers is 9009 = 91 × 99.
 # Find the largest palindrome made from the product of two 3-digit numbers.
 
+def operator >(a, b):
+  match a.cmp_Int(b):
+    GT: True
+    _ : False
+
+operator - = sub
+
 # given a maximum value, and a function to Option[Int], return
 # the maximum value of the function for inputs greater than 0
 # if the starting number is <= 0, we return None
@@ -14,13 +21,10 @@ def max_of(n, fn):
     next_i = i.sub(1)
     res1 = match fn(i):
       None: res
-      Some(m1):
+      sm1 @ Some(m1):
         match res:
-          None: Some(m1)
-          Some(m):
-            match m1.cmp_Int(m):
-              GT: Some(m1)
-              _: res
+          None: sm1
+          sm @ Some(m): sm1 if m1 > m else sm
     (next_i, res1))
 
 # return the first defined value from largest to smallest
@@ -28,7 +32,7 @@ def max_of(n, fn):
 def first_of(n, fn):
   int_loop(n, None, \i, res ->
     match fn(i):
-      None: (i.sub(1), None)
+      None: (i - 1, None)
       nonNone: (0, nonNone))
 
 def digit_list(n):

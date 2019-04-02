@@ -3,11 +3,15 @@ package Euler/P7
 # By listing the first six prime numbers: 2, 3, 5, 7, 11, and 13, we can see that the 6th prime is 13.
 # What is the 10 001st prime number?
 
+operator + = add
+operator - = sub
+operator == = eq_Int
+
 def int_loop_up(top, res, fn):
   int_loop(top, res, \i, res ->
-    rev_i = top.sub(i)
+    rev_i = top - i
     (next_rev, next_res) = fn(rev_i, res)
-    (top.sub(next_rev), next_res))
+    (top - next_rev, next_res))
 
 def divides(denom, num):
   num.mod_Int(denom).eq_Int(0)
@@ -16,8 +20,8 @@ def not(x): False if x else True
 
 def is_prime(x):
   int_loop_up(x, False, \i, div ->
-    nexti = i.add(1)
-    candidate = i.add(2)
+    nexti = i + 1
+    candidate = i + 2
     match cmp_Int(candidate, x):
       LT: (x, True) if div else (nexti, candidate.divides(x))
       _: (x, False)).not
@@ -51,5 +55,5 @@ def ith_prime(total):
 
 test = Test("euler 7", [
   Assertion(is_prime(13), "6th prime is 13"),
-  Assertion(ith_prime(6).eq_Int(13), "6th prime is 13"),
-  Assertion(ith_prime(11).eq_Int(31), "11th prime is 31")])
+  Assertion(ith_prime(6) == 13, "6th prime is 13"),
+  Assertion(ith_prime(11) == 31, "11th prime is 31")])

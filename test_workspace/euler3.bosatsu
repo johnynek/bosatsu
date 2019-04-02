@@ -7,14 +7,20 @@ package Euler/Three
 #number = 13195
 number = 600851475143
 
+operator - = sub
+operator + = add
+operator == = eq_Int
+
+def divides(a, b): b.mod_Int(a) == 0
+
 def smallest_factor(n):
   match n:
     1: 1
     _:
       int_loop(n, -1, \i, res ->
-        trial = n.sub(i).add(2)
-        if n.mod_Int(trial).eq_Int(0): (0, trial)
-        else: (i.sub(1), -1))
+        trial = n - i + 2
+        if trial.divides(n): (0, trial)
+        else: (i - 1, -1))
 
 def all_factors(n):
   int_loop(n, [], \i, facs ->
@@ -29,5 +35,4 @@ def largest_factor(n):
     []: n
     [h, *_]: h
 
-#test = Assertion(trace("factor:", largest_factor(number)).eq_Int(29), "trial")
-test = Assertion(trace("factor:", largest_factor(number)).eq_Int(6857), "trial")
+test = Assertion(largest_factor(number) == 6857, "trial")
