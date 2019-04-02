@@ -4,10 +4,13 @@ package Euler/P5
 #
 # What is the smallest positive number that is evenly divisible by all of the numbers from 1 to 20?
 
+operator + = add
+operator - = sub
+operator * = times
+
 def factorial(n):
   int_loop(n, 1, \i, p ->
-    p1 = p.times(i)
-    (i.sub(1), p1))
+    (i - 1, p * i))
 
 max_candidate = factorial(10)
 
@@ -23,11 +26,10 @@ def for_all(items, fn):
 
 def int_loop_up(top, res, fn):
   int_loop(top, res, \i, res ->
-    rev_i = top.sub(i)
-    (next_rev, next_res) = fn(rev_i, res)
-    (top.sub(next_rev), next_res))
+    (next_rev, next_res) = fn(top - i, res)
+    (top - next_rev, next_res))
 
-sum_10 = int_loop_up(6, 0, \i, s -> (i.add(1), s.add(i)))
+sum_10 = int_loop_up(6, 0, \i, s -> (i + 1, s + i))
 
 bound = max_candidate.add(1)
 
@@ -36,11 +38,11 @@ def divides(denom, num):
 
 factors = range(10)
 
-def keep(n): for_all(factors, \f -> f.add(1).divides(n))
+def keep(n): for_all(factors, \f -> (f + 1).divides(n))
 
 div_all = int_loop_up(bound, 0, \i, res ->
   cand = i.add(1)
   if keep(cand): (bound, cand)
-  else: (i.add(1), 0))
+  else: (i + 1, 0))
 
 test = Assertion(div_all.eq_Int(2520), "test")
