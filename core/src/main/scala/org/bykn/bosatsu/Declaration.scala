@@ -184,7 +184,7 @@ sealed abstract class Declaration {
           Expr.Match(loop(arg), expBranches, decl)
         case tc@TupleCons(its) =>
           val tup0: Expr[Declaration] = Expr.Var(Some(Predef.packageName), Identifier.Constructor("Unit"), tc)
-          val tup2: Expr[Declaration] = Expr.Var(Some(Predef.packageName), Identifier.Constructor("Tuple2"), tc)
+          val tup2: Expr[Declaration] = Expr.Var(Some(Predef.packageName), Identifier.Constructor("TupleCons"), tc)
           def tup(args: List[Declaration]): Expr[Declaration] =
             args match {
               case Nil => tup0
@@ -390,7 +390,7 @@ object Declaration {
               case h :: tail =>
                 val tailP = loop(tail)
                 Pattern.PositionalStruct(
-                  (Predef.packageName, Constructor("Tuple2")),
+                  (Predef.packageName, Constructor("TupleCons")),
                   h :: tailP :: Nil)
             }
 

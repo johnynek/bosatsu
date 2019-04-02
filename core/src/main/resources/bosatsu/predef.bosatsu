@@ -10,7 +10,7 @@ export [
   String,
   Test(),
   TestSuite(),
-  Tuple2(),
+  TupleCons(),
   Order,
   Unit(),
   Dict,
@@ -44,7 +44,7 @@ export [
 ]
 
 struct Unit
-struct Tuple2(first, second)
+struct TupleCons(first, second)
 
 enum Bool:
   False
@@ -116,14 +116,14 @@ external def mod_Int(a: Int, mod: Int) -> Int
 external def range(exclusiveUpper: Int) -> List[Int]
 
 # this loops until the returned Int is <= 0 or the returned Int is >= intValue
-external def int_loop(intValue: Int, state: a, fn: Int -> a -> Tuple2[Int, Tuple2[a, Unit]]) -> a
+external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
 
 def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: a -> Int -> a) -> a:
   diff = exclusiveUpper.sub(inclusiveLower)
   int_loop(diff, init, \diff0, a ->
     idx = exclusiveUpper.sub(diff0)
     a1 = fn(a, idx)
-    Tuple2(diff0.sub(1), Tuple2(a1, Unit)))
+    TupleCons(diff0.sub(1), TupleCons(a1, Unit)))
 
 external struct String
 external def string_Order_fn(str0: String, str1: String) -> Comparison
