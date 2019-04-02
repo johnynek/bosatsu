@@ -55,7 +55,7 @@ class TotalityTest extends FunSuite {
 
   val predefTE = typeEnvOf("""#
 struct Unit
-struct Tuple2(fst, snd)
+struct TupleCons(fst, snd)
 """)
 
   def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] =
@@ -129,11 +129,11 @@ struct Unit
 
 
     val te1 = typeEnvOf("""#
-struct Tuple2(a, b)
+struct TupleCons(a, b)
 """)
-    testTotality(te1, patterns("[Tuple2(_, _)]"))
-    testTotality(te1, patterns("[Tuple2(_, 0), Tuple2(_, _)]"))
-    notTotal(te1, patterns("[Tuple2(_, 0)]"))
+    testTotality(te1, patterns("[TupleCons(_, _)]"))
+    testTotality(te1, patterns("[TupleCons(_, 0), TupleCons(_, _)]"))
+    notTotal(te1, patterns("[TupleCons(_, 0)]"))
   }
 
   test("test Option types") {
@@ -185,13 +185,13 @@ enum Either: Left(l), Right(r)
     val te = typeEnvOf("""#
 enum Either: Left(l), Right(r)
 enum Option: None, Some(get)
-struct Tuple2(fst, snd)
+struct TupleCons(fst, snd)
 """)
 
     testTotality(te, patterns("[None, Some(Left(_)), Some(Right(_))]"), tight = true)
     testTotality(te, patterns("[None, Some(Left(_) | Right(_))]"), tight = true)
-    testTotality(te, patterns("[None, Some(Tuple2(Left(_), _)), Some(Tuple2(_, Right(_))), Some(Tuple2(Right(_), Left(_)))]"), tight = true)
-    testTotality(te, patterns("[None, Some(Tuple2(Left(_), _) | Tuple2(_, Right(_))), Some(Tuple2(Right(_), Left(_)))]"), tight = true)
+    testTotality(te, patterns("[None, Some(TupleCons(Left(_), _)), Some(TupleCons(_, Right(_))), Some(TupleCons(Right(_), Left(_)))]"), tight = true)
+    testTotality(te, patterns("[None, Some(TupleCons(Left(_), _) | TupleCons(_, Right(_))), Some(TupleCons(Right(_), Left(_)))]"), tight = true)
   }
 
   test("compose List with structs") {

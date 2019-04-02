@@ -59,7 +59,7 @@ object Predef {
         "Test",
         "TestSuite",
         "True",
-        "Tuple2",
+        "TupleCons",
         "Unit",
         "add",
         "add_key",
@@ -182,7 +182,7 @@ object PredefImpl {
     loop(BigInteger.ZERO, Nil)
   }
 
-  //def intLoop(intValue: Int, state: a, fn: Int -> a -> Tuple2[Int, Tuple2[a, Unit]]) -> a
+  //def intLoop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
   final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
     val fnT = fn.asFn
     @annotation.tailrec

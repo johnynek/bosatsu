@@ -188,7 +188,7 @@ object Type {
   val DictType: Type = TyConst(Const.predef("Dict"))
   val OptionType: Type = TyConst(Const.predef("Option"))
   val UnitType = TyConst(Type.Const.predef("Unit"))
-  val Tuple2Type = TyConst(Type.Const.predef("Tuple2"))
+  val TupleConsType = TyConst(Type.Const.predef("TupleCons"))
 
   object Fun {
     def unapply(t: Type): Option[(Type, Type)] =
@@ -206,7 +206,7 @@ object Type {
     def unapply(t: Type): Option[List[Type]] =
       t match {
         case UnitType => Some(Nil)
-        case TyApply(TyApply(Tuple2Type, h), t) =>
+        case TyApply(TyApply(TupleConsType, h), t) =>
           unapply(t) match {
             case None => None
             case Some(ts) => Some(h :: ts)
@@ -219,7 +219,7 @@ object Type {
         case Nil => UnitType
         case h :: tail =>
           val tailT = apply(tail)
-          TyApply(TyApply(Tuple2Type, h), tailT)
+          TyApply(TyApply(TupleConsType, h), tailT)
       }
   }
 
