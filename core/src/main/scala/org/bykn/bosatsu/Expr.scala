@@ -41,6 +41,17 @@ object Expr {
   def ifExpr[T](cond: Expr[T], ifTrue: Expr[T], ifFalse: Expr[T], tag: T): Expr[T] =
     Match(cond, NonEmptyList.of((TruePat, ifTrue), (FalsePat, ifFalse)), tag)
 
+  /**
+   * Build an apply expression by appling these args left to right
+   */
+  @annotation.tailrec
+  def buildApp[A](fn: Expr[A], args: List[Expr[A]], appTag: A): Expr[A] =
+    args match {
+      case Nil => fn
+      case h :: tail =>
+        buildApp(App(fn, h, appTag), tail, appTag)
+    }
+
   def traverseType[T, F[_]](expr: Expr[T], fn: rankn.Type => F[rankn.Type])(implicit F: Applicative[F]): F[Expr[T]] =
     expr match {
       case Annotation(e, tpe, a) =>
@@ -177,5 +188,35 @@ object Expr {
         buildLambda(NonEmptyList.of(arg), body1, outer)
     }
 
+  def buildPatternLambda[A](
+    args: NonEmptyList[Pattern[(PackageName, Constructor), rankn.Type]],
+    body: Expr[A],
+    outer: A): Expr[A] = {
+
+    def makeBindBody(matchPat: Pattern[(PackageName, Constructor), rankn.Type]): (Bindable, Expr[A]) =
+      // We don't need to worry about shadowing here
+      // because we immediately match the pattern but still this is ugly
+      matchPat match {
+        case Pattern.Var(arg) =>
+          (arg, body)
+        case _ =>
+          val anonBind: Bindable = Identifier.Name("$anon") // TODO we should have better ways to gensym
+          val matchBody: Expr[A] =
+            Match(Var(None, anonBind, outer), NonEmptyList.of((matchPat, body)), outer)
+          (anonBind, matchBody)
+      }
+
+    args match {
+      case NonEmptyList(Pattern.Annotation(pat, tpe), Nil) =>
+        val (arg, newBody) = makeBindBody(pat)
+        Expr.AnnotatedLambda(arg, tpe, newBody, outer)
+      case NonEmptyList(matchPat, Nil) =>
+        val (arg, newBody) = makeBindBody(matchPat)
+        Expr.Lambda(arg, newBody, outer)
+      case NonEmptyList(arg, h :: tail) =>
+        val body1 = buildPatternLambda(NonEmptyList(h, tail), body, outer)
+        buildPatternLambda(NonEmptyList.of(arg), body1, outer)
+    }
+  }
 }
 

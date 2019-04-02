@@ -71,7 +71,7 @@ object Evaluation {
     val False: Value = SumValue(0, UnitValue)
     val True: Value = SumValue(1, UnitValue)
 
-    object Tuple2 {
+    object TupleCons {
       def unapply(v: Value): Option[(Value, Value)] =
         v match {
           case ConsValue(a, ConsValue(b, UnitValue)) => Some((a, b))
@@ -82,14 +82,14 @@ object Evaluation {
     object Tuple {
       /**
        * Tuples are encoded as:
-       * (1, 2, 3) => Tuple2(1, Tuple2(2, Tuple2(3, ())))
+       * (1, 2, 3) => TupleCons(1, TupleCons(2, TupleCons(3, ())))
        * since a Tuple(a, b) is encoded as
        * ConsValue(a, ConsValue(b, UnitValue))
        * this gives double wrapping
        */
       def unapply(v: Value): Option[List[Value]] =
         v match {
-          case Tuple2(a, b) =>
+          case TupleCons(a, b) =>
             unapply(b).map(a :: _)
           case UnitValue => Some(Nil)
           case _ => None
