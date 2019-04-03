@@ -66,13 +66,15 @@ object NormalExpression {
 
 object Normalization {
   case class NormalExpressionTag(ne: NormalExpression, children: Set[NormalExpression])
+  type NormalizedPM = PackageMap.Typed[(Declaration, Normalization.NormalExpressionTag)]
+  type NormalizedPac = Package.Typed[(Declaration, Normalization.NormalExpressionTag)]
 }
 
 case class NormalizePackageMap(pm: PackageMap.Inferred) {
   import Normalization._
   import TypedExpr._
 
-  val normalizePackageMap: PackageMap.Normalized = {
+  val normalizePackageMap: NormalizedPM = {
     val packs = pm.toMap.toList
     val normAll = packs.traverse { case (name, pack) =>
       normalizePackage(name, pack)
@@ -189,7 +191,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       tag=(m.tag, neTag))
 
   def normalizeBranch(b: (Pattern[(PackageName, Constructor), Type], TypedExpr[Declaration]), env: Env, p: Package.Inferred): NormState[
-  (Pattern[(PackageName, Constructor), Type], TypedExpr[(Declaration, NormalExpressionTag)])] = {
+    (Pattern[(PackageName, Constructor), Type], TypedExpr[(Declaration, NormalExpressionTag)])] = {
     val (pattern, expr) = b
     val names = pattern.names.collect { case b: Identifier.Bindable => b}.map(Some(_))
     val lambdaVars = names ++ env._2
@@ -206,7 +208,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def normalizePackageLet(pkgName: PackageName, inferredExpr: (Identifier.Bindable, RecursionKind, TypedExpr[Declaration]), pack: Package.Inferred): 
-  NormState[(Identifier.Bindable, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)])] = {
+    NormState[(Identifier.Bindable, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)])] = {
     println(inferredExpr)
 
     println(s"let ${inferredExpr._1} = ${inferredExpr._3}")
@@ -218,7 +220,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def normalizeProgram(pkgName: PackageName, pack: Package.Inferred): NormState[
-  Program[TypeEnv[Variance], TypedExpr[(Declaration, Normalization.NormalExpressionTag)], Statement]] = {
+    Program[TypeEnv[Variance], TypedExpr[(Declaration, Normalization.NormalExpressionTag)], Statement]] = {
     for { 
       lets <- pack.program.lets.map(normalizePackageLet(pkgName, _, pack)).sequence
     } yield pack.program.copy(
@@ -226,9 +228,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     )
   }
 
-  def normalizePackage(pkgName: PackageName, pack: Package.Inferred): State[
-  Map[(PackageName, Identifier), ResultingRef],
-  Package.Normalized] = for {
+  def normalizePackage(pkgName: PackageName, pack: Package.Inferred):
+    NormState[NormalizedPac] = for {
     program <- normalizeProgram(pkgName, pack)
   } yield pack.copy(program = program)
 
