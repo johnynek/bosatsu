@@ -31,7 +31,7 @@ object DefRecursionCheck {
   case class RecurNotOnArg(decl: Declaration.Match, fnname: Bindable, args: List[Bindable]) extends RecursionError
   case class RecursionArgNotVar(fnname: Bindable, invalidArg: Declaration) extends RecursionError
   case class RecursionNotSubstructural(fnname: Bindable, recurPat: Pattern.Parsed, arg: Declaration.Var) extends RecursionError
-  case class RecursiveDefNoRecur(defstmt: DefStatement[Declaration], recur: Declaration.Match) extends RecursionError
+  case class RecursiveDefNoRecur(defstmt: DefStatement[Pattern.Parsed, Declaration], recur: Declaration.Match) extends RecursionError
 
   /**
    * Check a statement that all inner statements and declarations contain legal
@@ -355,9 +355,9 @@ object DefRecursionCheck {
      * Binds are not allowed to be recursive, only defs, so here we just make sure
      * none of the free variables of the pattern are used in decl
      */
-    def checkDef[A](state: State, defstmt: DefStatement[(OptIndent[Declaration], Padding[A])]): Res = {
+    def checkDef[A](state: State, defstmt: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[A])]): Res = {
       val body = defstmt.result._1.get
-      val args = defstmt.args.map(_._1)
+      val args = defstmt.args.flatMap(_.names)
       val state1 = state.inDef(defstmt.name, args)
       checkForIllegalBinds(state, defstmt.name :: args, body) {
         val st = setSt(state1) *> checkDecl(body) *> (getSt.flatMap {
@@ -369,7 +369,7 @@ object DefRecursionCheck {
             unitSt
           case InDefRecurred(_, _, recur, 0) =>
             // we hit a recur, but we didn't recurse
-            failSt[Unit](RecursiveDefNoRecur(defstmt.map(_._1.get), recur))
+            failSt[Unit](RecursiveDefNoRecur(defstmt.copy(result = defstmt.result._1.get), recur))
           case unreachable =>
             // $COVERAGE-OFF$ this should be unreachable
             sys.error(s"we would like to prove in the types we can't get here: $unreachable, $defstmt"): St[Unit]

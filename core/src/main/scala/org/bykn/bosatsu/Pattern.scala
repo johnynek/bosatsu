@@ -286,7 +286,7 @@ object Pattern {
             case Left(Some(glob)) => Doc.char('*') + Document[Identifier].document(glob)
             case Right(p) => document.document(p)
           }) + Doc.char(']')
-      case Annotation(_, _) =>
+      case Annotation(p, t) =>
         /*
          * We need to know what package we are in and what imports we depend on here.
          * This creates some challenges we need to deal with:
@@ -295,7 +295,7 @@ object Pattern {
          *   3. at the top level we need parens to distinguish a: Integer from being the rhs of a
          *      case
          */
-        ???
+        document.document(p) + Doc.text(": ") + Document[TypeRef].document(t)
       case PositionalStruct(n, Nil) =>
         n match {
           case None => Doc.text("()")
@@ -324,72 +324,80 @@ object Pattern {
         Doc.intercalate(Doc.text(" | "), (head :: rest.toList).map(doc(_)))
     }
 
-  lazy val parser: P[Pattern[Option[Constructor], TypeRef]] = {
+  val pwild = P("_").map(_ => WildCard)
+  val plit = Lit.parser.map(Literal(_))
 
-    val pwild = P("_").map(_ => WildCard)
-    val plit = Lit.parser.map(Literal(_))
-    lazy val recurse = P(go(false))
+  /**
+   * This does not allow a top-level type annotation which would be ambiguous
+   * with : used for ending the match case block
+   */
+  val matchParser: P[Parsed] =
+    P(matchOrNot(isMatch = true))
 
-    def go(isTop: Boolean): P[Pattern[Option[Constructor], TypeRef]] = {
+  /**
+   * A Pattern in a match position allows top level un-parenthesized type annotation
+   */
+  val bindParser: P[Parsed] =
+    P(matchOrNot(isMatch = false))
 
-      val positional = P(Identifier.consParser ~ (recurse.listN(1).parens).?)
-        .map {
-          case (n, None) => PositionalStruct(Some(n), Nil)
-          case (n, Some(ls)) => PositionalStruct(Some(n), ls)
-        }
+  private def matchOrNot(isMatch: Boolean): P[Parsed] = {
+    lazy val recurse = bindParser
 
-      val tupleOrParens = recurse.tupleOrParens.map {
-        case Left(parens) => parens
-        case Right(tup) => PositionalStruct(None, tup)
+    val positional = P(Identifier.consParser ~ (recurse.listN(1).parens).?)
+      .map {
+        case (n, None) => PositionalStruct(Some(n), Nil)
+        case (n, Some(ls)) => PositionalStruct(Some(n), ls)
       }
 
-      val listItem: P[Either[Option[Bindable], Pattern[Option[Constructor], TypeRef]]] = {
-        val maybeNamed: P[Option[Bindable]] =
-          P("_").map(_ => None) | Identifier.bindableParser.map(Some(_))
-
-        P("*" ~ maybeNamed).map(Left(_)) | recurse.map(Right(_))
-      }
-
-      val listP = listItem.listSyntax.map(ListPat(_))
-
-      lazy val named: P[Pattern[Option[Constructor], TypeRef]] =
-        P(maybeSpace ~ "@" ~ maybeSpace ~ nonAnnotated)
-      lazy val pvarOrName = (Identifier.bindableParser ~ named.?)
-        .map {
-          case (n, None) => Var(n)
-          case (n, Some(p)) => Named(n, p)
-        }
-      lazy val nonAnnotated = plit | pwild | tupleOrParens | positional | listP | pvarOrName
-      // A union can't have an annotation, we need to be inside a parens for that
-      val unionOp: P[Pattern[Option[Constructor], TypeRef] => Pattern[Option[Constructor], TypeRef]] = {
-        val unionRest = nonAnnotated
-          .nonEmptyListOfWsSep(maybeSpace, P("|"), allowTrailing = false, 1)
-        ("|" ~ maybeSpace ~ unionRest)
-          .map { ne =>
-            { pat: Pattern[Option[Constructor], TypeRef] => Union(pat, ne) }
-          }
-      }
-      val typeAnnotOp: P[Pattern[Option[Constructor], TypeRef] => Pattern[Option[Constructor], TypeRef]] = {
-        P(":" ~ maybeSpace ~ TypeRef.parser)
-          .map { tpe =>
-            { pat: Pattern[Option[Constructor], TypeRef] => Annotation(pat, tpe) }
-          }
-      }
-
-      def maybeOp(opP: P[Pattern[Option[Constructor], TypeRef] => Pattern[Option[Constructor], TypeRef]]): P[Pattern[Option[Constructor], TypeRef]] =
-        (nonAnnotated ~ (maybeSpace ~ opP).?)
-          .map {
-            case (p, None) => p
-            case (p, Some(op)) => op(p)
-          }
-
-      // We only allow type annotation not at the top level, must be inside
-      // Struct or parens
-      if (isTop) maybeOp(unionOp)
-      else maybeOp(unionOp | typeAnnotOp)
+    val tupleOrParens = recurse.tupleOrParens.map {
+      case Left(parens) => parens
+      case Right(tup) => PositionalStruct(None, tup)
     }
 
-    go(true)
+    val listItem: P[Either[Option[Bindable], Pattern[Option[Constructor], TypeRef]]] = {
+      val maybeNamed: P[Option[Bindable]] =
+        P("_").map(_ => None) | Identifier.bindableParser.map(Some(_))
+
+      P("*" ~ maybeNamed).map(Left(_)) | recurse.map(Right(_))
+    }
+
+    val listP = listItem.listSyntax.map(ListPat(_))
+
+    lazy val named: P[Pattern[Option[Constructor], TypeRef]] =
+      P(maybeSpace ~ "@" ~ maybeSpace ~ nonAnnotated)
+    lazy val pvarOrName = (Identifier.bindableParser ~ named.?)
+      .map {
+        case (n, None) => Var(n)
+        case (n, Some(p)) => Named(n, p)
+      }
+    lazy val nonAnnotated = plit | pwild | tupleOrParens | positional | listP | pvarOrName
+    // A union can't have an annotation, we need to be inside a parens for that
+    val unionOp: P[Pattern[Option[Constructor], TypeRef] => Pattern[Option[Constructor], TypeRef]] = {
+      val unionRest = nonAnnotated
+        .nonEmptyListOfWsSep(maybeSpace, P("|"), allowTrailing = false, 1)
+      ("|" ~ maybeSpace ~ unionRest)
+        .map { ne =>
+          { pat: Pattern[Option[Constructor], TypeRef] => Union(pat, ne) }
+        }
+    }
+    val typeAnnotOp: P[Pattern[Option[Constructor], TypeRef] => Pattern[Option[Constructor], TypeRef]] = {
+      P(":" ~ maybeSpace ~ TypeRef.parser)
+        .map { tpe =>
+          { pat: Pattern[Option[Constructor], TypeRef] => Annotation(pat, tpe) }
+        }
+    }
+
+    def maybeOp(opP: P[Pattern[Option[Constructor], TypeRef] => Pattern[Option[Constructor], TypeRef]]): P[Pattern[Option[Constructor], TypeRef]] =
+      (nonAnnotated ~ (maybeSpace ~ opP).?)
+        .map {
+          case (p, None) => p
+          case (p, Some(op)) => op(p)
+        }
+
+    // We only allow type annotation not at the top level, must be inside
+    // Struct or parens
+    if (isMatch) maybeOp(unionOp)
+    else maybeOp(unionOp | typeAnnotOp)
   }
 }
 
