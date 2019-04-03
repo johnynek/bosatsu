@@ -77,6 +77,39 @@ object TestUtils {
     evalTestMode(packages, mainPackS, EvaluationMode.TestMode(assertionCount), extern)
 
   def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals = Externals.empty) = {
+    def inferredHandler(packMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
+      val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
+      ev.evaluateLast(mainPack) match {
+        case None => fail("found no main expression")
+        case Some((eval, schm)) =>
+          val typeStr = TypeRef.fromTypes(Some(mainPack), schm :: Nil)(schm).toDoc.render(80)
+          expected match {
+            case EvaluationMode.EvalMode(exp) =>
+              val left = eval.value
+              assert(left == exp,
+                s"failed: for type: $typeStr, ${left} != $exp")
+              succeed
+            case EvaluationMode.JsonMode(json) =>
+              val leftJson = ev.toJson(eval.value, schm)
+              assert(leftJson == Some(json), s"type: $typeStr, $leftJson != $json")
+              succeed
+            case EvaluationMode.TestMode(cnt) =>
+              ev.evalTest(mainPack) match {
+                case None => fail(s"$mainPack had no tests evaluted")
+                case Some(t) =>
+                  assert(t.assertions == cnt)
+                  val (suc, failcount, message) = Test.report(t)
+                  assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
+                  if (failcount > 0) fail(message.render(80))
+                  else succeed
+              }
+          }
+      }
+    }
+    testInferred(packages, mainPackS, inferredHandler(_, _))
+  }
+
+  def testInferred(packages: List[String], mainPackS: String, inferredHandler: (PackageMap.Inferred, PackageName) => Assertion ) = {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
@@ -96,31 +129,7 @@ object TestUtils {
 
     PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
       case (dups, Validated.Valid(packMap)) if dups.isEmpty =>
-        val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
-        ev.evaluateLast(mainPack) match {
-          case None => fail("found no main expression")
-          case Some((eval, schm)) =>
-            val typeStr = TypeRef.fromTypes(Some(mainPack), schm :: Nil)(schm).toDoc.render(80)
-            expected match {
-              case EvaluationMode.EvalMode(exp) =>
-                val left = eval.value
-                assert(left == exp,
-                  s"failed: for type: $typeStr, ${left} != $exp")
-              case EvaluationMode.JsonMode(json) =>
-                val leftJson = ev.toJson(eval.value, schm)
-                assert(leftJson == Some(json), s"type: $typeStr, $leftJson != $json")
-              case EvaluationMode.TestMode(cnt) =>
-                ev.evalTest(mainPack) match {
-                  case None => fail(s"$mainPack had no tests evaluted")
-                  case Some(t) =>
-                    assert(t.assertions == cnt)
-                    val (suc, failcount, message) = Test.report(t)
-                    assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
-                    if (failcount > 0) fail(message.render(80))
-                    else succeed
-                }
-            }
-        }
+        inferredHandler(packMap, mainPack)
 
       case (other, Validated.Invalid(errs)) =>
         val tes = errs.toList.collect {
@@ -129,6 +138,20 @@ object TestUtils {
         }
         .mkString("\n")
         fail(tes + "\n" + errs.toString)
+    }
+  }
+
+  def normalizeTest(packages: List[String], mainPackS: String, expected: Normalization.NormalExpressionTag) = {
+    def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
+      val normPackMap = NormalizePackageMap(infPackMap).normalizePackageMap
+      (for {
+        pack <- normPackMap.toMap.get(mainPack)
+        (name, rec, expr) <- pack.program.lets.lastOption
+      } yield {
+        assert(expr.tag._2 == expected)
+        succeed
+      }
+      ).getOrElse(fail("There should be a last expression"))
     }
   }
 
