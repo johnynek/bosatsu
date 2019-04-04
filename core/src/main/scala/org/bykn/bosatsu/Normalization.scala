@@ -52,14 +52,13 @@ object NormalExpression {
   case class Lambda(expr: NormalExpression) extends NormalExpression {
     val maxLambdaVar = expr.maxLambdaVar.map(_ - 1)
   }
-  case class Struct(enum: Int, args: List[NormalExpression])
-  extends NormalExpression {
+  case class Struct(enum: Int, args: List[NormalExpression]) extends NormalExpression {
     val maxLambdaVar = args.flatMap(_.maxLambdaVar).reduceLeftOption(Math.max)
   }
   case class Literal(lit: Lit) extends NormalExpression {
     val maxLambdaVar = None
   }
-  case class Recursion(lambda: NormalExpression) {
+  case class Recursion(lambda: NormalExpression) extends NormalExpression {
     val maxLambdaVar = lambda.maxLambdaVar
   }
 }
@@ -84,7 +83,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def normalizeExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):
-    NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
+    NormState[TypedExpr[(Declaration, NormalExpressionTag)]] = {
       expr match {
         case a@Annotation(_, _, _) => normalizeAnnotation(a, env, p)
         case g@Generic(_, _, _) => normalizeGeneric(g, env, p)
@@ -95,6 +94,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case l@Literal(_, _, _) => normalizeLiteral(l, env, p)
         case m@Match(_, _, _) => normalizeMatch(m, env, p)
       }
+    }
 
   private def combineWithChildren(nt: NormalExpressionTag) = nt.children + nt.ne
 
@@ -171,7 +171,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
       for {
         lambda <- normalizeAnnotatedLambda(originalLambda, env, p)
-        app <- normalizeApp(App(fn=originalLambda, arg=l.expr, result=l.in.getType, tag=l.tag), env, p)
+        app <- normalizeApp(App(fn=originalLambda, arg=l.expr, result=l.in.getType, tag=l.tag), nextEnv, p)
         neTag = app.tag._2.copy(ne= neWrapper(app.tag._2.ne))
       } yield l.copy(expr=app.arg, in=lambda.expr, tag=(l.tag, neTag))
     }
@@ -208,16 +208,12 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def normalizePackageLet(pkgName: PackageName, inferredExpr: (Identifier.Bindable, RecursionKind, TypedExpr[Declaration]), pack: Package.Inferred): 
-    NormState[(Identifier.Bindable, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)])] = {
-    println(inferredExpr)
-
-    println(s"let ${inferredExpr._1} = ${inferredExpr._3}")
+    NormState[(Identifier.Bindable, RecursionKind, TypedExpr[(Declaration, Normalization.NormalExpressionTag)])] =
     for {
       expr <- normalizeExpr(inferredExpr._3, (Map(), Nil), pack)
       _ <- State.modify { cache: Map[(PackageName, Identifier), ResultingRef] => cache + ((pkgName, inferredExpr._1) -> Right(expr))}
     }
     yield (inferredExpr._1, inferredExpr._2, expr)
-  }
 
   def normalizeProgram(pkgName: PackageName, pack: Package.Inferred): NormState[
     Program[TypeEnv[Variance], TypedExpr[(Declaration, Normalization.NormalExpressionTag)], Statement]] = {
@@ -252,7 +248,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         for {
           expr <- normalizeExpr(expr, env, pack)
         } yield Right(expr)
-      case (pack, Left((item, t)), env) =>
+      case (pack, Left((item, t)), env) => {
         NameKind(pack, item).get match { // this get should never fail due to type checking
           case NameKind.Let(_, _, expr) =>
             for {
@@ -291,6 +287,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
                   val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n), Set())
                   State.pure(Left((item, (t, neTag))))
                 }
+        }
         }
     }
 
