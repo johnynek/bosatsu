@@ -1102,10 +1102,13 @@ main = 1 + 2 * 3
     runBosatsuTest(List("""
 package A
 
-# for an unknown reason, removing the ( ) breaks the following
-inc = \(x: Int) -> x.add(1)
+# you can't write \x: Int -> x.add(1)
+# since Int -> looks like a type
+# you need to protect it in a ( )
+inc: Int -> Int = \x -> x.add(1)
+inc2: Int -> Int = \(x: Int) -> x.add(1)
 
-test = Assertion(inc(1).eq_Int(2), "inc(1) == 2")
+test = Assertion(inc(1).eq_Int(inc2(1)), "inc(1) == 2")
 """), "A", 1)
 
     runBosatsuTest(List("""

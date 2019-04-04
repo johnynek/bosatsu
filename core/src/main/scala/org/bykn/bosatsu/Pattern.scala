@@ -324,8 +324,8 @@ object Pattern {
         Doc.intercalate(Doc.text(" | "), (head :: rest.toList).map(doc(_)))
     }
 
-  val pwild = P("_").map(_ => WildCard)
-  val plit = Lit.parser.map(Literal(_))
+  private[this] val pwild = P("_").map(_ => WildCard)
+  private[this] val plit = Lit.parser.map(Literal(_))
 
   /**
    * This does not allow a top-level type annotation which would be ambiguous
