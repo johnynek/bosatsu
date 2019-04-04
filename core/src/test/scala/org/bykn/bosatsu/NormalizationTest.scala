@@ -66,5 +66,25 @@ out = \x -> x
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
+    normalizeTest(
+      List("""
+package Lambda/Always
+
+out = \x -> \y -> x
+"""
+      ), "Lambda/Always", NormalExpressionTag(
+        Lambda(Lambda(LambdaVar(1))), Set(Lambda(LambdaVar(1)), LambdaVar(1))
+      )
+    )
+    normalizeTest(
+      List("""
+package Lambda/Always
+
+out = \x -> \y -> y
+"""
+      ), "Lambda/Always", NormalExpressionTag(
+        Lambda(Lambda(LambdaVar(0))), Set(Lambda(LambdaVar(0)), LambdaVar(0))
+      )
+    )
   }
 }
