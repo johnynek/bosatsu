@@ -55,7 +55,7 @@ sealed abstract class Declaration {
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
       case DefFn(d) =>
-        val pairDoc: Document[(OptIndent[Declaration], Padding[Declaration])] =
+        implicit val pairDoc: Document[(OptIndent[Declaration], Padding[Declaration])] =
           Document.instance {
             case (fnBody, letBody) =>
                 fnBody.sepDoc +
@@ -63,7 +63,7 @@ sealed abstract class Declaration {
                 Doc.line +
                 Document[Padding[Declaration]].document(letBody)
           }
-        DefStatement.document(pairDoc).document(d)
+        DefStatement.document[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])].document(d)
       case IfElse(ifCases, elseCase) =>
         // TODO, we could make this ternary if it is small enough
         def checkBody(cb: (Declaration, OptIndent[Declaration])): Doc = {
@@ -141,11 +141,10 @@ sealed abstract class Declaration {
         case Comment(CommentStatement(_, Padding(_, decl))) =>
           loop(decl).map(_ => decl)
         case DefFn(defstmt@DefStatement(_, _, _, _)) =>
-          val (bodyExpr, inExpr) = defstmt.result match {
-            case (oaBody, Padding(_, in)) =>
-              (loop(oaBody.get), loop(in))
+          val inExpr = defstmt.result match {
+            case (_, Padding(_, in)) => loop(in)
           }
-          val lambda = defstmt.toLambdaExpr(bodyExpr, decl)(_.toType(nameToType))
+          val lambda = defstmt.toLambdaExpr({ res => loop(res._1.get) }, decl)(unTuplePattern(_, nameToType, nameToCons), _.toType(nameToType))
           // we assume all defs are recursive: we put them in scope before the method
           // is called. We rely on DefRecursionCheck to rule out bad recursions
           Expr.Let(defstmt.name, lambda, inExpr, recursive = RecursionKind.Recursive, decl)
@@ -191,8 +190,7 @@ sealed abstract class Declaration {
               case h :: tail =>
                 val tailExp = tup(tail)
                 val headExp = loop(h)
-                val withH = Expr.App(tup2, headExp, tc)
-                Expr.App(withH, tailExp, tc)
+                Expr.buildApp(tup2, headExp :: tailExp :: Nil, tc)
             }
 
           tup(its)
@@ -214,10 +212,10 @@ sealed abstract class Declaration {
 
               val empty: Expr[Declaration] = mkC("EmptyList")
               def cons(head: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
-                Expr.App(Expr.App(mkC("NonEmptyList"), head, l), tail, l)
+                Expr.buildApp(mkC("NonEmptyList"), head :: tail :: Nil, l)
 
               def concat(headList: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
-                Expr.App(Expr.App(mkN("concat"), headList, l), tail, l)
+                Expr.buildApp(mkN("concat"), headList :: tail :: Nil, l)
 
               revDecs.foldLeft(empty) {
                 case (tail, SpliceOrItem.Item(i)) =>
@@ -289,7 +287,7 @@ sealed abstract class Declaration {
                 Expr.Match(Expr.Var(None, unusedSymbol0, l),
                   NonEmptyList.of((newPattern, resExpr)), l)
               val fnExpr: Expr[Declaration] = Expr.Lambda(unusedSymbol0, body, l)
-              Expr.App(Expr.App(opExpr, loop(in), l), fnExpr, l)
+              Expr.buildApp(opExpr, loop(in) :: fnExpr :: Nil, l)
           }
         case l@DictDecl(dict) =>
           val pn = Option(Predef.packageName)
@@ -300,7 +298,7 @@ sealed abstract class Declaration {
 
           def add(dict: Expr[Declaration], k: Expr[Declaration], v: Expr[Declaration]): Expr[Declaration] = {
             val fn = mkN("add_key")
-            Expr.App(Expr.App(Expr.App(fn, dict, l), k, l), v, l)
+            Expr.buildApp(fn, dict :: k :: v :: Nil, l)
           }
           dict match {
             case ListLang.Cons(items) =>
@@ -349,16 +347,7 @@ sealed abstract class Declaration {
                   body,
                   l),
                 l)
-              Expr.App(
-                Expr.App(
-                  Expr.App(
-                    opExpr,
-                    loop(in),
-                    l),
-                  empty,
-                  l),
-                foldFn,
-                l)
+              Expr.buildApp(opExpr, loop(in) :: empty :: foldFn :: Nil, l)
             }
       }
 
@@ -422,7 +411,7 @@ object Declaration {
   }
   case class Binding(binding: BindingStatement[Pattern.Parsed, Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
-  case class DefFn(deffn: DefStatement[(OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
+  case class DefFn(deffn: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
   case class IfElse(ifCases: NonEmptyList[(Declaration, OptIndent[Declaration])],
     elseCase: OptIndent[Declaration])(implicit val region: Region) extends Declaration
   case class Lambda(args: NonEmptyList[Pattern.Parsed], body: Declaration)(implicit val region: Region) extends Declaration
@@ -509,7 +498,7 @@ object Declaration {
       OptIndent.indy(parser).product(Indy.lift(toEOL) *> restP)
 
     restParser.mapF { rp =>
-      DefStatement.parser(maybeSpace ~ rp)
+      DefStatement.parser(Pattern.bindParser, maybeSpace ~ rp)
         .region
         .map { case (r, d) => DefFn(d)(r) }
     }
@@ -545,7 +534,7 @@ object Declaration {
   }
 
   val lambdaP: Indy[Lambda] = {
-    val params = Indy.lift(P("\\" ~/ maybeSpace ~ Pattern.parser.nonEmptyList))
+    val params = Indy.lift(P("\\" ~/ maybeSpace ~ Pattern.bindParser.nonEmptyList))
 
     Indy.blockLike(params, parser, P(maybeSpace ~ "->"))
       .region
@@ -554,7 +543,7 @@ object Declaration {
 
   def matchP(expr: Indy[Declaration]): Indy[Match] = {
     val withTrailing = expr <* Indy.lift(maybeSpace)
-    val branch = Indy.block(Indy.lift(Pattern.parser), withTrailing)
+    val branch = Indy.block(Indy.lift(Pattern.matchParser), withTrailing)
 
     Indy.block(Indy.lift(P(matchKindParser ~ spaces)).product(withTrailing), branch.nonEmptyList(Indy.toEOLIndent))
       .region
@@ -570,7 +559,7 @@ object Declaration {
     Identifier.consParser.region.map { case (r, i) => Var(i)(r) }
 
   private val patternBind: Indy[Declaration] =
-    Indy.lift(Pattern.parser.region).product(bindingOp)
+    Indy.lift(Pattern.bindParser.region).product(bindingOp)
       .map {
         case ((reg, pat), fn) => fn(pat, reg)
       }
@@ -588,12 +577,12 @@ object Declaration {
       }
 
   private def listP(p: P[Declaration]): P[ListDecl] =
-    ListLang.parser(p, Pattern.parser)
+    ListLang.parser(p, Pattern.bindParser)
       .region
       .map { case (r, l) => ListDecl(l)(r) }
 
   private def dictP(p: P[Declaration]): P[DictDecl] =
-    ListLang.dictParser(p, Pattern.parser)
+    ListLang.dictParser(p, Pattern.bindParser)
       .region
       .map { case (r, l) => DictDecl(l)(r) }
 

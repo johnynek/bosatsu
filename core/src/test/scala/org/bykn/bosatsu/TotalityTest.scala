@@ -59,7 +59,7 @@ struct TupleCons(fst, snd)
 """)
 
   def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] =
-    Pattern.parser.listSyntax.parse(str) match {
+    Pattern.matchParser.listSyntax.parse(str) match {
       case Parsed.Success(pats, idx) =>
         pats.map(parsedToExpr _)
       case Parsed.Failure(exp, idx, extra) =>
