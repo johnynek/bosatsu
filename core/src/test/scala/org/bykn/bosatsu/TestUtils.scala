@@ -153,6 +153,8 @@ object TestUtils {
       }
       ).getOrElse(fail("There should be a last expression"))
     }
+
+    testInferred(packages, mainPackS, inferredHandler(_,_))
   }
 
   def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
