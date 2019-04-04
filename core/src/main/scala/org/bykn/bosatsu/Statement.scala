@@ -210,7 +210,7 @@ object Statement {
 
   case class Bind(bind: BindingStatement[Pattern.Parsed, Padding[Statement]]) extends Statement
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
-  case class Def(defstatement: DefStatement[(OptIndent[Declaration], Padding[Statement])]) extends Statement
+  case class Def(defstatement: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])]) extends Statement
   case class Struct(name: Constructor, args: List[(Bindable, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends Statement
   case class ExternalStruct(name: Constructor, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
@@ -224,12 +224,11 @@ object Statement {
     val padding = Padding.parser(recurse)
 
     val bindingP = {
-      val patP = Indy.lift(Pattern.parser)
       val bop = BindingStatement
         .bindingParser[Pattern[Option[Identifier.Constructor], TypeRef], Padding[Statement]](
           Declaration.parser, Indy.lift(maybeSpace ~ padding))("")
 
-      (Pattern.parser ~ bop).map { case (p, fn) =>
+      (Pattern.bindParser ~ bop).map { case (p, fn) =>
         Bind(fn(p))
       }
     }
@@ -237,11 +236,14 @@ object Statement {
     val commentP = CommentStatement.parser(Indy.lift(padding)).map(Comment(_)).run("")
 
     val defBody = maybeSpace ~ OptIndent.indy(Declaration.parser).run("")
-    val defP: P[Def] = DefStatement.parser(P(defBody ~ maybeSpace ~ padding)).map(Def(_))
+    val defP: P[Def] = DefStatement.parser(Pattern.bindParser, P(defBody ~ maybeSpace ~ padding)).map(Def(_))
 
     val end = P(End).map(_ => EndOfFile)
 
-    val constructorP = P(Identifier.consParser ~ (DefStatement.argParser).parensLines1.?)
+    val argParser: P[(Bindable, Option[TypeRef])] =
+      P(Identifier.bindableParser ~ maybeSpace ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
+
+    val constructorP = P(Identifier.consParser ~ argParser.parensLines1.?)
       .map {
         case (n, None) => (n, Nil)
         case (n, Some(args)) => (n, args.toList)
@@ -303,13 +305,13 @@ object Statement {
       case Comment(cm) =>
         Document[CommentStatement[Padding[Statement]]].document(cm)
       case Def(d) =>
-        val pair = Document.instance[(OptIndent[Declaration], Padding[Statement])] {
+        implicit val pair = Document.instance[(OptIndent[Declaration], Padding[Statement])] {
           case (body, next) =>
             body.sepDoc +
             Document[OptIndent[Declaration]].document(body) +
               Document[Padding[Statement]].document(next)
         };
-        DefStatement.document(pair).document(d)
+        DefStatement.document[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])].document(d)
       case Struct(nm, args, rest) =>
         Doc.text("struct ") + constructor(nm, args) +
           Document[Padding[Statement]].document(rest)

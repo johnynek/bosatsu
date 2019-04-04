@@ -1102,7 +1102,19 @@ main = 1 + 2 * 3
     runBosatsuTest(List("""
 package A
 
-inc = \(x: Int) -> x.add(1)
+# you can't write \x: Int -> x.add(1)
+# since Int -> looks like a type
+# you need to protect it in a ( )
+inc: Int -> Int = \x -> x.add(1)
+inc2: Int -> Int = \(x: Int) -> x.add(1)
+
+test = Assertion(inc(1).eq_Int(inc2(1)), "inc(1) == 2")
+"""), "A", 1)
+
+    runBosatsuTest(List("""
+package A
+
+def inc(x: Int): x.add(1)
 
 test = Assertion(inc(1).eq_Int(2), "inc(1) == 2")
 """), "A", 1)
@@ -1130,6 +1142,35 @@ test4 = Assertion(inc3((B(1), Foo(1))).eq_Int(2), "inc3((B(1), Foo(1))) == 2")
 # with a custom struct
 struct Pair(x, y)
 inc4 = \Pair(F(x) | B(x), Foo(y)) -> x.add(y)
+test5 = Assertion(inc4(Pair(F(1), Foo(1))).eq_Int(2), "inc4(Pair(F(1), Foo(1))) == 2")
+test6 = Assertion(inc4(Pair(B(1), Foo(1))).eq_Int(2), "inc4(Pair(B(1), Foo(1))) == 2")
+
+suite = Test("match tests", [test0, test1, test2, test3, test4, test5, test6])
+"""), "A", 7)
+
+    runBosatsuTest(List("""
+package A
+
+struct Foo(v)
+
+def inc(Foo(x)): x.add(1)
+
+test0 = Assertion(inc(Foo(1)).eq_Int(2), "inc(Foo(1)) == 2")
+
+enum FooBar: F(x), B(x)
+
+def inc2(F(x) | B(x), Foo(y)): x.add(y)
+test1 = Assertion(inc2(F(1), Foo(1)).eq_Int(2), "inc2(F(1), Foo(1)) == 2")
+test2 = Assertion(inc2(B(1), Foo(1)).eq_Int(2), "inc2(B(1), Foo(1)) == 2")
+
+# with an outer tuple wrapping
+def inc3((F(x) | B(x), Foo(y))): x.add(y)
+test3 = Assertion(inc3((F(1), Foo(1))).eq_Int(2), "inc3((F(1), Foo(1))) == 2")
+test4 = Assertion(inc3((B(1), Foo(1))).eq_Int(2), "inc3((B(1), Foo(1))) == 2")
+
+# with a custom struct
+struct Pair(x, y)
+def inc4(Pair(F(x) | B(x), Foo(y))): x.add(y)
 test5 = Assertion(inc4(Pair(F(1), Foo(1))).eq_Int(2), "inc4(Pair(F(1), Foo(1))) == 2")
 test6 = Assertion(inc4(Pair(B(1), Foo(1))).eq_Int(2), "inc4(Pair(B(1), Foo(1))) == 2")
 

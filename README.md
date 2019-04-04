@@ -18,20 +18,22 @@ package Euler/One
 # https://projecteuler.net/problem=1
 # Find the sum of all the multiples of 3 or 5 below 1000.
 
-def or(a, b): True if a else b
+operator == = eq_Int
+operator % = mod_Int
+
+def operator ||(x, y):
+  True if x else y
 
 def keep(i):
-  or(i.mod_Int(3).eq_Int(0), i.mod_Int(5).eq_Int(0))
+  (i % 3 == 0) || (i % 5 == 0)
 
 def sum(as): as.foldLeft(0, add)
 
-# python:
 # >>> sum(i for i in xrange(1000) if keep_fn(i))
 # 233168
+computed = [i for i in range(1000) if keep(i)].sum
 
-computed = sum([i for i in range(1000) if keep(i)])
-
-test = Assertion(computed.eq_Int(233168), "expected 233168")
+test = Assertion(computed == 233168, "expected 233168")
 ```
 
 For more details see the [language guide](docs/language_guide.md) in particular the [section on syntax](docs/language_guide.md#language-guide)

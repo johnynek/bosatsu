@@ -53,6 +53,8 @@ class OperatorTest extends ParserTestBase {
     parseSame("1 ** 2 * 3", "(1 ** 2) * 3")
     parseSame("3 * 1 ** 2", "3 * (1 ** 2)")
     parseSame("1 + 2 == 2 + 1", "(1 + 2) == (2 + 1)")
+    parseSame("1 + 2 - 3", "1 + (2 - 3)")
+    parseSame("1 - 2 + 3", "(1 - 2) + 3")
     parseSame("1 + 2 * 3 == 1 + (2 * 3)", "(1 + (2*3)) == (1 + (2 * 3))")
     parseSame("1 +. 2 * 3 == 1 +. (2 * 3)", "(1 +. (2*3)) == (1 +. (2 * 3))")
     parseSame("1 .+ 2 * 3 == (1 .+ 2) * 3", "((1 .+ 2) *3) == ((1 .+ 2) * 3)")
