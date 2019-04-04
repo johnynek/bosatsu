@@ -102,8 +102,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
       normalizeExpr(a.term, env, p).map { term =>
         val neTag = term.tag._2
-        val newNeTag = neTag.copy(children = (neTag.children + neTag.ne))
-        val tag = (a.tag, newNeTag)
+        val tag = (a.tag, neTag)
         a.copy(term=term, tag=tag)
       }
 
@@ -111,8 +110,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
       normalizeExpr(g.in, env, p).map { in =>
         val neTag = in.tag._2
-        val newNeTag = neTag.copy(children = neTag.children + neTag.ne)
-        val tag = (g.tag, newNeTag)
+        val tag = (g.tag, neTag)
         g.copy(in=in, tag=tag)
       }
 

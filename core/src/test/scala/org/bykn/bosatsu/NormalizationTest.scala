@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import org.scalatest.FunSuite
+import java.math.BigInteger
 
 class NormalizationTest extends FunSuite {
   import TestUtils._
@@ -16,7 +17,7 @@ def bar(x):
   baz(10)
 */
 
-  test("simple package normalizes") {
+  test("Literal") {
       normalizeTest(
         List("""
 package NormTest/String
@@ -25,5 +26,45 @@ main = "aa"
 """
         ), "NormTest/String", NormalExpressionTag(Literal(Str("aa")), Set())
       )
+
+      normalizeTest(
+        List("""
+package NormTest/Int
+
+main = 22
+"""
+        ), "NormTest/Int", NormalExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set())
+      )
+
+      normalizeTest(
+        List("""
+package NormTest/List
+
+main = ["aa"]
+"""
+        ), "NormTest/List", NormalExpressionTag(
+          App(App(
+            Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0)))))
+            ,Literal(Str("aa"))),
+          Struct(0,List())),
+        Set(
+          Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
+          Literal(Str("aa")),
+          App(Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),Literal(Str("aa"))),
+          Struct(0,List())
+        ))
+      )
+  }
+  test("Lambda") {
+    normalizeTest(
+      List("""
+package Lambda/Identity
+
+out = \x -> x
+"""
+      ), "Lambda/Identity", NormalExpressionTag(
+        Lambda(LambdaVar(0)), Set(LambdaVar(0))
+      )
+    )
   }
 }
