@@ -58,3 +58,14 @@ bosatsu_test(
     name = "euler7",
     srcs = ["euler7.bosatsu"],
     size = "medium")
+
+bosatsu_library(
+    name = "bazel_deps_api",
+    srcs = ["bazel_deps_api.bosatsu"],
+    )
+
+bosatsu_json(
+    name ="gen_deps",
+    srcs = ["gen_deps.bosatsu"],
+    deps = [":bazel_deps_api"],
+    package = "GenDeps")

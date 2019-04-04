@@ -1,0 +1,28 @@
+package BazelDepsApi
+
+export [Artifact(), Config(), Resolver(), maven_central, default_options_with_scala, scala_dep ]
+
+struct Resolver(id: String, type: String, url: String)
+
+struct Options(buildHeader: List[String], languages: List[String],
+  resolvers: List[Resolver],
+  transitivity: String,
+  resolverType: String,
+  versionConflictPolicy: String)
+
+maven_central = Resolver("mavencentral", "default", "https://repo.maven.apache.org/maven2/")
+
+default_options_with_scala = Options(
+  [ 'load("@io_bazel_rules_scala//scala:scala_import.bzl", "scala_import")' ],
+  [ "java", "scala:2.11.11" ],
+  [ maven_central ],
+  "runtime_deps",
+  "coursier",
+  "highest")
+
+struct Artifact(modules: List[String], lang: String, version: String, exports: List[String])
+
+struct Config(options: Options, dependencies: Dict[String, Dict[String, Artifact]])
+
+def scala_dep(orgname: String, artifact: String, version: String) -> Dict[String, Dict[String, Artifact]]:
+  { orgname: { artifact: Artifact([], "scala", version, []) } }

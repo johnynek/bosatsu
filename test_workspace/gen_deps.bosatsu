@@ -1,0 +1,6 @@
+package GenDeps
+
+import BazelDepsApi [ Config, Artifact, default_options_with_scala ]
+
+main = Config(default_options_with_scala,
+  { "org.typelevel": { "cats-core": Artifact(["", "core"], "scala", "1.0.0", []) } })
