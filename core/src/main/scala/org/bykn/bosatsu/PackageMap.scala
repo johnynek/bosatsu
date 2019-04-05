@@ -258,7 +258,7 @@ object PackageError {
         .take(3)
         .map { case (_, n, r) =>
           val pos = lm.toLineCol(r.start).map { case (l, c) => s" at line: ${l + 1}, column: ${c + 1}" }.getOrElse("")
-          s"$n$pos"
+          s"${n.asString}$pos"
         }
       val candstr = candidates.mkString("\n\t", "\n\t", "\n")
       val suggestion = s"perhaps you meant:$candstr"
@@ -306,7 +306,11 @@ object PackageError {
               val dist = Memoize.function[Identifier, Int] { (s, _) =>
                 EditDistance(iname.originalName.asString.toIterable, s.asString.toIterable)
               }
-              val nearest = ls.map { case (n, _, _) => (dist(n), n) }.sorted.take(3).map { case (_, n) => n }.mkString(", ")
+              val nearest = ls.map { case (n, _, _) => (dist(n), n) }
+                .sorted
+                .take(3)
+                .map { case (_, n) => n.asString }
+                .mkString(", ")
               s"in $sourceName package: ${importing.name} does not have name ${iname.originalName}. Nearest: $nearest"
           }
       }
@@ -357,7 +361,7 @@ object PackageError {
           s"type ${tmap(t0)}${context0}does not unify with type ${tmap(t1)}\n$context1"
         case Infer.Error.VarNotInScope((pack, name), scope, region) =>
           val ctx = lm.showRegion(region).getOrElse("<unknown location>")
-          val candidates = scope
+          val candidates: List[String] = scope
             .keys
             .iterator
             .collect { case (None, n) =>

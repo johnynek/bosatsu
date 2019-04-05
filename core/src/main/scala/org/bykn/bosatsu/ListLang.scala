@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import fastparse.all._
 
-import Parser.{maybeSpacesAndLines, maybeSpace, spacesAndLines, Combinators}
+import Parser.{maybeSpacesAndLines, spacesAndLines, Combinators}
 import org.typelevel.paiges.{Doc, Document}
 
 /**
@@ -34,7 +34,7 @@ object ListLang {
     private[this] val sep: Doc = Doc.text(": ")
 
     def parser[A](p: P[A]): P[KVPair[A]] =
-      P(p ~ maybeSpace ~ ":" ~ maybeSpace ~ p)
+      P(p ~ maybeSpacesAndLines ~ ":" ~ maybeSpacesAndLines ~ p)
         .map { case (k, v) => KVPair(k, v) }
 
     implicit def document[A](implicit A: Document[A]): Document[KVPair[A]] =

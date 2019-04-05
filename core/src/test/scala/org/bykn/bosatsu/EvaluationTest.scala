@@ -587,7 +587,8 @@ package Total
 
 enum Opt: Nope, Yep(get)
 
-something = Yep(1)
+something = Yep(
+  1)
 
 one = match something:
   Yep(a): a
@@ -906,6 +907,16 @@ package A
 
 e = empty_Dict(string_Order)
 
+e1 = e.clear_Dict.add_key("hello2", "world2")
+
+main = e1.get_key("hello")
+"""), "A", VOption.none)
+
+    evalTest(List("""
+package A
+
+e = empty_Dict(string_Order)
+
 e1 = e.add_key("hello", "world")
 e2 = e1.remove_key("hello")
 
@@ -939,8 +950,10 @@ main = match lst:
     evalTest(List("""
 package A
 
-e = { "hello": "world",
-      "hello1": "world1" }
+e = {
+      "hello": "world",
+      "hello1":
+        "world1" }
 lst = e.items
 
 main = match lst:

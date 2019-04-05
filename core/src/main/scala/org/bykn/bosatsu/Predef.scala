@@ -66,6 +66,7 @@ object Predef {
         "cmp_Int",
         "concat",
         "div",
+        "clear_Dict",
         "empty_Dict",
         "eq_Int",
         "flat_map_List",
@@ -107,6 +108,7 @@ object Predef {
       .add(packageName, "int_loop", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.intLoop"))
       .add(packageName, "trace", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.trace"))
       .add(packageName, "string_Order_fn", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.string_Order_Fn"))
+      .add(packageName, "clear_Dict", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.clear_Dict"))
       .add(packageName, "empty_Dict", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.empty_Dict"))
       .add(packageName, "add_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.add_key"))
       .add(packageName, "get_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.get_key"))
@@ -216,6 +218,13 @@ object PredefImpl {
         Value.Comparison.fromInt(sa.compareTo(sb))
       case other => sys.error(s"type error: $other")
     }
+
+  def clear_Dict(dictv: Value): Value = {
+    val d = toDict(dictv)
+    val ord = d.ordering
+    ExternalValue(SortedMap.empty[Value, Value](ord))
+  }
+
 
   def empty_Dict(ord: Value): Value =
     ord match {
