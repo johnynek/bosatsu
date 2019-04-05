@@ -178,8 +178,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case a@Annotation(_, _, _) => normalizeAnnotation(a, env, p)
         case g@Generic(_, _, _) => normalizeGeneric(g, env, p)
         case v@Var(_, _, _, _) => normalizeVar(v, env, p)
-        case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al, env, p).map(_.asInstanceOf[TypedExpr[(Declaration, NormalExpressionTag)]])
-        case a@App(_, _, _, _) => normalizeApp(a, env, p).map(_.asInstanceOf[TypedExpr[(Declaration, NormalExpressionTag)]])
+        case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al, env, p)
+        case a@App(_, _, _, _) => normalizeApp(a, env, p)
         case l@Let(_, _, _, _, _) => normalizeLet(l, env, p)
         case l@Literal(_, _, _) => normalizeLiteral(l, env, p)
         case m@Match(_, _, _) => normalizeMatch(m, env, p)
@@ -216,7 +216,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       }
 
   def normalizeAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred):
-    NormState[AnnotatedLambda[(Declaration, NormalExpressionTag)]] = {
+    NormState[TypedExpr[(Declaration, NormalExpressionTag)]] = {
       val lambdaVars = Some(al.arg) :: env._2
       val nextEnv: Env = (env._1 ++ lambdaVars.zipWithIndex
         .collect { case (Some(n), i) => (n, i) }
@@ -232,7 +232,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     }
 
   def normalizeApp(a: App[Declaration], env: Env, p: Package.Inferred):
-    NormState[App[(Declaration, NormalExpressionTag)]] =
+    NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
       for {
         efn <- normalizeExpr(a.fn, env, p)
         earg <- normalizeExpr(a.arg, env, p)
@@ -251,14 +251,15 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
             .toMap
             .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
             lambdaVars)
-          val neWrapper = {ne: NormalExpression => NormalExpression.Recursion(NormalExpression.Lambda(ne)).asInstanceOf[NormalExpression]}
+          val neWrapper = {ne: NormalExpression => NormalExpression.Recursion(NormalExpression.Lambda(ne))}
           (nextEnv, neWrapper)
           val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
           for {
-            lambda <- normalizeAnnotatedLambda(originalLambda, env, p)
-            app <- normalizeApp(App(fn=originalLambda, arg=l.expr, result=l.in.getType, tag=l.tag), nextEnv, p)
-            neTag = app.tag._2.copy(ne= neWrapper(app.tag._2.ne))
-          } yield l.copy(expr=app.arg, in=lambda.expr, tag=(l.tag, neTag))
+            ee <- normalizeExpr(l.expr, nextEnv, p)
+            nextNextEnv: Env = (nextEnv._1 + (l.arg -> ee.tag._2), nextEnv._2)
+            eIn <- normalizeExpr(l.in, nextEnv, p)
+            ne = neWrapper(eIn.tag._2.ne)
+          } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, NormalExpressionTag(ne, eIn.tag._2.children)))
         }
         case _ =>
           for {
