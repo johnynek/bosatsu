@@ -242,8 +242,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       } yield a.copy(fn=efn, arg=earg, tag=(a.tag, neTag))
 
   def normalizeLet(l: Let[Declaration], env: Env, p: Package.Inferred):
-    NormState[TypedExpr[(Declaration, NormalExpressionTag)]] = {
-      val (nextEnv, neWrapper) = l.recursive match {
+    NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
+      l.recursive match {
         case RecursionKind.Recursive => {
           val lambdaVars = Some(l.arg) :: env._2
           val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
@@ -253,16 +253,20 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
             lambdaVars)
           val neWrapper = {ne: NormalExpression => NormalExpression.Recursion(NormalExpression.Lambda(ne)).asInstanceOf[NormalExpression]}
           (nextEnv, neWrapper)
+          val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
+          for {
+            lambda <- normalizeAnnotatedLambda(originalLambda, env, p)
+            app <- normalizeApp(App(fn=originalLambda, arg=l.expr, result=l.in.getType, tag=l.tag), nextEnv, p)
+            neTag = app.tag._2.copy(ne= neWrapper(app.tag._2.ne))
+          } yield l.copy(expr=app.arg, in=lambda.expr, tag=(l.tag, neTag))
         }
-        case _ => (env, {ne: NormalExpression => ne})
+        case _ =>
+          for {
+            ee <- normalizeExpr(l.expr, env, p)
+            nextEnv: Env = (env._1 + (l.arg -> ee.tag._2), env._2)
+            eIn <- normalizeExpr(l.in, nextEnv, p)
+          } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
       }
-      val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
-      for {
-        lambda <- normalizeAnnotatedLambda(originalLambda, env, p)
-        app <- normalizeApp(App(fn=originalLambda, arg=l.expr, result=l.in.getType, tag=l.tag), nextEnv, p)
-        neTag = app.tag._2.copy(ne= neWrapper(app.tag._2.ne))
-      } yield l.copy(expr=app.arg, in=lambda.expr, tag=(l.tag, neTag))
-    }
 
   def normalizeLiteral(l: Literal[Declaration], env: Env, p: Package.Inferred): NormState[
     TypedExpr[(Declaration, NormalExpressionTag)]] =
