@@ -68,7 +68,7 @@ object Normalization {
   type NormalizedPM = PackageMap.Typed[(Declaration, Normalization.NormalExpressionTag)]
   type NormalizedPac = Package.Typed[(Declaration, Normalization.NormalExpressionTag)]
 
-  private def normalOrderReduction(expr: NormalExpression): NormalExpression = {
+  def normalOrderReduction(expr: NormalExpression): NormalExpression = {
     import NormalExpression._
     val nextExpr = expr match {
       case App(Lambda(nextExpr), arg) => {
@@ -106,12 +106,19 @@ object Normalization {
             })
         }
       case lv @ LambdaVar(_)  => lv
-      case Lambda(expr)       => Lambda(normalOrderReduction(expr))
+      case Lambda(expr)       =>
+        normalOrderReduction(expr) match {
+          case a@App(innerExpr, LambdaVar(0)) => normalOrderReduction(Lambda(a))
+          case na @ _ => Lambda(na)
+        }
       case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
       case l @ Literal(_)     => l
-      case r@Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(false))
-                              => normalOrderReduction(r)
-      case r@Recursion(_)     => r
+      case r@Recursion(innerExpr) =>
+        normalOrderReduction(innerExpr) match {
+          case Lambda(lambdaExpr) if (lambdaExpr.maxLambdaVar.map(_ < 0).getOrElse(false)) =>
+            normalOrderReduction(r)
+          case _ => r
+        }
     }
   }
   private def applyLambdaSubstituion(expr: NormalExpression,
@@ -119,11 +126,11 @@ object Normalization {
     idx: Int): NormalExpression = {
       import NormalExpression._
       expr match {
-        case App(fn, arg) =>
+        case App(fn, arg)                           =>
           App(applyLambdaSubstituion(fn, subst, idx),
             applyLambdaSubstituion(arg, subst, idx))
-        case ext @ ExternalVar(_, _) => ext
-        case Match(arg, branches) =>
+        case ext @ ExternalVar(_, _)                => ext
+        case Match(arg, branches)                   =>
           Match(applyLambdaSubstituion(arg, subst, idx), branches.map {
             case (enum, expr) => (enum, applyLambdaSubstituion(expr, subst, idx))
           })
@@ -131,9 +138,10 @@ object Normalization {
         case LambdaVar(varIndex) if varIndex > idx  => LambdaVar(varIndex - 1)
         case lv @ LambdaVar(_)                      => lv
         case Lambda(fn)                             => Lambda(applyLambdaSubstituion(fn, subst.map(incrementLambdaVars(_, 0)), idx + 1))
-        case Struct(enum, args) =>
+        case Struct(enum, args)                     =>
           Struct(enum, args.map(applyLambdaSubstituion(_, subst, idx)))
-        case l @ Literal(_) => l
+        case l @ Literal(_)                         => l
+        case r @ Recursion(fn)                      => Recursion(applyLambdaSubstituion(fn, subst, idx))
       }
   }
 
@@ -225,7 +233,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         lambdaVars)
       for {
         eExpr <- normalizeExpr(al.expr, nextEnv, p)
-        ne = NormalExpression.Lambda(eExpr.tag._2.ne)
+        ne = normalOrderReduction(NormalExpression.Lambda(eExpr.tag._2.ne))
         children = combineWithChildren(eExpr.tag._2)
         neTag = NormalExpressionTag(ne, children)
       } yield al.copy(expr=eExpr, tag=(al.tag, neTag))
@@ -236,7 +244,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       for {
         efn <- normalizeExpr(a.fn, env, p)
         earg <- normalizeExpr(a.arg, env, p)
-        ne = NormalExpression.App(efn.tag._2.ne, earg.tag._2.ne)
+        ne = normalOrderReduction(NormalExpression.App(efn.tag._2.ne, earg.tag._2.ne))
         children = combineWithChildren(efn.tag._2) ++ combineWithChildren(earg.tag._2)
         neTag = NormalExpressionTag(ne, children)
       } yield a.copy(fn=efn, arg=earg, tag=(a.tag, neTag))
@@ -251,7 +259,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
             .toMap
             .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
             lambdaVars)
-          val neWrapper = {ne: NormalExpression => NormalExpression.Recursion(NormalExpression.Lambda(ne))}
+          val neWrapper = {ne: NormalExpression => normalOrderReduction(NormalExpression.Recursion(NormalExpression.Lambda(ne)))}
           (nextEnv, neWrapper)
           val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
           for {
