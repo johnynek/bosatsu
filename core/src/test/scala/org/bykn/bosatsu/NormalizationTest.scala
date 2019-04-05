@@ -43,16 +43,14 @@ package NormTest/List
 main = ["aa"]
 """
         ), "NormTest/List", NormalExpressionTag(
-          App(App(
-            Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0)))))
-            ,Literal(Str("aa"))),
-          Struct(0,List())),
-        Set(
-          Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
-          Literal(Str("aa")),
-          App(Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),Literal(Str("aa"))),
-          Struct(0,List())
-        ))
+          Struct(1,List(Literal(Str("aa")), Struct(0,List()))),
+          Set(
+            Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
+            Literal(Str("aa")),
+            Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)))),
+            Struct(0,List())
+          )
+        )
       )
   }
   test("Lambda") {
