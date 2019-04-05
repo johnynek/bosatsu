@@ -67,6 +67,96 @@ object Normalization {
   case class NormalExpressionTag(ne: NormalExpression, children: Set[NormalExpression])
   type NormalizedPM = PackageMap.Typed[(Declaration, Normalization.NormalExpressionTag)]
   type NormalizedPac = Package.Typed[(Declaration, Normalization.NormalExpressionTag)]
+
+  private def normalOrderReduction(expr: NormalExpression): NormalExpression = {
+    import NormalExpression._
+    val nextExpr = expr match {
+      case App(Lambda(nextExpr), arg) => {
+        applyLambdaSubstituion(nextExpr, Some(arg), 0)
+      }
+      case App(fn, arg) => {
+        val nextFn = normalOrderReduction(fn)
+        App(nextFn, arg)
+      }
+      /*case Match(struct@Struct(enum, args), branches) => { TODO: If s matches a pattern we should perform lambdaSubstitution
+        Match(struct, branches)
+      }*/
+      case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(false)) => {
+        applyLambdaSubstituion(innerExpr, None, 0)
+      }
+      case Lambda(App(innerExpr, LambdaVar(0))) => {
+        innerExpr
+      }
+      case _ => expr
+    }
+    nextExpr match {
+      case al @ App(Lambda(_), _) => normalOrderReduction(al)
+      case App(fn, arg) =>
+        normalOrderReduction(fn) match {
+          case l @ Lambda(_) => normalOrderReduction(App(l, arg))
+          case nfn @ _       => App(nfn, normalOrderReduction(arg))
+        }
+      case extVar @ ExternalVar(_, _) => extVar
+      case Match(arg, branches) =>
+        normalOrderReduction(arg) match {
+          // case s @ Struct(_, _) => normalOrderReduction(Match(s, branches)) TODO: Check if we know enough about s to validate it matches a pattern. If so, recurse.
+          case ns @ _ =>
+            Match(ns, branches.map {
+              case (enum, expr) => (enum, normalOrderReduction(expr))
+            })
+        }
+      case lv @ LambdaVar(_)  => lv
+      case Lambda(expr)       => Lambda(normalOrderReduction(expr))
+      case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
+      case l @ Literal(_)     => l
+      case r@Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(false))
+                              => normalOrderReduction(r)
+      case r@Recursion(_)     => r
+    }
+  }
+  private def applyLambdaSubstituion(expr: NormalExpression,
+    subst: Option[NormalExpression],
+    idx: Int): NormalExpression = {
+      import NormalExpression._
+      expr match {
+        case App(fn, arg) =>
+          App(applyLambdaSubstituion(fn, subst, idx),
+            applyLambdaSubstituion(arg, subst, idx))
+        case ext @ ExternalVar(_, _) => ext
+        case Match(arg, branches) =>
+          Match(applyLambdaSubstituion(arg, subst, idx), branches.map {
+            case (enum, expr) => (enum, applyLambdaSubstituion(expr, subst, idx))
+          })
+        case LambdaVar(varIndex) if varIndex == idx => subst.get
+        case LambdaVar(varIndex) if varIndex > idx  => LambdaVar(varIndex - 1)
+        case lv @ LambdaVar(_)                      => lv
+        case Lambda(fn)                             => Lambda(applyLambdaSubstituion(fn, subst.map(incrementLambdaVars(_, 0)), idx + 1))
+        case Struct(enum, args) =>
+          Struct(enum, args.map(applyLambdaSubstituion(_, subst, idx)))
+        case l @ Literal(_) => l
+      }
+  }
+
+  private def incrementLambdaVars(expr: NormalExpression, lambdaDepth: Int): NormalExpression = {
+    import NormalExpression._
+    expr match {
+      case App(fn, arg) =>
+        App(incrementLambdaVars(fn, lambdaDepth),
+          incrementLambdaVars(arg, lambdaDepth))
+      case ext @ ExternalVar(_, _) => ext
+      case Match(arg, branches) =>
+        Match(incrementLambdaVars(arg, lambdaDepth), branches.map {
+          case (enum, expr) => (enum, incrementLambdaVars(expr, lambdaDepth))
+        })
+      case LambdaVar(varIndex) if varIndex >= lambdaDepth => LambdaVar(varIndex + 1)
+      case lv @ LambdaVar(_)                      => lv
+      case Lambda(fn)                             => incrementLambdaVars(fn, lambdaDepth + 1)
+      case Struct(enum, args) =>
+        Struct(enum, args.map(incrementLambdaVars(_, lambdaDepth)))
+      case l @ Literal(_) => l
+      case Recursion(fn) => Recursion(incrementLambdaVars(fn, lambdaDepth))
+    }
+  }
 }
 
 case class NormalizePackageMap(pm: PackageMap.Inferred) {
