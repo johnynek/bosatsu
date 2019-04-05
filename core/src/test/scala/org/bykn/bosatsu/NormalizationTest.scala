@@ -86,5 +86,55 @@ out = \x -> \y -> y
         Lambda(Lambda(LambdaVar(0))), Set(Lambda(LambdaVar(0)), LambdaVar(0))
       )
     )
+
+    normalizeTest(
+      List("""
+package Lambda/Identity
+
+def foo(x):
+  x
+out = foo
+"""
+      ), "Lambda/Identity", NormalExpressionTag(
+        Lambda(LambdaVar(0)), Set(LambdaVar(0))
+      )
+    )
+    normalizeTest(
+      List("""
+package Lambda/Identity
+
+def foo(x):
+  y = x
+  y
+out = foo
+"""
+      ), "Lambda/Identity", NormalExpressionTag(
+        Lambda(LambdaVar(0)), Set(LambdaVar(0))
+      )
+    )
+    normalizeTest(
+      List("""
+package Lambda/Always
+
+def foo(x,y):
+  x
+out = foo
+"""
+      ), "Lambda/Always", NormalExpressionTag(
+        Lambda(Lambda(LambdaVar(1))), Set(Lambda(LambdaVar(1)), LambdaVar(1))
+      )
+    )
+    normalizeTest(
+      List("""
+package Lambda/Always
+
+def foo(x,y):
+  y
+out = foo
+"""
+      ), "Lambda/Always", NormalExpressionTag(
+        Lambda(Lambda(LambdaVar(0))), Set(Lambda(LambdaVar(0)), LambdaVar(0))
+      )
+    )
   }
 }
