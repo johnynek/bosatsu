@@ -136,11 +136,12 @@ object Program {
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
         case Def(defstmt@DefStatement(_, _, _, _)) =>
-          val (lam, Program(te, binds, _)) = defstmt.result match {
-            case (body, Padding(_, in)) =>
-              // using body for the outer here is a bummer, but not really a good outer otherwise
-              val l = defstmt.toLambdaExpr(declToE(body.get), body.get)(_.toType(nameToType))
-              (l, loop(in))
+          // using body for the outer here is a bummer, but not really a good outer otherwise
+          val lam = defstmt.toLambdaExpr({ res => declToE(res._1.get) },
+            defstmt.result._1.get)(Declaration.unTuplePattern(_, nameToType, nameToCons), _.toType(nameToType))
+
+          val Program(te, binds, _) = defstmt.result match {
+            case (_, Padding(_, in)) => loop(in)
           }
           Program(te, (defstmt.name, RecursionKind.Recursive, lam) :: binds, stmt)
         case s@Struct(_, _, Padding(_, rest)) =>

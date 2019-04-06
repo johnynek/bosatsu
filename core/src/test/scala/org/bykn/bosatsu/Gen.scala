@@ -146,13 +146,19 @@ object Generators {
       t <- Gen.option(typeRefGen)
     } yield (arg, t)
 
-  def defGen[T](dec: Gen[T]): Gen[DefStatement[T]] =
+  def argToPat(arg: (Identifier.Bindable, Option[TypeRef])): Pattern.Parsed =
+    arg match {
+      case (bn, None) => Pattern.Var(bn)
+      case (bn, Some(t)) => Pattern.Annotation(Pattern.Var(bn), t)
+    }
+
+  def defGen[T](dec: Gen[T]): Gen[DefStatement[Pattern.Parsed, T]] =
     for {
       name <- bindIdentGen
       args <- Gen.listOf(argGen)
       retType <- Gen.option(typeRefGen)
       body <- dec
-    } yield DefStatement(name, args, retType, body)
+    } yield DefStatement(name, args.map(argToPat), retType, body)
 
   def genSpliceOrItem[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.SpliceOrItem[A]] =
     Gen.oneOf(spliceGen.map(ListLang.SpliceOrItem.Splice(_)),

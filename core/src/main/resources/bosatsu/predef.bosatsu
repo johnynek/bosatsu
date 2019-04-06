@@ -19,6 +19,7 @@ export [
   cmp_Int,
   concat,
   div,
+  clear_Dict,
   empty_Dict,
   eq_Int,
   flat_map_List,
@@ -96,6 +97,7 @@ enum Option:
 struct Order(fn: a -> a -> Comparison)
 
 external struct Dict[k, v]
+external def clear_Dict(dict: Dict[k, v]) -> Dict[k, v]
 external def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]
 external def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]
 external def get_key(dict: Dict[k, v], key: k) -> Option[v]
