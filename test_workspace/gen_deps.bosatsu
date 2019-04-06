@@ -1,6 +1,61 @@
 package GenDeps
 
-import BazelDepsApi [ Config, Artifact, default_options_with_scala ]
+import BazelDepsApi [
+  Config, Artifact, Replacement, default_options_with_scala, merge_dep_List, scala_dep, scala_dep_modules ]
 
-main = Config(default_options_with_scala,
-  { "org.typelevel": { "cats-core": Artifact(["", "core"], "scala", "1.0.0", []) } })
+replacements = {
+  'org.scala-lang': {
+    'scala-compiler': Replacement(
+        'scala/unmangled',
+        '@io_bazel_rules_scala_scala_compiler//:io_bazel_rules_scala_scala_compiler'),
+    'scala-library': Replacement(
+        'scala/unmangled',
+        '@io_bazel_rules_scala_scala_library//:io_bazel_rules_scala_scala_library'),
+    'scala-reflect': Replacement(
+        'scala/unmangled',
+        '@io_bazel_rules_scala_scala_reflect//:io_bazel_rules_scala_scala_reflect'),
+    },
+  'org.scala-lang.modules': {
+    'scala-parser-combinators': Replacement(
+        'scala', 
+        '@io_bazel_rules_scala_scala_parser_combinators//:io_bazel_rules_scala_scala_parser_combinators'),
+    'scala-xml': Replacement(
+        'scala',
+        '@io_bazel_rules_scala_scala_xml//:io_bazel_rules_scala_scala_xml')
+  }
+}
+cats_version = '1.4.0'
+dagon_version = '0.2.2'
+decline_version = '0.4.2'
+fastparse_cats_version = '0.1.0'
+fastparse_version = '1.0.0'
+kind_projector_version = '0.9.4'
+paiges_version = '0.2.1'
+scala_xml_version = '1.0.6'
+scalacheck_version = '1.13.5'
+scalatest_version = '3.0.1'
+sourcecode_version = '0.1.4'
+
+operator ++ = concat
+main = Config(
+  default_options_with_scala,
+  merge_dep_List(
+    [ scala_dep(o, a, v) for (o, a, v) in [
+        ('com.lihaoyi', 'fastparse', fastparse_version),
+        ('com.lihaoyi', 'fastparse-utils', fastparse_version),
+        ('com.lihaoyi', 'sourcecode', sourcecode_version),
+        ('com.monovore', 'decline', decline_version),
+        ('com.stripe', 'dagon-core', dagon_version),
+        ('org.bykn', 'fastparse-cats-core', fastparse_cats_version),
+        ('org.scala-lang.modules', 'scala-xml', scala_xml_version),
+        ('org.scalacheck', 'scalacheck', scalacheck_version),
+        ('org.scalactic', 'scalactic', scalatest_version),
+        ('org.spire-math', 'kind-projector', kind_projector_version),
+        ('org.typelevel', 'alleycats-core', cats_version),
+        ('org.typelevel', 'paiges-core', paiges_version),
+      ]
+    ] ++ [
+        scala_dep_modules('org.scalatest', 'scalatest', [''], scalatest_version, ['org.scalactic:scalactic']),
+        scala_dep_modules('org.typelevel', 'cats', ['core', 'free', 'kernel', 'macros'], cats_version, []),
+      ]
+  ), replacements)

@@ -1,6 +1,11 @@
 package BazelDepsApi
 
-export [Artifact(), Config(), Resolver(), maven_central, default_options_with_scala, scala_dep ]
+import DictTools [ merge as merge_Dict ]
+
+export [
+  Artifact(), Config(), Resolver(), Replacement(), maven_central,
+  default_options_with_scala, scala_dep, scala_dep_modules,
+  merge_deps, merge_dep_List ]
 
 struct Resolver(id: String, type: String, url: String)
 
@@ -22,7 +27,26 @@ default_options_with_scala = Options(
 
 struct Artifact(modules: List[String], lang: String, version: String, exports: List[String])
 
-struct Config(options: Options, dependencies: Dict[String, Dict[String, Artifact]])
+struct Replacement(lang: String, target: String)
+
+struct Config(
+  options: Options,
+  dependencies: Dict[String, Dict[String, Artifact]],
+  replacements: Dict[String, Dict[String, Replacement]])
 
 def scala_dep(orgname: String, artifact: String, version: String) -> Dict[String, Dict[String, Artifact]]:
   { orgname: { artifact: Artifact([], "scala", version, []) } }
+
+def scala_dep_modules(orgname: String, artifact: String, modules, version: String, exports) -> Dict[String, Dict[String, Artifact]]:
+  { orgname: { artifact: Artifact(modules, "scala", version, exports) } }
+
+def merge_artifact(left: Artifact, right: Artifact):
+  Artifact(lm, _, _, le) = left
+  Artifact(rm, rr, rv, re) = right
+  Artifact(lm.concat(rm), rr, rv, le.concat(re))
+
+def merge_deps(left: Dict[String, Dict[String, Artifact]], right: Dict[String, Dict[String, Artifact]]):
+  merge_inner = \l, r -> merge_Dict(l, r, merge_artifact)
+  merge_Dict(left, right, merge_inner)
+
+def merge_dep_List(deps): deps.foldLeft({}, merge_deps)

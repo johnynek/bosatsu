@@ -60,12 +60,17 @@ bosatsu_test(
     size = "medium")
 
 bosatsu_library(
+    name = "dict_tools",
+    srcs = ["dicttools.bosatsu"])
+
+bosatsu_library(
     name = "bazel_deps_api",
+    deps = ["dict_tools"],
     srcs = ["bazel_deps_api.bosatsu"],
     )
 
 bosatsu_json(
     name ="gen_deps",
     srcs = ["gen_deps.bosatsu"],
-    deps = [":bazel_deps_api"],
+    deps = [":bazel_deps_api", ":dict_tools"],
     package = "GenDeps")
