@@ -68,103 +68,29 @@ object Normalization {
   type NormalizedPM = PackageMap.Typed[(Declaration, Normalization.NormalExpressionTag)]
   type NormalizedPac = Package.Typed[(Declaration, Normalization.NormalExpressionTag)]
 
-  def normalOrderReduction(expr: NormalExpression): NormalExpression = {
-    import NormalExpression._
-    val nextExpr = expr match {
-      case App(Lambda(nextExpr), arg) => {
-        applyLambdaSubstituion(nextExpr, Some(arg), 0)
+  type PatternEnv = Map[Identifier.Bindable, NormalExpression]
+
+  sealed trait PatternMatch[+A]
+  case class Matches[A](env: A) extends PatternMatch[A]
+  case object NoMatch extends PatternMatch[Nothing]
+  case object NotProvable extends PatternMatch[Nothing]
+
+  val noop: (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] = { (_, _) => Matches(Map()) }
+  val neverMatch: (NormalExpression, PatternEnv) => PatternMatch[Nothing] = { (_, _) => NoMatch }
+
+  def structListAsList(ne: NormalExpression): PatternMatch[List[NormalExpression]] = {
+    ne match {
+      case NormalExpression.Struct(0, _) => Matches(Nil)
+      case NormalExpression.Struct(1, List(value, tail)) => structListAsList(tail) match {
+        case Matches(lst) => Matches(value :: lst)
+        case notMatch => notMatch
       }
-      case App(fn, arg) => {
-        val nextFn = normalOrderReduction(fn)
-        App(nextFn, arg)
-      }
-      /*case Match(struct@Struct(enum, args), branches) => { TODO: If s matches a pattern we should perform lambdaSubstitution
-        Match(struct, branches)
-      }*/
-      case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(false)) => {
-        applyLambdaSubstituion(innerExpr, None, 0)
-      }
-      case Lambda(App(innerExpr, LambdaVar(0))) => {
-        innerExpr
-      }
-      case _ => expr
+      case _ => NotProvable
     }
-    nextExpr match {
-      case al @ App(Lambda(_), _) => normalOrderReduction(al)
-      case App(fn, arg) =>
-        normalOrderReduction(fn) match {
-          case l @ Lambda(_) => normalOrderReduction(App(l, arg))
-          case nfn @ _       => App(nfn, normalOrderReduction(arg))
-        }
-      case extVar @ ExternalVar(_, _) => extVar
-      case Match(arg, branches) =>
-        normalOrderReduction(arg) match {
-          // case s @ Struct(_, _) => normalOrderReduction(Match(s, branches)) TODO: Check if we know enough about s to validate it matches a pattern. If so, recurse.
-          case ns @ _ =>
-            Match(ns, branches.map {
-              case (enum, expr) => (enum, normalOrderReduction(expr))
-            })
-        }
-      case lv @ LambdaVar(_)  => lv
-      case Lambda(expr)       =>
-        normalOrderReduction(expr) match {
-          case a@App(innerExpr, LambdaVar(0)) => normalOrderReduction(Lambda(a))
-          case na @ _ => Lambda(na)
-        }
-      case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
-      case l @ Literal(_)     => l
-      case r@Recursion(innerExpr) =>
-        normalOrderReduction(innerExpr) match {
-          case Lambda(lambdaExpr) if (lambdaExpr.maxLambdaVar.map(_ < 0).getOrElse(false)) =>
-            normalOrderReduction(r)
-          case _ => r
-        }
-    }
-  }
-  private def applyLambdaSubstituion(expr: NormalExpression,
-    subst: Option[NormalExpression],
-    idx: Int): NormalExpression = {
-      import NormalExpression._
-      expr match {
-        case App(fn, arg)                           =>
-          App(applyLambdaSubstituion(fn, subst, idx),
-            applyLambdaSubstituion(arg, subst, idx))
-        case ext @ ExternalVar(_, _)                => ext
-        case Match(arg, branches)                   =>
-          Match(applyLambdaSubstituion(arg, subst, idx), branches.map {
-            case (enum, expr) => (enum, applyLambdaSubstituion(expr, subst, idx))
-          })
-        case LambdaVar(varIndex) if varIndex == idx => subst.get
-        case LambdaVar(varIndex) if varIndex > idx  => LambdaVar(varIndex - 1)
-        case lv @ LambdaVar(_)                      => lv
-        case Lambda(fn)                             => Lambda(applyLambdaSubstituion(fn, subst.map(incrementLambdaVars(_, 0)), idx + 1))
-        case Struct(enum, args)                     =>
-          Struct(enum, args.map(applyLambdaSubstituion(_, subst, idx)))
-        case l @ Literal(_)                         => l
-        case r @ Recursion(fn)                      => Recursion(applyLambdaSubstituion(fn, subst, idx))
-      }
   }
 
-  private def incrementLambdaVars(expr: NormalExpression, lambdaDepth: Int): NormalExpression = {
-    import NormalExpression._
-    expr match {
-      case App(fn, arg) =>
-        App(incrementLambdaVars(fn, lambdaDepth),
-          incrementLambdaVars(arg, lambdaDepth))
-      case ext @ ExternalVar(_, _) => ext
-      case Match(arg, branches) =>
-        Match(incrementLambdaVars(arg, lambdaDepth), branches.map {
-          case (enum, expr) => (enum, incrementLambdaVars(expr, lambdaDepth))
-        })
-      case LambdaVar(varIndex) if varIndex >= lambdaDepth => LambdaVar(varIndex + 1)
-      case lv @ LambdaVar(_)                      => lv
-      case Lambda(fn)                             => incrementLambdaVars(fn, lambdaDepth + 1)
-      case Struct(enum, args) =>
-        Struct(enum, args.map(incrementLambdaVars(_, lambdaDepth)))
-      case l @ Literal(_) => l
-      case Recursion(fn) => Recursion(incrementLambdaVars(fn, lambdaDepth))
-    }
-  }
+  def listAsStructList(lst: List[NormalExpression]): NormalExpression =
+    lst.foldRight(NormalExpression.Struct(0, Nil)) { case (ne, acc) => NormalExpression.Struct(1, List(ne, acc)) }
 }
 
 case class NormalizePackageMap(pm: PackageMap.Inferred) {
@@ -405,6 +331,276 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         else loop(params - 1, NormalExpression.Lambda(expr))
 
         loop(arity, NormalExpression.Struct(enum, ((arity - 1) to 0 by -1).map(NormalExpression.LambdaVar(_)).toList))
+  }
+
+  private def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =
+    pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
+
+  private def maybeBind(pat: Pattern[(PackageName, Constructor), Type]): (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] =
+    pat match {
+      case Pattern.WildCard => noop
+      case Pattern.Literal(lit) =>
+        { (v, env) => v match {
+          case NormalExpression.Literal(vlit) => if (vlit == lit) Matches(env) else NoMatch
+          case _ => NotProvable
+        }}
+      case Pattern.Var(n) =>
+        { (v, env) => Matches(env + (n ->  v)) }
+      case Pattern.Named(n, p) =>
+        val inner = maybeBind(p)
+
+        { (v, env) =>
+          inner(v, env) match {
+            case Matches(env1) => Matches(env1 + (n -> v))
+            case notMatch => notMatch
+          }
+        }
+      case Pattern.ListPat(items) =>
+        items match {
+          case Nil =>
+            { (arg, acc) =>
+              arg match {
+                case NormalExpression.Struct(0, List()) => Matches(acc)
+                case NormalExpression.Struct(_, _) => NoMatch
+                case _ => NotProvable
+              }
+            }
+          case Right(ph) :: ptail =>
+            // a right hand side pattern never matches the empty list
+            val fnh = maybeBind(ph)
+            val fnt = maybeBind(Pattern.ListPat(ptail))
+
+            { (arg, acc) =>
+              arg match {
+                case NormalExpression.Struct(1, List(argHead, structTail)) =>
+                  fnh(argHead, acc) match {
+                    case NoMatch => NoMatch
+                    case NotProvable => fnt(structTail, acc) match {
+                      case NoMatch => NoMatch
+                      case _ => NotProvable
+                    }
+                    case Matches(acc1) => fnt(structTail, acc1)
+                  }
+                  case NormalExpression.Struct(_, _) => NoMatch
+                  case _ => NotProvable
+              }
+            }
+          case Left(splice) :: Nil =>
+            // this is the common and easy case: a total match of the tail
+            // we don't need to match on it being a list, because we have
+            // already type checked
+            splice match {
+              case Some(ident) =>
+                { (v, env) => Matches(env + (ident -> v)) }
+              case None =>
+                noop
+            }
+          case Left(splice) :: ptail =>
+            // this is more costly, since we have to match a non infinite tail.
+            // we reverse the tails, do the match, and take the rest into
+            // the splice
+            val revPat = Pattern.ListPat(ptail.reverse)
+            val fnMatchTail = maybeBind(revPat)
+            val ptailSize = ptail.size
+
+            { (arg, acc) =>
+              arg match {
+                case s@NormalExpression.Struct(_, _)  =>
+                  // we only allow one splice, so we assume the rest of the patterns
+                  structListAsList(s) match {
+                    case NotProvable => NotProvable
+                    case Matches(asList) =>
+                      val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
+                      fnMatchTail(listAsStructList(revArgTail), acc) match {
+                        case m@Matches(acc1) => splice.map {nm =>
+                          val rest = listAsStructList(spliceVals.reverse)
+                          Matches(acc1 + (nm -> rest))
+                        }.getOrElse(m)
+                        case notMatch => notMatch
+                      }
+                    case nomatch =>
+                      // type checking will ensure this is either a list or a
+                      // NormalExpression that will produce a list
+                      // $COVERAGE-OFF$this should be unreachable
+                      sys.error(s"ill typed in match: $nomatch")
+                      // $COVERAGE-ON$
+                  }
+                case _ => NotProvable
+              }
+            }
+        }
+      case Pattern.Annotation(p, _) =>
+        // TODO we may need to use the type here
+        maybeBind(p)
+      case Pattern.Union(h, t) =>
+        // we can just loop expanding these out:
+        def loop(ps: List[Pattern[(PackageName, Constructor), Type]]): (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] =
+          ps match {
+            case Nil => neverMatch
+            case head :: tail =>
+              val fnh = maybeBind(head)
+              val fnt: (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] = loop(tail)
+              val result: (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] = { case (arg, acc) =>
+                fnh(arg, acc) match {
+                  case NoMatch  => fnt(arg, acc)
+                  case notNoMatch => notNoMatch
+                }
+              }
+              result
+          }
+        loop(h :: t.toList)
+      case Pattern.PositionalStruct(pc@(_, ctor), items) =>
+        // The type in question is not the outer dt, but the type associated
+        // with this current constructor
+        val dt = definedForCons(pc)
+        val itemFns = items.map(maybeBind(_))
+
+        def processArgs(as: List[NormalExpression], acc: PatternEnv): PatternMatch[PatternEnv] = {
+          // manually write out foldM hoping for performance improvements
+          @annotation.tailrec
+          def loop(vs: List[NormalExpression], fns: List[(NormalExpression, PatternEnv) => PatternMatch[PatternEnv]], env: (PatternEnv, PatternMatch[PatternEnv])): PatternMatch[PatternEnv] =
+            vs match {
+              case Nil => env._2
+              case vh :: vt =>
+                fns match {
+                  case fh :: ft =>
+                    (fh(vh, env._1), env._2) match {
+                      case (_, NoMatch) => NoMatch
+                      case (NoMatch, _) => NoMatch
+                      case (Matches(env1), Matches(_)) => loop(vt, ft, (env1, Matches(env1)))
+                      case (Matches(env1), NotProvable) => loop(vt, ft, (env1, NotProvable))
+                      case (NotProvable, _) => loop(vt, ft, (env._1, NotProvable))
+                    }
+                  case Nil => env._2 // mismatch in size, shouldn't happen statically
+                }
+            }
+          loop(as, itemFns, (acc, Matches(acc)))
+        }
+
+        if (dt.isStruct) {
+          // this is a struct, which means we expect it
+          { (arg: NormalExpression, acc: PatternEnv) =>
+            arg match {
+              case NormalExpression.Struct(_, args) =>
+                processArgs(args, acc)
+              case _ =>
+                NotProvable
+            }
+          }
+        }
+        else {
+          // compute the index of ctor, so we can compare integers later
+          val idx = dt.constructors.map(_._1).indexOf(ctor)
+          // we don't check if idx < 0, because if we compiled, it can't be
+          val result = { (arg: NormalExpression, acc: PatternEnv) =>
+            arg match {
+              case NormalExpression.Struct(enumId, args) =>
+                if (enumId == idx) processArgs(args, acc)
+                else NoMatch
+              case _ =>
+                NotProvable
+            }
+          }
+          result
+        }
+  }
+ 
+  def normalOrderReduction(expr: NormalExpression): NormalExpression = {
+    import NormalExpression._
+    val nextExpr = expr match {
+      case App(Lambda(nextExpr), arg) => {
+        applyLambdaSubstituion(nextExpr, Some(arg), 0)
+      }
+      case App(fn, arg) => {
+        val nextFn = normalOrderReduction(fn)
+        App(nextFn, arg)
+      }
+      /*case Match(struct@Struct(enum, args), branches) => { TODO: If s matches a pattern we should perform lambdaSubstitution
+        Match(struct, branches)
+      }*/
+      case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(false)) => {
+        applyLambdaSubstituion(innerExpr, None, 0)
+      }
+      case Lambda(App(innerExpr, LambdaVar(0))) => {
+        innerExpr
+      }
+      case _ => expr
+    }
+    nextExpr match {
+      case al @ App(Lambda(_), _) => normalOrderReduction(al)
+      case App(fn, arg) =>
+        normalOrderReduction(fn) match {
+          case l @ Lambda(_) => normalOrderReduction(App(l, arg))
+          case nfn @ _       => App(nfn, normalOrderReduction(arg))
+        }
+      case extVar @ ExternalVar(_, _) => extVar
+      case Match(arg, branches) =>
+        normalOrderReduction(arg) match {
+          // case s @ Struct(_, _) => normalOrderReduction(Match(s, branches)) TODO: Check if we know enough about s to validate it matches a pattern. If so, recurse.
+          case ns @ _ =>
+            Match(ns, branches.map {
+              case (enum, expr) => (enum, normalOrderReduction(expr))
+            })
+        }
+      case lv @ LambdaVar(_)  => lv
+      case Lambda(expr)       =>
+        normalOrderReduction(expr) match {
+          case a@App(innerExpr, LambdaVar(0)) => normalOrderReduction(Lambda(a))
+          case na @ _ => Lambda(na)
+        }
+      case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
+      case l @ Literal(_)     => l
+      case r@Recursion(innerExpr) =>
+        normalOrderReduction(innerExpr) match {
+          case Lambda(lambdaExpr) if (lambdaExpr.maxLambdaVar.map(_ < 0).getOrElse(false)) =>
+            normalOrderReduction(r)
+          case _ => r
+        }
+    }
+  }
+  private def applyLambdaSubstituion(expr: NormalExpression,
+    subst: Option[NormalExpression],
+    idx: Int): NormalExpression = {
+      import NormalExpression._
+      expr match {
+        case App(fn, arg)                           =>
+          App(applyLambdaSubstituion(fn, subst, idx),
+            applyLambdaSubstituion(arg, subst, idx))
+        case ext @ ExternalVar(_, _)                => ext
+        case Match(arg, branches)                   =>
+          Match(applyLambdaSubstituion(arg, subst, idx), branches.map {
+            case (enum, expr) => (enum, applyLambdaSubstituion(expr, subst, idx))
+          })
+        case LambdaVar(varIndex) if varIndex == idx => subst.get
+        case LambdaVar(varIndex) if varIndex > idx  => LambdaVar(varIndex - 1)
+        case lv @ LambdaVar(_)                      => lv
+        case Lambda(fn)                             => Lambda(applyLambdaSubstituion(fn, subst.map(incrementLambdaVars(_, 0)), idx + 1))
+        case Struct(enum, args)                     =>
+          Struct(enum, args.map(applyLambdaSubstituion(_, subst, idx)))
+        case l @ Literal(_)                         => l
+        case r @ Recursion(fn)                      => Recursion(applyLambdaSubstituion(fn, subst, idx))
+      }
+  }
+
+  private def incrementLambdaVars(expr: NormalExpression, lambdaDepth: Int): NormalExpression = {
+    import NormalExpression._
+    expr match {
+      case App(fn, arg) =>
+        App(incrementLambdaVars(fn, lambdaDepth),
+          incrementLambdaVars(arg, lambdaDepth))
+      case ext @ ExternalVar(_, _) => ext
+      case Match(arg, branches) =>
+        Match(incrementLambdaVars(arg, lambdaDepth), branches.map {
+          case (enum, expr) => (enum, incrementLambdaVars(expr, lambdaDepth))
+        })
+      case LambdaVar(varIndex) if varIndex >= lambdaDepth => LambdaVar(varIndex + 1)
+      case lv @ LambdaVar(_)                      => lv
+      case Lambda(fn)                             => incrementLambdaVars(fn, lambdaDepth + 1)
+      case Struct(enum, args) =>
+        Struct(enum, args.map(incrementLambdaVars(_, lambdaDepth)))
+      case l @ Literal(_) => l
+      case Recursion(fn) => Recursion(incrementLambdaVars(fn, lambdaDepth))
+    }
   }
 }
 
