@@ -30,7 +30,7 @@ object NormalExpression {
     val maxLambdaVar = None
   }
   case class Match(arg: NormalExpression,
-    branches: NonEmptyList[(Pattern[Option[Int], Type], NormalExpression)])
+    branches: NonEmptyList[(NormalPattern, NormalExpression)])
   extends NormalExpression {
     val maxLambdaVar =
       (arg.maxLambdaVar.toList ++ branches.toList.flatMap(_._2.maxLambdaVar))
@@ -63,12 +63,28 @@ object NormalExpression {
   }
 }
 
+sealed abstract class NormalPattern {}
+
+object NormalPattern {
+  case object WildCard extends NormalPattern
+  case class Literal(toLit: Lit) extends NormalPattern
+  case class Var(name: Int) extends NormalPattern
+  /**
+   * Patterns like foo @ Some(_)
+   * @ binds tighter than |, so use ( ) with groups you want to bind
+   */
+  case class Named(name: Int, pat: NormalPattern) extends NormalPattern
+  case class ListPat(parts: List[Either[Option[Int], NormalPattern]]) extends NormalPattern
+  case class PositionalStruct(name: Option[Int], params: List[NormalPattern]) extends NormalPattern
+  case class Union(head: NormalPattern, rest: NonEmptyList[NormalPattern]) extends NormalPattern
+}
+
 object Normalization {
   case class NormalExpressionTag(ne: NormalExpression, children: Set[NormalExpression])
   type NormalizedPM = PackageMap.Typed[(Declaration, Normalization.NormalExpressionTag)]
   type NormalizedPac = Package.Typed[(Declaration, Normalization.NormalExpressionTag)]
 
-  type PatternEnv = Map[Identifier.Bindable, NormalExpression]
+  type PatternEnv = Map[Int, NormalExpression]
 
   sealed trait PatternMatch[+A]
   case class Matches[A](env: A) extends PatternMatch[A]
@@ -92,17 +108,17 @@ object Normalization {
   def listAsStructList(lst: List[NormalExpression]): NormalExpression =
     lst.foldRight(NormalExpression.Struct(0, Nil)) { case (ne, acc) => NormalExpression.Struct(1, List(ne, acc)) }
 
-  private def maybeBind(pat: Pattern[Option[Int], Type]): (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] =
+  private def maybeBind(pat: NormalPattern): (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] =
     pat match {
-      case Pattern.WildCard => noop
-      case Pattern.Literal(lit) =>
+      case NormalPattern.WildCard => noop
+      case NormalPattern.Literal(lit) =>
         { (v, env) => v match {
           case NormalExpression.Literal(vlit) => if (vlit == lit) Matches(env) else NoMatch
           case _ => NotProvable
         }}
-      case Pattern.Var(n) =>
+      case NormalPattern.Var(n) =>
         { (v, env) => Matches(env + (n ->  v)) }
-      case Pattern.Named(n, p) =>
+      case NormalPattern.Named(n, p) =>
         val inner = maybeBind(p)
 
         { (v, env) =>
@@ -111,7 +127,7 @@ object Normalization {
             case notMatch => notMatch
           }
         }
-      case Pattern.ListPat(items) =>
+      case NormalPattern.ListPat(items) =>
         items match {
           case Nil =>
             { (arg, acc) =>
@@ -124,7 +140,7 @@ object Normalization {
           case Right(ph) :: ptail =>
             // a right hand side pattern never matches the empty list
             val fnh = maybeBind(ph)
-            val fnt = maybeBind(Pattern.ListPat(ptail))
+            val fnt = maybeBind(NormalPattern.ListPat(ptail))
 
             { (arg, acc) =>
               arg match {
@@ -155,7 +171,7 @@ object Normalization {
             // this is more costly, since we have to match a non infinite tail.
             // we reverse the tails, do the match, and take the rest into
             // the splice
-            val revPat = Pattern.ListPat(ptail.reverse)
+            val revPat = NormalPattern.ListPat(ptail.reverse)
             val fnMatchTail = maybeBind(revPat)
             val ptailSize = ptail.size
 
@@ -185,12 +201,9 @@ object Normalization {
               }
             }
         }
-      case Pattern.Annotation(p, _) =>
-        // TODO we may need to use the type here
-        maybeBind(p)
-      case Pattern.Union(h, t) =>
+      case NormalPattern.Union(h, t) =>
         // we can just loop expanding these out:
-        def loop(ps: List[Pattern[Option[Int], Type]]): (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] =
+        def loop(ps: List[NormalPattern]): (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] =
           ps match {
             case Nil => neverMatch
             case head :: tail =>
@@ -205,7 +218,7 @@ object Normalization {
               result
           }
         loop(h :: t.toList)
-      case Pattern.PositionalStruct(maybeIdx, items) =>
+      case NormalPattern.PositionalStruct(maybeIdx, items) =>
         // The type in question is not the outer dt, but the type associated
         // with this current constructor
         val itemFns = items.map(maybeBind(_))
@@ -269,8 +282,7 @@ object Normalization {
     })).get // This will always find something unless something has gone terribly wrong
 
   def solveMatch(pat: Pattern[Option[Int], Type], env: PatternEnv, result: NormalExpression, arg: NormalExpression) =
-    pat.names.collect { case b: Identifier.Bindable => b }
-      .map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
+    (0 to (env.size - 1)).toList.map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
       .foldLeft(result) { case (ne, arg) => NormalExpression.App(ne, arg) }
  
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
@@ -490,16 +502,35 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     TypedExpr[(Declaration, NormalExpressionTag)]] = for {
       arg <- normalizeExpr(m.arg, env, p)
       branches <- (m.branches.map { case branch => normalizeBranch(branch, env, p)}).sequence
-      normalBranches = branches.map { case (p, e) => (
-        p.mapName[Option[Int]] { case pc@(_, ctor) => 
-          val dt = definedForCons(pc)
-          if (dt.isStruct) None else Some(dt.constructors.map(_._1).indexOf(ctor))
-        },
-        e.tag._2.ne)}
+      normalBranches = branches.map { case (p, e) => (normalizePattern(p), e.tag._2.ne)}
       neTag = NormalExpressionTag(ne=NormalExpression.Match(arg.tag._2.ne, normalBranches), children=Set())
     } yield Match(arg=arg,
       branches=branches,
       tag=(m.tag, neTag))
+
+  def normalizePattern(pat: Pattern[(PackageName, Constructor), Type]): NormalPattern = {
+    val names = pat.names
+    def loop(pat: Pattern[(PackageName, Constructor), Type]): NormalPattern =
+      pat match {
+        case Pattern.WildCard => NormalPattern.WildCard
+        case Pattern.Literal(lit) => NormalPattern.Literal(lit)
+        case Pattern.Var(v) => NormalPattern.Var(names.indexOf(v))
+        case Pattern.Named(n, p) => NormalPattern.Named(names.indexOf(n), loop(p))
+        case Pattern.ListPat(items) =>
+          NormalPattern.ListPat(items.map {
+            case Left(Some(n)) => Left(Some(names.indexOf(n)))
+            case Left(None) => Left(None)
+            case Right(p) => Right(loop(p))
+          })
+        case Pattern.Annotation(p, tpe) => loop(p)
+        case Pattern.PositionalStruct(pc@(_, ctor), params) =>
+          val dt = definedForCons(pc)
+          val name = if (dt.isStruct) None else Some(dt.constructors.map(_._1).indexOf(ctor))
+          NormalPattern.PositionalStruct(name, params.map(loop(_)))
+        case Pattern.Union(h, t) => NormalPattern.Union(loop(h), t.map(loop(_)))
+      }
+    loop(pat)
+  }
 
   def normalizeBranch(b: (Pattern[(PackageName, Constructor), Type], TypedExpr[Declaration]), env: Env, p: Package.Inferred): NormState[
     (Pattern[(PackageName, Constructor), Type], TypedExpr[(Declaration, NormalExpressionTag)])] = {
