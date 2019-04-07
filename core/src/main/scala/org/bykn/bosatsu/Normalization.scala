@@ -258,6 +258,20 @@ object Normalization {
             result
         }
   }
+
+  def findMatch(m: NormalExpression.Match) =
+    m.branches.collectFirst(Function.unlift( { case (pat, result) =>
+      maybeBind(pat).apply(m.arg, Map()) match {
+        case Matches(env) => Some(Some((pat, env, result)))
+        case NotProvable => Some(None)
+        case NoMatch => None
+      }
+    })).get // This will always find something unless something has gone terribly wrong
+
+  def solveMatch(pat: Pattern[Option[Int], Type], env: PatternEnv, result: NormalExpression, arg: NormalExpression) =
+    pat.names.collect { case b: Identifier.Bindable => b }
+      .map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
+      .foldLeft(result) { case (ne, arg) => NormalExpression.App(ne, arg) }
  
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
     import NormalExpression._
@@ -490,7 +504,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   def normalizeBranch(b: (Pattern[(PackageName, Constructor), Type], TypedExpr[Declaration]), env: Env, p: Package.Inferred): NormState[
     (Pattern[(PackageName, Constructor), Type], TypedExpr[(Declaration, NormalExpressionTag)])] = {
     val (pattern, expr) = b
-    val names = pattern.names.collect { case b: Identifier.Bindable => b}.map(Some(_))
+    val names = pattern.names.collect { case b: Identifier.Bindable => Some(b)}
     val lambdaVars = names ++ env._2
     val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
       .collect { case (Some(n), i) => (n, i) }
