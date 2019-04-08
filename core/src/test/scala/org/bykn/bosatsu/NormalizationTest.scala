@@ -20,7 +20,7 @@ def bar(x):
 */
 
   test("Literal") {
-      normalizeTest(
+      normalTagTest(
         List("""
 package NormTest/String
 
@@ -29,7 +29,7 @@ main = "aa"
         ), "NormTest/String", NormalExpressionTag(Literal(Str("aa")), Set())
       )
 
-      normalizeTest(
+      normalTagTest(
         List("""
 package NormTest/Int
 
@@ -38,7 +38,7 @@ main = 22
         ), "NormTest/Int", NormalExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set())
       )
 
-      normalizeTest(
+      normalTagTest(
         List("""
 package NormTest/List
 
@@ -56,7 +56,7 @@ main = ["aa"]
       )
   }
   test("Lambda") {
-    normalizeTest(
+    normalTagTest(
       List("""
 package Lambda/Identity
 
@@ -66,7 +66,7 @@ out = \x -> x
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
-    normalizeTest(
+    normalTagTest(
       List("""
 package Lambda/Always
 
@@ -76,7 +76,7 @@ out = \x -> \y -> x
         Lambda(Lambda(LambdaVar(1))), Set(Lambda(LambdaVar(1)), LambdaVar(1))
       )
     )
-    normalizeTest(
+    normalTagTest(
       List("""
 package Lambda/Always
 
@@ -87,7 +87,7 @@ out = \x -> \y -> y
       )
     )
 
-    normalizeTest(
+    normalTagTest(
       List("""
 package Lambda/Identity
 
@@ -99,7 +99,7 @@ out = foo
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
-    normalizeTest(
+    normalTagTest(
       List("""
 package Lambda/Identity
 
@@ -112,7 +112,7 @@ out = foo
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
-    normalizeTest(
+    normalTagTest(
       List("""
 package Lambda/Always
 
@@ -124,7 +124,7 @@ out = foo
         Lambda(Lambda(LambdaVar(1))), Set(Lambda(LambdaVar(1)), LambdaVar(1))
       )
     )
-    normalizeTest(
+    normalTagTest(
       List("""
 package Lambda/Always
 
@@ -138,7 +138,7 @@ out = foo
     )
   }
   test("Match") {
-    normalizeTest(
+    normalExpressionTest(
       List("""
 package Match/Vars
 
@@ -149,22 +149,25 @@ def result(x, c):
 out=result
 """
       ), "Match/Vars", 
-      NormalExpressionTag(
-        Lambda(Lambda(Match(LambdaVar(1),NonEmptyList.fromList(List(
-          (
-            PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),
-            Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List())))))))))
-          )
-        )).get))),
-        Set(
-          Match(LambdaVar(1),NonEmptyList.fromList(List(
-            (PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List())))))))))))
-          ).get),
-          Lambda(Match(LambdaVar(1),NonEmptyList.fromList(List(
-            (PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List())))))))))))
-          ).get))
-        )
+    Lambda(Lambda(Match(LambdaVar(1),NonEmptyList.fromList(List(
+      (
+        PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),
+        Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List())))))))))
       )
+    )).get))))
+    normalExpressionTest(
+      List("""
+package Match/Structs
+
+struct Pair(f, s)
+struct Trip(f, s, t)
+
+out=match Pair(1, "two"):
+  Pair(f, s): Trip(3, s, f)
+
+"""
+      ), "Match/Structs",
+      Struct(0,List(Literal(Integer(BigInteger.valueOf(3))), Literal(Str("two")), Literal(Integer(BigInteger.valueOf(1)))))
     )
   }
 }

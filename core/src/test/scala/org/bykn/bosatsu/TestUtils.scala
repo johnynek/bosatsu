@@ -140,22 +140,47 @@ object TestUtils {
         fail(tes + "\n" + errs.toString)
     }
   }
+  sealed abstract class NormalTestMode[A] {
+    def expected: A
+  }
+  object NormalTestMode {
+    case class TagMode(expected: Normalization.NormalExpressionTag) extends NormalTestMode[Normalization.NormalExpressionTag]
+    case class ExpressionMode(expected: NormalExpression) extends NormalTestMode[NormalExpression]
+    case class ChildrenMode(expected: Set[NormalExpression]) extends NormalTestMode[Set[NormalExpression]]
+  }
 
-  def normalizeTest(packages: List[String], mainPackS: String, expected: Normalization.NormalExpressionTag) = {
+  def normalizeTest[A](packages: List[String], mainPackS: String, expectedMode: NormalTestMode[A]) = {
     def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
       val normPackMap = NormalizePackageMap(infPackMap).normalizePackageMap
       (for {
         pack <- normPackMap.toMap.get(mainPack)
         (name, rec, expr) <- pack.program.lets.lastOption
       } yield {
-        assert(expr.tag._2 == expected)
-        succeed
+        expectedMode match {
+          case NormalTestMode.TagMode(expected) =>
+            assert(expr.tag._2.ne == expected.ne, s"ne error. expected '${expected.ne}' got '${expr.tag._2.ne}'" )
+            assert(expr.tag._2.children == expected.children, s"children error. expected '${expected.children}' got '${expr.tag._2.children}'" )
+            succeed
+          case NormalTestMode.ExpressionMode(expected) =>
+            assert(expr.tag._2.ne == expected, s"ne error. expected '${expected}' got '${expr.tag._2.ne}'" )
+            succeed
+          case NormalTestMode.ChildrenMode(expected) =>
+            assert(expr.tag._2.children == expected, s"children error. expected '${expected}' got '${expr.tag._2.children}'" )
+            succeed
+        }
       }
       ).getOrElse(fail("There should be a last expression"))
     }
 
     testInferred(packages, mainPackS, inferredHandler(_,_))
   }
+
+  def normalTagTest(packages: List[String], mainPackS: String, expected: Normalization.NormalExpressionTag) = 
+    normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected))
+  def normalExpressionTest(packages: List[String], mainPackS: String, expected: NormalExpression) = 
+    normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected))
+  def normalChildrenTest(packages: List[String], mainPackS: String, expected: Set[NormalExpression]) = 
+    normalizeTest(packages, mainPackS, NormalTestMode.ChildrenMode(expected))
 
   def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
     val mainPack = PackageName.parse(mainPackS).get
