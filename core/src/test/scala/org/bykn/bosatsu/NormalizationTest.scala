@@ -2,12 +2,14 @@ package org.bykn.bosatsu
 
 import org.scalatest.FunSuite
 import java.math.BigInteger
+import cats.data.NonEmptyList
 
 class NormalizationTest extends FunSuite {
   import TestUtils._
   import NormalExpression._
   import Lit._
   import Normalization._
+  import NormalPattern.{PositionalStruct, Var}
 
 /*
 struct Pair(first, second)
@@ -132,6 +134,36 @@ out = foo
 """
       ), "Lambda/Always", NormalExpressionTag(
         Lambda(Lambda(LambdaVar(0))), Set(Lambda(LambdaVar(0)), LambdaVar(0))
+      )
+    )
+  }
+  test("Match") {
+    normalizeTest(
+      List("""
+package Match/Vars
+
+def result(x, c):
+  match x:
+    (a, b): (b, c, a)
+
+out=result
+"""
+      ), "Match/Vars", 
+      NormalExpressionTag(
+        Lambda(Lambda(Match(LambdaVar(1),NonEmptyList.fromList(List(
+          (
+            PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),
+            Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List())))))))))
+          )
+        )).get))),
+        Set(
+          Match(LambdaVar(1),NonEmptyList.fromList(List(
+            (PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List())))))))))))
+          ).get),
+          Lambda(Match(LambdaVar(1),NonEmptyList.fromList(List(
+            (PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List())))))))))))
+          ).get))
+        )
       )
     )
   }
