@@ -279,9 +279,9 @@ object Normalization {
         case NotProvable => Some(None)
         case NoMatch => None
       }
-    })).get // This will always find something unless something has gone terribly wrong
+    })).get // Totallity of matches should ensure this will always find something unless something has gone terribly wrong
 
-  def solveMatch(pat: Pattern[Option[Int], Type], env: PatternEnv, result: NormalExpression, arg: NormalExpression) =
+  def solveMatch(env: PatternEnv, result: NormalExpression) =
     (0 to (env.size - 1)).toList.map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
       .foldLeft(result) { case (ne, arg) => NormalExpression.App(ne, arg) }
  
@@ -291,13 +291,11 @@ object Normalization {
       case App(Lambda(nextExpr), arg) => {
         applyLambdaSubstituion(nextExpr, Some(arg), 0)
       }
-      case App(fn, arg) => {
-        val nextFn = normalOrderReduction(fn)
-        App(nextFn, arg)
-      }
-      /*case Match(struct@Struct(enum, args), branches) => { TODO: If s matches a pattern we should perform lambdaSubstitution
-        Match(struct, branches)
-      }*/
+      case m@Match(struct@Struct(enum, args), branches) =>
+        findMatch(m) match {
+          case None => m
+          case Some((pat, env, result)) => solveMatch(env, result)
+        }
       case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(false)) => {
         applyLambdaSubstituion(innerExpr, None, 0)
       }
@@ -315,12 +313,10 @@ object Normalization {
         }
       case extVar @ ExternalVar(_, _) => extVar
       case Match(arg, branches) =>
-        normalOrderReduction(arg) match {
-          // case s @ Struct(_, _) => normalOrderReduction(Match(s, branches)) TODO: Check if we know enough about s to validate it matches a pattern. If so, recurse.
-          case ns @ _ =>
-            Match(ns, branches.map {
-              case (enum, expr) => (enum, normalOrderReduction(expr))
-            })
+        val nextMatch = Match(normalOrderReduction(arg), branches)
+        findMatch(nextMatch) match {
+          case None => nextMatch
+          case Some(_) => normalOrderReduction(nextMatch)
         }
       case lv @ LambdaVar(_)  => lv
       case Lambda(expr)       =>
@@ -503,7 +499,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       arg <- normalizeExpr(m.arg, env, p)
       branches <- (m.branches.map { case branch => normalizeBranch(branch, env, p)}).sequence
       normalBranches = branches.map { case (p, e) => (normalizePattern(p), e.tag._2.ne)}
-      neTag = NormalExpressionTag(ne=NormalExpression.Match(arg.tag._2.ne, normalBranches), children=Set())
+      ne=normalOrderReduction(NormalExpression.Match(arg.tag._2.ne, normalBranches))
+      neTag = NormalExpressionTag(ne=ne, children=Set())
     } yield Match(arg=arg,
       branches=branches,
       tag=(m.tag, neTag))
