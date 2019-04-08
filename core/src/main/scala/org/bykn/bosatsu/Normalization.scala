@@ -282,7 +282,7 @@ object Normalization {
     })).get // Totallity of matches should ensure this will always find something unless something has gone terribly wrong
 
   def solveMatch(env: PatternEnv, result: NormalExpression) =
-    (0 to (env.size - 1)).toList.map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
+    ((env.size - 1) to 0 by -1).toList.map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
       .foldLeft(result) { case (ne, arg) => NormalExpression.App(ne, arg) }
  
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
@@ -500,7 +500,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       branches <- (m.branches.map { case branch => normalizeBranch(branch, env, p)}).sequence
       normalBranches = branches.map { case (p, e) => (normalizePattern(p), e.tag._2.ne)}
       ne=normalOrderReduction(NormalExpression.Match(arg.tag._2.ne, normalBranches))
-      neTag = NormalExpressionTag(ne=ne, children=Set())
+      children=branches.foldLeft(combineWithChildren(arg.tag._2)) { case (tags, br) => tags ++ combineWithChildren(br._2.tag._2) }
+      neTag = NormalExpressionTag(ne=ne, children=children)
     } yield Match(arg=arg,
       branches=branches,
       tag=(m.tag, neTag))
