@@ -219,78 +219,107 @@ object Statement {
     rest: Padding[Statement]) extends TypeDefinitionStatement
   case object EndOfFile extends Statement
 
-  val parser: P[Statement] = {
-    val recurse = P(parser)
-    val padding = Padding.parser(recurse)
+  // Parse a single item
+  private val item: P[Statement => Statement] = {
+     val padding = Padding.parseFn[Statement]
 
-    val bindingP = {
-      val bop = BindingStatement
-        .bindingParser[Pattern[Option[Identifier.Constructor], TypeRef], Padding[Statement]](
-          Declaration.parser, Indy.lift(maybeSpace ~ padding))("")
+     val bindingP: P[Statement => Statement] = {
+       val bop = BindingStatement
+         .bindingParser[Pattern[Option[Identifier.Constructor], TypeRef], Statement => Padding[Statement]](
+           Declaration.parser, Indy.lift(maybeSpace ~ padding))("")
 
-      (Pattern.bindParser ~ bop).map { case (p, fn) =>
-        Bind(fn(p))
-      }
-    }
+       (Pattern.bindParser ~ bop).map { case (p, parseBs) =>
+         val BindingStatement(n, v, fn) = parseBs(p)
 
-    val commentP = CommentStatement.parser(Indy.lift(padding)).map(Comment(_)).run("")
+         { next: Statement =>
+           val bs = BindingStatement(n, v, fn(next))
+           Bind(bs)
+         }
+       }
+     }
 
-    val defBody = maybeSpace ~ OptIndent.indy(Declaration.parser).run("")
-    val defP: P[Def] = DefStatement.parser(Pattern.bindParser, P(defBody ~ maybeSpace ~ padding)).map(Def(_))
+     val commentP: P[Statement => Statement] =
+       CommentStatement.parser(Indy.lift(padding))
+         .map { case CommentStatement(text, on) =>
 
-    val end = P(End).map(_ => EndOfFile)
+           { next: Statement =>
+             Comment(CommentStatement(text, on(next)))
+           }
+         }.run("")
 
-    val argParser: P[(Bindable, Option[TypeRef])] =
-      P(Identifier.bindableParser ~ maybeSpace ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
-
-    val constructorP = P(Identifier.consParser ~ argParser.parensLines1.?)
-      .map {
-        case (n, None) => (n, Nil)
-        case (n, Some(args)) => (n, args.toList)
-      }
-
-    val external = {
-      val typeParams = Parser.nonEmptyListToList(lowerIdent.nonEmptyListSyntax)
-      val externalStruct =
-        P("struct" ~/ spaces ~ Identifier.consParser ~ typeParams ~ maybeSpace ~ Padding.parser(parser)).map {
-          case (name, targs, rest) =>
-            val tva = targs.map(TypeRef.TypeVar(_))
-            ExternalStruct(name, tva, rest)
-        }
-
-      val externalDef = {
-        val argParser: P[(Bindable, TypeRef)] = P(Identifier.bindableParser ~ ":" ~/ maybeSpace ~ TypeRef.parser)
-        val args = P("(" ~ maybeSpace ~ argParser.nonEmptyList ~ maybeSpace ~ ")")
-        val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser ~ maybeSpace)
-        P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~ result ~ maybeSpace ~ Padding.parser(parser))
-          .map {
-            case (name, None, resType, res) => ExternalDef(name, Nil, resType, res)
-            case (name, Some(args), resType, res) => ExternalDef(name, args.toList, resType, res)
+     val defBody = maybeSpace ~ OptIndent.indy(Declaration.parser).run("")
+     val defP: P[Statement => Def] =
+      DefStatement.parser(Pattern.bindParser, P(defBody ~ maybeSpace ~ padding))
+        .map { case DefStatement(nm, args, ret, (body, resFn)) =>
+          { next: Statement =>
+            Def(DefStatement(nm, args, ret, (body, resFn(next))))
           }
-      }
-
-      P("external" ~ spaces ~/ (externalStruct|externalDef))
-    }
-
-    val struct = P("struct" ~ spaces ~/ constructorP ~ Padding.parser(parser))
-      .map { case (name, args, rest) => Struct(name, args, rest) }
-
-    val enum = {
-      val sep = Indy.lift(P("," ~ maybeSpace)).combineK(Indy.toEOLIndent).map(_ => ())
-      val variants = Indy.lift(constructorP ~ maybeSpace).nonEmptyList(sep)
-
-      val nameVars = Indy.block(
-        Indy.lift(P("enum" ~ spaces ~/ Identifier.consParser)),
-        variants).run("")
-
-      (nameVars ~ padding)
-        .map { case (ename, vars, rest) =>
-          Enum(ename, vars, rest)
         }
-    }
 
-    // bP should come last so there is no ambiguity about identifiers
-    commentP | defP | struct | enum | external | bindingP | end
+     val argParser: P[(Bindable, Option[TypeRef])] =
+       P(Identifier.bindableParser ~ maybeSpace ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
+
+     val constructorP = P(Identifier.consParser ~ argParser.parensLines1.?)
+       .map {
+         case (n, None) => (n, Nil)
+         case (n, Some(args)) => (n, args.toList)
+       }
+
+     val external = {
+       val typeParams = Parser.nonEmptyListToList(lowerIdent.nonEmptyListSyntax)
+       val externalStruct =
+         P("struct" ~/ spaces ~ Identifier.consParser ~ typeParams ~ maybeSpace ~ padding).map {
+           case (name, targs, rest) =>
+             val tva = targs.map(TypeRef.TypeVar(_))
+
+             { next: Statement => ExternalStruct(name, tva, rest(next)) }
+         }
+
+       val externalDef = {
+         val argParser: P[(Bindable, TypeRef)] = P(Identifier.bindableParser ~ ":" ~/ maybeSpace ~ TypeRef.parser)
+         val args = P("(" ~ maybeSpace ~ argParser.nonEmptyList ~ maybeSpace ~ ")")
+         val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser ~ maybeSpace)
+         P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~ result ~ maybeSpace ~ padding)
+           .map {
+             case (name, optArgs, resType, res) =>
+               val alist = optArgs match {
+                 case None => Nil
+                 case Some(ne) => ne.toList
+               }
+
+               { next: Statement => ExternalDef(name, alist, resType, res(next)) }
+           }
+       }
+
+       P("external" ~ spaces ~/ (externalStruct|externalDef))
+     }
+
+     val struct = P("struct" ~ spaces ~/ constructorP ~ padding)
+       .map { case (name, args, rest) =>
+         { next: Statement => Struct(name, args, rest(next)) }
+       }
+
+     val enum = {
+       val sep = Indy.lift(P("," ~ maybeSpace)).combineK(Indy.toEOLIndent).map(_ => ())
+       val variants = Indy.lift(constructorP ~ maybeSpace).nonEmptyList(sep)
+
+       val nameVars = Indy.block(
+         Indy.lift(P("enum" ~ spaces ~/ Identifier.consParser)),
+         variants).run("")
+
+       (nameVars ~ padding)
+         .map { case (ename, vars, rest) =>
+           { next: Statement => Enum(ename, vars, rest(next)) }
+         }
+     }
+
+     // bP should come last so there is no ambiguity about identifiers
+     commentP | defP | struct | enum | external | bindingP
+  }
+
+  val parser: P[Statement] = {
+    val end = P(End).map(_ => EndOfFile)
+    Parser.chained(item, end)
   }
 
   private def constructor(name: Constructor, args: List[(Bindable, Option[TypeRef])]): Doc =

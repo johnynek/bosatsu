@@ -936,6 +936,15 @@ foo = 1
     forAll(Generators.packageGen(5))(law(Package.parser))
   }
 
+  test("parse errors point near where they occur") {
+    expectFail(Statement.parser,
+      """x = 1
+z = 3
+z = 4
+y = {'x': 'x' : 'y'}
+""", 18)
+  }
+
   test("we can parse Externals") {
     parseTestAll(Externals.parser,
 """
