@@ -55,6 +55,21 @@ main = ["aa"]
         )
       )
   }
+  test("recurse") {
+    normalExpressionTest(
+      List("""
+package Recur/Some
+
+def foo(x):
+  recur x:
+    []: [1,2,3]
+    [h, *t]: NonEmptyList(0, foo(t))
+
+out = foo([4,5,6])
+"""
+      ), "Recur/Some", LambdaVar(1)
+    )
+  }
   test("Lambda") {
     normalTagTest(
       List("""
@@ -180,6 +195,17 @@ out=match None:
 """
       ), "Match/None",
       Literal(Str("not some"))
+    )
+  normalExpressionTest(
+    List("""
+package Match/List
+
+out = match [1,2,3,4,5]:
+  [*first_few, _, _, last]: [*first_few, last]
+  _: []
+""",
+      ), "Match/List",
+      Literal(Str("aa"))
     )
   }
   test("imports") {
