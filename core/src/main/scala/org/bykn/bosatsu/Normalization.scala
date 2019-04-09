@@ -287,6 +287,7 @@ object Normalization {
  
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
     import NormalExpression._
+    println(s"nor: $expr ${expr.maxLambdaVar}")
     val nextExpr = expr match {
       case App(Lambda(nextExpr), arg) => {
         applyLambdaSubstituion(nextExpr, Some(arg), 0)
@@ -296,7 +297,8 @@ object Normalization {
           case None => m
           case Some((pat, env, result)) => solveMatch(env, result)
         }
-      case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(false)) => {
+      case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) => {
+        println("rec")
         applyLambdaSubstituion(innerExpr, None, 0)
       }
       case Lambda(App(innerExpr, LambdaVar(0))) => {
@@ -326,11 +328,11 @@ object Normalization {
         }
       case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
       case l @ Literal(_)     => l
-      case r@Recursion(innerExpr) =>
+      case Recursion(innerExpr) =>
         normalOrderReduction(innerExpr) match {
-          case Lambda(lambdaExpr) if (lambdaExpr.maxLambdaVar.map(_ < 0).getOrElse(false)) =>
-            normalOrderReduction(r)
-          case _ => r
+          case lam@Lambda(lambdaExpr) if (lambdaExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) =>
+            normalOrderReduction(Recursion(lam))
+          case inn@_ => Recursion(inn)
         }
     }
   }
