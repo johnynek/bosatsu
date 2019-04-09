@@ -169,5 +169,53 @@ out=match Pair(1, "two"):
       ), "Match/Structs",
       Struct(0,List(Literal(Integer(BigInteger.valueOf(3))), Literal(Str("two")), Literal(Integer(BigInteger.valueOf(1)))))
     )
+    normalExpressionTest(
+      List("""
+package Match/None
+
+out=match None:
+  Some(_): "some"
+  _: "not some"
+
+"""
+      ), "Match/None",
+      Literal(Str("not some"))
+    )
+  }
+  test("imports") {
+    normalExpressionTest(
+      List("""
+package Imp/First
+export [fizz]
+
+def fizz(f, s):
+  (s, f)
+""",
+"""
+package Imp/Second
+import Imp/First [fizz]
+
+out=fizz(1,2)
+"""
+      ), "Imp/Second",
+      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List())))))
+    )
+    normalExpressionTest(
+      List("""
+package Imp/First
+import Imp/Second [fizz]
+
+out=fizz(1,2)
+""",
+"""
+package Imp/Second
+export [fizz]
+
+def fizz(f, s):
+  (s, f)
+"""
+      ), "Imp/First",
+      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List())))))
+    )
   }
 }
