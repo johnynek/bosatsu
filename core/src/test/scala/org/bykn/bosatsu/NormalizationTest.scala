@@ -213,6 +213,26 @@ out = match [1,2,3,4,5]:
       ), "Match/List",
       Literal(Integer(BigInteger.valueOf(5)))
     )
+  normalExpressionTest(
+    List("""
+package Match/List
+
+out = match ["a","b","c","d","e"]:
+  [h, *t]: Some((h, t))
+  []: None
+"""
+      ), "Match/List",
+      Struct(1,List(
+        Struct(0,List(
+          Literal(Str("a")), 
+          Struct(0,List(
+            Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(1,List(Literal(Str("d")), Struct(1,List(Literal(Str("e")), Struct(0,List()))))))))),
+            Struct(0,List())
+          ))
+        ))
+      ))
+
+    )
   }
   test("imports") {
     normalExpressionTest(
