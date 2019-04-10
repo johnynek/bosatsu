@@ -296,9 +296,9 @@ object Normalization {
           case None => m
           case Some((pat, env, result)) => solveMatch(env, result)
         }
-      // case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) => {
-      //  applyLambdaSubstituion(innerExpr, None, 0)
-      // }
+      case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) => {
+        applyLambdaSubstituion(innerExpr, None, 0)
+      }
       case Lambda(App(innerExpr, LambdaVar(0))) => {
         innerExpr
       }
@@ -328,8 +328,8 @@ object Normalization {
       case l @ Literal(_)     => l
       case Recursion(innerExpr) =>
         normalOrderReduction(innerExpr) match {
-          // case lam@Lambda(lambdaExpr) if (lambdaExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) =>
-          //  normalOrderReduction(Recursion(lam))
+          case lam@Lambda(lambdaExpr) if (lambdaExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) =>
+            normalOrderReduction(Recursion(lam))
           case inn@_ => Recursion(inn)
         }
     }
@@ -626,7 +626,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
                 res <- normalizeExpr(expr, nextEnv, pack)
                 tag = res.tag
                 wrappedNe = normalOrderReduction(NormalExpression.Recursion(NormalExpression.Lambda(tag._2.ne)))
-                children = combineWithChildren(tag._2)
+                children = tag._2.children
                 finalRes = res.updatedTag((res.tag._1, NormalExpressionTag(wrappedNe, children)))
                 _ <- State.modify {
                   lets: Map[(PackageName, Identifier), TypedExpr[(Declaration, NormalExpressionTag)]] =>

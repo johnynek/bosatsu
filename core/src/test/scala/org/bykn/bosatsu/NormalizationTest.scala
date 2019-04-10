@@ -9,15 +9,7 @@ class NormalizationTest extends FunSuite {
   import NormalExpression._
   import Lit._
   import Normalization._
-  import NormalPattern.{PositionalStruct, Var}
-
-/*
-struct Pair(first, second)
-
-def bar(x):
-  baz = \y -> Pair(x, y)
-  baz(10)
-*/
+  import NormalPattern.{PositionalStruct, Var, ListPat}
 
   test("Literal") {
       normalTagTest(
@@ -62,12 +54,15 @@ package Recur/Some
 
 def foo(x):
   recur x:
-    []: [1,2,3]
-    [h, *t]: NonEmptyList(0, foo(t))
+    []: ["a","b","c"]
+    [h, *t]: NonEmptyList("zero", foo(t))
 
-out = foo([4,5,6])
+out = foo
 """
-      ), "Recur/Some", LambdaVar(1)
+      ), "Recur/Some", Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.fromList(List(
+        (ListPat(List()),Struct(1,List(Literal(Str("a")), Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(0,List())))))))),
+        (ListPat(List(Right(Var(1)), Left(Some(0)))),Lambda(Lambda(Struct(1,List(Literal(Str("zero")), App(LambdaVar(3),LambdaVar(0)))))))
+      )).get))))
     )
   }
   test("Lambda") {
@@ -196,7 +191,7 @@ out=match None:
       ), "Match/None",
       Literal(Str("not some"))
     )
-  normalExpressionTest(
+/*  normalExpressionTest(
     List("""
 package Match/List
 
@@ -206,7 +201,7 @@ out = match [1,2,3,4,5]:
 """,
       ), "Match/List",
       Literal(Str("aa"))
-    )
+    )*/
   }
   test("imports") {
     normalExpressionTest(
