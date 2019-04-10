@@ -198,7 +198,7 @@ package Match/List
 out = match [1,2,3]:
   [first, second, last]: last
   _: 0
-""",
+"""
       ), "Match/List",
       Literal(Integer(BigInteger.valueOf(3)))
     )
@@ -209,7 +209,7 @@ package Match/List
 out = match [1,2,3,4,5]:
   [*first_few, _, _, last]: last
   _: 0
-""",
+"""
       ), "Match/List",
       Literal(Integer(BigInteger.valueOf(5)))
     )
