@@ -22,22 +22,22 @@ sealed abstract class NormalExpression {
 object NormalExpression {
   case class App(fn: NormalExpression, arg: NormalExpression)
   extends NormalExpression {
-    val maxLambdaVar = (fn.maxLambdaVar.toList ++ arg.maxLambdaVar.toList)
+    def maxLambdaVar = (fn.maxLambdaVar.toList ++ arg.maxLambdaVar.toList)
       .reduceLeftOption(Math.max)
   }
   case class ExternalVar(pack: PackageName, defName: Identifier)
   extends NormalExpression {
-    val maxLambdaVar = None
+    def maxLambdaVar = None
   }
   case class Match(arg: NormalExpression,
     branches: NonEmptyList[(NormalPattern, NormalExpression)])
   extends NormalExpression {
-    val maxLambdaVar =
+    def maxLambdaVar =
       (arg.maxLambdaVar.toList ++ branches.toList.flatMap(_._2.maxLambdaVar))
         .reduceLeftOption(Math.max)
   }
   case class LambdaVar(index: Int) extends NormalExpression {
-    val maxLambdaVar = Some(index)
+    def maxLambdaVar = Some(index)
   }
   /*
    * It is reasonable to ask how you can define a lambda without an identifier
@@ -50,16 +50,16 @@ object NormalExpression {
    * ref: https://en.wikipedia.org/wiki/De_Bruijn_index
    */
   case class Lambda(expr: NormalExpression) extends NormalExpression {
-    val maxLambdaVar = expr.maxLambdaVar.map(_ - 1)
+    def maxLambdaVar = expr.maxLambdaVar.map(_ - 1)
   }
   case class Struct(enum: Int, args: List[NormalExpression]) extends NormalExpression {
-    val maxLambdaVar = args.flatMap(_.maxLambdaVar).reduceLeftOption(Math.max)
+    def maxLambdaVar = args.flatMap(_.maxLambdaVar).reduceLeftOption(Math.max)
   }
   case class Literal(lit: Lit) extends NormalExpression {
-    val maxLambdaVar = None
+    def maxLambdaVar = None
   }
   case class Recursion(lambda: NormalExpression) extends NormalExpression {
-    val maxLambdaVar = lambda.maxLambdaVar
+    def maxLambdaVar = lambda.maxLambdaVar
   }
 }
 
@@ -282,7 +282,7 @@ object Normalization {
     })).get // Totallity of matches should ensure this will always find something unless something has gone terribly wrong
 
   def solveMatch(env: PatternEnv, result: NormalExpression) =
-    ((env.size - 1) to 0 by -1).toList.map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
+    ((env.size - 1) to 0 by -1).map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
       .foldLeft(result) { case (ne, arg) => NormalExpression.App(ne, arg) }
 
   /*
