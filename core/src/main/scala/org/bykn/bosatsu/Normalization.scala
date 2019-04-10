@@ -284,7 +284,20 @@ object Normalization {
   def solveMatch(env: PatternEnv, result: NormalExpression) =
     ((env.size - 1) to 0 by -1).toList.map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
       .foldLeft(result) { case (ne, arg) => NormalExpression.App(ne, arg) }
- 
+
+  /*
+   * The intuition is that we're looking for the opportunity to reduction the head without reducing
+   * the children first (which would be applicative order reduction I think). So first you look for
+   * an opportunity to reduce the head. But the new head could be anything, so you have to match
+   * through all expression types again.
+   *
+   * This gets you to the second step, which is to reduce the children only if their are no
+   * opportunities on the head. The second step consists of,
+   *
+   * 1) checking for a head reduction opportunity. Recurs if it exists
+   * 2) fully reduce the children
+   * 3) check if the children reduction created a new head reduction opportunity. Recurs if it exists
+   */
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
     import NormalExpression._
     val nextExpr = expr match {
