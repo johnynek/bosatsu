@@ -301,22 +301,18 @@ object Normalization {
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
     import NormalExpression._
     val nextExpr = expr match {
-      case App(Lambda(nextExpr), arg) => {
+      case App(Lambda(nextExpr), arg) =>
         applyLambdaSubstituion(nextExpr, Some(arg), 0)
-      }
       case m@Match(struct@Struct(enum, args), branches) =>
         findMatch(m) match {
           case None => m
-          case Some((pat, env, result)) => {
+          case Some((pat, env, result)) =>
             solveMatch(env, result)
-          }
         }
-      case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) => {
+      case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) =>
         applyLambdaSubstituion(innerExpr, None, 0)
-      }
-      case Lambda(App(innerExpr, LambdaVar(0))) => {
+      case Lambda(App(innerExpr, LambdaVar(0))) =>
         innerExpr
-      }
       case _ => expr
     }
     val res = nextExpr match {
@@ -481,7 +477,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   def normalizeLet(l: Let[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
       l.recursive match {
-        case RecursionKind.Recursive => {
+        case RecursionKind.Recursive =>
           val lambdaVars = Some(l.arg) :: env._2
           val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
             .collect { case (Some(n), i) => (n, i) }
@@ -496,7 +492,6 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
             eIn <- normalizeExpr(l.in, nextEnv, p)
             ne = neWrapper(eIn.tag._2.ne)
           } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, NormalExpressionTag(ne, eIn.tag._2.children)))
-        }
         case _ =>
           for {
             ee <- normalizeExpr(l.expr, env, p)
@@ -597,7 +592,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         for {
           expr <- normalizeExpr(expr, env, pack)
         } yield Right(expr)
-      case (pack, Left((item, t)), env) => {
+      case (pack, Left((item, t)), env) =>
         NameKind(pack, item).get match { // this get should never fail due to type checking
           case NameKind.Let(name, recursive, expr) => normalizeNameKindLet(
             name, recursive, expr, pack, env
@@ -615,7 +610,6 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
             val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n), Set())
             State.pure(Left((item, (t, neTag))))
         }
-      }
     }
 
   private def normalizeNameKindLet(name: Identifier.Bindable, recursive: RecursionKind, expr: TypedExpr[Declaration], pack: Package.Inferred, env: Env):
