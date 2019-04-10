@@ -287,7 +287,6 @@ object Normalization {
  
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
     import NormalExpression._
-    println(s"nor: $expr ${expr.maxLambdaVar}")
     val nextExpr = expr match {
       case App(Lambda(nextExpr), arg) => {
         applyLambdaSubstituion(nextExpr, Some(arg), 0)
@@ -298,7 +297,6 @@ object Normalization {
           case Some((pat, env, result)) => solveMatch(env, result)
         }
       case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) => {
-        println("rec")
         applyLambdaSubstituion(innerExpr, None, 0)
       }
       case Lambda(App(innerExpr, LambdaVar(0))) => {
@@ -306,7 +304,7 @@ object Normalization {
       }
       case _ => expr
     }
-    nextExpr match {
+    val res = nextExpr match {
       case al @ App(Lambda(_), _) => normalOrderReduction(al)
       case App(fn, arg) =>
         normalOrderReduction(fn) match {
@@ -335,6 +333,7 @@ object Normalization {
           case inn@_ => Recursion(inn)
         }
     }
+    res
   }
   private def applyLambdaSubstituion(expr: NormalExpression,
     subst: Option[NormalExpression],
@@ -475,7 +474,6 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
             .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
             lambdaVars)
           val neWrapper = {ne: NormalExpression => normalOrderReduction(NormalExpression.Recursion(NormalExpression.Lambda(ne)))}
-          (nextEnv, neWrapper)
           val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
           for {
             ee <- normalizeExpr(l.expr, nextEnv, p)
@@ -592,7 +590,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         } yield Right(expr)
       case (pack, Left((item, t)), env) => {
         NameKind(pack, item).get match { // this get should never fail due to type checking
-          case NameKind.Let(_, _, expr) =>
+          case NameKind.Let(name, recursive, expr) =>
             for {
               lookup <- State.inspect {
                 lets: Map[(PackageName, Identifier), ResultingRef] =>
@@ -600,37 +598,52 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
               }
               res <- lookup match {
                 case Some(res) =>
-                  State.pure(res): State[
-                  Map[(PackageName, Identifier), ResultingRef],
-                  ResultingRef]
+                  State.pure(Left((item, getTag(res)))): NormState[ResultingRef]
                 case None =>
-                  for {
-                    res <- norm((pack, Right(expr), env))
-                    _ <- State.modify {
-                      lets: Map[(PackageName, Identifier), ResultingRef] =>
-                        lets + ((pack.name, item) -> res)
-                    }
-                  } yield res
-
+                  recursive match {
+                    case RecursionKind.Recursive =>
+                      val lambdaVars = Some(name) :: env._2
+                      val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
+                        .collect { case (Some(n), i) => (n, i) }
+                        .toMap
+                        .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
+                        lambdaVars)
+                      for {
+                        res <- normalizeExpr(expr, nextEnv, pack)
+                        tag = res.tag
+                        wrappedNe = normalOrderReduction(NormalExpression.Recursion(NormalExpression.Lambda(tag._2.ne)))
+                        children = combineWithChildren(tag._2)
+                        finalRes = Right(res.updatedTag((res.tag._1, NormalExpressionTag(wrappedNe, children))))
+                        _ <- State.modify {
+                          lets: Map[(PackageName, Identifier), ResultingRef] =>
+                            lets + ((pack.name, item) -> finalRes)
+                        }
+                      } yield finalRes
+                    case _ =>
+                      for {
+                        res <- normalizeExpr(expr, env, pack)
+                        _ <- State.modify {
+                          lets: Map[(PackageName, Identifier), ResultingRef] =>
+                            lets + ((pack.name, item) -> Right(res))
+                        }
+                      } yield Right(res)
+                  }
               }
             } yield Left((item, getTag(res)))
-                case NameKind.Constructor(cn, _, dt, _) => {
-                  val neTag: NormalExpressionTag = NormalExpressionTag(constructor(cn, dt), Set())
-                  State.pure(Left((item, (t, neTag))))
-                }
-                case NameKind.Import(from, orig) => {
-                  // we reset the environment in the other package
-                  for {
-                    imported <- norm((pm.toMap(from.unfix.name), Left((orig, t)), (Map.empty, Nil)))
-                    neTag = getTag(imported)._2
-                  } yield Left((item, (t, neTag)))
-                }
-                case NameKind.ExternalDef(pn, n, scheme) => {
-                  val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n), Set())
-                  State.pure(Left((item, (t, neTag))))
-                }
+          case NameKind.Constructor(cn, _, dt, _) =>
+            val neTag = NormalExpressionTag(constructor(cn, dt), Set())
+            State.pure(Left((item, (t, neTag))))
+          case NameKind.Import(from, orig) =>
+            // we reset the environment in the other package
+            for {
+              imported <- norm((pm.toMap(from.unfix.name), Left((orig, t)), (Map.empty, Nil)))
+              neTag = getTag(imported)._2
+            } yield Left((item, (t, neTag)))
+          case NameKind.ExternalDef(pn, n, scheme) =>
+            val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n), Set())
+            State.pure(Left((item, (t, neTag))))
         }
-        }
+      }
     }
 
   private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): NormalExpression = {
