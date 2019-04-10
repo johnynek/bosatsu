@@ -9,7 +9,7 @@ class NormalizationTest extends FunSuite {
   import NormalExpression._
   import Lit._
   import Normalization._
-  import NormalPattern.{PositionalStruct, Var, ListPat}
+  import NormalPattern.{PositionalStruct, Var, ListPat, WildCard}
 
   test("Literal") {
       normalTagTest(
@@ -248,6 +248,51 @@ def fizz(f, s):
 """
       ), "Imp/First",
       Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List())))))
+    )
+  }
+  test("external") {
+    normalExpressionTest(
+      List(
+"""
+package Extern/Simple
+
+external def foo(x: String) -> List[String]
+
+out = foo
+"""
+      ), "Extern/Simple",
+      ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Simple")).get),Identifier.Name("foo"))
+    )
+    normalExpressionTest(
+      List(
+"""
+package Extern/Apply
+
+external def foo(x: String) -> List[String]
+
+out = foo("bar")
+"""
+    ), "Extern/Apply",
+    App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Apply")).get),Identifier.Name("foo")),Literal(Str("bar")))
+    )
+    normalExpressionTest(
+      List(
+"""
+package Extern/Match
+
+external def foo(x: String) -> List[String]
+
+out = match foo("bar"):
+  [a, _, _]: a
+  _: "boom"
+"""
+    ), "Extern/Match",
+    Match(
+      App(
+        ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Match")).get),Identifier.Name("foo")),
+        Literal(Str("bar"))),
+      NonEmptyList.fromList(List((ListPat(List(Right(Var(0)), Right(WildCard), Right(WildCard))),Lambda(LambdaVar(0))), (WildCard,Literal(Str("boom"))))).get
+    )
     )
   }
 }
