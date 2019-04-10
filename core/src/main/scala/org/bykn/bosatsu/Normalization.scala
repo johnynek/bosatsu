@@ -91,7 +91,7 @@ object Normalization {
   case object NoMatch extends PatternMatch[Nothing]
   case object NotProvable extends PatternMatch[Nothing]
 
-  val noop: (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] = { (_, _) => Matches(Map()) }
+  val noop: (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] = { (_, env) => Matches(env) }
   val neverMatch: (NormalExpression, PatternEnv) => PatternMatch[Nothing] = { (_, _) => NoMatch }
 
   def structListAsList(ne: NormalExpression): PatternMatch[List[NormalExpression]] = {
@@ -294,7 +294,9 @@ object Normalization {
       case m@Match(struct@Struct(enum, args), branches) =>
         findMatch(m) match {
           case None => m
-          case Some((pat, env, result)) => solveMatch(env, result)
+          case Some((pat, env, result)) => {
+            solveMatch(env, result)
+          }
         }
       case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) => {
         applyLambdaSubstituion(innerExpr, None, 0)

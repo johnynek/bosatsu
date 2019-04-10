@@ -191,17 +191,28 @@ out=match None:
       ), "Match/None",
       Literal(Str("not some"))
     )
-/*  normalExpressionTest(
+  normalExpressionTest(
+    List("""
+package Match/List
+
+out = match [1,2,3]:
+  [first, second, last]: last
+  _: 0
+""",
+      ), "Match/List",
+      Literal(Integer(BigInteger.valueOf(3)))
+    )
+  normalExpressionTest(
     List("""
 package Match/List
 
 out = match [1,2,3,4,5]:
-  [*first_few, _, _, last]: [*first_few, last]
-  _: []
+  [*first_few, _, _, last]: last
+  _: 0
 """,
       ), "Match/List",
-      Literal(Str("aa"))
-    )*/
+      Literal(Integer(BigInteger.valueOf(5)))
+    )
   }
   test("imports") {
     normalExpressionTest(
