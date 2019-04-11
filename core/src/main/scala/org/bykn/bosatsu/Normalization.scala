@@ -285,20 +285,33 @@ object Normalization {
     ((env.size - 1) to 0 by -1).map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
       .foldLeft(result) { case (ne, arg) => NormalExpression.App(ne, arg) }
 
-  /*
-   * The intuition is that we're looking for the opportunity to reduction the head without reducing
-   * the children first (which would be applicative order reduction I think). So first you look for
-   * an opportunity to reduce the head. But the new head could be anything, so you have to match
-   * through all expression types again.
-   *
-   * This gets you to the second step, which is to reduce the children only if their are no
-   * opportunities on the head. The second step consists of,
-   *
-   * 1) checking for a head reduction opportunity. Recurs if it exists
-   * 2) fully reduce the children
-   * 3) check if the children reduction created a new head reduction opportunity. Recurs if it exists
-   */
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
+    import NormalExpression._
+
+    val res = headReduction(expr) match {
+      case App(fn, arg) =>
+        App(normalOrderReduction(fn), normalOrderReduction(arg))
+      case extVar @ ExternalVar(_, _) => extVar
+      // check for a match reduction opportunity (beta except for Match instead of lambda)
+      case Match(arg, branches) =>
+        Match(normalOrderReduction(arg), branches.map{ case (p, s) => (p, normalOrderReduction(s))})
+      case lv @ LambdaVar(_)  => lv
+      // check for eta reduction
+      case Lambda(expr)       =>
+        Lambda(normalOrderReduction(expr))
+      case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
+      case l @ Literal(_)     => l
+      case Recursion(innerExpr) => Recursion(normalOrderReduction(innerExpr))
+    }
+    if (res != expr) {
+      normalOrderReduction(res)
+    } else {
+      res
+    }
+  }
+
+  @annotation.tailrec
+  def headReduction(expr: NormalExpression): NormalExpression = {
     import NormalExpression._
     val nextExpr = expr match {
       // beta reduction
@@ -318,40 +331,14 @@ object Normalization {
         innerExpr
       case _ => expr
     }
-    val res = nextExpr match {
-      // check for a beta reduction opportunity
-      case al @ App(Lambda(_), _) => normalOrderReduction(al)
-      case App(fn, arg) =>
-        normalOrderReduction(fn) match {
-          case l @ Lambda(_) => normalOrderReduction(App(l, arg))
-          case nfn @ _       => App(nfn, normalOrderReduction(arg))
-        }
-      case extVar @ ExternalVar(_, _) => extVar
-      // check for a match reduction opportunity (beta except for Match instead of lambda)
-      case Match(arg, branches) =>
-        val nextMatch = Match(normalOrderReduction(arg), branches.map{ case (p, s) => (p, normalOrderReduction(s))})
-        findMatch(nextMatch) match {
-          case None => nextMatch
-          case Some(_) => normalOrderReduction(nextMatch)
-        }
-      case lv @ LambdaVar(_)  => lv
-      // check for eta reduction
-      case Lambda(expr)       =>
-        normalOrderReduction(expr) match {
-          case a@App(innerExpr, LambdaVar(0)) => normalOrderReduction(Lambda(a))
-          case na @ _ => Lambda(na)
-        }
-      case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
-      case l @ Literal(_)     => l
-      case Recursion(innerExpr) =>
-        normalOrderReduction(innerExpr) match {
-          case lam@Lambda(lambdaExpr) if (lambdaExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) =>
-            normalOrderReduction(Recursion(lam))
-          case inn@_ => Recursion(inn)
-        }
+
+    if (expr != nextExpr) {
+      headReduction(nextExpr)
+    } else {
+      nextExpr
     }
-    res
   }
+
   private def applyLambdaSubstituion(expr: NormalExpression,
     subst: Option[NormalExpression],
     idx: Int): NormalExpression = {
