@@ -233,6 +233,20 @@ out = match ["a","b","c","d","e"]:
       ))
 
     )
+  normalExpressionTest(
+    List("""
+package Match/Union
+
+enum Bar:
+  Baz(a), Fizz(a), Buzz
+
+out = match Baz("abc"):
+  Baz(x) | Fizz(x): x
+  Buzz: "buzzzzzzz"
+"""
+      ), "Match/Union",
+      Literal(Str("abc"))
+    )
   }
   test("imports") {
     normalExpressionTest(
