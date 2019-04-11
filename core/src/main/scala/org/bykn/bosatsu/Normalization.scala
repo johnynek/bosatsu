@@ -446,7 +446,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   def normalizeVar(v: Var[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
       env._1.get(v.name) match {
-        case None => norm((p, Left((v.name, v.tag)), env)).map {ne =>
+        case None => norm(p, v.name, v.tag, env).map { ne =>
           val neTag = getTag(ne)._2
           v.copy(tag=(v.tag, neTag))
         }
@@ -589,31 +589,24 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   private type Env = (Map[Identifier, NormalExpressionTag], List[Identifier])
   private type NormState[A] = State[Map[(PackageName, Identifier), TypedExpr[(Declaration, NormalExpressionTag)]], A]
 
-  private def norm(input: (Package.Inferred, SourceRef, Env)): NormState[ResultingRef] =
-    input match {
-      case ((pack, Right(expr), env)) =>
-        for {
-          expr <- normalizeExpr(expr, env, pack)
-        } yield Right(expr)
-      case (pack, Left((item, t)), env) =>
-        NameKind(pack, item).get match { // this get should never fail due to type checking
-          case NameKind.Let(name, recursive, expr) => normalizeNameKindLet(
-            name, recursive, expr, pack, env
-            ).map(res => Right(res))
-          case NameKind.Constructor(cn, _, dt, _) =>
-            val neTag = NormalExpressionTag(constructor(cn, dt), Set())
-            State.pure(Left((item, (t, neTag))))
-          case NameKind.Import(from, orig) =>
-            // we reset the environment in the other package
-            for {
-              imported <- norm((pm.toMap(from.unfix.name), Left((orig, t)), (Map.empty, Nil)))
-              neTag = getTag(imported)._2
-            } yield Left((item, (t, neTag)))
-          case NameKind.ExternalDef(pn, n, scheme) =>
-            val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n), Set())
-            State.pure(Left((item, (t, neTag))))
-        }
-    }
+  private def norm(pack: Package.Inferred, item: Identifier, t: Declaration, env: Env): NormState[ResultingRef] =
+      NameKind(pack, item).get match { // this get should never fail due to type checking
+        case NameKind.Let(name, recursive, expr) => normalizeNameKindLet(
+          name, recursive, expr, pack, env
+          ).map(res => Right(res))
+        case NameKind.Constructor(cn, _, dt, _) =>
+          val neTag = NormalExpressionTag(constructor(cn, dt), Set())
+          State.pure(Left((item, (t, neTag))))
+        case NameKind.Import(from, orig) =>
+          // we reset the environment in the other package
+          for {
+            imported <- norm(pm.toMap(from.unfix.name), orig, t, (Map.empty, Nil))
+            neTag = getTag(imported)._2
+          } yield Left((item, (t, neTag)))
+        case NameKind.ExternalDef(pn, n, scheme) =>
+          val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n), Set())
+          State.pure(Left((item, (t, neTag))))
+      }
 
   private def normalizeNameKindLet(name: Identifier.Bindable, recursive: RecursionKind, expr: TypedExpr[Declaration], pack: Package.Inferred, env: Env):
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
