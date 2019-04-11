@@ -456,9 +456,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
 
   def normalizeAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] = {
-      val lambdaVars = Some(al.arg) :: env._2
+      val lambdaVars = al.arg :: env._2
       val nextEnv: Env = (env._1 ++ lambdaVars.zipWithIndex
-        .collect { case (Some(n), i) => (n, i) }
         .toMap
         .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
         lambdaVars)
@@ -484,9 +483,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
       l.recursive match {
         case RecursionKind.Recursive =>
-          val lambdaVars = Some(l.arg) :: env._2
+          val lambdaVars = l.arg :: env._2
           val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
-            .collect { case (Some(n), i) => (n, i) }
             .toMap
             .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
             lambdaVars)
@@ -549,10 +547,9 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   def normalizeBranch(b: (Pattern[(PackageName, Constructor), Type], TypedExpr[Declaration]), env: Env, p: Package.Inferred): NormState[
     (Pattern[(PackageName, Constructor), Type], TypedExpr[(Declaration, NormalExpressionTag)])] = {
     val (pattern, expr) = b
-    val names = pattern.names.collect { case b: Identifier.Bindable => Some(b)}
+    val names = pattern.names.collect { case b: Identifier.Bindable => b }
     val lambdaVars = names ++ env._2
     val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
-      .collect { case (Some(n), i) => (n, i) }
       .toMap
       .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
       lambdaVars)
@@ -589,7 +586,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
 
   private type SourceRef = Ref[Declaration]
   private type ResultingRef = Ref[(Declaration,  NormalExpressionTag)]
-  private type Env = (Map[Identifier, NormalExpressionTag], List[Option[Identifier]])
+  private type Env = (Map[Identifier, NormalExpressionTag], List[Identifier])
   private type NormState[A] = State[Map[(PackageName, Identifier), TypedExpr[(Declaration, NormalExpressionTag)]], A]
 
   private def norm(input: (Package.Inferred, SourceRef, Env)): NormState[ResultingRef] =
@@ -631,9 +628,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case None =>
           recursive match {
             case RecursionKind.Recursive =>
-              val lambdaVars = Some(name) :: env._2
+              val lambdaVars = name :: env._2
               val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
-                .collect { case (Some(n), i) => (n, i) }
                 .toMap
                 .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
                 lambdaVars)
