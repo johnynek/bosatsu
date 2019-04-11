@@ -9,7 +9,7 @@ class NormalizationTest extends FunSuite {
   import NormalExpression._
   import Lit._
   import Normalization._
-  import NormalPattern.{PositionalStruct, Var, ListPat, WildCard}
+  import NormalPattern.{PositionalStruct, Var, ListPat, WildCard, Named}
 
   test("Literal") {
       normalTagTest(
@@ -353,8 +353,8 @@ out = \y -> foo(y)
     ), "Extern/Eta",
     ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),Identifier.Name("foo"))
     )
-  normalExpressionTest(
-    List("""
+    normalExpressionTest(
+      List("""
 package Extern/List
 
 external def foo(x: String) -> List[String]
@@ -364,13 +364,53 @@ out = match foo("arg"):
   _: "zero"
 """
       ), "Extern/List",
-    Match(
-      App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "List")).get),Identifier.Name("foo")),Literal(Str("arg"))),
-      NonEmptyList.fromList(List(
-        (ListPat(List(Left(Some(0)), Right(WildCard), Right(WildCard), Right(Var(1)))),Lambda(Lambda(LambdaVar(1)))),
+      Match(
+        App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "List")).get),Identifier.Name("foo")),Literal(Str("arg"))),
+        NonEmptyList.fromList(List(
+          (ListPat(List(Left(Some(0)), Right(WildCard), Right(WildCard), Right(Var(1)))),Lambda(Lambda(LambdaVar(1)))),
         (WildCard,Literal(Str("zero")))
-      )).get
+        )).get
+      )
     )
-  )
+    normalExpressionTest(
+      List("""
+package Extern/List
+
+external def foo(x: String) -> List[String]
+
+out = match foo("arg"):
+  [*first_few, _, _, last]: last
+  _: "zero"
+"""
+        ), "Extern/List",
+      Match(
+        App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "List")).get),Identifier.Name("foo")),Literal(Str("arg"))),
+        NonEmptyList.fromList(List(
+          (ListPat(List(Left(Some(0)), Right(WildCard), Right(WildCard), Right(Var(1)))),Lambda(Lambda(LambdaVar(1)))),
+          (WildCard,Literal(Str("zero")))
+        )).get
+      )
+    )
+    normalExpressionTest(
+      List("""
+package Extern/NamedMatch
+
+external def foo(x: String) -> List[String]
+
+struct Stuff(a,b)
+
+out = match Stuff(foo("c"), "d"):
+  Stuff(lst@[x], _): lst
+  Stuff(_, y): [y]
+"""
+        ), "Extern/NamedMatch",
+      Match(
+        Struct(0,List(App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "NamedMatch")).get),Identifier.Name("foo")),Literal(Str("c"))), Literal(Str("d")))),
+        NonEmptyList.fromList(List(
+          (PositionalStruct(None,List(Named(0,ListPat(List(Right(Var(1))))), WildCard)),Lambda(Lambda(LambdaVar(0)))),
+          (PositionalStruct(None,List(WildCard, Var(0))),Lambda(Struct(1,List(LambdaVar(0), Struct(0,List())))))
+        )).get
+      )
+    )
   }
 }
