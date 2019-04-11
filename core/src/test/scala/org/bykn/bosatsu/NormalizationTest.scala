@@ -247,6 +247,20 @@ out = match Baz("abc"):
       ), "Match/Union",
       Literal(Str("abc"))
     )
+  normalExpressionTest(
+    List("""
+package Match/Union
+
+enum Bar:
+  Baz(a), Fizz(a), Buzz
+
+out = match Buzz:
+  Baz(x) | Fizz(x): x
+  Buzz: "buzzzzzzz"
+"""
+      ), "Match/Union",
+      Literal(Str("buzzzzzzz"))
+    )
   }
   test("imports") {
     normalExpressionTest(
@@ -326,7 +340,18 @@ out = match foo("bar"):
         ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Match")).get),Identifier.Name("foo")),
         Literal(Str("bar"))),
       NonEmptyList.fromList(List((ListPat(List(Right(Var(0)), Right(WildCard), Right(WildCard))),Lambda(LambdaVar(0))), (WildCard,Literal(Str("boom"))))).get
-    )
+    ))
+    normalExpressionTest(
+      List(
+"""
+package Extern/Eta
+
+external def foo(x: String) -> List[String]
+
+out = \y -> foo(y)
+"""
+    ), "Extern/Eta",
+    ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),Identifier.Name("foo"))
     )
   }
 }
