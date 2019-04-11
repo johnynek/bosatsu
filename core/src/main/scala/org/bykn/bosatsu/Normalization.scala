@@ -301,8 +301,10 @@ object Normalization {
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
     import NormalExpression._
     val nextExpr = expr match {
+      // beta reduction
       case App(Lambda(nextExpr), arg) =>
         applyLambdaSubstituion(nextExpr, Some(arg), 0)
+      // match reduction
       case m@Match(struct@Struct(enum, args), branches) =>
         findMatch(m) match {
           case None => m
@@ -311,11 +313,13 @@ object Normalization {
         }
       case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) =>
         applyLambdaSubstituion(innerExpr, None, 0)
+      // eta reduction
       case Lambda(App(innerExpr, LambdaVar(0))) =>
         innerExpr
       case _ => expr
     }
     val res = nextExpr match {
+      // check for a beta reduction opportunity
       case al @ App(Lambda(_), _) => normalOrderReduction(al)
       case App(fn, arg) =>
         normalOrderReduction(fn) match {
@@ -323,6 +327,7 @@ object Normalization {
           case nfn @ _       => App(nfn, normalOrderReduction(arg))
         }
       case extVar @ ExternalVar(_, _) => extVar
+      // check for a match reduction opportunity (beta except for Match instead of lambda)
       case Match(arg, branches) =>
         val nextMatch = Match(normalOrderReduction(arg), branches)
         findMatch(nextMatch) match {
@@ -330,6 +335,7 @@ object Normalization {
           case Some(_) => normalOrderReduction(nextMatch)
         }
       case lv @ LambdaVar(_)  => lv
+      // check for eta reduction
       case Lambda(expr)       =>
         normalOrderReduction(expr) match {
           case a@App(innerExpr, LambdaVar(0)) => normalOrderReduction(Lambda(a))
