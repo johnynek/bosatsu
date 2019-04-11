@@ -412,5 +412,24 @@ out = match Stuff(foo("c"), "d"):
         )).get
       )
     )
+    normalExpressionTest(
+      List("""
+package Extern/LitMatch
+
+external def foo(x: String) -> String
+
+out = match foo("c"):
+  "d": "e"
+  _: "f"
+"""
+        ), "Extern/LitMatch",
+      Match(
+        App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "LitMatch")).get),Identifier.Name("foo")),Literal(Str("c"))),
+        NonEmptyList.fromList(List(
+          (NormalPattern.Literal(Str("d")),Literal(Str("e"))),
+          (WildCard,Literal(Str("f")))
+        )).get
+      )
+    )
   }
 }
