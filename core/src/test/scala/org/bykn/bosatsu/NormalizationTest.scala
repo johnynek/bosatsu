@@ -353,5 +353,24 @@ out = \y -> foo(y)
     ), "Extern/Eta",
     ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),Identifier.Name("foo"))
     )
+  normalExpressionTest(
+    List("""
+package Extern/List
+
+external def foo(x: String) -> List[String]
+
+out = match foo("arg"):
+  [*first_few, _, _, last]: last
+  _: "zero"
+"""
+      ), "Extern/List",
+    Match(
+      App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "List")).get),Identifier.Name("foo")),Literal(Str("arg"))),
+      NonEmptyList.fromList(List(
+        (ListPat(List(Left(Some(0)), Right(WildCard), Right(WildCard), Right(Var(1)))),Lambda(Lambda(LambdaVar(1)))),
+        (WildCard,Literal(Str("zero")))
+      )).get
+    )
+  )
   }
 }
