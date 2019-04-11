@@ -305,7 +305,7 @@ object Normalization {
       case App(Lambda(nextExpr), arg) =>
         applyLambdaSubstituion(nextExpr, Some(arg), 0)
       // match reduction
-      case m@Match(struct@Struct(enum, args), branches) =>
+      case m@Match(_, _) =>
         findMatch(m) match {
           case None => m
           case Some((pat, env, result)) =>
@@ -329,7 +329,7 @@ object Normalization {
       case extVar @ ExternalVar(_, _) => extVar
       // check for a match reduction opportunity (beta except for Match instead of lambda)
       case Match(arg, branches) =>
-        val nextMatch = Match(normalOrderReduction(arg), branches)
+        val nextMatch = Match(normalOrderReduction(arg), branches.map{ case (p, s) => (p, normalOrderReduction(s))})
         findMatch(nextMatch) match {
           case None => nextMatch
           case Some(_) => normalOrderReduction(nextMatch)
