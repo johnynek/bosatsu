@@ -1190,4 +1190,27 @@ test6 = Assertion(inc4(Pair(B(1), Foo(1))).eq_Int(2), "inc4(Pair(B(1), Foo(1))) 
 suite = Test("match tests", [test0, test1, test2, test3, test4, test5, test6])
 """), "A", 7)
   }
+
+  test("test bad export") {
+
+    evalFail(
+      List("""
+package A
+
+a = 1
+""", """
+package B
+
+import A [ a ]
+
+main = a"""), "B") { case PackageError.UnknownImportName(_, _, _, _) => () }
+
+    evalFail(
+      List("""
+package B
+
+import A [ a ]
+
+main = a"""), "B") { case PackageError.UnknownImportPackage(_, _) => () }
+  }
 }

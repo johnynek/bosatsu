@@ -2,9 +2,11 @@ package org.bykn.bosatsu
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import com.stripe.dagon.Memoize
+import cats.{Foldable, Traverse}
 import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
 import cats.Order
 import cats.implicits._
+import java.nio.file.Path
 
 import rankn.{Infer, Type, TypeEnv}
 
@@ -233,6 +235,18 @@ object PackageMap {
       val (bad, good) = resolveAll(ps)
       (bad, good.andThen(inferAll(_)))
     }
+
+  def parseInputs[F[_]: Traverse](paths: F[Path]): ValidatedNel[Parser.Error, F[((Path, LocationMap), Package.Parsed)]] =
+    paths.traverse { path =>
+      Parser.parseFile(Package.parser, path).map { case (lm, parsed) =>
+        ((path, lm), parsed)
+      }
+    }
+
+  def buildSourceMap[F[_]: Foldable, A](parsedFiles: F[((A, LocationMap), Package.Parsed)]): Map[PackageName, (LocationMap, String)] =
+    parsedFiles.foldLeft(Map.empty[PackageName, (LocationMap, String)]) { case (map, ((path, lm), pack)) =>
+      map.updated(pack.name, (lm, path.toString))
+    }
 }
 
 sealed abstract class PackageError {
@@ -268,8 +282,8 @@ object PackageError {
 
   case class UnknownImportPackage[A, B, C](pack: PackageName, from: Package[PackageName, A, B, C]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
-      val (_, sourceName) = sourceMap(pack)
-      s"in $sourceName package ${pack.asString} imports unknown package ${from.name.asString}"
+      val (_, sourceName) = sourceMap(from.name)
+      s"in $sourceName package ${from.name.asString} imports unknown package ${pack.asString}"
     }
   }
 
