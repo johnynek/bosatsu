@@ -121,14 +121,19 @@ object Type {
 
   def substituteVar(t: Type, env: Map[Type.Var, Type]): Type =
     t match {
-      case Type.TyApply(on, arg) => Type.TyApply(substituteVar(on, env), substituteVar(arg, env))
-      case v@Type.TyVar(n) => env.getOrElse(n, v)
-      case Type.ForAll(ns, rho) =>
-        val boundSet: Set[Type.Var] = ns.toList.toSet
+      case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
+      case v@TyVar(n) => env.getOrElse(n, v)
+      case ForAll(ns, rho) =>
+        val boundSet: Set[Var] = ns.toList.toSet
         val env1 = env.filterKeys { v => !boundSet(v) }
-        Type.ForAll(ns, substituteVar(rho, env1))
-      case m@Type.TyMeta(_) => m
-      case c@Type.TyConst(_) => c
+        substituteVar(rho, env1) match {
+          case ForAll(ns1, r1) =>
+            ForAll(ns ::: ns1, r1)
+          case notForAll =>
+            ForAll(ns, notForAll)
+        }
+      case m@TyMeta(_) => m
+      case c@TyConst(_) => c
     }
 
   /**
