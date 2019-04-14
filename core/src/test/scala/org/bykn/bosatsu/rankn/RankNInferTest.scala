@@ -723,7 +723,7 @@ enum Opt: Nope, Yep(a)
 struct FnWrapper(fn: a -> b)
 
 # TODO: this should pass because FnWrapper is covariant, but skolemization ignores custom types
-#(producer: FnWrapper[Foo, forall a. Opt[a]]) = FnWrapper(\x -> Nope)
+(producer: FnWrapper[Foo, forall a. Opt[a]]) = FnWrapper(\x -> Nope)
 # in the covariant position, we can substitute
 #(producer1: FnWrapper[Foo, Opt[Foo]]) = producer
 (consumer: FnWrapper[Opt[Foo], Foo]) = FnWrapper(\x -> Foo)

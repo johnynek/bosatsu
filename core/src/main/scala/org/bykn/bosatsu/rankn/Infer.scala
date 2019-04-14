@@ -68,9 +68,28 @@ object Infer {
   case class Env(
     uniq: Ref[Long],
     vars: Map[Name, Type],
-    typeCons: Map[(PackageName, Constructor), Cons])
+    typeCons: Map[(PackageName, Constructor), Cons],
+    variances: Map[Type.Const.Defined, List[Variance]]) {
+
+    def addVars(vt: List[(Name, Type)]): Env =
+      copy(vars = vt.foldLeft(vars)(_ + _))
+  }
 
   object Env {
+    def apply(uniq: Ref[Long],
+      vars: Map[Name, Type],
+      typeCons: Map[(PackageName, Constructor), Cons]): Env = {
+
+      val variances = typeCons
+        .iterator
+        .map { case (_, (vs, _, c)) =>
+          (c, vs.map(_._2))
+        }
+        .toMap
+        // TODO, the typeCons don't require all these variances to match
+      Env(uniq, vars, typeCons, variances)
+    }
+
     def init(vars: Map[Name, Type], tpes: Map[(PackageName, Constructor), Cons]): RefSpace[Env] =
       RefSpace.newRef(0L).map(Env(_, vars, tpes))
   }
@@ -229,8 +248,12 @@ object Infer {
           })
     }
 
+    case object GetVarianceMap extends Infer[Map[Type.Const.Defined, List[Variance]]] {
+      def run(env: Env) = RefSpace.pure(Right(env.variances))
+    }
+
     case class ExtendEnvs[A](vt: List[(Name, Type)], in: Infer[A]) extends Infer[A] {
-      def run(env: Env) = in.run(env.copy(vars = vt.foldLeft(env.vars)(_ + _)))
+      def run(env: Env) = in.run(env.addVars(vt))
     }
 
     case class Lift[A](res: RefSpace[Either[Error, A]]) extends Infer[A] {
@@ -268,6 +291,30 @@ object Infer {
           (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(aligned.map(_._2), _))
       }
 
+    def varianceOf(t: Type): Infer[Variance] = {
+      import Type._
+      def revVariances(vs: Map[Type.Const.Defined, List[Variance]], t: Type): List[Variance] =
+        t match {
+          case FnType => Variance.in :: Variance.co :: Nil
+          case TyApply(left, _) => revVariances(vs, left).drop(1)
+          case TyConst(defined@Const.Defined(_, _)) => vs.getOrElse(defined, Nil)
+          case TyMeta(_) | TyVar(_) =>
+            // this is almost certainly a bug in this approach.
+            // we will probably need a meta var for Variance as well
+            // since inorder to infer this TyMeta, we may need to use
+            // the variance
+            Variance.in :: Nil
+          case ForAll(_, r) => revVariances(vs, r)
+        }
+
+      for {
+        vs <- GetVarianceMap
+        t1 <- zonkType(t) // fill in any known variances
+      } yield (revVariances(vs, t1) match {
+          case h :: _ => h
+          case Nil => Variance.in
+        })
+    }
     /**
      * Skolemize on a function just recurses on the result type.
      *
@@ -286,12 +333,20 @@ object Infer {
             sks2ty <- skolemize(substTy(tvs, sksT, ty))
             (sks2, ty2) = sks2ty
           } yield (sks1.toList ::: sks2, ty2)
-        case Type.Fun(argTy, resTy) =>
-          skolemize(resTy).map {
-            case (sks, resTy) =>
-              (sks, Type.Fun(argTy, resTy))
-          }
+        case Type.TyApply(left, right) =>
           // Rule PRFUN
+          varianceOf(left)
+            .product(skolemize(left))
+            .flatMap {
+              case (Variance.Covariant, (sksl, sl)) =>
+                for {
+                  skr <- skolemize(right)
+                  (sksr, sr) = skr
+                } yield (sksl ::: sksr, Type.TyApply(sl, sr))
+              case (_, (sksl, sl)) =>
+                // otherwise, we don't skolemize the right
+                pure((sksl, Type.TyApply(sl, right)))
+            }
         case other =>
           // Rule PRMONO
           pure((Nil, other))
@@ -448,7 +503,13 @@ object Infer {
         case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
           unify(a1, a2, r1, r2) *> unify(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
-        case (left, right) => fail(Error.NotUnifiable(left, right, r1, r2))
+        // these shouldn't be reachable since we have Tau types, but they are reachable
+        // case (Type.ForAll(_, _), _) =>
+        //   sys.error(s"expected tau type: $t1, $t2")
+        // case (_, Type.ForAll(_, _)) =>
+        //   sys.error(s"expected tau type: $t1, $t2")
+        case (left, right) =>
+          fail(Error.NotUnifiable(left, right, r1, r2))
       }
 
     /**
