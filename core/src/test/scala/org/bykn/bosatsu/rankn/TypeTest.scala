@@ -140,9 +140,9 @@ class TypeTest extends FunSuite {
     }
   }
 
-  def genSubs(depth: Int): Gen[Map[Type.Var.Bound, Type]] = {
+  def genSubs(depth: Int): Gen[Map[Type.Var, Type]] = {
     val pair = Gen.zip(
-      Gen.identifier.map(Type.Var.Bound(_)),
+      Gen.identifier.map(Type.Var.Bound(_): Type.Var),
       NTypeGen.genDepth(depth))
     Gen.mapOf(pair)
   }
@@ -163,7 +163,7 @@ class TypeTest extends FunSuite {
   }
 
   test("after substitution, none of the keys are free") {
-    def law(t: Type, subs: Map[Type.Var.Bound, Type]) = {
+    def law(t: Type, subs: Map[Type.Var, Type]) = {
       // don't substitute back onto the keys
       val subs1 = subs.filter { case (_, v) =>
         (Type.freeBoundTyVars(v :: Nil).toSet & subs.keySet).isEmpty

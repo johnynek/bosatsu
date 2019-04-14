@@ -330,21 +330,8 @@ object Infer {
       lift(RefSpace.newRef[Either[Error, A]](Left(err)))
 
     def substTy(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], t: Type): Type = {
-
-      def subst(env: Map[Type.Var, Type], t: Type): Type =
-        t match {
-          case Type.TyApply(on, arg) => Type.TyApply(subst(env, on), subst(env, arg))
-          case v@Type.TyVar(n) => env.getOrElse(n, v)
-          case Type.ForAll(ns, rho) =>
-            val boundSet: Set[Type.Var] = ns.toList.toSet
-            val env1 = env.filterKeys { v => !boundSet(v) }
-            Type.ForAll(ns, subst(env1, rho))
-          case m@Type.TyMeta(_) => m
-          case c@Type.TyConst(_) => c
-        }
-
       val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
-      subst(env, t)
+      Type.substituteVar(t, env)
     }
 
     def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], expr: Expr[A]): Expr[A] = {
