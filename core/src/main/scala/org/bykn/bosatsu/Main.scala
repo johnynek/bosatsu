@@ -84,7 +84,7 @@ sealed abstract class MainCommand {
 object MainCommand {
 
   def typeCheck(inputs: NonEmptyList[Path], externals: List[Path]): MainResult[(Externals, PackageMap.Inferred, List[(Path, PackageName)])] = {
-    val ins = parseInputs(inputs)
+    val ins = PackageMap.parseInputs(inputs)
     val exts = readExternals(externals)
 
     toResult(ins.product(exts))
@@ -92,7 +92,7 @@ object MainCommand {
         val pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
         val (dups, resPacks) = PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), packs.toList))
         val checkD = checkDuplicatePackages(dups)(_._1.toString)
-        val map = packs.map { case ((path, lm), pack) => (pack.name, (lm, path.toString)) }.toList.toMap
+        val map = PackageMap.buildSourceMap(packs)
         val checkPacks = fromPackageError(map, resPacks)
         MainResult.product(checkD, checkPacks)(_ max _)
           .map { case (_, p) => (exts, p, pathToName) }
@@ -181,13 +181,6 @@ object MainCommand {
       case epaths =>
         epaths.traverse(Parser.parseFile(Externals.parser, _))
           .map(_.toList.map(_._2).reduce(_ ++ _))
-    }
-
-  def parseInputs(paths: NonEmptyList[Path]): ValidatedNel[Parser.Error, NonEmptyList[((Path, LocationMap), Package.Parsed)]] =
-    paths.traverse { path =>
-      Parser.parseFile(Package.parser, path).map { case (lm, parsed) =>
-        ((path, lm), parsed)
-      }
     }
 
   def toResult[A](v: ValidatedNel[Parser.Error, A]): MainResult[A] =

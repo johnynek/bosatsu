@@ -175,11 +175,11 @@ object TestUtils {
     testInferred(packages, mainPackS, inferredHandler(_,_))
   }
 
-  def normalTagTest(packages: List[String], mainPackS: String, expected: Normalization.NormalExpressionTag) = 
+  def normalTagTest(packages: List[String], mainPackS: String, expected: Normalization.NormalExpressionTag) =
     normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected))
-  def normalExpressionTest(packages: List[String], mainPackS: String, expected: NormalExpression) = 
+  def normalExpressionTest(packages: List[String], mainPackS: String, expected: NormalExpression) =
     normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected))
-  def normalChildrenTest(packages: List[String], mainPackS: String, expected: Set[NormalExpression]) = 
+  def normalChildrenTest(packages: List[String], mainPackS: String, expected: Set[NormalExpression]) =
     normalizeTest(packages, mainPackS, NormalTestMode.ChildrenMode(expected))
 
   def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
@@ -197,11 +197,15 @@ object TestUtils {
         sys.error(errs.toString)
     }
 
-    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
+    val withPre = Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
+    PackageMap.resolveThenInfer(withPre) match {
       case (_, Validated.Valid(_)) =>
         fail("expected to fail type checking")
 
-      case (_, Validated.Invalid(errs)) if errs.collect(errFn).nonEmpty =>
+      case (sm, Validated.Invalid(errs)) if errs.collect(errFn).nonEmpty =>
+        // make sure we can print the messages:
+        val sm = PackageMap.buildSourceMap(withPre)
+        errs.toList.foreach(_.message(sm))
         assert(true)
       case (_, Validated.Invalid(errs)) =>
           fail(s"failed, but no type errors: $errs")
