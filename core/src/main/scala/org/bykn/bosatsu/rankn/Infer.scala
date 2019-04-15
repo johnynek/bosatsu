@@ -550,7 +550,7 @@ object Infer {
         case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
           unify(a1, a2, r1, r2) *> unify(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
-        // these shouldn't be reachable since we have Tau types, but they are reachable
+        // these shouldn't be reachable since we have Tau types, but may be reachable
         // case (Type.ForAll(_, _), _) =>
         //   sys.error(s"expected tau type: $t1, $t2")
         // case (_, Type.ForAll(_, _)) =>
