@@ -440,6 +440,42 @@ object Infer {
             case (a2, r2) =>
               subsCheckFn(a1, r1, a2, r2, left, right)
           }
+        case (rho1, Type.TyApply(l2, r2)) =>
+          unifyTyApp(rho1, left, right).flatMap {
+            case (l1, r1) =>
+              // TODO since either side may have metas, we should check both
+              val check2 = varianceOf(l2).flatMap {
+                case Variance.Covariant =>
+                  subsCheck(r1, r2, left, right).void
+                case Variance.Contravariant =>
+                  subsCheck(r2, r1, right, left).void
+                case Variance.Phantom =>
+                  // this doesn't matter
+                  pure(())
+                case Variance.Invariant =>
+                  unify(r1, r2, left, right).void
+              }
+              // should we coerce to t2? Seems like... but copying previous code
+              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(t))
+          }
+        case (Type.TyApply(l1, r1), rho2) =>
+          unifyTyApp(rho2, left, right).flatMap {
+            case (l2, r2) =>
+              // TODO since either side may have metas, we should check both
+              val check2 = varianceOf(l1).flatMap {
+                case Variance.Covariant =>
+                  subsCheck(r1, r2, left, right).void
+                case Variance.Contravariant =>
+                  subsCheck(r2, r1, right, left).void
+                case Variance.Phantom =>
+                  // this doesn't matter
+                  pure(())
+                case Variance.Invariant =>
+                  unify(r1, r2, left, right).void
+              }
+              // should we coerce to t2? Seems like... but copying previous code
+              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(t))
+          }
         case (t1, t2) =>
           // rule: MONO
           unify(t1, t2, left, right).as(TypedExpr.coerceRho(t1)) // TODO this coerce seems right, since we have unified
@@ -465,6 +501,17 @@ object Infer {
             resT <- newMetaType
             _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
           } yield (argT, resT)
+      }
+
+    def unifyTyApp(apType: Type, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
+      apType match {
+        case Type.TyApply(left, right) => pure((left, right))
+        case notApply =>
+          for {
+            leftT <- newMetaType
+            rightT <- newMetaType
+            _ <- unify(notApply, Type.TyApply(leftT, rightT), apRegion, evidenceRegion)
+          } yield (leftT, rightT)
       }
 
     // invariant the flexible type variable tv1 is not bound
