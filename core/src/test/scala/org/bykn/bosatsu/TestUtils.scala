@@ -50,7 +50,8 @@ object TestUtils {
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmt, _) =>
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
-          case Validated.Invalid(errs) => fail(errs.toList.map(_.message(Map.empty)).mkString("\n"))
+          case Validated.Invalid(errs) =>
+            fail("inference failure: " + errs.toList.map(_.message(Map.empty)).mkString("\n"))
           case Validated.Valid((_, lets)) =>
             fn(lets.last._3)
         }

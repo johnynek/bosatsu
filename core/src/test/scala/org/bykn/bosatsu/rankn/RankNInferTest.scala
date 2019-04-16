@@ -659,8 +659,8 @@ struct Cont(cont: (b -> a) -> a)
 (baz41: Cont[Foo, Foo]) = baz1
 (baz42: Cont[Foo, Foo]) = baz2
 # Cont is covariant in a, this should be allowed
-# (baz43: Cont[Foo, Foo]) = baz3
-# (baz43: Cont[Foo, Foo]) = baz3
+(baz43: Cont[Foo, Foo]) = baz3
+(baz43: Cont[Foo, Foo]) = baz3
 
 (producer: Foo -> (forall a. Cont[Foo, a])) = \x -> bar1
 # in the covariant position, we can substitute
@@ -722,15 +722,12 @@ enum Opt: Nope, Yep(a)
 
 struct FnWrapper(fn: a -> b)
 
-# TODO: this should pass because FnWrapper is covariant, but skolemization ignores custom types
-#(producer: FnWrapper[Foo, forall a. Opt[a]]) = FnWrapper(\x -> Nope)
+(producer: FnWrapper[Foo, forall a. Opt[a]]) = FnWrapper(\x -> Nope)
 # in the covariant position, we can substitute
-#(producer1: FnWrapper[Foo, Opt[Foo]]) = producer
+(producer1: FnWrapper[Foo, Opt[Foo]]) = producer
 (consumer: FnWrapper[Opt[Foo], Foo]) = FnWrapper(\x -> Foo)
 # in the contravariant position, we can generalize
-# TODO: this should pass because FnWrapper is contravariant in the first type
-# but subsCheck only knows about contravariance in the Fn type
-#(consumer1: FnWrapper[forall a. Opt[a], Foo]) = consumer
+(consumer1: FnWrapper[forall a. Opt[a], Foo]) = consumer
 
 main = Foo
 """, "Foo")
