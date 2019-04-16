@@ -291,30 +291,37 @@ object Infer {
           (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(aligned.map(_._2), _))
       }
 
-    def varianceOf(t: Type): Infer[Variance] = {
+    def varianceOf(t: Type): Infer[Option[Variance]] = {
       import Type._
-      def revVariances(vs: Map[Type.Const.Defined, List[Variance]], t: Type): List[Variance] =
+      def variances(vs: Map[Type.Const.Defined, List[Variance]], t: Type): Option[List[Variance]] =
         t match {
-          case FnType => Variance.in :: Variance.co :: Nil
-          case TyApply(left, _) => revVariances(vs, left).drop(1)
-          case TyConst(defined@Const.Defined(_, _)) => vs.getOrElse(defined, Nil)
-          case TyMeta(_) | TyVar(_) =>
+          case FnType => Some(Variance.in :: Variance.co :: Nil)
+          case TyApply(left, _) =>
+            variances(vs, left).map(_.drop(1))
+          case TyConst(defined@Const.Defined(_, _)) =>
+            vs.get(defined)
+          case TyVar(_) => None
+          case TyMeta(_) =>
             // this is almost certainly a bug in this approach.
             // we will probably need a meta var for Variance as well
             // since inorder to infer this TyMeta, we may need to use
             // the variance
-            Variance.in :: Nil
-          case ForAll(_, r) => revVariances(vs, r)
+            None
+          case ForAll(_, r) => variances(vs, r)
         }
 
       for {
         vs <- GetVarianceMap
         t1 <- zonkType(t) // fill in any known variances
-      } yield (revVariances(vs, t1) match {
-          case h :: _ => h
-          case Nil => Variance.in
-        })
+      } yield (variances(vs, t1).flatMap(_.headOption))
     }
+
+    // For two types that unify, check both variances
+    def varianceOf2(t1: Type, t2: Type): Infer[Option[Variance]] =
+      varianceOf(t1).flatMap {
+        case s@Some(_) => pure(s)
+        case None => varianceOf(t2)
+      }
     /**
      * Skolemize on a function just recurses on the result type.
      *
@@ -338,7 +345,7 @@ object Infer {
           varianceOf(left)
             .product(skolemize(left))
             .flatMap {
-              case (Variance.Covariant, (sksl, sl)) =>
+              case (Some(Variance.Covariant), (sksl, sl)) =>
                 for {
                   skr <- skolemize(right)
                   (sksr, sr) = skr
@@ -443,16 +450,15 @@ object Infer {
         case (rho1, Type.TyApply(l2, r2)) =>
           unifyTyApp(rho1, left, right).flatMap {
             case (l1, r1) =>
-              // TODO since either side may have metas, we should check both
-              val check2 = varianceOf(l2).flatMap {
-                case Variance.Covariant =>
+              val check2 = varianceOf2(l1, l2).flatMap {
+                case Some(Variance.Covariant) =>
                   subsCheck(r1, r2, left, right).void
-                case Variance.Contravariant =>
+                case Some(Variance.Contravariant) =>
                   subsCheck(r2, r1, right, left).void
-                case Variance.Phantom =>
+                case Some(Variance.Phantom) =>
                   // this doesn't matter
                   pure(())
-                case Variance.Invariant =>
+                case None | Some(Variance.Invariant) =>
                   unify(r1, r2, left, right).void
               }
               // should we coerce to t2? Seems like... but copying previous code
@@ -461,16 +467,15 @@ object Infer {
         case (Type.TyApply(l1, r1), rho2) =>
           unifyTyApp(rho2, left, right).flatMap {
             case (l2, r2) =>
-              // TODO since either side may have metas, we should check both
-              val check2 = varianceOf(l1).flatMap {
-                case Variance.Covariant =>
+              val check2 = varianceOf2(l1, l2).flatMap {
+                case Some(Variance.Covariant) =>
                   subsCheck(r1, r2, left, right).void
-                case Variance.Contravariant =>
+                case Some(Variance.Contravariant) =>
                   subsCheck(r2, r1, right, left).void
-                case Variance.Phantom =>
+                case Some(Variance.Phantom) =>
                   // this doesn't matter
                   pure(())
-                case Variance.Invariant =>
+                case None | Some(Variance.Invariant) =>
                   unify(r1, r2, left, right).void
               }
               // should we coerce to t2? Seems like... but copying previous code
