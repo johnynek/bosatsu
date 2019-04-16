@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
+import cats.Id
 import rankn._
 
 import Identifier.Constructor
@@ -80,9 +81,11 @@ object NormalPattern {
 }
 
 object Normalization {
-  case class NormalExpressionTag(ne: NormalExpression, children: Set[NormalExpression])
-  type NormalizedPM = PackageMap.Typed[(Declaration, Normalization.NormalExpressionTag)]
-  type NormalizedPac = Package.Typed[(Declaration, Normalization.NormalExpressionTag)]
+  case class ExpressionKeyTag[T](ne: T, children: Set[T])
+  type NormalExpressionTag = ExpressionKeyTag[NormalExpression]
+  def NormalExpressionTag(ne: NormalExpression, children: Set[NormalExpression]) = ExpressionKeyTag(ne, children)
+  type NormalizedPM = PackageMap.Typed[(Declaration, NormalExpressionTag)]
+  type NormalizedPac = Package.Typed[(Declaration, NormalExpressionTag)]
 
   type PatternEnv = Map[Int, NormalExpression]
 
@@ -396,6 +399,16 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         .map((name, _))
     }
     PackageMap(normAll.run(Map()).value._2.toMap)
+  }
+
+  def hashKey[T](fn: NormalExpression => T): PackageMap.Typed[(Declaration, ExpressionKeyTag[T])] = {
+    val lst = normalizePackageMap.toMap.toList
+      .map { case (name, pack) => (name, pack.copy(program = pack.program.copy(
+        lets = pack.program.lets.map { case (name, recursive, expr) => (name, recursive, expr.traverseTag[Id, (Declaration, ExpressionKeyTag[T])] {
+          case (d, neT) => (d, ExpressionKeyTag(fn(neT.ne), neT.children.map(fn))) 
+        })}
+      )))}
+    PackageMap(lst.toMap)
   }
 
   def normalizeExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):
