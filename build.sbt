@@ -1,5 +1,5 @@
+import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import Dependencies._
-
 
 lazy val commonSettings = Seq(
   organization := "org.bykn",
@@ -60,20 +60,26 @@ lazy val commonSettings = Seq(
   testOptions in Test += Tests.Argument("-oDF")
 )
 
-lazy val root = (project in file("."))
+lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("."))
   .aggregate(core)
   .settings(
     commonSettings,
     name := "bosatsu"
   )
 
-lazy val base = (project in file("base")).
+lazy val rootJVM = root.jvm
+lazy val rootJS = root.js
+
+lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("base")).
   settings(
     commonSettings,
     name := "bosatsu-base"
   )
 
-lazy val core = (project in file("core")).
+lazy val baseJS = base.js
+lazy val baseJVM = base.jvm
+
+lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
     commonSettings,
     name := "bosatsu-core",
@@ -93,4 +99,32 @@ lazy val core = (project in file("core")).
         jawnParser % Test,
         jawnAst % Test
       )
-  ).dependsOn(base)
+  ).dependsOn(base).
+  jsSettings(
+    scalaJSUseMainModuleInitializer := true
+  )
+
+lazy val coreJVM = core.jvm
+lazy val coreJS = core.js
+
+lazy val cli = (project in file("cli"))
+  .dependsOn(rootJVM)
+  .settings(
+    commonSettings,
+    name := "bosatsu-cli",
+    libraryDependencies ++=
+      Seq(
+        alleycats,
+        cats,
+        dagon,
+        decline,
+        fastparse,
+        fastparseCats,
+        paiges,
+        scalaCheck % Test,
+        scalaTest % Test,
+        jawnParser % Test,
+        jawnAst % Test
+      )
+  )
+
