@@ -1,0 +1,107 @@
+package Queue
+
+export [ Queue,
+  empty_Queue, fold_Queue, push, pop, pop_value, pop_Queue, reverse_Queue, eq_Queue,
+  queue_to_List,
+]
+
+struct Queue(front: List[a], back: List[a])
+
+empty_Queue: forall a. Queue[a] = Queue([], [])
+
+# convenient local alias
+empty = empty_Queue
+
+def queue_from_List(list: List[a]) -> Queue[a]:
+  Queue(list, [])
+
+def push(queue: Queue[a], item: a) -> Queue[a]:
+  Queue(f, b) = queue
+  Queue(f, [item, *b])
+
+def pop(queue: Queue[a]) -> Option[(a, Queue[a])]:
+  match queue:
+    Queue([h, *t], b): Some((h, Queue(t, b)))
+    Queue([], b):
+      match b.reverse:
+        []: None
+        [h, *t]: Some((h, Queue(t, [])))
+
+def pop_value(queue: Queue[a]) -> Option[a]:
+  match pop(queue):
+    Some((a, _)): Some(a)
+    None: None
+
+# drop an item off and return the rest, or empty
+def pop_Queue(queue: Queue[a]) -> Queue[a]:
+  match pop(queue):
+    Some((_, queue)): queue
+    None: empty
+
+def fold_Queue(queue: Queue[a], init: b, fn: b -> a -> b) -> b:
+  Queue(f, b) = queue
+  front = f.foldLeft(init, fn)
+  b.reverse.foldLeft(front, fn)
+
+def reverse_Queue(queue: Queue[a]) -> Queue[a]:
+  Queue(f, b) = queue
+  Queue(b.reverse, f.reverse)
+
+def eq_Queue(eq_fn: a -> a -> Bool, left: Queue[a], right: Queue[a]) -> Bool:
+  (res, _) = left.fold_Queue((True, right), \(g, right), al ->
+    match g:
+      False: (False, empty)
+      True:
+        match pop(right):
+          None: (False, empty)
+          Some((ar, right)):
+            (eq_fn(al, ar), right)
+    )
+  res
+
+def queue_to_List(q: Queue[a]) -> List[a]:
+  Queue(f, b) = q
+  f.concat(b.reverse)
+
+########
+## Tests below
+########
+
+def eq_Opt(fn, a, b):
+  match (a, b):
+    (None, None): True
+    (None, Some(_)): False
+    (Some(_), None): False
+    (Some(a), Some(b)): fn(a, b)
+
+def eq_List(fn, a, b):
+  (res, _) = a.foldLeft((True, b), \current, h ->
+    match current:
+      (True, [hb, *tb]):
+        if fn(h, hb): (True, tb)
+        else: (False, [])
+      (_, []): (False, [])
+      (False, _): current
+  )
+  res
+
+eq_oi = eq_Opt(eq_Int)
+eq_qi = eq_Queue(eq_Int)
+eq_li = eq_List(eq_Int)
+
+q12 = empty.push(1).push(2)
+
+tests = Test("queue tests", [
+  Assertion(eq_oi(q12.pop_value, Some(1)), "1"),
+  Assertion(q12.fold_Queue(0,add).eq_Int(3), "fold_Queue add"),
+  Assertion(q12.fold_Queue(0,\_, x -> x).eq_Int(2), "take the second"),
+  Assertion(q12.fold_Queue(0,\x, _ -> x).eq_Int(0), "take the first"),
+  Assertion(q12.reverse_Queue.reverse_Queue.eq_qi(q12), "reverse is idempotent"),
+  Assertion(q12.eq_qi(queue_from_List([1, 2])), "from list [1, 2]"),
+  Assertion(q12.push(3).eq_qi(queue_from_List([1, 2, 3])), "from list [1, 2, 3]"),
+  Assertion(empty_Queue.eq_qi(queue_from_List([])), "empty_Queue == queue_from_List([])"),
+  Assertion(q12.eq_qi(queue_from_List([1, 2, 3])), "from list [1, 2, 3]"),
+  Assertion(queue_from_List([1, 2, 3]).pop_Queue.pop_Queue.pop_Queue.eq_qi(empty), "pop to empty"),
+  Assertion(empty.pop_Queue.eq_qi(empty), "pop empty is okay"),
+  Assertion(queue_to_List(queue_from_List([1, 1, 2, 2, 3, 3])).eq_li([1, 1, 2, 2, 3, 3]), "to/from List"),
+])
