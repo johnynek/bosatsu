@@ -95,13 +95,18 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Full)
         fastparseCats.value,
         paiges.value,
         scalaCheck.value % Test,
-        scalaTest.value % Test,
-        jawnParser.value % Test,
-        jawnAst.value % Test
+        scalaTest.value % Test
       )
   ).dependsOn(base).
   jsSettings(
     scalaJSUseMainModuleInitializer := true
+  ).
+  jvmSettings(
+    libraryDependencies ++=
+      Seq(
+        jawnParser.value % Test,
+        jawnAst.value % Test
+      )
   )
 
 lazy val coreJVM = core.jvm
