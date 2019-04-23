@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
 import fastparse.all._
-import java.nio.file.{Files, Path}
+import java.nio.file.Files
 import scala.util.{ Failure, Success, Try }
 
 import org.bykn.fastparse_cats.StringInstances._
@@ -112,7 +112,7 @@ object Parser {
   }
 
   def parseFile[A](p: P[A], path: Path): ValidatedNel[Error, (LocationMap, A)] =
-    Try(new String(Files.readAllBytes(path), "utf-8")) match {
+    Try(new String(Files.readAllBytes(path.toJPath), "utf-8")) match {
       case Success(str) => parse(p, str).leftMap { nel =>
         nel.map {
           case pp@Error.PartialParse(_, _, _, _) => pp.copy(path = Some(path))

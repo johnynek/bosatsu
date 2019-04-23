@@ -4,7 +4,6 @@ import cats.Eval
 import cats.data.{Validated, ValidatedNel, NonEmptyList}
 import cats.implicits._
 import com.monovore.decline._
-import java.nio.file.Path
 import org.typelevel.paiges.Doc
 import scala.util.Try
 
@@ -82,6 +81,7 @@ sealed abstract class MainCommand {
 }
 
 object MainCommand {
+  import PlatformImplicits._
 
   def typeCheck(inputs: NonEmptyList[Path], externals: List[Path]): MainResult[(Externals, PackageMap.Inferred, List[(Path, PackageName)])] = {
     val ins = PackageMap.parseInputs(inputs)

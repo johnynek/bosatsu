@@ -4,7 +4,6 @@ import org.typelevel.paiges.Doc
 import cats.{Id, Monoid, Traverse, Monad, Foldable}
 import cats.data.{RWST, NonEmptyList}
 import cats.implicits._
-import java.nio.file.Path
 import scala.util.Try
 import java.io.PrintWriter
 
@@ -295,8 +294,8 @@ object CodeGen {
 
   def writeDoc(p: Path, d: Doc): Try[Unit] =
     Try {
-      Option(p.getParent).foreach(_.toFile.mkdirs)
-      val pw = new PrintWriter(p.toFile, "UTF-8")
+      p.getParent.foreach(_.toJPath.toFile.mkdirs)
+      val pw = new PrintWriter(p.toJPath.toFile, "UTF-8")
       val res = Try {
         d.renderStream(80).foreach(pw.print(_))
       }

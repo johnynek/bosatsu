@@ -79,7 +79,7 @@ lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
 lazy val baseJS = base.js
 lazy val baseJVM = base.jvm
 
-lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
+lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Full) in file("core")).
   settings(
     commonSettings,
     name := "bosatsu-core",

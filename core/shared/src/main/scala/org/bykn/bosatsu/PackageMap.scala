@@ -6,8 +6,6 @@ import cats.{Foldable, Traverse}
 import cats.data.{Chain, NonEmptyList, Validated, ValidatedNel, ReaderT, Writer}
 import cats.Order
 import cats.implicits._
-import java.nio.file.Path
-import org.typelevel.paiges.{Doc, Document}
 
 import rankn.{Infer, Type, TypeEnv}
 
