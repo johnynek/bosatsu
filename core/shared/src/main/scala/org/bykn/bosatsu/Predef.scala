@@ -4,19 +4,11 @@ import cats.data.NonEmptyList
 import fastparse.all._
 import java.math.BigInteger
 import scala.collection.immutable.SortedMap
+import language.experimental.macros
 
 object Predef {
-  private def resourceToString(path: String): Option[String] = {
-    Option(getClass().getResourceAsStream(path)).map { stream =>
-      scala.io.Source.fromInputStream(stream)("UTF-8").mkString
-    }
-  }
-
-  private val predefString: String =
-    resourceToString("/bosatsu/predef.bosatsu")
-      .getOrElse {
-        scala.io.Source.fromFile("core/target/scala-2.12/classes/bosatsu/predef.bosatsu").mkString
-      }
+  def f(file: String): String = macro Macro.smac
+  private val predefString: String = f("core/shared/src/main/resources/bosatsu/predef.bosatsu")
 
   lazy val predefPackage: Package.Parsed =
     Package.parser.parse(predefString) match {

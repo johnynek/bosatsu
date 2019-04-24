@@ -70,10 +70,13 @@ lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
 lazy val rootJVM = root.jvm
 lazy val rootJS = root.js
 
+lazy val scalaReflect = Def.setting { "org.scala-lang" % "scala-reflect" % scalaVersion.value }
+
 lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("base")).
   settings(
     commonSettings,
-    name := "bosatsu-base"
+    name := "bosatsu-base",
+    libraryDependencies += scalaReflect.value
   )
 
 lazy val baseJS = base.js
