@@ -77,6 +77,8 @@ lazy val core = (project in file("core")).
   settings(
     commonSettings,
     name := "bosatsu-core",
+    test in assembly := {},
+    mainClass in assembly := Some("org.bykn.bosatsu.Main"),
     libraryDependencies ++=
       Seq(
         alleycats,

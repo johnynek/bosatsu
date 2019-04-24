@@ -1213,4 +1213,18 @@ import A [ a ]
 
 main = a"""), "B") { case PackageError.UnknownImportPackage(_, _) => () }
   }
+
+  test("test reflection-based Externals") {
+  evalTest(
+    List("""
+package A
+
+empty = {}
+
+main = empty.get_key("hello")
+"""), "A", VOption.none,
+  Externals
+    .empty
+    .add(Predef.packageName, "get_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.get_key")))
+  }
 }
