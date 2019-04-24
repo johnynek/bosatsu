@@ -187,9 +187,7 @@ object MainCommand {
   def readExternals(epaths: List[Path]): ValidatedNel[Parser.Error, Externals] =
     epaths match {
       case Nil => Validated.valid(Externals.empty)
-      case epaths =>
-        epaths.traverse(Parser.parseFile(Externals.parser, _))
-          .map(_.toList.map(_._2).reduce(_ ++ _))
+      case epaths => ???
     }
 
   def toResult[A](v: ValidatedNel[Parser.Error, A]): MainResult[A] =

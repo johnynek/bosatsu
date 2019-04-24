@@ -945,14 +945,4 @@ y = {'x': 'x' : 'y'}
 """, 18)
   }
 
-  test("we can parse Externals") {
-    parseTestAll(Externals.parser,
-"""
-Foo/Bar flatMap scala org.bykn.bosatsu.Std.flatMap
-Foo/Bar fold scala org.bykn.bosatsu.Std.fold
-""",
-   Externals.empty
-     .add(PackageName.parse("Foo/Bar").get, "flatMap", FfiCall.ScalaCall("org.bykn.bosatsu.Std.flatMap"))
-     .add(PackageName.parse("Foo/Bar").get, "fold", FfiCall.ScalaCall("org.bykn.bosatsu.Std.fold")))
-  }
 }
