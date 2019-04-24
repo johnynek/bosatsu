@@ -74,3 +74,25 @@ bosatsu_json(
     srcs = ["gen_deps.bosatsu"],
     deps = [":bazel_deps_api", ":dict_tools"],
     package = "GenDeps")
+
+bosatsu_library(
+    name = "queue",
+    srcs = ["Queue.bosatsu"],
+    )
+
+# todo we need to be able to test a library without recompiling it
+bosatsu_test(
+    name = "queue_test",
+    srcs = ["Queue.bosatsu"],
+    )
+
+bosatsu_library(
+    name = "treelist",
+    srcs = ["TreeList.bosatsu"],
+    )
+
+# todo we need to be able to test a library without recompiling it
+bosatsu_test(
+    name = "treelist_test",
+    srcs = ["TreeList.bosatsu"],
+    )
