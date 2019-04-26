@@ -324,6 +324,68 @@ object Pattern {
         Doc.intercalate(Doc.text(" | "), (head :: rest.toList).map(doc(_)))
     }
 
+  def compiledDocument[A: Document]: Document[Pattern[(PackageName, Constructor), A]] = {
+    lazy val doc: Document[Pattern[(PackageName, Constructor), A]] = compiledDocument[A]
+    Document.instance[Pattern[(PackageName, Constructor), A]] {
+      case WildCard => Doc.char('_')
+      case Literal(lit) => Document[Lit].document(lit)
+      case Var(n) => Document[Identifier].document(n)
+      case Named(n, u@Union(_, _)) =>
+        // union is also an operator, so we need to use parens to explicitly bind | more tightly
+        // than the @ on the left.
+        Document[Identifier].document(n) + Doc.char('@') + Doc.char('(') + doc.document(u) + Doc.char(')')
+      case Named(n, p) =>
+        Document[Identifier].document(n) + Doc.char('@') + doc.document(p)
+      case ListPat(items) =>
+        Doc.char('[') + Doc.intercalate(Doc.text(", "),
+          items.map {
+            case Left(None) => Doc.text("*_")
+            case Left(Some(glob)) => Doc.char('*') + Document[Identifier].document(glob)
+            case Right(p) => doc.document(p)
+          }) + Doc.char(']')
+      case Annotation(p, t) =>
+        /*
+         * We need to know what package we are in and what imports we depend on here.
+         * This creates some challenges we need to deal with:
+         *   1. how do we make sure we don't have duplicate short names
+         *   2. how do we make sure we have imported the names we need
+         *   3. at the top level we need parens to distinguish a: Integer from being the rhs of a
+         *      case
+         */
+        doc.document(p) + Doc.text(": ") + Document[A].document(t)
+      case ps@PositionalStruct((_, c), a) =>
+        def untuple(p: Pattern[(PackageName, Constructor), A]): Option[List[Doc]] =
+          p match {
+            case PositionalStruct((Predef.Name, Constructor("Unit")), Nil) =>
+              Some(Nil)
+            case PositionalStruct((Predef.Name, Constructor("TupleCons")), a :: b :: Nil) =>
+              untuple(b).map { l => doc.document(a) :: l }
+            case _ => None
+          }
+        def tup(ds: List[Doc]): Doc =
+          Doc.char('(') +
+            Doc.intercalate(Doc.text(", "), ds) +
+            Doc.char(')')
+
+        untuple(ps) match {
+          case Some(tupDocs) => tup(tupDocs)
+          case None =>
+            Doc.text(c.asString) + tup(a.map(doc.document(_)))
+        }
+      case Union(head, rest) =>
+        def inner(p: Pattern[(PackageName, Constructor), A]): Doc =
+          p match {
+            case Annotation(_, _) | Union(_, _) =>
+              // if an annotation or union is embedded, we need to put parens for parsing
+              // to round trip. Note, we will never parse a nested union, but generators or could
+              // code produce one
+              Doc.char('(') + doc.document(p) + Doc.char(')')
+            case nonParen => doc.document(nonParen)
+          }
+        Doc.intercalate(Doc.text(" | "), (head :: rest.toList).map(inner(_)))
+    }
+  }
+
   private[this] val pwild = P("_").map(_ => WildCard)
   private[this] val plit = Lit.parser.map(Literal(_))
 

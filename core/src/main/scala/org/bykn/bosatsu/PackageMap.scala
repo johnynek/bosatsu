@@ -3,10 +3,11 @@ package org.bykn.bosatsu
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import com.stripe.dagon.Memoize
 import cats.{Foldable, Traverse}
-import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
+import cats.data.{Chain, NonEmptyList, Validated, ValidatedNel, ReaderT, Writer}
 import cats.Order
 import cats.implicits._
 import java.nio.file.Path
+import org.typelevel.paiges.{Doc, Document}
 
 import rankn.{Infer, Type, TypeEnv}
 
@@ -432,12 +433,38 @@ object PackageError {
         case None => (LocationMap(""), "<unknown source>")
         case Some(found) => found
       }
-      val teMessage = err.toString
       val region = err.matchExpr.tag.region
       val context1 =
         lm.showRegion(region).getOrElse(region.toString) // we should highlight the whole region
+      val teMessage = err match {
+        case TotalityCheck.NonTotalMatch(_, missing) =>
+          import Identifier.Constructor
+          val allTypes = missing.traverse(_.traverseType { t => Writer(Chain.one(t), ()) })
+            .run._1.toList.distinct
+          val showT = showTypes(pack, allTypes)
+
+          val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
+            Doc.text(showT(t))
+          })
+          def showPat(p: Pattern[(PackageName, Constructor), Type]): String =
+            doc.document(p).render(80)
+
+          "non-total match, missing: " +
+            (Doc.intercalate(Doc.char(',') + Doc.lineOrSpace,
+              missing.toList.map(doc.document(_)))).render(80)
+        case TotalityCheck.InvalidPattern(_, err) =>
+          import TotalityCheck._
+          err match {
+            case ArityMismatch((_, n), _, _, exp, found) =>
+              s"arity mismatch: ${n.asString} expected $exp parameters, found $found"
+            case UnknownConstructor((_, n), _, _) =>
+              s"unknown constructor: ${n.asString}"
+            case MultipleSplicesInPattern(_, _) =>
+              "multiple splices in pattern, only one per match allowed"
+          }
+      }
       // TODO use the sourceMap/regions in Infer.Error
-      s"in file: $sourceName, package ${pack.asString}\n$context1"
+      s"in file: $sourceName, package ${pack.asString}\n$context1\n$teMessage"
     }
   }
 
