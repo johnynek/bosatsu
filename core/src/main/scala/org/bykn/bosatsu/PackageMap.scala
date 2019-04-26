@@ -259,6 +259,20 @@ object PackageError {
       (k, v.toDoc.render(80))
     }.toMap
 
+  def nearest[A](ident: Identifier, existing: Map[Identifier, A], count: Int): List[(Identifier, A)] =
+    existing
+      .iterator
+      .map { case (i, a) =>
+        val d = EditDistance(ident.asString.toIterable, i.asString.toIterable)
+        (i, d, a)
+      }
+      .filter(_._2 < ident.asString.length) // don't show things that require total edits
+      .toList
+      .sortBy { case (_, d, _) => d }
+      .distinct
+      .take(count)
+      .map { case (i, _, a) => (i, a) }
+
   case class UnknownExport[A](ex: ExportedName[A],
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],
     lets: List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])]) extends PackageError {
@@ -266,17 +280,19 @@ object PackageError {
       val (lm, sourceName) = sourceMap(in.name)
       val header =
         s"in $sourceName unknown export ${ex.name}"
-      val candidates = lets
-        .map { case (n, _, expr) => (EditDistance.string(n.asString, ex.name.asString), n, HasRegion.region(expr)) }
-        .sorted
-        .take(3)
-        .map { case (_, n, r) =>
-          val pos = lm.toLineCol(r.start).map { case (l, c) => s" at line: ${l + 1}, column: ${c + 1}" }.getOrElse("")
-          s"${n.asString}$pos"
-        }
+      val candidateMap: Map[Identifier, Region] =
+        lets.map { case (n, _, expr) => (n, HasRegion.region(expr)) }.toMap
+      val candidates =
+        nearest(ex.name, candidateMap, 3)
+          .map { case (n, r) =>
+            val pos = lm.toLineCol(r.start).map { case (l, c) => s" at line: ${l + 1}, column: ${c + 1}" }.getOrElse("")
+            s"${n.asString}$pos"
+          }
       val candstr = candidates.mkString("\n\t", "\n\t", "\n")
-      val suggestion = s"perhaps you meant:$candstr"
-      header + "\n" + suggestion
+      val suggestion =
+        if (candidates.nonEmpty) "\n" + s"perhaps you meant:$candstr"
+        else ""
+      header + suggestion
     }
   }
 
@@ -311,21 +327,16 @@ object PackageError {
           .lets
 
         val (_, sourceName) = sourceMap(in.name)
-        ls.iterator.map { case (n, _, d) => (n: Identifier, d) }
-          .toMap
+        val letMap = ls.iterator.map { case (n, _, _) => (n: Identifier, ()) }.toMap
+        letMap
           .get(iname.originalName) match {
             case Some(_) =>
               s"in $sourceName package: ${importing.name} has ${iname.originalName} but it is not exported. Add to exports"
             case None =>
-              val dist = Memoize.function[Identifier, Int] { (s, _) =>
-                EditDistance(iname.originalName.asString.toIterable, s.asString.toIterable)
-              }
-              val nearest = ls.map { case (n, _, _) => (dist(n), n) }
-                .sorted
-                .take(3)
-                .map { case (_, n) => n.asString }
-                .mkString(", ")
-              s"in $sourceName package: ${importing.name} does not have name ${iname.originalName}. Nearest: $nearest"
+              val near = nearest(iname.originalName, letMap, 3)
+                .map { case (n, _) => n.asString }
+                .mkString(" Nearest: ", ", ", "")
+              s"in $sourceName package: ${importing.name} does not have name ${iname.originalName}.$near"
           }
       }
     }
@@ -374,20 +385,10 @@ object PackageError {
           val tmap = showTypes(pack, List(t0, t1))
           s"type ${tmap(t0)}${context0}does not unify with type ${tmap(t1)}\n$context1"
         case Infer.Error.VarNotInScope((pack, name), scope, region) =>
-          val ctx = lm.showRegion(region).getOrElse("<unknown location>")
-          val candidates: List[String] = scope
-            .keys
-            .iterator
-            .collect { case (None, n) =>
-              // we only print imported names, which are written with None
-              (EditDistance.string(name.asString, n.asString), n.asString)
-            }
-            .filter(_._1 < name.asString.length) // don't show things that require total edits
-            .toList
-            .distinct
-            .sortBy(_._1)
-            .map(_._2)
-            .take(3)
+          val ctx = lm.showRegion(region).getOrElse(region.toString)
+          val candidates: List[String] =
+            nearest(name, scope.map { case ((_, n), _) => (n, ()) }, 3)
+              .map { case (n, _) => n.asString }
 
           val cmessage =
             if (candidates.nonEmpty) candidates.mkString("\nClosest: ", ", ", ".\n")
@@ -406,6 +407,18 @@ object PackageError {
 
           val tmap = showTypes(pack, List(t0, t1))
           s"type ${tmap(t0)}${context0}does not subsume type ${tmap(t1)}\n$context1"
+        case uc@Infer.Error.UnknownConstructor((p, n), region, _) =>
+          val near = nearest(n, uc.knownConstructors.map { case (_, n) => (n, ()) }.toMap, 3)
+            .map { case (n, _) => n.asString }
+
+          val nearStr =
+            if (near.isEmpty) ""
+            else near.mkString(", nearest: ", ", ", "")
+
+          val context =
+            lm.showRegion(region).getOrElse(region.toString) // we should highlight the whole region
+
+          s"unknown constructor ${n.asString}$nearStr" + "\n" + context
         case err => err.message
       }
       // TODO use the sourceMap/regiouns in Infer.Error

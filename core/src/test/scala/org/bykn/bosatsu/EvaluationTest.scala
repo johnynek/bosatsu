@@ -1191,8 +1191,7 @@ suite = Test("match tests", [test0, test1, test2, test3, test4, test5, test6])
 """), "A", 7)
   }
 
-  test("test bad export") {
-
+  test("test some error messages") {
     evalFail(
       List("""
 package A
@@ -1212,6 +1211,20 @@ package B
 import A [ a ]
 
 main = a"""), "B") { case PackageError.UnknownImportPackage(_, _) => () }
+
+    evalFail(
+      List("""
+package B
+
+struct X
+
+main = match 1:
+  X1: 0
+"""), "B") { case te@PackageError.TypeErrorIn(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package B, unknown constructor X1, nearest: X\nRegion(44,45)")
+      ()
+    }
+
   }
 
   test("test reflection-based Externals") {

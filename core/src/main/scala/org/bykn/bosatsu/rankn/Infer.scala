@@ -172,8 +172,10 @@ object Infer {
       def message = s"unexpected bound ${v.name} at $rb in unification with $in at $rt"
     }
 
-    case class UnknownConstructor(name: (PackageName, Constructor), env: Env) extends NameError {
-      def message = s"unknown Constructor $name. Known: ${env.typeCons.keys.toList.sorted}"
+    case class UnknownConstructor(name: (PackageName, Constructor), region: Region, env: Env) extends NameError {
+      def knownConstructors: List[(PackageName, Constructor)] = env.typeCons.keys.toList.sorted
+
+      def message = s"unknown Constructor $name. Known: $knownConstructors"
     }
 
     case class UnionPatternBindMismatch(pattern: Pattern, names: List[List[Identifier.Bindable]]) extends NameError {
@@ -237,12 +239,12 @@ object Infer {
       def run(env: Env) = RefSpace.pure(Right(env.vars))
     }
 
-    case class GetDataCons(fqn: (PackageName, Constructor)) extends Infer[Cons] {
+    case class GetDataCons(fqn: (PackageName, Constructor), reg: Region) extends Infer[Cons] {
       def run(env: Env) =
         RefSpace.pure(
           env.typeCons.get(fqn) match {
             case None =>
-              Left(Error.UnknownConstructor(fqn, env))
+              Left(Error.UnknownConstructor(fqn, reg, env))
             case Some(res) =>
               Right(res)
           })
@@ -877,7 +879,7 @@ object Infer {
           } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
-            paramRes <- instDataCon(nm)
+            paramRes <- instDataCon(nm, reg)
             (params, res) = paramRes
             // we need to do a pattern linting phase and probably error
             // if the pattern arity does not match the arity of the constructor
@@ -944,8 +946,8 @@ object Infer {
      *
      * Instantiation fills in all
      */
-    def instDataCon(consName: (PackageName, Constructor)): Infer[(List[Type], Type.Tau)] =
-      GetDataCons(consName).flatMap {
+    def instDataCon(consName: (PackageName, Constructor), reg: Region): Infer[(List[Type], Type.Tau)] =
+      GetDataCons(consName, reg).flatMap {
         case (Nil, consParams, tpeName) =>
           Infer.pure((consParams, Type.TyConst(tpeName)))
         case (v0 :: vs, consParams, tpeName) =>
