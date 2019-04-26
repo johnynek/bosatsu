@@ -1,5 +1,6 @@
 package Queue
 
+import List [ eq_List ]
 export [ Queue,
   empty_Queue, fold_Queue, push, unpush, pop_value, pop, reverse_Queue, eq_Queue,
   to_List, from_List
@@ -69,19 +70,6 @@ def eq_Opt(fn, a, b):
   match (a, b):
     (Some(a), Some(b)): fn(a, b)
     (None, None): True
-    _: False
-
-def eq_List(fn, a, b):
-  res = a.foldLeft((True, b), \current, h ->
-    match current:
-      (True, [hb, *tb]):
-        if fn(h, hb): (True, tb)
-        else: (False, [])
-      (_, []): (False, [])
-      (False, _): current
-  )
-  match res:
-    (True, []): True
     _: False
 
 eq_oi = eq_Opt(eq_Int)

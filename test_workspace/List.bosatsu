@@ -1,0 +1,26 @@
+package List
+
+export [ eq_List ]
+
+def eq_List(fn: a -> a -> Bool, a: List[a], b: List[a]) -> Bool:
+  res = a.foldLeft((True, b), \current, h ->
+    match current:
+      (True, [hb, *tb]):
+        if fn(h, hb): (True, tb)
+        else: (False, [])
+      (_, []): (False, [])
+      (False, _): current
+  )
+  match res:
+    (True, []): True
+    _: False
+
+eq_li = eq_List(eq_Int)
+
+def not(x): False if x else True
+
+tests = Test("List tests", [
+  Assertion([1, 2, 3].eq_li([1, 2, 3]), "list [1, 2, 3]"),
+  Assertion(not([1, 2, 3].eq_li([1, 2])), "list [1, 2, 3] != [1, 2]"),
+  ])
+

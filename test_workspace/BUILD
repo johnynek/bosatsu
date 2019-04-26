@@ -76,7 +76,19 @@ bosatsu_json(
     package = "GenDeps")
 
 bosatsu_library(
+    name = "list",
+    srcs = ["List.bosatsu"],
+    )
+
+bosatsu_test(
+    name = "list_test",
+    deps = [":list"],
+    packages = ["List"],
+    )
+
+bosatsu_library(
     name = "queue",
+    deps = [":list"],
     srcs = ["Queue.bosatsu"],
     )
 
@@ -88,6 +100,7 @@ bosatsu_test(
 
 bosatsu_library(
     name = "treelist",
+    deps = [":list"],
     srcs = ["TreeList.bosatsu"],
     )
 
