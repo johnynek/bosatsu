@@ -3,10 +3,11 @@ package org.bykn.bosatsu
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import com.stripe.dagon.Memoize
 import cats.{Foldable, Traverse}
-import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
+import cats.data.{Chain, NonEmptyList, Validated, ValidatedNel, ReaderT, Writer}
 import cats.Order
 import cats.implicits._
 import java.nio.file.Path
+import org.typelevel.paiges.{Doc, Document}
 
 import rankn.{Infer, Type, TypeEnv}
 
@@ -259,6 +260,20 @@ object PackageError {
       (k, v.toDoc.render(80))
     }.toMap
 
+  def nearest[A](ident: Identifier, existing: Map[Identifier, A], count: Int): List[(Identifier, A)] =
+    existing
+      .iterator
+      .map { case (i, a) =>
+        val d = EditDistance(ident.asString.toIterable, i.asString.toIterable)
+        (i, d, a)
+      }
+      .filter(_._2 < ident.asString.length) // don't show things that require total edits
+      .toList
+      .sortBy { case (_, d, _) => d }
+      .distinct
+      .take(count)
+      .map { case (i, _, a) => (i, a) }
+
   case class UnknownExport[A](ex: ExportedName[A],
     in: Package.PackageF2[Unit, (Statement, ImportMap[PackageName, Unit])],
     lets: List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])]) extends PackageError {
@@ -266,17 +281,19 @@ object PackageError {
       val (lm, sourceName) = sourceMap(in.name)
       val header =
         s"in $sourceName unknown export ${ex.name}"
-      val candidates = lets
-        .map { case (n, _, expr) => (EditDistance.string(n.asString, ex.name.asString), n, HasRegion.region(expr)) }
-        .sorted
-        .take(3)
-        .map { case (_, n, r) =>
-          val pos = lm.toLineCol(r.start).map { case (l, c) => s" at line: ${l + 1}, column: ${c + 1}" }.getOrElse("")
-          s"${n.asString}$pos"
-        }
+      val candidateMap: Map[Identifier, Region] =
+        lets.map { case (n, _, expr) => (n, HasRegion.region(expr)) }.toMap
+      val candidates =
+        nearest(ex.name, candidateMap, 3)
+          .map { case (n, r) =>
+            val pos = lm.toLineCol(r.start).map { case (l, c) => s" at line: ${l + 1}, column: ${c + 1}" }.getOrElse("")
+            s"${n.asString}$pos"
+          }
       val candstr = candidates.mkString("\n\t", "\n\t", "\n")
-      val suggestion = s"perhaps you meant:$candstr"
-      header + "\n" + suggestion
+      val suggestion =
+        if (candidates.nonEmpty) "\n" + s"perhaps you meant:$candstr"
+        else ""
+      header + suggestion
     }
   }
 
@@ -311,21 +328,16 @@ object PackageError {
           .lets
 
         val (_, sourceName) = sourceMap(in.name)
-        ls.iterator.map { case (n, _, d) => (n: Identifier, d) }
-          .toMap
+        val letMap = ls.iterator.map { case (n, _, _) => (n: Identifier, ()) }.toMap
+        letMap
           .get(iname.originalName) match {
             case Some(_) =>
               s"in $sourceName package: ${importing.name} has ${iname.originalName} but it is not exported. Add to exports"
             case None =>
-              val dist = Memoize.function[Identifier, Int] { (s, _) =>
-                EditDistance(iname.originalName.asString.toIterable, s.asString.toIterable)
-              }
-              val nearest = ls.map { case (n, _, _) => (dist(n), n) }
-                .sorted
-                .take(3)
-                .map { case (_, n) => n.asString }
-                .mkString(", ")
-              s"in $sourceName package: ${importing.name} does not have name ${iname.originalName}. Nearest: $nearest"
+              val near = nearest(iname.originalName, letMap, 3)
+                .map { case (n, _) => n.asString }
+                .mkString(" Nearest: ", ", ", "")
+              s"in $sourceName package: ${importing.name} does not have name ${iname.originalName}.$near"
           }
       }
     }
@@ -374,20 +386,10 @@ object PackageError {
           val tmap = showTypes(pack, List(t0, t1))
           s"type ${tmap(t0)}${context0}does not unify with type ${tmap(t1)}\n$context1"
         case Infer.Error.VarNotInScope((pack, name), scope, region) =>
-          val ctx = lm.showRegion(region).getOrElse("<unknown location>")
-          val candidates: List[String] = scope
-            .keys
-            .iterator
-            .collect { case (None, n) =>
-              // we only print imported names, which are written with None
-              (EditDistance.string(name.asString, n.asString), n.asString)
-            }
-            .filter(_._1 < name.asString.length) // don't show things that require total edits
-            .toList
-            .distinct
-            .sortBy(_._1)
-            .map(_._2)
-            .take(3)
+          val ctx = lm.showRegion(region).getOrElse(region.toString)
+          val candidates: List[String] =
+            nearest(name, scope.map { case ((_, n), _) => (n, ()) }, 3)
+              .map { case (n, _) => n.asString }
 
           val cmessage =
             if (candidates.nonEmpty) candidates.mkString("\nClosest: ", ", ", ".\n")
@@ -406,6 +408,18 @@ object PackageError {
 
           val tmap = showTypes(pack, List(t0, t1))
           s"type ${tmap(t0)}${context0}does not subsume type ${tmap(t1)}\n$context1"
+        case uc@Infer.Error.UnknownConstructor((p, n), region, _) =>
+          val near = nearest(n, uc.knownConstructors.map { case (_, n) => (n, ()) }.toMap, 3)
+            .map { case (n, _) => n.asString }
+
+          val nearStr =
+            if (near.isEmpty) ""
+            else near.mkString(", nearest: ", ", ", "")
+
+          val context =
+            lm.showRegion(region).getOrElse(region.toString) // we should highlight the whole region
+
+          s"unknown constructor ${n.asString}$nearStr" + "\n" + context
         case err => err.message
       }
       // TODO use the sourceMap/regiouns in Infer.Error
@@ -419,12 +433,38 @@ object PackageError {
         case None => (LocationMap(""), "<unknown source>")
         case Some(found) => found
       }
-      val teMessage = err.toString
       val region = err.matchExpr.tag.region
       val context1 =
         lm.showRegion(region).getOrElse(region.toString) // we should highlight the whole region
+      val teMessage = err match {
+        case TotalityCheck.NonTotalMatch(_, missing) =>
+          import Identifier.Constructor
+          val allTypes = missing.traverse(_.traverseType { t => Writer(Chain.one(t), ()) })
+            .run._1.toList.distinct
+          val showT = showTypes(pack, allTypes)
+
+          val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
+            Doc.text(showT(t))
+          })
+          def showPat(p: Pattern[(PackageName, Constructor), Type]): String =
+            doc.document(p).render(80)
+
+          "non-total match, missing: " +
+            (Doc.intercalate(Doc.char(',') + Doc.lineOrSpace,
+              missing.toList.map(doc.document(_)))).render(80)
+        case TotalityCheck.InvalidPattern(_, err) =>
+          import TotalityCheck._
+          err match {
+            case ArityMismatch((_, n), _, _, exp, found) =>
+              s"arity mismatch: ${n.asString} expected $exp parameters, found $found"
+            case UnknownConstructor((_, n), _, _) =>
+              s"unknown constructor: ${n.asString}"
+            case MultipleSplicesInPattern(_, _) =>
+              "multiple splices in pattern, only one per match allowed"
+          }
+      }
       // TODO use the sourceMap/regions in Infer.Error
-      s"in file: $sourceName, package ${pack.asString}\n$context1"
+      s"in file: $sourceName, package ${pack.asString}\n$context1\n$teMessage"
     }
   }
 
