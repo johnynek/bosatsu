@@ -144,11 +144,19 @@ object MainCommand {
       }
   }
 
-  case class RunTests(tests: NonEmptyList[Path], dependencies: List[Path], externals: List[Path]) extends MainCommand {
-    def run() =
-      typeCheck(NonEmptyList(tests.head, tests.tail ::: dependencies), externals).flatMap { case (ext, packs, nameMap) =>
+  case class RunTests(tests: List[Path], testPacks: List[PackageName], dependencies: List[Path], externals: List[Path]) extends MainCommand {
+    def run() = {
+      val files = NonEmptyList.fromList(tests ::: dependencies) match {
+        case None =>
+          MainResult.Error(1, "no test sources or test dependencies" :: Nil, Nil)
+        case Some(ne) => MainResult.Success(ne)
+      }
+
+      files.flatMap(typeCheck(_, externals)).flatMap { case (ext, packs, nameMap) =>
         val testSet = tests.toList.toSet
-        val testPackages: List[PackageName] = nameMap.collect { case (p, name) if testSet(p) => name }
+        val testPackages: List[PackageName] =
+          (nameMap.iterator.collect { case (p, name) if testSet(p) => name } ++
+            testPacks.iterator).toList.sorted.distinct
         val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
         val resMap = testPackages.map { p => (p, ev.evalTest(p)) }
         val noTests = resMap.collect { case (p, None) => p }.toList
@@ -173,6 +181,7 @@ object MainCommand {
           MainResult.Error(1, missingDoc.render(80) :: Nil, stdOut)
         }
       }
+    }
   }
 
   def readExternals(epaths: List[Path]): ValidatedNel[Parser.Error, Externals] =
@@ -237,18 +246,20 @@ object MainCommand {
           }
       }
 
-    def toList[A](o: Option[NonEmptyList[A]]): List[A] =
-      o match {
+    def toList[A](neo: Opts[NonEmptyList[A]]): Opts[List[A]] = {
+      neo.orNone.map {
         case None => Nil
         case Some(ne) => ne.toList
       }
+    }
 
     val ins = Opts.options[Path]("input", help = "input files")
-    val deps = Opts.options[Path]("test_deps", help = "test dependencies").orNone.map(toList(_))
-    val extern = Opts.options[Path]("external", help = "input files").orNone.map(toList(_))
-    val sigs = Opts.options[Path]("signature", help = "signature files").orNone.map(toList(_))
+    val deps = toList(Opts.options[Path]("test_deps", help = "test dependencies"))
+    val extern = toList(Opts.options[Path]("external", help = "input files"))
+    val sigs = toList(Opts.options[Path]("signature", help = "signature files"))
 
     val mainP = Opts.option[PackageName]("main", help = "main package to evaluate")
+    val testP = toList(Opts.options[PackageName]("test_package", help = "package for which to run tests"))
     val outputPath = Opts.option[Path]("output", help = "output path")
     val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output")
 
@@ -256,7 +267,7 @@ object MainCommand {
     val toJsonOpt = (ins, extern, sigs, mainP, outputPath).mapN(ToJson(_, _, _, _, _))
     val typeCheckOpt = (ins, sigs, outputPath).mapN(TypeCheck(_, _, _))
     val compileOpt = (ins, extern, compileRoot).mapN(Compile(_, _, _))
-    val testOpt = (ins, deps, extern).mapN(RunTests(_, _, _))
+    val testOpt = (toList(ins), testP, deps, extern).mapN(RunTests(_, _, _, _))
 
     Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
       .orElse(Opts.subcommand("write-json", "evaluate a data expression into json")(toJsonOpt))

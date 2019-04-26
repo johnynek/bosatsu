@@ -80,19 +80,19 @@ bosatsu_library(
     srcs = ["Queue.bosatsu"],
     )
 
-# todo we need to be able to test a library without recompiling it
 bosatsu_test(
     name = "queue_test",
-    srcs = ["Queue.bosatsu"],
-    )
+    deps = [":queue"],
+    packages = ["Queue"],
+   )
 
 bosatsu_library(
     name = "treelist",
     srcs = ["TreeList.bosatsu"],
     )
 
-# todo we need to be able to test a library without recompiling it
 bosatsu_test(
     name = "treelist_test",
-    srcs = ["TreeList.bosatsu"],
+    deps = [":treelist"],
+    packages = ["TreeList"],
     )
