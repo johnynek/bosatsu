@@ -1,5 +1,6 @@
 package TreeList
 
+import List [ eq_List ]
 export [ TreeList, empty, cons, decons, head, get, fold, eq_TreeList ]
 
 # implementation of O(1) cons/uncons O(log N) list-like data structure
@@ -102,17 +103,6 @@ def eq_TreeList(fn, a, b):
           if fn(h, hb): (True, tb)
           else: (False, empty)
     else: (False, empty)
-  )
-  res
-
-def eq_List(fn, a, b):
-  (res, _) = a.foldLeft((True, b), \current, h ->
-    match current:
-      (True, [hb, *tb]):
-        if fn(h, hb): (True, tb)
-        else: (False, [])
-      (_, []): (False, [])
-      (False, _): current
   )
   res
 

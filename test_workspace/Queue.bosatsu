@@ -1,5 +1,6 @@
 package Queue
 
+import List [ eq_List ]
 export [ Queue,
   empty_Queue, fold_Queue, push, unpush, pop_value, pop, reverse_Queue, eq_Queue,
   to_List, from_List
@@ -45,7 +46,7 @@ def reverse_Queue(Queue(f, b): Queue[a]) -> Queue[a]:
   Queue(b.reverse, f.reverse)
 
 def eq_Queue(eq_fn: a -> a -> Bool, left: Queue[a], right: Queue[a]) -> Bool:
-  (res, _) = left.fold_Queue((True, right), \(g, right), al ->
+  res = left.fold_Queue((True, right), \(g, right), al ->
     match g:
       False: (False, empty)
       True:
@@ -54,7 +55,9 @@ def eq_Queue(eq_fn: a -> a -> Bool, left: Queue[a], right: Queue[a]) -> Bool:
           Some((ar, right)):
             (eq_fn(al, ar), right)
     )
-  res
+  match res:
+    (True, Queue([], [])): True
+    _: False
 
 def to_List(Queue(f, b): Queue[a]) -> List[a]:
   f.concat(b.reverse)
@@ -68,17 +71,6 @@ def eq_Opt(fn, a, b):
     (Some(a), Some(b)): fn(a, b)
     (None, None): True
     _: False
-
-def eq_List(fn, a, b):
-  (res, _) = a.foldLeft((True, b), \current, h ->
-    match current:
-      (True, [hb, *tb]):
-        if fn(h, hb): (True, tb)
-        else: (False, [])
-      (_, []): (False, [])
-      (False, _): current
-  )
-  res
 
 eq_oi = eq_Opt(eq_Int)
 eq_qi = eq_Queue(eq_Int)
@@ -95,7 +87,7 @@ tests = Test("queue tests", [
   Assertion(q12.eq_qi(from_List([1, 2])), "from list [1, 2]"),
   Assertion(q12.push(3).eq_qi(from_List([1, 2, 3])), "from list [1, 2, 3]"),
   Assertion(empty_Queue.eq_qi(from_List([])), "empty_Queue == from_List([])"),
-  Assertion(q12.eq_qi(from_List([1, 2, 3])), "from list [1, 2, 3]"),
+  Assertion(q12.eq_qi(from_List([1, 2])), "from list [1, 2]"),
   Assertion(from_List([1, 2, 3]).pop.pop.pop.eq_qi(empty), "pop to empty"),
   Assertion(empty.pop.eq_qi(empty), "pop empty is okay"),
   Assertion(to_List(from_List([1, 1, 2, 2, 3, 3])).eq_li([1, 1, 2, 2, 3, 3]), "to/from List"),
