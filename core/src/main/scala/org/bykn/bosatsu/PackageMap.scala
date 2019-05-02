@@ -6,6 +6,7 @@ import cats.Foldable
 import cats.data.{Chain, NonEmptyList, Validated, ValidatedNel, ReaderT, Writer}
 import cats.Order
 import cats.implicits._
+import org.typelevel.paiges.{Doc, Document}
 
 import rankn.{Infer, Type, TypeEnv}
 
