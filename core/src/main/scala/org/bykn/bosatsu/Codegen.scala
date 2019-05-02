@@ -4,10 +4,6 @@ import org.typelevel.paiges.Doc
 import cats.{Id, Monoid, Traverse, Monad, Foldable}
 import cats.data.{RWST, NonEmptyList}
 import cats.implicits._
-import scala.util.Try
-import java.io.PrintWriter
-
-import alleycats.std.map._ // TODO use SortedMap everywhere
 
 import org.bykn.bosatsu.rankn.Type
 
@@ -284,32 +280,4 @@ object CodeGen {
       case (doc, _, t) => (doc, t)
     }
 
-  @annotation.tailrec
-  final def toPath(root: Path, pn: PackageName): Path =
-    pn.parts match {
-      case NonEmptyList(h, Nil) => root.resolve(h).resolve("Values.java")
-      case NonEmptyList(h0, h1 :: tail) =>
-        toPath(root.resolve(h0), PackageName(NonEmptyList(h1, tail)))
-    }
-
-  def writeDoc(p: Path, d: Doc): Try[Unit] =
-    Try {
-      p.getParent.foreach(_.toJPath.toFile.mkdirs)
-      val pw = new PrintWriter(p.toJPath.toFile, "UTF-8")
-      val res = Try {
-        d.renderStream(80).foreach(pw.print(_))
-      }
-      pw.close
-      res
-    }
-    .flatten
-
-  def write(root: Path, packages: PackageMap.Inferred, ext: Externals): Try[Unit] = {
-    val cg = new CodeGen { }
-    packages.toMap.traverse_ { pack =>
-      val (d, _) = run(cg.genPackage(pack, ext))
-      val path = toPath(root, pack.name)
-      writeDoc(path, d)
-    }
-  }
 }

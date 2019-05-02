@@ -2,8 +2,6 @@ package org.bykn.bosatsu
 
 import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
 import fastparse.all._
-import java.nio.file.Files
-import scala.util.{ Failure, Success, Try }
 
 import org.bykn.fastparse_cats.StringInstances._
 import cats.implicits._
@@ -82,21 +80,11 @@ object Parser {
     }
   }
 
-  sealed trait Error {
-    def showContext: Option[String] =
-      this match {
-        case Error.PartialParse(_, pos, loc, _) =>
-          loc.showContext(pos)
-        case Error.ParseFailure(pos, loc, _) =>
-          loc.showContext(pos)
-        case Error.FileError(_, _) =>
-          None
-      }
-  }
+  sealed trait Error {}
+
   object Error {
-     case class PartialParse[A](got: A, position: Int, locations: LocationMap, path: Option[Path]) extends Error
-     case class ParseFailure(position: Int, locations: LocationMap, path: Option[Path]) extends Error
-     case class FileError(readPath: Path, error: Throwable) extends Error
+    case class PartialParse[A](got: A, position: Int, locations: LocationMap) extends Error
+    case class ParseFailure(position: Int, locations: LocationMap) extends Error
   }
 
   def parse[A](p: P[A], str: String): ValidatedNel[Error, (LocationMap, A)] = {
@@ -105,23 +93,11 @@ object Parser {
       case Parsed.Success(a, idx) if idx == str.length =>
         Validated.valid((lm, a))
       case Parsed.Success(a, idx) =>
-        Validated.invalidNel(Error.PartialParse(a, idx, lm, None))
+        Validated.invalidNel(Error.PartialParse(a, idx, lm))
       case Parsed.Failure(_, idx, _) =>
-        Validated.invalidNel(Error.ParseFailure(idx, lm, None))
+        Validated.invalidNel(Error.ParseFailure(idx, lm))
     }
   }
-
-  def parseFile[A](p: P[A], path: Path): ValidatedNel[Error, (LocationMap, A)] =
-    Try(new String(Files.readAllBytes(path.toJPath), "utf-8")) match {
-      case Success(str) => parse(p, str).leftMap { nel =>
-        nel.map {
-          case pp@Error.PartialParse(_, _, _, _) => pp.copy(path = Some(path))
-          case pf@Error.ParseFailure(_, _, _) => pf.copy(path = Some(path))
-          case other => other
-        }
-      }
-      case Failure(err) => Validated.invalidNel(Error.FileError(path, err))
-    }
 
   def inRange(lower: Char, c: Char, upper: Char): Boolean =
     (lower <= c) && (c <= upper)

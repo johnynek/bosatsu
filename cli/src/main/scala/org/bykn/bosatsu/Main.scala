@@ -1,11 +1,14 @@
 package org.bykn.bosatsu
 
-import cats.Eval
+import cats.{Eval, Traverse}
 import cats.data.{Validated, ValidatedNel, NonEmptyList}
 import cats.implicits._
 import com.monovore.decline._
+import fastparse.all._
+import java.nio.file.{Files, Path}
 import org.typelevel.paiges.Doc
 import scala.util.Try
+import scala.util.{ Failure, Success, Try }
 
 object Foo {
   def times(i: java.lang.Integer): java.lang.Integer =
@@ -81,10 +84,44 @@ sealed abstract class MainCommand {
 }
 
 object MainCommand {
-  import PlatformImplicits._
+  def parseInputs[F[_]: Traverse](paths: F[Path]): ValidatedNel[ParseError, F[((Path, LocationMap), Package.Parsed)]] =
+    paths.traverse { path =>
+      parseFile(Package.parser, path).map { case (lm, parsed) =>
+        ((path, lm), parsed)
+      }
+    }
+
+  sealed trait ParseError {
+    def showContext: Option[String] =
+      this match {
+        case ParseError.PartialParse(err, _) =>
+          err.locations.showContext(err.position)
+        case ParseError.ParseFailure(err, _) =>
+          err.locations.showContext(err.position)
+        case ParseError.FileError(_, _) =>
+          None
+      }
+  }
+
+  object ParseError {
+     case class PartialParse[A](error: Parser.Error.PartialParse[A], path: Path) extends ParseError
+     case class ParseFailure(error: Parser.Error.ParseFailure, path: Path) extends ParseError
+     case class FileError(readPath: Path, error: Throwable) extends ParseError
+  }
+
+  def parseFile[A](p: P[A], path: Path): ValidatedNel[ParseError, (LocationMap, A)] =
+    Try(new String(Files.readAllBytes(path), "utf-8")) match {
+      case Success(str) => Parser.parse(p, str).leftMap { nel =>
+        nel.map {
+          case pp@Parser.Error.PartialParse(_, _, _) => ParseError.PartialParse(pp, path)
+          case pf@Parser.Error.ParseFailure(_, _) => ParseError.ParseFailure(pf, path)
+        }
+      }
+      case Failure(err) => Validated.invalidNel(ParseError.FileError(path, err))
+    }
 
   def typeCheck(inputs: NonEmptyList[Path], externals: List[Path]): MainResult[(Externals, PackageMap.Inferred, List[(Path, PackageName)])] = {
-    val ins = PackageMap.parseInputs(inputs)
+    val ins = parseInputs(inputs)
     val exts = readExternals(externals)
 
     toResult(ins.product(exts))
@@ -123,7 +160,7 @@ object MainCommand {
               case None =>
                 MainResult.Error(1, List(s"cannot convert type to Json: $scheme"))
               case Some(j) =>
-                MainResult.fromTry(CodeGen.writeDoc(output, j.toDoc))
+                MainResult.fromTry(CodeGenWrite.writeDoc(output, j.toDoc))
                   .map { _ => Nil }
             }
         }
@@ -132,14 +169,14 @@ object MainCommand {
   case class TypeCheck(inputs: NonEmptyList[Path], signatures: List[Path], output: Path) extends MainCommand {
     def run() =
       typeCheck(inputs, Nil).flatMap { case (_, packs, _) =>
-        MainResult.fromTry(CodeGen.writeDoc(output, Doc.text(s"checked ${packs.toMap.size} packages")))
+        MainResult.fromTry(CodeGenWrite.writeDoc(output, Doc.text(s"checked ${packs.toMap.size} packages")))
           .map(_ => Nil)
       }
   }
   case class Compile(inputs: NonEmptyList[Path], externals: List[Path], compileRoot: Path) extends MainCommand {
     def run() =
       typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
-        MainResult.fromTry(CodeGen.write(compileRoot, packs, Predef.jvmExternals ++ ext))
+        MainResult.fromTry(CodeGenWrite.write(compileRoot, packs, Predef.jvmExternals ++ ext))
           .map { _ => List(s"wrote ${packs.toMap.size} packages") }
       }
   }
@@ -184,35 +221,33 @@ object MainCommand {
     }
   }
 
-  def readExternals(epaths: List[Path]): ValidatedNel[Parser.Error, Externals] =
+  def readExternals(epaths: List[Path]): ValidatedNel[ParseError, Externals] =
     epaths match {
       case Nil => Validated.valid(Externals.empty)
       case epaths => ???
     }
 
-  def toResult[A](v: ValidatedNel[Parser.Error, A]): MainResult[A] =
+  def toResult[A](v: ValidatedNel[ParseError, A]): MainResult[A] =
     v match {
       case Validated.Valid(a) => MainResult.Success(a)
       case Validated.Invalid(errs) =>
         val msgs = errs.toList.flatMap {
-          case Parser.Error.PartialParse(_, pos, map, Some(path)) =>
+          case ParseError.PartialParse(pp, path) =>
             // we should never be partial here
-            val (r, c) = map.toLineCol(pos).get
-            val ctx = map.showContext(pos).get
+            val (r, c) = pp.locations.toLineCol(pp.position).get
+            val ctx = pp.locations.showContext(pp.position).get
             List(s"failed to parse completely $path at line ${r + 1}, column ${c + 1}",
                 ctx.toString)
-          case Parser.Error.ParseFailure(pos, map, Some(path)) =>
+          case ParseError.ParseFailure(pf, path) =>
             // we should never be partial here
-            val (r, c) = map.toLineCol(pos).get
-            val ctx = map.showContext(pos).get
+            val (r, c) = pf.locations.toLineCol(pf.position).get
+            val ctx = pf.locations.showContext(pf.position).get
             List(s"failed to parse $path at line ${r + 1}, column ${c + 1}",
                 ctx.toString)
-          case Parser.Error.FileError(path, err) =>
+          case ParseError.FileError(path, err) =>
             List(s"failed to parse $path",
                 err.getMessage,
                 err.getClass.toString)
-          case other =>
-            List(s"unexpected error $other")
         }
       MainResult.Error(1, msgs)
     }

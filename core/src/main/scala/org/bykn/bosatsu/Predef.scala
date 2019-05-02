@@ -8,7 +8,7 @@ import language.experimental.macros
 
 object Predef {
   def f(file: String): String = macro Macro.smac
-  private val predefString: String = f("core/shared/src/main/resources/bosatsu/predef.bosatsu")
+  private val predefString: String = f("core/src/main/resources/bosatsu/predef.bosatsu")
 
   lazy val predefPackage: Package.Parsed =
     Package.parser.parse(predefString) match {

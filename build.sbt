@@ -82,12 +82,24 @@ lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
 lazy val baseJS = base.js
 lazy val baseJVM = base.jvm
 
-lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Full) in file("core")).
+lazy val cli = (project in file("cli")).
+  settings(
+    commonSettings,
+    name := "bosatsu-cli",
+    test in assembly := {},
+    mainClass in assembly := Some("org.bykn.bosatsu.Main"),
+    libraryDependencies ++=
+      Seq(
+        jawnParser.value % Test,
+        jawnAst.value % Test
+      )
+  ).dependsOn(coreJVM)
+
+lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
     commonSettings,
     name := "bosatsu-core",
     test in assembly := {},
-    mainClass in assembly := Some("org.bykn.bosatsu.Main"),
     libraryDependencies ++=
       Seq(
         alleycats.value,
@@ -103,13 +115,6 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Full)
   ).dependsOn(base).
   jsSettings(
     scalaJSUseMainModuleInitializer := true
-  ).
-  jvmSettings(
-    libraryDependencies ++=
-      Seq(
-        jawnParser.value % Test,
-        jawnAst.value % Test
-      )
   )
 
 lazy val coreJVM = core.jvm

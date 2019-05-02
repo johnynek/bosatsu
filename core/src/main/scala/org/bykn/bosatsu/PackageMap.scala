@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import com.stripe.dagon.Memoize
-import cats.{Foldable, Traverse}
+import cats.Foldable
 import cats.data.{Chain, NonEmptyList, Validated, ValidatedNel, ReaderT, Writer}
 import cats.Order
 import cats.implicits._
@@ -233,13 +233,6 @@ object PackageMap {
     ps: List[(A, Package.Parsed)]): (Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], ValidatedNel[PackageError, Inferred]) = {
       val (bad, good) = resolveAll(ps)
       (bad, good.andThen(inferAll(_)))
-    }
-
-  def parseInputs[F[_]: Traverse](paths: F[Path]): ValidatedNel[Parser.Error, F[((Path, LocationMap), Package.Parsed)]] =
-    paths.traverse { path =>
-      Parser.parseFile(Package.parser, path).map { case (lm, parsed) =>
-        ((path, lm), parsed)
-      }
     }
 
   def buildSourceMap[F[_]: Foldable, A](parsedFiles: F[((A, LocationMap), Package.Parsed)]): Map[PackageName, (LocationMap, String)] =
