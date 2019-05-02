@@ -80,7 +80,15 @@ object Parser {
     }
   }
 
-  sealed trait Error {}
+  sealed trait Error {
+    def showContext: Option[String] =
+      this match {
+        case Error.PartialParse(_, pos, locations) =>
+          locations.showContext(pos)
+        case Error.ParseFailure(pos, locations) =>
+          locations.showContext(pos)
+      }
+  }
 
   object Error {
     case class PartialParse[A](got: A, position: Int, locations: LocationMap) extends Error

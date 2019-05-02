@@ -95,9 +95,9 @@ object MainCommand {
     def showContext: Option[String] =
       this match {
         case ParseError.PartialParse(err, _) =>
-          err.locations.showContext(err.position)
+          err.showContext
         case ParseError.ParseFailure(err, _) =>
-          err.locations.showContext(err.position)
+          err.showContext
         case ParseError.FileError(_, _) =>
           None
       }
