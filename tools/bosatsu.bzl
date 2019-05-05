@@ -52,7 +52,7 @@ def _bosatsu_library_impl(ctx):
 bosatsu_library = rule(
     implementation = _bosatsu_library_impl,
     attrs = {
-        "srcs": attr.label_list(mandatory=False, allow_files=FileType([".bosatsu"])),
+        "srcs": attr.label_list(mandatory=False, allow_files=[".bosatsu"]),
         "deps": attr.label_list(),
         "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
     },
@@ -88,7 +88,7 @@ def _bosatsu_json_impl(ctx):
 bosatsu_json = rule(
     implementation = _bosatsu_json_impl,
     attrs = {
-        "srcs": attr.label_list(mandatory=False, allow_files=FileType([".bosatsu"])),
+        "srcs": attr.label_list(mandatory=False, allow_files=[".bosatsu"]),
         "deps": attr.label_list(),
         "package": attr.string(),
         "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
@@ -124,10 +124,10 @@ def _bosatsu_test_impl(ctx):
 bosatsu_test = rule(
     implementation = _bosatsu_test_impl,
     attrs = {
-        "srcs": attr.label_list(mandatory=False, allow_files=FileType([".bosatsu"])),
+        "srcs": attr.label_list(mandatory=False, allow_files=[".bosatsu"]),
         "deps": attr.label_list(),
         "packages": attr.string_list(),
-        "data": attr.label_list(cfg="data",default=[Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")]),
+        "data": attr.label_list(default=[Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")]),
         "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
     },
     executable=True,
