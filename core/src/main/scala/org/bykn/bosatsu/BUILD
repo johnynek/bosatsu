@@ -20,4 +20,5 @@ common_deps = [
 scala_library(
     name = "bosatsu",
     srcs = glob(["**/*.scala"], exclude=["Main.scala"]),
+    resources = ["//core/src/main/resources/bosatsu:predef.bosatsu"],
     deps = common_deps)
