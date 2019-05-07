@@ -4,7 +4,7 @@ load("@org_bykn_bosatsu//tools:scala.bzl", "scala_library", "scala_module", "str
 package(default_visibility = ["//visibility:public"])
 
 common_deps = [
-      "//core/src/main/scala/org/bykn/bosatsu",
+      "//core/src/main/scala/org/bykn/bosatsu:bosatsu",
       "//3rdparty/jvm/org/bykn:fastparse_cats_core",
       "//3rdparty/jvm/org/typelevel:alleycats_core",
       "//3rdparty/jvm/org/typelevel:cats_core",
