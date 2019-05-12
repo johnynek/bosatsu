@@ -4,7 +4,7 @@ load("@org_bykn_bosatsu//tools:scala.bzl", "scala_library", "scala_module", "str
 package(default_visibility = ["//visibility:public"])
 
 common_deps = [
-      "//base/src/main/scala/org/bykn/bosatsu",
+      "//core/src/main/scala/org/bykn/bosatsu:bosatsu",
       "//3rdparty/jvm/org/bykn:fastparse_cats_core",
       "//3rdparty/jvm/org/typelevel:alleycats_core",
       "//3rdparty/jvm/org/typelevel:cats_core",
@@ -20,5 +20,14 @@ common_deps = [
 scala_library(
     name = "bosatsu",
     srcs = glob(["**/*.scala"], exclude=["Main.scala"]),
-    resources = ["//core/src/main/resources/bosatsu:predef.bosatsu"],
     deps = common_deps)
+
+scala_binary(
+    name = "bosatsu_main",
+    srcs = ["Main.scala"],
+    deps = [":bosatsu"] + common_deps,
+    runtime_deps = [],
+    main_class = "org.bykn.bosatsu.Main",
+    scalacopts = strict_scalacopts(),
+    visibility = ["//visibility:public"],
+  )

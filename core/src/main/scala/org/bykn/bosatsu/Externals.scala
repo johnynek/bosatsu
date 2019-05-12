@@ -1,7 +1,6 @@
 package org.bykn.bosatsu
 
 import cats.Eval
-import fastparse.all._
 
 import cats.implicits._
 
@@ -47,62 +46,6 @@ object FfiCall {
     def call(t: rankn.Type): Eval[Value] = evalFn
   }
 
-  sealed abstract class Reflective extends FfiCall {
-    def call(t: rankn.Type): Eval[Evaluation.Value] = {
-      def breakDots(m: String): List[String] =
-        m.split("\\.", -1).toList
-
-      def defaultClassName(parts: List[String]): String =
-        parts.init.mkString(".")
-
-      val (parts, clsName, instFn) =
-        this match {
-          case ScalaCall(m) =>
-            val parts = breakDots(m)
-            val clsName = defaultClassName(parts) + "$"
-            (parts, clsName, { c: Class[_] =>
-              c.getDeclaredField("MODULE$").get(null)
-            })
-          case JavaCall(m) =>
-            val parts = breakDots(m)
-            val clsName = defaultClassName(parts)
-            (parts, clsName, { c: Class[_] => null})
-        }
-
-      Eval.later {
-        val cls = Class.forName(clsName)
-        val args = getJavaType(t).toArray
-        val m = cls.getMethod(parts.last, args.init :_*)
-        val inst = instFn(cls)
-
-        def invoke(tpe: rankn.Type, args: List[Value]): Value =
-          tpe match {
-            case rankn.Type.ForAll(_, t) => invoke(t, args)
-            case rankn.Type.Fun(a, tail) =>
-              Value.FnValue { ex =>
-                ex.map { x => invoke(tail, x :: args) }
-              }
-            case _ =>
-              m.invoke(inst, args.reverse.toArray: _*).asInstanceOf[Value]
-          }
-
-        invoke(t, Nil)
-      }
-    }
-  }
-
-  final case class ScalaCall(methodName: String) extends Reflective
-  final case class JavaCall(methodName: String) extends Reflective
-
-  val parser: P[FfiCall] = {
-    val whitespace = Set(' ', '\t', '\n')
-    val rest = Parser.spaces ~/ P(CharsWhile { c => !whitespace(c) }.!)
-    val lang = P("scala").map(_ => ScalaCall(_)) |
-      P("java").map(_ => JavaCall(_))
-
-    (lang ~ rest).map { case (l, m) => l(m) }
-  }
-
   def getJavaType(t: rankn.Type): List[Class[_]] = {
     def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
       t match {
@@ -130,15 +73,4 @@ case class Externals(toMap: Map[(PackageName, String), FfiCall]) {
 
 object Externals {
   def empty: Externals = Externals(Map.empty)
-
-  val parser: P[Externals] = {
-    val comment = CommentStatement.commentPart
-    val row = PackageName.parser ~ Parser.spaces ~/ Parser.lowerIdent ~ Parser.spaces ~ FfiCall.parser ~ Parser.toEOL
-
-    val optRow = (comment | Parser.toEOL).map(_ => None) | row.map(Some(_))
-
-    optRow.rep().map { rows =>
-      Externals(rows.collect { case Some((p, v, ffi)) => ((p, v), ffi) }.toMap)
-    }
-  }
 }

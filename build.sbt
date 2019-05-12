@@ -1,5 +1,5 @@
+import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import Dependencies._
-
 
 lazy val commonSettings = Seq(
   organization := "org.bykn",
@@ -60,37 +60,62 @@ lazy val commonSettings = Seq(
   testOptions in Test += Tests.Argument("-oDF")
 )
 
-lazy val root = (project in file("."))
+lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("."))
   .aggregate(core)
   .settings(
     commonSettings,
     name := "bosatsu"
   )
 
-lazy val base = (project in file("base")).
+lazy val rootJVM = root.jvm
+lazy val rootJS = root.js
+
+lazy val scalaReflect = Def.setting { "org.scala-lang" % "scala-reflect" % scalaVersion.value }
+
+lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("base")).
   settings(
     commonSettings,
-    name := "bosatsu-base"
+    name := "bosatsu-base",
+    libraryDependencies += scalaReflect.value
   )
 
-lazy val core = (project in file("core")).
+lazy val baseJS = base.js
+lazy val baseJVM = base.jvm
+
+lazy val cli = (project in file("cli")).
   settings(
     commonSettings,
-    name := "bosatsu-core",
+    name := "bosatsu-cli",
     test in assembly := {},
     mainClass in assembly := Some("org.bykn.bosatsu.Main"),
     libraryDependencies ++=
       Seq(
-        alleycats,
-        cats,
-        dagon,
-        decline,
-        fastparse,
-        fastparseCats,
-        paiges,
-        scalaCheck % Test,
-        scalaTest % Test,
-        jawnParser % Test,
-        jawnAst % Test
+        jawnParser.value % Test,
+        jawnAst.value % Test
       )
-  ).dependsOn(base)
+  ).dependsOn(coreJVM)
+
+lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
+  settings(
+    commonSettings,
+    name := "bosatsu-core",
+    test in assembly := {},
+    libraryDependencies ++=
+      Seq(
+        alleycats.value,
+        cats.value,
+        dagon.value,
+	decline.value,
+        fastparse.value,
+        fastparseCats.value,
+        paiges.value,
+        scalaCheck.value % Test,
+        scalaTest.value % Test
+      )
+  ).dependsOn(base).
+  jsSettings(
+    scalaJSUseMainModuleInitializer := true
+  )
+
+lazy val coreJVM = core.jvm
+lazy val coreJS = core.js

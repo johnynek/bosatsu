@@ -1,12 +1,14 @@
 package org.bykn.bosatsu
 
-import cats.Eval
+import cats.{Eval, Traverse}
 import cats.data.{Validated, ValidatedNel, NonEmptyList}
 import cats.implicits._
 import com.monovore.decline._
-import java.nio.file.Path
+import fastparse.all._
+import java.nio.file.{Files, Path}
 import org.typelevel.paiges.Doc
 import scala.util.Try
+import scala.util.{ Failure, Success, Try }
 
 object Foo {
   def times(i: java.lang.Integer): java.lang.Integer =
@@ -82,27 +84,61 @@ sealed abstract class MainCommand {
 }
 
 object MainCommand {
+  def parseInputs[F[_]: Traverse](paths: F[Path]): ValidatedNel[ParseError, F[((Path, LocationMap), Package.Parsed)]] =
+    paths.traverse { path =>
+      parseFile(Package.parser, path).map { case (lm, parsed) =>
+        ((path, lm), parsed)
+      }
+    }
 
-  def typeCheck(inputs: NonEmptyList[Path], externals: List[Path]): MainResult[(Externals, PackageMap.Inferred, List[(Path, PackageName)])] = {
-    val ins = PackageMap.parseInputs(inputs)
-    val exts = readExternals(externals)
+  sealed trait ParseError {
+    def showContext: Option[String] =
+      this match {
+        case ParseError.PartialParse(err, _) =>
+          err.showContext
+        case ParseError.ParseFailure(err, _) =>
+          err.showContext
+        case ParseError.FileError(_, _) =>
+          None
+      }
+  }
 
-    toResult(ins.product(exts))
-      .flatMap { case (packs, exts) =>
+  object ParseError {
+     case class PartialParse[A](error: Parser.Error.PartialParse[A], path: Path) extends ParseError
+     case class ParseFailure(error: Parser.Error.ParseFailure, path: Path) extends ParseError
+     case class FileError(readPath: Path, error: Throwable) extends ParseError
+  }
+
+  def parseFile[A](p: P[A], path: Path): ValidatedNel[ParseError, (LocationMap, A)] =
+    Try(new String(Files.readAllBytes(path), "utf-8")) match {
+      case Success(str) => Parser.parse(p, str).leftMap { nel =>
+        nel.map {
+          case pp@Parser.Error.PartialParse(_, _, _) => ParseError.PartialParse(pp, path)
+          case pf@Parser.Error.ParseFailure(_, _) => ParseError.ParseFailure(pf, path)
+        }
+      }
+      case Failure(err) => Validated.invalidNel(ParseError.FileError(path, err))
+    }
+
+  def typeCheck(inputs: NonEmptyList[Path]): MainResult[(PackageMap.Inferred, List[(Path, PackageName)])] = {
+    val ins = parseInputs(inputs)
+
+    toResult(ins)
+      .flatMap { packs =>
         val pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
         val (dups, resPacks) = PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), packs.toList))
         val checkD = checkDuplicatePackages(dups)(_._1.toString)
         val map = PackageMap.buildSourceMap(packs)
         val checkPacks = fromPackageError(map, resPacks)
         MainResult.product(checkD, checkPacks)(_ max _)
-          .map { case (_, p) => (exts, p, pathToName) }
+          .map { case (_, p) => (p, pathToName) }
       }
   }
 
-  case class Evaluate(inputs: NonEmptyList[Path], externals: List[Path], mainPackage: PackageName) extends MainCommand {
+  case class Evaluate(inputs: NonEmptyList[Path], mainPackage: PackageName) extends MainCommand {
     def run() =
-      typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
-        val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
+      typeCheck(inputs).flatMap { case (packs, _) =>
+        val ev = Evaluation(packs, Predef.jvmExternals)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
           case Some((eval, scheme)) =>
@@ -111,10 +147,10 @@ object MainCommand {
         }
       }
   }
-  case class ToJson(inputs: NonEmptyList[Path], externals: List[Path], signatures: List[Path], mainPackage: PackageName, output: Path) extends MainCommand {
+  case class ToJson(inputs: NonEmptyList[Path], signatures: List[Path], mainPackage: PackageName, output: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
-        val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
+      typeCheck(inputs).flatMap { case (packs, _) =>
+        val ev = Evaluation(packs, Predef.jvmExternals)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
           case Some((eval, scheme)) =>
@@ -123,7 +159,7 @@ object MainCommand {
               case None =>
                 MainResult.Error(1, List(s"cannot convert type to Json: $scheme"))
               case Some(j) =>
-                MainResult.fromTry(CodeGen.writeDoc(output, j.toDoc))
+                MainResult.fromTry(CodeGenWrite.writeDoc(output, j.toDoc))
                   .map { _ => Nil }
             }
         }
@@ -131,20 +167,20 @@ object MainCommand {
   }
   case class TypeCheck(inputs: NonEmptyList[Path], signatures: List[Path], output: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs, Nil).flatMap { case (_, packs, _) =>
-        MainResult.fromTry(CodeGen.writeDoc(output, Doc.text(s"checked ${packs.toMap.size} packages")))
+      typeCheck(inputs).flatMap { case (packs, _) =>
+        MainResult.fromTry(CodeGenWrite.writeDoc(output, Doc.text(s"checked ${packs.toMap.size} packages")))
           .map(_ => Nil)
       }
   }
-  case class Compile(inputs: NonEmptyList[Path], externals: List[Path], compileRoot: Path) extends MainCommand {
+  case class Compile(inputs: NonEmptyList[Path], compileRoot: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs, externals).flatMap { case (ext, packs, _) =>
-        MainResult.fromTry(CodeGen.write(compileRoot, packs, Predef.jvmExternals ++ ext))
+      typeCheck(inputs).flatMap { case (packs, _) =>
+        MainResult.fromTry(CodeGenWrite.write(compileRoot, packs, Predef.jvmExternals))
           .map { _ => List(s"wrote ${packs.toMap.size} packages") }
       }
   }
 
-  case class RunTests(tests: List[Path], testPacks: List[PackageName], dependencies: List[Path], externals: List[Path]) extends MainCommand {
+  case class RunTests(tests: List[Path], testPacks: List[PackageName], dependencies: List[Path]) extends MainCommand {
     def run() = {
       val files = NonEmptyList.fromList(tests ::: dependencies) match {
         case None =>
@@ -152,12 +188,12 @@ object MainCommand {
         case Some(ne) => MainResult.Success(ne)
       }
 
-      files.flatMap(typeCheck(_, externals)).flatMap { case (ext, packs, nameMap) =>
+      files.flatMap(typeCheck(_)).flatMap { case (packs, nameMap) =>
         val testSet = tests.toList.toSet
         val testPackages: List[PackageName] =
           (nameMap.iterator.collect { case (p, name) if testSet(p) => name } ++
             testPacks.iterator).toList.sorted.distinct
-        val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
+        val ev = Evaluation(packs, Predef.jvmExternals)
         val resMap = testPackages.map { p => (p, ev.evalTest(p)) }
         val noTests = resMap.collect { case (p, None) => p }.toList
         val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t)) }.toList.sortBy(_._1)
@@ -184,37 +220,27 @@ object MainCommand {
     }
   }
 
-  def readExternals(epaths: List[Path]): ValidatedNel[Parser.Error, Externals] =
-    epaths match {
-      case Nil => Validated.valid(Externals.empty)
-      case epaths =>
-        epaths.traverse(Parser.parseFile(Externals.parser, _))
-          .map(_.toList.map(_._2).reduce(_ ++ _))
-    }
-
-  def toResult[A](v: ValidatedNel[Parser.Error, A]): MainResult[A] =
+  def toResult[A](v: ValidatedNel[ParseError, A]): MainResult[A] =
     v match {
       case Validated.Valid(a) => MainResult.Success(a)
       case Validated.Invalid(errs) =>
         val msgs = errs.toList.flatMap {
-          case Parser.Error.PartialParse(_, pos, map, Some(path)) =>
+          case ParseError.PartialParse(pp, path) =>
             // we should never be partial here
-            val (r, c) = map.toLineCol(pos).get
-            val ctx = map.showContext(pos).get
+            val (r, c) = pp.locations.toLineCol(pp.position).get
+            val ctx = pp.locations.showContext(pp.position).get
             List(s"failed to parse completely $path at line ${r + 1}, column ${c + 1}",
                 ctx.toString)
-          case Parser.Error.ParseFailure(pos, map, Some(path)) =>
+          case ParseError.ParseFailure(pf, path) =>
             // we should never be partial here
-            val (r, c) = map.toLineCol(pos).get
-            val ctx = map.showContext(pos).get
+            val (r, c) = pf.locations.toLineCol(pf.position).get
+            val ctx = pf.locations.showContext(pf.position).get
             List(s"failed to parse $path at line ${r + 1}, column ${c + 1}",
                 ctx.toString)
-          case Parser.Error.FileError(path, err) =>
+          case ParseError.FileError(path, err) =>
             List(s"failed to parse $path",
                 err.getMessage,
                 err.getClass.toString)
-          case other =>
-            List(s"unexpected error $other")
         }
       MainResult.Error(1, msgs)
     }
@@ -255,7 +281,6 @@ object MainCommand {
 
     val ins = Opts.options[Path]("input", help = "input files")
     val deps = toList(Opts.options[Path]("test_deps", help = "test dependencies"))
-    val extern = toList(Opts.options[Path]("external", help = "input files"))
     val sigs = toList(Opts.options[Path]("signature", help = "signature files"))
 
     val mainP = Opts.option[PackageName]("main", help = "main package to evaluate")
@@ -263,11 +288,11 @@ object MainCommand {
     val outputPath = Opts.option[Path]("output", help = "output path")
     val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output")
 
-    val evalOpt = (ins, extern, mainP).mapN(Evaluate(_, _, _))
-    val toJsonOpt = (ins, extern, sigs, mainP, outputPath).mapN(ToJson(_, _, _, _, _))
+    val evalOpt = (ins, mainP).mapN(Evaluate(_, _))
+    val toJsonOpt = (ins, sigs, mainP, outputPath).mapN(ToJson(_, _, _, _))
     val typeCheckOpt = (ins, sigs, outputPath).mapN(TypeCheck(_, _, _))
-    val compileOpt = (ins, extern, compileRoot).mapN(Compile(_, _, _))
-    val testOpt = (toList(ins), testP, deps, extern).mapN(RunTests(_, _, _, _))
+    val compileOpt = (ins, compileRoot).mapN(Compile(_, _))
+    val testOpt = (toList(ins), testP, deps).mapN(RunTests(_, _, _))
 
     Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
       .orElse(Opts.subcommand("write-json", "evaluate a data expression into json")(toJsonOpt))
