@@ -49,13 +49,13 @@ object DefRecursionCheck {
         checkStatement(cs.on.padded)
       case Def(defn) =>
         checkDef(TopLevel, defn) *> checkStatement(defn.result._2.padded)
-      case Struct(_, _, rest) =>
+      case Struct(_, _, _, rest) =>
         checkStatement(rest.padded)
       case ExternalDef(_, _, _, rest) =>
         checkStatement(rest.padded)
       case ExternalStruct(_, _, rest) =>
         checkStatement(rest.padded)
-      case Enum(_, _, rest) =>
+      case Enum(_, _, _, rest) =>
         checkStatement(rest.padded)
       case EndOfFile =>
         unitValid

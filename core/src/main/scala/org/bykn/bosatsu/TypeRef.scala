@@ -106,7 +106,9 @@ object TypeRef {
       case (s, Some(tr)) => Document[A].document(s) + colonSpace + (tr.toDoc)
     }
 
-  case class TypeVar(asString: String) extends TypeRef
+  case class TypeVar(asString: String) extends TypeRef {
+    def toBoundVar: Type.Var.Bound = Type.Var.Bound(asString)
+  }
   case class TypeName(name: Name) extends TypeRef
   case class TypeArrow(from: TypeRef, to: TypeRef) extends TypeRef
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef

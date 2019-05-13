@@ -44,12 +44,14 @@ object Generators {
       rest <- Gen.listOfN(cnt, identC)
     } yield (c :: rest).mkString
 
+  val typeRefVarGen: Gen[TypeRef.TypeVar] =
+    lowerIdent.map(TypeRef.TypeVar(_))
+
   val typeRefLambdaGen: Gen[TypeRef.TypeLambda] =
     for {
       e <- Gen.lzy(typeRefGen)
       cnt <- Gen.choose(1, 3)
-      tvar = lowerIdent.map(TypeRef.TypeVar(_))
-      args <- Gen.listOfN(cnt, tvar)
+      args <- Gen.listOfN(cnt, typeRefVarGen)
       nel = NonEmptyList.fromListUnsafe(args)
     } yield TypeRef.TypeLambda(nel, e)
 
@@ -81,7 +83,7 @@ object Generators {
   lazy val typeRefGen: Gen[TypeRef] = {
     import TypeRef._
 
-    val tvar = lowerIdent.map(TypeVar(_))
+    val tvar = typeRefVarGen
     val tname = typeNameGen.map(TypeRef.TypeName(_))
 
     val tApply =
@@ -550,18 +552,18 @@ object Generators {
 
 
   def genStruct(tail: Gen[Statement]): Gen[Statement] =
-    Gen.zip(constructorGen, padding(tail, 1))
-      .map { case ((name, args), rest) =>
-        Statement.Struct(name, args, rest)
+    Gen.zip(constructorGen, Gen.listOf(typeRefVarGen), padding(tail, 1))
+      .map { case ((name, args), ta, rest) =>
+        Statement.Struct(name, NonEmptyList.fromList(ta.distinct), args, rest)
       }
 
   def genExternalStruct(tail: Gen[Statement]): Gen[Statement] =
     for {
       name <- consIdentGen
       argc <- Gen.choose(0, 5)
-      args <- Gen.listOfN(argc, lowerIdent)
+      args <- Gen.listOfN(argc, typeRefVarGen)
       rest <- padding(tail, 1)
-    } yield Statement.ExternalStruct(name, args.map(TypeRef.TypeVar(_)), rest)
+    } yield Statement.ExternalStruct(name, args, rest)
 
   def genExternalDef(tail: Gen[Statement]): Gen[Statement] =
     for {
@@ -576,11 +578,12 @@ object Generators {
   def genEnum(tail: Gen[Statement]): Gen[Statement] =
     for {
       name <- consIdentGen
+      ta <- Gen.listOf(typeRefVarGen)
       consc <- Gen.choose(1, 5)
       i <- Gen.choose(1, 16)
       cons <- optIndent(nonEmptyN(constructorGen, consc))
       rest <- padding(tail, 1)
-    } yield Statement.Enum(name, cons, rest)
+    } yield Statement.Enum(name, NonEmptyList.fromList(ta.distinct), cons, rest)
 
   def genStatement(depth: Int): Gen[Statement] = {
     val recur = Gen.lzy(genStatement(depth-1))
