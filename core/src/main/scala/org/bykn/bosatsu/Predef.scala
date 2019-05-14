@@ -179,11 +179,13 @@ object PredefImpl {
   //def intLoop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
   final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
     val fnT = fn.asFn
+
     @annotation.tailrec
     def loop(biValue: Value, bi: BigInteger, state: Value): Value =
       if (bi.compareTo(BigInteger.ZERO) <= 0) state
       else {
-        fnT(biValue).flatMap(_.asFn(state)).value match {
+        val fn0 = fnT(biValue).value.asFn
+        fn0(state).value match {
           case ConsValue(nextI, ConsValue(ConsValue(nextA, _), _)) =>
             val n = i(nextI)
             if (n.compareTo(bi) >= 0) {
