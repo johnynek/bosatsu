@@ -1,0 +1,42 @@
+package Example/Resultset2
+
+def reorder(row: t[a, b], f: t[a, b] -> s[a, b]) -> s[a, b]:
+  f(row)
+
+struct A[a,b](x1: a, x2: b, x3: a)
+struct B[a,b](x1: a, x2: a, x3: b)
+
+x = A("a", True, "c")
+y = A(1, 2, 3)
+
+def swap_last_two(A(first, second, third)):
+  B(first, third, second)
+
+x2 = x.reorder(swap_last_two)
+y2 = y.reorder(swap_last_two)
+
+def and(x, y):
+  match x:
+    True: y
+    False: False
+
+operator && = and
+
+def equals(compare, x, y):
+  match compare(x,y):
+    EQ: True
+    _: False
+
+def cmp_Bool(x, y):
+  match (x, y):
+    (True, False): GT
+    (False, True): LT
+    _: EQ
+
+def compare_triples((compare1, compare2), B(x1, x2, x3), B(y1, y2, y3)):
+  compare1.equals(x1, y1) && compare1.equals(x2, y2) && compare2.equals(x3, y3)
+
+tests = Test("reordering",
+  [Assertion((string_Order_fn, cmp_Bool).compare_triples(x2, B("a", "c", True)), "letter swap"),
+  Assertion((cmp_Int, cmp_Int).compare_triples(y2, B(1, 3, 2)), "number swap")]
+)
