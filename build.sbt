@@ -119,3 +119,14 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
 
 lazy val coreJVM = core.jvm
 lazy val coreJS = core.js
+
+lazy val bench = project
+  .dependsOn(core.jvm)
+  .settings(moduleName := "bosatsu-bench")
+  .settings(commonSettings)
+  .settings(
+    publish := {},
+		publishLocal := {},
+		publishArtifact := false)
+  .settings(coverageEnabled := false)
+  .enablePlugins(JmhPlugin)
