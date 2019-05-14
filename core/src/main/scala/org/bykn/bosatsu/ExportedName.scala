@@ -4,11 +4,16 @@ import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
+import scala.util.hashing.MurmurHash3
 
-sealed abstract class ExportedName[+T] {
+sealed abstract class ExportedName[+T] { self: Product =>
   def name: Identifier
   def tag: T
 
+  // It is really important to cache the hashcode and these large dags if
+  // we use them as hash keys
+  final override val hashCode: Int =
+    MurmurHash3.productHash(this)
  /**
   * Given name, in the current type environment and fully typed lets
   * what does it correspond to?

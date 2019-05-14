@@ -6,11 +6,17 @@ import cats.data.NonEmptyList
 import cats.implicits._
 import org.bykn.bosatsu.rankn.Type
 import scala.collection.immutable.SortedSet
+import scala.util.hashing.MurmurHash3
 
 import Identifier.{Bindable, Constructor}
 
-sealed abstract class TypedExpr[T] {
+sealed abstract class TypedExpr[T] { self: Product =>
   import TypedExpr._
+
+  // It is really important to cache the hashcode and these large dags if
+  // we use them as hash keys
+  final override val hashCode: Int =
+    MurmurHash3.productHash(this)
 
   def tag: T
   /**

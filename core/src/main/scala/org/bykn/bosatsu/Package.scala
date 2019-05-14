@@ -10,15 +10,33 @@ import Parser.{spaces, maybeSpace, Combinators}
 import rankn._
 
 import Identifier.{Bindable, Constructor}
+import scala.util.hashing.MurmurHash3
 
 /**
  * Represents a package over its life-cycle: from parsed to resolved to inferred
  */
-case class Package[A, B, C, D](
+final case class Package[A, B, C, D](
   name: PackageName,
   imports: List[Import[A, B]],
   exports: List[ExportedName[C]],
   program: D) {
+
+  // It is really important to cache the hashcode and these large dags if
+  // we use them as hash keys
+  final override val hashCode: Int =
+    MurmurHash3.productHash(this)
+
+  override def equals(that: Any): Boolean =
+    that match {
+      case p: Package[_, _, _, _] =>
+        (this eq p) || {
+          (name == p.name) &&
+          (imports == p.imports) &&
+          (exports == p.exports) &&
+          (program == p.program)
+        }
+      case _ => false
+    }
 
   // TODO, this isn't great
   private lazy val importMap: ImportMap[A, B] =
