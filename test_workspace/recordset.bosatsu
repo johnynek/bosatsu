@@ -13,7 +13,6 @@ def restructure(RecordSet(fields, rows), f: forall string,int,bool. shape1[strin
 def add_int_field(RecordSet(fields, rows): RecordSet[shape1], name: String, f: shape1[String, Int, Bool] -> Int, g: forall string,int,bool. shape1[string,int,bool] -> int -> shape2[string,int,bool]):
   RecordSet(g(fields, Field(name, RVInt)), rows.map_List(\row -> g(row, f(row))))
 
-
 ##################################################
 
 struct Shape1[string,int,bool](f1: string, f2: int, f3: bool)
