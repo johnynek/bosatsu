@@ -7,11 +7,11 @@ enum RecordValue:
 struct Field[t](name: String, toValue: t -> RecordValue)
 struct RecordSet[shape](fields: shape[Field[String], Field[Int], Field[Bool]], rows: List[shape[String,Int, Bool]])
 
-def restructure(RecordSet(fields, rows), f: forall a,b,c. shape1[a, b, c] -> shape2[a, b, c]) -> RecordSet[shape2]:
+def restructure(RecordSet(fields, rows), f: forall string,int,bool. shape1[string, int, bool] -> shape2[string, int, bool]) -> RecordSet[shape2]:
   RecordSet(f(fields), rows.map_List(f))
 
-struct Source[a,b,c](s1: a, s2: b, s3: c)
-struct Target[a,b,c](t1: a, t2: c, t3: b)
+struct Source[string,int,bool](s1: string, s2: int, s3: bool)
+struct Target[string,int,bool](t1: string, t2: bool, t3: int)
 
 rs = RecordSet(
   Source(Field("String", RVString), Field("Int", RVInt), Field("Bool", RVBool)),
