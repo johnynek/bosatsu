@@ -20,7 +20,7 @@ common_deps = [
 scala_library(
     name = "bosatsu",
     srcs = glob(["**/*.scala"], exclude=["Main.scala"]),
-    deps = common_deps)
+    deps = common_deps + ["//cli/src/main/protobuf/bosatsu"])
 
 scala_binary(
     name = "bosatsu_main",

@@ -1,6 +1,8 @@
 load("@io_bazel_rules_scala//scala_proto:scala_proto.bzl", "scalapb_proto_library")
 load("@io_bazel_rules_scala//scala_proto:scala_proto_toolchain.bzl", "scala_proto_toolchain")
 
+package(default_visibility = ["//visibility:public"])
+
 scala_proto_toolchain(
     name = "scala_proto_toolchain_configuration",
     with_grpc = False,
