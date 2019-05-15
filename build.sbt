@@ -92,8 +92,11 @@ lazy val cli = (project in file("cli")).
       Seq(
         jawnParser.value % Test,
         jawnAst.value % Test
-      )
-  ).dependsOn(coreJVM)
+      ),
+    PB.targets in Compile := Seq(
+     scalapb.gen() -> (sourceManaged in Compile).value
+   )
+  ).dependsOn(coreJVM % "compile->compile;test->test")
 
 lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
