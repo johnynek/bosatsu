@@ -112,7 +112,7 @@ object ProtoConverter {
       d.constructors.traverse { case (c, tp, _) =>
         tp.traverse { case (b, t) =>
           typeToProto(t).map { tpe =>
-            proto.FnParam(b.asString, Some(tpe))
+            proto.FnParam(b.sourceCodeRepr, Some(tpe))
           }
         }
         .map { params =>
@@ -210,7 +210,8 @@ object ProtoConverter {
             }
         }
       val exKind = e match {
-        case ExportedName.Binding(b, _) => proto.ExportedName.Kind.Binding(b.asString)
+        case ExportedName.Binding(b, _) =>
+          proto.ExportedName.Kind.Binding(b.sourceCodeRepr)
         case ExportedName.TypeName(n, _) => proto.ExportedName.Kind.TypeName(n.asString)
         case ExportedName.Constructor(n, _) => proto.ExportedName.Kind.ConstructorName(n.asString)
       }

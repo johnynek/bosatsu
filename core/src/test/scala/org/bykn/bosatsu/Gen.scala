@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import org.bykn.bosatsu.rankn.NTypeGen
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import cats.implicits._
@@ -636,13 +637,68 @@ object Generators {
       consIdentGen.map(ExportedName.TypeName(_, ())),
       consIdentGen.map(ExportedName.Constructor(_, ())))
 
+  def smallList[A](g: Gen[A]): Gen[List[A]] =
+    Gen.choose(0, 8).flatMap(Gen.listOfN(_, g))
+
   def packageGen(depth: Int): Gen[Package.Parsed] =
     for {
       p <- packageNameGen
-      ic <- Gen.choose(0, 8)
       ec <- Gen.choose(0, 10)
-      imports <- Gen.listOfN(ic, importGen)
+      imports <- smallList(importGen)
       exports <- Gen.listOfN(ec, exportedNameGen)
       body <- genStatement(depth)
     } yield Package(p, imports, exports, body)
+
+
+  def genDefinedType[A](inner: Gen[A]): Gen[rankn.DefinedType[A]] =
+    for {
+      p <- packageNameGen
+      t <- typeNameGen
+      params0 <- smallList(Gen.zip(NTypeGen.genBound, inner))
+      params = params0.toMap.toList // don't generate duplicate type parameters
+      genCons: Gen[(Identifier.Constructor, List[(Identifier.Bindable, rankn.Type)], rankn.Type)] =
+        for {
+          cons <- consIdentGen
+          ps <- smallList(Gen.zip(bindIdentGen, NTypeGen.genDepth03))
+          res = rankn.DefinedType.constructorValueType(p, t, params.map(_._1), ps.map(_._2))
+        } yield (cons, ps, res)
+      cons <- smallList(genCons)
+    } yield rankn.DefinedType(p, t, params, cons)
+
+  def typeEnvGen[A](inner: Gen[A]): Gen[rankn.TypeEnv[A]] =
+    smallList(genDefinedType(inner)).map(rankn.TypeEnv.fromDefinitions(_))
+
+  def exportGen[A](te: rankn.TypeEnv[A]): Gen[ExportedName[Referant[A]]] = {
+    def bind(genTpe: Gen[rankn.Type]) = for {
+      n <- bindIdentGen
+      t <- genTpe
+    } yield ExportedName.Binding(n, Referant.Value(t))
+
+    te.allDefinedTypes match {
+      case Nil => bind(NTypeGen.genDepth03)
+      case dts =>
+        val b = bind(Gen.oneOf(NTypeGen.genDepth03, Gen.oneOf(dts).map(_.toTypeTyConst)))
+        val genExpT = Gen.oneOf(dts)
+          .map { dt =>
+            ExportedName.TypeName(dt.name.ident, Referant.DefinedT(dt))
+          }
+
+        dts.filter(_.constructors.nonEmpty) match {
+          case Nil => Gen.oneOf(b, genExpT)
+          case nonEmpty =>
+            val c = for {
+              dt <- Gen.oneOf(nonEmpty)
+              (c, ps, tpe) <- Gen.oneOf(dt.constructors)
+            } yield ExportedName.Constructor(c, Referant.Constructor(c, dt, ps, tpe))
+            Gen.oneOf(b, genExpT, c)
+        }
+    }
+  }
+
+  val interfaceGen: Gen[Package.Interface] =
+    for {
+      p <- packageNameGen
+      te <- typeEnvGen(Gen.oneOf(Variance.co, Variance.phantom, Variance.contra, Variance.in))
+      exs <- smallList(exportGen(te))
+    } yield Package(p, Nil, exs, ())
 }

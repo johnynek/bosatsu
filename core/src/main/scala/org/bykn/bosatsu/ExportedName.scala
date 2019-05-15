@@ -79,11 +79,11 @@ object ExportedName {
    *   1. a type
    *   2. a value (e.g. a let or a constructor function)
    */
-  def buildExports[E, V](
+  def buildExports[E, V, R, D](
     nm: PackageName,
     exports: List[ExportedName[E]],
     typeEnv: rankn.TypeEnv[V],
-    lets: List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
+    lets: List[(Identifier.Bindable, R, TypedExpr[D])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
 
      val letMap = lets.iterator.map { case (n, _, t) => (n, t) }.toMap
 
