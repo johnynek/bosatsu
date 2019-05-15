@@ -60,7 +60,7 @@ object Package {
   type PackageF2[A, B] = PackageF[A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Interface = FixPackage[Nothing, Referant[Variance], Unit]
+  type Interface = Package[Nothing, Nothing, Referant[Variance], Unit]
   type Typed[T] = Package[Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[T], Statement]]
   type Inferred = Typed[Declaration]
 
@@ -72,11 +72,7 @@ object Package {
     Package(pn, Nil, Nil, st)
 
   def interfaceOf(inferred: Inferred): Interface =
-    Fix[Lambda[A =>
-      Package[A,
-        Nothing,
-        Referant[Variance],
-        Unit]]](inferred.mapProgram(_ => ()).replaceImports(Nil))
+    inferred.mapProgram(_ => ()).replaceImports(Nil)
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
@@ -158,7 +154,7 @@ object Package {
         }, // name to cons
         stmt)
 
-    val importedTypeEnv = Referant.importedTypeEnv(imps)(_.unfix.name)
+    val importedTypeEnv = Referant.importedTypeEnv(imps)(_.name)
 
     val inferVarianceParsed: Either[PackageError, ParsedTypeEnv[Variance]] =
       VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
@@ -193,7 +189,7 @@ object Package {
         Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
 
       val withFQN: Map[(Option[PackageName], Identifier), Type] =
-        (Referant.fullyQualifiedImportedValues(imps)(_.unfix.name)
+        (Referant.fullyQualifiedImportedValues(imps)(_.name)
           .iterator
           .map { case ((p, n), t) => ((Some(p), n), t) } ++
             importedValues.iterator.map { case (n, t) => ((None, n), t) }

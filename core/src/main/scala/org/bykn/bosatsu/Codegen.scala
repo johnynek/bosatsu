@@ -64,7 +64,7 @@ trait CodeGen {
                 case None =>
                   Monad[Output].pure(())
                 case Some(n) =>
-                  tell(Doc.text("import static ") + Doc.text(toPackage(pack.unfix.name)) +
+                  tell(Doc.text("import static ") + Doc.text(toPackage(pack.name)) +
                     Doc.text(".Values.") + Doc.text(n) + Doc.char(';') + Doc.line)
               }).map(_ => None)
             }
@@ -87,7 +87,7 @@ trait CodeGen {
       Foldable[List].foldMap(ls) { case (p, orig, local) =>
         val priv = if (isExported(local)) "public " else "private "
         Doc.text(priv) + Doc.text("final static Object ") + Doc.text(toExportedName(local)) + Doc.text(" = ") +
-          Doc.text(toPackage(p.unfix.name)) + Doc.text(".Values.") + Doc.text(toExportedName(orig)) + Doc.text(";") + Doc.line
+          Doc.text(toPackage(p.name)) + Doc.text(".Values.") + Doc.text(toExportedName(orig)) + Doc.text(";") + Doc.line
       }
 
     val internalImports = List("Fn", "EnumValue")

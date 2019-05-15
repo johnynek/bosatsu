@@ -246,7 +246,7 @@ object Normalization {
         }
 
         maybeIdx match {
-          case None => 
+          case None =>
             // this is a struct, which means we expect it
             { (arg: NormalExpression, acc: PatternEnv) =>
               arg match {
@@ -255,7 +255,7 @@ object Normalization {
                 case _ =>
                   NotProvable
               }
-            } 
+            }
 
           case Some(idx) =>
             // we don't check if idx < 0, because if we compiled, it can't be
@@ -422,7 +422,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         a.copy(term=term, tag=tag)
       }
 
-  def normalizeGeneric(g: Generic[Declaration], env: Env, p: Package.Inferred): 
+  def normalizeGeneric(g: Generic[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
       normalizeExpr(g.in, env, p).map { in =>
         val neTag = in.tag._2
@@ -549,7 +549,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
 
   def normalizeProgram(pkgName: PackageName, pack: Package.Inferred): NormState[
     Program[TypeEnv[Variance], TypedExpr[(Declaration, Normalization.NormalExpressionTag)], Statement]] = {
-    for { 
+    for {
       lets <- pack.program.lets.map {
         case (name, recursive, expr) => normalizeNameKindLet(name, recursive, expr, pack, (Map(), Nil)).map((name, recursive, _))
       }.sequence
@@ -587,7 +587,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case NameKind.Import(from, orig) =>
           // we reset the environment in the other package
           for {
-            imported <- norm(pm.toMap(from.unfix.name), orig, t, (Map.empty, Nil))
+            imported <- norm(pm.toMap(from.name), orig, t, (Map.empty, Nil))
             neTag = getTag(imported)._2
           } yield Left((item, (t, neTag)))
         case NameKind.ExternalDef(pn, n, scheme) =>
@@ -601,7 +601,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       lookup <- State.inspect {
         lets: Map[(PackageName, Identifier), TypedExpr[(Declaration, NormalExpressionTag)]] =>
           lets.get((pack.name, name))
-        } 
+        }
       outExpr  <- lookup match {
         case Some(res) =>
           State.pure(res): NormState[TypedExpr[(Declaration, NormalExpressionTag)]]

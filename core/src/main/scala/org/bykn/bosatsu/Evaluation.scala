@@ -665,7 +665,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           case Some(NameKind.Constructor(cn, _, dt, tpe)) =>
             (Scoped.const(constructor(cn, dt)), tpe)
           case Some(NameKind.Import(from, orig)) =>
-            val infFrom = pm.toMap(from.unfix.name)
+            val infFrom = pm.toMap(from.name)
             val other = recurse((infFrom, Left(orig)))
 
             // we reset the environment in the other package
