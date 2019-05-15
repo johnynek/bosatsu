@@ -114,5 +114,5 @@ bosatsu_test(
     name = "recordset",
     deps = [],
     srcs = ["recordset.bosatsu"],
-    packages = ["Example/Resultset2"],
+    packages = ["RecordSet"],
     )

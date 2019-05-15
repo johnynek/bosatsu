@@ -1,16 +1,27 @@
-package Example/Resultset2
+package RecordSet
 
-def reorder(rows: List[t[a, b]], f: t[a, b] -> s[c, d]) -> List[s[c, d]]:
-  rows.map_List(f)
+enum RecordValue:
+  RVBool(value: Bool)
+  RVInt(value: Int)
+  RVString(value: String)
+struct Field[t](name: String, toValue: t -> RecordValue)
+struct RecordSet[shape](fields: shape[Field[String], Field[Int], Field[Bool]], rows: List[shape[String,Int, Bool]])
 
-x = [("a", True, "c")]
-y = [(1, 2, 3)]
+def restructure(RecordSet(fields, rows), f: forall a,b,c. shape1[a, b, c] -> shape2[a, b, c]) -> RecordSet[shape2]:
+  RecordSet(f(fields), rows.map_List(f))
 
-def swap_last_two((first, second, third)):
-  (first, third, second)
+struct Source[a,b,c](s1: a, s2: b, s3: c)
+struct Target[a,b,c](t1: a, t2: c, t3: b)
 
-x2 = x.reorder(swap_last_two)
-y2 = y.reorder(swap_last_two)
+rs = RecordSet(
+  Source(Field("String", RVString), Field("Int", RVInt), Field("Bool", RVBool)),
+  [Source("a", 1, True)]
+)
+
+def swap_last_two(Source(first, second, third)):
+  Target(first, third, second)
+
+rs2 = rs.restructure(swap_last_two)
 
 def and(x, y):
   match x:
@@ -39,12 +50,12 @@ def equal_List(is_equal, l1, l2):
       []: False
       [h2, *r2]: is_equal(h1, h2) && equal_List(is_equal, r1, r2)
 
-def compare_triples((compare1, compare2), (x1, x2, x3), (y1, y2, y3)):
-  compare1.equals(x1, y1) && compare1.equals(x2, y2) && compare2.equals(x3, y3)
+def compare_triples((compare1, compare2, compare3), Target(x1, x2, x3), Target(y1, y2, y3)):
+  compare1.equals(x1, y1) && compare2.equals(x2, y2) && compare3.equals(x3, y3)
 
+RecordSet(_, rows) = rs2
 tests = Test("reordering",
   [
-    Assertion((string_Order_fn, cmp_Bool).compare_triples.equal_List(x2, [("a", "c", True)]), "letter swap"),
-    Assertion((cmp_Int, cmp_Int).compare_triples.equal_List(y2, [(1, 3, 2)]), "number swap")
+    Assertion((string_Order_fn, cmp_Bool, cmp_Int).compare_triples.equal_List(rows, [Target("a", True, 1)]), "swap")
   ]
 )
