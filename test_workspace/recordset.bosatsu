@@ -24,9 +24,7 @@ def swap_last_two(Source(first, second, third)):
 rs2 = rs.restructure(swap_last_two)
 
 def and(x, y):
-  match x:
-    True: y
-    False: False
+  y if x else False
 
 operator && = and
 
