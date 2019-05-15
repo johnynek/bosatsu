@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package bosatsu;
+
+message TypeConst {
+  string packageName = 1;
+  string typeName = 2;
+}
+
+message TypeVar {
+  string varName = 1;
+}
+
+message TypeForAll {
+  repeated string varNames = 1;
+  Type typeValue = 2;
+}
+
+// represents left[right] type application
+message TypeApply {
+  Type left = 1;
+  Type right = 2;
+}
+
+message Type {
+  oneof value {
+    TypeConst typeConst = 1;
+    TypeVar typeVar = 2;
+    TypeForAll typeForAll = 3;
+    TypeApply typeApply = 4;
+  }
+}
+
