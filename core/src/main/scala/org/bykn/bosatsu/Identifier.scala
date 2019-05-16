@@ -11,6 +11,9 @@ import cats.implicits._
 sealed abstract class Identifier {
   def asString: String
 
+  def sourceCodeRepr: String =
+    Identifier.document.document(this).renderWideStream.mkString
+
   override def equals(that: Any): Boolean =
     that match {
       case ident: Identifier =>
