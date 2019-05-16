@@ -109,3 +109,10 @@ bosatsu_test(
     deps = [":treelist"],
     packages = ["TreeList"],
     )
+
+bosatsu_test(
+    name = "recordset",
+    deps = [],
+    srcs = ["recordset.bosatsu"],
+    packages = ["RecordSet"],
+    )

@@ -1,0 +1,66 @@
+package RecordSet
+
+enum RecordValue:
+  RVBool(value: Bool)
+  RVInt(value: Int)
+  RVString(value: String)
+struct Field[t](name: String, toValue: t -> RecordValue)
+struct RecordSet[shape](fields: shape[Field[String], Field[Int], Field[Bool]], rows: List[shape[String,Int, Bool]])
+
+def restructure(RecordSet(fields, rows), f: forall string,int,bool. shape1[string, int, bool] -> shape2[string, int, bool]) -> RecordSet[shape2]:
+  RecordSet(f(fields), rows.map_List(f))
+
+def add_int_field(RecordSet(fields, rows): RecordSet[shape1], name: String, f: shape1[String, Int, Bool] -> Int, g: forall string,int,bool. shape1[string,int,bool] -> int -> shape2[string,int,bool]):
+  RecordSet(g(fields, Field(name, RVInt)), rows.map_List(\row -> g(row, f(row))))
+
+
+##################################################
+
+struct Shape1[string,int,bool](f1: string, f2: int, f3: bool)
+struct Shape2[string,int,bool](f1: string, f2: bool, f3: int)
+struct Shape3[string,int,bool](f1: string, f2: bool, f3: int, f4: int)
+
+rs = RecordSet(
+  Shape1(Field("String", RVString), Field("Int", RVInt), Field("Bool", RVBool)),
+  [Shape1("a", 1, True)]
+)
+
+rs1 = rs.restructure(\Shape1(a,b,c) -> Shape2(a,c,b))
+rs2 = rs1.add_int_field("Second Int", \Shape2(_,_,x) -> x.add(4), \Shape2(a,b,c), d -> Shape3(a,b,c,d))
+
+##################################################
+
+def and(x, y):
+  y if x else False
+
+operator && = and
+
+def equals(compare, x, y):
+  match compare(x,y):
+    EQ: True
+    _: False
+
+def cmp_Bool(x, y):
+  match (x, y):
+    (True, False): GT
+    (False, True): LT
+    _: EQ
+
+def equal_List(is_equal, l1, l2):
+  recur l1:
+    []: match l2:
+      []: True
+      _: False
+    [h1, *r1]: match l2:
+      []: False
+      [h2, *r2]: is_equal(h1, h2) && equal_List(is_equal, r1, r2)
+
+def compare_shape3((compare1, compare2, compare3), Shape3(x1, x2, x3, x4), Shape3(y1, y2, y3, y4)):
+  compare1.equals(x1, y1) && compare2.equals(x2, y2) && compare3.equals(x3, y3) && compare3.equals(x4, y4)
+
+RecordSet(_, rows) = rs2
+tests = Test("reordering",
+  [
+    Assertion((string_Order_fn, cmp_Bool, cmp_Int).compare_shape3.equal_List(rows, [Shape3("a", True, 1, 5)]), "swap")
+  ]
+)
