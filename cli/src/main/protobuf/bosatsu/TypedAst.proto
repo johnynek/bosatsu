@@ -3,16 +3,16 @@ syntax = "proto3";
 package bosatsu;
 
 message TypeConst {
-  string packageName = 1;
-  string typeName = 2;
+  int32 packageName = 1;
+  int32 typeName = 2;
 }
 
 message TypeVar {
-  string varName = 1;
+  int32 varName = 1;
 }
 
 message TypeForAll {
-  repeated string varNames = 1;
+  repeated int32 varNames = 1;
   Type typeValue = 2;
 }
 
@@ -44,12 +44,12 @@ message TypeParam {
 }
 
 message FnParam {
-  string name = 1;
+  int32 name = 1;
   Type typeOf = 2;
 }
 
 message ConstructorFn {
-  string name = 1;
+  int32 name = 1;
   repeated FnParam params = 2;
 }
 
@@ -72,22 +72,25 @@ message Referant {
   }
 }
 
+enum ExportKind {
+  Binding = 0;
+  TypeName = 1;
+  ConstructorName = 2;
+}
 message ExportedName {
-  oneof kind {
-    string binding = 1;
-    string typeName = 2;
-    string constructorName = 3;
-  }
-  Referant referant = 4;
+  ExportKind exportKind = 1;
+  int32 name = 2;
+  Referant referant = 3;
 }
 
 /*
  * This is an interface of a package: all public types, and the type of all exported values
  */
 message Interface {
-  string packageName = 1;
-  repeated DefinedType definedTypes = 2;
-  repeated ExportedName exports = 3;
+  repeated string constants = 1;
+  int32 packageName = 2;
+  repeated DefinedType definedTypes = 3;
+  repeated ExportedName exports = 4;
 }
 
 message Interfaces {
