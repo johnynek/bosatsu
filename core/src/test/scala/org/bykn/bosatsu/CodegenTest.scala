@@ -11,7 +11,7 @@ class CodegenTest extends FunSuite {
     val validated =
       ss.traverse(Parser.parse(Package.parser, _))
         .andThen { parsed =>
-          PackageMap.resolveThenInfer(parsed)._2
+          PackageMap.resolveThenInfer(parsed, Nil)._2
         }
 
     validated match {

@@ -29,19 +29,18 @@ def _add_self(ctx, prov):
 def _bosatsu_library_impl(ctx):
   provider = _collect_deps(ctx)
 
-  all_inputs = provider.transitive_deps + ctx.files.srcs
   args = ["type-check"]
-  for f in all_inputs:
+  for f in ctx.files.srcs:
     args += ["--input", f.path]
-  # TODO: This is not yet supported
-  # for f in provider.transitive_sigs:
-  #   args += ["--interface", f.path]
+  for f in provider.transitive_sigs:
+    args += ["--interface", f.path]
 
-  args += ["--output", ctx.outputs.interface.path]
+  args += ["--interface_out", ctx.outputs.interface.path]
+  args += ["--output", ctx.outputs.info_out.path]
 
   ctx.action(
-      inputs = all_inputs + provider.transitive_sigs, # TODO only use interface of dependencies
-      outputs = [ctx.outputs.interface],
+      inputs = depset(ctx.files.srcs, transitive=[provider.transitive_sigs]),
+      outputs = [ctx.outputs.interface, ctx.outputs.info_out],
       executable = ctx.executable._bosatsu_main,
       mnemonic = "Bosatsu",
       progress_message = "bosatsu %s (%s files)" % (ctx.label, len(ctx.files.srcs)),
@@ -59,6 +58,7 @@ bosatsu_library = rule(
     },
     outputs = {
       "interface": "%{name}.bosatsig",
+      "info_out": "%{name}.info_out",
     },
 )
 
