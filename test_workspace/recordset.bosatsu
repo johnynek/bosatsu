@@ -10,12 +10,13 @@ struct RecordSet[shape](fields: shape[Field[String], Field[Int], Field[Bool]], r
 def restructure(RecordSet(fields, rows), f: forall string,int,bool. shape1[string, int, bool] -> shape2[string, int, bool]) -> RecordSet[shape2]:
   RecordSet(f(fields), rows.map_List(f))
 
-struct PairIntShape[shape,string,int,bool](int: int, rest: shape[string, int, bool])
-def makePairIntShape(rest: shape[string,int,bool], i: int) -> PairIntShape[shape,string,int,bool]:
-  PairIntShape(i, rest)
+struct IntShape[string,int,bool](int: int)
+struct PairShape[shape,t,string,int,bool](left: t[string,int,bool], right: shape[string, int, bool])
+def make_pair_int_shape(rest: shape[string,int,bool], i: int) -> PairShape[shape,IntShape,string,int,bool]:
+  PairShape(IntShape(i), rest)
 
-def add_int_field(RecordSet(fields, rows): RecordSet[shape1], name: String, f: shape1[String, Int, Bool] -> Int) -> RecordSet[PairIntShape[shape1]]:
-  RecordSet(makePairIntShape(fields, Field(name, RVInt)), rows.map_List(\row -> makePairIntShape(row, f(row))))
+def add_int_field(RecordSet(fields, rows): RecordSet[shape1], name: String, f: shape1[String, Int, Bool] -> Int) -> RecordSet[PairShape[shape1, IntShape]]:
+  RecordSet(make_pair_int_shape(fields, Field(name, RVInt)), rows.map_List(\row -> make_pair_int_shape(row, f(row))))
 
 ##################################################
 
@@ -30,7 +31,7 @@ rs = RecordSet(
 
 rs0 = rs.restructure(\Shape1(a,b,c) -> Shape2(a,c,b))
 rs1 = rs0.add_int_field("Second Int", \Shape2(_,_,x) -> x.add(4))
-rs2 = rs1.restructure(\PairIntShape(i, Shape2(a,b,c)) -> Shape3(a,b,c,i))
+rs2 = rs1.restructure(\PairShape(IntShape(i), Shape2(a,b,c)) -> Shape3(a,b,c,i))
 
 ##################################################
 
