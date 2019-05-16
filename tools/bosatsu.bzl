@@ -33,8 +33,9 @@ def _bosatsu_library_impl(ctx):
   args = ["type-check"]
   for f in all_inputs:
     args += ["--input", f.path]
-  for f in provider.transitive_sigs:
-    args += ["--interface", f.path]
+  # TODO: This is not yet supported
+  # for f in provider.transitive_sigs:
+  #   args += ["--interface", f.path]
 
   args += ["--output", ctx.outputs.interface.path]
 

@@ -25,7 +25,10 @@ scala_library(
 scala_binary(
     name = "bosatsu_main",
     srcs = ["Main.scala"],
-    deps = [":bosatsu"] + common_deps,
+    deps = [
+        ":bosatsu",
+        "//cli/src/main/protobuf/bosatsu",
+    ] + common_deps,
     runtime_deps = [],
     main_class = "org.bykn.bosatsu.Main",
     scalacopts = strict_scalacopts(),
