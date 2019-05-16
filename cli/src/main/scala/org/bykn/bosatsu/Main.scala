@@ -128,11 +128,11 @@ object MainCommand {
     toResult(ins)
       .flatMap { p => ifaces.map((p, _)) }
       .flatMap { case (packs, ifs) =>
-        val pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
-        val (dups, resPacks) = PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), packs.toList))
+        val (dups, resPacks) = PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), packs.toList), ifs)
         val checkD = checkDuplicatePackages(dups)(_._1.toString)
         val map = PackageMap.buildSourceMap(packs)
         val checkPacks = fromPackageError(map, resPacks)
+        val pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
         MainResult.product(checkD, checkPacks)(_ max _)
           .map { case (_, p) => (p, pathToName) }
       }
@@ -175,7 +175,10 @@ object MainCommand {
           case None =>
             MainResult.Success(())
           case Some(p) =>
-            val ifs = packs.toMap.iterator.map { case (_, p) => Package.interfaceOf(p) }.toList
+            val ifs0 = packs.toMap.iterator.map { case (_, p) => Package.interfaceOf(p) }.toList
+            // TODO currently we recompile predef in every run, so every interface includes
+            // predef, we filter that out
+            val ifs = ifs0.filterNot(_.name == Predef.packageName)
             MainResult.fromTry(ProtoConverter.writeInterfaces(ifs, p))
         }
 
