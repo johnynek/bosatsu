@@ -120,11 +120,14 @@ object MainCommand {
       case Failure(err) => Validated.invalidNel(ParseError.FileError(path, err))
     }
 
-  def typeCheck(inputs: NonEmptyList[Path]): MainResult[(PackageMap.Inferred, List[(Path, PackageName)])] = {
+  def typeCheck(inputs: NonEmptyList[Path], ifacePaths: List[Path]): MainResult[(PackageMap.Inferred, List[(Path, PackageName)])] = {
     val ins = parseInputs(inputs)
 
+    val ifaces = MainResult.fromTry(ifacePaths.traverse(ProtoConverter.readInterfaces(_)).map(_.flatten))
+
     toResult(ins)
-      .flatMap { packs =>
+      .flatMap { p => ifaces.map((p, _)) }
+      .flatMap { case (packs, ifs) =>
         val pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
         val (dups, resPacks) = PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), packs.toList))
         val checkD = checkDuplicatePackages(dups)(_._1.toString)
@@ -137,7 +140,7 @@ object MainCommand {
 
   case class Evaluate(inputs: NonEmptyList[Path], mainPackage: PackageName) extends MainCommand {
     def run() =
-      typeCheck(inputs).flatMap { case (packs, _) =>
+      typeCheck(inputs, Nil).flatMap { case (packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
@@ -147,9 +150,9 @@ object MainCommand {
         }
       }
   }
-  case class ToJson(inputs: NonEmptyList[Path], signatures: List[Path], mainPackage: PackageName, output: Path) extends MainCommand {
+  case class ToJson(inputs: NonEmptyList[Path], ifaces: List[Path], mainPackage: PackageName, output: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs).flatMap { case (packs, _) =>
+      typeCheck(inputs, Nil).flatMap { case (packs, _) =>
         val ev = Evaluation(packs, Predef.jvmExternals)
         ev.evaluateLast(mainPackage) match {
           case None => MainResult.Error(1, List("found no main expression"))
@@ -165,16 +168,27 @@ object MainCommand {
         }
       }
   }
-  case class TypeCheck(inputs: NonEmptyList[Path], signatures: List[Path], output: Path) extends MainCommand {
+  case class TypeCheck(inputs: NonEmptyList[Path], ifaces: List[Path], output: Path, ifout: Option[Path]) extends MainCommand {
     def run() =
-      typeCheck(inputs).flatMap { case (packs, _) =>
-        MainResult.fromTry(CodeGenWrite.writeDoc(output, Doc.text(s"checked ${packs.toMap.size} packages")))
+      typeCheck(inputs, ifaces).flatMap { case (packs, _) =>
+        val ifres = ifout match {
+          case None =>
+            MainResult.Success(())
+          case Some(p) =>
+            val ifs = packs.toMap.iterator.map { case (_, p) => Package.interfaceOf(p) }.toList
+            MainResult.fromTry(ProtoConverter.writeInterfaces(ifs, p))
+        }
+
+        def out = MainResult
+          .fromTry(CodeGenWrite.writeDoc(output, Doc.text(s"checked ${packs.toMap.size} packages")))
           .map(_ => Nil)
+
+        ifres.flatMap(_ => out)
       }
   }
   case class Compile(inputs: NonEmptyList[Path], compileRoot: Path) extends MainCommand {
     def run() =
-      typeCheck(inputs).flatMap { case (packs, _) =>
+      typeCheck(inputs, Nil).flatMap { case (packs, _) =>
         MainResult.fromTry(CodeGenWrite.write(compileRoot, packs, Predef.jvmExternals))
           .map { _ => List(s"wrote ${packs.toMap.size} packages") }
       }
@@ -188,7 +202,7 @@ object MainCommand {
         case Some(ne) => MainResult.Success(ne)
       }
 
-      files.flatMap(typeCheck(_)).flatMap { case (packs, nameMap) =>
+      files.flatMap(typeCheck(_, Nil)).flatMap { case (packs, nameMap) =>
         val testSet = tests.toList.toSet
         val testPackages: List[PackageName] =
           (nameMap.iterator.collect { case (p, name) if testSet(p) => name } ++
@@ -281,16 +295,17 @@ object MainCommand {
 
     val ins = Opts.options[Path]("input", help = "input files")
     val deps = toList(Opts.options[Path]("test_deps", help = "test dependencies"))
-    val sigs = toList(Opts.options[Path]("signature", help = "signature files"))
+    val ifaces = toList(Opts.options[Path]("interface", help = "interface files"))
 
     val mainP = Opts.option[PackageName]("main", help = "main package to evaluate")
     val testP = toList(Opts.options[PackageName]("test_package", help = "package for which to run tests"))
     val outputPath = Opts.option[Path]("output", help = "output path")
+    val interfaceOutputPath = Opts.option[Path]("interface_out", help = "interface output path")
     val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output")
 
     val evalOpt = (ins, mainP).mapN(Evaluate(_, _))
-    val toJsonOpt = (ins, sigs, mainP, outputPath).mapN(ToJson(_, _, _, _))
-    val typeCheckOpt = (ins, sigs, outputPath).mapN(TypeCheck(_, _, _))
+    val toJsonOpt = (ins, ifaces, mainP, outputPath).mapN(ToJson(_, _, _, _))
+    val typeCheckOpt = (ins, ifaces, outputPath, interfaceOutputPath.orNone).mapN(TypeCheck(_, _, _, _))
     val compileOpt = (ins, compileRoot).mapN(Compile(_, _))
     val testOpt = (toList(ins), testP, deps).mapN(RunTests(_, _, _))
 

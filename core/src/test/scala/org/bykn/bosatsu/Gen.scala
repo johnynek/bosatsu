@@ -650,9 +650,8 @@ object Generators {
     } yield Package(p, imports, exports, body)
 
 
-  def genDefinedType[A](inner: Gen[A]): Gen[rankn.DefinedType[A]] =
+  def genDefinedType[A](p: PackageName, inner: Gen[A]): Gen[rankn.DefinedType[A]] =
     for {
-      p <- packageNameGen
       t <- typeNameGen
       params0 <- smallList(Gen.zip(NTypeGen.genBound, inner))
       params = params0.toMap.toList // don't generate duplicate type parameters
@@ -662,11 +661,12 @@ object Generators {
           ps <- smallList(Gen.zip(bindIdentGen, NTypeGen.genDepth03))
           res = rankn.DefinedType.constructorValueType(p, t, params.map(_._1), ps.map(_._2))
         } yield (cons, ps, res)
-      cons <- smallList(genCons)
+      cons0 <- smallList(genCons)
+      cons = cons0.map { case trip@(c, _, _) => (c, trip) }.toMap.values.toList
     } yield rankn.DefinedType(p, t, params, cons)
 
-  def typeEnvGen[A](inner: Gen[A]): Gen[rankn.TypeEnv[A]] =
-    smallList(genDefinedType(inner)).map(rankn.TypeEnv.fromDefinitions(_))
+  def typeEnvGen[A](p: PackageName, inner: Gen[A]): Gen[rankn.TypeEnv[A]] =
+    smallList(genDefinedType(p, inner)).map(rankn.TypeEnv.fromDefinitions(_))
 
   def exportGen[A](te: rankn.TypeEnv[A]): Gen[ExportedName[Referant[A]]] = {
     def bind(genTpe: Gen[rankn.Type]) = for {
@@ -676,7 +676,10 @@ object Generators {
 
     te.allDefinedTypes match {
       case Nil => bind(NTypeGen.genDepth03)
-      case dts =>
+      case dts0 =>
+        // only make one of each type
+        val dts = dts0.map { dt => (dt.name.ident, dt) }.toMap.values.toList
+
         val b = bind(Gen.oneOf(NTypeGen.genDepth03, Gen.oneOf(dts).map(_.toTypeTyConst)))
         val genExpT = Gen.oneOf(dts)
           .map { dt =>
@@ -698,7 +701,8 @@ object Generators {
   val interfaceGen: Gen[Package.Interface] =
     for {
       p <- packageNameGen
-      te <- typeEnvGen(Gen.oneOf(Variance.co, Variance.phantom, Variance.contra, Variance.in))
-      exs <- smallList(exportGen(te))
+      te <- typeEnvGen(p, Gen.oneOf(Variance.co, Variance.phantom, Variance.contra, Variance.in))
+      exs0 <- smallList(exportGen(te))
+      exs = exs0.map { ex => (ex.name, ex) }.toMap.values.toList // don't duplicate exported names
     } yield Package(p, Nil, exs, ())
 }

@@ -18,8 +18,8 @@ def _collect_deps(ctx):
 
 def _add_self(ctx, prov):
   outs = []
-  if hasattr(ctx.outputs, "signature"):
-    outs += [ctx.outputs.signature]
+  if hasattr(ctx.outputs, "interface"):
+    outs += [ctx.outputs.interface]
   if hasattr(ctx.outputs, "json"):
     outs += [ctx.outputs.json]
 
@@ -34,13 +34,13 @@ def _bosatsu_library_impl(ctx):
   for f in all_inputs:
     args += ["--input", f.path]
   for f in provider.transitive_sigs:
-    args += ["--signature", f.path]
+    args += ["--interface", f.path]
 
-  args += ["--output", ctx.outputs.signature.path]
+  args += ["--output", ctx.outputs.interface.path]
 
   ctx.action(
-      inputs = all_inputs + provider.transitive_sigs, # TODO only use signatures of dependencies
-      outputs = [ctx.outputs.signature],
+      inputs = all_inputs + provider.transitive_sigs, # TODO only use interface of dependencies
+      outputs = [ctx.outputs.interface],
       executable = ctx.executable._bosatsu_main,
       mnemonic = "Bosatsu",
       progress_message = "bosatsu %s (%s files)" % (ctx.label, len(ctx.files.srcs)),
@@ -57,7 +57,7 @@ bosatsu_library = rule(
         "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//cli/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
     },
     outputs = {
-      "signature": "%{name}.bosatsig",
+      "interface": "%{name}.bosatsig",
     },
 )
 
@@ -69,13 +69,13 @@ def _bosatsu_json_impl(ctx):
   for f in all_inputs:
     args += ["--input", f.path]
   for f in provider.transitive_sigs:
-    args += ["--signature", f.path]
+    args += ["--interface", f.path]
 
   args += ["--output", ctx.outputs.json.path]
   args += ["--main", ctx.attr.package]
 
   ctx.action(
-      inputs = all_inputs + provider.transitive_sigs, # TODO only use signatures of dependencies
+      inputs = all_inputs + provider.transitive_sigs, # TODO only use interface of dependencies
       outputs = [ctx.outputs.json],
       executable = ctx.executable._bosatsu_main,
       mnemonic = "Bosatsu",

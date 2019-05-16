@@ -89,3 +89,7 @@ message Interface {
   repeated DefinedType definedTypes = 2;
   repeated ExportedName exports = 3;
 }
+
+message Interfaces {
+  repeated Interface interfaces = 1;
+}
