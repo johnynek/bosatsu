@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Foldable
+import cats.effect.IO
 import java.nio.file.Path
 import java.io.{FileInputStream, FileOutputStream, BufferedInputStream, BufferedOutputStream}
 import org.bykn.bosatsu.rankn.{Type, DefinedType}
@@ -359,20 +360,20 @@ object ProtoConverter {
   def interfacesFromProto(ps: proto.Interfaces): Try[List[Package.Interface]] =
     ps.interfaces.toList.traverse(interfaceFromProto)
 
-  def readInterfaces(path: Path): Try[List[Package.Interface]] =
-    Try {
+  def readInterfaces(path: Path): IO[List[Package.Interface]] =
+    IO {
       val f = path.toFile
       val ios = new BufferedInputStream(new FileInputStream(f))
       try proto.Interfaces.parseFrom(ios)
       finally {
         ios.close
       }
-    }.flatMap(interfacesFromProto)
+    }.flatMap { proto => IO.fromTry(interfacesFromProto(proto)) }
 
-  def writeInterfaces(interfaces: List[Package.Interface], path: Path): Try[Unit] =
-    interfacesToProto(interfaces)
+  def writeInterfaces(interfaces: List[Package.Interface], path: Path): IO[Unit] =
+    IO.fromTry(interfacesToProto(interfaces))
       .flatMap { protoIfs =>
-        Try {
+        IO {
           val f = path.toFile
           val os = new BufferedOutputStream(new FileOutputStream(f))
           try protoIfs.writeTo(os)

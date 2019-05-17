@@ -8,6 +8,7 @@ common_deps = [
       "//3rdparty/jvm/org/bykn:fastparse_cats_core",
       "//3rdparty/jvm/org/typelevel:alleycats_core",
       "//3rdparty/jvm/org/typelevel:cats_core",
+      "//3rdparty/jvm/org/typelevel:cats_effect",
       "//3rdparty/jvm/org/typelevel:cats_kernel",
       "//3rdparty/jvm/org/typelevel:cats_macros",
       "//3rdparty/jvm/org/typelevel:paiges_core",
