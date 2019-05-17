@@ -6,37 +6,38 @@ enum RowEntry:
   REString(value: String)
 
 struct RecordField[t](name: String, toValue: t -> RowEntry)
+struct RecordValue[t](value: t)
 
-struct RecordSet[shape](fields: shape[RecordField[String], RecordField[Int], RecordField[Bool]], rows: List[shape[String,Int, Bool]])
+struct RecordSet[shape](fields: shape[RecordField], rows: List[shape[RecordValue]])
 
-def restructure(RecordSet(fields, rows), f: forall string,int,bool. shape1[string, int, bool] -> shape2[string, int, bool]) -> RecordSet[shape2]:
+def restructure(RecordSet(fields, rows), f: forall w. shape1[w] -> shape2[w]) -> RecordSet[shape2]:
   RecordSet(f(fields), rows.map_List(f))
 
-struct IntShape[string,int,bool](int: int)
-struct PairShape[shape1,shape2,string,int,bool](left: shape1[string,int,bool], right: shape2[string, int, bool])
+struct IntShape[w](int: w[Int])
+struct PairShape[shape1,shape2,w](left: shape1[w], right: shape2[w])
 
-def make_pair_int_shape(rest: shape[string,int,bool], i: int) -> PairShape[shape,IntShape,string,int,bool]:
+def make_pair_int_shape(rest: shape[w], i: w[Int]) -> PairShape[shape,IntShape,w]:
   PairShape(rest, IntShape(i))
 
 # def add_shape(RecordSet(fields1, rows): RecordSet[shape1], fields2: shape2[RecordField[String], RecordField[Int], RecordField[Bool]], f: shape1[String, Int, Bool] -> shape2[String, Int, Bool]) -> RecordSet[PairShape[shape1, shape2]]:
 #  RecordSet(PairShape(fields1, fields2), rows.map_List(\row -> PairShape(row, f(row))))
 
-def add_int_field(RecordSet(fields, rows): RecordSet[shape1], name: String, f: shape1[String, Int, Bool] -> Int) -> RecordSet[PairShape[shape1, IntShape]]:
-  RecordSet(make_pair_int_shape(fields, RecordField(name, REInt)), rows.map_List(\row -> make_pair_int_shape(row, f(row))))
+def add_int_field(RecordSet(fields, rows): RecordSet[shape1], name: String, f: shape1[RecordValue] -> Int) -> RecordSet[PairShape[shape1, IntShape]]:
+  RecordSet(make_pair_int_shape(fields, RecordField(name, REInt)), rows.map_List(\row -> make_pair_int_shape(row, RecordValue(f(row)))))
 
 ##################################################
 
-struct Shape1[string,int,bool](f1: string, f2: int, f3: bool)
-struct Shape2[string,int,bool](f1: string, f2: bool, f3: int)
-struct Shape3[string,int,bool](f1: string, f2: bool, f3: int, f4: int)
+struct Shape1[w](f1: w[String], f2: w[Int], f3: w[Bool])
+struct Shape2[w](f1: w[String], f2: w[Bool], f3: w[Int])
+struct Shape3[w](f1: w[String], f2: w[Bool], f3: w[Int], f4: w[Int])
 
 rs = RecordSet(
   Shape1(RecordField("String", REString), RecordField("Int", REInt), RecordField("Bool", REBool)),
-  [Shape1("a", 1, True)]
+  [Shape1(RecordValue("a"), RecordValue(1), RecordValue(True))]
 )
 
 rs0 = rs.restructure(\Shape1(a,b,c) -> Shape2(a,c,b))
-rs1 = rs0.add_int_field("Second Int", \Shape2(_,_,x) -> x.add(4))
+rs1 = rs0.add_int_field("Second Int", \Shape2(_,_,RecordValue(x)) -> x.add(4))
 rs2 = rs1.restructure(\PairShape(Shape2(a,b,c), IntShape(i)) -> Shape3(a,b,c,i))
 
 ##################################################
@@ -66,12 +67,12 @@ def equal_List(is_equal, l1, l2):
       []: False
       [h2, *r2]: is_equal(h1, h2) && equal_List(is_equal, r1, r2)
 
-def compare_shape3((compare1, compare2, compare3), Shape3(x1, x2, x3, x4), Shape3(y1, y2, y3, y4)):
+def compare_shape3((compare1, compare2, compare3), Shape3(RecordValue(x1), RecordValue(x2), RecordValue(x3), RecordValue(x4)), Shape3(RecordValue(y1), RecordValue(y2), RecordValue(y3), RecordValue(y4))):
   compare1.equals(x1, y1) && compare2.equals(x2, y2) && compare3.equals(x3, y3) && compare3.equals(x4, y4)
 
 RecordSet(_, rows) = rs2
 tests = Test("reordering",
   [
-    Assertion((string_Order_fn, cmp_Bool, cmp_Int).compare_shape3.equal_List(rows, [Shape3("a", True, 1, 5)]), "swap")
+    Assertion((string_Order_fn, cmp_Bool, cmp_Int).compare_shape3.equal_List(rows, [Shape3(RecordValue("a"), RecordValue(True), RecordValue(1), RecordValue(5))]), "swap")
   ]
 )
