@@ -10,34 +10,29 @@ import scala.util.{Failure, Success, Try}
 
 import cats.implicits._
 
-import Indexed.{Tab, getId, tabPure, tabFail, runTab}
+import Indexed.{Tab, getId, lift, tabPure, tabFail, runLookupTab, runTab}
 
 /**
  * convert TypedExpr to and from Protobuf representation
  */
 object ProtoConverter {
 
-  private def lookup[S](vec: Vector[S], idx: Int, context: => String): Try[S] = {
-    // idx is 1 based so we can see 0 as invalid
-    val fixedIdx = idx - 1
-    if ((fixedIdx < 0) || (fixedIdx >= vec.size))
-      Failure(new Exception(s"invalid index: $idx in $context, size: ${vec.size}"))
-    else Success(vec(fixedIdx))
-  }
+  private def lookup(idx: Int, context: => String): Tab[String, String] =
+    Indexed.lookup[String](idx, context)
 
-  def typeConstFromProto(table: Vector[String], p: proto.TypeConst): Try[Type.Const.Defined] = {
+  def typeConstFromProto(p: proto.TypeConst): Tab[String, Type.Const.Defined] = {
     val proto.TypeConst(packidx, tidx) = p
-    lookup(table, packidx, s"package in: $p")
-      .product(lookup(table, tidx, s"type in: $p"))
+    lookup(packidx, s"package in: $p")
+      .product(lookup(tidx, s"type in: $p"))
       .flatMap { case (pack, t) =>
         PackageName.parse(pack) match {
           case None =>
-            Failure(new Exception(s"invalid package name: $pack, in $p"))
+            tabFail(new Exception(s"invalid package name: $pack, in $p"))
           case Some(pack) =>
-            Try {
+            lift(Try {
               val cons = Identifier.unsafeParse(Identifier.consParser, t)
               Type.Const.Defined(pack, TypeName(cons))
-            }
+            })
         }
       }
   }
@@ -54,36 +49,36 @@ object ProtoConverter {
   def typeVarBoundToProto(tvb: Type.Var.Bound): Tab[String, proto.TypeVar] =
     getId(tvb.name).map(proto.TypeVar(_))
 
-  def typeVarBoundFromProto(tab: Vector[String], tv: proto.TypeVar): Try[Type.Var.Bound] =
-    lookup(tab, tv.varName, s"typevar: $tv").map(Type.Var.Bound(_))
+  def typeVarBoundFromProto(tv: proto.TypeVar): Tab[String, Type.Var.Bound] =
+    lookup(tv.varName, s"typevar: $tv").map(Type.Var.Bound(_))
 
-  def typeFromProto(tab: Vector[String], p: proto.Type): Try[Type] = {
+  def typeFromProto(p: proto.Type): Tab[String, Type] = {
     import proto.Type.Value
     import bosatsu.TypedAst.{Type => _, _}
 
     p.value match {
       case Value.Empty =>
-        Failure(new Exception("empty type found"))
+        tabFail(new Exception("empty type found"))
       case Value.TypeConst(tc) =>
-        typeConstFromProto(tab, tc).map(Type.TyConst(_))
+        typeConstFromProto(tc).map(Type.TyConst(_))
       case Value.TypeVar(tv) =>
-        typeVarBoundFromProto(tab, tv).map(Type.TyVar(_))
+        typeVarBoundFromProto(tv).map(Type.TyVar(_))
       case Value.TypeForAll(TypeForAll(args, in)) =>
         in match {
-          case None => Failure(new Exception(s"invalid: ForAll($args, $in)"))
+          case None => tabFail(new Exception(s"invalid: ForAll($args, $in)"))
           case Some(tpe) =>
-            typeFromProto(tab, tpe).flatMap { in =>
+            typeFromProto(tpe).flatMap { in =>
               args.toList.traverse { id =>
-                lookup(tab, id, s"$id in $p").map(Type.Var.Bound(_))
+                lookup(id, s"$id in $p").map(Type.Var.Bound(_))
               }
               .map(Type.forAll(_, in))
             }
         }
       case Value.TypeApply(TypeApply(left, right)) =>
         left.product(right) match {
-          case None => Failure(new Exception(s"invalid TypeApply($left, $right)"))
+          case None => tabFail(new Exception(s"invalid TypeApply($left, $right)"))
           case Some((l, r)) =>
-            (typeFromProto(tab, l), typeFromProto(tab, r)).mapN(Type.TyApply(_, _))
+            (typeFromProto(l), typeFromProto(r)).mapN(Type.TyApply(_, _))
         }
     }
   }
@@ -166,44 +161,48 @@ object ProtoConverter {
         .mapN(proto.DefinedType(Some(tc), _, _))
     }
 
-  def definedTypeFromProto(tab: Vector[String], pdt: proto.DefinedType): Try[DefinedType[Variance]] = {
-    def paramFromProto(tp: proto.TypeParam): Try[(Type.Var.Bound, Variance)] =
+  def definedTypeFromProto(pdt: proto.DefinedType): Tab[String, DefinedType[Variance]] = {
+    def paramFromProto(tp: proto.TypeParam): Tab[String, (Type.Var.Bound, Variance)] =
       tp.typeVar match {
-        case None => Failure(new Exception(s"expected type variable in $tp"))
+        case None => tabFail(new Exception(s"expected type variable in $tp"))
         case Some(tv) =>
-          typeVarBoundFromProto(tab, tv)
-            .product(varianceFromProto(tp.variance))
+          typeVarBoundFromProto(tv)
+            .product(lift(varianceFromProto(tp.variance)))
       }
 
-    def fnParamFromProto(p: proto.FnParam): Try[(Identifier.Bindable, Type)] =
+    def fnParamFromProto(p: proto.FnParam): Tab[String, (Identifier.Bindable, Type)] =
       p.typeOf match {
-        case None => Failure(new Exception(s"invalid FnParam, missing typeOf: $p"))
+        case None => tabFail(new Exception(s"invalid FnParam, missing typeOf: $p"))
         case Some(tpe) =>
-          lookup(tab, p.name, p.toString)
+          lookup(p.name, p.toString)
             .flatMap { name =>
-              Try(Identifier.unsafeParse(Identifier.bindableParser, name))
+              lift(Try(Identifier.unsafeParse(Identifier.bindableParser, name)))
             }
-            .product(typeFromProto(tab, tpe))
+            .product(typeFromProto(tpe))
       }
 
-    def consFromProto(tc: Type.Const.Defined, tp: List[Type.Var.Bound], c: proto.ConstructorFn): Try[(Identifier.Constructor, List[(Identifier.Bindable, Type)], Type)] =
-      lookup(tab, c.name, c.toString)
+    def consFromProto(
+      tc: Type.Const.Defined,
+      tp: List[Type.Var.Bound],
+      c: proto.ConstructorFn): Tab[String, (Identifier.Constructor, List[(Identifier.Bindable, Type)], Type)] =
+      lookup(c.name, c.toString)
         .flatMap { cname =>
-          Try(Identifier.unsafeParse(Identifier.consParser, cname)).flatMap { cname =>
-            //def
-            c.params.toList.traverse(fnParamFromProto)
-              .map { fnParams =>
-                val fnType = DefinedType.constructorValueType(tc.packageName, tc.name, tp, fnParams.map(_._2))
-                (cname, fnParams, fnType)
-              }
-          }
-      }
+          lift(Try(Identifier.unsafeParse(Identifier.consParser, cname)))
+            .flatMap { cname =>
+              //def
+              c.params.toList.traverse(fnParamFromProto)
+                .map { fnParams =>
+                  val fnType = DefinedType.constructorValueType(tc.packageName, tc.name, tp, fnParams.map(_._2))
+                  (cname, fnParams, fnType)
+                }
+            }
+        }
 
     pdt.typeConst match {
-      case None => Failure(new Exception(s"missing typeConst: $pdt"))
+      case None => tabFail(new Exception(s"missing typeConst: $pdt"))
       case Some(tc) =>
         for {
-          tconst <- typeConstFromProto(tab, tc)
+          tconst <- typeConstFromProto(tc)
           tparams <- pdt.typeParams.toList.traverse(paramFromProto)
           cons <- pdt.constructors.toList.traverse(consFromProto(tconst, tparams.map(_._1), _))
         } yield DefinedType(tconst.packageName, tconst.name, tparams, cons)
@@ -278,7 +277,7 @@ object ProtoConverter {
     }
   }
 
-  private def referantFromProto[A](tab: Vector[String], dts: Vector[DefinedType[A]], ref: proto.Referant): Try[Referant[A]] = {
+  private def referantFromProto[A](dts: Vector[DefinedType[A]], ref: proto.Referant): Tab[String, Referant[A]] = {
     def getDt(idx: Int): Try[DefinedType[A]] = {
       // idx is 1 based:
       val fixedIdx = idx - 1
@@ -289,59 +288,61 @@ object ProtoConverter {
 
     ref.referant match {
       case proto.Referant.Referant.Value(t) =>
-        typeFromProto(tab, t).map(Referant.Value(_))
+        typeFromProto(t).map(Referant.Value(_))
       case proto.Referant.Referant.DefinedTypePtr(idx) =>
-        getDt(idx).map(Referant.DefinedT(_))
+        lift(getDt(idx).map(Referant.DefinedT(_)))
       case proto.Referant.Referant.Constructor(proto.ConstructorPtr(dtIdx, cIdx)) =>
-        getDt(dtIdx).flatMap { dt =>
+        lift(getDt(dtIdx)).flatMap { dt =>
           // cIdx is 1 based:
           val fixedIdx = cIdx - 1
           dt.constructors.get(fixedIdx.toLong) match {
             case None =>
-              Failure(new Exception(s"invalid constructor index: $cIdx in: $dt"))
+              tabFail(new Exception(s"invalid constructor index: $cIdx in: $dt"))
             case Some((c, a, t)) =>
-              Success(Referant.Constructor(c, dt, a, t))
+              tabPure(Referant.Constructor(c, dt, a, t))
           }
         }
-      case proto.Referant.Referant.Empty => Failure(new Exception(s"empty referant found: $ref"))
+      case proto.Referant.Referant.Empty => tabFail(new Exception(s"empty referant found: $ref"))
     }
   }
 
-  private def exportedNameFromProto[A](tab: Vector[String], dts: Vector[DefinedType[A]], en: proto.ExportedName): Try[ExportedName[Referant[A]]] = {
-    val tryRef = en.referant match {
-      case Some(r) => referantFromProto(tab, dts, r)
-      case None => Failure(new Exception(s"missing referant in $en"))
+  private def exportedNameFromProto[A](dts: Vector[DefinedType[A]], en: proto.ExportedName): Tab[String, ExportedName[Referant[A]]] = {
+    val tryRef: Tab[String, Referant[A]] = en.referant match {
+      case Some(r) => referantFromProto(dts, r)
+      case None => tabFail(new Exception(s"missing referant in $en"))
     }
 
-    tryRef.product(lookup(tab, en.name, en.toString))
+    tryRef.product(lookup(en.name, en.toString))
       .flatMap { case (ref, n) =>
         en.exportKind match {
           case proto.ExportKind.Binding =>
-            Try(ExportedName.Binding(Identifier.unsafeParse(Identifier.bindableParser, n), ref))
+            tabPure(ExportedName.Binding(Identifier.unsafeParse(Identifier.bindableParser, n), ref))
           case proto.ExportKind.TypeName =>
-            Try(ExportedName.TypeName(Identifier.unsafeParse(Identifier.consParser, n), ref))
+            tabPure(ExportedName.TypeName(Identifier.unsafeParse(Identifier.consParser, n), ref))
           case proto.ExportKind.ConstructorName =>
-            Try(ExportedName.Constructor(Identifier.unsafeParse(Identifier.consParser, n), ref))
+            tabPure(ExportedName.Constructor(Identifier.unsafeParse(Identifier.consParser, n), ref))
           case proto.ExportKind.Unrecognized(idx) =>
-            Failure(new Exception(s"unknown export kind: $idx in $en"))
+            tabFail(new Exception(s"unknown export kind: $idx in $en"))
         }
       }
   }
 
   def interfaceFromProto(protoIface: proto.Interface): Try[Package.Interface] = {
-    val tab = protoIface.constants.toVector
-    lookup(tab, protoIface.packageName, protoIface.toString)
+    val consts = protoIface.constants.toVector
+    val tab = lookup(protoIface.packageName, protoIface.toString)
       .flatMap { packageName =>
         PackageName.parse(packageName) match {
-          case None => Failure(new Exception(s"bad package name: $packageName in: $protoIface"))
+          case None =>
+            tabFail[String, Package.Interface](
+              new Exception(s"bad package name: $packageName in: $protoIface"))
           case Some(pn) =>
             protoIface
               .definedTypes
               .toVector
-              .traverse(definedTypeFromProto(tab, _))
+              .traverse(definedTypeFromProto)
               .flatMap { dtVect =>
-                val exports: Try[List[ExportedName[Referant[Variance]]]] =
-                  protoIface.exports.toList.traverse(exportedNameFromProto(tab, dtVect, _))
+                val exports: Tab[String, List[ExportedName[Referant[Variance]]]] =
+                  protoIface.exports.toList.traverse(exportedNameFromProto(dtVect, _))
 
                 exports.map { exports =>
                   Package(pn, Nil, exports, ())
@@ -349,6 +350,7 @@ object ProtoConverter {
               }
         }
       }
+    runLookupTab(consts, tab)
   }
 
   def interfacesToProto[F[_]: Foldable](ps: F[Package.Interface]): Try[proto.Interfaces] =
