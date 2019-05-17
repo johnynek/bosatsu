@@ -90,6 +90,7 @@ lazy val cli = (project in file("cli")).
     mainClass in assembly := Some("org.bykn.bosatsu.Main"),
     libraryDependencies ++=
       Seq(
+        catsEffect.value,
         jawnParser.value % Test,
         jawnAst.value % Test
       ),

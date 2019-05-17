@@ -4,7 +4,8 @@ import BazelDepsApi [
   Config, Artifact, Replacement, default_options_with_scala, merge_dep_List, scala_dep,
   scala_dep_modules, standard_scala_replacements ]
 
-cats_version = '1.4.0'
+cats_version = '1.6.0'
+cats_effect_version = '1.3.0'
 dagon_version = '0.2.2'
 decline_version = '0.4.2'
 fastparse_cats_version = '0.1.0'
@@ -31,6 +32,7 @@ main = Config(
         ('org.scalactic', 'scalactic', scalatest_version),
         ('org.spire-math', 'kind-projector', kind_projector_version),
         ('org.typelevel', 'alleycats-core', cats_version),
+        ('org.typelevel', 'cats-effect', cats_effect_version),
         ('org.typelevel', 'paiges-core', paiges_version),
       ]
     ] ++ [

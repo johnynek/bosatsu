@@ -2,8 +2,9 @@ import sbt._
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 
 object Dependencies {
-  lazy val alleycats = Def.setting("org.typelevel" %%% "alleycats-core" % "1.4.0")
-  lazy val cats = Def.setting("org.typelevel" %%% "cats-core" % "1.4.0")
+  lazy val alleycats = Def.setting("org.typelevel" %%% "alleycats-core" % "1.6.0")
+  lazy val cats = Def.setting("org.typelevel" %%% "cats-core" % "1.6.0")
+  lazy val catsEffect = Def.setting("org.typelevel" %%% "cats-effect" % "1.3.0")
   lazy val dagon = Def.setting("com.stripe" %%% "dagon-core" % "0.2.2")
   lazy val decline = Def.setting("com.monovore" %%% "decline" % "0.4.2")
   lazy val fastparse = Def.setting("com.lihaoyi" %%% "fastparse" % "1.0.0")
