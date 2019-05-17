@@ -13,13 +13,13 @@ message TypeVar {
 
 message TypeForAll {
   repeated int32 varNames = 1;
-  Type typeValue = 2;
+  int32 typeValue = 2;
 }
 
 // represents left[right] type application
 message TypeApply {
-  Type left = 1;
-  Type right = 2;
+  int32 left = 1;
+  int32 right = 2;
 }
 
 message Type {
@@ -45,7 +45,7 @@ message TypeParam {
 
 message FnParam {
   int32 name = 1;
-  Type typeOf = 2;
+  int32 typeOf = 2;
 }
 
 message ConstructorFn {
@@ -66,7 +66,7 @@ message ConstructorPtr {
 
 message Referant {
   oneof referant {
-    Type value = 1; /* an exported value which has a given type */
+    int32 value = 1; /* an exported value which has a given type */
     int32 definedTypePtr = 2; /* 1-based pointer into the list of types */
     ConstructorPtr constructor = 3; /* an exported constructor */
   }
@@ -89,8 +89,9 @@ message ExportedName {
 message Interface {
   repeated string constants = 1;
   int32 packageName = 2;
-  repeated DefinedType definedTypes = 3;
-  repeated ExportedName exports = 4;
+  repeated Type types = 3;
+  repeated DefinedType definedTypes = 4;
+  repeated ExportedName exports = 5;
 }
 
 message Interfaces {

@@ -31,8 +31,27 @@ object ProtoConverter {
             stringVec = stringVec :+ s)
           Left((nextSS, id))
       }
+
+    def typeId(t: Type, protoType: => proto.Type): Either[(SerState, Int), Int] =
+      types.get(t) match {
+        case Some(id) => Right(id)
+        case None =>
+          val id = typeVec.size
+          val nextSS = copy(
+            types = types.updated(t, id),
+            typeVec = typeVec :+ protoType)
+          Left((nextSS, id))
+      }
+
+    def getProtoType(t: Type): Option[(proto.Type, Int)] =
+      types.get(t).map { idx => (typeVec(idx), idx) }
+
     def getString(idx: Int): Option[String] =
       if ((0 <= idx) && (idx < stringVec.size)) Some(stringVec(idx))
+      else None
+
+    def getType(idx: Int): Option[proto.Type] =
+      if ((0 <= idx) && (idx < typeVec.size)) Some(typeVec(idx))
       else None
   }
 
@@ -55,29 +74,48 @@ object ProtoConverter {
   private def lift[S, A](ta: Try[A]): Tab[A] =
     StateT.liftF(ta)
 
-  private def getId(s: String): Tab[Int] =
+  private def get(fn: SerState => Either[(SerState, Int), Int]): Tab[Int] =
     StateT.get[Try, SerState]
       .flatMap { ss =>
-         ss.stringId(s) match {
+        fn(ss) match {
            case Right(idx) => StateT.pure(idx + 1)
            case Left((ss, idx)) =>
              StateT.set[Try, SerState](ss).as(idx + 1)
          }
       }
 
-  private def lookup(idx: Int, context: => String): Tab[String] =
+  private def find[A](idx: Int, context: => String)(fn: (SerState, Int) => Option[A]): Tab[A] =
     StateT.get[Try, SerState]
       .flatMap { ss =>
-        ss.getString(idx - 1) match {
+        fn(ss, idx - 1) match {
           case Some(s) => tabPure(s)
           case None => tabFail(new Exception(s"invalid index: $idx in $context"))
         }
       }
+
+  private def getId(s: String): Tab[Int] = get(_.stringId(s))
+
+  private def lookup(idx: Int, context: => String): Tab[String] =
+    find(idx, context)(_.getString(_))
+
+  private def getTypeId(t: Type, pt: => proto.Type): Tab[(proto.Type, Int)] =
+    for {
+      idx <- get(_.typeId(t, pt))
+      st <- StateT.get[Try, SerState]
+    } yield (st.typeVec(idx - 1), idx)
+
+  private def getProtoTypeTab(t: Type): Tab[Option[(proto.Type, Int)]] =
+    StateT.get[Try, SerState]
+      .map(_.getProtoType(t).map { case (t, idx) => (t, idx + 1) })
+
+  private def lookupType(idx: Int, context: => String): Tab[proto.Type] =
+    find(idx, context)(_.getType(_))
+
   def runTab[A](t: Tab[A]): Try[(SerState, A)] =
     t.run(SerState.empty)
 
-  def runLookupTab[A](strings: Vector[String], t: Tab[A]): Try[A] =
-    t.runA(SerState.fromVectors(strings, Vector.empty))
+  def runLookupTab[A](strings: Vector[String], types: Vector[proto.Type], t: Tab[A]): Try[A] =
+    t.runA(SerState.fromVectors(strings, types))
 
   def typeConstFromProto(p: proto.TypeConst): Tab[Type.Const.Defined] = {
     val proto.TypeConst(packidx, tidx) = p
@@ -123,51 +161,59 @@ object ProtoConverter {
       case Value.TypeVar(tv) =>
         typeVarBoundFromProto(tv).map(Type.TyVar(_))
       case Value.TypeForAll(TypeForAll(args, in)) =>
-        in match {
-          case None => tabFail(new Exception(s"invalid: ForAll($args, $in)"))
-          case Some(tpe) =>
-            typeFromProto(tpe).flatMap { in =>
-              args.toList.traverse { id =>
-                lookup(id, s"$id in $p").map(Type.Var.Bound(_))
-              }
-              .map(Type.forAll(_, in))
+        for {
+          inProto <- lookupType(in, s"TypeForAll($args, $in)")
+          in <- typeFromProto(inProto)
+          args <- args.toList.traverse { id =>
+              lookup(id, s"$id in $p").map(Type.Var.Bound(_))
             }
-        }
+        } yield Type.forAll(args, in)
+
       case Value.TypeApply(TypeApply(left, right)) =>
-        left.product(right) match {
-          case None => tabFail(new Exception(s"invalid TypeApply($left, $right)"))
-          case Some((l, r)) =>
-            (typeFromProto(l), typeFromProto(r)).mapN(Type.TyApply(_, _))
-        }
+        lookupType(left, s"left in TypeApply($left, $right)")
+          .product(lookupType(right, s"right in TypeApply($left, $right)"))
+          .flatMap { case (lp, rp) =>
+            (typeFromProto(lp), typeFromProto(rp)).mapN(Type.TyApply(_, _))
+          }
     }
   }
-  def typeToProto(p: Type): Tab[proto.Type] = {
+
+  def typeToProto(p: Type): Tab[(proto.Type, Int)] = {
     import proto.Type.Value
     import bosatsu.TypedAst.{Type => _, _}
 
-    p match {
-      case Type.ForAll(bs, t) =>
-        typeToProto(t).flatMap { pt =>
-          bs.toList
-            .traverse { b => getId(b.name) }
-            .map { ids =>
-              proto.Type(Value.TypeForAll(TypeForAll(ids, Some(pt))))
-            }
-        }
-      case Type.TyApply(on, arg) =>
-        (typeToProto(on), typeToProto(arg)).mapN { (o, a) =>
-          proto.Type(Value.TypeApply(TypeApply(Some(o), Some(a))))
-        }
-      case Type.TyConst(tcd) =>
-        typeConstToProto(tcd)
-          .map { pt => proto.Type(Value.TypeConst(pt)) }
-      case Type.TyVar(Type.Var.Bound(n)) =>
-        getId(n).map { id =>
-          proto.Type(Value.TypeVar(TypeVar(id)))
-        }
-      case Type.TyVar(Type.Var.Skolem(_, _)) | Type.TyMeta(_) =>
-        tabFail(new Exception(s"invalid type to serialize: $p"))
-    }
+    getProtoTypeTab(p)
+      .flatMap {
+        case Some(p) => tabPure(p)
+        case None =>
+          p match {
+            case Type.ForAll(bs, t) =>
+              typeToProto(t).flatMap { case (pt, idx) =>
+                bs.toList
+                  .traverse { b => getId(b.name) }
+                  .flatMap { ids =>
+                    getTypeId(p, proto.Type(Value.TypeForAll(TypeForAll(ids, idx))))
+                  }
+              }
+            case Type.TyApply(on, arg) =>
+              typeToProto(on)
+                .product(typeToProto(arg))
+                .flatMap { case ((lp, li), (rp, ri)) =>
+                  getTypeId(p, proto.Type(Value.TypeApply(TypeApply(li, ri))))
+                }
+            case Type.TyConst(tcd) =>
+              typeConstToProto(tcd)
+                .flatMap { pt =>
+                  getTypeId(p, proto.Type(Value.TypeConst(pt)))
+                }
+            case Type.TyVar(Type.Var.Bound(n)) =>
+              getId(n).flatMap { id =>
+                getTypeId(p, proto.Type(Value.TypeVar(TypeVar(id))))
+              }
+            case Type.TyVar(Type.Var.Skolem(_, _)) | Type.TyMeta(_) =>
+              tabFail(new Exception(s"invalid type to serialize: $p"))
+          }
+      }
   }
 
   def varianceToProto(v: Variance): proto.Variance =
@@ -201,10 +247,10 @@ object ProtoConverter {
       val constructors: Tab[List[proto.ConstructorFn]] =
         d.constructors.traverse { case (c, tp, _) =>
           tp.traverse { case (b, t) =>
-            typeToProto(t).flatMap { tpe =>
+            typeToProto(t).flatMap { case (_, tidx) =>
               getId(b.sourceCodeRepr)
                 .map { n =>
-                  proto.FnParam(n, Some(tpe))
+                  proto.FnParam(n, tidx)
                 }
             }
           }
@@ -230,15 +276,12 @@ object ProtoConverter {
       }
 
     def fnParamFromProto(p: proto.FnParam): Tab[(Identifier.Bindable, Type)] =
-      p.typeOf match {
-        case None => tabFail(new Exception(s"invalid FnParam, missing typeOf: $p"))
-        case Some(tpe) =>
-          lookup(p.name, p.toString)
-            .flatMap { name =>
-              lift(Try(Identifier.unsafeParse(Identifier.bindableParser, name)))
-            }
-            .product(typeFromProto(tpe))
-      }
+      for {
+        name <- lookup(p.name, p.toString)
+        bn <- lift(Try(Identifier.unsafeParse(Identifier.bindableParser, name)))
+        protoType <- lookupType(p.typeOf, s"invalid type id: $p")
+        tpe <- typeFromProto(protoType)
+      } yield (bn, tpe)
 
     def consFromProto(
       tc: Type.Const.Defined,
@@ -286,8 +329,8 @@ object ProtoConverter {
       val protoRef: Tab[proto.Referant] =
         e.tag match {
           case Referant.Value(t) =>
-            typeToProto(t).map { pt =>
-              proto.Referant(proto.Referant.Referant.Value(pt))
+            typeToProto(t).map { case (_, tpeId) =>
+              proto.Referant(proto.Referant.Referant.Value(tpeId))
             }
           case Referant.DefinedT(dt) =>
             val key = (dt.packageName, dt.name)
@@ -332,7 +375,7 @@ object ProtoConverter {
     val last = packageId.product(tryProtoDts).product(tryExports)
 
     runTab(last).map { case (serstate, ((nm, dts), exps)) =>
-      proto.Interface(serstate.stringVec, nm, dts, exps)
+      proto.Interface(serstate.stringVec, nm, serstate.typeVec, dts, exps)
     }
   }
 
@@ -347,7 +390,10 @@ object ProtoConverter {
 
     ref.referant match {
       case proto.Referant.Referant.Value(t) =>
-        typeFromProto(t).map(Referant.Value(_))
+        for {
+          pt <- lookupType(t, s"invalid type in $ref")
+          tpe <- typeFromProto(pt)
+        } yield Referant.Value(tpe)
       case proto.Referant.Referant.DefinedTypePtr(idx) =>
         lift(getDt(idx).map(Referant.DefinedT(_)))
       case proto.Referant.Referant.Constructor(proto.ConstructorPtr(dtIdx, cIdx)) =>
@@ -409,7 +455,7 @@ object ProtoConverter {
               }
         }
       }
-    runLookupTab(consts, tab)
+    runLookupTab(consts, protoIface.types.toVector, tab)
   }
 
   def interfacesToProto[F[_]: Foldable](ps: F[Package.Interface]): Try[proto.Interfaces] =
