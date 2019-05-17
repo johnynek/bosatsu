@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Foldable
-import cats.data.StateT
 import java.nio.file.Path
 import java.io.{FileInputStream, FileOutputStream, BufferedInputStream, BufferedOutputStream}
 import org.bykn.bosatsu.rankn.{Type, DefinedType}
@@ -10,52 +9,12 @@ import scala.util.{Failure, Success, Try}
 
 import cats.implicits._
 
+import Indexed.{Tab, getId, tabPure, tabFail, runTab}
+
 /**
  * convert TypedExpr to and from Protobuf representation
  */
 object ProtoConverter {
-
-  /**
-   * This is a table that is used in two passes:
-   * 1. Left(SortedSet) we build up all the ids we will use
-   * 2. Right(SortedMap) we lookup the entries
-   */
-  type Tab[S, A] = StateT[Try, Either[Set[S], Map[S, Int]], A]
-
-  def getId[S](s: S, context: => String): Tab[S, Int] =
-    StateT.get[Try, Either[Set[S], Map[S, Int]]]
-      .flatMap {
-        case Left(set) =>
-          // this is probe mode, where we are building up the list of all values
-          StateT.set[Try, Either[Set[S], Map[S, Int]]](Left(set + s)).as(-1)
-        case Right(t) =>
-          t.get(s) match {
-            case Some(idx) =>
-              tabPure(idx + 1)
-            case None =>
-              tabFail(new Exception(s"could not find $s, for $context in the table: $t"))
-          }
-      }
-
-  def tabFail[S, A](ex: Exception): Tab[S, A] =
-    StateT.liftF(Failure(ex))
-
-  def tabPure[S, A](a: A): Tab[S, A] =
-    StateT.liftF(Success(a))
-
-  /**
-   * Runs the table twice, first to build the list of all values S that need IDs
-   * secondly with the table to insert the correct value
-   */
-  def runTab[S: Ordering, A](tab: Tab[S, A]): Try[(Vector[S], A)] =
-    for {
-      // Now we run to build the full table
-      Left(allS) <- tab.runS(Left(Set.empty[S]))
-      allSVect = allS.toVector.sorted
-      stringMap = allSVect.iterator.zipWithIndex.toMap
-      // now we run through again with the fully built table
-      res <- tab.runA(Right(stringMap))
-    } yield (allSVect, res)
 
   private def lookup[S](vec: Vector[S], idx: Int, context: => String): Try[S] = {
     // idx is 1 based so we can see 0 as invalid
@@ -86,13 +45,13 @@ object ProtoConverter {
     tc match {
       case Type.Const.Defined(p, n) =>
         for {
-          pidx <- getId(p.asString, tc.toString)
-          nidx <- getId(n.ident.sourceCodeRepr, tc.toString)
+          pidx <- getId(p.asString)
+          nidx <- getId(n.ident.sourceCodeRepr)
         } yield proto.TypeConst(pidx, nidx)
     }
 
   def typeVarBoundToProto(tvb: Type.Var.Bound): Tab[String, proto.TypeVar] =
-    getId(tvb.name, tvb.toString).map(proto.TypeVar(_))
+    getId(tvb.name).map(proto.TypeVar(_))
 
   def typeVarBoundFromProto(tab: Vector[String], tv: proto.TypeVar): Try[Type.Var.Bound] =
     lookup(tab, tv.varName, s"typevar: $tv").map(Type.Var.Bound(_))
@@ -135,7 +94,7 @@ object ProtoConverter {
       case Type.ForAll(bs, t) =>
         typeToProto(t).flatMap { pt =>
           bs.toList
-            .traverse { b => getId(b.name, b.toString) }
+            .traverse { b => getId(b.name) }
             .map { ids =>
               proto.Type(Value.TypeForAll(TypeForAll(ids, Some(pt))))
             }
@@ -148,7 +107,7 @@ object ProtoConverter {
         typeConstToProto(tcd)
           .map { pt => proto.Type(Value.TypeConst(pt)) }
       case Type.TyVar(Type.Var.Bound(n)) =>
-        getId(n, p.toString).map { id =>
+        getId(n).map { id =>
           proto.Type(Value.TypeVar(TypeVar(id)))
         }
       case Type.TyVar(Type.Var.Skolem(_, _)) | Type.TyMeta(_) =>
@@ -188,14 +147,14 @@ object ProtoConverter {
         d.constructors.traverse { case (c, tp, _) =>
           tp.traverse { case (b, t) =>
             typeToProto(t).flatMap { tpe =>
-              getId(b.sourceCodeRepr, s"parameter: $b of type $t")
+              getId(b.sourceCodeRepr)
                 .map { n =>
                   proto.FnParam(n, Some(tpe))
                 }
             }
           }
           .flatMap { params =>
-            getId(c.asString, s"constructor: $c, in ${d.toTypeConst}")
+            getId(c.asString)
               .map { id =>
                 proto.ConstructorFn(id, params)
               }
@@ -297,11 +256,11 @@ object ProtoConverter {
         }
       val exKind: Tab[String, (Int, proto.ExportKind)] = e match {
         case ExportedName.Binding(b, _) =>
-          getId(b.sourceCodeRepr, e.toString).map((_, proto.ExportKind.Binding))
+          getId(b.sourceCodeRepr).map((_, proto.ExportKind.Binding))
         case ExportedName.TypeName(n, _) =>
-          getId(n.asString, e.toString).map((_, proto.ExportKind.TypeName))
+          getId(n.asString).map((_, proto.ExportKind.TypeName))
         case ExportedName.Constructor(n, _) =>
-          getId(n.asString, e.toString).map((_, proto.ExportKind.ConstructorName))
+          getId(n.asString).map((_, proto.ExportKind.ConstructorName))
       }
 
       (protoRef, exKind).mapN { case (ref, (idx, k)) => proto.ExportedName(k, idx, Some(ref)) }
@@ -309,7 +268,7 @@ object ProtoConverter {
 
     val tryExports = iface.exports.traverse(expNameToProto)
 
-    val packageId = getId(iface.name.asString, "interface package name")
+    val packageId = getId(iface.name.asString)
 
     val last = packageId.product(tryProtoDts).product(tryExports)
 
