@@ -1,7 +1,6 @@
 package org.bykn.bosatsu
 
 import cats.Eq
-import org.bykn.bosatsu.rankn.NTypeGen
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import scala.util.Try
@@ -32,12 +31,6 @@ class TestProtoType extends FunSuite {
 
     //assert(Eq[A].eqv(a, orig), s"${a.toString.drop(diffIdx).take(20)} != ${orig.toString.drop(diffIdx).take(20)}")
     assert(Eq[A].eqv(a, orig))
-  }
-
-  test("we can roundtrip types through proto") {
-    forAll(NTypeGen.genDepth03) { tpe =>
-      law(tpe, ProtoConverter.typeToProto _, ProtoConverter.typeFromProto _)(Eq.fromUniversalEquals)
-    }
   }
 
   test("we can roundtrip interface through proto") {
