@@ -1,17 +1,17 @@
 package RecordSet
 
-enum RowEntry:
-  REBool(value: Bool)
-  REInt(value: Int)
-  REString(value: String)
+enum RowEntry[w]:
+  REBool(value: w[Bool])
+  REInt(value: w[Int])
+  REString(value: w[String])
 
-struct RecordField[t](name: String, toValue: t -> RowEntry)
+struct RecordField[t](name: String, to_entry: forall w. w[t] -> RowEntry[w])
 struct RecordValue[t](value: t)
 
-struct RecordSet[shape](fields: shape[RecordField], rows: List[shape[RecordValue]])
+struct RecordSet[shape](fields: shape[RecordField], rows: List[shape[RecordValue]], to_row: forall w. shape[w] -> List[RowEntry[w]])
 
-def restructure(RecordSet(fields, rows), f: forall w. shape1[w] -> shape2[w]) -> RecordSet[shape2]:
-  RecordSet(f(fields), rows.map_List(f))
+def restructure(RecordSet(fields, rows), f: forall w. shape1[w] -> shape2[w], to_row: forall w. shape2[w] -> List[RowEntry[w]]) -> RecordSet[shape2]:
+  RecordSet(f(fields), rows.map_List(f), to_row)
 
 struct IntShape[w](int: w[Int])
 struct PairShape[shape1,shape2,w](left: shape1[w], right: shape2[w])
@@ -22,8 +22,12 @@ def make_pair_int_shape(rest: shape[w], i: w[Int]) -> PairShape[shape,IntShape,w
 # def add_shape(RecordSet(fields1, rows): RecordSet[shape1], fields2: shape2[RecordField[String], RecordField[Int], RecordField[Bool]], f: shape1[String, Int, Bool] -> shape2[String, Int, Bool]) -> RecordSet[PairShape[shape1, shape2]]:
 #  RecordSet(PairShape(fields1, fields2), rows.map_List(\row -> PairShape(row, f(row))))
 
-def add_int_field(RecordSet(fields, rows): RecordSet[shape1], name: String, f: shape1[RecordValue] -> Int) -> RecordSet[PairShape[shape1, IntShape]]:
-  RecordSet(make_pair_int_shape(fields, RecordField(name, REInt)), rows.map_List(\row -> make_pair_int_shape(row, RecordValue(f(row)))))
+def add_int_field(RecordSet(fields, rows, to_row): RecordSet[shape1], name: String, f: shape1[RecordValue] -> Int) -> RecordSet[PairShape[shape1, IntShape]]:
+  RecordSet(
+    make_pair_int_shape(fields, RecordField(name, REInt)),
+    rows.map_List(\row -> make_pair_int_shape(row, RecordValue(f(row)))),
+    \PairShape(sh1, IntShape(int)) -> to_row(sh1).concat([REInt(int)])
+  )
 
 ##################################################
 
@@ -33,12 +37,13 @@ struct Shape3[w](f1: w[String], f2: w[Bool], f3: w[Int], f4: w[Int])
 
 rs = RecordSet(
   Shape1(RecordField("String", REString), RecordField("Int", REInt), RecordField("Bool", REBool)),
-  [Shape1(RecordValue("a"), RecordValue(1), RecordValue(True))]
+  [Shape1(RecordValue("a"), RecordValue(1), RecordValue(True))],
+  \Shape1(f1, f2, f3) -> [REString(f1), REInt(f2), REBool(f3)]
 )
 
-rs0 = rs.restructure(\Shape1(a,b,c) -> Shape2(a,c,b))
+rs0 = rs.restructure(\Shape1(a,b,c) -> Shape2(a,c,b), \Shape2(f1,f2,f3) -> [REString(f1), REBool(f2), REInt(f3)])
 rs1 = rs0.add_int_field("Second Int", \Shape2(_,_,RecordValue(x)) -> x.add(4))
-rs2 = rs1.restructure(\PairShape(Shape2(a,b,c), IntShape(i)) -> Shape3(a,b,c,i))
+rs2 = rs1.restructure(\PairShape(Shape2(a,b,c), IntShape(i)) -> Shape3(a,b,c,i), \Shape3(f1,f2,f3,f4) -> [REString(f1), REBool(f2), REInt(f3), REInt(f4)])
 
 ##################################################
 
@@ -70,9 +75,19 @@ def equal_List(is_equal, l1, l2):
 def compare_shape3((compare1, compare2, compare3), Shape3(RecordValue(x1), RecordValue(x2), RecordValue(x3), RecordValue(x4)), Shape3(RecordValue(y1), RecordValue(y2), RecordValue(y3), RecordValue(y4))):
   compare1.equals(x1, y1) && compare2.equals(x2, y2) && compare3.equals(x3, y3) && compare3.equals(x4, y4)
 
-RecordSet(_, rows) = rs2
+def equal_RowEntry(re1, re2):
+  match (re1, re2):
+    (REBool(RecordValue(x1)), REBool(RecordValue(x2))): cmp_Bool.equals(x1, x2)
+    (REInt(RecordValue(x1)), REInt(RecordValue(x2))): cmp_Int.equals(x1, x2)
+    (REString(RecordValue(x1)), REString(RecordValue(x2))): string_Order_fn.equals(x1, x2)
+    _: False
+
+def equal_rows(row1, row2):
+  equal_RowEntry.equal_List(row1, row2)
+
+RecordSet(_, rows, to_row) = rs2
 tests = Test("reordering",
   [
-    Assertion((string_Order_fn, cmp_Bool, cmp_Int).compare_shape3.equal_List(rows, [Shape3(RecordValue("a"), RecordValue(True), RecordValue(1), RecordValue(5))]), "swap")
+    Assertion(equal_rows.equal_List(rows.map_List(to_row), [[REString(RecordValue("a")), REBool(RecordValue(True)), REInt(RecordValue(1)), REInt(RecordValue(5))]]), "swap")
   ]
 )
