@@ -5,17 +5,16 @@ import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.mutable.{Map => MMap}
-
-import Parser.{spaces, maybeSpace, Combinators}
-import rankn._
-
-import Identifier.{Bindable, Constructor}
 import scala.util.hashing.MurmurHash3
+
+import rankn._
+import Identifier.Constructor
+import Parser.{spaces, maybeSpace, Combinators}
 
 /**
  * Represents a package over its life-cycle: from parsed to resolved to inferred
  */
-final case class Package[A, B, C, D](
+final case class Package[A, B, C, +D](
   name: PackageName,
   imports: List[Import[A, B]],
   exports: List[ExportedName[C]],
@@ -66,7 +65,11 @@ object Package {
   type PackageF2[A, B] = PackageF[A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Typed[T] = Package[Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[T], Statement]]
+  type Typed[T] = Package[
+    Interface,
+    NonEmptyList[Referant[Variance]],
+    Referant[Variance],
+    Program[TypeEnv[Variance], TypedExpr[T], Any]]
   type Inferred = Typed[Declaration]
 
   def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
@@ -119,7 +122,8 @@ object Package {
     p: PackageName,
     imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
     stmt: Statement):
-      ValidatedNel[PackageError, (TypeEnv[Variance], List[(Bindable, RecursionKind, TypedExpr[Declaration])])] = {
+      ValidatedNel[PackageError,
+      Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]] = {
 
     val importedTypes: Map[Identifier, (PackageName, TypeName)] =
       Referant.importedTypes(imps)
@@ -141,7 +145,7 @@ object Package {
     val typeCache: MMap[Constructor, Type.Const] = MMap.empty
     val consCache: MMap[Constructor, (PackageName, Constructor)] = MMap.empty
 
-    val Program(parsedTypeEnv, lets, _) =
+    val Program(parsedTypeEnv, lets, extDefs, _) =
       Program.fromStatement(
         p,
         { s =>
@@ -212,7 +216,7 @@ object Package {
         .runFully(withFQN,
           Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
         )
-        .map { lets => (typeEnv, lets) }
+        .map { lets => Program(typeEnv, lets, extDefs, stmt) }
         .left
         .map(PackageError.TypeErrorIn(_, p))
 

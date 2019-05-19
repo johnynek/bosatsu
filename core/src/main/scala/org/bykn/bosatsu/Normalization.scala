@@ -548,7 +548,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def normalizeProgram(pkgName: PackageName, pack: Package.Inferred): NormState[
-    Program[TypeEnv[Variance], TypedExpr[(Declaration, Normalization.NormalExpressionTag)], Statement]] = {
+    Program[TypeEnv[Variance], TypedExpr[(Declaration, Normalization.NormalExpressionTag)], Any]] = {
     for {
       lets <- pack.program.lets.map {
         case (name, recursive, expr) => normalizeNameKindLet(name, recursive, expr, pack, (Map(), Nil)).map((name, recursive, _))
