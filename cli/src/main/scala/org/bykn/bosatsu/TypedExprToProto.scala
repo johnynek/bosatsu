@@ -401,7 +401,7 @@ object ProtoConverter {
     val last = packageId.product(tryProtoDts).product(tryExports)
 
     runTab(last).map { case (serstate, ((nm, dts), exps)) =>
-      proto.Interface(serstate.stringVec, nm, serstate.typeVec, dts, exps)
+      proto.Interface(serstate.stringVec, serstate.typeVec, dts, nm, exps)
     }
   }
 
@@ -478,13 +478,13 @@ object ProtoConverter {
               }
         }
       }
-    runLookupDTab(protoIface.constants, protoIface.types, tab)
+    runLookupDTab(protoIface.strings, protoIface.types, tab)
   }
 
   def interfacesToProto[F[_]: Foldable](ps: F[Package.Interface]): Try[proto.Interfaces] =
     ps.toList.traverse(interfaceToProto).map { ifs =>
       // sort so we are deterministic
-      proto.Interfaces(ifs.sortBy { iface => iface.constants(iface.packageName - 1) })
+      proto.Interfaces(ifs.sortBy { iface => iface.strings(iface.packageName - 1) })
     }
 
   def interfacesFromProto(ps: proto.Interfaces): Try[List[Package.Interface]] =

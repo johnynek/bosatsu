@@ -87,13 +87,171 @@ message ExportedName {
  * This is an interface of a package: all public types, and the type of all exported values
  */
 message Interface {
-  repeated string constants = 1;
-  int32 packageName = 2;
-  repeated Type types = 3;
-  repeated DefinedType definedTypes = 4;
+  repeated string strings = 1;
+  repeated Type types = 2;
+  repeated DefinedType definedTypes = 3;
+  int32 packageName = 4;
   repeated ExportedName exports = 5;
 }
 
 message Interfaces {
   repeated Interface interfaces = 1;
+}
+
+message ImportedName {
+  int32 originalName = 1;
+  int32 localName = 2;
+  Referant referant = 3;
+}
+
+message Imports {
+  int32 packageName = 1;
+  repeated ImportedName names = 2;
+}
+
+enum RecursionKind {
+  NotRec = 0;
+  IsRec = 1;
+}
+
+message GenericExpr {
+  repeated int32 varNames = 1;
+  int32 expr = 2;
+}
+
+message AnnotationExpr {
+  int32 expr = 1;
+  int32 typeOf = 2;
+}
+
+message LambdaExpr {
+  int32 varName = 1;
+  int32 typeOfVar = 2;
+  int32 resultExpr = 3;
+}
+
+message VarExpr {
+  int32 packageName = 1;
+  int32 varName = 2;
+  int32 typeOfVar = 3;
+}
+
+message AppExpr {
+  int32 fnExpr = 1;
+  int32 argExpr = 2;
+  int32 resultType = 3;
+}
+
+message LetExpr {
+  int32 letName = 1;
+  int32 nameExpr = 2;
+  int32 resultExpr = 3;
+  RecursionKind rec = 4;
+}
+
+message LiteralExpr {
+  oneof value {
+    string stringValue = 1;
+    int64 intValueAs64 = 2;
+    string intValueAsString = 3;
+  }
+}
+
+message WildCardPat { }
+
+message NamedPat {
+  int32 name = 1;
+  int32 pattern = 2;
+}
+
+message ListPart {
+  oneof value {
+    WildCardPat unnamedList = 1;
+    int32 namedList = 2;
+    int32 itemPattern = 3;
+  }
+}
+
+message ListPat {
+  repeated ListPart parts = 1;
+}
+
+message AnnotationPat {
+  int32 pattern = 1;
+  int32 typeOfPattern = 2;
+}
+
+message StructPattern {
+  int32 packageName = 1;
+  int32 constructorName = 2;
+  repeated int32 params = 3;
+}
+
+message UnionPattern {
+  repeated int32 patterns = 1;
+}
+
+message Pattern {
+  oneof value {
+    WildCardPat wildPat = 1;
+    LiteralExpr litPat = 2;
+    int32 varNamePat = 3;
+    NamedPat namedPat = 4;
+    ListPat listPat = 5;
+    AnnotationPat annotationPat = 6;
+    StructPattern structPat = 7;
+    UnionPattern unionPat = 8;
+  }
+}
+
+message Branch {
+  Pattern pattern = 1;
+  int32 resultExpr = 2;
+}
+
+message MatchExpr {
+  int32 argExpr = 1;
+  repeated Branch branches = 2;
+}
+
+message TypedExpr {
+  oneof value {
+    GenericExpr genericExpr = 1;
+    AnnotationExpr annotationExpr = 2;
+    LambdaExpr lambdaExpr = 3;
+    VarExpr varExpr = 4;
+    AppExpr appExpr = 5;
+    LetExpr letExpr = 6;
+    LiteralExpr literalExpr = 7;
+    MatchExpr matchExpr = 8;
+  }
+}
+
+message Let {
+  int32 name = 1;
+  RecursionKind rec = 2;
+  int32 expr = 3;
+}
+
+message ExternalDef {
+  int32 name = 1;
+  int32 typeOf = 2;
+}
+
+message Package {
+  repeated string strings = 1;
+  repeated Type types = 2;
+  repeated DefinedType definedTypes = 3;
+  repeated Pattern patterns = 4;
+  repeated TypedExpr expressions = 5;
+
+  int32 packageName = 6;
+  repeated Imports imports = 7;
+  repeated ExportedName exports = 8;
+  repeated Let lets = 9;
+  repeated ExternalDef externalDefs = 10;
+}
+
+message Packages {
+  repeated Package packages = 1;
 }
