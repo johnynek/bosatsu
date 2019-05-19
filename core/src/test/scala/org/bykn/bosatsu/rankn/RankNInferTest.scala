@@ -122,8 +122,8 @@ class RankNInferTest extends FunSuite {
       case Parsed.Success(stmt, _) =>
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
           case Validated.Invalid(_) => assert(true)
-          case Validated.Valid((tpeEnv, _, lets)) =>
-            fail(lets.toString)
+          case Validated.Valid(program) =>
+            fail(program.lets.toString)
         }
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")

@@ -47,15 +47,7 @@ object NameKind {
       }
 
     def getExternal: Option[NameKind[T]] =
-      // there should not be duplicate top level names TODO lint for this
-      prog.externalDefs.collectFirst {
-        case n if n == item =>
-          // The type could be an import, so we need to check for the type
-          // in the TypeEnv
-          val pn = from.name
-          val tpe = prog.types.getValue(pn, n).get
-          ExternalDef(pn, item, tpe)
-      }
+      externals(from).find(_.defName == item)
 
     getLet
       .orElse(getConstructor)

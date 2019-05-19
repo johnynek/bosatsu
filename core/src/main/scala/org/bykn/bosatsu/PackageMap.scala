@@ -274,15 +274,14 @@ object PackageMap {
               Package.inferBody(nm, imps, stmt)
                 .map((imps, _))
             }
-            .andThen { case (imps, (types, extDefs, lets)) =>
-              ExportedName.buildExports(nm, exports, types, lets)
-                .map { exps =>
-                  Package(nm, imps, exps, Program(types, lets, extDefs, stmt))
-                }
-                .leftMap { badPackages =>
-                  badPackages.map { n =>
+            .andThen { case (imps, program@Program(types, lets, _, _)) =>
+              ExportedName.buildExports(nm, exports, types, lets) match {
+                case Validated.Valid(exps) =>
+                  Validated.valid(Package(nm, imps, exps, program))
+                case Validated.Invalid(badPackages) =>
+                  Validated.invalid(badPackages.map { n =>
                     PackageError.UnknownExport(n, nm, lets)
-                  }
+                  })
                 }
             }
         }

@@ -5,12 +5,11 @@ import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.mutable.{Map => MMap}
-
-import Parser.{spaces, maybeSpace, Combinators}
-import rankn._
-
-import Identifier.{Bindable, Constructor}
 import scala.util.hashing.MurmurHash3
+
+import rankn._
+import Identifier.Constructor
+import Parser.{spaces, maybeSpace, Combinators}
 
 /**
  * Represents a package over its life-cycle: from parsed to resolved to inferred
@@ -123,7 +122,8 @@ object Package {
     p: PackageName,
     imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
     stmt: Statement):
-      ValidatedNel[PackageError, (TypeEnv[Variance], List[Bindable], List[(Bindable, RecursionKind, TypedExpr[Declaration])])] = {
+      ValidatedNel[PackageError,
+      Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]] = {
 
     val importedTypes: Map[Identifier, (PackageName, TypeName)] =
       Referant.importedTypes(imps)
@@ -216,7 +216,7 @@ object Package {
         .runFully(withFQN,
           Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
         )
-        .map { lets => (typeEnv, extDefs, lets) }
+        .map { lets => Program(typeEnv, lets, extDefs, stmt) }
         .left
         .map(PackageError.TypeErrorIn(_, p))
 
