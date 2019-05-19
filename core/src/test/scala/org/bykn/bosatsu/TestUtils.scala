@@ -52,7 +52,7 @@ object TestUtils {
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
           case Validated.Invalid(errs) =>
             fail("inference failure: " + errs.toList.map(_.message(Map.empty)).mkString("\n"))
-          case Validated.Valid((_, lets)) =>
+          case Validated.Valid((_, _, lets)) =>
             fn(lets.last._3)
         }
       case Parsed.Failure(exp, idx, extra) =>

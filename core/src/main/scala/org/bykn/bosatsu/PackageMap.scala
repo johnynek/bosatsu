@@ -61,7 +61,7 @@ object PackageMap {
     Program[
       TypeEnv[Variance],
       TypedExpr[T],
-      Statement
+      Any
     ]
   ]
 
@@ -274,10 +274,10 @@ object PackageMap {
               Package.inferBody(nm, imps, stmt)
                 .map((imps, _))
             }
-            .andThen { case (imps, (types, lets)) =>
+            .andThen { case (imps, (types, extDefs, lets)) =>
               ExportedName.buildExports(nm, exports, types, lets)
                 .map { exps =>
-                  Package(nm, imps, exps, Program(types, lets, stmt))
+                  Package(nm, imps, exps, Program(types, lets, extDefs, stmt))
                 }
                 .leftMap { badPackages =>
                   badPackages.map { n =>
