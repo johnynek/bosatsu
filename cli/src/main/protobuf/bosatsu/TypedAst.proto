@@ -205,7 +205,7 @@ message Pattern {
 }
 
 message Branch {
-  Pattern pattern = 1;
+  int32 pattern = 1;
   int32 resultExpr = 2;
 }
 
