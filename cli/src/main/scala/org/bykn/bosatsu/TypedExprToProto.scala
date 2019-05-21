@@ -9,47 +9,48 @@ import java.io.{FileInputStream, FileOutputStream, BufferedInputStream, Buffered
 import org.bykn.bosatsu.rankn.{Type, DefinedType}
 import scala.util.{Failure, Success, Try}
 
+import Identifier.Constructor
+
 import cats.implicits._
 
 /**
  * convert TypedExpr to and from Protobuf representation
  */
 object ProtoConverter {
+  case class IdAssignment[A1, A2](mapping: Map[A1, Int], inOrder: Vector[A2]) {
+    def get(a1: A1, a2: => A2): Either[(IdAssignment[A1, A2], Int), Int] =
+      mapping.get(a1) match {
+        case Some(id) => Right(id)
+        case None =>
+          val id = inOrder.size
+          val next = copy(
+            mapping = mapping.updated(a1, id),
+            inOrder = inOrder :+ a2)
+          Left((next, id))
+      }
+
+    def indexOf(a1: A1): Option[Int] =
+      mapping.get(a1)
+  }
+
+  object IdAssignment {
+    def empty[A1, A2]: IdAssignment[A1, A2] = IdAssignment(Map.empty, Vector.empty)
+  }
+
   case class SerState(
-    strings: Map[String, Int],
-    stringVec: Vector[String],
-    types: Map[Type, Int],
-    typeVec: Vector[proto.Type]) {
+    strings: IdAssignment[String, String],
+    types: IdAssignment[Type, proto.Type]) {
 
     def stringId(s: String): Either[(SerState, Int), Int] =
-      strings.get(s) match {
-        case Some(id) => Right(id)
-        case None =>
-          val id = stringVec.size
-          val nextSS = copy(
-            strings = strings.updated(s, id),
-            stringVec = stringVec :+ s)
-          Left((nextSS, id))
-      }
+      strings.get(s, s).left.map { case (next, id) => (copy(strings = next), id) }
 
     def typeId(t: Type, protoType: => proto.Type): Either[(SerState, Int), Int] =
-      types.get(t) match {
-        case Some(id) => Right(id)
-        case None =>
-          val id = typeVec.size
-          val nextSS = copy(
-            types = types.updated(t, id),
-            typeVec = typeVec :+ protoType)
-          Left((nextSS, id))
-      }
-
-    def getProtoType(t: Type): Option[(proto.Type, Int)] =
-      types.get(t).map { idx => (typeVec(idx), idx) }
+      types.get(t, protoType).left.map { case (next, id) => (copy(types = next), id) }
   }
 
   object SerState {
     val empty: SerState =
-      SerState(Map.empty, Vector.empty, Map.empty, Vector.empty)
+      SerState(IdAssignment.empty, IdAssignment.empty)
   }
 
   type Tab[A] = StateT[Try, SerState, A]
@@ -75,20 +76,22 @@ object ProtoConverter {
 
   private def getId(s: String): Tab[Int] = get(_.stringId(s))
 
-  private def getTypeId(t: Type, pt: => proto.Type): Tab[(proto.Type, Int)] =
-    for {
-      idx <- get(_.typeId(t, pt))
-      st <- StateT.get[Try, SerState]
-    } yield (st.typeVec(idx - 1), idx)
+  private def getTypeId(t: Type, pt: => proto.Type): Tab[Int] =
+    get(_.typeId(t, pt))
 
-  private def getProtoTypeTab(t: Type): Tab[Option[(proto.Type, Int)]] =
+  private def getProtoTypeTab(t: Type): Tab[Option[Int]] =
     StateT.get[Try, SerState]
-      .map(_.getProtoType(t).map { case (t, idx) => (t, idx + 1) })
+      .map(_.types.indexOf(t).map(_ + 1))
 
   def runTab[A](t: Tab[A]): Try[(SerState, A)] =
     t.run(SerState.empty)
 
-  class DecodeState(strings: Array[String], types: Array[Type]) {
+  class DecodeState private (
+    strings: Array[String],
+    types: Array[Type],
+    dts: Array[DefinedType[Variance]],
+    patterns: Array[Pattern[(PackageName, Constructor), Type]],
+    expr: Array[TypedExpr[Any]]) {
     def getString(idx: Int): Option[String] =
       if ((0 <= idx) && (idx < strings.length)) Some(strings(idx))
       else None
@@ -96,6 +99,21 @@ object ProtoConverter {
     def getType(idx: Int): Option[Type] =
       if ((0 <= idx) && (idx < types.length)) Some(types(idx))
       else None
+
+    def getDt(idx: Int): Option[DefinedType[Variance]] =
+      if ((0 <= idx) && (idx < dts.length)) Some(dts(idx))
+      else None
+
+    def withDefinedTypes(vdts: Seq[DefinedType[Variance]]): DecodeState =
+      new DecodeState(strings, types, vdts.toArray, patterns, expr)
+
+    def withTypes(ary: Array[Type]): DecodeState =
+      new DecodeState(strings, ary, dts, patterns, expr)
+  }
+
+  object DecodeState {
+    def forInterface(strings: Array[String], tpearray: Array[Type]): DecodeState =
+      new DecodeState(strings, tpearray, Array.empty, Array.empty, Array.empty)
   }
 
   type DTab[A] = ReaderT[Try, DecodeState, A]
@@ -114,8 +132,10 @@ object ProtoConverter {
   private def lookupType(idx: Int, context: => String): DTab[Type] =
     find(idx, context)(_.getType(_))
 
-  def runLookupDTab[A](strings: Seq[String], types: Seq[proto.Type], t: DTab[A]): Try[A] = {
-    val stab = strings.toArray
+  private def lookupDts(idx: Int, context: => String): DTab[DefinedType[Variance]] =
+    find(idx, context)(_.getDt(_))
+
+  private def buildTypes[A](strings: Array[String], types: Seq[proto.Type]): Try[Array[Type]] = {
     // this is mutable which we will write into
     val tpearray = new Array[Type](types.length)
 
@@ -124,7 +144,7 @@ object ProtoConverter {
       import bosatsu.TypedAst.{Type => _, _}
 
       def str(i: Int): Try[String] =
-        if ((i > 0) && (i <= stab.length)) Success(stab(i - 1))
+        if (i > 0 && i <= strings.length) Success(strings(i - 1))
         else Failure(new Exception(s"invalid string idx: $i in $p"))
 
       def tpe(i: Int): Try[Type] =
@@ -155,21 +175,19 @@ object ProtoConverter {
     }
     // materialize the full types
     var idx = 0;
-    var res: Try[A] = null
-    val tarray = types.toArray
-    while(idx < tarray.length) {
-      typeFromProto(tarray(idx)) match {
+    var res: Try[Array[Type]] = null
+    val tarray = types.iterator
+    while(tarray.hasNext && (res eq null)) {
+      typeFromProto(tarray.next) match {
         case Success(tpe) =>
           tpearray(idx) = tpe
           idx += 1
         case Failure(err) =>
           res = Failure(err)
-          idx = Int.MaxValue
       }
     }
-
-    if (res != null) res
-    else t.run(new DecodeState(stab, tpearray))
+    if (res eq null) Success(tpearray)
+    else res
   }
 
   def typeConstFromStr(pstr: String, tstr: String, context: => String): Try[Type.Const.Defined] =
@@ -205,7 +223,7 @@ object ProtoConverter {
   def typeVarBoundFromProto(tv: proto.TypeVar): DTab[Type.Var.Bound] =
     lookup(tv.varName, s"typevar: $tv").map(Type.Var.Bound(_))
 
-  def typeToProto(p: Type): Tab[(proto.Type, Int)] = {
+  def typeToProto(p: Type): Tab[Int] = {
     import proto.Type.Value
     import bosatsu.TypedAst.{Type => _, _}
 
@@ -215,7 +233,7 @@ object ProtoConverter {
         case None =>
           p match {
             case Type.ForAll(bs, t) =>
-              typeToProto(t).flatMap { case (pt, idx) =>
+              typeToProto(t).flatMap { idx =>
                 bs.toList
                   .traverse { b => getId(b.name) }
                   .flatMap { ids =>
@@ -225,7 +243,7 @@ object ProtoConverter {
             case Type.TyApply(on, arg) =>
               typeToProto(on)
                 .product(typeToProto(arg))
-                .flatMap { case ((lp, li), (rp, ri)) =>
+                .flatMap { case (li, ri) =>
                   getTypeId(p, proto.Type(Value.TypeApply(TypeApply(li, ri))))
                 }
             case Type.TyConst(tcd) =>
@@ -274,7 +292,7 @@ object ProtoConverter {
       val constructors: Tab[List[proto.ConstructorFn]] =
         d.constructors.traverse { case (c, tp, _) =>
           tp.traverse { case (b, t) =>
-            typeToProto(t).flatMap { case (_, tidx) =>
+            typeToProto(t).flatMap { tidx =>
               getId(b.sourceCodeRepr)
                 .map { n =>
                   proto.FnParam(n, tidx)
@@ -355,7 +373,7 @@ object ProtoConverter {
       val protoRef: Tab[proto.Referant] =
         e.tag match {
           case Referant.Value(t) =>
-            typeToProto(t).map { case (_, tpeId) =>
+            typeToProto(t).map { tpeId =>
               proto.Referant(proto.Referant.Referant.Value(tpeId))
             }
           case Referant.DefinedT(dt) =>
@@ -401,26 +419,18 @@ object ProtoConverter {
     val last = packageId.product(tryProtoDts).product(tryExports)
 
     runTab(last).map { case (serstate, ((nm, dts), exps)) =>
-      proto.Interface(serstate.stringVec, serstate.typeVec, dts, nm, exps)
+      proto.Interface(serstate.strings.inOrder, serstate.types.inOrder, dts, nm, exps)
     }
   }
 
-  private def referantFromProto[A](dts: Vector[DefinedType[A]], ref: proto.Referant): DTab[Referant[A]] = {
-    def getDt(idx: Int): Try[DefinedType[A]] = {
-      // idx is 1 based:
-      val fixedIdx = idx - 1
-      if ((fixedIdx < 0) || (fixedIdx >= dts.size))
-        Failure(new Exception(s"invalid index: $idx in $ref, size: ${dts.size}"))
-      else Success(dts(fixedIdx))
-    }
-
+  private def referantFromProto(ref: proto.Referant): DTab[Referant[Variance]] =
     ref.referant match {
       case proto.Referant.Referant.Value(t) =>
         lookupType(t, s"invalid type in $ref").map(Referant.Value(_))
       case proto.Referant.Referant.DefinedTypePtr(idx) =>
-        ReaderT.liftF(getDt(idx).map(Referant.DefinedT(_)))
+        lookupDts(idx, s"invalid defined type in $ref").map(Referant.DefinedT(_))
       case proto.Referant.Referant.Constructor(proto.ConstructorPtr(dtIdx, cIdx)) =>
-        ReaderT.liftF(getDt(dtIdx)).flatMap { dt =>
+        lookupDts(dtIdx, s"invalid defined type in $ref").flatMap { dt =>
           // cIdx is 1 based:
           val fixedIdx = cIdx - 1
           ReaderT.liftF(dt.constructors.get(fixedIdx.toLong) match {
@@ -433,11 +443,10 @@ object ProtoConverter {
       case proto.Referant.Referant.Empty =>
         ReaderT.liftF(Failure(new Exception(s"empty referant found: $ref")))
     }
-  }
 
-  private def exportedNameFromProto[A](dts: Vector[DefinedType[A]], en: proto.ExportedName): DTab[ExportedName[Referant[A]]] = {
-    val tryRef: DTab[Referant[A]] = en.referant match {
-      case Some(r) => referantFromProto(dts, r)
+  private def exportedNameFromProto(en: proto.ExportedName): DTab[ExportedName[Referant[Variance]]] = {
+    val tryRef: DTab[Referant[Variance]] = en.referant match {
+      case Some(r) => referantFromProto(r)
       case None => ReaderT.liftF(Failure(new Exception(s"missing referant in $en")))
     }
 
@@ -456,6 +465,13 @@ object ProtoConverter {
       }
   }
 
+  private def defTypes[A](dts: Seq[proto.DefinedType], dtab: DTab[A]): DTab[A] =
+    dts.toVector
+      .traverse(definedTypeFromProto)
+      .flatMap { dtVect =>
+        dtab.local { ds: DecodeState => ds.withDefinedTypes(dtVect) }
+      }
+
   def interfaceFromProto(protoIface: proto.Interface): Try[Package.Interface] = {
     val tab: DTab[Package.Interface] = lookup(protoIface.packageName, protoIface.toString)
       .flatMap { packageName =>
@@ -464,21 +480,22 @@ object ProtoConverter {
             ReaderT.liftF(
               Failure(new Exception(s"bad package name: $packageName in: $protoIface")))
           case Some(pn) =>
-            protoIface
-              .definedTypes
-              .toVector
-              .traverse(definedTypeFromProto)
-              .flatMap { dtVect =>
-                val exports: DTab[List[ExportedName[Referant[Variance]]]] =
-                  protoIface.exports.toList.traverse(exportedNameFromProto(dtVect, _))
-
-                exports.map { exports =>
-                  Package(pn, Nil, exports, ())
-                }
-              }
+            defTypes(protoIface.definedTypes,
+                protoIface
+                  .exports
+                  .toList
+                  .traverse(exportedNameFromProto)
+                  .map { exports =>
+                    Package(pn, Nil, exports, ())
+                  })
         }
       }
-    runLookupDTab(protoIface.strings, protoIface.types, tab)
+
+    val sarray = protoIface.strings.toArray
+    buildTypes(sarray, protoIface.types)
+      .flatMap { tpearray =>
+        tab.run(DecodeState.forInterface(sarray, tpearray))
+      }
   }
 
   def interfacesToProto[F[_]: Foldable](ps: F[Package.Interface]): Try[proto.Interfaces] =
