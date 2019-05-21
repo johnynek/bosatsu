@@ -181,7 +181,32 @@ object TypedExpr {
         f(b2, tag)
     }
 
-    def foldRight[A, B](typedExprA: TypedExpr[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = ???
+    def foldRight[A, B](typedExprA: TypedExpr[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = typedExprA match {
+      case Generic(_, e, tag) =>
+        val b1 = foldRight(e, lb)(f)
+        f(tag, b1)
+      case Annotation(e, _, tag) =>
+        val lb1 = foldRight(e, lb)(f)
+        f(tag, lb1)
+      case AnnotatedLambda(_, _, e, tag) =>
+        val lb1 = foldRight(e, lb)(f)
+        f(tag, lb1)
+      case Var(_, _ , _, tag) => f(tag, lb)
+      case App(fn, a, _, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = foldRight(a, b1)(f)
+        foldRight(fn, b2)(f)
+      case Let(_, exp, in, _, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = foldRight(in, b1)(f)
+        foldRight(exp, b2)(f)
+      case Literal(_, _, tag) =>
+        f(tag, lb)
+      case Match(arg, branches, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = branches.foldRight(b1) { case ((p,t), bn) => foldRight(t, bn)(f) }
+        foldRight(arg, b2)(f)
+    }
   }
 
   type Rho[A] = TypedExpr[A] // an expression with a Rho type (no top level forall)
