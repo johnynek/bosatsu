@@ -39,7 +39,8 @@ object ProtoConverter {
 
   case class SerState(
     strings: IdAssignment[String, String],
-    types: IdAssignment[Type, proto.Type]) {
+    types: IdAssignment[Type, proto.Type],
+    patterns: IdAssignment[Pattern[(PackageName, Constructor), Type], proto.Pattern]) {
 
     def stringId(s: String): Either[(SerState, Int), Int] =
       strings.get(s, s).left.map { case (next, id) => (copy(strings = next), id) }
@@ -50,7 +51,7 @@ object ProtoConverter {
 
   object SerState {
     val empty: SerState =
-      SerState(IdAssignment.empty, IdAssignment.empty)
+      SerState(IdAssignment.empty, IdAssignment.empty, IdAssignment.empty)
   }
 
   type Tab[A] = StateT[Try, SerState, A]
@@ -82,6 +83,18 @@ object ProtoConverter {
   private def getProtoTypeTab(t: Type): Tab[Option[Int]] =
     StateT.get[Try, SerState]
       .map(_.types.indexOf(t).map(_ + 1))
+
+  private def writePattern(p: Pattern[(PackageName, Constructor), Type], pp: proto.Pattern): Tab[Int] =
+    StateT.get[Try, SerState]
+      .flatMap { s =>
+        s.patterns.get(p, pp) match {
+          case Right(_) =>
+            // this is a programming error in this code, if this is hit
+            tabFail(new Exception(s"expected $p to be absent"))
+          case Left((next, id)) =>
+            StateT.set[Try, SerState](s.copy(patterns = next)).as(id)
+        }
+      }
 
   def runTab[A](t: Tab[A]): Try[(SerState, A)] =
     t.run(SerState.empty)
@@ -260,6 +273,87 @@ object ProtoConverter {
           }
       }
   }
+
+  def patternToProto(p: Pattern[(PackageName, Constructor), Type]): Tab[Int] =
+    StateT.get[Try, SerState]
+      .map(_.patterns.indexOf(p).map(_ + 1))
+      .flatMap {
+        case Some(idx) => tabPure(idx)
+        case None =>
+          p match {
+            case Pattern.WildCard =>
+              writePattern(p, proto.Pattern(proto.Pattern.Value.WildPat(proto.WildCardPat())))
+            case Pattern.Literal(Lit.Str(str)) =>
+              writePattern(p, proto.Pattern(proto.Pattern.Value.LitPat(
+                proto.LiteralExpr(proto.LiteralExpr.Value.StringValue(str)))))
+            case Pattern.Literal(Lit.Integer(i)) =>
+              val lit = try {
+                proto.LiteralExpr.Value.IntValueAs64(i.longValueExact)
+              }
+              catch {
+                case ae: ArithmeticException =>
+                  proto.LiteralExpr.Value.IntValueAsString(i.toString)
+              }
+              writePattern(p, proto.Pattern(proto.Pattern.Value.LitPat(
+                proto.LiteralExpr(lit))))
+            case Pattern.Var(n) =>
+              getId(n.sourceCodeRepr)
+                .flatMap { idx =>
+                  writePattern(p, proto.Pattern(proto.Pattern.Value.VarNamePat(idx)))
+                }
+            case named@Pattern.Named(n, p) =>
+              getId(n.sourceCodeRepr)
+                .product(patternToProto(p))
+                .flatMap { case (idx, pidx) =>
+                  writePattern(named, proto.Pattern(proto.Pattern.Value.NamedPat(proto.NamedPat(idx, pidx))))
+                }
+            case Pattern.ListPat(items) =>
+              items.traverse {
+                case Right(itemPat) =>
+                  patternToProto(itemPat).map { pidx =>
+                    proto.ListPart(proto.ListPart.Value.ItemPattern(pidx))
+                  }
+                case Left(None) =>
+                  // unnamed list wildcard
+                  tabPure(proto.ListPart(proto.ListPart.Value.UnnamedList(proto.WildCardPat())))
+                case Left(Some(bindable)) =>
+                  // named list wildcard
+                  getId(bindable.sourceCodeRepr).map { idx =>
+                    proto.ListPart(proto.ListPart.Value.NamedList(idx))
+                  }
+                }
+                .flatMap { parts =>
+                  writePattern(p, proto.Pattern(proto.Pattern.Value.ListPat(proto.ListPat(parts))))
+                }
+            case ann@Pattern.Annotation(p, tpe) =>
+              patternToProto(p)
+                .product(typeToProto(tpe))
+                .flatMap { case (pidx, tidx) =>
+                  writePattern(ann, proto.Pattern(proto.Pattern.Value.AnnotationPat(proto.AnnotationPat(pidx, tidx))))
+                }
+            case pos@Pattern.PositionalStruct((packName, consName), params) =>
+              typeConstToProto(Type.Const.Defined(packName, TypeName(consName)))
+                .flatMap { ptc =>
+                  params
+                    .traverse(patternToProto)
+                    .flatMap { parts =>
+                      writePattern(pos,
+                        proto.Pattern(proto.Pattern.Value.StructPat(
+                          proto.StructPattern(
+                            packageName = ptc.packageName,
+                            constructorName = ptc.typeName,
+                            params = parts))))
+                    }
+                }
+
+            case Pattern.Union(h, t) =>
+              (h :: t.toList)
+                .traverse(patternToProto)
+                .flatMap { us =>
+                  writePattern(p, proto.Pattern(proto.Pattern.Value.UnionPat(proto.UnionPattern(us))))
+                }
+          }
+      }
 
   def varianceToProto(v: Variance): proto.Variance =
     v match {
