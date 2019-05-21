@@ -154,7 +154,33 @@ object TypedExpr {
           (expr.traverse(fn), tbranch, fn(tag)).mapN(Match(_, _, _))
       }
 
-    def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B = ???
+    def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B = typedExprA match {
+      case Generic(_, e, tag) =>
+        val b1 = foldLeft(e, b)(f)
+        f(b1, tag)
+      case Annotation(e, _, tag) =>
+        val b1 = foldLeft(e, b)(f)
+        f(b1, tag)
+      case AnnotatedLambda(_, _, e, tag) =>
+        val b1 = foldLeft(e, b)(f)
+        f(b1, tag)
+      case Var(_, _, _, tag) => f(b, tag)
+      case App(fn, a, _, tag) =>
+        val b1 = foldLeft(fn, b)(f)
+        val b2 = foldLeft(a, b1)(f)
+        f(b2, tag)
+      case Let(_, exp, in, _, tag) =>
+        val b1 = foldLeft(exp, b)(f)
+        val b2 = foldLeft(in, b1)(f)
+        f(b2, tag)
+      case Literal(_, _, tag) =>
+        f(b, tag)
+      case Match(arg, branches, tag) =>
+        val b1 = foldLeft(arg, b)(f)
+        val b2 = branches.foldLeft(b1) { case (bn, (p,t)) => foldLeft(t, bn)(f) }
+        f(b2, tag)
+    }
+
     def foldRight[A, B](typedExprA: TypedExpr[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = ???
   }
 
