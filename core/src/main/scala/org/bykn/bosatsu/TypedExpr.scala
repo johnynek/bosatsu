@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Applicative
+import cats.{Applicative, Eval, Traverse}
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
@@ -107,37 +107,6 @@ sealed abstract class TypedExpr[T] { self: Product =>
         (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
     }
 
-  def traverseTag[F[_]: Applicative, S](fn: T => F[S]): F[TypedExpr[S]] =
-    this match {
-      case Generic(params, expr, tag) =>
-        (expr.traverseTag(fn), fn(tag)).mapN(Generic(params, _, _))
-      case Annotation(of, tpe, tag) =>
-        (of.traverseTag(fn), fn(tag)).mapN(Annotation(_, tpe, _))
-      case AnnotatedLambda(arg, tpe, res, tag) =>
-        (res.traverseTag(fn), fn(tag)).mapN {
-          AnnotatedLambda(arg, tpe, _, _)
-        }
-      case Var(p, v, tpe, tag) =>
-        fn(tag).map(Var(p, v, tpe, _))
-      case App(f, arg, tpe, tag) =>
-        (f.traverseTag(fn), arg.traverseTag(fn), fn(tag)).mapN {
-          App(_, _, tpe, _)
-        }
-      case Let(v, exp, in, rec, tag) =>
-        (exp.traverseTag(fn), in.traverseTag(fn), fn(tag)).mapN {
-          Let(v, _, _, rec, _)
-        }
-      case Literal(lit, tpe, tag) =>
-        fn(tag).map(Literal(lit, tpe, _))
-      case Match(expr, branches, tag) =>
-        // all branches have the same type:
-        val tbranch = branches.traverse {
-          case (p, t) =>
-            t.traverseTag(fn).map((p, _))
-        }
-        (expr.traverseTag(fn), tbranch, fn(tag)).mapN(Match(_, _, _))
-    }
-
   def updatedTag(t: T): TypedExpr[T] =
     this match {
       case g@Generic(_, _, _) => g.copy(tag=t)
@@ -152,6 +121,42 @@ sealed abstract class TypedExpr[T] { self: Product =>
 }
 
 object TypedExpr {
+
+  implicit val traverseTypedExpr: Traverse[TypedExpr] = new Traverse[TypedExpr] {
+    def traverse[F[_]: Applicative, T, S](typedExprT: TypedExpr[T])(fn: T => F[S]): F[TypedExpr[S]] =
+      typedExprT match {
+        case Generic(params, expr, tag) =>
+          (expr.traverse(fn), fn(tag)).mapN(Generic(params, _, _))
+        case Annotation(of, tpe, tag) =>
+          (of.traverse(fn), fn(tag)).mapN(Annotation(_, tpe, _))
+        case AnnotatedLambda(arg, tpe, res, tag) =>
+          (res.traverse(fn), fn(tag)).mapN {
+            AnnotatedLambda(arg, tpe, _, _)
+          }
+        case Var(p, v, tpe, tag) =>
+          fn(tag).map(Var(p, v, tpe, _))
+        case App(f, arg, tpe, tag) =>
+          (f.traverse(fn), arg.traverse(fn), fn(tag)).mapN {
+            App(_, _, tpe, _)
+          }
+        case Let(v, exp, in, rec, tag) =>
+          (exp.traverse(fn), in.traverse(fn), fn(tag)).mapN {
+            Let(v, _, _, rec, _)
+          }
+        case Literal(lit, tpe, tag) =>
+          fn(tag).map(Literal(lit, tpe, _))
+        case Match(expr, branches, tag) =>
+          // all branches have the same type:
+          val tbranch = branches.traverse {
+            case (p, t) =>
+              t.traverse(fn).map((p, _))
+          }
+          (expr.traverse(fn), tbranch, fn(tag)).mapN(Match(_, _, _))
+      }
+
+    def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B = ???
+    def foldRight[A, B](typedExprA: TypedExpr[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = ???
+  }
 
   type Rho[A] = TypedExpr[A] // an expression with a Rho type (no top level forall)
   /**

@@ -404,7 +404,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   def hashKey[T](fn: NormalExpression => T): PackageMap.Typed[(Declaration, ExpressionKeyTag[T])] = {
     val lst = normalizePackageMap.toMap.toList
       .map { case (name, pack) => (name, pack.copy(program = pack.program.copy(
-        lets = pack.program.lets.map { case (name, recursive, expr) => (name, recursive, expr.traverseTag[Id, (Declaration, ExpressionKeyTag[T])] {
+        lets = pack.program.lets.map { case (name, recursive, expr) => (name, recursive, expr.traverse[Id, (Declaration, ExpressionKeyTag[T])] {
           case (d, neT) => (d, ExpressionKeyTag(fn(neT.ne), neT.children.map(fn))) 
         })}
       )))}
