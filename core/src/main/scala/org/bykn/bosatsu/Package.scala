@@ -10,15 +10,33 @@ import Parser.{spaces, maybeSpace, Combinators}
 import rankn._
 
 import Identifier.{Bindable, Constructor}
+import scala.util.hashing.MurmurHash3
 
 /**
  * Represents a package over its life-cycle: from parsed to resolved to inferred
  */
-case class Package[A, B, C, D](
+final case class Package[A, B, C, D](
   name: PackageName,
   imports: List[Import[A, B]],
   exports: List[ExportedName[C]],
   program: D) {
+
+  // It is really important to cache the hashcode and these large dags if
+  // we use them as hash keys
+  final override val hashCode: Int =
+    MurmurHash3.productHash(this)
+
+  override def equals(that: Any): Boolean =
+    that match {
+      case p: Package[_, _, _, _] =>
+        (this eq p) || {
+          (name == p.name) &&
+          (imports == p.imports) &&
+          (exports == p.exports) &&
+          (program == p.program)
+        }
+      case _ => false
+    }
 
   // TODO, this isn't great
   private lazy val importMap: ImportMap[A, B] =
@@ -37,15 +55,22 @@ case class Package[A, B, C, D](
 }
 
 object Package {
-  type FixPackage[B, C, D] = Fix[Lambda[a => Package[a, B, C, D]]]
-  type PackageF[A, B, C] = Package[FixPackage[A, B, C], A, B, C]
+  type Interface = Package[Nothing, Nothing, Referant[Variance], Unit]
+  /**
+   * This is a package whose import type is Either:
+   * 1 a package of the same kind
+   * 2 an interface
+   */
+  type FixPackage[B, C, D] = Fix[Lambda[a => Either[Interface, Package[a, B, C, D]]]]
+  type PackageF[A, B, C] = Either[Interface, Package[FixPackage[A, B, C], A, B, C]]
   type PackageF2[A, B] = PackageF[A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, Statement]
   type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Interface = FixPackage[Nothing, Referant[Variance], Unit]
   type Typed[T] = Package[Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[T], Statement]]
   type Inferred = Typed[Declaration]
 
+  def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
+    Fix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](p)
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
    * library usages.
@@ -54,11 +79,7 @@ object Package {
     Package(pn, Nil, Nil, st)
 
   def interfaceOf(inferred: Inferred): Interface =
-    Fix[Lambda[A =>
-      Package[A,
-        Nothing,
-        Referant[Variance],
-        Unit]]](inferred.mapProgram(_ => ()).replaceImports(Nil))
+    inferred.mapProgram(_ => ()).replaceImports(Nil)
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
@@ -140,7 +161,7 @@ object Package {
         }, // name to cons
         stmt)
 
-    val importedTypeEnv = Referant.importedTypeEnv(imps)(_.unfix.name)
+    val importedTypeEnv = Referant.importedTypeEnv(imps)(_.name)
 
     val inferVarianceParsed: Either[PackageError, ParsedTypeEnv[Variance]] =
       VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
@@ -175,7 +196,7 @@ object Package {
         Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
 
       val withFQN: Map[(Option[PackageName], Identifier), Type] =
-        (Referant.fullyQualifiedImportedValues(imps)(_.unfix.name)
+        (Referant.fullyQualifiedImportedValues(imps)(_.name)
           .iterator
           .map { case ((p, n), t) => ((Some(p), n), t) } ++
             importedValues.iterator.map { case (n, t) => ((None, n), t) }

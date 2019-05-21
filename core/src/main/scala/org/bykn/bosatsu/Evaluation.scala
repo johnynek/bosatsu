@@ -203,11 +203,9 @@ object Evaluation {
         }
       }
 
-    def asLambda(name: Bindable, set: Set[Identifier]): Scoped =
-      fromFn { env0 =>
+    def asLambda(name: Bindable): Scoped =
+      fromFn { env =>
         import cats.Now
-        // we can remove anything not captured by the closure
-        val env = env0.filter { case (k, _) => set(k) }
         val fn =
           FnValue {
             case n@Now(v) =>
@@ -225,7 +223,7 @@ object Evaluation {
 
     def applyArg(arg: Scoped): Scoped =
       fromFn { env =>
-        val fnE = inEnv(env)
+        val fnE = inEnv(env).memoize
         val argE = arg.inEnv(env)
         fnE.flatMap { fn =>
           // safe because we typecheck
@@ -244,7 +242,7 @@ object Evaluation {
     def recursive(name: Bindable, item: Scoped): Scoped = {
       fromFn { env =>
         lazy val env1: Map[Identifier, Eval[Value]] =
-          env + (name -> Eval.defer(item.inEnv(env1)).memoize)
+          env.updated(name, Eval.defer(item.inEnv(env1)).memoize)
         item.inEnv(env1)
       }
     }
@@ -621,9 +619,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          efn.applyArg(earg)
        case a@AnnotatedLambda(name, _, expr, _) =>
          val inner = recurse((p, Right(expr)))._1
-
-         val freeVars = TypedExpr.freeVars(a :: Nil).toSet
-         inner.asLambda(name, freeVars)
+         inner.asLambda(name)
        case Let(arg, e, in, rec, _) =>
          val e0 = recurse((p, Right(e)))._1
          val eres =
@@ -669,7 +665,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           case Some(NameKind.Constructor(cn, _, dt, tpe)) =>
             (Scoped.const(constructor(cn, dt)), tpe)
           case Some(NameKind.Import(from, orig)) =>
-            val infFrom = pm.toMap(from.unfix.name)
+            val infFrom = pm.toMap(from.name)
             val other = recurse((infFrom, Left(orig)))
 
             // we reset the environment in the other package
@@ -702,8 +698,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         if (singleItemStruct) prod
         else SumValue(enum, prod)
       }
-      else FnValue { ea =>
-        ea.map { a => loop(param - 1, a :: args) }.memoize
+      else FnValue {
+        case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
+        case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
       }
 
     Eval.now(loop(arity, Nil))

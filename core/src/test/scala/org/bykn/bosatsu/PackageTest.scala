@@ -7,7 +7,7 @@ import org.scalatest.FunSuite
 class PackageTest extends FunSuite {
 
   def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] =
-    PackageMap.resolveThenInfer(ps.toList.map { p => ((), p) })._2
+    PackageMap.resolveThenInfer(ps.toList.map { p => ((), p) }, Nil)._2
 
   def parse(s: String): Package.Parsed =
     Package.parser.parse(s) match {

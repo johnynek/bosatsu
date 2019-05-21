@@ -4,19 +4,11 @@ import cats.data.NonEmptyList
 import fastparse.all._
 import java.math.BigInteger
 import scala.collection.immutable.SortedMap
+import language.experimental.macros
 
 object Predef {
-  private def resourceToString(path: String): Option[String] = {
-    Option(getClass().getResourceAsStream(path)).map { stream =>
-      scala.io.Source.fromInputStream(stream)("UTF-8").mkString
-    }
-  }
-
-  private val predefString: String =
-    resourceToString("/bosatsu/predef.bosatsu")
-      .getOrElse {
-        scala.io.Source.fromFile("target/scala-2.12/classes/bosatsu/predef.bosatsu").mkString
-      }
+  def f(file: String): String = macro Macro.smac
+  private val predefString: String = f("core/src/main/resources/bosatsu/predef.bosatsu")
 
   lazy val predefPackage: Package.Parsed =
     Package.parser.parse(predefString) match {
@@ -96,24 +88,24 @@ object Predef {
   val jvmExternals: Externals =
     Externals
       .empty
-      .add(packageName, "add", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.add"))
-      .add(packageName, "div", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.div"))
-      .add(packageName, "sub", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.sub"))
-      .add(packageName, "times", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.times"))
-      .add(packageName, "eq_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.eq_Int"))
-      .add(packageName, "cmp_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.cmp_Int"))
-      .add(packageName, "gcd_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.gcd_Int"))
-      .add(packageName, "mod_Int", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.mod_Int"))
-      .add(packageName, "range", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.range"))
-      .add(packageName, "int_loop", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.intLoop"))
-      .add(packageName, "trace", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.trace"))
-      .add(packageName, "string_Order_fn", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.string_Order_Fn"))
-      .add(packageName, "clear_Dict", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.clear_Dict"))
-      .add(packageName, "empty_Dict", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.empty_Dict"))
-      .add(packageName, "add_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.add_key"))
-      .add(packageName, "get_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.get_key"))
-      .add(packageName, "items", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.items"))
-      .add(packageName, "remove_key", FfiCall.ScalaCall("org.bykn.bosatsu.PredefImpl.remove_key"))
+      .add(packageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
+      .add(packageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
+      .add(packageName, "sub", FfiCall.Fn2(PredefImpl.sub(_, _)))
+      .add(packageName, "times", FfiCall.Fn2(PredefImpl.times(_, _)))
+      .add(packageName, "eq_Int", FfiCall.Fn2(PredefImpl.eq_Int(_, _)))
+      .add(packageName, "cmp_Int", FfiCall.Fn2(PredefImpl.cmp_Int(_, _)))
+      .add(packageName, "gcd_Int", FfiCall.Fn2(PredefImpl.gcd_Int(_, _)))
+      .add(packageName, "mod_Int", FfiCall.Fn2(PredefImpl.mod_Int(_, _)))
+      .add(packageName, "range", FfiCall.Fn1(PredefImpl.range(_)))
+      .add(packageName, "int_loop", FfiCall.Fn3(PredefImpl.intLoop(_, _, _)))
+      .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
+      .add(packageName, "string_Order_fn", FfiCall.Fn2(PredefImpl.string_Order_Fn(_, _)))
+      .add(packageName, "clear_Dict", FfiCall.Fn1(PredefImpl.clear_Dict(_)))
+      .add(packageName, "empty_Dict", FfiCall.Fn1(PredefImpl.empty_Dict(_)))
+      .add(packageName, "add_key", FfiCall.Fn3(PredefImpl.add_key(_, _, _)))
+      .add(packageName, "get_key", FfiCall.Fn2(PredefImpl.get_key(_, _)))
+      .add(packageName, "items", FfiCall.Fn1(PredefImpl.items(_)))
+      .add(packageName, "remove_key", FfiCall.Fn2(PredefImpl.remove_key(_, _)))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -187,11 +179,13 @@ object PredefImpl {
   //def intLoop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
   final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
     val fnT = fn.asFn
+
     @annotation.tailrec
     def loop(biValue: Value, bi: BigInteger, state: Value): Value =
       if (bi.compareTo(BigInteger.ZERO) <= 0) state
       else {
-        fnT(biValue).flatMap(_.asFn(state)).value match {
+        val fn0 = fnT(biValue).value.asFn
+        fn0(state).value match {
           case ConsValue(nextI, ConsValue(ConsValue(nextA, _), _)) =>
             val n = i(nextI)
             if (n.compareTo(bi) >= 0) {

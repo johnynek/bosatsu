@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import org.bykn.bosatsu.rankn.NTypeGen
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import cats.implicits._
@@ -44,12 +45,14 @@ object Generators {
       rest <- Gen.listOfN(cnt, identC)
     } yield (c :: rest).mkString
 
+  val typeRefVarGen: Gen[TypeRef.TypeVar] =
+    lowerIdent.map(TypeRef.TypeVar(_))
+
   val typeRefLambdaGen: Gen[TypeRef.TypeLambda] =
     for {
       e <- Gen.lzy(typeRefGen)
       cnt <- Gen.choose(1, 3)
-      tvar = lowerIdent.map(TypeRef.TypeVar(_))
-      args <- Gen.listOfN(cnt, tvar)
+      args <- Gen.listOfN(cnt, typeRefVarGen)
       nel = NonEmptyList.fromListUnsafe(args)
     } yield TypeRef.TypeLambda(nel, e)
 
@@ -81,7 +84,7 @@ object Generators {
   lazy val typeRefGen: Gen[TypeRef] = {
     import TypeRef._
 
-    val tvar = lowerIdent.map(TypeVar(_))
+    val tvar = typeRefVarGen
     val tname = typeNameGen.map(TypeRef.TypeName(_))
 
     val tApply =
@@ -550,18 +553,18 @@ object Generators {
 
 
   def genStruct(tail: Gen[Statement]): Gen[Statement] =
-    Gen.zip(constructorGen, padding(tail, 1))
-      .map { case ((name, args), rest) =>
-        Statement.Struct(name, args, rest)
+    Gen.zip(constructorGen, Gen.listOf(typeRefVarGen), padding(tail, 1))
+      .map { case ((name, args), ta, rest) =>
+        Statement.Struct(name, NonEmptyList.fromList(ta.distinct), args, rest)
       }
 
   def genExternalStruct(tail: Gen[Statement]): Gen[Statement] =
     for {
       name <- consIdentGen
       argc <- Gen.choose(0, 5)
-      args <- Gen.listOfN(argc, lowerIdent)
+      args <- Gen.listOfN(argc, typeRefVarGen)
       rest <- padding(tail, 1)
-    } yield Statement.ExternalStruct(name, args.map(TypeRef.TypeVar(_)), rest)
+    } yield Statement.ExternalStruct(name, args, rest)
 
   def genExternalDef(tail: Gen[Statement]): Gen[Statement] =
     for {
@@ -576,11 +579,12 @@ object Generators {
   def genEnum(tail: Gen[Statement]): Gen[Statement] =
     for {
       name <- consIdentGen
+      ta <- Gen.listOf(typeRefVarGen)
       consc <- Gen.choose(1, 5)
       i <- Gen.choose(1, 16)
       cons <- optIndent(nonEmptyN(constructorGen, consc))
       rest <- padding(tail, 1)
-    } yield Statement.Enum(name, cons, rest)
+    } yield Statement.Enum(name, NonEmptyList.fromList(ta.distinct), cons, rest)
 
   def genStatement(depth: Int): Gen[Statement] = {
     val recur = Gen.lzy(genStatement(depth-1))
@@ -633,13 +637,72 @@ object Generators {
       consIdentGen.map(ExportedName.TypeName(_, ())),
       consIdentGen.map(ExportedName.Constructor(_, ())))
 
+  def smallList[A](g: Gen[A]): Gen[List[A]] =
+    Gen.choose(0, 8).flatMap(Gen.listOfN(_, g))
+
   def packageGen(depth: Int): Gen[Package.Parsed] =
     for {
       p <- packageNameGen
-      ic <- Gen.choose(0, 8)
       ec <- Gen.choose(0, 10)
-      imports <- Gen.listOfN(ic, importGen)
+      imports <- smallList(importGen)
       exports <- Gen.listOfN(ec, exportedNameGen)
       body <- genStatement(depth)
     } yield Package(p, imports, exports, body)
+
+
+  def genDefinedType[A](p: PackageName, inner: Gen[A]): Gen[rankn.DefinedType[A]] =
+    for {
+      t <- typeNameGen
+      params0 <- smallList(Gen.zip(NTypeGen.genBound, inner))
+      params = params0.toMap.toList // don't generate duplicate type parameters
+      genCons: Gen[(Identifier.Constructor, List[(Identifier.Bindable, rankn.Type)], rankn.Type)] =
+        for {
+          cons <- consIdentGen
+          ps <- smallList(Gen.zip(bindIdentGen, NTypeGen.genDepth03))
+          res = rankn.DefinedType.constructorValueType(p, t, params.map(_._1), ps.map(_._2))
+        } yield (cons, ps, res)
+      cons0 <- smallList(genCons)
+      cons = cons0.map { case trip@(c, _, _) => (c, trip) }.toMap.values.toList
+    } yield rankn.DefinedType(p, t, params, cons)
+
+  def typeEnvGen[A](p: PackageName, inner: Gen[A]): Gen[rankn.TypeEnv[A]] =
+    smallList(genDefinedType(p, inner)).map(rankn.TypeEnv.fromDefinitions(_))
+
+  def exportGen[A](te: rankn.TypeEnv[A]): Gen[ExportedName[Referant[A]]] = {
+    def bind(genTpe: Gen[rankn.Type]) = for {
+      n <- bindIdentGen
+      t <- genTpe
+    } yield ExportedName.Binding(n, Referant.Value(t))
+
+    te.allDefinedTypes match {
+      case Nil => bind(NTypeGen.genDepth03)
+      case dts0 =>
+        // only make one of each type
+        val dts = dts0.map { dt => (dt.name.ident, dt) }.toMap.values.toList
+
+        val b = bind(Gen.oneOf(NTypeGen.genDepth03, Gen.oneOf(dts).map(_.toTypeTyConst)))
+        val genExpT = Gen.oneOf(dts)
+          .map { dt =>
+            ExportedName.TypeName(dt.name.ident, Referant.DefinedT(dt))
+          }
+
+        dts.filter(_.constructors.nonEmpty) match {
+          case Nil => Gen.oneOf(b, genExpT)
+          case nonEmpty =>
+            val c = for {
+              dt <- Gen.oneOf(nonEmpty)
+              (c, ps, tpe) <- Gen.oneOf(dt.constructors)
+            } yield ExportedName.Constructor(c, Referant.Constructor(c, dt, ps, tpe))
+            Gen.oneOf(b, genExpT, c)
+        }
+    }
+  }
+
+  val interfaceGen: Gen[Package.Interface] =
+    for {
+      p <- packageNameGen
+      te <- typeEnvGen(p, Gen.oneOf(Variance.co, Variance.phantom, Variance.contra, Variance.in))
+      exs0 <- smallList(exportGen(te))
+      exs = exs0.map { ex => (ex.name, ex) }.toMap.values.toList // don't duplicate exported names
+    } yield Package(p, Nil, exs, ())
 }

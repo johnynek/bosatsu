@@ -11,6 +11,9 @@ import cats.implicits._
 sealed abstract class Identifier {
   def asString: String
 
+  def sourceCodeRepr: String =
+    Identifier.document.document(this).renderWideStream.mkString
+
   override def equals(that: Any): Boolean =
     that match {
       case ident: Identifier =>
@@ -18,7 +21,7 @@ sealed abstract class Identifier {
       case _ => false
     }
 
-  override def hashCode: Int = asString.hashCode
+  override val hashCode: Int = asString.hashCode
 
   def toBindable: Option[Identifier.Bindable] =
     this match {
@@ -57,17 +60,17 @@ object Identifier {
     }
 
   val nameParser: P[Name] =
-    lowerIdent.map(Name(_))
+    lowerIdent.map { n => Name(n.intern) }
 
   val consParser: P[Constructor] =
-    upperIdent.map(Constructor(_))
+    upperIdent.map { c => Constructor(c.intern) }
 
   /**
    * This is used to apply operators, it is the
    * raw operator tokens without an `operator` prefix
    */
   val rawOperator: P[Operator] =
-    Operators.operatorToken.map(Operator(_))
+    Operators.operatorToken.map { op => Operator(op.intern) }
 
   /**
    * the keyword operator preceding a rawOperator
@@ -80,7 +83,7 @@ object Identifier {
    */
   val bindableParser: P[Bindable] =
     // operator has to come first to not look like a Name
-    operator | nameParser | Parser.escapedString('`').map(Backticked(_))
+    operator | nameParser | Parser.escapedString('`').map { b => Backticked(b.intern) }
 
   val parser: P[Identifier] =
     bindableParser | consParser

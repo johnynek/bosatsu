@@ -27,3 +27,6 @@ TAGS
 # bazel
 bazel-*
 .bazelrc
+
+# js
+node_modules/

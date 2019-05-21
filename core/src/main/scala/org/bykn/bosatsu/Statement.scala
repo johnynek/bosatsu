@@ -12,46 +12,6 @@ import org.bykn.fastparse_cats.StringInstances._
 import Indy.IndyMethods
 import Identifier.{Bindable, Constructor}
 
-case class CommentStatement[T](message: NonEmptyList[String], on: T)
-
-object CommentStatement {
-  type Maybe[T] = Either[T, CommentStatement[T]]
-
-  implicit def document[T: Document]: Document[CommentStatement[T]] =
-    Document.instance[CommentStatement[T]] { comment =>
-      import comment._
-      val block = Doc.intercalate(Doc.line, message.toList.map { mes => Doc.char('#') + Doc.text(mes) })
-      block + Doc.line + Document[T].document(on)
-    }
-
-  implicit def maybeDocument[T: Document]: Document[Maybe[T]] = {
-    val docT = Document[T]
-    Document.instance[Maybe[T]] {
-      case Left(t) => docT.document(t)
-      case Right(c) => document[T](docT).document(c)
-    }
-  }
-
-  /** on should make sure indent is matching
-   * this is to allow a P[Unit] that does nothing for testing or other applications
-   */
-  def parser[T](onP: Parser.Indy[T]): Parser.Indy[CommentStatement[T]] = Parser.Indy { indent =>
-    val commentBlock: P[NonEmptyList[String]] =
-      P(commentPart ~ ("\n" ~ indent ~ commentPart).rep() ~ ("\n" | End))
-        .map { case (c1, cs) => NonEmptyList(c1, cs.toList) }
-
-    P(commentBlock ~ onP(indent))
-      .map { case (m, on) => CommentStatement(m, on) }
-  }
-
-  val commentPart: P[String] = P("#" ~/ CharsWhile(_ != '\n').?.!)
-}
-
-case class PackageStatement[T](name: String,
-  exports: List[Identifier],
-  emptyLines: Int,
-  contents: T)
-
 sealed abstract class Statement {
 
   def toStream: Stream[Statement] = {
@@ -64,9 +24,9 @@ sealed abstract class Statement {
           s #:: loop(rest)
         case Def(DefStatement(_, _, _, (_, Padding(_, rest)))) =>
           s #:: loop(rest)
-        case Struct(_, _, Padding(_, rest)) =>
+        case Struct(_, _, _, Padding(_, rest)) =>
           s #:: loop(rest)
-        case Enum(_, _, Padding(_, rest)) =>
+        case Enum(_, _, _, Padding(_, rest)) =>
           s #:: loop(rest)
         case ExternalDef(_, _, _, Padding(_, rest)) =>
           s #:: loop(rest)
@@ -94,8 +54,8 @@ sealed abstract class TypeDefinitionStatement extends Statement {
    */
   def constructors: List[Constructor] =
     this match {
-      case Struct(nm, _, _) => nm :: Nil
-      case Enum(_, items, _) =>
+      case Struct(nm, _, _, _) => nm :: Nil
+      case Enum(_, _, items, _) =>
         items.get.toList.map { case (nm, _) => nm }
       case ExternalStruct(_, _, _) => Nil
     }
@@ -137,20 +97,41 @@ sealed abstract class TypeDefinitionStatement extends Statement {
     def buildParams(args: List[(Bindable, Option[Type])]): VarState[List[(Bindable, Type)]] =
       args.traverse(buildParam _)
 
+    // This is a functor on List[(Bindable, Option[A])]
+    val deep = Functor[List].compose(Functor[(Bindable, ?)]).compose(Functor[Option])
+
+    def updateInferedWithDecl(
+      typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
+      typeParams0: List[Type.Var.Bound]): List[Type.Var.Bound] =
+        typeArgs match {
+          case None => typeParams0
+          case Some(decl) =>
+            val declTV: List[Type.Var.Bound] = decl.toList.map(_.toBoundVar)
+            val declSet = declTV.toSet
+            // TODO we should have a lint that fails if declTV is not
+            // a superset of what you would derive from the args
+            // the purpose here is to control the *order* of
+            // and to allow introducing phantom parameters, not
+            // it is confusing if some are explicit, but some are not
+            declTV.distinct ::: typeParams0.filterNot(declSet)
+        }
+
     this match {
-      case Struct(nm, args, _) =>
-        val deep = Functor[List].compose(Functor[(Bindable, ?)]).compose(Functor[Option])
+      case Struct(nm, typeArgs, args, _) =>
         val argsType = deep.map(args)(_.toType(nameToType))
         val initVars = existingVars(argsType)
         val initState = ((initVars.toSet, initVars.reverse), 0L)
         val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
         // we reverse to make sure we see in traversal order
-        val typeParams = typeVars.reverseMap { tv =>
+        val typeParams0 = typeVars.reverseMap { tv =>
           tv.toVar match {
             case b@Type.Var.Bound(_) => b
             case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
           }
         }
+
+        val typeParams = updateInferedWithDecl(typeArgs, typeParams0)
+
         val tname = TypeName(nm)
         val consValueType =
           rankn.DefinedType
@@ -163,8 +144,7 @@ sealed abstract class TypeDefinitionStatement extends Statement {
           tname,
           typeParams.map((_, ())),
           (nm, params, consValueType) :: Nil)
-      case Enum(nm, items, _) =>
-        val deep = Functor[List].compose(Functor[(Bindable, ?)]).compose(Functor[Option])
+      case Enum(nm, typeArgs, items, _) =>
         val conArgs = items.get.map { case (nm, args) =>
           val argsType = deep.map(args)(_.toType(nameToType))
           (nm, argsType)
@@ -178,12 +158,13 @@ sealed abstract class TypeDefinitionStatement extends Statement {
         val initState = ((initVars.toSet, initVars.reverse), 0L)
         val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
         // we reverse to make sure we see in traversal order
-        val typeParams = typeVars.reverseMap { tv =>
+        val typeParams0 = typeVars.reverseMap { tv =>
           tv.toVar match {
             case b@Type.Var.Bound(_) => b
             case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
           }
         }
+        val typeParams = updateInferedWithDecl(typeArgs, typeParams0)
         val tname = TypeName(nm)
         val finalCons = constructors.toList.map { case (c, params) =>
           val consValueType =
@@ -211,10 +192,14 @@ object Statement {
   case class Bind(bind: BindingStatement[Pattern.Parsed, Padding[Statement]]) extends Statement
   case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case class Def(defstatement: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])]) extends Statement
-  case class Struct(name: Constructor, args: List[(Bindable, Option[TypeRef])], rest: Padding[Statement]) extends TypeDefinitionStatement
+  case class Struct(name: Constructor,
+    typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
+    args: List[(Bindable, Option[TypeRef])],
+    rest: Padding[Statement]) extends TypeDefinitionStatement
   case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends Statement
   case class ExternalStruct(name: Constructor, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
   case class Enum(name: Constructor,
+    typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
     items: OptIndent[NonEmptyList[(Constructor, List[(Bindable, Option[TypeRef])])]],
     rest: Padding[Statement]) extends TypeDefinitionStatement
   case object EndOfFile extends Statement
@@ -259,19 +244,14 @@ object Statement {
      val argParser: P[(Bindable, Option[TypeRef])] =
        P(Identifier.bindableParser ~ maybeSpace ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
 
-     val constructorP = P(Identifier.consParser ~ argParser.parensLines1.?)
-       .map {
-         case (n, None) => (n, Nil)
-         case (n, Some(args)) => (n, args.toList)
-       }
+     val typeParams: P[NonEmptyList[TypeRef.TypeVar]] =
+       lowerIdent.nonEmptyListSyntax.map { nel => nel.map { s => TypeRef.TypeVar(s.intern) } }
 
      val external = {
-       val typeParams = Parser.nonEmptyListToList(lowerIdent.nonEmptyListSyntax)
+       val typeParamsList = Parser.nonEmptyListToList(typeParams)
        val externalStruct =
-         P("struct" ~/ spaces ~ Identifier.consParser ~ typeParams ~ maybeSpace ~ padding).map {
-           case (name, targs, rest) =>
-             val tva = targs.map(TypeRef.TypeVar(_))
-
+         P("struct" ~/ spaces ~ Identifier.consParser ~ typeParamsList ~ maybeSpace ~ padding).map {
+           case (name, tva, rest) =>
              { next: Statement => ExternalStruct(name, tva, rest(next)) }
          }
 
@@ -294,22 +274,33 @@ object Statement {
        P("external" ~ spaces ~/ (externalStruct|externalDef))
      }
 
-     val struct = P("struct" ~ spaces ~/ constructorP ~ padding)
-       .map { case (name, args, rest) =>
-         { next: Statement => Struct(name, args, rest(next)) }
+     val struct = P("struct" ~ spaces ~/ Identifier.consParser ~ typeParams.? ~ argParser.parensLines1.? ~ padding)
+       .map { case (name, typeArgs, argsOpt, rest) =>
+         val argList = argsOpt match {
+           case None => Nil
+           case Some(ne) => ne.toList
+         }
+
+         { next: Statement => Struct(name, typeArgs, argList, rest(next)) }
        }
 
      val enum = {
+       val constructorP = P(Identifier.consParser ~ argParser.parensLines1.?)
+         .map {
+           case (n, None) => (n, Nil)
+           case (n, Some(args)) => (n, args.toList)
+         }
+
        val sep = Indy.lift(P("," ~ maybeSpace)).combineK(Indy.toEOLIndent).map(_ => ())
        val variants = Indy.lift(constructorP ~ maybeSpace).nonEmptyList(sep)
 
        val nameVars = Indy.block(
-         Indy.lift(P("enum" ~ spaces ~/ Identifier.consParser)),
+         Indy.lift(P("enum" ~ spaces ~/ Identifier.consParser ~ (typeParams.?))),
          variants).run("")
 
        (nameVars ~ padding)
-         .map { case (ename, vars, rest) =>
-           { next: Statement => Enum(ename, vars, rest(next)) }
+         .map { case ((ename, typeArgs), vars, rest) =>
+           { next: Statement => Enum(ename, typeArgs, vars, rest(next)) }
          }
      }
 
@@ -322,10 +313,18 @@ object Statement {
     Parser.chained(item, end)
   }
 
-  private def constructor(name: Constructor, args: List[(Bindable, Option[TypeRef])]): Doc =
-    Document[Identifier].document(name) +
+  private def constructor(name: Constructor, taDoc: Doc, args: List[(Bindable, Option[TypeRef])]): Doc =
+    Document[Identifier].document(name) + taDoc +
       (if (args.nonEmpty) { Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc[Bindable] _)) + Doc.char(')') }
       else Doc.empty)
+
+  private def docTypeArgs(targs: List[TypeRef.TypeVar]): Doc =
+    targs match {
+      case Nil => Doc.empty
+      case nonEmpty =>
+        val params = nonEmpty.map { case TypeRef.TypeVar(v) => Doc.text(v) }
+        Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
+    }
 
   implicit lazy val document: Document[Statement] =
     Document.instance[Statement] {
@@ -341,12 +340,16 @@ object Statement {
               Document[Padding[Statement]].document(next)
         };
         DefStatement.document[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])].document(d)
-      case Struct(nm, args, rest) =>
-        Doc.text("struct ") + constructor(nm, args) +
+      case Struct(nm, typeArgs, args, rest) =>
+        val taDoc = typeArgs match {
+          case None => Doc.empty
+          case Some(ta) => docTypeArgs(ta.toList)
+        }
+        Doc.text("struct ") + constructor(nm, taDoc, args) +
           Document[Padding[Statement]].document(rest)
-      case Enum(nm, parts, rest) =>
+      case Enum(nm, typeArgs, parts, rest) =>
         implicit val consDoc = Document.instance[(Constructor, List[(Bindable, Option[TypeRef])])] {
-          case (nm, parts) => constructor(nm, parts)
+          case (nm, parts) => constructor(nm, Doc.empty, parts)
         }
 
         val (colonSep, itemSep) = parts match {
@@ -361,7 +364,12 @@ object Statement {
 
         val indentedCons = OptIndent.document(neDoc(consDoc)).document(parts)
 
-        Doc.text("enum ") + Document[Constructor].document(nm) + Doc.char(':') +
+        val taDoc = typeArgs match {
+          case None => Doc.empty
+          case Some(ta) => docTypeArgs(ta.toList)
+        }
+
+        Doc.text("enum ") + Document[Constructor].document(nm) + taDoc + Doc.char(':') +
           colonSep +
           indentedCons +
           Document[Padding[Statement]].document(rest)
@@ -378,12 +386,7 @@ object Statement {
         Doc.text("external def ") + Document[Bindable].document(name) + argDoc + Doc.text(" -> ") + res.toDoc +
           Document[Padding[Statement]].document(rest)
       case ExternalStruct(nm, targs, rest) =>
-        val argsDoc = targs match {
-          case Nil => Doc.empty
-          case nonEmpty =>
-            val params = nonEmpty.map { case TypeRef.TypeVar(v) => Doc.text(v) }
-            Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
-        }
+        val argsDoc = docTypeArgs(targs)
         Doc.text("external struct ") + Document[Constructor].document(nm) + argsDoc +
           Document[Padding[Statement]].document(rest)
     }

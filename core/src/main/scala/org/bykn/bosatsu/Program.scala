@@ -144,10 +144,10 @@ object Program {
             case (_, Padding(_, in)) => loop(in)
           }
           Program(te, (defstmt.name, RecursionKind.Recursive, lam) :: binds, stmt)
-        case s@Struct(_, _, Padding(_, rest)) =>
+        case s@Struct(_, _, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = defToT(p.types, s), from = s)
-        case e@Enum(_, _, Padding(_, rest)) =>
+        case e@Enum(_, _, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = defToT(p.types, e), from = e)
         case ExternalDef(name, params, result, Padding(_, rest)) =>

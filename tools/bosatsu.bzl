@@ -18,8 +18,8 @@ def _collect_deps(ctx):
 
 def _add_self(ctx, prov):
   outs = []
-  if hasattr(ctx.outputs, "signature"):
-    outs += [ctx.outputs.signature]
+  if hasattr(ctx.outputs, "interface"):
+    outs += [ctx.outputs.interface]
   if hasattr(ctx.outputs, "json"):
     outs += [ctx.outputs.json]
 
@@ -29,18 +29,18 @@ def _add_self(ctx, prov):
 def _bosatsu_library_impl(ctx):
   provider = _collect_deps(ctx)
 
-  all_inputs = provider.transitive_deps + ctx.files.srcs
   args = ["type-check"]
-  for f in all_inputs:
+  for f in ctx.files.srcs:
     args += ["--input", f.path]
   for f in provider.transitive_sigs:
-    args += ["--signature", f.path]
+    args += ["--interface", f.path]
 
-  args += ["--output", ctx.outputs.signature.path]
+  args += ["--interface_out", ctx.outputs.interface.path]
+  args += ["--output", ctx.outputs.info_out.path]
 
   ctx.action(
-      inputs = all_inputs + provider.transitive_sigs, # TODO only use signatures of dependencies
-      outputs = [ctx.outputs.signature],
+      inputs = depset(ctx.files.srcs, transitive=[provider.transitive_sigs]),
+      outputs = [ctx.outputs.interface, ctx.outputs.info_out],
       executable = ctx.executable._bosatsu_main,
       mnemonic = "Bosatsu",
       progress_message = "bosatsu %s (%s files)" % (ctx.label, len(ctx.files.srcs)),
@@ -52,12 +52,13 @@ def _bosatsu_library_impl(ctx):
 bosatsu_library = rule(
     implementation = _bosatsu_library_impl,
     attrs = {
-        "srcs": attr.label_list(mandatory=False, allow_files=FileType([".bosatsu"])),
+        "srcs": attr.label_list(mandatory=False, allow_files=[".bosatsu"]),
         "deps": attr.label_list(),
-        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
+        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//cli/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
     },
     outputs = {
-      "signature": "%{name}.bosatsig",
+      "interface": "%{name}.bosatsig",
+      "info_out": "%{name}.info_out",
     },
 )
 
@@ -69,13 +70,13 @@ def _bosatsu_json_impl(ctx):
   for f in all_inputs:
     args += ["--input", f.path]
   for f in provider.transitive_sigs:
-    args += ["--signature", f.path]
+    args += ["--interface", f.path]
 
   args += ["--output", ctx.outputs.json.path]
   args += ["--main", ctx.attr.package]
 
   ctx.action(
-      inputs = all_inputs + provider.transitive_sigs, # TODO only use signatures of dependencies
+      inputs = all_inputs + provider.transitive_sigs, # TODO only use interface of dependencies
       outputs = [ctx.outputs.json],
       executable = ctx.executable._bosatsu_main,
       mnemonic = "Bosatsu",
@@ -88,10 +89,10 @@ def _bosatsu_json_impl(ctx):
 bosatsu_json = rule(
     implementation = _bosatsu_json_impl,
     attrs = {
-        "srcs": attr.label_list(mandatory=False, allow_files=FileType([".bosatsu"])),
+        "srcs": attr.label_list(mandatory=False, allow_files=[".bosatsu"]),
         "deps": attr.label_list(),
         "package": attr.string(),
-        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
+        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//cli/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
     },
     outputs = {
       "json": "%{name}.json",
@@ -109,6 +110,8 @@ def _bosatsu_test_impl(ctx):
     args += ["--input", f.short_path]
   for f in provider.transitive_deps:
     args += ["--test_deps", f.short_path]
+  for p in ctx.attr.packages:
+    args += ["--test_package", p]
 
   ctx.file_action(
       output = ctx.outputs.executable,
@@ -122,11 +125,11 @@ def _bosatsu_test_impl(ctx):
 bosatsu_test = rule(
     implementation = _bosatsu_test_impl,
     attrs = {
-        "srcs": attr.label_list(mandatory=False, allow_files=FileType([".bosatsu"])),
+        "srcs": attr.label_list(mandatory=False, allow_files=[".bosatsu"]),
         "deps": attr.label_list(),
-        "package": attr.string(),
-        "data": attr.label_list(cfg="data",default=[Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")]),
-        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//core/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
+        "packages": attr.string_list(),
+        "data": attr.label_list(default=[Label("//cli/src/main/scala/org/bykn/bosatsu:bosatsu_main")]),
+        "_bosatsu_main": attr.label(executable=True, cfg="host", default=Label("//cli/src/main/scala/org/bykn/bosatsu:bosatsu_main")),
     },
     executable=True,
     test=True)

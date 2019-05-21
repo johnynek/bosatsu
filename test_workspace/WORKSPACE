@@ -3,10 +3,12 @@ workspace(name = "test_workspace")
 local_repository(name = "org_bykn_bosatsu",
                  path = "../")
 
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 git_repository(
     name = "io_bazel_rules_scala",
     remote = "git://github.com/bazelbuild/rules_scala",
-    commit = "388a2585f45dff804d006b0e81e1b1a1c60578bc" # update this as needed
+    commit = "14d9742496859faaf860b1adfc8126f3ed077921" # update this as needed
 )
 load("@io_bazel_rules_scala//scala:scala.bzl", "scala_repositories")
 scala_repositories()

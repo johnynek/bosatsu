@@ -1191,8 +1191,7 @@ suite = Test("match tests", [test0, test1, test2, test3, test4, test5, test6])
 """), "A", 7)
   }
 
-  test("test bad export") {
-
+  test("test some error messages") {
     evalFail(
       List("""
 package A
@@ -1212,5 +1211,44 @@ package B
 import A [ a ]
 
 main = a"""), "B") { case PackageError.UnknownImportPackage(_, _) => () }
+
+    evalFail(
+      List("""
+package B
+
+struct X
+
+main = match 1:
+  X1: 0
+"""), "B") { case te@PackageError.TypeErrorIn(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package B, unknown constructor X1, nearest: X\nRegion(44,45)")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+main = match [1, 2, 3]:
+  []: 0
+  [*a, _, *b]: 2
+"""), "A") { case te@PackageError.TotalityCheckError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A\nRegion(19,60)\nmultiple splices in pattern, only one per match allowed")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+enum Foo: Bar(a), Baz(b)
+
+main = match Bar(a):
+  Baz(b): b
+"""), "A") { case te@PackageError.TotalityCheckError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A\nRegion(45,70)\nnon-total match, missing: Bar(_)")
+      ()
+    }
   }
+
 }

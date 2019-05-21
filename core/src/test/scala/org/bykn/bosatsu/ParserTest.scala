@@ -861,6 +861,14 @@ struct Monad(
   flatMap: forall a, b. f[a] -> (a -> f[b]) -> f[b])
 """)
 
+    // we can put type params in
+    roundTrip(Statement.parser,
+"""# MONADS!!!!
+struct Monad[f](
+  pure: forall a. a -> f[a],
+  flatMap: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+""")
+
     // we can put new-lines in defs
     roundTrip(Statement.parser,
 """#
@@ -871,10 +879,17 @@ def foo(
 
     roundTrip(Statement.parser, """enum Option: None, Some(a)""")
 
+    roundTrip(Statement.parser, """enum Option[a]: None, Some(a: a)""")
+
     roundTrip(Statement.parser,
 """enum Option:
   None
   Some(a)""")
+
+    roundTrip(Statement.parser,
+"""enum Option[a]:
+  None
+  Some(a: a)""")
 
     roundTrip(Statement.parser,
 """enum Option:
@@ -945,14 +960,4 @@ y = {'x': 'x' : 'y'}
 """, 18)
   }
 
-  test("we can parse Externals") {
-    parseTestAll(Externals.parser,
-"""
-Foo/Bar flatMap scala org.bykn.bosatsu.Std.flatMap
-Foo/Bar fold scala org.bykn.bosatsu.Std.fold
-""",
-   Externals.empty
-     .add(PackageName.parse("Foo/Bar").get, "flatMap", FfiCall.ScalaCall("org.bykn.bosatsu.Std.flatMap"))
-     .add(PackageName.parse("Foo/Bar").get, "fold", FfiCall.ScalaCall("org.bykn.bosatsu.Std.fold")))
-  }
 }

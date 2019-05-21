@@ -62,3 +62,12 @@ We would like to implement a number of features:
 1. a REPL
 2. a java backend and bazel rules which can call java and scala functions
 3. a skylark backend to allow writing strongly typed bazel rules compiling to untyped skylark
+
+## How to run the benchmarks
+```
+bench/jmh:run -i 3 -wi 3 -f1 -t1
+```
+or for a specific benchmark
+```
+bench/jmh:run -i 3 -wi 3 -f1 -t1 .*SomeBench.*
+```

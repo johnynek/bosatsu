@@ -200,7 +200,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         // we know the right can't end in Left since
         // it starts with Left and the tail is not empty
         // we can make progress:
-
         difference0List(lp.reverse, rp.reverse)
           .map(_.map {
             case ListPat(diff) => ListPat(diff.reverse)
@@ -249,18 +248,18 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case (l, Annotation(p, _)) => difference0(l, p)
       case (WildCard, listPat@ListPat(rp)) =>
         // _ is the same as [*_] for well typed expressions
-        checkListPats(listPat :: Nil) *>
+        checkListPats(listPat :: Nil) >>
           difference0List(Left(None) :: Nil, rp)
       case (Var(v), listPat@ListPat(rp)) =>
         // v is the same as [*v] for well typed expressions
-        checkListPats(listPat :: Nil) *>
+        checkListPats(listPat :: Nil) >>
           difference0List(Left(Some(v)) :: Nil, rp)
       case (u@Union(_, _), right) =>
         difference(normalizeUnion(u).toList, right).map(_.distinct.sorted)
       case (left, u@Union(_, _)) =>
         differenceAll(left :: Nil, normalizeUnion(u).toList).map(_.distinct.sorted)
       case (left@ListPat(lp), right@ListPat(rp)) =>
-        checkListPats(left :: right :: Nil) *>
+        checkListPats(left :: right :: Nil) >>
           difference0List(lp, rp)
       case (Literal(_), ListPat(_) | PositionalStruct(_, _)) =>
         Right(left :: Nil)

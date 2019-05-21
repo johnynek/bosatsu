@@ -4,11 +4,16 @@ import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
+import scala.util.hashing.MurmurHash3
 
-sealed abstract class ExportedName[+T] {
+sealed abstract class ExportedName[+T] { self: Product =>
   def name: Identifier
   def tag: T
 
+  // It is really important to cache the hashcode and these large dags if
+  // we use them as hash keys
+  final override val hashCode: Int =
+    MurmurHash3.productHash(this)
  /**
   * Given name, in the current type environment and fully typed lets
   * what does it correspond to?
@@ -74,11 +79,11 @@ object ExportedName {
    *   1. a type
    *   2. a value (e.g. a let or a constructor function)
    */
-  def buildExports[E, V](
+  def buildExports[E, V, R, D](
     nm: PackageName,
     exports: List[ExportedName[E]],
     typeEnv: rankn.TypeEnv[V],
-    lets: List[(Identifier.Bindable, RecursionKind, TypedExpr[Declaration])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
+    lets: List[(Identifier.Bindable, R, TypedExpr[D])]): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
 
      val letMap = lets.iterator.map { case (n, _, t) => (n, t) }.toMap
 

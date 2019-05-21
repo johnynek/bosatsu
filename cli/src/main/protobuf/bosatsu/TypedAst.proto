@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package bosatsu;
+
+message TypeConst {
+  string packageName = 1;
+  string typeName = 2;
+}
+
+message TypeVar {
+  string varName = 1;
+}
+
+message TypeForAll {
+  repeated string varNames = 1;
+  Type typeValue = 2;
+}
+
+// represents left[right] type application
+message TypeApply {
+  Type left = 1;
+  Type right = 2;
+}
+
+message Type {
+  oneof value {
+    TypeConst typeConst = 1;
+    TypeVar typeVar = 2;
+    TypeForAll typeForAll = 3;
+    TypeApply typeApply = 4;
+  }
+}
+
+enum Variance {
+  Phantom = 0;
+  Covariant = 1;
+  Contravariant = 2;
+  Invariant = 3;
+}
+
+message TypeParam {
+  TypeVar typeVar = 1;
+  Variance variance = 2;
+}
+
+message FnParam {
+  string name = 1;
+  Type typeOf = 2;
+}
+
+message ConstructorFn {
+  string name = 1;
+  repeated FnParam params = 2;
+}
+
+message DefinedType {
+  TypeConst typeConst = 1;
+  repeated TypeParam typeParams = 2;
+  repeated ConstructorFn constructors = 3;
+}
+
+message ConstructorPtr {
+  int32 definedTypePtr = 1; /* 1-based pointer into the list of types */
+  int32 constructorPtr = 2; /* 1-based pointer into the list of constructors for this type */
+}
+
+message Referant {
+  oneof referant {
+    Type value = 1; /* an exported value which has a given type */
+    int32 definedTypePtr = 2; /* 1-based pointer into the list of types */
+    ConstructorPtr constructor = 3; /* an exported constructor */
+  }
+}
+
+message ExportedName {
+  oneof kind {
+    string binding = 1;
+    string typeName = 2;
+    string constructorName = 3;
+  }
+  Referant referant = 4;
+}
+
+/*
+ * This is an interface of a package: all public types, and the type of all exported values
+ */
+message Interface {
+  string packageName = 1;
+  repeated DefinedType definedTypes = 2;
+  repeated ExportedName exports = 3;
+}
+
+message Interfaces {
+  repeated Interface interfaces = 1;
+}

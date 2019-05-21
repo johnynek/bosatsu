@@ -74,3 +74,45 @@ bosatsu_json(
     srcs = ["gen_deps.bosatsu"],
     deps = [":bazel_deps_api", ":dict_tools"],
     package = "GenDeps")
+
+bosatsu_library(
+    name = "list",
+    srcs = ["List.bosatsu"],
+    )
+
+bosatsu_test(
+    name = "list_test",
+    deps = [":list"],
+    packages = ["List"],
+    )
+
+bosatsu_library(
+    name = "queue",
+    deps = [":list"],
+    srcs = ["Queue.bosatsu"],
+    )
+
+bosatsu_test(
+    name = "queue_test",
+    deps = [":queue"],
+    packages = ["Queue"],
+   )
+
+bosatsu_library(
+    name = "treelist",
+    deps = [":list"],
+    srcs = ["TreeList.bosatsu"],
+    )
+
+bosatsu_test(
+    name = "treelist_test",
+    deps = [":treelist"],
+    packages = ["TreeList"],
+    )
+
+bosatsu_test(
+    name = "recordset",
+    deps = [],
+    srcs = ["recordset.bosatsu"],
+    packages = ["RecordSet"],
+    )

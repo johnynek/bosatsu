@@ -128,7 +128,7 @@ object TestUtils {
         sys.error("failed to parse") //errs.toString)
     }
 
-    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths)) match {
+    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths), Nil) match {
       case (dups, Validated.Valid(packMap)) if dups.isEmpty =>
         inferredHandler(packMap, mainPack)
 
@@ -199,7 +199,7 @@ object TestUtils {
     }
 
     val withPre = Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
-    PackageMap.resolveThenInfer(withPre) match {
+    PackageMap.resolveThenInfer(withPre, Nil) match {
       case (_, Validated.Valid(_)) =>
         fail("expected to fail type checking")
 

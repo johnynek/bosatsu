@@ -4,11 +4,6 @@ import org.typelevel.paiges.Doc
 import cats.{Id, Monoid, Traverse, Monad, Foldable}
 import cats.data.{RWST, NonEmptyList}
 import cats.implicits._
-import java.nio.file.Path
-import scala.util.Try
-import java.io.PrintWriter
-
-import alleycats.std.map._ // TODO use SortedMap everywhere
 
 import org.bykn.bosatsu.rankn.Type
 
@@ -69,7 +64,7 @@ trait CodeGen {
                 case None =>
                   Monad[Output].pure(())
                 case Some(n) =>
-                  tell(Doc.text("import static ") + Doc.text(toPackage(pack.unfix.name)) +
+                  tell(Doc.text("import static ") + Doc.text(toPackage(pack.name)) +
                     Doc.text(".Values.") + Doc.text(n) + Doc.char(';') + Doc.line)
               }).map(_ => None)
             }
@@ -92,7 +87,7 @@ trait CodeGen {
       Foldable[List].foldMap(ls) { case (p, orig, local) =>
         val priv = if (isExported(local)) "public " else "private "
         Doc.text(priv) + Doc.text("final static Object ") + Doc.text(toExportedName(local)) + Doc.text(" = ") +
-          Doc.text(toPackage(p.unfix.name)) + Doc.text(".Values.") + Doc.text(toExportedName(orig)) + Doc.text(";") + Doc.line
+          Doc.text(toPackage(p.name)) + Doc.text(".Values.") + Doc.text(toExportedName(orig)) + Doc.text(";") + Doc.line
       }
 
     val internalImports = List("Fn", "EnumValue")
@@ -285,32 +280,4 @@ object CodeGen {
       case (doc, _, t) => (doc, t)
     }
 
-  @annotation.tailrec
-  final def toPath(root: Path, pn: PackageName): Path =
-    pn.parts match {
-      case NonEmptyList(h, Nil) => root.resolve(h).resolve("Values.java")
-      case NonEmptyList(h0, h1 :: tail) =>
-        toPath(root.resolve(h0), PackageName(NonEmptyList(h1, tail)))
-    }
-
-  def writeDoc(p: Path, d: Doc): Try[Unit] =
-    Try {
-      Option(p.getParent).foreach(_.toFile.mkdirs)
-      val pw = new PrintWriter(p.toFile, "UTF-8")
-      val res = Try {
-        d.renderStream(80).foreach(pw.print(_))
-      }
-      pw.close
-      res
-    }
-    .flatten
-
-  def write(root: Path, packages: PackageMap.Inferred, ext: Externals): Try[Unit] = {
-    val cg = new CodeGen { }
-    packages.toMap.traverse_ { pack =>
-      val (d, _) = run(cg.genPackage(pack, ext))
-      val path = toPath(root, pack.name)
-      writeDoc(path, d)
-    }
-  }
 }
