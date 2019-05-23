@@ -11,22 +11,29 @@ struct RecordGetter[shape, t](f: forall w. shape[w] -> w[t])
 
 struct RecordSet[shape](fields: shape[RecordField], rows: List[shape[RecordValue]], getters: shape[RecordGetter[shape]])
 
-def restructure(RecordSet(fields, rows, getters), f: shape1[RecordGetter[shape1]] -> (forall w. shape1[w] -> shape2[w], forall w. shape1[w] -> shape2[w], shape2[RecordGetter[shape2]])) -> RecordSet[shape2]:
-  (reshaper1, reshaper2, new_getters) = f(getters)
+# , forall w1, w2. shape2[w1] -> (forall s. w1[s] -> w2[s]) -> shape2[w2])) -> RecordSet[shape2]:
+def restructure(RecordSet(fields, rows, getters): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> (forall w. shape1[w] -> shape2[w], shape2[RecordGetter[shape2]])) -> RecordSet[shape2]:
+  (reshaper1, new_getters) = f(getters)
+  (reshaper2, _) = f(getters)
   RecordSet(reshaper1(fields), rows.map_List(reshaper2), new_getters)
-
 
 struct NilShape[w]
 struct IntShape[w](int: w[Int])
 struct PS[t,shape2,w](left: w[t], right: shape2[w])
 
-def s(getter):
-  RecordGetter(f) = getter
+#    \PS(x, _), g -> PS(g(x), NilShape)
+def s(RecordGetter(f)):
   (
-    \x -> PS(f(x),NilShape),
     \x -> PS(f(x),NilShape),
     PS(RecordGetter(\PS(x, _) -> x), NilShape)
   )
+
+# def ps(RecordGetter(f): RecordGetter[shapae1, t], (g, sh2, traverse): (forall w. shape1[w] -> shape2[w], shape2[RecordGetter[shape2]], forall w1,w2. shape2[w1] -> (forall s. w1[s] -> w2[s]) -> shape2[w2] )):
+#  (
+#    \sh1 -> PS(f(sh1), g(sh1)),
+#    PS(RecordGetter(\PS(x,_) -> x), sh2.traverse(\RecordGetter(f1) -> RecordGetter(\PS(_, sh2) -> f1(sh2)))),
+#    \PS(x, sh2), g -> PS(g(x), sh2.traverse(g))
+#  )
 
 ##################################################
 
