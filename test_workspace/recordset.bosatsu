@@ -7,43 +7,36 @@ enum RowEntry[w]:
 
 struct RecordField[t](name: String, to_entry: forall w. w[t] -> RowEntry[w])
 struct RecordValue[t](value: t)
+struct RecordGetter[shape, t](f: forall w. shape[w] -> w[t])
 
-struct RecordSet[shape](fields: shape[RecordField], rows: List[shape[RecordValue]], to_row: forall w. shape[w] -> List[RowEntry[w]])
+struct RecordSet[shape](fields: shape[RecordField], rows: List[shape[RecordValue]], getters: shape[RecordGetter[shape]])
 
-def restructure(RecordSet(fields, rows), f: forall w. shape1[w] -> shape2[w], to_row: forall w. shape2[w] -> List[RowEntry[w]]) -> RecordSet[shape2]:
-  RecordSet(f(fields), rows.map_List(f), to_row)
+def restructure(RecordSet(fields, rows, getters), f: shape1[RecordGetter[shape1]] -> (forall w. shape1[w] -> shape2[w], forall w. shape1[w] -> shape2[w], shape2[RecordGetter[shape2]])) -> RecordSet[shape2]:
+  (reshaper1, reshaper2, new_getters) = f(getters)
+  RecordSet(reshaper1(fields), rows.map_List(reshaper2), new_getters)
 
+
+struct NilShape[w]
 struct IntShape[w](int: w[Int])
-struct PairShape[shape1,shape2,w](left: shape1[w], right: shape2[w])
+struct PS[t,shape2,w](left: w[t], right: shape2[w])
 
-def make_pair_int_shape(rest: shape[w], i: w[Int]) -> PairShape[shape,IntShape,w]:
-  PairShape(rest, IntShape(i))
-
-# def add_shape(RecordSet(fields1, rows): RecordSet[shape1], fields2: shape2[RecordField[String], RecordField[Int], RecordField[Bool]], f: shape1[String, Int, Bool] -> shape2[String, Int, Bool]) -> RecordSet[PairShape[shape1, shape2]]:
-#  RecordSet(PairShape(fields1, fields2), rows.map_List(\row -> PairShape(row, f(row))))
-
-def add_int_field(RecordSet(fields, rows, to_row): RecordSet[shape1], name: String, f: shape1[RecordValue] -> Int) -> RecordSet[PairShape[shape1, IntShape]]:
-  RecordSet(
-    make_pair_int_shape(fields, RecordField(name, REInt)),
-    rows.map_List(\row -> make_pair_int_shape(row, RecordValue(f(row)))),
-    \PairShape(sh1, IntShape(int)) -> to_row(sh1).concat([REInt(int)])
+def s(getter):
+  RecordGetter(f) = getter
+  (
+    \x -> PS(f(x),NilShape),
+    \x -> PS(f(x),NilShape),
+    PS(RecordGetter(\PS(x, _) -> x), NilShape)
   )
 
 ##################################################
 
-struct Shape1[w](f1: w[String], f2: w[Int], f3: w[Bool])
-struct Shape2[w](f1: w[String], f2: w[Bool], f3: w[Int])
-struct Shape3[w](f1: w[String], f2: w[Bool], f3: w[Int], f4: w[Int])
-
 rs = RecordSet(
-  Shape1(RecordField("String", REString), RecordField("Int", REInt), RecordField("Bool", REBool)),
-  [Shape1(RecordValue("a"), RecordValue(1), RecordValue(True))],
-  \Shape1(f1, f2, f3) -> [REString(f1), REInt(f2), REBool(f3)]
+  PS(RecordField("String", REString), PS(RecordField("Int", REInt), PS(RecordField("Bool", REBool), NilShape))),
+  [PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(True), NilShape)))],
+  PS(RecordGetter(\PS(x,_) -> x), PS(RecordGetter(\PS(_, PS(x, _)) -> x), PS(RecordGetter(\PS(_, PS(_, PS(x, _))) -> x), NilShape)))
 )
 
-rs0 = rs.restructure(\Shape1(a,b,c) -> Shape2(a,c,b), \Shape2(f1,f2,f3) -> [REString(f1), REBool(f2), REInt(f3)])
-rs1 = rs0.add_int_field("Second Int", \Shape2(_,_,RecordValue(x)) -> x.add(4))
-rs2 = rs1.restructure(\PairShape(Shape2(a,b,c), IntShape(i)) -> Shape3(a,b,c,i), \Shape3(f1,f2,f3,f4) -> [REString(f1), REBool(f2), REInt(f3), REInt(f4)])
+rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> s(b))
 
 ##################################################
 
@@ -72,9 +65,6 @@ def equal_List(is_equal, l1, l2):
       []: False
       [h2, *r2]: is_equal(h1, h2) && equal_List(is_equal, r1, r2)
 
-def compare_shape3((compare1, compare2, compare3), Shape3(RecordValue(x1), RecordValue(x2), RecordValue(x3), RecordValue(x4)), Shape3(RecordValue(y1), RecordValue(y2), RecordValue(y3), RecordValue(y4))):
-  compare1.equals(x1, y1) && compare2.equals(x2, y2) && compare3.equals(x3, y3) && compare3.equals(x4, y4)
-
 def equal_RowEntry(re1, re2):
   match (re1, re2):
     (REBool(RecordValue(x1)), REBool(RecordValue(x2))): cmp_Bool.equals(x1, x2)
@@ -85,9 +75,14 @@ def equal_RowEntry(re1, re2):
 def equal_rows(row1, row2):
   equal_RowEntry.equal_List(row1, row2)
 
-RecordSet(_, rows, to_row) = rs2
+RecordSet(_, rows, _) = rs0
+
+def to_row(PS(RecordValue(x), _)):
+  [REInt(RecordValue(1))]
+
 tests = Test("reordering",
   [
-    Assertion(equal_rows.equal_List(rows.map_List(to_row), [[REString(RecordValue("a")), REBool(RecordValue(True)), REInt(RecordValue(1)), REInt(RecordValue(5))]]), "swap")
+    Assertion(equal_rows.equal_List(rows.map_List(to_row), [[REInt(RecordValue(1))]]), "swap")
   ]
 )
+
