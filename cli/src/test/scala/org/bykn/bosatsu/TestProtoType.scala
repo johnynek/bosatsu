@@ -62,7 +62,10 @@ class TestProtoType extends FunSuite {
 
   test("we can roundtrip patterns through proto") {
     val testFn = tabLaw(ProtoConverter.patternToProto(_: Pattern[(PackageName, Constructor), Type])) { (ss, idx) =>
-      ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
+      val inner  = ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
+      // we need to set up the types also
+      ProtoConverter.buildTypes(ss.types.inOrder)
+        .flatMap { tps => inner.local[ProtoConverter.DecodeState](_.withTypes(tps)) }
     }(Eq.fromUniversalEquals)
 
     forAll(Generators.genCompiledPattern(5))(testFn)

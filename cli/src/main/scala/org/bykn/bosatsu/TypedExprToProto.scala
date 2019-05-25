@@ -261,7 +261,7 @@ object ProtoConverter {
 
             lp.toList.traverse(decodePart).map(Pattern.ListPat(_))
           case Value.AnnotationPat(proto.AnnotationPat(pidx, tidx)) =>
-            (pat(pidx), ds.tryType(tidx - 1, s"invalid type index in: $p"))
+            (pat(pidx), ds.tryType(tidx - 1, s"invalid type index $tidx in: $p"))
               .mapN(Pattern.Annotation(_, _))
           case Value.StructPat(proto.StructPattern(packIdx, cidx, args)) =>
             str(packIdx)
@@ -441,8 +441,6 @@ object ProtoConverter {
                 }
           }
       }
-
-  private def patternFromProto(p: proto.Pattern): DTab[Pattern[(PackageName, Constructor), Type]] = ???
 
   def varianceToProto(v: Variance): proto.Variance =
     v match {
