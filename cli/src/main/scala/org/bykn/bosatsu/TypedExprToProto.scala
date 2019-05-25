@@ -8,6 +8,7 @@ import java.nio.file.Path
 import java.io.{FileInputStream, FileOutputStream, BufferedInputStream, BufferedOutputStream}
 import org.bykn.bosatsu.rankn.{Type, DefinedType}
 import scala.util.{Failure, Success, Try}
+import scala.reflect.ClassTag
 
 import Identifier.Constructor
 
@@ -39,7 +40,8 @@ object ProtoConverter {
 
   case class SerState(
     strings: IdAssignment[String, String],
-    types: IdAssignment[Type, proto.Type]) {
+    types: IdAssignment[Type, proto.Type],
+    patterns: IdAssignment[Pattern[(PackageName, Constructor), Type], proto.Pattern]) {
 
     def stringId(s: String): Either[(SerState, Int), Int] =
       strings.get(s, s).left.map { case (next, id) => (copy(strings = next), id) }
@@ -50,7 +52,7 @@ object ProtoConverter {
 
   object SerState {
     val empty: SerState =
-      SerState(IdAssignment.empty, IdAssignment.empty)
+      SerState(IdAssignment.empty, IdAssignment.empty, IdAssignment.empty)
   }
 
   type Tab[A] = StateT[Try, SerState, A]
@@ -83,6 +85,18 @@ object ProtoConverter {
     StateT.get[Try, SerState]
       .map(_.types.indexOf(t).map(_ + 1))
 
+  private def writePattern(p: Pattern[(PackageName, Constructor), Type], pp: proto.Pattern): Tab[Int] =
+    StateT.get[Try, SerState]
+      .flatMap { s =>
+        s.patterns.get(p, pp) match {
+          case Right(_) =>
+            // this is a programming error in this code, if this is hit
+            tabFail(new Exception(s"expected $p to be absent"))
+          case Left((next, id)) =>
+            StateT.set[Try, SerState](s.copy(patterns = next)).as(id + 1)
+        }
+      }
+
   def runTab[A](t: Tab[A]): Try[(SerState, A)] =
     t.run(SerState.empty)
 
@@ -96,9 +110,17 @@ object ProtoConverter {
       if ((0 <= idx) && (idx < strings.length)) Some(strings(idx))
       else None
 
+    def tryString(idx: Int, msg: => String): Try[String] =
+      if ((0 <= idx) && (idx < strings.length)) Success(strings(idx))
+      else Failure(new Exception(msg))
+
     def getType(idx: Int): Option[Type] =
       if ((0 <= idx) && (idx < types.length)) Some(types(idx))
       else None
+
+    def tryType(idx: Int, msg: => String): Try[Type] =
+      if ((0 <= idx) && (idx < types.length)) Success(types(idx))
+      else Failure(new Exception(msg))
 
     def getDt(idx: Int): Option[DefinedType[Variance]] =
       if ((0 <= idx) && (idx < dts.length)) Some(dts(idx))
@@ -112,8 +134,8 @@ object ProtoConverter {
   }
 
   object DecodeState {
-    def forInterface(strings: Array[String], tpearray: Array[Type]): DecodeState =
-      new DecodeState(strings, tpearray, Array.empty, Array.empty, Array.empty)
+    def init(strings: Seq[String]): DecodeState =
+      new DecodeState(strings.toArray, Array.empty, Array.empty, Array.empty, Array.empty)
   }
 
   type DTab[A] = ReaderT[Try, DecodeState, A]
@@ -135,71 +157,149 @@ object ProtoConverter {
   private def lookupDts(idx: Int, context: => String): DTab[DefinedType[Variance]] =
     find(idx, context)(_.getDt(_))
 
-  private def buildTypes[A](strings: Array[String], types: Seq[proto.Type]): Try[Array[Type]] = {
-    // this is mutable which we will write into
-    val tpearray = new Array[Type](types.length)
-
-    def typeFromProto(p: proto.Type): Try[Type] = {
-      import proto.Type.Value
-      import bosatsu.TypedAst.{Type => _, _}
-
-      def str(i: Int): Try[String] =
-        if (i > 0 && i <= strings.length) Success(strings(i - 1))
-        else Failure(new Exception(s"invalid string idx: $i in $p"))
-
-      def tpe(i: Int): Try[Type] =
-        if ((i > 0) && (i <= tpearray.length)) Success(tpearray(i - 1))
-        else Failure(new Exception(s"invalid type idx: $i in $p"))
-
-      p.value match {
-        case Value.Empty => Failure(new Exception(s"empty type found in $p"))
-        case Value.TypeConst(tc) =>
-          val proto.TypeConst(packidx, tidx) = tc
-          str(packidx)
-            .product(str(tidx))
-            .flatMap { case (pack, t) =>
-              typeConstFromStr(pack, t, p.toString)
-                .map(Type.TyConst(_))
-            }
-        case Value.TypeVar(tv) =>
-          str(tv.varName).map { n => Type.TyVar(Type.Var.Bound(n)) }
-        case Value.TypeForAll(TypeForAll(args, in)) =>
-          for {
-            inT <- tpe(in)
-            args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
-          } yield Type.forAll(args, inT)
-
-        case Value.TypeApply(TypeApply(left, right)) =>
-          (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
-      }
+  /**
+   * this is code to build tables of serialized dags. We use this for types, patterns, expressions
+   */
+  private def buildTable[A, B: ClassTag](ary: Array[A])(fn: (A, Int => Try[B]) => Try[B]): Try[Array[B]] = {
+    val result = new Array[B](ary.length)
+    def lookup(a: A, max: Int): Int => Try[B] = { idx =>
+      if (idx > 0 && idx <= max) Success(result(idx - 1))
+      else Failure(new Exception(s"while decoding $a, invalid index $idx, max: $max"))
     }
-    // materialize the full types
-    var idx = 0;
-    var res: Try[Array[Type]] = null
-    val tarray = types.iterator
-    while(tarray.hasNext && (res eq null)) {
-      typeFromProto(tarray.next) match {
-        case Success(tpe) =>
-          tpearray(idx) = tpe
-          idx += 1
-        case Failure(err) =>
-          res = Failure(err)
+
+    var idx = 0
+    var res: Failure[Array[B]] = null
+    while((idx < ary.length) && (res eq null)) {
+      val a = ary(idx)
+      val lookupFn = lookup(a, idx)
+      fn(a, lookupFn) match {
+        case Success(b) => result(idx) = b
+        case Failure(err) => res = Failure(err)
       }
+      idx = idx + 1
     }
-    if (res eq null) Success(tpearray)
+    if (res eq null) Success(result)
     else res
   }
 
-  def typeConstFromStr(pstr: String, tstr: String, context: => String): Try[Type.Const.Defined] =
+  def buildTypes[A](types: Seq[proto.Type]): DTab[Array[Type]] =
+    ReaderT[Try, DecodeState, Array[Type]] { ds =>
+
+      def typeFromProto(p: proto.Type, tpe: Int => Try[Type]): Try[Type] = {
+        import proto.Type.Value
+        import bosatsu.TypedAst.{Type => _, _}
+
+        def str(i: Int): Try[String] =
+          ds.tryString(i - 1, s"invalid string idx: $i in $p")
+
+        p.value match {
+          case Value.Empty => Failure(new Exception(s"empty type found in $p"))
+          case Value.TypeConst(tc) =>
+            val proto.TypeConst(packidx, tidx) = tc
+            str(packidx)
+              .product(str(tidx))
+              .flatMap { case (pack, t) =>
+                typeConstFromStr(pack, t, p.toString)
+                  .map(Type.TyConst(_))
+              }
+          case Value.TypeVar(tv) =>
+            str(tv.varName).map { n => Type.TyVar(Type.Var.Bound(n)) }
+          case Value.TypeForAll(TypeForAll(args, in)) =>
+            for {
+              inT <- tpe(in)
+              args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
+            } yield Type.forAll(args, inT)
+
+          case Value.TypeApply(TypeApply(left, right)) =>
+            (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
+        }
+      }
+
+      buildTable(types.toArray)(typeFromProto _)
+    }
+
+  def buildPatterns[A](pats: Seq[proto.Pattern]): DTab[Array[Pattern[(PackageName, Constructor), Type]]] =
+    ReaderT[Try, DecodeState, Array[Pattern[(PackageName, Constructor), Type]]] { ds =>
+
+      def patternFromProto(p: proto.Pattern, pat: Int => Try[Pattern[(PackageName, Constructor), Type]]): Try[Pattern[(PackageName, Constructor), Type]] = {
+        import proto.Pattern.Value
+
+        def str(i: Int): Try[String] =
+          ds.tryString(i - 1, s"invalid string idx: $i in $p")
+
+        def bindable(i: Int): Try[Identifier.Bindable] =
+          str(i).flatMap { name =>
+            Try(Identifier.unsafeParse(Identifier.bindableParser, name))
+          }
+
+        p.value match {
+          case Value.Empty => Failure(new Exception("invalid unset pattern"))
+          case Value.WildPat(_) => Success(Pattern.WildCard)
+          case Value.LitPat(l) =>
+            val tryLit = l.value match {
+              case proto.LiteralExpr.Value.Empty =>
+                Failure(new Exception("unexpected unset Literal value in pattern"))
+              case proto.LiteralExpr.Value.StringValue(s) =>
+                Success(Lit.Str(s))
+              case proto.LiteralExpr.Value.IntValueAs64(l) =>
+                Success(Lit(l))
+              case proto.LiteralExpr.Value.IntValueAsString(s) =>
+                Success(Lit.Integer(new java.math.BigInteger(s)))
+            }
+            tryLit.map(Pattern.Literal(_))
+          case Value.VarNamePat(sidx) => bindable(sidx).map(Pattern.Var(_))
+          case Value.NamedPat(proto.NamedPat(nidx, pidx)) =>
+            (bindable(nidx), pat(pidx)).mapN(Pattern.Named(_, _))
+          case Value.ListPat(proto.ListPat(lp)) =>
+            def decodePart(part: proto.ListPart): Try[Either[Option[Identifier.Bindable], Pattern[(PackageName, Constructor), Type]]] =
+              part.value match {
+                case proto.ListPart.Value.Empty => Failure(new Exception(s"invalid empty list pattern in $p"))
+                case proto.ListPart.Value.ItemPattern(p) => pat(p).map(Right(_))
+                case proto.ListPart.Value.UnnamedList(_) => Success(Left(None))
+                case proto.ListPart.Value.NamedList(idx) => bindable(idx).map { n => Left(Some(n)) }
+              }
+
+            lp.toList.traverse(decodePart).map(Pattern.ListPat(_))
+          case Value.AnnotationPat(proto.AnnotationPat(pidx, tidx)) =>
+            (pat(pidx), ds.tryType(tidx - 1, s"invalid type index $tidx in: $p"))
+              .mapN(Pattern.Annotation(_, _))
+          case Value.StructPat(proto.StructPattern(packIdx, cidx, args)) =>
+            str(packIdx)
+              .product(str(cidx))
+              .flatMap { case (p, c) => fullNameFromStr(p, c, s"invalid structpat names: $p, $c") }
+              .flatMap { pc =>
+                args.toList.traverse(pat).map(Pattern.PositionalStruct(pc, _))
+              }
+          case Value.UnionPat(proto.UnionPattern(pats)) =>
+            pats.toList match {
+              case p0 :: p1 :: prest =>
+                (pat(p0), pat(p1), prest.traverse(pat))
+                  .mapN { (p0, p1, prest) =>
+                    Pattern.Union(p0, cats.data.NonEmptyList(p1, prest))
+                  }
+
+              case notTwo =>
+                Failure(new Exception(s"invalid union found size: ${notTwo.size}, expected 2 or more"))
+            }
+        }
+      }
+
+      buildTable(pats.toArray)(patternFromProto _)
+    }
+
+  private def fullNameFromStr(pstr: String, tstr: String, context: => String): Try[(PackageName, Constructor)] =
     PackageName.parse(pstr) match {
       case None =>
         Failure(new Exception(s"invalid package name: $pstr, in $context"))
       case Some(pack) =>
         Try {
           val cons = Identifier.unsafeParse(Identifier.consParser, tstr)
-          Type.Const.Defined(pack, TypeName(cons))
+          (pack, cons)
         }
     }
+
+  def typeConstFromStr(pstr: String, tstr: String, context: => String): Try[Type.Const.Defined] =
+    fullNameFromStr(pstr, tstr, context).map { case (p, c) => Type.Const.Defined(p, TypeName(c)) }
 
   def typeConstFromProto(p: proto.TypeConst): DTab[Type.Const.Defined] = {
     val proto.TypeConst(packidx, tidx) = p
@@ -260,6 +360,87 @@ object ProtoConverter {
           }
       }
   }
+
+  def patternToProto(p: Pattern[(PackageName, Constructor), Type]): Tab[Int] =
+    StateT.get[Try, SerState]
+      .map(_.patterns.indexOf(p).map(_ + 1))
+      .flatMap {
+        case Some(idx) => tabPure(idx)
+        case None =>
+          p match {
+            case Pattern.WildCard =>
+              writePattern(p, proto.Pattern(proto.Pattern.Value.WildPat(proto.WildCardPat())))
+            case Pattern.Literal(Lit.Str(str)) =>
+              writePattern(p, proto.Pattern(proto.Pattern.Value.LitPat(
+                proto.LiteralExpr(proto.LiteralExpr.Value.StringValue(str)))))
+            case Pattern.Literal(Lit.Integer(i)) =>
+              val lit = try {
+                proto.LiteralExpr.Value.IntValueAs64(i.longValueExact)
+              }
+              catch {
+                case ae: ArithmeticException =>
+                  proto.LiteralExpr.Value.IntValueAsString(i.toString)
+              }
+              writePattern(p, proto.Pattern(proto.Pattern.Value.LitPat(
+                proto.LiteralExpr(lit))))
+            case Pattern.Var(n) =>
+              getId(n.sourceCodeRepr)
+                .flatMap { idx =>
+                  writePattern(p, proto.Pattern(proto.Pattern.Value.VarNamePat(idx)))
+                }
+            case named@Pattern.Named(n, p) =>
+              getId(n.sourceCodeRepr)
+                .product(patternToProto(p))
+                .flatMap { case (idx, pidx) =>
+                  writePattern(named, proto.Pattern(proto.Pattern.Value.NamedPat(proto.NamedPat(idx, pidx))))
+                }
+            case Pattern.ListPat(items) =>
+              items.traverse {
+                case Right(itemPat) =>
+                  patternToProto(itemPat).map { pidx =>
+                    proto.ListPart(proto.ListPart.Value.ItemPattern(pidx))
+                  }
+                case Left(None) =>
+                  // unnamed list wildcard
+                  tabPure(proto.ListPart(proto.ListPart.Value.UnnamedList(proto.WildCardPat())))
+                case Left(Some(bindable)) =>
+                  // named list wildcard
+                  getId(bindable.sourceCodeRepr).map { idx =>
+                    proto.ListPart(proto.ListPart.Value.NamedList(idx))
+                  }
+                }
+                .flatMap { parts =>
+                  writePattern(p, proto.Pattern(proto.Pattern.Value.ListPat(proto.ListPat(parts))))
+                }
+            case ann@Pattern.Annotation(p, tpe) =>
+              patternToProto(p)
+                .product(typeToProto(tpe))
+                .flatMap { case (pidx, tidx) =>
+                  writePattern(ann, proto.Pattern(proto.Pattern.Value.AnnotationPat(proto.AnnotationPat(pidx, tidx))))
+                }
+            case pos@Pattern.PositionalStruct((packName, consName), params) =>
+              typeConstToProto(Type.Const.Defined(packName, TypeName(consName)))
+                .flatMap { ptc =>
+                  params
+                    .traverse(patternToProto)
+                    .flatMap { parts =>
+                      writePattern(pos,
+                        proto.Pattern(proto.Pattern.Value.StructPat(
+                          proto.StructPattern(
+                            packageName = ptc.packageName,
+                            constructorName = ptc.typeName,
+                            params = parts))))
+                    }
+                }
+
+            case Pattern.Union(h, t) =>
+              (h :: t.toList)
+                .traverse(patternToProto)
+                .flatMap { us =>
+                  writePattern(p, proto.Pattern(proto.Pattern.Value.UnionPat(proto.UnionPattern(us))))
+                }
+          }
+      }
 
   def varianceToProto(v: Variance): proto.Variance =
     v match {
@@ -491,11 +672,10 @@ object ProtoConverter {
         }
       }
 
-    val sarray = protoIface.strings.toArray
-    buildTypes(sarray, protoIface.types)
-      .flatMap { tpearray =>
-        tab.run(DecodeState.forInterface(sarray, tpearray))
-      }
+    (for {
+      tpes <- buildTypes(protoIface.types)
+      pack <- tab.local[DecodeState](_.withTypes(tpes))
+    } yield pack).run(DecodeState.init(protoIface.strings))
   }
 
   def interfacesToProto[F[_]: Foldable](ps: F[Package.Interface]): Try[proto.Interfaces] =
