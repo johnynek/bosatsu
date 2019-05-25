@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.Eq
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 import cats.implicits._
 
 class TestProtoType extends FunSuite {
@@ -31,6 +31,30 @@ class TestProtoType extends FunSuite {
 
     //assert(Eq[A].eqv(a, orig), s"${a.toString.drop(diffIdx).take(20)} != ${orig.toString.drop(diffIdx).take(20)}")
     assert(Eq[A].eqv(a, orig))
+  }
+
+
+  def tabLaw[A: Eq, B](f: A => ProtoConverter.Tab[B])(g: (ProtoConverter.SerState, B) => ProtoConverter.DTab[A]) = { a: A =>
+    f(a).run(ProtoConverter.SerState.empty) match {
+      case Success((ss, b)) =>
+        val ds = ProtoConverter.DecodeState.init(ss.strings.inOrder)
+        g(ss, b).run(ds) match {
+          case Success(finalA) =>
+            assert(Eq[A].eqv(a, finalA), s"$a\n\nnot equalto\n\n$finalA")
+          case Failure(err) =>
+            fail(s"on decode $b (from $a), got: ${err.toString}")
+        }
+      case Failure(err) =>
+        fail(s"on encode $a, got: ${err.toString}")
+    }
+  }
+
+  test("we can roundtrip types through proto") {
+    val testFn = tabLaw(ProtoConverter.typeToProto(_)) { (ss, idx) =>
+      ProtoConverter.buildTypes(ss.types.inOrder).map(_(idx - 1))
+    }
+
+    forAll(rankn.NTypeGen.genDepth03)(testFn)
   }
 
   test("we can roundtrip interface through proto") {

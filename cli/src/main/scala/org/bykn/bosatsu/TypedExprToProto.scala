@@ -8,6 +8,7 @@ import java.nio.file.Path
 import java.io.{FileInputStream, FileOutputStream, BufferedInputStream, BufferedOutputStream}
 import org.bykn.bosatsu.rankn.{Type, DefinedType}
 import scala.util.{Failure, Success, Try}
+import scala.reflect.ClassTag
 
 import Identifier.Constructor
 
@@ -109,6 +110,10 @@ object ProtoConverter {
       if ((0 <= idx) && (idx < strings.length)) Some(strings(idx))
       else None
 
+    def tryString(idx: Int, msg: => String): Try[String] =
+      if ((0 <= idx) && (idx < strings.length)) Success(strings(idx))
+      else Failure(new Exception(msg))
+
     def getType(idx: Int): Option[Type] =
       if ((0 <= idx) && (idx < types.length)) Some(types(idx))
       else None
@@ -125,8 +130,8 @@ object ProtoConverter {
   }
 
   object DecodeState {
-    def forInterface(strings: Array[String], tpearray: Array[Type]): DecodeState =
-      new DecodeState(strings, tpearray, Array.empty, Array.empty, Array.empty)
+    def init(strings: Seq[String]): DecodeState =
+      new DecodeState(strings.toArray, Array.empty, Array.empty, Array.empty, Array.empty)
   }
 
   type DTab[A] = ReaderT[Try, DecodeState, A]
@@ -148,60 +153,66 @@ object ProtoConverter {
   private def lookupDts(idx: Int, context: => String): DTab[DefinedType[Variance]] =
     find(idx, context)(_.getDt(_))
 
-  private def buildTypes[A](strings: Array[String], types: Seq[proto.Type]): Try[Array[Type]] = {
-    // this is mutable which we will write into
-    val tpearray = new Array[Type](types.length)
-
-    def typeFromProto(p: proto.Type): Try[Type] = {
-      import proto.Type.Value
-      import bosatsu.TypedAst.{Type => _, _}
-
-      def str(i: Int): Try[String] =
-        if (i > 0 && i <= strings.length) Success(strings(i - 1))
-        else Failure(new Exception(s"invalid string idx: $i in $p"))
-
-      def tpe(i: Int): Try[Type] =
-        if ((i > 0) && (i <= tpearray.length)) Success(tpearray(i - 1))
-        else Failure(new Exception(s"invalid type idx: $i in $p"))
-
-      p.value match {
-        case Value.Empty => Failure(new Exception(s"empty type found in $p"))
-        case Value.TypeConst(tc) =>
-          val proto.TypeConst(packidx, tidx) = tc
-          str(packidx)
-            .product(str(tidx))
-            .flatMap { case (pack, t) =>
-              typeConstFromStr(pack, t, p.toString)
-                .map(Type.TyConst(_))
-            }
-        case Value.TypeVar(tv) =>
-          str(tv.varName).map { n => Type.TyVar(Type.Var.Bound(n)) }
-        case Value.TypeForAll(TypeForAll(args, in)) =>
-          for {
-            inT <- tpe(in)
-            args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
-          } yield Type.forAll(args, inT)
-
-        case Value.TypeApply(TypeApply(left, right)) =>
-          (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
-      }
+  /**
+   * this is code to build tables of serialized dags. We use this for types, patterns, expressions
+   */
+  private def buildTable[A, B: ClassTag](ary: Array[A])(fn: (A, Int => Try[B]) => Try[B]): Try[Array[B]] = {
+    val result = new Array[B](ary.length)
+    def lookup(a: A, max: Int): Int => Try[B] = { idx =>
+      if (idx > 0 && idx <= max) Success(result(idx - 1))
+      else Failure(new Exception(s"while decoding $a, invalid index $idx, max: $max"))
     }
-    // materialize the full types
-    var idx = 0;
-    var res: Try[Array[Type]] = null
-    val tarray = types.iterator
-    while(tarray.hasNext && (res eq null)) {
-      typeFromProto(tarray.next) match {
-        case Success(tpe) =>
-          tpearray(idx) = tpe
-          idx += 1
-        case Failure(err) =>
-          res = Failure(err)
+
+    var idx = 0
+    var res: Failure[Array[B]] = null
+    while((idx < ary.length) && (res eq null)) {
+      val a = ary(idx)
+      val lookupFn = lookup(a, idx)
+      fn(a, lookupFn) match {
+        case Success(b) => result(idx) = b
+        case Failure(err) => res = Failure(err)
       }
+      idx = idx + 1
     }
-    if (res eq null) Success(tpearray)
+    if (res eq null) Success(result)
     else res
   }
+
+  def buildTypes[A](types: Seq[proto.Type]): DTab[Array[Type]] =
+    ReaderT[Try, DecodeState, Array[Type]] { ds =>
+
+      def typeFromProto(p: proto.Type, tpe: Int => Try[Type]): Try[Type] = {
+        import proto.Type.Value
+        import bosatsu.TypedAst.{Type => _, _}
+
+        def str(i: Int): Try[String] =
+          ds.tryString(i - 1, s"invalid string idx: $i in $p")
+
+        p.value match {
+          case Value.Empty => Failure(new Exception(s"empty type found in $p"))
+          case Value.TypeConst(tc) =>
+            val proto.TypeConst(packidx, tidx) = tc
+            str(packidx)
+              .product(str(tidx))
+              .flatMap { case (pack, t) =>
+                typeConstFromStr(pack, t, p.toString)
+                  .map(Type.TyConst(_))
+              }
+          case Value.TypeVar(tv) =>
+            str(tv.varName).map { n => Type.TyVar(Type.Var.Bound(n)) }
+          case Value.TypeForAll(TypeForAll(args, in)) =>
+            for {
+              inT <- tpe(in)
+              args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
+            } yield Type.forAll(args, inT)
+
+          case Value.TypeApply(TypeApply(left, right)) =>
+            (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
+        }
+      }
+
+      buildTable(types.toArray)(typeFromProto _)
+    }
 
   def typeConstFromStr(pstr: String, tstr: String, context: => String): Try[Type.Const.Defined] =
     PackageName.parse(pstr) match {
@@ -354,6 +365,8 @@ object ProtoConverter {
                 }
           }
       }
+
+  private def patternFromProto(p: proto.Pattern): DTab[Pattern[(PackageName, Constructor), Type]] = ???
 
   def varianceToProto(v: Variance): proto.Variance =
     v match {
@@ -585,11 +598,10 @@ object ProtoConverter {
         }
       }
 
-    val sarray = protoIface.strings.toArray
-    buildTypes(sarray, protoIface.types)
-      .flatMap { tpearray =>
-        tab.run(DecodeState.forInterface(sarray, tpearray))
-      }
+    (for {
+      tpes <- buildTypes(protoIface.types)
+      pack <- tab.local[DecodeState](_.withTypes(tpes))
+    } yield pack).run(DecodeState.init(protoIface.strings))
   }
 
   def interfacesToProto[F[_]: Foldable](ps: F[Package.Interface]): Try[proto.Interfaces] =
