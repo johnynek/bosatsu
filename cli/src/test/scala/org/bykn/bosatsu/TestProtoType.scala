@@ -1,10 +1,13 @@
 package org.bykn.bosatsu
 
 import cats.Eq
+import org.bykn.bosatsu.rankn.Type
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import scala.util.{Failure, Success, Try}
 import cats.implicits._
+
+import Identifier.Constructor
 
 class TestProtoType extends FunSuite {
   implicit val generatorDrivenConfig =
@@ -50,7 +53,7 @@ class TestProtoType extends FunSuite {
   }
 
   test("we can roundtrip types through proto") {
-    val testFn = tabLaw(ProtoConverter.typeToProto(_)) { (ss, idx) =>
+    val testFn = tabLaw(ProtoConverter.typeToProto(_: Type)) { (ss, idx) =>
       ProtoConverter.buildTypes(ss.types.inOrder).map(_(idx - 1))
     }
 
@@ -58,7 +61,7 @@ class TestProtoType extends FunSuite {
   }
 
   test("we can roundtrip patterns through proto") {
-    val testFn = tabLaw(ProtoConverter.patternToProto(_)) { (ss, idx) =>
+    val testFn = tabLaw(ProtoConverter.patternToProto(_: Pattern[(PackageName, Constructor), Type])) { (ss, idx) =>
       ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
     }(Eq.fromUniversalEquals)
 
