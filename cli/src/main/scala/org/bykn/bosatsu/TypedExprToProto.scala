@@ -93,7 +93,7 @@ object ProtoConverter {
             // this is a programming error in this code, if this is hit
             tabFail(new Exception(s"expected $p to be absent"))
           case Left((next, id)) =>
-            StateT.set[Try, SerState](s.copy(patterns = next)).as(id)
+            StateT.set[Try, SerState](s.copy(patterns = next)).as(id + 1)
         }
       }
 
@@ -117,6 +117,10 @@ object ProtoConverter {
     def getType(idx: Int): Option[Type] =
       if ((0 <= idx) && (idx < types.length)) Some(types(idx))
       else None
+
+    def tryType(idx: Int, msg: => String): Try[Type] =
+      if ((0 <= idx) && (idx < types.length)) Success(types(idx))
+      else Failure(new Exception(msg))
 
     def getDt(idx: Int): Option[DefinedType[Variance]] =
       if ((0 <= idx) && (idx < dts.length)) Some(dts(idx))
@@ -214,16 +218,88 @@ object ProtoConverter {
       buildTable(types.toArray)(typeFromProto _)
     }
 
-  def typeConstFromStr(pstr: String, tstr: String, context: => String): Try[Type.Const.Defined] =
+  def buildPatterns[A](pats: Seq[proto.Pattern]): DTab[Array[Pattern[(PackageName, Constructor), Type]]] =
+    ReaderT[Try, DecodeState, Array[Pattern[(PackageName, Constructor), Type]]] { ds =>
+
+      def patternFromProto(p: proto.Pattern, pat: Int => Try[Pattern[(PackageName, Constructor), Type]]): Try[Pattern[(PackageName, Constructor), Type]] = {
+        import proto.Pattern.Value
+
+        def str(i: Int): Try[String] =
+          ds.tryString(i - 1, s"invalid string idx: $i in $p")
+
+        def bindable(i: Int): Try[Identifier.Bindable] =
+          str(i).flatMap { name =>
+            Try(Identifier.unsafeParse(Identifier.bindableParser, name))
+          }
+
+        p.value match {
+          case Value.Empty => Failure(new Exception("invalid unset pattern"))
+          case Value.WildPat(_) => Success(Pattern.WildCard)
+          case Value.LitPat(l) =>
+            val tryLit = l.value match {
+              case proto.LiteralExpr.Value.Empty =>
+                Failure(new Exception("unexpected unset Literal value in pattern"))
+              case proto.LiteralExpr.Value.StringValue(s) =>
+                Success(Lit.Str(s))
+              case proto.LiteralExpr.Value.IntValueAs64(l) =>
+                Success(Lit(l))
+              case proto.LiteralExpr.Value.IntValueAsString(s) =>
+                Success(Lit.Integer(new java.math.BigInteger(s)))
+            }
+            tryLit.map(Pattern.Literal(_))
+          case Value.VarNamePat(sidx) => bindable(sidx).map(Pattern.Var(_))
+          case Value.NamedPat(proto.NamedPat(nidx, pidx)) =>
+            (bindable(nidx), pat(pidx)).mapN(Pattern.Named(_, _))
+          case Value.ListPat(proto.ListPat(lp)) =>
+            def decodePart(part: proto.ListPart): Try[Either[Option[Identifier.Bindable], Pattern[(PackageName, Constructor), Type]]] =
+              part.value match {
+                case proto.ListPart.Value.Empty => Failure(new Exception(s"invalid empty list pattern in $p"))
+                case proto.ListPart.Value.ItemPattern(p) => pat(p).map(Right(_))
+                case proto.ListPart.Value.UnnamedList(_) => Success(Left(None))
+                case proto.ListPart.Value.NamedList(idx) => bindable(idx).map { n => Left(Some(n)) }
+              }
+
+            lp.toList.traverse(decodePart).map(Pattern.ListPat(_))
+          case Value.AnnotationPat(proto.AnnotationPat(pidx, tidx)) =>
+            (pat(pidx), ds.tryType(tidx - 1, s"invalid type index in: $p"))
+              .mapN(Pattern.Annotation(_, _))
+          case Value.StructPat(proto.StructPattern(packIdx, cidx, args)) =>
+            str(packIdx)
+              .product(str(cidx))
+              .flatMap { case (p, c) => fullNameFromStr(p, c, s"invalid structpat names: $p, $c") }
+              .flatMap { pc =>
+                args.toList.traverse(pat).map(Pattern.PositionalStruct(pc, _))
+              }
+          case Value.UnionPat(proto.UnionPattern(pats)) =>
+            pats.toList match {
+              case p0 :: p1 :: prest =>
+                (pat(p0), pat(p1), prest.traverse(pat))
+                  .mapN { (p0, p1, prest) =>
+                    Pattern.Union(p0, cats.data.NonEmptyList(p1, prest))
+                  }
+
+              case notTwo =>
+                Failure(new Exception(s"invalid union found size: ${notTwo.size}, expected 2 or more"))
+            }
+        }
+      }
+
+      buildTable(pats.toArray)(patternFromProto _)
+    }
+
+  private def fullNameFromStr(pstr: String, tstr: String, context: => String): Try[(PackageName, Constructor)] =
     PackageName.parse(pstr) match {
       case None =>
         Failure(new Exception(s"invalid package name: $pstr, in $context"))
       case Some(pack) =>
         Try {
           val cons = Identifier.unsafeParse(Identifier.consParser, tstr)
-          Type.Const.Defined(pack, TypeName(cons))
+          (pack, cons)
         }
     }
+
+  def typeConstFromStr(pstr: String, tstr: String, context: => String): Try[Type.Const.Defined] =
+    fullNameFromStr(pstr, tstr, context).map { case (p, c) => Type.Const.Defined(p, TypeName(c)) }
 
   def typeConstFromProto(p: proto.TypeConst): DTab[Type.Const.Defined] = {
     val proto.TypeConst(packidx, tidx) = p

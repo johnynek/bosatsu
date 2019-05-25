@@ -57,6 +57,14 @@ class TestProtoType extends FunSuite {
     forAll(rankn.NTypeGen.genDepth03)(testFn)
   }
 
+  test("we can roundtrip patterns through proto") {
+    val testFn = tabLaw(ProtoConverter.patternToProto(_)) { (ss, idx) =>
+      ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
+    }(Eq.fromUniversalEquals)
+
+    forAll(Generators.genCompiledPattern(5))(testFn)
+  }
+
   test("we can roundtrip interface through proto") {
     forAll(Generators.interfaceGen) { iface =>
       law(iface, ProtoConverter.interfaceToProto _, ProtoConverter.interfaceFromProto _)(Eq.fromUniversalEquals)
