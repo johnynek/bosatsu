@@ -144,6 +144,9 @@ object ProtoConverter {
 
     def withTypes(ary: Array[Type]): DecodeState =
       new DecodeState(strings, ary, dts, patterns, expr)
+
+    def withPatterns(ary: Array[Pattern[(PackageName, Constructor), Type]]): DecodeState =
+      new DecodeState(strings, types, dts, ary, expr)
   }
 
   object DecodeState {
@@ -195,7 +198,7 @@ object ProtoConverter {
     else res
   }
 
-  def buildTypes[A](types: Seq[proto.Type]): DTab[Array[Type]] =
+  def buildTypes(types: Seq[proto.Type]): DTab[Array[Type]] =
     ReaderT[Try, DecodeState, Array[Type]] { ds =>
 
       def typeFromProto(p: proto.Type, tpe: Int => Try[Type]): Try[Type] = {
@@ -231,7 +234,7 @@ object ProtoConverter {
       buildTable(types.toArray)(typeFromProto _)
     }
 
-  def buildPatterns[A](pats: Seq[proto.Pattern]): DTab[Array[Pattern[(PackageName, Constructor), Type]]] =
+  def buildPatterns(pats: Seq[proto.Pattern]): DTab[Array[Pattern[(PackageName, Constructor), Type]]] =
     ReaderT[Try, DecodeState, Array[Pattern[(PackageName, Constructor), Type]]] { ds =>
 
       def patternFromProto(p: proto.Pattern, pat: Int => Try[Pattern[(PackageName, Constructor), Type]]): Try[Pattern[(PackageName, Constructor), Type]] = {
@@ -298,6 +301,13 @@ object ProtoConverter {
       }
 
       buildTable(pats.toArray)(patternFromProto _)
+    }
+
+  def buildExprs(exprs: Seq[proto.TypedExpr]): DTab[Array[TypedExpr[Unit]]] =
+    ReaderT[Try, DecodeState, Array[TypedExpr[Unit]]] { ds =>
+      def expressionFromProto(ex: proto.TypedExpr, pat: Int => Try[TypedExpr[Unit]]): Try[TypedExpr[Unit]] =
+
+      buildTable(exprs.toArray)(expressionFromProto _)
     }
 
   private def fullNameFromStr(pstr: String, tstr: String, context: => String): Try[(PackageName, Constructor)] =
