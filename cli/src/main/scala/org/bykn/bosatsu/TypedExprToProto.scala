@@ -41,7 +41,8 @@ object ProtoConverter {
   case class SerState(
     strings: IdAssignment[String, String],
     types: IdAssignment[Type, proto.Type],
-    patterns: IdAssignment[Pattern[(PackageName, Constructor), Type], proto.Pattern]) {
+    patterns: IdAssignment[Pattern[(PackageName, Constructor), Type], proto.Pattern],
+    expressions: IdAssignment[TypedExpr[Any], proto.TypedExpr]) {
 
     def stringId(s: String): Either[(SerState, Int), Int] =
       strings.get(s, s).left.map { case (next, id) => (copy(strings = next), id) }
@@ -52,7 +53,7 @@ object ProtoConverter {
 
   object SerState {
     val empty: SerState =
-      SerState(IdAssignment.empty, IdAssignment.empty, IdAssignment.empty)
+      SerState(IdAssignment.empty, IdAssignment.empty, IdAssignment.empty, IdAssignment.empty)
   }
 
   type Tab[A] = StateT[Try, SerState, A]
@@ -94,6 +95,18 @@ object ProtoConverter {
             tabFail(new Exception(s"expected $p to be absent"))
           case Left((next, id)) =>
             StateT.set[Try, SerState](s.copy(patterns = next)).as(id + 1)
+        }
+      }
+
+  private def writeExpr(te: TypedExpr[Any], pte: proto.TypedExpr): Tab[Int] =
+    StateT.get[Try, SerState]
+      .flatMap { s =>
+        s.expressions.get(te, pte) match {
+          case Right(_) =>
+            // this is a programming error in this code, if this is hit
+            tabFail(new Exception(s"expected $te to be absent"))
+          case Left((next, id)) =>
+            StateT.set[Try, SerState](s.copy(expressions = next)).as(id + 1)
         }
       }
 
@@ -237,13 +250,13 @@ object ProtoConverter {
           case Value.WildPat(_) => Success(Pattern.WildCard)
           case Value.LitPat(l) =>
             val tryLit = l.value match {
-              case proto.LiteralExpr.Value.Empty =>
+              case proto.Literal.Value.Empty =>
                 Failure(new Exception("unexpected unset Literal value in pattern"))
-              case proto.LiteralExpr.Value.StringValue(s) =>
+              case proto.Literal.Value.StringValue(s) =>
                 Success(Lit.Str(s))
-              case proto.LiteralExpr.Value.IntValueAs64(l) =>
+              case proto.Literal.Value.IntValueAs64(l) =>
                 Success(Lit(l))
-              case proto.LiteralExpr.Value.IntValueAsString(s) =>
+              case proto.Literal.Value.IntValueAsString(s) =>
                 Success(Lit.Integer(new java.math.BigInteger(s)))
             }
             tryLit.map(Pattern.Literal(_))
@@ -361,28 +374,34 @@ object ProtoConverter {
       }
   }
 
+  def litToProto(l: Lit): proto.Literal = {
+    val protoLit = l match {
+      case Lit.Integer(i) =>
+        try {
+          proto.Literal.Value.IntValueAs64(i.longValueExact)
+        }
+        catch {
+          case ae: ArithmeticException =>
+            proto.Literal.Value.IntValueAsString(i.toString)
+        }
+      case Lit.Str(str) =>
+        proto.Literal.Value.StringValue(str)
+    }
+    proto.Literal(protoLit)
+  }
+
   def patternToProto(p: Pattern[(PackageName, Constructor), Type]): Tab[Int] =
     StateT.get[Try, SerState]
-      .map(_.patterns.indexOf(p).map(_ + 1))
+      .map(_.patterns.indexOf(p))
       .flatMap {
-        case Some(idx) => tabPure(idx)
+        case Some(idx) => tabPure(idx + 1)
         case None =>
           p match {
             case Pattern.WildCard =>
               writePattern(p, proto.Pattern(proto.Pattern.Value.WildPat(proto.WildCardPat())))
-            case Pattern.Literal(Lit.Str(str)) =>
-              writePattern(p, proto.Pattern(proto.Pattern.Value.LitPat(
-                proto.LiteralExpr(proto.LiteralExpr.Value.StringValue(str)))))
-            case Pattern.Literal(Lit.Integer(i)) =>
-              val lit = try {
-                proto.LiteralExpr.Value.IntValueAs64(i.longValueExact)
-              }
-              catch {
-                case ae: ArithmeticException =>
-                  proto.LiteralExpr.Value.IntValueAsString(i.toString)
-              }
-              writePattern(p, proto.Pattern(proto.Pattern.Value.LitPat(
-                proto.LiteralExpr(lit))))
+            case Pattern.Literal(lit) =>
+              val litP = litToProto(lit)
+              writePattern(p, proto.Pattern(proto.Pattern.Value.LitPat(litP)))
             case Pattern.Var(n) =>
               getId(n.sourceCodeRepr)
                 .flatMap { idx =>
@@ -438,6 +457,84 @@ object ProtoConverter {
                 .traverse(patternToProto)
                 .flatMap { us =>
                   writePattern(p, proto.Pattern(proto.Pattern.Value.UnionPat(proto.UnionPattern(us))))
+                }
+          }
+      }
+
+  def typedExprToProto(te: TypedExpr[Any]): Tab[Int] =
+    StateT.get[Try, SerState]
+      .map(_.expressions.indexOf(te))
+      .flatMap {
+        case Some(idx) => tabPure(idx + 1)
+        case None =>
+          import TypedExpr._
+          te match {
+            case g@Generic(tvars, expr, _) =>
+              tvars.toList.traverse { v => getId(v.name) }
+                .product(typedExprToProto(expr))
+                .flatMap { case (tparams, exid) =>
+                  val ex = proto.GenericExpr(tparams, exid)
+                  writeExpr(g, proto.TypedExpr(proto.TypedExpr.Value.GenericExpr(ex)))
+                }
+            case a@Annotation(term, tpe, _) =>
+              typedExprToProto(term)
+                .product(typeToProto(tpe))
+                .flatMap { case (term, tpe) =>
+                  val ex = proto.AnnotationExpr(term, tpe)
+                  writeExpr(a, proto.TypedExpr(proto.TypedExpr.Value.AnnotationExpr(ex)))
+                }
+            case al@AnnotatedLambda(n, tpe, res, _) =>
+              getId(n.sourceCodeRepr)
+                .product(typeToProto(tpe))
+                .product(typedExprToProto(res))
+                .flatMap { case ((vid, tid), resid) =>
+                  val ex = proto.LambdaExpr(vid, tid, resid)
+                  writeExpr(al, proto.TypedExpr(proto.TypedExpr.Value.LambdaExpr(ex)))
+                }
+            case v@Var(optPack, nm, tpe, _) =>
+              optPack.traverse { p => getId(p.asString) }
+                .product(getId(nm.sourceCodeRepr))
+                .product(typeToProto(tpe))
+                .flatMap { case ((optPackId, varId), tpeId) =>
+                  val ex = proto.VarExpr(optPackId.getOrElse(0), varId, tpeId)
+                  writeExpr(v, proto.TypedExpr(proto.TypedExpr.Value.VarExpr(ex)))
+                }
+            case a@App(fn, arg, resTpe, _) =>
+              typedExprToProto(fn)
+                .product(typedExprToProto(arg))
+                .product(typeToProto(resTpe))
+                .flatMap { case ((fn, arg), resTpe) =>
+                  val ex = proto.AppExpr(fn, arg, resTpe)
+                  writeExpr(a, proto.TypedExpr(proto.TypedExpr.Value.AppExpr(ex)))
+                }
+            case let@Let(nm, nmexpr, inexpr, rec, _) =>
+              val prec = rec match {
+                case RecursionKind.Recursive => proto.RecursionKind.IsRec
+                case RecursionKind.NonRecursive => proto.RecursionKind.NotRec
+              }
+              getId(nm.sourceCodeRepr)
+                .product(typedExprToProto(nmexpr))
+                .product(typedExprToProto(inexpr))
+                .flatMap { case ((nm, nmexpr), inexpr) =>
+                  val ex = proto.LetExpr(nm, nmexpr, inexpr, prec)
+                  writeExpr(let, proto.TypedExpr(proto.TypedExpr.Value.LetExpr(ex)))
+                }
+            case lit@Literal(l, tpe, _) =>
+              typeToProto(tpe)
+                .flatMap { tpe =>
+                  val ex = proto.LiteralExpr(Some(litToProto(l)), tpe)
+                  writeExpr(lit, proto.TypedExpr(proto.TypedExpr.Value.LiteralExpr(ex)))
+                }
+            case m@Match(argE, branches, _) =>
+              def encodeBranch(p: (Pattern[(PackageName, Constructor), Type], TypedExpr[Any])): Tab[proto.Branch] =
+                (patternToProto(p._1), typedExprToProto(p._2))
+                  .mapN { (pat, expr) => proto.Branch(pat, expr) }
+
+              typedExprToProto(argE)
+                .product(branches.toList.traverse(encodeBranch))
+                .flatMap { case (argId, branches) =>
+                  val ex = proto.MatchExpr(argId, branches)
+                  writeExpr(m, proto.TypedExpr(proto.TypedExpr.Value.MatchExpr(ex)))
                 }
           }
       }
