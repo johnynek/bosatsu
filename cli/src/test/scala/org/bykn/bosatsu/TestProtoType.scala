@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Eq
 import org.bykn.bosatsu.rankn.Type
+import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import scala.util.{Failure, Success, Try}
@@ -62,13 +63,28 @@ class TestProtoType extends FunSuite {
 
   test("we can roundtrip patterns through proto") {
     val testFn = tabLaw(ProtoConverter.patternToProto(_: Pattern[(PackageName, Constructor), Type])) { (ss, idx) =>
-      val inner  = ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
-      // we need to set up the types also
-      ProtoConverter.buildTypes(ss.types.inOrder)
-        .flatMap { tps => inner.local[ProtoConverter.DecodeState](_.withTypes(tps)) }
+      for {
+        tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+        pats  = ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
+        res <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+      } yield res
     }(Eq.fromUniversalEquals)
 
     forAll(Generators.genCompiledPattern(5))(testFn)
+  }
+
+  test("we can roundtrip TypedExpr through proto") {
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) { (ss, idx) =>
+      for {
+        tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+        pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+        patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+        expr  = ProtoConverter.buildExprs(ss.expressions.inOrder).map(_(idx - 1))
+        res <- expr.local[ProtoConverter.DecodeState](_.withTypes(tps).withPatterns(patTab))
+      } yield res
+    }(Eq.fromUniversalEquals)
+
+    forAll(Generators.genTypedExpr(Gen.const(()), 4))(testFn)
   }
 
   test("we can roundtrip interface through proto") {

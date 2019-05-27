@@ -149,7 +149,7 @@ message LetExpr {
   RecursionKind rec = 4;
 }
 
-message LiteralExpr {
+message Literal {
   oneof value {
     string stringValue = 1;
     int64 intValueAs64 = 2;
@@ -194,7 +194,7 @@ message UnionPattern {
 message Pattern {
   oneof value {
     WildCardPat wildPat = 1;
-    LiteralExpr litPat = 2;
+    Literal litPat = 2;
     int32 varNamePat = 3;
     NamedPat namedPat = 4;
     ListPat listPat = 5;
@@ -202,6 +202,11 @@ message Pattern {
     StructPattern structPat = 7;
     UnionPattern unionPat = 8;
   }
+}
+
+message LiteralExpr {
+  Literal literal = 1;
+  int32 typeOf = 2;
 }
 
 message Branch {

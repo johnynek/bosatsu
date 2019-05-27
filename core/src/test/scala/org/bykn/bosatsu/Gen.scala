@@ -716,4 +716,47 @@ object Generators {
       exs0 <- smallList(exportGen(te))
       exs = exs0.map { ex => (ex.name, ex) }.toMap.values.toList // don't duplicate exported names
     } yield Package(p, Nil, exs, ())
+
+  /**
+   * This is a totally random, and not well typed expression.
+   * It is suitable for some tests, but it is not a valid output
+   * of a typechecking process
+   */
+  def genTypedExpr[A](genTag: Gen[A], depth: Int): Gen[TypedExpr[A]] = {
+    val recurse = Gen.lzy(genTypedExpr(genTag, depth - 1))
+    val lit = Gen.zip(genLit, NTypeGen.genDepth03, genTag).map { case (l, tpe, tag) => TypedExpr.Literal(l, tpe, tag) }
+    // only literal doesn't recurse
+    if (depth <= 0) lit
+    else {
+      val genGeneric =
+        Gen.zip(Generators.nonEmpty(NTypeGen.genBound), recurse, genTag)
+          .map { case (vs, t, tag) => TypedExpr.Generic(vs, t, tag) }
+
+      val ann =
+        Gen.zip(recurse, NTypeGen.genDepth03, genTag)
+          .map { case (te, tpe, tag) => TypedExpr.Annotation(te, tpe, tag) }
+
+      val lam =
+        Gen.zip(bindIdentGen, NTypeGen.genDepth03, recurse, genTag)
+          .map { case (n, tpe, res, tag) => TypedExpr.AnnotatedLambda(n, tpe, res, tag) }
+
+      val varGen =
+        Gen.zip(Gen.option(packageNameGen), identifierGen, NTypeGen.genDepth03, genTag)
+          .map { case (op, n, t, tag) => TypedExpr.Var(op, n, t, tag) }
+
+      val app =
+        Gen.zip(recurse, recurse, NTypeGen.genDepth03, genTag)
+          .map { case (fn, arg, tpe, tag) => TypedExpr.App(fn, arg, tpe, tag) }
+
+      val let =
+        Gen.zip(bindIdentGen, recurse, recurse, Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive), genTag)
+          .map { case (n, ex, in, rec, tag) => TypedExpr.Let(n, ex, in, rec, tag) }
+
+      val matchGen =
+        Gen.zip(recurse, Gen.choose(1, 4).flatMap(nonEmptyN(Gen.zip(genCompiledPattern(depth), recurse), _)), genTag)
+          .map { case (arg, branches, tag) => TypedExpr.Match(arg, branches, tag) }
+
+      Gen.oneOf(genGeneric, ann, lam, varGen, app, let, lit, matchGen)
+    }
+  }
 }
