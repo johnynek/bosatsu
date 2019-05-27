@@ -15,13 +15,12 @@ object NameKind {
 
   def externals[T](from: Package.Typed[T]): Stream[ExternalDef[T]] = {
     val prog = from.program
-    prog.from.toStream.collect {
-      case Statement.ExternalDef(n, _, _, _) =>
-        // The type could be an import, so we need to check for the type
-        // in the TypeEnv
-        val pn = from.name
-        val tpe = prog.types.getValue(pn, n).get
-        ExternalDef[T](pn, n, tpe)
+    prog.externalDefs.toStream.map { n =>
+      // The type could be an import, so we need to check for the type
+      // in the TypeEnv
+      val pn = from.name
+      val tpe = prog.types.getValue(pn, n).get
+      ExternalDef[T](pn, n, tpe)
     }
   }
 
@@ -48,15 +47,7 @@ object NameKind {
       }
 
     def getExternal: Option[NameKind[T]] =
-      // there should not be duplicate top level names TODO lint for this
-      prog.from.toStream.collectFirst {
-        case Statement.ExternalDef(n, _, _, _) if n == item =>
-          // The type could be an import, so we need to check for the type
-          // in the TypeEnv
-          val pn = from.name
-          val tpe = prog.types.getValue(pn, n).get
-          ExternalDef(pn, item, tpe)
-      }
+      externals(from).find(_.defName == item)
 
     getLet
       .orElse(getConstructor)

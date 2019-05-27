@@ -52,8 +52,8 @@ object TestUtils {
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
           case Validated.Invalid(errs) =>
             fail("inference failure: " + errs.toList.map(_.message(Map.empty)).mkString("\n"))
-          case Validated.Valid((_, lets)) =>
-            fn(lets.last._3)
+          case Validated.Valid(program) =>
+            fn(program.lets.last._3)
         }
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
