@@ -9,6 +9,7 @@ import java.io.{FileInputStream, FileOutputStream, BufferedInputStream, Buffered
 import org.bykn.bosatsu.rankn.{Type, DefinedType}
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
+import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
 
@@ -385,15 +386,19 @@ object ProtoConverter {
       buildTable(exprs.toArray)(expressionFromProto _)
     }
 
-  private def fullNameFromStr(pstr: String, tstr: String, context: => String): Try[(PackageName, Constructor)] =
+  private def parsePack(pstr: String, context: => String): Try[PackageName] =
     PackageName.parse(pstr) match {
       case None =>
         Failure(new Exception(s"invalid package name: $pstr, in $context"))
-      case Some(pack) =>
-        Try {
-          val cons = Identifier.unsafeParse(Identifier.consParser, tstr)
-          (pack, cons)
-        }
+      case Some(pack) => Success(pack)
+    }
+
+  private def fullNameFromStr(pstr: String, tstr: String, context: => String): Try[(PackageName, Constructor)] =
+    parsePack(pstr, context).flatMap { pack =>
+      Try {
+        val cons = Identifier.unsafeParse(Identifier.consParser, tstr)
+        (pack, cons)
+      }
     }
 
   def typeConstFromStr(pstr: String, tstr: String, context: => String): Try[Type.Const.Defined] =
@@ -730,6 +735,49 @@ object ProtoConverter {
     }
   }
 
+  def expNameToProto(allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)], e: ExportedName[Referant[Variance]]): Tab[proto.ExportedName] = {
+    val protoRef: Tab[proto.Referant] =
+      e.tag match {
+        case Referant.Value(t) =>
+          typeToProto(t).map { tpeId =>
+            proto.Referant(proto.Referant.Referant.Value(tpeId))
+          }
+        case Referant.DefinedT(dt) =>
+          val key = (dt.packageName, dt.name)
+          allDts.get(key) match {
+            case Some((_, idx)) =>
+              tabPure(
+                proto.Referant(proto.Referant.Referant.DefinedTypePtr(idx + 1))
+              )
+            case None => tabFail(new Exception(s"missing defined type for $key in $e"))
+          }
+        case Referant.Constructor(nm, dt, _, _) =>
+          val key = (dt.packageName, dt.name)
+          allDts.get(key) match {
+            case Some((dtV, dtIdx)) =>
+              val cIdx = dtV.constructors.indexWhere { case (c, _, _) => c == nm }
+              if (cIdx >= 0) {
+                tabPure(
+                  proto.Referant(
+                    proto.Referant.Referant.Constructor(
+                      proto.ConstructorPtr(dtIdx + 1, cIdx + 1))))
+              }
+              else tabFail(new Exception(s"missing contructor for type $key, $nm, with local: $dt"))
+            case None => tabFail(new Exception(s"missing defined type for $key in $e"))
+          }
+      }
+    val exKind: Tab[(Int, proto.ExportKind)] = e match {
+      case ExportedName.Binding(b, _) =>
+        getId(b.sourceCodeRepr).map((_, proto.ExportKind.Binding))
+      case ExportedName.TypeName(n, _) =>
+        getId(n.asString).map((_, proto.ExportKind.TypeName))
+      case ExportedName.Constructor(n, _) =>
+        getId(n.asString).map((_, proto.ExportKind.ConstructorName))
+    }
+
+    (protoRef, exKind).mapN { case (ref, (idx, k)) => proto.ExportedName(k, idx, Some(ref)) }
+  }
+
   def interfaceToProto(iface: Package.Interface): Try[proto.Interface] = {
     val allDts = DefinedType.listToMap(
       iface.exports.flatMap { ex =>
@@ -744,50 +792,7 @@ object ProtoConverter {
       .traverse { case (dt, _) => definedTypeToProto(dt) }
       .map(_.iterator.map(_._2).toList)
 
-    def expNameToProto(e: ExportedName[Referant[Variance]]): Tab[proto.ExportedName] = {
-      val protoRef: Tab[proto.Referant] =
-        e.tag match {
-          case Referant.Value(t) =>
-            typeToProto(t).map { tpeId =>
-              proto.Referant(proto.Referant.Referant.Value(tpeId))
-            }
-          case Referant.DefinedT(dt) =>
-            val key = (dt.packageName, dt.name)
-            allDts.get(key) match {
-              case Some((_, idx)) =>
-                tabPure(
-                  proto.Referant(proto.Referant.Referant.DefinedTypePtr(idx + 1))
-                )
-              case None => tabFail(new Exception(s"missing defined type for $key in $e"))
-            }
-          case Referant.Constructor(nm, dt, _, _) =>
-            val key = (dt.packageName, dt.name)
-            allDts.get(key) match {
-              case Some((dtV, dtIdx)) =>
-                val cIdx = dtV.constructors.indexWhere { case (c, _, _) => c == nm }
-                if (cIdx >= 0) {
-                  tabPure(
-                    proto.Referant(
-                      proto.Referant.Referant.Constructor(
-                        proto.ConstructorPtr(dtIdx + 1, cIdx + 1))))
-                }
-                else tabFail(new Exception(s"missing contructor for type $key, $nm, with local: $dt"))
-              case None => tabFail(new Exception(s"missing defined type for $key in $e"))
-            }
-        }
-      val exKind: Tab[(Int, proto.ExportKind)] = e match {
-        case ExportedName.Binding(b, _) =>
-          getId(b.sourceCodeRepr).map((_, proto.ExportKind.Binding))
-        case ExportedName.TypeName(n, _) =>
-          getId(n.asString).map((_, proto.ExportKind.TypeName))
-        case ExportedName.Constructor(n, _) =>
-          getId(n.asString).map((_, proto.ExportKind.ConstructorName))
-      }
-
-      (protoRef, exKind).mapN { case (ref, (idx, k)) => proto.ExportedName(k, idx, Some(ref)) }
-    }
-
-    val tryExports = iface.exports.traverse(expNameToProto)
+    val tryExports = iface.exports.traverse(expNameToProto(allDts, _))
 
     val packageId = getId(iface.name.asString)
 
@@ -840,36 +845,38 @@ object ProtoConverter {
       }
   }
 
-  private def defTypes[A](dts: Seq[proto.DefinedType], dtab: DTab[A]): DTab[A] =
-    dts.toVector
-      .traverse(definedTypeFromProto)
-      .flatMap { dtVect =>
-        dtab.local { ds: DecodeState => ds.withDefinedTypes(dtVect) }
+  /*
+   * Builds up a nested scope of DTabs
+   */
+  private sealed trait Scoped {
+    def finish[A](dtab: DTab[A]): DTab[A] =
+      this match {
+        case Scoped.Prep(d, fn) => d.flatMap { b => dtab.local[DecodeState] { ds => fn(ds, b) } }
       }
+  }
+  private object Scoped {
+    case class Prep[A](dtab: DTab[A], fn: (DecodeState, A) => DecodeState) extends Scoped
+
+    def apply[A](dtab: DTab[A])(fn: (DecodeState, A) => DecodeState): Scoped =
+      Prep(dtab, fn)
+    def run[A](s: Scoped*)(dtab: DTab[A]): DTab[A] =
+      s.foldRight(dtab)(_.finish(_))
+  }
 
   def interfaceFromProto(protoIface: proto.Interface): Try[Package.Interface] = {
-    val tab: DTab[Package.Interface] = lookup(protoIface.packageName, protoIface.toString)
-      .flatMap { packageName =>
-        PackageName.parse(packageName) match {
-          case None =>
-            ReaderT.liftF(
-              Failure(new Exception(s"bad package name: $packageName in: $protoIface")))
-          case Some(pn) =>
-            defTypes(protoIface.definedTypes,
-                protoIface
-                  .exports
-                  .toList
-                  .traverse(exportedNameFromProto)
-                  .map { exports =>
-                    Package(pn, Nil, exports, ())
-                  })
-        }
-      }
+    val tab: DTab[Package.Interface] =
+      for {
+        packageName <- lookup(protoIface.packageName, protoIface.toString)
+        pn <- ReaderT.liftF(parsePack(packageName, s"interface: $protoIface"))
+        exports <- protoIface.exports.toList.traverse(exportedNameFromProto)
+      } yield Package(pn, Nil, exports, ())
 
-    (for {
-      tpes <- buildTypes(protoIface.types)
-      pack <- tab.local[DecodeState](_.withTypes(tpes))
-    } yield pack).run(DecodeState.init(protoIface.strings))
+    // build up the decoding state by decoding the tables in order
+    Scoped.run(
+      Scoped(buildTypes(protoIface.types))(_.withTypes(_)),
+      Scoped(protoIface.definedTypes.toVector.traverse(definedTypeFromProto))(_.withDefinedTypes(_))
+      )(tab)
+      .run(DecodeState.init(protoIface.strings))
   }
 
   def interfacesToProto[F[_]: Foldable](ps: F[Package.Interface]): Try[proto.Interfaces] =
@@ -903,4 +910,40 @@ object ProtoConverter {
           }
         }
       }
+
+  def importToProto(i: Import[Package.Interface, NonEmptyList[Referant[Variance]]]): Tab[proto.Imports] = ???
+
+  def letToProto(l: (Identifier.Bindable, RecursionKind, TypedExpr[Any])): Tab[proto.Let] = ???
+
+  def extDefToProto(nm: Identifier.Bindable, opt: Option[Type]): Tab[proto.ExternalDef] = ???
+
+  def packageToProto[A](cpack: Package.Typed[A]): Try[proto.Package] = {
+    // the Int is in index in the list of definedTypes:
+    val allDts: SortedMap[(PackageName, TypeName), (DefinedType[Variance], Int)] = ???
+    val dtVect: Vector[DefinedType[Variance]] = ???
+    val tab =
+      for {
+        nmId <- getId(cpack.name.asString)
+        imps <- cpack.imports.traverse(importToProto)
+        exps <- cpack.exports.traverse(expNameToProto(allDts, _))
+        prog = cpack.program
+        lets <- prog.lets.traverse(letToProto)
+        exdefs <- prog.externalDefs.traverse { nm => extDefToProto(nm, prog.types.getValue(cpack.name, nm)) }
+        dts <- dtVect.traverse(definedTypeToProto)
+      } yield { ss: SerState =>
+          proto.Package(
+            strings = ss.strings.inOrder,
+            types = ss.types.inOrder,
+            definedTypes = dts,
+            patterns = ss.patterns.inOrder,
+            expressions = ss.expressions.inOrder,
+            packageName = nmId,
+            imports = imps,
+            exports = exps,
+            lets = lets,
+            externalDefs = exdefs)
+      }
+
+    runTab(tab).map { case (ss, fn) => fn(ss) }
+  }
 }
