@@ -864,4 +864,30 @@ def bar(x):
 main = bar(5)
 """, "Pair[Int, Int]")
   }
+
+  test("ForAll as function arg") {
+    parseProgram("""#
+struct Wrap[bbbb](y1: bbbb)
+struct Foo[cccc](y2: cccc)
+
+def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Int]):
+  Wrap(_) = cra_fn
+  2
+
+main = foo
+""", "Wrap[(forall ssss. Foo[ssss]) -> Int] -> Int")
+  }
+
+  test("ForAll as function arg called with bad arg") {
+    parseProgramIllTyped("""#
+struct Wrap[bbbb](y1: bbbb)
+struct Foo[cccc](y2: cccc)
+
+def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Int]):
+  Wrap(_) = cra_fn
+  2
+
+main = foo(Wrap(\Foo(x) -> x))
+""")
+  }
 }
