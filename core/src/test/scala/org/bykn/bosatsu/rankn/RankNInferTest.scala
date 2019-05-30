@@ -878,6 +878,19 @@ main = foo
 """, "Wrap[(forall ssss. Foo[ssss]) -> Int] -> Int")
   }
 
+  test("nested ForAll as function arg") {
+    parseProgram("""#
+struct Wrap[bbbb](y1: bbbb)
+struct Foo[cccc](y2: cccc)
+
+def foo(cra_fn: Wrap[Foo[forall ssss. Foo[ssss]] -> Int]):
+  Wrap(_) = cra_fn
+  2
+
+main = foo
+""", "Wrap[Foo[forall ssss. Foo[ssss]) -> Int] -> Int")
+  }
+
   test("ForAll as function arg called with bad arg") {
     parseProgramIllTyped("""#
 struct Wrap[bbbb](y1: bbbb)
