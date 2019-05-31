@@ -869,34 +869,37 @@ main = bar(5)
     parseProgram("""#
 struct Wrap[bbbb](y1: bbbb)
 struct Foo[cccc](y2: cccc)
+struct Nil
 
-def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Int]):
+def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
   Wrap(_) = cra_fn
-  2
+  Nil
 
 main = foo
-""", "Wrap[(forall ssss. Foo[ssss]) -> Int] -> Int")
+""", "Wrap[(forall ssss. Foo[ssss]) -> Nil] -> Nil")
   }
 
   test("nested ForAll as function arg") {
     parseProgram("""#
 struct Wrap[bbbb](y1: bbbb)
 struct Foo[cccc](y2: cccc)
+struct Nil
 
-def foo(cra_fn: Wrap[Foo[forall ssss. Foo[ssss]] -> Int]):
+def foo(cra_fn: Wrap[Foo[forall ssss. Foo[ssss]] -> Nil]):
   Wrap(_) = cra_fn
-  2
+  Nil
 
 main = foo
-""", "Wrap[Foo[forall ssss. Foo[ssss]] -> Int] -> Int")
+""", "Wrap[Foo[forall ssss. Foo[ssss]] -> Nil] -> Nil")
   }
 
   test("ForAll as function arg called with bad arg") {
     parseProgramIllTyped("""#
 struct Wrap[bbbb](y1: bbbb)
 struct Foo[cccc](y2: cccc)
+struct Nil
 
-def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Int]):
+def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
   Wrap(_) = cra_fn
   2
 
