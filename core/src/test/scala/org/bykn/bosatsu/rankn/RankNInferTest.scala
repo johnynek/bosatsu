@@ -888,7 +888,7 @@ def foo(cra_fn: Wrap[Foo[forall ssss. Foo[ssss]] -> Int]):
   2
 
 main = foo
-""", "Wrap[Foo[forall ssss. Foo[ssss]) -> Int] -> Int")
+""", "Wrap[Foo[forall ssss. Foo[ssss]] -> Int] -> Int")
   }
 
   test("ForAll as function arg called with bad arg") {

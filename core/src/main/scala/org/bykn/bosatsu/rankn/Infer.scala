@@ -437,29 +437,17 @@ object Infer {
         case (fa@Type.ForAll(_, _), rho) =>
           // Rule SPEC
           instantiate(fa).flatMap(subsCheckRho(_, rho, left, right))
-        case (Type.Fun(fa@Type.ForAll(vars, _), r1), rho2) =>
-          unifyFnForAllArg(rho2, vars, right, left).flatMap { case (a2, r2) =>
-            instantiate(fa).flatMap { instA1 =>
-              subsCheckFn(instA1, r1, a2, r2, left, right)
-            }
-          }
-        case (rho, Type.Fun(fa@Type.ForAll(vars, _), r1)) =>
-          unifyFnForAllArg(rho, vars, right, left).flatMap { case (a2, r2) =>
-            instantiate(fa).flatMap { instA1 =>
-              subsCheckFn(a2, r2, instA1, r1, left, right)
-            }
-          }
         case (rho1, Type.Fun(a2, r2)) =>
           // Rule FUN
           unifyFn(rho1, left, right).flatMap {
             case (a1, r1) =>
-              subsCheckFn(a1, r1, a2, r2, left, right)
+              subsCheckFn(a2, r2, a1, r1, left, right)
           }
         case (Type.Fun(a1, r1), rho2) =>
           // Rule FUN
           unifyFn(rho2, right, left).flatMap {
             case (a2, r2) =>
-              subsCheckFn(a1, r1, a2, r2, left, right)
+              subsCheckFn(a2, r2, a1, r1, left, right)
           }
         case (rho1, Type.TyApply(l2, r2)) =>
           unifyTyApp(rho1, left, right).flatMap {
@@ -519,16 +507,6 @@ object Infer {
             argT <- newMetaType
             resT <- newMetaType
             _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
-          } yield (argT, resT)
-      }
-    def unifyFnForAllArg(fnType: Type, vars: NonEmptyList[Type.Var.Bound], fnRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
-      fnType match {
-        case Type.Fun(Type.ForAll(vars2, arg), res) => pure((arg, res))
-        case tau =>
-          for {
-            argT <- newMetaType
-            resT <- newMetaType
-            _ <- unify(tau, Type.Fun(Type.ForAll(vars, argT), resT), fnRegion, evidenceRegion)
           } yield (argT, resT)
       }
 
