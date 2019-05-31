@@ -441,13 +441,13 @@ object Infer {
           // Rule FUN
           unifyFn(rho1, left, right).flatMap {
             case (a1, r1) =>
-              subsCheckFn(a2, r2, a1, r1, left, right)
+              subsCheckFn(a1, r1, a2, r2, left, right)
           }
         case (Type.Fun(a1, r1), rho2) =>
           // Rule FUN
           unifyFn(rho2, right, left).flatMap {
             case (a2, r2) =>
-              subsCheckFn(a2, r2, a1, r1, left, right)
+              subsCheckFn(a1, r1, a2, r2, left, right)
           }
         case (rho1, Type.TyApply(l2, r2)) =>
           unifyTyApp(rho1, left, right).flatMap {
@@ -669,25 +669,25 @@ object Infer {
                 _ <- infer.set((Type.Fun(varT, bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
           }
-        case AnnotatedLambda(name, tpe, result, tag) =>
+        case AnnotatedLambda(name, annotatedArgTy, result, tag) =>
           expect match {
             case Expected.Check((expTy, rr)) =>
               for {
                 vb <- unifyFn(expTy, rr, region(term))
-                (varT, bodyT) = vb
-                typedBody <- extendEnv(name, varT) {
+                (argT, resT) = vb
+                typedBody <- extendEnv(name, argT) {
                     // TODO we are ignoring the result of subsCheck here
                     // should we be coercing a var?
-                    subsCheck(tpe, varT, region(term), rr) *>
-                      checkRho(result, bodyT)
+                    subsCheck(argT, annotatedArgTy, region(term), rr) *>
+                      checkRho(result, resT)
                   }
-              } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
+              } yield TypedExpr.AnnotatedLambda(name, argT /* or tpe? */, typedBody, tag)
             case infer@Expected.Inf(_) =>
               for { // TODO do we need to narrow or instantiate tpe?
-                typedBody <- extendEnv(name, tpe)(inferRho(result))
-                bodyT = typedBody.getType
-                _ <- infer.set((Type.Fun(tpe, bodyT), region(term)))
-              } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
+                typedBody <- extendEnv(name, annotatedArgTy)(inferRho(result))
+                resT = typedBody.getType
+                _ <- infer.set((Type.Fun(annotatedArgTy, resT), region(term)))
+              } yield TypedExpr.AnnotatedLambda(name, annotatedArgTy, typedBody, tag)
           }
         case Let(name, rhs, body, isRecursive, tag) =>
           if (isRecursive.isRecursive) {
