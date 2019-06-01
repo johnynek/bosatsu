@@ -864,4 +864,40 @@ def bar(x):
 main = bar(5)
 """, "Pair[Int, Int]")
   }
+
+  test("test checkRho on annotated lambda") {
+
+    parseProgram("""#
+struct Foo
+struct Bar
+
+(fn: forall a. a -> Bar) = \x -> Bar
+#(fn: Bar -> Bar) = \x -> Bar
+
+#dontCall = \(fn: forall a. a -> Bar) -> Foo
+#dontCall = \(fn: Bar -> Bar) -> Foo
+dontCall = \(fn: (forall a. a) -> Bar) -> Foo
+
+(main: Foo) = dontCall(fn)
+""", "Foo")
+  }
+  test("ForAll as function arg") {
+    parseProgram("""#
+struct Wrap[bbbb](y1: bbbb)
+struct Foo[cccc](y2: cccc)
+struct Nil
+
+# TODO: These variants don't work, but the one with a fully
+# ascribed type does. There is a problem here with using subsCheck
+# which can never substitute a metavariable for a sigma type (outer forall)
+#Wrap(_: ((forall x. Foo[x]) -> Nil)) = cra_fn
+#def foo(cra_fn: Wrap[(forall ssss. ssss) -> Nil]):
+# Wrap(_: ((forall x. x) -> Nil)) = cra_fn
+#Nil
+def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
+  match cra_fn:
+    (_: Wrap[(forall x. Foo[x]) -> Nil]): Nil
+main = foo
+""", "Wrap[(forall ssss. Foo[ssss]) -> Nil] -> Nil")
+  }
 }
