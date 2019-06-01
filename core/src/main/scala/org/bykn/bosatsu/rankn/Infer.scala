@@ -427,7 +427,7 @@ object Infer {
     def subsCheckFn(a1: Type, r1: Type.Rho, a2: Type, r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       // note due to contravariance in input, we reverse the order there
       for {
-        coarg <- subsCheck(a2, a1, left, right)
+        coarg <- subsCheckRho(a2, a1, left, right)
         cores <- subsCheckRho(r1, r2, left, right)
       } yield TypedExpr.coerceFn(a1, r2, coarg, cores)
 
@@ -454,9 +454,9 @@ object Infer {
             case (l1, r1) =>
               val check2 = varianceOf2(l1, l2).flatMap {
                 case Some(Variance.Covariant) =>
-                  subsCheck(r1, r2, left, right).void
+                  subsCheckRho(r1, r2, left, right).void
                 case Some(Variance.Contravariant) =>
-                  subsCheck(r2, r1, right, left).void
+                  subsCheckRho(r2, r1, right, left).void
                 case Some(Variance.Phantom) =>
                   // this doesn't matter
                   pure(())
@@ -464,16 +464,16 @@ object Infer {
                   unify(r1, r2, left, right).void
               }
               // should we coerce to t2? Seems like... but copying previous code
-              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(t))
+              (subsCheckRho(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(t))
           }
         case (Type.TyApply(l1, r1), rho2) =>
           unifyTyApp(rho2, left, right).flatMap {
             case (l2, r2) =>
               val check2 = varianceOf2(l1, l2).flatMap {
                 case Some(Variance.Covariant) =>
-                  subsCheck(r1, r2, left, right).void
+                  subsCheckRho(r1, r2, left, right).void
                 case Some(Variance.Contravariant) =>
-                  subsCheck(r2, r1, right, left).void
+                  subsCheckRho(r2, r1, right, left).void
                 case Some(Variance.Phantom) =>
                   // this doesn't matter
                   pure(())
@@ -481,7 +481,7 @@ object Infer {
                   unify(r1, r2, left, right).void
               }
               // should we coerce to t2? Seems like... but copying previous code
-              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(t))
+              (subsCheckRho(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(t))
           }
         case (t1, t2) =>
           // rule: MONO
@@ -632,7 +632,6 @@ object Infer {
      */
     def typeCheckRho[A: HasRegion](term: Expr[A], expect: Expected[(Type.Rho, Region)]): Infer[TypedExpr.Rho[A]] = {
       import Expr._
-
       term match {
         case Literal(lit, t) =>
           val tpe = Type.getTypeOf(lit)

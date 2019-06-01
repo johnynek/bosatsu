@@ -901,7 +901,7 @@ struct Nil
 
 def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
   Wrap(_) = cra_fn
-  2
+  Nil
 
 main = foo(Wrap(\Foo(x) -> x))
 """)
