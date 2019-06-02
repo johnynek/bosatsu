@@ -458,7 +458,7 @@ object Infer {
     /*
      * Invariant: r2 needs to be in weak prenex form
      */
-    def subsCheckFn(a1: Type, r1: Type.Rho, a2: Type, r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
+    def subsCheckFn(a1: Type, r1: Type, a2: Type, r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       // note due to contravariance in input, we reverse the order there
       for {
         coarg <- subsCheck(a2, a1, left, right)
@@ -483,22 +483,20 @@ object Infer {
           for {
             a1r1 <- unifyFn(rho1, left, right)
             (a1, r1) = a1r1
-            rhor1 <- instantiate(r1)
-            rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 462")
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
-            // r2 is in weak-prenex form
-            coerce <- subsCheckFn(a1, rhor1, a2, rhor2, left, right)
+            // r2 is in weak-prenex form and a rho type
+            rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 462")
+            coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
           } yield coerce
         case (Type.Fun(a1, r1), rho2) =>
           // Rule FUN
           for {
             a2r2 <- unifyFn(rho2, right, left)
             (a2, r2) = a2r2
-            rhor1 <- instantiate(r1)
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form
             rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 471")
-            coerce <- subsCheckFn(a1, rhor1, a2, rhor2, left, right)
+            coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
           } yield coerce
         case (rho1: Type.Rho, Type.TyApply(l2, r2)) =>
           unifyTyApp(rho1, left, right).flatMap {
@@ -510,13 +508,9 @@ object Infer {
                   subsCheck(r2, r1, right, left).void
                 case Some(Variance.Phantom) =>
                   // this doesn't matter
-                  pure(())
+                  unit
                 case None | Some(Variance.Invariant) =>
-                  for {
-                    rho1 <- instantiate(r1)
-                    rho2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 488")
-                    _ <- unify(rho1, rho2, left, right)
-                  } yield ()
+                  unifyType(r1, r2, left, right)
               }
               // should we coerce to t2? Seems like... but copying previous code
               (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(rho1))
@@ -531,13 +525,9 @@ object Infer {
                   subsCheck(r2, r1, right, left).void
                 case Some(Variance.Phantom) =>
                   // this doesn't matter
-                  pure(())
+                  unit
                 case None | Some(Variance.Invariant) =>
-                  for {
-                    rho1 <- instantiate(r1)
-                    rho2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 488")
-                    _ <- unify(rho1, rho2, left, right)
-                  } yield ()
+                  unifyType(r1, r2, left, right)
               }
               // should we coerce to t2? Seems like... but copying previous code
               (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(ta))
@@ -624,12 +614,18 @@ object Infer {
           fail(Error.NotUnifiable(left, right, r1, r2))
       }
 
+    /**
+     * for a type to be unified, we mean we can substitute in either
+     * direction
+     */
     def unifyType(t1: Type, t2: Type, r1: Region, r2: Region): Infer[Unit] =
-      for {
-        rho1 <- assertRho(t1, s"unifyType($t1, $t2, $r1, $r2)")
-        rho2 <- assertRho(t2, s"unifyType($t1, $t2, $r1, $r2)")
-        _ <- unify(rho1, rho2, r1, r2)
-      } yield ()
+      (t1, t2) match {
+        case (rho1: Type.Rho, rho2: Type.Rho) =>
+          unify(rho1, rho2, r1, r2)
+        case (t1, t2) =>
+          subsCheck(t1, t2, r1, r2) *> subsCheck(t2, t1, r2, r1).as(())
+      }
+
     /**
      * Allocate a new Meta variable which
      * will point to a Tau (no forall anywhere) type
@@ -679,17 +675,21 @@ object Infer {
     }
 
     // DEEP-SKOL rule
+    // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       for {
         skolRho <- skolemize(declared)
         (skolTvs, rho2) = skolRho
         // note: we need rho2 in weak prenex form, but skolemize does this
         coerce <- subsCheckRho(inferred, rho2, left, right)
-        escTvs <- getFreeTyVars(List(inferred, declared))
-        _ <- NonEmptyList.fromList(skolTvs.filter(escTvs)) match {
-          case None => pure(())
-          case Some(badTvs) => fail(Error.SubsumptionCheckFailure(inferred, declared, left, right, badTvs))
-        }
+        // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
+        _ <- if (skolTvs.isEmpty) unit
+             else getFreeTyVars(inferred :: declared :: Nil).flatMap { escTvs =>
+               NonEmptyList.fromList(skolTvs.filter(escTvs)) match {
+                 case None => unit
+                 case Some(badTvs) => fail(Error.SubsumptionCheckFailure(inferred, declared, left, right, badTvs))
+               }
+             }
       } yield coerce
 
     /**
