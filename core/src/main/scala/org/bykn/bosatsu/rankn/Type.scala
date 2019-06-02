@@ -70,14 +70,13 @@ object Type {
       case fa@ForAll(_, _) => freeTyVars(fa :: Nil).isEmpty
     }
 
-  @annotation.tailrec
   final def forAll(vars: List[Var.Bound], in: Type): Type =
-    vars match {
-      case Nil => in
-      case ne@(h :: tail) =>
+    NonEmptyList.fromList(vars) match {
+      case None => in
+      case Some(ne) =>
         in match {
-          case rho: Rho => Type.ForAll(NonEmptyList(h, tail), rho)
-          case Type.ForAll(nes, tt) => forAll(ne ::: nes.toList, tt)
+          case rho: Rho => Type.ForAll(ne, rho)
+          case Type.ForAll(ne1, rho) => Type.ForAll(ne ::: ne1, rho)
         }
     }
 
