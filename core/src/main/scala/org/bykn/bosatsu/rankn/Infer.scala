@@ -875,6 +875,34 @@ object Infer {
       } yield (pattern, res)
 
     /**
+     * Some patterns have declared types, for those we can use
+     * those types to avoid allocating metavars which are monotypes
+     */
+    def getPatternType(pat: Pattern, reg: Region): Infer[Option[Type]] =
+      pat match {
+        case GenPattern.WildCard | GenPattern.Var(_) =>
+          pure(None)
+        case GenPattern.Literal(lit) =>
+          pure(Some(Type.getTypeOf(lit)))
+        case GenPattern.Named(_, p) => getPatternType(p, reg)
+        case GenPattern.ListPat(_) =>
+          // we know it is a list of the unification, but
+          // TODO
+          pure(None)
+        case GenPattern.Annotation(p, tpe) =>
+          getPatternType(p, reg).flatMap {
+            case None => pure(Some(tpe))
+            case Some(t0) =>
+              unifyType(t0, tpe, reg, reg).as(Some(tpe))
+          }
+        case GenPattern.PositionalStruct(nm, args) =>
+          // TODO: we could look up the type here
+          pure(None)
+        case GenPattern.Union(h, t) =>
+          // TODO: we could recurse and unify potentially
+          pure(None)
+      }
+    /**
      * patterns can be a sigma type, not neccesarily a rho/tau
      * return a list of bound names and their (sigma) types
      *
@@ -966,7 +994,8 @@ object Infer {
           } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
-            paramRes <- instDataCon(nm, reg)
+            knownTypes <- args.traverse(getPatternType(_, reg))
+            paramRes <- instDataCon(nm, knownTypes, reg)
             (params, res) = paramRes
             // we need to do a pattern linting phase and probably error
             // if the pattern arity does not match the arity of the constructor
@@ -1034,19 +1063,36 @@ object Infer {
      *
      * Instantiation fills in all
      */
-    def instDataCon(consName: (PackageName, Constructor), reg: Region): Infer[(List[Type], Type.Tau)] =
+    def instDataCon(consName: (PackageName, Constructor), argTypes: List[Option[Type]], reg: Region): Infer[(List[Type], Type.Tau)] =
       GetDataCons(consName, reg).flatMap {
         case (Nil, consParams, tpeName) =>
           Infer.pure((consParams, Type.TyConst(tpeName)))
-        case (v0 :: vs, consParams, tpeName) =>
-          val vars0 = NonEmptyList(v0, vs)
-          val vars = vars0.map(_._1) // TODO actually use the variance
-          vars.traverse(_ => newMetaType)
+        case (vh :: vtail, consParams, tpeName) =>
+          val useAnnotation = consParams.foldM((argTypes, Map.empty[Type.Var, Type])) {
+            case ((Some(t) :: rest, m), Type.TyVar(v)) =>
+              m.get(v) match {
+                case None => pure((rest, m.updated(v, t)))
+                case Some(t0) =>
+                  unifyType(t, t0, reg, reg).as((rest, m))
+              }
+            case ((_ :: rest, m), _)  => pure((rest, m))
+            case ((Nil, m), _) => pure((Nil, m))
+          }
+
+          useAnnotation.flatMap { case (_, solved) =>
+            val vars = NonEmptyList(vh, vtail).map(_._1)
+            vars.traverse { v =>
+              solved.get(v) match {
+                case Some(t) => pure(t)
+                case None => newMetaType
+              }
+            }
             .map { vars1T =>
               val params1 = consParams.map(substTy(vars, vars1T, _))
               val res = vars1T.foldLeft(Type.TyConst(tpeName): Type.Tau)(Type.TyApply(_, _))
               (params1, res)
             }
+          }
       }
 
     def inferSigma[A: HasRegion](e: Expr[A]): Infer[TypedExpr[A]] =

@@ -899,10 +899,14 @@ struct Nil
 #Wrap(_: ((forall x. Foo[x]) -> Nil)) = cra_fn
 #def foo(cra_fn: Wrap[(forall ssss. ssss) -> Nil]):
 # Wrap(_: ((forall x. x) -> Nil)) = cra_fn
+#(_: Wrap[(forall x. Foo[x]) -> Nil]): Nil
 #Nil
-def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
-  match cra_fn:
-    (_: Wrap[(forall x. Foo[x]) -> Nil]): Nil
+# def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
+#   Wrap(fn: ((forall x. Foo[x]) -> Nil)) = cra_fn
+#   fn(Foo(1))
+def foo(cra_fn: Wrap[(forall ssss. Foo[ssss] -> s)]):
+  Wrap(fn: ((forall x. Foo[x] -> x))) = cra_fn
+  fn(Foo(1))
 main = foo
 """, "Wrap[(forall ssss. Foo[ssss]) -> Nil] -> Nil")
   }
