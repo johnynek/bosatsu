@@ -735,37 +735,39 @@ object ProtoConverter {
     }
   }
 
-  def expNameToProto(allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)], e: ExportedName[Referant[Variance]]): Tab[proto.ExportedName] = {
-    val protoRef: Tab[proto.Referant] =
-      e.tag match {
-        case Referant.Value(t) =>
-          typeToProto(t).map { tpeId =>
-            proto.Referant(proto.Referant.Referant.Value(tpeId))
-          }
-        case Referant.DefinedT(dt) =>
-          val key = (dt.packageName, dt.name)
-          allDts.get(key) match {
-            case Some((_, idx)) =>
+  def referantToProto(allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)], r: Referant[Variance]): Tab[proto.Referant] =
+    r match {
+      case Referant.Value(t) =>
+        typeToProto(t).map { tpeId =>
+          proto.Referant(proto.Referant.Referant.Value(tpeId))
+        }
+      case Referant.DefinedT(dt) =>
+        val key = (dt.packageName, dt.name)
+        allDts.get(key) match {
+          case Some((_, idx)) =>
+            tabPure(
+              proto.Referant(proto.Referant.Referant.DefinedTypePtr(idx + 1))
+            )
+          case None => tabFail(new Exception(s"missing defined type for $key in $r"))
+        }
+      case Referant.Constructor(nm, dt, _, _) =>
+        val key = (dt.packageName, dt.name)
+        allDts.get(key) match {
+          case Some((dtV, dtIdx)) =>
+            val cIdx = dtV.constructors.indexWhere { case (c, _, _) => c == nm }
+            if (cIdx >= 0) {
               tabPure(
-                proto.Referant(proto.Referant.Referant.DefinedTypePtr(idx + 1))
-              )
-            case None => tabFail(new Exception(s"missing defined type for $key in $e"))
-          }
-        case Referant.Constructor(nm, dt, _, _) =>
-          val key = (dt.packageName, dt.name)
-          allDts.get(key) match {
-            case Some((dtV, dtIdx)) =>
-              val cIdx = dtV.constructors.indexWhere { case (c, _, _) => c == nm }
-              if (cIdx >= 0) {
-                tabPure(
-                  proto.Referant(
-                    proto.Referant.Referant.Constructor(
-                      proto.ConstructorPtr(dtIdx + 1, cIdx + 1))))
-              }
-              else tabFail(new Exception(s"missing contructor for type $key, $nm, with local: $dt"))
-            case None => tabFail(new Exception(s"missing defined type for $key in $e"))
-          }
-      }
+                proto.Referant(
+                  proto.Referant.Referant.Constructor(
+                    proto.ConstructorPtr(dtIdx + 1, cIdx + 1))))
+            }
+            else tabFail(new Exception(s"missing contructor for type $key, $nm, with local: $dt"))
+          case None => tabFail(new Exception(s"missing defined type for $key in $r"))
+        }
+    }
+
+  def expNameToProto(allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)], e: ExportedName[Referant[Variance]]): Tab[proto.ExportedName] = {
+    val protoRef: Tab[proto.Referant] = referantToProto(allDts, e.tag)
     val exKind: Tab[(Int, proto.ExportKind)] = e match {
       case ExportedName.Binding(b, _) =>
         getId(b.sourceCodeRepr).map((_, proto.ExportKind.Binding))
@@ -911,20 +913,47 @@ object ProtoConverter {
         }
       }
 
-  def importToProto(i: Import[Package.Interface, NonEmptyList[Referant[Variance]]]): Tab[proto.Imports] = ???
+  def importedNameToProto(
+    allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
+    in: ImportedName[NonEmptyList[Referant[Variance]]]): Tab[proto.ImportedName] =
+    for {
+      orig <- getId(in.originalName.sourceCodeRepr)
+      local <- getId(in.localName.sourceCodeRepr)
+      refs <- in.tag.toList.traverse(referantToProto(allDts, _))
+    } yield proto.ImportedName(orig, local, refs)
 
-  def letToProto(l: (Identifier.Bindable, RecursionKind, TypedExpr[Any])): Tab[proto.Let] = ???
+  def importToProto(
+    allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
+    i: Import[Package.Interface, NonEmptyList[Referant[Variance]]]): Tab[proto.Imports] =
+    for {
+      nm <- getId(i.pack.name.asString)
+      imps <- i.items.toList.traverse(importedNameToProto(allDts, _))
+    } yield proto.Imports(nm, imps)
 
-  def extDefToProto(nm: Identifier.Bindable, opt: Option[Type]): Tab[proto.ExternalDef] = ???
+  def letToProto(l: (Identifier.Bindable, RecursionKind, TypedExpr[Any])): Tab[proto.Let] =
+    for {
+      nm <- getId(l._1.sourceCodeRepr)
+      rec = if (l._2.isRecursive) proto.RecursionKind.IsRec else proto.RecursionKind.NotRec
+      tex <- typedExprToProto(l._3)
+    } yield proto.Let(nm, rec, tex)
+
+  def extDefToProto(nm: Identifier.Bindable, opt: Option[Type]): Tab[proto.ExternalDef] =
+    opt match {
+      case None => tabFail(new Exception(s"external def: $nm has missing type"))
+      case Some(t) =>
+        (getId(nm.sourceCodeRepr), typeToProto(t)).mapN(proto.ExternalDef(_, _))
+    }
 
   def packageToProto[A](cpack: Package.Typed[A]): Try[proto.Package] = {
     // the Int is in index in the list of definedTypes:
-    val allDts: SortedMap[(PackageName, TypeName), (DefinedType[Variance], Int)] = ???
-    val dtVect: Vector[DefinedType[Variance]] = ???
+    val allDts: SortedMap[(PackageName, TypeName), (DefinedType[Variance], Int)] =
+      cpack.program.types.definedTypes.mapWithIndex { (dt, idx) => (dt, idx) }
+    val dtVect: Vector[DefinedType[Variance]] =
+      allDts.values.iterator.map(_._1).toVector
     val tab =
       for {
         nmId <- getId(cpack.name.asString)
-        imps <- cpack.imports.traverse(importToProto)
+        imps <- cpack.imports.traverse(importToProto(allDts, _))
         exps <- cpack.exports.traverse(expNameToProto(allDts, _))
         prog = cpack.program
         lets <- prog.lets.traverse(letToProto)

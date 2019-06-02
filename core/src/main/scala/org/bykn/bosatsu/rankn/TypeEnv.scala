@@ -9,7 +9,7 @@ import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
 class TypeEnv[+A] private (
   protected val values: SortedMap[(PackageName, Identifier), Type],
   protected val constructors: SortedMap[(PackageName, Constructor), (List[(Bindable, Type)], DefinedType[A], Type)],
-  protected val definedTypes: SortedMap[(PackageName, TypeName), DefinedType[A]]) {
+  val definedTypes: SortedMap[(PackageName, TypeName), DefinedType[A]]) {
 
   override def equals(that: Any): Boolean =
     that match {

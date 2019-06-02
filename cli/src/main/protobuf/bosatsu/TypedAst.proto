@@ -101,7 +101,7 @@ message Interfaces {
 message ImportedName {
   int32 originalName = 1;
   int32 localName = 2;
-  Referant referant = 3;
+  repeated Referant referant = 3;
 }
 
 message Imports {
