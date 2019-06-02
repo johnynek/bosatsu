@@ -623,7 +623,7 @@ object Infer {
         case (rho1: Type.Rho, rho2: Type.Rho) =>
           unify(rho1, rho2, r1, r2)
         case (t1, t2) =>
-          subsCheck(t1, t2, r1, r2) *> subsCheck(t2, t1, r2, r1).as(())
+          subsCheck(t1, t2, r1, r2) *> subsCheck(t2, t1, r2, r1).void
       }
 
     /**
@@ -1001,7 +1001,6 @@ object Infer {
               val tpe = bmh(v)
               bmt.traverse_ { m2 =>
                 val tpe2 = m2(v)
-                // TODO: forall in patterns are not supported by this
                 unifyType(tpe, tpe2, reg, reg)
               }
             }
@@ -1025,7 +1024,7 @@ object Infer {
     def instPatSigma(sigma: Type, exp: Expected[(Type, Region)], sRegion: Region): Infer[Unit] =
       exp match {
         case infer@Expected.Inf(_) => infer.set((sigma, sRegion))
-        case Expected.Check((texp, tr)) => subsCheck(texp, sigma, tr, sRegion).as(()) // this unit does not seem right
+        case Expected.Check((texp, tr)) => subsCheck(texp, sigma, tr, sRegion).void // this unit does not seem right
       }
 
     /**
@@ -1081,10 +1080,14 @@ object Infer {
         (skols, rho) = skolRho
         // we need rho in weak-prenex form, but skolemize does this
         te <- checkRho(t, rho)
-        envTys <- getEnv
-        escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
-        badTvs = skols.filter(escTvs)
-        _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
+        // if skols.isEmpty, skols.filter(fn).isEmpty, so we can skip the rest
+        _ <- if (skols.isEmpty) unit
+             else for {
+               envTys <- getEnv
+               escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
+               badTvs = skols.filter(escTvs)
+               _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
+             } yield ()
       } yield te // should be fine since the everything after te is just checking
 
     /**
