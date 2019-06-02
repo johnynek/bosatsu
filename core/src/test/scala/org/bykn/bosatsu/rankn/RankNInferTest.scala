@@ -133,6 +133,12 @@ class RankNInferTest extends FunSuite {
     assertTypesUnify("forall a. a", "forall b. b")
     assertTypesUnify("forall a. a", "Int")
     assertTypesUnify("forall a, b. a -> b", "forall b. b -> Int")
+    assertTypesUnify("forall a, b. a -> b", "forall a. a -> (forall b. b -> b)")
+    assertTypesUnify("(forall a. a) -> Int", "(forall a. a) -> Int")
+    assertTypesUnify("(forall a. a -> Int) -> Int", "(forall a. a -> Int) -> Int")
+    assertTypesUnify("forall a, b. a -> b -> b", "forall a. a -> a -> a")
+    // these aren't disjoint but the right is more polymorphic
+    assertTypesDisjoint("forall a. a -> a -> a", "forall a, b. a -> b -> b")
     assertTypesUnify("forall a, b. a -> b", "forall b, c. b -> (c -> Int)")
     // assertTypesUnify("(forall a. a)[Int]", "Int")
     // assertTypesUnify("(forall a. Int)[b]", "Int")
