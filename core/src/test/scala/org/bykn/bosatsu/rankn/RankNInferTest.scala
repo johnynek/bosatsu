@@ -906,4 +906,22 @@ def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
 main = foo
 """, "Wrap[(forall ssss. Foo[ssss]) -> Nil] -> Nil")
   }
+
+  test("use a type annotation inside a def") {
+    parseProgram("""#
+struct Foo
+struct Bar
+def add(x):
+  (y: Foo) = x
+  Bar
+""", "Foo -> Bar")
+
+    parseProgram("""#
+struct Foo
+struct Bar(f: Foo)
+def add(x):
+  (b@(y: Foo)) = x
+  Bar(b)
+""", "Foo -> Bar")
+  }
 }
