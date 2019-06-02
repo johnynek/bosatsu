@@ -197,6 +197,9 @@ object Infer {
     case class InferIncomplete(method: String, term: Expr[_]) extends InternalError {
       def message = s"$method not complete for $term"
     }
+    case class ExpectedRho(tpe: Type, context: String) extends InternalError {
+      def message = s"expected $tpe to be a Type.Rho, at $context"
+    }
   }
 
 
@@ -331,6 +334,9 @@ object Infer {
      * and then skolemizes recurses on the substituted value
      *
      * otherwise we return the type.
+     *
+     * The returned type is in weak-prenex form: all ForAlls have
+     * been floated up over covariant parameters
      */
     def skolemize(t: Type): Infer[(List[Type.Var.Skolem], Type.Rho)] =
       t match {
@@ -339,7 +345,7 @@ object Infer {
           for {
             sks1 <- tvs.traverse(newSkolemTyVar)
             sksT = sks1.map(Type.TyVar(_))
-            sks2ty <- skolemize(substTy(tvs, sksT, ty))
+            sks2ty <- skolemize(substTyRho(tvs, sksT)(ty))
             (sks2, ty2) = sks2ty
           } yield (sks1.toList ::: sks2, ty2)
         case Type.TyApply(left, right) =>
@@ -356,7 +362,7 @@ object Infer {
                 // otherwise, we don't skolemize the right
                 pure((sksl, Type.TyApply(sl, right)))
             }
-        case other =>
+        case other: Type.Rho =>
           // Rule PRMONO
           pure((Nil, other))
       }
@@ -370,8 +376,13 @@ object Infer {
      */
     def zonkType(t: Type): Infer[Type] =
       t match {
+        case rho: Type.Rho => zonkRho(rho)
         case Type.ForAll(ns, ty) =>
-          zonkType(ty).map(Type.ForAll(ns, _))
+          zonkRho(ty).map(Type.ForAll(ns, _))
+      }
+
+    def zonkRho(t: Type.Rho): Infer[Type.Rho] =
+      t match {
         case Type.TyApply(on, arg) =>
           (zonkType(on), zonkType(arg)).mapN(Type.TyApply(_, _))
         case c@Type.TyConst(_) => pure(c)
@@ -380,7 +391,7 @@ object Infer {
           readMeta(m).flatMap {
             case None => pure(t)
             case Some(ty) =>
-              zonkType(ty).flatMap { ty1 =>
+              zonkRho(ty).flatMap { ty1 =>
                 // short out multiple hops (I guess an optimization?)
                 writeMeta(m, ty1) *> pure(ty1)
               }
@@ -393,63 +404,101 @@ object Infer {
     def initRef[A](err: Error): Infer[Ref[Either[Error, A]]] =
       lift(RefSpace.newRef[Either[Error, A]](Left(err)))
 
-    def substTy(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], t: Type): Type = {
+    def substTy(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho]): Type => Type = {
       val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
-      Type.substituteVar(t, env)
+
+      { t => Type.substituteVar(t, env) }
     }
 
-    def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], expr: Expr[A]): Expr[A] = {
+    def substTyRho(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho]): Type.Rho => Type.Rho = {
+      val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
 
-      // TODO: I don't think we can introduce new forall bindings in annotations,
-      // the forall would only apply for the scope of the type
-      val fn = substTy(keys, vals, _: Type)
+      { t => Type.substituteRhoVar(t, env) }
+    }
+
+    def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: Expr[A]): Expr[A] = {
+      val fn = substTy(keys, vals)
       Expr.traverseType[A, cats.Id](expr, fn)
     }
 
-    def substTyExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], expr: TypedExpr[A]): TypedExpr[A] = {
-
-      // TODO: I don't think we can introduce new forall bindings in annotations,
-      // the forall would only apply for the scope of the type
-      val fn = substTy(keys, vals, _: Type)
+    def substTyExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: TypedExpr[A]): TypedExpr[A] = {
+      val fn = substTy(keys, vals)
       expr.traverseType[cats.Id](fn)
     }
 
-    // Return a Rho type (not a Forall)
+    /*
+     * This asserts that a given Type must be a Rho. We have some
+     * invariants we can't track with the type system, so we dynamically
+     * check those here
+     *
+     * An alternative to calling this method is instantiate, which assigns
+     * new meta variables for each bound variable in ForAll or skolemize
+     * which replaces the ForAll variables with skolem variables
+     */
+    def assertRho(t: Type, context: => String): Infer[Type.Rho] =
+      t match {
+        case r: Type.Rho => pure(r)
+        case notRho => fail(Error.ExpectedRho(t, context))
+      }
+
+    /*
+     * Return a Rho type (not a Forall), by assigning
+     * new meta variables for each of the outer ForAll variables
+     */
     def instantiate(t: Type): Infer[Type.Rho] =
       t match {
         case Type.ForAll(vars, ty) =>
-          for {
-            vars1T <- vars.traverse(_ => newMetaType)
-          } yield substTy(vars, vars1T, ty)
-        case rho => pure(rho)
+          vars.traverse(_ => newMetaType)
+            .map { vars1T =>
+              substTyRho(vars, vars1T)(ty)
+            }
+        case rho: Type.Rho => pure(rho)
       }
 
-    def subsCheckFn(a1: Type, r1: Type.Rho, a2: Type, r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
+    /*
+     * Invariant: r2 needs to be in weak prenex form
+     */
+    def subsCheckFn(a1: Type, r1: Type, a2: Type, r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       // note due to contravariance in input, we reverse the order there
       for {
         coarg <- subsCheck(a2, a1, left, right)
+        // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right)
       } yield TypedExpr.coerceFn(a1, r2, coarg, cores)
 
-    // invariant: second argument is in weak prenex form
+    /*
+     * invariant: second argument is in weak prenex form, which means that all
+     * the covariant positions have lifted the ForAlls out, e.g.
+     * forall a. a -> (forall b. b -> b)
+     * was rewritten to:
+     * forall a, b. a -> (b -> b)
+     */
     def subsCheckRho(t: Type, rho: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       (t, rho) match {
         case (fa@Type.ForAll(_, _), rho) =>
           // Rule SPEC
           instantiate(fa).flatMap(subsCheckRho(_, rho, left, right))
-        case (rho1, Type.Fun(a2, r2)) =>
+        case (rho1: Type.Rho, Type.Fun(a2, r2)) =>
           // Rule FUN
-          unifyFn(rho1, left, right).flatMap {
-            case (a1, r1) =>
-              subsCheckFn(a1, r1, a2, r2, left, right)
-          }
+          for {
+            a1r1 <- unifyFn(rho1, left, right)
+            (a1, r1) = a1r1
+            // since rho is in weak prenex form, and Fun is covariant on r2, we know
+            // r2 is in weak-prenex form and a rho type
+            rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 462")
+            coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
+          } yield coerce
         case (Type.Fun(a1, r1), rho2) =>
           // Rule FUN
-          unifyFn(rho2, right, left).flatMap {
-            case (a2, r2) =>
-              subsCheckFn(a1, r1, a2, r2, left, right)
-          }
-        case (rho1, Type.TyApply(l2, r2)) =>
+          for {
+            a2r2 <- unifyFn(rho2, right, left)
+            (a2, r2) = a2r2
+            // since rho is in weak prenex form, and Fun is covariant on r2, we know
+            // r2 is in weak-prenex form
+            rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 471")
+            coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
+          } yield coerce
+        case (rho1: Type.Rho, Type.TyApply(l2, r2)) =>
           unifyTyApp(rho1, left, right).flatMap {
             case (l1, r1) =>
               val check2 = varianceOf2(l1, l2).flatMap {
@@ -459,14 +508,14 @@ object Infer {
                   subsCheck(r2, r1, right, left).void
                 case Some(Variance.Phantom) =>
                   // this doesn't matter
-                  pure(())
+                  unit
                 case None | Some(Variance.Invariant) =>
-                  unify(r1, r2, left, right).void
+                  unifyType(r1, r2, left, right)
               }
               // should we coerce to t2? Seems like... but copying previous code
-              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(t))
+              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(rho1))
           }
-        case (Type.TyApply(l1, r1), rho2) =>
+        case (ta@Type.TyApply(l1, r1), rho2) =>
           unifyTyApp(rho2, left, right).flatMap {
             case (l2, r2) =>
               val check2 = varianceOf2(l1, l2).flatMap {
@@ -476,21 +525,25 @@ object Infer {
                   subsCheck(r2, r1, right, left).void
                 case Some(Variance.Phantom) =>
                   // this doesn't matter
-                  pure(())
+                  unit
                 case None | Some(Variance.Invariant) =>
-                  unify(r1, r2, left, right).void
+                  unifyType(r1, r2, left, right)
               }
               // should we coerce to t2? Seems like... but copying previous code
-              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(t))
+              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(ta))
           }
-        case (t1, t2) =>
+        case (t1: Type.Rho, t2) =>
           // rule: MONO
           unify(t1, t2, left, right).as(TypedExpr.coerceRho(t1)) // TODO this coerce seems right, since we have unified
       }
 
+    /*
+     * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
+     */
     def instSigma(sigma: Type, expect: Expected[(Type.Rho, Region)], r: Region): Infer[TypedExpr.Coerce] =
       expect match {
         case Expected.Check((t, tr)) =>
+          // note t is in weak-prenex form
           subsCheckRho(sigma, t, r, tr)
         case infer@Expected.Inf(_) =>
           for {
@@ -499,7 +552,7 @@ object Infer {
           } yield TypedExpr.coerceRho(rho)
       }
 
-    def unifyFn(fnType: Type, fnRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
+    def unifyFn(fnType: Type.Rho, fnRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
       fnType match {
         case Type.Fun(arg, res) => pure((arg, res))
         case tau =>
@@ -510,7 +563,7 @@ object Infer {
           } yield (argT, resT)
       }
 
-    def unifyTyApp(apType: Type, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
+    def unifyTyApp(apType: Type.Rho, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
       apType match {
         case Type.TyApply(left, right) => pure((left, right))
         case notApply =>
@@ -555,15 +608,22 @@ object Infer {
         case (Type.TyMeta(m), tpe) => unifyVar(m, tpe, r1, r2)
         case (tpe, Type.TyMeta(m)) => unifyVar(m, tpe, r2, r1)
         case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
-          unify(a1, a2, r1, r2) *> unify(b1, b2, r1, r2)
+          unifyType(a1, a2, r1, r2) *> unifyType(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
-        // these shouldn't be reachable since we have Tau types, but may be reachable
-        // case (Type.ForAll(_, _), _) =>
-        //   sys.error(s"expected tau type: $t1, $t2")
-        // case (_, Type.ForAll(_, _)) =>
-        //   sys.error(s"expected tau type: $t1, $t2")
         case (left, right) =>
           fail(Error.NotUnifiable(left, right, r1, r2))
+      }
+
+    /**
+     * for a type to be unified, we mean we can substitute in either
+     * direction
+     */
+    def unifyType(t1: Type, t2: Type, r1: Region, r2: Region): Infer[Unit] =
+      (t1, t2) match {
+        case (rho1: Type.Rho, rho2: Type.Rho) =>
+          unify(rho1, rho2, r1, r2)
+        case (t1, t2) =>
+          subsCheck(t1, t2, r1, r2) *> subsCheck(t2, t1, r2, r1).void
       }
 
     /**
@@ -576,7 +636,7 @@ object Infer {
     def newMetaType: Infer[Type.TyMeta] =
       for {
         id <- nextId
-        ref <- lift(RefSpace.newRef[Option[Type]](None))
+        ref <- lift(RefSpace.newRef[Option[Type.Tau]](None))
       } yield Type.TyMeta(Type.Meta(id, ref))
 
     def newSkolemTyVar(tv: Type.Var): Infer[Type.Var.Skolem] =
@@ -615,16 +675,21 @@ object Infer {
     }
 
     // DEEP-SKOL rule
+    // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       for {
         skolRho <- skolemize(declared)
         (skolTvs, rho2) = skolRho
+        // note: we need rho2 in weak prenex form, but skolemize does this
         coerce <- subsCheckRho(inferred, rho2, left, right)
-        escTvs <- getFreeTyVars(List(inferred, declared))
-        _ <- NonEmptyList.fromList(skolTvs.filter(escTvs)) match {
-          case None => pure(())
-          case Some(badTvs) => fail(Error.SubsumptionCheckFailure(inferred, declared, left, right, badTvs))
-        }
+        // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
+        _ <- if (skolTvs.isEmpty) unit
+             else getFreeTyVars(inferred :: declared :: Nil).flatMap { escTvs =>
+               NonEmptyList.fromList(skolTvs.filter(escTvs)) match {
+                 case None => unit
+                 case Some(badTvs) => fail(Error.SubsumptionCheckFailure(inferred, declared, left, right, badTvs))
+               }
+             }
       } yield coerce
 
     /**
@@ -646,7 +711,8 @@ object Infer {
            for {
              typedFn <- inferRho(fn)
              fnT = typedFn.getType
-             argRes <- unifyFn(fnT, region(fn), region(term))
+             fnTRho <- assertRho(fnT, s"must be rho since we inferRho($fn): on $typedFn")
+             argRes <- unifyFn(fnTRho, region(fn), region(term))
              (argT, resT) = argRes
              typedArg <- checkSigma(arg, argT)
              coerce <- instSigma(resT, expect, region(term))
@@ -656,9 +722,12 @@ object Infer {
             case Expected.Check((expTy, rr)) =>
               for {
                 vb <- unifyFn(expTy, rr, region(term))
+                // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
+                // in weak prenex form
                 (varT, bodyT) = vb
+                bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr")
                 typedBody <- extendEnv(name, varT) {
-                    checkRho(result, bodyT)
+                    checkRho(result, bodyTRho)
                   }
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
             case infer@Expected.Inf(_) =>
@@ -674,12 +743,20 @@ object Infer {
             case Expected.Check((expTy, rr)) =>
               for {
                 vb <- unifyFn(expTy, rr, region(term))
+                // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
+                // in weak prenex form
                 (varT, bodyT) = vb
+                bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr")
                 typedBody <- extendEnv(name, varT) {
                     // TODO we are ignoring the result of subsCheck here
                     // should we be coercing a var?
-                    subsCheck(tpe, varT, region(term), rr) *>
-                      checkRho(result, bodyT)
+                    //
+                    // this comes from page 54 of the paper, but I can't seem to find examples
+                    // where this will fail if we reverse (as we had for a long time), which
+                    // indicates the testing coverage is incomplete
+                    subsCheck(varT, tpe, region(term), rr) *>
+                      // bodyTRho is in reach prenex form due to above
+                      checkRho(result, bodyTRho)
                   }
               } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
             case infer@Expected.Inf(_) =>
@@ -755,6 +832,7 @@ object Infer {
               for {
                 tsigma <- inferSigma(term)
                 tbranches <- branches.traverse { case (p, r) =>
+                  // note, resT is in weak-prenex form, so this call is permitted
                   checkBranch(p, Expected.Check((tsigma.getType, region(term))), r, resT)
                 }
               } yield TypedExpr.Match(tsigma, tbranches, tag)
@@ -771,13 +849,18 @@ object Infer {
                   // we do N^2 subsCheck, which to coerce with, composed?
                   case ((t0, r0), (t1, r1)) => subsCheck(t0, t1, r0, r1)
                 }
-                _ <- infer.set(resT.head)
+                // Should this be instantiate? Maybe?
+                resTRho <- assertRho(resT.head._1, s"infer on match ${tbranches.head}")
+                _ <- infer.set((resTRho, resT.head._2))
               } yield TypedExpr.Match(tsigma, tbranches, tag)
           }
       }
     }
 
-    def checkBranch[A: HasRegion](p: Pattern, sigma: Expected[(Type, Region)], res: Expr[A], resT: Type): Infer[(Pattern, TypedExpr[A])] =
+    /*
+     * we require resT in weak prenex form because we call checkRho with it
+     */
+    def checkBranch[A: HasRegion](p: Pattern, sigma: Expected[(Type, Region)], res: Expr[A], resT: Type.Rho): Infer[(Pattern, TypedExpr[A])] =
       for {
         patBind <- typeCheckPattern(p, sigma, region(res))
         (pattern, bindings) = patBind
@@ -802,7 +885,11 @@ object Infer {
         case GenPattern.WildCard => Infer.pure((pat, Nil))
         case GenPattern.Literal(lit) =>
           val tpe = Type.getTypeOf(lit)
-          instSigma(tpe, sigma, reg).as((pat, Nil))
+          val check = sigma match {
+            case Expected.Check((t, tr)) => subsCheck(tpe, t, reg, tr)
+            case infer@Expected.Inf(_) => infer.set((tpe, reg))
+          }
+          check.as((pat, Nil))
         case GenPattern.Var(n) =>
           // We always return an annotation here, which is the only
           // place we need to be careful
@@ -914,7 +1001,7 @@ object Infer {
               val tpe = bmh(v)
               bmt.traverse_ { m2 =>
                 val tpe2 = m2(v)
-                unify(tpe, tpe2, reg, reg)
+                unifyType(tpe, tpe2, reg, reg)
               }
             }
           }
@@ -937,7 +1024,7 @@ object Infer {
     def instPatSigma(sigma: Type, exp: Expected[(Type, Region)], sRegion: Region): Infer[Unit] =
       exp match {
         case infer@Expected.Inf(_) => infer.set((sigma, sRegion))
-        case Expected.Check((texp, tr)) => subsCheck(texp, sigma, tr, sRegion).as(()) // this unit does not seem right
+        case Expected.Check((texp, tr)) => subsCheck(texp, sigma, tr, sRegion).void // this unit does not seem right
       }
 
     /**
@@ -955,8 +1042,8 @@ object Infer {
           val vars = vars0.map(_._1) // TODO actually use the variance
           vars.traverse(_ => newMetaType)
             .map { vars1T =>
-              val params1 = consParams.map(substTy(vars, vars1T, _))
-              val res = vars1T.foldLeft(Type.TyConst(tpeName): Type)(Type.TyApply(_, _))
+              val params1 = consParams.map(substTy(vars, vars1T))
+              val res = vars1T.foldLeft(Type.TyConst(tpeName): Type.Tau)(Type.TyApply(_, _))
               (params1, res)
             }
       }
@@ -965,7 +1052,7 @@ object Infer {
       inferSigmaMeta(e, None)
 
     def inferSigmaMeta[A: HasRegion](e: Expr[A], meta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] = {
-      def unifySelf(tpe: Type): Infer[Map[Name, Type]] =
+      def unifySelf(tpe: Type.Rho): Infer[Map[Name, Type]] =
         meta match {
           case None => getEnv
           case Some((nm, m, r)) =>
@@ -978,9 +1065,10 @@ object Infer {
       for {
         rho <- inferRho(e)
         expTy = rho.getType
-        envTys <- unifySelf(expTy)
+        expTyRho <- assertRho(expTy, s"must be rho since $rho is a TypedExpr.Rho")
+        envTys <- unifySelf(expTyRho)
         envTypeVars <- getMetaTyVars(envTys.values.toList)
-        resTypeVars <- getMetaTyVars(expTy :: Nil)
+        resTypeVars <- getMetaTyVars(expTyRho :: Nil)
         forAllTvs = resTypeVars -- envTypeVars
         q <- quantify(forAllTvs.toList, rho)
       } yield q
@@ -990,13 +1078,21 @@ object Infer {
       for {
         skolRho <- skolemize(tpe)
         (skols, rho) = skolRho
+        // we need rho in weak-prenex form, but skolemize does this
         te <- checkRho(t, rho)
-        envTys <- getEnv
-        escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
-        badTvs = skols.filter(escTvs)
-        _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
+        // if skols.isEmpty, skols.filter(fn).isEmpty, so we can skip the rest
+        _ <- if (skols.isEmpty) unit
+             else for {
+               envTys <- getEnv
+               escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
+               badTvs = skols.filter(escTvs)
+               _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
+             } yield ()
       } yield te // should be fine since the everything after te is just checking
 
+    /**
+     * invariant: rho needs to be in weak-prenex form
+     */
     def checkRho[A: HasRegion](t: Expr[A], rho: Type.Rho): Infer[TypedExpr[A]] =
       typeCheckRho(t, Expected.Check((rho, region(t))))
 
