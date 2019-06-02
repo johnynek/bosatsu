@@ -8,19 +8,17 @@ import scala.collection.immutable.SortedSet
 sealed abstract class Type
 
 object Type {
-  type Rho = Type // no top level ForAll
-  type Tau = Type // no forall anywhere
+  /**
+   * A type with no top level ForAll
+   */
+  sealed abstract class Rho extends Type
+  type Tau = Rho // no forall anywhere
 
-  case class ForAll(vars: NonEmptyList[Var.Bound], in: Rho) extends Type {
-    in match {
-      case ForAll(_, _) => sys.error(s"invalid nested ForAll")
-      case _ => ()
-    }
-  }
-  case class TyConst(tpe: Const) extends Type
-  case class TyVar(toVar: Var) extends Type
-  case class TyMeta(toMeta: Meta) extends Type
-  case class TyApply(on: Type, arg: Type) extends Type
+  case class ForAll(vars: NonEmptyList[Var.Bound], in: Rho) extends Type
+  case class TyConst(tpe: Const) extends Rho
+  case class TyVar(toVar: Var) extends Rho
+  case class TyMeta(toMeta: Meta) extends Rho
+  case class TyApply(on: Type, arg: Type) extends Rho
 
   implicit val typeOrdering: Ordering[Type] =
     new Ordering[Type] {
@@ -72,14 +70,13 @@ object Type {
       case fa@ForAll(_, _) => freeTyVars(fa :: Nil).isEmpty
     }
 
-  @annotation.tailrec
   final def forAll(vars: List[Var.Bound], in: Type): Type =
-    vars match {
-      case Nil => in
-      case ne@(h :: tail) =>
+    NonEmptyList.fromList(vars) match {
+      case None => in
+      case Some(ne) =>
         in match {
-          case Type.ForAll(nes, tt) => forAll(ne ::: nes.toList, tt)
-          case notForAll => Type.ForAll(NonEmptyList(h, tail), notForAll)
+          case rho: Rho => Type.ForAll(ne, rho)
+          case Type.ForAll(ne1, rho) => Type.ForAll(ne ::: ne1, rho)
         }
     }
 
@@ -129,9 +126,17 @@ object Type {
         substituteVar(rho, env1) match {
           case ForAll(ns1, r1) =>
             ForAll(ns ::: ns1, r1)
-          case notForAll =>
+          case notForAll: Rho =>
             ForAll(ns, notForAll)
         }
+      case m@TyMeta(_) => m
+      case c@TyConst(_) => c
+    }
+
+  def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
+    t match {
+      case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
+      case v@TyVar(n) => env.getOrElse(n, v)
       case m@TyMeta(_) => m
       case c@TyConst(_) => c
     }
@@ -201,7 +206,7 @@ object Type {
         case _ => None
       }
 
-    def apply(from: Type, to: Type): Type =
+    def apply(from: Type, to: Type): Type.Rho =
       TyApply(TyApply(FnType, from), to)
   }
 
@@ -298,7 +303,7 @@ object Type {
     NonEmptyList((items.head, bs.head), items.tail.zip(bs.tail))
   }
 
-  case class Meta(id: Long, ref: Ref[Option[Type]])
+  case class Meta(id: Long, ref: Ref[Option[Type.Tau]])
 
   object Meta {
     implicit val orderingMeta: Ordering[Meta] =
