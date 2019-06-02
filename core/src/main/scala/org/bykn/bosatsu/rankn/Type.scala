@@ -133,6 +133,14 @@ object Type {
       case c@TyConst(_) => c
     }
 
+  def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
+    t match {
+      case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
+      case v@TyVar(n) => env.getOrElse(n, v)
+      case m@TyMeta(_) => m
+      case c@TyConst(_) => c
+    }
+
   /**
    * Return the Bound and Skolem variables that
    * are free in the given list of types

@@ -345,7 +345,7 @@ object Infer {
           for {
             sks1 <- tvs.traverse(newSkolemTyVar)
             sksT = sks1.map(Type.TyVar(_))
-            sks2ty <- skolemize(substTy(tvs, sksT, ty))
+            sks2ty <- skolemize(substTyRho(tvs, sksT)(ty))
             (sks2, ty2) = sks2ty
           } yield (sks1.toList ::: sks2, ty2)
         case Type.TyApply(left, right) =>
@@ -404,24 +404,25 @@ object Infer {
     def initRef[A](err: Error): Infer[Ref[Either[Error, A]]] =
       lift(RefSpace.newRef[Either[Error, A]](Left(err)))
 
-    def substTy(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], t: Type): Type = {
+    def substTy(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho]): Type => Type = {
       val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
-      Type.substituteVar(t, env)
+
+      { t => Type.substituteVar(t, env) }
     }
 
-    def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], expr: Expr[A]): Expr[A] = {
+    def substTyRho(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho]): Type.Rho => Type.Rho = {
+      val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
 
-      // TODO: I don't think we can introduce new forall bindings in annotations,
-      // the forall would only apply for the scope of the type
-      val fn = substTy(keys, vals, _: Type)
+      { t => Type.substituteRhoVar(t, env) }
+    }
+
+    def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: Expr[A]): Expr[A] = {
+      val fn = substTy(keys, vals)
       Expr.traverseType[A, cats.Id](expr, fn)
     }
 
-    def substTyExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type], expr: TypedExpr[A]): TypedExpr[A] = {
-
-      // TODO: I don't think we can introduce new forall bindings in annotations,
-      // the forall would only apply for the scope of the type
-      val fn = substTy(keys, vals, _: Type)
+    def substTyExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: TypedExpr[A]): TypedExpr[A] = {
+      val fn = substTy(keys, vals)
       expr.traverseType[cats.Id](fn)
     }
 
@@ -447,11 +448,10 @@ object Infer {
     def instantiate(t: Type): Infer[Type.Rho] =
       t match {
         case Type.ForAll(vars, ty) =>
-          for {
-            vars1T <- vars.traverse(_ => newMetaType)
-            subs = substTy(vars, vars1T, ty)
-            rho <- assertRho(subs, "instantiate")
-          } yield rho
+          vars.traverse(_ => newMetaType)
+            .map { vars1T =>
+              substTyRho(vars, vars1T)(ty)
+            }
         case rho: Type.Rho => pure(rho)
       }
 
@@ -1042,7 +1042,7 @@ object Infer {
           val vars = vars0.map(_._1) // TODO actually use the variance
           vars.traverse(_ => newMetaType)
             .map { vars1T =>
-              val params1 = consParams.map(substTy(vars, vars1T, _))
+              val params1 = consParams.map(substTy(vars, vars1T))
               val res = vars1T.foldLeft(Type.TyConst(tpeName): Type.Tau)(Type.TyApply(_, _))
               (params1, res)
             }
