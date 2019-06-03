@@ -6,12 +6,12 @@ import cats.data.{NonEmptyList, ReaderT, StateT}
 import cats.effect.IO
 import java.nio.file.Path
 import java.io.{FileInputStream, FileOutputStream, BufferedInputStream, BufferedOutputStream}
-import org.bykn.bosatsu.rankn.{Type, DefinedType}
+import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
 import scala.collection.immutable.SortedMap
 
-import Identifier.Constructor
+import Identifier.{Bindable, Constructor}
 
 import cats.implicits._
 
@@ -119,7 +119,7 @@ object ProtoConverter {
     types: Array[Type],
     dts: Array[DefinedType[Variance]],
     patterns: Array[Pattern[(PackageName, Constructor), Type]],
-    expr: Array[TypedExpr[Any]]) {
+    expr: Array[TypedExpr[Unit]]) {
     def getString(idx: Int): Option[String] =
       if ((0 <= idx) && (idx < strings.length)) Some(strings(idx))
       else None
@@ -142,6 +142,13 @@ object ProtoConverter {
 
     def getDt(idx: Int): Option[DefinedType[Variance]] =
       if ((0 <= idx) && (idx < dts.length)) Some(dts(idx))
+      else None
+
+    def getDefinedTypes: List[DefinedType[Variance]] =
+      dts.toList
+
+    def getExpr(idx: Int): Option[TypedExpr[Unit]] =
+      if ((0 <= idx) && (idx < expr.length)) Some(expr(idx))
       else None
 
     def withDefinedTypes(vdts: Seq[DefinedType[Variance]]): DecodeState =
@@ -177,6 +184,9 @@ object ProtoConverter {
 
   private def lookupDts(idx: Int, context: => String): DTab[DefinedType[Variance]] =
     find(idx, context)(_.getDt(_))
+
+  private def lookupExpr(idx: Int, context: => String): DTab[TypedExpr[Unit]] =
+    find(idx, context)(_.getExpr(_))
 
   /**
    * this is code to build tables of serialized dags. We use this for types, patterns, expressions
@@ -248,7 +258,7 @@ object ProtoConverter {
         def str(i: Int): Try[String] =
           ds.tryString(i - 1, s"invalid string idx: $i in $p")
 
-        def bindable(i: Int): Try[Identifier.Bindable] =
+        def bindable(i: Int): Try[Bindable] =
           str(i).flatMap { name =>
             Try(Identifier.unsafeParse(Identifier.bindableParser, name))
           }
@@ -262,7 +272,7 @@ object ProtoConverter {
           case Value.NamedPat(proto.NamedPat(nidx, pidx)) =>
             (bindable(nidx), pat(pidx)).mapN(Pattern.Named(_, _))
           case Value.ListPat(proto.ListPat(lp)) =>
-            def decodePart(part: proto.ListPart): Try[Either[Option[Identifier.Bindable], Pattern[(PackageName, Constructor), Type]]] =
+            def decodePart(part: proto.ListPart): Try[Either[Option[Bindable], Pattern[(PackageName, Constructor), Type]]] =
               part.value match {
                 case proto.ListPart.Value.Empty => Failure(new Exception(s"invalid empty list pattern in $p"))
                 case proto.ListPart.Value.ItemPattern(p) => pat(p).map(Right(_))
@@ -298,6 +308,13 @@ object ProtoConverter {
       buildTable(pats.toArray)(patternFromProto _)
     }
 
+  def recursionKindFromProto(rec: proto.RecursionKind, context: => String): Try[RecursionKind] =
+    rec match {
+      case proto.RecursionKind.NotRec => Success(RecursionKind.NonRecursive)
+      case proto.RecursionKind.IsRec => Success(RecursionKind.Recursive)
+      case other => Failure(new Exception(s"invalid recursion kind: $other, in $context"))
+    }
+
   def buildExprs(exprs: Seq[proto.TypedExpr]): DTab[Array[TypedExpr[Unit]]] =
     ReaderT[Try, DecodeState, Array[TypedExpr[Unit]]] { ds =>
       def expressionFromProto(ex: proto.TypedExpr, exprOf: Int => Try[TypedExpr[Unit]]): Try[TypedExpr[Unit]] = {
@@ -306,7 +323,7 @@ object ProtoConverter {
         def str(i: Int): Try[String] =
           ds.tryString(i - 1, s"invalid string idx: $i in $ex")
 
-        def bindable(i: Int): Try[Identifier.Bindable] =
+        def bindable(i: Int): Try[Bindable] =
           str(i).flatMap { name =>
             Try(Identifier.unsafeParse(Identifier.bindableParser, name))
           }
@@ -354,12 +371,7 @@ object ProtoConverter {
             (exprOf(fn), exprOf(arg), typeOf(resTpe))
               .mapN(TypedExpr.App(_, _, _, ()))
           case Value.LetExpr(proto.LetExpr(nm, nmexpr, inexpr, rec)) =>
-            val tryRec: Try[RecursionKind] =
-              rec match {
-                case proto.RecursionKind.NotRec => Success(RecursionKind.NonRecursive)
-                case proto.RecursionKind.IsRec => Success(RecursionKind.Recursive)
-                case other => Failure(new Exception(s"invalid recursion kind: $other, in $ex"))
-              }
+            val tryRec = recursionKindFromProto(rec, ex.toString)
             (bindable(nm), exprOf(nmexpr), exprOf(inexpr), tryRec)
               .mapN(TypedExpr.Let(_, _, _, _, ()))
           case Value.LiteralExpr(proto.LiteralExpr(lit, tpe)) =>
@@ -700,7 +712,7 @@ object ProtoConverter {
             .product(ReaderT.liftF(varianceFromProto(tp.variance)))
       }
 
-    def fnParamFromProto(p: proto.FnParam): DTab[(Identifier.Bindable, Type)] =
+    def fnParamFromProto(p: proto.FnParam): DTab[(Bindable, Type)] =
       for {
         name <- lookup(p.name, p.toString)
         bn <- ReaderT.liftF(Try(Identifier.unsafeParse(Identifier.bindableParser, name)))
@@ -710,7 +722,7 @@ object ProtoConverter {
     def consFromProto(
       tc: Type.Const.Defined,
       tp: List[Type.Var.Bound],
-      c: proto.ConstructorFn): DTab[(Identifier.Constructor, List[(Identifier.Bindable, Type)], Type)] =
+      c: proto.ConstructorFn): DTab[(Identifier.Constructor, List[(Bindable, Type)], Type)] =
       lookup(c.name, c.toString)
         .flatMap { cname =>
           ReaderT.liftF(Try(Identifier.unsafeParse(Identifier.consParser, cname)))
@@ -836,11 +848,11 @@ object ProtoConverter {
       .flatMapF { case (ref, n) =>
         en.exportKind match {
           case proto.ExportKind.Binding =>
-            Success(ExportedName.Binding(Identifier.unsafeParse(Identifier.bindableParser, n), ref))
+            Try(ExportedName.Binding(Identifier.unsafeParse(Identifier.bindableParser, n), ref))
           case proto.ExportKind.TypeName =>
-            Success(ExportedName.TypeName(Identifier.unsafeParse(Identifier.consParser, n), ref))
+            Try(ExportedName.TypeName(Identifier.unsafeParse(Identifier.consParser, n), ref))
           case proto.ExportKind.ConstructorName =>
-            Success(ExportedName.Constructor(Identifier.unsafeParse(Identifier.consParser, n), ref))
+            Try(ExportedName.Constructor(Identifier.unsafeParse(Identifier.consParser, n), ref))
           case proto.ExportKind.Unrecognized(idx) =>
            Failure(new Exception(s"unknown export kind: $idx in $en"))
         }
@@ -915,12 +927,19 @@ object ProtoConverter {
 
   def importedNameToProto(
     allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
-    in: ImportedName[NonEmptyList[Referant[Variance]]]): Tab[proto.ImportedName] =
+    in: ImportedName[NonEmptyList[Referant[Variance]]]): Tab[proto.ImportedName] = {
+
+    val locName =
+      in match {
+        case ImportedName.OriginalName(_, _) => None
+        case ImportedName.Renamed(_, l, _) => Some(l)
+      }
     for {
       orig <- getId(in.originalName.sourceCodeRepr)
-      local <- getId(in.localName.sourceCodeRepr)
+      local <- locName.traverse { ln => getId(ln.sourceCodeRepr) }
       refs <- in.tag.toList.traverse(referantToProto(allDts, _))
-    } yield proto.ImportedName(orig, local, refs)
+    } yield proto.ImportedName(orig, local.getOrElse(0), refs)
+  }
 
   def importToProto(
     allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
@@ -930,14 +949,14 @@ object ProtoConverter {
       imps <- i.items.toList.traverse(importedNameToProto(allDts, _))
     } yield proto.Imports(nm, imps)
 
-  def letToProto(l: (Identifier.Bindable, RecursionKind, TypedExpr[Any])): Tab[proto.Let] =
+  def letToProto(l: (Bindable, RecursionKind, TypedExpr[Any])): Tab[proto.Let] =
     for {
       nm <- getId(l._1.sourceCodeRepr)
       rec = if (l._2.isRecursive) proto.RecursionKind.IsRec else proto.RecursionKind.NotRec
       tex <- typedExprToProto(l._3)
     } yield proto.Let(nm, rec, tex)
 
-  def extDefToProto(nm: Identifier.Bindable, opt: Option[Type]): Tab[proto.ExternalDef] =
+  def extDefToProto(nm: Bindable, opt: Option[Type]): Tab[proto.ExternalDef] =
     opt match {
       case None => tabFail(new Exception(s"external def: $nm has missing type"))
       case Some(t) =>
@@ -975,4 +994,95 @@ object ProtoConverter {
 
     runTab(tab).map { case (ss, fn) => fn(ss) }
   }
+
+  def lookupBindable(idx: Int, context: => String): DTab[Bindable] =
+    lookup(idx, context)
+      .flatMapF { n =>
+        Try(Identifier.unsafeParse(Identifier.bindableParser, n))
+      }
+
+  def lookupIdentifier(idx: Int, context: => String): DTab[Identifier] =
+    lookup(idx, context)
+      .flatMapF { n =>
+        Try(Identifier.unsafeParse(Identifier.parser, n))
+      }
+
+  def importedNameFromProto(iname: proto.ImportedName): DTab[ImportedName[NonEmptyList[Referant[Variance]]]] = {
+    def build[A](orig: Identifier, ref: A): DTab[ImportedName[A]] =
+      if (iname.localName == 0) {
+        ReaderT.pure(ImportedName.OriginalName(originalName = orig, ref))
+      }
+      else {
+        lookupIdentifier(iname.localName, iname.toString)
+          .map(ImportedName.Renamed(originalName = orig, _, ref))
+      }
+
+    NonEmptyList.fromList(iname.referant.toList) match {
+      case None => ReaderT.liftF(Failure(new Exception(s"expected at least one imported name: $iname")))
+      case Some(refs) =>
+        for {
+          orig <- lookupIdentifier(iname.originalName, iname.toString)
+          rs <- refs.traverse(referantFromProto)
+          in <- build(orig, rs)
+        } yield in
+    }
+  }
+
+  def importsFromProto(imp: proto.Imports,
+    lookupIface: PackageName => Try[Package.Interface]): DTab[Import[Package.Interface, NonEmptyList[Referant[Variance]]]] =
+    NonEmptyList.fromList(imp.names.toList) match {
+      case None => ReaderT.liftF(Failure(new Exception(s"expected non-empty import names in: $imp")))
+      case Some(nei) =>
+        for {
+          pnameStr <- lookup(imp.packageName, imp.toString)
+          pname <- ReaderT.liftF(parsePack(pnameStr, imp.toString))
+          iface <- ReaderT.liftF(lookupIface(pname))
+          inames <- nei.traverse(importedNameFromProto)
+        } yield Import(iface, inames)
+    }
+
+  def letsFromProto(let: proto.Let): DTab[(Bindable, RecursionKind, TypedExpr[Unit])] =
+    (lookupBindable(let.name, let.toString),
+      ReaderT.liftF(recursionKindFromProto(let.rec, let.toString)): DTab[RecursionKind],
+      lookupExpr(let.expr, let.toString)).tupled
+
+  def externalDefsFromProto(ed: proto.ExternalDef): DTab[(Bindable, Type)] =
+    (lookupBindable(ed.name, ed.toString),
+      lookupType(ed.typeOf, ed.toString)).tupled
+
+  def buildProgram(
+    pack: PackageName,
+    lets: List[(Bindable, RecursionKind, TypedExpr[Unit])],
+    exts: List[(Bindable, Type)]): DTab[Program[TypeEnv[Variance], TypedExpr[Unit], Unit]] =
+    ReaderT.ask[Try, DecodeState]
+      .map { ds =>
+        val te0: TypeEnv[Variance] =
+          TypeEnv.fromDefinitions(ds.getDefinedTypes)
+        val te = exts.foldLeft(te0) { case (te, (b, t)) =>
+          te.addExternalValue(pack, b, t)
+        }
+        Program(te, lets, exts.map(_._1), ())
+      }
+
+  def packageFromProto(pack: proto.Package): Try[Package.Typed[Unit]] = {
+
+    /*
+     * We will need a list of these an memoize loading them all
+     */
+    val loadIface: PackageName => Try[Package.Interface] = ???
+
+    val tab: DTab[Package.Typed[Unit]] =
+      for {
+        packageNameStr <- lookup(pack.packageName, pack.toString)
+        packageName <- ReaderT.liftF(parsePack(packageNameStr, pack.toString))
+        imps <- pack.imports.toList.traverse(importsFromProto(_, loadIface))
+        exps <- pack.exports.toList.traverse(exportedNameFromProto)
+        lets <- pack.lets.toList.traverse(letsFromProto)
+        eds <- pack.externalDefs.toList.traverse(externalDefsFromProto)
+        prog <- buildProgram(packageName, lets, eds)
+      } yield Package(packageName, imps, exps, prog)
+
+    tab.run(???)
+  }
+
 }
