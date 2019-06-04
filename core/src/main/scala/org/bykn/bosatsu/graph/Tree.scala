@@ -1,7 +1,6 @@
 package org.bykn.bosatsu.graph
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
-
 import cats.implicits._
 
 case class Tree[+A](item: A, children: List[Tree[A]])
@@ -44,7 +43,25 @@ object Tree {
       }
     }
     treeOf(NonEmptyList(node, Nil), Set(node))
+      .leftMap { nelnel =>
+        // remove depulicate paths
+        val withSet = nelnel.map { nel => (nel, nel.toList.toSet) }
+        distinctBy(withSet)(_._2).map(_._1)
+      }
   }
 
+  def distinctBy[A, B](nel: NonEmptyList[A])(fn: A => B): NonEmptyList[A] = {
+    @annotation.tailrec
+    def remove(seen: Set[B], items: List[A], acc: List[A]): List[A] =
+      items match {
+        case Nil => acc.reverse
+        case h :: t =>
+          val b = fn(h)
+          if (seen(b)) remove(seen, t, acc)
+          else remove(seen + b, t, h :: acc)
+      }
+
+    NonEmptyList(nel.head, remove(Set(fn(nel.head)), nel.tail, Nil))
+  }
 }
 
