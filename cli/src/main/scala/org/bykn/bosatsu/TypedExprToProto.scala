@@ -159,6 +159,9 @@ object ProtoConverter {
 
     def withPatterns(ary: Array[Pattern[(PackageName, Constructor), Type]]): DecodeState =
       new DecodeState(strings, types, dts, ary, expr)
+
+    def withExprs(ary: Array[TypedExpr[Unit]]): DecodeState =
+      new DecodeState(strings, types, dts, patterns, ary)
   }
 
   object DecodeState {
@@ -1082,7 +1085,14 @@ object ProtoConverter {
         prog <- buildProgram(packageName, lets, eds)
       } yield Package(packageName, imps, exps, prog)
 
-    tab.run(???)
-  }
+    // build up the decoding state by decoding the tables in order
+    val tab1 = Scoped.run(
+      Scoped(buildTypes(pack.types))(_.withTypes(_)),
+      Scoped(pack.definedTypes.toVector.traverse(definedTypeFromProto))(_.withDefinedTypes(_)),
+      Scoped(buildPatterns(pack.patterns))(_.withPatterns(_)),
+      Scoped(buildExprs(pack.expressions))(_.withExprs(_))
+      )(tab)
 
+    tab1.run(DecodeState.init(pack.strings))
+  }
 }
