@@ -7,45 +7,67 @@ enum RowEntry[w]:
 
 struct RecordField[t](name: String, to_entry: forall w. w[t] -> RowEntry[w])
 struct RecordValue[t](value: t)
-struct RecordGetter[shape, t](f: forall w. shape[w] -> w[t])
+struct RecordGetter[shape, t](
+  field: shape[RecordField] -> RecordField[t],
+  value: shape[RecordValue] -> RecordValue[t]
+)
 
-struct RecordSet[shape](fields: shape[RecordField], rows: List[shape[RecordValue]], getters: shape[RecordGetter[shape]])
+struct RecordSet[shape](
+  fields: shape[RecordField],
+  rows: List[shape[RecordValue]],
+  getters: shape[RecordGetter[shape]]
+)
 
-def restructure(RecordSet(fields, rows, getters): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> ((forall w. shape1[w] -> shape2[w]), shape2[RecordGetter[shape2]], (forall w1,w2. shape2[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape2[w2]))) -> RecordSet[shape2]:
-  (reshaper1, new_getters, _) = f(getters)
-  (reshaper2, _, _) = f(getters)
-  RecordSet(reshaper1(fields), rows.map_List(reshaper2), new_getters)
+def get(sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t]) -> t:
+  RecordValue(result) = sh.getter
+  result
+
+def createField(rf: RecordField[t], fn: shape[RecordValue] -> t):
+  RecordGetter(\sh -> rf, \sh -> RecordValue(fn(sh)))
+
+struct RestructureOutput[shape1, shape2](
+  reshaperFields: shape1[RecordField] -> shape2[RecordField],
+  reshaperValues: shape1[RecordValue] -> shape2[RecordValue],
+  getters: shape2[RecordGetter[shape2]],
+  traverse: (forall w1,w2. shape2[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape2[w2])
+)
+def restructure(RecordSet(fields, rows, getters): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> RestructureOutput[shape1, shape2]) -> RecordSet[shape2]:
+  RestructureOutput(reshaperF, reshaperV, new_getters, _) = f(getters)
+  RecordSet(reshaperF(fields), rows.map_List(reshaperV), new_getters)
 
 struct NilShape[w]
-struct IntShape[w](int: w[Int])
-struct PS[t,shape2,w](left: w[t], right: shape2[w])
+struct PS[t,rest,w](left: w[t], right: rest[w])
 
-def s(rg):
-  RecordGetter(f) = rg
+def s(RecordGetter(f1, v1)):
   def traverse(PS(x, _), g):
     PS(g(x), NilShape)
-  (
-    \x -> PS(f(x),NilShape),
-    PS(RecordGetter(\PS(x, _) -> x), NilShape),
+  RestructureOutput(
+    \x -> PS(f1(x),NilShape),
+    \x -> PS(v1(x),NilShape),
+    PS(RecordGetter(\PS(x, _) -> x, \PS(x, _) -> x), NilShape),
     traverse
   )
 
-# def ps(RecordGetter(f): RecordGetter[shapae1, t], (g, sh2, traverse): (forall w. shape1[w] -> shape2[w], shape2[RecordGetter[shape2]], forall w1,w2. shape2[w1] -> (forall s. w1[s] -> w2[s]) -> shape2[w2] )):
-#  (
-#    \sh1 -> PS(f(sh1), g(sh1)),
-#    PS(RecordGetter(\PS(x,_) -> x), sh2.traverse(\RecordGetter(f1) -> RecordGetter(\PS(_, sh2) -> f1(sh2)))),
-#    \PS(x, sh2), g -> PS(g(x), sh2.traverse(g))
-#  )
+def ps(
+  RecordGetter(fF, fV): RecordGetter[shape1, t],
+  RestructureOutput(reshaper1F, reshaper1V, getters1, traverse1): RestructureOutput[shape1, shape2]):
+  getters2 = getters1.traverse1(\RecordGetter(f1, v1) -> RecordGetter(\PS(_, sh2) -> f1(sh2), \PS(_, sh2) -> v1(sh2)))
+  RestructureOutput(
+    \sh1 -> PS(fF(sh1), reshaper1F(sh1)),
+    \sh1 -> PS(fV(sh1), reshaper1V(sh1)),
+    PS(RecordGetter(\PS(x,_) -> x, \PS(x,_) -> x), getters2),
+    \PS(x, sh2), g -> PS(g(x), sh2.traverse1(g))
+  )
 
 ##################################################
 
 rs = RecordSet(
   PS(RecordField("String", REString), PS(RecordField("Int", REInt), PS(RecordField("Bool", REBool), NilShape))),
   [PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(True), NilShape)))],
-  PS(RecordGetter(\PS(x,_) -> x), PS(RecordGetter(\PS(_, PS(x, _)) -> x), PS(RecordGetter(\PS(_, PS(_, PS(x, _))) -> x), NilShape)))
+  PS(RecordGetter(\PS(x,_) -> x, \PS(x,_) -> x), PS(RecordGetter(\PS(_, PS(x, _)) -> x, \PS(_, PS(x, _)) -> x), PS(RecordGetter(\PS(_, PS(_, PS(x, _))) -> x, \PS(_, PS(_, PS(x, _))) -> x), NilShape)))
 )
 
-rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> s(b))
+rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c,ps(a,s(b))))
 
 ##################################################
 
