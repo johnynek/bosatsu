@@ -28,6 +28,14 @@ def get(sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t])
 def create_field(rf: RecordField[t], fn: shape[RecordValue] -> t):
   RecordGetter(\sh -> rf, \sh -> RecordValue(fn(sh)))
 
+def list_of_rows(RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
+  def getter_to_row_entry(row: shape[RecordValue]):
+    (result_fn: forall tt. RecordGetter[shape, tt] -> RecordRowEntry[RecordValue, tt]) = \RecordGetter(get_field, get_value) ->
+      RecordField(name, to_entry) = get_field(fields)
+      RecordRowEntry(to_entry(get_value(row)))
+    result_fn
+  rows.map_List(\row -> record_to_list(getters.traverse(getter_to_row_entry(row))))
+
 struct RestructureOutput[shape1, shape2](
   reshaperFields: shape1[RecordField] -> shape2[RecordField],
   reshaperValues: shape1[RecordValue] -> shape2[RecordValue],
@@ -70,11 +78,15 @@ def ps(
     \PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
   )
 
+def string_field(name, fn: shape[RecordValue] -> String): RecordField(name, REString).create_field(fn)
+def int_field(name, fn: shape[RecordValue] -> Int): RecordField(name, REInt).create_field(fn)
+def bool_field(name, fn: shape[RecordValue] -> Bool): RecordField(name, REBool).create_field(fn)
 ##################################################
 
-rs = new_record_set.restructure(\ns -> ps(RecordField("String", REString).create_field(\_ -> ""), ps(RecordField("Int", REInt).create_field(\_ -> 0), s(RecordField("Bool", REBool).create_field(\_ -> True))))).concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
+rs_empty = new_record_set.restructure(\ns -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), s("Bool field".bool_field(\_ -> True)))))
+rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 
-rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c,ps(a,s(b))))
+rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, s("Plus 2".int_field( \r -> r.get(b).add(2) ))))))
 
 ##################################################
 
@@ -113,14 +125,11 @@ def equal_RowEntry(re1, re2):
 def equal_rows(row1, row2):
   equal_RowEntry.equal_List(row1, row2)
 
-RecordSet(_, rows, _) = rs0
-
-def to_row(PS(RecordValue(x), _)):
-  [REInt(RecordValue(1))]
+rows = rs0.list_of_rows
 
 tests = Test("reordering",
   [
-    Assertion(equal_rows.equal_List(rows.map_List(to_row), [[REInt(RecordValue(1))]]), "swap")
+    Assertion(equal_rows.equal_List(rows, [[REBool(RecordValue(False)), REInt(RecordValue(1)), REString(RecordValue("a")), REInt(RecordValue(3))]]), "swap")
   ]
 )
 
