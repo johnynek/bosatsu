@@ -1,4 +1,4 @@
-package RecordSet
+package RecordSet/Library
 
 enum RowEntry[w]:
   REBool(value: w[Bool])
@@ -81,12 +81,6 @@ def ps(
 def string_field(name, fn: shape[RecordValue] -> String): RecordField(name, REString).create_field(fn)
 def int_field(name, fn: shape[RecordValue] -> Int): RecordField(name, REInt).create_field(fn)
 def bool_field(name, fn: shape[RecordValue] -> Bool): RecordField(name, REBool).create_field(fn)
-##################################################
-
-rs_empty = new_record_set.restructure(\ns -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), s("Bool field".bool_field(\_ -> True)))))
-rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
-
-rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, s("Plus 2".int_field( \r -> r.get(b).add(2) ))))))
 
 ##################################################
 
@@ -125,11 +119,16 @@ def equal_RowEntry(re1, re2):
 def equal_rows(row1, row2):
   equal_RowEntry.equal_List(row1, row2)
 
-rows = rs0.list_of_rows
+##################################################
+
+rs_empty = new_record_set.restructure(\ns -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), s("Bool field".bool_field(\_ -> True)))))
+
+rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
+
+rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, s("Plus 2".int_field( \r -> r.get(b).add(2) ))))))
 
 tests = Test("reordering",
   [
-    Assertion(equal_rows.equal_List(rows, [[REBool(RecordValue(False)), REInt(RecordValue(1)), REString(RecordValue("a")), REInt(RecordValue(3))]]), "swap")
+    Assertion(equal_rows.equal_List(rs0.list_of_rows, [[REBool(RecordValue(False)), REInt(RecordValue(1)), REString(RecordValue("a")), REInt(RecordValue(3))]]), "swap")
   ]
 )
-
