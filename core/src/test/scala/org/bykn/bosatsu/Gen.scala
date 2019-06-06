@@ -780,25 +780,28 @@ object Generators {
     }
 
   def shuffle[A](as: List[A]): Gen[List[A]] =
-    if (as.isEmpty) Gen.const(Nil)
-    else {
-      val size = as.size
-      def loop(idx: Int): Gen[List[Int]] =
-        if (idx >= size) Gen.const(Nil)
-        else
-          Gen.zip(Gen.choose(idx, size - 1), loop(idx + 1))
-            .map { case (h, tail) => h :: tail }
+    as match {
+      case (Nil | (_ :: Nil)) => Gen.const(as)
+      case a :: b :: Nil =>
+        Gen.oneOf(as, b :: a :: Nil)
+      case _ =>
+        val size = as.size
+        def loop(idx: Int): Gen[List[Int]] =
+          if (idx >= size) Gen.const(Nil)
+          else
+            Gen.zip(Gen.choose(idx, size - 1), loop(idx + 1))
+              .map { case (h, tail) => h :: tail }
 
-      loop(0).map { swaps =>
-        val ary = as.toBuffer
-        swaps.zipWithIndex.foreach { case (targ, src) =>
-          val temp = ary(targ)
-          ary(targ) = ary(src)
-          ary(src) = temp
+        loop(0).map { swaps =>
+          val ary = as.toBuffer
+          swaps.zipWithIndex.foreach { case (targ, src) =>
+            val temp = ary(targ)
+            ary(targ) = ary(src)
+            ary(src) = temp
+          }
+          ary.toList
         }
-        ary.toList
       }
-    }
 
   def genOnePackage[A](genA: Gen[A], existing: Map[PackageName, Package.Typed[A]]): Gen[Package.Typed[A]] = {
     val genDeps: Gen[Map[PackageName, Package.Typed[A]]] =
