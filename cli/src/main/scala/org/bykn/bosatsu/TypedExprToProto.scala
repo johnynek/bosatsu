@@ -4,6 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.{Foldable, Monad, MonadError}
 import cats.data.{NonEmptyList, ReaderT, StateT}
 import cats.effect.IO
+import com.stripe.dagon.Memoize
 import java.nio.file.Path
 import java.io.{FileInputStream, FileOutputStream, BufferedInputStream, BufferedOutputStream}
 import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
@@ -795,6 +796,27 @@ object ProtoConverter {
     (protoRef, exKind).mapN { case (ref, (idx, k)) => proto.ExportedName(k, idx, Some(ref)) }
   }
 
+  def packageDeps(strings: Array[String], dt: proto.DefinedType): List[String] =
+    dt.typeConst match {
+      case Some(tc) =>
+        strings(tc.packageName - 1) :: Nil
+      case None => Nil
+    }
+
+  def ifaceDeps(iface: proto.Interface): List[String] = {
+    val ary = iface.strings.toArray
+    iface.definedTypes.toList.flatMap(packageDeps(ary, _)).distinct.sorted
+  }
+
+  def packageDeps(pack: proto.Package): List[String] = {
+    val ary = pack.strings.toArray
+    val dts = pack.definedTypes.toList.flatMap(packageDeps(ary, _))
+    def getImp(imp: proto.Imports): String =
+      ary(imp.packageName - 1)
+    val imps: List[String] = pack.imports.map(getImp).toList
+    (dts ::: imps).distinct.sorted
+  }
+
   def interfaceToProto(iface: Package.Interface): Try[proto.Interface] = {
     val allDts = DefinedType.listToMap(
       iface.exports.flatMap { ex =>
@@ -1067,32 +1089,141 @@ object ProtoConverter {
         Program(te, lets, exts.map(_._1), ())
       }
 
-  def packageFromProto(pack: proto.Package): Try[Package.Typed[Unit]] = {
+  def packagesFromProto(
+    ifaces: Iterable[proto.Interface],
+    packs: Iterable[proto.Package]): Try[(List[Package.Interface], List[Package.Typed[Unit]])] = {
 
-    /*
-     * We will need a list of these an memoize loading them all
-     */
-    val loadIface: PackageName => Try[Package.Interface] = ???
+    type Node = Either[proto.Interface, proto.Package]
+    def iname(p: proto.Interface): String =
+      p.strings.lift(p.packageName)
+        .getOrElse("_unknown_" + p.packageName.toString)
 
-    val tab: DTab[Package.Typed[Unit]] =
-      for {
-        packageNameStr <- lookup(pack.packageName, pack.toString)
-        packageName <- ReaderT.liftF(parsePack(packageNameStr, pack.toString))
-        imps <- pack.imports.toList.traverse(importsFromProto(_, loadIface))
-        exps <- pack.exports.toList.traverse(exportedNameFromProto)
-        lets <- pack.lets.toList.traverse(letsFromProto)
-        eds <- pack.externalDefs.toList.traverse(externalDefsFromProto)
-        prog <- buildProgram(packageName, lets, eds)
-      } yield Package(packageName, imps, exps, prog)
+    def pname(p: proto.Package): String =
+      p.strings.lift(p.packageName)
+        .getOrElse("_unknown_" + p.packageName.toString)
 
-    // build up the decoding state by decoding the tables in order
-    val tab1 = Scoped.run(
-      Scoped(buildTypes(pack.types))(_.withTypes(_)),
-      Scoped(pack.definedTypes.toVector.traverse(definedTypeFromProto))(_.withDefinedTypes(_)),
-      Scoped(buildPatterns(pack.patterns))(_.withPatterns(_)),
-      Scoped(buildExprs(pack.expressions))(_.withExprs(_))
-      )(tab)
+    def nodeName(n: Node): String =
+      n match {
+        case Left(i) => iname(i)
+        case Right(p) => pname(p)
+      }
 
-    tab1.run(DecodeState.init(pack.strings))
+    implicit val ordNode: Ordering[Node] =
+      new Ordering[Node] {
+        def compare(l: Node, r: Node) =
+          (l, r) match {
+            case (Left(_), Right(_)) => -1
+            case (Right(_), Left(_)) => 1
+            case (nl, nr) => nodeName(nl).compareTo(nodeName(nr))
+          }
+      }
+
+    val nodes: List[Node] = ifaces.map(Left(_)).toList ::: packs.map(Right(_)).toList
+    val nodeMap: Map[String, List[Node]] = nodes.groupBy(nodeName)
+
+    // we only call this when we have done validation
+    // so, the unsafe calls inside are checked before we call
+    def dependsOn(n: Node): List[Node] =
+      n match {
+        case Left(i) => ifaceDeps(i).map { dep => nodeMap(dep).head }
+        case Right(p) => packageDeps(p).map { dep => nodeMap(dep).head }
+      }
+
+    val dupNames: List[String] =
+      nodeMap
+        .iterator
+        .filter { case (_, vs) => vs.lengthCompare(1) > 0 }
+        .map(_._1)
+        .toList
+        .sorted
+
+    lazy val sorted = graph.Toposort.sort(nodes)(dependsOn)
+
+    if (dupNames.nonEmpty) {
+      Failure(new Exception("duplicate package names: " + dupNames.mkString(", ")))
+    }
+    else if (sorted.isFailure) {
+      val loopStr =
+        sorted
+          .loopNodes
+          .map {
+            case Left(i) => "interface: " + iname(i)
+            case Right(p) => "compiled: " + pname(p)
+          }
+          .mkString(", ")
+      Failure(new Exception(s"circular dependencies in packages: $loopStr"))
+    }
+    else {
+      /*
+       * We know we have a dag now, so we can just go through
+       * loading them.
+       *
+       * We will need a list of these an memoize loading them all
+       */
+
+      def packFromProtoUncached(
+        pack: proto.Package,
+        load: String => Try[Either[Package.Interface, Package.Typed[Unit]]]
+      ): Try[Package.Typed[Unit]] = {
+        val loadIface: PackageName => Try[Package.Interface] = { p =>
+          load(p.asString).map {
+            case Left(iface) => iface
+            case Right(pack) => Package.interfaceOf(pack)
+          }
+        }
+
+        val tab: DTab[Package.Typed[Unit]] =
+          for {
+            packageNameStr <- lookup(pack.packageName, pack.toString)
+            packageName <- ReaderT.liftF(parsePack(packageNameStr, pack.toString))
+            imps <- pack.imports.toList.traverse(importsFromProto(_, loadIface))
+            exps <- pack.exports.toList.traverse(exportedNameFromProto)
+            lets <- pack.lets.toList.traverse(letsFromProto)
+            eds <- pack.externalDefs.toList.traverse(externalDefsFromProto)
+            prog <- buildProgram(packageName, lets, eds)
+          } yield Package(packageName, imps, exps, prog)
+
+        // build up the decoding state by decoding the tables in order
+        val tab1 = Scoped.run(
+          Scoped(buildTypes(pack.types))(_.withTypes(_)),
+          Scoped(pack.definedTypes.toVector.traverse(definedTypeFromProto))(_.withDefinedTypes(_)),
+          Scoped(buildPatterns(pack.patterns))(_.withPatterns(_)),
+          Scoped(buildExprs(pack.expressions))(_.withExprs(_))
+          )(tab)
+
+        tab1.run(DecodeState.init(pack.strings))
+      }
+
+      val load: String => Try[Either[Package.Interface, Package.Typed[Unit]]] =
+        Memoize.function[String, Try[Either[Package.Interface, Package.Typed[Unit]]]] { (pack, rec) =>
+          nodeMap.get(pack) match {
+            case Some(Left(iface) :: Nil) =>
+              interfaceFromProto(iface)
+                .map(Left(_))
+            case Some(Right(p) :: Nil) =>
+              packFromProtoUncached(p, rec)
+                .map(Right(_))
+            case _ =>
+              Failure(new Exception(s"missing interface or compiled: $pack"))
+          }
+        }
+
+      val deserPack: proto.Package => Try[Package.Typed[Unit]] = { p =>
+        load(pname(p)).flatMap {
+          case Left(iface) => Failure(new Exception(s"expected compiled for ${iface.name.asString}, found interface"))
+          case Right(pack) => Success(pack)
+        }
+      }
+      val deserIface: proto.Interface => Try[Package.Interface] = { p =>
+        load(iname(p)).map {
+          case Left(iface) => iface
+          case Right(pack) => Package.interfaceOf(pack)
+        }
+      }
+
+      // use the cached versions down here
+      (ifaces.toList.traverse(deserIface),
+        packs.toList.traverse(deserPack)).tupled
+    }
   }
 }

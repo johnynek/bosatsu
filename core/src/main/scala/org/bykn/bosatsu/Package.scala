@@ -81,7 +81,7 @@ object Package {
   def fromStatement(pn: PackageName, st: Statement): Package.Parsed =
     Package(pn, Nil, Nil, st)
 
-  def interfaceOf(inferred: Inferred): Interface =
+  def interfaceOf[A](inferred: Typed[A]): Interface =
     inferred.mapProgram(_ => ()).replaceImports(Nil)
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =

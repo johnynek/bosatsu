@@ -8,7 +8,7 @@ import org.typelevel.paiges.{Doc, Document}
 import Parser.upperIdent
 
 case class PackageName(parts: NonEmptyList[String]) {
-  def asString: String = parts.toList.mkString("/")
+  lazy val asString: String = parts.toList.mkString("/")
 }
 
 object PackageName {
