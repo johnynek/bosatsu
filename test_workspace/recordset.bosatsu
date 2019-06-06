@@ -16,7 +16,8 @@ struct RecordRowEntry[w, t](row_entry: RowEntry[w])
 struct RecordSet[shape](
   fields: shape[RecordField],
   rows: List[shape[RecordValue]],
-  getters: shape[RecordGetter[shape]]
+  getters: shape[RecordGetter[shape]],
+  traverse: forall w1,w2. shape[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape[w2]
 )
 
 def get(sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t]) -> t:
@@ -30,20 +31,20 @@ struct RestructureOutput[shape1, shape2](
   reshaperFields: shape1[RecordField] -> shape2[RecordField],
   reshaperValues: shape1[RecordValue] -> shape2[RecordValue],
   getters: shape2[RecordGetter[shape2]],
-  traverse: (forall w1,w2. shape2[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape2[w2]),
-  record_to_list: (forall w. shape2[RecordRowEntry[w]] -> List[RowEntry[w]])
+  traverse: forall w1,w2. shape2[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape2[w2],
+  record_to_list: forall w. shape2[RecordRowEntry[w]] -> List[RowEntry[w]]
 )
-def restructure(RecordSet(fields, rows, getters): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> RestructureOutput[shape1, shape2]) -> RecordSet[shape2]:
-  RestructureOutput(reshaperF, reshaperV, new_getters, _, _) = f(getters)
-  RecordSet(reshaperF(fields), rows.map_List(reshaperV), new_getters)
+def restructure(RecordSet(fields, rows, getters, _): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> RestructureOutput[shape1, shape2]) -> RecordSet[shape2]:
+  RestructureOutput(reshaperF, reshaperV, new_getters, traverse, _) = f(getters)
+  RecordSet(reshaperF(fields), rows.map_List(reshaperV), new_getters, traverse)
 
-def concat_records(RecordSet(fields, rows, getters), more_rows):
-  RecordSet(fields, rows.concat(more_rows), getters)
+def concat_records(RecordSet(fields, rows, getters, traverse), more_rows):
+  RecordSet(fields, rows.concat(more_rows), getters, traverse)
 
 struct NilShape[w]
 struct PS[t,rest,w](left: w[t], right: rest[w])
 
-new_record_set = RecordSet(NilShape, [], NilShape)
+new_record_set = RecordSet(NilShape, [], NilShape, \NilShape,fn -> NilShape)
 
 def s(RecordGetter(f1, v1)):
   def traverse(PS(x, _), g):
