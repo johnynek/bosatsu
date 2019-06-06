@@ -17,7 +17,8 @@ struct RecordSet[shape](
   fields: shape[RecordField],
   rows: List[shape[RecordValue]],
   getters: shape[RecordGetter[shape]],
-  traverse: forall w1,w2. shape[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape[w2]
+  traverse: forall w1,w2. shape[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape[w2],
+  record_to_list: forall w. shape[RecordRowEntry[w]] -> List[RowEntry[w]]
 )
 
 def get(sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t]) -> t:
@@ -34,17 +35,17 @@ struct RestructureOutput[shape1, shape2](
   traverse: forall w1,w2. shape2[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape2[w2],
   record_to_list: forall w. shape2[RecordRowEntry[w]] -> List[RowEntry[w]]
 )
-def restructure(RecordSet(fields, rows, getters, _): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> RestructureOutput[shape1, shape2]) -> RecordSet[shape2]:
-  RestructureOutput(reshaperF, reshaperV, new_getters, traverse, _) = f(getters)
-  RecordSet(reshaperF(fields), rows.map_List(reshaperV), new_getters, traverse)
+def restructure(RecordSet(fields, rows, getters, _, _): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> RestructureOutput[shape1, shape2]) -> RecordSet[shape2]:
+  RestructureOutput(reshaperF, reshaperV, new_getters, traverse, record_to_list) = f(getters)
+  RecordSet(reshaperF(fields), rows.map_List(reshaperV), new_getters, traverse, record_to_list)
 
-def concat_records(RecordSet(fields, rows, getters, traverse), more_rows):
-  RecordSet(fields, rows.concat(more_rows), getters, traverse)
+def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), more_rows):
+  RecordSet(fields, rows.concat(more_rows), getters, traverse, record_to_list)
 
 struct NilShape[w]
 struct PS[t,rest,w](left: w[t], right: rest[w])
 
-new_record_set = RecordSet(NilShape, [], NilShape, \NilShape,fn -> NilShape)
+new_record_set = RecordSet(NilShape, [], NilShape, \NilShape,fn -> NilShape, \NilShape -> [])
 
 def s(RecordGetter(f1, v1)):
   def traverse(PS(x, _), g):
