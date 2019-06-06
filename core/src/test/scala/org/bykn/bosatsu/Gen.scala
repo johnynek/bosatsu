@@ -1,7 +1,8 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.rankn.NTypeGen
-import cats.data.NonEmptyList
+import cats.{Defer, Monad}
+import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import cats.implicits._
 
@@ -759,4 +760,163 @@ object Generators {
       Gen.oneOf(genGeneric, ann, lam, varGen, app, let, lit, matchGen)
     }
   }
+
+  private implicit val genMonad: Monad[Gen] with Defer[Gen] =
+    new Monad[Gen] with Defer[Gen] {
+      def pure[A](a: A): Gen[A] = Gen.const(a)
+      def defer[A](ga: => Gen[A]): Gen[A] = Gen.lzy(ga)
+      override def product[A, B](ga: Gen[A], gb: Gen[B]) = Gen.zip(ga, gb)
+      def flatMap[A, B](ga: Gen[A])(fn: A => Gen[B]) = ga.flatMap(fn)
+      override def map[A, B](ga: Gen[A])(fn: A => B): Gen[B] = ga.map(fn)
+      def tailRecM[A, B](a: A)(fn: A => Gen[Either[A, B]]): Gen[B] =
+        fn(a).flatMap {
+          case Left(a) =>
+            // TODO in the latest scalacheck, there is native tailRecM
+            // but we can't implement a safe one without using private details
+            tailRecM(a)(fn)
+          case Right(b) =>
+            Gen.const(b)
+        }
+    }
+
+  def shuffle[A](as: List[A]): Gen[List[A]] =
+    if (as.isEmpty) Gen.const(Nil)
+    else {
+      val size = as.size
+      def loop(idx: Int): Gen[List[Int]] =
+        if (idx >= size) Gen.const(Nil)
+        else
+          Gen.zip(Gen.choose(idx, size - 1), loop(idx + 1))
+            .map { case (h, tail) => h :: tail }
+
+      loop(0).map { swaps =>
+        val ary = as.toBuffer
+        swaps.zipWithIndex.foreach { case (targ, src) =>
+          val temp = ary(targ)
+          ary(targ) = ary(src)
+          ary(src) = temp
+        }
+        ary.toList
+      }
+    }
+
+  def genOnePackage[A](genA: Gen[A], existing: Map[PackageName, Package.Typed[A]]): Gen[Package.Typed[A]] = {
+    val genDeps: Gen[Map[PackageName, Package.Typed[A]]] =
+      Gen.frequency(
+        (5, Gen.const(Map.empty)), // usually have no deps, otherwise the graph gets enormous
+        (1, Gen.lzy(genOnePackage(genA, existing)).map { p => Map(p.name -> p) }), // make a new branch in the tree
+        (1, shuffle(existing.toList).map(_.take(2).toMap))
+      )
+
+    def impFromExp(exp: List[(Package.Interface, ExportedName[Referant[Variance]])]): Gen[List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]]] =
+      exp.groupBy(_._1)
+        .toList
+        .traverse { case (p, exps) =>
+          val genImps: Gen[List[ImportedName[NonEmptyList[Referant[Variance]]]]] =
+            exps.groupBy(_._2.name)
+              .iterator
+              .toList
+              .traverse { case (ident, exps) =>
+                // we know exps is non-empty because it is from a groupBy.
+                // note they all share an identifier also
+                val neExps = NonEmptyList.fromListUnsafe(exps.map(_._2.tag))
+                // the only thing to decide here
+                // is if we alias or not
+                val genImpName: Gen[Option[Identifier]] =
+                  ident match {
+                    case Identifier.Constructor(_) =>
+                      Gen.option(consIdentGen)
+                    case _ =>
+                      Gen.option(bindIdentGen)
+                  }
+
+                genImpName.map {
+                  case None =>
+                    ImportedName.OriginalName(ident, neExps)
+                  case Some(newName) =>
+                    ImportedName.Renamed(ident, newName, neExps)
+                }
+              }
+
+          genImps.map { is =>
+            Import(p, NonEmptyList.fromListUnsafe(is))
+          }
+        }
+
+    val genImports: Gen[List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]]] =
+      genDeps.flatMap { packs =>
+        val exps: List[(Package.Interface, ExportedName[Referant[Variance]])] =
+          (for {
+            (_, p) <- packs.iterator
+            exp <- p.exports
+          } yield (Package.interfaceOf(p), exp)).toList
+
+        for {
+          sexps <- shuffle(exps)
+          cnt <- Gen.choose(0, 5) // TODO, maybe import more...
+          imp <- impFromExp(sexps.take(cnt))
+        } yield imp
+      }
+
+    def genProg(
+      pn: PackageName,
+      imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]]): Gen[Program[rankn.TypeEnv[Variance], TypedExpr[A], Any]] =
+        Gen.const(Program(rankn.TypeEnv.empty, Nil, Nil, ()))
+
+    /*
+     * Exports are types, constructors, or values
+     */
+    def genExports(pn: PackageName, p: Program[rankn.TypeEnv[Variance], TypedExpr[A], Any]): Gen[List[ExportedName[Referant[Variance]]]] = {
+      def expnames: List[ExportedName[Referant[Variance]]] =
+        p.lets.map { case (n, _, te) =>
+          ExportedName.Binding(n, Referant.Value(te.getType))
+        }
+      def exts: List[ExportedName[Referant[Variance]]] =
+        p.externalDefs.flatMap { n =>
+          p.types.getValue(pn, n).map { t => ExportedName.Binding(n, Referant.Value(t)) }
+        }
+
+      def cons: List[ExportedName[Referant[Variance]]] =
+        p.types.allDefinedTypes.flatMap { dt =>
+          if (dt.packageName == pn) {
+            val dtex = ExportedName.TypeName(dt.name.ident, Referant.DefinedT(dt))
+            val cons = dt.constructors.map { case (c, p, t) =>
+              ExportedName.Constructor(c, Referant.Constructor(c, dt, p, t))
+            }
+
+            dtex :: cons
+          }
+          else Nil
+        }
+
+      for {
+        cnt <- Gen.choose(0, 5)
+        lst <- shuffle(expnames ::: exts ::: cons)
+      } yield lst.take(cnt)
+    }
+
+    for {
+      pn <- packageNameGen
+      imps <- genImports
+      prog <- genProg(pn, imps)
+      exps <- genExports(pn, prog)
+    } yield Package(pn, imps, exps, prog)
+  }
+
+  def genPackagesSt[A](genA: Gen[A], maxSize: Int): StateT[Gen, Map[PackageName, Package.Typed[A]], Unit] =
+    StateT.get[Gen, Map[PackageName, Package.Typed[A]]]
+      .flatMap { m =>
+        if (m.size >= maxSize) StateT.pure(())
+        else {
+          // make one more and try again
+          for {
+            p <- StateT.liftF[Gen, Map[PackageName, Package.Typed[A]], Package.Typed[A]](genOnePackage(genA, m))
+            _ <- StateT.set[Gen, Map[PackageName, Package.Typed[A]]](m.updated(p.name, p))
+            _ <- genPackagesSt(genA, maxSize)
+          } yield ()
+        }
+      }
+
+  def genPackage[A](genA: Gen[A], maxSize: Int): Gen[Map[PackageName, Package.Typed[A]]] =
+    genPackagesSt(genA, maxSize).runS(Map.empty)
 }

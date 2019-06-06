@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import _root_.bosatsu.{TypedAst => proto}
 import cats.Eq
 import org.bykn.bosatsu.rankn.Type
 import org.scalacheck.Gen
@@ -103,6 +104,18 @@ class TestProtoType extends FunSuite {
             l.sortBy(_.name.asString) == r
         }
       law(ifaces, ProtoConverter.interfacesToProto[List] _, ProtoConverter.interfacesFromProto _)(sortedEq)
+    }
+  }
+
+  test("we can roundtrip packages through proto") {
+    forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
+      val packList = packMap.toList.sortBy(_._1).map(_._2)
+      def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
+        p.traverse(ProtoConverter.packageToProto)
+      def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
+        ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) => p.sortBy(_.name) }
+
+      law(packList, ser _, deser _)(Eq.fromUniversalEquals)
     }
   }
 }

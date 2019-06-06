@@ -796,7 +796,7 @@ object ProtoConverter {
     (protoRef, exKind).mapN { case (ref, (idx, k)) => proto.ExportedName(k, idx, Some(ref)) }
   }
 
-  def packageDeps(strings: Array[String], dt: proto.DefinedType): List[String] =
+  private def packageDeps(strings: Array[String], dt: proto.DefinedType): List[String] =
     dt.typeConst match {
       case Some(tc) =>
         strings(tc.packageName - 1) :: Nil
@@ -1095,11 +1095,11 @@ object ProtoConverter {
 
     type Node = Either[proto.Interface, proto.Package]
     def iname(p: proto.Interface): String =
-      p.strings.lift(p.packageName)
+      p.strings.lift(p.packageName - 1)
         .getOrElse("_unknown_" + p.packageName.toString)
 
     def pname(p: proto.Package): String =
-      p.strings.lift(p.packageName)
+      p.strings.lift(p.packageName - 1)
         .getOrElse("_unknown_" + p.packageName.toString)
 
     def nodeName(n: Node): String =
