@@ -55,16 +55,13 @@ struct PS[t,rest,w](left: w[t], right: rest[w])
 
 new_record_set = RecordSet(NilShape, [], NilShape, \NilShape,fn -> NilShape, \NilShape -> [])
 
-def s(RecordGetter(f1, v1)):
-  def traverse(PS(x, _), g):
-    PS(g(x), NilShape)
-  RestructureOutput(
-    \x -> PS(f1(x),NilShape),
-    \x -> PS(v1(x),NilShape),
-    PS(RecordGetter(\PS(x, _) -> x, \PS(x, _) -> x), NilShape),
-    traverse,
-    \PS(RecordRowEntry(row_entry), _) -> [row_entry]
-  )
+(ps_end: forall t. RestructureOutput[t, NilShape]) = RestructureOutput(
+  \ns -> NilShape,
+  \ns -> NilShape,
+  NilShape,
+  \ns,fn -> NilShape,
+  \ns -> []
+)
 
 def ps(
   RecordGetter(fF, fV): RecordGetter[shape1, t],
@@ -121,11 +118,11 @@ def equal_rows(row1, row2):
 
 ##################################################
 
-rs_empty = new_record_set.restructure(\ns -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), s("Bool field".bool_field(\_ -> True)))))
+rs_empty = new_record_set.restructure(\ns -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), ps("Bool field".bool_field(\_ -> True), ps_end))))
 
 rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 
-rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, s("Plus 2".int_field( \r -> r.get(b).add(2) ))))))
+rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( \r -> r.get(b).add(2) ), ps_end)))))
 
 tests = Test("reordering",
   [
