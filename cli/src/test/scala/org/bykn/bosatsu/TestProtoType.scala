@@ -85,7 +85,7 @@ class TestProtoType extends FunSuite {
       } yield res
     }(Eq.fromUniversalEquals)
 
-    forAll(Generators.genTypedExpr(Gen.const(()), 4))(testFn)
+    forAll(Generators.genTypedExpr(Gen.const(()), 4, rankn.NTypeGen.genDepth03))(testFn)
   }
 
   test("we can roundtrip interface through proto") {

@@ -805,16 +805,18 @@ object ProtoConverter {
 
   def ifaceDeps(iface: proto.Interface): List[String] = {
     val ary = iface.strings.toArray
-    iface.definedTypes.toList.flatMap(packageDeps(ary, _)).distinct.sorted
+    val thisPack = ary(iface.packageName - 1)
+    iface.definedTypes.toList.flatMap(packageDeps(ary, _).filterNot(_ == thisPack)).distinct.sorted
   }
 
   def packageDeps(pack: proto.Package): List[String] = {
     val ary = pack.strings.toArray
+    val thisPack = ary(pack.packageName - 1)
     val dts = pack.definedTypes.toList.flatMap(packageDeps(ary, _))
     def getImp(imp: proto.Imports): String =
       ary(imp.packageName - 1)
     val imps: List[String] = pack.imports.map(getImp).toList
-    (dts ::: imps).distinct.sorted
+    (dts ::: imps).distinct.sorted.filterNot(_ == thisPack)
   }
 
   def interfaceToProto(iface: Package.Interface): Try[proto.Interface] = {
@@ -1137,7 +1139,7 @@ object ProtoConverter {
         .toList
         .sorted
 
-    lazy val sorted = graph.Toposort.sort(nodes)(dependsOn)
+    Try(graph.Toposort.sort(nodes)(dependsOn)) .flatMap { sorted =>
 
     if (dupNames.nonEmpty) {
       Failure(new Exception("duplicate package names: " + dupNames.mkString(", ")))
@@ -1224,6 +1226,7 @@ object ProtoConverter {
       // use the cached versions down here
       (ifaces.toList.traverse(deserIface),
         packs.toList.traverse(deserPack)).tupled
+    }
     }
   }
 }

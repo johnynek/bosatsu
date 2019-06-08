@@ -4,24 +4,27 @@ import org.scalacheck.Gen
 import org.bykn.bosatsu.Generators
 
 object NTypeGen {
-  val genRootType: Gen[Type] = {
-    val genConst =
-      Gen.zip(Generators.packageNameGen, Generators.typeNameGen)
-        .map { case (p, n) => Type.TyConst(Type.Const.Defined(p, n)) }
 
-    val genVar =
-      Generators.lowerIdent.map { v => Type.TyVar(Type.Var.Bound(v)) }
-
-    Gen.oneOf(genVar, genConst)
-  }
+  val genConst: Gen[Type.Const] =
+    Gen.zip(Generators.packageNameGen, Generators.typeNameGen)
+      .map { case (p, n) => Type.Const.Defined(p, n) }
 
   val genBound: Gen[Type.Var.Bound] =
     Generators.lowerIdent.map { v => Type.Var.Bound(v) }
 
-  def genDepth(d: Int): Gen[Type] =
-    if (d <= 0) genRootType
+  def genRootType(genC: Option[Gen[Type.Const]]): Gen[Type] = {
+    val b = genBound.map(Type.TyVar(_))
+    genC match {
+      case None => b
+      case Some(gc) =>
+        Gen.oneOf(gc.map(Type.TyConst(_)), b)
+    }
+  }
+
+  def genDepth(d: Int, genC: Option[Gen[Type.Const]]): Gen[Type] =
+    if (d <= 0) genRootType(genC)
     else {
-      val recurse = Gen.lzy(genDepth(d - 1))
+      val recurse = Gen.lzy(genDepth(d - 1, genC))
       val genForAll =
         for {
           c <- Gen.choose(1, 5)
@@ -35,5 +38,5 @@ object NTypeGen {
     }
 
 
-  val genDepth03: Gen[Type] = Gen.choose(0, 3).flatMap(genDepth(_))
+  val genDepth03: Gen[Type] = Gen.choose(0, 3).flatMap(genDepth(_, Some(genConst)))
 }

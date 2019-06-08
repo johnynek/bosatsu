@@ -662,7 +662,7 @@ object Generators {
     } yield Package(p, imports, exports, body)
 
 
-  def genDefinedType[A](p: PackageName, inner: Gen[A]): Gen[rankn.DefinedType[A]] =
+  def genDefinedType[A](p: PackageName, inner: Gen[A], genType: Gen[rankn.Type]): Gen[rankn.DefinedType[A]] =
     for {
       t <- typeNameGen
       params0 <- smallList(Gen.zip(NTypeGen.genBound, inner))
@@ -670,7 +670,7 @@ object Generators {
       genCons: Gen[(Identifier.Constructor, List[(Identifier.Bindable, rankn.Type)], rankn.Type)] =
         for {
           cons <- consIdentGen
-          ps <- smallList(Gen.zip(bindIdentGen, NTypeGen.genDepth03))
+          ps <- smallList(Gen.zip(bindIdentGen, genType))
           res = rankn.DefinedType.constructorValueType(p, t, params.map(_._1), ps.map(_._2))
         } yield (cons, ps, res)
       cons0 <- smallList(genCons)
@@ -678,7 +678,8 @@ object Generators {
     } yield rankn.DefinedType(p, t, params, cons)
 
   def typeEnvGen[A](p: PackageName, inner: Gen[A]): Gen[rankn.TypeEnv[A]] =
-    smallList(genDefinedType(p, inner)).map(rankn.TypeEnv.fromDefinitions(_))
+    smallList(genDefinedType(p, inner, NTypeGen.genDepth03))
+      .map(rankn.TypeEnv.fromDefinitions(_))
 
   def exportGen[A](te: rankn.TypeEnv[A]): Gen[ExportedName[Referant[A]]] = {
     def bind(genTpe: Gen[rankn.Type]) = for {
@@ -723,8 +724,8 @@ object Generators {
    * It is suitable for some tests, but it is not a valid output
    * of a typechecking process
    */
-  def genTypedExpr[A](genTag: Gen[A], depth: Int): Gen[TypedExpr[A]] = {
-    val recurse = Gen.lzy(genTypedExpr(genTag, depth - 1))
+  def genTypedExpr[A](genTag: Gen[A], depth: Int, typeGen: Gen[rankn.Type]): Gen[TypedExpr[A]] = {
+    val recurse = Gen.lzy(genTypedExpr(genTag, depth - 1, typeGen))
     val lit = Gen.zip(genLit, NTypeGen.genDepth03, genTag).map { case (l, tpe, tag) => TypedExpr.Literal(l, tpe, tag) }
     // only literal doesn't recurse
     if (depth <= 0) lit
@@ -734,19 +735,19 @@ object Generators {
           .map { case (vs, t, tag) => TypedExpr.Generic(vs, t, tag) }
 
       val ann =
-        Gen.zip(recurse, NTypeGen.genDepth03, genTag)
+        Gen.zip(recurse, typeGen, genTag)
           .map { case (te, tpe, tag) => TypedExpr.Annotation(te, tpe, tag) }
 
       val lam =
-        Gen.zip(bindIdentGen, NTypeGen.genDepth03, recurse, genTag)
+        Gen.zip(bindIdentGen, typeGen, recurse, genTag)
           .map { case (n, tpe, res, tag) => TypedExpr.AnnotatedLambda(n, tpe, res, tag) }
 
       val varGen =
-        Gen.zip(Gen.option(packageNameGen), identifierGen, NTypeGen.genDepth03, genTag)
+        Gen.zip(Gen.option(packageNameGen), identifierGen, typeGen, genTag)
           .map { case (op, n, t, tag) => TypedExpr.Var(op, n, t, tag) }
 
       val app =
-        Gen.zip(recurse, recurse, NTypeGen.genDepth03, genTag)
+        Gen.zip(recurse, recurse, typeGen, genTag)
           .map { case (fn, arg, tpe, tag) => TypedExpr.App(fn, arg, tpe, tag) }
 
       val let =
@@ -861,10 +862,65 @@ object Generators {
         } yield imp
       }
 
+    def definedTypesFromImp(i: Import[Package.Interface, NonEmptyList[Referant[Variance]]]): List[rankn.Type.Const] =
+      i.items.toList.flatMap { in =>
+        in.tag.toList.flatMap {
+          case Referant.DefinedT(dt) => dt.toTypeConst :: Nil
+          case Referant.Constructor(_, dt, _, _) => dt.toTypeConst :: Nil
+          case Referant.Value(_) => Nil
+        }
+      }
+
+    def genTypeEnv(pn: PackageName,
+      imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]]): StateT[Gen, (rankn.TypeEnv[Variance], Set[Identifier.Bindable]), Unit] =
+        StateT.get[Gen, (rankn.TypeEnv[Variance], Set[Identifier.Bindable])]
+          .flatMap { case (te, extDefs) =>
+            StateT.liftF(Gen.choose(0, 9))
+              .flatMap {
+                case 0 =>
+                  // 1 in 10 chance of stopping
+                  StateT.pure[Gen, (rankn.TypeEnv[Variance], Set[Identifier.Bindable]), Unit](())
+                case _ =>
+                  // add something:
+                  val tyconsts =
+                    te.allDefinedTypes.map(_.toTypeConst) ++
+                      imps.flatMap(definedTypesFromImp)
+                  val theseTypes = NTypeGen.genDepth(4, if (tyconsts.isEmpty) None else Some(Gen.oneOf(tyconsts)))
+                  val genV: Gen[Variance] =
+                    Gen.oneOf(Variance.co, Variance.contra, Variance.in, Variance.phantom)
+                  val genDT = genDefinedType(pn, genV, theseTypes)
+                  val genEx: Gen[(Identifier.Bindable, rankn.Type)] =
+                    Gen.zip(bindIdentGen, theseTypes)
+
+                  // we can do one of the following:
+                  // 1: add an external value
+                  // 2: add a defined type
+                  StateT.liftF(Gen.frequency(
+                    (5, genDT.map { dt => (te.addDefinedType(dt), extDefs) }),
+                    (1, genEx.map { case (b, t) => (te.addExternalValue(pn, b, t), extDefs + b) })))
+                    .flatMap(StateT.set(_))
+              }
+          }
+
+    def genLets(te: rankn.TypeEnv[Variance],
+      exts: Set[Identifier.Bindable]): Gen[List[(Identifier.Bindable, RecursionKind, TypedExpr[A])]] = {
+        val allTC = te.allDefinedTypes.map(_.toTypeConst)
+        val theseTypes = NTypeGen.genDepth(4, if (allTC.isEmpty) None else Some(Gen.oneOf(allTC)))
+        val oneLet = Gen.zip(bindIdentGen,
+          Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive),
+          genTypedExpr(genA, 4, theseTypes))
+
+        Gen.choose(0, 6).flatMap(Gen.listOfN(_, oneLet))
+      }
+
     def genProg(
       pn: PackageName,
       imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]]): Gen[Program[rankn.TypeEnv[Variance], TypedExpr[A], Any]] =
-        Gen.const(Program(rankn.TypeEnv.empty, Nil, Nil, ()))
+        genTypeEnv(pn, imps)
+          .runS((rankn.TypeEnv.empty, Set.empty))
+          .flatMap { case (te, b) =>
+            genLets(te, b).map(Program(te, _, b.toList.sorted, ()))
+          }
 
     /*
      * Exports are types, constructors, or values
