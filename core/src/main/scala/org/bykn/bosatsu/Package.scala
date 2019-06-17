@@ -95,6 +95,9 @@ object Package {
   def interfaceOf[A](inferred: Typed[A]): Interface =
     inferred.mapProgram(_ => ()).replaceImports(Nil)
 
+  def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
+    t.copy(program = t.program.copy(from = newFrom))
+
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
       val p = Doc.text("package ") + Document[PackageName].document(name) + Doc.line

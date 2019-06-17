@@ -123,7 +123,7 @@ export [bar]
 bar = 1
 """,
       ), "Foo", { (packs, _) =>
-      law(packs.toMap.values.toList.sortBy(_.name).map { pt => tf.void(pt) },
+      law(packs.toMap.values.toList.sortBy(_.name).map { pt => Package.setProgramFrom(tf.void(pt), ()) },
         ser _,
         deser _)(Eq.fromUniversalEquals)
     })

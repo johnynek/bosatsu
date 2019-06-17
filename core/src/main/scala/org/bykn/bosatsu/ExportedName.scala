@@ -29,7 +29,9 @@ sealed abstract class ExportedName[+T] { self: Product =>
        case ExportedName.TypeName(nm, _) =>
          // export the opaque type
          definedType.map { dt =>
-           NonEmptyList(ExportedName.TypeName(nm, Referant.DefinedT(dt.toOpaque)), Nil)
+           //TODO: this should be a toOpaque, but that breaks protodeserialization
+           //NonEmptyList(ExportedName.TypeName(nm, Referant.DefinedT(dt.toOpaque)), Nil)
+           NonEmptyList(ExportedName.TypeName(nm, Referant.DefinedT(dt)), Nil)
          }
        case ExportedName.Constructor(nm, _) =>
          // export the type and all constructors
