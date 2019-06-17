@@ -14,8 +14,8 @@ import Identifier.Constructor
 class TestProtoType extends FunSuite {
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+    //PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 5)
 
   def law[A: Eq, B](a: A, fn: A => Try[B], gn: B => Try[A]) = {
     val maybeProto = fn(a)
@@ -26,16 +26,17 @@ class TestProtoType extends FunSuite {
     assert(maybeBack.isSuccess, maybeBack.toString)
     val orig = maybeBack.get
 
-    // lazy val diffIdx =
-    //   a.toString
-    //     .zip(orig.toString)
-    //     .zipWithIndex
-    //     .dropWhile { case ((a, b), _) => a == b }
-    //     .headOption.map(_._2)
-    //     .getOrElse(0)
+    lazy val diffIdx =
+      a.toString
+        .zip(orig.toString)
+        .zipWithIndex
+        .dropWhile { case ((a, b), _) => a == b }
+        .headOption.map(_._2)
+        .getOrElse(0)
 
-    //assert(Eq[A].eqv(a, orig), s"${a.toString.drop(diffIdx).take(20)} != ${orig.toString.drop(diffIdx).take(20)}")
-    assert(Eq[A].eqv(a, orig))
+    val context = 100
+    assert(Eq[A].eqv(a, orig), s"${a.toString.drop(diffIdx - context/2).take(context)} != ${orig.toString.drop(diffIdx - context/2).take(context)}")
+    //assert(Eq[A].eqv(a, orig), s"$a\n\n!=\n\n$orig")
   }
 
 
@@ -107,15 +108,38 @@ class TestProtoType extends FunSuite {
     }
   }
 
-  test("we can roundtrip packages through proto") {
-    forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
-      val packList = packMap.toList.sortBy(_._1).map(_._2)
+  test("test some hand written packages") {
       def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
         p.traverse(ProtoConverter.packageToProto)
       def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
         ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) => p.sortBy(_.name) }
 
+    val tf = Package.typedFunctor
+    TestUtils.testInferred(List(
+"""package Foo
+
+export [bar]
+
+bar = 1
+""",
+      ), "Foo", { (packs, _) =>
+      law(packs.toMap.values.toList.sortBy(_.name).map { pt => tf.void(pt) },
+        ser _,
+        deser _)(Eq.fromUniversalEquals)
+    })
+  }
+
+  /*
+  test("we can roundtrip packages through proto") {
+    forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
+      def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
+        p.traverse(ProtoConverter.packageToProto)
+      def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
+        ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) => p.sortBy(_.name) }
+
+      val packList = packMap.toList.sortBy(_._1).map(_._2)
       law(packList, ser _, deser _)(Eq.fromUniversalEquals)
     }
   }
+  */
 }

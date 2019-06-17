@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Functor
 import cats.data.{ValidatedNel, Validated, NonEmptyList}
 import cats.implicits._
 import fastparse.all._
@@ -71,6 +72,16 @@ object Package {
     Referant[Variance],
     Program[TypeEnv[Variance], TypedExpr[T], Any]]
   type Inferred = Typed[Declaration]
+
+  val typedFunctor: Functor[Typed] =
+    new Functor[Typed] {
+      def map[A, B](fa: Typed[A])(fn: A => B): Typed[B] = {
+        val mapLet = fa.program.lets.map { case (n, r, te) =>
+          (n, r, Functor[TypedExpr].map(te)(fn))
+        }
+        fa.copy(program = fa.program.copy(lets = mapLet))
+      }
+    }
 
   def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
     Fix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](p)

@@ -263,9 +263,7 @@ object ProtoConverter {
           ds.tryString(i - 1, s"invalid string idx: $i in $p")
 
         def bindable(i: Int): Try[Bindable] =
-          str(i).flatMap { name =>
-            Try(Identifier.unsafeParse(Identifier.bindableParser, name))
-          }
+          str(i).flatMap(toBindable)
 
         p.value match {
           case Value.Empty => Failure(new Exception("invalid unset pattern"))
@@ -328,14 +326,10 @@ object ProtoConverter {
           ds.tryString(i - 1, s"invalid string idx: $i in $ex")
 
         def bindable(i: Int): Try[Bindable] =
-          str(i).flatMap { name =>
-            Try(Identifier.unsafeParse(Identifier.bindableParser, name))
-          }
+          str(i).flatMap(toBindable)
 
         def ident(i: Int): Try[Identifier] =
-          str(i).flatMap { name =>
-            Try(Identifier.unsafeParse(Identifier.parser, name))
-          }
+          str(i).flatMap(toIdent)
 
         def typeOf(i: Int): Try[Type] =
           ds.tryType(i - 1, s"invalid type id in $ex")
@@ -359,15 +353,9 @@ object ProtoConverter {
             (bindable(varName), typeOf(varTpe), exprOf(expr))
               .mapN(TypedExpr.AnnotatedLambda(_, _, _, ()))
           case Value.VarExpr(proto.VarExpr(pack, varname, tpe)) =>
-            val tryPack = if (pack == 0) Success(None)
-            else
-              str(pack).flatMap { pstr =>
-                PackageName.parse(pstr) match {
-                  case None =>
-                    Failure(new Exception(s"invalid package name: $pstr, in $ex"))
-                  case some => Success(some)
-                }
-              }
+            val tryPack =
+              if (pack == 0) Success(None)
+              else str(pack).flatMap(parsePack(_, s"expression: $ex")).map(Some(_))
 
             (tryPack, ident(varname), typeOf(tpe))
               .mapN(TypedExpr.Var(_, _, _, ()))
@@ -410,12 +398,7 @@ object ProtoConverter {
     }
 
   private def fullNameFromStr(pstr: String, tstr: String, context: => String): Try[(PackageName, Constructor)] =
-    parsePack(pstr, context).flatMap { pack =>
-      Try {
-        val cons = Identifier.unsafeParse(Identifier.consParser, tstr)
-        (pack, cons)
-      }
-    }
+    (parsePack(pstr, context), toConstructor(tstr)).tupled
 
   def typeConstFromStr(pstr: String, tstr: String, context: => String): Try[Type.Const.Defined] =
     fullNameFromStr(pstr, tstr, context).map { case (p, c) => Type.Const.Defined(p, TypeName(c)) }
@@ -719,7 +702,7 @@ object ProtoConverter {
     def fnParamFromProto(p: proto.FnParam): DTab[(Bindable, Type)] =
       for {
         name <- lookup(p.name, p.toString)
-        bn <- ReaderT.liftF(Try(Identifier.unsafeParse(Identifier.bindableParser, name)))
+        bn <- ReaderT.liftF(toBindable(name))
         tpe <- lookupType(p.typeOf, s"invalid type id: $p")
       } yield (bn, tpe)
 
@@ -729,7 +712,7 @@ object ProtoConverter {
       c: proto.ConstructorFn): DTab[(Identifier.Constructor, List[(Bindable, Type)], Type)] =
       lookup(c.name, c.toString)
         .flatMap { cname =>
-          ReaderT.liftF(Try(Identifier.unsafeParse(Identifier.consParser, cname)))
+          ReaderT.liftF(toConstructor(cname))
             .flatMap { cname =>
               //def
               c.params.toList.traverse(fnParamFromProto)
@@ -762,9 +745,17 @@ object ProtoConverter {
         allDts.get(key) match {
           case Some((_, idx)) =>
             tabPure(
-              proto.Referant(proto.Referant.Referant.DefinedTypePtr(idx + 1))
+              proto.Referant(proto.Referant.Referant.DefinedType(
+                proto.DefinedTypeReference(
+                  proto.DefinedTypeReference.Value.LocalDefinedTypePtr(idx + 1))))
             )
-          case None => tabFail(new Exception(s"missing defined type for $key in $r"))
+          case None =>
+            // this is a non-local defined type:
+            typeConstToProto(dt.toTypeConst).map { case tc =>
+              proto.Referant(proto.Referant.Referant.DefinedType(
+                proto.DefinedTypeReference(
+                  proto.DefinedTypeReference.Value.ImportedDefinedType(tc))))
+            }
         }
       case Referant.Constructor(nm, dt, _, _) =>
         val key = (dt.packageName, dt.name)
@@ -775,10 +766,22 @@ object ProtoConverter {
               tabPure(
                 proto.Referant(
                   proto.Referant.Referant.Constructor(
-                    proto.ConstructorPtr(dtIdx + 1, cIdx + 1))))
+                    proto.ConstructorReference(
+                      proto.ConstructorReference.Value.LocalConstructor(
+                        proto.ConstructorPtr(dtIdx + 1, cIdx + 1))))))
             }
             else tabFail(new Exception(s"missing contructor for type $key, $nm, with local: $dt"))
-          case None => tabFail(new Exception(s"missing defined type for $key in $r"))
+          case None =>
+            for {
+              pid <- getId(dt.packageName.asString)
+              tid <- getId(dt.name.ident.sourceCodeRepr)
+              cid <- getId(nm.sourceCodeRepr)
+            } yield
+                proto.Referant(
+                  proto.Referant.Referant.Constructor(
+                    proto.ConstructorReference(
+                      proto.ConstructorReference.Value.ImportedConstructor(
+                        proto.ImportedConstructor(pid, tid, cid)))))
         }
     }
 
@@ -844,30 +847,62 @@ object ProtoConverter {
     }
   }
 
-  private def referantFromProto(ref: proto.Referant): DTab[Referant[Variance]] =
+  private def referantFromProto(loadDT: Type.Const => Try[DefinedType[Variance]], ref: proto.Referant): DTab[Referant[Variance]] =
     ref.referant match {
       case proto.Referant.Referant.Value(t) =>
         lookupType(t, s"invalid type in $ref").map(Referant.Value(_))
-      case proto.Referant.Referant.DefinedTypePtr(idx) =>
-        lookupDts(idx, s"invalid defined type in $ref").map(Referant.DefinedT(_))
-      case proto.Referant.Referant.Constructor(proto.ConstructorPtr(dtIdx, cIdx)) =>
-        lookupDts(dtIdx, s"invalid defined type in $ref").flatMap { dt =>
-          // cIdx is 1 based:
-          val fixedIdx = cIdx - 1
-          ReaderT.liftF(dt.constructors.get(fixedIdx.toLong) match {
-            case None =>
-              Failure(new Exception(s"invalid constructor index: $cIdx in: $dt"))
-            case Some((c, a, t)) =>
-              Success(Referant.Constructor(c, dt, a, t))
-          })
+      case proto.Referant.Referant.DefinedType(proto.DefinedTypeReference(dt)) =>
+        dt match {
+          case proto.DefinedTypeReference.Value.LocalDefinedTypePtr(idx) =>
+            lookupDts(idx, s"invalid defined type in $ref")
+              .map(Referant.DefinedT(_))
+          case proto.DefinedTypeReference.Value.ImportedDefinedType(tc) =>
+            typeConstFromProto(tc)
+              .flatMapF(loadDT)
+              .map(Referant.DefinedT(_))
+          case proto.DefinedTypeReference.Value.Empty =>
+            ReaderT.liftF(Failure(new Exception(s"empty referant found: $ref")))
+        }
+      case proto.Referant.Referant.Constructor(proto.ConstructorReference(consRef)) =>
+        consRef match {
+          case proto.ConstructorReference.Value.LocalConstructor(proto.ConstructorPtr(dtIdx, cIdx)) =>
+            lookupDts(dtIdx, s"invalid defined type in $ref").flatMap { dt =>
+              // cIdx is 1 based:
+              val fixedIdx = cIdx - 1
+              ReaderT.liftF(dt.constructors.get(fixedIdx.toLong) match {
+                case None =>
+                  Failure(new Exception(s"invalid constructor index: $cIdx in: $dt"))
+                case Some((c, a, t)) =>
+                  Success(Referant.Constructor(c, dt, a, t))
+              })
+            }
+          case proto.ConstructorReference.Value.ImportedConstructor(proto.ImportedConstructor(packId, typeId, consId)) =>
+            (lookup(packId, s"imported constructor package in $ref"),
+              lookup(typeId, s"imported constructor typename in $ref"),
+              lookup(consId, s"imported constructor name in $ref"))
+              .tupled
+              .flatMapF { case (p, t, c) =>
+                for {
+                  tc <- typeConstFromStr(p, t, s"in $ref decoding ($p, $t)")
+                  dt <- loadDT(tc)
+                  cons <- toConstructor(c)
+                  idx = dt.constructors.indexWhere { case (c, _, _) => c == cons }
+                  _ <- if (idx < 0) Failure(new Exception(s"invalid constuctor name: $cons for $dt")) else Success(())
+                  (_, a, t) = dt.constructors(idx)
+                } yield Referant.Constructor(cons, dt, a, t)
+              }
+          case proto.ConstructorReference.Value.Empty =>
+            ReaderT.liftF(Failure(new Exception(s"empty referant found: $ref")))
         }
       case proto.Referant.Referant.Empty =>
         ReaderT.liftF(Failure(new Exception(s"empty referant found: $ref")))
     }
 
-  private def exportedNameFromProto(en: proto.ExportedName): DTab[ExportedName[Referant[Variance]]] = {
+  private def exportedNameFromProto(
+    loadDT: Type.Const => Try[DefinedType[Variance]],
+    en: proto.ExportedName): DTab[ExportedName[Referant[Variance]]] = {
     val tryRef: DTab[Referant[Variance]] = en.referant match {
-      case Some(r) => referantFromProto(r)
+      case Some(r) => referantFromProto(loadDT, r)
       case None => ReaderT.liftF(Failure(new Exception(s"missing referant in $en")))
     }
 
@@ -875,11 +910,17 @@ object ProtoConverter {
       .flatMapF { case (ref, n) =>
         en.exportKind match {
           case proto.ExportKind.Binding =>
-            Try(ExportedName.Binding(Identifier.unsafeParse(Identifier.bindableParser, n), ref))
+            toBindable(n).map { n =>
+              ExportedName.Binding(n, ref)
+            }
           case proto.ExportKind.TypeName =>
-            Try(ExportedName.TypeName(Identifier.unsafeParse(Identifier.consParser, n), ref))
+            toConstructor(n).map { c =>
+              ExportedName.TypeName(c, ref)
+            }
           case proto.ExportKind.ConstructorName =>
-            Try(ExportedName.Constructor(Identifier.unsafeParse(Identifier.consParser, n), ref))
+            toConstructor(n).map { c =>
+              ExportedName.Constructor(c, ref)
+            }
           case proto.ExportKind.Unrecognized(idx) =>
            Failure(new Exception(s"unknown export kind: $idx in $en"))
         }
@@ -905,11 +946,14 @@ object ProtoConverter {
   }
 
   def interfaceFromProto(protoIface: proto.Interface): Try[Package.Interface] = {
+    val loadDT: Type.Const => Try[DefinedType[Variance]] = { tc =>
+      Failure(new Exception(s"could not load $tc loading an interface"))
+    }
     val tab: DTab[Package.Interface] =
       for {
         packageName <- lookup(protoIface.packageName, protoIface.toString)
         pn <- ReaderT.liftF(parsePack(packageName, s"interface: $protoIface"))
-        exports <- protoIface.exports.toList.traverse(exportedNameFromProto)
+        exports <- protoIface.exports.toList.traverse(exportedNameFromProto(loadDT, _))
       } yield Package(pn, Nil, exports, ())
 
     // build up the decoding state by decoding the tables in order
@@ -1022,19 +1066,29 @@ object ProtoConverter {
     runTab(tab).map { case (ss, fn) => fn(ss) }
   }
 
+  private val anonBind: Success[Bindable] =
+    Success(Identifier.Name("$anon"))
+
+  def toBindable(str: String): Try[Bindable] =
+    if (str == "$anon") anonBind // used in Expr to create some lambdas with pattern match
+    else Try(Identifier.unsafeParse(Identifier.bindableParser, str))
+
+  def toIdent(str: String): Try[Identifier] =
+    if (str == "$anon") anonBind
+    else Try(Identifier.unsafeParse(Identifier.parser, str))
+
+  def toConstructor(str: String): Try[Identifier.Constructor] =
+    Try(Identifier.unsafeParse(Identifier.consParser, str))
+
   def lookupBindable(idx: Int, context: => String): DTab[Bindable] =
-    lookup(idx, context)
-      .flatMapF { n =>
-        Try(Identifier.unsafeParse(Identifier.bindableParser, n))
-      }
+    lookup(idx, context).flatMapF(toBindable)
 
   def lookupIdentifier(idx: Int, context: => String): DTab[Identifier] =
-    lookup(idx, context)
-      .flatMapF { n =>
-        Try(Identifier.unsafeParse(Identifier.parser, n))
-      }
+    lookup(idx, context).flatMapF(toIdent)
 
-  def importedNameFromProto(iname: proto.ImportedName): DTab[ImportedName[NonEmptyList[Referant[Variance]]]] = {
+  def importedNameFromProto(
+    loadDT: Type.Const => Try[DefinedType[Variance]],
+    iname: proto.ImportedName): DTab[ImportedName[NonEmptyList[Referant[Variance]]]] = {
     def build[A](orig: Identifier, ref: A): DTab[ImportedName[A]] =
       if (iname.localName == 0) {
         ReaderT.pure(ImportedName.OriginalName(originalName = orig, ref))
@@ -1049,14 +1103,15 @@ object ProtoConverter {
       case Some(refs) =>
         for {
           orig <- lookupIdentifier(iname.originalName, iname.toString)
-          rs <- refs.traverse(referantFromProto)
+          rs <- refs.traverse(referantFromProto(loadDT, _))
           in <- build(orig, rs)
         } yield in
     }
   }
 
   def importsFromProto(imp: proto.Imports,
-    lookupIface: PackageName => Try[Package.Interface]): DTab[Import[Package.Interface, NonEmptyList[Referant[Variance]]]] =
+    lookupIface: PackageName => Try[Package.Interface],
+    loadDT: Type.Const => Try[DefinedType[Variance]]): DTab[Import[Package.Interface, NonEmptyList[Referant[Variance]]]] =
     NonEmptyList.fromList(imp.names.toList) match {
       case None => ReaderT.liftF(Failure(new Exception(s"expected non-empty import names in: $imp")))
       case Some(nei) =>
@@ -1064,7 +1119,7 @@ object ProtoConverter {
           pnameStr <- lookup(imp.packageName, imp.toString)
           pname <- ReaderT.liftF(parsePack(pnameStr, imp.toString))
           iface <- ReaderT.liftF(lookupIface(pname))
-          inames <- nei.traverse(importedNameFromProto)
+          inames <- nei.traverse(importedNameFromProto(loadDT, _))
         } yield Import(iface, inames)
     }
 
@@ -1139,7 +1194,7 @@ object ProtoConverter {
         .toList
         .sorted
 
-    Try(graph.Toposort.sort(nodes)(dependsOn)) .flatMap { sorted =>
+    Try(graph.Toposort.sort(nodes)(dependsOn)).flatMap { sorted =>
 
     if (dupNames.nonEmpty) {
       Failure(new Exception("duplicate package names: " + dupNames.mkString(", ")))
@@ -1174,12 +1229,23 @@ object ProtoConverter {
           }
         }
 
+        val loadDT: Type.Const => Try[DefinedType[Variance]] = { case tc@Type.Const.Defined(p, n) =>
+          load(p.asString).flatMap {
+            case Left(iface) => ???
+            case Right(comp) =>
+              comp.program.types.toDefinedType(tc) match {
+                case None => Failure(new Exception(s"unknown type $tc not present"))
+                case Some(dt) => Success(dt)
+              }
+          }
+        }
+
         val tab: DTab[Package.Typed[Unit]] =
           for {
             packageNameStr <- lookup(pack.packageName, pack.toString)
             packageName <- ReaderT.liftF(parsePack(packageNameStr, pack.toString))
-            imps <- pack.imports.toList.traverse(importsFromProto(_, loadIface))
-            exps <- pack.exports.toList.traverse(exportedNameFromProto)
+            imps <- pack.imports.toList.traverse(importsFromProto(_, loadIface, loadDT))
+            exps <- pack.exports.toList.traverse(exportedNameFromProto(loadDT, _))
             lets <- pack.lets.toList.traverse(letsFromProto)
             eds <- pack.externalDefs.toList.traverse(externalDefsFromProto)
             prog <- buildProgram(packageName, lets, eds)
