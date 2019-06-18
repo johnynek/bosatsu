@@ -113,8 +113,7 @@ def equal_RowEntry(re1, re2):
     (REString(RecordValue(x1)), REString(RecordValue(x2))): string_Order_fn.equals(x1, x2)
     _: False
 
-def equal_rows(row1, row2):
-  equal_RowEntry.equal_List(row1, row2)
+equal_rows = equal_List(equal_RowEntry)
 
 ##################################################
 
