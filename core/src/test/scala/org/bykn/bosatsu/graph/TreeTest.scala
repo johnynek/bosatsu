@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.graph
 
-import cats.data.Validated
+import cats.data.{NonEmptyList, Validated}
 import org.scalacheck.Gen
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.forAll
@@ -73,6 +73,34 @@ class TreeTest extends FunSuite {
 
       assert(reachable(Set(start)).toList.sorted == cycles.head.toList)
       assert(Tree.dagToTree(start)(nfn).isInvalid)
+    }
+  }
+
+  test("distinctBy matches distinct") {
+    forAll { (h: Int, tail: List[Int]) =>
+      val nel = NonEmptyList(h, tail)
+      assert(Tree.distinctBy(nel)(identity).toList == (h :: tail).distinct)
+    }
+  }
+
+  test("if everything is the same, we keep the first item, in distinctBy") {
+    forAll { (h: Int, tail: List[Int]) =>
+      val nel = NonEmptyList(h, tail)
+      assert(Tree.distinctBy(nel)(Function.const(1)).toList == (h :: Nil))
+    }
+  }
+
+  test("distinctBy concat law") {
+    forAll { (h0: Int, tail0: List[Int], l1: List[Int]) =>
+      val nel0 = NonEmptyList(h0, tail0)
+      // filter all items in nel1 that are in nel0
+      NonEmptyList.fromList(l1.filterNot(nel0.toList.toSet)) match {
+        case None => succeed
+        case Some(diffs) =>
+          val got = Tree.distinctBy(nel0)(identity) ::: Tree.distinctBy(diffs)(identity)
+          val expected = Tree.distinctBy(nel0 ::: diffs)(identity)
+          assert(got == expected)
+      }
     }
   }
 }
