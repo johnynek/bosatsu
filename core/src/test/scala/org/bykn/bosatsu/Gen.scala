@@ -320,8 +320,11 @@ object Generators {
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
   }
 
-  def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern.Parsed] = {
-    val recurse = Gen.lzy(genPattern(depth - 1, useUnion))
+  def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern.Parsed] =
+    genPatternGen(Gen.option(consIdentGen), typeRefGen, depth, useUnion, useAnnotation = false)
+
+  def genPatternGen[N, T](genName: Gen[N], genT: Gen[T], depth: Int, useUnion: Boolean, useAnnotation: Boolean): Gen[Pattern[N, T]] = {
+    val recurse = Gen.lzy(genPatternGen(genName, genT, depth - 1, useUnion, useAnnotation))
     val genVar = bindIdentGen.map(Pattern.Var(_))
     val genWild = Gen.const(Pattern.WildCard)
     val genLitPat = genLit.map(Pattern.Literal(_))
@@ -329,16 +332,16 @@ object Generators {
     if (depth <= 0) Gen.oneOf(genVar, genWild, genLitPat)
     else {
       val genNamed = Gen.zip(bindIdentGen, recurse).map { case (n, p) => Pattern.Named(n, p) }
-      val genTyped = Gen.zip(recurse, typeRefGen)
+      val genTyped = Gen.zip(recurse, genT)
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
       val genStruct =  for {
-        nm <- Gen.option(consIdentGen)
+        nm <- genName
         cnt <- Gen.choose(0, 6)
         args <- Gen.listOfN(cnt, recurse)
       } yield Pattern.PositionalStruct(nm, args)
 
-      def makeOneSplice(ps: List[Either[Option[Identifier.Bindable], Pattern.Parsed]]) = {
+      def makeOneSplice(ps: List[Either[Option[Identifier.Bindable], Pattern[N, T]]]) = {
         val sz = ps.size
         if (sz == 0) Gen.const(ps)
         else Gen.choose(0, sz - 1).flatMap { idx =>
@@ -350,7 +353,7 @@ object Generators {
         }
       }
 
-      val genListItem: Gen[Either[Option[Identifier.Bindable], Pattern.Parsed]] =
+      val genListItem: Gen[Either[Option[Identifier.Bindable], Pattern[N, T]]] =
         recurse.map(Right(_))
 
       val genList = Gen.choose(0, 5)
@@ -371,10 +374,18 @@ object Generators {
             Pattern.Union(h0, NonEmptyList(h1, tail))
         }
 
-      if (useUnion) Gen.oneOf(genVar, genWild, genNamed, genLitPat, genStruct, genList, genUnion /*, genTyped */)
-      else Gen.oneOf(genVar, genWild, genNamed, genLitPat, genStruct, genList/*, genTyped */)
+      val tailGens =
+        List(genVar, genWild, genNamed, genLitPat, genStruct, genList)
+
+      val withU = if (useUnion) genUnion :: tailGens else tailGens
+      val withT = (if (useAnnotation) genTyped :: withU else withU).toArray
+      val len = withT.size
+      Gen.choose(0, len - 1).flatMap(withT(_))
     }
   }
+
+  def genCompiledPattern(depth: Int): Gen[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] =
+    genPatternGen(Gen.zip(packageNameGen, consIdentGen), NTypeGen.genDepth03, depth, useUnion = true, useAnnotation = true)
 
   def matchGen(bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
     import Declaration._
@@ -705,4 +716,47 @@ object Generators {
       exs0 <- smallList(exportGen(te))
       exs = exs0.map { ex => (ex.name, ex) }.toMap.values.toList // don't duplicate exported names
     } yield Package(p, Nil, exs, ())
+
+  /**
+   * This is a totally random, and not well typed expression.
+   * It is suitable for some tests, but it is not a valid output
+   * of a typechecking process
+   */
+  def genTypedExpr[A](genTag: Gen[A], depth: Int): Gen[TypedExpr[A]] = {
+    val recurse = Gen.lzy(genTypedExpr(genTag, depth - 1))
+    val lit = Gen.zip(genLit, NTypeGen.genDepth03, genTag).map { case (l, tpe, tag) => TypedExpr.Literal(l, tpe, tag) }
+    // only literal doesn't recurse
+    if (depth <= 0) lit
+    else {
+      val genGeneric =
+        Gen.zip(Generators.nonEmpty(NTypeGen.genBound), recurse, genTag)
+          .map { case (vs, t, tag) => TypedExpr.Generic(vs, t, tag) }
+
+      val ann =
+        Gen.zip(recurse, NTypeGen.genDepth03, genTag)
+          .map { case (te, tpe, tag) => TypedExpr.Annotation(te, tpe, tag) }
+
+      val lam =
+        Gen.zip(bindIdentGen, NTypeGen.genDepth03, recurse, genTag)
+          .map { case (n, tpe, res, tag) => TypedExpr.AnnotatedLambda(n, tpe, res, tag) }
+
+      val varGen =
+        Gen.zip(Gen.option(packageNameGen), identifierGen, NTypeGen.genDepth03, genTag)
+          .map { case (op, n, t, tag) => TypedExpr.Var(op, n, t, tag) }
+
+      val app =
+        Gen.zip(recurse, recurse, NTypeGen.genDepth03, genTag)
+          .map { case (fn, arg, tpe, tag) => TypedExpr.App(fn, arg, tpe, tag) }
+
+      val let =
+        Gen.zip(bindIdentGen, recurse, recurse, Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive), genTag)
+          .map { case (n, ex, in, rec, tag) => TypedExpr.Let(n, ex, in, rec, tag) }
+
+      val matchGen =
+        Gen.zip(recurse, Gen.choose(1, 4).flatMap(nonEmptyN(Gen.zip(genCompiledPattern(depth), recurse), _)), genTag)
+          .map { case (arg, branches, tag) => TypedExpr.Match(arg, branches, tag) }
+
+      Gen.oneOf(genGeneric, ann, lam, varGen, app, let, lit, matchGen)
+    }
+  }
 }

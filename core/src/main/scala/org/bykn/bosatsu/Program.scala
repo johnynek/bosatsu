@@ -7,7 +7,12 @@ import scala.collection.immutable.SortedSet
 
 import Identifier.{Bindable, Constructor}
 
-case class Program[T, D, S](types: T, lets: List[(Bindable, RecursionKind, D)], from: S) {
+case class Program[T, D, +S](
+  types: T,
+  lets: List[(Bindable, RecursionKind, D)],
+  externalDefs: List[Bindable],
+  from: S) {
+
   private[this] lazy val letMap: Map[Bindable, (RecursionKind, D)] =
     lets.iterator.map { case (n, r, d) => (n, (r, d)) }.toMap
 
@@ -128,11 +133,11 @@ object Program {
     def loop(s: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] =
       s match {
         case Bind(BindingStatement(bound, decl, Padding(_, rest))) =>
-          val Program(te, binds, _) = loop(rest)
+          val Program(te, binds, exts, _) = loop(rest)
           val pat = Declaration.unTuplePattern(bound, nameToType, nameToCons)
           val binds1 = bindings(pat, declToE(decl))
           val nonRec = binds1.toList.map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
-          Program(te, nonRec ::: binds, stmt)
+          Program(te, nonRec ::: binds, exts, stmt)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
         case Def(defstmt@DefStatement(_, _, _, _)) =>
@@ -140,10 +145,10 @@ object Program {
           val lam = defstmt.toLambdaExpr({ res => declToE(res._1.get) },
             defstmt.result._1.get)(Declaration.unTuplePattern(_, nameToType, nameToCons), _.toType(nameToType))
 
-          val Program(te, binds, _) = defstmt.result match {
+          val Program(te, binds, exts, _) = defstmt.result match {
             case (_, Padding(_, in)) => loop(in)
           }
-          Program(te, (defstmt.name, RecursionKind.Recursive, lam) :: binds, stmt)
+          Program(te, (defstmt.name, RecursionKind.Recursive, lam) :: binds, exts, stmt)
         case s@Struct(_, _, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = defToT(p.types, s), from = s)
@@ -167,12 +172,15 @@ object Program {
           }
           val maybeForAll = rankn.Type.forAll(freeBound, tpe)
           val p = loop(rest)
-          p.copy(types = p.types.addExternalValue(pn0, name, maybeForAll), from = s)
+          p.copy(
+            types = p.types.addExternalValue(pn0, name, maybeForAll),
+            externalDefs = name :: p.externalDefs,
+            from = s)
         case x@ExternalStruct(_, _, Padding(_, rest)) =>
           val p = loop(rest)
           p.copy(types = defToT(p.types, x), from = x)
         case EndOfFile =>
-          Program(ParsedTypeEnv.empty[Unit], Nil, EndOfFile)
+          Program(ParsedTypeEnv.empty[Unit], Nil, Nil, EndOfFile)
       }
 
     loop(stmt)

@@ -128,16 +128,29 @@ sealed abstract class Declaration {
         case ao@ApplyOp(left, op, right) =>
           val opVar: Expr[Declaration] = Expr.Var(None, op, ao.opVar)
           Expr.buildApp(opVar, loop(left) :: loop(right) :: Nil, decl)
-        case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
-          pat match {
-            case Pattern.Var(arg) =>
-              Expr.Let(arg, loop(value), loop(rest), RecursionKind.NonRecursive, decl)
-            case pat =>
-              val newPattern = unTuplePattern(pat, nameToType, nameToCons)
-              val res = loop(rest)
-              val expBranches = NonEmptyList.of((newPattern, res))
-              Expr.Match(loop(value), expBranches, decl)
-          }
+        case Binding(BindingStatement(pat, value, prest@Padding(_, rest))) =>
+          val erest = loop(rest)
+
+          def solvePat(pat: Pattern.Parsed, rhs: Expr[Declaration]): Expr[Declaration] =
+            pat match {
+              case Pattern.Var(arg) =>
+                Expr.Let(arg, rhs, erest, RecursionKind.NonRecursive, decl)
+              case Pattern.Annotation(pat, tpe) =>
+                val realTpe = tpe.toType(nameToType)
+                // move the annotation to the right
+                val newRhs = Expr.Annotation(rhs, realTpe, decl)
+                solvePat(pat, newRhs)
+              case Pattern.Named(nm, p) =>
+                 // this is the same as creating a let nm = value first
+                 val inner = solvePat(p, rhs)
+                 Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
+              case pat =>
+                val newPattern = unTuplePattern(pat, nameToType, nameToCons)
+                val expBranches = NonEmptyList.of((newPattern, erest))
+                Expr.Match(rhs, expBranches, decl)
+            }
+
+          solvePat(pat, loop(value))
         case Comment(CommentStatement(_, Padding(_, decl))) =>
           loop(decl).map(_ => decl)
         case DefFn(defstmt@DefStatement(_, _, _, _)) =>
