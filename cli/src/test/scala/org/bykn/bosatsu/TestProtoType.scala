@@ -14,17 +14,21 @@ import Identifier.Constructor
 class TestProtoType extends FunSuite {
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 500)
-    PropertyCheckConfiguration(minSuccessful = 5)
+    PropertyCheckConfiguration(minSuccessful = 500)
+    //PropertyCheckConfiguration(minSuccessful = 5)
 
   def law[A: Eq, B](a: A, fn: A => Try[B], gn: B => Try[A]) = {
     val maybeProto = fn(a)
     assert(maybeProto.isSuccess, maybeProto.toString)
     val proto = maybeProto.get
 
-    val maybeBack = gn(proto)
-    assert(maybeBack.isSuccess, maybeBack.toString)
-    val orig = maybeBack.get
+    val orig = gn(proto) match {
+      case Success(o) => o
+      case Failure(err) =>
+        err.printStackTrace
+        fail(s"expected to deserialize: $err")
+        sys.error(s"could not deserialize: $err")
+    }
 
     lazy val diffIdx =
       a.toString
@@ -121,7 +125,7 @@ class TestProtoType extends FunSuite {
 export [bar]
 
 bar = 1
-""",
+"""
       ), "Foo", { (packs, _) =>
       law(packs.toMap.values.toList.sortBy(_.name).map { pt => Package.setProgramFrom(tf.void(pt), ()) },
         ser _,
@@ -129,7 +133,6 @@ bar = 1
     })
   }
 
-  /*
   test("we can roundtrip packages through proto") {
     forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
       def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
@@ -141,5 +144,4 @@ bar = 1
       law(packList, ser _, deser _)(Eq.fromUniversalEquals)
     }
   }
-  */
 }

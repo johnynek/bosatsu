@@ -27,10 +27,7 @@ sealed abstract class ExportedName[+T] { self: Product =>
            NonEmptyList(ExportedName.Binding(n, Referant.Value(tpe)), Nil)
          }
        case ExportedName.TypeName(nm, _) =>
-         // export the opaque type
          definedType.map { dt =>
-           //TODO: this should be a toOpaque, but that breaks protodeserialization
-           //NonEmptyList(ExportedName.TypeName(nm, Referant.DefinedT(dt.toOpaque)), Nil)
            NonEmptyList(ExportedName.TypeName(nm, Referant.DefinedT(dt)), Nil)
          }
        case ExportedName.Constructor(nm, _) =>
@@ -104,8 +101,7 @@ object ExportedName {
        val optDT =
          name.toConstructor
            .flatMap { cn =>
-             typeEnv
-             .getType(nm, org.bykn.bosatsu.TypeName(cn))
+             typeEnv.getType(nm, org.bykn.bosatsu.TypeName(cn))
            }
 
        ename.toReferants(letValue, optDT)

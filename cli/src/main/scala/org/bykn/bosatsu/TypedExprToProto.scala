@@ -827,8 +827,12 @@ object ProtoConverter {
       iface.exports.flatMap { ex =>
         ex.tag match {
           case Referant.Value(_) => Nil
-          case Referant.DefinedT(dt) => dt :: Nil
+          case Referant.DefinedT(dt) =>
+            if (dt.packageName == iface.name) dt :: Nil
+            else Nil
           case Referant.Constructor(_, dt, _, _) => dt :: Nil
+            if (dt.packageName == iface.name) dt :: Nil
+            else Nil
         }
       }).mapWithIndex { (dt, idx) => (dt, idx) }
 
@@ -1138,6 +1142,8 @@ object ProtoConverter {
     exts: List[(Bindable, Type)]): DTab[Program[TypeEnv[Variance], TypedExpr[Unit], Unit]] =
     ReaderT.ask[Try, DecodeState]
       .map { ds =>
+        // this adds all the types and contructors
+        // from the given defined types
         val te0: TypeEnv[Variance] =
           TypeEnv.fromDefinitions(ds.getDefinedTypes)
         val te = exts.foldLeft(te0) { case (te, (b, t)) =>

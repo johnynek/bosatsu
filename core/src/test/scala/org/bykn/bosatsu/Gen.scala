@@ -808,7 +808,6 @@ object Generators {
     val genDeps: Gen[Map[PackageName, Package.Typed[A]]] =
       Gen.frequency(
         (5, Gen.const(Map.empty)), // usually have no deps, otherwise the graph gets enormous
-        (1, Gen.lzy(genOnePackage(genA, existing)).map { p => Map(p.name -> p) }), // make a new branch in the tree
         (1, shuffle(existing.toList).map(_.take(2).toMap))
       )
 
@@ -896,7 +895,7 @@ object Generators {
                   // 1: add an external value
                   // 2: add a defined type
                   StateT.liftF(Gen.frequency(
-                    (5, genDT.map { dt => (te.addDefinedType(dt), extDefs) }),
+                    (5, genDT.map { dt => (te.addDefinedTypeAndConstructors(dt), extDefs) }),
                     (1, genEx.map { case (b, t) => (te.addExternalValue(pn, b, t), extDefs + b) })))
                     .flatMap(StateT.set(_))
               }
