@@ -18,6 +18,26 @@ sealed abstract class NormalExpression {
    * or there are no lambda variables used in the linked expressions
    */
   def maxLambdaVar: Option[Int]
+
+  def serialize(hf: String => String): String = {
+    def escapeString(unescaped: String) = unescaped.replaceAll("""([\\'])""", """\\$1""")
+    hf(this match {
+      case NormalExpression.App(fn, arg) => s"App(${fn.serialize(hf)},${arg.serialize(hf)})"
+      case NormalExpression.ExternalVar(pack, defName) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}')"
+      case NormalExpression.Match(arg, branches) => {
+        val serBranches = branches.toList.map {case (np, ne) => s"${np.serialize},${ne.serialize(hf)}"}.mkString(",")
+        s"Match(${arg.serialize(hf)},$serBranches)"
+      }
+      case NormalExpression.LambdaVar(index) => s"LambdaVar($index)"
+      case NormalExpression.Lambda(expr) => s"Lambda(${expr.serialize(hf)})"
+      case NormalExpression.Struct(enum, args) => s"Struct($enum,${args.map(_.serialize(hf)).mkString(",")})"
+      case NormalExpression.Literal(toLit) => toLit match {
+        case Lit.Str(toStr) => s"Literal('${escapeString(toStr)}')"
+        case Lit.Integer(bigInt) => s"Literal($bigInt)"
+      }
+      case NormalExpression.Recursion(lambda) => s"Recursion(${lambda.serialize(hf)})"
+    })
+  }
 }
 
 object NormalExpression {
@@ -64,7 +84,29 @@ object NormalExpression {
   }
 }
 
-sealed abstract class NormalPattern {}
+sealed abstract class NormalPattern {
+  def escapeString(unescaped: String) = unescaped.replaceAll("""([\\'])""", """\\$1""")
+  def serialize: String = {
+    this match {
+      case NormalPattern.WildCard => "WildCard"
+      case NormalPattern.Literal(toLit) => toLit match {
+        case Lit.Str(toStr) => s"Literal('${escapeString(toStr)}')"
+        case Lit.Integer(bigInt) => s"Literal($bigInt)"
+      }
+      case NormalPattern.Var(name) => s"Var($name)"
+      case NormalPattern.Named(name, pat) => s"Named($name,${pat.serialize})"
+      case NormalPattern.ListPat(parts) => {
+        val inside = parts.map {
+          case Left(name) => s"Left(${name.map(_.toString).getOrElse("")})"
+          case Right(pat) => s"Right(${pat.serialize})"
+        }.mkString(",")
+        s"ListPat($inside)"
+      }
+      case NormalPattern.PositionalStruct(name, params) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.serialize).mkString(",")})"
+      case NormalPattern.Union(head, rest) => s"Union(${head.serialize},${rest.toList.map(_.serialize).mkString(",")})"
+    }
+  }
+}
 
 object NormalPattern {
   case object WildCard extends NormalPattern
