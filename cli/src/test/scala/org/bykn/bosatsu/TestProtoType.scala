@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import _root_.bosatsu.{TypedAst => proto}
 import cats.Eq
+import cats.effect.{IO, Resource}
 import org.bykn.bosatsu.rankn.Type
 import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
@@ -9,12 +10,15 @@ import org.scalatest.FunSuite
 import scala.util.{Failure, Success, Try}
 import cats.implicits._
 
+import java.io.File
+import java.nio.file.Path
+
 import Identifier.Constructor
 
 class TestProtoType extends FunSuite {
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 100)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   def law[A: Eq, B](a: A, fn: A => Try[B], gn: B => Try[A]) = {
@@ -43,6 +47,19 @@ class TestProtoType extends FunSuite {
     //assert(Eq[A].eqv(a, orig), s"$a\n\n!=\n\n$orig")
   }
 
+  def testWithTempFile(fn: Path => IO[Unit]): Unit = {
+    val tempRes = Resource.make(IO {
+      val f = File.createTempFile("proto_test", ".proto")
+      f.toPath
+    }) { path =>
+      IO {
+        val r = path.toFile.delete
+        ()
+      }
+    }
+
+    tempRes.use(fn).unsafeRunSync
+  }
 
   def tabLaw[A: Eq, B](f: A => ProtoConverter.Tab[B])(g: (ProtoConverter.SerState, B) => ProtoConverter.DTab[A]) = { a: A =>
     f(a).run(ProtoConverter.SerState.empty) match {
@@ -99,15 +116,16 @@ class TestProtoType extends FunSuite {
     }
   }
 
+  val sortedEq: Eq[List[Package.Interface]] =
+    new Eq[List[Package.Interface]] {
+      def eqv(l: List[Package.Interface], r: List[Package.Interface]) =
+        // we are only sorting the left because we expect the right
+        // to come out sorted
+        l.sortBy(_.name.asString) == r
+    }
+
   test("we can roundtrip interfaces through proto") {
     forAll(Generators.smallList(Generators.interfaceGen)) { ifaces =>
-      val sortedEq: Eq[List[Package.Interface]] =
-        new Eq[List[Package.Interface]] {
-          def eqv(l: List[Package.Interface], r: List[Package.Interface]) =
-            // we are only sorting the left because we expect the right
-            // to come out sorted
-            l.sortBy(_.name.asString) == r
-        }
       law(ifaces, ProtoConverter.interfacesToProto[List] _, ProtoConverter.interfacesFromProto _)(sortedEq)
     }
   }
@@ -115,14 +133,19 @@ class TestProtoType extends FunSuite {
   test("we can roundtrip interfaces from full packages through proto") {
     forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
       val ifaces = packMap.iterator.map { case (_, p) => Package.interfaceOf(p) }.toList
-      val sortedEq: Eq[List[Package.Interface]] =
-        new Eq[List[Package.Interface]] {
-          def eqv(l: List[Package.Interface], r: List[Package.Interface]) =
-            // we are only sorting the left because we expect the right
-            // to come out sorted
-            l.sortBy(_.name.asString) == r
-        }
       law(ifaces, ProtoConverter.interfacesToProto[List] _, ProtoConverter.interfacesFromProto _)(sortedEq)
+    }
+  }
+
+  test("we can roundtrip interfaces through file") {
+    forAll(Generators.smallList(Generators.interfaceGen)) { ifaces =>
+      testWithTempFile { path =>
+        for {
+          _ <- ProtoConverter.writeInterfaces(ifaces, path)
+          ifaces1 <- ProtoConverter.readInterfaces(path :: Nil)
+          _ = assert(sortedEq.eqv(ifaces, ifaces1))
+        } yield ()
+      }
     }
   }
 
@@ -156,6 +179,20 @@ bar = 1
 
       val packList = packMap.toList.sortBy(_._1).map(_._2)
       law(packList, ser _, deser _)(Eq.fromUniversalEquals)
+    }
+  }
+
+  test("we can roundtrip packages through proto on disk") {
+    forAll(Generators.genPackage(Gen.const(()), 3)) { packMap =>
+      val packList = packMap.toList.sortBy(_._1).map(_._2)
+      testWithTempFile { path =>
+        for {
+          _ <- ProtoConverter.writePackages(packList, path)
+          packList1 <- ProtoConverter.readPackages(path :: Nil)
+          psort = packList1.sortBy(_.name)
+          _ = assert(psort == packList)
+        } yield ()
+      }
     }
   }
 }
