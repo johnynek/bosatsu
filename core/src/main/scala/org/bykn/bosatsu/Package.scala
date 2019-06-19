@@ -95,6 +95,9 @@ object Package {
   def interfaceOf[A](inferred: Typed[A]): Interface =
     inferred.mapProgram(_ => ()).replaceImports(Nil)
 
+  def exportedTypeEnv(iface: Interface): TypeEnv[Variance] =
+    Referant.exportedTypeEnv(iface.name, iface.exports)
+
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
     t.copy(program = t.program.copy(from = newFrom))
 

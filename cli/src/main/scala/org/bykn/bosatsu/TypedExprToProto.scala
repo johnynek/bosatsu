@@ -355,7 +355,10 @@ object ProtoConverter {
           case Value.VarExpr(proto.VarExpr(pack, varname, tpe)) =>
             val tryPack =
               if (pack == 0) Success(None)
-              else str(pack).flatMap(parsePack(_, s"expression: $ex")).map(Some(_))
+              else for {
+                ps <- str(pack)
+                pack <- parsePack(ps, s"expression: $ex")
+              } yield Some(pack)
 
             (tryPack, ident(varname), typeOf(tpe))
               .mapN(TypedExpr.Var(_, _, _, ()))
@@ -772,16 +775,16 @@ object ProtoConverter {
             }
             else tabFail(new Exception(s"missing contructor for type $key, $nm, with local: $dt"))
           case None =>
-            for {
-              pid <- getId(dt.packageName.asString)
-              tid <- getId(dt.name.ident.sourceCodeRepr)
-              cid <- getId(nm.sourceCodeRepr)
-            } yield
-                proto.Referant(
-                  proto.Referant.Referant.Constructor(
-                    proto.ConstructorReference(
-                      proto.ConstructorReference.Value.ImportedConstructor(
-                        proto.ImportedConstructor(pid, tid, cid)))))
+            (getId(dt.packageName.asString),
+              getId(dt.name.ident.sourceCodeRepr),
+              getId(nm.sourceCodeRepr)
+            ).mapN { (pid, tid, cid) =>
+              proto.Referant(
+                proto.Referant.Referant.Constructor(
+                  proto.ConstructorReference(
+                    proto.ConstructorReference.Value.ImportedConstructor(
+                      proto.ImportedConstructor(pid, tid, cid)))))
+              }
         }
     }
 
@@ -806,13 +809,15 @@ object ProtoConverter {
       case None => Nil
     }
 
-  def ifaceDeps(iface: proto.Interface): List[String] = {
+  // what package names does this interface depend on?
+  private def ifaceDeps(iface: proto.Interface): List[String] = {
     val ary = iface.strings.toArray
     val thisPack = ary(iface.packageName - 1)
     iface.definedTypes.toList.flatMap(packageDeps(ary, _).filterNot(_ == thisPack)).distinct.sorted
   }
 
-  def packageDeps(pack: proto.Package): List[String] = {
+  // what package names does this full package depend on?
+  private def packageDeps(pack: proto.Package): List[String] = {
     val ary = pack.strings.toArray
     val thisPack = ary(pack.packageName - 1)
     val dts = pack.definedTypes.toList.flatMap(packageDeps(ary, _))
@@ -825,15 +830,13 @@ object ProtoConverter {
   def interfaceToProto(iface: Package.Interface): Try[proto.Interface] = {
     val allDts = DefinedType.listToMap(
       iface.exports.flatMap { ex =>
-        ex.tag match {
-          case Referant.Value(_) => Nil
-          case Referant.DefinedT(dt) =>
-            if (dt.packageName == iface.name) dt :: Nil
-            else Nil
-          case Referant.Constructor(_, dt, _, _) => dt :: Nil
-            if (dt.packageName == iface.name) dt :: Nil
-            else Nil
-        }
+        /*
+         * allDts are the locally defined types to this package
+         * so we need to filter those outside this package
+         */
+        ex.tag
+          .definedType
+          .filter(_.packageName == iface.name)
       }).mapWithIndex { (dt, idx) => (dt, idx) }
 
     val tryProtoDts = allDts
@@ -949,10 +952,7 @@ object ProtoConverter {
       s.foldRight(dtab)(_.finish(_))
   }
 
-  def interfaceFromProto(protoIface: proto.Interface): Try[Package.Interface] = {
-    val loadDT: Type.Const => Try[DefinedType[Variance]] = { tc =>
-      Failure(new Exception(s"could not load $tc loading an interface"))
-    }
+  private def interfaceFromProto0(loadDT: Type.Const => Try[DefinedType[Variance]], protoIface: proto.Interface): Try[Package.Interface] = {
     val tab: DTab[Package.Interface] =
       for {
         packageName <- lookup(protoIface.packageName, protoIface.toString)
@@ -968,6 +968,9 @@ object ProtoConverter {
       .run(DecodeState.init(protoIface.strings))
   }
 
+  def interfaceFromProto(protoIface: proto.Interface): Try[Package.Interface] =
+    interfacesFromProto(proto.Interfaces(protoIface :: Nil)).map(_.head)
+
   def interfacesToProto[F[_]: Foldable](ps: F[Package.Interface]): Try[proto.Interfaces] =
     ps.toList.traverse(interfaceToProto).map { ifs =>
       // sort so we are deterministic
@@ -975,7 +978,8 @@ object ProtoConverter {
     }
 
   def interfacesFromProto(ps: proto.Interfaces): Try[List[Package.Interface]] =
-    ps.interfaces.toList.traverse(interfaceFromProto)
+    // packagesFromProto can handle just interfaces as well
+    packagesFromProto(ps.interfaces, Nil).map(_._1)
 
   def readInterfaces(path: Path): IO[List[Package.Interface]] =
     IO {
@@ -1146,6 +1150,7 @@ object ProtoConverter {
         // from the given defined types
         val te0: TypeEnv[Variance] =
           TypeEnv.fromDefinitions(ds.getDefinedTypes)
+        // we need to also add all the external defs
         val te = exts.foldLeft(te0) { case (te, (b, t)) =>
           te.addExternalValue(pack, b, t)
         }
@@ -1217,6 +1222,22 @@ object ProtoConverter {
       Failure(new Exception(s"circular dependencies in packages: $loopStr"))
     }
     else {
+      def makeLoadDT(
+        load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]
+      ): Type.Const => Try[DefinedType[Variance]] = { case tc@Type.Const.Defined(p, n) =>
+        val res = load(p.asString).map {
+          case Left((_, dt)) =>
+            dt.toDefinedType(tc)
+          case Right(comp) =>
+            comp.program.types.toDefinedType(tc)
+        }
+
+        res.flatMap {
+          case None => Failure(new Exception(s"unknown type $tc not present"))
+          case Some(dt) => Success(dt)
+        }
+      }
+
       /*
        * We know we have a dag now, so we can just go through
        * loading them.
@@ -1226,25 +1247,16 @@ object ProtoConverter {
 
       def packFromProtoUncached(
         pack: proto.Package,
-        load: String => Try[Either[Package.Interface, Package.Typed[Unit]]]
+        load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]
       ): Try[Package.Typed[Unit]] = {
         val loadIface: PackageName => Try[Package.Interface] = { p =>
           load(p.asString).map {
-            case Left(iface) => iface
+            case Left((iface, _)) => iface
             case Right(pack) => Package.interfaceOf(pack)
           }
         }
 
-        val loadDT: Type.Const => Try[DefinedType[Variance]] = { case tc@Type.Const.Defined(p, n) =>
-          load(p.asString).flatMap {
-            case Left(iface) => ???
-            case Right(comp) =>
-              comp.program.types.toDefinedType(tc) match {
-                case None => Failure(new Exception(s"unknown type $tc not present"))
-                case Some(dt) => Success(dt)
-              }
-          }
-        }
+        val loadDT = makeLoadDT(load)
 
         val tab: DTab[Package.Typed[Unit]] =
           for {
@@ -1268,12 +1280,12 @@ object ProtoConverter {
         tab1.run(DecodeState.init(pack.strings))
       }
 
-      val load: String => Try[Either[Package.Interface, Package.Typed[Unit]]] =
-        Memoize.function[String, Try[Either[Package.Interface, Package.Typed[Unit]]]] { (pack, rec) =>
+      val load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]] =
+        Memoize.function[String, Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]] { (pack, rec) =>
           nodeMap.get(pack) match {
             case Some(Left(iface) :: Nil) =>
-              interfaceFromProto(iface)
-                .map(Left(_))
+              interfaceFromProto0(makeLoadDT(rec), iface)
+                .map { iface => Left((iface, Package.exportedTypeEnv(iface))) }
             case Some(Right(p) :: Nil) =>
               packFromProtoUncached(p, rec)
                 .map(Right(_))
@@ -1284,13 +1296,13 @@ object ProtoConverter {
 
       val deserPack: proto.Package => Try[Package.Typed[Unit]] = { p =>
         load(pname(p)).flatMap {
-          case Left(iface) => Failure(new Exception(s"expected compiled for ${iface.name.asString}, found interface"))
+          case Left((iface, _)) => Failure(new Exception(s"expected compiled for ${iface.name.asString}, found interface"))
           case Right(pack) => Success(pack)
         }
       }
       val deserIface: proto.Interface => Try[Package.Interface] = { p =>
         load(iname(p)).map {
-          case Left(iface) => iface
+          case Left((iface, _)) => iface
           case Right(pack) => Package.interfaceOf(pack)
         }
       }

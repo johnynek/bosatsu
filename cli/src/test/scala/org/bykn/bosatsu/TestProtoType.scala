@@ -112,6 +112,20 @@ class TestProtoType extends FunSuite {
     }
   }
 
+  test("we can roundtrip interfaces from full packages through proto") {
+    forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
+      val ifaces = packMap.iterator.map { case (_, p) => Package.interfaceOf(p) }.toList
+      val sortedEq: Eq[List[Package.Interface]] =
+        new Eq[List[Package.Interface]] {
+          def eqv(l: List[Package.Interface], r: List[Package.Interface]) =
+            // we are only sorting the left because we expect the right
+            // to come out sorted
+            l.sortBy(_.name.asString) == r
+        }
+      law(ifaces, ProtoConverter.interfacesToProto[List] _, ProtoConverter.interfacesFromProto _)(sortedEq)
+    }
+  }
+
   test("test some hand written packages") {
       def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
         p.traverse(ProtoConverter.packageToProto)
