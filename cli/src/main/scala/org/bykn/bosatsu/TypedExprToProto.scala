@@ -11,6 +11,7 @@ import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
 import scala.collection.immutable.SortedMap
+import scalapb.{GeneratedMessage, GeneratedMessageCompanion, Message}
 
 import Identifier.{Bindable, Constructor}
 
@@ -981,28 +982,53 @@ object ProtoConverter {
     // packagesFromProto can handle just interfaces as well
     packagesFromProto(ps.interfaces, Nil).map(_._1)
 
-  def readInterfaces(path: Path): IO[List[Package.Interface]] =
+  def read[A <: GeneratedMessage with Message[A]](path: Path)(implicit gmc: GeneratedMessageCompanion[A]): IO[A] =
     IO {
       val f = path.toFile
       val ios = new BufferedInputStream(new FileInputStream(f))
-      try proto.Interfaces.parseFrom(ios)
+      try gmc.parseFrom(ios)
       finally {
         ios.close
       }
-    }.flatMap { proto => IO.fromTry(interfacesFromProto(proto)) }
+    }
+
+  def write(a: GeneratedMessage, path: Path): IO[Unit] =
+    IO {
+      val f = path.toFile
+      val os = new BufferedOutputStream(new FileOutputStream(f))
+      try a.writeTo(os)
+      finally {
+        os.close
+      }
+    }
+
+  def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
+    paths.traverse(read[proto.Interfaces](_))
+      .flatMap {
+        case Nil => IO.pure(Nil)
+        case protos =>
+          IO.fromTry(packagesFromProto(protos.flatMap(_.interfaces), Nil).map(_._1))
+      }
+
+  def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
+    paths.traverse(read[proto.Packages](_))
+      .flatMap {
+        case Nil => IO.pure(Nil)
+        case protos =>
+          IO.fromTry(packagesFromProto(Nil, protos.flatMap(_.packages)).map(_._2))
+      }
 
   def writeInterfaces(interfaces: List[Package.Interface], path: Path): IO[Unit] =
     IO.fromTry(interfacesToProto(interfaces))
-      .flatMap { protoIfs =>
-        IO {
-          val f = path.toFile
-          val os = new BufferedOutputStream(new FileOutputStream(f))
-          try protoIfs.writeTo(os)
-          finally {
-            os.close
-          }
-        }
-      }
+      .flatMap(write(_, path))
+
+  def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
+    IO.fromTry {
+      packages
+        .traverse(packageToProto(_))
+        .map(proto.Packages(_))
+    }
+    .flatMap(write(_, path))
 
   def importedNameToProto(
     allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
