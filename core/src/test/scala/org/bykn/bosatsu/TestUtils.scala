@@ -155,18 +155,24 @@ object TestUtils {
       val normPackMap = NormalizePackageMap(infPackMap).normalizePackageMap
       (for {
         pack <- normPackMap.toMap.get(mainPack)
-        (name, rec, expr) <- pack.program.lets.lastOption
+        exprs <- pack.program.lets.traverse {case (_, rec, expr) =>
+          expr.traverse[Option, (Declaration, Normalization.NormalExpressionTag, String)]{
+            case (d, nt) => Some((d, nt, nt.ne.serialize(x => x)))
+          }
+        }
+        expr <- exprs.lastOption
+        tag = expr.tag
       } yield {
         expectedMode match {
           case NormalTestMode.TagMode(expected) =>
-            assert(expr.tag._2.ne == expected.ne, s"ne error. expected '${expected.ne}' got '${expr.tag._2.ne}'" )
-            assert(expr.tag._2.children == expected.children, s"children error. expected '${expected.children}' got '${expr.tag._2.children}'" )
+            assert(tag._2.ne == expected.ne, s"ne error. expected '${expected.ne}' got '${tag._2.ne}'" )
+            assert(tag._2.children == expected.children, s"children error. expected '${expected.children}' got '${tag._2.children}'" )
             succeed
           case NormalTestMode.ExpressionMode(expected) =>
-            assert(expr.tag._2.ne == expected, s"ne error. expected '${expected}' got '${expr.tag._2.ne}'" )
+            assert(tag._2.ne == expected, s"ne error. expected '${expected}' got '${tag._2.ne}'" )
             succeed
           case NormalTestMode.ChildrenMode(expected) =>
-            assert(expr.tag._2.children == expected, s"children error. expected '${expected}' got '${expr.tag._2.children}'" )
+            assert(tag._2.children == expected, s"children error. expected '${expected}' got '${tag._2.children}'" )
             succeed
         }
       }
