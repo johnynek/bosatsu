@@ -52,9 +52,11 @@ class TypeTest extends FunSuite {
       t match {
         case f@Type.ForAll(bounds, in) =>
           // filter bounds out, since they are shadowed
-          val boundSet: Set[Type] = bounds.toList.map(Type.TyVar(_)).toSet
-          f :: (allTypesIn(in).filter { it =>
-            (boundSet -- Type.freeBoundTyVars(it :: Nil).map(Type.TyVar(_))).isEmpty
+          val boundSet = bounds.toList.toSet[Type.Var]
+          f :: (allTypesIn(in).filterNot { it =>
+            val frees = Type.freeTyVars(it :: Nil).toSet
+            // if we intersect, this is not a legit type to consider
+            (boundSet & frees).nonEmpty
           })
         case t@Type.TyApply(a, b) => t :: allTypesIn(a) ::: allTypesIn(b)
         case other => other :: Nil
@@ -73,8 +75,11 @@ class TypeTest extends FunSuite {
     val pastFails =
       List(
         Type.ForAll(NonEmptyList.of(Type.Var.Bound("x"), Type.Var.Bound("ogtumm"), Type.Var.Bound("t")),
-          Type.TyVar(Type.Var.Bound("x")))
+          Type.TyVar(Type.Var.Bound("x"))),
+        Type.ForAll(NonEmptyList.of(Type.Var.Bound("a")),Type.TyVar(Type.Var.Bound("a")))
         )
+
+    pastFails.foreach(law)
   }
 
   test("Type.freeTyVars is empty for ForAll fully bound") {
@@ -123,11 +128,28 @@ class TypeTest extends FunSuite {
   }
 
   test("substitute is idempotent") {
-    forAll(NTypeGen.genDepth03, genSubs(3)) { (t, subs) =>
+    def law(t: Type, subs0: Map[Type.Var, Type]) = {
+      /*
+       * subs is only idempotent if none of
+       * the free variables are also keys to the substitution
+       */
+      val allFrees = Type.freeTyVars(subs0.values.toList).toSet
+      val subs = subs0.filterNot { case (k, _) => allFrees(k) }
       val t1 = Type.substituteVar(t, subs)
       val t2 = Type.substituteVar(t1, subs)
       assert(t2 == t1)
     }
+
+    forAll(NTypeGen.genDepth03, genSubs(3))(law _)
+
+    val ba: Type.Var = Type.Var.Bound("a")
+
+    val pastFails = List(
+      // this is an illegitmate substitution, but the law needs to be robust to it
+      (Type.TyVar(ba), Map(ba -> Type.TyApply(Type.TyVar(ba), Type.TyVar(ba))))
+    )
+
+    pastFails.foreach { case (t, s) => law(t, s) }
   }
 
   test("after substitution, none of the keys are free") {
