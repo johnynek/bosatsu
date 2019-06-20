@@ -146,8 +146,8 @@ object TestUtils {
     def expected: A
   }
   object NormalTestMode {
-    case class TagMode(expected: Normalization.NormalExpressionTag) extends NormalTestMode[Normalization.NormalExpressionTag]
-    case class ExpressionMode(expected: NormalExpression) extends NormalTestMode[NormalExpression]
+    case class TagMode(expected: Normalization.NormalExpressionTag, serialized: Option[String] = None) extends NormalTestMode[Normalization.NormalExpressionTag]
+    case class ExpressionMode(expected: NormalExpression, serialized: Option[String] = None) extends NormalTestMode[NormalExpression]
     case class ChildrenMode(expected: Set[NormalExpression]) extends NormalTestMode[Set[NormalExpression]]
   }
 
@@ -168,11 +168,17 @@ object TestUtils {
       } yield {
         assert(fleft == fright, s"folds didn't match. left: $fleft, right: $fright")
         expectedMode match {
-          case NormalTestMode.TagMode(expected) =>
+          case NormalTestMode.TagMode(expected, expectedSerialiazed) =>
+            expectedSerialiazed.foreach ( s =>
+              assert(tag._3 == s, s"serialization error. expected '$s' got '${tag._3}'")
+            )
             assert(tag._2.ne == expected.ne, s"ne error. expected '${expected.ne}' got '${tag._2.ne}'" )
             assert(tag._2.children == expected.children, s"children error. expected '${expected.children}' got '${tag._2.children}'" )
             succeed
-          case NormalTestMode.ExpressionMode(expected) =>
+          case NormalTestMode.ExpressionMode(expected, expectedSerialiazed) =>
+            expectedSerialiazed.foreach( s =>
+              assert(tag._3 == s, s"serialization error. expected '$s' got '${tag._3}'")
+            )
             assert(tag._2.ne == expected, s"ne error. expected '${expected}' got '${tag._2.ne}'" )
             succeed
           case NormalTestMode.ChildrenMode(expected) =>
@@ -186,10 +192,10 @@ object TestUtils {
     testInferred(packages, mainPackS, inferredHandler(_,_))
   }
 
-  def normalTagTest(packages: List[String], mainPackS: String, expected: Normalization.NormalExpressionTag) =
-    normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected))
-  def normalExpressionTest(packages: List[String], mainPackS: String, expected: NormalExpression) =
-    normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected))
+  def normalTagTest(packages: List[String], mainPackS: String, expected: Normalization.NormalExpressionTag, expectedSerialiazed: Option[String] = None) =
+    normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected, expectedSerialiazed))
+  def normalExpressionTest(packages: List[String], mainPackS: String, expected: NormalExpression, expectedSerialiazed: Option[String] = None) =
+    normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected, expectedSerialiazed))
   def normalChildrenTest(packages: List[String], mainPackS: String, expected: Set[NormalExpression]) =
     normalizeTest(packages, mainPackS, NormalTestMode.ChildrenMode(expected))
 
