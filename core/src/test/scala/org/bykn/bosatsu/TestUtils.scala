@@ -8,6 +8,7 @@ import fastparse.all.Parsed
 
 import Assertions.{succeed, fail}
 import cats.implicits._
+import cats.Eval
 
 object TestUtils {
   import TestParseUtils.region
@@ -161,8 +162,11 @@ object TestUtils {
           }
         }
         expr <- exprs.lastOption
+        fleft = exprs.foldLeft(0) {case (n, expr) => expr.foldLeft(n) { case (m, _) => m +1 }}
+        fright = exprs.foldRight(0) {case (expr, n) => expr.foldRight(Eval.now(n)) { case (_, m) => m.map(_+1) }.value}
         tag = expr.tag
       } yield {
+        assert(fleft == fright, s"folds didn't match. left: $fleft, right: $fright")
         expectedMode match {
           case NormalTestMode.TagMode(expected) =>
             assert(tag._2.ne == expected.ne, s"ne error. expected '${expected.ne}' got '${tag._2.ne}'" )
