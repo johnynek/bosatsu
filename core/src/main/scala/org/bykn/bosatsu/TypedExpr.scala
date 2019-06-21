@@ -223,6 +223,18 @@ object TypedExpr {
         val b2 = branches.foldRight(b1) { case ((p,t), bn) => foldRight(t, bn)(f) }
         foldRight(arg, b2)(f)
     }
+
+    override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] = te match {
+      case Generic(tv, in, tag) => Generic(tv, map(in)(fn), fn(tag))
+      case Annotation(term, tpe, tag) => Annotation(map(term)(fn), tpe, fn(tag))
+      case AnnotatedLambda(b, tpe, expr, tag) => AnnotatedLambda(b, tpe, map(expr)(fn), fn(tag))
+      case v@Var(_, _, _, _) => v.copy(tag = fn(v.tag))
+      case App(fnT, arg, tpe, tag) => App(map(fnT)(fn), map(arg)(fn), tpe, fn(tag))
+      case Let(b, e, in, r, t) => Let(b, map(e)(fn), map(in)(fn), r, fn(t))
+      case lit@Literal(_, _, _) => lit.copy(tag = fn(lit.tag))
+      case Match(arg, branches, tag) =>
+        Match(map(arg)(fn), branches.map { case (p, t) => (p, map(t)(fn)) }, fn(tag))
+    }
   }
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]

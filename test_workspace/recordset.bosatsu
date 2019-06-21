@@ -1,37 +1,83 @@
-package RecordSet
+package RecordSet/Library
 
-enum RecordValue:
-  RVBool(value: Bool)
-  RVInt(value: Int)
-  RVString(value: String)
-struct Field[t](name: String, toValue: t -> RecordValue)
-struct RecordSet[shape](fields: shape[Field[String], Field[Int], Field[Bool]], rows: List[shape[String,Int, Bool]])
+enum RowEntry[w]:
+  REBool(value: w[Bool])
+  REInt(value: w[Int])
+  REString(value: w[String])
 
-def restructure(RecordSet(fields, rows), f: forall string,int,bool. shape1[string, int, bool] -> shape2[string, int, bool]) -> RecordSet[shape2]:
-  RecordSet(f(fields), rows.map_List(f))
+struct RecordField[t](name: String, to_entry: forall w. w[t] -> RowEntry[w])
+struct RecordValue[t](value: t)
+struct RecordGetter[shape, t](
+  field: shape[RecordField] -> RecordField[t],
+  value: shape[RecordValue] -> RecordValue[t]
+)
+struct RecordRowEntry[w, t](row_entry: RowEntry[w])
 
-struct IntShape[string,int,bool](int: int)
-struct PairShape[shape,t,string,int,bool](left: t[string,int,bool], right: shape[string, int, bool])
-def make_pair_int_shape(rest: shape[string,int,bool], i: int) -> PairShape[shape,IntShape,string,int,bool]:
-  PairShape(IntShape(i), rest)
-
-def add_int_field(RecordSet(fields, rows): RecordSet[shape1], name: String, f: shape1[String, Int, Bool] -> Int) -> RecordSet[PairShape[shape1, IntShape]]:
-  RecordSet(make_pair_int_shape(fields, Field(name, RVInt)), rows.map_List(\row -> make_pair_int_shape(row, f(row))))
-
-##################################################
-
-struct Shape1[string,int,bool](f1: string, f2: int, f3: bool)
-struct Shape2[string,int,bool](f1: string, f2: bool, f3: int)
-struct Shape3[string,int,bool](f1: string, f2: bool, f3: int, f4: int)
-
-rs = RecordSet(
-  Shape1(Field("String", RVString), Field("Int", RVInt), Field("Bool", RVBool)),
-  [Shape1("a", 1, True)]
+struct RecordSet[shape](
+  fields: shape[RecordField],
+  rows: List[shape[RecordValue]],
+  getters: shape[RecordGetter[shape]],
+  traverse: forall w1,w2. shape[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape[w2],
+  record_to_list: forall w. shape[RecordRowEntry[w]] -> List[RowEntry[w]]
 )
 
-rs0 = rs.restructure(\Shape1(a,b,c) -> Shape2(a,c,b))
-rs1 = rs0.add_int_field("Second Int", \Shape2(_,_,x) -> x.add(4))
-rs2 = rs1.restructure(\PairShape(IntShape(i), Shape2(a,b,c)) -> Shape3(a,b,c,i))
+def get(sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t]) -> t:
+  RecordValue(result) = sh.getter
+  result
+
+def create_field(rf: RecordField[t], fn: shape[RecordValue] -> t):
+  RecordGetter(\sh -> rf, \sh -> RecordValue(fn(sh)))
+
+def list_of_rows(RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
+  def getter_to_row_entry(row: shape[RecordValue]):
+    (result_fn: forall tt. RecordGetter[shape, tt] -> RecordRowEntry[RecordValue, tt]) = \RecordGetter(get_field, get_value) ->
+      RecordField(name, to_entry) = get_field(fields)
+      RecordRowEntry(to_entry(get_value(row)))
+    result_fn
+  rows.map_List(\row -> record_to_list(getters.traverse(getter_to_row_entry(row))))
+
+struct RestructureOutput[shape1, shape2](
+  reshaperFields: shape1[RecordField] -> shape2[RecordField],
+  reshaperValues: shape1[RecordValue] -> shape2[RecordValue],
+  getters: shape2[RecordGetter[shape2]],
+  traverse: forall w1,w2. shape2[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape2[w2],
+  record_to_list: forall w. shape2[RecordRowEntry[w]] -> List[RowEntry[w]]
+)
+def restructure(RecordSet(fields, rows, getters, _, _): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> RestructureOutput[shape1, shape2]) -> RecordSet[shape2]:
+  RestructureOutput(reshaperF, reshaperV, new_getters, traverse, record_to_list) = f(getters)
+  RecordSet(reshaperF(fields), rows.map_List(reshaperV), new_getters, traverse, record_to_list)
+
+def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), more_rows):
+  RecordSet(fields, rows.concat(more_rows), getters, traverse, record_to_list)
+
+struct NilShape[w]
+struct PS[t,rest,w](left: w[t], right: rest[w])
+
+new_record_set = RecordSet(NilShape, [], NilShape, \NilShape,fn -> NilShape, \NilShape -> [])
+
+(ps_end: forall t. RestructureOutput[t, NilShape]) = RestructureOutput(
+  \ns -> NilShape,
+  \ns -> NilShape,
+  NilShape,
+  \ns,fn -> NilShape,
+  \ns -> []
+)
+
+def ps(
+  RecordGetter(fF, fV): RecordGetter[shape1, t],
+  RestructureOutput(reshaper1F, reshaper1V, getters1, traverse1, record_to_list1): RestructureOutput[shape1, shape2]):
+  getters2 = getters1.traverse1(\RecordGetter(f1, v1) -> RecordGetter(\PS(_, sh2) -> f1(sh2), \PS(_, sh2) -> v1(sh2)))
+  RestructureOutput(
+    \sh1 -> PS(fF(sh1), reshaper1F(sh1)),
+    \sh1 -> PS(fV(sh1), reshaper1V(sh1)),
+    PS(RecordGetter(\PS(x,_) -> x, \PS(x,_) -> x), getters2),
+    \PS(x, sh2), g -> PS(g(x), sh2.traverse1(g)),
+    \PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
+  )
+
+def string_field(name, fn: shape[RecordValue] -> String): RecordField(name, REString).create_field(fn)
+def int_field(name, fn: shape[RecordValue] -> Int): RecordField(name, REInt).create_field(fn)
+def bool_field(name, fn: shape[RecordValue] -> Bool): RecordField(name, REBool).create_field(fn)
 
 ##################################################
 
@@ -60,12 +106,25 @@ def equal_List(is_equal, l1, l2):
       []: False
       [h2, *r2]: is_equal(h1, h2) && equal_List(is_equal, r1, r2)
 
-def compare_shape3((compare1, compare2, compare3), Shape3(x1, x2, x3, x4), Shape3(y1, y2, y3, y4)):
-  compare1.equals(x1, y1) && compare2.equals(x2, y2) && compare3.equals(x3, y3) && compare3.equals(x4, y4)
+def equal_RowEntry(re1, re2):
+  match (re1, re2):
+    (REBool(RecordValue(x1)), REBool(RecordValue(x2))): cmp_Bool.equals(x1, x2)
+    (REInt(RecordValue(x1)), REInt(RecordValue(x2))): cmp_Int.equals(x1, x2)
+    (REString(RecordValue(x1)), REString(RecordValue(x2))): string_Order_fn.equals(x1, x2)
+    _: False
 
-RecordSet(_, rows) = rs2
+equal_rows = equal_List(equal_RowEntry)
+
+##################################################
+
+rs_empty = new_record_set.restructure(\ns -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), ps("Bool field".bool_field(\_ -> True), ps_end))))
+
+rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
+
+rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( \r -> r.get(b).add(2) ), ps_end)))))
+
 tests = Test("reordering",
   [
-    Assertion((string_Order_fn, cmp_Bool, cmp_Int).compare_shape3.equal_List(rows, [Shape3("a", True, 1, 5)]), "swap")
+    Assertion(equal_rows.equal_List(rs0.list_of_rows, [[REBool(RecordValue(False)), REInt(RecordValue(1)), REString(RecordValue("a")), REInt(RecordValue(3))]]), "swap")
   ]
 )

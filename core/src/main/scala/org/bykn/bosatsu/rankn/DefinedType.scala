@@ -33,9 +33,6 @@ case class DefinedType[+A](
 
   def toTypeTyConst: Type.TyConst =
     Type.TyConst(toTypeConst)
-
-  def toOpaque: DefinedType[A] =
-    copy(constructors = Nil)
 }
 
 object DefinedType {

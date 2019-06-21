@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Functor
 import cats.data.{ValidatedNel, Validated, NonEmptyList}
 import cats.implicits._
 import fastparse.all._
@@ -72,6 +73,16 @@ object Package {
     Program[TypeEnv[Variance], TypedExpr[T], Any]]
   type Inferred = Typed[Declaration]
 
+  val typedFunctor: Functor[Typed] =
+    new Functor[Typed] {
+      def map[A, B](fa: Typed[A])(fn: A => B): Typed[B] = {
+        val mapLet = fa.program.lets.map { case (n, r, te) =>
+          (n, r, Functor[TypedExpr].map(te)(fn))
+        }
+        fa.copy(program = fa.program.copy(lets = mapLet))
+      }
+    }
+
   def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
     Fix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](p)
   /**
@@ -81,8 +92,14 @@ object Package {
   def fromStatement(pn: PackageName, st: Statement): Package.Parsed =
     Package(pn, Nil, Nil, st)
 
-  def interfaceOf(inferred: Inferred): Interface =
+  def interfaceOf[A](inferred: Typed[A]): Interface =
     inferred.mapProgram(_ => ()).replaceImports(Nil)
+
+  def exportedTypeEnv(iface: Interface): TypeEnv[Variance] =
+    Referant.exportedTypeEnv(iface.name, iface.exports)
+
+  def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
+    t.copy(program = t.program.copy(from = newFrom))
 
   implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
     Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
