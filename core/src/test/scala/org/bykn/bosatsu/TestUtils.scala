@@ -153,37 +153,35 @@ object TestUtils {
 
   def normalizeTest[A](packages: List[String], mainPackS: String, expectedMode: NormalTestMode[A]) = {
     def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
-      val normPackMap = NormalizePackageMap(infPackMap).normalizePackageMap
+      val normPackMap = NormalizePackageMap(infPackMap).hashKey(ne => (ne, ne.serialize(x => x)))
       (for {
         pack <- normPackMap.toMap.get(mainPack)
-        exprs <- pack.program.lets.traverse {case (_, rec, e) =>
-          e.traverse[Option, (Declaration, Normalization.NormalExpressionTag, String)]{
-            case (d, nt) => Some((d, nt, nt.ne.serialize(x => x)))
-          }
-        }
-        
+        exprs = pack.program.lets.map { case (_, rec, e) => e }        
         fleft = exprs.map(_.size.toInt)
         fright = exprs.map(_.foldRight(Eval.now(0)) { case (_, m) => m.map(_ + 1) }.value)
         expr <- exprs.lastOption
         tag = expr.tag
+        ser = tag._2.ne._2
+        ne = tag._2.ne._1
+        children = tag._2.children.map(_._1)
       } yield {
         assert(fleft == fright, s"folds didn't match. left: $fleft, right: $fright")
         expectedMode match {
           case NormalTestMode.TagMode(expected, expectedSerialiazed) =>
             expectedSerialiazed.foreach ( s =>
-              assert(tag._3 == s, s"serialization error. expected '$s' got '${tag._3}'")
+              assert(ser == s, s"serialization error. expected '$s' got '$ser'")
             )
-            assert(tag._2.ne == expected.ne, s"ne error. expected '${expected.ne}' got '${tag._2.ne}'" )
-            assert(tag._2.children == expected.children, s"children error. expected '${expected.children}' got '${tag._2.children}'" )
+            assert(ne == expected.ne, s"ne error. expected '${expected.ne}' got '$ne'" )
+            assert(children == expected.children, s"children error. expected '${expected.children}' got '$children'" )
             succeed
           case NormalTestMode.ExpressionMode(expected, expectedSerialiazed) =>
             expectedSerialiazed.foreach( s =>
-              assert(tag._3 == s, s"serialization error. expected '$s' got '${tag._3}'")
+              assert(ser == s, s"serialization error. expected '$s' got '$ser'")
             )
-            assert(tag._2.ne == expected, s"ne error. expected '${expected}' got '${tag._2.ne}'" )
+            assert(ne == expected, s"ne error. expected '${expected}' got '$ne'" )
             succeed
           case NormalTestMode.ChildrenMode(expected) =>
-            assert(tag._2.children == expected, s"children error. expected '${expected}' got '${tag._2.children}'" )
+            assert(children == expected, s"children error. expected '${expected}' got '$children'" )
             succeed
         }
       }
