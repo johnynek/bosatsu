@@ -162,8 +162,8 @@ object TestUtils {
           }
         }
         
-        fleft = exprs.map(_.size.toInt).sum
-        fright = exprs.foldRight(0) {case (expr, n) => expr.foldRight(Eval.now(n)) { case (_, m) => m.map(_ + 1) }.value}
+        fleft = exprs.map(_.size.toInt)
+        fright = exprs.map(_.foldRight(Eval.now(0)) { case (_, m) => m.map(_ + 1) }.value)
         expr <- exprs.lastOption
         tag = expr.tag
       } yield {
