@@ -20,7 +20,7 @@ sealed abstract class NormalExpression {
   def maxLambdaVar: Option[Int]
 
   def serialize(hf: String => String): String = {
-    def escapeString(unescaped: String) = unescaped.replaceAll("""([\\'])""", """\\$1""")
+    def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
     hf(this match {
       case NormalExpression.App(fn, arg) => s"App(${fn.serialize(hf)},${arg.serialize(hf)})"
       case NormalExpression.ExternalVar(pack, defName) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}')"
@@ -85,7 +85,7 @@ object NormalExpression {
 }
 
 sealed abstract class NormalPattern {
-  def escapeString(unescaped: String) = unescaped.replaceAll("""([\\'])""", """\\$1""")
+  def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
   def serialize: String = {
     this match {
       case NormalPattern.WildCard => "WildCard"
@@ -445,11 +445,17 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
 
   def hashKey[T](fn: NormalExpression => T): PackageMap.Typed[(Declaration, ExpressionKeyTag[T])] = {
     val lst = normalizePackageMap.toMap.toList
-      .map { case (name, pack) => (name, pack.copy(program = pack.program.copy(
-        lets = pack.program.lets.map { case (name, recursive, expr) => (name, recursive, expr.traverse[Id, (Declaration, ExpressionKeyTag[T])] {
-          case (d, neT) => (d, ExpressionKeyTag(fn(neT.ne), neT.children.map(fn))) 
-        })}
-      )))}
+      .map { case (packName, pack) =>
+        val newLets = pack.program.lets.map { case (letsName, recursive, expr) =>
+          val newExpr = expr.traverse[Id, (Declaration, ExpressionKeyTag[T])] {
+            case (d, neT) => (d, ExpressionKeyTag(fn(neT.ne), neT.children.map(fn)))
+          }
+          (letsName, recursive, newExpr)
+        }
+        val newProgram = pack.program.copy(lets = newLets) 
+        val newPack = pack.copy(program = newProgram)
+        (packName, newPack)
+      }
     PackageMap(lst.toMap)
   }
 

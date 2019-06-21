@@ -156,14 +156,15 @@ object TestUtils {
       val normPackMap = NormalizePackageMap(infPackMap).normalizePackageMap
       (for {
         pack <- normPackMap.toMap.get(mainPack)
-        exprs <- pack.program.lets.traverse {case (_, rec, expr) =>
-          expr.traverse[Option, (Declaration, Normalization.NormalExpressionTag, String)]{
+        exprs <- pack.program.lets.traverse {case (_, rec, e) =>
+          e.traverse[Option, (Declaration, Normalization.NormalExpressionTag, String)]{
             case (d, nt) => Some((d, nt, nt.ne.serialize(x => x)))
           }
         }
+        
+        fleft = exprs.map(_.size.toInt).sum
+        fright = exprs.foldRight(0) {case (expr, n) => expr.foldRight(Eval.now(n)) { case (_, m) => m.map(_ + 1) }.value}
         expr <- exprs.lastOption
-        fleft = exprs.foldLeft(0) {case (n, expr) => expr.foldLeft(n) { case (m, _) => m +1 }}
-        fright = exprs.foldRight(0) {case (expr, n) => expr.foldRight(Eval.now(n)) { case (_, m) => m.map(_+1) }.value}
         tag = expr.tag
       } yield {
         assert(fleft == fright, s"folds didn't match. left: $fleft, right: $fright")
