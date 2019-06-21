@@ -19,24 +19,24 @@ sealed abstract class NormalExpression {
    */
   def maxLambdaVar: Option[Int]
 
-  def serialize(hf: String => String): String = {
+  def serialize: String = {
     def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
-    hf(this match {
-      case NormalExpression.App(fn, arg) => s"App(${fn.serialize(hf)},${arg.serialize(hf)})"
+    this match {
+      case NormalExpression.App(fn, arg) => s"App(${fn.serialize},${arg.serialize})"
       case NormalExpression.ExternalVar(pack, defName) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}')"
       case NormalExpression.Match(arg, branches) => {
-        val serBranches = branches.toList.map {case (np, ne) => s"${np.serialize},${ne.serialize(hf)}"}.mkString(",")
-        s"Match(${arg.serialize(hf)},$serBranches)"
+        val serBranches = branches.toList.map {case (np, ne) => s"${np.serialize},${ne.serialize}"}.mkString(",")
+        s"Match(${arg.serialize},$serBranches)"
       }
       case NormalExpression.LambdaVar(index) => s"LambdaVar($index)"
-      case NormalExpression.Lambda(expr) => s"Lambda(${expr.serialize(hf)})"
-      case NormalExpression.Struct(enum, args) => s"Struct($enum,${args.map(_.serialize(hf)).mkString(",")})"
+      case NormalExpression.Lambda(expr) => s"Lambda(${expr.serialize})"
+      case NormalExpression.Struct(enum, args) => s"Struct($enum,${args.map(_.serialize).mkString(",")})"
       case NormalExpression.Literal(toLit) => toLit match {
         case Lit.Str(toStr) => s"Literal('${escapeString(toStr)}')"
         case Lit.Integer(bigInt) => s"Literal($bigInt)"
       }
-      case NormalExpression.Recursion(lambda) => s"Recursion(${lambda.serialize(hf)})"
-    })
+      case NormalExpression.Recursion(lambda) => s"Recursion(${lambda.serialize})"
+    }
   }
 }
 

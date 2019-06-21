@@ -153,7 +153,7 @@ object TestUtils {
 
   def normalizeTest[A](packages: List[String], mainPackS: String, expectedMode: NormalTestMode[A]) = {
     def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
-      val normPackMap = NormalizePackageMap(infPackMap).hashKey(ne => (ne, ne.serialize(x => x)))
+      val normPackMap = NormalizePackageMap(infPackMap).hashKey(ne => (ne, ne.serialize))
       (for {
         pack <- normPackMap.toMap.get(mainPack)
         exprs = pack.program.lets.map { case (_, rec, e) => e }        
