@@ -94,7 +94,7 @@ object MainCommand {
   def typeCheck(inputs: NonEmptyList[Path], ifacePaths: List[Path]): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
     for {
       ins <- parseInputs(inputs)
-      ifs <- ifacePaths.traverse(ProtoConverter.readInterfaces(_)).map(_.flatten)
+      ifs <- ProtoConverter.readInterfaces(ifacePaths)
       res <- IO.fromTry(
         // Now we have completed all IO, here we do all the checks we need for correctness
         for {

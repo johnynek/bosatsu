@@ -115,8 +115,8 @@ class TypeTest extends FunSuite {
 
   def genSubs(depth: Int): Gen[Map[Type.Var, Type]] = {
     val pair = Gen.zip(
-      Gen.identifier.map(Type.Var.Bound(_): Type.Var),
-      NTypeGen.genDepth(depth))
+      NTypeGen.genBound,
+      NTypeGen.genDepth(depth, Some(NTypeGen.genConst)))
     Gen.mapOf(pair)
   }
 

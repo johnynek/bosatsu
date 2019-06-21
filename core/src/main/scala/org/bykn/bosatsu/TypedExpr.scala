@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Applicative
+import cats.{Applicative, Functor}
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
@@ -90,6 +90,23 @@ object TypedExpr {
   case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
+
+
+  implicit val functorTypedExpr: Functor[TypedExpr] =
+    new Functor[TypedExpr] {
+      def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] =
+        te match {
+          case Generic(tv, in, tag) => Generic(tv, map(in)(fn), fn(tag))
+          case Annotation(term, tpe, tag) => Annotation(map(term)(fn), tpe, fn(tag))
+          case AnnotatedLambda(b, tpe, expr, tag) => AnnotatedLambda(b, tpe, map(expr)(fn), fn(tag))
+          case v@Var(_, _, _, _) => v.copy(tag = fn(v.tag))
+          case App(fnT, arg, tpe, tag) => App(map(fnT)(fn), map(arg)(fn), tpe, fn(tag))
+          case Let(b, e, in, r, t) => Let(b, map(e)(fn), map(in)(fn), r, fn(t))
+          case lit@Literal(_, _, _) => lit.copy(tag = fn(lit.tag))
+          case Match(arg, branches, tag) =>
+            Match(map(arg)(fn), branches.map { case (p, t) => (p, map(t)(fn)) }, fn(tag))
+        }
+    }
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
     def updatedTag(t: A): TypedExpr[A] =

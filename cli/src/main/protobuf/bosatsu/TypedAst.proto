@@ -59,16 +59,36 @@ message DefinedType {
   repeated ConstructorFn constructors = 3;
 }
 
+message DefinedTypeReference {
+  oneof value {
+    int32 localDefinedTypePtr = 1; /* a 1-based pointer into the list of local defined types */
+    TypeConst importedDefinedType = 2; /* a string-based reference to a type defined in another package */
+  }
+}
+
 message ConstructorPtr {
   int32 definedTypePtr = 1; /* 1-based pointer into the list of types */
   int32 constructorPtr = 2; /* 1-based pointer into the list of constructors for this type */
 }
 
+message ImportedConstructor {
+  int32 packageName = 1;
+  int32 typeName = 2;
+  int32 constructorName = 3;
+}
+
+message ConstructorReference {
+  oneof value {
+    ConstructorPtr localConstructor = 1;
+    ImportedConstructor importedConstructor = 2;
+  }
+}
+
 message Referant {
   oneof referant {
-    int32 value = 1; /* an exported value which has a given type */
-    int32 definedTypePtr = 2; /* 1-based pointer into the list of types */
-    ConstructorPtr constructor = 3; /* an exported constructor */
+    int32 value = 1; /* an exported value which has a given type, the index is the into the type table */
+    DefinedTypeReference definedType = 2;
+    ConstructorReference constructor = 3;
   }
 }
 
@@ -101,7 +121,7 @@ message Interfaces {
 message ImportedName {
   int32 originalName = 1;
   int32 localName = 2;
-  Referant referant = 3;
+  repeated Referant referant = 3;
 }
 
 message Imports {

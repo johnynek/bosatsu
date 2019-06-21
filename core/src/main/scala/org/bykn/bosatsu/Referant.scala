@@ -10,7 +10,16 @@ import Identifier.{Bindable, Constructor => ConstructorName}
  * A Referant is something that can be exported or imported after resolving
  * Before resolving, imports and exports are just names.
  */
-sealed abstract class Referant[+A]
+sealed abstract class Referant[+A] {
+  // if this is a Constructor or DefinedT, return the associated DefinedType
+  def definedType: Option[rankn.DefinedType[A]] =
+    this match {
+      case Referant.Value(_) => None
+      case Referant.DefinedT(dt) => Some(dt)
+      case Referant.Constructor(_, dt, _, _) => Some(dt)
+    }
+}
+
 object Referant {
   case class Value(scheme: rankn.Type) extends Referant[Nothing]
   case class DefinedT[A](dtype: rankn.DefinedType[A]) extends Referant[A]
@@ -87,5 +96,19 @@ object Referant {
               te1.addDefinedType(dt)
           }
         }
+    }
+  /**
+   * Build the TypeEnv view of the given exports
+   */
+  def exportedTypeEnv[A](packageName: PackageName, exps: List[ExportedName[Referant[A]]]): TypeEnv[A] =
+    exps.foldLeft((TypeEnv.empty): TypeEnv[A]) { (te, exp) =>
+      exp.tag match {
+        case Referant.Value(t) =>
+          te.addExternalValue(packageName, exp.name, t)
+        case Referant.Constructor(n, dt, params, v) =>
+          te.addConstructor(packageName, n, params, dt, v)
+        case Referant.DefinedT(dt) =>
+          te.addDefinedType(dt)
+      }
     }
 }
