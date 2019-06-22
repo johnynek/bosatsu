@@ -1,6 +1,0 @@
-package Foo/Bar2
-
-import Foo/Bar [ x ]
-export [ y ]
-
-y = x
