@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Functor}
+import cats.{Applicative, Eval, Traverse}
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
@@ -75,7 +75,6 @@ sealed abstract class TypedExpr[+T] { self: Product =>
 }
 
 object TypedExpr {
-
   type Rho[A] = TypedExpr[A] // an expression with a Rho type (no top level forall)
   /**
    * This says that the resulting term is generic on a given param
@@ -90,23 +89,6 @@ object TypedExpr {
   case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
-
-
-  implicit val functorTypedExpr: Functor[TypedExpr] =
-    new Functor[TypedExpr] {
-      def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] =
-        te match {
-          case Generic(tv, in, tag) => Generic(tv, map(in)(fn), fn(tag))
-          case Annotation(term, tpe, tag) => Annotation(map(term)(fn), tpe, fn(tag))
-          case AnnotatedLambda(b, tpe, expr, tag) => AnnotatedLambda(b, tpe, map(expr)(fn), fn(tag))
-          case v@Var(_, _, _, _) => v.copy(tag = fn(v.tag))
-          case App(fnT, arg, tpe, tag) => App(map(fnT)(fn), map(arg)(fn), tpe, fn(tag))
-          case Let(b, e, in, r, t) => Let(b, map(e)(fn), map(in)(fn), r, fn(t))
-          case lit@Literal(_, _, _) => lit.copy(tag = fn(lit.tag))
-          case Match(arg, branches, tag) =>
-            Match(map(arg)(fn), branches.map { case (p, t) => (p, map(t)(fn)) }, fn(tag))
-        }
-    }
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
     def updatedTag(t: A): TypedExpr[A] =
@@ -153,6 +135,105 @@ object TypedExpr {
             p.traverseType(fn).product(t.traverseType(fn))
         }
         (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
+    }
+  }
+
+  implicit val traverseTypedExpr: Traverse[TypedExpr] = new Traverse[TypedExpr] {
+    def traverse[F[_]: Applicative, T, S](typedExprT: TypedExpr[T])(fn: T => F[S]): F[TypedExpr[S]] =
+      typedExprT match {
+        case Generic(params, expr, tag) =>
+          (expr.traverse(fn), fn(tag)).mapN(Generic(params, _, _))
+        case Annotation(of, tpe, tag) =>
+          (of.traverse(fn), fn(tag)).mapN(Annotation(_, tpe, _))
+        case AnnotatedLambda(arg, tpe, res, tag) =>
+          (res.traverse(fn), fn(tag)).mapN {
+            AnnotatedLambda(arg, tpe, _, _)
+          }
+        case Var(p, v, tpe, tag) =>
+          fn(tag).map(Var(p, v, tpe, _))
+        case App(f, arg, tpe, tag) =>
+          (f.traverse(fn), arg.traverse(fn), fn(tag)).mapN {
+            App(_, _, tpe, _)
+          }
+        case Let(v, exp, in, rec, tag) =>
+          (exp.traverse(fn), in.traverse(fn), fn(tag)).mapN {
+            Let(v, _, _, rec, _)
+          }
+        case Literal(lit, tpe, tag) =>
+          fn(tag).map(Literal(lit, tpe, _))
+        case Match(expr, branches, tag) =>
+          // all branches have the same type:
+          val tbranch = branches.traverse {
+            case (p, t) =>
+              t.traverse(fn).map((p, _))
+          }
+          (expr.traverse(fn), tbranch, fn(tag)).mapN(Match(_, _, _))
+      }
+
+    def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B = typedExprA match {
+      case Generic(_, e, tag) =>
+        val b1 = foldLeft(e, b)(f)
+        f(b1, tag)
+      case Annotation(e, _, tag) =>
+        val b1 = foldLeft(e, b)(f)
+        f(b1, tag)
+      case AnnotatedLambda(_, _, e, tag) =>
+        val b1 = foldLeft(e, b)(f)
+        f(b1, tag)
+      case Var(_, _, _, tag) => f(b, tag)
+      case App(fn, a, _, tag) =>
+        val b1 = foldLeft(fn, b)(f)
+        val b2 = foldLeft(a, b1)(f)
+        f(b2, tag)
+      case Let(_, exp, in, _, tag) =>
+        val b1 = foldLeft(exp, b)(f)
+        val b2 = foldLeft(in, b1)(f)
+        f(b2, tag)
+      case Literal(_, _, tag) =>
+        f(b, tag)
+      case Match(arg, branches, tag) =>
+        val b1 = foldLeft(arg, b)(f)
+        val b2 = branches.foldLeft(b1) { case (bn, (p,t)) => foldLeft(t, bn)(f) }
+        f(b2, tag)
+    }
+
+    def foldRight[A, B](typedExprA: TypedExpr[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = typedExprA match {
+      case Generic(_, e, tag) =>
+        val b1 = foldRight(e, lb)(f)
+        f(tag, b1)
+      case Annotation(e, _, tag) =>
+        val lb1 = foldRight(e, lb)(f)
+        f(tag, lb1)
+      case AnnotatedLambda(_, _, e, tag) =>
+        val lb1 = foldRight(e, lb)(f)
+        f(tag, lb1)
+      case Var(_, _ , _, tag) => f(tag, lb)
+      case App(fn, a, _, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = foldRight(a, b1)(f)
+        foldRight(fn, b2)(f)
+      case Let(_, exp, in, _, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = foldRight(in, b1)(f)
+        foldRight(exp, b2)(f)
+      case Literal(_, _, tag) =>
+        f(tag, lb)
+      case Match(arg, branches, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = branches.foldRight(b1) { case ((p,t), bn) => foldRight(t, bn)(f) }
+        foldRight(arg, b2)(f)
+    }
+
+    override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] = te match {
+      case Generic(tv, in, tag) => Generic(tv, map(in)(fn), fn(tag))
+      case Annotation(term, tpe, tag) => Annotation(map(term)(fn), tpe, fn(tag))
+      case AnnotatedLambda(b, tpe, expr, tag) => AnnotatedLambda(b, tpe, map(expr)(fn), fn(tag))
+      case v@Var(_, _, _, _) => v.copy(tag = fn(v.tag))
+      case App(fnT, arg, tpe, tag) => App(map(fnT)(fn), map(arg)(fn), tpe, fn(tag))
+      case Let(b, e, in, r, t) => Let(b, map(e)(fn), map(in)(fn), r, fn(t))
+      case lit@Literal(_, _, _) => lit.copy(tag = fn(lit.tag))
+      case Match(arg, branches, tag) =>
+        Match(map(arg)(fn), branches.map { case (p, t) => (p, map(t)(fn)) }, fn(tag))
     }
   }
 

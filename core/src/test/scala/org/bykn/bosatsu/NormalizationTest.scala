@@ -18,7 +18,7 @@ package NormTest/String
 
 main = "aa"
 """
-        ), "NormTest/String", NormalExpressionTag(Literal(Str("aa")), Set())
+        ), "NormTest/String", NormalExpressionTag(Literal(Str("aa")), Set()), Some("Literal('aa')")
       )
 
       normalTagTest(
@@ -44,7 +44,8 @@ main = ["aa"]
             Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)))),
             Struct(0,List())
           )
-        )
+        ),
+        Some("Struct(1,Literal('aa'),Struct(0,))")
       )
   }
   test("recurse") {
@@ -351,7 +352,8 @@ external def foo(x: String) -> List[String]
 out = \y -> foo(y)
 """
     ), "Extern/Eta",
-    ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),Identifier.Name("foo"))
+    ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),Identifier.Name("foo")),
+    Some("ExternalVar('Extern/Eta','foo')")
     )
     normalExpressionTest(
       List("""
@@ -361,16 +363,17 @@ external def foo(x: String) -> List[String]
 
 out = match foo("arg"):
   [*first_few, _, _, last]: last
-  _: "zero"
+  _: "'zero\\'"
 """
       ), "Extern/List",
       Match(
         App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "List")).get),Identifier.Name("foo")),Literal(Str("arg"))),
         NonEmptyList.fromList(List(
           (ListPat(List(Left(Some(0)), Right(WildCard), Right(WildCard), Right(Var(1)))),Lambda(Lambda(LambdaVar(1)))),
-        (WildCard,Literal(Str("zero")))
+        (WildCard,Literal(Str("'zero\\'")))
         )).get
-      )
+      ),
+      Some("Match(App(ExternalVar('Extern/List','foo'),Literal('arg')),ListPat(Left(0),Right(WildCard),Right(WildCard),Right(Var(1))),Lambda(Lambda(LambdaVar(1))),WildCard,Literal('\\'zero\\\\\\''))")
     )
     normalExpressionTest(
       List("""

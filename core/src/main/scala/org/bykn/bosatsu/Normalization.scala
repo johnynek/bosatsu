@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
+import cats.Id
 import rankn._
 
 import Identifier.Constructor
@@ -17,6 +18,26 @@ sealed abstract class NormalExpression {
    * or there are no lambda variables used in the linked expressions
    */
   def maxLambdaVar: Option[Int]
+
+  def serialize: String = {
+    def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
+    this match {
+      case NormalExpression.App(fn, arg) => s"App(${fn.serialize},${arg.serialize})"
+      case NormalExpression.ExternalVar(pack, defName) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}')"
+      case NormalExpression.Match(arg, branches) => {
+        val serBranches = branches.toList.map {case (np, ne) => s"${np.serialize},${ne.serialize}"}.mkString(",")
+        s"Match(${arg.serialize},$serBranches)"
+      }
+      case NormalExpression.LambdaVar(index) => s"LambdaVar($index)"
+      case NormalExpression.Lambda(expr) => s"Lambda(${expr.serialize})"
+      case NormalExpression.Struct(enum, args) => s"Struct($enum,${args.map(_.serialize).mkString(",")})"
+      case NormalExpression.Literal(toLit) => toLit match {
+        case Lit.Str(toStr) => s"Literal('${escapeString(toStr)}')"
+        case Lit.Integer(bigInt) => s"Literal($bigInt)"
+      }
+      case NormalExpression.Recursion(lambda) => s"Recursion(${lambda.serialize})"
+    }
+  }
 }
 
 object NormalExpression {
@@ -63,7 +84,29 @@ object NormalExpression {
   }
 }
 
-sealed abstract class NormalPattern {}
+sealed abstract class NormalPattern {
+  def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
+  def serialize: String = {
+    this match {
+      case NormalPattern.WildCard => "WildCard"
+      case NormalPattern.Literal(toLit) => toLit match {
+        case Lit.Str(toStr) => s"Literal('${escapeString(toStr)}')"
+        case Lit.Integer(bigInt) => s"Literal($bigInt)"
+      }
+      case NormalPattern.Var(name) => s"Var($name)"
+      case NormalPattern.Named(name, pat) => s"Named($name,${pat.serialize})"
+      case NormalPattern.ListPat(parts) => {
+        val inside = parts.map {
+          case Left(name) => s"Left(${name.map(_.toString).getOrElse("")})"
+          case Right(pat) => s"Right(${pat.serialize})"
+        }.mkString(",")
+        s"ListPat($inside)"
+      }
+      case NormalPattern.PositionalStruct(name, params) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.serialize).mkString(",")})"
+      case NormalPattern.Union(head, rest) => s"Union(${head.serialize},${rest.toList.map(_.serialize).mkString(",")})"
+    }
+  }
+}
 
 object NormalPattern {
   case object WildCard extends NormalPattern
@@ -80,9 +123,11 @@ object NormalPattern {
 }
 
 object Normalization {
-  case class NormalExpressionTag(ne: NormalExpression, children: Set[NormalExpression])
-  type NormalizedPM = PackageMap.Typed[(Declaration, Normalization.NormalExpressionTag)]
-  type NormalizedPac = Package.Typed[(Declaration, Normalization.NormalExpressionTag)]
+  case class ExpressionKeyTag[T](ne: T, children: Set[T])
+  type NormalExpressionTag = ExpressionKeyTag[NormalExpression]
+  def NormalExpressionTag(ne: NormalExpression, children: Set[NormalExpression]) = ExpressionKeyTag(ne, children)
+  type NormalizedPM = PackageMap.Typed[(Declaration, NormalExpressionTag)]
+  type NormalizedPac = Package.Typed[(Declaration, NormalExpressionTag)]
 
   type PatternEnv = Map[Int, NormalExpression]
 
@@ -396,6 +441,22 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         .map((name, _))
     }
     PackageMap(normAll.run(Map()).value._2.toMap)
+  }
+
+  def hashKey[T](fn: NormalExpression => T): PackageMap.Typed[(Declaration, ExpressionKeyTag[T])] = {
+    val lst = normalizePackageMap.toMap.toList
+      .map { case (packName, pack) =>
+        val newLets = pack.program.lets.map { case (letsName, recursive, expr) =>
+          val newExpr = expr.traverse[Id, (Declaration, ExpressionKeyTag[T])] {
+            case (d, neT) => (d, ExpressionKeyTag(fn(neT.ne), neT.children.map(fn)))
+          }
+          (letsName, recursive, newExpr)
+        }
+        val newProgram = pack.program.copy(lets = newLets) 
+        val newPack = pack.copy(program = newProgram)
+        (packName, newPack)
+      }
+    PackageMap(lst.toMap)
   }
 
   def normalizeExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):
