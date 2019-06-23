@@ -1,13 +1,12 @@
 package org.bykn.bosatsu
 
-import cats.evidence.Is
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.rankn.{Type, ParsedTypeEnv}
 import scala.collection.immutable.SortedSet
 
 import Identifier.{Bindable, Constructor}
 
-case class Program[T, D, +S](
+case class Program[T, +D, +S](
   types: T,
   lets: List[(Bindable, RecursionKind, D)],
   externalDefs: List[Bindable],
@@ -17,37 +16,6 @@ case class Program[T, D, +S](
     lets.iterator.map { case (n, r, d) => (n, (r, d)) }.toMap
 
   def getLet(name: Bindable): Option[(RecursionKind, D)] = letMap.get(name)
-  /**
-   * main is the thing we evaluate. It is the last thing defined
-   */
-  def getMain[D1](fn: (Bindable, D1, D1) => D1)(implicit ev: D Is Expr[D1]): Option[Expr[D1]] = {
-    @annotation.tailrec
-    def loop(ls: List[(Bindable, RecursionKind, Expr[D1])], acc: Expr[D1]): Expr[D1] =
-      ls match {
-        case Nil => acc
-        case (nm, rec, expr) :: tail =>
-          val decl = fn(nm, expr.tag, acc.tag)
-          loop(tail, Expr.Let(nm, expr, acc, recursive = rec, decl))
-      }
-
-    lets.reverse match {
-      case (_, _, h) :: tail =>
-        type L[X] = List[(Identifier.Bindable, RecursionKind, X)]
-        Some(loop(ev.substitute[L](tail), ev.coerce(h)))
-      case Nil =>
-        None
-    }
-  }
-
-  def getMainDecl(implicit ev: D Is Expr[Declaration]): Option[Expr[Declaration]] = {
-
-    val fn = { (nm: Bindable, v: Declaration, in: Declaration) =>
-      val r = v.region + in.region
-      Declaration.Binding(BindingStatement(Pattern.Var(nm), v, Padding(0, in)))(r)
-    }
-
-    getMain[Declaration](fn)
-  }
 }
 
 object Program {
@@ -185,5 +153,4 @@ object Program {
 
     loop(stmt)
   }
-
 }

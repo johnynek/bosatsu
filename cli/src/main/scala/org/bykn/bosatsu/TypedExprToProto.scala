@@ -61,9 +61,23 @@ object ProtoConverter {
 
   type Tab[A] = StateT[Try, SerState, A]
 
+  implicit class TabMethods[A](val self: Tab[A]) extends AnyVal {
+    def onFailPrint(message: => String): Tab[A] =
+      self.runF match {
+        case Success(fn) =>
+          StateT(fn.andThen { next =>
+            if (next.isFailure) System.err.println(message)
+            next
+          })
+
+        case Failure(err) =>
+          System.err.println(message)
+          self
+     }
+  }
+
   private def tabFail[S, A](ex: Exception): Tab[A] =
     MonadError[Tab, Throwable].raiseError(ex)
-
   private def tabPure[S, A](a: A): Tab[A] =
     Monad[Tab].pure(a)
 
@@ -643,6 +657,7 @@ object ProtoConverter {
                 }
           }
       }
+      .onFailPrint(s"in typedExprToProto: $te")
 
   def varianceToProto(v: Variance): proto.Variance =
     v match {
@@ -1002,21 +1017,23 @@ object ProtoConverter {
       }
     }
 
-  def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
-    paths.traverse(read[proto.Interfaces](_))
-      .flatMap {
-        case Nil => IO.pure(Nil)
-        case protos =>
-          IO.fromTry(packagesFromProto(protos.flatMap(_.interfaces), Nil).map(_._1))
+  def readInterfacesAndPackages(ifacePaths: List[Path], packagePaths: List[Path]): IO[(List[Package.Interface], List[Package.Typed[Unit]])] =
+    (ifacePaths.traverse(read[proto.Interfaces](_)),
+      packagePaths.traverse(read[proto.Packages](_)))
+      .tupled
+      .flatMap { case (ifs, packs) =>
+        IO.fromTry(
+          packagesFromProto(
+            ifs.flatMap(_.interfaces),
+            packs.flatMap(_.packages)
+            ))
       }
 
+  def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
+    readInterfacesAndPackages(paths, Nil).map(_._1)
+
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
-    paths.traverse(read[proto.Packages](_))
-      .flatMap {
-        case Nil => IO.pure(Nil)
-        case protos =>
-          IO.fromTry(packagesFromProto(Nil, protos.flatMap(_.packages)).map(_._2))
-      }
+    readInterfacesAndPackages(Nil, paths).map(_._2)
 
   def writeInterfaces(interfaces: List[Package.Interface], path: Path): IO[Unit] =
     IO.fromTry(interfacesToProto(interfaces))
@@ -1213,14 +1230,25 @@ object ProtoConverter {
       }
 
     val nodes: List[Node] = ifaces.map(Left(_)).toList ::: packs.map(Right(_)).toList
-    val nodeMap: Map[String, List[Node]] = nodes.groupBy(nodeName)
+    val nodeMap: Map[String, List[Node]] =
+      nodes.groupBy(nodeName)
+
+    def getNodes(n: String, parent: Node): List[Node] =
+      nodeMap.get(n) match {
+        case Some(ns) => ns
+        case None if n == Predef.Name.asString =>
+          // we can load the predef below
+          Nil
+        case None =>
+          sys.error(s"could not find node named: $n a dependency of $parent")
+      }
 
     // we only call this when we have done validation
     // so, the unsafe calls inside are checked before we call
     def dependsOn(n: Node): List[Node] =
       n match {
-        case Left(i) => ifaceDeps(i).map { dep => nodeMap(dep).head }
-        case Right(p) => packageDeps(p).map { dep => nodeMap(dep).head }
+        case Left(i) => ifaceDeps(i).flatMap { dep => getNodes(dep, n) }
+        case Right(p) => packageDeps(p).flatMap { dep => getNodes(dep, n) }
       }
 
     val dupNames: List[String] =
@@ -1306,6 +1334,11 @@ object ProtoConverter {
         tab1.run(DecodeState.init(pack.strings))
       }
 
+      val predefIface = {
+        val iface = Package.interfaceOf(Predef.predefCompiled)
+        (iface, Package.exportedTypeEnv(iface))
+      }
+
       val load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]] =
         Memoize.function[String, Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]] { (pack, rec) =>
           nodeMap.get(pack) match {
@@ -1315,8 +1348,11 @@ object ProtoConverter {
             case Some(Right(p) :: Nil) =>
               packFromProtoUncached(p, rec)
                 .map(Right(_))
-            case _ =>
-              Failure(new Exception(s"missing interface or compiled: $pack"))
+            case None if pack == Predef.Name.asString =>
+              // if we haven't replaced explicitly, use the built in predef
+              Success(Left(predefIface))
+            case found =>
+              Failure(new Exception(s"missing interface or compiled: $pack, found: $found"))
           }
         }
 
