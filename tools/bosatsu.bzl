@@ -93,7 +93,7 @@ def _bosatsu_test_impl(ctx):
   for f in ctx.files.srcs:
     args += ["--input", f.short_path]
   for f in provider.transitive_deps:
-    args += ["--test_deps", f.short_path]
+    args += ["--include", f.short_path]
   for p in ctx.attr.packages:
     args += ["--test_package", p]
 

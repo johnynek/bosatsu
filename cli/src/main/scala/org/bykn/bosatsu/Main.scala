@@ -58,29 +58,41 @@ object MainCommand {
    */
   def typeCheck0(inputs: List[Path], ifs: List[Package.Interface]): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
     NonEmptyList.fromList(inputs) match {
-      case None => IO.pure((PackageMap.empty, Nil))
+      case None =>
+        // we should still return the predef
+        // if it is not in ifs
+        val useInternalPredef =
+          !ifs.contains { p: Package.Interface => p.name == Predef.Name }
+
+        if (useInternalPredef) {
+          IO.pure((PackageMap.fromIterable(Predef.predefCompiled :: Nil), Nil))
+        }
+        else {
+          IO.pure((PackageMap.empty, Nil))
+        }
       case Some(nel) => typeCheck(nel, ifs)
     }
 
   def typeCheck(inputs: NonEmptyList[Path], ifs: List[Package.Interface]): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
-    for {
-      ins <- parseInputs(inputs)
-      // if we have passed in a use supplied predef, don't use the internal one
-      useInternalPredef = !ifs.contains { p: Package.Interface => p.name == Predef.Name }
-      res <- IO.fromTry(
-        // Now we have completed all IO, here we do all the checks we need for correctness
-        for {
-          packs <- toTry(ins)
-          parsed =
-            if (useInternalPredef) Predef.withPredefA(("predef", LocationMap("")), packs.toList)
-            else Predef.withPredefImportsA(packs.toList)
-          (dups, resPacks) = PackageMap.resolveThenInfer(parsed, ifs)
-          _ <- checkDuplicatePackages(dups)(_._1.toString)
-          map = PackageMap.buildSourceMap(packs)
-          p <- fromPackageError(map, resPacks)
-          pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
-        } yield (p, pathToName))
-    } yield res
+    parseInputs(inputs)
+      .flatMap { ins =>
+        // if we have passed in a use supplied predef, don't use the internal one
+        val useInternalPredef = !ifs.contains { p: Package.Interface => p.name == Predef.Name }
+        IO.fromTry {
+          // Now we have completed all IO, here we do all the checks we need for correctness
+          for {
+            packs <- toTry(ins)
+            parsed =
+              if (useInternalPredef) Predef.withPredefA(("predef", LocationMap("")), packs.toList)
+              else Predef.withPredefImportsA(packs.toList)
+            (dups, resPacks) = PackageMap.resolveThenInfer(parsed, ifs)
+            _ <- checkDuplicatePackages(dups)(_._1.toString)
+            map = PackageMap.buildSourceMap(packs)
+            p <- fromPackageError(map, resPacks)
+            pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
+          } yield (p, pathToName)
+        }
+      }
 
   def buildPackMap(srcs: List[Path], deps: List[Path]): IO[PackageMap.Typed[Any]] =
     ProtoConverter
@@ -141,15 +153,16 @@ object MainCommand {
               .map { case (_, p) => p }
               // TODO currently we recompile predef in every run, so every interface includes
               // predef, we filter that out
-              .filterNot(_.name == Predef.packageName)
+              .filter(_.name != Predef.packageName)
               .toList
+              .sortBy(_.name)
 
           val ifres = ifout match {
             case None =>
               IO.unit
-            case Some(p) =>
+            case Some(ifacePath) =>
               val ifs = packList.map(Package.interfaceOf(_))
-              ProtoConverter.writeInterfaces(ifs, p)
+              ProtoConverter.writeInterfaces(ifs, ifacePath)
           }
           val out = ProtoConverter.writePackages(packList, output)
 
@@ -176,13 +189,13 @@ object MainCommand {
             deps <- ProtoConverter.readPackages(dependencies)
             ifaces = deps.map(Package.interfaceOf(_))
             pn <- typeCheck0(tests, ifaces)
-            (packs, nameMap) = pn
-          } yield (packs, nameMap, deps)
+            (packs0, nameMap) = pn
+            // add the dependencies into the package map
+            packs = deps.foldLeft(PackageMap.toAnyTyped(packs0))(_ + _)
+          } yield (packs, nameMap)
 
-        typeChecked.flatMap { case (packs0, nameMap, deps) =>
-          // add the dependencies into the package map
-          val packs = deps.foldLeft(PackageMap.toAnyTyped(packs0))(_ + _)
-          val testSet = tests.toList.toSet
+        typeChecked.flatMap { case (packs, nameMap) =>
+          val testSet = tests.toSet
           val testPackages: List[PackageName] =
             (nameMap.iterator.collect { case (p, name) if testSet(p) => name } ++
               testPacks.iterator).toList.sorted.distinct

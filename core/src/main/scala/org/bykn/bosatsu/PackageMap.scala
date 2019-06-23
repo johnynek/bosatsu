@@ -22,6 +22,8 @@ object PackageMap {
   def empty[A, B, C, D]: PackageMap[A, B, C, D] =
     PackageMap(Map.empty)
 
+  def fromIterable[A, B, C, D](ps: Iterable[Package[A, B, C, D]]): PackageMap[A, B, C, D] =
+    empty[A, B, C, D] ++ ps
   /**
    * Either return a unique mapping from B to A, or return a pair of duplicates
    * and the unque subset
