@@ -721,9 +721,7 @@ object Infer {
              (argT, resT) = argRes
              typedArg <- checkSigma(arg, argT)
              coerce <- instSigma(resT, expect, region(term))
-             precoerce = TypedExpr.App(typedFn, typedArg, resT, tag)
-             res = coerce(precoerce)
-           } yield res
+           } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
         case Lambda(name, result, tag) =>
           expect match {
             case Expected.Check((expTy, rr)) =>
@@ -813,13 +811,11 @@ object Infer {
               typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
             } yield TypedExpr.Let(name, typedRhs, typedBody, isRecursive, tag)
           }
-        case ann@Annotation(term, tpe, tag) =>
+        case Annotation(term, tpe, tag) =>
           for {
             typedTerm <- checkSigma(term, tpe)
             coerce <- instSigma(tpe, expect, region(term))
-            pre = TypedExpr.Annotation(typedTerm, tpe, tag)
-            res = coerce(pre)
-          } yield res
+          } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
         case Match(term, branches, tag) =>
           // all of the branches must return the same type:
 
@@ -1091,13 +1087,14 @@ object Infer {
         te1 <- NonEmptyList.fromList(skols) match {
           case None =>
             // if skols.isEmpty, skols.filter(fn).isEmpty, so we can skip the rest
-            zonkTypedExpr(te)
+            pure(te)
           case Some(neskols) =>
             for {
               envTys <- getEnv
               escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
               badTvs = skols.filter(escTvs)
               _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
+              // we need to zonk before we unskolemize because some of the metas could be skolems
               zte <- zonkTypedExpr(te)
             } yield unskolemize(neskols)(zte)
         }
