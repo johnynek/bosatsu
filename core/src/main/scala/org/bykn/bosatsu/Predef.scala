@@ -7,9 +7,22 @@ import scala.collection.immutable.SortedMap
 import language.experimental.macros
 
 object Predef {
-  def f(file: String): String = macro Macro.smac
-  private val predefString: String = f("core/src/main/resources/bosatsu/predef.bosatsu")
+  /**
+   * Loads a file *at compile time* as a means of embedding
+   * external files into strings. This lets us avoid resources
+   * which compilicate matters for scalajs.
+   */
+  private[bosatsu] def loadFileInCompile(file: String): String = macro Macro.smac
 
+  /**
+   * String representation of the predef
+   */
+  val predefString: String =
+    loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
+
+  /**
+   * The parsed representation of the predef.
+   */
   lazy val predefPackage: Package.Parsed =
     Package.parser.parse(predefString) match {
       case Parsed.Success(pack, _) => pack

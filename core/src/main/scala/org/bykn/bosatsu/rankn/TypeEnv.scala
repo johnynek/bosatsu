@@ -9,7 +9,7 @@ import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
 class TypeEnv[+A] private (
   protected val values: SortedMap[(PackageName, Identifier), Type],
   protected val constructors: SortedMap[(PackageName, Constructor), (List[(Bindable, Type)], DefinedType[A], Type)],
-  protected val definedTypes: SortedMap[(PackageName, TypeName), DefinedType[A]]) {
+  val definedTypes: SortedMap[(PackageName, TypeName), DefinedType[A]]) {
 
   override def equals(that: Any): Boolean =
     that match {
@@ -23,6 +23,9 @@ class TypeEnv[+A] private (
   override def hashCode: Int = {
     (getClass, values, constructors, definedTypes).hashCode
   }
+
+  override def toString: String =
+    s"TypeEnv($values, $constructors, $definedTypes)"
 
   def allDefinedTypes: List[DefinedType[A]] =
     definedTypes.values.toList.sortBy { dt => (dt.packageName, dt.name) }
@@ -45,10 +48,25 @@ class TypeEnv[+A] private (
     dt: DefinedType[A1],
     v: Type): TypeEnv[A1] = {
       val nec = constructors.updated((pack, n), (params, dt, v))
-      new TypeEnv(values = values, constructors = nec, definedTypes = definedTypes)
+      // add this constructor to the values
+      val v1 = values.updated((pack, n), v)
+      new TypeEnv(values = v1, constructors = nec, definedTypes = definedTypes)
     }
 
+  /**
+   * only add the type, do not add any of the constructors
+   * used when importing values
+   */
   def addDefinedType[A1 >: A](dt: DefinedType[A1]): TypeEnv[A1] = {
+    val dt1 = definedTypes.updated((dt.packageName, dt.name), dt)
+    new TypeEnv(constructors = constructors, definedTypes = dt1, values = values)
+  }
+
+  /**
+   * add a DefinedType and all of its constructors. This is done locally for
+   * a package
+   */
+  def addDefinedTypeAndConstructors[A1 >: A](dt: DefinedType[A1]): TypeEnv[A1] = {
     val dt1 = definedTypes.updated((dt.packageName, dt.name), dt)
     val cons1 =
       dt.constructors
@@ -100,11 +118,14 @@ object TypeEnv {
       SortedMap.empty[(PackageName, Constructor), (List[(Bindable, Type)], DefinedType[Nothing], Type)],
       SortedMap.empty[(PackageName, TypeName), DefinedType[Nothing]])
 
+  /**
+   * Adds all the types and all the constructors from the given types
+   */
   def fromDefinitions[A](defs: List[DefinedType[A]]): TypeEnv[A] =
-    defs.foldLeft(empty: TypeEnv[A])(_.addDefinedType(_))
+    defs.foldLeft(empty: TypeEnv[A])(_.addDefinedTypeAndConstructors(_))
 
   def fromParsed[A](p: ParsedTypeEnv[A]): TypeEnv[A] = {
-    val t1 = p.allDefinedTypes.foldLeft(empty: TypeEnv[A])(_.addDefinedType(_))
+    val t1 = p.allDefinedTypes.foldLeft(empty: TypeEnv[A])(_.addDefinedTypeAndConstructors(_))
     p.externalDefs.foldLeft(t1) { case (t1, (p, n, t)) => t1.addExternalValue(p, n, t) }
   }
 }
