@@ -186,7 +186,15 @@ object Evaluation {
     }
   }
 
-  type Env = Map[Identifier, Eval[Value]]
+  case class Env(map: Map[Identifier, Eval[Value]], lambdas: List[Eval[Value]]) {
+    def updated(name: Identifier, n: Eval[Value]) = copy(map = map.updated(name, n))
+    def addLambdaVar(name: Identifier, n: Eval[Value]) = copy(map = map.updated(name, n), lambdas = n :: lambdas)
+    def get(name: Identifier) = map.get(name)
+  }
+
+  object Env {
+    val empty = Env(Map.empty, Nil)
+  }
 
   sealed abstract class Scoped {
     import Scoped.fromFn
@@ -209,9 +217,9 @@ object Evaluation {
         val fn =
           FnValue {
             case n@Now(v) =>
-              inEnv(env.updated(name, n))
+              inEnv(env.addLambdaVar(name, n))
             case v => v.flatMap { v0 =>
-              inEnv(env.updated(name, Eval.now(v0)))
+              inEnv(env.addLambdaVar(name, Eval.now(v0)))
             }
           }
 
@@ -219,7 +227,7 @@ object Evaluation {
       }
 
     def emptyScope: Scoped =
-      fromFn(_ => inEnv(Map.empty))
+      fromFn(_ => inEnv(Env.empty))
 
     def applyArg(arg: Scoped): Scoped =
       fromFn { env =>
@@ -241,7 +249,7 @@ object Evaluation {
 
     def recursive(name: Bindable, item: Scoped): Scoped = {
       fromFn { env =>
-        lazy val env1: Map[Identifier, Eval[Value]] =
+        lazy val env1: Env =
           env.updated(name, Eval.defer(item.inEnv(env1)).memoize)
         item.inEnv(env1)
       }
@@ -281,7 +289,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   def evaluate(p: PackageName, varName: Identifier): Option[(Eval[Value], Type)] =
     pm.toMap.get(p).map { pack =>
       val (s, t) = eval((pack, Left(varName)))
-      (s.inEnv(Map.empty), t)
+      (s.inEnv(Env.empty), t)
     }
 
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
@@ -290,7 +298,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       (name, rec, expr) <- pack.program.lets.lastOption
       (scope0, tpe) = eval((pack, Right(expr)))
       scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
-    } yield (scope.inEnv(Map.empty), tpe)
+    } yield (scope.inEnv(Env.empty), tpe)
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
