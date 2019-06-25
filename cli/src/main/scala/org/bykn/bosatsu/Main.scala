@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{Validated, ValidatedNel, NonEmptyList}
 import cats.effect.IO
-import cats.{Eval, Traverse}
+import cats.Traverse
 import com.monovore.decline.{Argument, Command, Opts}
 import fastparse.all.P
 import java.nio.file.{Files, Path}
@@ -10,44 +10,6 @@ import org.typelevel.paiges.Doc
 import scala.util.{ Failure, Success, Try }
 
 import cats.implicits._
-
-object Foo {
-  def times(i: java.lang.Integer): java.lang.Integer =
-    java.lang.Integer.valueOf(i.intValue + 42)
-}
-
-object Std {
-  //fold = ffi scala org.bykn.bosatsu.Std.fold List[a] -> b -> (b -> a -> b) -> b
-  @annotation.tailrec
-  final def fold(list: Any, bv: Any, fn: Any): Any = {
-    list match {
-      case (0, _) =>
-        // Empty
-        bv
-      case (1, head :: tail :: Nil) =>
-        val fnT = fn.asInstanceOf[Fn[Any, Fn[Any, Any]]]
-        fold(tail, fnT(bv)(head), fn)
-      case _ => sys.error(s"unexpected: $list")
-    }
-  }
-
-  def unitValue: AnyRef = (0, Nil)
-
-  def print(i: Any): Any =
-    Eval.always { println(i.toString); unitValue }
-
-  def flatMap(act: Any, fn: Any): Any =
-    act.asInstanceOf[Eval[Any]].flatMap { v =>
-      fn.asInstanceOf[Fn[Any, Eval[Any]]](v)
-    }
-  def mapAction(act: Any, fn: Any): Any =
-    act.asInstanceOf[Eval[Any]].map { v =>
-      fn.asInstanceOf[Fn[Any, Any]](v)
-    }
-
-  def toAction(a: Any): Any = Eval.now(a)
-  def runAction(a: Any): Any = a.asInstanceOf[Eval[Any]].value
-}
 
 sealed abstract class MainCommand {
   def run: IO[List[String]]

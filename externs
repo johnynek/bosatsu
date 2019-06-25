@@ -1,7 +1,0 @@
-Foo/Bar flatMap scala org.bykn.bosatsu.Std.flatMap
-Foo/Bar fold scala org.bykn.bosatsu.Std.fold
-Foo/Bar hc scala org.bykn.bosatsu.Foo.times
-Foo/Bar mapAction scala org.bykn.bosatsu.Std.flatMap
-Foo/Bar print scala org.bykn.bosatsu.Std.print
-Foo/Bar runAction scala org.bykn.bosatsu.Std.runAction
-Foo/Bar toAction scala org.bykn.bosatsu.Std.toAction
