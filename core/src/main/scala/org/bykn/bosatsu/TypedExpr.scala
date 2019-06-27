@@ -341,7 +341,17 @@ object TypedExpr {
       case App(fnT, arg, tpe, tag) =>
         App(recur(fnT), recur(arg), tpe, tag)
       case Let(b, e, in, r, t) =>
-        if (b == name) te // shadow
+        if (b == name) {
+          if (r.isRecursive) {
+            // in this case, b is in scope for e
+            // so it shadows a the previous definition
+            te // shadow
+          } else {
+            // then b is not in scope for e
+            // but b does shadow inside `in`
+            Let(b, recur(e), in, r, t)
+          }
+        }
         else Let(b, recur(e), recur(in), r, t)
       case lit@Literal(_, _, _) => lit
       case Match(arg, branches, tag) =>
