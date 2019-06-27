@@ -161,8 +161,8 @@ def result(x, c):
 out=result
 """
       ), "Match/Vars",
-        Lambda(Lambda(Match(LambdaVar(1),NonEmptyList.of((PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Struct(0,
-  List(LambdaVar(1), LambdaVar(0)))))))))))
+        Lambda(Lambda(Match(LambdaVar(1),NonEmptyList.of((PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List()))))))))))))))
+      )
 
     normalExpressionTest(
       List("""
@@ -176,7 +176,7 @@ out=match Pair(1, "two"):
 
 """
       ), "Match/Structs",
-      Struct(0,List(Literal(Lit(3)), Literal(Lit(1)), Literal(Lit(1))))
+      Struct(0,List(Literal(Lit(3)), Literal(Lit.Str("two")), Literal(Lit(1))))
     )
     normalExpressionTest(
       List("""
