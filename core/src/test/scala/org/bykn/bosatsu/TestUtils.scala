@@ -99,7 +99,7 @@ object TestUtils {
               ev.evalTest(mainPack) match {
                 case None => fail(s"$mainPack had no tests evaluted")
                 case Some(t) =>
-                  assert(t.assertions == cnt)
+                  assert(t.assertions == cnt, s"${t.assertions} == $cnt")
                   val (suc, failcount, message) = Test.report(t)
                   assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
                   if (failcount > 0) fail(message.render(80))
@@ -156,7 +156,7 @@ object TestUtils {
       val normPackMap = NormalizePackageMap(infPackMap).hashKey(ne => (ne, ne.serialize))
       (for {
         pack <- normPackMap.toMap.get(mainPack)
-        exprs = pack.program.lets.map { case (_, rec, e) => e }        
+        exprs = pack.program.lets.map { case (_, rec, e) => e }
         fleft = exprs.map(_.size.toInt)
         fright = exprs.map(_.foldRight(Eval.now(0)) { case (_, m) => m.map(_ + 1) }.value)
         expr <- exprs.lastOption

@@ -123,12 +123,7 @@ object Type {
       case ForAll(ns, rho) =>
         val boundSet: Set[Var] = ns.toList.toSet
         val env1 = env.filterKeys { v => !boundSet(v) }
-        substituteVar(rho, env1) match {
-          case ForAll(ns1, r1) =>
-            ForAll(ns ::: ns1, r1)
-          case notForAll: Rho =>
-            ForAll(ns, notForAll)
-        }
+        forAll(ns.toList, substituteVar(rho, env1))
       case m@TyMeta(_) => m
       case c@TyConst(_) => c
     }

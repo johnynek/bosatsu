@@ -1251,4 +1251,25 @@ main = match Bar(a):
     }
   }
 
+  test("pattern example from pair to triple") {
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(f, s)
+struct Trip(f, s, t)
+
+Trip(a, b, c) = match Pair(1, "two"):
+  Pair(f, s): Trip(3, s, f)
+
+bgood = match b:
+  "two": True
+  _: False
+
+tests = Test("test triple",
+  [ Assertion(a.eq_Int(3), "a == 3"),
+    Assertion(bgood, b),
+    Assertion(c.eq_Int(1), "c == 1") ])
+"""), "A", 3)
+  }
 }

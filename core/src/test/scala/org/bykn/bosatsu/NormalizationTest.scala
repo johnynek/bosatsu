@@ -38,11 +38,12 @@ main = ["aa"]
 """
         ), "NormTest/List", NormalExpressionTag(
           Struct(1,List(Literal(Str("aa")), Struct(0,List()))),
-          Set(
-            Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
-            Literal(Str("aa")),
-            Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)))),
-            Struct(0,List())
+          Set(LambdaVar(0),
+              Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
+              Struct(0,List()),
+              Literal(Str("aa")),
+              Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)))),
+              Struct(1,List(Literal(Str("aa")), LambdaVar(0)))
           )
         ),
         Some("Struct(1,Literal('aa'),Struct(0,))")
@@ -159,13 +160,10 @@ def result(x, c):
 
 out=result
 """
-      ), "Match/Vars", 
-    Lambda(Lambda(Match(LambdaVar(1),NonEmptyList.fromList(List(
-      (
-        PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),
-        Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List())))))))))
+      ), "Match/Vars",
+        Lambda(Lambda(Match(LambdaVar(1),NonEmptyList.of((PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List()))))))))))))))
       )
-    )).get))))
+
     normalExpressionTest(
       List("""
 package Match/Structs
@@ -178,7 +176,7 @@ out=match Pair(1, "two"):
 
 """
       ), "Match/Structs",
-      Struct(0,List(Literal(Integer(BigInteger.valueOf(3))), Literal(Str("two")), Literal(Integer(BigInteger.valueOf(1)))))
+      Struct(0,List(Literal(Lit(3)), Literal(Lit.Str("two")), Literal(Lit(1))))
     )
     normalExpressionTest(
       List("""
@@ -225,7 +223,7 @@ out = match ["a","b","c","d","e"]:
       ), "Match/List",
       Struct(1,List(
         Struct(0,List(
-          Literal(Str("a")), 
+          Literal(Str("a")),
           Struct(0,List(
             Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(1,List(Literal(Str("d")), Struct(1,List(Literal(Str("e")), Struct(0,List()))))))))),
             Struct(0,List())

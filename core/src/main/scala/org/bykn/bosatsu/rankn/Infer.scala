@@ -1,5 +1,7 @@
 package org.bykn.bosatsu.rankn
+
 import cats.Monad
+import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
 
@@ -290,7 +292,7 @@ object Infer {
           // this case is not really discussed in the paper
           zonkTypedExpr(rho)
         case Some(metas) =>
-          val used: Set[Type.Var.Bound] = Type.tyVarBinders(List(rho.getType))
+          val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
           val aligned = Type.alignBinders(metas, used)
           val bound = aligned.traverse_ { case (m, n) => writeMeta(m, Type.TyVar(n)) }
           (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(aligned.map(_._2), _))
@@ -683,14 +685,17 @@ object Infer {
         // note: we need rho2 in weak prenex form, but skolemize does this
         coerce <- subsCheckRho(inferred, rho2, left, right)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
-        _ <- if (skolTvs.isEmpty) unit
-             else getFreeTyVars(inferred :: declared :: Nil).flatMap { escTvs =>
+        res <- NonEmptyList.fromList(skolTvs) match {
+          case None => pure(coerce)
+          case Some(nel) =>
+             getFreeTyVars(inferred :: declared :: Nil).flatMap { escTvs =>
                NonEmptyList.fromList(skolTvs.filter(escTvs)) match {
-                 case None => unit
+                 case None => pure(coerce.andThen(unskolemize(nel)))
                  case Some(badTvs) => fail(Error.SubsumptionCheckFailure(inferred, declared, left, right, badTvs))
                }
              }
-      } yield coerce
+          }
+      } yield res
 
     /**
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
@@ -810,8 +815,7 @@ object Infer {
           for {
             typedTerm <- checkSigma(term, tpe)
             coerce <- instSigma(tpe, expect, region(term))
-            res = coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
-          } yield res
+          } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
         case Match(term, branches, tag) =>
           // all of the branches must return the same type:
 
@@ -1080,15 +1084,21 @@ object Infer {
         (skols, rho) = skolRho
         // we need rho in weak-prenex form, but skolemize does this
         te <- checkRho(t, rho)
-        // if skols.isEmpty, skols.filter(fn).isEmpty, so we can skip the rest
-        _ <- if (skols.isEmpty) unit
-             else for {
-               envTys <- getEnv
-               escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
-               badTvs = skols.filter(escTvs)
-               _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
-             } yield ()
-      } yield te // should be fine since the everything after te is just checking
+        te1 <- NonEmptyList.fromList(skols) match {
+          case None =>
+            // if skols.isEmpty, skols.filter(fn).isEmpty, so we can skip the rest
+            pure(te)
+          case Some(neskols) =>
+            for {
+              envTys <- getEnv
+              escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
+              badTvs = skols.filter(escTvs)
+              _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
+              // we need to zonk before we unskolemize because some of the metas could be skolems
+              zte <- zonkTypedExpr(te)
+            } yield unskolemize(neskols)(zte)
+        }
+      } yield te1 // should be fine since the everything after te is just checking
 
     /**
      * invariant: rho needs to be in weak-prenex form
@@ -1117,6 +1127,17 @@ object Infer {
   def typeCheck[A: HasRegion](t: Expr[A]): Infer[TypedExpr[A]] =
     typeCheckMeta(t, None)
 
+  private def unskolemize(skols: NonEmptyList[Type.Var.Skolem]): TypedExpr.Coerce =
+    new FunctionK[TypedExpr, TypedExpr] {
+      def apply[A](te: TypedExpr[A]) = {
+        // now replace the skols with generics
+        val used = Type.tyVarBinders(te.getType :: Nil)
+        val aligned = Type.alignBinders(skols, used)
+        val newVars = aligned.map(_._2)
+        val te2 = substTyExpr(skols, newVars.map(Type.TyVar(_)), te)
+        TypedExpr.forAll(newVars, te2)
+      }
+    }
 
   private def typeCheckMeta[A: HasRegion](t: Expr[A], optMeta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] = {
     def run(t: Expr[A]) = inferSigmaMeta(t, optMeta).flatMap(zonkTypedExpr _)
@@ -1142,17 +1163,20 @@ object Infer {
           mt <- replace
           (skols, t1) = mt
           te <- run(t1)
-          // now replace the skols with generics
-          used = Type.tyVarBinders(te.getType :: Nil)
-          aligned = Type.alignBinders(skols, used)
-          newVars = aligned.map(_._2)
-          te2 = substTyExpr(skols, newVars.map(Type.TyVar(_)), te)
-          forall = TypedExpr.forAll(newVars, te2)
-        } yield forall
+        } yield unskolemize(skols)(te)
     }
 
-      // todo this should be a law...
+      // todo this should be a law... but since
+      // we don't have confidence yet I'm leaving it here
+      // so we see the errors
     res.map { te =>
+      te.traverseType[cats.Id] {
+        case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
+          sys.error(s"illegal skolem ($t) escape in ${te.repr}")
+        case t@Type.TyMeta(_) =>
+          sys.error(s"illegal meta ($t) escape in ${te.repr}")
+        case good => good
+      }
       val tp = te.getType
       lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
       scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
@@ -1162,7 +1186,6 @@ object Infer {
       te
     }
   }
-
 
   def extendEnv[A](varName: Bindable, tpe: Type)(of: Infer[A]): Infer[A] =
     extendEnvList(List((varName, tpe)))(of)
@@ -1191,5 +1214,5 @@ object Infer {
    * a for for b
    */
   def substitutionCheck(a: Type, b: Type, ra: Region, rb: Region): Infer[Unit] =
-    subsCheck(a, b, ra, rb).map(_ => ())
+    subsCheck(a, b, ra, rb).void
 }

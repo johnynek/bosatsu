@@ -238,30 +238,40 @@ object TypedExpr {
   }
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
+
   def coerceRho(tpe: Type.Rho): Coerce =
-    new FunctionK[TypedExpr, TypedExpr] { self =>
-      def apply[A](expr: TypedExpr[A]) =
-        expr match {
-          case Annotation(t, _, _) => self(t)
-          case Generic(params, expr, tag) =>
-            // This definitely feels wrong,
-            // but without this, I don't see what else we can do
-            Generic(params, self(expr), tag)
-          case Var(p, name, _, t) => Var(p, name, tpe, t)
-          case AnnotatedLambda(arg, argT, res, tag) =>
-            // only some coercions would make sense here
-            // how to handle?
-            // one way out could be to return a type to Annotation
-            // and just wrap it in this case, could it be that simple?
-            Annotation(expr, tpe, expr.tag)
-          case App(fn, arg, _, tag) =>
-            // do we need to coerce fn into the right shape?
-            App(fn, arg, tpe, tag)
-          case Let(arg, argE, in, rec, tag) =>
-            Let(arg, argE, self(in), rec, tag)
-          case Literal(l, _, tag) => Literal(l, tpe, tag)
-          case Match(arg, branches, tag) =>
-            Match(arg, branches.map { case (p, expr) => (p, self(expr)) }, tag)
+    tpe match {
+      case Type.Fun(a: Type.Rho, b: Type.Rho) =>
+        coerceFn(a, b, coerceRho(a), coerceRho(b))
+      case _ =>
+        new FunctionK[TypedExpr, TypedExpr] { self =>
+          def apply[A](expr: TypedExpr[A]) =
+            expr match {
+              case Annotation(t, _, _) => self(t)
+              case Generic(_, expr, _) =>
+                // a Generic type is not a rho type,
+                // so we discard the outer forAll and continue on
+                self(expr)
+              case Var(p, name, _, t) => Var(p, name, tpe, t)
+              case AnnotatedLambda(arg, argT, res, tag) =>
+                // only some coercions would make sense here
+                // how to handle?
+                // one way out could be to return a type to Annotation
+                // and just wrap it in this case, could it be that simple?
+                Annotation(expr, tpe, expr.tag)
+              case App(fn, arg, _, tag) =>
+                // TODO, what should we do here?
+                // we have learned that the type is tpe
+                // but that implies something for fn and arg
+                // but we are ignoring that, which
+                // leaves them with potentially skolems or metavars
+                App(fn, arg, tpe, tag)
+              case Let(arg, argE, in, rec, tag) =>
+                Let(arg, argE, self(in), rec, tag)
+              case Literal(l, _, tag) => Literal(l, tpe, tag)
+              case Match(arg, branches, tag) =>
+                Match(arg, branches.map { case (p, expr) => (p, self(expr)) }, tag)
+            }
         }
     }
 
@@ -310,6 +320,45 @@ object TypedExpr {
       .distinct
   }
 
+  private def replaceVarType[A](te: TypedExpr[A], name: Identifier, tpe: Type): TypedExpr[A] = {
+    def recur(t: TypedExpr[A]) = replaceVarType(t, name, tpe)
+
+    te match {
+      case Generic(tv, in, tag) => Generic(tv, recur(in), tag)
+      case Annotation(term, tpe, tag) => Annotation(recur(term), tpe, tag)
+      case AnnotatedLambda(b, tpe, expr, tag) =>
+        // this is a kind of let:
+        if (b == name) {
+          // we are shadowing, so we are done:
+          te
+        }
+        else {
+          // no shadow
+          AnnotatedLambda(b, tpe, recur(expr), tag)
+        }
+      case Var(None, nm, _, tag) if nm == name => Var(None, name, tpe, tag)
+      case v@Var(_, _, _, _) => v
+      case App(fnT, arg, tpe, tag) =>
+        App(recur(fnT), recur(arg), tpe, tag)
+      case Let(b, e, in, r, t) =>
+        if (b == name) {
+          if (r.isRecursive) {
+            // in this case, b is in scope for e
+            // so it shadows a the previous definition
+            te // shadow
+          } else {
+            // then b is not in scope for e
+            // but b does shadow inside `in`
+            Let(b, recur(e), in, r, t)
+          }
+        }
+        else Let(b, recur(e), recur(in), r, t)
+      case lit@Literal(_, _, _) => lit
+      case Match(arg, branches, tag) =>
+        Match(recur(arg), branches.map { case (p, t) => (p, recur(t)) }, tag)
+    }
+  }
+
   /**
    * TODO this seems pretty expensive to blindly apply: we are deoptimizing
    * the nodes pretty heavily
@@ -317,15 +366,28 @@ object TypedExpr {
   def coerceFn(arg: Type, result: Type.Rho, coarg: Coerce, cores: Coerce): Coerce =
     new FunctionK[TypedExpr, TypedExpr] { self =>
       def apply[A](expr: TypedExpr[A]) = {
-        /*
-         * We have to be careful not to collide with the free vars in expr
-         */
-        val free = SortedSet(freeVars(expr :: Nil): _*)
-        val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next
-        AnnotatedLambda(name, arg, cores(App(expr, coarg(Var(None, name, arg, expr.tag)), result, expr.tag)), expr.tag)
+        expr match {
+          case Annotation(t, _, _) => self(t)
+          case AnnotatedLambda(name, _, res, tag) =>
+            // note, Var(None, name, originalType, tag)
+            // is hanging out in res, or it is unused
+            AnnotatedLambda(name, arg, cores(replaceVarType(res, name, arg)), tag)
+          case Generic(_, in, _) => self(in)
+          case Var(p, n, _, tag) =>
+            Var(p, n, Type.Fun(arg, result), tag)
+          case _ =>
+            /*
+             * We have to be careful not to collide with the free vars in expr
+             */
+            val free = SortedSet(freeVars(expr :: Nil): _*)
+            val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next
+            // \name -> (expr((name: arg)): result)
+            // TODO: why do we need coarg when we already know the type (arg)?
+            val result1 = cores(App(expr, coarg(Var(None, name, arg, expr.tag)), result, expr.tag))
+            AnnotatedLambda(name, arg, result1, expr.tag)
+        }
       }
     }
-
 
   def forAll[A](params: NonEmptyList[Type.Var.Bound], expr: TypedExpr[A]): TypedExpr[A] =
     Generic(params, expr, expr.tag)

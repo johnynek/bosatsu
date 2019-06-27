@@ -506,6 +506,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] = {
       val lambdaVars = al.arg :: env._2
       val nextEnv: Env = (env._1 ++ lambdaVars.zipWithIndex
+        .reverse
         .toMap
         .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
         lambdaVars)
@@ -533,6 +534,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case RecursionKind.Recursive =>
           val lambdaVars = l.arg :: env._2
           val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
+            .reverse
             .toMap
             .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
             lambdaVars)
@@ -598,6 +600,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     val names = pattern.names.collect { case b: Identifier.Bindable => b }
     val lambdaVars = names ++ env._2
     val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
+      .reverse
       .toMap
       .mapValues(idx => NormalExpressionTag(NormalExpression.LambdaVar(idx), Set[NormalExpression]())),
       lambdaVars)

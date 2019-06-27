@@ -108,7 +108,26 @@ class RankNInferTest extends FunSuite {
    * Check that a no import program has a given type
    */
   def parseProgram(statement: String, tpe: String) =
-    checkLast(statement) { te => assert(te.getType == typeFrom(tpe)) }
+    checkLast(statement) { te =>
+
+      te.traverseType[cats.Id] {
+        case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
+          fail(s"illegate skolem ($t) escape in $te")
+          t
+        case t@Type.TyMeta(_) =>
+          fail(s"illegate meta ($t) escape in $te")
+          t
+        case good =>
+          good
+      }
+      val tp = te.getType
+      lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
+      assert(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
+
+      assert(Type.metaTvs(tp :: Nil).isEmpty,
+        s"illegal inferred type: $teStr")
+      assert(te.getType == typeFrom(tpe))
+    }
 
   // this could be used to test the string representation of expressions
   def checkTERepr(statement: String, repr: String) =
