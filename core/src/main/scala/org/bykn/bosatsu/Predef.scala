@@ -229,7 +229,7 @@ object PredefImpl {
   def clear_Dict(dictv: Value): Value = {
     val d = toDict(dictv)
     val ord = d.ordering
-    ExternalValue(SortedMap.empty[Value, Value](ord))
+    ExternalValue(SortedMap.empty[Value, Value](ord), () => "Dict()")
   }
 
 
@@ -246,19 +246,25 @@ object PredefImpl {
                 case other => sys.error(s"type error: $other")
               }
           }
-        ExternalValue(SortedMap.empty[Value, Value])
+        ExternalValue(SortedMap.empty[Value, Value], () => "Dict()")
       case other => sys.error(s"type error: $other")
     }
 
   def toDict(v: Value): SortedMap[Value, Value] =
     v match {
-      case ExternalValue(sm) =>
+      case ExternalValue(sm, _) =>
         sm.asInstanceOf[SortedMap[Value, Value]]
       case other => sys.error(s"type error: $other")
     }
 
-  def add_key(dict: Value, k: Value, value: Value): Value =
-    ExternalValue(toDict(dict).updated(k, value))
+  def add_key(dict: Value, k: Value, value: Value): Value = {
+    val sm = toDict(dict).updated(k, value)
+    val tokenize = () => {
+      val lst = sm.toList.map { case (v1, v2) => s"${v1.tokenize}->${v2.tokenize}" }
+      s"Dict(${lst.mkString(",")})"
+    }
+    ExternalValue(sm, tokenize)
+  }
 
   def get_key(dict: Value, k: Value): Value =
     toDict(dict).get(k) match {
@@ -266,8 +272,14 @@ object PredefImpl {
       case Some(v) => VOption.some(v)
     }
 
-  def remove_key(dict: Value, k: Value): Value =
-    ExternalValue(toDict(dict) - k)
+  def remove_key(dict: Value, k: Value): Value = {
+    val sm = toDict(dict) - k
+    val tokenize = () => {
+      val lst = sm.toList.map { case (v1, v2) => s"${v1.tokenize}->${v2.tokenize}" }
+      s"Dict(${lst.mkString(",")})"
+    }
+    ExternalValue(sm, tokenize)
+  }
 
   def items(dict: Value): Value = {
     val d = toDict(dict)

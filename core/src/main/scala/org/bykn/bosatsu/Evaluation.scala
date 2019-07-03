@@ -25,7 +25,7 @@ object Evaluation {
   sealed abstract class Value {
     def asLazyFn: Eval[Value] => Eval[Value] =
       this match {
-        case FnValue(f) => f
+        case FnValue(f, _, _) => f
         case other =>
           // $COVERAGE-OFF$this should be unreachable
           sys.error(s"invalid cast to Fn: $other")
@@ -34,12 +34,14 @@ object Evaluation {
 
     def asFn: Value => Eval[Value] =
       this match {
-        case FnValue(f) => { v => f(Eval.now(v)) }
+        case FnValue(f, _, _) => { v => f(Eval.now(v)) }
         case other =>
           // $COVERAGE-OFF$this should be unreachable
           sys.error(s"invalid cast to Fn: $other")
           // $COVERAGE-ON$
       }
+    
+    def tokenize: String
   }
 
   object Value {
@@ -60,13 +62,25 @@ object Evaluation {
         }
     }
 
-    case object UnitValue extends ProductValue
+    case object UnitValue extends ProductValue {
+      val tokenize = "()"
+    }
     case class ConsValue(head: Value, tail: ProductValue) extends ProductValue {
       override val hashCode = (head, tail).hashCode
+      lazy val tokenize = head.tokenize ++ tail.tokenize
     }
-    case class SumValue(variant: Int, value: ProductValue) extends Value
-    case class FnValue(toFn: Eval[Value] => Eval[Value]) extends Value
-    case class ExternalValue(toAny: Any) extends Value
+    case class SumValue(variant: Int, value: ProductValue) extends Value {
+      lazy val tokenize = s"SV($variant, ${value.tokenize})"
+    }
+    case class FnValue(toFn: Eval[Value] => Eval[Value], normalExpression: NormalExpression, scope: List[Eval[Value]]) extends Value {
+      lazy val tokenize = s"Fn($normalExpression, ${scope.map(_.value.tokenize).mkString(",")})"
+    }
+    object FnValue {
+      def apply(normalExpression: NormalExpression, scope: List[Eval[Value]])(toFn: Eval[Value] => Eval[Value]): FnValue = FnValue(toFn, normalExpression, scope)
+    }
+    case class ExternalValue(toAny: Any, tokenizeFn: () => String) extends Value {
+      lazy val tokenize = tokenizeFn()
+    }
 
     val False: Value = SumValue(0, UnitValue)
     val True: Value = SumValue(1, UnitValue)
@@ -107,25 +121,25 @@ object Evaluation {
 
     def fromLit(l: Lit): Value =
       l match {
-        case Lit.Str(s) => ExternalValue(s)
-        case Lit.Integer(i) => ExternalValue(i)
+        case Lit.Str(s) => ExternalValue(s, () => s)
+        case Lit.Integer(i) => ExternalValue(i, () => s"$i")
       }
 
     object VInt {
       def apply(v: Int): Value = apply(BigInt(v))
-      def apply(v: BigInt): Value = ExternalValue(v.bigInteger)
+      def apply(v: BigInt): Value = ExternalValue(v.bigInteger, () => s"${v.bigInteger}")
       def unapply(v: Value): Option[BigInteger] =
         v match {
-          case ExternalValue(v: BigInteger) => Some(v)
+          case ExternalValue(v: BigInteger, _) => Some(v)
           case _ => None
         }
     }
 
     object Str {
-      def apply(str: String): Value = ExternalValue(str)
+      def apply(str: String): Value = ExternalValue(str, () => str)
       def unapply(v: Value): Option[String] =
         v match {
-          case ExternalValue(str: String) => Some(str)
+          case ExternalValue(str: String, _) => Some(str)
           case _ => None
         }
     }
@@ -180,7 +194,7 @@ object Evaluation {
     object VDict {
       def unapply(v: Value): Option[SortedMap[Value, Value]] =
         v match {
-          case ExternalValue(v: SortedMap[_, _]) => Some(v.asInstanceOf[SortedMap[Value, Value]])
+          case ExternalValue(v: SortedMap[_, _], _) => Some(v.asInstanceOf[SortedMap[Value, Value]])
           case _ => None
         }
     }
@@ -211,17 +225,17 @@ object Evaluation {
         }
       }
 
-    def asLambda(name: Bindable): Scoped =
+    def asLambda(name: Bindable, ne: NormalExpression): Scoped =
       fromFn { env =>
         import cats.Now
         val fn =
-          FnValue {
+          FnValue({
             case n@Now(v) =>
               inEnv(env.addLambdaVar(name, n))
             case v => v.flatMap { v0 =>
               inEnv(env.addLambdaVar(name, Eval.now(v0)))
             }
-          }
+          }, ne, env.lambdas.take(ne.maxLambdaVar.getOrElse(0)))
 
         Eval.now(fn)
       }
@@ -627,7 +641,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          efn.applyArg(earg)
        case a@AnnotatedLambda(name, _, expr, _) =>
          val inner = recurse((p, Right(expr)))._1
-         inner.asLambda(name)
+         inner.asLambda(name, a.tag.asInstanceOf[NormalExpression])
        case Let(arg, e, in, rec, _) =>
          val e0 = recurse((p, Right(e)))._1
          val eres =
@@ -683,7 +697,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
               case None =>
                 throw EvaluationException(s"Missing External defintion of '${pn.parts.toList.mkString("/")} $n'. Check that your 'external' parameter is correct.")
               case Some(ext) =>
-                (Scoped.const(ext.call(tpe)), tpe)
+                (Scoped.const(ext.call(tpe, pn, n)), tpe)
             }
         }
     }
@@ -700,16 +714,17 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
     // TODO: this is a obviously terrible
     // the encoding is inefficient, the implementation is inefficient
+    import NormalExpression._
     def loop(param: Int, args: List[Value]): Value =
       if (param == 0) {
         val prod = ProductValue.fromList(args.reverse)
         if (singleItemStruct) prod
         else SumValue(enum, prod)
       }
-      else FnValue {
+      else FnValue({
         case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
         case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
-      }
+      }, Lambda(Struct(enum, List(LambdaVar(0)))), args.map(Eval.now))
 
     Eval.now(loop(arity, Nil))
   }
@@ -728,10 +743,10 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       }
     tpe match {
       case Type.IntType =>
-        val ExternalValue(v) = a
+        val ExternalValue(v, _) = a
         Some(Json.JNumberStr(v.toString))
       case Type.StrType =>
-        val ExternalValue(v) = a
+        val ExternalValue(v, _) = a
         Some(Json.JString(v.toString))
       case Type.BoolType =>
         a match {
