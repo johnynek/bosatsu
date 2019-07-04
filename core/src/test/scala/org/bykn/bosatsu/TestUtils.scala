@@ -80,7 +80,8 @@ object TestUtils {
 
   def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals = Externals.empty) = {
     def inferredHandler(packMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
-      val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
+      val normPackMap = NormalizePackageMap(packMap).normalizePackageMap
+      val ev = Evaluation(normPackMap, Predef.jvmExternals ++ extern, {tag: (Declaration, Normalization.NormalExpressionTag) => tag._2.ne})
       ev.evaluateLast(mainPack) match {
         case None => fail("found no main expression")
         case Some((eval, schm)) =>

@@ -296,7 +296,7 @@ object Evaluation {
 
 }
 
-case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
+case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressionFromTag: T => NormalExpression) {
   import Evaluation.{Value, Scoped, Env}
   import Value._
 
@@ -641,7 +641,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          efn.applyArg(earg)
        case a@AnnotatedLambda(name, _, expr, _) =>
          val inner = recurse((p, Right(expr)))._1
-         inner.asLambda(name, a.tag.asInstanceOf[NormalExpression])
+         inner.asLambda(name, expressionFromTag(a.tag))
        case Let(arg, e, in, rec, _) =>
          val e0 = recurse((p, Right(e)))._1
          val eres =
