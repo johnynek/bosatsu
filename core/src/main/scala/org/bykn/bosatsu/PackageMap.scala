@@ -10,18 +10,20 @@ import org.typelevel.paiges.{Doc, Document}
 
 import rankn.{Infer, Type, TypeEnv}
 
-case class PackageMap[A, B, C, D](toMap: Map[PackageName, Package[A, B, C, D]]) {
-  def +(pack: Package[A, B, C, D]): PackageMap[A, B, C, D] =
+case class PackageMap[A, B, C, +D](toMap: Map[PackageName, Package[A, B, C, D]]) {
+  def +[D1 >: D](pack: Package[A, B, C, D1]): PackageMap[A, B, C, D1] =
     PackageMap(toMap + (pack.name -> pack))
 
-  def ++(packs: Iterable[Package[A, B, C, D]]): PackageMap[A, B, C, D] =
-    packs.foldLeft(this)(_ + _)
+  def ++[D1 >: D](packs: Iterable[Package[A, B, C, D1]]): PackageMap[A, B, C, D1] =
+    packs.foldLeft(this: PackageMap[A, B, C, D1])(_ + _)
 }
 
 object PackageMap {
   def empty[A, B, C, D]: PackageMap[A, B, C, D] =
     PackageMap(Map.empty)
 
+  def fromIterable[A, B, C, D](ps: Iterable[Package[A, B, C, D]]): PackageMap[A, B, C, D] =
+    empty[A, B, C, D] ++ ps
   /**
    * Either return a unique mapping from B to A, or return a pair of duplicates
    * and the unque subset
@@ -54,7 +56,7 @@ object PackageMap {
   type MapF2[A, B] = MapF3[A, A, B]
   type ParsedImp = PackageMap[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
   type Resolved = MapF2[Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Typed[T] = PackageMap[
+  type Typed[+T] = PackageMap[
     Package.Interface,
     NonEmptyList[Referant[Variance]],
     Referant[Variance],
@@ -64,6 +66,9 @@ object PackageMap {
       Any
     ]
   ]
+
+  // convenience for type inference
+  def toAnyTyped[A](p: Typed[A]): Typed[Any] = p
 
   type Inferred = Typed[Declaration]
 

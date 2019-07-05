@@ -53,37 +53,78 @@ object MainCommand {
       case Failure(err) => Validated.invalidNel(ParseError.FileError(path, err))
     }
 
-  def typeCheck(inputs: NonEmptyList[Path], ifacePaths: List[Path]): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
-    for {
-      ins <- parseInputs(inputs)
-      ifs <- ProtoConverter.readInterfaces(ifacePaths)
-      res <- IO.fromTry(
-        // Now we have completed all IO, here we do all the checks we need for correctness
-        for {
-          packs <- toTry(ins)
-          (dups, resPacks) = PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), packs.toList), ifs)
-          _ <- checkDuplicatePackages(dups)(_._1.toString)
-          map = PackageMap.buildSourceMap(packs)
-          p <- fromPackageError(map, resPacks)
-          pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
-        } yield (p, pathToName))
-    } yield res
+  /**
+   * like typecheck, but a no-op for empty lists
+   */
+  def typeCheck0(inputs: List[Path], ifs: List[Package.Interface]): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+    NonEmptyList.fromList(inputs) match {
+      case None =>
+        // we should still return the predef
+        // if it is not in ifs
+        val useInternalPredef =
+          !ifs.contains { p: Package.Interface => p.name == Predef.Name }
 
-  case class Evaluate(inputs: NonEmptyList[Path], mainPackage: PackageName) extends MainCommand {
-    def run =
-      typeCheck(inputs, Nil).flatMap { case (packs, _) =>
-        val ev = Evaluation(packs, Predef.jvmExternals)
-        ev.evaluateLast(mainPackage) match {
-          case None => IO.raiseError(new Exception("found no main expression"))
-          case Some((eval, scheme)) =>
-            val res = eval.value
-            IO.pure(List(s"$res: $scheme"))
+        if (useInternalPredef) {
+          IO.pure((PackageMap.fromIterable(Predef.predefCompiled :: Nil), Nil))
+        }
+        else {
+          IO.pure((PackageMap.empty, Nil))
+        }
+      case Some(nel) => typeCheck(nel, ifs)
+    }
+
+  def typeCheck(inputs: NonEmptyList[Path], ifs: List[Package.Interface]): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+    parseInputs(inputs)
+      .flatMap { ins =>
+        // if we have passed in a use supplied predef, don't use the internal one
+        val useInternalPredef = !ifs.contains { p: Package.Interface => p.name == Predef.Name }
+        IO.fromTry {
+          // Now we have completed all IO, here we do all the checks we need for correctness
+          for {
+            packs <- toTry(ins)
+            parsed =
+              if (useInternalPredef) Predef.withPredefA(("predef", LocationMap("")), packs.toList)
+              else Predef.withPredefImportsA(packs.toList)
+            (dups, resPacks) = PackageMap.resolveThenInfer(parsed, ifs)
+            _ <- checkDuplicatePackages(dups)(_._1.toString)
+            map = PackageMap.buildSourceMap(packs)
+            p <- fromPackageError(map, resPacks)
+            pathToName: List[(Path, PackageName)] = packs.map { case ((path, _), p) => (path, p.name) }.toList
+          } yield (p, pathToName)
         }
       }
-  }
-  case class ToJson(inputs: NonEmptyList[Path], ifaces: List[Path], mainPackage: PackageName, output: Path) extends MainCommand {
+
+  def buildPackMap(srcs: List[Path], deps: List[Path]): IO[PackageMap.Typed[Any]] =
+    ProtoConverter
+      .readPackages(deps)
+      .flatMap { packs =>
+        val ifaces = packs.map(Package.interfaceOf(_))
+        typeCheck0(srcs, ifaces)
+          .map { case (thesePacks, _) =>
+            packs.foldLeft(PackageMap.toAnyTyped(thesePacks))(_ + _)
+          }
+      }
+
+  case class Evaluate(inputs: List[Path], mainPackage: PackageName, deps: List[Path]) extends MainCommand {
     def run =
-      typeCheck(inputs, Nil).flatMap { case (packs, _) =>
+      buildPackMap(inputs.toList, deps)
+        .flatMap { packs =>
+          val ev = Evaluation(packs, Predef.jvmExternals)
+          ev.evaluateLast(mainPackage) match {
+            case None => IO.raiseError(new Exception("found no main expression"))
+            case Some((eval, scheme)) =>
+              val res = eval.value
+              IO.pure(List(s"$res: $scheme"))
+          }
+        }
+  }
+  case class ToJson(inputs: List[Path], deps: List[Path], mainPackage: PackageName, output: Path) extends MainCommand {
+    def checkEmpty =
+      if (inputs.isEmpty && deps.isEmpty) IO.raiseError(new Exception("no test sources or test dependencies"))
+      else IO.unit
+
+    def run = checkEmpty *> buildPackMap(inputs.toList, deps)
+      .flatMap { packs =>
         val ev = Evaluation(packs, Predef.jvmExternals)
         ev.evaluateLast(mainPackage) match {
           case None =>
@@ -102,23 +143,30 @@ object MainCommand {
   }
   case class TypeCheck(inputs: NonEmptyList[Path], ifaces: List[Path], output: Path, ifout: Option[Path]) extends MainCommand {
     def run =
-      typeCheck(inputs, ifaces).flatMap { case (packs, _) =>
-        val ifres = ifout match {
-          case None =>
-            IO.unit
-          case Some(p) =>
-            val ifs0 = packs.toMap.iterator.map { case (_, p) => Package.interfaceOf(p) }.toList
-            // TODO currently we recompile predef in every run, so every interface includes
-            // predef, we filter that out
-            val ifs = ifs0.filterNot(_.name == Predef.packageName)
-            ProtoConverter.writeInterfaces(ifs, p)
-        }
+      ProtoConverter
+        .readInterfaces(ifaces)
+        .flatMap(typeCheck(inputs, _))
+        .flatMap { case (packs, _) =>
+          val packList =
+            packs.toMap
+              .iterator
+              .map { case (_, p) => p }
+              // TODO currently we recompile predef in every run, so every interface includes
+              // predef, we filter that out
+              .filter(_.name != Predef.packageName)
+              .toList
+              .sortBy(_.name)
 
-        val out =
-          CodeGenWrite.writeDoc(output, Doc.text(s"checked ${packs.toMap.size} packages"))
-            .as(Nil)
+          val ifres = ifout match {
+            case None =>
+              IO.unit
+            case Some(ifacePath) =>
+              val ifs = packList.map(Package.interfaceOf(_))
+              ProtoConverter.writeInterfaces(ifs, ifacePath)
+          }
+          val out = ProtoConverter.writePackages(packList, output)
 
-        ifres *> out
+          ifres *> out.as(Nil)
       }
   }
 
@@ -132,39 +180,48 @@ object MainCommand {
 
   case class RunTests(tests: List[Path], testPacks: List[PackageName], dependencies: List[Path]) extends MainCommand {
     def run = {
-      val files = NonEmptyList.fromList(tests ::: dependencies) match {
-        case None =>
-          IO.raiseError(new Exception("no test sources or test dependencies"))
-        case Some(ne) => IO.pure(ne)
+      if (tests.isEmpty && dependencies.isEmpty) {
+        IO.raiseError(new Exception("no test sources or test dependencies"))
       }
+      else {
+        val typeChecked =
+          for {
+            deps <- ProtoConverter.readPackages(dependencies)
+            ifaces = deps.map(Package.interfaceOf(_))
+            pn <- typeCheck0(tests, ifaces)
+            (packs0, nameMap) = pn
+            // add the dependencies into the package map
+            packs = deps.foldLeft(PackageMap.toAnyTyped(packs0))(_ + _)
+          } yield (packs, nameMap)
 
-      files.flatMap(typeCheck(_, Nil)).flatMap { case (packs, nameMap) =>
-        val testSet = tests.toList.toSet
-        val testPackages: List[PackageName] =
-          (nameMap.iterator.collect { case (p, name) if testSet(p) => name } ++
-            testPacks.iterator).toList.sorted.distinct
-        val ev = Evaluation(packs, Predef.jvmExternals)
-        val resMap = testPackages.map { p => (p, ev.evalTest(p)) }
-        val noTests = resMap.collect { case (p, None) => p }.toList
-        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t)) }.toList.sortBy(_._1)
+        typeChecked.flatMap { case (packs, nameMap) =>
+          val testSet = tests.toSet
+          val testPackages: List[PackageName] =
+            (nameMap.iterator.collect { case (p, name) if testSet(p) => name } ++
+              testPacks.iterator).toList.sorted.distinct
+          val ev = Evaluation(packs, Predef.jvmExternals)
+          val resMap = testPackages.map { p => (p, ev.evalTest(p)) }
+          val noTests = resMap.collect { case (p, None) => p }.toList
+          val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t)) }.toList.sortBy(_._1)
 
-        val success = noTests.isEmpty && results.forall { case (_, (_, f, _)) => f == 0 }
-        def stdOut: List[String] =
-          results.map { case (p, (_, _, d)) =>
-            val res = Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-            res.render(80)
-          }
-        if (success) IO.pure(stdOut)
-        else {
-          val missingDoc =
-            if (noTests.isEmpty) Doc.empty
-            else {
-              val prefix = Doc.text("packages with missing tests: ")
-              val missingDoc = Doc.intercalate(Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
-              (prefix + missingDoc.nested(2))
+          val success = noTests.isEmpty && results.forall { case (_, (_, f, _)) => f == 0 }
+          def stdOut: List[String] =
+            results.map { case (p, (_, _, d)) =>
+              val res = Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
+              res.render(80)
             }
+          if (success) IO.pure(stdOut)
+          else {
+            val missingDoc =
+              if (noTests.isEmpty) Doc.empty
+              else {
+                val prefix = Doc.text("packages with missing tests: ")
+                val missingDoc = Doc.intercalate(Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
+                (prefix + missingDoc.nested(2))
+              }
 
-          IO.raiseError(new Exception(missingDoc.render(80)))
+            IO.raiseError(new Exception(missingDoc.render(80)))
+          }
         }
       }
     }
@@ -233,8 +290,8 @@ object MainCommand {
     }
 
     val ins = Opts.options[Path]("input", help = "input files")
-    val deps = toList(Opts.options[Path]("test_deps", help = "test dependencies"))
     val ifaces = toList(Opts.options[Path]("interface", help = "interface files"))
+    val includes = toList(Opts.options[Path]("include", help = "compiled packages to include files"))
 
     val mainP = Opts.option[PackageName]("main", help = "main package to evaluate")
     val testP = toList(Opts.options[PackageName]("test_package", help = "package for which to run tests"))
@@ -242,11 +299,11 @@ object MainCommand {
     val interfaceOutputPath = Opts.option[Path]("interface_out", help = "interface output path")
     val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output")
 
-    val evalOpt = (ins, mainP).mapN(Evaluate(_, _))
-    val toJsonOpt = (ins, ifaces, mainP, outputPath).mapN(ToJson(_, _, _, _))
+    val evalOpt = (toList(ins), mainP, includes).mapN(Evaluate(_, _, _))
+    val toJsonOpt = (toList(ins), includes, mainP, outputPath).mapN(ToJson(_, _, _, _))
     val typeCheckOpt = (ins, ifaces, outputPath, interfaceOutputPath.orNone).mapN(TypeCheck(_, _, _, _))
     val compileOpt = (ins, compileRoot).mapN(Compile(_, _))
-    val testOpt = (toList(ins), testP, deps).mapN(RunTests(_, _, _))
+    val testOpt = (toList(ins), testP, includes).mapN(RunTests(_, _, _))
 
     Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
       .orElse(Opts.subcommand("write-json", "evaluate a data expression into json")(toJsonOpt))
@@ -265,7 +322,9 @@ object Main {
       case Right(cmd) =>
         Try(cmd.run.unsafeRunSync) match {
           case Failure(err) =>
-            System.err.println(err.getMessage)
+            // TODO use some verbosity flag to modulate this
+            err.printStackTrace
+            //System.err.println(err.getMessage)
             System.exit(1)
           case Success(lines) =>
             lines.foreach(println)
