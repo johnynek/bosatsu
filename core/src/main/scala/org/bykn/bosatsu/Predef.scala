@@ -226,10 +226,15 @@ object PredefImpl {
       case other => sys.error(s"type error: $other")
     }
 
+  val tokenizeDict: Any => String = { sm =>
+    val lst = sm.asInstanceOf[SortedMap[Value, Value]].toList.map { case (v1, v2) => s"${v1.tokenize}->${v2.tokenize}" }
+    s"Dict(${lst.mkString(",")})"
+  }
+
   def clear_Dict(dictv: Value): Value = {
     val d = toDict(dictv)
     val ord = d.ordering
-    ExternalValue(SortedMap.empty[Value, Value](ord), () => "Dict()")
+    ExternalValue(SortedMap.empty[Value, Value](ord), tokenizeDict)
   }
 
 
@@ -246,7 +251,7 @@ object PredefImpl {
                 case other => sys.error(s"type error: $other")
               }
           }
-        ExternalValue(SortedMap.empty[Value, Value], () => "Dict()")
+        ExternalValue(SortedMap.empty[Value, Value], tokenizeDict)
       case other => sys.error(s"type error: $other")
     }
 
@@ -257,14 +262,8 @@ object PredefImpl {
       case other => sys.error(s"type error: $other")
     }
 
-  def add_key(dict: Value, k: Value, value: Value): Value = {
-    val sm = toDict(dict).updated(k, value)
-    val tokenize = () => {
-      val lst = sm.toList.map { case (v1, v2) => s"${v1.tokenize}->${v2.tokenize}" }
-      s"Dict(${lst.mkString(",")})"
-    }
-    ExternalValue(sm, tokenize)
-  }
+  def add_key(dict: Value, k: Value, value: Value): Value =
+    ExternalValue(toDict(dict).updated(k, value), tokenizeDict)
 
   def get_key(dict: Value, k: Value): Value =
     toDict(dict).get(k) match {
@@ -278,7 +277,7 @@ object PredefImpl {
       val lst = sm.toList.map { case (v1, v2) => s"${v1.tokenize}->${v2.tokenize}" }
       s"Dict(${lst.mkString(",")})"
     }
-    ExternalValue(sm, tokenize)
+    ExternalValue(sm, tokenizeDict)
   }
 
   def items(dict: Value): Value = {

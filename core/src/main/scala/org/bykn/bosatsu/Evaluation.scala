@@ -78,8 +78,8 @@ object Evaluation {
     object FnValue {
       def apply(normalExpression: NormalExpression, scope: List[Eval[Value]])(toFn: Eval[Value] => Eval[Value]): FnValue = FnValue(toFn, normalExpression, scope)
     }
-    case class ExternalValue(toAny: Any, tokenizeFn: () => String) extends Value {
-      lazy val tokenize = tokenizeFn()
+    case class ExternalValue(toAny: Any, tokenizeFn: Any => String) extends Value {
+      lazy val tokenize = tokenizeFn(toAny)
     }
 
     val False: Value = SumValue(0, UnitValue)
@@ -119,15 +119,17 @@ object Evaluation {
       val GT: Value = SumValue(2, UnitValue)
     }
 
+    val tokenizeString: Any => String = _.asInstanceOf[String]
+    val tokenizeInt: Any => String = _.asInstanceOf[BigInteger].toString
     def fromLit(l: Lit): Value =
       l match {
-        case Lit.Str(s) => ExternalValue(s, () => s)
-        case Lit.Integer(i) => ExternalValue(i, () => s"$i")
+        case Lit.Str(s) => ExternalValue(s, tokenizeString)
+        case Lit.Integer(i) => ExternalValue(i, tokenizeInt)
       }
 
     object VInt {
       def apply(v: Int): Value = apply(BigInt(v))
-      def apply(v: BigInt): Value = ExternalValue(v.bigInteger, () => s"${v.bigInteger}")
+      def apply(v: BigInt): Value = ExternalValue(v.bigInteger, tokenizeInt)
       def unapply(v: Value): Option[BigInteger] =
         v match {
           case ExternalValue(v: BigInteger, _) => Some(v)
@@ -136,7 +138,7 @@ object Evaluation {
     }
 
     object Str {
-      def apply(str: String): Value = ExternalValue(str, () => str)
+      def apply(str: String): Value = ExternalValue(str, tokenizeString)
       def unapply(v: Value): Option[String] =
         v match {
           case ExternalValue(str: String, _) => Some(str)
