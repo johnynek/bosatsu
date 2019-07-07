@@ -433,4 +433,45 @@ out = match foo("c"):
       )
     )
   }
+  test("Lambda Substitution") {
+    normalExpressionTest(
+      List("""
+package Substitution/Lambda
+
+def rec_fn(lst1):
+  recur lst1:
+    []: True
+    [h1, *t1]: rec_fn(t1)
+
+lst1 = ["zooom"]
+main = (rec_fn(lst1), rec_fn(lst1))
+"""
+      ), "Substitution/Lambda",
+      Struct(0,
+        List(
+          App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((ListPat(List()),Struct(1,List())), (ListPat(List(Right(Var(1)), Left(Some(0)))),Lambda(Lambda(App(LambdaVar(3), LambdaVar(0)))))))))),Struct(1,List(Literal(Str("zooom")),Struct(0,List())))),
+          Struct(0,List(
+            App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((ListPat(List()),Struct(1,List())),(ListPat(List(Right(Var(1)), Left(Some(0)))),Lambda(Lambda(App(LambdaVar(3), LambdaVar(0)))))))))),Struct(1,List(Literal(Str("zooom")), Struct(0,List())))),
+            Struct(0,List())
+          ))
+        )
+      )  
+    )
+    normalExpressionTest(
+      List("""
+package Substitution/Eta
+
+out = \x,y -> x(y)
+"""
+      ), "Substitution/Eta", Lambda(Lambda(App(LambdaVar(1), LambdaVar(0))))
+    )
+    normalExpressionTest(
+      List("""
+package Substitution/Eta2
+
+out = \x,y -> x(y, y)
+"""
+      ), "Substitution/Eta2", Lambda(Lambda(App(App(LambdaVar(1), LambdaVar(0)), LambdaVar(0))))
+    )
+  }
 }
