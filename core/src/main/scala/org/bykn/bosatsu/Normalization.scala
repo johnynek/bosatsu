@@ -198,8 +198,8 @@ object Normalization {
                     }
                     case Matches(acc1) => fnt(structTail, acc1)
                   }
-                  case NormalExpression.Struct(_, _) => NoMatch
-                  case _ => NotProvable
+                case NormalExpression.Struct(_, _) => NoMatch
+                case _ => NotProvable
               }
             }
           case Left(splice) :: Nil =>
@@ -373,7 +373,7 @@ object Normalization {
         applyLambdaSubstituion(innerExpr, None, 0)
       // eta reduction
       case Lambda(App(innerExpr, LambdaVar(0))) =>
-        innerExpr
+        applyLambdaSubstituion(innerExpr, Some(LambdaVar(0)), 0)
       case _ => expr
     }
 
@@ -421,7 +421,7 @@ object Normalization {
         })
       case LambdaVar(varIndex) if varIndex >= lambdaDepth => LambdaVar(varIndex + 1)
       case lv @ LambdaVar(_)                      => lv
-      case Lambda(fn)                             => incrementLambdaVars(fn, lambdaDepth + 1)
+      case Lambda(fn)                             => Lambda(incrementLambdaVars(fn, lambdaDepth + 1))
       case Struct(enum, args) =>
         Struct(enum, args.map(incrementLambdaVars(_, lambdaDepth)))
       case l @ Literal(_) => l
