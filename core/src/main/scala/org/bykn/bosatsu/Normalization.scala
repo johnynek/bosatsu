@@ -327,7 +327,7 @@ object Normalization {
       case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) =>
         applyLambdaSubstituion(innerExpr, None, 0)
       // eta reduction
-      case Lambda(App(innerExpr, LambdaVar(0))) =>
+      case Lambda(App(innerExpr, LambdaVar(0))) if innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true) =>
         applyLambdaSubstituion(innerExpr, Some(LambdaVar(0)), 0)
       case _ => expr
     }
