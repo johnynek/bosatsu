@@ -1,30 +1,12 @@
-BosatsuProvider = provider(fields = ["transitive_deps", "transitive_sigs", "runfiles"])
+BosatsuProvider = provider(fields = ["transitive_deps", "transitive_sigs"])
 
 def _collect_deps(ctx):
-  transitive_deps = depset()
-  transitive_sigs = depset()
 
-  for dep_target in ctx.attr.deps:
-    if BosatsuProvider in dep_target:
-        bosatsu_provider = dep_target[BosatsuProvider]
-        transitive_deps += bosatsu_provider.transitive_deps
-        transitive_sigs += bosatsu_provider.transitive_sigs
-    else:
-      fail("expected a Bosatsu provider but missing in: %s" % dep_target)
+  deps = [dep_target[BosatsuProvider].transitive_deps for dep_target in ctx.attr.deps]
+  sigs = [dep_target[BosatsuProvider].transitive_sigs for dep_target in ctx.attr.deps]
 
-  return BosatsuProvider(transitive_deps = transitive_deps,
-                         transitive_sigs = transitive_sigs,
-                         runfiles = None)
-
-def _add_self(ctx, prov):
-  outs = []
-  if hasattr(ctx.outputs, "interface"):
-    outs += [ctx.outputs.interface]
-  if hasattr(ctx.outputs, "json"):
-    outs += [ctx.outputs.json]
-
-  return BosatsuProvider(transitive_deps = prov.transitive_deps + ctx.files.srcs,
-                  transitive_sigs = prov.transitive_sigs + outs)
+  return BosatsuProvider(transitive_deps = depset(transitive = deps),
+                         transitive_sigs = depset(transitive = sigs))
 
 def _bosatsu_library_impl(ctx):
   provider = _collect_deps(ctx)
@@ -36,18 +18,22 @@ def _bosatsu_library_impl(ctx):
     args += ["--interface", f.path]
 
   args += ["--interface_out", ctx.outputs.interface.path]
-  args += ["--output", ctx.outputs.info_out.path]
+  args += ["--output", ctx.outputs.output.path]
 
   ctx.action(
       inputs = depset(ctx.files.srcs, transitive=[provider.transitive_sigs]),
-      outputs = [ctx.outputs.interface, ctx.outputs.info_out],
+      outputs = [ctx.outputs.interface, ctx.outputs.output],
       executable = ctx.executable._bosatsu_main,
       mnemonic = "Bosatsu",
       progress_message = "bosatsu %s (%s files)" % (ctx.label, len(ctx.files.srcs)),
       arguments = args,
       )
 
-  return struct(providers = [_add_self(ctx, provider)])
+  result = BosatsuProvider(
+      transitive_deps = depset([ctx.outputs.output], transitive = [provider.transitive_deps]),
+      transitive_sigs = depset([ctx.outputs.interface], transitive = [provider.transitive_sigs]))
+
+  return [result]
 
 bosatsu_library = rule(
     implementation = _bosatsu_library_impl,
@@ -58,25 +44,24 @@ bosatsu_library = rule(
     },
     outputs = {
       "interface": "%{name}.bosatsig",
-      "info_out": "%{name}.info_out",
+      "output": "%{name}.bosatsu_package",
     },
 )
 
 def _bosatsu_json_impl(ctx):
   provider = _collect_deps(ctx)
 
-  all_inputs = provider.transitive_deps + ctx.files.srcs
   args = ["write-json"]
-  for f in all_inputs:
+  for f in ctx.files.srcs:
     args += ["--input", f.path]
-  for f in provider.transitive_sigs:
-    args += ["--interface", f.path]
+  for f in provider.transitive_deps.to_list():
+    args += ["--include", f.path]
 
   args += ["--output", ctx.outputs.json.path]
   args += ["--main", ctx.attr.package]
 
   ctx.action(
-      inputs = all_inputs + provider.transitive_sigs, # TODO only use interface of dependencies
+      inputs = depset(ctx.files.srcs, transitive=[provider.transitive_deps]),
       outputs = [ctx.outputs.json],
       executable = ctx.executable._bosatsu_main,
       mnemonic = "Bosatsu",
@@ -84,7 +69,7 @@ def _bosatsu_json_impl(ctx):
       arguments = args,
       )
 
-  return struct(providers = [_add_self(ctx, provider)])
+  return []
 
 bosatsu_json = rule(
     implementation = _bosatsu_json_impl,
@@ -104,12 +89,11 @@ def _bosatsu_test_impl(ctx):
   all_inputs = provider.transitive_deps + ctx.files.srcs + [ctx.executable._bosatsu_main]
   rfs = ctx.runfiles(transitive_files = all_inputs, collect_default = True)
 
-  all_inputs = provider.transitive_deps + ctx.files.srcs
   args = ["test"]
   for f in ctx.files.srcs:
     args += ["--input", f.short_path]
   for f in provider.transitive_deps:
-    args += ["--test_deps", f.short_path]
+    args += ["--include", f.short_path]
   for p in ctx.attr.packages:
     args += ["--test_package", p]
 

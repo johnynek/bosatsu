@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, Validated}
 import fastparse.all._
 import java.math.BigInteger
 import scala.collection.immutable.SortedMap
@@ -30,6 +30,23 @@ object Predef {
         val lm = LocationMap(predefString)
         sys.error(s"couldn't parse predef: ${lm.showContext(idx)} with trace: ${extra.traced.trace}")
     }
+
+  /**
+   * Here is the fully compiled Predef
+   */
+  lazy val predefCompiled: Package.Inferred = {
+    val (bad, good) = PackageMap.resolveThenInfer(((), predefPackage) :: Nil, Nil)
+    require(bad.isEmpty, s"expected no bad packages, found: $bad")
+    good match {
+      case Validated.Valid(v) =>
+        v.toMap.get(Name) match {
+          case None => sys.error("internal error: predef package not found after compilation")
+          case Some(inf) => inf
+        }
+      case Validated.Invalid(errs) =>
+        sys.error(s"internal error: predef didn't compile: $errs")
+    }
+  }
 
   def packageName: PackageName =
     PackageName.predef
@@ -124,7 +141,10 @@ object Predef {
     predefPackage :: ps.map(_.withImport(predefImports))
 
   def withPredefA[A](predefA: A, ps: List[(A, Package.Parsed)]): List[(A, Package.Parsed)] =
-    (predefA, predefPackage) :: ps.map { case (a, p) => (a, p.withImport(predefImports)) }
+    (predefA, predefPackage) :: withPredefImportsA(ps)
+
+  def withPredefImportsA[A](ps: List[(A, Package.Parsed)]): List[(A, Package.Parsed)] =
+    ps.map { case (a, p) => (a, p.withImport(predefImports)) }
 }
 
 object PredefImpl {
