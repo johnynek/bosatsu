@@ -109,7 +109,7 @@ object MainCommand {
     def run =
       buildPackMap(inputs.toList, deps)
         .flatMap { packs =>
-          val ev = Evaluation(packs, Predef.jvmExternals)
+          val ev = Evaluation(packs, Predef.jvmExternals, None)
           ev.evaluateLast(mainPackage) match {
             case None => IO.raiseError(new Exception("found no main expression"))
             case Some((eval, scheme)) =>
@@ -125,7 +125,7 @@ object MainCommand {
 
     def run = checkEmpty *> buildPackMap(inputs.toList, deps)
       .flatMap { packs =>
-        val ev = Evaluation(packs, Predef.jvmExternals)
+        val ev = Evaluation(packs, Predef.jvmExternals, None)
         ev.evaluateLast(mainPackage) match {
           case None =>
             IO.raiseError(new Exception("found no main expression"))
@@ -199,7 +199,7 @@ object MainCommand {
           val testPackages: List[PackageName] =
             (nameMap.iterator.collect { case (p, name) if testSet(p) => name } ++
               testPacks.iterator).toList.sorted.distinct
-          val ev = Evaluation(packs, Predef.jvmExternals)
+          val ev = Evaluation(packs, Predef.jvmExternals, None)
           val resMap = testPackages.map { p => (p, ev.evalTest(p)) }
           val noTests = resMap.collect { case (p, None) => p }.toList
           val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t)) }.toList.sortBy(_._1)

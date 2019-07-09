@@ -15,7 +15,7 @@ object FfiCall {
     import Value.FnValue
 
     private[this] def evalFn(pn: PackageName, dn: Identifier): Eval[FnValue] =
-      Eval.now(FnValue(NormalExpression.ExternalVar(pn, dn), Nil) { e1 => Eval.defer(e1.map(fn)) })
+      Eval.now(FnValue(Some(NormalExpression.ExternalVar(pn, dn)), Some(Nil)) { e1 => Eval.defer(e1.map(fn)) })
 
     def call(t: rankn.Type, pn: PackageName, dn: Identifier): Eval[Value] = evalFn(pn, dn)
   }
@@ -25,8 +25,8 @@ object FfiCall {
 
     private[this] def evalFn(pn: PackageName, dn: Identifier): Eval[FnValue] = {
       val ev =  ExternalVar(pn, dn)
-      Eval.now(FnValue(ev, Nil) { e1 =>
-        Eval.now(FnValue(App(ev, LambdaVar(0)), List(e1)) { e2 =>
+      Eval.now(FnValue(Some(ev), Some(Nil)) { e1 =>
+        Eval.now(FnValue(Some(App(ev, LambdaVar(0))), Some(List(e1))) { e2 =>
           Eval.defer((e1, e2).mapN(fn(_, _)))
         })
       })
@@ -40,9 +40,9 @@ object FfiCall {
 
     private[this] def evalFn(pn: PackageName, dn: Identifier): Eval[FnValue] = {
       val ev =  ExternalVar(pn, dn)
-      Eval.now(FnValue(ev, Nil) { e1 =>
-        Eval.now(FnValue(App(ev, LambdaVar(0)), List(e1)) { e2 =>
-          Eval.now(FnValue(App(App(ev, LambdaVar(1)), LambdaVar(0)), List(e2, e1))  { e3 =>
+      Eval.now(FnValue(Some(ev), Some(Nil)) { e1 =>
+        Eval.now(FnValue(Some(App(ev, LambdaVar(0))), Some(List(e1))) { e2 =>
+          Eval.now(FnValue(Some(App(App(ev, LambdaVar(1)), LambdaVar(0))), Some(List(e2, e1)))  { e3 =>
             Eval.defer((e1, e2, e3).mapN(fn(_, _, _)))
           })
         })

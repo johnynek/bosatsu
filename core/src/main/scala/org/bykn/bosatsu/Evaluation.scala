@@ -41,7 +41,7 @@ object Evaluation {
           // $COVERAGE-ON$
       }
     
-    def tokenize: String
+    def tokenize: Option[String]
   }
 
   object Value {
@@ -63,23 +63,25 @@ object Evaluation {
     }
 
     case object UnitValue extends ProductValue {
-      val tokenize = "()"
+      val tokenize = Some("()")
     }
     case class ConsValue(head: Value, tail: ProductValue) extends ProductValue {
       override val hashCode = (head, tail).hashCode
-      lazy val tokenize = head.tokenize ++ tail.tokenize
+      lazy val tokenize = head.tokenize.zip(tail.tokenize).map { case (h,t) => s"($h,$t)" }.headOption
     }
     case class SumValue(variant: Int, value: ProductValue) extends Value {
-      lazy val tokenize = s"SV($variant, ${value.tokenize})"
+      lazy val tokenize = value.tokenize.map(vt => s"SV($variant, $vt)")
     }
-    case class FnValue(toFn: Eval[Value] => Eval[Value], normalExpression: NormalExpression, scope: List[Eval[Value]]) extends Value {
-      lazy val tokenize = s"Fn($normalExpression, ${scope.map(_.value.tokenize).mkString(",")})"
+    case class FnValue(toFn: Eval[Value] => Eval[Value], normalExpression: Option[NormalExpression], scope: Option[List[Eval[Value]]]) extends Value {
+      lazy val tokenize = normalExpression.zip(scope).map { case (normalExpression, scope) =>
+        s"Fn($normalExpression, ${scope.map(_.value.tokenize).mkString(",")})"
+      }.headOption
     }
     object FnValue {
-      def apply(normalExpression: NormalExpression, scope: List[Eval[Value]])(toFn: Eval[Value] => Eval[Value]): FnValue = FnValue(toFn, normalExpression, scope)
+      def apply(normalExpression: Option[NormalExpression], scope: Option[List[Eval[Value]]])(toFn: Eval[Value] => Eval[Value]): FnValue = FnValue(toFn, normalExpression, scope)
     }
     case class ExternalValue(toAny: Any, tokenizeFn: Any => String) extends Value {
-      lazy val tokenize = tokenizeFn(toAny)
+      lazy val tokenize = Some(tokenizeFn(toAny))
     }
 
     val False: Value = SumValue(0, UnitValue)
@@ -227,7 +229,7 @@ object Evaluation {
         }
       }
 
-    def asLambda(name: Bindable, ne: NormalExpression): Scoped =
+    def asLambda(name: Bindable, ne: Option[NormalExpression]): Scoped =
       fromFn { env =>
         import cats.Now
         val fn =
@@ -237,7 +239,7 @@ object Evaluation {
             case v => v.flatMap { v0 =>
               inEnv(env.addLambdaVar(name, Eval.now(v0)))
             }
-          }, ne, env.lambdas.take(ne.maxLambdaVar.getOrElse(0)))
+          }, ne, ne.map (ne => env.lambdas.take(ne.maxLambdaVar.getOrElse(0))))
 
         Eval.now(fn)
       }
@@ -298,7 +300,7 @@ object Evaluation {
 
 }
 
-case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressionFromTag: T => NormalExpression) {
+case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressionFromTag: Option[T => NormalExpression]) {
   import Evaluation.{Value, Scoped, Env}
   import Value._
 
@@ -643,7 +645,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
          efn.applyArg(earg)
        case a@AnnotatedLambda(name, _, expr, _) =>
          val inner = recurse((p, Right(expr)))._1
-         inner.asLambda(name, expressionFromTag(a.tag))
+         inner.asLambda(name, expressionFromTag.map(_.apply(a.tag)))
        case Let(arg, e, in, rec, _) =>
          val e0 = recurse((p, Right(e)))._1
          val eres =
@@ -726,7 +728,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
       else FnValue({
         case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
         case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
-      }, Lambda(Struct(enum, List(LambdaVar(0)))), args.map(Eval.now))
+      }, Some(Lambda(Struct(enum, List(LambdaVar(0))))), Some(args.map(Eval.now)))
 
     Eval.now(loop(arity, Nil))
   }
