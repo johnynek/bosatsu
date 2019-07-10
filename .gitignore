@@ -30,3 +30,7 @@ bazel-*
 
 # js
 node_modules/
+
+# vscode wants to put metals directories here
+.metals
+.bloop
