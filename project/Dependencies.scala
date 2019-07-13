@@ -14,4 +14,15 @@ object Dependencies {
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.2.0")
   lazy val scalaCheck = Def.setting("org.scalacheck" %%% "scalacheck" % "1.13.5")
   lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.0.3")
+
+  lazy val scalatra = Def.setting("org.scalatra" %% "scalatra" % "2.6.3")
+  lazy val scalatraForms = Def.setting("org.scalatra" %% "scalatra-forms" % "2.6.3")
+  lazy val jettyWebapp = Def.setting("org.eclipse.jetty" % "jetty-webapp" % jettyVersion)
+  lazy val jettyPlus = Def.setting("org.eclipse.jetty" % "jetty-plus" % jettyVersion)
+  lazy val circeCore = Def.setting("io.circe" %% "circe-core" % circeVersion)
+  lazy val circeGeneric = Def.setting("io.circe" %% "circe-generic" % circeVersion)
+  lazy val circeParser = Def.setting("io.circe" %% "circe-parser" % circeVersion)
+
+  private val jettyVersion = "9.4.6.v20170531"
+  private val circeVersion = "0.8.0"
 }

@@ -82,6 +82,30 @@ lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
 lazy val baseJS = base.js
 lazy val baseJVM = base.jvm
 
+lazy val ws = (project in file("ws")).
+  settings(
+    commonSettings,
+    name := "bosatsu-server",
+    test in assembly := {},
+    mainClass in assembly := Some("org.bykn.bosatsu.Server"),
+    libraryDependencies ++=
+      Seq(
+        catsEffect.value,
+        jawnParser.value % Test,
+        jawnAst.value % Test,
+        scalatra.value,
+        scalatraForms.value,
+        jettyWebapp.value,
+        jettyPlus.value,
+	      circeCore.value,
+	      circeGeneric.value,
+	      circeParser.value
+      ),
+    PB.targets in Compile := Seq(
+     scalapb.gen() -> (sourceManaged in Compile).value
+   )
+  ).dependsOn(coreJVM % "compile->compile;test->test")
+
 lazy val cli = (project in file("cli")).
   settings(
     commonSettings,
