@@ -1,0 +1,12 @@
+package Bosatsu/Dict
+
+import Bosatsu/List [ eq_List ]
+
+export [ eq_Dict, eq_Pair ]
+
+
+def eq_Pair(eq_a, eq_b, (l1, l2), (r1, r2)) -> Bool:
+  eq_b(l2, r2) if eq_a(l1, r1) else False
+
+def eq_Dict(eq_key, eq_value, left, right) -> Bool:
+  eq_List(eq_Pair(eq_key, eq_value), items(left), items(right))
