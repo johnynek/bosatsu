@@ -14,9 +14,10 @@ import org.eclipse.jetty.servlet.{DefaultServlet}
 // , ServletContextHandler}
 import org.eclipse.jetty.webapp.WebAppContext
 import org.scalatra.servlet.ScalatraListener
-// import org.scalatra.{CorsSupport, ScalatraServlet}
+import org.scalatra.{CorsSupport, ScalatraServlet}
 
-// import io.circe._, io.circe.generic.auto._, io.circe.parser._, io.circe.syntax._
+import io.circe.parser._
+// io.circe._, io.circe.generic.auto._, io.circe.parser._, io.circe.syntax._
 
 object JettyLauncher { // this is my entry object as specified in sbt project definition
     def startServer(reportBody: Seq[String] => String, cacheResult: List[String] => String) : Unit = {
@@ -33,6 +34,36 @@ object JettyLauncher { // this is my entry object as specified in sbt project de
   
       server.start
       server.join
+    }
+  }
+
+  class ReactiveBosatsuServlet(reportBody: Seq[String] => String, cacheResult: List[String] => String) extends ScalatraServlet with CorsSupport {
+
+    options("/*"){
+      response
+        .setHeader("Access-Control-Allow-Headers", request.getHeader("Access-Control-Request-Headers"))
+      response.setHeader("Access-Control-Allow-Origin", "*")
+    }
+  
+    get("/") {
+      "hello!"
+    }
+  
+    get("/report/*") {
+      println("report")
+      val params: Seq[String] = multiParams("splat").flatMap(_.split("/"))
+      response
+        .setHeader("Access-Control-Allow-Origin", "*")
+      reportBody(params)
+    }
+  
+    post("/cache") {
+      response
+        .setHeader("Access-Control-Allow-Origin", "*")
+      decode[List[String]](request.body) match {
+        case Left(e) => s"$e, ${request.body}"
+        case Right(keys) => cacheResult(keys)
+      }
     }
   }
 
