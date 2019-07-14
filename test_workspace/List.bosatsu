@@ -1,4 +1,4 @@
-package List
+package Bosatsu/List
 
 export [ eq_List ]
 

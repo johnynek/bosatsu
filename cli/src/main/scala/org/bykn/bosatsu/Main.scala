@@ -12,7 +12,7 @@ import scala.util.{ Failure, Success, Try }
 import cats.implicits._
 
 sealed abstract class MainCommand {
-  def run: IO[List[String]]
+  def run: IO[Unit]
 }
 
 object MainCommand {
@@ -113,8 +113,10 @@ object MainCommand {
           ev.evaluateLast(mainPackage) match {
             case None => IO.raiseError(new Exception("found no main expression"))
             case Some((eval, scheme)) =>
-              val res = eval.value
-              IO.pure(List(s"$res: $scheme"))
+              IO {
+                val res = eval.value
+                println(s"$res: $scheme")
+              }
           }
         }
   }
@@ -136,7 +138,7 @@ object MainCommand {
                 IO.raiseError(new Exception(
                   s"cannot convert type to Json: $scheme"))
               case Some(j) =>
-                CodeGenWrite.writeDoc(output, j.toDoc).as(Nil)
+                CodeGenWrite.writeDoc(output, j.toDoc)
             }
         }
       }
@@ -166,15 +168,15 @@ object MainCommand {
           }
           val out = ProtoConverter.writePackages(packList, output)
 
-          ifres *> out.as(Nil)
+          ifres *> out
       }
   }
 
   case class Compile(inputs: NonEmptyList[Path], compileRoot: Path) extends MainCommand {
     def run =
       typeCheck(inputs, Nil).flatMap { case (packs, _) =>
-        CodeGenWrite.write(compileRoot, packs, Predef.jvmExternals)
-          .as(List(s"wrote ${packs.toMap.size} packages"))
+        CodeGenWrite.write(compileRoot, packs, Predef.jvmExternals) *>
+          IO(println(s"wrote ${packs.toMap.size} packages"))
       }
   }
 
@@ -204,23 +206,39 @@ object MainCommand {
           val noTests = resMap.collect { case (p, None) => p }.toList
           val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t)) }.toList.sortBy(_._1)
 
-          val success = noTests.isEmpty && results.forall { case (_, (_, f, _)) => f == 0 }
-          def stdOut: List[String] =
-            results.map { case (p, (_, _, d)) =>
-              val res = Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-              res.render(80)
-            }
-          if (success) IO.pure(stdOut)
+          val failures = results.iterator.map { case (_, (_, f, _)) => f }.sum
+          val success = noTests.isEmpty && (failures == 0)
+          val docRes: Doc =
+            Doc.intercalate(Doc.line,
+              results.map { case (p, (_, _, d)) =>
+                Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
+              })
+
+          if (success) IO(println(docRes.render(80)))
           else {
             val missingDoc =
-              if (noTests.isEmpty) Doc.empty
+              if (noTests.isEmpty) Nil
               else {
                 val prefix = Doc.text("packages with missing tests: ")
                 val missingDoc = Doc.intercalate(Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
-                (prefix + missingDoc.nested(2))
+                (prefix + missingDoc.nested(2)) :: Nil
               }
 
-            IO.raiseError(new Exception(missingDoc.render(80)))
+            val fullOut = Doc.intercalate(Doc.line + Doc.text("#######") + Doc.line, docRes :: missingDoc)
+
+            val failureStr =
+              if (failures == 1) "1 test failure"
+              else s"$failures test failures"
+
+            val missingCount = noTests.size
+            val excepMessage =
+              if (missingCount > 0) {
+                val packString = if (missingCount == 1) "package" else "packages"
+                s"$failureStr and $missingCount $packString with no tests found"
+              }
+              else failureStr
+
+            IO(println(fullOut.render(80))) *> IO.raiseError(new Exception(excepMessage))
           }
         }
       }
@@ -323,11 +341,10 @@ object Main {
         Try(cmd.run.unsafeRunSync) match {
           case Failure(err) =>
             // TODO use some verbosity flag to modulate this
-            err.printStackTrace
-            //System.err.println(err.getMessage)
+            //err.printStackTrace
+            System.err.println(err.getMessage)
             System.exit(1)
-          case Success(lines) =>
-            lines.foreach(println)
+          case Success(()) =>
             System.exit(0)
         }
       case Left(help) =>
