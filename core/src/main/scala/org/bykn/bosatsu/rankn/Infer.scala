@@ -850,7 +850,7 @@ object Infer {
                   // we do N^2 subsCheck, which to coerce with, composed?
                   case ((t0, r0), (t1, r1)) => subsCheck(t0, t1, r0, r1)
                 }
-                // Should this be instantiate? Maybe?
+                // inferBranch returns TypedExpr.Rho, so this should be a rho type
                 resTRho <- assertRho(resT.head._1, s"infer on match ${tbranches.head}")
                 _ <- infer.set((resTRho, resT.head._2))
               } yield TypedExpr.Match(tsigma, tbranches, tag)
@@ -868,10 +868,11 @@ object Infer {
         tres <- extendEnvList(bindings)(checkRho(res, resT))
       } yield (pattern, tres)
 
-    def inferBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A]): Infer[(Pattern, TypedExpr[A])] =
+    def inferBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A]): Infer[(Pattern, TypedExpr.Rho[A])] =
       for {
         patBind <- typeCheckPattern(p, sigma, region(res))
         (pattern, bindings) = patBind
+        // inferRho returns a TypedExpr.Rho (which is only an alias)
         res <- extendEnvList(bindings)(inferRho(res))
       } yield (pattern, res)
 
