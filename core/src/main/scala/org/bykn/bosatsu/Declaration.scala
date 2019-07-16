@@ -239,26 +239,22 @@ sealed abstract class Declaration {
             case ListLang.Comprehension(res, binding, in, filter) =>
               /*
                * [x for y in z] ==
-               * z.map_List(\v ->
-               *   y = v
+               * z.map_List(\y ->
                *   x)
                *
                * [x for y in z if w] =
-               * z.flat_map_List(\v ->
-               *   y = v
+               * z.flat_map_List(\y ->
                *   if w: [x]
                *   else: []
                * )
                *
                * [*x for y in z] =
-               * z.flat_map_List(\v ->
-               *   y = v
+               * z.flat_map_List(\y ->
                *   x
                * )
                *
                * [*x for y in z if w] =
-               * z.flat_map_List(\v ->
-               *   y = v
+               * z.flat_map_List(\y ->
                *   if w: x
                *   else: []
                * )
@@ -294,12 +290,9 @@ sealed abstract class Declaration {
                     empty,
                     cond)
               }
-              val unusedSymbol0 = Identifier.Name("$a") // TODO we should have better ways to gensym
               val newPattern = unTuplePattern(binding, nameToType, nameToCons)
-              val body: Expr[Declaration] =
-                Expr.Match(Expr.Var(None, unusedSymbol0, l),
-                  NonEmptyList.of((newPattern, resExpr)), l)
-              val fnExpr: Expr[Declaration] = Expr.Lambda(unusedSymbol0, body, l)
+              val fnExpr: Expr[Declaration] =
+                Expr.buildPatternLambda(NonEmptyList.of(newPattern), resExpr, l)
               Expr.buildApp(opExpr, loop(in) :: fnExpr :: Nil, l)
           }
         case l@DictDecl(dict) =>
