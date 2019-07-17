@@ -193,9 +193,6 @@ object Infer {
     }
 
     // This is a logic error which should never happen
-    case class InferPatIncomplete(pattern: Pattern) extends InternalError {
-      def message = s"inferPat not complete for $pattern"
-    }
     case class InferIncomplete(method: String, term: Expr[_]) extends InternalError {
       def message = s"$method not complete for $term"
     }
@@ -853,7 +850,7 @@ object Infer {
                   // we do N^2 subsCheck, which to coerce with, composed?
                   case ((t0, r0), (t1, r1)) => subsCheck(t0, t1, r0, r1)
                 }
-                // Should this be instantiate? Maybe?
+                // inferBranch returns TypedExpr.Rho, so this should be a rho type
                 resTRho <- assertRho(resT.head._1, s"infer on match ${tbranches.head}")
                 _ <- infer.set((resTRho, resT.head._2))
               } yield TypedExpr.Match(tsigma, tbranches, tag)
@@ -864,17 +861,18 @@ object Infer {
     /*
      * we require resT in weak prenex form because we call checkRho with it
      */
-    def checkBranch[A: HasRegion](p: Pattern, sigma: Expected[(Type, Region)], res: Expr[A], resT: Type.Rho): Infer[(Pattern, TypedExpr[A])] =
+    def checkBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A], resT: Type.Rho): Infer[(Pattern, TypedExpr[A])] =
       for {
         patBind <- typeCheckPattern(p, sigma, region(res))
         (pattern, bindings) = patBind
         tres <- extendEnvList(bindings)(checkRho(res, resT))
       } yield (pattern, tres)
 
-    def inferBranch[A: HasRegion](p: Pattern, sigma: Expected[(Type, Region)], res: Expr[A]): Infer[(Pattern, TypedExpr[A])] =
+    def inferBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A]): Infer[(Pattern, TypedExpr.Rho[A])] =
       for {
         patBind <- typeCheckPattern(p, sigma, region(res))
         (pattern, bindings) = patBind
+        // inferRho returns a TypedExpr.Rho (which is only an alias)
         res <- extendEnvList(bindings)(inferRho(res))
       } yield (pattern, res)
 
@@ -884,14 +882,13 @@ object Infer {
      *
      * TODO: Pattern needs to have a region for each part
      */
-    def typeCheckPattern(pat: Pattern, sigma: Expected[(Type, Region)], reg: Region): Infer[(Pattern, List[(Bindable, Type)])] =
+    def typeCheckPattern(pat: Pattern, sigma: Expected.Check[(Type, Region)], reg: Region): Infer[(Pattern, List[(Bindable, Type)])] =
       pat match {
         case GenPattern.WildCard => Infer.pure((pat, Nil))
         case GenPattern.Literal(lit) =>
           val tpe = Type.getTypeOf(lit)
           val check = sigma match {
             case Expected.Check((t, tr)) => subsCheck(tpe, t, reg, tr)
-            case infer@Expected.Inf(_) => infer.set((tpe, reg))
           }
           check.as((pat, Nil))
         case GenPattern.Var(n) =>
@@ -900,27 +897,14 @@ object Infer {
           sigma match {
             case Expected.Check((t, _)) =>
               Infer.pure((GenPattern.Annotation(pat, t), List((n, t))))
-            case infer@Expected.Inf(_) =>
-              for {
-                t <- newMetaType
-                _ <- infer.set((t, reg))
-              } yield (GenPattern.Annotation(pat, t), List((n, t)))
           }
         case GenPattern.Named(n, p) =>
-          def inner(pat: Pattern) = {
-            def mkP(t: Type): (Pattern, Type) =
-              (GenPattern.Annotation(GenPattern.Named(n, pat), t), t)
-
+          def inner(pat: Pattern) =
             sigma match {
               case Expected.Check((t, _)) =>
-                Infer.pure(mkP(t))
-              case infer@Expected.Inf(_) =>
-                for {
-                  t <- newMetaType
-                  _ <- infer.set((t, reg))
-                } yield mkP(t)
+                val res = (GenPattern.Annotation(GenPattern.Named(n, pat), t), t)
+                Infer.pure(res)
             }
-          }
           // We always return an annotation here, which is the only
           // place we need to be careful
           for {
@@ -1016,18 +1000,8 @@ object Infer {
     def checkPat(pat: Pattern, sigma: Type, reg: Region): Infer[(Pattern, List[(Bindable, Type)])] =
       typeCheckPattern(pat, Expected.Check((sigma, reg)), reg)
 
-    // TODO, Pattern should have a region
-    def inferPat(pat: Pattern, reg: Region): Infer[Type] =
-      for {
-        ref <- initRef[(Type, Region)](Error.InferPatIncomplete(pat))
-        _ <- typeCheckPattern(pat, Expected.Inf(ref), reg)
-        sigma <- (Lift(ref.get): Infer[(Type, Region)])
-        _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
-      } yield sigma._1
-
-    def instPatSigma(sigma: Type, exp: Expected[(Type, Region)], sRegion: Region): Infer[Unit] =
+    def instPatSigma(sigma: Type, exp: Expected.Check[(Type, Region)], sRegion: Region): Infer[Unit] =
       exp match {
-        case infer@Expected.Inf(_) => infer.set((sigma, sRegion))
         case Expected.Check((texp, tr)) => subsCheck(texp, sigma, tr, sRegion).void // this unit does not seem right
       }
 
