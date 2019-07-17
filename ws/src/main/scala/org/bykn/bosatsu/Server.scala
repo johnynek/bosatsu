@@ -1,12 +1,11 @@
 package org.bykn.bosatsu
 
-// import cats.{Eval, Id}
+import cats.Eval
 import cats.data.{NonEmptyList}
 import cats.implicits._
-import cats.effect.IO
 import com.monovore.decline.{Command, Opts}
 import java.nio.file.Path
-// import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.LinkedBlockingQueue
 // import java.util.concurrent.atomic.AtomicReference
 
 import scala.util.Try
@@ -70,12 +69,29 @@ object JettyLauncher { // this is my entry object as specified in sbt project de
   }
 
 sealed abstract class ServerCommand {
-  def run: IO[List[String]]
+  def run: LinkedBlockingQueue[ServerResult]
 }
 
 object ServerCommand {
+  def blockingQueue(serverResult: ServerResult) = {
+    val bq: LinkedBlockingQueue[ServerResult] = new LinkedBlockingQueue()
+    bq.put(serverResult)
+    bq
+  }
+
   case class WebServer(inputs: NonEmptyList[Path], log: Option[Path]) extends ServerCommand {
-    def run = ???
+    def run = {
+      val bq: LinkedBlockingQueue[ServerResult] = new LinkedBlockingQueue()
+      JettyLauncher.startServer(
+      {
+        params => "fizz"
+      },
+      {
+        keys => "fuzz"
+      }
+      )
+      bq
+    }
   }
 
   val opts: Opts[ServerCommand] = {
@@ -93,21 +109,35 @@ object ServerCommand {
   }
 }
 
+sealed abstract class ServerResult {}
+object ServerResult {
+  case class Error(code: Int, errLines: List[String], stdOut: List[String] = Nil, intermediate: Boolean = false) extends ServerResult
+  case class Success(result: List[String], intermediate: Boolean = false, cache: Map[NormalExpression, Eval[Any]] = Map()) extends ServerResult
+}
+
 object Server {
   def command: Command[ServerCommand] =
     Command("bosatsu-server", "a backend for building hosted reports in bosatsu")(ServerCommand.opts)
 
+  @annotation.tailrec
+  def runLoop(resultQueue: LinkedBlockingQueue[ServerResult]): Unit = resultQueue.take match {
+    case ServerResult.Error(code, errs, stdout, intermediate) =>
+      errs.foreach(System.err.println)
+      stdout.foreach(println)
+      if(intermediate) runLoop(resultQueue) else System.exit(code)
+    case ServerResult.Success(lines, intermediate, _) =>
+      lines.foreach(println)
+      if(intermediate) runLoop(resultQueue) else System.exit(0)
+  }
+
   def main(args: Array[String]): Unit =
     command.parse(args.toList) match {
       case Right(cmd) =>
-        Try(cmd.run.unsafeRunSync) match {
+        Try(runLoop(cmd.run)) match {
           case Failure(err) =>
-            // TODO use some verbosity flag to modulate this
             err.printStackTrace
-            //System.err.println(err.getMessage)
             System.exit(1)
-          case Success(lines) =>
-            lines.foreach(println)
+          case Success(_) =>
             System.exit(0)
         }
       case Left(help) =>
