@@ -318,6 +318,14 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
       scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
     } yield (scope.inEnv(Env.empty), tpe)
 
+  def evaluateLets(p: PackageName): List[(Bindable, (Eval[Value], Type))] =
+    for {
+      pack <- pm.toMap.get(p).toList
+      (name, rec, expr) <- pack.program.lets
+      (scope0, tpe) = eval((pack, Right(expr)))
+      scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
+    } yield (name, (scope.inEnv(Env.empty), tpe))
+
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
 
