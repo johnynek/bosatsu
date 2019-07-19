@@ -104,7 +104,9 @@ lazy val ws = (project in file("ws")).
     PB.targets in Compile := Seq(
      scalapb.gen() -> (sourceManaged in Compile).value
    )
-  ).dependsOn(coreJVM % "compile->compile;test->test")
+  ).
+    dependsOn(coreJVM % "compile->compile;test->test").
+    dependsOn(cli % "compile->compile;test->test")
 
 lazy val cli = (project in file("cli")).
   settings(

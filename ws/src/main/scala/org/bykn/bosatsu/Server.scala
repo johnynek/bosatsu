@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Eval
 import cats.data.{NonEmptyList}
+import cats.effect.IO
 import cats.implicits._
 import com.monovore.decline.{Command, Opts}
 import java.nio.file.Path
@@ -9,7 +10,7 @@ import java.util.concurrent.LinkedBlockingQueue
 // import java.util.concurrent.atomic.AtomicReference
 
 import scala.util.Try
-import scala.util.{ Failure, Success, Try }
+import scala.util.{Failure, Success, Try}
 import org.eclipse.jetty.server.{Server => JettyServer}
 import org.eclipse.jetty.servlet.{DefaultServlet}
 // , ServletContextHandler}
@@ -21,52 +22,61 @@ import io.circe.parser._
 // io.circe._, io.circe.generic.auto._, io.circe.parser._, io.circe.syntax._
 
 object JettyLauncher { // this is my entry object as specified in sbt project definition
-    def startServer(reportBody: Seq[String] => String, cacheResult: List[String] => String) : Unit = {
-      val server = new JettyServer(8080)
-      val context = new WebAppContext()
-      context setContextPath "/"
-      context.setResourceBase("src/main/webapp")
-      context.addEventListener(new ScalatraListener)
-      context.addServlet(classOf[DefaultServlet], "/")
-      context.setAttribute("reportBody", reportBody)
-      context.setAttribute("cacheResult", cacheResult)
-  
-      server.setHandler(context)
-  
-      server.start
-      server.join
-    }
+  def startServer(
+      reportBody: Seq[String] => String,
+      cacheResult: List[String] => String
+  ): Unit = {
+    val server = new JettyServer(8080)
+    val context = new WebAppContext()
+    context setContextPath "/"
+    context.setResourceBase("src/main/webapp")
+    context.addEventListener(new ScalatraListener)
+    context.addServlet(classOf[DefaultServlet], "/")
+    context.setAttribute("reportBody", reportBody)
+    context.setAttribute("cacheResult", cacheResult)
+
+    server.setHandler(context)
+
+    server.start
+    server.join
+  }
+}
+
+class ReactiveBosatsuServlet(
+    reportBody: Seq[String] => String,
+    cacheResult: List[String] => String
+) extends ScalatraServlet
+    with CorsSupport {
+
+  options("/*") {
+    response
+      .setHeader(
+        "Access-Control-Allow-Headers",
+        request.getHeader("Access-Control-Request-Headers")
+      )
+    response.setHeader("Access-Control-Allow-Origin", "*")
   }
 
-  class ReactiveBosatsuServlet(reportBody: Seq[String] => String, cacheResult: List[String] => String) extends ScalatraServlet with CorsSupport {
+  get("/") {
+    "hello!"
+  }
 
-    options("/*"){
-      response
-        .setHeader("Access-Control-Allow-Headers", request.getHeader("Access-Control-Request-Headers"))
-      response.setHeader("Access-Control-Allow-Origin", "*")
-    }
-  
-    get("/") {
-      "hello!"
-    }
-  
-    get("/report/*") {
-      println("report")
-      val params: Seq[String] = multiParams("splat").flatMap(_.split("/"))
-      response
-        .setHeader("Access-Control-Allow-Origin", "*")
-      reportBody(params)
-    }
-  
-    post("/cache") {
-      response
-        .setHeader("Access-Control-Allow-Origin", "*")
-      decode[List[String]](request.body) match {
-        case Left(e) => s"$e, ${request.body}"
-        case Right(keys) => cacheResult(keys)
-      }
+  get("/report/*") {
+    val params: Seq[String] = multiParams("splat").flatMap(_.split("/"))
+    response
+      .setHeader("Access-Control-Allow-Origin", "*")
+    reportBody(params)
+  }
+
+  post("/cache") {
+    response
+      .setHeader("Access-Control-Allow-Origin", "*")
+    decode[List[String]](request.body) match {
+      case Left(e)     => s"$e, ${request.body}"
+      case Right(keys) => cacheResult(keys)
     }
   }
+}
 
 sealed abstract class ServerCommand {
   def run: LinkedBlockingQueue[ServerResult]
@@ -79,16 +89,54 @@ object ServerCommand {
     bq
   }
 
-  case class WebServer(inputs: NonEmptyList[Path], log: Option[Path]) extends ServerCommand {
+  def typeCheck(inputs: NonEmptyList[Path], ifs: List[Package.Interface]): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+    MainCommand.typeCheck(inputs, ifs)
+
+  case class WebServer(inputs: NonEmptyList[Path], log: Option[Path])
+      extends ServerCommand {
+    def result(mainPackage: PackageName) = {
+      typeCheck(inputs, Nil).map { case (packs, _) =>
+        val normPM = NormalizePackageMap(packs).normalizePackageMap
+        val bindings = Evaluation(normPM, Predef.jvmExternals, Some({tag: (Declaration, Normalization.NormalExpressionTag) => tag._2.ne}))
+          .evaluateLets(mainPackage).map(_._1.asString).map(Json.JString).toVector
+        Json.JArray(bindings).toDoc.render(100)
+      }
+    }
+/*    
+            val ev = Evaluation(packs, Predef.jvmExternals ++ ext)
+            println(s"evaluating $mainPackage")
+            ev.evaluateLast(mainPackage, combinedCache) match {
+              case None => MainResult.Error(1, List(s"found no main expression $mainPackage"))
+              case Some((eval, scheme, ne, c)) =>
+                cache.put(c)
+                val res = eval.value
+                println(s"res: $res")
+                Evaluation.toJson(res, scheme, packs) match {
+                  case None =>
+                    MainResult.Error(1, List(s"cannot convert type to Json: $scheme"))
+                  case Some(j) =>
+                    MainResult.Success(
+                      Json.JObject(Map(
+                        "type" -> Json.JString("Document"),
+                        "variant" -> Json.JString("Document"),
+                        "contents" -> Json.JObject(Map(
+                          "document" -> Json.JObject(Map(
+                            "data" -> j,
+                            "expression" -> Json.JString(s"$ne")
+                          ))
+                        ))
+                      )).toDoc.render(100), true)
+                }
+    */
+
     def run = {
       val bq: LinkedBlockingQueue[ServerResult] = new LinkedBlockingQueue()
       JettyLauncher.startServer(
-      {
-        params => "fizz"
-      },
-      {
-        keys => "fuzz"
-      }
+        { params =>
+          "fizz"
+        }, { keys =>
+          "fuzz"
+        }
       )
       bq
     }
@@ -98,7 +146,7 @@ object ServerCommand {
 
     def toList[A](neo: Opts[NonEmptyList[A]]): Opts[List[A]] = {
       neo.orNone.map {
-        case None => Nil
+        case None     => Nil
         case Some(ne) => ne.toList
       }
     }
@@ -111,24 +159,37 @@ object ServerCommand {
 
 sealed abstract class ServerResult {}
 object ServerResult {
-  case class Error(code: Int, errLines: List[String], stdOut: List[String] = Nil, intermediate: Boolean = false) extends ServerResult
-  case class Success(result: List[String], intermediate: Boolean = false, cache: Map[NormalExpression, Eval[Any]] = Map()) extends ServerResult
+  case class Error(
+      code: Int,
+      errLines: List[String],
+      stdOut: List[String] = Nil,
+      intermediate: Boolean = false
+  ) extends ServerResult
+  case class Success(
+      result: List[String],
+      intermediate: Boolean = false,
+      cache: Map[NormalExpression, Eval[Any]] = Map()
+  ) extends ServerResult
 }
 
 object Server {
   def command: Command[ServerCommand] =
-    Command("bosatsu-server", "a backend for building hosted reports in bosatsu")(ServerCommand.opts)
+    Command(
+      "bosatsu-server",
+      "a backend for building hosted reports in bosatsu"
+    )(ServerCommand.opts)
 
   @annotation.tailrec
-  def runLoop(resultQueue: LinkedBlockingQueue[ServerResult]): Unit = resultQueue.take match {
-    case ServerResult.Error(code, errs, stdout, intermediate) =>
-      errs.foreach(System.err.println)
-      stdout.foreach(println)
-      if(intermediate) runLoop(resultQueue) else System.exit(code)
-    case ServerResult.Success(lines, intermediate, _) =>
-      lines.foreach(println)
-      if(intermediate) runLoop(resultQueue) else System.exit(0)
-  }
+  def runLoop(resultQueue: LinkedBlockingQueue[ServerResult]): Unit =
+    resultQueue.take match {
+      case ServerResult.Error(code, errs, stdout, intermediate) =>
+        errs.foreach(System.err.println)
+        stdout.foreach(println)
+        if (intermediate) runLoop(resultQueue) else System.exit(code)
+      case ServerResult.Success(lines, intermediate, _) =>
+        lines.foreach(println)
+        if (intermediate) runLoop(resultQueue) else System.exit(0)
+    }
 
   def main(args: Array[String]): Unit =
     command.parse(args.toList) match {
