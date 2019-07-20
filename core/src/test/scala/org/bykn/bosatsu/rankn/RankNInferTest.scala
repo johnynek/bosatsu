@@ -27,10 +27,14 @@ class RankNInferTest extends FunSuite {
         Type.Const.Defined(PackageName.parts("Test"), TypeName(str))
     }
 
+  private val srcConv = new SourceConverter(
+    strToConst _,
+    { c => (PackageName.parts("Test"), c) })
+
   def typeFrom(str: String): Type =
     TypeRef.parser.parse(str) match {
       case Parsed.Success(typeRef, _) =>
-        typeRef.toType(strToConst _)
+        srcConv.toType(typeRef)
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
     }

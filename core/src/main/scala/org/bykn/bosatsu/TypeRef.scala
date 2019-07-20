@@ -48,32 +48,6 @@ sealed abstract class TypeRef {
         }
     }
 
-  def toType(nameToType: Identifier.Constructor => Type.Const): Type = {
-    import rankn.Type._
-    def loop(t: TypeRef): Type =
-      t match {
-        case TypeVar(v) => TyVar(Type.Var.Bound(v))
-        case TypeName(n) => TyConst(nameToType(n.ident))
-        case TypeArrow(a, b) => Fun(loop(a), loop(b))
-        case TypeApply(a, bs) =>
-          def loop1(fn: Type, args: NonEmptyList[TypeRef]): Type =
-            args match {
-              case NonEmptyList(a0, Nil) => TyApply(fn, loop(a0))
-              case NonEmptyList(a0, a1 :: as) => loop1(TyApply(fn, loop(a0)), NonEmptyList(a1, as))
-            }
-          loop1(loop(a), bs)
-        case TypeLambda(pars0, TypeLambda(pars1, e)) =>
-          // we normalize to lifting all the foralls to the outside
-          loop(TypeLambda(pars0 ::: pars1, e))
-        case TypeLambda(pars, e) =>
-          Type.forAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }.toList, loop(e))
-        case TypeTuple(ts) =>
-          Type.Tuple(ts.map(loop(_)))
-      }
-
-    loop(this)
-  }
-
   /**
    * Nested TypeLambda can be combined, and should be generally
    */
@@ -118,10 +92,10 @@ object TypeRef {
 
   def fromTypeA[F[_]: Applicative](
     tpe: Type,
-    onSkolem: rankn.Type.Var.Skolem => F[TypeRef],
+    onSkolem: Type.Var.Skolem => F[TypeRef],
     onMeta: Long => F[TypeRef],
     onConst: Type.Const.Defined => F[TypeRef]): F[TypeRef] = {
-    import rankn.Type._
+    import Type._
     def loop(tpe: Type) = fromTypeA(tpe, onSkolem, onMeta, onConst)
 
     tpe match {

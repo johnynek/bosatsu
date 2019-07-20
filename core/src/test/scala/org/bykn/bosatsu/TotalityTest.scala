@@ -29,8 +29,9 @@ class TotalityTest extends FunSuite {
   val consFn: Constructor => (PackageName, Constructor) =
     { cons => (Predef.packageName, cons) }
 
+  val srcConv = new SourceConverter(tpeFn, consFn)
   def parsedToExpr(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), Type] =
-    Declaration.unTuplePattern(pat, tpeFn, consFn)
+    srcConv.unTuplePattern(pat)
 
   val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genPattern(5)

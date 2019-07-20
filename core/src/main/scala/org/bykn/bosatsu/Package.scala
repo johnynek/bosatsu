@@ -145,26 +145,26 @@ object Package {
     val importedTypes: Map[Identifier, (PackageName, TypeName)] =
       Referant.importedTypes(imps)
 
-    val resolveImportedCons: Map[Identifier, (PackageName, Constructor)] =
-      Referant.importedConsNames(imps)
+    val Program(parsedTypeEnv, lets, extDefs, _) = {
 
-    // here we make a pass to get all the local names
-    val localDefs = Statement.definitionsOf(stmt)
+      val resolveImportedCons: Map[Identifier, (PackageName, Constructor)] =
+        Referant.importedConsNames(imps)
 
-    /*
-     * We should probably error for non-predef name collisions.
-     * Maybe we should even error even or predef collisions that
-     * are not renamed
-     */
-    val localTypeNames = localDefs.map(_.name).toSet
-    val localConstructors = localDefs.flatMap(_.constructors).toSet
+      // here we make a pass to get all the local names
+      val localDefs = Statement.definitionsOf(stmt)
 
-    val typeCache: MMap[Constructor, Type.Const] = MMap.empty
-    val consCache: MMap[Constructor, (PackageName, Constructor)] = MMap.empty
+      /*
+       * We should probably error for non-predef name collisions.
+       * Maybe we should even error even or predef collisions that
+       * are not renamed
+       */
+      val localTypeNames = localDefs.map(_.name).toSet
+      val localConstructors = localDefs.flatMap(_.constructors).toSet
 
-    val Program(parsedTypeEnv, lets, extDefs, _) =
-      Program.fromStatement(
-        p,
+      val typeCache: MMap[Constructor, Type.Const] = MMap.empty
+      val consCache: MMap[Constructor, (PackageName, Constructor)] = MMap.empty
+
+      val srcConv = new SourceConverter(
         { s =>
           typeCache.getOrElseUpdate(s, {
             val ts = TypeName(s)
@@ -179,8 +179,10 @@ object Package {
             if (localConstructors(s)) (p, s)
             else resolveImportedCons.getOrElse(s, (p, s))
           })
-        }, // name to cons
-        stmt)
+        }) // name to cons
+
+      srcConv.toProgram(p, stmt)
+    }
 
     val importedTypeEnv = Referant.importedTypeEnv(imps)(_.name)
 

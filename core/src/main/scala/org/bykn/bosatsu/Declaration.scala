@@ -12,7 +12,7 @@ import org.bykn.fastparse_cats.StringInstances._
 
 import ListLang.{KVPair, SpliceOrItem}
 
-import Identifier.{Bindable, Constructor}
+import Identifier.Bindable
 
 /**
  * Represents the syntactic version of Expr
@@ -122,36 +122,6 @@ object Declaration {
   implicit val document: Document[Declaration] = Document.instance[Declaration](_.toDoc)
   implicit val hasRegion: HasRegion[Declaration] =
     HasRegion.instance[Declaration](_.region)
-
-  /**
-   * Tuples are converted into standard types using an HList strategy
-   */
-  def unTuplePattern(pat: Pattern.Parsed,
-    nameToType: Constructor => rankn.Type.Const,
-    nameToCons: Constructor => (PackageName, Constructor)): Pattern[(PackageName, Constructor), rankn.Type] =
-      pat.mapStruct[(PackageName, Constructor)] {
-        case (None, args) =>
-          // this is a tuple pattern
-          def loop(args: List[Pattern[(PackageName, Constructor), TypeRef]]): Pattern[(PackageName, Constructor), TypeRef] =
-            args match {
-              case Nil =>
-                // ()
-                Pattern.PositionalStruct(
-                  (Predef.packageName, Constructor("Unit")),
-                  Nil)
-              case h :: tail =>
-                val tailP = loop(tail)
-                Pattern.PositionalStruct(
-                  (Predef.packageName, Constructor("TupleCons")),
-                  h :: tailP :: Nil)
-            }
-
-          loop(args)
-        case (Some(nm), args) =>
-          // this is a struct pattern
-          Pattern.PositionalStruct(nameToCons(nm), args)
-      }
-      .mapType(_.toType(nameToType))
 
   sealed abstract class ApplyKind
   object ApplyKind {
