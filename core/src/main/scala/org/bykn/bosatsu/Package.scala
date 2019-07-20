@@ -181,7 +181,7 @@ object Package {
           })
         }) // name to cons
 
-      Program.fromStatement(p, srcConv, stmt)
+      srcConv.toProgram(p, stmt)
     }
 
     val importedTypeEnv = Referant.importedTypeEnv(imps)(_.name)
