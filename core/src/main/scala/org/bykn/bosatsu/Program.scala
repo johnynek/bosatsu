@@ -27,8 +27,7 @@ object Program {
 
     import Statement._
 
-    def declToE(d: Declaration): Expr[Declaration] =
-      d.toExpr(nameToType, nameToCons)
+    val declToE = new DeclarationToExpr(nameToType, nameToCons)
 
     def defToT(
       types: ParsedTypeEnv[Unit],
