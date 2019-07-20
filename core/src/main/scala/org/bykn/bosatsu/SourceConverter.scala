@@ -432,24 +432,27 @@ final class SourceConverter(
     }
     .mapType(toType)
 
-  def toProgram(pn0: PackageName, stmt: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] = {
+  def toTypeEnv(pn0: PackageName, stmt: Statement): ParsedTypeEnv[Unit] =
+    Statement.definitionsOf(stmt)
+      .foldLeft(ParsedTypeEnv.empty[Unit]) { (te, d) =>
+        te.addDefinedType(toDefinition(pn0, d))
+      }
 
+  /**
+   * Return the lets in order they appear
+   */
+  def toLets(stmt: Statement): (List[(Bindable, RecursionKind, Expr[Declaration])], List[(Bindable, Type)]) = {
     import Statement._
-
-    def defToT(
-      types: ParsedTypeEnv[Unit],
-      d: TypeDefinitionStatement): ParsedTypeEnv[Unit] =
-      types.addDefinedType(toDefinition(pn0, d))
 
     // Each time we need a name, we can call anonNames.next()
     // it is mutable, but in a limited scope
     val anonNames: Iterator[Bindable] = {
       // this is safe as a set because we only use it to filter
       val allNames =
-        Set(stmt.toStream.flatMap {
-          case Bind(BindingStatement(bound, _, _)) => bound.names // TODO Keep identifiers
-          case _ => Nil
-        }: _*)
+        Statement.valuesOf(stmt)
+          .iterator
+          .flatMap(_.names)
+          .toSet
 
       rankn.Type
         .allBinders
@@ -482,7 +485,7 @@ final class SourceConverter(
           val tail = complex.names.map { nm =>
             val pat = complex.filterVars(_ == nm)
             (nm, Expr.Match(rightHandSide,
-              NonEmptyList.of((pat, Expr.Var(None, nm, decl.tag))), decl.tag))
+              NonEmptyList((pat, Expr.Var(None, nm, decl.tag)), Nil), decl.tag))
           }
 
           def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
@@ -505,59 +508,56 @@ final class SourceConverter(
             }
       }
 
-    def loop(s: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] =
-      s match {
-        case Bind(BindingStatement(bound, decl, Padding(_, rest))) =>
-          val Program(te, binds, exts, _) = loop(rest)
-          val pat = unTuplePattern(bound)
-          val binds1 = bindings(pat, apply(decl))
-          val nonRec = binds1.toList.map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
-          Program(te, nonRec ::: binds, exts, stmt)
-        case Comment(CommentStatement(_, Padding(_, on))) =>
-          loop(on).copy(from = s)
-        case Def(defstmt@DefStatement(_, _, _, _)) =>
-          // using body for the outer here is a bummer, but not really a good outer otherwise
-          val lam = defstmt.toLambdaExpr({ res => apply(res._1.get) },
-            defstmt.result._1.get)(unTuplePattern(_), toType(_))
+      val init: (List[(Bindable, RecursionKind, Expr[Declaration])], List[(Bindable, Type)]) = (Nil, Nil)
 
-          val Program(te, binds, exts, _) = defstmt.result match {
-            case (_, Padding(_, in)) => loop(in)
-          }
-          Program(te, (defstmt.name, RecursionKind.Recursive, lam) :: binds, exts, stmt)
-        case s@Struct(_, _, _, Padding(_, rest)) =>
-          val p = loop(rest)
-          p.copy(types = defToT(p.types, s), from = s)
-        case e@Enum(_, _, _, Padding(_, rest)) =>
-          val p = loop(rest)
-          p.copy(types = defToT(p.types, e), from = e)
-        case ExternalDef(name, params, result, Padding(_, rest)) =>
-          val tpe: rankn.Type = {
-            def buildType(ts: List[rankn.Type]): rankn.Type =
-              ts match {
-                case Nil => toType(result)
-                case h :: tail => rankn.Type.Fun(h, buildType(tail))
+      val (bs, es) = Statement.valuesOf(stmt)
+        .foldLeft(init) { case ((binds, exts), vs) =>
+          vs match {
+            case Bind(BindingStatement(bound, decl, _)) =>
+              val pat = unTuplePattern(bound)
+              val binds1 = bindings(pat, apply(decl))
+              // since we reverse below, we nee to reverse here
+              val nonRec = binds1.toList.reverseMap { case (n, d) => (n, RecursionKind.NonRecursive, d) }
+              (nonRec ::: binds, exts)
+            case Def(defstmt@DefStatement(_, _, _, _)) =>
+              // using body for the outer here is a bummer, but not really a good outer otherwise
+              val lam = defstmt.toLambdaExpr(
+                { res => apply(res._1.get) },
+                defstmt.result._1.get)(unTuplePattern(_), toType(_))
+              ((defstmt.name, RecursionKind.Recursive, lam) :: binds, exts)
+            case ExternalDef(name, params, result, _) =>
+              val tpe: rankn.Type = {
+                def buildType(ts: List[rankn.Type]): rankn.Type =
+                  ts match {
+                    case Nil => toType(result)
+                    case h :: tail => rankn.Type.Fun(h, buildType(tail))
+                  }
+                buildType(params.map { p => toType(p._2) })
               }
-            buildType(params.map { p => toType(p._2) })
+              val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
+              // these vars were parsed so they are never skolem vars
+              val freeBound = freeVars.map {
+                case b@rankn.Type.Var.Bound(_) => b
+                case s@rankn.Type.Var.Skolem(_, _) => sys.error(s"invariant violation: parsed a skolem var: $s")
+              }
+              val maybeForAll = rankn.Type.forAll(freeBound, tpe)
+              (binds, (name, maybeForAll) :: exts)
           }
-          val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
-          // these vars were parsed so they are never skolem vars
-          val freeBound = freeVars.map {
-            case b@rankn.Type.Var.Bound(_) => b
-            case s@rankn.Type.Var.Skolem(_, _) => sys.error(s"invariant violation: parsed a skolem var: $s")
-          }
-          val maybeForAll = rankn.Type.forAll(freeBound, tpe)
-          val p = loop(rest)
-          p.copy(
-            types = p.types.addExternalValue(pn0, name, maybeForAll),
-            externalDefs = name :: p.externalDefs,
-            from = s)
-        case x@ExternalStruct(_, _, Padding(_, rest)) =>
-          val p = loop(rest)
-          p.copy(types = defToT(p.types, x), from = x)
-        case EndOfFile =>
-          Program(ParsedTypeEnv.empty[Unit], Nil, Nil, EndOfFile)
-      }
+        }
 
-    loop(stmt)
+    // we need to reverse them to put in file order now
+    (bs.reverse, es.reverse)
+  }
+
+  def toProgram(pn0: PackageName, stmt: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] = {
+
+    val pte0 = toTypeEnv(pn0, stmt)
+    val (binds, exts) = toLets(stmt)
+
+    val pte1 = exts.foldLeft(pte0) { case (pte, (name, tpe)) =>
+      pte.addExternalValue(pn0, name, tpe)
+    }
+
+    Program(pte1, binds, exts.map(_._1), stmt)
   }
 }
