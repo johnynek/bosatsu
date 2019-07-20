@@ -21,18 +21,15 @@ case class Program[T, +D, +S](
 object Program {
   def fromStatement(
     pn0: PackageName,
-    nameToType: Constructor => Type.Const,
-    nameToCons: Constructor => (PackageName, Constructor),
+    srcConv: SourceConverter,
     stmt: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] = {
 
     import Statement._
 
-    val declToE = new DeclarationToExpr(nameToType, nameToCons)
-
     def defToT(
       types: ParsedTypeEnv[Unit],
       d: TypeDefinitionStatement): ParsedTypeEnv[Unit] =
-      types.addDefinedType(d.toDefinition(pn0, nameToType))
+      types.addDefinedType(srcConv.toDefinition(pn0, d))
 
     // Each time we need a name, we can call anonNames.next()
     // it is mutable, but in a limited scope
@@ -101,16 +98,17 @@ object Program {
       s match {
         case Bind(BindingStatement(bound, decl, Padding(_, rest))) =>
           val Program(te, binds, exts, _) = loop(rest)
-          val pat = Declaration.unTuplePattern(bound, nameToType, nameToCons)
-          val binds1 = bindings(pat, declToE(decl))
+          val pat = srcConv.unTuplePattern(bound)
+          val binds1 = bindings(pat, srcConv(decl))
           val nonRec = binds1.toList.map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
           Program(te, nonRec ::: binds, exts, stmt)
         case Comment(CommentStatement(_, Padding(_, on))) =>
           loop(on).copy(from = s)
         case Def(defstmt@DefStatement(_, _, _, _)) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
-          val lam = defstmt.toLambdaExpr({ res => declToE(res._1.get) },
-            defstmt.result._1.get)(Declaration.unTuplePattern(_, nameToType, nameToCons), _.toType(nameToType))
+          val lam = defstmt.toLambdaExpr({ res => srcConv(res._1.get) },
+            defstmt.result._1.get)(srcConv.unTuplePattern(_),
+              srcConv.toType(_))
 
           val Program(te, binds, exts, _) = defstmt.result match {
             case (_, Padding(_, in)) => loop(in)
@@ -126,10 +124,10 @@ object Program {
           val tpe: rankn.Type = {
             def buildType(ts: List[rankn.Type]): rankn.Type =
               ts match {
-                case Nil => result.toType(nameToType)
+                case Nil => srcConv.toType(result)
                 case h :: tail => rankn.Type.Fun(h, buildType(tail))
               }
-            buildType(params.map(_._2.toType(nameToType)))
+            buildType(params.map { p => srcConv.toType(p._2) })
           }
           val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
           // these vars were parsed so they are never skolem vars

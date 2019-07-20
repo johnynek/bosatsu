@@ -1,19 +1,22 @@
 package org.bykn.bosatsu
 
-import cats.data.NonEmptyList
 import cats.implicits._
+import cats.data.{ NonEmptyList, State }
+import cats.Functor
+
+import rankn.Type
 
 import ListLang.{KVPair, SpliceOrItem}
 
-import Identifier.Constructor
+import Identifier.{Bindable, Constructor}
 
 import Declaration._
 
 /**
- * Convert a Declaration (a syntactic expression) into
- * the core untyped lambda calculus, Expr
+ * Convert a source types (a syntactic expression) into
+ * the internal representations
  */
-final class DeclarationToExpr(
+final class SourceConverter(
   nameToType: Constructor => rankn.Type.Const,
   nameToCons: Constructor => (PackageName, Constructor)) {
 
@@ -32,7 +35,7 @@ final class DeclarationToExpr(
             case Pattern.Var(arg) =>
               Expr.Let(arg, rhs, erest, RecursionKind.NonRecursive, decl)
             case Pattern.Annotation(pat, tpe) =>
-              val realTpe = tpe.toType(nameToType)
+              val realTpe = toType(tpe)
               // move the annotation to the right
               val newRhs = Expr.Annotation(rhs, realTpe, decl)
               solvePat(pat, newRhs)
@@ -41,7 +44,7 @@ final class DeclarationToExpr(
                val inner = solvePat(p, rhs)
                Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
             case pat =>
-              val newPattern = unTuplePattern(pat, nameToType, nameToCons)
+              val newPattern = unTuplePattern(pat)
               val expBranches = NonEmptyList.of((newPattern, erest))
               Expr.Match(rhs, expBranches, decl)
           }
@@ -53,7 +56,8 @@ final class DeclarationToExpr(
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => apply(in)
         }
-        val lambda = defstmt.toLambdaExpr({ res => apply(res._1.get) }, decl)(unTuplePattern(_, nameToType, nameToCons), _.toType(nameToType))
+        val lambda = defstmt.toLambdaExpr({ res => apply(res._1.get) }, decl)(
+          unTuplePattern(_), toType(_))
         // we assume all defs are recursive: we put them in scope before the method
         // is called. We rely on DefRecursionCheck to rule out bad recursions
         Expr.Let(defstmt.name, lambda, inExpr, recursive = RecursionKind.Recursive, decl)
@@ -71,8 +75,9 @@ final class DeclarationToExpr(
         }, apply(elseCase.get))
       case Lambda(args, body) =>
         Expr.buildPatternLambda(
-          args.map(unTuplePattern(_, nameToType, nameToCons)),
-          apply(body), decl)
+          args.map(unTuplePattern),
+          apply(body),
+          decl)
       case Literal(lit) =>
         Expr.Literal(lit, decl)
       case Parens(p) =>
@@ -86,7 +91,7 @@ final class DeclarationToExpr(
          */
         val expBranches = branches.get.map { case (pat, oidecl) =>
           val decl = oidecl.get
-          val newPattern = unTuplePattern(pat, nameToType, nameToCons)
+          val newPattern = unTuplePattern(pat)
           (newPattern, apply(decl))
         }
         Expr.Match(apply(arg), expBranches, decl)
@@ -186,7 +191,7 @@ final class DeclarationToExpr(
                   empty,
                   cond)
             }
-            val newPattern = unTuplePattern(binding, nameToType, nameToCons)
+            val newPattern = unTuplePattern(binding)
             val fnExpr: Expr[Declaration] =
               Expr.buildPatternLambda(NonEmptyList.of(newPattern), resExpr, l)
             Expr.buildApp(opExpr, apply(in) :: fnExpr :: Nil, l)
@@ -240,7 +245,7 @@ final class DeclarationToExpr(
                   init,
                   cond)
             }
-            val newPattern = unTuplePattern(binding, nameToType, nameToCons)
+            val newPattern = unTuplePattern(binding)
             val body: Expr[Declaration] =
               Expr.Match(Expr.Var(None, elemSymbol, l),
                 NonEmptyList.of((newPattern, resExpr)), l)
@@ -252,4 +257,178 @@ final class DeclarationToExpr(
             Expr.buildApp(opExpr, apply(in) :: empty :: foldFn :: Nil, l)
           }
     }
+
+  final def toType(t: TypeRef): Type = {
+    import rankn.Type._
+    import TypeRef._
+
+    t match {
+      case TypeVar(v) => TyVar(Type.Var.Bound(v))
+      case TypeName(n) => TyConst(nameToType(n.ident))
+      case TypeArrow(a, b) => Fun(toType(a), toType(b))
+      case TypeApply(a, bs) =>
+        def toType1(fn: Type, args: NonEmptyList[TypeRef]): Type =
+          args match {
+            case NonEmptyList(a0, Nil) => TyApply(fn, toType(a0))
+            case NonEmptyList(a0, a1 :: as) => toType1(TyApply(fn, toType(a0)), NonEmptyList(a1, as))
+          }
+        toType1(toType(a), bs)
+      case TypeLambda(pars0, TypeLambda(pars1, e)) =>
+        // we normalize to lifting all the foralls to the outside
+        toType(TypeLambda(pars0 ::: pars1, e))
+      case TypeLambda(pars, e) =>
+        Type.forAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }.toList, toType(e))
+      case TypeTuple(ts) =>
+        Type.Tuple(ts.map(toType(_)))
+    }
+  }
+
+  def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): rankn.DefinedType[Unit] = {
+    import Statement._
+
+    def typeVar(i: Long): Type.TyVar =
+      Type.TyVar(Type.Var.Bound(s"anon$i"))
+
+    type StT = ((Set[Type.TyVar], List[Type.TyVar]), Long)
+    type VarState[A] = State[StT, A]
+
+    def add(t: Type.TyVar): VarState[Type.TyVar] =
+      State.modify[StT] { case ((ss, sl), i) => ((ss + t, t :: sl), i) }.as(t)
+
+    lazy val nextVar: VarState[Type.TyVar] =
+      for {
+        vsid <- State.get[StT]
+        ((existing, _), id) = vsid
+        _ <- State.modify[StT] { case (s, id) => (s, id + 1L) }
+        candidate = typeVar(id)
+        tv <- if (existing(candidate)) nextVar else add(candidate)
+      } yield tv
+
+    def buildParam(p: (Bindable, Option[Type])): VarState[(Bindable, Type)] =
+      p match {
+        case (parname, Some(tpe)) =>
+          State.pure((parname, tpe))
+        case (parname, None) =>
+          nextVar.map { v => (parname, v) }
+      }
+
+    def existingVars[A](ps: List[(A, Option[Type])]): List[Type.TyVar] = {
+      val pt = ps.flatMap(_._2)
+      Type.freeTyVars(pt).map(Type.TyVar(_))
+    }
+
+    def buildParams(args: List[(Bindable, Option[Type])]): VarState[List[(Bindable, Type)]] =
+      args.traverse(buildParam _)
+
+    // This is a functor on List[(Bindable, Option[A])]
+    val deep = Functor[List].compose(Functor[(Bindable, ?)]).compose(Functor[Option])
+
+    def updateInferedWithDecl(
+      typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
+      typeParams0: List[Type.Var.Bound]): List[Type.Var.Bound] =
+        typeArgs match {
+          case None => typeParams0
+          case Some(decl) =>
+            val declTV: List[Type.Var.Bound] = decl.toList.map(_.toBoundVar)
+            val declSet = declTV.toSet
+            // TODO we should have a lint that fails if declTV is not
+            // a superset of what you would derive from the args
+            // the purpose here is to control the *order* of
+            // and to allow introducing phantom parameters, not
+            // it is confusing if some are explicit, but some are not
+            declTV.distinct ::: typeParams0.filterNot(declSet)
+        }
+
+    tds match {
+      case Struct(nm, typeArgs, args, _) =>
+        val argsType = deep.map(args)(toType(_))
+        val initVars = existingVars(argsType)
+        val initState = ((initVars.toSet, initVars.reverse), 0L)
+        val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
+        // we reverse to make sure we see in traversal order
+        val typeParams0 = typeVars.reverseMap { tv =>
+          tv.toVar match {
+            case b@Type.Var.Bound(_) => b
+            case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+          }
+        }
+
+        val typeParams = updateInferedWithDecl(typeArgs, typeParams0)
+
+        val tname = TypeName(nm)
+        val consValueType =
+          rankn.DefinedType
+            .constructorValueType(
+              pname,
+              tname,
+              typeParams,
+              params.map(_._2))
+        rankn.DefinedType(pname,
+          tname,
+          typeParams.map((_, ())),
+          (nm, params, consValueType) :: Nil)
+      case Enum(nm, typeArgs, items, _) =>
+        val conArgs = items.get.map { case (nm, args) =>
+          val argsType = deep.map(args)(toType)
+          (nm, argsType)
+        }
+        val constructorsS = conArgs.traverse { case (nm, argsType) =>
+          buildParams(argsType).map { params =>
+            (nm, params)
+          }
+        }
+        val initVars = existingVars(conArgs.toList.flatMap(_._2))
+        val initState = ((initVars.toSet, initVars.reverse), 0L)
+        val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
+        // we reverse to make sure we see in traversal order
+        val typeParams0 = typeVars.reverseMap { tv =>
+          tv.toVar match {
+            case b@Type.Var.Bound(_) => b
+            case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+          }
+        }
+        val typeParams = updateInferedWithDecl(typeArgs, typeParams0)
+        val tname = TypeName(nm)
+        val finalCons = constructors.toList.map { case (c, params) =>
+          val consValueType =
+            rankn.DefinedType.constructorValueType(
+              pname,
+              tname,
+              typeParams,
+              params.map(_._2))
+          (c, params, consValueType)
+        }
+        rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
+      case ExternalStruct(nm, targs, _) =>
+        rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), ()) }, Nil)
+    }
+  }
+
+  /**
+   * Tuples are converted into standard types using an HList strategy
+   */
+  def unTuplePattern(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), rankn.Type] =
+    pat.mapStruct[(PackageName, Constructor)] {
+      case (None, args) =>
+        // this is a tuple pattern
+        def loop(args: List[Pattern[(PackageName, Constructor), TypeRef]]): Pattern[(PackageName, Constructor), TypeRef] =
+          args match {
+            case Nil =>
+              // ()
+              Pattern.PositionalStruct(
+                (Predef.packageName, Constructor("Unit")),
+                Nil)
+            case h :: tail =>
+              val tailP = loop(tail)
+              Pattern.PositionalStruct(
+                (Predef.packageName, Constructor("TupleCons")),
+                h :: tailP :: Nil)
+          }
+
+        loop(args)
+      case (Some(nm), args) =>
+        // this is a struct pattern
+        Pattern.PositionalStruct(nameToCons(nm), args)
+    }
+    .mapType(toType)
 }
