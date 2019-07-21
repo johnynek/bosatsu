@@ -7,8 +7,8 @@ import fastparse.all.Parsed
 
 class FreeVarTest extends FunSuite {
   implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 300)
+    PropertyCheckConfiguration(minSuccessful = 1000)
+    //PropertyCheckConfiguration(minSuccessful = 300)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   def assertFreeVars(stmt: String, vars: List[String]) =
@@ -36,7 +36,7 @@ class FreeVarTest extends FunSuite {
     forAll(Generators.genStatement(3)) { stmt =>
       Statement.valuesOf(stmt)
         .foreach { v =>
-          assert(v.freeVars.subsetOf(v.freeVars))
+          assert(v.freeVars.subsetOf(v.allNames))
         }
     }
   }
