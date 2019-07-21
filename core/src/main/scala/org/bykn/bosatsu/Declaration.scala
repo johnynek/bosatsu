@@ -186,6 +186,68 @@ sealed abstract class Declaration {
 
     loop(this, Set.empty, SortedSet.empty)
   }
+
+  /**
+   * This returns *all* names in the declaration, bound or not
+   */
+  def allNames: SortedSet[Bindable] = {
+    def loop(decl: Declaration, acc: SortedSet[Bindable]): SortedSet[Bindable] =
+      decl match {
+        case Apply(fn, args, _) =>
+          (fn :: args).foldLeft(acc) { (acc0, d) => loop(d, acc0) }
+        case ApplyOp(left, _, right) =>
+          val acc0 = loop(left, acc)
+          loop(right, acc0)
+        case Binding(BindingStatement(n, v, in)) =>
+          val acc0 = loop(v, acc ++ n.names)
+          loop(in.padded, acc0)
+        case Comment(c) => loop(c.on.padded, acc)
+        case DefFn(d) =>
+          // def sets up a binding to itself, which
+          // may or may not be recursive
+          val acc1 = (acc + d.name) ++ d.args.flatMap(_.names)
+          val (body, rest) = d.result
+          val acc2 = loop(body.get, acc1)
+          loop(rest.padded, acc2)
+        case IfElse(ifCases, elseCase) =>
+          val acc2 = ifCases.foldLeft(acc) { case (acc0, (cond, v)) =>
+            val acc1 = loop(cond, acc0)
+            loop(v.get, acc1)
+          }
+          loop(elseCase.get, acc2)
+        case Lambda(args, body) =>
+          val acc1 = acc ++ args.toList.flatMap(_.names)
+          loop(body, acc1)
+        case Literal(lit) => SortedSet.empty
+        case Match(_, typeName, args) =>
+          val acc1 = loop(typeName, acc)
+          args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
+            loop(res.get, acc0 ++ pat.names)
+          }
+        case Parens(p) => loop(p, acc)
+        case TupleCons(items) =>
+          items.foldLeft(acc) { (acc0, d) => loop(d, acc0) }
+        case Var(name: Bindable) => acc + name
+        case Var(_) => acc
+        case ListDecl(ListLang.Cons(items)) =>
+          items.foldLeft(acc) { (acc0, sori) =>
+            loop(sori.value, acc0)
+          }
+        case ListDecl(ListLang.Comprehension(ex, b, in, _)) =>
+          val acc1 = loop(in, acc)
+          loop(ex.value, acc1 ++ b.names)
+        case DictDecl(ListLang.Cons(items)) =>
+          items.foldLeft(acc) { (acc0, kv) =>
+            val acc1 = loop(kv.key, acc0)
+            loop(kv.value, acc1)
+          }
+        case DictDecl(ListLang.Comprehension(ex, b, in, _)) =>
+          val acc1 = loop(in, acc)
+          val acc2 = loop(ex.key, acc1 ++ b.names)
+          loop(ex.value, acc2)
+      }
+    loop(this, SortedSet.empty)
+  }
 }
 
 object Declaration {

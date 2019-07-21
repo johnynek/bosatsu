@@ -452,7 +452,7 @@ final class SourceConverter(
       val allNames =
         Statement.valuesOf(stmt)
           .iterator
-          .flatMap { v => v.names.iterator ++ v.freeVars.iterator }
+          .flatMap { v => v.names.iterator ++ v.allNames.iterator }
           .toSet
 
       rankn.Type

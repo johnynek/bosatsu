@@ -90,6 +90,19 @@ object Statement {
           (innerFrees - defstatement.name) -- defstatement.args.flatMap(_.names)
         case ExternalDef(name, _, _, _) => SortedSet.empty
       }
+
+    /**
+     * These are all the bindings, free or not, in this Statement
+     */
+    def allNames: SortedSet[Bindable] = {
+      this match {
+        case Bind(BindingStatement(pat, decl, _)) => decl.allNames ++ pat.names
+        case Def(defstatement) =>
+          (defstatement.result._1.get.allNames + defstatement.name) ++
+            defstatement.args.flatMap(_.names)
+        case ExternalDef(name, _, _, _) => SortedSet(name)
+      }
+    }
   }
 
   def definitionsOf(s: Statement): Stream[TypeDefinitionStatement] =
