@@ -446,12 +446,13 @@ final class SourceConverter(
 
     // Each time we need a name, we can call anonNames.next()
     // it is mutable, but in a limited scope
-    val anonNames: Iterator[Bindable] = {
+    // this is lazy, because not all statements need anonymous names
+    lazy val anonNames: Iterator[Bindable] = {
       // this is safe as a set because we only use it to filter
       val allNames =
         Statement.valuesOf(stmt)
           .iterator
-          .flatMap(_.names)
+          .flatMap { v => v.names.iterator ++ v.freeVars.iterator }
           .toSet
 
       rankn.Type

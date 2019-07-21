@@ -6,6 +6,7 @@ import cats.implicits._
 import com.stripe.dagon.Memoize
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
+import scala.collection.immutable.SortedSet
 
 import Indy.IndyMethods
 import org.bykn.fastparse_cats.StringInstances._
@@ -22,7 +23,7 @@ sealed abstract class Declaration {
 
   def region: Region
 
-  def toDoc: Doc = {
+  def toDoc: Doc =
     this match {
       case Apply(fn, args, kind) =>
         val fnDoc = fn match {
@@ -115,6 +116,75 @@ sealed abstract class Declaration {
       case DictDecl(dict) =>
         ListLang.documentDict[Declaration, Pattern.Parsed].document(dict)
     }
+
+  /**
+   * Get the set of free variables in this declaration.
+   * These are variables that must be defined at an outer
+   * lexical scope in order to typecheck
+   */
+  def freeVars: SortedSet[Bindable] = {
+    def loop(decl: Declaration, bound: Set[Bindable], acc: SortedSet[Bindable]): SortedSet[Bindable] =
+      decl match {
+        case Apply(fn, args, _) =>
+          (fn :: args).foldLeft(acc) { (acc0, d) => loop(d, bound, acc0) }
+        case ApplyOp(left, _, right) =>
+          val acc0 = loop(left, bound, acc)
+          loop(right, bound, acc0)
+        case Binding(BindingStatement(n, v, in)) =>
+          val acc0 = loop(v, bound, acc)
+          val bound1 = bound ++ n.names
+          loop(in.padded, bound1, acc0)
+        case Comment(c) => loop(c.on.padded, bound, acc)
+        case DefFn(d) =>
+          // def sets up a binding to itself, which
+          // may or may not be recursive
+          val bound1 = bound + d.name
+          val bound2 = bound1 ++ d.args.flatMap(_.names)
+          val (body, rest) = d.result
+          val acc1 = loop(body.get, bound2, acc)
+          loop(rest.padded, bound1, acc1)
+        case IfElse(ifCases, elseCase) =>
+          val acc2 = ifCases.foldLeft(acc) { case (acc0, (cond, v)) =>
+            val acc1 = loop(cond, bound, acc0)
+            loop(v.get, bound, acc1)
+          }
+          loop(elseCase.get, bound, acc2)
+        case Lambda(args, body) =>
+          val bound1 = bound ++ args.toList.flatMap(_.names)
+          loop(body, bound1, acc)
+        case Literal(lit) => SortedSet.empty
+        case Match(_, typeName, args) =>
+          val acc1 = loop(typeName, bound, acc)
+          args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
+            val bound1 = bound ++ pat.names
+            loop(res.get, bound1, acc0)
+          }
+        case Parens(p) => loop(p, bound, acc)
+        case TupleCons(items) =>
+          items.foldLeft(acc) { (acc0, d) => loop(d, bound, acc0) }
+        case Var(name: Bindable) if !bound(name) => acc + name
+        case Var(_) => acc
+        case ListDecl(ListLang.Cons(items)) =>
+          items.foldLeft(acc) { (acc0, sori) =>
+            loop(sori.value, bound, acc0)
+          }
+        case ListDecl(ListLang.Comprehension(ex, b, in, _)) =>
+          val acc1 = loop(in, bound, acc)
+          val bound1 = bound ++ b.names
+          loop(ex.value, bound1, acc1)
+        case DictDecl(ListLang.Cons(items)) =>
+          items.foldLeft(acc) { (acc0, kv) =>
+            val acc1 = loop(kv.key, bound, acc0)
+            loop(kv.value, bound, acc1)
+          }
+        case DictDecl(ListLang.Comprehension(ex, b, in, _)) =>
+          val acc1 = loop(in, bound, acc)
+          val bound1 = bound ++ b.names
+          val acc2 = loop(ex.key, bound1, acc1)
+          loop(ex.value, bound1, acc2)
+      }
+
+    loop(this, Set.empty, SortedSet.empty)
   }
 }
 

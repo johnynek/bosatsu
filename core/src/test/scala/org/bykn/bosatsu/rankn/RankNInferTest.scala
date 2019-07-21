@@ -146,7 +146,7 @@ class RankNInferTest extends FunSuite {
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
           case Validated.Invalid(_) => assert(true)
           case Validated.Valid(program) =>
-            fail(program.lets.toString)
+            fail("expected an invalid program, but got: " + program.lets.toString)
         }
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
@@ -946,5 +946,14 @@ def add(x):
   (b@(y: Foo)) = x
   Bar(b)
 """, "Foo -> Bar")
+  }
+
+  test("top level matches don't introduce colliding bindings") {
+    parseProgramIllTyped("""#
+struct Pair(fst, snd)
+
+Pair(a, b) = Pair(1, 2)
+d = c
+""")
   }
 }
