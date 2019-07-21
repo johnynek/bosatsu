@@ -62,24 +62,55 @@ sealed abstract class TypeDefinitionStatement extends Statement {
 
 object Statement {
 
+  /**
+   * These introduce new values into scope
+   */
+  sealed abstract class ValueStatement extends Statement {
+    /**
+     * All the names that are bound by this statement
+     */
+    def names: List[Bindable] =
+      this match {
+        case Bind(BindingStatement(bound, _, _)) => bound.names // TODO Keep identifiers
+        case Def(defstatement) => defstatement.name :: Nil
+        case ExternalDef(name, _, _, _) => name :: Nil
+      }
+  }
+
   def definitionsOf(s: Statement): Stream[TypeDefinitionStatement] =
     s.toStream.collect {
       case tds: TypeDefinitionStatement => tds
     }
 
-  case class Bind(bind: BindingStatement[Pattern.Parsed, Padding[Statement]]) extends Statement
-  case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
-  case class Def(defstatement: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])]) extends Statement
-  case class Struct(name: Constructor,
-    typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
-    args: List[(Bindable, Option[TypeRef])],
-    rest: Padding[Statement]) extends TypeDefinitionStatement
-  case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends Statement
-  case class ExternalStruct(name: Constructor, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
+  def valuesOf(s: Statement): Stream[ValueStatement] =
+    s.toStream.collect {
+      case vs: ValueStatement => vs
+    }
+
+  //////
+  // All the ValueStatements, which set up new bindings in the order they appear in the file
+  /////.
+  case class Bind(bind: BindingStatement[Pattern.Parsed, Padding[Statement]]) extends ValueStatement
+  case class Def(defstatement: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])]) extends ValueStatement
+  case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends ValueStatement
+
+  //////
+  // TypeDefinitionStatement types:
+  //////
   case class Enum(name: Constructor,
     typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
     items: OptIndent[NonEmptyList[(Constructor, List[(Bindable, Option[TypeRef])])]],
     rest: Padding[Statement]) extends TypeDefinitionStatement
+  case class ExternalStruct(name: Constructor, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
+  case class Struct(name: Constructor,
+    typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
+    args: List[(Bindable, Option[TypeRef])],
+    rest: Padding[Statement]) extends TypeDefinitionStatement
+
+  ////
+  // These have no effect on the semantics of the Statement linked list
+  ////
+  case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case object EndOfFile extends Statement
 
   // Parse a single item
