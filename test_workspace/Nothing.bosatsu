@@ -1,5 +1,7 @@
 package Bosatsu/Nothing
 
+export [ Nothing(), impossible ]
+
 # In a total language, it is not possible
 # to create a value with the type of magic
 struct Nothing(magic: forall a. (a -> a) -> a)
