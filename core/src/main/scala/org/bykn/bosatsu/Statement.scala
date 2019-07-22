@@ -5,6 +5,7 @@ import cats.data.NonEmptyList
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
+import scala.collection.immutable.SortedSet
 
 import org.bykn.fastparse_cats.StringInstances._
 
@@ -75,6 +76,33 @@ object Statement {
         case Def(defstatement) => defstatement.name :: Nil
         case ExternalDef(name, _, _, _) => name :: Nil
       }
+
+    /**
+     * These are all the free bindable names in the right hand side
+     * of this binding
+     */
+    def freeVars: SortedSet[Bindable] =
+      this match {
+        case Bind(BindingStatement(_, decl, _)) => decl.freeVars
+        case Def(defstatement) =>
+          val innerFrees = defstatement.result._1.get.freeVars
+          // but the def name and, args shadow
+          (innerFrees - defstatement.name) -- defstatement.args.flatMap(_.names)
+        case ExternalDef(name, _, _, _) => SortedSet.empty
+      }
+
+    /**
+     * These are all the bindings, free or not, in this Statement
+     */
+    def allNames: SortedSet[Bindable] = {
+      this match {
+        case Bind(BindingStatement(pat, decl, _)) => decl.allNames ++ pat.names
+        case Def(defstatement) =>
+          (defstatement.result._1.get.allNames + defstatement.name) ++
+            defstatement.args.flatMap(_.names)
+        case ExternalDef(name, _, _, _) => SortedSet(name)
+      }
+    }
   }
 
   def definitionsOf(s: Statement): Stream[TypeDefinitionStatement] =
