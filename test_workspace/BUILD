@@ -103,3 +103,8 @@ bosatsu_test(
     srcs = ["recordset.bosatsu"],
     packages = ["RecordSet/Library"],
     )
+
+bosatsu_library(
+    name = "nothing",
+    srcs = ["Nothing.bosatsu"],
+    )
