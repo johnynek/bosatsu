@@ -141,7 +141,7 @@ object ServerCommand {
       val bq: LinkedBlockingQueue[ServerResult] = new LinkedBlockingQueue()
       JettyLauncher.startServer(
         { params =>
-          IO.pure("fizz")
+          NonEmptyList.fromList(params.toList.filter(_ != "")).map(nel => result(PackageName(nel))).getOrElse(IO.pure("Can't be empty"))
         }, { keys =>
           "fuzz"
         }
