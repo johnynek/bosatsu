@@ -218,22 +218,20 @@ final class SourceConverter(
           case ListLang.Comprehension(KVPair(k, v), binding, in, filter) =>
             /*
              * { x: y for p in z} ==
-             * z.foldLeft(empty_Dict(stringOrder), \dict, v ->
-             *   p = v
+             * z.foldLeft(empty_Dict(stringOrder), \dict, p ->
              *   dict.add_key(x, y)
              *   )
              *
              * { x: y for p in z if w } =
-             * z.foldLeft(empty_Dict(stringOrder), \dict, v ->
-             *   p = v
+             * z.foldLeft(empty_Dict(stringOrder), \dict, p ->
              *   if w: dict.add_key(x, y)
              *   else: dict
              *   )
              */
+
             val pn = Option(Predef.packageName)
             val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name("foldLeft"), l)
-            val dictSymbol = Identifier.Name("$d") // TODO we should have better ways to gensym
-            val elemSymbol = Identifier.Name("$e")
+            val dictSymbol = unusedNames(decl.allNames).next
             val init: Expr[Declaration] = Expr.Var(None, dictSymbol, l)
             val added = add(init, apply(k), apply(v))
 
@@ -246,12 +244,10 @@ final class SourceConverter(
                   cond)
             }
             val newPattern = unTuplePattern(binding)
-            val body: Expr[Declaration] =
-              Expr.Match(Expr.Var(None, elemSymbol, l),
-                NonEmptyList.of((newPattern, resExpr)), l)
             val foldFn = Expr.Lambda(dictSymbol,
-              Expr.Lambda(elemSymbol,
-                body,
+              Expr.buildPatternLambda(
+                NonEmptyList(newPattern, Nil),
+                resExpr,
                 l),
               l)
             Expr.buildApp(opExpr, apply(in) :: empty :: foldFn :: Nil, l)
@@ -438,6 +434,14 @@ final class SourceConverter(
         te.addDefinedType(toDefinition(pn0, d))
       }
 
+  private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
+    rankn.Type
+      .allBinders
+      .iterator
+      .map(_.name)
+      .map(Identifier.Name(_))
+      .filterNot(allNames)
+
   /**
    * Return the lets in order they appear
    */
@@ -455,12 +459,7 @@ final class SourceConverter(
           .flatMap { v => v.names.iterator ++ v.allNames.iterator }
           .toSet
 
-      rankn.Type
-        .allBinders
-        .iterator
-        .map(_.name)
-        .map(Identifier.Name(_))
-        .filterNot(allNames)
+      unusedNames(allNames)
     }
 
     def bindings(
