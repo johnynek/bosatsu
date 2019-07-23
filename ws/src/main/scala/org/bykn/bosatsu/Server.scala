@@ -16,14 +16,17 @@ import org.eclipse.jetty.servlet.{DefaultServlet}
 // , ServletContextHandler}
 import org.eclipse.jetty.webapp.WebAppContext
 import org.scalatra.servlet.ScalatraListener
-import org.scalatra.{CorsSupport, ScalatraServlet}
+import org.scalatra.{CorsSupport, ScalatraServlet, AsyncResult}
+import scala.concurrent.{ExecutionContext}
 
 import io.circe.parser._
 // io.circe._, io.circe.generic.auto._, io.circe.parser._, io.circe.syntax._
 
+import org.scalatra.FutureSupport
+
 object JettyLauncher { // this is my entry object as specified in sbt project definition
   def startServer(
-      reportBody: Seq[String] => String,
+      reportBody: Seq[String] => IO[String],
       cacheResult: List[String] => String
   ): Unit = {
     val server = new JettyServer(8080)
@@ -43,10 +46,12 @@ object JettyLauncher { // this is my entry object as specified in sbt project de
 }
 
 class ReactiveBosatsuServlet(
-    reportBody: Seq[String] => String,
+    reportBody: Seq[String] => IO[String],
     cacheResult: List[String] => String
-) extends ScalatraServlet
+) extends ScalatraServlet with FutureSupport
     with CorsSupport {
+
+  protected implicit def executor: ExecutionContext = ExecutionContext.global
 
   options("/*") {
     response
@@ -62,10 +67,13 @@ class ReactiveBosatsuServlet(
   }
 
   get("/report/*") {
-    val params: Seq[String] = multiParams("splat").flatMap(_.split("/"))
-    response
-      .setHeader("Access-Control-Allow-Origin", "*")
-    reportBody(params)
+    new AsyncResult {
+      val params: Seq[String] = multiParams("splat").flatMap(_.split("/"))
+      val is = reportBody(params).unsafeToFuture.andThen {
+        case Success(_) => response
+          .setHeader("Access-Control-Allow-Origin", "*")
+      }
+    }
   }
 
   post("/cache") {
@@ -133,7 +141,7 @@ object ServerCommand {
       val bq: LinkedBlockingQueue[ServerResult] = new LinkedBlockingQueue()
       JettyLauncher.startServer(
         { params =>
-          "fizz"
+          IO.pure("fizz")
         }, { keys =>
           "fuzz"
         }
