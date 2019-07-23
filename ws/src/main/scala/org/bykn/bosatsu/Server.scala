@@ -9,7 +9,6 @@ import java.nio.file.Path
 import java.util.concurrent.LinkedBlockingQueue
 // import java.util.concurrent.atomic.AtomicReference
 
-import scala.util.Try
 import scala.util.{Failure, Success, Try}
 import org.eclipse.jetty.server.{Server => JettyServer}
 import org.eclipse.jetty.servlet.{DefaultServlet}
@@ -17,7 +16,7 @@ import org.eclipse.jetty.servlet.{DefaultServlet}
 import org.eclipse.jetty.webapp.WebAppContext
 import org.scalatra.servlet.ScalatraListener
 import org.scalatra.{CorsSupport, ScalatraServlet, AsyncResult}
-import scala.concurrent.{ExecutionContext}
+import scala.concurrent.{ExecutionContext, Future}
 
 import io.circe.parser._
 // io.circe._, io.circe.generic.auto._, io.circe.parser._, io.circe.syntax._
@@ -77,11 +76,14 @@ class ReactiveBosatsuServlet(
   }
 
   post("/cache") {
-    response
-      .setHeader("Access-Control-Allow-Origin", "*")
-    decode[List[String]](request.body) match {
-      case Left(e)     => s"$e, ${request.body}"
-      case Right(keys) => cacheResult(keys)
+    new AsyncResult {
+      val is = Future(decode[List[String]](request.body) match {
+        case Left(e)     => s"$e, ${request.body}"
+        case Right(keys) => cacheResult(keys)
+      }).andThen {
+        case Success(_) => response
+          .setHeader("Access-Control-Allow-Origin", "*")
+      }
     }
   }
 }
@@ -105,8 +107,9 @@ object ServerCommand {
     def result(mainPackage: PackageName) = {
       typeCheck(inputs, Nil).map { case (packs, _) =>
         val normPM = NormalizePackageMap(packs).normalizePackageMap
-        val bindings = Evaluation(normPM, Predef.jvmExternals, Some({tag: (Declaration, Normalization.NormalExpressionTag) => tag._2.ne}))
-          .evaluateLets(mainPackage).map(_._1.asString).map(Json.JString).toVector
+        val lets = Evaluation(normPM, Predef.jvmExternals, Some({tag: (Declaration, Normalization.NormalExpressionTag) => tag._2.ne}))
+          .evaluateLets(mainPackage)
+        val bindings = lets.map(_._1.asString).map(Json.JString).toVector
         Json.JArray(bindings).toDoc.render(100)
       }
     }
