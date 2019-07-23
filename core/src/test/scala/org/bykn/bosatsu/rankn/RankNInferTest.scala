@@ -27,10 +27,14 @@ class RankNInferTest extends FunSuite {
         Type.Const.Defined(PackageName.parts("Test"), TypeName(str))
     }
 
+  private val srcConv = new SourceConverter(
+    strToConst _,
+    { c => (PackageName.parts("Test"), c) })
+
   def typeFrom(str: String): Type =
     TypeRef.parser.parse(str) match {
       case Parsed.Success(typeRef, _) =>
-        typeRef.toType(strToConst _)
+        srcConv.toType(typeRef)
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
     }
@@ -142,7 +146,7 @@ class RankNInferTest extends FunSuite {
         Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
           case Validated.Invalid(_) => assert(true)
           case Validated.Valid(program) =>
-            fail(program.lets.toString)
+            fail("expected an invalid program, but got: " + program.lets.toString)
         }
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
@@ -942,5 +946,14 @@ def add(x):
   (b@(y: Foo)) = x
   Bar(b)
 """, "Foo -> Bar")
+  }
+
+  test("top level matches don't introduce colliding bindings") {
+    parseProgramIllTyped("""#
+struct Pair(fst, snd)
+
+Pair(a, b) = Pair(1, 2)
+d = c
+""")
   }
 }

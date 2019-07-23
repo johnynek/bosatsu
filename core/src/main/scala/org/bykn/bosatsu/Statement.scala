@@ -1,11 +1,11 @@
 package org.bykn.bosatsu
 
 import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, spaces }
-import cats.Functor
-import cats.data.{ NonEmptyList, State }
+import cats.data.NonEmptyList
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
+import scala.collection.immutable.SortedSet
 
 import org.bykn.fastparse_cats.StringInstances._
 
@@ -42,7 +42,7 @@ sealed abstract class Statement {
 }
 
 sealed abstract class TypeDefinitionStatement extends Statement {
-  import Statement._
+  import Statement.{Struct, Enum, ExternalStruct}
 
   /**
    * This is the name of the type being defined
@@ -59,149 +59,86 @@ sealed abstract class TypeDefinitionStatement extends Statement {
         items.get.toList.map { case (nm, _) => nm }
       case ExternalStruct(_, _, _) => Nil
     }
-
-  def toDefinition(pname: PackageName, nameToType: Constructor => rankn.Type.Const): rankn.DefinedType[Unit] = {
-    import rankn.Type
-
-    def typeVar(i: Long): Type.TyVar =
-      Type.TyVar(Type.Var.Bound(s"anon$i"))
-
-    type StT = ((Set[Type.TyVar], List[Type.TyVar]), Long)
-    type VarState[A] = State[StT, A]
-
-    def add(t: Type.TyVar): VarState[Type.TyVar] =
-      State.modify[StT] { case ((ss, sl), i) => ((ss + t, t :: sl), i) }.as(t)
-
-    lazy val nextVar: VarState[Type.TyVar] =
-      for {
-        vsid <- State.get[StT]
-        ((existing, _), id) = vsid
-        _ <- State.modify[StT] { case (s, id) => (s, id + 1L) }
-        candidate = typeVar(id)
-        tv <- if (existing(candidate)) nextVar else add(candidate)
-      } yield tv
-
-    def buildParam(p: (Bindable, Option[Type])): VarState[(Bindable, Type)] =
-      p match {
-        case (parname, Some(tpe)) =>
-          State.pure((parname, tpe))
-        case (parname, None) =>
-          nextVar.map { v => (parname, v) }
-      }
-
-    def existingVars[A](ps: List[(A, Option[Type])]): List[Type.TyVar] = {
-      val pt = ps.flatMap(_._2)
-      Type.freeTyVars(pt).map(Type.TyVar(_))
-    }
-
-    def buildParams(args: List[(Bindable, Option[Type])]): VarState[List[(Bindable, Type)]] =
-      args.traverse(buildParam _)
-
-    // This is a functor on List[(Bindable, Option[A])]
-    val deep = Functor[List].compose(Functor[(Bindable, ?)]).compose(Functor[Option])
-
-    def updateInferedWithDecl(
-      typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
-      typeParams0: List[Type.Var.Bound]): List[Type.Var.Bound] =
-        typeArgs match {
-          case None => typeParams0
-          case Some(decl) =>
-            val declTV: List[Type.Var.Bound] = decl.toList.map(_.toBoundVar)
-            val declSet = declTV.toSet
-            // TODO we should have a lint that fails if declTV is not
-            // a superset of what you would derive from the args
-            // the purpose here is to control the *order* of
-            // and to allow introducing phantom parameters, not
-            // it is confusing if some are explicit, but some are not
-            declTV.distinct ::: typeParams0.filterNot(declSet)
-        }
-
-    this match {
-      case Struct(nm, typeArgs, args, _) =>
-        val argsType = deep.map(args)(_.toType(nameToType))
-        val initVars = existingVars(argsType)
-        val initState = ((initVars.toSet, initVars.reverse), 0L)
-        val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
-        // we reverse to make sure we see in traversal order
-        val typeParams0 = typeVars.reverseMap { tv =>
-          tv.toVar match {
-            case b@Type.Var.Bound(_) => b
-            case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
-          }
-        }
-
-        val typeParams = updateInferedWithDecl(typeArgs, typeParams0)
-
-        val tname = TypeName(nm)
-        val consValueType =
-          rankn.DefinedType
-            .constructorValueType(
-              pname,
-              tname,
-              typeParams,
-              params.map(_._2))
-        rankn.DefinedType(pname,
-          tname,
-          typeParams.map((_, ())),
-          (nm, params, consValueType) :: Nil)
-      case Enum(nm, typeArgs, items, _) =>
-        val conArgs = items.get.map { case (nm, args) =>
-          val argsType = deep.map(args)(_.toType(nameToType))
-          (nm, argsType)
-        }
-        val constructorsS = conArgs.traverse { case (nm, argsType) =>
-          buildParams(argsType).map { params =>
-            (nm, params)
-          }
-        }
-        val initVars = existingVars(conArgs.toList.flatMap(_._2))
-        val initState = ((initVars.toSet, initVars.reverse), 0L)
-        val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
-        // we reverse to make sure we see in traversal order
-        val typeParams0 = typeVars.reverseMap { tv =>
-          tv.toVar match {
-            case b@Type.Var.Bound(_) => b
-            case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
-          }
-        }
-        val typeParams = updateInferedWithDecl(typeArgs, typeParams0)
-        val tname = TypeName(nm)
-        val finalCons = constructors.toList.map { case (c, params) =>
-          val consValueType =
-            rankn.DefinedType.constructorValueType(
-              pname,
-              tname,
-              typeParams,
-              params.map(_._2))
-          (c, params, consValueType)
-        }
-        rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
-      case ExternalStruct(nm, targs, _) =>
-        rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), ()) }, Nil)
-    }
-  }
 }
 
 object Statement {
+
+  /**
+   * These introduce new values into scope
+   */
+  sealed abstract class ValueStatement extends Statement {
+    /**
+     * All the names that are bound by this statement
+     */
+    def names: List[Bindable] =
+      this match {
+        case Bind(BindingStatement(bound, _, _)) => bound.names // TODO Keep identifiers
+        case Def(defstatement) => defstatement.name :: Nil
+        case ExternalDef(name, _, _, _) => name :: Nil
+      }
+
+    /**
+     * These are all the free bindable names in the right hand side
+     * of this binding
+     */
+    def freeVars: SortedSet[Bindable] =
+      this match {
+        case Bind(BindingStatement(_, decl, _)) => decl.freeVars
+        case Def(defstatement) =>
+          val innerFrees = defstatement.result._1.get.freeVars
+          // but the def name and, args shadow
+          (innerFrees - defstatement.name) -- defstatement.args.flatMap(_.names)
+        case ExternalDef(name, _, _, _) => SortedSet.empty
+      }
+
+    /**
+     * These are all the bindings, free or not, in this Statement
+     */
+    def allNames: SortedSet[Bindable] = {
+      this match {
+        case Bind(BindingStatement(pat, decl, _)) => decl.allNames ++ pat.names
+        case Def(defstatement) =>
+          (defstatement.result._1.get.allNames + defstatement.name) ++
+            defstatement.args.flatMap(_.names)
+        case ExternalDef(name, _, _, _) => SortedSet(name)
+      }
+    }
+  }
 
   def definitionsOf(s: Statement): Stream[TypeDefinitionStatement] =
     s.toStream.collect {
       case tds: TypeDefinitionStatement => tds
     }
 
-  case class Bind(bind: BindingStatement[Pattern.Parsed, Padding[Statement]]) extends Statement
-  case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
-  case class Def(defstatement: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])]) extends Statement
-  case class Struct(name: Constructor,
-    typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
-    args: List[(Bindable, Option[TypeRef])],
-    rest: Padding[Statement]) extends TypeDefinitionStatement
-  case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends Statement
-  case class ExternalStruct(name: Constructor, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
+  def valuesOf(s: Statement): Stream[ValueStatement] =
+    s.toStream.collect {
+      case vs: ValueStatement => vs
+    }
+
+  //////
+  // All the ValueStatements, which set up new bindings in the order they appear in the file
+  /////.
+  case class Bind(bind: BindingStatement[Pattern.Parsed, Padding[Statement]]) extends ValueStatement
+  case class Def(defstatement: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])]) extends ValueStatement
+  case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends ValueStatement
+
+  //////
+  // TypeDefinitionStatement types:
+  //////
   case class Enum(name: Constructor,
     typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
     items: OptIndent[NonEmptyList[(Constructor, List[(Bindable, Option[TypeRef])])]],
     rest: Padding[Statement]) extends TypeDefinitionStatement
+  case class ExternalStruct(name: Constructor, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
+  case class Struct(name: Constructor,
+    typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
+    args: List[(Bindable, Option[TypeRef])],
+    rest: Padding[Statement]) extends TypeDefinitionStatement
+
+  ////
+  // These have no effect on the semantics of the Statement linked list
+  ////
+  case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
   case object EndOfFile extends Statement
 
   // Parse a single item

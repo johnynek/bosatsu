@@ -61,10 +61,16 @@ bosatsu_library(
     srcs = ["List.bosatsu"],
     )
 
+bosatsu_library(
+    name = "dict",
+    srcs = ["Dict.bosatsu"],
+    deps = [":list"]
+    )
+
 bosatsu_test(
     name = "list_test",
     deps = [":list"],
-    packages = ["List"],
+    packages = ["Bosatsu/List"],
     )
 
 bosatsu_library(
@@ -96,4 +102,9 @@ bosatsu_test(
     deps = [],
     srcs = ["recordset.bosatsu"],
     packages = ["RecordSet/Library"],
+    )
+
+bosatsu_library(
+    name = "nothing",
+    srcs = ["Nothing.bosatsu"],
     )
