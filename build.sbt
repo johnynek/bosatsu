@@ -60,6 +60,16 @@ lazy val commonSettings = Seq(
   testOptions in Test += Tests.Argument("-oDF")
 )
 
+lazy val commonJsSettings = Seq(
+  scalaJSStage in Global := FastOptStage,
+  parallelExecution := false,
+  jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
+  // batch mode decreases the amount of memory needed to compile scala.js code
+  scalaJSOptimizerOptions := scalaJSOptimizerOptions.value.withBatchMode(scala.sys.env.get("TRAVIS").isDefined),
+  coverageEnabled := false,
+  scalaJSUseMainModuleInitializer := true
+)
+
 lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("."))
   .aggregate(core)
   .settings(
@@ -116,10 +126,9 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         scalaCheck.value % Test,
         scalaTest.value % Test
       )
-  ).dependsOn(base).
-  jsSettings(
-    scalaJSUseMainModuleInitializer := true
   )
+  .dependsOn(base)
+  .jsSettings(commonJsSettings)
 
 lazy val coreJVM = core.jvm
 lazy val coreJS = core.js
