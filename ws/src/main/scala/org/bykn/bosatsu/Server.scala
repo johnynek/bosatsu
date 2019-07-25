@@ -109,8 +109,9 @@ object ServerCommand {
         val normPM = NormalizePackageMap(packs).normalizePackageMap
         val lets = Evaluation(normPM, Predef.jvmExternals, Some({tag: (Declaration, Normalization.NormalExpressionTag) => tag._2.ne}))
           .evaluateLets(mainPackage)
-        val bindings = lets.map(_._1.asString).map(Json.JString).toVector
-        Json.JArray(bindings).toDoc.render(100)
+        val typeMap: Map[rankn.Type, TypeRef] = TypeRef.fromTypes(Some(mainPackage), lets.map(_._2._2))
+        val bindings = lets.map(let => Json.JArray(List(let._1.asString, typeMap(let._2._2).toDoc.render(1000)).map(Json.JString).toVector))
+        Json.JArray(bindings.toVector).toDoc.render(100)
       }
     }
 /*    
