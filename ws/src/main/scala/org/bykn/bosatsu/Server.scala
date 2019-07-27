@@ -93,6 +93,13 @@ sealed abstract class ServerCommand {
 }
 
 object ServerCommand {
+  def tokenizeValue(v: Value[(NormalExpression, List[Eval[Value[NormalExpression]]])]): String = v match {
+    case ConsValue(head, tail) => head.tokenize.zip(tail.tokenize).map { case (h,t) => s"($h,$t)" }.headOption
+    case SumValue(varian, value) => value.tokenize.map(vt => s"SV($variant, $vt)")
+    case FnValue(toFn, (normalExpression, scope)) => s"Fn($normalExpression, ${scope.map(_.value.tokenize).mkString(",")})"
+    case ExternalValue(toAny, tokenizeFn) => tokenizeFn(toAny)
+  }
+
   def blockingQueue(serverResult: ServerResult) = {
     val bq: LinkedBlockingQueue[ServerResult] = new LinkedBlockingQueue()
     bq.put(serverResult)
@@ -110,7 +117,11 @@ object ServerCommand {
         val lets = Evaluation(normPM, Predef.jvmExternals, Some({tag: (Declaration, Normalization.NormalExpressionTag) => tag._2.ne}))
           .evaluateLets(mainPackage)
         val typeMap: Map[rankn.Type, TypeRef] = TypeRef.fromTypes(Some(mainPackage), lets.map(_._2._2))
-        val bindings = lets.map(let => Json.JArray(List(let._1.asString, typeMap(let._2._2).toDoc.render(1000)).map(Json.JString).toVector))
+        val bindings = lets.map(let => Json.JArray(List(
+          let._1.asString,
+          typeMap(let._2._2).toDoc.render(1000),
+          let._2._3.toString
+        ).map(Json.JString).toVector))
         Json.JArray(bindings.toVector).toDoc.render(100)
       }
     }

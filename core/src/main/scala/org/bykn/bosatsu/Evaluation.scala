@@ -22,73 +22,61 @@ object Evaluation {
    * all the reflection into unapply calls but keep
    * most of the API
    */
-  sealed abstract class Value {
-    def asLazyFn: Eval[Value] => Eval[Value] =
+  sealed abstract class Value[+T] {
+    def asLazyFn: Eval[Value[T]] => Eval[Value[T]] =
       this match {
-        case FnValue(f, _, _) => f
+        case FnValue(f, _) => f
         case other =>
           // $COVERAGE-OFF$this should be unreachable
           sys.error(s"invalid cast to Fn: $other")
           // $COVERAGE-ON$
       }
 
-    def asFn: Value => Eval[Value] =
+    def asFn: Value[T] => Eval[Value[T]] =
       this match {
-        case FnValue(f, _, _) => { v => f(Eval.now(v)) }
+        case FnValue(f, _) => { v => f(Eval.now(v)) }
         case other =>
           // $COVERAGE-OFF$this should be unreachable
           sys.error(s"invalid cast to Fn: $other")
           // $COVERAGE-ON$
       }
-    
-    def tokenize: Option[String]
   }
 
   object Value {
-    sealed abstract class ProductValue extends Value {
-      def toList: List[Value] =
+    sealed abstract class ProductValue[+T] extends Value[T] {
+      def toList: List[Value[T]] =
         this match {
           case UnitValue => Nil
           case ConsValue(head, tail) => head :: tail.toList
         }
-
     }
 
     object ProductValue {
-      def fromList(ps: List[Value]): ProductValue =
+      def fromList[T](ps: List[Value[T]]): ProductValue[T] =
         ps match {
           case Nil => UnitValue
           case h :: tail => ConsValue(h, fromList(tail))
         }
     }
 
-    case object UnitValue extends ProductValue {
-      val tokenize = Some("()")
-    }
-    case class ConsValue(head: Value, tail: ProductValue) extends ProductValue {
+    case object UnitValue extends ProductValue
+    case class ConsValue[T](head: Value[T], tail: ProductValue[T]) extends ProductValue[T] {
       override val hashCode = (head, tail).hashCode
-      lazy val tokenize = head.tokenize.zip(tail.tokenize).map { case (h,t) => s"($h,$t)" }.headOption
     }
-    case class SumValue(variant: Int, value: ProductValue) extends Value {
-      lazy val tokenize = value.tokenize.map(vt => s"SV($variant, $vt)")
-    }
-    case class FnValue(toFn: Eval[Value] => Eval[Value], normalExpression: Option[NormalExpression], scope: Option[List[Eval[Value]]]) extends Value {
-      lazy val tokenize = normalExpression.zip(scope).map { case (normalExpression, scope) =>
-        s"Fn($normalExpression, ${scope.map(_.value.tokenize).mkString(",")})"
-      }.headOption
-    }
+    case class SumValue[T](variant: Int, value: ProductValue[T]) extends Value[T]
+    case class FnValue[T](toFn: Eval[Value[T]] => Eval[Value[T]], tag: T) extends Value[T]
     object FnValue {
-      def apply(normalExpression: Option[NormalExpression], scope: Option[List[Eval[Value]]])(toFn: Eval[Value] => Eval[Value]): FnValue = FnValue(toFn, normalExpression, scope)
+      def apply[T](tag: T)(toFn: Eval[Value[T]] => Eval[Value[T]]): FnValue[T] = FnValue(toFn, tag)
     }
     case class ExternalValue(toAny: Any, tokenizeFn: Any => String) extends Value {
       lazy val tokenize = Some(tokenizeFn(toAny))
     }
 
-    val False: Value = SumValue(0, UnitValue)
-    val True: Value = SumValue(1, UnitValue)
+    val False: Value[Nothing] = SumValue(0, UnitValue)
+    val True: Value[Nothing] = SumValue(1, UnitValue)
 
     object TupleCons {
-      def unapply(v: Value): Option[(Value, Value)] =
+      def unapply[T](v: Value[T]): Option[(Value[T], Value[T])] =
         v match {
           case ConsValue(a, ConsValue(b, UnitValue)) => Some((a, b))
           case _ => None
@@ -103,7 +91,7 @@ object Evaluation {
        * ConsValue(a, ConsValue(b, UnitValue))
        * this gives double wrapping
        */
-      def unapply(v: Value): Option[List[Value]] =
+      def unapply[T](v: Value[T]): Option[List[Value[T]]] =
         v match {
           case TupleCons(a, b) =>
             unapply(b).map(a :: _)
@@ -113,26 +101,26 @@ object Evaluation {
     }
 
     object Comparison {
-      def fromInt(i: Int): Value =
+      def fromInt(i: Int): Value[Nothing] =
         if (i < 0) LT else if (i > 0) GT else EQ
 
-      val LT: Value = SumValue(0, UnitValue)
-      val EQ: Value = SumValue(1, UnitValue)
-      val GT: Value = SumValue(2, UnitValue)
+      val LT: Value[Nothing] = SumValue(0, UnitValue)
+      val EQ: Value[Nothing] = SumValue(1, UnitValue)
+      val GT: Value[Nothing] = SumValue(2, UnitValue)
     }
 
     val tokenizeString: Any => String = _.asInstanceOf[String]
     val tokenizeInt: Any => String = _.asInstanceOf[BigInteger].toString
-    def fromLit(l: Lit): Value =
+    def fromLit(l: Lit): Value[Nothing] =
       l match {
         case Lit.Str(s) => ExternalValue(s, tokenizeString)
         case Lit.Integer(i) => ExternalValue(i, tokenizeInt)
       }
 
     object VInt {
-      def apply(v: Int): Value = apply(BigInt(v))
-      def apply(v: BigInt): Value = ExternalValue(v.bigInteger, tokenizeInt)
-      def unapply(v: Value): Option[BigInteger] =
+      def apply(v: Int): Value[Nothing] = apply(BigInt(v))
+      def apply(v: BigInt): Value[Nothing] = ExternalValue(v.bigInteger, tokenizeInt)
+      def unapply(v: Value[Nothing]): Option[BigInteger] =
         v match {
           case ExternalValue(v: BigInteger, _) => Some(v)
           case _ => None
@@ -140,8 +128,8 @@ object Evaluation {
     }
 
     object Str {
-      def apply(str: String): Value = ExternalValue(str, tokenizeString)
-      def unapply(v: Value): Option[String] =
+      def apply(str: String): Value[Nothing] = ExternalValue(str, tokenizeString)
+      def unapply(v: Value[Nothing]): Option[String] =
         v match {
           case ExternalValue(str: String, _) => Some(str)
           case _ => None
@@ -149,10 +137,10 @@ object Evaluation {
     }
 
     object VOption {
-      val none: Value = SumValue(0, UnitValue)
-      def some(v: Value): Value = SumValue(1, ConsValue(v, UnitValue))
+      val none: Value[Nothing] = SumValue(0, UnitValue)
+      def some[T](v: Value[T]): Value[T] = SumValue(1, ConsValue(v, UnitValue))
 
-      def unapply(v: Value): Option[Option[Value]] =
+      def unapply[T](v: Value[T]): Option[Option[Value[T]]] =
         v match {
           case SumValue(0, UnitValue) =>
             Some(None)
@@ -163,12 +151,12 @@ object Evaluation {
     }
 
     object VList {
-      val VNil: Value = SumValue(0, UnitValue)
+      val VNil: Value[Nothing] = SumValue(0, UnitValue)
       object Cons {
-        def apply(head: Value, tail: Value): Value =
+        def apply[T](head: Value[T], tail: Value[T]): Value[T] =
           SumValue(1, ConsValue(head, ConsValue(tail, UnitValue)))
 
-        def unapply(v: Value): Option[(Value, Value)] =
+        def unapply[T](v: Value[T]): Option[(Value[T], Value[T])] =
           v match {
             case SumValue(1, ConsValue(head, ConsValue(rest, UnitValue))) =>
               Some((head, rest))
@@ -176,9 +164,9 @@ object Evaluation {
           }
       }
 
-      def apply(items: List[Value]): Value = {
+      def apply[T](items: List[Value[T]]): Value[T] = {
         @annotation.tailrec
-        def go(vs: List[Value], acc: Value): Value =
+        def go(vs: List[Value[T]], acc: Value[T]): Value[T] =
           vs match {
             case Nil => acc
             case h :: tail => go(tail, Cons(h, acc))
@@ -186,7 +174,7 @@ object Evaluation {
         go(items.reverse, VNil)
       }
 
-      def unapply(v: Value): Option[List[Value]] =
+      def unapply[T](v: Value[T]): Option[List[Value[T]]] =
         v match {
           case VNil => Some(Nil)
           case Cons(head, rest) =>
@@ -196,17 +184,17 @@ object Evaluation {
     }
 
     object VDict {
-      def unapply(v: Value): Option[SortedMap[Value, Value]] =
+      def unapply[T](v: Value[T]): Option[SortedMap[Value[T], Value[T]]] =
         v match {
-          case ExternalValue(v: SortedMap[_, _], _) => Some(v.asInstanceOf[SortedMap[Value, Value]])
+          case ExternalValue(v: SortedMap[_, _], _) => Some(v.asInstanceOf[SortedMap[Value[T], Value[T]]])
           case _ => None
         }
     }
   }
 
-  case class Env(map: Map[Identifier, Eval[Value]], lambdas: List[Eval[Value]]) {
-    def updated(name: Identifier, n: Eval[Value]) = copy(map = map.updated(name, n))
-    def addLambdaVar(name: Identifier, n: Eval[Value]) = copy(map = map.updated(name, n), lambdas = n :: lambdas)
+  case class Env[T,V](map: Map[Identifier, Eval[Value[V]]], tag: T) {
+    def updated(name: Identifier, n: Eval[Value[V]]) = copy(map = map.updated(name, n))
+    // def addLambdaVar(name: Identifier, n: Eval[Value[T]]) = copy(map = map.updated(name, n), lambdas = n :: lambdas)
     def get(name: Identifier) = map.get(name)
   }
 
@@ -214,41 +202,46 @@ object Evaluation {
     val empty = Env(Map.empty, Nil)
   }
 
-  sealed abstract class Scoped {
+  sealed abstract class Scoped[+T,E,+V] {
     import Scoped.fromFn
 
-    def inEnv(env: Env): Eval[Value]
+    def inEnv(env: Env[E,V]): Eval[Value[V]]
 
-    def letNameIn(name: Bindable, in: Scoped): Scoped =
+    def letNameIn(name: Bindable, in: Scoped[T,E,V]): Scoped[T,E,V] =
       Scoped.Let(name, this, in)
 
-    def flatMap(fn: (Env, Value) => Eval[Value]): Scoped =
-      fromFn { env =>
+    def flatMap(fn: (Env[E,V], Value[V]) => Eval[Value[V]]): Scoped[T,E,V] =
+      fromFn[T,E,V] { env =>
         inEnv(env).flatMap { v =>
           fn(env, v)
         }
       }
 
-    def asLambda(name: Bindable, ne: Option[NormalExpression]): Scoped =
-      fromFn { env =>
+    def asLambda(name: Bindable, tag: T)(implicit 
+      updateEnv: (Env[E,V], Eval[Value[V]]) => Env[E,V],
+      valueTag: (T, Env[E,V]) => V 
+    ): Scoped[T,E,V] =
+      fromFn[T,E,V] { env =>
         import cats.Now
         val fn =
-          FnValue({
+          FnValue[V](valueTag(tag, env)) {
             case n@Now(v) =>
-              inEnv(env.addLambdaVar(name, n))
+              inEnv(updateEnv(env, n)) // inEnv(env.addLambdaVar(name, n))
             case v => v.flatMap { v0 =>
-              inEnv(env.addLambdaVar(name, Eval.now(v0)))
+              inEnv(updateEnv(env, Eval.now(v0)))
+              // inEnv(env.addLambdaVar(name, Eval.now(v0)))
             }
-          }, ne, ne.map (ne => env.lambdas.take(ne.maxLambdaVar.getOrElse(0))))
+          }
+          //ne, ne.map (ne => env.lambdas.take(ne.maxLambdaVar.getOrElse(0))))
 
         Eval.now(fn)
       }
 
-    def emptyScope: Scoped =
-      fromFn(_ => inEnv(Env.empty))
+    def emptyScope(implicit emptyEnv: Env[E,V]): Scoped[T,E,V] =
+      fromFn[T,E,V](_ => inEnv(emptyEnv))
 
-    def applyArg(arg: Scoped): Scoped =
-      fromFn { env =>
+    def applyArg(arg: Scoped[T,E,V]): Scoped[T,E,V] =
+      fromFn[T,E,V] { env =>
         val fnE = inEnv(env).memoize
         val argE = arg.inEnv(env)
         fnE.flatMap { fn =>
@@ -256,26 +249,28 @@ object Evaluation {
           fn.asLazyFn(argE)
         }
       }
+
+
   }
 
   object Scoped {
-    def const(e: Eval[Value]): Scoped =
-      fromFn(_ => e)
+    def const[T,E,V](e: Eval[Value[V]]): Scoped[T,E,V] =
+      fromFn[T,E,V](_ => e)
 
-    val unreachable: Scoped =
+    def unreachable[E]: Scoped[Nothing,E,Nothing] =
       const(Eval.always(sys.error("unreachable reached")))
 
-    def recursive(name: Bindable, item: Scoped): Scoped = {
-      fromFn { env =>
-        lazy val env1: Env =
+    def recursive[T,E,V](name: Bindable, item: Scoped[T,E,V]): Scoped[T,E,V] = {
+      fromFn[T,E,V] { env =>
+        lazy val env1: Env[E,V] =
           env.updated(name, Eval.defer(item.inEnv(env1)).memoize)
         item.inEnv(env1)
       }
     }
 
-    def orElse(name: Identifier)(next: => Scoped): Scoped = {
+    def orElse[T,E,V](name: Identifier)(next: => Scoped[T,E,V]): Scoped[T,E,V] = {
       lazy val nextComputed = next
-      fromFn { env =>
+      fromFn[T,E,V] { env =>
         env.get(name) match {
           case None => nextComputed.inEnv(env)
           case Some(v) => v
@@ -283,48 +278,53 @@ object Evaluation {
       }
     }
 
-    private case class Let(name: Bindable, arg: Scoped, in: Scoped) extends Scoped {
-      def inEnv(env: Env) = {
+    private case class Let[T,E,V](name: Bindable, arg: Scoped[T,E,V], in: Scoped[T,E,V]) extends Scoped[T,E,V] {
+      def inEnv(env: Env[E,V]) = {
         val let = arg.inEnv(env)
         in.inEnv(env.updated(name, let))
       }
     }
 
-    private def fromFn(fn: Env => Eval[Value]): Scoped =
+    private def fromFn[T,E,V](fn: Env[E,V] => Eval[Value[V]]): Scoped[T,E,V] =
       FromFn(fn)
 
-    private case class FromFn(fn: Env => Eval[Value]) extends Scoped {
-      def inEnv(env: Env) = fn(env)
+    private case class FromFn[T,E,V](fn: Env[E,V] => Eval[Value[V]]) extends Scoped[T,E,V] {
+      def inEnv(env: Env[E,V]) = fn(env)
     }
   }
 
 }
 
-case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressionFromTag: Option[T => NormalExpression]) {
+case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[V])(implicit
+  scopeTagFromTag: T => S,
+  emptyEnv: Evaluation.Env[E,V],
+  updateEnv: (Evaluation.Env[E,V], Eval[Evaluation.Value[V]]) => Evaluation.Env[E,V],
+  valueTag: (S, Evaluation.Env[E,V]) => V 
+) {
   import Evaluation.{Value, Scoped, Env}
   import Value._
 
-  def evaluate(p: PackageName, varName: Identifier): Option[(Eval[Value], Type)] =
+  def evaluate(p: PackageName, varName: Identifier): Option[(Eval[Value[V]], Type)] =
     pm.toMap.get(p).map { pack =>
       val (s, t) = eval((pack, Left(varName)))
-      (s.inEnv(Env.empty), t)
+      (s.inEnv(emptyEnv), t)
     }
 
-  def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
+  def evaluateLast(p: PackageName): Option[(Eval[Value[V]], Type)] =
     for {
       pack <- pm.toMap.get(p)
       (name, rec, expr) <- pack.program.lets.lastOption
       (scope0, tpe) = eval((pack, Right(expr)))
       scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
-    } yield (scope.inEnv(Env.empty), tpe)
+    } yield (scope.inEnv(emptyEnv), tpe)
 
-  def evaluateLets(p: PackageName): List[(Bindable, (Eval[Value], Type))] =
+  def evaluateLets(p: PackageName): List[(Bindable, (Eval[Value[V]], Type, S))] =
     for {
       pack <- pm.toMap.get(p).toList
       (name, rec, expr) <- pack.program.lets
       (scope0, tpe) = eval((pack, Right(expr)))
       scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
-    } yield (name, (scope.inEnv(Env.empty), tpe))
+    } yield (name, (scope.inEnv(emptyEnv), tpe, scopeTagFromTag(expr.tag)))
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
@@ -332,7 +332,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
       // struct Assertion(value: Bool, message: String)
       // struct Test(name: String, assertions: List[Assertion])
       // struct TestSuite(name: String, tests: List[Test])
-      def toAssert(a: Value): Test =
+      def toAssert(a: Value[V]): Test =
         a match {
           case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
             Test.Assertion(true, message)
@@ -340,13 +340,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
             Test.Assertion(false, message)
           case other => sys.error(s"expected test value: $other")
         }
-      def toTest(a: Value): Test =
+      def toTest(a: Value[V]): Test =
         a match {
           case ConsValue(Str(name), ConsValue(VList(asserts), UnitValue)) =>
             Test.Suite(name, asserts.map(toAssert(_)))
           case other => sys.error(s"expected test value: $other")
         }
-      def toSuite(a: Value): Test =
+      def toSuite(a: Value[V]): Test =
         a match {
           case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
             Test.Suite(name, tests.map(toTest(_)))
@@ -375,7 +375,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
     tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
     p: Package.Typed[T],
-    recurse: ((Package.Typed[T], Ref)) => (Scoped, Type)): (Value, Env) => Eval[Value] = {
+    recurse: ((Package.Typed[T], Ref)) => (Scoped[S,E,V], Type)): (Value[V], Env[E,V]) => Eval[Value[V]] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
         Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
 
@@ -384,13 +384,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
       def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =
         pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
 
-      val noop: (Value, Env) => Option[Env] = { (_, env) => Some(env) }
-      val neverMatch: (Value, Env) => Option[Nothing] = { (_, _) => None }
+      val noop: (Value[V], Env[E,V]) => Option[Env[E,V]] = { (_, env) => Some(env) }
+      val neverMatch: (Value[V], Env[E,V]) => Option[Nothing] = { (_, _) => None }
       /*
        * This is used in a loop internally, so I am avoiding map and flatMap
        * in favor of pattern matching for performance
        */
-      def maybeBind[E](pat: Pattern[(PackageName, Constructor), Type]): (Value, Env) => Option[Env] =
+      def maybeBind[B](pat: Pattern[(PackageName, Constructor), Type]): (Value[V], Env[E,V]) => Option[Env[E,V]] =
         pat match {
           case Pattern.WildCard => noop
           case Pattern.Literal(lit) =>
@@ -495,7 +495,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
             maybeBind(p)
           case Pattern.Union(h, t) =>
             // we can just loop expanding these out:
-            def loop(ps: List[Pattern[(PackageName, Constructor), Type]]): (Value, Env) => Option[Env] =
+            def loop(ps: List[Pattern[(PackageName, Constructor), Type]]): (Value[V], Env[E,V]) => Option[Env[E,V]] =
               ps match {
                 case Nil => neverMatch
                 case head :: tail =>
@@ -518,10 +518,10 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
             val dt = definedForCons(pc)
             val itemFns = items.map(maybeBind(_))
 
-            def processArgs(as: List[Value], acc: Env): Option[Env] = {
+            def processArgs(as: List[Value[V]], acc: Env[E,V]): Option[Env[E,V]] = {
               // manually write out foldM hoping for performance improvements
               @annotation.tailrec
-              def loop(vs: List[Value], fns: List[(Value, Env) => Option[Env]], env: Env): Option[Env] =
+              def loop(vs: List[Value[V]], fns: List[(Value[V], Env[E,V]) => Option[Env[E,V]]], env: Env[E,V]): Option[Env[E,V]] =
                 vs match {
                   case Nil => Some(env)
                   case vh :: vt =>
@@ -539,9 +539,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
 
             if (dt.isStruct) {
               // this is a struct, which means we expect it
-              { (arg: Value, acc: Env) =>
+              { (arg: Value[V], acc: Env[E,V]) =>
                 arg match {
-                  case p: ProductValue =>
+                  case p: ProductValue[V] =>
                     // this is the pattern
                     // note passing in a List here we could have union patterns
                     // if all the pattern bindings were known to be of the same type
@@ -560,7 +560,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
               val idx = dt.constructors.map(_._1).indexOf(ctor)
 
               // we don't check if idx < 0, because if we compiled, it can't be
-              { (arg: Value, acc: Env) =>
+              { (arg: Value[V], acc: Env[E,V]) =>
                 arg match {
                   case SumValue(enumId, v) =>
                     if (enumId == idx) processArgs(v.toList, acc)
@@ -573,7 +573,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
               }
             }
         }
-      def bindEnv[E](branches: List[(Pattern[(PackageName, Constructor), Type], E)]): (Value, Env) => (Env, E) =
+      def bindEnv[B](branches: List[(Pattern[(PackageName, Constructor), Type], B)]): (Value[V], Env[E,V]) => (Env[E,V], B) =
         branches match {
           case Nil =>
             // This is ruled out by typechecking, we know all our matches are total
@@ -585,7 +585,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
           case (p, e) :: tail =>
             val pfn = maybeBind(p)
 
-            val fnh = { (arg: Value, env: Env) =>
+            val fnh = { (arg: Value[V], env: Env[E,V]) =>
               pfn(arg, env) match {
                 case None => None
                 case Some(env) => Some((env, e))
@@ -623,7 +623,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
    */
   private def evalTypedExpr(p: Package.Typed[T],
     expr: TypedExpr[T],
-    recurse: ((Package.Typed[T], Ref)) => (Scoped, Type)): Scoped = {
+    recurse: ((Package.Typed[T], Ref)) => (Scoped[S,E,V], Type)): Scoped[S,E,V] = {
 
     import TypedExpr._
 
@@ -653,7 +653,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
          efn.applyArg(earg)
        case a@AnnotatedLambda(name, _, expr, _) =>
          val inner = recurse((p, Right(expr)))._1
-         inner.asLambda(name, expressionFromTag.map(_.apply(a.tag)))
+         inner.asLambda(name, scopeTagFromTag(a.tag))
        case Let(arg, e, in, rec, _) =>
          val e0 = recurse((p, Right(e)))._1
          val eres =
@@ -679,8 +679,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Typed[T], Ref)) => (Scoped, Type) =
-    Memoize.function[(Package.Typed[T], Ref), (Scoped, Type)] {
+  private[this] val eval: ((Package.Typed[T], Ref)) => (Scoped[S,E,V], Type) =
+    Memoize.function[(Package.Typed[T], Ref), (Scoped[S,E,V], Type)] {
       case ((pack, Right(expr)), recurse) =>
         (evalTypedExpr(pack, expr, recurse), expr.getType)
       case ((pack, Left(item)), recurse) =>
@@ -714,7 +714,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
         }
     }
 
-  private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value] = {
+  private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value[V]] = {
     val (enum, arity) = dt.constructors
       .toList
       .iterator
@@ -727,16 +727,18 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
     // TODO: this is a obviously terrible
     // the encoding is inefficient, the implementation is inefficient
     import NormalExpression._
-    def loop(param: Int, args: List[Value]): Value =
+    val tag: V = ???
+    def loop(param: Int, args: List[Value[V]]): Value[V] =
       if (param == 0) {
         val prod = ProductValue.fromList(args.reverse)
         if (singleItemStruct) prod
         else SumValue(enum, prod)
       }
-      else FnValue({
+      else FnValue(tag) {
         case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
         case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
-      }, Some(Lambda(Struct(enum, List(LambdaVar(0))))), Some(args.map(Eval.now)))
+      }
+      //, Some(Lambda(Struct(enum, List(LambdaVar(0))))), Some(args.map(Eval.now)))
 
     Eval.now(loop(arity, Nil))
   }
@@ -746,7 +748,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
    * this code ASSUMES the type is correct. If not, we may throw or return
    * incorrect data.
    */
-  def toJson(a: Value, tpe: Type): Option[Json] = {
+  def toJson(a: Value[V], tpe: Type): Option[Json] = {
     def canEncodeToNull(t: Type): Boolean =
       t match {
         case Type.UnitType | Type.OptionT(_) => true
@@ -816,7 +818,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals, expressi
         val vp =
           a match {
             case SumValue(variant, p) => Some((variant, p))
-            case p: ProductValue => Some((0, p))
+            case p: ProductValue[V] => Some((0, p))
             case _ => None
           }
         val optDt = Type.rootConst(tpe)
