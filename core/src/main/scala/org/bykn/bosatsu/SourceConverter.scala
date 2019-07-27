@@ -252,6 +252,8 @@ final class SourceConverter(
               l)
             Expr.buildApp(opExpr, apply(in) :: empty :: foldFn :: Nil, l)
           }
+        case RecordConstructor(name, args) =>
+          sys.error("TODO: we need to have the ParsedTypeEnv for this and imports to translate to an Expr")
     }
 
   final def toType(t: TypeRef): Type = {

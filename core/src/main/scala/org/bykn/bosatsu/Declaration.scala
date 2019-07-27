@@ -13,7 +13,7 @@ import org.bykn.fastparse_cats.StringInstances._
 
 import ListLang.{KVPair, SpliceOrItem}
 
-import Identifier.Bindable
+import Identifier.{Bindable, Constructor}
 
 /**
  * Represents the syntactic version of Expr
@@ -115,6 +115,18 @@ sealed abstract class Declaration {
 
       case DictDecl(dict) =>
         ListLang.documentDict[Declaration, Pattern.Parsed].document(dict)
+
+      case RecordConstructor(name, args) =>
+        val idDoc = Identifier.document[Identifier]
+        val colonSpace = Doc.text(": ")
+        def pair(kv: (Bindable, Declaration)): Doc =
+          idDoc.document(kv._1) + colonSpace + kv._2.toDoc
+
+        val argDoc = Doc.char('{') +
+          Doc.intercalate(Doc.char(',') + Doc.line,
+          args.toList.map(pair)).grouped.nested(2) + Doc.char('}')
+
+        idDoc.document(name) + Doc.space + argDoc
     }
 
   /**
@@ -245,6 +257,10 @@ sealed abstract class Declaration {
           val acc1 = loop(in, acc)
           val acc2 = loop(ex.key, acc1 ++ b.names)
           loop(ex.value, acc2)
+        case RecordConstructor(_, args) =>
+          args.foldLeft(acc) { case (acc, (_, arg)) =>
+            loop(arg, acc)
+          }
       }
     loop(this, SortedSet.empty)
   }
@@ -259,6 +275,15 @@ object Declaration {
   object ApplyKind {
     case object Dot extends ApplyKind
     case object Parens extends ApplyKind
+  }
+
+  sealed abstract class RecordArg
+  object RecordArg {
+    final case class Pair(field: Bindable, arg: Declaration) extends RecordArg
+    // for cases like:
+    // age = 47
+    // Person { name: "Frank", age }
+    final case class Simple(field: Bindable) extends RecordArg
   }
   //
   // We use the pattern of an implicit region for two reasons:
@@ -290,6 +315,11 @@ object Declaration {
   case class TupleCons(items: List[Declaration])(implicit val region: Region) extends Declaration
   case class Var(name: Identifier)(implicit val region: Region) extends Declaration
 
+  /**
+   * This represents code like:
+   * Foo { bar: 12 }
+   */
+  case class RecordConstructor(cons: Constructor, arg: NonEmptyList[(Bindable, Declaration)])(implicit val region: Region) extends Declaration
   /**
    * This represents the list construction language
    */
