@@ -105,7 +105,7 @@ class ParserTest extends ParserTestBase {
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 300)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+    //PropertyCheckConfiguration(minSuccessful = 1)
 
   test("we can parse integers") {
     forAll { b: BigInt =>
@@ -265,6 +265,40 @@ class ParserTest extends ParserTestBase {
     forAll(genWild) { wd =>
       parseTestAll(strDict, wd.stringRep, wd.original)
     }
+  }
+
+  test("we can parse RecordConstructors") {
+    def check(str: String) =
+      roundTrip[Declaration](Declaration.recordConstructorP(""), str)
+
+    check("Foo { bar }")
+    check("Foo{bar}")
+    check("Foo {   bar   }")
+    check("Foo {\nbar\n}")
+
+    check("Foo { bar: baz }")
+    check("Foo{bar:baz}")
+    check("Foo {   bar : baz   }")
+    check("Foo {\nbar:\n\tbaz}")
+    check("Foo {\nbar:\n\n\tbaz}")
+
+    check("Foo { bar, baz }")
+    check("Foo{bar,baz}")
+    check("Foo {   bar , baz  }")
+    check("Foo {\nbar,\n baz}")
+    check("Foo {\nbar\n, baz}")
+
+    check("Foo { bar, baz: 42 }")
+    check("Foo{bar,baz:42}")
+    check("Foo {   bar , baz : 42  }")
+    check("Foo {\nbar,\n baz:\n 42}")
+    check("Foo {\nbar\n, baz\n:\t42}")
+
+    check("Foo { bar: baz, quux: 42 }")
+    check("Foo{bar:baz,quux:42}")
+    check("Foo {   bar : baz , quux : 42  }")
+    check("Foo {\nbar:\n\tbaz, quux:\n\t42\n\t}")
+    check("Foo {\nbar:\n\n\tbaz,\nquux\n:\n42\n}")
   }
 
   test("we can parse tuples") {

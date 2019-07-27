@@ -29,6 +29,7 @@ The smaller differences come from adding features found in functional programmin
 1. data classes or named tuples, which we call structs following Rust
 1. sum types, which we call enums following Rust.
 1. a package system with explicit import and export syntax.
+1. powerful pattern matching
 1. a highly Python-inspired syntax including function definition, literal integers and strings, literal lists, list comprehensions, tuples [(todo)](https://github.com/johnynek/bosatsu/issues/18) and (string key) dictionaries [(todo)](https://github.com/johnynek/bosatsu/issues/14). Generally, if a syntax is possible to support in the current type system with immutable values, we generally intend to support it.
 
 There are also some un-features, or items we don't currently and may never support
@@ -61,6 +62,7 @@ We plan to support Ruby's string interpolation syntax:
 ```
 profile = 'my favorite animal is #{animal}'
 ```
+Where `animal` would be any expression that has type `String`.
 
 ### Lists
 
@@ -183,20 +185,60 @@ In the case of a `struct`, there is a single constructor function that can take 
 struct HashResult(as_string: String)
 
 struct File(name: String, modified_time: Int, size: Int, hash: HashResult)
+```
+There are two ways to create a struct or enum value: by treating it as a function or as a named
+record. The analogy you can think of is that structs are either named tuples, or named dictionaries
 
+```
 my_file = File("readme.txt", 1540951025, 10240, HashResult("b9f32037daab5a0aff8e437ff1dd0f0d"))
 
+# same using record syntax
+my_file_rec = File {
+  name: "readme.txt",
+  modified_time: 1540951025,
+  size: 10240,
+  hash: HashResult("b9f32037daab5a0aff8e437ff1dd0f0d")
+}
 ```
-We can think of `struct`s as named tuples. There are no methods in bosatsu, only functions. We cannot define methods on `struct`s or `enum`s. The only thing we can do with a struct or enum is match it:
+You can only use one syntax: all unamed tuple-like, or all names dict-like.
+
+Like Rust, if a value is already in scope matching a field name, we can omit the colon:
+```
+name = "readme.txt"
+size = 10240
+hash = HashResult("b9f32037daab5a0aff8e437ff1dd0f0d")
+
+my_file_rec = File { name, modified_time: 1540951025, size, hash }
+```
+
+There are no methods in bosatsu, only functions. We cannot define methods on `struct`s or `enum`s. The only thing we can do with a struct or enum is match it:
 ```
 nm = match my_file:
-  File(name, _, _, ): name
+  File(name, _, _, _): name
+
+# same as the above but ignoring trailing fields
+nm = match my_file:
+  File(name, ...): name
+
+# same as the above but using records
+nm = match my_file:
+  File { name: n, ... }: n
+
+# same, but omit the colon to bind the field name
+nm = match my_file:
+  File { name, ... }: name
 ```
 
 All matches in Bosatsu are total: one of the branches must match.
 We support destructuring style syntax when matches are total:
 ```
-File(nm, _, _, _) = my_file
+File(nm, ...) = my_file
+
+# or using record syntax to bind the name to nm
+File { name: nm, ... } = my_file
+
+# or using short record syntax binding name below this call
+File { name, ... } = my_file
 ```
 as a synonym for the above code.
 
@@ -213,6 +255,13 @@ struct Pair(fst: a, snd: a)
 neg = Pair(1, -1)
 
 ```
+Sometimes it is important to assign type parameters in a specific order. In those
+cases we can manually write them:
+```
+# put the right side type parameter first, otherwise, we would have gotten b first in left to right order.
+struct Tuple[a, b](fst: b, snd: a)
+```
+
 Types are assigned left to right when they are omitted.
 
 Types must form a directed acyclic graph (DAG) with the exception that they
@@ -301,7 +350,7 @@ Left(x) | Right(x) = y
 
 ## Types
 Type variables are all lower case. There is an explicit syntax for function type: `a -> b`. There is
-support for quantification: `forall a. a -> List[a]`.
+support for universal quantification sometimes called generic values or generic functions: `forall a. a -> List[a]`.
 
 ## The Bosatsu Predef
 The predef includes List, Option, Either types and some associated functions.
@@ -373,7 +422,7 @@ These functions are not implemented in Bosatsu, and are supplied by the runtime.
 External values and types work exactly like internally defined types from any other point of view.
 
 # Note on Totality
-Totality is an interesting property that limits a language below being turing complete, however, it is not obvious if that is much of a limit. People often criticize fully general languages for configuration, but it is not clear that non-termination or partial functions are the problems.
+Totality is an interesting property that limits a language from being turing complete, however, it is not obvious if that is much of a practical limit. People often criticize fully general languages for configuration, but it is not clear that non-termination or partial functions are the problems.
 
 One can easily argue that total languages are still too big. For instance imagine a function with type `a -> Either[a, b]` which takes an `a` and either returns a final `b` value or the next step `a` that we should call again. If we have a non-total language we could repeated call the function when we have left to build `a -> b` In a total language, we could build a
 ```
@@ -381,5 +430,6 @@ def repeat(n: Int, fn: a -> Either[a, b]) -> (a -> Either[a, b])
 ```
 to repeat `n` times the fn unless we find a b and build a function of the same type that loops more times. By repeatedly applying this function: `repeat(1000, repeat(1000, ... repeat(1000, fn)...` we can make an exponentially large number of attempts. So we could easily build a function that would take `2^128` attempts which would take longer than the life of the sun to complete. Is this meaningfully different from an infinite loop?
 
-In this context, one might argue that lack of *any* recursion is the stronger limit than totality in Bosatsu. For instance, we could [add support for structural recursion](https://github.com/johnynek/bosatsu/issues/87), however that might cut against the goal of being a minimal language. Bosatsu is total, but it is not the largest possible total language. That limitation might be a good thing when we are seeking a minimal language. We might want the smallest language we can express common configurations and get some benefit of reuse and composition.
-
+Our view is that the main value of totality is that we know that all functions can complete and
+return a value of their declared type. Therefore, the only possible error in running is exhausing
+memory, which is a risk in virtually every programming language.

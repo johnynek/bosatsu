@@ -117,16 +117,11 @@ sealed abstract class Declaration {
         ListLang.documentDict[Declaration, Pattern.Parsed].document(dict)
 
       case RecordConstructor(name, args) =>
-        val idDoc = Identifier.document[Identifier]
-        val colonSpace = Doc.text(": ")
-        def pair(kv: (Bindable, Declaration)): Doc =
-          idDoc.document(kv._1) + colonSpace + kv._2.toDoc
-
         val argDoc = Doc.char('{') +
           Doc.intercalate(Doc.char(',') + Doc.line,
-          args.toList.map(pair)).grouped.nested(2) + Doc.char('}')
+          args.toList.map(_.toDoc)).grouped.nested(2) + Doc.char('}')
 
-        idDoc.document(name) + Doc.space + argDoc
+        Declaration.identDoc.document(name) + Doc.space + argDoc
     }
 
   /**
@@ -258,8 +253,9 @@ sealed abstract class Declaration {
           val acc2 = loop(ex.key, acc1 ++ b.names)
           loop(ex.value, acc2)
         case RecordConstructor(_, args) =>
-          args.foldLeft(acc) { case (acc, (_, arg)) =>
-            loop(arg, acc)
+          args.foldLeft(acc) {
+            case (acc, RecordArg.Pair(_, v)) => loop(v, acc)
+            case (acc, RecordArg.Simple(n)) => acc + n
           }
       }
     loop(this, SortedSet.empty)
@@ -277,13 +273,43 @@ object Declaration {
     case object Parens extends ApplyKind
   }
 
-  sealed abstract class RecordArg
+  private val identDoc: Document[Identifier] =
+    Identifier.document
+
+  private val colonSpace = Doc.text(": ")
+
+  sealed abstract class RecordArg {
+    def toDoc: Doc =
+      this match {
+        case RecordArg.Pair(f, a) =>
+          identDoc.document(f) + colonSpace + a.toDoc
+        case RecordArg.Simple(f) =>
+          identDoc.document(f)
+      }
+  }
   object RecordArg {
     final case class Pair(field: Bindable, arg: Declaration) extends RecordArg
     // for cases like:
     // age = 47
     // Person { name: "Frank", age }
     final case class Simple(field: Bindable) extends RecordArg
+
+    val parser: Indy[RecordArg] = {
+      val pairFn: Indy[Bindable => Pair] =
+        Indy { indent =>
+          // indented whitespace
+          val ws = (Parser.spaces | P("\n" ~ indent)).rep().map(_ => ())
+          P(ws ~ ":" ~ ws ~ Declaration.parser(indent))
+            .map { decl => Pair(_, decl) }
+        }
+
+      Indy.lift(Identifier.bindableParser)
+        .product(pairFn.?)
+        .map {
+          case (b, None) => Simple(b)
+          case (b, Some(fn)) => fn(b)
+        }
+    }
   }
   //
   // We use the pattern of an implicit region for two reasons:
@@ -293,7 +319,6 @@ object Declaration {
   //    value in tests and construct them.
   // These reasons are a bit abusive, and we may revisit this in the future
   //
-
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration], kind: ApplyKind)(implicit val region: Region) extends Declaration
   case class ApplyOp(left: Declaration, op: Identifier.Operator, right: Declaration) extends Declaration {
     val region = left.region + right.region
@@ -319,7 +344,7 @@ object Declaration {
    * This represents code like:
    * Foo { bar: 12 }
    */
-  case class RecordConstructor(cons: Constructor, arg: NonEmptyList[(Bindable, Declaration)])(implicit val region: Region) extends Declaration
+  case class RecordConstructor(cons: Constructor, arg: NonEmptyList[RecordArg])(implicit val region: Region) extends Declaration
   /**
    * This represents the list construction language
    */
@@ -450,8 +475,27 @@ object Declaration {
   val varP: P[Var] =
     Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
 
-  val constructorP: P[Var] =
-    Identifier.consParser.region.map { case (r, i) => Var(i)(r) }
+  // this returns a Var with a Constructor or a RecordConstrutor
+  val recordConstructorP: Indy[Declaration] =
+    Indy { indent =>
+      val ws = Parser.maybeSpacesAndLines
+      val kv = RecordArg.parser(indent)
+      val kvs = kv.nonEmptyListOfWs(ws, 1)
+      // we put a cut here because Foo { must be a record
+      // and we want to give a better message of failure
+      // inside the record, than complaining at the start
+      // of the {
+      val args = kvs.bracketed(P("{" ~/ ws), P(ws ~ "}"))
+
+      (Identifier.consParser ~ (maybeSpace ~ args).?)
+        .region
+        .map {
+          case (region, (n, Some(args))) =>
+            RecordConstructor(n, args)(region)
+          case (region, (n, None)) =>
+            Var(n)(region)
+        }
+    }
 
   private val patternBind: Indy[Declaration] =
     Indy.lift(Pattern.bindParser.region).product(bindingOp)
@@ -514,7 +558,7 @@ object Declaration {
         decOrBind(varP | listP(recurse), indent) |
         patternBind(indent) |
         lits | // technically this can be a pattern: 3 = x, so it has to be after patternBind, but it is never total.
-        constructorP |
+        recordConstructorP(indent) |
         commentP(indent) |
         tupOrPar)
 

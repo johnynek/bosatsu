@@ -465,6 +465,22 @@ object Generators {
     )
   }
 
+  def genRecordArg(dgen: Gen[Declaration]): Gen[Declaration.RecordArg] =
+    Gen.zip(bindIdentGen, Gen.option(dgen))
+      .map {
+        case (b, None) => Declaration.RecordArg.Simple(b)
+        case (b, Some(decl)) => Declaration.RecordArg.Pair(b, decl)
+      }
+
+  def genRecordDeclaration(dgen: Gen[Declaration]): Gen[Declaration.RecordConstructor] = {
+    val args = for {
+      tailSize <- Gen.choose(0, 4)
+      args <- nonEmptyN(genRecordArg(dgen), tailSize)
+    } yield args
+
+    Gen.zip(consIdentGen, args).map { case (c, a) => Declaration.RecordConstructor(c, a)(emptyRegion) }
+  }
+
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
@@ -487,7 +503,8 @@ object Generators {
       (1, listGen(recur)),
       (1, dictGen(recur)),
       (1, matchGen(recur)),
-      (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recur)).map(TupleCons(_)(emptyRegion)))
+      (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recur)).map(TupleCons(_)(emptyRegion))),
+      (1, genRecordDeclaration(recur))
     )
   }
 
@@ -531,6 +548,21 @@ object Generators {
             items.toStream.flatMap { kv => Stream(kv.key, kv.value) }
           case DictDecl(ListLang.Comprehension(a, _, c, d)) =>
             (a.key :: a.value :: c :: d.toList).toStream
+          case RecordConstructor(n, args) =>
+            def head: Stream[Declaration] =
+              args.head match {
+                case RecordArg.Pair(n, d) => Stream(Var(n)(emptyRegion), d)
+                case RecordArg.Simple(n) => Stream(Var(n)(emptyRegion))
+              }
+
+            def tailStream(of: NonEmptyList[RecordArg]): Stream[NonEmptyList[RecordArg]] =
+              NonEmptyList.fromList(of.tail) match {
+                case None => Stream.empty
+                case Some(tailArgs) =>
+                  tailArgs #:: tailStream(tailArgs) #::: tailStream(NonEmptyList(of.head, tailArgs.tail))
+              }
+
+            Var(n)(emptyRegion) #:: head #::: tailStream(args).map(RecordConstructor(n, _)(emptyRegion))
         }
     })
 

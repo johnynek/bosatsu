@@ -345,6 +345,9 @@ object DefRecursionCheck {
                 checkDecl(i) *>
                 (f.traverse_(checkDecl))
           }
+
+        case RecordConstructor(name, args) =>
+          sys.error("TODO: record constructor not supported yet")
       }
     }
 
