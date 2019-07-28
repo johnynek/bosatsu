@@ -169,12 +169,12 @@ object Generators {
       itemGen.map(ListLang.SpliceOrItem.Item(_)))
 
   def genListLangCons[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.Cons[ListLang.SpliceOrItem, A]] = {
-    Gen.choose(0, 10)
+    Gen.choose(0, 5)
       .flatMap(Gen.listOfN(_, genSpliceOrItem(spliceGen, itemGen)))
       .map(ListLang.Cons(_))
   }
   def genListLangDictCons[A](itemGen: Gen[A]): Gen[ListLang.Cons[ListLang.KVPair, A]] = {
-    Gen.choose(0, 10)
+    Gen.choose(0, 5)
       .flatMap(Gen.listOfN(_,
         Gen.zip(itemGen, itemGen).map { case (k, v) => ListLang.KVPair(k, v) }))
       .map(ListLang.Cons(_))
@@ -321,8 +321,18 @@ object Generators {
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
   }
 
+  val genStructKind: Gen[Pattern.StructKind] =
+    Gen.oneOf(
+      Gen.const(Pattern.StructKind.Tuple),
+      consIdentGen.map(Pattern.StructKind.Named(_)))
+
   def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern.Parsed] =
-    genPatternGen(Gen.option(consIdentGen), typeRefGen, depth, useUnion, useAnnotation = false)
+    genPatternGen(
+      genStructKind,
+      typeRefGen,
+      depth,
+      useUnion,
+      useAnnotation = false)
 
   def genPatternGen[N, T](genName: Gen[N], genT: Gen[T], depth: Int, useUnion: Boolean, useAnnotation: Boolean): Gen[Pattern[N, T]] = {
     val recurse = Gen.lzy(genPatternGen(genName, genT, depth - 1, useUnion, useAnnotation))
@@ -342,20 +352,20 @@ object Generators {
         args <- Gen.listOfN(cnt, recurse)
       } yield Pattern.PositionalStruct(nm, args)
 
-      def makeOneSplice(ps: List[Either[Option[Identifier.Bindable], Pattern[N, T]]]) = {
+      def makeOneSplice(ps: List[Pattern.ListPart[Pattern[N, T]]]) = {
         val sz = ps.size
         if (sz == 0) Gen.const(ps)
         else Gen.choose(0, sz - 1).flatMap { idx =>
           val splice = Gen.oneOf(
-            Gen.const(Left(None)),
-            bindIdentGen.map { v => Left(Some(v)) })
+            Gen.const(Pattern.ListPart.WildList),
+            bindIdentGen.map { v => Pattern.ListPart.NamedList(v) })
 
           splice.map { v => ps.updated(idx, v) }
         }
       }
 
-      val genListItem: Gen[Either[Option[Identifier.Bindable], Pattern[N, T]]] =
-        recurse.map(Right(_))
+      val genListItem: Gen[Pattern.ListPart[Pattern[N, T]]] =
+        recurse.map(Pattern.ListPart.Item(_))
 
       val genList = Gen.choose(0, 5)
         .flatMap(Gen.listOfN(_, genListItem))

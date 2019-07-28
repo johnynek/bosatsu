@@ -552,7 +552,7 @@ x""")
           assert(pat == parsePat)
       }
     }
-    forAll(Generators.patternDecl(5))(law1(_))
+    forAll(Generators.patternDecl(4))(law1(_))
 
     {
       import Declaration._
