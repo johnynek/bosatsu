@@ -384,7 +384,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                     case _ => None
                   }
                 }
-              case Right(ph) :: ptail =>
+              case Pattern.ListPart.Item(ph) :: ptail =>
                 // a right hand side pattern never matches the empty list
                 val fnh = maybeBind(ph)
                 val fnt = maybeBind(Pattern.ListPat(ptail))
@@ -399,18 +399,14 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                     case _ => None
                   }
                 }
-              case Left(splice) :: Nil =>
+              case Pattern.ListPart.NamedList(ident) :: Nil =>
+                { (v, env) => Some(env.updated(ident, Eval.now(v))) }
+              case Pattern.ListPart.WildList :: Nil =>
+                noop
                 // this is the common and easy case: a total match of the tail
                 // we don't need to match on it being a list, because we have
                 // already type checked
-                splice match {
-                  case Some(ident) =>
-
-                    { (v, env) => Some(env.updated(ident, Eval.now(v))) }
-                  case None =>
-                    noop
-                }
-              case Left(splice) :: ptail =>
+              case (splice: Pattern.ListPart.Glob) :: ptail =>
                 // this is more costly, since we have to match a non infinite tail.
                 // we reverse the tails, do the match, and take the rest into
                 // the splice
@@ -419,7 +415,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                 val ptailSize = ptail.size
 
                 splice match {
-                  case Some(nm) =>
+                  case Pattern.ListPart.NamedList(nm) =>
                     { (arg, acc) =>
                       arg match {
                         case VList(asList) =>
@@ -440,7 +436,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                           // $COVERAGE-ON$
                       }
                     }
-                  case None =>
+                  case Pattern.ListPart.WildList =>
                     { (arg, acc) =>
                       arg match {
                         case VList(asList) =>

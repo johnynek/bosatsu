@@ -252,7 +252,7 @@ object PackageMap {
           def stepImport(i: Import[Package.Resolved, Unit]):
             ValidatedNel[PackageError, Import[Package.Interface, NonEmptyList[Referant[Variance]]]] = {
             val Import(fixpack, items) = i
-            fixpack.unfix match {
+            Package.unfix(fixpack) match {
               case Right(p) =>
                 /*
                  * Here we have a source we need to fully resolve

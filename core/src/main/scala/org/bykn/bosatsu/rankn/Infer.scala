@@ -914,31 +914,32 @@ object Infer {
             (p1, t1) = pair1
           } yield (p1, (n, t1) :: ts0)
         case GenPattern.ListPat(items) =>
+          import GenPattern.ListPart
           /*
            * Here we unify the sigma with List[A] for some type A
            * any *a patterns have type List[A], all the rest
            * of them have type A.
            */
-          def checkEither(
+          def checkItem(
             inner: Type,
             lst: Type,
-            e: Either[Option[Bindable], Pattern]): Infer[(Either[Option[Bindable], Pattern], List[(Bindable, Type)])] =
+            e: ListPart[Pattern]): Infer[(ListPart[Pattern], List[(Bindable, Type)])] =
               e match {
-                case l@Left(None) =>
+                case l@ListPart.WildList =>
                   // this is *a pattern that has list type, and binds that type to the name
                   Infer.pure((l, Nil))
-                case l@Left(Some(splice)) =>
+                case l@ListPart.NamedList(splice) =>
                   // this is *a pattern that has list type, and binds that type to the name
                   Infer.pure((l, (splice, lst) :: Nil))
-                case Right(p) =>
+                  case ListPart.Item(p) =>
                   // This is a non-splice
-                  checkPat(p, inner, reg).map { case (p, l) => (Right(p), l) }
+                  checkPat(p, inner, reg).map { case (p, l) => (ListPart.Item(p), l) }
               }
           for {
             tpeA <- newMetaType
             listA = Type.TyApply(Type.ListType, tpeA)
             _ <- instPatSigma(listA, sigma, reg)
-            inners <- items.traverse(checkEither(tpeA, listA, _))
+            inners <- items.traverse(checkItem(tpeA, listA, _))
             innerPat = inners.map(_._1)
             innerBinds = inners.flatMap(_._2)
           } yield (GenPattern.Annotation(GenPattern.ListPat(innerPat), listA), innerBinds)

@@ -12,6 +12,7 @@ import rankn._
 import Identifier.Constructor
 import Parser.{spaces, maybeSpace, Combinators}
 
+import FixType.Fix
 /**
  * Represents a package over its life-cycle: from parsed to resolved to inferred
  */
@@ -84,7 +85,10 @@ object Package {
     }
 
   def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
-    Fix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](p)
+    FixType.fix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](p)
+
+  def unfix[A, B, C](fp: FixPackage[A, B, C]): PackageF[A, B, C] =
+    FixType.unfix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](fp)
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
    * library usages.

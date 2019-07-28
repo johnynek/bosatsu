@@ -98,14 +98,17 @@ abstract class ParserTestBase extends FunSuite {
         assert(idx == atIdx)
     }
 
+  def config: PropertyCheckConfiguration = {
+    if (System.getenv("PLATFORM") == "js")
+      PropertyCheckConfiguration(minSuccessful = 10)
+    else
+      PropertyCheckConfiguration(minSuccessful = 300)
+  }
 }
 
 class ParserTest extends ParserTestBase {
   import TestParseUtils._
-  implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 300)
-    //PropertyCheckConfiguration(minSuccessful = 1)
+  implicit val generatorDrivenConfig = config
 
   test("we can parse integers") {
     forAll { b: BigInt =>
@@ -432,10 +435,7 @@ class ParserTest extends ParserTestBase {
  */
 class SyntaxParseTest extends ParserTestBase {
 
-  implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 300)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  implicit val generatorDrivenConfig = config
 
   def mkVar(n: String): Declaration.Var =
     Declaration.Var(Identifier.Name(n))
@@ -586,7 +586,7 @@ x""")
           assert(pat == parsePat)
       }
     }
-    forAll(Generators.patternDecl(5))(law1(_))
+    forAll(Generators.patternDecl(4))(law1(_))
 
     {
       import Declaration._
