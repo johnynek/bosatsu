@@ -311,16 +311,16 @@ object Declaration {
   def toPattern(d: Declaration): Option[Pattern.Parsed] =
     d match {
       case Var(nm@Identifier.Constructor(_)) =>
-        Some(Pattern.PositionalStruct(Some(nm), Nil))
+        Some(Pattern.PositionalStruct(Pattern.StructKind.Named(nm), Nil))
       case Var(v: Bindable) => Some(Pattern.Var(v))
       case Literal(lit) => Some(Pattern.Literal(lit))
       case ListDecl(ListLang.Cons(elems)) =>
-        val optParts: Option[List[Either[Option[Bindable], Pattern.Parsed]]] =
+        val optParts: Option[List[Pattern.ListPart[Pattern.Parsed]]] =
           elems.traverse {
             case SpliceOrItem.Splice(Var(bn: Bindable)) =>
-              Some(Left(Some(bn)))
+              Some(Pattern.ListPart.NamedList(bn))
             case SpliceOrItem.Item(p) =>
-              toPattern(p).map(Right(_))
+              toPattern(p).map(Pattern.ListPart.Item(_))
             case _ => None
           }
         optParts.map(Pattern.ListPat(_))
@@ -331,11 +331,11 @@ object Declaration {
         }
       case Apply(Var(nm@Identifier.Constructor(_)), args, ApplyKind.Parens) =>
         args.traverse(toPattern(_)).map { argPats =>
-          Pattern.PositionalStruct(Some(nm), argPats.toList)
+          Pattern.PositionalStruct(Pattern.StructKind.Named(nm), argPats.toList)
         }
       case TupleCons(ps) =>
         ps.traverse(toPattern(_)).map { argPats =>
-          Pattern.PositionalStruct(None, argPats.toList)
+          Pattern.PositionalStruct(Pattern.StructKind.Tuple, argPats.toList)
         }
       case Parens(p) => toPattern(p)
       case _ => None

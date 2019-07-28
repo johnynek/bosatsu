@@ -147,7 +147,7 @@ object Statement {
 
      val bindingP: P[Statement => Statement] = {
        val bop = BindingStatement
-         .bindingParser[Pattern[Option[Identifier.Constructor], TypeRef], Statement => Padding[Statement]](
+         .bindingParser[Pattern.Parsed, Statement => Padding[Statement]](
            Declaration.parser, Indy.lift(maybeSpace ~ padding))("")
 
        (Pattern.bindParser ~ bop).map { case (p, parseBs) =>

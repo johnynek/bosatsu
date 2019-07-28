@@ -405,7 +405,7 @@ final class SourceConverter(
    */
   def unTuplePattern(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), rankn.Type] =
     pat.mapStruct[(PackageName, Constructor)] {
-      case (None, args) =>
+      case (Pattern.StructKind.Tuple, args) =>
         // this is a tuple pattern
         def loop(args: List[Pattern[(PackageName, Constructor), TypeRef]]): Pattern[(PackageName, Constructor), TypeRef] =
           args match {
@@ -422,7 +422,7 @@ final class SourceConverter(
           }
 
         loop(args)
-      case (Some(nm), args) =>
+      case (Pattern.StructKind.Named(nm), args) =>
         // this is a struct pattern
         Pattern.PositionalStruct(nameToCons(nm), args)
     }
