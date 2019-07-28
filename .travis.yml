@@ -21,13 +21,25 @@ matrix:
       language: scala
       jdk: openjdk8
       env: PLATFORM="jvm"
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}" test doc
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJVM/test cli/test doc
 
     - scala: 2.12.8
       language: scala
       jdk: openjdk8
       env: PLATFORM="jvm"
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coverage test coverageReport doc && codecov
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coverage coreJVM/test cli/test coverageReport doc && codecov
+
+    - scala: 2.11.12
+      language: scala
+      jdk: openjdk8
+      env: PLATFORM="js"
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test
+
+    - scala: 2.12.8
+      language: scala
+      jdk: openjdk8
+      env: PLATFORM="js"
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test
 
     - language: generic
       before_install:
