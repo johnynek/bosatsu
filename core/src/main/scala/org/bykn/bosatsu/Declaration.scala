@@ -189,6 +189,12 @@ sealed abstract class Declaration {
           val bound1 = bound ++ b.names
           val acc2 = loop(ex.key, bound1, acc1)
           loop(ex.value, bound1, acc2)
+        case RecordConstructor(_, args) =>
+          // A constructor doesn't introduce new bindings
+          args.foldLeft(acc) {
+            case (acc, RecordArg.Pair(_, v)) => loop(v, bound, acc)
+            case (acc, RecordArg.Simple(n)) => acc
+          }
       }
 
     loop(this, Set.empty, SortedSet.empty)
