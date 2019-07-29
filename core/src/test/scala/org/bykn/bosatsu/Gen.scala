@@ -572,7 +572,9 @@ object Generators {
                   tailArgs #:: tailStream(tailArgs) #::: tailStream(NonEmptyList(of.head, tailArgs.tail))
               }
 
-            Var(n)(emptyRegion) #:: head #::: tailStream(args).map(RecordConstructor(n, _)(emptyRegion))
+            Var(n)(emptyRegion) #::
+              head #:::
+              tailStream(args).map(RecordConstructor(n, _)(emptyRegion): Declaration) // type annotation for scala 2.11
         }
     })
 
