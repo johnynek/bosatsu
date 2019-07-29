@@ -118,8 +118,8 @@ sealed abstract class Declaration {
 
       case RecordConstructor(name, args) =>
         val argDoc = Doc.char('{') +
-          Doc.intercalate(Doc.char(',') + Doc.line,
-          args.toList.map(_.toDoc)).grouped.nested(2) + Doc.char('}')
+          Doc.intercalate(Doc.char(',') + Doc.space,
+          args.toList.map(_.toDoc)) + Doc.char('}')
 
         Declaration.identDoc.document(name) + Doc.space + argDoc
     }
