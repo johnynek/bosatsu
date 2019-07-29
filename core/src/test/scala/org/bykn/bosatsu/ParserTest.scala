@@ -108,7 +108,6 @@ abstract class ParserTestBase extends FunSuite {
 
 class ParserTest extends ParserTestBase {
   import TestParseUtils._
-
   implicit val generatorDrivenConfig = config
 
   test("we can parse integers") {
@@ -269,6 +268,40 @@ class ParserTest extends ParserTestBase {
     forAll(genWild) { wd =>
       parseTestAll(strDict, wd.stringRep, wd.original)
     }
+  }
+
+  test("we can parse RecordConstructors") {
+    def check(str: String) =
+      roundTrip[Declaration](Declaration.recordConstructorP(""), str)
+
+    check("Foo { bar }")
+    check("Foo{bar}")
+    check("Foo {   bar   }")
+    check("Foo {\nbar\n}")
+
+    check("Foo { bar: baz }")
+    check("Foo{bar:baz}")
+    check("Foo {   bar : baz   }")
+    check("Foo {\nbar:\n\tbaz}")
+    check("Foo {\nbar:\n\n\tbaz}")
+
+    check("Foo { bar, baz }")
+    check("Foo{bar,baz}")
+    check("Foo {   bar , baz  }")
+    check("Foo {\nbar,\n baz}")
+    check("Foo {\nbar\n, baz}")
+
+    check("Foo { bar, baz: 42 }")
+    check("Foo{bar,baz:42}")
+    check("Foo {   bar , baz : 42  }")
+    check("Foo {\nbar,\n baz:\n 42}")
+    check("Foo {\nbar\n, baz\n:\t42}")
+
+    check("Foo { bar: baz, quux: 42 }")
+    check("Foo{bar:baz,quux:42}")
+    check("Foo {   bar : baz , quux : 42  }")
+    check("Foo {\nbar:\n\tbaz, quux:\n\t42\n\t}")
+    check("Foo {\nbar:\n\n\tbaz,\nquux\n:\n42\n}")
   }
 
   test("we can parse tuples") {
