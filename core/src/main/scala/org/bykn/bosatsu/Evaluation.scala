@@ -23,18 +23,18 @@ object Evaluation {
    * most of the API
    */
   sealed abstract class Value[+T] {
-    def asLazyFn: Eval[Value[T]] => Eval[Value[T]] =
+    def asLazyFn[S]: Eval[Value[S]] => Eval[Value[S]] =
       this match {
-        case FnValue(f, _) => f
+        case FnValue(f, _) => f.asInstanceOf[Eval[Value[S]] => Eval[Value[S]]]
         case other =>
           // $COVERAGE-OFF$this should be unreachable
           sys.error(s"invalid cast to Fn: $other")
           // $COVERAGE-ON$
       }
 
-    def asFn: Value[T] => Eval[Value[T]] =
+    def asFn[S]: Value[S] => Eval[Value[S]] =
       this match {
-        case FnValue(f, _) => { v => f(Eval.now(v)) }
+        case FnValue(f, _) => { v => f(Eval.now(v.asInstanceOf[Value[T]])).asInstanceOf[Eval[Value[S]]] }
         case other =>
           // $COVERAGE-OFF$this should be unreachable
           sys.error(s"invalid cast to Fn: $other")
@@ -202,7 +202,7 @@ object Evaluation {
     val empty = Env(Map.empty, Nil)
   }
 
-  sealed abstract class Scoped[+T,E,+V] {
+  sealed abstract class Scoped[T,E,V] {
     import Scoped.fromFn
 
     def inEnv(env: Env[E,V]): Eval[Value[V]]
@@ -257,7 +257,7 @@ object Evaluation {
     def const[T,E,V](e: Eval[Value[V]]): Scoped[T,E,V] =
       fromFn[T,E,V](_ => e)
 
-    def unreachable[E]: Scoped[Nothing,E,Nothing] =
+    def unreachable[T,E,V]: Scoped[T,E,V] =
       const(Eval.always(sys.error("unreachable reached")))
 
     def recursive[T,E,V](name: Bindable, item: Scoped[T,E,V]): Scoped[T,E,V] = {
@@ -726,7 +726,6 @@ case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[
 
     // TODO: this is a obviously terrible
     // the encoding is inefficient, the implementation is inefficient
-    import NormalExpression._
     val tag: V = ???
     def loop(param: Int, args: List[Value[V]]): Value[V] =
       if (param == 0) {
