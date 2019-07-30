@@ -558,6 +558,8 @@ x""")
   test("we can parse patterns") {
     roundTrip(Pattern.matchParser, "Foo([])")
     roundTrip(Pattern.matchParser, "Foo([], bar)")
+    roundTrip(Pattern.matchParser, "Foo(...)")
+    roundTrip(Pattern.matchParser, "Foo(a, ...)")
     roundTrip(Pattern.matchParser, "x")
     roundTrip(Pattern.matchParser, "_")
     roundTrip(Pattern.matchParser, "(a, b)")

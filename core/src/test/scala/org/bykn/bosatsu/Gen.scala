@@ -324,7 +324,8 @@ object Generators {
   val genStructKind: Gen[Pattern.StructKind] =
     Gen.oneOf(
       Gen.const(Pattern.StructKind.Tuple),
-      consIdentGen.map(Pattern.StructKind.Named(_)))
+      consIdentGen.map(Pattern.StructKind.Named(_)),
+      consIdentGen.map(Pattern.StructKind.NamedPartial(_)))
 
   def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern.Parsed] =
     genPatternGen(

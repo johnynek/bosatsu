@@ -149,7 +149,10 @@ object Pattern {
   sealed abstract class StructKind
   object StructKind {
     final case object Tuple extends StructKind
+    // Represents a complete tuple-like pattern Foo(a, b)
     final case class Named(name: Constructor) extends StructKind
+    // Represents a partial tuple-like pattern Foo(a, ...)
+    final case class NamedPartial(name: Constructor) extends StructKind
   }
 
   /**
@@ -341,8 +344,12 @@ object Pattern {
         document.document(p) + Doc.text(": ") + Document[TypeRef].document(t)
       case PositionalStruct(n, Nil) =>
         n match {
-          case StructKind.Tuple => Doc.text("()")
-          case StructKind.Named(nm) => Document[Identifier].document(nm)
+          case StructKind.Tuple =>
+            Doc.text("()")
+          case StructKind.Named(nm) =>
+            Document[Identifier].document(nm)
+          case StructKind.NamedPartial(nm) =>
+            Document[Identifier].document(nm) + Doc.text("(...)")
         }
       case PositionalStruct(StructKind.Tuple, h :: Nil) =>
         // single item tuples need a comma:
@@ -351,9 +358,21 @@ object Pattern {
         val prefix = n match {
           case StructKind.Tuple => Doc.empty
           case StructKind.Named(n) => Document[Identifier].document(n)
+          case StructKind.NamedPartial(n) => Document[Identifier].document(n)
+        }
+        val suffix = n match {
+          case StructKind.NamedPartial(_) =>
+            Doc.text(", ...")
+          case StructKind.Named(_) | StructKind.Tuple =>
+            Doc.empty
         }
         prefix +
-          Doc.char('(') + Doc.intercalate(Doc.text(", "), nonEmpty.map(document.document(_))) + Doc.char(')')
+          Doc.char('(') +
+            Doc.intercalate(
+              Doc.text(", "),
+              nonEmpty.map(document.document(_))) +
+            suffix +
+            Doc.char(')')
       case Union(head, rest) =>
         def doc(p: Parsed): Doc =
           p match {
@@ -448,10 +467,32 @@ object Pattern {
   private def matchOrNot(isMatch: Boolean): P[Parsed] = {
     lazy val recurse = bindParser
 
-    val positional = P(Identifier.consParser ~ (recurse.listN(1).parens).?)
+    // There are four cases:
+    // Foo
+    // Foo(1 or more patterns)
+    // Foo(1 or more patterns, ...)
+    // Foo(...)
+
+    val partial = P(maybeSpace ~ "...").map { _ =>
+      { (n: Constructor) => StructKind.NamedPartial(n) }
+    }
+    val notPartial = PassWith(
+      { (n: Constructor) => StructKind.Named(n) }
+    )
+
+    val oneOrMore = P(recurse.listN(1) ~ (partial | notPartial))
+    val onlyPartial = P("...").map { _ =>
+      (Nil, { (n: Constructor) => StructKind.NamedPartial(n) })
+    }
+
+    val notEmpty = (oneOrMore | onlyPartial).parens
+
+    val positional = P(Identifier.consParser ~ notEmpty.?)
       .map {
-        case (n, None) => PositionalStruct(StructKind.Named(n), Nil)
-        case (n, Some(ls)) => PositionalStruct(StructKind.Named(n), ls)
+        case (n, None) =>
+          PositionalStruct(StructKind.Named(n), Nil)
+        case (n, Some((args, fn))) =>
+          PositionalStruct(fn(n), args)
       }
 
     val tupleOrParens = recurse.tupleOrParens.map {
