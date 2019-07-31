@@ -115,27 +115,27 @@ object Predef {
         .map(Identifier.unsafe(_))
         .map(ImportedName.OriginalName(_, ())))
 
-  val jvmExternals: Externals =
+  def jvmExternals[T](implicit tokenize: Evaluation.Value[T] => String): Externals[T] =
     Externals
       .empty
-      .add(packageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
-      .add(packageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
-      .add(packageName, "sub", FfiCall.Fn2(PredefImpl.sub(_, _)))
-      .add(packageName, "times", FfiCall.Fn2(PredefImpl.times(_, _)))
-      .add(packageName, "eq_Int", FfiCall.Fn2(PredefImpl.eq_Int(_, _)))
-      .add(packageName, "cmp_Int", FfiCall.Fn2(PredefImpl.cmp_Int(_, _)))
-      .add(packageName, "gcd_Int", FfiCall.Fn2(PredefImpl.gcd_Int(_, _)))
-      .add(packageName, "mod_Int", FfiCall.Fn2(PredefImpl.mod_Int(_, _)))
-      .add(packageName, "range", FfiCall.Fn1(PredefImpl.range(_)))
-      .add(packageName, "int_loop", FfiCall.Fn3(PredefImpl.intLoop(_, _, _)))
-      .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
-      .add(packageName, "string_Order_fn", FfiCall.Fn2(PredefImpl.string_Order_Fn(_, _)))
-      .add(packageName, "clear_Dict", FfiCall.Fn1(PredefImpl.clear_Dict(_)))
-      .add(packageName, "empty_Dict", FfiCall.Fn1(PredefImpl.empty_Dict(_)))
-      .add(packageName, "add_key", FfiCall.Fn3(PredefImpl.add_key(_, _, _)))
-      .add(packageName, "get_key", FfiCall.Fn2(PredefImpl.get_key(_, _)))
-      .add(packageName, "items", FfiCall.Fn1(PredefImpl.items(_)))
-      .add(packageName, "remove_key", FfiCall.Fn2(PredefImpl.remove_key(_, _)))
+      .add(packageName, "add", FfiCall.Fn2(PredefImpl.add[T](_, _)))
+      .add(packageName, "div", FfiCall.Fn2(PredefImpl.div[T](_, _)))
+      .add(packageName, "sub", FfiCall.Fn2(PredefImpl.sub[T](_, _)))
+      .add(packageName, "times", FfiCall.Fn2(PredefImpl.times[T](_, _)))
+      .add(packageName, "eq_Int", FfiCall.Fn2(PredefImpl.eq_Int[T](_, _)))
+      .add(packageName, "cmp_Int", FfiCall.Fn2(PredefImpl.cmp_Int[T](_, _)))
+      .add(packageName, "gcd_Int", FfiCall.Fn2(PredefImpl.gcd_Int[T](_, _)))
+      .add(packageName, "mod_Int", FfiCall.Fn2(PredefImpl.mod_Int[T](_, _)))
+      .add(packageName, "range", FfiCall.Fn1(PredefImpl.range[T](_)))
+      .add(packageName, "int_loop", FfiCall.Fn3(PredefImpl.intLoop[T](_, _, _)))
+      .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace[T](_, _)))
+      .add(packageName, "string_Order_fn", FfiCall.Fn2(PredefImpl.string_Order_Fn[T](_, _)))
+      .add(packageName, "clear_Dict", FfiCall.Fn1(PredefImpl.clear_Dict[T](_)))
+      .add(packageName, "empty_Dict", FfiCall.Fn1(PredefImpl.empty_Dict[T](_)))
+      .add(packageName, "add_key", FfiCall.Fn3(PredefImpl.add_key[T](_, _, _)))
+      .add(packageName, "get_key", FfiCall.Fn2(PredefImpl.get_key[T](_, _)))
+      .add(packageName, "items", FfiCall.Fn1(PredefImpl.items[T](_)))
+      .add(packageName, "remove_key", FfiCall.Fn2(PredefImpl.remove_key[T](_, _)))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -152,48 +152,48 @@ object PredefImpl {
   import Evaluation.Value
   import Value._
 
-  private def i(a: Value): BigInteger =
+  private def i[T](a: Value[T]): BigInteger =
     a match {
       case VInt(bi) => bi
       case other => sys.error(s"expected integer: $a")
     }
 
-  def add(a: Value, b: Value): Value =
+  def add[T](a: Value[T], b: Value[T]): Value[T] =
     VInt(i(a).add(i(b)))
 
-  def div(a: Value, b: Value): Value = {
+  def div[T](a: Value[T], b: Value[T]): Value[T] = {
     val bi = i(b)
     if (bi.equals(BigInteger.ZERO)) VOption.none
     else VOption.some(VInt(i(a).divide(bi)))
   }
 
-  def sub(a: Value, b: Value): Value =
+  def sub[T](a: Value[T], b: Value[T]): Value[T] =
     VInt(i(a).subtract(i(b)))
 
-  def times(a: Value, b: Value): Value =
+  def times[T](a: Value[T], b: Value[T]): Value[T] =
     VInt(i(a).multiply(i(b)))
 
-  def eq_Int(a: Value, b: Value): Value =
+  def eq_Int[T](a: Value[T], b: Value[T]): Value[T] =
     // since we have already typechecked, standard equals works
     if (a.equals(b)) True else False
 
-  def cmp_Int(a: Value, b: Value): Value =
+  def cmp_Int[T](a: Value[T], b: Value[T]): Value[T] =
     Comparison.fromInt(i(a).compareTo(i(b)))
 
-  def mod_Int(a: Value, b: Value): Value =
+  def mod_Int[T](a: Value[T], b: Value[T]): Value[T] =
     VInt(i(a).mod(i(b).abs()))
 
-  def gcd_Int(a: Value, b: Value): Value =
+  def gcd_Int[T](a: Value[T], b: Value[T]): Value[T] =
     VInt(i(a).gcd(i(b)))
 
-  def range(v: Value): Value = {
+  def range[T](v: Value[T]): Value[T] = {
     val max = i(v)
     @annotation.tailrec
-    def loop(i: BigInteger, acc: List[Value]): Value = {
+    def loop(i: BigInteger, acc: List[Value[T]]): Value[T] = {
       if (i.compareTo(max) >= 0) {
         // build the list
         @annotation.tailrec
-        def build(vs: List[Value], acc: Value): Value =
+        def build(vs: List[Value[T]], acc: Value[T]): Value[T] =
           vs match {
             case Nil => acc
             case h :: tail => build(tail, VList.Cons(h, acc))
@@ -210,14 +210,14 @@ object PredefImpl {
   }
 
   //def intLoop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
-  final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
-    val fnT = fn.asFn
+  final def intLoop[T](intValue: Value[T], state: Value[T], fn: Value[T]): Value[T] = {
+    val fnT = fn.asFn[T]
 
     @annotation.tailrec
-    def loop(biValue: Value, bi: BigInteger, state: Value): Value =
+    def loop(biValue: Value[T], bi: BigInteger, state: Value[T]): Value[T] =
       if (bi.compareTo(BigInteger.ZERO) <= 0) state
       else {
-        val fn0 = fnT(biValue).value.asFn
+        val fn0 = fnT(biValue).value.asFn[T]
         fn0(state).value match {
           case ConsValue(nextI, ConsValue(ConsValue(nextA, _), _)) =>
             val n = i(nextI)
@@ -233,79 +233,78 @@ object PredefImpl {
     loop(intValue, i(intValue), state)
   }
 
-  def trace(prefix: Value, v: Value): Value = {
+  def trace[T](prefix: Value[T], v: Value[T]): Value[T] = {
     val Value.Str(prestr) = prefix
     println(s"$prestr: $v")
     v
   }
 
-  def string_Order_Fn(a: Value, b: Value): Value =
+  def string_Order_Fn[T](a: Value[T], b: Value[T]): Value[T] =
     (a, b) match {
       case (Value.Str(sa), Value.Str(sb)) =>
         Value.Comparison.fromInt(sa.compareTo(sb))
       case other => sys.error(s"type error: $other")
     }
 
-  val tokenizeDict: Any => String = { sm =>
-    val lst = sm.asInstanceOf[SortedMap[Value, Value]].toList.map { case (v1, v2) => s"${v1.tokenize}->${v2.tokenize}" }
+  def tokenizeDict[T](implicit tokenize: Value[T] => String): Any => String = { sm =>
+    val lst = sm.asInstanceOf[SortedMap[Value[T], Value[T]]].toList.map {
+      case (v1, v2) => s"${tokenize(v1)}->${tokenize(v2)}" }
     s"Dict(${lst.mkString(",")})"
   }
 
-  def clear_Dict(dictv: Value): Value = {
-    val d = toDict(dictv)
+  def clear_Dict[T](dictv: Value[T]): Value[T] = {
+    val (d, tokenize) = toDict(dictv)
     val ord = d.ordering
-    ExternalValue(SortedMap.empty[Value, Value](ord), tokenizeDict)
+    ExternalValue(SortedMap.empty[Value[T], Value[T]](ord), tokenize)
   }
 
 
-  def empty_Dict(ord: Value): Value =
+  def empty_Dict[T](ord: Value[T])(implicit tokenize: Value[T] => String): Value[T] =
     ord match {
       case ConsValue(fn, _) =>
-        implicit val ordValue: Ordering[Value] =
-          new Ordering[Value] {
-            val fnV = fn.asFn
-            def compare(a: Value, b: Value): Int =
+        implicit val ordValue: Ordering[Value[T]] =
+          new Ordering[Value[T]] {
+            val fnV = fn.asFn[T]
+            def compare(a: Value[T], b: Value[T]): Int =
               fnV(a).flatMap(_.asFn(b)).value match {
                 case SumValue(v, _) =>
                   v - 1
                 case other => sys.error(s"type error: $other")
               }
           }
-        ExternalValue(SortedMap.empty[Value, Value], tokenizeDict)
+        ExternalValue(SortedMap.empty[Value[T], Value[T]], tokenizeDict)
       case other => sys.error(s"type error: $other")
     }
 
-  def toDict(v: Value): SortedMap[Value, Value] =
+  def toDict[T](v: Value[T]): (SortedMap[Value[T], Value[T]], Any => String) =
     v match {
-      case ExternalValue(sm, _) =>
-        sm.asInstanceOf[SortedMap[Value, Value]]
+      case ExternalValue(sm, tokenize) =>
+        (sm.asInstanceOf[SortedMap[Value[T], Value[T]]], tokenize)
       case other => sys.error(s"type error: $other")
     }
 
-  def add_key(dict: Value, k: Value, value: Value): Value =
-    ExternalValue(toDict(dict).updated(k, value), tokenizeDict)
+  def add_key[T](dict: Value[T], k: Value[T], value: Value[T]): Value[T] = {
+    val (d, tokenize) = toDict(dict)
+    ExternalValue(d.updated(k, value), tokenize)
+  }
 
-  def get_key(dict: Value, k: Value): Value =
-    toDict(dict).get(k) match {
+  def get_key[T](dict: Value[T], k: Value[T]): Value[T] =
+    toDict(dict)._1.get(k) match {
       case None => VOption.none
       case Some(v) => VOption.some(v)
     }
 
-  def remove_key(dict: Value, k: Value): Value = {
-    val sm = toDict(dict) - k
-    val tokenize = () => {
-      val lst = sm.toList.map { case (v1, v2) => s"${v1.tokenize}->${v2.tokenize}" }
-      s"Dict(${lst.mkString(",")})"
-    }
-    ExternalValue(sm, tokenizeDict)
+  def remove_key[T](dict: Value[T], k: Value[T]): Value[T] = {
+    val (d, tokenize) = toDict(dict)
+    val sm = d - k
+    ExternalValue(sm, tokenize)
   }
 
-  def items(dict: Value): Value = {
-    val d = toDict(dict)
+  def items[T](dict: Value[T]): Value[T] = {
+    val d = toDict(dict)._1
     Value.VList(d.iterator.map { case (k, v) =>
       ProductValue.fromList(k :: ProductValue.fromList(v :: Nil) :: Nil)
     }
     .toList)
   }
 }
-

@@ -120,7 +120,7 @@ object Evaluation {
     object VInt {
       def apply(v: Int): Value[Nothing] = apply(BigInt(v))
       def apply(v: BigInt): Value[Nothing] = ExternalValue(v.bigInteger, tokenizeInt)
-      def unapply(v: Value[Nothing]): Option[BigInteger] =
+      def unapply[T](v: Value[T]): Option[BigInteger] =
         v match {
           case ExternalValue(v: BigInteger, _) => Some(v)
           case _ => None

@@ -28,7 +28,7 @@ trait CodeGen {
   def tell(d: Doc): Output[Unit] =
     RWST.tell[Id, Scope, Doc, Unique](d)
 
-  def genPackage(p: Package.Inferred, ext: Externals): Output[Unit] = {
+  def genPackage[T](p: Package.Inferred, ext: Externals[T]): Output[Unit] = {
     val unfix = p
 
     def packageName: Doc =
@@ -176,7 +176,7 @@ trait CodeGen {
       t <- out(id0).local { s: Scope => Scope(s.toMap.updated(n, id0)) }
     } yield t
 
-  def outputExternal(n: String, apicall: FfiCall, tpe: Type): Output[Unit] = {
+  def outputExternal[T](n: String, apicall: FfiCall[T], tpe: Type): Output[Unit] = {
     def getArity(t: Type): Int = {
       def loop(t: Type, top: Boolean): Int = {
         t match {
