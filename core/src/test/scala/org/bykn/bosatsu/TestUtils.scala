@@ -62,23 +62,25 @@ object TestUtils {
   }
   object EvaluationMode {
     case class JsonMode(expected: Json) extends EvaluationMode[Json]
-    case class EvalMode(expected: Evaluation.Value) extends EvaluationMode[Evaluation.Value]
+    case class EvalMode[T](expected: Evaluation.Value[T]) extends EvaluationMode[Evaluation.Value[T]]
     case class TestMode(expected: Int) extends EvaluationMode[Int]
   }
 
-  def evalTest(packages: List[String], mainPackS: String, expected: Evaluation.Value, extern: Externals = Externals.empty) =
+  def evalTest(packages: List[String], mainPackS: String, expected: Evaluation.Value[Unit], extern: Externals[Unit] = Externals.empty) =
     evalTestMode(packages, mainPackS, EvaluationMode.EvalMode(expected), extern)
 
-  def evalTestJson(packages: List[String], mainPackS: String, expected: Json, extern: Externals = Externals.empty) =
+  def evalTestJson(packages: List[String], mainPackS: String, expected: Json, extern: Externals[Unit] = Externals.empty) =
     evalTestMode(packages, mainPackS, EvaluationMode.JsonMode(expected), extern)
 
-  def runBosatsuTest(packages: List[String], mainPackS: String, assertionCount: Int, extern: Externals = Externals.empty) =
+  def runBosatsuTest(packages: List[String], mainPackS: String, assertionCount: Int, extern: Externals[Unit] = Externals.empty) =
     evalTestMode(packages, mainPackS, EvaluationMode.TestMode(assertionCount), extern)
 
-  def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals = Externals.empty) = {
+  def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals[Unit] = Externals.empty) = {
     def inferredHandler(packMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
       val normPackMap = NormalizePackageMap(packMap).normalizePackageMap
-      val ev = Evaluation(normPackMap, Predef.jvmExternals ++ extern, Some({tag: (Declaration, Normalization.NormalExpressionTag) => tag._2.ne}))
+      val unitImplicits: Evaluation.UnitImplicits[(Declaration, Normalization.NormalExpressionTag)] = Evaluation.UnitImplicits()
+      import unitImplicits._
+      val ev = Evaluation[(Declaration, Normalization.NormalExpressionTag), Unit, Unit, Unit](normPackMap, Predef.jvmExternals[Unit] ++ extern)
       ev.evaluateLast(mainPack) match {
         case None => fail("found no main expression")
         case Some((eval, schm)) =>
@@ -196,7 +198,7 @@ object TestUtils {
   def normalChildrenTest(packages: List[String], mainPackS: String, expected: Set[NormalExpression]) =
     normalizeTest(packages, mainPackS, NormalTestMode.ChildrenMode(expected))
 
-  def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
+  def evalFail(packages: List[String], mainPackS: String, extern: Externals[Unit] = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>

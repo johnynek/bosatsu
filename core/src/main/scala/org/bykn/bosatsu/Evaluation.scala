@@ -217,8 +217,8 @@ object Evaluation {
         }
       }
 
-    def asLambda(name: Bindable, tag: T)(implicit 
-      updateEnv: (Env[E,V], Eval[Value[V]]) => Env[E,V],
+    def asLambda(name: Bindable, tag: T)(implicit
+      updateEnv: (Env[E,V], Bindable, Eval[Value[V]]) => Env[E,V],
       valueTag: (T, Env[E,V]) => V 
     ): Scoped[T,E,V] =
       fromFn[T,E,V] { env =>
@@ -226,9 +226,9 @@ object Evaluation {
         val fn =
           FnValue[V](valueTag(tag, env)) {
             case n@Now(v) =>
-              inEnv(updateEnv(env, n)) // inEnv(env.addLambdaVar(name, n))
+              inEnv(updateEnv(env, name, n)) // inEnv(env.addLambdaVar(name, n))
             case v => v.flatMap { v0 =>
-              inEnv(updateEnv(env, Eval.now(v0)))
+              inEnv(updateEnv(env, name, Eval.now(v0)))
               // inEnv(env.addLambdaVar(name, Eval.now(v0)))
             }
           }
@@ -293,12 +293,23 @@ object Evaluation {
     }
   }
 
+  case class UnitImplicits[T]() {
+    implicit val tokenize: Value[Unit] => String = _ => ""
+    implicit val emptyEnv: Env[Unit, Unit] = Env(Map(), ())
+    implicit val scopeTagFromTag: T => Unit = _ => ()
+    implicit val updateEnv: (Env[Unit, Unit], Bindable, Eval[Value[Unit]]) => Env[Unit, Unit] = (env, name, ev) =>
+      Env(env.map.updated(name, ev), env.tag)
+    implicit val valueTag: (Unit, Evaluation.Env[Unit, Unit]) => Unit = (_, _) => ()
+    implicit val externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[Unit]]]) => Unit =
+      (_, _) => (_, _) => ()
+  }
+
 }
 
 case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[V])(implicit
   scopeTagFromTag: T => S,
   emptyEnv: Evaluation.Env[E,V],
-  updateEnv: (Evaluation.Env[E,V], Eval[Evaluation.Value[V]]) => Evaluation.Env[E,V],
+  updateEnv: (Evaluation.Env[E,V], Bindable, Eval[Evaluation.Value[V]]) => Evaluation.Env[E,V],
   valueTag: (S, Evaluation.Env[E,V]) => V,
   externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Evaluation.Value[V]]]) => V
 ) {
