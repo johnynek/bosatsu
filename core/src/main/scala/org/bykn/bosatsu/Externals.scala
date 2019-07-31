@@ -6,14 +6,14 @@ import cats.implicits._
 
 import Evaluation.Value
 
-sealed abstract class FfiCall[+T] {
+sealed abstract class FfiCall[T] {
   def call(t: rankn.Type, pn: PackageName, dn: Identifier)(
     implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T,
   ): Eval[Value[T]]
 }
 
 object FfiCall {
-  final case class Fn1[T](fn: Value[T] => Value[T]) extends FfiCall {
+  final case class Fn1[T](fn: Value[T] => Value[T]) extends FfiCall[T] {
     import Value.FnValue
 
     private[this] def evalFn(pn: PackageName, dn: Identifier)(
@@ -24,7 +24,7 @@ object FfiCall {
       implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T
     ): Eval[Value[T]] = evalFn(pn, dn)
   }
-  final case class Fn2[T](fn: (Value[T], Value[T]) => Value[T]) extends FfiCall {
+  final case class Fn2[T](fn: (Value[T], Value[T]) => Value[T]) extends FfiCall[T] {
     import Value.FnValue
 
     private[this] def evalFn(pn: PackageName, dn: Identifier)(
@@ -42,7 +42,7 @@ object FfiCall {
       implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T
     ): Eval[Value[T]] = evalFn(pn, dn)
   }
-  final case class Fn3[T](fn: (Value[T], Value[T], Value[T]) => Value[T]) extends FfiCall {
+  final case class Fn3[T](fn: (Value[T], Value[T], Value[T]) => Value[T]) extends FfiCall[T] {
     import Value.FnValue
 
     private[this] def evalFn(pn: PackageName, dn: Identifier)(
@@ -80,7 +80,7 @@ object FfiCall {
   }
 }
 
-case class Externals[+T](toMap: Map[(PackageName, String), FfiCall[T]]) {
+case class Externals[T](toMap: Map[(PackageName, String), FfiCall[T]]) {
   def add(pn: PackageName, value: String, f: FfiCall[T]): Externals[T] =
     Externals(toMap + ((pn, value) -> f))
 
@@ -89,5 +89,5 @@ case class Externals[+T](toMap: Map[(PackageName, String), FfiCall[T]]) {
 }
 
 object Externals {
-  def empty: Externals[Nothing] = Externals(Map.empty)
+  def empty[T]: Externals[T] = Externals(Map.empty)
 }
