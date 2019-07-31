@@ -302,6 +302,7 @@ object Evaluation {
     implicit val valueTag: (Unit, Evaluation.Env[Unit, Unit]) => Unit = (_, _) => ()
     implicit val externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[Unit]]]) => Unit =
       (_, _) => (_, _) => ()
+    implicit val tagForConstructor: Unit = ()
   }
 
 }
@@ -311,7 +312,8 @@ case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[
   emptyEnv: Evaluation.Env[E,V],
   updateEnv: (Evaluation.Env[E,V], Bindable, Eval[Evaluation.Value[V]]) => Evaluation.Env[E,V],
   valueTag: (S, Evaluation.Env[E,V]) => V,
-  externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Evaluation.Value[V]]]) => V
+  externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Evaluation.Value[V]]]) => V,
+  tagForConstructor: V
 ) {
   import Evaluation.{Value, Scoped, Env}
   import Value._
@@ -738,7 +740,7 @@ case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[
 
     // TODO: this is a obviously terrible
     // the encoding is inefficient, the implementation is inefficient
-    val tag: V = ???
+    val tag: V = tagForConstructor
     def loop(param: Int, args: List[Value[V]]): Value[V] =
       if (param == 0) {
         val prod = ProductValue.fromList(args.reverse)
