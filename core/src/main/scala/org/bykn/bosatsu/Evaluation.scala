@@ -60,7 +60,7 @@ object Evaluation {
     }
 
     case object UnitValue extends ProductValue
-    case class ConsValue[T](head: Value[T], tail: ProductValue[T]) extends ProductValue[T] {
+    case class ConsValue[+T](head: Value[T], tail: ProductValue[T]) extends ProductValue[T] {
       override val hashCode = (head, tail).hashCode
     }
     case class SumValue[T](variant: Int, value: ProductValue[T]) extends Value[T]
@@ -128,8 +128,8 @@ object Evaluation {
     }
 
     object Str {
-      def apply(str: String): Value[Nothing] = ExternalValue(str, tokenizeString)
-      def unapply(v: Value[Nothing]): Option[String] =
+      def apply(str: String) = ExternalValue(str, tokenizeString)
+      def unapply[T](v: Value[T]): Option[String] =
         v match {
           case ExternalValue(str: String, _) => Some(str)
           case _ => None
@@ -299,7 +299,8 @@ case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[
   scopeTagFromTag: T => S,
   emptyEnv: Evaluation.Env[E,V],
   updateEnv: (Evaluation.Env[E,V], Eval[Evaluation.Value[V]]) => Evaluation.Env[E,V],
-  valueTag: (S, Evaluation.Env[E,V]) => V 
+  valueTag: (S, Evaluation.Env[E,V]) => V,
+  externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Evaluation.Value[V]]]) => V
 ) {
   import Evaluation.{Value, Scoped, Env}
   import Value._
