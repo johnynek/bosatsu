@@ -361,7 +361,7 @@ object Generators {
 
   def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern.Parsed] =
     genPatternGen(
-      genStructKind(_),
+      genStructKind(_: List[Pattern.Parsed]),
       typeRefGen,
       depth,
       useUnion,
