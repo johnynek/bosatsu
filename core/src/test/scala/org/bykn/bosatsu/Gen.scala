@@ -321,21 +321,53 @@ object Generators {
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
   }
 
-  val genStructKind: Gen[Pattern.StructKind] =
+  def genStyle(args: List[Pattern.Parsed]): Gen[Pattern.StructKind.Style] =
+    NonEmptyList.fromList(args) match {
+      case None =>
+        Gen.const(Pattern.StructKind.Style.TupleLike)
+      case Some(NonEmptyList(h, tail)) =>
+        def toArg(p: Pattern.Parsed): Gen[Option[Identifier.Bindable]] =
+          p match {
+            case Pattern.Var(b: Identifier.Bindable) =>
+              Gen.oneOf(Gen.const(None),
+                Gen.oneOf(bindIdentGen, Gen.const(b)).map(Some(_))
+                )
+            case Pattern.Annotation(p, _) => toArg(p)
+            case _ =>
+              // if we don't have a var, we can't omit the key
+              bindIdentGen.map(Some(_))
+          }
+
+        lazy val args = tail.foldLeft(toArg(h)
+          .map { h => NonEmptyList(h, Nil) }) { case (args, a) =>
+            Gen.zip(args, toArg(a)).map { case (args, a) => NonEmptyList(a, args.toList) }
+          }
+          .map(_.reverse)
+
+        Gen.oneOf(
+          Gen.const(Pattern.StructKind.Style.TupleLike),
+          Gen.lzy(args.map(Pattern.StructKind.Style.RecordLike(_))))
+    }
+
+  def genStructKind(args: List[Pattern.Parsed]): Gen[Pattern.StructKind] =
     Gen.oneOf(
       Gen.const(Pattern.StructKind.Tuple),
-      consIdentGen.map(Pattern.StructKind.Named(_)),
-      consIdentGen.map(Pattern.StructKind.NamedPartial(_)))
+      Gen.zip(consIdentGen, genStyle(args)).map { case (n, s) =>
+        Pattern.StructKind.Named(n, s)
+      },
+      Gen.zip(consIdentGen, genStyle(args)).map { case (n, s) =>
+        Pattern.StructKind.NamedPartial(n, s)
+      })
 
   def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern.Parsed] =
     genPatternGen(
-      genStructKind,
+      genStructKind(_: List[Pattern.Parsed]),
       typeRefGen,
       depth,
       useUnion,
       useAnnotation = false)
 
-  def genPatternGen[N, T](genName: Gen[N], genT: Gen[T], depth: Int, useUnion: Boolean, useAnnotation: Boolean): Gen[Pattern[N, T]] = {
+  def genPatternGen[N, T](genName: List[Pattern[N, T]] => Gen[N], genT: Gen[T], depth: Int, useUnion: Boolean, useAnnotation: Boolean): Gen[Pattern[N, T]] = {
     val recurse = Gen.lzy(genPatternGen(genName, genT, depth - 1, useUnion, useAnnotation))
     val genVar = bindIdentGen.map(Pattern.Var(_))
     val genWild = Gen.const(Pattern.WildCard)
@@ -348,9 +380,9 @@ object Generators {
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
       val genStruct =  for {
-        nm <- genName
         cnt <- Gen.choose(0, 6)
         args <- Gen.listOfN(cnt, recurse)
+        nm <- genName(args)
       } yield Pattern.PositionalStruct(nm, args)
 
       def makeOneSplice(ps: List[Pattern.ListPart[Pattern[N, T]]]) = {
@@ -386,7 +418,7 @@ object Generators {
             Pattern.Union(h0, NonEmptyList(h1, tail))
         }
 
-      val tailGens =
+      val tailGens: List[Gen[Pattern[N, T]]] =
         List(genVar, genWild, genNamed, genLitPat, genStruct, genList)
 
       val withU = if (useUnion) genUnion :: tailGens else tailGens
@@ -397,7 +429,9 @@ object Generators {
   }
 
   def genCompiledPattern(depth: Int): Gen[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] =
-    genPatternGen(Gen.zip(packageNameGen, consIdentGen), NTypeGen.genDepth03, depth, useUnion = true, useAnnotation = true)
+    genPatternGen(
+      { args: List[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] => Gen.zip(packageNameGen, consIdentGen) },
+      NTypeGen.genDepth03, depth, useUnion = true, useAnnotation = true)
 
   def matchGen(bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
     import Declaration._
