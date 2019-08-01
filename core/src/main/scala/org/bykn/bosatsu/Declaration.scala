@@ -303,8 +303,7 @@ object Declaration {
     val parser: Indy[RecordArg] = {
       val pairFn: Indy[Bindable => Pair] =
         Indy { indent =>
-          // indented whitespace
-          val ws = (Parser.spaces | P("\n" ~ indent)).rep().map(_ => ())
+          val ws = Parser.maybeIndentedOrSpace(indent)
           P(ws ~ ":" ~ ws ~ Declaration.parser(indent))
             .map { decl => Pair(_, decl) }
         }
@@ -372,7 +371,8 @@ object Declaration {
   def toPattern(d: Declaration): Option[Pattern.Parsed] =
     d match {
       case Var(nm@Identifier.Constructor(_)) =>
-        Some(Pattern.PositionalStruct(Pattern.StructKind.Named(nm), Nil))
+        Some(Pattern.PositionalStruct(
+          Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike), Nil))
       case Var(v: Bindable) => Some(Pattern.Var(v))
       case Literal(lit) => Some(Pattern.Literal(lit))
       case ListDecl(ListLang.Cons(elems)) =>
@@ -392,13 +392,23 @@ object Declaration {
         }
       case Apply(Var(nm@Identifier.Constructor(_)), args, ApplyKind.Parens) =>
         args.traverse(toPattern(_)).map { argPats =>
-          Pattern.PositionalStruct(Pattern.StructKind.Named(nm), argPats.toList)
+          Pattern.PositionalStruct(Pattern.StructKind.Named(nm,
+            Pattern.StructKind.Style.TupleLike), argPats.toList)
         }
       case TupleCons(ps) =>
         ps.traverse(toPattern(_)).map { argPats =>
           Pattern.PositionalStruct(Pattern.StructKind.Tuple, argPats.toList)
         }
       case Parens(p) => toPattern(p)
+      case RecordConstructor(cons, args) =>
+        args.traverse {
+          case RecordArg.Simple(b) => Some(Left(b))
+          case RecordArg.Pair(k, v) =>
+            toPattern(v).map { vpat =>
+              Right((k, vpat))
+            }
+        }
+        .map(Pattern.recordPat(cons, _)(Pattern.StructKind.Named(_, _)))
       case _ => None
     }
 
@@ -484,14 +494,14 @@ object Declaration {
   // this returns a Var with a Constructor or a RecordConstrutor
   val recordConstructorP: Indy[Declaration] =
     Indy { indent =>
-      val ws = Parser.maybeSpacesAndLines
+      val ws = Parser.maybeIndentedOrSpace(indent)
       val kv = RecordArg.parser(indent)
       val kvs = kv.nonEmptyListOfWs(ws, 1)
       // we put a cut here because Foo { must be a record
       // and we want to give a better message of failure
       // inside the record, than complaining at the start
       // of the {
-      val args = kvs.bracketed(P("{" ~/ ws), P(ws ~ "}"))
+      val args = kvs.bracketed(P("{" ~ ws), P(ws ~ "}"))
 
       (Identifier.consParser ~ (maybeSpace ~ args).?)
         .region

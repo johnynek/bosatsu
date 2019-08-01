@@ -129,6 +129,9 @@ object Parser {
   val nonSpaces: P[String] = P(CharsWhile { c => !isSpace(c) }.!)
   val maybeSpace: P[Unit] = spaces.?
 
+  def maybeIndentedOrSpace(indent: String): P[Unit] =
+    (Parser.spaces | P("\n" ~ indent)).rep().map(_ => ())
+
   val spacesAndLines: P[Unit] = P(CharsWhile { c =>
     c.isWhitespace
   }).opaque("spacesAndLines")

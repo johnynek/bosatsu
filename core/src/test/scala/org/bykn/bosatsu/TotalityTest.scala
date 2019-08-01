@@ -44,8 +44,11 @@ class TotalityTest extends FunSuite {
   def showPat(pat: Pattern[(PackageName, Constructor), Type]): String = {
     val allTypes = pat.traverseType { t => Writer(Chain.one(t), ()) }.run._1.toList
     val toStr = TypeRef.fromTypes(None, allTypes)
-    val pat0 = pat.mapName { case (_, n) => Pattern.StructKind.Named(n) }
-      .mapType { t => toStr(t) }
+    val pat0 = pat.mapName {
+      case (_, n) =>
+        Pattern.StructKind.Named(n, Pattern.StructKind.Style.TupleLike)
+    }.mapType { t => toStr(t) }
+
     Document[Pattern.Parsed].document(pat0).render(80)
   }
   def showPatU(pat: Pattern[(PackageName, Constructor), Type]): String =

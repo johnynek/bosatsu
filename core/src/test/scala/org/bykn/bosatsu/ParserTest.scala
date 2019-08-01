@@ -302,6 +302,10 @@ class ParserTest extends ParserTestBase {
     check("Foo {   bar : baz , quux : 42  }")
     check("Foo {\nbar:\n\tbaz, quux:\n\t42\n\t}")
     check("Foo {\nbar:\n\n\tbaz,\nquux\n:\n42\n}")
+
+    check("Foo{x:1}")
+    // from scalacheck
+    check("Ze8lujlrbo {wlqOvp: {}}")
   }
 
   test("we can parse tuples") {
@@ -560,6 +564,11 @@ x""")
     roundTrip(Pattern.matchParser, "Foo([], bar)")
     roundTrip(Pattern.matchParser, "Foo(...)")
     roundTrip(Pattern.matchParser, "Foo(a, ...)")
+    roundTrip(Pattern.matchParser, "Foo { a: 12, b: 3, c }")
+    roundTrip(Pattern.matchParser, "Foo { a: 12, b: 3, ... }")
+    roundTrip(Pattern.matchParser, "Foo{a: 12,b: 3,c}")
+    roundTrip(Pattern.matchParser, "Foo{a: 12,b: 3,...}")
+    roundTrip(Pattern.matchParser, "Foo{a}")
     roundTrip(Pattern.matchParser, "x")
     roundTrip(Pattern.matchParser, "_")
     roundTrip(Pattern.matchParser, "(a, b)")
@@ -780,6 +789,14 @@ else:
 
     roundTrip(Declaration.parser(""),
 """Foo(x) = bar
+x""")
+
+    roundTrip(Declaration.parser(""),
+"""Foo { x } = bar
+x""")
+
+    roundTrip(Declaration.parser(""),
+"""Foo { x } = Foo{x:1}
 x""")
 
     roundTrip(Declaration.parser(""),

@@ -424,11 +424,11 @@ final class SourceConverter(
           }
 
         loop(args)
-      case (Pattern.StructKind.Named(nm), args) =>
+      case (Pattern.StructKind.Named(nm, _), args) =>
         // TODO: we need to change this to check
         // that the arity matches here
         Pattern.PositionalStruct(nameToCons(nm), args)
-      case (Pattern.StructKind.NamedPartial(nm), args) =>
+      case (Pattern.StructKind.NamedPartial(nm, _), args) =>
         // Here we don't care if the arity is <= the
         // real arity, but should fail if there are too many items
         Pattern.PositionalStruct(nameToCons(nm), args)
