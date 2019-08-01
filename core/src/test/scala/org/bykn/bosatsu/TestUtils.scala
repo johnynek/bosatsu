@@ -80,7 +80,7 @@ object TestUtils {
       val normPackMap = NormalizePackageMap(packMap).normalizePackageMap
       val unitImplicits: Evaluation.UnitImplicits[(Declaration, Normalization.NormalExpressionTag)] = Evaluation.UnitImplicits()
       import unitImplicits._
-      val ev = Evaluation[(Declaration, Normalization.NormalExpressionTag), Unit, Unit, Unit](normPackMap, Predef.jvmExternals[Unit] ++ extern)
+      val ev = Evaluation[(Declaration, Normalization.NormalExpressionTag), Unit, Unit](normPackMap, Predef.jvmExternals[Unit] ++ extern)
       ev.evaluateLast(mainPack) match {
         case None => fail("found no main expression")
         case Some((eval, schm)) =>

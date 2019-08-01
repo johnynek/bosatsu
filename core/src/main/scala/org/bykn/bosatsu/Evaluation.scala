@@ -198,30 +198,26 @@ object Evaluation {
     def get(name: Identifier) = map.get(name)
   }
 
-  object Env {
-    val empty = Env(Map.empty, Nil)
-  }
-
-  sealed abstract class Scoped[T,E,V] {
+  sealed abstract class Scoped[E,V] {
     import Scoped.fromFn
 
     def inEnv(env: Env[E,V]): Eval[Value[V]]
 
-    def letNameIn(name: Bindable, in: Scoped[T,E,V]): Scoped[T,E,V] =
+    def letNameIn(name: Bindable, in: Scoped[E,V]): Scoped[E,V] =
       Scoped.Let(name, this, in)
 
-    def flatMap(fn: (Env[E,V], Value[V]) => Eval[Value[V]]): Scoped[T,E,V] =
-      fromFn[T,E,V] { env =>
+    def flatMap(fn: (Env[E,V], Value[V]) => Eval[Value[V]]): Scoped[E,V] =
+      fromFn[E,V] { env =>
         inEnv(env).flatMap { v =>
           fn(env, v)
         }
       }
 
-    def asLambda(name: Bindable, tag: T)(implicit
+    def asLambda[T](name: Bindable, tag: T)(implicit
       updateEnv: (Env[E,V], Bindable, Eval[Value[V]]) => Env[E,V],
       valueTag: (T, Env[E,V]) => V 
-    ): Scoped[T,E,V] =
-      fromFn[T,E,V] { env =>
+    ): Scoped[E,V] =
+      fromFn[E,V] { env =>
         import cats.Now
         val fn =
           FnValue[V](valueTag(tag, env)) {
@@ -237,11 +233,11 @@ object Evaluation {
         Eval.now(fn)
       }
 
-    def emptyScope(implicit emptyEnv: Env[E,V]): Scoped[T,E,V] =
-      fromFn[T,E,V](_ => inEnv(emptyEnv))
+    def emptyScope(implicit emptyEnv: Env[E,V]): Scoped[E,V] =
+      fromFn[E,V](_ => inEnv(emptyEnv))
 
-    def applyArg(arg: Scoped[T,E,V]): Scoped[T,E,V] =
-      fromFn[T,E,V] { env =>
+    def applyArg(arg: Scoped[E,V]): Scoped[E,V] =
+      fromFn[E,V] { env =>
         val fnE = inEnv(env).memoize
         val argE = arg.inEnv(env)
         fnE.flatMap { fn =>
@@ -254,23 +250,23 @@ object Evaluation {
   }
 
   object Scoped {
-    def const[T,E,V](e: Eval[Value[V]]): Scoped[T,E,V] =
-      fromFn[T,E,V](_ => e)
+    def const[E,V](e: Eval[Value[V]]): Scoped[E,V] =
+      fromFn[E,V](_ => e)
 
-    def unreachable[T,E,V]: Scoped[T,E,V] =
+    def unreachable[E,V]: Scoped[E,V] =
       const(Eval.always(sys.error("unreachable reached")))
 
-    def recursive[T,E,V](name: Bindable, item: Scoped[T,E,V]): Scoped[T,E,V] = {
-      fromFn[T,E,V] { env =>
+    def recursive[E,V](name: Bindable, item: Scoped[E,V]): Scoped[E,V] = {
+      fromFn[E,V] { env =>
         lazy val env1: Env[E,V] =
           env.updated(name, Eval.defer(item.inEnv(env1)).memoize)
         item.inEnv(env1)
       }
     }
 
-    def orElse[T,E,V](name: Identifier)(next: => Scoped[T,E,V]): Scoped[T,E,V] = {
+    def orElse[E,V](name: Identifier)(next: => Scoped[E,V]): Scoped[E,V] = {
       lazy val nextComputed = next
-      fromFn[T,E,V] { env =>
+      fromFn[E,V] { env =>
         env.get(name) match {
           case None => nextComputed.inEnv(env)
           case Some(v) => v
@@ -278,17 +274,17 @@ object Evaluation {
       }
     }
 
-    private case class Let[T,E,V](name: Bindable, arg: Scoped[T,E,V], in: Scoped[T,E,V]) extends Scoped[T,E,V] {
+    private case class Let[E,V](name: Bindable, arg: Scoped[E,V], in: Scoped[E,V]) extends Scoped[E,V] {
       def inEnv(env: Env[E,V]) = {
         val let = arg.inEnv(env)
         in.inEnv(env.updated(name, let))
       }
     }
 
-    private def fromFn[T,E,V](fn: Env[E,V] => Eval[Value[V]]): Scoped[T,E,V] =
+    private def fromFn[E,V](fn: Env[E,V] => Eval[Value[V]]): Scoped[E,V] =
       FromFn(fn)
 
-    private case class FromFn[T,E,V](fn: Env[E,V] => Eval[Value[V]]) extends Scoped[T,E,V] {
+    private case class FromFn[T,E,V](fn: Env[E,V] => Eval[Value[V]]) extends Scoped[E,V] {
       def inEnv(env: Env[E,V]) = fn(env)
     }
   }
@@ -296,10 +292,9 @@ object Evaluation {
   case class UnitImplicits[T]() {
     implicit val tokenize: Value[Unit] => String = _ => ""
     implicit val emptyEnv: Env[Unit, Unit] = Env(Map(), ())
-    implicit val scopeTagFromTag: T => Unit = _ => ()
     implicit val updateEnv: (Env[Unit, Unit], Bindable, Eval[Value[Unit]]) => Env[Unit, Unit] = (env, name, ev) =>
       Env(env.map.updated(name, ev), env.tag)
-    implicit val valueTag: (Unit, Evaluation.Env[Unit, Unit]) => Unit = (_, _) => ()
+    implicit val valueTag: (T, Evaluation.Env[Unit, Unit]) => Unit = (_, _) => ()
     implicit val externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[Unit]]]) => Unit =
       (_, _) => (_, _) => ()
     implicit val tagForConstructor: (Int, List[Value[Unit]], Int) => Unit = (_, _, _) => ()
@@ -307,11 +302,10 @@ object Evaluation {
 
 }
 
-case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[V])(implicit
-  scopeTagFromTag: T => S,
+case class Evaluation[T, E, V](pm: PackageMap.Typed[T], externals: Externals[V])(implicit
   emptyEnv: Evaluation.Env[E,V],
   updateEnv: (Evaluation.Env[E,V], Bindable, Eval[Evaluation.Value[V]]) => Evaluation.Env[E,V],
-  valueTag: (S, Evaluation.Env[E,V]) => V,
+  valueTag: (T, Evaluation.Env[E,V]) => V,
   externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Evaluation.Value[V]]]) => V,
   tagForConstructor: (Int, List[Evaluation.Value[V]], Int) => V
 ) {
@@ -332,13 +326,13 @@ case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[
       scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
     } yield (scope.inEnv(emptyEnv), tpe)
 
-  def evaluateLets(p: PackageName): List[(Bindable, (Eval[Value[V]], Type, S))] =
+  def evaluateLets(p: PackageName): List[(Bindable, (Eval[Value[V]], Type, T))] =
     for {
       pack <- pm.toMap.get(p).toList
       (name, rec, expr) <- pack.program.lets
       (scope0, tpe) = eval((pack, Right(expr)))
       scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
-    } yield (name, (scope.inEnv(emptyEnv), tpe, scopeTagFromTag(expr.tag)))
+    } yield (name, (scope.inEnv(emptyEnv), tpe, expr.tag))
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
@@ -389,7 +383,7 @@ case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[
     tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
     p: Package.Typed[T],
-    recurse: ((Package.Typed[T], Ref)) => (Scoped[S,E,V], Type)): (Value[V], Env[E,V]) => Eval[Value[V]] = {
+    recurse: ((Package.Typed[T], Ref)) => (Scoped[E,V], Type)): (Value[V], Env[E,V]) => Eval[Value[V]] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
         Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
 
@@ -637,7 +631,7 @@ case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[
    */
   private def evalTypedExpr(p: Package.Typed[T],
     expr: TypedExpr[T],
-    recurse: ((Package.Typed[T], Ref)) => (Scoped[S,E,V], Type)): Scoped[S,E,V] = {
+    recurse: ((Package.Typed[T], Ref)) => (Scoped[E,V], Type)): Scoped[E,V] = {
 
     import TypedExpr._
 
@@ -667,7 +661,7 @@ case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[
          efn.applyArg(earg)
        case a@AnnotatedLambda(name, _, expr, _) =>
          val inner = recurse((p, Right(expr)))._1
-         inner.asLambda(name, scopeTagFromTag(a.tag))
+         inner.asLambda(name, a.tag)
        case Let(arg, e, in, rec, _) =>
          val e0 = recurse((p, Right(e)))._1
          val eres =
@@ -693,8 +687,8 @@ case class Evaluation[T, S, E, V](pm: PackageMap.Typed[T], externals: Externals[
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Typed[T], Ref)) => (Scoped[S,E,V], Type) =
-    Memoize.function[(Package.Typed[T], Ref), (Scoped[S,E,V], Type)] {
+  private[this] val eval: ((Package.Typed[T], Ref)) => (Scoped[E,V], Type) =
+    Memoize.function[(Package.Typed[T], Ref), (Scoped[E,V], Type)] {
       case ((pack, Right(expr)), recurse) =>
         (evalTypedExpr(pack, expr, recurse), expr.getType)
       case ((pack, Left(item)), recurse) =>
