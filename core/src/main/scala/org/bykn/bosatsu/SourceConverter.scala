@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.Functor
 import cats.data.{ NonEmptyList, State }
 import cats.implicits._
-import org.bykn.bosatsu.rankn.{Type, ParsedTypeEnv}
+import org.bykn.bosatsu.rankn.{ParsedTypeEnv, Type, TypeEnv}
 import scala.collection.mutable.{Map => MMap}
 
 import ListLang.{KVPair, SpliceOrItem}
@@ -36,6 +36,8 @@ final class SourceConverter(
 
   private val resolveImportedCons: Map[Identifier, (PackageName, Constructor)] =
     Referant.importedConsNames(imports)
+
+  val importedTypeEnv = Referant.importedTypeEnv(imports)(_.name)
 
   private def nameToType(c: Constructor): rankn.Type.Const =
     typeCache.getOrElseUpdate(c, {
@@ -566,7 +568,7 @@ final class SourceConverter(
     (bs.reverse, es.reverse)
   }
 
-  def toProgram(stmt: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] = {
+  def toProgram(stmt: Statement): Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], Statement] = {
 
     val (binds, exts) = toLets(stmt)
 
@@ -574,7 +576,7 @@ final class SourceConverter(
       pte.addExternalValue(thisPackage, name, tpe)
     }
 
-    Program(pte1, binds, exts.map(_._1), stmt)
+    Program((importedTypeEnv, pte1), binds, exts.map(_._1), stmt)
   }
 }
 
