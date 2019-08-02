@@ -27,7 +27,7 @@ class RankNInferTest extends FunSuite {
         Type.Const.Defined(PackageName.parts("Test"), TypeName(str))
     }
 
-  private val srcConv = new SourceConverter(
+  private val srcConv = SourceConverter.from(
     strToConst _,
     { c => (PackageName.parts("Test"), c) })
 

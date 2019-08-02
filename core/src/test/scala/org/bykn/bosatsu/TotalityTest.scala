@@ -29,7 +29,7 @@ class TotalityTest extends FunSuite {
   val consFn: Constructor => (PackageName, Constructor) =
     { cons => (Predef.packageName, cons) }
 
-  val srcConv = new SourceConverter(tpeFn, consFn)
+  val srcConv = SourceConverter.from(tpeFn, consFn)
   def parsedToExpr(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), Type] =
     srcConv.unTuplePattern(pat)
 

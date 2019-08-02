@@ -22,7 +22,7 @@ object TestUtils {
       { cons => (pack, cons) }
 
     val stmt = statementOf(pack, str)
-    val srcConv = new SourceConverter(tpeFn, consFn)
+    val srcConv = SourceConverter.from(tpeFn, consFn)
     val prog = srcConv.toProgram(Predef.packageName, stmt)
     TypeEnv.fromParsed(prog.types)
   }

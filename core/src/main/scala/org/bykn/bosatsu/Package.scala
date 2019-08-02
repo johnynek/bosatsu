@@ -5,11 +5,9 @@ import cats.data.{ValidatedNel, Validated, NonEmptyList}
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
-import scala.collection.mutable.{Map => MMap}
 import scala.util.hashing.MurmurHash3
 
 import rankn._
-import Identifier.Constructor
 import Parser.{spaces, maybeSpace, Combinators}
 
 import FixType.Fix
@@ -146,45 +144,10 @@ object Package {
       ValidatedNel[PackageError,
       Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]] = {
 
-    val importedTypes: Map[Identifier, (PackageName, TypeName)] =
-      Referant.importedTypes(imps)
-
     val Program(parsedTypeEnv, lets, extDefs, _) = {
-
-      val resolveImportedCons: Map[Identifier, (PackageName, Constructor)] =
-        Referant.importedConsNames(imps)
-
       // here we make a pass to get all the local names
       val localDefs = Statement.definitionsOf(stmt)
-
-      /*
-       * We should probably error for non-predef name collisions.
-       * Maybe we should even error even or predef collisions that
-       * are not renamed
-       */
-      val localTypeNames = localDefs.map(_.name).toSet
-      val localConstructors = localDefs.flatMap(_.constructors).toSet
-
-      val typeCache: MMap[Constructor, Type.Const] = MMap.empty
-      val consCache: MMap[Constructor, (PackageName, Constructor)] = MMap.empty
-
-      val srcConv = new SourceConverter(
-        { s =>
-          typeCache.getOrElseUpdate(s, {
-            val ts = TypeName(s)
-            val (p1, s1) =
-              if (localTypeNames(s)) (p, ts)
-              else importedTypes.getOrElse(s, (p, ts))
-            Type.Const.Defined(p1, s1)
-          })
-        }, // name to type
-        { s =>
-          consCache.getOrElseUpdate(s, {
-            if (localConstructors(s)) (p, s)
-            else resolveImportedCons.getOrElse(s, (p, s))
-          })
-        }) // name to cons
-
+      val srcConv = SourceConverter(p, imps, localDefs)
       srcConv.toProgram(p, stmt)
     }
 
