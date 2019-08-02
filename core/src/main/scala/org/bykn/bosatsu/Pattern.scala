@@ -17,18 +17,7 @@ sealed abstract class Pattern[+N, +T] {
     }
 
   def mapType[U](fn: T => U): Pattern[N, U] =
-    this match {
-      case Pattern.WildCard => Pattern.WildCard
-      case Pattern.Literal(lit) => Pattern.Literal(lit)
-      case Pattern.Var(v) => Pattern.Var(v)
-      case Pattern.Named(n, p) => Pattern.Named(n, p.mapType(fn))
-      case Pattern.ListPat(items) =>
-        Pattern.ListPat(items.map(_.map(_.mapType(fn))))
-      case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapType(fn), fn(tpe))
-      case Pattern.PositionalStruct(name, params) =>
-        Pattern.PositionalStruct(name, params.map(_.mapType(fn)))
-      case Pattern.Union(h, t) => Pattern.Union(h.mapType(fn), t.map(_.mapType(fn)))
-    }
+    (new Pattern.InvariantPattern(this)).traverseType[cats.Id, U](fn)
 
   /**
    * List all the names that are bound in Vars inside this pattern

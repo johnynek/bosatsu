@@ -16,10 +16,41 @@ import Declaration._
  * Convert a source types (a syntactic expression) into
  * the internal representations
  */
-sealed abstract class SourceConverter {
+final class SourceConverter(
+  thisPackage: PackageName,
+  imports: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
+  localDefs: Stream[TypeDefinitionStatement]) {
+  /*
+   * We should probably error for non-predef name collisions.
+   * Maybe we should even error even or predef collisions that
+   * are not renamed
+   */
+  private val localTypeNames = localDefs.map(_.name).toSet
+  private val localConstructors = localDefs.flatMap(_.constructors).toSet
 
-  def nameToType(c: Constructor): rankn.Type.Const
-  def nameToCons(c: Constructor): (PackageName, Constructor)
+  private val typeCache: MMap[Constructor, Type.Const] = MMap.empty
+  private val consCache: MMap[Constructor, (PackageName, Constructor)] = MMap.empty
+
+  private val importedTypes: Map[Identifier, (PackageName, TypeName)] =
+    Referant.importedTypes(imports)
+
+  private val resolveImportedCons: Map[Identifier, (PackageName, Constructor)] =
+    Referant.importedConsNames(imports)
+
+  private def nameToType(c: Constructor): rankn.Type.Const =
+    typeCache.getOrElseUpdate(c, {
+      val tc = TypeName(c)
+      val (p1, c1) =
+        if (localTypeNames(c)) (thisPackage, tc)
+        else importedTypes.getOrElse(c, (thisPackage, tc))
+      Type.Const.Defined(p1, c1)
+    })
+
+  private def nameToCons(c: Constructor): (PackageName, Constructor) =
+    consCache.getOrElseUpdate(c, {
+      if (localConstructors(c)) (thisPackage, c)
+      else resolveImportedCons.getOrElse(c, (thisPackage, c))
+    })
 
   final def apply(decl: Declaration): Expr[Declaration] =
     decl match {
@@ -257,30 +288,8 @@ sealed abstract class SourceConverter {
           sys.error("TODO: we need to have the ParsedTypeEnv for this and imports to translate to an Expr")
     }
 
-  final def toType(t: TypeRef): Type = {
-    import rankn.Type._
-    import TypeRef._
-
-    t match {
-      case TypeVar(v) => TyVar(Type.Var.Bound(v))
-      case TypeName(n) => TyConst(nameToType(n.ident))
-      case TypeArrow(a, b) => Fun(toType(a), toType(b))
-      case TypeApply(a, bs) =>
-        def toType1(fn: Type, args: NonEmptyList[TypeRef]): Type =
-          args match {
-            case NonEmptyList(a0, Nil) => TyApply(fn, toType(a0))
-            case NonEmptyList(a0, a1 :: as) => toType1(TyApply(fn, toType(a0)), NonEmptyList(a1, as))
-          }
-        toType1(toType(a), bs)
-      case TypeLambda(pars0, TypeLambda(pars1, e)) =>
-        // we normalize to lifting all the foralls to the outside
-        toType(TypeLambda(pars0 ::: pars1, e))
-      case TypeLambda(pars, e) =>
-        Type.forAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }.toList, toType(e))
-      case TypeTuple(ts) =>
-        Type.Tuple(ts.map(toType(_)))
-    }
-  }
+  private def toType(t: TypeRef): Type =
+    TypeRefConverter[cats.Id](t)(nameToType _)
 
   def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): rankn.DefinedType[Unit] = {
     import Statement._
@@ -406,7 +415,7 @@ sealed abstract class SourceConverter {
   /**
    * Tuples are converted into standard types using an HList strategy
    */
-  def unTuplePattern(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), rankn.Type] =
+  private def unTuplePattern(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), rankn.Type] =
     pat.mapStruct[(PackageName, Constructor)] {
       case (Pattern.StructKind.Tuple, args) =>
         // this is a tuple pattern
@@ -436,10 +445,10 @@ sealed abstract class SourceConverter {
     }
     .mapType(toType)
 
-  def toTypeEnv(pn0: PackageName, stmt: Statement): ParsedTypeEnv[Unit] =
-    Statement.definitionsOf(stmt)
+  private lazy val toTypeEnv: ParsedTypeEnv[Unit] =
+    localDefs
       .foldLeft(ParsedTypeEnv.empty[Unit]) { (te, d) =>
-        te.addDefinedType(toDefinition(pn0, d))
+        te.addDefinedType(toDefinition(thisPackage, d))
       }
 
   private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
@@ -557,13 +566,12 @@ sealed abstract class SourceConverter {
     (bs.reverse, es.reverse)
   }
 
-  def toProgram(pn0: PackageName, stmt: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] = {
+  def toProgram(stmt: Statement): Program[ParsedTypeEnv[Unit], Expr[Declaration], Statement] = {
 
-    val pte0 = toTypeEnv(pn0, stmt)
     val (binds, exts) = toLets(stmt)
 
-    val pte1 = exts.foldLeft(pte0) { case (pte, (name, tpe)) =>
-      pte.addExternalValue(pn0, name, tpe)
+    val pte1 = exts.foldLeft(toTypeEnv) { case (pte, (name, tpe)) =>
+      pte.addExternalValue(thisPackage, name, tpe)
     }
 
     Program(pte1, binds, exts.map(_._1), stmt)
@@ -576,43 +584,5 @@ object SourceConverter {
     thisPackage: PackageName,
     imports: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
     localDefs: Stream[TypeDefinitionStatement]): SourceConverter =
-    new SourceConverter {
-      /*
-       * We should probably error for non-predef name collisions.
-       * Maybe we should even error even or predef collisions that
-       * are not renamed
-       */
-      private val localTypeNames = localDefs.map(_.name).toSet
-      private val localConstructors = localDefs.flatMap(_.constructors).toSet
-
-      private val typeCache: MMap[Constructor, Type.Const] = MMap.empty
-      private val consCache: MMap[Constructor, (PackageName, Constructor)] = MMap.empty
-
-      private val importedTypes: Map[Identifier, (PackageName, TypeName)] =
-        Referant.importedTypes(imports)
-
-      private val resolveImportedCons: Map[Identifier, (PackageName, Constructor)] =
-        Referant.importedConsNames(imports)
-
-      def nameToType(c: Constructor): rankn.Type.Const =
-        typeCache.getOrElseUpdate(c, {
-          val tc = TypeName(c)
-          val (p1, c1) =
-            if (localTypeNames(c)) (thisPackage, tc)
-            else importedTypes.getOrElse(c, (thisPackage, tc))
-          Type.Const.Defined(p1, c1)
-        })
-
-      def nameToCons(c: Constructor): (PackageName, Constructor) =
-        consCache.getOrElseUpdate(c, {
-          if (localConstructors(c)) (thisPackage, c)
-          else resolveImportedCons.getOrElse(c, (thisPackage, c))
-        })
-    }
-
-  def from(ntt: Constructor => rankn.Type.Const, ntc: Constructor => (PackageName, Constructor)): SourceConverter =
-    new SourceConverter {
-      def nameToType(c: Constructor) = ntt(c)
-      def nameToCons(c: Constructor) = ntc(c)
-    }
+    new SourceConverter(thisPackage, imports, localDefs)
 }

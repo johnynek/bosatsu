@@ -428,10 +428,10 @@ object Generators {
     }
   }
 
-  def genCompiledPattern(depth: Int): Gen[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] =
+  def genCompiledPattern(depth: Int, useUnion: Boolean = true, useAnnotation: Boolean = true): Gen[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] =
     genPatternGen(
       { args: List[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] => Gen.zip(packageNameGen, consIdentGen) },
-      NTypeGen.genDepth03, depth, useUnion = true, useAnnotation = true)
+      NTypeGen.genDepth03, depth, useUnion = useUnion, useAnnotation = useAnnotation)
 
   def matchGen(bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
     import Declaration._

@@ -148,7 +148,7 @@ object Package {
       // here we make a pass to get all the local names
       val localDefs = Statement.definitionsOf(stmt)
       val srcConv = SourceConverter(p, imps, localDefs)
-      srcConv.toProgram(p, stmt)
+      srcConv.toProgram(stmt)
     }
 
     val importedTypeEnv = Referant.importedTypeEnv(imps)(_.name)

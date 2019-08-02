@@ -19,11 +19,9 @@ class TypeRefTest extends FunSuite {
 
   test("TypeRef -> Type -> TypeRef") {
     val pn = PackageName.parts("Test")
-    val srcConv = SourceConverter.from(
-      { c => Type.Const.Defined(pn, TypeName(c)) },
-      { c => (pn, c) })
+
     forAll(typeRefGen) { tr =>
-      val tpe = srcConv.toType(tr)
+      val tpe = TypeRefConverter[cats.Id](tr) { c => Type.Const.Defined(pn, TypeName(c)) }
       val tr1 = TypeRef.fromTypes(Some(pn), tpe :: Nil)(tpe)
       assert(tr1 == tr.normalizeForAll)
     }

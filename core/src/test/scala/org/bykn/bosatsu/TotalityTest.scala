@@ -23,23 +23,11 @@ class TotalityTest extends FunSuite {
     //PropertyCheckConfiguration(minSuccessful = 500000)
     PropertyCheckConfiguration(minSuccessful = 5000)
 
-  val tpeFn: Constructor => Type.Const =
-    { tpe => Type.Const.Defined(Predef.packageName, TypeName(tpe)) }
-
-  val consFn: Constructor => (PackageName, Constructor) =
-    { cons => (Predef.packageName, cons) }
-
-  val srcConv = SourceConverter.from(tpeFn, consFn)
-  def parsedToExpr(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), Type] =
-    srcConv.unTuplePattern(pat)
-
   val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
-    Generators.genPattern(5)
-      .map(parsedToExpr _)
+    Generators.genCompiledPattern(5, useAnnotation = false)
 
   val genPatternNoUnion: Gen[Pattern[(PackageName, Constructor), Type]] =
-    Generators.genPattern(5, useUnion = false)
-      .map(parsedToExpr _)
+    Generators.genCompiledPattern(5, useUnion = false, useAnnotation = false)
 
   def showPat(pat: Pattern[(PackageName, Constructor), Type]): String = {
     val allTypes = pat.traverseType { t => Writer(Chain.one(t), ()) }.run._1.toList
@@ -62,7 +50,44 @@ struct Unit
 struct TupleCons(fst, snd)
 """)
 
-  def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] =
+  def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] = {
+    val nameToCons: Constructor => (PackageName, Constructor) =
+      { cons => (Predef.packageName, cons) }
+
+    /**
+     * This is sufficient for these tests, but is not
+     * a full features pattern compiler.
+     */
+    def parsedToExpr(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), rankn.Type] =
+      pat.mapStruct[(PackageName, Constructor)] {
+        case (Pattern.StructKind.Tuple, args) =>
+          // this is a tuple pattern
+          def loop(args: List[Pattern[(PackageName, Constructor), TypeRef]]): Pattern[(PackageName, Constructor), TypeRef] =
+            args match {
+              case Nil =>
+                // ()
+                Pattern.PositionalStruct(
+                  (Predef.packageName, Constructor("Unit")),
+                  Nil)
+              case h :: tail =>
+                val tailP = loop(tail)
+                Pattern.PositionalStruct(
+                  (Predef.packageName, Constructor("TupleCons")),
+                  h :: tailP :: Nil)
+            }
+
+          loop(args)
+        case (Pattern.StructKind.Named(nm, _), args) =>
+          Pattern.PositionalStruct(nameToCons(nm), args)
+        case (Pattern.StructKind.NamedPartial(nm, _), args) =>
+          Pattern.PositionalStruct(nameToCons(nm), args)
+      }
+      .mapType { tref =>
+        TypeRefConverter[cats.Id](tref) { tpe =>
+          Type.Const.Defined(Predef.packageName, TypeName(tpe))
+        }
+      }
+
     Pattern.matchParser.listSyntax.parse(str) match {
       case Parsed.Success(pats, idx) =>
         pats.map(parsedToExpr _)
@@ -70,6 +95,7 @@ struct TupleCons(fst, snd)
         fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
         sys.error("could not produce TypeEnv")
     }
+  }
 
   def notTotal(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], testMissing: Boolean = true): Unit = {
     TotalityCheck(te).isTotal(pats) match {
