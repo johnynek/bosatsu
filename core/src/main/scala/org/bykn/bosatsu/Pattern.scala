@@ -144,19 +144,22 @@ object Pattern {
       }
   }
   object StructKind {
-    sealed abstract class Style {
-      def recordLikeFields: Option[NonEmptyList[Option[Bindable]]] =
-        this match {
-          case Style.TupleLike => None
-          case Style.RecordLike(fields) => Some(fields)
-        }
-    }
+    sealed abstract class Style
     object Style {
+      sealed abstract class FieldKind {
+        def field: Bindable
+      }
+      object FieldKind {
+        final case class Explicit(field: Bindable) extends FieldKind
+        // an implicit field can only be associated with a Var of
+        // the same name
+        final case class Implicit(field: Bindable) extends FieldKind
+      }
       final case object TupleLike extends Style
       // represents the fields like: Foo { bar: x, age }
       // the None means we expect the corresponding argument to
       // be a Var(_: Bindable)
-      final case class RecordLike(fields: NonEmptyList[Option[Bindable]]) extends Style
+      final case class RecordLike(fields: NonEmptyList[FieldKind]) extends Style
     }
     sealed abstract class NamedKind extends StructKind {
       def name: Constructor
@@ -412,9 +415,9 @@ object Pattern {
             val kvargs = Doc.intercalate(Doc.text(", "),
               fields.toList.zip(args)
                 .map {
-                  case (Some(n), adoc) =>
+                  case (StructKind.Style.FieldKind.Explicit(n), adoc) =>
                     identDoc.document(n) + cspace + adoc
-                  case (None, adoc) => adoc
+                  case (StructKind.Style.FieldKind.Implicit(_), adoc) => adoc
                 })
             prefix +
               Doc.text(" {") +
@@ -440,8 +443,8 @@ object Pattern {
     args: NonEmptyList[Either[Bindable, (Bindable, Parsed)]])(
       fn: (Constructor, StructKind.Style) => N): PositionalStruct[StructKind, TypeRef] = {
     val fields = args.map {
-      case Left(_) => None
-      case Right((b, _)) => Some(b)
+      case Left(b) => StructKind.Style.FieldKind.Implicit(b)
+      case Right((b, _)) => StructKind.Style.FieldKind.Explicit(b)
     }
     val structArgs = args.toList.map {
       case Left(b) => Pattern.Var(b)

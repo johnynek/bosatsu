@@ -144,14 +144,12 @@ object Package {
       ValidatedNel[PackageError,
       Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]] = {
 
-    val Program(parsedTypeEnv, lets, extDefs, _) = {
+    val Program((importedTypeEnv, parsedTypeEnv), lets, extDefs, _) = {
       // here we make a pass to get all the local names
       val localDefs = Statement.definitionsOf(stmt)
       val srcConv = SourceConverter(p, imps, localDefs)
       srcConv.toProgram(stmt)
     }
-
-    val importedTypeEnv = Referant.importedTypeEnv(imps)(_.name)
 
     val inferVarianceParsed: Either[PackageError, ParsedTypeEnv[Variance]] =
       VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes)

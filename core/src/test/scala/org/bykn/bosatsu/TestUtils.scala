@@ -24,7 +24,7 @@ object TestUtils {
     val stmt = statementOf(pack, str)
     val srcConv = SourceConverter(pack, Nil, Statement.definitionsOf(stmt))
     val prog = srcConv.toProgram(stmt)
-    TypeEnv.fromParsed(prog.types)
+    TypeEnv.fromParsed(prog.types._2)
   }
 
   def statementOf(pack: PackageName, str: String): Statement =
