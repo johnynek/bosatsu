@@ -233,27 +233,40 @@ object Pattern {
       }
 
     def mapStruct[N1](parts: (N, List[Pattern[N1, T]]) => Pattern[N1, T]): Pattern[N1, T] =
-      pat match {
-        case Pattern.WildCard => Pattern.WildCard
-        case Pattern.Literal(lit) => Pattern.Literal(lit)
-        case Pattern.Var(v) => Pattern.Var(v)
-        case Pattern.Named(v, p) => Pattern.Named(v, p.mapStruct(parts))
-        case Pattern.ListPat(items) =>
-          val items1 = items.map {
-            case ListPart.WildList => ListPart.WildList
-            case ListPart.NamedList(n) => ListPart.NamedList(n)
-            case ListPart.Item(p) =>
-              ListPart.Item(p.mapStruct(parts))
-          }
-          Pattern.ListPat(items1)
-        case Pattern.Annotation(p, tpe) =>
-          Pattern.Annotation(p.mapStruct(parts), tpe)
-        case Pattern.PositionalStruct(name, params) =>
-          val p1 = params.map(_.mapStruct(parts))
-          parts(name, p1)
-        case Pattern.Union(h, tail) =>
-          Pattern.Union(h.mapStruct(parts), tail.map(_.mapStruct(parts)))
-      }
+      traverseStruct[cats.Id, N1](parts)
+
+    def traverseStruct[F[_]: Applicative, N1](parts: (N, F[List[Pattern[N1, T]]]) => F[Pattern[N1, T]]): F[Pattern[N1, T]] = {
+      lazy val pwild: F[Pattern[N1, T]] = Applicative[F].pure(Pattern.WildCard)
+
+      def go(pat: Pattern[N, T]): F[Pattern[N1, T]] =
+        pat match {
+          case Pattern.WildCard => pwild
+          case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
+          case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
+          case Pattern.Named(v, p) =>
+            go(p).map(Pattern.Named(v, _))
+          case Pattern.ListPat(items) =>
+            type L = ListPart[Pattern[N1, T]]
+            val items1 = items.traverse {
+              case ListPart.WildList =>
+                Applicative[F].pure(ListPart.WildList: L)
+              case ListPart.NamedList(n) =>
+                Applicative[F].pure(ListPart.NamedList(n): L)
+              case ListPart.Item(p) =>
+                go(p).map(ListPart.Item(_): L)
+            }
+            items1.map(Pattern.ListPat(_))
+          case Pattern.Annotation(p, tpe) =>
+            go(p).map(Pattern.Annotation(_, tpe))
+          case Pattern.PositionalStruct(name, params) =>
+            val p1 = params.traverse(go(_))
+            parts(name, p1)
+          case Pattern.Union(h, tail) =>
+            (go(h), tail.traverse(go)).mapN(Pattern.Union(_, _))
+        }
+
+      go(pat)
+    }
   }
 
   case object WildCard extends Pattern[Nothing, Nothing]
