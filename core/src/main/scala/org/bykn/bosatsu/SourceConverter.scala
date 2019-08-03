@@ -58,7 +58,7 @@ final class SourceConverter(
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     })
 
-  final def apply(decl: Declaration): Expr[Declaration] =
+  private def apply(decl: Declaration): Expr[Declaration] =
     decl match {
       case Apply(fn, args, _) =>
         Expr.buildApp(apply(fn), args.toList.map(apply(_)), decl)
@@ -423,8 +423,8 @@ final class SourceConverter(
     a match {
       case Ior.Right(a) => a
       case Ior.Both(err, a) =>
-        System.err.println(s"ignored an error: $err")
-        a
+        // TODO: push result all the way to the top
+        throw err.head
       case Ior.Left(err) =>
         // TODO: push result all the way to the top
         throw err.head
@@ -584,7 +584,7 @@ final class SourceConverter(
   /**
    * Return the lets in order they appear
    */
-  def toLets(stmt: Statement): (List[(Bindable, RecursionKind, Expr[Declaration])], List[(Bindable, Type)]) = {
+  private def toLets(stmt: Statement): (List[(Bindable, RecursionKind, Expr[Declaration])], List[(Bindable, Type)]) = {
     import Statement._
 
     // Each time we need a name, we can call anonNames.next()
@@ -690,16 +690,20 @@ final class SourceConverter(
     (bs.reverse, es.reverse)
   }
 
-  def toProgram(stmt: Statement): Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], Statement] = {
+  def toProgram(stmt: Statement): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], Statement]] =
 
-    val (binds, exts) = toLets(stmt)
+    try {
+      val (binds, exts) = toLets(stmt)
 
-    val pte1 = exts.foldLeft(toTypeEnv) { case (pte, (name, tpe)) =>
-      pte.addExternalValue(thisPackage, name, tpe)
+      val pte1 = exts.foldLeft(toTypeEnv) { case (pte, (name, tpe)) =>
+        pte.addExternalValue(thisPackage, name, tpe)
+      }
+
+      SourceConverter.success(Program((importedTypeEnv, pte1), binds, exts.map(_._1), stmt))
     }
-
-    Program((importedTypeEnv, pte1), binds, exts.map(_._1), stmt)
-  }
+    catch {
+      case e: SourceConverter.Error => SourceConverter.failure(e)
+    }
 }
 
 object SourceConverter {

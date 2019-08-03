@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
-import cats.Functor
-import cats.data.{ValidatedNel, Validated, NonEmptyList}
+import cats.{Functor, Semigroup}
+import cats.data.{Ior, ValidatedNel, Validated, NonEmptyList}
 import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
@@ -144,76 +144,82 @@ object Package {
       ValidatedNel[PackageError,
       Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]] = {
 
-    val Program((importedTypeEnv, parsedTypeEnv), lets, extDefs, _) = {
-      // here we make a pass to get all the local names
-      val localDefs = Statement.definitionsOf(stmt)
-      val srcConv = SourceConverter(p, imps, localDefs)
-      try {
-        srcConv.toProgram(stmt)
-      }
-      catch {
-        case err: SourceConverter.Error =>
-          // TODO, make toProgram return an Ior
-          return Validated.invalidNel(PackageError.SourceConverterErrorIn(err, p))
-      }
-    }
+    // here we make a pass to get all the local names
+    val localDefs = Statement.definitionsOf(stmt)
+    val optProg = SourceConverter(p, imps, localDefs)
+      .toProgram(stmt)
+      .leftMap(_.map(PackageError.SourceConverterErrorIn(_, p): PackageError).toNonEmptyList)
 
-    val inferVarianceParsed: Either[PackageError, ParsedTypeEnv[Variance]] =
-      VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
-        .map { infDTs => ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs) }
-        .leftMap(PackageError.VarianceInferenceFailure(p, _))
-
-    inferVarianceParsed.toValidatedNel.andThen { parsedTypeEnv =>
-      /*
-       * Check that the types defined here are not circular.
-       */
-      val circularCheck: ValidatedNel[PackageError, Unit] =
-        TypeRecursionCheck.checkLegitRecursion(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
-          .leftMap { badPaths =>
-            badPaths.map(PackageError.CircularType(p, _))
+    def andThen[A: Semigroup, B, C](ior: Ior[A, B])(fn: B => Validated[A, C]): Validated[A, C] =
+      ior match {
+        case Ior.Right(b) => fn(b)
+        case Ior.Left(a) => Validated.Invalid(a)
+        case Ior.Both(a, b) =>
+          fn(b) match {
+            case Validated.Valid(_) => Validated.Invalid(a)
+            case Validated.Invalid(a1) => Validated.Invalid(Semigroup[A].combine(a, a1))
           }
-      /*
-       * Check that all recursion is allowable
-       */
-      val defRecursionCheck: ValidatedNel[PackageError, Unit] =
-        DefRecursionCheck.checkStatement(stmt)
-          .leftMap { badRecursions =>
-            badRecursions.map(PackageError.RecursionError(p, _))
-          }
+      }
 
-      val typeEnv = TypeEnv.fromParsed(parsedTypeEnv)
-      /*
-      * These are values, including all constructor functions
-      * that have been imported, this includes local external
-      * defs
-      */
-      val importedValues: Map[Identifier, Type] =
-        Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
+    andThen(optProg) {
+      case Program((importedTypeEnv, parsedTypeEnv), lets, extDefs, _) =>
+        val inferVarianceParsed: Either[PackageError, ParsedTypeEnv[Variance]] =
+          VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
+            .map { infDTs => ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs) }
+            .leftMap(PackageError.VarianceInferenceFailure(p, _))
 
-      val withFQN: Map[(Option[PackageName], Identifier), Type] =
-        (Referant.fullyQualifiedImportedValues(imps)(_.name)
-          .iterator
-          .map { case ((p, n), t) => ((Some(p), n), t) } ++
-            importedValues.iterator.map { case (n, t) => ((None, n), t) }
-          ).toMap
+        inferVarianceParsed.toValidatedNel.andThen { parsedTypeEnv =>
+          /*
+           * Check that the types defined here are not circular.
+           */
+          val circularCheck: ValidatedNel[PackageError, Unit] =
+            TypeRecursionCheck.checkLegitRecursion(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
+              .leftMap { badPaths =>
+                badPaths.map(PackageError.CircularType(p, _))
+              }
+          /*
+           * Check that all recursion is allowable
+           */
+          val defRecursionCheck: ValidatedNel[PackageError, Unit] =
+            DefRecursionCheck.checkStatement(stmt)
+              .leftMap { badRecursions =>
+                badRecursions.map(PackageError.RecursionError(p, _))
+              }
 
-      val fullTypeEnv = importedTypeEnv ++ typeEnv
-      val totalityCheck =
-        lets
-          .traverse { case (_, _, expr) => TotalityCheck(fullTypeEnv).checkExpr(expr) }
-          .leftMap { errs => errs.map(PackageError.TotalityCheckError(p, _)) }
+          val typeEnv = TypeEnv.fromParsed(parsedTypeEnv)
+          /*
+          * These are values, including all constructor functions
+          * that have been imported, this includes local external
+          * defs
+          */
+          val importedValues: Map[Identifier, Type] =
+            Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
 
-      val inferenceEither = Infer.typeCheckLets(lets)
-        .runFully(withFQN,
-          Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
-        )
-        .map { lets => Program(typeEnv, lets, extDefs, stmt) }
-        .left
-        .map(PackageError.TypeErrorIn(_, p))
+          val withFQN: Map[(Option[PackageName], Identifier), Type] =
+            (Referant.fullyQualifiedImportedValues(imps)(_.name)
+              .iterator
+              .map { case ((p, n), t) => ((Some(p), n), t) } ++
+                importedValues.iterator.map { case (n, t) => ((None, n), t) }
+              ).toMap
 
-      val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
+          val fullTypeEnv = importedTypeEnv ++ typeEnv
+          val totalityCheck =
+            lets
+              .traverse { case (_, _, expr) => TotalityCheck(fullTypeEnv).checkExpr(expr) }
+              .leftMap { errs => errs.map(PackageError.TotalityCheckError(p, _)) }
 
-      defRecursionCheck *> circularCheck *> totalityCheck *> inference
+          val inferenceEither = Infer.typeCheckLets(lets)
+            .runFully(withFQN,
+              Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
+            )
+            .map { lets => Program(typeEnv, lets, extDefs, stmt) }
+            .left
+            .map(PackageError.TypeErrorIn(_, p))
+
+          val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
+
+          defRecursionCheck *> circularCheck *> totalityCheck *> inference
+        }
     }
   }
 }

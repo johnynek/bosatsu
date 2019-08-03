@@ -1412,40 +1412,6 @@ tests = Test("reordering",
   }
 
   test("record patterns") {
-    // TODO:
-    // below we exposed a serious bug in evaluation.
-    // if we make a closure over a top-level let binding and match on it
-    // like:
-    // a = 42
-    // f2 = match a:
-    //   11: 10000
-    //   x: x
-    // we should expect f2 is 42, but
-    // if we do eq_Int(f2, 11) this winds up
-    // creating internal lambdas: (\a -> eq_Int(f2, a))(11)
-    // which overwrites the environment for f2.
-    //
-    // I'm not 100% what is going on, but I think the problem
-    // is f2 is not carrying with it the fact that a is its environment
-    // so when it is evaluated in the context of \a -> ... the value
-    // for a overwrites.
-    // I think this is due to the way we handle falling back to
-    // the top level...
-    // runBosatsuTest(
-    //   List("""
-// package A
-
-// a = 42
-// f2 = match a:
-  // 11: 12
-  // x: x
-
-// tests = Test("test record",
-  // [
-    // Assertion(f2.eq_Int(11), "f2 == 42"),
-  // ])
-// """), "A", 1)
-
     runBosatsuTest(
       List("""
 package A
@@ -1460,5 +1426,92 @@ tests = Test("test record",
     Assertion(f2.eq_Int(1), "f2 == 1"),
   ])
 """), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+def res:
+  Pair { first, ... } = Pair(1, 2)
+  first
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair { first, ...} -> first
+
+res = get(Pair(1, "two"))
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair { first: f, ...} -> f
+
+res = get(Pair(1, "two"))
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+res = get(Pair(1, "two"))
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair { first } -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case PackageError.SourceConverterErrorIn(_, _) => () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair has two fields
+get = \Pair(first) -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case PackageError.SourceConverterErrorIn(_, _) => () }
   }
 }
