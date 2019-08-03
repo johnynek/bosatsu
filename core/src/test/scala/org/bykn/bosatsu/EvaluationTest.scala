@@ -1220,8 +1220,8 @@ struct X
 
 main = match 1:
   X1: 0
-"""), "B") { case te@PackageError.TypeErrorIn(_, _) =>
-      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package B, unknown constructor X1, nearest: X\nRegion(44,45)")
+"""), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package B, unknown constructor X1\nRegion(44,45)")
       ()
     }
 
@@ -1409,5 +1409,56 @@ tests = Test("reordering",
   ]
 )
 """), "RecordSet/Library", 1)
+  }
+
+  test("record patterns") {
+    // TODO:
+    // below we exposed a serious bug in evaluation.
+    // if we make a closure over a top-level let binding and match on it
+    // like:
+    // a = 42
+    // f2 = match a:
+    //   11: 10000
+    //   x: x
+    // we should expect f2 is 42, but
+    // if we do eq_Int(f2, 11) this winds up
+    // creating internal lambdas: (\a -> eq_Int(f2, a))(11)
+    // which overwrites the environment for f2.
+    //
+    // I'm not 100% what is going on, but I think the problem
+    // is f2 is not carrying with it the fact that a is its environment
+    // so when it is evaluated in the context of \a -> ... the value
+    // for a overwrites.
+    // I think this is due to the way we handle falling back to
+    // the top level...
+    // runBosatsuTest(
+    //   List("""
+// package A
+
+// a = 42
+// f2 = match a:
+  // 11: 12
+  // x: x
+
+// tests = Test("test record",
+  // [
+    // Assertion(f2.eq_Int(11), "f2 == 42"),
+  // ])
+// """), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+f2 = match Pair(1, "1"):
+  Pair { first, ... }: first
+
+tests = Test("test record",
+  [
+    Assertion(f2.eq_Int(1), "f2 == 1"),
+  ])
+"""), "A", 1)
   }
 }

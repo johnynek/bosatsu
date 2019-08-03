@@ -148,7 +148,14 @@ object Package {
       // here we make a pass to get all the local names
       val localDefs = Statement.definitionsOf(stmt)
       val srcConv = SourceConverter(p, imps, localDefs)
-      srcConv.toProgram(stmt)
+      try {
+        srcConv.toProgram(stmt)
+      }
+      catch {
+        case err: SourceConverter.Error =>
+          // TODO, make toProgram return an Ior
+          return Validated.invalidNel(PackageError.SourceConverterErrorIn(err, p))
+      }
     }
 
     val inferVarianceParsed: Either[PackageError, ParsedTypeEnv[Variance]] =

@@ -70,6 +70,7 @@ object TestUtils {
   def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals = Externals.empty) = {
     def inferredHandler(packMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
       val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
+      //if (mainPackS == "A") println(ev.repr)
       ev.evaluateLast(mainPack) match {
         case None => fail("found no main expression")
         case Some((eval, schm)) =>
