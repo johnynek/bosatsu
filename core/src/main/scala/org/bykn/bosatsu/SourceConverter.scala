@@ -364,7 +364,10 @@ final class SourceConverter(
         val typeParams0 = typeVars.reverseMap { tv =>
           tv.toVar match {
             case b@Type.Var.Bound(_) => b
-            case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+            // $COVERAGE-OFF$ this should be unreachable
+            case unexpected =>
+              sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+            // $COVERAGE-ON$
           }
         }
 
@@ -399,7 +402,9 @@ final class SourceConverter(
         val typeParams0 = typeVars.reverseMap { tv =>
           tv.toVar match {
             case b@Type.Var.Bound(_) => b
+            // $COVERAGE-OFF$ this should be unreachable
             case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+            // $COVERAGE-ON$
           }
         }
         val typeParams = updateInferedWithDecl(typeArgs, typeParams0)

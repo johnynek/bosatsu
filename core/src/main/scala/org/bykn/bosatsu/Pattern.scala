@@ -157,8 +157,6 @@ object Pattern {
       }
       final case object TupleLike extends Style
       // represents the fields like: Foo { bar: x, age }
-      // the None means we expect the corresponding argument to
-      // be a Var(_: Bindable)
       final case class RecordLike(fields: NonEmptyList[FieldKind]) extends Style
     }
     sealed abstract class NamedKind extends StructKind {

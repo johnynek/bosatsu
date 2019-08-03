@@ -6,7 +6,6 @@ import com.stripe.dagon.Memoize
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type}
 import scala.collection.immutable.SortedMap
-import org.typelevel.paiges.Doc
 
 import cats.implicits._
 
@@ -293,6 +292,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
     } yield (scope.inEnv(Map.empty), tpe)
 
+  /* TODO: this is useful for debugging, but we should probably test it and write a parser for the
+   * list syntax
+
   def repr: String = {
     val packs = pm.toMap.map { case (_, pack) =>
       Doc.text(s"(package ${pack.name.asString}") +
@@ -305,6 +307,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
     Doc.intercalate(Doc.lineOrSpace, packs).render(80)
   }
+
+  */
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>

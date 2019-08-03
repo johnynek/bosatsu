@@ -120,6 +120,8 @@ class RankNInferTest extends FunSuite {
         case good =>
           good
       }
+      // make sure we can render repr:
+      val rendered = te.repr
       val tp = te.getType
       lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
       assert(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")

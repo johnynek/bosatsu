@@ -45,6 +45,8 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         branches.head._2.getType
     }
 
+  // TODO: we need to make sure this parsable and maybe have a mode that has the compiler
+  // emit these
   def repr: String = {
     def rept(t: Type): String =
       TypeRef.fromTypes(None, t :: Nil)(t).toDoc.renderWideStream.mkString

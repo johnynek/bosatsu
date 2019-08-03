@@ -1500,7 +1500,7 @@ struct Pair(first, second)
 get = \Pair { first } -> first
 
 res = get(Pair(1, "two"))
-"""), "B") { case PackageError.SourceConverterErrorIn(_, _) => () }
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
 
     evalFail(
       List("""
@@ -1512,6 +1512,54 @@ struct Pair(first, second)
 get = \Pair(first) -> first
 
 res = get(Pair(1, "two"))
-"""), "B") { case PackageError.SourceConverterErrorIn(_, _) => () }
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair does not have a field called sec
+get = \Pair { first, sec: _ } -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair does not have a field called sec
+get = \Pair { first, sec: _, ... } -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair has two fields, not three
+get = \Pair(first, _, _) -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair has two fields, not three
+get = \Pair(first, _, _, ...) -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
   }
 }
