@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import Parser.{ Combinators, maybeSpace, spaces }
+import cats.Applicative
 import cats.data.NonEmptyList
 import cats.implicits._
 import fastparse.all._
@@ -16,23 +17,30 @@ case class DefStatement[A, B](
 
   /**
    * This ignores the name completely and just returns the lambda expression here
-   *
-   * This could be a traversal: TypeRef => F[rankn.Type] for an Applicative F[_]
    */
-  def toLambdaExpr[C](resultExpr: B => Expr[C],
-    tag: C)(argFn: A => Pattern[(PackageName, Constructor), rankn.Type], trFn: TypeRef => rankn.Type): Expr[C] = {
+  def toLambdaExprF[F[_]: Applicative, C](resultExpr: B => F[Expr[C]],
+    tag: F[C])(argFn: A => F[Pattern[(PackageName, Constructor), rankn.Type]], trFn: TypeRef => F[rankn.Type]): F[Expr[C]] = {
     val unTypedBody = resultExpr(result)
     val bodyExp =
       retType.fold(unTypedBody) { t =>
-        Expr.Annotation(unTypedBody, trFn(t), tag)
+        (unTypedBody, trFn(t), tag).mapN(Expr.Annotation(_, _, _))
       }
     NonEmptyList.fromList(args) match {
       case None => bodyExp
       case Some(neargs) =>
-        val mappedArgs = neargs.map(argFn)
-        Expr.buildPatternLambda(mappedArgs, bodyExp, tag)
+        (neargs.traverse(argFn), bodyExp, tag).mapN { (as, b, t) =>
+          Expr.buildPatternLambda(as, b, t)
+        }
     }
   }
+
+  /**
+   * This ignores the name completely and just returns the lambda expression here
+   */
+  def toLambdaExpr[C](resultExpr: B => Expr[C],
+    tag: C)(argFn: A => Pattern[(PackageName, Constructor), rankn.Type],
+    trFn: TypeRef => rankn.Type): Expr[C] =
+    toLambdaExprF[cats.Id, C](resultExpr, tag)(argFn, trFn)
 }
 
 object DefStatement {
