@@ -225,23 +225,24 @@ final class SourceConverter(
                 "flat_map_List"
             }
             val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name(opName), l)
-            val resR = apply(res.value)
             val resExpr: Result[Expr[Declaration]] =
               filter match {
-                case None => resR
+                case None => apply(res.value)
                 case Some(cond) =>
+                  // To do filters, we lift all results into lists,
+                  // so single items must be made singleton lists
                   val empty: Expr[Declaration] =
                     Expr.Var(pn, Identifier.Constructor("EmptyList"), cond)
-                  // we need theReturn
                   val ressing = res match {
                     case SpliceOrItem.Item(r) =>
-                      resR.map { ritem =>
+                      // here we lift the result into a a singleton list
+                      apply(r).map { ritem =>
                         Expr.App(
                           Expr.App(Expr.Var(pn, Identifier.Constructor("NonEmptyList"), r), ritem, r),
                           empty,
                           r)
                       }
-                    case SpliceOrItem.Splice(_) => resR
+                    case SpliceOrItem.Splice(r) => apply(r)
                   }
 
                   (apply(cond), ressing).mapN { (c, sing) =>
