@@ -22,19 +22,12 @@ object TestUtils {
       { cons => (pack, cons) }
 
     val stmt = statementOf(pack, str)
-    val srcConv = new SourceConverter(tpeFn, consFn)
-    val prog = srcConv.toProgram(Predef.packageName, stmt)
-    TypeEnv.fromParsed(prog.types)
+    val srcConv = SourceConverter(pack, Nil, Statement.definitionsOf(stmt))
+    val cats.data.Ior.Right(prog) = srcConv.toProgram(stmt)
+    TypeEnv.fromParsed(prog.types._2)
   }
 
-  def statementOf(pack: PackageName, str: String): Statement = {
-
-    val tpeFn: Identifier.Constructor => Type.Const =
-      { tpe => Type.Const.Defined(pack, TypeName(tpe)) }
-
-    val consFn: Identifier.Constructor => (PackageName, Identifier.Constructor) =
-      { cons => (pack, cons) }
-
+  def statementOf(pack: PackageName, str: String): Statement =
     Statement.parser.parse(str) match {
       case Parsed.Success(stmt, idx) =>
         assert(idx == str.length)
@@ -42,7 +35,6 @@ object TestUtils {
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
-  }
 
   def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion =
     Statement.parser.parse(statement) match {
@@ -78,6 +70,7 @@ object TestUtils {
   def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals = Externals.empty) = {
     def inferredHandler(packMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
       val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
+      //if (mainPackS == "A") println(ev.repr)
       ev.evaluateLast(mainPack) match {
         case None => fail("found no main expression")
         case Some((eval, schm)) =>

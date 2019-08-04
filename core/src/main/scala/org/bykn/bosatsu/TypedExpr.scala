@@ -45,6 +45,8 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         branches.head._2.getType
     }
 
+  // TODO: we need to make sure this parsable and maybe have a mode that has the compiler
+  // emit these
   def repr: String = {
     def rept(t: Type): String =
       TypeRef.fromTypes(None, t :: Nil)(t).toDoc.renderWideStream.mkString
@@ -56,9 +58,9 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Annotation(expr, tpe, _) =>
         s"(ann ${rept(tpe)} ${expr.repr})"
       case a@AnnotatedLambda(arg, tpe, res, _) =>
-        s"(lambda $arg ${rept(tpe)} ${res.repr})"
+        s"(lambda ${arg.asString} ${rept(tpe)} ${res.repr})"
       case Var(p, v, tpe, _) =>
-        s"(var $p $v ${rept(tpe)})"
+        s"(var $p ${v.asString} ${rept(tpe)})"
       case App(fn, arg, tpe, _) =>
         s"(ap ${fn.repr} ${arg.repr} ${rept(tpe)})"
       case Let(n, b, in, rec, _) =>

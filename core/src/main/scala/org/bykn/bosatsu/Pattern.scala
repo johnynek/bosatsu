@@ -17,18 +17,7 @@ sealed abstract class Pattern[+N, +T] {
     }
 
   def mapType[U](fn: T => U): Pattern[N, U] =
-    this match {
-      case Pattern.WildCard => Pattern.WildCard
-      case Pattern.Literal(lit) => Pattern.Literal(lit)
-      case Pattern.Var(v) => Pattern.Var(v)
-      case Pattern.Named(n, p) => Pattern.Named(n, p.mapType(fn))
-      case Pattern.ListPat(items) =>
-        Pattern.ListPat(items.map(_.map(_.mapType(fn))))
-      case Pattern.Annotation(p, tpe) => Pattern.Annotation(p.mapType(fn), fn(tpe))
-      case Pattern.PositionalStruct(name, params) =>
-        Pattern.PositionalStruct(name, params.map(_.mapType(fn)))
-      case Pattern.Union(h, t) => Pattern.Union(h.mapType(fn), t.map(_.mapType(fn)))
-    }
+    (new Pattern.InvariantPattern(this)).traverseType[cats.Id, U](fn)
 
   /**
    * List all the names that are bound in Vars inside this pattern
@@ -155,19 +144,20 @@ object Pattern {
       }
   }
   object StructKind {
-    sealed abstract class Style {
-      def recordLikeFields: Option[NonEmptyList[Option[Bindable]]] =
-        this match {
-          case Style.TupleLike => None
-          case Style.RecordLike(fields) => Some(fields)
-        }
-    }
+    sealed abstract class Style
     object Style {
+      sealed abstract class FieldKind {
+        def field: Bindable
+      }
+      object FieldKind {
+        final case class Explicit(field: Bindable) extends FieldKind
+        // an implicit field can only be associated with a Var of
+        // the same name
+        final case class Implicit(field: Bindable) extends FieldKind
+      }
       final case object TupleLike extends Style
       // represents the fields like: Foo { bar: x, age }
-      // the None means we expect the corresponding argument to
-      // be a Var(_: Bindable)
-      final case class RecordLike(fields: NonEmptyList[Option[Bindable]]) extends Style
+      final case class RecordLike(fields: NonEmptyList[FieldKind]) extends Style
     }
     sealed abstract class NamedKind extends StructKind {
       def name: Constructor
@@ -244,27 +234,40 @@ object Pattern {
       }
 
     def mapStruct[N1](parts: (N, List[Pattern[N1, T]]) => Pattern[N1, T]): Pattern[N1, T] =
-      pat match {
-        case Pattern.WildCard => Pattern.WildCard
-        case Pattern.Literal(lit) => Pattern.Literal(lit)
-        case Pattern.Var(v) => Pattern.Var(v)
-        case Pattern.Named(v, p) => Pattern.Named(v, p.mapStruct(parts))
-        case Pattern.ListPat(items) =>
-          val items1 = items.map {
-            case ListPart.WildList => ListPart.WildList
-            case ListPart.NamedList(n) => ListPart.NamedList(n)
-            case ListPart.Item(p) =>
-              ListPart.Item(p.mapStruct(parts))
-          }
-          Pattern.ListPat(items1)
-        case Pattern.Annotation(p, tpe) =>
-          Pattern.Annotation(p.mapStruct(parts), tpe)
-        case Pattern.PositionalStruct(name, params) =>
-          val p1 = params.map(_.mapStruct(parts))
-          parts(name, p1)
-        case Pattern.Union(h, tail) =>
-          Pattern.Union(h.mapStruct(parts), tail.map(_.mapStruct(parts)))
-      }
+      traverseStruct[cats.Id, N1](parts)
+
+    def traverseStruct[F[_]: Applicative, N1](parts: (N, F[List[Pattern[N1, T]]]) => F[Pattern[N1, T]]): F[Pattern[N1, T]] = {
+      lazy val pwild: F[Pattern[N1, T]] = Applicative[F].pure(Pattern.WildCard)
+
+      def go(pat: Pattern[N, T]): F[Pattern[N1, T]] =
+        pat match {
+          case Pattern.WildCard => pwild
+          case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
+          case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
+          case Pattern.Named(v, p) =>
+            go(p).map(Pattern.Named(v, _))
+          case Pattern.ListPat(items) =>
+            type L = ListPart[Pattern[N1, T]]
+            val items1 = items.traverse {
+              case ListPart.WildList =>
+                Applicative[F].pure(ListPart.WildList: L)
+              case ListPart.NamedList(n) =>
+                Applicative[F].pure(ListPart.NamedList(n): L)
+              case ListPart.Item(p) =>
+                go(p).map(ListPart.Item(_): L)
+            }
+            items1.map(Pattern.ListPat(_))
+          case Pattern.Annotation(p, tpe) =>
+            go(p).map(Pattern.Annotation(_, tpe))
+          case Pattern.PositionalStruct(name, params) =>
+            val p1 = params.traverse(go(_))
+            parts(name, p1)
+          case Pattern.Union(h, tail) =>
+            (go(h), tail.traverse(go)).mapN(Pattern.Union(_, _))
+        }
+
+      go(pat)
+    }
   }
 
   case object WildCard extends Pattern[Nothing, Nothing]
@@ -410,9 +413,9 @@ object Pattern {
             val kvargs = Doc.intercalate(Doc.text(", "),
               fields.toList.zip(args)
                 .map {
-                  case (Some(n), adoc) =>
+                  case (StructKind.Style.FieldKind.Explicit(n), adoc) =>
                     identDoc.document(n) + cspace + adoc
-                  case (None, adoc) => adoc
+                  case (StructKind.Style.FieldKind.Implicit(_), adoc) => adoc
                 })
             prefix +
               Doc.text(" {") +
@@ -438,8 +441,8 @@ object Pattern {
     args: NonEmptyList[Either[Bindable, (Bindable, Parsed)]])(
       fn: (Constructor, StructKind.Style) => N): PositionalStruct[StructKind, TypeRef] = {
     val fields = args.map {
-      case Left(_) => None
-      case Right((b, _)) => Some(b)
+      case Left(b) => StructKind.Style.FieldKind.Implicit(b)
+      case Right((b, _)) => StructKind.Style.FieldKind.Explicit(b)
     }
     val structArgs = args.toList.map {
       case Left(b) => Pattern.Var(b)

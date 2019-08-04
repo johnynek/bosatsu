@@ -196,7 +196,7 @@ object Evaluation {
     def letNameIn(name: Bindable, in: Scoped): Scoped =
       Scoped.Let(name, this, in)
 
-    def flatMap(fn: (Env, Value) => Eval[Value]): Scoped =
+    def branch(fn: (Env, Value) => Eval[Value]): Scoped =
       fromFn { env =>
         inEnv(env).flatMap { v =>
           fn(env, v)
@@ -291,6 +291,24 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       (scope0, tpe) = eval((pack, Right(expr)))
       scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
     } yield (scope.inEnv(Map.empty), tpe)
+
+  /* TODO: this is useful for debugging, but we should probably test it and write a parser for the
+   * list syntax
+
+  def repr: String = {
+    val packs = pm.toMap.map { case (_, pack) =>
+      Doc.text(s"(package ${pack.name.asString}") +
+        (Doc.lineOrSpace + Doc.intercalate(Doc.lineOrSpace,
+          pack.program.lets.map { case (b, _, te) =>
+            Doc.text(s"(let ${b.asString}") +
+              (Doc.lineOrSpace + Doc.text(te.repr) + Doc.text(")")).nested(2)
+          })).nested(2) + Doc.char(')')
+    }
+
+    Doc.intercalate(Doc.lineOrSpace, packs).render(80)
+  }
+
+  */
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
@@ -512,7 +530,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                   case other =>
                     // $COVERAGE-OFF$this should be unreachable
                     val ts = TypeRef.fromTypes(Some(p.name), tpe :: Nil)(tpe).toDoc.render(80)
-                    sys.error(s"ill typed in match (${ctor.asString}${items.mkString}): $ts\n\n$other")
+                    val itemStr = items.mkString("(", ", ", ")")
+                    sys.error(s"ill typed in match (${ctor.asString}$itemStr: $ts\n\n$other\n\nenv: $acc")
                     // $COVERAGE-ON$
                 }
               }
@@ -546,19 +565,12 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             // $COVERAGE-ON$
           case (p, e) :: tail =>
             val pfn = maybeBind(p)
-
-            val fnh = { (arg: Value, env: Env) =>
-              pfn(arg, env) match {
-                case None => None
-                case Some(env) => Some((env, e))
-              }
-            }
             val fntail = bindEnv(tail)
 
-            { (arg, acc) =>
-              fnh(arg, acc) match {
-                case None => fntail(arg, acc)
-                case Some(r) => r
+            { (arg, env) =>
+              pfn(arg, env) match {
+                case None => fntail(arg, env)
+                case Some(env) => (env, e)
               }
             }
         }
@@ -601,7 +613,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          }
        case Var(Some(p), ident, _, _) =>
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
-         val (scoped, _) = eval((pack, Left(ident)))
+         val (scoped, _) = recurse((pack, Left(ident)))
          scoped
        case App(AnnotatedLambda(name, _, fn, _), arg, _, _) =>
          val argE = recurse((p, Right(arg)))._1
@@ -613,7 +625,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          val earg = recurse((p, Right(arg)))._1
 
          efn.applyArg(earg)
-       case a@AnnotatedLambda(name, _, expr, _) =>
+       case AnnotatedLambda(name, _, expr, _) =>
          val inner = recurse((p, Right(expr)))._1
          inner.asLambda(name)
        case Let(arg, e, in, rec, _) =>
@@ -631,7 +643,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          val argR = recurse((p, Right(arg)))._1
          val branchR = evalBranch(arg.getType, branches, p, recurse)
 
-         argR.flatMap { (env, a) =>
+         argR.branch { (env, a) =>
            branchR(a, env)
          }
     }

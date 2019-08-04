@@ -501,6 +501,23 @@ object PackageError {
     }
   }
 
+  case class SourceConverterErrorIn(err: SourceConverter.Error, pack: PackageName) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
+      val (lm, sourceName) = sourceMap.get(pack) match {
+        case None => (LocationMap(""), "<unknown source>")
+        case Some(found) => found
+      }
+
+      val msg = {
+        val context =
+          lm.showRegion(err.region).getOrElse(err.region.toString) // we should highlight the whole region
+
+        err.message + "\n" + context
+      }
+      s"in file: $sourceName, package ${pack.asString}, $msg"
+    }
+  }
+
   case class TotalityCheckError(pack: PackageName, err: TotalityCheck.ExprError[Declaration]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)]) = {
       val (lm, sourceName) = sourceMap.get(pack) match {

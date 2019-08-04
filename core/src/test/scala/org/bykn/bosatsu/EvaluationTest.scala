@@ -1220,8 +1220,8 @@ struct X
 
 main = match 1:
   X1: 0
-"""), "B") { case te@PackageError.TypeErrorIn(_, _) =>
-      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package B, unknown constructor X1, nearest: X\nRegion(44,45)")
+"""), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package B, unknown constructor X1\nRegion(44,45)")
       ()
     }
 
@@ -1409,5 +1409,157 @@ tests = Test("reordering",
   ]
 )
 """), "RecordSet/Library", 1)
+  }
+
+  test("record patterns") {
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+f2 = match Pair(1, "1"):
+  Pair { first, ... }: first
+
+tests = Test("test record",
+  [
+    Assertion(f2.eq_Int(1), "f2 == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+def res:
+  Pair { first, ... } = Pair(1, 2)
+  first
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair { first, ...} -> first
+
+res = get(Pair(1, "two"))
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair { first: f, ...} -> f
+
+res = get(Pair(1, "two"))
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+res = get(Pair(1, "two"))
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair { first } -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair has two fields
+get = \Pair(first) -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair does not have a field called sec
+get = \Pair { first, sec: _ } -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair does not have a field called sec
+get = \Pair { first, sec: _, ... } -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair has two fields, not three
+get = \Pair(first, _, _) -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair has two fields, not three
+get = \Pair(first, _, _, ...) -> first
+
+res = get(Pair(1, "two"))
+"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
   }
 }

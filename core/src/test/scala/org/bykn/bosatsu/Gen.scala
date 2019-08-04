@@ -326,16 +326,17 @@ object Generators {
       case None =>
         Gen.const(Pattern.StructKind.Style.TupleLike)
       case Some(NonEmptyList(h, tail)) =>
-        def toArg(p: Pattern.Parsed): Gen[Option[Identifier.Bindable]] =
+        def toArg(p: Pattern.Parsed): Gen[Pattern.StructKind.Style.FieldKind] =
           p match {
             case Pattern.Var(b: Identifier.Bindable) =>
-              Gen.oneOf(Gen.const(None),
-                Gen.oneOf(bindIdentGen, Gen.const(b)).map(Some(_))
+              Gen.oneOf(Gen.const(Pattern.StructKind.Style.FieldKind.Implicit(b)),
+                Gen.oneOf(bindIdentGen, Gen.const(b))
+                  .map(Pattern.StructKind.Style.FieldKind.Explicit(_))
                 )
             case Pattern.Annotation(p, _) => toArg(p)
             case _ =>
               // if we don't have a var, we can't omit the key
-              bindIdentGen.map(Some(_))
+              bindIdentGen.map(Pattern.StructKind.Style.FieldKind.Explicit(_))
           }
 
         lazy val args = tail.foldLeft(toArg(h)
@@ -428,10 +429,10 @@ object Generators {
     }
   }
 
-  def genCompiledPattern(depth: Int): Gen[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] =
+  def genCompiledPattern(depth: Int, useUnion: Boolean = true, useAnnotation: Boolean = true): Gen[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] =
     genPatternGen(
       { args: List[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] => Gen.zip(packageNameGen, consIdentGen) },
-      NTypeGen.genDepth03, depth, useUnion = true, useAnnotation = true)
+      NTypeGen.genDepth03, depth, useUnion = useUnion, useAnnotation = useAnnotation)
 
   def matchGen(bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
     import Declaration._
