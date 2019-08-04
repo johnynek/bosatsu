@@ -8,6 +8,9 @@ import scala.collection.immutable.SortedSet
 import scala.collection.mutable.{Map => MMap}
 import org.typelevel.paiges.{Doc, Document}
 
+// this is used to make slightly nicer syntax on Error creation
+import scala.language.implicitConversions
+
 import ListLang.{KVPair, SpliceOrItem}
 
 import Identifier.{Bindable, Constructor}
