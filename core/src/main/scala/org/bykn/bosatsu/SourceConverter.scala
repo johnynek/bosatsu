@@ -14,7 +14,7 @@ import Identifier.{Bindable, Constructor}
 
 import Declaration._
 
-import SourceConverter.Result
+import SourceConverter.{success, Result}
 
 /**
  * Convert a source types (a syntactic expression) into
@@ -58,48 +58,59 @@ final class SourceConverter(
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     })
 
-  private def apply(decl: Declaration): Expr[Declaration] =
+  private def apply(decl: Declaration): Result[Expr[Declaration]] = {
+    implicit val parAp = SourceConverter.parallelIor
     decl match {
       case Apply(fn, args, _) =>
-        Expr.buildApp(apply(fn), args.toList.map(apply(_)), decl)
+        (apply(fn), args.toList.traverse(apply(_)))
+          .mapN { Expr.buildApp(_, _, decl) }
       case ao@ApplyOp(left, op, right) =>
         val opVar: Expr[Declaration] = Expr.Var(None, op, ao.opVar)
-        Expr.buildApp(opVar, apply(left) :: apply(right) :: Nil, decl)
+        (apply(left), apply(right)).mapN { (l, r) =>
+          Expr.buildApp(opVar, l :: r :: Nil, decl)
+        }
       case Binding(BindingStatement(pat, value, prest@Padding(_, rest))) =>
         val erest = apply(rest)
 
-        def solvePat(pat: Pattern.Parsed, rhs: Expr[Declaration]): Expr[Declaration] =
+        def solvePat(pat: Pattern.Parsed, rrhs: Result[Expr[Declaration]]): Result[Expr[Declaration]] =
           pat match {
             case Pattern.Var(arg) =>
-              Expr.Let(arg, rhs, erest, RecursionKind.NonRecursive, decl)
+              (erest, rrhs).mapN { (e, rhs) =>
+                Expr.Let(arg, rhs, e, RecursionKind.NonRecursive, decl)
+              }
             case Pattern.Annotation(pat, tpe) =>
               val realTpe = toType(tpe)
               // move the annotation to the right
-              val newRhs = Expr.Annotation(rhs, realTpe, decl)
+              val newRhs = rrhs.map(Expr.Annotation(_, realTpe, decl))
               solvePat(pat, newRhs)
             case Pattern.Named(nm, p) =>
                // this is the same as creating a let nm = value first
-               val inner = solvePat(p, rhs)
-               Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
+              (solvePat(p, rrhs), rrhs).mapN { (inner, rhs) =>
+                Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
+              }
             case pat =>
               // TODO: we need the region on the pattern...
-              val newPattern = unTuplePattern(pat, decl.region)
-              val expBranches = NonEmptyList.of((newPattern, erest))
-              Expr.Match(rhs, expBranches, decl)
+              (unTuplePattern(pat, decl.region), erest, rrhs).mapN { (newPattern, e, rhs) =>
+                val expBranches = NonEmptyList.of((newPattern, e))
+                Expr.Match(rhs, expBranches, decl)
+              }
           }
 
         solvePat(pat, apply(value))
       case Comment(CommentStatement(_, Padding(_, decl))) =>
-        apply(decl).map(_ => decl)
+        apply(decl).map(_.as(decl))
       case DefFn(defstmt@DefStatement(_, _, _, _)) =>
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => apply(in)
         }
-        val lambda = defstmt.toLambdaExpr({ res => apply(res._1.get) }, decl)(
-          unTuplePattern(_, decl.region), toType(_))
+        // TODO
+        val lambda = defstmt.toLambdaExpr({ res => apply(res._1.get) }, success(decl))(
+          unTuplePattern(_, decl.region), { t => success(toType(t)) })
         // we assume all defs are recursive: we put them in scope before the method
         // is called. We rely on DefRecursionCheck to rule out bad recursions
-        Expr.Let(defstmt.name, lambda, inExpr, recursive = RecursionKind.Recursive, decl)
+        (inExpr, lambda).mapN { (in, lam) =>
+          Expr.Let(defstmt.name, lam, in, recursive = RecursionKind.Recursive, decl)
+        }
       case IfElse(ifCases, elseCase) =>
         def apply0(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
           ifs match {
@@ -109,53 +120,60 @@ final class SourceConverter(
               val elseC1 = apply0(NonEmptyList(h, tail), elseC)
               apply0(NonEmptyList.of(ifTrue), elseC1)
           }
-        apply0(ifCases.map { case (d0, d1) =>
-          (apply(d0), apply(d1.get))
-        }, apply(elseCase.get))
+        val if1 = ifCases.traverse { case (d0, d1) =>
+          apply(d0).product(apply(d1.get))
+        }
+        val else1 = apply(elseCase.get)
+
+        (if1, else1).mapN(apply0(_, _))
       case Lambda(args, body) =>
-        Expr.buildPatternLambda(
-          args.map(unTuplePattern(_, decl.region)),
-          apply(body),
-          decl)
+        val argsRes = args.traverse(unTuplePattern(_, decl.region))
+        val bodyRes = apply(body)
+        (argsRes, bodyRes).mapN { (args, body) =>
+          Expr.buildPatternLambda(args, body, decl)
+        }
       case Literal(lit) =>
-        Expr.Literal(lit, decl)
+        success(Expr.Literal(lit, decl))
       case Parens(p) =>
-        apply(p).map(_ => decl)
+        apply(p).map(_.as(decl))
       case Var(ident) =>
-        Expr.Var(None, ident, decl)
+        success(Expr.Var(None, ident, decl))
       case Match(_, arg, branches) =>
         /*
          * The recursion kind is only there for DefRecursionCheck, once
          * that passes, the expr only cares if lets are recursive or not
          */
-        val expBranches = branches.get.map { case (pat, oidecl) =>
+        val expBranches = branches.get.traverse { case (pat, oidecl) =>
           val decl = oidecl.get
           val newPattern = unTuplePattern(pat, decl.region)
-          (newPattern, apply(decl))
+          newPattern.product(apply(decl))
         }
-        Expr.Match(apply(arg), expBranches, decl)
+        (apply(arg), expBranches).mapN(Expr.Match(_, _, decl))
       case tc@TupleCons(its) =>
         val tup0: Expr[Declaration] = Expr.Var(Some(Predef.packageName), Identifier.Constructor("Unit"), tc)
         val tup2: Expr[Declaration] = Expr.Var(Some(Predef.packageName), Identifier.Constructor("TupleCons"), tc)
-        def tup(args: List[Declaration]): Expr[Declaration] =
+        def tup(args: List[Declaration]): Result[Expr[Declaration]] =
           args match {
-            case Nil => tup0
+            case Nil => success(tup0)
             case h :: tail =>
               val tailExp = tup(tail)
               val headExp = apply(h)
-              Expr.buildApp(tup2, headExp :: tailExp :: Nil, tc)
+              (headExp, tailExp).mapN { (h, t) =>
+                Expr.buildApp(tup2, h :: t :: Nil, tc)
+              }
           }
 
         tup(its)
       case l@ListDecl(list) =>
         list match {
           case ListLang.Cons(items) =>
-            val revDecs: List[SpliceOrItem[Expr[Declaration]]] = items.reverseMap {
-              case SpliceOrItem.Splice(s) =>
-                SpliceOrItem.Splice(apply(s))
-              case SpliceOrItem.Item(item) =>
-                SpliceOrItem.Item(apply(item))
-            }
+            val revDecs: Result[List[SpliceOrItem[Expr[Declaration]]]] =
+              items.reverse.traverse {
+                case SpliceOrItem.Splice(s) =>
+                  apply(s).map(SpliceOrItem.Splice(_))
+                case SpliceOrItem.Item(item) =>
+                  apply(item).map(SpliceOrItem.Item(_))
+              }
 
             val pn = Option(Predef.packageName)
             def mkC(c: String): Expr[Declaration] =
@@ -170,12 +188,12 @@ final class SourceConverter(
             def concat(headList: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
               Expr.buildApp(mkN("concat"), headList :: tail :: Nil, l)
 
-            revDecs.foldLeft(empty) {
+            revDecs.map(_.foldLeft(empty) {
               case (tail, SpliceOrItem.Item(i)) =>
                 cons(i, tail)
               case (tail, SpliceOrItem.Splice(s)) =>
                 concat(s, tail)
-            }
+            })
           case ListLang.Comprehension(res, binding, in, filter) =>
             /*
              * [x for y in z] ==
@@ -207,33 +225,37 @@ final class SourceConverter(
                 "flat_map_List"
             }
             val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name(opName), l)
-            val resExpr: Expr[Declaration] = (res, filter) match {
-              case (itOrSp, None) =>
-                apply(itOrSp.value)
-              case (itOrSp, Some(cond)) =>
-                val empty: Expr[Declaration] =
-                  Expr.Var(pn, Identifier.Constructor("EmptyList"), cond)
-                // we need theReturn
-                val r = itOrSp.value
-                val ritem = apply(r)
-                val sing = itOrSp match {
-                  case SpliceOrItem.Item(_) =>
-                    Expr.App(
-                      Expr.App(Expr.Var(pn, Identifier.Constructor("NonEmptyList"), r), ritem, r),
-                      empty,
-                      r)
-                  case SpliceOrItem.Splice(_) => ritem
-                }
+            val resExpr: Result[Expr[Declaration]] =
+              filter match {
+                case None => apply(res.value)
+                case Some(cond) =>
+                  // To do filters, we lift all results into lists,
+                  // so single items must be made singleton lists
+                  val empty: Expr[Declaration] =
+                    Expr.Var(pn, Identifier.Constructor("EmptyList"), cond)
+                  val ressing = res match {
+                    case SpliceOrItem.Item(r) =>
+                      // here we lift the result into a a singleton list
+                      apply(r).map { ritem =>
+                        Expr.App(
+                          Expr.App(Expr.Var(pn, Identifier.Constructor("NonEmptyList"), r), ritem, r),
+                          empty,
+                          r)
+                      }
+                    case SpliceOrItem.Splice(r) => apply(r)
+                  }
 
-                Expr.ifExpr(apply(cond),
-                  sing,
-                  empty,
-                  cond)
+                  (apply(cond), ressing).mapN { (c, sing) =>
+                    Expr.ifExpr(c, sing, empty, cond)
+                  }
+              }
+            (unTuplePattern(binding, decl.region),
+              resExpr,
+              apply(in)).mapN { (newPattern, resExpr, in) =>
+              val fnExpr: Expr[Declaration] =
+                Expr.buildPatternLambda(NonEmptyList.of(newPattern), resExpr, l)
+              Expr.buildApp(opExpr, in :: fnExpr :: Nil, l)
             }
-            val newPattern = unTuplePattern(binding, decl.region)
-            val fnExpr: Expr[Declaration] =
-              Expr.buildPatternLambda(NonEmptyList.of(newPattern), resExpr, l)
-            Expr.buildApp(opExpr, apply(in) :: fnExpr :: Nil, l)
         }
       case l@DictDecl(dict) =>
         val pn = Option(Predef.packageName)
@@ -248,12 +270,14 @@ final class SourceConverter(
         }
         dict match {
           case ListLang.Cons(items) =>
-            val revDecs: List[KVPair[Expr[Declaration]]] = items.reverseMap {
-              case KVPair(k, v) => KVPair(apply(k), apply(v))
-            }
-            revDecs.foldLeft(empty) {
+            val revDecs: Result[List[KVPair[Expr[Declaration]]]] =
+              items.reverse.traverse {
+                case KVPair(k, v) =>
+                  (apply(k), apply(v)).mapN(KVPair(_, _))
+              }
+            revDecs.map(_.foldLeft(empty) {
               case (dict, KVPair(k, v)) => add(dict, k, v)
-            }
+            })
           case ListLang.Comprehension(KVPair(k, v), binding, in, filter) =>
             /*
              * { x: y for p in z} ==
@@ -272,28 +296,33 @@ final class SourceConverter(
             val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name("foldLeft"), l)
             val dictSymbol = unusedNames(decl.allNames).next
             val init: Expr[Declaration] = Expr.Var(None, dictSymbol, l)
-            val added = add(init, apply(k), apply(v))
+            val added = (apply(k), apply(v)).mapN(add(init, _, _))
 
-            val resExpr: Expr[Declaration] = filter match {
+            val resExpr: Result[Expr[Declaration]] = filter match {
               case None => added
-              case Some(cond) =>
-                Expr.ifExpr(apply(cond),
-                  added,
-                  init,
-                  cond)
+              case Some(cond0) =>
+                (added, apply(cond0)).mapN { (added, cond) =>
+                  Expr.ifExpr(cond,
+                    added,
+                    init,
+                    cond0)
+                }
             }
             val newPattern = unTuplePattern(binding, decl.region)
-            val foldFn = Expr.Lambda(dictSymbol,
-              Expr.buildPatternLambda(
-                NonEmptyList(newPattern, Nil),
-                resExpr,
-                l),
-              l)
-            Expr.buildApp(opExpr, apply(in) :: empty :: foldFn :: Nil, l)
+            (newPattern, resExpr, apply(in)).mapN { (pat, res, in) =>
+              val foldFn = Expr.Lambda(dictSymbol,
+                Expr.buildPatternLambda(
+                  NonEmptyList(pat, Nil),
+                  res,
+                  l),
+                l)
+              Expr.buildApp(opExpr, in :: empty :: foldFn :: Nil, l)
+            }
           }
         case RecordConstructor(name, args) =>
           sys.error("TODO: we need to have the ParsedTypeEnv for this and imports to translate to an Expr")
     }
+  }
 
   private def toType(t: TypeRef): Type =
     TypeRefConverter[cats.Id](t)(nameToType _)
@@ -424,24 +453,10 @@ final class SourceConverter(
     }
   }
 
-  private def assertResult[A](a: Result[A]): A =
-    a match {
-      case Ior.Right(a) => a
-      case Ior.Both(err, a) =>
-        // TODO: push result all the way to the top
-        throw err.head
-      case Ior.Left(err) =>
-        // TODO: push result all the way to the top
-        throw err.head
-    }
-
-  private def unTuplePattern(pat: Pattern.Parsed, region: Region): Pattern[(PackageName, Constructor), rankn.Type] =
-    assertResult(unTuplePatternR(pat, region))
-
   /**
    * Tuples are converted into standard types using an HList strategy
    */
-  private def unTuplePatternR(pat: Pattern.Parsed, region: Region): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
+  private def unTuplePattern(pat: Pattern.Parsed, region: Region): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
     pat.traverseStruct[Result, (PackageName, Constructor)] {
       case (Pattern.StructKind.Tuple, args) =>
         // this is a tuple pattern
@@ -589,7 +604,7 @@ final class SourceConverter(
   /**
    * Return the lets in order they appear
    */
-  private def toLets(stmt: Statement): (List[(Bindable, RecursionKind, Expr[Declaration])], List[(Bindable, Type)]) = {
+  private def toLets(stmts: Stream[Statement.ValueStatement]): Result[List[(Bindable, RecursionKind, Expr[Declaration])]] = {
     import Statement._
 
     // Each time we need a name, we can call anonNames.next()
@@ -598,8 +613,7 @@ final class SourceConverter(
     lazy val anonNames: Iterator[Bindable] = {
       // this is safe as a set because we only use it to filter
       val allNames =
-        Statement.valuesOf(stmt)
-          .iterator
+        stmts
           .flatMap { v => v.names.iterator ++ v.allNames.iterator }
           .toSet
 
@@ -653,62 +667,63 @@ final class SourceConverter(
             }
       }
 
-      val init: (List[(Bindable, RecursionKind, Expr[Declaration])], List[(Bindable, Type)]) = (Nil, Nil)
-
-      val (bs, es) = Statement.valuesOf(stmt)
-        .foldLeft(init) { case ((binds, exts), vs) =>
-          vs match {
-            case Bind(BindingStatement(bound, decl, _)) =>
-              // TODO: we need a region for the binding
-              val pat = unTuplePattern(bound, decl.region)
-              val binds1 = bindings(pat, apply(decl))
-              // since we reverse below, we nee to reverse here
-              val nonRec = binds1.toList.reverseMap { case (n, d) => (n, RecursionKind.NonRecursive, d) }
-              (nonRec ::: binds, exts)
-            case Def(defstmt@DefStatement(_, _, _, _)) =>
-              // using body for the outer here is a bummer, but not really a good outer otherwise
-              val lam = defstmt.toLambdaExpr(
-                { res => apply(res._1.get) },
-                defstmt.result._1.get)(unTuplePattern(_, defstmt.result._1.get.region), toType(_))
-              ((defstmt.name, RecursionKind.Recursive, lam) :: binds, exts)
-            case ExternalDef(name, params, result, _) =>
-              val tpe: rankn.Type = {
-                def buildType(ts: List[rankn.Type]): rankn.Type =
-                  ts match {
-                    case Nil => toType(result)
-                    case h :: tail => rankn.Type.Fun(h, buildType(tail))
-                  }
-                buildType(params.map { p => toType(p._2) })
-              }
-              val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
-              // these vars were parsed so they are never skolem vars
-              val freeBound = freeVars.map {
-                case b@rankn.Type.Var.Bound(_) => b
-                case s@rankn.Type.Var.Skolem(_, _) => sys.error(s"invariant violation: parsed a skolem var: $s")
-              }
-              val maybeForAll = rankn.Type.forAll(freeBound, tpe)
-              (binds, (name, maybeForAll) :: exts)
+      stmts.traverse {
+        case Bind(BindingStatement(bound, decl, _)) =>
+          // TODO: we need a region for the binding
+          val pat = unTuplePattern(bound, decl.region)
+          val rdec = apply(decl)
+          (pat, rdec).mapN { (p, d) =>
+            bindings(p, d)
+              .toList
+              .map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
           }
-        }
+        case Def(defstmt@DefStatement(_, _, _, _)) =>
+          // using body for the outer here is a bummer, but not really a good outer otherwise
+          val lam = defstmt.toLambdaExpr(
+            { res => apply(res._1.get) },
+            success(defstmt.result._1.get))(
+              unTuplePattern(_, defstmt.result._1.get.region),
+              { t => success(toType(t)) })
 
-    // we need to reverse them to put in file order now
-    (bs.reverse, es.reverse)
+          lam.map { l =>
+            (defstmt.name, RecursionKind.Recursive, l) :: Nil
+          }
+        case ExternalDef(_, _, _, _) =>
+          success(Nil)
+      }
+      .map(_.toList.flatten)
   }
 
-  def toProgram(stmt: Statement): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], Statement]] =
-
-    try {
-      val (binds, exts) = toLets(stmt)
-
-      val pte1 = exts.foldLeft(toTypeEnv) { case (pte, (name, tpe)) =>
-        pte.addExternalValue(thisPackage, name, tpe)
+  def toProgram(stmt: Statement): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], Statement]] = {
+    val stmts = Statement.valuesOf(stmt)
+    val exts = stmts.collect {
+      case Statement.ExternalDef(name, params, result, _) =>
+        val tpe: rankn.Type = {
+          def buildType(ts: List[rankn.Type]): rankn.Type =
+            ts match {
+              case Nil => toType(result)
+              case h :: tail => rankn.Type.Fun(h, buildType(tail))
+            }
+          buildType(params.map { p => toType(p._2) })
+        }
+        val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
+        // these vars were parsed so they are never skolem vars
+        val freeBound = freeVars.map {
+          case b@rankn.Type.Var.Bound(_) => b
+          case s@rankn.Type.Var.Skolem(_, _) => sys.error(s"invariant violation: parsed a skolem var: $s")
+        }
+        val maybeForAll = rankn.Type.forAll(freeBound, tpe)
+        (name, maybeForAll)
       }
 
-      SourceConverter.success(Program((importedTypeEnv, pte1), binds, exts.map(_._1), stmt))
+    val pte1 = exts.foldLeft(toTypeEnv) { case (pte, (name, tpe)) =>
+      pte.addExternalValue(thisPackage, name, tpe)
     }
-    catch {
-      case e: SourceConverter.Error => SourceConverter.failure(e)
+
+    toLets(stmts).map { binds =>
+      Program((importedTypeEnv, pte1), binds, exts.map(_._1).toList, stmt)
     }
+  }
 }
 
 object SourceConverter {
