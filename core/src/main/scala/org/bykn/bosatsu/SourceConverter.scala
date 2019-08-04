@@ -333,7 +333,12 @@ final class SourceConverter(
               val mappingList = args.toList.map(argExpr)
               val mapping = mappingList.toMap
 
-              lazy val present = SortedSet(mapping.keys.toList: _*)
+              lazy val present =
+                mappingList
+                  .iterator
+                  .map(_._1)
+                  .foldLeft(SortedSet.empty[Bindable])(_ + _)
+
               def get(b: Bindable): Result[Expr[Declaration]] =
                 mapping.get(b) match {
                   case Some(expr) => expr
@@ -349,7 +354,8 @@ final class SourceConverter(
               }
               // we also need to check that there are no unused or duplicated
               // fields
-              val paramNames = params.map(_._1).toSet
+              val paramNamesList = params.map(_._1)
+              val paramNames = paramNamesList.toSet
               // here are all the fields we don't understand
               val extra = mappingList.collect { case (k, _) if !paramNames(k) => k }
               // Check that the mapping is exactly the right size
@@ -358,7 +364,7 @@ final class SourceConverter(
                 case Some(extra) =>
                   SourceConverter
                     .addError(res,
-                      SourceConverter.UnexpectedField(name, rc, extra, params.map(_._1), rc.region))
+                      SourceConverter.UnexpectedField(name, rc, extra, paramNamesList, rc.region))
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(name, rc, decl.region))
@@ -579,7 +585,8 @@ final class SourceConverter(
                   .traverse { case (b, _) => get(b) }(SourceConverter.parallelIor)
                   .map(Pattern.PositionalStruct(pc, _))
 
-              val paramNames = params.map(_._1).toSet
+              val paramNamesList = params.map(_._1)
+              val paramNames = paramNamesList.toSet
               // here are all the fields we don't understand
               val extra = fs.toList.iterator.map(_.field).filterNot(paramNames).toList
               // Check that the mapping is exactly the right size
@@ -588,7 +595,7 @@ final class SourceConverter(
                 case Some(extra) =>
                   SourceConverter
                     .addError(mapped,
-                      SourceConverter.UnexpectedField(nm, pat, extra, params.map(_._1), region))
+                      SourceConverter.UnexpectedField(nm, pat, extra, paramNamesList, region))
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(nm, pat, region))
@@ -608,7 +615,8 @@ final class SourceConverter(
               val derefArgs = params.map { case (b, _) => get(b) }
               val res0 = SourceConverter.success(Pattern.PositionalStruct(pc, derefArgs))
 
-              val paramNames = params.map(_._1).toSet
+              val paramNamesList = params.map(_._1)
+              val paramNames = paramNamesList.toSet
               // here are all the fields we don't understand
               val extra = fs.toList.iterator.map(_.field).filterNot(paramNames).toList
               // Check that the mapping is exactly the right size
@@ -617,7 +625,7 @@ final class SourceConverter(
                 case Some(extra) =>
                   SourceConverter
                     .addError(res0,
-                      SourceConverter.UnexpectedField(nm, pat, extra, params.map(_._1), region))
+                      SourceConverter.UnexpectedField(nm, pat, extra, paramNamesList, region))
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(nm, pat, region))
