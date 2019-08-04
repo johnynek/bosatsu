@@ -615,19 +615,29 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
          val (scoped, _) = recurse((pack, Left(ident)))
          scoped
-       case App(AnnotatedLambda(name, _, fn, _), arg, _, _) =>
-         val argE = recurse((p, Right(arg)))._1
-         val fnE = recurse((p, Right(fn)))._1
-
-         argE.letNameIn(name, fnE)
        case App(fn, arg, _, _) =>
-         val efn = recurse((p, Right(fn)))._1
-         val earg = recurse((p, Right(arg)))._1
+         fn match {
+           case AnnotatedLambda(name, _, fn, _) =>
+             // f(\x -> res)(y) = let x = y in res
+             val argE = recurse((p, Right(arg)))._1
+             val fnE = recurse((p, Right(fn)))._1
 
-         efn.applyArg(earg)
+             argE.letNameIn(name, fnE)
+           case fn =>
+             val efn = recurse((p, Right(fn)))._1
+             val earg = recurse((p, Right(arg)))._1
+
+             efn.applyArg(earg)
+         }
        case AnnotatedLambda(name, _, expr, _) =>
-         val inner = recurse((p, Right(expr)))._1
-         inner.asLambda(name)
+         expr match {
+           case App(f, Var(None, name2, _, _), _, _) if name2 == name =>
+             // here is eta-conversion: \x -> f(x) == f
+             recurse((p, Right(f)))._1
+           case expr =>
+             val inner = recurse((p, Right(expr)))._1
+             inner.asLambda(name)
+         }
        case Let(arg, e, in, rec, _) =>
          val e0 = recurse((p, Right(e)))._1
          val eres =
