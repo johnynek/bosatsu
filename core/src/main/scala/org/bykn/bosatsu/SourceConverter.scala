@@ -104,7 +104,7 @@ final class SourceConverter(
           case (_, Padding(_, in)) => apply(in)
         }
         // TODO
-        val lambda = defstmt.toLambdaExprF({ res => apply(res._1.get) }, success(decl))(
+        val lambda = defstmt.toLambdaExpr({ res => apply(res._1.get) }, success(decl))(
           unTuplePattern(_, decl.region), { t => success(toType(t)) })
         // we assume all defs are recursive: we put them in scope before the method
         // is called. We rely on DefRecursionCheck to rule out bad recursions
@@ -225,25 +225,23 @@ final class SourceConverter(
                 "flat_map_List"
             }
             val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name(opName), l)
+            val resR = apply(res.value)
             val resExpr: Result[Expr[Declaration]] =
-              (res, filter) match {
-                case (itOrSp, None) =>
-                  apply(itOrSp.value)
-                case (itOrSp, Some(cond)) =>
+              filter match {
+                case None => resR
+                case Some(cond) =>
                   val empty: Expr[Declaration] =
                     Expr.Var(pn, Identifier.Constructor("EmptyList"), cond)
                   // we need theReturn
-                  val r = itOrSp.value
-                  val resritem = apply(r)
-                  val ressing = itOrSp match {
-                    case SpliceOrItem.Item(_) =>
-                      resritem.map { ritem =>
+                  val ressing = res match {
+                    case SpliceOrItem.Item(r) =>
+                      resR.map { ritem =>
                         Expr.App(
                           Expr.App(Expr.Var(pn, Identifier.Constructor("NonEmptyList"), r), ritem, r),
                           empty,
                           r)
                       }
-                    case SpliceOrItem.Splice(_) => resritem
+                    case SpliceOrItem.Splice(_) => resR
                   }
 
                   (apply(cond), ressing).mapN { (c, sing) =>
@@ -615,7 +613,6 @@ final class SourceConverter(
       // this is safe as a set because we only use it to filter
       val allNames =
         stmts
-          .iterator
           .flatMap { v => v.names.iterator ++ v.allNames.iterator }
           .toSet
 
@@ -669,7 +666,7 @@ final class SourceConverter(
             }
       }
 
-      stmts.toList.traverse {
+      stmts.traverse {
         case Bind(BindingStatement(bound, decl, _)) =>
           // TODO: we need a region for the binding
           val pat = unTuplePattern(bound, decl.region)
@@ -681,7 +678,7 @@ final class SourceConverter(
           }
         case Def(defstmt@DefStatement(_, _, _, _)) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
-          val lam = defstmt.toLambdaExprF(
+          val lam = defstmt.toLambdaExpr(
             { res => apply(res._1.get) },
             success(defstmt.result._1.get))(
               unTuplePattern(_, defstmt.result._1.get.region),
@@ -693,7 +690,7 @@ final class SourceConverter(
         case ExternalDef(_, _, _, _) =>
           success(Nil)
       }
-      .map(_.flatten)
+      .map(_.toList.flatten)
   }
 
   def toProgram(stmt: Statement): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], Statement]] = {

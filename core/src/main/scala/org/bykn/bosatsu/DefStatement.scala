@@ -18,7 +18,7 @@ case class DefStatement[A, B](
   /**
    * This ignores the name completely and just returns the lambda expression here
    */
-  def toLambdaExprF[F[_]: Applicative, C](resultExpr: B => F[Expr[C]],
+  def toLambdaExpr[F[_]: Applicative, C](resultExpr: B => F[Expr[C]],
     tag: F[C])(argFn: A => F[Pattern[(PackageName, Constructor), rankn.Type]], trFn: TypeRef => F[rankn.Type]): F[Expr[C]] = {
     val unTypedBody = resultExpr(result)
     val bodyExp =
@@ -33,14 +33,6 @@ case class DefStatement[A, B](
         }
     }
   }
-
-  /**
-   * This ignores the name completely and just returns the lambda expression here
-   */
-  def toLambdaExpr[C](resultExpr: B => Expr[C],
-    tag: C)(argFn: A => Pattern[(PackageName, Constructor), rankn.Type],
-    trFn: TypeRef => rankn.Type): Expr[C] =
-    toLambdaExprF[cats.Id, C](resultExpr, tag)(argFn, trFn)
 }
 
 object DefStatement {
