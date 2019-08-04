@@ -208,7 +208,7 @@ x = [1]
 # test using List literals
 main = match x:
   EmptyList: "empty"
-  NonEmptyList(_, _): "notempty"
+  NonEmptyList(...): "notempty"
 """), "Foo", Str("notempty"))
 
     evalTest(
