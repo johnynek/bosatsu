@@ -233,8 +233,8 @@ object Evaluation {
      * scope: that which is viewable at the top level
      */
     def withConstantEnv(env: => Env): Scoped = {
-      lazy val computedEnv = env
-      fromFn { _ => inEnv(computedEnv) }
+      lazy val computed = inEnv(env)
+      fromFn { _ => computed }
     }
   }
 
@@ -293,9 +293,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
-      (name, rec, expr) <- pack.program.lets.lastOption
-      (scope0, tpe) = eval((pack, Right(expr)))
-      scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
+      (name, _, _) <- pack.program.lets.lastOption
+      (scope, tpe) = eval((pack, Left(name)))
     } yield (scope.inEnv(Map.empty), tpe)
 
   /* TODO: this is useful for debugging, but we should probably test it and write a parser for the
