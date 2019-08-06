@@ -2,11 +2,10 @@ package org.bykn.bosatsu
 
 import org.scalatest.FunSuite
 
-import Evaluation.Value._
-
 class EvaluationTest extends FunSuite {
 
   import TestUtils._
+  import unitImplicits.valueT.{VInt, Str, True, SumValue, ConsValue, UnitValue, VList, VOption}
 
   test("simple evaluation") {
     evalTest(

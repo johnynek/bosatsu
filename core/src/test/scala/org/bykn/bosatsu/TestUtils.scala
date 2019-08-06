@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.rankn._
-import cats.data.Validated
+import cats.data.{Const, Validated}
 import org.scalatest.{Assertion, Assertions}
 
 import fastparse.all.Parsed
@@ -57,30 +57,33 @@ object TestUtils {
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
     }
 
+  val unitImplicits: Evaluation.UnitImplicits[(Declaration, Normalization.NormalExpressionTag)] = Evaluation.UnitImplicits()
+  import unitImplicits._
+
   sealed abstract class EvaluationMode[A] {
     def expected: A
   }
   object EvaluationMode {
     case class JsonMode(expected: Json) extends EvaluationMode[Json]
-    case class EvalMode[T](expected: Evaluation.Value[T]) extends EvaluationMode[Evaluation.Value[T]]
+    case class EvalMode[T[_]](expected: Evaluation.Value[T]) extends EvaluationMode[Evaluation.Value[T]]
     case class TestMode(expected: Int) extends EvaluationMode[Int]
   }
 
-  def evalTest(packages: List[String], mainPackS: String, expected: Evaluation.Value[Unit], extern: Externals[Unit] = Externals.empty) =
+  def evalTest(packages: List[String], mainPackS: String, expected: Evaluation.Value[Const[Unit, ?]], extern: Externals[Const[Unit, ?]] = Externals.empty[Const[Unit, ?]]) =
     evalTestMode(packages, mainPackS, EvaluationMode.EvalMode(expected), extern)
 
-  def evalTestJson(packages: List[String], mainPackS: String, expected: Json, extern: Externals[Unit] = Externals.empty) =
+  def evalTestJson(packages: List[String], mainPackS: String, expected: Json, extern: Externals[Const[Unit, ?]] = Externals.empty[Const[Unit, ?]]) =
     evalTestMode(packages, mainPackS, EvaluationMode.JsonMode(expected), extern)
 
-  def runBosatsuTest(packages: List[String], mainPackS: String, assertionCount: Int, extern: Externals[Unit] = Externals.empty) =
+  def runBosatsuTest[T <: Externals[Const[Unit, ?]]](packages: List[String], mainPackS: String, assertionCount: Int, extern: T = Externals.empty[Const[Unit, ?]]) =
     evalTestMode(packages, mainPackS, EvaluationMode.TestMode(assertionCount), extern)
 
-  def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals[Unit] = Externals.empty) = {
+  def evalTestMode[A](
+    packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals[Const[Unit, ?]] = Externals.empty[Const[Unit, ?]]
+    ) = {
     def inferredHandler(packMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
       val normPackMap = NormalizePackageMap(packMap).normalizePackageMap
-      val unitImplicits: Evaluation.UnitImplicits[(Declaration, Normalization.NormalExpressionTag)] = Evaluation.UnitImplicits()
-      import unitImplicits._
-      val ev = Evaluation[(Declaration, Normalization.NormalExpressionTag), Unit, Unit](normPackMap, Predef.jvmExternals[Unit] ++ extern)
+      val ev = Evaluation[(Declaration, Normalization.NormalExpressionTag), Unit, Const[Unit, ?]](normPackMap, Predef.jvmExternals[Const[Unit, ?]] ++ extern)
       ev.evaluateLast(mainPack) match {
         case None => fail("found no main expression")
         case Some((eval, schm)) =>
@@ -198,7 +201,7 @@ object TestUtils {
   def normalChildrenTest(packages: List[String], mainPackS: String, expected: Set[NormalExpression]) =
     normalizeTest(packages, mainPackS, NormalTestMode.ChildrenMode(expected))
 
-  def evalFail(packages: List[String], mainPackS: String, extern: Externals[Unit] = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
+  def evalFail(packages: List[String], mainPackS: String, extern: Externals[Const[Unit, ?]] = Externals.empty[Const[Unit, ?]])(errFn: PartialFunction[PackageError, Unit]) = {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>

@@ -6,30 +6,30 @@ import cats.implicits._
 
 import Evaluation.Value
 
-sealed abstract class FfiCall[T] {
+sealed abstract class FfiCall[T[_]] {
   def call(t: rankn.Type, pn: PackageName, dn: Identifier)(
-    implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T,
+    implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T[Value[T]],
   ): Eval[Value[T]]
 }
 
 object FfiCall {
-  final case class Fn1[T](fn: Value[T] => Value[T]) extends FfiCall[T] {
-    import Value.FnValue
+  final case class Fn1[T[_]](fn: Value[T] => Value[T])(implicit valueT: Evaluation.ValueT[T]) extends FfiCall[T] {
+    import valueT.FnValue
 
     private[this] def evalFn(pn: PackageName, dn: Identifier)(
-      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T
-    ): Eval[FnValue[T]] =
+      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T[Value[T]]
+    ): Eval[FnValue] =
       Eval.now(FnValue((e1 => Eval.defer(e1.map(fn))), externalFnTag(pn, dn)(0, Nil)))
     def call(t: rankn.Type, pn: PackageName, dn: Identifier)(
-      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T
+      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T[Value[T]]
     ): Eval[Value[T]] = evalFn(pn, dn)
   }
-  final case class Fn2[T](fn: (Value[T], Value[T]) => Value[T]) extends FfiCall[T] {
-    import Value.FnValue
+  final case class Fn2[T[_]](fn: (Value[T], Value[T]) => Value[T])(implicit valueT: Evaluation.ValueT[T]) extends FfiCall[T] {
+    import valueT.FnValue
 
     private[this] def evalFn(pn: PackageName, dn: Identifier)(
-      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T
-    ): Eval[FnValue[T]] = {
+      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T[Value[T]]
+    ): Eval[FnValue] = {
       val ev =  externalFnTag(pn, dn)
       Eval.now(FnValue(ev(0, Nil)) { e1 =>
         Eval.now(FnValue(ev(1, List(e1))) { e2 =>
@@ -39,15 +39,15 @@ object FfiCall {
     }
 
     def call(t: rankn.Type, pn: PackageName, dn: Identifier)(
-      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T
+      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T[Value[T]]
     ): Eval[Value[T]] = evalFn(pn, dn)
   }
-  final case class Fn3[T](fn: (Value[T], Value[T], Value[T]) => Value[T]) extends FfiCall[T] {
-    import Value.FnValue
+  final case class Fn3[T[_]](fn: (Value[T], Value[T], Value[T]) => Value[T])(implicit valueT: Evaluation.ValueT[T]) extends FfiCall[T] {
+    import valueT.FnValue
 
     private[this] def evalFn(pn: PackageName, dn: Identifier)(
-      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T
-    ): Eval[FnValue[T]] = {
+      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T[Value[T]]
+    ): Eval[FnValue] = {
       val ev = externalFnTag(pn, dn)
       Eval.now(FnValue(ev(0, Nil)) { e1 =>
         Eval.now(FnValue(ev(1, List(e1))) { e2 =>
@@ -59,11 +59,11 @@ object FfiCall {
     }
 
     def call(t: rankn.Type, pn: PackageName, dn: Identifier)(
-      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T
+      implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T[Value[T]]
     ): Eval[Value[T]] = evalFn(pn, dn)
   }
 
-  def getJavaType[T](t: rankn.Type): List[Class[_]] = {
+  def getJavaType[T[_]](t: rankn.Type): List[Class[_]] = {
     def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
       t match {
         case rankn.Type.Fun(a, b) if top =>
@@ -80,7 +80,7 @@ object FfiCall {
   }
 }
 
-case class Externals[T](toMap: Map[(PackageName, String), FfiCall[T]]) {
+case class Externals[T[_]](toMap: Map[(PackageName, String), FfiCall[T]]) {
   def add(pn: PackageName, value: String, f: FfiCall[T]): Externals[T] =
     Externals(toMap + ((pn, value) -> f))
 
@@ -89,5 +89,5 @@ case class Externals[T](toMap: Map[(PackageName, String), FfiCall[T]]) {
 }
 
 object Externals {
-  def empty[T]: Externals[T] = Externals(Map.empty)
+  def empty[T[_]]: Externals[T] = Externals(Map.empty)
 }
