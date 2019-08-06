@@ -28,7 +28,7 @@ object CodeGenWrite {
       }
     }
 
-  def write[T](root: Path, packages: PackageMap.Inferred, ext: Externals[T]): IO[Unit] = {
+  def write[T[_]](root: Path, packages: PackageMap.Inferred, ext: Externals[T]): IO[Unit] = {
     val cg = new CodeGen { }
     packages.toMap.traverse_ { pack =>
       val (d, _) = CodeGen.run(cg.genPackage(pack, ext))
