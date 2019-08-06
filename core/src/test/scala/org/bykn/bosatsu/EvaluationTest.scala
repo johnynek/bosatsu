@@ -1623,4 +1623,57 @@ get = \Pair(first, _, _, ...) -> first
 res = get(Pair(1, "two"))
 """), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
   }
+
+  test("test scoping bug (issue #311)") {
+
+    runBosatsuTest(List("""package A
+
+struct Foo(x, y)
+
+Foo { x, ... } = Foo(42, "42")
+
+tests = Test("test record",
+  [
+    Assertion(x.eq_Int(42), "x == 42"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(List("""package A
+
+struct Foo(x, y)
+
+a = Foo(42, "42")
+x = match a:
+   Foo(y, _): y
+
+tests = Test("test record",
+  [
+    Assertion(x.eq_Int(42), "x == 42"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(List("""package A
+
+struct Foo(x, y)
+
+a = Foo(42, "42")
+x = match a:
+   Foo(y, _): y
+
+def add_x(a):
+  # note x has a closure over a, but
+  # evaluated here the local a might
+  # shadow in the case of the bug
+  add(a, x)
+
+# should be 43
+y = add_x(1)
+
+tests = Test("test record",
+  [
+    Assertion(y.eq_Int(43), "y == 43"),
+  ])
+"""), "A", 1)
+
+  }
 }

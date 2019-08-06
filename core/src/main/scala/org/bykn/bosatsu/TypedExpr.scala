@@ -301,9 +301,18 @@ object TypedExpr {
           go(tail, bound, acc1)
         case App(fn, arg, _, _) :: tail =>
           go(fn :: arg :: tail, bound, acc)
-        case Let(arg, argE, in, _, _) :: tail =>
-          val acc1 = cheat(in, bound + arg, acc)
-          go(argE :: tail, bound, acc1)
+        case Let(arg, argE, in, rec, _) :: tail =>
+          val barg = bound + arg
+          val acc1 = cheat(in, barg, acc)
+          if (rec.isRecursive) {
+            // if rec is recursive, arg is in scope
+            // also in argE
+            val acc2 = cheat(argE, barg, acc1)
+            go(tail, bound, acc2)
+          }
+          else {
+            go(argE :: tail, bound, acc1)
+          }
         case Literal(_, _, _) :: tail =>
           go(tail, bound, acc)
         case Match(arg, branches, _) :: tail =>
