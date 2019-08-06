@@ -521,7 +521,7 @@ def opt_bind(opt, bind_fn):
 option_monad = Monad(Some, opt_bind)
 
 def use_bind(m: Monad[f], a, b, c):
-  Monad(pure, bind) = m
+  Monad { pure, bind } = m
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
@@ -550,7 +550,7 @@ def opt_bind(opt, bind_fn):
 option_monad = Monad(Some, opt_bind)
 
 def use_bind(a, b, c, m: Monad[f]):
-  Monad(pure, bind) = m
+  Monad { pure, bind } = m
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)

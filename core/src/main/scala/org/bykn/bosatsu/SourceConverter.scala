@@ -8,6 +8,9 @@ import scala.collection.immutable.SortedSet
 import scala.collection.mutable.{Map => MMap}
 import org.typelevel.paiges.{Doc, Document}
 
+// this is used to make slightly nicer syntax on Error creation
+import scala.language.implicitConversions
+
 import ListLang.{KVPair, SpliceOrItem}
 
 import Identifier.{Bindable, Constructor}
@@ -319,8 +322,56 @@ final class SourceConverter(
               Expr.buildApp(opExpr, in :: empty :: foldFn :: Nil, l)
             }
           }
-        case RecordConstructor(name, args) =>
-          sys.error("TODO: we need to have the ParsedTypeEnv for this and imports to translate to an Expr")
+        case rc@RecordConstructor(name, args) =>
+          val (p, c) = nameToCons(name)
+          localTypeEnv.getConstructor(p, c) match {
+            case Some((params, _, _)) =>
+              def argExpr(arg: RecordArg): (Bindable, Result[Expr[Declaration]]) =
+                arg match {
+                  case RecordArg.Simple(b) =>
+                    (b, success(Expr.Var(None, b, rc)))
+                  case RecordArg.Pair(k, v) =>
+                    (k, apply(v))
+                }
+              val mappingList = args.toList.map(argExpr)
+              val mapping = mappingList.toMap
+
+              lazy val present =
+                mappingList
+                  .iterator
+                  .map(_._1)
+                  .foldLeft(SortedSet.empty[Bindable])(_ + _)
+
+              def get(b: Bindable): Result[Expr[Declaration]] =
+                mapping.get(b) match {
+                  case Some(expr) => expr
+                  case None =>
+                    SourceConverter.failure(
+                      SourceConverter.MissingArg(name, rc, present, b, rc.region))
+                }
+              val cons: Expr[Declaration] = Expr.Var(None, name, rc)
+              val exprArgs = params.traverse { case (b, _) => get(b) }
+
+              val res = exprArgs.map { args =>
+                Expr.buildApp(cons, args.toList, rc)
+              }
+              // we also need to check that there are no unused or duplicated
+              // fields
+              val paramNamesList = params.map(_._1)
+              val paramNames = paramNamesList.toSet
+              // here are all the fields we don't understand
+              val extra = mappingList.collect { case (k, _) if !paramNames(k) => k }
+              // Check that the mapping is exactly the right size
+              NonEmptyList.fromList(extra) match {
+                case None => res
+                case Some(extra) =>
+                  SourceConverter
+                    .addError(res,
+                      SourceConverter.UnexpectedField(name, rc, extra, paramNamesList, rc.region))
+              }
+            case None =>
+              SourceConverter.failure(SourceConverter.UnknownConstructor(name, rc, decl.region))
+          }
     }
   }
 
@@ -537,7 +588,8 @@ final class SourceConverter(
                   .traverse { case (b, _) => get(b) }(SourceConverter.parallelIor)
                   .map(Pattern.PositionalStruct(pc, _))
 
-              val paramNames = params.map(_._1).toSet
+              val paramNamesList = params.map(_._1)
+              val paramNames = paramNamesList.toSet
               // here are all the fields we don't understand
               val extra = fs.toList.iterator.map(_.field).filterNot(paramNames).toList
               // Check that the mapping is exactly the right size
@@ -546,7 +598,7 @@ final class SourceConverter(
                 case Some(extra) =>
                   SourceConverter
                     .addError(mapped,
-                      SourceConverter.UnexpectedField(nm, pat, extra, params.map(_._1), region))
+                      SourceConverter.UnexpectedField(nm, pat, extra, paramNamesList, region))
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(nm, pat, region))
@@ -566,7 +618,8 @@ final class SourceConverter(
               val derefArgs = params.map { case (b, _) => get(b) }
               val res0 = SourceConverter.success(Pattern.PositionalStruct(pc, derefArgs))
 
-              val paramNames = params.map(_._1).toSet
+              val paramNamesList = params.map(_._1)
+              val paramNames = paramNamesList.toSet
               // here are all the fields we don't understand
               val extra = fs.toList.iterator.map(_.field).filterNot(paramNames).toList
               // Check that the mapping is exactly the right size
@@ -575,7 +628,7 @@ final class SourceConverter(
                 case Some(extra) =>
                   SourceConverter
                     .addError(res0,
-                      SourceConverter.UnexpectedField(nm, pat, extra, params.map(_._1), region))
+                      SourceConverter.UnexpectedField(nm, pat, extra, paramNamesList, region))
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(nm, pat, region))
@@ -710,7 +763,10 @@ final class SourceConverter(
         // these vars were parsed so they are never skolem vars
         val freeBound = freeVars.map {
           case b@rankn.Type.Var.Bound(_) => b
-          case s@rankn.Type.Var.Skolem(_, _) => sys.error(s"invariant violation: parsed a skolem var: $s")
+          case s@rankn.Type.Var.Skolem(_, _) =>
+            // $COVERAGE-OFF$ this should be unreachable
+            sys.error(s"invariant violation: parsed a skolem var: $s")
+            // $COVERAGE-ON$
         }
         val maybeForAll = rankn.Type.forAll(freeBound, tpe)
         (name, maybeForAll)
@@ -747,45 +803,58 @@ object SourceConverter {
     localDefs: Stream[TypeDefinitionStatement]): SourceConverter =
     new SourceConverter(thisPackage, imports, localDefs)
 
-  // TODO: don't make these exceptions
-  sealed abstract class Error extends Exception {
+  sealed abstract class Error {
     def name: Constructor
     def region: Region
+    def syntax: ConstructorSyntax
     def message: String
   }
 
-  sealed abstract class MatchError extends Error {
-    def pattern: Pattern.Parsed
-    protected def patDoc = Document[Pattern.Parsed].document(pattern)
+  sealed abstract class ConstructorSyntax {
+    def toDoc: Doc
+  }
+  object ConstructorSyntax {
+    final case class Pat(toPattern: Pattern.Parsed) extends ConstructorSyntax {
+      def toDoc = Document[Pattern.Parsed].document(toPattern)
+    }
+    final case class RecCons(toDeclaration: Declaration.RecordConstructor) extends ConstructorSyntax {
+      def toDoc = toDeclaration.toDoc
+    }
+
+    implicit def fromPattern(p: Pattern.Parsed): ConstructorSyntax =
+      Pat(p)
+
+    implicit def fromRC(c: Declaration.RecordConstructor): ConstructorSyntax =
+      RecCons(c)
   }
 
-  final case class UnknownConstructor(name: Constructor, pattern: Pattern.Parsed, region: Region) extends MatchError {
+  final case class UnknownConstructor(name: Constructor, syntax: ConstructorSyntax, region: Region) extends Error {
     def message = {
-      val maybeDoc = pattern match {
-        case Pattern.PositionalStruct(Pattern.StructKind.Named(n, Pattern.StructKind.Style.TupleLike), Nil) if n == name =>
+      val maybeDoc = syntax match {
+        case ConstructorSyntax.Pat(Pattern.PositionalStruct(Pattern.StructKind.Named(n, Pattern.StructKind.Style.TupleLike), Nil)) if n == name =>
           // the pattern is just name
           Doc.empty
         case _ =>
-          Doc.text(" in") + Doc.lineOrSpace + patDoc
+          Doc.text(" in") + Doc.lineOrSpace + syntax.toDoc
       }
       (Doc.text(s"unknown constructor ${name.asString}") + maybeDoc).render(80)
     }
   }
-  final case class InvalidArgCount(name: Constructor, pattern: Pattern.Parsed, argCount: Int, expected: Int, region: Region) extends MatchError {
+  final case class InvalidArgCount(name: Constructor, syntax: ConstructorSyntax, argCount: Int, expected: Int, region: Region) extends Error {
     def message =
-      (Doc.text(s"invalid argument count in ${name.asString}, found $argCount expected $expected") + Doc.lineOrSpace + patDoc).render(80)
+      (Doc.text(s"invalid argument count in ${name.asString}, found $argCount expected $expected") + Doc.lineOrSpace + syntax.toDoc).render(80)
   }
-  final case class MissingArg(name: Constructor, pattern: Pattern.Parsed, present: SortedSet[Bindable], missing: Bindable, region: Region) extends MatchError {
+  final case class MissingArg(name: Constructor, syntax: ConstructorSyntax, present: SortedSet[Bindable], missing: Bindable, region: Region) extends Error {
     def message =
-      (Doc.text(s"missing field ${missing.asString} in ${name.asString}") + Doc.lineOrSpace + patDoc).render(80)
+      (Doc.text(s"missing field ${missing.asString} in ${name.asString}") + Doc.lineOrSpace + syntax.toDoc).render(80)
   }
-  final case class UnexpectedField(name: Constructor, pattern: Pattern.Parsed, unexpected: NonEmptyList[Bindable], expected: List[Bindable], region: Region) extends MatchError {
+  final case class UnexpectedField(name: Constructor, syntax: ConstructorSyntax, unexpected: NonEmptyList[Bindable], expected: List[Bindable], region: Region) extends Error {
     def message = {
       val plural = if (unexpected.tail.isEmpty) "field" else "fields"
       val unexDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, unexpected.toList.map { b => Doc.text(b.asString) })
       val exDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, expected.map { b => Doc.text(b.asString) })
       (Doc.text(s"unexpected $plural:") + unexDoc + Doc.lineOrSpace +
-        Doc.text(s"in ${name.asString}, expected: $exDoc") + Doc.lineOrSpace + patDoc).render(80)
+        Doc.text(s"in ${name.asString}, expected: $exDoc") + Doc.lineOrSpace + syntax.toDoc).render(80)
       }
   }
 }

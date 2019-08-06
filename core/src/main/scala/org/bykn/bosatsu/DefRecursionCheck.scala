@@ -347,7 +347,14 @@ object DefRecursionCheck {
           }
 
         case RecordConstructor(name, args) =>
-          sys.error("TODO: record constructor not supported yet")
+          def checkArg(arg: RecordArg): St[Unit] =
+            arg match {
+              case RecordArg.Simple(b) =>
+                checkDecl(Var(b)(decl.region))
+              case RecordArg.Pair(_, v) =>
+                checkDecl(v)
+            }
+          args.traverse_(checkArg)
       }
     }
 

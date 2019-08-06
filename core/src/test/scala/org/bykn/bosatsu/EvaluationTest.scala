@@ -208,7 +208,7 @@ x = [1]
 # test using List literals
 main = match x:
   EmptyList: "empty"
-  NonEmptyList(_, _): "notempty"
+  NonEmptyList(...): "notempty"
 """), "Foo", Str("notempty"))
 
     evalTest(
@@ -1491,6 +1491,67 @@ tests = Test("test record",
   ])
 """), "A", 1)
 
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+res = get(Pair { first: 1, second: "two" })
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+first = 1
+
+res = get(Pair { first, second: "two" })
+
+tests = Test("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+# missing second
+first = 1
+res = get(Pair { first })
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+# third is unknown
+first = 1
+second = 3
+res = get(Pair { first, second, third })
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
     evalFail(
       List("""
 package A
@@ -1500,7 +1561,7 @@ struct Pair(first, second)
 get = \Pair { first } -> first
 
 res = get(Pair(1, "two"))
-"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
 
     evalFail(
       List("""
@@ -1512,7 +1573,7 @@ struct Pair(first, second)
 get = \Pair(first) -> first
 
 res = get(Pair(1, "two"))
-"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
 
     evalFail(
       List("""
@@ -1524,7 +1585,7 @@ struct Pair(first, second)
 get = \Pair { first, sec: _ } -> first
 
 res = get(Pair(1, "two"))
-"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
 
     evalFail(
       List("""
@@ -1536,7 +1597,7 @@ struct Pair(first, second)
 get = \Pair { first, sec: _, ... } -> first
 
 res = get(Pair(1, "two"))
-"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
 
     evalFail(
       List("""
@@ -1548,7 +1609,7 @@ struct Pair(first, second)
 get = \Pair(first, _, _) -> first
 
 res = get(Pair(1, "two"))
-"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
 
     evalFail(
       List("""
@@ -1560,6 +1621,6 @@ struct Pair(first, second)
 get = \Pair(first, _, _, ...) -> first
 
 res = get(Pair(1, "two"))
-"""), "B") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
   }
 }
