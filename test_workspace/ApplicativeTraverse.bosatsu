@@ -1,0 +1,38 @@
+package Bosatsu/Example/ApplicativeTraverse
+
+export [Applicative(), Traverse(), traverse_List]
+
+# Represents the Applicative typeclass
+struct Applicative(
+  pure: forall a. a -> f[a],
+  map: forall a, b. (a -> b) -> f[a] -> f[b],
+  product: forall a, b. f[a] -> f[b] -> f[(a, b)])
+
+# Represents the Traverse typeclass
+struct Traverse[g](
+  traverse: forall a, b, f. (a -> f[b]) -> Applicative[f] -> g[a] -> f[g[b]])
+
+def applicative_Option -> Applicative[Option]:
+  Applicative(
+    \a -> Some(a),
+    \fn, opt -> match opt:
+      Some(a): Some(fn(a))
+      None: None,
+    \as, bs ->
+      match (as, bs):
+        (Some(a), Some(b)): Some((a, b))
+        _: None)
+
+def trav(fn: a -> f[b], app: Applicative[f]) -> (List[a] -> f[List[b]]):
+  Applicative { pure, map, product, ... } = app
+
+  def loop(lst: List[a], ftail: f[List[b]]) -> f[List[b]]:
+    recur lst:
+      []: ftail
+      [h, *t]: loop(t, map(\(h, t) -> [h, *t], product(fn(h), ftail)))
+
+  (init: f[List[b]]) = pure([])
+  \(lst: List[a]) -> map(reverse, loop(lst, init))
+  
+(traverse_List: Traverse[List]) = Traverse(trav)
+

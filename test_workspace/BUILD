@@ -108,3 +108,9 @@ bosatsu_library(
     name = "nothing",
     srcs = ["Nothing.bosatsu"],
     )
+
+bosatsu_library(
+    name = "applicative_traverse",
+    srcs = ["ApplicativeTraverse.bosatsu"],
+    deps = [":list"]
+)
