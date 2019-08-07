@@ -218,9 +218,6 @@ object Evaluation {
         Eval.now(fn)
       }
 
-    def emptyScope: Scoped =
-      fromFn(_ => inEnv(Map.empty))
-
     def applyArg(arg: Scoped): Scoped =
       fromFn { env =>
         val fnE = inEnv(env).memoize
@@ -230,6 +227,15 @@ object Evaluation {
           fn.asLazyFn(argE)
         }
       }
+
+    /**
+     * Top level Scoped objects have a fixed and known
+     * scope: that which is viewable at the top level
+     */
+    def withConstantEnv(env: => Env): Scoped = {
+      lazy val computed = inEnv(env)
+      fromFn { _ => computed }
+    }
   }
 
   object Scoped {
@@ -287,9 +293,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
-      (name, rec, expr) <- pack.program.lets.lastOption
-      (scope0, tpe) = eval((pack, Right(expr)))
-      scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
+      (name, _, _) <- pack.program.lets.lastOption
+      (scope, tpe) = eval((pack, Left(name)))
     } yield (scope.inEnv(Map.empty), tpe)
 
   /* TODO: this is useful for debugging, but we should probably test it and write a parser for the
@@ -674,20 +679,32 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             // we don't use a branch, we hit this now
             (Scoped.unreachable, Type.IntType)
           case Some(NameKind.Let(name, recursive, expr)) =>
+            // All the free variables in top level expressions
+            // need special treatment, otherwise we can
+            // fall through incorrectly
+            lazy val thisEnv =
+              TypedExpr.freeVars(expr :: Nil)
+                .map { ident =>
+                  val res = Eval.defer {
+                    val (scoped, _) = recurse((pack, Left(ident)))
+                    // these can only be top-level, so they don't need an env
+                    scoped.inEnv(Map.empty)
+                  }
+                  .memoize
+                  (ident, res)
+                }
+                .toMap
             val res0 = recurse((pack, Right(expr)))
             val s1 =
               if (recursive.isRecursive) Scoped.recursive(name, res0._1)
               else res0._1
 
-            (s1, res0._2)
+            (s1.withConstantEnv(thisEnv), res0._2)
           case Some(NameKind.Constructor(cn, _, dt, tpe)) =>
             (Scoped.const(constructor(cn, dt)), tpe)
           case Some(NameKind.Import(from, orig)) =>
             val infFrom = pm.toMap(from.name)
-            val other = recurse((infFrom, Left(orig)))
-
-            // we reset the environment in the other package
-            (other._1.emptyScope, other._2)
+            recurse((infFrom, Left(orig)))
           case Some(NameKind.ExternalDef(pn, n, tpe)) =>
             externals.toMap.get((pn, n.asString)) match {
               case None =>
