@@ -302,6 +302,18 @@ object Evaluation {
     implicit val predefImpl: PredefImpl[Const[Unit, ?]] = PredefImpl()
   }
 
+  type NEValueTag[X] = (NormalExpression, List[Eval[X]])
+  type NEEnv = Env[List[Value[NEValueTag]], NEValueTag]
+  case class NETokenImplicits[T]()(implicit extractNormalExpression: T => NormalExpression) {
+    implicit val tokenize: Value[NEValueTag] => String = ???
+    implicit val valueT: ValueT[NEValueTag] = ValueT()
+    implicit val predefImpl: PredefImpl[NEValueTag] = PredefImpl()
+    implicit val emptyEnv: NEEnv = Env(Map(), List())
+    implicit val updateEnv: (NEEnv, Bindable, Eval[Value[NEValueTag]]) => NEEnv = ???
+    implicit val valueTag: (T, NEEnv) => NEValueTag[Value[NEValueTag]] = ???
+    implicit val externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[NEValueTag]]]) => NEValueTag[Value[NEValueTag]] = ???
+    implicit val tagForConstructor: (Int, List[Value[NEValueTag]], Int) => NEValueTag[Value[NEValueTag]] = ???
+  }
 }
 
 case class Evaluation[T, E, V[_]](pm: PackageMap.Typed[T], externals: Externals[V])(implicit

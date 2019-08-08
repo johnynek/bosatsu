@@ -93,12 +93,15 @@ sealed abstract class ServerCommand {
 }
 
 object ServerCommand {
-  def tokenizeValue(v: Value[(NormalExpression, List[Eval[Value[NormalExpression]]])]): String = v match {
+  /*def tokenizeValue(v: Evaluation.Value[(NormalExpression, List[Eval[Evaluation.Value[NormalExpression]]])]): String = v match {
     case ConsValue(head, tail) => head.tokenize.zip(tail.tokenize).map { case (h,t) => s"($h,$t)" }.headOption
     case SumValue(varian, value) => value.tokenize.map(vt => s"SV($variant, $vt)")
     case FnValue(toFn, (normalExpression, scope)) => s"Fn($normalExpression, ${scope.map(_.value.tokenize).mkString(",")})"
     case ExternalValue(toAny, tokenizeFn) => tokenizeFn(toAny)
-  }
+  }*/
+
+  // type ValueType[T] = (NormalExpression, List[Eval[Evaluation.Value[T]]])
+  // type Value = Value[ValueType[ValueType[_]]
 
   def blockingQueue(serverResult: ServerResult) = {
     val bq: LinkedBlockingQueue[ServerResult] = new LinkedBlockingQueue()
@@ -108,13 +111,17 @@ object ServerCommand {
 
   def typeCheck(inputs: NonEmptyList[Path], ifs: List[Package.Interface]): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
     MainCommand.typeCheck(inputs, ifs)
+  
+  type NEValueTag[X] = (NormalExpression, List[Eval[X]])
+  val neTokenImplicits: Evaluation.NETokenImplicits[(Declaration, Normalization.NormalExpressionTag)] = Evaluation.NETokenImplicits()(_._2.ne)
+  import neTokenImplicits._
 
   case class WebServer(inputs: NonEmptyList[Path], log: Option[Path])
       extends ServerCommand {
     def result(mainPackage: PackageName) = {
       typeCheck(inputs, Nil).map { case (packs, _) =>
         val normPM = NormalizePackageMap(packs).normalizePackageMap
-        val lets = Evaluation(normPM, Predef.jvmExternals, Some({tag: (Declaration, Normalization.NormalExpressionTag) => tag._2.ne}))
+        val lets = Evaluation(normPM, Predef.jvmExternals[NEValueTag])
           .evaluateLets(mainPackage)
         val typeMap: Map[rankn.Type, TypeRef] = TypeRef.fromTypes(Some(mainPackage), lets.map(_._2._2))
         val bindings = lets.map(let => Json.JArray(List(
