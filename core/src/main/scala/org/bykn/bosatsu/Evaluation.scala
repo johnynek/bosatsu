@@ -20,7 +20,7 @@ object Evaluation {
    * all the reflection into unapply calls but keep
    * most of the API
    */
-  sealed abstract class Value[T[_]](implicit valueT: ValueT[T]) {
+  abstract class Value[T[_]](implicit valueT: ValueT[T]) {
     def asLazyFn: Eval[Value[T]] => Eval[Value[T]] =
       this match {
         case valueT.FnValue(f, _) => f
@@ -53,7 +53,7 @@ object Evaluation {
     object ProductValue {
       def fromList(ps: List[Value[T]]): ProductValue = ps match {
         case Nil => UnitValue
-        case h :: tail => ConsValue(h.asInstanceOf[Value[T]], fromList(tail.asInstanceOf[List[Value[T]]]))
+        case h :: tail => ConsValue(h, fromList(tail))
       }
     }
 
@@ -303,16 +303,40 @@ object Evaluation {
   }
 
   type NEValueTag[X] = (NormalExpression, List[Eval[X]])
-  type NEEnv = Env[List[Value[NEValueTag]], NEValueTag]
+  type NEEnv = Env[List[Eval[Value[NEValueTag]]], NEValueTag]
   case class NETokenImplicits[T]()(implicit extractNormalExpression: T => NormalExpression) {
-    implicit val tokenize: Value[NEValueTag] => String = ???
     implicit val valueT: ValueT[NEValueTag] = ValueT()
     implicit val predefImpl: PredefImpl[NEValueTag] = PredefImpl()
     implicit val emptyEnv: NEEnv = Env(Map(), List())
-    implicit val updateEnv: (NEEnv, Bindable, Eval[Value[NEValueTag]]) => NEEnv = ???
-    implicit val valueTag: (T, NEEnv) => NEValueTag[Value[NEValueTag]] = ???
-    implicit val externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[NEValueTag]]]) => NEValueTag[Value[NEValueTag]] = ???
-    implicit val tagForConstructor: (Int, List[Value[NEValueTag]], Int) => NEValueTag[Value[NEValueTag]] = ???
+    implicit val updateEnv: (NEEnv, Bindable, Eval[Value[NEValueTag]]) => NEEnv =
+      (env, name, n) => env.copy(map = env.map.updated(name, n), tag = n :: env.tag)
+    implicit val valueTag: (T, NEEnv) => NEValueTag[Value[NEValueTag]] = (t, env) => {
+      val ne = extractNormalExpression(t)
+      (ne, env.tag.take(ne.maxLambdaVar.map(_ + 1).getOrElse(0)))
+    }
+    import NormalExpression.{App, LambdaVar, ExternalVar, Struct, Lambda}
+    def applyNTimes(n: Int, ne0: NormalExpression): NormalExpression =
+      (0 until n).foldLeft(ne0) { (ne, k) => App(ne, LambdaVar(n-k)) }
+    implicit val externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[NEValueTag]]]) => NEValueTag[Value[NEValueTag]] = 
+      (pn, dn) => {
+        val ev = ExternalVar(pn, dn)
+        (k, vars) => (applyNTimes(k, ev), vars)
+      }
+    def lambdaNTimes(n: Int, ne0: NormalExpression): NormalExpression =
+      (0 until n).foldLeft(ne0) { (ne, _) => Lambda(ne) }
+    implicit val tagForConstructor: (Int, List[Value[NEValueTag]], Int) => NEValueTag[Value[NEValueTag]] =
+      (param, args, enum) => {
+        val arity = param + args.length
+        val struct = Struct(enum, (0 until arity).map {k => LambdaVar(arity - k)}.toList)
+        (lambdaNTimes(param, struct), args.map(Eval.now))
+      }
+    implicit val tokenize: Value[NEValueTag] => String = {
+      case valueT.ExternalValue(any, tf) => tf(any)
+      case valueT.FnValue(_, tag) => s"${tag._1} -- ${tag._2.map(ev => tokenize(ev.value)).mkString("--")}"
+      case valueT.ConsValue(h, t) => s"(${tokenize(h)},${tokenize(t)})"
+      case valueT.UnitValue => "()"
+      case valueT.SumValue(k, v) => s"($k,${tokenize(v)})"
+    }
   }
 }
 

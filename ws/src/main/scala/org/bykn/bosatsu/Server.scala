@@ -121,8 +121,9 @@ object ServerCommand {
     def result(mainPackage: PackageName) = {
       typeCheck(inputs, Nil).map { case (packs, _) =>
         val normPM = NormalizePackageMap(packs).normalizePackageMap
-        val lets = Evaluation(normPM, Predef.jvmExternals[NEValueTag])
-          .evaluateLets(mainPackage)
+        val lets: List[(Identifier.Bindable, (Eval[Evaluation.Value[NEValueTag]], rankn.Type, (Declaration, Normalization.NormalExpressionTag)))] =
+          Evaluation(normPM, Predef.jvmExternals[NEValueTag])
+            .evaluateLets(mainPackage)
         val typeMap: Map[rankn.Type, TypeRef] = TypeRef.fromTypes(Some(mainPackage), lets.map(_._2._2))
         val bindings = lets.map(let => Json.JArray(List(
           let._1.asString,
