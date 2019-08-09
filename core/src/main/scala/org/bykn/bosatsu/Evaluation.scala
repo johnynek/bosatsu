@@ -331,8 +331,8 @@ object Evaluation {
         (lambdaNTimes(param, struct), args.map(Eval.now))
       }
     implicit val tokenize: Value[NEValueTag] => String = {
-      case valueT.ExternalValue(any, tf) => tf(any)
-      case valueT.FnValue(_, tag) => s"${tag._1} -- ${tag._2.map(ev => tokenize(ev.value)).mkString("--")}"
+      case valueT.ExternalValue(any, tf) => s"EV(${tf(any)})"
+      case valueT.FnValue(_, tag) => s"Fn(${tag._1}, Scope(${tag._2.map(ev => tokenize(ev.value)).mkString(",")}))"
       case valueT.ConsValue(h, t) => s"(${tokenize(h)},${tokenize(t)})"
       case valueT.UnitValue => "()"
       case valueT.SumValue(k, v) => s"($k,${tokenize(v)})"
