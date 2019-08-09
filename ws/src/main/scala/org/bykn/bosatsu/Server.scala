@@ -116,8 +116,9 @@ object ServerCommand {
   val neTokenImplicits: Evaluation.NETokenImplicits[(Declaration, Normalization.NormalExpressionTag)] = Evaluation.NETokenImplicits()(_._2.ne)
   import neTokenImplicits._
 
-  case class WebServer(inputs: NonEmptyList[Path], log: Option[Path])
+  case class WebServer(inputs: NonEmptyList[Path], log: Option[Path], visParam: Option[String])
       extends ServerCommand {
+    val visType = TypeRef.TypeName(TypeName(Identifier.Constructor(visParam.getOrElse("Default/Vis::Vis"))))
     def result(mainPackage: PackageName) = {
       typeCheck(inputs, Nil).map { case (packs, _) =>
         val normPM = NormalizePackageMap(packs).normalizePackageMap
@@ -127,8 +128,8 @@ object ServerCommand {
         val typeMap: Map[rankn.Type, TypeRef] = TypeRef.fromTypes(Some(mainPackage), lets.map(_._2._2))
         val bindings = lets.map(let => Json.JArray(List(
           let._1.asString,
-          typeMap(let._2._2).toDoc.render(1000),
-          let._2._3.toString,
+          s"${typeMap(let._2._2)}",
+          // let._2._3.toString,
           tokenize(let._2._1.value)
         ).map(Json.JString).toVector))
         Json.JArray(bindings.toVector).toDoc.render(100)
@@ -185,7 +186,8 @@ object ServerCommand {
 
     val ins = Opts.options[Path]("input", help = "input files")
     val log = Opts.option[Path]("log file", help = "file to log to").orNone
-    (ins, log).mapN(WebServer(_, _))
+    val vis = Opts.option[String]("vis type", help = "vis type in the form PackageName::Identifier").orNone
+    (ins, log, vis).mapN(WebServer(_, _, _))
   }
 }
 
