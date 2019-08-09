@@ -128,7 +128,8 @@ object ServerCommand {
         val bindings = lets.map(let => Json.JArray(List(
           let._1.asString,
           typeMap(let._2._2).toDoc.render(1000),
-          let._2._3.toString
+          let._2._3.toString,
+          tokenize(let._2._1.value)
         ).map(Json.JString).toVector))
         Json.JArray(bindings.toVector).toDoc.render(100)
       }
