@@ -14,13 +14,13 @@ def _bosatsu_library_impl(ctx):
   args = ["type-check"]
   for f in ctx.files.srcs:
     args += ["--input", f.path]
-  for f in provider.transitive_sigs:
+  for f in provider.transitive_sigs.to_list():
     args += ["--interface", f.path]
 
   args += ["--interface_out", ctx.outputs.interface.path]
   args += ["--output", ctx.outputs.output.path]
 
-  ctx.action(
+  ctx.actions.run(
       inputs = depset(ctx.files.srcs, transitive=[provider.transitive_sigs]),
       outputs = [ctx.outputs.interface, ctx.outputs.output],
       executable = ctx.executable._bosatsu_main,
@@ -60,7 +60,7 @@ def _bosatsu_json_impl(ctx):
   args += ["--output", ctx.outputs.json.path]
   args += ["--main", ctx.attr.package]
 
-  ctx.action(
+  ctx.actions.run(
       inputs = depset(ctx.files.srcs, transitive=[provider.transitive_deps]),
       outputs = [ctx.outputs.json],
       executable = ctx.executable._bosatsu_main,
@@ -86,18 +86,18 @@ bosatsu_json = rule(
 def _bosatsu_test_impl(ctx):
   provider = _collect_deps(ctx)
 
-  all_inputs = provider.transitive_deps + ctx.files.srcs + [ctx.executable._bosatsu_main]
+  all_inputs = depset(ctx.files.srcs + [ctx.executable._bosatsu_main], transitive = [provider.transitive_deps])
   rfs = ctx.runfiles(transitive_files = all_inputs, collect_default = True)
 
   args = ["test"]
   for f in ctx.files.srcs:
     args += ["--input", f.short_path]
-  for f in provider.transitive_deps:
+  for f in provider.transitive_deps.to_list():
     args += ["--include", f.short_path]
   for p in ctx.attr.packages:
     args += ["--test_package", p]
 
-  ctx.file_action(
+  ctx.actions.write(
       output = ctx.outputs.executable,
       content = """#!/bin/sh
 {path} {arg}
