@@ -110,7 +110,18 @@ bosatsu_library(
     )
 
 bosatsu_library(
+    name = "option",
+    srcs = ["Option.bosatsu"],
+    )
+
+bosatsu_library(
     name = "applicative_traverse",
     srcs = ["ApplicativeTraverse.bosatsu"],
-    deps = [":list"]
+    deps = [":list", ":option"]
 )
+
+bosatsu_test(
+    name = "applicative_traverse_test",
+    deps = [":applicative_traverse"],
+    packages = ["Bosatsu/Example/ApplicativeTraverse"]
+    )
