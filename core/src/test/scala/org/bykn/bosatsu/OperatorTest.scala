@@ -69,7 +69,7 @@ operator * = times
 operator == = eq_Int
 def operator %(a, b): mod_Int(a, b)
 
-test = Test("precedence",
+test = TestSuite("precedence",
   [
     Assertion(1 + 2 * 3 == 1 + (2 * 3), "p1"),
     Assertion(1 * 2 * 3 == (1 * 2) * 3, "p1"),
@@ -90,7 +90,7 @@ operator == = \x, y ->
   (((a, b), c), ((d, e), f)) = (x, y)
   (a =*= d) & (b =*= e) & (c =*= f)
 
-test = Test("precedence",
+test = TestSuite("precedence",
   [
     Assertion(1 *> 2 *> 3 == (1 *> 2) *> 3, "p1"),
   ])
@@ -113,7 +113,7 @@ import T1 [ operator + as operator ++, `*`, `==` ]
 `.+` = `++`
 `+.` = `++`
 
-test = Test("import export",
+test = TestSuite("import export",
   [ Assertion(1 +. (2 * 3) == 1 .+ (2 * 3), "p1"),
     Assertion(1 .+ 2 * 3 == (1 .+ 2) * 3, "p1") ])
 """), "T2", 2)
@@ -134,7 +134,7 @@ left2 = 1 if True else 2 + 3
 # above should be 1 not (1 + 3)
 right2 = 1
 
-test = Test("precedence",
+test = TestSuite("precedence",
   [
     Assertion(left1 == right1, "p1"),
     Assertion(left2 == right2, "p2"),
