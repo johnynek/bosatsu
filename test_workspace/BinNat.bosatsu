@@ -1,0 +1,48 @@
+package Bosatsu/BinNat
+
+# a natural number with three variants:
+# Zero = 0
+# Odd(n) = 2n + 1
+# Even(n) = 2(n + 1)
+# e.g:
+# Zero, Odd(Zero), Even(Zero), Odd(Odd(Zero)), Even(Odd(Zero))
+enum BinNat: Zero, Odd(half: BinNat), Even(half1: BinNat)
+
+def toInt(b: BinNat) -> Int:
+  recur b:
+    Zero: 0
+    Odd(n): toInt(n).times(2).add(1)
+    Even(n): toInt(n).times(2).add(2)
+
+def toBinNat(n: Int) -> BinNat:
+  # build up a list in reverse of transformations
+  fns = int_loop(n, [], \n, fns ->
+    is_even = mod_Int(n, 2).eq_Int(0)
+    (hfn, dec) = (\n -> Even(n), \n -> n.sub(1)) if is_even else (\n -> Odd(n), \n -> n)
+    fns = [hfn, *fns]
+    # the None case can't really happen
+    n = match n.div(2):
+      None: 0
+      Some(n): n
+    (trace("next n", dec(n)), fns)
+  )
+  # Now apply all the transformations
+  fns.foldLeft(Zero, \n, fn -> fn(n))
+
+#Assertion(12.toBinNat.toInt.eq_Int(12), "12 == 12"),
+test = TestSuite(
+  "BinNat tests", [
+    Assertion(Zero.toInt.eq_Int(0), "0.toBinNat"),
+    Assertion(Odd(Zero).toInt.eq_Int(1), "1.toBinNat"),
+    Assertion(Even(Zero).toInt.eq_Int(2), "2.toBinNat"),
+    Assertion(Odd(Odd(Zero)).toInt.eq_Int(3), "3.toBinNat"),
+    Assertion(Even(Odd(Zero)).toInt.eq_Int(4), "4.toBinNat"),
+    Assertion(0.toBinNat.toInt.eq_Int(0), "0 == 0"),
+    Assertion(1.toBinNat.toInt.eq_Int(1), "1 == 1"),
+    Assertion(2.toBinNat.toInt.eq_Int(2), "2 == 2"),
+    Assertion(3.toBinNat.toInt.eq_Int(3), "3 == 3"),
+    Assertion(4.toBinNat.toInt.eq_Int(4), "4 == 4"),
+    Assertion(5.toBinNat.toInt.eq_Int(5), "5 == 5"),
+    Assertion(6.toBinNat.toInt.eq_Int(6), "6 == 6"),
+    Assertion(7.toBinNat.toInt.eq_Int(7), "7 == 7"),
+  ])
