@@ -8,12 +8,14 @@ package Bosatsu/BinNat
 # Zero, Odd(Zero), Even(Zero), Odd(Odd(Zero)), Even(Odd(Zero))
 enum BinNat: Zero, Odd(half: BinNat), Even(half1: BinNat)
 
+# Convert a BinNat into the equivalent Int
 def toInt(b: BinNat) -> Int:
   recur b:
     Zero: 0
     Odd(n): toInt(n).times(2).add(1)
     Even(n): toInt(n).times(2).add(2)
 
+# Convert a built in integer to a BinNat. <= 0 is converted to 0
 def toBinNat(n: Int) -> BinNat:
   # build up a list in reverse of transformations
   fns = int_loop(n, [], \n, fns ->
@@ -24,12 +26,71 @@ def toBinNat(n: Int) -> BinNat:
     n = match n.div(2):
       None: 0
       Some(n): n
-    (trace("next n", dec(n)), fns)
+    (dec(n), fns)
   )
   # Now apply all the transformations
   fns.foldLeft(Zero, \n, fn -> fn(n))
 
-#Assertion(12.toBinNat.toInt.eq_Int(12), "12 == 12"),
+# Return the next number
+def next(b: BinNat) -> BinNat:
+  recur b:
+    Zero: Odd(Zero)
+    Odd(half):
+      # (2n + 1) + 1 = 2(n + 1)
+      Even(half)
+    Even(half1):
+      # 2(n + 1) + 1
+      Odd(next(half1))
+
+# Return the previous number if the number is > 0, else return 0
+def prev(b: BinNat) -> BinNat:
+  recur b:
+    Zero: Zero
+    Odd(Zero):
+      # This breaks the law below because 0 - 1 = 0 in this function
+      Zero
+    Odd(half):
+      # (2n + 1) - 1 = 2n = 2(n-1 + 1)
+      Even(prev(half))
+    Even(half1):
+      # 2(n + 1) - 1 = 2n + 1
+      Odd(half1)
+
+# TODO: making this add, will typecheck, but fail to run
+# this is because add is in predef, but Evaluation is not ordered at the top level
+def add_BinNat(left: BinNat, right: BinNat) -> BinNat:
+  recur left:
+    Zero: right
+    odd @ Odd(left):
+      match right:
+        Zero: odd
+        Odd(right):
+          # 2left + 1 + 2right + 1 = 2((left + right) + 1)
+          Even(add_BinNat(left, right))
+        Even(right):
+          # 2left + 1 + 2(right + 1) = 2((left + right) + 1) + 1
+          Odd(add_BinNat(left, right.next))
+    even @ Even(left):
+      match right:
+        Zero: even
+        Odd(right):
+          # 2(left + 1) + 2right + 1 = 2((left + right) + 1) + 1
+          Odd(add_BinNat(left, right.next))
+        Even(right):
+          # 2(left + 1) + 2(right + 1) = 2((left + right + 1) + 1)
+          Even(add_BinNat(left, right.next))
+
+# multiply by 2
+def times2(b: BinNat) -> BinNat:
+  recur b:
+    Zero: Zero
+    Odd(n):
+      #2(2n + 1) = Even(2n)
+      Even(times2(n))
+    Even(n):
+      #2(2(n + 1)) = 2((2n + 1) + 1)
+      Even(Odd(n))
+
 test = TestSuite(
   "BinNat tests", [
     Assertion(Zero.toInt.eq_Int(0), "0.toBinNat"),
@@ -45,4 +106,16 @@ test = TestSuite(
     Assertion(5.toBinNat.toInt.eq_Int(5), "5 == 5"),
     Assertion(6.toBinNat.toInt.eq_Int(6), "6 == 6"),
     Assertion(7.toBinNat.toInt.eq_Int(7), "7 == 7"),
+    Assertion(0.toBinNat.next.toInt.eq_Int(1), "0.next == 1"),
+    Assertion(5.toBinNat.next.toInt.eq_Int(6), "5.next == 6"),
+    Assertion(10.toBinNat.next.toInt.eq_Int(11), "10.next == 11"),
+    Assertion(0.toBinNat.next.prev.toInt.eq_Int(0), "0.next.prev == 0"),
+    Assertion(5.toBinNat.next.prev.toInt.eq_Int(5), "5.next.prev == 5"),
+    Assertion(10.toBinNat.next.prev.toInt.eq_Int(10), "10.next.prev == 10"),
+    Assertion(10.toBinNat.add_BinNat(11.toBinNat).toInt.eq_Int(21), "add_BinNat(10, 11) == 21"),
+    Assertion(0.toBinNat.times2.toInt.eq_Int(0), "0*2 = 0"),
+    Assertion(1.toBinNat.times2.toInt.eq_Int(2), "1*2 = 2"),
+    Assertion(2.toBinNat.times2.toInt.eq_Int(4), "2*2 = 4"),
+    Assertion(5.toBinNat.times2.toInt.eq_Int(10), "5*2 = 10"),
+    Assertion(10.toBinNat.times2.toInt.eq_Int(20), "10*2 = 20"),
   ])
