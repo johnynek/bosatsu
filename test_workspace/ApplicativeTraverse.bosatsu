@@ -50,7 +50,7 @@ eq_opt_list_int = eq_Option(eq_List(eq_Int))
 
 operator == = eq_opt_list_int
 
-test = Test("applicative/traverse tests",
+test = TestSuite("applicative/traverse tests",
   [
     Assertion(trav_list_opt(\x -> Some(2.times(x)), [1, 2, 3]) == Some([2, 4, 6]), "double"),
     Assertion(trav_list_opt(\x -> None, [1, 2, 3]) == None, "all to None"),

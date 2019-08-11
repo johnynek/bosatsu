@@ -42,4 +42,4 @@ diff = sum(\x ->
 
 test0 = Assertion(diff(10) == 2640, "matched problem")
 test1 = Assertion(diff(100) == 25164150, "matched problem")
-tests = Test("two examples", [test0, test1])
+tests = TestSuite("two examples", [test0, test1])

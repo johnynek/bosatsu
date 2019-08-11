@@ -51,7 +51,7 @@ test = Assertion(eq_String("hello", foo), "checking equality")
       List("""
 package Foo
 
-test = Test("three trivial tests", [ Assertion(True, "t0"),
+test = TestSuite("three trivial tests", [ Assertion(True, "t0"),
     Assertion(True, "t1"),
     Assertion(True, "t2"),
     ])
@@ -1158,7 +1158,7 @@ inc4 = \Pair(F(x) | B(x), Foo(y)) -> x.add(y)
 test5 = Assertion(inc4(Pair(F(1), Foo(1))).eq_Int(2), "inc4(Pair(F(1), Foo(1))) == 2")
 test6 = Assertion(inc4(Pair(B(1), Foo(1))).eq_Int(2), "inc4(Pair(B(1), Foo(1))) == 2")
 
-suite = Test("match tests", [test0, test1, test2, test3, test4, test5, test6])
+suite = TestSuite("match tests", [test0, test1, test2, test3, test4, test5, test6])
 """), "A", 7)
 
     runBosatsuTest(List("""
@@ -1187,7 +1187,7 @@ def inc4(Pair(F(x) | B(x), Foo(y))): x.add(y)
 test5 = Assertion(inc4(Pair(F(1), Foo(1))).eq_Int(2), "inc4(Pair(F(1), Foo(1))) == 2")
 test6 = Assertion(inc4(Pair(B(1), Foo(1))).eq_Int(2), "inc4(Pair(B(1), Foo(1))) == 2")
 
-suite = Test("match tests", [test0, test1, test2, test3, test4, test5, test6])
+suite = TestSuite("match tests", [test0, test1, test2, test3, test4, test5, test6])
 """), "A", 7)
   }
 
@@ -1266,7 +1266,7 @@ bgood = match b:
   "two": True
   _: False
 
-tests = Test("test triple",
+tests = TestSuite("test triple",
   [ Assertion(a.eq_Int(3), "a == 3"),
     Assertion(bgood, b),
     Assertion(c.eq_Int(1), "c == 1") ])
@@ -1403,7 +1403,7 @@ rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordV
 
 rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( \r -> r.get(b).add(2) ), ps_end)))))
 
-tests = Test("reordering",
+tests = TestSuite("reordering",
   [
     Assertion(equal_rows.equal_List(rs0.list_of_rows, [[REBool(RecordValue(False)), REInt(RecordValue(1)), REString(RecordValue("a")), REInt(RecordValue(3))]]), "swap")
   ]
@@ -1421,7 +1421,7 @@ struct Pair(first, second)
 f2 = match Pair(1, "1"):
   Pair { first, ... }: first
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(f2.eq_Int(1), "f2 == 1"),
   ])
@@ -1437,7 +1437,7 @@ def res:
   Pair { first, ... } = Pair(1, 2)
   first
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(res.eq_Int(1), "res == 1"),
   ])
@@ -1453,7 +1453,7 @@ get = \Pair { first, ...} -> first
 
 res = get(Pair(1, "two"))
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(res.eq_Int(1), "res == 1"),
   ])
@@ -1469,7 +1469,7 @@ get = \Pair { first: f, ...} -> f
 
 res = get(Pair(1, "two"))
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(res.eq_Int(1), "res == 1"),
   ])
@@ -1485,7 +1485,7 @@ get = \Pair(first, ...) -> first
 
 res = get(Pair(1, "two"))
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(res.eq_Int(1), "res == 1"),
   ])
@@ -1501,7 +1501,7 @@ get = \Pair(first, ...) -> first
 
 res = get(Pair { first: 1, second: "two" })
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(res.eq_Int(1), "res == 1"),
   ])
@@ -1519,7 +1519,7 @@ first = 1
 
 res = get(Pair { first, second: "two" })
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(res.eq_Int(1), "res == 1"),
   ])
@@ -1632,7 +1632,7 @@ struct Foo(x, y)
 
 Foo { x, ... } = Foo(42, "42")
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(x.eq_Int(42), "x == 42"),
   ])
@@ -1646,7 +1646,7 @@ a = Foo(42, "42")
 x = match a:
    Foo(y, _): y
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(x.eq_Int(42), "x == 42"),
   ])
@@ -1669,7 +1669,7 @@ def add_x(a):
 # should be 43
 y = add_x(1)
 
-tests = Test("test record",
+tests = TestSuite("test record",
   [
     Assertion(y.eq_Int(43), "y == 43"),
   ])

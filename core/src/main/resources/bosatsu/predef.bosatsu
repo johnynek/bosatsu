@@ -1,7 +1,6 @@
 package Bosatsu/Predef
 
 export [
-  Assertion(),
   Bool(),
   Comparison(),
   Int,
@@ -9,7 +8,6 @@ export [
   List(),
   String,
   Test(),
-  TestSuite(),
   TupleCons(),
   Order,
   Unit(),
@@ -131,8 +129,8 @@ external struct String
 external def string_Order_fn(str0: String, str1: String) -> Comparison
 string_Order = Order(string_Order_fn)
 
-struct Assertion(value: Bool, message: String)
-struct Test(name: String, assertions: List[Assertion])
-struct TestSuite(name: String, tests: List[Test])
+enum Test:
+  Assertion(value: Bool, message: String)
+  TestSuite(name: String, tests: List[Test])
 
 external def trace(prefix: String, item: a) -> a
