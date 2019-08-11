@@ -56,8 +56,9 @@ def prev(b: BinNat) -> BinNat:
       # 2(n + 1) - 1 = 2n + 1
       Odd(half1)
 
-# TODO: making this add, will typecheck, but fail to run
+# TODO: naming this add, will typecheck, but fail to run
 # this is because add is in predef, but Evaluation is not ordered at the top level
+# see https://github.com/johnynek/bosatsu/issues/328
 def add_BinNat(left: BinNat, right: BinNat) -> BinNat:
   recur left:
     Zero: right
@@ -91,6 +92,25 @@ def times2(b: BinNat) -> BinNat:
       #2(2(n + 1)) = 2((2n + 1) + 1)
       Even(Odd(n))
 
+# multiply two BinNat together
+def times_BinNat(left: BinNat, right: BinNat) -> BinNat:
+  recur left:
+    Zero: Zero
+    Odd(left):
+      match right:
+        Zero: Zero
+        right:
+          # (2l + 1) * r = 2lr + r
+          prod = times_BinNat(left, right)
+          times2(prod).add_BinNat(right)
+    Even(left):
+      match right:
+        Zero: Zero
+        right:
+          # 2(l + 1) * n = 2(l*n + n)
+          prod = times_BinNat(left, right)
+          times2(prod.add_BinNat(right))
+
 test = TestSuite(
   "BinNat tests", [
     Assertion(Zero.toInt.eq_Int(0), "0.toBinNat"),
@@ -118,4 +138,6 @@ test = TestSuite(
     Assertion(2.toBinNat.times2.toInt.eq_Int(4), "2*2 = 4"),
     Assertion(5.toBinNat.times2.toInt.eq_Int(10), "5*2 = 10"),
     Assertion(10.toBinNat.times2.toInt.eq_Int(20), "10*2 = 20"),
+    Assertion(10.toBinNat.times_BinNat(11.toBinNat).toInt.eq_Int(110), "10*11 = 110"),
+    Assertion(0.toBinNat.times_BinNat(11.toBinNat).toInt.eq_Int(0), "0*11 = 0"),
   ])
