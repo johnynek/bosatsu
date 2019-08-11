@@ -317,40 +317,41 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   def evalTest(ps: PackageName): Option[Test] =
     evaluateLast(ps).flatMap { case (ea, tpe) =>
-
-      // struct Assertion(value: Bool, message: String)
-      // struct Test(name: String, assertions: List[Assertion])
-      // struct TestSuite(name: String, tests: List[Test])
       def toAssert(a: Value): Test =
         a match {
           case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
             Test.Assertion(true, message)
           case ConsValue(False, ConsValue(Str(message), UnitValue)) =>
             Test.Assertion(false, message)
-          case other => sys.error(s"expected test value: $other")
-        }
-      def toTest(a: Value): Test =
-        a match {
-          case ConsValue(Str(name), ConsValue(VList(asserts), UnitValue)) =>
-            Test.Suite(name, asserts.map(toAssert(_)))
-          case other => sys.error(s"expected test value: $other")
+          case other =>
+            // $COVERAGE-OFF$
+            sys.error(s"expected test value: $other")
+            // $COVERAGE-ON$
         }
       def toSuite(a: Value): Test =
         a match {
           case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
             Test.Suite(name, tests.map(toTest(_)))
-          case other => sys.error(s"expected test value: $other")
+          case other =>
+            // $COVERAGE-OFF$
+            sys.error(s"expected test value: $other")
+            // $COVERAGE-ON$
+        }
+      def toTest(a: Value): Test =
+        a match {
+          case SumValue(0, assertion) => toAssert(assertion)
+          case SumValue(1, suite) => toSuite(suite)
+          case unexpected =>
+            // $COVERAGE-OFF$
+            sys.error(s"unreachable if compilation has worked: $unexpected")
+            // $COVERAGE-ON$
         }
 
       tpe match {
         case Type.TyConst(Type.Const.Defined(Predef.Name, tn)) =>
           tn.ident.asString match {
-            case "Assertion" =>
-              Some(toAssert(ea.value))
             case "Test" =>
               Some(toTest(ea.value))
-            case "TestSuite" =>
-              Some(toSuite(ea.value))
             case _ =>
               None
           }

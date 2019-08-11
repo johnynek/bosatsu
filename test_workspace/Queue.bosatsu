@@ -63,7 +63,7 @@ def to_List(Queue(f, b): Queue[a]) -> List[a]:
   f.concat(b.reverse)
 
 ########
-## Tests below
+## TestSuites below
 ########
 
 def eq_Opt(fn, a, b):
@@ -78,7 +78,7 @@ eq_li = eq_List(eq_Int)
 
 q12 = empty.push(1).push(2)
 
-tests = Test("queue tests", [
+tests = TestSuite("queue tests", [
   Assertion(eq_oi(q12.pop_value, Some(1)), "1"),
   Assertion(q12.fold_Queue(0,add).eq_Int(3), "fold_Queue add"),
   Assertion(q12.fold_Queue(0,\_, x -> x).eq_Int(2), "take the second"),
