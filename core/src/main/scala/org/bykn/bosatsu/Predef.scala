@@ -55,65 +55,13 @@ object Predef {
   val Name: PackageName =
     PackageName.predef
 
-  /*
-   * TODO: we should be able to compute this from predefPackage
-   */
+  val predefImportList = predefCompiled.exports
+    .map(_.name)
+    .map(ImportedName.OriginalName(_, ()))
+    .toSet.toList
+
   val predefImports: Import[PackageName, Unit] =
-    Import(packageName,
-      NonEmptyList.of(
-        "Assertion",
-        "Bool",
-        "Comparison",
-        "Dict",
-        "EQ",
-        "EmptyList",
-        "False",
-        "GT",
-        "Int",
-        "LT",
-        "List",
-        "NonEmptyList",
-        "None",
-        "Option",
-        "Order",
-        "Some",
-        "String",
-        "Test",
-        "TestSuite",
-        "True",
-        "TupleCons",
-        "Unit",
-        "add",
-        "add_key",
-        "cmp_Int",
-        "concat",
-        "div",
-        "clear_Dict",
-        "empty_Dict",
-        "eq_Int",
-        "flat_map_List",
-        "foldLeft",
-        "gcd_Int",
-        "get_key",
-        "int_loop",
-        "items",
-        "map_List",
-        "mod_Int",
-        "range",
-        "range_fold",
-        "remove_key",
-        "reverse",
-        "reverse_concat",
-        "sub",
-        "string_Order_fn",
-        "string_Order",
-        "times",
-        "trace",
-        "uncurry2",
-        "uncurry3"
-        )
-        .map(Identifier.unsafe(_))
-        .map(ImportedName.OriginalName(_, ())))
+    Import(packageName,NonEmptyList.fromList(predefImportList).get)
 
   def jvmExternals[T[_]](implicit
     tokenize: Evaluation.Value[T] => String,
