@@ -125,3 +125,14 @@ bosatsu_test(
     deps = [":applicative_traverse"],
     packages = ["Bosatsu/Example/ApplicativeTraverse"]
     )
+
+bosatsu_library(
+    name = "binnat",
+    srcs = ["BinNat.bosatsu"],
+)
+
+bosatsu_test(
+    name = "binnat_test",
+    deps = [":binnat"],
+    packages = ["Bosatsu/BinNat"]
+    )
