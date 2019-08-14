@@ -196,10 +196,10 @@ object Evaluation {
     def letNameIn(name: Bindable, in: Scoped): Scoped =
       Scoped.Let(name, this, in)
 
-    def branch(fn: (Env, Value) => Eval[Value]): Scoped =
+    def branch(fn: (Value, Env) => Eval[Value]): Scoped =
       fromFn { env =>
         inEnv(env).flatMap { v =>
-          fn(env, v)
+          fn(v, env)
         }
       }
 
@@ -227,15 +227,6 @@ object Evaluation {
           fn.asLazyFn(argE)
         }
       }
-
-    /**
-     * Top level Scoped objects have a fixed and known
-     * scope: that which is viewable at the top level
-     */
-    def withConstantEnv(env: => Env): Scoped = {
-      lazy val computed = inEnv(env)
-      fromFn { _ => computed }
-    }
   }
 
   object Scoped {
@@ -250,24 +241,11 @@ object Evaluation {
         }
       }
 
-    val unreachable: Scoped =
-      const(Eval.always(sys.error("unreachable reached")))
-
     def recursive(name: Bindable, item: Scoped): Scoped = {
       fromFn { env =>
         lazy val env1: Map[Identifier, Eval[Value]] =
           env.updated(name, Eval.defer(item.inEnv(env1)).memoize)
         item.inEnv(env1)
-      }
-    }
-
-    def orElse(name: Identifier)(next: => Scoped): Scoped = {
-      lazy val nextComputed = next
-      fromFn { env =>
-        env.get(name) match {
-          case None => nextComputed.inEnv(env)
-          case Some(v) => v
-        }
       }
     }
 
@@ -767,9 +745,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          val argR = recurse((p, arg))
          val branchR = evalBranch(arg.getType, branches, p, recurse)
 
-         argR.branch { (env, a) =>
-           branchR(a, env)
-         }
+         argR.branch(branchR(_, _))
     }
   }
 
