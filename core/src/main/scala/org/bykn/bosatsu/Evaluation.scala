@@ -370,7 +370,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   private def addLet(p: Package.Typed[T], env: Env, let: (Bindable, RecursionKind, TypedExpr[T])): Env = {
     val (name, rec, e) = let
-    val e0 = eval((p, Right(e)))._1
+    val e0 = eval((p, e))
     val eres =
       if (rec.isRecursive) Scoped.recursive(name, e0)
       else e0
@@ -467,13 +467,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       }
     }
 
-  private type Ref = Either[Identifier, TypedExpr[T]]
+  private type Ref = TypedExpr[T]
 
   private def evalBranch(
     tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
     p: Package.Typed[T],
-    recurse: ((Package.Typed[T], Ref)) => (Scoped, Type)): (Value, Env) => Eval[Value] = {
+    recurse: ((Package.Typed[T], Ref)) => Scoped): (Value, Env) => Eval[Value] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
         Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
 
@@ -691,7 +691,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
       // recurse on all the branches:
       val compiledBranches = branches.map { case (pattern, branch) =>
-        (pattern, recurse((p, Right(branch)))._1)
+        (pattern, recurse((p, branch)))
       }
       val bindFn = bindEnv(compiledBranches.toList)
 
@@ -712,7 +712,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   @annotation.tailrec
   private def evalTypedExpr(p: Package.Typed[T],
     expr: TypedExpr[T],
-    recurse: ((Package.Typed[T], Ref)) => (Scoped, Type)): Scoped = {
+    recurse: ((Package.Typed[T], Ref)) => Scoped): Scoped = {
 
     import TypedExpr._
 
@@ -725,19 +725,21 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          Scoped.fromEnv(ident)
        case Var(Some(p), ident, _, _) =>
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
-         val (scoped, _) = recurse((pack, Left(ident)))
-         scoped
+         val v = getValue(pack, ident)
+           .getOrElse(sys.error(s"unknown value: $ident in $p"))
+
+         Scoped.const(v)
        case App(fn, arg, _, _) =>
          fn match {
            case AnnotatedLambda(name, _, fn, _) =>
              // f(\x -> res)(y) = let x = y in res
-             val argE = recurse((p, Right(arg)))._1
-             val fnE = recurse((p, Right(fn)))._1
+             val argE = recurse((p, arg))
+             val fnE = recurse((p, fn))
 
              argE.letNameIn(name, fnE)
            case fn =>
-             val efn = recurse((p, Right(fn)))._1
-             val earg = recurse((p, Right(arg)))._1
+             val efn = recurse((p, fn))
+             val earg = recurse((p, arg))
 
              efn.applyArg(earg)
          }
@@ -745,24 +747,24 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          expr match {
            case App(f, Var(None, name2, _, _), _, _) if name2 == name =>
              // here is eta-conversion: \x -> f(x) == f
-             recurse((p, Right(f)))._1
+             recurse((p, f))
            case expr =>
-             val inner = recurse((p, Right(expr)))._1
+             val inner = recurse((p, expr))
              inner.asLambda(name)
          }
        case Let(arg, e, in, rec, _) =>
-         val e0 = recurse((p, Right(e)))._1
+         val e0 = recurse((p, e))
          val eres =
            if (rec.isRecursive) Scoped.recursive(arg, e0)
            else e0
-         val inres = recurse((p, Right(in)))._1
+         val inres = recurse((p, in))
 
          eres.letNameIn(arg, inres)
        case Literal(lit, _, _) =>
          val res = Eval.now(Value.fromLit(lit))
          Scoped.const(res)
        case Match(arg, branches, _) =>
-         val argR = recurse((p, Right(arg)))._1
+         val argR = recurse((p, arg))
          val branchR = evalBranch(arg.getType, branches, p, recurse)
 
          argR.branch { (env, a) =>
@@ -775,20 +777,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Typed[T], Ref)) => (Scoped, Type) =
-    Memoize.function[(Package.Typed[T], Ref), (Scoped, Type)] {
-      case ((pack, Right(expr)), recurse) =>
-        (evalTypedExpr(pack, expr, recurse), expr.getType)
-      case ((pack, Left(item)), recurse) =>
-        // this is only a top-level item
-        // Here we only have a name, and what package we are in
-        // if the the name is not in the environment, we should
-        // look it up from the packages
-          val (v, tpe) = getValue(pack, item)
-            .product(getType(pack, item))
-            .getOrElse(sys.error(s"unknown value: $item in ${pack.name}"))
-
-          (Scoped.const(v), tpe)
+  private[this] val eval: ((Package.Typed[T], Ref)) => Scoped =
+    Memoize.function[(Package.Typed[T], Ref), Scoped] {
+      case ((pack, expr), recurse) => evalTypedExpr(pack, expr, recurse)
     }
 
   private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value] = {

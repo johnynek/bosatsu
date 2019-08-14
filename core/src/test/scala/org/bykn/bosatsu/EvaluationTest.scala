@@ -1690,7 +1690,7 @@ good = match (one, two):
   ("one", 2): True
   _:     False
 
-tests = Test("test",
+tests = TestSuite("test",
   [
     Assertion(good, ""),
   ])
@@ -1709,7 +1709,7 @@ good = match two:
   2: True
   _:     False
 
-tests = Test("test",
+tests = TestSuite("test",
   [
     Assertion(good, ""),
   ])
