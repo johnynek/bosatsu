@@ -348,7 +348,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   private def addLet(p: Package.Typed[T], env: Env, let: (Bindable, RecursionKind, TypedExpr[T])): Env = {
     val (name, rec, e) = let
-    val e0 = eval((p, e))
+    val e0 = eval(e)
     val eres =
       if (rec.isRecursive) Scoped.recursive(name, e0)
       else e0
@@ -440,8 +440,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   private def evalBranch(
     tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
-    p: Package.Typed[T],
-    recurse: ((Package.Typed[T], Ref)) => Scoped): (Value, Env) => Eval[Value] = {
+    recurse: Ref => Scoped): (Value, Env) => Eval[Value] = {
       val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
         Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
 
@@ -611,7 +610,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
                   case other =>
                     // $COVERAGE-OFF$this should be unreachable
-                    val ts = TypeRef.fromTypes(Some(p.name), tpe :: Nil)(tpe).toDoc.render(80)
+                    val ts = TypeRef.fromTypes(None, tpe :: Nil)(tpe).toDoc.render(80)
                     val itemStr = items.mkString("(", ", ", ")")
                     sys.error(s"ill typed in match (${ctor.asString}$itemStr: $ts\n\n$other\n\nenv: $acc")
                     // $COVERAGE-ON$
@@ -659,7 +658,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
       // recurse on all the branches:
       val compiledBranches = branches.map { case (pattern, branch) =>
-        (pattern, recurse((p, branch)))
+        (pattern, recurse(branch))
       }
       val bindFn = bindEnv(compiledBranches.toList)
 
@@ -678,17 +677,15 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * can see.
    */
   @annotation.tailrec
-  private def evalTypedExpr(p: Package.Typed[T],
-    expr: TypedExpr[T],
-    recurse: ((Package.Typed[T], Ref)) => Scoped): Scoped = {
+  private def evalTypedExpr(expr: TypedExpr[T], recurse: Ref => Scoped): Scoped = {
 
     import TypedExpr._
 
      expr match {
        case Generic(_, e, _) =>
          // TODO, we need to probably do something with this
-         evalTypedExpr(p, e, recurse)
-       case Annotation(e, _, _) => evalTypedExpr(p, e, recurse)
+         evalTypedExpr(e, recurse)
+       case Annotation(e, _, _) => evalTypedExpr(e, recurse)
        case Var(None, ident, _, _) =>
          Scoped.fromEnv(ident)
        case Var(Some(p), ident, _, _) =>
@@ -701,13 +698,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          fn match {
            case AnnotatedLambda(name, _, fn, _) =>
              // f(\x -> res)(y) = let x = y in res
-             val argE = recurse((p, arg))
-             val fnE = recurse((p, fn))
+             val argE = recurse(arg)
+             val fnE = recurse(fn)
 
              argE.letNameIn(name, fnE)
            case fn =>
-             val efn = recurse((p, fn))
-             val earg = recurse((p, arg))
+             val efn = recurse(fn)
+             val earg = recurse(arg)
 
              efn.applyArg(earg)
          }
@@ -715,25 +712,25 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          expr match {
            case App(f, Var(None, name2, _, _), _, _) if name2 == name =>
              // here is eta-conversion: \x -> f(x) == f
-             recurse((p, f))
+             recurse(f)
            case expr =>
-             val inner = recurse((p, expr))
+             val inner = recurse(expr)
              inner.asLambda(name)
          }
        case Let(arg, e, in, rec, _) =>
-         val e0 = recurse((p, e))
+         val e0 = recurse(e)
          val eres =
            if (rec.isRecursive) Scoped.recursive(arg, e0)
            else e0
-         val inres = recurse((p, in))
+         val inres = recurse(in)
 
          eres.letNameIn(arg, inres)
        case Literal(lit, _, _) =>
          val res = Eval.now(Value.fromLit(lit))
          Scoped.const(res)
        case Match(arg, branches, _) =>
-         val argR = recurse((p, arg))
-         val branchR = evalBranch(arg.getType, branches, p, recurse)
+         val argR = recurse(arg)
+         val branchR = evalBranch(arg.getType, branches, recurse)
 
          argR.branch(branchR(_, _))
     }
@@ -743,9 +740,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * We only call this on typechecked names, which means we know
    * that names resolve
    */
-  private[this] val eval: ((Package.Typed[T], Ref)) => Scoped =
-    Memoize.function[(Package.Typed[T], Ref), Scoped] {
-      case ((pack, expr), recurse) => evalTypedExpr(pack, expr, recurse)
+  private[this] val eval: Ref => Scoped =
+    Memoize.function[Ref, Scoped] {
+      (expr, recurse) => evalTypedExpr(expr, recurse)
     }
 
   private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value] = {
