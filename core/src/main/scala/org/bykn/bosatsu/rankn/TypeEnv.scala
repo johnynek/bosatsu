@@ -87,10 +87,11 @@ class TypeEnv[+A] private (
    * annotated
    */
   def addExternalValue(pack: PackageName, name: Identifier, t: Type): TypeEnv[A] =
-    new TypeEnv(constructors = constructors, definedTypes = definedTypes, values = values.updated((pack, name), t))
+    new TypeEnv(
+      constructors = constructors,
+      definedTypes = definedTypes,
+      values = values.updated((pack, name), t))
 
-  // TODO to support parameter named patterns we'd need to know the
-  // parameter names
   lazy val typeConstructors: SortedMap[(PackageName, Constructor), (List[(Type.Var, A)], List[Type], Type.Const.Defined)] =
     constructors.map { case (pc, (params, dt, _)) =>
       (pc,

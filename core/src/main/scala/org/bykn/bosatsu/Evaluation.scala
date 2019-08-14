@@ -6,6 +6,7 @@ import com.stripe.dagon.Memoize
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type}
 import scala.collection.immutable.SortedMap
+import scala.collection.mutable.{Map => MMap}
 
 import cats.implicits._
 
@@ -13,7 +14,6 @@ import Identifier.{Bindable, Constructor}
 
 object Evaluation {
   import Value._
-
 
   /**
    * If we later determine that this performance matters
@@ -242,6 +242,14 @@ object Evaluation {
     def const(e: Eval[Value]): Scoped =
       fromFn(_ => e)
 
+    def fromEnv(identifier: Identifier): Scoped =
+      fromFn { env =>
+        env.get(identifier) match {
+          case Some(e) => e
+          case None => sys.error(s"could not find $identifier in the environment with keys: ${env.keys.toList.sorted}")
+        }
+      }
+
     val unreachable: Scoped =
       const(Eval.always(sys.error("unreachable reached")))
 
@@ -284,18 +292,118 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   import Evaluation.{Value, Scoped, Env}
   import Value._
 
-  def evaluate(p: PackageName, varName: Identifier): Option[(Eval[Value], Type)] =
-    pm.toMap.get(p).map { pack =>
-      val (s, t) = eval((pack, Left(varName)))
-      (s.inEnv(Map.empty), t)
+  /**
+   * Holds the final value of the environment for each Package
+   */
+  private[this] val envCache: MMap[PackageName, Env] =
+    MMap.empty
+
+  private def importedEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] =
+    p.imports.iterator.flatMap { imp =>
+      val pack = pm.toMap.get(imp.pack.name) match {
+        case Some(p) => p
+        case None =>
+          // $COVERAGE-OFF$
+          // should never happen due to typechecking
+          sys.error(s"from ${p.name} import unknown package: ${imp.pack.name}")
+          // $COVERAGE-ON$
+      }
+      imp.items
+        .toList
+        .iterator
+        .filter { in =>
+          // We can ignore type imports, they aren't values
+          in.tag.exists {
+            case Referant.Value(_) | Referant.Constructor(_, _, _, _) => true
+            case Referant.DefinedT(_) => false
+          }
+        }
+        .map { in =>
+          val value = getValue(pack, in.originalName) match {
+            case Some(v) => v
+            case None =>
+              // $COVERAGE-OFF$
+              // should never happen due to typechecking
+              sys.error(s"from ${p.name} import unknown Package: ${imp.pack.name} value: ${in.originalName}")
+              // $COVERAGE-ON$
+          }
+
+          (in.localName, value)
+        }
     }
+    .toMap
+
+  private def externalEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] = {
+    val externalNames = p.program.externalDefs
+    externalNames.iterator.map { n =>
+      val tpe = p.program.types.getValue(p.name, n) match {
+        case Some(t) => t
+        case None =>
+          // $COVERAGE-OFF$
+          // should never happen due to typechecking
+          sys.error(s"from ${p.name} import unknown external def: $n")
+          // $COVERAGE-ON$
+      }
+      externals.toMap.get((p.name, n.asString)) match {
+        case Some(ext) => (n, ext.call(tpe))
+        case None =>
+          // $COVERAGE-OFF$
+          // should never happen due to typechecking
+          sys.error(s"from ${p.name} no External for external def: $n")
+          // $COVERAGE-ON$
+      }
+    }
+    .toMap
+  }
+
+  private def constructorEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] = {
+    val dts = p.program.types.allDefinedTypes.iterator
+    dts
+      .filter(_.packageName == p.name)
+      .flatMap { dt =>
+        dt.constructors.iterator.map { case (cn, _, _) =>
+          (cn, constructor(cn, dt))
+        }
+      }
+      .toMap
+  }
+
+  private def addLet(p: Package.Typed[T], env: Env, let: (Bindable, RecursionKind, TypedExpr[T])): Env = {
+    val (name, rec, e) = let
+    val e0 = eval((p, Right(e)))._1
+    val eres =
+      if (rec.isRecursive) Scoped.recursive(name, e0)
+      else e0
+
+    env.updated(name, Eval.defer(eres.inEnv(env)).memoize)
+  }
+
+  private def evaluate(pack: Package.Typed[T]): Env =
+    envCache.getOrElseUpdate(pack.name, {
+      val initEnv = importedEnv(pack) ++ constructorEnv(pack) ++ externalEnv(pack)
+      // add all the external definitions
+      pack.program.lets.foldLeft(initEnv)(addLet(pack, _, _))
+    })
+
+  private def getValue(pack: Package.Typed[T], name: Identifier): Option[Eval[Value]] =
+    evaluate(pack).get(name)
+
+  private[this] val typeCache: MMap[PackageName, Map[Identifier, Type]] =
+    MMap.empty
+  // Get the type of a top level value (or constructor or external def)
+  private def getType(pack: Package.Typed[T], name: Identifier): Option[Type] =
+    typeCache.getOrElseUpdate(pack.name, {
+      val lets: Map[Identifier, Type] = pack.program.lets.iterator.map { case (n, _, t) => (n, t.getType) }.toMap
+      val nonLets = pack.program.types.localValuesOf(pack.name)
+      nonLets ++ lets
+    }).get(name)
 
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
-      (name, _, _) <- pack.program.lets.lastOption
-      (scope, tpe) = eval((pack, Left(name)))
-    } yield (scope.inEnv(Map.empty), tpe)
+      (name, _, tpe) <- pack.program.lets.lastOption
+      value <- evaluate(pack).get(name)
+    } yield (value, tpe.getType)
 
   /* TODO: this is useful for debugging, but we should probably test it and write a parser for the
    * list syntax
@@ -600,6 +708,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
    * can see.
    */
+  @annotation.tailrec
   private def evalTypedExpr(p: Package.Typed[T],
     expr: TypedExpr[T],
     recurse: ((Package.Typed[T], Ref)) => (Scoped, Type)): Scoped = {
@@ -612,10 +721,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          evalTypedExpr(p, e, recurse)
        case Annotation(e, _, _) => evalTypedExpr(p, e, recurse)
        case Var(None, ident, _, _) =>
-         Scoped.orElse(ident) {
-         // this needs to be lazy
-           recurse((p, Left(ident)))._1
-         }
+         Scoped.fromEnv(ident)
        case Var(Some(p), ident, _, _) =>
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
          val (scoped, _) = recurse((pack, Left(ident)))
@@ -673,46 +779,15 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       case ((pack, Right(expr)), recurse) =>
         (evalTypedExpr(pack, expr, recurse), expr.getType)
       case ((pack, Left(item)), recurse) =>
-        NameKind(pack, item) match {
-          case None =>
-            // this isn't great, but since we fully compile, even when
-            // we don't use a branch, we hit this now
-            (Scoped.unreachable, Type.IntType)
-          case Some(NameKind.Let(name, recursive, expr)) =>
-            // All the free variables in top level expressions
-            // need special treatment, otherwise we can
-            // fall through incorrectly
-            lazy val thisEnv =
-              TypedExpr.freeVars(expr :: Nil)
-                .map { ident =>
-                  val res = Eval.defer {
-                    val (scoped, _) = recurse((pack, Left(ident)))
-                    // these can only be top-level, so they don't need an env
-                    scoped.inEnv(Map.empty)
-                  }
-                  .memoize
-                  (ident, res)
-                }
-                .toMap
-            val res0 = recurse((pack, Right(expr)))
-            val s1 =
-              if (recursive.isRecursive) Scoped.recursive(name, res0._1)
-              else res0._1
+        // this is only a top-level item
+        // Here we only have a name, and what package we are in
+        // if the the name is not in the environment, we should
+        // look it up from the packages
+          val (v, tpe) = getValue(pack, item)
+            .product(getType(pack, item))
+            .getOrElse(sys.error(s"unknown value: $item in ${pack.name}"))
 
-            (s1.withConstantEnv(thisEnv), res0._2)
-          case Some(NameKind.Constructor(cn, _, dt, tpe)) =>
-            (Scoped.const(constructor(cn, dt)), tpe)
-          case Some(NameKind.Import(from, orig)) =>
-            val infFrom = pm.toMap(from.name)
-            recurse((infFrom, Left(orig)))
-          case Some(NameKind.ExternalDef(pn, n, tpe)) =>
-            externals.toMap.get((pn, n.asString)) match {
-              case None =>
-                throw EvaluationException(s"Missing External defintion of '${pn.parts.toList.mkString("/")} $n'. Check that your 'external' parameter is correct.")
-              case Some(ext) =>
-                (Scoped.const(ext.call(tpe)), tpe)
-            }
-        }
+          (Scoped.const(v), tpe)
     }
 
   private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value] = {
