@@ -123,7 +123,7 @@ rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordV
 
 rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( \r -> r.get(b).add(2) ), ps_end)))))
 
-tests = Test("reordering",
+tests = TestSuite("reordering",
   [
     Assertion(equal_rows.equal_List(rs0.list_of_rows, [[REBool(RecordValue(False)), REInt(RecordValue(1)), REString(RecordValue("a")), REInt(RecordValue(3))]]), "swap")
   ]

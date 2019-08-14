@@ -123,7 +123,7 @@ tl12 = 2 +/ (1 +/ empty)
 list14 = from_List([1, 2, 3, 4])
 cons14 = 1 +/ ( 2 +/ ( 3 +/ ( 4 +/ empty ) ) )
 
-tests = Test("TreeList tests", [
+tests = TestSuite("TreeList tests", [
   Assertion(tl12.get(0).eq_oi(Some(2)), "get 0 == 2"),
   Assertion(tl12.get(1).eq_oi(Some(1)), "get 1 == 1"),
   Assertion(tl12.get(2).eq_oi(None), "get 2 == None"),
