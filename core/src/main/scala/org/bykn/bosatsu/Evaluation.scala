@@ -366,16 +366,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   private def getValue(pack: Package.Typed[T], name: Identifier): Option[Eval[Value]] =
     evaluate(pack).get(name)
 
-  private[this] val typeCache: MMap[PackageName, Map[Identifier, Type]] =
-    MMap.empty
-  // Get the type of a top level value (or constructor or external def)
-  private def getType(pack: Package.Typed[T], name: Identifier): Option[Type] =
-    typeCache.getOrElseUpdate(pack.name, {
-      val lets: Map[Identifier, Type] = pack.program.lets.iterator.map { case (n, _, t) => (n, t.getType) }.toMap
-      val nonLets = pack.program.types.localValuesOf(pack.name)
-      nonLets ++ lets
-    }).get(name)
-
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
