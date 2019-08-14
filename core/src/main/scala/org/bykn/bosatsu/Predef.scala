@@ -57,8 +57,9 @@ object Predef {
 
   val predefImportList = predefCompiled.exports
     .map(_.name)
+    .distinct
+    .sorted
     .map(ImportedName.OriginalName(_, ()))
-    .toSet.toList
 
   val predefImports: Import[PackageName, Unit] =
     Import(packageName,NonEmptyList.fromList(predefImportList).get)
