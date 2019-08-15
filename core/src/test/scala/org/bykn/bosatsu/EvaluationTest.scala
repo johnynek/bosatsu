@@ -1676,4 +1676,43 @@ tests = TestSuite("test record",
 """), "A", 1)
 
   }
+
+  test("test ordered shadowing issue #328") {
+    runBosatsuTest(List("""package A
+
+def one: 1
+
+two = one.add(1)
+
+def one: "one"
+
+good = match (one, two):
+  ("one", 2): True
+  _:     False
+
+tests = TestSuite("test",
+  [
+    Assertion(good, ""),
+  ])
+"""), "A", 1)
+
+    // test an example using a predef function, like add
+    runBosatsuTest(List("""package A
+
+# this should be add from predef
+two = add(1, 1)
+
+def add(x, y):
+  x.sub(y)
+
+good = match two:
+  2: True
+  _:     False
+
+tests = TestSuite("test",
+  [
+    Assertion(good, ""),
+  ])
+"""), "A", 1)
+  }
 }
