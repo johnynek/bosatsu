@@ -241,13 +241,12 @@ object Evaluation {
         }
       }
 
-    def recursive(name: Bindable, item: Scoped): Scoped = {
+    def recursive(name: Bindable, item: Scoped): Scoped =
       fromFn { env =>
         lazy val env1: Map[Identifier, Eval[Value]] =
           env.updated(name, Eval.defer(item.inEnv(env1)).memoize)
         item.inEnv(env1)
       }
-    }
 
     private case class Let(name: Bindable, arg: Scoped, in: Scoped) extends Scoped {
       def inEnv(env: Env) = {
@@ -297,15 +296,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           }
         }
         .map { in =>
-          val value = getValue(pack, in.originalName) match {
-            case Some(v) => v
-            case None =>
-              // $COVERAGE-OFF$
-              // should never happen due to typechecking
-              sys.error(s"from ${p.name} import unknown Package: ${imp.pack.name} value: ${in.originalName}")
-              // $COVERAGE-ON$
-          }
-
+          val value = getValue(pack, in.originalName)
           (in.localName, value)
         }
     }
@@ -334,9 +325,11 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     .toMap
   }
 
-  private def constructorEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] = {
-    val dts = p.program.types.allDefinedTypes.iterator
-    dts
+  private def constructorEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] =
+    p.program
+      .types
+      .allDefinedTypes
+      .iterator
       .filter(_.packageName == p.name)
       .flatMap { dt =>
         dt.constructors.iterator.map { case (cn, _, _) =>
@@ -344,15 +337,15 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         }
       }
       .toMap
-  }
 
-  private def addLet(p: Package.Typed[T], env: Env, let: (Bindable, RecursionKind, TypedExpr[T])): Env = {
+  private def addLet(env: Env, let: (Bindable, RecursionKind, TypedExpr[T])): Env = {
     val (name, rec, e) = let
     val e0 = eval(e)
     val eres =
       if (rec.isRecursive) Scoped.recursive(name, e0)
       else e0
 
+    // These are added lazily
     env.updated(name, Eval.defer(eres.inEnv(env)).memoize)
   }
 
@@ -360,11 +353,14 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     envCache.getOrElseUpdate(pack.name, {
       val initEnv = importedEnv(pack) ++ constructorEnv(pack) ++ externalEnv(pack)
       // add all the external definitions
-      pack.program.lets.foldLeft(initEnv)(addLet(pack, _, _))
+      pack.program.lets.foldLeft(initEnv)(addLet(_, _))
     })
 
-  private def getValue(pack: Package.Typed[T], name: Identifier): Option[Eval[Value]] =
-    evaluate(pack).get(name)
+  private def getValue(pack: Package.Typed[T], name: Identifier): Eval[Value] =
+    evaluate(pack)
+      .get(name)
+      // error shouldn't happen due to typechecking
+      .getOrElse(sys.error(s"unknown value: $name in ${pack.name}"))
 
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
@@ -690,10 +686,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          Scoped.fromEnv(ident)
        case Var(Some(p), ident, _, _) =>
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
-         val v = getValue(pack, ident)
-           .getOrElse(sys.error(s"unknown value: $ident in $p"))
-
-         Scoped.const(v)
+         Scoped.const(getValue(pack, ident))
        case App(fn, arg, _, _) =>
          fn match {
            case AnnotatedLambda(name, _, fn, _) =>
