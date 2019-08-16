@@ -167,7 +167,7 @@ main = go(IntCase(42))
     val packs = Map((PackageName.parts("Err"), (LocationMap(errPack), "Err.bosatsu")))
     evalFail(List(errPack), "Err") { case te@PackageError.TypeErrorIn(_, _) =>
       val msg = te.message(packs)
-      assert(msg.contains("Bosatsu/Predef::Int does not unify with type Bosatsu/Predef::String"))
+      assert(msg.contains("type error: expected type Bosatsu/Predef::Int to be the same as type Bosatsu/Predef::String"))
       ()
     }
 
@@ -1211,6 +1211,17 @@ package B
 import A [ a ]
 
 main = a"""), "B") { case PackageError.UnknownImportPackage(_, _) => () }
+
+    evalFail(
+      List("""
+package B
+
+main = a"""), "B") { case te@PackageError.TypeErrorIn(_, _) =>
+    val msg = te.message(Map.empty)
+    assert(!msg.contains("Name("))
+    assert(msg.contains("package B, name \"a\" unknown"))
+    ()
+  }
 
     evalFail(
       List("""

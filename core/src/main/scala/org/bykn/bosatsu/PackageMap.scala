@@ -458,7 +458,7 @@ object PackageError {
             lm.showRegion(r1).getOrElse(r1.toString) // we should highlight the whole region
 
           val tmap = showTypes(pack, List(t0, t1))
-          s"type ${tmap(t0)}${context0}does not unify with type ${tmap(t1)}\n$context1"
+          s"type error: expected type ${tmap(t0)}${context0}to be the same as type ${tmap(t1)}\n$context1"
         case Infer.Error.VarNotInScope((pack, name), scope, region) =>
           val ctx = lm.showRegion(region).getOrElse(region.toString)
           val candidates: List[String] =
@@ -468,7 +468,7 @@ object PackageError {
           val cmessage =
             if (candidates.nonEmpty) candidates.mkString("\nClosest: ", ", ", ".\n")
             else ""
-          val qname = "\"" + name + "\""
+          val qname = "\"" + name.sourceCodeRepr + "\""
           s"name $qname unknown.$cmessage\n$ctx"
         case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, tvs) =>
           val context0 =
@@ -493,7 +493,7 @@ object PackageError {
           val context =
             lm.showRegion(region).getOrElse(region.toString) // we should highlight the whole region
 
-          s"unknown constructor ${n.asString}$nearStr" + "\n" + context
+          s"unknown constructor ${n.sourceCodeRepr}$nearStr" + "\n" + context
         case err => err.message
       }
       // TODO use the sourceMap/regiouns in Infer.Error
