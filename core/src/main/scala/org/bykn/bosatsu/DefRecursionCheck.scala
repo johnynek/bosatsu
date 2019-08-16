@@ -24,14 +24,41 @@ object DefRecursionCheck {
 
   type Res = ValidatedNel[RecursionError, Unit]
 
-  sealed abstract class RecursionError
-  case class InvalidRecursion(name: Bindable, illegalPosition: Region) extends RecursionError
-  case class IllegalShadow(fnname: Bindable, decl: Declaration) extends RecursionError
-  case class UnexpectedRecur(decl: Declaration.Match) extends RecursionError
-  case class RecurNotOnArg(decl: Declaration.Match, fnname: Bindable, args: List[Bindable]) extends RecursionError
-  case class RecursionArgNotVar(fnname: Bindable, invalidArg: Declaration) extends RecursionError
-  case class RecursionNotSubstructural(fnname: Bindable, recurPat: Pattern.Parsed, arg: Declaration.Var) extends RecursionError
-  case class RecursiveDefNoRecur(defstmt: DefStatement[Pattern.Parsed, Declaration], recur: Declaration.Match) extends RecursionError
+  sealed abstract class RecursionError {
+    def region: Region
+    def message: String
+  }
+  case class InvalidRecursion(name: Bindable, illegalPosition: Region) extends RecursionError {
+    def region = illegalPosition
+    def message = s"invalid recursion on ${name.sourceCodeRepr}"
+  }
+  case class IllegalShadow(fnname: Bindable, decl: Declaration) extends RecursionError {
+    def region = decl.region
+    def message = s"illegal shadowing on: ${fnname.sourceCodeRepr}. Recursive shadowing of def names disallowed"
+  }
+  case class UnexpectedRecur(decl: Declaration.Match) extends RecursionError {
+    def region = decl.region
+    def message = "unexpected recur: may only appear unnested inside a def"
+  }
+  case class RecurNotOnArg(decl: Declaration.Match, fnname: Bindable, args: List[Bindable]) extends RecursionError {
+    def region = decl.region
+    def message = {
+      val argStr = args.map(_.sourceCodeRepr).mkString(", ")
+      s"recur not on an argument to the def of ${fnname.sourceCodeRepr}, args: $argStr"
+    }
+  }
+  case class RecursionArgNotVar(fnname: Bindable, invalidArg: Declaration) extends RecursionError {
+    def region = invalidArg.region
+    def message = s"recursion in ${fnname.sourceCodeRepr} is not on a name (expect a name which is exactly a arg to the def)"
+  }
+  case class RecursionNotSubstructural(fnname: Bindable, recurPat: Pattern.Parsed, arg: Declaration.Var) extends RecursionError {
+    def region = arg.region
+    def message = s"recursion is ${fnname.sourceCodeRepr} not substructual"
+  }
+  case class RecursiveDefNoRecur(defstmt: DefStatement[Pattern.Parsed, Declaration], recur: Declaration.Match) extends RecursionError {
+    def region = recur.region
+    def message = s"recur but no recursive call to ${defstmt.name.sourceCodeRepr}"
+  }
 
   /**
    * Check a statement that all inner statements and declarations contain legal
@@ -126,7 +153,7 @@ object DefRecursionCheck {
           if (idx < 0) Validated.invalidNel(RecurNotOnArg(m, fnname, args))
           else Validated.valid(idx)
         case notVar =>
-          Validated.invalidNel(RecursionArgNotVar(fnname, notVar))
+          Validated.invalidNel(RecurNotOnArg(m, fnname, args))
       }
     }
 

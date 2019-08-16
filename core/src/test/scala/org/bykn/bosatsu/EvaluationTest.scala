@@ -1249,6 +1249,20 @@ main = match Bar(a):
       val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A\nRegion(45,70)\nnon-total match, missing: Bar(_)")
       ()
     }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  recur x:
+    y: 0
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, recur but no recursive call to fn\nRegion(25,42)\n")
+      ()
+    }
   }
 
   test("pattern example from pair to triple") {
