@@ -660,21 +660,61 @@ final class SourceConverter(
   private def checkExternalDefShadowing(values: Stream[Statement.ValueStatement]): Result[Unit] = {
     val extDefNames =
       values.collect {
-        case Statement.ExternalDef(name, _, _, _) => name
+        case ed@Statement.ExternalDef(name, _, _, _) => (name, ed.region)
       }
 
-    if (extDefNames.isEmpty) success(())
+    val sunit = success(())
+
+    if (extDefNames.isEmpty) sunit
     else {
-      val extDefNamesSet = extDefNames.toSet
+      val grouped = extDefNames.groupBy(_._1)
+      val extDefNamesSet = grouped.keySet
+      val dupExts = grouped.filter { case (_, vs) => vs.lengthCompare(1) > 0 }
 
-      val dupExts =
-        extDefNames
-          .groupBy(identity)
-          .filter { case (_, vs) => vs.lengthCompare(1) > 0 }
-          .keySet
+      val dupRes = grouped.toList.traverse_ { case (name, dups) =>
+        dups.toList match {
+          case Nil | (_ :: Nil) => sunit
+          case (_, r1) :: (_, r2) :: rest =>
+            SourceConverter.partial(
+              SourceConverter.ExtDefDuplicate(name, r1, NonEmptyList(r2, rest.map(_._2))),
+              ())
+        }
+      }
 
-      success(())
+      def bindOrDef(s: Statement.ValueStatement): Option[Either[Statement.Bind, Statement.Def]] =
+        s match {
+          case b@Statement.Bind(_) => Some(Left(b))
+          case d@Statement.Def(_) => Some(Right(d))
+          case Statement.ExternalDef(_, _, _, _) => None
+        }
 
+      def checkDefBind(s: Statement.ValueStatement): Result[Unit] =
+        bindOrDef(s) match {
+          case None => sunit
+          case Some(either) =>
+            val region = either match {
+              case Left(b) => b.bind.value.region
+              case Right(d) =>
+                // TODO: This region is a bit off..., it is the result, not the def
+                d.defstatement.result._1.get.region
+            }
+            val names = either.fold(_.names, _.names)
+
+            val shadows = names.filter(extDefNamesSet)
+            NonEmptyList.fromList(shadows) match {
+              case None => sunit
+              case Some(nel) =>
+                // we are shadowing
+                SourceConverter.partial(
+                  SourceConverter.ExtDefShadow(
+                    SourceConverter.BindKind.Bind,
+                    nel,
+                    region),
+                  ())
+              }
+        }
+
+      dupRes *> values.traverse_(checkDefBind)
     }
   }
 
@@ -836,6 +876,25 @@ object SourceConverter {
   sealed abstract class ConstructorError extends Error {
     def name: Constructor
     def syntax: ConstructorSyntax
+  }
+
+  sealed abstract class BindKind(val asString: String)
+  object BindKind {
+    final case object Def extends BindKind("def")
+    final case object Bind extends BindKind("bind")
+  }
+
+  final case class ExtDefShadow(kind: BindKind, names: NonEmptyList[Bindable], region: Region) extends Error {
+    def message = {
+      val ns = names.toList.iterator.map(_.sourceCodeRepr).mkString(", ")
+      s"${kind.asString} names $ns shadow external def"
+    }
+  }
+
+  final case class ExtDefDuplicate(name: Bindable, region: Region, duplicates: NonEmptyList[Region]) extends Error {
+    def message = {
+      s"${name.sourceCodeRepr} defined multiple times"
+    }
   }
 
   sealed abstract class ConstructorSyntax {

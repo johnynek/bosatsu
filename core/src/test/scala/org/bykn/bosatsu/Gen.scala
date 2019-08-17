@@ -666,7 +666,7 @@ object Generators {
       args <- Gen.listOfN(argc, argG)
       res <- typeRefGen
       rest <- padding(tail, 1)
-    } yield Statement.ExternalDef(name, args, res, rest)
+    } yield Statement.ExternalDef(name, args, res, rest)(emptyRegion)
 
   def genEnum(tail: Gen[Statement]): Gen[Statement] =
     for {

@@ -120,7 +120,7 @@ object Statement {
   /////.
   case class Bind(bind: BindingStatement[Pattern.Parsed, Padding[Statement]]) extends ValueStatement
   case class Def(defstatement: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])]) extends ValueStatement
-  case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef, rest: Padding[Statement]) extends ValueStatement
+  case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef, rest: Padding[Statement])(val region: Region) extends ValueStatement
 
   //////
   // TypeDefinitionStatement types:
@@ -196,15 +196,15 @@ object Statement {
          val argParser: P[(Bindable, TypeRef)] = P(Identifier.bindableParser ~ ":" ~/ maybeSpace ~ TypeRef.parser)
          val args = P("(" ~ maybeSpace ~ argParser.nonEmptyList ~ maybeSpace ~ ")")
          val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser ~ maybeSpace)
-         P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~ result ~ maybeSpace ~ padding)
+         ((P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~ result).region) ~ maybeSpace ~ padding)
            .map {
-             case (name, optArgs, resType, res) =>
+             case (region, (name, optArgs, resType), rest) =>
                val alist = optArgs match {
                  case None => Nil
                  case Some(ne) => ne.toList
                }
 
-               { next: Statement => ExternalDef(name, alist, resType, res(next)) }
+               { next: Statement => ExternalDef(name, alist, resType, rest(next))(region) }
            }
        }
 
