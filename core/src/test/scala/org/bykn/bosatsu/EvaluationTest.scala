@@ -1275,6 +1275,96 @@ main = match Bar(a):
       val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A\nRegion(45,70)\nnon-total match, missing: Bar(_)")
       ()
     }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  recur x:
+    y: 0
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, recur but no recursive call to fn\nRegion(25,42)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  recur 10:
+    y: 0
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,43)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  recur y:
+    y: 0
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,42)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  recur x:
+    y:
+      recur x:
+        z: 100
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, unexpected recur: may only appear unnested inside a def\nRegion(47,70)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  fn = 100
+  recur x:
+    y:
+      recur x:
+        z: 100
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, illegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,81)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x, y):
+  match x:
+    0: y
+    x: fn(x - 1, y + 1)
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, invalid recursion on fn\nRegion(53,69)\n")
+      ()
+    }
   }
 
   test("pattern example from pair to triple") {
