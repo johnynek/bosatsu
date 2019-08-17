@@ -64,7 +64,7 @@ object Predef {
     Import(packageName,NonEmptyList.fromList(predefImportList).get)
 
   def jvmExternals[T[_]](implicit
-    tokenize: Evaluation.Value[T] => String,
+    tokenize: Evaluation.Value[T] => Json,
     predefImpl: PredefImpl[T],
     valueT: Evaluation.ValueT[T]
   ): Externals[T] =
@@ -198,10 +198,11 @@ case class PredefImpl[T[_]]()(implicit valueT: Evaluation.ValueT[T]) {
       case other => sys.error(s"type error: $other")
     }
 
-  def tokenizeDict(implicit tokenize: Value[T] => String): Any => String = { sm =>
+  def tokenizeDict(implicit tokenize: Value[T] => Json): Any => Json = { sm =>
     val lst = sm.asInstanceOf[SortedMap[Value[T], Value[T]]].toList.map {
-      case (v1, v2) => s"${tokenize(v1)}->${tokenize(v2)}" }
-    s"Dict(${lst.mkString(",")})"
+      case (v1, v2) => tokenize(v1).render() -> tokenize(v2)
+    }
+    Json.JObject(lst)
   }
 
   def clear_Dict(dictv: Value[T]): Value[T] = {
@@ -211,7 +212,7 @@ case class PredefImpl[T[_]]()(implicit valueT: Evaluation.ValueT[T]) {
   }
 
 
-  def empty_Dict(ord: Value[T])(implicit tokenize: Value[T] => String): Value[T] =
+  def empty_Dict(ord: Value[T])(implicit tokenize: Value[T] => Json): Value[T] =
     ord match {
       case ConsValue(fn, _) =>
         implicit val ordValue: Ordering[Value[T]] =
@@ -228,7 +229,7 @@ case class PredefImpl[T[_]]()(implicit valueT: Evaluation.ValueT[T]) {
       case other => sys.error(s"type error: $other")
     }
 
-  def toDict(v: Value[T]): (SortedMap[Value[T], Value[T]], Any => String) =
+  def toDict(v: Value[T]): (SortedMap[Value[T], Value[T]], Any => Json) =
     v match {
       case ExternalValue(sm, tokenize) =>
         (sm.asInstanceOf[SortedMap[Value[T], Value[T]]], tokenize)

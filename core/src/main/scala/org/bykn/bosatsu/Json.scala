@@ -8,7 +8,7 @@ import org.typelevel.paiges.Doc
 sealed abstract class Json {
   def toDoc: Doc
 
-  def render: String = toDoc.render(80)
+  def render(n: Int = 80): String = toDoc.render(n)
 }
 
 object Json {

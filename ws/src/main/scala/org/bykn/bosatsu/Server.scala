@@ -126,12 +126,12 @@ object ServerCommand {
           Evaluation(normPM, Predef.jvmExternals[NEValueTag])
             .evaluateLets(mainPackage)
         val typeMap: Map[rankn.Type, TypeRef] = TypeRef.fromTypes(Some(mainPackage), lets.map(_._2._2))
-        val bindings = lets.map(let => Json.JArray(List(
-          let._1.asString,
-          s"${typeMap(let._2._2)}",
+        val bindings = lets.map(let => Json.JArray(Vector(
+          Json.JString(let._1.asString),
+          Json.JString(s"${typeMap(let._2._2)}"),
           // let._2._3.toString,
           tokenize(let._2._1.value)
-        ).map(Json.JString).toVector))
+        ).toVector))
         Json.JArray(bindings.toVector).toDoc.render(100)
       }
     }

@@ -14,29 +14,31 @@ import Identifier.{Bindable, Constructor}
 object Evaluation {
 
   /**
-   * If we later determine that this performance matters
-   * and this wrapping is hurting, we could replace
-   * Value with a less structured type and put
-   * all the reflection into unapply calls but keep
-   * most of the API
-   */
+    * If we later determine that this performance matters
+    * and this wrapping is hurting, we could replace
+    * Value with a less structured type and put
+    * all the reflection into unapply calls but keep
+    * most of the API
+    */
   abstract class Value[T[_]](implicit valueT: ValueT[T]) {
     def asLazyFn: Eval[Value[T]] => Eval[Value[T]] =
       this match {
         case valueT.FnValue(f, _) => f
-        case other =>
+        case other                =>
           // $COVERAGE-OFF$this should be unreachable
           sys.error(s"invalid cast to Fn: $other")
-          // $COVERAGE-ON$
+        // $COVERAGE-ON$
       }
 
     def asFn: Value[T] => Eval[Value[T]] =
       this match {
-        case valueT.FnValue(f, _) => { v => f(Eval.now(v)) }
+        case valueT.FnValue(f, _) => { v =>
+          f(Eval.now(v))
+        }
         case other =>
           // $COVERAGE-OFF$this should be unreachable
           sys.error(s"invalid cast to Fn: $other")
-          // $COVERAGE-ON$
+        // $COVERAGE-ON$
       }
   }
 
@@ -45,30 +47,36 @@ object Evaluation {
     sealed abstract class ProductValue extends Value[T] {
       def toList: List[Value[T]] =
         this match {
-          case UnitValue => Nil
+          case UnitValue             => Nil
           case ConsValue(head, tail) => head :: tail.toList
         }
     }
 
     object ProductValue {
       def fromList(ps: List[Value[T]]): ProductValue = ps match {
-        case Nil => UnitValue
+        case Nil       => UnitValue
         case h :: tail => ConsValue(h, fromList(tail))
       }
+      def unapply(v: ProductValue): Option[List[Value[T]]] = Some(v.toList)
     }
 
     case object UnitValue extends ProductValue
-    case class ConsValue(head: Value[T], tail: ProductValue) extends ProductValue {
+    case class ConsValue(head: Value[T], tail: ProductValue)
+        extends ProductValue {
       override val hashCode = (head, tail).hashCode
     }
 
     case class SumValue(variant: Int, value: ProductValue) extends Value[T]
 
-    case class FnValue(toFn: Eval[Value[T]] => Eval[Value[T]], tag: T[Value[T]]) extends Value[T]
+    case class FnValue(toFn: Eval[Value[T]] => Eval[Value[T]], tag: T[Value[T]])
+        extends Value[T]
     object FnValue {
-      def apply(tag: T[Value[T]])(toFn: Eval[Value[T]] => Eval[Value[T]]): FnValue = FnValue(toFn, tag)
+      def apply(tag: T[Value[T]])(
+          toFn: Eval[Value[T]] => Eval[Value[T]]
+      ): FnValue = FnValue(toFn, tag)
     }
-    case class ExternalValue(toAny: Any, tokenizeFn: Any => String) extends Value[T] {
+    case class ExternalValue(toAny: Any, tokenizeFn: Any => Json)
+        extends Value[T] {
       lazy val tokenize = Some(tokenizeFn(toAny))
     }
 
@@ -79,24 +87,25 @@ object Evaluation {
       def unapply(v: Value[T]): Option[(Value[T], Value[T])] =
         v match {
           case ConsValue(a, ConsValue(b, UnitValue)) => Some((a, b))
-          case _ => None
+          case _                                     => None
         }
     }
 
     object Tuple {
+
       /**
-       * Tuples are encoded as:
-       * (1, 2, 3) => TupleCons(1, TupleCons(2, TupleCons(3, ())))
-       * since a Tuple(a, b) is encoded as
-       * ConsValue(a, ConsValue(b, UnitValue))
-       * this gives double wrapping
-       */
+        * Tuples are encoded as:
+        * (1, 2, 3) => TupleCons(1, TupleCons(2, TupleCons(3, ())))
+        * since a Tuple(a, b) is encoded as
+        * ConsValue(a, ConsValue(b, UnitValue))
+        * this gives double wrapping
+        */
       def unapply(v: Value[T]): Option[List[Value[T]]] =
         v match {
           case TupleCons(a, b) =>
             unapply(b).map(a :: _)
           case UnitValue => Some(Nil)
-          case _ => None
+          case _         => None
         }
     }
 
@@ -109,11 +118,11 @@ object Evaluation {
       val GT = SumValue(2, UnitValue)
     }
 
-    val tokenizeString: Any => String = _.asInstanceOf[String]
-    val tokenizeInt: Any => String = _.asInstanceOf[BigInteger].toString
+    val tokenizeString: Any => Json = s => Json.JString(s.toString)
+    val tokenizeInt: Any => Json = i => Json.JNumberStr(i.toString)
     def fromLit(l: Lit): Value[T] =
       l match {
-        case Lit.Str(s) => ExternalValue(s, tokenizeString)
+        case Lit.Str(s)     => ExternalValue(s, tokenizeString)
         case Lit.Integer(i) => ExternalValue(i, tokenizeInt)
       }
 
@@ -123,7 +132,7 @@ object Evaluation {
       def unapply(v: Value[T]): Option[BigInteger] =
         v match {
           case ExternalValue(v: BigInteger, _) => Some(v)
-          case _ => None
+          case _                               => None
         }
     }
 
@@ -132,7 +141,7 @@ object Evaluation {
       def unapply(v: Value[T]): Option[String] =
         v match {
           case ExternalValue(str: String, _) => Some(str)
-          case _ => None
+          case _                             => None
         }
     }
 
@@ -168,7 +177,7 @@ object Evaluation {
         @annotation.tailrec
         def go(vs: List[Value[T]], acc: Value[T]): Value[T] =
           vs match {
-            case Nil => acc
+            case Nil       => acc
             case h :: tail => go(tail, Cons(h, acc))
           }
         go(items.reverse, VNil)
@@ -186,58 +195,62 @@ object Evaluation {
     object VDict {
       def unapply(v: Value[T]): Option[SortedMap[Value[T], Value[T]]] =
         v match {
-          case ExternalValue(v: SortedMap[_, _], _) => Some(v.asInstanceOf[SortedMap[Value[T], Value[T]]])
+          case ExternalValue(v: SortedMap[_, _], _) =>
+            Some(v.asInstanceOf[SortedMap[Value[T], Value[T]]])
           case _ => None
         }
     }
   }
 
-  case class Env[T,V[_]](map: Map[Identifier, Eval[Value[V]]], tag: T) {
-    def updated(name: Identifier, n: Eval[Value[V]]) = copy(map = map.updated(name, n))
+  case class Env[T, V[_]](map: Map[Identifier, Eval[Value[V]]], tag: T) {
+    def updated(name: Identifier, n: Eval[Value[V]]) =
+      copy(map = map.updated(name, n))
     // def addLambdaVar(name: Identifier, n: Eval[Value[T]]) = copy(map = map.updated(name, n), lambdas = n :: lambdas)
     def get(name: Identifier) = map.get(name)
   }
 
-  sealed abstract class Scoped[E,V[_]](implicit valueT: ValueT[V]) {
+  sealed abstract class Scoped[E, V[_]](implicit valueT: ValueT[V]) {
     import Scoped.fromFn
 
-    def inEnv(env: Env[E,V]): Eval[Value[V]]
+    def inEnv(env: Env[E, V]): Eval[Value[V]]
 
-    def letNameIn(name: Bindable, in: Scoped[E,V]): Scoped[E,V] =
+    def letNameIn(name: Bindable, in: Scoped[E, V]): Scoped[E, V] =
       Scoped.Let(name, this, in)
 
-    def flatMap(fn: (Env[E,V], Value[V]) => Eval[Value[V]]): Scoped[E,V] =
-      fromFn[E,V] { env =>
+    def flatMap(fn: (Env[E, V], Value[V]) => Eval[Value[V]]): Scoped[E, V] =
+      fromFn[E, V] { env =>
         inEnv(env).flatMap { v =>
           fn(env, v)
         }
       }
 
-    def asLambda[T](name: Bindable, tag: T)(implicit
-      updateEnv: (Env[E,V], Bindable, Eval[Value[V]]) => Env[E,V],
-      valueTag: (T, Env[E,V]) => V[Value[V]]
-    ): Scoped[E,V] =
-      fromFn[E,V] { env =>
+    def asLambda[T](name: Bindable, tag: T)(
+        implicit
+        updateEnv: (Env[E, V], Bindable, Eval[Value[V]]) => Env[E, V],
+        valueTag: (T, Env[E, V]) => V[Value[V]]
+    ): Scoped[E, V] =
+      fromFn[E, V] { env =>
         import cats.Now
         val fn =
           valueT.FnValue(valueTag(tag, env)) {
-            case n@Now(v) =>
+            case n @ Now(v) =>
               inEnv(updateEnv(env, name, n)) // inEnv(env.addLambdaVar(name, n))
-            case v => v.flatMap { v0 =>
-              inEnv(updateEnv(env, name, Eval.now(v0)))
+            case v =>
+              v.flatMap { v0 =>
+                inEnv(updateEnv(env, name, Eval.now(v0)))
               // inEnv(env.addLambdaVar(name, Eval.now(v0)))
-            }
+              }
           }
-          //ne, ne.map (ne => env.lambdas.take(ne.maxLambdaVar.getOrElse(0))))
+        //ne, ne.map (ne => env.lambdas.take(ne.maxLambdaVar.getOrElse(0))))
 
         Eval.now(fn)
       }
 
-    def emptyScope(implicit emptyEnv: Env[E,V]): Scoped[E,V] =
-      fromFn[E,V](_ => inEnv(emptyEnv))
+    def emptyScope(implicit emptyEnv: Env[E, V]): Scoped[E, V] =
+      fromFn[E, V](_ => inEnv(emptyEnv))
 
-    def applyArg(arg: Scoped[E,V]): Scoped[E,V] =
-      fromFn[E,V] { env =>
+    def applyArg(arg: Scoped[E, V]): Scoped[E, V] =
+      fromFn[E, V] { env =>
         val fnE = inEnv(env).memoize
         val argE = arg.inEnv(env)
         fnE.flatMap { fn =>
@@ -246,115 +259,195 @@ object Evaluation {
         }
       }
 
-
   }
 
   object Scoped {
-    def const[E,V[_]](e: Eval[Value[V]])(implicit valueT: ValueT[V]): Scoped[E,V] =
-      fromFn[E,V](_ => e)
+    def const[E, V[_]](
+        e: Eval[Value[V]]
+    )(implicit valueT: ValueT[V]): Scoped[E, V] =
+      fromFn[E, V](_ => e)
 
-    def unreachable[E,V[_]](implicit valueT: ValueT[V]): Scoped[E,V] =
+    def unreachable[E, V[_]](implicit valueT: ValueT[V]): Scoped[E, V] =
       const(Eval.always(sys.error("unreachable reached")))
 
-    def recursive[E,V[_]](name: Bindable, item: Scoped[E,V])(implicit valueT: ValueT[V]): Scoped[E,V] = {
-      fromFn[E,V] { env =>
-        lazy val env1: Env[E,V] =
+    def recursive[E, V[_]](name: Bindable, item: Scoped[E, V])(
+        implicit valueT: ValueT[V]
+    ): Scoped[E, V] = {
+      fromFn[E, V] { env =>
+        lazy val env1: Env[E, V] =
           env.updated(name, Eval.defer(item.inEnv(env1)).memoize)
         item.inEnv(env1)
       }
     }
 
-    def orElse[E,V[_]](name: Identifier)(next: => Scoped[E,V])(implicit valueT: ValueT[V]): Scoped[E,V] = {
+    def orElse[E, V[_]](
+        name: Identifier
+    )(next: => Scoped[E, V])(implicit valueT: ValueT[V]): Scoped[E, V] = {
       lazy val nextComputed = next
-      fromFn[E,V] { env =>
+      fromFn[E, V] { env =>
         env.get(name) match {
-          case None => nextComputed.inEnv(env)
+          case None    => nextComputed.inEnv(env)
           case Some(v) => v
         }
       }
     }
 
-    private case class Let[E,V[_]](name: Bindable, arg: Scoped[E,V], in: Scoped[E,V])(implicit valueT: ValueT[V]) extends Scoped[E,V] {
-      def inEnv(env: Env[E,V]) = {
+    private case class Let[E, V[_]](
+        name: Bindable,
+        arg: Scoped[E, V],
+        in: Scoped[E, V]
+    )(implicit valueT: ValueT[V])
+        extends Scoped[E, V] {
+      def inEnv(env: Env[E, V]) = {
         val let = arg.inEnv(env)
         in.inEnv(env.updated(name, let))
       }
     }
 
-    private def fromFn[E,V[_]](fn: Env[E,V] => Eval[Value[V]])(implicit valueT: ValueT[V]): Scoped[E,V] =
+    private def fromFn[E, V[_]](
+        fn: Env[E, V] => Eval[Value[V]]
+    )(implicit valueT: ValueT[V]): Scoped[E, V] =
       FromFn(fn)
 
-    private case class FromFn[E,V[_]](fn: Env[E,V] => Eval[Value[V]])(implicit valueT: ValueT[V]) extends Scoped[E,V] {
-      def inEnv(env: Env[E,V]) = fn(env)
+    private case class FromFn[E, V[_]](fn: Env[E, V] => Eval[Value[V]])(
+        implicit valueT: ValueT[V]
+    ) extends Scoped[E, V] {
+      def inEnv(env: Env[E, V]) = fn(env)
     }
   }
 
   case class UnitImplicits[T]() {
-    implicit val tokenize: Value[Const[Unit, ?]] => String = _ => ""
+    implicit val tokenize: Value[Const[Unit, ?]] => Json = _ => Json.JNull
     implicit val emptyEnv: Env[Unit, Const[Unit, ?]] = Env(Map(), ())
-    implicit val updateEnv: (Env[Unit, Const[Unit, ?]], Bindable, Eval[Value[Const[Unit, ?]]]) => Env[Unit, Const[Unit, ?]] = (env, name, ev) =>
+    implicit val updateEnv: (
+        Env[Unit, Const[Unit, ?]],
+        Bindable,
+        Eval[Value[Const[Unit, ?]]]
+    ) => Env[Unit, Const[Unit, ?]] = (env, name, ev) =>
       Env(env.map.updated(name, ev), env.tag)
-    implicit val valueTag: (T, Evaluation.Env[Unit, Const[Unit, ?]]) => Const[Unit, Value[Const[Unit, ?]]] = (_, _) => Const(())
-    implicit val externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[Const[Unit, ?]]]]) => Const[Unit, Value[Const[Unit, ?]]] =
+    implicit val valueTag: (
+        T,
+        Evaluation.Env[Unit, Const[Unit, ?]]
+    ) => Const[Unit, Value[Const[Unit, ?]]] = (_, _) => Const(())
+    implicit val externalFnTag: (PackageName, Identifier) => (
+        Int,
+        List[Eval[Value[Const[Unit, ?]]]]
+    ) => Const[Unit, Value[Const[Unit, ?]]] =
       (_, _) => (_, _) => Const(())
-    implicit val tagForConstructor: (Int, List[Value[Const[Unit, ?]]], Int) => Const[Unit, Value[Const[Unit, ?]]] = (_, _, _) => Const(())
+    implicit val tagForConstructor: (
+        Int,
+        List[Value[Const[Unit, ?]]],
+        Int
+    ) => Const[Unit, Value[Const[Unit, ?]]] = (_, _, _) => Const(())
     implicit val valueT: ValueT[Const[Unit, ?]] = ValueT()
     implicit val predefImpl: PredefImpl[Const[Unit, ?]] = PredefImpl()
   }
 
   type NEValueTag[X] = (NormalExpression, List[Eval[X]])
   type NEEnv = Env[List[Eval[Value[NEValueTag]]], NEValueTag]
-  case class NETokenImplicits[T]()(implicit extractNormalExpression: T => NormalExpression) {
+  case class NETokenImplicits[T]()(
+      implicit extractNormalExpression: T => NormalExpression
+  ) {
     implicit val valueT: ValueT[NEValueTag] = ValueT()
     implicit val predefImpl: PredefImpl[NEValueTag] = PredefImpl()
     implicit val emptyEnv: NEEnv = Env(Map(), List())
-    implicit val updateEnv: (NEEnv, Bindable, Eval[Value[NEValueTag]]) => NEEnv =
-      (env, name, n) => env.copy(map = env.map.updated(name, n), tag = n :: env.tag)
-    implicit val valueTag: (T, NEEnv) => NEValueTag[Value[NEValueTag]] = (t, env) => {
-      val ne = extractNormalExpression(t)
-      (ne, env.tag.take(ne.maxLambdaVar.map(_ + 1).getOrElse(0)))
-    }
+    implicit val updateEnv
+        : (NEEnv, Bindable, Eval[Value[NEValueTag]]) => NEEnv =
+      (env, name, n) =>
+        env.copy(map = env.map.updated(name, n), tag = n :: env.tag)
+    implicit val valueTag: (T, NEEnv) => NEValueTag[Value[NEValueTag]] =
+      (t, env) => {
+        val ne = extractNormalExpression(t)
+        (ne, env.tag.take(ne.maxLambdaVar.map(_ + 1).getOrElse(0)))
+      }
     import NormalExpression.{App, LambdaVar, ExternalVar, Struct, Lambda}
     def applyNTimes(n: Int, ne0: NormalExpression): NormalExpression =
-      (0 until n).foldLeft(ne0) { (ne, k) => App(ne, LambdaVar(n-k)) }
-    implicit val externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[NEValueTag]]]) => NEValueTag[Value[NEValueTag]] = 
+      (0 until n).foldLeft(ne0) { (ne, k) =>
+        App(ne, LambdaVar(n - k))
+      }
+    implicit val externalFnTag: (PackageName, Identifier) => (
+        Int,
+        List[Eval[Value[NEValueTag]]]
+    ) => NEValueTag[Value[NEValueTag]] =
       (pn, dn) => {
         val ev = ExternalVar(pn, dn)
         (k, vars) => (applyNTimes(k, ev), vars)
       }
     def lambdaNTimes(n: Int, ne0: NormalExpression): NormalExpression =
-      (0 until n).foldLeft(ne0) { (ne, _) => Lambda(ne) }
-    implicit val tagForConstructor: (Int, List[Value[NEValueTag]], Int) => NEValueTag[Value[NEValueTag]] =
+      (0 until n).foldLeft(ne0) { (ne, _) =>
+        Lambda(ne)
+      }
+    implicit val tagForConstructor
+        : (Int, List[Value[NEValueTag]], Int) => NEValueTag[Value[NEValueTag]] =
       (param, args, enum) => {
         val arity = param + args.length
-        val struct = Struct(enum, (0 until arity).map {k => LambdaVar(arity - k)}.toList)
+        val struct = Struct(enum, (0 until arity).map { k =>
+          LambdaVar(arity - k)
+        }.toList)
         (lambdaNTimes(param, struct), args.map(Eval.now))
       }
-    implicit val tokenize: Value[NEValueTag] => String = {
-      case valueT.ExternalValue(any, tf) => s"EV(${tf(any)})"
-      case valueT.FnValue(_, tag) => s"Fn(${tag._1}, Scope(${tag._2.map(ev => tokenize(ev.value)).mkString(",")}))"
-      case valueT.ConsValue(h, t) => s"(${tokenize(h)},${tokenize(t)})"
-      case valueT.UnitValue => "()"
-      case valueT.SumValue(k, v) => s"($k,${tokenize(v)})"
+    implicit val tokenize
+        : Value[NEValueTag] => Json = {
+          case valueT.ExternalValue(any, tf) => tf(any)
+          case valueT.FnValue(_, tag) => {
+            val lst = List(
+              "ne" -> Json.JString(tag._1.toString),
+              "scope" -> Json.JArray(tag._2.map(ev => tokenize(ev.value)).toVector)
+            )
+            Json.JObject(lst)
+          }
+          case valueT.ProductValue(lst) => Json.JArray(lst.map(tokenize).toVector)
+          case valueT.SumValue(k, p)  => Json.JArray((Json.JNumberStr(k.toString) +: p.toList.map(tokenize)).toVector)
+
     }
   }
 }
 
-case class Evaluation[T, E, V[_]](pm: PackageMap.Typed[T], externals: Externals[V])(implicit
-  emptyEnv: Evaluation.Env[E,V],
-  updateEnv: (Evaluation.Env[E,V], Bindable, Eval[Evaluation.Value[V]]) => Evaluation.Env[E,V],
-  valueTag: (T, Evaluation.Env[E,V]) => V[Evaluation.Value[V]],
-  externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Evaluation.Value[V]]]) => V[Evaluation.Value[V]],
-  tagForConstructor: (Int, List[Evaluation.Value[V]], Int) => V[Evaluation.Value[V]],
-  valueT: Evaluation.ValueT[V]
+case class Evaluation[T, E, V[_]](
+    pm: PackageMap.Typed[T],
+    externals: Externals[V]
+)(
+    implicit
+    emptyEnv: Evaluation.Env[E, V],
+    updateEnv: (
+        Evaluation.Env[E, V],
+        Bindable,
+        Eval[Evaluation.Value[V]]
+    ) => Evaluation.Env[E, V],
+    valueTag: (T, Evaluation.Env[E, V]) => V[Evaluation.Value[V]],
+    externalFnTag: (PackageName, Identifier) => (
+        Int,
+        List[Eval[Evaluation.Value[V]]]
+    ) => V[Evaluation.Value[V]],
+    tagForConstructor: (
+        Int,
+        List[Evaluation.Value[V]],
+        Int
+    ) => V[Evaluation.Value[V]],
+    valueT: Evaluation.ValueT[V]
 ) {
   import Evaluation.{Value, Scoped, Env}
   import valueT.{
-    ConsValue, True, UnitValue, Str, VList, False, fromLit, ProductValue, SumValue, FnValue, ExternalValue,
-    VOption, VDict, Tuple
+    ConsValue,
+    True,
+    UnitValue,
+    Str,
+    VList,
+    False,
+    fromLit,
+    ProductValue,
+    SumValue,
+    FnValue,
+    ExternalValue,
+    VOption,
+    VDict,
+    Tuple
   }
 
-  def evaluate(p: PackageName, varName: Identifier): Option[(Eval[Value[V]], Type)] =
+  def evaluate(
+      p: PackageName,
+      varName: Identifier
+  ): Option[(Eval[Value[V]], Type)] =
     pm.toMap.get(p).map { pack =>
       val (s, t) = eval((pack, Left(varName)))
       (s.inEnv(emptyEnv), t)
@@ -368,7 +461,9 @@ case class Evaluation[T, E, V[_]](pm: PackageMap.Typed[T], externals: Externals[
       scope = if (rec.isRecursive) Scoped.recursive(name, scope0) else scope0
     } yield (scope.inEnv(emptyEnv), tpe)
 
-  def evaluateLets(p: PackageName): List[(Bindable, (Eval[Value[V]], Type, T))] =
+  def evaluateLets(
+      p: PackageName
+  ): List[(Bindable, (Eval[Value[V]], Type, T))] =
     for {
       pack <- pm.toMap.get(p).toList
       (name, rec, expr) <- pack.program.lets
@@ -377,360 +472,400 @@ case class Evaluation[T, E, V[_]](pm: PackageMap.Typed[T], externals: Externals[
     } yield (name, (scope.inEnv(emptyEnv), tpe, expr.tag))
 
   def evalTest(ps: PackageName): Option[Test] =
-    evaluateLast(ps).flatMap { case (ea, tpe) =>
-
-      // struct Assertion(value: Bool, message: String)
-      // struct Test(name: String, assertions: List[Assertion])
-      // struct TestSuite(name: String, tests: List[Test])
-      def toAssert(a: Value[V]): Test =
-        a match {
-          case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
-            Test.Assertion(true, message)
-          case ConsValue(False, ConsValue(Str(message), UnitValue)) =>
-            Test.Assertion(false, message)
-          case other => sys.error(s"expected test value: $other")
-        }
-      def toTest(a: Value[V]): Test =
-        a match {
-          case ConsValue(Str(name), ConsValue(VList(asserts), UnitValue)) =>
-            Test.Suite(name, asserts.map(toAssert(_)))
-          case other => sys.error(s"expected test value: $other")
-        }
-      def toSuite(a: Value[V]): Test =
-        a match {
-          case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
-            Test.Suite(name, tests.map(toTest(_)))
-          case other => sys.error(s"expected test value: $other")
-        }
-
-      tpe match {
-        case Type.TyConst(Type.Const.Defined(Predef.Name, tn)) =>
-          tn.ident.asString match {
-            case "Assertion" =>
-              Some(toAssert(ea.value))
-            case "Test" =>
-              Some(toTest(ea.value))
-            case "TestSuite" =>
-              Some(toSuite(ea.value))
-            case _ =>
-              None
+    evaluateLast(ps).flatMap {
+      case (ea, tpe) =>
+        // struct Assertion(value: Bool, message: String)
+        // struct Test(name: String, assertions: List[Assertion])
+        // struct TestSuite(name: String, tests: List[Test])
+        def toAssert(a: Value[V]): Test =
+          a match {
+            case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
+              Test.Assertion(true, message)
+            case ConsValue(False, ConsValue(Str(message), UnitValue)) =>
+              Test.Assertion(false, message)
+            case other => sys.error(s"expected test value: $other")
           }
-        case _ => None
-      }
+        def toTest(a: Value[V]): Test =
+          a match {
+            case ConsValue(Str(name), ConsValue(VList(asserts), UnitValue)) =>
+              Test.Suite(name, asserts.map(toAssert(_)))
+            case other => sys.error(s"expected test value: $other")
+          }
+        def toSuite(a: Value[V]): Test =
+          a match {
+            case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
+              Test.Suite(name, tests.map(toTest(_)))
+            case other => sys.error(s"expected test value: $other")
+          }
+
+        tpe match {
+          case Type.TyConst(Type.Const.Defined(Predef.Name, tn)) =>
+            tn.ident.asString match {
+              case "Assertion" =>
+                Some(toAssert(ea.value))
+              case "Test" =>
+                Some(toTest(ea.value))
+              case "TestSuite" =>
+                Some(toSuite(ea.value))
+              case _ =>
+                None
+            }
+          case _ => None
+        }
     }
 
   private type Ref = Either[Identifier, TypedExpr[T]]
 
   private def evalBranch(
-    tpe: Type,
-    branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
-    p: Package.Typed[T],
-    recurse: ((Package.Typed[T], Ref)) => (Scoped[E,V], Type)): (Value[V], Env[E,V]) => Eval[Value[V]] = {
-      val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
-        Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
+      tpe: Type,
+      branches: NonEmptyList[
+        (Pattern[(PackageName, Constructor), Type], TypedExpr[T])
+      ],
+      p: Package.Typed[T],
+      recurse: ((Package.Typed[T], Ref)) => (Scoped[E, V], Type)
+  ): (Value[V], Env[E, V]) => Eval[Value[V]] = {
+    val dtConst @ Type.TyConst(Type.Const.Defined(pn0, tn)) =
+      Type
+        .rootConst(tpe)
+        .getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
 
-      val packageForType = pm.toMap(pn0)
+    val packageForType = pm.toMap(pn0)
 
-      def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =
-        pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
+    def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =
+      pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
 
-      val noop: (Value[V], Env[E,V]) => Option[Env[E,V]] = { (_, env) => Some(env) }
-      val neverMatch: (Value[V], Env[E,V]) => Option[Nothing] = { (_, _) => None }
-      /*
-       * This is used in a loop internally, so I am avoiding map and flatMap
-       * in favor of pattern matching for performance
-       */
-      def maybeBind[B](pat: Pattern[(PackageName, Constructor), Type]): (Value[V], Env[E,V]) => Option[Env[E,V]] =
-        pat match {
-          case Pattern.WildCard => noop
-          case Pattern.Literal(lit) =>
-            val vlit = fromLit(lit)
-
-            { (v, env) => if (v == vlit) Some(env) else None }
-          case Pattern.Var(n) =>
-
-            { (v, env) => Some(env.updated(n, Eval.now(v))) }
-          case Pattern.Named(n, p) =>
-            val inner = maybeBind(p)
-
-            { (v, env) =>
-              inner(v, env) match {
-                case None => None
-                case Some(env1) => Some(env1.updated(n, Eval.now(v)))
-              }
-            }
-          case Pattern.ListPat(items) =>
-            items match {
-              case Nil =>
-                { (arg, acc) =>
-                  arg match {
-                    case VList.VNil => Some(acc)
-                    case _ => None
-                  }
-                }
-              case Right(ph) :: ptail =>
-                // a right hand side pattern never matches the empty list
-                val fnh = maybeBind(ph)
-                val fnt = maybeBind(Pattern.ListPat(ptail))
-
-                { (arg, acc) =>
-                  arg match {
-                    case VList.Cons(argHead, argTail) =>
-                      fnh(argHead, acc) match {
-                        case None => None
-                        case Some(acc1) => fnt(argTail, acc1)
-                      }
-                    case _ => None
-                  }
-                }
-              case Left(splice) :: Nil =>
-                // this is the common and easy case: a total match of the tail
-                // we don't need to match on it being a list, because we have
-                // already type checked
-                splice match {
-                  case Some(ident) =>
-
-                    { (v, env) => Some(env.updated(ident, Eval.now(v))) }
-                  case None =>
-                    noop
-                }
-              case Left(splice) :: ptail =>
-                // this is more costly, since we have to match a non infinite tail.
-                // we reverse the tails, do the match, and take the rest into
-                // the splice
-                val revPat = Pattern.ListPat(ptail.reverse)
-                val fnMatchTail = maybeBind(revPat)
-                val ptailSize = ptail.size
-
-                splice match {
-                  case Some(nm) =>
-                    { (arg, acc) =>
-                      arg match {
-                        case VList(asList) =>
-                          // we only allow one splice, so we assume the rest of the patterns
-                          val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
-                          fnMatchTail(VList(revArgTail), acc) match {
-                            case None => None
-                            case Some(acc1) => Some {
-                              // now bind the rest into splice:
-                              val rest = Eval.now(VList(spliceVals.reverse))
-                              acc1.updated(nm, rest)
-                            }
-                          }
-                        case notlist =>
-                          // it has to be a list due to type checking
-                          // $COVERAGE-OFF$this should be unreachable
-                          sys.error(s"ill typed in match, expected list found: $notlist")
-                          // $COVERAGE-ON$
-                      }
-                    }
-                  case None =>
-                    { (arg, acc) =>
-                      arg match {
-                        case VList(asList) =>
-                          // we only allow one splice, so we assume the rest of the patterns
-                          val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
-                          fnMatchTail(VList(revArgTail), acc)
-                        case notlist =>
-                          // it has to be a list due to type checking
-                          // $COVERAGE-OFF$this should be unreachable
-                          sys.error(s"ill typed in match, expected list found: $notlist")
-                          // $COVERAGE-ON$
-                      }
-                    }
-                }
-            }
-          case Pattern.Annotation(p, _) =>
-            // TODO we may need to use the type here
-            maybeBind(p)
-          case Pattern.Union(h, t) =>
-            // we can just loop expanding these out:
-            def loop(ps: List[Pattern[(PackageName, Constructor), Type]]): (Value[V], Env[E,V]) => Option[Env[E,V]] =
-              ps match {
-                case Nil => neverMatch
-                case head :: tail =>
-                  val fnh = maybeBind(head)
-                  val fnt = loop(tail)
-
-                  { (arg, acc) =>
-                    fnh(arg, acc) match {
-                      case None => fnt(arg, acc)
-                      case some => some
-                    }
-                  }
-              }
-            loop(h :: t.toList)
-          case Pattern.PositionalStruct(pc@(_, ctor), items) =>
-            /*
-             * The type in question is not the outer dt, but the type associated
-             * with this current constructor
-             */
-            val dt = definedForCons(pc)
-            val itemFns = items.map(maybeBind(_))
-
-            def processArgs(as: List[Value[V]], acc: Env[E,V]): Option[Env[E,V]] = {
-              // manually write out foldM hoping for performance improvements
-              @annotation.tailrec
-              def loop(vs: List[Value[V]], fns: List[(Value[V], Env[E,V]) => Option[Env[E,V]]], env: Env[E,V]): Option[Env[E,V]] =
-                vs match {
-                  case Nil => Some(env)
-                  case vh :: vt =>
-                    fns match {
-                      case fh :: ft =>
-                        fh(vh, env) match {
-                          case None => None
-                          case Some(env1) => loop(vt, ft, env1)
-                        }
-                      case Nil => Some(env) // mismatch in size, shouldn't happen statically
-                    }
-                }
-              loop(as, itemFns, acc)
-            }
-
-            if (dt.isStruct) {
-              // this is a struct, which means we expect it
-              { (arg: Value[V], acc: Env[E,V]) =>
-                arg match {
-                  case p: ProductValue =>
-                    // this is the pattern
-                    // note passing in a List here we could have union patterns
-                    // if all the pattern bindings were known to be of the same type
-                    processArgs(p.toList, acc)
-
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    val ts = TypeRef.fromTypes(Some(p.name), tpe :: Nil)(tpe).toDoc.render(80)
-                    sys.error(s"ill typed in match (${ctor.asString}${items.mkString}): $ts\n\n$other")
-                    // $COVERAGE-ON$
-                }
-              }
-            }
-            else {
-              // compute the index of ctor, so we can compare integers later
-              val idx = dt.constructors.map(_._1).indexOf(ctor)
-
-              // we don't check if idx < 0, because if we compiled, it can't be
-              { (arg: Value[V], acc: Env[E,V]) =>
-                arg match {
-                  case SumValue(enumId, v) =>
-                    if (enumId == idx) processArgs(v.toList, acc)
-                    else None
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    sys.error(s"ill typed in match: $other")
-                    // $COVERAGE-ON$
-                }
-              }
-            }
-        }
-      def bindEnv[B](branches: List[(Pattern[(PackageName, Constructor), Type], B)]): (Value[V], Env[E,V]) => (Env[E,V], B) =
-        branches match {
-          case Nil =>
-            // This is ruled out by typechecking, we know all our matches are total
-            // $COVERAGE-OFF$this should be unreachable
-            { (arg, env) =>
-              sys.error(s"non-total match: arg: $arg, branches: $branches")
-            }
-            // $COVERAGE-ON$
-          case (p, e) :: tail =>
-            val pfn = maybeBind(p)
-
-            val fnh = { (arg: Value[V], env: Env[E,V]) =>
-              pfn(arg, env) match {
-                case None => None
-                case Some(env) => Some((env, e))
-              }
-            }
-            val fntail = bindEnv(tail)
-
-            { (arg, acc) =>
-              fnh(arg, acc) match {
-                case None => fntail(arg, acc)
-                case Some(r) => r
-              }
-            }
-        }
-
-      // recurse on all the branches:
-      val compiledBranches = branches.map { case (pattern, branch) =>
-        (pattern, recurse((p, Right(branch)))._1)
-      }
-      val bindFn = bindEnv(compiledBranches.toList)
-
-      /*
-       * Now we have fully compiled all the branches and eliminated a certain amount of runtime
-       * cost of handling pattern matching
-       */
-      { (arg, env) =>
-        val (localEnv, next) = bindFn(arg, env)
-        next.inEnv(localEnv)
-      }
+    val noop: (Value[V], Env[E, V]) => Option[Env[E, V]] = { (_, env) =>
+      Some(env)
     }
+    val neverMatch: (Value[V], Env[E, V]) => Option[Nothing] = { (_, _) =>
+      None
+    }
+    /*
+     * This is used in a loop internally, so I am avoiding map and flatMap
+     * in favor of pattern matching for performance
+     */
+    def maybeBind[B](
+        pat: Pattern[(PackageName, Constructor), Type]
+    ): (Value[V], Env[E, V]) => Option[Env[E, V]] =
+      pat match {
+        case Pattern.WildCard => noop
+        case Pattern.Literal(lit) =>
+          val vlit = fromLit(lit)
 
-  /**
-   * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
-   * can see.
-   */
-  private def evalTypedExpr(p: Package.Typed[T],
-    expr: TypedExpr[T],
-    recurse: ((Package.Typed[T], Ref)) => (Scoped[E,V], Type)): Scoped[E,V] = {
+          { (v, env) =>
+            if (v == vlit) Some(env) else None
+          }
+        case Pattern.Var(n) => { (v, env) =>
+          Some(env.updated(n, Eval.now(v)))
+        }
+        case Pattern.Named(n, p) =>
+          val inner = maybeBind(p)
 
-    import TypedExpr._
+          { (v, env) =>
+            inner(v, env) match {
+              case None       => None
+              case Some(env1) => Some(env1.updated(n, Eval.now(v)))
+            }
+          }
+        case Pattern.ListPat(items) =>
+          items match {
+            case Nil => { (arg, acc) =>
+              arg match {
+                case VList.VNil => Some(acc)
+                case _          => None
+              }
+            }
+            case Right(ph) :: ptail =>
+              // a right hand side pattern never matches the empty list
+              val fnh = maybeBind(ph)
+              val fnt = maybeBind(Pattern.ListPat(ptail))
 
-     expr match {
-       case Generic(_, e, _) =>
-         // TODO, we need to probably do something with this
-         evalTypedExpr(p, e, recurse)
-       case Annotation(e, _, _) => evalTypedExpr(p, e, recurse)
-       case Var(None, ident, _, _) =>
-         Scoped.orElse(ident) {
-         // this needs to be lazy
-           recurse((p, Left(ident)))._1
-         }
-       case Var(Some(p), ident, _, _) =>
-         val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
-         val (scoped, _) = eval((pack, Left(ident)))
-         scoped
-       case App(AnnotatedLambda(name, _, fn, _), arg, _, _) =>
-         val argE = recurse((p, Right(arg)))._1
-         val fnE = recurse((p, Right(fn)))._1
+              { (arg, acc) =>
+                arg match {
+                  case VList.Cons(argHead, argTail) =>
+                    fnh(argHead, acc) match {
+                      case None       => None
+                      case Some(acc1) => fnt(argTail, acc1)
+                    }
+                  case _ => None
+                }
+              }
+            case Left(splice) :: Nil =>
+              // this is the common and easy case: a total match of the tail
+              // we don't need to match on it being a list, because we have
+              // already type checked
+              splice match {
+                case Some(ident) => { (v, env) =>
+                  Some(env.updated(ident, Eval.now(v)))
+                }
+                case None =>
+                  noop
+              }
+            case Left(splice) :: ptail =>
+              // this is more costly, since we have to match a non infinite tail.
+              // we reverse the tails, do the match, and take the rest into
+              // the splice
+              val revPat = Pattern.ListPat(ptail.reverse)
+              val fnMatchTail = maybeBind(revPat)
+              val ptailSize = ptail.size
 
-         argE.letNameIn(name, fnE)
-       case App(fn, arg, _, _) =>
-         val efn = recurse((p, Right(fn)))._1
-         val earg = recurse((p, Right(arg)))._1
+              splice match {
+                case Some(nm) => { (arg, acc) =>
+                  arg match {
+                    case VList(asList) =>
+                      // we only allow one splice, so we assume the rest of the patterns
+                      val (revArgTail, spliceVals) =
+                        asList.reverse.splitAt(ptailSize)
+                      fnMatchTail(VList(revArgTail), acc) match {
+                        case None => None
+                        case Some(acc1) =>
+                          Some {
+                            // now bind the rest into splice:
+                            val rest = Eval.now(VList(spliceVals.reverse))
+                            acc1.updated(nm, rest)
+                          }
+                      }
+                    case notlist =>
+                      // it has to be a list due to type checking
+                      // $COVERAGE-OFF$this should be unreachable
+                      sys.error(
+                        s"ill typed in match, expected list found: $notlist"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+                case None => { (arg, acc) =>
+                  arg match {
+                    case VList(asList) =>
+                      // we only allow one splice, so we assume the rest of the patterns
+                      val (revArgTail, spliceVals) =
+                        asList.reverse.splitAt(ptailSize)
+                      fnMatchTail(VList(revArgTail), acc)
+                    case notlist =>
+                      // it has to be a list due to type checking
+                      // $COVERAGE-OFF$this should be unreachable
+                      sys.error(
+                        s"ill typed in match, expected list found: $notlist"
+                      )
+                    // $COVERAGE-ON$
+                  }
+                }
+              }
+          }
+        case Pattern.Annotation(p, _) =>
+          // TODO we may need to use the type here
+          maybeBind(p)
+        case Pattern.Union(h, t) =>
+          // we can just loop expanding these out:
+          def loop(
+              ps: List[Pattern[(PackageName, Constructor), Type]]
+          ): (Value[V], Env[E, V]) => Option[Env[E, V]] =
+            ps match {
+              case Nil => neverMatch
+              case head :: tail =>
+                val fnh = maybeBind(head)
+                val fnt = loop(tail)
 
-         efn.applyArg(earg)
-       case a@AnnotatedLambda(name, _, expr, _) =>
-         val inner = recurse((p, Right(expr)))._1
-         inner.asLambda(name, a.tag)
-       case Let(arg, e, in, rec, _) =>
-         val e0 = recurse((p, Right(e)))._1
-         val eres =
-           if (rec.isRecursive) Scoped.recursive(arg, e0)
-           else e0
-         val inres = recurse((p, Right(in)))._1
+                { (arg, acc) =>
+                  fnh(arg, acc) match {
+                    case None => fnt(arg, acc)
+                    case some => some
+                  }
+                }
+            }
+          loop(h :: t.toList)
+        case Pattern.PositionalStruct(pc @ (_, ctor), items) =>
+          /*
+           * The type in question is not the outer dt, but the type associated
+           * with this current constructor
+           */
+          val dt = definedForCons(pc)
+          val itemFns = items.map(maybeBind(_))
 
-         eres.letNameIn(arg, inres)
-       case Literal(lit, _, _) =>
-         val res = Eval.now(fromLit(lit))
-         Scoped.const(res)
-       case Match(arg, branches, _) =>
-         val argR = recurse((p, Right(arg)))._1
-         val branchR = evalBranch(arg.getType, branches, p, recurse)
+          def processArgs(
+              as: List[Value[V]],
+              acc: Env[E, V]
+          ): Option[Env[E, V]] = {
+            // manually write out foldM hoping for performance improvements
+            @annotation.tailrec
+            def loop(
+                vs: List[Value[V]],
+                fns: List[(Value[V], Env[E, V]) => Option[Env[E, V]]],
+                env: Env[E, V]
+            ): Option[Env[E, V]] =
+              vs match {
+                case Nil => Some(env)
+                case vh :: vt =>
+                  fns match {
+                    case fh :: ft =>
+                      fh(vh, env) match {
+                        case None       => None
+                        case Some(env1) => loop(vt, ft, env1)
+                      }
+                    case Nil =>
+                      Some(env) // mismatch in size, shouldn't happen statically
+                  }
+              }
+            loop(as, itemFns, acc)
+          }
 
-         argR.flatMap { (env, a) =>
-           branchR(a, env)
-         }
+          if (dt.isStruct) {
+            // this is a struct, which means we expect it
+            { (arg: Value[V], acc: Env[E, V]) =>
+              arg match {
+                case p: ProductValue =>
+                  // this is the pattern
+                  // note passing in a List here we could have union patterns
+                  // if all the pattern bindings were known to be of the same type
+                  processArgs(p.toList, acc)
+
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  val ts = TypeRef
+                    .fromTypes(Some(p.name), tpe :: Nil)(tpe)
+                    .toDoc
+                    .render(80)
+                  sys.error(
+                    s"ill typed in match (${ctor.asString}${items.mkString}): $ts\n\n$other"
+                  )
+                // $COVERAGE-ON$
+              }
+            }
+          } else {
+            // compute the index of ctor, so we can compare integers later
+            val idx = dt.constructors.map(_._1).indexOf(ctor)
+
+            // we don't check if idx < 0, because if we compiled, it can't be
+            { (arg: Value[V], acc: Env[E, V]) =>
+              arg match {
+                case SumValue(enumId, v) =>
+                  if (enumId == idx) processArgs(v.toList, acc)
+                  else None
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  sys.error(s"ill typed in match: $other")
+                // $COVERAGE-ON$
+              }
+            }
+          }
+      }
+    def bindEnv[B](
+        branches: List[(Pattern[(PackageName, Constructor), Type], B)]
+    ): (Value[V], Env[E, V]) => (Env[E, V], B) =
+      branches match {
+        case Nil =>
+          // This is ruled out by typechecking, we know all our matches are total
+          // $COVERAGE-OFF$this should be unreachable
+          { (arg, env) =>
+            sys.error(s"non-total match: arg: $arg, branches: $branches")
+          }
+        // $COVERAGE-ON$
+        case (p, e) :: tail =>
+          val pfn = maybeBind(p)
+
+          val fnh = { (arg: Value[V], env: Env[E, V]) =>
+            pfn(arg, env) match {
+              case None      => None
+              case Some(env) => Some((env, e))
+            }
+          }
+          val fntail = bindEnv(tail)
+
+          { (arg, acc) =>
+            fnh(arg, acc) match {
+              case None    => fntail(arg, acc)
+              case Some(r) => r
+            }
+          }
+      }
+
+    // recurse on all the branches:
+    val compiledBranches = branches.map {
+      case (pattern, branch) =>
+        (pattern, recurse((p, Right(branch)))._1)
+    }
+    val bindFn = bindEnv(compiledBranches.toList)
+
+    /*
+     * Now we have fully compiled all the branches and eliminated a certain amount of runtime
+     * cost of handling pattern matching
+     */
+    { (arg, env) =>
+      val (localEnv, next) = bindFn(arg, env)
+      next.inEnv(localEnv)
     }
   }
 
   /**
-   * We only call this on typechecked names, which means we know
-   * that names resolve
-   */
-  private[this] val eval: ((Package.Typed[T], Ref)) => (Scoped[E,V], Type) =
-    Memoize.function[(Package.Typed[T], Ref), (Scoped[E,V], Type)] {
+    * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
+    * can see.
+    */
+  private def evalTypedExpr(
+      p: Package.Typed[T],
+      expr: TypedExpr[T],
+      recurse: ((Package.Typed[T], Ref)) => (Scoped[E, V], Type)
+  ): Scoped[E, V] = {
+
+    import TypedExpr._
+
+    expr match {
+      case Generic(_, e, _) =>
+        // TODO, we need to probably do something with this
+        evalTypedExpr(p, e, recurse)
+      case Annotation(e, _, _) => evalTypedExpr(p, e, recurse)
+      case Var(None, ident, _, _) =>
+        Scoped.orElse(ident) {
+          // this needs to be lazy
+          recurse((p, Left(ident)))._1
+        }
+      case Var(Some(p), ident, _, _) =>
+        val pack = pm.toMap
+          .get(p)
+          .getOrElse(
+            sys.error(s"cannot find $p, shouldn't happen due to typechecking")
+          )
+        val (scoped, _) = eval((pack, Left(ident)))
+        scoped
+      case App(AnnotatedLambda(name, _, fn, _), arg, _, _) =>
+        val argE = recurse((p, Right(arg)))._1
+        val fnE = recurse((p, Right(fn)))._1
+
+        argE.letNameIn(name, fnE)
+      case App(fn, arg, _, _) =>
+        val efn = recurse((p, Right(fn)))._1
+        val earg = recurse((p, Right(arg)))._1
+
+        efn.applyArg(earg)
+      case a @ AnnotatedLambda(name, _, expr, _) =>
+        val inner = recurse((p, Right(expr)))._1
+        inner.asLambda(name, a.tag)
+      case Let(arg, e, in, rec, _) =>
+        val e0 = recurse((p, Right(e)))._1
+        val eres =
+          if (rec.isRecursive) Scoped.recursive(arg, e0)
+          else e0
+        val inres = recurse((p, Right(in)))._1
+
+        eres.letNameIn(arg, inres)
+      case Literal(lit, _, _) =>
+        val res = Eval.now(fromLit(lit))
+        Scoped.const(res)
+      case Match(arg, branches, _) =>
+        val argR = recurse((p, Right(arg)))._1
+        val branchR = evalBranch(arg.getType, branches, p, recurse)
+
+        argR.flatMap { (env, a) =>
+          branchR(a, env)
+        }
+    }
+  }
+
+  /**
+    * We only call this on typechecked names, which means we know
+    * that names resolve
+    */
+  private[this] val eval: ((Package.Typed[T], Ref)) => (Scoped[E, V], Type) =
+    Memoize.function[(Package.Typed[T], Ref), (Scoped[E, V], Type)] {
       case ((pack, Right(expr)), recurse) =>
         (evalTypedExpr(pack, expr, recurse), expr.getType)
       case ((pack, Left(item)), recurse) =>
@@ -757,20 +892,23 @@ case class Evaluation[T, E, V[_]](pm: PackageMap.Typed[T], externals: Externals[
           case Some(NameKind.ExternalDef(pn, n, tpe)) =>
             externals.toMap.get((pn, n.asString)) match {
               case None =>
-                throw EvaluationException(s"Missing External defintion of '${pn.parts.toList.mkString("/")} $n'. Check that your 'external' parameter is correct.")
+                throw EvaluationException(
+                  s"Missing External defintion of '${pn.parts.toList.mkString("/")} $n'. Check that your 'external' parameter is correct."
+                )
               case Some(ext) =>
                 (Scoped.const(ext.call(tpe, pn, n)), tpe)
             }
         }
     }
 
-  private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value[V]] = {
-    val (enum, arity) = dt.constructors
-      .toList
-      .iterator
-      .zipWithIndex
-      .collectFirst { case ((ctor, params, resType), idx) if ctor == c => (idx, params.size) }
-      .get // the ctor must be in the list or we wouldn't typecheck
+  private def constructor(
+      c: Constructor,
+      dt: rankn.DefinedType[Any]
+  ): Eval[Value[V]] = {
+    val (enum, arity) =
+      dt.constructors.toList.iterator.zipWithIndex.collectFirst {
+        case ((ctor, params, resType), idx) if ctor == c => (idx, params.size)
+      }.get // the ctor must be in the list or we wouldn't typecheck
 
     val singleItemStruct = dt.isStruct
 
@@ -781,27 +919,30 @@ case class Evaluation[T, E, V[_]](pm: PackageMap.Typed[T], externals: Externals[
         val prod = ProductValue.fromList(args.reverse)
         if (singleItemStruct) prod
         else SumValue(enum, prod)
-      }
-      else FnValue(tagForConstructor(param, args, enum)) {
-        case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
-        case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
-      }
-      //, Some(Lambda(Struct(enum, List(LambdaVar(0))))), Some(args.map(Eval.now)))
+      } else
+        FnValue(tagForConstructor(param, args, enum)) {
+          case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
+          case ea =>
+            ea.map { a =>
+              loop(param - 1, a :: args)
+            }.memoize
+        }
+    //, Some(Lambda(Struct(enum, List(LambdaVar(0))))), Some(args.map(Eval.now)))
 
     Eval.now(loop(arity, Nil))
   }
 
   /**
-   * Convert a typechecked value to Json
-   * this code ASSUMES the type is correct. If not, we may throw or return
-   * incorrect data.
-   */
+    * Convert a typechecked value to Json
+    * this code ASSUMES the type is correct. If not, we may throw or return
+    * incorrect data.
+    */
   def toJson(a: Value[V], tpe: Type): Option[Json] = {
     def canEncodeToNull(t: Type): Boolean =
       t match {
         case Type.UnitType | Type.OptionT(_) => true
-        case Type.ForAll(_, inner) => canEncodeToNull(inner)
-        case _ => false
+        case Type.ForAll(_, inner)           => canEncodeToNull(inner)
+        case _                               => false
       }
     tpe match {
       case Type.IntType =>
@@ -812,12 +953,12 @@ case class Evaluation[T, E, V[_]](pm: PackageMap.Typed[T], externals: Externals[
         Some(Json.JString(v.toString))
       case Type.BoolType =>
         a match {
-          case True => Some(Json.JBool(true))
+          case True  => Some(Json.JBool(true))
           case False => Some(Json.JBool(false))
           case other =>
             // $COVERAGE-OFF$this should be unreachable
             sys.error(s"invalid cast to Boolean: $other")
-            // $COVERAGE-ON$
+          // $COVERAGE-ON$
         }
       case Type.UnitType =>
         // encode this as null
@@ -829,34 +970,40 @@ case class Evaluation[T, E, V[_]](pm: PackageMap.Typed[T], externals: Externals[
           a match {
             case VOption(None) => Some(Json.JArray(Vector.empty))
             case VOption(Some(a)) =>
-              toJson(a, tpe).map { j => Json.JArray(Vector(j)) }
+              toJson(a, tpe).map { j =>
+                Json.JArray(Vector(j))
+              }
           }
-        }
-        else {
+        } else {
           // not a nested option
           a match {
-            case VOption(None) => Some(Json.JNull)
+            case VOption(None)    => Some(Json.JNull)
             case VOption(Some(a)) => toJson(a, tpe)
           }
         }
       case Type.ListT(t) =>
         val VList(vs) = a
         vs.toVector
-          .traverse { v => toJson(v, t) }
+          .traverse { v =>
+            toJson(v, t)
+          }
           .map(Json.JArray(_))
       case Type.DictT(Type.StrType, vt) =>
         val VDict(d) = a
-        d.toList.traverse { case (k, v) =>
-          val Str(kstr) = k
-          toJson(v, vt).map((kstr, _))
-        }
-        .map(Json.JObject(_))
+        d.toList
+          .traverse {
+            case (k, v) =>
+              val Str(kstr) = k
+              toJson(v, vt).map((kstr, _))
+          }
+          .map(Json.JObject(_))
       case Type.Tuple(ts) =>
         val Tuple(as) = a
         as.zip(ts)
           .toVector
-          .traverse { case (a, t) =>
-            toJson(a, t)
+          .traverse {
+            case (a, t) =>
+              toJson(a, t)
           }
           .map(Json.JArray(_))
       case Type.ForAll(_, inner) =>
@@ -866,27 +1013,35 @@ case class Evaluation[T, E, V[_]](pm: PackageMap.Typed[T], externals: Externals[
         val vp =
           a match {
             case SumValue(variant, p) => Some((variant, p))
-            case p: ProductValue => Some((0, p))
-            case _ => None
+            case p: ProductValue      => Some((0, p))
+            case _                    => None
           }
-        val optDt = Type.rootConst(tpe)
+        val optDt = Type
+          .rootConst(tpe)
           .flatMap {
             case Type.TyConst(Type.Const.Defined(pn, n)) =>
               defined(pn, n)
           }
 
-        (vp, optDt).mapN { case ((variant, prod), dt) =>
-          val cons = dt.constructors
-          val (_, targs) = Type.applicationArgs(tpe)
-          val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
-          cons.lift(variant).flatMap { case (_, params, _) =>
-            prod.toList.zip(params).traverse { case (a1, (pn, t)) =>
-              toJson(a1, Type.substituteVar(t, replaceMap)).map((pn.asString, _))
-            }
+        (vp, optDt)
+          .mapN {
+            case ((variant, prod), dt) =>
+              val cons = dt.constructors
+              val (_, targs) = Type.applicationArgs(tpe)
+              val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
+              cons.lift(variant).flatMap {
+                case (_, params, _) =>
+                  prod.toList.zip(params).traverse {
+                    case (a1, (pn, t)) =>
+                      toJson(a1, Type.substituteVar(t, replaceMap))
+                        .map((pn.asString, _))
+                  }
+              }
           }
-        }
-        .flatten
-        .map { ps => Json.JObject(ps) }
+          .flatten
+          .map { ps =>
+            Json.JObject(ps)
+          }
     }
   }
 
