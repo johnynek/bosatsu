@@ -1,5 +1,6 @@
 package Bosatsu/BinNat
 
+export [ BinNat(), Nat(), toInt, times2_Nat, toNat, toBinNat, next, add_BinNat, times2 ]
 # a natural number with three variants:
 # Zero = 0
 # Odd(n) = 2n + 1
@@ -77,9 +78,6 @@ def prev(b: BinNat) -> BinNat:
       # 2(n + 1) - 1 = 2n + 1
       Odd(half1)
 
-# TODO: naming this add, will typecheck, but fail to run
-# this is because add is in predef, but Evaluation is not ordered at the top level
-# see https://github.com/johnynek/bosatsu/issues/328
 def add_BinNat(left: BinNat, right: BinNat) -> BinNat:
   recur left:
     Zero: right
@@ -148,6 +146,15 @@ def fold_left_BinNat(fn: a -> BinNat -> a, init: a, cnt: BinNat) -> a:
   # O(cnt), so this isn't a complexity change
   loop(init, cnt, toNat(cnt))
 
+def round_trip_law(i, msg):
+  Assertion(i.toBinNat.toInt.eq_Int(i), msg)
+
+def next_law(i, msg):
+  Assertion(i.toBinNat.next.toInt.eq_Int(i.add(1)), msg)
+
+def times2_law(i, msg):
+  Assertion(i.toBinNat.times2.toInt.eq_Int(i.times(2)), msg)
+
 test = TestSuite(
   "BinNat tests", [
     Assertion(Zero.toInt.eq_Int(0), "0.toBinNat"),
@@ -155,26 +162,36 @@ test = TestSuite(
     Assertion(Even(Zero).toInt.eq_Int(2), "2.toBinNat"),
     Assertion(Odd(Odd(Zero)).toInt.eq_Int(3), "3.toBinNat"),
     Assertion(Even(Odd(Zero)).toInt.eq_Int(4), "4.toBinNat"),
-    Assertion(0.toBinNat.toInt.eq_Int(0), "0 == 0"),
-    Assertion(1.toBinNat.toInt.eq_Int(1), "1 == 1"),
-    Assertion(2.toBinNat.toInt.eq_Int(2), "2 == 2"),
-    Assertion(3.toBinNat.toInt.eq_Int(3), "3 == 3"),
-    Assertion(4.toBinNat.toInt.eq_Int(4), "4 == 4"),
-    Assertion(5.toBinNat.toInt.eq_Int(5), "5 == 5"),
-    Assertion(6.toBinNat.toInt.eq_Int(6), "6 == 6"),
-    Assertion(7.toBinNat.toInt.eq_Int(7), "7 == 7"),
-    Assertion(0.toBinNat.next.toInt.eq_Int(1), "0.next == 1"),
-    Assertion(5.toBinNat.next.toInt.eq_Int(6), "5.next == 6"),
-    Assertion(10.toBinNat.next.toInt.eq_Int(11), "10.next == 11"),
+    TestSuite("round trip laws", [ round_trip_law(i, m) for (i, m) in [
+      (0, "roundtrip 0"),
+      (1, "roundtrip 1"),
+      (2, "roundtrip 2"),
+      (3, "roundtrip 3"),
+      (4, "roundtrip 4"),
+      (5, "roundtrip 5"),
+      (6, "roundtrip 6"),
+      (7, "roundtrip 7"),
+      (50, "roundtrip 50"),
+      (61, "roundtrip 61"),
+      (72, "roundtrip 72"),
+    ]]),
+    TestSuite("next law", [ next_law(i, msg) for (i, msg) in [
+      (0, "0.next"),
+      (5, "5.next"),
+      (10, "10.next"),
+      (113, "113.next"),
+    ]]),
     Assertion(0.toBinNat.next.prev.toInt.eq_Int(0), "0.next.prev == 0"),
     Assertion(5.toBinNat.next.prev.toInt.eq_Int(5), "5.next.prev == 5"),
     Assertion(10.toBinNat.next.prev.toInt.eq_Int(10), "10.next.prev == 10"),
     Assertion(10.toBinNat.add_BinNat(11.toBinNat).toInt.eq_Int(21), "add_BinNat(10, 11) == 21"),
-    Assertion(0.toBinNat.times2.toInt.eq_Int(0), "0*2 = 0"),
-    Assertion(1.toBinNat.times2.toInt.eq_Int(2), "1*2 = 2"),
-    Assertion(2.toBinNat.times2.toInt.eq_Int(4), "2*2 = 4"),
-    Assertion(5.toBinNat.times2.toInt.eq_Int(10), "5*2 = 10"),
-    Assertion(10.toBinNat.times2.toInt.eq_Int(20), "10*2 = 20"),
+    TestSuite("times2 law", [times2_law(i, msg) for (i, msg) in [
+      (0, "0 * 2"),
+      (1, "1 * 2"),
+      (2, "2 * 2"),
+      (5, "5 * 2"),
+      (10, "10 * 2"),
+    ]]),
     Assertion(10.toBinNat.times_BinNat(11.toBinNat).toInt.eq_Int(110), "10*11 = 110"),
     Assertion(0.toBinNat.times_BinNat(11.toBinNat).toInt.eq_Int(0), "0*11 = 0"),
     Assertion(fold_left_BinNat(\n, _ -> n.next, Zero, 10.toBinNat).toInt.eq_Int(10), "1 + ... + 1 = 10"),
