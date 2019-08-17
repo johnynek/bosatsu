@@ -655,6 +655,30 @@ final class SourceConverter(
       .filterNot(allNames)
 
   /**
+   * Externals are not permitted to be shadowed at the top level
+   */
+  private def checkExternalDefShadowing(values: Stream[Statement.ValueStatement]): Result[Unit] = {
+    val extDefNames =
+      values.collect {
+        case Statement.ExternalDef(name, _, _, _) => name
+      }
+
+    if (extDefNames.isEmpty) success(())
+    else {
+      val extDefNamesSet = extDefNames.toSet
+
+      val dupExts =
+        extDefNames
+          .groupBy(identity)
+          .filter { case (_, vs) => vs.lengthCompare(1) > 0 }
+          .keySet
+
+      success(())
+
+    }
+  }
+
+  /**
    * Return the lets in order they appear
    */
   private def toLets(stmts: Stream[Statement.ValueStatement]): Result[List[(Bindable, RecursionKind, Expr[Declaration])]] = {
@@ -776,7 +800,8 @@ final class SourceConverter(
       pte.addExternalValue(thisPackage, name, tpe)
     }
 
-    toLets(stmts).map { binds =>
+    implicit val parallel = SourceConverter.parallelIor
+    (checkExternalDefShadowing(stmts) *> toLets(stmts)).map { binds =>
       Program((importedTypeEnv, pte1), binds, exts.map(_._1).toList, stmt)
     }
   }
@@ -804,10 +829,13 @@ object SourceConverter {
     new SourceConverter(thisPackage, imports, localDefs)
 
   sealed abstract class Error {
-    def name: Constructor
     def region: Region
-    def syntax: ConstructorSyntax
     def message: String
+  }
+
+  sealed abstract class ConstructorError extends Error {
+    def name: Constructor
+    def syntax: ConstructorSyntax
   }
 
   sealed abstract class ConstructorSyntax {
@@ -828,7 +856,7 @@ object SourceConverter {
       RecCons(c)
   }
 
-  final case class UnknownConstructor(name: Constructor, syntax: ConstructorSyntax, region: Region) extends Error {
+  final case class UnknownConstructor(name: Constructor, syntax: ConstructorSyntax, region: Region) extends ConstructorError {
     def message = {
       val maybeDoc = syntax match {
         case ConstructorSyntax.Pat(Pattern.PositionalStruct(Pattern.StructKind.Named(n, Pattern.StructKind.Style.TupleLike), Nil)) if n == name =>
@@ -840,15 +868,15 @@ object SourceConverter {
       (Doc.text(s"unknown constructor ${name.asString}") + maybeDoc).render(80)
     }
   }
-  final case class InvalidArgCount(name: Constructor, syntax: ConstructorSyntax, argCount: Int, expected: Int, region: Region) extends Error {
+  final case class InvalidArgCount(name: Constructor, syntax: ConstructorSyntax, argCount: Int, expected: Int, region: Region) extends ConstructorError {
     def message =
       (Doc.text(s"invalid argument count in ${name.asString}, found $argCount expected $expected") + Doc.lineOrSpace + syntax.toDoc).render(80)
   }
-  final case class MissingArg(name: Constructor, syntax: ConstructorSyntax, present: SortedSet[Bindable], missing: Bindable, region: Region) extends Error {
+  final case class MissingArg(name: Constructor, syntax: ConstructorSyntax, present: SortedSet[Bindable], missing: Bindable, region: Region) extends ConstructorError {
     def message =
       (Doc.text(s"missing field ${missing.asString} in ${name.asString}") + Doc.lineOrSpace + syntax.toDoc).render(80)
   }
-  final case class UnexpectedField(name: Constructor, syntax: ConstructorSyntax, unexpected: NonEmptyList[Bindable], expected: List[Bindable], region: Region) extends Error {
+  final case class UnexpectedField(name: Constructor, syntax: ConstructorSyntax, unexpected: NonEmptyList[Bindable], expected: List[Bindable], region: Region) extends ConstructorError {
     def message = {
       val plural = if (unexpected.tail.isEmpty) "field" else "fields"
       val unexDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, unexpected.toList.map { b => Doc.text(b.asString) })

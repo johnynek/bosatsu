@@ -1831,4 +1831,19 @@ tests = TestSuite("test",
   ])
 """), "A", 1)
   }
+
+  test("shadowing of external def isn't allowed") {
+    evalFail(
+      List("""
+package A
+
+external def foo(x: String) -> List[String]
+
+def foo(x): x
+
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(s.message(Map.empty) == "hello")
+      ()
+    }
+  }
 }
