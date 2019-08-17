@@ -493,7 +493,7 @@ object PackageError {
           val context =
             lm.showRegion(region).getOrElse(region.toString) // we should highlight the whole region
 
-          s"unknown constructor ${n.sourceCodeRepr}$nearStr" + "\n" + context
+          s"unknown constructor ${n.asString}$nearStr" + "\n" + context
         case err => err.message
       }
       // TODO use the sourceMap/regiouns in Infer.Error

@@ -1227,6 +1227,21 @@ main = a"""), "B") { case te@PackageError.TypeErrorIn(_, _) =>
       List("""
 package B
 
+x = 1
+
+main = match x:
+  Foo: 2
+"""), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
+    val msg = te.message(Map.empty)
+    assert(!msg.contains("Name("))
+    assert(msg.contains("package B, unknown constructor Foo"))
+    ()
+  }
+
+    evalFail(
+      List("""
+package B
+
 struct X
 
 main = match 1:
