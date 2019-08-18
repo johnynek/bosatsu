@@ -77,6 +77,11 @@ object Parser {
             case Nil => sys.error("rep 1 matched 0")
           }
         }
+
+      def cutThen[B](that: Indy[B]): Indy[(A, B)] =
+        Indy { indent =>
+          toKleisli(indent) ~/ that(indent)
+        }
     }
   }
 

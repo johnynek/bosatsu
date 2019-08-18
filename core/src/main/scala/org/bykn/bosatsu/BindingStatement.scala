@@ -7,6 +7,8 @@ import Parser.{ Indy, maybeSpace }
 import cats.implicits._
 import org.bykn.fastparse_cats.StringInstances._
 
+import Indy.IndyMethods
+
 case class BindingStatement[B, T](name: B, value: Declaration, in: T)
 
 object BindingStatement {
@@ -19,10 +21,10 @@ object BindingStatement {
     }
 
   def bindingParser[B, T](parser: Indy[Declaration], rest: Indy[T]): Indy[B => BindingStatement[B, T]] = {
-    val eqP = P("=" ~ !"=")
+    val eqP = P("=" ~ !Operators.multiToksP)
 
     (Indy.lift(P(maybeSpace ~ eqP ~/ maybeSpace)) *> parser)
-      .product(rest)
+      .cutThen(rest)
       .map { case (value, rest) =>
 
         { (bname: B) => BindingStatement(bname, value, rest) }
