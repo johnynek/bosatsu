@@ -1831,4 +1831,44 @@ tests = TestSuite("test",
   ])
 """), "A", 1)
   }
+
+  test("shadowing of external def isn't allowed") {
+    evalFail(
+      List("""
+package A
+
+external def foo(x: String) -> List[String]
+
+def foo(x): x
+
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(69,70)")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+external def foo(x: String) -> List[String]
+
+foo = 1
+
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(63,64)")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+external def foo(x: String) -> List[String]
+
+external def foo(x: String) -> List[String]
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, foo defined multiple times\nRegion(21,55)")
+      ()
+    }
+  }
 }

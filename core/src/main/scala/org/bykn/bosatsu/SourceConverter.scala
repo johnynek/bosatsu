@@ -655,6 +655,70 @@ final class SourceConverter(
       .filterNot(allNames)
 
   /**
+   * Externals are not permitted to be shadowed at the top level
+   */
+  private def checkExternalDefShadowing(values: Stream[Statement.ValueStatement]): Result[Unit] = {
+    val extDefNames =
+      values.collect {
+        case ed@Statement.ExternalDef(name, _, _, _) => (name, ed.region)
+      }
+
+    val sunit = success(())
+
+    if (extDefNames.isEmpty) sunit
+    else {
+      val grouped = extDefNames.groupBy(_._1)
+      val extDefNamesSet = grouped.keySet
+      val dupExts = grouped.filter { case (_, vs) => vs.lengthCompare(1) > 0 }
+
+      val dupRes = grouped.toList.traverse_ { case (name, dups) =>
+        dups.toList match {
+          case Nil | (_ :: Nil) => sunit
+          case (_, r1) :: (_, r2) :: rest =>
+            SourceConverter.partial(
+              SourceConverter.ExtDefDuplicate(name, r1, NonEmptyList(r2, rest.map(_._2))),
+              ())
+        }
+      }
+
+      def bindOrDef(s: Statement.ValueStatement): Option[Either[Statement.Bind, Statement.Def]] =
+        s match {
+          case b@Statement.Bind(_) => Some(Left(b))
+          case d@Statement.Def(_) => Some(Right(d))
+          case Statement.ExternalDef(_, _, _, _) => None
+        }
+
+      def checkDefBind(s: Statement.ValueStatement): Result[Unit] =
+        bindOrDef(s) match {
+          case None => sunit
+          case Some(either) =>
+            val region = either match {
+              case Left(b) => b.bind.value.region
+              case Right(d) =>
+                // TODO: This region is a bit off..., it is the result, not the def
+                d.defstatement.result._1.get.region
+            }
+            val names = either.fold(_.names, _.names)
+
+            val shadows = names.filter(extDefNamesSet)
+            NonEmptyList.fromList(shadows) match {
+              case None => sunit
+              case Some(nel) =>
+                // we are shadowing
+                SourceConverter.partial(
+                  SourceConverter.ExtDefShadow(
+                    SourceConverter.BindKind.Bind,
+                    nel,
+                    region),
+                  ())
+              }
+        }
+
+      dupRes *> values.traverse_(checkDefBind)
+    }
+  }
+
+  /**
    * Return the lets in order they appear
    */
   private def toLets(stmts: Stream[Statement.ValueStatement]): Result[List[(Bindable, RecursionKind, Expr[Declaration])]] = {
@@ -776,7 +840,8 @@ final class SourceConverter(
       pte.addExternalValue(thisPackage, name, tpe)
     }
 
-    toLets(stmts).map { binds =>
+    implicit val parallel = SourceConverter.parallelIor
+    (checkExternalDefShadowing(stmts) *> toLets(stmts)).map { binds =>
       Program((importedTypeEnv, pte1), binds, exts.map(_._1).toList, stmt)
     }
   }
@@ -804,10 +869,32 @@ object SourceConverter {
     new SourceConverter(thisPackage, imports, localDefs)
 
   sealed abstract class Error {
-    def name: Constructor
     def region: Region
-    def syntax: ConstructorSyntax
     def message: String
+  }
+
+  sealed abstract class ConstructorError extends Error {
+    def name: Constructor
+    def syntax: ConstructorSyntax
+  }
+
+  sealed abstract class BindKind(val asString: String)
+  object BindKind {
+    final case object Def extends BindKind("def")
+    final case object Bind extends BindKind("bind")
+  }
+
+  final case class ExtDefShadow(kind: BindKind, names: NonEmptyList[Bindable], region: Region) extends Error {
+    def message = {
+      val ns = names.toList.iterator.map(_.sourceCodeRepr).mkString(", ")
+      s"${kind.asString} names $ns shadow external def"
+    }
+  }
+
+  final case class ExtDefDuplicate(name: Bindable, region: Region, duplicates: NonEmptyList[Region]) extends Error {
+    def message = {
+      s"${name.sourceCodeRepr} defined multiple times"
+    }
   }
 
   sealed abstract class ConstructorSyntax {
@@ -828,7 +915,7 @@ object SourceConverter {
       RecCons(c)
   }
 
-  final case class UnknownConstructor(name: Constructor, syntax: ConstructorSyntax, region: Region) extends Error {
+  final case class UnknownConstructor(name: Constructor, syntax: ConstructorSyntax, region: Region) extends ConstructorError {
     def message = {
       val maybeDoc = syntax match {
         case ConstructorSyntax.Pat(Pattern.PositionalStruct(Pattern.StructKind.Named(n, Pattern.StructKind.Style.TupleLike), Nil)) if n == name =>
@@ -840,15 +927,15 @@ object SourceConverter {
       (Doc.text(s"unknown constructor ${name.asString}") + maybeDoc).render(80)
     }
   }
-  final case class InvalidArgCount(name: Constructor, syntax: ConstructorSyntax, argCount: Int, expected: Int, region: Region) extends Error {
+  final case class InvalidArgCount(name: Constructor, syntax: ConstructorSyntax, argCount: Int, expected: Int, region: Region) extends ConstructorError {
     def message =
       (Doc.text(s"invalid argument count in ${name.asString}, found $argCount expected $expected") + Doc.lineOrSpace + syntax.toDoc).render(80)
   }
-  final case class MissingArg(name: Constructor, syntax: ConstructorSyntax, present: SortedSet[Bindable], missing: Bindable, region: Region) extends Error {
+  final case class MissingArg(name: Constructor, syntax: ConstructorSyntax, present: SortedSet[Bindable], missing: Bindable, region: Region) extends ConstructorError {
     def message =
       (Doc.text(s"missing field ${missing.asString} in ${name.asString}") + Doc.lineOrSpace + syntax.toDoc).render(80)
   }
-  final case class UnexpectedField(name: Constructor, syntax: ConstructorSyntax, unexpected: NonEmptyList[Bindable], expected: List[Bindable], region: Region) extends Error {
+  final case class UnexpectedField(name: Constructor, syntax: ConstructorSyntax, unexpected: NonEmptyList[Bindable], expected: List[Bindable], region: Region) extends ConstructorError {
     def message = {
       val plural = if (unexpected.tail.isEmpty) "field" else "fields"
       val unexDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, unexpected.toList.map { b => Doc.text(b.asString) })
