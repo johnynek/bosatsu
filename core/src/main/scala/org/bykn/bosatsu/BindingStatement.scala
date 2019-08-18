@@ -21,7 +21,7 @@ object BindingStatement {
   def bindingParser[B, T](parser: Indy[Declaration], rest: Indy[T]): Indy[B => BindingStatement[B, T]] = {
     val eqP = P("=" ~ !"=")
 
-    (Indy.lift(P(maybeSpace ~ eqP ~ maybeSpace)) *> parser)
+    (Indy.lift(P(maybeSpace ~ eqP ~/ maybeSpace)) *> parser)
       .product(rest)
       .map { case (value, rest) =>
 

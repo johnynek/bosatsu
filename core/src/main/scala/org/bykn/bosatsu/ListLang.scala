@@ -71,7 +71,7 @@ object ListLang {
     // shouldn't but currently it looks like they are
     val comp = P(
       "for" ~ spacesAndLines ~/ pbind ~ maybeSpacesAndLines ~
-      "in" ~ spacesAndLines ~ pa ~ (maybeSpacesAndLines ~ filterExpr).?)
+      "in" ~ spacesAndLines ~/ pa ~ (maybeSpacesAndLines ~ filterExpr).?)
         .map { case (b, i, f) =>
           { e: F[A] => Comprehension(e, b, i, f) }
         }
@@ -80,7 +80,7 @@ object ListLang {
     val commaCons = ("," ~ maybeSpacesAndLines ~ consTail)
     val inner = commaCons | (spacesAndLines ~ (commaCons | comp))
 
-    P(left ~ maybeSpacesAndLines ~ (sia ~ inner.?).? ~ maybeSpacesAndLines ~ right)
+    P(left ~/ maybeSpacesAndLines ~ (sia ~ inner.?).? ~ maybeSpacesAndLines ~ right)
       .map {
         case None => Cons(Nil)
         case Some((a, None)) => Cons(a :: Nil)

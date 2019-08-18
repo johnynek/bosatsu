@@ -53,7 +53,7 @@ object Parser {
       blockLike(first, next, P(maybeSpace ~ ":"))
 
     def blockLike[A, B](first: Indy[A], next: Indy[B], sep: P[Unit]): Indy[(A, OptIndent[B])] =
-      (first <* lift(sep ~ maybeSpace))
+      (first <* lift(sep ~/ maybeSpace))
         .product(OptIndent.indy(next))
 
     implicit class IndyMethods[A](val toKleisli: Indy[A]) extends AnyVal {
