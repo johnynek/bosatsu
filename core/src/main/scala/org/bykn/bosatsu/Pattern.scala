@@ -499,7 +499,11 @@ object Pattern {
         untuple(ps) match {
           case Some(tupDocs) => tup(tupDocs)
           case None =>
-            Doc.text(c.asString) + tup(a.map(doc.document(_)))
+            val args = a match {
+              case Nil => Doc.empty
+              case notEmpty => tup(a.map(doc.document(_)))
+            }
+            Doc.text(c.asString) + args
         }
       case Union(head, rest) =>
         def inner(p: Pattern[(PackageName, Constructor), A]): Doc =

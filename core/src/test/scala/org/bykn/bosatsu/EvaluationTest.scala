@@ -1388,7 +1388,7 @@ tests = TestSuite("test triple",
     Assertion(c.eq_Int(1), "c == 1") ])
 """), "A", 3)
   }
-
+/*
   test("regression from a map_List/list comprehension example from snoble") {
     runBosatsuTest(
       List("""
@@ -1526,6 +1526,7 @@ tests = TestSuite("reordering",
 )
 """), "RecordSet/Library", 1)
   }
+  */
 
   test("record patterns") {
     runBosatsuTest(
@@ -1870,5 +1871,21 @@ external def foo(x: String) -> List[String]
       assert(s.message(Map.empty) == "in file: <unknown source>, package A, foo defined multiple times\nRegion(21,55)")
       ()
     }
+  }
+
+  test("test meta escape bug") {
+    runBosatsuTest(List("""
+package A
+
+struct Build[f]
+struct File
+
+def useList(args: List[Build[File]]):
+  True
+
+check = useList([])
+
+tests = Assertion(check, "none")
+"""), "A", 1)
   }
 }

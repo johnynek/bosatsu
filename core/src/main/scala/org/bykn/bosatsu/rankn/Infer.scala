@@ -1145,13 +1145,20 @@ object Infer {
       // we don't have confidence yet I'm leaving it here
       // so we see the errors
     res.map { te =>
-      te.traverseType[cats.Id] {
-        case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
-          sys.error(s"illegal skolem ($t) escape in ${te.repr}")
-        case t@Type.TyMeta(_) =>
-          sys.error(s"illegal meta ($t) escape in ${te.repr}")
-        case good => good
-      }
+      def checkType(t: Type): Type =
+        t match {
+          case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
+            sys.error(s"illegal skolem ($t) escape in ${te.repr}")
+          case Type.TyVar(Type.Var.Bound(_)) => t
+          case t@Type.TyMeta(_) =>
+            sys.error(s"illegal meta ($t) escape in ${te.repr}")
+          case Type.TyApply(left, right) =>
+            Type.TyApply(checkType(left), checkType(right))
+          case Type.ForAll(args, in) =>
+            Type.ForAll(args, checkType(in).asInstanceOf[Type.Rho])
+          case Type.TyConst(_) => t
+        }
+      te.traverseType[cats.Id](checkType)
       val tp = te.getType
       lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
       scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")

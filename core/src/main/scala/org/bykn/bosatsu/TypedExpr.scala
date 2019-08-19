@@ -5,6 +5,7 @@ import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
 import org.bykn.bosatsu.rankn.Type
+import org.typelevel.paiges.{Doc, Document }
 import scala.collection.immutable.SortedSet
 import scala.util.hashing.MurmurHash3
 
@@ -60,7 +61,11 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case a@AnnotatedLambda(arg, tpe, res, _) =>
         s"(lambda ${arg.asString} ${rept(tpe)} ${res.repr})"
       case Var(p, v, tpe, _) =>
-        s"(var $p ${v.asString} ${rept(tpe)})"
+        val pstr = p match {
+          case None => ""
+          case Some(p) => p.asString + "::"
+        }
+        s"(var $pstr${v.asString} ${rept(tpe)})"
       case App(fn, arg, tpe, _) =>
         s"(ap ${fn.repr} ${arg.repr} ${rept(tpe)})"
       case Let(n, b, in, rec, _) =>
@@ -69,8 +74,13 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Literal(v, tpe, _) =>
         s"(lit ${v.repr} ${rept(tpe)})"
       case Match(arg, branches, _) =>
-        // TODO print the pattern
-        val bstr = branches.toList.map { case (_, t) => t.repr }.mkString
+        implicit val docType: Document[Type] =
+          Document.instance { tpe => Doc.text(rept(tpe)) }
+        val cpat = Pattern.compiledDocument[Type]
+        def pat(p: Pattern[(PackageName, Constructor), Type]): String =
+          cpat.document(p).renderWideStream.mkString
+
+        val bstr = branches.toList.map { case (p, t) => s"[${pat(p)}, ${t.repr}]" }.mkString("[", ", ", "]")
         s"(match ${arg.repr} $bstr)"
     }
   }
@@ -262,16 +272,29 @@ object TypedExpr {
                 // and just wrap it in this case, could it be that simple?
                 Annotation(expr, tpe, expr.tag)
               case App(fn, arg, _, tag) =>
-                // TODO, what should we do here?
-                // we have learned that the type is tpe
-                // but that implies something for fn and arg
-                // but we are ignoring that, which
-                // leaves them with potentially skolems or metavars
-                App(fn, arg, tpe, tag)
+                fn.getType match {
+                  case Type.Fun(ta: Type.Rho, tr) =>
+                    // we know that we should coerce arg with ta, and narrow tr to tpe
+                    // this makes an infinite loop:
+                    //val cfn = coerceRho(Type.Fun(ta, tpe))
+                    //val fn1 = cfn(fn)
+                    val carg = coerceRho(ta)
+                    App(fn, carg(arg), tpe, tag)
+                  case _ =>
+                    // TODO, what should we do here?
+                    // It is currently certainly wrong
+                    // we have learned that the type is tpe
+                    // but that implies something for fn and arg
+                    // but we are ignoring that, which
+                    // leaves them with potentially skolems or metavars
+                    App(fn, arg, tpe, tag)
+                }
               case Let(arg, argE, in, rec, tag) =>
                 Let(arg, argE, self(in), rec, tag)
               case Literal(l, _, tag) => Literal(l, tpe, tag)
               case Match(arg, branches, tag) =>
+                // TODO: this is wrong. We are leaving metas in the types
+                // embedded in patterns
                 Match(arg, branches.map { case (p, expr) => (p, self(expr)) }, tag)
             }
         }
