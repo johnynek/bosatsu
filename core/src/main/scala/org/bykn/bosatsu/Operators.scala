@@ -42,12 +42,18 @@ object Operators {
       "&", "^", "|",
       "?", "~").map(_.intern)
 
+  private def from(strs: Iterable[String]): P[Unit] =
+    strs.map(P(_)).reduce(_ | _)
+
   /**
    * strings for operators allowed in single character
    * operators includes singleToks and . and =
    */
   val multiToks: List[String] =
     ".".intern :: singleToks ::: List("=".intern)
+
+  val multiToksP: P[Unit] =
+    from(multiToks)
 
   private val priorityMap: Map[String, Int] =
     multiToks
@@ -59,12 +65,9 @@ object Operators {
    * Here are a list of operators we allow
    */
   val operatorToken: P[String] = {
-    def from(strs: Iterable[String]): P[Unit] =
-      strs.map(P(_)).reduce(_ | _)
-
     val singles = from(singleToks)
     // = can appear with at least one other character
-    val twoOrMore: P[Unit] = from(multiToks).rep(min = 2)
+    val twoOrMore: P[Unit] = multiToksP.rep(min = 2)
     // we can also repeat core operators one or more times
     val singleP = singles.rep(min = 1)
     (twoOrMore | singleP).!.map(_.intern)

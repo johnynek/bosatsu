@@ -100,7 +100,11 @@ object Expr {
         (argB, branchB).mapN(Match(_, _, tag))
     }
 
-  implicit val exprTraverse: Traverse[Expr] =
+  /*
+   * We have seen some intermitten CI failures if this isn't lazy
+   * presumably due to initialiazation order
+   */
+  implicit lazy val exprTraverse: Traverse[Expr] =
     new Traverse[Expr] {
 
       // Traverse on NonEmptyList[(Pattern[_], Expr[?])]

@@ -1011,6 +1011,21 @@ z = 3
 z = 4
 y = {'x': 'x' : 'y'}
 """, 18)
+
+    expectFail(Statement.parser,
+      """x = 1
+def z:
+  x = 1
+  x x
+""", 25)
+
+    expectFail(Statement.parser,
+      """x = 1
+def z:
+  x = 1
+  y = [1, 2, 3]
+  x x
+""", 41)
   }
 
 }
