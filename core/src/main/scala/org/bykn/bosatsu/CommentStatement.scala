@@ -23,14 +23,6 @@ object CommentStatement {
       block + Doc.line + Document[T].document(on)
     }
 
-  implicit def maybeDocument[T: Document]: Document[Maybe[T]] = {
-    val docT = Document[T]
-    Document.instance[Maybe[T]] {
-      case Left(t) => docT.document(t)
-      case Right(c) => document[T](docT).document(c)
-    }
-  }
-
   /** on should make sure indent is matching
    * this is to allow a P[Unit] that does nothing for testing or other applications
    */
