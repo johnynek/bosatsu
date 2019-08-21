@@ -45,6 +45,8 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         branches.head._2.getType
     }
 
+  // TODO: we need to make sure this parsable and maybe have a mode that has the compiler
+  // emit these
   def repr: String = {
     def rept(t: Type): String =
       TypeRef.fromTypes(None, t :: Nil)(t).toDoc.renderWideStream.mkString
@@ -56,9 +58,9 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Annotation(expr, tpe, _) =>
         s"(ann ${rept(tpe)} ${expr.repr})"
       case a@AnnotatedLambda(arg, tpe, res, _) =>
-        s"(lambda $arg ${rept(tpe)} ${res.repr})"
+        s"(lambda ${arg.asString} ${rept(tpe)} ${res.repr})"
       case Var(p, v, tpe, _) =>
-        s"(var $p $v ${rept(tpe)})"
+        s"(var $p ${v.asString} ${rept(tpe)})"
       case App(fn, arg, tpe, _) =>
         s"(ap ${fn.repr} ${arg.repr} ${rept(tpe)})"
       case Let(n, b, in, rec, _) =>
@@ -299,9 +301,18 @@ object TypedExpr {
           go(tail, bound, acc1)
         case App(fn, arg, _, _) :: tail =>
           go(fn :: arg :: tail, bound, acc)
-        case Let(arg, argE, in, _, _) :: tail =>
-          val acc1 = cheat(in, bound + arg, acc)
-          go(argE :: tail, bound, acc1)
+        case Let(arg, argE, in, rec, _) :: tail =>
+          val barg = bound + arg
+          val acc1 = cheat(in, barg, acc)
+          if (rec.isRecursive) {
+            // if rec is recursive, arg is in scope
+            // also in argE
+            val acc2 = cheat(argE, barg, acc1)
+            go(tail, bound, acc2)
+          }
+          else {
+            go(argE :: tail, bound, acc1)
+          }
         case Literal(_, _, _) :: tail =>
           go(tail, bound, acc)
         case Match(arg, branches, _) :: tail =>

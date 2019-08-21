@@ -169,12 +169,12 @@ object Generators {
       itemGen.map(ListLang.SpliceOrItem.Item(_)))
 
   def genListLangCons[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.Cons[ListLang.SpliceOrItem, A]] = {
-    Gen.choose(0, 10)
+    Gen.choose(0, 5)
       .flatMap(Gen.listOfN(_, genSpliceOrItem(spliceGen, itemGen)))
       .map(ListLang.Cons(_))
   }
   def genListLangDictCons[A](itemGen: Gen[A]): Gen[ListLang.Cons[ListLang.KVPair, A]] = {
-    Gen.choose(0, 10)
+    Gen.choose(0, 5)
       .flatMap(Gen.listOfN(_,
         Gen.zip(itemGen, itemGen).map { case (k, v) => ListLang.KVPair(k, v) }))
       .map(ListLang.Cons(_))
@@ -321,10 +321,54 @@ object Generators {
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
   }
 
-  def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern.Parsed] =
-    genPatternGen(Gen.option(consIdentGen), typeRefGen, depth, useUnion, useAnnotation = false)
+  def genStyle(args: List[Pattern.Parsed]): Gen[Pattern.StructKind.Style] =
+    NonEmptyList.fromList(args) match {
+      case None =>
+        Gen.const(Pattern.StructKind.Style.TupleLike)
+      case Some(NonEmptyList(h, tail)) =>
+        def toArg(p: Pattern.Parsed): Gen[Pattern.StructKind.Style.FieldKind] =
+          p match {
+            case Pattern.Var(b: Identifier.Bindable) =>
+              Gen.oneOf(Gen.const(Pattern.StructKind.Style.FieldKind.Implicit(b)),
+                Gen.oneOf(bindIdentGen, Gen.const(b))
+                  .map(Pattern.StructKind.Style.FieldKind.Explicit(_))
+                )
+            case Pattern.Annotation(p, _) => toArg(p)
+            case _ =>
+              // if we don't have a var, we can't omit the key
+              bindIdentGen.map(Pattern.StructKind.Style.FieldKind.Explicit(_))
+          }
 
-  def genPatternGen[N, T](genName: Gen[N], genT: Gen[T], depth: Int, useUnion: Boolean, useAnnotation: Boolean): Gen[Pattern[N, T]] = {
+        lazy val args = tail.foldLeft(toArg(h)
+          .map { h => NonEmptyList(h, Nil) }) { case (args, a) =>
+            Gen.zip(args, toArg(a)).map { case (args, a) => NonEmptyList(a, args.toList) }
+          }
+          .map(_.reverse)
+
+        Gen.oneOf(
+          Gen.const(Pattern.StructKind.Style.TupleLike),
+          Gen.lzy(args.map(Pattern.StructKind.Style.RecordLike(_))))
+    }
+
+  def genStructKind(args: List[Pattern.Parsed]): Gen[Pattern.StructKind] =
+    Gen.oneOf(
+      Gen.const(Pattern.StructKind.Tuple),
+      Gen.zip(consIdentGen, genStyle(args)).map { case (n, s) =>
+        Pattern.StructKind.Named(n, s)
+      },
+      Gen.zip(consIdentGen, genStyle(args)).map { case (n, s) =>
+        Pattern.StructKind.NamedPartial(n, s)
+      })
+
+  def genPattern(depth: Int, useUnion: Boolean = true): Gen[Pattern.Parsed] =
+    genPatternGen(
+      genStructKind(_: List[Pattern.Parsed]),
+      typeRefGen,
+      depth,
+      useUnion,
+      useAnnotation = false)
+
+  def genPatternGen[N, T](genName: List[Pattern[N, T]] => Gen[N], genT: Gen[T], depth: Int, useUnion: Boolean, useAnnotation: Boolean): Gen[Pattern[N, T]] = {
     val recurse = Gen.lzy(genPatternGen(genName, genT, depth - 1, useUnion, useAnnotation))
     val genVar = bindIdentGen.map(Pattern.Var(_))
     val genWild = Gen.const(Pattern.WildCard)
@@ -337,25 +381,25 @@ object Generators {
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
       val genStruct =  for {
-        nm <- genName
         cnt <- Gen.choose(0, 6)
         args <- Gen.listOfN(cnt, recurse)
+        nm <- genName(args)
       } yield Pattern.PositionalStruct(nm, args)
 
-      def makeOneSplice(ps: List[Either[Option[Identifier.Bindable], Pattern[N, T]]]) = {
+      def makeOneSplice(ps: List[Pattern.ListPart[Pattern[N, T]]]) = {
         val sz = ps.size
         if (sz == 0) Gen.const(ps)
         else Gen.choose(0, sz - 1).flatMap { idx =>
           val splice = Gen.oneOf(
-            Gen.const(Left(None)),
-            bindIdentGen.map { v => Left(Some(v)) })
+            Gen.const(Pattern.ListPart.WildList),
+            bindIdentGen.map { v => Pattern.ListPart.NamedList(v) })
 
           splice.map { v => ps.updated(idx, v) }
         }
       }
 
-      val genListItem: Gen[Either[Option[Identifier.Bindable], Pattern[N, T]]] =
-        recurse.map(Right(_))
+      val genListItem: Gen[Pattern.ListPart[Pattern[N, T]]] =
+        recurse.map(Pattern.ListPart.Item(_))
 
       val genList = Gen.choose(0, 5)
         .flatMap(Gen.listOfN(_, genListItem))
@@ -375,7 +419,7 @@ object Generators {
             Pattern.Union(h0, NonEmptyList(h1, tail))
         }
 
-      val tailGens =
+      val tailGens: List[Gen[Pattern[N, T]]] =
         List(genVar, genWild, genNamed, genLitPat, genStruct, genList)
 
       val withU = if (useUnion) genUnion :: tailGens else tailGens
@@ -385,8 +429,10 @@ object Generators {
     }
   }
 
-  def genCompiledPattern(depth: Int): Gen[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] =
-    genPatternGen(Gen.zip(packageNameGen, consIdentGen), NTypeGen.genDepth03, depth, useUnion = true, useAnnotation = true)
+  def genCompiledPattern(depth: Int, useUnion: Boolean = true, useAnnotation: Boolean = true): Gen[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] =
+    genPatternGen(
+      { args: List[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] => Gen.zip(packageNameGen, consIdentGen) },
+      NTypeGen.genDepth03, depth, useUnion = useUnion, useAnnotation = useAnnotation)
 
   def matchGen(bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
     import Declaration._
@@ -465,6 +511,22 @@ object Generators {
     )
   }
 
+  def genRecordArg(dgen: Gen[Declaration]): Gen[Declaration.RecordArg] =
+    Gen.zip(bindIdentGen, Gen.option(dgen))
+      .map {
+        case (b, None) => Declaration.RecordArg.Simple(b)
+        case (b, Some(decl)) => Declaration.RecordArg.Pair(b, decl)
+      }
+
+  def genRecordDeclaration(dgen: Gen[Declaration]): Gen[Declaration.RecordConstructor] = {
+    val args = for {
+      tailSize <- Gen.choose(0, 4)
+      args <- nonEmptyN(genRecordArg(dgen), tailSize)
+    } yield args
+
+    Gen.zip(consIdentGen, args).map { case (c, a) => Declaration.RecordConstructor(c, a)(emptyRegion) }
+  }
+
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
@@ -487,7 +549,8 @@ object Generators {
       (1, listGen(recur)),
       (1, dictGen(recur)),
       (1, matchGen(recur)),
-      (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recur)).map(TupleCons(_)(emptyRegion)))
+      (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recur)).map(TupleCons(_)(emptyRegion))),
+      (1, genRecordDeclaration(recur))
     )
   }
 
@@ -531,6 +594,23 @@ object Generators {
             items.toStream.flatMap { kv => Stream(kv.key, kv.value) }
           case DictDecl(ListLang.Comprehension(a, _, c, d)) =>
             (a.key :: a.value :: c :: d.toList).toStream
+          case RecordConstructor(n, args) =>
+            def head: Stream[Declaration] =
+              args.head match {
+                case RecordArg.Pair(n, d) => Stream(Var(n)(emptyRegion), d)
+                case RecordArg.Simple(n) => Stream(Var(n)(emptyRegion))
+              }
+
+            def tailStream(of: NonEmptyList[RecordArg]): Stream[NonEmptyList[RecordArg]] =
+              NonEmptyList.fromList(of.tail) match {
+                case None => Stream.empty
+                case Some(tailArgs) =>
+                  tailArgs #:: tailStream(tailArgs) #::: tailStream(NonEmptyList(of.head, tailArgs.tail))
+              }
+
+            Var(n)(emptyRegion) #::
+              head #:::
+              tailStream(args).map(RecordConstructor(n, _)(emptyRegion): Declaration) // type annotation for scala 2.11
         }
     })
 
@@ -586,7 +666,7 @@ object Generators {
       args <- Gen.listOfN(argc, argG)
       res <- typeRefGen
       rest <- padding(tail, 1)
-    } yield Statement.ExternalDef(name, args, res, rest)
+    } yield Statement.ExternalDef(name, args, res, rest)(emptyRegion)
 
   def genEnum(tail: Gen[Statement]): Gen[Statement] =
     for {

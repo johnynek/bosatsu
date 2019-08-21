@@ -6,9 +6,6 @@ import java.nio.file.Path
 import java.io.PrintWriter
 import org.typelevel.paiges.Doc
 
-import cats.implicits._
-import alleycats.std.map._ // TODO use SortedMap everywhere
-
 object CodeGenWrite {
   @annotation.tailrec
   final def toPath(root: Path, pn: PackageName): Path =
@@ -27,13 +24,4 @@ object CodeGenWrite {
         pw.close
       }
     }
-
-  def write[T[_]](root: Path, packages: PackageMap.Inferred, ext: Externals[T]): IO[Unit] = {
-    val cg = new CodeGen { }
-    packages.toMap.traverse_ { pack =>
-      val (d, _) = CodeGen.run(cg.genPackage(pack, ext))
-      val path = toPath(root, pack.name)
-      writeDoc(path, d)
-    }
-  }
 }

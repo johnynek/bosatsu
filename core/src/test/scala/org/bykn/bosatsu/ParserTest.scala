@@ -98,14 +98,17 @@ abstract class ParserTestBase extends FunSuite {
         assert(idx == atIdx)
     }
 
+  def config: PropertyCheckConfiguration = {
+    if (System.getenv("PLATFORM") == "js")
+      PropertyCheckConfiguration(minSuccessful = 10)
+    else
+      PropertyCheckConfiguration(minSuccessful = 300)
+  }
 }
 
 class ParserTest extends ParserTestBase {
   import TestParseUtils._
-  implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 300)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  implicit val generatorDrivenConfig = config
 
   test("we can parse integers") {
     forAll { b: BigInt =>
@@ -267,6 +270,44 @@ class ParserTest extends ParserTestBase {
     }
   }
 
+  test("we can parse RecordConstructors") {
+    def check(str: String) =
+      roundTrip[Declaration](Declaration.recordConstructorP(""), str)
+
+    check("Foo { bar }")
+    check("Foo{bar}")
+    check("Foo {   bar   }")
+    check("Foo {\nbar\n}")
+
+    check("Foo { bar: baz }")
+    check("Foo{bar:baz}")
+    check("Foo {   bar : baz   }")
+    check("Foo {\nbar:\n\tbaz}")
+    check("Foo {\nbar:\n\n\tbaz}")
+
+    check("Foo { bar, baz }")
+    check("Foo{bar,baz}")
+    check("Foo {   bar , baz  }")
+    check("Foo {\nbar,\n baz}")
+    check("Foo {\nbar\n, baz}")
+
+    check("Foo { bar, baz: 42 }")
+    check("Foo{bar,baz:42}")
+    check("Foo {   bar , baz : 42  }")
+    check("Foo {\nbar,\n baz:\n 42}")
+    check("Foo {\nbar\n, baz\n:\t42}")
+
+    check("Foo { bar: baz, quux: 42 }")
+    check("Foo{bar:baz,quux:42}")
+    check("Foo {   bar : baz , quux : 42  }")
+    check("Foo {\nbar:\n\tbaz, quux:\n\t42\n\t}")
+    check("Foo {\nbar:\n\n\tbaz,\nquux\n:\n42\n}")
+
+    check("Foo{x:1}")
+    // from scalacheck
+    check("Ze8lujlrbo {wlqOvp: {}}")
+  }
+
   test("we can parse tuples") {
     forAll { (ls: List[Long], spaceCnt0: Int) =>
       val spaceCount = spaceCnt0 & 7
@@ -398,10 +439,7 @@ class ParserTest extends ParserTestBase {
  */
 class SyntaxParseTest extends ParserTestBase {
 
-  implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 300)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  implicit val generatorDrivenConfig = config
 
   def mkVar(n: String): Declaration.Var =
     Declaration.Var(Identifier.Name(n))
@@ -524,6 +562,13 @@ x""")
   test("we can parse patterns") {
     roundTrip(Pattern.matchParser, "Foo([])")
     roundTrip(Pattern.matchParser, "Foo([], bar)")
+    roundTrip(Pattern.matchParser, "Foo(...)")
+    roundTrip(Pattern.matchParser, "Foo(a, ...)")
+    roundTrip(Pattern.matchParser, "Foo { a: 12, b: 3, c }")
+    roundTrip(Pattern.matchParser, "Foo { a: 12, b: 3, ... }")
+    roundTrip(Pattern.matchParser, "Foo{a: 12,b: 3,c}")
+    roundTrip(Pattern.matchParser, "Foo{a: 12,b: 3,...}")
+    roundTrip(Pattern.matchParser, "Foo{a}")
     roundTrip(Pattern.matchParser, "x")
     roundTrip(Pattern.matchParser, "_")
     roundTrip(Pattern.matchParser, "(a, b)")
@@ -552,7 +597,7 @@ x""")
           assert(pat == parsePat)
       }
     }
-    forAll(Generators.patternDecl(5))(law1(_))
+    forAll(Generators.patternDecl(4))(law1(_))
 
     {
       import Declaration._
@@ -744,6 +789,14 @@ else:
 
     roundTrip(Declaration.parser(""),
 """Foo(x) = bar
+x""")
+
+    roundTrip(Declaration.parser(""),
+"""Foo { x } = bar
+x""")
+
+    roundTrip(Declaration.parser(""),
+"""Foo { x } = Foo{x:1}
 x""")
 
     roundTrip(Declaration.parser(""),
@@ -958,6 +1011,21 @@ z = 3
 z = 4
 y = {'x': 'x' : 'y'}
 """, 18)
+
+    expectFail(Statement.parser,
+      """x = 1
+def z:
+  x = 1
+  x x
+""", 25)
+
+    expectFail(Statement.parser,
+      """x = 1
+def z:
+  x = 1
+  y = [1, 2, 3]
+  x x
+""", 41)
   }
 
 }

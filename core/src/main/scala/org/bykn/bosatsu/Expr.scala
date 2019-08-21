@@ -8,6 +8,7 @@ package org.bykn.bosatsu
 import cats.implicits._
 import cats.data.NonEmptyList
 import cats.{Applicative, Eval, Traverse}
+import scala.collection.immutable.SortedSet
 
 import Identifier.{Bindable, Constructor}
 
@@ -24,6 +25,26 @@ object Expr {
   case class Let[T](arg: Bindable, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), rankn.Type], Expr[T])], tag: T) extends Expr[T]
+
+
+  /**
+   * Report all the Bindable names refered to in the given Expr.
+   * this can be used to allocate names that can never shadow
+   * anything being used in the expr
+   */
+  final def allNames[A](expr: Expr[A]): SortedSet[Bindable] =
+    expr match {
+      case Annotation(e, _, _) => allNames(e)
+      case AnnotatedLambda(arg, _, expr, _) => allNames(expr) + arg
+      case Var(_, name: Bindable, _) => SortedSet(name)
+      case Var(_, _, _) => SortedSet.empty
+      case App(fn, a, _) => allNames(fn) | allNames(a)
+      case Lambda(arg, e, _) => allNames(e) + arg
+      case Let(arg, expr, in, _, _) => allNames(expr) | allNames(in) + arg
+      case Literal(_, _) => SortedSet.empty
+      case Match(exp, branches, _) =>
+        allNames(exp) | branches.foldMap { case (pat, res) => allNames(res) ++ pat.names }
+    }
 
   implicit def hasRegion[T: HasRegion]: HasRegion[Expr[T]] =
     HasRegion.instance[Expr[T]] { e => HasRegion.region(e.tag) }
@@ -79,7 +100,11 @@ object Expr {
         (argB, branchB).mapN(Match(_, _, tag))
     }
 
-  implicit val exprTraverse: Traverse[Expr] =
+  /*
+   * We have seen some intermitten CI failures if this isn't lazy
+   * presumably due to initialiazation order
+   */
+  implicit lazy val exprTraverse: Traverse[Expr] =
     new Traverse[Expr] {
 
       // Traverse on NonEmptyList[(Pattern[_], Expr[?])]
@@ -182,30 +207,48 @@ object Expr {
     body: Expr[A],
     outer: A): Expr[A] = {
 
-    def makeBindBody(matchPat: Pattern[(PackageName, Constructor), rankn.Type]): (Bindable, Expr[A]) =
-      // We don't need to worry about shadowing here
-      // because we immediately match the pattern but still this is ugly
-      matchPat match {
-        case Pattern.Var(arg) =>
-          (arg, body)
-        case _ =>
-          val anonBind: Bindable = Identifier.Name("$anon") // TODO we should have better ways to gensym
-          val matchBody: Expr[A] =
-            Match(Var(None, anonBind, outer), NonEmptyList.of((matchPat, body)), outer)
-          (anonBind, matchBody)
-      }
+    /*
+     * compute this once if needed, which is why it is lazy.
+     * we don't want to traverse body if it is never needed
+     */
+    lazy val anons = rankn.Type
+      .allBinders
+      .iterator
+      .map(_.name)
+      .map(Identifier.Name(_))
+      .filterNot(allNames(body) ++ args.toList.flatMap(_.names))
 
-    args match {
-      case NonEmptyList(Pattern.Annotation(pat, tpe), Nil) =>
-        val (arg, newBody) = makeBindBody(pat)
-        Expr.AnnotatedLambda(arg, tpe, newBody, outer)
-      case NonEmptyList(matchPat, Nil) =>
-        val (arg, newBody) = makeBindBody(matchPat)
-        Expr.Lambda(arg, newBody, outer)
-      case NonEmptyList(arg, h :: tail) =>
-        val body1 = buildPatternLambda(NonEmptyList(h, tail), body, outer)
-        buildPatternLambda(NonEmptyList.of(arg), body1, outer)
+    def loop(
+      args: NonEmptyList[Pattern[(PackageName, Constructor), rankn.Type]],
+      body: Expr[A]): Expr[A] = {
+
+      def makeBindBody(matchPat: Pattern[(PackageName, Constructor), rankn.Type]): (Bindable, Expr[A]) =
+        // We don't need to worry about shadowing here
+        // because we immediately match the pattern but still this is ugly
+        matchPat match {
+          case Pattern.Var(arg) =>
+            (arg, body)
+          case _ =>
+            val anonBind: Bindable = anons.next()
+            val matchBody: Expr[A] =
+              Match(Var(None, anonBind, outer), NonEmptyList.of((matchPat, body)), outer)
+            (anonBind, matchBody)
+        }
+
+      args match {
+        case NonEmptyList(Pattern.Annotation(pat, tpe), Nil) =>
+          val (arg, newBody) = makeBindBody(pat)
+          Expr.AnnotatedLambda(arg, tpe, newBody, outer)
+        case NonEmptyList(matchPat, Nil) =>
+          val (arg, newBody) = makeBindBody(matchPat)
+          Expr.Lambda(arg, newBody, outer)
+        case NonEmptyList(arg, h :: tail) =>
+          val body1 = loop(NonEmptyList(h, tail), body)
+          loop(NonEmptyList.of(arg), body1)
+      }
     }
+
+    loop(args, body)
   }
 }
 

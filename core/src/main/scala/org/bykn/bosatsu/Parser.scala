@@ -53,7 +53,7 @@ object Parser {
       blockLike(first, next, P(maybeSpace ~ ":"))
 
     def blockLike[A, B](first: Indy[A], next: Indy[B], sep: P[Unit]): Indy[(A, OptIndent[B])] =
-      (first <* lift(sep ~ maybeSpace))
+      (first <* lift(sep ~/ maybeSpace))
         .product(OptIndent.indy(next))
 
     implicit class IndyMethods[A](val toKleisli: Indy[A]) extends AnyVal {
@@ -76,6 +76,11 @@ object Parser {
             case h :: tail => NonEmptyList(h, tail)
             case Nil => sys.error("rep 1 matched 0")
           }
+        }
+
+      def cutThen[B](that: Indy[B]): Indy[(A, B)] =
+        Indy { indent =>
+          toKleisli(indent) ~/ that(indent)
         }
     }
   }
@@ -128,6 +133,9 @@ object Parser {
   val spaces: P[Unit] = P(CharsWhile(isSpace _))
   val nonSpaces: P[String] = P(CharsWhile { c => !isSpace(c) }.!)
   val maybeSpace: P[Unit] = spaces.?
+
+  def maybeIndentedOrSpace(indent: String): P[Unit] =
+    (Parser.spaces | P("\n" ~ indent)).rep().map(_ => ())
 
   val spacesAndLines: P[Unit] = P(CharsWhile { c =>
     c.isWhitespace

@@ -78,7 +78,7 @@ class JsonTest extends FunSuite {
 
   test("we match Jawn") {
     forAll { (j: Json) =>
-      val str = j.render
+      val str = j.render()
       val jvalue = JParser.parseUnsafe(str)
       matches(j, jvalue)
     }

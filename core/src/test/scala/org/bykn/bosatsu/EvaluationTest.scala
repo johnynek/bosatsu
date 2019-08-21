@@ -50,7 +50,7 @@ test = Assertion(eq_String("hello", foo), "checking equality")
       List("""
 package Foo
 
-test = Test("three trivial tests", [ Assertion(True, "t0"),
+test = TestSuite("three trivial tests", [ Assertion(True, "t0"),
     Assertion(True, "t1"),
     Assertion(True, "t2"),
     ])
@@ -166,7 +166,7 @@ main = go(IntCase(42))
     val packs = Map((PackageName.parts("Err"), (LocationMap(errPack), "Err.bosatsu")))
     evalFail(List(errPack), "Err") { case te@PackageError.TypeErrorIn(_, _) =>
       val msg = te.message(packs)
-      assert(msg.contains("Bosatsu/Predef::Int does not unify with type Bosatsu/Predef::String"))
+      assert(msg.contains("type error: expected type Bosatsu/Predef::Int to be the same as type Bosatsu/Predef::String"))
       ()
     }
 
@@ -207,7 +207,7 @@ x = [1]
 # test using List literals
 main = match x:
   EmptyList: "empty"
-  NonEmptyList(_, _): "notempty"
+  NonEmptyList(...): "notempty"
 """), "Foo", Str("notempty"))
 
     evalTest(
@@ -1157,7 +1157,7 @@ inc4 = \Pair(F(x) | B(x), Foo(y)) -> x.add(y)
 test5 = Assertion(inc4(Pair(F(1), Foo(1))).eq_Int(2), "inc4(Pair(F(1), Foo(1))) == 2")
 test6 = Assertion(inc4(Pair(B(1), Foo(1))).eq_Int(2), "inc4(Pair(B(1), Foo(1))) == 2")
 
-suite = Test("match tests", [test0, test1, test2, test3, test4, test5, test6])
+suite = TestSuite("match tests", [test0, test1, test2, test3, test4, test5, test6])
 """), "A", 7)
 
     runBosatsuTest(List("""
@@ -1186,7 +1186,7 @@ def inc4(Pair(F(x) | B(x), Foo(y))): x.add(y)
 test5 = Assertion(inc4(Pair(F(1), Foo(1))).eq_Int(2), "inc4(Pair(F(1), Foo(1))) == 2")
 test6 = Assertion(inc4(Pair(B(1), Foo(1))).eq_Int(2), "inc4(Pair(B(1), Foo(1))) == 2")
 
-suite = Test("match tests", [test0, test1, test2, test3, test4, test5, test6])
+suite = TestSuite("match tests", [test0, test1, test2, test3, test4, test5, test6])
 """), "A", 7)
   }
 
@@ -1215,12 +1215,38 @@ main = a"""), "B") { case PackageError.UnknownImportPackage(_, _) => () }
       List("""
 package B
 
+main = a"""), "B") { case te@PackageError.TypeErrorIn(_, _) =>
+    val msg = te.message(Map.empty)
+    assert(!msg.contains("Name("))
+    assert(msg.contains("package B, name \"a\" unknown"))
+    ()
+  }
+
+    evalFail(
+      List("""
+package B
+
+x = 1
+
+main = match x:
+  Foo: 2
+"""), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
+    val msg = te.message(Map.empty)
+    assert(!msg.contains("Name("))
+    assert(msg.contains("package B, unknown constructor Foo"))
+    ()
+  }
+
+    evalFail(
+      List("""
+package B
+
 struct X
 
 main = match 1:
   X1: 0
-"""), "B") { case te@PackageError.TypeErrorIn(_, _) =>
-      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package B, unknown constructor X1, nearest: X\nRegion(44,45)")
+"""), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package B, unknown constructor X1\nRegion(44,45)")
       ()
     }
 
@@ -1248,6 +1274,96 @@ main = match Bar(a):
       val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A\nRegion(45,70)\nnon-total match, missing: Bar(_)")
       ()
     }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  recur x:
+    y: 0
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, recur but no recursive call to fn\nRegion(25,42)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  recur 10:
+    y: 0
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,43)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  recur y:
+    y: 0
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,42)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  recur x:
+    y:
+      recur x:
+        z: 100
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, unexpected recur: may only appear unnested inside a def\nRegion(47,70)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x):
+  fn = 100
+  recur x:
+    y:
+      recur x:
+        z: 100
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, illegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,81)\n")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+def fn(x, y):
+  match x:
+    0: y
+    x: fn(x - 1, y + 1)
+
+main = fn
+"""), "A") { case te@PackageError.RecursionError(_, _) =>
+      val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, invalid recursion on fn\nRegion(53,69)\n")
+      ()
+    }
   }
 
   test("pattern example from pair to triple") {
@@ -1265,7 +1381,7 @@ bgood = match b:
   "two": True
   _: False
 
-tests = Test("test triple",
+tests = TestSuite("test triple",
   [ Assertion(a.eq_Int(3), "a == 3"),
     Assertion(bgood, b),
     Assertion(c.eq_Int(1), "c == 1") ])
@@ -1402,11 +1518,356 @@ rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordV
 
 rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( \r -> r.get(b).add(2) ), ps_end)))))
 
-tests = Test("reordering",
+tests = TestSuite("reordering",
   [
     Assertion(equal_rows.equal_List(rs0.list_of_rows, [[REBool(RecordValue(False)), REInt(RecordValue(1)), REString(RecordValue("a")), REInt(RecordValue(3))]]), "swap")
   ]
 )
 """), "RecordSet/Library", 1)
+  }
+
+  test("record patterns") {
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+f2 = match Pair(1, "1"):
+  Pair { first, ... }: first
+
+tests = TestSuite("test record",
+  [
+    Assertion(f2.eq_Int(1), "f2 == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+def res:
+  Pair { first, ... } = Pair(1, 2)
+  first
+
+tests = TestSuite("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair { first, ...} -> first
+
+res = get(Pair(1, "two"))
+
+tests = TestSuite("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair { first: f, ...} -> f
+
+res = get(Pair(1, "two"))
+
+tests = TestSuite("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+res = get(Pair(1, "two"))
+
+tests = TestSuite("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+res = get(Pair { first: 1, second: "two" })
+
+tests = TestSuite("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+first = 1
+
+res = get(Pair { first, second: "two" })
+
+tests = TestSuite("test record",
+  [
+    Assertion(res.eq_Int(1), "res == 1"),
+  ])
+"""), "A", 1)
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+# missing second
+first = 1
+res = get(Pair { first })
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair(first, ...) -> first
+
+# third is unknown
+first = 1
+second = 3
+res = get(Pair { first, second, third })
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+get = \Pair { first } -> first
+
+res = get(Pair(1, "two"))
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair has two fields
+get = \Pair(first) -> first
+
+res = get(Pair(1, "two"))
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair does not have a field called sec
+get = \Pair { first, sec: _ } -> first
+
+res = get(Pair(1, "two"))
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair does not have a field called sec
+get = \Pair { first, sec: _, ... } -> first
+
+res = get(Pair(1, "two"))
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair has two fields, not three
+get = \Pair(first, _, _) -> first
+
+res = get(Pair(1, "two"))
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+
+    evalFail(
+      List("""
+package A
+
+struct Pair(first, second)
+
+# Pair has two fields, not three
+get = \Pair(first, _, _, ...) -> first
+
+res = get(Pair(1, "two"))
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty); () }
+  }
+
+  test("test scoping bug (issue #311)") {
+
+    runBosatsuTest(List("""package A
+
+struct Foo(x, y)
+
+Foo { x, ... } = Foo(42, "42")
+
+tests = TestSuite("test record",
+  [
+    Assertion(x.eq_Int(42), "x == 42"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(List("""package A
+
+struct Foo(x, y)
+
+a = Foo(42, "42")
+x = match a:
+   Foo(y, _): y
+
+tests = TestSuite("test record",
+  [
+    Assertion(x.eq_Int(42), "x == 42"),
+  ])
+"""), "A", 1)
+
+    runBosatsuTest(List("""package A
+
+struct Foo(x, y)
+
+a = Foo(42, "42")
+x = match a:
+   Foo(y, _): y
+
+def add_x(a):
+  # note x has a closure over a, but
+  # evaluated here the local a might
+  # shadow in the case of the bug
+  add(a, x)
+
+# should be 43
+y = add_x(1)
+
+tests = TestSuite("test record",
+  [
+    Assertion(y.eq_Int(43), "y == 43"),
+  ])
+"""), "A", 1)
+
+  }
+
+  test("test ordered shadowing issue #328") {
+    runBosatsuTest(List("""package A
+
+def one: 1
+
+two = one.add(1)
+
+def one: "one"
+
+good = match (one, two):
+  ("one", 2): True
+  _:     False
+
+tests = TestSuite("test",
+  [
+    Assertion(good, ""),
+  ])
+"""), "A", 1)
+
+    // test an example using a predef function, like add
+    runBosatsuTest(List("""package A
+
+# this should be add from predef
+two = add(1, 1)
+
+def add(x, y):
+  x.sub(y)
+
+good = match two:
+  2: True
+  _:     False
+
+tests = TestSuite("test",
+  [
+    Assertion(good, ""),
+  ])
+"""), "A", 1)
+  }
+
+  test("shadowing of external def isn't allowed") {
+    evalFail(
+      List("""
+package A
+
+external def foo(x: String) -> List[String]
+
+def foo(x): x
+
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(69,70)")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+external def foo(x: String) -> List[String]
+
+foo = 1
+
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(63,64)")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+external def foo(x: String) -> List[String]
+
+external def foo(x: String) -> List[String]
+"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, foo defined multiple times\nRegion(21,55)")
+      ()
+    }
   }
 }

@@ -1,0 +1,59 @@
+package Bosatsu/Example/ApplicativeTraverse
+
+import Bosatsu/List [ eq_List ]
+import Bosatsu/Option [ eq_Option ]
+export [Applicative(), Traverse(), traverse_List]
+
+# Represents the Applicative typeclass
+struct Applicative(
+  pure: forall a. a -> f[a],
+  map: forall a, b. (a -> b) -> f[a] -> f[b],
+  product: forall a, b. f[a] -> f[b] -> f[(a, b)])
+
+# Represents the Traverse typeclass
+struct Traverse(
+  traverse: forall a, b, f. Applicative[f] -> (a -> f[b]) -> g[a] -> f[g[b]])
+
+def applicative_Option -> Applicative[Option]:
+  Applicative {
+    pure: \a -> Some(a),
+    map: \fn, opt -> match opt:
+      Some(a): Some(fn(a))
+      None: None,
+    product: \as, bs ->
+      match (as, bs):
+        (Some(a), Some(b)): Some((a, b))
+        _: None
+  }
+
+def trav_l(app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[List[b]]:
+  Applicative { pure, map, product, ... } = app
+
+  def loop(lst: List[a], ftail: f[List[b]]) -> f[List[b]]:
+    recur lst:
+      []: ftail
+      [h, *t]: loop(t, map(\(h, t) -> [h, *t], product(fn(h), ftail)))
+
+  map(reverse, loop(lst, pure([])))
+
+# here is the traverse instance for List
+(traverse_List: Traverse[List]) = Traverse(trav_l)
+
+#########
+# Below here we have the tests
+#########
+
+trav_list_opt = trav_l(applicative_Option)
+
+# Here is equality on Option[List[Int]]
+eq_opt_list_int = eq_Option(eq_List(eq_Int))
+
+operator == = eq_opt_list_int
+
+test = TestSuite("applicative/traverse tests",
+  [
+    Assertion(trav_list_opt(\x -> Some(2.times(x)), [1, 2, 3]) == Some([2, 4, 6]), "double"),
+    Assertion(trav_list_opt(\x -> None, [1, 2, 3]) == None, "all to None"),
+    Assertion(trav_list_opt(\x -> None if x.eq_Int(3) else Some(x), [1, 2, 3]) == None, "3 to None"),
+    Assertion(trav_list_opt(\x -> None if x.eq_Int(3) else Some(x), []) == Some([]), "empty to Some"),
+  ])

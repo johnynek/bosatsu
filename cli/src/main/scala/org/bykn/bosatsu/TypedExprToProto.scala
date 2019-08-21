@@ -289,12 +289,12 @@ object ProtoConverter {
           case Value.NamedPat(proto.NamedPat(nidx, pidx)) =>
             (bindable(nidx), pat(pidx)).mapN(Pattern.Named(_, _))
           case Value.ListPat(proto.ListPat(lp)) =>
-            def decodePart(part: proto.ListPart): Try[Either[Option[Bindable], Pattern[(PackageName, Constructor), Type]]] =
+            def decodePart(part: proto.ListPart): Try[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]] =
               part.value match {
                 case proto.ListPart.Value.Empty => Failure(new Exception(s"invalid empty list pattern in $p"))
-                case proto.ListPart.Value.ItemPattern(p) => pat(p).map(Right(_))
-                case proto.ListPart.Value.UnnamedList(_) => Success(Left(None))
-                case proto.ListPart.Value.NamedList(idx) => bindable(idx).map { n => Left(Some(n)) }
+                case proto.ListPart.Value.ItemPattern(p) => pat(p).map(Pattern.ListPart.Item(_))
+                case proto.ListPart.Value.UnnamedList(_) => Success(Pattern.ListPart.WildList)
+                case proto.ListPart.Value.NamedList(idx) => bindable(idx).map { n => Pattern.ListPart.NamedList(n) }
               }
 
             lp.toList.traverse(decodePart).map(Pattern.ListPat(_))
@@ -534,15 +534,13 @@ object ProtoConverter {
                 }
             case Pattern.ListPat(items) =>
               items.traverse {
-                case Right(itemPat) =>
+                case Pattern.ListPart.Item(itemPat) =>
                   patternToProto(itemPat).map { pidx =>
                     proto.ListPart(proto.ListPart.Value.ItemPattern(pidx))
                   }
-                case Left(None) =>
-                  // unnamed list wildcard
+                case Pattern.ListPart.WildList =>
                   tabPure(proto.ListPart(proto.ListPart.Value.UnnamedList(proto.WildCardPat())))
-                case Left(Some(bindable)) =>
-                  // named list wildcard
+                case Pattern.ListPart.NamedList(bindable) =>
                   getId(bindable.sourceCodeRepr).map { idx =>
                     proto.ListPart(proto.ListPart.Value.NamedList(idx))
                   }

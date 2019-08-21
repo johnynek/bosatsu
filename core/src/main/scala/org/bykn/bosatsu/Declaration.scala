@@ -13,7 +13,7 @@ import org.bykn.fastparse_cats.StringInstances._
 
 import ListLang.{KVPair, SpliceOrItem}
 
-import Identifier.Bindable
+import Identifier.{Bindable, Constructor}
 
 /**
  * Represents the syntactic version of Expr
@@ -115,6 +115,13 @@ sealed abstract class Declaration {
 
       case DictDecl(dict) =>
         ListLang.documentDict[Declaration, Pattern.Parsed].document(dict)
+
+      case RecordConstructor(name, args) =>
+        val argDoc = Doc.char('{') +
+          Doc.intercalate(Doc.char(',') + Doc.space,
+          args.toList.map(_.toDoc)) + Doc.char('}')
+
+        Declaration.identDoc.document(name) + Doc.space + argDoc
     }
 
   /**
@@ -182,6 +189,12 @@ sealed abstract class Declaration {
           val bound1 = bound ++ b.names
           val acc2 = loop(ex.key, bound1, acc1)
           loop(ex.value, bound1, acc2)
+        case RecordConstructor(_, args) =>
+          // A constructor doesn't introduce new bindings
+          args.foldLeft(acc) {
+            case (acc, RecordArg.Pair(_, v)) => loop(v, bound, acc)
+            case (acc, RecordArg.Simple(n)) => acc
+          }
       }
 
     loop(this, Set.empty, SortedSet.empty)
@@ -245,6 +258,11 @@ sealed abstract class Declaration {
           val acc1 = loop(in, acc)
           val acc2 = loop(ex.key, acc1 ++ b.names)
           loop(ex.value, acc2)
+        case RecordConstructor(_, args) =>
+          args.foldLeft(acc) {
+            case (acc, RecordArg.Pair(_, v)) => loop(v, acc)
+            case (acc, RecordArg.Simple(n)) => acc + n
+          }
       }
     loop(this, SortedSet.empty)
   }
@@ -260,6 +278,44 @@ object Declaration {
     case object Dot extends ApplyKind
     case object Parens extends ApplyKind
   }
+
+  private val identDoc: Document[Identifier] =
+    Identifier.document
+
+  private val colonSpace = Doc.text(": ")
+
+  sealed abstract class RecordArg {
+    def toDoc: Doc =
+      this match {
+        case RecordArg.Pair(f, a) =>
+          identDoc.document(f) + colonSpace + a.toDoc
+        case RecordArg.Simple(f) =>
+          identDoc.document(f)
+      }
+  }
+  object RecordArg {
+    final case class Pair(field: Bindable, arg: Declaration) extends RecordArg
+    // for cases like:
+    // age = 47
+    // Person { name: "Frank", age }
+    final case class Simple(field: Bindable) extends RecordArg
+
+    val parser: Indy[RecordArg] = {
+      val pairFn: Indy[Bindable => Pair] =
+        Indy { indent =>
+          val ws = Parser.maybeIndentedOrSpace(indent)
+          P(ws ~ ":" ~ ws ~ Declaration.parser(indent))
+            .map { decl => Pair(_, decl) }
+        }
+
+      Indy.lift(Identifier.bindableParser)
+        .product(pairFn.?)
+        .map {
+          case (b, None) => Simple(b)
+          case (b, Some(fn)) => fn(b)
+        }
+    }
+  }
   //
   // We use the pattern of an implicit region for two reasons:
   // 1. we don't want the region to play a role in pattern matching or equality, since it is about
@@ -268,7 +324,6 @@ object Declaration {
   //    value in tests and construct them.
   // These reasons are a bit abusive, and we may revisit this in the future
   //
-
   case class Apply(fn: Declaration, args: NonEmptyList[Declaration], kind: ApplyKind)(implicit val region: Region) extends Declaration
   case class ApplyOp(left: Declaration, op: Identifier.Operator, right: Declaration) extends Declaration {
     val region = left.region + right.region
@@ -291,6 +346,11 @@ object Declaration {
   case class Var(name: Identifier)(implicit val region: Region) extends Declaration
 
   /**
+   * This represents code like:
+   * Foo { bar: 12 }
+   */
+  case class RecordConstructor(cons: Constructor, arg: NonEmptyList[RecordArg])(implicit val region: Region) extends Declaration
+  /**
    * This represents the list construction language
    */
   case class ListDecl(list: ListLang[SpliceOrItem, Declaration, Pattern.Parsed])(implicit val region: Region) extends Declaration
@@ -311,16 +371,17 @@ object Declaration {
   def toPattern(d: Declaration): Option[Pattern.Parsed] =
     d match {
       case Var(nm@Identifier.Constructor(_)) =>
-        Some(Pattern.PositionalStruct(Some(nm), Nil))
+        Some(Pattern.PositionalStruct(
+          Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike), Nil))
       case Var(v: Bindable) => Some(Pattern.Var(v))
       case Literal(lit) => Some(Pattern.Literal(lit))
       case ListDecl(ListLang.Cons(elems)) =>
-        val optParts: Option[List[Either[Option[Bindable], Pattern.Parsed]]] =
+        val optParts: Option[List[Pattern.ListPart[Pattern.Parsed]]] =
           elems.traverse {
             case SpliceOrItem.Splice(Var(bn: Bindable)) =>
-              Some(Left(Some(bn)))
+              Some(Pattern.ListPart.NamedList(bn))
             case SpliceOrItem.Item(p) =>
-              toPattern(p).map(Right(_))
+              toPattern(p).map(Pattern.ListPart.Item(_))
             case _ => None
           }
         optParts.map(Pattern.ListPat(_))
@@ -331,13 +392,23 @@ object Declaration {
         }
       case Apply(Var(nm@Identifier.Constructor(_)), args, ApplyKind.Parens) =>
         args.traverse(toPattern(_)).map { argPats =>
-          Pattern.PositionalStruct(Some(nm), argPats.toList)
+          Pattern.PositionalStruct(Pattern.StructKind.Named(nm,
+            Pattern.StructKind.Style.TupleLike), argPats.toList)
         }
       case TupleCons(ps) =>
         ps.traverse(toPattern(_)).map { argPats =>
-          Pattern.PositionalStruct(None, argPats.toList)
+          Pattern.PositionalStruct(Pattern.StructKind.Tuple, argPats.toList)
         }
       case Parens(p) => toPattern(p)
+      case RecordConstructor(cons, args) =>
+        args.traverse {
+          case RecordArg.Simple(b) => Some(Left(b))
+          case RecordArg.Pair(k, v) =>
+            toPattern(v).map { vpat =>
+              Right((k, vpat))
+            }
+        }
+        .map(Pattern.recordPat(cons, _)(Pattern.StructKind.Named(_, _)))
       case _ => None
     }
 
@@ -420,8 +491,27 @@ object Declaration {
   val varP: P[Var] =
     Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
 
-  val constructorP: P[Var] =
-    Identifier.consParser.region.map { case (r, i) => Var(i)(r) }
+  // this returns a Var with a Constructor or a RecordConstrutor
+  val recordConstructorP: Indy[Declaration] =
+    Indy { indent =>
+      val ws = Parser.maybeIndentedOrSpace(indent)
+      val kv = RecordArg.parser(indent)
+      val kvs = kv.nonEmptyListOfWs(ws, 1)
+      // we put a cut here because Foo { must be a record
+      // and we want to give a better message of failure
+      // inside the record, than complaining at the start
+      // of the {
+      val args = kvs.bracketed(P("{" ~ ws), P(ws ~ "}"))
+
+      (Identifier.consParser ~ (maybeSpace ~ args).?)
+        .region
+        .map {
+          case (region, (n, Some(args))) =>
+            RecordConstructor(n, args)(region)
+          case (region, (n, None)) =>
+            Var(n)(region)
+        }
+    }
 
   private val patternBind: Indy[Declaration] =
     Indy.lift(Pattern.bindParser.region).product(bindingOp)
@@ -484,7 +574,7 @@ object Declaration {
         decOrBind(varP | listP(recurse), indent) |
         patternBind(indent) |
         lits | // technically this can be a pattern: 3 = x, so it has to be after patternBind, but it is never total.
-        constructorP |
+        recordConstructorP(indent) |
         commentP(indent) |
         tupOrPar)
 

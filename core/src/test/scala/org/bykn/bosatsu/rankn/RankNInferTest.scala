@@ -27,14 +27,10 @@ class RankNInferTest extends FunSuite {
         Type.Const.Defined(PackageName.parts("Test"), TypeName(str))
     }
 
-  private val srcConv = new SourceConverter(
-    strToConst _,
-    { c => (PackageName.parts("Test"), c) })
-
   def typeFrom(str: String): Type =
     TypeRef.parser.parse(str) match {
       case Parsed.Success(typeRef, _) =>
-        srcConv.toType(typeRef)
+        TypeRefConverter[cats.Id](typeRef)(strToConst(_))
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
     }
@@ -124,6 +120,8 @@ class RankNInferTest extends FunSuite {
         case good =>
           good
       }
+      // make sure we can render repr:
+      val rendered = te.repr
       val tp = te.getType
       lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
       assert(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
@@ -523,7 +521,7 @@ def opt_bind(opt, bind_fn):
 option_monad = Monad(Some, opt_bind)
 
 def use_bind(m: Monad[f], a, b, c):
-  Monad(pure, bind) = m
+  Monad { pure, bind } = m
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
@@ -552,7 +550,7 @@ def opt_bind(opt, bind_fn):
 option_monad = Monad(Some, opt_bind)
 
 def use_bind(a, b, c, m: Monad[f]):
-  Monad(pure, bind) = m
+  Monad { pure, bind } = m
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)

@@ -452,7 +452,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
           }
           (letsName, recursive, newExpr)
         }
-        val newProgram = pack.program.copy(lets = newLets) 
+        val newProgram = pack.program.copy(lets = newLets)
         val newPack = pack.copy(program = newProgram)
         (packName, newPack)
       }
@@ -580,9 +580,9 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case Pattern.Named(n, p) => NormalPattern.Named(names.indexOf(n), loop(p))
         case Pattern.ListPat(items) =>
           NormalPattern.ListPat(items.map {
-            case Left(Some(n)) =>Left(Some(names.indexOf(n)))
-            case Left(None) => Left(None)
-            case Right(p) => Right(loop(p))
+            case Pattern.ListPart.NamedList(n) =>Left(Some(names.indexOf(n)))
+            case Pattern.ListPart.WildList => Left(None)
+            case Pattern.ListPart.Item(p) => Right(loop(p))
           })
         case Pattern.Annotation(p, tpe) => loop(p)
         case Pattern.PositionalStruct(pc@(_, ctor), params) =>

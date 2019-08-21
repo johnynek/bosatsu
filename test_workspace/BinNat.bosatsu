@@ -1,0 +1,199 @@
+package Bosatsu/BinNat
+
+export [ BinNat(), Nat(), toInt, times2_Nat, toNat, toBinNat, next, add_BinNat, times2 ]
+# a natural number with three variants:
+# Zero = 0
+# Odd(n) = 2n + 1
+# Even(n) = 2(n + 1)
+# e.g:
+# Zero, Odd(Zero), Even(Zero), Odd(Odd(Zero)), Even(Odd(Zero))
+enum BinNat: Zero, Odd(half: BinNat), Even(half1: BinNat)
+
+# This is the traditional encoding of natural numbers
+# it is useful when you are iterating on all values, but
+# not space efficient
+enum Nat: NatZero, NatSucc(prev: Nat)
+
+# Convert a BinNat into the equivalent Int
+# this is O(log(b)) operation
+def toInt(b: BinNat) -> Int:
+  recur b:
+    Zero: 0
+    Odd(n): toInt(n).times(2).add(1)
+    Even(n): toInt(n).times(2).add(2)
+
+# This is an O(n) operation
+def times2_Nat(n: Nat) -> Nat:
+  recur n:
+    NatZero: NatZero
+    NatSucc(prev):
+      # 2*(n + 1) = 2*n + 1 + 1
+      NatSucc(NatSucc(times2_Nat(prev)))
+
+# This is an O(b) operation
+def toNat(b: BinNat) -> Nat:
+  recur b:
+    Zero: NatZero
+    Odd(n): NatSucc(toNat(n).times2_Nat)
+    Even(n): NatSucc(NatSucc(toNat(n).times2_Nat))
+
+# Convert a built in integer to a BinNat. <= 0 is converted to 0
+def toBinNat(n: Int) -> BinNat:
+  # build up a list in reverse of transformations
+  fns = int_loop(n, [], \n, fns ->
+    is_even = mod_Int(n, 2).eq_Int(0)
+    (hfn, dec) = (\n -> Even(n), \n -> n.sub(1)) if is_even else (\n -> Odd(n), \n -> n)
+    fns = [hfn, *fns]
+    # the None case can't really happen
+    n = match n.div(2):
+      None: 0
+      Some(n): n
+    (dec(n), fns)
+  )
+  # Now apply all the transformations
+  fns.foldLeft(Zero, \n, fn -> fn(n))
+
+# Return the next number
+def next(b: BinNat) -> BinNat:
+  recur b:
+    Zero: Odd(Zero)
+    Odd(half):
+      # (2n + 1) + 1 = 2(n + 1)
+      Even(half)
+    Even(half1):
+      # 2(n + 1) + 1
+      Odd(next(half1))
+
+# Return the previous number if the number is > 0, else return 0
+def prev(b: BinNat) -> BinNat:
+  recur b:
+    Zero: Zero
+    Odd(Zero):
+      # This breaks the law below because 0 - 1 = 0 in this function
+      Zero
+    Odd(half):
+      # (2n + 1) - 1 = 2n = 2(n-1 + 1)
+      Even(prev(half))
+    Even(half1):
+      # 2(n + 1) - 1 = 2n + 1
+      Odd(half1)
+
+def add_BinNat(left: BinNat, right: BinNat) -> BinNat:
+  recur left:
+    Zero: right
+    odd @ Odd(left):
+      match right:
+        Zero: odd
+        Odd(right):
+          # 2left + 1 + 2right + 1 = 2((left + right) + 1)
+          Even(add_BinNat(left, right))
+        Even(right):
+          # 2left + 1 + 2(right + 1) = 2((left + right) + 1) + 1
+          Odd(add_BinNat(left, right.next))
+    even @ Even(left):
+      match right:
+        Zero: even
+        Odd(right):
+          # 2(left + 1) + 2right + 1 = 2((left + right) + 1) + 1
+          Odd(add_BinNat(left, right.next))
+        Even(right):
+          # 2(left + 1) + 2(right + 1) = 2((left + right + 1) + 1)
+          Even(add_BinNat(left, right.next))
+
+# multiply by 2
+def times2(b: BinNat) -> BinNat:
+  recur b:
+    Zero: Zero
+    Odd(n):
+      #2(2n + 1) = Even(2n)
+      Even(times2(n))
+    Even(n):
+      #2(2(n + 1)) = 2((2n + 1) + 1)
+      Even(Odd(n))
+
+# multiply two BinNat together
+def times_BinNat(left: BinNat, right: BinNat) -> BinNat:
+  recur left:
+    Zero: Zero
+    Odd(left):
+      match right:
+        Zero: Zero
+        right:
+          # (2l + 1) * r = 2lr + r
+          prod = times_BinNat(left, right)
+          times2(prod).add_BinNat(right)
+    Even(left):
+      match right:
+        Zero: Zero
+        right:
+          # 2(l + 1) * n = 2(l*n + n)
+          prod = times_BinNat(left, right)
+          times2(prod.add_BinNat(right))
+
+# fold(fn, a, Zero) = a
+# fold(fn, a, n) = fold(fn, fn(a, n - 1), n - 1)
+def fold_left_BinNat(fn: a -> BinNat -> a, init: a, cnt: BinNat) -> a:
+  # use the Nat as a trick to prove termination
+  def loop(init: a, cnt: BinNat, cnt_Nat: Nat) -> a:
+    recur cnt_Nat:
+      NatZero: init
+      NatSucc(prevNat):
+        cnt = prev(cnt)
+        init = fn(init, cnt)
+        loop(init, cnt, prevNat)
+
+  # this is O(cnt) to build the Nat, but the fold is already
+  # O(cnt), so this isn't a complexity change
+  loop(init, cnt, toNat(cnt))
+
+def round_trip_law(i, msg):
+  Assertion(i.toBinNat.toInt.eq_Int(i), msg)
+
+def next_law(i, msg):
+  Assertion(i.toBinNat.next.toInt.eq_Int(i.add(1)), msg)
+
+def times2_law(i, msg):
+  Assertion(i.toBinNat.times2.toInt.eq_Int(i.times(2)), msg)
+
+test = TestSuite(
+  "BinNat tests", [
+    Assertion(Zero.toInt.eq_Int(0), "0.toBinNat"),
+    Assertion(Odd(Zero).toInt.eq_Int(1), "1.toBinNat"),
+    Assertion(Even(Zero).toInt.eq_Int(2), "2.toBinNat"),
+    Assertion(Odd(Odd(Zero)).toInt.eq_Int(3), "3.toBinNat"),
+    Assertion(Even(Odd(Zero)).toInt.eq_Int(4), "4.toBinNat"),
+    TestSuite("round trip laws", [ round_trip_law(i, m) for (i, m) in [
+      (0, "roundtrip 0"),
+      (1, "roundtrip 1"),
+      (2, "roundtrip 2"),
+      (3, "roundtrip 3"),
+      (4, "roundtrip 4"),
+      (5, "roundtrip 5"),
+      (6, "roundtrip 6"),
+      (7, "roundtrip 7"),
+      (50, "roundtrip 50"),
+      (61, "roundtrip 61"),
+      (72, "roundtrip 72"),
+    ]]),
+    TestSuite("next law", [ next_law(i, msg) for (i, msg) in [
+      (0, "0.next"),
+      (5, "5.next"),
+      (10, "10.next"),
+      (113, "113.next"),
+    ]]),
+    Assertion(0.toBinNat.next.prev.toInt.eq_Int(0), "0.next.prev == 0"),
+    Assertion(5.toBinNat.next.prev.toInt.eq_Int(5), "5.next.prev == 5"),
+    Assertion(10.toBinNat.next.prev.toInt.eq_Int(10), "10.next.prev == 10"),
+    Assertion(10.toBinNat.add_BinNat(11.toBinNat).toInt.eq_Int(21), "add_BinNat(10, 11) == 21"),
+    TestSuite("times2 law", [times2_law(i, msg) for (i, msg) in [
+      (0, "0 * 2"),
+      (1, "1 * 2"),
+      (2, "2 * 2"),
+      (5, "5 * 2"),
+      (10, "10 * 2"),
+    ]]),
+    Assertion(10.toBinNat.times_BinNat(11.toBinNat).toInt.eq_Int(110), "10*11 = 110"),
+    Assertion(0.toBinNat.times_BinNat(11.toBinNat).toInt.eq_Int(0), "0*11 = 0"),
+    Assertion(fold_left_BinNat(\n, _ -> n.next, Zero, 10.toBinNat).toInt.eq_Int(10), "1 + ... + 1 = 10"),
+    Assertion(fold_left_BinNat(\n1, n2  -> n1.add_BinNat(n2), Zero, 4.toBinNat).toInt.eq_Int(6), "1+2+3=6"),
+  ])

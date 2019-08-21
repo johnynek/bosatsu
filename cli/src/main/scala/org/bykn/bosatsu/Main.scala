@@ -175,14 +175,6 @@ object MainCommand {
       }
   }
 
-  case class Compile(inputs: NonEmptyList[Path], compileRoot: Path) extends MainCommand {
-    def run =
-      typeCheck(inputs, Nil).flatMap { case (packs, _) =>
-        CodeGenWrite.write(compileRoot, packs, Predef.jvmExternals) *>
-          IO(println(s"wrote ${packs.toMap.size} packages"))
-      }
-  }
-
   case class RunTests(tests: List[Path], testPacks: List[PackageName], dependencies: List[Path]) extends MainCommand {
     def run = {
       if (tests.isEmpty && dependencies.isEmpty) {
@@ -323,13 +315,11 @@ object MainCommand {
     val evalOpt = (toList(ins), mainP, includes).mapN(Evaluate(_, _, _))
     val toJsonOpt = (toList(ins), includes, mainP, outputPath).mapN(ToJson(_, _, _, _))
     val typeCheckOpt = (ins, ifaces, outputPath, interfaceOutputPath.orNone).mapN(TypeCheck(_, _, _, _))
-    val compileOpt = (ins, compileRoot).mapN(Compile(_, _))
     val testOpt = (toList(ins), testP, includes).mapN(RunTests(_, _, _))
 
     Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
       .orElse(Opts.subcommand("write-json", "evaluate a data expression into json")(toJsonOpt))
       .orElse(Opts.subcommand("type-check", "type check a set of packages")(typeCheckOpt))
-      .orElse(Opts.subcommand("compile", "compile bosatsu to Java code")(compileOpt))
       .orElse(Opts.subcommand("test", "test a set of bosatsu modules")(testOpt))
   }
 }
