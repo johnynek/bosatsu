@@ -1,12 +1,14 @@
 package org.bykn.bosatsu
 
-import cats.data.Validated
+import cats.data.{Const, Validated}
 import org.openjdk.jmh.annotations.{Benchmark, Scope, State}
 
 import cats.implicits._
 
 @State(Scope.Thread)
 class TestBench {
+  val unitImplicits: Evaluation.UnitImplicits[Declaration] = Evaluation.UnitImplicits()
+  import unitImplicits._
 
   private def prepPackages(packages: List[String], mainPackS: String): (PackageMap.Inferred, PackageName) = {
     val mainPack = PackageName.parse(mainPackS).get
@@ -45,7 +47,7 @@ gauss$n = range($n).foldLeft(0, add)
 
   @Benchmark def bench0(): Unit = {
     val c = compiled0
-    val ev = Evaluation(c._1, Predef.jvmExternals)
+    val ev = Evaluation(c._1, Predef.jvmExternals[Const[Unit, ?]])
     // run the evaluation
     val res = ev.evaluateLast(c._2).get._1.value
     ()
@@ -56,7 +58,7 @@ gauss$n = range($n).foldLeft(0, add)
 
   @Benchmark def bench1(): Unit = {
     val c = compiled1
-    val ev = Evaluation(c._1, Predef.jvmExternals)
+    val ev = Evaluation(c._1, Predef.jvmExternals[Const[Unit, ?]])
     // run the evaluation
     val res = ev.evaluateLast(c._2).get._1.value
     ()
