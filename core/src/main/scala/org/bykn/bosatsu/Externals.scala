@@ -8,7 +8,7 @@ import Evaluation.Value
 
 sealed abstract class FfiCall[T[_]] {
   def call(t: rankn.Type, pn: PackageName, dn: Identifier)(
-    implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T[Value[T]],
+    implicit externalFnTag: (PackageName, Identifier) => (Int, List[Eval[Value[T]]]) => T[Value[T]]
   ): Eval[Value[T]]
 }
 
