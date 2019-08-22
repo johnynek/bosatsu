@@ -115,6 +115,7 @@ object ServerCommand {
   type NEValueTag[X] = (NormalExpression, List[Eval[X]])
   val neTokenImplicits: Evaluation.NETokenImplicits[(Declaration, Normalization.NormalExpressionTag)] = Evaluation.NETokenImplicits()(_._2.ne)
   import neTokenImplicits._
+  implicit val visImpl = VisImpl[NEValueTag]()
 
   case class WebServer(inputs: NonEmptyList[Path], log: Option[Path], visParam: Option[String])
       extends ServerCommand {
@@ -123,7 +124,7 @@ object ServerCommand {
       typeCheck(inputs, Nil).map { case (packs, _) =>
         val normPM = NormalizePackageMap(packs).normalizePackageMap
         val lets: List[(Identifier.Bindable, (Eval[Evaluation.Value[NEValueTag]], rankn.Type, (Declaration, Normalization.NormalExpressionTag)))] =
-          Evaluation(normPM, Predef.jvmExternals[NEValueTag])
+          Evaluation(normPM, Predef.jvmExternals[NEValueTag] ++ Vis.jvmExternals[NEValueTag])
             .evaluateLets(mainPackage)
         val typeMap: Map[rankn.Type, TypeRef] = TypeRef.fromTypes(Some(mainPackage), lets.map(_._2._2))
         val bindings = lets.map(let => Json.JArray(Vector(
