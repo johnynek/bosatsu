@@ -221,7 +221,7 @@ object TypedExpr {
       getMetaTyVars(te.getType :: Nil)
         .flatMap(quantifyMetas(env, _, te))
 
-    /**
+    /*
      * By only quantifying the outside
      * the inside may still have some metas that don't
      * make it all the way out.
@@ -233,18 +233,18 @@ object TypedExpr {
     def deepQuantify(env: Map[Name, Type], te: TypedExpr[A]): F[TypedExpr[A]] =
       quantifyFree(env, te).flatMap {
         case Generic(typeVars, in, tag) =>
-          for {
-            in1 <- deepQuantify(env, in)
-          } yield forAll(typeVars, in1).updatedTag(tag)
+          deepQuantify(env, in).map { in1 =>
+            forAll(typeVars, in1).updatedTag(tag)
+          }
         case Annotation(term, coerce, tag) =>
-          for {
-            t1 <- deepQuantify(env, term)
-            a1 = Annotation(t1, coerce, tag)
-          } yield a1
+          deepQuantify(env, term).map { t1 =>
+            Annotation(t1, coerce, tag)
+          }
         case AnnotatedLambda(arg, tpe, expr, tag) =>
-          for {
-            e1 <- deepQuantify(env.updated(((None, arg)), tpe), expr)
-          } yield lambda(arg, tpe, e1, tag)
+          deepQuantify(env.updated(((None, arg)), tpe), expr)
+            .map { e1 =>
+              lambda(arg, tpe, e1, tag)
+            }
         case Let(arg, expr, in, rec, tag) =>
           // this introduces something into the env
           val inEnv = env.updated((None, arg), expr.getType)
@@ -312,7 +312,7 @@ object TypedExpr {
           noArg.flatMap(finish)
 
         case nonest@(Var(_, _, _, _) | Literal(_, _, _)) =>
-          quantifyFree(env, nonest)
+          Applicative[F].pure(nonest)
       }
 
     deepQuantify(env, rho)
