@@ -519,6 +519,50 @@ object Pattern {
     }
   }
 
+  /**
+   * For fully typed patterns, compute the type environment of the bindings
+   * from this pattern. This will sys.error if you pass a bad pattern, which
+   * you should never do (and this code will never do unless there is some
+   * broken invariant)
+   */
+  def envOf[C, K, T](p: Pattern[C, T])(kfn: Identifier => K): Map[K, T] = {
+    def loop(p0: Pattern[C, T], typeOf: Option[T], env: Map[K, T]): Map[K, T] =
+      p0 match {
+        case WildCard => env
+        case Literal(lit) => env
+        case Var(n) =>
+          typeOf match {
+            case None => sys.error(s"no type found for $n in $p")
+            case Some(t) => env.updated(kfn(n), t)
+          }
+        case Named(n, p1) =>
+          val e1 = loop(p1, typeOf, env)
+          typeOf match {
+            case None => sys.error(s"no type found for $n in $p")
+            case Some(t) => e1.updated(kfn(n), t)
+          }
+        case ListPat(items) =>
+          type L = ListPart[Pattern[C, T]]
+          items.foldLeft(env) {
+            case (env, ListPart.WildList) => env
+            case (env, ListPart.NamedList(n)) =>
+              // TODO: this is a design flaw: we have no way
+              // to put a type annotation on named lists
+              env
+            case (env, ListPart.Item(p)) =>
+              loop(p, None, env)
+          }
+        case Annotation(p, t) =>
+          loop(p, Some(t), env)
+        case PositionalStruct(_, as) =>
+          as.foldLeft(env) { (env, p) => loop(p, None, env) }
+        case Union(head, rest) =>
+          (head :: rest).foldLeft(env) { (env, p) => loop(p, None, env) }
+      }
+
+    loop(p, None, Map.empty)
+  }
+
   private[this] val pwild = P("_").map(_ => WildCard)
   private[this] val plit = Lit.parser.map(Literal(_))
 

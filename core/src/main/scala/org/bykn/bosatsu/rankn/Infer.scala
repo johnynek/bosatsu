@@ -1125,10 +1125,11 @@ object Infer {
       te.traverseType[cats.Id](checkType)
       val tp = te.getType
       lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
-      scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
+      scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty,
+        s"illegal inferred type: $teStr in: ${te.repr}")
 
       scala.Predef.require(Type.metaTvs(tp :: Nil).isEmpty,
-        s"illegal inferred type: $teStr")
+        s"illegal inferred type: $teStr in: ${te.repr}")
       te
     }
   }
