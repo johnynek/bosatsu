@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Eval, Traverse}
+import cats.{Applicative, Eval, Traverse, Monad}
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
@@ -148,6 +148,37 @@ object TypedExpr {
         }
         (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
     }
+  }
+
+  def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(fn: Type.Meta => F[Option[Type.Rho]]): F[TypedExpr[A]] =
+    te.traverseType(Type.zonkMeta(_)(fn))
+
+  def quantify[F[_]: Monad, A](
+    env: Map[(Option[PackageName], Identifier), Type],
+    rho: TypedExpr.Rho[A],
+    zFn: Type.Meta => F[Option[Type.Rho]],
+    writeFn: (Type.Meta, Type.Var) => F[Unit]): F[TypedExpr[A]] = {
+
+    def getMetaTyVars(tpes: List[Type]): F[SortedSet[Type.Meta]] =
+      tpes.traverse(Type.zonkMeta(_)(zFn)).map(Type.metaTvs(_))
+
+    def quantify0(forAlls: List[Type.Meta], rho: TypedExpr.Rho[A]): F[TypedExpr[A]] =
+      NonEmptyList.fromList(forAlls) match {
+        case None => Applicative[F].pure(rho)
+        case Some(metas) =>
+          val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
+          val aligned = Type.alignBinders(metas, used)
+          val bound = aligned.traverse_ { case (m, n) => writeFn(m, n) }
+          bound.as(forAll(aligned.map(_._2), rho))
+      }
+
+    for {
+      envTypeVars <- getMetaTyVars(env.values.toList)
+      resTypeVars <- getMetaTyVars(rho.getType :: Nil)
+      forAllTvs = resTypeVars -- envTypeVars
+      q0 <- quantify0(forAllTvs.toList, rho)
+      q <- zonkMeta(q0)(zFn)
+    } yield q
   }
 
   implicit val traverseTypedExpr: Traverse[TypedExpr] = new Traverse[TypedExpr] {
