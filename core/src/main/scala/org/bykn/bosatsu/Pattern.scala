@@ -526,35 +526,30 @@ object Pattern {
    * broken invariant)
    */
   def envOf[C, K, T](p: Pattern[C, T], env: Map[K, T])(kfn: Identifier => K): Map[K, T] = {
+    def update(env: Map[K, T], n: Identifier, typeOf: Option[T]): Map[K, T] =
+        typeOf match {
+          case None =>
+            // $COVERAGE-OFF$ should be unreachable
+            sys.error(s"no type found for $n in $p")
+            // $COVERAGE-ON$ should be unreachable
+          case Some(t) => env.updated(kfn(n), t)
+        }
     def loop(p0: Pattern[C, T], typeOf: Option[T], env: Map[K, T]): Map[K, T] =
       p0 match {
         case WildCard => env
         case Literal(lit) => env
-        case Var(n) =>
-          typeOf match {
-            case None =>
-              // $COVERAGE-OFF$ should be unreachable
-              sys.error(s"no type found for $n in $p")
-              // $COVERAGE-ON$ should be unreachable
-            case Some(t) => env.updated(kfn(n), t)
-          }
+        case Var(n) => update(env, n, typeOf)
         case Named(n, p1) =>
           val e1 = loop(p1, typeOf, env)
-          typeOf match {
-            case None =>
-              // $COVERAGE-OFF$ should be unreachable
-              sys.error(s"no type found for $n in $p")
-              // $COVERAGE-ON$ should be unreachable
-            case Some(t) => e1.updated(kfn(n), t)
-          }
+          update(e1, n, typeOf)
         case ListPat(items) =>
           type L = ListPart[Pattern[C, T]]
           items.foldLeft(env) {
             case (env, ListPart.WildList) => env
             case (env, ListPart.NamedList(n)) =>
-              // TODO: this is a design flaw: we have no way
-              // to put a type annotation on named lists
-              env
+              // the type of a named sub-list is
+              // the same as the type of the list
+              update(env, n, typeOf)
             case (env, ListPart.Item(p)) =>
               loop(p, None, env)
           }

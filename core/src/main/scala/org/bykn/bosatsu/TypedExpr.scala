@@ -34,7 +34,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         // if tpe has no Var.Bound in common,
         // then we don't need the forall
         val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
-        Type.forAll(params.toList.filter(frees), expr.getType)
+        Type.forAll(params.toList.filter(frees), tpe)
       case Annotation(_, tpe, _) =>
         tpe
       case a@AnnotatedLambda(arg, tpe, res, _) =>
@@ -201,7 +201,8 @@ object TypedExpr {
           val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
           val aligned = Type.alignBinders(metas, used)
           val bound = aligned.traverse_ { case (m, n) => writeFn(m, n) }
-          bound.as(forAll(aligned.map(_._2), rho))
+          // we only need to zonk after doing a write:
+          (bound *> zonkMeta(rho)(zFn)).map(forAll(aligned.map(_._2), _))
       }
 
     type Name = (Option[PackageName], Identifier)
@@ -212,8 +213,7 @@ object TypedExpr {
         for {
           envTypeVars <- getMetaTyVars(env.values.toList)
           forAllTvs = metas -- envTypeVars
-          q0 <- quantify0(forAllTvs.toList, te)
-          q <- zonkMeta(q0)(zFn)
+          q <- quantify0(forAllTvs.toList, te)
         } yield q
       }
 
@@ -249,15 +249,15 @@ object TypedExpr {
           // this introduces something into the env
           val inEnv = env.updated((None, arg), expr.getType)
           val exprEnv = if (rec.isRecursive) inEnv else env
-          for {
-            e1 <- deepQuantify(exprEnv, expr)
-            i1 <- deepQuantify(inEnv, in)
-          } yield Let(arg, e1, i1, rec, tag)
+          (deepQuantify(exprEnv, expr), deepQuantify(inEnv, in))
+            .mapN { (e1, i1) =>
+              Let(arg, e1, i1, rec, tag)
+            }
         case App(fn, arg, tpe, tag) =>
-          for {
-            f1 <- deepQuantify(env, fn)
-            a1 <- deepQuantify(env, arg)
-          } yield App(f1, a1, tpe, tag)
+          (deepQuantify(env, fn), deepQuantify(env, arg))
+            .mapN { (f1, a1) =>
+              App(f1, a1, tpe, tag)
+            }
         case Match(arg, branches, tag) =>
           /*
            * We consider the free metas of
@@ -596,7 +596,16 @@ object TypedExpr {
   def forAll[A](params: NonEmptyList[Type.Var.Bound], expr: TypedExpr[A]): TypedExpr[A] =
     expr match {
       case Generic(ps, ex0, tag) =>
-        Generic(params ::: ps, ex0, tag)
+        // if params and ps have duplicates, that
+        // implies that those params weren't free, because
+        // they have already been quantified by ps, so
+        // they can be removed
+        val newParams = params.toList.filterNot(ps.toList.toSet)
+        val ps1 = NonEmptyList.fromList(newParams) match {
+          case None => ps
+          case Some(nep) => nep ::: ps
+        }
+        Generic(ps1, ex0, tag)
       case expr =>
         Generic(params, expr, expr.tag)
     }
@@ -605,7 +614,10 @@ object TypedExpr {
     expr match {
       case Generic(ps, ex0, tag0) =>
         // lift Generic out TODO: what if arg tpe is in ps? we need to substitute for a new name
-        assert(!ps.exists(v => Type.TyVar(v) == tpe), s"TODO: support lambda($arg, $tpe, $expr, tag)")
+        val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
+        val quants = ps.toList.toSet
+        val collisions = frees.intersect(quants)
+        assert(collisions.isEmpty, s"TODO: support lambda($arg, $tpe, ${expr.repr}, tag)")
         Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag0), tag)
       case notGen =>
         AnnotatedLambda(arg, tpe, notGen, tag)
