@@ -180,8 +180,8 @@ object TypedExpr {
    * quantify every meta variable that is not escaped into
    * the outer environment.
    *
-   * TODO: this isn't correct, it needs to do this recursively
-   * all the way down, adding to the environment as we see bindings
+   * TODO: This can probably be optimized. I think it is currently
+   * quadradic in depth of the TypedExpr
    */
   def quantify[F[_]: Monad, A](
     env: Map[(Option[PackageName], Identifier), Type],
@@ -288,8 +288,8 @@ object TypedExpr {
 
           def handleBranch(br: Branch): F[Branch] = {
             val (p, expr) = br
-            val branchEnv = Pattern.envOf(p) { ident => (None, ident) }
-            deepQuantify(env ++ branchEnv, expr).map((p, _))
+            val branchEnv = Pattern.envOf(p, env) { ident => (None, ident) }
+            deepQuantify(branchEnv, expr).map((p, _))
           }
 
           val noArg = for {
@@ -306,7 +306,9 @@ object TypedExpr {
               case Generic(ps, expr, tag) =>
                 finish(expr).map(forAll(ps, _).updatedTag(tag))
               case unreach =>
+                // $COVERAGE-OFF$
                 sys.error(s"Match quantification yielded neither Generic nor Match")
+                // $COVERAGE-ON$
             }
 
           noArg.flatMap(finish)
@@ -316,7 +318,6 @@ object TypedExpr {
       }
 
     deepQuantify(env, rho)
-    //quantifyFree(env, rho)
   }
 
   implicit val traverseTypedExpr: Traverse[TypedExpr] = new Traverse[TypedExpr] {

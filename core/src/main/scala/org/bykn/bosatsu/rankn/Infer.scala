@@ -1095,7 +1095,7 @@ object Infer {
      * running inference, then quantifying over that skolem
      * variable.
      */
-    val res = skolemizeFreeVars(t) match {
+    skolemizeFreeVars(t) match {
       case None => run(t)
       case Some(replace) =>
         for {
@@ -1103,34 +1103,6 @@ object Infer {
           (skols, t1) = mt
           te <- run(t1)
         } yield unskolemize(skols)(te)
-    }
-
-      // todo this should be a law... but since
-      // we don't have confidence yet I'm leaving it here
-      // so we see the errors
-    res.map { te =>
-      def checkType(t: Type): Type =
-        t match {
-          case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
-            sys.error(s"illegal skolem ($t) escape in ${te.repr}")
-          case Type.TyVar(Type.Var.Bound(_)) => t
-          case t@Type.TyMeta(_) =>
-            sys.error(s"illegal meta ($t) escape in ${te.repr}")
-          case Type.TyApply(left, right) =>
-            Type.TyApply(checkType(left), checkType(right))
-          case Type.ForAll(args, in) =>
-            Type.ForAll(args, checkType(in).asInstanceOf[Type.Rho])
-          case Type.TyConst(_) => t
-        }
-      te.traverseType[cats.Id](checkType)
-      val tp = te.getType
-      lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
-      scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty,
-        s"illegal inferred type: $teStr in: ${te.repr}")
-
-      scala.Predef.require(Type.metaTvs(tp :: Nil).isEmpty,
-        s"illegal inferred type: $teStr in: ${te.repr}")
-      te
     }
   }
 

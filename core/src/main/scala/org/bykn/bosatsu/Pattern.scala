@@ -525,20 +525,26 @@ object Pattern {
    * you should never do (and this code will never do unless there is some
    * broken invariant)
    */
-  def envOf[C, K, T](p: Pattern[C, T])(kfn: Identifier => K): Map[K, T] = {
+  def envOf[C, K, T](p: Pattern[C, T], env: Map[K, T])(kfn: Identifier => K): Map[K, T] = {
     def loop(p0: Pattern[C, T], typeOf: Option[T], env: Map[K, T]): Map[K, T] =
       p0 match {
         case WildCard => env
         case Literal(lit) => env
         case Var(n) =>
           typeOf match {
-            case None => sys.error(s"no type found for $n in $p")
+            case None =>
+              // $COVERAGE-OFF$ should be unreachable
+              sys.error(s"no type found for $n in $p")
+              // $COVERAGE-ON$ should be unreachable
             case Some(t) => env.updated(kfn(n), t)
           }
         case Named(n, p1) =>
           val e1 = loop(p1, typeOf, env)
           typeOf match {
-            case None => sys.error(s"no type found for $n in $p")
+            case None =>
+              // $COVERAGE-OFF$ should be unreachable
+              sys.error(s"no type found for $n in $p")
+              // $COVERAGE-ON$ should be unreachable
             case Some(t) => e1.updated(kfn(n), t)
           }
         case ListPat(items) =>
@@ -560,7 +566,7 @@ object Pattern {
           (head :: rest).foldLeft(env) { (env, p) => loop(p, None, env) }
       }
 
-    loop(p, None, Map.empty)
+    loop(p, None, env)
   }
 
   private[this] val pwild = P("_").map(_ => WildCard)

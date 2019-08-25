@@ -36,6 +36,33 @@ object TestUtils {
         sys.error(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
 
+  /**
+   * Make sure no illegal final types escaped into a TypedExpr
+   */
+  def assertValid[A](te: TypedExpr[A]): Unit = {
+    def checkType(t: Type): Type =
+      t match {
+        case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
+          sys.error(s"illegal skolem ($t) escape in ${te.repr}")
+        case Type.TyVar(Type.Var.Bound(_)) => t
+        case t@Type.TyMeta(_) =>
+          sys.error(s"illegal meta ($t) escape in ${te.repr}")
+        case Type.TyApply(left, right) =>
+          Type.TyApply(checkType(left), checkType(right))
+        case Type.ForAll(args, in) =>
+          Type.ForAll(args, checkType(in).asInstanceOf[Type.Rho])
+        case Type.TyConst(_) => t
+      }
+    te.traverseType[cats.Id](checkType)
+    val tp = te.getType
+    lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
+    scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty,
+      s"illegal inferred type: $teStr in: ${te.repr}")
+
+    scala.Predef.require(Type.metaTvs(tp :: Nil).isEmpty,
+      s"illegal inferred type: $teStr in: ${te.repr}")
+  }
+
   def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion =
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmt, _) =>
@@ -43,6 +70,8 @@ object TestUtils {
           case Validated.Invalid(errs) =>
             fail("inference failure: " + errs.toList.map(_.message(Map.empty)).mkString("\n"))
           case Validated.Valid(program) =>
+            // make sure all the TypedExpr are valid
+            program.lets.foreach { case (_, _, te) => assertValid(te) }
             fn(program.lets.last._3)
         }
       case Parsed.Failure(exp, idx, extra) =>
@@ -70,6 +99,10 @@ object TestUtils {
   def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals = Externals.empty) = {
     def inferredHandler(packMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
       val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
+      // Make sure all the typed expressions are valid (no Metas/Skolems)
+      packMap.toMap.values.foreach { pack =>
+        pack.program.lets.foreach { case (_, _, te) => assertValid(te) }
+      }
       //if (mainPackS == "A") println(ev.repr)
       ev.evaluateLast(mainPack) match {
         case None => fail("found no main expression")
