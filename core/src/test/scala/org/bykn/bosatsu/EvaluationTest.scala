@@ -1388,7 +1388,7 @@ tests = TestSuite("test triple",
     Assertion(c.eq_Int(1), "c == 1") ])
 """), "A", 3)
   }
-/*
+
   test("regression from a map_List/list comprehension example from snoble") {
     runBosatsuTest(
       List("""
@@ -1526,7 +1526,6 @@ tests = TestSuite("reordering",
 )
 """), "RecordSet/Library", 1)
   }
-  */
 
   test("record patterns") {
     runBosatsuTest(

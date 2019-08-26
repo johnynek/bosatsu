@@ -613,12 +613,18 @@ object TypedExpr {
   def lambda[A](arg: Bindable, tpe: Type, expr: TypedExpr[A], tag: A): TypedExpr[A] =
     expr match {
       case Generic(ps, ex0, tag0) =>
-        // lift Generic out TODO: what if arg tpe is in ps? we need to substitute for a new name
         val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
         val quants = ps.toList.toSet
         val collisions = frees.intersect(quants)
-        assert(collisions.isEmpty, s"TODO: support lambda($arg, $tpe, ${expr.repr}, tag)")
-        Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag0), tag)
+        NonEmptyList.fromList(collisions.toList) match {
+          case None => Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag0), tag)
+          case Some(cols) =>
+            // we should sort cols if we use it for anything below
+            // lift Generic out TODO: what if arg tpe is in ps? we need to substitute for a new name
+            // we can rebind all the collisions to anything that isn't a free type var in expr
+            // we should find a test that fails currently, add that test, then fix the issue
+            sys.error(s"TODO: support lambda($arg, $tpe, ${expr.repr}, tag)")
+        }
       case notGen =>
         AnnotatedLambda(arg, tpe, notGen, tag)
     }

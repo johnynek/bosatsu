@@ -352,7 +352,7 @@ object Infer {
         case Some(ty) =>
           Type.zonkRhoMeta(ty)(zonk(_)).flatMap { ty1 =>
             // short out multiple hops (I guess an optimization?)
-            writeMeta(m, ty1) *> pure(Some(ty1))
+            writeMeta(m, ty1).as(Some(ty1))
           }
       }
 
