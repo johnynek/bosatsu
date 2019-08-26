@@ -1,9 +1,11 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
-import cats.Eq
+import cats.{Applicative, Eq}
 import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier}
 import scala.collection.immutable.SortedSet
+
+import cats.implicits._
 
 sealed abstract class Type
 
@@ -339,4 +341,29 @@ object Type {
     loop(tpes, Set.empty)
   }
 
+  /**
+   * Transform meta variables in some way
+   */
+  def zonkMeta[F[_]: Applicative](t: Type)(m: Meta => F[Option[Type.Rho]]): F[Type] =
+    t match {
+      case rho: Rho => zonkRhoMeta(rho)(m).widen
+      case ForAll(ns, ty) =>
+        zonkRhoMeta(ty)(m).map(Type.ForAll(ns, _))
+    }
+
+  /**
+   * Transform meta variables in some way
+   */
+  def zonkRhoMeta[F[_]: Applicative](t: Type.Rho)(mfn: Meta => F[Option[Type.Rho]]): F[Type.Rho] =
+    t match {
+      case Type.TyApply(on, arg) =>
+        (zonkMeta(on)(mfn), zonkMeta(arg)(mfn)).mapN(Type.TyApply(_, _))
+      case c@Type.TyConst(_) => Applicative[F].pure(c)
+      case v@Type.TyVar(_) => Applicative[F].pure(v)
+      case t@Type.TyMeta(m) =>
+        mfn(m).map {
+          case None => t
+          case Some(rho) => rho
+        }
+    }
 }

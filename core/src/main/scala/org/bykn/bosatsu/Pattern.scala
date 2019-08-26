@@ -499,7 +499,11 @@ object Pattern {
         untuple(ps) match {
           case Some(tupDocs) => tup(tupDocs)
           case None =>
-            Doc.text(c.asString) + tup(a.map(doc.document(_)))
+            val args = a match {
+              case Nil => Doc.empty
+              case notEmpty => tup(a.map(doc.document(_)))
+            }
+            Doc.text(c.asString) + args
         }
       case Union(head, rest) =>
         def inner(p: Pattern[(PackageName, Constructor), A]): Doc =
@@ -513,6 +517,51 @@ object Pattern {
           }
         Doc.intercalate(Doc.text(" | "), (head :: rest.toList).map(inner(_)))
     }
+  }
+
+  /**
+   * For fully typed patterns, compute the type environment of the bindings
+   * from this pattern. This will sys.error if you pass a bad pattern, which
+   * you should never do (and this code will never do unless there is some
+   * broken invariant)
+   */
+  def envOf[C, K, T](p: Pattern[C, T], env: Map[K, T])(kfn: Identifier => K): Map[K, T] = {
+    def update(env: Map[K, T], n: Identifier, typeOf: Option[T]): Map[K, T] =
+        typeOf match {
+          case None =>
+            // $COVERAGE-OFF$ should be unreachable
+            sys.error(s"no type found for $n in $p")
+            // $COVERAGE-ON$ should be unreachable
+          case Some(t) => env.updated(kfn(n), t)
+        }
+    def loop(p0: Pattern[C, T], typeOf: Option[T], env: Map[K, T]): Map[K, T] =
+      p0 match {
+        case WildCard => env
+        case Literal(lit) => env
+        case Var(n) => update(env, n, typeOf)
+        case Named(n, p1) =>
+          val e1 = loop(p1, typeOf, env)
+          update(e1, n, typeOf)
+        case ListPat(items) =>
+          type L = ListPart[Pattern[C, T]]
+          items.foldLeft(env) {
+            case (env, ListPart.WildList) => env
+            case (env, ListPart.NamedList(n)) =>
+              // the type of a named sub-list is
+              // the same as the type of the list
+              update(env, n, typeOf)
+            case (env, ListPart.Item(p)) =>
+              loop(p, None, env)
+          }
+        case Annotation(p, t) =>
+          loop(p, Some(t), env)
+        case PositionalStruct(_, as) =>
+          as.foldLeft(env) { (env, p) => loop(p, None, env) }
+        case Union(head, rest) =>
+          (head :: rest).foldLeft(env) { (env, p) => loop(p, None, env) }
+      }
+
+    loop(p, None, env)
   }
 
   private[this] val pwild = P("_").map(_ => WildCard)

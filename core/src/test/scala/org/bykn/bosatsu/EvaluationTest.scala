@@ -1871,4 +1871,20 @@ external def foo(x: String) -> List[String]
       ()
     }
   }
+
+  test("test meta escape bug") {
+    runBosatsuTest(List("""
+package A
+
+struct Build[f]
+struct File
+
+def useList(args: List[Build[File]]):
+  True
+
+check = useList([])
+
+tests = Assertion(check, "none")
+"""), "A", 1)
+  }
 }

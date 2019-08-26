@@ -1,10 +1,11 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Eval, Traverse}
+import cats.{Applicative, Eval, Traverse, Monad, Monoid}
 import cats.arrow.FunctionK
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
 import org.bykn.bosatsu.rankn.Type
+import org.typelevel.paiges.{Doc, Document }
 import scala.collection.immutable.SortedSet
 import scala.util.hashing.MurmurHash3
 
@@ -26,10 +27,14 @@ sealed abstract class TypedExpr[+T] { self: Product =>
    * for each expression
    *
    */
-  def getType: Type =
+  lazy val getType: Type =
     this match {
       case Generic(params, expr, _) =>
-        Type.forAll(params.toList, expr.getType)
+        val tpe = expr.getType
+        // if tpe has no Var.Bound in common,
+        // then we don't need the forall
+        val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
+        Type.forAll(params.toList.filter(frees), tpe)
       case Annotation(_, tpe, _) =>
         tpe
       case a@AnnotatedLambda(arg, tpe, res, _) =>
@@ -48,31 +53,48 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   // TODO: we need to make sure this parsable and maybe have a mode that has the compiler
   // emit these
   def repr: String = {
-    def rept(t: Type): String =
-      TypeRef.fromTypes(None, t :: Nil)(t).toDoc.renderWideStream.mkString
+    val tfn = TypeRef.fromTypes(None, this.allTypes.toList)
 
-    this match {
-      case Generic(params, expr, _) =>
-        val pstr = params.toList.map(_.name).mkString(",")
-        s"(generic [$pstr] ${expr.repr})"
-      case Annotation(expr, tpe, _) =>
-        s"(ann ${rept(tpe)} ${expr.repr})"
-      case a@AnnotatedLambda(arg, tpe, res, _) =>
-        s"(lambda ${arg.asString} ${rept(tpe)} ${res.repr})"
-      case Var(p, v, tpe, _) =>
-        s"(var $p ${v.asString} ${rept(tpe)})"
-      case App(fn, arg, tpe, _) =>
-        s"(ap ${fn.repr} ${arg.repr} ${rept(tpe)})"
-      case Let(n, b, in, rec, _) =>
-        val nm = if (rec.isRecursive) "letrec" else "let"
-        s"($nm $n ${b.repr} ${in.repr})"
-      case Literal(v, tpe, _) =>
-        s"(lit ${v.repr} ${rept(tpe)})"
-      case Match(arg, branches, _) =>
-        // TODO print the pattern
-        val bstr = branches.toList.map { case (_, t) => t.repr }.mkString
-        s"(match ${arg.repr} $bstr)"
+    // We need a consistent naming for meta variables,
+    // so build this table once
+    def rept(t: Type): String =
+      tfn(t).toDoc.renderWideStream.mkString
+
+    def loop(te: TypedExpr[T]): String = {
+      te match {
+        case Generic(params, expr, _) =>
+          val pstr = params.toList.map(_.name).mkString(",")
+          s"(generic [$pstr] ${loop(expr)})"
+        case Annotation(expr, tpe, _) =>
+          s"(ann ${rept(tpe)} ${loop(expr)})"
+        case a@AnnotatedLambda(arg, tpe, res, _) =>
+          s"(lambda ${arg.asString} ${rept(tpe)} ${loop(res)})"
+        case Var(p, v, tpe, _) =>
+          val pstr = p match {
+            case None => ""
+            case Some(p) => p.asString + "::"
+          }
+          s"(var $pstr${v.asString} ${rept(tpe)})"
+        case App(fn, arg, tpe, _) =>
+          s"(ap ${loop(fn)} ${loop(arg)} ${rept(tpe)})"
+        case Let(n, b, in, rec, _) =>
+          val nm = if (rec.isRecursive) "letrec" else "let"
+          s"($nm $n ${loop(b)} ${loop(in)})"
+        case Literal(v, tpe, _) =>
+          s"(lit ${v.repr} ${rept(tpe)})"
+        case Match(arg, branches, _) =>
+          implicit val docType: Document[Type] =
+            Document.instance { tpe => Doc.text(rept(tpe)) }
+          val cpat = Pattern.compiledDocument[Type]
+          def pat(p: Pattern[(PackageName, Constructor), Type]): String =
+            cpat.document(p).renderWideStream.mkString
+
+          val bstr = branches.toList.map { case (p, t) => s"[${pat(p)}, ${loop(t)}]" }.mkString("[", ", ", "]")
+          s"(match ${loop(arg)} $bstr)"
+      }
     }
+
+    loop(this)
   }
 }
 
@@ -83,14 +105,22 @@ object TypedExpr {
    *
    * The paper says to add TyLam and TyApp nodes, but it never mentions what to do with them
    */
+  // TODO: this shouldn't have a tag, the tag should be the same as in
   case class Generic[T](typeVars: NonEmptyList[Type.Var.Bound], in: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Annotation[T](term: TypedExpr[T], coerce: Type, tag: T) extends TypedExpr[T]
   case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Var[T](pack: Option[PackageName], name: Identifier, tpe: Type, tag: T) extends TypedExpr[T]
   case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
   case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
+  // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
+
+  private implicit val setM: Monoid[SortedSet[Type]] =
+    new Monoid[SortedSet[Type]] {
+      def empty = SortedSet.empty
+      def combine(a: SortedSet[Type], b: SortedSet[Type]) = a ++ b
+    }
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
     def updatedTag(t: A): TypedExpr[A] =
@@ -105,39 +135,189 @@ object TypedExpr {
         case m@Match(_, _, _) => m.copy(tag=t)
       }
 
-  def traverseType[F[_]: Applicative](fn: Type => F[Type]): F[TypedExpr[A]] =
-    self match {
-      case Generic(params, expr, tag) =>
-        // The parameters are are like strings, but this
-        // is a bit unsafe... we only use it for zonk which
-        // ignores Bounds
-        expr.traverseType(fn).map(Generic(params, _, tag))
-      case Annotation(of, tpe, tag) =>
-        (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _, tag))
-      case AnnotatedLambda(arg, tpe, res, tag) =>
-        (fn(tpe), res.traverseType(fn)).mapN {
-          AnnotatedLambda(arg, _, _, tag)
-        }
-      case Var(p, v, tpe, tag) =>
-        fn(tpe).map(Var(p, v, _, tag))
-      case App(f, arg, tpe, tag) =>
-        (f.traverseType(fn), arg.traverseType(fn), fn(tpe)).mapN {
-          App(_, _, _, tag)
-        }
-      case Let(v, exp, in, rec, tag) =>
-        (exp.traverseType(fn), in.traverseType(fn)).mapN {
-          Let(v, _, _, rec, tag)
-        }
-      case Literal(lit, tpe, tag) =>
-        fn(tpe).map(Literal(lit, _, tag))
-      case Match(expr, branches, tag) =>
-        // all branches have the same type:
-        val tbranch = branches.traverse {
-          case (p, t) =>
-            p.traverseType(fn).product(t.traverseType(fn))
-        }
-        (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
-    }
+    def allTypes: SortedSet[Type] =
+      traverseType { t => Writer(SortedSet(t), t) }.run._1
+
+    def traverseType[F[_]: Applicative](fn: Type => F[Type]): F[TypedExpr[A]] =
+      self match {
+        case Generic(params, expr, tag) =>
+          // The parameters are are like strings, but this
+          // is a bit unsafe... we only use it for zonk which
+          // ignores Bounds
+          expr.traverseType(fn).map(Generic(params, _, tag))
+        case Annotation(of, tpe, tag) =>
+          (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _, tag))
+        case AnnotatedLambda(arg, tpe, res, tag) =>
+          (fn(tpe), res.traverseType(fn)).mapN {
+            AnnotatedLambda(arg, _, _, tag)
+          }
+        case Var(p, v, tpe, tag) =>
+          fn(tpe).map(Var(p, v, _, tag))
+        case App(f, arg, tpe, tag) =>
+          (f.traverseType(fn), arg.traverseType(fn), fn(tpe)).mapN {
+            App(_, _, _, tag)
+          }
+        case Let(v, exp, in, rec, tag) =>
+          (exp.traverseType(fn), in.traverseType(fn)).mapN {
+            Let(v, _, _, rec, tag)
+          }
+        case Literal(lit, tpe, tag) =>
+          fn(tpe).map(Literal(lit, _, tag))
+        case Match(expr, branches, tag) =>
+          // all branches have the same type:
+          val tbranch = branches.traverse {
+            case (p, t) =>
+              p.traverseType(fn).product(t.traverseType(fn))
+          }
+          (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
+      }
+  }
+
+  def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(fn: Type.Meta => F[Option[Type.Rho]]): F[TypedExpr[A]] =
+    te.traverseType(Type.zonkMeta(_)(fn))
+
+  /**
+   * quantify every meta variable that is not escaped into
+   * the outer environment.
+   *
+   * TODO: This can probably be optimized. I think it is currently
+   * quadradic in depth of the TypedExpr
+   */
+  def quantify[F[_]: Monad, A](
+    env: Map[(Option[PackageName], Identifier), Type],
+    rho: TypedExpr.Rho[A],
+    zFn: Type.Meta => F[Option[Type.Rho]],
+    writeFn: (Type.Meta, Type.Var) => F[Unit]): F[TypedExpr[A]] = {
+
+    // we need to zonk before we get going because
+    // some of the meta-variables may point to the same values
+    def getMetaTyVars(tpes: List[Type]): F[SortedSet[Type.Meta]] =
+      tpes.traverse(Type.zonkMeta(_)(zFn)).map(Type.metaTvs(_))
+
+    def quantify0(forAlls: List[Type.Meta], rho: TypedExpr.Rho[A]): F[TypedExpr[A]] =
+      NonEmptyList.fromList(forAlls) match {
+        case None => Applicative[F].pure(rho)
+        case Some(metas) =>
+          val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
+          val aligned = Type.alignBinders(metas, used)
+          val bound = aligned.traverse_ { case (m, n) => writeFn(m, n) }
+          // we only need to zonk after doing a write:
+          (bound *> zonkMeta(rho)(zFn)).map(forAll(aligned.map(_._2), _))
+      }
+
+    type Name = (Option[PackageName], Identifier)
+
+    def quantifyMetas(env: Map[Name, Type], metas: SortedSet[Type.Meta], te: TypedExpr[A]): F[TypedExpr[A]] =
+      if (metas.isEmpty) Applicative[F].pure(te)
+      else {
+        for {
+          envTypeVars <- getMetaTyVars(env.values.toList)
+          forAllTvs = metas -- envTypeVars
+          q <- quantify0(forAllTvs.toList, te)
+        } yield q
+      }
+
+    def quantifyFree(env: Map[Name, Type], te: TypedExpr[A]): F[TypedExpr[A]] =
+      getMetaTyVars(te.getType :: Nil)
+        .flatMap(quantifyMetas(env, _, te))
+
+    /*
+     * By only quantifying the outside
+     * the inside may still have some metas that don't
+     * make it all the way out.
+     *
+     * This algorithm isn't great. It is quadratic in depth
+     * because we have to do work linear in depth at each
+     * level.
+     */
+    def deepQuantify(env: Map[Name, Type], te: TypedExpr[A]): F[TypedExpr[A]] =
+      quantifyFree(env, te).flatMap {
+        case Generic(typeVars, in, tag) =>
+          deepQuantify(env, in).map { in1 =>
+            forAll(typeVars, in1).updatedTag(tag)
+          }
+        case Annotation(term, coerce, tag) =>
+          deepQuantify(env, term).map { t1 =>
+            Annotation(t1, coerce, tag)
+          }
+        case AnnotatedLambda(arg, tpe, expr, tag) =>
+          deepQuantify(env.updated(((None, arg)), tpe), expr)
+            .map { e1 =>
+              lambda(arg, tpe, e1, tag)
+            }
+        case Let(arg, expr, in, rec, tag) =>
+          // this introduces something into the env
+          val inEnv = env.updated((None, arg), expr.getType)
+          val exprEnv = if (rec.isRecursive) inEnv else env
+          (deepQuantify(exprEnv, expr), deepQuantify(inEnv, in))
+            .mapN { (e1, i1) =>
+              Let(arg, e1, i1, rec, tag)
+            }
+        case App(fn, arg, tpe, tag) =>
+          (deepQuantify(env, fn), deepQuantify(env, arg))
+            .mapN { (f1, a1) =>
+              App(f1, a1, tpe, tag)
+            }
+        case Match(arg, branches, tag) =>
+          /*
+           * We consider the free metas of
+           * arg and inside the branches
+           * together. for instance,
+           * matching (x: forall a. Option[a])
+           *
+           * match x:
+           *   None: 0
+           *   Some(y): 1
+           *
+           * would give:
+           * (generic [a]
+           *   (match (var x Option[a])
+           *     [[None, (lit 0 Int)],
+           *     [[Some(x: a), (lit 1 Int)]]))
+           *
+           * which has a type forall a. Int which is the same
+           * as Int
+           */
+          type Branch = (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
+
+          def allTypes[X](p: Pattern[X, Type]): SortedSet[Type] =
+            p.traverseType { t => Writer(SortedSet(t), t) }.run._1
+
+          val allMatchMetas: F[SortedSet[Type.Meta]] =
+            getMetaTyVars(arg.getType :: branches.foldMap { case (p, _) => allTypes(p) }.toList)
+
+          def handleBranch(br: Branch): F[Branch] = {
+            val (p, expr) = br
+            val branchEnv = Pattern.envOf(p, env) { ident => (None, ident) }
+            deepQuantify(branchEnv, expr).map((p, _))
+          }
+
+          val noArg = for {
+            br1 <- branches.traverse(handleBranch(_))
+            ms <- allMatchMetas
+            quant <- quantifyMetas(env, ms, Match(arg, br1, tag))
+          } yield quant
+
+          def finish(te: TypedExpr[A]): F[TypedExpr[A]] =
+            te match {
+              case Match(arg, branches, tag) =>
+                // we still need to recurse on arg
+                deepQuantify(env, arg).map(Match(_, branches, tag))
+              case Generic(ps, expr, tag) =>
+                finish(expr).map(forAll(ps, _).updatedTag(tag))
+              case unreach =>
+                // $COVERAGE-OFF$
+                sys.error(s"Match quantification yielded neither Generic nor Match")
+                // $COVERAGE-ON$
+            }
+
+          noArg.flatMap(finish)
+
+        case nonest@(Var(_, _, _, _) | Literal(_, _, _)) =>
+          Applicative[F].pure(nonest)
+      }
+
+    deepQuantify(env, rho)
   }
 
   implicit val traverseTypedExpr: Traverse[TypedExpr] = new Traverse[TypedExpr] {
@@ -262,16 +442,29 @@ object TypedExpr {
                 // and just wrap it in this case, could it be that simple?
                 Annotation(expr, tpe, expr.tag)
               case App(fn, arg, _, tag) =>
-                // TODO, what should we do here?
-                // we have learned that the type is tpe
-                // but that implies something for fn and arg
-                // but we are ignoring that, which
-                // leaves them with potentially skolems or metavars
-                App(fn, arg, tpe, tag)
+                fn.getType match {
+                  case Type.Fun(ta: Type.Rho, tr) =>
+                    // we know that we should coerce arg with ta, and narrow tr to tpe
+                    // this makes an infinite loop:
+                    //val cfn = coerceRho(Type.Fun(ta, tpe))
+                    //val fn1 = cfn(fn)
+                    val carg = coerceRho(ta)
+                    App(fn, carg(arg), tpe, tag)
+                  case _ =>
+                    // TODO, what should we do here?
+                    // It is currently certainly wrong
+                    // we have learned that the type is tpe
+                    // but that implies something for fn and arg
+                    // but we are ignoring that, which
+                    // leaves them with potentially skolems or metavars
+                    App(fn, arg, tpe, tag)
+                }
               case Let(arg, argE, in, rec, tag) =>
                 Let(arg, argE, self(in), rec, tag)
               case Literal(l, _, tag) => Literal(l, tpe, tag)
               case Match(arg, branches, tag) =>
+                // TODO: this is wrong. We are leaving metas in the types
+                // embedded in patterns
                 Match(arg, branches.map { case (p, expr) => (p, self(expr)) }, tag)
             }
         }
@@ -401,7 +594,40 @@ object TypedExpr {
     }
 
   def forAll[A](params: NonEmptyList[Type.Var.Bound], expr: TypedExpr[A]): TypedExpr[A] =
-    Generic(params, expr, expr.tag)
+    expr match {
+      case Generic(ps, ex0, tag) =>
+        // if params and ps have duplicates, that
+        // implies that those params weren't free, because
+        // they have already been quantified by ps, so
+        // they can be removed
+        val newParams = params.toList.filterNot(ps.toList.toSet)
+        val ps1 = NonEmptyList.fromList(newParams) match {
+          case None => ps
+          case Some(nep) => nep ::: ps
+        }
+        Generic(ps1, ex0, tag)
+      case expr =>
+        Generic(params, expr, expr.tag)
+    }
+
+  def lambda[A](arg: Bindable, tpe: Type, expr: TypedExpr[A], tag: A): TypedExpr[A] =
+    expr match {
+      case Generic(ps, ex0, tag0) =>
+        val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
+        val quants = ps.toList.toSet
+        val collisions = frees.intersect(quants)
+        NonEmptyList.fromList(collisions.toList) match {
+          case None => Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag0), tag)
+          case Some(cols) =>
+            // we should sort cols if we use it for anything below
+            // lift Generic out TODO: what if arg tpe is in ps? we need to substitute for a new name
+            // we can rebind all the collisions to anything that isn't a free type var in expr
+            // we should find a test that fails currently, add that test, then fix the issue
+            sys.error(s"TODO: support lambda($arg, $tpe, ${expr.repr}, tag)")
+        }
+      case notGen =>
+        AnnotatedLambda(arg, tpe, notGen, tag)
+    }
 
   implicit def typedExprHasRegion[T: HasRegion]: HasRegion[TypedExpr[T]] =
     HasRegion.instance[TypedExpr[T]] { e => HasRegion.region(e.tag) }

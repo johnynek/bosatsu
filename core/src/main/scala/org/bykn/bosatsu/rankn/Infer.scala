@@ -5,8 +5,6 @@ import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
 
-import scala.collection.immutable.SortedSet
-
 import org.bykn.bosatsu.{
   Expr,
   HasRegion,
@@ -274,27 +272,6 @@ object Infer {
 
     def nextId: Infer[Long] = NextId
 
-    /**
-     * Meta vars point to unknown instantiated parametric types
-     */
-    def getMetaTyVars(tpes: List[Type]): Infer[SortedSet[Type.Meta]] =
-      tpes.traverse(zonkType).map(Type.metaTvs(_))
-
-    /**
-     * Quantify over the specified type variables (all flexible)
-     */
-    def quantify[A](forAlls: List[Type.Meta], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
-      NonEmptyList.fromList(forAlls) match {
-        case None =>
-          // this case is not really discussed in the paper
-          zonkTypedExpr(rho)
-        case Some(metas) =>
-          val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
-          val aligned = Type.alignBinders(metas, used)
-          val bound = aligned.traverse_ { case (m, n) => writeMeta(m, Type.TyVar(n)) }
-          (bound *> zonkTypedExpr(rho)).map(TypedExpr.forAll(aligned.map(_._2), _))
-      }
-
     def varianceOf(t: Type): Infer[Option[Variance]] = {
       import Type._
       def variances(vs: Map[Type.Const.Defined, List[Variance]], t: Type): Option[List[Variance]] =
@@ -369,36 +346,25 @@ object Infer {
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
       ts.traverse(zonkType).map(Type.freeTyVars(_).toSet)
 
+    def zonk(m: Type.Meta): Infer[Option[Type.Rho]] =
+      readMeta(m).flatMap {
+        case None => pure(None)
+        case Some(ty) =>
+          Type.zonkRhoMeta(ty)(zonk(_)).flatMap { ty1 =>
+            // short out multiple hops (I guess an optimization?)
+            writeMeta(m, ty1).as(Some(ty1))
+          }
+      }
+
     /**
      * This fills in any meta vars that have been
      * quantified and replaces them with what they point to
      */
     def zonkType(t: Type): Infer[Type] =
-      t match {
-        case rho: Type.Rho => zonkRho(rho)
-        case Type.ForAll(ns, ty) =>
-          zonkRho(ty).map(Type.ForAll(ns, _))
-      }
-
-    def zonkRho(t: Type.Rho): Infer[Type.Rho] =
-      t match {
-        case Type.TyApply(on, arg) =>
-          (zonkType(on), zonkType(arg)).mapN(Type.TyApply(_, _))
-        case c@Type.TyConst(_) => pure(c)
-        case v@Type.TyVar(_) => pure(v)
-        case t@Type.TyMeta(m) =>
-          readMeta(m).flatMap {
-            case None => pure(t)
-            case Some(ty) =>
-              zonkRho(ty).flatMap { ty1 =>
-                // short out multiple hops (I guess an optimization?)
-                writeMeta(m, ty1) *> pure(ty1)
-              }
-          }
-      }
+      Type.zonkMeta(t)(zonk(_))
 
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
-      e.traverseType(zonkType _)
+      TypedExpr.zonkMeta(e)(zonk(_))
 
     def initRef[A](err: Error): Infer[Ref[Either[Error, A]]] =
       lift(RefSpace.newRef[Either[Error, A]](Left(err)))
@@ -582,8 +548,9 @@ object Infer {
             case None => writeMeta(m, ty2)
           }
         case nonMeta =>
-          getMetaTyVars(List(nonMeta))
-            .flatMap { tvs2 =>
+          zonkType(nonMeta)
+            .flatMap { nm2 =>
+              val tvs2 = Type.metaTvs(nm2 :: Nil)
               if (tvs2(m)) fail(Error.UnexpectedMeta(m, nonMeta, left, right))
               else writeMeta(m, nonMeta)
             }
@@ -1046,10 +1013,7 @@ object Infer {
         expTy = rho.getType
         expTyRho <- assertRho(expTy, s"must be rho since $rho is a TypedExpr.Rho")
         envTys <- unifySelf(expTyRho)
-        envTypeVars <- getMetaTyVars(envTys.values.toList)
-        resTypeVars <- getMetaTyVars(expTyRho :: Nil)
-        forAllTvs = resTypeVars -- envTypeVars
-        q <- quantify(forAllTvs.toList, rho)
+        q <- TypedExpr.quantify(envTys, rho, zonk(_), { (m, n) => writeMeta(m, Type.TyVar(n)) })
       } yield q
     }
 
@@ -1078,7 +1042,7 @@ object Infer {
     /**
      * invariant: rho needs to be in weak-prenex form
      */
-    def checkRho[A: HasRegion](t: Expr[A], rho: Type.Rho): Infer[TypedExpr[A]] =
+    def checkRho[A: HasRegion](t: Expr[A], rho: Type.Rho): Infer[TypedExpr.Rho[A]] =
       typeCheckRho(t, Expected.Check((rho, region(t))))
 
     /**
@@ -1131,7 +1095,7 @@ object Infer {
      * running inference, then quantifying over that skolem
      * variable.
      */
-    val res = skolemizeFreeVars(t) match {
+    skolemizeFreeVars(t) match {
       case None => run(t)
       case Some(replace) =>
         for {
@@ -1139,26 +1103,6 @@ object Infer {
           (skols, t1) = mt
           te <- run(t1)
         } yield unskolemize(skols)(te)
-    }
-
-      // todo this should be a law... but since
-      // we don't have confidence yet I'm leaving it here
-      // so we see the errors
-    res.map { te =>
-      te.traverseType[cats.Id] {
-        case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
-          sys.error(s"illegal skolem ($t) escape in ${te.repr}")
-        case t@Type.TyMeta(_) =>
-          sys.error(s"illegal meta ($t) escape in ${te.repr}")
-        case good => good
-      }
-      val tp = te.getType
-      lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
-      scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
-
-      scala.Predef.require(Type.metaTvs(tp :: Nil).isEmpty,
-        s"illegal inferred type: $teStr")
-      te
     }
   }
 
