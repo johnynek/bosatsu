@@ -136,3 +136,8 @@ bosatsu_test(
     deps = [":binnat"],
     packages = ["Bosatsu/BinNat"]
     )
+
+bosatsu_library(
+    name = "BuildLibrary",
+    srcs = ["BuildLibrary.bosatsu", "BuildExample.bosatsu"],
+)
