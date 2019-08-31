@@ -14,31 +14,30 @@ import Identifier.{Bindable, Constructor}
 
 sealed abstract class Statement {
 
-  def toStream: Stream[Statement] = {
+  def next: Option[Statement] = {
     import Statement._
-    def loop(s: Statement): Stream[Statement] =
-      s match {
-        case Bind(BindingStatement(_, _, Padding(_, rest))) =>
-          s #:: loop(rest)
-        case Comment(CommentStatement(_, Padding(_, rest))) =>
-          s #:: loop(rest)
-        case Def(DefStatement(_, _, _, (_, Padding(_, rest)))) =>
-          s #:: loop(rest)
-        case Struct(_, _, _, Padding(_, rest)) =>
-          s #:: loop(rest)
-        case Enum(_, _, _, Padding(_, rest)) =>
-          s #:: loop(rest)
-        case ExternalDef(_, _, _, Padding(_, rest)) =>
-          s #:: loop(rest)
-        case ExternalStruct(_, _, Padding(_, rest)) =>
-          s #:: loop(rest)
-        case EndOfFile =>
-          s #:: Stream.empty
-      }
-
-    loop(this)
+    this match {
+      case Bind(BindingStatement(_, _, Padding(_, rest))) =>
+        Some(rest)
+      case Comment(CommentStatement(_, Padding(_, rest))) =>
+        Some(rest)
+      case Def(DefStatement(_, _, _, (_, Padding(_, rest)))) =>
+        Some(rest)
+      case Struct(_, _, _, Padding(_, rest)) =>
+        Some(rest)
+      case Enum(_, _, _, Padding(_, rest)) =>
+        Some(rest)
+      case ExternalDef(_, _, _, Padding(_, rest)) =>
+        Some(rest)
+      case ExternalStruct(_, _, Padding(_, rest)) =>
+        Some(rest)
+      case EndOfFile =>
+        None
+    }
   }
 
+  def toStream: Stream[Statement] =
+    Stream.iterate(this)(_.next.orNull).takeWhile(_ != null)
 }
 
 sealed abstract class TypeDefinitionStatement extends Statement {
