@@ -84,7 +84,7 @@ object DefRecursionCheck {
         checkStatement(rest.padded)
       case Enum(_, _, _, rest) =>
         checkStatement(rest.padded)
-      case EndOfFile =>
+      case EndOfFile() =>
         unitValid
     }
   }

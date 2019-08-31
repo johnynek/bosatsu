@@ -619,17 +619,17 @@ object Generators {
       import Statement._
 
       def apply(s: Statement): Stream[Statement] = s match {
-        case EndOfFile => Stream.empty
+        case EndOfFile() => Stream.empty
         case Bind(bs@BindingStatement(_, d, _)) =>
           shrinkDecl.shrink(d).flatMap { sd =>
-            Bind(bs.copy(value = sd)).toStream
+            Bind(bs.copy(value = sd))(emptyRegion).toStream
           }
         case Def(ds) =>
           ds.result match {
             case (body, Padding(l, in)) =>
               body.traverse(shrinkDecl.shrink(_))
                 .flatMap { bod =>
-                  apply(in).map { rest => Def(ds.copy(result = (bod, Padding(1, rest)))) }
+                  apply(in).map { rest => Def(ds.copy(result = (bod, Padding(1, rest))))(emptyRegion) }
                 }
           }
         case rest => rest.toStream.tail
@@ -647,7 +647,7 @@ object Generators {
   def genStruct(tail: Gen[Statement]): Gen[Statement] =
     Gen.zip(constructorGen, Gen.listOf(typeRefVarGen), padding(tail, 1))
       .map { case ((name, args), ta, rest) =>
-        Statement.Struct(name, NonEmptyList.fromList(ta.distinct), args, rest)
+        Statement.Struct(name, NonEmptyList.fromList(ta.distinct), args, rest)(emptyRegion)
       }
 
   def genExternalStruct(tail: Gen[Statement]): Gen[Statement] =
@@ -656,7 +656,7 @@ object Generators {
       argc <- Gen.choose(0, 5)
       args <- Gen.listOfN(argc, typeRefVarGen)
       rest <- padding(tail, 1)
-    } yield Statement.ExternalStruct(name, args, rest)
+    } yield Statement.ExternalStruct(name, args, rest)(emptyRegion)
 
   def genExternalDef(tail: Gen[Statement]): Gen[Statement] =
     for {
@@ -676,7 +676,7 @@ object Generators {
       i <- Gen.choose(1, 16)
       cons <- optIndent(nonEmptyN(constructorGen, consc))
       rest <- padding(tail, 1)
-    } yield Statement.Enum(name, NonEmptyList.fromList(ta.distinct), cons, rest)
+    } yield Statement.Enum(name, NonEmptyList.fromList(ta.distinct), cons, rest)(emptyRegion)
 
   def genStatement(depth: Int): Gen[Statement] = {
     val recur = Gen.lzy(genStatement(depth-1))
@@ -684,18 +684,18 @@ object Generators {
     // TODO make more powerful
     val pat: Gen[Pattern.Parsed] = genPattern(1)
     Gen.frequency(
-      (1, bindGen(pat, decl, padding(recur, 1)).map(Statement.Bind(_))),
+      (1, bindGen(pat, decl, padding(recur, 1)).map(Statement.Bind(_)(emptyRegion))),
       (1, commentGen(padding(recur, 1)
         .map {
           case Padding(0, c@Statement.Comment(_)) => Padding[Statement](1, c) // make sure not two back to back comments
           case other => other
-        }).map(Statement.Comment(_))),
-      (1, defGen(Gen.zip(optIndent(decl), padding(recur, 1))).map(Statement.Def(_))),
+        }).map(Statement.Comment(_)(emptyRegion))),
+      (1, defGen(Gen.zip(optIndent(decl), padding(recur, 1))).map(Statement.Def(_)(emptyRegion))),
       (1, genStruct(recur)),
       (1, genExternalStruct(recur)),
       (1, genExternalDef(recur)),
       (1, genEnum(recur)),
-      (3, Gen.const(Statement.EndOfFile)))
+      (3, Gen.const(Statement.EndOfFile()(emptyRegion))))
   }
 
   val packageNameGen: Gen[PackageName] =
