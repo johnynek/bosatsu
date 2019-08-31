@@ -324,7 +324,7 @@ final class SourceConverter(
           }
         case rc@RecordConstructor(name, args) =>
           val (p, c) = nameToCons(name)
-          localTypeEnv.getConstructor(p, c) match {
+          localTypeEnv.flatMap(_.getConstructor(p, c) match {
             case Some((params, _, _)) =>
               def argExpr(arg: RecordArg): (Bindable, Result[Expr[Declaration]]) =
                 arg match {
@@ -371,14 +371,14 @@ final class SourceConverter(
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(name, rc, decl.region))
-          }
+          })
     }
   }
 
   private def toType(t: TypeRef): Type =
     TypeRefConverter[cats.Id](t)(nameToType _)
 
-  def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): rankn.DefinedType[Unit] = {
+  def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): Result[rankn.DefinedType[Unit]] = {
     import Statement._
 
     def typeVar(i: Long): Type.TyVar =
@@ -420,18 +420,26 @@ final class SourceConverter(
 
     def updateInferedWithDecl(
       typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
-      typeParams0: List[Type.Var.Bound]): List[Type.Var.Bound] =
+      typeParams0: List[Type.Var.Bound]): Result[List[Type.Var.Bound]] =
         typeArgs match {
-          case None => typeParams0
+          case None => success(typeParams0)
           case Some(decl) =>
-            val declTV: List[Type.Var.Bound] = decl.toList.map(_.toBoundVar)
+            val neBound = decl.map(_.toBoundVar)
+            val declTV: List[Type.Var.Bound] = neBound.toList
             val declSet = declTV.toSet
-            // TODO we should have a lint that fails if declTV is not
-            // a superset of what you would derive from the args
-            // the purpose here is to control the *order* of
-            // and to allow introducing phantom parameters, not
-            // it is confusing if some are explicit, but some are not
-            declTV.distinct ::: typeParams0.filterNot(declSet)
+            val missingFromDecl = typeParams0.filterNot(declSet)
+            val bestEffort = declTV.distinct ::: missingFromDecl
+            if ((declSet.size != declTV.size) || missingFromDecl.nonEmpty) {
+              // we have a lint that fails if declTV is not
+              // a superset of what you would derive from the args
+              // the purpose here is to control the *order* of
+              // and to allow introducing phantom parameters, not
+              // it is confusing if some are explicit, but some are not
+              SourceConverter.partial(
+                SourceConverter.InvalidTypeParameters(neBound, typeParams0, tds),
+                bestEffort)
+            }
+            else success(bestEffort)
         }
 
     tds match {
@@ -451,20 +459,21 @@ final class SourceConverter(
           }
         }
 
-        val typeParams = updateInferedWithDecl(typeArgs, typeParams0)
+        updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
+          val tname = TypeName(nm)
+          val consValueType =
+            rankn.DefinedType
+              .constructorValueType(
+                pname,
+                tname,
+                typeParams,
+                params.map(_._2))
 
-        val tname = TypeName(nm)
-        val consValueType =
-          rankn.DefinedType
-            .constructorValueType(
-              pname,
-              tname,
-              typeParams,
-              params.map(_._2))
-        rankn.DefinedType(pname,
-          tname,
-          typeParams.map((_, ())),
-          (nm, params, consValueType) :: Nil)
+          rankn.DefinedType(pname,
+            tname,
+            typeParams.map((_, ())),
+            (nm, params, consValueType) :: Nil)
+        }
       case Enum(nm, typeArgs, items, _) =>
         val conArgs = items.get.map { case (nm, args) =>
           val argsType = deep.map(args)(toType)
@@ -487,20 +496,22 @@ final class SourceConverter(
             // $COVERAGE-ON$
           }
         }
-        val typeParams = updateInferedWithDecl(typeArgs, typeParams0)
-        val tname = TypeName(nm)
-        val finalCons = constructors.toList.map { case (c, params) =>
-          val consValueType =
-            rankn.DefinedType.constructorValueType(
-              pname,
-              tname,
-              typeParams,
-              params.map(_._2))
-          (c, params, consValueType)
+        updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
+          val tname = TypeName(nm)
+          val finalCons = constructors.toList.map { case (c, params) =>
+            val consValueType =
+              rankn.DefinedType.constructorValueType(
+                pname,
+                tname,
+                typeParams,
+                params.map(_._2))
+            (c, params, consValueType)
+          }
+          rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
         }
-        rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
       case ExternalStruct(nm, targs, _) =>
-        rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), ()) }, Nil)
+        // TODO make a real check here
+        success(rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), ()) }, Nil))
     }
   }
 
@@ -529,7 +540,7 @@ final class SourceConverter(
       case (Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike), rargs) =>
         rargs.flatMap { args =>
           val pc@(p, c) = nameToCons(nm)
-          localTypeEnv.getConstructor(p, c) match {
+          localTypeEnv.flatMap(_.getConstructor(p, c) match {
             case Some((params, _, _)) =>
               val argLen = args.size
               val paramLen = params.size
@@ -545,12 +556,12 @@ final class SourceConverter(
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(nm, pat, region))
-          }
+          })
         }
       case (Pattern.StructKind.NamedPartial(nm, Pattern.StructKind.Style.TupleLike), rargs) =>
         rargs.flatMap { args =>
           val pc@(p, c) = nameToCons(nm)
-          localTypeEnv.getConstructor(p, c) match {
+          localTypeEnv.flatMap(_.getConstructor(p, c) match {
             case Some((params, _, _)) =>
               val argLen = args.size
               val paramLen = params.size
@@ -567,12 +578,12 @@ final class SourceConverter(
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(nm, pat, region))
-          }
+          })
         }
       case (Pattern.StructKind.Named(nm, Pattern.StructKind.Style.RecordLike(fs)), rargs) =>
         rargs.flatMap { args =>
           val pc@(p, c) = nameToCons(nm)
-          localTypeEnv.getConstructor(p, c) match {
+          localTypeEnv.flatMap(_.getConstructor(p, c) match {
             case Some((params, _, _)) =>
               val mapping = fs.toList.iterator.map(_.field).zip(args.iterator).toMap
               lazy val present = SortedSet(fs.toList.iterator.map(_.field).toList: _*)
@@ -602,12 +613,12 @@ final class SourceConverter(
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(nm, pat, region))
-          }
+          })
         }
       case (Pattern.StructKind.NamedPartial(nm, Pattern.StructKind.Style.RecordLike(fs)), rargs) =>
         rargs.flatMap { args =>
           val pc@(p, c) = nameToCons(nm)
-          localTypeEnv.getConstructor(p, c) match {
+          localTypeEnv.flatMap(_.getConstructor(p, c) match {
             case Some((params, _, _)) =>
               val mapping = fs.toList.iterator.map(_.field).zip(args.iterator).toMap
               def get(b: Bindable): Pattern[(PackageName, Constructor), TypeRef] =
@@ -632,19 +643,20 @@ final class SourceConverter(
               }
             case None =>
               SourceConverter.failure(SourceConverter.UnknownConstructor(nm, pat, region))
-          }
+          })
         }
     }(SourceConverter.parallelIor) // use the parallel, not the default Applicative which is Monadic
     .map(_.mapType(toType))
 
-  private lazy val toTypeEnv: ParsedTypeEnv[Unit] =
+  private lazy val toTypeEnv: Result[ParsedTypeEnv[Unit]] =
     localDefs
-      .foldLeft(ParsedTypeEnv.empty[Unit]) { (te, d) =>
-        te.addDefinedType(toDefinition(thisPackage, d))
+      .foldM(ParsedTypeEnv.empty[Unit]) { (te, d) =>
+        toDefinition(thisPackage, d)
+          .map(te.addDefinedType(_))
       }
 
-  private lazy val localTypeEnv: TypeEnv[Any] =
-    importedTypeEnv ++ TypeEnv.fromParsed(toTypeEnv)
+  private lazy val localTypeEnv: Result[TypeEnv[Any]] =
+    toTypeEnv.map { p => importedTypeEnv ++ TypeEnv.fromParsed(p) }
 
   private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
     rankn.Type
@@ -836,12 +848,14 @@ final class SourceConverter(
         (name, maybeForAll)
       }
 
-    val pte1 = exts.foldLeft(toTypeEnv) { case (pte, (name, tpe)) =>
-      pte.addExternalValue(thisPackage, name, tpe)
+    val pte1 = toTypeEnv.map { p =>
+      exts.foldLeft(p) { case (pte, (name, tpe)) =>
+        pte.addExternalValue(thisPackage, name, tpe)
+      }
     }
 
     implicit val parallel = SourceConverter.parallelIor
-    (checkExternalDefShadowing(stmts) *> toLets(stmts)).map { binds =>
+    (checkExternalDefShadowing(stmts), toLets(stmts), pte1).mapN { (_, binds, pte1) =>
       Program((importedTypeEnv, pte1), binds, exts.map(_._1).toList, stmt)
     }
   }
@@ -943,5 +957,18 @@ object SourceConverter {
       (Doc.text(s"unexpected $plural:") + unexDoc + Doc.lineOrSpace +
         Doc.text(s"in ${name.asString}, expected: $exDoc") + Doc.lineOrSpace + syntax.toDoc).render(80)
       }
+  }
+
+  final case class InvalidTypeParameters(
+    declaredParams: NonEmptyList[Type.Var.Bound],
+    discoveredTypes: List[Type.Var.Bound],
+    statement: TypeDefinitionStatement) extends Error {
+
+    def region =
+      // TODO: statements don't have regions
+      Region(0, 0)
+    def message =
+      // TODO
+      s"${statement.name.asString} found declared: $declaredParams, not a superset of $discoveredTypes"
   }
 }

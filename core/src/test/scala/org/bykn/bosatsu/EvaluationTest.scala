@@ -1887,4 +1887,43 @@ check = useList([])
 tests = Assertion(check, "none")
 """), "A", 1)
   }
+
+  test("type parameters must be supersets for structs and enums fails") {
+evalFail(
+      List("""
+package Err
+
+struct Foo[a](a)
+
+main = Foo(1, "2")
+"""), "Err") { case PackageError.SourceConverterErrorIn(_, _) => () }
+
+evalFail(
+      List("""
+package Err
+
+struct Foo[a](a: a, b: b)
+
+main = Foo(1, "2")
+"""), "Err") { case PackageError.SourceConverterErrorIn(_, _) => () }
+
+evalFail(
+      List("""
+package Err
+
+enum Enum[a]: Foo(a)
+
+main = Foo(1, "2")
+"""), "Err") { case PackageError.SourceConverterErrorIn(_, _) => () }
+
+evalFail(
+      List("""
+package Err
+
+enum Enum[a]: Foo(a: a), Bar(a: b)
+
+main = Foo(1, "2")
+"""), "Err") { case PackageError.SourceConverterErrorIn(_, _) => () }
+  }
+
 }
