@@ -1365,6 +1365,41 @@ main = fn
       val b = assert(te.message(Map.empty) == "in file: <unknown source>, package A, invalid recursion on fn\nRegion(53,69)\n")
       ()
     }
+
+    evalFail(
+      List("""
+package A
+
+export [ foo ]
+
+foo = 3
+""", """
+package B
+import A [ fooz ]
+
+baz = fooz
+"""), "B") { case te@PackageError.UnknownImportName(_, _, _, _) =>
+      val b = assert(te.message(Map.empty) == "in <unknown source> package: A does not have name fooz. Nearest: foo")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
+export [ foo ]
+
+foo = 3
+bar = 3
+""", """
+package B
+import A [ bar ]
+
+baz = bar
+"""), "B") { case te@PackageError.UnknownImportName(_, _, _, _) =>
+      val b = assert(te.message(Map.empty) == "in <unknown source> package: A has bar but it is not exported. Add to exports")
+      ()
+    }
   }
 
   test("pattern example from pair to triple") {
