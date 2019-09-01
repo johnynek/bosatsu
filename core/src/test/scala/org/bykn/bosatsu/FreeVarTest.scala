@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 
-import fastparse.all.Parsed
+import fastparse.all._
 
 class FreeVarTest extends FunSuite {
   implicit val generatorDrivenConfig =
@@ -12,7 +12,7 @@ class FreeVarTest extends FunSuite {
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   def assertFreeVars(stmt: String, vars: List[String]) =
-    Statement.parser.parse(stmt) match {
+    Statement.parser.rep().parse(stmt) match {
       case Parsed.Success(t, idx) =>
         assert(idx == stmt.length)
 
@@ -34,7 +34,7 @@ class FreeVarTest extends FunSuite {
 
   test("freeVars is a subset of allNames") {
     forAll(Generators.genStatement(3)) { stmt =>
-      Statement.valuesOf(stmt)
+      Statement.valuesOf(stmt :: Nil)
         .foreach { v =>
           assert(v.freeVars.subsetOf(v.allNames))
         }

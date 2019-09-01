@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 
-import Parser.maybeSpace
+import Parser.toEOL
 
 // Represents vertical padding
 case class Padding[T](lines: Int, padded: T)
@@ -15,7 +15,7 @@ object Padding {
 
   def parseFn[A]: P[A => Padding[A]] =
     // if we have a P[Unit] then rep() is also P[Unit] due to weird shit
-    P((maybeSpace ~ "\n").map(_ => 0).rep()).map { vec =>
+    P(toEOL.map(_ => 0).rep()).map { vec =>
       { a => Padding(vec.size, a) }
     }
 
@@ -23,6 +23,9 @@ object Padding {
     (parseFn[T] ~ p).map { case (fn, t) => fn(t) }
 
   def parser1[T](p: P[T]): P[Padding[T]] =
-    P((maybeSpace ~ "\n").!.rep(1) ~ p).map { case (vec, t) => Padding(vec.size, t) }
+    P(toEOL.!.rep(1) ~ p).map { case (vec, t) => Padding(vec.size, t) }
+
+  def nonEmptyParser: P[Padding[Unit]] =
+    parser1(PassWith(()))
 }
 

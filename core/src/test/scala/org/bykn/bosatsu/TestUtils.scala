@@ -10,6 +10,8 @@ import Assertions.{succeed, fail}
 import cats.implicits._
 import cats.Eval
 
+import fastparse.all._
+
 object TestUtils {
   import TestParseUtils.region
 
@@ -21,17 +23,17 @@ object TestUtils {
     val consFn: Identifier.Constructor => (PackageName, Identifier.Constructor) =
       { cons => (pack, cons) }
 
-    val stmt = statementOf(pack, str)
+    val stmt = statementsOf(pack, str)
     val srcConv = SourceConverter(pack, Nil, Statement.definitionsOf(stmt))
     val cats.data.Ior.Right(prog) = srcConv.toProgram(stmt)
     TypeEnv.fromParsed(prog.types._2)
   }
 
-  def statementOf(pack: PackageName, str: String): Statement =
-    Statement.parser.parse(str) match {
+  def statementsOf(pack: PackageName, str: String): List[Statement] =
+    Statement.parser.rep().parse(str) match {
       case Parsed.Success(stmt, idx) =>
         assert(idx == str.length)
-        stmt
+        stmt.toList
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
@@ -64,9 +66,9 @@ object TestUtils {
   }
 
   def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion =
-    Statement.parser.parse(statement) match {
+    Statement.parser.rep().parse(statement) match {
       case Parsed.Success(stmt, _) =>
-        Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
+        Package.inferBody(PackageName.parts("Test"), Nil, stmt.toList) match {
           case Validated.Invalid(errs) =>
             fail("inference failure: " + errs.toList.map(_.message(Map.empty)).mkString("\n"))
           case Validated.Valid(program) =>
