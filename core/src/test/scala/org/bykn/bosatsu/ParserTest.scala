@@ -61,7 +61,8 @@ abstract class ParserTestBase extends FunSuite {
   def parseTest[T](p: Parser[T], str: String, expected: T, exidx: Int) =
     p.parse(str) match {
       case Parsed.Success(t, idx) =>
-        assert(t == expected)
+        lazy val message = firstDiff(t.toString, expected.toString)
+        assert(t == expected, s"difference: $message")
         assert(idx == exidx)
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
@@ -93,7 +94,7 @@ abstract class ParserTestBase extends FunSuite {
 
   def expectFail[T](p: Parser[T], str: String, atIdx: Int) =
     p.parse(str) match {
-      case Parsed.Success(t, idx) => fail(s"parsed $t to: $idx")
+      case Parsed.Success(t, idx) => fail(s"parsed $t to: $idx: ${region(str, idx)}")
       case Parsed.Failure(_, idx, _) =>
         assert(idx == atIdx)
     }
@@ -842,7 +843,7 @@ x""")
   }
 
   test("we can parse any Statement") {
-    forAll(Generators.genStatement(5))(law(Statement.parser))
+    forAll(Generators.genStatements(4, 10))(law(Statement.parser))
 
     roundTrip(Statement.parser,
 """#
@@ -949,12 +950,16 @@ def foo(
   None, Some(a)""")
   }
 
+  def dropTrailingPadding(s: List[Statement]): List[Statement] =
+    s.reverse.dropWhile {
+      case Statement.PaddingStatement(_) => true
+      case _ => false
+    }.reverse
+
   test("Any statement may append a newline and continue to parse") {
-    forAll(Generators.genStatement(5)) {
-      case Statement.EndOfFile() => ()
-      case s =>
-        val str = Document[Statement].document(s).render(80) + "\n"
-        roundTrip(Statement.parser, str)
+    forAll(Generators.genStatement(5)) { s =>
+      val str = Document[Statement].document(s).render(80) + "\n"
+      roundTrip(Statement.parser.map(dropTrailingPadding(_)), str)
     }
   }
 
@@ -962,7 +967,7 @@ def foo(
     forAll(Generators.genStatement(5)) { s =>
       val str = Document[Statement].document(s).render(80)
 
-      roundTrip(Statement.parser, str.reverse.dropWhile(_ == '\n').reverse)
+      roundTrip(Statement.parser.map(dropTrailingPadding(_)), str.reverse.dropWhile(_ == '\n').reverse)
     }
   }
 
@@ -1001,7 +1006,7 @@ export [foo]
 foo = 1
 """)
 
-    forAll(Generators.packageGen(5))(law(Package.parser))
+    forAll(Generators.packageGen(4))(law(Package.parser))
   }
 
   test("parse errors point near where they occur") {

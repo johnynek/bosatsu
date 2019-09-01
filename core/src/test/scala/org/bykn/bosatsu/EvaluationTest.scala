@@ -1877,7 +1877,7 @@ external def foo(x: String) -> List[String]
 def foo(x): x
 
 """), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(57,72)")
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(57,71)")
       ()
     }
 
@@ -1890,7 +1890,7 @@ external def foo(x: String) -> List[String]
 foo = 1
 
 """), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(57,66)")
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(57,65)")
       ()
     }
 

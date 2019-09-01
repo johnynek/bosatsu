@@ -285,7 +285,12 @@ object Parser {
     }
   }
 
-  val toEOL: P[Unit] = P(maybeSpace ~ "\n")
+  /**
+   * Parse until the end of a line or to end of file.
+   * WARNING: never use this with .rep because
+   * repeatedly parsing End will OOM
+   */
+  val toEOL: P[Unit] = P(maybeSpace ~ ("\n" | End))
 
   /**
    * If we have a list like structure where
