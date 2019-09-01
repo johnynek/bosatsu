@@ -951,7 +951,7 @@ def foo(
 
   test("Any statement may append a newline and continue to parse") {
     forAll(Generators.genStatement(5)) {
-      case Statement.EndOfFile => ()
+      case Statement.EndOfFile() => ()
       case s =>
         val str = Document[Statement].document(s).render(80) + "\n"
         roundTrip(Statement.parser, str)

@@ -1877,7 +1877,7 @@ external def foo(x: String) -> List[String]
 def foo(x): x
 
 """), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(69,70)")
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(57,72)")
       ()
     }
 
@@ -1890,7 +1890,7 @@ external def foo(x: String) -> List[String]
 foo = 1
 
 """), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(63,64)")
+      assert(s.message(Map.empty) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(57,66)")
       ()
     }
 
@@ -1931,7 +1931,10 @@ package Err
 struct Foo[a](a)
 
 main = Foo(1, "2")
-"""), "Err") { case PackageError.SourceConverterErrorIn(_, _) => () }
+"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty) == "in file: <unknown source>, package Err, Foo found declared: [a], not a superset of [anon0]\nRegion(14,30)")
+      ()
+    }
 
 evalFail(
       List("""
@@ -1940,7 +1943,10 @@ package Err
 struct Foo[a](a: a, b: b)
 
 main = Foo(1, "2")
-"""), "Err") { case PackageError.SourceConverterErrorIn(_, _) => () }
+"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty) == "in file: <unknown source>, package Err, Foo found declared: [a], not a superset of [a, b]\nRegion(14,39)")
+      ()
+    }
 
 evalFail(
       List("""
@@ -1949,7 +1955,10 @@ package Err
 enum Enum[a]: Foo(a)
 
 main = Foo(1, "2")
-"""), "Err") { case PackageError.SourceConverterErrorIn(_, _) => () }
+"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty) == "in file: <unknown source>, package Err, Enum found declared: [a], not a superset of [anon0]\nRegion(14,34)")
+      ()
+    }
 
 evalFail(
       List("""
@@ -1958,7 +1967,10 @@ package Err
 enum Enum[a]: Foo(a: a), Bar(a: b)
 
 main = Foo(1, "2")
-"""), "Err") { case PackageError.SourceConverterErrorIn(_, _) => () }
+"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty) == "in file: <unknown source>, package Err, Enum found declared: [a], not a superset of [a, b]\nRegion(14,48)")
+      ()
+    }
   }
 
 }

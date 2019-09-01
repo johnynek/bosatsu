@@ -14,31 +14,36 @@ import Identifier.{Bindable, Constructor}
 
 sealed abstract class Statement {
 
-  def toStream: Stream[Statement] = {
-    import Statement._
-    def loop(s: Statement): Stream[Statement] =
-      s match {
-        case Bind(BindingStatement(_, _, Padding(_, rest))) =>
-          s #:: loop(rest)
-        case Comment(CommentStatement(_, Padding(_, rest))) =>
-          s #:: loop(rest)
-        case Def(DefStatement(_, _, _, (_, Padding(_, rest)))) =>
-          s #:: loop(rest)
-        case Struct(_, _, _, Padding(_, rest)) =>
-          s #:: loop(rest)
-        case Enum(_, _, _, Padding(_, rest)) =>
-          s #:: loop(rest)
-        case ExternalDef(_, _, _, Padding(_, rest)) =>
-          s #:: loop(rest)
-        case ExternalStruct(_, _, Padding(_, rest)) =>
-          s #:: loop(rest)
-        case EndOfFile =>
-          s #:: Stream.empty
-      }
+  /**
+   * This describes the region of the current statement, not the entire linked list
+   * of statements
+   */
+  def region: Region
 
-    loop(this)
+  def next: Option[Statement] = {
+    import Statement._
+    this match {
+      case Bind(BindingStatement(_, _, Padding(_, rest))) =>
+        Some(rest)
+      case Comment(CommentStatement(_, Padding(_, rest))) =>
+        Some(rest)
+      case Def(DefStatement(_, _, _, (_, Padding(_, rest)))) =>
+        Some(rest)
+      case Struct(_, _, _, Padding(_, rest)) =>
+        Some(rest)
+      case Enum(_, _, _, Padding(_, rest)) =>
+        Some(rest)
+      case ExternalDef(_, _, _, Padding(_, rest)) =>
+        Some(rest)
+      case ExternalStruct(_, _, Padding(_, rest)) =>
+        Some(rest)
+      case EndOfFile() =>
+        None
+    }
   }
 
+  def toStream: Stream[Statement] =
+    Stream.iterate(this)(_.next.orNull).takeWhile(_ != null)
 }
 
 sealed abstract class TypeDefinitionStatement extends Statement {
@@ -118,8 +123,8 @@ object Statement {
   //////
   // All the ValueStatements, which set up new bindings in the order they appear in the file
   /////.
-  case class Bind(bind: BindingStatement[Pattern.Parsed, Padding[Statement]]) extends ValueStatement
-  case class Def(defstatement: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])]) extends ValueStatement
+  case class Bind(bind: BindingStatement[Pattern.Parsed, Padding[Statement]])(val region: Region) extends ValueStatement
+  case class Def(defstatement: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Statement])])(val region: Region) extends ValueStatement
   case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef, rest: Padding[Statement])(val region: Region) extends ValueStatement
 
   //////
@@ -128,18 +133,18 @@ object Statement {
   case class Enum(name: Constructor,
     typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
     items: OptIndent[NonEmptyList[(Constructor, List[(Bindable, Option[TypeRef])])]],
-    rest: Padding[Statement]) extends TypeDefinitionStatement
-  case class ExternalStruct(name: Constructor, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement]) extends TypeDefinitionStatement
+    rest: Padding[Statement])(val region: Region) extends TypeDefinitionStatement
+  case class ExternalStruct(name: Constructor, typeArgs: List[TypeRef.TypeVar], rest: Padding[Statement])(val region: Region) extends TypeDefinitionStatement
   case class Struct(name: Constructor,
     typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
     args: List[(Bindable, Option[TypeRef])],
-    rest: Padding[Statement]) extends TypeDefinitionStatement
+    rest: Padding[Statement])(val region: Region) extends TypeDefinitionStatement
 
   ////
   // These have no effect on the semantics of the Statement linked list
   ////
-  case class Comment(comment: CommentStatement[Padding[Statement]]) extends Statement
-  case object EndOfFile extends Statement
+  case class Comment(comment: CommentStatement[Padding[Statement]])(val region: Region) extends Statement
+  case class EndOfFile()(val region: Region) extends Statement
 
   // Parse a single item
   private val item: P[Statement => Statement] = {
@@ -150,31 +155,31 @@ object Statement {
          .bindingParser[Pattern.Parsed, Statement => Padding[Statement]](
            Declaration.parser, Indy.lift(maybeSpace ~ padding))("")
 
-       (Pattern.bindParser ~ bop).map { case (p, parseBs) =>
+       (Pattern.bindParser ~ bop).region.map { case (region, (p, parseBs)) =>
          val BindingStatement(n, v, fn) = parseBs(p)
 
          { next: Statement =>
            val bs = BindingStatement(n, v, fn(next))
-           Bind(bs)
+           Bind(bs)(region)
          }
        }
      }
 
      val commentP: P[Statement => Statement] =
-       CommentStatement.parser(Indy.lift(padding))
-         .map { case CommentStatement(text, on) =>
+       CommentStatement.parser(Indy.lift(padding)).region
+         .map { case (region, CommentStatement(text, on)) =>
 
            { next: Statement =>
-             Comment(CommentStatement(text, on(next)))
+             Comment(CommentStatement(text, on(next)))(region)
            }
          }.run("")
 
      val defBody = maybeSpace ~ OptIndent.indy(Declaration.parser).run("")
      val defP: P[Statement => Def] =
-      DefStatement.parser(Pattern.bindParser, P(defBody ~ maybeSpace ~ padding))
-        .map { case DefStatement(nm, args, ret, (body, resFn)) =>
+      DefStatement.parser(Pattern.bindParser, P(defBody ~ maybeSpace ~ padding)).region
+        .map { case (region, DefStatement(nm, args, ret, (body, resFn))) =>
           { next: Statement =>
-            Def(DefStatement(nm, args, ret, (body, resFn(next))))
+            Def(DefStatement(nm, args, ret, (body, resFn(next))))(region)
           }
         }
 
@@ -187,9 +192,9 @@ object Statement {
      val external = {
        val typeParamsList = Parser.nonEmptyListToList(typeParams)
        val externalStruct =
-         P("struct" ~/ spaces ~ Identifier.consParser ~ typeParamsList ~ maybeSpace ~ padding).map {
-           case (name, tva, rest) =>
-             { next: Statement => ExternalStruct(name, tva, rest(next)) }
+         (P("struct" ~/ spaces ~ Identifier.consParser ~ typeParamsList).region ~ maybeSpace ~ padding).map {
+           case (region, (name, tva), rest) =>
+             { next: Statement => ExternalStruct(name, tva, rest(next))(region) }
          }
 
        val externalDef = {
@@ -211,15 +216,16 @@ object Statement {
        P("external" ~ spaces ~/ (externalStruct|externalDef))
      }
 
-     val struct = P("struct" ~ spaces ~/ Identifier.consParser ~ typeParams.? ~ argParser.parensLines1.? ~ padding)
-       .map { case (name, typeArgs, argsOpt, rest) =>
-         val argList = argsOpt match {
-           case None => Nil
-           case Some(ne) => ne.toList
-         }
+     val struct =
+       (P("struct" ~ spaces ~/ Identifier.consParser ~ typeParams.? ~ argParser.parensLines1.?).region ~ padding)
+         .map { case (region, (name, typeArgs, argsOpt), rest) =>
+           val argList = argsOpt match {
+             case None => Nil
+             case Some(ne) => ne.toList
+           }
 
-         { next: Statement => Struct(name, typeArgs, argList, rest(next)) }
-       }
+           { next: Statement => Struct(name, typeArgs, argList, rest(next))(region) }
+         }
 
      val enum = {
        val constructorP = P(Identifier.consParser ~ argParser.parensLines1.?)
@@ -231,13 +237,17 @@ object Statement {
        val sep = Indy.lift(P("," ~ maybeSpace)).combineK(Indy.toEOLIndent).map(_ => ())
        val variants = Indy.lift(constructorP ~ maybeSpace).nonEmptyList(sep)
 
-       val nameVars = Indy.block(
-         Indy.lift(P("enum" ~ spaces ~/ Identifier.consParser ~ (typeParams.?))),
-         variants).run("")
+       val nameVars =
+         Indy.block(
+           Indy.lift(P("enum" ~ spaces ~/ Identifier.consParser ~ (typeParams.?))),
+           variants
+         )
+         .run("")
+         .region
 
        (nameVars ~ padding)
-         .map { case ((ename, typeArgs), vars, rest) =>
-           { next: Statement => Enum(ename, typeArgs, vars, rest(next)) }
+         .map { case (region, ((ename, typeArgs), vars), rest) =>
+           { next: Statement => Enum(ename, typeArgs, vars, rest(next))(region) }
          }
      }
 
@@ -246,7 +256,7 @@ object Statement {
   }
 
   val parser: P[Statement] = {
-    val end = P(End).map(_ => EndOfFile)
+    val end = P(End).region.map { case (r, _) => EndOfFile()(r) }
     Parser.chained(item, end)
   }
 
@@ -310,7 +320,7 @@ object Statement {
           colonSep +
           indentedCons +
           Document[Padding[Statement]].document(rest)
-      case EndOfFile => Doc.empty
+      case EndOfFile() => Doc.empty
       case ExternalDef(name, args, res, rest) =>
         val argDoc = args match {
           case Nil => Doc.empty

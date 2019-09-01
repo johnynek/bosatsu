@@ -704,12 +704,6 @@ final class SourceConverter(
         bindOrDef(s) match {
           case None => sunit
           case Some(either) =>
-            val region = either match {
-              case Left(b) => b.bind.value.region
-              case Right(d) =>
-                // TODO: This region is a bit off..., it is the result, not the def
-                d.defstatement.result._1.get.region
-            }
             val names = either.fold(_.names, _.names)
 
             val shadows = names.filter(extDefNamesSet)
@@ -721,7 +715,7 @@ final class SourceConverter(
                   SourceConverter.ExtDefShadow(
                     SourceConverter.BindKind.Bind,
                     nel,
-                    region),
+                    s.region),
                   ())
               }
         }
@@ -797,9 +791,8 @@ final class SourceConverter(
       }
 
       stmts.traverse {
-        case Bind(BindingStatement(bound, decl, _)) =>
-          // TODO: we need a region for the binding
-          val pat = unTuplePattern(bound, decl.region)
+        case b@Bind(BindingStatement(bound, decl, _)) =>
+          val pat = unTuplePattern(bound, b.region)
           val rdec = apply(decl)
           (pat, rdec).mapN { (p, d) =>
             bindings(p, d)
@@ -964,11 +957,14 @@ object SourceConverter {
     discoveredTypes: List[Type.Var.Bound],
     statement: TypeDefinitionStatement) extends Error {
 
-    def region =
-      // TODO: statements don't have regions
-      Region(0, 0)
-    def message =
-      // TODO
-      s"${statement.name.asString} found declared: $declaredParams, not a superset of $discoveredTypes"
+    def region = statement.region
+    def message = {
+      def tstr(l: List[Type.Var.Bound]): String =
+        l.iterator.map(_.name).mkString("[", ", ", "]")
+
+      val decl = tstr(declaredParams.toList)
+      val disc = tstr(discoveredTypes)
+      s"${statement.name.asString} found declared: $decl, not a superset of $disc"
+    }
   }
 }
