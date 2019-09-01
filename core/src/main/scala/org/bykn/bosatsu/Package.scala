@@ -109,17 +109,22 @@ object Package {
       val i = imports match {
         case Nil => Doc.empty
         case nonEmptyImports =>
-          Doc.intercalate(Doc.line, nonEmptyImports.map(Document[Import[PackageName, Unit]].document _)) + Doc.line
+          Doc.line +
+            Doc.intercalate(Doc.line, nonEmptyImports.map(Document[Import[PackageName, Unit]].document _)) +
+            Doc.line
       }
       val e = exports match {
         case Nil => Doc.empty
         case nonEmptyExports =>
-          Doc.text("export ") + Doc.text("[ ") +
-          Doc.intercalate(Doc.text(", "), nonEmptyExports.map(Document[ExportedName[Unit]].document _)) + Doc.text(" ]") + Doc.line
+          Doc.line +
+            Doc.text("export ") +
+            Doc.text("[ ") +
+            Doc.intercalate(Doc.text(", "), nonEmptyExports.map(Document[ExportedName[Unit]].document _)) +
+            Doc.text(" ]") +
+            Doc.line
       }
       val b = statments.map(Document[Statement].document(_))
-      // add an extra line between each group
-      Doc.intercalate(Doc.line, p :: i :: e :: b)
+      Doc.intercalate(Doc.empty, p :: i :: e :: b)
     }
 
   val parser: P[Package[PackageName, Unit, Unit, List[Statement]]] = {
@@ -127,8 +132,8 @@ object Package {
     val pname = Padding.parser(P("package" ~ spaces ~ PackageName.parser)).map(_.padded)
     val im = Padding.parser(Import.parser).map(_.padded).rep().map(_.toList)
     val ex = Padding.parser(P("export" ~ maybeSpace ~ ExportedName.parser.nonEmptyListSyntax)).map(_.padded)
-    val body = Statement.parser.rep().map(_.toList)
-    (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ body).map { case (p, i, e, b) =>
+    val body = Statement.parser
+    (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ Parser.toEOL ~ body).map { case (p, i, e, b) =>
       Package(p, i, e, b)
     }
   }

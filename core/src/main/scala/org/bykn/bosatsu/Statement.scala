@@ -115,15 +115,14 @@ object Statement {
   ////
   case class PaddingStatement(padding: Padding[Unit])(val region: Region) extends Statement
   case class Comment(comment: CommentStatement[Unit])(val region: Region) extends Statement
-  case class EndOfFile()(val region: Region) extends Statement
 
   // Parse a single item
-  final val parser: P[Statement] = {
+  final val parser1: P[Statement] = {
      val punit: P[Unit] = PassWith(())
 
      val bindingP: P[Statement] = {
        val bop = BindingStatement
-         .bindingParser[Pattern.Parsed, Unit](Declaration.parser, Indy.lift(punit))("")
+         .bindingParser[Pattern.Parsed, Unit](Declaration.parser, Indy.lift(toEOL))("")
 
        (Pattern.bindParser ~ bop).region.map { case (region, (p, parseBs)) =>
          val bs = parseBs(p)
@@ -143,7 +142,7 @@ object Statement {
 
      val defBody = maybeSpace ~ OptIndent.indy(Declaration.parser).run("")
      val defP: P[Statement] =
-      DefStatement.parser(Pattern.bindParser, P(defBody ~ maybeSpace ~ punit)).region
+      DefStatement.parser(Pattern.bindParser, defBody ~ toEOL).region
         .map { case (region, DefStatement(nm, args, ret, body)) =>
           Def(DefStatement(nm, args, ret, body))(region)
         }
@@ -156,8 +155,9 @@ object Statement {
 
      val external = {
        val typeParamsList = Parser.nonEmptyListToList(typeParams)
+
        val externalStruct =
-         (P("struct" ~/ spaces ~ Identifier.consParser ~ typeParamsList).region ~ toEOL).map {
+         (P("struct" ~ spaces ~/ Identifier.consParser ~ typeParamsList).region ~ toEOL).map {
            case (region, (name, tva)) => ExternalStruct(name, tva)(region)
          }
 
@@ -215,10 +215,15 @@ object Statement {
          }
      }
 
-     val end = P(End).region.map { case (r, _) => EndOfFile()(r) }
-     // bP should come last so there is no ambiguity about identifiers
-     commentP | defP | struct | enum | external | bindingP | end
+     // bindingP should come last so there is no ambiguity about identifiers
+     commentP | paddingSP | defP | struct | enum | external | bindingP
   }
+
+  /**
+   * This parses the *rest* of the string (it must end with End)
+   */
+  val parser: P[List[Statement]] =
+    parser1.rep().map(_.toList) ~ End
 
   private def constructor(name: Constructor, taDoc: Doc, args: List[(Bindable, Option[TypeRef])]): Doc =
     Document[Identifier].document(name) + taDoc +
@@ -240,15 +245,17 @@ object Statement {
       case Bind(bs) =>
         Document[BindingStatement[Pattern.Parsed, Unit]].document(bs) + Doc.line
       case Comment(cm) =>
+        // Comments already end with newline
         Document[CommentStatement[Unit]].document(cm)
       case Def(d) =>
         implicit val pair = Document.instance[OptIndent[Declaration]] {
           body =>
             body.sepDoc +
             Document[OptIndent[Declaration]].document(body)
-        };
+        }
         DefStatement.document[Pattern.Parsed, OptIndent[Declaration]].document(d) + Doc.line
       case PaddingStatement(p) =>
+        // this will just be some number of lines
         Padding.document[Unit].document(p)
       case Struct(nm, typeArgs, args) =>
         val taDoc = typeArgs match {
@@ -281,7 +288,6 @@ object Statement {
         Doc.text("enum ") + Document[Constructor].document(nm) + taDoc + Doc.char(':') +
           colonSep +
           indentedCons + Doc.line
-      case EndOfFile() => Doc.empty
       case ExternalDef(name, args, res) =>
         val argDoc = args match {
           case Nil => Doc.empty
@@ -295,6 +301,11 @@ object Statement {
       case ExternalStruct(nm, targs) =>
         val argsDoc = docTypeArgs(targs)
         Doc.text("external struct ") + Document[Constructor].document(nm) + argsDoc + Doc.line
+    }
+
+  implicit lazy val documentList: Document[List[Statement]] =
+    Document.instance[List[Statement]] { stmts =>
+      Doc.intercalate(Doc.empty, stmts.toList.map(document.document(_)))
     }
 }
 

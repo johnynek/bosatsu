@@ -30,10 +30,10 @@ object TestUtils {
   }
 
   def statementsOf(pack: PackageName, str: String): List[Statement] =
-    Statement.parser.rep().parse(str) match {
+    Statement.parser.parse(str) match {
       case Parsed.Success(stmt, idx) =>
         assert(idx == str.length)
-        stmt.toList
+        stmt
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
@@ -66,9 +66,9 @@ object TestUtils {
   }
 
   def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion =
-    Statement.parser.rep().parse(statement) match {
-      case Parsed.Success(stmt, _) =>
-        Package.inferBody(PackageName.parts("Test"), Nil, stmt.toList) match {
+    Statement.parser.parse(statement) match {
+      case Parsed.Success(stmts, _) =>
+        Package.inferBody(PackageName.parts("Test"), Nil, stmts) match {
           case Validated.Invalid(errs) =>
             fail("inference failure: " + errs.toList.map(_.message(Map.empty)).mkString("\n"))
           case Validated.Valid(program) =>

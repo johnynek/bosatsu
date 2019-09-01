@@ -12,7 +12,7 @@ class FreeVarTest extends FunSuite {
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   def assertFreeVars(stmt: String, vars: List[String]) =
-    Statement.parser.rep().parse(stmt) match {
+    Statement.parser.parse(stmt) match {
       case Parsed.Success(t, idx) =>
         assert(idx == stmt.length)
 

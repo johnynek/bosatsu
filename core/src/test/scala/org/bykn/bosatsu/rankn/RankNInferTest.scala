@@ -140,9 +140,9 @@ class RankNInferTest extends FunSuite {
    * Test that a program is ill-typed
    */
   def parseProgramIllTyped(statement: String) =
-    Statement.parser.rep().parse(statement) match {
-      case Parsed.Success(stmt, _) =>
-        Package.inferBody(PackageName.parts("Test"), Nil, stmt.toList) match {
+    Statement.parser.parse(statement) match {
+      case Parsed.Success(stmts, _) =>
+        Package.inferBody(PackageName.parts("Test"), Nil, stmts) match {
           case Validated.Invalid(_) => assert(true)
           case Validated.Valid(program) =>
             fail("expected an invalid program, but got: " + program.lets.toString)

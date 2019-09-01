@@ -654,7 +654,7 @@ object Generators {
       args <- Gen.listOfN(argc, typeRefVarGen)
     } yield Statement.ExternalStruct(name, args)(emptyRegion)
 
-  def genExternalDef: Gen[Statement] =
+  val genExternalDef: Gen[Statement] =
     for {
       name <- bindIdentGen
       argc <- Gen.choose(0, 5)
@@ -685,6 +685,31 @@ object Generators {
       (1, genExternalDef),
       (1, genEnum),
       (1, padding(Gen.const(()), 1).map(Statement.PaddingStatement(_)(emptyRegion))))
+  }
+
+  def genStatements(depth: Int, maxLength: Int): Gen[List[Statement]] = {
+    import Statement._
+
+    /*
+     * repeated paddings or comments will be combined by parsing
+     * and will never be seen
+     */
+    def combineDuplicates(stmts: List[Statement]): List[Statement] =
+      stmts match {
+        case Nil => Nil
+        case h :: Nil => h :: Nil
+        case PaddingStatement(Padding(a, _)) :: PaddingStatement(Padding(b, _)) :: rest =>
+          combineDuplicates(PaddingStatement(Padding(a + b, ()))(emptyRegion) :: rest)
+        case Comment(CommentStatement(lines1, _)) :: Comment(CommentStatement(lines2, _)) :: rest =>
+          combineDuplicates(Comment(CommentStatement(lines1 ::: lines2, ()))(emptyRegion) :: rest)
+        case h1 :: rest =>
+          h1 :: combineDuplicates(rest)
+      }
+
+    for {
+      cnt <- Gen.choose(0, maxLength)
+      lst <- Gen.listOfN(cnt, Generators.genStatement(depth))
+    } yield combineDuplicates(lst)
   }
 
   val packageNameGen: Gen[PackageName] =
@@ -727,9 +752,8 @@ object Generators {
       ec <- Gen.choose(0, 10)
       imports <- smallList(importGen)
       exports <- Gen.listOfN(ec, exportedNameGen)
-      stmtCnt <- Gen.choose(0, 30)
-      body <- Gen.listOfN(stmtCnt, genStatement(depth))
-    } yield Package(p, imports, exports, body ::: (Statement.EndOfFile()(emptyRegion) :: Nil))
+      body <- genStatements(depth, 30)
+    } yield Package(p, imports, exports, body)
 
 
   def genDefinedType[A](p: PackageName, inner: Gen[A], genType: Gen[rankn.Type]): Gen[rankn.DefinedType[A]] =
