@@ -752,7 +752,7 @@ object Generators {
       ec <- Gen.choose(0, 10)
       imports <- smallList(importGen)
       exports <- Gen.listOfN(ec, exportedNameGen)
-      body <- genStatements(depth, 30)
+      body <- genStatements(depth, 10)
     } yield Package(p, imports, exports, body)
 
 
