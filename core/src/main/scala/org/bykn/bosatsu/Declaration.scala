@@ -541,14 +541,14 @@ object Declaration {
       .region
       .map { case (r, l) => DictDecl(l)(r) }
 
+  private val lits = Lit.parser.region.map { case (r, l) => Literal(l)(r) }
+
   private[this] val parserCache: String => P[Declaration] =
     Memoize.function[String, P[Declaration]] { (indent, rec) =>
 
       val recurse = P(rec(indent)) // needs to be inside a P for laziness
 
       val recIndy = Indy(rec)
-
-      val lits = Lit.parser.region.map { case (r, l) => Literal(l)(r) }
 
       val tupOrPar =
         recurse
@@ -563,37 +563,31 @@ object Declaration {
        * Note pattern bind needs to be before anything that looks like a pattern that can't handle
        * bind
        */
+      val patternLike = varP | listP(recurse) | lits | tupOrPar
       val prefix = P(
         // these have keywords which need to be parsed before var (def, match, if)
         defP(indent) |
         lambdaP(indent) |
         matchP(recIndy)(indent) |
         ifElseP(recIndy)(indent) |
+        // these are not ambiguous with patterns
         dictP(recurse) |
-        // vars are so common, try to parse them before the generic pattern
-        decOrBind(varP | listP(recurse), indent) |
-        patternBind(indent) |
-        lits | // technically this can be a pattern: 3 = x, so it has to be after patternBind, but it is never total.
-        recordConstructorP(indent) |
         commentP(indent) |
-        tupOrPar)
-
-      def repFn[A](fn: P[A => A]): P[A => A] = {
-        @annotation.tailrec
-        def loop(a: A, fns: List[A => A]): A =
-          fns match {
-            case Nil => a
-            case h :: tail => loop(h(a), tail)
-          }
-
-        fn.rep().map { opList =>
-
-          { (a: A) => loop(a, opList.toList) }
-        }
-      }
-
-      def apP[A](arg: P[A], fn: P[A => A]): P[A] =
-        (arg ~ fn).map { case (a, f) => f(a) }
+        /*
+         * challenge is that not all Declarations are Patterns, and not
+         * all Patterns are Declarations. So, bindings, which are: pattern = declaration
+         * is a bit hard. This also makes cuts a bit dangerous, since this ambiguity
+         * between pattern and declaration means if we use cuts too aggressively, we
+         * will fail.
+         *
+         * If we parse a declaration first, if we see = we need to convert
+         * to pattern. If we parse a pattern, but it was actually a declaration, we need
+         * to convert there. This code tries to parse as a declaration first, then converts
+         * it to pattern if we see an =
+         */
+        decOrBind(patternLike, indent) |
+        patternBind(indent) |
+        recordConstructorP(indent)) // these are almost pattern like, but this won't parse Foo(x) only Foo
 
       def maybeAp[A](arg: P[A], fn: P[A => A]): P[A] =
         (arg ~ fn.?)
@@ -602,23 +596,37 @@ object Declaration {
             case (a, Some(f)) => f(a)
           }
 
+      /*
+       * This is where we parse application, either direct, or dot-style
+       */
       val applied: P[Declaration] = {
         val params = recurse.parensLines1
         // here we are using . syntax foo.bar(1, 2)
         val dotApply: P[Declaration => Declaration] =
-          P("." ~ varP ~ params.?).region.map { case (r2, (fn, argsOpt)) =>
-            val args = argsOpt.fold(List.empty[Declaration])(_.toList)
+          P("." ~ varP ~ params.?)
+            .region
+            .map { case (r2, (fn, argsOpt)) =>
+              val args = argsOpt.fold(List.empty[Declaration])(_.toList)
 
-            { head: Declaration => Apply(fn, NonEmptyList(head, args), ApplyKind.Dot)(head.region + r2) }
-          }.opaque(". apply operator")
+              { head: Declaration => Apply(fn, NonEmptyList(head, args), ApplyKind.Dot)(head.region + r2) }
+            }.opaque(". apply operator")
 
         // here we directly call a function foo(1, 2)
-        val applySuffix: P[Declaration => Declaration] = params.region.map { case (r, args) =>
+        val applySuffix: P[Declaration => Declaration] =
+          params
+            .region
+            .map { case (r, args) =>
 
-          { fn: Declaration => Apply(fn, args, ApplyKind.Parens)(fn.region + r) }
-        }.opaque("apply operator")
+              { fn: Declaration => Apply(fn, args, ApplyKind.Parens)(fn.region + r) }
+            }.opaque("apply operator")
 
-        apP(prefix, repFn(dotApply | applySuffix))
+        def repFn[A](fn: P[A => A]): P[A => A] =
+          fn.rep().map { opList =>
+
+            { (a: A) => opList.foldLeft(a) { (arg, fn) => fn(arg) } }
+          }
+
+        (prefix ~ repFn(dotApply | applySuffix)).map { case (a, f) => f(a) }
       }
 
       // Applying is higher precedence than any operators
@@ -653,7 +661,9 @@ object Declaration {
       // it fully recurses on the else branch, which will parse any repeated ternaryies
       // so no need to repeat here for correct precedence
       val ternary: P[Declaration => Declaration] =
-        P("if" ~ spaces ~ recurse ~ spaces ~ "else" ~ spaces ~ recurse)
+        // we can't cut after if, because in a list comprehension the if suffix is ambiguous
+        // until we see if the else happens or not. Once we see the else, we can cut
+        P("if" ~ spaces ~ recurse ~ spaces ~ "else" ~ spaces ~/ recurse)
           .region
           .map { case (region, (cond, falseCase)) =>
             { trueCase: Declaration =>

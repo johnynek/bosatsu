@@ -972,7 +972,7 @@ def foo(
   }
 
   test("Any declaration may append any whitespace and optionally a comma and parse") {
-    forAll(Generators.genDeclaration(5), Gen.listOf(Gen.oneOf(' ', '\t')).map(_.mkString), Gen.oneOf(true, false)) {
+    forAll(Generators.genDeclaration(4), Gen.listOf(Gen.oneOf(' ', '\t')).map(_.mkString), Gen.oneOf(true, false)) {
       case (s, ws, comma) =>
         val str = Document[Declaration].document(s).render(80) + ws + (if (comma) "," else "")
         roundTrip(Declaration.parser(""), str, lax = true)
