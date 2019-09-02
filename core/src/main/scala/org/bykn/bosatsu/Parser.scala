@@ -291,22 +291,4 @@ object Parser {
    * repeatedly parsing End will OOM
    */
   val toEOL: P[Unit] = P(maybeSpace ~ ("\n" | End))
-
-  /**
-   * If we have a list like structure where
-   * we parse the function to add something
-   * to the head, we can use this
-   */
-  def chained[A](p: P[A => A], end: P[A]): P[A] = {
-    (p.rep() ~ end).map { case (fns, a) =>
-      @annotation.tailrec
-      def loop(revFn: List[A => A], a: A): A =
-        revFn match {
-          case Nil => a
-          case h :: t => loop(t, h(a))
-        }
-
-      loop(fns.toList.reverse, a)
-    }
-  }
 }
