@@ -285,23 +285,10 @@ object Parser {
     }
   }
 
-  val toEOL: P[Unit] = P(maybeSpace ~ "\n")
-
   /**
-   * If we have a list like structure where
-   * we parse the function to add something
-   * to the head, we can use this
+   * Parse until the end of a line or to end of file.
+   * WARNING: never use this with .rep because
+   * repeatedly parsing End will OOM
    */
-  def chained[A](p: P[A => A], end: P[A]): P[A] = {
-    (p.rep() ~ end).map { case (fns, a) =>
-      @annotation.tailrec
-      def loop(revFn: List[A => A], a: A): A =
-        revFn match {
-          case Nil => a
-          case h :: t => loop(t, h(a))
-        }
-
-      loop(fns.toList.reverse, a)
-    }
-  }
+  val toEOL: P[Unit] = P(maybeSpace ~ ("\n" | End))
 }

@@ -63,8 +63,8 @@ object Package {
   type FixPackage[B, C, D] = Fix[Lambda[a => Either[Interface, Package[a, B, C, D]]]]
   type PackageF[A, B, C] = Either[Interface, Package[FixPackage[A, B, C], A, B, C]]
   type PackageF2[A, B] = PackageF[A, A, B]
-  type Parsed = Package[PackageName, Unit, Unit, Statement]
-  type Resolved = FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
+  type Parsed = Package[PackageName, Unit, Unit, List[Statement]]
+  type Resolved = FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
   type Typed[T] = Package[
     Interface,
     NonEmptyList[Referant[Variance]],
@@ -91,8 +91,8 @@ object Package {
    * build a Parsed Package from a Statement. This is useful for testing or
    * library usages.
    */
-  def fromStatement(pn: PackageName, st: Statement): Package.Parsed =
-    Package(pn, Nil, Nil, st)
+  def fromStatements(pn: PackageName, stmts: List[Statement]): Package.Parsed =
+    Package(pn, Nil, Nil, stmts)
 
   def interfaceOf[A](inferred: Typed[A]): Interface =
     inferred.mapProgram(_ => ()).replaceImports(Nil)
@@ -103,32 +103,37 @@ object Package {
   def setProgramFrom[A, B](t: Typed[A], newFrom: B): Typed[A] =
     t.copy(program = t.program.copy(from = newFrom))
 
-  implicit val document: Document[Package[PackageName, Unit, Unit, Statement]] =
-    Document.instance[Package.Parsed] { case Package(name, imports, exports, program) =>
+  implicit val document: Document[Package[PackageName, Unit, Unit, List[Statement]]] =
+    Document.instance[Package.Parsed] { case Package(name, imports, exports, statments) =>
       val p = Doc.text("package ") + Document[PackageName].document(name) + Doc.line
       val i = imports match {
         case Nil => Doc.empty
         case nonEmptyImports =>
-          Doc.intercalate(Doc.line, nonEmptyImports.map(Document[Import[PackageName, Unit]].document _)) + Doc.line
+          Doc.line +
+            Doc.intercalate(Doc.line, nonEmptyImports.map(Document[Import[PackageName, Unit]].document _)) +
+            Doc.line
       }
       val e = exports match {
         case Nil => Doc.empty
         case nonEmptyExports =>
-          Doc.text("export ") + Doc.text("[ ") +
-          Doc.intercalate(Doc.text(", "), nonEmptyExports.map(Document[ExportedName[Unit]].document _)) + Doc.text(" ]") + Doc.line
+          Doc.line +
+            Doc.text("export ") +
+            Doc.text("[ ") +
+            Doc.intercalate(Doc.text(", "), nonEmptyExports.map(Document[ExportedName[Unit]].document _)) +
+            Doc.text(" ]") +
+            Doc.line
       }
-      val b = Document[Statement].document(program)
-      // add an extra line between each group
-      Doc.intercalate(Doc.line, List(p, i, e, b))
+      val b = statments.map(Document[Statement].document(_))
+      Doc.intercalate(Doc.empty, p :: i :: e :: b)
     }
 
-  val parser: P[Package[PackageName, Unit, Unit, Statement]] = {
+  val parser: P[Package[PackageName, Unit, Unit, List[Statement]]] = {
     // TODO: support comments before the Statement
     val pname = Padding.parser(P("package" ~ spaces ~ PackageName.parser)).map(_.padded)
     val im = Padding.parser(Import.parser).map(_.padded).rep().map(_.toList)
     val ex = Padding.parser(P("export" ~ maybeSpace ~ ExportedName.parser.nonEmptyListSyntax)).map(_.padded)
-    val body = Padding.parser(Statement.parser).map(_.padded)
-    (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ body).map { case (p, i, e, b) =>
+    val body = Statement.parser
+    (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ Parser.toEOL ~ body).map { case (p, i, e, b) =>
       Package(p, i, e, b)
     }
   }
@@ -140,14 +145,14 @@ object Package {
   def inferBody(
     p: PackageName,
     imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
-    stmt: Statement):
+    stmts: List[Statement]):
       ValidatedNel[PackageError,
-      Program[TypeEnv[Variance], TypedExpr[Declaration], Statement]] = {
+      Program[TypeEnv[Variance], TypedExpr[Declaration], List[Statement]]] = {
 
     // here we make a pass to get all the local names
-    val localDefs = Statement.definitionsOf(stmt)
+    val localDefs = Statement.definitionsOf(stmts)
     val optProg = SourceConverter(p, imps, localDefs)
-      .toProgram(stmt)
+      .toProgram(stmts)
       .leftMap(_.map(PackageError.SourceConverterErrorIn(_, p): PackageError).toNonEmptyList)
 
     def andThen[A: Semigroup, B, C](ior: Ior[A, B])(fn: B => Validated[A, C]): Validated[A, C] =
@@ -181,7 +186,7 @@ object Package {
            * Check that all recursion is allowable
            */
           val defRecursionCheck: ValidatedNel[PackageError, Unit] =
-            DefRecursionCheck.checkStatement(stmt)
+            stmts.traverse_(DefRecursionCheck.checkStatement(_))
               .leftMap { badRecursions =>
                 badRecursions.map(PackageError.RecursionError(p, _))
               }
@@ -212,7 +217,7 @@ object Package {
             .runFully(withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
             )
-            .map { lets => Program(typeEnv, lets, extDefs, stmt) }
+            .map { lets => Program(typeEnv, lets, extDefs, stmts) }
             .left
             .map(PackageError.TypeErrorIn(_, p))
 

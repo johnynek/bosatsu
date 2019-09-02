@@ -443,7 +443,7 @@ final class SourceConverter(
         }
 
     tds match {
-      case Struct(nm, typeArgs, args, _) =>
+      case Struct(nm, typeArgs, args) =>
         val argsType = deep.map(args)(toType(_))
         val initVars = existingVars(argsType)
         val initState = ((initVars.toSet, initVars.reverse), 0L)
@@ -474,7 +474,7 @@ final class SourceConverter(
             typeParams.map((_, ())),
             (nm, params, consValueType) :: Nil)
         }
-      case Enum(nm, typeArgs, items, _) =>
+      case Enum(nm, typeArgs, items) =>
         val conArgs = items.get.map { case (nm, args) =>
           val argsType = deep.map(args)(toType)
           (nm, argsType)
@@ -509,7 +509,7 @@ final class SourceConverter(
           }
           rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
         }
-      case ExternalStruct(nm, targs, _) =>
+      case ExternalStruct(nm, targs) =>
         // TODO make a real check here
         success(rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), ()) }, Nil))
     }
@@ -672,7 +672,7 @@ final class SourceConverter(
   private def checkExternalDefShadowing(values: Stream[Statement.ValueStatement]): Result[Unit] = {
     val extDefNames =
       values.collect {
-        case ed@Statement.ExternalDef(name, _, _, _) => (name, ed.region)
+        case ed@Statement.ExternalDef(name, _, _) => (name, ed.region)
       }
 
     val sunit = success(())
@@ -697,7 +697,7 @@ final class SourceConverter(
         s match {
           case b@Statement.Bind(_) => Some(Left(b))
           case d@Statement.Def(_) => Some(Right(d))
-          case Statement.ExternalDef(_, _, _, _) => None
+          case Statement.ExternalDef(_, _, _) => None
         }
 
       def checkDefBind(s: Statement.ValueStatement): Result[Unit] =
@@ -802,24 +802,24 @@ final class SourceConverter(
         case Def(defstmt@DefStatement(_, _, _, _)) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
           val lam = defstmt.toLambdaExpr(
-            { res => apply(res._1.get) },
-            success(defstmt.result._1.get))(
-              unTuplePattern(_, defstmt.result._1.get.region),
+            { res => apply(res.get) },
+            success(defstmt.result.get))(
+              unTuplePattern(_, defstmt.result.get.region),
               { t => success(toType(t)) })
 
           lam.map { l =>
             (defstmt.name, RecursionKind.Recursive, l) :: Nil
           }
-        case ExternalDef(_, _, _, _) =>
+        case ExternalDef(_, _, _) =>
           success(Nil)
       }
       .map(_.toList.flatten)
   }
 
-  def toProgram(stmt: Statement): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], Statement]] = {
-    val stmts = Statement.valuesOf(stmt)
+  def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] = {
+    val stmts = Statement.valuesOf(ss)
     val exts = stmts.collect {
-      case Statement.ExternalDef(name, params, result, _) =>
+      case Statement.ExternalDef(name, params, result) =>
         val tpe: rankn.Type = {
           def buildType(ts: List[rankn.Type]): rankn.Type =
             ts match {
@@ -849,7 +849,7 @@ final class SourceConverter(
 
     implicit val parallel = SourceConverter.parallelIor
     (checkExternalDefShadowing(stmts), toLets(stmts), pte1).mapN { (_, binds, pte1) =>
-      Program((importedTypeEnv, pte1), binds, exts.map(_._1).toList, stmt)
+      Program((importedTypeEnv, pte1), binds, exts.map(_._1).toList, ss)
     }
   }
 }

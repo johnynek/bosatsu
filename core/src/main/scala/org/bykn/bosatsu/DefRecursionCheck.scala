@@ -61,7 +61,7 @@ object DefRecursionCheck {
   }
 
   /**
-   * Check a statement that all inner statements and declarations contain legal
+   * Check a statement that all inner declarations contain legal
    * recursion, or none at all. Note, we don't check for cases that will be caught
    * by typechecking: namely, when we have nonrecursive defs, their names are not
    * in scope during typechecking, so illegal recursion there simply won't typecheck.
@@ -70,22 +70,17 @@ object DefRecursionCheck {
     import Statement._
     import Impl._
     s match {
-      case Bind(BindingStatement(pat, decl, rest)) =>
-        checkDeclV(TopLevel, decl) *> checkStatement(rest.padded)
-      case Comment(cs) =>
-        checkStatement(cs.on.padded)
-      case Def(defn) =>
-        checkDef(TopLevel, defn) *> checkStatement(defn.result._2.padded)
-      case Struct(_, _, _, rest) =>
-        checkStatement(rest.padded)
-      case ExternalDef(_, _, _, rest) =>
-        checkStatement(rest.padded)
-      case ExternalStruct(_, _, rest) =>
-        checkStatement(rest.padded)
-      case Enum(_, _, _, rest) =>
-        checkStatement(rest.padded)
-      case EndOfFile() =>
-        unitValid
+      case vs: ValueStatement =>
+        vs match {
+          case Bind(BindingStatement(pat, decl, _)) =>
+            checkDeclV(TopLevel, decl)
+          case Def(defn) =>
+            // make this the same shape as a in declaration
+            checkDef(TopLevel, defn.copy(result = (defn.result, ())))
+          case ExternalDef(_, _, _) =>
+            unitValid
+        }
+      case _ => unitValid
     }
   }
 
@@ -392,7 +387,7 @@ object DefRecursionCheck {
      * Binds are not allowed to be recursive, only defs, so here we just make sure
      * none of the free variables of the pattern are used in decl
      */
-    def checkDef[A](state: State, defstmt: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[A])]): Res = {
+    def checkDef[A](state: State, defstmt: DefStatement[Pattern.Parsed, (OptIndent[Declaration], A)]): Res = {
       val body = defstmt.result._1.get
       val args = defstmt.args.flatMap(_.names)
       val state1 = state.inDef(defstmt.name, args)

@@ -1,7 +1,6 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.{NonEmptyList, Validated}
-import fastparse.all.Parsed
 import org.scalatest.FunSuite
 import org.bykn.bosatsu._
 
@@ -12,6 +11,8 @@ import Type.ForAll
 import TestUtils.checkLast
 
 import Identifier.Constructor
+
+import fastparse.all._
 
 class RankNInferTest extends FunSuite {
 
@@ -140,8 +141,8 @@ class RankNInferTest extends FunSuite {
    */
   def parseProgramIllTyped(statement: String) =
     Statement.parser.parse(statement) match {
-      case Parsed.Success(stmt, _) =>
-        Package.inferBody(PackageName.parts("Test"), Nil, stmt) match {
+      case Parsed.Success(stmts, _) =>
+        Package.inferBody(PackageName.parts("Test"), Nil, stmts) match {
           case Validated.Invalid(_) => assert(true)
           case Validated.Valid(program) =>
             fail("expected an invalid program, but got: " + program.lets.toString)

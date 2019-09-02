@@ -53,8 +53,8 @@ object PackageMap {
 
   type MapF3[A, B, C] = PackageMap[FixPackage[A, B, C], A, B, C]
   type MapF2[A, B] = MapF3[A, A, B]
-  type ParsedImp = PackageMap[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
-  type Resolved = MapF2[Unit, (Statement, ImportMap[PackageName, Unit])]
+  type ParsedImp = PackageMap[PackageName, Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
+  type Resolved = MapF2[Unit, (List[Statement], ImportMap[PackageName, Unit])]
   type Typed[+T] = PackageMap[
     Package.Interface,
     NonEmptyList[Referant[Variance]],
@@ -157,7 +157,7 @@ object PackageMap {
 
     def toProg(p: Package.Parsed):
       (Option[PackageError],
-        Package[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]) = {
+        Package[PackageName, Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]) = {
 
       val (errs0, imap) = ImportMap.fromImports(p.imports)
       val errs =
@@ -170,7 +170,7 @@ object PackageMap {
     // we know all the package names are unique here
     def foldMap(m: Map[PackageName, (A, Package.Parsed)]): (List[PackageError], PackageMap.ParsedImp) = {
       val initPm = PackageMap
-        .empty[PackageName, Unit, Unit, (Statement, ImportMap[PackageName, Unit])]
+        .empty[PackageName, Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
 
       m.iterator.foldLeft((List.empty[PackageError], initPm)) {
         case ((errs, pm), (_, (_, pack))) =>
@@ -200,10 +200,10 @@ object PackageMap {
 
     // This is unfixed resolved
     type ResolvedU = Package[
-      FixPackage[Unit, Unit, (Statement, ImportMap[PackageName, Unit])],
+      FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])],
       Unit,
       Unit,
-      (Statement, ImportMap[PackageName, Unit])]
+      (List[Statement], ImportMap[PackageName, Unit])]
     /*
      * We memoize this function to avoid recomputing diamond dependencies
      */
