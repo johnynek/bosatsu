@@ -300,16 +300,14 @@ object Declaration {
     // Person { name: "Frank", age }
     final case class Simple(field: Bindable) extends RecordArg
 
-    val parser: Indy[RecordArg] = {
-      val pairFn: Indy[Bindable => Pair] =
-        Indy { indent =>
-          val ws = Parser.maybeIndentedOrSpace(indent)
-          P(ws ~ ":" ~ ws ~ Declaration.parser(indent))
-            .map { decl => Pair(_, decl) }
-        }
+    def parser(indent: String, declP: P[Declaration]): P[RecordArg] = {
+      val pairFn: P[Bindable => Pair] = {
+        val ws = Parser.maybeIndentedOrSpace(indent)
+        P(ws ~ ":" ~ ws ~ declP)
+          .map { decl => Pair(_, decl) }
+      }
 
-      Indy.lift(Identifier.bindableParser)
-        .product(pairFn.?)
+      (Identifier.bindableParser ~ (pairFn.?))
         .map {
           case (b, None) => Simple(b)
           case (b, Some(fn)) => fn(b)
@@ -492,26 +490,38 @@ object Declaration {
     Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
 
   // this returns a Var with a Constructor or a RecordConstrutor
-  val recordConstructorP: Indy[Declaration] =
-    Indy { indent =>
-      val ws = Parser.maybeIndentedOrSpace(indent)
-      val kv = RecordArg.parser(indent)
-      val kvs = kv.nonEmptyListOfWs(ws, 1)
-      // we put a cut here because Foo { must be a record
-      // and we want to give a better message of failure
-      // inside the record, than complaining at the start
-      // of the {
-      val args = kvs.bracketed(P("{" ~ ws), P(ws ~ "}"))
+  // Note, we use NoCut here because we use a cut below
+  // to fail to parse when we hit a pattern like Foo(_, b)
+  // we don't want to parse the Foo off of that... Once we hit the (
+  // we need to parse the entire args or not at all, similarly
+  // with braces
+  def recordConstructorP(indent: String, declP: P[Declaration]): P[Declaration] = NoCut {
+    val ws = Parser.maybeIndentedOrSpace(indent)
+    val kv = RecordArg.parser(indent, declP)
+    val kvs = kv.nonEmptyListOfWs(ws, 1)
 
-      (Identifier.consParser ~ (maybeSpace ~ args).?)
-        .region
-        .map {
-          case (region, (n, Some(args))) =>
-            RecordConstructor(n, args)(region)
-          case (region, (n, None)) =>
-            Var(n)(region)
-        }
-    }
+    // here is the record style: Foo {x: 1, ...
+    val recArgs = maybeSpace ~ kvs.bracketed(P("{" ~/ ws), P(ws ~ "}"))
+
+    // here is tuple style: Foo(a, b)
+    val tupArgs = declP
+      .parensLines1Cut
+      .region
+      .map { case (r, args) =>
+        { nm: Var => Apply(nm, args, ApplyKind.Parens)(nm.region + r) }
+      }
+
+    (Identifier.consParser ~ Parser.either(recArgs, tupArgs).?)
+      .region
+      .map {
+        case (region, (n, Some(Left(args)))) =>
+          RecordConstructor(n, args)(region)
+        case (region, (n, Some(Right(build)))) =>
+          build(Var(n)(region))
+        case (region, (n, None)) =>
+          Var(n)(region)
+      }
+  }
 
   private val patternBind: Indy[Declaration] =
     Indy.lift(Pattern.bindParser.region).product(bindingOp)
@@ -563,7 +573,7 @@ object Declaration {
        * Note pattern bind needs to be before anything that looks like a pattern that can't handle
        * bind
        */
-      val patternLike = varP | listP(recurse) | lits | tupOrPar
+      val patternLike = varP | listP(recurse) | lits | tupOrPar | recordConstructorP(indent, recurse)
       val prefix = P(
         // these have keywords which need to be parsed before var (def, match, if)
         defP(indent) |
@@ -586,8 +596,9 @@ object Declaration {
          * it to pattern if we see an =
          */
         decOrBind(patternLike, indent) |
-        patternBind(indent) |
-        recordConstructorP(indent)) // these are almost pattern like, but this won't parse Foo(x) only Foo
+        //patternLike |
+        //recordConstructorP(indent, recurse) |
+        patternBind(indent))
 
       def maybeAp[A](arg: P[A], fn: P[A => A]): P[A] =
         (arg ~ fn.?)
@@ -657,6 +668,8 @@ object Declaration {
         maybeAp(applied, form)
       }
 
+      val maybeBound: P[Declaration] = decOrBind(postOperators, indent)
+
       // here is if/ternary operator
       // it fully recurses on the else branch, which will parse any repeated ternaryies
       // so no need to repeat here for correct precedence
@@ -673,6 +686,7 @@ object Declaration {
           }.opaque("ternary operator")
 
 
+      //maybeAp(maybeBound, (spaces ~ ternary))
       maybeAp(postOperators, (spaces ~ ternary))
         .opaque(s"Declaration.parser($indent)")
     }

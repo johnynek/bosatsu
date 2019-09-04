@@ -134,6 +134,11 @@ object Parser {
   val nonSpaces: P[String] = P(CharsWhile { c => !isSpace(c) }.!)
   val maybeSpace: P[Unit] = spaces.?
 
+  /** prefer to parse Right, then Left
+   */
+  def either[A, B](pb: P[B], pa: P[A]): P[Either[B, A]] =
+    pa.map(Right(_)) | pb.map(Left(_))
+
   def maybeIndentedOrSpace(indent: String): P[Unit] =
     (Parser.spaces | P("\n" ~ indent)).rep().map(_ => ())
 
@@ -261,6 +266,11 @@ object Parser {
     def parensLines1: P[NonEmptyList[T]] = {
       val nel = item.nonEmptyListOfWs(maybeSpacesAndLines, 1)
       P("(" ~ maybeSpacesAndLines ~ nel ~ maybeSpacesAndLines ~ ")")
+    }
+
+    def parensLines1Cut: P[NonEmptyList[T]] = {
+      val nel = item.nonEmptyListOfWs(maybeSpacesAndLines, 1)
+      P("(" ~/ maybeSpacesAndLines ~ nel ~ maybeSpacesAndLines ~ ")")
     }
 
     /**

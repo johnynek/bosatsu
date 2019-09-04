@@ -273,10 +273,12 @@ class ParserTest extends ParserTestBase {
 
   test("we can parse RecordConstructors") {
     def check(str: String) =
-      roundTrip[Declaration](Declaration.recordConstructorP(""), str)
+      roundTrip[Declaration](Declaration.recordConstructorP("", Declaration.parser("")), str)
 
     check("Foo { bar }")
     check("Foo{bar}")
+    check("Foo(bar)")
+    check("Foo(bar\n)")
     check("Foo {   bar   }")
     check("Foo {\nbar\n}")
 
@@ -288,6 +290,7 @@ class ParserTest extends ParserTestBase {
 
     check("Foo { bar, baz }")
     check("Foo{bar,baz}")
+    check("Foo(bar,baz)")
     check("Foo {   bar , baz  }")
     check("Foo {\nbar,\n baz}")
     check("Foo {\nbar\n, baz}")
