@@ -9,7 +9,7 @@ import org.bykn.fastparse_cats.StringInstances._
 
 import Indy.IndyMethods
 
-case class BindingStatement[B, T](name: B, value: Declaration, in: T)
+case class BindingStatement[B, T](name: B, value: Declaration.NonBinding, in: T)
 
 object BindingStatement {
   private[this] val eqDoc = Doc.text(" = ")
@@ -20,7 +20,7 @@ object BindingStatement {
       Document[A].document(name) + eqDoc + value.toDoc + Document[T].document(in)
     }
 
-  def bindingParser[B, T](parser: Indy[Declaration], rest: Indy[T]): Indy[B => BindingStatement[B, T]] = {
+  def bindingParser[B, T](parser: Indy[Declaration.NonBinding], rest: Indy[T]): Indy[B => BindingStatement[B, T]] = {
     val eqP = P("=" ~ !Operators.multiToksP)
 
     (Indy.lift(P(maybeSpace ~ eqP ~/ maybeSpace)) *> parser)

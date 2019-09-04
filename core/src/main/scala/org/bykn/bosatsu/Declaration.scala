@@ -294,13 +294,13 @@ object Declaration {
       }
   }
   object RecordArg {
-    final case class Pair(field: Bindable, arg: Declaration) extends RecordArg
+    final case class Pair(field: Bindable, arg: NonBinding) extends RecordArg
     // for cases like:
     // age = 47
     // Person { name: "Frank", age }
     final case class Simple(field: Bindable) extends RecordArg
 
-    def parser(indent: String, declP: P[Declaration]): P[RecordArg] = {
+    def parser(indent: String, declP: P[NonBinding]): P[RecordArg] = {
       val pairFn: P[Bindable => Pair] = {
         val ws = Parser.maybeIndentedOrSpace(indent)
         P(ws ~ ":" ~ ws ~ declP)
@@ -314,6 +314,13 @@ object Declaration {
         }
     }
   }
+
+  /**
+   * These are all Declarations other than Binding, DefFn and Comment,
+   * in other words, things that don't need to start with indentation
+   */
+  sealed abstract class NonBinding extends Declaration
+
   //
   // We use the pattern of an implicit region for two reasons:
   // 1. we don't want the region to play a role in pattern matching or equality, since it is about
@@ -322,40 +329,40 @@ object Declaration {
   //    value in tests and construct them.
   // These reasons are a bit abusive, and we may revisit this in the future
   //
-  case class Apply(fn: Declaration, args: NonEmptyList[Declaration], kind: ApplyKind)(implicit val region: Region) extends Declaration
-  case class ApplyOp(left: Declaration, op: Identifier.Operator, right: Declaration) extends Declaration {
+  case class Apply(fn: NonBinding, args: NonEmptyList[NonBinding], kind: ApplyKind)(implicit val region: Region) extends NonBinding
+  case class ApplyOp(left: NonBinding, op: Identifier.Operator, right: NonBinding) extends NonBinding {
     val region = left.region + right.region
     def opVar: Var = Var(op)(Region(left.region.end, right.region.start))
   }
   case class Binding(binding: BindingStatement[Pattern.Parsed, Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class DefFn(deffn: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
-  case class IfElse(ifCases: NonEmptyList[(Declaration, OptIndent[Declaration])],
-    elseCase: OptIndent[Declaration])(implicit val region: Region) extends Declaration
-  case class Lambda(args: NonEmptyList[Pattern.Parsed], body: Declaration)(implicit val region: Region) extends Declaration
-  case class Literal(lit: Lit)(implicit val region: Region) extends Declaration
+  case class IfElse(ifCases: NonEmptyList[(NonBinding, OptIndent[Declaration])],
+    elseCase: OptIndent[Declaration])(implicit val region: Region) extends NonBinding
+  case class Lambda(args: NonEmptyList[Pattern.Parsed], body: Declaration)(implicit val region: Region) extends NonBinding
+  case class Literal(lit: Lit)(implicit val region: Region) extends NonBinding
   case class Match(
     kind: RecursionKind,
-    arg: Declaration,
+    arg: NonBinding,
     cases: OptIndent[NonEmptyList[(Pattern.Parsed, OptIndent[Declaration])]])(
-    implicit val region: Region) extends Declaration
-  case class Parens(of: Declaration)(implicit val region: Region) extends Declaration
-  case class TupleCons(items: List[Declaration])(implicit val region: Region) extends Declaration
-  case class Var(name: Identifier)(implicit val region: Region) extends Declaration
+    implicit val region: Region) extends NonBinding
+  case class Parens(of: Declaration)(implicit val region: Region) extends NonBinding
+  case class TupleCons(items: List[NonBinding])(implicit val region: Region) extends NonBinding
+  case class Var(name: Identifier)(implicit val region: Region) extends NonBinding
 
   /**
    * This represents code like:
    * Foo { bar: 12 }
    */
-  case class RecordConstructor(cons: Constructor, arg: NonEmptyList[RecordArg])(implicit val region: Region) extends Declaration
+  case class RecordConstructor(cons: Constructor, arg: NonEmptyList[RecordArg])(implicit val region: Region) extends NonBinding
   /**
    * This represents the list construction language
    */
-  case class ListDecl(list: ListLang[SpliceOrItem, Declaration, Pattern.Parsed])(implicit val region: Region) extends Declaration
+  case class ListDecl(list: ListLang[SpliceOrItem, NonBinding, Pattern.Parsed])(implicit val region: Region) extends NonBinding
   /**
    * Here are dict constructors and comprehensions
    */
-  case class DictDecl(list: ListLang[KVPair, Declaration, Pattern.Parsed])(implicit val region: Region) extends Declaration
+  case class DictDecl(list: ListLang[KVPair, NonBinding, Pattern.Parsed])(implicit val region: Region) extends NonBinding
 
   val matchKindParser: P[RecursionKind] =
     (P("match").map(_ => RecursionKind.NonRecursive) | P("recur").map(_ => RecursionKind.Recursive))
@@ -366,7 +373,7 @@ object Declaration {
    * TODO, patterns don't parse with regions, so we lose track of precise position information
    * if we want to point to an inner portion of it
    */
-  def toPattern(d: Declaration): Option[Pattern.Parsed] =
+  def toPattern(d: NonBinding): Option[Pattern.Parsed] =
     d match {
       case Var(nm@Identifier.Constructor(_)) =>
         Some(Pattern.PositionalStruct(
@@ -397,7 +404,7 @@ object Declaration {
         ps.traverse(toPattern(_)).map { argPats =>
           Pattern.PositionalStruct(Pattern.StructKind.Tuple, argPats.toList)
         }
-      case Parens(p) => toPattern(p)
+      case Parens(p: NonBinding) => toPattern(p)
       case RecordConstructor(cons, args) =>
         args.traverse {
           case RecordArg.Simple(b) => Some(Left(b))
@@ -413,9 +420,11 @@ object Declaration {
   private val restP: Indy[Padding[Declaration]] =
     (Indy.parseIndent *> parser).mapF(Padding.parser(_))
 
+  val nonBindingParser: Indy[NonBinding] = Indy.suspend(???)
+
   // This is something we check after variables
   private val bindingOp: Indy[(Pattern.Parsed, Region) => Binding] = {
-    BindingStatement.bindingParser[Pattern.Parsed, Padding[Declaration]](parser <* Indy.lift(toEOL), restP)
+    BindingStatement.bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP)
       .region
       .map { case (region, fn) =>
         { (pat: Pattern.Parsed, r: Region) => Binding(fn(pat))(r + region) }
@@ -438,10 +447,10 @@ object Declaration {
     }
   }
 
-  def ifElseP(expr: Indy[Declaration]): Indy[IfElse] = {
+  def ifElseP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[IfElse] = {
 
-    def ifelif(str: String): Indy[(Declaration, OptIndent[Declaration])] =
-      Indy.block(Indy.lift(P(str ~ spaces ~ maybeSpace)) *> expr, expr)
+    def ifelif(str: String): Indy[(NonBinding, OptIndent[Declaration])] =
+      Indy.block(Indy.lift(P(str ~ spaces ~ maybeSpace)) *> arg, expr)
 
     /*
      * We don't need to parse the else term to the end,
@@ -475,14 +484,15 @@ object Declaration {
       .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
   }
 
-  def matchP(expr: Indy[Declaration]): Indy[Match] = {
-    val withTrailing = expr <* Indy.lift(maybeSpace)
-    val branch = Indy.block(Indy.lift(Pattern.matchParser), withTrailing)
+  def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
+    val withTrailing = arg <* Indy.lift(maybeSpace)
+    val withTrailingExpr = expr <* Indy.lift(maybeSpace)
+    val branch = Indy.block(Indy.lift(Pattern.matchParser), withTrailingExpr)
 
     Indy.block(Indy.lift(P(matchKindParser ~ spaces)).product(withTrailing), branch.nonEmptyList(Indy.toEOLIndent))
       .region
-      .map { case (r, ((kind, exp), branches)) =>
-        Match(kind, exp, branches)(r)
+      .map { case (r, ((kind, arg), branches)) =>
+        Match(kind, arg, branches)(r)
       }
   }
 
@@ -495,7 +505,7 @@ object Declaration {
   // we don't want to parse the Foo off of that... Once we hit the (
   // we need to parse the entire args or not at all, similarly
   // with braces
-  def recordConstructorP(indent: String, declP: P[Declaration]): P[Declaration] = NoCut {
+  def recordConstructorP(indent: String, declP: P[NonBinding]): P[Declaration] = NoCut {
     val ws = Parser.maybeIndentedOrSpace(indent)
     val kv = RecordArg.parser(indent, declP)
     val kvs = kv.nonEmptyListOfWs(ws, 1)
@@ -529,7 +539,7 @@ object Declaration {
         case ((reg, pat), fn) => fn(pat, reg)
       }
 
-  private def decOrBind(p: P[Declaration], indent: String): P[Declaration] =
+  private def decOrBind(p: P[NonBinding], indent: String): P[Declaration] =
     (p ~ bindingOp(indent).?)
       .flatMap {
         case (d, None) => PassWith(d)
@@ -541,12 +551,12 @@ object Declaration {
           }
       }
 
-  private def listP(p: P[Declaration]): P[ListDecl] =
+  private def listP(p: P[NonBinding]): P[ListDecl] =
     ListLang.parser(p, Pattern.bindParser)
       .region
       .map { case (r, l) => ListDecl(l)(r) }
 
-  private def dictP(p: P[Declaration]): P[DictDecl] =
+  private def dictP(p: P[NonBinding]): P[DictDecl] =
     ListLang.dictParser(p, Pattern.bindParser)
       .region
       .map { case (r, l) => DictDecl(l)(r) }
