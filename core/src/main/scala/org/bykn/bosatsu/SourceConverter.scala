@@ -238,12 +238,13 @@ final class SourceConverter(
                     Expr.Var(pn, Identifier.Constructor("EmptyList"), cond)
                   val ressing = res match {
                     case SpliceOrItem.Item(r) =>
+                      val rdec: Declaration = r
                       // here we lift the result into a a singleton list
                       apply(r).map { ritem =>
                         Expr.App(
-                          Expr.App(Expr.Var(pn, Identifier.Constructor("NonEmptyList"), r), ritem, r),
+                          Expr.App(Expr.Var(pn, Identifier.Constructor("NonEmptyList"), rdec), ritem, rdec),
                           empty,
-                          r)
+                          rdec)
                       }
                     case SpliceOrItem.Splice(r) => apply(r)
                   }

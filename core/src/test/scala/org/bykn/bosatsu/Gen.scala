@@ -6,6 +6,8 @@ import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import cats.implicits._
 
+import Declaration.NonBinding
+
 object Generators {
   val lower: Gen[Char] = Gen.oneOf('a' to 'z')
   val upper: Gen[Char] = Gen.oneOf('A' to 'Z')
@@ -180,15 +182,11 @@ object Generators {
       .map(ListLang.Cons(_))
   }
 
-  def listGen(dec0: Gen[Declaration]): Gen[Declaration.ListDecl] = {
-    lazy val filterFn: Declaration => Boolean = {
-      case Declaration.Comment(_) => false
-      case Declaration.DefFn(_) => false
-      case Declaration.Binding(_) => false
-      case Declaration.Parens(p) => filterFn(p)
+  def listGen(dec0: Gen[NonBinding]): Gen[Declaration.ListDecl] = {
+    lazy val filterFn: NonBinding => Boolean = {
       case Declaration.IfElse(_, _) => false
       case Declaration.Match(_, _, _) => false
-      case Declaration.Lambda(_, body) => filterFn(body)
+      case Declaration.Lambda(_, body: NonBinding) => filterFn(body)
       case Declaration.Apply(f, args, _) =>
         filterFn(f) && args.forall(filterFn)
       case _ => true
@@ -205,15 +203,11 @@ object Generators {
     Gen.oneOf(cons, comp).map(Declaration.ListDecl(_)(emptyRegion))
   }
 
-  def dictGen(dec0: Gen[Declaration]): Gen[Declaration.DictDecl] = {
-    lazy val filterFn: Declaration => Boolean = {
-      case Declaration.Comment(_) => false
-      case Declaration.DefFn(_) => false
-      case Declaration.Binding(_) => false
-      case Declaration.Parens(p) => filterFn(p)
+  def dictGen(dec0: Gen[NonBinding]): Gen[Declaration.DictDecl] = {
+    lazy val filterFn: NonBinding => Boolean = {
       case Declaration.IfElse(_, _) => false
       case Declaration.Match(_, _, _) => false
-      case Declaration.Lambda(_, body) => filterFn(body)
+      case Declaration.Lambda(_, body: NonBinding) => filterFn(body)
       case Declaration.Apply(f, args, _) =>
         filterFn(f) && args.forall(filterFn)
       case _ => true
@@ -230,17 +224,8 @@ object Generators {
     Gen.oneOf(cons, comp).map(Declaration.DictDecl(_)(emptyRegion))
   }
 
-  def applyGen(decl: Gen[Declaration]): Gen[Declaration] = {
-    val fnGen =
-      for {
-        fn <- decl
-        vp = fn match {
-          case v@Declaration.Var(_) => v
-          case nonV => Declaration.Parens(nonV)(emptyRegion)
-        }
-      } yield vp
-    applyGen(fnGen, decl, Gen.oneOf(true, false))
-  }
+  def applyGen(decl: Gen[NonBinding]): Gen[NonBinding] =
+    applyGen(decl, decl, Gen.oneOf(true, false))
 
   def isVar(d: Declaration): Boolean =
     d match {
@@ -248,7 +233,7 @@ object Generators {
       case _ => false
     }
 
-  def applyGen(fnGen: Gen[Declaration], arg: Gen[Declaration], dotApplyGen: Gen[Boolean]): Gen[Declaration] = {
+  def applyGen(fnGen: Gen[NonBinding], arg: Gen[NonBinding], dotApplyGen: Gen[Boolean]): Gen[Declaration.Apply] = {
     import Declaration._
     Gen.lzy(for {
       fn <- fnGen
@@ -259,14 +244,14 @@ object Generators {
     } yield Apply(fn, args, ApplyKind.Parens)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
 
-  def applyOpGen(arg: Gen[Declaration]): Gen[Declaration] =
+  def applyOpGen(arg: Gen[NonBinding]): Gen[Declaration.ApplyOp] =
     Gen.zip(arg, opGen, arg).map { case (l, op, r) =>
       // a few types of things should be in raw ApplyOp, since
       // \x -> x + y is parsed as \x -> (x + y), for instance
       // also, parsing knows about precedence, but randomly
       // making expressions doesn't, so we have to wrap ApplyOp
       import Declaration._
-      def protect(d: Declaration): Declaration =
+      def protect(d: NonBinding): NonBinding =
         d match {
           case Var(_) | Apply(_, _, _) | Parens(_) => d
           case notSafe => Parens(d)(emptyRegion)
@@ -274,13 +259,11 @@ object Generators {
       ApplyOp(protect(l), op, protect(r))
     }
 
-  def bindGen[A, T](patGen: Gen[A], dec: Gen[Declaration], tgen: Gen[T]): Gen[BindingStatement[A, T]] =
-    for {
-      b <- patGen
-      value0 <- dec
-      value = value0 match { case Declaration.Binding(_) => Declaration.Parens(value0)(emptyRegion); case _ => value0 }
-      in <- tgen
-    } yield BindingStatement(b, value, in)
+  def bindGen[A, T](patGen: Gen[A], dec: Gen[NonBinding], tgen: Gen[T]): Gen[BindingStatement[A, T]] =
+    Gen.zip(patGen, dec, tgen)
+      .map { case (b, value, in) =>
+        BindingStatement(b, value, in)
+      }
 
   def padding[T](tgen: Gen[T], min: Int = 0): Gen[Padding[T]] =
     Gen.zip(Gen.choose(min, 10), tgen)
@@ -310,12 +293,12 @@ object Generators {
     }
   }
 
-  def ifElseGen(bodyGen: Gen[Declaration]): Gen[Declaration.IfElse] = {
+  def ifElseGen(argGen: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.IfElse] = {
     import Declaration._
 
     val padBody = optIndent(bodyGen)
-    val genIf: Gen[(Declaration, OptIndent[Declaration])] =
-      Gen.zip(bodyGen, padBody)
+    val genIf: Gen[(NonBinding, OptIndent[Declaration])] =
+      Gen.zip(argGen, padBody)
 
     Gen.zip(nonEmptyN(genIf, 2), padBody)
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
@@ -434,7 +417,7 @@ object Generators {
       { args: List[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] => Gen.zip(packageNameGen, consIdentGen) },
       NTypeGen.genDepth03, depth, useUnion = useUnion, useAnnotation = useAnnotation)
 
-  def matchGen(bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
+  def matchGen(argGen: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
     import Declaration._
 
     val padBody = optIndent(bodyGen)
@@ -446,7 +429,7 @@ object Generators {
     for {
       cnt <- Gen.choose(1, 2)
       kind <- Gen.frequency((10, Gen.const(RecursionKind.NonRecursive)), (1, Gen.const(RecursionKind.Recursive)))
-      expr <- bodyGen
+      expr <- argGen
       cases <- optIndent(nonEmptyN(genCase, cnt))
     } yield Match(kind, expr, cases)(emptyRegion)
   }
@@ -471,7 +454,7 @@ object Generators {
   val consDeclGen: Gen[Declaration.Var] =
     consIdentGen.map(Declaration.Var(_)(emptyRegion))
 
-  val unnestedDeclGen: Gen[Declaration] =
+  val unnestedDeclGen: Gen[NonBinding] =
     Gen.frequency(
       (1, consDeclGen),
       (2, varGen),
@@ -479,7 +462,7 @@ object Generators {
   /**
    * Generate a Declaration that can be parsed as a pattern
    */
-  def patternDecl(depth: Int): Gen[Declaration] = {
+  def patternDecl(depth: Int): Gen[NonBinding] = {
     import Declaration._
     val recur = Gen.lzy(patternDecl(depth - 1))
 
@@ -493,7 +476,7 @@ object Generators {
       (1, genListLangCons(varGen, recur).map(ListDecl(_)(emptyRegion))))
   }
 
-  def simpleDecl(depth: Int): Gen[Declaration] = {
+  def simpleDecl(depth: Int): Gen[NonBinding] = {
     import Declaration._
 
     val unnested = unnestedDeclGen
@@ -511,20 +494,45 @@ object Generators {
     )
   }
 
-  def genRecordArg(dgen: Gen[Declaration]): Gen[Declaration.RecordArg] =
+  def genRecordArg(dgen: Gen[NonBinding]): Gen[Declaration.RecordArg] =
     Gen.zip(bindIdentGen, Gen.option(dgen))
       .map {
         case (b, None) => Declaration.RecordArg.Simple(b)
         case (b, Some(decl)) => Declaration.RecordArg.Pair(b, decl)
       }
 
-  def genRecordDeclaration(dgen: Gen[Declaration]): Gen[Declaration.RecordConstructor] = {
+  def genRecordDeclaration(dgen: Gen[NonBinding]): Gen[Declaration.RecordConstructor] = {
     val args = for {
       tailSize <- Gen.choose(0, 4)
       args <- nonEmptyN(genRecordArg(dgen), tailSize)
     } yield args
 
     Gen.zip(consIdentGen, args).map { case (c, a) => Declaration.RecordConstructor(c, a)(emptyRegion) }
+  }
+
+  def genNonBinding(depth: Int): Gen[NonBinding] = {
+    import Declaration._
+
+    val unnested = unnestedDeclGen
+
+    val pat: Gen[Pattern.Parsed] = bindIdentGen.map(Pattern.Var(_))
+    //val pat = genPattern(0)
+
+    val recur = Gen.lzy(genDeclaration(depth - 1))
+    val recNon = Gen.lzy(genNonBinding(depth - 1))
+    if (depth <= 0) unnested
+    else Gen.frequency(
+      (13, unnested),
+      (2, lambdaGen(recNon)),
+      (2, applyGen(recNon)),
+      (1, applyOpGen(simpleDecl(depth - 1))),
+      (1, ifElseGen(recNon, recur)),
+      (1, listGen(recNon)),
+      (1, dictGen(recNon)),
+      (1, matchGen(recNon, recur)),
+      (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recNon)).map(TupleCons(_)(emptyRegion))),
+      (1, genRecordDeclaration(recNon))
+    )
   }
 
   def genDeclaration(depth: Int): Gen[Declaration] = {
@@ -536,21 +544,13 @@ object Generators {
     //val pat = genPattern(0)
 
     val recur = Gen.lzy(genDeclaration(depth - 1))
+    val recNon = Gen.lzy(genNonBinding(depth - 1))
     if (depth <= 0) unnested
     else Gen.frequency(
-      (13, unnested),
-      (2, commentGen(padding(recur, 1)).map(Comment(_)(emptyRegion))), // make sure we have 1 space to prevent comments following each other
-      (2, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
-      (2, lambdaGen(recur)),
-      (2, applyGen(recur)),
-      (1, applyOpGen(simpleDecl(depth - 1))),
-      (2, bindGen(pat, recur, padding(recur, 1)).map(Binding(_)(emptyRegion))),
-      (1, ifElseGen(recur)),
-      (1, listGen(recur)),
-      (1, dictGen(recur)),
-      (1, matchGen(recur)),
-      (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recur)).map(TupleCons(_)(emptyRegion))),
-      (1, genRecordDeclaration(recur))
+      (3, genNonBinding(depth)),
+      (1, commentGen(padding(recur, 1)).map(Comment(_)(emptyRegion))), // make sure we have 1 space to prevent comments following each other
+      (1, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
+      (1, bindGen(pat, recNon, padding(recur, 1)).map(Binding(_)(emptyRegion)))
     )
   }
 
@@ -620,7 +620,7 @@ object Generators {
 
       def apply(s: Statement): Stream[Statement] = s match {
         case Bind(bs@BindingStatement(_, d, _)) =>
-          shrinkDecl.shrink(d).map { sd =>
+          shrinkDecl.shrink(d).collect { case sd: NonBinding =>
             Bind(bs.copy(value = sd))(emptyRegion)
           }
         case Def(ds) =>
@@ -674,10 +674,11 @@ object Generators {
 
   def genStatement(depth: Int): Gen[Statement] = {
     val decl = genDeclaration(depth)
+    val nonB = genNonBinding(depth)
     // TODO make more powerful
     val pat: Gen[Pattern.Parsed] = genPattern(1)
     Gen.frequency(
-      (1, bindGen(pat, decl, Gen.const(())).map(Statement.Bind(_)(emptyRegion))),
+      (1, bindGen(pat, nonB, Gen.const(())).map(Statement.Bind(_)(emptyRegion))),
       (1, commentGen(Gen.const(())).map(Statement.Comment(_)(emptyRegion))),
       (1, defGen(optIndent(decl)).map(Statement.Def(_)(emptyRegion))),
       (1, genStruct),
