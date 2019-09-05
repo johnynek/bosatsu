@@ -138,8 +138,6 @@ def run(z):
 main = run(x)
 """), "Foo", Str("good"))
 
-    /*
-     * TODO this should parse correctly
     evalTest(
       List("""
 package Foo
@@ -154,7 +152,7 @@ def run(z):
 
 main = run(x)
 """), "Foo", Str("good"))
-     */
+
     evalFail(
       List("""
 package Err

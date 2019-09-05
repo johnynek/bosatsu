@@ -224,8 +224,14 @@ object Generators {
     Gen.oneOf(cons, comp).map(Declaration.DictDecl(_)(emptyRegion))
   }
 
+  def varOrParens(decl: Gen[Declaration]): Gen[NonBinding] =
+    decl.map {
+      case v@Declaration.Var(_) => v
+      case notVar => Declaration.Parens(notVar)(emptyRegion)
+    }
+
   def applyGen(decl: Gen[NonBinding]): Gen[NonBinding] =
-    applyGen(decl, decl, Gen.oneOf(true, false))
+    applyGen(varOrParens(decl), decl, Gen.oneOf(true, false))
 
   def isVar(d: Declaration): Boolean =
     d match {

@@ -488,11 +488,10 @@ object Declaration {
   }
 
   def matchP(arg: P[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
-    val withTrailing = Indy.lift(arg ~ maybeSpace)
     val withTrailingExpr = expr <* Indy.lift(maybeSpace)
     val branch = Indy.block(Indy.lift(Pattern.matchParser), withTrailingExpr)
 
-    Indy.block(Indy.lift(P(matchKindParser ~ spaces)).product(withTrailing), branch.nonEmptyList(Indy.toEOLIndent))
+    Indy.block(Indy.lift(matchKindParser ~ spaces ~/ arg ~ maybeSpace), branch.nonEmptyList(Indy.toEOLIndent))
       .region
       .map { case (r, ((kind, arg), branches)) =>
         Match(kind, arg, branches)(r)
@@ -600,7 +599,8 @@ object Declaration {
         matchP(recNonBind, recIndy)(indent) |
         dictP(recNonBind))
 
-      val allNonBind = patternLike | notPatternLike
+      // we need notPatternLike first, so varP won't scoop up "if" and "match"
+      val allNonBind = notPatternLike | patternLike
 
       def maybeAp[A](arg: P[A], fn: P[A => A]): P[A] =
         (arg ~ fn.?)
@@ -667,7 +667,7 @@ object Declaration {
           { d: NonBinding => convert(fn(d)) }
         }
 
-        maybeAp(applied, form)
+        NoCut(maybeAp(applied, form))
       }
 
       // here is if/ternary operator
@@ -687,7 +687,6 @@ object Declaration {
 
 
       val finalNonBind = maybeAp(postOperators, (spaces ~ ternary))
-        .opaque(s"Declaration.parser($indent)")
 
       if (!allowBind) finalNonBind
       else {
@@ -708,11 +707,12 @@ object Declaration {
            * to convert there. This code tries to parse as a declaration first, then converts
            * it to pattern if we see an =
            */
-          decOrBind(patternLike, indent) |
+          decOrBind(finalNonBind, indent) |
           //patternLike |
           //recordConstructorP(indent, recurse) |
           patternBind(indent))
 
+        // we have to parse non-binds first, because varP would parse "def", "match", etc..
         finalBind | finalNonBind
       }
     }
