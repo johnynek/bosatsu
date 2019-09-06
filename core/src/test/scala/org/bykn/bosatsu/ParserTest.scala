@@ -273,10 +273,12 @@ class ParserTest extends ParserTestBase {
 
   test("we can parse RecordConstructors") {
     def check(str: String) =
-      roundTrip[Declaration](Declaration.recordConstructorP(""), str)
+      roundTrip[Declaration](Declaration.recordConstructorP("", Declaration.nonBindingParser("")), str)
 
     check("Foo { bar }")
     check("Foo{bar}")
+    check("Foo(bar)")
+    check("Foo(bar\n)")
     check("Foo {   bar   }")
     check("Foo {\nbar\n}")
 
@@ -288,6 +290,7 @@ class ParserTest extends ParserTestBase {
 
     check("Foo { bar, baz }")
     check("Foo{bar,baz}")
+    check("Foo(bar,baz)")
     check("Foo {   bar , baz  }")
     check("Foo {\nbar,\n baz}")
     check("Foo {\nbar\n, baz}")
@@ -588,7 +591,7 @@ x""")
   }
 
   test("Declaration.toPattern works for all Pattern-like declarations") {
-    def law1(dec: Declaration) = {
+    def law1(dec: Declaration.NonBinding) = {
       Declaration.toPattern(dec) match {
         case None => fail("expected to convert to pattern")
         case Some(pat) =>
@@ -609,7 +612,7 @@ x""")
     }
 
     // for all Declarations, either it parses like a pattern or toPattern is None
-    forAll(Generators.genDeclaration(5)) { dec =>
+    forAll(Generators.genNonBinding(5)) { dec =>
       val decStr = dec.toDoc.render(80)
       val parsePat = parseOpt(Pattern.matchParser, decStr)
       (Declaration.toPattern(dec), parsePat) match {
@@ -622,7 +625,7 @@ x""")
 
 
     def testEqual(decl: String) = {
-      val dec = parseUnsafe(Declaration.parser(""), decl)
+      val dec = parseUnsafe(Declaration.parser(""), decl).asInstanceOf[Declaration.NonBinding]
       val patt = parseUnsafe(Pattern.matchParser, decl)
       Declaration.toPattern(dec) match {
         case Some(p2) => assert(p2 == patt)
@@ -661,7 +664,11 @@ x""",
   test("we can parse if") {
     import Declaration._
 
-    roundTrip[Declaration](ifElseP(Parser.Indy.lift(varP))(""),
+    val liftVar = Parser.Indy.lift(varP: P[Declaration])
+    val liftVar0 = Parser.Indy.lift(varP: P[NonBinding])
+    val parser0 = ifElseP(liftVar0, liftVar)("")
+
+    roundTrip[Declaration](parser0,
       """if w:
       x
 else:
@@ -680,7 +687,7 @@ elif foo:
 else:
       y""")
 
-    roundTrip[Declaration](ifElseP(Parser.Indy.lift(varP))(""),
+    roundTrip[Declaration](parser0,
       """if w: x
 else: y""")
     roundTrip(parser(""),
@@ -695,7 +702,9 @@ else: y""")
   }
 
   test("we can parse a match") {
-    roundTrip[Declaration](Declaration.matchP(Parser.Indy.lift(Declaration.varP))(""),
+    val liftVar = Parser.Indy.lift(Declaration.varP: P[Declaration])
+    val liftVar0 = Parser.Indy.lift(Declaration.varP: P[Declaration.NonBinding])
+    roundTrip[Declaration](Declaration.matchP(liftVar0, liftVar)(""),
 """match x:
   y:
     z

@@ -138,6 +138,21 @@ def run(z):
 main = run(x)
 """), "Foo", Str("good"))
 
+    evalTest(
+      List("""
+package Foo
+
+enum Res[a, b]: Err(a: a), Good(a:a, b: b)
+
+x = Err("good")
+
+def run(z):
+  Err(y) | Good(y, _) = z
+  y
+
+main = run(x)
+"""), "Foo", Str("good"))
+
     evalFail(
       List("""
 package Err

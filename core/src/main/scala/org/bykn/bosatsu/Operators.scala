@@ -117,7 +117,7 @@ object Operators {
      */
     def infixOps1[A](p: P[A]): P[A => Formula[A]] = {
       val chain: P[List[(String, A)]] =
-        P(Parser.maybeSpace ~ operatorToken ~ Parser.maybeSpacesAndLines ~ p)
+        P(Parser.maybeSpace ~ operatorToken ~/ Parser.maybeSpacesAndLines ~ p)
           .rep(min = 1)
           .map(_.toList)
 

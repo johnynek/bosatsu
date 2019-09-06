@@ -122,7 +122,7 @@ object Statement {
 
      val bindingP: P[Statement] = {
        val bop = BindingStatement
-         .bindingParser[Pattern.Parsed, Unit](Declaration.parser, Indy.lift(toEOL))("")
+         .bindingParser[Pattern.Parsed, Unit](Declaration.nonBindingParser, Indy.lift(toEOL))("")
 
        (Pattern.bindParser ~ bop).region.map { case (region, (p, parseBs)) =>
          val bs = parseBs(p)
