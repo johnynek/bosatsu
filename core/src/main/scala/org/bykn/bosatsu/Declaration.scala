@@ -422,12 +422,12 @@ object Declaration {
       case _ => None
     }
 
-  private val restP: Indy[Padding[Declaration]] =
+  private def restP(parser: Indy[Declaration]): Indy[Padding[Declaration]] =
     (Indy.parseIndent *> parser).mapF(Padding.parser(_))
 
   // This is something we check after variables
-  private lazy val bindingOp: Indy[(Pattern.Parsed, Region) => Binding] = {
-    BindingStatement.bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP)
+  private def bindingOp(nonBindingParser: Indy[NonBinding], p: Indy[Declaration]): Indy[(Pattern.Parsed, Region) => Binding] = {
+    BindingStatement.bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP(p))
       .region
       .map { case (region, fn) =>
         { (pat: Pattern.Parsed, r: Region) => Binding(fn(pat))(r + region) }
@@ -441,7 +441,7 @@ object Declaration {
 
   def defP(parser: Indy[Declaration]): Indy[DefFn] = {
     val restParser: Indy[(OptIndent[Declaration], Padding[Declaration])] =
-      OptIndent.indy(parser).product(Indy.lift(toEOL) *> restP)
+      OptIndent.indy(parser).product(Indy.lift(toEOL) *> restP(parser))
 
     restParser.mapF { rp =>
       DefStatement.parser(Pattern.bindParser, maybeSpace ~ rp)
@@ -450,10 +450,10 @@ object Declaration {
     }
   }
 
-  def ifElseP(arg: P[NonBinding], expr: Indy[Declaration]): Indy[IfElse] = {
+  def ifElseP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[IfElse] = {
 
     def ifelif(str: String): Indy[(NonBinding, OptIndent[Declaration])] =
-      Indy.block(Indy.lift(P(str) ~ spaces ~ maybeSpace ~ arg), expr)
+      Indy.block(Indy.lift(P(str) ~ spaces) *> arg, expr)
 
     /*
      * We don't need to parse the else term to the end,
@@ -487,11 +487,13 @@ object Declaration {
       .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
   }
 
-  def matchP(arg: P[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
-    val withTrailingExpr = expr <* Indy.lift(maybeSpace)
+  def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
+    val indySpace = Indy.lift(maybeSpace)
+    val withTrailingExpr = expr <* indySpace
     val branch = Indy.block(Indy.lift(Pattern.matchParser), withTrailingExpr)
 
-    Indy.block(Indy.lift(matchKindParser ~ spaces ~/ arg ~ maybeSpace), branch.nonEmptyList(Indy.toEOLIndent))
+    val left = Indy.lift(matchKindParser ~ spaces).cutThen(arg <* indySpace)
+    Indy.block(left, branch.nonEmptyList(Indy.toEOLIndent))
       .region
       .map { case (r, ((kind, arg), branches)) =>
         Match(kind, arg, branches)(r)
@@ -535,15 +537,15 @@ object Declaration {
       }
   }
 
-  private val patternBind: Indy[Declaration] =
-    Indy.lift(Pattern.bindParser.region).product(bindingOp)
+  private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] =
+    Indy.lift(Pattern.bindParser.region).product(bindingOp(nonBindingParser, decl))
       .map {
         case ((reg, pat), fn) => fn(pat, reg)
       }
 
-  private def decOrBind(p: P[NonBinding], indent: String): P[Declaration] =
-    (p ~ bindingOp(indent).?)
-      .flatMap {
+  private def decOrBind(p: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] =
+    p.product(bindingOp(p, decl).?)
+      .mapF(_.flatMap {
         case (d, None) => PassWith(d)
         case (d, Some(op)) =>
           toPattern(d) match {
@@ -551,7 +553,7 @@ object Declaration {
             case Some(dpat) =>
               PassWith(op(dpat, d.region))
           }
-      }
+      })
 
   private def listP(p: P[NonBinding]): P[ListDecl] =
     ListLang.parser(p, Pattern.bindParser)
@@ -574,11 +576,13 @@ object Declaration {
   private[this] val parserCache: ((Boolean, String)) => P[Declaration] =
     Memoize.function[(Boolean, String), P[Declaration]] { case ((allowBind, indent), rec) =>
 
-      val recurse = P(rec((true, indent))) // needs to be inside a P for laziness
+      val recurse: P[Declaration] = P(rec((true, indent))) // needs to be inside a P for laziness
 
-      val recIndy = Indy { i => rec((true, i)) }
+      val recIndy: Indy[Declaration] = Indy { i => rec((true, i)) }
 
       val recNonBind: P[NonBinding] = P(rec((false, indent))).asInstanceOf[P[NonBinding]]
+
+      val recNBIndy: Indy[NonBinding] = Indy { i => rec((false, i)).asInstanceOf[P[NonBinding]] }
 
       val tupOrPar: P[NonBinding] =
         (recNonBind
@@ -595,19 +599,12 @@ object Declaration {
        */
       val patternLike: P[NonBinding] = P(varP | listP(recNonBind) | lits | tupOrPar | recordConstructorP(indent, recNonBind))
       val notPatternLike: P[NonBinding] = P(lambdaP(recIndy)(indent) |
-        ifElseP(recNonBind, recIndy)(indent) |
-        matchP(recNonBind, recIndy)(indent) |
+        ifElseP(recNBIndy, recIndy)(indent) |
+        matchP(recNBIndy, recIndy)(indent) |
         dictP(recNonBind))
 
       // we need notPatternLike first, so varP won't scoop up "if" and "match"
       val allNonBind = notPatternLike | patternLike
-
-      def maybeAp[A](arg: P[A], fn: P[A => A]): P[A] =
-        (arg ~ fn.?)
-          .map {
-            case (a, None) => a
-            case (a, Some(f)) => f(a)
-          }
 
       /*
        * This is where we parse application, either direct, or dot-style
@@ -643,7 +640,6 @@ object Declaration {
       }
 
       // Applying is higher precedence than any operators
-
       // now parse an operator apply
       val postOperators: P[NonBinding] = {
 
@@ -667,7 +663,7 @@ object Declaration {
           { d: NonBinding => convert(fn(d)) }
         }
 
-        NoCut(maybeAp(applied, form))
+        NoCut(applied.maybeAp(form))
       }
 
       // here is if/ternary operator
@@ -686,7 +682,7 @@ object Declaration {
           }.opaque("ternary operator")
 
 
-      val finalNonBind = maybeAp(postOperators, (spaces ~ ternary))
+      val finalNonBind = postOperators.maybeAp(spaces ~ ternary)
 
       if (!allowBind) finalNonBind
       else {
@@ -707,19 +703,16 @@ object Declaration {
            * to convert there. This code tries to parse as a declaration first, then converts
            * it to pattern if we see an =
            */
-          decOrBind(finalNonBind, indent) |
-          //patternLike |
-          //recordConstructorP(indent, recurse) |
-          patternBind(indent))
+          decOrBind(recNBIndy, recIndy)(indent) |
+          patternBind(recNBIndy, recIndy)(indent))
 
         // we have to parse non-binds first, because varP would parse "def", "match", etc..
         finalBind | finalNonBind
       }
     }
 
-  lazy val parser: Indy[Declaration] =
-    Indy.suspend(Indy { i => parserCache((true, i)) })
-  lazy val nonBindingParser: Indy[NonBinding] =
-    Indy.suspend(Indy { i => parserCache((false, i)) }).asInstanceOf[Indy[NonBinding]]
-
+  val parser: Indy[Declaration] =
+    Indy { i => parserCache((true, i)) }
+  val nonBindingParser: Indy[NonBinding] =
+    Indy { i => parserCache((false, i)) }.asInstanceOf[Indy[NonBinding]]
 }

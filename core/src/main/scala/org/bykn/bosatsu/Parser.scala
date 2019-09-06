@@ -226,6 +226,13 @@ object Parser {
     def nonEmptyListOfWs(ws: P[Unit], min: Int): P[NonEmptyList[T]] =
       nonEmptyListOfWsSep(ws, P(","), allowTrailing = true, min)
 
+    def maybeAp(fn: P[T => T]): P[T] =
+      (item ~ fn.?)
+        .map {
+          case (a, None) => a
+          case (a, Some(f)) => f(a)
+        }
+
     def nonEmptyListOfWsSep(ws: P[Unit], sep: P[Unit], allowTrailing: Boolean, min: Int): P[NonEmptyList[T]] = {
       require(min >= 1, s"min is too small: $min")
       val wsSep = ws ~ sep ~ ws

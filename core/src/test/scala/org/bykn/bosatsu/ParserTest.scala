@@ -664,7 +664,9 @@ x""",
   test("we can parse if") {
     import Declaration._
 
-    val parser0 = ifElseP(varP, Parser.Indy.lift(varP))("")
+    val liftVar = Parser.Indy.lift(varP: P[Declaration])
+    val liftVar0 = Parser.Indy.lift(varP: P[NonBinding])
+    val parser0 = ifElseP(liftVar0, liftVar)("")
 
     roundTrip[Declaration](parser0,
       """if w:
@@ -700,7 +702,9 @@ else: y""")
   }
 
   test("we can parse a match") {
-    roundTrip[Declaration](Declaration.matchP(Declaration.varP, Parser.Indy.lift(Declaration.varP))(""),
+    val liftVar = Parser.Indy.lift(Declaration.varP: P[Declaration])
+    val liftVar0 = Parser.Indy.lift(Declaration.varP: P[Declaration.NonBinding])
+    roundTrip[Declaration](Declaration.matchP(liftVar0, liftVar)(""),
 """match x:
   y:
     z
