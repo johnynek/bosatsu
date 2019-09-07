@@ -853,6 +853,15 @@ x""")
 
   test("we can parse any Declaration") {
     forAll(Generators.genDeclaration(5))(law(Declaration.parser("")))
+
+    def decl(s: String) = roundTrip(Declaration.parser(""), s)
+
+    decl("x: Bar")
+    decl("x :Bar")
+    decl("x : Bar")
+    decl("(x: Bar)")
+    decl("(x :Bar)")
+    decl("(x : Bar)")
   }
 
   test("we can parse any Statement") {

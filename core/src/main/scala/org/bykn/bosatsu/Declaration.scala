@@ -668,7 +668,7 @@ object Declaration {
         if (pm == ParseMode.BranchArg) applied
         else {
           val an: P[NonBinding => NonBinding] =
-            P(":" ~ maybeSpace ~ TypeRef.parser)
+            P(maybeSpace ~ ":" ~ maybeSpace ~ TypeRef.parser)
               .region
               .map { case (r, tpe) =>
                 { nb: NonBinding => Annotation(nb, tpe)(nb.region + r) }
