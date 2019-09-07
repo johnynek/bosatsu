@@ -1049,7 +1049,8 @@ struct Foo
 
 # this should just be: type Foo
 def foo:
-  # the universal should only apply on the body here
+  # TODO, we would like this test to pass with
+  # the annotations below
   #def ident(x: a) -> a: x
   def ident(x): x
   ident(Foo)
