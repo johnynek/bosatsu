@@ -23,7 +23,7 @@ matrix:
       env: PLATFORM=jvm
       script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJVM/test cli/test doc
 
-    - scala: 2.12.8
+    - scala: 2.12.9
       language: scala
       jdk: openjdk8
       env: PLATFORM=jvm
@@ -35,7 +35,7 @@ matrix:
       env: PLATFORM=js
       script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test
 
-    - scala: 2.12.8
+    - scala: 2.12.9
       language: scala
       jdk: openjdk8
       env: PLATFORM=js
