@@ -139,7 +139,7 @@ lazy val bench = project
   .settings(commonSettings)
   .settings(
     publish := {},
-		publishLocal := {},
-		publishArtifact := false)
+    publishLocal := {},
+    publishArtifact := false)
   .settings(coverageEnabled := false)
   .enablePlugins(JmhPlugin)
