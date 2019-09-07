@@ -1988,4 +1988,29 @@ main = Foo(1, "2")
     }
   }
 
+  test("test parsing type annotations") {
+    runBosatsuTest(List("""
+package A
+
+x: Int = 1
+
+def y:
+  z: Int = x
+  z
+
+tests = Assertion(y.eq_Int(x), "none")
+"""), "A", 1)
+
+    runBosatsuTest(List("""
+package A
+
+x: Int = 1
+
+def y:
+  z: Int = x
+  z: Int
+
+tests = Assertion(y.eq_Int(x), "none")
+"""), "A", 1)
+  }
 }

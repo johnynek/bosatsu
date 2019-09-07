@@ -205,8 +205,10 @@ object Generators {
 
   def dictGen(dec0: Gen[NonBinding]): Gen[Declaration.DictDecl] = {
     lazy val filterFn: NonBinding => Boolean = {
+      case Declaration.Annotation(_, _) => false
       case Declaration.IfElse(_, _) => false
       case Declaration.Match(_, _, _) => false
+      case Declaration.ApplyOp(_, _, _) => false
       case Declaration.Lambda(_, body: NonBinding) => filterFn(body)
       case Declaration.Apply(f, args, _) =>
         filterFn(f) && args.forall(filterFn)
@@ -226,7 +228,11 @@ object Generators {
 
   def varOrParens(decl: Gen[Declaration]): Gen[NonBinding] =
     decl.map {
-      case v@Declaration.Var(_) => v
+      case n: Declaration.NonBinding =>
+        n match {
+          case v@(Declaration.Var(_) | Declaration.Parens(_) | Declaration.Apply(_, _, _)) => v
+          case notVar => Declaration.Parens(notVar)(emptyRegion)
+        }
       case notVar => Declaration.Parens(notVar)(emptyRegion)
     }
 
@@ -299,8 +305,14 @@ object Generators {
     }
   }
 
-  def ifElseGen(argGen: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.IfElse] = {
+  def ifElseGen(argGen0: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.IfElse] = {
     import Declaration._
+
+    // args can't have raw annotations:
+    val argGen = argGen0.map {
+      case ann@Annotation(_, _) => Parens(ann)(emptyRegion)
+      case notAnn => notAnn
+    }
 
     val padBody = optIndent(bodyGen)
     val genIf: Gen[(NonBinding, OptIndent[Declaration])] =
@@ -423,11 +435,16 @@ object Generators {
       { args: List[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] => Gen.zip(packageNameGen, consIdentGen) },
       NTypeGen.genDepth03, depth, useUnion = useUnion, useAnnotation = useAnnotation)
 
-  def matchGen(argGen: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
+  def matchGen(argGen0: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
     import Declaration._
 
     val padBody = optIndent(bodyGen)
 
+    // args can't have raw annotations:
+    val argGen = argGen0.map {
+      case ann@Annotation(_, _) => Parens(ann)(emptyRegion)
+      case notAnn => notAnn
+    }
 
     val genCase: Gen[(Pattern.Parsed, OptIndent[Declaration])] =
       Gen.zip(genPattern(3), padBody)
@@ -465,6 +482,15 @@ object Generators {
       (1, consDeclGen),
       (2, varGen),
       (1, genLit.map(Declaration.Literal(_)(emptyRegion))))
+
+  def annGen(g: Gen[NonBinding]): Gen[Declaration.Annotation] = {
+    import Declaration._
+    Gen.zip(typeRefGen, g).map {
+      case (t, r@(Var(_) | Apply(_, _, _) | Parens(_))) => Annotation(r, t)(emptyRegion)
+      case (t, wrap) => Annotation(Parens(wrap)(emptyRegion), t)(emptyRegion)
+    }
+  }
+
   /**
    * Generate a Declaration that can be parsed as a pattern
    */
@@ -479,6 +505,7 @@ object Generators {
       (12, unnestedDeclGen),
       (2, applyCons),
       (1, recur.map(Parens(_)(emptyRegion))),
+      (1, annGen(recur)),
       (1, genListLangCons(varGen, recur).map(ListDecl(_)(emptyRegion))))
   }
 
@@ -496,6 +523,7 @@ object Generators {
       (1, applyOpGen(recur)),
       (1, listGen(recur)),
       (1, dictGen(recur)),
+      (1, annGen(recur)),
       (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recur)).map(TupleCons(_)(emptyRegion)))
     )
   }
@@ -566,6 +594,7 @@ object Generators {
 
       def apply(d: Declaration): Stream[Declaration] =
         d match {
+          case Annotation(t, _) => t #:: apply(t)
           case Apply(fn, args, _) =>
             val next = fn #:: args.toList.toStream
             next.flatMap(apply _)
