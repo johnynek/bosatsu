@@ -1042,4 +1042,18 @@ struct Foo
 x: Foo = Foo
 """, "Foo")
   }
+
+  test("test inner quantification") {
+    parseProgram("""#
+struct Foo
+
+# this should just be: type Foo
+def foo:
+  # the universal should only apply on the body here
+  #def ident(x: a) -> a: x
+  def ident(x): x
+  ident(Foo)
+
+""", "Foo")
+  }
 }

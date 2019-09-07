@@ -118,6 +118,15 @@ object Type {
     loop(t, Nil)
   }
 
+  /**
+   * This form is often useful in Infer
+   */
+  def substTy(keys: NonEmptyList[Var], vals: NonEmptyList[Rho]): Type => Type = {
+    val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
+
+    { t => substituteVar(t, env) }
+  }
+
   def substituteVar(t: Type, env: Map[Type.Var, Type]): Type =
     t match {
       case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
