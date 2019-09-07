@@ -273,7 +273,7 @@ class ParserTest extends ParserTestBase {
 
   test("we can parse RecordConstructors") {
     def check(str: String) =
-      roundTrip[Declaration](Declaration.recordConstructorP("", Declaration.nonBindingParser("")), str)
+      roundTrip[Declaration](Declaration.recordConstructorP("", Declaration.nonBindingParser(""), Declaration.nonBindingParserNoAnn("")), str)
 
     check("Foo { bar }")
     check("Foo{bar}")
@@ -597,7 +597,7 @@ x""")
         case Some(pat) =>
           // if we convert to string this parses the same as a pattern:
           val decStr = dec.toDoc.render(80)
-          val parsePat = parseUnsafe(Pattern.matchParser, decStr)
+          val parsePat = parseUnsafe(Pattern.bindParser, decStr)
           assert(pat == parsePat)
       }
     }
@@ -823,6 +823,10 @@ x""")
     roundTrip(Declaration.parser(""),
 """Foo(x) | Bar(x) = bar
 x""")
+
+    roundTrip(Declaration.parser(""),
+"""(x: Int) = bar
+x""")
   }
 
   test("we can parse declaration lists") {
@@ -849,6 +853,15 @@ x""")
 
   test("we can parse any Declaration") {
     forAll(Generators.genDeclaration(5))(law(Declaration.parser("")))
+
+    def decl(s: String) = roundTrip(Declaration.parser(""), s)
+
+    decl("x: Bar")
+    decl("x :Bar")
+    decl("x : Bar")
+    decl("(x: Bar)")
+    decl("(x :Bar)")
+    decl("(x : Bar)")
   }
 
   test("we can parse any Statement") {

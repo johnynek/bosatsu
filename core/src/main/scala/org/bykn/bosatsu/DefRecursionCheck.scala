@@ -253,6 +253,7 @@ object DefRecursionCheck {
     def checkDecl(decl: Declaration): St[Unit] = {
       import Declaration._
       decl match {
+        case Annotation(t, _) => checkDecl(t)
         case Apply(Var(nm: Bindable), args, _) =>
           checkApply(nm, args, decl.region)
         case Apply(fn, args, _) =>

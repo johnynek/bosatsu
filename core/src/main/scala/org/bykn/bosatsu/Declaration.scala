@@ -25,10 +25,15 @@ sealed abstract class Declaration {
 
   def toDoc: Doc =
     this match {
+      case Annotation(term, tpe) =>
+        val tDoc = term match {
+          case Var(_) | Parens(_) | Apply(_, _, _) => term.toDoc
+          case _ => Doc.char('(') + term.toDoc + Doc.char(')')
+        }
+        tDoc + Doc.text(": ") + tpe.toDoc
       case Apply(fn, args, kind) =>
         val fnDoc = fn match {
-          case Var(n) => Identifier.document.document(n)
-          case p@Parens(_) => p.toDoc
+          case Var(_) | Parens(_) | Apply(_, _, _) => fn.toDoc
           case other => Doc.char('(') + other.toDoc + Doc.char(')')
         }
 
@@ -132,6 +137,7 @@ sealed abstract class Declaration {
   def freeVars: SortedSet[Bindable] = {
     def loop(decl: Declaration, bound: Set[Bindable], acc: SortedSet[Bindable]): SortedSet[Bindable] =
       decl match {
+        case Annotation(term, _) => loop(term, bound, acc)
         case Apply(fn, args, _) =>
           (fn :: args).foldLeft(acc) { (acc0, d) => loop(d, bound, acc0) }
         case ApplyOp(left, _, right) =>
@@ -206,6 +212,7 @@ sealed abstract class Declaration {
   def allNames: SortedSet[Bindable] = {
     def loop(decl: Declaration, acc: SortedSet[Bindable]): SortedSet[Bindable] =
       decl match {
+        case Annotation(term, _) => loop(term, acc)
         case Apply(fn, args, _) =>
           (fn :: args).foldLeft(acc) { (acc0, d) => loop(d, acc0) }
         case ApplyOp(left, _, right) =>
@@ -334,6 +341,7 @@ object Declaration {
   //    value in tests and construct them.
   // These reasons are a bit abusive, and we may revisit this in the future
   //
+  case class Annotation(fn: NonBinding, tpe: TypeRef)(implicit val region: Region) extends NonBinding
   case class Apply(fn: NonBinding, args: NonEmptyList[NonBinding], kind: ApplyKind)(implicit val region: Region) extends NonBinding
   case class ApplyOp(left: NonBinding, op: Identifier.Operator, right: NonBinding) extends NonBinding {
     val region = left.region + right.region
@@ -380,6 +388,8 @@ object Declaration {
    */
   def toPattern(d: NonBinding): Option[Pattern.Parsed] =
     d match {
+      case Annotation(term, tpe) =>
+        toPattern(term).map(Pattern.Annotation(_, tpe))
       case Var(nm@Identifier.Constructor(_)) =>
         Some(Pattern.PositionalStruct(
           Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike), Nil))
@@ -500,8 +510,15 @@ object Declaration {
       }
   }
 
+  /**
+   * These are keywords inside declarations (if, match, def)
+   * that cannot be used by identifiers
+   */
+  val keywords: P[Unit] =
+    List("else", "elif", "match", "def").foldLeft(P("if"))(_ | P(_)) ~ spaces
+
   val varP: P[Var] =
-    Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
+    !keywords ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
 
   // this returns a Var with a Constructor or a RecordConstrutor
   // Note, we use NoCut here because we use a cut below
@@ -509,9 +526,9 @@ object Declaration {
   // we don't want to parse the Foo off of that... Once we hit the (
   // we need to parse the entire args or not at all, similarly
   // with braces
-  def recordConstructorP(indent: String, declP: P[NonBinding]): P[NonBinding] = NoCut {
+  def recordConstructorP(indent: String, declP: P[NonBinding], noAnn: P[NonBinding]): P[NonBinding] = NoCut {
     val ws = Parser.maybeIndentedOrSpace(indent)
-    val kv = RecordArg.parser(indent, declP)
+    val kv = RecordArg.parser(indent, noAnn)
     val kvs = kv.nonEmptyListOfWs(ws, 1)
 
     // here is the record style: Foo {x: 1, ...
@@ -567,22 +584,29 @@ object Declaration {
 
   private val lits = Lit.parser.region.map { case (r, l) => Literal(l)(r) }
 
+  private sealed abstract class ParseMode
+  private object ParseMode {
+    case object Decl extends ParseMode
+    case object NB extends ParseMode
+    case object BranchArg extends ParseMode
+  }
   /*
    * This is not fully type-safe but we do it for efficiency:
    * we take a boolean to select if we allow Declaration
    * or not. If false, we only parse NonBinding, if true
    * we also parse Bind, Def, Comment
    */
-  private[this] val parserCache: ((Boolean, String)) => P[Declaration] =
-    Memoize.function[(Boolean, String), P[Declaration]] { case ((allowBind, indent), rec) =>
+  private[this] val parserCache: ((ParseMode, String)) => P[Declaration] =
+    Memoize.function[(ParseMode, String), P[Declaration]] { case ((pm, indent), rec) =>
 
-      val recurse: P[Declaration] = P(rec((true, indent))) // needs to be inside a P for laziness
+      val recurse: P[Declaration] = P(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
+      val recIndy: Indy[Declaration] = Indy { i => rec((ParseMode.Decl, i)) }
 
-      val recIndy: Indy[Declaration] = Indy { i => rec((true, i)) }
+      val recNonBind: P[NonBinding] = P(rec((ParseMode.NB, indent))).asInstanceOf[P[NonBinding]]
+      val recNBIndy: Indy[NonBinding] = Indy { i => rec((ParseMode.NB, i)).asInstanceOf[P[NonBinding]] }
 
-      val recNonBind: P[NonBinding] = P(rec((false, indent))).asInstanceOf[P[NonBinding]]
-
-      val recNBIndy: Indy[NonBinding] = Indy { i => rec((false, i)).asInstanceOf[P[NonBinding]] }
+      val recArg: P[NonBinding] = P(rec((ParseMode.BranchArg, indent)).asInstanceOf[P[NonBinding]])
+      val recArgIndy: Indy[NonBinding] = Indy { i => rec((ParseMode.BranchArg, i)).asInstanceOf[P[NonBinding]] }
 
       val tupOrPar: P[NonBinding] =
         (recNonBind
@@ -593,15 +617,18 @@ object Declaration {
             case (r, Right(tup)) => TupleCons(tup)(r)
           } | recurse.parens.region.map { case (r, d) => Parens(d)(r) })
 
+      // since \x -> y: t will parse like \x -> (y: t)
+      // if we are in a branch arg, we can't parse annotations on the body of the lambda
+      val lambBody = if (pm == ParseMode.BranchArg) recArgIndy.asInstanceOf[Indy[Declaration]] else recIndy
       /*
        * Note pattern bind needs to be before anything that looks like a pattern that can't handle
        * bind
        */
-      val patternLike: P[NonBinding] = P(varP | listP(recNonBind) | lits | tupOrPar | recordConstructorP(indent, recNonBind))
-      val notPatternLike: P[NonBinding] = P(lambdaP(recIndy)(indent) |
-        ifElseP(recNBIndy, recIndy)(indent) |
-        matchP(recNBIndy, recIndy)(indent) |
-        dictP(recNonBind))
+      val patternLike: P[NonBinding] = P(varP | listP(recNonBind) | lits | tupOrPar | recordConstructorP(indent, recNonBind, recArg))
+      val notPatternLike: P[NonBinding] = P(lambdaP(lambBody)(indent) |
+        ifElseP(recArgIndy, recIndy)(indent) |
+        matchP(recArgIndy, recIndy)(indent) |
+        dictP(recArg))
 
       // we need notPatternLike first, so varP won't scoop up "if" and "match"
       val allNonBind = notPatternLike | patternLike
@@ -626,17 +653,28 @@ object Declaration {
           params
             .region
             .map { case (r, args) =>
-
               { fn: NonBinding => Apply(fn, args, ApplyKind.Parens)(fn.region + r) }
             }.opaque("apply operator")
 
         def repFn[A](fn: P[A => A]): P[A => A] =
           fn.rep().map { opList =>
-
             { (a: A) => opList.foldLeft(a) { (arg, fn) => fn(arg) } }
           }
 
         (allNonBind ~ repFn(dotApply | applySuffix)).map { case (a, f) => f(a) }
+      }
+      // lower priority than calls is type annotation
+      val annotated: P[NonBinding] = {
+        if (pm == ParseMode.BranchArg) applied
+        else {
+          val an: P[NonBinding => NonBinding] =
+            P(maybeSpace ~ ":" ~ maybeSpace ~ TypeRef.parser)
+              .region
+              .map { case (r, tpe) =>
+                { nb: NonBinding => Annotation(nb, tpe)(nb.region + r) }
+              }
+          applied.maybeAp(an)
+        }
       }
 
       // Applying is higher precedence than any operators
@@ -655,7 +693,7 @@ object Declaration {
 
         // one or more operators
         val ops: P[NonBinding => Operators.Formula[NonBinding]] =
-          Operators.Formula.infixOps1(applied)
+          Operators.Formula.infixOps1(annotated)
 
         // This already parses as many as it can, so we don't need repFn
         val form = ops.map { fn =>
@@ -663,7 +701,7 @@ object Declaration {
           { d: NonBinding => convert(fn(d)) }
         }
 
-        NoCut(applied.maybeAp(form))
+        NoCut(annotated.maybeAp(form))
       }
 
       // here is if/ternary operator
@@ -684,7 +722,7 @@ object Declaration {
 
       val finalNonBind = postOperators.maybeAp(spaces ~ ternary)
 
-      if (!allowBind) finalNonBind
+      if (pm != ParseMode.Decl) finalNonBind
       else {
         val finalBind: P[Declaration] = P(
           // these have keywords which need to be parsed before var (def, match, if)
@@ -712,7 +750,9 @@ object Declaration {
     }
 
   val parser: Indy[Declaration] =
-    Indy { i => parserCache((true, i)) }
+    Indy { i => parserCache((ParseMode.Decl, i)) }
   val nonBindingParser: Indy[NonBinding] =
-    Indy { i => parserCache((false, i)) }.asInstanceOf[Indy[NonBinding]]
+    Indy { i => parserCache((ParseMode.NB, i)) }.asInstanceOf[Indy[NonBinding]]
+  val nonBindingParserNoAnn: Indy[NonBinding] =
+    Indy { i => parserCache((ParseMode.BranchArg, i)) }.asInstanceOf[Indy[NonBinding]]
 }

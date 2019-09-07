@@ -64,6 +64,8 @@ final class SourceConverter(
   private def apply(decl: Declaration): Result[Expr[Declaration]] = {
     implicit val parAp = SourceConverter.parallelIor
     decl match {
+      case Annotation(term, tpe) =>
+        apply(term).map(Expr.Annotation(_, toType(tpe), decl))
       case Apply(fn, args, _) =>
         (apply(fn), args.toList.traverse(apply(_)))
           .mapN { Expr.buildApp(_, _, decl) }

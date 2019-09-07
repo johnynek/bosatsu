@@ -955,4 +955,91 @@ Pair(a, b) = Pair(1, 2)
 d = c
 """)
   }
+
+  test("check that annotations work") {
+    parseProgramIllTyped("""#
+struct Foo
+struct Bar
+
+def x:
+  f = Foo
+  f: Bar
+""")
+
+    parseProgramIllTyped("""#
+struct Foo
+struct Bar
+
+def x:
+  f: Bar = Foo
+  f
+""")
+    parseProgramIllTyped("""#
+struct Pair(a, b)
+struct Foo
+struct Bar
+
+def x:
+  Pair(f: Bar, g) = Pair(Foo, Foo)
+  f
+""")
+
+    parseProgramIllTyped("""#
+struct Pair(a, b)
+struct Foo
+struct Bar
+
+def x:
+  Pair(f, g) = Pair(Foo: Bar, Foo)
+  f
+""")
+
+    parseProgramIllTyped("""#
+struct Foo
+struct Bar
+
+x: Bar = Foo
+""")
+
+    parseProgram("""#
+struct Foo
+struct Bar
+
+def x:
+  f = Foo
+  f: Foo
+""", "Foo")
+
+    parseProgram("""#
+struct Foo
+struct Bar
+
+def x:
+  f: Foo = Foo
+  f
+""", "Foo")
+    parseProgram("""#
+struct Pair(a, b)
+struct Foo
+
+def x:
+  Pair(f: Foo, g) = Pair(Foo, Foo)
+  f
+""", "Foo")
+
+    parseProgram("""#
+struct Pair(a, b)
+struct Foo
+
+def x:
+  Pair(f, _) = Pair(Foo: Foo, Foo)
+  f
+""", "Foo")
+
+    parseProgram("""#
+struct Foo
+
+x: Foo = Foo
+""", "Foo")
+  }
 }
