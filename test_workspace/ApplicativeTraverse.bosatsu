@@ -2,29 +2,73 @@ package Bosatsu/Example/ApplicativeTraverse
 
 import Bosatsu/List [ eq_List ]
 import Bosatsu/Option [ eq_Option ]
-export [Applicative(), Traverse(), traverse_List]
+export [Applicative(), Traverse(), traverse_List, applicative_Option]
 
 # Represents the Applicative typeclass
 struct Applicative(
   pure: forall a. a -> f[a],
   map: forall a, b. (a -> b) -> f[a] -> f[b],
+  ap: forall a, b. f[a -> b] -> f[a] -> f[b],
+  map2: forall a, b, c. f[a] -> f[b] -> (a -> b -> c) -> f[c],
   product: forall a, b. f[a] -> f[b] -> f[(a, b)])
+
+# Build an applicative from pure, map, and product
+def applicative_from_pure_map_product(
+  pure: forall a. a -> f[a],
+  map: forall a, b. (a -> b) -> f[a] -> f[b],
+  product: forall a, b. f[a] -> f[b] -> f[(a, b)]) -> Applicative[f]:
+
+  def ap(fn, fa):
+    map(\(fn, a) -> fn(a), product(fn, fa))
+
+  def map2(fa, fb, fn):
+    map(\(a, b) -> fn(a, b), product(fa, fb))
+
+  Applicative {
+    pure,
+    map,
+    product,
+    ap,
+    map2
+  }
+
+# Build an applicative from pure, ap
+def applicative_from_pure_ap(
+  pure: forall a. a -> f[a],
+  ap: forall a, b. f[a -> b] -> f[a] -> f[b]) -> Applicative[f]:
+
+  def map(fn, fa): ap(pure(fn), fa)
+
+  def product(fa, fb):
+    make_tup = map(\a -> \b -> (a, b), fa)
+    ap(make_tup, fb)
+
+  def map2(fa, fb, fn):
+    make_c = map(fn, fa)
+    ap(make_c, fb)
+
+  Applicative {
+    pure,
+    ap,
+    map,
+    product,
+    map2
+  }
 
 # Represents the Traverse typeclass
 struct Traverse(
   traverse: forall a, b, f. Applicative[f] -> (a -> f[b]) -> g[a] -> f[g[b]])
 
-def applicative_Option -> Applicative[Option]:
-  Applicative {
-    pure: \a -> Some(a),
-    map: \fn, opt -> match opt:
+applicative_Option: Applicative[Option] = applicative_from_pure_map_product(
+    \a -> Some(a),
+    \fn, opt -> match opt:
       Some(a): Some(fn(a))
       None: None,
-    product: \as, bs ->
+    \as, bs ->
       match (as, bs):
         (Some(a), Some(b)): Some((a, b))
         _: None
-  }
+  )
 
 def trav_l(app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[List[b]]:
   Applicative { pure, map, product, ... } = app
