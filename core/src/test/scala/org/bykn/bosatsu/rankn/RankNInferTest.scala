@@ -1042,4 +1042,19 @@ struct Foo
 x: Foo = Foo
 """, "Foo")
   }
+
+  test("test inner quantification") {
+    parseProgram("""#
+struct Foo
+
+# this should just be: type Foo
+def foo:
+  # TODO, we would like this test to pass with
+  # the annotations below
+  #def ident(x: a) -> a: x
+  def ident(x): x
+  ident(Foo)
+
+""", "Foo")
+  }
 }

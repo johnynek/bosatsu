@@ -6,9 +6,10 @@ package org.bykn.bosatsu
  */
 
 import cats.implicits._
-import cats.data.NonEmptyList
+import cats.data.{Chain, Writer, NonEmptyList}
 import cats.{Applicative, Eval, Traverse}
 import scala.collection.immutable.SortedSet
+import org.bykn.bosatsu.rankn.Type
 
 import Identifier.{Bindable, Constructor}
 
@@ -17,14 +18,14 @@ sealed abstract class Expr[T] {
 }
 
 object Expr {
-  case class Annotation[T](expr: Expr[T], tpe: rankn.Type, tag: T) extends Expr[T]
-  case class AnnotatedLambda[T](arg: Bindable, tpe: rankn.Type, expr: Expr[T], tag: T) extends Expr[T]
+  case class Annotation[T](expr: Expr[T], tpe: Type, tag: T) extends Expr[T]
+  case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: Expr[T], tag: T) extends Expr[T]
   case class Var[T](pack: Option[PackageName], name: Identifier, tag: T) extends Expr[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
   case class Lambda[T](arg: Bindable, expr: Expr[T], tag: T) extends Expr[T]
   case class Let[T](arg: Bindable, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
-  case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), rankn.Type], Expr[T])], tag: T) extends Expr[T]
+  case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], Expr[T])], tag: T) extends Expr[T]
 
 
   /**
@@ -52,9 +53,9 @@ object Expr {
   /*
    * Allocate these once
    */
-  private[this] val TruePat: Pattern[(PackageName, Constructor), rankn.Type] =
+  private[this] val TruePat: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct((Predef.packageName, Constructor("True")), Nil)
-  private[this] val FalsePat: Pattern[(PackageName, Constructor), rankn.Type] =
+  private[this] val FalsePat: Pattern[(PackageName, Constructor), Type] =
     Pattern.PositionalStruct((Predef.packageName, Constructor("False")), Nil)
   /**
    * build a Match expression that is equivalent to if/else using Predef::True and Predef::False
@@ -73,7 +74,7 @@ object Expr {
         buildApp(App(fn, h, appTag), tail, appTag)
     }
 
-  def traverseType[T, F[_]](expr: Expr[T], fn: rankn.Type => F[rankn.Type])(implicit F: Applicative[F]): F[Expr[T]] =
+  def traverseType[T, F[_]](expr: Expr[T], fn: Type => F[Type])(implicit F: Applicative[F]): F[Expr[T]] =
     expr match {
       case Annotation(e, tpe, a) =>
         (traverseType(e, fn), fn(tpe)).mapN(Annotation(_, _, a))
@@ -89,7 +90,7 @@ object Expr {
       case l@Literal(_, _) => F.pure(l)
       case Match(arg, branches, tag) =>
         val argB = traverseType(arg, fn)
-        type B = (Pattern[(PackageName, Constructor), rankn.Type], Expr[T])
+        type B = (Pattern[(PackageName, Constructor), Type], Expr[T])
         def branchFn(b: B): F[B] =
           b match {
             case (pat, expr) =>
@@ -100,6 +101,45 @@ object Expr {
         (argB, branchB).mapN(Match(_, _, tag))
     }
 
+  def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: Expr[A]): Expr[A] = {
+    val fn = Type.substTy(keys, vals)
+    Expr.traverseType[A, cats.Id](expr, fn)
+  }
+
+  /**
+   * Here we substitute any free bound variables with skolem variables
+   *
+   * This is a deviation from the paper.
+   * We are allowing a syntax like:
+   *
+   * def identity(x: a) -> a:
+   *   x
+   *
+   * or:
+   *
+   * def foo(x: a): x
+   *
+   * We handle this by converting a to a skolem variable,
+   * running inference, then quantifying over that skolem
+   * variable.
+   */
+  def skolemizeFreeVars[F[_]: Applicative, A](expr: Expr[A])(newSkolemTyVar: Type.Var => F[Type.Var.Skolem]): Option[F[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
+    val w = Expr.traverseType(expr, { t =>
+      val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
+      Writer(frees, t)
+    })
+    val frees = w.written.iterator.toList.distinct
+    NonEmptyList.fromList(frees)
+      .map { tvs =>
+        tvs.traverse(newSkolemTyVar)
+          .map { skVs =>
+            val sksT = skVs.map(Type.TyVar(_))
+            val expr1 = substExpr(tvs, sksT, expr)
+            (skVs, expr1)
+          }
+      }
+  }
+
   /*
    * We have seen some intermitten CI failures if this isn't lazy
    * presumably due to initialiazation order
@@ -109,8 +149,8 @@ object Expr {
 
       // Traverse on NonEmptyList[(Pattern[_], Expr[?])]
       private lazy val tne = {
-        type Tup[T] = (Pattern[(PackageName, Constructor), rankn.Type], T)
-        type TupExpr[T] = (Pattern[(PackageName, Constructor), rankn.Type], Expr[T])
+        type Tup[T] = (Pattern[(PackageName, Constructor), Type], T)
+        type TupExpr[T] = (Pattern[(PackageName, Constructor), Type], Expr[T])
         val tup: Traverse[TupExpr] = Traverse[Tup].compose(exprTraverse)
         Traverse[NonEmptyList].compose(tup)
       }
@@ -203,7 +243,7 @@ object Expr {
     }
 
   def buildPatternLambda[A](
-    args: NonEmptyList[Pattern[(PackageName, Constructor), rankn.Type]],
+    args: NonEmptyList[Pattern[(PackageName, Constructor), Type]],
     body: Expr[A],
     outer: A): Expr[A] = {
 
@@ -211,7 +251,7 @@ object Expr {
      * compute this once if needed, which is why it is lazy.
      * we don't want to traverse body if it is never needed
      */
-    lazy val anons = rankn.Type
+    lazy val anons = Type
       .allBinders
       .iterator
       .map(_.name)
@@ -219,10 +259,10 @@ object Expr {
       .filterNot(allNames(body) ++ args.toList.flatMap(_.names))
 
     def loop(
-      args: NonEmptyList[Pattern[(PackageName, Constructor), rankn.Type]],
+      args: NonEmptyList[Pattern[(PackageName, Constructor), Type]],
       body: Expr[A]): Expr[A] = {
 
-      def makeBindBody(matchPat: Pattern[(PackageName, Constructor), rankn.Type]): (Bindable, Expr[A]) =
+      def makeBindBody(matchPat: Pattern[(PackageName, Constructor), Type]): (Bindable, Expr[A]) =
         // We don't need to worry about shadowing here
         // because we immediately match the pattern but still this is ugly
         matchPat match {

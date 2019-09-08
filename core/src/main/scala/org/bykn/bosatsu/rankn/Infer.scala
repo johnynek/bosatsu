@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.Monad
 import cats.arrow.FunctionK
-import cats.data.{NonEmptyList, Writer}
+import cats.data.NonEmptyList
 import cats.implicits._
 
 import org.bykn.bosatsu.{
@@ -369,25 +369,14 @@ object Infer {
     def initRef[A](err: Error): Infer[Ref[Either[Error, A]]] =
       lift(RefSpace.newRef[Either[Error, A]](Left(err)))
 
-    def substTy(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho]): Type => Type = {
-      val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
-
-      { t => Type.substituteVar(t, env) }
-    }
-
     def substTyRho(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho]): Type.Rho => Type.Rho = {
       val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
 
       { t => Type.substituteRhoVar(t, env) }
     }
 
-    def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: Expr[A]): Expr[A] = {
-      val fn = substTy(keys, vals)
-      Expr.traverseType[A, cats.Id](expr, fn)
-    }
-
     def substTyExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: TypedExpr[A]): TypedExpr[A] = {
-      val fn = substTy(keys, vals)
+      val fn = Type.substTy(keys, vals)
       expr.traverseType[cats.Id](fn)
     }
 
@@ -620,25 +609,6 @@ object Infer {
      */
     def writeMeta(m: Type.Meta, v: Type.Tau): Infer[Unit] =
       lift(m.ref.set(Some(v)))
-
-    /**
-     * Here we substitute any free bound variables with skolem variables
-     */
-    def skolemizeFreeVars[A](expr: Expr[A]): Option[Infer[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
-      val w = Expr.traverseType[A, Writer[List[Type.Var.Bound], ?]](expr, { t =>
-        val frees = Type.freeBoundTyVars(t :: Nil)
-        Writer(frees, t)
-      })
-      val frees = w.written.distinct
-      NonEmptyList.fromList(frees)
-        .map { tvs =>
-          for {
-            skVs <- tvs.traverse(newSkolemTyVar)
-            sksT = skVs.map(Type.TyVar(_))
-            expr1 = substExpr(tvs, sksT, expr)
-          } yield (skVs, expr1)
-        }
-    }
 
     // DEEP-SKOL rule
     // note, this is identical to subsCheckRho when declared is a Rho type
@@ -988,7 +958,7 @@ object Infer {
           val vars = vars0.map(_._1) // TODO actually use the variance
           vars.traverse(_ => newMetaType)
             .map { vars1T =>
-              val params1 = consParams.map(substTy(vars, vars1T))
+              val params1 = consParams.map(Type.substTy(vars, vars1T))
               val res = vars1T.foldLeft(Type.TyConst(tpeName): Type.Tau)(Type.TyApply(_, _))
               (params1, res)
             }
@@ -1095,7 +1065,7 @@ object Infer {
      * running inference, then quantifying over that skolem
      * variable.
      */
-    skolemizeFreeVars(t) match {
+    Expr.skolemizeFreeVars(t)(newSkolemTyVar) match {
       case None => run(t)
       case Some(replace) =>
         for {
