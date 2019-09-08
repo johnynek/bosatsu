@@ -2,7 +2,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword bosatsuKeywords def match package import export struct enum external
+syn keyword bosatsuKeywords def match recur if elif else package import export struct enum external
 syn match bosatsuComment "#.*$"
 
 hi link bosatsuKeywords Keyword
