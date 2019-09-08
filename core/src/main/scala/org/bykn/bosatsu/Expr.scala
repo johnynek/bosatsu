@@ -6,7 +6,7 @@ package org.bykn.bosatsu
  */
 
 import cats.implicits._
-import cats.data.{Writer, NonEmptyList}
+import cats.data.{Chain, Writer, NonEmptyList}
 import cats.{Applicative, Eval, Traverse}
 import scala.collection.immutable.SortedSet
 import org.bykn.bosatsu.rankn.Type
@@ -124,18 +124,19 @@ object Expr {
    * variable.
    */
   def skolemizeFreeVars[F[_]: Applicative, A](expr: Expr[A])(newSkolemTyVar: Type.Var => F[Type.Var.Skolem]): Option[F[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
-    val w = Expr.traverseType[A, Writer[List[Type.Var.Bound], ?]](expr, { t =>
-      val frees = Type.freeBoundTyVars(t :: Nil)
+    val w = Expr.traverseType(expr, { t =>
+      val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
       Writer(frees, t)
     })
-    val frees = w.written.distinct
+    val frees = w.written.iterator.toList.distinct
     NonEmptyList.fromList(frees)
       .map { tvs =>
-        for {
-          skVs <- tvs.traverse(newSkolemTyVar)
-          sksT = skVs.map(Type.TyVar(_))
-          expr1 = substExpr(tvs, sksT, expr)
-        } yield (skVs, expr1)
+        tvs.traverse(newSkolemTyVar)
+          .map { skVs =>
+            val sksT = skVs.map(Type.TyVar(_))
+            val expr1 = substExpr(tvs, sksT, expr)
+            (skVs, expr1)
+          }
       }
   }
 
