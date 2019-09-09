@@ -8,7 +8,7 @@ import cats.implicits._
 class DefRecursionCheckTest extends FunSuite {
 
   def allowed(teStr: String) = {
-    val stmt = TestUtils.statementsOf(Predef.packageName, teStr)
+    val stmt = TestUtils.statementsOf(PackageName.PredefName, teStr)
     stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
       case Validated.Valid(_) => succeed
       case Validated.Invalid(errs) =>
@@ -17,7 +17,7 @@ class DefRecursionCheckTest extends FunSuite {
   }
 
   def disallowed(teStr: String) = {
-    val stmt = TestUtils.statementsOf(Predef.packageName, teStr)
+    val stmt = TestUtils.statementsOf(PackageName.PredefName, teStr)
     stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
       case Validated.Valid(_) => fail("expected failure")
       case Validated.Invalid(_) => succeed

@@ -6,13 +6,13 @@ import org.scalatest.FunSuite
 class VarianceFormulaTest extends FunSuite {
 
   def testVariance(teStr: String, variances: Map[String, List[Variance]]) = {
-    val te = TestUtils.typeEnvOf(Predef.packageName, teStr)
+    val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)
     VarianceFormula.solve(TypeEnv.empty, te.allDefinedTypes) match {
       case Left(errs) => fail(s"couldn't solve: $errs")
       case Right(teVar) =>
         val teMap = DefinedType.listToMap(teVar)
         variances.foreach { case (n, vs) =>
-          val dt = teMap((Predef.packageName, TypeName(Identifier.Constructor(n))))
+          val dt = teMap((PackageName.PredefName, TypeName(Identifier.Constructor(n))))
           assert(dt.annotatedTypeParams.map(_._2) == vs)
         }
     }

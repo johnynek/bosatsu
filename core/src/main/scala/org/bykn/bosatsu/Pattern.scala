@@ -485,9 +485,9 @@ object Pattern {
       case ps@PositionalStruct((_, c), a) =>
         def untuple(p: Pattern[(PackageName, Constructor), A]): Option[List[Doc]] =
           p match {
-            case PositionalStruct((Predef.Name, Constructor("Unit")), Nil) =>
+            case PositionalStruct((PackageName.PredefName, Constructor("Unit")), Nil) =>
               Some(Nil)
-            case PositionalStruct((Predef.Name, Constructor("TupleCons")), a :: b :: Nil) =>
+            case PositionalStruct((PackageName.PredefName, Constructor("TupleCons")), a :: b :: Nil) =>
               untuple(b).map { l => doc.document(a) :: l }
             case _ => None
           }

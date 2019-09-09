@@ -54,9 +54,9 @@ object Expr {
    * Allocate these once
    */
   private[this] val TruePat: Pattern[(PackageName, Constructor), Type] =
-    Pattern.PositionalStruct((Predef.packageName, Constructor("True")), Nil)
+    Pattern.PositionalStruct((PackageName.PredefName, Constructor("True")), Nil)
   private[this] val FalsePat: Pattern[(PackageName, Constructor), Type] =
-    Pattern.PositionalStruct((Predef.packageName, Constructor("False")), Nil)
+    Pattern.PositionalStruct((PackageName.PredefName, Constructor("False")), Nil)
   /**
    * build a Match expression that is equivalent to if/else using Predef::True and Predef::False
    */

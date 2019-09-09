@@ -62,7 +62,7 @@ object MainCommand {
         // we should still return the predef
         // if it is not in ifs
         val useInternalPredef =
-          !ifs.contains { p: Package.Interface => p.name == Predef.Name }
+          !ifs.contains { p: Package.Interface => p.name == PackageName.PredefName }
 
         if (useInternalPredef) {
           IO.pure((PackageMap.fromIterable(Predef.predefCompiled :: Nil), Nil))
@@ -77,7 +77,7 @@ object MainCommand {
     parseInputs(inputs)
       .flatMap { ins =>
         // if we have passed in a use supplied predef, don't use the internal one
-        val useInternalPredef = !ifs.contains { p: Package.Interface => p.name == Predef.Name }
+        val useInternalPredef = !ifs.contains { p: Package.Interface => p.name == PackageName.PredefName }
         IO.fromTry {
           // Now we have completed all IO, here we do all the checks we need for correctness
           for {
@@ -155,7 +155,7 @@ object MainCommand {
               .map { case (_, p) => p }
               // TODO currently we recompile predef in every run, so every interface includes
               // predef, we filter that out
-              .filter(_.name != Predef.packageName)
+              .filter(_.name != PackageName.PredefName)
               .toList
               .sortBy(_.name)
 

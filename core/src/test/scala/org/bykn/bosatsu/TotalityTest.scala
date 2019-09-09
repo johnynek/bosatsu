@@ -43,7 +43,7 @@ class TotalityTest extends FunSuite {
     showPat(pat.unbind)
 
   def typeEnvOf(str: String): TypeEnv[Unit] =
-    TestUtils.typeEnvOf(Predef.packageName, str)
+    TestUtils.typeEnvOf(PackageName.PredefName, str)
 
   val predefTE = typeEnvOf("""#
 struct Unit
@@ -52,7 +52,7 @@ struct TupleCons(fst, snd)
 
   def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] = {
     val nameToCons: Constructor => (PackageName, Constructor) =
-      { cons => (Predef.packageName, cons) }
+      { cons => (PackageName.PredefName, cons) }
 
     /**
      * This is sufficient for these tests, but is not
@@ -67,12 +67,12 @@ struct TupleCons(fst, snd)
               case Nil =>
                 // ()
                 Pattern.PositionalStruct(
-                  (Predef.packageName, Constructor("Unit")),
+                  (PackageName.PredefName, Constructor("Unit")),
                   Nil)
               case h :: tail =>
                 val tailP = loop(tail)
                 Pattern.PositionalStruct(
-                  (Predef.packageName, Constructor("TupleCons")),
+                  (PackageName.PredefName, Constructor("TupleCons")),
                   h :: tailP :: Nil)
             }
 
@@ -84,7 +84,7 @@ struct TupleCons(fst, snd)
       }
       .mapType { tref =>
         TypeRefConverter[cats.Id](tref) { tpe =>
-          Type.Const.Defined(Predef.packageName, TypeName(tpe))
+          Type.Const.Defined(PackageName.PredefName, TypeName(tpe))
         }
       }
 

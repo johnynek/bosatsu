@@ -4,8 +4,6 @@ import cats.Eval
 
 import cats.implicits._
 
-import Evaluation.Value
-
 sealed abstract class FfiCall {
   def call(t: rankn.Type): Eval[Value]
 }
@@ -56,7 +54,7 @@ object FfiCall {
           }
         case rankn.Type.ForAll(_, t) =>
           loop(t, top)
-        case _ => classOf[Evaluation.Value] :: Nil
+        case _ => classOf[Value] :: Nil
       }
     }
     loop(t, true)

@@ -339,7 +339,7 @@ class ParserTest extends ParserTestBase {
   }
 
   test("we can parse blocks") {
-    val indy = Indy.block(Indy.lift(P("if foo")), Indy.lift(P("bar")))
+    val indy = OptIndent.block(Indy.lift(P("if foo")), Indy.lift(P("bar")))
     val p = indy.run("")
     parseTestAll(p, "if foo: bar", ((), OptIndent.same(())))
     parseTestAll(p, "if foo:\n\tbar", ((), OptIndent.paddedIndented(1, 4, ())))
@@ -354,21 +354,21 @@ class ParserTest extends ParserTestBase {
       NonEmptyList.of(single, single))
 
     // we can nest blocks
-    parseTestAll(Indy.block(Indy.lift(P("nest")), indy)(""), "nest: if foo: bar",
+    parseTestAll(OptIndent.block(Indy.lift(P("nest")), indy)(""), "nest: if foo: bar",
       ((), OptIndent.same(((), OptIndent.same(())))))
-    parseTestAll(Indy.block(Indy.lift(P("nest")), indy)(""), "nest:\n  if foo: bar",
+    parseTestAll(OptIndent.block(Indy.lift(P("nest")), indy)(""), "nest:\n  if foo: bar",
       ((), OptIndent.paddedIndented(1, 2, ((), OptIndent.same(())))))
-    parseTestAll(Indy.block(Indy.lift(P("nest")), indy)(""), "nest:\n  if foo:\n    bar",
+    parseTestAll(OptIndent.block(Indy.lift(P("nest")), indy)(""), "nest:\n  if foo:\n    bar",
       ((), OptIndent.paddedIndented(1, 2, ((), OptIndent.paddedIndented(1, 2, ())))))
 
-    val simpleBlock = Indy.block(Indy.lift(Parser.lowerIdent ~ Parser.maybeSpace), Indy.lift(Parser.lowerIdent))
+    val simpleBlock = OptIndent.block(Indy.lift(Parser.lowerIdent ~ Parser.maybeSpace), Indy.lift(Parser.lowerIdent))
       .nonEmptyList(Indy.toEOLIndent)
 
     val sbRes = NonEmptyList.of(("x1", OptIndent.paddedIndented(1, 2, "x2")),
         ("y1", OptIndent.paddedIndented(1, 3, "y2")))
     parseTestAll(simpleBlock(""), "x1:\n  x2\ny1:\n   y2", sbRes)
 
-    parseTestAll(Indy.block(Indy.lift(Parser.lowerIdent), simpleBlock)(""),
+    parseTestAll(OptIndent.block(Indy.lift(Parser.lowerIdent), simpleBlock)(""),
       "block:\n  x1:\n    x2\n  y1:\n     y2",
       ("block", OptIndent.paddedIndented(1, 2, sbRes)))
   }

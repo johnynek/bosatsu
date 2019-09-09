@@ -97,18 +97,4 @@ object Referant {
           }
         }
     }
-  /**
-   * Build the TypeEnv view of the given exports
-   */
-  def exportedTypeEnv[A](packageName: PackageName, exps: List[ExportedName[Referant[A]]]): TypeEnv[A] =
-    exps.foldLeft((TypeEnv.empty): TypeEnv[A]) { (te, exp) =>
-      exp.tag match {
-        case Referant.Value(t) =>
-          te.addExternalValue(packageName, exp.name, t)
-        case Referant.Constructor(n, dt, params, v) =>
-          te.addConstructor(packageName, n, params, dt, v)
-        case Referant.DefinedT(dt) =>
-          te.addDefinedType(dt)
-      }
-    }
 }

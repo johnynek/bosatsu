@@ -7,7 +7,7 @@ import org.scalatest.FunSuite
 class TypeRecursionCheckTest extends FunSuite {
 
   def allowed(teStr: String) = {
-    val te = TestUtils.typeEnvOf(Predef.packageName, teStr)
+    val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)
     VarianceFormula.solve(TypeEnv.empty, te.allDefinedTypes) match {
       case Left(errs) => fail(s"couldn't solve: $errs")
       case Right(teVar) =>
@@ -18,7 +18,7 @@ class TypeRecursionCheckTest extends FunSuite {
   }
 
   def disallowed(teStr: String) = {
-    val te = TestUtils.typeEnvOf(Predef.packageName, teStr)
+    val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)
     VarianceFormula.solve(TypeEnv.empty, te.allDefinedTypes) match {
       case Left(errs) => fail(s"couldn't solve: $errs")
       case Right(teVar) =>

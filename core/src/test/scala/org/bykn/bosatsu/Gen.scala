@@ -6,6 +6,8 @@ import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import cats.implicits._
 
+import rankn.NTypeGen.{consIdentGen, packageNameGen, lowerIdent, typeNameGen}
+
 import Declaration.NonBinding
 
 object Generators {
@@ -29,24 +31,6 @@ object Generators {
       tail <- Gen.listOfN(cnt, t)
     } yield NonEmptyList(h, tail)
 
-  val keyWords = Set(
-    "if", "ffi", "match", "struct", "enum", "else", "elif",
-    "def", "external", "package", "import", "export", "forall",
-    "recur", "recursive")
-
-  val lowerIdent: Gen[String] =
-    (for {
-      c <- lower
-      cnt <- Gen.choose(0, 10)
-      rest <- Gen.listOfN(cnt, identC)
-    } yield (c :: rest).mkString).filter { s=> !keyWords(s) }
-
-  val upperIdent: Gen[String] =
-    for {
-      c <- upper
-      cnt <- Gen.choose(0, 10)
-      rest <- Gen.listOfN(cnt, identC)
-    } yield (c :: rest).mkString
 
   val typeRefVarGen: Gen[TypeRef.TypeVar] =
     lowerIdent.map(TypeRef.TypeVar(_))
@@ -77,12 +61,6 @@ object Generators {
       (1, Arbitrary.arbitrary[String].map { s =>
         Identifier.Backticked(s)
       }))
-
-  val consIdentGen: Gen[Identifier.Constructor] =
-    upperIdent.map { n => Identifier.Constructor(n) }
-
-  val typeNameGen: Gen[TypeName] =
-    consIdentGen.map(TypeName(_))
 
   lazy val typeRefGen: Gen[TypeRef] = {
     import TypeRef._
@@ -271,7 +249,7 @@ object Generators {
       ApplyOp(protect(l), op, protect(r))
     }
 
-  def bindGen[A, T](patGen: Gen[A], dec: Gen[NonBinding], tgen: Gen[T]): Gen[BindingStatement[A, T]] =
+  def bindGen[A, T](patGen: Gen[A], dec: Gen[NonBinding], tgen: Gen[T]): Gen[BindingStatement[A, NonBinding, T]] =
     Gen.zip(patGen, dec, tgen)
       .map { case (b, value, in) =>
         BindingStatement(b, value, in)
@@ -747,12 +725,6 @@ object Generators {
       lst <- Gen.listOfN(cnt, Generators.genStatement(depth))
     } yield combineDuplicates(lst)
   }
-
-  val packageNameGen: Gen[PackageName] =
-    for {
-      pc <- Gen.choose(1, 5)
-      (h :: tail) <- Gen.listOfN(pc, upperIdent)
-    } yield PackageName(NonEmptyList(h, tail))
 
   val importedNameGen: Gen[ImportedName[Unit]] = {
     def rename(g: Gen[Identifier]): Gen[ImportedName[Unit]] =

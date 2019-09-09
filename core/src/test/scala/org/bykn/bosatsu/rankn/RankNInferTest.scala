@@ -59,8 +59,8 @@ class RankNInferTest extends FunSuite {
       Identifier.unsafe("False") -> Type.BoolType)
   val boolTypes: Map[(PackageName, Constructor), Infer.Cons] =
     Map(
-      ((Predef.packageName, Constructor("True")), (Nil, Nil, Type.Const.predef("Bool"))),
-      ((Predef.packageName, Constructor("False")), (Nil, Nil, Type.Const.predef("Bool"))))
+      ((PackageName.PredefName, Constructor("True")), (Nil, Nil, Type.Const.predef("Bool"))),
+      ((PackageName.PredefName, Constructor("False")), (Nil, Nil, Type.Const.predef("Bool"))))
 
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
     Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools), boolTypes) match {

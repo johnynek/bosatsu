@@ -39,7 +39,7 @@ object Predef {
     require(bad.isEmpty, s"expected no bad packages, found: $bad")
     good match {
       case Validated.Valid(v) =>
-        v.toMap.get(Name) match {
+        v.toMap.get(packageName) match {
           case None => sys.error("internal error: predef package not found after compilation")
           case Some(inf) => inf
         }
@@ -48,12 +48,8 @@ object Predef {
     }
   }
 
-  def packageName: PackageName =
-    PackageName.predef
-
-  // For pattern matching
-  val Name: PackageName =
-    PackageName.predef
+  private def packageName: PackageName =
+    PackageName.PredefName
 
   val predefImportList = predefCompiled.exports
     .map(_.name)
@@ -62,7 +58,7 @@ object Predef {
     .map(ImportedName.OriginalName(_, ()))
 
   val predefImports: Import[PackageName, Unit] =
-    Import(packageName,NonEmptyList.fromList(predefImportList).get)
+    Import(packageName, NonEmptyList.fromList(predefImportList).get)
 
   val jvmExternals: Externals =
     Externals
@@ -98,7 +94,6 @@ object Predef {
 
 object PredefImpl {
 
-  import Evaluation.Value
   import Value._
 
   private def i(a: Value): BigInteger =

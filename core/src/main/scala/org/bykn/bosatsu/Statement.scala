@@ -94,7 +94,7 @@ object Statement {
   //////
   // All the ValueStatements, which set up new bindings in the order they appear in the file
   /////.
-  case class Bind(bind: BindingStatement[Pattern.Parsed, Unit])(val region: Region) extends ValueStatement
+  case class Bind(bind: BindingStatement[Pattern.Parsed, Declaration.NonBinding, Unit])(val region: Region) extends ValueStatement
   case class Def(defstatement: DefStatement[Pattern.Parsed, OptIndent[Declaration]])(val region: Region) extends ValueStatement
   case class ExternalDef(name: Bindable, params: List[(Bindable, TypeRef)], result: TypeRef)(val region: Region) extends ValueStatement
 
@@ -121,7 +121,7 @@ object Statement {
      val punit: P[Unit] = PassWith(())
 
      val bindingP: P[Statement] = {
-       val bop = BindingStatement
+       val bop = Declaration
          .bindingParser[Pattern.Parsed, Unit](Declaration.nonBindingParser, Indy.lift(toEOL))("")
 
        (Pattern.bindParser ~ bop).region.map { case (region, (p, parseBs)) =>
@@ -202,7 +202,7 @@ object Statement {
        val variants = Indy.lift(constructorP ~ maybeSpace).nonEmptyList(sep)
 
        val nameVars =
-         Indy.block(
+         OptIndent.block(
            Indy.lift(P("enum" ~ spaces ~/ Identifier.consParser ~ (typeParams.?))),
            variants
          )
@@ -243,7 +243,7 @@ object Statement {
   implicit lazy val document: Document[Statement] =
     Document.instance[Statement] {
       case Bind(bs) =>
-        Document[BindingStatement[Pattern.Parsed, Unit]].document(bs) + Doc.line
+        Document[BindingStatement[Pattern.Parsed, Declaration.NonBinding, Unit]].document(bs) + Doc.line
       case Comment(cm) =>
         // Comments already end with newline
         Document[CommentStatement[Unit]].document(cm)
