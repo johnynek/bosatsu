@@ -4,8 +4,6 @@ import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
-import org.bykn.bosatsu.Generators
-
 
 class TypeTest extends FunSuite {
   implicit val generatorDrivenConfig =
@@ -32,7 +30,7 @@ class TypeTest extends FunSuite {
   }
 
   test("tyVarBinders is identity for Bound") {
-    forAll(Gen.listOf(Generators.lowerIdent), NTypeGen.genDepth03) { (vs, t) =>
+    forAll(Gen.listOf(NTypeGen.lowerIdent), NTypeGen.genDepth03) { (vs, t) =>
       val vsD = vs.distinct
       val bs = vsD.map(Type.Var.Bound(_))
       val fa = Type.forAll(bs, t)

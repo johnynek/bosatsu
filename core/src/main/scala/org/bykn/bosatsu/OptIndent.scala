@@ -5,7 +5,9 @@ import cats.implicits._
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.fastparse_cats.StringInstances._
 
-import Parser.Indy
+import fastparse.all._
+
+import Parser.{maybeSpace, Indy}
 
 sealed abstract class OptIndent[A] {
   def get: A
@@ -56,4 +58,17 @@ object OptIndent {
     val sm = p.map(same[A](_))
     not.combineK(sm)
   }
+
+  /**
+   * A: B or
+   * A:
+   *   B
+   */
+  def block[A, B](first: Indy[A], next: Indy[B]): Indy[(A, OptIndent[B])] =
+    blockLike(first, next, P(maybeSpace ~ ":"))
+
+  def blockLike[A, B](first: Indy[A], next: Indy[B], sep: P[Unit]): Indy[(A, OptIndent[B])] =
+    (first <* Indy.lift(sep ~/ maybeSpace))
+      .product(OptIndent.indy(next))
+
 }

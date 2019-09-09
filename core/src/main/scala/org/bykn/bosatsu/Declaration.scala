@@ -57,7 +57,7 @@ sealed abstract class Declaration {
         val withNewLine = Document.instance[Padding[Declaration]] { pd =>
            Doc.line + d0.document(pd)
         }
-        BindingStatement.document(Document[Pattern.Parsed], withNewLine).document(b)
+        BindingStatement.document(Document[Pattern.Parsed], Document.instance[NonBinding](_.toDoc), withNewLine).document(b)
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
       case DefFn(d) =>
@@ -347,7 +347,7 @@ object Declaration {
     val region = left.region + right.region
     def opVar: Var = Var(op)(Region(left.region.end, right.region.start))
   }
-  case class Binding(binding: BindingStatement[Pattern.Parsed, Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class Binding(binding: BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class DefFn(deffn: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
   case class IfElse(ifCases: NonEmptyList[(NonBinding, OptIndent[Declaration])],
@@ -432,12 +432,23 @@ object Declaration {
       case _ => None
     }
 
+  def bindingParser[B, T](parser: Indy[NonBinding], rest: Indy[T]): Indy[B => BindingStatement[B, NonBinding, T]] = {
+    val eqP = P("=" ~ !Operators.multiToksP)
+
+    (Indy.lift(P(maybeSpace ~ eqP ~/ maybeSpace)) *> parser)
+      .cutThen(rest)
+      .map { case (value, rest) =>
+
+        { (bname: B) => BindingStatement(bname, value, rest) }
+      }
+  }
+
   private def restP(parser: Indy[Declaration]): Indy[Padding[Declaration]] =
     (Indy.parseIndent *> parser).mapF(Padding.parser(_))
 
   // This is something we check after variables
   private def bindingOp(nonBindingParser: Indy[NonBinding], p: Indy[Declaration]): Indy[(Pattern.Parsed, Region) => Binding] = {
-    BindingStatement.bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP(p))
+    bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP(p))
       .region
       .map { case (region, fn) =>
         { (pat: Pattern.Parsed, r: Region) => Binding(fn(pat))(r + region) }
@@ -463,14 +474,14 @@ object Declaration {
   def ifElseP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[IfElse] = {
 
     def ifelif(str: String): Indy[(NonBinding, OptIndent[Declaration])] =
-      Indy.block(Indy.lift(P(str) ~ spaces) *> arg, expr)
+      OptIndent.block(Indy.lift(P(str) ~ spaces) *> arg, expr)
 
     /*
      * We don't need to parse the else term to the end,
      * EOL is a kind of a separator we only have in between
      */
     val elseTerm: Indy[OptIndent[Declaration]] =
-      Indy.block(Indy.lift(P("else" ~ maybeSpace)), expr).map(_._2)
+      OptIndent.block(Indy.lift(P("else" ~ maybeSpace)), expr).map(_._2)
 
     val elifs1 = ifelif("elif").rep(1, sepIndy = Indy.toEOLIndent) <* Indy.toEOLIndent
 
@@ -492,7 +503,7 @@ object Declaration {
   def lambdaP(parser: Indy[Declaration]): Indy[Lambda] = {
     val params = Indy.lift(P("\\" ~/ maybeSpace ~ Pattern.bindParser.nonEmptyList))
 
-    Indy.blockLike(params, parser, P(maybeSpace ~ "->"))
+    OptIndent.blockLike(params, parser, P(maybeSpace ~ "->"))
       .region
       .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
   }
@@ -500,10 +511,10 @@ object Declaration {
   def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
     val indySpace = Indy.lift(maybeSpace)
     val withTrailingExpr = expr <* indySpace
-    val branch = Indy.block(Indy.lift(Pattern.matchParser), withTrailingExpr)
+    val branch = OptIndent.block(Indy.lift(Pattern.matchParser), withTrailingExpr)
 
     val left = Indy.lift(matchKindParser ~ spaces).cutThen(arg <* indySpace)
-    Indy.block(left, branch.nonEmptyList(Indy.toEOLIndent))
+    OptIndent.block(left, branch.nonEmptyList(Indy.toEOLIndent))
       .region
       .map { case (r, ((kind, arg), branches)) =>
         Match(kind, arg, branches)(r)

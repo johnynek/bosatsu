@@ -1,16 +1,52 @@
-package org.bykn.bosatsu.rankn
+package org.bykn.bosatsu
+package rankn
 
+import cats.data.NonEmptyList
 import org.scalacheck.Gen
-import org.bykn.bosatsu.Generators
 
 object NTypeGen {
+  val lower: Gen[Char] = Gen.oneOf('a' to 'z')
+  val upper: Gen[Char] = Gen.oneOf('A' to 'Z')
+  val num: Gen[Char] = Gen.oneOf('0' to '9')
+  val identC: Gen[Char] = Gen.frequency((10, lower), (1, upper), (1, num))
+
+  val upperIdent: Gen[String] =
+    for {
+      c <- upper
+      cnt <- Gen.choose(0, 10)
+      rest <- Gen.listOfN(cnt, identC)
+    } yield (c :: rest).mkString
+
+  val consIdentGen: Gen[Identifier.Constructor] =
+    upperIdent.map { n => Identifier.Constructor(n) }
+
+  val typeNameGen: Gen[TypeName] =
+    consIdentGen.map(TypeName(_))
+
+  val keyWords = Set(
+    "if", "ffi", "match", "struct", "enum", "else", "elif",
+    "def", "external", "package", "import", "export", "forall",
+    "recur", "recursive")
+
+  val lowerIdent: Gen[String] =
+    (for {
+      c <- lower
+      cnt <- Gen.choose(0, 10)
+      rest <- Gen.listOfN(cnt, identC)
+    } yield (c :: rest).mkString).filter { s=> !keyWords(s) }
+
+  val packageNameGen: Gen[PackageName] =
+    for {
+      pc <- Gen.choose(1, 5)
+      (h :: tail) <- Gen.listOfN(pc, upperIdent)
+    } yield PackageName(NonEmptyList(h, tail))
 
   val genConst: Gen[Type.Const] =
-    Gen.zip(Generators.packageNameGen, Generators.typeNameGen)
+    Gen.zip(packageNameGen, typeNameGen)
       .map { case (p, n) => Type.Const.Defined(p, n) }
 
   val genBound: Gen[Type.Var.Bound] =
-    Generators.lowerIdent.map { v => Type.Var.Bound(v) }
+    lowerIdent.map { v => Type.Var.Bound(v) }
 
   def genRootType(genC: Option[Gen[Type.Const]]): Gen[Type] = {
     val b = genBound.map(Type.TyVar(_))

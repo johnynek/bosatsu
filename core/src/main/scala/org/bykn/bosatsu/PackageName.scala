@@ -36,7 +36,7 @@ object PackageName {
   implicit val packageNameOrdering: Ordering[PackageName] =
     order.toOrdering
 
-  val predef: PackageName =
+  val PredefName: PackageName =
     PackageName(NonEmptyList.of("Bosatsu", "Predef"))
 }
 

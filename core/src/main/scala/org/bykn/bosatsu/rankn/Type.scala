@@ -266,7 +266,7 @@ object Type {
     case class Defined(packageName: PackageName, name: TypeName) extends Const
 
     def predef(name: String): Defined =
-      Defined(PackageName.predef, TypeName(Identifier.Constructor(name)))
+      Defined(PackageName.PredefName, TypeName(Identifier.Constructor(name)))
   }
 
   sealed abstract class Var {

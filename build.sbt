@@ -124,8 +124,19 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         fastparseCats.value,
         paiges.value,
         scalaCheck.value % Test,
-        scalaTest.value % Test
+        scalaTest.value % Test,
+        // needed for acyclic which we run periodically, not all the time
+        //"com.lihaoyi" %% "acyclic" % "0.1.7" % "provided"
       )
+      /*
+      // periodically we use acyclic to ban cyclic dependencies and make compilation faster
+      ,
+      autoCompilerPlugins := true,
+
+      addCompilerPlugin("com.lihaoyi" %% "acyclic" % "0.1.7"),
+
+      scalacOptions += "-P:acyclic:force"
+      */
   )
   .dependsOn(base)
   .jsSettings(commonJsSettings)

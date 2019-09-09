@@ -25,7 +25,7 @@ import SourceConverter.{success, Result}
  */
 final class SourceConverter(
   thisPackage: PackageName,
-  imports: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
+  imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
   localDefs: Stream[TypeDefinitionStatement]) {
   /*
    * We should probably error for non-predef name collisions.
@@ -44,7 +44,7 @@ final class SourceConverter(
   private val resolveImportedCons: Map[Identifier, (PackageName, Constructor)] =
     Referant.importedConsNames(imports)
 
-  val importedTypeEnv = Referant.importedTypeEnv(imports)(_.name)
+  val importedTypeEnv = Referant.importedTypeEnv(imports)(identity)
 
   private def nameToType(c: Constructor): rankn.Type.Const =
     typeCache.getOrElseUpdate(c, {
@@ -155,8 +155,8 @@ final class SourceConverter(
         }
         (apply(arg), expBranches).mapN(Expr.Match(_, _, decl))
       case tc@TupleCons(its) =>
-        val tup0: Expr[Declaration] = Expr.Var(Some(Predef.packageName), Identifier.Constructor("Unit"), tc)
-        val tup2: Expr[Declaration] = Expr.Var(Some(Predef.packageName), Identifier.Constructor("TupleCons"), tc)
+        val tup0: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("Unit"), tc)
+        val tup2: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("TupleCons"), tc)
         def tup(args: List[Declaration]): Result[Expr[Declaration]] =
           args match {
             case Nil => success(tup0)
@@ -180,7 +180,7 @@ final class SourceConverter(
                   apply(item).map(SpliceOrItem.Item(_))
               }
 
-            val pn = Option(Predef.packageName)
+            val pn = Option(PackageName.PredefName)
             def mkC(c: String): Expr[Declaration] =
               Expr.Var(pn, Identifier.Constructor(c), l)
             def mkN(c: String): Expr[Declaration] =
@@ -222,7 +222,7 @@ final class SourceConverter(
              *   else: []
              * )
              */
-            val pn = Option(Predef.packageName)
+            val pn = Option(PackageName.PredefName)
             val opName = (res, filter) match {
               case (SpliceOrItem.Item(_), None) =>
                 "map_List"
@@ -264,7 +264,7 @@ final class SourceConverter(
             }
         }
       case l@DictDecl(dict) =>
-        val pn = Option(Predef.packageName)
+        val pn = Option(PackageName.PredefName)
         def mkN(n: String): Expr[Declaration] =
           Expr.Var(pn, Identifier.Name(n), l)
         val empty: Expr[Declaration] =
@@ -298,7 +298,7 @@ final class SourceConverter(
              *   )
              */
 
-            val pn = Option(Predef.packageName)
+            val pn = Option(PackageName.PredefName)
             val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name("foldLeft"), l)
             val dictSymbol = unusedNames(decl.allNames).next
             val init: Expr[Declaration] = Expr.Var(None, dictSymbol, l)
@@ -530,12 +530,12 @@ final class SourceConverter(
             case Nil =>
               // ()
               Pattern.PositionalStruct(
-                (Predef.packageName, Constructor("Unit")),
+                (PackageName.PredefName, Constructor("Unit")),
                 Nil)
             case h :: tail =>
               val tailP = loop(tail)
               Pattern.PositionalStruct(
-                (Predef.packageName, Constructor("TupleCons")),
+                (PackageName.PredefName, Constructor("TupleCons")),
                 h :: tailP :: Nil)
           }
 
@@ -874,7 +874,7 @@ object SourceConverter {
 
   def apply(
     thisPackage: PackageName,
-    imports: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
+    imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
     localDefs: Stream[TypeDefinitionStatement]): SourceConverter =
     new SourceConverter(thisPackage, imports, localDefs)
 

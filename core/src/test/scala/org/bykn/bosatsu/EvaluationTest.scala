@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.scalatest.FunSuite
 
-import Evaluation.Value._
+import Value._
 
 class EvaluationTest extends FunSuite {
 

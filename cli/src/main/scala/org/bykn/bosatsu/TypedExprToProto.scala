@@ -1234,7 +1234,7 @@ object ProtoConverter {
     def getNodes(n: String, parent: Node): List[Node] =
       nodeMap.get(n) match {
         case Some(ns) => ns
-        case None if n == Predef.Name.asString =>
+        case None if n == PackageName.PredefName.asString =>
           // we can load the predef below
           Nil
         case None =>
@@ -1346,7 +1346,7 @@ object ProtoConverter {
             case Some(Right(p) :: Nil) =>
               packFromProtoUncached(p, rec)
                 .map(Right(_))
-            case None if pack == Predef.Name.asString =>
+            case None if pack == PackageName.PredefName.asString =>
               // if we haven't replaced explicitly, use the built in predef
               Success(Left(predefIface))
             case found =>
