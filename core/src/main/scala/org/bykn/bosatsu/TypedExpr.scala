@@ -631,4 +631,99 @@ object TypedExpr {
 
   implicit def typedExprHasRegion[T: HasRegion]: HasRegion[TypedExpr[T]] =
     HasRegion.instance[TypedExpr[T]] { e => HasRegion.region(e.tag) }
+
+  /**
+   * if the te is not in normal form, transform it into normal form
+   */
+  def normalize[A](te: TypedExpr[A]): Option[TypedExpr[A]] =
+    te match {
+      case Generic(vars, in, tag) =>
+        // normalize the inside, then get all the freeBoundTyVars and
+        // and if we can reallocate typevars to be the a, b, ... do so,
+        // if they are the same, return none
+        //
+        // Also, Generic(Generic(...)) => Generic
+        // Generic(vs, te, _) but vs are not bound in te, we can remove Generic
+        normalize(in).map(Generic(vars, _, tag))
+      case Annotation(term, tpe, tag) =>
+        // if we annotate twice, we can ignore the inner annotation
+        // we should have type annotation where we normalize type parameters
+        val e1 = normalize(term).getOrElse(te)
+        e1 match {
+          case _ if e1.getType == tpe =>
+            // the type is already right
+            Some(e1)
+          case Annotation(t1, _, tag) =>
+            Some(Annotation(t1, tpe, tag))
+          case notAnn =>
+            if (e1 eq te) None
+            else Some(Annotation(notAnn, tpe, tag))
+        }
+
+      case AnnotatedLambda(arg, tpe, expr, tag) =>
+        // we can normalize the arg to the smallest non-free var
+        // \x -> f(x) == f (eta conversion)
+        // \x -> generic(g) = generic(\x -> g) if the type of x doesn't have free types with vars
+        val e1 = normalize(expr).getOrElse(te)
+        e1 match {
+          case App(fn, Var(None, ident, _, _), _, _) if ident == arg =>
+            val tetpe = te.getType
+            Some {
+              if (fn.getType == tetpe) fn
+              else Annotation(fn, tetpe, te.tag)
+            }
+          case notApp =>
+            if (e1 eq te) None
+            else Some(AnnotatedLambda(arg, tpe, notApp, tag))
+        }
+
+      case Var(_, _, _, _) | Literal(_, _, _) =>
+        // these are fundamental
+        None
+      case a@App(fn, arg, tpe, tag) =>
+        val f1 = normalize(fn).getOrElse(fn)
+        f1 match {
+          case AnnotatedLambda(b, ltpe, expr, ltag) =>
+            // (\y -> z)(x) = let y = x in z
+            val a2 = if (ltpe != arg.getType) Annotation(arg, ltpe, ltag) else arg
+            val expr2 = if (tpe != expr.getType) Annotation(expr, tpe, expr.tag) else expr
+            val l = Let(b, a2, expr, RecursionKind.NonRecursive, tag)
+            normalize(l)
+          case _ =>
+            val a1 = normalize(arg).getOrElse(arg)
+            if ((f1 eq fn) && (a1 eq arg)) None
+            else Some(App(f1, a1, tpe, tag))
+        }
+      case Let(arg, ex, in, rec, tag) =>
+        val in1 = normalize(in).getOrElse(in)
+        if (freeVars(in1 :: Nil).contains(arg)) {
+          // the arg is needed
+          val ex1 = normalize(ex).getOrElse(ex)
+          if ((in1 eq in) && (ex1 eq ex)) None
+          else Some(Let(arg, ex1, in1, rec, tag))
+        }
+        else {
+          // let x = y in z if x isn't free in z = z
+          Some(in1)
+        }
+
+      case Match(arg, branches, tag) =>
+        // match x:
+        //   y: fn
+        // let y = x in fn
+        def ncount(e: TypedExpr[A]): (Int, TypedExpr[A]) =
+          normalize(e) match {
+            case None => (0, e)
+            case Some(e) => (1, e)
+          }
+        // TODO normalize the patterns too
+        // we can remove any bindings that aren't used in branches
+        val (changed, branches1) = branches.traverse { case (p, t) =>
+          val (c, t1) = ncount(t)
+          (c, (p, t1))
+        }
+        val a1 = normalize(arg).getOrElse(arg)
+        if ((a1 eq arg) && (changed == 0)) None
+        else Some(Match(a1, branches1, tag))
+    }
 }

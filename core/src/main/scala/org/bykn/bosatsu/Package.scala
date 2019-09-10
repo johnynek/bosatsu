@@ -228,7 +228,12 @@ object Package {
             .runFully(withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
             )
-            .map { lets => Program(typeEnv, lets, extDefs, stmts) }
+            .map { lets =>
+              val normalLets = lets.map { case (n, r, e) =>
+                (n, r, TypedExpr.normalize(e).getOrElse(e))
+              }
+              Program(typeEnv, normalLets, extDefs, stmts)
+            }
             .left
             .map(PackageError.TypeErrorIn(_, p))
 
