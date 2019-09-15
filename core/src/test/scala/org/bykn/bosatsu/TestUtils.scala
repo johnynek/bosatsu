@@ -92,6 +92,12 @@ object TestUtils {
 
     val pathArg = com.monovore.decline.Argument.readInt
 
+    val args = inputs
+      .iterator
+      .zipWithIndex
+      .flatMap { case (_, idx) => List("--input", idx.toString) }
+      .toList
+
     def readPath(p: Path): IO[String] =
       get(p) match {
         case None => moduleIOMonad.raiseError(new Exception(s"invalid index: $p, length: ${inputs.size}"))
@@ -123,8 +129,7 @@ object TestUtils {
   def evalTest(packages: List[String], mainPackS: String, expected: Value) = {
     val module = new TestModule(packages.toVector)
 
-    val args = packages.zipWithIndex.flatMap { case (_, idx) => List("--input", idx.toString) }
-    module("eval" :: "--main" :: mainPackS :: args) match {
+    module("eval" :: "--main" :: mainPackS :: module.args) match {
       case Right(module.Output.EvaluationResult(got, _)) =>
         assert(got.value == expected, s"${got.value} != $expected")
       case Right(other) =>
@@ -137,8 +142,7 @@ object TestUtils {
   def evalTestJson(packages: List[String], mainPackS: String, expected: Json) = {
     val module = new TestModule(packages.toVector)
 
-    val args = packages.zipWithIndex.flatMap { case (_, idx) => List("--input", idx.toString) }
-    module("write-json" :: "--main" :: mainPackS :: "--output" :: "-1" :: args) match {
+    module("write-json" :: "--main" :: mainPackS :: "--output" :: "-1" :: module.args) match {
       case Right(module.Output.JsonOutput(got, _)) =>
         assert(got == expected, s"$got != $expected")
       case Right(other) =>
@@ -151,11 +155,10 @@ object TestUtils {
   def runBosatsuTest(packages: List[String], mainPackS: String, assertionCount: Int) = {
     val module = new TestModule(packages.toVector)
 
-    val args = packages.zipWithIndex.flatMap { case (_, idx) => List("--input", idx.toString) }
-    module("test" :: "--test_package" :: mainPackS :: args) match {
+    module("test" :: "--test_package" :: mainPackS :: module.args) match {
       case Right(module.Output.TestOutput(results)) =>
-        results match {
-          case (_, Some(t)) :: Nil =>
+        results.collect { case (_, Some(t)) => t } match {
+          case t :: Nil =>
             assert(t.assertions == assertionCount, s"${t.assertions} != $assertionCount")
             val (suc, failcount, message) = Test.report(t)
             assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
