@@ -29,12 +29,6 @@ matrix:
       env: PLATFORM=jvm
       script: sbt "++ ${TRAVIS_SCALA_VERSION}" coverage coreJVM/test cli/test coverageReport doc && codecov
 
-    - scala: 2.11.12
-      language: scala
-      jdk: openjdk8
-      env: PLATFORM=js
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test
-
     - scala: 2.12.9
       language: scala
       jdk: openjdk8
