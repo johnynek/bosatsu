@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.{Kleisli, Validated}
+import cats.data.Validated
 import org.bykn.bosatsu.rankn._
 import org.scalatest.{Assertion, Assertions}
 
@@ -80,56 +80,14 @@ object TestUtils {
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
     }
 
-  /**
-   * This is mock MainModule that uses Int as Paths and reads them out of the vector input
-   */
-  class TestModule(inputs: Vector[String]) extends MainModule[Kleisli[Either[Throwable, ?], Vector[String], ?]] {
-    type Path = Int
-
-    val get: Int => Option[String] = inputs.lift
-
-    type IO[A] = Kleisli[Either[Throwable, ?], Vector[String], A]
-
-    val pathArg = com.monovore.decline.Argument.readInt
-
-    val args = inputs
-      .iterator
-      .zipWithIndex
-      .flatMap { case (_, idx) => List("--input", idx.toString) }
-      .toList
-
-    def readPath(p: Path): IO[String] =
-      get(p) match {
-        case None => moduleIOMonad.raiseError(new Exception(s"invalid index: $p, length: ${inputs.size}"))
-        case Some(str) => moduleIOMonad.pure(str)
-      }
-
-    def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
-      paths match {
-        case Nil => moduleIOMonad.pure(Nil)
-        case _ =>
-          moduleIOMonad.raiseError(new Exception(s"no packages available: ${paths}"))
-      }
-
-    def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
-      paths match {
-        case Nil => moduleIOMonad.pure(Nil)
-        case _ =>
-          moduleIOMonad.raiseError(new Exception(s"no interfaces available: ${paths}"))
-      }
-
-
-    def apply(cmd: List[String]): Either[Throwable, Output] =
-      run(cmd) match {
-        case Left(_) => Left(new Exception(s"got the help message for: $cmd"))
-        case Right(io) => io.run(inputs)
-      }
-  }
+  def makeInputArgs(files: List[(Int, Any)]): List[String] =
+    files.flatMap { case (idx, _) => "--input" :: idx.toString :: Nil }
 
   def evalTest(packages: List[String], mainPackS: String, expected: Value) = {
-    val module = new TestModule(packages.toVector)
+    val module = new MemoryMain[Either[Throwable, ?], Int]
+    val files = packages.zipWithIndex.map(_.swap)
 
-    module("eval" :: "--main" :: mainPackS :: module.args) match {
+    module.runWith(files)("eval" :: "--main" :: mainPackS :: makeInputArgs(files)) match {
       case Right(module.Output.EvaluationResult(got, _)) =>
         assert(got.value == expected, s"${got.value} != $expected")
       case Right(other) =>
@@ -140,9 +98,10 @@ object TestUtils {
   }
 
   def evalTestJson(packages: List[String], mainPackS: String, expected: Json) = {
-    val module = new TestModule(packages.toVector)
+    val module = new MemoryMain[Either[Throwable, ?], Int]
+    val files = packages.zipWithIndex.map(_.swap)
 
-    module("write-json" :: "--main" :: mainPackS :: "--output" :: "-1" :: module.args) match {
+    module.runWith(files)("write-json" :: "--main" :: mainPackS :: "--output" :: "-1" :: makeInputArgs(files)) match {
       case Right(module.Output.JsonOutput(got, _)) =>
         assert(got == expected, s"$got != $expected")
       case Right(other) =>
@@ -153,9 +112,10 @@ object TestUtils {
   }
 
   def runBosatsuTest(packages: List[String], mainPackS: String, assertionCount: Int) = {
-    val module = new TestModule(packages.toVector)
+    val module = new MemoryMain[Either[Throwable, ?], Int]
+    val files = packages.zipWithIndex.map(_.swap)
 
-    module("test" :: "--test_package" :: mainPackS :: module.args) match {
+    module.runWith(files)("test" :: "--test_package" :: mainPackS :: makeInputArgs(files)) match {
       case Right(module.Output.TestOutput(results)) =>
         results.collect { case (_, Some(t)) => t } match {
           case t :: Nil =>

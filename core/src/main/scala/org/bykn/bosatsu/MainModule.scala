@@ -130,50 +130,80 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           }
         }
 
-    def buildPackMap(srcs: List[Path], deps: List[Path]): IO[PackageMap.Typed[Any]] =
+    def buildPackMap(srcs: List[Path], deps: List[Path]): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] =
       readPackages(deps)
         .flatMap { packs =>
           val ifaces = packs.map(Package.interfaceOf(_))
           typeCheck0(srcs, ifaces)
-            .map { case (thesePacks, _) =>
-              packs.foldLeft(PackageMap.toAnyTyped(thesePacks))(_ + _)
+            .map { case (thesePacks, lst) =>
+              (packs.foldLeft(PackageMap.toAnyTyped(thesePacks))(_ + _), lst)
             }
         }
 
-    case class Evaluate(inputs: List[Path], mainPackage: PackageName, deps: List[Path]) extends MainCommand {
+    /**
+     * This allows us to use either a path or packagename to select
+     * the main file
+     */
+    sealed abstract class MainIdentifier {
+      def getMain(ps: List[(Path, PackageName)]): IO[PackageName]
+    }
+    object MainIdentifier {
+      case class FromPackage(mainPackage: PackageName) extends MainIdentifier {
+        def getMain(ps: List[(Path, PackageName)]): IO[PackageName] = moduleIOMonad.pure(mainPackage)
+      }
+      case class FromFile(mainFile: Path) extends MainIdentifier {
+        def getMain(ps: List[(Path, PackageName)]): IO[PackageName] =
+          ps.collectFirst { case (path, pn) if path == mainFile => pn } match {
+            case None => moduleIOMonad.raiseError(new Exception(s"could not find file $mainFile in parsed sources"))
+            case Some(p) => moduleIOMonad.pure(p)
+          }
+      }
+
+      def opts(pnOpts: Opts[PackageName], fileOpts: Opts[Path]): Opts[MainIdentifier] =
+        pnOpts.map(FromPackage(_)).orElse(fileOpts.map(FromFile(_)))
+    }
+
+    case class Evaluate(inputs: List[Path], mainPackage: MainIdentifier, deps: List[Path]) extends MainCommand {
       def run =
         buildPackMap(inputs.toList, deps)
-          .flatMap { packs =>
-            val ev = Evaluation(packs, Predef.jvmExternals)
-            ev.evaluateLast(mainPackage) match {
-              case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
-              case Some((eval, tpe)) =>
-                moduleIOMonad.pure(Output.EvaluationResult(eval, tpe))
-            }
+          .flatMap { case (packs, names) =>
+            mainPackage
+              .getMain(names)
+              .flatMap { mainPackage =>
+                val ev = Evaluation(packs, Predef.jvmExternals)
+                ev.evaluateLast(mainPackage) match {
+                  case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
+                  case Some((eval, tpe)) =>
+                    moduleIOMonad.pure(Output.EvaluationResult(eval, tpe))
+                }
+              }
           }
     }
 
-    case class ToJson(inputs: List[Path], deps: List[Path], mainPackage: PackageName, output: Path) extends MainCommand {
+    case class ToJson(inputs: List[Path], deps: List[Path], mainPackage: MainIdentifier, output: Path) extends MainCommand {
       def checkEmpty =
         if (inputs.isEmpty && deps.isEmpty) moduleIOMonad.raiseError(new Exception("no test sources or test dependencies"))
         else moduleIOMonad.unit
 
       def run = checkEmpty *> buildPackMap(inputs.toList, deps)
-        .flatMap { packs =>
-          val ev = Evaluation(packs, Predef.jvmExternals)
-          ev.evaluateLast(mainPackage) match {
-            case None =>
-              moduleIOMonad.raiseError(new Exception("found no main expression"))
-            case Some((eval, scheme)) =>
-              val res = eval.value
-              ev.toJson(res, scheme) match {
+        .flatMap { case (packs, files) =>
+          mainPackage.getMain(files)
+            .flatMap { mainPackage =>
+              val ev = Evaluation(packs, Predef.jvmExternals)
+              ev.evaluateLast(mainPackage) match {
                 case None =>
-                  moduleIOMonad.raiseError(new Exception(
-                    s"cannot convert type to Json: $scheme"))
-                case Some(j) =>
-                  moduleIOMonad.pure(Output.JsonOutput(j, output))
+                  moduleIOMonad.raiseError(new Exception("found no main expression"))
+                case Some((eval, scheme)) =>
+                  val res = eval.value
+                  ev.toJson(res, scheme) match {
+                    case None =>
+                      moduleIOMonad.raiseError(new Exception(
+                        s"cannot convert type to Json: $scheme"))
+                    case Some(j) =>
+                      moduleIOMonad.pure(Output.JsonOutput(j, output))
+                  }
               }
-          }
+            }
         }
     }
     case class TypeCheck(inputs: NonEmptyList[Path], ifaces: List[Path], output: Path, ifout: Option[Path]) extends MainCommand {
@@ -289,7 +319,10 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       val ifaces = toList(Opts.options[Path]("interface", help = "interface files"))
       val includes = toList(Opts.options[Path]("include", help = "compiled packages to include files"))
 
-      val mainP = Opts.option[PackageName]("main", help = "main package to evaluate")
+      val mainP =
+          MainIdentifier.opts(
+            Opts.option[PackageName]("main", help = "main package to evaluate"),
+            Opts.option[Path]("main_file", help = "file containing the main package to evaluate"))
       val testP = toList(Opts.options[PackageName]("test_package", help = "package for which to run tests"))
       val outputPath = Opts.option[Path]("output", help = "output path")
       val interfaceOutputPath = Opts.option[Path]("interface_out", help = "interface output path")

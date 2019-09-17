@@ -1,6 +1,10 @@
 *.class
 *.log
 
+# elm
+elmui/out/*
+elmui/elm-stuff/*
+
 # sbt specific
 .cache
 .history

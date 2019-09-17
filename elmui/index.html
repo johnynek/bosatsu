@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+  <head></head>
+  <body>
+    <script type="text/javascript" src="out/bosatsu.js"></script>
+    <script type="text/javascript" src="out/main.js"></script>
+    <div id="elm"></div>
+    <script>
+      let app = Elm.Main.init({
+        node: document.getElementById('elm')
+      });
+      app.ports.toJS.subscribe(function (msg) {
+        let res = Bosatsu.evaluateJson(null, "file", {"file": msg })
+        let err = res["error_message"]
+        if (err) {
+          app.ports.toElm.send("error: " + err)
+        }
+        let success = res["result"]
+        if (success) {
+          app.ports.toElm.send(JSON.stringify(success))
+        }
+        else {
+          app.ports.toElm.send("unknown result: " + JSON.stringify(res))
+        }
+
+      });
+    </script>
+  </body>
+</html>
