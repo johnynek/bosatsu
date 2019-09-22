@@ -33,7 +33,7 @@ matrix:
       language: scala
       jdk: openjdk8
       env: PLATFORM=js
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test jsapiJS/fastOptJS && ./elmui/build.sh
 
     - language: generic
       before_install:
