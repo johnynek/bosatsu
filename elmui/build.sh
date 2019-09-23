@@ -6,6 +6,7 @@ then
   npm install -g elm
 fi
 
+cd elmui
 make
 cd ..
 mkdir -p compiler
