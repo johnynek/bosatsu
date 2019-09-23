@@ -34,6 +34,11 @@ matrix:
       jdk: openjdk8
       env: PLATFORM=js
       script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test jsapiJS/fastOptJS && ./elmui/build.sh
+      deploy:
+        provider: pages:git
+        deploy_key: bosatsu_deploy_key
+        edge: true
+
 
     - language: generic
       before_install:

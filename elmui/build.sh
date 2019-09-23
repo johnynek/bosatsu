@@ -4,6 +4,7 @@ if [ ! -z "$TRAVIS" ]
 then
   # install elm on travis
   npm install -g elm
+  echo $DEPLOY_TRAVIS | base64 -d > bosatsu_deploy_key
 fi
 
 cd elmui
