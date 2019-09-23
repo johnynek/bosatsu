@@ -1,9 +1,11 @@
 #!/bin/bash
+set -e
 
 if [ ! -z "$TRAVIS" ]
 then
   # install elm on travis
   npm install -g elm
+  echo "About to set up deploy key"
   echo $DEPLOY_TRAVIS | base64 -d > bosatsu_deploy_key
 fi
 
