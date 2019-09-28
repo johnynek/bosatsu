@@ -4,14 +4,14 @@ import BazelDepsApi [
   Config, Artifact, Replacement, default_options_with_scala, merge_dep_List, scala_dep,
   scala_dep_modules, standard_scala_replacements ]
 
-cats_version = '1.6.0'
-cats_effect_version = '1.3.0'
+cats_version = '2.0.0'
+cats_effect_version = '2.0.0'
 dagon_version = '0.2.2'
-decline_version = '0.4.2'
+decline_version = '1.0.0'
 fastparse_cats_version = '0.1.0'
 fastparse_version = '1.0.0'
 kind_projector_version = '0.9.4'
-paiges_version = '0.2.1'
+paiges_version = '0.3.0'
 scala_xml_version = '1.0.6'
 scalacheck_version = '1.13.5'
 scalatest_version = '3.0.1'
