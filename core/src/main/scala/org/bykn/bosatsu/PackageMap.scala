@@ -2,7 +2,8 @@ package org.bykn.bosatsu
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import com.stripe.dagon.Memoize
-import cats.Foldable
+import cats.{Apply, Foldable}
+import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
 import cats.Order
 import cats.implicits._
@@ -293,9 +294,11 @@ object PackageMap {
     ps.toMap.traverse(infer).map(PackageMap(_))
   }
 
+  type DupMap[A] = Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])]
+
   def resolveThenInfer[A](
     ps: List[(A, Package.Parsed)],
-    ifs: List[Package.Interface]): (Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], ValidatedNel[PackageError, Inferred]) = {
+    ifs: List[Package.Interface]): (DupMap[A], ValidatedNel[PackageError, Inferred]) = {
       val (bad, good) = resolveAll(ps, ifs)
       (bad, good.andThen(inferAll(_)))
     }
@@ -304,4 +307,30 @@ object PackageMap {
     parsedFiles.foldLeft(Map.empty[PackageName, (LocationMap, String)]) { case (map, ((path, lm), pack)) =>
       map.updated(pack.name, (lm, path.toString))
     }
+
+  /** typecheck a list of packages given a list of interface dependencies
+   *
+   * @param packs a list of parsed packages, along with a key A to tag the source
+   * @param ifs the interfaces we are compiling against. If Bosatsu.Predef is not in this list, the default is added
+   * @param liftError how to convert package errors into F
+   * @param checkDups how to report duplicate package errors
+   */
+  def typeCheckParsed[F[_]: Apply, A](
+    packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
+    ifs: List[Package.Interface],
+    predefKey: A,
+    liftError: FunctionK[ValidatedNel[PackageError, ?], F])(
+    checkDups: DupMap[(A, LocationMap)] => F[Unit]
+  ): F[PackageMap.Inferred] = {
+    // if we have passed in a use supplied predef, don't use the internal one
+    val useInternalPredef = !ifs.contains { p: Package.Interface => p.name == PackageName.PredefName }
+    // Now we have completed all IO, here we do all the checks we need for correctness
+    val parsed =
+        if (useInternalPredef) Predef.withPredefA[(A, LocationMap)]((predefKey, LocationMap("")), packs.toList)
+        else Predef.withPredefImportsA[(A, LocationMap)](packs.toList)
+
+    val (dups, resPacks) = PackageMap.resolveThenInfer(parsed, ifs)
+
+    checkDups(dups) *> liftError(resPacks)
+  }
 }

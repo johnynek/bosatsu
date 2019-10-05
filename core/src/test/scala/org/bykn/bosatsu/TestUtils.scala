@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
-import org.bykn.bosatsu.rankn._
 import cats.data.Validated
+import org.bykn.bosatsu.rankn._
 import org.scalatest.{Assertion, Assertions}
 
 import fastparse.all.Parsed
@@ -80,60 +80,58 @@ object TestUtils {
         fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
     }
 
-  sealed abstract class EvaluationMode[A] {
-    def expected: A
-  }
-  object EvaluationMode {
-    case class JsonMode(expected: Json) extends EvaluationMode[Json]
-    case class EvalMode(expected: Value) extends EvaluationMode[Value]
-    case class TestMode(expected: Int) extends EvaluationMode[Int]
-  }
+  def makeInputArgs(files: List[(Int, Any)]): List[String] =
+    files.flatMap { case (idx, _) => "--input" :: idx.toString :: Nil }
 
-  def evalTest(packages: List[String], mainPackS: String, expected: Value, extern: Externals = Externals.empty) =
-    evalTestMode(packages, mainPackS, EvaluationMode.EvalMode(expected), extern)
+  def evalTest(packages: List[String], mainPackS: String, expected: Value) = {
+    val module = new MemoryMain[Either[Throwable, ?], Int]
+    val files = packages.zipWithIndex.map(_.swap)
 
-  def evalTestJson(packages: List[String], mainPackS: String, expected: Json, extern: Externals = Externals.empty) =
-    evalTestMode(packages, mainPackS, EvaluationMode.JsonMode(expected), extern)
-
-  def runBosatsuTest(packages: List[String], mainPackS: String, assertionCount: Int, extern: Externals = Externals.empty) =
-    evalTestMode(packages, mainPackS, EvaluationMode.TestMode(assertionCount), extern)
-
-  def evalTestMode[A](packages: List[String], mainPackS: String, expected: EvaluationMode[A], extern: Externals = Externals.empty) = {
-    def inferredHandler(packMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
-      val ev = Evaluation(packMap, Predef.jvmExternals ++ extern)
-      // Make sure all the typed expressions are valid (no Metas/Skolems)
-      packMap.toMap.values.foreach { pack =>
-        pack.program.lets.foreach { case (_, _, te) => assertValid(te) }
-      }
-      //if (mainPackS == "A") println(ev.repr)
-      ev.evaluateLast(mainPack) match {
-        case None => fail("found no main expression")
-        case Some((eval, schm)) =>
-          val typeStr = TypeRef.fromTypes(Some(mainPack), schm :: Nil)(schm).toDoc.render(80)
-          expected match {
-            case EvaluationMode.EvalMode(exp) =>
-              val left = eval.value
-              assert(left == exp,
-                s"failed: for type: $typeStr, ${left} != $exp")
-              succeed
-            case EvaluationMode.JsonMode(json) =>
-              val leftJson = ev.toJson(eval.value, schm)
-              assert(leftJson == Some(json), s"type: $typeStr, $leftJson != $json")
-              succeed
-            case EvaluationMode.TestMode(cnt) =>
-              ev.evalTest(mainPack) match {
-                case None => fail(s"$mainPack had no tests evaluted")
-                case Some(t) =>
-                  assert(t.assertions == cnt, s"${t.assertions} == $cnt")
-                  val (suc, failcount, message) = Test.report(t)
-                  assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
-                  if (failcount > 0) fail(message.render(80))
-                  else succeed
-              }
-          }
-      }
+    module.runWith(files)("eval" :: "--main" :: mainPackS :: makeInputArgs(files)) match {
+      case Right(module.Output.EvaluationResult(got, _)) =>
+        assert(got.value == expected, s"${got.value} != $expected")
+      case Right(other) =>
+        fail(s"got an unexpected success: $other")
+      case Left(err) =>
+        fail(s"got an exception: $err")
     }
-    testInferred(packages, mainPackS, inferredHandler(_, _))
+  }
+
+  def evalTestJson(packages: List[String], mainPackS: String, expected: Json) = {
+    val module = new MemoryMain[Either[Throwable, ?], Int]
+    val files = packages.zipWithIndex.map(_.swap)
+
+    module.runWith(files)("write-json" :: "--main" :: mainPackS :: "--output" :: "-1" :: makeInputArgs(files)) match {
+      case Right(module.Output.JsonOutput(got, _)) =>
+        assert(got == expected, s"$got != $expected")
+      case Right(other) =>
+        fail(s"got an unexpected success: $other")
+      case Left(err) =>
+        fail(s"got an exception: $err")
+    }
+  }
+
+  def runBosatsuTest(packages: List[String], mainPackS: String, assertionCount: Int) = {
+    val module = new MemoryMain[Either[Throwable, ?], Int]
+    val files = packages.zipWithIndex.map(_.swap)
+
+    module.runWith(files)("test" :: "--test_package" :: mainPackS :: makeInputArgs(files)) match {
+      case Right(module.Output.TestOutput(results)) =>
+        results.collect { case (_, Some(t)) => t } match {
+          case t :: Nil =>
+            assert(t.assertions == assertionCount, s"${t.assertions} != $assertionCount")
+            val (suc, failcount, message) = Test.report(t)
+            assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
+            if (failcount > 0) fail(message.render(80))
+            else succeed
+          case other =>
+            fail(s"expected exactly one test result, got: $other")
+        }
+      case Right(other) =>
+        fail(s"got an unexpected success: $other")
+      case Left(err) =>
+        fail(s"got an exception: $err")
+    }
   }
 
   def testInferred(packages: List[String], mainPackS: String, inferredHandler: (PackageMap.Inferred, PackageName) => Assertion ) = {

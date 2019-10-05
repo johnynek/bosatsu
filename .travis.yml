@@ -29,17 +29,16 @@ matrix:
       env: PLATFORM=jvm
       script: sbt "++ ${TRAVIS_SCALA_VERSION}" coverage coreJVM/test cli/test coverageReport doc && codecov
 
-    - scala: 2.11.12
-      language: scala
-      jdk: openjdk8
-      env: PLATFORM=js
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test
-
     - scala: 2.12.9
       language: scala
       jdk: openjdk8
       env: PLATFORM=js
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test
+      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test jsapiJS/fastOptJS && ./elmui/build.sh
+      deploy:
+        provider: pages:git
+        deploy_key: bosatsu_deploy_key
+        edge: true
+
 
     - language: generic
       before_install:

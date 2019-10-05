@@ -6,9 +6,7 @@ scala_import(
     ],
     runtime_deps = [
         "//3rdparty/jvm/org/scala_lang:scala_library",
-        ":cats_core",
-        ":export_hook",
-        ":machinist"
+        ":cats_core"
     ],
     visibility = [
         "//visibility:public"
@@ -57,8 +55,7 @@ scala_import(
     runtime_deps = [
         "//3rdparty/jvm/org/scala_lang:scala_library",
         ":cats_kernel",
-        ":cats_macros",
-        ":machinist"
+        ":cats_macros"
     ],
     visibility = [
         "//visibility:public"
@@ -91,8 +88,7 @@ scala_import(
     runtime_deps = [
         "//3rdparty/jvm/org/scala_lang:scala_library",
         ":cats_core",
-        ":cats_macros",
-        ":machinist"
+        ":cats_macros"
     ],
     visibility = [
         "//visibility:public"
@@ -164,8 +160,7 @@ scala_import(
         "//external:jar/org/typelevel/cats_macros_2_11"
     ],
     runtime_deps = [
-        "//3rdparty/jvm/org/scala_lang:scala_library",
-        ":machinist"
+        "//3rdparty/jvm/org/scala_lang:scala_library"
     ],
     visibility = [
         "//visibility:public"
@@ -204,22 +199,6 @@ scala_import(
     runtime_deps = [
         "//3rdparty/jvm/org/scala_lang:scala_library",
         "//3rdparty/jvm/org/scalacheck:scalacheck"
-    ],
-    visibility = [
-        "//3rdparty/jvm:__subpackages__"
-    ]
-)
-
-
-
-scala_import(
-    name = "export_hook",
-    jars = [
-        "//external:jar/org/typelevel/export_hook_2_11"
-    ],
-    runtime_deps = [
-        "//3rdparty/jvm/org/scala_lang:scala_library",
-        ":macro_compat"
     ],
     visibility = [
         "//3rdparty/jvm:__subpackages__"

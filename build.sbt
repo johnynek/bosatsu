@@ -67,7 +67,8 @@ lazy val commonJsSettings = Seq(
   // batch mode decreases the amount of memory needed to compile scala.js code
   scalaJSOptimizerOptions := scalaJSOptimizerOptions.value.withBatchMode(scala.sys.env.get("TRAVIS").isDefined),
   coverageEnabled := false,
-  scalaJSUseMainModuleInitializer := true
+  scalaJSUseMainModuleInitializer := false,
+  scalacOptions += "-P:scalajs:sjsDefinedByDefault"
 )
 
 lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("."))
@@ -143,6 +144,25 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
 
 lazy val coreJVM = core.jvm
 lazy val coreJS = core.js
+
+lazy val jsapi = (crossProject(JSPlatform).crossType(CrossType.Pure) in file("jsapi")).
+  settings(
+    commonSettings,
+    commonJsSettings,
+    name := "bosatsu-jsapi",
+    test in assembly := {},
+    libraryDependencies ++=
+      Seq(
+        alleycats.value,
+        cats.value,
+        decline.value,
+        scalaCheck.value % Test,
+        scalaTest.value % Test,
+      )
+  )
+  .dependsOn(base, core)
+
+lazy val jsapiJS = jsapi.js
 
 lazy val bench = project
   .dependsOn(core.jvm)
