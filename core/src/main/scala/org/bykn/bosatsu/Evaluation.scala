@@ -261,14 +261,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   private type Ref = TypedExpr[T]
 
   private def evalBranch(
-    tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
     recurse: Ref => Scoped): (Value, Env) => Eval[Value] = {
-      val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
-        Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
-
-      val packageForType = pm.toMap(pn0)
-
       def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =
         pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
 
@@ -433,9 +427,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
                   case other =>
                     // $COVERAGE-OFF$this should be unreachable
-                    val ts = TypeRef.fromTypes(None, tpe :: Nil)(tpe).toDoc.render(80)
                     val itemStr = items.mkString("(", ", ", ")")
-                    sys.error(s"ill typed in match (${ctor.asString}$itemStr: $ts\n\n$other\n\nenv: $acc")
+                    sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\nenv: $acc")
                     // $COVERAGE-ON$
                 }
               }
@@ -550,7 +543,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          Scoped.const(res)
        case Match(arg, branches, _) =>
          val argR = recurse(arg)
-         val branchR = evalBranch(arg.getType, branches, recurse)
+         val branchR = evalBranch(branches, recurse)
 
          argR.branch(branchR(_, _))
     }
