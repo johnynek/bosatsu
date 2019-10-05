@@ -38,12 +38,11 @@ main = ["aa"]
 """
         ), "NormTest/List", NormalExpressionTag(
           Struct(1,List(Literal(Str("aa")), Struct(0,List()))),
-          Set(LambdaVar(0),
-              Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
-              Struct(0,List()),
-              Literal(Str("aa")),
-              Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)))),
-              Struct(1,List(Literal(Str("aa")), LambdaVar(0)))
+          Set(
+            Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
+            Literal(Str("aa")),
+            Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)))),
+            Struct(0,List())
           )
         ),
         Some("Struct(1,Literal('aa'),Struct(0,))")
@@ -455,7 +454,7 @@ main = (rec_fn(lst1), rec_fn(lst1))
             Struct(0,List())
           ))
         )
-      )  
+      )
     )
     normalExpressionTest(
       List("""
