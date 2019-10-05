@@ -264,11 +264,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     tpe: Type,
     branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
     recurse: Ref => Scoped): (Value, Env) => Eval[Value] = {
-      val dtConst@Type.TyConst(Type.Const.Defined(pn0, tn)) =
-        Type.rootConst(tpe).getOrElse(sys.error(s"failure to get type: $tpe")) // this is safe because it has type checked
-
-      val packageForType = pm.toMap(pn0)
-
       def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =
         pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
 

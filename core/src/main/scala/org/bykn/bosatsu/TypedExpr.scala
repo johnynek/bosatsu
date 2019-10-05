@@ -524,6 +524,53 @@ object TypedExpr {
       .distinct
   }
 
+  def substitute[A](ident: Identifier, ex: TypedExpr[A], in: TypedExpr[A]): TypedExpr[A] = {
+    val exfrees = freeVars(ex :: Nil).toSet
+
+    def loop(in: TypedExpr[A]): TypedExpr[A] = substitute(ident, ex, in)
+
+    in match {
+      case Var(None, i, _, _) if i === ident => ex
+      case Var(_, _, _, _) | Literal(_, _, _) => in
+      case Generic(a, expr, t) =>
+        Generic(a, loop(expr), t)
+      case Annotation(t, tpe, tag) =>
+        Annotation(loop(t), tpe, tag)
+      case AnnotatedLambda(arg, tp, res, tag) =>
+        if ((arg: Identifier) === ident || exfrees(arg)) in // shadows ident
+        else AnnotatedLambda(arg, tp, loop(res), tag)
+      case App(fn, arg, tpe, tag) =>
+        App(loop(fn), loop(arg), tpe, tag)
+      case let@Let(arg, argE, in, rec, tag) =>
+        if ((arg: Identifier) === ident) {
+          // shadowing
+          if (rec.isRecursive) let
+          else {
+            // arg is not in scope for argE
+            Let(arg, loop(argE), in, rec, tag)
+          }
+        }
+        else {
+          // we are rebinding a free val, can
+          val in1 = if (exfrees.contains(arg)) in else loop(in)
+          Let(arg, loop(argE), in1, rec, tag)
+        }
+      case Match(arg, branches, tag) =>
+        // Maintain the order we encounter things:
+        val arg1 = loop(arg)
+        val b1 = branches.map { case branch@(p, b) =>
+          // these are not free variables in this branch
+          val bset = p.names.toSet[Identifier]
+          if (bset(ident) || bset.intersect(exfrees).nonEmpty) {
+            // shadow
+            branch
+          }
+          else (p, loop(b))
+        }
+        Match(arg1, b1, tag)
+    }
+  }
+
   private def replaceVarType[A](te: TypedExpr[A], name: Identifier, tpe: Type): TypedExpr[A] = {
     def recur(t: TypedExpr[A]) = replaceVarType(t, name, tpe)
 
@@ -696,10 +743,15 @@ object TypedExpr {
         }
       case Let(arg, ex, in, rec, tag) =>
         val in1 = normalize(in).getOrElse(in)
-        if (freeVars(in1 :: Nil).contains(arg)) {
+        val cnt = freeVars(in1 :: Nil).count(_ === (arg: Identifier))
+        if (cnt > 0) {
           // the arg is needed
           val ex1 = normalize(ex).getOrElse(ex)
-          if ((in1 eq in) && (ex1 eq ex)) None
+          if (cnt == 1 && !rec.isRecursive) {
+            // we should inline ex
+            Some(substitute(arg, ex1, in1))
+          }
+          else if ((in1 eq in) && (ex1 eq ex)) None
           else Some(Let(arg, ex1, in1, rec, tag))
         }
         else {

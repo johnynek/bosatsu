@@ -2013,4 +2013,41 @@ def y:
 tests = Assertion(y.eq_Int(x), "none")
 """), "A", 1)
   }
+
+  test("improve coverage of typedexpr normalization") {
+    runBosatsuTest(List("""
+package A
+
+enum MyBool: T, F
+main = match T:
+  T: (\x -> x)(True)
+  F: False
+
+tests = Assertion(main, "t1")
+"""), "A", 1)
+
+    runBosatsuTest(List("""
+package A
+
+f = \_ -> True
+
+fn = \x -> f(x)
+
+# trigger an optimization to remove y
+tests = Assertion(fn((y = 1
+2)), "t1")
+"""), "A", 1)
+
+    runBosatsuTest(List("""
+package A
+
+def inc(x):
+  y = x
+  z = y
+  y = 1
+  z.add(y)
+
+tests = Assertion(inc(1).eq_Int(2), "t1")
+"""), "A", 1)
+  }
 }
