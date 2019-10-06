@@ -524,51 +524,51 @@ object TypedExpr {
       .distinct
   }
 
-  def substitute[A](ident: Identifier, ex: TypedExpr[A], in: TypedExpr[A]): TypedExpr[A] = {
+  /**
+   * Try to substitute ex for ident in the expression: in
+   *
+   * This can fail if the free varriables in ex are shadowed
+   * above ident in in.
+   */
+  def substitute[A](ident: Identifier, ex: TypedExpr[A], in: TypedExpr[A]): Option[TypedExpr[A]] = {
     val exfrees = freeVars(ex :: Nil).toSet
 
-    def loop(in: TypedExpr[A]): TypedExpr[A] = substitute(ident, ex, in)
-
-    in match {
-      case Var(None, i, _, _) if i === ident => ex
-      case Var(_, _, _, _) | Literal(_, _, _) => in
-      case Generic(a, expr, t) =>
-        Generic(a, loop(expr), t)
-      case Annotation(t, tpe, tag) =>
-        Annotation(loop(t), tpe, tag)
-      case AnnotatedLambda(arg, tp, res, tag) =>
-        if ((arg: Identifier) === ident || exfrees(arg)) in // shadows ident
-        else AnnotatedLambda(arg, tp, loop(res), tag)
-      case App(fn, arg, tpe, tag) =>
-        App(loop(fn), loop(arg), tpe, tag)
-      case let@Let(arg, argE, in, rec, tag) =>
-        if ((arg: Identifier) === ident) {
-          // shadowing
-          if (rec.isRecursive) let
-          else {
-            // arg is not in scope for argE
-            Let(arg, loop(argE), in, rec, tag)
-          }
-        }
-        else {
-          // we are rebinding a free val, can
-          val in1 = if (exfrees.contains(arg)) in else loop(in)
-          Let(arg, loop(argE), in1, rec, tag)
-        }
-      case Match(arg, branches, tag) =>
-        // Maintain the order we encounter things:
-        val arg1 = loop(arg)
-        val b1 = branches.map { case branch@(p, b) =>
-          // these are not free variables in this branch
-          val bset = p.names.toSet[Identifier]
-          if (bset(ident) || bset.intersect(exfrees).nonEmpty) {
-            // shadow
-            branch
-          }
-          else (p, loop(b))
-        }
-        Match(arg1, b1, tag)
+    val shadows: Identifier => Boolean = {
+      if (exfrees.isEmpty) { i: Identifier => i === ident }
+      else { i: Identifier => (i === ident || exfrees(i)) }
     }
+
+    def loop(in: TypedExpr[A]): Option[TypedExpr[A]] =
+      in match {
+        case Var(None, i, _, _) if i === ident => Some(ex)
+        case Var(_, _, _, _) | Literal(_, _, _) => Some(in)
+        case Generic(a, expr, tag) =>
+          loop(expr).map(Generic(a, _, tag))
+        case Annotation(t, tpe, tag) =>
+          loop(t).map(Annotation(_, tpe, tag))
+        case AnnotatedLambda(arg, tp, res, tag) =>
+          if (shadows(arg)) None
+          else loop(res).map(AnnotatedLambda(arg, tp, _, tag))
+        case App(fn, arg, tpe, tag) =>
+          (loop(fn), loop(arg)).mapN(App(_, _, tpe, tag))
+        case let@Let(arg, argE, in, rec, tag) =>
+          if (shadows(arg)) None
+          else {
+            (loop(argE), loop(in)).mapN(Let(arg, _, _, rec, tag))
+          }
+        case Match(arg, branches, tag) =>
+          // Maintain the order we encounter things:
+          val arg1 = loop(arg)
+          val b1 = branches.traverse { case branch@(p, b) =>
+            // these are not free variables in this branch
+            val s = p.names.exists(shadows)
+            if (s) None
+            else loop(b).map((p, _))
+          }
+          (arg1, b1).mapN(Match(_, _, tag))
+      }
+
+    loop(in)
   }
 
   private def replaceVarType[A](te: TypedExpr[A], name: Identifier, tpe: Type): TypedExpr[A] = {
@@ -747,9 +747,16 @@ object TypedExpr {
         if (cnt > 0) {
           // the arg is needed
           val ex1 = normalize(ex).getOrElse(ex)
-          if (cnt == 1 && !rec.isRecursive) {
+          def isSimple = ex match {
+            case Literal(_, _, _) | Var(_, _, _, _) => true
+            case _ => false
+          }
+          val shouldInline = (!rec.isRecursive) && {
+            (cnt == 1) || isSimple
+          }
+          if (shouldInline) {
             // we should inline ex
-            Some(substitute(arg, ex1, in1))
+            substitute(arg, ex1, in1)
           }
           else if ((in1 eq in) && (ex1 eq ex)) None
           else Some(Let(arg, ex1, in1, rec, tag))
