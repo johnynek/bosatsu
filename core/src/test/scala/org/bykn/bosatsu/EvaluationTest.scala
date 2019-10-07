@@ -2042,12 +2042,42 @@ tests = Assertion(fn((y = 1
 package A
 
 def inc(x):
+  w = 1
   y = x
   z = y
-  y = 1
+  y = w
   z.add(y)
 
 tests = Assertion(inc(1).eq_Int(2), "t1")
 """), "A", 1)
+
+    runBosatsuTest(List("""
+package A
+
+w = 1
+
+def inc(x):
+  match w:
+    1:
+      y = x
+      z = y
+      y = w
+      z.add(y)
+    x: x
+
+tests = Assertion(inc(1).eq_Int(2), "t1")
+"""), "A", 1)
+
+  runBosatsuTest(List("""
+package QueueTest
+
+struct Queue[a](front: List[a], back: List[a])
+
+def fold_Queue(Queue(f, b): Queue[a], binit: b, fold_fn: b -> a -> b) -> b:
+  front = f.foldLeft(binit, fold_fn)
+  b.reverse.foldLeft(front, fold_fn)
+
+test = Assertion(Queue([1], [2]).fold_Queue(0, add).eq_Int(3), "foldQueue")
+"""), "QueueTest", 1)
   }
 }

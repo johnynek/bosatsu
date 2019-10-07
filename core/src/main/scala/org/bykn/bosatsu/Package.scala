@@ -230,7 +230,8 @@ object Package {
             )
             .map { lets =>
               val normalLets = lets.map { case (n, r, e) =>
-                (n, r, TypedExpr.normalize(e).getOrElse(e))
+                val norme = TypedExpr.normalize(e).getOrElse(e)
+                (n, r, norme)
               }
               Program(typeEnv, normalLets, extDefs, stmts)
             }
