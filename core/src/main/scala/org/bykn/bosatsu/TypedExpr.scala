@@ -798,16 +798,8 @@ object TypedExpr {
             else Some(App(f1, a1, tpe, tag))
         }
       case Let(arg, ex, in, rec, tag) =>
-        val nextRec = rec match {
-          case RecursionKind.Recursive =>
-            if (!(freeVarsDup(ex :: Nil).exists(_ === (arg: Identifier)))) {
-              // this isn't recursive
-              RecursionKind.NonRecursive
-            }
-            else RecursionKind.Recursive
-          case RecursionKind.NonRecursive =>
-            RecursionKind.NonRecursive
-        }
+        // note, Infer has already checked
+        // to make sure rec is accurate
         val in1 = normalize(in).getOrElse(in)
         val cnt = freeVarsDup(in1 :: Nil).count(_ === (arg: Identifier))
         if (cnt > 0) {
@@ -824,7 +816,7 @@ object TypedExpr {
                 true
               case _ => false
             }
-          val shouldInline = (!nextRec.isRecursive) && {
+          val shouldInline = (!rec.isRecursive) && {
             (cnt == 1) || isSimple(ex1)
           }
           val inlined = if (shouldInline) substitute(arg, ex1, in1) else None
@@ -832,8 +824,8 @@ object TypedExpr {
             case Some(il) =>
               normalize1(il)
             case None =>
-              if ((in1 eq in) && (ex1 eq ex) && (rec == nextRec)) None
-              else normalize1(Let(arg, ex1, in1, nextRec, tag))
+              if ((in1 eq in) && (ex1 eq ex)) None
+              else normalize1(Let(arg, ex1, in1, rec, tag))
           }
         }
         else {
