@@ -2079,5 +2079,25 @@ def fold_Queue(Queue(f, b): Queue[a], binit: b, fold_fn: b -> a -> b) -> b:
 
 test = Assertion(Queue([1], [2]).fold_Queue(0, add).eq_Int(3), "foldQueue")
 """), "QueueTest", 1)
+
+  runBosatsuTest(List("""
+package A
+
+three = (x = 1
+\y -> x.add(y))(2)
+
+test = Assertion(three.eq_Int(3), "let inside apply")
+"""), "A", 1)
+
+  runBosatsuTest(List("""
+package A
+
+def substitute:
+  x = 40
+  y = x.add(1)
+  y.add(1)
+
+test = Assertion(substitute.eq_Int(42), "basis substitution")
+"""), "A", 1)
   }
 }
