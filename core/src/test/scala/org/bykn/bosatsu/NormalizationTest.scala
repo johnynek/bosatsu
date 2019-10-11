@@ -38,12 +38,11 @@ main = ["aa"]
 """
         ), "NormTest/List", NormalExpressionTag(
           Struct(1,List(Literal(Str("aa")), Struct(0,List()))),
-          Set(LambdaVar(0),
-              Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
-              Struct(0,List()),
-              Literal(Str("aa")),
-              Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)))),
-              Struct(1,List(Literal(Str("aa")), LambdaVar(0)))
+          Set(
+            Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
+            Literal(Str("aa")),
+            Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)))),
+            Struct(0,List())
           )
         ),
         Some("Struct(1,Literal('aa'),Struct(0,))")
@@ -161,7 +160,7 @@ def result(x, c):
 out=result
 """
       ), "Match/Vars",
-        Lambda(Lambda(Match(LambdaVar(1),NonEmptyList.of((PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Struct(0,List(LambdaVar(1), Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List()))))))))))))))
+        Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Lambda(Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List(LambdaVar(1), Struct(0,List()))))))))))))))
       )
 
     normalExpressionTest(
@@ -455,7 +454,7 @@ main = (rec_fn(lst1), rec_fn(lst1))
             Struct(0,List())
           ))
         )
-      )  
+      )
     )
     normalExpressionTest(
       List("""
@@ -463,7 +462,7 @@ package Substitution/Eta
 
 out = \x,y -> x(y)
 """
-      ), "Substitution/Eta", Lambda(Lambda(App(LambdaVar(1), LambdaVar(0))))
+      ), "Substitution/Eta", Lambda(LambdaVar(0))
     )
     normalExpressionTest(
       List("""

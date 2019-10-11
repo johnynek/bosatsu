@@ -473,7 +473,13 @@ object TypedExpr {
   /**
    * Return the list of the free vars
    */
-  def freeVars[A](ts: List[TypedExpr[A]]): List[Identifier] = {
+  def freeVars[A](ts: List[TypedExpr[A]]): List[Identifier] =
+    freeVarsDup(ts).reverse.distinct
+
+  def freeVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Identifier] =
+    SortedSet(freeVarsDup(ts): _*)
+
+  private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Identifier] = {
 
     // usually we can recurse in a loop, but sometimes not
     def cheat(te: TypedExpr[A], bound: Set[Identifier], acc: List[Identifier]): List[Identifier] =
@@ -487,8 +493,9 @@ object TypedExpr {
           go(expr :: tail, bound, acc)
         case Annotation(t, _, _) :: tail =>
           go(t :: tail, bound, acc)
-        case Var(opt, ident, _, _) :: tail if bound(ident) || opt.isDefined => go(tail, bound, acc)
-        case Var(None, name, _, _) :: tail => go(tail, bound, name :: acc)
+        case Var(opt, ident, _, _) :: tail =>
+          if (opt.isDefined || bound(ident)) go(tail, bound, acc)
+          else go(tail, bound, ident :: acc)
         case AnnotatedLambda(arg, _, res, _) :: tail =>
           val acc1 = cheat(res, bound + arg, acc)
           go(tail, bound, acc1)
@@ -520,8 +527,66 @@ object TypedExpr {
       }
 
     go(ts, Set.empty, Nil)
-      .reverse
-      .distinct
+  }
+
+  /**
+   * Try to substitute ex for ident in the expression: in
+   *
+   * This can fail if the free variables in ex are shadowed
+   * above ident in in.
+   */
+  def substitute[A](ident: Identifier, ex: TypedExpr[A], in: TypedExpr[A]): Option[TypedExpr[A]] = {
+    val exfrees = freeVarsSet(ex :: Nil)
+
+    // if we hit a shadow, we don't need to substitute down
+    // that branch
+    @inline def shadows(i: Identifier): Boolean = i === ident
+
+    // free variables in ex are being rebound,
+    // this causes us to return None
+    val masks: Identifier => Boolean = {
+      if (exfrees.isEmpty) { i: Identifier => false }
+      else { i: Identifier => exfrees(i) }
+    }
+
+    def loop(in: TypedExpr[A]): Option[TypedExpr[A]] =
+      in match {
+        case Var(None, i, _, _) if i === ident => Some(ex)
+        case Var(_, _, _, _) | Literal(_, _, _) => Some(in)
+        case Generic(a, expr, tag) =>
+          loop(expr).map(Generic(a, _, tag))
+        case Annotation(t, tpe, tag) =>
+          loop(t).map(Annotation(_, tpe, tag))
+        case AnnotatedLambda(arg, tp, res, tag) =>
+          if (masks(arg)) None
+          else if (shadows(arg)) Some(in)
+          else loop(res).map(AnnotatedLambda(arg, tp, _, tag))
+        case App(fn, arg, tpe, tag) =>
+          (loop(fn), loop(arg)).mapN(App(_, _, tpe, tag))
+        case let@Let(arg, argE, in, rec, tag) =>
+          if (masks(arg)) None
+          else if (shadows(arg)) {
+            // recursive shadow blocks both argE and in
+            if (rec.isRecursive) Some(let)
+            else loop(argE).map(Let(arg, _, in, rec, tag))
+          }
+          else {
+            (loop(argE), loop(in)).mapN(Let(arg, _, _, rec, tag))
+          }
+        case Match(arg, branches, tag) =>
+          // Maintain the order we encounter things:
+          val arg1 = loop(arg)
+          val b1 = branches.traverse { case in@(p, b) =>
+            // these are not free variables in this branch
+            val ns = p.names
+            if (ns.exists(masks)) None
+            else if (ns.exists(shadows)) Some(in)
+            else loop(b).map((p, _))
+          }
+          (arg1, b1).mapN(Match(_, _, tag))
+      }
+
+    loop(in)
   }
 
   private def replaceVarType[A](te: TypedExpr[A], name: Identifier, tpe: Type): TypedExpr[A] = {
@@ -583,7 +648,7 @@ object TypedExpr {
             /*
              * We have to be careful not to collide with the free vars in expr
              */
-            val free = SortedSet(freeVars(expr :: Nil): _*)
+            val free = freeVarsSet(expr :: Nil)
             val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next
             // \name -> (expr((name: arg)): result)
             // TODO: why do we need coarg when we already know the type (arg)?
@@ -631,4 +696,160 @@ object TypedExpr {
 
   implicit def typedExprHasRegion[T: HasRegion]: HasRegion[TypedExpr[T]] =
     HasRegion.instance[TypedExpr[T]] { e => HasRegion.region(e.tag) }
+
+  // if you have made one step of progress, use this to recurse
+  // so we don't throw away if we don't progress more
+  private def normalize1[A](te: TypedExpr[A]): Some[TypedExpr[A]] =
+    normalize(te) match {
+      case None => Some(te)
+      case s@Some(te) => s
+    }
+  /**
+   * if the te is not in normal form, transform it into normal form
+   */
+  def normalize[A](te: TypedExpr[A]): Option[TypedExpr[A]] =
+    te match {
+      case Generic(vars, in, tag) =>
+        // normalize the inside, then get all the freeBoundTyVars and
+        // and if we can reallocate typevars to be the a, b, ... do so,
+        // if they are the same, return none
+        //
+        // Also, Generic(Generic(...)) => Generic
+        // Generic(vs, te, _) but vs are not bound in te, we can remove Generic
+        normalize(in).map(Generic(vars, _, tag))
+      case Annotation(term, tpe, tag) =>
+        // if we annotate twice, we can ignore the inner annotation
+        // we should have type annotation where we normalize type parameters
+        val e1 = normalize(term).getOrElse(term)
+        e1 match {
+          case _ if e1.getType == tpe =>
+            // the type is already right
+            Some(e1)
+          case Annotation(t1, _, tag) =>
+            Some(Annotation(t1, tpe, tag))
+          case notAnn =>
+            if (notAnn eq term) None
+            else Some(Annotation(notAnn, tpe, tag))
+        }
+
+      case AnnotatedLambda(arg, tpe, expr, tag) =>
+        // we can normalize the arg to the smallest non-free var
+        // \x -> f(x) == f (eta conversion)
+        // \x -> generic(g) = generic(\x -> g) if the type of x doesn't have free types with vars
+        val e1 = normalize(expr).getOrElse(expr)
+        e1 match {
+          case App(fn, Var(None, ident, _, _), _, _)
+            if ident === arg && !freeVarsDup(fn :: Nil).exists(_ === ident) =>
+            // if ident is not free in fn we can return fn
+            val tetpe = te.getType
+              normalize1 {
+                if (fn.getType == tetpe) fn
+                else Annotation(fn, tetpe, te.tag)
+              }
+          case Let(arg1, ex, in, rec, tag1)
+            if !freeVarsDup(ex :: Nil).exists(_ === arg) =>
+            // \x ->
+            //   y = z
+            //   f(y)
+            //same as:
+            //y = z
+            //\x -> f(y)
+            //avoid recomputing y
+            //TODO: we could reorder Lets if we have several in a row
+            normalize1(Let(arg1, ex, AnnotatedLambda(arg, tpe, in, tag), rec, tag1))
+          case m@Match(arg1, branches, tag1)
+            // same as above: if match does not depend on lambda arg, lift it out
+            if !freeVarsDup(arg1 :: Nil).exists(_ === arg) =>
+              val b1 = branches.traverse { case (p, b) =>
+                if (!p.names.contains(arg)) Some((p, AnnotatedLambda(arg, tpe, b, tag)))
+                else None
+              }
+              b1 match {
+                case None =>
+                  if (m eq expr) None
+                  else Some(AnnotatedLambda(arg, tpe, m, tag))
+                case Some(bs) =>
+                  val m1 = Match(arg1, bs, tag1)
+                  normalize1(m1)
+              }
+          case notApp =>
+            if (notApp eq expr) None
+            else Some(AnnotatedLambda(arg, tpe, notApp, tag))
+        }
+      case Var(_, _, _, _) | Literal(_, _, _) =>
+        // these are fundamental
+        None
+      case App(fn, arg, tpe, tag) =>
+        val f1 = normalize(fn).getOrElse(fn)
+        lazy val a1 = normalize(arg).getOrElse(arg)
+        f1 match {
+          case AnnotatedLambda(b, ltpe, expr, ltag) =>
+            // (\y -> z)(x) = let y = x in z
+            val a2 = if (ltpe != arg.getType) Annotation(arg, ltpe, ltag) else arg
+            val expr2 = if (tpe != expr.getType) Annotation(expr, tpe, expr.tag) else expr
+            val l = Let(b, a2, expr2, RecursionKind.NonRecursive, tag)
+            normalize1(l)
+          case Let(arg1, ex, in, rec, tag1)
+            if !freeVarsDup(a1 :: Nil).exists(_ === arg1) =>
+              // (app (let x y z) w) == (let x y (app z w)) if w does not have x free
+              normalize1(Let(arg1, ex, App(in, a1, tpe, tag), rec, tag1))
+          case _ =>
+            if ((f1 eq fn) && (a1 eq arg)) None
+            else Some(App(f1, a1, tpe, tag))
+        }
+      case Let(arg, ex, in, rec, tag) =>
+        // note, Infer has already checked
+        // to make sure rec is accurate
+        val in1 = normalize(in).getOrElse(in)
+        val cnt = freeVarsDup(in1 :: Nil).count(_ === (arg: Identifier))
+        if (cnt > 0) {
+          // the arg is needed
+          val ex1 = normalize(ex).getOrElse(ex)
+          def isSimple(ex: TypedExpr[A]): Boolean =
+            ex match {
+              case Literal(_, _, _) | Var(_, _, _, _) => true
+              case Annotation(t, _, _) => isSimple(t)
+              case Generic(_, t, _) => isSimple(t)
+              case AnnotatedLambda(_, _, _, _) =>
+                // always inline lambdas so we can possibly
+                // apply (\x -> f)(g) => let x = g in f
+                true
+              case _ => false
+            }
+          val shouldInline = (!rec.isRecursive) && {
+            (cnt == 1) || isSimple(ex1)
+          }
+          val inlined = if (shouldInline) substitute(arg, ex1, in1) else None
+          inlined match {
+            case Some(il) =>
+              normalize1(il)
+            case None =>
+              if ((in1 eq in) && (ex1 eq ex)) None
+              else normalize1(Let(arg, ex1, in1, rec, tag))
+          }
+        }
+        else {
+          // let x = y in z if x isn't free in z = z
+          Some(in1)
+        }
+
+      case Match(arg, branches, tag) =>
+        // match x:
+        //   y: fn
+        // let y = x in fn
+        def ncount(e: TypedExpr[A]): (Int, TypedExpr[A]) =
+          normalize(e) match {
+            case None => (0, e)
+            case Some(e) => (1, e)
+          }
+        // TODO normalize the patterns too
+        // we can remove any bindings that aren't used in branches
+        val (changed, branches1) = branches.traverse { case (p, t) =>
+          val (c, t1) = ncount(t)
+          (c, (p, t1))
+        }
+        val a1 = normalize(arg).getOrElse(arg)
+        if ((a1 eq arg) && (changed == 0)) None
+        else normalize1(Match(a1, branches1, tag))
+    }
 }
