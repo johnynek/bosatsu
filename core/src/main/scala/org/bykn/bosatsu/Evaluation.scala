@@ -508,28 +508,12 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
          Scoped.const(getValue(pack, ident))
        case App(fn, arg, _, _) =>
-         fn match {
-           case AnnotatedLambda(name, _, fn, _) =>
-             // f(\x -> res)(y) = let x = y in res
-             val argE = recurse(arg)
-             val fnE = recurse(fn)
+         val efn = recurse(fn)
+         val earg = recurse(arg)
 
-             argE.letNameIn(name, fnE)
-           case fn =>
-             val efn = recurse(fn)
-             val earg = recurse(arg)
-
-             efn.applyArg(earg)
-         }
+         efn.applyArg(earg)
        case AnnotatedLambda(name, _, expr, _) =>
-         expr match {
-           case App(f, Var(None, name2, _, _), _, _) if name2 == name =>
-             // here is eta-conversion: \x -> f(x) == f
-             recurse(f)
-           case expr =>
-             val inner = recurse(expr)
-             inner.asLambda(name)
-         }
+         recurse(expr).asLambda(name)
        case Let(arg, e, in, rec, _) =>
          val e0 = recurse(e)
          val eres =

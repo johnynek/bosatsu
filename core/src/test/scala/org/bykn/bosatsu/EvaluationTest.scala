@@ -2013,4 +2013,91 @@ def y:
 tests = Assertion(y.eq_Int(x), "none")
 """), "A", 1)
   }
+
+  test("improve coverage of typedexpr normalization") {
+    runBosatsuTest(List("""
+package A
+
+enum MyBool: T, F
+main = match T:
+  T: (\x -> x)(True)
+  F: False
+
+tests = Assertion(main, "t1")
+"""), "A", 1)
+
+    runBosatsuTest(List("""
+package A
+
+f = \_ -> True
+
+fn = \x -> f(x)
+
+# trigger an optimization to remove y
+tests = Assertion(fn((y = 1
+2)), "t1")
+"""), "A", 1)
+
+    runBosatsuTest(List("""
+package A
+
+def inc(x):
+  w = 1
+  y = x
+  z = y
+  y = w
+  z.add(y)
+
+tests = Assertion(inc(1).eq_Int(2), "t1")
+"""), "A", 1)
+
+    runBosatsuTest(List("""
+package A
+
+w = 1
+
+def inc(x):
+  match w:
+    1:
+      y = x
+      z = y
+      y = w
+      z.add(y)
+    x: x
+
+tests = Assertion(inc(1).eq_Int(2), "t1")
+"""), "A", 1)
+
+  runBosatsuTest(List("""
+package QueueTest
+
+struct Queue[a](front: List[a], back: List[a])
+
+def fold_Queue(Queue(f, b): Queue[a], binit: b, fold_fn: b -> a -> b) -> b:
+  front = f.foldLeft(binit, fold_fn)
+  b.reverse.foldLeft(front, fold_fn)
+
+test = Assertion(Queue([1], [2]).fold_Queue(0, add).eq_Int(3), "foldQueue")
+"""), "QueueTest", 1)
+
+  runBosatsuTest(List("""
+package A
+
+three = (x = 1
+\y -> x.add(y))(2)
+
+test = Assertion(three.eq_Int(3), "let inside apply")
+"""), "A", 1)
+
+  runBosatsuTest(List("""
+package A
+
+def substitute:
+  x = 40
+  y = x.add(1)
+  y.add(1)
+
+test = Assertion(substitute.eq_Int(42), "basis substitution")
+"""), "A", 1)
+  }
 }

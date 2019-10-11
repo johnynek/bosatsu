@@ -38,9 +38,9 @@ def pop(queue: Queue[a]) -> Queue[a]:
     Some((_, queue)): queue
     None: empty
 
-def fold_Queue(Queue(f, b): Queue[a], init: b, fn: b -> a -> b) -> b:
-  front = f.foldLeft(init, fn)
-  b.reverse.foldLeft(front, fn)
+def fold_Queue(Queue(f, b): Queue[a], init: b, fold_fn: b -> a -> b) -> b:
+  front = f.foldLeft(init, fold_fn)
+  b.reverse.foldLeft(front, fold_fn)
 
 def reverse_Queue(Queue(f, b): Queue[a]) -> Queue[a]:
   Queue(b.reverse, f.reverse)
@@ -66,9 +66,9 @@ def to_List(Queue(f, b): Queue[a]) -> List[a]:
 ## TestSuites below
 ########
 
-def eq_Opt(fn, a, b):
+def eq_Opt(eq_inner, a, b):
   match (a, b):
-    (Some(a), Some(b)): fn(a, b)
+    (Some(a), Some(b)): eq_inner(a, b)
     (None, None): True
     _: False
 
