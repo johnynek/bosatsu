@@ -326,7 +326,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       val testP = toList(Opts.options[PackageName]("test_package", help = "package for which to run tests"))
       val outputPath = Opts.option[Path]("output", help = "output path")
       val interfaceOutputPath = Opts.option[Path]("interface_out", help = "interface output path")
-      val compileRoot = Opts.option[Path]("compile_root", help = "root directory to write java output")
 
       val evalOpt = (toList(ins), mainP, includes).mapN(Evaluate(_, _, _))
       val toJsonOpt = (toList(ins), includes, mainP, outputPath).mapN(ToJson(_, _, _, _))
