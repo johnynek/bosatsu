@@ -563,11 +563,11 @@ object TypedExpr {
           else loop(res).map(AnnotatedLambda(arg, tp, _, tag))
         case App(fn, arg, tpe, tag) =>
           (loop(fn), loop(arg)).mapN(App(_, _, tpe, tag))
-        case Let(arg, argE, in, rec, tag) =>
+        case let@Let(arg, argE, in, rec, tag) =>
           if (masks(arg)) None
           else if (shadows(arg)) {
             // recursive shadow blocks both argE and in
-            if (rec.isRecursive) Some(in)
+            if (rec.isRecursive) Some(let)
             else loop(argE).map(Let(arg, _, in, rec, tag))
           }
           else {
