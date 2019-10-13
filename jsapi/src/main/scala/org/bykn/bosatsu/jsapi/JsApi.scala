@@ -26,9 +26,10 @@ object JsApi {
    */
   @JSExport
   def evaluate(mainPackage: String, mainFile: String, files: js.Dictionary[String]): EvalSuccess | Error = {
+    val withColor = "--color" :: "html" :: Nil
     val main =
-      if (mainPackage != null) "--main" :: mainPackage :: Nil
-      else "--main_file" :: mainFile :: Nil
+      if (mainPackage != null) "--main" :: mainPackage :: withColor
+      else "--main_file" :: mainFile :: withColor
     module.runWith(files)("eval" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
         new Error(s"error: $err")
@@ -67,9 +68,10 @@ object JsApi {
    */
   @JSExport
   def evaluateJson(mainPackage: String, mainFile: String, files: js.Dictionary[String]): EvalSuccess | Error = {
+    val withColor = "--color" :: "html" :: Nil
     val main =
-      if (mainPackage != null) "--main" :: mainPackage :: Nil
-      else "--main_file" :: mainFile :: Nil
+      if (mainPackage != null) "--main" :: mainPackage :: withColor
+      else "--main_file" :: mainFile :: withColor
     module.runWith(files)("write-json" :: "--output" :: "" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
         new Error(s"error: $err")

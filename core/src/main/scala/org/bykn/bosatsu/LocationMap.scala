@@ -1,8 +1,11 @@
 package org.bykn.bosatsu
 
 import java.util.Arrays
+import org.typelevel.paiges.Doc
 
 import cats.implicits._
+
+import LocationMap.Colorize
 
 /**
  * Build a cache of the rows and columns in a given
@@ -80,7 +83,7 @@ case class LocationMap(fromString: String) { self =>
       .toList
 
 
-  def showContext(offset: Int, previousLines: Int = 2): Option[String] =
+  def showContext(offset: Int, previousLines: Int, color: Colorize): Option[Doc] =
     toLineCol(offset)
       .map { case (r, c) =>
         val lines = lineRange(r - previousLines, r)
@@ -89,12 +92,13 @@ case class LocationMap(fromString: String) { self =>
         val toLineStr = LocationMap.lineNumberToString(maxLine)
 
         // here is how much extra we need for the pointer
-        val pointerPad = " " * toLineStr(r).length
-        lines.map { case (no, l) => s"${toLineStr(no)}$l" }
-          .mkString("", "\n", "\n" + pointerPad + LocationMap.pointerTo(c) + "\n")
+        val pointerPad = Doc.spaces(toLineStr(r).render(0).length)
+        val lineDocs = lines.map { case (no, l) => toLineStr(no) + Doc.text(l) }
+        val ctx = Doc.intercalate(Doc.hardLine, lineDocs)
+        ctx + Doc.hardLine + pointerPad + LocationMap.pointerTo(c, color) + Doc.hardLine
       }
 
-  def showRegion(region: Region, previousLines: Int = 2): Option[String] =
+  def showRegion(region: Region, previousLines: Int, color: Colorize): Option[Doc] =
     (toLineCol(region.start), toLineCol(region.end - 1))
       .mapN { case ((l0, c0), (l1, c1)) =>
         val lines = lineRange(l0 - previousLines, l1)
@@ -104,38 +108,69 @@ case class LocationMap(fromString: String) { self =>
         if (l0 == l1) {
           // same line
           // here is how much extra we need for the pointer
-          val pointerPad = " " * toLineStr(l0).length
-          lines.map { case (no, l) => s"${toLineStr(no)}$l" }
-            .mkString("", "\n", "\n" + pointerPad + LocationMap.pointerRange(c0, c1 + 1) + "\n")
+          val pointerPad = Doc.spaces(toLineStr(l0).render(0).length)
+          val lineDocs = lines.map { case (no, l) => toLineStr(no) + Doc.text(l) }
+          val ctx = Doc.intercalate(Doc.hardLine, lineDocs)
+          ctx + Doc.hardLine + pointerPad + LocationMap.pointerRange(c0, c1 + 1, color) + Doc.hardLine
         }
         else {
           // we span multiple lines, show the start and the end:
           val newPrev = l1 - l0
-          showContext(region.start, previousLines).get +
-            "\nto:\n" +
-            showContext(region.end - 1, newPrev).get
+          showContext(region.start, previousLines, color).get +
+            Doc.hardLine + Doc.text("to:") + Doc.hardLine +
+            showContext(region.end - 1, newPrev, color).get
         }
       }
 
 }
 
 object LocationMap {
+  sealed trait Colorize {
+    def apply(d: Doc): Doc
+  }
+
+  object Colorize {
+    val none: Colorize =
+      new Colorize {
+        def apply(d: Doc) = d
+      }
+
+    object Console {
+      val red: Colorize =
+        new Colorize {
+          def apply(d: Doc) =
+            Doc.zeroWidth(scala.Console.RED) + d.unzero + Doc.zeroWidth(scala.Console.RESET)
+        }
+    }
+
+    object HmtlFont {
+      val red: Colorize =
+        new Colorize {
+          def apply(d: Doc) =
+            Doc.zeroWidth("<font color=\"red\">") + d.unzero +
+              Doc.zeroWidth("</font>")
+        }
+    }
+  }
+
   /**
    * Provide a string that points with a carat to a given column
    * with 0 based indexing:
    * e.g. pointerTo(2) == "  ^"
    */
-  def pointerTo(column: Int, colorString: Option[String] = Some(Console.RED)): String =
-    (" " * column) + colorString.getOrElse("") + "^" + colorString.map(_ => Console.RESET).getOrElse("")
+  def pointerTo(column: Int, color: Colorize): Doc = {
+    val col = Doc.spaces(column)
+    val pointer = Doc.char('^')
+    col + color(pointer)
+  }
 
-  def pointerRange(start: Int, exEnd: Int, colorString: Option[String] = Some(Console.RED)): String = {
+  def pointerRange(start: Int, exEnd: Int, color: Colorize): Doc = {
     val width = exEnd - start
-    if (width <= 0) ""
+    if (width <= 0) Doc.empty
     else {
-      val cs = colorString.getOrElse("")
-      val rs = colorString.map(_ => Console.RESET).getOrElse("")
-
-      (" " * start) + cs + ("^" * width) + rs
+      val col = Doc.spaces(start)
+      val pointer = Doc.char('^') * width
+      col + color(pointer)
     }
   }
 
@@ -148,13 +183,13 @@ object LocationMap {
     go(i, 1)
   }
 
-  def lineNumberToString(maxLine: Int): Int => String = {
+  def lineNumberToString(maxLine: Int): Int => Doc = {
     val padding = LocationMap.charsLineNumber(maxLine)
 
     { (i: Int) =>
       val istr = i.toString
       val pad = padding - istr.length
-      (" " * pad) + istr + "|"
+      Doc.spaces(pad) + (Doc.text(istr) + Doc.char('|'))
     }
   }
 }

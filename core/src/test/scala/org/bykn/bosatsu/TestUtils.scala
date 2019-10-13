@@ -70,7 +70,7 @@ object TestUtils {
       case Parsed.Success(stmts, _) =>
         Package.inferBody(PackageName.parts("Test"), Nil, stmts) match {
           case Validated.Invalid(errs) =>
-            fail("inference failure: " + errs.toList.map(_.message(Map.empty)).mkString("\n"))
+            fail("inference failure: " + errs.toList.map(_.message(Map.empty, LocationMap.Colorize.none)).mkString("\n"))
           case Validated.Valid(program) =>
             // make sure all the TypedExpr are valid
             program.lets.foreach { case (_, _, te) => assertValid(te) }
@@ -147,7 +147,7 @@ object TestUtils {
       case Validated.Valid(vs) => vs
       case Validated.Invalid(errs) =>
         errs.toList.foreach { p =>
-          p.showContext.foreach(System.err.println)
+          p.showContext(LocationMap.Colorize.none).foreach(System.err.println)
         }
         sys.error("failed to parse") //errs.toString)
     }
@@ -244,7 +244,7 @@ object TestUtils {
       case (sm, Validated.Invalid(errs)) if errs.collect(errFn).nonEmpty =>
         // make sure we can print the messages:
         val sm = PackageMap.buildSourceMap(withPre)
-        errs.toList.foreach(_.message(sm))
+        errs.toList.foreach(_.message(sm, LocationMap.Colorize.none))
         assert(true)
       case (_, Validated.Invalid(errs)) =>
           fail(s"failed, but no type errors: $errs")

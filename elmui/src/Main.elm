@@ -1,9 +1,11 @@
 port module Main exposing (..)
 
 import Browser
-import Html exposing (Attribute, Html, button, div, input, text, textarea)
+import Html exposing (Attribute, Html, button, div, input, span, text, textarea)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput)
+import Html.Parser
+import Html.Parser.Util
 import Json.Decode
 import Json.Encode
 
@@ -20,15 +22,22 @@ main =
 -- MODEL
 
 
+type Result
+    = JsonValue Json.Decode.Value
+    | ErrorMessage String
+    | EmptyResult
+    | Working
+
+
 type alias Model =
     { code : String
-    , result : String
+    , result : Result
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { code = "", result = "" }, Cmd.none )
+    ( { code = "", result = EmptyResult }, Cmd.none )
 
 
 
@@ -82,30 +91,49 @@ update msg model =
         Receive res ->
             case Json.Decode.decodeValue decodeResult res of
                 Ok (BosatsuSuccess good) ->
-                    let
-                        goodmsg =
-                            Json.Encode.encode 2 good
-                    in
-                    ( { model | result = goodmsg }, Cmd.none )
+                    ( { model | result = JsonValue good }, Cmd.none )
 
                 Ok (BosatsuError err) ->
-                    ( { model | result = err }, Cmd.none )
+                    ( { model | result = ErrorMessage err }, Cmd.none )
 
                 Err err ->
-                    ( { model | result = Json.Decode.errorToString err }, Cmd.none )
+                    ( { model | result = ErrorMessage (Json.Decode.errorToString err) }, Cmd.none )
 
         Evaluate ->
-            ( { model | result = "working..." }, toJS model.code )
+            ( { model | result = Working }, toJS model.code )
 
 
 
 -- VIEW
 
+textHtml : String -> List (Html.Html msg)
+textHtml t =
+    case Html.Parser.run t of
+        Ok nodes ->
+            Html.Parser.Util.toVirtualDom nodes
+
+        Err _ ->
+            []
 
 view : Model -> Html Msg
 view model =
+    let
+        res =
+            case model.result of
+                Working ->
+                    text "working..."
+
+                EmptyResult ->
+                    text ""
+
+                ErrorMessage msg ->
+                    span [] (textHtml (String.concat ["<pre>", msg, "</pre>"]))
+
+                JsonValue v ->
+                    text (Json.Encode.encode 4 v)
+    in
     div []
         [ textarea [ placeholder "bosatsu code here", value model.code, onInput CodeEdit ] []
         , button [ onClick Evaluate ] [ text "go" ]
-        , div [] [ text model.result ]
+        , div [] [ res ]
         ]
