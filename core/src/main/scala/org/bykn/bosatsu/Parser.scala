@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
 import fastparse.all._
+import org.typelevel.paiges.Doc
 
 import org.bykn.fastparse_cats.StringInstances._
 import cats.implicits._
@@ -74,12 +75,12 @@ object Parser {
   }
 
   sealed trait Error {
-    def showContext: Option[String] =
+    def showContext(errColor: LocationMap.Colorize): Option[Doc] =
       this match {
         case Error.PartialParse(_, pos, locations) =>
-          locations.showContext(pos)
+          locations.showContext(pos, 2, errColor)
         case Error.ParseFailure(pos, locations) =>
-          locations.showContext(pos)
+          locations.showContext(pos, 2, errColor)
       }
   }
 
