@@ -5,3 +5,6 @@ main.js: src/Main.elm
 
 bosatsu.js: ../jsapi/.js/target/scala-2.12/bosatsu-jsapi-fastopt.js
 	cp ../jsapi/.js/target/scala-2.12/bosatsu-jsapi-fastopt.js out/bosatsu.js
+
+format: src/*
+	elm-format --yes src/

@@ -28,7 +28,7 @@ object Predef {
       case Parsed.Success(pack, _) => pack
       case Parsed.Failure(exp, idx, extra) =>
         val lm = LocationMap(predefString)
-        sys.error(s"couldn't parse predef: ${lm.showContext(idx)} with trace: ${extra.traced.trace}")
+        sys.error(s"couldn't parse predef: ${lm.showContext(idx, 2, LocationMap.Colorize.none)} with trace: ${extra.traced.trace}")
     }
 
   /**
