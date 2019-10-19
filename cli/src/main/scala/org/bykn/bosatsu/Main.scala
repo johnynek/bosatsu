@@ -96,14 +96,18 @@ object PathModule extends MainModule[IO] {
     import scala.collection.JavaConverters._
 
     def getP(p: Path): Option[PackageName] = {
-      val subPath = p.relativize(packFile)
-        .asScala
-        .map { part =>
-          part.toString.toLowerCase.capitalize
-        }
-        .mkString("/")
+      val rel = p.relativize(packFile)
+      if (packFile != rel) {
+        val subPath = rel
+          .asScala
+          .map { part =>
+            part.toString.toLowerCase.capitalize
+          }
+          .mkString("/")
 
-      PackageName.parse(subPath)
+        PackageName.parse(subPath)
+      }
+      else None
     }
 
     @annotation.tailrec
