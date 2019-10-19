@@ -81,10 +81,14 @@ object TestUtils {
     }
 
   def makeInputArgs(files: List[(Int, Any)]): List[String] =
-    files.flatMap { case (idx, _) => "--input" :: idx.toString :: Nil }
+    ("--package_root" :: Int.MaxValue.toString :: Nil) ::: files.flatMap { case (idx, _) => "--input" :: idx.toString :: Nil }
+
+  private val module = new MemoryMain[Either[Throwable, ?], Int]({ idx =>
+    if (idx == Int.MaxValue) Nil
+    else List(s"Package$idx")
+  })
 
   def evalTest(packages: List[String], mainPackS: String, expected: Value) = {
-    val module = new MemoryMain[Either[Throwable, ?], Int]
     val files = packages.zipWithIndex.map(_.swap)
 
     module.runWith(files)("eval" :: "--main" :: mainPackS :: makeInputArgs(files)) match {
@@ -98,7 +102,6 @@ object TestUtils {
   }
 
   def evalTestJson(packages: List[String], mainPackS: String, expected: Json) = {
-    val module = new MemoryMain[Either[Throwable, ?], Int]
     val files = packages.zipWithIndex.map(_.swap)
 
     module.runWith(files)("write-json" :: "--main" :: mainPackS :: "--output" :: "-1" :: makeInputArgs(files)) match {
@@ -112,7 +115,6 @@ object TestUtils {
   }
 
   def runBosatsuTest(packages: List[String], mainPackS: String, assertionCount: Int) = {
-    val module = new MemoryMain[Either[Throwable, ?], Int]
     val files = packages.zipWithIndex.map(_.swap)
 
     module.runWith(files)("test" :: "--test_package" :: mainPackS :: makeInputArgs(files)) match {
@@ -138,7 +140,7 @@ object TestUtils {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
-      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
+      Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
         ((i.toString, lm), parsed)
       }
     }
@@ -225,7 +227,7 @@ object TestUtils {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
-      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
+      Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
         ((i.toString, lm), parsed)
       }
     }

@@ -18,13 +18,13 @@ package Foo
 x = 1
 """), "Foo", VInt(1))
 
+    evalTest(List("x = 1"), "Package0", VInt(1))
+
     evalTest(
       List("""
-package Foo
-
 # test shadowing
 x = match 1: x: x
-"""), "Foo", VInt(1))
+"""), "Package0", VInt(1))
 
     evalTest(
       List("""

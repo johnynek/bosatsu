@@ -7,7 +7,7 @@ import scala.collection.immutable.SortedMap
 
 import cats.implicits._
 
-class MemoryMain[F[_], K: Ordering](
+class MemoryMain[F[_], K: Ordering](split: K => List[String])(
   implicit val pathArg: Argument[K],
   val innerMonad: MonadError[F, Throwable]) extends MainModule[Kleisli[F, MemoryMain.State[K], ?]] {
 
@@ -75,6 +75,32 @@ class MemoryMain[F[_], K: Ordering](
             }
             io.run(state2)
         }
+
+  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {
+    val fparts = split(packFile)
+
+    def getP(p: Path): Option[PackageName] = {
+      val splitP = split(p)
+      if (fparts.startsWith(splitP)) {
+        val parts = fparts.drop(splitP.length)
+        PackageName.parse(parts.mkString("/"))
+      }
+      else None
+    }
+
+    @annotation.tailrec
+    def loop(roots: List[Path]): Option[PackageName] =
+      roots match {
+        case Nil => None
+        case h :: t =>
+          getP(h) match {
+            case None => loop(t)
+            case some => some
+          }
+      }
+
+    loop(roots)
+  }
 }
 
 

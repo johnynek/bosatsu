@@ -139,13 +139,17 @@ object Package {
       Doc.intercalate(Doc.empty, p :: i :: e :: b)
     }
 
-  val parser: P[Package[PackageName, Unit, Unit, List[Statement]]] = {
+  def parser(defaultPack: Option[PackageName]): P[Package[PackageName, Unit, Unit, List[Statement]]] = {
     // TODO: support comments before the Statement
-    val pname = Padding.parser(P("package" ~ spaces ~ PackageName.parser)).map(_.padded)
-    val im = Padding.parser(Import.parser).map(_.padded).rep().map(_.toList)
-    val ex = Padding.parser(P("export" ~ maybeSpace ~ ExportedName.parser.nonEmptyListSyntax)).map(_.padded)
+    val parsePack = Padding.parser(P("package" ~ spaces ~/ PackageName.parser ~ Parser.toEOL)).map(_.padded)
+    val pname = defaultPack match {
+      case None => parsePack
+      case Some(p) => parsePack.?.map(_.getOrElse(p))
+    }
+    val im = Padding.parser(Import.parser ~ Parser.toEOL).map(_.padded).rep().map(_.toList)
+    val ex = Padding.parser(P("export" ~ maybeSpace ~ ExportedName.parser.nonEmptyListSyntax ~ Parser.toEOL)).map(_.padded)
     val body = Statement.parser
-    (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ Parser.toEOL ~ body).map { case (p, i, e, b) =>
+    (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ body).map { case (p, i, e, b) =>
       Package(p, i, e, b)
     }
   }

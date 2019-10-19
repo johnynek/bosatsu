@@ -1019,7 +1019,7 @@ external def foo2(i: Integer, b: a) -> String
   }
 
   test("we can parse any package") {
-    roundTrip(Package.parser,
+    roundTrip(Package.parser(None),
 """
 package Foo/Bar
 import Baz [Bippy]
@@ -1028,7 +1028,7 @@ export [foo]
 foo = 1
 """)
 
-    forAll(Generators.packageGen(4))(law(Package.parser))
+    forAll(Generators.packageGen(4))(law(Package.parser(None)))
   }
 
   test("parse errors point near where they occur") {
