@@ -1,9 +1,10 @@
 package org.bykn.bosatsu
 
+import cats.data.NonEmptyList
+import java.nio.file.{Path, Paths}
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.prop.PropertyChecks.forAll
 import org.scalatest.FunSuite
-import java.nio.file.{Path, Paths}
 
 import scala.collection.JavaConverters._
 
@@ -15,6 +16,17 @@ class PathModuleTest extends FunSuite {
 
       Gen.listOf(str).map { parts => Paths.get(parts.mkString("/")) }
     }
+
+  test("test some hand written examples") {
+    def pn(roots: List[String], file: String): Option[PackageName] =
+      PathModule.pathPackage(roots.map(Paths.get(_)), Paths.get(file))
+
+    assert(pn(List("/root0", "/root1"), "/root0/Bar.bosatsu") == Some(PackageName(NonEmptyList.of("Bar"))))
+    assert(pn(List("/root0", "/root1"), "/root1/Bar/Baz.bosatsu") == Some(PackageName(NonEmptyList.of("Bar", "Baz"))))
+    assert(pn(List("/root0", "/root0/Bar"), "/root0/Bar/Baz.bosatsu") == Some(PackageName(NonEmptyList.of("Bar", "Baz"))))
+    assert(pn(List("/root0/", "/root0/Bar"), "/root0/Bar/Baz.bosatsu") == Some(PackageName(NonEmptyList.of("Bar", "Baz"))))
+    assert(pn(List("/root0/ext", "/root0/Bar"), "/root0/ext/Bar/Baz.bosatsu") == Some(PackageName(NonEmptyList.of("Bar", "Baz"))))
+  }
 
   test("no roots means no Package") {
     forAll { p: Path =>

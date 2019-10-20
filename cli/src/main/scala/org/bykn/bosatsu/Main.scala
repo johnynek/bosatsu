@@ -103,18 +103,20 @@ object PathModule extends MainModule[IO] {
         }
         .mkString("/")
 
-      PackageName.parse(subPath)
+      val dropExtension = """(.*)\.[^.]*$""".r
+      val toParse = subPath match {
+        case dropExtension(prefix) => prefix
+        case _ => subPath
+      }
+      PackageName.parse(toParse)
     }
 
     @annotation.tailrec
     def loop(roots: List[Path]): Option[PackageName] =
       roots match {
         case Nil => None
-        case h :: t =>
-          getP(h) match {
-            case None => loop(t)
-            case some => some
-          }
+        case h :: t if packFile.startsWith(h) => getP(h)
+        case _ :: t => loop(t)
       }
 
     if (packFile.toString.isEmpty) None
