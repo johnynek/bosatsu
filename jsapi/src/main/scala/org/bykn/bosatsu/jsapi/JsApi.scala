@@ -11,7 +11,10 @@ import cats.implicits._
 @JSExportTopLevel("Bosatsu")
 object JsApi {
 
-  private val module = new MemoryMain[Either[Throwable, ?], String]
+  private def splitPath(p: String): List[String] =
+    p.split("/", -1).toList.map(_.toLowerCase.capitalize)
+
+  private val module = new MemoryMain[Either[Throwable, ?], String](splitPath)
 
   private def makeInputArgs(keys: Iterable[String]): List[String] =
     keys.iterator.flatMap { key => "--input" :: key :: Nil }.toList
@@ -26,10 +29,10 @@ object JsApi {
    */
   @JSExport
   def evaluate(mainPackage: String, mainFile: String, files: js.Dictionary[String]): EvalSuccess | Error = {
-    val withColor = "--color" :: "html" :: Nil
+    val baseArgs = "--package_root" :: "" :: "--color" :: "html" :: Nil
     val main =
-      if (mainPackage != null) "--main" :: mainPackage :: withColor
-      else "--main_file" :: mainFile :: withColor
+      if (mainPackage != null) "--main" :: mainPackage :: baseArgs
+      else "--main_file" :: mainFile :: baseArgs
     module.runWith(files)("eval" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
         new Error(s"error: $err")
@@ -68,10 +71,10 @@ object JsApi {
    */
   @JSExport
   def evaluateJson(mainPackage: String, mainFile: String, files: js.Dictionary[String]): EvalSuccess | Error = {
-    val withColor = "--color" :: "html" :: Nil
+    val baseArgs = "--package_root" :: "" :: "--color" :: "html" :: Nil
     val main =
-      if (mainPackage != null) "--main" :: mainPackage :: withColor
-      else "--main_file" :: mainFile :: withColor
+      if (mainPackage != null) "--main" :: mainPackage :: baseArgs
+      else "--main_file" :: mainFile :: baseArgs
     module.runWith(files)("write-json" :: "--output" :: "" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
         new Error(s"error: $err")

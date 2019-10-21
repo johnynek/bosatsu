@@ -91,6 +91,37 @@ object PathModule extends MainModule[IO] {
 
         (ifres *> out)
     }
+
+  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {
+    import scala.collection.JavaConverters._
+
+    def getP(p: Path): Option[PackageName] = {
+      val subPath = p.relativize(packFile)
+        .asScala
+        .map { part =>
+          part.toString.toLowerCase.capitalize
+        }
+        .mkString("/")
+
+      val dropExtension = """(.*)\.[^.]*$""".r
+      val toParse = subPath match {
+        case dropExtension(prefix) => prefix
+        case _ => subPath
+      }
+      PackageName.parse(toParse)
+    }
+
+    @annotation.tailrec
+    def loop(roots: List[Path]): Option[PackageName] =
+      roots match {
+        case Nil => None
+        case h :: t if packFile.startsWith(h) => getP(h)
+        case _ :: t => loop(t)
+      }
+
+    if (packFile.toString.isEmpty) None
+    else loop(roots)
+  }
 }
 
 object Main {

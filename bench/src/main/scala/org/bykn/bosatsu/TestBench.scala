@@ -12,7 +12,7 @@ class TestBench {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
-      Parser.parse(Package.parser, pack).map { case (lm, parsed) =>
+      Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
         ((i.toString, lm), parsed)
       }
     }

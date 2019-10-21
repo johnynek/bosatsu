@@ -26,7 +26,7 @@ object PackageName {
 
   def parse(s: String): Option[PackageName] =
     parser.parse(s) match {
-      case Parsed.Success(pn, _) => Some(pn)
+      case Parsed.Success(pn, idx) if idx == s.length => Some(pn)
       case _ => None
     }
 
