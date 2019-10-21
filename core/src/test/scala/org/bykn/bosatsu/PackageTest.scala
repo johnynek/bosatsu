@@ -10,7 +10,7 @@ class PackageTest extends FunSuite {
     PackageMap.resolveThenInfer(ps.toList.map { p => ((), p) }, Nil)._2
 
   def parse(s: String): Package.Parsed =
-    Package.parser.parse(s) match {
+    Package.parser(None).parse(s) match {
       case Parsed.Success(p, idx) =>
         assert(idx == s.length)
         p

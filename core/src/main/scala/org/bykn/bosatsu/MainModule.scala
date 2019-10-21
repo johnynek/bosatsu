@@ -28,6 +28,12 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]]
 
+  /**
+   * given an ordered list of prefered roots, if a packFile starts
+   * with one of these roots, return a PackageName based on the rest
+   */
+  def pathPackage(roots: List[Path], packFile: Path): Option[PackageName]
+
   //////////////////////////////
   // Below here are concrete and should not use override
   //////////////////////////////
@@ -50,12 +56,13 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   }
 
   object MainCommand {
-    def parseInputs[F[_]: Traverse](paths: F[Path]): IO[ValidatedNel[ParseError, F[((Path, LocationMap), Package.Parsed)]]] =
+    def parseInputs[F[_]: Traverse](paths: F[Path], pathToPack: Path => Option[PackageName]): IO[ValidatedNel[ParseError, F[((Path, LocationMap), Package.Parsed)]]] =
       // we use IO(traverse) so we can accumulate all the errors in parallel easily
       // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
       // and use the composed applicative... too much work for the same result
       paths.traverse { path =>
-        parseFile(Package.parser, path).map(_.map { case (lm, parsed) =>
+        val defaultPack = pathToPack(path)
+        parseFile(Package.parser(defaultPack), path).map(_.map { case (lm, parsed) =>
           ((path, lm), parsed)
         })
       }
@@ -98,7 +105,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     def typeCheck0(
       inputs: List[Path],
       ifs: List[Package.Interface],
-      errColor: Colorize): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+      errColor: Colorize,
+      pathToPack: Path => Option[PackageName]
+      ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
       NonEmptyList.fromList(inputs) match {
         case None =>
           // we should still return the predef
@@ -112,14 +121,16 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           else {
             moduleIOMonad.pure((PackageMap.empty, Nil))
           }
-        case Some(nel) => typeCheck(nel, ifs, errColor)
+        case Some(nel) => typeCheck(nel, ifs, errColor, pathToPack)
       }
 
     def typeCheck(
       inputs: NonEmptyList[Path],
       ifs: List[Package.Interface],
-      errColor: Colorize): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
-      parseInputs(inputs)
+      errColor: Colorize,
+      pathToPack: Path => Option[PackageName]
+      ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+      parseInputs(inputs, pathToPack)
         .flatMap { ins =>
           moduleIOMonad.fromTry {
             // Now we have completed all IO, here we do all the checks we need for correctness
@@ -139,11 +150,15 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           }
         }
 
-    def buildPackMap(srcs: List[Path], deps: List[Path], errColor: Colorize): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] =
+    def buildPackMap(
+      srcs: List[Path],
+      deps: List[Path],
+      errColor: Colorize,
+      pathToPack: Path => Option[PackageName]): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] =
       readPackages(deps)
         .flatMap { packs =>
           val ifaces = packs.map(Package.interfaceOf(_))
-          typeCheck0(srcs, ifaces, errColor)
+          typeCheck0(srcs, ifaces, errColor, pathToPack)
             .map { case (thesePacks, lst) =>
               (packs.foldLeft(PackageMap.toAnyTyped(thesePacks))(_ + _), lst)
             }
@@ -176,9 +191,10 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       inputs: List[Path],
       mainPackage: MainIdentifier,
       deps: List[Path],
-      errColor: Colorize) extends MainCommand {
+      errColor: Colorize,
+      pathToPack: Path => Option[PackageName]) extends MainCommand {
       def run =
-        buildPackMap(inputs.toList, deps, errColor)
+        buildPackMap(inputs.toList, deps, errColor, pathToPack)
           .flatMap { case (packs, names) =>
             mainPackage
               .getMain(names)
@@ -193,12 +209,18 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           }
     }
 
-    case class ToJson(inputs: List[Path], deps: List[Path], mainPackage: MainIdentifier, output: Path, errColor: Colorize) extends MainCommand {
+    case class ToJson(
+      inputs: List[Path],
+      deps: List[Path],
+      mainPackage: MainIdentifier,
+      output: Path,
+      errColor: Colorize,
+      pathToPack: Path => Option[PackageName]) extends MainCommand {
       def checkEmpty =
         if (inputs.isEmpty && deps.isEmpty) moduleIOMonad.raiseError(new Exception("no test sources or test dependencies"))
         else moduleIOMonad.unit
 
-      def run = checkEmpty *> buildPackMap(inputs.toList, deps, errColor)
+      def run = checkEmpty *> buildPackMap(inputs.toList, deps, errColor, pathToPack)
         .flatMap { case (packs, files) =>
           mainPackage.getMain(files)
             .flatMap { mainPackage =>
@@ -219,10 +241,16 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             }
         }
     }
-    case class TypeCheck(inputs: NonEmptyList[Path], ifaces: List[Path], output: Path, ifout: Option[Path], errColor: Colorize) extends MainCommand {
+    case class TypeCheck(
+      inputs: NonEmptyList[Path],
+      ifaces: List[Path],
+      output: Path,
+      ifout: Option[Path],
+      errColor: Colorize,
+      pathToPack: Path => Option[PackageName]) extends MainCommand {
       def run =
         readInterfaces(ifaces)
-          .flatMap(typeCheck(inputs, _, errColor))
+          .flatMap(typeCheck(inputs, _, errColor, pathToPack))
           .map { case (packs, _) =>
             val packList =
               packs.toMap
@@ -238,7 +266,12 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           }
     }
 
-    case class RunTests(tests: List[Path], testPacks: List[PackageName], dependencies: List[Path], errColor: Colorize) extends MainCommand {
+    case class RunTests(
+      tests: List[Path],
+      testPacks: List[PackageName],
+      dependencies: List[Path],
+      errColor: Colorize,
+      pathToPack: Path => Option[PackageName]) extends MainCommand {
       def run = {
         if (tests.isEmpty && dependencies.isEmpty) {
           moduleIOMonad.raiseError(new Exception("no test sources or test dependencies"))
@@ -248,7 +281,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             for {
               deps <- readPackages(dependencies)
               ifaces = deps.map(Package.interfaceOf(_))
-              pn <- typeCheck0(tests, ifaces, errColor)
+              pn <- typeCheck0(tests, ifaces, errColor, pathToPack)
               (packs0, nameMap) = pn
               // add the dependencies into the package map
               packs = deps.foldLeft(PackageMap.toAnyTyped(packs0))(_ + _)
@@ -358,10 +391,23 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       val outputPath = Opts.option[Path]("output", help = "output path")
       val interfaceOutputPath = Opts.option[Path]("interface_out", help = "interface output path")
 
-      val evalOpt = (toList(ins), mainP, includes, colorOpt).mapN(Evaluate(_, _, _, _))
-      val toJsonOpt = (toList(ins), includes, mainP, outputPath, colorOpt).mapN(ToJson(_, _, _, _, _))
-      val typeCheckOpt = (ins, ifaces, outputPath, interfaceOutputPath.orNone, colorOpt).mapN(TypeCheck(_, _, _, _, _))
-      val testOpt = (toList(ins), testP, includes, colorOpt).mapN(RunTests(_, _, _, _))
+      val pathToPack: Opts[Path => Option[PackageName]] =
+        toList(
+          Opts.options[Path](
+            "package_root",
+            help = "for implicit package names, consider these paths as roots"))
+          .map { paths =>
+            { p: Path => pathPackage(paths, p) }
+          }
+
+      val evalOpt = (toList(ins), mainP, includes, colorOpt, pathToPack)
+        .mapN(Evaluate(_, _, _, _, _))
+      val toJsonOpt = (toList(ins), includes, mainP, outputPath, colorOpt, pathToPack)
+        .mapN(ToJson(_, _, _, _, _, _))
+      val typeCheckOpt = (ins, ifaces, outputPath, interfaceOutputPath.orNone, colorOpt, pathToPack)
+        .mapN(TypeCheck(_, _, _, _, _, _))
+      val testOpt = (toList(ins), testP, includes, colorOpt, pathToPack)
+        .mapN(RunTests(_, _, _, _, _))
 
       Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
         .orElse(Opts.subcommand("write-json", "evaluate a data expression into json")(toJsonOpt))

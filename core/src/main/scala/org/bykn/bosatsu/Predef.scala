@@ -24,7 +24,7 @@ object Predef {
    * The parsed representation of the predef.
    */
   lazy val predefPackage: Package.Parsed =
-    Package.parser.parse(predefString) match {
+    Package.parser(None).parse(predefString) match {
       case Parsed.Success(pack, _) => pack
       case Parsed.Failure(exp, idx, extra) =>
         val lm = LocationMap(predefString)
