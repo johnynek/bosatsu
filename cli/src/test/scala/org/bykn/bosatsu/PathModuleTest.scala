@@ -41,14 +41,23 @@ class PathModuleTest extends FunSuite {
   }
 
   test("if we add to a path that becomes Package") {
-    forAll { (root: Path, otherRoots: List[Path], rest: Path) =>
-      if (rest.toString != "") {
+    def law(root: Path, otherRoots: List[Path], rest: Path) = {
+      if (rest.toString != "" && root.toString != "") {
         val path = root.resolve(rest)
         val pack =
           PackageName.parse(rest.asScala.map(_.toString.toLowerCase.capitalize).mkString("/"))
         assert(PathModule.pathPackage(root :: otherRoots, path) == pack)
       }
     }
+
+    forAll(law(_, _, _))
+    // some regressions:
+    val regressions: List[(Path, List[Path], Path)] =
+      List(
+        (Paths.get(""), Nil, Paths.get("/foo/bar")),
+        (Paths.get(""), List(Paths.get("")), Paths.get("/foo/bar")))
+
+    regressions.foreach { case (r, o, e) => law(r, o, e) }
   }
 
   test("if none of the roots are prefixes we have none") {
