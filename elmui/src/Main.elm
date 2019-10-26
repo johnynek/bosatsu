@@ -1,9 +1,12 @@
 port module Main exposing (..)
 
 import Browser
-import Html exposing (Attribute, Html, button, div, input, span, text, textarea)
-import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput)
+import Element exposing (column, el, row, text)
+import Element.Background as Background
+import Element.Border as Border
+import Element.Font as Font
+import Element.Input exposing (button, labelHidden, multiline, placeholder)
+import Html exposing (Html, span)
 import Html.Parser
 import Html.Parser.Util
 import Json.Decode
@@ -106,6 +109,7 @@ update msg model =
 
 -- VIEW
 
+
 textHtml : String -> List (Html.Html msg)
 textHtml t =
     case Html.Parser.run t of
@@ -114,6 +118,15 @@ textHtml t =
 
         Err _ ->
             []
+
+
+green =
+    Element.rgb255 167 255 143
+
+
+blue =
+    Element.rgb 0 0 1
+
 
 view : Model -> Html Msg
 view model =
@@ -127,13 +140,61 @@ view model =
                     text ""
 
                 ErrorMessage msg ->
-                    span [] (textHtml (String.concat ["<pre>", msg, "</pre>"]))
+                    column []
+                        [ text "error:"
+                        , Element.html (span [] (textHtml (String.concat [ "<pre>", msg, "</pre>" ])))
+                        ]
 
                 JsonValue v ->
-                    text (Json.Encode.encode 4 v)
+                    let
+                        j =
+                            Json.Encode.encode 4 v
+                    in
+                    column []
+                        [ text "last value as json:"
+                        , Element.html (span [] (textHtml (String.concat [ "<pre>", j, "</pre>" ])))
+                        ]
+
+        textArea =
+            el
+                [ Font.family [ Font.monospace ]
+                , Element.width Element.fill
+                , Element.height Element.fill
+                ]
+                (multiline [ Element.height Element.fill ]
+                    { onChange = CodeEdit
+                    , text = model.code
+                    , placeholder = Just (placeholder [] (text "bosatsu code here"))
+                    , label = labelHidden "code"
+                    , spellcheck = False
+                    }
+                )
+
+        b =
+            button [ Background.color green, Element.padding 10, Border.rounded 10 ]
+                { onPress = Just Evaluate
+                , label = text "run"
+                }
+
+        table =
+            row [ Element.width Element.fill, Element.spacing 10 ]
+                [ column [ Element.width Element.fill, Element.spacing 15 ] [
+                      el [ Element.width (Element.fillPortion 3) ] textArea,
+                      el [ Element.centerX ] b
+                    ],
+                  el [ Element.width (Element.fillPortion 1) ] res
+                ]
+
+        mainElement =
+            column [ Element.width Element.fill, Element.spacing 10 ]
+                [ Element.paragraph []
+                    [ text "Try "
+                    , Element.link [ Font.color blue, Font.underline ]
+                        { url = "https://github.com/johnynek/bosatsu"
+                        , label = text "Bosatsu"
+                        }
+                    ]
+                , table
+                ]
     in
-    div []
-        [ textarea [ placeholder "bosatsu code here", value model.code, onInput CodeEdit ] []
-        , button [ onClick Evaluate ] [ text "go" ]
-        , div [] [ res ]
-        ]
+    Element.layout [] mainElement
