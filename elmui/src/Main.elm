@@ -32,15 +32,35 @@ type Result
     | Working
 
 
+type Stack a
+    = EmptyStack
+    | NonEmpty (List a) a (List a)
+
+
+pushIfNew : comparable -> Stack comparable -> Stack comparable
+pushIfNew item stack =
+    case stack of
+        EmptyStack ->
+            NonEmpty [] item []
+
+        NonEmpty prev cur next ->
+            if cur /= item then
+                NonEmpty (cur :: prev) item next
+
+            else
+                stack
+
+
 type alias Model =
     { code : String
+    , history : Stack String
     , result : Result
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { code = "", result = EmptyResult }, Cmd.none )
+    ( { code = "", history = EmptyStack, result = EmptyResult }, Cmd.none )
 
 
 
@@ -66,6 +86,8 @@ type Msg
     = CodeEdit String
     | Receive Json.Decode.Value
     | Evaluate
+    | BackStack
+    | ForwardStack
 
 
 type BosatsuResult
@@ -103,7 +125,29 @@ update msg model =
                     ( { model | result = ErrorMessage (Json.Decode.errorToString err) }, Cmd.none )
 
         Evaluate ->
-            ( { model | result = Working }, toJS model.code )
+            ( { model | result = Working, history = pushIfNew model.code model.history }, toJS model.code )
+
+        BackStack ->
+            case model.history of
+                EmptyStack ->
+                    ( model, Cmd.none )
+
+                NonEmpty [] _ _ ->
+                    ( model, Cmd.none )
+
+                NonEmpty (p0 :: p1) c n ->
+                    ( { model | history = NonEmpty p1 p0 (c :: n), code = p0 }, Cmd.none )
+
+        ForwardStack ->
+            case model.history of
+                EmptyStack ->
+                    ( model, Cmd.none )
+
+                NonEmpty _ _ [] ->
+                    ( model, Cmd.none )
+
+                NonEmpty p c (n0 :: n1) ->
+                    ( { model | history = NonEmpty (c :: p) n0 n1, code = n0 }, Cmd.none )
 
 
 
@@ -170,19 +214,34 @@ view model =
                     }
                 )
 
-        b =
+        runB =
             button [ Background.color green, Element.padding 10, Border.rounded 10 ]
                 { onPress = Just Evaluate
                 , label = text "run"
                 }
 
+        lightBlue =
+            Background.color (Element.rgb255 201 213 255)
+
+        backB =
+            button [ lightBlue, Element.padding 10, Border.rounded 10 ]
+                { onPress = Just BackStack
+                , label = text "back"
+                }
+
+        forB =
+            button [ lightBlue, Element.padding 10, Border.rounded 10 ]
+                { onPress = Just ForwardStack
+                , label = text "forward"
+                }
+
         table =
             row [ Element.width Element.fill, Element.spacing 10 ]
-                [ column [ Element.width Element.fill, Element.spacing 15 ] [
-                      el [ Element.width (Element.fillPortion 3) ] textArea,
-                      el [ Element.centerX ] b
-                    ],
-                  el [ Element.width (Element.fillPortion 1) ] res
+                [ column [ Element.width Element.fill, Element.spacing 15 ]
+                    [ el [ Element.width (Element.fillPortion 3) ] textArea
+                    , row [ Element.centerX ] [ backB, runB, forB ]
+                    ]
+                , el [ Element.width (Element.fillPortion 1) ] res
                 ]
 
         mainElement =
