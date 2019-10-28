@@ -1,9 +1,12 @@
 port module Main exposing (..)
 
 import Browser
-import Html exposing (Attribute, Html, button, div, input, span, text, textarea)
-import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput)
+import Element exposing (column, el, row, text)
+import Element.Background as Background
+import Element.Border as Border
+import Element.Font as Font
+import Element.Input exposing (button, labelHidden, multiline, placeholder)
+import Html exposing (Html, span)
 import Html.Parser
 import Html.Parser.Util
 import Json.Decode
@@ -29,15 +32,35 @@ type Result
     | Working
 
 
+type Stack a
+    = EmptyStack
+    | NonEmpty (List a) a (List a)
+
+
+pushIfNew : comparable -> Stack comparable -> Stack comparable
+pushIfNew item stack =
+    case stack of
+        EmptyStack ->
+            NonEmpty [] item []
+
+        NonEmpty prev cur next ->
+            if cur /= item then
+                NonEmpty (cur :: prev) item next
+
+            else
+                stack
+
+
 type alias Model =
     { code : String
+    , history : Stack String
     , result : Result
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { code = "", result = EmptyResult }, Cmd.none )
+    ( { code = "", history = EmptyStack, result = EmptyResult }, Cmd.none )
 
 
 
@@ -63,6 +86,8 @@ type Msg
     = CodeEdit String
     | Receive Json.Decode.Value
     | Evaluate
+    | BackStack
+    | ForwardStack
 
 
 type BosatsuResult
@@ -100,11 +125,34 @@ update msg model =
                     ( { model | result = ErrorMessage (Json.Decode.errorToString err) }, Cmd.none )
 
         Evaluate ->
-            ( { model | result = Working }, toJS model.code )
+            ( { model | result = Working, history = pushIfNew model.code model.history }, toJS model.code )
+
+        BackStack ->
+            case model.history of
+                EmptyStack ->
+                    ( model, Cmd.none )
+
+                NonEmpty [] _ _ ->
+                    ( model, Cmd.none )
+
+                NonEmpty (p0 :: p1) c n ->
+                    ( { model | history = NonEmpty p1 p0 (c :: n), code = p0 }, Cmd.none )
+
+        ForwardStack ->
+            case model.history of
+                EmptyStack ->
+                    ( model, Cmd.none )
+
+                NonEmpty _ _ [] ->
+                    ( model, Cmd.none )
+
+                NonEmpty p c (n0 :: n1) ->
+                    ( { model | history = NonEmpty (c :: p) n0 n1, code = n0 }, Cmd.none )
 
 
 
 -- VIEW
+
 
 textHtml : String -> List (Html.Html msg)
 textHtml t =
@@ -114,6 +162,15 @@ textHtml t =
 
         Err _ ->
             []
+
+
+green =
+    Element.rgb255 167 255 143
+
+
+blue =
+    Element.rgb 0 0 1
+
 
 view : Model -> Html Msg
 view model =
@@ -127,13 +184,76 @@ view model =
                     text ""
 
                 ErrorMessage msg ->
-                    span [] (textHtml (String.concat ["<pre>", msg, "</pre>"]))
+                    column []
+                        [ text "error:"
+                        , Element.html (span [] (textHtml (String.concat [ "<pre>", msg, "</pre>" ])))
+                        ]
 
                 JsonValue v ->
-                    text (Json.Encode.encode 4 v)
+                    let
+                        j =
+                            Json.Encode.encode 4 v
+                    in
+                    column []
+                        [ text "last value as json:"
+                        , Element.html (span [] (textHtml (String.concat [ "<pre>", j, "</pre>" ])))
+                        ]
+
+        textArea =
+            el
+                [ Font.family [ Font.monospace ]
+                , Element.width Element.fill
+                , Element.height Element.fill
+                ]
+                (multiline [ Element.height Element.fill ]
+                    { onChange = CodeEdit
+                    , text = model.code
+                    , placeholder = Just (placeholder [] (text "bosatsu code here"))
+                    , label = labelHidden "code"
+                    , spellcheck = False
+                    }
+                )
+
+        runB =
+            button [ Background.color green, Element.padding 10, Border.rounded 10 ]
+                { onPress = Just Evaluate
+                , label = text "run"
+                }
+
+        lightBlue =
+            Background.color (Element.rgb255 201 213 255)
+
+        backB =
+            button [ lightBlue, Element.padding 10, Border.rounded 10 ]
+                { onPress = Just BackStack
+                , label = text "back"
+                }
+
+        forB =
+            button [ lightBlue, Element.padding 10, Border.rounded 10 ]
+                { onPress = Just ForwardStack
+                , label = text "forward"
+                }
+
+        table =
+            row [ Element.width Element.fill, Element.spacing 10 ]
+                [ column [ Element.width Element.fill, Element.spacing 15 ]
+                    [ el [ Element.width (Element.fillPortion 3) ] textArea
+                    , row [ Element.centerX ] [ backB, runB, forB ]
+                    ]
+                , el [ Element.width (Element.fillPortion 1) ] res
+                ]
+
+        mainElement =
+            column [ Element.width Element.fill, Element.spacing 10 ]
+                [ Element.paragraph []
+                    [ text "Try "
+                    , Element.link [ Font.color blue, Font.underline ]
+                        { url = "https://github.com/johnynek/bosatsu"
+                        , label = text "Bosatsu"
+                        }
+                    ]
+                , table
+                ]
     in
-    div []
-        [ textarea [ placeholder "bosatsu code here", value model.code, onInput CodeEdit ] []
-        , button [ onClick Evaluate ] [ text "go" ]
-        , div [] [ res ]
-        ]
+    Element.layout [] mainElement
