@@ -228,12 +228,13 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
               ev.evaluateLast(mainPackage) match {
                 case None =>
                   moduleIOMonad.raiseError(new Exception("found no main expression"))
-                case Some((eval, scheme)) =>
+                case Some((eval, tpe)) =>
                   val res = eval.value
-                  ev.toJson(res, scheme) match {
+                  ev.toJson(res, tpe) match {
                     case None =>
+                      val tpeStr = TypeRef.fromTypes(None, tpe :: Nil)(tpe).toDoc.render(80)
                       moduleIOMonad.raiseError(new Exception(
-                        s"cannot convert type to Json: $scheme"))
+                        s"cannot convert type to Json: $tpeStr"))
                     case Some(j) =>
                       moduleIOMonad.pure(Output.JsonOutput(j, output))
                   }

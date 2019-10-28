@@ -35,7 +35,7 @@ object JsApi {
       else "--main_file" :: mainFile :: baseArgs
     module.runWith(files)("eval" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
-        new Error(s"error: $err")
+        new Error(s"error: ${err.getMessage}")
       case Right(module.Output.EvaluationResult(res, tpe)) =>
         new EvalSuccess(res.value.toString)
       case Right(other) =>
@@ -77,7 +77,7 @@ object JsApi {
       else "--main_file" :: mainFile :: baseArgs
     module.runWith(files)("write-json" :: "--output" :: "" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
-        new Error(s"error: $err")
+        new Error(s"error: ${err.getMessage}")
       case Right(module.Output.JsonOutput(json, _)) =>
         new EvalSuccess(jsonToAny(json))
       case Right(other) =>
