@@ -13,6 +13,7 @@ bosatsu_test(
 bosatsu_test(
     name = "euler2",
     srcs = ["euler2.bosatsu"],
+    deps = [":list"],
     size = "medium")
 
 bosatsu_test(
@@ -28,6 +29,7 @@ bosatsu_test(
 bosatsu_test(
     name = "euler5",
     srcs = ["euler5.bosatsu"],
+    deps = [":list"],
     size = "small")
 
 bosatsu_test(
@@ -38,6 +40,7 @@ bosatsu_test(
 bosatsu_test(
     name = "euler7",
     srcs = ["euler7.bosatsu"],
+    deps = [":bool", ":list"],
     size = "medium")
 
 bosatsu_library(
@@ -57,8 +60,13 @@ bosatsu_json(
     package = "GenDeps")
 
 bosatsu_library(
+    name = "bool",
+    srcs = ["Bool.bosatsu"])
+
+bosatsu_library(
     name = "list",
     srcs = ["List.bosatsu"],
+    deps = [":bool"],
     )
 
 bosatsu_library(
