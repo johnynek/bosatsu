@@ -1,5 +1,7 @@
 package Euler/P5
 
+import Bosatsu/List [ for_all ]
+
 # 2520 is the smallest number that can be divided by each of the numbers from 1 to 10 without any remainder.
 #
 # What is the smallest positive number that is evenly divisible by all of the numbers from 1 to 20?
@@ -16,13 +18,6 @@ max_candidate = factorial(10)
 
 # just start at 1 and take the first number that
 # is divisible by all
-
-def for_all(items, fn):
-  def loop(items):
-    recur items:
-      []: True
-      [h, *t]: loop(t) if fn(h) else False
-  loop(items)
 
 def int_loop_up(top, res, fn):
   int_loop(top, res, \i, res ->

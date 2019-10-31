@@ -1,5 +1,8 @@
 package Euler/P7
 
+import Bosatsu/Bool [ not ]
+import Bosatsu/List [ for_all ]
+
 # By listing the first six prime numbers: 2, 3, 5, 7, 11, and 13, we can see that the 6th prime is 13.
 # What is the 10 001st prime number?
 
@@ -16,8 +19,6 @@ def int_loop_up(top, res, fn):
 def divides(denom, num):
   num.mod_Int(denom).eq_Int(0)
 
-def not(x): False if x else True
-
 def is_prime(x):
   int_loop_up(x, False, \i, div ->
     nexti = i + 1
@@ -26,11 +27,8 @@ def is_prime(x):
       LT: (x, True) if div else (nexti, candidate.divides(x))
       _: (x, False)).not
 
-def forall(xs, fn):
-  xs.foldLeft(True, \i, x -> fn(x) if i else False)
-
 def none_divide(primes, x):
-  forall(primes, \p -> not(p.divides(x)))
+  for_all(primes, \p -> not(p.divides(x)))
 
 # the gap between primes might be as small as (log N)^2, so
 # even if the gap is O(N), clearly false, we would only have

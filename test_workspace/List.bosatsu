@@ -1,23 +1,31 @@
 package Bosatsu/List
 
-export [ eq_List ]
+import Bosatsu/Bool [ not ]
+export [ eq_List, for_all, sum ]
+
+def for_all(xs: List[a], fn: a -> Bool) -> Bool:
+  recur xs:
+    []: True
+    [head, *tail]:
+      if fn(head): for_all(tail, fn)
+      else: False
+
+def sum(as: List[Int]) -> Int:
+  as.foldLeft(0, add)
 
 def eq_List(fn: a -> a -> Bool, a: List[a], b: List[a]) -> Bool:
-  res = a.foldLeft((True, b), \current, h ->
-    match current:
-      (True, [hb, *tb]):
-        if fn(h, hb): (True, tb)
-        else: (False, [])
-      (_, []): (False, [])
-      (False, _): current
-  )
-  match res:
-    (True, []): True
-    _: False
+  recur a:
+    []:
+      match b:
+        []: True
+        _: False
+    [ah, *at]:
+      match b:
+        []: False
+        [bh, *bt]:
+          eq_List(fn, at, bt) if fn(ah, bh) else False
 
 eq_li = eq_List(eq_Int)
-
-def not(x): False if x else True
 
 tests = TestSuite("List tests", [
   Assertion([1, 2, 3].eq_li([1, 2, 3]), "list [1, 2, 3]"),
