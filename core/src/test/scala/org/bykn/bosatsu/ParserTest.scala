@@ -679,6 +679,16 @@ else:
 else:
       y""")
 
+    expectFail(parser(""),
+      """if x:
+      x
+else
+      y""", 18)
+
+    expectFail(parser(""),
+      """if x: x
+else y""", 13)
+
     roundTrip(parser(""),
       """if eq_Int(x, 3):
       x
@@ -1053,6 +1063,16 @@ def z:
   y = [1, 2, 3]
   x x
 """, 41)
+/*
+  TODO: the error message is after "def z:" not at the "else"
+  which is where the parse error is.
+    expectFail(Statement.parser,
+      """
+def z:
+  if f: 0
+  else 1
+""", 22)
+*/
   }
 
 }

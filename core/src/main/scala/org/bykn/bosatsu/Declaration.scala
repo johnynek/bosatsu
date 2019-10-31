@@ -486,8 +486,8 @@ object Declaration {
     val elifs1 = ifelif("elif").rep(1, sepIndy = Indy.toEOLIndent) <* Indy.toEOLIndent
 
     (ifelif("if") <* Indy.toEOLIndent)
-      .product(elifs1.?)
-      .product(elseTerm)
+      .cutThen(elifs1.?)
+      .cutThen(elseTerm)
       .region
       .map {
         case (region, ((ifcase, optElses), elseBody)) =>
@@ -635,11 +635,14 @@ object Declaration {
        * Note pattern bind needs to be before anything that looks like a pattern that can't handle
        * bind
        */
-      val patternLike: P[NonBinding] = P(varP | listP(recNonBind) | lits | tupOrPar | recordConstructorP(indent, recNonBind, recArg))
-      val notPatternLike: P[NonBinding] = P(lambdaP(lambBody)(indent) |
-        ifElseP(recArgIndy, recIndy)(indent) |
-        matchP(recArgIndy, recIndy)(indent) |
-        dictP(recArg))
+      val patternLike: P[NonBinding] =
+        P(varP | listP(recNonBind) | lits | tupOrPar | recordConstructorP(indent, recNonBind, recArg))
+
+      val notPatternLike: P[NonBinding] =
+        P(lambdaP(lambBody)(indent) |
+          ifElseP(recArgIndy, recIndy)(indent) |
+          matchP(recArgIndy, recIndy)(indent) |
+          dictP(recArg))
 
       // we need notPatternLike first, so varP won't scoop up "if" and "match"
       val allNonBind = notPatternLike | patternLike
@@ -675,7 +678,7 @@ object Declaration {
         (allNonBind ~ repFn(dotApply | applySuffix)).map { case (a, f) => f(a) }
       }
       // lower priority than calls is type annotation
-      val annotated: P[NonBinding] = {
+      val annotated: P[NonBinding] =
         if (pm == ParseMode.BranchArg) applied
         else {
           val an: P[NonBinding => NonBinding] =
@@ -686,7 +689,6 @@ object Declaration {
               }
           applied.maybeAp(an)
         }
-      }
 
       // Applying is higher precedence than any operators
       // now parse an operator apply
@@ -712,7 +714,7 @@ object Declaration {
           { d: NonBinding => convert(fn(d)) }
         }
 
-        NoCut(annotated.maybeAp(form))
+        annotated.maybeAp(NoCut(form))
       }
 
       // here is if/ternary operator
