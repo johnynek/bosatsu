@@ -699,8 +699,6 @@ else
       """if x: x
 else y""", 13)
 
-/*
-    TODO: this seems to be related to the backtracking in pattern binds
     expectFail(parser(""),
       """if x:
       x
@@ -710,7 +708,6 @@ else
     expectFail(parser(""),
       """if x: x
 else y""", 13)
-    */
 
     roundTrip(parser(""),
       """if eq_Int(x, 3):
@@ -1069,16 +1066,15 @@ foo = 1
 
     forAll(Generators.packageGen(4))(law(Package.parser(None)))
 
-    // TODO: this somehow doesn't parse the same in EvaluationTest
     roundTripExact(Package.parser(None),
 """package Foo
 
-enum Res: Err(a), Good(a)
+enum Res[a, b]: Err(a: a), Good(a: a, b: b)
 
 x = Err('good')
 
 def run(z):
-  Err(y) | Good(y) = z
+  Err(y) | Good(y, _) = z
   y
 
 main = run(x)

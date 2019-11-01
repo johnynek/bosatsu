@@ -541,12 +541,7 @@ object Declaration {
     !keywordsP ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
 
   // this returns a Var with a Constructor or a RecordConstrutor
-  // Note, we use NoCut here because we use a cut below
-  // to fail to parse when we hit a pattern like Foo(_, b)
-  // we don't want to parse the Foo off of that... Once we hit the (
-  // we need to parse the entire args or not at all, similarly
-  // with braces
-  def recordConstructorP(indent: String, declP: P[NonBinding], noAnn: P[NonBinding]): P[NonBinding] = NoCut {
+  def recordConstructorP(indent: String, declP: P[NonBinding], noAnn: P[NonBinding]): P[NonBinding] = {
     val ws = Parser.maybeIndentedOrSpace(indent)
     val kv = RecordArg.parser(indent, noAnn)
     val kvs = kv.nonEmptyListOfWs(ws, 1)
@@ -723,7 +718,7 @@ object Declaration {
           { d: NonBinding => convert(fn(d)) }
         }
 
-        NoCut(annotated.maybeAp(form))
+        annotated.maybeAp(form)
       }
 
       // here is if/ternary operator
@@ -763,8 +758,8 @@ object Declaration {
            * to convert there. This code tries to parse as a declaration first, then converts
            * it to pattern if we see an =
            */
-          decOrBind(recNBIndy, recIndy)(indent) |
-          patternBind(recNBIndy, recIndy)(indent))
+          NoCut(patternBind(recNBIndy, recIndy)(indent))) |
+          decOrBind(recNBIndy, recIndy)(indent)
 
         // we have to parse non-binds first, because varP would parse "def", "match", etc..
         finalBind | finalNonBind

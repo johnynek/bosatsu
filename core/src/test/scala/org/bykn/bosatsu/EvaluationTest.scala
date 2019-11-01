@@ -126,12 +126,11 @@ main = match x:
 """), "Foo", Str("good"))
 
     evalTest(
-      List("""
-package Foo
+      List("""package Foo
 
 enum Res: Err(a), Good(a)
 
-x = Err("good")
+x = Err('good')
 
 def run(z):
   Err(y) | Good(y) = z
@@ -140,8 +139,6 @@ def run(z):
 main = run(x)
 """), "Foo", Str("good"))
 
-    // TODO: parsing of this here vs in ParserTest is not working the same
-    // one parses but the other doesn't and they are the same AFAICT
     evalTest(
       List("""
 package Foo
