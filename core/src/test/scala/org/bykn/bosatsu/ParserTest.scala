@@ -89,6 +89,16 @@ abstract class ParserTestBase extends FunSuite {
         fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
 
+  def roundTripExact[T: Document](p: Parser[T], str: String) =
+    p.parse(str) match {
+      case Parsed.Success(t, idx) =>
+        assert(idx == str.length, s"parsed: $t from: $str")
+        val tstr = Document[T].document(t).render(80)
+        assert(tstr == str)
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
+    }
+
   def law[T: Document](p: Parser[T])(t: T) =
     parseTestAll(p, Document[T].document(t).render(80), t)
 
@@ -679,6 +689,18 @@ else:
 else:
       y""")
 
+    expectFail(parser0,
+      """if x:
+      x
+else
+      y""", 18)
+
+    expectFail(parser0,
+      """if x: x
+else y""", 13)
+
+/*
+    TODO: this seems to be related to the backtracking in pattern binds
     expectFail(parser(""),
       """if x:
       x
@@ -688,6 +710,7 @@ else
     expectFail(parser(""),
       """if x: x
 else y""", 13)
+    */
 
     roundTrip(parser(""),
       """if eq_Int(x, 3):
@@ -980,6 +1003,12 @@ def foo(
     roundTrip(Statement.parser,
 """enum Option:
   None, Some(a)""")
+
+    roundTripExact(Statement.parser,
+"""def run(z):
+  Err(y) | Good(y) = z
+  y
+""")
   }
 
   def dropTrailingPadding(s: List[Statement]): List[Statement] =
@@ -1039,6 +1068,21 @@ foo = 1
 """)
 
     forAll(Generators.packageGen(4))(law(Package.parser(None)))
+
+    // TODO: this somehow doesn't parse the same in EvaluationTest
+    roundTripExact(Package.parser(None),
+"""package Foo
+
+enum Res: Err(a), Good(a)
+
+x = Err('good')
+
+def run(z):
+  Err(y) | Good(y) = z
+  y
+
+main = run(x)
+""")
   }
 
   test("parse errors point near where they occur") {

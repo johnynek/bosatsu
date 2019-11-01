@@ -525,11 +525,20 @@ object Declaration {
    * These are keywords inside declarations (if, match, def)
    * that cannot be used by identifiers
    */
-  val keywords: P[Unit] =
-    List("else", "elif", "match", "def").foldLeft(P("if"))(_ | P(_)) ~ spaces
+  val keywords: Set[String] =
+    Set("if", "else", "elif", "match", "def", "recur", "struct", "enum")
+
+  /**
+   * A Parser that matches keywords
+   */
+  val keywordsP: P[Unit] =
+    keywords
+      .iterator
+      .map(P(_))
+      .reduce(_ | _) ~ spaces
 
   val varP: P[Var] =
-    !keywords ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
+    !keywordsP ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
 
   // this returns a Var with a Constructor or a RecordConstrutor
   // Note, we use NoCut here because we use a cut below
@@ -714,7 +723,7 @@ object Declaration {
           { d: NonBinding => convert(fn(d)) }
         }
 
-        annotated.maybeAp(NoCut(form))
+        NoCut(annotated.maybeAp(form))
       }
 
       // here is if/ternary operator
