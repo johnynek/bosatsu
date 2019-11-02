@@ -56,7 +56,7 @@ object Generators {
 
   val bindIdentGen: Gen[Identifier.Bindable] =
     Gen.frequency(
-      (10, lowerIdent.map { n => Identifier.Name(n) }),
+      (10, lowerIdent.filter { n => !Declaration.keywords(n) }.map { n => Identifier.Name(n) }),
       (1, opGen),
       (1, Arbitrary.arbitrary[String].map { s =>
         Identifier.Backticked(s)
