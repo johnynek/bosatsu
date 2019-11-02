@@ -60,8 +60,8 @@ object DefStatement {
      */
     def parser[A, B](argParser: P[A], resultTParser: P[B]): P[DefStatement[A, B]] = {
       val args = argParser.parensLines1
-      val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser).?
-      P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~
+      val result = P("->" ~/ maybeSpace ~ TypeRef.parser).?
+      P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~ maybeSpace ~
         result ~ maybeSpace ~ ":" ~/ resultTParser)
         .map {
           case (name, optArgs, resType, res) =>

@@ -465,7 +465,7 @@ object Declaration {
   def ifElseP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[IfElse] = {
 
     def ifelif(str: String): Indy[(NonBinding, OptIndent[Declaration])] =
-      OptIndent.block(Indy.lift(P(str) ~ spaces) *> arg, expr)
+      OptIndent.block(Indy.lift(P(str) ~ spaces).cutRight(arg), expr)
 
     /*
      * We don't need to parse the else term to the end,
@@ -529,7 +529,7 @@ object Declaration {
       .reduce(_ | _) ~ spaces
 
   val varP: P[Var] =
-    !keywordsP ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
+    (!keywordsP ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }).opaque("bindable name")
 
   // this returns a Var with a Constructor or a RecordConstrutor
   def recordConstructorP(indent: String, declP: P[NonBinding], noAnn: P[NonBinding]): P[NonBinding] = {
@@ -677,6 +677,8 @@ object Declaration {
               .map { case (r, tpe) =>
                 { nb: NonBinding => Annotation(nb, tpe)(nb.region + r) }
               }
+              .opaque("type annotation")
+
           applied.maybeAp(an)
         }
 

@@ -57,6 +57,7 @@ object OptIndent {
     // we need to read at least 1 new line here
     val not = ind.mapF(Padding.parser1(_)).map(notSame[A](_))
     val sm = p.map(same[A](_))
+    //Indy { i => not(i) | sm(i) }
     not.combineK(sm)
   }
 

@@ -105,8 +105,9 @@ abstract class ParserTestBase extends FunSuite {
   def expectFail[T](p: Parser[T], str: String, atIdx: Int) =
     p.parse(str) match {
       case Parsed.Success(t, idx) => fail(s"parsed $t to: $idx: ${region(str, idx)}")
-      case Parsed.Failure(_, idx, _) =>
-        assert(idx == atIdx)
+      case Parsed.Failure(exp, idx, extra) =>
+        def msg = s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}"
+        assert(idx == atIdx, msg)
     }
 
   def config: PropertyCheckConfiguration = {
@@ -709,6 +710,10 @@ else
       """if x: x
 else y""", 13)
 
+    expectFail(parser(""),
+      """if f: 0
+else 1""", 13)
+
     roundTrip(parser(""),
       """if eq_Int(x, 3):
       x
@@ -1103,16 +1108,13 @@ def z:
   y = [1, 2, 3]
   x x
 """, 41)
-/*
-  TODO: the error message is after "def z:" not at the "else"
-  which is where the parse error is.
+
     expectFail(Statement.parser,
-      """
-def z:
+      """def z:
   if f: 0
   else 1
-""", 22)
-  */
+""", 24)
+
   }
 
 }
