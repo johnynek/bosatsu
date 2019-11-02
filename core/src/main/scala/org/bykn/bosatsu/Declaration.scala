@@ -446,15 +446,6 @@ object Declaration {
   private def restP(parser: Indy[Declaration]): Indy[Padding[Declaration]] =
     (Indy.parseIndent *> parser).mapF(Padding.parser(_))
 
-  // This is something we check after variables
-  private def bindingOp(nonBindingParser: Indy[NonBinding], p: Indy[Declaration]): Indy[(Pattern.Parsed, Region) => Binding] = {
-    bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP(p))
-      .region
-      .map { case (region, fn) =>
-        { (pat: Pattern.Parsed, r: Region) => Binding(fn(pat))(r + region) }
-      }
-  }
-
   def commentP(parser: Indy[Declaration]): Parser.Indy[Comment] =
     CommentStatement.parser(Indy { indent => Padding.parser(P(indent ~ parser(indent)))})
       .region
@@ -569,23 +560,18 @@ object Declaration {
       }
   }
 
-  private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] =
-    Indy.lift(Pattern.bindParser.region).product(bindingOp(nonBindingParser, decl))
+  private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] = {
+    val rightSide = bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP(decl))
+      .region
+      .map { case (region, fn) =>
+        { (pat: Pattern.Parsed, r: Region) => Binding(fn(pat))(r + region) }
+      }
+
+    Indy.lift(NoCut(Pattern.bindParser).region).product(rightSide)
       .map {
         case ((reg, pat), fn) => fn(pat, reg)
       }
-
-  private def decOrBind(p: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] =
-    p.product(bindingOp(p, decl).?)
-      .mapF(_.flatMap {
-        case (d, None) => PassWith(d)
-        case (d, Some(op)) =>
-          toPattern(d) match {
-            case None => Fail
-            case Some(dpat) =>
-              PassWith(op(dpat, d.region))
-          }
-      })
+  }
 
   private def listP(p: P[NonBinding]): P[ListDecl] =
     ListLang.parser(p, Pattern.bindParser)
@@ -758,8 +744,7 @@ object Declaration {
            * to convert there. This code tries to parse as a declaration first, then converts
            * it to pattern if we see an =
            */
-          NoCut(patternBind(recNBIndy, recIndy)(indent))) |
-          decOrBind(recNBIndy, recIndy)(indent)
+          patternBind(recNBIndy, recIndy)(indent))
 
         // we have to parse non-binds first, because varP would parse "def", "match", etc..
         finalBind | finalNonBind
