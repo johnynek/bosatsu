@@ -89,14 +89,25 @@ abstract class ParserTestBase extends FunSuite {
         fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
 
+  def roundTripExact[T: Document](p: Parser[T], str: String) =
+    p.parse(str) match {
+      case Parsed.Success(t, idx) =>
+        assert(idx == str.length, s"parsed: $t from: $str")
+        val tstr = Document[T].document(t).render(80)
+        assert(tstr == str)
+      case Parsed.Failure(exp, idx, extra) =>
+        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
+    }
+
   def law[T: Document](p: Parser[T])(t: T) =
     parseTestAll(p, Document[T].document(t).render(80), t)
 
   def expectFail[T](p: Parser[T], str: String, atIdx: Int) =
     p.parse(str) match {
       case Parsed.Success(t, idx) => fail(s"parsed $t to: $idx: ${region(str, idx)}")
-      case Parsed.Failure(_, idx, _) =>
-        assert(idx == atIdx)
+      case Parsed.Failure(exp, idx, extra) =>
+        def msg = s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}"
+        assert(idx == atIdx, msg)
     }
 
   def config: PropertyCheckConfiguration = {
@@ -679,6 +690,30 @@ else:
 else:
       y""")
 
+    expectFail(parser0,
+      """if x:
+      x
+else
+      y""", 18)
+
+    expectFail(parser0,
+      """if x: x
+else y""", 13)
+
+    expectFail(parser(""),
+      """if x:
+      x
+else
+      y""", 18)
+
+    expectFail(parser(""),
+      """if x: x
+else y""", 13)
+
+    expectFail(parser(""),
+      """if f: 0
+else 1""", 13)
+
     roundTrip(parser(""),
       """if eq_Int(x, 3):
       x
@@ -970,6 +1005,12 @@ def foo(
     roundTrip(Statement.parser,
 """enum Option:
   None, Some(a)""")
+
+    roundTripExact(Statement.parser,
+"""def run(z):
+  Err(y) | Good(y) = z
+  y
+""")
   }
 
   def dropTrailingPadding(s: List[Statement]): List[Statement] =
@@ -1029,6 +1070,20 @@ foo = 1
 """)
 
     forAll(Generators.packageGen(4))(law(Package.parser(None)))
+
+    roundTripExact(Package.parser(None),
+"""package Foo
+
+enum Res[a, b]: Err(a: a), Good(a: a, b: b)
+
+x = Err('good')
+
+def run(z):
+  Err(y) | Good(y, _) = z
+  y
+
+main = run(x)
+""")
   }
 
   test("parse errors point near where they occur") {
@@ -1053,6 +1108,13 @@ def z:
   y = [1, 2, 3]
   x x
 """, 41)
+
+    expectFail(Statement.parser,
+      """def z:
+  if f: 0
+  else 1
+""", 24)
+
   }
 
 }

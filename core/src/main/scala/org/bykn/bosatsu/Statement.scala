@@ -118,8 +118,6 @@ object Statement {
 
   // Parse a single item
   final val parser1: P[Statement] = {
-     val punit: P[Unit] = PassWith(())
-
      val bindingP: P[Statement] = {
        val bop = Declaration
          .bindingParser[Pattern.Parsed, Unit](Declaration.nonBindingParser, Indy.lift(toEOL))("")
@@ -137,7 +135,7 @@ object Statement {
          .map { case (region, p) => PaddingStatement(p)(region) }
 
      val commentP: P[Statement] =
-       CommentStatement.parser(Indy.lift(punit)).region
+       CommentStatement.parser(Indy.lift(PassWith(()))).region
          .map { case (region, cs) => Comment(cs)(region) }.run("")
 
      val defBody = maybeSpace ~ OptIndent.indy(Declaration.parser).run("")

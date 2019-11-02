@@ -8,6 +8,7 @@ import org.bykn.fastparse_cats.StringInstances._
 import fastparse.all._
 
 import Parser.{maybeSpace, Indy}
+import Indy.IndyMethods
 
 sealed abstract class OptIndent[A] {
   def get: A
@@ -68,7 +69,7 @@ object OptIndent {
     blockLike(first, next, P(maybeSpace ~ ":"))
 
   def blockLike[A, B](first: Indy[A], next: Indy[B], sep: P[Unit]): Indy[(A, OptIndent[B])] =
-    (first <* Indy.lift(sep ~/ maybeSpace))
-      .product(OptIndent.indy(next))
-
+    first
+      .cutLeftP(sep ~/ maybeSpace)
+      .cutThen(OptIndent.indy(next))
 }

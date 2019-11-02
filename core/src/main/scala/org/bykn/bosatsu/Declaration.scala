@@ -446,15 +446,6 @@ object Declaration {
   private def restP(parser: Indy[Declaration]): Indy[Padding[Declaration]] =
     (Indy.parseIndent *> parser).mapF(Padding.parser(_))
 
-  // This is something we check after variables
-  private def bindingOp(nonBindingParser: Indy[NonBinding], p: Indy[Declaration]): Indy[(Pattern.Parsed, Region) => Binding] = {
-    bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP(p))
-      .region
-      .map { case (region, fn) =>
-        { (pat: Pattern.Parsed, r: Region) => Binding(fn(pat))(r + region) }
-      }
-  }
-
   def commentP(parser: Indy[Declaration]): Parser.Indy[Comment] =
     CommentStatement.parser(Indy { indent => Padding.parser(P(indent ~ parser(indent)))})
       .region
@@ -474,7 +465,7 @@ object Declaration {
   def ifElseP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[IfElse] = {
 
     def ifelif(str: String): Indy[(NonBinding, OptIndent[Declaration])] =
-      OptIndent.block(Indy.lift(P(str) ~ spaces) *> arg, expr)
+      OptIndent.block(Indy.lift(P(str) ~ spaces).cutRight(arg), expr)
 
     /*
      * We don't need to parse the else term to the end,
@@ -486,8 +477,8 @@ object Declaration {
     val elifs1 = ifelif("elif").rep(1, sepIndy = Indy.toEOLIndent) <* Indy.toEOLIndent
 
     (ifelif("if") <* Indy.toEOLIndent)
-      .product(elifs1.?)
-      .product(elseTerm)
+      .cutThen(elifs1.?)
+      .cutThen(elseTerm)
       .region
       .map {
         case (region, ((ifcase, optElses), elseBody)) =>
@@ -525,19 +516,23 @@ object Declaration {
    * These are keywords inside declarations (if, match, def)
    * that cannot be used by identifiers
    */
-  val keywords: P[Unit] =
-    List("else", "elif", "match", "def").foldLeft(P("if"))(_ | P(_)) ~ spaces
+  val keywords: Set[String] =
+    Set("if", "else", "elif", "match", "def", "recur", "struct", "enum")
+
+  /**
+   * A Parser that matches keywords
+   */
+  val keywordsP: P[Unit] =
+    keywords
+      .iterator
+      .map(P(_))
+      .reduce(_ | _) ~ spaces
 
   val varP: P[Var] =
-    !keywords ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
+    (!keywordsP ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }).opaque("bindable name")
 
   // this returns a Var with a Constructor or a RecordConstrutor
-  // Note, we use NoCut here because we use a cut below
-  // to fail to parse when we hit a pattern like Foo(_, b)
-  // we don't want to parse the Foo off of that... Once we hit the (
-  // we need to parse the entire args or not at all, similarly
-  // with braces
-  def recordConstructorP(indent: String, declP: P[NonBinding], noAnn: P[NonBinding]): P[NonBinding] = NoCut {
+  def recordConstructorP(indent: String, declP: P[NonBinding], noAnn: P[NonBinding]): P[NonBinding] = {
     val ws = Parser.maybeIndentedOrSpace(indent)
     val kv = RecordArg.parser(indent, noAnn)
     val kvs = kv.nonEmptyListOfWs(ws, 1)
@@ -565,23 +560,18 @@ object Declaration {
       }
   }
 
-  private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] =
-    Indy.lift(Pattern.bindParser.region).product(bindingOp(nonBindingParser, decl))
+  private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] = {
+    val rightSide = bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP(decl))
+      .region
+      .map { case (region, fn) =>
+        { (pat: Pattern.Parsed, r: Region) => Binding(fn(pat))(r + region) }
+      }
+
+    Indy.lift(NoCut(Pattern.bindParser).region).product(rightSide)
       .map {
         case ((reg, pat), fn) => fn(pat, reg)
       }
-
-  private def decOrBind(p: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] =
-    p.product(bindingOp(p, decl).?)
-      .mapF(_.flatMap {
-        case (d, None) => PassWith(d)
-        case (d, Some(op)) =>
-          toPattern(d) match {
-            case None => Fail
-            case Some(dpat) =>
-              PassWith(op(dpat, d.region))
-          }
-      })
+  }
 
   private def listP(p: P[NonBinding]): P[ListDecl] =
     ListLang.parser(p, Pattern.bindParser)
@@ -635,11 +625,14 @@ object Declaration {
        * Note pattern bind needs to be before anything that looks like a pattern that can't handle
        * bind
        */
-      val patternLike: P[NonBinding] = P(varP | listP(recNonBind) | lits | tupOrPar | recordConstructorP(indent, recNonBind, recArg))
-      val notPatternLike: P[NonBinding] = P(lambdaP(lambBody)(indent) |
-        ifElseP(recArgIndy, recIndy)(indent) |
-        matchP(recArgIndy, recIndy)(indent) |
-        dictP(recArg))
+      val patternLike: P[NonBinding] =
+        P(varP | listP(recNonBind) | lits | tupOrPar | recordConstructorP(indent, recNonBind, recArg))
+
+      val notPatternLike: P[NonBinding] =
+        P(lambdaP(lambBody)(indent) |
+          ifElseP(recArgIndy, recIndy)(indent) |
+          matchP(recArgIndy, recIndy)(indent) |
+          dictP(recArg))
 
       // we need notPatternLike first, so varP won't scoop up "if" and "match"
       val allNonBind = notPatternLike | patternLike
@@ -675,7 +668,7 @@ object Declaration {
         (allNonBind ~ repFn(dotApply | applySuffix)).map { case (a, f) => f(a) }
       }
       // lower priority than calls is type annotation
-      val annotated: P[NonBinding] = {
+      val annotated: P[NonBinding] =
         if (pm == ParseMode.BranchArg) applied
         else {
           val an: P[NonBinding => NonBinding] =
@@ -684,9 +677,10 @@ object Declaration {
               .map { case (r, tpe) =>
                 { nb: NonBinding => Annotation(nb, tpe)(nb.region + r) }
               }
+              .opaque("type annotation")
+
           applied.maybeAp(an)
         }
-      }
 
       // Applying is higher precedence than any operators
       // now parse an operator apply
@@ -712,7 +706,7 @@ object Declaration {
           { d: NonBinding => convert(fn(d)) }
         }
 
-        NoCut(annotated.maybeAp(form))
+        annotated.maybeAp(form)
       }
 
       // here is if/ternary operator
@@ -752,7 +746,6 @@ object Declaration {
            * to convert there. This code tries to parse as a declaration first, then converts
            * it to pattern if we see an =
            */
-          decOrBind(recNBIndy, recIndy)(indent) |
           patternBind(recNBIndy, recIndy)(indent))
 
         // we have to parse non-binds first, because varP would parse "def", "match", etc..

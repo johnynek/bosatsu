@@ -71,6 +71,14 @@ object Parser {
         Indy { indent =>
           toKleisli(indent) ~/ that(indent)
         }
+
+      def cutLeftP(that: P[Any]): Indy[A] =
+        Indy { indent =>
+          (toKleisli(indent) ~/ that).map(_._1)
+        }
+
+      def cutRight[B](that: Indy[B]): Indy[B] =
+        cutThen(that).map(_._2)
     }
   }
 

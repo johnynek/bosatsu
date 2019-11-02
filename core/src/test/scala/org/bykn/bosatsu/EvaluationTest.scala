@@ -126,12 +126,11 @@ main = match x:
 """), "Foo", Str("good"))
 
     evalTest(
-      List("""
-package Foo
+      List("""package Foo
 
 enum Res: Err(a), Good(a)
 
-x = Err("good")
+x = Err('good')
 
 def run(z):
   Err(y) | Good(y) = z
