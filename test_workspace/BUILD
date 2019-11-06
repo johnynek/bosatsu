@@ -135,8 +135,20 @@ bosatsu_test(
     )
 
 bosatsu_library(
+    name = "nat",
+    srcs = ["Nat.bosatsu"],
+)
+
+bosatsu_test(
+    name = "nat_test",
+    deps = [":nat"],
+    packages = ["Bosatsu/Nat"]
+    )
+
+bosatsu_library(
     name = "binnat",
     srcs = ["BinNat.bosatsu"],
+    deps = [":nat"],
 )
 
 bosatsu_test(
