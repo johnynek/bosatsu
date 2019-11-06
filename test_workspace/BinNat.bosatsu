@@ -1,6 +1,8 @@
 package Bosatsu/BinNat
 
-export [ BinNat(), Nat(), toInt, times2_Nat, toNat, toBinNat, next, add_BinNat, times2 ]
+import Bosatsu/Nat [ Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat ]
+
+export [ BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2 ]
 # a natural number with three variants:
 # Zero = 0
 # Odd(n) = 2n + 1
@@ -9,11 +11,6 @@ export [ BinNat(), Nat(), toInt, times2_Nat, toNat, toBinNat, next, add_BinNat, 
 # Zero, Odd(Zero), Even(Zero), Odd(Odd(Zero)), Even(Odd(Zero))
 enum BinNat: Zero, Odd(half: BinNat), Even(half1: BinNat)
 
-# This is the traditional encoding of natural numbers
-# it is useful when you are iterating on all values, but
-# not space efficient
-enum Nat: NatZero, NatSucc(prev: Nat)
-
 # Convert a BinNat into the equivalent Int
 # this is O(log(b)) operation
 def toInt(b: BinNat) -> Int:
@@ -21,14 +18,6 @@ def toInt(b: BinNat) -> Int:
     Zero: 0
     Odd(n): toInt(n).times(2).add(1)
     Even(n): toInt(n).times(2).add(2)
-
-# This is an O(n) operation
-def times2_Nat(n: Nat) -> Nat:
-  recur n:
-    NatZero: NatZero
-    NatSucc(prev):
-      # 2*(n + 1) = 2*n + 1 + 1
-      NatSucc(NatSucc(times2_Nat(prev)))
 
 # This is an O(b) operation
 def toNat(b: BinNat) -> Nat:

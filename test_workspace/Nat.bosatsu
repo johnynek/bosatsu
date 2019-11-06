@@ -1,0 +1,77 @@
+package Bosatsu/Nat
+
+import Bosatsu/Predef [ add as operator +, times as operator * ]
+export [ Nat(), times2, add, mult, to_Int ]
+
+# This is the traditional encoding of natural numbers
+# it is useful when you are iterating on all values, but
+# not space efficient
+enum Nat: Zero, Succ(prev: Nat)
+
+# This is an O(n) operation
+def times2(n: Nat) -> Nat:
+  recur n:
+    Zero: Zero
+    Succ(prev):
+      # 2*(n + 1) = 2*n + 1 + 1
+      Succ(Succ(times2(prev)))
+
+def add(n1: Nat, n2: Nat) -> Nat:
+  recur n1:
+    Zero: n2
+    Succ(prev_n1):
+      match n2:
+        Zero: n1
+        Succ(prev_n2): Succ(Succ(add(prev_n1, prev_n2)))
+
+# (n1 + 1) * (n2 + 1) = n1 * n2 + n1 + n2 + 1
+def mult(n1: Nat, n2: Nat) -> Nat:
+  recur n1:
+    Zero: Zero
+    Succ(n1):
+      match n2:
+        Zero: Zero
+        Succ(n2):
+          Succ(mult(n1, n2).add(add(n1, n2)))
+
+def to_Int(n: Nat) -> Int:
+  recur n:
+    Zero: 0
+    Succ(n): to_Int(n) + 1
+
+################
+# Test code below
+################
+
+n1 = Succ(Zero)
+n2 = Succ(n1)
+n3 = Succ(n2)
+n4 = Succ(n3)
+n5 = Succ(n4)
+n6 = Succ(n5)
+
+def operator ==(i0: Int, i1: Int):
+  match cmp_Int(i0, i1):
+    EQ: True
+    _: False
+
+def addLaw(n1: Nat, n2: Nat, label: String) -> Test:
+  Assertion(add(n1, n2).to_Int == (n1.to_Int + n2.to_Int), label)
+
+def multLaw(n1: Nat, n2: Nat, label: String) -> Test:
+  Assertion(mult(n1, n2).to_Int == (n1.to_Int * n2.to_Int), label)
+
+tests = TestSuite("Nat tests",
+  [
+    addLaw(Zero, Zero, "0 + 0"),
+    addLaw(Zero, n1, "0 + 1"),
+    addLaw(n1, Zero, "1 + 0"),
+    addLaw(n1, n2, "1 + 2"),
+    addLaw(n2, n1, "2 + 1"),
+
+    multLaw(Zero, Zero, "0 * 0"),
+    multLaw(Zero, n1, "0 * 1"),
+    multLaw(n1, Zero, "1 * 0"),
+    multLaw(n1, n2, "1 * 2"),
+    multLaw(n2, n1, "2 * 1"),
+  ])
