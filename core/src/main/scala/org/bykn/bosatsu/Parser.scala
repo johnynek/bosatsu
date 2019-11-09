@@ -234,8 +234,18 @@ object Parser {
       require(min >= 1, s"min is too small: $min")
       val wsSep = ws ~ sep ~ ws
       val many = item.rep(sep = wsSep, min = min - 1)
+      val rest =
+        if (min > 1) {
+          (wsSep ~ many).map(Some(_))
+        }
+        else {
+          // if min == 1, many can parse 0, but that allows
+          // wsSep to be parsed by itselt, which isn't okay
+          val many1 = item.rep(sep = wsSep, min = 1)
+          (wsSep ~ many1).?
+        }
       val trail = if (allowTrailing) (ws ~ sep).? else Pass
-      P(item ~ (wsSep ~ many).? ~ trail)
+      P(item ~ rest ~ trail)
         .map {
           case (h, None) => NonEmptyList(h, Nil)
           case (h, Some(nel)) => NonEmptyList(h, nel.toList)
@@ -247,7 +257,7 @@ object Parser {
 
     def nonEmptyListSyntax: P[NonEmptyList[T]] = {
       val ws = maybeSpacesAndLines
-      nonEmptyListOfWs(ws, 1).bracketed(P("[" ~ ws), P(ws ~ "]"))
+      nonEmptyListOfWs(ws, 1).bracketed(P("[" ~/ ws), P(ws ~ "]"))
     }
 
     def listSyntax: P[List[T]] = {
