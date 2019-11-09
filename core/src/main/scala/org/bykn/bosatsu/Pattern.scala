@@ -614,7 +614,7 @@ object Pattern {
     // Foo(1 or more patterns, ...)
     // Foo(...)
 
-    val oneOrMore = P(recurse.listN(1) ~ maybePartial)
+    val oneOrMore = P(recurse.nonEmptyList.map(_.toList) ~ maybePartial)
     val onlyPartial = P("...").map { _ =>
       (Nil, { (n: Constructor, s: StructKind.Style) => StructKind.NamedPartial(n, s) })
     }
@@ -664,7 +664,7 @@ object Pattern {
     // A union can't have an annotation, we need to be inside a parens for that
     val unionOp: P[Parsed => Parsed] = {
       val unionRest = nonAnnotated
-        .nonEmptyListOfWsSep(maybeSpace, P("|"), allowTrailing = false, 1)
+        .nonEmptyListOfWsSep(maybeSpace, P("|"), allowTrailing = false)
       ("|" ~ maybeSpace ~ unionRest)
         .map { ne =>
           { pat: Parsed => Union(pat, ne) }
