@@ -319,7 +319,7 @@ object PackageError {
         .iterator
         .map { case (pack, imp) =>
           val (_, sourceName) = getMapSrc(sourceMap, pack)
-          s"duplicate import in $sourceName package ${pack.asString} imports ${imp.originalName} as ${imp.localName}"
+          s"duplicate import in $sourceName package ${pack.asString} imports ${imp.originalName.sourceCodeRepr} as ${imp.localName.sourceCodeRepr}"
         }
         .mkString("\n")
   }

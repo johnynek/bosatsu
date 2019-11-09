@@ -1989,6 +1989,20 @@ main = Foo(1, "2")
     }
   }
 
+  test("test duplicate import message") {
+    evalFail(
+      List("""
+package Err
+
+import Bosatsu/Predef [ foldLeft ]
+
+main = 1
+"""), "Err") { case sce@PackageError.DuplicatedImport(_) =>
+      assert(sce.message(Map.empty, Colorize.none) == "duplicate import in <unknown source> package Bosatsu/Predef imports foldLeft as foldLeft")
+      ()
+    }
+  }
+
   test("test parsing type annotations") {
     runBosatsuTest(List("""
 package A
