@@ -201,13 +201,11 @@ object PredefImpl {
     implicit val ordValue: Ordering[Value] =
       new Ordering[Value] {
         val fnV = ord.asFn
-        def compare(a: Value, b: Value): Int =
-          fnV(a).flatMap(_.asFn(b)).value match {
-            case s: SumValue =>
-              // this should be Comparison ADT
-              s.variant - 1
-            case other => sys.error(s"type error: $other")
-          }
+        def compare(a: Value, b: Value): Int = {
+          val v = fnV(a).flatMap(_.asFn(b)).value
+          // this should be Comparison ADT
+          v.asInstanceOf[SumValue].variant - 1
+        }
       }
     ExternalValue(SortedMap.empty[Value, Value])
   }

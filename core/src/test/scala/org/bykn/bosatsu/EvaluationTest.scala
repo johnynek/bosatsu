@@ -109,6 +109,20 @@ z = match x:
   Some(v): add(v, 10)
   None: 0
 """), "Foo", VInt(11))
+
+    evalTest(
+      List("""
+package Foo
+
+# try the above example, with Some first
+enum Option: Some(get), None
+
+x = Some(1)
+
+z = match x:
+  None: 0
+  Some(v): add(v, 10)
+"""), "Foo", VInt(11))
   }
 
   test("test matching unions") {
@@ -739,6 +753,7 @@ main = big_list.foldLeft(0, \x, y -> x.add(y))
 """), "A", VInt((0 until 3000).sum))
 
   def sumFn(n: Int): Int = if (n <= 0) 0 else { sumFn(n-1) + n }
+
   evalTest(
     List("""
 package A
@@ -754,6 +769,26 @@ def sum(nat):
   recur nat:
     Zero: 0
     Succ(n): sum(n).add(toInt(nat))
+
+main = sum(Succ(Succ(Succ(Zero))))
+"""), "A", VInt(sumFn(3)))
+
+  // try with Succ first in the Nat
+  evalTest(
+    List("""
+package A
+
+enum Nat: Zero, Succ(of: Nat)
+
+def toInt(pnat):
+  recur pnat:
+    Succ(n): toInt(n).add(1)
+    Zero: 0
+
+def sum(nat):
+  recur nat:
+    Succ(n): sum(n).add(toInt(nat))
+    Zero: 0
 
 main = sum(Succ(Succ(Succ(Zero))))
 """), "A", VInt(sumFn(3)))
@@ -1840,6 +1875,19 @@ get = \Pair(first, _, _, ...) -> first
 
 res = get(Pair(1, "two"))
 """), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.none); () }
+  }
+
+  test("exercise total matching inside of a struct with a list") {
+    runBosatsuTest(List("""package A
+
+struct ListWrapper(items: List[a], b: Bool)
+
+w = ListWrapper([], True)
+
+ListWrapper([*_], r) = w
+
+tests = Assertion(r, "match with total list pattern")
+"""), "A", 1)
   }
 
   test("test scoping bug (issue #311)") {
