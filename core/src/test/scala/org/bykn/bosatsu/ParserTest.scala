@@ -1115,6 +1115,26 @@ def z:
   else 1
 """, 24)
 
+    expectFail(Package.parser(None),
+      """package Foo
+import Baz [ a, , b]
+
+x = 1
+""", 28)
+
+    expectFail(Package.parser(None),
+      """package Foo
+export [ x, , y ]
+
+x = 1
+""", 24)
+
+    expectFail(Package.parser(None),
+      """package Foo
+export [ x, , ]
+
+x = 1
+""", 24)
   }
 
 }

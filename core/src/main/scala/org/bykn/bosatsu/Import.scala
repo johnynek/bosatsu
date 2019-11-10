@@ -47,7 +47,7 @@ object ImportedName {
 
   val parser: P[ImportedName[Unit]] = {
     def basedOn(of: P[Identifier]): P[ImportedName[Unit]] =
-      P(of ~ (spaces ~ "as" ~ spaces ~ of).?).map {
+      P(of ~ (spaces ~ "as" ~ spaces ~/ of).?).map {
         case (from, Some(to)) => ImportedName.Renamed(from, to, ())
         case (orig, None) => ImportedName.OriginalName(orig, ())
       }

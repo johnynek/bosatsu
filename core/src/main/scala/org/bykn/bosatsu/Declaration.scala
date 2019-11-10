@@ -535,7 +535,7 @@ object Declaration {
   def recordConstructorP(indent: String, declP: P[NonBinding], noAnn: P[NonBinding]): P[NonBinding] = {
     val ws = Parser.maybeIndentedOrSpace(indent)
     val kv = RecordArg.parser(indent, noAnn)
-    val kvs = kv.nonEmptyListOfWs(ws, 1)
+    val kvs = kv.nonEmptyListOfWs(ws)
 
     // here is the record style: Foo {x: 1, ...
     val recArgs = maybeSpace ~ kvs.bracketed(P("{" ~/ ws), P(ws ~ "}"))

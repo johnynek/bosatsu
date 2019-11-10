@@ -55,7 +55,7 @@ object ListLang {
   def genParser[F[_], A, B](left: P[Unit], fa: P[F[A]], pa: P[A], pbind: P[B], right: P[Unit]): P[ListLang[F, A, B]] = {
     val sia = fa
     // construct the tail of a list, so we will finally have at least one item
-    val consTail = sia.nonEmptyListOfWs(maybeSpacesAndLines, 1).?
+    val consTail = sia.nonEmptyListOfWs(maybeSpacesAndLines).?
       .map { tail =>
         val listTail = tail match {
           case None => Nil
