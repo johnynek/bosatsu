@@ -203,25 +203,20 @@ object Parser {
   def dictLikeParser[K, V](pkey: P[K], pvalue: P[V]): P[List[(K, V)]] = {
     val ws = maybeSpacesAndLines
     val kv = P(pkey ~ ws ~ ":" ~ ws ~ pvalue)
-    val kvs = kv.nonEmptyListOfWs(ws, 1)
+    val kvs = kv.nonEmptyListOfWs(ws)
     nonEmptyListToList(kvs)
       .bracketed(P("{" ~ ws), P(ws ~ "}"))
   }
 
   implicit class Combinators[T](val item: P[T]) extends AnyVal {
-    def list: P[List[T]] = listN(0)
+    def list: P[List[T]] =
+      nonEmptyListToList(nonEmptyList)
 
-    def listN(min: Int): P[List[T]] =
-      if (min == 0) nonEmptyListToList(nonEmptyList)
-      else nonEmptyListOf(min).map(_.toList)
+    def nonEmptyList: P[NonEmptyList[T]] =
+      nonEmptyListOfWs(maybeSpace)
 
-    def nonEmptyList: P[NonEmptyList[T]] = nonEmptyListOf(1)
-
-    def nonEmptyListOf(min: Int): P[NonEmptyList[T]] =
-      nonEmptyListOfWs(maybeSpace, min)
-
-    def nonEmptyListOfWs(ws: P[Unit], min: Int): P[NonEmptyList[T]] =
-      nonEmptyListOfWsSep(ws, P(","), allowTrailing = true, min)
+    def nonEmptyListOfWs(ws: P[Unit]): P[NonEmptyList[T]] =
+      nonEmptyListOfWsSep(ws, P(","), allowTrailing = true)
 
     def maybeAp(fn: P[T => T]): P[T] =
       (item ~ fn.?)
@@ -230,12 +225,16 @@ object Parser {
           case (a, Some(f)) => f(a)
         }
 
-    def nonEmptyListOfWsSep(ws: P[Unit], sep: P[Unit], allowTrailing: Boolean, min: Int): P[NonEmptyList[T]] = {
-      require(min >= 1, s"min is too small: $min")
+    def nonEmptyListOfWsSep(ws: P[Unit], sep: P[Unit], allowTrailing: Boolean): P[NonEmptyList[T]] = {
       val wsSep = ws ~ sep ~ ws
-      val many = item.rep(sep = wsSep, min = min - 1)
+      val rest = {
+          // if min == 1, many can parse 0, but that allows
+          // wsSep to be parsed by itselt, which isn't okay
+          val many1 = item.rep(sep = wsSep, min = 1)
+          (wsSep ~ many1).?
+        }
       val trail = if (allowTrailing) (ws ~ sep).? else Pass
-      P(item ~ (wsSep ~ many).? ~ trail)
+      P(item ~ rest ~ trail)
         .map {
           case (h, None) => NonEmptyList(h, Nil)
           case (h, Some(nel)) => NonEmptyList(h, nel.toList)
@@ -247,12 +246,12 @@ object Parser {
 
     def nonEmptyListSyntax: P[NonEmptyList[T]] = {
       val ws = maybeSpacesAndLines
-      nonEmptyListOfWs(ws, 1).bracketed(P("[" ~ ws), P(ws ~ "]"))
+      nonEmptyListOfWs(ws).bracketed(P("[" ~/ ws), P(ws ~ "]"))
     }
 
     def listSyntax: P[List[T]] = {
       val ws = maybeSpacesAndLines
-      nonEmptyListToList(nonEmptyListOfWs(ws, 1))
+      nonEmptyListToList(nonEmptyListOfWs(ws))
         .bracketed(P("[" ~ ws), P(ws ~ "]"))
     }
 
@@ -268,12 +267,12 @@ object Parser {
       wrappedSpace("(", ")")
 
     def parensLines1: P[NonEmptyList[T]] = {
-      val nel = item.nonEmptyListOfWs(maybeSpacesAndLines, 1)
+      val nel = item.nonEmptyListOfWs(maybeSpacesAndLines)
       P("(" ~ maybeSpacesAndLines ~ nel ~ maybeSpacesAndLines ~ ")")
     }
 
     def parensLines1Cut: P[NonEmptyList[T]] = {
-      val nel = item.nonEmptyListOfWs(maybeSpacesAndLines, 1)
+      val nel = item.nonEmptyListOfWs(maybeSpacesAndLines)
       P("(" ~/ maybeSpacesAndLines ~ nel ~ maybeSpacesAndLines ~ ")")
     }
 
