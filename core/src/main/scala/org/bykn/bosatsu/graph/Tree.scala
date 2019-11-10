@@ -63,5 +63,11 @@ object Tree {
 
     NonEmptyList(nel.head, remove(Set(fn(nel.head)), nel.tail, Nil))
   }
+
+  def distinctBy[A, B](nel: List[A])(fn: A => B): List[A] =
+    NonEmptyList.fromList(nel) match {
+      case None => Nil
+      case Some(nel) => distinctBy(nel)(fn).toList
+    }
 }
 

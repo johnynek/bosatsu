@@ -125,7 +125,7 @@ class TestProtoType extends FunSuite {
     }
 
   test("we can roundtrip interfaces through proto") {
-    forAll(Generators.smallList(Generators.interfaceGen)) { ifaces =>
+    forAll(Generators.smallDistinctByList(Generators.interfaceGen)(_.name)) { ifaces =>
       law(ifaces, ProtoConverter.interfacesToProto[List] _, ProtoConverter.interfacesFromProto _)(sortedEq)
     }
   }
@@ -138,7 +138,7 @@ class TestProtoType extends FunSuite {
   }
 
   test("we can roundtrip interfaces through file") {
-    forAll(Generators.smallList(Generators.interfaceGen)) { ifaces =>
+    forAll(Generators.smallDistinctByList(Generators.interfaceGen)(_.name)) { ifaces =>
       testWithTempFile { path =>
         for {
           _ <- ProtoConverter.writeInterfaces(ifaces, path)
