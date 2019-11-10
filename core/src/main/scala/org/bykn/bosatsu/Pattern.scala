@@ -187,6 +187,12 @@ object Pattern {
     }
   }
 
+  /**
+   * This will match any list without any binding
+   */
+  val AnyList: Pattern[Nothing, Nothing] =
+    Pattern.ListPat(ListPart.WildList :: Nil)
+
   type Parsed = Pattern[StructKind, TypeRef]
 
   /**

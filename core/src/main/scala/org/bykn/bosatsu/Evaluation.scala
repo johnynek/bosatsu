@@ -294,6 +294,20 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =
         pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
 
+      /*
+       * Return true if this matches everything that would typecheck and does
+       * not introduce new bindings
+       */
+      def isTotalNonBinding(p: Pattern[(PackageName, Constructor), Type]): Boolean =
+        p match {
+          case Pattern.WildCard => true
+          case Pattern.Annotation(p, _) => isTotalNonBinding(p)
+          case Pattern.PositionalStruct(pc, parts) =>
+            definedForCons(pc).isStruct && parts.forall(isTotalNonBinding)
+          case Pattern.AnyList => true
+          case _ => false
+        }
+
       val noop: (Value, Env) => Option[Env] = { (_, env) => Some(env) }
       val neverMatch: (Value, Env) => Option[Nothing] = { (_, _) => None }
       /*
@@ -423,10 +437,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             val dt = definedForCons(pc)
             val itemFns = items.map(maybeBind(_))
 
-            // the items will definitely match, and not do any binding
-            // we could make this more general by checking that
-            // all items are total matches that don't do any binding
-            val itemsWild = items.forall(_ == Pattern.WildCard)
+            val itemsWild = items.forall(isTotalNonBinding(_))
 
             def processArgs(as: List[Value], acc: Env): Option[Env] = {
               // manually write out foldM hoping for performance improvements
