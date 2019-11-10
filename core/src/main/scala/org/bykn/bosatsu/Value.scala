@@ -56,7 +56,20 @@ object Value {
     override val hashCode = (head, tail).hashCode
   }
   case class SumValue(variant: Int, value: ProductValue) extends Value
+  object SumValue {
+    private[this] val sizeMask = 0xffffff00
+    private[this] val constCount = 256
+    private[this] val constants: Array[SumValue] =
+      (0 until constCount).map(new SumValue(_, UnitValue)).toArray
+
+    def apply(variant: Int, value: ProductValue): SumValue =
+      if ((value == UnitValue) && ((variant & sizeMask) == 0)) constants(variant)
+      else new SumValue(variant, value)
+  }
   case class FnValue(toFn: Eval[Value] => Eval[Value]) extends Value
+  object FnValue {
+    val identity: FnValue = FnValue(v => v)
+  }
   case class ExternalValue(toAny: Any) extends Value
 
   val False: Value = SumValue(0, UnitValue)

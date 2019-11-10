@@ -456,7 +456,7 @@ struct Bar(a: Int)
 
 main = Bar(1)
 """), "Foo",
-  ConsValue(VInt(1), UnitValue))
+  VInt(1))
 
     evalTest(
       List("""

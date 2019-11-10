@@ -8,7 +8,7 @@ import cats.implicits._
 
 import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
 
-case class DefinedType[+A](
+final case class DefinedType[+A](
   packageName: PackageName,
   name: TypeName,
   annotatedTypeParams: List[(Type.Var.Bound, A)],
@@ -23,6 +23,17 @@ case class DefinedType[+A](
    * A type with exactly one constructor is a struct
    */
   def isStruct: Boolean = constructors.lengthCompare(1) == 0
+
+  /**
+   * A newtype is just a wrapper for another type.
+   * It could be removed statically from the program
+   */
+  def isNewType: Boolean =
+    constructors match {
+      case (_, _ :: Nil, _) :: Nil => true
+      case _ => false
+    }
+
   /**
    * This is not the full type, since the full type
    * has a ForAll(typeParams, ... in front if the
