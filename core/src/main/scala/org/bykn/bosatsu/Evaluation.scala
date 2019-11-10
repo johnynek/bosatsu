@@ -71,9 +71,11 @@ object Evaluation {
 
     def recursive(name: Bindable, item: Scoped): Scoped =
       fromFn { env =>
+        lazy val res: Eval[Value] =
+          Eval.defer(item.inEnv(env1)).memoize
         lazy val env1: Map[Identifier, Eval[Value]] =
-          env.updated(name, Eval.defer(item.inEnv(env1)).memoize)
-        item.inEnv(env1)
+          env.updated(name, res)
+        res
       }
 
     private case class Let(name: Bindable, arg: Scoped, in: Scoped) extends Scoped {
