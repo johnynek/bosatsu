@@ -838,6 +838,41 @@ def fib(n):
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
 """), "A", VInt(8))
+
+  /*
+   * TODO: make this test pass
+  evalTest(
+    List("""
+package A
+
+enum Nat[a]: Z, S(p: Nat[a])
+
+def fib(n):
+  recur n:
+    Z: 1
+    S(Z): 1
+    S(n1@S(n2)): fib(n1).add(fib(n2))
+
+# fib(5) = 1, 1, 2, 3, 5, 8
+main = fib(S(S(S(S(S(Z))))))
+"""), "A", VInt(8))
+  */
+
+  evalTest(
+    List("""
+package A
+
+enum Nat: S(p: Nat), Z
+
+def fib(n):
+  recur n:
+    Z: 1
+    S(Z): 1
+    S(n1@S(n2)): fib(n1).add(fib(n2))
+
+# fib(5) = 1, 1, 2, 3, 5, 8
+main = fib(S(S(S(S(S(Z))))))
+"""), "A", VInt(8))
   }
 
   test("test matching the front of a list") {
@@ -1094,6 +1129,22 @@ main = [Foo(1), Bar("1")]
         List("foo" -> Json.JNumberStr("1"))),
       Json.JObject(
         List("bar" -> Json.JString("1"))))))
+  }
+
+  test("json handling of Nat special case") {
+    evalTestJson(
+      List("""
+package Foo
+
+enum Nat: Z, S(n: Nat)
+
+main = [Z, S(Z), S(S(Z))]
+"""), "Foo",
+  Json.JArray(
+    Vector(
+      Json.JNumberStr("0"),
+      Json.JNumberStr("1"),
+      Json.JNumberStr("2"))))
   }
 
   test("json with backticks") {

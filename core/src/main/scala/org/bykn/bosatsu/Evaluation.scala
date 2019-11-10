@@ -273,7 +273,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   // return Some(true) if Zero comes first
   // return Some(false) if Zero is second
   private def getNatLikeFirst(dt: DefinedType[Any]): Option[Boolean] =
-    if (dt.annotatedTypeParams.isEmpty && (dt.constructors.lengthCompare(2) == 0)) {
+    if (dt.constructors.lengthCompare(2) == 0) {
       dt.constructors match {
         case (_, Nil, _) :: (_, (_, t) :: Nil, _) :: _ =>
           if (t == dt.toTypeTyConst) someTrue
@@ -761,24 +761,32 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             case p: ProductValue => Some((0, p))
             case _ => None
           }
-        val optDt = Type.rootConst(tpe)
-          .flatMap {
-            case Type.TyConst(Type.Const.Defined(pn, n)) =>
-              defined(pn, n)
-          }
 
-        (vp, optDt).mapN { case ((variant, prod), dt) =>
-          val cons = dt.constructors
-          val (_, targs) = Type.applicationArgs(tpe)
-          val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
-          cons.lift(variant).flatMap { case (_, params, _) =>
-            prod.toList.zip(params).traverse { case (a1, (pn, t)) =>
-              toJson(a1, Type.substituteVar(t, replaceMap)).map((pn.asString, _))
+        vp match {
+          case None =>
+            a match {
+              case ExternalValue(b: BigInteger) =>
+                Some(Json.JNumberStr(b.toString))
+              case _ => None
             }
-          }
+          case Some((variant, prod)) =>
+            Type.rootConst(tpe)
+              .flatMap {
+                case Type.TyConst(Type.Const.Defined(pn, n)) =>
+                  defined(pn, n)
+              }
+              .flatMap { dt =>
+                val cons = dt.constructors
+                val (_, targs) = Type.applicationArgs(tpe)
+                val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
+                cons.lift(variant).flatMap { case (_, params, _) =>
+                  prod.toList.zip(params).traverse { case (a1, (pn, t)) =>
+                    toJson(a1, Type.substituteVar(t, replaceMap)).map((pn.asString, _))
+                  }
+                }
+              }
+              .map { ps => Json.JObject(ps) }
         }
-        .flatten
-        .map { ps => Json.JObject(ps) }
     }
   }
 

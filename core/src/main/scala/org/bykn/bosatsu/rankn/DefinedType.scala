@@ -39,10 +39,10 @@ final case class DefinedType[+A](
    * has a ForAll(typeParams, ... in front if the
    * typeParams is nonEmpty
    */
-  def toTypeConst: Type.Const.Defined =
+  val toTypeConst: Type.Const.Defined =
     DefinedType.toTypeConst(packageName, name)
 
-  def toTypeTyConst: Type.TyConst =
+  val toTypeTyConst: Type.TyConst =
     Type.TyConst(toTypeConst)
 }
 
