@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.Eval
 import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
+import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type}
 import scala.collection.mutable.{Map => MMap}
 
@@ -466,32 +467,69 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
               // compute the index of ctor, so we can compare integers later
               val idx = dt.constructors.map(_._1).indexOf(ctor)
 
-              if (itemsWild)
-                // we don't check if idx < 0, because if we compiled, it can't be
-                { (arg: Value, acc: Env) =>
-                  arg match {
-                    case s: SumValue =>
-                      if (s.variant == idx) Some(acc)
-                      else None
-                    case other =>
-                      // $COVERAGE-OFF$this should be unreachable
-                      sys.error(s"ill typed in match: $other")
-                      // $COVERAGE-ON$
+              getNatLikeFirst(dt) match {
+                case Some(zeroFirst) =>
+                  // we represent Nats with java BigInteger
+                  val isZero = (zeroFirst && (idx == 0)) || (!zeroFirst && (idx == 1))
+
+                  if (isZero)
+                    { (arg: Value, acc: Env) =>
+                      arg match {
+                        case ExternalValue(b: BigInteger) =>
+                          if (b == BigInteger.ZERO) Some(acc)
+                          else None
+                        case other =>
+                          // $COVERAGE-OFF$this should be unreachable
+                          val itemStr = items.mkString("(", ", ", ")")
+                          sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\nenv: $acc")
+                          // $COVERAGE-ON$
+                      }
+                    }
+                  else {
+                    // We are expecting non-zero
+                    val succMatch = itemFns.head
+
+                    { (arg: Value, acc: Env) =>
+                      arg match {
+                        case ExternalValue(b: BigInteger) =>
+                          if (b != BigInteger.ZERO) {
+                            succMatch(ExternalValue(b.subtract(BigInteger.ONE)), acc)
+                          }
+                          else None
+                        case other =>
+                          // $COVERAGE-OFF$this should be unreachable
+                          val itemStr = items.mkString("(", ", ", ")")
+                          sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\nenv: $acc")
+                          // $COVERAGE-ON$
+                      }
+                    }
                   }
-                }
-              else
-                // we don't check if idx < 0, because if we compiled, it can't be
-                { (arg: Value, acc: Env) =>
-                  arg match {
-                    case s: SumValue =>
-                      if (s.variant == idx) processArgs(s.value.toList, acc)
-                      else None
-                    case other =>
-                      // $COVERAGE-OFF$this should be unreachable
-                      sys.error(s"ill typed in match: $other")
-                      // $COVERAGE-ON$
-                  }
-                }
+                case None =>
+                  if (itemsWild)
+                    { (arg: Value, acc: Env) =>
+                      arg match {
+                        case s: SumValue =>
+                          if (s.variant == idx) Some(acc)
+                          else None
+                        case other =>
+                          // $COVERAGE-OFF$this should be unreachable
+                          sys.error(s"ill typed in match: $other")
+                          // $COVERAGE-ON$
+                      }
+                    }
+                  else
+                    { (arg: Value, acc: Env) =>
+                      arg match {
+                        case s: SumValue =>
+                          if (s.variant == idx) processArgs(s.value.toList, acc)
+                          else None
+                        case other =>
+                          // $COVERAGE-OFF$this should be unreachable
+                          sys.error(s"ill typed in match: $other")
+                          // $COVERAGE-ON$
+                      }
+                    }
+              }
             }
         }
       def bindEnv[E](branches: List[(Pattern[(PackageName, Constructor), Type], E)]): (Value, Env) => (Env, E) =
@@ -585,6 +623,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       (expr, recurse) => evalTypedExpr(expr, recurse)
     }
 
+  private[this] val zeroNat: Eval[Value] = Eval.now(ExternalValue(BigInteger.ZERO))
+
   private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value] = {
     val (enum, arity) = dt.constructors
       .toList
@@ -601,20 +641,37 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     else {
       val singleItemStruct = dt.isStruct
 
-      // TODO: this is a obviously terrible
-      // the encoding is inefficient, the implementation is inefficient
-      def loop(param: Int, args: List[Value]): Value =
-        if (param == 0) {
-          val prod = ProductValue.fromList(args.reverse)
-          if (singleItemStruct) prod
-          else SumValue(enum, prod)
-        }
-        else FnValue {
-          case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
-          case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
-        }
+      getNatLikeFirst(dt) match {
+        case Some(zeroFirst) =>
+          // we represent Nats with java BigInteger
+          val isZero = (zeroFirst && (enum == 0)) || (!zeroFirst && (enum == 1))
+          def inc(v: Value): Value = {
+            val ex = v.asInstanceOf[ExternalValue]
+            val bi = ex.toAny.asInstanceOf[BigInteger]
+            ExternalValue(bi.add(BigInteger.ONE))
+          }
+          if (isZero) zeroNat
+          else Eval.now(FnValue {
+            case cats.Now(a) => cats.Now(inc(a))
+            case ea => ea.map(inc).memoize
+          })
 
-      Eval.now(loop(arity, Nil))
+        case None =>
+          // TODO: this is a obviously terrible
+          // the encoding is inefficient, the implementation is inefficient
+          def loop(param: Int, args: List[Value]): Value =
+            if (param == 0) {
+              val prod = ProductValue.fromList(args.reverse)
+              if (singleItemStruct) prod
+              else SumValue(enum, prod)
+            }
+            else FnValue {
+              case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
+              case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
+            }
+
+          Eval.now(loop(arity, Nil))
+      }
     }
   }
 
