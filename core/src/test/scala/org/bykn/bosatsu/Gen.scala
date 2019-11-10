@@ -754,6 +754,11 @@ object Generators {
   def smallList[A](g: Gen[A]): Gen[List[A]] =
     Gen.choose(0, 8).flatMap(Gen.listOfN(_, g))
 
+  def smallDistinctByList[A, B](g: Gen[A])(fn: A => B): Gen[List[A]] =
+    Gen.choose(0, 8)
+      .flatMap(Gen.listOfN(_, g))
+      .map(graph.Tree.distinctBy(_)(fn))
+
   def packageGen(depth: Int): Gen[Package.Parsed] =
     for {
       p <- packageNameGen
@@ -1057,6 +1062,8 @@ object Generators {
 
     for {
       pn <- packageNameGen
+      // we can't reuse package names
+      if !existing.contains(pn)
       imps <- genImports
       prog <- genProg(pn, imps)
       exps <- genExports(pn, prog)
