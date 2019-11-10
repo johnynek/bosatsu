@@ -55,7 +55,18 @@ object Value {
   case class ConsValue(head: Value, tail: ProductValue) extends ProductValue {
     override val hashCode = (head, tail).hashCode
   }
-  case class SumValue(variant: Int, value: ProductValue) extends Value
+  final class SumValue(val variant: Int, val value: ProductValue) extends Value {
+    override def equals(that: Any) =
+      that match {
+        case s: SumValue => (s eq this) || ((variant == s.variant) && (value == s.value))
+        case _ => false
+      }
+    override def hashCode: Int =
+      // 65521 is the largest prime that fits in 16 (half of 32) bits
+      variant * 65521 + value.hashCode
+
+    override def toString = s"SumValue($variant, $value)"
+  }
   object SumValue {
     private[this] val sizeMask = 0xffffff00
     private[this] val constCount = 256
@@ -138,12 +149,19 @@ object Value {
     val none: Value = SumValue(0, UnitValue)
     def some(v: Value): Value = SumValue(1, ConsValue(v, UnitValue))
 
+    private[this] val someNone = Some(None)
+
     def unapply(v: Value): Option[Option[Value]] =
       v match {
-        case SumValue(0, UnitValue) =>
-          Some(None)
-        case SumValue(1, ConsValue(head, UnitValue)) =>
-          Some(Some(head))
+        case s: SumValue =>
+          if ((s.variant == 0) && (s.value == UnitValue)) someNone
+          else if ((s.variant == 1)) {
+            s.value match {
+              case ConsValue(head, UnitValue) => Some(Some(head))
+              case _ => None
+            }
+          }
+          else None
         case _ => None
       }
   }
@@ -156,8 +174,14 @@ object Value {
 
       def unapply(v: Value): Option[(Value, Value)] =
         v match {
-          case SumValue(1, ConsValue(head, ConsValue(rest, UnitValue))) =>
-            Some((head, rest))
+          case s: SumValue =>
+            if (s.variant == 1) {
+              s.value match {
+                case ConsValue(head, ConsValue(rest, UnitValue)) => Some((head, rest))
+                case _ => None
+              }
+            }
+            else None
           case _ => None
         }
     }

@@ -203,8 +203,9 @@ object PredefImpl {
         val fnV = ord.asFn
         def compare(a: Value, b: Value): Int =
           fnV(a).flatMap(_.asFn(b)).value match {
-            case SumValue(v, _) =>
-              v - 1
+            case s: SumValue =>
+              // this should be Comparison ADT
+              s.variant - 1
             case other => sys.error(s"type error: $other")
           }
       }

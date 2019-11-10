@@ -239,8 +239,14 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         }
       def toTest(a: Value): Test =
         a match {
-          case SumValue(0, assertion) => toAssert(assertion)
-          case SumValue(1, suite) => toSuite(suite)
+          case s: SumValue =>
+            if (s.variant == 0) toAssert(s.value)
+            else if (s.variant == 1) toSuite(s.value)
+            else {
+              // $COVERAGE-OFF$
+              sys.error(s"unexpected variant in: $s")
+              // $COVERAGE-ON$
+            }
           case unexpected =>
             // $COVERAGE-OFF$
             sys.error(s"unreachable if compilation has worked: $unexpected")
@@ -749,7 +755,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       case _ =>
         val vp =
           a match {
-            case SumValue(variant, p) => Some((variant, p))
+            case s: SumValue => Some((s.variant, s.value))
             case p: ProductValue => Some((0, p))
             case _ => None
           }
