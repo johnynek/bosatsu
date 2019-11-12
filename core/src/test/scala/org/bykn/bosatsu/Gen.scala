@@ -774,14 +774,13 @@ object Generators {
       t <- typeNameGen
       params0 <- smallList(Gen.zip(NTypeGen.genBound, inner))
       params = params0.toMap.toList // don't generate duplicate type parameters
-      genCons: Gen[(Identifier.Constructor, List[(Identifier.Bindable, rankn.Type)], rankn.Type)] =
+      genCons: Gen[rankn.ConstructorFn] =
         for {
           cons <- consIdentGen
           ps <- smallList(Gen.zip(bindIdentGen, genType))
-          res = rankn.DefinedType.constructorValueType(p, t, params.map(_._1), ps.map(_._2))
-        } yield (cons, ps, res)
+        } yield rankn.ConstructorFn.build(p, t, params.map(_._1), cons, ps)
       cons0 <- smallList(genCons)
-      cons = cons0.map { case trip@(c, _, _) => (c, trip) }.toMap.values.toList
+      cons = cons0.map { cf => (cf.name, cf) }.toMap.values.toList
     } yield rankn.DefinedType(p, t, params, cons)
 
   def typeEnvGen[A](p: PackageName, inner: Gen[A]): Gen[rankn.TypeEnv[A]] =
@@ -811,8 +810,8 @@ object Generators {
           case nonEmpty =>
             val c = for {
               dt <- Gen.oneOf(nonEmpty)
-              (c, ps, tpe) <- Gen.oneOf(dt.constructors)
-            } yield ExportedName.Constructor(c, Referant.Constructor(c, dt, ps, tpe))
+              cf <- Gen.oneOf(dt.constructors)
+            } yield ExportedName.Constructor(cf.name, Referant.Constructor(dt, cf))
             Gen.oneOf(b, genExpT, c)
         }
     }
@@ -972,7 +971,7 @@ object Generators {
       i.items.toList.flatMap { in =>
         in.tag.toList.flatMap {
           case Referant.DefinedT(dt) => dt.toTypeConst :: Nil
-          case Referant.Constructor(_, dt, _, _) => dt.toTypeConst :: Nil
+          case Referant.Constructor(dt, _) => dt.toTypeConst :: Nil
           case Referant.Value(_) => Nil
         }
       }
@@ -1045,8 +1044,8 @@ object Generators {
         p.types.allDefinedTypes.flatMap { dt =>
           if (dt.packageName == pn) {
             val dtex = ExportedName.TypeName(dt.name.ident, Referant.DefinedT(dt))
-            val cons = dt.constructors.map { case (c, p, t) =>
-              ExportedName.Constructor(c, Referant.Constructor(c, dt, p, t))
+            val cons = dt.constructors.map { cf =>
+              ExportedName.Constructor(cf.name, Referant.Constructor(dt, cf))
             }
 
             dtex :: cons

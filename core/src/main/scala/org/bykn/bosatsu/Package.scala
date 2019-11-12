@@ -101,14 +101,7 @@ object Package {
   def exportedTypeEnv(iface: Interface): TypeEnv[Variance] = {
     val packageName = iface.name
     iface.exports.foldLeft((TypeEnv.empty): TypeEnv[Variance]) { (te, exp) =>
-      exp.tag match {
-        case Referant.Value(t) =>
-          te.addExternalValue(packageName, exp.name, t)
-        case Referant.Constructor(n, dt, params, v) =>
-          te.addConstructor(packageName, n, params, dt, v)
-        case Referant.DefinedT(dt) =>
-          te.addDefinedType(dt)
-      }
+      exp.tag.addTo(packageName, exp.name, te)
     }
   }
 

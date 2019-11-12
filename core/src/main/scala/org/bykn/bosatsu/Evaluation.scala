@@ -121,7 +121,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         .filter { in =>
           // We can ignore type imports, they aren't values
           in.tag.exists {
-            case Referant.Value(_) | Referant.Constructor(_, _, _, _) => true
+            case Referant.Value(_) | Referant.Constructor(_, _) => true
             case Referant.DefinedT(_) => false
           }
         }
@@ -162,8 +162,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       .iterator
       .filter(_.packageName == p.name)
       .flatMap { dt =>
-        dt.constructors.iterator.map { case (cn, _, _) =>
-          (cn, constructor(cn, dt))
+        dt.constructors.iterator.map { cf =>
+          (cf.name, constructor(cf.name, dt))
         }
       }
       .toMap
@@ -266,25 +266,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         case _ => None
       }
     }
-
-  private[this] val someTrue: Option[Boolean] = Some(true)
-  private[this] val someFalse: Option[Boolean] = Some(false)
-  // return None if the type isn't Nat-like (Zero, Succ(n))
-  // return Some(true) if Zero comes first
-  // return Some(false) if Zero is second
-  private def getNatLikeFirst(dt: DefinedType[Any]): Option[Boolean] =
-    if (dt.constructors.lengthCompare(2) == 0) {
-      dt.constructors match {
-        case (_, Nil, _) :: (_, (_, t) :: Nil, _) :: _ =>
-          if (t == dt.toTypeTyConst) someTrue
-          else None
-        case (_, (_, t) :: Nil, _) :: (_, Nil, _) :: _ =>
-          if (t == dt.toTypeTyConst) someFalse
-          else None
-        case _ => None
-      }
-    }
-    else None
 
   private type Ref = TypedExpr[T]
 
@@ -437,7 +418,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             val dt = definedForCons(pc)
             val itemFns = items.map(maybeBind(_))
 
-            val itemsWild = items.forall(isTotalNonBinding(_))
+            val itemsWild = items.forall(isTotalNonBinding)
 
             def processArgs(as: List[Value], acc: Env): Option[Env] = {
               // manually write out foldM hoping for performance improvements
@@ -484,12 +465,12 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             }
             else {
               // compute the index of ctor, so we can compare integers later
-              val idx = dt.constructors.map(_._1).indexOf(ctor)
+              val idx = dt.constructors.map(_.name).indexOf(ctor)
 
-              getNatLikeFirst(dt) match {
-                case Some(zeroFirst) =>
+              dt.natLike match {
+                case isz: DefinedType.NatLike.Is =>
                   // we represent Nats with java BigInteger
-                  val isZero = (zeroFirst && (idx == 0)) || (!zeroFirst && (idx == 1))
+                  val isZero = isz.idxIsZero(idx)
 
                   if (isZero)
                     { (arg: Value, acc: Env) =>
@@ -523,7 +504,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                       }
                     }
                   }
-                case None =>
+                case DefinedType.NatLike.Not =>
                   if (itemsWild)
                     { (arg: Value, acc: Env) =>
                       arg match {
@@ -649,7 +630,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       .toList
       .iterator
       .zipWithIndex
-      .collectFirst { case ((ctor, params, resType), idx) if ctor == c => (idx, params.size) }
+      .collectFirst { case (cf, idx) if cf.name == c => (idx, cf.args.size) }
       .get // the ctor must be in the list or we wouldn't typecheck
 
     // partially erase new-types
@@ -660,10 +641,10 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     else {
       val singleItemStruct = dt.isStruct
 
-      getNatLikeFirst(dt) match {
-        case Some(zeroFirst) =>
+      dt.natLike match {
+        case isz: DefinedType.NatLike.Is =>
           // we represent Nats with java BigInteger
-          val isZero = (zeroFirst && (enum == 0)) || (!zeroFirst && (enum == 1))
+          val isZero = isz.idxIsZero(enum)
           def inc(v: Value): Value = {
             val ex = v.asInstanceOf[ExternalValue]
             val bi = ex.toAny.asInstanceOf[BigInteger]
@@ -675,7 +656,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             case ea => ea.map(inc).memoize
           })
 
-        case None =>
+        case DefinedType.NatLike.Not =>
           // TODO: this is a obviously terrible
           // the encoding is inefficient, the implementation is inefficient
           def loop(param: Int, args: List[Value]): Value =
@@ -790,8 +771,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                 val cons = dt.constructors
                 val (_, targs) = Type.applicationArgs(tpe)
                 val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
-                cons.lift(variant).flatMap { case (_, params, _) =>
-                  prod.toList.zip(params).traverse { case (a1, (pn, t)) =>
+                cons.lift(variant).flatMap { cf =>
+                  prod.toList.zip(cf.args).traverse { case (a1, (pn, t)) =>
                     toJson(a1, Type.substituteVar(t, replaceMap)).map((pn.asString, _))
                   }
                 }
@@ -807,5 +788,3 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       dt <- pack.program.types.getType(pn, t)
     } yield dt
 }
-
-case class EvaluationException(message: String) extends Exception(message)
