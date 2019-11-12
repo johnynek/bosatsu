@@ -109,6 +109,20 @@ z = match x:
   Some(v): add(v, 10)
   None: 0
 """), "Foo", VInt(11))
+
+    evalTest(
+      List("""
+package Foo
+
+# try the above example, with Some first
+enum Option: Some(get), None
+
+x = Some(1)
+
+z = match x:
+  None: 0
+  Some(v): add(v, 10)
+"""), "Foo", VInt(11))
   }
 
   test("test matching unions") {
@@ -456,7 +470,7 @@ struct Bar(a: Int)
 
 main = Bar(1)
 """), "Foo",
-  ConsValue(VInt(1), UnitValue))
+  VInt(1))
 
     evalTest(
       List("""
@@ -739,6 +753,7 @@ main = big_list.foldLeft(0, \x, y -> x.add(y))
 """), "A", VInt((0 until 3000).sum))
 
   def sumFn(n: Int): Int = if (n <= 0) 0 else { sumFn(n-1) + n }
+
   evalTest(
     List("""
 package A
@@ -754,6 +769,26 @@ def sum(nat):
   recur nat:
     Zero: 0
     Succ(n): sum(n).add(toInt(nat))
+
+main = sum(Succ(Succ(Succ(Zero))))
+"""), "A", VInt(sumFn(3)))
+
+  // try with Succ first in the Nat
+  evalTest(
+    List("""
+package A
+
+enum Nat: Zero, Succ(of: Nat)
+
+def toInt(pnat):
+  recur pnat:
+    Succ(n): toInt(n).add(1)
+    Zero: 0
+
+def sum(nat):
+  recur nat:
+    Succ(n): sum(n).add(toInt(nat))
+    Zero: 0
 
 main = sum(Succ(Succ(Succ(Zero))))
 """), "A", VInt(sumFn(3)))
@@ -828,6 +863,41 @@ main = match (eq_List(lst1, lst2), eq_List(lst1, lst3)):
 package A
 
 enum Nat: Z, S(p: Nat)
+
+def fib(n):
+  recur n:
+    Z: 1
+    S(Z): 1
+    S(n1@S(n2)): fib(n1).add(fib(n2))
+
+# fib(5) = 1, 1, 2, 3, 5, 8
+main = fib(S(S(S(S(S(Z))))))
+"""), "A", VInt(8))
+
+  /*
+   * TODO: make this test pass
+  evalTest(
+    List("""
+package A
+
+enum Nat[a]: Z, S(p: Nat[a])
+
+def fib(n):
+  recur n:
+    Z: 1
+    S(Z): 1
+    S(n1@S(n2)): fib(n1).add(fib(n2))
+
+# fib(5) = 1, 1, 2, 3, 5, 8
+main = fib(S(S(S(S(S(Z))))))
+"""), "A", VInt(8))
+  */
+
+  evalTest(
+    List("""
+package A
+
+enum Nat: S(p: Nat), Z
 
 def fib(n):
   recur n:
@@ -1094,6 +1164,22 @@ main = [Foo(1), Bar("1")]
         List("foo" -> Json.JNumberStr("1"))),
       Json.JObject(
         List("bar" -> Json.JString("1"))))))
+  }
+
+  test("json handling of Nat special case") {
+    evalTestJson(
+      List("""
+package Foo
+
+enum Nat: Z, S(n: Nat)
+
+main = [Z, S(Z), S(S(Z))]
+"""), "Foo",
+  Json.JArray(
+    Vector(
+      Json.JNumberStr("0"),
+      Json.JNumberStr("1"),
+      Json.JNumberStr("2"))))
   }
 
   test("json with backticks") {
@@ -1789,6 +1875,19 @@ get = \Pair(first, _, _, ...) -> first
 
 res = get(Pair(1, "two"))
 """), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.none); () }
+  }
+
+  test("exercise total matching inside of a struct with a list") {
+    runBosatsuTest(List("""package A
+
+struct ListWrapper(items: List[a], b: Bool)
+
+w = ListWrapper([], True)
+
+ListWrapper([*_], r) = w
+
+tests = Assertion(r, "match with total list pattern")
+"""), "A", 1)
   }
 
   test("test scoping bug (issue #311)") {

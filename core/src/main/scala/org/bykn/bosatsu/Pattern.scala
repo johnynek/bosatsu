@@ -187,18 +187,28 @@ object Pattern {
     }
   }
 
+  /**
+   * This will match any list without any binding
+   */
+  val AnyList: Pattern[Nothing, Nothing] =
+    Pattern.ListPat(ListPart.WildList :: Nil)
+
   type Parsed = Pattern[StructKind, TypeRef]
+
+  /**
+   * Flatten a pattern out such that there are no top-level
+   * unions
+   */
+  def flatten[N, T](p: Pattern[N, T]): NonEmptyList[Pattern[N, T]] =
+    p match {
+      case Union(h, t) => NonEmptyList(h, t.toList).flatMap(flatten(_))
+      case nonU => NonEmptyList(nonU, Nil)
+    }
 
   /**
    * Create a normalized pattern, which doesn't have nested top level unions
    */
   def union[N, T](head: Pattern[N, T], tail: List[Pattern[N, T]]): Pattern[N, T] = {
-    def flatten(p: Pattern[N, T]): NonEmptyList[Pattern[N, T]] =
-      p match {
-        case Union(h, t) => NonEmptyList(h, t.toList).flatMap(flatten(_))
-        case nonU => NonEmptyList(nonU, Nil)
-      }
-
     NonEmptyList(head, tail).flatMap(flatten(_)) match {
       case NonEmptyList(h, Nil) => h
       case NonEmptyList(h0, h1 :: tail) => Union(h0, NonEmptyList(h1, tail))
