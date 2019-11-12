@@ -465,7 +465,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             }
             else {
               // compute the index of ctor, so we can compare integers later
-              val idx = dt.constructors.map(_.name).indexOf(ctor)
+              val idx = dt.constructors.indexWhere(_.name == ctor)
 
               dt.natLike match {
                 case isz: DefinedType.NatLike.Is =>
