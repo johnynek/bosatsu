@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.Eval
 import cats.data.NonEmptyList
 import com.stripe.dagon.Memoize
+import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type}
 import scala.collection.mutable.{Map => MMap}
 
@@ -70,9 +71,11 @@ object Evaluation {
 
     def recursive(name: Bindable, item: Scoped): Scoped =
       fromFn { env =>
+        lazy val res: Eval[Value] =
+          Eval.defer(item.inEnv(env1)).memoize
         lazy val env1: Map[Identifier, Eval[Value]] =
-          env.updated(name, Eval.defer(item.inEnv(env1)).memoize)
-        item.inEnv(env1)
+          env.updated(name, res)
+        res
       }
 
     private case class Let(name: Bindable, arg: Scoped, in: Scoped) extends Scoped {
@@ -238,8 +241,14 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         }
       def toTest(a: Value): Test =
         a match {
-          case SumValue(0, assertion) => toAssert(assertion)
-          case SumValue(1, suite) => toSuite(suite)
+          case s: SumValue =>
+            if (s.variant == 0) toAssert(s.value)
+            else if (s.variant == 1) toSuite(s.value)
+            else {
+              // $COVERAGE-OFF$
+              sys.error(s"unexpected variant in: $s")
+              // $COVERAGE-ON$
+            }
           case unexpected =>
             // $COVERAGE-OFF$
             sys.error(s"unreachable if compilation has worked: $unexpected")
@@ -258,6 +267,25 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       }
     }
 
+  private[this] val someTrue: Option[Boolean] = Some(true)
+  private[this] val someFalse: Option[Boolean] = Some(false)
+  // return None if the type isn't Nat-like (Zero, Succ(n))
+  // return Some(true) if Zero comes first
+  // return Some(false) if Zero is second
+  private def getNatLikeFirst(dt: DefinedType[Any]): Option[Boolean] =
+    if (dt.constructors.lengthCompare(2) == 0) {
+      dt.constructors match {
+        case (_, Nil, _) :: (_, (_, t) :: Nil, _) :: _ =>
+          if (t == dt.toTypeTyConst) someTrue
+          else None
+        case (_, (_, t) :: Nil, _) :: (_, Nil, _) :: _ =>
+          if (t == dt.toTypeTyConst) someFalse
+          else None
+        case _ => None
+      }
+    }
+    else None
+
   private type Ref = TypedExpr[T]
 
   private def evalBranch(
@@ -265,6 +293,20 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     recurse: Ref => Scoped): (Value, Env) => Eval[Value] = {
       def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =
         pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
+
+      /*
+       * Return true if this matches everything that would typecheck and does
+       * not introduce new bindings
+       */
+      def isTotalNonBinding(p: Pattern[(PackageName, Constructor), Type]): Boolean =
+        p match {
+          case Pattern.WildCard => true
+          case Pattern.Annotation(p, _) => isTotalNonBinding(p)
+          case Pattern.PositionalStruct(pc, parts) =>
+            definedForCons(pc).isStruct && parts.forall(isTotalNonBinding)
+          case Pattern.AnyList => true
+          case _ => false
+        }
 
       val noop: (Value, Env) => Option[Env] = { (_, env) => Some(env) }
       val neverMatch: (Value, Env) => Option[Nothing] = { (_, _) => None }
@@ -369,9 +411,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                 }
             }
           case Pattern.Annotation(p, _) =>
-            // TODO we may need to use the type here
+            // we don't need types to match patterns once we have fully resolved constructors
             maybeBind(p)
-          case Pattern.Union(h, t) =>
+          case u@Pattern.Union(_, _) =>
             // we can just loop expanding these out:
             def loop(ps: List[Pattern[(PackageName, Constructor), Type]]): (Value, Env) => Option[Env] =
               ps match {
@@ -381,13 +423,12 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                   val fnt = loop(tail)
 
                   { (arg, acc) =>
-                    fnh(arg, acc) match {
-                      case None => fnt(arg, acc)
-                      case some => some
-                    }
+                    val rh = fnh(arg, acc)
+                    if (rh.isDefined) rh
+                    else fnt(arg, acc)
                   }
               }
-            loop(h :: t.toList)
+            loop(Pattern.flatten(u).toList)
           case Pattern.PositionalStruct(pc@(_, ctor), items) =>
             /*
              * The type in question is not the outer dt, but the type associated
@@ -395,6 +436,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
              */
             val dt = definedForCons(pc)
             val itemFns = items.map(maybeBind(_))
+
+            val itemsWild = items.forall(isTotalNonBinding(_))
 
             def processArgs(as: List[Value], acc: Env): Option[Env] = {
               // manually write out foldM hoping for performance improvements
@@ -415,39 +458,96 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
               loop(as, itemFns, acc)
             }
 
-            if (dt.isStruct) {
-              // this is a struct, which means we expect it
-              { (arg: Value, acc: Env) =>
-                arg match {
-                  case p: ProductValue =>
-                    // this is the pattern
-                    // note passing in a List here we could have union patterns
-                    // if all the pattern bindings were known to be of the same type
-                    processArgs(p.toList, acc)
+            if (dt.isNewType) {
+              // we erase this entirely, and just match the underlying item
+              itemFns.head
+            }
+            else if (dt.isStruct) {
+              if (itemsWild) noop
+              else
+                // this is a struct, which means we expect it
+                { (arg: Value, acc: Env) =>
+                  arg match {
+                    case p: ProductValue =>
+                      // this is the pattern
+                      // note passing in a List here we could have union patterns
+                      // if all the pattern bindings were known to be of the same type
+                      processArgs(p.toList, acc)
 
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    val itemStr = items.mkString("(", ", ", ")")
-                    sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\nenv: $acc")
-                    // $COVERAGE-ON$
+                    case other =>
+                      // $COVERAGE-OFF$this should be unreachable
+                      val itemStr = items.mkString("(", ", ", ")")
+                      sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\nenv: $acc")
+                      // $COVERAGE-ON$
+                  }
                 }
-              }
             }
             else {
               // compute the index of ctor, so we can compare integers later
               val idx = dt.constructors.map(_._1).indexOf(ctor)
 
-              // we don't check if idx < 0, because if we compiled, it can't be
-              { (arg: Value, acc: Env) =>
-                arg match {
-                  case SumValue(enumId, v) =>
-                    if (enumId == idx) processArgs(v.toList, acc)
-                    else None
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    sys.error(s"ill typed in match: $other")
-                    // $COVERAGE-ON$
-                }
+              getNatLikeFirst(dt) match {
+                case Some(zeroFirst) =>
+                  // we represent Nats with java BigInteger
+                  val isZero = (zeroFirst && (idx == 0)) || (!zeroFirst && (idx == 1))
+
+                  if (isZero)
+                    { (arg: Value, acc: Env) =>
+                      arg match {
+                        case ExternalValue(b: BigInteger) =>
+                          if (b == BigInteger.ZERO) Some(acc)
+                          else None
+                        case other =>
+                          // $COVERAGE-OFF$this should be unreachable
+                          val itemStr = items.mkString("(", ", ", ")")
+                          sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\nenv: $acc")
+                          // $COVERAGE-ON$
+                      }
+                    }
+                  else {
+                    // We are expecting non-zero
+                    val succMatch = itemFns.head
+
+                    { (arg: Value, acc: Env) =>
+                      arg match {
+                        case ExternalValue(b: BigInteger) =>
+                          if (b != BigInteger.ZERO) {
+                            succMatch(ExternalValue(b.subtract(BigInteger.ONE)), acc)
+                          }
+                          else None
+                        case other =>
+                          // $COVERAGE-OFF$this should be unreachable
+                          val itemStr = items.mkString("(", ", ", ")")
+                          sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\nenv: $acc")
+                          // $COVERAGE-ON$
+                      }
+                    }
+                  }
+                case None =>
+                  if (itemsWild)
+                    { (arg: Value, acc: Env) =>
+                      arg match {
+                        case s: SumValue =>
+                          if (s.variant == idx) Some(acc)
+                          else None
+                        case other =>
+                          // $COVERAGE-OFF$this should be unreachable
+                          sys.error(s"ill typed in match: $other")
+                          // $COVERAGE-ON$
+                      }
+                    }
+                  else
+                    { (arg: Value, acc: Env) =>
+                      arg match {
+                        case s: SumValue =>
+                          if (s.variant == idx) processArgs(s.value.toList, acc)
+                          else None
+                        case other =>
+                          // $COVERAGE-OFF$this should be unreachable
+                          sys.error(s"ill typed in match: $other")
+                          // $COVERAGE-ON$
+                      }
+                    }
               }
             }
         }
@@ -542,6 +642,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       (expr, recurse) => evalTypedExpr(expr, recurse)
     }
 
+  private[this] val zeroNat: Eval[Value] = Eval.now(ExternalValue(BigInteger.ZERO))
+
   private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value] = {
     val (enum, arity) = dt.constructors
       .toList
@@ -550,22 +652,46 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       .collectFirst { case ((ctor, params, resType), idx) if ctor == c => (idx, params.size) }
       .get // the ctor must be in the list or we wouldn't typecheck
 
-    val singleItemStruct = dt.isStruct
+    // partially erase new-types
+    // more advanced new-type erasure would
+    // make Apply(Foo, x) into x, but this
+    // does not yet do that
+    if (dt.isNewType) cats.Now(FnValue.identity)
+    else {
+      val singleItemStruct = dt.isStruct
 
-    // TODO: this is a obviously terrible
-    // the encoding is inefficient, the implementation is inefficient
-    def loop(param: Int, args: List[Value]): Value =
-      if (param == 0) {
-        val prod = ProductValue.fromList(args.reverse)
-        if (singleItemStruct) prod
-        else SumValue(enum, prod)
-      }
-      else FnValue {
-        case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
-        case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
-      }
+      getNatLikeFirst(dt) match {
+        case Some(zeroFirst) =>
+          // we represent Nats with java BigInteger
+          val isZero = (zeroFirst && (enum == 0)) || (!zeroFirst && (enum == 1))
+          def inc(v: Value): Value = {
+            val ex = v.asInstanceOf[ExternalValue]
+            val bi = ex.toAny.asInstanceOf[BigInteger]
+            ExternalValue(bi.add(BigInteger.ONE))
+          }
+          if (isZero) zeroNat
+          else Eval.now(FnValue {
+            case cats.Now(a) => cats.Now(inc(a))
+            case ea => ea.map(inc).memoize
+          })
 
-    Eval.now(loop(arity, Nil))
+        case None =>
+          // TODO: this is a obviously terrible
+          // the encoding is inefficient, the implementation is inefficient
+          def loop(param: Int, args: List[Value]): Value =
+            if (param == 0) {
+              val prod = ProductValue.fromList(args.reverse)
+              if (singleItemStruct) prod
+              else SumValue(enum, prod)
+            }
+            else FnValue {
+              case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
+              case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
+            }
+
+          Eval.now(loop(arity, Nil))
+      }
+    }
   }
 
   /**
@@ -642,28 +768,36 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       case _ =>
         val vp =
           a match {
-            case SumValue(variant, p) => Some((variant, p))
+            case s: SumValue => Some((s.variant, s.value))
             case p: ProductValue => Some((0, p))
             case _ => None
           }
-        val optDt = Type.rootConst(tpe)
-          .flatMap {
-            case Type.TyConst(Type.Const.Defined(pn, n)) =>
-              defined(pn, n)
-          }
 
-        (vp, optDt).mapN { case ((variant, prod), dt) =>
-          val cons = dt.constructors
-          val (_, targs) = Type.applicationArgs(tpe)
-          val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
-          cons.lift(variant).flatMap { case (_, params, _) =>
-            prod.toList.zip(params).traverse { case (a1, (pn, t)) =>
-              toJson(a1, Type.substituteVar(t, replaceMap)).map((pn.asString, _))
+        vp match {
+          case None =>
+            a match {
+              case ExternalValue(b: BigInteger) =>
+                Some(Json.JNumberStr(b.toString))
+              case _ => None
             }
-          }
+          case Some((variant, prod)) =>
+            Type.rootConst(tpe)
+              .flatMap {
+                case Type.TyConst(Type.Const.Defined(pn, n)) =>
+                  defined(pn, n)
+              }
+              .flatMap { dt =>
+                val cons = dt.constructors
+                val (_, targs) = Type.applicationArgs(tpe)
+                val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
+                cons.lift(variant).flatMap { case (_, params, _) =>
+                  prod.toList.zip(params).traverse { case (a1, (pn, t)) =>
+                    toJson(a1, Type.substituteVar(t, replaceMap)).map((pn.asString, _))
+                  }
+                }
+              }
+              .map { ps => Json.JObject(ps) }
         }
-        .flatten
-        .map { ps => Json.JObject(ps) }
     }
   }
 

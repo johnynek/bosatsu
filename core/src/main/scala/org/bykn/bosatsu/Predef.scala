@@ -197,22 +197,18 @@ object PredefImpl {
   }
 
 
-  def empty_Dict(ord: Value): Value =
-    ord match {
-      case ConsValue(fn, _) =>
-        implicit val ordValue: Ordering[Value] =
-          new Ordering[Value] {
-            val fnV = fn.asFn
-            def compare(a: Value, b: Value): Int =
-              fnV(a).flatMap(_.asFn(b)).value match {
-                case SumValue(v, _) =>
-                  v - 1
-                case other => sys.error(s"type error: $other")
-              }
-          }
-        ExternalValue(SortedMap.empty[Value, Value])
-      case other => sys.error(s"type error: $other")
-    }
+  def empty_Dict(ord: Value): Value = {
+    implicit val ordValue: Ordering[Value] =
+      new Ordering[Value] {
+        val fnV = ord.asFn
+        def compare(a: Value, b: Value): Int = {
+          val v = fnV(a).flatMap(_.asFn(b)).value
+          // this should be Comparison ADT
+          v.asInstanceOf[SumValue].variant - 1
+        }
+      }
+    ExternalValue(SortedMap.empty[Value, Value])
+  }
 
   def toDict(v: Value): SortedMap[Value, Value] =
     v match {
