@@ -686,8 +686,8 @@ object ProtoConverter {
         d.annotatedTypeParams.traverse(paramToProto)
 
       val constructors: Tab[List[proto.ConstructorFn]] =
-        d.constructors.traverse { case (c, tp, _) =>
-          tp.traverse { case (b, t) =>
+        d.constructors.traverse { cf =>
+          cf.args.traverse { case (b, t) =>
             typeToProto(t).flatMap { tidx =>
               getId(b.sourceCodeRepr)
                 .map { n =>
@@ -696,7 +696,7 @@ object ProtoConverter {
             }
           }
           .flatMap { params =>
-            getId(c.asString)
+            getId(cf.name.asString)
               .map { id =>
                 proto.ConstructorFn(id, params)
               }
@@ -726,7 +726,7 @@ object ProtoConverter {
     def consFromProto(
       tc: Type.Const.Defined,
       tp: List[Type.Var.Bound],
-      c: proto.ConstructorFn): DTab[(Identifier.Constructor, List[(Bindable, Type)], Type)] =
+      c: proto.ConstructorFn): DTab[rankn.ConstructorFn] =
       lookup(c.name, c.toString)
         .flatMap { cname =>
           ReaderT.liftF(toConstructor(cname))
@@ -734,8 +734,7 @@ object ProtoConverter {
               //def
               c.params.toList.traverse(fnParamFromProto)
                 .map { fnParams =>
-                  val fnType = DefinedType.constructorValueType(tc.packageName, tc.name, tp, fnParams.map(_._2))
-                  (cname, fnParams, fnType)
+                  rankn.ConstructorFn.build(tc.packageName, tc.name, tp, cname, fnParams)
                 }
             }
         }
@@ -774,11 +773,11 @@ object ProtoConverter {
                   proto.DefinedTypeReference.Value.ImportedDefinedType(tc))))
             }
         }
-      case Referant.Constructor(nm, dt, _, _) =>
+      case Referant.Constructor(dt, cf) =>
         val key = (dt.packageName, dt.name)
         allDts.get(key) match {
           case Some((dtV, dtIdx)) =>
-            val cIdx = dtV.constructors.indexWhere { case (c, _, _) => c == nm }
+            val cIdx = dtV.constructors.indexWhere(_.name == cf.name)
             if (cIdx >= 0) {
               tabPure(
                 proto.Referant(
@@ -787,11 +786,11 @@ object ProtoConverter {
                       proto.ConstructorReference.Value.LocalConstructor(
                         proto.ConstructorPtr(dtIdx + 1, cIdx + 1))))))
             }
-            else tabFail(new Exception(s"missing contructor for type $key, $nm, with local: $dt"))
+            else tabFail(new Exception(s"missing contructor for type $key, ${cf.name}, with local: $dt"))
           case None =>
             (getId(dt.packageName.asString),
               getId(dt.name.ident.sourceCodeRepr),
-              getId(nm.sourceCodeRepr)
+              getId(cf.name.sourceCodeRepr)
             ).mapN { (pid, tid, cid) =>
               proto.Referant(
                 proto.Referant.Referant.Constructor(
@@ -893,8 +892,8 @@ object ProtoConverter {
               ReaderT.liftF(dt.constructors.get(fixedIdx.toLong) match {
                 case None =>
                   Failure(new Exception(s"invalid constructor index: $cIdx in: $dt"))
-                case Some((c, a, t)) =>
-                  Success(Referant.Constructor(c, dt, a, t))
+                case Some(cf) =>
+                  Success(Referant.Constructor(dt, cf))
               })
             }
           case proto.ConstructorReference.Value.ImportedConstructor(proto.ImportedConstructor(packId, typeId, consId)) =>
@@ -907,10 +906,9 @@ object ProtoConverter {
                   tc <- typeConstFromStr(p, t, s"in $ref decoding ($p, $t)")
                   dt <- loadDT(tc)
                   cons <- toConstructor(c)
-                  idx = dt.constructors.indexWhere { case (c, _, _) => c == cons }
+                  idx = dt.constructors.indexWhere(_.name == cons)
                   _ <- if (idx < 0) Failure(new Exception(s"invalid constuctor name: $cons for $dt")) else Success(())
-                  (_, a, t) = dt.constructors(idx)
-                } yield Referant.Constructor(cons, dt, a, t)
+                } yield Referant.Constructor(dt, dt.constructors(idx))
               }
           case proto.ConstructorReference.Value.Empty =>
             ReaderT.liftF(Failure(new Exception(s"empty referant found: $ref")))
@@ -1334,7 +1332,7 @@ object ProtoConverter {
 
       val predefIface = {
         val iface = Package.interfaceOf(Predef.predefCompiled)
-        (iface, Package.exportedTypeEnv(iface))
+        (iface, ExportedName.typeEnvFromExports(iface.name, iface.exports))
       }
 
       val load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]] =
@@ -1342,7 +1340,7 @@ object ProtoConverter {
           nodeMap.get(pack) match {
             case Some(Left(iface) :: Nil) =>
               interfaceFromProto0(makeLoadDT(rec), iface)
-                .map { iface => Left((iface, Package.exportedTypeEnv(iface))) }
+                .map { iface => Left((iface, ExportedName.typeEnvFromExports(iface.name, iface.exports))) }
             case Some(Right(p) :: Nil) =>
               packFromProtoUncached(p, rec)
                 .map(Right(_))

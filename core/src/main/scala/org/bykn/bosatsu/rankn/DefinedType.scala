@@ -6,13 +6,11 @@ import scala.collection.immutable.SortedMap
 
 import cats.implicits._
 
-import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
-
 final case class DefinedType[+A](
   packageName: PackageName,
   name: TypeName,
   annotatedTypeParams: List[(Type.Var.Bound, A)],
-  constructors: List[(Constructor, List[(Bindable, Type)], Type)]) {
+  constructors: List[ConstructorFn]) {
 
   val typeParams: List[Type.Var.Bound] =
     annotatedTypeParams.map(_._1)
@@ -22,15 +20,15 @@ final case class DefinedType[+A](
   /**
    * A type with exactly one constructor is a struct
    */
-  def isStruct: Boolean = constructors.lengthCompare(1) == 0
+  val isStruct: Boolean = constructors.lengthCompare(1) == 0
 
   /**
    * A newtype is just a wrapper for another type.
    * It could be removed statically from the program
    */
-  def isNewType: Boolean =
+  val isNewType: Boolean =
     constructors match {
-      case (_, _ :: Nil, _) :: Nil => true
+      case cf :: Nil => cf.isSingleArg
       case _ => false
     }
 
@@ -44,28 +42,36 @@ final case class DefinedType[+A](
 
   val toTypeTyConst: Type.TyConst =
     Type.TyConst(toTypeConst)
+
+  /**
+   * Is this type Nat like: enum Nat: Zero, Succ(n: Nat)
+   */
+  val natLike: DefinedType.NatLike =
+    constructors match {
+      case c0 :: c1 :: Nil =>
+        // exactly two constructor functions
+        if (c0.isZeroArg && c1.hasSingleArgType(toTypeTyConst)) DefinedType.NatLike.ZeroFirst
+        else if (c1.isZeroArg && c0.hasSingleArgType(toTypeTyConst)) DefinedType.NatLike.ZeroLast
+        else DefinedType.NatLike.Not
+      case _ => DefinedType.NatLike.Not
+    }
 }
 
 object DefinedType {
+  sealed abstract class NatLike
+  object NatLike {
+    final case object Not extends NatLike
+    final case class Is(val zeroFirst: Boolean) extends NatLike {
+      @inline def zeroLast: Boolean = !zeroFirst
+      def idxIsZero(idx: Int): Boolean =
+        (zeroFirst && (idx == 0)) || (zeroLast && (idx == 1))
+    }
+    val ZeroFirst: Is = Is(true)
+    val ZeroLast: Is = Is(false)
+  }
+
   def toTypeConst(pn: PackageName, nm: TypeName): Type.Const.Defined =
     Type.Const.Defined(pn, nm)
-
-  def constructorValueType(pn: PackageName, name: TypeName, tparams: List[Type.Var.Bound], fnParams: List[Type]): Type = {
-    val tc: Type = Type.TyConst(toTypeConst(pn, name))
-
-    def loop(params: List[Type]): Type =
-       params match {
-         case Nil =>
-           tparams.foldLeft(tc) { (res, v) =>
-             Type.TyApply(res, Type.TyVar(v))
-           }
-         case h :: tail =>
-           Type.Fun(h, loop(tail))
-       }
-
-    val resT = loop(fnParams)
-    Type.forAll(tparams, resT)
-  }
 
   def listToMap[A](dts: List[DefinedType[A]]): SortedMap[(PackageName, TypeName), DefinedType[A]] =
     SortedMap(dts.map { dt => (dt.packageName, dt.name) -> dt }: _*)

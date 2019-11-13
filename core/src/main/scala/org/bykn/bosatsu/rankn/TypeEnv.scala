@@ -43,13 +43,11 @@ class TypeEnv[+A] private (
     (SortedMap.newBuilder[Identifier, Type] ++= values.iterator.collect { case ((pn, n), v) if pn == p => (n, v) }).result
 
   def addConstructor[A1 >: A](pack: PackageName,
-    n: Constructor,
-    params: List[(Bindable, Type)],
     dt: DefinedType[A1],
-    v: Type): TypeEnv[A1] = {
-      val nec = constructors.updated((pack, n), (params, dt, v))
+    cf: ConstructorFn): TypeEnv[A1] = {
+      val nec = constructors.updated((pack, cf.name), (cf.args, dt, cf.fnType))
       // add this constructor to the values
-      val v1 = values.updated((pack, n), v)
+      val v1 = values.updated((pack, cf.name), cf.fnType)
       new TypeEnv(values = v1, constructors = nec, definedTypes = definedTypes)
     }
 
@@ -71,12 +69,12 @@ class TypeEnv[+A] private (
     val cons1 =
       dt.constructors
         .foldLeft(constructors: SortedMap[(PackageName, Constructor), (List[(Bindable, Type)], DefinedType[A1], Type)]) {
-          case (cons0, (cname, params, vtpe)) =>
-            cons0.updated((dt.packageName, cname), (params, dt, vtpe))
+          case (cons0, cf) =>
+            cons0.updated((dt.packageName, cf.name), (cf.args, dt, cf.fnType))
         }
     // here we have to actually add the constructor values:
-    val v1 = dt.constructors.foldLeft(values) { case (v0, (cn, _, tpe)) =>
-      v0.updated((dt.packageName, cn), tpe)
+    val v1 = dt.constructors.foldLeft(values) { case (v0, cf) =>
+      v0.updated((dt.packageName, cf.name), cf.fnType)
     }
 
     new TypeEnv(constructors = cons1, definedTypes = dt1, values = v1)

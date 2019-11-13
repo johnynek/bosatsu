@@ -464,18 +464,12 @@ final class SourceConverter(
 
         updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
           val tname = TypeName(nm)
-          val consValueType =
-            rankn.DefinedType
-              .constructorValueType(
-                pname,
-                tname,
-                typeParams,
-                params.map(_._2))
+          val consFn = rankn.ConstructorFn.build(pname, tname, typeParams, nm, params)
 
           rankn.DefinedType(pname,
             tname,
             typeParams.map((_, ())),
-            (nm, params, consValueType) :: Nil)
+            consFn :: Nil)
         }
       case Enum(nm, typeArgs, items) =>
         val conArgs = items.get.map { case (nm, args) =>
@@ -502,13 +496,7 @@ final class SourceConverter(
         updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
           val tname = TypeName(nm)
           val finalCons = constructors.toList.map { case (c, params) =>
-            val consValueType =
-              rankn.DefinedType.constructorValueType(
-                pname,
-                tname,
-                typeParams,
-                params.map(_._2))
-            (c, params, consValueType)
+            rankn.ConstructorFn.build(pname, tname, typeParams, c, params)
           }
           rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
         }

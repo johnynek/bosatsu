@@ -2,9 +2,9 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 
-import rankn.TypeEnv
+import rankn.{ConstructorFn, DefinedType, Type, TypeEnv}
 
-import Identifier.{Bindable, Constructor => ConstructorName}
+import Identifier.{Constructor => ConstructorName}
 
 /**
  * A Referant is something that can be exported or imported after resolving
@@ -12,18 +12,28 @@ import Identifier.{Bindable, Constructor => ConstructorName}
  */
 sealed abstract class Referant[+A] {
   // if this is a Constructor or DefinedT, return the associated DefinedType
-  def definedType: Option[rankn.DefinedType[A]] =
+  def definedType: Option[DefinedType[A]] =
     this match {
       case Referant.Value(_) => None
       case Referant.DefinedT(dt) => Some(dt)
-      case Referant.Constructor(_, dt, _, _) => Some(dt)
+      case Referant.Constructor(dt, _) => Some(dt)
+    }
+
+  def addTo[A1 >: A](packageName: PackageName, name: Identifier, te: TypeEnv[A1]): TypeEnv[A1] =
+    this match {
+      case Referant.Value(t) =>
+        te.addExternalValue(packageName, name, t)
+      case Referant.Constructor(dt, cf) =>
+        te.addConstructor(packageName, dt, cf)
+      case Referant.DefinedT(dt) =>
+        te.addDefinedType(dt)
     }
 }
 
 object Referant {
-  case class Value(scheme: rankn.Type) extends Referant[Nothing]
-  case class DefinedT[A](dtype: rankn.DefinedType[A]) extends Referant[A]
-  case class Constructor[A](name: ConstructorName, dtype: rankn.DefinedType[A], params: List[(Bindable, rankn.Type)], consValue: rankn.Type) extends Referant[A]
+  case class Value(scheme: Type) extends Referant[Nothing]
+  case class DefinedT[A](dtype: DefinedType[A]) extends Referant[A]
+  case class Constructor[A](dtype: DefinedType[A], fn: ConstructorFn) extends Referant[A]
 
   private def imported[A, B, C](imps: List[Import[A, NonEmptyList[Referant[C]]]])(fn: PartialFunction[Referant[C], B]): Map[Identifier, B] =
     imps.foldLeft(Map.empty[Identifier, B]) { (m0, imp) =>
@@ -40,21 +50,21 @@ object Referant {
    */
   def importedConsNames[A, B](imps: List[Import[A, NonEmptyList[Referant[B]]]]): Map[Identifier, (PackageName, ConstructorName)] =
     imported(imps) {
-      case Referant.Constructor(cn, dt, _, _) => (dt.packageName, cn)
+      case Referant.Constructor(dt, fn) => (dt.packageName, fn.name)
     }
   /**
    * There are all the imported values, including the constructor functions
    */
-  def importedValues[A, B](imps: List[Import[A, NonEmptyList[Referant[B]]]]): Map[Identifier, rankn.Type] =
+  def importedValues[A, B](imps: List[Import[A, NonEmptyList[Referant[B]]]]): Map[Identifier, Type] =
     imported(imps) {
       case Referant.Value(t) => t
-      case Referant.Constructor(_, _, _, t) => t
+      case Referant.Constructor(_, fn) => fn.fnType
     }
   /**
    * Fully qualified original names
    */
   def fullyQualifiedImportedValues[A, B](
-    imps: List[Import[A, NonEmptyList[Referant[B]]]])(nameOf: A => PackageName): Map[(PackageName, Identifier), rankn.Type] =
+    imps: List[Import[A, NonEmptyList[Referant[B]]]])(nameOf: A => PackageName): Map[(PackageName, Identifier), Type] =
     imps.iterator.flatMap { item =>
       val pn = nameOf(item.pack)
       item.items.toList.iterator.flatMap { i =>
@@ -62,7 +72,7 @@ object Referant {
         val key = (pn, orig)
         i.tag.toList.iterator.collect {
           case Referant.Value(t) => (key, t)
-          case Referant.Constructor(_, _, _, t) => (key, t)
+          case Referant.Constructor(_, fn) => (key, fn.fnType)
         }
       }
     }
@@ -70,10 +80,10 @@ object Referant {
 
   def typeConstructors[A, B](
     imps: List[Import[A, NonEmptyList[Referant[B]]]]):
-      Map[(PackageName, ConstructorName), (List[(rankn.Type.Var, B)], List[rankn.Type], rankn.Type.Const.Defined)] = {
+      Map[(PackageName, ConstructorName), (List[(Type.Var, B)], List[Type], Type.Const.Defined)] = {
     val refs: Iterator[Referant[B]] = imps.iterator.flatMap(_.items.toList.iterator.flatMap(_.tag.toList))
-    refs.collect { case Constructor(cn, dt, params, _) =>
-      ((dt.packageName, cn), (dt.annotatedTypeParams, params.map(_._2), dt.toTypeConst))
+    refs.collect { case Constructor(dt, fn) =>
+      ((dt.packageName, fn.name), (dt.annotatedTypeParams, fn.args.map(_._2), dt.toTypeConst))
     }
     .toMap
   }
@@ -90,8 +100,8 @@ object Referant {
           imp.tag.foldLeft(te) {
             case (te1, Referant.Value(t)) =>
               te1.addExternalValue(pack, nm, t)
-            case (te1, Referant.Constructor(n, dt, params, v)) =>
-              te1.addConstructor(pack, n, params, dt, v)
+            case (te1, Referant.Constructor(dt, cf)) =>
+              te1.addConstructor(pack, dt, cf)
             case (te1, Referant.DefinedT(dt)) =>
               te1.addDefinedType(dt)
           }

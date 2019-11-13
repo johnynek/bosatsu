@@ -248,8 +248,8 @@ object VarianceFormula {
         }
 
       val umap: Map[Var, Unknown] = dt.annotatedTypeParams.toMap
-      val hks = dt.constructors.traverse_ { case (_, ps, _) =>
-        ps.traverse_ { case (_, tpe) =>
+      val hks = dt.constructors.traverse_ { cf =>
+        cf.args.traverse_ { case (_, tpe) =>
           constrainHKinParam(tpe, umap)
         }
       }
@@ -315,8 +315,8 @@ object VarianceFormula {
       }
 
       external *> hks *> dt.annotatedTypeParams.traverse_ { case (b, u) =>
-        dt.constructors.traverse_ { case (_, argType, _) =>
-          argType.traverse_ { case (_, tpe) =>
+        dt.constructors.traverse_ { cf =>
+          cf.args.traverse_ { case (_, tpe) =>
             val formula = constrainTpe(b, u, tpe)
             constrainUnknown(u, formula)
           }

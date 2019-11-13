@@ -272,19 +272,19 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case None => Left(NonEmptyList.of(UnknownConstructor(nm, right, inEnv)))
           case Some(dt) =>
             dt.constructors.traverse {
-              case (c, params, _) if (dt.packageName, c) == nm =>
+              case cf if (dt.packageName, cf.name) == nm =>
                 // we can replace _ with Struct(_, _...)
-                val newWild = PositionalStruct(nm, params.map(_ => WildCard))
+                val newWild = PositionalStruct(nm, cf.args.map(_ => WildCard))
                 difference0(newWild, right)
 
-              case (c, params, _) =>
+              case cf =>
                 // TODO, this could be smarter
                 // we need to learn how to deal with typed generics
                 def argToPat[A](t: (A, Type)): Pattern[Cons, Type] =
                   if (Type.hasNoVars(t._2)) Annotation(WildCard, t._2)
                   else WildCard
 
-                Right(List(PositionalStruct((dt.packageName, c), params.map(argToPat))))
+                Right(List(PositionalStruct((dt.packageName, cf.name), cf.args.map(argToPat))))
             }
             .map(_.flatten)
         }

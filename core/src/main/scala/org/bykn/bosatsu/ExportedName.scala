@@ -6,6 +6,8 @@ import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
 
+import rankn.TypeEnv
+
 sealed abstract class ExportedName[+T] { self: Product =>
   def name: Identifier
   def tag: T
@@ -33,8 +35,8 @@ sealed abstract class ExportedName[+T] { self: Product =>
        case ExportedName.Constructor(nm, _) =>
          // export the type and all constructors
          definedType.map { dt =>
-           val cons = dt.constructors.map { case (n, params, tpe) =>
-             ExportedName.Constructor(n, Referant.Constructor(n, dt, params, tpe))
+           val cons = dt.constructors.map { cf =>
+             ExportedName.Constructor(cf.name, Referant.Constructor(dt, cf))
            }
            val t = ExportedName.TypeName(nm, Referant.DefinedT(dt))
            NonEmptyList(t, cons)
@@ -114,6 +116,11 @@ object ExportedName {
        }
 
      exports.traverse(expName1).map(_.flatten)
+    }
+
+  def typeEnvFromExports[A](packageName: PackageName, exports: List[ExportedName[Referant[A]]]): TypeEnv[A] =
+    exports.foldLeft((TypeEnv.empty): TypeEnv[A]) { (te, exp) =>
+      exp.tag.addTo(packageName, exp.name, te)
     }
 }
 
