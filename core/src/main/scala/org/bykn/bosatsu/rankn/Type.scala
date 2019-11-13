@@ -204,6 +204,9 @@ object Type {
   val UnitType = TyConst(Type.Const.predef("Unit"))
   val TupleConsType = TyConst(Type.Const.predef("TupleCons"))
 
+  def const(pn: PackageName, name: TypeName): Type =
+    TyConst(Type.Const.Defined(pn, name))
+
   object Fun {
     def unapply(t: Type): Option[(Type, Type)] =
       t match {
