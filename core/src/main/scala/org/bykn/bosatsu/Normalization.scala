@@ -587,7 +587,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case Pattern.Annotation(p, tpe) => loop(p)
         case Pattern.PositionalStruct(pc@(_, ctor), params) =>
           val dt = definedForCons(pc)
-          val name = if (dt.isStruct) None else Some(dt.constructors.map(_.name).indexOf(ctor))
+          val name = if (dt.isStruct) None else Some(dt.constructors.indexWhere(_.name == ctor))
           NormalPattern.PositionalStruct(name, params.map(loop(_)))
         case Pattern.Union(h, t) => NormalPattern.Union(loop(h), t.map(loop(_)))
       }
