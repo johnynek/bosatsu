@@ -874,8 +874,6 @@ def fib(n):
 main = fib(S(S(S(S(S(Z))))))
 """), "A", VInt(8))
 
-  /*
-   * TODO: make this test pass
   evalTest(
     List("""
 package A
@@ -891,7 +889,6 @@ def fib(n):
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
 """), "A", VInt(8))
-  */
 
   evalTest(
     List("""

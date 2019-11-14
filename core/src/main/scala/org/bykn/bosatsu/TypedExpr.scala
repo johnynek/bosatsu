@@ -389,7 +389,7 @@ object TypedExpr {
       case AnnotatedLambda(_, _, e, tag) =>
         val lb1 = foldRight(e, lb)(f)
         f(tag, lb1)
-      case Var(_, _ , _, tag) => f(tag, lb)
+      case Var(_, _, _, tag) => f(tag, lb)
       case App(fn, a, _, tag) =>
         val b1 = f(tag, lb)
         val b2 = foldRight(a, b1)(f)
@@ -589,6 +589,51 @@ object TypedExpr {
     loop(in)
   }
 
+  def substituteTypeVar[A](typedExpr: TypedExpr[A], env: Map[Type.Var, Type]): TypedExpr[A] =
+    typedExpr match {
+      case Generic(params, expr, tag) =>
+        val paramSet: Set[Type.Var] = params.toList.toSet
+        val env1 = env.filterKeys { k => !paramSet(k) }
+        Generic(params, substituteTypeVar(expr, env1), tag)
+      case Annotation(of, tpe, tag) =>
+        Annotation(
+          substituteTypeVar(of, env),
+          Type.substituteVar(tpe, env),
+          tag)
+      case AnnotatedLambda(arg, tpe, res, tag) =>
+        AnnotatedLambda(
+          arg,
+          Type.substituteVar(tpe, env),
+          substituteTypeVar(res, env),
+          tag)
+      case Var(p, v, tpe, tag) =>
+        Var(p, v, Type.substituteVar(tpe, env), tag)
+      case App(f, arg, tpe, tag) =>
+        App(
+          substituteTypeVar(f, env),
+          substituteTypeVar(arg, env),
+          Type.substituteVar(tpe, env),
+          tag)
+      case Let(v, exp, in, rec, tag) =>
+        Let(
+          v,
+          substituteTypeVar(exp, env),
+          substituteTypeVar(in, env),
+          rec,
+          tag)
+      case Literal(lit, tpe, tag) =>
+        Literal(lit, Type.substituteVar(tpe, env), tag)
+      case Match(expr, branches, tag) =>
+        val branches1 = branches.map {
+          case (p, t) =>
+            val p1 = p.mapType(Type.substituteVar(_, env))
+            val t1 = substituteTypeVar(t, env)
+            (p1, t1)
+        }
+        val expr1 = substituteTypeVar(expr, env)
+        Match(expr1, branches1, tag)
+    }
+
   private def replaceVarType[A](te: TypedExpr[A], name: Identifier, tpe: Type): TypedExpr[A] = {
     def recur(t: TypedExpr[A]) = replaceVarType(t, name, tpe)
 
@@ -678,17 +723,28 @@ object TypedExpr {
   def lambda[A](arg: Bindable, tpe: Type, expr: TypedExpr[A], tag: A): TypedExpr[A] =
     expr match {
       case Generic(ps, ex0, tag0) =>
+        // due to covariance in the return type, we can always lift
+        // generics on the return value out of the lambda
         val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
         val quants = ps.toList.toSet
         val collisions = frees.intersect(quants)
         NonEmptyList.fromList(collisions.toList) match {
           case None => Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag0), tag)
           case Some(cols) =>
-            // we should sort cols if we use it for anything below
-            // lift Generic out TODO: what if arg tpe is in ps? we need to substitute for a new name
-            // we can rebind all the collisions to anything that isn't a free type var in expr
-            // we should find a test that fails currently, add that test, then fix the issue
-            sys.error(s"TODO: support lambda($arg, $tpe, ${expr.repr}, tag)")
+            // don't replace with any existing type variable or any of the free variables
+            val replacements = Type.allBinders.filterNot(quants | frees)
+            val repMap: Map[Type.Var.Bound, Type.Var.Bound] =
+              collisions
+                .zip(replacements)
+                .toMap
+
+            val ps1 = ps.map { v => repMap.getOrElse(v, v) }
+            val typeMap: Map[Type.Var, Type] =
+              repMap.iterator.map { case (k, v) => (k, Type.TyVar(v)) }.toMap
+            val ex1 = substituteTypeVar(ex0, typeMap)
+            Generic(ps1,
+              AnnotatedLambda(arg, tpe, ex1, tag0),
+              tag)
         }
       case notGen =>
         AnnotatedLambda(arg, tpe, notGen, tag)
