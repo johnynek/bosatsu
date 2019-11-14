@@ -732,9 +732,10 @@ object TypedExpr {
           case None => Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag0), tag)
           case Some(cols) =>
             // don't replace with any existing type variable or any of the free variables
-            val replacements = Type.allBinders.filterNot(quants | frees)
+            val replacements = Type.allBinders.iterator.filterNot(quants | frees)
             val repMap: Map[Type.Var.Bound, Type.Var.Bound] =
               collisions
+                .iterator
                 .zip(replacements)
                 .toMap
 
