@@ -138,13 +138,21 @@ object TypedExpr {
     def allTypes: SortedSet[Type] =
       traverseType { t => Writer(SortedSet(t), t) }.run._1
 
+    /**
+     * Traverse all the *non-shadowed* types inside the TypedExpr
+     */
     def traverseType[F[_]: Applicative](fn: Type => F[Type]): F[TypedExpr[A]] =
       self match {
         case Generic(params, expr, tag) =>
-          // The parameters are are like strings, but this
-          // is a bit unsafe... we only use it for zonk which
-          // ignores Bounds
-          expr.traverseType(fn).map(Generic(params, _, tag))
+          // params shadow below, so they are not free values
+          // and can easily create bugs if passed into fn
+          val shadowed: Set[Type.Var.Bound] = params.toList.toSet
+          val shadowFn: Type => F[Type] = {
+            case tvar@Type.TyVar(v: Type.Var.Bound) if shadowed(v) => Applicative[F].pure(tvar)
+            case notShadowed => fn(notShadowed)
+          }
+
+          expr.traverseType(shadowFn).map(Generic(params, _, tag))
         case Annotation(of, tpe, tag) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _, tag))
         case AnnotatedLambda(arg, tpe, res, tag) =>
@@ -592,6 +600,7 @@ object TypedExpr {
   def substituteTypeVar[A](typedExpr: TypedExpr[A], env: Map[Type.Var, Type]): TypedExpr[A] =
     typedExpr match {
       case Generic(params, expr, tag) =>
+        // we need to remove the params which are shadowed below
         val paramSet: Set[Type.Var] = params.toList.toSet
         val env1 = env.filterKeys { k => !paramSet(k) }
         Generic(params, substituteTypeVar(expr, env1), tag)
