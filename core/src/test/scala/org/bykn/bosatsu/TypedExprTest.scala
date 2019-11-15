@@ -1,8 +1,11 @@
 package org.bykn.bosatsu
 
+import cats.data.Writer
+import cats.implicits._
 import org.scalacheck.Gen
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import scala.collection.immutable.SortedSet
 
 import TestUtils.checkLast
 
@@ -148,14 +151,31 @@ y = match x:
     forAll(genTypedExpr) { te =>
       val tpes: Set[Type.Var] = te.allTypes.iterator.collect { case Type.TyVar(b) => b }.toSet
 
+      implicit def setM[A: Ordering]: cats.Monoid[SortedSet[A]] =
+        new cats.Monoid[SortedSet[A]] {
+          def empty = SortedSet.empty
+          def combine(a: SortedSet[A], b: SortedSet[A]) = a ++ b
+      }
+
+      // All the vars that are used in bounds
+      val bounds: Set[Type.Var] = te.traverseType { t: Type =>
+        t match {
+          case Type.ForAll(ps, _) => Writer(SortedSet[Type.Var](ps.toList: _*), t)
+          case _ => Writer(SortedSet[Type.Var](), t)
+        }
+      }.run._1.toSet[Type.Var]
+
       val replacements = Type.allBinders.iterator.filterNot(tpes)
       val identMap: Map[Type.Var, Type] =
-        tpes.iterator.zip(replacements)
+        tpes.filterNot(bounds)
+          .iterator
+          .zip(replacements)
           .map { case (b, v) => (b, Type.TyVar(v)) }
           .toMap
+
       if (identMap.nonEmpty) {
         val te1 = TypedExpr.substituteTypeVar(te, identMap)
-        assert(te1 != te)
+        assert(te1 != te, s"mapping: $identMap, $bounds")
       }
     }
   }

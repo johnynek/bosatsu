@@ -30,11 +30,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   lazy val getType: Type =
     this match {
       case Generic(params, expr, _) =>
-        val tpe = expr.getType
-        // if tpe has no Var.Bound in common,
-        // then we don't need the forall
-        val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
-        Type.forAll(params.toList.filter(frees), tpe)
+        Type.forAll(params.toList, expr.getType)
       case Annotation(_, tpe, _) =>
         tpe
       case a@AnnotatedLambda(arg, tpe, res, _) =>
@@ -152,7 +148,8 @@ object TypedExpr {
             case notShadowed => fn(notShadowed)
           }
 
-          (fn(gen.getType) *> expr.traverseType(shadowFn))
+          val paramsF = params.traverse_ { v => fn(Type.TyVar(v)) }
+          (paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
             .map(Generic(params, _, tag))
         case Annotation(of, tpe, tag) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _, tag))
@@ -783,7 +780,23 @@ object TypedExpr {
         //
         // Also, Generic(Generic(...)) => Generic
         // Generic(vs, te, _) but vs are not bound in te, we can remove Generic
-        normalize(in).map(Generic(vars, _, tag))
+
+        // if tpe has no Var.Bound in common,
+        // then we don't need the forall
+        val tpe = in.getType
+        val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
+        val freeVars = vars.toList.filter(frees)
+        NonEmptyList.fromList(freeVars) match {
+          case None => normalize1(in)
+          case Some(nonEmpty) =>
+            normalize(in) match {
+              case None =>
+                if (freeVars == frees) None
+                else Some(Generic(nonEmpty, in, tag))
+              case Some(in1) =>
+                Some(Generic(nonEmpty, in1, tag))
+            }
+        }
       case Annotation(term, tpe, tag) =>
         // if we annotate twice, we can ignore the inner annotation
         // we should have type annotation where we normalize type parameters
@@ -915,8 +928,8 @@ object TypedExpr {
           val (c, t1) = ncount(t)
           (c, (p, t1))
         }
-        val a1 = normalize(arg).getOrElse(arg)
+        val a1 = normalize1(arg).get
         if ((a1 eq arg) && (changed == 0)) None
-        else normalize1(Match(a1, branches1, tag))
+        else Some(Match(a1, branches1, tag))
     }
 }
