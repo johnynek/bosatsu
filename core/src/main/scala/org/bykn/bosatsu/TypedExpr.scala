@@ -156,8 +156,8 @@ object TypedExpr {
             .map(Generic(params, _, tag))
         case Annotation(of, tpe, tag) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _, tag))
-        case AnnotatedLambda(arg, tpe, res, tag) =>
-          (fn(tpe), res.traverseType(fn)).mapN {
+        case lam@AnnotatedLambda(arg, tpe, res, tag) =>
+          fn(lam.getType) *> (fn(tpe), res.traverseType(fn)).mapN {
             AnnotatedLambda(arg, _, _, tag)
           }
         case Var(p, v, tpe, tag) =>

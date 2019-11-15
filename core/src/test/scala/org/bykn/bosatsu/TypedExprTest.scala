@@ -159,4 +159,10 @@ y = match x:
       }
     }
   }
+
+  test("TypedExpr.allTypes contains the type") {
+    forAll(genTypedExpr) { te =>
+      assert(te.allTypes.contains(te.getType))
+    }
+  }
 }
