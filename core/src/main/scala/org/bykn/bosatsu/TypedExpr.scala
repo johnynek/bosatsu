@@ -143,7 +143,7 @@ object TypedExpr {
      */
     def traverseType[F[_]: Applicative](fn: Type => F[Type]): F[TypedExpr[A]] =
       self match {
-        case Generic(params, expr, tag) =>
+        case gen@Generic(params, expr, tag) =>
           // params shadow below, so they are not free values
           // and can easily create bugs if passed into fn
           val shadowed: Set[Type.Var.Bound] = params.toList.toSet
@@ -152,7 +152,8 @@ object TypedExpr {
             case notShadowed => fn(notShadowed)
           }
 
-          expr.traverseType(shadowFn).map(Generic(params, _, tag))
+          (fn(gen.getType) *> expr.traverseType(shadowFn))
+            .map(Generic(params, _, tag))
         case Annotation(of, tpe, tag) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _, tag))
         case AnnotatedLambda(arg, tpe, res, tag) =>
