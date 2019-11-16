@@ -109,8 +109,9 @@ class RankNInferTest extends FunSuite {
    * Check that a no import program has a given type
    */
   def parseProgram(statement: String, tpe: String) =
-    checkLast(statement) { te =>
+    checkLast(statement) { te0 =>
 
+      val te = TypedExpr.normalize(te0).getOrElse(te0)
       te.traverseType[cats.Id] {
         case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
           fail(s"illegate skolem ($t) escape in $te")

@@ -1,13 +1,23 @@
 package org.bykn.bosatsu
 
+import cats.data.Writer
+import cats.implicits._
+import org.scalacheck.Gen
 import org.scalatest.FunSuite
+import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import scala.collection.immutable.SortedSet
 
 import TestUtils.checkLast
 
 import Identifier.Name
-import rankn.Type
+import rankn.{Type, NTypeGen}
 
 class TypedExprTest extends FunSuite {
+
+  implicit val generatorDrivenConfig =
+    //PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = 500)
+
   test("freeVars on simple cases works") {
     checkLast("""#
 x = 1
@@ -110,5 +120,69 @@ y = match x:
              app(app(app(varTE("x", intTpe), varTE("y", intTpe), intTpe),
                varTE("y", intTpe), intTpe),
                varTE("w", intTpe), intTpe)))))
+  }
+
+  val genTypedExpr = Generators.genTypedExpr(Gen.const(()), 3, NTypeGen.genDepth03)
+
+  test("TypedExpr.substituteTypeVar of identity is identity") {
+    forAll(genTypedExpr, Gen.listOf(NTypeGen.genBound)) { (te, bounds) =>
+      val identMap: Map[Type.Var, Type] = bounds.map { b => (b, Type.TyVar(b)) }.toMap
+      assert(TypedExpr.substituteTypeVar(te, identMap) == te)
+    }
+  }
+
+  test("TypedExpr.substituteTypeVar is idempotent") {
+    forAll(genTypedExpr, Gen.listOf(NTypeGen.genBound)) { (te, bounds) =>
+      val tpes = te.allTypes
+      val avoid = tpes.toSet | bounds.map(Type.TyVar(_)).toSet
+      val replacements = Type.allBinders.iterator.filterNot { t => avoid(Type.TyVar(t)) }
+      val identMap: Map[Type.Var, Type] =
+        bounds.iterator.zip(replacements)
+          .map { case (b, v) => (b, Type.TyVar(v)) }
+          .toMap
+      val te1 = TypedExpr.substituteTypeVar(te, identMap)
+      val te2 = TypedExpr.substituteTypeVar(te1, identMap)
+      assert(te2 == te1)
+    }
+  }
+
+  test("TypedExpr.substituteTypeVar is not an identity function") {
+    // if we replace all the current types with some bound types, things won't be the same
+    forAll(genTypedExpr) { te =>
+      val tpes: Set[Type.Var] = te.allTypes.iterator.collect { case Type.TyVar(b) => b }.toSet
+
+      implicit def setM[A: Ordering]: cats.Monoid[SortedSet[A]] =
+        new cats.Monoid[SortedSet[A]] {
+          def empty = SortedSet.empty
+          def combine(a: SortedSet[A], b: SortedSet[A]) = a ++ b
+      }
+
+      // All the vars that are used in bounds
+      val bounds: Set[Type.Var] = te.traverseType { t: Type =>
+        t match {
+          case Type.ForAll(ps, _) => Writer(SortedSet[Type.Var](ps.toList: _*), t)
+          case _ => Writer(SortedSet[Type.Var](), t)
+        }
+      }.run._1.toSet[Type.Var]
+
+      val replacements = Type.allBinders.iterator.filterNot(tpes)
+      val identMap: Map[Type.Var, Type] =
+        tpes.filterNot(bounds)
+          .iterator
+          .zip(replacements)
+          .map { case (b, v) => (b, Type.TyVar(v)) }
+          .toMap
+
+      if (identMap.nonEmpty) {
+        val te1 = TypedExpr.substituteTypeVar(te, identMap)
+        assert(te1 != te, s"mapping: $identMap, $bounds")
+      }
+    }
+  }
+
+  test("TypedExpr.allTypes contains the type") {
+    forAll(genTypedExpr) { te =>
+      assert(te.allTypes.contains(te.getType))
+    }
   }
 }
