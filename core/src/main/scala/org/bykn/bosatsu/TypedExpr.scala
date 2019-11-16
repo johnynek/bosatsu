@@ -30,11 +30,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   lazy val getType: Type =
     this match {
       case Generic(params, expr, _) =>
-        val tpe = expr.getType
-        // if tpe has no Var.Bound in common,
-        // then we don't need the forall
-        val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
-        Type.forAll(params.toList.filter(frees), tpe)
+        Type.forAll(params.toList, expr.getType)
       case Annotation(_, tpe, _) =>
         tpe
       case a@AnnotatedLambda(arg, tpe, res, _) =>
@@ -138,17 +134,27 @@ object TypedExpr {
     def allTypes: SortedSet[Type] =
       traverseType { t => Writer(SortedSet(t), t) }.run._1
 
+    /**
+     * Traverse all the *non-shadowed* types inside the TypedExpr
+     */
     def traverseType[F[_]: Applicative](fn: Type => F[Type]): F[TypedExpr[A]] =
       self match {
-        case Generic(params, expr, tag) =>
-          // The parameters are are like strings, but this
-          // is a bit unsafe... we only use it for zonk which
-          // ignores Bounds
-          expr.traverseType(fn).map(Generic(params, _, tag))
+        case gen@Generic(params, expr, tag) =>
+          // params shadow below, so they are not free values
+          // and can easily create bugs if passed into fn
+          val shadowed: Set[Type.Var.Bound] = params.toList.toSet
+          val shadowFn: Type => F[Type] = {
+            case tvar@Type.TyVar(v: Type.Var.Bound) if shadowed(v) => Applicative[F].pure(tvar)
+            case notShadowed => fn(notShadowed)
+          }
+
+          val paramsF = params.traverse_ { v => fn(Type.TyVar(v)) }
+          (paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
+            .map(Generic(params, _, tag))
         case Annotation(of, tpe, tag) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _, tag))
-        case AnnotatedLambda(arg, tpe, res, tag) =>
-          (fn(tpe), res.traverseType(fn)).mapN {
+        case lam@AnnotatedLambda(arg, tpe, res, tag) =>
+          fn(lam.getType) *> (fn(tpe), res.traverseType(fn)).mapN {
             AnnotatedLambda(arg, _, _, tag)
           }
         case Var(p, v, tpe, tag) =>
@@ -389,7 +395,7 @@ object TypedExpr {
       case AnnotatedLambda(_, _, e, tag) =>
         val lb1 = foldRight(e, lb)(f)
         f(tag, lb1)
-      case Var(_, _ , _, tag) => f(tag, lb)
+      case Var(_, _, _, tag) => f(tag, lb)
       case App(fn, a, _, tag) =>
         val b1 = f(tag, lb)
         val b2 = foldRight(a, b1)(f)
@@ -589,6 +595,52 @@ object TypedExpr {
     loop(in)
   }
 
+  def substituteTypeVar[A](typedExpr: TypedExpr[A], env: Map[Type.Var, Type]): TypedExpr[A] =
+    typedExpr match {
+      case Generic(params, expr, tag) =>
+        // we need to remove the params which are shadowed below
+        val paramSet: Set[Type.Var] = params.toList.toSet
+        val env1 = env.filterKeys { k => !paramSet(k) }
+        Generic(params, substituteTypeVar(expr, env1), tag)
+      case Annotation(of, tpe, tag) =>
+        Annotation(
+          substituteTypeVar(of, env),
+          Type.substituteVar(tpe, env),
+          tag)
+      case AnnotatedLambda(arg, tpe, res, tag) =>
+        AnnotatedLambda(
+          arg,
+          Type.substituteVar(tpe, env),
+          substituteTypeVar(res, env),
+          tag)
+      case Var(p, v, tpe, tag) =>
+        Var(p, v, Type.substituteVar(tpe, env), tag)
+      case App(f, arg, tpe, tag) =>
+        App(
+          substituteTypeVar(f, env),
+          substituteTypeVar(arg, env),
+          Type.substituteVar(tpe, env),
+          tag)
+      case Let(v, exp, in, rec, tag) =>
+        Let(
+          v,
+          substituteTypeVar(exp, env),
+          substituteTypeVar(in, env),
+          rec,
+          tag)
+      case Literal(lit, tpe, tag) =>
+        Literal(lit, Type.substituteVar(tpe, env), tag)
+      case Match(expr, branches, tag) =>
+        val branches1 = branches.map {
+          case (p, t) =>
+            val p1 = p.mapType(Type.substituteVar(_, env))
+            val t1 = substituteTypeVar(t, env)
+            (p1, t1)
+        }
+        val expr1 = substituteTypeVar(expr, env)
+        Match(expr1, branches1, tag)
+    }
+
   private def replaceVarType[A](te: TypedExpr[A], name: Identifier, tpe: Type): TypedExpr[A] = {
     def recur(t: TypedExpr[A]) = replaceVarType(t, name, tpe)
 
@@ -678,17 +730,29 @@ object TypedExpr {
   def lambda[A](arg: Bindable, tpe: Type, expr: TypedExpr[A], tag: A): TypedExpr[A] =
     expr match {
       case Generic(ps, ex0, tag0) =>
+        // due to covariance in the return type, we can always lift
+        // generics on the return value out of the lambda
         val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
         val quants = ps.toList.toSet
         val collisions = frees.intersect(quants)
         NonEmptyList.fromList(collisions.toList) match {
           case None => Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag0), tag)
           case Some(cols) =>
-            // we should sort cols if we use it for anything below
-            // lift Generic out TODO: what if arg tpe is in ps? we need to substitute for a new name
-            // we can rebind all the collisions to anything that isn't a free type var in expr
-            // we should find a test that fails currently, add that test, then fix the issue
-            sys.error(s"TODO: support lambda($arg, $tpe, ${expr.repr}, tag)")
+            // don't replace with any existing type variable or any of the free variables
+            val replacements = Type.allBinders.iterator.filterNot(quants | frees)
+            val repMap: Map[Type.Var.Bound, Type.Var.Bound] =
+              collisions
+                .iterator
+                .zip(replacements)
+                .toMap
+
+            val ps1 = ps.map { v => repMap.getOrElse(v, v) }
+            val typeMap: Map[Type.Var, Type] =
+              repMap.iterator.map { case (k, v) => (k, Type.TyVar(v)) }.toMap
+            val ex1 = substituteTypeVar(ex0, typeMap)
+            Generic(ps1,
+              AnnotatedLambda(arg, tpe, ex1, tag0),
+              tag)
         }
       case notGen =>
         AnnotatedLambda(arg, tpe, notGen, tag)
@@ -716,7 +780,23 @@ object TypedExpr {
         //
         // Also, Generic(Generic(...)) => Generic
         // Generic(vs, te, _) but vs are not bound in te, we can remove Generic
-        normalize(in).map(Generic(vars, _, tag))
+
+        // if tpe has no Var.Bound in common,
+        // then we don't need the forall
+        val tpe = in.getType
+        val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
+        val freeVars = vars.toList.filter(frees)
+        NonEmptyList.fromList(freeVars) match {
+          case None => normalize1(in)
+          case Some(nonEmpty) =>
+            normalize(in) match {
+              case None =>
+                if (freeVars == frees) None
+                else Some(Generic(nonEmpty, in, tag))
+              case Some(in1) =>
+                Some(Generic(nonEmpty, in1, tag))
+            }
+        }
       case Annotation(term, tpe, tag) =>
         // if we annotate twice, we can ignore the inner annotation
         // we should have type annotation where we normalize type parameters
@@ -848,8 +928,8 @@ object TypedExpr {
           val (c, t1) = ncount(t)
           (c, (p, t1))
         }
-        val a1 = normalize(arg).getOrElse(arg)
+        val a1 = normalize1(arg).get
         if ((a1 eq arg) && (changed == 0)) None
-        else normalize1(Match(a1, branches1, tag))
+        else Some(Match(a1, branches1, tag))
     }
 }
