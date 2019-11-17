@@ -494,7 +494,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                   ctx.render(80))
             case ParseError.FileError(path, err) =>
               err match {
-                case _: java.nio.file.NoSuchFileException =>
+                case e if e.getClass.getName == "java.nio.file.NoSuchFileException" =>
+                  // This class isn't present in scalajs, use the String
                   List(s"file not found: $path")
                 case _ =>
                   List(s"failed to parse $path",
