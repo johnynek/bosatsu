@@ -16,6 +16,8 @@ sealed abstract class Test {
         else Some(Test.Suite(nm, innerFails))
       }
     }
+
+  def failureCount: Int = failures.fold(0)(_.assertions)
 }
 
 object Test {
