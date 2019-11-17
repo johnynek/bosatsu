@@ -46,7 +46,7 @@ object Test {
     val oneTest = Doc.text("1 test, ")
 
     def init(t: List[Test]): (Int, Int, Doc) =
-      loop(t, 0, 0, 0, Doc.empty)
+      loop(t, None, 0, 0, Doc.empty)
 
     def summary(passes: Int, fails: Int): Doc = {
       @inline def failMsg = Doc.str(fails) + failed
@@ -57,21 +57,24 @@ object Test {
     }
 
     @annotation.tailrec
-    def loop(ts: List[Test], suites: Int, passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
+    def loop(ts: List[Test], lastSuite: Option[(Int, Int)], passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
       ts match {
         case Nil =>
           val sumDoc =
-            if (suites == 1) Doc.empty
-            else (Doc.line + summary(passes, fails))
+            lastSuite match {
+              case Some((p, f)) if (p == passes) && (f == fails) => Doc.empty
+              case _ =>
+                Doc.line + summary(passes, fails)
+            }
           (passes, fails, front + sumDoc)
         case Assertion(true, _) :: rest =>
-          loop(rest, suites, passes + 1, fails, front)
+          loop(rest, lastSuite, passes + 1, fails, front)
         case Assertion(false, label) :: rest =>
-          loop(rest, suites, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
+          loop(rest, lastSuite, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
         case Suite(label, rest) :: tail =>
           val (p, f, d) = init(rest)
           val res = Doc.line + Doc.text(label) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-          loop(tail, suites + 1, passes + p, fails + f, front + res)
+          loop(tail, Some((p, f)), passes + p, fails + f, front + res)
       }
 
     init(t :: Nil)
