@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.arrow.FunctionK
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
-import cats.{Eval, MonadError}
+import cats.{Eval, MonadError, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
 import fastparse.all.P
 import org.typelevel.paiges.Doc
@@ -27,6 +27,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]]
 
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]]
+
+  def expandDirectories(path: Path): IO[List[Path]]
 
   /**
    * given an ordered list of prefered roots, if a packFile starts
@@ -62,7 +64,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   }
 
   object MainCommand {
-    def parseInputs(paths: NonEmptyList[Path], packRes: PackageResolver): IO[ValidatedNel[ParseError, NonEmptyList[((Path, LocationMap), Package.Parsed)]]] =
+    def parseInputs[F[_]: Traverse](paths: F[Path], packRes: PackageResolver): IO[ValidatedNel[ParseError, F[((Path, LocationMap), Package.Parsed)]]] =
       // we use IO(traverse) so we can accumulate all the errors in parallel easily
       // if do this with parseFile returning an IO, we need to do IO.Par[Validated[...]]
       // and use the composed applicative... too much work for the same result
@@ -82,16 +84,24 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
      * This parses all the given paths and returns them first, and if the PackageResolver supports
      * it, we look for any missing dependencies that are not already included
      */
-    def parseAllInputs(paths: NonEmptyList[Path], included: Set[PackageName], packRes: PackageResolver): IO[ValidatedNel[ParseError, NonEmptyList[((Path, LocationMap), Package.Parsed)]]] = {
-      parseInputs(paths, packRes)
+    def parseAllInputs(paths: List[Path], included: Set[PackageName], packRes: PackageResolver): IO[ValidatedNel[ParseError, List[((Path, LocationMap), Package.Parsed)]]] = {
+      def run(paths: List[Path]) = parseInputs(paths, packRes)
         .flatMap {
           flatTrav(_) { parsed =>
             val done = included ++ parsed.toList.map(_._2.name)
             val allImports = parsed.toList.flatMap(_._2.imports.map(_.pack))
             val missing: List[PackageName] = allImports.filterNot(done)
             parseTransitivePacks(missing, packRes, done)
-              .map(_.map { case (searched, _) => parsed.concat(searched.toList) })
+              .map(_.map { case (searched, _) => parsed ::: searched.toList })
           }
+        }
+
+      paths
+        .traverse { p =>
+          expandDirectories(p)
+        }
+        .flatMap { ps =>
+          run(ps.flatten)
         }
     }
 
@@ -234,7 +244,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       errColor: Colorize,
       packRes: PackageResolver
       ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
-      parseAllInputs(inputs, ifs.map(_.name).toSet, packRes)
+      parseAllInputs(inputs.toList, ifs.map(_.name).toSet, packRes)
         .flatMap { ins =>
           moduleIOMonad.fromTry {
             // Now we have completed all IO, here we do all the checks we need for correctness
@@ -244,12 +254,17 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 val liftError = Lambda[FunctionK[ValidatedNel[PackageError, ?], Try]](fromPackageError(map, _, errColor))
                 // TODO, we could use applicative, to report both duplicate packages and the other
                 // errors
-                PackageMap.typeCheckParsed(packs, ifs, "predef", liftError)(checkDuplicatePackages(_)(_._1.toString))
-                  .map { p =>
-                    val pathToName: List[(Path, PackageName)] =
-                      packs.map { case ((path, _), p) => (path, p.name) }.toList
-                    (p, pathToName)
-                  }
+                NonEmptyList.fromList(packs) match {
+                  case Some(packs) =>
+                    PackageMap.typeCheckParsed(packs, ifs, "predef", liftError)(checkDuplicatePackages(_)(_._1.toString))
+                      .map { p =>
+                        val pathToName: List[(Path, PackageName)] =
+                          packs.map { case ((path, _), p) => (path, p.name) }.toList
+                        (p, pathToName)
+                      }
+                  case None =>
+                    Success((PackageMap.empty, Nil))
+                }
               }
           }
         }
@@ -454,6 +469,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
           val withTestPackNames = typeChecked
             .flatMap { case (packs, nameMap) =>
+
               testPacks.traverse(_.getMain(nameMap))
                 .map { testPackNames: List[PackageName] =>
                   (packs, nameMap, testPackNames)
@@ -461,12 +477,24 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             }
 
           withTestPackNames.map { case (packs, nameMap, testPackNames) =>
-            val testSet = tests1.toSet
+            val testSet: Set[Path] =
+              if (testPacks.isEmpty) {
+                // if there are no given files or packages to test, assume
+                // we test all the files
+                nameMap.iterator.map(_._1).toSet
+              }
+              else tests1.toSet
+
             val testPackages: List[PackageName] =
               (nameMap.iterator.collect { case (p, name) if testSet(p) => name } ++
                 testPackNames.iterator).toList.sorted.distinct
             val ev = Evaluation(packs, Predef.jvmExternals)
-            Output.TestOutput(testPackages.map { p => (p, ev.evalTest(p)) }, errColor)
+            val res0 = testPackages.map { p => (p, ev.evalTest(p)) }
+            val res =
+              if (testPacks.isEmpty) res0.filter { case (_, testRes) => testRes.isDefined }
+              else res0
+
+            Output.TestOutput(res, errColor)
           }
         }
       }
@@ -600,11 +628,20 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             case Some((paths, search)) => PackageResolver.LocalRoots(paths, search)
           }
 
+      // type-checking and writing protos should be explicit. search option isn't supported
+      val noSearchRes: Opts[PackageResolver] =
+        packRoot
+          .orNone
+          .map {
+            case None => PackageResolver.ExplicitOnly
+            case Some(paths) => PackageResolver.LocalRoots(paths, None)
+          }
+
       val evalOpt = (toList(ins), mainP, includes, colorOpt, packRes)
         .mapN(Evaluate(_, _, _, _, _))
       val toJsonOpt = (toList(ins), includes, mainP, outputPath.orNone, colorOpt, packRes)
         .mapN(ToJson(_, _, _, _, _, _))
-      val typeCheckOpt = (ins, ifaces, outputPath, interfaceOutputPath.orNone, colorOpt, packRes)
+      val typeCheckOpt = (ins, ifaces, outputPath, interfaceOutputPath.orNone, colorOpt, noSearchRes)
         .mapN(TypeCheck(_, _, _, _, _, _))
       val testOpt = (toList(ins), testP, includes, colorOpt, packRes)
         .mapN(RunTests(_, _, _, _, _))

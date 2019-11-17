@@ -36,25 +36,26 @@ object Test {
     go(t :: Nil, 0)
   }
 
+  private[this] val colonSpace = Doc.text(": ")
+  private[this] val passed = Doc.text(" passed")
+  private[this] val failed = Doc.text(" failed")
+  private[this] val oneTest = Doc.text("1 test, ")
+
+  def summary(passes: Int, fails: Int, c: LocationMap.Colorize): Doc = {
+    @inline def failMsg = Doc.str(fails) + failed
+    val total = passes + fails
+    val tMsg = if (total == 1) oneTest else Doc.text(s"$total tests, ")
+    tMsg + c.green(Doc.str(passes) + passed) + Doc.space +
+      (if (fails > 0) c.red(failMsg) else failMsg)
+  }
+
   def report(t: Test, c: LocationMap.Colorize): (Int, Int, Doc) = {
 
-    val colonSpace = Doc.text(": ")
     val passDoc = c.green(Doc.text("pass"))
     val failDoc = c.red(Doc.text("fail"))
-    val passed = Doc.text(" passed")
-    val failed = Doc.text(" failed")
-    val oneTest = Doc.text("1 test, ")
 
     def init(t: List[Test]): (Int, Int, Doc) =
       loop(t, None, 0, 0, Doc.empty)
-
-    def summary(passes: Int, fails: Int): Doc = {
-      @inline def failMsg = Doc.str(fails) + failed
-      val total = passes + fails
-      val tMsg = if (total == 1) oneTest else Doc.text(s"$total tests, ")
-      tMsg + c.green(Doc.str(passes) + passed) + Doc.space +
-        (if (fails > 0) c.red(failMsg) else failMsg)
-    }
 
     @annotation.tailrec
     def loop(ts: List[Test], lastSuite: Option[(Int, Int)], passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
@@ -64,7 +65,7 @@ object Test {
             lastSuite match {
               case Some((p, f)) if (p == passes) && (f == fails) => Doc.empty
               case _ =>
-                Doc.line + summary(passes, fails)
+                Doc.line + summary(passes, fails, c)
             }
           (passes, fails, front + sumDoc)
         case Assertion(true, _) :: rest =>

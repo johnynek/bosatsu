@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.MonadError
+import cats.{Monad, MonadError}
 import cats.data.Kleisli
 import com.monovore.decline.Argument
 import scala.collection.immutable.SortedMap
@@ -25,6 +25,9 @@ class MemoryMain[F[_], K: Ordering](split: K => List[String])(
       }
 
   def resolvePath: Option[(Path, PackageName) => IO[Option[Path]]] = None
+
+  def expandDirectories(path: Path): IO[List[Path]] =
+    Monad[IO].pure(path :: Nil)
 
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     Kleisli.ask[F, MemoryMain.State[K]]
