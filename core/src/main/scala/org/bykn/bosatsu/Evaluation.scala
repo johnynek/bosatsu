@@ -199,6 +199,18 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       value <- evaluate(pack).get(name)
     } yield (value, tpe.getType)
 
+  /**
+   * Return the last test, if any, in the package.
+   * this is the test that is run when we test
+   * the package
+   */
+  def lastTest(p: PackageName): Option[Eval[Value]] =
+    for {
+      pack <- pm.toMap.get(p)
+      name <- pack.program.lets.collect { case (name, _, te) if te.getType == Type.TestType => name }.lastOption
+      value <- evaluate(pack).get(name)
+    } yield value
+
   /* TODO: this is useful for debugging, but we should probably test it and write a parser for the
    * list syntax
 
@@ -218,7 +230,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   */
 
   def evalTest(ps: PackageName): Option[Test] =
-    evaluateLast(ps).flatMap { case (ea, tpe) =>
+    lastTest(ps).map { ea =>
       def toAssert(a: Value): Test =
         a match {
           case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
@@ -239,6 +251,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             sys.error(s"expected test value: $other")
             // $COVERAGE-ON$
         }
+
       def toTest(a: Value): Test =
         a match {
           case s: SumValue =>
@@ -255,16 +268,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             // $COVERAGE-ON$
         }
 
-      tpe match {
-        case Type.TyConst(Type.Const.Defined(PackageName.PredefName, tn)) =>
-          tn.ident.asString match {
-            case "Test" =>
-              Some(toTest(ea.value))
-            case _ =>
-              None
-          }
-        case _ => None
-      }
+      toTest(ea.value)
     }
 
   private type Ref = TypedExpr[T]

@@ -36,48 +36,44 @@ object Test {
     go(t :: Nil, 0)
   }
 
-  def report(t: Test): (Int, Int, Doc) = {
+  def report(t: Test, c: LocationMap.Colorize): (Int, Int, Doc) = {
 
     val colonSpace = Doc.text(": ")
-    val passDoc = green("pass")
-    val failDoc = red("fail")
+    val passDoc = c.green(Doc.text("pass"))
+    val failDoc = c.red(Doc.text("fail"))
+    val passed = Doc.text(" passed")
+    val failed = Doc.text(" failed")
+    val oneTest = Doc.text("1 test, ")
 
     def init(t: List[Test]): (Int, Int, Doc) =
-      loop(t, 0, 0, Doc.empty)
+      loop(t, 0, 0, 0, Doc.empty)
 
     def summary(passes: Int, fails: Int): Doc = {
-      val failMsg = s"$fails failed"
+      @inline def failMsg = Doc.str(fails) + failed
       val total = passes + fails
-      val tMsg = if (total == 1) "1 test, " else s"$total tests, "
-      Doc.text(tMsg) + green(s"$passes passed") + Doc.space +
-        (if (fails > 0) red(failMsg) else Doc.text(failMsg))
+      val tMsg = if (total == 1) oneTest else Doc.text(s"$total tests, ")
+      tMsg + c.green(Doc.str(passes) + passed) + Doc.space +
+        (if (fails > 0) c.red(failMsg) else failMsg)
     }
 
     @annotation.tailrec
-    def loop(ts: List[Test], passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
+    def loop(ts: List[Test], suites: Int, passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
       ts match {
-        case Nil => (passes, fails, front + Doc.line + summary(passes, fails))
+        case Nil =>
+          val sumDoc =
+            if (suites == 1) Doc.empty
+            else (Doc.line + summary(passes, fails))
+          (passes, fails, front + sumDoc)
         case Assertion(true, _) :: rest =>
-          loop(rest, passes + 1, fails, front)
+          loop(rest, suites, passes + 1, fails, front)
         case Assertion(false, label) :: rest =>
-          loop(rest, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
+          loop(rest, suites, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
         case Suite(label, rest) :: tail =>
-          // Now we have at least two tests
           val (p, f, d) = init(rest)
           val res = Doc.line + Doc.text(label) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-          loop(tail, passes + p, fails + f, front + res)
+          loop(tail, suites + 1, passes + p, fails + f, front + res)
       }
 
     init(t :: Nil)
   }
-
-  private[this] val greenDoc = Doc.text(Console.GREEN)
-  private[this] val redDoc = Doc.text(Console.RED)
-  private[this] val resetDoc = Doc.text(Console.RESET)
-
-  private def green(s: String): Doc =
-    greenDoc + Doc.text(s) + resetDoc
-
-  private def red(s: String): Doc =
-    redDoc + Doc.text(s) + resetDoc
 }

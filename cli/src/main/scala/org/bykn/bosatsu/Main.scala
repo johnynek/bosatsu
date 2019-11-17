@@ -16,6 +16,21 @@ object PathModule extends MainModule[IO] {
   def readPath(path: Path): IO[String] =
     IO(new String(java.nio.file.Files.readAllBytes(path), "utf-8"))
 
+  val resolvePath: Some[(Path, PackageName) => IO[Option[Path]]] =
+    Some(
+      { (root: Path, pack: PackageName) =>
+        val dir = pack.parts.init.foldLeft(root)(_.resolve(_))
+        val filePath = dir.resolve(pack.parts.last + ".bosatsu")
+        IO {
+          // this is a side-effect since file is mutable
+          // and talks to the file system
+          val file = filePath.toFile
+          if (file.exists()) Some(filePath)
+          else None
+        }
+      }
+    )
+
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     ProtoConverter.readPackages(paths)
 
@@ -33,9 +48,9 @@ object PathModule extends MainModule[IO] {
 
   def reportOutput(out: Output): IO[Unit] =
     out match {
-      case Output.TestOutput(resMap) =>
+      case Output.TestOutput(resMap, color) =>
         val noTests = resMap.collect { case (p, None) => p }.toList
-        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t)) }.toList.sortBy(_._1)
+        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t, color)) }.toList.sortBy(_._1)
 
         val failures = results.iterator.map { case (_, (_, f, _)) => f }.sum
         val success = noTests.isEmpty && (failures == 0)
@@ -76,8 +91,12 @@ object PathModule extends MainModule[IO] {
           val r = res.value
           print(s"$res: $tpe")
         }
-      case Output.JsonOutput(json, path) =>
-        CodeGenWrite.writeDoc(path, json.toDoc)
+      case Output.JsonOutput(json, pathOpt) =>
+        val jdoc = json.toDoc
+        pathOpt match {
+          case Some(path) => CodeGenWrite.writeDoc(path, jdoc)
+          case None => IO(println(jdoc.renderTrim(80)))
+        }
 
       case Output.CompileOut(packList, ifout, output) =>
         val ifres = ifout match {
