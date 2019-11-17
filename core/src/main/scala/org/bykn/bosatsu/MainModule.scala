@@ -28,8 +28,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]]
 
-  def expandDirectories(path: Path): IO[List[Path]]
-
   /**
    * given an ordered list of prefered roots, if a packFile starts
    * with one of these roots, return a PackageName based on the rest
@@ -84,8 +82,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
      * This parses all the given paths and returns them first, and if the PackageResolver supports
      * it, we look for any missing dependencies that are not already included
      */
-    def parseAllInputs(paths: List[Path], included: Set[PackageName], packRes: PackageResolver): IO[ValidatedNel[ParseError, List[((Path, LocationMap), Package.Parsed)]]] = {
-      def run(paths: List[Path]) = parseInputs(paths, packRes)
+    def parseAllInputs(paths: List[Path], included: Set[PackageName], packRes: PackageResolver): IO[ValidatedNel[ParseError, List[((Path, LocationMap), Package.Parsed)]]] =
+      parseInputs(paths, packRes)
         .flatMap {
           flatTrav(_) { parsed =>
             val done = included ++ parsed.toList.map(_._2.name)
@@ -96,14 +94,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           }
         }
 
-      paths
-        .traverse { p =>
-          expandDirectories(p)
-        }
-        .flatMap { ps =>
-          run(ps.flatten)
-        }
-    }
 
     type ParseTransResult = ValidatedNel[ParseError, (Chain[((Path, LocationMap), Package.Parsed)], Set[PackageName])]
 

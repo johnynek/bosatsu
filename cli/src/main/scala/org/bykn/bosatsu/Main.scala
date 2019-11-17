@@ -31,20 +31,6 @@ object PathModule extends MainModule[IO] {
       }
     )
 
-  def expandDirectories(path: Path): IO[List[Path]] =
-    IO {
-      val file = path.toFile
-      if (file.isDirectory) {
-        file
-          .listFiles()
-          .iterator
-          .map(_.toPath)
-          .filter(_.toString.endsWith(".bosatsu"))
-          .toList
-      }
-      else path :: Nil
-    }
-
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     ProtoConverter.readPackages(paths)
 
