@@ -16,6 +16,21 @@ object PathModule extends MainModule[IO] {
   def readPath(path: Path): IO[String] =
     IO(new String(java.nio.file.Files.readAllBytes(path), "utf-8"))
 
+  val resolvePath: Some[(Path, PackageName) => IO[Option[Path]]] =
+    Some(
+      { (root: Path, pack: PackageName) =>
+        val dir = pack.parts.init.foldLeft(root)(_.resolve(_))
+        val filePath = dir.resolve(pack.parts.last + ".bosatsu")
+        IO {
+          // this is a side-effect since file is mutable
+          // and talks to the file system
+          val file = filePath.toFile
+          if (file.exists()) Some(filePath)
+          else None
+        }
+      }
+    )
+
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     ProtoConverter.readPackages(paths)
 
@@ -33,17 +48,22 @@ object PathModule extends MainModule[IO] {
 
   def reportOutput(out: Output): IO[Unit] =
     out match {
-      case Output.TestOutput(resMap) =>
+      case Output.TestOutput(resMap, color) =>
         val noTests = resMap.collect { case (p, None) => p }.toList
-        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t)) }.toList.sortBy(_._1)
+        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t, color)) }.toList.sortBy(_._1)
 
+        val successes = results.iterator.map { case (_, (s, _, _)) => s }.sum
         val failures = results.iterator.map { case (_, (_, f, _)) => f }.sum
         val success = noTests.isEmpty && (failures == 0)
+        val suffix =
+          if (results.lengthCompare(1) > 0) (Doc.hardLine + Doc.hardLine + Test.summary(successes, failures, color))
+          else Doc.empty
         val docRes: Doc =
-          Doc.intercalate(Doc.line,
+          Doc.intercalate(Doc.hardLine + Doc.hardLine,
             results.map { case (p, (_, _, d)) =>
               Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-            })
+            }) + suffix
+
 
         if (success) print(docRes.render(80))
         else {
@@ -51,11 +71,11 @@ object PathModule extends MainModule[IO] {
             if (noTests.isEmpty) Nil
             else {
               val prefix = Doc.text("packages with missing tests: ")
-              val missingDoc = Doc.intercalate(Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
+              val missingDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
               (prefix + missingDoc.nested(2)) :: Nil
             }
 
-          val fullOut = Doc.intercalate(Doc.line + Doc.text("#######") + Doc.line, docRes :: missingDoc)
+          val fullOut = Doc.intercalate(Doc.hardLine + Doc.hardLine + (Doc.char('#') * 80) + Doc.line, docRes :: missingDoc)
 
           val failureStr =
             if (failures == 1) "1 test failure"
@@ -76,8 +96,12 @@ object PathModule extends MainModule[IO] {
           val r = res.value
           print(s"$res: $tpe")
         }
-      case Output.JsonOutput(json, path) =>
-        CodeGenWrite.writeDoc(path, json.toDoc)
+      case Output.JsonOutput(json, pathOpt) =>
+        val jdoc = json.toDoc
+        pathOpt match {
+          case Some(path) => CodeGenWrite.writeDoc(path, jdoc)
+          case None => IO(println(jdoc.renderTrim(80)))
+        }
 
       case Output.CompileOut(packList, ifout, output) =>
         val ifres = ifout match {

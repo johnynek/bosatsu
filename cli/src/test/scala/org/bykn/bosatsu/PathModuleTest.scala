@@ -70,4 +70,48 @@ class PathModuleTest extends FunSuite {
       if (noPrefix) assert(pack == None)
     }
   }
+
+  def run(args: String*): PathModule.Output =
+    PathModule.run(args.toList) match {
+      case Left(_) => fail(s"got help on command: ${args.toList}")
+      case Right(io) =>
+        val output = io.unsafeRunSync()
+        // This is a cheat, but at least we call the code so
+        // we see it doesn't crash or infinite loop or something
+        PathModule.reportOutput(output)
+        output
+    }
+
+  test("test direct run of a file") {
+    val out = run("test --input test_workspace/List.bosatsu --input test_workspace/Bool.bosatsu --test_file test_workspace/Queue.bosatsu".split("\\s+"): _*)
+    out match {
+      case PathModule.Output.TestOutput(results, _) =>
+        val res = results.collect { case (pn, Some(t)) if pn.asString == "Queue" => t }
+        assert(res.length == 1)
+      case other => fail(s"expected test output")
+    }
+  }
+
+  test("test search run of a file") {
+    val out = run("test --package_root test_workspace --search --test_file test_workspace/Bar.bosatsu".split("\\s+"): _*)
+    out match {
+      case PathModule.Output.TestOutput(results, _) =>
+        val res = results.collect { case (pn, Some(t)) if pn.asString == "Bar" => t }
+        assert(res.length == 1)
+        assert(res.head.assertions == 1)
+        assert(res.head.failureCount == 0)
+      case other => fail(s"expected test output")
+    }
+  }
+
+  test("test search with write-json") {
+
+    val out = run("write-json --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu".split("\\s+"): _*)
+    out match {
+      case PathModule.Output.JsonOutput(j@Json.JObject(_), _) =>
+        assert(j.toMap == Map("value" -> Json.JBool(true), "message" -> Json.JString("got the right string")))
+        assert(j.items.length == 2)
+      case other => fail(s"expected json object output")
+    }
+  }
 }

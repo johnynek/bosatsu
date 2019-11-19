@@ -126,30 +126,30 @@ case class LocationMap(fromString: String) { self =>
 
 object LocationMap {
   sealed trait Colorize {
-    def apply(d: Doc): Doc
+    def red(d: Doc): Doc
+    def green(d: Doc): Doc
   }
 
   object Colorize {
-    val none: Colorize =
-      new Colorize {
-        def apply(d: Doc) = d
-      }
-
-    object Console {
-      val red: Colorize =
-        new Colorize {
-          def apply(d: Doc) =
-            Doc.zeroWidth(scala.Console.RED) + d.unzero + Doc.zeroWidth(scala.Console.RESET)
-        }
+    object None extends Colorize {
+      def red(d: Doc) = d
+      def green(d: Doc) = d
     }
 
-    object HmtlFont {
-      val red: Colorize =
-        new Colorize {
-          def apply(d: Doc) =
-            Doc.zeroWidth("<font color=\"red\">") + d.unzero +
-              Doc.zeroWidth("</font>")
-        }
+    object Console extends Colorize {
+      def red(d: Doc) =
+        Doc.zeroWidth(scala.Console.RED) + d.unzero + Doc.zeroWidth(scala.Console.RESET)
+
+      def green(d: Doc) =
+        Doc.zeroWidth(scala.Console.GREEN) + d.unzero + Doc.zeroWidth(scala.Console.RESET)
+    }
+
+    object HmtlFont extends Colorize {
+      def red(d: Doc) =
+        Doc.zeroWidth("<font color=\"red\">") + d.unzero + Doc.zeroWidth("</font>")
+
+      def green(d: Doc) =
+        Doc.zeroWidth("<font color=\"green\">") + d.unzero + Doc.zeroWidth("</font>")
     }
   }
 
@@ -161,7 +161,7 @@ object LocationMap {
   def pointerTo(column: Int, color: Colorize): Doc = {
     val col = Doc.spaces(column)
     val pointer = Doc.char('^')
-    col + color(pointer)
+    col + color.red(pointer)
   }
 
   def pointerRange(start: Int, exEnd: Int, color: Colorize): Doc = {
@@ -170,7 +170,7 @@ object LocationMap {
     else {
       val col = Doc.spaces(start)
       val pointer = Doc.char('^') * width
-      col + color(pointer)
+      col + color.red(pointer)
     }
   }
 

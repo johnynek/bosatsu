@@ -16,6 +16,8 @@ sealed abstract class Test {
         else Some(Test.Suite(nm, innerFails))
       }
     }
+
+  def failureCount: Int = failures.fold(0)(_.assertions)
 }
 
 object Test {
@@ -36,48 +38,48 @@ object Test {
     go(t :: Nil, 0)
   }
 
-  def report(t: Test): (Int, Int, Doc) = {
+  private[this] val colonSpace = Doc.text(": ")
+  private[this] val passed = Doc.text(" passed")
+  private[this] val failed = Doc.text(" failed")
+  private[this] val oneTest = Doc.text("1 test, ")
 
-    val colonSpace = Doc.text(": ")
-    val passDoc = green("pass")
-    val failDoc = red("fail")
+  def summary(passes: Int, fails: Int, c: LocationMap.Colorize): Doc = {
+    @inline def failMsg = Doc.str(fails) + failed
+    val total = passes + fails
+    val tMsg = if (total == 1) oneTest else Doc.text(s"$total tests, ")
+    tMsg + c.green(Doc.str(passes) + passed) + Doc.space +
+      (if (fails > 0) c.red(failMsg) else failMsg)
+  }
+
+  def report(t: Test, c: LocationMap.Colorize): (Int, Int, Doc) = {
+
+    val passDoc = c.green(Doc.text("pass"))
+    val failDoc = c.red(Doc.text("fail"))
 
     def init(t: List[Test]): (Int, Int, Doc) =
-      loop(t, 0, 0, Doc.empty)
-
-    def summary(passes: Int, fails: Int): Doc = {
-      val failMsg = s"$fails failed"
-      val total = passes + fails
-      val tMsg = if (total == 1) "1 test, " else s"$total tests, "
-      Doc.text(tMsg) + green(s"$passes passed") + Doc.space +
-        (if (fails > 0) red(failMsg) else Doc.text(failMsg))
-    }
+      loop(t, None, 0, 0, Doc.empty)
 
     @annotation.tailrec
-    def loop(ts: List[Test], passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
+    def loop(ts: List[Test], lastSuite: Option[(Int, Int)], passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
       ts match {
-        case Nil => (passes, fails, front + Doc.line + summary(passes, fails))
+        case Nil =>
+          val sumDoc =
+            lastSuite match {
+              case Some((p, f)) if (p == passes) && (f == fails) => Doc.empty
+              case _ =>
+                Doc.line + summary(passes, fails, c)
+            }
+          (passes, fails, front + sumDoc)
         case Assertion(true, _) :: rest =>
-          loop(rest, passes + 1, fails, front)
+          loop(rest, lastSuite, passes + 1, fails, front)
         case Assertion(false, label) :: rest =>
-          loop(rest, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
+          loop(rest, lastSuite, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
         case Suite(label, rest) :: tail =>
-          // Now we have at least two tests
           val (p, f, d) = init(rest)
           val res = Doc.line + Doc.text(label) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-          loop(tail, passes + p, fails + f, front + res)
+          loop(tail, Some((p, f)), passes + p, fails + f, front + res)
       }
 
     init(t :: Nil)
   }
-
-  private[this] val greenDoc = Doc.text(Console.GREEN)
-  private[this] val redDoc = Doc.text(Console.RED)
-  private[this] val resetDoc = Doc.text(Console.RESET)
-
-  private def green(s: String): Doc =
-    greenDoc + Doc.text(s) + resetDoc
-
-  private def red(s: String): Doc =
-    redDoc + Doc.text(s) + resetDoc
 }
