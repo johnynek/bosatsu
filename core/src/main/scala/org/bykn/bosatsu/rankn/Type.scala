@@ -194,15 +194,16 @@ object Type {
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals
    */
-  val IntType: Type = TyConst(Const.predef("Int"))
   val BoolType: Type = TyConst(Const.predef("Bool"))
-  val StrType: Type = TyConst(Const.predef("String"))
-  val FnType: Type = TyConst(Const.predef("Fn"))
-  val ListType: Type = TyConst(Const.predef("List"))
   val DictType: Type = TyConst(Const.predef("Dict"))
+  val FnType: Type = TyConst(Const.predef("Fn"))
+  val IntType: Type = TyConst(Const.predef("Int"))
+  val ListType: Type = TyConst(Const.predef("List"))
   val OptionType: Type = TyConst(Const.predef("Option"))
-  val UnitType = TyConst(Type.Const.predef("Unit"))
+  val StrType: Type = TyConst(Const.predef("String"))
+  val TestType: Type = TyConst(Const.predef("Test"))
   val TupleConsType = TyConst(Type.Const.predef("TupleCons"))
+  val UnitType = TyConst(Type.Const.predef("Unit"))
 
   def const(pn: PackageName, name: TypeName): Type =
     TyConst(Type.Const.Defined(pn, name))

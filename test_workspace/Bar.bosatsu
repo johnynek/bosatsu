@@ -1,0 +1,9 @@
+import Foo [ x ]
+
+def eq(cmp):
+  match cmp:
+    EQ: True
+    _: False
+
+test = Assertion(
+  eq(string_Order_fn(x, "this is Foo")), "got the right string")

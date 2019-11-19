@@ -24,6 +24,8 @@ class MemoryMain[F[_], K: Ordering](split: K => List[String])(
         }
       }
 
+  def resolvePath: Option[(Path, PackageName) => IO[Option[Path]]] = None
+
   def readPackages(paths: List[Path]): IO[List[Package.Typed[Unit]]] =
     Kleisli.ask[F, MemoryMain.State[K]]
       .flatMap { files =>

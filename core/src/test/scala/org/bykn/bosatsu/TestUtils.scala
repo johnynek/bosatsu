@@ -70,7 +70,7 @@ object TestUtils {
       case Parsed.Success(stmts, _) =>
         Package.inferBody(PackageName.parts("Test"), Nil, stmts) match {
           case Validated.Invalid(errs) =>
-            fail("inference failure: " + errs.toList.map(_.message(Map.empty, LocationMap.Colorize.none)).mkString("\n"))
+            fail("inference failure: " + errs.toList.map(_.message(Map.empty, LocationMap.Colorize.None)).mkString("\n"))
           case Validated.Valid(program) =>
             // make sure all the TypedExpr are valid
             program.lets.foreach { case (_, _, te) => assertValid(te) }
@@ -118,11 +118,11 @@ object TestUtils {
     val files = packages.zipWithIndex.map(_.swap)
 
     module.runWith(files)("test" :: "--test_package" :: mainPackS :: makeInputArgs(files)) match {
-      case Right(module.Output.TestOutput(results)) =>
+      case Right(module.Output.TestOutput(results, _)) =>
         results.collect { case (_, Some(t)) => t } match {
           case t :: Nil =>
             assert(t.assertions == assertionCount, s"${t.assertions} != $assertionCount")
-            val (suc, failcount, message) = Test.report(t)
+            val (suc, failcount, message) = Test.report(t, LocationMap.Colorize.None)
             assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
             if (failcount > 0) fail(message.render(80))
             else succeed
@@ -149,7 +149,7 @@ object TestUtils {
       case Validated.Valid(vs) => vs
       case Validated.Invalid(errs) =>
         errs.toList.foreach { p =>
-          p.showContext(LocationMap.Colorize.none).foreach(System.err.println)
+          p.showContext(LocationMap.Colorize.None).foreach(System.err.println)
         }
         sys.error("failed to parse") //errs.toString)
     }
@@ -246,7 +246,7 @@ object TestUtils {
       case (sm, Validated.Invalid(errs)) if errs.collect(errFn).nonEmpty =>
         // make sure we can print the messages:
         val sm = PackageMap.buildSourceMap(withPre)
-        errs.toList.foreach(_.message(sm, LocationMap.Colorize.none))
+        errs.toList.foreach(_.message(sm, LocationMap.Colorize.None))
         assert(true)
       case (_, Validated.Invalid(errs)) =>
           fail(s"failed, but no type errors: $errs")

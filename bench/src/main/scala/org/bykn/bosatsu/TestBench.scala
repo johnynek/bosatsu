@@ -21,7 +21,7 @@ class TestBench {
       case Validated.Valid(vs) => vs
       case Validated.Invalid(errs) =>
         errs.toList.foreach { p =>
-          p.showContext(LocationMap.Colorize.none).foreach(System.err.println)
+          p.showContext(LocationMap.Colorize.None).foreach(System.err.println)
         }
         sys.error("failed to parse") //errs.toString)
     }
