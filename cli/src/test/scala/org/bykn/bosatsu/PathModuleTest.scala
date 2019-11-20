@@ -88,7 +88,7 @@ class PathModuleTest extends FunSuite {
       case PathModule.Output.TestOutput(results, _) =>
         val res = results.collect { case (pn, Some(t)) if pn.asString == "Queue" => t }
         assert(res.length == 1)
-      case other => fail(s"expected test output")
+      case other => fail(s"expected test output: $other")
     }
   }
 
@@ -100,7 +100,7 @@ class PathModuleTest extends FunSuite {
         assert(res.length == 1)
         assert(res.head.assertions == 1)
         assert(res.head.failureCount == 0)
-      case other => fail(s"expected test output")
+      case other => fail(s"expected test output: $other")
     }
   }
 
@@ -111,7 +111,20 @@ class PathModuleTest extends FunSuite {
       case PathModule.Output.JsonOutput(j@Json.JObject(_), _) =>
         assert(j.toMap == Map("value" -> Json.JBool(true), "message" -> Json.JString("got the right string")))
         assert(j.items.length == 2)
-      case other => fail(s"expected json object output")
+      case other => fail(s"expected json object output: $other")
+    }
+  }
+
+  test("test running all test in test_workspace") {
+
+    val out = run("test --package_root test_workspace --input_dir test_workspace".split("\\s+"): _*)
+    out match {
+      case PathModule.Output.TestOutput(res, _) =>
+        val noTests = res.collect { case (pn, None) => pn }.toList
+        assert(noTests == Nil)
+        val failures = res.collect { case (pn, Some(t)) if t.failureCount > 0 => pn }
+        assert(failures == Nil)
+      case other => fail(s"expected test output: $other")
     }
   }
 }

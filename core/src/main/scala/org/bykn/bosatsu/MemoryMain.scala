@@ -58,6 +58,11 @@ class MemoryMain[F[_], K: Ordering](split: K => List[String])(
           .map(_.flatten)
       }
 
+  def unfoldDir: Option[Path => IO[Option[IO[List[Path]]]]] = None
+
+  def hasExtension(str: String): Path => Boolean =
+    Function.const(false)
+
     def runWith(
       files: Iterable[(K, String)],
       packages: Iterable[(K, List[Package.Typed[Unit]])] = Nil,
