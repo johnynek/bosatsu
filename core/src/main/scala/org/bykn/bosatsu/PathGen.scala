@@ -42,9 +42,11 @@ object PathGen {
 
   implicit def pathGenMonoid[IO[_], Path]: Monoid[PathGen[IO, Path]] =
     new Monoid[PathGen[IO, Path]] {
-      val empty = Combine(Nil)
+      val empty: PathGen[IO, Path] = Combine(Nil)
       def combine(a: PathGen[IO, Path], b: PathGen[IO, Path]) =
         (a, b) match {
+          case (Combine(Nil), b) => b
+          case (a, Combine(Nil)) => a
           case (Combine(as), Combine(bs)) => Combine(as ::: bs)
           case (Combine(as), b) => Combine(as :+ b)
           case (a, Combine(bs)) => Combine(a :: bs)
@@ -52,4 +54,3 @@ object PathGen {
         }
     }
 }
-
