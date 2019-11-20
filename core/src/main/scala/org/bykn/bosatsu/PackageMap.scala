@@ -269,6 +269,7 @@ object PackageMap {
                  * this import is already an interface, we can stop here
                  */
                 val exMap = ExportedName.buildExportMap(iface.exports)
+                // this is very fast and does not need to be done in a thread
                 Future.successful(items.traverse(getImportIface(iface, exMap, _))
                   .map(Import(iface, _)))
             }
@@ -299,8 +300,8 @@ object PackageMap {
         }
 
     val fut = ps.toMap.traverse(infer)(futValid)
-    // 10 sec is too short, but for testing
-    Await.result(fut, Duration(10, "s")).map(PackageMap(_))
+    // Since this is a finite dag, we have to complete, Inf is safe
+    Await.result(fut, Duration.Inf).map(PackageMap(_))
   }
 
   type DupMap[A] = Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])]
