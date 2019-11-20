@@ -42,10 +42,10 @@ matrix:
 
     - language: generic
       before_install:
-        - wget 'https://github.com/bazelbuild/bazel/releases/download/0.25.2/bazel-0.25.2-installer-linux-x86_64.sh'
+        - wget 'https://github.com/bazelbuild/bazel/releases/download/1.2.0/bazel-1.2.0-installer-linux-x86_64.sh'
         - sha256sum -c .bazel-installer-linux-x86_64.sh.sha256
-        - chmod +x bazel-0.25.2-installer-linux-x86_64.sh
-        - ./bazel-0.25.2-installer-linux-x86_64.sh --user
+        - chmod +x bazel-1.2.0-installer-linux-x86_64.sh
+        - ./bazel-1.2.0-installer-linux-x86_64.sh --user
         - cp .bazelrc.travis .bazelrc
       script:
         - bazel build //...
