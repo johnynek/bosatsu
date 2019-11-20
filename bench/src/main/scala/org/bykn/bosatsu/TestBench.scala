@@ -7,6 +7,11 @@ import cats.implicits._
 
 @State(Scope.Thread)
 class TestBench {
+  // don't use threads in the benchmark which will complicate matters
+  implicit val directEC = new scala.concurrent.ExecutionContext {
+    def execute(r: Runnable) = r.run()
+    def reportFailure(t: Throwable) = throw t
+  }
 
   private def prepPackages(packages: List[String], mainPackS: String): (PackageMap.Inferred, PackageName) = {
     val mainPack = PackageName.parse(mainPackS).get
