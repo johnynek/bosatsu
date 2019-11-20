@@ -1336,7 +1336,7 @@ object ProtoConverter {
       }
 
       val load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]] =
-        Memoize.memoizeHashed[String, Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]] { (pack, rec) =>
+        Memoize.memoizeDagHashed[String, Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]] { (pack, rec) =>
           nodeMap.get(pack) match {
             case Some(Left(iface) :: Nil) =>
               interfaceFromProto0(makeLoadDT(rec), iface)

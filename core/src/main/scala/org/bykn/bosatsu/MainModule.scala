@@ -266,6 +266,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 // errors
                 NonEmptyList.fromList(packs) match {
                   case Some(packs) =>
+                    // TODO: this use the number of cores in the threadpool but we could configure
+                    // this
+                    import scala.concurrent.ExecutionContext.Implicits.global
                     PackageMap.typeCheckParsed(packs, ifs, "predef", liftError)(checkDuplicatePackages(_)(_._1.toString))
                       .map { p =>
                         val pathToName: List[(Path, PackageName)] =

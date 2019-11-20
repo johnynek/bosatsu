@@ -2,11 +2,13 @@ package org.bykn.bosatsu
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import org.bykn.bosatsu.graph.Memoize
-import cats.{Apply, Foldable}
+import cats.{Apply, Applicative, Foldable}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
 import cats.Order
 import cats.implicits._
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.duration.Duration
 
 import rankn.TypeEnv
 
@@ -193,7 +195,7 @@ object PackageMap {
   /**
    * Infer all the types in a resolved PackageMap
    */
-  def inferAll(ps: Resolved): ValidatedNel[PackageError, Inferred] = {
+  def inferAll(ps: Resolved)(implicit cpuEC: ExecutionContext): ValidatedNel[PackageError, Inferred] = {
 
     // This is unfixed resolved
     type ResolvedU = Package[
@@ -201,11 +203,14 @@ object PackageMap {
       Unit,
       Unit,
       (List[Statement], ImportMap[PackageName, Unit])]
+
+    type FutVal[+A] = Future[ValidatedNel[PackageError, A]]
+    val futValid: Applicative[FutVal] = Applicative[Future].compose[ValidatedNel[PackageError, ?]]
     /*
      * We memoize this function to avoid recomputing diamond dependencies
      */
-    val infer: ResolvedU => ValidatedNel[PackageError, Package.Inferred] =
-      Memoize.memoizeDagHashed[ResolvedU, ValidatedNel[PackageError, Package.Inferred]] {
+    val infer: ResolvedU => FutVal[Package.Inferred] =
+      Memoize.memoizeDagFuture[ResolvedU, ValidatedNel[PackageError, Package.Inferred]] {
         // TODO, we ignore importMap here, we only check earlier we don't
         // have duplicate imports
         case (Package(nm, imports, exports, (stmt, importMap)), recurse) =>
@@ -245,40 +250,42 @@ object PackageMap {
            * type can have the same name as a constructor. After this step, each
            * distinct object has its own entry in the list
            */
-          def stepImport(i: Import[Package.Resolved, Unit]):
-            ValidatedNel[PackageError, Import[Package.Interface, NonEmptyList[Referant[Variance]]]] = {
+          type ImpRes = Import[Package.Interface, NonEmptyList[Referant[Variance]]]
+          def stepImport(i: Import[Package.Resolved, Unit]): FutVal[ImpRes] = {
             val Import(fixpack, items) = i
             Package.unfix(fixpack) match {
               case Right(p) =>
                 /*
                  * Here we have a source we need to fully resolve
                  */
-                recurse(p).andThen { packF =>
+                recurse(p).map(_.andThen { packF =>
                   val packInterface = Package.interfaceOf(packF)
                   val exMap = ExportedName.buildExportMap(packF.exports)
                   items.traverse(getImport(packF, exMap, _))
                     .map(Import(packInterface, _))
-                }
+                })
               case Left(iface) =>
                 /*
                  * this import is already an interface, we can stop here
                  */
                 val exMap = ExportedName.buildExportMap(iface.exports)
-                items.traverse(getImportIface(iface, exMap, _))
-                  .map(Import(iface, _))
+                Future.successful(items.traverse(getImportIface(iface, exMap, _))
+                  .map(Import(iface, _)))
             }
           }
 
-          val inferImports = imports.traverse(stepImport(_))
+          val inferImports = imports.traverse[FutVal, ImpRes](stepImport(_))(futValid)
           val inferBody =
             inferImports
-              .andThen { imps =>
-                Package.inferBody(nm, imps, stmt)
-                  .map((imps, _))
+              .flatMap {
+                case Validated.Invalid(err) => Future.successful(Validated.invalid(err))
+                case Validated.Valid(imps) =>
+                  // run this in a thread
+                  Future(Package.inferBody(nm, imps, stmt).map((imps, _)))
               }
 
-          inferBody
-            .andThen { case (imps, program@Program(types, lets, _, _)) =>
+          inferBody.map { v =>
+            v.andThen { case (imps, program@Program(types, lets, _, _)) =>
               ExportedName.buildExports(nm, exports, types, lets) match {
                 case Validated.Valid(exps) =>
                   Validated.valid(Package(nm, imps, exps, program))
@@ -288,16 +295,19 @@ object PackageMap {
                   })
                 }
             }
+          }
         }
 
-    ps.toMap.traverse(infer).map(PackageMap(_))
+    val fut = ps.toMap.traverse(infer)(futValid)
+    // 10 sec is too short, but for testing
+    Await.result(fut, Duration(10, "s")).map(PackageMap(_))
   }
 
   type DupMap[A] = Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])]
 
   def resolveThenInfer[A](
     ps: List[(A, Package.Parsed)],
-    ifs: List[Package.Interface]): (DupMap[A], ValidatedNel[PackageError, Inferred]) = {
+    ifs: List[Package.Interface])(implicit cpuEC: ExecutionContext): (DupMap[A], ValidatedNel[PackageError, Inferred]) = {
       val (bad, good) = resolveAll(ps, ifs)
       (bad, good.andThen(inferAll(_)))
     }
@@ -320,7 +330,7 @@ object PackageMap {
     predefKey: A,
     liftError: FunctionK[ValidatedNel[PackageError, ?], F])(
     checkDups: DupMap[(A, LocationMap)] => F[Unit]
-  ): F[PackageMap.Inferred] = {
+  )(implicit cpuEC: ExecutionContext): F[PackageMap.Inferred] = {
     // if we have passed in a use supplied predef, don't use the internal one
     val useInternalPredef = !ifs.contains { p: Package.Interface => p.name == PackageName.PredefName }
     // Now we have completed all IO, here we do all the checks we need for correctness
