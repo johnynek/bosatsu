@@ -62,7 +62,17 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   sealed abstract class Output
   object Output {
     case class TestOutput(tests: List[(PackageName, Option[Test])], colorize: Colorize) extends Output
-    case class EvaluationResult(value: Eval[Value], tpe: rankn.Type) extends Output
+    case class EvaluationResult(value: Eval[Value], tpe: rankn.Type) extends Output {
+      def toJson[A](ev: Evaluation[A], outputOpt: Option[Path]): IO[JsonOutput] =
+        ev.toJson(value.value, tpe) match {
+          case None =>
+            val tpeStr = TypeRef.fromTypes(None, tpe :: Nil)(tpe).toDoc.render(80)
+            moduleIOMonad.raiseError(new Exception(
+              s"cannot convert type to Json: $tpeStr"))
+          case Some(j) =>
+            moduleIOMonad.pure(Output.JsonOutput(j, outputOpt))
+        }
+    }
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Path) extends Output
   }
@@ -371,7 +381,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       deps: PathGen,
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
-      def run =
+
+      def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] =
         for {
           ins <- inputs.read
           ds <- deps.read
@@ -383,13 +394,15 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                     ev.evaluateLast(mainPackageName) match {
                       case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
                       case Some((eval, tpe)) =>
-                        moduleIOMonad.pure(Output.EvaluationResult(eval, tpe))
+                        moduleIOMonad.pure((ev, Output.EvaluationResult(eval, tpe)))
                     }
                   }
                   else {
                     moduleIOMonad.raiseError(new Exception(s"package ${mainPackageName.asString} not found"))
                   }
         } yield out
+
+      def run = runEval.map(_._2: Output)
     }
 
     case class ToJson(
@@ -400,39 +413,14 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
 
-      private def checkEmpty: IO[(List[Path], List[Path])] =
-        for {
-          ins <- inputs.read
-          deps <- deps.read
-          inputs1 = mainPackage.addIfAbsent(ins)
-          _ <- if (inputs1.isEmpty && deps.isEmpty) moduleIOMonad.raiseError(new Exception("sources or dependencies"))
-               else moduleIOMonad.unit
-        } yield (inputs1, deps)
-
       def run =
-        for {
-          insdeps <- checkEmpty
-          (ins, deps) = insdeps
-          pfs <- buildPackMap(ins, deps, errColor, packRes)
-          (packs, files) = pfs
-          mainPackage <- mainPackage.getMain(files)
-          ev = Evaluation(packs, Predef.jvmExternals)
-          out <- ev.evaluateLast(mainPackage) match {
-                case None =>
-                  moduleIOMonad.raiseError(new Exception("found no main expression"))
-                case Some((eval, tpe)) =>
-                  val res = eval.value
-                  ev.toJson(res, tpe) match {
-                    case None =>
-                      val tpeStr = TypeRef.fromTypes(None, tpe :: Nil)(tpe).toDoc.render(80)
-                      moduleIOMonad.raiseError(new Exception(
-                        s"cannot convert type to Json: $tpeStr"))
-                    case Some(j) =>
-                      moduleIOMonad.pure(Output.JsonOutput(j, outputOpt))
-                  }
-              }
-        } yield out
+        Evaluate(inputs, mainPackage, deps, errColor, packRes)
+          .runEval
+          .flatMap { case (ev, res) =>
+            res.toJson(ev, outputOpt).widen[Output]
+          }
     }
+
     case class TypeCheck(
       inputs: PathGen,
       ifaces: PathGen,
