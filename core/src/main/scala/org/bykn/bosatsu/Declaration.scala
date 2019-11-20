@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import Parser.{ Combinators, Indy, maybeSpace, spaces, toEOL }
 import cats.data.NonEmptyList
 import cats.implicits._
-import com.stripe.dagon.Memoize
+import org.bykn.bosatsu.graph.Memoize
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
@@ -598,7 +598,7 @@ object Declaration {
    * we also parse Bind, Def, Comment
    */
   private[this] val parserCache: ((ParseMode, String)) => P[Declaration] =
-    Memoize.function[(ParseMode, String), P[Declaration]] { case ((pm, indent), rec) =>
+    Memoize.memoizeDagHashed[(ParseMode, String), P[Declaration]] { case ((pm, indent), rec) =>
 
       val recurse: P[Declaration] = P(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
       val recIndy: Indy[Declaration] = Indy { i => rec((ParseMode.Decl, i)) }

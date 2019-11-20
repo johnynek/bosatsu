@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
-import com.stripe.dagon.Memoize
+import org.bykn.bosatsu.graph.Memoize
 import cats.{Apply, Foldable}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
@@ -93,8 +93,12 @@ object PackageMap {
             }
         }
 
-    type RightPackageF = Right[Package.Interface, Package[FixPackage[A, B, C], A, B, C]]
-    def step(p: Package[PackageName, A, B, C]): ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], RightPackageF] = {
+    type PackageFix = Package[FixPackage[A, B, C], A, B, C]
+    // We use the ReaderT to build the list of imports we are on
+    // to detect circular dependencies, if the current package imports itself transitively we
+    // want to report the full path
+    val step: Package[PackageName, A, B, C] => ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], PackageFix] =
+      Memoize.memoizeDagHashed[Package[PackageName, A, B, C], ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], PackageFix]] { (p, rec) =>
       val edeps = ReaderT.ask[Either[NonEmptyList[PackageError], ?], List[PackageName]]
         .flatMapF {
           case nonE@(h :: tail) if nonE.contains(p.name) =>
@@ -109,9 +113,9 @@ object PackageMap {
           deps.traverse { i =>
             i.pack match {
               case Right(pack) =>
-                step(pack)
+                rec(pack)
                   .local[List[PackageName]](p.name :: _) // add this package into the path of all the deps
-                  .map { p => Import(Package.fix[A, B, C](p), i.items) }
+                  .map { p => Import(Package.fix[A, B, C](Right(p)), i.items) }
               case Left(iface) =>
                 ReaderT.pure[
                   Either[NonEmptyList[PackageError], ?],
@@ -120,27 +124,19 @@ object PackageMap {
             }
           }
           .map { imports =>
-            Right(Package(p.name, imports, p.exports, p.program))
+            Package(p.name, imports, p.exports, p.program)
           }
         }
     }
 
-    type M = Map[PackageName, RightPackageF]
+    type M = Map[PackageName, PackageFix]
     val r: ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], M] =
       map.toMap.traverse(step)
+
+    // we start with no imports on
     val m: Either[NonEmptyList[PackageError], M] = r.run(Nil)
 
-    def unright[L, R](r: Right[L, R]): R =
-      r match {
-        case Right(a) => a
-      }
-    m.map { map =>
-      val m1 =
-        map.iterator.map { case (k, v) =>
-          (k, unright(v))
-        }.toMap
-      PackageMap(m1)
-    }.toValidated
+    m.map(PackageMap(_)).toValidated
   }
 
   /**
@@ -209,7 +205,7 @@ object PackageMap {
      * We memoize this function to avoid recomputing diamond dependencies
      */
     val infer: ResolvedU => ValidatedNel[PackageError, Package.Inferred] =
-      Memoize.function[ResolvedU, ValidatedNel[PackageError, Package.Inferred]] {
+      Memoize.memoizeDagHashed[ResolvedU, ValidatedNel[PackageError, Package.Inferred]] {
         // TODO, we ignore importMap here, we only check earlier we don't
         // have duplicate imports
         case (Package(nm, imports, exports, (stmt, importMap)), recurse) =>
@@ -273,12 +269,15 @@ object PackageMap {
             }
           }
 
-          imports
-            .traverse(stepImport(_))
-            .andThen { imps =>
-              Package.inferBody(nm, imps, stmt)
-                .map((imps, _))
-            }
+          val inferImports = imports.traverse(stepImport(_))
+          val inferBody =
+            inferImports
+              .andThen { imps =>
+                Package.inferBody(nm, imps, stmt)
+                  .map((imps, _))
+              }
+
+          inferBody
             .andThen { case (imps, program@Program(types, lets, _, _)) =>
               ExportedName.buildExports(nm, exports, types, lets) match {
                 case Validated.Valid(exps) =>

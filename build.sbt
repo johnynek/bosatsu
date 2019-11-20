@@ -119,7 +119,6 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
       Seq(
         alleycats.value,
         cats.value,
-        dagon.value,
         decline.value,
         fastparse.value,
         fastparseCats.value,

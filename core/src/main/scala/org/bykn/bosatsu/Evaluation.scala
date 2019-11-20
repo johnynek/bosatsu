@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Eval
 import cats.data.NonEmptyList
-import com.stripe.dagon.Memoize
+import org.bykn.bosatsu.graph.Memoize
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type}
 import scala.collection.mutable.{Map => MMap}
@@ -623,7 +623,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * that names resolve
    */
   private[this] val eval: Ref => Scoped =
-    Memoize.function[Ref, Scoped] {
+    Memoize.memoizeDagHashed[Ref, Scoped] {
       (expr, recurse) => evalTypedExpr(expr, recurse)
     }
 
