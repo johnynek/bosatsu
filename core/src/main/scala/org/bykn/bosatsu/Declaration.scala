@@ -598,7 +598,7 @@ object Declaration {
    * we also parse Bind, Def, Comment
    */
   private[this] val parserCache: ((ParseMode, String)) => P[Declaration] =
-    Memoize.memoizeDagHashed[(ParseMode, String), P[Declaration]] { case ((pm, indent), rec) =>
+    Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P[Declaration]] { case ((pm, indent), rec) =>
 
       val recurse: P[Declaration] = P(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
       val recIndy: Indy[Declaration] = Indy { i => rec((ParseMode.Decl, i)) }

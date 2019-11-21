@@ -11,8 +11,6 @@ object Memoize {
    * returning None, means we cannot compute this function because it loops forever
    */
   def memoizeSorted[A: Ordering, B](fn: (A, A => Option[B]) => Option[B]): A => Option[B] = {
-    // this should be volatile if fn uses threads, but
-    // we are only using it below and can see that isn't the case
     var cache = SortedMap.empty[A, Option[B]]
 
     new Function[A, Option[B]] { self =>
@@ -36,8 +34,6 @@ object Memoize {
    * this throws if you don't have a dag
    */
   def memoizeDagHashed[A, B](fn: (A, A => B) => B): A => B = {
-    // this should be volatile if fn uses threads, but
-    // we are only using it below and can see that isn't the case
     var cache = Map.empty[A, Option[B]]
 
     new Function[A, B] { self =>
@@ -53,6 +49,30 @@ object Memoize {
             b
           case Some(Some(b)) => b
           case Some(None) => sys.error(s"loop found evaluating $a")
+        }
+    }
+  }
+
+  /**
+   * This memoizes using a hash map in a threadsafe manner
+   * it may loop forever and stack overflow if you don't have a DAG
+   */
+  def memoizeDagHashedConcurrent[A, B](fn: (A, A => B) => B): A => B = {
+    val cache: ConcurrentHashMap[A, B] = new ConcurrentHashMap[A, B]()
+
+    new Function[A, B] { self =>
+      def apply(a: A) =
+        cache.get(a) match {
+          case null =>
+            // if this function is circular fn will loop here blowing
+            // the stack
+            val res = fn(a, self)
+            val prev = cache.put(a, res)
+            // doesn't matter if won this race or not
+            // two people can concurrently race.
+            res
+          case res =>
+            res
         }
     }
   }

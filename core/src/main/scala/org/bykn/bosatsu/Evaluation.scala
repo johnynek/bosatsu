@@ -623,7 +623,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * that names resolve
    */
   private[this] val eval: Ref => Scoped =
-    Memoize.memoizeDagHashed[Ref, Scoped] {
+    Memoize.memoizeDagHashedConcurrent[Ref, Scoped] {
       (expr, recurse) => evalTypedExpr(expr, recurse)
     }
 

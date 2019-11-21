@@ -11,7 +11,7 @@ import scala.concurrent.duration.Duration
  * to replace the scalajs with just running directly
  */
 object Par {
-  type F[+A] = Future[A]
+  type F[A] = Future[A]
   type P[A] = Promise[A]
 
   implicit def orgByknBosatsuParFMonad(implicit ec: ExecutionContext): Monad[F] =
