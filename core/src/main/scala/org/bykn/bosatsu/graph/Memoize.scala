@@ -1,8 +1,8 @@
 package org.bykn.bosatsu.graph
 
 import java.util.concurrent.ConcurrentHashMap
+import org.bykn.bosatsu.Par
 import scala.collection.immutable.SortedMap
-import scala.concurrent.{Future, Promise}
 
 object Memoize {
 
@@ -61,22 +61,22 @@ object Memoize {
    * This memoizes using a hash map in a threadsafe manner
    * if the dependencies do not form a dag, you will deadlock
    */
-  def memoizeDagFuture[A, B](fn: (A, A => Future[B]) => Future[B]): A => Future[B] = {
-    val cache: ConcurrentHashMap[A, Promise[B]] = new ConcurrentHashMap[A, Promise[B]]()
+  def memoizeDagFuture[A, B](fn: (A, A => Par.F[B]) => Par.F[B]): A => Par.F[B] = {
+    val cache: ConcurrentHashMap[A, Par.P[B]] = new ConcurrentHashMap[A, Par.P[B]]()
 
-    new Function[A, Future[B]] { self =>
+    new Function[A, Par.F[B]] { self =>
       def apply(a: A) = {
-        val prom = Promise[B]()
+        val prom = Par.promise[B]
         val prevProm = cache.putIfAbsent(a, prom)
         if (prevProm eq null) {
           // no one was running this job, we have to
           val resFut = fn(a, self)
-          prom.completeWith(resFut)
+          Par.complete(prom, resFut)
           resFut
         }
         else {
           // someone else is already working:
-          prevProm.future
+          Par.toF(prevProm)
         }
       }
     }

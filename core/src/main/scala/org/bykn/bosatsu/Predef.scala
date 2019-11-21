@@ -35,10 +35,7 @@ object Predef {
    * Here is the fully compiled Predef
    */
   val predefCompiled: Package.Inferred = {
-    implicit val directEC = new scala.concurrent.ExecutionContext {
-      def execute(r: Runnable) = r.run()
-      def reportFailure(t: Throwable) = throw t
-    }
+    import DirectEC.directEC
     val (bad, good) = PackageMap.resolveThenInfer(((), predefPackage) :: Nil, Nil)
     require(bad.isEmpty, s"expected no bad packages, found: $bad")
     good match {

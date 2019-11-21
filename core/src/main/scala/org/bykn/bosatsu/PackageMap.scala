@@ -2,13 +2,12 @@ package org.bykn.bosatsu
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import org.bykn.bosatsu.graph.Memoize
-import cats.{Apply, Applicative, Foldable}
+import cats.{Apply, Applicative, Foldable, Monad}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Validated, ValidatedNel, ReaderT}
 import cats.Order
 import cats.implicits._
-import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.concurrent.duration.Duration
+import scala.concurrent.ExecutionContext
 
 import rankn.TypeEnv
 
@@ -197,6 +196,8 @@ object PackageMap {
    */
   def inferAll(ps: Resolved)(implicit cpuEC: ExecutionContext): ValidatedNel[PackageError, Inferred] = {
 
+    import Par.F
+
     // This is unfixed resolved
     type ResolvedU = Package[
       FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])],
@@ -204,8 +205,8 @@ object PackageMap {
       Unit,
       (List[Statement], ImportMap[PackageName, Unit])]
 
-    type FutVal[+A] = Future[ValidatedNel[PackageError, A]]
-    val futValid: Applicative[FutVal] = Applicative[Future].compose[ValidatedNel[PackageError, ?]]
+    type FutVal[A] = F[ValidatedNel[PackageError, A]]
+    val futValid: Applicative[FutVal] = Applicative[F].compose[ValidatedNel[PackageError, ?]]
     /*
      * We memoize this function to avoid recomputing diamond dependencies
      */
@@ -258,7 +259,7 @@ object PackageMap {
                 /*
                  * Here we have a source we need to fully resolve
                  */
-                recurse(p).map(_.andThen { packF =>
+                Monad[Par.F].map(recurse(p))(_.andThen { packF =>
                   val packInterface = Package.interfaceOf(packF)
                   val exMap = ExportedName.buildExportMap(packF.exports)
                   items.traverse(getImport(packF, exMap, _))
@@ -270,22 +271,23 @@ object PackageMap {
                  */
                 val exMap = ExportedName.buildExportMap(iface.exports)
                 // this is very fast and does not need to be done in a thread
-                Future.successful(items.traverse(getImportIface(iface, exMap, _))
-                  .map(Import(iface, _)))
+                Par.now(
+                  items
+                    .traverse(getImportIface(iface, exMap, _))
+                    .map(Import(iface, _)))
             }
           }
 
           val inferImports = imports.traverse[FutVal, ImpRes](stepImport(_))(futValid)
           val inferBody =
-            inferImports
-              .flatMap {
-                case Validated.Invalid(err) => Future.successful(Validated.invalid(err))
-                case Validated.Valid(imps) =>
-                  // run this in a thread
-                  Future(Package.inferBody(nm, imps, stmt).map((imps, _)))
-              }
+            Monad[Par.F].flatMap(inferImports) {
+              case Validated.Invalid(err) => Par.now(Validated.invalid(err))
+              case Validated.Valid(imps) =>
+                // run this in a thread
+                Par.start(Package.inferBody(nm, imps, stmt).map((imps, _)))
+            }
 
-          inferBody.map { v =>
+          Monad[Par.F].map(inferBody) { v =>
             v.andThen { case (imps, program@Program(types, lets, _, _)) =>
               ExportedName.buildExports(nm, exports, types, lets) match {
                 case Validated.Valid(exps) =>
@@ -300,8 +302,7 @@ object PackageMap {
         }
 
     val fut = ps.toMap.traverse(infer)(futValid)
-    // Since this is a finite dag, we have to complete, Inf is safe
-    Await.result(fut, Duration.Inf).map(PackageMap(_))
+    Par.await(fut).map(PackageMap(_))
   }
 
   type DupMap[A] = Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])]
