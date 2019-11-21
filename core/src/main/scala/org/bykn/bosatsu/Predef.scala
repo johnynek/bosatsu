@@ -23,7 +23,7 @@ object Predef {
   /**
    * The parsed representation of the predef.
    */
-  lazy val predefPackage: Package.Parsed =
+  val predefPackage: Package.Parsed =
     Package.parser(None).parse(predefString) match {
       case Parsed.Success(pack, _) => pack
       case Parsed.Failure(exp, idx, extra) =>
@@ -34,7 +34,8 @@ object Predef {
   /**
    * Here is the fully compiled Predef
    */
-  lazy val predefCompiled: Package.Inferred = {
+  val predefCompiled: Package.Inferred = {
+    import DirectEC.directEC
     val (bad, good) = PackageMap.resolveThenInfer(((), predefPackage) :: Nil, Nil)
     require(bad.isEmpty, s"expected no bad packages, found: $bad")
     good match {

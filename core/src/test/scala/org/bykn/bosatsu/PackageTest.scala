@@ -3,11 +3,15 @@ package org.bykn.bosatsu
 import cats.data.{Validated, ValidatedNel}
 import fastparse.all._
 import org.scalatest.FunSuite
+import scala.concurrent.ExecutionContext
 
 class PackageTest extends FunSuite {
 
-  def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] =
+  def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] = {
+    // use parallelism to typecheck
+    import ExecutionContext.Implicits.global
     PackageMap.resolveThenInfer(ps.toList.map { p => ((), p) }, Nil)._2
+  }
 
   def parse(s: String): Package.Parsed =
     Package.parser(None).parse(s) match {

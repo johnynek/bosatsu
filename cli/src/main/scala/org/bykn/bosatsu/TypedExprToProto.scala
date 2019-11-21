@@ -4,7 +4,7 @@ import _root_.bosatsu.{TypedAst => proto}
 import cats.{Foldable, Monad, MonadError}
 import cats.data.{NonEmptyList, ReaderT, StateT}
 import cats.effect.IO
-import com.stripe.dagon.Memoize
+import org.bykn.bosatsu.graph.Memoize
 import java.nio.file.Path
 import java.io.{FileInputStream, FileOutputStream, BufferedInputStream, BufferedOutputStream}
 import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
@@ -1336,7 +1336,7 @@ object ProtoConverter {
       }
 
       val load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]] =
-        Memoize.function[String, Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]] { (pack, rec) =>
+        Memoize.memoizeDagHashed[String, Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]] { (pack, rec) =>
           nodeMap.get(pack) match {
             case Some(Left(iface) :: Nil) =>
               interfaceFromProto0(makeLoadDT(rec), iface)

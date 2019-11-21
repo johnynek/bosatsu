@@ -1,32 +1,8 @@
 package org.bykn.bosatsu.graph
 
-import scala.collection.immutable.SortedMap
 import cats.implicits._
 
 object Toposort {
-
-  // returning None, means we cannot compute this function because it loops forever
-  private def memoize[A: Ordering, B](fn: (A, A => Option[B]) => Option[B]): A => Option[B] = {
-    // this should be volatie if fn uses threads, but
-    // we are only using it below and can see that isn't the case
-    var cache = SortedMap.empty[A, Option[B]]
-
-    lazy val res: A => Option[B] = { (a: A) =>
-      cache.get(a) match {
-        case None =>
-          // we have never hit this branch, compute that we are working:
-          // if we require this value while computing for a, it is an infinite
-          // loop, and we can't compute it
-          cache = cache.updated(a, None)
-          val b = fn(a, res)
-          cache = cache.updated(a, b)
-          b
-        case Some(b) => b
-      }
-    }
-
-    res
-  }
 
   /**
    * A result is the subdag in layers,
@@ -73,7 +49,7 @@ object Toposort {
     else {
       // save this to avoid some realloations
       val someZero: Option[Int] = Some(0)
-      val depth = memoize[A, Int] { (n, rec) =>
+      val depth = Memoize.memoizeSorted[A, Int] { (n, rec) =>
         fn(n) match {
           case Nil => someZero
           case nonEmpty =>
