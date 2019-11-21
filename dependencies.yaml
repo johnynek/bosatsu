@@ -36,14 +36,6 @@
               "exports": [ ]
             }
         },
-      "com.stripe": {
-          "dagon-core": {
-              "modules": [ ],
-              "lang": "scala",
-              "version": "0.2.2",
-              "exports": [ ]
-            }
-        },
       "org.bykn": {
           "fastparse-cats-core": {
               "modules": [ ],

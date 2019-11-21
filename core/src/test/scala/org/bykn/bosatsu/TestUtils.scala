@@ -1,16 +1,14 @@
 package org.bykn.bosatsu
 
+import cats.Eval
 import cats.data.Validated
+import cats.implicits._
+import fastparse.all._
 import org.bykn.bosatsu.rankn._
 import org.scalatest.{Assertion, Assertions}
-
-import fastparse.all.Parsed
+import scala.concurrent.ExecutionContext
 
 import Assertions.{succeed, fail}
-import cats.implicits._
-import cats.Eval
-
-import fastparse.all._
 
 object TestUtils {
   import TestParseUtils.region
@@ -154,6 +152,9 @@ object TestUtils {
         sys.error("failed to parse") //errs.toString)
     }
 
+    // use parallelism to typecheck
+    import ExecutionContext.Implicits.global
+
     PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths), Nil) match {
       case (dups, Validated.Valid(packMap)) if dups.isEmpty =>
         inferredHandler(packMap, mainPack)
@@ -238,6 +239,8 @@ object TestUtils {
         sys.error(errs.toString)
     }
 
+    // use parallelism to typecheck
+    import ExecutionContext.Implicits.global
     val withPre = Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
     PackageMap.resolveThenInfer(withPre, Nil) match {
       case (_, Validated.Valid(_)) =>

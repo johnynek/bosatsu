@@ -6,7 +6,6 @@ import BazelDepsApi [
 
 cats_version = '2.0.0'
 cats_effect_version = '2.0.0'
-dagon_version = '0.2.2'
 decline_version = '1.0.0'
 fastparse_cats_version = '0.1.0'
 fastparse_version = '1.0.0'
@@ -25,7 +24,6 @@ main = Config(
     [ scala_dep(o, a, v) for (o, a, v) in [
         ('com.lihaoyi', 'sourcecode', sourcecode_version),
         ('com.monovore', 'decline', decline_version),
-        ('com.stripe', 'dagon-core', dagon_version),
         ('org.bykn', 'fastparse-cats-core', fastparse_cats_version),
         ('org.scala-lang.modules', 'scala-xml', scala_xml_version),
         ('org.scalacheck', 'scalacheck', scalacheck_version),

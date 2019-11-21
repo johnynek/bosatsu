@@ -7,6 +7,8 @@ import cats.implicits._
 
 @State(Scope.Thread)
 class TestBench {
+  // don't use threads in the benchmark which will complicate matters
+  import DirectEC.directEC
 
   private def prepPackages(packages: List[String], mainPackS: String): (PackageMap.Inferred, PackageName) = {
     val mainPack = PackageName.parse(mainPackS).get
