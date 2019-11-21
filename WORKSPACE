@@ -11,7 +11,7 @@ git_repository(
 git_repository(
     name = "io_bazel_rules_scala",
     remote = "git://github.com/bazelbuild/rules_scala",
-    commit = "69d3c5b5d9b51537231746e93b4383384c9ebcf4"
+    commit = "46a2bec3fdf7ce708575d562cddeebfc1fc46abc"
 )
 load("@io_bazel_rules_scala//scala:scala.bzl", "scala_repositories")
 scala_repositories()
