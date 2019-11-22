@@ -1,7 +1,7 @@
 package Bosatsu/List
 
 import Bosatsu/Bool [ not ]
-export [ eq_List, for_all, sum ]
+export [ eq_List, exists, head, for_all, sum, uncons, zip ]
 
 def for_all(xs: List[a], fn: a -> Bool) -> Bool:
   recur xs:
@@ -12,6 +12,23 @@ def for_all(xs: List[a], fn: a -> Bool) -> Bool:
 
 def sum(as: List[Int]) -> Int:
   as.foldLeft(0, add)
+
+def exists(xs: List[a], fn: a -> Bool) -> Bool:
+    recur xs:
+        []: False
+        [head, *tail]:
+            if fn(head): True
+            else: exists(tail, fn)
+
+def uncons(xs: List[a]) -> Option[(a, List[a])]:
+    match xs:
+        []: None
+        [h, *t]: Some((h, t))
+
+def head(xs: List[a]) -> Option[a]:
+    match xs:
+        []: None
+        [h, *_]: Some(h)
 
 def eq_List(fn: a -> a -> Bool, a: List[a], b: List[a]) -> Bool:
   recur a:
@@ -25,10 +42,62 @@ def eq_List(fn: a -> a -> Bool, a: List[a], b: List[a]) -> Bool:
         [bh, *bt]:
           eq_List(fn, at, bt) if fn(ah, bh) else False
 
-eq_li = eq_List(eq_Int)
+def zip(left: List[a], right: List[b]) -> List[(a, b)]:
+    recur left:
+        []: []
+        [ah, *at]:
+            match right:
+                []: []
+                [bh, *bt]: [(ah, bh), *zip(at, bt)]
+
+##########################
+# Test code below
+##########################
+
+operator =*= = eq_List(eq_Int)
+
+def not(x): False if x else True
+
+def headTest:
+    res = match head([1, 2, 3]):
+        Some(1): True
+        _: False
+    Assertion(res, "head test")
+
+def unconsTest:
+    res = match uncons([1, 2, 3]):
+        Some((1, [2, 3])): True
+        _: False
+    Assertion(res, "uncons test")
+
+def zipTest:
+    test1 = match zip([1, 2], ["1", "2"]):
+        [(1, "1"), (2, "2")]: True
+        _: False
+
+    test2 = match zip([1], ["1", "2"]):
+        [(1, "1")]: True
+        _: False
+
+    test3 = match zip([1, 2], ["1"]):
+        [(1, "1")]: True
+        _: False
+
+    TestSuite("zip tests", [
+      Assertion(test1, "same size"),
+      Assertion(test2, "left smaller"),
+      Assertion(test3, "right smaller"),
+    ])
+
 
 tests = TestSuite("List tests", [
-  Assertion([1, 2, 3].eq_li([1, 2, 3]), "list [1, 2, 3]"),
-  Assertion(not([1, 2, 3].eq_li([1, 2])), "list [1, 2, 3] != [1, 2]"),
+  Assertion([1, 2, 3] =*= [1, 2, 3], "list [1, 2, 3]"),
+  Assertion(not([1, 2, 3] =*= [1, 2]), "list [1, 2, 3] != [1, 2]"),
+  Assertion(range(6).sum.eq_Int(15), "range(6).sum == 1 + 2 + 3 + 4 + 5 = 15"),
+  Assertion(range(6).exists(\v -> v.eq_Int(5)), "range(6) does have 5"),
+  Assertion(not(range(6).exists(\v -> v.eq_Int(6))), "range(6) does not have 6"),
+  headTest,
+  unconsTest,
+  zipTest,
   ])
 
