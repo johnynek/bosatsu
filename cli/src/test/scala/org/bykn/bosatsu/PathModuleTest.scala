@@ -83,7 +83,7 @@ class PathModuleTest extends FunSuite {
     }
 
   test("test direct run of a file") {
-    val out = run("test --input test_workspace/List.bosatsu --input test_workspace/Bool.bosatsu --test_file test_workspace/Queue.bosatsu".split("\\s+"): _*)
+    val out = run("test --input test_workspace/List.bosatsu --input test_workspace/Nat.bosatsu --input test_workspace/Bool.bosatsu --test_file test_workspace/Queue.bosatsu".split("\\s+"): _*)
     out match {
       case PathModule.Output.TestOutput(results, _) =>
         val res = results.collect { case (pn, Some(t)) if pn.asString == "Queue" => t }

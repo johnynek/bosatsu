@@ -63,6 +63,16 @@ def size(list: List[a]) -> Nat:
 def sort(ord: Order[a], list: List[a]) -> List[a]:
     Order { to_Fn } = ord
 
+    def lt(x, h):
+        match to_Fn(x, h):
+            LT: True
+            _: False
+
+    def gteq(x, h):
+        match to_Fn(x, h):
+            LT: False
+            _: True
+
     def loop(list: List[a], sz: Nat):
         recur sz:
             Zero: list
@@ -70,14 +80,8 @@ def sort(ord: Order[a], list: List[a]) -> List[a]:
                 match list:
                     []: []
                     [h, *t]:
-                        def lt(x): match to_Fn(x, h):
-                                     LT: True
-                                     _: False
-                        def gt(x): match to_Fn(x, h):
-                                     GT: True
-                                     _: False
-                        lesser = [ ta for ta in t if lt(ta) ]
-                        greater = [ ta for ta in t if gt(ta) ]
+                        lesser = [ ta for ta in t if lt(ta, h) ]
+                        greater = [ ta for ta in t if gteq(ta, h) ]
                         # each of the above are at most size n
                         [ *loop(lesser, n), h, *loop(greater, n) ]
     loop(list, size(list))
@@ -135,10 +139,15 @@ def sortTest:
                 [1, 2, 3]: True
                 _: False
 
+    test4 = match sort_Int([1, 2, 1]):
+                [1, 1, 2]: True
+                _: False
+
     TestSuite("sort tests", [
       Assertion(test1, "3, 1, 2"),
       Assertion(test2, "1, 2, 3"),
       Assertion(test3, "2, 3, 1"),
+      Assertion(test4, "1, 2, 1"),
     ])
 
 tests = TestSuite("List tests", [
