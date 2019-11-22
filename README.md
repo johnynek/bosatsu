@@ -36,7 +36,7 @@ computed = [i for i in range(1000) if keep(i)].sum
 test = Assertion(computed == 233168, "expected 233168")
 ```
 
-For more details see the [language guide](docs/language_guide.md) in particular the [section on syntax](docs/language_guide.md#language-guide)
+For more details see the [language guide](docs/language_guide.md) in particular the [section on syntax](docs/language_guide.md#language-guide). For vim syntax files see [bosatsu.vim](https://github.com/johnynek/bosatsu.vim).
 
 ## Use cases
 
