@@ -479,17 +479,22 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                   }
 
                 withTestPackNames.map { case (packs, nameMap, testPackNames) =>
-                  val testSet: Set[Path] =
+                  val testIt: Iterator[PackageName] =
                     if (testPacks.isEmpty) {
                       // if there are no given files or packages to test, assume
                       // we test all the files
-                      nameMap.iterator.map(_._1).toSet
+                      nameMap.iterator.map(_._2)
                     }
-                    else tests1.toSet
+                    else {
+                      // otherwise we have a specific list packages/files to test
+                      testPackNames.iterator
+                    }
 
                   val testPackages: List[PackageName] =
-                    (nameMap.iterator.collect { case (p, name) if testSet(p) => name } ++
-                      testPackNames.iterator).toList.sorted.distinct
+                    testIt
+                      .toList
+                      .sorted
+                      .distinct
                   val ev = Evaluation(packs, Predef.jvmExternals)
                   val res0 = testPackages.map { p => (p, ev.evalTest(p)) }
                   val res =
