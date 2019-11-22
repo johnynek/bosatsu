@@ -395,7 +395,7 @@ object Generators {
         .flatMap { sz => Gen.zip(recurse, recurse, Gen.listOfN(sz, recurse)) }
         .map {
           case (h0, h1, tail) =>
-            Pattern.Union(h0, NonEmptyList(h1, tail))
+            Pattern.union(h0, h1 :: tail)
         }
 
       val tailGens: List[Gen[Pattern[N, T]]] =
