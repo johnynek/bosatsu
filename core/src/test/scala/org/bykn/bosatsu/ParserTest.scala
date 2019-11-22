@@ -620,7 +620,7 @@ x""")
       // this operator application can be a pattern
       List(
         ApplyOp(Var(Name("q")),Operator("|"),Var(Name("npzma"))),
-        ApplyOp(Parens(ApplyOp(Parens(Literal(Lit.Str("igyimc"))),Operator("|"),Var(Name("ncf5Eo9")))),Operator("|"),Var(Constructor("K"))),
+        ApplyOp(Parens(ApplyOp(Parens(Literal(Lit.Str("igyimc"))),Operator("|"),Var(Name("ncf5Eo9")))),Operator("|"),Var(Constructor("K")))
       )
     }
 
