@@ -114,7 +114,7 @@ abstract class ParserTestBase extends FunSuite {
     if (System.getenv("PLATFORM") == "js")
       PropertyCheckConfiguration(minSuccessful = 10)
     else
-      PropertyCheckConfiguration(minSuccessful = 300)
+      PropertyCheckConfiguration(minSuccessful = 3)
   }
 }
 
@@ -897,6 +897,7 @@ x""")
     decl("(x: Bar)")
     decl("(x :Bar)")
     decl("(x : Bar)")
+    decl("[x for x in xs if x < y ]")
   }
 
   test("we can parse any Statement") {

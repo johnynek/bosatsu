@@ -66,7 +66,7 @@ object ListLang {
       }
       .opaque("ConsListTail")
 
-    val filterExpr = P("if" ~ spacesAndLines ~ pa)
+    val filterExpr = P("if" ~ spacesAndLines ~/ pa)
     // TODO, we don't know if the parsers absorb trailing spaces, they probably
     // shouldn't but currently it looks like they are
     val comp = P(
