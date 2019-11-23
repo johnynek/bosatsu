@@ -677,7 +677,7 @@ object Pattern {
         .nonEmptyListOfWsSep(maybeSpace, P("|"), allowTrailing = false)
       ("|" ~ maybeSpace ~ unionRest)
         .map { ne =>
-          { pat: Parsed => Union(pat, ne) }
+          { pat: Parsed => union(pat, ne.toList) }
         }
     }
     val typeAnnotOp: P[Parsed => Parsed] = {
