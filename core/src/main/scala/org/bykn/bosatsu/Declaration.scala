@@ -621,27 +621,23 @@ object Declaration {
       // since \x -> y: t will parse like \x -> (y: t)
       // if we are in a branch arg, we can't parse annotations on the body of the lambda
       val lambBody = if (pm == ParseMode.BranchArg) recArgIndy.asInstanceOf[Indy[Declaration]] else recIndy
-      /*
-       * Note pattern bind needs to be before anything that looks like a pattern that can't handle
-       * bind
-       */
-      val patternLike: P[NonBinding] =
-        P(varP | listP(recNonBind) | lits | tupOrPar | recordConstructorP(indent, recNonBind, recArg))
 
-      val notPatternLike: P[NonBinding] =
+      val allNonBind: P[NonBinding] =
         P(lambdaP(lambBody)(indent) |
           ifElseP(recArgIndy, recIndy)(indent) |
           matchP(recArgIndy, recIndy)(indent) |
-          dictP(recArg))
-
-      // we need notPatternLike first, so varP won't scoop up "if" and "match"
-      val allNonBind = notPatternLike | patternLike
+          dictP(recArg) |
+          varP |
+          listP(recNonBind) |
+          lits |
+          tupOrPar |
+          recordConstructorP(indent, recNonBind, recArg))
 
       /*
        * This is where we parse application, either direct, or dot-style
        */
       val applied: P[NonBinding] = {
-        val params = recNonBind.parensLines1
+        val params = recNonBind.parensLines1Cut
         // here we are using . syntax foo.bar(1, 2)
         val dotApply: P[NonBinding => NonBinding] =
           P("." ~ varP ~ params.?)
@@ -715,7 +711,7 @@ object Declaration {
       val ternary: P[Declaration => NonBinding] =
         // we can't cut after if, because in a list comprehension the if suffix is ambiguous
         // until we see if the else happens or not. Once we see the else, we can cut
-        P("if" ~ spaces ~ recNonBind ~ spaces ~ "else" ~ spaces ~/ recNonBind)
+        P("if" ~ spaces ~ NoCut(recNonBind) ~ spaces ~ "else" ~ spaces ~/ recNonBind)
           .region
           .map { case (region, (cond, falseCase)) =>
             { trueCase: Declaration =>
@@ -725,7 +721,7 @@ object Declaration {
           }.opaque("ternary operator")
 
 
-      val finalNonBind = postOperators.maybeAp(spaces ~ ternary)
+      val finalNonBind: P[NonBinding] = postOperators.maybeAp(spaces ~ ternary)
 
       if (pm != ParseMode.Decl) finalNonBind
       else {
@@ -748,7 +744,7 @@ object Declaration {
            */
           patternBind(recNBIndy, recIndy)(indent))
 
-        // we have to parse non-binds first, because varP would parse "def", "match", etc..
+        // we have to parse non-binds last
         finalBind | finalNonBind
       }
     }
