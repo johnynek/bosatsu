@@ -114,7 +114,7 @@ abstract class ParserTestBase extends FunSuite {
     if (System.getenv("PLATFORM") == "js")
       PropertyCheckConfiguration(minSuccessful = 10)
     else
-      PropertyCheckConfiguration(minSuccessful = 3000)
+      PropertyCheckConfiguration(minSuccessful = 300)
   }
 }
 

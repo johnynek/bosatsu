@@ -86,10 +86,15 @@ object Parser {
        */
       def maybeMore: Parser.Indy[A] =
         Parser.Indy { indent =>
-          Parser.maybeSpace.!
+          // run this one time, not each spaces are parsed
+          val noIndent = toKleisli.run(indent)
+          val someIndent = Parser
+            .spaces.!
             .flatMap { thisIndent =>
               toKleisli.run(indent + thisIndent)
             }
+
+          someIndent | noIndent
         }
     }
   }
