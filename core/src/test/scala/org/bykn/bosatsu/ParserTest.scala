@@ -114,7 +114,7 @@ abstract class ParserTestBase extends FunSuite {
     if (System.getenv("PLATFORM") == "js")
       PropertyCheckConfiguration(minSuccessful = 10)
     else
-      PropertyCheckConfiguration(minSuccessful = 300)
+      PropertyCheckConfiguration(minSuccessful = 3000)
   }
 }
 
@@ -684,6 +684,13 @@ x""",
       x
 else:
       y""")
+
+    roundTrip[Declaration](parser0,
+      """if w:
+        |     x
+        |else:
+        |     y""".stripMargin)
+
     roundTrip(parser(""),
       """if eq_Int(x, 3):
       x
@@ -862,6 +869,25 @@ x""")
     roundTrip(Declaration.parser(""),
 """(x: Int) = bar
 x""")
+    roundTrip(Declaration.parser(""),
+"""x: Int = bar
+x""")
+  }
+
+  test("we allow extra indentation on elif and else for better alignment") {
+
+    roundTrip(Declaration.parser(""),
+      """z = if w:
+        |      x
+        |    else:
+        |      y
+        |z""".stripMargin)
+
+    roundTrip(Declaration.parser(""),
+      """z = if w: x
+        |    elif y: z
+        |    else: quux
+        |z""".stripMargin)
   }
 
   test("we can parse declaration lists") {

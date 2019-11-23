@@ -79,6 +79,18 @@ object Parser {
 
       def cutRight[B](that: Indy[B]): Indy[B] =
         cutThen(that).map(_._2)
+
+
+      /**
+       * This optionally allows extra indentation that starts now
+       */
+      def maybeMore: Parser.Indy[A] =
+        Parser.Indy { indent =>
+          Parser.maybeSpace.!
+            .flatMap { thisIndent =>
+              toKleisli.run(indent + thisIndent)
+            }
+        }
     }
   }
 

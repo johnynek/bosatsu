@@ -472,9 +472,15 @@ object Declaration {
      * EOL is a kind of a separator we only have in between
      */
     val elseTerm: Indy[OptIndent[Declaration]] =
-      OptIndent.block(Indy.lift(P("else" ~ maybeSpace)), expr).map(_._2)
+      OptIndent
+        .block(Indy.lift(P("else" ~ maybeSpace)), expr)
+        .map(_._2)
+        .maybeMore // allow extra indentation
 
-    val elifs1 = ifelif("elif").rep(1, sepIndy = Indy.toEOLIndent) <* Indy.toEOLIndent
+    val elifs1 = {
+      val elifs = ifelif("elif").rep(1, sepIndy = Indy.toEOLIndent)
+      (elifs <* Indy.toEOLIndent).maybeMore // allow extra indentation
+    }
 
     (ifelif("if") <* Indy.toEOLIndent)
       .cutThen(elifs1.?)
