@@ -1,9 +1,11 @@
 package org.bykn.bosatsu
 
+import cats.Show
 import cats.data.Validated
 import org.openjdk.jmh.annotations.{Benchmark, Scope, State}
 
 import cats.implicits._
+import IorMethods.IorExtension
 
 @State(Scope.Thread)
 class TestBench {
@@ -28,8 +30,9 @@ class TestBench {
         sys.error("failed to parse") //errs.toString)
     }
 
-    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths), Nil) match {
-      case (dups, Validated.Valid(packMap)) if dups.isEmpty =>
+    implicit val show: Show[(String, LocationMap)] = Show.show { case (s, _) => s }
+    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths), Nil).strictToValidated match {
+      case Validated.Valid(packMap) =>
         (packMap, mainPack)
       case other => sys.error(s"expected clean compilation: $other")
     }

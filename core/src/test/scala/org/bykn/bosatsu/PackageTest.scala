@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Show
 import cats.data.{Validated, ValidatedNel}
 import fastparse.all._
 import org.scalatest.FunSuite
@@ -12,7 +13,8 @@ class PackageTest extends FunSuite {
   def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] = {
     // use parallelism to typecheck
     import ExecutionContext.Implicits.global
-    PackageMap.resolveThenInfer(ps.toList.map { p => ((), p) }, Nil)
+    implicit val showInt: Show[Int] = Show.fromToString
+    PackageMap.resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil)
       .strictToValidated
   }
 

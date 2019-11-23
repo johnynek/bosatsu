@@ -269,8 +269,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                     // this
                     import scala.concurrent.ExecutionContext.Implicits.global
 
-                    // type is Path | String, but we only call .toString on it
-                    PackageMap.typeCheckParsed[Any](packs, ifs, "predef").strictToValidated match {
+                    val packsString = packs.map { case ((path, lm), parsed) => ((path.toString, lm), parsed) }
+                    PackageMap.typeCheckParsed[String](packsString, ifs, "predef").strictToValidated match {
                       case Validated.Valid(p) =>
                         val pathToName: List[(Path, PackageName)] =
                           packs.map { case ((path, _), p) => (path, p.name) }.toList

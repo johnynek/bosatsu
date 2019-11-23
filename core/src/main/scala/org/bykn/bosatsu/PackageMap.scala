@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import alleycats.std.map._ // TODO use SortedMap everywhere
 import org.bykn.bosatsu.graph.Memoize
-import cats.Foldable
+import cats.{Foldable, Show}
 import cats.data.{Ior, IorT, NonEmptyList, Validated, ValidatedNel, ReaderT}
 import cats.Order
 import cats.implicits._
@@ -144,7 +144,7 @@ object PackageMap {
   /**
    * Convenience method to create a PackageMap then resolve it
    */
-  def resolveAll[A](ps: List[(A, Package.Parsed)], ifs: List[Package.Interface]): Ior[NonEmptyList[PackageError], Resolved] = {
+  def resolveAll[A: Show](ps: List[(A, Package.Parsed)], ifs: List[Package.Interface]): Ior[NonEmptyList[PackageError], Resolved] = {
 
     type AP = (A, Package.Parsed)
     val (nonUnique, unique): (Map[PackageName, (AP, NonEmptyList[AP])], Map[PackageName, AP]) =
@@ -191,7 +191,7 @@ object PackageMap {
     // keep all the errors
     val nuEr: Ior[NonEmptyList[PackageError], Unit] =
       if (nonUnique.nonEmpty) {
-        Ior.left(NonEmptyList.one[PackageError](PackageError.DuplicatedPackageError(nonUnique)))
+        Ior.left(NonEmptyList.one[PackageError](PackageError.DuplicatedPackageError[A](nonUnique, Show[A].show(_))))
       }
       else Ior.right(())
 
@@ -319,7 +319,7 @@ object PackageMap {
       .map(PackageMap(_))
   }
 
-  def resolveThenInfer[A](
+  def resolveThenInfer[A: Show](
     ps: List[(A, Package.Parsed)],
     ifs: List[Package.Interface])(implicit cpuEC: ExecutionContext): Ior[NonEmptyList[PackageError], Inferred] =
       resolveAll(ps, ifs).flatMap(inferAll)
@@ -334,7 +334,7 @@ object PackageMap {
    * @param packs a list of parsed packages, along with a key A to tag the source
    * @param ifs the interfaces we are compiling against. If Bosatsu.Predef is not in this list, the default is added
    */
-  def typeCheckParsed[A](
+  def typeCheckParsed[A: Show](
     packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
     ifs: List[Package.Interface],
     predefKey: A)(implicit cpuEC: ExecutionContext): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
@@ -345,6 +345,8 @@ object PackageMap {
         if (useInternalPredef) Predef.withPredefA[(A, LocationMap)]((predefKey, LocationMap("")), packs.toList)
         else Predef.withPredefImportsA[(A, LocationMap)](packs.toList)
 
-    PackageMap.resolveThenInfer(parsed, ifs)
+    PackageMap.resolveThenInfer[A](
+      parsed.map { case ((a, _), p) => (a, p) },
+      ifs)
   }
 }

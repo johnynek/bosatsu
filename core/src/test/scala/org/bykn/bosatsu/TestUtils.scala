@@ -142,7 +142,7 @@ object TestUtils {
       Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
         ((i.toString, lm), parsed)
       }
-    }
+  }
 
     val parsedPaths = parsed match {
       case Validated.Valid(vs) => vs
@@ -156,9 +156,12 @@ object TestUtils {
     // use parallelism to typecheck
     import ExecutionContext.Implicits.global
 
+    val fullParsed =
+        Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
+          .map { case ((path, lm), p) => (path, p) }
+
     PackageMap
-      .resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths), Nil)
-      .strictToValidated match {
+      .resolveThenInfer(fullParsed , Nil).strictToValidated match {
         case Validated.Valid(packMap) =>
           inferredHandler(packMap, mainPack)
 
@@ -244,8 +247,11 @@ object TestUtils {
 
     // use parallelism to typecheck
     import ExecutionContext.Implicits.global
-    val withPre = Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
-    PackageMap.resolveThenInfer(withPre, Nil).left match {
+    val withPre =
+      Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
+
+    val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
+    PackageMap.resolveThenInfer(withPrePaths, Nil).left match {
       case None =>
         fail("expected to fail type checking")
 

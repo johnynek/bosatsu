@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Show
 import cats.data.{NonEmptyList, Validated}
 import fastparse.all._
 import java.math.BigInteger
@@ -39,6 +40,7 @@ object Predef {
   val predefCompiled: Package.Inferred = {
     import DirectEC.directEC
 
+    implicit val showUnit: Show[Unit] = Show.show[Unit](_ => "predefCompiled")
     val inferred = PackageMap.resolveThenInfer(((), predefPackage) :: Nil, Nil).strictToValidated
 
     inferred match {

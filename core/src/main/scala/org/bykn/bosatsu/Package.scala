@@ -508,7 +508,7 @@ object PackageError {
     }
   }
 
-  case class DuplicatedPackageError[A](dups: Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])]) extends PackageError {
+  case class DuplicatedPackageError[A](dups: Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], show: A => String) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
       val packDoc = Doc.text("package ")
       val dupInDoc = Doc.text(" duplicated in ")
@@ -518,7 +518,7 @@ object PackageError {
         .map { case (pname, (one, nelist)) =>
           val dupsrcs = Doc.intercalate(Doc.comma + Doc.lineOrSpace,
             (one :: nelist.toList)
-              .map { case (s, _) => s.toString }
+              .map { case (s, _) => show(s) }
               .sorted
               .map(Doc.text(_))
             )
