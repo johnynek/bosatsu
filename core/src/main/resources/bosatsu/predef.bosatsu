@@ -9,7 +9,7 @@ export [
   String,
   Test(),
   TupleCons(),
-  Order,
+  Order(),
   Unit(),
   Dict,
   add,
@@ -46,8 +46,7 @@ struct Unit
 struct TupleCons(first, second)
 
 enum Bool:
-  False
-  True
+  False, True
 
 enum List:
   EmptyList, NonEmptyList(head: a, tail: List[a])
@@ -84,15 +83,12 @@ def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
   \(x1, x2, x3) -> f(x1, x2, x3)
 
 enum Comparison:
-  LT
-  EQ
-  GT
+    LT, EQ, GT
 
 enum Option:
-  None
-  Some(v)
+  None, Some(v)
 
-struct Order(fn: a -> a -> Comparison)
+struct Order(to_Fn: a -> a -> Comparison)
 
 external struct Dict[k, v]
 external def clear_Dict(dict: Dict[k, v]) -> Dict[k, v]

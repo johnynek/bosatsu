@@ -66,7 +66,7 @@ bosatsu_library(
 bosatsu_library(
     name = "list",
     srcs = ["List.bosatsu"],
-    deps = [":bool"],
+    deps = [":bool", ":nat"],
     )
 
 bosatsu_library(
