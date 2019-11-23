@@ -6,6 +6,8 @@ import java.math.BigInteger
 import scala.collection.immutable.SortedMap
 import language.experimental.macros
 
+import IorMethods.IorExtension
+
 object Predef {
   /**
    * Loads a file *at compile time* as a means of embedding
@@ -36,16 +38,17 @@ object Predef {
    */
   val predefCompiled: Package.Inferred = {
     import DirectEC.directEC
-    val (bad, good) = PackageMap.resolveThenInfer(((), predefPackage) :: Nil, Nil)
-    require(bad.isEmpty, s"expected no bad packages, found: $bad")
-    good match {
+
+    val inferred = PackageMap.resolveThenInfer(((), predefPackage) :: Nil, Nil).strictToValidated
+
+    inferred match {
       case Validated.Valid(v) =>
         v.toMap.get(packageName) match {
           case None => sys.error("internal error: predef package not found after compilation")
           case Some(inf) => inf
         }
       case Validated.Invalid(errs) =>
-        sys.error(s"internal error: predef didn't compile: $errs")
+        sys.error(s"expected no errors, found: $errs")
     }
   }
 

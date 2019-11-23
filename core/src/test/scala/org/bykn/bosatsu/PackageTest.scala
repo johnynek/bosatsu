@@ -5,12 +5,15 @@ import fastparse.all._
 import org.scalatest.FunSuite
 import scala.concurrent.ExecutionContext
 
+import IorMethods.IorExtension
+
 class PackageTest extends FunSuite {
 
   def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] = {
     // use parallelism to typecheck
     import ExecutionContext.Implicits.global
-    PackageMap.resolveThenInfer(ps.toList.map { p => ((), p) }, Nil)._2
+    PackageMap.resolveThenInfer(ps.toList.map { p => ((), p) }, Nil)
+      .strictToValidated
   }
 
   def parse(s: String): Package.Parsed =

@@ -1,6 +1,5 @@
 package org.bykn.bosatsu
 
-import cats.arrow.FunctionK
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
 import cats.{Eval, MonadError, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
@@ -9,6 +8,7 @@ import org.typelevel.paiges.Doc
 import scala.util.{ Failure, Success, Try }
 
 import LocationMap.Colorize
+import IorMethods.IorExtension
 
 import cats.implicits._
 
@@ -260,8 +260,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             // Now we have completed all IO, here we do all the checks we need for correctness
             toTry(ins, errColor)
               .flatMap { packs =>
-                val map = PackageMap.buildSourceMap(packs)
-                val liftError = Lambda[FunctionK[ValidatedNel[PackageError, ?], Try]](fromPackageError(map, _, errColor))
+                val sourceMap = PackageMap.buildSourceMap(packs)
                 // TODO, we could use applicative, to report both duplicate packages and the other
                 // errors
                 NonEmptyList.fromList(packs) match {
@@ -269,12 +268,16 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                     // TODO: this use the number of cores in the threadpool but we could configure
                     // this
                     import scala.concurrent.ExecutionContext.Implicits.global
-                    PackageMap.typeCheckParsed(packs, ifs, "predef", liftError)(checkDuplicatePackages(_)(_._1.toString))
-                      .map { p =>
+
+                    // type is Path | String, but we only call .toString on it
+                    PackageMap.typeCheckParsed[Any](packs, ifs, "predef").strictToValidated match {
+                      case Validated.Valid(p) =>
                         val pathToName: List[(Path, PackageName)] =
                           packs.map { case ((path, _), p) => (path, p.name) }.toList
-                        (p, pathToName)
-                      }
+                        Success((p, pathToName))
+                      case Validated.Invalid(errs) =>
+                        errors(errs.map(_.message(sourceMap, errColor)).toList)
+                    }
                   case None =>
                     Success((PackageMap.empty, Nil))
                 }
@@ -540,25 +543,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           }
         errors(msgs)
       }
-
-    def fromPackageError[A](
-      sourceMap: Map[PackageName, (LocationMap, String)],
-      v: ValidatedNel[PackageError, A],
-      errColor: Colorize): Try[A] =
-        v match {
-          case Validated.Invalid(errs) => errors(errs.map(_.message(sourceMap, errColor)).toList)
-          case Validated.Valid(a) => Success(a)
-        }
-
-    def checkDuplicatePackages[A](dups: Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])])(fn: A => String): Try[Unit] =
-      if (dups.isEmpty) Success(())
-      else
-        errors(
-          dups.iterator.map { case (pname, ((src, _), nelist)) =>
-            val dupsrcs = (fn(src) :: nelist.map { case (s, _) => fn(s) }.toList).sorted.mkString(", ")
-            s"package ${pname.asString} duplicated in $dupsrcs"
-          }.toList
-        )
 
     val opts: Opts[MainCommand] = {
       implicit val argPack: Argument[PackageName] =
