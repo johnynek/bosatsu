@@ -2109,7 +2109,7 @@ main = 1
         |main = 1
         |""".stripMargin
 
-    evalFail(List(pack, pack), "Err") { case sce@PackageError.DuplicatedPackageError(_) =>
+    evalFail(List(pack, pack), "Err") { case sce@PackageError.DuplicatedPackageError(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "package Err duplicated in 0, 1")
       ()
     }
