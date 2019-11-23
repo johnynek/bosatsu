@@ -79,6 +79,23 @@ object Parser {
 
       def cutRight[B](that: Indy[B]): Indy[B] =
         cutThen(that).map(_._2)
+
+
+      /**
+       * This optionally allows extra indentation that starts now
+       */
+      def maybeMore: Parser.Indy[A] =
+        Parser.Indy { indent =>
+          // run this one time, not each spaces are parsed
+          val noIndent = toKleisli.run(indent)
+          val someIndent = Parser
+            .spaces.!
+            .flatMap { thisIndent =>
+              toKleisli.run(indent + thisIndent)
+            }
+
+          someIndent | noIndent
+        }
     }
   }
 
@@ -252,7 +269,7 @@ object Parser {
     def listSyntax: P[List[T]] = {
       val ws = maybeSpacesAndLines
       nonEmptyListToList(nonEmptyListOfWs(ws))
-        .bracketed(P("[" ~ ws), P(ws ~ "]"))
+        .bracketed(P("[" ~/ ws), P(ws ~ "]"))
     }
 
     def region: P[(Region, T)] =

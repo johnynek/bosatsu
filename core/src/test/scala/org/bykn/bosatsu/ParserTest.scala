@@ -62,7 +62,7 @@ abstract class ParserTestBase extends FunSuite {
     p.parse(str) match {
       case Parsed.Success(t, idx) =>
         lazy val message = firstDiff(t.toString, expected.toString)
-        assert(t == expected, s"difference: $message")
+        assert(t == expected, s"difference: $message, input syntax:\n\n\n$str\n\n")
         assert(idx == exidx)
       case Parsed.Failure(exp, idx, extra) =>
         fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
@@ -99,8 +99,10 @@ abstract class ParserTestBase extends FunSuite {
         fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
 
-  def law[T: Document](p: Parser[T])(t: T) =
-    parseTestAll(p, Document[T].document(t).render(80), t)
+  def law[T: Document](p: Parser[T])(t: T) = {
+    val syntax = Document[T].document(t).render(80)
+    parseTestAll(p, syntax, t)
+  }
 
   def expectFail[T](p: Parser[T], str: String, atIdx: Int) =
     p.parse(str) match {
@@ -691,6 +693,13 @@ x""",
       x
 else:
       y""")
+
+    roundTrip[Declaration](parser0,
+      """if w:
+        |     x
+        |else:
+        |     y""".stripMargin)
+
     roundTrip(parser(""),
       """if eq_Int(x, 3):
       x
@@ -869,6 +878,25 @@ x""")
     roundTrip(Declaration.parser(""),
 """(x: Int) = bar
 x""")
+    roundTrip(Declaration.parser(""),
+"""x: Int = bar
+x""")
+  }
+
+  test("we allow extra indentation on elif and else for better alignment") {
+
+    roundTrip(Declaration.parser(""),
+      """z = if w:
+        |      x
+        |    else:
+        |      y
+        |z""".stripMargin)
+
+    roundTrip(Declaration.parser(""),
+      """z = if w: x
+        |    elif y: z
+        |    else: quux
+        |z""".stripMargin)
   }
 
   test("we can parse declaration lists") {
@@ -904,6 +932,10 @@ x""")
     decl("(x: Bar)")
     decl("(x :Bar)")
     decl("(x : Bar)")
+    decl("y if y < z else q")
+    decl("[x for x in xs if x < y ]")
+    decl("[x for x in xs if x < y else xy ]")
+    decl("y = [x for x in xs if x < y ]\ny")
   }
 
   test("we can parse any Statement") {
@@ -1099,7 +1131,7 @@ main = run(x)
 z = 3
 z = 4
 y = {'x': 'x' : 'y'}
-""", 18)
+""", 32)
 
     expectFail(Statement.parser,
       """x = 1
@@ -1142,6 +1174,20 @@ export [ x, , ]
 
 x = 1
 """, 24)
+    expectFail(Package.parser(None),
+      """package Foo
+
+x = Foo(bar if bar)
+""", 25)
+/*
+    TODO: we don't pass this yet due, I think, to backtracking
+
+    expectFail(Package.parser(None),
+      """package Foo
+
+z = [x for x in xs if x < y else ]
+""", 18)
+*/
   }
 
 }
