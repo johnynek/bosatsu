@@ -40,6 +40,7 @@ class OperatorTest extends ParserTestBase {
 
   test("we can parse integer formulas") {
     parseSame("1+2", "1 + 2")
+    parseSame("1<2", "1 < 2")
     parseSame("1+(2*3)", "1 + 2*3")
     parseSame("1+2+3", "(1 + 2) + 3")
     parseSame("1+2+3+4", "((1 + 2) + 3) + 4")

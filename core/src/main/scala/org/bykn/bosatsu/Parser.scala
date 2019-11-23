@@ -252,7 +252,7 @@ object Parser {
     def listSyntax: P[List[T]] = {
       val ws = maybeSpacesAndLines
       nonEmptyListToList(nonEmptyListOfWs(ws))
-        .bracketed(P("[" ~ ws), P(ws ~ "]"))
+        .bracketed(P("[" ~/ ws), P(ws ~ "]"))
     }
 
     def region: P[(Region, T)] =
