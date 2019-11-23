@@ -135,6 +135,18 @@ def fold_left_BinNat(fn: a -> BinNat -> a, init: a, cnt: BinNat) -> a:
   # O(cnt), so this isn't a complexity change
   loop(init, cnt, toNat(cnt))
 
+# fibonacci using the fuel pattern
+def fib(b: BinNat) -> BinNat:
+    bnat = toNat(b)
+    def loop(n: Nat, cur: BinNat, next: BinNat) -> BinNat:
+        recur n:
+            NatZero: cur
+            NatSucc(n):
+                sum = add_BinNat(cur, next)
+                loop(n, next, sum)
+    one = Odd(Zero)
+    loop(toNat(b), one, one)
+
 def round_trip_law(i, msg):
   Assertion(i.toBinNat.toInt.eq_Int(i), msg)
 
@@ -143,6 +155,12 @@ def next_law(i, msg):
 
 def times2_law(i, msg):
   Assertion(i.toBinNat.times2.toInt.eq_Int(i.times(2)), msg)
+
+one = Odd(Zero)
+two = one.next
+three = two.next
+four = three.next
+
 
 test = TestSuite(
   "BinNat tests", [
@@ -185,4 +203,9 @@ test = TestSuite(
     Assertion(0.toBinNat.times_BinNat(11.toBinNat).toInt.eq_Int(0), "0*11 = 0"),
     Assertion(fold_left_BinNat(\n, _ -> n.next, Zero, 10.toBinNat).toInt.eq_Int(10), "1 + ... + 1 = 10"),
     Assertion(fold_left_BinNat(\n1, n2  -> n1.add_BinNat(n2), Zero, 4.toBinNat).toInt.eq_Int(6), "1+2+3=6"),
+    Assertion(fib(Zero).toInt.eq_Int(1), "fib(0) == 1"),
+    Assertion(fib(one).toInt.eq_Int(1), "fib(1) == 1"),
+    Assertion(fib(two).toInt.eq_Int(2), "fib(2) == 2"),
+    Assertion(fib(three).toInt.eq_Int(3), "fib(3) == 3"),
+    Assertion(fib(four).toInt.eq_Int(5), "fib(4) == 5"),
   ])
