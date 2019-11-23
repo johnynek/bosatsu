@@ -614,16 +614,19 @@ x""")
     }
     forAll(Generators.patternDecl(4))(law1(_))
 
-    {
+    val regressions = {
       import Declaration._
-      import Identifier.{Name, Operator}
+      import Identifier.{Name, Operator, Constructor}
       // this operator application can be a pattern
-      val regression = ApplyOp(Var(Name("q")),Operator("|"),Var(Name("npzma")))
-      law1(regression)
+      List(
+        ApplyOp(Var(Name("q")),Operator("|"),Var(Name("npzma"))),
+        ApplyOp(Parens(ApplyOp(Parens(Literal(Lit.Str("igyimc"))),Operator("|"),Var(Name("ncf5Eo9")))),Operator("|"),Var(Constructor("K")))
+      )
     }
 
-    // for all Declarations, either it parses like a pattern or toPattern is None
-    forAll(Generators.genNonBinding(5)) { dec =>
+    regressions.foreach(law1(_))
+
+    def law2(dec: Declaration.NonBinding) = {
       val decStr = dec.toDoc.render(80)
       val parsePat = parseOpt(Pattern.matchParser, decStr)
       (Declaration.toPattern(dec), parsePat) match {
@@ -633,6 +636,10 @@ x""")
         case (Some(p), None) => fail(s"toPattern succeeded: $p but pattern parse failed")
       }
     }
+
+    // for all Declarations, either it parses like a pattern or toPattern is None
+    forAll(Generators.genNonBinding(5))(law2(_))
+    regressions.foreach(law2(_))
 
 
     def testEqual(decl: String) = {
