@@ -932,7 +932,7 @@ object TypedExpr {
             case Some(e) => (1, e)
           }
         // we can remove any bindings that aren't used in branches
-        val (changed, branches1) =
+        val (changed0, branches1) =
           branches
             .traverse { case (p, t) =>
               val (c, t1) = ncount(t)
@@ -944,12 +944,25 @@ object TypedExpr {
               val c1 = if (p1 == p) c else (c + 1)
               (c1, (p1, t1))
             }
+        // due to total matches, the last branch without any bindings
+        // can always be rewritten as _
+        val (changed1, branches1a) =
+          branches1.last._1 match {
+            case Pattern.WildCard =>
+              (changed0, branches1)
+            case notWild if notWild.names.isEmpty =>
+              val newb = branches1.init ::: ((Pattern.WildCard, branches1.last._2) :: Nil)
+              // this newb list clearly has more than 0 elements
+              (changed0 + 1, NonEmptyList.fromListUnsafe(newb))
+            case _ =>
+              (changed0, branches1)
+          }
         val a1 = normalize1(arg).get
-        if ((a1 eq arg) && (changed == 0)) None
+        if ((a1 eq arg) && (changed1 == 0)) None
         else {
           // there has been some change, so
           // see if that unlocked any new changes
-          normalize1(Match(a1, branches1, tag))
+          normalize1(Match(a1, branches1a, tag))
         }
     }
 }

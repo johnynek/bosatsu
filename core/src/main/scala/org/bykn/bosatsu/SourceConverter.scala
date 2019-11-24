@@ -111,10 +111,13 @@ final class SourceConverter(
         // TODO
         val lambda = defstmt.toLambdaExpr({ res => apply(res._1.get) }, success(decl))(
           unTuplePattern(_, decl.region), { t => success(toType(t)) })
-        // we assume all defs are recursive: we put them in scope before the method
-        // is called. We rely on DefRecursionCheck to rule out bad recursions
         (inExpr, lambda).mapN { (in, lam) =>
-          Expr.Let(defstmt.name, lam, in, recursive = RecursionKind.Recursive, decl)
+          // We rely on DefRecursionCheck to rule out bad recursions
+          val boundName = defstmt.name
+          val rec =
+            if (UnusedLetCheck.freeBound(lam).contains(boundName)) RecursionKind.Recursive
+            else RecursionKind.NonRecursive
+          Expr.Let(boundName, lam, in, recursive = rec, decl)
         }
       case IfElse(ifCases, elseCase) =>
         def apply0(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
