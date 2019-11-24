@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
 
-import cats.data.{NonEmptyList, Validated}
+import cats.data.{Ior, NonEmptyList}
 import org.scalatest.FunSuite
 import org.bykn.bosatsu._
 
@@ -144,8 +144,8 @@ class RankNInferTest extends FunSuite {
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmts, _) =>
         Package.inferBody(PackageName.parts("Test"), Nil, stmts) match {
-          case Validated.Invalid(_) => assert(true)
-          case Validated.Valid(program) =>
+          case Ior.Left(_) | Ior.Both(_, _) => assert(true)
+          case Ior.Right(program) =>
             fail("expected an invalid program, but got: " + program.lets.toString)
         }
       case Parsed.Failure(exp, idx, extra) =>
