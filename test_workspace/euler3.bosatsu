@@ -17,7 +17,7 @@ def smallest_factor(n):
   match n:
     1: 1
     _:
-      int_loop(n, -1, \i, res ->
+      int_loop(n, -1, \i, _ ->
         trial = n - i + 2
         if trial.divides(n): (0, trial)
         else: (i - 1, -1))

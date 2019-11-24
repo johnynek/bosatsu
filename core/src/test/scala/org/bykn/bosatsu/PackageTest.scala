@@ -95,13 +95,13 @@ def head(list):
   match list:
     Empty:
       None
-    NonEmpty(h, tail):
+    NonEmpty(h, _):
       Some(h)
 
 def tail(list):
   match list:
     Empty: None
-    NonEmpty(h, t): Some(t)
+    NonEmpty(_, t): Some(t)
 """)
 
     val p6 = parse(

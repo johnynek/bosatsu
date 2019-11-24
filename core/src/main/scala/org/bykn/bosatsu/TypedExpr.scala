@@ -913,10 +913,20 @@ object TypedExpr {
           Some(in1)
         }
 
-      case Match(arg, branches, tag) =>
+      case Match(_, NonEmptyList((p, e), Nil), _) if p.names.isEmpty =>
+        // match x:
+        //   foo: fn
+        //
+        // where foo has no names can become just fn
+        normalize1(e)
+      case Match(arg, NonEmptyList((p, e), Nil), tag) if Pattern.singlyNamed(p).isDefined =>
         // match x:
         //   y: fn
         // let y = x in fn
+        val y = Pattern.singlyNamed(p).get
+        normalize1(Let(y, arg, e, RecursionKind.NonRecursive, tag))
+      case Match(arg, branches, tag) =>
+
         def ncount(e: TypedExpr[A]): (Int, TypedExpr[A]) =
           normalize(e) match {
             case None => (0, e)

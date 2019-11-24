@@ -23,7 +23,7 @@ sealed abstract class Pattern[+N, +T] {
    * List all the names that are bound in Vars inside this pattern
    * in the left to right order they are encountered, without any duplication
    */
-  def names: List[Bindable] = {
+  lazy val names: List[Bindable] = {
     @annotation.tailrec
     def loop(stack: List[Pattern[N, T]], seen: Set[Bindable], acc: List[Bindable]): List[Bindable] =
       stack match {
@@ -292,6 +292,30 @@ object Pattern {
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
   case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
+
+  /**
+   * If this pattern is:
+   * x
+   * (x: T)
+   * x@(unnamed)
+   * x | x | x
+   * then it is "singlyNamed"
+   */
+  def singlyNamed[N, T](p: Pattern[N, T]): Option[Bindable] =
+    p match {
+      case Var(b) => Some(b)
+      case Annotation(p, _) => singlyNamed(p)
+      case Named(b, inner) if inner.names.isEmpty => Some(b)
+      case Union(h, r) =>
+        singlyNamed(h)
+          .flatMap { b =>
+            r.foldM(b) { (b, pat) =>
+              singlyNamed(pat)
+                .filter(_ == b)
+            }
+          }
+      case _ => None
+    }
 
   implicit def patternOrdering[N: Ordering, T: Ordering]: Ordering[Pattern[N, T]] =
     new Ordering[Pattern[N, T]] {

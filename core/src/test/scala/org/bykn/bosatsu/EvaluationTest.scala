@@ -285,6 +285,7 @@ package Foo
 x = (1, "1")
 
 def go(u):
+  _ = ignore_binding(u)
   (_, y) = x
   match y:
     "1": "good"
@@ -424,14 +425,14 @@ evalTest(
   List("""
 package Foo
 
-main = range_fold(0, 10, 0, \x, y -> y)
+main = range_fold(0, 10, 0, \_, y -> y)
 """), "Foo", VInt(9))
 
 evalTest(
   List("""
 package Foo
 
-main = range_fold(0, 10, 100, \x, y -> x)
+main = range_fold(0, 10, 100, \x, _ -> x)
 """), "Foo", VInt(100))
   }
 
@@ -701,6 +702,25 @@ main = plus(1, 2)
 """), "A"){ case PackageError.TypeErrorIn(_, _) => () }
   }
 
+  test("unused let fails compilation") {
+    evalFail(
+      List("""
+package A
+
+# this shouldn't compile, z is unused
+def plus(x, y):
+  z = 1
+  x.add(y)
+
+main = plus(1, 2)
+"""), "A"){ case le@PackageError.UnusedLetError(_, _) =>
+      val msg = le.message(Map.empty, Colorize.None)
+      assert(!msg.contains("Name("))
+      assert(msg.contains("unused let binding: z\nRegion(68,84)"))
+      ()
+    }
+  }
+
   test("structual recursion is allowed") {
   evalTest(
     List("""
@@ -853,7 +873,7 @@ lst3 = [*[y, y] for (y, y) in [(x, x) for x in range(4)]]
 
 main = match (eq_List(lst1, lst2), eq_List(lst1, lst3)):
   (True, True): 1
-  notTrue: 0
+  _           : 0
 """), "A", VInt(1))
   }
 
@@ -938,9 +958,13 @@ def bad_len(list):
   recur list:
     []: 0
     [2] | [3]: -1
-    [*_, four@4]: -1
+    [*_, four@4]:
+      _ = ignore_binding(four)
+      -1
     [100, *_]: -1
-    [*init, last@(_: Int)]: bad_len(init).add(1)
+    [*init, last@(_: Int)]:
+      _ = ignore_binding(last)
+      bad_len(init).add(1)
 
 main = bad_len([1, 2, 3, 5])
 """), "A", VInt(4))
@@ -1554,12 +1578,12 @@ def get(sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t])
   result
 
 def create_field(rf: RecordField[t], fn: shape[RecordValue] -> t):
-  RecordGetter(\sh -> rf, \sh -> RecordValue(fn(sh)))
+  RecordGetter(\_ -> rf, \sh -> RecordValue(fn(sh)))
 
 def list_of_rows(RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
   def getter_to_row_entry(row: shape[RecordValue]):
     (result_fn: forall tt. RecordGetter[shape, tt] -> RecordRowEntry[RecordValue, tt]) = \RecordGetter(get_field, get_value) ->
-      RecordField(name, to_entry) = get_field(fields)
+      RecordField(_, to_entry) = get_field(fields)
       RecordRowEntry(to_entry(get_value(row)))
     result_fn
   # This code should work the same if, map_List or list comprehension, but didn't previously
@@ -1583,14 +1607,14 @@ def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), m
 struct NilShape[w]
 struct PS[t,rest,w](left: w[t], right: rest[w])
 
-new_record_set = RecordSet(NilShape, [], NilShape, \NilShape,fn -> NilShape, \NilShape -> [])
+new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, \NilShape -> [])
 
 (ps_end: forall t. RestructureOutput[t, NilShape]) = RestructureOutput(
-  \ns -> NilShape,
-  \ns -> NilShape,
+  \_ -> NilShape,
+  \_ -> NilShape,
   NilShape,
-  \ns,fn -> NilShape,
-  \ns -> []
+  \_, _ -> NilShape,
+  \_ -> []
 )
 
 def ps(
@@ -1647,7 +1671,7 @@ equal_rows = equal_List(equal_RowEntry)
 
 ##################################################
 
-rs_empty = new_record_set.restructure(\ns -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), ps("Bool field".bool_field(\_ -> True), ps_end))))
+rs_empty = new_record_set.restructure(\_ -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), ps("Bool field".bool_field(\_ -> True), ps_end))))
 
 rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 
@@ -2027,6 +2051,7 @@ struct Build[f]
 struct File
 
 def useList(args: List[Build[File]]):
+  _ = ignore_binding(args)
   True
 
 check = useList([])
@@ -2146,6 +2171,7 @@ fn = \x -> f(x)
 
 # trigger an optimization to remove y
 tests = Assertion(fn((y = 1
+_ = ignore_binding(y)
 2)), "t1")
 """), "A", 1)
 
