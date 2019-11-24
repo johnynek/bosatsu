@@ -802,7 +802,12 @@ final class SourceConverter(
               { t => success(toType(t)) })
 
           lam.map { l =>
-            (defstmt.name, RecursionKind.Recursive, l) :: Nil
+            // We rely on DefRecursionCheck to rule out bad recursions
+            val boundName = defstmt.name
+            val rec =
+              if (UnusedLetCheck.freeBound(l).contains(boundName)) RecursionKind.Recursive
+              else RecursionKind.NonRecursive
+            (boundName, rec, l) :: Nil
           }
         case ExternalDef(_, _, _) =>
           success(Nil)
