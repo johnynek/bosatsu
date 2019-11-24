@@ -139,8 +139,6 @@ object PackageMap {
     m.map(PackageMap(_)).toValidated
   }
 
-  type DupMap[A] = Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])]
-
   /**
    * Convenience method to create a PackageMap then resolve it
    */
@@ -300,16 +298,15 @@ object PackageMap {
           inferBody
             .flatMap { case (imps, program@Program(types, lets, _, _)) =>
               val ior = ExportedName
-                .buildExports(nm, exports, types, lets)
-                .map { exps => Package(nm, imps, exps, program) }
-                .leftMap { badPackages =>
-                  badPackages.map { n =>
-                    PackageError.UnknownExport(n, nm, lets): PackageError
-                  }
+                .buildExports(nm, exports, types, lets) match {
+                  case Validated.Valid(exps) =>
+                    Ior.right(Package(nm, imps, exps, program))
+                  case Validated.Invalid(badPackages) =>
+                    Ior.left(badPackages.map { n =>
+                      PackageError.UnknownExport(n, nm, lets): PackageError
+                    })
                 }
-                .toIor
-
-              IorT.fromIor[Par.F](ior)
+              IorT.fromIor(ior)
             }
             .value
         }
