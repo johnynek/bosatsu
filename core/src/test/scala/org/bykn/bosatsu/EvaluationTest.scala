@@ -285,7 +285,8 @@ package Foo
 x = (1, "1")
 
 def go(u):
-  _ = ignore_binding(u)
+  # ignore that u is unused
+  _ = u
   (_, y) = x
   match y:
     "1": "good"
@@ -716,7 +717,7 @@ main = plus(1, 2)
 """), "A"){ case le@PackageError.UnusedLetError(_, _) =>
       val msg = le.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
-      assert(msg.contains("unused let binding: z\nRegion(68,84)"))
+      assert(msg.contains("unused let binding: z\n  Region(68,84)"))
       ()
     }
   }
@@ -959,11 +960,13 @@ def bad_len(list):
     []: 0
     [2] | [3]: -1
     [*_, four@4]:
-      _ = ignore_binding(four)
+      #ignore_binding,
+      _ = four
       -1
     [100, *_]: -1
     [*init, last@(_: Int)]:
-      _ = ignore_binding(last)
+      #ignore binding
+      _ = last
       bad_len(init).add(1)
 
 main = bad_len([1, 2, 3, 5])
@@ -2051,7 +2054,8 @@ struct Build[f]
 struct File
 
 def useList(args: List[Build[File]]):
-  _ = ignore_binding(args)
+  # ignore args
+  _ = args
   True
 
 check = useList([])
@@ -2171,7 +2175,8 @@ fn = \x -> f(x)
 
 # trigger an optimization to remove y
 tests = Assertion(fn((y = 1
-_ = ignore_binding(y)
+# ignore y
+_ = y
 2)), "t1")
 """), "A", 1)
 

@@ -791,7 +791,7 @@ object TypedExpr {
           case Some(nonEmpty) =>
             normalize(in) match {
               case None =>
-                if (freeVars == frees) None
+                if (freeVars == vars.toList) None
                 else Some(Generic(nonEmpty, in, tag))
               case Some(in1) =>
                 Some(Generic(nonEmpty, in1, tag))
@@ -913,17 +913,16 @@ object TypedExpr {
           Some(in1)
         }
 
-      case Match(_, NonEmptyList((p, e), Nil), _) if p.names.isEmpty =>
+      case Match(_, NonEmptyList((p, e), Nil), _) if !freeVarsDup(e :: Nil).exists(p.names.toSet) =>
         // match x:
         //   foo: fn
         //
         // where foo has no names can become just fn
         normalize1(e)
-      case Match(arg, NonEmptyList((p, e), Nil), tag) if Pattern.singlyNamed(p).isDefined =>
+      case Match(arg, NonEmptyList((Pattern.SinglyNamed(y), e), Nil), tag) =>
         // match x:
         //   y: fn
         // let y = x in fn
-        val y = Pattern.singlyNamed(p).get
         normalize1(Let(y, arg, e, RecursionKind.NonRecursive, tag))
       case Match(arg, branches, tag) =>
 
@@ -932,14 +931,25 @@ object TypedExpr {
             case None => (0, e)
             case Some(e) => (1, e)
           }
-        // TODO normalize the patterns too
         // we can remove any bindings that aren't used in branches
-        val (changed, branches1) = branches.traverse { case (p, t) =>
-          val (c, t1) = ncount(t)
-          (c, (p, t1))
-        }
+        val (changed, branches1) =
+          branches
+            .traverse { case (p, t) =>
+              val (c, t1) = ncount(t)
+              val freeT1 = freeVarsDup(t1 :: Nil).toSet
+              // we don't need to keep any variables that aren't free
+              // TODO: we can still replace total matches with _
+              // such as Foo(_, _, _) for structs or unions that are total
+              val p1 = p.filterVars(freeT1)
+              val c1 = if (p1 == p) c else (c + 1)
+              (c1, (p1, t1))
+            }
         val a1 = normalize1(arg).get
         if ((a1 eq arg) && (changed == 0)) None
-        else Some(Match(a1, branches1, tag))
+        else {
+          // there has been some change, so
+          // see if that unlocked any new changes
+          normalize1(Match(a1, branches1, tag))
+        }
     }
 }

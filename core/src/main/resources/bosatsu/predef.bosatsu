@@ -26,7 +26,6 @@ export [
   get_key,
   int_loop,
   items,
-  ignore_binding,
   map_List,
   mod_Int,
   range,
@@ -76,10 +75,6 @@ def concat(front: List[a], back: List[a]) -> List[a]:
   match back:
     []: front
     _: reverse_concat(reverse(front), back)
-
-# since we error on unused bindings, we need this to declare it
-# it is safe to ignore
-def ignore_binding(_): Unit
 
 def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
   \(x1, x2) -> f(x1, x2)

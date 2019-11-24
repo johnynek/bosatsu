@@ -237,9 +237,17 @@ object Package {
               NonEmptyList.one(PackageError.UnusedLetError(p, errs.toNonEmptyList))
             }
 
+          /**
+           * Checks accumulate errors, but have no return value:
+           */
+          val checks = List(
+              defRecursionCheck, circularCheck, checkUnusedLets, totalityCheck
+            )
+            .sequence_
+
           val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
 
-          defRecursionCheck *> circularCheck *> checkUnusedLets *> totalityCheck *> inference
+          checks *> inference
         }
     }
   }

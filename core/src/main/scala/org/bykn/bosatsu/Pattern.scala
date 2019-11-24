@@ -299,23 +299,23 @@ object Pattern {
    * (x: T)
    * x@(unnamed)
    * x | x | x
-   * then it is "singlyNamed"
+   * then it is "SinglyNamed"
    */
-  def singlyNamed[N, T](p: Pattern[N, T]): Option[Bindable] =
-    p match {
-      case Var(b) => Some(b)
-      case Annotation(p, _) => singlyNamed(p)
-      case Named(b, inner) if inner.names.isEmpty => Some(b)
-      case Union(h, r) =>
-        singlyNamed(h)
-          .flatMap { b =>
-            r.foldM(b) { (b, pat) =>
-              singlyNamed(pat)
-                .filter(_ == b)
-            }
+  object SinglyNamed {
+    def unapply[N, T](p: Pattern[N, T]): Option[Bindable] =
+      p match {
+        case Var(b) => Some(b)
+        case Annotation(SinglyNamed(b), _) => Some(b)
+        case Named(b, inner) =>
+          if (inner.names.isEmpty) Some(b)
+          else unapply(inner).filter(_ == b)
+        case Union(SinglyNamed(b), r) =>
+          r.foldM(b) { (b, pat) =>
+            unapply(pat).filter(_ == b)
           }
-      case _ => None
-    }
+        case _ => None
+      }
+  }
 
   implicit def patternOrdering[N: Ordering, T: Ordering]: Ordering[Pattern[N, T]] =
     new Ordering[Pattern[N, T]] {
