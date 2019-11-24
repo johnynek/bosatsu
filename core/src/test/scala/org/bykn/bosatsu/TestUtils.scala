@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Eval
-import cats.data.Validated
+import cats.data.{Ior, Validated}
 import cats.implicits._
 import fastparse.all._
 import org.bykn.bosatsu.rankn._
@@ -9,6 +9,7 @@ import org.scalatest.{Assertion, Assertions}
 import scala.concurrent.ExecutionContext
 
 import Assertions.{succeed, fail}
+import IorMethods.IorExtension
 
 object TestUtils {
   import TestParseUtils.region
@@ -23,7 +24,7 @@ object TestUtils {
 
     val stmt = statementsOf(pack, str)
     val srcConv = SourceConverter(pack, Nil, Statement.definitionsOf(stmt))
-    val cats.data.Ior.Right(prog) = srcConv.toProgram(stmt)
+    val Ior.Right(prog) = srcConv.toProgram(stmt)
     TypeEnv.fromParsed(prog.types._2)
   }
 
@@ -66,7 +67,7 @@ object TestUtils {
   def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion =
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmts, _) =>
-        Package.inferBody(PackageName.parts("Test"), Nil, stmts) match {
+        Package.inferBody(PackageName.parts("Test"), Nil, stmts).strictToValidated match {
           case Validated.Invalid(errs) =>
             fail("inference failure: " + errs.toList.map(_.message(Map.empty, LocationMap.Colorize.None)).mkString("\n"))
           case Validated.Valid(program) =>
@@ -141,7 +142,7 @@ object TestUtils {
       Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
         ((i.toString, lm), parsed)
       }
-    }
+  }
 
     val parsedPaths = parsed match {
       case Validated.Valid(vs) => vs
@@ -155,18 +156,23 @@ object TestUtils {
     // use parallelism to typecheck
     import ExecutionContext.Implicits.global
 
-    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths), Nil) match {
-      case (dups, Validated.Valid(packMap)) if dups.isEmpty =>
-        inferredHandler(packMap, mainPack)
+    val fullParsed =
+        Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
+          .map { case ((path, lm), p) => (path, p) }
 
-      case (other, Validated.Invalid(errs)) =>
-        val tes = errs.toList.collect {
-          case PackageError.TypeErrorIn(te, _) =>
-            te.message
-        }
-        .mkString("\n")
-        fail(tes + "\n" + errs.toString)
-    }
+    PackageMap
+      .resolveThenInfer(fullParsed , Nil).strictToValidated match {
+        case Validated.Valid(packMap) =>
+          inferredHandler(packMap, mainPack)
+
+        case Validated.Invalid(errs) =>
+          val tes = errs.toList.collect {
+            case PackageError.TypeErrorIn(te, _) =>
+              te.message
+          }
+          .mkString("\n")
+          fail(tes + "\n" + errs.toString)
+      }
   }
   sealed abstract class NormalTestMode[A] {
     def expected: A
@@ -241,17 +247,20 @@ object TestUtils {
 
     // use parallelism to typecheck
     import ExecutionContext.Implicits.global
-    val withPre = Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
-    PackageMap.resolveThenInfer(withPre, Nil) match {
-      case (_, Validated.Valid(_)) =>
+    val withPre =
+      Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
+
+    val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
+    PackageMap.resolveThenInfer(withPrePaths, Nil).left match {
+      case None =>
         fail("expected to fail type checking")
 
-      case (sm, Validated.Invalid(errs)) if errs.collect(errFn).nonEmpty =>
+      case Some(errs) if errs.collect(errFn).nonEmpty =>
         // make sure we can print the messages:
         val sm = PackageMap.buildSourceMap(withPre)
         errs.toList.foreach(_.message(sm, LocationMap.Colorize.None))
         assert(true)
-      case (_, Validated.Invalid(errs)) =>
+      case Some(errs) =>
           fail(s"failed, but no type errors: $errs")
     }
   }

@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Monad
+import cats.{Monad, Parallel}
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.concurrent.duration.Duration
 
@@ -16,6 +16,10 @@ object Par {
 
   implicit def orgByknBosatsuParFMonad(implicit ec: ExecutionContext): Monad[F] =
     cats.implicits.catsStdInstancesForFuture
+
+  // since Future has already started, standard Parallel.identity is parallel
+  implicit def orgByknBosatsuParParallel(implicit ec: ExecutionContext): Parallel[F] =
+    Parallel.identity
 
   @inline def start[A](a: => A)(implicit ec: ExecutionContext): F[A] =
     Future(a)

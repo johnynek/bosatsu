@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Functor, Semigroup}
+import cats.Functor
 import cats.data.{Chain, Ior, ValidatedNel, Validated, NonEmptyList, Writer}
 import cats.implicits._
 import fastparse.all._
@@ -148,7 +148,7 @@ object Package {
     p: PackageName,
     imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
     stmts: List[Statement]):
-      ValidatedNel[PackageError,
+      Ior[NonEmptyList[PackageError],
       Program[TypeEnv[Variance], TypedExpr[Declaration], List[Statement]]] = {
 
     // here we make a pass to get all the local names
@@ -157,25 +157,17 @@ object Package {
       .toProgram(stmts)
       .leftMap(_.map(PackageError.SourceConverterErrorIn(_, p): PackageError).toNonEmptyList)
 
-    def andThen[A: Semigroup, B, C](ior: Ior[A, B])(fn: B => Validated[A, C]): Validated[A, C] =
-      ior match {
-        case Ior.Right(b) => fn(b)
-        case Ior.Left(a) => Validated.Invalid(a)
-        case Ior.Both(a, b) =>
-          fn(b) match {
-            case Validated.Valid(_) => Validated.Invalid(a)
-            case Validated.Invalid(a1) => Validated.Invalid(Semigroup[A].combine(a, a1))
-          }
-      }
-
-    andThen(optProg) {
+    optProg.flatMap {
       case Program((importedTypeEnv, parsedTypeEnv), lets, extDefs, _) =>
-        val inferVarianceParsed: Either[PackageError, ParsedTypeEnv[Variance]] =
-          VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
-            .map { infDTs => ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs) }
-            .leftMap(PackageError.VarianceInferenceFailure(p, _))
+        val inferVarianceParsed: Ior[NonEmptyList[PackageError], ParsedTypeEnv[Variance]] =
+          VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes) match {
+            case Right(infDTs) =>
+              Ior.right(ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs))
+            case Left(err) =>
+              Ior.left(NonEmptyList.one(PackageError.VarianceInferenceFailure(p, err)))
+          }
 
-        inferVarianceParsed.toValidatedNel.andThen { parsedTypeEnv =>
+        inferVarianceParsed.flatMap { parsedTypeEnv =>
           /*
            * Check that the types defined here are not circular.
            */
@@ -247,7 +239,9 @@ object Package {
 
           val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
 
-          checks *> inference
+          // warning: if we refactor this from validated, we need parMap on Ior to get this
+          // error accumulation
+          (checks *> inference).toIor
         }
     }
   }
@@ -544,6 +538,28 @@ object PackageError {
         Doc.hardLine + ctx + Doc.hardLine
 
       doc.render(80)
+    }
+  }
+
+  case class DuplicatedPackageError[A](dups: Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], show: A => String) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
+      val packDoc = Doc.text("package ")
+      val dupInDoc = Doc.text(" duplicated in ")
+      val dupMessages = dups
+        .toList
+        .sortBy(_._1)
+        .map { case (pname, (one, nelist)) =>
+          val dupsrcs = Doc.intercalate(Doc.comma + Doc.lineOrSpace,
+            (one :: nelist.toList)
+              .map { case (s, _) => show(s) }
+              .sorted
+              .map(Doc.text(_))
+            )
+            .nested(4)
+          packDoc + Doc.text(pname.asString) + dupInDoc + dupsrcs
+        }
+
+      Doc.intercalate(Doc.line, dupMessages).render(80)
     }
   }
 }
