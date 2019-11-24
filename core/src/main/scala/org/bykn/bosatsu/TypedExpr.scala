@@ -958,7 +958,24 @@ object TypedExpr {
               (changed0, branches1)
           }
         val a1 = normalize1(arg).get
-        if ((a1 eq arg) && (changed1 == 0)) None
+        if (changed1 == 0) {
+          // if only the arg changes, there
+          // is no need to rerun the normalization
+          // because normalization of branches
+          // does not depend on the arg
+          //
+          // This needs to be rethought if we have
+          // a normalization like:
+          // match (x, y):
+          //   (z, w): fn
+          //
+          // to
+          //  z = x
+          //  w = y
+          //  fn
+          if (a1 eq arg) None
+          else Some(Match(a1, branches, tag))
+        }
         else {
           // there has been some change, so
           // see if that unlocked any new changes

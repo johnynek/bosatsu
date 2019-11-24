@@ -229,7 +229,7 @@ object Package {
               NonEmptyList.one(PackageError.UnusedLetError(p, errs.toNonEmptyList))
             }
 
-          /**
+          /*
            * Checks accumulate errors, but have no return value:
            */
           val checks = List(
