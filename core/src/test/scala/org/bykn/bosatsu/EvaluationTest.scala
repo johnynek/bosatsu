@@ -2099,6 +2099,22 @@ main = 1
     }
   }
 
+  test("test duplicate package message") {
+    val pack =
+      """
+        |package Err
+        |
+        |import Bosatsu/Predef [ foldLeft ]
+        |
+        |main = 1
+        |""".stripMargin
+
+    evalFail(List(pack, pack), "Err") { case sce@PackageError.DuplicatedPackageError(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "package Err duplicated in 0, 1")
+      ()
+    }
+  }
+
   test("test parsing type annotations") {
     runBosatsuTest(List("""
 package A
