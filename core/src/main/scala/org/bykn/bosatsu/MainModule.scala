@@ -276,7 +276,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                           packs.map { case ((path, _), p) => (path, p.name) }.toList
                         Success((p, pathToName))
                       case Validated.Invalid(errs) =>
-                        errors(errs.map(_.message(sourceMap, errColor)).toList)
+                        val distinct = errs.toList.distinct
+                        errors(distinct.map(_.message(sourceMap, errColor)))
                     }
                   case None =>
                     Success((PackageMap.empty, Nil))

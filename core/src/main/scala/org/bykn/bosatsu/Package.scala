@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Functor
+import cats.{Functor, Parallel}
 import cats.data.{Chain, Ior, ValidatedNel, Validated, NonEmptyList, Writer}
 import cats.implicits._
 import fastparse.all._
@@ -231,6 +231,8 @@ object Package {
 
           /*
            * Checks accumulate errors, but have no return value:
+           * warning: if we refactor this from validated, we need parMap on Ior to get this
+           * error accumulation
            */
           val checks = List(
               defRecursionCheck, circularCheck, checkUnusedLets, totalityCheck
@@ -239,9 +241,8 @@ object Package {
 
           val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
 
-          // warning: if we refactor this from validated, we need parMap on Ior to get this
-          // error accumulation
-          (checks *> inference).toIor
+          Parallel[Ior[NonEmptyList[PackageError], ?]]
+            .parProductR(checks.toIor)(inference.toIor)
         }
     }
   }
