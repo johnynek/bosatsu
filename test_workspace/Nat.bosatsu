@@ -1,7 +1,7 @@
 package Bosatsu/Nat
 
 import Bosatsu/Predef [ add as operator +, times as operator * ]
-export [ Nat(), times2, add, mult, to_Int ]
+export [ Nat(), times2, add, mult, to_Int, to_Nat ]
 
 # This is the traditional encoding of natural numbers
 # it is useful when you are iterating on all values, but
@@ -35,9 +35,14 @@ def mult(n1: Nat, n2: Nat) -> Nat:
           Succ(mult(n1, n2).add(add(n1, n2)))
 
 def to_Int(n: Nat) -> Int:
-  recur n:
-    Zero: 0
-    Succ(n): to_Int(n) + 1
+    def loop(n: Nat, acc: Int):
+      recur n:
+        Zero: acc
+        Succ(n): loop(n, acc + 1)
+    loop(n, 0)
+
+def to_Nat(i: Int) -> Nat:
+  int_loop(i, Zero, \i, nat -> (i.sub(1), Succ(nat)))
 
 ################
 # Test code below
@@ -60,6 +65,19 @@ def addLaw(n1: Nat, n2: Nat, label: String) -> Test:
 
 def multLaw(n1: Nat, n2: Nat, label: String) -> Test:
   Assertion(mult(n1, n2).to_Int == (n1.to_Int * n2.to_Int), label)
+
+def from_to_law(i: Int, message: String) -> Test:
+    Assertion(i.to_Nat.to_Int == i, message)
+
+def from_to_suite:
+    TestSuite("to_Nat/to_Int tests", [
+        Assertion(-1.to_Nat.to_Int == 0, "-1 -> 0"),
+        Assertion(-42.to_Nat.to_Int == 0, "-42 -> 0"),
+        from_to_law(0, "0"),
+        from_to_law(1, "1"),
+        from_to_law(10, "10"),
+        from_to_law(42, "42"),
+    ])
 
 tests = TestSuite("Nat tests",
   [
