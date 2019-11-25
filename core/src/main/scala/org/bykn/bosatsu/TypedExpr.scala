@@ -177,6 +177,47 @@ object TypedExpr {
           }
           (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
       }
+
+    /**
+     * This applies fn on all the contained types, replaces the elements, then calls on the
+     * resulting. This is "bottom up"
+     */
+    def traverseUp[F[_]: Monad](fn: TypedExpr[A] => F[TypedExpr[A]]): F[TypedExpr[A]] = {
+      // be careful not to mistake loop with fn
+      def loop(te: TypedExpr[A]): F[TypedExpr[A]] = te.traverseUp(fn)
+
+      self match {
+        case Generic(params, expr, tag) =>
+          loop(expr).flatMap { fx =>
+            fn(Generic(params, fx, tag))
+          }
+        case Annotation(of, tpe, tag) =>
+          loop(of).flatMap { o2 =>
+            fn(Annotation(o2, tpe, tag))
+          }
+        case AnnotatedLambda(arg, tpe, res, tag) =>
+          loop(res).flatMap { res1 =>
+            fn(AnnotatedLambda(arg, tpe, res1, tag))
+          }
+        case v@(Var(_, _, _, _) | Literal(_, _, _)) =>
+            fn(v)
+        case App(f, arg, tpe, tag) =>
+          (loop(f), loop(arg))
+            .mapN(App(_, _, tpe, tag))
+            .flatMap(fn)
+        case Let(v, exp, in, rec, tag) =>
+          (loop(exp), loop(in))
+            .mapN(Let(v, _, _, rec, tag))
+            .flatMap(fn)
+        case Match(expr, branches, tag) =>
+          val tbranch = branches.traverse {
+            case (p, t) => loop(t).map((p, _))
+          }
+          (loop(expr), tbranch)
+            .mapN(Match(_, _, tag))
+            .flatMap(fn)
+      }
+    }
   }
 
   def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(fn: Type.Meta => F[Option[Type.Rho]]): F[TypedExpr[A]] =
