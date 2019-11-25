@@ -177,6 +177,47 @@ object TypedExpr {
           }
           (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
       }
+
+    /**
+     * This applies fn on all the contained types, replaces the elements, then calls on the
+     * resulting. This is "bottom up"
+     */
+    def traverseUp[F[_]: Monad](fn: TypedExpr[A] => F[TypedExpr[A]]): F[TypedExpr[A]] = {
+      // be careful not to mistake loop with fn
+      def loop(te: TypedExpr[A]): F[TypedExpr[A]] = te.traverseUp(fn)
+
+      self match {
+        case Generic(params, expr, tag) =>
+          loop(expr).flatMap { fx =>
+            fn(Generic(params, fx, tag))
+          }
+        case Annotation(of, tpe, tag) =>
+          loop(of).flatMap { o2 =>
+            fn(Annotation(o2, tpe, tag))
+          }
+        case AnnotatedLambda(arg, tpe, res, tag) =>
+          loop(res).flatMap { res1 =>
+            fn(AnnotatedLambda(arg, tpe, res1, tag))
+          }
+        case v@(Var(_, _, _, _) | Literal(_, _, _)) =>
+            fn(v)
+        case App(f, arg, tpe, tag) =>
+          (loop(f), loop(arg))
+            .mapN(App(_, _, tpe, tag))
+            .flatMap(fn)
+        case Let(v, exp, in, rec, tag) =>
+          (loop(exp), loop(in))
+            .mapN(Let(v, _, _, rec, tag))
+            .flatMap(fn)
+        case Match(expr, branches, tag) =>
+          val tbranch = branches.traverse {
+            case (p, t) => loop(t).map((p, _))
+          }
+          (loop(expr), tbranch)
+            .mapN(Match(_, _, tag))
+            .flatMap(fn)
+      }
+    }
   }
 
   def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(fn: Type.Meta => F[Option[Type.Rho]]): F[TypedExpr[A]] =
@@ -791,7 +832,7 @@ object TypedExpr {
           case Some(nonEmpty) =>
             normalize(in) match {
               case None =>
-                if (freeVars == frees) None
+                if (freeVars == vars.toList) None
                 else Some(Generic(nonEmpty, in, tag))
               case Some(in1) =>
                 Some(Generic(nonEmpty, in1, tag))
@@ -913,23 +954,73 @@ object TypedExpr {
           Some(in1)
         }
 
-      case Match(arg, branches, tag) =>
+      case Match(_, NonEmptyList((p, e), Nil), _) if !freeVarsDup(e :: Nil).exists(p.names.toSet) =>
+        // match x:
+        //   foo: fn
+        //
+        // where foo has no names can become just fn
+        normalize1(e)
+      case Match(arg, NonEmptyList((Pattern.SinglyNamed(y), e), Nil), tag) =>
         // match x:
         //   y: fn
         // let y = x in fn
+        normalize1(Let(y, arg, e, RecursionKind.NonRecursive, tag))
+      case Match(arg, branches, tag) =>
+
         def ncount(e: TypedExpr[A]): (Int, TypedExpr[A]) =
           normalize(e) match {
             case None => (0, e)
             case Some(e) => (1, e)
           }
-        // TODO normalize the patterns too
         // we can remove any bindings that aren't used in branches
-        val (changed, branches1) = branches.traverse { case (p, t) =>
-          val (c, t1) = ncount(t)
-          (c, (p, t1))
-        }
+        val (changed0, branches1) =
+          branches
+            .traverse { case (p, t) =>
+              val (c, t1) = ncount(t)
+              val freeT1 = freeVarsDup(t1 :: Nil).toSet
+              // we don't need to keep any variables that aren't free
+              // TODO: we can still replace total matches with _
+              // such as Foo(_, _, _) for structs or unions that are total
+              val p1 = p.filterVars(freeT1)
+              val c1 = if (p1 == p) c else (c + 1)
+              (c1, (p1, t1))
+            }
+        // due to total matches, the last branch without any bindings
+        // can always be rewritten as _
+        val (changed1, branches1a) =
+          branches1.last._1 match {
+            case Pattern.WildCard =>
+              (changed0, branches1)
+            case notWild if notWild.names.isEmpty =>
+              val newb = branches1.init ::: ((Pattern.WildCard, branches1.last._2) :: Nil)
+              // this newb list clearly has more than 0 elements
+              (changed0 + 1, NonEmptyList.fromListUnsafe(newb))
+            case _ =>
+              (changed0, branches1)
+          }
         val a1 = normalize1(arg).get
-        if ((a1 eq arg) && (changed == 0)) None
-        else Some(Match(a1, branches1, tag))
+        if (changed1 == 0) {
+          // if only the arg changes, there
+          // is no need to rerun the normalization
+          // because normalization of branches
+          // does not depend on the arg
+          //
+          // This needs to be rethought if we have
+          // a normalization like:
+          // match (x, y):
+          //   (z, w): fn
+          //
+          // to
+          //  z = x
+          //  w = y
+          //  fn
+          if (a1 eq arg) None
+          else Some(Match(a1, branches, tag))
+        }
+        else {
+          // there has been some change, so
+          // see if that unlocked any new changes
+          normalize1(Match(a1, branches1a, tag))
+        }
     }
 }

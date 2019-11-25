@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Functor
+import cats.{Functor, Parallel}
 import cats.data.{Chain, Ior, ValidatedNel, Validated, NonEmptyList, Writer}
 import cats.implicits._
 import fastparse.all._
@@ -221,11 +221,28 @@ object Package {
             .left
             .map(PackageError.TypeErrorIn(_, p))
 
+          val checkUnusedLets =
+            lets.traverse_ { case (_, _, expr) =>
+              UnusedLetCheck.check(expr)
+            }
+            .leftMap { errs =>
+              NonEmptyList.one(PackageError.UnusedLetError(p, errs.toNonEmptyList))
+            }
+
+          /*
+           * Checks accumulate errors, but have no return value:
+           * warning: if we refactor this from validated, we need parMap on Ior to get this
+           * error accumulation
+           */
+          val checks = List(
+              defRecursionCheck, circularCheck, checkUnusedLets, totalityCheck
+            )
+            .sequence_
+
           val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
 
-          // warning: if we refactor this from validated, we need parMap on Ior to get this
-          // error accumulation
-          (defRecursionCheck *> circularCheck *> totalityCheck *> inference).toIor
+          Parallel[Ior[NonEmptyList[PackageError], ?]]
+            .parProductR(checks.toIor)(inference.toIor)
         }
     }
   }
@@ -491,6 +508,23 @@ object PackageError {
         context1 + Doc.hardLine + teMessage
 
       doc.render(80)
+    }
+  }
+
+  case class UnusedLetError(pack: PackageName, errs: NonEmptyList[(Identifier.Bindable, Region)]) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
+      val (lm, sourceName) = getMapSrc(sourceMap, pack)
+      val docs = errs
+        .sortBy(_._2)
+        .map { case (bn, region) =>
+          val rdoc = lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region)) // we should highlight the whole region
+          val message = Doc.text("unused let binding: " + bn.sourceCodeRepr)
+          message + Doc.hardLine + rdoc
+        }
+
+      val packDoc = Doc.text(s"in package ${pack.asString}:")
+      val line2 = Doc.hardLine + Doc.hardLine
+      (packDoc + (line2 + Doc.intercalate(line2, docs.toList)).nested(2)).render(80)
     }
   }
 
