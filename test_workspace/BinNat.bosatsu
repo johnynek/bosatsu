@@ -137,7 +137,6 @@ def fold_left_BinNat(fn: a -> BinNat -> a, init: a, cnt: BinNat) -> a:
 
 # fibonacci using the fuel pattern
 def fib(b: BinNat) -> BinNat:
-    bnat = toNat(b)
     def loop(n: Nat, cur: BinNat, next: BinNat) -> BinNat:
         recur n:
             NatZero: cur

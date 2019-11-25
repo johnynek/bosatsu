@@ -33,15 +33,15 @@ def cons(head: a, TreeList(tail): TreeList[a]) -> TreeList[a]:
     []: TreeList([Single(head)])
     [s1 @ Single(_)]:
       TreeList([Single(head), s1])
-    [s1 @ Single(_), b1 @Branch(_, _, _, _), *t]:
+    [ Single(_), b1 @Branch(_, _, _, _), *t]:
       TreeList([Single(head), b1, *t])
     [s1 @ Single(_), s2 @ Single(_), *t]:
       TreeList([Branch(3, head, s1, s2), *t])
-    [Branch(_, _, _, _), Single(_), *t]:
+    [Branch(_, _, _, _), Single(_), *_]:
       # illegal state, we can just return empty
       empty
     [branch @ Branch(_, _, _, _)]: TreeList([Single(head), branch])
-    [Branch(_, _, _, _), Single(_), *t]: empty
+    [Branch(_, _, _, _), Single(_), *_]: empty
     [b1@Branch(s1, _, _, _), b2@Branch(s2, _, _, _), *t]:
       if (eq_Int(s1, s2)):
         TreeList([Branch(s1 + s2 + 1, head, b1, b2), *t])

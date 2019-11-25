@@ -56,13 +56,13 @@ package Recur/Some
 def foo(x):
   recur x:
     []: ["a","b","c"]
-    [h, *t]: NonEmptyList("zero", foo(t))
+    [_, *t]: NonEmptyList("zero", foo(t))
 
 out = foo
 """
       ), "Recur/Some", Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.fromList(List(
         (ListPat(List()),Struct(1,List(Literal(Str("a")), Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(0,List())))))))),
-        (ListPat(List(Right(Var(1)), Left(Some(0)))),Lambda(Lambda(Struct(1,List(Literal(Str("zero")), App(LambdaVar(3),LambdaVar(0)))))))
+        (ListPat(List(Right(WildCard), Left(Some(0)))),Lambda(Struct(1,List(Literal(Str("zero")), App(LambdaVar(2),LambdaVar(0))))))
       )).get))))
     )
   }
@@ -81,7 +81,7 @@ out = \x -> x
       List("""
 package Lambda/Always
 
-out = \x -> \y -> x
+out = \x -> \_ -> x
 """
       ), "Lambda/Always", NormalExpressionTag(
         Lambda(Lambda(LambdaVar(1))), Set(Lambda(LambdaVar(1)), LambdaVar(1))
@@ -91,7 +91,7 @@ out = \x -> \y -> x
       List("""
 package Lambda/Always
 
-out = \x -> \y -> y
+out = \_ -> \y -> y
 """
       ), "Lambda/Always", NormalExpressionTag(
         Lambda(Lambda(LambdaVar(0))), Set(Lambda(LambdaVar(0)), LambdaVar(0))
@@ -127,7 +127,7 @@ out = foo
       List("""
 package Lambda/Always
 
-def foo(x,y):
+def foo(x, _):
   x
 out = foo
 """
@@ -139,7 +139,7 @@ out = foo
       List("""
 package Lambda/Always
 
-def foo(x,y):
+def foo(_, y):
   y
 out = foo
 """
@@ -194,7 +194,7 @@ out=match None:
 package Match/List
 
 out = match [1,2,3]:
-  [first, second, last]: last
+  [_, _, last]: last
   _: 0
 """
       ), "Match/List",
@@ -205,7 +205,7 @@ out = match [1,2,3]:
 package Match/List
 
 out = match [1,2,3,4,5]:
-  [*first_few, _, _, last]: last
+  [*_, _, _, last]: last
   _: 0
 """
       ), "Match/List",
@@ -359,18 +359,18 @@ package Extern/List
 external def foo(x: String) -> List[String]
 
 out = match foo("arg"):
-  [*first_few, _, _, last]: last
+  [*_, _, _, last]: last
   _: "'zero\\'"
 """
       ), "Extern/List",
       Match(
         App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "List")).get),Identifier.Name("foo")),Literal(Str("arg"))),
         NonEmptyList.fromList(List(
-          (ListPat(List(Left(Some(0)), Right(WildCard), Right(WildCard), Right(Var(1)))),Lambda(Lambda(LambdaVar(1)))),
+          (ListPat(List(Left(None), Right(WildCard), Right(WildCard), Right(Var(0)))),Lambda(LambdaVar(0))),
         (WildCard,Literal(Str("'zero\\'")))
         )).get
       ),
-      Some("Match(App(ExternalVar('Extern/List','foo'),Literal('arg')),ListPat(Left(0),Right(WildCard),Right(WildCard),Right(Var(1))),Lambda(Lambda(LambdaVar(1))),WildCard,Literal('\\'zero\\\\\\''))")
+      Some("Match(App(ExternalVar('Extern/List','foo'),Literal('arg')),ListPat(Left(),Right(WildCard),Right(WildCard),Right(Var(0))),Lambda(LambdaVar(0)),WildCard,Literal('\\'zero\\\\\\''))")
     )
     normalExpressionTest(
       List("""
@@ -379,14 +379,14 @@ package Extern/List
 external def foo(x: String) -> List[String]
 
 out = match foo("arg"):
-  [*first_few, _, _, last]: last
+  [*_, _, _, last]: last
   _: "zero"
 """
         ), "Extern/List",
       Match(
         App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "List")).get),Identifier.Name("foo")),Literal(Str("arg"))),
         NonEmptyList.fromList(List(
-          (ListPat(List(Left(Some(0)), Right(WildCard), Right(WildCard), Right(Var(1)))),Lambda(Lambda(LambdaVar(1)))),
+          (ListPat(List(Left(None), Right(WildCard), Right(WildCard), Right(Var(0)))),Lambda(LambdaVar(0))),
           (WildCard,Literal(Str("zero")))
         )).get
       )
@@ -400,14 +400,14 @@ external def foo(x: String) -> List[String]
 struct Stuff(a,b)
 
 out = match Stuff(foo("c"), "d"):
-  Stuff(lst@[x], _): lst
+  Stuff(lst@[_], _): lst
   Stuff(_, y): [y]
 """
         ), "Extern/NamedMatch",
       Match(
         Struct(0,List(App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "NamedMatch")).get),Identifier.Name("foo")),Literal(Str("c"))), Literal(Str("d")))),
         NonEmptyList.fromList(List(
-          (PositionalStruct(None,List(Named(0,ListPat(List(Right(Var(1))))), WildCard)),Lambda(Lambda(LambdaVar(0)))),
+          (PositionalStruct(None,List(Named(0,ListPat(List(Right(WildCard)))), WildCard)),Lambda(LambdaVar(0))),
           (PositionalStruct(None,List(WildCard, Var(0))),Lambda(Struct(1,List(LambdaVar(0), Struct(0,List())))))
         )).get
       )
@@ -440,7 +440,7 @@ package Substitution/Lambda
 def rec_fn(lst1):
   recur lst1:
     []: True
-    [h1, *t1]: rec_fn(t1)
+    [_, *t1]: rec_fn(t1)
 
 lst1 = ["zooom"]
 main = (rec_fn(lst1), rec_fn(lst1))
@@ -448,9 +448,9 @@ main = (rec_fn(lst1), rec_fn(lst1))
       ), "Substitution/Lambda",
       Struct(0,
         List(
-          App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((ListPat(List()),Struct(1,List())), (ListPat(List(Right(Var(1)), Left(Some(0)))),Lambda(Lambda(App(LambdaVar(3), LambdaVar(0)))))))))),Struct(1,List(Literal(Str("zooom")),Struct(0,List())))),
+          App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((ListPat(List()),Struct(1,List())), (ListPat(List(Right(WildCard), Left(Some(0)))),Lambda(App(LambdaVar(2), LambdaVar(0))))))))),Struct(1,List(Literal(Str("zooom")),Struct(0,List())))),
           Struct(0,List(
-            App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((ListPat(List()),Struct(1,List())),(ListPat(List(Right(Var(1)), Left(Some(0)))),Lambda(Lambda(App(LambdaVar(3), LambdaVar(0)))))))))),Struct(1,List(Literal(Str("zooom")), Struct(0,List())))),
+            App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((ListPat(List()),Struct(1,List())),(ListPat(List(Right(WildCard), Left(Some(0)))),Lambda(App(LambdaVar(2), LambdaVar(0))))))))),Struct(1,List(Literal(Str("zooom")), Struct(0,List())))),
             Struct(0,List())
           ))
         )

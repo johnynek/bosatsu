@@ -492,7 +492,7 @@ enum List:
 x = NonEmpty(1, Empty)
 main = match x:
   Empty: 0
-  NonEmpty(y, z): y
+  NonEmpty(y, _): y
 """, "Int")
 
    parseProgram("""#
@@ -527,7 +527,7 @@ def use_bind(m: Monad[f], a, b, c):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  bind(a1)(\x -> bind(b1)(\x -> c1))
+  bind(a1)(\_ -> bind(b1)(\_ -> c1))
 
 main = use_bind(option_monad, None, None, None)
 """, "forall a. Opt[a]")
@@ -556,7 +556,7 @@ def use_bind(a, b, c, m: Monad[f]):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  bind(a1)(\x -> bind(b1)(\x -> c1))
+  bind(a1)(\_ -> bind(b1)(\_ -> c1))
 
 main = use_bind(None, None, None, option_monad)
 """, "forall a. Opt[a]")
@@ -627,7 +627,7 @@ main = apply(id, Foo)
 
     parseProgram("""#
 struct Foo
-(id: forall a. a -> Foo) = \x -> Foo
+(id: forall a. a -> Foo) = \_ -> Foo
 
 (idFoo: Foo -> Foo) = id
 
@@ -640,7 +640,7 @@ main = Foo
     parseProgramIllTyped("""#
 
 struct Foo
-(idFooRet: forall a. a -> Foo) = \x -> Foo
+(idFooRet: forall a. a -> Foo) = \_ -> Foo
 
 (id: forall a. a -> a) = idFooRet
 
@@ -652,10 +652,10 @@ enum Foo: Bar, Baz
 
 (bar1: forall a. (Foo -> a) -> a) = \fn -> fn(Bar)
 (baz1: forall a. (Foo -> a) -> a) = \fn -> fn(Baz)
-(bar2: forall a. (a -> Foo) -> Foo) = \fn -> Bar
-(baz2: forall a. (a -> Foo) -> Foo) = \fn -> Baz
-(bar3: ((forall a. a) -> Foo) -> Foo) = \fn -> Bar
-(baz3: ((forall a. a) -> Foo) -> Foo) = \fn -> Baz
+(bar2: forall a. (a -> Foo) -> Foo) = \_ -> Bar
+(baz2: forall a. (a -> Foo) -> Foo) = \_ -> Baz
+(bar3: ((forall a. a) -> Foo) -> Foo) = \_ -> Bar
+(baz3: ((forall a. a) -> Foo) -> Foo) = \_ -> Baz
 
 (bar41: (Foo -> Foo) -> Foo) = bar1
 (bar42: (Foo -> Foo) -> Foo) = bar2
@@ -665,7 +665,7 @@ enum Foo: Bar, Baz
 (baz43: (Foo -> Foo) -> Foo) = baz3
 (baz43: (Foo -> Foo) -> Foo) = baz3
 
-(producer: Foo -> (forall a. (Foo -> a) -> a)) = \x -> bar1
+(producer: Foo -> (forall a. (Foo -> a) -> a)) = \_ -> bar1
 # in the covariant position, we can substitute
 (producer1: Foo -> ((Foo -> Foo) -> Foo)) = producer
 
@@ -678,10 +678,10 @@ struct Cont(cont: (b -> a) -> a)
 
 (bar1: forall a. Cont[Foo, a]) = Cont(\fn -> fn(Bar))
 (baz1: forall a. Cont[Foo, a]) = Cont(\fn -> fn(Baz))
-(bar2: forall a. Cont[a, Foo]) = Cont(\fn -> Bar)
-(baz2: forall a. Cont[a, Foo]) = Cont(\fn -> Baz)
-(bar3: Cont[forall a. a, Foo]) = Cont(\fn -> Bar)
-(baz3: Cont[forall a. a, Foo]) = Cont(\fn -> Baz)
+(bar2: forall a. Cont[a, Foo]) = Cont(\_ -> Bar)
+(baz2: forall a. Cont[a, Foo]) = Cont(\_ -> Baz)
+(bar3: Cont[forall a. a, Foo]) = Cont(\_ -> Bar)
+(baz3: Cont[forall a. a, Foo]) = Cont(\_ -> Baz)
 
 (bar41: Cont[Foo, Foo]) = bar1
 (bar42: Cont[Foo, Foo]) = bar2
@@ -691,7 +691,7 @@ struct Cont(cont: (b -> a) -> a)
 (baz43: Cont[Foo, Foo]) = baz3
 (baz43: Cont[Foo, Foo]) = baz3
 
-(producer: Foo -> (forall a. Cont[Foo, a])) = \x -> bar1
+(producer: Foo -> (forall a. Cont[Foo, a])) = \_ -> bar1
 # in the covariant position, we can substitute
 (producer1: Foo -> Cont[Foo, Foo]) = producer
 
@@ -714,10 +714,10 @@ main = Bar
 struct Foo
 enum Opt: Nope, Yep(a)
 
-(producer: Foo -> forall a. Opt[a]) = \x -> Nope
+(producer: Foo -> forall a. Opt[a]) = \_ -> Nope
 # in the covariant position, we can substitute
 (producer1: Foo -> Opt[Foo]) = producer
-(consumer: Opt[Foo]-> Foo) = \x -> Foo
+(consumer: Opt[Foo]-> Foo) = \_ -> Foo
 # in the contravariant position, we can generalize
 (consumer1: (forall a. Opt[a])  -> Foo) = consumer
 
@@ -751,10 +751,10 @@ enum Opt: Nope, Yep(a)
 
 struct FnWrapper(fn: a -> b)
 
-(producer: FnWrapper[Foo, forall a. Opt[a]]) = FnWrapper(\x -> Nope)
+(producer: FnWrapper[Foo, forall a. Opt[a]]) = FnWrapper(\_ -> Nope)
 # in the covariant position, we can substitute
 (producer1: FnWrapper[Foo, Opt[Foo]]) = producer
-(consumer: FnWrapper[Opt[Foo], Foo]) = FnWrapper(\x -> Foo)
+(consumer: FnWrapper[Opt[Foo], Foo]) = FnWrapper(\_ -> Foo)
 # in the contravariant position, we can generalize
 (consumer1: FnWrapper[forall a. Opt[a], Foo]) = consumer
 
@@ -900,12 +900,12 @@ main = bar(5)
 struct Foo
 struct Bar
 
-(fn: forall a. a -> Bar) = \x -> Bar
+(fn: forall a. a -> Bar) = \_ -> Bar
 #(fn: Bar -> Bar) = \x -> Bar
 
 #dontCall = \(fn: forall a. a -> Bar) -> Foo
 #dontCall = \(fn: Bar -> Bar) -> Foo
-dontCall = \(fn: (forall a. a) -> Bar) -> Foo
+dontCall = \(_: (forall a. a) -> Bar) -> Foo
 
 (main: Foo) = dontCall(fn)
 """, "Foo")
@@ -934,16 +934,20 @@ main = foo
     parseProgram("""#
 struct Foo
 struct Bar
+def ignore(_): Foo
 def add(x):
   (y: Foo) = x
+  _ = ignore(y)
   Bar
 """, "Foo -> Bar")
 
     parseProgram("""#
 struct Foo
 struct Bar(f: Foo)
+def ignore(_): Foo
 def add(x):
   (b@(y: Foo)) = x
+  _ = ignore(y)
   Bar(b)
 """, "Foo -> Bar")
   }
@@ -1023,8 +1027,11 @@ def x:
 struct Pair(a, b)
 struct Foo
 
+def ignore(_): Foo
+
 def x:
   Pair(f: Foo, g) = Pair(Foo, Foo)
+  _ = ignore(g)
   f
 """, "Foo")
 

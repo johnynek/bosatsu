@@ -18,6 +18,33 @@ class TypedExprTest extends FunSuite {
     //PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 500)
 
+  def allVars[A](te: TypedExpr[A]): Set[Identifier] = {
+    type W[B] = Writer[Set[Identifier], B]
+
+    te.traverseUp[W] {
+      case v@TypedExpr.Var(None, ident, _, _) => Writer(Set(ident), v)
+      case notVar => Writer(Set.empty, notVar)
+    }.run._1
+  }
+
+  test("freeVarsSet is a subset of allVars") {
+    def law[A](te: TypedExpr[A]) = {
+      val frees = TypedExpr.freeVarsSet(te :: Nil).toSet
+      val av = allVars(te)
+      val missing = frees -- av
+      assert(missing.isEmpty, s"expression:\n\n${te.repr}\n\nallVars: $av\n\nfrees: $frees")
+    }
+
+    forAll(genTypedExpr)(law _)
+
+    checkLast("""
+enum AB: A, B(x)
+x = match B(100):
+  A: 10
+  B(b): b
+""")(law)
+  }
+
   test("freeVars on simple cases works") {
     checkLast("""#
 x = 1
@@ -184,5 +211,58 @@ y = match x:
     forAll(genTypedExpr) { te =>
       assert(te.allTypes.contains(te.getType))
     }
+  }
+
+  def count[A](te: TypedExpr[A])(fn: PartialFunction[TypedExpr[A], Boolean]): Int = {
+    type W[B] = Writer[Int, B]
+    val (count, _) =
+      te.traverseUp[W] { inner =>
+        val c = if (fn.isDefinedAt(inner) && fn(inner)) 1 else 0
+        Writer(c, inner)
+      }.run
+
+    count
+  }
+
+  def countMatch[A](te: TypedExpr[A]) = count(te) { case TypedExpr.Match(_, _, _) => true }
+  def countLet[A](te: TypedExpr[A]) = count(te) { case TypedExpr.Let(_, _, _, _, _) => true }
+
+  test("test match removed from some examples") {
+    checkLast(
+      """
+x = \_ -> 1
+""") { te => assert(countMatch(te) == 0) }
+
+    checkLast(
+      """
+x = 10
+y = match x:
+  z: z
+""") { te => assert(countMatch(te) == 0) }
+
+    checkLast(
+      """
+x = 10
+y = match x:
+  _: 20
+""") { te => assert(countMatch(te) == 0) }
+  }
+
+  test("test let removed from some examples") {
+    // this should turn into `y = 20` as the last expression
+    checkLast(
+      """
+x = 10
+y = match x:
+  _: 20
+""") { te => assert(countLet(te) == 0) }
+
+    checkLast(
+      """
+def foo:
+  x = 1
+  _ = x
+  42
+""") { te => assert(countLet(te) == 0) }
   }
 }
