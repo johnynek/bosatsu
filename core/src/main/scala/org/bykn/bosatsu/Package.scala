@@ -285,7 +285,7 @@ object PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
       val (lm, sourceName) = getMapSrc(sourceMap, in)
       val header =
-        s"in $sourceName unknown export ${ex.name}"
+        s"in $sourceName unknown export ${ex.name.sourceCodeRepr}"
       val candidateMap: Map[Identifier, Region] =
         lets.map { case (n, _, expr) => (n, HasRegion.region(expr)) }.toMap
       val candidates =
