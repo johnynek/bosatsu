@@ -693,5 +693,5 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   })
 
   def toJson(a: Value, tpe: Type): Option[Json] =
-    jsonConv.toJson(a, tpe)
+    jsonConv.toJson(a, tpe).toOption
 }

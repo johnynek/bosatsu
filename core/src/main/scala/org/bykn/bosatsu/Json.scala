@@ -75,6 +75,11 @@ object Json {
     }
   }
 
+  /**
+   * This doesn't have to be super fast (but is fairly fast) since we use it in places
+   * where speed won't matter: feeding it into a program that will convert it to bosatsu
+   * structured data
+   */
   val parser: P[Json] = {
     val recurse = P(parser)
     val pnull = P("null").map(_ => JNull)
@@ -96,11 +101,11 @@ object Json {
     val whitespace: P[Unit] = CharIn(" \t\r\n")
     val whitespaces0 = whitespace.rep()
 
-    val listSep = P(whitespaces0 ~ "," ~ whitespaces0)
+    val listSep = P(whitespaces0 ~ "," ~/ whitespaces0)
     val list = P("[" ~/ whitespaces0 ~ recurse.rep(sep = listSep) ~ whitespaces0 ~ "]")
       .map { vs => JArray(vs.toVector) }
 
-    val kv = justStr ~ whitespaces0 ~ P(":") ~ whitespaces0 ~ recurse
+    val kv = justStr ~ whitespaces0 ~ P(":") ~/ whitespaces0 ~ recurse
     val obj = P("{" ~/ whitespaces0 ~ kv.rep(sep = listSep) ~ whitespaces0 ~ "}")
       .map { vs => JObject(vs.toList) }
 
