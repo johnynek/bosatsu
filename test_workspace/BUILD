@@ -24,6 +24,7 @@ bosatsu_test(
 bosatsu_test(
     name = "euler4",
     srcs = ["euler4.bosatsu"],
+    deps = [":list", ":nat",],
     size = "small")
 
 bosatsu_test(
