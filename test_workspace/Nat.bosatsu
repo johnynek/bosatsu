@@ -69,8 +69,7 @@ def multLaw(n1: Nat, n2: Nat, label: String) -> Test:
 def from_to_law(i: Int, message: String) -> Test:
     Assertion(i.to_Nat.to_Int == i, message)
 
-def from_to_suite:
-    TestSuite("to_Nat/to_Int tests", [
+from_to_suite = TestSuite("to_Nat/to_Int tests", [
         Assertion(-1.to_Nat.to_Int == 0, "-1 -> 0"),
         Assertion(-42.to_Nat.to_Int == 0, "-42 -> 0"),
         from_to_law(0, "0"),
@@ -92,4 +91,5 @@ tests = TestSuite("Nat tests",
     multLaw(n1, Zero, "1 * 0"),
     multLaw(n1, n2, "1 * 2"),
     multLaw(n2, n1, "2 * 1"),
+    from_to_suite,
   ])
