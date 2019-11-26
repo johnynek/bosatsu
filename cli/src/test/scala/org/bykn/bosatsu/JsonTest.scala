@@ -76,11 +76,25 @@ class JsonTest extends FunSuite {
     }
   }
 
-  test("we match Jawn") {
+  test("Jawn can parse any of the json strings we generate") {
     forAll { (j: Json) =>
       val str = j.render
       val jvalue = JParser.parseUnsafe(str)
       matches(j, jvalue)
+    }
+  }
+
+  test("we can parse all the json we generate") {
+    forAll { (j: Json) =>
+      val str = j.render
+      Json.parser.parse(str) match {
+        case fastparse.all.Parsed.Success(j1, _) =>
+          // JNumber and JNumberStr can be confused by parsing
+          // since we prefer JNumber on parse if we don't lose
+          // precision
+          assert(j1.render == str)
+        case other => fail(s"failed to parse:\n\n$str\n\n$j\n\nerror: $other")
+      }
     }
   }
 }

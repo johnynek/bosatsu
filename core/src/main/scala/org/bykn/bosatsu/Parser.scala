@@ -198,6 +198,30 @@ object Parser {
       }
   }
 
+  /**
+   *  from: https://tools.ietf.org/html/rfc4627
+   *     number = [ minus ] int [ frac ] [ exp ]
+   *     decimal-point = %x2E       ; .
+   *     digit1-9 = %x31-39         ; 1-9
+   *     e = %x65 / %x45            ; e E
+   *     exp = e [ minus / plus ] 1*DIGIT
+   *     frac = decimal-point 1*DIGIT
+   *     int = zero / ( digit1-9 *DIGIT )
+   *     minus = %x2D               ; -
+   *     plus = %x2B                ; +
+   *     zero = %x30                ; 0
+   */
+  val jsonNumber: P[String] = {
+    val digit09 = CharIn('0' to '9')
+    val digit19 = CharIn('1' to '9')
+    val digits = digit09.rep()
+    val digits1 = digit09.rep(min = 1)
+    val int: P[Unit] = P("0") | (digit19 ~ digits)
+    val frac = P("." ~ digits1)
+    val exp = P("e" | "E") ~ P(("+" | "-").?) ~ digits1
+    P(("-").? ~ int ~ frac.? ~ exp.?).!
+  }
+
   def escapedString(q: Char): P[String] =
     StringUtil.escapedString(q)
 
