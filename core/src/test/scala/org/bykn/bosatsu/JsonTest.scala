@@ -52,7 +52,8 @@ class JsonTest extends FunSuite {
 
     lower(k) match {
       case None => ()
-      case Some(lk) => assert(NumberKind(lk.asString) != k)
+      case Some(DoubleKind(d)) => assert(d.isInfinite, s"expected infinity: $d from $k")
+      case Some(lk) => fail(s"we were able to lower: $lk from $k")
     }
   }
 
@@ -84,7 +85,7 @@ class JsonTest extends FunSuite {
       } yield j
 
       ej1 match {
-        case Right(j1) => assert(j1.render == j.render)
+        case Right(j1) => assert(j1 == j)
         case Left(_) => ()
       }
     }
