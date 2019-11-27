@@ -47,18 +47,10 @@ object JsApi {
     j match {
       case Json.JString(s) => s
       case Json.JNumberStr(str) =>
-        val bd = new java.math.BigDecimal(str)
-        try bd.intValueExact
+        // javascript only really has doubles
+        try str.toDouble
         catch {
-          case (_: ArithmeticException) =>
-            try bd.longValueExact
-            catch {
-              case (_: ArithmeticException) =>
-                try str.toDouble
-                catch {
-                  case (_: NumberFormatException) => str
-                }
-            }
+          case (_: NumberFormatException) => str
         }
       case Json.JBool(b) => b
       case Json.JNull => null
