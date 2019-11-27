@@ -94,135 +94,134 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case Left(u) => sys.error(s"should have only called on a supported type: $u")
       }
 
-    def loop(tpe: Type, revPath: List[Type]): Either[UnsupportedType, Eval[Fn]] =
-      supported(tpe).map { _ =>
-        // we know we can support this, so when we recurse it
-        // is safe to call .right.get
-        successCache.get(tpe) match {
-          case Some(fn) => fn
-          case None =>
-            val res: Eval[Fn] = Eval.later(tpe match {
-              case Type.IntType =>
-                {
-                  case ExternalValue(v) =>
-                    Right(Json.JNumberStr(v.toString))
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                    // $COVERAGE-ON$
+    def loop(tpe: Type, revPath: List[Type]): Eval[Fn] =
+      // we know we can support this, so when we recurse it
+      // is safe to call .right.get
+      successCache.get(tpe) match {
+        case Some(fn) => fn
+        case None =>
+          val res: Eval[Fn] = Eval.later(tpe match {
+            case Type.IntType =>
+              {
+                case ExternalValue(v) =>
+                  Right(Json.JNumberStr(v.toString))
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  // $COVERAGE-ON$
+              }
+            case Type.StrType =>
+              {
+                case ExternalValue(v) =>
+                  Right(Json.JString(v.toString))
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  // $COVERAGE-ON$
+              }
+            case Type.BoolType =>
+              {
+                case True => Right(Json.JBool(true))
+                case False => Right(Json.JBool(false))
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  // $COVERAGE-ON$
+              }
+            case Type.UnitType =>
+              // encode this as null
+              {
+                case UnitValue => Right(Json.JNull)
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  // $COVERAGE-ON$
                 }
-              case Type.StrType =>
-                {
-                  case ExternalValue(v) =>
-                    Right(Json.JString(v.toString))
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                    // $COVERAGE-ON$
-                }
-              case Type.BoolType =>
-                {
-                  case True => Right(Json.JBool(true))
-                  case False => Right(Json.JBool(false))
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                    // $COVERAGE-ON$
-                }
-              case Type.UnitType =>
-                // encode this as null
-                {
-                  case UnitValue => Right(Json.JNull)
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                    // $COVERAGE-ON$
-                  }
-              case opt@Type.OptionT(t1) =>
-                lazy val inner = get(loop(t1, tpe :: revPath)).value
+            case opt@Type.OptionT(t1) =>
+              lazy val inner = loop(t1, tpe :: revPath).value
 
-                if (canEncodeToNull(opt)) {
-                // not a nested option
-
-                  {
-                    case VOption(None) => Right(Json.JNull)
-                    case VOption(Some(a)) => inner(a)
-                    case other =>
-                      Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                  }
-                }
-                else {
-
-                  {
-                    case VOption(None) => Right(Json.JArray(Vector.empty))
-                    case VOption(Some(a)) => inner(a).map { j => Json.JArray(Vector(j)) }
-                    case other =>
-                      Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                  }
-                }
-              case Type.ListT(t1) =>
-                lazy val inner = get(loop(t1, tpe :: revPath)).value
+              if (canEncodeToNull(opt)) {
+              // not a nested option
 
                 {
-                  case VList(vs) =>
-                    vs.toVector
-                      .traverse(inner)
-                      .map(Json.JArray(_))
+                  case VOption(None) => Right(Json.JNull)
+                  case VOption(Some(a)) => inner(a)
                   case other =>
-                    // $COVERAGE-OFF$this should be unreachable
                     Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                    // $COVERAGE-ON$
                 }
-              case Type.DictT(Type.StrType, vt) =>
-                lazy val inner = get(loop(vt, tpe :: revPath)).value
+              }
+              else {
 
                 {
-                  case VDict(d) =>
-                    d.toList.traverse { case (k, v) =>
-                      k match {
-                        case Str(kstr) => inner(v).map((kstr, _))
-                        case other =>
-                          // $COVERAGE-OFF$this should be unreachable
-                          Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                          // $COVERAGE-ON$
-                      }
+                  case VOption(None) => Right(Json.JArray(Vector.empty))
+                  case VOption(Some(a)) => inner(a).map { j => Json.JArray(Vector(j)) }
+                  case other =>
+                    Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                }
+              }
+            case Type.ListT(t1) =>
+              lazy val inner = loop(t1, tpe :: revPath).value
+
+              {
+                case VList(vs) =>
+                  vs.toVector
+                    .traverse(inner)
+                    .map(Json.JArray(_))
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  // $COVERAGE-ON$
+              }
+            case Type.DictT(Type.StrType, vt) =>
+              lazy val inner = loop(vt, tpe :: revPath).value
+
+              {
+                case VDict(d) =>
+                  d.toList.traverse { case (k, v) =>
+                    k match {
+                      case Str(kstr) => inner(v).map((kstr, _))
+                      case other =>
+                        // $COVERAGE-OFF$this should be unreachable
+                        Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                        // $COVERAGE-ON$
                     }
-                    .map(Json.JObject(_))
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                    // $COVERAGE-ON$
-                }
-              case Type.Tuple(ts) =>
-                val p1 = tpe :: revPath
-                lazy val inners = ts.traverse { t => get(loop(t, p1)) }.value
-
-                {
-                  case Tuple(as) =>
-                    as.zip(inners)
-                      .toVector
-                      .traverse { case (a, fn) => fn(a) }
-                      .map(Json.JArray(_))
-                  case other =>
-                    // $COVERAGE-OFF$this should be unreachable
-                    Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
-                    // $COVERAGE-ON$
-                }
-
-              case Type.ForAll(_, inner) =>
-                // we assume the generic positions don't matter and to continue
-                get(loop(inner, tpe :: revPath)).value
-              case otherType =>
-                // We can have complicated recursion here, we
-                // need to be careful with Eval.later/lazy to tie the knot
-                val fullPath = tpe :: revPath
-
-                val const =
-                  Type.rootConst(tpe) match {
-                    case Some(a) => Right(a)
-                    case None =>
-                      Left(UnsupportedType(NonEmptyList(tpe, revPath).reverse))
                   }
+                  .map(Json.JObject(_))
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  // $COVERAGE-ON$
+              }
+            case Type.Tuple(ts) =>
+              val p1 = tpe :: revPath
+              lazy val inners = ts.traverse { t => loop(t, p1) }.value
+
+              {
+                case Tuple(as) =>
+                  as.zip(inners)
+                    .toVector
+                    .traverse { case (a, fn) => fn(a) }
+                    .map(Json.JArray(_))
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  // $COVERAGE-ON$
+              }
+
+            case Type.ForAll(_, inner) =>
+              // we assume the generic positions don't matter and to continue
+              loop(inner, tpe :: revPath).value
+            case otherType =>
+              // We can have complicated recursion here, we
+              // need to be careful with Eval.later/lazy to tie the knot
+              val fullPath = tpe :: revPath
+
+              val const =
+                Type.rootConst(tpe) match {
+                  case Some(a) => Right(a)
+                  case None =>
+                    Left(UnsupportedType(NonEmptyList(tpe, revPath).reverse))
+                }
 
               val resInner: Eval[Map[Int, List[(String, Fn)]]] = {
                 val edt = const
@@ -244,7 +243,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   .traverse { case (cf, idx) =>
                     val rec = cf.args.traverse { case (field, t) =>
                       val subsT = Type.substituteVar(t, replaceMap)
-                      val next = get(loop(subsT, fullPath))
+                      val next = loop(subsT, fullPath)
                       next.map { fn => (field.asString, fn) }
                     }
                     rec.map { fields => (idx, fields) }
@@ -292,9 +291,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           successCache.put(tpe, res)
           res
         }
-      }
 
-      loop(tpe, Nil).map(_.value)
+      supported(tpe).map(_ =>loop(tpe, Nil).value)
     }
 
   /**
