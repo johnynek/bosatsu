@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Eq
 import cats.implicits._
 import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
@@ -12,7 +13,7 @@ import GenJson._
 class JsonTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = 500)
 
   def assertParser(str: String): Json =
     Json.parser.parse(str) match {
@@ -26,37 +27,6 @@ class JsonTest extends FunSuite {
     assert(assertParser(j.render) == j)
   }
 
-  // NumberKind is the lowest possible kind
-  def kindLaw(num: Json.JNumberStr) = {
-    import Json.NumberKind
-    import NumberKind._
-
-    val k = num.numberKind
-    assert(assertParser(k.asString).asInstanceOf[Json.JNumberStr].numberKind == k)
-
-    def opt(n: => NumberKind): Option[NumberKind] =
-      try Some(n)
-      catch {
-        case (_: NumberFormatException) => None
-      }
-
-    def lower(nk: NumberKind): Option[NumberKind] =
-      nk match {
-        case IntKind(i) => None
-        case LongKind(l) => opt(IntKind(l.toString.toInt))
-        case BigIntKind(b) => opt(LongKind(b.toString.toLong))
-        case DoubleKind(d) => opt(BigIntKind(new java.math.BigInteger(d.toString)))
-        case BigDecimalKind(b) => opt(DoubleKind(b.toString.toDouble))
-        case GiantDecimalKind(d) => opt(BigDecimalKind(new java.math.BigDecimal(d)))
-      }
-
-    lower(k) match {
-      case None => ()
-      case Some(DoubleKind(d)) => assert(d.isInfinite, s"expected infinity: $d from $k")
-      case Some(lk) => fail(s"we were able to lower: $lk from $k")
-    }
-  }
-
   test("we can parse all the json we generate") {
     forAll { j: Json => law(j) }
   }
@@ -65,7 +35,20 @@ class JsonTest extends FunSuite {
     forAll(genJsonNumber)(law(_))
 
     forAll(genJsonNumber) { num =>
-      kindLaw(num)
+      Parser.JsonNumber.partsParser.parse(num.asString) match {
+        case fastparse.all.Parsed.Success(parts, _) =>
+          assert(parts.asString == num.asString)
+        case other =>
+          fail(s"failed to parse:\n\n${num.asString}\n\nerror: $other")
+      }
+    }
+
+    val regressions = List(
+      Json.JNumberStr("2E9"),
+      Json.JNumberStr("-9E+19"))
+
+    regressions.foreach { n =>
+      law(n)
     }
   }
 
@@ -85,7 +68,7 @@ class JsonTest extends FunSuite {
       } yield j
 
       ej1 match {
-        case Right(j1) => assert(j1 == j)
+        case Right(j1) => assert(Eq[Json].eqv(j1, j), s"$j1 != $j")
         case Left(_) => ()
       }
     }
@@ -143,8 +126,35 @@ enum MyNat: Z, S(prev: MyNat)
           jsonConv.toJson(t) match {
             case Right(toJ) =>
               val j = stringToJson(json)
-              assert(toV(j).flatMap(toJ) == Right(j))
+              toV(j).flatMap(toJ) match {
+                case Right(j1) => assert(Eq[Json].eqv(j1, j), s"$j1 != $j")
+                case Left(err) => fail(err.toString)
+              }
             case Left(err) => fail(s"could not handle to Json: $tpe, $t, $toV")
+          }
+        case Left(err) => fail(s"could not handle to Value: $tpe, $t, $toJ")
+      }
+    }
+
+    def unsupported(tpe: String) = {
+      val t = stringToType(tpe)
+      jsonConv.supported(t) match {
+        case Right(_) => fail(s"expected $tpe to be unsupported")
+        case Left(_) => succeed
+      }
+    }
+
+    def illTypedJson(tpe: String, json: String) = {
+      val t = stringToType(tpe)
+      val toV = jsonConv.toValue(t)
+      val toJ = jsonConv.toJson(t)
+
+      toV match {
+        case Right(toV) =>
+          val j = stringToJson(json)
+          toV(j) match {
+            case Left(_) => succeed
+            case Right(v) => fail(s"expected $json to be ill-typed: $v")
           }
         case Left(err) => fail(s"could not handle to Value: $tpe, $t, $toJ")
       }
@@ -174,5 +184,17 @@ enum MyNat: Z, S(prev: MyNat)
     law("MyEither[MyUnit, MyUnit]", "{\"right\": {}}")
     law("MyNat", "0")
     law("MyNat", "42")
+
+    // here are some examples of unsupported types
+    unsupported("Int -> Int")
+    unsupported("MyWrapper[Int -> String]")
+    unsupported("forall a. MyWrapper[a]")
+
+    illTypedJson("MyNat", "{}")
+    illTypedJson("(Int, String)", "[1, 2]")
+    illTypedJson("(Int, String, Bool)", "[1, \"2\", null]")
+    illTypedJson("List[Int]", "[1, \"2\", 3]")
+    illTypedJson("String", "1")
+    illTypedJson("MyPair[MyUnit, MyUnit]", "0")
   }
 }

@@ -44,7 +44,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case Type.OptionT(inner) => loop(inner, t :: working)
         case Type.ListT(inner) => loop(inner, t :: working )
         case Type.DictT(Type.StrType, inner) => loop(inner, t :: working)
-        case Type.ForAll(_, inner) => loop(t, t :: working)
+        case Type.ForAll(_, _) => bad
         case Type.TyVar(_) | Type.TyMeta(_) => bad
         case Type.Tuple(ts) =>
           val w1 = t :: working
@@ -334,17 +334,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           val res: Eval[Json => Either[IllTypedJson, Value]] = Eval.later(tpe match {
             case Type.IntType =>
               {
-                case j@Json.JNumberStr(_) =>
-                  j.numberKind match {
-                    case int: Json.NumberKind.IntegerKind =>
-                      Right(ExternalValue(int.toBigInteger))
-                    case _ =>
-                      Left(IllTypedJson(revPath.reverse, tpe, j))
-                  }
+                case Json.JBigInteger(b) =>
+                  Right(ExternalValue(b))
                 case other =>
-                  // $COVERAGE-OFF$this should be unreachable
                   Left(IllTypedJson(revPath.reverse, tpe, other))
-                  // $COVERAGE-ON$
               }
             case Type.StrType =>
               {
@@ -534,15 +527,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case _ =>
                   // this is a nat like type which we encode into integers
                   {
-                    case j@Json.JNumberStr(_) =>
-                      // handle Nat types
-                      j.numberKind match {
-                        case int: Json.NumberKind.IntegerKind =>
-                          // todo
-                          Right(ExternalValue(int.toBigInteger))
-                        case _ =>
-                          Left(IllTypedJson(revPath.reverse, tpe, j))
-                      }
+                    case Json.JBigInteger(bi) =>
+                      Right(ExternalValue(bi))
                     case other =>
                       Left(IllTypedJson(revPath.reverse, tpe, other))
                   }

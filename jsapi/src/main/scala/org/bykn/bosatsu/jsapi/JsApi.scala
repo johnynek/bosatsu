@@ -46,15 +46,19 @@ object JsApi {
   def jsonToAny(j: Json): js.Any =
     j match {
       case Json.JString(s) => s
-      case j@Json.JNumberStr(_) =>
-        import Json.NumberKind._
-        j.numberKind match {
-          case IntKind(i) => i
-          case LongKind(l) => l
-          case DoubleKind(d) => d
-          // the rest are encoded as strings
-          case n@(BigIntKind(_) | BigDecimalKind(_) | GiantDecimalKind(_)) =>
-            n.asString
+      case Json.JNumberStr(str) =>
+        val bd = new java.math.BigDecimal(str)
+        try bd.intValueExact
+        catch {
+          case (_: ArithmeticException) =>
+            try bd.longValueExact
+            catch {
+              case (_: ArithmeticException) =>
+                try str.toDouble
+                catch {
+                  case (_: NumberFormatException) => str
+                }
+            }
         }
       case Json.JBool(b) => b
       case Json.JNull => null

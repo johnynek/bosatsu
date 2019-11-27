@@ -198,28 +198,44 @@ object Parser {
       }
   }
 
-  /**
-   *  from: https://tools.ietf.org/html/rfc4627
-   *     number = [ minus ] int [ frac ] [ exp ]
-   *     decimal-point = %x2E       ; .
-   *     digit1-9 = %x31-39         ; 1-9
-   *     e = %x65 / %x45            ; e E
-   *     exp = e [ minus / plus ] 1*DIGIT
-   *     frac = decimal-point 1*DIGIT
-   *     int = zero / ( digit1-9 *DIGIT )
-   *     minus = %x2D               ; -
-   *     plus = %x2B                ; +
-   *     zero = %x30                ; 0
-   */
-  val jsonNumber: P[String] = {
-    val digit09 = CharIn('0' to '9')
-    val digit19 = CharIn('1' to '9')
-    val digits = digit09.rep()
-    val digits1 = digit09.rep(min = 1)
+  object JsonNumber {
+    /**
+     *  from: https://tools.ietf.org/html/rfc4627
+     *     number = [ minus ] int [ frac ] [ exp ]
+     *     decimal-point = %x2E       ; .
+     *     digit1-9 = %x31-39         ; 1-9
+     *     e = %x65 / %x45            ; e E
+     *     exp = e [ minus / plus ] 1*DIGIT
+     *     frac = decimal-point 1*DIGIT
+     *     int = zero / ( digit1-9 *DIGIT )
+     *     minus = %x2D               ; -
+     *     plus = %x2B                ; +
+     *     zero = %x30                ; 0
+     */
+    val digit09: P[Unit] = CharIn('0' to '9')
+    val digit19: P[Unit] = CharIn('1' to '9')
+    val digits: P[Unit] = digit09.rep()
+    val digits1: P[Unit] = digit09.rep(min = 1)
     val int: P[Unit] = P("0") | (digit19 ~ digits)
-    val frac = P("." ~ digits1)
-    val exp = P("e" | "E") ~ P(("+" | "-").?) ~ digits1
-    P(("-").? ~ int ~ frac.? ~ exp.?).!
+    val frac: P[Unit] = P("." ~ digits1)
+    val exp: P[Unit] = P("e" | "E") ~ P(("+" | "-").?) ~ digits1
+
+    val parser: P[String] =
+      P(("-").? ~ int ~ frac.? ~ exp.?).!
+
+    // this gives you the individual parts of a floating point string
+    case class Parts(negative: Boolean, leftOfPoint: String, floatingPart: String, exp: String) {
+      def asString: String = {
+        val neg = if (negative) "-" else ""
+        s"$neg$leftOfPoint$floatingPart$exp"
+      }
+    }
+
+    val partsParser: P[Parts] =
+      P(CharIn("-").map(_ => true).? ~ int.! ~ frac.!.? ~ exp.!.?)
+        .map { case (optNeg, left, float, exp) =>
+          Parts(optNeg.isDefined, left, float.getOrElse(""), exp.getOrElse(""))
+        }
   }
 
   def escapedString(q: Char): P[String] =
