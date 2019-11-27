@@ -92,6 +92,9 @@ object Value {
         case ConsValue(a, ConsValue(b, UnitValue)) => Some((a, b))
         case _ => None
       }
+
+    def apply(a: Value, b: Value): ProductValue =
+      ConsValue(a, ConsValue(b, UnitValue))
   }
 
   object Tuple {
@@ -113,7 +116,7 @@ object Value {
     def fromList(vs: List[Value]): ProductValue =
       vs match {
         case Nil => UnitValue
-        case h :: tail => ConsValue(h, fromList(tail))
+        case h :: tail => TupleCons(h, fromList(tail))
       }
   }
 

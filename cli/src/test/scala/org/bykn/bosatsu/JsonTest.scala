@@ -15,7 +15,6 @@ class JsonJawnTest extends FunSuite {
     import Json._
     j1 match {
       case JString(str) => assert(j2.asString == str); ()
-      case JNumber(n) => assert(j2.asDouble == n); ()
       case JNumberStr(nstr) => assert(BigDecimal(nstr) == j2.asBigDecimal); ()
       case JNull => assert(j2.isNull); ()
       case JBool(t) => assert(j2.asBoolean == t); ()

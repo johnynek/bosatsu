@@ -20,6 +20,13 @@ class TypeEnv[+A] private (
       case _ => false
     }
 
+  lazy val referencedPackages: Set[PackageName] = {
+    def keys1[K, B](k: SortedMap[(PackageName, K), B]): Iterator[PackageName] =
+      k.keys.iterator.map(_._1)
+
+    (keys1(values) ++ keys1(constructors) ++ keys1(definedTypes)).toSet
+  }
+
   override def hashCode: Int = {
     (getClass, values, constructors, definedTypes).hashCode
   }

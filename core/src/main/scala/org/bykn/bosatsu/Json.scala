@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import fastparse.all._
+import java.math.{BigInteger, BigDecimal}
 import org.typelevel.paiges.Doc
 
 /**
@@ -13,20 +14,108 @@ sealed abstract class Json {
 }
 
 object Json {
-  sealed abstract class Num extends Json
+  import Doc.text
 
-  import Doc.{text, str}
+  sealed abstract class NumberKind {
+    def asString: String = {
+      import NumberKind._
+
+      this match {
+        case IntKind(i) => i.toString
+        case LongKind(l) => l.toString
+        case BigIntKind(b) => b.toString
+        case DoubleKind(d) => d.toString
+        case BigDecimalKind(b) => b.toString
+        case GiantDecimalKind(d) => d
+      }
+    }
+  }
+
+  object NumberKind {
+    sealed abstract class IntegerKind extends NumberKind {
+      def toBigInteger: BigInteger =
+        this match {
+          case IntKind(i) => BigInteger.valueOf(i.toLong)
+          case LongKind(l) => BigInteger.valueOf(l)
+          case BigIntKind(b) => b
+        }
+    }
+    sealed abstract class FloatingKind extends NumberKind
+    final case class IntKind(toInt: Int) extends IntegerKind
+    final case class LongKind(toLong: Long) extends IntegerKind
+    final case class BigIntKind(toBigInt: BigInteger) extends IntegerKind
+
+    final case class DoubleKind(toDouble: Double) extends FloatingKind
+    final case class BigDecimalKind(toBigDecimal: BigDecimal) extends FloatingKind
+    final case class GiantDecimalKind(giant: String) extends FloatingKind
+
+    private[this] val digits = ('0' to '9').toSet
+
+    def apply(str: String): NumberKind = {
+
+      @annotation.tailrec
+      def allDigits(str: String, at: Int): Boolean =
+        (str.length <= at) || (digits(str(at)) && allDigits(str, at + 1))
+
+      val isInteger = allDigits(str, 0) || ((str(0) == '-') && allDigits(str, 1))
+      if (isInteger) {
+        val len = str.length
+        if (len < 10) {
+          // all 9 digit int strings fit in an Int
+          IntKind(str.toInt)
+        }
+        else if (len < 12) {
+          // some of these fit in an Int
+          try {
+            IntKind(str.toInt)
+          }
+          catch {
+            case (_: NumberFormatException) => LongKind(str.toLong)
+          }
+        }
+        else if (len < 19) {
+          // all these fit in a long
+          LongKind(str.toLong)
+        }
+        else if (len < 21) {
+          // some of these fit in a long
+          try {
+            LongKind(str.toLong)
+          }
+          catch {
+            case (_: NumberFormatException) => BigIntKind(new BigInteger(str))
+          }
+        }
+        else BigIntKind(new BigInteger(str))
+      }
+      else {
+        @inline def bd =
+          try BigDecimalKind(new BigDecimal(str))
+          catch {
+            case (_: NumberFormatException) => GiantDecimalKind(str)
+          }
+
+        try {
+          val d = str.toDouble
+          val dstr = d.toString
+          if (!d.isInfinite && (dstr == str || (dstr.toDouble == d))) DoubleKind(d)
+          else bd
+        }
+        catch {
+          case (_: NumberFormatException) => bd
+        }
+      }
+    }
+  }
 
   final case class JString(str: String) extends Json {
     def toDoc = text("\"%s\"".format(JsonStringUtil.escape('"', str)))
   }
-  final case class JNumber(toDouble: Double) extends Num {
-    override def render = toDouble.toString
-    def toDoc = str(toDouble)
-  }
-  final case class JNumberStr(asString: String) extends Num {
+  final case class JNumberStr(asString: String) extends Json {
     override def render = asString
     def toDoc = text(asString)
+
+    lazy val numberKind: NumberKind = NumberKind(asString)
   }
   object JBool {
     final case object True extends Json {
@@ -77,6 +166,11 @@ object Json {
       val parts = Doc.intercalate(Doc.comma + Doc.line, kvs).grouped
       parts.bracketBy(text("{"), text("}"))
     }
+
+    /**
+     * Return a JObject with each key at most once, but in the order of this
+     */
+    def normalize: JObject = JObject(keys.map { k => (k, toMap(k)) })
   }
 
   /**
@@ -90,18 +184,7 @@ object Json {
     val pbool = P("true").map(_ => JBool.True) | P("false").map(_ => JBool.False)
     val justStr = JsonStringUtil.escapedString('"')
     val str = justStr.map(JString(_))
-    val numStr = Parser.jsonNumber.map { str =>
-      try {
-        // this isn't great... but we don't need speed
-        val d = str.toDouble
-        if (d.toString == str) JNumber(d)
-        else JNumberStr(str)
-      }
-      catch {
-        case _: NumberFormatException => JNumberStr(str)
-      }
-    }
-
+    val numStr = Parser.jsonNumber.map(JNumberStr(_))
     val whitespace: P[Unit] = CharIn(" \t\r\n")
     val whitespaces0 = whitespace.rep()
 
