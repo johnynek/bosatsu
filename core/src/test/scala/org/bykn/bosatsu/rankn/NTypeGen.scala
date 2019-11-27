@@ -57,6 +57,35 @@ object NTypeGen {
     }
   }
 
+  val genPredefType: Gen[Type] = {
+    import Type._
+
+    val recurse = Gen.lzy(genPredefType)
+
+    val t0 = List(
+      BoolType,
+      IntType,
+      StrType,
+      TestType,
+      UnitType
+    )
+
+    val t1 = List(ListType, OptionType)
+    val t2 = List(FnType, TupleConsType, DictType)
+
+    Gen.frequency(
+      (6, Gen.oneOf(t0)),
+      (2, for {
+        cons <- Gen.oneOf(t1)
+        param <- recurse
+      } yield TyApply(cons, param)),
+      (1, for {
+        cons <- Gen.oneOf(t2)
+        param1 <- recurse
+        param2 <- recurse
+      } yield TyApply(TyApply(cons, param1), param2)))
+  }
+
   def genDepth(d: Int, genC: Option[Gen[Type.Const]]): Gen[Type] =
     if (d <= 0) genRootType(genC)
     else {

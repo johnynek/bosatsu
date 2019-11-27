@@ -13,15 +13,19 @@ sealed abstract class Json {
 }
 
 object Json {
+  sealed abstract class Num extends Json
+
   import Doc.{text, str}
 
   final case class JString(str: String) extends Json {
     def toDoc = text("\"%s\"".format(JsonStringUtil.escape('"', str)))
   }
-  final case class JNumber(toDouble: Double) extends Json {
+  final case class JNumber(toDouble: Double) extends Num {
+    override def render = toDouble.toString
     def toDoc = str(toDouble)
   }
-  final case class JNumberStr(asString: String) extends Json {
+  final case class JNumberStr(asString: String) extends Num {
+    override def render = asString
     def toDoc = text(asString)
   }
   object JBool {

@@ -101,8 +101,10 @@ class TypeEnv[+A] private (
   def definedTypeFor(c: (PackageName, Constructor)): Option[DefinedType[A]] =
     typeConstructors.get(c).flatMap { case (_, _, d) => toDefinedType(d) }
 
-  def toDefinedType(t: Type.Const.Defined): Option[DefinedType[A]] =
-    getType(t.packageName, t.name)
+  def toDefinedType(t: Type.Const): Option[DefinedType[A]] =
+    t match {
+      case Type.Const.Defined(p, n) => getType(p, n)
+    }
 
   def ++[A1 >: A](that: TypeEnv[A1]): TypeEnv[A1] =
     new TypeEnv(values ++ that.values,

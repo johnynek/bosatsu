@@ -109,6 +109,12 @@ object Value {
         case UnitValue => Some(Nil)
         case _ => None
       }
+
+    def fromList(vs: List[Value]): ProductValue =
+      vs match {
+        case Nil => UnitValue
+        case h :: tail => ConsValue(h, fromList(tail))
+      }
   }
 
   object Comparison {
@@ -211,5 +217,14 @@ object Value {
         case ExternalValue(v: SortedMap[_, _]) => Some(v.asInstanceOf[SortedMap[Value, Value]])
         case _ => None
       }
+
+    def fromStringKeys(kvs: List[(String, Value)]): Value = {
+      implicit val ord: Ordering[Value] =
+        implicitly[Ordering[String]].on { case Str(str) => str }
+
+      val bldr = SortedMap.newBuilder[Value, Value]
+      bldr ++= kvs.iterator.map { case (k, v) => (Str(k), v) }
+      ExternalValue(bldr.result)
+    }
   }
 }
