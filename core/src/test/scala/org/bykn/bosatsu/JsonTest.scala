@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.implicits._
 import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import TestUtils.typeEnvOf
@@ -36,9 +37,9 @@ class JsonTest extends FunSuite {
 
       assert(toJson.isRight == fromJson.isRight)
       val ej1 = for {
-        fn1 <- fromJson
+        f12 <- fromJson.product(toJson)
+        (fn1, fn2) = f12
         v1 <- fn1(j)
-        fn2 <- toJson
         j <- fn2(v1)
       } yield j
 
