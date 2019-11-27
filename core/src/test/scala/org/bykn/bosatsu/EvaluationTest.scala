@@ -1115,7 +1115,8 @@ main = bar
       List("""
 package Foo
 
-bar = {'a': None, 's': None }
+# we need a static type to convert to json
+bar: Dict[String, Option[Int]] = {'a': None, 's': None }
 
 main = bar
 """), "Foo", Json.JObject(List("a" -> Json.JNull, "s" -> Json.JNull)))
