@@ -73,6 +73,16 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
     loop(t, Nil)
   }
 
+  // used only after we have checked that types are supported
+  private[this] def get[A](e: Either[UnsupportedType, A]): A =
+    e match {
+      case Right(a) => a
+      case Left(u) =>
+        // $COVERAGE-OFF$
+        sys.error(s"should have only called on a supported type: $u")
+        // $COVERAGE-ON$
+    }
+
   /**
    * Convert a typechecked value to Json
    *
@@ -82,17 +92,11 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
    * this code ASSUMES the type is correct. If not, we may return
    * incorrect data.
    */
-  def toJson(tpe: Type): Either[UnsupportedType, Value => Either[ValueError, Json]] = {
+  def toJson(tpe: Type): Either[UnsupportedType, Value => Either[IllTyped, Json]] = {
 
-    type Fn = Value => Either[ValueError, Json]
+    type Fn = Value => Either[IllTyped, Json]
     // when we complete a custom type, we put it in here
     val successCache: MMap[Type, Eval[Fn]] = MMap()
-
-    def get[A](e: Either[UnsupportedType, A]): A =
-      e match {
-        case Right(a) => a
-        case Left(u) => sys.error(s"should have only called on a supported type: $u")
-      }
 
     def loop(tpe: Type, revPath: List[Type]): Eval[Fn] =
       // we know we can support this, so when we recurse it
@@ -321,12 +325,6 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
     // when we complete a custom type, we put it in here
     val successCache: MMap[Type, Eval[Fn]] = MMap()
 
-    def get[A](e: Either[UnsupportedType, A]): A =
-      e match {
-        case Right(a) => a
-        case Left(u) => sys.error(s"should have only called on a supported type: $u")
-      }
-
     def loop(tpe: Type, revPath: List[Type]): Eval[Fn] =
       successCache.get(tpe) match {
         case Some(res) => res
@@ -542,14 +540,81 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       supported(tpe).map(_ => loop(tpe, Nil).value)
     }
 
+  /**
+   * Given a type return the function to convert it a function
+   * if it is not a function, we consider it a function of 0-arity
+   */
+  def valueFnToJsonFn(t: Type): Either[UnsupportedType, Value => Either[DataError, (Int, Json.JArray => Either[DataError, Json])]] =
+    Type.Fun.uncurry(t) match {
+      case None =>
+        // this isn't a function at all
+        toJson(t).map { fn: (Value => Either[DataError, Json]) =>
+
+          fn.andThen { either =>
+            either.map { result =>
+
+              (0, { args =>
+                if (args.toVector.isEmpty) Right(result)
+                else Left(IllTypedJson(Nil, t, args))
+              })
+            }
+          }
+
+        }
+      case Some((args, res)) =>
+        (args.traverse(toValue(_)), toJson(res)).mapN { (argsFn, resFn) =>
+          // if we get in here, we can convert all the args and results
+
+          val arity = argsFn.size
+          val argsFnVector = argsFn.toList.toVector
+
+          {
+            case Value.FnValue(evalToEval) =>
+
+              // if we get into here, we know the inputs have
+              // the right size and type, but we don't verify
+              // locally (but in the type checked code) that
+              // the type matches the FnValue, so here we
+              // still pass it along if we see it
+              def applyAll(fn: Eval[Value] => Eval[Value], args: NonEmptyList[Value]): Eval[Either[DataError, Value]] = {
+                val nextValue = fn(Eval.now(args.head))
+                args.tail match {
+                  case Nil => nextValue.map(Right(_))
+                  case h :: tail =>
+                    nextValue.flatMap {
+                      case Value.FnValue(nextFn) =>
+                        applyAll(nextFn, NonEmptyList(h, tail))
+                      case other =>
+                        // TODO: we could propagate the type we expect this to be
+                        Eval.now(Left(IllTyped(Nil, t, other)))
+                    }
+                }
+              }
+
+              val jsonFn = { inputs: Json.JArray =>
+                if (inputs.toVector.size != arity) Left(IllTypedJson(Nil, t, inputs))
+                else {
+                  NonEmptyList.fromListUnsafe(inputs.toVector.toList)
+                    .zipWith(argsFn) { case (a, fn) => fn(a) }
+                    .sequence
+                    .flatMap(applyAll(evalToEval, _).value)
+                    .flatMap(resFn)
+                }
+              }
+
+              Right((arity, jsonFn))
+            case notFn => Left(IllTyped(Nil, t, notFn))
+          }
+        }
+    }
 }
 
 sealed abstract class JsonEncodingError
 object JsonEncodingError {
-  sealed abstract class ValueError extends JsonEncodingError
+  sealed abstract class DataError extends JsonEncodingError
 
   final case class UnsupportedType(path: NonEmptyList[Type]) extends JsonEncodingError
-  final case class IllTyped(path: List[Type], tpe: Type, value: Value) extends ValueError
 
-  final case class IllTypedJson(path: List[Type], tpe: Type, value: Json) extends JsonEncodingError
+  final case class IllTyped(path: List[Type], tpe: Type, value: Value) extends DataError
+  final case class IllTypedJson(path: List[Type], tpe: Type, value: Json) extends DataError
 }

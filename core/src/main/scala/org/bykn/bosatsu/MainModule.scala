@@ -62,17 +62,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   sealed abstract class Output
   object Output {
     case class TestOutput(tests: List[(PackageName, Option[Test])], colorize: Colorize) extends Output
-    case class EvaluationResult(value: Eval[Value], tpe: rankn.Type) extends Output {
-      def toJson[A](ev: Evaluation[A], outputOpt: Option[Path]): IO[JsonOutput] =
-        ev.toJson(value.value, tpe) match {
-          case None =>
-            val tpeStr = TypeRef.fromTypes(None, tpe :: Nil)(tpe).toDoc.render(80)
-            moduleIOMonad.raiseError(new Exception(
-              s"cannot convert type to Json: $tpeStr"))
-          case Some(j) =>
-            moduleIOMonad.pure(Output.JsonOutput(j, outputOpt))
-        }
-    }
+    case class EvaluationResult(value: Eval[Value], tpe: rankn.Type) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Path) extends Output
   }
@@ -379,6 +369,26 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       }
     }
 
+    sealed abstract class JsonInput {
+      def read: IO[String]
+    }
+
+    object JsonInput {
+      case class FromString(asString: String) extends JsonInput {
+        def read = moduleIOMonad.pure(asString)
+      }
+      case class FromPath(path: Path) extends JsonInput {
+        def read = readPath(path)
+      }
+    }
+
+    sealed abstract class JsonMode
+    object JsonMode {
+      case object Write extends JsonMode
+      case class Apply(in: JsonInput) extends JsonMode
+      case class Traverse(in: JsonInput) extends JsonMode
+    }
+
     type PathGen = org.bykn.bosatsu.PathGen[IO, Path]
     val PathGen = org.bykn.bosatsu.PathGen
 
@@ -415,6 +425,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     case class ToJson(
       inputs: PathGen,
       deps: PathGen,
+      mode: JsonMode,
       mainPackage: MainIdentifier,
       outputOpt: Option[Path],
       errColor: Colorize,
@@ -424,7 +435,37 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         Evaluate(inputs, mainPackage, deps, errColor, packRes)
           .runEval
           .flatMap { case (ev, res) =>
-            res.toJson(ev, outputOpt).widen[Output]
+            val v2j = ev.valueToJson
+            mode match {
+              case JsonMode.Write =>
+                v2j.toJson(res.tpe) match {
+                  case Left(unsupported) =>
+                    val tMap = TypeRef.fromTypes(None, res.tpe :: Nil)
+                    val path = unsupported.path.init
+                    val badType = unsupported.path.last
+                    val pathMsg = path match {
+                      case Nil => Doc.empty
+                      case nonE =>
+                        val sep = Doc.lineOrSpace + Doc.text("contains") + Doc.lineOrSpace
+                        val pd = (Doc.intercalate(sep, nonE.map(tMap(_).toDoc)) + sep + tMap(badType).toDoc).nested(4)
+                        pd + Doc.hardLine + Doc.hardLine + Doc.text("but") + Doc.hardLine + Doc.hardLine
+                    }
+                    val msg = pathMsg + Doc.text("the type") + Doc.space + tMap(badType).toDoc + Doc.space + Doc.text("isn't supported")
+                    val tpeStr = msg.render(80)
+
+                    moduleIOMonad.raiseError(new Exception(s"cannot convert type to Json: $tpeStr"))
+                  case Right(fn) =>
+                    fn(res.value.value) match {
+                      case Left(valueError) =>
+                        moduleIOMonad.raiseError(new Exception(s"unexpected value error: $valueError"))
+                      case Right(j) =>
+                        moduleIOMonad.pure(Output.JsonOutput(j, outputOpt))
+                    }
+                }
+
+              case JsonMode.Apply(in) => ???
+              case JsonMode.Traverse(in) => ???
+            }
           }
     }
 
@@ -653,19 +694,35 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             case Some(paths) => PackageResolver.LocalRoots(paths, None)
           }
 
+      val jsonCommand = {
+        def toJsonOpt(modeOpt: Opts[JsonMode]) =
+          (srcs, includes, modeOpt, mainP, outputPath.orNone, colorOpt, packRes)
+            .mapN(ToJson(_, _, _, _, _, _, _))
+
+        val input: Opts[JsonInput] =
+          Opts.option[Path]("input_path", help = "json input path").map(JsonInput.FromPath(_))
+            .orElse(Opts.option[String]("input", help = "json string argument").map(JsonInput.FromString(_)))
+
+        val applyInput = input.map(JsonMode.Apply(_))
+        val traverseInput = input.map(JsonMode.Traverse(_))
+
+        Opts.subcommand("write", "write a bosatsu expression into json")(toJsonOpt(Opts(JsonMode.Write)))
+          .orElse(Opts.subcommand("apply", "apply a bosatsu function to a json array argument list")(toJsonOpt(applyInput)))
+          .orElse(Opts.subcommand("traverse", "apply a bosatsu function to each element of an array or each value in an object")(toJsonOpt(traverseInput)))
+      }
+
+
       val evalOpt = (srcs, mainP, includes, colorOpt, packRes)
         .mapN(Evaluate(_, _, _, _, _))
-      val toJsonOpt = (srcs, includes, mainP, outputPath.orNone, colorOpt, packRes)
-        .mapN(ToJson(_, _, _, _, _, _))
       val typeCheckOpt = (srcs, ifaces, outputPath, interfaceOutputPath.orNone, colorOpt, noSearchRes)
         .mapN(TypeCheck(_, _, _, _, _, _))
       val testOpt = (srcs, testP, includes, colorOpt, packRes)
         .mapN(RunTests(_, _, _, _, _))
 
       Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
-        .orElse(Opts.subcommand("write-json", "evaluate a data expression into json")(toJsonOpt))
         .orElse(Opts.subcommand("type-check", "type check a set of packages")(typeCheckOpt))
         .orElse(Opts.subcommand("test", "test a set of bosatsu modules")(testOpt))
+        .orElse(jsonCommand)
     }
 
     def command: Command[MainCommand] =

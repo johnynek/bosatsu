@@ -684,17 +684,11 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * this code ASSUMES the type is correct. If not, we may throw or return
    * incorrect data.
    */
-  private[this] val jsonConv = ValueToJson({
+  val valueToJson: ValueToJson = ValueToJson({
     case Type.Const.Defined(pn, t) =>
       for {
         pack <- pm.toMap.get(pn)
         dt <- pack.program.types.getType(pn, t)
       } yield dt
   })
-
-  def toJson(a: Value, tpe: Type): Option[Json] =
-    for {
-      fn <- jsonConv.toJson(tpe).toOption
-      json <- fn(a).toOption
-    } yield json
 }
