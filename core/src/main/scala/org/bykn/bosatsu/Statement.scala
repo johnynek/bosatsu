@@ -179,7 +179,7 @@ object Statement {
      }
 
      val struct =
-       (P("struct" ~ spaces ~/ Identifier.consParser ~ typeParams.? ~ argParser.parensLines1.?).region ~ toEOL)
+       (P("struct" ~ spaces ~/ Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?).region ~ toEOL)
          .map { case (region, (name, typeArgs, argsOpt)) =>
            val argList = argsOpt match {
              case None => Nil
@@ -190,7 +190,7 @@ object Statement {
          }
 
      val enum = {
-       val constructorP = P(Identifier.consParser ~ argParser.parensLines1.?)
+       val constructorP = P(Identifier.consParser ~ argParser.parensLines1Cut.?)
          .map {
            case (n, None) => (n, Nil)
            case (n, Some(args)) => (n, args.toList)
