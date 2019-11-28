@@ -118,15 +118,13 @@ object Statement {
 
   // Parse a single item
   final val parser1: P[Statement] = {
-     val bindingP: P[Statement] = {
-       val bop = Declaration
-         .bindingParser[Pattern.Parsed, Unit](Declaration.nonBindingParser, Indy.lift(toEOL))("")
-
-       (Pattern.bindParser ~/ bop).region.map { case (region, (p, parseBs)) =>
-         val bs = parseBs(p)
-          Bind(bs)(region)
-       }
-     }
+     val bindingP: P[Statement] =
+       Declaration
+         .bindingParser[Unit](Declaration.nonBindingParser, Indy.lift(toEOL), cutPattern = true)("")
+         .region
+         .map { case (region, bs) =>
+            Bind(bs)(region)
+         }
 
      val paddingSP: P[Statement] =
        Padding
@@ -179,7 +177,7 @@ object Statement {
      }
 
      val struct =
-       (P("struct" ~ spaces ~/ Identifier.consParser ~ typeParams.? ~ argParser.parensLines1.?).region ~ toEOL)
+       (P("struct" ~ spaces ~/ Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?).region ~ toEOL)
          .map { case (region, (name, typeArgs, argsOpt)) =>
            val argList = argsOpt match {
              case None => Nil
@@ -190,7 +188,7 @@ object Statement {
          }
 
      val enum = {
-       val constructorP = P(Identifier.consParser ~ argParser.parensLines1.?)
+       val constructorP = P(Identifier.consParser ~ argParser.parensLines1Cut.?)
          .map {
            case (n, None) => (n, Nil)
            case (n, Some(args)) => (n, args.toList)
@@ -221,7 +219,7 @@ object Statement {
    * This parses the *rest* of the string (it must end with End)
    */
   val parser: P[List[Statement]] =
-    parser1.rep().map(_.toList) ~ End
+    parser1.rep().map(_.toList) ~ Parser.maybeSpacesAndLines ~ End
 
   private def constructor(name: Constructor, taDoc: Doc, args: List[(Bindable, Option[TypeRef])]): Doc =
     Document[Identifier].document(name) + taDoc +

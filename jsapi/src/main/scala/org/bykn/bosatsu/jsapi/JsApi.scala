@@ -46,11 +46,11 @@ object JsApi {
   def jsonToAny(j: Json): js.Any =
     j match {
       case Json.JString(s) => s
-      case Json.JNumber(d) => d
       case Json.JNumberStr(str) =>
+        // javascript only really has doubles
         try str.toDouble
         catch {
-          case t: Throwable => str
+          case (_: NumberFormatException) => str
         }
       case Json.JBool(b) => b
       case Json.JNull => null

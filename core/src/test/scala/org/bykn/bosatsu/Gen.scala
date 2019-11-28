@@ -16,6 +16,9 @@ object Generators {
   val num: Gen[Char] = Gen.oneOf('0' to '9')
   val identC: Gen[Char] = Gen.frequency((10, lower), (1, upper), (1, num))
 
+  val whiteSpace: Gen[String] =
+    Gen.listOf(Gen.oneOf(' ', '\t', '\n')).map(_.mkString)
+
   private val emptyRegion: Region = Region(0, 0)
 
   def nonEmpty[T](t: Gen[T]): Gen[NonEmptyList[T]] =

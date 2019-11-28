@@ -20,6 +20,13 @@ class TypeEnv[+A] private (
       case _ => false
     }
 
+  lazy val referencedPackages: Set[PackageName] = {
+    def keys1[K, B](k: SortedMap[(PackageName, K), B]): Iterator[PackageName] =
+      k.keys.iterator.map(_._1)
+
+    (keys1(values) ++ keys1(constructors) ++ keys1(definedTypes)).toSet
+  }
+
   override def hashCode: Int = {
     (getClass, values, constructors, definedTypes).hashCode
   }
@@ -101,8 +108,10 @@ class TypeEnv[+A] private (
   def definedTypeFor(c: (PackageName, Constructor)): Option[DefinedType[A]] =
     typeConstructors.get(c).flatMap { case (_, _, d) => toDefinedType(d) }
 
-  def toDefinedType(t: Type.Const.Defined): Option[DefinedType[A]] =
-    getType(t.packageName, t.name)
+  def toDefinedType(t: Type.Const): Option[DefinedType[A]] =
+    t match {
+      case Type.Const.Defined(p, n) => getType(p, n)
+    }
 
   def ++[A1 >: A](that: TypeEnv[A1]): TypeEnv[A1] =
     new TypeEnv(values ++ that.values,
