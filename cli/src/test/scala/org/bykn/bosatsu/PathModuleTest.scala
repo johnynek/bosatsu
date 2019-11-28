@@ -104,13 +104,23 @@ class PathModuleTest extends FunSuite {
     }
   }
 
-  test("test search with write-json") {
+  test("test search with json write") {
 
-    val out = run("write-json --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu".split("\\s+"): _*)
+    val out = run("json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu".split("\\s+"): _*)
     out match {
       case PathModule.Output.JsonOutput(j@Json.JObject(_), _) =>
         assert(j.toMap == Map("value" -> Json.JBool(true), "message" -> Json.JString("got the right string")))
         assert(j.items.length == 2)
+      case other => fail(s"expected json object output: $other")
+    }
+  }
+
+  test("test search json apply") {
+    val cmd = "json apply --input_dir test_workspace/ --package_root test_workspace/ --value Bosatsu/Nat::mult --json_string"
+      .split("\\s+").toList :+ "[2, 4]"
+
+    run(cmd: _*) match {
+      case PathModule.Output.JsonOutput(Json.JNumberStr("8"), _) => succeed
       case other => fail(s"expected json object output: $other")
     }
   }
@@ -127,4 +137,5 @@ class PathModuleTest extends FunSuite {
       case other => fail(s"expected test output: $other")
     }
   }
+
 }

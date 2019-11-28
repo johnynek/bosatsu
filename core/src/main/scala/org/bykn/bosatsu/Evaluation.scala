@@ -199,6 +199,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       value <- evaluate(pack).get(name)
     } yield (value, tpe.getType)
 
+  def evaluateName(p: PackageName, name: Identifier): Option[(Eval[Value], Type)] =
+    for {
+      pack <- pm.toMap.get(p)
+      (_, _, tpe) <- pack.program.lets.find { case (n, _, _) => n == name }
+      value <- evaluate(pack).get(name)
+    } yield (value, tpe.getType)
+
   /**
    * Return the last test, if any, in the package.
    * this is the test that is run when we test

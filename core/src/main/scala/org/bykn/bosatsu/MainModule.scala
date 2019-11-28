@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
 import cats.{Eval, MonadError, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
-import fastparse.all.P
+import fastparse.all.{P, Parsed}
 import org.typelevel.paiges.Doc
 import scala.util.{ Failure, Success, Try }
 
@@ -300,28 +300,30 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           case Some(p) if !paths.contains(p) => p :: paths
           case _ => paths
         }
-      def getMain(ps: List[(Path, PackageName)]): IO[PackageName]
+      def getMain(ps: List[(Path, PackageName)]): IO[(PackageName, Option[Identifier])]
     }
     object MainIdentifier {
-      case class FromPackage(mainPackage: PackageName) extends MainIdentifier {
+      case class FromPackage(mainPackage: PackageName, value: Option[Identifier]) extends MainIdentifier {
         def path: Option[Path] = None
-        def getMain(ps: List[(Path, PackageName)]): IO[PackageName] = moduleIOMonad.pure(mainPackage)
+        def getMain(ps: List[(Path, PackageName)]): IO[(PackageName, Option[Identifier])] =
+          moduleIOMonad.pure((mainPackage, value))
       }
       case class FromFile(mainFile: Path) extends MainIdentifier {
         def path: Option[Path] = Some(mainFile)
-        def getMain(ps: List[(Path, PackageName)]): IO[PackageName] =
+        def getMain(ps: List[(Path, PackageName)]): IO[(PackageName, Option[Identifier])] =
           ps.collectFirst { case (path, pn) if path == mainFile => pn } match {
             case None => moduleIOMonad.raiseError(new Exception(s"could not find file $mainFile in parsed sources"))
-            case Some(p) => moduleIOMonad.pure(p)
+            case Some(p) => moduleIOMonad.pure((p, None))
           }
       }
 
-      def opts(pnOpts: Opts[PackageName], fileOpts: Opts[Path]): Opts[MainIdentifier] =
-        pnOpts.map(FromPackage(_)).orElse(fileOpts.map(FromFile(_)))
+      def opts(pnOpts: Opts[(PackageName, Option[Identifier])], fileOpts: Opts[Path]): Opts[MainIdentifier] =
+        pnOpts.map { case (p, i) => FromPackage(p, i) }
+          .orElse(fileOpts.map(FromFile(_)))
 
-      def list(packs: Opts[List[PackageName]], files: Opts[List[Path]]): Opts[List[MainIdentifier]] =
+      def list(packs: Opts[List[(PackageName, Option[Identifier])]], files: Opts[List[Path]]): Opts[List[MainIdentifier]] =
         (packs, files).mapN { (ps, fs) =>
-          ps.map(FromPackage(_)) ::: fs.map(FromFile(_))
+          ps.map { case (p, i) => FromPackage(p, i) } ::: fs.map(FromFile(_))
         }
 
       def addAnyAbsent(ms: List[MainIdentifier], paths: List[Path]): List[Path] = {
@@ -405,10 +407,17 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           ds <- deps.read
           pn <- buildPackMap(mainPackage.addIfAbsent(ins), ds, errColor, packRes)
           (packs, names) = pn
-          mainPackageName <- mainPackage.getMain(names)
+          mainPackageNameValue <- mainPackage.getMain(names)
+          (mainPackageName, value) = mainPackageNameValue
           out <- if (packs.toMap.contains(mainPackageName)) {
                     val ev = Evaluation(packs, Predef.jvmExternals)
-                    ev.evaluateLast(mainPackageName) match {
+
+                    val res = value match {
+                      case None => ev.evaluateLast(mainPackageName)
+                      case Some(ident) => ev.evaluateName(mainPackageName, ident)
+                    }
+
+                    res match {
                       case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
                       case Some((eval, tpe)) =>
                         moduleIOMonad.pure((ev, Output.EvaluationResult(eval, tpe)))
@@ -436,24 +445,27 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           .runEval
           .flatMap { case (ev, res) =>
             val v2j = ev.valueToJson
+            def unsupported[A](tpe: rankn.Type, j: JsonEncodingError.UnsupportedType): IO[A] = {
+              val tMap = TypeRef.fromTypes(None, tpe :: Nil)
+              val path = j.path.init
+              val badType = j.path.last
+              val pathMsg = path match {
+                case Nil => Doc.empty
+                case nonE =>
+                  val sep = Doc.lineOrSpace + Doc.text("contains") + Doc.lineOrSpace
+                  val pd = (Doc.intercalate(sep, nonE.map(tMap(_).toDoc)) + sep + tMap(badType).toDoc).nested(4)
+                  pd + Doc.hardLine + Doc.hardLine + Doc.text("but") + Doc.hardLine + Doc.hardLine
+              }
+              val msg = pathMsg + Doc.text("the type") + Doc.space + tMap(badType).toDoc + Doc.space + Doc.text("isn't supported")
+              val tpeStr = msg.render(80)
+
+              moduleIOMonad.raiseError(new Exception(s"cannot convert type to Json: $tpeStr"))
+            }
+
             mode match {
               case JsonMode.Write =>
                 v2j.toJson(res.tpe) match {
-                  case Left(unsupported) =>
-                    val tMap = TypeRef.fromTypes(None, res.tpe :: Nil)
-                    val path = unsupported.path.init
-                    val badType = unsupported.path.last
-                    val pathMsg = path match {
-                      case Nil => Doc.empty
-                      case nonE =>
-                        val sep = Doc.lineOrSpace + Doc.text("contains") + Doc.lineOrSpace
-                        val pd = (Doc.intercalate(sep, nonE.map(tMap(_).toDoc)) + sep + tMap(badType).toDoc).nested(4)
-                        pd + Doc.hardLine + Doc.hardLine + Doc.text("but") + Doc.hardLine + Doc.hardLine
-                    }
-                    val msg = pathMsg + Doc.text("the type") + Doc.space + tMap(badType).toDoc + Doc.space + Doc.text("isn't supported")
-                    val tpeStr = msg.render(80)
-
-                    moduleIOMonad.raiseError(new Exception(s"cannot convert type to Json: $tpeStr"))
+                  case Left(unsup) => unsupported(res.tpe, unsup)
                   case Right(fn) =>
                     fn(res.value.value) match {
                       case Left(valueError) =>
@@ -463,7 +475,50 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                     }
                 }
 
-              case JsonMode.Apply(in) => ???
+              case JsonMode.Apply(in) =>
+                def showError(prefix: String, str: String, idx: Int): IO[Json] = {
+                  val errMsg0 = str.substring(idx + 1)
+                  val errMsg =
+                    if (errMsg0.length > 20) errMsg0.take(20) + s"... (and ${errMsg0.length - 20} more"
+                    else errMsg0
+
+                  moduleIOMonad.raiseError(
+                    new Exception(s"$prefix at ${idx + 1}: $errMsg"))
+                }
+
+                val ioJson: IO[Json] = in.read.flatMap { jsonString =>
+                  Json.parserFile.parse(jsonString) match {
+                    case Parsed.Success(j, idx) =>
+                      if (idx == jsonString.length) moduleIOMonad.pure(j)
+                      else showError("unexpected data at the input", jsonString, idx)
+                    case Parsed.Failure(_, idx, _) =>
+                      showError("could not parse a JSON record", jsonString, idx)
+                  }
+                }
+
+                v2j.valueFnToJsonFn(res.tpe) match {
+                  case Left(unsup) => unsupported(res.tpe, unsup)
+                  case Right(fnGen) =>
+                    fnGen(res.value.value) match {
+                      case Right((arity, fn)) =>
+                        ioJson.flatMap {
+                          case ary@Json.JArray(items) if items.length == arity =>
+                            fn(ary) match {
+                              case Left(dataError) =>
+                                moduleIOMonad.raiseError(
+                                  new Exception(s"invalid input json: $dataError"))
+                              case Right(json) =>
+                                moduleIOMonad.pure(Output.JsonOutput(json, outputOpt))
+                            }
+                          case otherJson =>
+                            moduleIOMonad.raiseError(
+                              new Exception(s"required a json array of size $arity, found:\n\n${otherJson.render}"))
+                        }
+                      case Left(valueError) =>
+                        // shouldn't happen since value should be well typed
+                        moduleIOMonad.raiseError(new Exception(s"unexpected value error: $valueError"))
+                    }
+                }
               case JsonMode.Traverse(in) => ???
             }
           }
@@ -518,8 +573,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                   .flatMap { case (packs, nameMap) =>
 
                     testPacks.traverse(_.getMain(nameMap))
-                      .map { testPackNames: List[PackageName] =>
-                        (packs, nameMap, testPackNames)
+                      .map { testPackNames: List[(PackageName, Option[Identifier])] =>
+                        (packs, nameMap, testPackNames.map(_._1))
                       }
                   }
 
@@ -587,15 +642,29 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       }
 
     val opts: Opts[MainCommand] = {
-      implicit val argPack: Argument[PackageName] =
-        new Argument[PackageName] {
-          def defaultMetavar: String = "packageName"
-          def read(string: String): ValidatedNel[String, PackageName] =
-            PackageName.parse(string) match {
-              case Some(pn) => Validated.valid(pn)
-              case None => Validated.invalidNel(s"could not parse $string as a package name. Must be capitalized strings separated by /")
+
+      def argFromParser[A](p: P[A], defmeta: String, typeName: String, suggestion: String): Argument[A] =
+        new Argument[A] {
+          def defaultMetavar: String = defmeta
+          def read(string: String): ValidatedNel[String, A] =
+            p.parse(string) match {
+              case Parsed.Success(a, l) if l == string.length => Validated.valid(a)
+              case _ =>
+                val sugSpace = if (suggestion.nonEmpty) s" $suggestion" else ""
+                Validated.invalidNel(s"could not parse $string as a $typeName." + sugSpace)
             }
         }
+
+      implicit val argPack: Argument[PackageName] =
+        argFromParser(PackageName.parser, "packageName", "package name", "Must be capitalized strings separated by /")
+
+      implicit val argValue: Argument[(PackageName, Identifier)] = {
+        import fastparse.all._
+        argFromParser(P(PackageName.parser ~ "::" ~ Identifier.parser),
+          "valueIdent",
+          "full value name",
+          "Must be a package name :: value, e.g. Foo/Bar::baz")
+      }
 
       def toList[A](neo: Opts[NonEmptyList[A]]): Opts[List[A]] = {
         neo.orNone.map {
@@ -649,12 +718,13 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       val mainP =
           MainIdentifier.opts(
-            Opts.option[PackageName]("main", help = "main package to evaluate"),
+            Opts.option[PackageName]("main", help = "main package to evaluate").map((_, None))
+              .orElse(Opts.option[(PackageName, Identifier)]("value", help = "specific value to evaluate").map { case (p, i) => (p, Some(i)) }),
             Opts.option[Path]("main_file", help = "file containing the main package to evaluate"))
 
       val testP =
           MainIdentifier.list(
-            toList(Opts.options[PackageName]("test_package", help = "package for which to run tests")),
+            toList(Opts.options[PackageName]("test_package", help = "package for which to run tests").map(_.map((_, None)))),
             toList(Opts.options[Path]("test_file", help = "file containing the package for which to run tests")))
 
       val outputPath = Opts.option[Path]("output", help = "output path")
@@ -700,15 +770,17 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             .mapN(ToJson(_, _, _, _, _, _, _))
 
         val input: Opts[JsonInput] =
-          Opts.option[Path]("input_path", help = "json input path").map(JsonInput.FromPath(_))
-            .orElse(Opts.option[String]("input", help = "json string argument").map(JsonInput.FromString(_)))
+          Opts.option[Path]("json_input", help = "json input path").map(JsonInput.FromPath(_))
+            .orElse(Opts.option[String]("json_string", help = "json string argument").map(JsonInput.FromString(_)))
 
         val applyInput = input.map(JsonMode.Apply(_))
         val traverseInput = input.map(JsonMode.Traverse(_))
 
-        Opts.subcommand("write", "write a bosatsu expression into json")(toJsonOpt(Opts(JsonMode.Write)))
+        val subs = Opts.subcommand("write", "write a bosatsu expression into json")(toJsonOpt(Opts(JsonMode.Write)))
           .orElse(Opts.subcommand("apply", "apply a bosatsu function to a json array argument list")(toJsonOpt(applyInput)))
           .orElse(Opts.subcommand("traverse", "apply a bosatsu function to each element of an array or each value in an object")(toJsonOpt(traverseInput)))
+
+        Opts.subcommand("json", "json writing and transformation tools")(subs)
       }
 
 
