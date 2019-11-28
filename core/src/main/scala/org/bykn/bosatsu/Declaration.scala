@@ -432,14 +432,22 @@ object Declaration {
       case _ => None
     }
 
-  def bindingParser[B, T](parser: Indy[NonBinding], rest: Indy[T]): Indy[B => BindingStatement[B, NonBinding, T]] = {
-    val eqP = P("=" ~ !Operators.multiToksP)
+  /**
+   * if cutPattern = false, we put Pattern.bindParser in NoCut
+   * this is needed for parsing declarations currently because
+   * patterns and some Declarations are ambiguous, so only the = signals them
+   */
+  def bindingParser[T](parser: Indy[NonBinding], rest: Indy[T], cutPattern: Boolean): Indy[BindingStatement[Pattern.Parsed, NonBinding, T]] = {
+    val eqP: P[Unit] = P("=" ~ !Operators.multiToksP)
+    val patPart = Pattern.bindParser ~ maybeSpace ~ eqP
+    val cutOrNot = if (cutPattern) patPart else NoCut(patPart)
+    val pat: Indy[Pattern.Parsed] = Indy.lift(cutOrNot)
 
-    (Indy.lift(P(maybeSpace ~ eqP ~/ maybeSpace)) *> parser)
+    // allow = to be like a block, we can continue on the next line indented
+    OptIndent.blockLike(pat, parser, PassWith(()))
       .cutThen(rest)
-      .map { case (value, rest) =>
-
-        { (bname: B) => BindingStatement(bname, value, rest) }
+      .map { case ((pat, value), rest) =>
+        BindingStatement(pat, value.get, rest)
       }
   }
 
@@ -566,18 +574,13 @@ object Declaration {
       }
   }
 
-  private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] = {
-    val rightSide = bindingParser[Pattern.Parsed, Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP(decl))
+  private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] =
+    // we can't cut the pattern here because we have some ambiguity in declarations
+    bindingParser[Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL), restP(decl), cutPattern = false)
       .region
-      .map { case (region, fn) =>
-        { (pat: Pattern.Parsed, r: Region) => Binding(fn(pat))(r + region) }
+      .map { case (region, bind) =>
+        Binding(bind)(region)
       }
-
-    Indy.lift(NoCut(Pattern.bindParser).region).product(rightSide)
-      .map {
-        case ((reg, pat), fn) => fn(pat, reg)
-      }
-  }
 
   private def listP(p: P[NonBinding]): P[ListDecl] =
     ListLang.parser(p, Pattern.bindParser)

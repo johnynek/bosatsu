@@ -679,6 +679,11 @@ x""",
 x""",
     Binding(BindingStatement(Pattern.Var(Identifier.Name("x")),Apply(mkVar("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), ApplyKind.Parens),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,mkVar("x"))))))))
 
+    // allow indentation after =
+    roundTrip(parser(""),
+      """x =
+        |  foo
+        |x""".stripMargin)
   }
 
   test("we can parse if") {
@@ -986,6 +991,18 @@ x = ( foo )
 
 """)
 
+    // we can add spaces at the end of the file
+    roundTrip(Statement.parser,
+"""# header
+def foo(x: forall f. f[a] -> f[b], y: a) -> b:
+  x(y)
+
+# here is a lambda
+fn = \x, y -> x.plus(y)
+
+x = ( foo )
+      """)
+
     roundTrip(Statement.parser,
 """#
 
@@ -1058,9 +1075,9 @@ def foo(
       case _ => false
     }.reverse
 
-  test("Any statement may append a newline and continue to parse") {
-    forAll(Generators.genStatement(5)) { s =>
-      val str = Document[Statement].document(s).render(80) + "\n"
+  test("Any statement may append trailing whitespace and continue to parse") {
+    forAll(Generators.genStatement(5), Generators.whiteSpace) { (s, ws) =>
+      val str = Document[Statement].document(s).render(80) + ws
       roundTrip(Statement.parser.map(dropTrailingPadding(_)), str)
     }
   }
