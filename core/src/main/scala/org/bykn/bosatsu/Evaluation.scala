@@ -202,7 +202,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   def evaluateName(p: PackageName, name: Identifier): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
-      (_, _, tpe) <- pack.program.lets.find { case (n, _, _) => n == name }
+      (_, _, tpe) <- pack.program.lets.filter { case (n, _, _) => n == name }.lastOption
       value <- evaluate(pack).get(name)
     } yield (value, tpe.getType)
 

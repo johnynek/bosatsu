@@ -2,4 +2,6 @@ export [ x, ]
 
 # testing an implicit package name
 
+x = 1
+# now we shadow x with a different type
 x = "this is Foo"

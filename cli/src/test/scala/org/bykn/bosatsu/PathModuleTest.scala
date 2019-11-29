@@ -189,4 +189,11 @@ class PathModuleTest extends FunSuite {
     }
   }
 
+  test("evaluation by name with shadowing") {
+    run("json write --package_root test_workspace --input test_workspace/Foo.bosatsu --main Foo::x".split("\\s+"): _*) match {
+      case PathModule.Output.JsonOutput(Json.JString("this is Foo"), _) => succeed
+      case other => fail(s"unexpeced: $other")
+    }
+  }
+
 }
