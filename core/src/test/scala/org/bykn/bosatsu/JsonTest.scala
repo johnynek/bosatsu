@@ -196,5 +196,6 @@ enum MyNat: Z, S(prev: MyNat)
     illTypedJson("List[Int]", "[1, \"2\", 3]")
     illTypedJson("String", "1")
     illTypedJson("MyPair[MyUnit, MyUnit]", "0")
+    illTypedJson("List[Unit]", "[null, 1]")
   }
 }

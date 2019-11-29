@@ -116,11 +116,21 @@ class PathModuleTest extends FunSuite {
   }
 
   test("test search json apply") {
-    val cmd = "json apply --input_dir test_workspace/ --package_root test_workspace/ --value Bosatsu/Nat::mult --json_string"
+    val cmd = "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
       .split("\\s+").toList :+ "[2, 4]"
 
     run(cmd: _*) match {
       case PathModule.Output.JsonOutput(Json.JNumberStr("8"), _) => succeed
+      case other => fail(s"expected json object output: $other")
+    }
+  }
+
+  test("test search json traverse") {
+    val cmd = "json traverse --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+      .split("\\s+").toList :+ "[[2, 4], [3, 5]]"
+
+    run(cmd: _*) match {
+      case PathModule.Output.JsonOutput(Json.JArray(Vector(Json.JNumberStr("8"), Json.JNumberStr("15"))), _) => succeed
       case other => fail(s"expected json object output: $other")
     }
   }

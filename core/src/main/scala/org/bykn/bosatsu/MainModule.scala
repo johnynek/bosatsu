@@ -440,6 +440,28 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
 
+      private def showError[A](prefix: String, str: String, idx: Int): IO[A] = {
+        val errMsg0 = str.substring(idx + 1)
+        val errMsg =
+          if (errMsg0.length > 20) errMsg0.take(20) + s"... (and ${errMsg0.length - 20} more"
+          else errMsg0
+
+        moduleIOMonad.raiseError(
+          new Exception(s"$prefix at ${idx + 1}: $errMsg"))
+      }
+
+
+      private def ioJson(io: IO[String]): IO[Json] =
+        io.flatMap { jsonString =>
+          Json.parserFile.parse(jsonString) match {
+            case Parsed.Success(j, idx) =>
+              if (idx == jsonString.length) moduleIOMonad.pure(j)
+              else showError("unexpected data at the input", jsonString, idx)
+            case Parsed.Failure(_, idx, _) =>
+              showError("could not parse a JSON record", jsonString, idx)
+          }
+        }
+
       def run =
         Evaluate(inputs, mainPackage, deps, errColor, packRes)
           .runEval
@@ -462,6 +484,36 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
               moduleIOMonad.raiseError(new Exception(s"cannot convert type to Json: $tpeStr"))
             }
 
+            def process[F[_]: Traverse](io: IO[String], extract: Json => IO[F[Json]], inject: F[Json] => Json): IO[Output] =
+              v2j.valueFnToJsonFn(res.tpe) match {
+                case Left(unsup) => unsupported[Output](res.tpe, unsup)
+                case Right(fnGen) =>
+                  fnGen(res.value.value) match {
+                    case Right((arity, fn)) =>
+                      ioJson(io)
+                        .flatMap(extract)
+                        .flatMap { _.traverse {
+                          case ary@Json.JArray(items) if items.length == arity =>
+                            fn(ary) match {
+                              case Left(dataError) =>
+                                moduleIOMonad.raiseError[Json](new Exception(s"invalid input json: $dataError"))
+                              case Right(json) =>
+                                moduleIOMonad.pure(json)
+                            }
+                          case otherJson =>
+                            moduleIOMonad.raiseError[Json](
+                              new Exception(s"required a json array of size $arity, found:\n\n${otherJson.render}"))
+                          }
+                        }
+                        .map { fjson =>
+                          Output.JsonOutput(inject(fjson), outputOpt): Output
+                        }
+                    case Left(valueError) =>
+                      // shouldn't happen since value should be well typed
+                      moduleIOMonad.raiseError(new Exception(s"unexpected value error: $valueError"))
+                  }
+              }
+
             mode match {
               case JsonMode.Write =>
                 v2j.toJson(res.tpe) match {
@@ -476,50 +528,16 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 }
 
               case JsonMode.Apply(in) =>
-                def showError(prefix: String, str: String, idx: Int): IO[Json] = {
-                  val errMsg0 = str.substring(idx + 1)
-                  val errMsg =
-                    if (errMsg0.length > 20) errMsg0.take(20) + s"... (and ${errMsg0.length - 20} more"
-                    else errMsg0
-
-                  moduleIOMonad.raiseError(
-                    new Exception(s"$prefix at ${idx + 1}: $errMsg"))
-                }
-
-                val ioJson: IO[Json] = in.read.flatMap { jsonString =>
-                  Json.parserFile.parse(jsonString) match {
-                    case Parsed.Success(j, idx) =>
-                      if (idx == jsonString.length) moduleIOMonad.pure(j)
-                      else showError("unexpected data at the input", jsonString, idx)
-                    case Parsed.Failure(_, idx, _) =>
-                      showError("could not parse a JSON record", jsonString, idx)
-                  }
-                }
-
-                v2j.valueFnToJsonFn(res.tpe) match {
-                  case Left(unsup) => unsupported(res.tpe, unsup)
-                  case Right(fnGen) =>
-                    fnGen(res.value.value) match {
-                      case Right((arity, fn)) =>
-                        ioJson.flatMap {
-                          case ary@Json.JArray(items) if items.length == arity =>
-                            fn(ary) match {
-                              case Left(dataError) =>
-                                moduleIOMonad.raiseError(
-                                  new Exception(s"invalid input json: $dataError"))
-                              case Right(json) =>
-                                moduleIOMonad.pure(Output.JsonOutput(json, outputOpt))
-                            }
-                          case otherJson =>
-                            moduleIOMonad.raiseError(
-                              new Exception(s"required a json array of size $arity, found:\n\n${otherJson.render}"))
-                        }
-                      case Left(valueError) =>
-                        // shouldn't happen since value should be well typed
-                        moduleIOMonad.raiseError(new Exception(s"unexpected value error: $valueError"))
-                    }
-                }
-              case JsonMode.Traverse(in) => ???
+                process[cats.Id](in.read,
+                  { json => moduleIOMonad.pure(json) },
+                  { json => json })
+              case JsonMode.Traverse(in) =>
+                process[Vector](in.read,
+                  {
+                    case Json.JArray(items) => moduleIOMonad.pure(items)
+                    case other => moduleIOMonad.raiseError(new Exception(s"require an array or arrays for traverse, found: ${other.getClass}"))
+                  },
+                  { items => Json.JArray(items) })
             }
           }
     }
@@ -531,7 +549,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       ifout: Option[Path],
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
-      def run =
+    def run =
         for {
           ins <- inputs.read
           ifpaths <- ifaces.read
@@ -658,20 +676,19 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       implicit val argPack: Argument[PackageName] =
         argFromParser(PackageName.parser, "packageName", "package name", "Must be capitalized strings separated by /")
 
-      implicit val argValue: Argument[(PackageName, Identifier)] = {
+      implicit val argValue: Argument[(PackageName, Option[Identifier])] = {
         import fastparse.all._
-        argFromParser(P(PackageName.parser ~ "::" ~ Identifier.parser),
+        argFromParser(P(PackageName.parser ~ ("::" ~ Identifier.parser).?),
           "valueIdent",
-          "full value name",
-          "Must be a package name :: value, e.g. Foo/Bar::baz")
+          "package or package::name",
+          "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz")
       }
 
-      def toList[A](neo: Opts[NonEmptyList[A]]): Opts[List[A]] = {
+      def toList[A](neo: Opts[NonEmptyList[A]]): Opts[List[A]] =
         neo.orNone.map {
           case None => Nil
           case Some(ne) => ne.toList
         }
-      }
 
       implicit val argColor: Argument[Colorize] =
         new Argument[Colorize] {
@@ -718,8 +735,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       val mainP =
           MainIdentifier.opts(
-            Opts.option[PackageName]("main", help = "main package to evaluate").map((_, None))
-              .orElse(Opts.option[(PackageName, Identifier)]("value", help = "specific value to evaluate").map { case (p, i) => (p, Some(i)) }),
+            Opts.option[(PackageName, Option[Identifier])]("main", help = "main value to evaluate (package name or full identifier"),
             Opts.option[Path]("main_file", help = "file containing the main package to evaluate"))
 
       val testP =

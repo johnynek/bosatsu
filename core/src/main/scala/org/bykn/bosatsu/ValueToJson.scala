@@ -199,9 +199,10 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             case Type.Tuple(ts) =>
               val p1 = tpe :: revPath
               lazy val inners = ts.traverse { t => loop(t, p1) }.value
+              val tsize = ts.size
 
               {
-                case Tuple(as) =>
+                case Tuple(as) if as.size == tsize =>
                   as.zip(inners)
                     .toVector
                     .traverse { case (a, fn) => fn(a) }
@@ -258,13 +259,22 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   }
                   else if (dt.isStruct) {
                     lazy val productsInner = resInner.value.head._2
+                    lazy val size = productsInner.size
 
-                    { case prod: ProductValue =>
-                        prod.toList.zip(productsInner)
-                          .traverse { case (p, (key, f)) =>
-                            f(p).map((key, _))
-                          }
-                          .map { ps => Json.JObject(ps) }
+                    {
+                      case prod: ProductValue =>
+                        val plist = prod.toList
+
+                        if (plist.size == size) {
+                          plist.zip(productsInner)
+                            .traverse { case (p, (key, f)) =>
+                              f(p).map((key, _))
+                            }
+                            .map { ps => Json.JObject(ps) }
+                        }
+                        else {
+                          Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, prod))
+                        }
 
                       case other =>
                         Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
@@ -279,11 +289,15 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       case s: SumValue =>
                         mapping.get(s.variant) match {
                           case Some(fn) =>
-                            s.value.toList.zip(fn)
-                              .traverse { case (p, (key, f)) =>
-                                f(p).map((key, _))
-                              }
-                              .map { ps => Json.JObject(ps) }
+                            val vlist = s.value.toList
+                            if (vlist.size == fn.size) {
+                              vlist.zip(fn)
+                                .traverse { case (p, (key, f)) =>
+                                  f(p).map((key, _))
+                                }
+                                .map { ps => Json.JObject(ps) }
+                            }
+                            else Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, s))
                           case None =>
                             Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, s))
                         }
@@ -424,11 +438,14 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               lazy val inners = ts.traverse(loop(_, p1)).value
 
               {
-                case Json.JArray(as) =>
-                  as.zip(inners)
-                    .toVector
-                    .traverse { case (a, fn) => fn(a) }
-                    .map { vs => Tuple.fromList(vs.toList) }
+                case ary@Json.JArray(as) =>
+                  if (as.size == inners.size) {
+                    as.zip(inners)
+                      .toVector
+                      .traverse { case (a, fn) => fn(a) }
+                      .map { vs => Tuple.fromList(vs.toList) }
+                  }
+                  else Left(IllTypedJson(revPath.reverse, tpe, ary))
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
                   Left(IllTypedJson(revPath.reverse, tpe, other))
