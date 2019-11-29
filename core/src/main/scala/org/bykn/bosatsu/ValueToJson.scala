@@ -116,8 +116,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               }
             case Type.StrType =>
               {
-                case ExternalValue(v) =>
-                  Right(Json.JString(v.toString))
+                case ExternalValue(v: String) =>
+                  Right(Json.JString(v))
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
                   Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
