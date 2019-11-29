@@ -143,6 +143,8 @@ object Json {
         }
     }
 
+  private[this] val whitespace: P[Unit] = CharIn(" \t\r\n")
+  private[this] val whitespaces0 = whitespace.rep()
   /**
    * This doesn't have to be super fast (but is fairly fast) since we use it in places
    * where speed won't matter: feeding it into a program that will convert it to bosatsu
@@ -155,8 +157,6 @@ object Json {
     val justStr = JsonStringUtil.escapedString('"')
     val str = justStr.map(JString(_))
     val num = Parser.JsonNumber.parser.map(JNumberStr(_))
-    val whitespace: P[Unit] = CharIn(" \t\r\n")
-    val whitespaces0 = whitespace.rep()
 
     val listSep = P(whitespaces0 ~ "," ~/ whitespaces0)
     val list = P("[" ~/ whitespaces0 ~ recurse.rep(sep = listSep) ~ whitespaces0 ~ "]")
@@ -168,4 +168,8 @@ object Json {
 
     pnull | bool | str | num | list | obj
   }
+
+  // any whitespace followed by json followed by whitespace followed by end
+  val parserFile: P[Json] = whitespaces0 ~ parser ~ whitespaces0 ~ End
+
 }

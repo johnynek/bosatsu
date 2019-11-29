@@ -7,6 +7,7 @@ import org.scalatest.prop.PropertyChecks.forAll
 import org.scalatest.FunSuite
 
 import scala.collection.JavaConverters._
+import scala.util.{Failure, Success, Try}
 
 class PathModuleTest extends FunSuite {
 
@@ -104,14 +105,74 @@ class PathModuleTest extends FunSuite {
     }
   }
 
-  test("test search with write-json") {
+  test("test search with json write") {
 
-    val out = run("write-json --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu".split("\\s+"): _*)
+    val out = run("json write --package_root test_workspace --search --main_file test_workspace/Bar.bosatsu".split("\\s+"): _*)
     out match {
       case PathModule.Output.JsonOutput(j@Json.JObject(_), _) =>
         assert(j.toMap == Map("value" -> Json.JBool(true), "message" -> Json.JString("got the right string")))
         assert(j.items.length == 2)
       case other => fail(s"expected json object output: $other")
+    }
+  }
+
+  test("test search json apply") {
+    val cmd = "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+      .split("\\s+").toList :+ "[2, 4]"
+
+    run(cmd: _*) match {
+      case PathModule.Output.JsonOutput(Json.JNumberStr("8"), _) => succeed
+      case other => fail(s"expected json object output: $other")
+    }
+  }
+
+  test("test search json traverse") {
+    val cmd = "json traverse --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+      .split("\\s+").toList :+ "[[2, 4], [3, 5]]"
+
+    run(cmd: _*) match {
+      case PathModule.Output.JsonOutput(Json.JArray(Vector(Json.JNumberStr("8"), Json.JNumberStr("15"))), _) => succeed
+      case other => fail(s"expected json object output: $other")
+    }
+  }
+
+  test("error coverage on json command") {
+    def fails(str: String, suffix: String*) =
+      PathModule.run(str.split("\\s+").toList ::: suffix.toList) match {
+        case Left(h) => fail(s"got help: $h, expected a non-help command")
+        case Right(io) =>
+          Try(io.unsafeRunSync) match {
+            case Success(s) => fail(s"got Success($s) expected to fail")
+            case Failure(_) => succeed
+          }
+      }
+
+    // ill-typed json fails
+    val cmd = "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult --json_string"
+    fails(cmd, "[\"2\", 4]")
+    fails(cmd, "[2, \"4\"]")
+    // wrong arity
+    fails(cmd, "[2, 4, 3]")
+    fails(cmd, "[2]")
+    fails(cmd, "[]")
+    // unknown command fails
+    val badName = "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::foooooo --json_string 23"
+    fails(badName)
+    val badPack = "json apply --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/DoesNotExist --json_string 23"
+    fails(badPack)
+    // bad json fails
+    fails(cmd, "[\"2\", foo, bla]")
+    fails(cmd, "[42, 31] and some junk")
+    // exercise unsupported, we cannot write mult, it is a function
+    fails("json write --input_dir test_workspace/ --package_root test_workspace/ --main Bosatsu/Nat::mult")
+    // a bad main name triggers help
+    PathModule.run("json write --input_dir test_workspace --main Bo//".split(' ').toList) match {
+      case Left(_) => succeed
+      case Right(_) => fail
+    }
+    PathModule.run("json write --input_dir test_workspace --main Bo:::boop".split(' ').toList) match {
+      case Left(_) => succeed
+      case Right(_) => fail
     }
   }
 
@@ -127,4 +188,12 @@ class PathModuleTest extends FunSuite {
       case other => fail(s"expected test output: $other")
     }
   }
+
+  test("evaluation by name with shadowing") {
+    run("json write --package_root test_workspace --input test_workspace/Foo.bosatsu --main Foo::x".split("\\s+"): _*) match {
+      case PathModule.Output.JsonOutput(Json.JString("this is Foo"), _) => succeed
+      case other => fail(s"unexpeced: $other")
+    }
+  }
+
 }

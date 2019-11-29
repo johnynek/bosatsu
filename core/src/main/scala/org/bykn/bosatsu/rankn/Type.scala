@@ -218,6 +218,26 @@ object Type {
 
     def apply(from: Type, to: Type): Type.Rho =
       TyApply(TyApply(FnType, from), to)
+
+    /**
+     * a -> b -> c .. -> d to [a, b, c, ..] -> d
+     */
+    def uncurry(t: Type): Option[(NonEmptyList[Type], Type)] =
+      t match {
+        case Fun(a, b) =>
+          uncurry(b) match {
+            case Some((ne1, t)) => Some((ne1.prepend(a), t))
+            case None => Some((NonEmptyList(a, Nil), b))
+          }
+        case _ => None
+      }
+
+    def curry(args: NonEmptyList[Type], res: Type): Type.Rho =
+      args match {
+        case NonEmptyList(h, Nil) => Fun(h, res)
+        case NonEmptyList(h1, h2 :: tail) =>
+          Fun(h1, curry(NonEmptyList(h2, tail), res))
+      }
   }
 
   object Tuple {
