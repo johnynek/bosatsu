@@ -103,7 +103,7 @@ object TestUtils {
   def evalTestJson(packages: List[String], mainPackS: String, expected: Json) = {
     val files = packages.zipWithIndex.map(_.swap)
 
-    module.runWith(files)("write-json" :: "--main" :: mainPackS :: "--output" :: "-1" :: makeInputArgs(files)) match {
+    module.runWith(files)("json" :: "write" :: "--main" :: mainPackS :: "--output" :: "-1" :: makeInputArgs(files)) match {
       case Right(module.Output.JsonOutput(got, _)) =>
         assert(got == expected, s"$got != $expected")
       case Right(other) =>

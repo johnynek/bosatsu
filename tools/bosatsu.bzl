@@ -51,7 +51,7 @@ bosatsu_library = rule(
 def _bosatsu_json_impl(ctx):
   provider = _collect_deps(ctx)
 
-  args = ["write-json"]
+  args = ["json", "write"]
   for f in ctx.files.srcs:
     args += ["--input", f.path]
   for f in provider.transitive_deps.to_list():

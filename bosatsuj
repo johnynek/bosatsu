@@ -1,4 +1,4 @@
 #!/bin/sh
 
 # make sure to run sbt cli/assembly first
-java -jar cli/target/scala-2.12/bosatsu-cli-assembly-0.1.0-SNAPSHOT.jar $@
+java -jar cli/target/scala-2.12/bosatsu-cli-assembly-0.1.0-SNAPSHOT.jar "$@"

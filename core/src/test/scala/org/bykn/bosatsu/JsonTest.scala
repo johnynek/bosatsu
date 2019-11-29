@@ -13,7 +13,7 @@ import GenJson._
 class JsonTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 1000)
 
   def assertParser(str: String): Json =
     Json.parser.parse(str) match {
@@ -78,6 +78,50 @@ class JsonTest extends FunSuite {
     val regressions = List((Type.TyApply(Type.OptionType, Type.BoolType), Json.JBool.False))
 
     regressions.foreach { case (t, j) => law(t, j) }
+  }
+
+  test("if valueToToJson gives 0 arity, it is not a function type") {
+    val jsonCodec = ValueToJson({ _ => None})
+
+    forAll(NTypeGen.genPredefType) { t =>
+      jsonCodec.valueFnToJsonFn(t) match {
+        case Left(_) => ()
+        case Right((arity, _)) =>
+          val fnUn = Type.Fun.unapply(t)
+          assert(arity >= 0)
+          if (arity == 0) assert(fnUn.isEmpty)
+          else assert(fnUn.isDefined)
+      }
+    }
+  }
+
+  test("we can decode and encode value in the same cases") {
+    val jsonCodec = ValueToJson({ _ => None})
+
+    def law(t: Type, v: Value) = {
+      val toJson = jsonCodec.toJson(t)
+      val fromJson = jsonCodec.toValue(t)
+
+      assert(toJson.isRight == fromJson.isRight)
+      val ej1 = for {
+        f12 <- fromJson.product(toJson)
+        (fn1, fn2) = f12
+        j <- fn2(v)
+        v1 <- fn1(j)
+      } yield v1
+
+      ej1 match {
+        case Right(v1) => assert(v1 == v, s"$v1 != $v")
+        case Left(_) => ()
+      }
+    }
+
+    forAll(NTypeGen.genPredefType, GenValue.genValue)(law(_, _))
+
+    val regressions: List[(Type, Value)] =
+      List()
+
+    regressions.foreach { case (t, v) => law(t, v) }
   }
 
   test("some hand written cases round trip") {
@@ -196,5 +240,6 @@ enum MyNat: Z, S(prev: MyNat)
     illTypedJson("List[Int]", "[1, \"2\", 3]")
     illTypedJson("String", "1")
     illTypedJson("MyPair[MyUnit, MyUnit]", "0")
+    illTypedJson("List[Unit]", "[null, 1]")
   }
 }

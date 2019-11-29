@@ -75,7 +75,7 @@ object JsApi {
     val main =
       if (mainPackage != null) "--main" :: mainPackage :: baseArgs
       else "--main_file" :: mainFile :: baseArgs
-    module.runWith(files)("write-json" :: "--output" :: "" :: main ::: makeInputArgs(files.keys)) match {
+    module.runWith(files)("json" :: "write" :: "--output" :: "" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
       case Right(module.Output.JsonOutput(json, _)) =>

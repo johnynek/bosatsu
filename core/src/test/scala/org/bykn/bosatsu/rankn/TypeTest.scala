@@ -164,4 +164,25 @@ class TypeTest extends FunSuite {
 
     forAll(NTypeGen.genDepth03, genSubs(3))(law _)
   }
+
+  test("test Fun.uncurry") {
+    def b(s: String) = Type.TyVar(Type.Var.Bound(s))
+
+    import Type.Fun.{uncurry, curry}
+    assert(uncurry(b("a")) == None)
+
+    assert(uncurry(Type.Fun(b("a"), b("b"))) == Some((NonEmptyList.of(b("a")), b("b"))))
+    assert(curry(NonEmptyList.of(b("a")), b("b")) == Type.Fun(b("a"), b("b")))
+
+    assert(uncurry(Type.Fun(b("a"), Type.Fun(b("b"), b("c")))) == Some((NonEmptyList.of(b("a"), b("b")), b("c"))))
+    assert(curry(NonEmptyList.of(b("a"), b("b")), b("c")) == Type.Fun(b("a"), Type.Fun(b("b"), b("c"))))
+
+    forAll(NTypeGen.genDepth03) { t =>
+      uncurry(t) match {
+        case Some((a, r)) =>
+          assert(curry(a, r) == t)
+        case None => ()
+      }
+    }
+  }
 }
