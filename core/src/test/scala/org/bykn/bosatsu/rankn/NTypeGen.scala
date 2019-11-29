@@ -73,12 +73,22 @@ object NTypeGen {
     val t1 = List(ListType, OptionType)
     val t2 = List(FnType, TupleConsType, DictType)
 
+    lazy val tupleTypes: Gen[Type] = {
+      val recTup = Gen.lzy(tupleTypes)
+
+      // either Unit, TupleConsType(a, tuple)
+      Gen.oneOf(
+        Gen.const(UnitType),
+        Gen.zip(recurse, recTup).map { case (h, t) => Type.TyApply(Type.TyApply(TupleConsType, h), t) })
+    }
+
     Gen.frequency(
       (6, Gen.oneOf(t0)),
       (2, for {
         cons <- Gen.oneOf(t1)
         param <- recurse
       } yield TyApply(cons, param)),
+      (1, tupleTypes),
       (1, for {
         cons <- Gen.oneOf(t2)
         param1 <- recurse

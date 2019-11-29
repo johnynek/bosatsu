@@ -487,9 +487,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             def process[F[_]: Traverse](io: IO[String], extract: Json => IO[F[Json]], inject: F[Json] => Json): IO[Output] =
               v2j.valueFnToJsonFn(res.tpe) match {
                 case Left(unsup) => unsupported[Output](res.tpe, unsup)
-                case Right(fnGen) =>
+                case Right((arity, fnGen)) =>
                   fnGen(res.value.value) match {
-                    case Right((arity, fn)) =>
+                    case Right(fn) =>
                       ioJson(io)
                         .flatMap(extract)
                         .flatMap { _.traverse {
@@ -681,7 +681,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         argFromParser(P(PackageName.parser ~ ("::" ~ Identifier.parser).?),
           "valueIdent",
           "package or package::name",
-          "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz")
+          "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz.")
       }
 
       def toList[A](neo: Opts[NonEmptyList[A]]): Opts[List[A]] =

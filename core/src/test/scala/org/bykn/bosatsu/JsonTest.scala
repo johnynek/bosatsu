@@ -80,6 +80,21 @@ class JsonTest extends FunSuite {
     regressions.foreach { case (t, j) => law(t, j) }
   }
 
+  test("if valueToToJson gives 0 arity, it is not a function type") {
+    val jsonCodec = ValueToJson({ _ => None})
+
+    forAll(NTypeGen.genPredefType) { t =>
+      jsonCodec.valueFnToJsonFn(t) match {
+        case Left(_) => ()
+        case Right((arity, _)) =>
+          val fnUn = Type.Fun.unapply(t)
+          assert(arity >= 0)
+          if (arity == 0) assert(fnUn.isEmpty)
+          else assert(fnUn.isDefined)
+      }
+    }
+  }
+
   test("we can decode and encode value in the same cases") {
     val jsonCodec = ValueToJson({ _ => None})
 

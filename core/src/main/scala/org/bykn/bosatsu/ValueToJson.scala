@@ -561,21 +561,21 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
    * Given a type return the function to convert it a function
    * if it is not a function, we consider it a function of 0-arity
    */
-  def valueFnToJsonFn(t: Type): Either[UnsupportedType, Value => Either[DataError, (Int, Json.JArray => Either[DataError, Json])]] =
+  def valueFnToJsonFn(t: Type): Either[UnsupportedType, (Int, Value => Either[DataError, Json.JArray => Either[DataError, Json]])] =
     Type.Fun.uncurry(t) match {
       case None =>
         // this isn't a function at all
         toJson(t).map { fn: (Value => Either[DataError, Json]) =>
 
-          fn.andThen { either =>
+          (0, fn.andThen { either =>
             either.map { result =>
 
-              (0, { args =>
+              { args: Json.JArray =>
                 if (args.toVector.isEmpty) Right(result)
                 else Left(IllTypedJson(Nil, t, args))
-              })
+              }
             }
-          }
+          })
 
         }
       case Some((args, res)) =>
@@ -585,7 +585,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           val arity = argsFn.size
           val argsFnVector = argsFn.toList.toVector
 
-          {
+          (arity, {
             case Value.FnValue(evalToEval) =>
 
               // if we get into here, we know the inputs have
@@ -611,17 +611,18 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               val jsonFn = { inputs: Json.JArray =>
                 if (inputs.toVector.size != arity) Left(IllTypedJson(Nil, t, inputs))
                 else {
-                  NonEmptyList.fromListUnsafe(inputs.toVector.toList)
-                    .zipWith(argsFn) { case (a, fn) => fn(a) }
-                    .sequence
-                    .flatMap(applyAll(evalToEval, _).value)
+                  // we know arity >= 1 because it is a function, so the fromListUnsafe will succeed
+                  inputs.toVector
+                    .zip(argsFnVector)
+                    .traverse { case (a, fn) => fn(a) }
+                    .flatMap { vect => applyAll(evalToEval, NonEmptyList.fromListUnsafe(vect.toList)).value }
                     .flatMap(resFn)
                 }
               }
 
-              Right((arity, jsonFn))
+              Right(jsonFn)
             case notFn => Left(IllTyped(Nil, t, notFn))
-          }
+          })
         }
     }
 }
