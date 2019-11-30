@@ -113,7 +113,21 @@ sealed abstract class Declaration {
       case TupleCons(items) =>
         Doc.char('(') + Doc.intercalate(Doc.text(", "),
           items.map(_.toDoc)) + Doc.char(')')
-      case Var(name) => Document[Identifier].document(name)
+      case Var(name) =>
+        Document[Identifier].document(name)
+
+      case StringDecl(parts) =>
+        val useDouble = parts.exists {
+          case Right((_, str)) => str.contains('\'') && !str.contains('"')
+          case Left(_) => false
+        }
+        val q = if (useDouble) '"' else '\''
+        val inner = Doc.intercalate(Doc.empty,
+          parts.toList.map {
+            case Right((_, str)) => Doc.text(StringUtil.escape(q, str))
+            case Left(decl) => Doc.text("${") + decl.toDoc + Doc.char('}')
+          })
+        Doc.char(q) + inner + Doc.char(q)
 
       case ListDecl(list) =>
         ListLang.document[NonBinding, Pattern.Parsed].document(list)
@@ -249,6 +263,11 @@ sealed abstract class Declaration {
           items.foldLeft(acc) { (acc0, d) => loop(d, acc0) }
         case Var(name: Bindable) => acc + name
         case Var(_) => acc
+        case StringDecl(nel) =>
+          nel.foldLeft(acc) {
+            case (acc0, Left(decl)) => loop(decl, acc0)
+            case (acc0, Right(_)) => acc0
+          }
         case ListDecl(ListLang.Cons(items)) =>
           items.foldLeft(acc) { (acc0, sori) =>
             loop(sori.value, acc0)
@@ -368,6 +387,10 @@ object Declaration {
    * Foo { bar: 12 }
    */
   case class RecordConstructor(cons: Constructor, arg: NonEmptyList[RecordArg])(implicit val region: Region) extends NonBinding
+  /**
+   * This represents interpolated strings
+   */
+  case class StringDecl(items: NonEmptyList[Either[NonBinding, (Region, String)]])(implicit val region: Region) extends NonBinding
   /**
    * This represents the list construction language
    */
@@ -505,6 +528,27 @@ object Declaration {
       }
   }
 
+  def stringDeclOrLit(inner: Indy[NonBinding]): Indy[NonBinding] = {
+    val start = P("${")
+    val end = P("}")
+    val q1 = '\''
+    val q2 = '"'
+
+    inner.mapF { p =>
+      val plist = StringUtil.interpolatedString(q1, start, p, end) | StringUtil.interpolatedString(q2, start, p, end)
+
+      plist.region.map {
+        case (r, Nil) =>
+          // this is the empty string:
+          Literal(Lit.EmptyStr)(r)
+        case (r, Right((_, str)) :: Nil) =>
+          Literal(Lit.Str(str))(r)
+        case (r, h :: tail) =>
+          StringDecl(NonEmptyList(h, tail))(r)
+        }
+    }
+  }
+
   def lambdaP(parser: Indy[Declaration]): Indy[Lambda] = {
     val params = Indy.lift(P("\\" ~/ maybeSpace ~ Pattern.bindParser.nonEmptyList))
 
@@ -592,7 +636,7 @@ object Declaration {
       .region
       .map { case (r, l) => DictDecl(l)(r) }
 
-  private val lits = Lit.parser.region.map { case (r, l) => Literal(l)(r) }
+  private val lits = Lit.integerParser.region.map { case (r, l) => Literal(l)(r) }
 
   private sealed abstract class ParseMode
   private object ParseMode {
@@ -639,6 +683,7 @@ object Declaration {
           varP |
           listP(recNonBind) |
           lits |
+          stringDeclOrLit(recNBIndy)(indent) |
           tupOrPar |
           recordConstructorP(indent, recNonBind, recArg))
 

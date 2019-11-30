@@ -44,14 +44,15 @@ abstract class GenericStringUtil {
     end ~ undelimitedString(end, min = 0) ~ end
   }
 
-  def interpolatedString[A](quoteChar: Char, istart: P[Unit], interp: P[A], iend: P[Unit]): P[List[Either[A, String]]] = {
+  def interpolatedString[A](quoteChar: Char, istart: P[Unit], interp: P[A], iend: P[Unit]): P[List[Either[A, (Region, String)]]] = {
     val strQuote = P(quoteChar.toString)
 
     // we need to parse a nonempty string, or the rep() below will loop forever
     val strLit = undelimitedString(strQuote | istart, min = 1)
     val notStr = istart ~/ interp ~ iend
 
-    val either = strLit.map(Right(_)) | notStr.map(Left(_))
+    val either = (Index ~ strLit ~ Index).map { case (s, str, l) => Right((Region(s, l), str)) } |
+      notStr.map(Left(_))
 
     (strQuote ~ either.rep() ~ strQuote).map(_.toList)
   }

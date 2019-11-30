@@ -1,0 +1,26 @@
+package StrConcatExample
+
+x = "hello"
+y = "atticus"
+z = "mahina"
+
+def ident(x): x
+
+def m2s(m):
+    match m:
+        "mahina": "sarah"
+        _: m
+
+res0 = match "${x} ${y} and ${z}":
+        "hello atticus and mahina": True
+        _: False
+
+res1 = match "${ident(x)} ${y} and ${m2s(z)}":
+        "hello atticus and sarah": True
+        _: False
+
+test = TestSuite("interpolation", [
+    Assertion(res0, "res0"),
+    Assertion(res1, "res1"),
+])
+

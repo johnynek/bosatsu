@@ -219,7 +219,14 @@ class ParserTest extends ParserTestBase {
 
   test("we can parse interpolated strings") {
     def singleq(str1: String, res: List[Either[Json, String]]) =
-      parseTestAll(StringUtil.interpolatedString('\'', P("${"), Json.parser, P("}")), str1, res)
+      parseTestAll(
+        StringUtil
+          .interpolatedString('\'', P("${"), Json.parser, P("}"))
+          .map(_.map {
+            case Right((_, str)) => Right(str)
+            case Left(l) => Left(l)
+          })
+        , str1, res)
 
     // scala complains about things that look like interpolation strings that aren't interpolated
     val dollar = '$'.toString

@@ -602,6 +602,11 @@ object Generators {
           case TupleCons(Nil) => Stream.empty
           case TupleCons(h :: tail) => h #:: TupleCons(tail)(emptyRegion) #:: apply(TupleCons(tail)(emptyRegion))
           case Var(_) => Stream.empty
+          case StringDecl(parts) =>
+            parts.toList.toStream.map {
+              case Left(nb) => nb
+              case Right((r, str)) => Literal(Lit.Str(str))(r)
+            }
           case ListDecl(ListLang.Cons(items)) =>
             items.map(_.value).toStream
           case ListDecl(ListLang.Comprehension(a, _, c, d)) =>

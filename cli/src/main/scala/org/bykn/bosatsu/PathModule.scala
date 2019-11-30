@@ -111,7 +111,7 @@ object PathModule extends MainModule[IO] {
       case Output.EvaluationResult(res, tpe) =>
         IO.suspend {
           val r = res.value
-          print(s"$res: $tpe")
+          print(s"$r: $tpe")
         }
       case Output.JsonOutput(json, pathOpt) =>
         val jdoc = json.toDoc
