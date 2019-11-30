@@ -26,16 +26,34 @@ abstract class GenericStringUtil {
     P("\\" ~ after)
   }
 
-  def escapedString(q: Char): P[String] = {
-    val qstr = q.toString
-    val char = P(escapeString | (!qstr ~ AnyChar))
-    P(qstr ~ char.rep().! ~ qstr)
+  /**
+   * String content without the delimiter
+   */
+  def undelimitedString(endP: P[Unit], min: Int): P[String] =
+    P(escapeString | (!endP ~ AnyChar))
+      .rep(min = min).!
       .flatMap { str =>
         unescape(str) match {
           case Right(str1) => PassWith(str1)
           case Left(_) => Fail
         }
       }
+
+  def escapedString(q: Char): P[String] = {
+    val end: P[Unit] = P(q.toString)
+    end ~ undelimitedString(end, min = 0) ~ end
+  }
+
+  def interpolatedString[A](quoteChar: Char, istart: P[Unit], interp: P[A], iend: P[Unit]): P[List[Either[A, String]]] = {
+    val strQuote = P(quoteChar.toString)
+
+    // we need to parse a nonempty string, or the rep() below will loop forever
+    val strLit = undelimitedString(strQuote | istart, min = 1)
+    val notStr = istart ~/ interp ~ iend
+
+    val either = strLit.map(Right(_)) | notStr.map(Left(_))
+
+    (strQuote ~ either.rep() ~ strQuote).map(_.toList)
   }
 
   def escape(quoteChar: Char, str: String): String = {
@@ -67,9 +85,15 @@ abstract class GenericStringUtil {
       } else ~(str.length)
     }
     @annotation.tailrec
-    def loop(idx: Int): Option[Int] =
-      if (idx >= str.length) None
-      else if (idx < 0) Some(~idx) // error from decodeNum
+    def loop(idx: Int): Int =
+      if (idx >= str.length) {
+        // done
+        idx
+      }
+      else if (idx < 0) {
+        // error from decodeNum
+        idx
+      }
       else {
         val c0 = str.charAt(idx)
         if (c0 != '\\') {
@@ -77,8 +101,12 @@ abstract class GenericStringUtil {
           loop(idx + 1)
         }
         else {
+          // str(idx) == \
           val nextIdx = idx + 1
-          if (nextIdx >= str.length) Some(idx)
+          if (nextIdx >= str.length) {
+            // error we expect there to be a character after \
+            ~idx
+          }
           else {
             val c = str.charAt(nextIdx)
             decodeTable.get(c) match {
@@ -91,17 +119,20 @@ abstract class GenericStringUtil {
                   case 'x' => loop(decodeNum(idx + 2, 2, 16))
                   case 'u' => loop(decodeNum(idx + 2, 4, 16))
                   case 'U' => loop(decodeNum(idx + 2, 8, 16))
-                  case _ => Some(idx)
+                  case other =>
+                    // \c is interpretted as just \c, if the character isn't escaped
+                    sb.append('\\')
+                    sb.append(other)
+                    loop(idx + 2)
                 }
             }
           }
         }
       }
 
-    loop(0) match {
-      case None => Right(sb.toString)
-      case Some(err) => Left(err)
-    }
+    val res = loop(0)
+    if (res < 0) Left(~res)
+    else Right(sb.toString)
   }
 }
 
@@ -112,6 +143,7 @@ object StringUtil extends GenericStringUtil {
       ('\\', '\\'),
       ('\'', '\''),
       ('\"', '\"'),
+      ('$', '$'), // for interpolation
       ('`', '`'),
       ('a', 7.toChar), // bell
       ('b', 8.toChar), // backspace

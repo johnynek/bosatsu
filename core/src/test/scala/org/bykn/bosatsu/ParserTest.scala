@@ -207,14 +207,31 @@ class ParserTest extends ParserTestBase {
     forAll(qstr) { case (s, c) => law(s, c) }
 
     parseTestAll(Parser.escapedString('\''), "''", "")
-    parseTestAll(Parser.escapedString('\''), "''", "")
     parseTestAll(Parser.escapedString('"'), "\"\"", "")
+    parseTestAll(Parser.escapedString('\''), "'foo\\qbar'", "foo\\qbar")
     parseTestAll(Parser.escapedString('\''), "'foo\tbar'", "foo\tbar")
 
     val regressions = List(("'", '\''))
 
 
     regressions.foreach { case (s, c) => law(s, c) }
+  }
+
+  test("we can parse interpolated strings") {
+    def singleq(str1: String, res: List[Either[Json, String]]) =
+      parseTestAll(StringUtil.interpolatedString('\'', P("${"), Json.parser, P("}")), str1, res)
+
+    // scala complains about things that look like interpolation strings that aren't interpolated
+    val dollar = '$'.toString
+    singleq("''", List())
+    singleq("'foo\\qbar'", List(Right("foo\\qbar")))
+    singleq("'foo\tbar'", List(Right("foo\tbar")))
+    singleq(s"'foo\\$dollar{bar}'", List(Right(s"foo$dollar{bar}")))
+    // foo$bar is okay, it is only foo${bar} that needs to be escaped
+    singleq(s"'foo${dollar}bar'", List(Right(s"foo${dollar}bar")))
+    singleq(s"'foo$dollar{42}'", List(Right("foo"), Left(Json.JNumberStr("42"))))
+    singleq(s"'$dollar{42}'", List(Left(Json.JNumberStr("42"))))
+    singleq(s"'$dollar{42}bar'", List(Left(Json.JNumberStr("42")), Right("bar")))
   }
 
   test("Identifier round trips") {
