@@ -134,4 +134,13 @@ class SimpleStringPatternTest extends FunSuite {
       }
     }
   }
+
+  test("onlyMatchesEmpty works") {
+    forAll { (p0: Pattern, s: String) =>
+      if (p0.onlyMatchesEmpty) {
+        assert(matches(p0, "").isDefined)
+        if (s != "") assert(matches(p0, s).isEmpty)
+      }
+    }
+  }
 }

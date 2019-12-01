@@ -4,6 +4,45 @@ object SimpleStringPattern {
   sealed trait Pattern {
     def unapply(str: String): Option[Map[String, String]] =
       matches(this, str)
+/*
+    // if this must start with string s,
+    // return the rest of the pattern
+    def take(s: String): Option[Pattern] =
+      if (s.isEmpty) Some(this)
+      else {
+        this match {
+          case Lit(s0) =>
+            if (s0.startsWith(s)) Some(Lit(s0.drop(s.length)))
+            else None
+          case Var(_) | Wildcard => None
+          case Cat(Lit(s0), tail) =>
+            if (s0.isEmpty) tail.take(s)
+            else {
+              // we can only match as much of s as s0 is long
+              val subs = s.take(s0.length)
+              if (s0.startsWith(subs)) {
+                // s0 does match the start of s
+                if (subs.length == s0.length) {
+                  // we matched all of s0, the rest of s has to match the tail
+                  tail.take(s.drop(subs.length))
+                }
+                else {
+                  // this implies s.length < s0.length
+                  Some(Cat(Lit(s0.drop(subs.length)), tail))
+                }
+              }
+              else None
+            }
+          case Cat(Var(_) | Wildcard, _) => None
+        }
+    }
+*/
+    def onlyMatchesEmpty: Boolean =
+      this match {
+        case Lit("") => true
+        case Lit(_) | Var(_) | Wildcard => false
+        case Cat(h, t) => h.onlyMatchesEmpty && t.onlyMatchesEmpty
+      }
   }
 
   sealed trait Pattern1 extends Pattern

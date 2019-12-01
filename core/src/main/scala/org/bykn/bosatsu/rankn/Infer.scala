@@ -850,6 +850,15 @@ object Infer {
             pair1 <- inner(p0)
             (p1, t1) = pair1
           } yield (p1, (n, t1) :: ts0)
+        case GenPattern.StrPat(items) =>
+          val tpe = Type.StrType
+          val check = sigma match {
+            case Expected.Check((t, tr)) => subsCheck(tpe, t, reg, tr)
+          }
+          val names = items.collect {
+            case GenPattern.StrPart.NamedStr(n) => (n, tpe)
+          }
+          check.as((pat, names))
         case GenPattern.ListPat(items) =>
           import GenPattern.ListPart
           /*

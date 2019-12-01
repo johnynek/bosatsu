@@ -325,6 +325,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                 case Some(env1) => Some(env1.updated(n, Eval.now(v)))
               }
             }
+          case Pattern.StrPat(items) =>
+            sys.error(s"TODO: deal with string patterns")
           case Pattern.ListPat(items) =>
             items match {
               case Nil =>

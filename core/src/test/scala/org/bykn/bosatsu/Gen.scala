@@ -390,6 +390,22 @@ object Generators {
       val genTyped = Gen.zip(recurse, genT)
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
+      lazy val genStrPat: Gen[Pattern.StrPat] = {
+        val recurse = Gen.lzy(genStrPat)
+        val genPart: Gen[Pattern.StrPart] =
+          Gen.oneOf(
+            lowerIdent.map(Pattern.StrPart.LitStr(_)),
+            bindIdentGen.map(Pattern.StrPart.NamedStr(_)),
+            Gen.const(Pattern.StrPart.WildStr))
+
+        nonEmpty(genPart)
+          .map(Pattern.StrPat(_))
+          .flatMap { str =>
+            if (str.toLiteral.isDefined) recurse
+            else Gen.const(str)
+          }
+      }
+
       val genStruct =  for {
         cnt <- Gen.choose(0, 6)
         args <- Gen.listOfN(cnt, recurse)
@@ -430,7 +446,7 @@ object Generators {
         }
 
       val tailGens: List[Gen[Pattern[N, T]]] =
-        List(genVar, genWild, genNamed, genLitPat, genStruct, genList)
+        List(genVar, genWild, genNamed, genStrPat, genLitPat, genStruct, genList)
 
       val withU = if (useUnion) genUnion :: tailGens else tailGens
       val withT = (if (useAnnotation) genTyped :: withU else withU).toArray
