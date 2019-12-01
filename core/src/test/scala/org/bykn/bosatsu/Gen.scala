@@ -163,6 +163,34 @@ object Generators {
       .map(ListLang.Cons(_))
   }
 
+  def genStringDecl(dec0: Gen[NonBinding]): Gen[Declaration.StringDecl] = {
+    val item =
+      Gen.oneOf(
+        Arbitrary.arbitrary[String].filter(_.length > 1).map { s => Right((emptyRegion, s)) },
+        dec0.map(Left(_)))
+
+    def removeAdj[A](nea: NonEmptyList[A])(fn: (A, A) => Boolean): NonEmptyList[A] =
+      nea match {
+        case NonEmptyList(a1, a2 :: tail) if fn(a1, a2) => removeAdj(NonEmptyList(a2, tail))(fn)
+        case NonEmptyList(a1, a2 :: tail) => NonEmptyList(a1, removeAdj(NonEmptyList(a2, tail))(fn).toList)
+        case ne1 => ne1
+      }
+
+    val res = for {
+      sz <- Gen.choose(1, 6)
+      lst <- Gen.listOfN(sz, item)
+      nel = NonEmptyList.fromListUnsafe(lst)
+      // make sure we don't have two adjacent strings
+      nel1 = removeAdj(nel) { (a1, a2) => a1.isRight && a2.isRight }
+    } yield Declaration.StringDecl(nel1)(emptyRegion)
+
+    res.flatMap {
+      case Declaration.StringDecl(NonEmptyList(Right(_), Nil)) =>
+        res
+      case a => Gen.const(a)
+    }
+  }
+
   def listGen(dec0: Gen[NonBinding]): Gen[Declaration.ListDecl] = {
     lazy val filterFn: NonBinding => Boolean = {
       case Declaration.IfElse(_, _) => false
@@ -502,6 +530,7 @@ object Generators {
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
       (1, applyOpGen(recur)),
+      //(1, genStringDecl(recur)),
       (1, listGen(recur)),
       (1, dictGen(recur)),
       (1, annGen(recur)),
@@ -542,6 +571,7 @@ object Generators {
       (2, applyGen(recNon)),
       (1, applyOpGen(simpleDecl(depth - 1))),
       (1, ifElseGen(recNon, recur)),
+      //(1, genStringDecl(recNon)),
       (1, listGen(recNon)),
       (1, dictGen(recNon)),
       (1, matchGen(recNon, recur)),

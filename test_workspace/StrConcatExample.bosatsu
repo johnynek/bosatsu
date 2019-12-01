@@ -19,8 +19,13 @@ res1 = match "${ident(x)} ${y} and ${m2s(z)}":
         "hello atticus and sarah": True
         _: False
 
+res2 = match "${x}":
+    "hello": True
+    _: False
+
 test = TestSuite("interpolation", [
     Assertion(res0, "res0"),
     Assertion(res1, "res1"),
+    Assertion(res2, "res2"),
 ])
 

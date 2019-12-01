@@ -19,6 +19,13 @@ sealed abstract class OptIndent[A] {
       case OptIndent.NotSameLine(_) => Doc.empty
     }
 
+  def map[B](fn: A => B): OptIndent[B] =
+    this match {
+      case OptIndent.SameLine(a) => OptIndent.SameLine(fn(a))
+      case OptIndent.NotSameLine(Padding(p, Indented(i, a))) =>
+        OptIndent.NotSameLine(Padding(p, Indented(i, fn(a))))
+    }
+
   def traverse[F[_]: Functor, B](fn: A => F[B]): F[OptIndent[B]] =
     this match {
       case OptIndent.SameLine(a) => fn(a).map(OptIndent.SameLine(_))

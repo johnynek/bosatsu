@@ -951,7 +951,7 @@ x""")
   }
 
   test("we can parse any Declaration") {
-    forAll(Generators.genDeclaration(5))(law(Declaration.parser("")))
+    forAll(Generators.genDeclaration(5))(law(Declaration.parser("").map(_.replaceRegions(emptyRegion))))
 
     def decl(s: String) = roundTrip(Declaration.parser(""), s)
 
@@ -968,7 +968,7 @@ x""")
   }
 
   test("we can parse any Statement") {
-    forAll(Generators.genStatements(4, 10))(law(Statement.parser))
+    forAll(Generators.genStatements(4, 10))(law(Statement.parser.map(_.map(_.replaceRegions(emptyRegion)))))
 
     roundTrip(Statement.parser,
 """#
@@ -1149,7 +1149,8 @@ export [foo]
 foo = 1
 """)
 
-    forAll(Generators.packageGen(4))(law(Package.parser(None)))
+    val pp = Package.parser(None).map { pack => pack.copy(program = pack.program.map(_.replaceRegions(emptyRegion))) }
+    forAll(Generators.packageGen(4))(law(pp))
 
     roundTripExact(Package.parser(None),
 """package Foo

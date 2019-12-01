@@ -292,6 +292,17 @@ sealed abstract class Declaration {
       }
     loop(this, SortedSet.empty)
   }
+
+  def replaceRegions(r: Region): Declaration =
+    this match {
+      case Binding(BindingStatement(n, v, in)) =>
+        Binding(BindingStatement(n, v.replaceRegionsNB(r), in.map(_.replaceRegions(r))))(r)
+      case Comment(CommentStatement(lines, c)) =>
+        Comment(CommentStatement(lines, c.map(_.replaceRegions(r))))(r)
+      case DefFn(d) =>
+        DefFn(d.copy(result = (d.result._1.map(_.replaceRegions(r)), d.result._2.map(_.replaceRegions(r)))))(r)
+      case nb: NonBinding => nb.replaceRegionsNB(r)
+    }
 }
 
 object Declaration {
@@ -345,7 +356,53 @@ object Declaration {
    * These are all Declarations other than Binding, DefFn and Comment,
    * in other words, things that don't need to start with indentation
    */
-  sealed abstract class NonBinding extends Declaration
+  sealed abstract class NonBinding extends Declaration {
+    def replaceRegionsNB(r: Region): NonBinding =
+      this match {
+        case Annotation(term, t) => Annotation(term.replaceRegionsNB(r), t)(r)
+        case Apply(fn, args, s) =>
+          Apply(fn.replaceRegionsNB(r), args.map(_.replaceRegionsNB(r)), s)(r)
+        case ApplyOp(left, op, right) =>
+          ApplyOp(left.replaceRegionsNB(r), op, right.replaceRegionsNB(r))
+        case IfElse(ifCases, elseCase) =>
+          IfElse(ifCases.map { case (bool, res) => (bool.replaceRegionsNB(r), res.map(_.replaceRegions(r))) },
+            elseCase.map(_.replaceRegions(r)))(r)
+        case Lambda(args, body) =>
+          Lambda(args, body.replaceRegions(r))(r)
+        case Literal(lit) => Literal(lit)(r)
+        case Match(rec, arg, branches) =>
+          Match(rec,
+            arg.replaceRegionsNB(r),
+            branches.map(_.map { case (p, x) => (p, x.map(_.replaceRegions(r))) }))(r)
+        case Parens(p) => Parens(p.replaceRegions(r))(r)
+        case TupleCons(items) =>
+          TupleCons(items.map(_.replaceRegionsNB(r)))(r)
+        case Var(b) => Var(b)(r)
+        case StringDecl(nel) =>
+          val ne1 = nel.map {
+            case Right((_, s)) => Right((r, s))
+            case Left(e) => Left(e.replaceRegionsNB(r))
+          }
+          StringDecl(ne1)(r)
+        case ListDecl(ListLang.Cons(items)) =>
+          ListDecl(ListLang.Cons(items.map(_.map(_.replaceRegionsNB(r)))))(r)
+        case ListDecl(ListLang.Comprehension(ex, b, in, filter)) =>
+          ListDecl(ListLang.Comprehension(ex.map(_.replaceRegionsNB(r)), b, in.replaceRegionsNB(r), filter.map(_.replaceRegionsNB(r))))(r)
+        case DictDecl(ListLang.Cons(items)) =>
+          DictDecl(ListLang.Cons(items.map {
+            case ListLang.KVPair(k, v) =>
+              ListLang.KVPair(k.replaceRegionsNB(r), v.replaceRegionsNB(r))
+          }))(r)
+        case DictDecl(ListLang.Comprehension(ex, b, in, filter)) =>
+          DictDecl(ListLang.Comprehension(ex.map(_.replaceRegionsNB(r)), b, in.replaceRegionsNB(r), filter.map(_.replaceRegionsNB(r))))(r)
+        case RecordConstructor(c, args) =>
+          val args1 = args.map {
+            case RecordArg.Simple(b) => RecordArg.Simple(b)
+            case RecordArg.Pair(k, v) => RecordArg.Pair(k, v.replaceRegionsNB(r))
+          }
+          RecordConstructor(c, args1)(r)
+      }
+  }
 
   object NonBinding {
     implicit val document: Document[NonBinding] =
@@ -418,6 +475,8 @@ object Declaration {
           Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike), Nil))
       case Var(v: Bindable) => Some(Pattern.Var(v))
       case Literal(lit) => Some(Pattern.Literal(lit))
+      case StringDecl(NonEmptyList(Right((_, s)), Nil)) =>
+        Some(Pattern.Literal(Lit.Str(s)))
       case ListDecl(ListLang.Cons(elems)) =>
         val optParts: Option[List[Pattern.ListPart[Pattern.Parsed]]] =
           elems.traverse {
