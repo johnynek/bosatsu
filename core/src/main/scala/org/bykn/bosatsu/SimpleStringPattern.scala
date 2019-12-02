@@ -5,46 +5,35 @@ object SimpleStringPattern {
     def unapply(str: String): Option[Map[String, String]] =
       matches(this, str)
 
+    def matchesAny: Boolean = {
+      val list = toList
+
+      list.nonEmpty && list.forall {
+        case Var(_) | Wildcard => true
+        case _ => false
+      }
+    }
+
     def toList: List[Pattern1] =
       this match {
         case Lit("") => Nil
         case p1: Pattern1 => p1 :: Nil
         case Cat(h, tail) =>
-          h.toList ::: tail.toList
-      }
-/*
-    // if this must start with string s,
-    // return the rest of the pattern
-    def take(s: String): Option[Pattern] =
-      if (s.isEmpty) Some(this)
-      else {
-        this match {
-          case Lit(s0) =>
-            if (s0.startsWith(s)) Some(Lit(s0.drop(s.length)))
-            else None
-          case Var(_) | Wildcard => None
-          case Cat(Lit(s0), tail) =>
-            if (s0.isEmpty) tail.take(s)
-            else {
-              // we can only match as much of s as s0 is long
-              val subs = s.take(s0.length)
-              if (s0.startsWith(subs)) {
-                // s0 does match the start of s
-                if (subs.length == s0.length) {
-                  // we matched all of s0, the rest of s has to match the tail
-                  tail.take(s.drop(subs.length))
-                }
-                else {
-                  // this implies s.length < s0.length
-                  Some(Cat(Lit(s0.drop(subs.length)), tail))
-                }
+          h.toList match {
+            case Nil => tail.toList
+            case (l@Lit(s1)) :: Nil =>
+              val tl = tail.toList
+              tl match {
+                case Lit(s2) :: tail =>
+                  Lit(s1 ++ s2) :: tail
+                case _ =>
+                  l :: tl
               }
-              else None
-            }
-          case Cat(Var(_) | Wildcard, _) => None
-        }
-    }
-*/
+            case other =>
+              other ::: tail.toList
+          }
+      }
+
     def onlyMatchesEmpty: Boolean =
       this match {
         case Lit("") => true
@@ -113,6 +102,9 @@ object SimpleStringPattern {
 
     def intersection(that: Pattern): List[Pattern] =
       SimpleStringPattern.intersection(this, that)
+
+    def difference(that: Pattern): List[Pattern] =
+      SimpleStringPattern.difference(this, that)
   }
 
   sealed trait Pattern1 extends Pattern
@@ -183,6 +175,85 @@ object SimpleStringPattern {
         val left = intersection(t1, p2)
         val right = intersection(t2, p1)
         (left ::: right).map(Cat(Wildcard, _))
+    }
+
+  /**
+   * return the patterns that match p1 but not p2
+   *
+   * For fixed sets A, B if we have (A1 x B1) - (A2 x B2) =
+   * A1 = (A1 n A2) u (A1 - A2)
+   * A2 = (A1 n A2) u (A2 - A1)
+   * so we can decompose:
+   *
+   * A1 x B1 = (A1 n A2)xB1 u (A1 - A2)xB1
+   * A2 x B2 = (A1 n A2)xB2 u (A2 - A1)xB2
+   *
+   * the difference is:
+   * (A1 n A2)x(B1 - B2) u (A1 - A2)xB1
+   *
+   * The last challenge is we need to operate on
+   * single characters, so we need to expand
+   * wild into [*] = [] | [_, *], since our pattern
+   * language doesn't have a symbol for
+   * a single character match we have to be a bit more careful
+   *
+   * also, we can't exactly represent Wildcard - Lit
+   * so this is actually an upperbound on the difference
+   * which is to say, all the returned patterns match p1,
+   * but some of them also match p2
+   */
+  def difference(p1: Pattern, p2: Pattern): List[Pattern] =
+    (p1, p2) match {
+      case (Lit(s1), Lit(s2)) => if (s1 == s2) Nil else p1 :: Nil
+      case (_, Var(_) | Wildcard) => Nil
+      case (Var(_) | Wildcard, _) =>
+        if (p2.matchesAny) Nil
+        else if (Wildcard == p2.normalize.unname) Nil
+        else p1 :: Nil
+      case (Lit(l), c@Cat(_, _)) => if (c.doesMatch(l)) Nil else p1 :: Nil
+      case (Cat(Var(_) | Wildcard, _), Lit(_)) =>
+        p1 :: Nil
+      case (Cat(Lit(""), t), _) => difference(t, p2)
+      case (_, Cat(Lit(""), t)) => difference(p1, t)
+      case (Cat(Lit(s1), t1), lit2@Lit(s2)) =>
+        // we know s1 != ""
+        if (s2 == "") p1 :: Nil
+        else difference(p1, Cat(lit2, Pattern.Empty))
+      case (Cat(lit1@Lit(s1), t1), Cat(lit2@Lit(s2), t2)) =>
+        val sizecase = s1.length.compareTo(s2.length)
+        if (sizecase == 0) {
+          if (s1 == s2) difference(t1, t2).map(Cat(lit1, _))
+          else p1 :: Nil
+        }
+        else if (sizecase > 0) {
+          // s1 is longer
+          val newS1 = s1.take(s2.length)
+          if (newS1 == s2) {
+            val s1tail = s1.drop(s2.length)
+            difference(Cat(Lit(s1tail), t1), t2).map(Cat(Lit(s2), _))
+          }
+          else p1 :: Nil
+        }
+        else {
+          // s2 is longer
+          val newS2 = s2.take(s1.length)
+          if (newS2 == s1) {
+            val s2tail = s2.drop(s1.length)
+            difference(t1, Cat(Lit(s2tail), t2)).map(Cat(Lit(s1), _))
+          }
+          else p1 :: Nil
+        }
+      case (Cat(_, _), Cat(_, _)) =>
+        if (p2.matchesAny) Nil
+        else {
+          p1.normalize match {
+            case Lit(s) if p2.doesMatch(s) => Nil
+            case n1 if (n1.unname == p2.normalize.unname) => Nil
+            case _ =>
+              // todo tighten
+              p1 :: Nil
+          }
+        }
     }
 
   object Pattern {

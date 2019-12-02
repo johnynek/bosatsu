@@ -217,7 +217,10 @@ class SimpleStringPatternTest extends FunSuite {
   }
 
   test("intersection(p1, p2).matches(x) == p1.matches(x) && p2.matches(x)") {
-    def law(p1: Pattern, p2: Pattern, x: String) = {
+    def law(p10: Pattern, p20: Pattern, x: String) = {
+      // intersections get really slow if they get too big
+      val p1 = Pattern.fromList(p10.toList.take(4))
+      val p2 = Pattern.fromList(p20.toList.take(4))
       val n1 = p1.normalize.unname
       val n2 = p2.normalize.unname
       val rawintr = p1.intersection(p2)
@@ -279,5 +282,68 @@ class SimpleStringPatternTest extends FunSuite {
       )
 
     regressions.foreach { case (p1, p2, p3, s) => law(p1, p2, p3, s) }
+  }
+
+  test("matches any does match any") {
+    forAll { (p: Pattern, s: String) =>
+      if (p.matchesAny) assert(p.doesMatch(s))
+    }
+  }
+
+  test("difference is an upper bound") {
+    forAll { (p1: Pattern, p2: Pattern, s: String) =>
+      // true difference is <= diff
+      val diff = difference(p1, p2)
+      val diffmatch = diff.exists(_.doesMatch(s))
+
+      if (diffmatch) assert(p1.doesMatch(s))
+
+      if (p1.doesMatch(s) && !p2.doesMatch(s)) {
+        assert(diffmatch)
+      }
+      if (diff.isEmpty && p1.doesMatch(s)) {
+        assert(p2.doesMatch(s))
+      }
+
+      if(p2.matchesAny) assert(diff == Nil)
+    }
+  }
+
+  test("a - a == 0") {
+    def law(p1: Pattern, p2: Pattern) = {
+      if (p1.normalize.unname == p2.normalize.unname) {
+        assert(p1.difference(p2) == Nil)
+      }
+      assert(p1.difference(p1) == Nil)
+      assert(p2.difference(p2) == Nil)
+    }
+    forAll(law(_, _))
+
+    val regressions: List[(Pattern, Pattern)] =
+      List(
+        (
+          Pattern.fromList(List(Lit("0"), Lit("1"), Var("x"), Var("y"), Var("z"))),
+          Pattern.fromList(List(Lit("01"), Var("x"), Wildcard))))
+
+    regressions.foreach { case (p1, p2) => law(p1, p2) }
+
+  }
+
+  test("if a n b = 0 then a - b = a") {
+    def law(p1: Pattern, p2: Pattern) = {
+      val inter = p1.intersection(p2)
+      val diff = p1.difference(p2)
+
+      if (inter.isEmpty) {
+        assert(diff.map(_.normalize) == p1.normalize :: Nil)
+      }
+    }
+
+    forAll(law(_, _))
+
+    val regressions: List[(Pattern, Pattern)] =
+      List((Cat(Lit("10"),Lit("00")), Cat(Lit("1000"),Lit("110"))))
+
+    regressions.foreach { case (p1, p2) => law(p1, p2) }
   }
 }

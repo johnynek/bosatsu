@@ -264,15 +264,16 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case (Literal(_), ListPat(_) | PositionalStruct(_, _)) =>
         Right(left :: Nil)
       case (Literal(Lit.Str(str)), p@StrPat(_)) if p.matches(str) => Right(Nil)
+      case (sa@StrPat(_), Literal(Lit.Str(str))) =>
+        Right(sa.toSimple.difference(SimpleStringPattern.Lit(str))
+          .map { p => StrPat.fromSimple(p.normalize): Pattern[Cons, Type] }
+          .sorted)
       case (sa@StrPat(_), sb@StrPat(_)) =>
-        val na = normalizePattern(sa)
-        val nb = normalizePattern(sb)
-        // TODO: we could work harder here to detect similarity
-        if ((na == nb) || sb.isTotal) Right(Nil)
-        else Right(na :: Nil)
-      case (left, p@StrPat(_)) =>
-        if (p.isTotal) Right(Nil)
-        else Right(left :: Nil)
+        Right(sa.toSimple.difference(sb.toSimple)
+          .map { p => StrPat.fromSimple(p.normalize): Pattern[Cons, Type] }
+          .sorted)
+      case (_, StrPat(_)) =>
+        Right(left :: Nil)
       case (StrPat(_), _) =>
         Right(left :: Nil)
       case (ListPat(_), Literal(_) | PositionalStruct(_, _)) =>
