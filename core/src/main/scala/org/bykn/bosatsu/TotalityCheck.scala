@@ -367,21 +367,19 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           if (p.matches(s)) Right(right :: Nil)
           else Right(Nil)
         case (p1@StrPat(_), p2@StrPat(_)) =>
-          if (p2.isTotal) Right(normalizePattern(p1) :: Nil)
-          else if (p1.isTotal) Right(normalizePattern(p2) :: Nil)
-          else {
-            (p1.toLiteral, p2.toLiteral) match {
-              case (Some(l), None) => intersection(l, p2)
-              case (None, Some(l)) => intersection(p1, l)
-              case (Some(l1), Some(l2)) => intersection(l1, l2)
-              case (None, None) =>
-                // This is complex, right now, we just say nothing
-                val np1 = normalizePattern(p1)
-                val np2 = normalizePattern(p2)
-                if (np1 == np2) Right(np1 :: Nil)
-                else Right(Nil)
-            }
-          }
+          val n1 = p1.toSimple.normalize.unname
+          val n2 = p2.toSimple.normalize.unname
+          val intr =
+            if (n1 == n2) (implicitly[Ordering[Pattern[Cons, Type]]].min(p1, p2) :: Nil)
+            else n1
+              .intersection(n2)
+              .map(_.normalize)
+              .distinct
+              .map { part =>
+                StrPat.fromSimple(part)
+              }
+
+          Right(intr.sorted)
         case (StrPat(_), _) => Right(Nil)
         case (_, StrPat(_)) => Right(Nil)
         case (Literal(_), _) => Right(Nil)
@@ -632,7 +630,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           // we have not yet computed. Not clear it is useful
           p.isTotal ||
             (normalizePattern(p) == normalizePattern(strPat)) ||
-            strPat.toLiteral.exists(p.matches(_)) ||
+            strPat.toLiteralString.exists(p.matches(_)) ||
             loop(tail, strPat)
         case ((StrPat(_) :: tail), other) =>
           loop(tail, other)
@@ -827,24 +825,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case WildCard | Literal(_) => p
           case Var(_) => WildCard
           case Named(_, p) => normalizePattern(p)
-          case StrPat(ls) =>
-            import Pattern.StrPart._
-            val p1 = ls.map {
-              case NamedStr(_) => WildStr
-              case notNamed => notNamed
-            }
-
-            def normParts(nel: NonEmptyList[Pattern.StrPart]): NonEmptyList[Pattern.StrPart] =
-              nel match {
-                case NonEmptyList(_, Nil) => nel
-                case NonEmptyList(WildStr, WildStr :: tail) =>
-                  normParts(NonEmptyList(WildStr, tail))
-                case NonEmptyList(other, h :: tail) =>
-                  NonEmptyList(other, normParts(NonEmptyList(h, tail)).toList)
-              }
-
-            val norm = StrPat(normParts(p1))
-            norm.toLiteral.getOrElse(norm)
+          case strPat@StrPat(_) =>
+            StrPat.fromSimple(strPat.toSimple.normalize.unname)
           case ListPat(ls) =>
             val normLs: List[ListPatElem] =
               ls.map {

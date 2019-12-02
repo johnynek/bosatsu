@@ -1,11 +1,19 @@
 package org.bykn.bosatsu
 
-import org.scalacheck.{Arbitrary, Gen}
+import org.scalacheck.{Arbitrary, Gen, Shrink}
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
 class SimpleStringPatternTest extends FunSuite {
   import SimpleStringPattern._
+
+  // generate a string of 0s and 1s to make matches more likely
+  val genBitString: Gen[String] =
+    for {
+      sz <- Gen.choose(0, 4)
+      g = Gen.oneOf(0, 1)
+      list <- Gen.listOfN(sz, g)
+    } yield list.mkString
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 50000)
@@ -14,7 +22,7 @@ class SimpleStringPatternTest extends FunSuite {
 
   def genPattern(names: Set[String]): Gen[(Set[String], Pattern)] = {
     val lit: Gen[(Set[String], Pattern1)] =
-      Gen.identifier.map { str => (names, Lit(str)) }
+      genBitString.map { str => (names, Lit(str)) }
 
     val varP: Gen[(Set[String], Pattern1)] =
       Gen.identifier.filter { s => !names(s) }.map { n => (names + n, Var(n)) }
@@ -30,6 +38,39 @@ class SimpleStringPatternTest extends FunSuite {
       (2, varP),
       (15, cat))
   }
+
+  implicit lazy val shrinkPat: Shrink[Pattern] = {
+    val ss = implicitly[Shrink[String]]
+    Shrink {
+      case Lit(s) =>
+        (0 until s.length).toStream.map { t =>
+          Lit(s.take(t))
+        }
+      case Var(x) => Wildcard #:: Stream.empty
+      case Wildcard => Lit("") #:: Stream.empty
+      case Cat(h, tail) =>
+        val sh = shrinkPat.shrink(h).iterator
+        val st = shrinkPat.shrink(tail).iterator
+
+        (new Iterator[Pattern] {
+          var state: (Iterator[Pattern], Iterator[Pattern]) = (sh, st)
+          def hasNext = state._1.hasNext || state._2.hasNext
+          def next = {
+            if (state._1.hasNext) {
+              val res = state._1.next
+              state = state.swap
+              res
+            }
+            else {
+              val res = state._2.next
+              state = state.swap
+              res
+            }
+          }
+        }).toStream
+    }
+  }
+
 
   def unvar(p: Pattern): String =
     p match {
@@ -57,15 +98,17 @@ class SimpleStringPatternTest extends FunSuite {
   implicit val arbPattern: Arbitrary[Pattern] =
     Arbitrary(genPattern(Set.empty).map(_._2))
 
+  implicit val arbString: Arbitrary[String] = Arbitrary(genBitString)
+
   test("matched patterns round trip when rendered") {
-    forAll(arbPattern.arbitrary, Gen.identifier) { (p0: Pattern, str: String) =>
+    forAll { (p0: Pattern, str: String) =>
       val p = unwild(p0)
       matches(p, str) match {
         case None => ()
         case Some(vars) =>
           // if the unwild matches, the wild must match
           assert(matches(p0, str).isDefined)
-          val rendered = render(p, vars)
+          val rendered = p.render(vars)
           assert(rendered == Some(str), s"${rendered.get.length} != ${str.length}, ${rendered.get.toArray.toList.map(_.toInt)} != ${str.toArray.toList.map(_.toInt)}")
       }
     }
@@ -121,7 +164,7 @@ class SimpleStringPatternTest extends FunSuite {
   }
   test("normalized patterns have the same matches as unnormalized ones") {
     forAll { (p0: Pattern, s: String) =>
-      val pnorm = normalize(p0)
+      val pnorm = p0.normalize
       val nm = matches(pnorm, s)
       val m = matches(p0, s)
       assert(m.isDefined == nm.isDefined)
@@ -135,6 +178,28 @@ class SimpleStringPatternTest extends FunSuite {
     }
   }
 
+  test("normalized patterns don't have adjacent Var/Wildcard or adjacent Lit") {
+    forAll { p0: Pattern =>
+      p0.normalize.toList.sliding(2).foreach {
+        case bad@Seq(Var(_) | Wildcard, Var(_) | Wildcard) =>
+          fail(s"saw adjacent: $bad in ${p0.normalize}")
+        case bad@Seq(Lit(_), Lit(_)) =>
+          fail(s"saw adjacent: $bad in ${p0.normalize}")
+        case _ => ()
+      }
+
+    }
+  }
+
+  test("toList never emits empty Lit") {
+    forAll { p: Pattern =>
+      assert(!p.toList.exists {
+        case Lit("") => true
+        case _ => false
+      })
+    }
+  }
+
   test("onlyMatchesEmpty works") {
     forAll { (p0: Pattern, s: String) =>
       if (p0.onlyMatchesEmpty) {
@@ -142,5 +207,77 @@ class SimpleStringPatternTest extends FunSuite {
         if (s != "") assert(matches(p0, s).isEmpty)
       }
     }
+  }
+
+  test("unname matches the same strings") {
+    forAll { (p0: Pattern, s: String) =>
+      val pnorm = p0.unname
+      assert(matches(p0, s).isDefined == matches(pnorm, s).isDefined)
+    }
+  }
+
+  test("intersection(p1, p2).matches(x) == p1.matches(x) && p2.matches(x)") {
+    def law(p1: Pattern, p2: Pattern, x: String) = {
+      val n1 = p1.normalize.unname
+      val n2 = p2.normalize.unname
+      val rawintr = p1.intersection(p2)
+      val intersect = rawintr.map(_.normalize).distinct
+      val sep = p1.doesMatch(x) && p2.doesMatch(x)
+      val together = intersect.exists(_.doesMatch(x))
+
+      assert(together == sep, s"n1: $n1, n2: $n2, intersection: $intersect")
+      //if (together != sep) sys.error(s"n1: $n1, n2: $n2, intersection: $intersect")
+      //else succeed
+    }
+
+    forAll(law(_, _, _))
+    val regressions: List[(Pattern, Pattern, String)] =
+      List((Cat(Lit("111"), Wildcard), Cat(Lit("1"), Wildcard), "111"))
+
+    regressions.foreach { case (p1, p2, s) => law(p1, p2, s) }
+  }
+
+  test("intersection is commutative") {
+    def law(p1: Pattern, p2: Pattern, x: String) =
+      assert(p1.intersection(p2).exists(_.doesMatch(x)) ==
+        p2.intersection(p1).exists(_.doesMatch(x)))
+
+    forAll(law(_, _, _))
+  }
+
+  test("intersection is associative") {
+    def law(p1u: Pattern, p2u: Pattern, p3u: Pattern, x: String) = {
+      // this can get really huge and take forever
+      val max = 3
+      val p1 = Pattern.fromList(p1u.normalize.toList.take(max))
+      val p2 = Pattern.fromList(p2u.normalize.toList.take(max))
+      val p3 = Pattern.fromList(p3u.normalize.toList.take(max))
+
+      val leftI = for {
+        i1 <- p1.intersection(p2).iterator
+        i2 <- i1.intersection(p3).iterator
+      } yield i2
+
+      val left = leftI.exists(_.doesMatch(x))
+
+      val rightI = for {
+        i1 <- p2.intersection(p3).iterator
+        i2 <- p1.intersection(i1).iterator
+      } yield i2
+
+      val right = rightI.exists(_.doesMatch(x))
+
+      //assert(left == right, s"\n\n$leftI\n\n$rightI")
+      assert(left == right)
+    }
+
+    forAll(law(_, _, _, _))
+
+    val regressions: List[(Pattern, Pattern, Pattern, String)] =
+      List(
+        (Cat(Lit("11"),Cat(Lit(""),Lit("001"))), Var("r"), Wildcard, "")
+      )
+
+    regressions.foreach { case (p1, p2, p3, s) => law(p1, p2, p3, s) }
   }
 }

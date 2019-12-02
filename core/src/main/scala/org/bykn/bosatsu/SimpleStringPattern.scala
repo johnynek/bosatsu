@@ -4,6 +4,14 @@ object SimpleStringPattern {
   sealed trait Pattern {
     def unapply(str: String): Option[Map[String, String]] =
       matches(this, str)
+
+    def toList: List[Pattern1] =
+      this match {
+        case Lit("") => Nil
+        case p1: Pattern1 => p1 :: Nil
+        case Cat(h, tail) =>
+          h.toList ::: tail.toList
+      }
 /*
     // if this must start with string s,
     // return the rest of the pattern
@@ -43,6 +51,68 @@ object SimpleStringPattern {
         case Lit(_) | Var(_) | Wildcard => false
         case Cat(h, t) => h.onlyMatchesEmpty && t.onlyMatchesEmpty
       }
+
+    def doesMatch(str: String): Boolean =
+      matches(this, str).isDefined
+
+    /**
+     * If two vars are adjacent, the left one will always match empty string
+     * this normalize just removes the left var
+     *
+     * combine adjacent strings
+     */
+    def normalize: Pattern = {
+      val parts = toList
+      def loop(current: List[Pattern1], front: List[Pattern1]): List[Pattern1] =
+        current match {
+          case Nil => front.reverse
+          case (chead@(Var(_) | Wildcard)) :: ctail =>
+            front match {
+              case (Var(_) | Wildcard) :: ftail =>
+                // drop the left, push this on
+                loop(ctail, chead :: ftail)
+              case other =>
+                loop(ctail, chead :: other)
+            }
+          case Lit("") :: ctail =>
+            loop(ctail, front)
+          case (chead@Lit(s1)) :: ctail =>
+            front match {
+              case Lit(s0) :: ftail =>
+                loop(ctail, Lit(s0 ++ s1) :: ftail)
+              case other =>
+                loop(ctail, chead :: other)
+            }
+        }
+
+      Pattern.fromList(loop(parts, Nil))
+    }
+
+    def render(vars: Map[String, String]): Option[String] =
+      this match {
+        case Lit(str) => Some(str)
+        case Var(x) => vars.get(x)
+        case Wildcard => None
+        case Cat(head, rest) =>
+          for {
+            hstr <- head.render(vars)
+            tstr <- rest.render(vars)
+          } yield hstr ++ tstr
+      }
+
+    // replace all Vars with Wildcard
+    def unname: Pattern =
+      this match {
+        case lw@(Lit(_) | Wildcard) => lw
+        case Var(_) => Wildcard
+        case Cat(Var(_), tail) =>
+          Cat(Wildcard, tail.unname)
+        case Cat(h, tail) =>
+          Cat(h, tail.unname)
+      }
+
+    def intersection(that: Pattern): List[Pattern] =
+      SimpleStringPattern.intersection(this, that)
   }
 
   sealed trait Pattern1 extends Pattern
@@ -53,32 +123,71 @@ object SimpleStringPattern {
   case class Cat(head: Pattern1, tail: Pattern) extends Pattern
 
   /**
-   * If two vars are adjacent, the left one will always match empty string
-   * this normalize just removes the left var
+   * Compute a list of patterns that matches both patterns exactly
    */
-  def normalize(p: Pattern): Pattern =
-    p match {
-      case lvw@(Lit(_) | Var(_) | Wildcard) => lvw
-      case Cat(Var(_) | Wildcard, tail@Cat(Var(_) | Wildcard, _)) =>
-        normalize(tail)
-      case Cat(h, tail) =>
-        Cat(h, normalize(tail))
-    }
-
-
-  def render(p: Pattern, vars: Map[String, String]): Option[String] =
-    p match {
-      case Lit(str) => Some(str)
-      case Var(x) => vars.get(x)
-      case Wildcard => None
-      case Cat(head, rest) =>
-        for {
-          hstr <- render(head, vars)
-          tstr <- render(rest, vars)
-        } yield hstr ++ tstr
+  def intersection(p1: Pattern, p2: Pattern): List[Pattern] =
+    (p1, p2) match {
+      case (lit@Lit(s), _) =>
+        if (p2.doesMatch(s)) lit :: Nil
+        else Nil
+      case (_, lit@Lit(s)) =>
+        if (p1.doesMatch(s)) lit :: Nil
+        else Nil
+      case (Var(_) | Wildcard, Var(_) | Wildcard) => Wildcard :: Nil
+      case (Var(_) | Wildcard, that) => that :: Nil
+      case (that, Var(_) | Wildcard) => that :: Nil
+      case (Cat(lit@Lit(s1), t1), Cat(Lit(s2), t2)) =>
+        if (s1.isEmpty) intersection(t1, p2)
+        else if (s2.isEmpty) intersection(p1, t2)
+        else {
+          val sizecase = s1.length.compareTo(s2.length)
+          if (sizecase == 0) {
+            if (s1 == s2) intersection(t1, t2).map(Cat(lit, _))
+            else Nil
+          }
+          else if (sizecase > 0) {
+            // s1 is longer
+            val newS1 = s1.take(s2.length)
+            if (newS1 == s2) {
+              val s1tail = s1.drop(s2.length)
+              intersection(Cat(Lit(s1tail), t1), t2).map(Cat(Lit(newS1), _))
+            }
+            else Nil
+          }
+          else intersection(p2, p1)
+        }
+      case (Cat(Var(_) | Wildcard, t1@Cat(Var(_) | Wildcard, _)), _)=>
+        // intersections can create non-normal patterns which
+        // blow up exponentially, so we need to do this normalization
+        // as we work
+        intersection(t1, p2)
+      case (_, Cat(Var(_) | Wildcard, t2@Cat(Var(_) | Wildcard, _)))=>
+        // intersections can create non-normal patterns which
+        // blow up exponentially, so we need to do this normalization
+        // as we work
+        intersection(p1, t2)
+      case (Cat(Lit(s1), t1), Cat(Var(_) | Wildcard, t2)) =>
+        if (s1.isEmpty) intersection(t1, p2)
+        else {
+          // split off a single character
+          val c1 = Lit(s1.head.toString)
+          val r1 = Cat(Lit(s1.tail), t1)
+          val left = intersection(p1, t2)
+          val right = intersection(r1, p2).map(Cat(c1, _))
+          left ::: right
+        }
+      case (Cat(Var(_) | Wildcard, _), Cat(Lit(_), _)) =>
+        // we handled this above
+        intersection(p2, p1)
+      case (Cat(Var(_) | Wildcard, t1), Cat(Var(_) | Wildcard, t2)) =>
+        val left = intersection(t1, p2)
+        val right = intersection(t2, p1)
+        (left ::: right).map(Cat(Wildcard, _))
     }
 
   object Pattern {
+    val Empty: Pattern1 = Lit("")
+
     def apply(str: String): Pattern = {
       import fastparse.all._
 
@@ -99,6 +208,12 @@ object SimpleStringPattern {
         case other => sys.error(s"could not parse: $other")
       }
     }
+
+    def fromList(ps: List[Pattern1]): Pattern =
+      ps match {
+        case Nil => Lit("")
+        case h :: tail => Cat(h, fromList(tail))
+      }
   }
 
   private[this] val sme = Some(Map.empty[String, String])

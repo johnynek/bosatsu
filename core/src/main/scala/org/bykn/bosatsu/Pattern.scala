@@ -319,11 +319,11 @@ object Pattern {
   case class Var(name: Bindable) extends Pattern[Nothing, Nothing]
   case class StrPat(parts: NonEmptyList[StrPart]) extends Pattern[Nothing, Nothing] {
 
-    private lazy val simplePat: SimpleStringPattern.Pattern =
+    lazy val toSimple: SimpleStringPattern.Pattern =
       StrPat.toSimple(this)
 
     def matches(str: String): Boolean =
-      isTotal || SimpleStringPattern.matches(simplePat, str).isDefined
+      isTotal || toSimple.doesMatch(str)
 
     lazy val isTotal: Boolean =
       !parts.exists {
@@ -331,14 +331,16 @@ object Pattern {
         case _ => false
       }
 
-    def toLiteral: Option[Literal] = {
-      parts.foldLeft(Option(List.empty[String])) {
-        case (Some(revList), StrPart.LitStr(p)) =>
-          Some(p :: revList)
-        case (_, _) => None
+    def toLiteralString: Option[String] = {
+      toSimple.normalize.toList match {
+        case Nil => Some("")
+        case SimpleStringPattern.Lit(s) :: Nil => Some(s)
+        case _ => None
       }
-      .map { revList => Literal(Lit.Str(revList.reverse.mkString)) }
     }
+
+    def toLiteral: Option[Literal] =
+      toLiteralString.map { str => Literal(Lit.Str(str)) }
   }
 
   /**
@@ -365,6 +367,23 @@ object Pattern {
         }
 
       loop(strPat.parts)
+    }
+
+    // this is either a Literal string or a StrPat
+    def fromSimple(ssp: SimpleStringPattern.Pattern): Pattern[Nothing, Nothing] = {
+      val parts = ssp
+        .normalize
+        .toList
+        .map {
+          case SimpleStringPattern.Var(w) => StrPart.NamedStr(Identifier.unsafeParse(Identifier.bindableParser, w))
+          case SimpleStringPattern.Wildcard => StrPart.WildStr
+          case SimpleStringPattern.Lit(s) => StrPart.LitStr(s)
+        }
+
+      parts match {
+        case Nil => Literal(Lit.EmptyStr)
+        case h :: tail => StrPat(NonEmptyList(h, tail))
+      }
     }
   }
 

@@ -177,7 +177,7 @@ object Generators {
       }
 
     val res = for {
-      sz <- Gen.choose(1, 6)
+      sz <- Gen.choose(1, 4)
       lst <- Gen.listOfN(sz, item)
       nel = NonEmptyList.fromListUnsafe(lst)
       // make sure we don't have two adjacent strings
@@ -390,7 +390,7 @@ object Generators {
       val genTyped = Gen.zip(recurse, genT)
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
-      lazy val genStrPat: Gen[Pattern.StrPat] = {
+      lazy val genStrPat: Gen[Pattern[Nothing, Nothing]] = {
         val recurse = Gen.lzy(genStrPat)
         val genPart: Gen[Pattern.StrPart] =
           Gen.oneOf(
@@ -398,12 +398,10 @@ object Generators {
             bindIdentGen.map(Pattern.StrPart.NamedStr(_)),
             Gen.const(Pattern.StrPart.WildStr))
 
-        nonEmpty(genPart)
-          .map(Pattern.StrPat(_))
-          .flatMap { str =>
-            if (str.toLiteral.isDefined) recurse
-            else Gen.const(str)
-          }
+        for {
+          sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
+          inner <- nonEmptyN(genPart, sz)
+        } yield Pattern.StrPat.fromSimple(Pattern.StrPat(inner).toSimple.normalize)
       }
 
       val genStruct =  for {
