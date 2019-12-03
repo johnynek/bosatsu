@@ -858,7 +858,9 @@ object Infer {
           val names = items.collect {
             case GenPattern.StrPart.NamedStr(n) => (n, tpe)
           }
-          check.as((pat, names))
+          // we need to apply the type so the names are well typed
+          val anpat = GenPattern.Annotation(pat, tpe)
+          check.as((anpat, names))
         case GenPattern.ListPat(items) =>
           import GenPattern.ListPart
           /*

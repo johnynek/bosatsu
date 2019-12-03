@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 object SimpleStringPattern {
   sealed trait Pattern {
     def unapply(str: String): Option[Map[String, String]] =
-      matches(this, str)
+      matches(str)
 
     def matchesAny: Boolean = {
       val list = toList
@@ -13,6 +13,9 @@ object SimpleStringPattern {
         case _ => false
       }
     }
+
+    def matches(str: String): Option[Map[String, String]] =
+      SimpleStringPattern.matches(this, str)
 
     def toList: List[Pattern1] =
       this match {
@@ -42,7 +45,7 @@ object SimpleStringPattern {
       }
 
     def doesMatch(str: String): Boolean =
-      matches(this, str).isDefined
+      matches(str).isDefined
 
     /**
      * If two vars are adjacent, the left one will always match empty string

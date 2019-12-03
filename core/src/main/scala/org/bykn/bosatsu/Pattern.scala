@@ -354,20 +354,16 @@ object Pattern {
   case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
 
   object StrPat {
-    def toSimple(strPat: StrPat): SimpleStringPattern.Pattern = {
-      def loop(parts: NonEmptyList[StrPart]): SimpleStringPattern.Pattern =
-        parts match {
-          case NonEmptyList((StrPart.WildStr | StrPart.NamedStr(_)), Nil) =>
-            SimpleStringPattern.Wildcard
-          case NonEmptyList(StrPart.LitStr(s), Nil) => SimpleStringPattern.Lit(s)
-          case NonEmptyList((StrPart.WildStr | StrPart.NamedStr(_)), h :: tail) =>
-            SimpleStringPattern.Cat(SimpleStringPattern.Wildcard, loop(NonEmptyList(h, tail)))
-          case NonEmptyList(StrPart.LitStr(s), h :: tail) =>
-            SimpleStringPattern.Cat(SimpleStringPattern.Lit(s), loop(NonEmptyList(h, tail)))
-        }
-
-      loop(strPat.parts)
-    }
+    def toSimple(strPat: StrPat): SimpleStringPattern.Pattern =
+      SimpleStringPattern.Pattern.fromList(
+        strPat
+          .parts
+          .toList
+          .map {
+            case StrPart.WildStr => SimpleStringPattern.Wildcard
+            case StrPart.NamedStr(n) => SimpleStringPattern.Var(n.sourceCodeRepr)
+            case StrPart.LitStr(s) => SimpleStringPattern.Lit(s)
+          })
 
     // this is either a Literal string or a StrPat
     def fromSimple(ssp: SimpleStringPattern.Pattern): Pattern[Nothing, Nothing] = {
@@ -375,13 +371,15 @@ object Pattern {
         .normalize
         .toList
         .map {
-          case SimpleStringPattern.Var(w) => StrPart.NamedStr(Identifier.unsafeParse(Identifier.bindableParser, w))
+          case SimpleStringPattern.Var(w) =>
+            StrPart.NamedStr(Identifier.unsafeParse(Identifier.bindableParser, w))
           case SimpleStringPattern.Wildcard => StrPart.WildStr
           case SimpleStringPattern.Lit(s) => StrPart.LitStr(s)
         }
 
       parts match {
         case Nil => Literal(Lit.EmptyStr)
+        case StrPart.LitStr(s) :: Nil => Literal(Lit.Str(s))
         case h :: tail => StrPat(NonEmptyList(h, tail))
       }
     }
