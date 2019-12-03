@@ -28,7 +28,7 @@ def get_foos(s) -> List[String]:
 
 test1 = match get_foos("foo: (1) foo: (2)"):
             ["1", "2"]: Assertion(True, "get_foos")
-            [one]: Assertion(True, "get_foos: ${one}")
+            [one]: Assertion(False, "get_foos: ${one}")
             _: Assertion(False, "get_foos")
 
 tests = TestSuite("PatternExamples", [
