@@ -192,8 +192,12 @@ object Pattern {
     final case class NamedStr(name: Bindable) extends StrPart
     final case class LitStr(asString: String) extends StrPart
 
-    private[this] val wildDoc = Doc.text("""${_}""")
-    private[this] val prefix = Doc.text("""${""")
+    // this is to circumvent scala warnings because these bosatsu
+    // patterns like right.
+    private[this] val dollar = "$"
+    private[this] val wildDoc = Doc.text(s"$dollar{_}")
+    private[this] val prefix = Doc.text(s"$dollar{")
+
     def document(q: Char): Document[StrPart] =
       Document.instance {
         case WildStr => wildDoc

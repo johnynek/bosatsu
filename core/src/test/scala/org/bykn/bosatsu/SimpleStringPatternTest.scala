@@ -135,14 +135,15 @@ class SimpleStringPatternTest extends FunSuite {
   }
 
   test("test some examples") {
-    val p1 = Pattern("'foo${x}bar${y}'")
+    val dollar = "$"
+    val p1 = Pattern(s"'foo$dollar{x}bar$dollar{y}'")
 
     assert(matches(p1, "foobar") == Some(Map("x" -> "", "y" -> "")))
     assert(matches(p1, "foobopbarbopbar") == Some(Map("x" -> "bop", "y" -> "bopbar")))
     assert(matches(p1, "foobarbar") == Some(Map("x" -> "", "y" -> "bar")))
     assert(matches(p1, "foobarbarbar") == Some(Map("x" -> "", "y" -> "barbar")))
 
-    val p2 = Pattern("'${front}foo${middle}bar${rest}'")
+    val p2 = Pattern(s"'$dollar{front}foo$dollar{middle}bar$dollar{rest}'")
 
     assert(matches(p2, "0foo1foo2bar3") == Some(Map("front" -> "0", "middle" -> "1foo2", "rest" -> "3")))
   }
@@ -245,7 +246,7 @@ class SimpleStringPatternTest extends FunSuite {
       assert(p1.intersection(p2).exists(_.doesMatch(x)) ==
         p2.intersection(p1).exists(_.doesMatch(x)))
 
-    forAll(law(_, _, _))
+    forAll(law(_: Pattern, _: Pattern, _: String))
   }
 
   test("intersection is associative") {
