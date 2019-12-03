@@ -13,10 +13,16 @@ sealed abstract class ListLang[F[_], A, +B]
 object ListLang {
   sealed abstract class SpliceOrItem[A] {
     def value: A
+
+    def map[B](fn: A => B): SpliceOrItem[B]
   }
   object SpliceOrItem {
-    case class Splice[A](value: A) extends SpliceOrItem[A]
-    case class Item[A](value: A) extends SpliceOrItem[A]
+    case class Splice[A](value: A) extends SpliceOrItem[A] {
+      def map[B](fn: A => B): Splice[B] = Splice(fn(value))
+    }
+    case class Item[A](value: A) extends SpliceOrItem[A] {
+      def map[B](fn: A => B): Item[B] = Item(fn(value))
+    }
 
     def parser[A](pa: P[A]): P[SpliceOrItem[A]] =
       P("*" ~ pa).map(Splice(_)) | pa.map(Item(_))
@@ -28,7 +34,9 @@ object ListLang {
       }
   }
 
-  case class KVPair[A](key: A, value: A)
+  case class KVPair[A](key: A, value: A) {
+    def map[B](fn: A => B): KVPair[B] = KVPair(fn(key), fn(value))
+  }
 
   object KVPair {
     private[this] val sep: Doc = Doc.text(": ")

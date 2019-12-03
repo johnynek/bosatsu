@@ -19,6 +19,30 @@ sealed abstract class Statement {
    * of statements
    */
   def region: Region
+
+  def replaceRegions(r: Region): Statement = {
+    import Statement._
+
+    this match {
+      case Bind(BindingStatement(p, v, in)) =>
+        Bind(BindingStatement(p, v.replaceRegionsNB(r), in))(r)
+      case Comment(c) =>
+        Comment(c)(r)
+      case Def(d) =>
+        Def(d.copy(result = d.result.map(_.replaceRegions(r))))(r)
+      case PaddingStatement(p) =>
+        // this will just be some number of lines
+        PaddingStatement(p)(r)
+      case Struct(nm, typeArgs, args) =>
+        Struct(nm, typeArgs, args)(r)
+      case Enum(nm, typeArgs, parts) =>
+        Enum(nm, typeArgs, parts)(r)
+      case ExternalDef(name, args, res) =>
+        ExternalDef(name, args, res)(r)
+      case ExternalStruct(nm, targs) =>
+        ExternalStruct(nm, targs)(r)
+    }
+  }
 }
 
 sealed abstract class TypeDefinitionStatement extends Statement {

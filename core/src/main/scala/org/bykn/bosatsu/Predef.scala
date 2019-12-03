@@ -87,6 +87,7 @@ object Predef {
       .add(packageName, "get_key", FfiCall.Fn2(PredefImpl.get_key(_, _)))
       .add(packageName, "items", FfiCall.Fn1(PredefImpl.items(_)))
       .add(packageName, "remove_key", FfiCall.Fn2(PredefImpl.remove_key(_, _)))
+      .add(packageName, "concat_String", FfiCall.Fn1(PredefImpl.concat_String(_)))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -194,6 +195,24 @@ object PredefImpl {
       case (Value.Str(sa), Value.Str(sb)) =>
         Value.Comparison.fromInt(sa.compareTo(sb))
       case other => sys.error(s"type error: $other")
+    }
+
+  def concat_String(items: Value): Value =
+    items match {
+      case Value.VList(parts) =>
+        Value.Str(parts.iterator.map {
+          case Value.Str(s) => s
+          case other =>
+            //$COVERAGE-OFF$
+            sys.error(s"type error: $other")
+            //$COVERAGE-ON$
+        }
+        .mkString)
+
+      case other =>
+        //$COVERAGE-OFF$
+        sys.error(s"type error: $other")
+        //$COVERAGE-ON$
     }
 
   def clear_Dict(dictv: Value): Value = {

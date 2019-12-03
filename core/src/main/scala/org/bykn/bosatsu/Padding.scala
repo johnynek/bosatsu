@@ -6,7 +6,10 @@ import org.typelevel.paiges.{ Doc, Document }
 import Parser.maybeSpace
 
 // Represents vertical padding
-case class Padding[T](lines: Int, padded: T)
+case class Padding[T](lines: Int, padded: T) {
+  def map[B](fn: T => B): Padding[B] =
+    Padding(lines, fn(padded))
+}
 object Padding {
   implicit def document[T: Document]: Document[Padding[T]] =
     Document.instance[Padding[T]] { padding =>

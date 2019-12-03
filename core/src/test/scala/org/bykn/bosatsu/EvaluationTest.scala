@@ -2144,6 +2144,42 @@ main = 1
       ()
     }
   }
+/* TODO: make this fail
+  test("test bad list pattern message") {
+    evalFail(
+      List("""
+package Err
+
+x = [1, 2, 3]
+
+main = match x:
+  [*_, *_]: "bad"
+  _: "still bad"
+
+"""), "Err") { case sce@PackageError.DuplicatedImport(_) =>
+      assert(sce.message(Map.empty, Colorize.None) == "duplicate import in <unknown source> package Bosatsu/Predef imports foldLeft as foldLeft")
+      ()
+    }
+  }
+
+  test("test bad string pattern message") {
+    val dollar = '$'
+    evalFail(
+      List(s"""
+package Err
+
+x = "foo bar"
+
+main = match x:
+  "$dollar{_}$dollar{_}": "bad"
+  _: "still bad"
+
+"""), "Err") { case sce@PackageError.DuplicatedImport(_) =>
+      assert(sce.message(Map.empty, Colorize.None) == "duplicate import in <unknown source> package Bosatsu/Predef imports foldLeft as foldLeft")
+      ()
+    }
+  }
+*/
 
   test("test parsing type annotations") {
     runBosatsuTest(List("""

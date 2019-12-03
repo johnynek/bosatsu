@@ -578,6 +578,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case Pattern.Literal(lit) => NormalPattern.Literal(lit)
         case Pattern.Var(v) => NormalPattern.Var(names.indexOf(v))
         case Pattern.Named(n, p) => NormalPattern.Named(names.indexOf(n), loop(p))
+        case Pattern.StrPat(items) => sys.error(s"TODO: deal with StrPat($items) in normalization")
         case Pattern.ListPat(items) =>
           NormalPattern.ListPat(items.map {
             case Pattern.ListPart.NamedList(n) =>Left(Some(names.indexOf(n)))

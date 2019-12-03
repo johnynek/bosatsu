@@ -172,6 +172,30 @@ final class SourceConverter(
           }
 
         tup(its)
+      case s@StringDecl(parts) =>
+        // a single string item should be converted
+        // to that thing,
+        // two or more should be converted this to concat_String([items])
+        val decls = parts.map {
+          case Right((r, str)) => Literal(Lit(str))(r)
+          case Left(decl) => decl
+        }
+
+        decls match {
+          case NonEmptyList(one, Nil) =>
+            apply(one)
+          case twoOrMore =>
+            val lldecl =
+              ListDecl(ListLang.Cons(twoOrMore.toList.map(SpliceOrItem.Item(_))))(s.region)
+
+            apply(lldecl).map { listExpr =>
+
+              val fnName: Expr[Declaration] =
+                Expr.Var(Some(PackageName.PredefName), Identifier.Name("concat_String"), s)
+
+              Expr.buildApp(fnName, listExpr.as(s: Declaration) :: Nil, s)
+            }
+        }
       case l@ListDecl(list) =>
         list match {
           case ListLang.Cons(items) =>
