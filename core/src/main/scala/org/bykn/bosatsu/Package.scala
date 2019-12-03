@@ -492,6 +492,18 @@ object PackageError {
           Doc.text("non-total match, missing: ") +
             (Doc.intercalate(Doc.char(',') + Doc.lineOrSpace,
               missing.toList.map(doc.document(_))))
+        case TotalityCheck.UnreachableBranches(_, unreachableBranches) =>
+          val allTypes = unreachableBranches.traverse(_.traverseType { t => Writer(Chain.one(t), ()) })
+            .run._1.toList.distinct
+          val showT = showTypes(pack, allTypes)
+
+          val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
+            Doc.text(showT(t))
+          })
+
+          Doc.text("unreachable branches: ") +
+            (Doc.intercalate(Doc.char(',') + Doc.lineOrSpace,
+              unreachableBranches.toList.map(doc.document(_))))
         case TotalityCheck.InvalidPattern(_, err) =>
           import TotalityCheck._
           err match {

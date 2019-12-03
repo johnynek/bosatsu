@@ -41,7 +41,6 @@ def cons(head: a, TreeList(tail): TreeList[a]) -> TreeList[a]:
       # illegal state, we can just return empty
       empty
     [branch @ Branch(_, _, _, _)]: TreeList([Single(head), branch])
-    [Branch(_, _, _, _), Single(_), *_]: empty
     [b1@Branch(s1, _, _, _), b2@Branch(s2, _, _, _), *t]:
       if (eq_Int(s1, s2)):
         TreeList([Branch(s1 + s2 + 1, head, b1, b2), *t])
