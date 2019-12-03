@@ -191,6 +191,11 @@ sealed abstract class Declaration {
           items.foldLeft(acc) { (acc0, d) => loop(d, bound, acc0) }
         case Var(name: Bindable) if !bound(name) => acc + name
         case Var(_) => acc
+        case StringDecl(items) =>
+          items.foldLeft(acc) {
+            case (acc, Left(nb)) => loop(nb, bound, acc)
+            case (acc, _) => acc
+          }
         case ListDecl(ListLang.Cons(items)) =>
           items.foldLeft(acc) { (acc0, sori) =>
             loop(sori.value, bound, acc0)
