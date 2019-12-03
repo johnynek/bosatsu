@@ -499,7 +499,11 @@ object PackageError {
               Doc.text(s"arity mismatch: ${n.asString} expected $exp parameters, found $found")
             case UnknownConstructor((_, n), _, _) =>
               Doc.text(s"unknown constructor: ${n.asString}")
-            case MultipleSplicesInPattern(_, _) =>
+            case InvalidStrPat(pat, _) =>
+              Doc.text(s"invalid string pattern: ") +
+                Document[Pattern.Parsed].document(pat) +
+                Doc.text(" (adjacent bindings aren't allowed)")
+            case MultipleSplicesInPattern(pat, _) =>
               Doc.text("multiple splices in pattern, only one per match allowed")
           }
       }

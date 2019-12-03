@@ -35,6 +35,9 @@ sealed abstract class Pattern[+N, +T] {
         case Pattern.Named(v, p) :: tail =>
           if (seen(v)) loop(p :: tail, seen, acc)
           else loop(p :: tail, seen + v, v :: acc)
+        case Pattern.StrPat(items) :: tail =>
+          val names = items.collect { case Pattern.StrPart.NamedStr(n) => n }.filterNot(seen)
+          loop(tail, seen ++ names, names reverse_::: acc)
         case Pattern.ListPat(items) :: tail =>
           val globs = items.collect { case Pattern.ListPart.NamedList(glob) => glob }.filterNot(seen)
           val next = items.collect { case Pattern.ListPart.Item(inner) => inner }
@@ -57,7 +60,7 @@ sealed abstract class Pattern[+N, +T] {
     def cheat(stack: List[(Pattern[N, T], Boolean)], seen: Set[Bindable], acc: List[Bindable]): List[Bindable] =
       loop(stack, seen, acc)
 
-    import Pattern.ListPart
+    import Pattern.{ListPart, StrPart}
 
     @annotation.tailrec
     def loop(stack: List[(Pattern[N, T], Boolean)], seen: Set[Bindable], acc: List[Bindable]): List[Bindable] =
@@ -70,6 +73,12 @@ sealed abstract class Pattern[+N, +T] {
         case (Pattern.Named(v, p), isTop) :: tail =>
           if (seen(v) || isTop) loop((p, isTop) :: tail, seen, acc)
           else loop((p, isTop) :: tail, seen + v, v :: acc)
+        case (Pattern.StrPat(NonEmptyList(StrPart.NamedStr(_), Nil)), true) :: tail =>
+            // this is a total match at the top level, not a substructure
+            loop(tail, seen, acc)
+        case (Pattern.StrPat(items), _) :: tail =>
+          val globs = items.collect { case StrPart.NamedStr(glob) => glob }.filterNot(seen)
+          loop(tail, seen ++ globs, globs reverse_::: acc)
         case (Pattern.ListPat(ListPart.NamedList(_) :: Nil), true) :: tail =>
             // this is a total match at the top level, not a substructure
             loop(tail, seen, acc)
@@ -109,6 +118,13 @@ sealed abstract class Pattern[+N, +T] {
         val inner = p.filterVars(keep)
         if (keep(v)) Pattern.Named(v, inner)
         else inner
+      case Pattern.StrPat(items) =>
+        Pattern.StrPat(items.map {
+          case wl@(Pattern.StrPart.WildStr | Pattern.StrPart.LitStr(_)) => wl
+          case in@Pattern.StrPart.NamedStr(n) =>
+            if (keep(n)) in
+            else Pattern.StrPart.WildStr
+        })
       case Pattern.ListPat(items) =>
         Pattern.ListPat(items.map {
           case Pattern.ListPart.WildList => Pattern.ListPart.WildList
@@ -170,6 +186,26 @@ object Pattern {
     final case class NamedPartial(name: Constructor, style: Style) extends NamedKind
   }
 
+  sealed abstract class StrPart
+  object StrPart {
+    final case object WildStr extends StrPart
+    final case class NamedStr(name: Bindable) extends StrPart
+    final case class LitStr(asString: String) extends StrPart
+
+    // this is to circumvent scala warnings because these bosatsu
+    // patterns like right.
+    private[this] val dollar = "$"
+    private[this] val wildDoc = Doc.text(s"$dollar{_}")
+    private[this] val prefix = Doc.text(s"$dollar{")
+
+    def document(q: Char): Document[StrPart] =
+      Document.instance {
+        case WildStr => wildDoc
+        case NamedStr(b) => prefix + Document[Bindable].document(b) + Doc.char('}')
+        case LitStr(s) => Doc.text(s)
+      }
+  }
+
   /**
    * represents items in a list pattern
    */
@@ -222,6 +258,7 @@ object Pattern {
         case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
         case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
         case Pattern.Named(n, p) => p.traverseType(fn).map(Pattern.Named(n, _))
+        case Pattern.StrPat(items) => Applicative[F].pure(Pattern.StrPat(items))
         case Pattern.ListPat(items) =>
           items.traverse {
             case ListPart.Item(p) =>
@@ -254,6 +291,7 @@ object Pattern {
           case Pattern.WildCard => pwild
           case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
           case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
+          case Pattern.StrPat(s) => Applicative[F].pure(Pattern.StrPat(s))
           case Pattern.Named(v, p) =>
             go(p).map(Pattern.Named(v, _))
           case Pattern.ListPat(items) =>
@@ -283,6 +321,28 @@ object Pattern {
   case object WildCard extends Pattern[Nothing, Nothing]
   case class Literal(toLit: Lit) extends Pattern[Nothing, Nothing]
   case class Var(name: Bindable) extends Pattern[Nothing, Nothing]
+  case class StrPat(parts: NonEmptyList[StrPart]) extends Pattern[Nothing, Nothing] {
+
+    lazy val toSimple: SimpleStringPattern.Pattern =
+      StrPat.toSimple(this)
+
+    def matches(str: String): Boolean =
+      isTotal || toSimple.doesMatch(str)
+
+    lazy val isTotal: Boolean =
+      !parts.exists {
+        case Pattern.StrPart.LitStr(_) => true
+        case _ => false
+      }
+
+    def toLiteralString: Option[String] =
+      toSimple.toList match {
+        case Nil => Some("")
+        case SimpleStringPattern.Lit(s) :: Nil => Some(s)
+        case _ => None
+      }
+  }
+
   /**
    * Patterns like foo @ Some(_)
    * @ binds tighter than |, so use ( ) with groups you want to bind
@@ -292,6 +352,37 @@ object Pattern {
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
   case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
+
+  object StrPat {
+    def toSimple(strPat: StrPat): SimpleStringPattern.Pattern =
+      SimpleStringPattern.Pattern.fromList(
+        strPat
+          .parts
+          .toList
+          .map {
+            case StrPart.WildStr => SimpleStringPattern.Wildcard
+            case StrPart.NamedStr(n) => SimpleStringPattern.Var(n.sourceCodeRepr)
+            case StrPart.LitStr(s) => SimpleStringPattern.Lit(s)
+          })
+
+    // this is either a Literal string or a StrPat
+    def fromSimple(ssp: SimpleStringPattern.Pattern): Pattern[Nothing, Nothing] = {
+      val parts = ssp
+        .toList
+        .map {
+          case SimpleStringPattern.Var(w) =>
+            StrPart.NamedStr(Identifier.unsafeParse(Identifier.bindableParser, w))
+          case SimpleStringPattern.Wildcard => StrPart.WildStr
+          case SimpleStringPattern.Lit(s) => StrPart.LitStr(s)
+        }
+
+      parts match {
+        case Nil => Literal(Lit.EmptyStr)
+        case StrPart.LitStr(s) :: Nil => Literal(Lit.Str(s))
+        case h :: tail => StrPat(NonEmptyList(h, tail))
+      }
+    }
+  }
 
   /**
    * If this pattern is:
@@ -322,9 +413,9 @@ object Pattern {
       val ordN = implicitly[Ordering[N]]
       val ordT = implicitly[Ordering[T]]
       val list = ListOrdering.onType(this)
+      val ordBin = implicitly[Ordering[Bindable]]
       def partOrd[A](ordA: Ordering[A]): Ordering[ListPart[A]] =
         new Ordering[ListPart[A]] {
-          val ordBin = implicitly[Ordering[Bindable]]
           def compare(a: ListPart[A], b: ListPart[A]) =
             (a, b) match {
               case (ListPart.WildList, ListPart.WildList) => 0
@@ -339,6 +430,22 @@ object Pattern {
         }
 
       val listE = ListOrdering.onType(partOrd(this))
+
+      val ordStrPart = new Ordering[StrPart] {
+        import StrPart._
+
+        def compare(a: StrPart, b: StrPart) =
+          (a, b) match {
+            case (WildStr, WildStr) => 0
+            case (WildStr, _) => -1
+            case (LitStr(_), WildStr) => 1
+            case (LitStr(sa), LitStr(sb)) => sa.compareTo(sb)
+            case (LitStr(_), NamedStr(_)) => -1
+            case (NamedStr(na), NamedStr(nb)) => ordBin.compare(na, nb)
+            case (NamedStr(_), _) => 1
+          }
+      }
+      val strOrd = ListOrdering.onType(ordStrPart)
 
       val compIdent: Ordering[Identifier] = implicitly[Ordering[Identifier]]
 
@@ -357,7 +464,10 @@ object Pattern {
             val c = compIdent.compare(n1, n2)
             if (c == 0) compare(p1, p2) else c
           case (Named(_, _), _) => -1
-          case (ListPat(_), WildCard | Literal(_) | Var(_) | Named(_, _)) => 1
+          case (StrPat(_), WildCard | Literal(_) | Var(_) | Named(_, _)) => 1
+          case (StrPat(as), StrPat(bs)) => strOrd.compare(as.toList, bs.toList)
+          case (StrPat(_), _) => -1
+          case (ListPat(_), WildCard | Literal(_) | Var(_) | Named(_, _) | StrPat(_)) => 1
           case (ListPat(as), ListPat(bs)) => listE.compare(as, bs)
           case (ListPat(_), _) => -1
           case (Annotation(_, _), PositionalStruct(_, _) | Union(_, _)) => -1
@@ -387,6 +497,16 @@ object Pattern {
         Document[Identifier].document(n) + Doc.char('@') + Doc.char('(') + document.document(u) + Doc.char(')')
       case Named(n, p) =>
         Document[Identifier].document(n) + Doc.char('@') + document.document(p)
+      case StrPat(items) =>
+        // prefer ' if possible, else use "
+        val useDouble = items.exists {
+          case StrPart.LitStr(str) => str.contains('\'') && !str.contains('"')
+          case _ => false
+        }
+        val q = if (useDouble) '"' else '\''
+        val sd = StrPart.document(q)
+        val inner = Doc.intercalate(Doc.empty, items.toList.map(sd.document(_)))
+        Doc.char(q) + inner + Doc.char(q)
       case ListPat(items) =>
         Doc.char('[') + Doc.intercalate(Doc.text(", "),
           items.map {
@@ -499,6 +619,7 @@ object Pattern {
         Document[Identifier].document(n) + Doc.char('@') + Doc.char('(') + doc.document(u) + Doc.char(')')
       case Named(n, p) =>
         Document[Identifier].document(n) + Doc.char('@') + doc.document(p)
+      case StrPat(items) => document.document(StrPat(items))
       case ListPat(items) =>
         Doc.char('[') + Doc.intercalate(Doc.text(", "),
           items.map {
@@ -576,6 +697,14 @@ object Pattern {
         case Named(n, p1) =>
           val e1 = loop(p1, typeOf, env)
           update(e1, n, typeOf)
+        case StrPat(items) =>
+          // the type annotation typeOf applies to all the current names, which must be strings
+          items
+            .foldLeft(env) {
+              case (env, StrPart.NamedStr(n)) => update(env, n, typeOf)
+              case (env, _) => env
+            }
+
         case ListPat(items) =>
           type L = ListPart[Pattern[C, T]]
           items.foldLeft(env) {
@@ -599,7 +728,32 @@ object Pattern {
   }
 
   private[this] val pwild = P("_").map(_ => WildCard)
-  private[this] val plit = Lit.parser.map(Literal(_))
+  private[this] val plit: P[Pattern[Nothing, Nothing]] = {
+    val intp = Lit.integerParser.map(Literal(_))
+    val start = P("${")
+    val end = P("}")
+
+    val pwild = P("_").map(_ => StrPart.WildStr)
+    val pname = Identifier.bindableParser.map(StrPart.NamedStr(_))
+
+    def strp(q: Char): P[List[StrPart]] = {
+      StringUtil.interpolatedString(q, start, pwild | pname, end)
+        .map(_.map {
+          case Left(p) => p
+          case Right((_, str)) => StrPart.LitStr(str)
+        })
+    }
+
+    val eitherString = strp('\'') | strp('"')
+    // don't emit complex patterns for simple strings:
+    val str = eitherString.map {
+      case Nil => Literal(Lit.EmptyStr)
+      case StrPart.LitStr(str) :: Nil => Literal(Lit.Str(str))
+      case h :: tail => StrPat(NonEmptyList(h, tail))
+    }
+
+    str | intp
+  }
 
   /**
    * This does not allow a top-level type annotation which would be ambiguous

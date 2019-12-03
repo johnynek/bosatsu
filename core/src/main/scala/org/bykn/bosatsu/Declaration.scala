@@ -113,7 +113,21 @@ sealed abstract class Declaration {
       case TupleCons(items) =>
         Doc.char('(') + Doc.intercalate(Doc.text(", "),
           items.map(_.toDoc)) + Doc.char(')')
-      case Var(name) => Document[Identifier].document(name)
+      case Var(name) =>
+        Document[Identifier].document(name)
+
+      case StringDecl(parts) =>
+        val useDouble = parts.exists {
+          case Right((_, str)) => str.contains('\'') && !str.contains('"')
+          case Left(_) => false
+        }
+        val q = if (useDouble) '"' else '\''
+        val inner = Doc.intercalate(Doc.empty,
+          parts.toList.map {
+            case Right((_, str)) => Doc.text(StringUtil.escape(q, str))
+            case Left(decl) => Doc.text("${") + decl.toDoc + Doc.char('}')
+          })
+        Doc.char(q) + inner + Doc.char(q)
 
       case ListDecl(list) =>
         ListLang.document[NonBinding, Pattern.Parsed].document(list)
@@ -177,6 +191,11 @@ sealed abstract class Declaration {
           items.foldLeft(acc) { (acc0, d) => loop(d, bound, acc0) }
         case Var(name: Bindable) if !bound(name) => acc + name
         case Var(_) => acc
+        case StringDecl(items) =>
+          items.foldLeft(acc) {
+            case (acc, Left(nb)) => loop(nb, bound, acc)
+            case (acc, _) => acc
+          }
         case ListDecl(ListLang.Cons(items)) =>
           items.foldLeft(acc) { (acc0, sori) =>
             loop(sori.value, bound, acc0)
@@ -249,6 +268,11 @@ sealed abstract class Declaration {
           items.foldLeft(acc) { (acc0, d) => loop(d, acc0) }
         case Var(name: Bindable) => acc + name
         case Var(_) => acc
+        case StringDecl(nel) =>
+          nel.foldLeft(acc) {
+            case (acc0, Left(decl)) => loop(decl, acc0)
+            case (acc0, Right(_)) => acc0
+          }
         case ListDecl(ListLang.Cons(items)) =>
           items.foldLeft(acc) { (acc0, sori) =>
             loop(sori.value, acc0)
@@ -273,6 +297,17 @@ sealed abstract class Declaration {
       }
     loop(this, SortedSet.empty)
   }
+
+  def replaceRegions(r: Region): Declaration =
+    this match {
+      case Binding(BindingStatement(n, v, in)) =>
+        Binding(BindingStatement(n, v.replaceRegionsNB(r), in.map(_.replaceRegions(r))))(r)
+      case Comment(CommentStatement(lines, c)) =>
+        Comment(CommentStatement(lines, c.map(_.replaceRegions(r))))(r)
+      case DefFn(d) =>
+        DefFn(d.copy(result = (d.result._1.map(_.replaceRegions(r)), d.result._2.map(_.replaceRegions(r)))))(r)
+      case nb: NonBinding => nb.replaceRegionsNB(r)
+    }
 }
 
 object Declaration {
@@ -326,7 +361,53 @@ object Declaration {
    * These are all Declarations other than Binding, DefFn and Comment,
    * in other words, things that don't need to start with indentation
    */
-  sealed abstract class NonBinding extends Declaration
+  sealed abstract class NonBinding extends Declaration {
+    def replaceRegionsNB(r: Region): NonBinding =
+      this match {
+        case Annotation(term, t) => Annotation(term.replaceRegionsNB(r), t)(r)
+        case Apply(fn, args, s) =>
+          Apply(fn.replaceRegionsNB(r), args.map(_.replaceRegionsNB(r)), s)(r)
+        case ApplyOp(left, op, right) =>
+          ApplyOp(left.replaceRegionsNB(r), op, right.replaceRegionsNB(r))
+        case IfElse(ifCases, elseCase) =>
+          IfElse(ifCases.map { case (bool, res) => (bool.replaceRegionsNB(r), res.map(_.replaceRegions(r))) },
+            elseCase.map(_.replaceRegions(r)))(r)
+        case Lambda(args, body) =>
+          Lambda(args, body.replaceRegions(r))(r)
+        case Literal(lit) => Literal(lit)(r)
+        case Match(rec, arg, branches) =>
+          Match(rec,
+            arg.replaceRegionsNB(r),
+            branches.map(_.map { case (p, x) => (p, x.map(_.replaceRegions(r))) }))(r)
+        case Parens(p) => Parens(p.replaceRegions(r))(r)
+        case TupleCons(items) =>
+          TupleCons(items.map(_.replaceRegionsNB(r)))(r)
+        case Var(b) => Var(b)(r)
+        case StringDecl(nel) =>
+          val ne1 = nel.map {
+            case Right((_, s)) => Right((r, s))
+            case Left(e) => Left(e.replaceRegionsNB(r))
+          }
+          StringDecl(ne1)(r)
+        case ListDecl(ListLang.Cons(items)) =>
+          ListDecl(ListLang.Cons(items.map(_.map(_.replaceRegionsNB(r)))))(r)
+        case ListDecl(ListLang.Comprehension(ex, b, in, filter)) =>
+          ListDecl(ListLang.Comprehension(ex.map(_.replaceRegionsNB(r)), b, in.replaceRegionsNB(r), filter.map(_.replaceRegionsNB(r))))(r)
+        case DictDecl(ListLang.Cons(items)) =>
+          DictDecl(ListLang.Cons(items.map {
+            case ListLang.KVPair(k, v) =>
+              ListLang.KVPair(k.replaceRegionsNB(r), v.replaceRegionsNB(r))
+          }))(r)
+        case DictDecl(ListLang.Comprehension(ex, b, in, filter)) =>
+          DictDecl(ListLang.Comprehension(ex.map(_.replaceRegionsNB(r)), b, in.replaceRegionsNB(r), filter.map(_.replaceRegionsNB(r))))(r)
+        case RecordConstructor(c, args) =>
+          val args1 = args.map {
+            case RecordArg.Simple(b) => RecordArg.Simple(b)
+            case RecordArg.Pair(k, v) => RecordArg.Pair(k, v.replaceRegionsNB(r))
+          }
+          RecordConstructor(c, args1)(r)
+      }
+  }
 
   object NonBinding {
     implicit val document: Document[NonBinding] =
@@ -369,6 +450,10 @@ object Declaration {
    */
   case class RecordConstructor(cons: Constructor, arg: NonEmptyList[RecordArg])(implicit val region: Region) extends NonBinding
   /**
+   * This represents interpolated strings
+   */
+  case class StringDecl(items: NonEmptyList[Either[NonBinding, (Region, String)]])(implicit val region: Region) extends NonBinding
+  /**
    * This represents the list construction language
    */
   case class ListDecl(list: ListLang[SpliceOrItem, NonBinding, Pattern.Parsed])(implicit val region: Region) extends NonBinding
@@ -395,6 +480,16 @@ object Declaration {
           Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike), Nil))
       case Var(v: Bindable) => Some(Pattern.Var(v))
       case Literal(lit) => Some(Pattern.Literal(lit))
+      case StringDecl(NonEmptyList(Right((_, s)), Nil)) =>
+        Some(Pattern.Literal(Lit.Str(s)))
+      case StringDecl(items) =>
+        def toStrPart(p: Either[NonBinding, (Region, String)]): Option[Pattern.StrPart] =
+          p match {
+            case Right((_, str)) => Some(Pattern.StrPart.LitStr(str))
+            case Left(Var(v: Bindable)) => Some(Pattern.StrPart.NamedStr(v))
+            case _ => None
+          }
+        items.traverse(toStrPart).map(Pattern.StrPat(_))
       case ListDecl(ListLang.Cons(elems)) =>
         val optParts: Option[List[Pattern.ListPart[Pattern.Parsed]]] =
           elems.traverse {
@@ -505,6 +600,27 @@ object Declaration {
       }
   }
 
+  def stringDeclOrLit(inner: Indy[NonBinding]): Indy[NonBinding] = {
+    val start = P("${")
+    val end = P("}")
+    val q1 = '\''
+    val q2 = '"'
+
+    inner.mapF { p =>
+      val plist = StringUtil.interpolatedString(q1, start, p, end) | StringUtil.interpolatedString(q2, start, p, end)
+
+      plist.region.map {
+        case (r, Nil) =>
+          // this is the empty string:
+          Literal(Lit.EmptyStr)(r)
+        case (r, Right((_, str)) :: Nil) =>
+          Literal(Lit.Str(str))(r)
+        case (r, h :: tail) =>
+          StringDecl(NonEmptyList(h, tail))(r)
+        }
+    }
+  }
+
   def lambdaP(parser: Indy[Declaration]): Indy[Lambda] = {
     val params = Indy.lift(P("\\" ~/ maybeSpace ~ Pattern.bindParser.nonEmptyList))
 
@@ -592,7 +708,7 @@ object Declaration {
       .region
       .map { case (r, l) => DictDecl(l)(r) }
 
-  private val lits = Lit.parser.region.map { case (r, l) => Literal(l)(r) }
+  private val lits = Lit.integerParser.region.map { case (r, l) => Literal(l)(r) }
 
   private sealed abstract class ParseMode
   private object ParseMode {
@@ -639,6 +755,7 @@ object Declaration {
           varP |
           listP(recNonBind) |
           lits |
+          stringDeclOrLit(recNBIndy)(indent) |
           tupOrPar |
           recordConstructorP(indent, recNonBind, recArg))
 

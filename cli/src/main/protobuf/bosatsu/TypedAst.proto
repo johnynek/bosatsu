@@ -196,6 +196,18 @@ message ListPat {
   repeated ListPart parts = 1;
 }
 
+message StrPart {
+  oneof value {
+    WildCardPat unnamedStr = 1;
+    int32 namedStr = 2;
+    int32 literalStr = 3;
+  }
+}
+
+message StrPat {
+  repeated StrPart parts = 1;
+}
+
 message AnnotationPat {
   int32 pattern = 1;
   int32 typeOfPattern = 2;
@@ -221,6 +233,7 @@ message Pattern {
     AnnotationPat annotationPat = 6;
     StructPattern structPat = 7;
     UnionPattern unionPat = 8;
+    StrPat strPat = 9;
   }
 }
 

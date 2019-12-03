@@ -17,6 +17,8 @@ object Lit {
   case class Integer(toBigInteger: BigInteger) extends Lit
   case class Str(toStr: String) extends Lit
 
+  val EmptyStr: Str = Str("")
+
   def fromInt(i: Int): Lit = Integer(BigInteger.valueOf(i.toLong))
   def apply(i: Long): Lit = apply(BigInteger.valueOf(i))
   def apply(bi: BigInteger): Lit = Integer(bi)

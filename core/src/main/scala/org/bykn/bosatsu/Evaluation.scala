@@ -325,6 +325,29 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                 case Some(env1) => Some(env1.updated(n, Eval.now(v)))
               }
             }
+          case pat@Pattern.StrPat(_) =>
+            val spat = pat.toSimple
+            val nameMap = spat.toList.collect {
+              case SimpleStringPattern.Var(n) => (n, Identifier.unsafe(n))
+            }.toMap
+
+            if (nameMap.isEmpty) {
+              { (v, env) =>
+                // this casts should be safe if we have typechecked
+                val str = v.asInstanceOf[ExternalValue].toAny.asInstanceOf[String]
+                if (spat.doesMatch(str)) Some(env)
+                else None
+              }
+            }
+            else {
+              { (v, env) =>
+                // this casts should be safe if we have typechecked
+                val str = v.asInstanceOf[ExternalValue].toAny.asInstanceOf[String]
+                spat.matches(str).map { vars =>
+                  env ++ vars.iterator.map { case (k, v) => (nameMap(k), Eval.now(ExternalValue(v))) }
+                }
+              }
+            }
           case Pattern.ListPat(items) =>
             items match {
               case Nil =>

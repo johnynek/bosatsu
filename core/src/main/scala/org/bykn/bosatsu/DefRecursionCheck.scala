@@ -349,6 +349,11 @@ object DefRecursionCheck {
               if (ir.defNamesContain(v)) failSt(InvalidRecursion(v, decl.region))
               else unitSt
           }
+        case StringDecl(parts) =>
+          parts.traverse_ {
+            case Left(nb) => checkDecl(nb)
+            case Right(_) => unitSt
+          }
         case ListDecl(ll) =>
           ll match {
             case ListLang.Cons(items) =>

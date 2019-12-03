@@ -16,6 +16,7 @@ export [
   add_key,
   cmp_Int,
   concat,
+  concat_String,
   div,
   clear_Dict,
   empty_Dict,
@@ -124,6 +125,7 @@ def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: a -> Int -
 external struct String
 external def string_Order_fn(str0: String, str1: String) -> Comparison
 string_Order = Order(string_Order_fn)
+external def concat_String(items: List[String]) -> String
 
 enum Test:
   Assertion(value: Bool, message: String)

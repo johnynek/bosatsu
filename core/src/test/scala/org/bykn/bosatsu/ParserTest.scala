@@ -207,14 +207,38 @@ class ParserTest extends ParserTestBase {
     forAll(qstr) { case (s, c) => law(s, c) }
 
     parseTestAll(Parser.escapedString('\''), "''", "")
-    parseTestAll(Parser.escapedString('\''), "''", "")
     parseTestAll(Parser.escapedString('"'), "\"\"", "")
+    parseTestAll(Parser.escapedString('\''), "'foo\\qbar'", "foo\\qbar")
     parseTestAll(Parser.escapedString('\''), "'foo\tbar'", "foo\tbar")
 
     val regressions = List(("'", '\''))
 
 
     regressions.foreach { case (s, c) => law(s, c) }
+  }
+
+  test("we can parse interpolated strings") {
+    def singleq(str1: String, res: List[Either[Json, String]]) =
+      parseTestAll(
+        StringUtil
+          .interpolatedString('\'', P("${"), Json.parser, P("}"))
+          .map(_.map {
+            case Right((_, str)) => Right(str)
+            case Left(l) => Left(l)
+          })
+        , str1, res)
+
+    // scala complains about things that look like interpolation strings that aren't interpolated
+    val dollar = '$'.toString
+    singleq("''", List())
+    singleq("'foo\\qbar'", List(Right("foo\\qbar")))
+    singleq("'foo\tbar'", List(Right("foo\tbar")))
+    singleq(s"'foo\\$dollar{bar}'", List(Right(s"foo$dollar{bar}")))
+    // foo$bar is okay, it is only foo${bar} that needs to be escaped
+    singleq(s"'foo${dollar}bar'", List(Right(s"foo${dollar}bar")))
+    singleq(s"'foo$dollar{42}'", List(Right("foo"), Left(Json.JNumberStr("42"))))
+    singleq(s"'$dollar{42}'", List(Left(Json.JNumberStr("42"))))
+    singleq(s"'$dollar{42}bar'", List(Left(Json.JNumberStr("42")), Right("bar")))
   }
 
   test("Identifier round trips") {
@@ -927,7 +951,7 @@ x""")
   }
 
   test("we can parse any Declaration") {
-    forAll(Generators.genDeclaration(5))(law(Declaration.parser("")))
+    forAll(Generators.genDeclaration(5))(law(Declaration.parser("").map(_.replaceRegions(emptyRegion))))
 
     def decl(s: String) = roundTrip(Declaration.parser(""), s)
 
@@ -944,7 +968,7 @@ x""")
   }
 
   test("we can parse any Statement") {
-    forAll(Generators.genStatements(4, 10))(law(Statement.parser))
+    forAll(Generators.genStatements(4, 10))(law(Statement.parser.map(_.map(_.replaceRegions(emptyRegion)))))
 
     roundTrip(Statement.parser,
 """#
@@ -1125,7 +1149,8 @@ export [foo]
 foo = 1
 """)
 
-    forAll(Generators.packageGen(4))(law(Package.parser(None)))
+    val pp = Package.parser(None).map { pack => pack.copy(program = pack.program.map(_.replaceRegions(emptyRegion))) }
+    forAll(Generators.packageGen(4))(law(pp))
 
     roundTripExact(Package.parser(None),
 """package Foo

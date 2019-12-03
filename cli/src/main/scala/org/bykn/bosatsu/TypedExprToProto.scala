@@ -298,6 +298,24 @@ object ProtoConverter {
               }
 
             lp.toList.traverse(decodePart).map(Pattern.ListPat(_))
+          case Value.StrPat(proto.StrPat(items)) =>
+            def decodePart(part: proto.StrPart): Try[Pattern.StrPart] =
+              part.value match {
+                case proto.StrPart.Value.Empty => Failure(new Exception(s"invalid empty list pattern in $p"))
+                case proto.StrPart.Value.LiteralStr(idx) => str(idx).map(Pattern.StrPart.LitStr(_))
+                case proto.StrPart.Value.UnnamedStr(_) => Success(Pattern.StrPart.WildStr)
+                case proto.StrPart.Value.NamedStr(idx) => bindable(idx).map { n => Pattern.StrPart.NamedStr(n) }
+              }
+
+            items.toList match {
+              case Nil =>
+                // this is invalid
+                Failure(new Exception(s"empty string pattern found in $p"))
+              case h :: tail =>
+                NonEmptyList(h, tail)
+                  .traverse(decodePart)
+                  .map(Pattern.StrPat(_))
+            }
           case Value.AnnotationPat(proto.AnnotationPat(pidx, tidx)) =>
             (pat(pidx), ds.tryType(tidx - 1, s"invalid type index $tidx in: $p"))
               .mapN(Pattern.Annotation(_, _))
@@ -532,6 +550,22 @@ object ProtoConverter {
                 .flatMap { case (idx, pidx) =>
                   writePattern(named, proto.Pattern(proto.Pattern.Value.NamedPat(proto.NamedPat(idx, pidx))))
                 }
+            case Pattern.StrPat(parts) =>
+              parts.traverse {
+                case Pattern.StrPart.WildStr =>
+                  tabPure(proto.StrPart(proto.StrPart.Value.UnnamedStr(proto.WildCardPat())))
+                case Pattern.StrPart.NamedStr(n) =>
+                  getId(n.sourceCodeRepr).map { idx =>
+                    proto.StrPart(proto.StrPart.Value.NamedStr(idx))
+                  }
+                case Pattern.StrPart.LitStr(s) =>
+                  getId(s).map { idx =>
+                    proto.StrPart(proto.StrPart.Value.LiteralStr(idx))
+                  }
+              }
+              .flatMap { parts =>
+                writePattern(p, proto.Pattern(proto.Pattern.Value.StrPat(proto.StrPat(parts.toList))))
+              }
             case Pattern.ListPat(items) =>
               items.traverse {
                 case Pattern.ListPart.Item(itemPat) =>
@@ -544,10 +578,10 @@ object ProtoConverter {
                   getId(bindable.sourceCodeRepr).map { idx =>
                     proto.ListPart(proto.ListPart.Value.NamedList(idx))
                   }
-                }
-                .flatMap { parts =>
-                  writePattern(p, proto.Pattern(proto.Pattern.Value.ListPat(proto.ListPat(parts))))
-                }
+              }
+              .flatMap { parts =>
+                writePattern(p, proto.Pattern(proto.Pattern.Value.ListPat(proto.ListPat(parts))))
+              }
             case ann@Pattern.Annotation(p, tpe) =>
               patternToProto(p)
                 .product(typeToProto(tpe))

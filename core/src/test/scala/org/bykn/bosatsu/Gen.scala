@@ -163,6 +163,34 @@ object Generators {
       .map(ListLang.Cons(_))
   }
 
+  def genStringDecl(dec0: Gen[NonBinding]): Gen[Declaration.StringDecl] = {
+    val item =
+      Gen.oneOf(
+        Arbitrary.arbitrary[String].filter(_.length > 1).map { s => Right((emptyRegion, s)) },
+        dec0.map(Left(_)))
+
+    def removeAdj[A](nea: NonEmptyList[A])(fn: (A, A) => Boolean): NonEmptyList[A] =
+      nea match {
+        case NonEmptyList(a1, a2 :: tail) if fn(a1, a2) => removeAdj(NonEmptyList(a2, tail))(fn)
+        case NonEmptyList(a1, a2 :: tail) => NonEmptyList(a1, removeAdj(NonEmptyList(a2, tail))(fn).toList)
+        case ne1 => ne1
+      }
+
+    val res = for {
+      sz <- Gen.choose(1, 4)
+      lst <- Gen.listOfN(sz, item)
+      nel = NonEmptyList.fromListUnsafe(lst)
+      // make sure we don't have two adjacent strings
+      nel1 = removeAdj(nel) { (a1, a2) => a1.isRight && a2.isRight }
+    } yield Declaration.StringDecl(nel1)(emptyRegion)
+
+    res.filter {
+      case Declaration.StringDecl(NonEmptyList(Right(_), Nil)) =>
+        false
+      case a => true
+    }
+  }
+
   def listGen(dec0: Gen[NonBinding]): Gen[Declaration.ListDecl] = {
     lazy val filterFn: NonBinding => Boolean = {
       case Declaration.IfElse(_, _) => false
@@ -362,6 +390,20 @@ object Generators {
       val genTyped = Gen.zip(recurse, genT)
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
+      lazy val genStrPat: Gen[Pattern[Nothing, Nothing]] = {
+        val recurse = Gen.lzy(genStrPat)
+        val genPart: Gen[Pattern.StrPart] =
+          Gen.oneOf(
+            lowerIdent.map(Pattern.StrPart.LitStr(_)),
+            bindIdentGen.map(Pattern.StrPart.NamedStr(_)),
+            Gen.const(Pattern.StrPart.WildStr))
+
+        for {
+          sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
+          inner <- nonEmptyN(genPart, sz)
+        } yield Pattern.StrPat.fromSimple(Pattern.StrPat(inner).toSimple.normalize)
+      }
+
       val genStruct =  for {
         cnt <- Gen.choose(0, 6)
         args <- Gen.listOfN(cnt, recurse)
@@ -402,7 +444,7 @@ object Generators {
         }
 
       val tailGens: List[Gen[Pattern[N, T]]] =
-        List(genVar, genWild, genNamed, genLitPat, genStruct, genList)
+        List(genVar, genWild, genNamed, genStrPat, genLitPat, genStruct, genList)
 
       val withU = if (useUnion) genUnion :: tailGens else tailGens
       val withT = (if (useAnnotation) genTyped :: withU else withU).toArray
@@ -502,6 +544,7 @@ object Generators {
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
       (1, applyOpGen(recur)),
+      (1, genStringDecl(recur)),
       (1, listGen(recur)),
       (1, dictGen(recur)),
       (1, annGen(recur)),
@@ -542,6 +585,7 @@ object Generators {
       (2, applyGen(recNon)),
       (1, applyOpGen(simpleDecl(depth - 1))),
       (1, ifElseGen(recNon, recur)),
+      (1, genStringDecl(recNon)),
       (1, listGen(recNon)),
       (1, dictGen(recNon)),
       (1, matchGen(recNon, recur)),
@@ -602,6 +646,11 @@ object Generators {
           case TupleCons(Nil) => Stream.empty
           case TupleCons(h :: tail) => h #:: TupleCons(tail)(emptyRegion) #:: apply(TupleCons(tail)(emptyRegion))
           case Var(_) => Stream.empty
+          case StringDecl(parts) =>
+            parts.toList.toStream.map {
+              case Left(nb) => nb
+              case Right((r, str)) => Literal(Lit.Str(str))(r)
+            }
           case ListDecl(ListLang.Cons(items)) =>
             items.map(_.value).toStream
           case ListDecl(ListLang.Comprehension(a, _, c, d)) =>
