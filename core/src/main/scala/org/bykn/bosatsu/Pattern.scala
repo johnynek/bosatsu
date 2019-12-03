@@ -335,16 +335,12 @@ object Pattern {
         case _ => false
       }
 
-    def toLiteralString: Option[String] = {
-      toSimple.normalize.toList match {
+    def toLiteralString: Option[String] =
+      toSimple.toList match {
         case Nil => Some("")
         case SimpleStringPattern.Lit(s) :: Nil => Some(s)
         case _ => None
       }
-    }
-
-    def toLiteral: Option[Literal] =
-      toLiteralString.map { str => Literal(Lit.Str(str)) }
   }
 
   /**
@@ -372,7 +368,6 @@ object Pattern {
     // this is either a Literal string or a StrPat
     def fromSimple(ssp: SimpleStringPattern.Pattern): Pattern[Nothing, Nothing] = {
       val parts = ssp
-        .normalize
         .toList
         .map {
           case SimpleStringPattern.Var(w) =>

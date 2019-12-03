@@ -2,9 +2,6 @@ package org.bykn.bosatsu
 
 object SimpleStringPattern {
   sealed trait Pattern {
-    def unapply(str: String): Option[Map[String, String]] =
-      matches(str)
-
     def matchesAny: Boolean = {
       val list = toList
 
@@ -66,15 +63,9 @@ object SimpleStringPattern {
               case other =>
                 loop(ctail, chead :: other)
             }
-          case Lit("") :: ctail =>
-            loop(ctail, front)
           case (chead@Lit(s1)) :: ctail =>
-            front match {
-              case Lit(s0) :: ftail =>
-                loop(ctail, Lit(s0 ++ s1) :: ftail)
-              case other =>
-                loop(ctail, chead :: other)
-            }
+            // tolist combines Lit values already
+            loop(ctail, chead :: front)
         }
 
       Pattern.fromList(loop(parts, Nil))
@@ -279,7 +270,10 @@ object SimpleStringPattern {
 
       ppat.map(toPat(_)).parse(str) match {
         case Parsed.Success(pat, _) => pat
-        case other => sys.error(s"could not parse: $other")
+        case other =>
+          // $COVERAGE-OFF$
+          sys.error(s"could not parse: $other")
+          // $COVERAGE-ON$
       }
     }
 

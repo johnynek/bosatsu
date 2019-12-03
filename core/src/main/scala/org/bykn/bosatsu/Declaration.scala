@@ -477,6 +477,14 @@ object Declaration {
       case Literal(lit) => Some(Pattern.Literal(lit))
       case StringDecl(NonEmptyList(Right((_, s)), Nil)) =>
         Some(Pattern.Literal(Lit.Str(s)))
+      case StringDecl(items) =>
+        def toStrPart(p: Either[NonBinding, (Region, String)]): Option[Pattern.StrPart] =
+          p match {
+            case Right((_, str)) => Some(Pattern.StrPart.LitStr(str))
+            case Left(Var(v: Bindable)) => Some(Pattern.StrPart.NamedStr(v))
+            case _ => None
+          }
+        items.traverse(toStrPart).map(Pattern.StrPat(_))
       case ListDecl(ListLang.Cons(elems)) =>
         val optParts: Option[List[Pattern.ListPart[Pattern.Parsed]]] =
           elems.traverse {

@@ -184,10 +184,10 @@ object Generators {
       nel1 = removeAdj(nel) { (a1, a2) => a1.isRight && a2.isRight }
     } yield Declaration.StringDecl(nel1)(emptyRegion)
 
-    res.flatMap {
+    res.filter {
       case Declaration.StringDecl(NonEmptyList(Right(_), Nil)) =>
-        res
-      case a => Gen.const(a)
+        false
+      case a => true
     }
   }
 
@@ -544,7 +544,7 @@ object Generators {
       (2, lambdaGen(recur)),
       (2, applyGen(recur)),
       (1, applyOpGen(recur)),
-      //(1, genStringDecl(recur)),
+      (1, genStringDecl(recur)),
       (1, listGen(recur)),
       (1, dictGen(recur)),
       (1, annGen(recur)),
@@ -585,7 +585,7 @@ object Generators {
       (2, applyGen(recNon)),
       (1, applyOpGen(simpleDecl(depth - 1))),
       (1, ifElseGen(recNon, recur)),
-      //(1, genStringDecl(recNon)),
+      (1, genStringDecl(recNon)),
       (1, listGen(recNon)),
       (1, dictGen(recNon)),
       (1, matchGen(recNon, recur)),

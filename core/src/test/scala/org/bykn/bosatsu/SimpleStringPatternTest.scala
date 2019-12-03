@@ -109,6 +109,8 @@ class SimpleStringPatternTest extends FunSuite {
           // if the unwild matches, the wild must match
           assert(matches(p0, str).isDefined)
           val rendered = p.render(vars)
+          val renderWild = p0.render(vars)
+          assert(renderWild.isEmpty == (p0 != p))
           assert(rendered == Some(str), s"${rendered.get.length} != ${str.length}, ${rendered.get.toArray.toList.map(_.toInt)} != ${str.toArray.toList.map(_.toInt)}")
       }
     }
@@ -181,14 +183,14 @@ class SimpleStringPatternTest extends FunSuite {
 
   test("normalized patterns don't have adjacent Var/Wildcard or adjacent Lit") {
     forAll { p0: Pattern =>
-      p0.normalize.toList.sliding(2).foreach {
+      val list = p0.normalize.toList
+      list.sliding(2).foreach {
         case bad@Seq(Var(_) | Wildcard, Var(_) | Wildcard) =>
           fail(s"saw adjacent: $bad in ${p0.normalize}")
         case bad@Seq(Lit(_), Lit(_)) =>
           fail(s"saw adjacent: $bad in ${p0.normalize}")
         case _ => ()
       }
-
     }
   }
 
