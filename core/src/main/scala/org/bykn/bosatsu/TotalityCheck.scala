@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Monad, Order, Applicative, Eq}
+import cats.{Order, Applicative, Eq}
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
 
@@ -26,6 +26,7 @@ object TotalityCheck {
   }
   case class NonTotalMatch[A](matchExpr: Expr.Match[A], missing: NonEmptyList[Pattern[Cons, Type]]) extends ExprError[A]
   case class InvalidPattern[A](matchExpr: Expr.Match[A], err: Error) extends ExprError[A]
+  case class UnreachableBranches[A](matchExpr: Expr.Match[A], branches: NonEmptyList[Pattern[Cons, Type]]) extends ExprError[A]
 }
 
 /**
@@ -50,21 +51,33 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
    *   assert(missingBranches(te, t, branches ::: ms).isEmpty)
    * }
    */
-  def missingBranches(branches: Patterns): Res[Patterns] = {
-    def step(patMiss: (Patterns, Patterns)): Res[Either[(Patterns, Patterns), Patterns]] = {
-      val (branches, missing0) = patMiss
-      branches match {
-        case Nil =>
-          Right(Right(missing0))
-        case h :: tail =>
-          difference(missing0, h)
-            .map { newMissing =>
-              Left((tail, newMissing))
-            }
-      }
+  def missingBranches(branches: Patterns): Res[Patterns] =
+    branches.foldM(List(WildCard): Patterns) {
+      (missing, nextPattern) => difference(missing, nextPattern)
     }
 
-    Monad[Res].tailRecM((branches, List(WildCard): Patterns))(step _)
+  /**
+   * if we match these branches in order, which of them
+   * are completely covered by previous matches
+   */
+  def unreachableBranches(branches: Patterns): Res[Patterns] = {
+    def withPrev(bs: Patterns, prev: Patterns): List[(Pattern[Cons, Type], Patterns)] =
+      bs match {
+        case Nil => Nil
+        case h :: tail =>
+          (h, prev.reverse) :: withPrev(tail, h :: prev)
+      }
+
+    withPrev(branches, Nil)
+      .traverse { case (p, prev) =>
+        differenceAll(p :: Nil, prev)
+          .map { remaining =>
+            // if there is nothing, this is unreachable
+            if (remaining.isEmpty) Some(p)
+            else None
+          }
+      }
+      .map(_.collect { case Some(p) => p })
   }
 
   /**
@@ -75,6 +88,41 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
    */
   def isTotal(branches: Patterns): Res[Boolean] =
     missingBranches(branches).map(_.isEmpty)
+
+  /**
+   * Check that a given pattern follows all the rules.
+   *
+   * The main rules are:
+   * * in strings, you cannot have two adjacent variable patterns (where should one end?)
+   * * in lists we cannot have more than one variable pattern (maybe relaxed later to the above)
+   */
+  def validatePattern(p: Pattern[Cons, Type]): Res[Unit] =
+    p match {
+      case lp@ListPat(parts) =>
+        val globs = parts.count {
+          case _: ListPart.Glob => true
+          case ListPart.Item(_) => false
+        }
+
+        val outer =
+          if (globs > 1) Left(NonEmptyList(MultipleSplicesInPattern(lp, inEnv), Nil))
+          else Right(())
+
+        val inners: Res[Unit] =
+          parts.parTraverse_ {
+            case ListPart.Item(p) => validatePattern(p)
+            case _ => Right(())
+          }
+
+        (outer, inners).parMapN { (_, _) => () }
+
+      case sp@StrPat(_) =>
+        val simp = sp.toSimple
+        if (simp.normalize == simp) Right(())
+        else Left(NonEmptyList(InvalidStrPat(sp, inEnv), Nil))
+
+      case _ => Right(())
+    }
 
   /**
    * Check that an expression, and all inner expressions, are total, or return
@@ -90,19 +138,49 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case App(fn, arg, _) => checkExpr(fn) *> checkExpr(arg)
       case Let(_, e1, e2, _, _) => checkExpr(e1) *> checkExpr(e2)
       case m@Match(arg, branches, _) =>
-        val argAndBranchExprs = arg :: branches.toList.map(_._2)
-        val recursion = argAndBranchExprs.traverse_(checkExpr)
-
-        val theseBranchs: ValidatedNel[ExprError[A], Unit] =
-          missingBranches(branches.toList.map(_._1)) match {
-            case Left(errs) =>
-              Validated.invalid(errs.map { err => InvalidPattern(m, err) })
-            case Right(Nil) =>
-              Validated.valid(())
-            case Right(head :: tail) =>
-              Validated.invalidNel(NonTotalMatch(m, NonEmptyList(head, tail)))
+        val patterns = branches.toList.map(_._1)
+        patterns
+          .parTraverse_(validatePattern)
+          .leftMap { nel =>
+            nel.map(InvalidPattern(m, _))
           }
-        theseBranchs *> recursion
+          .toValidated
+          .andThen { _ =>
+            // if the patterns are good, then we check them for totality
+            val argAndBranchExprs = arg :: branches.toList.map(_._2)
+            val recursion = argAndBranchExprs.traverse_(checkExpr)
+
+            val missing: ValidatedNel[ExprError[A], Unit] =
+              missingBranches(patterns) match {
+                case Left(errs) =>
+                  Validated.invalid(errs.map { err => InvalidPattern(m, err) })
+                case Right(mis) =>
+                  NonEmptyList.fromList(mis) match {
+                    case Some(nel) =>
+                      Validated.invalidNel(NonTotalMatch(m, nel): ExprError[A])
+                    case None => Validated.valid(())
+                  }
+              }
+
+            val unreachable: ValidatedNel[ExprError[A], Unit] =
+              unreachableBranches(patterns) match {
+                case Left(errs) =>
+                  Validated.invalid(errs.map { err => InvalidPattern(m, err) })
+                case Right(unr) =>
+                  NonEmptyList.fromList(unr) match {
+                    case Some(nel) =>
+                      Validated.invalidNel(UnreachableBranches(m, nel): ExprError[A])
+                    case None => Validated.valid(())
+                  }
+              }
+
+            missing *> unreachable *> recursion
+          }
+          .leftMap { errs =>
+            val errList = errs.toList
+            // distinct can't reduce to 0
+            NonEmptyList.fromListUnsafe(errList.distinct)
+          }
     }
   }
 
@@ -243,35 +321,28 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case (l, Annotation(p, _)) => difference0(l, p)
       case (WildCard, listPat@ListPat(rp)) =>
         // _ is the same as [*_] for well typed expressions
-        checkListPats(listPat :: Nil) >>
-          difference0List(ListPart.WildList :: Nil, rp)
+        difference0List(ListPart.WildList :: Nil, rp)
       case (Var(v), listPat@ListPat(rp)) =>
         // v is the same as [*v] for well typed expressions
-        checkListPats(listPat :: Nil) >>
-          difference0List(ListPart.NamedList(v) :: Nil, rp)
+        difference0List(ListPart.NamedList(v) :: Nil, rp)
       case (u@Union(_, _), right) =>
         difference(normalizeUnion(u).toList, right).map(_.distinct.sorted)
       case (left, u@Union(_, _)) =>
         differenceAll(left :: Nil, normalizeUnion(u).toList).map(_.distinct.sorted)
       case (left@ListPat(lp), right@ListPat(rp)) =>
-        checkListPats(left :: right :: Nil) >>
-          difference0List(lp, rp)
+        difference0List(lp, rp)
       case (Literal(_), ListPat(_) | PositionalStruct(_, _)) =>
         Right(left :: Nil)
       case (Literal(Lit.Str(str)), p@StrPat(_)) if p.matches(str) =>
-        checkStrPat(p) >> Right(Nil)
+        Right(Nil)
       case (sa@StrPat(_), Literal(Lit.Str(str))) =>
-        checkStrPat(sa) >> {
-          Right(sa.toSimple.difference(SimpleStringPattern.Lit(str))
-            .map { p => StrPat.fromSimple(p.normalize): Pattern[Cons, Type] }
-            .sorted)
-        }
+        Right(sa.toSimple.difference(SimpleStringPattern.Lit(str))
+          .map { p => StrPat.fromSimple(p.normalize): Pattern[Cons, Type] }
+          .sorted)
       case (sa@StrPat(_), sb@StrPat(_)) =>
-        checkStrPat(sa) >> checkStrPat(sb) >> {
-          Right(sa.toSimple.difference(sb.toSimple)
-            .map { p => StrPat.fromSimple(p.normalize): Pattern[Cons, Type] }
-            .sorted)
-        }
+        Right(sa.toSimple.difference(sb.toSimple)
+          .map { p => StrPat.fromSimple(p.normalize): Pattern[Cons, Type] }
+          .sorted)
       case (_, StrPat(_)) =>
         // ill-typed
         Right(left :: Nil)
@@ -320,28 +391,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         Right(left :: Nil)
     }
 
-
-  private def checkListPats(pats: List[ListPat[Cons, Type]]): Res[Unit] = {
-    def hasMultiple(ps: ListPat[Cons, Type]): Boolean =
-      ps.parts.count {
-        case _: ListPart.Glob => true
-        case ListPart.Item(_) => false
-      } > 1
-
-    pats.filter(hasMultiple) match {
-      case Nil => Right(())
-      case h :: tail =>
-        Left(NonEmptyList(h, tail).map(MultipleSplicesInPattern(_, inEnv)))
-    }
-  }
-
-  private def checkStrPat(pat: StrPat): Res[Unit] = {
-    // we cannot have two adjacent bindings like ${foo}${bar} because
-    // the left one can never match, so it is better to make this an error
-    if (pat.toSimple.normalize == pat.toSimple) Right(())
-    else Left(NonEmptyList(InvalidStrPat(pat, inEnv), Nil))
-  }
-
   def intersection(
     left: Pattern[Cons, Type],
     right: Pattern[Cons, Type]): Res[List[Pattern[Cons, Type]]] =
@@ -371,38 +420,31 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           if (a == b) Right(List(left))
           else Right(Nil)
         case (Literal(Lit.Str(s)), p@StrPat(_)) =>
-          checkStrPat(p) >> {
-            if (p.matches(s)) Right(left :: Nil)
-            else Right(Nil)
-          }
+          if (p.matches(s)) Right(left :: Nil)
+          else Right(Nil)
         case (p@StrPat(_), Literal(Lit.Str(s))) =>
-          checkStrPat(p) >> {
-            if (p.matches(s)) Right(right :: Nil)
-            else Right(Nil)
-          }
+          if (p.matches(s)) Right(right :: Nil)
+          else Right(Nil)
         case (p1@StrPat(_), p2@StrPat(_)) =>
-          checkStrPat(p1) >> checkStrPat(p2) >> {
-            val n1 = p1.toSimple.normalize.unname
-            val n2 = p2.toSimple.normalize.unname
-            val intr =
-              if (n1 == n2) (implicitly[Ordering[Pattern[Cons, Type]]].min(p1, p2) :: Nil)
-              else n1
-                .intersection(n2)
-                .map(_.normalize)
-                .distinct
-                .map { part =>
-                  StrPat.fromSimple(part)
-                }
+          val n1 = p1.toSimple.unname
+          val n2 = p2.toSimple.unname
+          val intr =
+            if (n1 == n2) (implicitly[Ordering[Pattern[Cons, Type]]].min(p1, p2) :: Nil)
+            else n1
+              .intersection(n2)
+              .map(_.normalize) // intersection can make non-normal patterns
+              .distinct
+              .map { part =>
+                StrPat.fromSimple(part)
+              }
 
-            Right(intr.sorted)
-          }
-        case (p@StrPat(_), _) => checkStrPat(p) >> Right(Nil)
-        case (_, p@StrPat(_)) => checkStrPat(p) >> Right(Nil)
+          Right(intr.sorted)
+        case (p@StrPat(_), _) => Right(Nil)
+        case (_, p@StrPat(_)) => Right(Nil)
         case (Literal(_), _) => Right(Nil)
         case (_, Literal(_)) => Right(Nil)
         case (lp@ListPat(leftL), rp@ListPat(rightL)) =>
-          checkListPats(lp :: rp :: Nil) *>
-            intersectionList(leftL, rightL).map { ps => (ps: Patterns).sorted }
+          intersectionList(leftL, rightL).map { ps => (ps: Patterns).sorted }
         case (ListPat(_), _) => Right(Nil)
         case (_, ListPat(_)) => Right(Nil)
         case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
@@ -811,7 +853,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case Pattern.WildCard | Pattern.Var(_) => Right(true)
       case Pattern.Named(_, p) => isTotal(p)
       case Pattern.Literal(_) => Right(false) // literals are not total
-      case s@Pattern.StrPat(_) => checkStrPat(s).as(s.isTotal)
+      case s@Pattern.StrPat(_) => Right(s.isTotal)
       case Pattern.ListPat((_: ListPart.Glob) :: rest) =>
         Right(matchesEmpty(rest))
       case Pattern.ListPat(_) =>
@@ -844,7 +886,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case Var(_) => WildCard
           case Named(_, p) => normalizePattern(p)
           case strPat@StrPat(_) =>
-            StrPat.fromSimple(strPat.toSimple.normalize.unname)
+            StrPat.fromSimple(strPat.toSimple.unname)
           case ListPat(ls) =>
             val normLs: List[ListPatElem] =
               ls.map {
