@@ -629,6 +629,25 @@ main = one
 """), "Total") { case PackageError.TotalityCheckError(_, _) => () }
   }
 
+  test("unreachable patterns are an error") {
+    evalFail(
+      List("""
+package Total
+
+enum Opt: Nope, Yep(get)
+
+something = Yep(
+  1)
+
+one = match something:
+  Yep(a): a
+  Nope: 0
+  _: 42
+
+main = one
+"""), "Total") { case PackageError.TotalityCheckError(_, _) => () }
+  }
+
   test("Leibniz type equality example") {
   evalTest(
     List("""
@@ -2144,7 +2163,7 @@ main = 1
       ()
     }
   }
-/* TODO: make this fail
+
   test("test bad list pattern message") {
     evalFail(
       List("""
@@ -2156,8 +2175,8 @@ main = match x:
   [*_, *_]: "bad"
   _: "still bad"
 
-"""), "Err") { case sce@PackageError.DuplicatedImport(_) =>
-      assert(sce.message(Map.empty, Colorize.None) == "duplicate import in <unknown source> package Bosatsu/Predef imports foldLeft as foldLeft")
+"""), "Err") { case sce@PackageError.TotalityCheckError(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err\nRegion(36,79)\nmultiple splices in pattern, only one per match allowed")
       ()
     }
   }
@@ -2174,12 +2193,13 @@ main = match x:
   "$dollar{_}$dollar{_}": "bad"
   _: "still bad"
 
-"""), "Err") { case sce@PackageError.DuplicatedImport(_) =>
-      assert(sce.message(Map.empty, Colorize.None) == "duplicate import in <unknown source> package Bosatsu/Predef imports foldLeft as foldLeft")
+"""), "Err") { case sce@PackageError.TotalityCheckError(_, _) =>
+      val dollar = '$'
+      assert(sce.message(Map.empty, Colorize.None) ==
+        s"in file: <unknown source>, package Err\nRegion(36,81)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent bindings aren't allowed)")
       ()
     }
   }
-*/
 
   test("test parsing type annotations") {
     runBosatsuTest(List("""
