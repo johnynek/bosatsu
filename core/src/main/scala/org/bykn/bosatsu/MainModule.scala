@@ -62,7 +62,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   sealed abstract class Output
   object Output {
     case class TestOutput(tests: List[(PackageName, Option[Test])], colorize: Colorize) extends Output
-    case class EvaluationResult(value: Eval[Value], tpe: rankn.Type) extends Output
+    case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Path) extends Output
   }
@@ -420,7 +420,21 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                     res match {
                       case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
                       case Some((eval, tpe)) =>
-                        moduleIOMonad.pure((ev, Output.EvaluationResult(eval, tpe)))
+                        // here is the doc:
+                        val memoE = eval.memoize
+                        val fn = ev.valueToDoc.toDoc(tpe)
+                        val edoc =
+                          memoE.map { v =>
+                            fn(v) match {
+                              case Right(d) => d
+                              case Left(err) =>
+                                // $COVERAGE-OFF$ unreachable due to being well typed
+                                sys.error(s"got illtyped error: $err")
+                                // $COVERAGE-ON$
+                            }
+                          }
+
+                        moduleIOMonad.pure((ev, Output.EvaluationResult(eval, tpe, edoc)))
                     }
                   }
                   else {

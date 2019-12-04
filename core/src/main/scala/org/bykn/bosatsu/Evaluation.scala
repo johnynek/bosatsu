@@ -721,4 +721,17 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         dt <- pack.program.types.getType(pn, t)
       } yield dt
   })
+
+  /**
+   * Convert a typechecked value to Doc
+   * this code ASSUMES the type is correct. If not, we may throw or return
+   * incorrect data.
+   */
+  val valueToDoc: ValueToDoc = ValueToDoc({
+    case Type.Const.Defined(pn, t) =>
+      for {
+        pack <- pm.toMap.get(pn)
+        dt <- pack.program.types.getType(pn, t)
+      } yield dt
+  })
 }
