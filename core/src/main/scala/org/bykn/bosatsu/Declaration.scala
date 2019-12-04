@@ -765,8 +765,10 @@ object Declaration {
       val applied: P[NonBinding] = {
         val params = recNonBind.parensLines1Cut
         // here we are using . syntax foo.bar(1, 2)
+        // we also allow foo.(anyExpression)(1, 2)
+        val fn = varP | (recNonBind.parensCut)
         val dotApply: P[NonBinding => NonBinding] =
-          P("." ~ varP ~ params.?)
+          P("." ~/ fn ~ params.?)
             .region
             .map { case (r2, (fn, argsOpt)) =>
               val args = argsOpt.fold(List.empty[NonBinding])(_.toList)

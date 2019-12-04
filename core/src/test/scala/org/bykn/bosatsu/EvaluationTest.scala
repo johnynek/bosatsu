@@ -2295,4 +2295,14 @@ def substitute:
 test = Assertion(substitute.eq_Int(42), "basis substitution")
 """), "A", 1)
   }
+
+  test("we can use .( ) to get |> like syntax for lambdas") {
+  runBosatsuTest(List("""
+package A
+
+three = 2.(\x -> add(x, 1))
+
+test = Assertion(three.eq_Int(3), "let inside apply")
+"""), "A", 1)
+  }
 }
