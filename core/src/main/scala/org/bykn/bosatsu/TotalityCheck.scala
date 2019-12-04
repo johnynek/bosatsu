@@ -154,6 +154,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case (ListPart.Item(_) :: _, Nil) =>
         // left has at least one
         Right(ListPat(lp) :: Nil)
+      case ((_: ListPart.Glob) :: tail, Nil) =>
+        // if tail matches empty, then we can only match 1 or more
+        // else, these are disjoint
+        if (matchesEmpty(tail))
+          Right(ListPat(ListPart.Item(WildCard) :: lp) :: Nil)
+        else Right(ListPat(lp) :: Nil)
       case (ListPart.Item(lhead) :: ltail, ListPart.Item(rhead) :: rtail) =>
         // we use productDifference here
         productDifference((lhead, rhead) :: (ListPat(ltail), ListPat(rtail)) :: Nil)
@@ -167,12 +173,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                 // $COVERAGE-ON$
             }
           }
-      case ((_: ListPart.Glob) :: tail, Nil) =>
-        // if tail matches empty, then we can only match 1 or more
-        // else, these are disjoint
-        if (matchesEmpty(tail))
-          Right(ListPat(ListPart.Item(WildCard) :: lp) :: Nil)
-        else Right(ListPat(lp) :: Nil)
       case ((_: ListPart.Glob) :: tail, ListPart.Item(_) :: _) =>
         /*
          * Note since we only allow a single splice,
@@ -187,13 +187,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         // this creates a different representation
         // of the left
         (difference0List(zero, rp), difference0List(oneOrMore, rp))
-          .mapN {
-            case (zz, oo)
-              if leftIsSuperSet(zz, ListPat(zero)) &&
-                leftIsSuperSet(oo, ListPat(oneOrMore)) =>
-              ListPat(lp) :: Nil
-            case (zz, oo) => zz ::: oo
-          }
+          .mapN { (zz, oo) => unifyUnionList(zz ::: oo) }
       case (_, (_: ListPart.Glob) :: rtail) if matchesEmpty(rtail) =>
         // this is a total match
         Right(Nil)
@@ -485,6 +479,61 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     loop(items, withLeft)
   }
 
+  // Try to unify lists according to the rules:
+  // x u [_, *, x] = [*, x]
+  // x u [*, _, x] = [*, x]
+  // x u [x, *, _] = [x, *]
+  // x u [x, _, *] = [x, *]
+  //
+  // this is an incomplete heuristic now, not a complete solution
+  private def unifyUnionList(union: List[ListPat[Cons, Type]]): List[ListPat[Cons, Type]] = {
+
+    def isAnyStar(list: List[ListPatElem]): Boolean =
+      list match {
+        case ListPart.Item(WildCard | Var(_)) :: (_: ListPart.Glob) :: Nil => true
+        case (_: ListPart.Glob) :: ListPart.Item(WildCard | Var(_)) :: Nil => true
+        case _ => false
+      }
+
+    def unifyPair(left: List[ListPatElem], right: List[ListPatElem]): Option[List[ListPatElem]] =
+      if (left.startsWith(right)) {
+        if (isAnyStar(left.drop(right.size))) Some(right :+ ListPart.WildList)
+        else None
+      }
+      else if (right.startsWith(left)) {
+        if (isAnyStar(right.drop(left.size))) Some(left :+ ListPart.WildList)
+        else None
+      }
+      else if (left.endsWith(right)) {
+        if (isAnyStar(left.dropRight(right.size))) Some(ListPart.WildList :: right)
+        else None
+      }
+      else if (right.endsWith(left)) {
+        if (isAnyStar(right.dropRight(left.size))) Some(ListPart.WildList :: left)
+        else None
+      }
+      else None
+
+    val items = union.toArray
+
+    val pairs = for {
+      i <- (0 until items.length).iterator
+      j <- ((i + 1) until items.length).iterator
+      pair <- unifyPair(items(i).parts, items(j).parts).iterator
+    } yield (ListPat(pair), i, j)
+
+    // stop after the first unification and loop
+    if (pairs.hasNext) {
+      val (pair, i, j) = pairs.next
+      items(i) = null
+      items(j) = null
+      val rest = items.iterator.filterNot(_ == null).toList
+      // let's look again
+      unifyUnionList(pair :: rest)
+    }
+    else union
+  }
+
   // invariant: each input has at most 1 splice pattern. This should be checked by callers.
   private def intersectionList(leftL: List[ListPatElem], rightL: List[ListPatElem]): Res[List[ListPat[Cons, Type]]] = {
     def left = ListPat(leftL)
@@ -497,11 +546,13 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         // the left hand side is a top value, it can match any list, so intersection with top is
         // right
         Right(List(ListPat(rightL)))
-      case (Nil, Nil) => Right(List(left))
-      case (Nil, ListPart.Item(_) :: _) => Right(Nil)
       case (Nil, (_: ListPart.Glob) :: _) | ((_: ListPart.Glob) :: _, Nil) =>
         // the non Nil patterns can't match empty due to the above:
         Right(Nil)
+      case (Nil, Nil) =>
+        // both only match the empty list
+        Right(List(left))
+      case (Nil, ListPart.Item(_) :: _) => Right(Nil)
       case (ListPart.Item(_) :: _, Nil) => Right(Nil)
       case (ListPart.Item(lh) :: lt, ListPart.Item(rh) :: rt) =>
         intersection(lh, rh).flatMap {
@@ -514,102 +565,49 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             intersectionList(lt, rt)
               .map { inner =>
                 heads.flatMap { h =>
-                  inner.map {
-                    case ListPat(ts) => ListPat(ListPart.Item(h) :: ts)
-                  }
+                  inner.map(_.prepend(ListPart.Item(h)))
                 }
             }
         }
-      case (ListPart.Item(lh) :: lt, (_: ListPart.Glob) :: rt) =>
+        .map(unifyUnionList(_))
+      case ((lh@ListPart.Item(_)) :: lt, (_: ListPart.Glob) :: rt) =>
         // we know the glob is not empty, because otherwise it would
         // matchEmpty above
         //
-        // if lt does not end with a Left,
-        // we can intersect the ends, and repeat.
-        //
-        // This leaves only the case of
-        //   [a, b... *c] n [*d, e, f].
-        lt.lastOption match {
-          case None =>
-            // we have a singleton list matching at least one after the splice:
-            // only zero from the splice can match
-            intersectionList(leftL, rt)
-          case Some(ListPart.Item(_)) =>
-            // can reverse and and recurse
-            intersectionList(leftL.reverse, rightL.reverse)
-              .map(_.map {
-                case ListPat(res) => ListPat(res.reverse)
-              })
-          case Some(_: ListPart.Glob) =>
-            /*
-             *   we basically need all the windows of overlap,
-             *
-             *   consider the simpliest case:
-             *   [a, *_] n [*_, b] = [a n b] | [a, *_, b]
-             *
-             *   also we have any number of non Left items on each side
-             *
-             *   so the rights can maximally to minimally
-             *   overlap and we have the union of all those
-             *   cases.
-             */
-            // left side can have infinite right, right side can have infinite left:
-            val leftSide = leftL.init
-            val rightSide = rt
-            // return a union of list patterns for all the cases where the lefts don't overlap
-            // i.e. the lefts are only used to pad out some number of rights on the other side
-            def overlap(n: Int): Res[List[List[ListPatElem]]] = {
-              require(n > 0, s"invalid overlap: $n")
-              val windowL = leftSide.takeRight(n)
-              val windowR = rightSide.take(n)
-              val farLeft = leftSide.dropRight(n)
-              val farRight = rightSide.drop(n)
-              // compute the intersection of the window, then append
-              // to either side:
-              intersectionList(windowL, windowR)
-                .map(_.map { case ListPat(middle) =>
-                  farLeft ::: middle ::: farRight
-                })
-            }
-            val zeroOverlap: List[ListPatElem] = leftSide ::: (ListPart.WildList :: rightSide)
-            val maxOverlapSize = leftSide.size min rightSide.size
-            // these should be in largest to smallest order
-            val overlapSizes = (1 to maxOverlapSize).toList.reverse
-            val ovs = overlapSizes.traverse(overlap)
-            // put them in size order from smallest to largest
-            ovs.map { ovList => unionDisjointList(ovList.flatten, zeroOverlap) }
-        }
+        // [lh :: lt] n [* :: rt] =
+        // [lh :: lt] n (rt u [_, * :: rt]) =
+        // (left n rt) u (lh :: (lt n right))
+        for {
+          lefts <- intersectionList(leftL, rt)
+          rights <- intersectionList(lt, rightL)
+          rights1 = rights.map(_.prepend(lh))
+        } yield unifyUnionList(lefts ::: rights1)
       case ((_: ListPart.Glob) :: _, ListPart.Item(_) :: _) =>
         // intersection is symmetric
         intersectionList(rightL, leftL)
       case ((a: ListPart.Glob) :: lt, (b: ListPart.Glob) :: rt) =>
         /*
-         * the left and right can consume any number
-         * of items before matching the rest.
+         * We have a trick to diagonalize an intersection like
+         * this:
+         * [* :: lt] n [* :: rt] =
+         *   * :: ( (lt n rt) u (lt n (_ :: rightL)) u ((_ :: leftL) n rt) )
          *
-         * if we assume rt has no additional Lefts,
-         * we can pad the left to be the same size
-         * by adding wildcards, and repeat
+         *  not each of the intersections as smaller that the input
          */
-          /*
-           * make suffix of rt that lines up with lt
-           */
-        val rtSize = rt.size
-        val ltSize = lt.size
-        val padSize = rtSize - ltSize
-        val (initLt, lastLt) =
-          if (padSize > 0) {
-            (List.empty[ListPatElem], List.fill(padSize)(ListPart.Item(WildCard)) reverse_::: lt)
+        val anyLt = ListPart.Item(WildCard) :: leftL
+        val anyRt = ListPart.Item(WildCard) :: rightL
+        val wildHead: ListPart[Pattern[Cons, Type]] =
+          if (a == b) a else ListPart.WildList
+        val int0 = intersectionList(lt, rt)
+        val int1 = intersectionList(lt, anyRt)
+        val int2 = intersectionList(anyLt, rt)
+        (int0, int1, int2)
+          .mapN { (l0, l1, l2) =>
+            val union = l0 ::: l1 ::: l2
+            // wild to each pattern in the list
+            val withWild = union.map(_.prepend(wildHead))
+            unifyUnionList(withWild)
           }
-          else {
-            (lt.take(-padSize), lt.drop(-padSize))
-          }
-        intersectionList(lastLt, rt)
-          .map(_.map {
-            case ListPat(tail) =>
-              val m: ListPatElem = if (a == b) a else ListPart.WildList
-              ListPat(m :: initLt ::: tail)
-          })
     }
   }
 
@@ -682,7 +680,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
     loop(superSet, subSet)
   }
-
 
   /**
    * This is the complex part of this problem
