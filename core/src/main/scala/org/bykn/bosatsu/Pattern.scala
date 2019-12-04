@@ -348,7 +348,9 @@ object Pattern {
    * @ binds tighter than |, so use ( ) with groups you want to bind
    */
   case class Named[N, T](name: Bindable, pat: Pattern[N, T]) extends Pattern[N, T]
-  case class ListPat[N, T](parts: List[ListPart[Pattern[N, T]]]) extends Pattern[N, T]
+  case class ListPat[N, T](parts: List[ListPart[Pattern[N, T]]]) extends Pattern[N, T] {
+    def prepend(item: ListPart[Pattern[N, T]]): ListPat[N, T] = ListPat(item :: parts)
+  }
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
   case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]

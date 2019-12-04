@@ -89,6 +89,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
   def isTotal(branches: Patterns): Res[Boolean] =
     missingBranches(branches).map(_.isEmpty)
 
+  private[this] val validUnit: Res[Unit] = Right(())
   /**
    * Check that a given pattern follows all the rules.
    *
@@ -106,22 +107,22 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
         val outer =
           if (globs > 1) Left(NonEmptyList(MultipleSplicesInPattern(lp, inEnv), Nil))
-          else Right(())
+          else validUnit
 
         val inners: Res[Unit] =
           parts.parTraverse_ {
             case ListPart.Item(p) => validatePattern(p)
-            case _ => Right(())
+            case _ => validUnit
           }
 
         (outer, inners).parMapN { (_, _) => () }
 
       case sp@StrPat(_) =>
         val simp = sp.toSimple
-        if (simp.normalize == simp) Right(())
+        if (simp.normalize == simp) validUnit
         else Left(NonEmptyList(InvalidStrPat(sp, inEnv), Nil))
 
-      case _ => Right(())
+      case _ => validUnit
     }
 
   /**
@@ -201,6 +202,17 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         }
     }
 
+  private[this] val rightNil = Right(Nil)
+  @inline private[this] def emptyUnion[A]: Res[List[A]] =
+    rightNil
+
+  @inline private[this] def singleUnion[A](a: A): Res[List[A]] =
+    Right(a :: Nil)
+
+  private[this] val rightTrue = Right(true)
+  private[this] val rightFalse = Right(false)
+  @inline private[this] def resBool(b: Boolean): Res[Boolean] =
+    if (b) rightTrue else rightFalse
 
   @annotation.tailrec
   private def matchesEmpty(lp: List[ListPatElem]): Boolean =
@@ -220,18 +232,24 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     (lp, rp) match {
       case (Nil, Nil) =>
         // total overlap
-        Right(Nil)
+        emptyUnion
       case (Nil, ListPart.Item(_) :: _) =>
         // a list of 1 or more, can't match less
-        Right(ListPat(lp) :: Nil)
+        singleUnion(ListPat(lp))
       case (Nil, (_: ListPart.Glob) :: tail) =>
         // we can have zero or more, 1 or more clearly can't match:
         // if the tail can match 0, we anhilate, otherwise not
-        if (matchesEmpty(tail)) Right(Nil)
-        else Right(ListPat(lp) :: Nil)
+        if (matchesEmpty(tail)) emptyUnion
+        else singleUnion(ListPat(lp))
       case (ListPart.Item(_) :: _, Nil) =>
         // left has at least one
-        Right(ListPat(lp) :: Nil)
+        singleUnion(ListPat(lp))
+      case ((_: ListPart.Glob) :: tail, Nil) =>
+        // if tail matches empty, then we can only match 1 or more
+        // else, these are disjoint
+        if (matchesEmpty(tail))
+          singleUnion(ListPat(ListPart.Item(WildCard) :: lp))
+        else singleUnion(ListPat(lp))
       case (ListPart.Item(lhead) :: ltail, ListPart.Item(rhead) :: rtail) =>
         // we use productDifference here
         productDifference((lhead, rhead) :: (ListPat(ltail), ListPat(rtail)) :: Nil)
@@ -245,12 +263,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                 // $COVERAGE-ON$
             }
           }
-      case ((_: ListPart.Glob) :: tail, Nil) =>
-        // if tail matches empty, then we can only match 1 or more
-        // else, these are disjoint
-        if (matchesEmpty(tail))
-          Right(ListPat(ListPart.Item(WildCard) :: lp) :: Nil)
-        else Right(ListPat(lp) :: Nil)
       case ((_: ListPart.Glob) :: tail, ListPart.Item(_) :: _) =>
         /*
          * Note since we only allow a single splice,
@@ -265,16 +277,10 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         // this creates a different representation
         // of the left
         (difference0List(zero, rp), difference0List(oneOrMore, rp))
-          .mapN {
-            case (zz, oo)
-              if leftIsSuperSet(zz, ListPat(zero)) &&
-                leftIsSuperSet(oo, ListPat(oneOrMore)) =>
-              ListPat(lp) :: Nil
-            case (zz, oo) => zz ::: oo
-          }
+          .mapN { (zz, oo) => unifyUnionList(zz ::: oo) }
       case (_, (_: ListPart.Glob) :: rtail) if matchesEmpty(rtail) =>
         // this is a total match
-        Right(Nil)
+        emptyUnion
       case (_, (_: ListPart.Glob) :: _) =>
         // we know the right can't end in Left since
         // it starts with Left and the tail is not empty
@@ -315,12 +321,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
   def difference0(left: Pattern[Cons, Type], right: Pattern[Cons, Type]): Res[Patterns] =
     (left, right) match {
-      case (_, WildCard | Var(_)) => Right(Nil)
+      case (_, WildCard | Var(_)) => emptyUnion
       case (WildCard | Var(_), Literal(_)) =>
         // the left is infinite, and the right is just one value
-        Right(left :: Nil)
-      case (WildCard | Var(_), _) if isTotal(right) == Right(true) =>
-        Right(Nil)
+        singleUnion(left)
+      case (WildCard | Var(_), _) if isTotal(right) == resBool(true) =>
+        emptyUnion
       case (Named(_, p), r) => difference0(p, r)
       case (l, Named(_, p)) => difference0(l, p)
       case (Annotation(p, _), r) => difference0(p, r)
@@ -338,9 +344,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case (left@ListPat(lp), right@ListPat(rp)) =>
         difference0List(lp, rp)
       case (Literal(_), ListPat(_) | PositionalStruct(_, _)) =>
-        Right(left :: Nil)
+        singleUnion(left)
       case (Literal(Lit.Str(str)), p@StrPat(_)) if p.matches(str) =>
-        Right(Nil)
+        emptyUnion
       case (sa@StrPat(_), Literal(Lit.Str(str))) =>
         Right(sa.toSimple.difference(SimpleStringPattern.Lit(str))
           .map { p => StrPat.fromSimple(p.normalize): Pattern[Cons, Type] }
@@ -351,14 +357,14 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           .sorted)
       case (_, StrPat(_)) =>
         // ill-typed
-        Right(left :: Nil)
+        singleUnion(left)
       case (StrPat(_), _) =>
         // ill-typed
-        Right(left :: Nil)
+        singleUnion(left)
       case (ListPat(_), Literal(_) | PositionalStruct(_, _)) =>
-        Right(left :: Nil)
+        singleUnion(left)
       case (PositionalStruct(_, _), Literal(_) | ListPat(_)) =>
-        Right(left :: Nil)
+        singleUnion(left)
       case (WildCard | Var(_), PositionalStruct(nm, ps)) =>
         inEnv.definedTypeFor(nm) match {
           case None => Left(NonEmptyList.of(UnknownConstructor(nm, right, inEnv)))
@@ -376,13 +382,13 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                   if (Type.hasNoVars(t._2)) Annotation(WildCard, t._2)
                   else WildCard
 
-                Right(List(PositionalStruct((dt.packageName, cf.name), cf.args.map(argToPat))))
+                singleUnion(PositionalStruct((dt.packageName, cf.name), cf.args.map(argToPat)))
             }
             .map(_.flatten)
         }
       case (llit@Literal(l), Literal(r)) =>
-        if (l == r) Right(Nil): Res[Patterns]
-        else Right(llit :: Nil): Res[Patterns]
+        if (l == r) emptyUnion
+        else singleUnion(llit)
       case (PositionalStruct(ln, lp), PositionalStruct(rn, rp)) if ln == rn =>
         // we have two matching structs
         val arityMatch =
@@ -394,7 +400,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           pats.map { tup => PositionalStruct(ln, tup.toList) }
         }
       case (PositionalStruct(_, _), PositionalStruct(_, _)) =>
-        Right(left :: Nil)
+        singleUnion(left)
     }
 
   def intersection(
@@ -411,26 +417,26 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             .toList
             .traverse(intersection(p, _))
             .map(_.flatten.distinct.sorted)
-        case (Var(va), Var(vb)) => Right(List(Var(Ordering[Bindable].min(va, vb))))
+        case (Var(va), Var(vb)) => singleUnion(Var(Ordering[Bindable].min(va, vb)))
         case (Named(va, pa), Named(vb, pb)) if va == vb =>
           intersection(pa, pb).map(_.map(Named(va, _)))
         case (Named(va, pa), r) => intersection(pa, r)
         case (l, Named(vb, pb)) => intersection(l, pb)
-        case (WildCard, v) => Right(List(v))
-        case (v, WildCard) => Right(List(v))
-        case (Var(_), v) => Right(List(v))
-        case (v, Var(_)) => Right(List(v))
+        case (WildCard, v) => singleUnion(v)
+        case (v, WildCard) => singleUnion(v)
+        case (Var(_), v) => singleUnion(v)
+        case (v, Var(_)) => singleUnion(v)
         case (Annotation(p, _), t) => intersection(p, t)
         case (t, Annotation(p, _)) => intersection(t, p)
         case (Literal(a), Literal(b)) =>
-          if (a == b) Right(List(left))
-          else Right(Nil)
+          if (a == b) singleUnion(left)
+          else emptyUnion
         case (Literal(Lit.Str(s)), p@StrPat(_)) =>
-          if (p.matches(s)) Right(left :: Nil)
-          else Right(Nil)
+          if (p.matches(s)) singleUnion(left)
+          else emptyUnion
         case (p@StrPat(_), Literal(Lit.Str(s))) =>
-          if (p.matches(s)) Right(right :: Nil)
-          else Right(Nil)
+          if (p.matches(s)) singleUnion(right)
+          else emptyUnion
         case (p1@StrPat(_), p2@StrPat(_)) =>
           val n1 = p1.toSimple.unname
           val n2 = p2.toSimple.unname
@@ -445,14 +451,14 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               }
 
           Right(intr.sorted)
-        case (p@StrPat(_), _) => Right(Nil)
-        case (_, p@StrPat(_)) => Right(Nil)
-        case (Literal(_), _) => Right(Nil)
-        case (_, Literal(_)) => Right(Nil)
+        case (p@StrPat(_), _) => emptyUnion
+        case (_, p@StrPat(_)) => emptyUnion
+        case (Literal(_), _) => emptyUnion
+        case (_, Literal(_)) => emptyUnion
         case (lp@ListPat(leftL), rp@ListPat(rightL)) =>
           intersectionList(leftL, rightL).map { ps => (ps: Patterns).sorted }
-        case (ListPat(_), _) => Right(Nil)
-        case (_, ListPat(_)) => Right(Nil)
+        case (ListPat(_), _) => emptyUnion
+        case (_, ListPat(_)) => emptyUnion
         case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
           if (ln == rn) {
             val check = for {
@@ -469,62 +475,62 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               .map(_.map(PositionalStruct(ln, _): Pattern[Cons, Type]))
               .map(_.sorted)
           }
-          else Right(Nil)
+          else emptyUnion
       }
 
-  /**
-   * invariants:
-   * 1. items has no Lefts
-   * 2. each or items is longer than the next, or, they are trivally disjoint in matching different
-   *    length lists
-   */
-  private def unionDisjointList(items: List[List[ListPatElem]], withLeft: List[ListPatElem]): List[ListPat[Cons, Type]] = {
-    def maybeAbsorb(item: List[ListPatElem], into: List[ListPatElem], recurse: Boolean): Option[List[ListPatElem]] =
-      /*
-       * [] can be absorbed into [*_, _], [_, *_] => [*_]
-       * [_] can be absorbed into [*_, _] => [_, *_]
-       * [a] can be absorbed into [_, *_] => [_, *_]
-       * [a] can be absorbed into [a, *_, _], [a, _, *_] or [_, *_, a], [*_, _, a] => [a, *_], [*_, a]
-       * [a, b] can be absorbed into [a, b, *_, _] => [a, b, *_]
-       * [a, b] can be absorbed into [_, *_, a, b] => [*_, a, b]
-       */
-      (item, into) match {
-        case (_, (_: ListPart.Glob) :: Nil) => Some(ListPart.WildList :: Nil)
-        case (Nil, (_: ListPart.Glob) :: ListPart.Item(WildCard | Var(_)) :: Nil | ListPart.Item(WildCard | Var(_)) :: (_: ListPart.Glob) :: Nil) =>
-          Some(ListPart.WildList :: Nil)
-        case (Nil, _) => None
-        case (ListPart.Item(it) :: ittail, ListPart.Item(into) :: intotail) if leftIsSuperSet(into :: Nil, it) =>
-          // we can recurse here:
-          maybeAbsorb(ittail, intotail, true).map(ListPart.Item(into) :: _)
-        case (ListPart.Item(_) :: _, _ :: _) =>
-          // we have at least one Right on the right side, try to absorb from there
-          if (recurse) maybeAbsorb(item.reverse, into.reverse, false).map(_.reverse)
-          else None
-        case (ListPart.Item(_) :: _, Nil) =>
-          // $COVERAGE-OFF$this should be unreachable
-          sys.error(s"expected left longer than right: $items, $withLeft")
-          // $COVERAGE-ON$
-        case ((_: ListPart.Glob) :: _, _) =>
-          // $COVERAGE-OFF$this should be unreachable
-          sys.error(s"invariant violation: $items")
-          // $COVERAGE-ON$
+  // Try to unify lists according to the rules:
+  // x u [_, *, x] = [*, x]
+  // x u [*, _, x] = [*, x]
+  // x u [x, *, _] = [x, *]
+  // x u [x, _, *] = [x, *]
+  //
+  // this is an incomplete heuristic now, not a complete solution
+  private def unifyUnionList(union: List[ListPat[Cons, Type]]): List[ListPat[Cons, Type]] = {
+
+    def isAnyStar(list: List[ListPatElem]): Boolean =
+      list match {
+        case ListPart.Item(WildCard | Var(_)) :: (_: ListPart.Glob) :: Nil => true
+        case (_: ListPart.Glob) :: ListPart.Item(WildCard | Var(_)) :: Nil => true
+        case _ => false
       }
 
-    def loop(its: List[List[ListPatElem]], withLeft: List[ListPatElem]): List[ListPat[Cons, Type]] =
-      its match {
-        case Nil => ListPat(withLeft) :: Nil
-        case h :: tail =>
-          maybeAbsorb(h, withLeft, true) match {
-            case None =>
-              // due to the invariants, if we can't absorb this, we can't absorb any
-              // we reverse here to go in increasing size for the final result
-              (its.reverse ::: (withLeft :: Nil)).map(ListPat(_))
-            case Some(newLeft) =>
-              loop(tail, newLeft)
-          }
+    def unifyPair(left: List[ListPatElem], right: List[ListPatElem]): Option[List[ListPatElem]] =
+      if (left.startsWith(right)) {
+        if (isAnyStar(left.drop(right.size))) Some(right :+ ListPart.WildList)
+        else None
       }
+      else if (right.startsWith(left)) {
+        if (isAnyStar(right.drop(left.size))) Some(left :+ ListPart.WildList)
+        else None
+      }
+      else if (left.endsWith(right)) {
+        if (isAnyStar(left.dropRight(right.size))) Some(ListPart.WildList :: right)
+        else None
+      }
+      else if (right.endsWith(left)) {
+        if (isAnyStar(right.dropRight(left.size))) Some(ListPart.WildList :: left)
+        else None
+      }
+      else None
 
-    loop(items, withLeft)
+    val items = union.toArray
+
+    val pairs = for {
+      i <- (0 until items.length).iterator
+      j <- ((i + 1) until items.length).iterator
+      pair <- unifyPair(items(i).parts, items(j).parts).iterator
+    } yield (ListPat(pair), i, j)
+
+    // stop after the first unification and loop
+    if (pairs.hasNext) {
+      val (pair, i, j) = pairs.next
+      items(i) = null
+      items(j) = null
+      val rest = items.iterator.filterNot(_ == null).toList
+      // let's look again
+      unifyUnionList(pair :: rest)
+    }
+    else union
   }
 
   // invariant: each input has at most 1 splice pattern. This should be checked by callers.
@@ -534,124 +540,73 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case (_, (_: ListPart.Glob) :: tail) if matchesEmpty(tail) =>
         // the right hand side is a top value, it can match any list, so intersection with top is
         // left
-        Right(List(left))
+        singleUnion(left)
       case ((_: ListPart.Glob) :: tail, _) if matchesEmpty(tail) =>
         // the left hand side is a top value, it can match any list, so intersection with top is
         // right
-        Right(List(ListPat(rightL)))
-      case (Nil, Nil) => Right(List(left))
-      case (Nil, ListPart.Item(_) :: _) => Right(Nil)
+        singleUnion(ListPat(rightL))
       case (Nil, (_: ListPart.Glob) :: _) | ((_: ListPart.Glob) :: _, Nil) =>
         // the non Nil patterns can't match empty due to the above:
-        Right(Nil)
-      case (ListPart.Item(_) :: _, Nil) => Right(Nil)
+        emptyUnion
+      case (Nil, Nil) =>
+        // both only match the empty list
+        singleUnion(left)
+      case (Nil, ListPart.Item(_) :: _) => emptyUnion
+      case (ListPart.Item(_) :: _, Nil) => emptyUnion
       case (ListPart.Item(lh) :: lt, ListPart.Item(rh) :: rt) =>
         intersection(lh, rh).flatMap {
           /*
            * If heads is empty, we don't need to recurse
            */
-          case Nil => Right(Nil)
+          case Nil => emptyUnion
           case heads =>
             // heads is not empty, now let's do intersection on the rest
             intersectionList(lt, rt)
               .map { inner =>
                 heads.flatMap { h =>
-                  inner.map {
-                    case ListPat(ts) => ListPat(ListPart.Item(h) :: ts)
-                  }
+                  inner.map(_.prepend(ListPart.Item(h)))
                 }
             }
         }
-      case (ListPart.Item(lh) :: lt, (_: ListPart.Glob) :: rt) =>
+        .map(unifyUnionList(_))
+      case ((lh@ListPart.Item(_)) :: lt, (_: ListPart.Glob) :: rt) =>
         // we know the glob is not empty, because otherwise it would
         // matchEmpty above
         //
-        // if lt does not end with a Left,
-        // we can intersect the ends, and repeat.
-        //
-        // This leaves only the case of
-        //   [a, b... *c] n [*d, e, f].
-        lt.lastOption match {
-          case None =>
-            // we have a singleton list matching at least one after the splice:
-            // only zero from the splice can match
-            intersectionList(leftL, rt)
-          case Some(ListPart.Item(_)) =>
-            // can reverse and and recurse
-            intersectionList(leftL.reverse, rightL.reverse)
-              .map(_.map {
-                case ListPat(res) => ListPat(res.reverse)
-              })
-          case Some(_: ListPart.Glob) =>
-            /*
-             *   we basically need all the windows of overlap,
-             *
-             *   consider the simpliest case:
-             *   [a, *_] n [*_, b] = [a n b] | [a, *_, b]
-             *
-             *   also we have any number of non Left items on each side
-             *
-             *   so the rights can maximally to minimally
-             *   overlap and we have the union of all those
-             *   cases.
-             */
-            // left side can have infinite right, right side can have infinite left:
-            val leftSide = leftL.init
-            val rightSide = rt
-            // return a union of list patterns for all the cases where the lefts don't overlap
-            // i.e. the lefts are only used to pad out some number of rights on the other side
-            def overlap(n: Int): Res[List[List[ListPatElem]]] = {
-              require(n > 0, s"invalid overlap: $n")
-              val windowL = leftSide.takeRight(n)
-              val windowR = rightSide.take(n)
-              val farLeft = leftSide.dropRight(n)
-              val farRight = rightSide.drop(n)
-              // compute the intersection of the window, then append
-              // to either side:
-              intersectionList(windowL, windowR)
-                .map(_.map { case ListPat(middle) =>
-                  farLeft ::: middle ::: farRight
-                })
-            }
-            val zeroOverlap: List[ListPatElem] = leftSide ::: (ListPart.WildList :: rightSide)
-            val maxOverlapSize = leftSide.size min rightSide.size
-            // these should be in largest to smallest order
-            val overlapSizes = (1 to maxOverlapSize).toList.reverse
-            val ovs = overlapSizes.traverse(overlap)
-            // put them in size order from smallest to largest
-            ovs.map { ovList => unionDisjointList(ovList.flatten, zeroOverlap) }
-        }
+        // [lh :: lt] n [* :: rt] =
+        // [lh :: lt] n (rt u [_, * :: rt]) =
+        // (left n rt) u (lh :: (lt n right))
+        for {
+          lefts <- intersectionList(leftL, rt)
+          rights <- intersectionList(lt, rightL)
+          rights1 = rights.map(_.prepend(lh))
+        } yield unifyUnionList(lefts ::: rights1)
       case ((_: ListPart.Glob) :: _, ListPart.Item(_) :: _) =>
         // intersection is symmetric
         intersectionList(rightL, leftL)
       case ((a: ListPart.Glob) :: lt, (b: ListPart.Glob) :: rt) =>
         /*
-         * the left and right can consume any number
-         * of items before matching the rest.
+         * We have a trick to diagonalize an intersection like
+         * this:
+         * [* :: lt] n [* :: rt] =
+         *   * :: ( (lt n rt) u (lt n (_ :: rightL)) u ((_ :: leftL) n rt) )
          *
-         * if we assume rt has no additional Lefts,
-         * we can pad the left to be the same size
-         * by adding wildcards, and repeat
+         *  not each of the intersections as smaller that the input
          */
-          /*
-           * make suffix of rt that lines up with lt
-           */
-        val rtSize = rt.size
-        val ltSize = lt.size
-        val padSize = rtSize - ltSize
-        val (initLt, lastLt) =
-          if (padSize > 0) {
-            (List.empty[ListPatElem], List.fill(padSize)(ListPart.Item(WildCard)) reverse_::: lt)
+        val anyLt = ListPart.Item(WildCard) :: leftL
+        val anyRt = ListPart.Item(WildCard) :: rightL
+        val wildHead: ListPart[Pattern[Cons, Type]] =
+          if (a == b) a else ListPart.WildList
+        val int0 = intersectionList(lt, rt)
+        val int1 = intersectionList(lt, anyRt)
+        val int2 = intersectionList(anyLt, rt)
+        (int0, int1, int2)
+          .mapN { (l0, l1, l2) =>
+            val union = l0 ::: l1 ::: l2
+            // wild to each pattern in the list
+            val withWild = union.map(_.prepend(wildHead))
+            unifyUnionList(withWild)
           }
-          else {
-            (lt.take(-padSize), lt.drop(-padSize))
-          }
-        intersectionList(lastLt, rt)
-          .map(_.map {
-            case ListPat(tail) =>
-              val m: ListPatElem = if (a == b) a else ListPart.WildList
-              ListPat(m :: initLt ::: tail)
-          })
     }
   }
 
@@ -725,7 +680,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     loop(superSet, subSet)
   }
 
-
   /**
    * This is the complex part of this problem
    * [] | [_, *_] == [*_]
@@ -753,7 +707,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
    * with the inner having the same size.
    *
    * Note, we return a NonEmptyList because if we have a Nil input, then, there is
-   * no difference so we always return Right(Nil) in that case.
+   * no difference so we always return emptyUnion in that case.
    *
    * The result is a union
    */
@@ -782,7 +736,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
      * note that a0 - b0 <= a0, so if we have a0 - b0 >= a0, we know a0 - b0 = a0
      */
     zip match {
-      case Nil => Right(Nil) // complete match
+      case Nil => emptyUnion // complete match
       case (lh, rh) :: tail =>
         type Result = Res[List[NonEmptyList[Pattern[Cons, Type]]]]
 
@@ -799,7 +753,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               intersection(lh, rh).flatMap {
                 case Nil =>
                   // There is no intersection in head
-                  Right(Nil)
+                  emptyUnion
                 case intrs =>
                   // note that the each item in the inner list
                   // has the same size as tail
@@ -836,6 +790,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         }
     }
 
+
   /**
    * Constructors must match all items to be legal
    */
@@ -844,7 +799,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case None => Left(NonEmptyList.of(UnknownConstructor(nm, pat, inEnv)))
       case Some((_, params, _)) =>
         val cmp = params.lengthCompare(size)
-        if (cmp == 0) Right(())
+        if (cmp == 0) validUnit
         else Left(NonEmptyList.of(ArityMismatch(nm, pat, inEnv, size, params.size)))
     }
 
@@ -853,15 +808,15 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
    */
   private def isTotal(p: Pattern[Cons, Type]): Res[Boolean] =
     p match {
-      case Pattern.WildCard | Pattern.Var(_) => Right(true)
+      case Pattern.WildCard | Pattern.Var(_) => resBool(true)
       case Pattern.Named(_, p) => isTotal(p)
-      case Pattern.Literal(_) => Right(false) // literals are not total
-      case s@Pattern.StrPat(_) => Right(s.isTotal)
+      case Pattern.Literal(_) => resBool(false) // literals are not total
+      case s@Pattern.StrPat(_) => resBool(s.isTotal)
       case Pattern.ListPat((_: ListPart.Glob) :: rest) =>
         Right(matchesEmpty(rest))
       case Pattern.ListPat(_) =>
         // can't match everything on the front
-        Right(false)
+        resBool(false)
       case Pattern.Annotation(p, _) => isTotal(p)
       case Pattern.PositionalStruct(name, params) =>
         // This is total if the struct has a single constructor AND each of the patterns is total
@@ -870,7 +825,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             Left(NonEmptyList.of(UnknownConstructor(name, p, inEnv)))
           case Some(dt) =>
             if (dt.isStruct) params.forallM(isTotal)
-            else Right(false)
+            else resBool(false)
         }
       case Pattern.Union(h, t) => isTotal(h :: t.toList)
     }
