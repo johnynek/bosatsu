@@ -2,14 +2,22 @@ package org.bykn.bosatsu
 
 object SimpleStringPattern {
   sealed trait Pattern {
-    def matchesAny: Boolean = {
-      val list = toList
-
-      list.nonEmpty && list.forall {
+    def matchesAny: Boolean =
+      this match {
         case Var(_) | Wildcard => true
-        case _ => false
+        case Lit(_) => false
+        case Cat(h, t) =>
+          if (h.isEmpty) t.matchesAny
+          else if (t.isEmpty) h.matchesAny
+          else (h.matchesAny && t.matchesAny)
       }
-    }
+
+    def isEmpty: Boolean =
+      this match {
+        case Lit(s) => s.isEmpty
+        case Var(_) | Wildcard => false
+        case Cat(h, t) => h.isEmpty && t.isEmpty
+      }
 
     def isLit: Boolean =
       this match {
@@ -23,6 +31,12 @@ object SimpleStringPattern {
         case Cat(_, tail) => tail.rightMost
         case p: Pattern1 => p
       }
+
+    /**
+     * Concat that Pattern on the right
+     */
+    def +(that: Pattern): Pattern =
+      Pattern.fromList(toList ::: that.toList)
 
     def reverse: Pattern =
       Pattern.fromList(toList.map {

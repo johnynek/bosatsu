@@ -295,6 +295,25 @@ class SimpleStringPatternTest extends FunSuite {
     }
   }
 
+  test("isEmpty only matches empty") {
+    forAll { (p: Pattern, s: String) =>
+      if (p.isEmpty) {
+        assert(p.doesMatch(""))
+        if (s != "") {
+          assert(!p.doesMatch(s))
+        }
+      }
+    }
+  }
+
+  test("matches is consistent with doesMatch") {
+    // this law allows us to optimize the implementation of doesMatch for cases
+    // where we don't need capture
+    forAll { (p: Pattern, s: String) =>
+      assert(p.doesMatch(s) == p.matches(s).isDefined)
+    }
+  }
+
   test("difference is an upper bound") {
     forAll { (p1: Pattern, p2: Pattern, s: String) =>
       // true difference is <= diff
@@ -352,12 +371,44 @@ class SimpleStringPatternTest extends FunSuite {
 
   }
 
-  test("if x matches any, (y'z' - x'z') is empty") {
+  test("if y - x is empty, (yz - xz) for all strings is empty") {
     forAll { (x: Pattern, y: Pattern, str: String) =>
-      if (x.matchesAny) {
-        assert(y.difference(x) == Nil)
+      if (y.difference(x) == Nil) {
         assert(y.appendString(str).difference(x.appendString(str)) == Nil)
       }
+    }
+  }
+
+  test("if y - x is empty, (zy - zx) for all strings is empty") {
+    forAll { (x: Pattern, y: Pattern, str: String) =>
+      if (y.difference(x) == Nil) {
+        assert((Lit(str) + y).difference(Lit(str) + x) == Nil)
+      }
+    }
+  }
+
+  /*
+   * we cannot yet pass this law
+  test("if x - y is empty, (x + z) - (y + z) is empty") {
+    forAll { (x: Pattern, y: Pattern, z: Pattern) =>
+      if (x.difference(y).isEmpty) {
+        assert((x + z).difference(y + z) == Nil)
+      }
+    }
+  }
+  */
+
+  test("p + q match (s + t) if p.matches(s) && q.matches(t)") {
+    forAll { (p: Pattern, q: Pattern, s: String, t: String) =>
+      if (p.doesMatch(s) && q.doesMatch(t)) {
+        assert((p + q).doesMatch(s + t))
+      }
+    }
+  }
+
+  test("x - wild = 0") {
+    forAll { (x: Pattern, y: Pattern) =>
+      if (y.matchesAny) assert(x.difference(y).isEmpty)
     }
   }
 
