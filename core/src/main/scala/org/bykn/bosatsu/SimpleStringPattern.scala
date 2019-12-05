@@ -11,26 +11,57 @@ object SimpleStringPattern {
       }
     }
 
+    def isLit: Boolean =
+      this match {
+        case Lit(_) => true
+        case _ => false
+      }
+
+    @annotation.tailrec
+    final def rightMost: Pattern1 =
+      this match {
+        case Cat(_, tail) => tail.rightMost
+        case p: Pattern1 => p
+      }
+
+    def reverse: Pattern =
+      Pattern.fromList(toList.map {
+        case Lit(s) => Lit(s.reverse)
+        case notLit => notLit
+      }
+      .reverse)
+
+    def prependWild: Pattern =
+      this match {
+        case Wildcard | Var(_) | Cat(Wildcard | Var(_), _) => this
+        case notAlreadyWild => Cat(Wildcard, notAlreadyWild)
+      }
+
+    def appendString(str: String): Pattern =
+      if (str == "") this
+      else {
+        Pattern.fromList(toList :+ Lit(str))
+      }
+
     def matches(str: String): Option[Map[String, String]] =
       SimpleStringPattern.matches(this, str)
 
     def toList: List[Pattern1] =
       this match {
-        case Lit("") => Nil
+        case Lit(s) if s.isEmpty => Nil
         case p1: Pattern1 => p1 :: Nil
         case Cat(h, tail) =>
+          val tailList = tail.toList
           h.toList match {
-            case Nil => tail.toList
             case (l@Lit(s1)) :: Nil =>
-              val tl = tail.toList
-              tl match {
+              tailList match {
                 case Lit(s2) :: tail =>
                   Lit(s1 ++ s2) :: tail
-                case _ =>
+                case tl =>
                   l :: tl
               }
             case other =>
-              other ::: tail.toList
+              other ::: tailList
           }
       }
 
@@ -51,24 +82,24 @@ object SimpleStringPattern {
      * combine adjacent strings
      */
     def normalize: Pattern = {
-      val parts = toList
+      @annotation.tailrec
       def loop(current: List[Pattern1], front: List[Pattern1]): List[Pattern1] =
         current match {
           case Nil => front.reverse
           case (chead@(Var(_) | Wildcard)) :: ctail =>
-            front match {
+            val ftail = front match {
               case (Var(_) | Wildcard) :: ftail =>
                 // drop the left, push this on
-                loop(ctail, chead :: ftail)
-              case other =>
-                loop(ctail, chead :: other)
+                ftail
+              case other => other
             }
-          case (chead@Lit(s1)) :: ctail =>
+            loop(ctail, chead :: ftail)
+          case chead :: ctail =>
             // tolist combines Lit values already
             loop(ctail, chead :: front)
         }
 
-      Pattern.fromList(loop(parts, Nil))
+      Pattern.fromList(loop(toList, Nil))
     }
 
     def render(vars: Map[String, String]): Option[String] =
@@ -89,7 +120,7 @@ object SimpleStringPattern {
         case lw@(Lit(_) | Wildcard) => lw
         case Var(_) => Wildcard
         case Cat(Var(_), tail) =>
-          Cat(Wildcard, tail.unname)
+          tail.unname.prependWild
         case Cat(h, tail) =>
           Cat(h, tail.unname)
       }
@@ -136,7 +167,8 @@ object SimpleStringPattern {
             val newS1 = s1.take(s2.length)
             if (newS1 == s2) {
               val s1tail = s1.drop(s2.length)
-              intersection(Cat(Lit(s1tail), t1), t2).map(Cat(Lit(newS1), _))
+              intersection(Cat(Lit(s1tail), t1), t2)
+                .map(Cat(Lit(newS1), _))
             }
             else Nil
           }
@@ -166,9 +198,13 @@ object SimpleStringPattern {
         // we handled this above
         intersection(p2, p1)
       case (Cat(Var(_) | Wildcard, t1), Cat(Var(_) | Wildcard, t2)) =>
-        val left = intersection(t1, p2)
-        val right = intersection(t2, p1)
-        (left ::: right).map(Cat(Wildcard, _))
+        val t1norm = t1.unname.normalize
+        if (t1norm == t2.unname.normalize) (t1norm.prependWild :: Nil)
+        else {
+          val left = intersection(t1, p2)
+          val right = intersection(t2, p1)
+          (left ::: right).map(_.prependWild)
+        }
     }
 
   /**
@@ -202,16 +238,15 @@ object SimpleStringPattern {
       case (_, Var(_) | Wildcard) => Nil
       case (Var(_) | Wildcard, _) =>
         if (p2.matchesAny) Nil
-        else if (Wildcard == p2.normalize.unname) Nil
         else p1 :: Nil
       case (Lit(l), c@Cat(_, _)) => if (c.doesMatch(l)) Nil else p1 :: Nil
       case (Cat(Var(_) | Wildcard, _), Lit(_)) =>
+        // this is an upper bound, we can't represent ${_} - "foo"
         p1 :: Nil
       case (Cat(Lit(""), t), _) => difference(t, p2)
       case (_, Cat(Lit(""), t)) => difference(p1, t)
-      case (Cat(Lit(s1), t1), lit2@Lit(s2)) =>
-        // we know s1 != ""
-        if (s2 == "") p1 :: Nil
+      case (Cat(_, _), lit2@Lit(s2)) =>
+        if (!p1.doesMatch(s2)) p1 :: Nil
         else difference(p1, Cat(lit2, Pattern.Empty))
       case (Cat(lit1@Lit(s1), t1), Cat(lit2@Lit(s2), t2)) =>
         val sizecase = s1.length.compareTo(s2.length)
@@ -237,15 +272,23 @@ object SimpleStringPattern {
           }
           else p1 :: Nil
         }
-      case (Cat(_, _), Cat(_, _)) =>
+      case (Cat(_, t1), Cat(_, t2)) =>
+        // at least one of these patterns starts with Wildcard | Var(_)
         if (p2.matchesAny) Nil
         else {
           p1.normalize match {
             case Lit(s) if p2.doesMatch(s) => Nil
-            case n1 if (n1.unname == p2.normalize.unname) => Nil
+            case n1 if n1.unname == p2.normalize.unname => Nil
             case _ =>
-              // todo tighten
-              p1 :: Nil
+              if (t1.rightMost.isLit && t2.rightMost.isLit) {
+                // we can possibly make progress on the right
+                difference(p1.reverse, p2.reverse).map(_.reverse)
+              }
+              else {
+                // there is a var on both the front and back of both
+                // todo tighten
+                p1 :: Nil
+              }
           }
         }
     }
@@ -279,8 +322,10 @@ object SimpleStringPattern {
 
     def fromList(ps: List[Pattern1]): Pattern =
       ps match {
+        case h :: tail =>
+          if (tail.isEmpty) h
+          else Cat(h, fromList(tail))
         case Nil => Lit("")
-        case h :: tail => Cat(h, fromList(tail))
       }
   }
 

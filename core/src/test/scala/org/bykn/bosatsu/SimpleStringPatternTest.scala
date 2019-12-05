@@ -201,6 +201,8 @@ class SimpleStringPatternTest extends FunSuite {
         case _ => false
       })
     }
+
+    assert(Cat(Lit("0100"),Cat(Wildcard,Lit(""))).normalize == Cat(Lit("0100"), Wildcard))
   }
 
   test("onlyMatchesEmpty works") {
@@ -304,11 +306,29 @@ class SimpleStringPatternTest extends FunSuite {
       if (p1.doesMatch(s) && !p2.doesMatch(s)) {
         assert(diffmatch)
       }
+
       if (diff.isEmpty && p1.doesMatch(s)) {
         assert(p2.doesMatch(s))
       }
 
-      if(p2.matchesAny) assert(diff == Nil)
+      if (p2.matchesAny) assert(diff == Nil)
+
+      // the law we wish we had:
+      //if (p2.doesMatch(s) && p1.doesMatch(s)) assert(!diffmatch)
+    }
+  }
+
+  test("difference is idempotent: (a - b) = c, c - b == c") {
+    forAll { (a: Pattern, b: Pattern) =>
+      val c = a.difference(b)
+      val c1 = c.flatMap(_.difference(b))
+      assert(c == c1)
+    }
+  }
+
+  test("a n a == a") {
+    forAll { (a: Pattern) =>
+      assert(a.intersection(a).map(_.normalize.unname).distinct == List(a.normalize.unname))
     }
   }
 
@@ -330,6 +350,15 @@ class SimpleStringPatternTest extends FunSuite {
 
     regressions.foreach { case (p1, p2) => law(p1, p2) }
 
+  }
+
+  test("if x matches any, (y'z' - x'z') is empty") {
+    forAll { (x: Pattern, y: Pattern, str: String) =>
+      if (x.matchesAny) {
+        assert(y.difference(x) == Nil)
+        assert(y.appendString(str).difference(x.appendString(str)) == Nil)
+      }
+    }
   }
 
   test("if a n b = 0 then a - b = a") {
