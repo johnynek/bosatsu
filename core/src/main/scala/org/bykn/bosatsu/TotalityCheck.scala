@@ -55,6 +55,15 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     branches.foldM(List(WildCard): Patterns) {
       (missing, nextPattern) => difference(missing, nextPattern)
     }
+    .map { missing =>
+      // filter any unreachable, which can happen when earlier items shadow later
+      // ones
+      unreachableBranches(missing) match {
+        case Left(_) => missing
+        case Right(unreach) =>
+          missing.filterNot(unreach.toSet)
+      }
+    }
 
   /**
    * if we match these branches in order, which of them
@@ -270,6 +279,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
          *
          * This is using the rule:
          * [*_, rest] = [rest] | [_, *_, rest]
+         *
+         * (x + y) - z = (x - z) + (y - z)
          */
         val zero = tail
         val oneOrMore = ListPart.Item(WildCard) :: lp
@@ -338,7 +349,15 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         // v is the same as [*v] for well typed expressions
         difference0List(ListPart.NamedList(v) :: Nil, rp)
       case (u@Union(_, _), right) =>
-        difference(normalizeUnion(u).toList, right).map(_.distinct.sorted)
+        val ulist = normalizeUnion(u).toList
+        difference(ulist, right)
+          .map(_.distinct.sorted)
+          .map { diff =>
+            // we know diff <= union, if diff >= u, then
+            // just return the union since we want
+            if (leftIsSuperSet(diff, u)) u :: Nil
+            else diff
+          }
       case (left, u@Union(_, _)) =>
         differenceAll(left :: Nil, normalizeUnion(u).toList).map(_.distinct.sorted)
       case (left@ListPat(lp), right@ListPat(rp)) =>
@@ -355,6 +374,12 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         Right(sa.toSimple.difference(sb.toSimple)
           .map { p => StrPat.fromSimple(p.normalize): Pattern[Cons, Type] }
           .sorted)
+      case (WildCard, StrPat(_)) =>
+        // _ is the same as "${_}" for well typed expressions
+        difference0(StrPat(NonEmptyList(StrPart.WildStr, Nil)), right)
+      case (Var(v), StrPat(_)) =>
+        // v is the same as "${v}" for well typed expressions
+        difference0(StrPat(NonEmptyList(StrPart.NamedStr(v), Nil)), right)
       case (_, StrPat(_)) =>
         // ill-typed
         singleUnion(left)
@@ -711,7 +736,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
    *
    * The result is a union
    */
-  private def productDifference(
+  def productDifference(
     zip: List[(Pattern[Cons, Type], Pattern[Cons, Type])]
   ): Res[List[NonEmptyList[Pattern[Cons, Type]]]] =
     /*
