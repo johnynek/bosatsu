@@ -471,16 +471,24 @@ class SimpleStringPatternTest extends FunSuite {
 
   test("subset consistency: a n b == a <=> a - b = 0") {
     def isSubsetIntr(a: Pattern, b: Pattern) =
-      intersection(a.normalize.unname, b.normalize.unname).map(_.normalize) == List(a.normalize.unname)
+      intersection(a.normalize.unname, b.normalize.unname).map(_.normalize).distinct == List(a.normalize.unname)
 
     def isSubsetDiff(a: Pattern, b: Pattern) =
       difference(a, b).isEmpty
 
-    def law(a: Pattern, b: Pattern) = assert(isSubsetIntr(a, b) == isSubsetDiff(a, b))
+    def law(a: Pattern, b: Pattern) = {
+      assert(isSubsetIntr(a, b) == isSubsetDiff(a, b))
+    }
 
     forAll(law(_, _))
 
-    val regressions = List((Cat(Lit("01"), Wildcard), Cat(Lit("0"), Wildcard)))
+    val regressions =
+      List(
+        // this passes if we use 011, but not 0011 unless we distinct the list
+        //(Cat(Lit("1"), Cat(Lit("011"), Cat(Var("x"), Cat(Lit("00"), Cat(Var("y"), Cat(Var("z"), Wildcard)))))),
+        (Cat(Lit("1"), Cat(Lit("0011"), Cat(Var("x"), Cat(Lit("00"), Cat(Var("y"), Cat(Var("z"), Wildcard)))))),
+          Cat(Lit(""), Cat(Var("x2"), Cat(Lit("00"), Wildcard))))
+      )
 
     regressions.foreach { case (a, b) => law(a, b) }
   }
