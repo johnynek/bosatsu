@@ -164,7 +164,9 @@ object SimpleStringPattern {
       case (_, lit@Lit(s)) =>
         if (p1.doesMatch(s)) lit :: Nil
         else Nil
-      case (Var(_) | Wildcard, Var(_) | Wildcard) => Wildcard :: Nil
+      case (Var(_) | Wildcard, Var(_) | Wildcard) =>
+        if (p1 == p2) p1 :: Nil
+        else Wildcard :: Nil
       case (Var(_) | Wildcard, that) => that :: Nil
       case (that, Var(_) | Wildcard) => that :: Nil
       case (Cat(lit@Lit(s1), t1), Cat(Lit(s2), t2)) =>
@@ -211,13 +213,21 @@ object SimpleStringPattern {
       case (Cat(Var(_) | Wildcard, _), Cat(Lit(_), _)) =>
         // we handled this above
         intersection(p2, p1)
-      case (Cat(Var(_) | Wildcard, t1), Cat(Var(_) | Wildcard, t2)) =>
-        val t1norm = t1.unname.normalize
-        if (t1norm == t2.unname.normalize) (t1norm.prependWild :: Nil)
+      case (Cat(h1@(Var(_) | Wildcard), t1), Cat(h2@(Var(_) | Wildcard), t2)) =>
+        if (t1.toList == t2.toList) {
+          if (h1 == h2) p1 :: Nil
+          else t1.prependWild :: Nil
+        }
         else {
-          val left = intersection(t1, p2)
-          val right = intersection(t2, p1)
-          (left ::: right).map(_.prependWild)
+          val t1norm = t1.unname.normalize
+          if (t1norm == t2.unname.normalize) {
+            (t1norm.prependWild :: Nil)
+          }
+          else {
+            val left = intersection(t1, p2)
+            val right = intersection(t2, p1)
+            (left ::: right).map(_.prependWild)
+          }
         }
     }
 
@@ -292,15 +302,22 @@ object SimpleStringPattern {
         else {
           p1.normalize match {
             case Lit(s) if p2.doesMatch(s) => Nil
-            case n1 if n1.unname == p2.normalize.unname => Nil
-            case _ =>
-              if (t1.rightMost.isLit && t2.rightMost.isLit) {
+            case n1 =>
+              val n1u = n1.unname
+              val n2u = p2.normalize.unname
+              // there is a var on both the front and back of both
+
+              // this could be a bit wasteful, but it helps pass some laws
+              if (intersection(n1u, n2u).map(_.normalize).distinct == (n1u :: Nil)) {
+                // if p1 n p2 == p1, then p1 - p2 = 0
+                Nil
+              }
+              else if (t1.rightMost.isLit && t2.rightMost.isLit) {
                 // we can possibly make progress on the right
                 difference(p1.reverse, p2.reverse).map(_.reverse)
               }
               else {
-                // there is a var on both the front and back of both
-                // todo tighten
+                // TODO, this could be tighter
                 p1 :: Nil
               }
           }

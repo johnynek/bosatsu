@@ -33,10 +33,10 @@ class SimpleStringPatternTest extends FunSuite {
     } yield (n2, Cat(ph, ptail))
 
     Gen.frequency(
-      (2, lit),
+      (3, lit),
       (1, Gen.const((names, Wildcard))),
-      (2, varP),
-      (15, cat))
+      (1, varP),
+      (10, cat))
   }
 
   implicit lazy val shrinkPat: Shrink[Pattern] = {
@@ -95,8 +95,10 @@ class SimpleStringPatternTest extends FunSuite {
       case Cat(vw@(Wildcard | Var(_)), tail) => unlit(tail)
     }
 
+  val genPat: Gen[Pattern] = genPattern(Set.empty).map(_._2)
+
   implicit val arbPattern: Arbitrary[Pattern] =
-    Arbitrary(genPattern(Set.empty).map(_._2))
+    Arbitrary(genPat)
 
   implicit val arbString: Arbitrary[String] = Arbitrary(genBitString)
 
@@ -347,7 +349,13 @@ class SimpleStringPatternTest extends FunSuite {
 
   test("a n a == a") {
     forAll { (a: Pattern) =>
-      assert(a.intersection(a).map(_.normalize.unname).distinct == List(a.normalize.unname))
+      if (a.normalize == a) {
+        // normal patterns matche themselves exactly
+        assert(a.intersection(a) == List(a))
+      }
+      else {
+        assert(a.intersection(a).map(_.normalize.unname).distinct == List(a.normalize.unname))
+      }
     }
   }
 
@@ -372,10 +380,19 @@ class SimpleStringPatternTest extends FunSuite {
   }
 
   test("if y - x is empty, (yz - xz) for all strings is empty") {
-    forAll { (x: Pattern, y: Pattern, str: String) =>
+    def law(x: Pattern, y: Pattern, str: String) = {
       if (y.difference(x) == Nil) {
         assert(y.appendString(str).difference(x.appendString(str)) == Nil)
       }
+    }
+
+    forAll(law(_, _, _))
+
+    {
+      val x = Cat(Lit("0"),Cat(Var("g"),Cat(Lit("0"), Var("r"))))
+      val y = Cat(Lit("01"),Cat(Var("ru"),Cat(Lit("0"),Var("fl"))))
+      val z = "0"
+      law(x, y, z)
     }
   }
 
@@ -396,7 +413,7 @@ class SimpleStringPatternTest extends FunSuite {
       }
     }
   }
-  */
+   */
 
   test("p + q match (s + t) if p.matches(s) && q.matches(t)") {
     forAll { (p: Pattern, q: Pattern, s: String, t: String) =>
@@ -420,6 +437,15 @@ class SimpleStringPatternTest extends FunSuite {
       if (inter.isEmpty) {
         assert(diff.map(_.normalize) == p1.normalize :: Nil)
       }
+
+      // difference is an upper bound, so this is not true
+      // although we wish it were
+      /*
+      if (diff.map(_.normalize.unname).distinct == p1.normalize.unname :: Nil) {
+        // intersection is 0
+        assert(inter == Nil)
+      }
+      */
     }
 
     forAll(law(_, _))
@@ -428,5 +454,70 @@ class SimpleStringPatternTest extends FunSuite {
       List((Cat(Lit("10"),Lit("00")), Cat(Lit("1000"),Lit("110"))))
 
     regressions.foreach { case (p1, p2) => law(p1, p2) }
+  }
+
+  test("x - y = z, then x - y - z = 0") {
+    forAll { (x: Pattern, y: Pattern) =>
+      val z = x.difference(y)
+      val z1 = for {
+        za <- z
+        zb <- z
+        zc <- za.difference(zb)
+      } yield zc
+
+      assert(z1 == Nil)
+    }
+  }
+
+  test("subset consistency: a n b == a <=> a - b = 0") {
+    def isSubsetIntr(a: Pattern, b: Pattern) =
+      intersection(a.normalize.unname, b.normalize.unname).map(_.normalize) == List(a.normalize.unname)
+
+    def isSubsetDiff(a: Pattern, b: Pattern) =
+      difference(a, b).isEmpty
+
+    def law(a: Pattern, b: Pattern) = assert(isSubsetIntr(a, b) == isSubsetDiff(a, b))
+
+    forAll(law(_, _))
+
+    val regressions = List((Cat(Lit("01"), Wildcard), Cat(Lit("0"), Wildcard)))
+
+    regressions.foreach { case (a, b) => law(a, b) }
+  }
+
+  test("no missing/unused paradox") {
+    /*
+     * We don't want to produce a list of missing branches, but then add them
+     * and find we have unused branches
+     */
+    val smallList: Gen[List[Pattern]] =
+      for {
+        cnt <- Gen.choose(1, 2)
+        list <- Gen.listOfN(cnt, genPat)
+      } yield list
+
+    def diff(as: List[Pattern], bs: List[Pattern]): List[Pattern] =
+      for {
+        a <- as
+        b <- bs
+        c <- difference(a, b)
+      } yield c
+
+    def intr(as: List[Pattern], bs: List[Pattern]): List[Pattern] =
+      for {
+        a <- as
+        b <- bs
+        c <- intersection(a, b)
+      } yield c
+
+    forAll(genPat, smallList) { (h, t) =>
+      val pats = h :: t
+      val missing = diff(List(Wildcard), pats)
+      if (missing.nonEmpty) {
+        // this cannot be a subset of pats
+        val isSubSet = diff(missing, pats)
+        assert(isSubSet != Nil)
+      }
+    }
   }
 }

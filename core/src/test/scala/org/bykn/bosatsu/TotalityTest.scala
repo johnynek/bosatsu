@@ -19,6 +19,9 @@ import Identifier.Constructor
 class TotalityTest extends FunSuite {
   import TestParseUtils._
 
+  // used to deal with string interpolation warnings
+  val dollar = '$'
+
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 500000)
     PropertyCheckConfiguration(minSuccessful = 5000)
@@ -39,8 +42,15 @@ class TotalityTest extends FunSuite {
 
     Document[Pattern.Parsed].document(pat0).render(80)
   }
+
+  def showPats(pats: List[Pattern[(PackageName, Constructor), Type]]): String =
+    pats.map(showPat).toString
+
   def showPatU(pat: Pattern[(PackageName, Constructor), Type]): String =
     showPat(pat.unbind)
+
+  def showPatsU(pats: List[Pattern[(PackageName, Constructor), Type]]): String =
+    showPats(pats.map(_.unbind))
 
   def typeEnvOf(str: String): TypeEnv[Unit] =
     TestUtils.typeEnvOf(PackageName.PredefName, str)
@@ -257,7 +267,7 @@ enum Either: Left(l), Right(r)
       tc.difference0(p0, p1) match {
         case Left(err) => fail(err.toString)
         case Right(diff :: Nil) => assert(eqv(p0, diff))
-        case Right(many) => fail(s"expected exactly one difference: ${many.map(showPat)}")
+        case Right(many) => fail(s"expected exactly one difference: ${showPats(many)}")
       }
     }
 
@@ -266,12 +276,12 @@ enum Either: Left(l), Right(r)
       TotalityCheck(predefTE).difference0(p1, p0) match {
         case Left(err) => fail(err.toString)
         case Right(diff :: Nil) => assert(eqv(diff, p1))
-        case Right(many) => fail(s"expected exactly one difference: ${many.map(showPat)}")
+        case Right(many) => fail(s"expected exactly one difference: ${showPats(many)}")
       }
       TotalityCheck(predefTE).difference0(p0, p1) match {
         case Left(err) => fail(err.toString)
         case Right(diff :: Nil) => assert(eqv(diff, p0))
-        case Right(many) => fail(s"expected exactly one difference: ${many.map(showPat)}")
+        case Right(many) => fail(s"expected exactly one difference: ${showPats(many)}")
       }
     }
 
@@ -336,7 +346,7 @@ enum Either: Left(l), Right(r)
             case Right(_) =>
               val diffl = rl.map(_.unbind).filterNot(rr.map(_.unbind).toSet)
               val diffr = rr.map(_.unbind).filterNot(rl.map(_.unbind).toSet)
-              fail(s"rl: ${rl.map(showPatU)}\nrr: ${rr.map(showPatU)}\ndiffl: ${diffl.map(showPat)}, diffr: ${diffr.map(showPat)}")
+              fail(s"rl: ${showPatsU(rl)}\nrr: ${showPatsU(rr)}\ndiffl: ${showPats(diffl)}, diffr: ${showPats(diffr)}")
           }
         case (_, _) =>
           // since our random patterns are ill-typed, there
@@ -386,7 +396,7 @@ enum Either: Left(l), Right(r)
         case (Right(_), Left(err)) =>
           fail(s"a = ${showPat(a)} b = ${showPat(b)} ba fails, but ab succeeds: $err")
         case (Right(ab), Right(ba)) =>
-          assert(ab.map(showPatU) == ba.map(showPatU), s"a = ${showPat(a)} b = ${showPat(b)}")
+          assert(showPatsU(ab) == showPatsU(ba), s"a = ${showPat(a)} b = ${showPat(b)}")
       }
     }
 
@@ -426,7 +436,7 @@ enum Either: Left(l), Right(r)
                 case Left(_) => ()
                 case Right(true) => ()
                 case Right(false) =>
-                  fail(s"a = ${showPat(a)} b = ${showPat(b)}, a n b == 0. expected no diff, found ${newDiff.map(showPat)}")
+                  fail(s"a = ${showPat(a)} b = ${showPat(b)}, a n b == 0. expected no diff, found ${showPats(newDiff)}")
               }
           }
         case Right(_) => ()
@@ -553,8 +563,7 @@ enum Either: Left(l), Right(r)
               // but sometimes we are equal and one or the other won't see it
               // due to this analysis making almost no use of types.
               assert(eqList1.eqv(c1, c) || eqList2.eqv(c1, c),
-                s"${showPat(a)} - (b=${showPat(b)}) = ${c.map(showPat)} - b = ${c1.map(showPat)} diff = ${
-                  c.map(showPatU).diff(c1.map(showPatU))}" )
+                s"${showPat(a)} - (b=${showPat(b)}) = ${c.map(showPat)} - b = ${showPats(c1)} diff = ${c.map(showPatU).diff(c1.map(showPatU))}" )
           }
       }
     }
@@ -609,11 +618,12 @@ enum Either: Left(l), Right(r)
 
   }
 
-  test("missing branches, if added is total") {
-    val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genPattern))
+  test("missing branches, if added are total and none of the missing are unreachable") {
 
-    forAll(pats) { pats =>
-      val tc = TotalityCheck(predefTE)
+    val tc = TotalityCheck(predefTE)
+
+    def law(pats: List[Pattern[(PackageName, Constructor), Type]]) = {
+
       tc.missingBranches(pats) match {
         case Left(_) => ()
         case Right(rest) =>
@@ -623,13 +633,50 @@ enum Either: Left(l), Right(r)
               // it would be better to generate a TypeEnv and then make
               // patterns from that so we don't see failures
               // fail(s"started with: ${pats.map(showPat)} added: ${rest.map(showPat)} but got: $err")
-            case Right(Nil) => succeed
+            case Right(Nil) =>
+              tc.unreachableBranches(pats ::: rest) match {
+                case Left(err) => () //fail(s"didn't expect to fail after passing missing: $err")
+                case Right(unreach) =>
+                  // TODO
+                  assert(unreach.filter(rest.toSet).map(showPat) == Nil, s"\n\nrest = ${showPats(rest)}\n\ninit: ${showPats(pats)}")
+                  succeed
+              }
             case Right(rest1) =>
-              fail(s"after adding ${rest.map(showPat)} we still need ${rest1.map(showPat)}")
+              fail(s"after adding ${showPats(rest)} we still need ${showPats(rest1)}")
           }
       }
     }
+
+    val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genPattern))
+    forAll(pats)(law(_))
+
+    def manualTest(str: String) = law(patterns(str))
+
+    manualTest(s"[['z$dollar{_}']]")
   }
+
+  /*
+   * TODO: this doesn't pass yet.
+  test("productDifference of a single pair is the same as difference") {
+    def law(p1: Pattern[(PackageName, Constructor), Type], p2: Pattern[(PackageName, Constructor), Type]) = {
+      val tc = TotalityCheck(predefTE)
+      val diff1 = tc.difference0(p1, p2).map { union =>
+        union.map(tc.normalizePattern(_)).map(showPat).map(NonEmptyList(_, Nil))
+      }
+      assert(tc.productDifference((p1, p2) :: Nil).map(_.map(_.map(tc.normalizePattern(_)).map(showPat))) == diff1,
+        s"p1 = ${showPat(p1)} p2 = ${showPat(p2)}")
+    }
+
+    forAll(genPattern, genPattern)(law(_, _))
+
+    def manualTest(str: String) = {
+      val a :: b :: Nil = patterns(str)
+      law(a, b)
+    }
+
+    manualTest(s"[[hE, *_], ['mkfyv$dollar{_}', [*i], _, _]]")
+  }
+  */
 
   test("missing branches are distinct") {
     val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genPattern))
