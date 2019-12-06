@@ -128,7 +128,7 @@ object PathModule extends MainModule[IO] {
             val ifs = packList.map(Package.interfaceOf(_))
             writeInterfaces(ifs, ifacePath)
         }
-        val out = writePackages(packList, output)
+        val out = output.fold(IO.unit)(writePackages(packList, _))
 
         (ifres *> out)
     }
