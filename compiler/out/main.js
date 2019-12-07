@@ -16066,7 +16066,7 @@ var $author$project$Main$view = function (model) {
 					_List_Nil,
 					_List_fromArray(
 						[
-							$mdgriffith$elm_ui$Element$text('last value as json:'),
+							$mdgriffith$elm_ui$Element$text('last value:'),
 							$mdgriffith$elm_ui$Element$html(
 							A2(
 								$elm$html$Html$span,

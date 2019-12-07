@@ -108,10 +108,13 @@ object PathModule extends MainModule[IO] {
 
           print(fullOut.render(80)) *> IO.raiseError(new Exception(excepMessage))
         }
-      case Output.EvaluationResult(res, tpe) =>
+      case Output.EvaluationResult(_, tpe, resDoc) =>
         IO.suspend {
-          val r = res.value
-          print(s"$r: $tpe")
+          val tMap = TypeRef.fromTypes(None, tpe :: Nil)
+          val tDoc = tMap(tpe).toDoc
+
+          val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
+          print(doc.render(100))
         }
       case Output.JsonOutput(json, pathOpt) =>
         val jdoc = json.toDoc
@@ -128,7 +131,7 @@ object PathModule extends MainModule[IO] {
             val ifs = packList.map(Package.interfaceOf(_))
             writeInterfaces(ifs, ifacePath)
         }
-        val out = writePackages(packList, output)
+        val out = output.fold(IO.unit)(writePackages(packList, _))
 
         (ifres *> out)
     }

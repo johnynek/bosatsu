@@ -62,9 +62,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   sealed abstract class Output
   object Output {
     case class TestOutput(tests: List[(PackageName, Option[Test])], colorize: Colorize) extends Output
-    case class EvaluationResult(value: Eval[Value], tpe: rankn.Type) extends Output
+    case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
-    case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Path) extends Output
+    case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output
   }
 
   sealed abstract class MainCommand {
@@ -420,7 +420,21 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                     res match {
                       case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
                       case Some((eval, tpe)) =>
-                        moduleIOMonad.pure((ev, Output.EvaluationResult(eval, tpe)))
+                        // here is the doc:
+                        val memoE = eval.memoize
+                        val fn = ev.valueToDoc.toDoc(tpe)
+                        val edoc =
+                          memoE.map { v =>
+                            fn(v) match {
+                              case Right(d) => d
+                              case Left(err) =>
+                                // $COVERAGE-OFF$ unreachable due to being well typed
+                                sys.error(s"got illtyped error: $err")
+                                // $COVERAGE-ON$
+                            }
+                          }
+
+                        moduleIOMonad.pure((ev, Output.EvaluationResult(eval, tpe, edoc)))
                     }
                   }
                   else {
@@ -545,7 +559,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     case class TypeCheck(
       inputs: PathGen,
       ifaces: PathGen,
-      output: Path,
+      output: Option[Path],
       ifout: Option[Path],
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
@@ -802,7 +816,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       val evalOpt = (srcs, mainP, includes, colorOpt, packRes)
         .mapN(Evaluate(_, _, _, _, _))
-      val typeCheckOpt = (srcs, ifaces, outputPath, interfaceOutputPath.orNone, colorOpt, noSearchRes)
+      val typeCheckOpt = (srcs, ifaces, outputPath.orNone, interfaceOutputPath.orNone, colorOpt, noSearchRes)
         .mapN(TypeCheck(_, _, _, _, _, _))
       val testOpt = (srcs, testP, includes, colorOpt, packRes)
         .mapN(RunTests(_, _, _, _, _))

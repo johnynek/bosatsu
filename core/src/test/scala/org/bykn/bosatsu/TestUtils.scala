@@ -91,8 +91,8 @@ object TestUtils {
     val files = packages.zipWithIndex.map(_.swap)
 
     module.runWith(files)("eval" :: "--main" :: mainPackS :: makeInputArgs(files)) match {
-      case Right(module.Output.EvaluationResult(got, _)) =>
-        assert(got.value == expected, s"${got.value} != $expected")
+      case Right(module.Output.EvaluationResult(got, _, gotDoc)) =>
+        assert(got.value == expected, s"${gotDoc.value.render(80)}\n\n$got != $expected")
       case Right(other) =>
         fail(s"got an unexpected success: $other")
       case Left(err) =>
