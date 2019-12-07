@@ -75,10 +75,19 @@ before executing the rest of the scala or java code.
 
 ### As a JSON templating engine
 
-Using the `bosatsu json` command you can convert bosatsu expressions into json. Bosatsu can be used as a JSON generation
+Bosatsu can be used as a JSON generation
 system, which could be useful for generating complex configurations in a way that has type-checking
-and ability to compose. This gives you a programmatic way to
+and ability to compose.
+
+Using the `bosatsu json` command you can convert bosatsu expressions into json.
+
+This gives you a programmatic way to
 generate JSON in a limited language (no IO, no infinite recursion, totally reproducible).
+
+An example is the dependencies file used by the bazel build of this repo:
+```
+./bosatsuj json write --package_root test_workspace --input_dir test_workspace --main_file test_workspace/gen_deps.bosatsu
+```
 
 ### Bazel rules
 
