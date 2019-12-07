@@ -195,7 +195,7 @@ view model =
                             Json.Encode.encode 4 v
                     in
                     column []
-                        [ text "last value as json:"
+                        [ text "last value:"
                         , Element.html (span [] (textHtml (String.concat [ "<pre>", j, "</pre>" ])))
                         ]
 

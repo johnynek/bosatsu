@@ -12,10 +12,3 @@ object TypeName {
   implicit val typeNameOrdering: Ordering[TypeName] =
     Ordering.by { tn: TypeName => tn.ident }
 }
-
-case class Unique(id: Long) {
-  def next: Unique =
-    if (id == Long.MaxValue) sys.error("overflow")
-    else Unique(id + 1L)
-}
-

@@ -238,7 +238,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   def evalTest(ps: PackageName): Option[Test] =
     lastTest(ps).map { ea =>
-      def toAssert(a: Value): Test =
+      def toAssert(a: ProductValue): Test =
         a match {
           case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
             Test.Assertion(true, message)
@@ -249,7 +249,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             sys.error(s"expected test value: $other")
             // $COVERAGE-ON$
         }
-      def toSuite(a: Value): Test =
+      def toSuite(a: ProductValue): Test =
         a match {
           case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
             Test.Suite(name, tests.map(toTest(_)))
@@ -715,6 +715,19 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * incorrect data.
    */
   val valueToJson: ValueToJson = ValueToJson({
+    case Type.Const.Defined(pn, t) =>
+      for {
+        pack <- pm.toMap.get(pn)
+        dt <- pack.program.types.getType(pn, t)
+      } yield dt
+  })
+
+  /**
+   * Convert a typechecked value to Doc
+   * this code ASSUMES the type is correct. If not, we may throw or return
+   * incorrect data.
+   */
+  val valueToDoc: ValueToDoc = ValueToDoc({
     case Type.Const.Defined(pn, t) =>
       for {
         pack <- pm.toMap.get(pn)
