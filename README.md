@@ -47,7 +47,7 @@ Now try running the above program:
 ```
 ./bosatsuj eval --main Euler/One::computed --input test_workspace/euler1.bosatsu
 ```
-The command `./bosatsuj` has pretty complete help if you run it with no arguments. If you have graal native-image one your path, after building with `sbt cli/assembly` you can build the native image:
+The command `./bosatsuj` has pretty complete help if you run it with no arguments. If you have [graal native-image](https://www.graalvm.org/docs/reference-manual/native-image/) on your path, after building with `sbt cli/assembly` you can build the native image:
 ```
 ./build_native.sh
 ```
