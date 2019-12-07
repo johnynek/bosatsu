@@ -1,0 +1,126 @@
+package AvlTree
+
+enum Tree[a]:
+    Empty, Branch(size: Int, height: Int, key: a, left: Tree[a], right: Tree[a])
+
+enum Rotation: LeftRo, NoRo, RightRo
+
+def operator >(i, j):
+    match cmp_Int(i, j):
+        GT: True
+        _: False
+
+def rotation(left: Int, right: Int, max_diff: Int) -> Rotation:
+    if left.sub(right) > max_diff:
+        RightRo
+    elif right.sub(left) > max_diff:
+        LeftRo
+    else:
+        NoRo
+
+def max(i, j):
+    match cmp_Int(i, j):
+        LT: j
+        _: i
+
+def balance(t: Tree[a]) -> Tree[a]:
+    t
+
+def size(t: Tree[a]) -> Int:
+    match t:
+        Empty: 0
+        Branch { size: s, ...}: s
+
+def branch(sz, item, left, right):
+    h = max(size(left), size(right))
+    Branch(sz, h, item, left, right)
+
+def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
+    Order(fn) = ord
+
+    def loop(tree: Tree[a]) -> Tree[a]:
+        recur tree:
+            Empty: Branch(1, 1, item, Empty, Empty)
+            Branch(s, h, item0, left, right):
+                match fn(item, item0):
+                    EQ: Branch(s, h, item, left, right)
+                    LT:
+                        left = loop(left)
+                        branch(s.add(1), item0, left, right)
+                    GT:
+                        right = loop(right)
+                        branch(s.add(1), item0, left, right)
+
+    loop(tree).balance
+
+def contains(ord: Order[a], tree: Tree[a], item: a) -> Bool:
+    Order(fn) = ord
+
+    def loop(tree: Tree[a]) -> Bool:
+        recur tree:
+            Empty: False
+            Branch { key, left, right, ... }:
+                match fn(item, key):
+                    EQ: True
+                    LT: loop(left)
+                    GT: loop(right)
+
+    loop(tree)
+
+def min(tree: Tree[a]) -> Option[a]:
+    recur tree:
+        Empty: None
+        Branch { key, left: Empty, ... }: Some(key)
+        Branch { left, ... }: min(left)
+
+
+def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
+    Order(fn) = ord
+
+    def loop(tree: Tree[a]) -> Tree[a]:
+        recur tree:
+            Empty: Empty
+            Branch(s, _, item0, left, right):
+                match fn(item, item0):
+                    EQ:
+                        match right:
+                            Empty: left
+                            _:
+                                right = loop(right)
+                                branch(s.sub(1), item0, left, right)
+                    LT:
+                        left = loop(left)
+                        branch(s.sub(1), item0, left, right)
+                    GT:
+                        right = loop(right)
+                        branch(s.sub(1), item0, left, right)
+
+    loop(tree).balance
+
+# Module pattern to associate some methods with a typeclass (Order)
+struct Module[a](
+    order: Order[a],
+    add: Tree[a] -> a -> Tree[a],
+    single: a -> Tree[a],
+    contains: Tree[a] -> a -> Bool,
+)
+
+def module(ord: Order[a]) -> Module[a]:
+    Module {
+        order: ord,
+        add: add_item(ord),
+        single: \a -> add_item(ord, Empty, a),
+        contains: contains(ord),
+    }
+#####################
+# test code
+#####################
+
+Module { add: add_i, contains: contains_i, ...} = module(Order(cmp_Int))
+
+def contains_test:
+    Assertion(Empty.add_i(2).contains_i(2), "contains 2")
+
+tests = TestSuite("AvlTree tests", [
+    contains_test,
+])
