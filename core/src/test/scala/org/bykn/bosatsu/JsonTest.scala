@@ -200,7 +200,7 @@ enum MyNat: Z, S(prev: MyNat)
             case Left(_) => succeed
             case Right(v) => fail(s"expected $json to be ill-typed: $v")
           }
-        case Left(err) => fail(s"could not handle to Value: $tpe, $t, $toJ")
+        case Left(err) => fail(s"could not handle to Value: $tpe, $t, $err")
       }
     }
 
