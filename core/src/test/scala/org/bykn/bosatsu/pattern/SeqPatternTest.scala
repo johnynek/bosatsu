@@ -89,6 +89,18 @@ class SeqPatternTest extends FunSuite {
     matches.foreach { case (p, s) => assert(p.matches(s), s"$p.matches($s)") }
   }
 
+  test("reverse is idempotent") {
+    forAll { p: Pattern =>
+      assert(p.reverse.reverse == p)
+    }
+  }
+
+  test("reverse matches the reverse string") {
+    forAll { (p: Pattern, str: String) =>
+      assert(p.matches(str) == p.reverse.matches(str.reverse), s"p.reverse = ${p.reverse}")
+    }
+  }
+
   test("unlit patterns match everything") {
     forAll { (p0: Pattern, str: String) =>
       val p = unlit(p0)
