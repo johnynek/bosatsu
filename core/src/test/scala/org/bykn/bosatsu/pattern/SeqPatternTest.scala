@@ -17,12 +17,12 @@ class SeqPatternTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 5000)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   val genPart: Gen[Part] =
     Gen.frequency(
-      (10, Gen.oneOf(Lit('0'), Lit('1'))),
+      (15, Gen.oneOf(Lit('0'), Lit('1'))),
       (2, Gen.const(AnyChar)),
       (1, Gen.const(Wildcard)))
 
@@ -144,8 +144,8 @@ class SeqPatternTest extends FunSuite {
   test("intersection(p1, p2).matches(x) == p1.matches(x) && p2.matches(x)") {
     def law(p10: Pattern, p20: Pattern, x: String) = {
       // intersections get really slow if they get too big
-      val p1 = Pattern.fromList(p10.toList.take(4))
-      val p2 = Pattern.fromList(p20.toList.take(4))
+      val p1 = Pattern.fromList(p10.toList.take(5))
+      val p2 = Pattern.fromList(p20.toList.take(5))
       val n1 = p1.normalize
       val n2 = p2.normalize
       val rawintr = p1.intersection(p2)
@@ -240,6 +240,24 @@ class SeqPatternTest extends FunSuite {
     }
   }
 
+  test("unify union preserves matching") {
+    forAll { (ps: List[Pattern], s: String) =>
+      val u1 = ps.exists(_.matches(s))
+      val unified = unifyUnion(ps)
+      val u2 = unified.exists(_.matches(s))
+
+      assert(u2 == u1, s"unified = $unified")
+    }
+  }
+
+  test("unify union makes size <= input") {
+    forAll { (ps: List[Pattern], s: String) =>
+      val unified = unifyUnion(ps)
+
+      assert(ps.size >= unified.size, s"unified = $unified")
+    }
+  }
+
   test("difference is an upper bound") {
     forAll { (p10: Pattern, p20: Pattern, s: String) =>
       // intersections get really slow if they get too big
@@ -266,15 +284,28 @@ class SeqPatternTest extends FunSuite {
     }
   }
 
-/*
   test("difference is idempotent: (a - b) = c, c - b == c") {
-    forAll { (a: Pattern, b: Pattern) =>
-      val c = a.difference(b)
-      val c1 = c.flatMap(_.difference(b))
-      assert(c == c1)
+    forAll { (a0: Pattern, b0: Pattern) =>
+      val a = Pattern.fromList(a0.toList.take(4))
+      val b = Pattern.fromList(b0.toList.take(4))
+      val c = unifyUnion(a.difference(b))
+      val c1 = unifyUnion(c.flatMap(_.difference(b)))
+      assert(c.map(_.show) == c1.map(_.show))
     }
   }
-*/
+
+  test("subset is consistent with match") {
+    forAll { (a: Pattern, b: Pattern, s: String) =>
+      if (a.matches(s)) {
+        if (subset(a, b)) {
+          assert(b.matches(s))
+        }
+      }
+    }
+
+    assert(subset(Pattern("00") + Pattern.Wild, Pattern("0") + Pattern.Wild))
+    assert(subset(Pattern("00") + Pattern.Any + Pattern.Wild, Pattern("0") + Pattern.Any + Pattern.Wild))
+  }
 
   test("a n a == a") {
     forAll { (a: Pattern) =>
@@ -287,7 +318,7 @@ class SeqPatternTest extends FunSuite {
       }
     }
   }
-/*
+
   test("a - a == 0") {
     def law(p1: Pattern, p2: Pattern) = {
       if (p1.normalize == p2.normalize) {
@@ -305,11 +336,11 @@ class SeqPatternTest extends FunSuite {
 
 
   }
-  */
 
-  /*
   test("if y - x is empty, (yz - xz) for all strings is empty") {
-    def law(x: Pattern, y: Pattern, str: String) = {
+    def law(x0: Pattern, y0: Pattern, str: String) = {
+      val x = Pattern.fromList(x0.toList.take(5))
+      val y = Pattern.fromList(y0.toList.take(5))
       if (y.difference(x) == Nil) {
         assert(y.appendString(str).difference(x.appendString(str)) == Nil)
       }
@@ -319,25 +350,26 @@ class SeqPatternTest extends FunSuite {
   }
 
   test("if y - x is empty, (zy - zx) for all strings is empty") {
-    forAll { (x: Pattern, y: Pattern, str: String) =>
+    forAll { (x0: Pattern, y0: Pattern, str: String) =>
+      val x = Pattern.fromList(x0.toList.take(5))
+      val y = Pattern.fromList(y0.toList.take(5))
       if (y.difference(x) == Nil) {
         assert((Pattern(str) + y).difference(Pattern(str) + x) == Nil)
       }
     }
   }
-  */
-
-  /*
-   * we cannot yet pass this law
+/*
   test("if x - y is empty, (x + z) - (y + z) is empty") {
-    forAll { (x: Pattern, y: Pattern, z: Pattern) =>
+    forAll { (x0: Pattern, y0: Pattern, z0: Pattern) =>
+      val x = Pattern.fromList(x0.toList.take(3))
+      val y = Pattern.fromList(y0.toList.take(3))
+      val z = Pattern.fromList(z0.toList.take(3))
       if (x.difference(y).isEmpty) {
         assert((x + z).difference(y + z) == Nil)
       }
     }
   }
-   */
-
+*/
   test("p + q match (s + t) if p.matches(s) && q.matches(t)") {
     forAll { (p: Pattern, q: Pattern, s: String, t: String) =>
       if (p.matches(s) && q.matches(t)) {
@@ -347,50 +379,54 @@ class SeqPatternTest extends FunSuite {
   }
 
   test("x - wild = 0") {
+    assert(Pattern.Wild.matchesAny)
+
     forAll { (x: Pattern, y: Pattern) =>
       if (y.matchesAny) assert(x.difference(y).isEmpty)
+
+      assert(x.difference(Pattern.Wild) == Nil)
+      assert(y.difference(Pattern.Wild) == Nil)
     }
   }
 
-  // test("if a n b = 0 then a - b = a") {
-  //   def law(p1: Pattern, p2: Pattern) = {
-  //     val inter = p1.intersection(p2)
-  //     val diff = p1.difference(p2)
+  test("if a n b = 0 then a - b = a") {
+    def law(p1: Pattern, p2: Pattern) = {
+      val inter = p1.intersection(p2)
+      val diff = p1.difference(p2)
 
-  //     if (inter.isEmpty) {
-  //       assert(diff.map(_.normalize) == p1.normalize :: Nil)
-  //     }
+      if (inter.isEmpty) {
+        assert(diff.map(_.normalize) == p1.normalize :: Nil)
+      }
 
-  //     // difference is an upper bound, so this is not true
-  //     // although we wish it were
-  //     /*
-  //     if (diff.map(_.normalize).distinct == p1.normalize :: Nil) {
-  //       // intersection is 0
-  //       assert(inter == Nil)
-  //     }
-  //     */
-  //   }
+      // difference is an upper bound, so this is not true
+      // although we wish it were
+      /*
+      if (diff.map(_.normalize).distinct == p1.normalize :: Nil) {
+        // intersection is 0
+        assert(inter == Nil)
+      }
+      */
+    }
 
-  //   forAll(law(_, _))
+    forAll(law(_, _))
 
-  //   val regressions: List[(Pattern, Pattern)] =
-  //     Nil
+    val regressions: List[(Pattern, Pattern)] =
+      Nil
 
-  //   regressions.foreach { case (p1, p2) => law(p1, p2) }
-  // }
+    regressions.foreach { case (p1, p2) => law(p1, p2) }
+  }
 
-  // test("x - y = z, then x - y - z = 0") {
-  //   forAll { (x: Pattern, y: Pattern) =>
-  //     val z = x.difference(y)
-  //     val z1 = for {
-  //       za <- z
-  //       zb <- z
-  //       zc <- za.difference(zb)
-  //     } yield zc
+  test("x - y = z, then x - y - z = 0") {
+    val max = 3
+    forAll { (x0: Pattern, y0: Pattern) =>
+      val x = Pattern.fromList(x0.toList.take(max))
+      val y = Pattern.fromList(y0.toList.take(max))
+      val z = x.difference(y)
+      val z1 = differenceAll(z, z)
 
-  //     assert(z1 == Nil, s"z = $z")
-  //   }
-  // }
+      assert(z1.map(_.show) == Nil, s"z = ${z.map(_.show)}")
+    }
+  }
 
   // test("subset consistency: a n b == a <=> a - b = 0") {
   //   def isSubsetIntr(a: Pattern, b: Pattern) =
