@@ -17,7 +17,7 @@ class SeqPatternTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = 500)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   val genPart: Gen[Part] =
@@ -49,6 +49,58 @@ class SeqPatternTest extends FunSuite {
         t #:: shrinkPat.shrink(t)
     }
 
+  def genNamedFn(nextId: Int): Gen[(Int, Named)] = {
+    lazy val recur = Gen.lzy(res)
+
+    lazy val genNm: Gen[(Int, Named.Bind)] =
+      recur.map { case (i, n) => (i + 1, Named.Bind(i.toString, n)) }
+
+    lazy val res: Gen[(Int, Named)] =
+      Gen.frequency(
+        (2, for {
+          (i0, n0) <- recur
+          (i1, n1) <- genNamedFn(i0)
+        } yield (i1, Named.NCat(n0, n1))),
+        (1, genNm),
+        (1, Gen.const((nextId, Named.NEmpty))),
+        (1, genPart.map { p => (nextId, Named.NPart(p)) }))
+
+    res
+  }
+
+  val genNamed: Gen[Named] =
+    genNamedFn(0).map(_._2)
+
+  implicit val arbNamed: Arbitrary[Named] = Arbitrary(genNamed)
+
+  def interleave[A](s1: Stream[A], s2: Stream[A]): Stream[A] =
+    if (s1.isEmpty) s2 else if (s2.isEmpty) s1 else {
+      s1.head #:: interleave(s2, s1.tail)
+    }
+
+  implicit val shrinkNamed: Shrink[Named] =
+    Shrink {
+      case Named.NEmpty => Stream.Empty
+      case Named.Bind(n, p) =>
+        val sp = shrinkNamed.shrink(p)
+        val binded = sp.map(Named.Bind(n, _))
+        interleave(sp, binded)
+      case Named.NPart(p) =>
+        val sp = p match {
+          case Wildcard => AnyChar #:: Lit('0') #:: Lit('1') #:: Stream.Empty
+          case AnyChar => Lit('0') #:: Lit('1') #:: Stream.Empty
+          case Lit(_) => Stream.Empty
+        }
+        sp.map(Named.NPart(_))
+      case Named.NCat(fst, snd) =>
+        val s1 = shrinkNamed.shrink(fst)
+        val s2 = shrinkNamed.shrink(snd)
+        interleave(s1, s2).iterator.sliding(2).map {
+          case Seq(a, b) => Named.NCat(a, b)
+          case _ => Named.NEmpty
+        }
+        .toStream
+    }
 
   def unany(p: Pattern): Pattern =
     p match {
@@ -481,4 +533,23 @@ class SeqPatternTest extends FunSuite {
   //     }
   //   }
   // }
+
+  test("Named.matches agrees with Pattern.matches") {
+    def law(n: Named, str: String) = {
+      val p = n.unname
+
+      assert(n.matches(str).isDefined == p.matches(str), s"${p.show}")
+    }
+
+    forAll(law(_, _))
+
+    import Named._
+    val regressions: List[(Named, String)] =
+      (NCat(NEmpty,NCat(NPart(Lit('1')),NPart(Wildcard))), "1") ::
+      (NCat(NPart(Lit('1')),NPart(Wildcard)), "1") ::
+      (NPart(Lit('1')), "1") ::
+      Nil
+
+    regressions.foreach { case (n, s) => law(n, s) }
+  }
 }

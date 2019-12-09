@@ -99,6 +99,32 @@ object SeqPattern {
 
   sealed trait Part {
     def notWild: Boolean = false
+
+    def matches(str: String): Boolean =
+      this match {
+        case Wildcard => true
+        case AnyChar => str.length == 1
+        case Lit(c) => (str.length == 1) && (str.charAt(0) == c)
+      }
+    // return the prefix and the matched region
+    def matchEnd(str: String): Stream[(String, String)] =
+      this match {
+        case Wildcard =>
+          // we match all suffixes
+          (0 to str.length).toStream.map { idx => (str.substring(0, idx), str.substring(idx, str.length)) }
+        case AnyChar =>
+          if (str.isEmpty) Stream.Empty
+          else {
+            (str.init, str.last.toString) #:: Stream.Empty
+          }
+        case Lit(c) =>
+          if (str.isEmpty) Stream.Empty
+          else {
+            val lastC = str.last
+            if (lastC == c) (str.init, c.toString) #:: Stream.Empty
+            else Stream.Empty
+          }
+      }
   }
   sealed trait Part1 extends Part {
     override def notWild: Boolean = true
@@ -136,6 +162,68 @@ object SeqPattern {
         case Cat(h, Empty) => h
         case Cat(_, r@Cat(_, _)) => r.rightMost
       }
+  }
+
+  sealed trait Named {
+    import Named._
+
+    def unname: Pattern = {
+      def loop(n: Named, right: List[Part]): List[Part] =
+        n match {
+          case Bind(_, n) => loop(n, right)
+          case NEmpty => right
+          case NCat(first, second) =>
+            val r2 = loop(second, right)
+            loop(first, r2)
+          case NPart(p) => p :: right
+        }
+
+      Pattern.fromList(loop(this, Nil))
+    }
+
+    def matches(str: String): Option[Map[String, String]] =
+      this match {
+        case Bind(n, p) =>
+          p.matches(str).map(_.updated(n, str))
+        case NEmpty => if (str.isEmpty) emptyMatch else None
+        case NPart(p) => if (p.matches(str)) emptyMatch else None
+        case NCat(fst, snd) =>
+          snd.matchEnd(str)
+            .map { case (prefix, _, bindings) =>
+              fst.matches(prefix).map(_ ++ bindings)
+            }
+            .collectFirst { case Some(m) => m }
+      }
+
+    // return all the matches of the suffix returning the unmatched
+    // prefix, matched region and the bindings that have matched
+    def matchEnd(str: String): Stream[(String, String, Map[String, String])] =
+      this match {
+        case Bind(n, p) =>
+          p.matchEnd(str)
+            .map { case (pre, m, b) => (pre, m, b.updated(n, m)) }
+        case NEmpty => (str, "", Map.empty[String, String]) #:: Stream.Empty
+        case NPart(p) =>
+          p.matchEnd(str)
+            .map { case (pre, m) => (pre, m, Map.empty[String, String]) }
+        case NCat(fst, snd) =>
+          snd.matchEnd(str)
+            .flatMap { case (sprefix, msnd, bsnd) =>
+              fst.matchEnd(sprefix)
+                .map { case (fprefix, mfst, bfst) =>
+                  (fprefix, mfst ++ msnd, bfst ++ bsnd)
+                }
+            }
+      }
+  }
+
+  object Named {
+    val emptyMatch: Option[Map[String, String]] = Some(Map.empty)
+
+    case class Bind(name: String, p: Named) extends Named
+    case object NEmpty extends Named
+    case class NPart(part: Part) extends Named
+    case class NCat(first: Named, second: Named) extends Named
   }
 
   // Try to unify lists according to the rules:
