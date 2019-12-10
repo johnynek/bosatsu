@@ -4,6 +4,18 @@ package org.bykn.bosatsu.pattern
  * These are set operations we can do on patterns
  */
 trait SetOps[A] {
+
+  /**
+   * a representation of the set with everything in it
+   * not all sets have upper bounds we can represent
+   */
+  def top: Option[A]
+
+  /**
+   * if everything is <= A, maybe more than one representation of top
+   */
+  def isTop(a: A): Boolean
+
   /**
    * intersect two values and return a union represented as a list
    */
@@ -41,5 +53,5 @@ trait SetOps[A] {
       // remove p from all of p1s
       p1s.flatMap(difference(_, p))
     }
-
 }
+

@@ -15,6 +15,9 @@ abstract class SeqPattern { self =>
 
   def seqToList(s: Sequence): List[Elem]
   def listToSeq(s: List[Elem]): Sequence
+
+  def emptySeq: Sequence
+  def catSeq(a: Sequence, b: Sequence): Sequence
   def isEmpty(s: Sequence): Boolean
   def nonEmpty(s: Sequence): Boolean = !isEmpty(s)
 
@@ -405,6 +408,9 @@ abstract class SeqPattern { self =>
 
   object Pattern {
     implicit val patternSetOps: SetOps[Pattern] = new SetOps[Pattern] {
+      lazy val top = Some(Pattern.Wild)
+      def isTop(p: Pattern) = p.matchesAny
+
       // Try to unify lists according to the rules:
       // x u [_, *, x] = [*, x]
       // x u [*, _, x] = [*, x]
@@ -712,7 +718,7 @@ abstract class SeqPattern { self =>
         }
     }
 
-    implicit val ordself: Ordering[Pattern] =
+    implicit val ordPattern: Ordering[Pattern] =
       new Ordering[Pattern] {
         def compare(a: Pattern, b: Pattern) =
           (a, b) match {
@@ -782,6 +788,9 @@ object StringSeqPattern extends SeqPattern {
   val elemOrdering: Ordering[Char] = Ordering.Char
 
   val part1SetOps: SetOps[Part1] = new SetOps[Part1] {
+    val top = Some(AnyElem)
+    def isTop(c: Part1) = c == AnyElem
+
     def intersection(p1: Part1, p2: Part1): List[Part1] =
       (p1, p2) match {
         case (Lit(c1), Lit(c2)) => if (c1 == c2) p1 :: Nil else Nil
@@ -833,9 +842,12 @@ object StringSeqPattern extends SeqPattern {
         (prefix, str.charAt(idx), post)
       }
 
-  def seqToList(s: Sequence): List[Elem] = s.toList
-  def listToSeq(s: List[Elem]): Sequence = s.mkString
-  def isEmpty(s: Sequence): Boolean = s.isEmpty
+  def seqToList(s: String): List[Elem] = s.toList
+  def listToSeq(s: List[Elem]): String = s.mkString
+
+  def emptySeq = ""
+  def catSeq(a: String, b: String) = a + b
+  def isEmpty(s: String): Boolean = s.isEmpty
   def head(s: String) = s.head
   def tail(s: String) = s.tail
 }
