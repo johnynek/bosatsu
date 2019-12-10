@@ -106,6 +106,7 @@ object SeqPattern {
         case AnyChar => str.length == 1
         case Lit(c) => (str.length == 1) && (str.charAt(0) == c)
       }
+
     // return the prefix and the matched region
     def matchEnd(str: String): Stream[(String, String)] =
       this match {
@@ -182,48 +183,214 @@ object SeqPattern {
     }
 
     def matches(str: String): Option[Map[String, String]] =
+      Named.matches(Named.toMachine(this, Nil), str, Nil, Map.empty)
+
+    def name(n: String): Named = Bind(n, this)
+    def +(that: Named): Named = NCat(this, that)
+
+    // we are renderable if all Wild/AnyChar are named
+    def isRenderable: Boolean =
       this match {
-        case Bind(n, p) =>
-          p.matches(str).map(_.updated(n, str))
-        case NEmpty => if (str.isEmpty) emptyMatch else None
-        case NPart(p) => if (p.matches(str)) emptyMatch else None
-        case NCat(fst, snd) =>
-          snd.matchEnd(str)
-            .map { case (prefix, _, bindings) =>
-              fst.matches(prefix).map(_ ++ bindings)
-            }
-            .collectFirst { case Some(m) => m }
+        case NEmpty => true
+        case Bind(_, _) => true
+        case NPart(Lit(_)) => true
+        case NPart(_) => false
+        case NCat(l, r) =>
+          l.isRenderable && r.isRenderable
       }
 
-    // return all the matches of the suffix returning the unmatched
-    // prefix, matched region and the bindings that have matched
-    def matchEnd(str: String): Stream[(String, String, Map[String, String])] =
-      this match {
-        case Bind(n, p) =>
-          p.matchEnd(str)
-            .map { case (pre, m, b) => (pre, m, b.updated(n, m)) }
-        case NEmpty => (str, "", Map.empty[String, String]) #:: Stream.Empty
-        case NPart(p) =>
-          p.matchEnd(str)
-            .map { case (pre, m) => (pre, m, Map.empty[String, String]) }
-        case NCat(fst, snd) =>
-          snd.matchEnd(str)
-            .flatMap { case (sprefix, msnd, bsnd) =>
-              fst.matchEnd(sprefix)
-                .map { case (fprefix, mfst, bfst) =>
-                  (fprefix, mfst ++ msnd, bfst ++ bsnd)
-                }
-            }
-      }
+    def render(names: Map[String, String]): Option[String] = {
+      def loop(n: Named, right: List[String]): Option[List[String]] =
+        n match {
+          case NEmpty => Some(right)
+          case Bind(nm, r) =>
+            // since we have this name, we don't need to recurse
+            names.get(nm)
+              .map(_ :: right)
+              .orElse(loop(r, right))
+          case NPart(Lit(c)) => Some(c.toString :: right)
+          case NPart(_) => None
+          case NCat(l, r) =>
+            loop(r, right)
+              .flatMap { right =>
+                loop(l, right)
+              }
+        }
+
+      loop(this, Nil).map(_.mkString)
+    }
   }
 
   object Named {
-    val emptyMatch: Option[Map[String, String]] = Some(Map.empty)
+    implicit def apply(str: String): Named =
+      Pattern(str).toList.foldRight(NEmpty: Named) { (p, r) =>
+        NCat(NPart(p), r)
+      }
+
+    implicit def fromPart(p: Part): Named = NPart(p)
 
     case class Bind(name: String, p: Named) extends Named
     case object NEmpty extends Named
     case class NPart(part: Part) extends Named
     case class NCat(first: Named, second: Named) extends Named
+
+    def toMachine(n: Named, right: List[Machine]): List[Machine] =
+      n match {
+        case NEmpty => right
+        case Bind(name, n) =>
+          StartName(name) :: toMachine(n, EndName :: right)
+        case NPart(p) => MPart(p) :: right
+        case NCat(l, r) =>
+          toMachine(l, toMachine(r, right))
+      }
+
+    sealed trait Machine
+    case class StartName(name: String) extends Machine
+    case object EndName extends Machine
+    case class MPart(part: Part) extends Machine
+
+    def hasWildLeft(m: List[Machine]): Boolean =
+      m match {
+        case Nil => false
+        case MPart(Wildcard) :: _ => true
+        case MPart(_) :: _ => false
+        case _ :: tail => hasWildLeft(tail)
+      }
+
+    type CaptureState = Map[String, Either[List[Char], String]]
+
+    private def appendState(c: Char, capturing: List[String], nameState: CaptureState): CaptureState =
+      capturing.foldLeft(nameState) { (ns, n) =>
+        val nextV = ns(n).left.map(c :: _)
+        ns.updated(n, nextV)
+      }
+
+    private def matches(
+      m: List[Machine],
+      str: String,
+      capturing: List[String],
+      nameState: CaptureState): Option[Map[String, String]] =
+
+      m match {
+        case Nil =>
+          if (str.isEmpty) {
+            val bindings = nameState.map {
+              case (k, Right(v)) => (k, v)
+              case (k, Left(strings)) =>
+                  sys.error(s"unclosed key: $k, $strings")
+            }
+            Some(bindings)
+          } else None
+        case StartName(n) :: tail =>
+          val ns1 = nameState.get(n) match {
+            case None => nameState.updated(n, Left(Nil))
+            case Some(s) => sys.error(s"illegal shadow: $n")
+          }
+          matches(tail, str, n :: capturing, ns1)
+        case EndName :: tail =>
+          capturing match {
+            case Nil => sys.error("illegal End with no capturing")
+            case n :: cap =>
+            val ns1 = nameState.get(n) match {
+              case Some(Left(parts)) => nameState.updated(n, Right(parts.reverse.mkString))
+              case res@(Some(Right(_)) | None) => sys.error(s"illegal end: $n, $res")
+            }
+            matches(tail, str, cap, ns1)
+          }
+        case MPart(Wildcard) :: tail =>
+          if (hasWildLeft(tail)) {
+            // two adjacent wilds means this one matches nothing
+            matches(tail, str, capturing, nameState)
+          }
+          else {
+            // match everything tail does not match on the right
+            // the matchEnd is only going to capture
+            // on AnyChar or Lit, so we need to reset the
+            // capture state here, and append everything
+            // we get
+            val capSet = capturing.toSet
+            val nameState1 = nameState.map {
+              case (k, Left(_)) if capSet(k) => (k, Left(Nil))
+              case notCap => notCap
+            }
+            matchEnd(tail, str, capturing, nameState1)
+              .headOption
+              .map { case (prefix, resState) =>
+                // now merge the result
+                capturing.foldLeft(resState) { (st, n) =>
+                  val finalValue = nameState(n) match {
+                    case Left(lefts) => (resState(n) :: prefix :: lefts).mkString
+                    case Right(r) => sys.error(s"both capturing and done: $n, $r")
+                  }
+                  st.updated(n, finalValue)
+                }
+              }
+          }
+        case MPart(p1: Part1) :: tail =>
+          val m = (str.nonEmpty) && {
+            p1 match {
+              case AnyChar => true
+              case Lit(c) => (str.head == c)
+            }
+          }
+
+          if (m) {
+            val nextState = appendState(str.head, capturing, nameState)
+            matches(tail, str.tail, capturing, nextState)
+          }
+          else None
+      }
+
+    /*
+     * Return the bindings and unmatched prefix if we have to match the right of the string
+     */
+    private def matchEnd(
+      m: List[Machine],
+      str: String,
+      capturing: List[String],
+      nameState: Map[String, Either[List[Char], String]]): Stream[(String, Map[String, String])] =
+      m match {
+        case Nil =>
+          // we always match the end
+          val bindings = nameState.map {
+            case (k, Right(v)) => (k, v)
+            case (k, Left(strings)) =>
+                sys.error(s"unclosed key: $k, $strings")
+          }
+          (str, bindings) #:: Stream.Empty
+        case StartName(n) :: tail =>
+          val ns1 = nameState.get(n) match {
+            case None => nameState.updated(n, Left(Nil))
+            case Some(s) => sys.error(s"illegal shadow: $n")
+          }
+          matchEnd(tail, str, n :: capturing, ns1)
+        case EndName :: tail =>
+          capturing match {
+            case Nil => sys.error("illegal End with no capturing")
+            case n :: cap =>
+            val ns1 = nameState.get(n) match {
+              case Some(Left(parts)) => nameState.updated(n, Right(parts.reverse.mkString))
+              case res@(Some(Right(_)) | None) => sys.error(s"illegal end: $n, $res")
+            }
+            matchEnd(tail, str, cap, ns1)
+          }
+        case MPart(Wildcard) :: tail =>
+          // we can just go on matching the end, and sucking up
+          // all current state
+            matchEnd(tail, str, capturing, nameState)
+        case MPart(p1: Part1) :: tail =>
+          val splits = p1 match {
+            case Lit(c) => positions(c, str)
+            case AnyChar => anySplits(str)
+          }
+          splits.map { case (pre, c, post) =>
+            val newState = appendState(c, capturing, nameState)
+            matches(tail, post, capturing, newState)
+              .map((pre, _))
+          }
+          .collect { case Some(res) => res }
+      }
+
   }
 
   // Try to unify lists according to the rules:
@@ -598,33 +765,38 @@ object SeqPattern {
     }
 
   // return all the places such that fst ++ c ++ snd == str
-  def positions(c: Char, str: String): Stream[(String, String)] = {
-    def loop(init: Int): Stream[(String, String)] =
+  def positions(c: Char, str: String): Stream[(String, Char, String)] = {
+    def loop(init: Int): Stream[(String, Char, String)] =
       if (init >= str.length) Stream.Empty
       else if (str.charAt(init) == c) {
-        (str.substring(0, init), str.substring(init + 1)) #:: loop(init + 1)
+        (str.substring(0, init), c, str.substring(init + 1)) #:: loop(init + 1)
       }
       else loop(init + 1)
 
     loop(0)
   }
 
+  // splits skipping a single character to match AnyChar
+  def anySplits(str: String): Stream[(String, Char, String)] =
+    (0 until str.length)
+      .toStream
+      .map { idx =>
+        val prefix = str.substring(0, idx)
+        val post = str.substring(idx + 1)
+        (prefix, str.charAt(idx), post)
+      }
+
   // return all the prefixes where this pattern matches everything
   // after
   def matchEnd(p: Pattern, str: String): Stream[String] =
     p match {
       case Empty => str #:: Stream.Empty
-      case Cat(Lit(c), t) =>
-        positions(c, str).collect { case (pre, post) if matches(t, post) => pre }
-      case Cat(AnyChar, t) =>
-        (0 until str.length)
-          .toStream
-          .map { idx =>
-            val prefix = str.substring(0, idx)
-            val post = str.substring(idx + 1)
-            (prefix, post)
-          }
-          .collect { case (pre, post) if matches(t, post) => pre }
+      case Cat(p: Part1, t) =>
+        val splits = p match {
+          case Lit(c) => positions(c, str)
+          case AnyChar => anySplits(str)
+        }
+        splits.collect { case (pre, _, post) if matches(t, post) => pre }
       case Cat(Wildcard, t) =>
         matchEnd(t, str)
     }

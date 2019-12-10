@@ -55,15 +55,21 @@ class SeqPatternTest extends FunSuite {
     lazy val genNm: Gen[(Int, Named.Bind)] =
       recur.map { case (i, n) => (i + 1, Named.Bind(i.toString, n)) }
 
+    // expected length = L = p_c * 2 * L + pn + L + pe * 0 + pp
+    //
+    // L = pp/(1 - (2*pc + pn))
+    // so we need 2*pc + pn < 1
+    // e.g. pc = 1/3, pn = 1/9 would work
+    // L = (4/9) / (1 - (2/3 + 1/9)) = 4 / (9 - 5) = 1
     lazy val res: Gen[(Int, Named)] =
       Gen.frequency(
-        (2, for {
+        (3, for {
           (i0, n0) <- recur
           (i1, n1) <- genNamedFn(i0)
         } yield (i1, Named.NCat(n0, n1))),
         (1, genNm),
         (1, Gen.const((nextId, Named.NEmpty))),
-        (1, genPart.map { p => (nextId, Named.NPart(p)) }))
+        (4, genPart.map { p => (nextId, Named.NPart(p)) }))
 
     res
   }
@@ -551,5 +557,18 @@ class SeqPatternTest extends FunSuite {
       Nil
 
     regressions.foreach { case (n, s) => law(n, s) }
+  }
+
+  test("Named.matches + render agree") {
+    forAll { (n: Named, str: String) =>
+      n.matches(str).foreach { m =>
+        n.render(m) match {
+          case Some(s0) => assert(s0 == str)
+          case None =>
+            // this can only happen if we have unnamed Wild/AnyChar
+            assert(n.isRenderable == false)
+        }
+      }
+    }
   }
 }
