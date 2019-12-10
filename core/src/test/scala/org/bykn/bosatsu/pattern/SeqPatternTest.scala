@@ -23,7 +23,7 @@ class SeqPatternTest extends FunSuite {
   val genPart: Gen[Part] =
     Gen.frequency(
       (15, Gen.oneOf(Lit('0'), Lit('1'))),
-      (2, Gen.const(AnyChar)),
+      (2, Gen.const(AnyElem)),
       (1, Gen.const(Wildcard)))
 
   val genPat: Gen[Pattern] = {
@@ -44,7 +44,7 @@ class SeqPatternTest extends FunSuite {
     Shrink {
       case Empty => Empty #:: Stream.empty
       case Cat(Wildcard, t) =>
-        (Cat(AnyChar, t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
+        (Cat(AnyElem, t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
       case Cat(_, t) =>
         t #:: shrinkPat.shrink(t)
     }
@@ -93,8 +93,8 @@ class SeqPatternTest extends FunSuite {
         interleave(sp, binded)
       case Named.NPart(p) =>
         val sp = p match {
-          case Wildcard => AnyChar #:: Lit('0') #:: Lit('1') #:: Stream.Empty
-          case AnyChar => Lit('0') #:: Lit('1') #:: Stream.Empty
+          case Wildcard => AnyElem #:: Lit('0') #:: Lit('1') #:: Stream.Empty
+          case AnyElem => Lit('0') #:: Lit('1') #:: Stream.Empty
           case Lit(_) => Stream.Empty
         }
         sp.map(Named.NPart(_))
@@ -111,7 +111,7 @@ class SeqPatternTest extends FunSuite {
   def unany(p: Pattern): Pattern =
     p match {
       case Empty => Empty
-      case Cat(AnyChar, t) => unany(t)
+      case Cat(AnyElem, t) => unany(t)
       case Cat(h, t) => Cat(h, unany(t))
     }
 
@@ -125,7 +125,7 @@ class SeqPatternTest extends FunSuite {
   def unlit(p: Pattern): Pattern =
     p match {
       case Empty => Empty
-      case Cat(Lit(_) | AnyChar, t) => unlit(t)
+      case Cat(Lit(_) | AnyElem, t) => unlit(t)
       case Cat(h, t) => Cat(h, unlit(t))
     }
 
@@ -565,7 +565,7 @@ class SeqPatternTest extends FunSuite {
         n.render(m) match {
           case Some(s0) => assert(s0 == str)
           case None =>
-            // this can only happen if we have unnamed Wild/AnyChar
+            // this can only happen if we have unnamed Wild/AnyElem
             assert(n.isRenderable == false)
         }
       }

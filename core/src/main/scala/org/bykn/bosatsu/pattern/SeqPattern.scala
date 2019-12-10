@@ -37,7 +37,7 @@ object SeqPattern {
 
     def prependWild: Pattern =
       this match {
-        case Cat(AnyChar, t) => Cat(AnyChar, Cat(Wildcard, t))
+        case Cat(AnyElem, t) => Cat(AnyElem, Cat(Wildcard, t))
         case Cat(Wildcard, _) => this
         case notAlreadyWild => Cat(Wildcard, notAlreadyWild)
       }
@@ -66,10 +66,10 @@ object SeqPattern {
     def normalize: Pattern =
       this match {
         case Empty => Empty
-        case Cat(Wildcard, Cat(AnyChar, t)) =>
-          // move AnyChar out
+        case Cat(Wildcard, Cat(AnyElem, t)) =>
+          // move AnyElem out
           val wtn = Cat(Wildcard, t).normalize
-          Cat(AnyChar, wtn)
+          Cat(AnyElem, wtn)
         case Cat(Wildcard, tail@Cat(Wildcard, _)) =>
           // remove duplicate Wildcard
           tail.normalize
@@ -91,7 +91,7 @@ object SeqPattern {
           case Lit('.') => "\\."
           case Lit('*') => "\\*"
           case Lit(c) => c.toString
-          case AnyChar => "."
+          case AnyElem => "."
           case Wildcard => "*"
         }
         .mkString
@@ -99,33 +99,6 @@ object SeqPattern {
 
   sealed trait Part {
     def notWild: Boolean = false
-
-    def matches(str: String): Boolean =
-      this match {
-        case Wildcard => true
-        case AnyChar => str.length == 1
-        case Lit(c) => (str.length == 1) && (str.charAt(0) == c)
-      }
-
-    // return the prefix and the matched region
-    def matchEnd(str: String): Stream[(String, String)] =
-      this match {
-        case Wildcard =>
-          // we match all suffixes
-          (0 to str.length).toStream.map { idx => (str.substring(0, idx), str.substring(idx, str.length)) }
-        case AnyChar =>
-          if (str.isEmpty) Stream.Empty
-          else {
-            (str.init, str.last.toString) #:: Stream.Empty
-          }
-        case Lit(c) =>
-          if (str.isEmpty) Stream.Empty
-          else {
-            val lastC = str.last
-            if (lastC == c) (str.init, c.toString) #:: Stream.Empty
-            else Stream.Empty
-          }
-      }
   }
   sealed trait Part1 extends Part {
     override def notWild: Boolean = true
@@ -140,16 +113,16 @@ object SeqPattern {
               java.lang.Character.compare(i1, i2)
             case (Lit(_), _) => -1
             case (_, Lit(_)) => 1
-            case (AnyChar, AnyChar) => 0
-            case (AnyChar, Wildcard) => -1
-            case (Wildcard, AnyChar) => 1
+            case (AnyElem, AnyElem) => 0
+            case (AnyElem, Wildcard) => -1
+            case (Wildcard, AnyElem) => 1
             case (Wildcard, Wildcard) => 0
           }
       }
   }
 
   case class Lit(item: Char) extends Part1
-  case object AnyChar extends Part1
+  case object AnyElem extends Part1
   // 0 or more characters
   case object Wildcard extends Part
 
@@ -188,7 +161,7 @@ object SeqPattern {
     def name(n: String): Named = Bind(n, this)
     def +(that: Named): Named = NCat(this, that)
 
-    // we are renderable if all Wild/AnyChar are named
+    // we are renderable if all Wild/AnyElem are named
     def isRenderable: Boolean =
       this match {
         case NEmpty => true
@@ -305,7 +278,7 @@ object SeqPattern {
           else {
             // match everything tail does not match on the right
             // the matchEnd is only going to capture
-            // on AnyChar or Lit, so we need to reset the
+            // on AnyElem or Lit, so we need to reset the
             // capture state here, and append everything
             // we get
             val capSet = capturing.toSet
@@ -329,7 +302,7 @@ object SeqPattern {
         case MPart(p1: Part1) :: tail =>
           val m = (str.nonEmpty) && {
             p1 match {
-              case AnyChar => true
+              case AnyElem => true
               case Lit(c) => (str.head == c)
             }
           }
@@ -381,7 +354,7 @@ object SeqPattern {
         case MPart(p1: Part1) :: tail =>
           val splits = p1 match {
             case Lit(c) => positions(c, str)
-            case AnyChar => anySplits(str)
+            case AnyElem => anySplits(str)
           }
           splits.map { case (pre, c, post) =>
             val newState = appendState(c, capturing, nameState)
@@ -417,8 +390,8 @@ object SeqPattern {
 
     def unifyPart(list: List[Part]): Option[List[Part]] =
       list match {
-        case AnyChar :: Wildcard :: Nil => someWild
-        case Wildcard :: AnyChar :: Nil => someWild
+        case AnyElem :: Wildcard :: Nil => someWild
+        case Wildcard :: AnyElem :: Nil => someWild
         case Wildcard :: Nil => someWild
         case Nil => someNil
         case _ => None
@@ -483,15 +456,15 @@ object SeqPattern {
   def ipart(p1: Part1, p2: Part1): List[Part1] =
     (p1, p2) match {
       case (Lit(c1), Lit(c2)) => if (c1 == c2) p1 :: Nil else Nil
-      case (AnyChar, _) => p2 :: Nil
-      case (_, AnyChar) => p1 :: Nil
+      case (AnyElem, _) => p2 :: Nil
+      case (_, AnyElem) => p1 :: Nil
     }
 
   def dpart(p1: Part1, p2: Part1): List[Part1] =
     (p1, p2) match {
       case (Lit(c1), Lit(c2)) => if (c1 == c2) Nil else p1 :: Nil
-      case (_, AnyChar) => Nil
-      case (AnyChar, _) => p1 :: Nil
+      case (_, AnyElem) => Nil
+      case (AnyElem, _) => p1 :: Nil
     }
 
   /**
@@ -509,8 +482,8 @@ object SeqPattern {
       case (_ :: _, Nil) => false
       case (Lit(s1) :: t1, Lit(s2) :: t2) =>
         (s1 == s2) && subsetList(t1, t2)
-      case (AnyChar :: _, Lit(_) :: _) => false
-      case ((_: Part1) :: t1, AnyChar :: t2) => subsetList(t1, t2)
+      case (AnyElem :: _, Lit(_) :: _) => false
+      case ((_: Part1) :: t1, AnyElem :: t2) => subsetList(t1, t2)
       case (Wildcard :: _, (_: Part1) :: _) => false
       case ((_: Part1) :: t1, Wildcard :: t2) =>
         // p2 = t2 + _:p2
@@ -539,20 +512,20 @@ object SeqPattern {
       case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
         // unnormalized
         intersection(p1, t2)
-      case (Cat(Wildcard, Cat(AnyChar, t1)), _) =>
+      case (Cat(Wildcard, Cat(AnyElem, t1)), _) =>
         // *. == .*, push Wildcards to the end
-        intersection(Cat(AnyChar, Cat(Wildcard, t1)), p2)
-      case (_, Cat(Wildcard, Cat(AnyChar, t2))) =>
+        intersection(Cat(AnyElem, Cat(Wildcard, t1)), p2)
+      case (_, Cat(Wildcard, Cat(AnyElem, t2))) =>
         // *. == .*, push Wildcards to the end
-        intersection(p1, Cat(AnyChar, Cat(Wildcard, t2)))
+        intersection(p1, Cat(AnyElem, Cat(Wildcard, t2)))
       case (Cat(Wildcard, t1), Cat(Wildcard, t2)) =>
         // *:t1 = (t1 + _:p1)
         // *:t2 = (t2 + _:p2)
         // p1 n p2 = t1 n t2 + (_:p1 n t2) + (t1 n _:p2) + _:(p1 n p2)
         //         = *:((t1 n t2) + (_:p1 n t2) + (t1 n _:p2))
         val i1 = intersection(t1, t2)
-        val i2 = intersection(Cat(AnyChar, p1), t2)
-        val i3 = intersection(t1, Cat(AnyChar, p2))
+        val i2 = intersection(Cat(AnyElem, p1), t2)
+        val i3 = intersection(t1, Cat(AnyElem, p2))
         val union = (i1 ::: i2 ::: i3)
 
         unifyUnion(union.map(_.prependWild))
@@ -615,19 +588,19 @@ object SeqPattern {
       case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
         // unnormalized
         difference(p1, t2)
-      case (Cat(Wildcard, Cat(AnyChar, t1)), _) =>
+      case (Cat(Wildcard, Cat(AnyElem, t1)), _) =>
         // *. == .*, push Wildcards to the end
-        difference(Cat(AnyChar, Cat(Wildcard, t1)), p2)
-      case (_, Cat(Wildcard, Cat(AnyChar, t2))) =>
+        difference(Cat(AnyElem, Cat(Wildcard, t1)), p2)
+      case (_, Cat(Wildcard, Cat(AnyElem, t2))) =>
         // *. == .*, push Wildcards to the end
-        difference(p1, Cat(AnyChar, Cat(Wildcard, t2)))
+        difference(p1, Cat(AnyElem, Cat(Wildcard, t2)))
       case (_, _) if intersection(p1, p2).isEmpty => p1 :: Nil
       case (Cat(Wildcard, t1), Empty) =>
         if (!t1.matchesEmpty) p1 :: Nil
         else {
           // *:t1 = t1 + _:p1
           // _:p1 - [] = _:p1
-          unifyUnion(Cat(AnyChar, p1) :: difference(t1, Empty))
+          unifyUnion(Cat(AnyElem, p1) :: difference(t1, Empty))
         }
       case (Cat(h1: Part1, t1), Cat(Wildcard, t2)) =>
         // h1:t1 - (*:t2) = h1:t1 - t2 - _:p2
@@ -637,11 +610,11 @@ object SeqPattern {
           else {
             val d1 =
               for {
-                h <- ipart(h1, AnyChar)
+                h <- ipart(h1, AnyElem)
                 t <- difference(t1, p2)
               } yield Cat(h, t)
 
-            val d2 = dpart(h1, AnyChar).map(Cat(_, t1))
+            val d2 = dpart(h1, AnyElem).map(Cat(_, t1))
             d1 ::: d2
           }
         }
@@ -654,15 +627,15 @@ object SeqPattern {
         //   = (t1 - p2) + (_:p1 - h2:t2)
         val d12 = {
           val dtail = difference(p1, t2)
-          if (dtail == (p1 :: Nil)) Cat(AnyChar, p1) :: Nil
+          if (dtail == (p1 :: Nil)) Cat(AnyElem, p1) :: Nil
           else {
             val d1 =
               for {
-                h <- ipart(AnyChar, h2)
+                h <- ipart(AnyElem, h2)
                 t <- dtail
               } yield Cat(h, t)
 
-            val d2 = dpart(AnyChar, h2).map(Cat(_, p1))
+            val d2 = dpart(AnyElem, h2).map(Cat(_, p1))
             d1 ::: d2
           }
         }
@@ -705,8 +678,8 @@ object SeqPattern {
             // p1 - p2 = t1 - t2 + _:p1 - t2 + t1 - _:p2 + _:(p1 - p2)
             // p1 - p2 = *:(d1 + d2 + d3)
 
-            val d2 = difference(Cat(AnyChar, p1), t2)
-            val d3 = difference(t1, Cat(AnyChar, p2))
+            val d2 = difference(Cat(AnyElem, p1), t2)
+            val d3 = difference(t1, Cat(AnyElem, p2))
             val union = (d1 ::: d2 ::: d3).map(_.prependWild)
             unifyUnion(union)
           }
@@ -747,7 +720,7 @@ object SeqPattern {
       else Cat(Lit(s.head), apply(s.tail))
 
     val Wild: Pattern = Cat(Wildcard, Empty)
-    val Any: Pattern = Cat(AnyChar, Empty)
+    val Any: Pattern = Cat(AnyElem, Empty)
   }
 
   def matches(p: Pattern, str: String): Boolean =
@@ -757,7 +730,7 @@ object SeqPattern {
         str.nonEmpty &&
           (c == str.head) &&
           matches(t, str.tail)
-      case Cat(AnyChar, t) =>
+      case Cat(AnyElem, t) =>
         str.nonEmpty &&
           matches(t, str.tail)
       case Cat(Wildcard, t) =>
@@ -776,7 +749,7 @@ object SeqPattern {
     loop(0)
   }
 
-  // splits skipping a single character to match AnyChar
+  // splits skipping a single character to match AnyElem
   def anySplits(str: String): Stream[(String, Char, String)] =
     (0 until str.length)
       .toStream
@@ -794,7 +767,7 @@ object SeqPattern {
       case Cat(p: Part1, t) =>
         val splits = p match {
           case Lit(c) => positions(c, str)
-          case AnyChar => anySplits(str)
+          case AnyElem => anySplits(str)
         }
         splits.collect { case (pre, _, post) if matches(t, post) => pre }
       case Cat(Wildcard, t) =>
