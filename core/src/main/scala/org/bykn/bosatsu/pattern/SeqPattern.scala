@@ -1,20 +1,26 @@
 package org.bykn.bosatsu.pattern
 
 abstract class SeqPattern { self =>
+  // Elem is the individual pattern element
   type Elem
+  // item is a single element of the values being matched
+  type Item
+  // Sequence is the sequence of Items
   type Sequence
+
+  def elemMatch(m: Elem, i: Item): Boolean
 
   val elemOrdering: Ordering[Elem]
   val part1SetOps: SetOps[Part1]
 
   // return all the places such that fst ++ c ++ snd == str
-  def positions(c: Elem, str: Sequence): Stream[(Sequence, Elem, Sequence)]
+  def positions(c: Elem, str: Sequence): Stream[(Sequence, Item, Sequence)]
 
   // splits skipping a single character to match AnyElem
-  def anySplits(str: Sequence): Stream[(Sequence, Elem, Sequence)]
+  def anySplits(str: Sequence): Stream[(Sequence, Item, Sequence)]
 
-  def seqToList(s: Sequence): List[Elem]
-  def listToSeq(s: List[Elem]): Sequence
+  def seqToList(s: Sequence): List[Item]
+  def listToSeq(s: List[Item]): Sequence
 
   def emptySeq: Sequence
   def catSeq(a: Sequence, b: Sequence): Sequence
@@ -22,7 +28,7 @@ abstract class SeqPattern { self =>
   def nonEmpty(s: Sequence): Boolean = !isEmpty(s)
 
   // unsafe, only call after isEmpty
-  protected def head(s: Sequence): Elem
+  protected def head(s: Sequence): Item
   // unsafe, only call after isEmpty
   protected def tail(s: Sequence): Sequence
 
@@ -65,13 +71,6 @@ abstract class SeqPattern { self =>
         case Cat(AnyElem, t) => Cat(AnyElem, Cat(Wildcard, t))
         case Cat(Wildcard, _) => this
         case notAlreadyWild => Cat(Wildcard, notAlreadyWild)
-      }
-
-    def append(str: Sequence): Pattern =
-      self.seqToList(str) match {
-        case Nil => this
-        case items =>
-          Pattern.fromList(toList ::: items.map(Lit(_)))
       }
 
     def matches(str: Sequence): Boolean =
@@ -201,8 +200,8 @@ abstract class SeqPattern { self =>
           l.isRenderable && r.isRenderable
       }
 
-    def render(names: Map[String, Sequence]): Option[Sequence] = {
-      def loop(n: Named, right: List[Elem]): Option[List[Elem]] =
+    def render(names: Map[String, Sequence])(fn: Elem => Item): Option[Sequence] = {
+      def loop(n: Named, right: List[Item]): Option[List[Item]] =
         n match {
           case NEmpty => Some(right)
           case Bind(nm, r) =>
@@ -210,7 +209,7 @@ abstract class SeqPattern { self =>
             names.get(nm)
               .map { seq => seqToList(seq) ::: right }
               .orElse(loop(r, right))
-          case NPart(Lit(c)) => Some(c :: right)
+          case NPart(Lit(c)) => Some(fn(c) :: right)
           case NPart(_) => None
           case NCat(l, r) =>
             loop(r, right)
@@ -224,15 +223,13 @@ abstract class SeqPattern { self =>
   }
 
   object Named {
-    implicit def apply(str: Sequence): Named =
-      seqToList(str).foldRight(NEmpty: Named) { (p, r) =>
-        NCat(NPart(Lit(p)), r)
+    def fromPattern(p: Pattern): Named =
+      p.toList.foldRight(NEmpty: Named) { (part, right) =>
+        NCat(NPart(part), right)
       }
 
     val Wild: Named = NPart(Wildcard)
     val Any: Named = NPart(AnyElem)
-
-    implicit def fromPart(p: Part): Named = NPart(p)
 
     case class Bind(name: String, p: Named) extends Named
     case object NEmpty extends Named
@@ -262,9 +259,9 @@ abstract class SeqPattern { self =>
         case _ :: tail => hasWildLeft(tail)
       }
 
-    type CaptureState = Map[String, Either[List[Elem], List[Elem]]]
+    type CaptureState = Map[String, Either[List[Item], List[Item]]]
 
-    private def appendState(c: Elem, capturing: List[String], nameState: CaptureState): CaptureState =
+    private def appendState(c: Item, capturing: List[String], nameState: CaptureState): CaptureState =
       capturing.foldLeft(nameState) { (ns, n) =>
         val nextV = ns(n).left.map(c :: _)
         ns.updated(n, nextV)
@@ -274,7 +271,7 @@ abstract class SeqPattern { self =>
       m: List[Machine],
       str: Sequence,
       capturing: List[String],
-      nameState: CaptureState): Option[Map[String, List[Elem]]] =
+      nameState: CaptureState): Option[Map[String, List[Item]]] =
 
       m match {
         case Nil =>
@@ -347,7 +344,7 @@ abstract class SeqPattern { self =>
 
             p1 match {
               case AnyElem => good
-              case Lit(c) => if (h == c) good else None
+              case Lit(c) => if (elemMatch(c, h)) good else None
             }
           }
           else None
@@ -360,7 +357,7 @@ abstract class SeqPattern { self =>
       m: List[Machine],
       str: Sequence,
       capturing: List[String],
-      nameState: CaptureState): Stream[(Sequence, Map[String, List[Elem]])] =
+      nameState: CaptureState): Stream[(Sequence, Map[String, List[Item]])] =
       m match {
         case Nil =>
           // we always match the end
@@ -739,10 +736,6 @@ abstract class SeqPattern { self =>
         case Nil => Empty
       }
 
-    def apply(s: Sequence): Pattern =
-      if (isEmpty(s)) Empty
-      else Cat(Lit(head(s)), apply(tail(s)))
-
     val Wild: Pattern = Cat(Wildcard, Empty)
     val Any: Pattern = Cat(AnyElem, Empty)
   }
@@ -752,7 +745,7 @@ abstract class SeqPattern { self =>
       case Empty => isEmpty(str)
       case Cat(Lit(c), t) =>
         nonEmpty(str) &&
-          (c == head(str)) &&
+          elemMatch(c, head(str)) &&
           matches(t, tail(str))
       case Cat(AnyElem, t) =>
         nonEmpty(str) &&
@@ -783,7 +776,12 @@ object SeqPattern {
 
 object StringSeqPattern extends SeqPattern {
   type Elem = Char
+  type Item = Char
   type Sequence = String
+
+  def toPattern(s: String): Pattern =
+    if (isEmpty(s)) Empty
+    else Cat(Lit(head(s)), toPattern(tail(s)))
 
   val elemOrdering: Ordering[Char] = Ordering.Char
 
@@ -820,6 +818,7 @@ object StringSeqPattern extends SeqPattern {
       else u.distinct.sorted(Part.partOrdering)
   }
 
+  def elemMatch(c1: Char, c2: Char) = c1 == c2
   // return all the places such that fst ++ c ++ snd == str
   def positions(c: Char, str: String): Stream[(String, Char, String)] = {
     def loop(init: Int): Stream[(String, Char, String)] =
@@ -842,8 +841,8 @@ object StringSeqPattern extends SeqPattern {
         (prefix, str.charAt(idx), post)
       }
 
-  def seqToList(s: String): List[Elem] = s.toList
-  def listToSeq(s: List[Elem]): String = s.mkString
+  def seqToList(s: String): List[Item] = s.toList
+  def listToSeq(s: List[Item]): String = s.mkString
 
   def emptySeq = ""
   def catSeq(a: String, b: String) = a + b

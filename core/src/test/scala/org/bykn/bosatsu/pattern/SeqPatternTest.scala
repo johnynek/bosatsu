@@ -295,19 +295,6 @@ abstract class SeqPatternLaws[E, S] extends FunSuite {
   }
 
 
-  test("Named.matches + render agree") {
-    forAll(genNamed, genSeq) { (n: Named, str: S) =>
-      n.matches(str).foreach { m =>
-        n.render(m) match {
-          case Some(s0) => assert(s0 == str)
-          case None =>
-            // this can only happen if we have unnamed Wild/AnyElem
-            assert(n.isRenderable == false)
-        }
-      }
-    }
-  }
-
   def namedMatchesPatternLaw(n: Named, str: S) = {
     val p = n.unname
 
@@ -318,27 +305,6 @@ abstract class SeqPatternLaws[E, S] extends FunSuite {
     forAll(genNamed, genSeq)(namedMatchesPatternLaw(_, _))
   }
 
-  test("if y - x is empty, (yz - xz) for all strings is empty") {
-    def law(x0: Pattern, y0: Pattern, str: S) = {
-      val x = Pattern.fromList(x0.toList.take(5))
-      val y = Pattern.fromList(y0.toList.take(5))
-      if (y.difference(x) == Nil) {
-        assert(y.append(str).difference(x.append(str)) == Nil)
-      }
-    }
-
-    forAll(genPattern, genPattern, genSeq)(law(_, _, _))
-  }
-
-  test("if y - x is empty, (zy - zx) for all strings is empty") {
-    forAll(genPattern, genPattern, genSeq) { (x0: Pattern, y0: Pattern, str: S) =>
-      val x = Pattern.fromList(x0.toList.take(5))
-      val y = Pattern.fromList(y0.toList.take(5))
-      if (y.difference(x) == Nil) {
-        assert((Pattern(str) + y).difference(Pattern(str) + x) == Nil)
-      }
-    }
-  }
 /*
   test("if x - y is empty, (x + z) - (y + z) is empty") {
     forAll { (x0: Pattern, y0: Pattern, z0: Pattern) =>
@@ -394,8 +360,8 @@ class SeqPatternTest extends SeqPatternLaws[Char, String] {
 
   test("some matching examples") {
     val matches: List[(Pattern, String)] =
-      (Pattern.Wild + Pattern.Any + Pattern.Any + Pattern("1"), "111") ::
-      (Pattern("1") + Pattern.Any + Pattern("1"), "111") ::
+      (Pattern.Wild + Pattern.Any + Pattern.Any + toPattern("1"), "111") ::
+      (toPattern("1") + Pattern.Any + toPattern("1"), "111") ::
       Nil
 
     matches.foreach { case (p, s) => assert(p.matches(s), s"$p.matches($s)") }
@@ -403,33 +369,71 @@ class SeqPatternTest extends SeqPatternLaws[Char, String] {
 
   test("wildcard on either side is the same as contains") {
     forAll { (ps: String, s: String) =>
-      assert(matches(Pattern.Wild + Pattern(ps) + Pattern.Wild, s) == s.contains(ps))
+      assert(matches(Pattern.Wild + toPattern(ps) + Pattern.Wild, s) == s.contains(ps))
     }
   }
   test("wildcard on front side is the same as endsWith") {
     forAll { (ps: String, s: String) =>
-      assert(matches(Pattern.Wild + Pattern(ps), s) == s.endsWith(ps))
+      assert(matches(Pattern.Wild + toPattern(ps), s) == s.endsWith(ps))
     }
   }
   test("wildcard on back side is the same as startsWith") {
     forAll { (ps: String, s: String) =>
-      assert(matches(Pattern(ps) + Pattern.Wild, s) == s.startsWith(ps))
+      assert(matches(toPattern(ps) + Pattern.Wild, s) == s.startsWith(ps))
     }
   }
 
   test("intersection(p1, p2).matches(x) == p1.matches(x) && p2.matches(x) regressions") {
     val regressions: List[(Pattern, Pattern, String)] =
-      (Pattern("0") + Pattern.Any + Pattern.Wild, Pattern.Any + Pattern("01") + Pattern.Any, "001") ::
-      (Pattern.Wild + Pattern.Any + Pattern.Any + Pattern("1"), Pattern("1") + Pattern.Any + Pattern("1"), "111") ::
+      (toPattern("0") + Pattern.Any + Pattern.Wild, Pattern.Any + toPattern("01") + Pattern.Any, "001") ::
+      (Pattern.Wild + Pattern.Any + Pattern.Any + toPattern("1"), toPattern("1") + Pattern.Any + toPattern("1"), "111") ::
       Nil
 
     regressions.foreach { case (p1, p2, s) => intersectionMatchLaw(p1, p2, s) }
   }
 
   test("subset is consistent with match regressions") {
-    assert(subset(Pattern("00") + Pattern.Wild, Pattern("0") + Pattern.Wild))
-    assert(subset(Pattern("00") + Pattern.Any + Pattern.Wild, Pattern("0") + Pattern.Any + Pattern.Wild))
+    assert(subset(toPattern("00") + Pattern.Wild, toPattern("0") + Pattern.Wild))
+    assert(subset(toPattern("00") + Pattern.Any + Pattern.Wild, toPattern("0") + Pattern.Any + Pattern.Wild))
   }
+
+  test("if y - x is empty, (yz - xz) for all strings is empty") {
+    def law(x0: Pattern, y0: Pattern, str: String) = {
+      val x = Pattern.fromList(x0.toList.take(5))
+      val y = Pattern.fromList(y0.toList.take(5))
+      if (y.difference(x) == Nil) {
+        assert((y + toPattern(str)).difference(x + toPattern(str)) == Nil)
+      }
+    }
+
+    forAll(genPattern, genPattern, genSeq)(law(_, _, _))
+  }
+
+  test("if y - x is empty, (zy - zx) for all strings is empty") {
+    forAll(genPattern, genPattern, genSeq) { (x0: Pattern, y0: Pattern, str: String) =>
+      val x = Pattern.fromList(x0.toList.take(5))
+      val y = Pattern.fromList(y0.toList.take(5))
+      if (y.difference(x) == Nil) {
+        assert((toPattern(str) + y).difference(toPattern(str) + x) == Nil)
+      }
+    }
+  }
+
+  test("Named.matches + render agree") {
+    forAll(genNamed, genSeq) { (n: Named, str: String) =>
+      n.matches(str).foreach { m =>
+        n.render(m)(c => c) match {
+          case Some(s0) => assert(s0 == str)
+          case None =>
+            // this can only happen if we have unnamed Wild/AnyElem
+            assert(n.isRenderable == false)
+        }
+      }
+    }
+  }
+
+  def named(s: String): Named =
+    Named.fromPattern(toPattern(s))
 
   test("Named.matches agrees with Pattern.matches regressions") {
 
@@ -445,7 +449,7 @@ class SeqPatternTest extends SeqPatternLaws[Char, String] {
 
   test("Test some examples of Named matching") {
     // foo@("bar" baz@(*"baz"))
-    val p1 = (Named("bar") + (Named.Wild + Named("baz")).name("baz")).name("foo")
+    val p1 = (named("bar") + (Named.Wild + named("baz")).name("baz")).name("foo")
     assert(p1.matches("bar and baz") == Some(Map("foo" -> "bar and baz", "baz" -> " and baz")))
   }
 }
