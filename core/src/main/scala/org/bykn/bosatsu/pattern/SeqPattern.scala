@@ -1,6 +1,28 @@
 package org.bykn.bosatsu.pattern
 
-object SeqPattern {
+abstract class SeqPattern { self =>
+  type Elem
+  type Sequence
+
+  val elemOrdering: Ordering[Elem]
+  val part1SetOps: SetOps[Part1]
+
+  // return all the places such that fst ++ c ++ snd == str
+  def positions(c: Elem, str: Sequence): Stream[(Sequence, Elem, Sequence)]
+
+  // splits skipping a single character to match AnyElem
+  def anySplits(str: Sequence): Stream[(Sequence, Elem, Sequence)]
+
+  def seqToList(s: Sequence): List[Elem]
+  def listToSeq(s: List[Elem]): Sequence
+  def isEmpty(s: Sequence): Boolean
+  def nonEmpty(s: Sequence): Boolean = !isEmpty(s)
+
+  // unsafe, only call after isEmpty
+  protected def head(s: Sequence): Elem
+  // unsafe, only call after isEmpty
+  protected def tail(s: Sequence): Sequence
+
   sealed trait Pattern {
     def matchesAny: Boolean =
       this match {
@@ -42,14 +64,15 @@ object SeqPattern {
         case notAlreadyWild => Cat(Wildcard, notAlreadyWild)
       }
 
-    def appendString(str: String): Pattern =
-      if (str == "") this
-      else {
-        Pattern.fromList(toList ::: str.toList.map(Lit(_)))
+    def append(str: Sequence): Pattern =
+      self.seqToList(str) match {
+        case Nil => this
+        case items =>
+          Pattern.fromList(toList ::: items.map(Lit(_)))
       }
 
-    def matches(str: String): Boolean =
-      SeqPattern.matches(this, str)
+    def matches(str: Sequence): Boolean =
+      self.matches(this, str)
 
     def toList: List[Part] =
       this match {
@@ -78,10 +101,10 @@ object SeqPattern {
       }
 
     def intersection(that: Pattern): List[Pattern] =
-      SeqPattern.intersection(this, that)
+      Pattern.patternSetOps.intersection(this, that)
 
     def difference(that: Pattern): List[Pattern] =
-      SeqPattern.difference(this, that)
+      Pattern.patternSetOps.difference(this, that)
 
 
     def show: String =
@@ -110,7 +133,7 @@ object SeqPattern {
         def compare(a: Part, b: Part) =
           (a, b) match {
             case (Lit(i1), Lit(i2)) =>
-              java.lang.Character.compare(i1, i2)
+              elemOrdering.compare(i1, i2)
             case (Lit(_), _) => -1
             case (_, Lit(_)) => 1
             case (AnyElem, AnyElem) => 0
@@ -121,7 +144,7 @@ object SeqPattern {
       }
   }
 
-  case class Lit(item: Char) extends Part1
+  case class Lit(item: Elem) extends Part1
   case object AnyElem extends Part1
   // 0 or more characters
   case object Wildcard extends Part
@@ -155,8 +178,11 @@ object SeqPattern {
       Pattern.fromList(loop(this, Nil))
     }
 
-    def matches(str: String): Option[Map[String, String]] =
-      Named.matches(Named.toMachine(this, Nil), str, Nil, Map.empty)
+    def matches(str: Sequence): Option[Map[String, Sequence]] =
+      Named.matches(Named.toMachine(this, Nil), str, Nil, Map.empty) match {
+        case None => None
+        case Some(m) => Some(m.map { case (k, es) => (k, listToSeq(es)) })
+      }
 
     def name(n: String): Named = Bind(n, this)
     def +(that: Named): Named = NCat(this, that)
@@ -172,16 +198,16 @@ object SeqPattern {
           l.isRenderable && r.isRenderable
       }
 
-    def render(names: Map[String, String]): Option[String] = {
-      def loop(n: Named, right: List[String]): Option[List[String]] =
+    def render(names: Map[String, Sequence]): Option[Sequence] = {
+      def loop(n: Named, right: List[Elem]): Option[List[Elem]] =
         n match {
           case NEmpty => Some(right)
           case Bind(nm, r) =>
             // since we have this name, we don't need to recurse
             names.get(nm)
-              .map(_ :: right)
+              .map { seq => seqToList(seq) ::: right }
               .orElse(loop(r, right))
-          case NPart(Lit(c)) => Some(c.toString :: right)
+          case NPart(Lit(c)) => Some(c :: right)
           case NPart(_) => None
           case NCat(l, r) =>
             loop(r, right)
@@ -190,15 +216,18 @@ object SeqPattern {
               }
         }
 
-      loop(this, Nil).map(_.mkString)
+      loop(this, Nil).map(listToSeq(_))
     }
   }
 
   object Named {
-    implicit def apply(str: String): Named =
-      Pattern(str).toList.foldRight(NEmpty: Named) { (p, r) =>
-        NCat(NPart(p), r)
+    implicit def apply(str: Sequence): Named =
+      seqToList(str).foldRight(NEmpty: Named) { (p, r) =>
+        NCat(NPart(Lit(p)), r)
       }
+
+    val Wild: Named = NPart(Wildcard)
+    val Any: Named = NPart(AnyElem)
 
     implicit def fromPart(p: Part): Named = NPart(p)
 
@@ -230,9 +259,9 @@ object SeqPattern {
         case _ :: tail => hasWildLeft(tail)
       }
 
-    type CaptureState = Map[String, Either[List[Char], String]]
+    type CaptureState = Map[String, Either[List[Elem], List[Elem]]]
 
-    private def appendState(c: Char, capturing: List[String], nameState: CaptureState): CaptureState =
+    private def appendState(c: Elem, capturing: List[String], nameState: CaptureState): CaptureState =
       capturing.foldLeft(nameState) { (ns, n) =>
         val nextV = ns(n).left.map(c :: _)
         ns.updated(n, nextV)
@@ -240,13 +269,13 @@ object SeqPattern {
 
     private def matches(
       m: List[Machine],
-      str: String,
+      str: Sequence,
       capturing: List[String],
-      nameState: CaptureState): Option[Map[String, String]] =
+      nameState: CaptureState): Option[Map[String, List[Elem]]] =
 
       m match {
         case Nil =>
-          if (str.isEmpty) {
+          if (isEmpty(str)) {
             val bindings = nameState.map {
               case (k, Right(v)) => (k, v)
               case (k, Left(strings)) =>
@@ -265,7 +294,7 @@ object SeqPattern {
             case Nil => sys.error("illegal End with no capturing")
             case n :: cap =>
             val ns1 = nameState.get(n) match {
-              case Some(Left(parts)) => nameState.updated(n, Right(parts.reverse.mkString))
+              case Some(Left(parts)) => nameState.updated(n, Right(parts.reverse))
               case res@(Some(Right(_)) | None) => sys.error(s"illegal end: $n, $res")
             }
             matches(tail, str, cap, ns1)
@@ -288,28 +317,35 @@ object SeqPattern {
             }
             matchEnd(tail, str, capturing, nameState1)
               .headOption
-              .map { case (prefix, resState) =>
+              .map { case (prefix, rightResult) =>
                 // now merge the result
-                capturing.foldLeft(resState) { (st, n) =>
-                  val finalValue = nameState(n) match {
-                    case Left(lefts) => (resState(n) :: prefix :: lefts).mkString
-                    case Right(r) => sys.error(s"both capturing and done: $n, $r")
+                capturing.foldLeft(rightResult) { (st, n) =>
+                  nameState(n) match {
+                    case Left(leftMatches) =>
+                      // Left is accumulating in reverse order
+                      // so we need to put the latest on the left
+                      val res = leftMatches reverse_::: seqToList(prefix) ::: st(n)
+                      st.updated(n, res)
+                    case Right(r) =>
+                      sys.error(s"both capturing and done: $n, $r")
                   }
-                  st.updated(n, finalValue)
                 }
               }
           }
         case MPart(p1: Part1) :: tail =>
-          val m = (str.nonEmpty) && {
-            p1 match {
-              case AnyElem => true
-              case Lit(c) => (str.head == c)
-            }
-          }
+          if (nonEmpty(str)) {
+            val h = head(str)
 
-          if (m) {
-            val nextState = appendState(str.head, capturing, nameState)
-            matches(tail, str.tail, capturing, nextState)
+            // keep this lazy
+            @inline def good = matches(tail,
+              self.tail(str),
+              capturing,
+              appendState(h, capturing, nameState))
+
+            p1 match {
+              case AnyElem => good
+              case Lit(c) => if (h == c) good else None
+            }
           }
           else None
       }
@@ -319,9 +355,9 @@ object SeqPattern {
      */
     private def matchEnd(
       m: List[Machine],
-      str: String,
+      str: Sequence,
       capturing: List[String],
-      nameState: Map[String, Either[List[Char], String]]): Stream[(String, Map[String, String])] =
+      nameState: CaptureState): Stream[(Sequence, Map[String, List[Elem]])] =
       m match {
         case Nil =>
           // we always match the end
@@ -342,7 +378,7 @@ object SeqPattern {
             case Nil => sys.error("illegal End with no capturing")
             case n :: cap =>
             val ns1 = nameState.get(n) match {
-              case Some(Left(parts)) => nameState.updated(n, Right(parts.reverse.mkString))
+              case Some(Left(parts)) => nameState.updated(n, Right(parts.reverse))
               case res@(Some(Right(_)) | None) => sys.error(s"illegal end: $n, $res")
             }
             matchEnd(tail, str, cap, ns1)
@@ -366,335 +402,317 @@ object SeqPattern {
 
   }
 
-  // Try to unify lists according to the rules:
-  // x u [_, *, x] = [*, x]
-  // x u [*, _, x] = [*, x]
-  // x u [x, *, _] = [x, *]
-  // x u [x, _, *] = [x, *]
-  //
-  // this is an incomplete heuristic now, not a complete solution
-  def unifyUnion(union: List[Pattern]): List[Pattern] =
-    unifyUnionList {
-        union
-          .map(_.normalize)
-          .distinct
-          .map(_.toList)
-      }
-      .map(Pattern.fromList(_).normalize)
-      .sorted
-
-  private[this] val someWild = Some(Wildcard :: Nil)
-  private[this] val someNil = Some(Nil)
-
-  private def unifyUnionList(union: List[List[Part]]): List[List[Part]] = {
-
-    def unifyPart(list: List[Part]): Option[List[Part]] =
-      list match {
-        case AnyElem :: Wildcard :: Nil => someWild
-        case Wildcard :: AnyElem :: Nil => someWild
-        case Wildcard :: Nil => someWild
-        case Nil => someNil
-        case _ => None
-      }
-
-    def unifyPair(left: List[Part], right: List[Part]): Option[List[Part]] = {
-      def o1 =
-        if (left.startsWith(right)) {
-          unifyPart(left.drop(right.size)).map(right ::: _)
-        }
-        else None
-
-      def o2 =
-        if (right.startsWith(left)) {
-          unifyPart(right.drop(left.size)).map(left ::: _)
-        }
-        else None
-
-      def o3 =
-        if (left.endsWith(right)) {
-          unifyPart(left.dropRight(right.size)).map(_ ::: right)
-        }
-        else None
-
-      def o4 =
-        if (right.endsWith(left)) {
-          unifyPart(right.dropRight(left.size)).map(_ ::: left)
-        }
-        else None
-
-      def o5 = if (subsetList(left, right)) Some(right) else None
-      def o6 = if (subsetList(right, left)) Some(left) else None
-
-      o1
-        .orElse(o2)
-        .orElse(o3)
-        .orElse(o4)
-        .orElse(o5)
-        .orElse(o6)
-    }
-
-    val items = union.toArray.map(_.toList)
-
-    val pairs = for {
-      i <- (0 until items.length).iterator
-      j <- ((i + 1) until items.length).iterator
-      pair <- unifyPair(items(i), items(j)).iterator
-    } yield (pair, i, j)
-
-    // stop after the first unification and loop
-    if (pairs.hasNext) {
-      val (pair, i, j) = pairs.next
-      items(i) = null
-      items(j) = null
-      val rest = items.iterator.filterNot(_ == null).toList
-      // let's look again
-      unifyUnionList(pair :: rest)
-    }
-    else union
-  }
-
-  def ipart(p1: Part1, p2: Part1): List[Part1] =
-    (p1, p2) match {
-      case (Lit(c1), Lit(c2)) => if (c1 == c2) p1 :: Nil else Nil
-      case (AnyElem, _) => p2 :: Nil
-      case (_, AnyElem) => p1 :: Nil
-    }
-
-  def dpart(p1: Part1, p2: Part1): List[Part1] =
-    (p1, p2) match {
-      case (Lit(c1), Lit(c2)) => if (c1 == c2) Nil else p1 :: Nil
-      case (_, AnyElem) => Nil
-      case (AnyElem, _) => p1 :: Nil
-    }
-
-  /**
-   * return true if p1 <= p2, can give false negatives
-   */
-  def subset(p1: Pattern, p2: Pattern): Boolean =
-    p2.matchesAny || (p1 == p2) || subsetList(p1.toList, p2.toList)
-
-  private def subsetList(p1: List[Part], p2: List[Part]): Boolean =
-    (p1, p2) match {
-      case (Nil, Nil) => true
-      case (Nil, (_: Part1) :: t) => false
-      case (Nil, Wildcard :: t) =>
-        subsetList(Nil, t)
-      case (_ :: _, Nil) => false
-      case (Lit(s1) :: t1, Lit(s2) :: t2) =>
-        (s1 == s2) && subsetList(t1, t2)
-      case (AnyElem :: _, Lit(_) :: _) => false
-      case ((_: Part1) :: t1, AnyElem :: t2) => subsetList(t1, t2)
-      case (Wildcard :: _, (_: Part1) :: _) => false
-      case ((_: Part1) :: t1, Wildcard :: t2) =>
-        // p2 = t2 + _:p2
-        subsetList(p1, t2) || subsetList(t1, p2)
-      case (Wildcard :: t1, Wildcard :: t2) =>
-        subsetList(t1, t2) || subsetList(p1, t2)
-    }
-
-  /**
-   * Compute a list of patterns that matches both patterns exactly
-   */
-  def intersection(p1: Pattern, p2: Pattern): List[Pattern] =
-    (p1, p2) match {
-      case (Empty, _) =>
-        if (p2.matchesEmpty) p1 :: Nil else Nil
-      case (_, Empty) =>
-        if (p1.matchesEmpty) p2 :: Nil else Nil
-      case (_, Cat(Wildcard, _)) if p2.matchesAny =>
-        // matches anything
-        p1 :: Nil
-      case (_, _) if subset(p1, p2) => p1 :: Nil
-      case (_, _) if subset(p2, p1) => p2 :: Nil
-      case (Cat(Wildcard, t1@Cat(Wildcard, _)), _) =>
-        // unnormalized
-        intersection(t1, p2)
-      case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
-        // unnormalized
-        intersection(p1, t2)
-      case (Cat(Wildcard, Cat(AnyElem, t1)), _) =>
-        // *. == .*, push Wildcards to the end
-        intersection(Cat(AnyElem, Cat(Wildcard, t1)), p2)
-      case (_, Cat(Wildcard, Cat(AnyElem, t2))) =>
-        // *. == .*, push Wildcards to the end
-        intersection(p1, Cat(AnyElem, Cat(Wildcard, t2)))
-      case (Cat(Wildcard, t1), Cat(Wildcard, t2)) =>
-        // *:t1 = (t1 + _:p1)
-        // *:t2 = (t2 + _:p2)
-        // p1 n p2 = t1 n t2 + (_:p1 n t2) + (t1 n _:p2) + _:(p1 n p2)
-        //         = *:((t1 n t2) + (_:p1 n t2) + (t1 n _:p2))
-        val i1 = intersection(t1, t2)
-        val i2 = intersection(Cat(AnyElem, p1), t2)
-        val i3 = intersection(t1, Cat(AnyElem, p2))
-        val union = (i1 ::: i2 ::: i3)
-
-        unifyUnion(union.map(_.prependWild))
-      case (Cat(h1, t1), Cat(Wildcard, t2)) =>
-        // h1 : t1 n *:t2 = h1:t1 n (t2 + _:p2) =
-        // p1 n t2 + h1 : (t1 n p2)
-        val i1 = intersection(p1, t2)
-        val i2 = intersection(t1, p2).map(Cat(h1, _))
-        unifyUnion(i1 ::: i2)
-      case (Cat(Wildcard, _), Cat(_, _)) =>
-        // intersection is commutative
-        intersection(p2, p1)
-      case (Cat(h1: Part1, t1), Cat(h2: Part1, t2)) =>
-        val intr = for {
-          h <- ipart(h1, h2)
-          t <- intersection(t1, t2)
-        } yield Cat(h, t)
-
-        unifyUnion(intr)
-    }
-
-  /**
-   * return the patterns that match p1 but not p2
-   *
-   * For fixed sets A, B if we have (A1 x B1) - (A2 x B2) =
-   * A1 = (A1 n A2) u (A1 - A2)
-   * A2 = (A1 n A2) u (A2 - A1)
-   * so we can decompose:
-   *
-   * A1 x B1 = (A1 n A2)xB1 u (A1 - A2)xB1
-   * A2 x B2 = (A1 n A2)xB2 u (A2 - A1)xB2
-   *
-   * the difference is:
-   * (A1 n A2)x(B1 - B2) u (A1 - A2)xB1
-   *
-   * The last challenge is we need to operate on
-   * s ingle characters, so we need to expand
-   * wild into [*] = [] | [_, *], since our pattern
-   * language doesn't have a symbol for
-   * a single character match we have to be a bit more careful
-   *
-   * also, we can't exactly represent Wildcard - Lit
-   * so this is actually an upperbound on the difference
-   * which is to say, all the returned patterns match p1,
-   * but some of them also match p2
-   */
-  def difference(p1: Pattern, p2: Pattern): List[Pattern] =
-    (p1, p2) match {
-      case (Empty, _) => if (p2.matchesEmpty) Nil else p1 :: Nil
-      case (Cat(_: Part1, _), Empty) =>
-        // Cat(Part1, _) does not match Empty
-        p1 :: Nil
-      case (_, Cat(Wildcard, _)) if p2.matchesAny =>
-        // matches anything
-        Nil
-      case (_, _) if subset(p1, p2) => Nil
-      case (Cat(Wildcard, t1@Cat(Wildcard, _)), _) =>
-        // unnormalized
-        difference(t1, p2)
-      case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
-        // unnormalized
-        difference(p1, t2)
-      case (Cat(Wildcard, Cat(AnyElem, t1)), _) =>
-        // *. == .*, push Wildcards to the end
-        difference(Cat(AnyElem, Cat(Wildcard, t1)), p2)
-      case (_, Cat(Wildcard, Cat(AnyElem, t2))) =>
-        // *. == .*, push Wildcards to the end
-        difference(p1, Cat(AnyElem, Cat(Wildcard, t2)))
-      case (_, _) if intersection(p1, p2).isEmpty => p1 :: Nil
-      case (Cat(Wildcard, t1), Empty) =>
-        if (!t1.matchesEmpty) p1 :: Nil
-        else {
-          // *:t1 = t1 + _:p1
-          // _:p1 - [] = _:p1
-          unifyUnion(Cat(AnyElem, p1) :: difference(t1, Empty))
-        }
-      case (Cat(h1: Part1, t1), Cat(Wildcard, t2)) =>
-        // h1:t1 - (*:t2) = h1:t1 - t2 - _:p2
-        val d12 = {
-          val dtail = difference(t1, p2)
-          if (dtail == (t1 :: Nil)) p1 :: Nil
-          else {
-            val d1 =
-              for {
-                h <- ipart(h1, AnyElem)
-                t <- difference(t1, p2)
-              } yield Cat(h, t)
-
-            val d2 = dpart(h1, AnyElem).map(Cat(_, t1))
-            d1 ::: d2
-          }
-        }
-
-        val u = d12.flatMap(difference(_, t2))
-
-        unifyUnion(u)
-      case (Cat(Wildcard, t1), Cat(h2: Part1, t2)) =>
-        // *:t1 - (h2:t2) = t1 + _:p1 - h2:t2
-        //   = (t1 - p2) + (_:p1 - h2:t2)
-        val d12 = {
-          val dtail = difference(p1, t2)
-          if (dtail == (p1 :: Nil)) Cat(AnyElem, p1) :: Nil
-          else {
-            val d1 =
-              for {
-                h <- ipart(AnyElem, h2)
-                t <- dtail
-              } yield Cat(h, t)
-
-            val d2 = dpart(AnyElem, h2).map(Cat(_, p1))
-            d1 ::: d2
-          }
-        }
-        val d3 = difference(t1, p2)
-        unifyUnion(d12 ::: d3)
-      case (Cat(h1: Part1, t1), Cat(h2: Part1, t2)) =>
-        // h1:t1 - h2:t2 = (h1 n h2):(t1 - t2) + (h1 - h2):t1
-        //               = (t1 n t2):(h1 - h2) + (t1 - t2):h1
-        // if t1 - t2 == t1, then t1 n t2 = 0
-        val dt = difference(t1, t2)
-        if (dt == (t1 :: Nil)) {
-          p1 :: Nil
-        }
-        else {
-          val d1 =
-            for {
-              h <- ipart(h1, h2)
-              t <- dt
-            } yield Cat(h, t)
-
-          val d2 = dpart(h1, h2).map(Cat(_, t1))
-          unifyUnion(d1 ::: d2)
-        }
-      case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
-        if (c1.rightMost.notWild || c2.rightMost.notWild) {
-          // let's avoid the most complex case of both having
-          // wild on the front if possible
-          difference(c1.reverse, c2.reverse).map(_.reverse)
-        }
-        else {
-          // both start and end with Wildcard
-          val d1 = difference(t1, t2)
-          if (d1.isEmpty) {
-          // if t1 <= t2, then, *:t1 <= *:t2
-          Nil
-          }
-          else {
-            // *:t1 = t1 + _:p1
-            // *:t2 = t2 + _:p2
-            // p1 - p2 = t1 - t2 + _:p1 - t2 + t1 - _:p2 + _:(p1 - p2)
-            // p1 - p2 = *:(d1 + d2 + d3)
-
-            val d2 = difference(Cat(AnyElem, p1), t2)
-            val d3 = difference(t1, Cat(AnyElem, p2))
-            val union = (d1 ::: d2 ::: d3).map(_.prependWild)
-            unifyUnion(union)
-          }
-        }
-    }
-
-  def differenceAll(p1: List[Pattern], p2: List[Pattern]): List[Pattern] =
-    unifyUnion(p2.foldLeft(p1) { (p1s, p) =>
-      // remove p from all of p1s
-      p1s.flatMap(_.difference(p))
-    })
 
   object Pattern {
+    implicit val patternSetOps: SetOps[Pattern] = new SetOps[Pattern] {
+      // Try to unify lists according to the rules:
+      // x u [_, *, x] = [*, x]
+      // x u [*, _, x] = [*, x]
+      // x u [x, *, _] = [x, *]
+      // x u [x, _, *] = [x, *]
+      //
+      // this is an incomplete heuristic now, not a complete solution
+      def unifyUnion(union: List[Pattern]): List[Pattern] =
+        unifyUnionList {
+            union
+              .map(_.normalize)
+              .distinct
+              .map(_.toList)
+          }
+          .map(Pattern.fromList(_).normalize)
+          .sorted
 
-    implicit val ordSeqPattern: Ordering[Pattern] =
+      private[this] val someWild = Some(Wildcard :: Nil)
+      private[this] val someNil = Some(Nil)
+
+      private def unifyUnionList(union: List[List[Part]]): List[List[Part]] = {
+
+        def unifyPart(list: List[Part]): Option[List[Part]] =
+          list match {
+            case AnyElem :: Wildcard :: Nil => someWild
+            case Wildcard :: AnyElem :: Nil => someWild
+            case Wildcard :: Nil => someWild
+            case Nil => someNil
+            case _ => None
+          }
+
+        def unifyPair(left: List[Part], right: List[Part]): Option[List[Part]] = {
+          def o1 =
+            if (left.startsWith(right)) {
+              unifyPart(left.drop(right.size)).map(right ::: _)
+            }
+            else None
+
+          def o2 =
+            if (right.startsWith(left)) {
+              unifyPart(right.drop(left.size)).map(left ::: _)
+            }
+            else None
+
+          def o3 =
+            if (left.endsWith(right)) {
+              unifyPart(left.dropRight(right.size)).map(_ ::: right)
+            }
+            else None
+
+          def o4 =
+            if (right.endsWith(left)) {
+              unifyPart(right.dropRight(left.size)).map(_ ::: left)
+            }
+            else None
+
+          def o5 = if (subsetList(left, right)) Some(right) else None
+          def o6 = if (subsetList(right, left)) Some(left) else None
+
+          o1
+            .orElse(o2)
+            .orElse(o3)
+            .orElse(o4)
+            .orElse(o5)
+            .orElse(o6)
+        }
+
+        val items = union.toArray.map(_.toList)
+
+        val pairs = for {
+          i <- (0 until items.length).iterator
+          j <- ((i + 1) until items.length).iterator
+          pair <- unifyPair(items(i), items(j)).iterator
+        } yield (pair, i, j)
+
+        // stop after the first unification and loop
+        if (pairs.hasNext) {
+          val (pair, i, j) = pairs.next
+          items(i) = null
+          items(j) = null
+          val rest = items.iterator.filterNot(_ == null).toList
+          // let's look again
+          unifyUnionList(pair :: rest)
+        }
+        else union
+      }
+
+      /**
+       * return true if p1 <= p2, can give false negatives
+       */
+      def subset(p1: Pattern, p2: Pattern): Boolean =
+        p2.matchesAny || (p1 == p2) || subsetList(p1.toList, p2.toList)
+
+      private def subsetList(p1: List[Part], p2: List[Part]): Boolean =
+        (p1, p2) match {
+          case (Nil, Nil) => true
+          case (Nil, (_: Part1) :: t) => false
+          case (Nil, Wildcard :: t) =>
+            subsetList(Nil, t)
+          case (_ :: _, Nil) => false
+          case (Lit(s1) :: t1, Lit(s2) :: t2) =>
+            (s1 == s2) && subsetList(t1, t2)
+          case (AnyElem :: _, Lit(_) :: _) => false
+          case ((_: Part1) :: t1, AnyElem :: t2) => subsetList(t1, t2)
+          case (Wildcard :: _, (_: Part1) :: _) => false
+          case ((_: Part1) :: t1, Wildcard :: t2) =>
+            // p2 = t2 + _:p2
+            subsetList(p1, t2) || subsetList(t1, p2)
+          case (Wildcard :: t1, Wildcard :: t2) =>
+            subsetList(t1, t2) || subsetList(p1, t2)
+        }
+
+      /**
+       * Compute a list of patterns that matches both patterns exactly
+       */
+      def intersection(p1: Pattern, p2: Pattern): List[Pattern] =
+        (p1, p2) match {
+          case (Empty, _) =>
+            if (p2.matchesEmpty) p1 :: Nil else Nil
+          case (_, Empty) =>
+            if (p1.matchesEmpty) p2 :: Nil else Nil
+          case (_, Cat(Wildcard, _)) if p2.matchesAny =>
+            // matches anything
+            p1 :: Nil
+          case (_, _) if subset(p1, p2) => p1 :: Nil
+          case (_, _) if subset(p2, p1) => p2 :: Nil
+          case (Cat(Wildcard, t1@Cat(Wildcard, _)), _) =>
+            // unnormalized
+            intersection(t1, p2)
+          case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
+            // unnormalized
+            intersection(p1, t2)
+          case (Cat(Wildcard, Cat(AnyElem, t1)), _) =>
+            // *. == .*, push Wildcards to the end
+            intersection(Cat(AnyElem, Cat(Wildcard, t1)), p2)
+          case (_, Cat(Wildcard, Cat(AnyElem, t2))) =>
+            // *. == .*, push Wildcards to the end
+            intersection(p1, Cat(AnyElem, Cat(Wildcard, t2)))
+          case (Cat(Wildcard, t1), Cat(Wildcard, t2)) =>
+            // *:t1 = (t1 + _:p1)
+            // *:t2 = (t2 + _:p2)
+            // p1 n p2 = t1 n t2 + (_:p1 n t2) + (t1 n _:p2) + _:(p1 n p2)
+            //         = *:((t1 n t2) + (_:p1 n t2) + (t1 n _:p2))
+            val i1 = intersection(t1, t2)
+            val i2 = intersection(Cat(AnyElem, p1), t2)
+            val i3 = intersection(t1, Cat(AnyElem, p2))
+            val union = (i1 ::: i2 ::: i3)
+
+            unifyUnion(union.map(_.prependWild))
+          case (Cat(h1, t1), Cat(Wildcard, t2)) =>
+            // h1 : t1 n *:t2 = h1:t1 n (t2 + _:p2) =
+            // p1 n t2 + h1 : (t1 n p2)
+            val i1 = intersection(p1, t2)
+            val i2 = intersection(t1, p2).map(Cat(h1, _))
+            unifyUnion(i1 ::: i2)
+          case (Cat(Wildcard, _), Cat(_, _)) =>
+            // intersection is commutative
+            intersection(p2, p1)
+          case (Cat(h1: Part1, t1), Cat(h2: Part1, t2)) =>
+            val intr = for {
+              h <- part1SetOps.intersection(h1, h2)
+              t <- intersection(t1, t2)
+            } yield Cat(h, t)
+
+            unifyUnion(intr)
+        }
+
+      /**
+       * return the patterns that match p1 but not p2
+       *
+       * For fixed sets A, B if we have (A1 x B1) - (A2 x B2) =
+       * A1 = (A1 n A2) u (A1 - A2)
+       * A2 = (A1 n A2) u (A2 - A1)
+       * so we can decompose:
+       *
+       * A1 x B1 = (A1 n A2)xB1 u (A1 - A2)xB1
+       * A2 x B2 = (A1 n A2)xB2 u (A2 - A1)xB2
+       *
+       * the difference is:
+       * (A1 n A2)x(B1 - B2) u (A1 - A2)xB1
+       *
+       * The last challenge is we need to operate on
+       * s ingle characters, so we need to expand
+       * wild into [*] = [] | [_, *], since our pattern
+       * language doesn't have a symbol for
+       * a single character match we have to be a bit more careful
+       *
+       * also, we can't exactly represent Wildcard - Lit
+       * so this is actually an upperbound on the difference
+       * which is to say, all the returned patterns match p1,
+       * but some of them also match p2
+       */
+      def difference(p1: Pattern, p2: Pattern): List[Pattern] =
+        (p1, p2) match {
+          case (Empty, _) => if (p2.matchesEmpty) Nil else p1 :: Nil
+          case (Cat(_: Part1, _), Empty) =>
+            // Cat(Part1, _) does not match Empty
+            p1 :: Nil
+          case (_, Cat(Wildcard, _)) if p2.matchesAny =>
+            // matches anything
+            Nil
+          case (_, _) if subset(p1, p2) => Nil
+          case (Cat(Wildcard, t1@Cat(Wildcard, _)), _) =>
+            // unnormalized
+            difference(t1, p2)
+          case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
+            // unnormalized
+            difference(p1, t2)
+          case (Cat(Wildcard, Cat(AnyElem, t1)), _) =>
+            // *. == .*, push Wildcards to the end
+            difference(Cat(AnyElem, Cat(Wildcard, t1)), p2)
+          case (_, Cat(Wildcard, Cat(AnyElem, t2))) =>
+            // *. == .*, push Wildcards to the end
+            difference(p1, Cat(AnyElem, Cat(Wildcard, t2)))
+          case (_, _) if intersection(p1, p2).isEmpty => p1 :: Nil
+          case (Cat(Wildcard, t1), Empty) =>
+            if (!t1.matchesEmpty) p1 :: Nil
+            else {
+              // *:t1 = t1 + _:p1
+              // _:p1 - [] = _:p1
+              unifyUnion(Cat(AnyElem, p1) :: difference(t1, Empty))
+            }
+          case (Cat(h1: Part1, t1), Cat(Wildcard, t2)) =>
+            // h1:t1 - (*:t2) = h1:t1 - t2 - _:p2
+            val d12 = {
+              val dtail = difference(t1, p2)
+              if (dtail == (t1 :: Nil)) p1 :: Nil
+              else {
+                val d1 =
+                  for {
+                    h <- part1SetOps.intersection(h1, AnyElem)
+                    t <- difference(t1, p2)
+                  } yield Cat(h, t)
+
+                val d2 = part1SetOps.difference(h1, AnyElem).map(Cat(_, t1))
+                d1 ::: d2
+              }
+            }
+
+            val u = d12.flatMap(difference(_, t2))
+
+            unifyUnion(u)
+          case (Cat(Wildcard, t1), Cat(h2: Part1, t2)) =>
+            // *:t1 - (h2:t2) = t1 + _:p1 - h2:t2
+            //   = (t1 - p2) + (_:p1 - h2:t2)
+            val d12 = {
+              val dtail = difference(p1, t2)
+              if (dtail == (p1 :: Nil)) Cat(AnyElem, p1) :: Nil
+              else {
+                val d1 =
+                  for {
+                    h <- part1SetOps.intersection(AnyElem, h2)
+                    t <- dtail
+                  } yield Cat(h, t)
+
+                val d2 = part1SetOps.difference(AnyElem, h2).map(Cat(_, p1))
+                d1 ::: d2
+              }
+            }
+            val d3 = difference(t1, p2)
+            unifyUnion(d12 ::: d3)
+          case (Cat(h1: Part1, t1), Cat(h2: Part1, t2)) =>
+            // h1:t1 - h2:t2 = (h1 n h2):(t1 - t2) + (h1 - h2):t1
+            //               = (t1 n t2):(h1 - h2) + (t1 - t2):h1
+            // if t1 - t2 == t1, then t1 n t2 = 0
+            val dt = difference(t1, t2)
+            if (dt == (t1 :: Nil)) {
+              p1 :: Nil
+            }
+            else {
+              val d1 =
+                for {
+                  h <- part1SetOps.intersection(h1, h2)
+                  t <- dt
+                } yield Cat(h, t)
+
+              val d2 = part1SetOps.difference(h1, h2).map(Cat(_, t1))
+              unifyUnion(d1 ::: d2)
+            }
+          case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
+            if (c1.rightMost.notWild || c2.rightMost.notWild) {
+              // let's avoid the most complex case of both having
+              // wild on the front if possible
+              difference(c1.reverse, c2.reverse).map(_.reverse)
+            }
+            else {
+              // both start and end with Wildcard
+              val d1 = difference(t1, t2)
+              if (d1.isEmpty) {
+              // if t1 <= t2, then, *:t1 <= *:t2
+              Nil
+              }
+              else {
+                // *:t1 = t1 + _:p1
+                // *:t2 = t2 + _:p2
+                // p1 - p2 = t1 - t2 + _:p1 - t2 + t1 - _:p2 + _:(p1 - p2)
+                // p1 - p2 = *:(d1 + d2 + d3)
+
+                val d2 = difference(Cat(AnyElem, p1), t2)
+                val d3 = difference(t1, Cat(AnyElem, p2))
+                val union = (d1 ::: d2 ::: d3).map(_.prependWild)
+                unifyUnion(union)
+              }
+            }
+        }
+    }
+
+    implicit val ordself: Ordering[Pattern] =
       new Ordering[Pattern] {
         def compare(a: Pattern, b: Pattern) =
           (a, b) match {
@@ -715,27 +733,83 @@ object SeqPattern {
         case Nil => Empty
       }
 
-    def apply(s: String): Pattern =
-      if (s.isEmpty) Empty
-      else Cat(Lit(s.head), apply(s.tail))
+    def apply(s: Sequence): Pattern =
+      if (isEmpty(s)) Empty
+      else Cat(Lit(head(s)), apply(tail(s)))
 
     val Wild: Pattern = Cat(Wildcard, Empty)
     val Any: Pattern = Cat(AnyElem, Empty)
   }
 
-  def matches(p: Pattern, str: String): Boolean =
+  def matches(p: Pattern, str: Sequence): Boolean =
     p match {
-      case Empty => str.isEmpty
+      case Empty => isEmpty(str)
       case Cat(Lit(c), t) =>
-        str.nonEmpty &&
-          (c == str.head) &&
-          matches(t, str.tail)
+        nonEmpty(str) &&
+          (c == head(str)) &&
+          matches(t, tail(str))
       case Cat(AnyElem, t) =>
-        str.nonEmpty &&
-          matches(t, str.tail)
+        nonEmpty(str) &&
+          matches(t, tail(str))
       case Cat(Wildcard, t) =>
         matchEnd(t, str).nonEmpty
     }
+
+  // return all the prefixes where this pattern matches everything
+  // after
+  def matchEnd(p: Pattern, str: Sequence): Stream[Sequence] =
+    p match {
+      case Empty => str #:: Stream.Empty
+      case Cat(p: Part1, t) =>
+        val splits = p match {
+          case Lit(c) => positions(c, str)
+          case AnyElem => anySplits(str)
+        }
+        splits.collect { case (pre, _, post) if matches(t, post) => pre }
+      case Cat(Wildcard, t) =>
+        matchEnd(t, str)
+    }
+}
+
+object SeqPattern {
+  type Aux[E, S] = SeqPattern { type Elem = E; type Sequence = S }
+}
+
+object StringSeqPattern extends SeqPattern {
+  type Elem = Char
+  type Sequence = String
+
+  val elemOrdering: Ordering[Char] = Ordering.Char
+
+  val part1SetOps: SetOps[Part1] = new SetOps[Part1] {
+    def intersection(p1: Part1, p2: Part1): List[Part1] =
+      (p1, p2) match {
+        case (Lit(c1), Lit(c2)) => if (c1 == c2) p1 :: Nil else Nil
+        case (AnyElem, _) => p2 :: Nil
+        case (_, AnyElem) => p1 :: Nil
+      }
+
+    def difference(p1: Part1, p2: Part1): List[Part1] =
+      (p1, p2) match {
+        case (Lit(c1), Lit(c2)) => if (c1 == c2) Nil else p1 :: Nil
+        case (_, AnyElem) => Nil
+        case (AnyElem, _) => p1 :: Nil
+      }
+
+    def subset(p1: Part1, p2: Part1): Boolean =
+      p2 match {
+        case AnyElem => true
+        case Lit(c2) =>
+          p1 match {
+            case Lit(c1) => c1 == c2
+            case _ => false
+          }
+      }
+
+    def unifyUnion(u: List[Part1]): List[Part1] =
+      if (u.exists(_ == AnyElem)) AnyElem :: Nil
+      else u.distinct.sorted(Part.partOrdering)
+  }
 
   // return all the places such that fst ++ c ++ snd == str
   def positions(c: Char, str: String): Stream[(String, Char, String)] = {
@@ -759,18 +833,9 @@ object SeqPattern {
         (prefix, str.charAt(idx), post)
       }
 
-  // return all the prefixes where this pattern matches everything
-  // after
-  def matchEnd(p: Pattern, str: String): Stream[String] =
-    p match {
-      case Empty => str #:: Stream.Empty
-      case Cat(p: Part1, t) =>
-        val splits = p match {
-          case Lit(c) => positions(c, str)
-          case AnyElem => anySplits(str)
-        }
-        splits.collect { case (pre, _, post) if matches(t, post) => pre }
-      case Cat(Wildcard, t) =>
-        matchEnd(t, str)
-    }
+  def seqToList(s: Sequence): List[Elem] = s.toList
+  def listToSeq(s: List[Elem]): Sequence = s.mkString
+  def isEmpty(s: Sequence): Boolean = s.isEmpty
+  def head(s: String) = s.head
+  def tail(s: String) = s.tail
 }

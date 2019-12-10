@@ -5,7 +5,9 @@ import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
 class SeqPatternTest extends FunSuite {
-  import SeqPattern._
+  import StringSeqPattern._
+
+  import Pattern.patternSetOps._
 
   // generate a string of 0s and 1s to make matches more likely
   val genBitString: Gen[String] =
@@ -400,7 +402,7 @@ class SeqPatternTest extends FunSuite {
       val x = Pattern.fromList(x0.toList.take(5))
       val y = Pattern.fromList(y0.toList.take(5))
       if (y.difference(x) == Nil) {
-        assert(y.appendString(str).difference(x.appendString(str)) == Nil)
+        assert(y.append(str).difference(x.append(str)) == Nil)
       }
     }
 
@@ -480,7 +482,7 @@ class SeqPatternTest extends FunSuite {
       val x = Pattern.fromList(x0.toList.take(max))
       val y = Pattern.fromList(y0.toList.take(max))
       val z = x.difference(y)
-      val z1 = differenceAll(z, z)
+      val z1 = unifyUnion(differenceAll(z, z))
 
       assert(z1.map(_.show) == Nil, s"z = ${z.map(_.show)}")
     }
@@ -570,5 +572,11 @@ class SeqPatternTest extends FunSuite {
         }
       }
     }
+  }
+
+  test("Test some examples of Named matching") {
+    // foo@("bar" baz@(*"baz"))
+    val p1 = (Named("bar") + (Named.Wild + Named("baz")).name("baz")).name("foo")
+    assert(p1.matches("bar and baz") == Some(Map("foo" -> "bar and baz", "baz" -> " and baz")))
   }
 }
