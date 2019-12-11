@@ -437,30 +437,11 @@ object SeqPattern0 {
         }
     }
 
-  trait Splitter[Elem, Item, Sequence, R] {
-    def matcher: Matcher[Elem, Item, R]
-
-    // return all the places such that fst ++ c ++ snd == str
-    def positions(c: Elem, str: Sequence): Stream[(Sequence, Item, R, Sequence)]
-
-    // splits skipping a single character to match AnyElem
-    def anySplits(str: Sequence): Stream[(Sequence, Item, R, Sequence)]
-
-    def isEmpty(s: Sequence): Boolean
-
-    def uncons(s: Sequence): Option[(Item, Sequence)]
-
-    def emptyMatch: R
-    def anyMatch(s: Sequence): R
-
-    def combine(r1: R, r2: R): R
-  }
-
   def matcher[A, I, S, R](split: Splitter[A, I, S, R]): Matcher[SeqPattern0[A], S, R] =
     new Matcher[SeqPattern0[A], S, R] {
       import SeqPart.{AnyElem, Lit, SeqPart1, Wildcard}
 
-      val someEmpty = Some(split.emptyMatch)
+      val someEmpty = Some(split.monoidResult.empty)
 
       def apply(p: SeqPattern0[A]): S => Option[R] =
         p match {
@@ -475,7 +456,7 @@ object SeqPattern0 {
                 (h, t) = ht
                 rh <- mh(h)
                 rt <- mt(t)
-              } yield split.combine(rh, rt) }
+              } yield split.monoidResult.combine(rh, rt) }
           case Cat(AnyElem, t) =>
             val mt = apply(t)
 
@@ -484,16 +465,16 @@ object SeqPattern0 {
                 ht <- split.uncons(s)
                 (_, t) = ht
                 rt <- mt(t)
-              } yield split.combine(split.anyMatch(s), rt) }
+              } yield split.monoidResult.combine(split.anyMatch(s), rt) }
           case Cat(Wildcard, t) =>
             matchEnd(t).andThen(_.headOption.map(_._2))
         }
 
       def matchEnd(p: SeqPattern0[A]): S => Stream[(S, R)] =
         p match {
-          case Empty => { s: S => (s, split.emptyMatch) #:: Stream.Empty }
+          case Empty => { s: S => (s, split.monoidResult.empty) #:: Stream.Empty }
           case Cat(p: SeqPart1[A], t) =>
-            val splitFn: S => Stream[(S, I, R, S)] = p match {
+            val splitFn: S => Stream[(S, R, S)] = p match {
               case Lit(c) => split.positions(c, _: S)
               case AnyElem => split.anySplits(_: S)
             }
@@ -501,9 +482,9 @@ object SeqPattern0 {
 
             { s: S =>
               splitFn(s)
-                .map { case (pre, _, r, post)  =>
+                .map { case (pre, r, post)  =>
                   tailMatch(post)
-                    .map { rtail => (pre, split.combine(r, rtail)) }
+                    .map { rtail => (pre, split.monoidResult.combine(r, rtail)) }
                 }
                 .collect { case Some(res) => res }
             }
