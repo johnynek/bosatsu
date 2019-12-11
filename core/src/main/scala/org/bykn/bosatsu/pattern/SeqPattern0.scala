@@ -444,22 +444,27 @@ object SeqPattern0 {
     def positions(c: Elem, str: Sequence): Stream[(Sequence, Item, R, Sequence)]
 
     // splits skipping a single character to match AnyElem
-    def anySplits(str: Sequence): Stream[(Sequence, Item, Sequence)]
+    def anySplits(str: Sequence): Stream[(Sequence, Item, R, Sequence)]
 
-    def isEmpty(s: Sequence): Option[R]
+    def isEmpty(s: Sequence): Boolean
 
     def uncons(s: Sequence): Option[(Item, Sequence)]
+
+    def emptyMatch: R
+    def anyMatch(s: Sequence): R
 
     def combine(r1: R, r2: R): R
   }
 
   def matcher[A, I, S, R](split: Splitter[A, I, S, R]): Matcher[SeqPattern0[A], S, R] =
     new Matcher[SeqPattern0[A], S, R] {
-      import SeqPart.{AnyElem, Lit, Wildcard}
+      import SeqPart.{AnyElem, Lit, SeqPart1, Wildcard}
+
+      val someEmpty = Some(split.emptyMatch)
 
       def apply(p: SeqPattern0[A]): S => Option[R] =
         p match {
-          case Empty => { (s: S) => split.isEmpty(s) }
+          case Empty => { (s: S) => if (split.isEmpty(s)) someEmpty else None }
           case Cat(Lit(h), t) =>
             val mh = split.matcher(h)
             val mt = apply(t)
@@ -474,24 +479,36 @@ object SeqPattern0 {
           case Cat(AnyElem, t) =>
             val mt = apply(t)
 
-            { (s: S) => split.uncons(s).flatMap { case (_, t) => mt(t) } }
+            { (s: S) =>
+              for {
+                ht <- split.uncons(s)
+                (_, t) = ht
+                rt <- mt(t)
+              } yield split.combine(split.anyMatch(s), rt) }
           case Cat(Wildcard, t) =>
             matchEnd(t).andThen(_.headOption.map(_._2))
         }
 
-      def matchEnd(p: SeqPattern0[A]): S => Stream[(S, R)] = ???
-      /*
-        def matchEnd(p: Pattern, str: S): Stream[S] =
-          p match {
-            case Empty => str #:: Stream.Empty
-            case Cat(p: Part1, t) =>
-              val splits = p match {
-                case Lit(c) => positions(c, str)
-                case AnyElem => anySplits(str)
-              }
-              splits.collect { case (pre, _, post) if matches(t, post) => pre }
-            case Cat(Wildcard, t) =>
-              matchEnd(t, str)
-          }*/
+      def matchEnd(p: SeqPattern0[A]): S => Stream[(S, R)] =
+        p match {
+          case Empty => { s: S => (s, split.emptyMatch) #:: Stream.Empty }
+          case Cat(p: SeqPart1[A], t) =>
+            val splitFn: S => Stream[(S, I, R, S)] = p match {
+              case Lit(c) => split.positions(c, _: S)
+              case AnyElem => split.anySplits(_: S)
+            }
+            val tailMatch = apply(t)
+
+            { s: S =>
+              splitFn(s)
+                .map { case (pre, _, r, post)  =>
+                  tailMatch(post)
+                    .map { rtail => (pre, split.combine(r, rtail)) }
+                }
+                .collect { case Some(res) => res }
+            }
+          case Cat(Wildcard, t) =>
+            matchEnd(t)
+        }
     }
 }
