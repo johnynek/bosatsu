@@ -55,3 +55,33 @@ trait SetOps[A] {
     }
 }
 
+object SetOps {
+  def distinct[A](implicit ordA: Ordering[A]): SetOps[A] =
+    new SetOps[A] {
+      def top: Option[A] = None
+      def isTop(a: A): Boolean = false
+      def intersection(a1: A, a2: A): List[A] =
+        if (ordA.equiv(a1, a2)) a1 :: Nil
+        else Nil
+
+      def difference(a1: A, a2: A): List[A] =
+        if (ordA.equiv(a1, a2)) Nil
+        else a1 :: Nil
+
+      def unifyUnion(u: List[A]): List[A] = {
+
+        def nub(u: List[A]): List[A] =
+          u match {
+            case Nil | _ :: Nil => u
+            case h1 :: (t1@(h2 :: _)) =>
+              if (ordA.equiv(h1, h2)) nub(t1)
+              else h1 :: nub(t1)
+          }
+
+        nub(u.sorted)
+      }
+
+      def subset(a: A, b: A): Boolean = ordA.equiv(a, b)
+    }
+
+}
