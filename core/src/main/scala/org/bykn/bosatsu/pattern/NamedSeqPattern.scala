@@ -7,7 +7,7 @@ sealed trait NamedSeqPattern[+A] {
   import NamedSeqPattern._
   import SeqPart._
 
-  def unname: SeqPattern0[A] = {
+  def unname: SeqPattern[A] = {
     def loop(n: NamedSeqPattern[A], right: List[SeqPart[A]]): List[SeqPart[A]] =
       n match {
         case Bind(_, n) => loop(n, right)
@@ -18,7 +18,7 @@ sealed trait NamedSeqPattern[+A] {
         case NSeqPart(p) => p :: right
       }
 
-    SeqPattern0.fromList(loop(this, Nil))
+    SeqPattern.fromList(loop(this, Nil))
   }
 
   def name(n: String): NamedSeqPattern[A] =
@@ -63,7 +63,7 @@ sealed trait NamedSeqPattern[+A] {
 }
 
 object NamedSeqPattern {
-  def fromPattern[A](p: SeqPattern0[A]): NamedSeqPattern[A] =
+  def fromPattern[A](p: SeqPattern[A]): NamedSeqPattern[A] =
     p.toList.foldRight(NEmpty: NamedSeqPattern[A]) { (part, right) =>
       NCat(NSeqPart(part), right)
     }
