@@ -98,6 +98,18 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
   def isTotal(branches: Patterns): Res[Boolean] =
     missingBranches(branches).map(_.isEmpty)
 
+  /**
+   * Constructors must match all items to be legal
+   */
+  private def checkArity(nm: Cons, size: Int, pat: Pattern[Cons, Type]): Res[Unit] =
+    inEnv.typeConstructors.get(nm) match {
+      case None => Left(NonEmptyList.of(UnknownConstructor(nm, pat, inEnv)))
+      case Some((_, params, _)) =>
+        val cmp = params.lengthCompare(size)
+        if (cmp == 0) validUnit
+        else Left(NonEmptyList.of(ArityMismatch(nm, pat, inEnv, size, params.size)))
+    }
+
   private[this] val validUnit: Res[Unit] = Right(())
   /**
    * Check that a given pattern follows all the rules.
@@ -130,6 +142,17 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         val simp = sp.toSimple
         if (simp.normalize == simp) validUnit
         else Left(NonEmptyList(InvalidStrPat(sp, inEnv), Nil))
+
+      case PositionalStruct(name, args) =>
+        // This is total if the struct has a single constructor AND each of the patterns is total
+        val nameCheck = inEnv.definedTypeFor(name) match {
+          case None =>
+            Left(NonEmptyList.of(UnknownConstructor(name, p, inEnv)))
+          case Some(_) => resBool(true)
+        }
+        val argCheck = args.parTraverse_(validatePattern)
+        val arityCheck = checkArity(name, args.size, p)
+        (nameCheck, argCheck, arityCheck).parMapN { (_, _, _) => () }
 
       case _ => validUnit
     }
@@ -310,11 +333,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
   def normalizeUnion(u: Pattern.Union[Cons, Type]): NonEmptyList[Pattern[Cons, Type]] = {
     val list = NonEmptyList(u.head, u.rest.toList)
-    def defTotal(u: Pattern[Cons, Type]): Boolean =
-      isTotal(u) match {
-        case Right(true) => true
-        case _ => false
-      }
     implicit val ordPat: Order[Pattern[Cons, Type]] = Order.fromOrdering
     val flattened =
       list
@@ -326,7 +344,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         .distinct
         .sorted
 
-    if (flattened.exists(defTotal)) NonEmptyList(WildCard, Nil)
+    if (flattened.exists(isTotal)) NonEmptyList(WildCard, Nil)
     else flattened
   }
 
@@ -415,13 +433,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         if (l == r) emptyUnion
         else singleUnion(llit)
       case (PositionalStruct(ln, lp), PositionalStruct(rn, rp)) if ln == rn =>
-        // we have two matching structs
-        val arityMatch =
-          checkArity(ln, lp.size, left)
-            .product(checkArity(rn, rp.size, right))
-            .as(())
-
-        arityMatch >> productDifference(lp zip rp).map { pats =>
+        productDifference(lp zip rp).map { pats =>
           pats.map { tup => PositionalStruct(ln, tup.toList) }
         }
       case (PositionalStruct(_, _), PositionalStruct(_, _)) =>
@@ -486,19 +498,13 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         case (_, ListPat(_)) => emptyUnion
         case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
           if (ln == rn) {
-            val check = for {
-              _ <- checkArity(ln, lps.size, left)
-              _ <- checkArity(rn, rps.size, right)
-            } yield ()
-
             type ResList[A] = Res[List[A]]
             implicit val app = Applicative[Res].compose(Applicative[List])
-            check >>
-              lps.zip(rps).traverse[ResList, Pattern[Cons, Type]] {
-                case (l, r) => intersection(l, r)
-              }
-              .map(_.map(PositionalStruct(ln, _): Pattern[Cons, Type]))
-              .map(_.sorted)
+            lps.zip(rps).traverse[ResList, Pattern[Cons, Type]] {
+              case (l, r) => intersection(l, r)
+            }
+            .map(_.map(PositionalStruct(ln, _): Pattern[Cons, Type]))
+            .map(_.sorted)
           }
           else emptyUnion
       }
@@ -817,42 +823,30 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
 
   /**
-   * Constructors must match all items to be legal
-   */
-  private def checkArity(nm: Cons, size: Int, pat: Pattern[Cons, Type]): Res[Unit] =
-    inEnv.typeConstructors.get(nm) match {
-      case None => Left(NonEmptyList.of(UnknownConstructor(nm, pat, inEnv)))
-      case Some((_, params, _)) =>
-        val cmp = params.lengthCompare(size)
-        if (cmp == 0) validUnit
-        else Left(NonEmptyList.of(ArityMismatch(nm, pat, inEnv, size, params.size)))
-    }
-
-  /**
    * Can a given pattern match everything for a the current type
    */
-  private def isTotal(p: Pattern[Cons, Type]): Res[Boolean] =
+  private def isTotal(p: Pattern[Cons, Type]): Boolean =
     p match {
-      case Pattern.WildCard | Pattern.Var(_) => resBool(true)
+      case Pattern.WildCard | Pattern.Var(_) => true
       case Pattern.Named(_, p) => isTotal(p)
-      case Pattern.Literal(_) => resBool(false) // literals are not total
-      case s@Pattern.StrPat(_) => resBool(s.isTotal)
+      case Pattern.Literal(_) => false // literals are not total
+      case s@Pattern.StrPat(_) => s.isTotal
       case Pattern.ListPat((_: ListPart.Glob) :: rest) =>
-        Right(matchesEmpty(rest))
+        matchesEmpty(rest)
       case Pattern.ListPat(_) =>
         // can't match everything on the front
-        resBool(false)
+        false
       case Pattern.Annotation(p, _) => isTotal(p)
       case Pattern.PositionalStruct(name, params) =>
-        // This is total if the struct has a single constructor AND each of the patterns is total
         inEnv.definedTypeFor(name) match {
           case None =>
-            Left(NonEmptyList.of(UnknownConstructor(name, p, inEnv)))
+            false
           case Some(dt) =>
-            if (dt.isStruct) params.forallM(isTotal)
-            else resBool(false)
+            // we check at the beginning if the arity matches
+            // so we don't need to check here
+            dt.isStruct && params.forall(isTotal)
         }
-      case Pattern.Union(h, t) => isTotal(h :: t.toList)
+      case Pattern.Union(h, t) => isTotal(h :: t.toList) == resBool(true)
     }
 
   /**
@@ -861,38 +855,37 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
    * the previous pattern, without any binding names
    */
   def normalizePattern(p: Pattern[Cons, Type]): Pattern[Cons, Type] =
-    isTotal(p) match {
-      case Right(true) => WildCard
-      case _ =>
-        p match {
-          case WildCard | Literal(_) => p
-          case Var(_) => WildCard
-          case Named(_, p) => normalizePattern(p)
-          case strPat@StrPat(_) =>
-            StrPat.fromSimple(strPat.toSimple.unname)
-          case ListPat(ls) =>
-            val normLs: List[ListPatElem] =
-              ls.map {
-                case _: ListPart.Glob => ListPart.WildList
-                case ListPart.Item(p) => ListPart.Item(normalizePattern(p))
-              }
-            normLs match {
-              case (_: ListPart.Glob) :: Nil => WildCard
-              case rest => ListPat(rest)
+    if (isTotal(p)) WildCard
+    else {
+      p match {
+        case WildCard | Literal(_) => p
+        case Var(_) => WildCard
+        case Named(_, p) => normalizePattern(p)
+        case strPat@StrPat(_) =>
+          StrPat.fromSimple(strPat.toSimple.unname)
+        case ListPat(ls) =>
+          val normLs: List[ListPatElem] =
+            ls.map {
+              case _: ListPart.Glob => ListPart.WildList
+              case ListPart.Item(p) => ListPart.Item(normalizePattern(p))
             }
-          case Annotation(p, t) => Annotation(normalizePattern(p), t)
-          case PositionalStruct(n, params) =>
-            PositionalStruct(n, params.map(normalizePattern))
-          case u@Union(h, t) =>
-            implicit val ordP: Order[Pattern[Cons, Type]] = Order.fromOrdering
-            val pats = (normalizePattern(h) :: t.map(normalizePattern(_))).distinct.sorted
-            pats match {
-              case NonEmptyList(h, Nil) => h
-              case NonEmptyList(h0, h1 :: tail) =>
-                val ps = normalizeUnion(Union(h0, NonEmptyList(h1, tail)))
-                patternsToPattern(ps)
-            }
-        }
+          normLs match {
+            case (_: ListPart.Glob) :: Nil => WildCard
+            case rest => ListPat(rest)
+          }
+        case Annotation(p, t) => Annotation(normalizePattern(p), t)
+        case PositionalStruct(n, params) =>
+          PositionalStruct(n, params.map(normalizePattern))
+        case u@Union(h, t) =>
+          implicit val ordP: Order[Pattern[Cons, Type]] = Order.fromOrdering
+          val pats = (normalizePattern(h) :: t.map(normalizePattern(_))).distinct.sorted
+          pats match {
+            case NonEmptyList(h, Nil) => h
+            case NonEmptyList(h0, h1 :: tail) =>
+              val ps = normalizeUnion(Union(h0, NonEmptyList(h1, tail)))
+              patternsToPattern(ps)
+          }
+      }
     }
   /**
    * This tells if two patterns for the same type
