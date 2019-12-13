@@ -12,6 +12,8 @@ abstract class SetOpsLaws[A] extends FunSuite {
 
   def eqUnion: Gen[Eq[List[A]]]
 
+  def eqA: Gen[Eq[A]] =
+    eqUnion.map(Eq.by { a: A => a :: Nil }(_))
 
   import setOps._
 
@@ -125,14 +127,14 @@ abstract class SetOpsLaws[A] extends FunSuite {
   }
 
   test("subset consistency: a n b == a <=> a - b = 0") {
-    def isSubsetIntr(a: A, b: A) =
-      intersection(a, b) == (a :: Nil)
+    def isSubsetIntr(a: A, b: A, eqAs: Eq[List[A]]) =
+      eqAs.eqv(intersection(a, b), (a :: Nil))
 
     def isSubsetDiff(a: A, b: A) =
       difference(a, b).isEmpty
 
-    def law(a: A, b: A) = {
-      val intSub = isSubsetIntr(a, b)
+    def law(a: A, b: A, eqAs: Eq[List[A]]) = {
+      val intSub = isSubsetIntr(a, b, eqAs)
       val diffSub = isSubsetDiff(a, b)
 
       if (subset(a, b)) {
@@ -143,7 +145,7 @@ abstract class SetOpsLaws[A] extends FunSuite {
       assert(intSub == diffSub)
     }
 
-    forAll(genItem, genItem)(law(_, _))
+    forAll(genItem, genItem, eqUnion)(law(_, _, _))
   }
 
   test("difference returns distinct values") {

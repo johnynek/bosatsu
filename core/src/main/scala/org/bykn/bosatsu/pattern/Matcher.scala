@@ -48,4 +48,6 @@ object Matcher {
       def apply(a: A): A => Option[Unit] =
           { (s: A) => if (eqA.eqv(a, s)) someUnit else None }
     }
+
+  val charMatcher: Matcher[Char, Char, Unit] = eqMatcher(Eq.fromUniversalEquals[Char])
 }

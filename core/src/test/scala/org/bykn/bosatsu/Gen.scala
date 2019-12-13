@@ -401,7 +401,7 @@ object Generators {
         for {
           sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
           inner <- nonEmptyN(genPart, sz)
-        } yield Pattern.StrPat.fromSimple(Pattern.StrPat(inner).toSimple.normalize)
+        } yield Pattern.StrPat.fromNamedSeqPattern(Pattern.StrPat(inner).toNamedSeqPattern)
       }
 
       val genStruct =  for {

@@ -50,6 +50,15 @@ sealed trait SeqPattern[+A] {
       case Cat(h, t) => h :: t.toList
     }
 
+  // if this is a literal sequence return it
+  def toLiteralSeq: Option[List[A]] =
+    this match {
+      case Empty => Some(Nil)
+      case Cat(Lit(a), t) =>
+        t.toLiteralSeq.map(a :: _)
+      case Cat(_, _) => None
+    }
+
   /**
    * If two wilds are adjacent, the left one will always match empty string
    * this normalize just removes the left wild
@@ -492,4 +501,7 @@ object SeqPattern {
             matchEnd(t)
         }
     }
+
+  val stringUnitMatcher: Matcher[SeqPattern[Char], String, Unit] =
+    matcher(Splitter.stringUnit)
 }

@@ -60,6 +60,13 @@ sealed trait NamedSeqPattern[+A] {
 
     loop(this, ms.empty)
   }
+
+  def names: List[String] =
+    this match {
+      case Bind(name, nsp) => name :: nsp.names
+      case NEmpty | NSeqPart(_) => Nil
+      case NCat(h, t) => h.names ::: t.names
+    }
 }
 
 object NamedSeqPattern {
@@ -75,6 +82,9 @@ object NamedSeqPattern {
   case object NEmpty extends NamedSeqPattern[Nothing]
   case class NSeqPart[A](part: SeqPart[A]) extends NamedSeqPattern[A]
   case class NCat[A](first: NamedSeqPattern[A], second: NamedSeqPattern[A]) extends NamedSeqPattern[A]
+
+  def fromLit[A](a: A): NamedSeqPattern[A] =
+    NSeqPart(SeqPart.Lit(a))
 
   def matcher[E, I, S, R](split: Splitter[E, I, S, R]): Matcher[NamedSeqPattern[E], S, Map[String, R]] =
     new Matcher[NamedSeqPattern[E], S, Map[String, R]] {

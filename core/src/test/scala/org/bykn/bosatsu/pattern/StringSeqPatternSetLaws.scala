@@ -20,7 +20,7 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
     Pattern.fromList(p.toList.take(4)).normalize
   }
 
-  val pmatcher = Pattern.matcher(Splitter.stringSplitter(_ => ()))
+  val pmatcher = Pattern.stringUnitMatcher
 
   def matches(p: Pattern, s: String): Boolean = pmatcher(p)(s).isDefined
 

@@ -4,6 +4,7 @@ import cats.Eval
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.graph.Memoize
 import java.math.BigInteger
+import org.bykn.bosatsu.pattern.{NamedSeqPattern, Splitter}
 import org.bykn.bosatsu.rankn.{DefinedType, Type}
 import scala.collection.mutable.{Map => MMap}
 
@@ -326,24 +327,27 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
               }
             }
           case pat@Pattern.StrPat(_) =>
-            val spat = pat.toSimple
-            val nameMap = spat.toList.collect {
-              case SimpleStringPattern.Var(n) => (n, Identifier.unsafe(n))
+            val spat = pat.toNamedSeqPattern
+            val nameMap = spat.names.map { n =>
+              (n, Identifier.unsafe(n))
             }.toMap
 
             if (nameMap.isEmpty) {
+              // we can just use the simple matcher
               { (v, env) =>
                 // this casts should be safe if we have typechecked
                 val str = v.asInstanceOf[ExternalValue].toAny.asInstanceOf[String]
-                if (spat.doesMatch(str)) Some(env)
+                if (pat.matches(str)) Some(env)
                 else None
               }
             }
             else {
+              val matcher = NamedSeqPattern.matcher[Char, Char, String, String](Splitter.stringSplitter(s => s))(spat)
+
               { (v, env) =>
                 // this casts should be safe if we have typechecked
                 val str = v.asInstanceOf[ExternalValue].toAny.asInstanceOf[String]
-                spat.matches(str).map { vars =>
+                matcher(str).map { vars =>
                   env ++ vars.iterator.map { case (k, v) => (nameMap(k), Eval.now(ExternalValue(v))) }
                 }
               }

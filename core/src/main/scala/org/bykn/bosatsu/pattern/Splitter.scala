@@ -1,6 +1,8 @@
 package org.bykn.bosatsu.pattern
 
-import cats.{Eq, Monoid}
+import cats.Monoid
+
+import cats.implicits._
 
 trait Splitter[-Elem, Item, Sequence, R] {
   def matcher: Matcher[Elem, Item, R]
@@ -53,7 +55,7 @@ object Splitter {
   def stringSplitter[R](fn: String => R)(implicit m: Monoid[R]): Splitter[Char, Char, String, R] =
     new Splitter[Char, Char, String, R] {
       val matcher =
-        Matcher.eqMatcher(Eq.fromUniversalEquals[Char])
+        Matcher.charMatcher
           .mapWithInput { (s, _) => fn(s.toString) }
 
       val monoidResult = m
@@ -94,4 +96,7 @@ object Splitter {
 
       def anyMatch(s: String) = fn(s)
     }
+
+  val stringUnit: Splitter[Char, Char, String, Unit] =
+    stringSplitter(_ => ())
 }
