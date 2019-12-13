@@ -325,27 +325,14 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           })
     }
 
-  def patternsToPattern(ps: NonEmptyList[Pattern[Cons, Type]]): Pattern[Cons, Type] =
-    ps match {
-      case NonEmptyList(h, Nil) => h
-      case NonEmptyList(h0, h1 :: tail) => Pattern.Union(h0, NonEmptyList(h1, tail))
-    }
-
   def normalizeUnion(u: Pattern.Union[Cons, Type]): NonEmptyList[Pattern[Cons, Type]] = {
-    val list = NonEmptyList(u.head, u.rest.toList)
     implicit val ordPat: Order[Pattern[Cons, Type]] = Order.fromOrdering
-    val flattened =
-      list
-        .flatMap {
-          case u@Pattern.Union(_, _) =>
-            normalizeUnion(u)
-          case p => NonEmptyList(p, Nil)
-        }
-        .distinct
-        .sorted
+    val flattened = Pattern.flatten(u)
 
-    if (flattened.exists(isTotal)) NonEmptyList(WildCard, Nil)
-    else flattened
+    if (isTotal(flattened.toList) == resBool(true)) NonEmptyList(WildCard, Nil)
+    else {
+      flattened.distinct.sorted
+    }
   }
 
   def difference0(left: Pattern[Cons, Type], right: Pattern[Cons, Type]): Res[Patterns] =
@@ -855,37 +842,27 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
    * the previous pattern, without any binding names
    */
   def normalizePattern(p: Pattern[Cons, Type]): Pattern[Cons, Type] =
-    if (isTotal(p)) WildCard
-    else {
-      p match {
-        case WildCard | Literal(_) => p
-        case Var(_) => WildCard
-        case Named(_, p) => normalizePattern(p)
-        case strPat@StrPat(_) =>
-          StrPat.fromSimple(strPat.toSimple.unname)
-        case ListPat(ls) =>
-          val normLs: List[ListPatElem] =
-            ls.map {
-              case _: ListPart.Glob => ListPart.WildList
-              case ListPart.Item(p) => ListPart.Item(normalizePattern(p))
-            }
-          normLs match {
-            case (_: ListPart.Glob) :: Nil => WildCard
-            case rest => ListPat(rest)
+    p match {
+      case WildCard | Literal(_) => p
+      case Var(_) => WildCard
+      case Named(_, p) => normalizePattern(p)
+      case Annotation(p, t) => normalizePattern(p)
+      case Union(h, t) =>
+        val pats = normalizeUnion(Union(normalizePattern(h), t.map(normalizePattern(_))))
+        Pattern.union(pats.head, pats.tail)
+      case _ if isTotal(p) => WildCard
+      case strPat@StrPat(_) =>
+        StrPat.fromSimple(strPat.toSimple.unname)
+      case ListPat(ls) =>
+        val normLs: List[ListPatElem] =
+          ls.map {
+            case _: ListPart.Glob => ListPart.WildList
+            case ListPart.Item(p) => ListPart.Item(normalizePattern(p))
           }
-        case Annotation(p, t) => Annotation(normalizePattern(p), t)
-        case PositionalStruct(n, params) =>
-          PositionalStruct(n, params.map(normalizePattern))
-        case u@Union(h, t) =>
-          implicit val ordP: Order[Pattern[Cons, Type]] = Order.fromOrdering
-          val pats = (normalizePattern(h) :: t.map(normalizePattern(_))).distinct.sorted
-          pats match {
-            case NonEmptyList(h, Nil) => h
-            case NonEmptyList(h0, h1 :: tail) =>
-              val ps = normalizeUnion(Union(h0, NonEmptyList(h1, tail)))
-              patternsToPattern(ps)
-          }
-      }
+        // we can't be a single WildCard because this is not total
+        ListPat(normLs)
+      case PositionalStruct(n, params) =>
+        PositionalStruct(n, params.map(normalizePattern))
     }
   /**
    * This tells if two patterns for the same type
