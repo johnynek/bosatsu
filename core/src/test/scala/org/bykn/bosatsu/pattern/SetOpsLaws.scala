@@ -239,3 +239,52 @@ abstract class SetOpsLaws[A] extends FunSuite {
     }
   }
 }
+
+class DistinctSetOpsTest extends SetOpsLaws[Byte] {
+  val setOps: SetOps[Byte] = SetOps.distinct[Byte]
+
+  val genItem: Gen[Byte] = Gen.choose(Byte.MinValue, Byte.MaxValue)
+
+  val eqUnion: Gen[Eq[List[Byte]]] = Gen.const(new Eq[List[Byte]] {
+    def eqv(left: List[Byte], right: List[Byte]) =
+      left.toSet == right.toSet
+  })
+}
+
+class IMapSetOpsTest extends SetOpsLaws[Byte] {
+  val setOps: SetOps[Byte] =
+    SetOps.imap(SetOps.distinct[Byte],
+      { b: Byte => (b ^ 0xFF).toByte },
+      { b: Byte => (b ^ 0xFF).toByte })
+
+  val genItem: Gen[Byte] = Gen.choose(Byte.MinValue, Byte.MaxValue)
+
+  val eqUnion: Gen[Eq[List[Byte]]] = Gen.const(new Eq[List[Byte]] {
+    def eqv(left: List[Byte], right: List[Byte]) =
+      left.toSet == right.toSet
+  })
+}
+
+class ProductSetOpsTest extends SetOpsLaws[(Boolean, Boolean)] {
+  val setOps: SetOps[(Boolean, Boolean)] = SetOps.product(SetOps.distinct[Boolean], SetOps.distinct[Boolean])
+
+  val genItem: Gen[(Boolean, Boolean)] =
+    Gen.oneOf((false, false), (false, true), (true, false), (true, true))
+
+  val eqUnion: Gen[Eq[List[(Boolean, Boolean)]]] =
+    Gen.const(new Eq[List[(Boolean, Boolean)]] {
+      def eqv(left: List[(Boolean, Boolean)], right: List[(Boolean, Boolean)]) =
+        left.toSet == right.toSet
+    })
+}
+
+class UnitSetOpsTest extends SetOpsLaws[Unit] {
+  val setOps: SetOps[Unit] = SetOps.unit(())
+
+  val genItem: Gen[Unit] = Gen.const(())
+
+  val eqUnion: Gen[Eq[List[Unit]]] = Gen.const(new Eq[List[Unit]] {
+    def eqv(left: List[Unit], right: List[Unit]) =
+      left.toSet == right.toSet
+  })
+}
