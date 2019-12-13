@@ -367,6 +367,9 @@ object Pattern {
             case StrPart.LitStr(s) => SimpleStringPattern.Lit(s)
           })
 
+    def fromLitStr(s: String): StrPat =
+      StrPat(NonEmptyList(StrPart.LitStr(s), Nil))
+
     // this is either a Literal string or a StrPat
     def fromSimple(ssp: SimpleStringPattern.Pattern): Pattern[Nothing, Nothing] = {
       val parts = ssp
