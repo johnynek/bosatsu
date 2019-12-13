@@ -53,6 +53,44 @@ trait SetOps[A] {
       // remove p from all of p1s
       p1s.flatMap(difference(_, p))
     }
+
+  /**
+   * if top is defined
+   * a list of matches that would make the current set of matches total
+   *
+   * Note, a law here is that:
+   * missingBranches(te, t, branches).flatMap { ms =>
+   *   assert(missingBranches(te, t, branches ::: ms).isEmpty)
+   * }
+   */
+  def missingBranches(top: List[A], branches: List[A]): List[A] = {
+    val missing = branches.foldLeft(top) { (missing, nextBranch) =>
+      differenceAll(missing, nextBranch :: Nil)
+    }
+    // filter any unreachable, which can happen when earlier items shadow later
+    // ones
+    val unreach = unreachableBranches(missing)
+    missing.filterNot(unreach.toSet)
+  }
+
+  /**
+   * if we match these branches in order, which of them
+   * are completely covered by previous matches
+   */
+  def unreachableBranches(branches: List[A]): List[A] = {
+    def withPrev(bs: List[A], prev: List[A]): List[(A, List[A])] =
+      bs match {
+        case Nil => Nil
+        case h :: tail =>
+          (h, prev.reverse) :: withPrev(tail, h :: prev)
+      }
+
+    withPrev(branches, Nil)
+      .collect { case (p, prev) if differenceAll(p :: Nil, prev).isEmpty =>
+        // if there is nothing, this is unreachable
+        p
+      }
+  }
 }
 
 object SetOps {

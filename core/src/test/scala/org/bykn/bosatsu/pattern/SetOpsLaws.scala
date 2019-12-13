@@ -146,6 +146,20 @@ abstract class SetOpsLaws[A] extends FunSuite {
     forAll(genItem, genItem)(law(_, _))
   }
 
+  test("difference returns distinct values") {
+    forAll(genItem, genItem) { (a, b) =>
+      val c = difference(a, b)
+      assert(c == c.distinct)
+    }
+  }
+
+  test("intersection returns distinct values") {
+    forAll(genItem, genItem) { (a, b) =>
+      val c = intersection(a, b)
+      assert(c == c.distinct)
+    }
+  }
+
   // test("no missing/unused paradox") {
   //   /*
   //    * We don't want to produce a list of missing branches, but then add them
@@ -180,5 +194,48 @@ abstract class SetOpsLaws[A] extends FunSuite {
   //       assert(isSubSet != Nil)
   //     }
   //   }
-  // }
+
+  // (a - b) n c == (a n c) - (b n c)
+  def diffIntersectionLaw(a: A, b: A, c: A) = {
+    val left = difference(a, b).flatMap(intersection(_, c))
+    val right = differenceAll(intersection(a, c), intersection(b, c))
+
+    val leftu = unifyUnion(left)
+    val rightu = unifyUnion(right)
+    assert(leftu == rightu)
+  }
+
+  test("(a - b) n c = (a n c) - (b n c)") {
+    forAll(genItem, genItem, genItem)(diffIntersectionLaw(_, _, _))
+  }
+
+  test("missing branches, if added are total and none of the missing are unreachable") {
+
+    def law(top: A, pats: List[A]) = {
+
+      val rest = missingBranches(top :: Nil, pats)
+      val rest1 = missingBranches(top :: Nil, pats ::: rest)
+      if (rest1.isEmpty) {
+        val unreach = unreachableBranches(pats ::: rest)
+        assert(unreach.filter(rest.toSet) == Nil, s"\n\nrest = ${rest}\n\ninit: ${pats}")
+      }
+      else {
+        fail(s"after adding ${rest} we still need ${rest1}")
+      }
+    }
+
+    top.foreach { t =>
+      val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genItem))
+      forAll(pats)(law(t, _))
+    }
+  }
+
+  test("missing branches are distinct") {
+    val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genItem))
+
+    forAll(pats, pats) { (top, pats) =>
+      val rest = missingBranches(top, pats)
+      assert(rest == rest.distinct)
+    }
+  }
 }
