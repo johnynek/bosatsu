@@ -30,21 +30,45 @@ object SeqPart {
 
   implicit def part1SetOps[A](implicit setOpsA: SetOps[A]): SetOps[SeqPart1[A]] =
     new SetOps[SeqPart1[A]] {
+
+      private val anyList = AnyElem :: Nil
+
+      private def toPart1(a: A): SeqPart1[A] =
+        if (setOpsA.isTop(a)) AnyElem
+        else Lit(a)
+
+      def anyDiff(a: A) =
+        setOpsA.top match {
+          case None => anyList
+          case Some(topA) => setOpsA.difference(topA, a).map(toPart1)
+        }
+
       val top = Some(AnyElem)
-      def isTop(c: SeqPart1[A]) = c == AnyElem
+      def isTop(c: SeqPart1[A]) =
+        c match {
+          case AnyElem => true
+          case Lit(a) => setOpsA.isTop(a)
+        }
 
       def intersection(p1: SeqPart1[A], p2: SeqPart1[A]): List[SeqPart1[A]] =
         (p1, p2) match {
-          case (Lit(c1), Lit(c2)) => setOpsA.intersection(c1, c2).map(Lit(_))
+          case (Lit(c1), Lit(c2)) =>
+            setOpsA.intersection(c1, c2)
+              .map(toPart1(_))
           case (AnyElem, _) => p2 :: Nil
           case (_, AnyElem) => p1 :: Nil
         }
 
       def difference(p1: SeqPart1[A], p2: SeqPart1[A]): List[SeqPart1[A]] =
         (p1, p2) match {
-          case (Lit(c1), Lit(c2)) => setOpsA.difference(c1, c2).map(Lit(_))
+          case (Lit(c1), Lit(c2)) =>
+            setOpsA
+              .difference(c1, c2)
+              .map(toPart1(_))
           case (_, AnyElem) => Nil
-          case (AnyElem, _) => p1 :: Nil
+          case (AnyElem, Lit(a2)) =>
+            if (setOpsA.isTop(a2)) Nil
+            else anyDiff(a2)
         }
 
       def subset(p1: SeqPart1[A], p2: SeqPart1[A]): Boolean =
@@ -53,18 +77,21 @@ object SeqPart {
           case Lit(c2) =>
             p1 match {
               case Lit(c1) => setOpsA.subset(c2, c1)
-              case _ => false
+              case AnyElem => setOpsA.isTop(c2)
             }
         }
 
       def unifyUnion(u: List[SeqPart1[A]]): List[SeqPart1[A]] = {
-        def litOpt(u: List[SeqPart1[A]], acc: List[A]): Option[List[Lit[A]]] = {
+        // never add top values, so if we return a list, it is a union
+        // of non-top elements
+        def litOpt(u: List[SeqPart1[A]], acc: List[A]): Option[List[Lit[A]]] =
           u match {
             case Nil => Some(setOpsA.unifyUnion(acc.reverse).map(Lit(_)))
-            case Lit(a) :: tail => litOpt(tail, a :: acc)
             case AnyElem :: _ => None
+            case Lit(a) :: _ if setOpsA.isTop(a) => None
+            case Lit(a) :: tail => litOpt(tail, a :: acc)
           }
-        }
+
 
         litOpt(u, Nil) match {
           case None => AnyElem :: Nil

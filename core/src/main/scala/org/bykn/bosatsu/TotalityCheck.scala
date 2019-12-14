@@ -214,12 +214,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
         left: Pattern[Cons, Type],
         right: Pattern[Cons, Type]): List[Pattern[Cons, Type]] =
           (left, right) match {
-            case (Union(a, b), p) =>
-              val u = unifyUnion(a :: b.toList)
-              unifyUnion(u.flatMap(intersection(_, p)))
-            case (p, Union(a, b)) =>
-              val u = unifyUnion(a :: b.toList)
-              unifyUnion(u.flatMap(intersection(p, _)))
             case (Var(va), Var(vb)) => Var(Ordering[Bindable].min(va, vb)) :: Nil
             case (Named(va, pa), Named(vb, pb)) if va == vb =>
               intersection(pa, pb).map(Named(va, _))
@@ -227,6 +221,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case (l, Named(vb, pb)) => intersection(l, pb)
             case (WildCard, v) => v :: Nil
             case (v, WildCard) => v :: Nil
+            case (_, _) if left == right => left :: Nil
             case (Var(_), v) => v :: Nil
             case (v, Var(_)) => v :: Nil
             case (Annotation(p, _), t) => intersection(p, t)
@@ -242,14 +237,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               else Nil
             case (p1@StrPat(_), p2@StrPat(_)) =>
               strPatternSetOps.intersection(p1, p2)
-            case (p@StrPat(_), _) => Nil
-            case (_, p@StrPat(_)) => Nil
-            case (Literal(_), _) => Nil
-            case (_, Literal(_)) => Nil
             case (lp@ListPat(_), rp@ListPat(_)) =>
               listPatternSetOps.intersection(lp, rp)
-            case (ListPat(_), _) => Nil
-            case (_, ListPat(_)) => Nil
             case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
               if (ln == rn) {
                 val la = lps.size
@@ -262,6 +251,16 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                 }
                 else Nil
               }
+              else Nil
+            case (Union(a, b), p) =>
+              val u = unifyUnion(a :: b.toList)
+              unifyUnion(u.flatMap(intersection(_, p)))
+            case (p, Union(a, b)) =>
+              val u = unifyUnion(a :: b.toList)
+              unifyUnion(u.flatMap(intersection(p, _)))
+            case (_, _) =>
+              if (isTopCheap(right)) left :: Nil
+              else if (isTopCheap(left)) right :: Nil
               else Nil
           }
 
@@ -296,7 +295,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case (Literal(Lit.Str(str)), p@StrPat(_)) if p.matches(str) =>
             Nil
           case (sa@StrPat(_), Literal(Lit.Str(str))) =>
-            strPatternSetOps.difference(sa, StrPat.fromLitStr(str))
+            if (sa.matches(str)) strPatternSetOps.difference(sa, StrPat.fromLitStr(str))
+            else sa :: Nil
           case (sa@StrPat(_), sb@StrPat(_)) =>
             strPatternSetOps.difference(sa, sb)
           case (WildCard, right@StrPat(_)) =>
