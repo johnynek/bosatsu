@@ -126,26 +126,26 @@ abstract class SetOpsLaws[A] extends FunSuite {
     }
   }
 
-  test("subset consistency: a n b == a <=> a - b = 0") {
-    def isSubsetIntr(a: A, b: A, eqAs: Eq[List[A]]) =
-      eqAs.eqv(intersection(a, b), (a :: Nil))
+  def isSubsetIntr(a: A, b: A, eqAs: Eq[List[A]]) =
+    eqAs.eqv(intersection(a, b), (a :: Nil))
 
-    def isSubsetDiff(a: A, b: A) =
-      difference(a, b).isEmpty
+  def isSubsetDiff(a: A, b: A) =
+    difference(a, b).isEmpty
 
-    def law(a: A, b: A, eqAs: Eq[List[A]]) = {
-      val intSub = isSubsetIntr(a, b, eqAs)
-      val diffSub = isSubsetDiff(a, b)
+  def subsetConsistencyLaw(a: A, b: A, eqAs: Eq[List[A]]) = {
+    val intSub = isSubsetIntr(a, b, eqAs)
+    val diffSub = isSubsetDiff(a, b)
 
-      if (subset(a, b)) {
-        assert(intSub)
-        assert(diffSub)
-      }
-
-      assert(intSub == diffSub)
+    if (subset(a, b)) {
+      assert(intSub)
+      assert(diffSub)
     }
 
-    forAll(genItem, genItem, eqUnion)(law(_, _, _))
+    assert(intSub == diffSub)
+  }
+
+  test("subset consistency: a n b == a <=> a - b = 0") {
+    forAll(genItem, genItem, eqUnion)(subsetConsistencyLaw(_, _, _))
   }
 
   test("difference returns distinct values") {
