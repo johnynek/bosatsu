@@ -230,7 +230,7 @@ object SeqPattern {
        * return true if p1 <= p2, can give false negatives
        */
       def subset(p1: SeqPattern[A], p2: SeqPattern[A]): Boolean =
-        p2.matchesAny || (p1 == p2) || subsetList(p1.toList, p2.toList)
+        p2.matchesAny || subsetList(p1.toList, p2.toList)
 
       private def subsetList(p1: List[SeqPart[A]], p2: List[SeqPart[A]]): Boolean =
         (p1, p2) match {
@@ -243,6 +243,18 @@ object SeqPattern {
             (s1 == s2) && subsetList(t1, t2)
           case (AnyElem :: _, Lit(_) :: _) => false
           case ((_: SeqPart1[A]) :: t1, AnyElem :: t2) => subsetList(t1, t2)
+          case (Wildcard :: Wildcard :: t1, _) =>
+              // normalize the left:
+              subsetList(Wildcard :: t1, p2)
+          case (_, Wildcard :: Wildcard :: t2) =>
+              // normalize the right:
+              subsetList(p1, Wildcard :: t2)
+          case (Wildcard :: AnyElem :: t1, _) =>
+              // normalize the left:
+              subsetList(AnyElem :: Wildcard :: t1, p2)
+          case (_, Wildcard :: AnyElem :: t2) =>
+              // normalize the right:
+              subsetList(p1, AnyElem :: Wildcard :: t2)
           case (Wildcard :: _, (_: SeqPart1[A]) :: _) => false
           case ((_: SeqPart1[A]) :: t1, Wildcard :: t2) =>
             // p2 = t2 + _:p2

@@ -328,12 +328,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
               }
             }
           case pat@Pattern.StrPat(_) =>
-            val spat = pat.toNamedSeqPattern
-            val nameMap = spat.names.map { n =>
-              (n, Identifier.unsafe(n))
-            }.toMap
-
-            if (nameMap.isEmpty) {
+            if (pat.names.isEmpty) {
               // we can just use the simple matcher
               { v =>
                 // this casts should be safe if we have typechecked
@@ -343,6 +338,11 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
               }
             }
             else {
+              val spat = pat.toNamedSeqPattern
+              val nameMap = spat.names.map { n =>
+                (n, Identifier.unsafe(n))
+              }.toMap
+
               val matcher = NamedSeqPattern.matcher[Char, Char, String, String](Splitter.stringSplitter(_.toString))(spat)
 
               { v =>

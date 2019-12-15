@@ -189,15 +189,28 @@ abstract class SetOpsLaws[A] extends FunSuite {
   // (a - b) n c == (a n c) - (b n c)
   def diffIntersectionLaw(a: A, b: A, c: A) = {
     val diffab = difference(a, b)
+    val intBC = intersection(b, c)
+    val left = diffab.flatMap(intersection(_, c))
+
     if ((diffab == (a :: Nil)) && (intersection(a, b).nonEmpty)) {
       // diffab is an upperbound, so hard to say what the law
       // should be in that case, if (a - b) = a, then
       // clearly we expect (a n c) == (a n c) - (b n c)
       // so, b n c has to not intersect with a, but it might
     }
+    else if (isTop(a) && intBC.isEmpty) {
+      // in patterns, we "cast" ill-typed comparisions
+      // since we can don't care about cases that don't
+      // type-check. But this can make this law fail:
+      // if we have _ - b, we assume the difference is
+      // on the same type, but if c is a different type
+      // the intersection may be (_ - b) n c = 0
+      // but (_ n c) = c, and b n c = 0
+      assert((left == Nil) || (unifyUnion(left) == (c :: Nil)))
+    }
     else {
-      val left = diffab.flatMap(intersection(_, c))
-      val right = differenceAll(intersection(a, c), intersection(b, c))
+      val intAC = intersection(a, c)
+      val right = differenceAll(intAC, intBC)
 
       val leftu = unifyUnion(left)
       val rightu = unifyUnion(right)

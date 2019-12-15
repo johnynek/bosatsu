@@ -278,6 +278,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             listPatternSetOps.difference(ListPat(ListPart.NamedList(v) :: Nil), listPat)
           case (left@ListPat(_), right@ListPat(_)) =>
             listPatternSetOps.difference(left, right)
+          case (Union(a, b), Union(c, d)) =>
+            if (left == right) Nil
+            else unifyUnion(differenceAll(a :: b.toList, c :: d.toList))
           case (Union(a, b), right) =>
             val u = unifyUnion(a :: b.toList)
             unifyUnion(differenceAll(u, right :: Nil))

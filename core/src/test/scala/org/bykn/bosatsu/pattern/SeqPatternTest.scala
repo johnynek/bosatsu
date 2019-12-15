@@ -97,9 +97,12 @@ object StringSeqPatternGen {
         val binded = sp.map(NamedSeqPattern.Bind(n, _))
         interleave(sp, binded)
       case NamedSeqPattern.NSeqPart(p) =>
+        def tail: Stream[SeqPart[Char]] =
+          Lit('0') #:: Lit('1') #:: Stream.Empty
+
         val sp = p match {
-          case Wildcard => AnyElem #:: Lit('0') #:: Lit('1') #:: Stream.Empty
-          case AnyElem => Lit('0') #:: Lit('1') #:: Stream.Empty
+          case Wildcard => AnyElem #:: tail
+          case AnyElem => tail
           case Lit(_) => Stream.Empty
         }
         sp.map(NamedSeqPattern.NSeqPart(_))

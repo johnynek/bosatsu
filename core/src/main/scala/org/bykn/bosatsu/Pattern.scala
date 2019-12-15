@@ -378,7 +378,7 @@ object Pattern {
   case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
 
   object ListPat {
-    def fromSeqPattern[N, T](sp: SeqPattern[Pattern[N, T]]) = {
+    def fromSeqPattern[N, T](sp: SeqPattern[Pattern[N, T]]): ListPat[N, T] = {
 
       @annotation.tailrec
       def loop(ps: List[SeqPart[Pattern[N, T]]], front: List[ListPart[Pattern[N, T]]]): List[ListPart[Pattern[N, T]]] =
