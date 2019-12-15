@@ -431,7 +431,9 @@ object Pattern {
           case SeqPart.Lit(c) :: tail =>
             loop(tail, c :: front)
           case SeqPart.AnyElem :: tail =>
+            // $COVERAGE-OFF$
             sys.error(s"TODO: support Any in $sp")
+            // $COVERAGE-ON$
           case SeqPart.Wildcard :: tail =>
             val tailRes =loop(tail, Nil).prepend(StrPart.WildStr)
 
@@ -485,7 +487,9 @@ object Pattern {
         case NamedSeqPattern.NSeqPart(SeqPart.Wildcard) =>
           StrPat(NonEmptyList(StrPart.WildStr, Nil))
         case _ =>
+          // $COVERAGE-OFF$
           sys.error(s"TODO: support $sp")
+          // $COVERAGE-ON$
       }
 
     def fromLitStr(s: String): StrPat =

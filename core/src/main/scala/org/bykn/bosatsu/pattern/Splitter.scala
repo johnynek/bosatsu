@@ -17,29 +17,8 @@ abstract class Splitter[-Elem, Item, Sequence, R] {
   def isEmpty(s: Sequence): Boolean
   def uncons(s: Sequence): Option[(Item, Sequence)]
   def cons(h: Item, t: Sequence): Sequence
-
-  def toList(s: Sequence): List[Item] = {
-    @annotation.tailrec
-    def loop(s: Sequence, acc: List[Item]): List[Item] =
-      uncons(s) match {
-        case None => acc.reverse
-        case Some((h, t)) => loop(t, h :: acc)
-      }
-
-    loop(s, Nil)
-  }
-
-  def fromList(list: List[Item]): Sequence = {
-    @annotation.tailrec
-    def loop(list: List[Item], acc: Sequence): Sequence =
-      list match {
-        case Nil => acc
-        case h :: t => loop(t, cons(h, acc))
-      }
-
-    loop(list.reverse, emptySeq)
-  }
-
+  def toList(s: Sequence): List[Item]
+  def fromList(list: List[Item]): Sequence
   def catSeqs(s: List[Sequence]): Sequence
   def emptySeq: Sequence
 }

@@ -132,7 +132,7 @@ object SeqPattern {
 
   implicit def seqPatternSetOps[A](implicit part1SetOps: SetOps[SeqPart.SeqPart1[A]], ordA: Ordering[A]): SetOps[SeqPattern[A]] =
     new SetOps[SeqPattern[A]] {
-      import SeqPart.{SeqPart1, Lit, AnyElem, Wildcard}
+      import SeqPart.{SeqPart1, AnyElem, Wildcard}
 
       lazy val top = Some(Wild)
       def isTop(p: SeqPattern[A]) = p.matchesAny
@@ -163,8 +163,8 @@ object SeqPattern {
         // something?
         def unifySeqPart(list: List[SeqPart[A]]): Option[List[SeqPart[A]]] =
           list match {
-            case AnyElem :: Wildcard :: Nil => someWild
-            case Wildcard :: AnyElem :: Nil => someWild
+            case a :: Wildcard :: Nil if isAny(a) => someWild
+            case Wildcard :: a :: Nil if isAny(a) => someWild
             case Wildcard :: Nil => someWild
             case Nil => someNil
             case _ => None
@@ -232,6 +232,12 @@ object SeqPattern {
       def subset(p1: SeqPattern[A], p2: SeqPattern[A]): Boolean =
         p2.matchesAny || subsetList(p1.toList, p2.toList)
 
+      def isAny(p: SeqPart[A]): Boolean =
+        p match {
+          case p1: SeqPart1[A] => part1SetOps.isTop(p1)
+          case _ => false
+        }
+
       private def subsetList(p1: List[SeqPart[A]], p2: List[SeqPart[A]]): Boolean =
         (p1, p2) match {
           case (Nil, Nil) => true
@@ -239,20 +245,18 @@ object SeqPattern {
           case (Nil, Wildcard :: t) =>
             subsetList(Nil, t)
           case (_ :: _, Nil) => false
-          case (Lit(s1) :: t1, Lit(s2) :: t2) =>
-            (s1 == s2) && subsetList(t1, t2)
-          case (AnyElem :: _, Lit(_) :: _) => false
-          case ((_: SeqPart1[A]) :: t1, AnyElem :: t2) => subsetList(t1, t2)
+          case ((h1: SeqPart1[A]) :: t1, (h2: SeqPart1[A]) :: t2) =>
+            part1SetOps.subset(h1, h2) && subsetList(t1, t2)
           case (Wildcard :: Wildcard :: t1, _) =>
               // normalize the left:
               subsetList(Wildcard :: t1, p2)
           case (_, Wildcard :: Wildcard :: t2) =>
               // normalize the right:
               subsetList(p1, Wildcard :: t2)
-          case (Wildcard :: AnyElem :: t1, _) =>
+          case (Wildcard :: a1 :: t1, _) if isAny(a1) =>
               // normalize the left:
               subsetList(AnyElem :: Wildcard :: t1, p2)
-          case (_, Wildcard :: AnyElem :: t2) =>
+          case (_, Wildcard :: a2 :: t2) if isAny(a2) =>
               // normalize the right:
               subsetList(p1, AnyElem :: Wildcard :: t2)
           case (Wildcard :: _, (_: SeqPart1[A]) :: _) => false
@@ -283,10 +287,10 @@ object SeqPattern {
           case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
             // unnormalized
             intersection(p1, t2)
-          case (Cat(Wildcard, Cat(AnyElem, t1)), _) =>
+          case (Cat(Wildcard, Cat(a1, t1)), _) if isAny(a1) =>
             // *. == .*, push Wildcards to the end
             intersection(Cat(AnyElem, Cat(Wildcard, t1)), p2)
-          case (_, Cat(Wildcard, Cat(AnyElem, t2))) =>
+          case (_, Cat(Wildcard, Cat(a2, t2))) if isAny(a2) =>
             // *. == .*, push Wildcards to the end
             intersection(p1, Cat(AnyElem, Cat(Wildcard, t2)))
           case (Cat(Wildcard, t1), Cat(Wildcard, t2)) =>
@@ -359,10 +363,10 @@ object SeqPattern {
           case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
             // unnormalized
             difference(p1, t2)
-          case (Cat(Wildcard, Cat(AnyElem, t1)), _) =>
+          case (Cat(Wildcard, Cat(a1, t1)), _) if isAny(a1) =>
             // *. == .*, push Wildcards to the end
-            difference(Cat(AnyElem, Cat(Wildcard, t1)), p2)
-          case (_, Cat(Wildcard, Cat(AnyElem, t2))) =>
+            difference(Cat(a1, Cat(Wildcard, t1)), p2)
+          case (_, Cat(Wildcard, Cat(a2, t2))) if isAny(a2) =>
             // *. == .*, push Wildcards to the end
             difference(p1, Cat(AnyElem, Cat(Wildcard, t2)))
           case (_, _) if intersection(p1, p2).isEmpty => p1 :: Nil

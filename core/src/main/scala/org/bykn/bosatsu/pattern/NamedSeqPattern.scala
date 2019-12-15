@@ -147,9 +147,23 @@ object NamedSeqPattern {
           matches(split, tail, n :: capturing)
         case EndName :: tail =>
           capturing match {
-            case Nil => sys.error("illegal End with no capturing")
-            case _ :: cap =>
+            case Nil =>
+              // $COVERAGE-OFF$
+              sys.error("illegal End with no capturing")
+              // $COVERAGE-ON$
+            case n :: cap =>
+              // if n captured nothing, we need
+              // to add an empty list
+              val e = split.emptySeq
               matches(split, tail, cap)
+                .andThen {
+                  case None => None
+                  case Some((r, m)) =>
+                    Some {
+                      val m1 = if (m.contains(n)) m else m.updated(n, e)
+                      (r, m1)
+                    }
+                }
           }
         case MSeqPart(Wildcard) :: tail =>
           if (hasWildLeft(tail)) {
@@ -216,9 +230,21 @@ object NamedSeqPattern {
           matchEnd(split, tail, n :: capturing)
         case EndName :: tail =>
           capturing match {
-            case Nil => sys.error("illegal End with no capturing")
-            case _ :: cap =>
+            case Nil =>
+              // $COVERAGE-OFF$
+              sys.error("illegal End with no capturing")
+              // $COVERAGE-ON$
+            case n :: cap =>
+              // if n captured nothing, we need
+              // to add an empty list
+              val e = split.emptySeq
               matchEnd(split, tail, cap)
+                .andThen { stream =>
+                  stream.map { case (s, (r, m)) =>
+                    val m1 = if (m.contains(n)) m else m.updated(n, e)
+                    (s, (r, m1))
+                  }
+                }
           }
         case MSeqPart(Wildcard) :: tail =>
           // we can just go on matching the end, and sucking up

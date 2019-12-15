@@ -433,16 +433,27 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
   }
 
   test("Named.matches + render agree") {
-    forAll(genNamed, genSeq) { (n: Named, str: String) =>
+    def law(n: Named, str: String) = {
       namedMatch(n, str).foreach { m =>
         n.render(m)(_.toString) match {
-          case Some(s0) => assert(s0 == str)
+          case Some(s0) => assert(s0 == str, s"m = $m")
           case None =>
             // this can only happen if we have unnamed Wild/AnyElem
-            assert(n.isRenderable == false)
+            assert(n.isRenderable == false, s"m = $m")
         }
       }
     }
+
+    forAll(genNamed, genSeq)(law(_, _))
+
+    import NamedSeqPattern.{NCat, Bind, NSeqPart}
+    import SeqPart.Wildcard
+
+    val regressions: List[(Named, String)] =
+      (NCat(Bind("0",NSeqPart(Wildcard)),Bind("1",NSeqPart(Wildcard))), "") ::
+      Nil
+
+    regressions.foreach { case (n, s) => law(n, s) }
   }
 
   def named(s: String): Named =
