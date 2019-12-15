@@ -266,11 +266,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       def difference(left: Pattern[Cons, Type], right: Pattern[Cons, Type]): Patterns =
         (left, right) match {
           case (_, WildCard | Var(_)) => Nil
-          case (WildCard | Var(_), Literal(_)) =>
-            // the left is infinite, and the right is just one value
-            left :: Nil
-          case (WildCard | Var(_), _) if isTop(right) =>
-            Nil
           case (Named(_, p), r) => difference(p, r)
           case (l, Named(_, p)) => difference(l, p)
           case (Annotation(p, _), r) => difference(p, r)
@@ -289,8 +284,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case (left, Union(a, b)) =>
             val u = unifyUnion(a :: b.toList)
             unifyUnion(differenceAll(left :: Nil, u))
-          case (Literal(_), ListPat(_) | PositionalStruct(_, _)) =>
-            left :: Nil
           case (Literal(Lit.Str(str)), p@StrPat(_)) if p.matches(str) =>
             Nil
           case (sa@StrPat(_), Literal(Lit.Str(str))) =>

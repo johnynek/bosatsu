@@ -51,4 +51,20 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
 
     regressions.foreach { case (a, b) => subsetConsistencyLaw(a, b, Eq.fromUniversalEquals) }
   }
+
+  test("(a - b) n c = (a n c) - (b n c) regressions") {
+    import SeqPattern.{Cat, Empty}
+    import SeqPart.{AnyElem, Lit, Wildcard}
+
+    val regressions: List[(SeqPattern[Char], SeqPattern[Char], SeqPattern[Char])] =
+      (Cat(Wildcard, Empty),
+        Cat(AnyElem,Cat(Lit('1'),Cat(AnyElem,Empty))),
+        Cat(AnyElem,Cat(Lit('1'),Cat(Lit('0'),Empty)))) ::
+      (Cat(Wildcard,Cat(Lit('0'),Empty)),
+        Cat(AnyElem,Cat(Lit('1'),Cat(AnyElem,Cat(Lit('0'),Empty)))),
+        Cat(AnyElem,Cat(Lit('1'),Cat(Lit('0'),Cat(Lit('0'),Empty))))) ::
+      Nil
+
+    regressions.foreach { case (a, b, c) => diffIntersectionLaw(a, b, c) }
+  }
 }

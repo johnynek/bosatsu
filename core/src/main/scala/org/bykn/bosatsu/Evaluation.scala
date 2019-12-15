@@ -295,7 +295,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   private lazy val patListSplitter =
     Splitter.listSplitter(patternMatcher)(
       new cats.Monoid[Env] {
-        val empty = Map.empty
+        val empty = Map.empty[Identifier, Eval[Value]]
 
         def combine(left: Env, right: Env) = left ++ right
 

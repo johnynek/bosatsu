@@ -97,12 +97,12 @@ abstract class SetOpsLaws[A] extends FunSuite {
   }
 
   test("if a n b = 0 then a - b = a") {
-    def law(p1: A, p2: A) = {
+    def law(p1: A, p2: A, eqU: Eq[List[A]]) = {
       val inter = intersection(p1, p2)
       val diff = difference(p1, p2)
 
       if (inter.isEmpty) {
-        assert(diff == p1 :: Nil)
+        assert(eqU.eqv(diff, p1 :: Nil), s"diff = $diff")
       }
 
       // difference is an upper bound, so this is not true
@@ -115,7 +115,7 @@ abstract class SetOpsLaws[A] extends FunSuite {
       */
     }
 
-    forAll(genItem, genItem)(law(_, _))
+    forAll(genItem, genItem, eqUnion)(law(_, _, _))
   }
 
   test("x - y = z, then x - y - z = 0") {
@@ -162,49 +162,47 @@ abstract class SetOpsLaws[A] extends FunSuite {
     }
   }
 
-  // test("no missing/unused paradox") {
-  //   /*
-  //    * We don't want to produce a list of missing branches, but then add them
-  //    * and find we have unused branches
-  //    */
-  //   val smallList: Gen[List[Pattern]] =
-  //     for {
-  //       cnt <- Gen.choose(1, 2)
-  //       list <- Gen.listOfN(cnt, genPat)
-  //     } yield list
+  test("no missing/unused paradox") {
+    top.foreach { wild =>
+      /*
+       * We don't want to produce a list of missing branches, but then add them
+       * and find we have unused branches
+       */
+      val smallList: Gen[List[A]] =
+        for {
+          cnt <- Gen.choose(1, 2)
+          list <- Gen.listOfN(cnt, genItem)
+        } yield list
 
-  //   def diff(as: List[Pattern], bs: List[Pattern]): List[Pattern] =
-  //     for {
-  //       a <- as
-  //       b <- bs
-  //       c <- difference(a, b)
-  //     } yield c
-
-  //   def intr(as: List[Pattern], bs: List[Pattern]): List[Pattern] =
-  //     for {
-  //       a <- as
-  //       b <- bs
-  //       c <- intersection(a, b)
-  //     } yield c
-
-  //   forAll(genPat, smallList) { (h, t) =>
-  //     val pats = h :: t
-  //     val missing = diff(List(Pattern.Wild), pats)
-  //     if (missing.nonEmpty) {
-  //       // this cannot be a subset of pats
-  //       val isSubSet = diff(missing, pats)
-  //       assert(isSubSet != Nil)
-  //     }
-  //   }
+      forAll(genItem, smallList) { (h, t) =>
+        val pats = h :: t
+        val initUnreach = unreachableBranches(pats).toSet
+        val patsGood = pats.filterNot(initUnreach)
+        val missing = missingBranches(wild :: Nil, patsGood)
+        if (missing.nonEmpty) {
+          unreachableBranches(patsGood ::: missing).isEmpty
+        }
+      }
+    }
+  }
 
   // (a - b) n c == (a n c) - (b n c)
   def diffIntersectionLaw(a: A, b: A, c: A) = {
-    val left = difference(a, b).flatMap(intersection(_, c))
-    val right = differenceAll(intersection(a, c), intersection(b, c))
+    val diffab = difference(a, b)
+    if ((diffab == (a :: Nil)) && (intersection(a, b).nonEmpty)) {
+      // diffab is an upperbound, so hard to say what the law
+      // should be in that case, if (a - b) = a, then
+      // clearly we expect (a n c) == (a n c) - (b n c)
+      // so, b n c has to not intersect with a, but it might
+    }
+    else {
+      val left = diffab.flatMap(intersection(_, c))
+      val right = differenceAll(intersection(a, c), intersection(b, c))
 
-    val leftu = unifyUnion(left)
-    val rightu = unifyUnion(right)
-    assert(leftu == rightu)
+      val leftu = unifyUnion(left)
+      val rightu = unifyUnion(right)
+      assert(leftu == rightu)
+    }
   }
 
   test("(a - b) n c = (a n c) - (b n c)") {

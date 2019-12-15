@@ -390,7 +390,7 @@ object Generators {
       val genTyped = Gen.zip(recurse, genT)
         .map { case (p, t) => Pattern.Annotation(p, t) }
 
-      lazy val genStrPat: Gen[Pattern[Nothing, Nothing]] = {
+      lazy val genStrPat: Gen[Pattern.StrPat] = {
         val recurse = Gen.lzy(genStrPat)
         val genPart: Gen[Pattern.StrPart] =
           Gen.oneOf(
@@ -401,7 +401,9 @@ object Generators {
         for {
           sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
           inner <- nonEmptyN(genPart, sz)
-        } yield Pattern.StrPat.fromNamedSeqPattern(Pattern.StrPat(inner).toNamedSeqPattern)
+          p0 = Pattern.StrPat(inner)
+          notStr <- p0.toLiteralString.fold(Gen.const(p0))(_ => genStrPat)
+        } yield Pattern.StrPat.fromNamedSeqPattern(notStr.toNamedSeqPattern)
       }
 
       val genStruct =  for {
