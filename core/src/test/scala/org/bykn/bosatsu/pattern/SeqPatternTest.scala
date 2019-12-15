@@ -354,7 +354,7 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
     NamedSeqPattern.matcher(splitter)(p)(s).isDefined
 
   def namedMatch(p: Named, s: String): Option[Map[String, String]] =
-    NamedSeqPattern.matcher(Splitter.stringSplitter(_.toString))(p)(s)
+    NamedSeqPattern.matcher(Splitter.stringSplitter(_.toString))(p)(s).map(_._2)
 
   implicit val setOpsChar: SetOps[Char] = SetOps.distinct[Char]
   def setOps: SetOps[Pattern] = Pattern.seqPatternSetOps[Char]

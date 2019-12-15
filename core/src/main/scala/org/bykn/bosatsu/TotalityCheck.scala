@@ -68,14 +68,13 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
   def validatePattern(p: Pattern[Cons, Type]): Res[Unit] =
     p match {
       case lp@ListPat(parts) =>
-        val globs = parts.count {
-          case _: ListPart.Glob => true
-          case ListPart.Item(_) => false
+        val twoAdj = lp.toSeqPattern.toList.sliding(2).exists {
+          case Seq(SeqPart.Wildcard, SeqPart.Wildcard) => true
+          case _ => false
         }
-
         val outer =
-          if (globs > 1) Left(NonEmptyList(MultipleSplicesInPattern(lp, inEnv), Nil))
-          else validUnit
+          if (!twoAdj) validUnit
+          else Left(NonEmptyList(MultipleSplicesInPattern(lp, inEnv), Nil))
 
         val inners: Res[Unit] =
           parts.parTraverse_ {

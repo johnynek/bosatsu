@@ -474,7 +474,7 @@ object SeqPattern {
                 ht <- split.uncons(s)
                 (_, t) = ht
                 rt <- mt(t)
-              } yield split.monoidResult.combine(split.anyMatch(s), rt) }
+              } yield rt }
           case Cat(Wildcard, t) =>
             matchEnd(t).andThen(_.headOption.map(_._2))
         }
@@ -483,15 +483,15 @@ object SeqPattern {
         p match {
           case Empty => { s: S => (s, split.monoidResult.empty) #:: Stream.Empty }
           case Cat(p: SeqPart1[A], t) =>
-            val splitFn: S => Stream[(S, R, S)] = p match {
-              case Lit(c) => split.positions(c, _: S)
+            val splitFn: S => Stream[(S, I, R, S)] = p match {
+              case Lit(c) => split.positions(c)
               case AnyElem => split.anySplits(_: S)
             }
             val tailMatch = apply(t)
 
             { s: S =>
               splitFn(s)
-                .map { case (pre, r, post)  =>
+                .map { case (pre, i, r, post)  =>
                   tailMatch(post)
                     .map { rtail => (pre, split.monoidResult.combine(r, rtail)) }
                 }

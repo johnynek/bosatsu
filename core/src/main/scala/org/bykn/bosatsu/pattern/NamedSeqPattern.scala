@@ -1,7 +1,6 @@
 package org.bykn.bosatsu.pattern
 
 import cats.Monoid
-import cats.implicits._
 
 sealed trait NamedSeqPattern[+A] {
   import NamedSeqPattern._
@@ -86,12 +85,12 @@ object NamedSeqPattern {
   def fromLit[A](a: A): NamedSeqPattern[A] =
     NSeqPart(SeqPart.Lit(a))
 
-  def matcher[E, I, S, R](split: Splitter[E, I, S, R]): Matcher[NamedSeqPattern[E], S, Map[String, R]] =
-    new Matcher[NamedSeqPattern[E], S, Map[String, R]] {
-      def apply(nsp: NamedSeqPattern[E]): S => Option[Map[String, R]] = {
+  def matcher[E, I, S, R](split: Splitter[E, I, S, R]): Matcher[NamedSeqPattern[E], S, (R, Map[String, S])] =
+    new Matcher[NamedSeqPattern[E], S, (R, Map[String, S])] {
+      def apply(nsp: NamedSeqPattern[E]): S => Option[(R, Map[String, S])] = {
         val machine = Impl.toMachine(nsp, Nil)
 
-        Impl.matches(split, machine, Nil, Map.empty)
+        Impl.matches(split, machine, Nil)
       }
     }
 
@@ -121,117 +120,74 @@ object NamedSeqPattern {
 
     import SeqPart.{AnyElem, Lit, SeqPart1, Wildcard}
 
-    private type CaptureState[I, R] = Map[String, Either[List[I], R]]
-
-    def appendState[I, R](c: I, capturing: List[String], nameState: CaptureState[I, R]): CaptureState[I, R] =
-      capturing.foldLeft(nameState) { (ns, n) =>
-        val nextV = ns(n).left.map(c :: _)
-        ns.updated(n, nextV)
-      }
-
-    def toMatch[I, R](nameState: CaptureState[I, R]): Map[String, R] =
-      // we have the match, convert the state to a match
-      nameState.map {
-        case (k, Right(v)) => (k, v)
-        case (k, Left(strings)) =>
-            sys.error(s"unclosed key: $k, $strings")
-      }
-
-    def liftResultLeft[R](resLeft: R, capturing: List[String], res: Map[String, R])(implicit monoid: Monoid[R]): Map[String, R] =
+    def capture[S](empty: S, capturing: List[String], res: Map[String, S])(fn: S => S): Map[String, S] =
       capturing.foldLeft(res) { (mapB, n) =>
-        val newV = mapB.get(n) match {
-          case None => resLeft
-          case Some(bv) =>
-            monoid.combine(resLeft, bv)
+        val right = mapB.get(n) match {
+          case None => empty
+          case Some(bv) => bv
         }
-        mapB.updated(n, newV)
+        mapB.updated(n, fn(right))
       }
 
     def matches[E, I, S, R](
       split: Splitter[E, I, S, R],
       m: List[Machine[E]],
-      capturing: List[String],
-      nameState: CaptureState[I, R]): S => Option[Map[String, R]] =
+      capturing: List[String]): S => Option[(R, Map[String, S])] =
 
       m match {
         case Nil =>
 
+          val res = Some((split.monoidResult.empty, Map.empty[String, S]))
+
           { str: S =>
-            if (split.isEmpty(str)) Some(toMatch(nameState))
+            if (split.isEmpty(str)) res
             else None
           }
         case StartName(n) :: tail =>
-          val ns1 = nameState.get(n) match {
-            case None => nameState.updated(n, Left(Nil))
-            case Some(s) => sys.error(s"illegal shadow: $n")
-          }
-          matches(split, tail, n :: capturing, ns1)
+          matches(split, tail, n :: capturing)
         case EndName :: tail =>
           capturing match {
             case Nil => sys.error("illegal End with no capturing")
-            case n :: cap =>
-            val ns1 = nameState.get(n) match {
-              case Some(Left(parts)) =>
-                val rparts = parts.reverse
-                implicit val mon = split.monoidResult
-                val r = rparts.foldMap(split.toResult)
-                nameState.updated(n, Right(r))
-              case res@(Some(Right(_)) | None) => sys.error(s"illegal end: $n, $res")
-            }
-            matches(split, tail, cap, ns1)
+            case _ :: cap =>
+              matches(split, tail, cap)
           }
         case MSeqPart(Wildcard) :: tail =>
           if (hasWildLeft(tail)) {
             // two adjacent wilds means this one matches nothing
-            matches(split, tail, capturing, nameState)
+            matches(split, tail, capturing)
           }
           else {
-            // match everything tail does not match on the right
-            // the matchEnd is only going to capture
-            // on AnyElem or Lit, so we need to reset the
-            // capture state here, and append everything
-            // we get
-            val capSet = capturing.toSet
-            val nameState1 = nameState.map {
-              case (k, Left(_)) if capSet(k) => (k, Left(Nil))
-              case notCap => notCap
-            }
-            val me = matchEnd(split, tail, capturing, nameState1)
+            val me = matchEnd(split, tail, capturing)
 
             me.andThen { stream =>
               stream
                 .headOption
-                .map { case (prefix, rightResult) =>
-                  // now merge the result
-                  capturing.foldLeft(rightResult) { (st, n) =>
-                    nameState(n) match {
-                      case Left(leftMatches) =>
-                        // Left is accumulating in reverse order
-                        // so we need to put the latest on the left
-                        implicit val mon = split.monoidResult
-                        val leftRes = leftMatches.reverse.foldMap(split.toResult)
-                        val preRes = split.foldMap(prefix)
-                        val res = mon.combineAll(leftRes :: preRes :: st(n) :: Nil)
-                        st.updated(n, res)
-                      case Right(r) =>
-                        sys.error(s"both capturing and done: $n, $r")
+                .map { case (prefix, (rightR, rightBind)) =>
+                  // now merge the prefix result
+                  val resMatched = capturing.foldLeft(rightBind) { (st, n) =>
+                    st.get(n) match {
+                      case None => st.updated(n, prefix)
+                      case Some(right) =>
+                        st.updated(n, split.catSeqs(prefix :: right :: Nil))
                     }
                   }
+                  (rightR, resMatched)
                 }
             }
           }
         case MSeqPart(p1: SeqPart1[E]) :: tail =>
+          val someEmpty = Some(split.monoidResult.empty)
+
           val headm: I => Option[R] =
             p1 match {
-              case AnyElem => { i: I => Some(split.toResult(i)) }
+              case AnyElem => { i: I => someEmpty }
               case Lit(c) => split.matcher(c)
             }
 
-          val tailm: S => Option[Map[String, R]] =
+          val tailm: S => Option[(R, Map[String, S])] =
             matches(split,
               tail,
-              capturing,
-              nameState)
+              capturing)
 
           { str: S =>
             for {
@@ -239,61 +195,51 @@ object NamedSeqPattern {
               (h, t) = ht
               rh <- headm(h)
               rt <- tailm(t)
-            } yield liftResultLeft(rh, capturing, rt)(split.monoidResult)
+              (tailr, tailm) = rt
+            } yield (split.monoidResult.combine(rh, tailr), capture(split.emptySeq, capturing, tailm)(split.cons(h, _)))
           }
       }
 
     def matchEnd[E, I, S, R](
       split: Splitter[E, I, S, R],
       m: List[Machine[E]],
-      capturing: List[String],
-      nameState: CaptureState[I, R]): S => Stream[(S, Map[String, R])] =
+      capturing: List[String]): S => Stream[(S, (R, Map[String, S]))] =
       m match {
         case Nil =>
           // we always match the end
-          val bindings = toMatch(nameState)
+          val res = (split.monoidResult.empty, Map.empty[String, S])
 
           { str: S =>
-            (str, bindings) #:: Stream.Empty
+            (str, res) #:: Stream.Empty
           }
         case StartName(n) :: tail =>
-          val ns1 = nameState.get(n) match {
-            case None => nameState.updated(n, Left(Nil))
-            case Some(s) => sys.error(s"illegal shadow: $n")
-          }
-          matchEnd(split, tail, n :: capturing, ns1)
+          matchEnd(split, tail, n :: capturing)
         case EndName :: tail =>
           capturing match {
             case Nil => sys.error("illegal End with no capturing")
-            case n :: cap =>
-            val ns1 = nameState.get(n) match {
-              case Some(Left(parts)) =>
-                val rparts = parts.reverse
-                implicit val mon = split.monoidResult
-                val r = rparts.foldMap(split.toResult)
-                nameState.updated(n, Right(r))
-              case res@(Some(Right(_)) | None) => sys.error(s"illegal end: $n, $res")
-            }
-            matchEnd(split, tail, cap, ns1)
+            case _ :: cap =>
+              matchEnd(split, tail, cap)
           }
         case MSeqPart(Wildcard) :: tail =>
           // we can just go on matching the end, and sucking up
           // all current state
-            matchEnd(split, tail, capturing, nameState)
+          matchEnd(split, tail, capturing)
         case MSeqPart(p1: SeqPart1[E]) :: tail =>
-          val mtail = matches(split, tail, capturing, nameState)
+          val mtail = matches(split, tail, capturing)
 
           val splits = p1 match {
-            case Lit(c) => split.positions(c, _: S)
+            case Lit(c) => split.positions(c)
             case AnyElem => split.anySplits(_: S)
           }
 
 
           { s: S =>
-            splits(s).map { case (pre, r, post) =>
+            splits(s).map { case (pre, i, r, post) =>
               mtail(post)
-                .map { res =>
-                  (pre, liftResultLeft(r, capturing, res)(split.monoidResult))
+                .map { case (rp, mapRes) =>
+                  val res1 = split.monoidResult.combine(r, rp)
+                  val res2 = capture(split.emptySeq, capturing, mapRes)(split.cons(i, _))
+                  (pre, (res1, res2))
                 }
             }
             .collect { case Some(res) => res }

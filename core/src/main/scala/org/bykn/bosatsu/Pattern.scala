@@ -408,6 +408,7 @@ object Pattern {
       def loop(lp: List[ListPart[Pattern[N, T]]]): NamedSeqPattern[Pattern[N, T]] =
         lp match {
           case Nil => NamedSeqPattern.NEmpty
+          case h :: Nil => partToNsp(h)
           case h :: t =>
             NamedSeqPattern.NCat(partToNsp(h), loop(t))
         }
