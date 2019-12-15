@@ -300,7 +300,25 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case (Var(v), right@StrPat(_)) =>
             // v is the same as "${v}" for well typed expressions
             strPatternSetOps.difference(StrPat(NonEmptyList(StrPart.NamedStr(v), Nil)), right)
-          case (WildCard | Var(_), PositionalStruct(nm, ps)) =>
+          case (llit@Literal(l), Literal(r)) =>
+            if (l == r) Nil
+            else (llit :: Nil)
+          case (PositionalStruct(ln, lp), PositionalStruct(rn, rp)) =>
+            if (ln == rn) {
+              val la = lp.size
+              if (rp.size == la) {
+                // the arity must match or check expr fails
+                // if the arity doesn't match, just consider this
+                // a mismatch
+                unifyUnion(getProd(la).difference(lp, rp)
+                  .map(PositionalStruct(ln, _): Pattern[Cons, Type]))
+              }
+              else (left :: Nil)
+            }
+            else {
+              left :: Nil
+            }
+          case (_, PositionalStruct(nm, ps)) if isTop(left) =>
             inEnv.definedTypeFor(nm) match {
               case None =>
                 // just assume this is infinitely bigger than unknown
@@ -323,24 +341,18 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
                     PositionalStruct((dt.packageName, cf.name), cf.args.map(argToPat)) :: Nil
                 }
             }
-          case (llit@Literal(l), Literal(r)) =>
-            if (l == r) Nil
-            else (llit :: Nil)
-          case (PositionalStruct(ln, lp), PositionalStruct(rn, rp)) if ln == rn =>
-            val la = lp.size
-            if (rp.size == la) {
-              // the arity must match or check expr fails
-              // if the arity doesn't match, just consider this
-              // a mismatch
-              unifyUnion(getProd(la).difference(lp, rp)
-                .map(PositionalStruct(ln, _): Pattern[Cons, Type]))
-            }
-            else (left :: Nil)
-          case (PositionalStruct(_, _), PositionalStruct(_, _)) =>
-            left :: Nil
           case (_, _) =>
             // ill-typed
             if (isTop(right)) Nil
+            else if (isTop(left)) {
+              right match {
+                case StrPat(_) => difference(StrPat.Wild, right)
+                case ListPat(_) => difference(ListPat.Wild, right)
+                case _ =>
+                  // we can't solve this
+                  left :: Nil
+              }
+            }
             else left :: Nil
       }
 

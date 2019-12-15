@@ -206,7 +206,8 @@ abstract class SetOpsLaws[A] extends FunSuite {
       // on the same type, but if c is a different type
       // the intersection may be (_ - b) n c = 0
       // but (_ n c) = c, and b n c = 0
-      assert((left == Nil) || (unifyUnion(left) == (c :: Nil)))
+      val leftEqC = differenceAll(unifyUnion(left), c :: Nil).isEmpty
+      assert((left == Nil) || leftEqC)
     }
     else {
       val intAC = intersection(a, c)

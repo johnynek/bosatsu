@@ -378,6 +378,9 @@ object Pattern {
   case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
 
   object ListPat {
+    val Wild: ListPat[Nothing, Nothing] =
+      ListPat(ListPart.WildList :: Nil)
+
     def fromSeqPattern[N, T](sp: SeqPattern[Pattern[N, T]]): ListPat[N, T] = {
 
       @annotation.tailrec
@@ -419,6 +422,7 @@ object Pattern {
 
   object StrPat {
     val Empty: StrPat = fromLitStr("")
+    val Wild: StrPat = StrPat(NonEmptyList(StrPart.WildStr, Nil))
 
     def fromSeqPattern(sp: SeqPattern[Char]): StrPat = {
       def lit(rev: List[Char]): List[StrPart.LitStr] =
