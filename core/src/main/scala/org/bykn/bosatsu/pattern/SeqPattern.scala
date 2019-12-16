@@ -1,5 +1,7 @@
 package org.bykn.bosatsu.pattern
 
+import cats.data.NonEmptyList
+
 sealed trait SeqPattern[+A] {
   import SeqPattern._
   import SeqPart.{AnyElem, Lit, Wildcard}
@@ -103,6 +105,11 @@ object SeqPattern {
         case Cat(h, Empty) => h
         case Cat(_, r@Cat(_, _)) => r.rightMost
       }
+
+    def reverseCat: Cat[A] = {
+      val nel = NonEmptyList(head, tail.toList).reverse
+      Cat(nel.head, SeqPattern.fromList(nel.tail))
+    }
   }
 
   def fromList[A](ps: List[SeqPart[A]]): SeqPattern[A] =
@@ -293,17 +300,26 @@ object SeqPattern {
           case (_, Cat(Wildcard, Cat(a2, t2))) if isAny(a2) =>
             // *. == .*, push Wildcards to the end
             intersection(p1, Cat(AnyElem, Cat(Wildcard, t2)))
-          case (Cat(Wildcard, t1), Cat(Wildcard, t2)) =>
-            // *:t1 = (t1 + _:p1)
-            // *:t2 = (t2 + _:p2)
-            // p1 n p2 = t1 n t2 + (_:p1 n t2) + (t1 n _:p2) + _:(p1 n p2)
-            //         = *:((t1 n t2) + (_:p1 n t2) + (t1 n _:p2))
-            val i1 = intersection(t1, t2)
-            val i2 = intersection(Cat(AnyElem, p1), t2)
-            val i3 = intersection(t1, Cat(AnyElem, p2))
-            val union = (i1 ::: i2 ::: i3)
+          case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
+            if (c1.rightMost.notWild || c2.rightMost.notWild) {
+              // let's avoid the most complex case of both having
+              // wild on the front if possible
+              intersection(c1.reverse, c2.reverse).map(_.reverse)
+            }
+            else {
+              // both start and end with wild
+              //
+              // *:t1 = (t1 + _:p1)
+              // *:t2 = (t2 + _:p2)
+              // p1 n p2 = t1 n t2 + (_:p1 n t2) + (t1 n _:p2) + _:(p1 n p2)
+              //         = *:((t1 n t2) + (_:p1 n t2) + (t1 n _:p2))
+              val i1 = intersection(t1, t2)
+              val i2 = intersection(Cat(AnyElem, p1), t2)
+              val i3 = intersection(t1, Cat(AnyElem, p2))
+              val union = (i1 ::: i2 ::: i3)
 
-            unifyUnion(union.map(_.prependWild))
+              unifyUnion(union.map(_.prependWild))
+            }
           case (Cat(h1, t1), Cat(Wildcard, t2)) =>
             // h1 : t1 n *:t2 = h1:t1 n (t2 + _:p2) =
             // p1 n t2 + h1 : (t1 n p2)
@@ -394,7 +410,7 @@ object SeqPattern {
               }
             }
 
-            val u = d12.flatMap(difference(_, t2))
+            val u = differenceAll(d12, t2 :: Nil)
 
             unifyUnion(u)
           case (Cat(Wildcard, t1), Cat(h2: SeqPart1[A], t2)) =>
@@ -445,18 +461,38 @@ object SeqPattern {
               val d1 = difference(t1, t2)
               if (d1.isEmpty) {
               // if t1 <= t2, then, *:t1 <= *:t2
-              Nil
+                Nil
               }
               else {
-                // *:t1 = t1 + _:p1
-                // *:t2 = t2 + _:p2
-                // p1 - p2 = t1 - t2 + _:p1 - t2 + t1 - _:p2 + _:(p1 - p2)
-                // p1 - p2 = *:(d1 + d2 + d3)
+                // x - y = x - (x n y)
+                // which can sometimes unify x and y enough to make
+                // the difference cleaner
+                val int2 = intersection(p1, p2)
+                if (int2.contains(p1) || unifyUnion(int2).contains(p1)) {
+                  // x n y == x, so x - y = 0
+                  Nil
+                }
+                else if (difference(c1.reverseCat.tail, c2.reverseCat.tail).isEmpty) {
+                  // we could have computed the difference test using the init rather
+                  // than the tail, note we know c1/c2 .reverseCat.head == Wildcard
+                  // so if x - y = 0, then x:* - y:* = 0
+                  Nil
+                }
+                else {
+                  // since AnyElem - x is usually an approximate upperbound
+                  // this case adds to approximations because
+                  // it adds differences with _ at the front
 
-                val d2 = difference(Cat(AnyElem, p1), t2)
-                val d3 = difference(t1, Cat(AnyElem, p2))
-                val union = (d1 ::: d2 ::: d3).map(_.prependWild)
-                unifyUnion(union)
+                  // *:t1 = t1 + _:p1
+                  // *:t2 = t2 + _:p2
+                  // p1 - p2 = t1 - t2 + _:p1 - t2 + t1 - _:p2 + _:(p1 - p2)
+                  // p1 - p2 = *:(d1 + d2 + d3)
+
+                  val d2 = difference(Cat(AnyElem, p1), t2)
+                  val d3 = difference(t1, Cat(AnyElem, p2))
+                  val union = (d1 ::: d2 ::: d3).map(_.prependWild)
+                  unifyUnion(union)
+                }
               }
             }
         }

@@ -166,6 +166,15 @@ abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
     }
   }
 
+  test("cat.reverse == cat.reverseCat") {
+    forAll(genPattern) { p =>
+      p match {
+        case Empty => assert(p.reverse == Empty)
+        case c@Cat(_, _) => assert(c.reverseCat == c.reverse)
+      }
+    }
+  }
+
   def matches(p: Pattern, s: S): Boolean
   def namedMatches(p: Named, s: S): Boolean
 

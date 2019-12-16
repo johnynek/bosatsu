@@ -52,6 +52,19 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
     regressions.foreach { case (a, b) => subsetConsistencyLaw(a, b, Eq.fromUniversalEquals) }
   }
 
+  test("*x* problems") {
+    import SeqPattern.{Cat, Empty}
+    import SeqPart.{Lit, Wildcard}
+
+    val x = Cat(Wildcard,Cat(Lit('q'),Cat(Wildcard,Cat(Lit('p'),Cat(Wildcard,Empty)))))
+    val y = Cat(Wildcard,Cat(Lit('p'),Cat(Wildcard,Empty)))
+    val z = Cat(Wildcard,Cat(Lit('q'),Cat(Wildcard,Empty)))
+    // note y and z are clearly bigger than x because they are prefix/suffix that end/start with
+    // Wildcard
+    assert(setOps.difference(x, y).isEmpty)
+    assert(setOps.difference(x, z).isEmpty)
+  }
+
   test("(a - b) n c = (a n c) - (b n c) regressions") {
     import SeqPattern.{Cat, Empty}
     import SeqPart.{AnyElem, Lit, Wildcard}
@@ -63,6 +76,9 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
       (Cat(Wildcard,Cat(Lit('0'),Empty)),
         Cat(AnyElem,Cat(Lit('1'),Cat(AnyElem,Cat(Lit('0'),Empty)))),
         Cat(AnyElem,Cat(Lit('1'),Cat(Lit('0'),Cat(Lit('0'),Empty))))) ::
+      (Cat(Wildcard, Cat(Lit('q'), Cat(Wildcard, Empty))),
+        Cat(Wildcard, Empty),
+        Cat(Wildcard, Cat(Lit('p'), Cat(Wildcard, Empty)))) ::
       Nil
 
     regressions.foreach { case (a, b, c) => diffIntersectionLaw(a, b, c) }

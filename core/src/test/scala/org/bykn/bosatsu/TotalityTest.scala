@@ -302,4 +302,21 @@ enum Either: Left(l), Right(r)
     }
   }
 
+  test("(a - b) n c == (a n c) - (b n c) regressions") {
+    type Pat = Pattern[(PackageName, Constructor), Type]
+    import Pattern._
+    import StrPart.{LitStr, NamedStr, WildStr}
+    import Identifier.Name
+
+    val regressions: List[(Pat, Pat, Pat)] =
+      (Named(Name("hTt"), StrPat(NonEmptyList.of(NamedStr(Name("rfb")), LitStr("q"), NamedStr(Name("ngkrx"))))),
+        WildCard,
+        Named(Name("hjbmtklh"),StrPat(NonEmptyList.of(NamedStr(Name("qz8lcT")), WildStr, LitStr("p7"), NamedStr(Name("hqxprG")))))) ::
+      Nil
+
+    regressions.foreach { case (a, b, c) =>
+      diffIntersectionLaw(a, b, c)
+    }
+  }
+
 }

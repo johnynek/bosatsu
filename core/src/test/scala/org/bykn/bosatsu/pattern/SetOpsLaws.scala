@@ -215,7 +215,7 @@ abstract class SetOpsLaws[A] extends FunSuite {
 
       val leftu = unifyUnion(left)
       val rightu = unifyUnion(right)
-      assert(leftu == rightu)
+      assert(leftu == rightu, s"intAC = $intAC, intBC = $intBC")
     }
   }
 
