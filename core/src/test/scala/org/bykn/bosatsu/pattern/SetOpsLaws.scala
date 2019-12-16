@@ -187,6 +187,10 @@ abstract class SetOpsLaws[A] extends FunSuite {
   }
 
   // (a - b) n c == (a n c) - (b n c)
+  // This law is pretty questionable since difference is an
+  // upper bound for us (currently) and we have differences
+  // on both sides. There are a ton of work arounds below
+  // which maybe indicates we should just disable the test
   def diffIntersectionLaw(a: A, b: A, c: A) = {
     val diffab = difference(a, b)
     val intBC = intersection(b, c)
@@ -213,9 +217,16 @@ abstract class SetOpsLaws[A] extends FunSuite {
       val intAC = intersection(a, c)
       val right = differenceAll(intAC, intBC)
 
+      // since a - b can be a lose bound, we also see a - b == a
+      // some times, in which case, (a - b) n c = a n c
       val leftu = unifyUnion(left)
-      val rightu = unifyUnion(right)
-      assert(leftu == rightu, s"intAC = $intAC, intBC = $intBC")
+      if (leftu == unifyUnion(intAC)) {
+        succeed
+      }
+      else {
+        val rightu = unifyUnion(right)
+        assert(leftu == rightu, s"diffAB = $diffab, intAC = $intAC, intBC = $intBC")
+      }
     }
   }
 

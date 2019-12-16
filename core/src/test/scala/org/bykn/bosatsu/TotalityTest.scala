@@ -306,12 +306,16 @@ enum Either: Left(l), Right(r)
     type Pat = Pattern[(PackageName, Constructor), Type]
     import Pattern._
     import StrPart.{LitStr, NamedStr, WildStr}
+    import ListPart.{NamedList, Item}
     import Identifier.Name
 
     val regressions: List[(Pat, Pat, Pat)] =
       (Named(Name("hTt"), StrPat(NonEmptyList.of(NamedStr(Name("rfb")), LitStr("q"), NamedStr(Name("ngkrx"))))),
         WildCard,
         Named(Name("hjbmtklh"),StrPat(NonEmptyList.of(NamedStr(Name("qz8lcT")), WildStr, LitStr("p7"), NamedStr(Name("hqxprG")))))) ::
+      (WildCard,
+        ListPat(List(NamedList(Name("nv6")), Item(Literal(Lit.fromInt(-17))), Item(WildCard))),
+        ListPat(List(Item(StrPat(NonEmptyList.of(WildStr))), Item(StrPat(NonEmptyList.of(NamedStr(Name("eejhh")), LitStr("jbuzfcwsumP"), WildStr)))))) ::
       Nil
 
     regressions.foreach { case (a, b, c) =>
