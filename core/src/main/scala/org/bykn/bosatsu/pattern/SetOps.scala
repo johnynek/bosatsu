@@ -169,11 +169,21 @@ object SetOps {
         sa.isTop(a._1) && sb.isTop(a._2)
 
       // a1 x a2 n b1 x b2 = (a1 n b1) x (a2 n b2)
-      def intersection(a1: (A, B), a2: (A, B)): List[(A, B)] =
-        for {
-          ia <- sa.intersection(a1._1, a2._1)
-          ib <- sb.intersection(a1._2, a2._2)
-        } yield (ia, ib)
+      def intersection(a1: (A, B), a2: (A, B)): List[(A, B)] = {
+        val i1 = sa.intersection(a1._1, a2._1)
+        if (i1.isEmpty) Nil
+        else {
+          val i2 = sb.intersection(a1._2, a2._2)
+
+          if (i2.isEmpty) Nil
+          else {
+            for {
+              ia <- i1
+              ib <- i2
+            } yield (ia, ib)
+          }
+        }
+      }
 
       /*
        * This seems to be difference of a product of sets. The formula for this
