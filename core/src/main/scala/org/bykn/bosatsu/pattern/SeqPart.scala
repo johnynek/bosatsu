@@ -99,18 +99,6 @@ object SeqPart {
         }
       }
     }
-
-  implicit def part1Matcher[A, S](implicit amatcher: Matcher[A, S, Unit]): Matcher[SeqPart1[A], S, Unit] =
-    new Matcher[SeqPart1[A], S, Unit] {
-      val someUnit: Option[Unit] = Some(())
-      val anyMatch: S => Option[Unit] = { _ => someUnit }
-
-      def apply(s: SeqPart1[A]): S => Option[Unit] =
-        s match {
-          case AnyElem => anyMatch
-          case Lit(c) => amatcher(c)
-        }
-    }
 }
 
 
