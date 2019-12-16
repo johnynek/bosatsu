@@ -392,18 +392,34 @@ object Generators {
 
       lazy val genStrPat: Gen[Pattern.StrPat] = {
         val recurse = Gen.lzy(genStrPat)
+
         val genPart: Gen[Pattern.StrPart] =
           Gen.oneOf(
             lowerIdent.map(Pattern.StrPart.LitStr(_)),
             bindIdentGen.map(Pattern.StrPart.NamedStr(_)),
             Gen.const(Pattern.StrPart.WildStr))
 
+        def isWild(p: Pattern.StrPart): Boolean =
+          p match {
+            case Pattern.StrPart.LitStr(_) => false
+            case _ => true
+          }
+
+        def makeValid(nel: NonEmptyList[Pattern.StrPart]): NonEmptyList[Pattern.StrPart] =
+          nel match {
+            case NonEmptyList(h, Nil) => nel
+            case NonEmptyList(h1, h2 :: t) if isWild(h1) && isWild(h2) =>
+              makeValid(NonEmptyList(h2, t))
+            case NonEmptyList(h1, h2 :: t) =>
+              NonEmptyList(h1, makeValid(NonEmptyList(h2, t)).toList)
+          }
+
         for {
           sz <- Gen.choose(1, 4) // don't get too giant, intersections blow up
           inner <- nonEmptyN(genPart, sz)
-          p0 = Pattern.StrPat(inner)
-          notStr <- p0.toLiteralString.fold(Gen.const(p0))(_ => genStrPat)
-        } yield Pattern.StrPat.fromNamedSeqPattern(notStr.toNamedSeqPattern)
+          p0 = Pattern.StrPat(makeValid(inner))
+          notStr <- p0.toLiteralString.fold(Gen.const(p0))(_ => recurse)
+        } yield notStr
       }
 
       val genStruct =  for {
