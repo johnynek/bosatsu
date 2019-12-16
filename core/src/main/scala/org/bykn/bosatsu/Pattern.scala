@@ -325,41 +325,24 @@ object Pattern {
   case class StrPat(parts: NonEmptyList[StrPart]) extends Pattern[Nothing, Nothing] {
     def isEmpty: Boolean = this == StrPat.Empty
 
-    def ++(that: StrPat): StrPat =
-      if (isEmpty) that
-      else if (that.isEmpty) this
-      else {
-        (parts.last, that.parts.head) match {
-          case (StrPart.LitStr(l), StrPart.LitStr(r)) =>
-            val rest = NonEmptyList(StrPart.LitStr(l ++ r), that.parts.tail)
-            val all = parts.init match {
-              case Nil =>  rest
-              case h :: t => NonEmptyList(h, t) ::: rest
-            }
-            StrPat(all)
-          case (_, _) =>
-            StrPat(parts.concatNel(that.parts))
-        }
-      }
-
-    lazy val matcher = SeqPattern.stringUnitMatcher(toSeqPattern)
-
-    def matches(str: String): Boolean =
-      isTotal || matcher(str).isDefined
-
     lazy val isTotal: Boolean =
       !parts.exists {
         case Pattern.StrPart.LitStr(_) => true
         case _ => false
       }
 
-    lazy val toLiteralString: Option[String] =
-      toSeqPattern.toLiteralSeq.map(_.mkString)
-
     lazy val toNamedSeqPattern: NamedSeqPattern[Char] =
       StrPat.toNamedSeqPattern(this)
 
     lazy val toSeqPattern: SeqPattern[Char] = toNamedSeqPattern.unname
+
+    lazy val toLiteralString: Option[String] =
+      toSeqPattern.toLiteralSeq.map(_.mkString)
+
+    lazy val matcher = SeqPattern.stringUnitMatcher(toSeqPattern)
+
+    def matches(str: String): Boolean =
+      isTotal || matcher(str).isDefined
   }
 
   /**
@@ -437,11 +420,11 @@ object Pattern {
           case SeqPart.AnyElem :: tail =>
             // TODO, it would be nice to support AnyElem directly
             // in our string pattern language, but for now, we add wild
-            val tailRes =loop(tail, Nil)
+            val tailRes = loop(tail, Nil)
             if (tailRes.head == StrPart.WildStr) tailRes
             else tailRes.prepend(StrPart.WildStr)
           case SeqPart.Wildcard :: tail =>
-            val tailRes =loop(tail, Nil).prepend(StrPart.WildStr)
+            val tailRes = loop(tail, Nil).prepend(StrPart.WildStr)
 
             NonEmptyList.fromList(lit(front)) match {
               case None => tailRes

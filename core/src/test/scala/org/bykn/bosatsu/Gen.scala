@@ -410,6 +410,8 @@ object Generators {
             case NonEmptyList(h, Nil) => nel
             case NonEmptyList(h1, h2 :: t) if isWild(h1) && isWild(h2) =>
               makeValid(NonEmptyList(h2, t))
+            case NonEmptyList(Pattern.StrPart.LitStr(h1), Pattern.StrPart.LitStr(h2) :: t) =>
+              makeValid(NonEmptyList(Pattern.StrPart.LitStr(h1 + h2), t))
             case NonEmptyList(h1, h2 :: t) =>
               NonEmptyList(h1, makeValid(NonEmptyList(h2, t)).toList)
           }
