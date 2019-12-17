@@ -4,6 +4,7 @@ import cats.Applicative
 import cats.data.NonEmptyList
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
+import org.bykn.bosatsu.pattern.{NamedSeqPattern, SeqPattern, SeqPart}
 
 import Parser.{ Combinators, maybeSpace }
 import cats.implicits._
@@ -322,12 +323,7 @@ object Pattern {
   case class Literal(toLit: Lit) extends Pattern[Nothing, Nothing]
   case class Var(name: Bindable) extends Pattern[Nothing, Nothing]
   case class StrPat(parts: NonEmptyList[StrPart]) extends Pattern[Nothing, Nothing] {
-
-    lazy val toSimple: SimpleStringPattern.Pattern =
-      StrPat.toSimple(this)
-
-    def matches(str: String): Boolean =
-      isTotal || toSimple.doesMatch(str)
+    def isEmpty: Boolean = this == StrPat.Empty
 
     lazy val isTotal: Boolean =
       !parts.exists {
@@ -335,12 +331,18 @@ object Pattern {
         case _ => false
       }
 
-    def toLiteralString: Option[String] =
-      toSimple.toList match {
-        case Nil => Some("")
-        case SimpleStringPattern.Lit(s) :: Nil => Some(s)
-        case _ => None
-      }
+    lazy val toNamedSeqPattern: NamedSeqPattern[Char] =
+      StrPat.toNamedSeqPattern(this)
+
+    lazy val toSeqPattern: SeqPattern[Char] = toNamedSeqPattern.unname
+
+    lazy val toLiteralString: Option[String] =
+      toSeqPattern.toLiteralSeq.map(_.mkString)
+
+    lazy val matcher = SeqPattern.stringUnitMatcher(toSeqPattern)
+
+    def matches(str: String): Boolean =
+      isTotal || matcher(str).isDefined
   }
 
   /**
@@ -349,41 +351,119 @@ object Pattern {
    */
   case class Named[N, T](name: Bindable, pat: Pattern[N, T]) extends Pattern[N, T]
   case class ListPat[N, T](parts: List[ListPart[Pattern[N, T]]]) extends Pattern[N, T] {
-    def prepend(item: ListPart[Pattern[N, T]]): ListPat[N, T] = ListPat(item :: parts)
+    lazy val toNamedSeqPattern: NamedSeqPattern[Pattern[N, T]] =
+      ListPat.toNamedSeqPattern(this)
+
+    lazy val toSeqPattern: SeqPattern[Pattern[N, T]] = toNamedSeqPattern.unname
   }
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
   case class Union[N, T](head: Pattern[N, T], rest: NonEmptyList[Pattern[N, T]]) extends Pattern[N, T]
 
-  object StrPat {
-    def toSimple(strPat: StrPat): SimpleStringPattern.Pattern =
-      SimpleStringPattern.Pattern.fromList(
-        strPat
-          .parts
-          .toList
-          .map {
-            case StrPart.WildStr => SimpleStringPattern.Wildcard
-            case StrPart.NamedStr(n) => SimpleStringPattern.Var(n.sourceCodeRepr)
-            case StrPart.LitStr(s) => SimpleStringPattern.Lit(s)
-          })
+  object ListPat {
+    val Wild: ListPat[Nothing, Nothing] =
+      ListPat(ListPart.WildList :: Nil)
 
-    // this is either a Literal string or a StrPat
-    def fromSimple(ssp: SimpleStringPattern.Pattern): Pattern[Nothing, Nothing] = {
-      val parts = ssp
-        .toList
-        .map {
-          case SimpleStringPattern.Var(w) =>
-            StrPart.NamedStr(Identifier.unsafeParse(Identifier.bindableParser, w))
-          case SimpleStringPattern.Wildcard => StrPart.WildStr
-          case SimpleStringPattern.Lit(s) => StrPart.LitStr(s)
+    def fromSeqPattern[N, T](sp: SeqPattern[Pattern[N, T]]): ListPat[N, T] = {
+
+      @annotation.tailrec
+      def loop(ps: List[SeqPart[Pattern[N, T]]], front: List[ListPart[Pattern[N, T]]]): List[ListPart[Pattern[N, T]]] =
+        ps match {
+          case Nil => front.reverse
+          case SeqPart.Lit(p) :: tail =>
+            loop(tail, ListPart.Item(p) :: front)
+          case SeqPart.AnyElem :: tail =>
+            loop(tail, ListPart.Item(WildCard) :: front)
+          case SeqPart.Wildcard :: tail =>
+            loop(tail, ListPart.WildList :: front)
         }
 
-      parts match {
-        case Nil => Literal(Lit.EmptyStr)
-        case StrPart.LitStr(s) :: Nil => Literal(Lit.Str(s))
-        case h :: tail => StrPat(NonEmptyList(h, tail))
-      }
+      ListPat(loop(sp.toList, Nil))
     }
+
+    def toNamedSeqPattern[N, T](lp: ListPat[N, T]): NamedSeqPattern[Pattern[N, T]] = {
+      def partToNsp(lp: ListPart[Pattern[N, T]]): NamedSeqPattern[Pattern[N, T]] =
+        lp match {
+          case ListPart.Item(WildCard) => NamedSeqPattern.Any
+          case ListPart.Item(p) => NamedSeqPattern.fromLit(p)
+          case ListPart.WildList => NamedSeqPattern.Wild
+          case ListPart.NamedList(n) =>
+            NamedSeqPattern.Bind(n.sourceCodeRepr, NamedSeqPattern.Wild)
+        }
+
+      def loop(lp: List[ListPart[Pattern[N, T]]]): NamedSeqPattern[Pattern[N, T]] =
+        lp match {
+          case Nil => NamedSeqPattern.NEmpty
+          case h :: Nil => partToNsp(h)
+          case h :: t =>
+            NamedSeqPattern.NCat(partToNsp(h), loop(t))
+        }
+
+      loop(lp.parts)
+    }
+  }
+
+  object StrPat {
+    val Empty: StrPat = fromLitStr("")
+    val Wild: StrPat = StrPat(NonEmptyList(StrPart.WildStr, Nil))
+
+    def fromSeqPattern(sp: SeqPattern[Char]): StrPat = {
+      def lit(rev: List[Char]): List[StrPart.LitStr] =
+        if (rev.isEmpty) Nil
+        else StrPart.LitStr(rev.reverse.mkString) :: Nil
+
+      def loop(ps: List[SeqPart[Char]], front: List[Char]): NonEmptyList[StrPart] =
+        ps match {
+          case Nil => NonEmptyList.fromList(lit(front)).getOrElse(Empty.parts)
+          case SeqPart.Lit(c) :: tail =>
+            loop(tail, c :: front)
+          case SeqPart.AnyElem :: tail =>
+            // TODO, it would be nice to support AnyElem directly
+            // in our string pattern language, but for now, we add wild
+            val tailRes = loop(tail, Nil)
+            if (tailRes.head == StrPart.WildStr) tailRes
+            else tailRes.prepend(StrPart.WildStr)
+          case SeqPart.Wildcard :: tail =>
+            val tailRes = loop(tail, Nil).prepend(StrPart.WildStr)
+
+            NonEmptyList.fromList(lit(front)) match {
+              case None => tailRes
+              case Some(h) => h ::: tailRes
+            }
+        }
+
+      StrPat(loop(sp.toList, Nil))
+    }
+
+    def toNamedSeqPattern(sp: StrPat): NamedSeqPattern[Char] = {
+      def partToNsp(s: StrPart): NamedSeqPattern[Char] =
+        s match {
+          case StrPart.NamedStr(n) =>
+            NamedSeqPattern.Bind(n.sourceCodeRepr, NamedSeqPattern.Wild)
+          case StrPart.WildStr => NamedSeqPattern.Wild
+          case StrPart.LitStr(s) =>
+            // reverse so we can build right associated
+            s.toList.reverse match {
+              case Nil => NamedSeqPattern.NEmpty
+              case h :: tail =>
+                tail.foldLeft(NamedSeqPattern.fromLit(h)) { (right, head) =>
+                  NamedSeqPattern.NCat(NamedSeqPattern.fromLit(head), right)
+                }
+            }
+        }
+
+      def loop(sp: List[StrPart]): NamedSeqPattern[Char] =
+        sp match {
+          case Nil => NamedSeqPattern.NEmpty
+          case h :: t =>
+            NamedSeqPattern.NCat(partToNsp(h), loop(t))
+        }
+
+      loop(sp.parts.toList)
+    }
+
+    def fromLitStr(s: String): StrPat =
+      StrPat(NonEmptyList(StrPart.LitStr(s), Nil))
   }
 
   /**

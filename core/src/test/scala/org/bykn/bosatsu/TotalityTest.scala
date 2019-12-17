@@ -1,11 +1,12 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Eq}
-import cats.data.{Chain, Writer}
+import cats.Eq
+import cats.data.{Chain, NonEmptyList, Writer}
 import cats.implicits._
-import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalacheck.Gen
+
+import org.bykn.bosatsu.pattern.{SetOps, SetOpsLaws}
 
 import rankn._
 
@@ -16,11 +17,8 @@ import org.typelevel.paiges.Document
 
 import Identifier.Constructor
 
-class TotalityTest extends FunSuite {
+class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
   import TestParseUtils._
-
-  // used to deal with string interpolation warnings
-  val dollar = '$'
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 500000)
@@ -59,6 +57,27 @@ class TotalityTest extends FunSuite {
 struct Unit
 struct TupleCons(fst, snd)
 """)
+
+  val setOps: SetOps[Pattern[(PackageName, Constructor), Type]] =
+    TotalityCheck(predefTE).patternSetOps
+
+  def genItem: Gen[Pattern[(PackageName, Constructor), Type]] =
+    // TODO would be nice to pass with unions, they are hard
+    genPatternNoUnion
+
+  def eqUnion: Gen[Eq[List[Pattern[(PackageName, Constructor), Type]]]] =
+    Gen.const(new Eq[List[Pattern[(PackageName, Constructor), Type]]] {
+      val e1 = TotalityCheck(predefTE).eqPat
+
+      def eqv(a: List[Pattern[(PackageName, Constructor), Type]],
+        b: List[Pattern[(PackageName, Constructor), Type]]) =
+          (NonEmptyList.fromList(a), NonEmptyList.fromList(b)) match {
+            case (oa, ob) if oa == ob => true
+            case (Some(a), Some(b)) =>
+              e1.eqv(Pattern.union(a.head, a.tail), Pattern.union(b.head, b.tail))
+            case _ => false
+          }
+    })
 
   def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] = {
     val nameToCons: Constructor => (PackageName, Constructor) =
@@ -108,35 +127,28 @@ struct TupleCons(fst, snd)
   }
 
   def notTotal(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], testMissing: Boolean = true): Unit = {
-    TotalityCheck(te).isTotal(pats) match {
-      case Right(res) => assert(!res, pats.toString)
-      case Left(errs) => fail(errs.toString)
-    }
+    val res = TotalityCheck(te).isTotal(pats)
+    assert(!res, pats.toString)
 
     if (testMissing) {
       // if we add the missing, it should be total
-      TotalityCheck(te).missingBranches(pats) match {
-        case Left(errs) => fail(errs.toString)
-        case Right(mb) =>
-          // missing branches can't be tight because
-          // for instance:
-          // match x:
-          //   1: foo
-          //
-          // is not total, but can only be made total by
-          // adding a wildcard match, which by itself is total
-          testTotality(te, pats ::: mb, tight = false)
-      }
+      val mb = TotalityCheck(te).missingBranches(pats)
+      // missing branches can't be tight because
+      // for instance:
+      // match x:
+      //   1: foo
+      //
+      // is not total, but can only be made total by
+      // adding a wildcard match, which by itself is total
+      testTotality(te, pats ::: mb, tight = false)
     }
   }
 
   def testTotality(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], tight: Boolean = false) = {
-    TotalityCheck(te).missingBranches(pats) match {
-      case Right(res) =>
-        val asStr = res.map(showPat)
-        assert(asStr == Nil)
-      case Left(errs) => fail(errs.toString)
-    }
+    val res = TotalityCheck(te).missingBranches(pats)
+    val asStr = res.map(showPat)
+    assert(asStr == Nil, showPats(pats))
+
     // any missing pattern shouldn't be total:
     def allButOne[A](head: A, tail: List[A]): List[List[A]] =
       tail match {
@@ -246,16 +258,14 @@ enum Either: Left(l), Right(r)
   test("test intersection") {
     val p0 :: p1 :: Nil = patterns("[[*_], [*_, _]]")
       TotalityCheck(predefTE).intersection(p0, p1) match {
-        case Left(err) => fail(err.toString)
-        case Right(List(intr)) => assert(p1 == intr)
-        case Right(other) => fail(s"expected exactly one intersection: $other")
+        case List(intr) => assert(p1 == intr)
+        case other => fail(s"expected exactly one intersection: $other")
       }
 
     val p2 :: p3 :: Nil = patterns("[[*_], [_, _]]")
       TotalityCheck(predefTE).intersection(p2, p3) match {
-        case Left(err) => fail(err.toString)
-        case Right(List(intr)) => assert(p3 == intr)
-        case Right(other) => fail(s"expected exactly one intersection: $other")
+        case List(intr) => assert(p3 == intr)
+        case other => fail(s"expected exactly one intersection: $other")
       }
   }
 
@@ -264,430 +274,53 @@ enum Either: Left(l), Right(r)
     import tc.eqPat.eqv
     {
       val p0 :: p1 :: Nil = patterns("[[1], [\"foo\", _]]")
-      tc.difference0(p0, p1) match {
-        case Left(err) => fail(err.toString)
-        case Right(diff :: Nil) => assert(eqv(p0, diff))
-        case Right(many) => fail(s"expected exactly one difference: ${showPats(many)}")
+      tc.difference(p0, p1) match {
+        case diff :: Nil => assert(eqv(p0, diff))
+        case many => fail(s"expected exactly one difference: ${showPats(many)}")
       }
     }
 
     {
       val p0 :: p1 :: Nil = patterns("[[_, _], [[*foo]]]")
-      TotalityCheck(predefTE).difference0(p1, p0) match {
-        case Left(err) => fail(err.toString)
-        case Right(diff :: Nil) => assert(eqv(diff, p1))
-        case Right(many) => fail(s"expected exactly one difference: ${showPats(many)}")
+      TotalityCheck(predefTE).difference(p1, p0) match {
+        case diff :: Nil => assert(eqv(diff, p1))
+        case many => fail(s"expected exactly one difference: ${showPats(many)}")
       }
-      TotalityCheck(predefTE).difference0(p0, p1) match {
-        case Left(err) => fail(err.toString)
-        case Right(diff :: Nil) => assert(eqv(diff, p0))
-        case Right(many) => fail(s"expected exactly one difference: ${showPats(many)}")
+      TotalityCheck(predefTE).difference(p0, p1) match {
+        case diff :: Nil => assert(eqv(diff, p0))
+        case many => fail(s"expected exactly one difference: ${showPats(many)}")
       }
     }
 
     {
       val p0 :: p1 :: Nil = patterns("[[*_, _], [_, *_]]")
       TotalityCheck(predefTE).intersection(p0, p1) match {
-        case Right(List(res)) if res == p0 || res == p1 => succeed
-        case Right(Nil) => fail("these do overlap")
-        case Right(nonUnified) => fail(s"didn't unify to one: $nonUnified")
-        case Left(err) => fail(s"we shouldn't error computing this intersection: ${err.toString}")
+        case List(res) if res == p0 || res == p1 => succeed
+        case Nil => fail("these do overlap")
+        case nonUnified => fail(s"didn't unify to one: $nonUnified")
       }
     }
   }
 
-  test("intersection(a, a) == a") {
-    def law(p: Pattern[(PackageName, Constructor), Type]) =
-      // this would be better if we could get
-      // generate random patterns from a sane
-      // type Env... thats a TODO)
-      TotalityCheck(predefTE)
-        .intersection(p, p) match {
-          case Left(_) => () // we can often fail now due to bad patterns
-          case Right(List(h)) => assert(h == p)
-          case Right(other) => fail(s"expected one intersection, found $other")
-        }
+  test("(a - b) n c == (a n c) - (b n c) regressions") {
+    type Pat = Pattern[(PackageName, Constructor), Type]
+    import Pattern._
+    import StrPart.{LitStr, NamedStr, WildStr}
+    import ListPart.{NamedList, Item}
+    import Identifier.Name
 
-    // the intersection law is hard to verify on unions since we expand unions
-    // when doing intersections
-    forAll(genPatternNoUnion)(law)
+    val regressions: List[(Pat, Pat, Pat)] =
+      (Named(Name("hTt"), StrPat(NonEmptyList.of(NamedStr(Name("rfb")), LitStr("q"), NamedStr(Name("ngkrx"))))),
+        WildCard,
+        Named(Name("hjbmtklh"),StrPat(NonEmptyList.of(NamedStr(Name("qz8lcT")), WildStr, LitStr("p7"), NamedStr(Name("hqxprG")))))) ::
+      (WildCard,
+        ListPat(List(NamedList(Name("nv6")), Item(Literal(Lit.fromInt(-17))), Item(WildCard))),
+        ListPat(List(Item(StrPat(NonEmptyList.of(WildStr))), Item(StrPat(NonEmptyList.of(NamedStr(Name("eejhh")), LitStr("jbuzfcwsumP"), WildStr)))))) ::
+      Nil
 
-    def manualTest(str: String) = {
-      val a :: Nil = patterns(str)
-      law(a)
-    }
-
-    manualTest("[[_, _]]")
-    manualTest("[[*foo]]")
-    manualTest("[[*_]]")
-  }
-
-  test("intersection is associative") {
-    def law(
-      a: Pattern[(PackageName, Constructor), Type],
-      b: Pattern[(PackageName, Constructor), Type],
-      c: Pattern[(PackageName, Constructor), Type]
-    ) = {
-      // this would be better if we could get
-      // generate random patterns from a sane
-      // type Env... thats a TODO)
-      val tc = TotalityCheck(predefTE)
-      import tc.intersection
-
-      val left = intersection(a, b).flatMap(_.traverse(intersection(_, c))).map(_.flatten).map(_.map(_.unbind))
-      val right = intersection(b, c).flatMap(_.traverse(intersection(a, _))).map(_.flatten).map(_.map(_.unbind))
-
-      (left, right) match {
-        case (Right(a), Right(b)) if a == b => succeed
-        case (Right(rl), Right(rr)) =>
-          tc.differenceAll(rl, rr).product(tc.differenceAll(rr, rl)) match {
-            case Left(_) => () // we can still error in difference due to being ill-typed
-            case Right((Nil, Nil)) => succeed
-            case Right(_) =>
-              val diffl = rl.map(_.unbind).filterNot(rr.map(_.unbind).toSet)
-              val diffr = rr.map(_.unbind).filterNot(rl.map(_.unbind).toSet)
-              fail(s"rl: ${showPatsU(rl)}\nrr: ${showPatsU(rr)}\ndiffl: ${showPats(diffl)}, diffr: ${showPats(diffr)}")
-          }
-        case (_, _) =>
-          // since our random patterns are ill-typed, there
-          // is no guarantee we get errors in both directions
-          ()
-      }
-    }
-
-    forAll(genPattern, genPattern, genPattern)(law)
-
-    def manualTest(str: String) = {
-      val a :: b :: c :: Nil = patterns(str)
-      law(a, b, c)
-    }
-
-    manualTest("[[a, b, *c], [d, *_, _], [[e], _]]")
-    manualTest("[[a, *b], [*c, d], [*e, _, _, _]]")
-    manualTest("[[*_, _], [*_, _, _], [_, *_]]")
-
-    val complex = "[['foo'], _, [_, _, 'bar'], *_]"
-    manualTest(s"[[*_, _, _, _], [*_, x, _], $complex]")
-
-
-    {
-      val a0 = "[1, *a]"
-      val a1 = "[*b, c, d, Foo, [_, e, *f]]"
-      val a2 = "[_, g, ['foo'], _, *h]"
-      manualTest(s"[$a0, $a1, $a2]")
+    regressions.foreach { case (a, b, c) =>
+      diffIntersectionLaw(a, b, c)
     }
   }
 
-  test("intersection(a, b) == intersection(b, a)") {
-    def law(
-      a: Pattern[(PackageName, Constructor), Type],
-      b: Pattern[(PackageName, Constructor), Type]) = {
-      // this would be better if we could get
-      // generate random patterns from a sane
-      // type Env... thats a TODO)
-      val ab = TotalityCheck(predefTE)
-        .intersection(a, b)
-      val ba = TotalityCheck(predefTE)
-        .intersection(b, a)
-      (ab, ba) match {
-        case (Left(_), Left(_)) => ()
-        case (Left(err), Right(_)) =>
-          fail(s"a = ${showPat(a)} b = ${showPat(b)} ab fails, but ba succeeds: $err")
-        case (Right(_), Left(err)) =>
-          fail(s"a = ${showPat(a)} b = ${showPat(b)} ba fails, but ab succeeds: $err")
-        case (Right(ab), Right(ba)) =>
-          assert(showPatsU(ab) == showPatsU(ba), s"a = ${showPat(a)} b = ${showPat(b)}")
-      }
-    }
-
-    // unions and intersections are hard to normalize
-    forAll(genPatternNoUnion, genPatternNoUnion)(law)
-
-    def manualTest(str: String) = {
-      val a :: b :: Nil = patterns(str)
-      law(a, b)
-    }
-
-    manualTest("[[_, _], [*foo]]")
-    manualTest("[[*foo], [1, 2, *_]]")
-  }
-
-  test("if intersection(a, b) = 0, then a - b == a") {
-    def law(
-      a: Pattern[(PackageName, Constructor), Type],
-      b: Pattern[(PackageName, Constructor), Type]) = {
-
-      // this would be better if we could get
-      // generate random patterns from a sane
-      // type Env... thats a TODO)
-      val tc = TotalityCheck(predefTE)
-      tc.intersection(a, b) match {
-        case Left(_) => () // we can often fail now due to bad patterns
-        case Right(Nil) =>
-          tc.difference0(a, b) match {
-            case Left(err) => () // due to our generators, we fail a lot
-            case Right(h :: Nil) =>
-              assert(tc.eqPat.eqv(h, a), s"${showPat(h)} != ${showPat(a)}")
-            case Right(newDiff) =>
-              // our tests are not well typed, in well typed
-              // code, this shouldn't happen, but it can if the
-              // right side is total:
-              tc.isTotal(b::Nil) match {
-                case Left(_) => ()
-                case Right(true) => ()
-                case Right(false) =>
-                  fail(s"a = ${showPat(a)} b = ${showPat(b)}, a n b == 0. expected no diff, found ${showPats(newDiff)}")
-              }
-          }
-        case Right(_) => ()
-      }
-    }
-
-    def manualTest(str: String) = {
-      val a :: b :: Nil = patterns(str)
-      law(a, b)
-    }
-
-    /**
-     * These are some harder regressions that have caught us in the past
-     */
-    manualTest("[[_, _], [*foo]]")
-    /*
-     * the following is trick:
-     * [_, _] n [[*foo]] == 0 because the left matches 2 item lists and the right only 1
-     *
-     * if we consider it as a product:
-     * _ x [_] - [*foo] x []
-     *
-     * the product difference formula:
-     * (a0 x a1) - (b0 x b1) = (a0 - b0) x a1 + (a0 n b0) x (a1 - b1)
-     *
-     * suggests: _ - [*foo] = 0 for well typed expressions
-     * and (_ n [*foo]) = [*foo] or _ depending on the way to write it
-     *
-     * then [_] - [] = [_] since they don't overlap
-     *
-     * if we write `(_ n [*foo]) as _ we get the right answer
-     * if we write it as [*foo] we get [[*foo], _]
-     */
-    manualTest("[[_, _], [[*foo]]]")
-    manualTest("[['foo'], [*foo, [*_]]]")
-    manualTest("[[*_, [_]], [1]]")
-    /*
-     * This is hard because they are orthogonal, one is list of 2, one is a list of three,
-     * but the first element has a difference
-     */
-    manualTest("[[[cvspypdahs, *_], ['jnC']], [[*_, 5921457613766301145, 'j'], p, bmhvhs]]")
-
-    forAll(genPatternNoUnion, genPatternNoUnion)(law(_, _))
-  }
-
-  test("difference returns distinct values") {
-    forAll(genPattern, genPattern) { (a, b) =>
-      // this would be better if we could get
-      // generate random patterns from a sane
-      // type Env... thats a TODO)
-      val tc = TotalityCheck(predefTE)
-      tc.difference0(a, b) match {
-        case Left(_) => () // we can often fail now due to bad patterns
-        case Right(c) => assert(c == c.distinct)
-      }
-    }
-  }
-  test("intersection returns distinct values") {
-    forAll(genPattern, genPattern) { (a, b) =>
-      // this would be better if we could get
-      // generate random patterns from a sane
-      // type Env... thats a TODO)
-      val tc = TotalityCheck(predefTE)
-      tc.intersection(a, b) match {
-        case Left(_) => () // we can often fail now due to bad patterns
-        case Right(c) => assert(c == c.distinct)
-      }
-    }
-  }
-
-  test("a - b = c then c - b == c, because we have already removed all of b") {
-    def law(
-      a: Pattern[(PackageName, Constructor), Type],
-      b: Pattern[(PackageName, Constructor), Type]) = {
-      // this would be better if we could get
-      // generate random patterns from a sane
-      // type Env... thats a TODO)
-      val tc = TotalityCheck(predefTE)
-      tc.difference0(a, b) match {
-        case Left(_) => () // we can often fail now due to bad patterns
-        case Right(c) =>
-          tc.difference(c, b) match {
-            case Left(err) => () // due to our generators, we fail a lot
-            case Right(c1) =>
-              // // this quadradic, but order independent
-              val eqList1 = new Eq[TotalityCheck.Patterns] {
-                def eqv(a: TotalityCheck.Patterns, b: TotalityCheck.Patterns) = {
-                  (a, b) match {
-                    case (ah :: taila, _) if taila.exists(tc.eqPat.eqv(ah, _)) =>
-                      // duplicate, skip it
-                      eqv(taila, b)
-                    case (_, bh :: tailb) if tailb.exists(tc.eqPat.eqv(bh, _)) =>
-                      // duplicate, skip it
-                      eqv(a, tailb)
-                    case (ah :: taila, Nil) => false
-                    case (ah :: taila, bh :: tailb) =>
-                      b.exists(tc.eqPat.eqv(_, ah)) &&
-                        a.exists(tc.eqPat.eqv(_, bh)) &&
-                        eqv(taila, tailb)
-                    case (Nil, Nil) => true
-                    case (Nil, _) => false
-                    case (_, Nil) => false
-                  }
-                }
-              }
-              // now we check that c - c1 is empty and c1 - c is empty
-              val eqList2 = new Eq[TotalityCheck.Patterns] {
-                def eqv(a: TotalityCheck.Patterns, b: TotalityCheck.Patterns) = {
-                  (a, b) match {
-                    case (Nil, Nil) => true
-                    case (Nil, _) => false
-                    case (_, Nil) => false
-                    case (ah :: at, bh :: bt) =>
-                      val ua = Pattern.union(ah, at)
-                      val ub = Pattern.union(bh, bt)
-                      (tc.difference0(ua, ub), tc.difference0(ub, ua)) match {
-                        case (Right(Nil), Right(Nil)) => true
-                        case _ => false
-                      }
-                  }
-                }
-              }
-              // if we are equal according to either of these, we are equal,
-              // but sometimes we are equal and one or the other won't see it
-              // due to this analysis making almost no use of types.
-              assert(eqList1.eqv(c1, c) || eqList2.eqv(c1, c),
-                s"${showPat(a)} - (b=${showPat(b)}) = ${c.map(showPat)} - b = ${showPats(c1)} diff = ${c.map(showPatU).diff(c1.map(showPatU))}" )
-          }
-      }
-    }
-    def manualTest(str: String) = {
-      val a :: b :: Nil = patterns(str)
-      law(a, b)
-    }
-
-    manualTest("[[*foo, bar], [baz]]")
-    manualTest("[_, [_, _] | [*_, _]]")
-    // see issue #147, this was minimized from that
-    manualTest("[_, [_, _] | [*_, ([1], [*ad, s3] | (3, _) | 2)]]")
-    forAll(genPattern, genPattern)(law)
-  }
-
-  test("a - a = 0") {
-    forAll(genPattern) { a =>
-      // this would be better if we could get
-      // generate random patterns from a sane
-      // type Env... thats a TODO)
-      val tc = TotalityCheck(predefTE)
-      tc.difference0(a, a) match {
-        case Left(_) => () // we can often fail now due to bad patterns
-        case Right(Nil) => succeed
-        case Right(many) => fail(s"expected empty difference: $many")
-      }
-    }
-  }
-
-  test("(a - b) n c = (a n c) - (b n c)") {
-    def law(
-      a: Pattern[(PackageName, Constructor), Type],
-      b: Pattern[(PackageName, Constructor), Type],
-      c: Pattern[(PackageName, Constructor), Type]) = {
-      val tc = TotalityCheck(predefTE)
-      val left = tc.difference0(a, b)
-        .flatMap(_.traverse(tc.intersection(_, c)).map(_.flatten))
-      val right = (tc.intersection(a, c), tc.intersection(b, c))
-        .mapN {
-          case (as, bs) =>
-            val pairs = Applicative[List].product(as, bs)
-            pairs.traverse { case (a, b) => tc.difference0(a, b) }
-          case _ => Right(Nil)
-        }
-        .flatMap(e => e)
-
-      (left, right) match {
-        case (Right(lr), Right(rr)) => assert(lr == rr)
-        case _ =>()
-      }
-    }
-
-  }
-
-  test("missing branches, if added are total and none of the missing are unreachable") {
-
-    val tc = TotalityCheck(predefTE)
-
-    def law(pats: List[Pattern[(PackageName, Constructor), Type]]) = {
-
-      tc.missingBranches(pats) match {
-        case Left(_) => ()
-        case Right(rest) =>
-          tc.missingBranches(pats ::: rest) match {
-            case Left(err) => ()
-              // with unions this is somehow no longer passing.
-              // it would be better to generate a TypeEnv and then make
-              // patterns from that so we don't see failures
-              // fail(s"started with: ${pats.map(showPat)} added: ${rest.map(showPat)} but got: $err")
-            case Right(Nil) =>
-              tc.unreachableBranches(pats ::: rest) match {
-                case Left(err) => () //fail(s"didn't expect to fail after passing missing: $err")
-                case Right(unreach) =>
-                  // TODO
-                  assert(unreach.filter(rest.toSet).map(showPat) == Nil, s"\n\nrest = ${showPats(rest)}\n\ninit: ${showPats(pats)}")
-                  succeed
-              }
-            case Right(rest1) =>
-              fail(s"after adding ${showPats(rest)} we still need ${showPats(rest1)}")
-          }
-      }
-    }
-
-    val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genPattern))
-    forAll(pats)(law(_))
-
-    def manualTest(str: String) = law(patterns(str))
-
-    manualTest(s"[['z$dollar{_}']]")
-  }
-
-  /*
-   * TODO: this doesn't pass yet.
-  test("productDifference of a single pair is the same as difference") {
-    def law(p1: Pattern[(PackageName, Constructor), Type], p2: Pattern[(PackageName, Constructor), Type]) = {
-      val tc = TotalityCheck(predefTE)
-      val diff1 = tc.difference0(p1, p2).map { union =>
-        union.map(tc.normalizePattern(_)).map(showPat).map(NonEmptyList(_, Nil))
-      }
-      assert(tc.productDifference((p1, p2) :: Nil).map(_.map(_.map(tc.normalizePattern(_)).map(showPat))) == diff1,
-        s"p1 = ${showPat(p1)} p2 = ${showPat(p2)}")
-    }
-
-    forAll(genPattern, genPattern)(law(_, _))
-
-    def manualTest(str: String) = {
-      val a :: b :: Nil = patterns(str)
-      law(a, b)
-    }
-
-    manualTest(s"[[hE, *_], ['mkfyv$dollar{_}', [*i], _, _]]")
-  }
-  */
-
-  test("missing branches are distinct") {
-    val pats = Gen.choose(0, 10).flatMap(Gen.listOfN(_, genPattern))
-
-    forAll(pats) { pats =>
-      val tc = TotalityCheck(predefTE)
-      tc.missingBranches(pats) match {
-        case Left(_) => ()
-        case Right(rest) =>
-          assert(rest == rest.distinct)
-      }
-    }
-  }
 }
