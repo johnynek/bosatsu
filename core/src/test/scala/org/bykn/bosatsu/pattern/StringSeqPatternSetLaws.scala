@@ -47,6 +47,8 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
     val regressions: List[(SeqPattern[Char], SeqPattern[Char])] =
       (Cat(Lit('1'),Cat(Lit('1'),Cat(Lit('1'),Cat(Lit('1'),Empty)))),
         Cat(Lit('0'),Cat(Lit('1'),Cat(Lit('1'),Empty)))) ::
+      (Cat(Lit('1'),Cat(Lit('0'),Cat(Lit('1'),Cat(Lit('0'),Empty)))),
+        Cat(Lit('0'),Cat(Lit('1'),Empty))) ::
       Nil
 
     regressions.foreach { case (a, b) => subsetConsistencyLaw(a, b, Eq.fromUniversalEquals) }
