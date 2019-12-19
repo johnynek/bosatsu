@@ -1,5 +1,7 @@
 package AvlTree
 
+export [ Tree, Module, module ]
+
 enum Tree[a]:
     Empty, Branch(size: Int, height: Int, key: a, left: Tree[a], right: Tree[a])
 
@@ -23,15 +25,17 @@ def max(i, j):
         LT: j
         _: i
 
+# properly balanced trees:
+# h < c log_2(n + 2) + b, c ~= 1.44, b ~= -1.33
 def height(t: Tree[a]) -> Int:
     match t:
         Empty: 0
-        Branch { height: h, ...}: h
+        Branch { height: h, ... }: h
 
 def size(t: Tree[a]) -> Int:
     match t:
         Empty: 0
-        Branch { size: s, ...}: s
+        Branch { size: s, ... }: s
 
 def branch(sz, item, left, right):
     h = max(height(left), height(right))
@@ -47,31 +51,32 @@ def balance(t: Tree[a]) -> Tree[a]:
         Branch { key: top_item, left, right, ... }:
           match rotation(height(left), height(right), 1):
               NoRo: t
-              LeftRo:
+              RightRo:
                   match left:
                       Empty: t
                       Branch { key: inner_item, left, right: left_right, ... }:
                           match rotation(height(left), height(left_right), 0):
-                              LeftRo | NoRo:
+                              RightRo | NoRo:
                                   res_r = branch_s(top_item, left_right, right)
                                   branch_s(inner_item, left, res_r)
-                              RightRo:
+                              LeftRo:
                                   match left_right:
-                                      Empty: t
+                                      Empty: trace("unreachable", t)
                                       Branch { key: lrv, left: left_right_left, right: left_right_right, ...}:
                                           res_r = branch_s(top_item, left_right_right, right)
                                           res_l = branch_s(inner_item, left, left_right_left)
                                           branch_s(lrv, res_l, res_r)
-              RightRo:
+              LeftRo:
                   match right:
                       Empty: t
                       Branch { key: inner_item, left: right_left, right: right_right, ...}:
                           match rotation(height(right_left), height(right_right), 0):
-                              RightRo | NoRo:
-                                  branch_s(inner_item, branch_s(top_item, left, right_left), right_right)
-                              LeftRo:
+                              LeftRo | NoRo:
+                                  res_l = branch_s(top_item, left, right_left)
+                                  branch_s(inner_item, res_l, right_right)
+                              RightRo:
                                   match right_left:
-                                      Empty: t
+                                      Empty: trace("unreachable", t)
                                       Branch { key: right_left_key, right: right_left_left, left: right_left_right, ... }:
                                           branch_s(
                                             right_left_key,
@@ -82,7 +87,7 @@ def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
     Order(fn) = ord
 
     def loop(tree: Tree[a]) -> Tree[a]:
-        recur tree:
+        res = recur tree:
             Empty: Branch(1, 1, item, Empty, Empty)
             Branch(s, h, item0, left, right):
                 match fn(item, item0):
@@ -93,8 +98,9 @@ def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
                     GT:
                         right = loop(right)
                         branch(s.add(1), item0, left, right)
+        res.balance
 
-    loop(tree).balance
+    loop(tree)
 
 def contains(ord: Order[a], tree: Tree[a], item: a) -> Bool:
     Order(fn) = ord
@@ -140,6 +146,22 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
 
     loop(tree).balance
 
+def fold_left_Tree(t: Tree[a], left_v: b, fn: b -> a -> b) -> b:
+    recur t:
+        Empty: left_v
+        Branch { key, left, right, ... }:
+            v1 = fold_left_Tree(left, left_v, fn)
+            v2 = fn(v1, key)
+            fold_left_Tree(right, v2, fn)
+
+def fold_right_Tree(t: Tree[a], right_v: b, fn: a -> b -> b) -> b:
+    recur t:
+        Empty: right_v
+        Branch { key, left, right, ... }:
+            v1 = fold_right_Tree(right, right_v, fn)
+            v2 = fn(key, v1)
+            fold_right_Tree(left, v2, fn)
+
 # Module pattern to associate some methods with a typeclass (Order)
 struct Module[a](
     order: Order[a],
@@ -147,6 +169,8 @@ struct Module[a](
     single: a -> Tree[a],
     contains: Tree[a] -> a -> Bool,
     remove: Tree[a] -> a -> Tree[a],
+    fold_left: forall b. Tree[a] -> b -> (b -> a -> b) -> b,
+    fold_right: forall b. Tree[a] -> b -> (a -> b -> b) -> b,
 )
 
 def module(ord: Order[a]) -> Module[a]:
@@ -156,6 +180,8 @@ def module(ord: Order[a]) -> Module[a]:
         single: \a -> add_item(ord, Empty, a),
         contains: contains(ord),
         remove: remove_item(ord),
+        fold_left: fold_left_Tree,
+        fold_right: fold_right_Tree,
     }
 #####################
 # test code
@@ -181,6 +207,76 @@ def contains_test:
       missing_law(single_i(2).rem_i(2).rem_i(2), 2, "Empty + 2 - 2, !contains(2)")
     ])
 
+def eq_i(a, b):
+    match cmp_Int(a, b):
+        EQ: True
+        _ : False
+
+def add_increases_size(t, i, msg):
+    s0 = size(t)
+    s1 = size(t.add_i(i))
+    diff_one = eq_i(s1.sub(s0), 1)
+    Assertion(diff_one, msg)
+
+def size_tests:
+    TestSuite('size tests', [
+      add_increases_size(Empty, 1, "Empty.add(1)"),
+      add_increases_size(single_i(1), 2, "Empty.add(1)"),
+      add_increases_size(single_i(1), 2, "single(1).add(2)"),
+      Assertion(single_i(1).size.eq_i(single_i(1).add_i(1).size), "single(1) + 1 has same size"),
+    ])
+
+def log2(i):
+     int_loop(i, 0, \n, cnt ->
+        rr = match n.div(2):
+             None: 0
+             Some(n): n
+        (rr, cnt.add(1)))
+
+def all_n(n): range(n).foldLeft(Empty)(add_i)
+
+def height_tests:
+    # h < c log_2(n + 2) + b, c ~= 1.44, b ~= -1.33
+    # we can weaken this to: 3/2 * log_2(n + 2)
+    def size_law(n):
+        t = all_n(n)
+        h = height(t)
+        n = size(t)
+        bound2 = 3.times(log2(n.add(2)))
+        good = match h.times(2).cmp_Int(bound2):
+            LT: True
+            _: False
+        Assertion(good, "size_law for range(${int_to_String(n)})")
+
+
+    TestSuite("height_tests", [
+      size_law(n) for n in range(30)
+    ])
+
+def fold_left_tests:
+  TestSuite("fold_left_tests", [
+    Assertion(all_n(100).fold_left_Tree(0, \i, _ -> i.add(1)).eq_i(100), "sum 100"),
+    Assertion(all_n(100).fold_left_Tree(0, max).eq_i(99), "max 100"),
+    Assertion(all_n(100).fold_left_Tree(-1, \acc, i ->
+      match acc:
+          -1: i
+          _: acc).eq_i(0), "first is 0"),
+  ])
+
+def fold_right_tests:
+  TestSuite("fold_right_tests", [
+    Assertion(all_n(100).fold_right_Tree(0, \_, i -> i.add(1)).eq_i(100), "sum 100"),
+    Assertion(all_n(100).fold_right_Tree(0, max).eq_i(99), "max 100"),
+    Assertion(all_n(100).fold_right_Tree(-1, \i, acc ->
+      match acc:
+          -1: i
+          _: acc).eq_i(99), "last is 99"),
+  ])
+
 tests = TestSuite("AvlTree tests", [
     contains_test,
+    size_tests,
+    height_tests,
+    fold_left_tests,
+    fold_right_tests,
 ])

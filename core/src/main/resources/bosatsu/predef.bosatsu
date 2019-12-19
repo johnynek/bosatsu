@@ -26,6 +26,7 @@ export [
   gcd_Int,
   get_key,
   int_loop,
+  int_to_String,
   items,
   map_List,
   mod_Int,
@@ -126,6 +127,8 @@ external struct String
 external def string_Order_fn(str0: String, str1: String) -> Comparison
 string_Order = Order(string_Order_fn)
 external def concat_String(items: List[String]) -> String
+
+external def int_to_String(i: Int) -> String
 
 enum Test:
   Assertion(value: Bool, message: String)
