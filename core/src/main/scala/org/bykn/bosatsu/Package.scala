@@ -401,10 +401,21 @@ object PackageError {
           val context1 =
             lm.showRegion(r1, 2, errColor).getOrElse(Doc.str(r1)) // we should highlight the whole region
 
+          val fnHint =
+            (t0, t1) match {
+              case (Type.Fun(_, _), Type.Fun(_, _)) =>
+                // both are functions
+                Doc.empty
+              case (Type.Fun(_, _), _) | (_, Type.Fun(_, _)) =>
+                Doc.text("hint: this often happens when you apply the wrong number of arguments to a function.") + Doc.hardLine
+              case _ =>
+                Doc.empty
+            }
+
           val tmap = showTypes(pack, List(t0, t1))
           val doc = Doc.text("type error: expected type ") + Doc.text(tmap(t0)) +
             context0 + Doc.text("to be the same as type ") + Doc.text(tmap(t1)) +
-            Doc.hardLine + context1
+            Doc.hardLine + fnHint + context1
 
           doc.render(80)
         case Infer.Error.VarNotInScope((pack, name), scope, region) =>
