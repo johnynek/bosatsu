@@ -111,7 +111,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   Right(Json.JNumberStr(v.toString))
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
-                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
               }
             case Type.StrType =>
@@ -120,7 +120,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   Right(Json.JString(v))
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
-                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
               }
             case Type.BoolType =>
@@ -129,7 +129,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case False => Right(Json.JBool(false))
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
-                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
               }
             case Type.UnitType =>
@@ -138,7 +138,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case UnitValue => Right(Json.JNull)
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
-                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
                 }
             case opt@Type.OptionT(t1) =>
@@ -151,7 +151,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   case VOption(None) => Right(Json.JNull)
                   case VOption(Some(a)) => inner(a)
                   case other =>
-                    Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                    Left(IllTyped(revPath.reverse, tpe, other))
                 }
               }
               else {
@@ -160,7 +160,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   case VOption(None) => Right(Json.JArray(Vector.empty))
                   case VOption(Some(a)) => inner(a).map { j => Json.JArray(Vector(j)) }
                   case other =>
-                    Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                    Left(IllTyped(revPath.reverse, tpe, other))
                 }
               }
             case Type.ListT(t1) =>
@@ -173,7 +173,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     .map(Json.JArray(_))
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
-                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
               }
             case Type.DictT(Type.StrType, vt) =>
@@ -186,14 +186,14 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       case Str(kstr) => inner(v).map((kstr, _))
                       case other =>
                         // $COVERAGE-OFF$this should be unreachable
-                        Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                        Left(IllTyped(revPath.reverse, tpe, other))
                         // $COVERAGE-ON$
                     }
                   }
                   .map(Json.JObject(_))
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
-                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
               }
             case Type.Tuple(ts) =>
@@ -209,7 +209,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     .map(Json.JArray(_))
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
-                  Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                  Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
               }
 
@@ -235,11 +235,11 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
               dt.natLike match {
                 case DefinedType.NatLike.Not =>
-                  val resInner: Eval[Map[Int, List[(String, Fn)]]] = {
-                    val cons = dt.constructors
-                    val (_, targs) = Type.applicationArgs(tpe)
-                    val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
+                  val cons = dt.constructors
+                  val (_, targs) = Type.applicationArgs(tpe)
+                  val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
 
+                  val resInner: Eval[Map[Int, List[(String, Fn)]]] =
                     cons.zipWithIndex
                       .traverse { case (cf, idx) =>
                         val rec = cf.args.traverse { case (field, t) =>
@@ -250,7 +250,6 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                         rec.map { fields => (idx, fields) }
                       }
                       .map(_.toMap)
-                  }
 
                   if (dt.isNewType) {
                     lazy val inner = resInner.value.head._2.head._2
@@ -273,11 +272,11 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                             .map { ps => Json.JObject(ps) }
                         }
                         else {
-                          Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, prod))
+                          Left(IllTyped(revPath.reverse, tpe, prod))
                         }
 
                       case other =>
-                        Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                        Left(IllTyped(revPath.reverse, tpe, other))
                     }
                   }
                   else {
@@ -297,12 +296,12 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                                 }
                                 .map { ps => Json.JObject(ps) }
                             }
-                            else Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, s))
+                            else Left(IllTyped(revPath.reverse, tpe, s))
                           case None =>
-                            Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, s))
+                            Left(IllTyped(revPath.reverse, tpe, s))
                         }
                       case a =>
-                        Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, a))
+                        Left(IllTyped(revPath.reverse, tpe, a))
                      }
                    }
                 case _ =>
@@ -311,7 +310,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     case ExternalValue(b: BigInteger) =>
                       Right(Json.JNumberStr(b.toString))
                     case other =>
-                      Left(JsonEncodingError.IllTyped(revPath.reverse, tpe, other))
+                      Left(IllTyped(revPath.reverse, tpe, other))
                   }
               }
             })

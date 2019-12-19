@@ -449,6 +449,26 @@ def headOption(as):
 
 main = headOption([1])
 """), "Foo", SumValue(1, ConsValue(VInt(1), UnitValue)))
+
+    runBosatsuTest(
+      List("""
+package Foo
+
+def exists(as):
+  match as:
+    [*_, True, *_]: True
+    _: False
+
+def not(x): False if x else True
+
+test = TestSuite("exists", [
+  Assertion(exists([True]), "[True]"),
+  Assertion(exists([False, True]), "[False, True]"),
+  Assertion(exists([True, False]), "[True, False]"),
+  Assertion(not(exists([])), "![]"),
+  Assertion(not(exists([False])), "![False]"),
+  ])
+"""), "Foo", 5)
   }
 
   test("test generics in defs") {
@@ -1403,7 +1423,7 @@ package A
 
 main = match [1, 2, 3]:
   []: 0
-  [*a, _, *b]: 2
+  [*a, *b, _]: 2
 """), "A") { case te@PackageError.TotalityCheckError(_, _) =>
       val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(19,60)\nmultiple splices in pattern, only one per match allowed")
       ()
@@ -2313,6 +2333,16 @@ def substitute:
   y.add(1)
 
 test = Assertion(substitute.eq_Int(42), "basis substitution")
+"""), "A", 1)
+  }
+
+  test("we can use .( ) to get |> like syntax for lambdas") {
+  runBosatsuTest(List("""
+package A
+
+three = 2.(\x -> add(x, 1))
+
+test = Assertion(three.eq_Int(3), "let inside apply")
 """), "A", 1)
   }
 }

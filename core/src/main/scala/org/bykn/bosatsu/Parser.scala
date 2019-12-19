@@ -323,6 +323,9 @@ object Parser {
     def parens: P[T] =
       wrappedSpace("(", ")")
 
+    def parensCut: P[T] =
+      P("(" ~/ maybeSpacesAndLines ~ item ~ maybeSpacesAndLines ~ ")")
+
     def parensLines1: P[NonEmptyList[T]] = {
       val nel = item.nonEmptyListOfWs(maybeSpacesAndLines)
       P("(" ~ maybeSpacesAndLines ~ nel ~ maybeSpacesAndLines ~ ")")

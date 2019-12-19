@@ -1,6 +1,8 @@
 package org.bykn.bosatsu
 package jsapi
 
+import org.typelevel.paiges.Doc
+
 import scala.scalajs.js
 
 import js.|
@@ -36,8 +38,11 @@ object JsApi {
     module.runWith(files)("eval" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
-      case Right(module.Output.EvaluationResult(res, tpe)) =>
-        new EvalSuccess(res.value.toString)
+      case Right(module.Output.EvaluationResult(res, tpe, resDoc)) =>
+          val tMap = TypeRef.fromTypes(None, tpe :: Nil)
+          val tDoc = tMap(tpe).toDoc
+          val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
+        new EvalSuccess(doc.render(80))
       case Right(other) =>
         new Error(s"internal error. got unexpected result: $other")
     }
