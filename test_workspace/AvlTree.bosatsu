@@ -98,7 +98,7 @@ def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
                     GT:
                         right = loop(right)
                         branch(s.add(1), item0, left, right)
-        res.balance
+        balance(res)
 
     loop(tree)
 
@@ -127,7 +127,7 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
     Order(fn) = ord
 
     def loop(tree: Tree[a]) -> Tree[a]:
-        recur tree:
+        res = recur tree:
             Empty: Empty
             Branch(s, _, item0, left, right):
                 match fn(item, item0):
@@ -143,8 +143,9 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
                     GT:
                         right = loop(right)
                         branch(s.sub(1), item0, left, right)
+        balance(res)
 
-    loop(tree).balance
+    loop(tree)
 
 def fold_left_Tree(t: Tree[a], left_v: b, fn: b -> a -> b) -> b:
     recur t:
@@ -218,12 +219,20 @@ def add_increases_size(t, i, msg):
     diff_one = eq_i(s1.sub(s0), 1)
     Assertion(diff_one, msg)
 
+def rem_decreases_size(t, i, msg):
+    s0 = size(t)
+    s1 = size(t.rem_i(i))
+    diff_one = eq_i(s0.sub(s1), 1)
+    Assertion(diff_one, msg)
+
 def size_tests:
     TestSuite('size tests', [
       add_increases_size(Empty, 1, "Empty.add(1)"),
       add_increases_size(single_i(1), 2, "Empty.add(1)"),
       add_increases_size(single_i(1), 2, "single(1).add(2)"),
       Assertion(single_i(1).size.eq_i(single_i(1).add_i(1).size), "single(1) + 1 has same size"),
+      rem_decreases_size(single_i(1), 1, "single(1) - 1"),
+      rem_decreases_size(single_i(2).add_i(3), 2, "single(2) + 3 - 2"),
     ])
 
 def log2(i):
