@@ -1536,6 +1536,21 @@ main = fn
       List("""
 package A
 
+def fn(x, y):
+  match x:
+    0: y
+    x: x
+
+main = fn(0, 1, 2)
+"""), "A") { case te@PackageError.TypeErrorIn(_, _) =>
+      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, type error: expected type Bosatsu/Predef::Int to be the same as type ?a -> ?b\nhint: this often happens when you apply the wrong number of arguments to a function.\nRegion(63,74)")
+      ()
+    }
+
+    evalFail(
+      List("""
+package A
+
 export [ foo ]
 
 foo = 3
