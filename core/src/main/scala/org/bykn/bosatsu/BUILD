@@ -1,8 +1,6 @@
 load("@io_bazel_rules_scala//scala:scala.bzl", "scala_binary", "scala_test", "scala_repl")
 load("@org_bykn_bosatsu//tools:scala.bzl", "scala_library", "scala_module", "strict_scalacopts")
 
-package(default_visibility = ["//visibility:public"])
-
 common_deps = [
       "//core:par",
       "//base/src/main/scala/org/bykn/bosatsu",
@@ -17,12 +15,6 @@ common_deps = [
       "//3rdparty/jvm/com/monovore:decline",
       "//3rdparty/jvm/com/stripe:dagon_core",
   ]
-
-# scala_library(
-#     name = "bosatsu",
-#     srcs = glob(["**/*.scala"], exclude=["Main.scala"]),
-#     resources = ["//core/src/main/resources/bosatsu:predef.bosatsu"],
-#     deps = common_deps)
 
 scala_library(
     name = "bosatsu00_BindingStatement",
@@ -2173,7 +2165,7 @@ scala_library(
     name = "bosatsu",
     srcs = [],
     deps = [],
-    visibility = [],
+    visibility = ["//visibility:public"],
     exports = [
         ":bosatsu00_BindingStatement",
         ":bosatsu01_CommentStatement",
