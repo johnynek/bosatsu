@@ -970,8 +970,8 @@ object SourceConverter {
       val plural = if (unexpected.tail.isEmpty) "field" else "fields"
       val unexDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, unexpected.toList.map { b => Doc.text(b.asString) })
       val exDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, expected.map { b => Doc.text(b.asString) })
-      (Doc.text(s"unexpected $plural:") + unexDoc + Doc.lineOrSpace +
-        Doc.text(s"in ${name.asString}, expected: $exDoc") + Doc.lineOrSpace + syntax.toDoc).render(80)
+      (Doc.text(s"unexpected $plural: ") + unexDoc + Doc.lineOrSpace +
+        Doc.text(s"in ${name.asString}, expected: ") + exDoc + Doc.lineOrSpace + syntax.toDoc).render(80)
       }
   }
 
