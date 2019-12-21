@@ -107,10 +107,107 @@ object TypedExpr {
   case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Var[T](pack: Option[PackageName], name: Identifier, tpe: Type, tag: T) extends TypedExpr[T]
   case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
-  case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
+  case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T] {
+    def selfCallKind: SelfCallKind = {
+      if (recursive.isRecursive) TypedExpr.selfCallKind(arg, expr)
+      else SelfCallKind.NoCall
+    }
+  }
   // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
+
+  /**
+   * For a recursive binding, what kind of call do we have?
+   */
+  def selfCallKind[A](nm: Bindable, expr: TypedExpr[A]): SelfCallKind = {
+    val arity = Type.Fun.arity(expr.getType)
+    callKind(nm, arity, expr)
+  }
+
+  sealed abstract class SelfCallKind {
+    import SelfCallKind._
+
+    // if you have two branches in match what is the result
+    def merge(that: => SelfCallKind): SelfCallKind =
+      this match {
+        case NonTailCall => NonTailCall
+        case NoCall => that
+        case TailCall =>
+          that match {
+            case NonTailCall => NonTailCall
+            case TailCall | NoCall => TailCall
+          }
+      }
+
+    def callNotTail: SelfCallKind =
+      this match {
+        case NoCall => NoCall
+        case NonTailCall | TailCall => NonTailCall
+      }
+  }
+  object SelfCallKind {
+    case object NoCall extends SelfCallKind
+    case object TailCall extends SelfCallKind
+    case object NonTailCall extends SelfCallKind
+  }
+
+  private def callKind[A](n: Bindable, arity: Int, te: TypedExpr[A]): SelfCallKind =
+    te match {
+      case Generic(_, in, _) => callKind(n, arity, in)
+      case Annotation(te, _, _) => callKind(n, arity, te)
+      case AnnotatedLambda(b, _, body, _) =>
+        // let fn = \x -> fn(x) in fn(1)
+        // is a tail-call
+        if (n == b) {
+          //shadow
+          SelfCallKind.NoCall
+        }
+        else {
+          callKind(n, arity, body)
+        }
+      case Var(pack, vn, _, _) =>
+        pack match {
+          case None if (vn != n) => SelfCallKind.NoCall
+          case Some(_) => SelfCallKind.NoCall
+          case None =>
+            if (arity == 0) SelfCallKind.TailCall else SelfCallKind.NonTailCall
+        }
+      case App(fn, arg, _, _) =>
+        callKind(n, arity, arg) match {
+          case SelfCallKind.NoCall =>
+            callKind(n, arity - 1, fn)
+          case SelfCallKind.TailCall | SelfCallKind.NonTailCall => SelfCallKind.NonTailCall
+        }
+      case Let(arg, ex, in, rec, _) =>
+        if (arg == n) {
+          // shadow
+          if (rec.isRecursive) {
+            // shadow still in scope in ex
+            SelfCallKind.NoCall
+          }
+          else {
+            // ex isn't in tail position, so if there is a call, we aren't tail
+            callKind(n, arity, ex).callNotTail
+          }
+        }
+        else {
+          callKind(n, arity, ex)
+            .callNotTail
+            .merge(callKind(n, arity, in))
+        }
+      case Literal(_, _, _) => SelfCallKind.NoCall
+      case Match(arg, branches, _) =>
+        callKind(n, arity, arg) match {
+          case SelfCallKind.NoCall =>
+            // then we check all the branches
+            branches.foldLeft(SelfCallKind.NoCall: SelfCallKind) { case (acc, (_, b)) =>
+              acc.merge(callKind(n, arity, b))
+            }
+          case SelfCallKind.TailCall | SelfCallKind.NonTailCall => SelfCallKind.NonTailCall
+        }
+    }
+
 
   private implicit val setM: Monoid[SortedSet[Type]] =
     new Monoid[SortedSet[Type]] {

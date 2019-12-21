@@ -265,4 +265,38 @@ def foo:
   42
 """) { te => assert(countLet(te) == 0) }
   }
+
+  test("test selfCallKind") {
+    import TypedExpr.SelfCallKind.{NoCall, NonTailCall, TailCall}
+
+    checkLast(
+      """
+enum N: Z, S(prev: N)
+
+def list_len(list, acc):
+  recur list:
+    []: acc
+    [_, *t]: list_len(t, S(acc))
+""") { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == TailCall) }
+
+    checkLast(
+      """
+
+enum N: Z, S(prev: N)
+
+def list_len(list):
+  recur list:
+    []: Z
+    [_, *t]: S(list_len(t))
+""") { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NonTailCall) }
+
+    checkLast(
+      """
+def list_len(list):
+  match list:
+    []: 0
+    [_, *_]: 1
+""") { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NoCall) }
+
+  }
 }
