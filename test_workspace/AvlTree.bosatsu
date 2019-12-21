@@ -87,18 +87,17 @@ def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
     Order(fn) = ord
 
     def loop(tree: Tree[a]) -> Tree[a]:
-        res = recur tree:
+        recur tree:
             Empty: Branch(1, 1, item, Empty, Empty)
             Branch(s, h, item0, left, right):
                 match fn(item, item0):
                     EQ: Branch(s, h, item, left, right)
                     LT:
                         left = loop(left)
-                        branch(s.add(1), item0, left, right)
+                        branch(s.add(1), item0, left, right).balance
                     GT:
                         right = loop(right)
-                        branch(s.add(1), item0, left, right)
-        balance(res)
+                        branch(s.add(1), item0, left, right).balance
 
     loop(tree)
 
@@ -127,23 +126,22 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
     Order(fn) = ord
 
     def loop(tree: Tree[a]) -> Tree[a]:
-        res = recur tree:
+        recur tree:
             Empty: Empty
-            Branch(s, _, item0, left, right):
-                match fn(item, item0):
+            Branch { size, key, left, right, ... }:
+                match fn(item, key):
                     EQ:
                         match right:
                             Empty: left
                             _:
                                 right = loop(right)
-                                branch(s.sub(1), item0, left, right)
+                                branch(size.sub(1), key, left, right).balance
                     LT:
                         left = loop(left)
-                        branch(s.sub(1), item0, left, right)
+                        branch(size.sub(1), key, left, right).balance
                     GT:
                         right = loop(right)
-                        branch(s.sub(1), item0, left, right)
-        balance(res)
+                        branch(size.sub(1), key, left, right).balance
 
     loop(tree)
 
