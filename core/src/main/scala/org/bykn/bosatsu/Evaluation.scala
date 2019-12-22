@@ -81,7 +81,7 @@ object Evaluation {
       }
 
 
-    def continueScoped(names: List[Bindable], registers: MMap[Bindable, Eval[Value]]): Eval[Value] =
+    private def continueScoped(names: List[Bindable], registers: MMap[Bindable, Eval[Value]]): Eval[Value] =
       FnValue.curry(names.size) { eargs =>
         var n = names
         var a = eargs
@@ -94,29 +94,55 @@ object Evaluation {
         Eval.now(null)
       }
 
-    def loop(args: List[Bindable])(bodyFn: MMap[Bindable, Eval[Value]] => Scoped): Scoped =
-      fromFn { env =>
-        Eval.later {
-          var res: Value = null
-          var first = true
-          val registers: MMap[Bindable, Eval[Value]] =
-            MMap(args.map { a => (a, env(a)) } :_*)
+    def loop(arg: Bindable, params: List[Bindable], body: Scoped): Scoped = {
 
-          val body = bodyFn(registers)
-          while(res eq null) {
-            val e1 =
-              if (!first) {
-                registers.foldLeft(env)(_ + _)
-              }
-              else env
+      def loopBody(args: List[Bindable])(bodyFn: MMap[Bindable, Eval[Value]] => Scoped): Scoped =
+        fromFn { env =>
+          Eval.later {
+            var res: Value = null
+            var first = true
+            val registers: MMap[Bindable, Eval[Value]] =
+              MMap(args.map { a => (a, env(a)) } :_*)
 
-            res = body.inEnv(e1).value
-            first = false
+            val body = bodyFn(registers)
+            while(res eq null) {
+              val e1 =
+                if (!first) {
+                  registers.foldLeft(env)(_ + _)
+                }
+                else env
+
+              res = body.inEnv(e1).value
+              first = false
+            }
+
+            res
           }
-
-          res
         }
-      }
+
+       val bodyScoped = loopBody(params) { regs =>
+         // in the body, we call the continueScoped
+         // to update the mutable variables in the loop
+         // and just return null, above we loop the while
+         // loop with the result is null
+         Scoped.const(Scoped.continueScoped(params, regs))
+           .letNameIn(arg, body)
+       }
+
+       Scoped.fromFn { env =>
+         FnValue.curry(params.size) { eargs =>
+           var n = params
+           var a = eargs
+           var env1 = env
+           while (n.nonEmpty) {
+             env1 = env1.updated(n.head, a.head)
+             n = n.tail
+             a = a.tail
+           }
+           bodyScoped.inEnv(env1)
+         }
+       }
+    }
 
     private case class Let(name: Bindable, arg: Scoped, in: Scoped) extends Scoped {
       def inEnv(env: Env) = {
@@ -125,7 +151,7 @@ object Evaluation {
       }
     }
 
-    def fromFn(fn: Env => Eval[Value]): Scoped =
+    private def fromFn(fn: Env => Eval[Value]): Scoped =
       FromFn(fn)
 
     private case class FromFn(fn: Env => Eval[Value]) extends Scoped {
@@ -663,28 +689,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
              // this could be tail recursive
              if (l.selfCallKind == TypedExpr.SelfCallKind.TailCall) {
                val arity = Type.Fun.arity(e.getType)
-               toArgsBody(arity, e) match {
+               TypedExpr.toArgsBody(arity, e) match {
                  case Some((params, body)) =>
-                   val bodyS = recurse(body)
-
-                   val bodyScoped = Scoped.loop(params) { regs =>
-                     Scoped.const(Scoped.continueScoped(params, regs))
-                       .letNameIn(arg, bodyS)
-                   }
-
-                   Scoped.fromFn { env =>
-                     FnValue.curry(params.size) { eargs =>
-                       var n = params
-                       var a = eargs
-                       var env1 = env
-                       while (n.nonEmpty) {
-                         env1 = env1.updated(n.head, a.head)
-                         n = n.tail
-                         a = a.tail
-                       }
-                       bodyScoped.inEnv(env1)
-                     }
-                   }
+                   Scoped.loop(arg, params.map(_._1), recurse(body))
                  case None =>
                    // TODO: I don't think this case should ever happen
                    Scoped.recursive(arg, e0)
@@ -706,62 +713,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          argR.branch(branchR(_, _))
     }
   }
-
-  private def toArgsBody(arity: Int, expr: TypedExpr[T]): Option[(List[Bindable], TypedExpr[T])] = {
-    import TypedExpr._
-
-    expr match {
-      case _ if arity == 0 =>
-        Some((Nil, expr))
-      case Generic(_, e, _) => toArgsBody(arity, e)
-      case Annotation(e, _, _) => toArgsBody(arity, e)
-      case AnnotatedLambda(name, _, expr, _) =>
-        toArgsBody(arity - 1, expr).map { case (args0, body) =>
-          (name :: args0, body)
-        }
-      case Let(arg, e, in, r, t) =>
-        toArgsBody(arity, in).flatMap { case (args, body) =>
-          // if args0 don't shadow arg, we can push
-          // it down
-          if (args.contains(arg)) {
-            // this we shadow, so we
-            // can't lift, we could alpha-rename to
-            // deal with this case
-            None
-          }
-          else {
-            // push it down:
-            Some((args, Let(arg, e, body, r, t)))
-          }
-        }
-      case Match(arg, branches, tag) =>
-        val argSetO = branches.traverse { case (p, b) =>
-          toArgsBody(arity, b).flatMap { case (n, b1) =>
-            val nset = n.toSet
-            if (p.names.exists(nset)) {
-              // this we shadow, so we
-              // can't lift, we could alpha-rename to
-              // deal with this case
-              None
-            }
-            else {
-              Some((n, (p, b1)))
-            }
-          }
-        }
-
-        argSetO.flatMap { argSet =>
-          if (argSet.map(_._1).toList.toSet.size == 1) {
-            Some((argSet.head._1, Match(arg, argSet.map(_._2), tag)))
-          }
-          else {
-            None
-          }
-        }
-      case _ => None
-    }
-  }
-
 
   /**
    * We only call this on typechecked names, which means we know

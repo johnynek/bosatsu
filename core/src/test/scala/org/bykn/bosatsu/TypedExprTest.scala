@@ -191,7 +191,11 @@ y = match x:
     } {
       assert(a.merge(b) == b.merge(a))
       assert(a.merge(b.merge(c)) == a.merge(b).merge(c))
+    }
+
+    scs.foreach { a =>
       assert(a.merge(a) == a)
+      assert((a.ifNoCallThen(null) eq null) == (a == NoCall))
       assert(NoCall.merge(a) == a)
       assert(NonTailCall.merge(a) == NonTailCall)
       assert(a.callNotTail != TailCall)
@@ -290,6 +294,13 @@ def foo:
   _ = x
   42
 """) { te => assert(countLet(te) == 0) }
+  }
+
+  test("toArgsBody always terminates") {
+    forAll(Gen.choose(0, 10), genTypedExpr) { (arity, te) =>
+      // this is a pretty weak test.
+      assert(TypedExpr.toArgsBody(arity, te) ne null)
+    }
   }
 
   test("test selfCallKind") {
