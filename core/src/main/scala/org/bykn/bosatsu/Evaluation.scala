@@ -80,6 +80,44 @@ object Evaluation {
         res
       }
 
+
+    def continueScoped(names: List[Bindable], registers: MMap[Bindable, Eval[Value]]): Eval[Value] =
+      FnValue.curry(names.size) { eargs =>
+        var n = names
+        var a = eargs
+        while (n.nonEmpty) {
+          registers(n.head) = a.head
+          n = n.tail
+          a = a.tail
+        }
+
+        Eval.now(null)
+      }
+
+    def loop(args: List[Bindable])(bodyFn: MMap[Bindable, Eval[Value]] => Scoped): Scoped =
+      fromFn { env =>
+        Eval.later {
+          var res: Value = null
+          var first = true
+          val registers: MMap[Bindable, Eval[Value]] =
+            MMap(args.map { a => (a, env(a)) } :_*)
+
+          val body = bodyFn(registers)
+          while(res eq null) {
+            val e1 =
+              if (!first) {
+                registers.foldLeft(env)(_ + _)
+              }
+              else env
+
+            res = body.inEnv(e1).value
+            first = false
+          }
+
+          res
+        }
+      }
+
     private case class Let(name: Bindable, arg: Scoped, in: Scoped) extends Scoped {
       def inEnv(env: Env) = {
         val let = arg.inEnv(env)
@@ -87,7 +125,7 @@ object Evaluation {
       }
     }
 
-    private def fromFn(fn: Env => Eval[Value]): Scoped =
+    def fromFn(fn: Env => Eval[Value]): Scoped =
       FromFn(fn)
 
     private case class FromFn(fn: Env => Eval[Value]) extends Scoped {
@@ -569,8 +607,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
             { (arg, env) =>
               pfn(arg) match {
-                case None => fntail(arg, env)
                 case Some(env1) => (env ++ env1, e)
+                case None => fntail(arg, env)
               }
             }
         }
@@ -595,16 +633,17 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
    * can see.
    */
-  @annotation.tailrec
   private def evalTypedExpr(expr: TypedExpr[T], recurse: Ref => Scoped): Scoped = {
 
     import TypedExpr._
 
      expr match {
        case Generic(_, e, _) =>
-         // TODO, we need to probably do something with this
+         // types aren't needed to evaluate
          evalTypedExpr(e, recurse)
-       case Annotation(e, _, _) => evalTypedExpr(e, recurse)
+       case Annotation(e, _, _) =>
+         // types aren't needed to evaluate
+         evalTypedExpr(e, recurse)
        case Var(None, ident, _, _) =>
          Scoped.fromEnv(ident)
        case Var(Some(p), ident, _, _) =>
@@ -617,10 +656,42 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          efn.applyArg(earg)
        case AnnotatedLambda(name, _, expr, _) =>
          recurse(expr).asLambda(name)
-       case Let(arg, e, in, rec, _) =>
+       case l@Let(arg, e, in, rec, _) =>
          val e0 = recurse(e)
          val eres =
-           if (rec.isRecursive) Scoped.recursive(arg, e0)
+           if (rec.isRecursive) {
+             // this could be tail recursive
+             if (l.selfCallKind == TypedExpr.SelfCallKind.TailCall) {
+               val arity = Type.Fun.arity(e.getType)
+               toArgsBody(arity, e) match {
+                 case Some((params, body)) =>
+                   val bodyS = recurse(body)
+
+                   val bodyScoped = Scoped.loop(params) { regs =>
+                     Scoped.const(Scoped.continueScoped(params, regs))
+                       .letNameIn(arg, bodyS)
+                   }
+
+                   Scoped.fromFn { env =>
+                     FnValue.curry(params.size) { eargs =>
+                       var n = params
+                       var a = eargs
+                       var env1 = env
+                       while (n.nonEmpty) {
+                         env1 = env1.updated(n.head, a.head)
+                         n = n.tail
+                         a = a.tail
+                       }
+                       bodyScoped.inEnv(env1)
+                     }
+                   }
+                 case None =>
+                   // TODO: I don't think this case should ever happen
+                   Scoped.recursive(arg, e0)
+               }
+             }
+             else Scoped.recursive(arg, e0)
+           }
            else e0
          val inres = recurse(in)
 
@@ -635,6 +706,63 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          argR.branch(branchR(_, _))
     }
   }
+
+  private def toArgsBody(arity: Int, expr: TypedExpr[T]): Option[(List[Bindable], TypedExpr[T])] = {
+    import TypedExpr._
+
+    expr match {
+      case Generic(_, e, _) => toArgsBody(arity, e)
+      case Annotation(e, _, _) => toArgsBody(arity, e)
+      case AnnotatedLambda(name, _, expr, _) =>
+        toArgsBody(arity - 1, expr).map { case (args0, body) =>
+          (name :: args0, body)
+        }
+      case Let(arg, e, in, r, t) =>
+        toArgsBody(arity, in).flatMap { case (args, body) =>
+          // if args0 don't shadow arg, we can push
+          // it down
+          if (args.contains(arg)) {
+            // this we shadow, so we
+            // can't lift, we could alpha-rename to
+            // deal with this case
+            None
+          }
+          else {
+            // push it down:
+            Some((args, Let(arg, e, body, r, t)))
+          }
+        }
+      case Match(arg, branches, tag) =>
+        val argSetO = branches.traverse { case (p, b) =>
+          toArgsBody(arity, b).flatMap { case (n, b1) =>
+            val nset = n.toSet
+            if (p.names.exists(nset)) {
+              // shadow:
+              None
+            }
+            else {
+              Some((n, (p, b1)))
+            }
+          }
+        }
+
+        argSetO.flatMap { argSet =>
+          if (argSet.map(_._1).toList.toSet.size == 1) {
+            Some((argSet.head._1, Match(arg, argSet.map(_._2), tag)))
+          }
+          else {
+            None
+          }
+        }
+      case _ if arity == 0 =>
+        // TODO: we could do something similar as Let with Match
+        // if there are functions on all the branches and
+        // we can rename the bindings
+        Some((Nil, expr))
+      case _ => None
+    }
+  }
+
 
   /**
    * We only call this on typechecked names, which means we know
@@ -679,20 +807,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           })
 
         case DefinedType.NatLike.Not =>
-          // TODO: this is a obviously terrible
-          // the encoding is inefficient, the implementation is inefficient
-          def loop(param: Int, args: List[Value]): Value =
-            if (param == 0) {
-              val prod = ProductValue.fromList(args.reverse)
+          FnValue.curry(arity) { eargs =>
+            eargs.sequence.map { args =>
+              val prod = ProductValue.fromList(args)
               if (singleItemStruct) prod
               else SumValue(enum, prod)
             }
-            else FnValue {
-              case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
-              case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
-            }
-
-          Eval.now(loop(arity, Nil))
+          }
       }
     }
   }
