@@ -711,6 +711,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     import TypedExpr._
 
     expr match {
+      case _ if arity == 0 =>
+        Some((Nil, expr))
       case Generic(_, e, _) => toArgsBody(arity, e)
       case Annotation(e, _, _) => toArgsBody(arity, e)
       case AnnotatedLambda(name, _, expr, _) =>
@@ -737,7 +739,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           toArgsBody(arity, b).flatMap { case (n, b1) =>
             val nset = n.toSet
             if (p.names.exists(nset)) {
-              // shadow:
+              // this we shadow, so we
+              // can't lift, we could alpha-rename to
+              // deal with this case
               None
             }
             else {
@@ -754,11 +758,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             None
           }
         }
-      case _ if arity == 0 =>
-        // TODO: we could do something similar as Let with Match
-        // if there are functions on all the branches and
-        // we can rename the bindings
-        Some((Nil, expr))
       case _ => None
     }
   }
