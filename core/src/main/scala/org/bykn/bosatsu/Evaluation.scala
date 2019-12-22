@@ -21,52 +21,41 @@ object Evaluation {
   sealed abstract class Scoped {
     import Scoped.fromFn
 
-    def inEnv(env: Env): Eval[Value]
+    def inEnv(env: Env): Value
 
     def letNameIn(name: Bindable, in: Scoped): Scoped =
       Scoped.Let(name, this, in)
 
-    def branch(fn: (Value, Env) => Eval[Value]): Scoped =
+    def branch(fn: (Value, Env) => Value): Scoped =
       fromFn { env =>
-        inEnv(env).flatMap { v =>
-          fn(v, env)
-        }
+        val v1 = inEnv(env)
+        fn(v1, env)
       }
 
     def asLambda(name: Bindable): Scoped =
       fromFn { env =>
-        import cats.Now
-        val fn =
-          FnValue {
-            case n@Now(v) =>
-              inEnv(env.updated(name, n))
-            case v => v.flatMap { v0 =>
-              inEnv(env.updated(name, Eval.now(v0)))
-            }
-          }
-
-        Eval.now(fn)
+        FnValue { v => inEnv(env.updated(name, Eval.now(v))) }
       }
 
     def applyArg(arg: Scoped): Scoped =
       fromFn { env =>
-        val fnE = inEnv(env).memoize
+        val fnE = inEnv(env)
         val argE = arg.inEnv(env)
-        fnE.flatMap { fn =>
-          // safe because we typecheck
-          fn.asLazyFn(argE)
-        }
+        // safe because we typecheck
+        fnE.asFn(argE)
       }
   }
 
   object Scoped {
-    def const(e: Eval[Value]): Scoped =
-      fromFn(_ => e)
+    def const(e: => Value): Scoped = {
+      lazy val computedE = e
+      fromFn(_ => computedE)
+    }
 
     def fromEnv(identifier: Identifier): Scoped =
       fromFn { env =>
         env.get(identifier) match {
-          case Some(e) => e
+          case Some(e) => e.value
           case None => sys.error(s"could not find $identifier in the environment with keys: ${env.keys.toList.sorted}")
         }
       }
@@ -74,14 +63,15 @@ object Evaluation {
     def recursive(name: Bindable, item: Scoped): Scoped =
       fromFn { env =>
         lazy val res: Eval[Value] =
-          Eval.defer(item.inEnv(env1)).memoize
-        lazy val env1: Map[Identifier, Eval[Value]] =
+          Eval.later(item.inEnv(env1))
+        lazy val env1: Env =
           env.updated(name, res)
-        res
+
+        res.value
       }
 
 
-    private def continueScoped(names: List[Bindable], registers: MMap[Bindable, Eval[Value]]): Eval[Value] =
+    private def continueScoped(names: List[Bindable], registers: MMap[Bindable, Value]): Value =
       FnValue.curry(names.size) { eargs =>
         var n = names
         var a = eargs
@@ -91,33 +81,31 @@ object Evaluation {
           a = a.tail
         }
 
-        Eval.now(null)
+        null
       }
 
     def loop(arg: Bindable, params: List[Bindable], body: Scoped): Scoped = {
 
-      def loopBody(args: List[Bindable])(bodyFn: MMap[Bindable, Eval[Value]] => Scoped): Scoped =
+      def loopBody(args: List[Bindable])(bodyFn: MMap[Bindable, Value] => Scoped): Scoped =
         fromFn { env =>
-          Eval.later {
-            var res: Value = null
-            var first = true
-            val registers: MMap[Bindable, Eval[Value]] =
-              MMap(args.map { a => (a, env(a)) } :_*)
+          var res: Value = null
+          var first = true
+          val registers: MMap[Bindable, Value] =
+            MMap(args.map { a => (a, env(a).value) } :_*)
 
-            val body = bodyFn(registers)
-            while(res eq null) {
-              val e1 =
-                if (!first) {
-                  registers.foldLeft(env)(_ + _)
-                }
-                else env
+          val body = bodyFn(registers)
+          while(res eq null) {
+            val e1 =
+              if (!first) {
+                registers.foldLeft(env) { case (e, (k, v)) => e.updated(k, Eval.now(v)) }
+              }
+              else env
 
-              res = body.inEnv(e1).value
-              first = false
-            }
-
-            res
+            res = body.inEnv(e1)
+            first = false
           }
+
+          res
         }
 
        val bodyScoped = loopBody(params) { regs =>
@@ -135,7 +123,7 @@ object Evaluation {
            var a = eargs
            var env1 = env
            while (n.nonEmpty) {
-             env1 = env1.updated(n.head, a.head)
+             env1 = env1.updated(n.head, Eval.now(a.head))
              n = n.tail
              a = a.tail
            }
@@ -145,16 +133,14 @@ object Evaluation {
     }
 
     private case class Let(name: Bindable, arg: Scoped, in: Scoped) extends Scoped {
-      def inEnv(env: Env) = {
-        val let = arg.inEnv(env)
-        in.inEnv(env.updated(name, let))
-      }
+      def inEnv(env: Env) =
+        in.inEnv(env.updated(name, Eval.later(arg.inEnv(env))))
     }
 
-    private def fromFn(fn: Env => Eval[Value]): Scoped =
+    private def fromFn(fn: Env => Value): Scoped =
       FromFn(fn)
 
-    private case class FromFn(fn: Env => Eval[Value]) extends Scoped {
+    private case class FromFn(fn: Env => Value) extends Scoped {
       def inEnv(env: Env) = fn(env)
     }
   }
@@ -210,7 +196,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           // $COVERAGE-ON$
       }
       externals.toMap.get((p.name, n.asString)) match {
-        case Some(ext) => (n, ext.call(tpe))
+        case Some(ext) => (n, Eval.later(ext.call(tpe)))
         case None =>
           // $COVERAGE-OFF$
           // should never happen due to typechecking
@@ -229,7 +215,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       .filter(_.packageName == p.name)
       .flatMap { dt =>
         dt.constructors.iterator.map { cf =>
-          (cf.name, constructor(cf.name, dt))
+          (cf.name, Eval.now(constructor(cf.name, dt)))
         }
       }
       .toMap
@@ -242,7 +228,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       else e0
 
     // These are added lazily
-    env.updated(name, Eval.defer(eres.inEnv(env)).memoize)
+    env.updated(name, Eval.later(eres.inEnv(env)))
   }
 
   private def evaluate(pack: Package.Typed[T]): Env =
@@ -302,7 +288,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   */
 
-  def evalTest(ps: PackageName): Option[Test] =
+  def evalTest(ps: PackageName): Option[Eval[Test]] =
     lastTest(ps).map { ea =>
       def toAssert(a: ProductValue): Test =
         a match {
@@ -341,7 +327,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             // $COVERAGE-ON$
         }
 
-      toTest(ea.value)
+      ea.map(toTest(_))
     }
 
   private type Ref = TypedExpr[T]
@@ -396,7 +382,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
               // we can just use the simple matcher
               { v =>
                 // this casts should be safe if we have typechecked
-                val str = v.asInstanceOf[ExternalValue].toAny.asInstanceOf[String]
+                val str = v.asExternal.toAny.asInstanceOf[String]
                 if (pat.matches(str)) emptyEnv
                 else None
               }
@@ -411,7 +397,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
               { v =>
                 // this casts should be safe if we have typechecked
-                val str = v.asInstanceOf[ExternalValue].toAny.asInstanceOf[String]
+                val str = v.asExternal.toAny.asInstanceOf[String]
                 matcher(str).map { _._2.map { case (k, v) => (nameMap(k), Eval.now(ExternalValue(v))) } }
               }
             }
@@ -439,7 +425,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                 (NamedSeqPattern.matcher[Pattern[(PackageName, Constructor), Type], Value, List[Value], Env](patListSplitter)
                   .map { case (env0, captures) =>
                     captures.foldLeft(env0) { case (env0, (k, listV)) =>
-                      env0.updated(Identifier.unsafe(k), Eval.later(VList(listV)))
+                      env0.updated(Identifier.unsafe(k), Eval.now(VList(listV)))
                     }
                   })(lpat)
 
@@ -616,7 +602,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   private def evalBranch(
     branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
-    recurse: Ref => Scoped): (Value, Env) => Eval[Value] = {
+    recurse: Ref => Scoped): (Value, Env) => Value = {
 
       def bindEnv[E](branches: List[(Pattern[(PackageName, Constructor), Type], E)]): (Value, Env) => (Env, E) =
         branches match {
@@ -674,7 +660,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          Scoped.fromEnv(ident)
        case Var(Some(p), ident, _, _) =>
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
-         Scoped.const(getValue(pack, ident))
+         // const is lazy so this won't run until needed
+         Scoped.const(getValue(pack, ident).value)
        case App(fn, arg, _, _) =>
          val efn = recurse(fn)
          val earg = recurse(arg)
@@ -704,8 +691,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
          eres.letNameIn(arg, inres)
        case Literal(lit, _, _) =>
-         val res = Eval.now(Value.fromLit(lit))
-         Scoped.const(res)
+         Scoped.const(Value.fromLit(lit))
        case Match(arg, branches, _) =>
          val argR = recurse(arg)
          val branchR = evalBranch(branches, recurse)
@@ -723,9 +709,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       (expr, recurse) => evalTypedExpr(expr, recurse)
     }
 
-  private[this] val zeroNat: Eval[Value] = Eval.now(ExternalValue(BigInteger.ZERO))
+  private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
 
-  private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Eval[Value] = {
+  private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Value = {
     val (enum, arity) = dt.constructors
       .toList
       .iterator
@@ -737,7 +723,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     // more advanced new-type erasure would
     // make Apply(Foo, x) into x, but this
     // does not yet do that
-    if (dt.isNewType) cats.Now(FnValue.identity)
+    if (dt.isNewType) FnValue.identity
     else {
       val singleItemStruct = dt.isStruct
 
@@ -746,23 +732,17 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           // we represent Nats with java BigInteger
           val isZero = isz.idxIsZero(enum)
           def inc(v: Value): Value = {
-            val ex = v.asInstanceOf[ExternalValue]
-            val bi = ex.toAny.asInstanceOf[BigInteger]
+            val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
             ExternalValue(bi.add(BigInteger.ONE))
           }
           if (isZero) zeroNat
-          else Eval.now(FnValue {
-            case cats.Now(a) => cats.Now(inc(a))
-            case ea => ea.map(inc).memoize
-          })
+          else FnValue(inc(_))
 
         case DefinedType.NatLike.Not =>
-          FnValue.curry(arity) { eargs =>
-            eargs.sequence.map { args =>
-              val prod = ProductValue.fromList(args)
-              if (singleItemStruct) prod
-              else SumValue(enum, prod)
-            }
+          FnValue.curry(arity) { args =>
+            val prod = ProductValue.fromList(args)
+            if (singleItemStruct) prod
+            else SumValue(enum, prod)
           }
       }
     }

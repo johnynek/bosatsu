@@ -585,24 +585,24 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           val argsFnVector = argsFn.toList.toVector
 
           (arity, {
-            case Value.FnValue(evalToEval) =>
+            case Value.FnValue(fn) =>
 
               // if we get into here, we know the inputs have
               // the right size and type, but we don't verify
               // locally (but in the type checked code) that
               // the type matches the FnValue, so here we
               // still pass it along if we see it
-              def applyAll(fn: Eval[Value] => Eval[Value], args: NonEmptyList[Value]): Eval[Either[DataError, Value]] = {
-                val nextValue = fn(Eval.now(args.head))
+              def applyAll(fn: Value => Value, args: NonEmptyList[Value]): Either[DataError, Value] = {
+                val nextValue = fn(args.head)
                 args.tail match {
-                  case Nil => nextValue.map(Right(_))
+                  case Nil => Right(nextValue)
                   case h :: tail =>
-                    nextValue.flatMap {
+                    nextValue match {
                       case Value.FnValue(nextFn) =>
                         applyAll(nextFn, NonEmptyList(h, tail))
                       case other =>
                         // TODO: we could propagate the type we expect this to be
-                        Eval.now(Left(IllTyped(Nil, t, other)))
+                        Left(IllTyped(Nil, t, other))
                     }
                 }
               }
@@ -614,7 +614,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   inputs.toVector
                     .zip(argsFnVector)
                     .traverse { case (a, fn) => fn(a) }
-                    .flatMap { vect => applyAll(evalToEval, NonEmptyList.fromListUnsafe(vect.toList)).value }
+                    .flatMap { vect => applyAll(fn, NonEmptyList.fromListUnsafe(vect.toList)) }
                     .flatMap(resFn)
                 }
               }

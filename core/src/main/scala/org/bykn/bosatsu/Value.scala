@@ -1,6 +1,5 @@
 package org.bykn.bosatsu
 
-import cats.Eval
 import java.math.BigInteger
 import scala.collection.immutable.SortedMap
 
@@ -14,7 +13,7 @@ import scala.collection.immutable.SortedMap
 sealed abstract class Value {
   import Value._
 
-  def asLazyFn: Eval[Value] => Eval[Value] =
+  def asFn: Value => Value =
     this match {
       case FnValue(f) => f
       case other =>
@@ -23,12 +22,21 @@ sealed abstract class Value {
         // $COVERAGE-ON$
     }
 
-  def asFn: Value => Eval[Value] =
+  def asSum: SumValue =
     this match {
-      case FnValue(f) => { v => f(Eval.now(v)) }
-      case other =>
+      case s: SumValue => s
+      case _ =>
         // $COVERAGE-OFF$this should be unreachable
-        sys.error(s"invalid cast to Fn: $other")
+        sys.error(s"invalid cast to SumValue: $this")
+        // $COVERAGE-ON$
+    }
+
+  def asExternal: ExternalValue =
+    this match {
+      case ex: ExternalValue => ex
+      case _ =>
+        // $COVERAGE-OFF$this should be unreachable
+        sys.error(s"invalid cast to ExternalValue: $this")
         // $COVERAGE-ON$
     }
 }
@@ -77,18 +85,18 @@ object Value {
       if ((value == UnitValue) && ((variant & sizeMask) == 0)) constants(variant)
       else new SumValue(variant, value)
   }
-  case class FnValue(toFn: Eval[Value] => Eval[Value]) extends Value
+  case class FnValue(toFn: Value => Value) extends Value
   object FnValue {
     val identity: FnValue = FnValue(v => v)
 
-    def curry(arity: Int)(vs: List[Eval[Value]] => Eval[Value]): Eval[Value] = {
+    def curry(arity: Int)(vs: List[Value] => Value): Value = {
       // TODO: this is a obviously terrible
       // the encoding is inefficient, the implementation is inefficient
-      def loop(param: Int, args: List[Eval[Value]]): Eval[Value] =
+      def loop(param: Int, args: List[Value]): Value =
         if (param == 0) vs(args.reverse)
-        else Eval.now(FnValue { ea =>
+        else FnValue { ea =>
           loop(param - 1, ea :: args)
-        })
+        }
 
       loop(arity, Nil)
     }

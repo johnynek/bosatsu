@@ -67,7 +67,7 @@ object PathModule extends MainModule[IO] {
     out match {
       case Output.TestOutput(resMap, color) =>
         val noTests = resMap.collect { case (p, None) => p }.toList
-        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t, color)) }.toList.sortBy(_._1)
+        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t.value, color)) }.toList.sortBy(_._1)
 
         val successes = results.iterator.map { case (_, (s, _, _)) => s }.sum
         val failures = results.iterator.map { case (_, (_, f, _)) => f }.sum
