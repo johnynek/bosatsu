@@ -77,7 +77,6 @@ object Predef {
       .add(packageName, "cmp_Int", FfiCall.Fn2(PredefImpl.cmp_Int(_, _)))
       .add(packageName, "gcd_Int", FfiCall.Fn2(PredefImpl.gcd_Int(_, _)))
       .add(packageName, "mod_Int", FfiCall.Fn2(PredefImpl.mod_Int(_, _)))
-      .add(packageName, "range", FfiCall.Fn1(PredefImpl.range(_)))
       .add(packageName, "int_loop", FfiCall.Fn3(PredefImpl.intLoop(_, _, _)))
       .add(packageName, "int_to_String", FfiCall.Fn1(PredefImpl.int_to_String(_)))
       .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
@@ -137,29 +136,6 @@ object PredefImpl {
 
   def gcd_Int(a: Value, b: Value): Value =
     VInt(i(a).gcd(i(b)))
-
-  def range(v: Value): Value = {
-    val max = i(v)
-    @annotation.tailrec
-    def loop(i: BigInteger, acc: List[Value]): Value = {
-      if (i.compareTo(max) >= 0) {
-        // build the list
-        @annotation.tailrec
-        def build(vs: List[Value], acc: Value): Value =
-          vs match {
-            case Nil => acc
-            case h :: tail => build(tail, VList.Cons(h, acc))
-          }
-
-        build(acc, VList.VNil)
-      }
-      else {
-        loop(i.add(BigInteger.ONE), VInt(i) :: acc)
-      }
-    }
-
-    loop(BigInteger.ZERO, Nil)
-  }
 
   //def intLoop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
   final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
