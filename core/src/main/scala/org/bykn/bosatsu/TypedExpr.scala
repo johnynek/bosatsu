@@ -108,10 +108,7 @@ object TypedExpr {
   case class Var[T](pack: Option[PackageName], name: Identifier, tpe: Type, tag: T) extends TypedExpr[T]
   case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
   case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T] {
-    def selfCallKind: SelfCallKind = {
-      if (recursive.isRecursive) TypedExpr.selfCallKind(arg, expr)
-      else SelfCallKind.NoCall
-    }
+    def selfCallKind: SelfCallKind = TypedExpr.selfCallKind(arg, expr)
   }
   // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
