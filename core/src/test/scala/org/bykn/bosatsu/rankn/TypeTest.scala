@@ -178,10 +178,14 @@ class TypeTest extends FunSuite {
     assert(curry(NonEmptyList.of(b("a"), b("b")), b("c")) == Type.Fun(b("a"), Type.Fun(b("b"), b("c"))))
 
     forAll(NTypeGen.genDepth03) { t =>
+      assert(Type.Fun.arity(t) >= 0)
+
       uncurry(t) match {
         case Some((a, r)) =>
+          assert(Type.Fun.arity(t) == a.length)
           assert(curry(a, r) == t)
-        case None => ()
+        case None =>
+          ()
       }
     }
   }

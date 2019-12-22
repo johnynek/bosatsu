@@ -79,6 +79,7 @@ object Predef {
       .add(packageName, "mod_Int", FfiCall.Fn2(PredefImpl.mod_Int(_, _)))
       .add(packageName, "range", FfiCall.Fn1(PredefImpl.range(_)))
       .add(packageName, "int_loop", FfiCall.Fn3(PredefImpl.intLoop(_, _, _)))
+      .add(packageName, "int_to_String", FfiCall.Fn1(PredefImpl.int_to_String(_)))
       .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
       .add(packageName, "string_Order_fn", FfiCall.Fn2(PredefImpl.string_Order_Fn(_, _)))
       .add(packageName, "clear_Dict", FfiCall.Fn1(PredefImpl.clear_Dict(_)))
@@ -183,6 +184,9 @@ object PredefImpl {
 
     loop(intValue, i(intValue), state)
   }
+
+  final def int_to_String(intValue: Value): Value =
+    Value.Str(i(intValue).toString)
 
   def trace(prefix: Value, v: Value): Value = {
     val Value.Str(prestr) = prefix

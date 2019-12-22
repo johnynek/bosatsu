@@ -80,6 +80,19 @@ object Value {
   case class FnValue(toFn: Eval[Value] => Eval[Value]) extends Value
   object FnValue {
     val identity: FnValue = FnValue(v => v)
+
+    def curry(arity: Int)(vs: List[Eval[Value]] => Eval[Value]): Eval[Value] = {
+      // TODO: this is a obviously terrible
+      // the encoding is inefficient, the implementation is inefficient
+      def loop(param: Int, args: List[Eval[Value]]): Eval[Value] =
+        if (param == 0) vs(args.reverse)
+        else Eval.now(FnValue { ea =>
+          loop(param - 1, ea :: args)
+        })
+
+      loop(arity, Nil)
+    }
+
   }
   case class ExternalValue(toAny: Any) extends Value
 
