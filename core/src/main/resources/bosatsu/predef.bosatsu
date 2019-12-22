@@ -111,10 +111,14 @@ external def gcd_Int(a: Int, b: Int) -> Int
 external def cmp_Int(a: Int, b: Int) -> Comparison
 external def mod_Int(a: Int, mod: Int) -> Int
 
-external def range(exclusiveUpper: Int) -> List[Int]
 
 # this loops until the returned Int is <= 0 or the returned Int is >= intValue
 external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+
+def range(exclusiveUpper: Int) -> List[Int]:
+  int_loop(exclusiveUpper, EmptyList, \i, tail ->
+    inext = i.sub(1)
+    TupleCons(inext, TupleCons(NonEmptyList(inext, tail), Unit)))
 
 def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: a -> Int -> a) -> a:
   diff = exclusiveUpper.sub(inclusiveLower)
