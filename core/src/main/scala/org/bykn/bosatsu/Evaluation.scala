@@ -80,6 +80,70 @@ object Evaluation {
         res
       }
 
+
+    private def continueScoped(names: List[Bindable], registers: MMap[Bindable, Eval[Value]]): Eval[Value] =
+      FnValue.curry(names.size) { eargs =>
+        var n = names
+        var a = eargs
+        while (n.nonEmpty) {
+          registers(n.head) = a.head
+          n = n.tail
+          a = a.tail
+        }
+
+        Eval.now(null)
+      }
+
+    def loop(arg: Bindable, params: List[Bindable], body: Scoped): Scoped = {
+
+      def loopBody(args: List[Bindable])(bodyFn: MMap[Bindable, Eval[Value]] => Scoped): Scoped =
+        fromFn { env =>
+          Eval.later {
+            var res: Value = null
+            var first = true
+            val registers: MMap[Bindable, Eval[Value]] =
+              MMap(args.map { a => (a, env(a)) } :_*)
+
+            val body = bodyFn(registers)
+            while(res eq null) {
+              val e1 =
+                if (!first) {
+                  registers.foldLeft(env)(_ + _)
+                }
+                else env
+
+              res = body.inEnv(e1).value
+              first = false
+            }
+
+            res
+          }
+        }
+
+       val bodyScoped = loopBody(params) { regs =>
+         // in the body, we call the continueScoped
+         // to update the mutable variables in the loop
+         // and just return null, above we loop the while
+         // loop with the result is null
+         Scoped.const(Scoped.continueScoped(params, regs))
+           .letNameIn(arg, body)
+       }
+
+       Scoped.fromFn { env =>
+         FnValue.curry(params.size) { eargs =>
+           var n = params
+           var a = eargs
+           var env1 = env
+           while (n.nonEmpty) {
+             env1 = env1.updated(n.head, a.head)
+             n = n.tail
+             a = a.tail
+           }
+           bodyScoped.inEnv(env1)
+         }
+       }
+    }
+
     private case class Let(name: Bindable, arg: Scoped, in: Scoped) extends Scoped {
       def inEnv(env: Env) = {
         val let = arg.inEnv(env)
@@ -569,8 +633,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
             { (arg, env) =>
               pfn(arg) match {
-                case None => fntail(arg, env)
                 case Some(env1) => (env ++ env1, e)
+                case None => fntail(arg, env)
               }
             }
         }
@@ -595,16 +659,17 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
    * can see.
    */
-  @annotation.tailrec
   private def evalTypedExpr(expr: TypedExpr[T], recurse: Ref => Scoped): Scoped = {
 
     import TypedExpr._
 
      expr match {
        case Generic(_, e, _) =>
-         // TODO, we need to probably do something with this
+         // types aren't needed to evaluate
          evalTypedExpr(e, recurse)
-       case Annotation(e, _, _) => evalTypedExpr(e, recurse)
+       case Annotation(e, _, _) =>
+         // types aren't needed to evaluate
+         evalTypedExpr(e, recurse)
        case Var(None, ident, _, _) =>
          Scoped.fromEnv(ident)
        case Var(Some(p), ident, _, _) =>
@@ -617,10 +682,23 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          efn.applyArg(earg)
        case AnnotatedLambda(name, _, expr, _) =>
          recurse(expr).asLambda(name)
-       case Let(arg, e, in, rec, _) =>
+       case l@Let(arg, e, in, rec, _) =>
          val e0 = recurse(e)
          val eres =
-           if (rec.isRecursive) Scoped.recursive(arg, e0)
+           if (rec.isRecursive) {
+             // this could be tail recursive
+             if (l.selfCallKind == TypedExpr.SelfCallKind.TailCall) {
+               val arity = Type.Fun.arity(e.getType)
+               TypedExpr.toArgsBody(arity, e) match {
+                 case Some((params, body)) =>
+                   Scoped.loop(arg, params.map(_._1), recurse(body))
+                 case None =>
+                   // TODO: I don't think this case should ever happen
+                   Scoped.recursive(arg, e0)
+               }
+             }
+             else Scoped.recursive(arg, e0)
+           }
            else e0
          val inres = recurse(in)
 
@@ -679,20 +757,13 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           })
 
         case DefinedType.NatLike.Not =>
-          // TODO: this is a obviously terrible
-          // the encoding is inefficient, the implementation is inefficient
-          def loop(param: Int, args: List[Value]): Value =
-            if (param == 0) {
-              val prod = ProductValue.fromList(args.reverse)
+          FnValue.curry(arity) { eargs =>
+            eargs.sequence.map { args =>
+              val prod = ProductValue.fromList(args)
               if (singleItemStruct) prod
               else SumValue(enum, prod)
             }
-            else FnValue {
-              case cats.Now(a) => cats.Now(loop(param - 1, a :: args))
-              case ea => ea.map { a => loop(param - 1, a :: args) }.memoize
-            }
-
-          Eval.now(loop(arity, Nil))
+          }
       }
     }
   }

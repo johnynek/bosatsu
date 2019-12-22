@@ -219,6 +219,13 @@ object Type {
     def apply(from: Type, to: Type): Type.Rho =
       TyApply(TyApply(FnType, from), to)
 
+    def arity(t: Type): Int =
+      t match {
+        case ForAll(_, t) => arity(t)
+        case fn@Fun(_, _) =>
+          uncurry(fn).fold(0)(_._1.length)
+        case _ => 0
+      }
     /**
      * a -> b -> c .. -> d to [a, b, c, ..] -> d
      */

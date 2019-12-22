@@ -107,10 +107,164 @@ object TypedExpr {
   case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Var[T](pack: Option[PackageName], name: Identifier, tpe: Type, tag: T) extends TypedExpr[T]
   case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
-  case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
+  case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T] {
+    def selfCallKind: SelfCallKind = TypedExpr.selfCallKind(arg, expr)
+  }
   // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
+
+  /**
+   * For a recursive binding, what kind of call do we have?
+   */
+  def selfCallKind[A](nm: Bindable, expr: TypedExpr[A]): SelfCallKind = {
+    val arity = Type.Fun.arity(expr.getType)
+    callKind(nm, arity, expr)
+  }
+
+  sealed abstract class SelfCallKind {
+    import SelfCallKind._
+
+    // if you have two branches in match what is the result
+    def merge(that: => SelfCallKind): SelfCallKind =
+      this match {
+        case NonTailCall => NonTailCall
+        case NoCall => that
+        case TailCall =>
+          that match {
+            case NonTailCall => NonTailCall
+            case TailCall | NoCall => TailCall
+          }
+      }
+
+    def callNotTail: SelfCallKind =
+      this match {
+        case NoCall => NoCall
+        case NonTailCall | TailCall => NonTailCall
+      }
+
+    def ifNoCallThen(sc: => SelfCallKind): SelfCallKind =
+      this match {
+        case NoCall => sc
+        case other => other
+      }
+  }
+
+  object SelfCallKind {
+    case object NoCall extends SelfCallKind
+    case object TailCall extends SelfCallKind
+    case object NonTailCall extends SelfCallKind
+  }
+
+  private def callKind[A](n: Bindable, arity: Int, te: TypedExpr[A]): SelfCallKind =
+    te match {
+      case Generic(_, in, _) => callKind(n, arity, in)
+      case Annotation(te, _, _) => callKind(n, arity, te)
+      case AnnotatedLambda(b, _, body, _) =>
+        // let fn = \x -> fn(x) in fn(1)
+        // is a tail-call
+        if (n == b) {
+          //shadow
+          SelfCallKind.NoCall
+        }
+        else {
+          callKind(n, arity, body)
+        }
+      case Var(pack, vn, _, _) =>
+        pack match {
+          case None if (vn != n) => SelfCallKind.NoCall
+          case Some(_) => SelfCallKind.NoCall
+          case None =>
+            if (arity == 0) SelfCallKind.TailCall else SelfCallKind.NonTailCall
+        }
+      case App(fn, arg, _, _) =>
+        callKind(n, arity, arg)
+          .callNotTail
+          .ifNoCallThen(callKind(n, arity - 1, fn))
+      case Let(arg, ex, in, rec, _) =>
+        if (arg == n) {
+          // shadow
+          if (rec.isRecursive) {
+            // shadow still in scope in ex
+            SelfCallKind.NoCall
+          }
+          else {
+            // ex isn't in tail position, so if there is a call, we aren't tail
+            callKind(n, arity, ex).callNotTail
+          }
+        }
+        else {
+          callKind(n, arity, ex)
+            .callNotTail
+            .merge(callKind(n, arity, in))
+        }
+      case Literal(_, _, _) => SelfCallKind.NoCall
+      case Match(arg, branches, _) =>
+        callKind(n, arity, arg)
+          .callNotTail
+          .ifNoCallThen {
+            // then we check all the branches
+            branches.foldLeft(SelfCallKind.NoCall: SelfCallKind) { case (acc, (_, b)) =>
+              acc.merge(callKind(n, arity, b))
+            }
+          }
+    }
+
+  /**
+   * If we expect expr to be a lambda of the given arity, return
+   * the parameter names and types and the rest of the body
+   */
+  def toArgsBody[A](arity: Int, expr: TypedExpr[A]): Option[(List[(Bindable, Type)], TypedExpr[A])] =
+    expr match {
+      case _ if arity == 0 =>
+        Some((Nil, expr))
+      case Generic(_, e, _) => toArgsBody(arity, e)
+      case Annotation(e, _, _) => toArgsBody(arity, e)
+      case AnnotatedLambda(name, tpe, expr, _) =>
+        toArgsBody(arity - 1, expr).map { case (args0, body) =>
+          ((name, tpe) :: args0, body)
+        }
+      case Let(arg, e, in, r, t) =>
+        toArgsBody(arity, in).flatMap { case (args, body) =>
+          // if args0 don't shadow arg, we can push
+          // it down
+          if (args.exists(_._1 == arg)) {
+            // this we shadow, so we
+            // can't lift, we could alpha-rename to
+            // deal with this case
+            None
+          }
+          else {
+            // push it down:
+            Some((args, Let(arg, e, body, r, t)))
+          }
+        }
+      case Match(arg, branches, tag) =>
+        val argSetO = branches.traverse { case (p, b) =>
+          toArgsBody(arity, b).flatMap { case (n, b1) =>
+            val nset: Bindable => Boolean = n.iterator.map(_._1).toSet
+            if (p.names.exists(nset)) {
+              // this we shadow, so we
+              // can't lift, we could alpha-rename to
+              // deal with this case
+              None
+            }
+            else {
+              Some((n, (p, b1)))
+            }
+          }
+        }
+
+        argSetO.flatMap { argSet =>
+          if (argSet.map(_._1).toList.toSet.size == 1) {
+            Some((argSet.head._1, Match(arg, argSet.map(_._2), tag)))
+          }
+          else {
+            None
+          }
+        }
+      case _ => None
+    }
 
   private implicit val setM: Monoid[SortedSet[Type]] =
     new Monoid[SortedSet[Type]] {
