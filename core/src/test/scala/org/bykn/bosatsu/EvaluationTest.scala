@@ -2096,7 +2096,7 @@ external def foo(x: String) -> List[String]
 
 external def foo(x: String) -> List[String]
 """), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(s.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, foo defined multiple times\nRegion(21,55)")
+      assert(s.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, external def: foo defined multiple times\nRegion(21,55)")
       ()
     }
   }
@@ -2359,5 +2359,37 @@ three = 2.(\x -> add(x, 1))
 
 test = Assertion(three.eq_Int(3), "let inside apply")
 """), "A", 1)
+  }
+
+  test("colliding type names cause errors") {
+    evalFail(
+      List(s"""
+package Err
+
+struct Foo
+
+struct Foo(x)
+
+main = Foo(1)
+"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err, type name: Foo defined multiple times\nRegion(14,24)")
+      ()
+    }
+  }
+
+  test("colliding constructor names cause errors") {
+    evalFail(
+      List(s"""
+package Err
+
+enum Bar: Foo
+
+struct Foo(x)
+
+main = Foo(1)
+"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err, constructor: Foo defined multiple times\nRegion(14,27)")
+      ()
+    }
   }
 }
