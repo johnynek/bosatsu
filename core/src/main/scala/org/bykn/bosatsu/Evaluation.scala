@@ -222,10 +222,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   private def addLet(env: Env, let: (Bindable, RecursionKind, TypedExpr[T])): Env = {
     val (name, rec, e) = let
-    val e0 = eval(e)
-    val eres =
-      if (rec.isRecursive) Scoped.recursive(name, e0)
-      else e0
+    val eres = evalLetValue(name, e, rec)(eval)
 
     // These are added lazily
     env.updated(name, Eval.later(eres.inEnv(env)))
@@ -641,6 +638,25 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       }
     }
 
+  private def evalLetValue(arg: Bindable, e: TypedExpr[T], rec: RecursionKind)(eval: Ref => Scoped): Scoped = {
+    val e0 = eval(e)
+    if (rec.isRecursive) {
+      // this could be tail recursive
+      if (TypedExpr.selfCallKind(arg, e) == TypedExpr.SelfCallKind.TailCall) {
+        val arity = Type.Fun.arity(e.getType)
+        TypedExpr.toArgsBody(arity, e) match {
+          case Some((params, body)) =>
+            Scoped.loop(arg, params.map(_._1), eval(body))
+          case None =>
+            // TODO: I don't think this case should ever happen
+            Scoped.recursive(arg, e0)
+        }
+      }
+      else Scoped.recursive(arg, e0)
+    }
+    else e0
+  }
+
   /**
    * TODO, expr is a TypedExpr so we already know the type. returning it does not do any good that I
    * can see.
@@ -671,22 +687,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
          recurse(expr).asLambda(name)
        case l@Let(arg, e, in, rec, _) =>
          val e0 = recurse(e)
-         val eres =
-           if (rec.isRecursive) {
-             // this could be tail recursive
-             if (l.selfCallKind == TypedExpr.SelfCallKind.TailCall) {
-               val arity = Type.Fun.arity(e.getType)
-               TypedExpr.toArgsBody(arity, e) match {
-                 case Some((params, body)) =>
-                   Scoped.loop(arg, params.map(_._1), recurse(body))
-                 case None =>
-                   // TODO: I don't think this case should ever happen
-                   Scoped.recursive(arg, e0)
-               }
-             }
-             else Scoped.recursive(arg, e0)
-           }
-           else e0
+         val eres = evalLetValue(arg, e, rec)(recurse)
          val inres = recurse(in)
 
          eres.letNameIn(arg, inres)
