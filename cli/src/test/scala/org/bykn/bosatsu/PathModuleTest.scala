@@ -87,7 +87,7 @@ class PathModuleTest extends FunSuite {
     val out = run("test --input test_workspace/List.bosatsu --input test_workspace/Nat.bosatsu --input test_workspace/Bool.bosatsu --test_file test_workspace/Queue.bosatsu".split("\\s+"): _*)
     out match {
       case PathModule.Output.TestOutput(results, _) =>
-        val res = results.collect { case (pn, Some(t)) if pn.asString == "Queue" => t }
+        val res = results.collect { case (pn, Some(t)) if pn.asString == "Queue" => t.value }
         assert(res.length == 1)
       case other => fail(s"expected test output: $other")
     }
@@ -97,7 +97,7 @@ class PathModuleTest extends FunSuite {
     val out = run("test --package_root test_workspace --search --test_file test_workspace/Bar.bosatsu".split("\\s+"): _*)
     out match {
       case PathModule.Output.TestOutput(results, _) =>
-        val res = results.collect { case (pn, Some(t)) if pn.asString == "Bar" => t }
+        val res = results.collect { case (pn, Some(t)) if pn.asString == "Bar" => t.value }
         assert(res.length == 1)
         assert(res.head.assertions == 1)
         assert(res.head.failureCount == 0)
@@ -183,7 +183,7 @@ class PathModuleTest extends FunSuite {
       case PathModule.Output.TestOutput(res, _) =>
         val noTests = res.collect { case (pn, None) => pn }.toList
         assert(noTests == Nil)
-        val failures = res.collect { case (pn, Some(t)) if t.failureCount > 0 => pn }
+        val failures = res.collect { case (pn, Some(t)) if t.value.failureCount > 0 => pn }
         assert(failures == Nil)
       case other => fail(s"expected test output: $other")
     }

@@ -95,7 +95,7 @@ def max_of(n, fn):
 # return the first defined value from largest to smallest
 # of the given function, if it is defined
 def first_of(n, fn):
-  int_loop(n, None, \i, res ->
+  int_loop(n, None, \i, _ ->
     match fn(i):
       None: (i - 1, None)
       nonNone: (0, nonNone))

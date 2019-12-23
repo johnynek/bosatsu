@@ -118,7 +118,7 @@ object TestUtils {
 
     module.runWith(files)("test" :: "--test_package" :: mainPackS :: makeInputArgs(files)) match {
       case Right(module.Output.TestOutput(results, _)) =>
-        results.collect { case (_, Some(t)) => t } match {
+        results.collect { case (_, Some(t)) => t.value } match {
           case t :: Nil =>
             assert(t.assertions == assertionCount, s"${t.assertions} != $assertionCount")
             val (suc, failcount, message) = Test.report(t, LocationMap.Colorize.None)
