@@ -157,6 +157,8 @@ final class SourceConverter(
           newPattern.product(apply(decl))
         }
         (apply(arg), expBranches).mapN(Expr.Match(_, _, decl))
+      case Matches(a, p) =>
+        sys.error(s"TODO: support Matches($a, $p)")
       case tc@TupleCons(its) =>
         val tup0: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("Unit"), tc)
         val tup2: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("TupleCons"), tc)
