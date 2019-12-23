@@ -1,47 +1,42 @@
 package org.bykn.bosatsu
 
-import cats.Eval
-
-import cats.implicits._
-
 sealed abstract class FfiCall {
-  def call(t: rankn.Type): Eval[Value]
+  def call(t: rankn.Type): Value
 }
 
 object FfiCall {
   final case class Fn1(fn: Value => Value) extends FfiCall {
     import Value.FnValue
 
-    private[this] val evalFn: Eval[FnValue] =
-      Eval.now(FnValue { e1 => Eval.defer(e1.map(fn)) })
+    private[this] val evalFn: FnValue = FnValue(fn)
 
-    def call(t: rankn.Type): Eval[Value] = evalFn
+    def call(t: rankn.Type): Value = evalFn
   }
   final case class Fn2(fn: (Value, Value) => Value) extends FfiCall {
     import Value.FnValue
 
-    private[this] val evalFn: Eval[FnValue] =
-      Eval.now(FnValue { e1 =>
-        Eval.now(FnValue { e2 =>
-          Eval.defer((e1, e2).mapN(fn(_, _)))
-        })
-      })
+    private[this] val evalFn: FnValue =
+      FnValue { e1 =>
+        FnValue { e2 =>
+          fn(e1, e2)
+        }
+      }
 
-    def call(t: rankn.Type): Eval[Value] = evalFn
+    def call(t: rankn.Type): Value = evalFn
   }
   final case class Fn3(fn: (Value, Value, Value) => Value) extends FfiCall {
     import Value.FnValue
 
-    private[this] val evalFn: Eval[FnValue] =
-      Eval.now(FnValue { e1 =>
-        Eval.now(FnValue { e2 =>
-          Eval.now(FnValue { e3 =>
-            Eval.defer((e1, e2, e3).mapN(fn(_, _, _)))
-          })
-        })
-      })
+    private[this] val evalFn: FnValue =
+      FnValue { e1 =>
+        FnValue { e2 =>
+          FnValue { e3 =>
+            fn(e1, e2, e3)
+          }
+        }
+      }
 
-    def call(t: rankn.Type): Eval[Value] = evalFn
+    def call(t: rankn.Type): Value = evalFn
   }
 
   def getJavaType(t: rankn.Type): List[Class[_]] = {

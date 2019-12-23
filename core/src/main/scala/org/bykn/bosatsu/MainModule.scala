@@ -61,7 +61,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
   sealed abstract class Output
   object Output {
-    case class TestOutput(tests: List[(PackageName, Option[Test])], colorize: Colorize) extends Output
+    case class TestOutput(tests: List[(PackageName, Option[Eval[Test]])], colorize: Colorize) extends Output
     case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output

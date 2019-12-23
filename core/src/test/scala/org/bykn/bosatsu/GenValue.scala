@@ -30,10 +30,7 @@ object GenValue {
     val genFn: Gen[FnValue] = {
       val fn: Gen[Value => Value] = Gen.function1(recur)(cogenValue)
 
-      fn.map { valueFn =>
-
-        FnValue { eval => eval.map(valueFn(_)) }
-      }
+      fn.map(FnValue(_))
     }
 
     Gen.oneOf(genEnumLike, genProd, genSum, genExt, genFn)

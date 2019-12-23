@@ -145,8 +145,8 @@ object PredefImpl {
     def loop(biValue: Value, bi: BigInteger, state: Value): Value =
       if (bi.compareTo(BigInteger.ZERO) <= 0) state
       else {
-        val fn0 = fnT(biValue).value.asFn
-        fn0(state).value match {
+        val fn0 = fnT(biValue).asFn
+        fn0(state) match {
           case ConsValue(nextI, ConsValue(ConsValue(nextA, _), _)) =>
             val n = i(nextI)
             if (n.compareTo(bi) >= 0) {
@@ -207,20 +207,14 @@ object PredefImpl {
       new Ordering[Value] {
         val fnV = ord.asFn
         def compare(a: Value, b: Value): Int = {
-          val v = fnV(a).flatMap(_.asFn(b)).value
-          // this should be Comparison ADT
-          v.asInstanceOf[SumValue].variant - 1
+          fnV(a).asFn(b).asSum.variant - 1
         }
       }
     ExternalValue(SortedMap.empty[Value, Value])
   }
 
   def toDict(v: Value): SortedMap[Value, Value] =
-    v match {
-      case ExternalValue(sm) =>
-        sm.asInstanceOf[SortedMap[Value, Value]]
-      case other => sys.error(s"type error: $other")
-    }
+    v.asExternal.toAny.asInstanceOf[SortedMap[Value, Value]]
 
   def add_key(dict: Value, k: Value, value: Value): Value =
     ExternalValue(toDict(dict).updated(k, value))
