@@ -10,9 +10,7 @@ import Bosatsu/Nat [ Nat, Succ, Zero, to_Nat ]
 # Find the largest palindrome made from the product of two 3-digit numbers.
 
 def operator >(a, b):
-  match a.cmp_Int(b):
-    GT: True
-    _ : False
+  a.cmp_Int(b) matches GT
 
 operator - = sub
 

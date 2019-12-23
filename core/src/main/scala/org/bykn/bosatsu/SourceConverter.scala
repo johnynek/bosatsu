@@ -157,8 +157,17 @@ final class SourceConverter(
           newPattern.product(apply(decl))
         }
         (apply(arg), expBranches).mapN(Expr.Match(_, _, decl))
-      case Matches(a, p) =>
-        sys.error(s"TODO: support Matches($a, $p)")
+      case m@Matches(a, p) =>
+        // x matches p ==
+        // match x:
+        //   p: True
+        //   _: False
+        val True: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("True"), m)
+        val False: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("False"), m)
+        (apply(a), unTuplePattern(p, m.region)).mapN { (a, p) =>
+          val branches = NonEmptyList((p, True), (Pattern.WildCard, False) :: Nil)
+          Expr.Match(a, branches, m)
+        }
       case tc@TupleCons(its) =>
         val tup0: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("Unit"), tc)
         val tup2: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("TupleCons"), tc)

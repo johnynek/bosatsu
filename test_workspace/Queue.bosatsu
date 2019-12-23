@@ -47,13 +47,13 @@ def reverse_Queue(Queue(f, b): Queue[a]) -> Queue[a]:
 
 def eq_Queue(eq_fn: a -> a -> Bool, left: Queue[a], right: Queue[a]) -> Bool:
   res = left.fold_Queue((True, right), \(g, right), al ->
-    match g:
-      False: (False, empty)
-      True:
+    if g:
         match unpush(right):
           None: (False, empty)
           Some((ar, right)):
             (eq_fn(al, ar), right)
+    else:
+          (False, empty)
     )
   match res:
     (True, Queue([], [])): True
