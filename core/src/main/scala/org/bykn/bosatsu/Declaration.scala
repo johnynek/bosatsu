@@ -195,6 +195,8 @@ sealed abstract class Declaration {
             val bound1 = bound ++ pat.names
             loop(res.get, bound1, acc0)
           }
+        case Matches(a, _) =>
+          loop(a, bound, acc)
         case Parens(p) => loop(p, bound, acc)
         case TupleCons(items) =>
           items.foldLeft(acc) { (acc0, d) => loop(d, bound, acc0) }
