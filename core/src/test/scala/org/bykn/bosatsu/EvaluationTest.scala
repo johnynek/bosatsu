@@ -455,9 +455,7 @@ main = headOption([1])
 package Foo
 
 def exists(as):
-  match as:
-    [*_, True, *_]: True
-    _: False
+  as matches [*_, True, *_]
 
 def not(x): False if x else True
 

@@ -56,9 +56,7 @@ n5 = Succ(n4)
 n6 = Succ(n5)
 
 def operator ==(i0: Int, i1: Int):
-  match cmp_Int(i0, i1):
-    EQ: True
-    _: False
+    cmp_Int(i0, i1) matches EQ
 
 def addLaw(n1: Nat, n2: Nat, label: String) -> Test:
   Assertion(add(n1, n2).to_Int == (n1.to_Int + n2.to_Int), label)
