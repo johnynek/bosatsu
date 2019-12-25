@@ -666,12 +666,49 @@ final class SourceConverter(
     }(SourceConverter.parallelIor) // use the parallel, not the default Applicative which is Monadic
     .map(_.mapType(toType))
 
-  private lazy val toTypeEnv: Result[ParsedTypeEnv[Unit]] =
-    localDefs
+  private lazy val toTypeEnv: Result[ParsedTypeEnv[Unit]] = {
+    val sunit = success(())
+
+    val dupTypes = localDefs.groupBy(_.name)
+      .toList
+      .traverse { case (n, tes) =>
+        tes.toList match {
+          case Nil | _ :: Nil => sunit
+          case h :: (t@(_ :: _)) =>
+            val dupRegions = NonEmptyList(h, t).map(_.region)
+            SourceConverter.partial(SourceConverter.Duplication(n, SourceConverter.DupKind.TypeName, dupRegions),
+              ())
+          }
+      }
+
+    val dupCons = localDefs
+      .flatMap { ts => ts.constructors.map { c => (c, ts) } }
+      .groupBy(_._1)
+      .toList
+      .traverse { case (n, tes) =>
+        if (tes.iterator.map(_._2.name).toSet.size == 1) {
+          // these are colliding constructors, but if they also collide on type
+          // name we have already reported it above
+          sunit
+        }
+        else
+          tes.toList match {
+            case Nil | _ :: Nil => sunit
+            case h :: (t@(_ :: _)) =>
+              val dupRegions = NonEmptyList(h, t).map(_._2.region)
+              SourceConverter.partial(SourceConverter.Duplication(n, SourceConverter.DupKind.Constructor, dupRegions),
+                ())
+            }
+      }
+
+    val pd = localDefs
       .foldM(ParsedTypeEnv.empty[Unit]) { (te, d) =>
         toDefinition(thisPackage, d)
           .map(te.addDefinedType(_))
       }
+
+    dupTypes >> dupCons >> pd
+  }
 
   private lazy val localTypeEnv: Result[TypeEnv[Any]] =
     toTypeEnv.map { p => importedTypeEnv ++ TypeEnv.fromParsed(p) }
@@ -706,7 +743,7 @@ final class SourceConverter(
           case Nil | (_ :: Nil) => sunit
           case (_, r1) :: (_, r2) :: rest =>
             SourceConverter.partial(
-              SourceConverter.ExtDefDuplicate(name, r1, NonEmptyList(r2, rest.map(_._2))),
+              SourceConverter.Duplication(name, SourceConverter.DupKind.ExtDef, NonEmptyList(r1, r2 :: rest.map(_._2))),
               ())
         }
       }
@@ -921,10 +958,17 @@ object SourceConverter {
     }
   }
 
-  final case class ExtDefDuplicate(name: Bindable, region: Region, duplicates: NonEmptyList[Region]) extends Error {
-    def message = {
-      s"${name.sourceCodeRepr} defined multiple times"
-    }
+  sealed abstract class DupKind(val asString: String)
+  object DupKind {
+    case object ExtDef extends DupKind("external def")
+    case object TypeName extends DupKind("type name")
+    case object Constructor extends DupKind("constructor")
+  }
+
+  final case class Duplication(name: Identifier, kind: DupKind, duplicates: NonEmptyList[Region]) extends Error {
+    def region = duplicates.head
+    def message =
+      s"${kind.asString}: ${name.sourceCodeRepr} defined multiple times"
   }
 
   sealed abstract class ConstructorSyntax {
