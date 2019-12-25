@@ -95,7 +95,7 @@ final class SourceConverter(
               }
             case pat =>
               // TODO: we need the region on the pattern...
-              (unTuplePattern(pat, decl.region), erest, rrhs).mapN { (newPattern, e, rhs) =>
+              (convertPattern(pat, decl.region), erest, rrhs).mapN { (newPattern, e, rhs) =>
                 val expBranches = NonEmptyList.of((newPattern, e))
                 Expr.Match(rhs, expBranches, decl)
               }
@@ -110,7 +110,7 @@ final class SourceConverter(
         }
         // TODO
         val lambda = defstmt.toLambdaExpr({ res => apply(res._1.get) }, success(decl))(
-          unTuplePattern(_, decl.region), { t => success(toType(t)) })
+          convertPattern(_, decl.region), { t => success(toType(t)) })
         (inExpr, lambda).mapN { (in, lam) =>
           // We rely on DefRecursionCheck to rule out bad recursions
           val boundName = defstmt.name
@@ -135,7 +135,7 @@ final class SourceConverter(
 
         (if1, else1).mapN(apply0(_, _))
       case Lambda(args, body) =>
-        val argsRes = args.traverse(unTuplePattern(_, decl.region))
+        val argsRes = args.traverse(convertPattern(_, decl.region))
         val bodyRes = apply(body)
         (argsRes, bodyRes).mapN { (args, body) =>
           Expr.buildPatternLambda(args, body, decl)
@@ -153,7 +153,7 @@ final class SourceConverter(
          */
         val expBranches = branches.get.traverse { case (pat, oidecl) =>
           val decl = oidecl.get
-          val newPattern = unTuplePattern(pat, decl.region)
+          val newPattern = convertPattern(pat, decl.region)
           newPattern.product(apply(decl))
         }
         (apply(arg), expBranches).mapN(Expr.Match(_, _, decl))
@@ -164,7 +164,7 @@ final class SourceConverter(
         //   _: False
         val True: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("True"), m)
         val False: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("False"), m)
-        (apply(a), unTuplePattern(p, m.region)).mapN { (a, p) =>
+        (apply(a), convertPattern(p, m.region)).mapN { (a, p) =>
           val branches = NonEmptyList((p, True), (Pattern.WildCard, False) :: Nil)
           Expr.Match(a, branches, m)
         }
@@ -293,7 +293,7 @@ final class SourceConverter(
                     Expr.ifExpr(c, sing, empty, cond)
                   }
               }
-            (unTuplePattern(binding, decl.region),
+            (convertPattern(binding, decl.region),
               resExpr,
               apply(in)).mapN { (newPattern, resExpr, in) =>
               val fnExpr: Expr[Declaration] =
@@ -352,7 +352,7 @@ final class SourceConverter(
                     cond0)
                 }
             }
-            val newPattern = unTuplePattern(binding, decl.region)
+            val newPattern = convertPattern(binding, decl.region)
             (newPattern, resExpr, apply(in)).mapN { (pat, res, in) =>
               val foldFn = Expr.Lambda(dictSymbol,
                 Expr.buildPatternLambda(
@@ -544,14 +544,61 @@ final class SourceConverter(
     }
   }
 
+  private def convertPattern(pat: Pattern.Parsed, region: Region): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
+    unTuplePattern(pat, region)
+
+  private[this] val empty = Pattern.PositionalStruct((PackageName.PredefName, Constructor("EmptyList")), Nil)
+  private[this] val nonEmpty = (PackageName.PredefName, Constructor("NonEmptyList"))
+
+  /**
+   * As much as possible, convert a list pattern into a normal enum pattern which simplifies
+   * matching, and possibly allows us to more easily statically remove more of the match
+   */
+  private def unlistPattern(parts: List[Pattern.ListPart[Pattern[(PackageName, Constructor), rankn.Type]]]): Pattern[(PackageName, Constructor), rankn.Type] = {
+    def loop(parts: List[Pattern.ListPart[Pattern[(PackageName, Constructor), rankn.Type]]], topLevel: Boolean): Pattern[(PackageName, Constructor), rankn.Type] =
+      parts match {
+        case Nil => empty
+        case Pattern.ListPart.Item(h) :: tail =>
+          val tailPat = loop(tail, false)
+          Pattern.PositionalStruct(nonEmpty, h :: tailPat :: Nil)
+        case Pattern.ListPart.WildList :: Nil =>
+          if (topLevel) {
+            // this pattern shows we have a list of something, but we don't know what
+            // changing to _ would allow more things to typecheck, which we can't do
+            // and we can't annotate because we don't know the type of the list
+            Pattern.ListPat(parts)
+          }
+          else {
+            // we are already in the tail of a list, so we can just put _ here
+            Pattern.WildCard
+          }
+        case Pattern.ListPart.NamedList(n) :: Nil =>
+          if (topLevel) {
+            // this pattern shows we have a list of something, but we don't know what
+            // changing to _ would allow more things to typecheck, which we can't do
+            // and we can't annotate because we don't know the type of the list
+            Pattern.ListPat(parts)
+          }
+          else {
+            // we are already in the tail of a list, so we can just put n here
+            Pattern.Var(n)
+          }
+        case (Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_)) :: _ =>
+          // this kind can't be simplified s
+          Pattern.ListPat(parts)
+      }
+
+    loop(parts, true)
+  }
+
   /**
    * Tuples are converted into standard types using an HList strategy
    */
   private def unTuplePattern(pat: Pattern.Parsed, region: Region): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
-    pat.traverseStruct[Result, (PackageName, Constructor)] {
+    pat.traversePattern[Result, (PackageName, Constructor), rankn.Type]({
       case (Pattern.StructKind.Tuple, args) =>
         // this is a tuple pattern
-        def loop(args: List[Pattern[(PackageName, Constructor), TypeRef]]): Pattern[(PackageName, Constructor), TypeRef] =
+        def loop[A](args: List[Pattern[(PackageName, Constructor), A]]): Pattern[(PackageName, Constructor), A] =
           args match {
             case Nil =>
               // ()
@@ -616,7 +663,7 @@ final class SourceConverter(
             case Some((params, _, _)) =>
               val mapping = fs.toList.iterator.map(_.field).zip(args.iterator).toMap
               lazy val present = SortedSet(fs.toList.iterator.map(_.field).toList: _*)
-              def get(b: Bindable): Result[Pattern[(PackageName, Constructor), TypeRef]] =
+              def get(b: Bindable): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
                 mapping.get(b) match {
                   case Some(pat) =>
                     SourceConverter.success(pat)
@@ -650,7 +697,7 @@ final class SourceConverter(
           localTypeEnv.flatMap(_.getConstructor(p, c) match {
             case Some((params, _, _)) =>
               val mapping = fs.toList.iterator.map(_.field).zip(args.iterator).toMap
-              def get(b: Bindable): Pattern[(PackageName, Constructor), TypeRef] =
+              def get(b: Bindable): Pattern[(PackageName, Constructor), rankn.Type] =
                 mapping.get(b) match {
                   case Some(pat) => pat
                   case None => Pattern.WildCard
@@ -674,8 +721,10 @@ final class SourceConverter(
               SourceConverter.failure(SourceConverter.UnknownConstructor(nm, pat, region))
           })
         }
-    }(SourceConverter.parallelIor) // use the parallel, not the default Applicative which is Monadic
-    .map(_.mapType(toType))
+      },
+      { t => SourceConverter.success(toType(t)) },
+      { items => items.map(unlistPattern) }
+    )(SourceConverter.parallelIor) // use the parallel, not the default Applicative which is Monadic
 
   private lazy val toTypeEnv: Result[ParsedTypeEnv[Unit]] = {
     val sunit = success(())
@@ -858,7 +907,7 @@ final class SourceConverter(
 
       stmts.traverse {
         case b@Bind(BindingStatement(bound, decl, _)) =>
-          val pat = unTuplePattern(bound, b.region)
+          val pat = convertPattern(bound, b.region)
           val rdec = apply(decl)
           (pat, rdec).mapN { (p, d) =>
             bindings(p, d)
@@ -870,7 +919,7 @@ final class SourceConverter(
           val lam = defstmt.toLambdaExpr(
             { res => apply(res.get) },
             success(defstmt.result.get))(
-              unTuplePattern(_, defstmt.result.get.region),
+              convertPattern(_, defstmt.result.get.region),
               { t => success(toType(t)) })
 
           lam.map { l =>
