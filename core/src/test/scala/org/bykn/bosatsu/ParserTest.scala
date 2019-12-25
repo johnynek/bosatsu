@@ -965,6 +965,16 @@ x""")
     decl("[x for x in xs if x < y ]")
     decl("[x for x in xs if x < y else xy ]")
     decl("y = [x for x in xs if x < y ]\ny")
+
+    decl("x.f(y).g(z)")
+    decl("""|x.f(y) \
+            | .g(z)""".stripMargin)
+    decl("""|x.f(y) \
+            | .g(z) \
+            | .h(w)""".stripMargin)
+    decl("""|x \
+            | .g(z) \
+            | .h(w)""".stripMargin)
   }
 
   test("we can parse any Statement") {

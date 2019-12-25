@@ -33,7 +33,6 @@ package Foo
 # exercise calling directly a lambda
 x = (\y -> y)("hello")
 """), "Foo", Str("hello"))
-  }
 
     runBosatsuTest(
       List("""
@@ -58,6 +57,7 @@ test = TestSuite("three trivial tests", [ Assertion(True, "t0"),
     Assertion(True, "t2"),
     ])
 """), "Foo", 3)
+  }
 
   test("test if/else") {
     evalTest(
@@ -370,7 +370,7 @@ main = 6.gcd_Int(3)
 package Foo
 
 three = [0, 1]
-# exercise the built-in range function (not implementable in bosatsu)
+# exercise the built-in range function
 threer = range(3)
 
 def zip(as, bs):
