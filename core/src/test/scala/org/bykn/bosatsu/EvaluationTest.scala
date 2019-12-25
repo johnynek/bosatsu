@@ -853,6 +853,31 @@ main = sum(Succ(Succ(Succ(Zero))))
 
   }
 
+  test("we can mix literal and enum forms of List") {
+  evalTest(
+    List("""
+package A
+
+def len(lst, acc):
+  recur lst:
+    EmptyList: acc
+    [_, *tail]: len(tail, acc.add(1))
+
+main = len([1, 2, 3], 0)
+"""), "A", VInt(3))
+  evalTest(
+    List("""
+package A
+
+def len(lst, acc):
+  recur lst:
+    []: acc
+    NonEmptyList(_, tail): len(tail, acc.add(1))
+
+main = len([1, 2, 3], 0)
+"""), "A", VInt(3))
+  }
+
   test("list comphension test") {
   evalTest(
     List("""
