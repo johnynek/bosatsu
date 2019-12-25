@@ -767,8 +767,9 @@ object Declaration {
         // here we are using . syntax foo.bar(1, 2)
         // we also allow foo.(anyExpression)(1, 2)
         val fn = varP | (recNonBind.parensCut)
+        val slashcontinuation = P(maybeSpace ~ "\\" ~/ toEOL ~ Parser.maybeSpacesAndLines).?
         val dotApply: P[NonBinding => NonBinding] =
-          P("." ~/ fn ~ params.?)
+          P(slashcontinuation ~ "." ~/ fn ~ params.?)
             .region
             .map { case (r2, (fn, argsOpt)) =>
               val args = argsOpt.fold(List.empty[NonBinding])(_.toList)
