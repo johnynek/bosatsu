@@ -8,9 +8,7 @@ enum Tree[a]:
 enum Rotation: LeftRo, NoRo, RightRo
 
 def operator >(i, j):
-    match cmp_Int(i, j):
-        GT: True
-        _: False
+    cmp_Int(i, j) matches GT
 
 def rotation(left: Int, right: Int, max_diff: Int) -> Rotation:
     if left.sub(right) > max_diff:
@@ -207,9 +205,7 @@ def contains_test:
     ])
 
 def eq_i(a, b):
-    match cmp_Int(a, b):
-        EQ: True
-        _ : False
+    cmp_Int(a, b) matches EQ
 
 def add_increases_size(t, i, msg):
     s0 = size(t)
@@ -250,9 +246,7 @@ def height_tests:
         h = height(t)
         n = size(t)
         bound2 = 3.times(log2(n.add(2)))
-        good = match h.times(2).cmp_Int(bound2):
-            LT: True
-            _: False
+        good = h.times(2).cmp_Int(bound2) matches LT
         Assertion(good, "size_law for range(${int_to_String(n)})")
 
 

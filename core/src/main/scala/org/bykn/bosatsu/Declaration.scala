@@ -105,6 +105,15 @@ sealed abstract class Declaration {
         // TODO this isn't quite right
         kindDoc + typeName.toDoc + Doc.char(':') + args.sepDoc +
           piPat.document(args)
+      case m@Matches(arg, p) =>
+        val da = arg match {
+          // matches binds tighter than all these
+          case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) =>
+            Parens(arg)(m.region).toDoc
+          case _ =>
+            arg.toDoc
+        }
+        da + Doc.text(" matches ") + Document[Pattern.Parsed].document(p)
       case Parens(p) =>
         Doc.char('(') + p.toDoc + Doc.char(')')
       case TupleCons(h :: Nil) =>
@@ -186,6 +195,8 @@ sealed abstract class Declaration {
             val bound1 = bound ++ pat.names
             loop(res.get, bound1, acc0)
           }
+        case Matches(a, _) =>
+          loop(a, bound, acc)
         case Parens(p) => loop(p, bound, acc)
         case TupleCons(items) =>
           items.foldLeft(acc) { (acc0, d) => loop(d, bound, acc0) }
@@ -263,6 +274,8 @@ sealed abstract class Declaration {
           args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
             loop(res.get, acc0 ++ pat.names)
           }
+        case Matches(a, p) =>
+          loop(a, acc ++ p.names)
         case Parens(p) => loop(p, acc)
         case TupleCons(items) =>
           items.foldLeft(acc) { (acc0, d) => loop(d, acc0) }
@@ -379,6 +392,8 @@ object Declaration {
           Match(rec,
             arg.replaceRegionsNB(r),
             branches.map(_.map { case (p, x) => (p, x.map(_.replaceRegions(r))) }))(r)
+        case Matches(a, p) =>
+          Matches(a.replaceRegionsNB(r), p)(r)
         case Parens(p) => Parens(p.replaceRegions(r))(r)
         case TupleCons(items) =>
           TupleCons(items.map(_.replaceRegionsNB(r)))(r)
@@ -440,6 +455,7 @@ object Declaration {
     arg: NonBinding,
     cases: OptIndent[NonEmptyList[(Pattern.Parsed, OptIndent[Declaration])]])(
     implicit val region: Region) extends NonBinding
+  case class Matches(arg: NonBinding, pattern: Pattern.Parsed)(implicit val region: Region) extends NonBinding
   case class Parens(of: Declaration)(implicit val region: Region) extends NonBinding
   case class TupleCons(items: List[NonBinding])(implicit val region: Region) extends NonBinding
   case class Var(name: Identifier)(implicit val region: Region) extends NonBinding
@@ -647,7 +663,7 @@ object Declaration {
    * that cannot be used by identifiers
    */
   val keywords: Set[String] =
-    Set("if", "else", "elif", "match", "def", "recur", "struct", "enum")
+    Set("if", "else", "elif", "match", "matches", "def", "recur", "struct", "enum")
 
   /**
    * A Parser that matches keywords
@@ -807,9 +823,25 @@ object Declaration {
           applied.maybeAp(an)
         }
 
+      // matched
+      val matched: P[NonBinding] = {
+        // x matches p
+        val matchesOp =
+          (maybeSpace ~ P("matches") ~/ maybeSpace ~ Pattern.matchParser)
+            .region
+            .map { case (region, pat) =>
+
+              { nb: NonBinding => Matches(nb, pat)(nb.region + region) }
+            }
+            .rep(min = 1)
+            .map { fns => fns.reduceLeft(_.andThen(_)) }
+
+        annotated.maybeAp(matchesOp)
+      }
+
       // Applying is higher precedence than any operators
       // now parse an operator apply
-      val postOperators: P[NonBinding] = {
+      def postOperators(nb: P[NonBinding]): P[NonBinding] = {
 
         def convert(form: Operators.Formula[NonBinding]): NonBinding =
           form match {
@@ -823,7 +855,7 @@ object Declaration {
 
         // one or more operators
         val ops: P[NonBinding => Operators.Formula[NonBinding]] =
-          Operators.Formula.infixOps1(annotated)
+          Operators.Formula.infixOps1(nb)
 
         // This already parses as many as it can, so we don't need repFn
         val form = ops.map { fn =>
@@ -831,7 +863,7 @@ object Declaration {
           { d: NonBinding => convert(fn(d)) }
         }
 
-        annotated.maybeAp(form)
+        nb.maybeAp(form)
       }
 
       // here is if/ternary operator
@@ -850,7 +882,7 @@ object Declaration {
           }.opaque("ternary operator")
 
 
-      val finalNonBind: P[NonBinding] = postOperators.maybeAp(spaces ~ ternary)
+      val finalNonBind: P[NonBinding] = postOperators(matched).maybeAp(spaces ~ ternary)
 
       if (pm != ParseMode.Decl) finalNonBind
       else {

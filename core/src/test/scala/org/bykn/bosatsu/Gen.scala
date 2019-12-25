@@ -274,7 +274,7 @@ object Generators {
       import Declaration._
       def protect(d: NonBinding): NonBinding =
         d match {
-          case Var(_) | Apply(_, _, _) | Parens(_) => d
+          case Var(_) | Apply(_, _, _) | Parens(_) | Matches(_, _) => d
           case notSafe => Parens(d)(emptyRegion)
         }
       ApplyOp(protect(l), op, protect(r))
@@ -500,6 +500,18 @@ object Generators {
     } yield Match(kind, expr, cases)(emptyRegion)
   }
 
+  def matchesGen(argGen0: Gen[NonBinding]): Gen[Declaration.Matches] =
+    Gen.zip(argGen0, genPattern(3)).map { case (a, p) =>
+      import Declaration._
+
+      val fixa = a match {
+        // matches binds tighter than all these
+        case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) => Parens(a)(emptyRegion)
+        case _ => a
+      }
+      Matches(fixa, p)(emptyRegion)
+    }
+
   val genLit: Gen[Lit] = {
     val str = for {
       q <- Gen.oneOf('\'', '"')
@@ -600,7 +612,7 @@ object Generators {
     val recNon = Gen.lzy(genNonBinding(depth - 1))
     if (depth <= 0) unnested
     else Gen.frequency(
-      (13, unnested),
+      (14, unnested),
       (2, lambdaGen(recNon)),
       (2, applyGen(recNon)),
       (1, applyOpGen(simpleDecl(depth - 1))),
@@ -609,6 +621,7 @@ object Generators {
       (1, listGen(recNon)),
       (1, dictGen(recNon)),
       (1, matchGen(recNon, recur)),
+      (1, matchesGen(recNon)),
       (1, Gen.choose(0, 4).flatMap(Gen.listOfN(_, recNon)).map(TupleCons(_)(emptyRegion))),
       (1, genRecordDeclaration(recNon))
     )
@@ -658,6 +671,8 @@ object Generators {
             args.get.toList.toStream.flatMap {
               case (_, decl) => decl.get #:: apply(decl.get)
             }
+          case Matches(a, _) =>
+            a #:: apply(a)
           // the rest can't be shrunk
           case Comment(c) => Stream.empty
           case Lambda(args, body) => body #:: Stream.empty

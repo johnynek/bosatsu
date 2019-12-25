@@ -33,10 +33,7 @@ def head(xs: List[a]) -> Option[a]:
 
 def eq_List(fn: a -> a -> Bool, a: List[a], b: List[a]) -> Bool:
   recur a:
-    []:
-      match b:
-        []: True
-        _: False
+    []: b matches []
     [ah, *at]:
       match b:
         []: False
@@ -63,15 +60,8 @@ def size(list: List[a]) -> Nat:
 def sort(ord: Order[a], list: List[a]) -> List[a]:
     Order { to_Fn } = ord
 
-    def lt(x, h):
-        match to_Fn(x, h):
-            LT: True
-            _: False
-
-    def gteq(x, h):
-        match to_Fn(x, h):
-            LT: False
-            _: True
+    def lt(x, h): to_Fn(x, h) matches LT
+    def gteq(x, h): to_Fn(x, h) matches (GT | EQ)
 
     def loop(list: List[a], sz: Nat):
         recur sz:
@@ -95,29 +85,19 @@ operator =*= = eq_List(eq_Int)
 def not(x): False if x else True
 
 def headTest:
-    res = match head([1, 2, 3]):
-        Some(1): True
-        _: False
+    res = head([1, 2, 3]) matches Some(1)
     Assertion(res, "head test")
 
 def unconsTest:
-    res = match uncons([1, 2, 3]):
-        Some((1, [2, 3])): True
-        _: False
+    res = uncons([1, 2, 3]) matches Some((1, [2, 3]))
     Assertion(res, "uncons test")
 
 def zipTest:
-    test1 = match zip([1, 2], ["1", "2"]):
-        [(1, "1"), (2, "2")]: True
-        _: False
+    test1 = zip([1, 2], ["1", "2"]) matches [(1, "1"), (2, "2")]
 
-    test2 = match zip([1], ["1", "2"]):
-        [(1, "1")]: True
-        _: False
+    test2 = zip([1], ["1", "2"]) matches [(1, "1")]
 
-    test3 = match zip([1, 2], ["1"]):
-        [(1, "1")]: True
-        _: False
+    test3 = zip([1, 2], ["1"]) matches [(1, "1")]
 
     TestSuite("zip tests", [
       Assertion(test1, "same size"),
@@ -127,21 +107,10 @@ def zipTest:
 
 def sortTest:
     sort_Int = sort(Order(cmp_Int))
-    test1 = match sort_Int([3, 1, 2]):
-                [1, 2, 3]: True
-                _: False
-
-    test2 = match sort_Int([1, 2, 3]):
-                [1, 2, 3]: True
-                _: False
-
-    test3 = match sort_Int([2, 3, 1]):
-                [1, 2, 3]: True
-                _: False
-
-    test4 = match sort_Int([1, 2, 1]):
-                [1, 1, 2]: True
-                _: False
+    test1 = sort_Int([3, 1, 2]) matches [1, 2, 3]
+    test2 = sort_Int([1, 2, 3]) matches [1, 2, 3]
+    test3 = sort_Int([2, 3, 1]) matches [1, 2, 3]
+    test4 = sort_Int([1, 2, 1]) matches [1, 1, 2]
 
     TestSuite("sort tests", [
       Assertion(test1, "3, 1, 2"),

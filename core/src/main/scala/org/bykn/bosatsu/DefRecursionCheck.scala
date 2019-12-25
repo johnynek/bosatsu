@@ -333,6 +333,9 @@ object DefRecursionCheck {
                 }
               }
             }
+        case Matches(a, _) =>
+          // patterns don't use values
+          checkDecl(a)
         case Parens(p) =>
           checkDecl(p)
         case TupleCons(tups) =>
