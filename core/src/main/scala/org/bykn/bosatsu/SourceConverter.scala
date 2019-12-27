@@ -583,6 +583,9 @@ final class SourceConverter(
             // we are already in the tail of a list, so we can just put n here
             Pattern.Var(n)
           }
+        case (Pattern.ListPart.WildList :: (i@Pattern.ListPart.Item(Pattern.WildCard)) :: tail) =>
+          // [*_, _, x...] = [_, *_, x...]
+          loop(i :: Pattern.ListPart.WildList :: tail, topLevel)
         case (Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_)) :: _ =>
           // this kind can't be simplified s
           Pattern.ListPat(parts)

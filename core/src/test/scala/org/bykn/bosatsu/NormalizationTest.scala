@@ -9,7 +9,7 @@ class NormalizationTest extends FunSuite {
   import NormalExpression._
   import Lit._
   import Normalization._
-  import NormalPattern.{PositionalStruct, Var, ListPat, WildCard}
+  import NormalPattern.{PositionalStruct, Var, WildCard}
 
   test("Literal") {
       normalTagTest(
@@ -350,6 +350,7 @@ out = \y -> foo(y)
     ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),Identifier.Name("foo")),
     Some("ExternalVar('Extern/Eta','foo')")
     )
+    /*
     normalExpressionTest(
       List("""
 package Extern/List
@@ -389,7 +390,6 @@ out = match foo("arg"):
         )).get
       )
     )
-    /*
     normalExpressionTest(
       List("""
 package Extern/NamedMatch
