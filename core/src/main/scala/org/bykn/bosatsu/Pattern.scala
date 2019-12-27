@@ -254,40 +254,21 @@ object Pattern {
 
   implicit class InvariantPattern[N, T](val pat: Pattern[N, T]) extends AnyVal {
     def traverseType[F[_]: Applicative, T1](fn: T => F[T1]): F[Pattern[N, T1]] =
-      pat match {
-        case Pattern.WildCard => Applicative[F].pure(Pattern.WildCard)
-        case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
-        case Pattern.Var(v) => Applicative[F].pure(Pattern.Var(v))
-        case Pattern.Named(n, p) => p.traverseType(fn).map(Pattern.Named(n, _))
-        case Pattern.StrPat(items) => Applicative[F].pure(Pattern.StrPat(items))
-        case Pattern.ListPat(items) =>
-          items.traverse {
-            case ListPart.Item(p) =>
-              p.traverseType(fn).map(ListPart.Item(_): ListPart[Pattern[N, T1]])
-            case ListPart.WildList =>
-              Applicative[F].pure(ListPart.WildList: ListPart[Pattern[N, T1]])
-            case ListPart.NamedList(n) =>
-              Applicative[F].pure(ListPart.NamedList(n): ListPart[Pattern[N, T1]])
-          }.map(Pattern.ListPat(_))
-        case Pattern.Annotation(p, tpe) =>
-          (p.traverseType(fn), fn(tpe)).mapN(Pattern.Annotation(_, _))
-        case Pattern.PositionalStruct(name, params) =>
-          params.traverse(_.traverseType(fn)).map { ps =>
-            Pattern.PositionalStruct(name, ps)
-          }
-        case Pattern.Union(h, tail) =>
-          (h.traverseType(fn), tail.traverse(_.traverseType(fn))).mapN { (h, t) =>
-            Pattern.Union(h, t)
-          }
-      }
+      traversePattern[F, N, T1](
+        { (n, args) => args.map(PositionalStruct(n, _)) },
+        fn,
+        { parts => parts.map(ListPat(_)) })
 
     def mapStruct[N1](parts: (N, List[Pattern[N1, T]]) => Pattern[N1, T]): Pattern[N1, T] =
-      traverseStruct[cats.Id, N1](parts)
+      traversePattern[cats.Id, N1, T](parts, t => t, ListPat(_))
 
-    def traverseStruct[F[_]: Applicative, N1](parts: (N, F[List[Pattern[N1, T]]]) => F[Pattern[N1, T]]): F[Pattern[N1, T]] = {
-      lazy val pwild: F[Pattern[N1, T]] = Applicative[F].pure(Pattern.WildCard)
+    def traversePattern[F[_]: Applicative, N1, T1](
+      parts: (N, F[List[Pattern[N1, T1]]]) => F[Pattern[N1, T1]],
+      tpeFn: T => F[T1],
+      listFn: F[List[ListPart[Pattern[N1, T1]]]] => F[Pattern[N1, T1]]): F[Pattern[N1, T1]] = {
+      lazy val pwild: F[Pattern[N1, T1]] = Applicative[F].pure(Pattern.WildCard)
 
-      def go(pat: Pattern[N, T]): F[Pattern[N1, T]] =
+      def go(pat: Pattern[N, T]): F[Pattern[N1, T1]] =
         pat match {
           case Pattern.WildCard => pwild
           case Pattern.Literal(lit) => Applicative[F].pure(Pattern.Literal(lit))
@@ -296,7 +277,7 @@ object Pattern {
           case Pattern.Named(v, p) =>
             go(p).map(Pattern.Named(v, _))
           case Pattern.ListPat(items) =>
-            type L = ListPart[Pattern[N1, T]]
+            type L = ListPart[Pattern[N1, T1]]
             val items1 = items.traverse {
               case ListPart.WildList =>
                 Applicative[F].pure(ListPart.WildList: L)
@@ -305,9 +286,9 @@ object Pattern {
               case ListPart.Item(p) =>
                 go(p).map(ListPart.Item(_): L)
             }
-            items1.map(Pattern.ListPat(_))
+            listFn(items1)
           case Pattern.Annotation(p, tpe) =>
-            go(p).map(Pattern.Annotation(_, tpe))
+            (go(p), tpeFn(tpe)).mapN(Pattern.Annotation(_, _))
           case Pattern.PositionalStruct(name, params) =>
             val p1 = params.traverse(go(_))
             parts(name, p1)

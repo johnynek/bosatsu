@@ -169,6 +169,22 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
   def isTotal(p: Patterns): Boolean =
     missingBranches(p).isEmpty
 
+  private def structToList(n: Cons, args: List[Pattern[Cons, Type]]): Option[Pattern.ListPat[Cons, Type]] =
+    (n, args) match {
+      case ((PackageName.PredefName, Constructor("EmptyList")), Nil) => Some(Pattern.ListPat(Nil))
+      case ((PackageName.PredefName, Constructor("NonEmptyList")), h :: t :: Nil) =>
+        val tailRes = t match {
+          case Pattern.PositionalStruct(n, a) =>
+            structToList(n, a).map(_.parts)
+          case Pattern.ListPat(parts) => Some(parts)
+          case _  =>
+            if (isTotal(t :: Nil)) Some(Pattern.ListPart.WildList :: Nil)
+            else None
+        }
+        tailRes.map { t => Pattern.ListPat(Pattern.ListPart.Item(h) :: t) }
+      case _ => None
+    }
+
   private lazy val seqP: SetOps[SeqPattern[Pattern[Cons, Type]]] = {
     val sp = SeqPart.part1SetOps(patternSetOps)
     SeqPattern.seqPatternSetOps(sp, implicitly)
@@ -238,6 +254,16 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               strPatternSetOps.intersection(p1, p2)
             case (lp@ListPat(_), rp@ListPat(_)) =>
               listPatternSetOps.intersection(lp, rp)
+            case (PositionalStruct(n, as), rp@ListPat(_)) =>
+              structToList(n, as) match {
+                case Some(lp) => intersection(lp, rp)
+                case None => Nil
+              }
+            case (lp@ListPat(_), PositionalStruct(n, as)) =>
+              structToList(n, as) match {
+                case Some(rp) => intersection(lp, rp)
+                case None => Nil
+              }
             case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
               if (ln == rn) {
                 val la = lps.size
@@ -317,6 +343,16 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             }
             else {
               left :: Nil
+            }
+          case (PositionalStruct(n, as), rp@ListPat(_)) =>
+            structToList(n, as) match {
+              case Some(lp) => difference(lp, rp)
+              case None => left :: Nil
+            }
+          case (lp@ListPat(_), PositionalStruct(n, as)) =>
+            structToList(n, as) match {
+              case Some(rp) => difference(lp, rp)
+              case None => left :: Nil
             }
           case (_, PositionalStruct(nm, ps)) if isTop(left) =>
             inEnv.definedTypeFor(nm) match {
@@ -494,7 +530,11 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case lp@ListPat(_) =>
         ListPat.fromSeqPattern(lp.toSeqPattern)
       case PositionalStruct(n, params) =>
-        PositionalStruct(n, params.map(normalizePattern))
+        val normParams = params.map(normalizePattern)
+        structToList(n, normParams) match {
+          case None => PositionalStruct(n, normParams)
+          case Some(lp) => lp
+        }
     }
 
   /**
