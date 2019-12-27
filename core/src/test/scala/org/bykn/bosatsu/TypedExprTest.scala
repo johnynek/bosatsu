@@ -308,31 +308,34 @@ def foo:
 
     checkLast(
       """
+enum List[a]: E, NE(head: a, tail: List[a])
 enum N: Z, S(prev: N)
 
 def list_len(list, acc):
   recur list:
-    []: acc
-    [_, *t]: list_len(t, S(acc))
+    E: acc
+    NE(_, t): list_len(t, S(acc))
 """) { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == TailCall) }
 
     checkLast(
       """
-
+enum List[a]: E, NE(head: a, tail: List[a])
 enum N: Z, S(prev: N)
 
 def list_len(list):
   recur list:
-    []: Z
-    [_, *t]: S(list_len(t))
+    E: Z
+    NE(_, t): S(list_len(t))
 """) { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NonTailCall) }
 
     checkLast(
       """
+enum List[a]: E, NE(head: a, tail: List[a])
+
 def list_len(list):
   match list:
-    []: 0
-    [_, *_]: 1
+    E: 0
+    NE(_, _): 1
 """) { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NoCall) }
 
   }
