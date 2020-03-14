@@ -9,9 +9,9 @@ import scala.util.{ Failure, Success, Try }
 
 import LocationMap.Colorize
 import IorMethods.IorExtension
+import Normalization.NormalExpressionTag
 
 import cats.implicits._
-
 /**
  * This is an implementation of the CLI tool where Path is abstracted.
  * The idea is to allow it to be testable and usable in scalajs where
@@ -50,7 +50,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
   def hasExtension(str: String): Path => Boolean
 
-  //////////////////////////////
+  /////////////////////////////
   // Below here are concrete and should not use override
   //////////////////////////////
 
@@ -63,6 +63,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   object Output {
     case class TestOutput(tests: List[(PackageName, Option[Eval[Test]])], colorize: Colorize) extends Output
     case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
+    case class NEvaluationResult(ne: NormalExpression) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output
   }
@@ -289,6 +290,19 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           packMap = packs.foldLeft(PackageMap.toAnyTyped(thesePacks))(_ + _)
         } yield (packMap, lst)
 
+    def buildNormPackMap(
+      srcs: List[Path],
+      deps: List[Path],
+      errColor: Colorize,
+      packRes: PackageResolver): IO[(PackageMap.Typed[(Declaration, NormalExpressionTag)], List[(Path, PackageName)])] =
+        for {
+          packs <- readPackages(deps)
+          ifaces = packs.map(Package.interfaceOf(_))
+          packsList <- typeCheck0(srcs, ifaces, errColor, packRes)
+          (infPackMap, lst) = packsList
+          normPackMap = NormalizePackageMap(infPackMap).normalizePackageMap
+        } yield (normPackMap, lst)
+
     /**
      * This allows us to use either a path or packagename to select
      * the main file
@@ -443,6 +457,25 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         } yield out
 
       def run = runEval.map(_._2: Output)
+    }
+
+    case class NEvaluate(
+      inputs: PathGen,
+      mainPackage: MainIdentifier,
+      deps: PathGen,
+      errColor: Colorize,
+      packRes: PackageResolver) extends MainCommand {
+
+      def run: IO[Output] =
+        for {
+          ins <- inputs.read
+          ds <- deps.read
+          pn <- buildNormPackMap(mainPackage.addIfAbsent(ins), ds, errColor, packRes)
+          (packs, names) = pn
+          mainPackageNameValue <- mainPackage.getMain(names)
+          (mainPackageName, value) = mainPackageNameValue
+          out = Output.NEvaluationResult(packs.toMap(mainPackageName).program.lets.last._3.tag._2.ne)
+        } yield out
     }
 
     case class ToJson(
@@ -816,12 +849,15 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       val evalOpt = (srcs, mainP, includes, colorOpt, packRes)
         .mapN(Evaluate(_, _, _, _, _))
+      val nEvalOpt = (srcs, mainP, includes, colorOpt, packRes)
+        .mapN(NEvaluate(_, _, _, _, _))
       val typeCheckOpt = (srcs, ifaces, outputPath.orNone, interfaceOutputPath.orNone, colorOpt, noSearchRes)
         .mapN(TypeCheck(_, _, _, _, _, _))
       val testOpt = (srcs, testP, includes, colorOpt, packRes)
         .mapN(RunTests(_, _, _, _, _))
 
       Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
+        .orElse(Opts.subcommand("n-eval", "custom evaluator that uses normal expression")(nEvalOpt))
         .orElse(Opts.subcommand("type-check", "type check a set of packages")(typeCheckOpt))
         .orElse(Opts.subcommand("test", "test a set of bosatsu modules")(testOpt))
         .orElse(jsonCommand)
