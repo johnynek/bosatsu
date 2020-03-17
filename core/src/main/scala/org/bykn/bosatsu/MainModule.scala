@@ -474,7 +474,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           (packs, names) = pn
           mainPackageNameValue <- mainPackage.getMain(names)
           (mainPackageName, value) = mainPackageNameValue
-          out = Output.NEvaluationResult(packs.toMap(mainPackageName).program.lets.last._3.tag._2.ne)
+          out = Output.NEvaluationResult(NormalEvaluation(packs, Predef.jvmExternals).evaluateLast(mainPackageName).get) //.toMap(mainPackageName).program.lets.last._3.tag._2.ne)
         } yield out
     }
 
