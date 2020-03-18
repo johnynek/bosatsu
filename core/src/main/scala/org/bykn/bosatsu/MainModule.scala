@@ -63,7 +63,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   object Output {
     case class TestOutput(tests: List[(PackageName, Option[Eval[Test]])], colorize: Colorize) extends Output
     case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
-    case class NEvaluationResult(ne: NormalExpression) extends Output
+    case class NEvaluationResult(value: Value) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output
   }
@@ -474,7 +474,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           (packs, names) = pn
           mainPackageNameValue <- mainPackage.getMain(names)
           (mainPackageName, value) = mainPackageNameValue
-          out = Output.NEvaluationResult(NormalEvaluation(packs, Predef.jvmExternals).evaluateLast(mainPackageName).get) //.toMap(mainPackageName).program.lets.last._3.tag._2.ne)
+          out = Output.NEvaluationResult(NormalEvaluation(packs, Predef.jvmExternals).evaluateLast(mainPackageName).get)
         } yield out
     }
 

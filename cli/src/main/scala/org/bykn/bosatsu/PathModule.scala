@@ -134,8 +134,8 @@ object PathModule extends MainModule[IO] {
         val out = output.fold(IO.unit)(writePackages(packList, _))
 
         (ifres *> out)
-      case Output.NEvaluationResult(ne) => IO.suspend {
-        print(ne.serialize)
+      case Output.NEvaluationResult(value) => IO.suspend {
+        print(s"Value: $value")
       }
     }
 
