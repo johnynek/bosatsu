@@ -13,7 +13,7 @@ case class NormalEvaluation(packs: PackageMap.Typed[(Declaration, NormalExpressi
     pack <- packs.toMap.get(p)
     (name, _, tpe) <- pack.program.lets.lastOption
     ne = tpe.tag._2.ne
-    extEnv = externalEnv(pack)
+    extEnv = externalEnv(pack) ++ importedEnv(pack)
   } yield eval(ne, Nil, extEnv)
 
   def eval(ne: NormalExpression, scope: List[Value], extEnv: Map[Identifier, Eval[Value]]): Value = ne match {
@@ -53,4 +53,26 @@ case class NormalEvaluation(packs: PackageMap.Typed[(Declaration, NormalExpressi
     }
       .toMap
   }
+
+  private def importedEnv(p: Package.Typed[(Declaration, NormalExpressionTag)]): Map[Identifier, Eval[Value]] =
+    p.imports.iterator.flatMap { imp =>
+      val pack = packs.toMap.get(imp.pack.name) match {
+        case Some(p) => p
+        case None =>
+          // $COVERAGE-OFF$
+          // should never happen due to typechecking
+          sys.error(s"from ${p.name} import unknown package: ${imp.pack.name}")
+          // $COVERAGE-ON$
+      }
+      val exts = externalEnv(pack)
+      imp.items
+        .toList
+        .iterator
+        .flatMap { in =>
+          exts.get(in.originalName).map { value =>
+            (in.localName, value)
+          }
+        }
+    }
+      .toMap
 }
