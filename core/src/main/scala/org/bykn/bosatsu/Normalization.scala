@@ -145,42 +145,55 @@ object Normalization {
   type NormalizedPM = PackageMap.Typed[(Declaration, NormalExpressionTag)]
   type NormalizedPac = Package.Typed[(Declaration, NormalExpressionTag)]
 
-  type PatternEnv = Map[Int, NormalExpression]
+  type PatternEnv[T] = Map[Int, T]
 
   sealed trait PatternMatch[+A]
   case class Matches[A](env: A) extends PatternMatch[A]
   case object NoMatch extends PatternMatch[Nothing]
   case object NotProvable extends PatternMatch[Nothing]
 
-  val noop: (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] = { (_, env) => Matches(env) }
-  val neverMatch: (NormalExpression, PatternEnv) => PatternMatch[Nothing] = { (_, _) => NoMatch }
+  def noop[T]: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { (_, env) => Matches(env) }
+  def neverMatch[T]: (T, PatternEnv[T]) => PatternMatch[Nothing] = { (_, _) => NoMatch }
 
-  def structListAsList(ne: NormalExpression): PatternMatch[List[NormalExpression]] = {
+  def structListAsList(ne: NormalExpression): Option[List[NormalExpression]] = {
     ne match {
-      case NormalExpression.Struct(0, _) => Matches(Nil)
-      case NormalExpression.Struct(1, List(value, tail)) => structListAsList(tail) match {
-        case Matches(lst) => Matches(value :: lst)
-        case notMatch => notMatch
-      }
-      case _ => NotProvable
+      case NormalExpression.Struct(0, _) => Some(Nil)
+      case NormalExpression.Struct(1, List(value, tail)) => structListAsList(tail).map(value :: _)
+      case _ => None
     }
   }
 
   def listAsStructList(lst: List[NormalExpression]): NormalExpression =
     lst.foldRight(NormalExpression.Struct(0, Nil)) { case (ne, acc) => NormalExpression.Struct(1, List(ne, acc)) }
 
-  private def maybeBind(pat: NormalPattern): (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] =
+  implicit val neToLit: NormalExpression => Option[Lit] = {
+    case NormalExpression.Literal(lit) => Some(lit)
+    case _ => None
+  }
+  implicit val neToStruct: NormalExpression => Option[(Int, List[NormalExpression])] = {
+    case NormalExpression.Struct(enum, args) => Some((enum, args))
+    case _ => None
+  }
+  implicit val neToList: NormalExpression => Option[List[NormalExpression]] = structListAsList(_)
+  implicit val neFromList: List[NormalExpression] => NormalExpression = listAsStructList(_)
+
+  def maybeBind[T](pat: NormalPattern)(implicit
+    toLit: T => Option[Lit],
+    toStruct: T => Option[(Int, List[T])],
+    toList: T => Option[List[T]],
+    fromList: List[T] => T,
+    ): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
     pat match {
       case NormalPattern.WildCard => noop
       case NormalPattern.Literal(lit) =>
-        { (v, env) => v match {
-          case NormalExpression.Literal(vlit) => if (vlit == lit) Matches(env) else NoMatch
+        { (v, env) => toLit(v) match {
+          case Some(vlit) => if (vlit == lit) Matches(env) else NoMatch
           case _ => NotProvable
         }}
       case NormalPattern.Var(n) =>
         { (v, env) => Matches(env + (n ->  v)) }
       case NormalPattern.Named(n, p) =>
-        val inner = maybeBind(p)
+        val inner = maybeBind[T](p)
 
         { (v, env) =>
           inner(v, env) match {
@@ -192,20 +205,20 @@ object Normalization {
         items match {
           case Nil =>
             { (arg, acc) =>
-              arg match {
-                case NormalExpression.Struct(0, List()) => Matches(acc)
-                case NormalExpression.Struct(_, _) => NoMatch
+              toStruct(arg) match {
+                case Some((0, _)) => Matches(acc)
+                case Some((1, _)) => NoMatch
                 case _ => NotProvable
               }
             }
           case Right(ph) :: ptail =>
             // a right hand side pattern never matches the empty list
-            val fnh = maybeBind(ph)
-            val fnt = maybeBind(NormalPattern.ListPat(ptail))
+            val fnh = maybeBind[T](ph)
+            val fnt = maybeBind[T](NormalPattern.ListPat(ptail))
 
             { (arg, acc) =>
-              arg match {
-                case NormalExpression.Struct(1, List(argHead, structTail)) =>
+              toStruct(arg) match {
+                case Some((1, List(argHead, structTail))) =>
                   fnh(argHead, acc) match {
                     case NoMatch => NoMatch
                     case NotProvable => fnt(structTail, acc) match {
@@ -214,7 +227,7 @@ object Normalization {
                     }
                     case Matches(acc1) => fnt(structTail, acc1)
                   }
-                case NormalExpression.Struct(_, _) => NoMatch
+                case Some(_) => NoMatch
                 case _ => NotProvable
               }
             }
@@ -233,44 +246,34 @@ object Normalization {
             // we reverse the tails, do the match, and take the rest into
             // the splice
             val revPat = NormalPattern.ListPat(ptail.reverse)
-            val fnMatchTail = maybeBind(revPat)
+            val fnMatchTail = maybeBind[T](revPat)
             val ptailSize = ptail.size
 
             { (arg, acc) =>
-              arg match {
-                case s@NormalExpression.Struct(_, _)  =>
-                  // we only allow one splice, so we assume the rest of the patterns
-                  structListAsList(s) match {
-                    case NotProvable => NotProvable
-                    case Matches(asList) =>
-                      val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
-                      fnMatchTail(listAsStructList(revArgTail), acc) match {
-                        case m@Matches(acc1) => splice.map {nm =>
-                          val rest = listAsStructList(spliceVals.reverse)
-                          Matches(acc1 + (nm -> rest))
-                        }.getOrElse(m)
-                        case notMatch => notMatch
-                      }
-                    case nomatch =>
-                      // type checking will ensure this is either a list or a
-                      // NormalExpression that will produce a list
-                      // $COVERAGE-OFF$this should be unreachable
-                      sys.error(s"ill typed in match: $nomatch")
-                      // $COVERAGE-ON$
+              // we only allow one splice, so we assume the rest of the patterns
+              toList(arg) match {
+                case None => NotProvable
+                case Some(asList) =>
+                  val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
+                  fnMatchTail(fromList(revArgTail), acc) match {
+                    case m@Matches(acc1) => splice.map {nm =>
+                      val rest = fromList(spliceVals.reverse)
+                      Matches(acc1 + (nm -> rest))
+                    }.getOrElse(m)
+                    case notMatch => notMatch
                   }
-                case _ => NotProvable
               }
             }
         }
       case NormalPattern.Union(h, t) =>
         // we can just loop expanding these out:
-        def loop(ps: List[NormalPattern]): (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] =
+        def loop(ps: List[NormalPattern]): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
           ps match {
             case Nil => neverMatch
             case head :: tail =>
-              val fnh = maybeBind(head)
-              val fnt: (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] = loop(tail)
-              val result: (NormalExpression, PatternEnv) => PatternMatch[PatternEnv] = { case (arg, acc) =>
+              val fnh = maybeBind[T](head)
+              val fnt: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = loop(tail)
+              val result: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { case (arg, acc) =>
                 fnh(arg, acc) match {
                   case NoMatch  => fnt(arg, acc)
                   case notNoMatch => notNoMatch
@@ -282,12 +285,12 @@ object Normalization {
       case NormalPattern.PositionalStruct(maybeIdx, items) =>
         // The type in question is not the outer dt, but the type associated
         // with this current constructor
-        val itemFns = items.map(maybeBind(_))
+        val itemFns = items.map(maybeBind[T](_))
 
-        def processArgs(as: List[NormalExpression], acc: PatternEnv): PatternMatch[PatternEnv] = {
+        def processArgs(as: List[T], acc: PatternEnv[T]): PatternMatch[PatternEnv[T]] = {
           // manually write out foldM hoping for performance improvements
           @annotation.tailrec
-          def loop(vs: List[NormalExpression], fns: List[(NormalExpression, PatternEnv) => PatternMatch[PatternEnv]], env: (PatternEnv, PatternMatch[PatternEnv])): PatternMatch[PatternEnv] =
+          def loop(vs: List[T], fns: List[(T, PatternEnv[T]) => PatternMatch[PatternEnv[T]]], env: (PatternEnv[T], PatternMatch[PatternEnv[T]])): PatternMatch[PatternEnv[T]] =
             vs match {
               case Nil => env._2
               case vh :: vt =>
@@ -309,9 +312,9 @@ object Normalization {
         maybeIdx match {
           case None =>
             // this is a struct, which means we expect it
-            { (arg: NormalExpression, acc: PatternEnv) =>
-              arg match {
-                case NormalExpression.Struct(_, args) =>
+            { (arg: T, acc: PatternEnv[T]) =>
+              toStruct(arg) match {
+                case Some((_, args)) =>
                   processArgs(args, acc)
                 case _ =>
                   NotProvable
@@ -320,9 +323,9 @@ object Normalization {
 
           case Some(idx) =>
             // we don't check if idx < 0, because if we compiled, it can't be
-            val result = { (arg: NormalExpression, acc: PatternEnv) =>
-              arg match {
-                case NormalExpression.Struct(enumId, args) =>
+            val result = { (arg: T, acc: PatternEnv[T]) =>
+              toStruct(arg) match {
+                case Some((enumId, args)) =>
                   if (enumId == idx) processArgs(args, acc)
                   else NoMatch
                 case _ =>
@@ -336,14 +339,14 @@ object Normalization {
 
   def findMatch(m: NormalExpression.Match) =
     m.branches.collectFirst(Function.unlift( { case (pat, result) =>
-      maybeBind(pat).apply(m.arg, Map()) match {
+      maybeBind[NormalExpression](pat).apply(m.arg, Map()) match {
         case Matches(env) => Some(Some((pat, env, result)))
         case NotProvable => Some(None)
         case NoMatch => None
       }
     })).get // Totallity of matches should ensure this will always find something unless something has gone terribly wrong
 
-  def solveMatch(env: PatternEnv, result: NormalExpression) =
+  def solveMatch(env: PatternEnv[NormalExpression], result: NormalExpression) =
     ((env.size - 1) to 0 by -1).map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
       .foldLeft(result) { case (ne, arg) => NormalExpression.App(ne, arg) }
 
