@@ -104,6 +104,14 @@ sealed abstract class NormalPattern {
       }
       case NormalPattern.PositionalStruct(name, params) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.serialize).mkString(",")})"
       case NormalPattern.Union(head, rest) => s"Union(${head.serialize},${rest.toList.map(_.serialize).mkString(",")})"
+      case NormalPattern.StrPat(parts) => {
+        val inside = parts.map {
+          case NormalPattern.StrPart.WildStr => "WildStr"
+          case NormalPattern.StrPart.NamedStr(name) => s"NamedStr($name)"
+          case NormalPattern.StrPart.LitStr(toString) => s"LitStr($toString)"
+        }.toList.mkString(",")
+        s"StrPat($inside)"
+      }
     }
   }
 }
@@ -120,6 +128,14 @@ object NormalPattern {
   case class ListPat(parts: List[Either[Option[Int], NormalPattern]]) extends NormalPattern
   case class PositionalStruct(name: Option[Int], params: List[NormalPattern]) extends NormalPattern
   case class Union(head: NormalPattern, rest: NonEmptyList[NormalPattern]) extends NormalPattern
+  case class StrPat(parts: NonEmptyList[StrPart]) extends NormalPattern
+
+  sealed abstract class StrPart
+  object StrPart {
+    final case object WildStr extends StrPart
+    final case class NamedStr(idx: Int) extends StrPart
+    final case class LitStr(asString: String) extends StrPart
+  }
 }
 
 object Normalization {
@@ -315,6 +331,7 @@ object Normalization {
             }
             result
         }
+      case NormalPattern.StrPat(parts) => {(v, env) => NotProvable}
   }
 
   def findMatch(m: NormalExpression.Match) =
@@ -578,7 +595,12 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case Pattern.Literal(lit) => NormalPattern.Literal(lit)
         case Pattern.Var(v) => NormalPattern.Var(names.indexOf(v))
         case Pattern.Named(n, p) => NormalPattern.Named(names.indexOf(n), loop(p))
-        case Pattern.StrPat(items) => sys.error(s"TODO: deal with StrPat($items) in normalization")
+        case Pattern.StrPat(items) => NormalPattern.StrPat(
+          items.map {
+            case Pattern.StrPart.WildStr => NormalPattern.StrPart.WildStr
+            case Pattern.StrPart.NamedStr(n) => NormalPattern.StrPart.NamedStr(names.indexOf(n))
+            case Pattern.StrPart.LitStr(asString) => NormalPattern.StrPart.LitStr(asString)
+          })
         case Pattern.ListPat(items) =>
           NormalPattern.ListPat(items.map {
             case Pattern.ListPart.NamedList(n) =>Left(Some(names.indexOf(n)))
