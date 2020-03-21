@@ -474,7 +474,23 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           (packs, names) = pn
           mainPackageNameValue <- mainPackage.getMain(names)
           (mainPackageName, value) = mainPackageNameValue
-          out = Output.NEvaluationResult(NormalEvaluation(packs, Predef.jvmExternals).evaluateLast(mainPackageName).get)
+          out <- if (packs.toMap.contains(mainPackageName)) {
+            val ev = NormalEvaluation(packs, Predef.jvmExternals)
+            val res = value match {
+              case None => ev.evaluateLast(mainPackageName)
+              case Some(ident) => ev.evaluateName(mainPackageName, ident)
+            }
+
+            res match {
+              case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
+              case Some(value) =>
+                moduleIOMonad.pure(Output.NEvaluationResult(value))
+            }
+          }
+
+          else {
+            moduleIOMonad.raiseError(new Exception(s"package ${mainPackageName.asString} not found"))
+          }
         } yield out
     }
 
