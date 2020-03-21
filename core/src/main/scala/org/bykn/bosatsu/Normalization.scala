@@ -166,8 +166,10 @@ object Normalization {
   def listAsStructList(lst: List[NormalExpression]): NormalExpression =
     lst.foldRight(NormalExpression.Struct(0, Nil)) { case (ne, acc) => NormalExpression.Struct(1, List(ne, acc)) }
 
-  implicit val neToLit: NormalExpression => Option[Lit] = {
-    case NormalExpression.Literal(lit) => Some(lit)
+  case class LitValue(toAny: Any)
+
+  implicit val neToLitValue: NormalExpression => Option[LitValue] = {
+    case NormalExpression.Literal(lit) => Some(LitValue(lit.toAny))
     case _ => None
   }
   implicit val neToStruct: NormalExpression => Option[(Int, List[NormalExpression])] = {
@@ -178,7 +180,7 @@ object Normalization {
   implicit val neFromList: List[NormalExpression] => NormalExpression = listAsStructList(_)
 
   def maybeBind[T](pat: NormalPattern)(implicit
-    toLit: T => Option[Lit],
+    toLitValue: T => Option[LitValue],
     toStruct: T => Option[(Int, List[T])],
     toList: T => Option[List[T]],
     fromList: List[T] => T,
@@ -186,8 +188,8 @@ object Normalization {
     pat match {
       case NormalPattern.WildCard => noop
       case NormalPattern.Literal(lit) =>
-        { (v, env) => toLit(v) match {
-          case Some(vlit) => if (vlit == lit) Matches(env) else NoMatch
+        { (v, env) => toLitValue(v) match {
+          case Some(LitValue(v)) => if (v == lit.toAny) Matches(env) else NoMatch
           case _ => NotProvable
         }}
       case NormalPattern.Var(n) =>

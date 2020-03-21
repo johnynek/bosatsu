@@ -12,6 +12,12 @@ sealed abstract class Lit {
       case Lit.Integer(i) => i.toString
       case Lit.Str(s) => "\"" + escape('"', s) + "\""
     }
+
+  def toAny: Any =
+    this match {
+      case Lit.Integer(i) => i
+      case Lit.Str(s) => s
+    }
 }
 object Lit {
   case class Integer(toBigInteger: BigInteger) extends Lit
