@@ -66,6 +66,42 @@ out = foo
       )))))
     )
   }
+  test("foldLeft w/o loop") {
+    normalExpressionTest(
+      List("""
+package Recur/FoldLeft
+
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  recur lst:
+    EmptyList: item
+    NonEmptyList(head, tail): foldLeft(tail, fn(item, head), fn)
+
+out = foldLeft
+"""
+      ), "Recur/FoldLeft", Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
+        (PositionalStruct(Some(0),List()),Lambda(Lambda(LambdaVar(1)))),
+        (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))
+      )))))
+    )
+  }
+  test("foldLeft") {
+    normalExpressionTest(
+      List("""
+package Recur/FoldLeft
+
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  # make the loop function as small as possible
+  def loop(lst, item):
+    recur lst:
+      EmptyList: item
+      NonEmptyList(head, tail): loop(tail, fn(item, head))
+  loop(lst, item)
+
+out = foldLeft
+"""
+      ), "Recur/FoldLeft", Literal(Str("c"))
+    )
+  }
   test("Lambda") {
     normalTagTest(
       List("""
