@@ -354,7 +354,6 @@ object Normalization {
 
   def normalOrderReduction(expr: NormalExpression): NormalExpression = {
     import NormalExpression._
-
     val res = headReduction(expr) match {
       case App(fn, arg) =>
         App(normalOrderReduction(fn), normalOrderReduction(arg))
@@ -564,10 +563,11 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
           val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
           for {
             ee <- normalizeExpr(l.expr, nextEnv, p)
-            nextNextEnv: Env = (nextEnv._1 + (l.arg -> ee.tag._2), nextEnv._2)
-            eIn <- normalizeExpr(l.in, nextEnv, p)
-            ne = neWrapper(eIn.tag._2.ne)
-          } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, NormalExpressionTag(ne, eIn.tag._2.children)))
+            eeNe = neWrapper(ee.tag._2.ne)
+            eeNeTag = NormalExpressionTag(eeNe, ee.tag._2.children)
+            nextNextEnv: Env = (nextEnv._1 + (l.arg -> eeNeTag), nextEnv._2)
+            eIn <- normalizeExpr(l.in, nextNextEnv, p)
+          } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
         case _ =>
           for {
             ee <- normalizeExpr(l.expr, env, p)
