@@ -39,19 +39,19 @@ object NormalEvaluation {
 case class NormalEvaluation(packs: PackageMap.Typed[(Declaration, NormalExpressionTag)], externals: Externals) {
   import NormalEvaluation._
 
-  def evaluateLast(p: PackageName): Option[Value] = for {
+  def evaluateLast(p: PackageName): Option[(Value, NormalExpression)] = for {
     pack <- packs.toMap.get(p)
     (name, _, tpe) <- pack.program.lets.lastOption
     ne = tpe.tag._2.ne
     extEnv = externalEnv(pack) ++ importedEnv(pack)
-  } yield eval(ne, Nil, extEnv)
+  } yield (eval(ne, Nil, extEnv), ne)
 
-  def evaluateName(p: PackageName, name: Identifier): Option[Value] = for {
+  def evaluateName(p: PackageName, name: Identifier): Option[(Value, NormalExpression)] = for {
     pack <- packs.toMap.get(p)
     (_, _, tpe) <- pack.program.lets.reverse.collectFirst(Function.unlift { tup => if(tup._1 == name) Some(tup) else None })
     ne = tpe.tag._2.ne
     extEnv = externalEnv(pack) ++ importedEnv(pack)
-  } yield eval(ne, Nil, extEnv)
+  } yield (eval(ne, Nil, extEnv), ne)
 
   def eval(ne: NormalExpression, scope: List[Value], extEnv: Map[Identifier, Eval[Value]]): Value = ne match {
     case NormalExpression.App(fn, arg) => {

@@ -63,7 +63,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   object Output {
     case class TestOutput(tests: List[(PackageName, Option[Eval[Test]])], colorize: Colorize) extends Output
     case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
-    case class NEvaluationResult(value: Value) extends Output
+    case class NEvaluationResult(value: Value, ne: NormalExpression) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output
   }
@@ -483,8 +483,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
             res match {
               case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
-              case Some(value) =>
-                moduleIOMonad.pure(Output.NEvaluationResult(value))
+              case Some((value, ne)) =>
+                moduleIOMonad.pure(Output.NEvaluationResult(value, ne))
             }
           }
 
