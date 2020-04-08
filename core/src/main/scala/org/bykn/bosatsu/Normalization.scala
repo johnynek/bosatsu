@@ -565,7 +565,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
             ee <- normalizeExpr(l.expr, nextEnv, p)
             eeNe = neWrapper(ee.tag._2.ne)
             eeNeTag = NormalExpressionTag(eeNe, ee.tag._2.children)
-            nextNextEnv: Env = (nextEnv._1 + (l.arg -> eeNeTag), nextEnv._2)
+            nextNextEnv: Env = (env._1 + (l.arg -> eeNeTag), env._2)
             eIn <- normalizeExpr(l.in, nextNextEnv, p)
           } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
         case _ =>
