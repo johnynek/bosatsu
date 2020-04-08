@@ -43,6 +43,7 @@ case class NormalEvaluation(packs: PackageMap.Typed[(Declaration, NormalExpressi
     pack <- packs.toMap.get(p)
     (name, _, tpe) <- pack.program.lets.lastOption
     ne = tpe.tag._2.ne
+    _ = println(s"ne $ne")
     extEnv = externalEnv(pack) ++ importedEnv(pack)
   } yield (eval(ne, Nil, extEnv), ne)
 
@@ -50,6 +51,7 @@ case class NormalEvaluation(packs: PackageMap.Typed[(Declaration, NormalExpressi
     pack <- packs.toMap.get(p)
     (_, _, tpe) <- pack.program.lets.reverse.collectFirst(Function.unlift { tup => if(tup._1 == name) Some(tup) else None })
     ne = tpe.tag._2.ne
+    _ = println(s"ne $ne")
     extEnv = externalEnv(pack) ++ importedEnv(pack)
   } yield (eval(ne, Nil, extEnv), ne)
 
@@ -77,9 +79,17 @@ case class NormalEvaluation(packs: PackageMap.Typed[(Declaration, NormalExpressi
     case NormalExpression.Struct(enum, args) => Value.SumValue(enum, Value.ProductValue.fromList(args.map(arg => eval(arg, scope, extEnv))))
     case NormalExpression.Literal(lit) => Value.fromLit(lit)
     case NormalExpression.Recursion(lambda) => {
-      val outerFn = eval(lambda, scope, extEnv)
-      lazy val recFn: Value = outerFn.asFn.apply(recFn)
-      recFn
+      lambda match {
+        case NormalExpression.Lambda(expr) => {
+          lazy val recFn: Value = Value.FnValue { v =>
+            val nextScope = recFn :: scope
+            val fn = eval(expr, nextScope, extEnv)
+            fn.asFn(v)
+          }
+          recFn
+        }
+        case _ => sys.error("A Recursion should always contain a Lambda")
+      }
     }
   }
 
