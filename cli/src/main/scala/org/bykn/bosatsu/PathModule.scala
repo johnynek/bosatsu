@@ -135,6 +135,7 @@ object PathModule extends MainModule[IO] {
 
         (ifres *> out)
       case Output.NEvaluationResult(value, ne) => IO.suspend {
+        print(s"Normal Expression: $ne")
         print(s"Value: $value")
       }
     }
