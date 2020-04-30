@@ -134,10 +134,11 @@ object PathModule extends MainModule[IO] {
         val out = output.fold(IO.unit)(writePackages(packList, _))
 
         (ifres *> out)
-      case Output.NEvaluationResult(value, ne) => IO.suspend {
-        print(s"Normal Expression: $ne")
-        print(s"Value: $value")
-      }
+      case Output.NEvaluationResult(value, ne, tpe) => for {
+        _ <- print(s"Normal Expression: $ne")
+        _ <- print(s"Type: $tpe")
+        _ <- print(s"Value: $value")
+      } yield ()
     }
 
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {

@@ -42,6 +42,9 @@ export [
   trace,
   uncurry2,
   uncurry3,
+  text,
+  header,
+  list_vis,
 ]
 
 struct Unit
@@ -139,3 +142,21 @@ enum Test:
   TestSuite(name: String, tests: List[Test])
 
 external def trace(prefix: String, item: a) -> a
+
+enum VisType:
+  TextVis(txt: String)
+  HeaderVis(txt: String)
+  ListVis(visen: List[VisType])
+
+external struct Vis
+
+external def make_vis(vis: VisType) -> Vis
+
+def text(txt):
+  make_vis(TextVis(txt))
+
+def header(txt):
+  make_vis(HeaderVis(txt))
+
+def list_vis(lst):
+  make_vis(ListVis(lst))

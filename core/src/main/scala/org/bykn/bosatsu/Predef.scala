@@ -88,6 +88,7 @@ object Predef {
       .add(packageName, "items", FfiCall.Fn1(PredefImpl.items(_)))
       .add(packageName, "remove_key", FfiCall.Fn2(PredefImpl.remove_key(_, _)))
       .add(packageName, "concat_String", FfiCall.Fn1(PredefImpl.concat_String(_)))
+      .add(packageName, "make_vis", FfiCall.ExprFn(PredefImpl.VisWrapper(_)))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -235,5 +236,8 @@ object PredefImpl {
     }
     .toList)
   }
+
+
+  case class VisWrapper(vis: NormalEvaluation.NormalValue)
 }
 

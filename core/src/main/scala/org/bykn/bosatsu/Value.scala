@@ -16,6 +16,17 @@ sealed abstract class Value {
   def asFn: Value => Value =
     this match {
       case FnValue(f) => f
+      case ExprFnValue(toExprFn) => { v: Value => toExprFn(NormalEvaluation.ComputedValue(v)) }
+      case other =>
+        // $COVERAGE-OFF$this should be unreachable
+        sys.error(s"invalid cast to Fn: $other")
+        // $COVERAGE-ON$
+    }
+
+  def attemptExprFn: Either[NormalEvaluation.NormalValue => Value, Value => Value] =
+    this match {
+      case ExprFnValue(ef) => Left(ef)
+      case FnValue(f) => Right(f)
       case other =>
         // $COVERAGE-OFF$this should be unreachable
         sys.error(s"invalid cast to Fn: $other")
@@ -102,6 +113,7 @@ object Value {
     }
 
   }
+  case class ExprFnValue(toExprFn: NormalEvaluation.NormalValue => Value) extends Value
   case class ExternalValue(toAny: Any) extends Value
 
   val False: Value = SumValue(0, UnitValue)

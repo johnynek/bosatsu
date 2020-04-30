@@ -81,7 +81,10 @@ object NormalEvaluation {
   }
 
   def applyApplyable(applyable: Applyable, arg: NormalValue)(implicit extEnv: Map[Identifier, Eval[Value]]): NormalValue = applyable match {
-    case Left(v) => ComputedValue(v.asFn(nvToV(arg)))
+    case Left(v) => v.attemptExprFn match {
+      case Left(eFn) => ComputedValue(eFn(arg))
+      case Right(fn) => ComputedValue(fn(nvToV(arg)))
+    }
     case Right((NormalExpression.Lambda(expr), scope)) => LazyValue(expr, arg :: scope)
   }
 
@@ -130,12 +133,8 @@ object NormalEvaluation {
     case NormalExpression.Recursion(lambda) => {
       lambda match {
         case NormalExpression.Lambda(expr) => {
-          lazy val recFn: Value = Value.FnValue { v =>
-            val nextScope = ComputedValue(recFn) :: scope
-            val fn = evalToValue(expr, nextScope)
-            fn.asFn(v)
-          }
-          recFn
+          val nextScope = LazyValue(ne, scope) :: scope
+          evalToValue(expr, nextScope)
         }
         case _ => sys.error("A Recursion should always contain a Lambda")
       }
@@ -146,26 +145,19 @@ object NormalEvaluation {
 case class NormalEvaluation(packs: PackageMap.Typed[(Declaration, NormalExpressionTag)], externals: Externals) {
 
   
-  def evaluateLast(p: PackageName): Option[(Value, NormalExpression)] = for {
+  def evaluateLast(p: PackageName): Option[(Value, NormalExpression, Type)] = for {
     pack <- packs.toMap.get(p)
     (name, _, tpe) <- pack.program.lets.lastOption
     ne = tpe.tag._2.ne
-    _ = println(s"ne $ne")
-    _ = println(s"type ${tpe.getType}")
-    _ = tpe.getType match {
-      case Type.TyConst(Type.Const.Defined(p, t)) => println(s"type def ${pack.program.types.getType(p, t)}")
-      case other => println(s"other $other")
-    }
     extEnv = externalEnv(pack) ++ importedEnv(pack)
-  } yield (NormalEvaluation.evalToValue(ne, Nil)(extEnv), ne)
+  } yield (NormalEvaluation.evalToValue(ne, Nil)(extEnv), ne, tpe.getType)
 
-  def evaluateName(p: PackageName, name: Identifier): Option[(Value, NormalExpression)] = for {
+  def evaluateName(p: PackageName, name: Identifier): Option[(Value, NormalExpression, Type)] = for {
     pack <- packs.toMap.get(p)
     (_, _, tpe) <- pack.program.lets.reverse.collectFirst(Function.unlift { tup => if(tup._1 == name) Some(tup) else None })
     ne = tpe.tag._2.ne
-    _ = println(s"ne $ne")
     extEnv = externalEnv(pack) ++ importedEnv(pack)
-  } yield (NormalEvaluation.evalToValue(ne, Nil)(extEnv), ne)
+  } yield (NormalEvaluation.evalToValue(ne, Nil)(extEnv), ne, tpe.getType)
 
   private def externalEnv(p: Package.Typed[(Declaration, NormalExpressionTag)]): Map[Identifier, Eval[Value]] = {
     val externalNames = p.program.externalDefs
@@ -211,4 +203,12 @@ case class NormalEvaluation(packs: PackageMap.Typed[(Declaration, NormalExpressi
         }
     }
       .toMap
+
+  val valueToJson: ValueToJson = ValueToJson({
+    case Type.Const.Defined(pn, t) =>
+      for {
+        pack <- packs.toMap.get(pn)
+        dt <- pack.program.types.getType(pn, t)
+      } yield dt
+  })
 }

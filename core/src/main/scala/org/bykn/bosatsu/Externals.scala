@@ -39,6 +39,15 @@ object FfiCall {
     def call(t: rankn.Type): Value = evalFn
   }
 
+  final case class ExprFn(wrapper: NormalEvaluation.NormalValue => Any) extends FfiCall {
+    import Value.ExprFnValue
+
+    private[this] val evalExprFn: ExprFnValue = ExprFnValue { e1 => Value.ExternalValue(wrapper(e1)) }
+
+    def call(t: rankn.Type): Value = evalExprFn
+  }
+
+
   def getJavaType(t: rankn.Type): List[Class[_]] = {
     def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
       t match {
