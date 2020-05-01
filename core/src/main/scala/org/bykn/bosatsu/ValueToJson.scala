@@ -41,6 +41,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
       t match {
         case _ if working.contains(t) => good
         case Type.IntType | Type.StrType | Type.BoolType | Type.UnitType => good
+        case Type.VisType => good
         case Type.OptionT(inner) => loop(inner, t :: working)
         case Type.ListT(inner) => loop(inner, t :: working )
         case Type.DictT(Type.StrType, inner) => loop(inner, t :: working)
@@ -207,6 +208,15 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     .toVector
                     .traverse { case (a, fn) => fn(a) }
                     .map(Json.JArray(_))
+                case other =>
+                  // $COVERAGE-OFF$this should be unreachable
+                  Left(IllTyped(revPath.reverse, tpe, other))
+                  // $COVERAGE-ON$
+              }
+
+            case Type.VisType => {
+                case ExternalValue(PredefImpl.VisWrapper(nv)) =>
+                  Right(Json.JString(nv.toString))
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))

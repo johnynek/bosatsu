@@ -45,6 +45,7 @@ export [
   text,
   header,
   list_vis,
+  make_vis,
 ]
 
 struct Unit

@@ -205,6 +205,8 @@ object Type {
   val TupleConsType = TyConst(Type.Const.predef("TupleCons"))
   val UnitType = TyConst(Type.Const.predef("Unit"))
 
+  val VisType = TyConst(Type.Const.predef("Vis"))
+
   def const(pn: PackageName, name: TypeName): Type =
     TyConst(Type.Const.Defined(pn, name))
 
