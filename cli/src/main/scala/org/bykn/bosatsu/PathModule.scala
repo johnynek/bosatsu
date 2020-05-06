@@ -134,11 +134,14 @@ object PathModule extends MainModule[IO] {
         val out = output.fold(IO.unit)(writePackages(packList, _))
 
         (ifres *> out)
-      case Output.NEvaluationResult(value, ne, tpe, json) => for {
+      case Output.NEvaluationResult(value, ne, tpe, jOpt) => for {
         _ <- print(s"Normal Expression: $ne")
         _ <- print(s"Type: $tpe")
         _ <- print(s"Value: $value")
-        _ <- print(json.toDoc.renderTrim(80))
+        _ <- jOpt match {
+          case Left(json) => print(json.toDoc.renderTrim(80))
+          case Right(err) => print(err)
+        }
       } yield ()
     }
 
