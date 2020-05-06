@@ -110,6 +110,25 @@ lazy val cli = (project in file("cli")).
    )
   ).dependsOn(coreJVM % "compile->compile;test->test")
 
+lazy val ws = (project in file("ws")).
+  settings(
+    commonSettings,
+    name := "bosatsu-ws",
+    test in assembly := {},
+    mainClass in assembly := Some("org.bykn.bosatsu.WS"),
+    libraryDependencies ++=
+      Seq(
+        catsEffect.value,
+	http4sDsl.value,
+	http4sBlazeServer.value,
+        jawnParser.value % Test,
+        jawnAst.value % Test
+      ),
+    PB.targets in Compile := Seq(
+     scalapb.gen() -> (sourceManaged in Compile).value
+   )
+  ).dependsOn(coreJVM % "compile->compile;test->test")
+
 lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
     commonSettings,

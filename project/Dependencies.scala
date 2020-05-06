@@ -9,6 +9,8 @@ object Dependencies {
   lazy val decline = Def.setting("com.monovore" %%% "decline" % "1.0.0")
   lazy val fastparse = Def.setting("com.lihaoyi" %%% "fastparse" % "1.0.0")
   lazy val fastparseCats = Def.setting("org.bykn" %%% "fastparse-cats-core" % "0.1.0")
+  lazy val http4sDsl = Def.setting("org.http4s" %%% "http4s-dsl" % "0.21.4")
+  lazy val http4sBlazeServer = Def.setting("org.http4s" %%% "http4s-blaze-server" % "0.21.4")
   lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "0.14.1")
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "0.14.1")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.3.0")
