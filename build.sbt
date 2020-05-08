@@ -119,15 +119,19 @@ lazy val ws = (project in file("ws")).
     libraryDependencies ++=
       Seq(
         catsEffect.value,
-	http4sDsl.value,
-	http4sBlazeServer.value,
+        http4sDsl.value,
+        http4sBlazeServer.value,
+        http4sCirce.value,
+        circeParser.value,
+        circeGeneric.value,
+        circeCore.value,
         jawnParser.value % Test,
         jawnAst.value % Test
       ),
     PB.targets in Compile := Seq(
      scalapb.gen() -> (sourceManaged in Compile).value
    )
-  ).dependsOn(coreJVM % "compile->compile;test->test")
+  ).dependsOn(cli % "compile->compile;test->test")
 
 lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(

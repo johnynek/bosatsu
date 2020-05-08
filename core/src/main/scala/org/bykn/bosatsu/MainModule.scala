@@ -466,7 +466,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
 
-      def run: IO[Output] =
+      def eval: IO[Output.NEvaluationResult] =
         for {
           ins <- inputs.read
           ds <- deps.read
@@ -510,6 +510,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             moduleIOMonad.raiseError(new Exception(s"package ${mainPackageName.asString} not found"))
           }
         } yield out
+
+        def run: IO[Output] = eval.asInstanceOf[IO[Output]]
     }
 
     case class ToJson(
