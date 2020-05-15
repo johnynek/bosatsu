@@ -249,17 +249,8 @@ object PredefImpl {
     for {
       c <- cache
       ev <- eval
-      
-    } yield {
-      val fut = ev(vis)
-      c.putIfAbsent(vis.toString, (fut, tpe)) match {
-        case Some(_) => ()
-        case None => {
-          val _ = fut.future
-          ()
-        }
-      }
-    }
+    } yield c.getOrElseUpdate(vis.toString, (ev(vis), tpe))
+
     VisWrapper(vis, arrowTpe, name)
   }
 }

@@ -4,7 +4,7 @@ import cats.Eval
 import Normalization.NormalExpressionTag
 import scala.annotation.tailrec
 import rankn.Type
-import scala.collection.concurrent
+import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
 
 object NormalEvaluation {
@@ -77,27 +77,19 @@ object NormalEvaluation {
 
   type Applyable = Either[Value, (NormalExpression.Lambda, List[NormalValue])]
   type ExtEnv = Map[Identifier, Eval[Value]]
-  type Cache = Option[concurrent.Map[String,(LazyFutureValue, rankn.Type)]]
-  type ToLFV = Option[NormalValue => LazyFutureValue]
+  type Cache = Option[TrieMap[String,(Future[Value], rankn.Type)]]
+  type ToLFV = Option[NormalValue => Future[Value]]
 
-  import scala.concurrent.ExecutionContext.Implicits.global
-  class LazyFutureValue(fn: () => Value) {
-    private[this] var thunk: () => Value = fn
-    lazy val future: Future[Value] = {
-      val f = Future(thunk())
-      f.onComplete {_ =>  thunk = null }
-      f
-    }
-  }
 
   def nvToV(nv: NormalValue)(implicit extEnv: ExtEnv, cache: Cache): Value = nv match {
     case LazyValue(ne, scope) => evalToValue(ne, scope)
     case ComputedValue(value) => value
   }
 
+  import scala.concurrent.ExecutionContext.Implicits.global
   def applyApplyable(applyable: Applyable, arg: NormalValue)(implicit extEnv: ExtEnv, cache: Cache): NormalValue = applyable match {
     case Left(v) => v.attemptExprFn match {
-      case Left(eFn) => ComputedValue(eFn(arg, cache, Some(nv => new LazyFutureValue(() => nvToV(nv)))))
+      case Left(eFn) => ComputedValue(eFn(arg, cache, Some(nv => Future(nvToV(nv)))))
       case Right(fn) => ComputedValue(fn(nvToV(arg)))
     }
     case Right((NormalExpression.Lambda(expr), scope)) => LazyValue(expr, arg :: scope)
