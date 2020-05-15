@@ -58,12 +58,15 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
                 LocationMap.Colorize.Console,
                 PackageResolver.ExplicitOnly
               ).eval
-                .flatMap { _ =>
-                  Ok(s"report: ${packageName.toList.mkString("/")}")
+                .flatMap { output =>
+                  output.json match {
+                    case Left(j)    => Ok(j.toDoc.renderTrim(80))
+                    case Right(err) => Ok(err)
+                  }
                 }
           }
         }
-        case req @ POST -> Root / "data" =>
+        case req @ POST -> Root / "cache" =>
           for {
             keys <- req.as[List[String]]
             resp <- Ok(keys.toString)

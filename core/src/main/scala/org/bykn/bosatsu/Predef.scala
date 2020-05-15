@@ -88,7 +88,9 @@ object Predef {
       .add(packageName, "items", FfiCall.Fn1(PredefImpl.items(_)))
       .add(packageName, "remove_key", FfiCall.Fn2(PredefImpl.remove_key(_, _)))
       .add(packageName, "concat_String", FfiCall.Fn1(PredefImpl.concat_String(_)))
-      .add(packageName, "make_vis", FfiCall.ExprFn(PredefImpl.VisWrapper(_)))
+      .add(packageName, "header", FfiCall.ExprFn(PredefImpl.VisWrapper(_, _, "header")))
+      .add(packageName, "markdown", FfiCall.ExprFn(PredefImpl.VisWrapper(_, _, "markdown")))
+      .add(packageName, "list_vis", FfiCall.ExprFn(PredefImpl.VisWrapper(_, _, "list_vis")))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -237,7 +239,11 @@ object PredefImpl {
     .toList)
   }
 
-
-  case class VisWrapper(vis: NormalEvaluation.NormalValue)
+  case class VisWrapper(vis: NormalEvaluation.NormalValue, arrowTpe: rankn.Type, name: String) {
+    lazy val tpe: rankn.Type = arrowTpe match {
+      case rankn.Type.Fun(from, _) => from
+      case _ => ???
+    }
+  }
 }
 

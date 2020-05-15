@@ -10,6 +10,9 @@ import scala.collection.mutable.{Map => MMap}
 import Value._
 
 import JsonEncodingError._
+import org.bykn.bosatsu.NormalEvaluation.LazyValue
+import org.bykn.bosatsu.NormalEvaluation.ComputedValue
+import org.bykn.bosatsu.PredefImpl.VisWrapper
 
 case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
@@ -215,13 +218,34 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               }
 
             case Type.VisType => {
-                case ExternalValue(PredefImpl.VisWrapper(nv)) =>
-                  Right(Json.JString(nv.toString))
+                case ExternalValue(vw@VisWrapper(_, _, _)) => vw.vis match {
+                  case lv@LazyValue(expression, scope) => {
+                    def lazyValueJsonLoop(nv: NormalEvaluation.NormalValue): Json = {
+                      nv match {
+                        case LazyValue(expression, scope) => Json.JObject(List(
+                          "state" -> Json.JString("expression"),
+                          "expression" -> Json.JString(expression.toString),
+                          "scope" -> Json.JArray(scope.map(lazyValueJsonLoop(_)).toVector)
+                        ))
+                        case ComputedValue(value) => Json.JString(value.toString)
+                      }
+                    }
+                    Right(lazyValueJsonLoop(lv))
+                  }
+                  case ComputedValue(value) => {
+                    val inner = loop(vw.tpe, vw.tpe :: revPath).value
+                    inner(value).map(jArg => Json.JObject(List(
+                      "state" -> Json.JString("computed"),
+                      "variant" -> Json.JString(vw.name),
+                      "data" -> jArg
+                    )))
+                  }
+                }
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
-              }
+            }
 
             case Type.ForAll(_, inner) =>
               // we assume the generic positions don't matter and to continue

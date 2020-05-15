@@ -1,0 +1,4 @@
+#!/bin/sh
+
+# make sure to run sbt ws/assembly first
+java -jar ws/target/scala-2.12/bosatsu-ws-assembly-0.1.0-SNAPSHOT.jar "$@"
