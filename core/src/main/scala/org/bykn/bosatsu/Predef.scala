@@ -88,9 +88,9 @@ object Predef {
       .add(packageName, "items", FfiCall.Fn1(PredefImpl.items(_)))
       .add(packageName, "remove_key", FfiCall.Fn2(PredefImpl.remove_key(_, _)))
       .add(packageName, "concat_String", FfiCall.Fn1(PredefImpl.concat_String(_)))
-      .add(packageName, "header", FfiCall.ExprFn(PredefImpl.VisWrapper(_, _, "header")))
-      .add(packageName, "markdown", FfiCall.ExprFn(PredefImpl.VisWrapper(_, _, "markdown")))
-      .add(packageName, "list_vis", FfiCall.ExprFn(PredefImpl.VisWrapper(_, _, "list_vis")))
+      .add(packageName, "header", FfiCall.ExprFn(PredefImpl.visWrapper(_, _, "header", _, _)))
+      .add(packageName, "markdown", FfiCall.ExprFn(PredefImpl.visWrapper(_, _, "markdown", _, _)))
+      .add(packageName, "list_vis", FfiCall.ExprFn(PredefImpl.visWrapper(_, _, "list_vis", _, _)))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -239,11 +239,27 @@ object PredefImpl {
     .toList)
   }
 
-  case class VisWrapper(vis: NormalEvaluation.NormalValue, arrowTpe: rankn.Type, name: String) {
+  case class VisWrapper(vis: NormalEvaluation.NormalValue, tpe: rankn.Type, name: String)
+
+  def visWrapper(vis: NormalEvaluation.NormalValue, arrowTpe: rankn.Type, name: String, cache: NormalEvaluation.Cache, eval: NormalEvaluation.ToLFV): VisWrapper = {
     lazy val tpe: rankn.Type = arrowTpe match {
       case rankn.Type.Fun(from, _) => from
       case _ => ???
     }
+    for {
+      c <- cache
+      ev <- eval
+      
+    } yield {
+      val fut = ev(vis)
+      c.putIfAbsent(vis.toString, (fut, tpe)) match {
+        case Some(_) => ()
+        case None => {
+          val _ = fut.future
+          ()
+        }
+      }
+    }
+    VisWrapper(vis, arrowTpe, name)
   }
 }
-

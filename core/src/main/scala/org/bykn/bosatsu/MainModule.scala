@@ -464,7 +464,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       mainPackage: MainIdentifier,
       deps: PathGen,
       errColor: Colorize,
-      packRes: PackageResolver) extends MainCommand {
+      packRes: PackageResolver,
+      cache: NormalEvaluation.Cache
+      ) extends MainCommand {
 
       def eval: IO[Output.NEvaluationResult] =
         for {
@@ -475,7 +477,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           mainPackageNameValue <- mainPackage.getMain(names)
           (mainPackageName, value) = mainPackageNameValue
           out <- if (packs.toMap.contains(mainPackageName)) {
-            val ev = NormalEvaluation(packs, Predef.jvmExternals)
+            val ev = NormalEvaluation(packs, Predef.jvmExternals, cache)
             val v2j = ev.valueToJson
             def unsupported(tpe: rankn.Type, j: JsonEncodingError.UnsupportedType): String = {
               val tMap = TypeRef.fromTypes(None, tpe :: Nil)
@@ -886,7 +888,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       val evalOpt = (srcs, mainP, includes, colorOpt, packRes)
         .mapN(Evaluate(_, _, _, _, _))
       val nEvalOpt = (srcs, mainP, includes, colorOpt, packRes)
-        .mapN(NEvaluate(_, _, _, _, _))
+        .mapN(NEvaluate(_, _, _, _, _, None))
       val typeCheckOpt = (srcs, ifaces, outputPath.orNone, interfaceOutputPath.orNone, colorOpt, noSearchRes)
         .mapN(TypeCheck(_, _, _, _, _, _))
       val testOpt = (srcs, testP, includes, colorOpt, packRes)

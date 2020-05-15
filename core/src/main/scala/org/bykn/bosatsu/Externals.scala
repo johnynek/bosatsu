@@ -39,10 +39,10 @@ object FfiCall {
     def call(t: rankn.Type): Value = evalFn
   }
 
-  final case class ExprFn(wrapper: (NormalEvaluation.NormalValue, rankn.Type) => Any) extends FfiCall {
+  final case class ExprFn(wrapper: (NormalEvaluation.NormalValue, rankn.Type, NormalEvaluation.Cache, NormalEvaluation.ToLFV) => Any) extends FfiCall {
     import Value.ExprFnValue
 
-    private[this] def evalExprFn(t: rankn.Type): ExprFnValue = ExprFnValue { e1 => Value.ExternalValue(wrapper(e1, t)) }
+    private[this] def evalExprFn(t: rankn.Type): ExprFnValue = ExprFnValue({ (e1, cache, eval) => Value.ExternalValue(wrapper(e1, t, cache, eval)) })
 
     def call(t: rankn.Type): Value = evalExprFn(t)
   }

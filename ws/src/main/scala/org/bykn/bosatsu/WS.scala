@@ -18,6 +18,7 @@ import org.http4s.circe.jsonOf
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
+import scala.collection.concurrent.TrieMap
 
 import PathModule.MainCommand.{MainIdentifier, PackageResolver, NEvaluate}
 
@@ -29,6 +30,7 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
     allowCredentials = false,
     maxAge = 1.day.toSeconds
   )
+  val cache: NormalEvaluation.Cache = Some(TrieMap.empty)
   val service = CORS(
     HttpRoutes
       .of[IO] {
@@ -56,7 +58,8 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
                 MainIdentifier.FromPackage(PackageName(p), None),
                 PathGen.pathGenMonoid.empty,
                 LocationMap.Colorize.Console,
-                PackageResolver.ExplicitOnly
+                PackageResolver.ExplicitOnly,
+                cache
               ).eval
                 .flatMap { output =>
                   output.json match {
