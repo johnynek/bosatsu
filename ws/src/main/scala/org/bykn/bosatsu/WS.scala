@@ -30,7 +30,24 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
     allowCredentials = false,
     maxAge = 1.day.toSeconds
   )
-  val cache: NormalEvaluation.Cache = Some(TrieMap.empty)
+  val cacheParam: NormalEvaluation.Cache = Some(TrieMap.empty)
+  val cache = cacheParam.get
+  def nev(p: NonEmptyList[String]) = NEvaluate(
+    inputs,
+    MainIdentifier.FromPackage(PackageName(p), None),
+    PathGen.pathGenMonoid.empty,
+    LocationMap.Colorize.Console,
+    PackageResolver.ExplicitOnly,
+    cacheParam
+  )
+
+  val valueToJson: ValueToJson = ValueToJson({
+    case rankn.Type.Const.Defined(pn, t) =>
+      for {
+        dt <- Predef.predefCompiled.program.types.getType(pn, t)
+      } yield dt
+  })
+
   val service = CORS(
     HttpRoutes
       .of[IO] {
@@ -49,18 +66,11 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
             }
         }
 
-        case GET -> "report" /: packageName => {
+        case GET -> "report" /: packageName =>
           NonEmptyList.fromList(packageName.toList) match {
             case None => NoContent()
             case Some(p) =>
-              NEvaluate(
-                inputs,
-                MainIdentifier.FromPackage(PackageName(p), None),
-                PathGen.pathGenMonoid.empty,
-                LocationMap.Colorize.Console,
-                PackageResolver.ExplicitOnly,
-                cache
-              ).eval
+              nev(p).eval
                 .flatMap { output =>
                   output.json match {
                     case Left(j)    => Ok(j.toDoc.renderTrim(80))
@@ -68,10 +78,12 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
                   }
                 }
           }
-        }
         case req @ POST -> Root / "cache" =>
           for {
             keys <- req.as[List[String]]
+            values = keys
+              .flatMap(key => cache.get(key))
+              .filter(_._1.isCompleted)
             resp <- Ok(keys.toString)
           } yield (resp)
       },

@@ -222,10 +222,13 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   case lv@LazyValue(expression, scope) => {
                     def lazyValueJsonLoop(nv: NormalEvaluation.NormalValue): Json = {
                       nv match {
-                        case LazyValue(expression, scope) => Json.JObject(List(
+                        case ilv@LazyValue(expression, scope) => Json.JObject(List(
                           "state" -> Json.JString("expression"),
                           "expression" -> Json.JString(expression.toString),
-                          "scope" -> Json.JArray(scope.map(lazyValueJsonLoop(_)).toVector)
+                          "scope" -> Json.JArray(
+                            NormalEvaluation.NormalValue.cleanedScope(ilv).map { case (n, nv) =>
+                              Json.JArray(Vector(Json.JNumberStr(n.toString), lazyValueJsonLoop(nv)))
+                            }.toVector)
                         ))
                         case ComputedValue(value) => Json.JString(value.toString)
                       }
