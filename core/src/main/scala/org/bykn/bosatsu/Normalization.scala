@@ -23,7 +23,7 @@ sealed abstract class NormalExpression {
     def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
     this match {
       case NormalExpression.App(fn, arg) => s"App(${fn.serialize},${arg.serialize})"
-      case NormalExpression.ExternalVar(pack, defName) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}')"
+      case NormalExpression.ExternalVar(pack, defName, tpe) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}', ${tpe.toString})"
       case NormalExpression.Match(arg, branches) => {
         val serBranches = branches.toList.map {case (np, ne) => s"${np.serialize},${ne.serialize}"}.mkString(",")
         s"Match(${arg.serialize},$serBranches)"
@@ -38,6 +38,17 @@ sealed abstract class NormalExpression {
       case NormalExpression.Recursion(lambda) => s"Recursion(${lambda.serialize})"
     }
   }
+
+  def lambdaSet: Set[Int] = this match {
+    case NormalExpression.App(fn, arg) => fn.lambdaSet.map(_ - 1) ++ arg.lambdaSet
+    case NormalExpression.ExternalVar(_, _, _) => Set()
+    case NormalExpression.Match(arg, branches) => branches.map { case (np, ne) => ne.lambdaSet.map(_ - np.varCount).filter(_ > 0)}.foldLeft(arg.lambdaSet)(_++_)
+    case NormalExpression.Lambda(expr) => expr.lambdaSet.collect { case n if n > 0 => n - 1}
+    case NormalExpression.Struct(enum, args) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.lambdaSet }
+    case NormalExpression.Literal(_) => Set()
+    case NormalExpression.Recursion(lambda) => lambda.lambdaSet.collect { case n if n > 0 => n - 1}
+    case NormalExpression.LambdaVar(name) => Set(name)
+  }
 }
 
 object NormalExpression {
@@ -46,7 +57,7 @@ object NormalExpression {
     def maxLambdaVar = (fn.maxLambdaVar.toList ++ arg.maxLambdaVar.toList)
       .reduceLeftOption(Math.max)
   }
-  case class ExternalVar(pack: PackageName, defName: Identifier)
+  case class ExternalVar(pack: PackageName, defName: Identifier, tpe: rankn.Type)
   extends NormalExpression {
     def maxLambdaVar = None
   }
@@ -82,11 +93,12 @@ object NormalExpression {
   case class Recursion(lambda: NormalExpression) extends NormalExpression {
     def maxLambdaVar = lambda.maxLambdaVar
   }
+
 }
 
 sealed abstract class NormalPattern {
   def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
-  def serialize: String = {
+  def serialize: String =
     this match {
       case NormalPattern.WildCard => "WildCard"
       case NormalPattern.Literal(toLit) => toLit match {
@@ -113,10 +125,35 @@ sealed abstract class NormalPattern {
         s"StrPat($inside)"
       }
     }
-  }
+  def varCount: Int = NormalPattern.varCount(0, List(this))
+
+
 }
 
 object NormalPattern {
+  def varCount(floor: Int, patterns: List[NormalPattern]): Int = patterns match {
+    case Nil => floor
+    case head :: rest => head match {
+      case NormalPattern.WildCard => floor
+      case NormalPattern.Literal(_) => 0
+      case NormalPattern.Var(name) => floor.max(name + 1)
+      case NormalPattern.Named(name, pat) => varCount(name + 1, List(pat))
+      case NormalPattern.ListPat(parts) => {
+        val (newFloor, rights) = parts.foldLeft((floor, List[NormalPattern]())) {
+          case ((fl, lst), Left(n)) => (fl.max(n.getOrElse(fl)), lst)
+          case ((fl, lst), Right(pat)) => (fl, pat :: lst)
+        }
+        varCount(newFloor, rights)
+      }
+      case NormalPattern.PositionalStruct(name, params) => varCount(name.getOrElse(floor).max(floor), params)
+      case NormalPattern.Union(uHead, _) => varCount(floor, List(uHead))
+      case NormalPattern.StrPat(parts) => parts.foldLeft(floor) {
+        case (n, NormalPattern.StrPart.NamedStr(name)) => n.max(name)
+        case (n, _) => n 
+      }
+    }
+  }
+
   case object WildCard extends NormalPattern
   case class Literal(toLit: Lit) extends NormalPattern
   case class Var(name: Int) extends NormalPattern
@@ -357,7 +394,7 @@ object Normalization {
     val res = headReduction(expr) match {
       case App(fn, arg) =>
         App(normalOrderReduction(fn), normalOrderReduction(arg))
-      case extVar @ ExternalVar(_, _) => extVar
+      case extVar @ ExternalVar(_, _, _) => extVar
       // check for a match reduction opportunity (beta except for Match instead of lambda)
       case Match(arg, branches) =>
         Match(normalOrderReduction(arg), branches.map{ case (p, s) => (p, normalOrderReduction(s))})
@@ -413,7 +450,7 @@ object Normalization {
         case App(fn, arg)                           =>
           App(applyLambdaSubstituion(fn, subst, idx),
             applyLambdaSubstituion(arg, subst, idx))
-        case ext @ ExternalVar(_, _)                => ext
+        case ext @ ExternalVar(_, _, _)             => ext
         case Match(arg, branches)                   =>
           Match(applyLambdaSubstituion(arg, subst, idx), branches.map {
             case (enum, expr) => (enum, applyLambdaSubstituion(expr, subst, idx))
@@ -435,7 +472,7 @@ object Normalization {
       case App(fn, arg) =>
         App(incrementLambdaVars(fn, lambdaDepth),
           incrementLambdaVars(arg, lambdaDepth))
-      case ext @ ExternalVar(_, _) => ext
+      case ext @ ExternalVar(_, _, _) => ext
       case Match(arg, branches) =>
         Match(incrementLambdaVars(arg, lambdaDepth), branches.map {
           case (enum, expr) => (enum, incrementLambdaVars(expr, lambdaDepth))
@@ -682,8 +719,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
             imported <- norm(pm.toMap(from.name), orig, t, (Map.empty, Nil))
             neTag = getTag(imported)._2
           } yield Left((item, (t, neTag)))
-        case NameKind.ExternalDef(pn, n, scheme) =>
-          val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n), Set())
+        case NameKind.ExternalDef(pn, n, defType) =>
+          val neTag = NormalExpressionTag(NormalExpression.ExternalVar(pn, n, defType), Set())
           State.pure(Left((item, (t, neTag))))
       }
 
