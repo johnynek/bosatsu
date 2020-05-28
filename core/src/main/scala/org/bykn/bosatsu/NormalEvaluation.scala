@@ -39,12 +39,10 @@ object NormalEvaluation {
   }
 
   sealed trait NormalValue {}
-  case class LazyValue(expression: NormalExpression, scope: List[NormalValue]) extends NormalValue
-  case class ComputedValue(value: Value) extends NormalValue
-  object NormalValue {
-    def cleanedScope(lv: LazyValue): List[(Int, NormalValue)] =
-      lv.expression.lambdaSet.toList.sorted.map { n => (n, lv.scope(n)) }
+  case class LazyValue(expression: NormalExpression, scope: List[NormalValue]) extends NormalValue {
+    def cleanedScope: List[(Int, NormalValue)] = expression.varSet.toList.sorted.map { n => (n, scope(n)) }
   }
+  case class ComputedValue(value: Value) extends NormalValue
 
   implicit def nvToLitValue(
       implicit extEnv: ExtEnv,

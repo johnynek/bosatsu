@@ -224,9 +224,9 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       nv match {
                         case ilv@LazyValue(expression, scope) => Json.JObject(List(
                           "state" -> Json.JString("expression"),
-                          "expression" -> Json.JString(expression.toString),
+                          "expression" -> Json.JString(expression.serialize),
                           "scope" -> Json.JArray(
-                            NormalEvaluation.NormalValue.cleanedScope(ilv).map { case (n, nv) =>
+                            ilv.cleanedScope.map { case (n, nv) =>
                               Json.JArray(Vector(Json.JNumberStr(n.toString), lazyValueJsonLoop(nv)))
                             }.toVector)
                         ))

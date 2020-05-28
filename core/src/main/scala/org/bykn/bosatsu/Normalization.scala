@@ -23,7 +23,7 @@ sealed abstract class NormalExpression {
     def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
     this match {
       case NormalExpression.App(fn, arg) => s"App(${fn.serialize},${arg.serialize})"
-      case NormalExpression.ExternalVar(pack, defName, tpe) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}', ${tpe.toString})"
+      case NormalExpression.ExternalVar(pack, defName, tpe) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}', '${escapeString(TypeRef.fromTypes(None, tpe :: Nil).apply(tpe).toDoc.render(100))}')"
       case NormalExpression.Match(arg, branches) => {
         val serBranches = branches.toList.map {case (np, ne) => s"${np.serialize},${ne.serialize}"}.mkString(",")
         s"Match(${arg.serialize},$serBranches)"
@@ -39,16 +39,16 @@ sealed abstract class NormalExpression {
     }
   }
 
-  def lambdaSet: Set[Int] = this match {
-    case NormalExpression.App(fn, arg) => fn.lambdaSet.map(_ - 1) ++ arg.lambdaSet
+  def varSet: Set[Int] = this match {
+    case NormalExpression.Lambda(expr) => expr.varSet.collect { case n if n > 0 => n - 1}
+    case NormalExpression.App(fn, arg) => fn.varSet ++ arg.varSet
     case NormalExpression.ExternalVar(_, _, _) => Set()
     case NormalExpression.Match(arg, branches) => branches.map {
-      case (np, ne) => ne.lambdaSet.map(_ - NormalPattern.varCount(0, List(np))).filter(_ >= 0)
-    }.foldLeft(arg.lambdaSet)(_++_)
-    case NormalExpression.Lambda(expr) => expr.lambdaSet.collect { case n if n > 0 => n - 1}
-    case NormalExpression.Struct(enum, args) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.lambdaSet }
+      branch => branch._2.varSet.map(_ - NormalPattern.varCount(0, List(branch._1))).filter(_ >= 0)
+    }.foldLeft(arg.varSet){ case (s1, s2) => s1 ++ s2 }
+    case NormalExpression.Struct(enum, args) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.varSet }
     case NormalExpression.Literal(_) => Set()
-    case NormalExpression.Recursion(lambda) => lambda.lambdaSet.collect { case n if n > 0 => n - 1}
+    case NormalExpression.Recursion(lambda) => lambda.varSet.collect { case n if n > 0 => n - 1}
     case NormalExpression.LambdaVar(name) => Set(name)
   }
 }
@@ -131,18 +131,17 @@ sealed abstract class NormalPattern {
 
 object NormalPattern {
   def varCount(floor: Int, patterns: List[NormalPattern]): Int = patterns match {
-    case Nil => floor
     case head :: rest => head match {
       case NormalPattern.WildCard => floor
       case NormalPattern.Literal(_) => 0
       case NormalPattern.Var(name) => floor.max(name + 1)
       case NormalPattern.Named(name, pat) => varCount(name + 1, List(pat))
       case NormalPattern.ListPat(parts) => {
-        val (newFloor, rights) = parts.foldLeft((floor, List[NormalPattern]())) {
+        val result = parts.foldLeft((floor, List[NormalPattern]())) {
           case ((fl, lst), Left(n)) => (fl.max(n.getOrElse(fl)), lst)
           case ((fl, lst), Right(pat)) => (fl, pat :: lst)
         }
-        varCount(newFloor, rights)
+        varCount(result._1, result._2)
       }
       case NormalPattern.PositionalStruct(name, params) => varCount(name.getOrElse(floor).max(floor), params)
       case NormalPattern.Union(uHead, _) => varCount(floor, List(uHead))
@@ -151,6 +150,7 @@ object NormalPattern {
         case (n, _) => n 
       }
     }
+    case _ => floor
   }
 
   case object WildCard extends NormalPattern
