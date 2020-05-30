@@ -73,7 +73,7 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
               nev(p).eval
                 .flatMap { output =>
                   output.json match {
-                    case Left(j)    => Ok(j.toDoc.renderTrim(80))
+                    case Left(j)    => Ok(j.render)
                     case Right(err) => Ok(err)
                   }
                 }
@@ -81,10 +81,23 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
         case req @ POST -> Root / "cache" =>
           for {
             keys <- req.as[List[String]]
-            values = keys
-              .flatMap(key => cache.get(key))
-              .filter(_._1.isCompleted)
-            resp <- Ok(keys.toString)
+            values = for {
+              key <- keys
+              result <- cache.get(key)
+              (promise, tpe) = result
+              valueTry <- promise.value
+              value <- valueTry.toOption
+            } yield {
+              val toJson = valueToJson.toJson(tpe)
+              toJson match {
+                case Left(unsupported) => ???
+                case Right(fn) => fn(value) match {
+                  case Left(err) => ???
+                  case Right(j) => key -> j
+                }
+              }
+            }
+            resp <- Ok(Json.JObject(values).render)
           } yield (resp)
       },
     methodConfig

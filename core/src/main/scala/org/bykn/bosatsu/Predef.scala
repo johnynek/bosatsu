@@ -244,12 +244,15 @@ object PredefImpl {
   def visWrapper(vis: NormalEvaluation.NormalValue, arrowTpe: rankn.Type, name: String, cache: NormalEvaluation.Cache, eval: NormalEvaluation.ToLFV): VisWrapper = {
     lazy val tpe: rankn.Type = arrowTpe match {
       case rankn.Type.Fun(from, _) => from
-      case _ => ???
+      case other => sys.error(s"VisWrapper must be an arrow type and not: $other")
     }
-    for {
-      c <- cache
-      ev <- eval
-    } yield c.getOrElseUpdate(vis.toString, (ev(vis), tpe))
+    vis match {
+      case lv@NormalEvaluation.LazyValue(_, _) => for {
+        c <- cache
+        ev <- eval
+      } yield c.getOrElseUpdate(lv.toKey, (ev(vis), tpe))
+      case _ => ()
+    }
 
     VisWrapper(vis, arrowTpe, name)
   }

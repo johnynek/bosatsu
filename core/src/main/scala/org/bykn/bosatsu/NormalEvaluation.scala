@@ -38,7 +38,24 @@ object NormalEvaluation {
     loop(fullList.reverse, Value.SumValue(0, Value.UnitValue))
   }
 
-  sealed trait NormalValue {}
+  sealed trait NormalValue {
+    def toJson: Json = this match {
+      case ilv@LazyValue(expression, scope) => Json.JObject(List(
+        "state" -> Json.JString("expression"),
+        "expression" -> Json.JString(expression.serialize),
+        "scope" -> Json.JArray(
+          ilv.cleanedScope.map { case (n, nv) =>
+            Json.JArray(Vector(Json.JNumberStr(n.toString), nv.toJson))
+          }.toVector)
+      ))
+      case ComputedValue(value) => Json.JObject(List(
+        "state" -> Json.JString("computed"),
+        "data" -> Json.JString(value.toString)
+      ))
+    }
+
+    def toKey: String = toJson.render.hashCode.toString
+  }
   case class LazyValue(expression: NormalExpression, scope: List[NormalValue]) extends NormalValue {
     def cleanedScope: List[(Int, NormalValue)] = expression.varSet.toList.sorted.map { n => (n, scope(n)) }
   }
