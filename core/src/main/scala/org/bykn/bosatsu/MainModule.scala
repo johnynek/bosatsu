@@ -468,23 +468,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       cache: NormalEvaluation.Cache
       ) extends MainCommand {
 
-      /*
-      def nev: IO[NormalEvaluation] =
-        for {
-          ins <- inputs.read
-          ds <- deps.read
-          pn <- buildNormPackMap(mainPackage.addIfAbsent(ins), ds, errColor, packRes)
-          (packs, names) = pn
-          mainPackageNameValue <- mainPackage.getMain(names)
-          (mainPackageName, value) = mainPackageNameValue
-          out <- if (packs.toMap.contains(mainPackageName)) {
-            moduleIOMonad.pure(NormalEvaluation(packs, Predef.jvmExternals, cache))
-          } else {
-            moduleIOMonad.raiseError(new Exception(s"package ${mainPackageName.asString} not found"))
-          }
-        } yield out
-        */
-
       def eval: IO[Output.NEvaluationResult] =
         for {
           ins <- inputs.read
