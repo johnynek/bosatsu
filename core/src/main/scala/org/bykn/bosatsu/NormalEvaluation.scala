@@ -8,8 +8,10 @@ import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
 
 object NormalEvaluation {
-  implicit val valueToLitValue: Value => Option[Normalization.LitValue] = {v => Some(Normalization.LitValue(v.asExternal.toAny))}
-  implicit val valueToStruct: Value => Option[(Int, List[Value])] = {v =>
+  implicit val valueToLitValue: Value => Option[Normalization.LitValue] = { v =>
+    Some(Normalization.LitValue(v.asExternal.toAny))
+  }
+  implicit val valueToStruct: Value => Option[(Int, List[Value])] = { v =>
     val vSum = v.asSum
     Some((vSum.variant, vSum.value.toList))
   }
@@ -19,11 +21,18 @@ object NormalEvaluation {
       val vSum = v.asSum
       vSum.variant match {
         case 0 => acc
-        case 1 => vSum.value.toList match {
-          case List(h, t) => loop(t, h::acc)
-          case _ => sys.error("typechecking should make sure we have exactly two args here")
-        }
-          case n => sys.error(s"typechecking should make sure this is only 0 or 1 and not $n")
+        case 1 =>
+          vSum.value.toList match {
+            case List(h, t) => loop(t, h :: acc)
+            case _ =>
+              sys.error(
+                "typechecking should make sure we have exactly two args here"
+              )
+          }
+        case n =>
+          sys.error(
+            s"typechecking should make sure this is only 0 or 1 and not $n"
+          )
       }
     }
     Some(loop(value, Nil).reverse)
@@ -33,7 +42,11 @@ object NormalEvaluation {
     @tailrec
     def loop(lst: List[Value], acc: Value): Value = lst match {
       case Nil => acc
-      case head::tail => loop(tail, Value.SumValue(1, Value.ProductValue.fromList(List(head, acc))))
+      case head :: tail =>
+        loop(
+          tail,
+          Value.SumValue(1, Value.ProductValue.fromList(List(head, acc)))
+        )
     }
     loop(fullList.reverse, Value.SumValue(0, Value.UnitValue))
   }
@@ -60,6 +73,10 @@ object NormalEvaluation {
     def cleanedScope: List[(Int, NormalValue)] = expression.varSet.toList.sorted.map { n => (n, scope(n)) }
   }
   case class ComputedValue(value: Value) extends NormalValue
+  object NormalValue {
+    def cleanedScope(lv: LazyValue): List[(Int, NormalValue)] =
+      lv.expression.lambdaSet.toList.sorted.map { n => (n, lv.scope(n)) }
+  }
 
   implicit def nvToLitValue(
       implicit extEnv: ExtEnv,
