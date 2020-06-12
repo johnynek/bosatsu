@@ -218,19 +218,20 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               }
 
             case Type.VisType => {
-                case ExternalValue(vw@VisWrapper(_, _, _)) => vw.vis match {
+                case ExternalValue(VisWrapper(vis, tpe, name)) => vis match {
                   case lv@LazyValue(expression, scope) => Right(
                     Json.JObject(List(
-                      "key" -> Json.JString(lv.toKey),
+                      "key" -> Json.JString(s"$name: ${lv.toKey}"),
                       "state" -> Json.JString("cacheing vis"),
+                      "variant" -> Json.JString(name),
                       "program" -> lv.toJson
                     ))
                   )
                   case ComputedValue(value) => {
-                    val inner = loop(vw.tpe, vw.tpe :: revPath).value
+                    val inner = loop(tpe, tpe :: revPath).value
                     inner(value).map(jArg => Json.JObject(List(
                       "state" -> Json.JString("computed vis"),
-                      "variant" -> Json.JString(vw.name),
+                      "variant" -> Json.JString(name),
                       "data" -> jArg
                     )))
                   }
