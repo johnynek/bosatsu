@@ -239,21 +239,21 @@ object PredefImpl {
     .toList)
   }
 
-  case class VisWrapper(vis: NormalEvaluation.NormalValue, tpe: rankn.Type, name: String)
+  case class VisWrapper(arg: NormalEvaluation.NormalValue, tpe: rankn.Type, name: String)
 
-  def visWrapper(vis: NormalEvaluation.NormalValue, arrowTpe: rankn.Type, name: String, cache: NormalEvaluation.Cache, eval: NormalEvaluation.ToLFV): VisWrapper = {
+  def visWrapper(arg: NormalEvaluation.NormalValue, arrowTpe: rankn.Type, name: String, cache: NormalEvaluation.Cache, eval: NormalEvaluation.ToLFV): VisWrapper = {
     lazy val tpe: rankn.Type = arrowTpe match {
       case rankn.Type.Fun(from, _) => from
       case other => sys.error(s"VisWrapper must be an arrow type and not: $other")
     }
-    vis match {
+    arg match {
       case lv@NormalEvaluation.LazyValue(_, _) => for {
         c <- cache
         ev <- eval
-      } yield c.getOrElseUpdate(lv.toKey, (ev(vis), tpe))
+      } yield c.getOrElseUpdate(lv.toKey, (ev(arg), tpe))
       case _ => ()
     }
 
-    VisWrapper(vis, arrowTpe, name)
+    VisWrapper(arg, arrowTpe, name)
   }
 }

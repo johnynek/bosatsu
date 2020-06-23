@@ -73,8 +73,18 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
               nev(p).eval
                 .flatMap { output =>
                   output.json match {
-                    case Left(j)    => Ok(j.render)
-                    case Right(err) => Ok(err)
+                    case Left(j)    => Ok(
+                    Json.JObject(List(
+                      "variant" -> Json.JString("Document"),
+                      "visualization" -> j,
+                      "key" -> Json.JString(NormalEvaluation.LazyValue(output.ne, Nil).toKey)
+                    )).render)
+                    case Right(err) => Ok(
+                      Json.JObject(List(
+                        "variant" -> Json.JString("Error"),
+                        "error" -> Json.JString(err)
+                      )).render
+                    )
                   }
                 }
           }
