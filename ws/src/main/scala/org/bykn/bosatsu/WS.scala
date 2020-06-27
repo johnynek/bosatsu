@@ -67,27 +67,44 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
         }
 
         case GET -> "report" /: packageName =>
-          NonEmptyList.fromList(packageName.toList) match {
+          val ioRes = NonEmptyList.fromList(packageName.toList) match {
             case None => NoContent()
             case Some(p) =>
               nev(p).eval
-                .flatMap { output =>
-                  output.json match {
-                    case Left(j)    => Ok(
-                    Json.JObject(List(
-                      "variant" -> Json.JString("Document"),
-                      "visualization" -> j,
-                      "key" -> Json.JString(NormalEvaluation.LazyValue(output.ne, Nil).toKey)
-                    )).render)
-                    case Right(err) => Ok(
-                      Json.JObject(List(
-                        "variant" -> Json.JString("Error"),
-                        "error" -> Json.JString(err)
-                      )).render
-                    )
-                  }
+                .flatMap {
+                  output =>
+                    output.json match {
+                      case Left(j) =>
+                        Ok(
+                          Json
+                            .JObject(
+                              List(
+                                "variant" -> Json.JString("Document"),
+                                "visualization" -> j,
+                                "key" -> Json.JString(
+                                  NormalEvaluation
+                                    .LazyValue(output.ne, Nil)
+                                    .toKey
+                                )
+                              )
+                            )
+                            .render
+                        )
+                      case Right(err) =>
+                        Ok(
+                          Json
+                            .JObject(
+                              List(
+                                "variant" -> Json.JString("Error"),
+                                "error" -> Json.JString(err)
+                              )
+                            )
+                            .render
+                        )
+                    }
                 }
           }
+          ioRes.map(_.putHeaders(Header("Access-Control-Allow-Origin", "*")))
         case req @ POST -> Root / "cache" =>
           for {
             keys <- req.as[List[String]]
@@ -101,10 +118,11 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
               val toJson = valueToJson.toJson(tpe)
               toJson match {
                 case Left(unsupported) => ???
-                case Right(fn) => fn(value) match {
-                  case Left(err) => ???
-                  case Right(j) => key -> j
-                }
+                case Right(fn) =>
+                  fn(value) match {
+                    case Left(err) => ???
+                    case Right(j)  => key -> j
+                  }
               }
             }
             resp <- Ok(Json.JObject(values).render)
