@@ -85,7 +85,10 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
                                   NormalEvaluation
                                     .LazyValue(output.ne, Nil)
                                     .toKey
-                                )
+                                ),
+                                "program" -> NormalEvaluation
+                                  .LazyValue(output.ne, Nil)
+                                  .toJson
                               )
                             )
                             .render
