@@ -63,7 +63,25 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   object Output {
     case class TestOutput(tests: List[(PackageName, Option[Eval[Test]])], colorize: Colorize) extends Output
     case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
-    case class NEvaluationResult(value: Value, ne: NormalExpression, tpe: rankn.Type, json: Either[Json, String]) extends Output
+    case class NEvaluationResult(ne: NormalExpression, tpe: rankn.Type, v2j: ValueToJson, extEnv: Map[Identifier, Eval[Value]]) extends Output {
+      def unsupported(tpe: rankn.Type, j: JsonEncodingError.UnsupportedType): String = {
+        val tMap = TypeRef.fromTypes(None, tpe :: Nil)
+        val path = j.path.init
+        val badType = j.path.last
+        val msg = Doc.text("the type") + Doc.space + tMap(badType).toDoc + Doc.space + Doc.text("isn't supported")
+        val tpeStr = msg.render(80)
+
+        s"cannot convert type to Json: $tpeStr"
+      }
+      def value(cache: NormalEvaluation.Cache) = NormalEvaluation.evaluate(ne, extEnv, cache)
+      def optJ(v: Value) = v2j.toJson(tpe) match {
+        case Left(unsup) => Right(unsupported(tpe, unsup))
+        case Right(fn) => fn(v) match {
+          case Left(valueError) => Right(s"unexpected value error: $valueError")
+          case Right(j) => Left(j)
+        }
+      }
+    }
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output
   }
@@ -464,8 +482,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       mainPackage: MainIdentifier,
       deps: PathGen,
       errColor: Colorize,
-      packRes: PackageResolver,
-      cache: NormalEvaluation.Cache
+      packRes: PackageResolver
       ) extends MainCommand {
 
       def eval: IO[Output.NEvaluationResult] =
@@ -477,17 +494,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           mainPackageNameValue <- mainPackage.getMain(names)
           (mainPackageName, value) = mainPackageNameValue
           out <- if (packs.toMap.contains(mainPackageName)) {
-            val ev = NormalEvaluation(packs, Predef.jvmExternals, cache)
+            val ev = NormalEvaluation(packs, Predef.jvmExternals)
             val v2j = ev.valueToJson
-            def unsupported(tpe: rankn.Type, j: JsonEncodingError.UnsupportedType): String = {
-              val tMap = TypeRef.fromTypes(None, tpe :: Nil)
-              val path = j.path.init
-              val badType = j.path.last
-              val msg = Doc.text("the type") + Doc.space + tMap(badType).toDoc + Doc.space + Doc.text("isn't supported")
-              val tpeStr = msg.render(80)
 
-              s"cannot convert type to Json: $tpeStr"
-            }
             val res = value match {
               case None => ev.evaluateLast(mainPackageName)
               case Some(ident) => ev.evaluateName(mainPackageName, ident)
@@ -495,15 +504,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
             res match {
               case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
-              case Some((value, ne, tpe)) => {
-                val optJ = v2j.toJson(tpe) match {
-                  case Left(unsup) => Right(unsupported(tpe, unsup))
-                  case Right(fn) => fn(value) match {
-                    case Left(valueError) => Right(s"unexpected value error: $valueError")
-                    case Right(j) => Left(j)
-                  }
-                }
-                moduleIOMonad.pure(Output.NEvaluationResult(value, ne, tpe, optJ))
+              case Some((ne, tpe, extEnv)) => {
+                
+                moduleIOMonad.pure(Output.NEvaluationResult(ne, tpe, v2j, extEnv))
 
               }
             }
@@ -888,7 +891,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       val evalOpt = (srcs, mainP, includes, colorOpt, packRes)
         .mapN(Evaluate(_, _, _, _, _))
       val nEvalOpt = (srcs, mainP, includes, colorOpt, packRes)
-        .mapN(NEvaluate(_, _, _, _, _, None))
+        .mapN(NEvaluate(_, _, _, _, _))
       val typeCheckOpt = (srcs, ifaces, outputPath.orNone, interfaceOutputPath.orNone, colorOpt, noSearchRes)
         .mapN(TypeCheck(_, _, _, _, _, _))
       val testOpt = (srcs, testP, includes, colorOpt, packRes)

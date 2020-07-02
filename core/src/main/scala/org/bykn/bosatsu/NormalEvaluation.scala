@@ -8,8 +8,10 @@ import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
 
 object NormalEvaluation {
-  implicit val valueToLitValue: Value => Option[Normalization.LitValue] = {v => Some(Normalization.LitValue(v.asExternal.toAny))}
-  implicit val valueToStruct: Value => Option[(Int, List[Value])] = {v =>
+  implicit val valueToLitValue: Value => Option[Normalization.LitValue] = { v =>
+    Some(Normalization.LitValue(v.asExternal.toAny))
+  }
+  implicit val valueToStruct: Value => Option[(Int, List[Value])] = { v =>
     val vSum = v.asSum
     Some((vSum.variant, vSum.value.toList))
   }
@@ -19,11 +21,18 @@ object NormalEvaluation {
       val vSum = v.asSum
       vSum.variant match {
         case 0 => acc
-        case 1 => vSum.value.toList match {
-          case List(h, t) => loop(t, h::acc)
-          case _ => sys.error("typechecking should make sure we have exactly two args here")
-        }
-          case n => sys.error(s"typechecking should make sure this is only 0 or 1 and not $n")
+        case 1 =>
+          vSum.value.toList match {
+            case List(h, t) => loop(t, h :: acc)
+            case _ =>
+              sys.error(
+                "typechecking should make sure we have exactly two args here"
+              )
+          }
+        case n =>
+          sys.error(
+            s"typechecking should make sure this is only 0 or 1 and not $n"
+          )
       }
     }
     Some(loop(value, Nil).reverse)
@@ -33,31 +42,43 @@ object NormalEvaluation {
     @tailrec
     def loop(lst: List[Value], acc: Value): Value = lst match {
       case Nil => acc
-      case head::tail => loop(tail, Value.SumValue(1, Value.ProductValue.fromList(List(head, acc))))
+      case head :: tail =>
+        loop(
+          tail,
+          Value.SumValue(1, Value.ProductValue.fromList(List(head, acc)))
+        )
     }
     loop(fullList.reverse, Value.SumValue(0, Value.UnitValue))
   }
 
   sealed trait NormalValue {
     def toJson: Json = this match {
-      case ilv@LazyValue(expression, scope) => Json.JObject(List(
-        "state" -> Json.JString("expression"),
-        "expression" -> Json.JString(expression.serialize),
-        "scope" -> Json.JArray(
-          ilv.cleanedScope.map { case (n, nv) =>
-            Json.JArray(Vector(Json.JNumberStr(n.toString), nv.toJson))
-          }.toVector)
-      ))
-      case ComputedValue(value) => Json.JObject(List(
-        "state" -> Json.JString("computed"),
-        "data" -> Json.JString(value.toString)
-      ))
+      case ilv @ LazyValue(expression, scope) =>
+        Json.JObject(
+          List(
+            "state" -> Json.JString("expression"),
+            "expression" -> Json.JString(expression.serialize),
+            "scope" -> Json.JArray(ilv.cleanedScope.map {
+              case (n, nv) =>
+                Json.JArray(Vector(Json.JNumberStr(n.toString), nv.toJson))
+            }.toVector)
+          )
+        )
+      case ComputedValue(value) =>
+        Json.JObject(
+          List(
+            "state" -> Json.JString("computed"),
+            "data" -> Json.JString(value.toString)
+          )
+        )
     }
 
     def toKey: String = toJson.render.hashCode.toString
   }
-  case class LazyValue(expression: NormalExpression, scope: List[NormalValue]) extends NormalValue {
-    def cleanedScope: List[(Int, NormalValue)] = expression.varSet.toList.sorted.map { n => (n, scope(n)) }
+  case class LazyValue(expression: NormalExpression, scope: List[NormalValue])
+      extends NormalValue {
+    def cleanedScope: List[(Int, NormalValue)] =
+      expression.varSet.toList.sorted.map { n => (n, scope(n)) }
   }
   case class ComputedValue(value: Value) extends NormalValue
 
@@ -73,10 +94,21 @@ object NormalEvaluation {
   ): NormalValue => Option[(Int, List[NormalValue])] =
     nv =>
       nv match {
-        case ComputedValue(v) => valueToStruct(v).map {case (n, lst) => (n, lst.map(vv => ComputedValue(vv)))}
-        case LazyValue(expr, scope) => expr match {
-            case NormalExpression.Struct(n, lst) => Some((n, lst.map(ne => LazyValue(ne, scope))))
-            case NormalExpression.App(fn, arg) => nvToStruct.apply(applyApplyable(evalToApplyable(LazyValue(fn, scope)), LazyValue(arg, scope)))
+        case ComputedValue(v) =>
+          valueToStruct(v).map {
+            case (n, lst) => (n, lst.map(vv => ComputedValue(vv)))
+          }
+        case LazyValue(expr, scope) =>
+          expr match {
+            case NormalExpression.Struct(n, lst) =>
+              Some((n, lst.map(ne => LazyValue(ne, scope))))
+            case NormalExpression.App(fn, arg) =>
+              nvToStruct.apply(
+                applyApplyable(
+                  evalToApplyable(LazyValue(fn, scope)),
+                  LazyValue(arg, scope)
+                )
+              )
             case NormalExpression.ExternalVar(p, n, tpe) =>
               nvToStruct.apply(ComputedValue(extEnv(n).value))
             case NormalExpression.Recursion(NormalExpression.Lambda(expr)) =>
@@ -235,30 +267,37 @@ object NormalEvaluation {
       }
     }
   }
+
+  def evaluate(
+      ne: NormalExpression,
+      extEnv: Map[Identifier, Eval[Value]],
+      cache: NormalEvaluation.Cache
+  ): Value = NormalEvaluation.evalToValue(ne, Nil)(extEnv, cache)
 }
 
 case class NormalEvaluation(
     packs: PackageMap.Typed[(Declaration, NormalExpressionTag)],
-    externals: Externals,
-    cache: NormalEvaluation.Cache
+    externals: Externals
 ) {
 
-  def evaluateLast(p: PackageName): Option[(Value, NormalExpression, Type)] =
+  def evaluateLast(
+      p: PackageName
+  ): Option[(NormalExpression, Type, Map[Identifier, Eval[Value]])] =
     for {
       pack <- packs.toMap.get(p)
       (name, _, tpe) <- pack.program.lets.lastOption
       ne = tpe.tag._2.ne
       extEnv = externalEnv(pack) ++ importedEnv(pack)
     } yield (
-      NormalEvaluation.evalToValue(ne, Nil)(extEnv, cache),
       ne,
-      tpe.getType
+      tpe.getType,
+      extEnv
     )
 
   def evaluateName(
       p: PackageName,
       name: Identifier
-  ): Option[(Value, NormalExpression, Type)] =
+  ): Option[(NormalExpression, Type, Map[Identifier, Eval[Value]])] =
     for {
       pack <- packs.toMap.get(p)
       (_, _, tpe) <- pack.program.lets.reverse.collectFirst(Function.unlift {
@@ -267,9 +306,9 @@ case class NormalEvaluation(
       ne = tpe.tag._2.ne
       extEnv = externalEnv(pack) ++ importedEnv(pack)
     } yield (
-      NormalEvaluation.evalToValue(ne, Nil)(extEnv, cache),
       ne,
-      tpe.getType
+      tpe.getType,
+      extEnv
     )
 
   private def externalEnv(

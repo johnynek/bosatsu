@@ -19,6 +19,8 @@ import org.http4s.circe.jsonOf
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.collection.concurrent.TrieMap
+import scala.concurrent.Future
+import scala.concurrent.Await
 
 import PathModule.MainCommand.{MainIdentifier, PackageResolver, NEvaluate}
 
@@ -37,8 +39,7 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
     MainIdentifier.FromPackage(PackageName(p), None),
     PathGen.pathGenMonoid.empty,
     LocationMap.Colorize.Console,
-    PackageResolver.ExplicitOnly,
-    cacheParam
+    PackageResolver.ExplicitOnly
   )
 
   val valueToJson: ValueToJson = ValueToJson({
@@ -73,7 +74,21 @@ case class WebServer(inputs: PathGen[IO, JPath], log: Option[JPath]) {
               nev(p).eval
                 .flatMap {
                   output =>
-                    output.json match {
+                    val lv = NormalEvaluation.LazyValue(output.ne, Nil)
+                    val key = lv.toKey
+                    val (futureValue, _) = cache.getOrElseUpdate(
+                      key,
+                      (
+                        Future(
+                          NormalEvaluation
+                            .evaluate(output.ne, output.extEnv, cacheParam)
+                        ),
+                        output.tpe
+                      )
+                    )
+                    val value = Await.result(futureValue, Duration.Inf)
+
+                    output.optJ(value) match {
                       case Left(j) =>
                         Ok(
                           Json
