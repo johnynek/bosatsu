@@ -4,8 +4,8 @@ import cats.Eval
 import Normalization.NormalExpressionTag
 import scala.annotation.tailrec
 import rankn.Type
-import scala.collection.concurrent.TrieMap
 import scala.concurrent.Future
+import scala.collection.concurrent.{Map => CMap}
 
 object NormalEvaluation {
   implicit val valueToLitValue: Value => Option[Normalization.LitValue] = { v =>
@@ -156,7 +156,7 @@ object NormalEvaluation {
 
   type Applyable = Either[Value, (NormalExpression.Lambda, List[NormalValue])]
   type ExtEnv = Map[Identifier, Eval[Value]]
-  type Cache = Option[TrieMap[String, (Future[Value], rankn.Type)]]
+  type Cache = Option[CMap[String, (Future[Value], rankn.Type)]]
   type ToLFV = Option[NormalValue => Future[Value]]
 
   def nvToV(nv: NormalValue)(implicit extEnv: ExtEnv, cache: Cache): Value =
