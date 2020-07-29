@@ -62,8 +62,100 @@ out = foo
 """
       ), "Recur/Some", Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
         (PositionalStruct(Some(0), Nil),Struct(1,List(Literal(Str("a")), Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(0,List())))))))),
-        (PositionalStruct(Some(1), List(WildCard, Var(0))),Lambda(Struct(1,List(Literal(Str("zero")), App(LambdaVar(2),LambdaVar(0))))))
+      (PositionalStruct(Some(1), List(WildCard, Var(0))),Lambda(Struct(1,List(Literal(Str("zero")), App(LambdaVar(2),LambdaVar(0))))))
       )))))
+    )
+  }
+  test("foldLeft w/o loop") {
+    normalExpressionTest(
+      List("""
+package Recur/FoldLeft
+
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  recur lst:
+    EmptyList: item
+    NonEmptyList(head, tail): foldLeft(tail, fn(item, head), fn)
+
+out = foldLeft
+"""
+      ), "Recur/FoldLeft", Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
+        (PositionalStruct(Some(0),List()),Lambda(Lambda(LambdaVar(1)))),
+        (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))
+      )))))
+    )
+  }
+  test("foldLeft w/o loop applied") {
+    normalExpressionTest(
+      List("""
+package Recur/FoldLeft
+
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  recur lst:
+    EmptyList: item
+    NonEmptyList(head, tail): foldLeft(tail, fn(item, head), fn)
+
+out = [1,2,3].foldLeft(4, add)
+"""
+      ), "Recur/FoldLeft",
+      App(
+        App(
+          App(
+            Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
+              (PositionalStruct(Some(0),List()),Lambda(Lambda(LambdaVar(1)))),
+              (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))
+            ))))),
+            Struct(1,List(Literal(Integer(BigInteger.valueOf(1))), Struct(1,List(Literal(Integer(BigInteger.valueOf(2))), Struct(1,List(Literal(Integer(BigInteger.valueOf(3))), Struct(0,List())))))))
+          ),
+          Literal(Integer(BigInteger.valueOf(4)))
+        ),
+        ExternalVar(PackageName(NonEmptyList.of("Bosatsu", "Predef")),Identifier.Name("add"))
+      )
+    )
+  }
+  test("foldLeft") {
+    normalExpressionTest(
+      List("""
+package Recur/FoldLeft
+
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  # make the loop function as small as possible
+  def loop(lst, item):
+    recur lst:
+      EmptyList: item
+      NonEmptyList(head, tail): loop(tail, fn(item, head))
+  loop(lst, item)
+
+out = foldLeft
+"""
+      ), "Recur/FoldLeft",
+      Lambda(Lambda(Lambda(App(App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
+        (PositionalStruct(Some(0),List()),Lambda(LambdaVar(0))),
+        (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(App(App(LambdaVar(4),LambdaVar(2)),App(App(LambdaVar(5),LambdaVar(0)),LambdaVar(1)))))))
+      ))))),LambdaVar(2)),LambdaVar(1)))))
+    )
+  }
+  test("foldLeft applied") {
+    normalExpressionTest(
+      List("""
+package Recur/FoldLeft
+
+lst = [1,2,3]
+
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  # make the loop function as small as possible
+  def loop(lst, item):
+    recur lst:
+      EmptyList: item
+      NonEmptyList(head, tail): loop(tail, fn(item, head))
+  loop(lst, item)
+
+out = lst.foldLeft(9, add)
+"""
+      ), "Recur/FoldLeft",
+      App(App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
+        (PositionalStruct(Some(0),List()),Lambda(LambdaVar(0))),
+        (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(App(App(LambdaVar(4),LambdaVar(2)),App(App(ExternalVar(PackageName(NonEmptyList.of("Bosatsu", "Predef")),Identifier.Name("add")),LambdaVar(0)),LambdaVar(1)))))))
+      ))))),Struct(1,List(Literal(Integer(BigInteger.valueOf(1))), Struct(1,List(Literal(Integer(BigInteger.valueOf(2))), Struct(1,List(Literal(Integer(BigInteger.valueOf(3))), Struct(0,List())))))))),Literal(Integer(BigInteger.valueOf(9))))
     )
   }
   test("Lambda") {
