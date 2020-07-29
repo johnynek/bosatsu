@@ -336,6 +336,24 @@ object Pattern {
       ListPat.toNamedSeqPattern(this)
 
     lazy val toSeqPattern: SeqPattern[Pattern[N, T]] = toNamedSeqPattern.unname
+
+    def toPositionalStruct(empty: N, cons: N): Option[Pattern[N, T]] = {
+      def loop(parts: List[ListPart[Pattern[N, T]]]): Option[Pattern[N, T]] =
+        parts match {
+          case Nil => Some(PositionalStruct(empty, Nil))
+          case ListPart.WildList :: Nil => Some(WildCard)
+          case ListPart.NamedList(glob) :: Nil => Some(Var(glob))
+          case ListPart.Item(p) :: tail =>
+            val tailList = loop(tail)
+            val tailPat = tailList.getOrElse(ListPat(tail))
+            Some(PositionalStruct(cons, List(p, tailPat)))
+          case (ListPart.WildList | ListPart.NamedList(_)) :: _ =>
+            // a prefixed list cannot be represented as a cons cell
+            None
+        }
+
+      loop(parts)
+    }
   }
   case class Annotation[N, T](pattern: Pattern[N, T], tpe: T) extends Pattern[N, T]
   case class PositionalStruct[N, T](name: N, params: List[Pattern[N, T]]) extends Pattern[N, T]
