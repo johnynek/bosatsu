@@ -64,10 +64,12 @@ object TestUtils {
       s"illegal inferred type: $teStr in: ${te.repr}")
   }
 
+  val testPackage: PackageName = PackageName.parts("Test")
+
   def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion =
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmts, _) =>
-        Package.inferBody(PackageName.parts("Test"), Nil, stmts).strictToValidated match {
+        Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
           case Validated.Invalid(errs) =>
             fail("inference failure: " + errs.toList.map(_.message(Map.empty, LocationMap.Colorize.None)).mkString("\n"))
           case Validated.Valid(program) =>

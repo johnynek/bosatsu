@@ -18,9 +18,12 @@ sealed abstract class Expr[T] {
 }
 
 object Expr {
+  sealed abstract class Name[T] extends Expr[T]
+
   case class Annotation[T](expr: Expr[T], tpe: Type, tag: T) extends Expr[T]
   case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: Expr[T], tag: T) extends Expr[T]
-  case class Var[T](pack: Option[PackageName], name: Identifier, tag: T) extends Expr[T]
+  case class Local[T](name: Bindable, tag: T) extends Name[T]
+  case class Global[T](pack: PackageName, name: Identifier, tag: T) extends Name[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
   case class Lambda[T](arg: Bindable, expr: Expr[T], tag: T) extends Expr[T]
   case class Let[T](arg: Bindable, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
@@ -37,8 +40,8 @@ object Expr {
     expr match {
       case Annotation(e, _, _) => allNames(e)
       case AnnotatedLambda(arg, _, expr, _) => allNames(expr) + arg
-      case Var(_, name: Bindable, _) => SortedSet(name)
-      case Var(_, _, _) => SortedSet.empty
+      case Local(name, _) => SortedSet(name)
+      case Global(_, _, _) => SortedSet.empty
       case App(fn, a, _) => allNames(fn) | allNames(a)
       case Lambda(arg, e, _) => allNames(e) + arg
       case Let(arg, expr, in, _, _) => allNames(expr) | allNames(in) + arg
@@ -80,7 +83,7 @@ object Expr {
         (traverseType(e, fn), fn(tpe)).mapN(Annotation(_, _, a))
       case AnnotatedLambda(arg, tpe, expr, a) =>
         (fn(tpe), traverseType(expr, fn)).mapN(AnnotatedLambda(arg, _, _, a))
-      case v@Var(_, _, _) => F.pure(v)
+      case v: Name[T] => F.pure(v)
       case App(f, a, t) =>
         (traverseType(f, fn), traverseType(a, fn)).mapN(App(_, _, t))
       case Lambda(arg, expr, t) =>
@@ -161,8 +164,10 @@ object Expr {
             (e.traverse(f), f(a)).mapN(Annotation(_, tpe, _))
           case AnnotatedLambda(arg, tpe, expr, a) =>
             (expr.traverse(f), f(a)).mapN(AnnotatedLambda(arg, tpe, _, _))
-          case Var(p, s, t) =>
-            f(t).map(Var(p, s, _))
+          case Local(s, t) =>
+            f(t).map(Local(s, _))
+          case Global(p, s, t) =>
+            f(t).map(Global(p, s, _))
           case App(fn, a, t) =>
             (fn.traverse(f), a.traverse(f), f(t)).mapN { (fn1, a1, b) =>
               App(fn1, a1, b)
@@ -193,7 +198,7 @@ object Expr {
           case AnnotatedLambda(_, _, e, tag) =>
             val b1 = foldLeft(e, b)(f)
             f(b1, tag)
-          case Var(_, _, tag) => f(b, tag)
+          case n: Name[A] => f(b, n.tag)
           case App(fn, a, tag) =>
             val b1 = foldLeft(fn, b)(f)
             val b2 = foldLeft(a, b1)(f)
@@ -221,7 +226,7 @@ object Expr {
           case AnnotatedLambda(_, _, e, tag) =>
             val lb1 = foldRight(e, lb)(f)
             f(tag, lb1)
-          case Var(_, _, tag) => f(tag, lb)
+          case n: Name[A] => f(n.tag, lb)
           case App(fn, a, tag) =>
             val b1 = f(tag, lb)
             val b2 = foldRight(a, b1)(f)
@@ -271,7 +276,7 @@ object Expr {
           case _ =>
             val anonBind: Bindable = anons.next()
             val matchBody: Expr[A] =
-              Match(Var(None, anonBind, outer), NonEmptyList.of((matchPat, body)), outer)
+              Match(Local(anonBind, outer), NonEmptyList.of((matchPat, body)), outer)
             (anonBind, matchBody)
         }
 

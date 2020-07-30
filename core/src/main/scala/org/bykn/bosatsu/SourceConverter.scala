@@ -61,6 +61,19 @@ final class SourceConverter(
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     })
 
+  private def resolveToVar(ident: Identifier, decl: Declaration): Expr[Declaration] =
+    ident match {
+      case c@Constructor(_) =>
+        val (p, cons) = nameToCons(c)
+        Expr.Global(p, cons, decl)
+      case b: Bindable =>
+        // it would be nice to be more
+        // precise and track local scope to see
+        // if we can fully resolve this, i.e.
+        // it is not shadowed and it is imported
+        Expr.Local(b, decl)
+    }
+
   private def apply(decl: Declaration): Result[Expr[Declaration]] = {
     implicit val parAp = SourceConverter.parallelIor
     decl match {
@@ -70,7 +83,7 @@ final class SourceConverter(
         (apply(fn), args.toList.traverse(apply(_)))
           .mapN { Expr.buildApp(_, _, decl) }
       case ao@ApplyOp(left, op, right) =>
-        val opVar: Expr[Declaration] = Expr.Var(None, op, ao.opVar)
+        val opVar: Expr[Declaration] = resolveToVar(op, ao.opVar)
         (apply(left), apply(right)).mapN { (l, r) =>
           Expr.buildApp(opVar, l :: r :: Nil, decl)
         }
@@ -145,7 +158,7 @@ final class SourceConverter(
       case Parens(p) =>
         apply(p).map(_.as(decl))
       case Var(ident) =>
-        success(Expr.Var(None, ident, decl))
+        success(resolveToVar(ident, decl))
       case Match(_, arg, branches) =>
         /*
          * The recursion kind is only there for DefRecursionCheck, once
@@ -162,15 +175,15 @@ final class SourceConverter(
         // match x:
         //   p: True
         //   _: False
-        val True: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("True"), m)
-        val False: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("False"), m)
+        val True: Expr[Declaration] = Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), m)
+        val False: Expr[Declaration] = Expr.Global(PackageName.PredefName, Identifier.Constructor("False"), m)
         (apply(a), convertPattern(p, m.region)).mapN { (a, p) =>
           val branches = NonEmptyList((p, True), (Pattern.WildCard, False) :: Nil)
           Expr.Match(a, branches, m)
         }
       case tc@TupleCons(its) =>
-        val tup0: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("Unit"), tc)
-        val tup2: Expr[Declaration] = Expr.Var(Some(PackageName.PredefName), Identifier.Constructor("TupleCons"), tc)
+        val tup0: Expr[Declaration] = Expr.Global(PackageName.PredefName, Identifier.Constructor("Unit"), tc)
+        val tup2: Expr[Declaration] = Expr.Global(PackageName.PredefName, Identifier.Constructor("TupleCons"), tc)
         def tup(args: List[Declaration]): Result[Expr[Declaration]] =
           args match {
             case Nil => success(tup0)
@@ -202,7 +215,7 @@ final class SourceConverter(
             apply(lldecl).map { listExpr =>
 
               val fnName: Expr[Declaration] =
-                Expr.Var(Some(PackageName.PredefName), Identifier.Name("concat_String"), s)
+                Expr.Global(PackageName.PredefName, Identifier.Name("concat_String"), s)
 
               Expr.buildApp(fnName, listExpr.as(s: Declaration) :: Nil, s)
             }
@@ -218,11 +231,11 @@ final class SourceConverter(
                   apply(item).map(SpliceOrItem.Item(_))
               }
 
-            val pn = Option(PackageName.PredefName)
+            val pn = PackageName.PredefName
             def mkC(c: String): Expr[Declaration] =
-              Expr.Var(pn, Identifier.Constructor(c), l)
+              Expr.Global(pn, Identifier.Constructor(c), l)
             def mkN(c: String): Expr[Declaration] =
-              Expr.Var(pn, Identifier.Name(c), l)
+              Expr.Global(pn, Identifier.Name(c), l)
 
             val empty: Expr[Declaration] = mkC("EmptyList")
             def cons(head: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
@@ -260,14 +273,14 @@ final class SourceConverter(
              *   else: []
              * )
              */
-            val pn = Option(PackageName.PredefName)
+            val pn = PackageName.PredefName
             val opName = (res, filter) match {
               case (SpliceOrItem.Item(_), None) =>
                 "map_List"
               case (SpliceOrItem.Item(_) | SpliceOrItem.Splice(_), _) =>
                 "flat_map_List"
             }
-            val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name(opName), l)
+            val opExpr: Expr[Declaration] = Expr.Global(pn, Identifier.Name(opName), l)
             val resExpr: Result[Expr[Declaration]] =
               filter match {
                 case None => apply(res.value)
@@ -275,14 +288,14 @@ final class SourceConverter(
                   // To do filters, we lift all results into lists,
                   // so single items must be made singleton lists
                   val empty: Expr[Declaration] =
-                    Expr.Var(pn, Identifier.Constructor("EmptyList"), cond)
+                    Expr.Global(pn, Identifier.Constructor("EmptyList"), cond)
                   val ressing = res match {
                     case SpliceOrItem.Item(r) =>
                       val rdec: Declaration = r
                       // here we lift the result into a a singleton list
                       apply(r).map { ritem =>
                         Expr.App(
-                          Expr.App(Expr.Var(pn, Identifier.Constructor("NonEmptyList"), rdec), ritem, rdec),
+                          Expr.App(Expr.Global(pn, Identifier.Constructor("NonEmptyList"), rdec), ritem, rdec),
                           empty,
                           rdec)
                       }
@@ -302,9 +315,9 @@ final class SourceConverter(
             }
         }
       case l@DictDecl(dict) =>
-        val pn = Option(PackageName.PredefName)
+        val pn = PackageName.PredefName
         def mkN(n: String): Expr[Declaration] =
-          Expr.Var(pn, Identifier.Name(n), l)
+          Expr.Global(pn, Identifier.Name(n), l)
         val empty: Expr[Declaration] =
           Expr.App(mkN("empty_Dict"), mkN("string_Order"), l)
 
@@ -336,10 +349,10 @@ final class SourceConverter(
              *   )
              */
 
-            val pn = Option(PackageName.PredefName)
-            val opExpr: Expr[Declaration] = Expr.Var(pn, Identifier.Name("foldLeft"), l)
+            val pn = PackageName.PredefName
+            val opExpr: Expr[Declaration] = Expr.Global(pn, Identifier.Name("foldLeft"), l)
             val dictSymbol = unusedNames(decl.allNames).next
-            val init: Expr[Declaration] = Expr.Var(None, dictSymbol, l)
+            val init: Expr[Declaration] = Expr.Local(dictSymbol, l)
             val added = (apply(k), apply(v)).mapN(add(init, _, _))
 
             val resExpr: Result[Expr[Declaration]] = filter match {
@@ -365,12 +378,13 @@ final class SourceConverter(
           }
         case rc@RecordConstructor(name, args) =>
           val (p, c) = nameToCons(name)
+          val cons: Expr[Declaration] = Expr.Global(p, c, rc)
           localTypeEnv.flatMap(_.getConstructor(p, c) match {
             case Some((params, _, _)) =>
               def argExpr(arg: RecordArg): (Bindable, Result[Expr[Declaration]]) =
                 arg match {
                   case RecordArg.Simple(b) =>
-                    (b, success(Expr.Var(None, b, rc)))
+                    (b, success(Expr.Local(b, rc)))
                   case RecordArg.Pair(k, v) =>
                     (k, apply(v))
                 }
@@ -390,7 +404,6 @@ final class SourceConverter(
                     SourceConverter.failure(
                       SourceConverter.MissingArg(name, rc, present, b, rc.region))
                 }
-              val cons: Expr[Declaration] = Expr.Var(None, name, rc)
               val exprArgs = params.traverse { case (b, _) => get(b) }
 
               val res = exprArgs.map { args =>
@@ -872,12 +885,12 @@ final class SourceConverter(
           bindings(p, Expr.Annotation(decl, tpe, decl.tag))
         case complex =>
           val (prefix, rightHandSide) = decl match {
-            case v@Expr.Var(_, _, _) =>
+            case n: Expr.Name[Declaration] =>
               // no need to make a new var to point to a var
-              (Nil, v)
+              (Nil, n)
             case _ =>
               val ident = anonNames.next()
-              val v = Expr.Var(None, ident, decl.tag)
+              val v = Expr.Local(ident, decl.tag)
               ((ident, decl) :: Nil, v)
           }
 
@@ -885,7 +898,7 @@ final class SourceConverter(
             complex.names.map { nm =>
               val pat = complex.filterVars(_ == nm)
               (nm, Expr.Match(rightHandSide,
-                NonEmptyList((pat, Expr.Var(None, nm, decl.tag)), Nil), decl.tag))
+                NonEmptyList((pat, Expr.Local(nm, decl.tag)), Nil), decl.tag))
             }
 
           def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
