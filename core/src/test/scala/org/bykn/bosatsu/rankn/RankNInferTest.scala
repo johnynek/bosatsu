@@ -8,7 +8,7 @@ import Expr._
 import Type.Var.Bound
 import Type.ForAll
 
-import TestUtils.checkLast
+import TestUtils.{checkLast, testPackage}
 
 import Identifier.Constructor
 
@@ -24,9 +24,11 @@ class RankNInferTest extends FunSuite {
     str.asString match {
       case "Int" => Type.Const.predef("Int")
       case "String" => Type.Const.predef("String")
-      case s =>
-        Type.Const.Defined(PackageName.parts("Test"), TypeName(str))
+      case s => Type.Const.Defined(testPackage, TypeName(str))
     }
+
+  def asFullyQualified(ns: Iterable[(Identifier, Type)]): Map[Infer.Name, Type] =
+    ns.iterator.map { case (n, t) => ((Some(testPackage), n), t) }.toMap
 
   def typeFrom(str: String): Type =
     TypeRef.parser.parse(str) match {
@@ -51,26 +53,26 @@ class RankNInferTest extends FunSuite {
     assert(runUnify(left, right).isLeft, s"$left unexpectedly unifies with $right")
 
   def defType(n: String): Type.Const.Defined =
-    Type.Const.Defined(PackageName.parts("Test"), TypeName(Identifier.Constructor(n)))
+    Type.Const.Defined(testPackage, TypeName(Identifier.Constructor(n)))
 
-  val withBools: Map[Identifier, Type] =
+  val withBools: Map[Infer.Name, Type] =
     Map(
-      Identifier.unsafe("True") -> Type.BoolType,
-      Identifier.unsafe("False") -> Type.BoolType)
+      (Some(PackageName.PredefName), Identifier.unsafe("True")) -> Type.BoolType,
+      (Some(PackageName.PredefName), Identifier.unsafe("False")) -> Type.BoolType)
   val boolTypes: Map[(PackageName, Constructor), Infer.Cons] =
     Map(
       ((PackageName.PredefName, Constructor("True")), (Nil, Nil, Type.Const.predef("Bool"))),
       ((PackageName.PredefName, Constructor("False")), (Nil, Nil, Type.Const.predef("Bool"))))
 
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
-    Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools), boolTypes) match {
+    Infer.typeCheck(term).runFully(withBools, boolTypes) match {
       case Left(err) => assert(false, err)
       case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
     Infer.typeCheckLets(terms.map { case (k, v, _) => (Identifier.Name(k), RecursionKind.NonRecursive, v) })
-      .runFully(Infer.asFullyQualified(withBools), boolTypes) match {
+      .runFully(withBools, boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpes) =>
           assert(tpes.size == terms.size)
@@ -83,13 +85,17 @@ class RankNInferTest extends FunSuite {
 
   def lit(i: Int): Expr[Unit] = Literal(Lit(i.toLong), ())
   def lit(b: Boolean): Expr[Unit] =
-    if (b) Var(None, Identifier.Constructor("True"), ())
-    else Var(None, Identifier.Constructor("False"), ())
+    if (b) Global(PackageName.PredefName, Identifier.Constructor("True"), ())
+    else Global(PackageName.PredefName, Identifier.Constructor("False"), ())
   def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] =
     Let(Identifier.Name(n), expr, in, RecursionKind.NonRecursive, ())
   def lambda(arg: String, result: Expr[Unit]): Expr[Unit] =
     Lambda(Identifier.Name(arg), result, ())
-  def v(name: String): Expr[Unit] = Var(None, Identifier.unsafe(name), ())
+  def v(name: String): Expr[Unit] =
+    Identifier.unsafe(name) match {
+      case c@Identifier.Constructor(_) => Global(testPackage, c, ())
+      case b: Identifier.Bindable => Local(b, ())
+    }
   def ann(expr: Expr[Unit], t: Type): Expr[Unit] = Annotation(expr, t, ())
 
   def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, arg, ())
@@ -100,7 +106,7 @@ class RankNInferTest extends FunSuite {
   def matche(arg: Expr[Unit], branches: NonEmptyList[(Pattern[String, Type], Expr[Unit])]): Expr[Unit] =
     Match(arg,
       branches.map { case (p, e) =>
-        val p1 = p.mapName { n => (PackageName.parts("Test"), Constructor(n)) }
+        val p1 = p.mapName { n => (testPackage, Constructor(n)) }
         (p1, e)
       },
       ())
@@ -143,7 +149,7 @@ class RankNInferTest extends FunSuite {
   def parseProgramIllTyped(statement: String) =
     Statement.parser.parse(statement) match {
       case Parsed.Success(stmts, _) =>
-        Package.inferBody(PackageName.parts("Test"), Nil, stmts) match {
+        Package.inferBody(testPackage, Nil, stmts) match {
           case Ior.Left(_) | Ior.Both(_, _) => assert(true)
           case Ior.Right(program) =>
             fail("expected an invalid program, but got: " + program.lets.toString)
@@ -232,7 +238,7 @@ class RankNInferTest extends FunSuite {
     val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 
-    val pn = PackageName.parts("Test")
+    val pn = testPackage
     val definedOption = Map(
       ((pn, Constructor("Some")), (Nil, List(Type.IntType), optName)),
       ((pn, Constructor("None")), (Nil, Nil, optName)))
@@ -253,13 +259,13 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOption ++ boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOption ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOption ++ boolTypes) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -296,13 +302,13 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOptionGen ++ boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), definedOptionGen ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOptionGen ++ boolTypes) match {
         case Left(err) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -343,7 +349,7 @@ class RankNInferTest extends FunSuite {
     val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 
-    val pn = PackageName.parts("Test")
+    val pn = testPackage
     /**
      * struct Pure(pure: forall a. a -> f[a])
      */
@@ -363,7 +369,7 @@ class RankNInferTest extends FunSuite {
     )
 
     def testWithTypes[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(Infer.asFullyQualified(withBools ++ constructors), defined ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), defined ++ boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
