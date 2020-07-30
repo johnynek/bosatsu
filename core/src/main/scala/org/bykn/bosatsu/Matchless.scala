@@ -27,10 +27,10 @@ object Matchless {
   }
 
   case class Lambda(captures: List[Identifier], arg: Bindable, expr: Expr) extends Expr
-  case class GlobalName(pack: PackageName, name: Bindable) extends CheapExpr
+  case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
   // these are immutable (but can be shadowed)
-  case class LocalName(arg: Bindable) extends RefExpr with CheapExpr
+  case class Local(arg: Bindable) extends RefExpr with CheapExpr
   // these are is a separate namespace from Expr
   // these are mutable variables that can be updated while evaluating an IntExpr
   case class LocalAnon(ident: Long) extends RefExpr with CheapExpr
@@ -86,7 +86,7 @@ object Matchless {
 
   private[this] val empty = (PackageName.PredefName, Constructor("EmptyList"))
   private[this] val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
-  private[this] val reverseFn = GlobalName(PackageName.PredefName, Identifier.Name("reverse"))
+  private[this] val reverseFn = Global(PackageName.PredefName, Identifier.Name("reverse"))
 
   // drop all items in the tail after the first time fn returns true
   // as a result, we have 0 or 1 items where fn is true in the result
@@ -106,12 +106,12 @@ object Matchless {
     }
   // we need a TypeEnv to inline the creation of structs and variants
   def fromTypedExpr[F[_]: Monad, A](te: TypedExpr[A])(
-    variantOf: (Option[PackageName], Constructor) => (Option[Int], Int), makeAnon: F[Long]): F[Expr] = {
+    variantOf: (PackageName, Constructor) => (Option[Int], Int), makeAnon: F[Long]): F[Expr] = {
 
     val emptyExpr: Expr =
       empty match {
         case (p, c) =>
-          variantOf(Some(p), c) match {
+          variantOf(p, c) match {
             case (Some(v), s) => MakeEnum(v, s)
             case (None, s) => MakeStruct(s)
           }
@@ -123,18 +123,17 @@ object Matchless {
         case TypedExpr.Annotation(term, _, _) => loop(term)
         case TypedExpr.AnnotatedLambda(arg, _, res, _) =>
           loop(res).map(Lambda(TypedExpr.freeVars(res :: Nil), arg, _))
-        case TypedExpr.Var(optP, cons@Constructor(_), _, _) =>
-          Monad[F].pure(variantOf(optP, cons) match {
+        case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
+          Monad[F].pure(variantOf(pack, cons) match {
             case (Some(v), a) => MakeEnum(v, a)
             case (None, a) => MakeStruct(a)
           })
-        case TypedExpr.Var(optPack, bind: Bindable, _, _) =>
-          Monad[F].pure(optPack match {
-            case Some(pack) => GlobalName(pack, bind)
-            case None => LocalName(bind)
-          })
+        case TypedExpr.Global(pack, notCons: Bindable, _, _) =>
+          Monad[F].pure(Global(pack, notCons))
+        case TypedExpr.Local(bind, _, _) =>
+          Monad[F].pure(Local(bind))
         case TypedExpr.App(fn, a, _, _) => (loop(fn), loop(a)).mapN(App(_, _))
-        case TypedExpr.Let(a, e, in, r, _) => (loop(e), loop(in)).mapN(Let(LocalName(a), _, _, r))
+        case TypedExpr.Let(a, e, in, r, _) => (loop(e), loop(in)).mapN(Let(Local(a), _, _, r))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
           (loop(arg), branches.traverse { case (p, te) => loop(te).map((p, _)) })
@@ -307,7 +306,7 @@ object Matchless {
             })
           }
 
-          variantOf(Some(pack), cname) match {
+          variantOf(pack, cname) match {
             case (None, size) =>
               // this is a struct, so we check each parameter
               asStruct { pos => GetStructElement(arg, pos, size) }
@@ -342,10 +341,10 @@ object Matchless {
           cbs match {
             case NonEmptyList((b0, None, binds), _) =>
               // this is a total match, no fall through
-              val allBinds = b0 ::: binds.map { case (b, e) => (LocalName(b), e) }
+              val allBinds = b0 ::: binds.map { case (b, e) => (Local(b), e) }
               Monad[F].pure(lets(allBinds, r1))
             case NonEmptyList((b0, Some(cond), binds), others) =>
-              val matchBinds = binds.map { case (b, e) => (LocalName(b), e) }
+              val matchBinds = binds.map { case (b, e) => (Local(b), e) }
               val thisBranch = lets(matchBinds, r1)
               val res = others match {
                 case oh :: ot =>
