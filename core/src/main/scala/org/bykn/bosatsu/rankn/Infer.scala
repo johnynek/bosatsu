@@ -642,12 +642,12 @@ object Infer {
           for {
             vSigma <- lookupVarType((None, name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
-           } yield coerce(TypedExpr.Var(None, name, vSigma, tag))
+           } yield coerce(TypedExpr.Local(name, vSigma, tag))
         case Global(pack, name, tag) =>
           for {
             vSigma <- lookupVarType((Some(pack), name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
-           } yield coerce(TypedExpr.Var(Some(pack), name, vSigma, tag))
+           } yield coerce(TypedExpr.Global(pack, name, vSigma, tag))
         case App(fn, arg, tag) =>
            for {
              typedFn <- inferRho(fn)

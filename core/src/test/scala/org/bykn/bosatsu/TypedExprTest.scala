@@ -22,7 +22,7 @@ class TypedExprTest extends FunSuite {
     type W[B] = Writer[Set[Bindable], B]
 
     te.traverseUp[W] {
-      case v@TypedExpr.Var(None, ident: Bindable, _, _) => Writer(Set(ident), v)
+      case v@TypedExpr.Local(ident, _, _) => Writer(Set(ident), v)
       case notVar => Writer(Set.empty, notVar)
     }.run._1
   }
@@ -80,7 +80,7 @@ y = match x:
     lit(Lit.fromInt(i))
 
   def varTE(n: String, tpe: Type): TypedExpr[Unit] =
-    TypedExpr.Var(None, Identifier.Name(n), tpe, ())
+    TypedExpr.Local(Identifier.Name(n), tpe, ())
 
   def let(n: String, ex1: TypedExpr[Unit], ex2: TypedExpr[Unit]): TypedExpr[Unit] =
     TypedExpr.Let(Identifier.Name(n), ex1, ex2, RecursionKind.NonRecursive, ())

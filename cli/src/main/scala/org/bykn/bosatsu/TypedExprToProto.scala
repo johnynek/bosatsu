@@ -393,8 +393,14 @@ object ProtoConverter {
                 pack <- parsePack(ps, s"expression: $ex")
               } yield Some(pack)
 
-            (tryPack, ident(varname), typeOf(tpe))
-              .mapN(TypedExpr.Var(_, _, _, ()))
+            (tryPack, typeOf(tpe))
+              .tupled
+              .flatMap {
+                case (None, tpe) =>
+                  bindable(varname).map(TypedExpr.Local(_, tpe, ()))
+                case (Some(p), tpe) =>
+                  ident(varname).map(TypedExpr.Global(p, _, tpe, ()))
+              }
           case Value.AppExpr(proto.AppExpr(fn, arg, resTpe)) =>
             (exprOf(fn), exprOf(arg), typeOf(resTpe))
               .mapN(TypedExpr.App(_, _, _, ()))
@@ -642,13 +648,21 @@ object ProtoConverter {
                   val ex = proto.LambdaExpr(vid, tid, resid)
                   writeExpr(al, proto.TypedExpr(proto.TypedExpr.Value.LambdaExpr(ex)))
                 }
-            case v@Var(optPack, nm, tpe, _) =>
-              optPack.traverse { p => getId(p.asString) }
-                .product(getId(nm.sourceCodeRepr))
+            case l@Local(nm, tpe, _) =>
+              getId(nm.sourceCodeRepr)
                 .product(typeToProto(tpe))
-                .flatMap { case ((optPackId, varId), tpeId) =>
-                  val ex = proto.VarExpr(optPackId.getOrElse(0), varId, tpeId)
-                  writeExpr(v, proto.TypedExpr(proto.TypedExpr.Value.VarExpr(ex)))
+                .flatMap { case (varId, tpeId) =>
+                  val ex = proto.VarExpr(0, varId, tpeId)
+                  writeExpr(l, proto.TypedExpr(proto.TypedExpr.Value.VarExpr(ex)))
+                }
+            case g@Global(pack, nm, tpe, _) =>
+              (getId(pack.asString),
+                getId(nm.sourceCodeRepr),
+                typeToProto(tpe))
+                .tupled
+                .flatMap { case (packId, varId, tpeId) =>
+                  val ex = proto.VarExpr(packId, varId, tpeId)
+                  writeExpr(g, proto.TypedExpr(proto.TypedExpr.Value.VarExpr(ex)))
                 }
             case a@App(fn, arg, resTpe, _) =>
               typedExprToProto(fn)
