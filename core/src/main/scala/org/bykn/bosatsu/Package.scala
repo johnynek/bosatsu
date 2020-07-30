@@ -186,20 +186,33 @@ object Package {
               }
 
           val typeEnv = TypeEnv.fromParsed(parsedTypeEnv)
+
           /*
           * These are values, including all constructor functions
           * that have been imported, this includes local external
           * defs
           */
-          val importedValues: Map[Identifier, Type] =
-            Referant.importedValues(imps) ++ typeEnv.localValuesOf(p)
+          val withFQN: Map[(Option[PackageName], Identifier), Type] = {
+            val fqn =
+              Referant.fullyQualifiedImportedValues(imps)(_.name)
+                .iterator
+                .map { case ((p, n), t) => ((Some(p), n), t) }
 
-          val withFQN: Map[(Option[PackageName], Identifier), Type] =
-            (Referant.fullyQualifiedImportedValues(imps)(_.name)
-              .iterator
-              .map { case ((p, n), t) => ((Some(p), n), t) } ++
-                importedValues.iterator.map { case (n, t) => ((None, n), t) }
-              ).toMap
+            val localImported =
+              Referant.importedValues(imps)
+                .iterator
+                .map { case (n, t) => ((None, n), t) }
+
+            val localDefined =
+              typeEnv.localValuesOf(p)
+                .iterator
+                .flatMap {
+                  case (n: Identifier.Bindable, t) => ((None, n), t) :: Nil
+                  case (c@Identifier.Constructor(_), t) => ((Some(p), c), t) :: Nil
+                }
+
+            (fqn ++ localImported ++ localDefined).toMap
+          }
 
           val fullTypeEnv = importedTypeEnv ++ typeEnv
           val totalityCheck =

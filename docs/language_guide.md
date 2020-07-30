@@ -13,8 +13,8 @@ The main user experience of the language is inspired by Python. It is a bit of a
 
 A second goal is that package relationships should be clear in Bosatsu. All external names must be explicitly imported, and all values are private unless exported. To see the dependencies between packages no type inference is required.
 
-## Problem domain for Bosatu
-In the current programming landscape, the vast majority of code is either in Turing complete languages or very anemic data-structure languages (JSON, YAML, TOML). Bosatsu is exploring an intermediate space. Bosatu is not designed as a general purpose language. Bosatsu is a total language: all functions return values. This rules out both infinite loops and non-explicit failure possibilities (exceptions, crashes, etc...). The goal of Bosatsu is somewhat similar to Google's [Starlark](https://github.com/bazelbuild/starlark) language, a Python like language for configuration and embedded applications. Starlark is used to configure bazel builds, but you can imagine configuring systems currently configured with yaml or json, or replacing general purpose languages in systems configured with those (e.g. Scala's sbt is configured with scala).
+## Problem domain for Bosatsu
+In the current programming landscape, the vast majority of code is either in Turing complete languages or very anemic data-structure languages (JSON, YAML, TOML). Bosatsu is exploring an intermediate space. Bosatsu is not designed as a general purpose language. Bosatsu is a total language: all functions return values. This rules out both infinite loops and non-explicit failure possibilities (exceptions, crashes, etc...). The goal of Bosatsu is somewhat similar to Google's [Starlark](https://github.com/bazelbuild/starlark) language, a Python like language for configuration and embedded applications. Starlark is used to configure bazel builds, but you can imagine configuring systems currently configured with yaml or json, or replacing general purpose languages in systems configured with those (e.g. Scala's sbt is configured with scala).
 
 ## Differences with Starlark
 The biggest three differences between Bosatsu and Starlark are:

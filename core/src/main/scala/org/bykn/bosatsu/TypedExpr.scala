@@ -672,29 +672,30 @@ object TypedExpr {
   /**
    * Return the list of the free vars
    */
-  def freeVars[A](ts: List[TypedExpr[A]]): List[Identifier] =
+  def freeVars[A](ts: List[TypedExpr[A]]): List[Bindable] =
     freeVarsDup(ts).reverse.distinct
 
-  def freeVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Identifier] =
+  def freeVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Bindable] =
     SortedSet(freeVarsDup(ts): _*)
 
-  private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Identifier] = {
+  private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] = {
 
     // usually we can recurse in a loop, but sometimes not
-    def cheat(te: TypedExpr[A], bound: Set[Identifier], acc: List[Identifier]): List[Identifier] =
+    def cheat(te: TypedExpr[A], bound: Set[Bindable], acc: List[Bindable]): List[Bindable] =
       go(te :: Nil, bound, acc)
 
     @annotation.tailrec
-    def go(ts: List[TypedExpr[A]], bound: Set[Identifier], acc: List[Identifier]): List[Identifier] =
+    def go(ts: List[TypedExpr[A]], bound: Set[Bindable], acc: List[Bindable]): List[Bindable] =
       ts match {
         case Nil => acc
         case Generic(_, expr, _) :: tail =>
           go(expr :: tail, bound, acc)
         case Annotation(t, _, _) :: tail =>
           go(t :: tail, bound, acc)
-        case Var(opt, ident, _, _) :: tail =>
-          if (opt.isDefined || bound(ident)) go(tail, bound, acc)
-          else go(tail, bound, ident :: acc)
+        case Var(opt, ident: Bindable, _, _) :: tail if opt.isEmpty && !bound(ident) =>
+          go(tail, bound, ident :: acc)
+        case Var(_, _, _, _) :: tail =>
+          go(tail, bound, acc)
         case AnnotatedLambda(arg, _, res, _) :: tail =>
           val acc1 = cheat(res, bound + arg, acc)
           go(tail, bound, acc1)
@@ -743,9 +744,9 @@ object TypedExpr {
 
     // free variables in ex are being rebound,
     // this causes us to return None
-    val masks: Identifier => Boolean = {
-      if (exfrees.isEmpty) { i: Identifier => false }
-      else { i: Identifier => exfrees(i) }
+    val masks: Bindable => Boolean = {
+      if (exfrees.isEmpty) { i: Bindable => false }
+      else { i: Bindable => exfrees(i) }
     }
 
     def loop(in: TypedExpr[A]): Option[TypedExpr[A]] =
@@ -1011,7 +1012,7 @@ object TypedExpr {
         // \x -> generic(g) = generic(\x -> g) if the type of x doesn't have free types with vars
         val e1 = normalize(expr).getOrElse(expr)
         e1 match {
-          case App(fn, Var(None, ident, _, _), _, _)
+          case App(fn, Var(None, ident: Bindable, _, _), _, _)
             if ident === arg && !freeVarsDup(fn :: Nil).exists(_ === ident) =>
             // if ident is not free in fn we can return fn
             val tetpe = te.getType
@@ -1074,7 +1075,7 @@ object TypedExpr {
         // note, Infer has already checked
         // to make sure rec is accurate
         val in1 = normalize(in).getOrElse(in)
-        val cnt = freeVarsDup(in1 :: Nil).count(_ === (arg: Identifier))
+        val cnt = freeVarsDup(in1 :: Nil).count(_ === arg)
         if (cnt > 0) {
           // the arg is needed
           val ex1 = normalize(ex).getOrElse(ex)

@@ -37,10 +37,10 @@ object UnusedLetCheck {
           if (rec.isRecursive) exprCheck.map(_ - arg) else exprCheck
         val inCheck = checkArg(arg, HasRegion.region(e), loop(in))
         (exprRes, inCheck).mapN(_ ++ _)
-      case Var(None, name: Bindable, _) =>
+      case Local(name, _) =>
         // this is a free variable:
         ap.pure(Set(name))
-      case Var(_, _, _) | Literal(_, _) => empty
+      case Global(_, _, _) | Literal(_, _) => empty
       case App(fn, arg, _) =>
         (loop(fn), loop(arg)).mapN(_ ++ _)
       case Match(arg, branches, _) =>
