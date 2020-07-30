@@ -47,16 +47,17 @@ object Matchless {
   // returns variant number from 0
   case class GetVariant(expr: Expr) extends IntExpr
   // handle list matching, this is a while loop, that is evaluting
+  // lst is initialized to init, leftAcc is initialized to empty
   // tail until it is true while mutating lst => lst.tail
   // this has the side-effect of mutating lst and leftAcc as well as any side effects that check has
   // which could have nested searches of its own
-  case class SearchList(lst: LocalAnon, check: IntExpr, leftAcc: Option[LocalAnon]) extends IntExpr
+  case class SearchList(lst: LocalAnon, init: CheapExpr, check: IntExpr, leftAcc: Option[LocalAnon]) extends IntExpr
 
   case class If(cond: IntExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
 
   // string matching is complex done at a lower level
   // return a variant of either value 0, no match, or 1 with
-  case class MatchString(arg: Expr, parts: List[StrPart], binds: Int) extends Expr
+  case class MatchString(arg: CheapExpr, parts: List[StrPart], binds: Int) extends Expr
 
   case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
   case class GetStructElement(arg: Expr, index: Int, size: Int) extends Expr
@@ -232,7 +233,7 @@ object Matchless {
                                 (letTail, binds, None)
                             }
 
-                          (resLet, Some(SearchList(anonList, expr, leftOpt)), resBind)
+                          (resLet, Some(SearchList(anonList, arg, expr, leftOpt)), resBind)
                         case (_, None, _) =>
                           // this shouldn't be possible, since there are no total list matches with
                           // one item since we recurse on a ListPat with the first item being Right
