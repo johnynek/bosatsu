@@ -52,7 +52,7 @@ object Evaluation {
       fromFn(_ => computedE)
     }
 
-    def fromEnv(identifier: Identifier): Scoped =
+    def fromEnv(identifier: Bindable): Scoped =
       fromFn { env =>
         env.get(identifier) match {
           case Some(e) => e.value
