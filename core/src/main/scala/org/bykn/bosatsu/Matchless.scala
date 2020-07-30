@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Monad
+import cats.{Monad, Monoid}
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.rankn.Type
 
@@ -42,9 +42,15 @@ object Matchless {
   // return a variant of either value 0, no match, or 1 with
   case class MatchString(arg: Expr, parts: List[StrPart], binds: Int) extends Expr
 
-  case class GetElement(arg: Expr, index: Int) extends Expr
+  // handle list matching, this is a while loop, that is evaluting
+  // tail until it is true while mutating lst => lst.tail
+  case class SearchList(lst: LocalAnon, check: IntExpr, leftAcc: Option[LocalAnon]) extends IntExpr
+  case class RevList(lst: Expr) extends Expr
+
+  case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
+  case class GetStructElement(arg: Expr, index: Int, size: Int) extends Expr
   // we need to compile calls to constructors into these
-  case class MakeVariant(variant: Int, arity: Int) extends Expr
+  case class MakeEnum(variant: Int, arity: Int) extends Expr
   case class MakeStruct(arity: Int) extends Expr
   // this is an error state for code that should be unreachable due to compilation/typechecking
   case class Unreachable(message: String) extends Expr
@@ -55,8 +61,29 @@ object Matchless {
       case _ => false
     }
 
+  private def maybeMemo[F[_]: Monad](tmp: F[Long])(fn: Expr => F[Expr]): Expr => F[Expr] =
+    {
+      case arg if isCheap(arg) => fn(arg)
+      case notCheap =>
+        for {
+          nm <- tmp
+          bound = LocalAnon(nm)
+          res <- fn(bound)
+        } yield Let(bound, notCheap, res, RecursionKind.NonRecursive)
+    }
+
   private[this] val empty = (PackageName.PredefName, Constructor("EmptyList"))
   private[this] val cons = (PackageName.PredefName, Constructor("NonEmptyList"))
+
+  // drop all items in the tail after the first time fn returns true
+  // as a result, we have 0 or 1 items where fn is true in the result
+  // and it is always the last if there is 1
+  def stopAt[A](nel: NonEmptyList[A])(fn: A => Boolean): NonEmptyList[A] =
+    nel match {
+      case NonEmptyList(h, _) if fn(h) => NonEmptyList(h, Nil)
+      case s@NonEmptyList(_, Nil) => s
+      case NonEmptyList(h0, h1 :: t) => h0 :: stopAt(NonEmptyList(h1, t))(fn)
+    }
 
   def andInt(o1: Option[IntExpr], o2: Option[IntExpr]): Option[IntExpr] =
     (o1, o2) match {
@@ -67,6 +94,16 @@ object Matchless {
   // we need a TypeEnv to inline the creation of structs and variants
   def fromTypedExpr[F[_]: Monad, A](te: TypedExpr[A])(
     variantOf: (Option[PackageName], Constructor) => (Option[Int], Int), makeAnon: F[Long]): F[Expr] = {
+
+    val emptyExpr: Expr =
+      empty match {
+        case (p, c) =>
+          variantOf(Some(p), c) match {
+            case (Some(v), s) => MakeEnum(v, s)
+            case (None, s) => MakeStruct(s)
+          }
+      }
+
     def loop(te: TypedExpr[A]): F[Expr] =
       te match {
         case TypedExpr.Generic(_, expr, _) => loop(expr)
@@ -75,7 +112,7 @@ object Matchless {
           loop(res).map(Lambda(TypedExpr.freeVars(res :: Nil), arg, _))
         case TypedExpr.Var(optP, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(optP, cons) match {
-            case (Some(v), a) => MakeVariant(v, a)
+            case (Some(v), a) => MakeEnum(v, a)
             case (None, a) => MakeStruct(a)
           })
         case TypedExpr.Var(optPack, bind: Bindable, _, _) =>
@@ -93,19 +130,19 @@ object Matchless {
       }
 
     // return the check expression for the check we need to do, and the list of bindings
-    def doesMatch(arg: Expr, pat: Pattern[(PackageName, Constructor), Type]): NonEmptyList[(Option[IntExpr], List[(Bindable, Expr)])] = {
+    def doesMatch(arg: Expr, pat: Pattern[(PackageName, Constructor), Type]): F[NonEmptyList[(List[(LocalAnon, Expr)], Option[IntExpr], List[(Bindable, Expr)])]] = {
       pat match {
         case Pattern.WildCard =>
           // this is a total pattern
-          NonEmptyList((None, Nil), Nil)
+          Monad[F].pure(NonEmptyList((Nil, None, Nil), Nil))
         case Pattern.Literal(lit) =>
-          NonEmptyList((Some(EqualsLit(arg, lit)), Nil), Nil)
+          Monad[F].pure(NonEmptyList((Nil, Some(EqualsLit(arg, lit)), Nil), Nil))
         case Pattern.Var(v) =>
-          NonEmptyList((None, (v, arg) :: Nil), Nil)
+          Monad[F].pure(NonEmptyList((Nil, None, (v, arg) :: Nil), Nil))
         case Pattern.Named(v, p) =>
-          doesMatch(arg, p).map { case (cond, bs) =>
-            (cond, (v, arg) :: bs)
-          }
+          doesMatch(arg, p).map(_.map { case (l0, cond, bs) =>
+            (l0, cond, (v, arg) :: bs)
+          })
         case Pattern.StrPat(items) =>
           val sbinds: List[Bindable] =
             items
@@ -127,22 +164,77 @@ object Matchless {
 
           // if this matches 0 variant, we don't match, else we
           // if we match the variant, then treat it as a struct
-          val boundMatch: LocalAnon = ???
-          val variant = GetVariant(me)
-          val vmatch = EqualsInt(variant, 1)
-          // we need to add a Let wrapping the current branch,
-          // can do that with a continuation we pass through
-          val cont = { expr: Expr => Let(boundMatch, me, expr, RecursionKind.NonRecursive) }
+          makeAnon.map { nm =>
+            val boundMatch: LocalAnon = LocalAnon(nm)
 
-          NonEmptyList.of((
-            Some(vmatch),
-            sbinds.mapWithIndex { case (b, idx) =>
-              (b, GetElement(boundMatch, idx))
-            }))
+            val variant = GetVariant(boundMatch)
+            val vmatch = EqualsInt(variant, 1)
+
+            NonEmptyList.of((
+              (boundMatch, me) :: Nil,
+              Some(vmatch),
+              sbinds.mapWithIndex { case (b, idx) =>
+                (b, GetEnumElement(boundMatch, 1, idx, sbinds.length))
+              }))
+          }
         case lp@Pattern.ListPat(_) =>
+
           lp.toPositionalStruct(empty, cons) match {
-            case Some(p) => doesMatch(arg, p)
-            case None => ???
+            case Right(p) => doesMatch(arg, p)
+            case Left((Pattern.ListPart.WildList, right@NonEmptyList(Pattern.ListPart.Item(_), _))) =>
+              // we have a non-trailing list pattern
+              // to match, this becomes a search problem
+              // we loop over all the matches of p in the list,
+              // then we put the prefix on the glob, and the suffix against
+              // the tail.
+              //
+              // we know all the bindings we will make, allocate
+              // anons for them, do the loop, and then return
+              // the boolean of did we match
+              makeAnon
+                .flatMap { tmpList =>
+                  val anonList = LocalAnon(tmpList)
+
+                  doesMatch(anonList, Pattern.ListPat(right.toList))
+                    .map { cases =>
+                      cases.map {
+                        case (preLet, Some(expr), binds) =>
+                          ((anonList, arg) :: preLet,
+                            Some(SearchList(anonList, expr, None)),
+                            binds)
+                        case (_, None, _) =>
+                          // this shouldn't be possible, since there are no total list matches with
+                          // one item
+                          throw new IllegalStateException(s"$right should not be a total match")
+                      }
+                    }
+                }
+            case Left((Pattern.ListPart.NamedList(ln), right@NonEmptyList(Pattern.ListPart.Item(_), _))) =>
+              (makeAnon, makeAnon)
+                .tupled
+                .flatMap { case (left, tmpList) =>
+                  val anonLeft = LocalAnon(left)
+                  val anonList = LocalAnon(tmpList)
+
+                  doesMatch(anonList, Pattern.ListPat(right.toList))
+                    .map { cases =>
+                      cases.map {
+                        case (preLet, Some(expr), binds) =>
+                          ((anonLeft, emptyExpr) :: (anonList, arg) :: preLet,
+                            Some(SearchList(anonList, expr, Some(anonLeft))),
+                            (ln, RevList(anonLeft)) :: binds)
+                        case (_, None, _) =>
+                          // this shouldn't be possible, since there are no total list matches with
+                          // one item
+                          throw new IllegalStateException(s"$right should not be a total match")
+                      }
+                    }
+                }
+            case Left((_, NonEmptyList(_: Pattern.ListPart.Glob, _))) =>
+              // TODO, we could just assume the left side binds
+              // to the empty list and not throw, but we won't exercise
+              // this code anyway since this is a syntax error
+              throw new IllegalStateException(s"invalid pattern with two adjacent globs: $lp")
           }
 
         case Pattern.Annotation(p, _) =>
@@ -151,15 +243,14 @@ object Matchless {
         case Pattern.PositionalStruct((pack, cname), params) =>
           // we assume the patterns have already been optimized
           // so that useless total patterns have been replaced with _
-          def asStruct: NonEmptyList[(Option[IntExpr], List[(Bindable, Expr)])] = {
+          def asStruct(getter: Int => Expr): F[NonEmptyList[(List[(LocalAnon, Expr)], Option[IntExpr], List[(Bindable, Expr)])]] = {
             // we have an and of a series of ors:
             // (m1 + m2 + m3) * (m4 + m5 + m6) ... =
             // we need to multiply them all out into a single set of ors
-            val ands: List[NonEmptyList[(Option[IntExpr], List[(Bindable, Expr)])]] =
+            val ands: F[List[NonEmptyList[(List[(LocalAnon, Expr)], Option[IntExpr], List[(Bindable, Expr)])]]] =
               params.zipWithIndex
-                .map { case (pati, i) =>
-                  val ei = GetElement(arg, i)
-                  doesMatch(ei, pati)
+                .traverse { case (pati, i) =>
+                  doesMatch(getter(i), pati)
                 }
 
             def product[A1](sum: NonEmptyList[NonEmptyList[A1]])(fn: (A1, A1) => A1): NonEmptyList[A1] =
@@ -177,58 +268,54 @@ object Matchless {
                   } yield fn(ai, r)
               }
 
-            NonEmptyList.fromList(ands) match {
-              case None => NonEmptyList((None, Nil), Nil)
-              case Some(nel) => product(nel) { case ((o1, b1), (o2, b2)) =>
-                (andInt(o1, o2), b1 ::: b2)
+            ands.map(NonEmptyList.fromList(_) match {
+              case None => NonEmptyList((Nil, None, Nil), Nil)
+              case Some(nel) => product(nel) { case ((l1, o1, b1), (l2, o2, b2)) =>
+                (l1 ::: l2, andInt(o1, o2), b1 ::: b2)
               }
-            }
+            })
           }
 
           variantOf(Some(pack), cname) match {
-            case (None, _) =>
+            case (None, size) =>
               // this is a struct, so we check each parameter
-              asStruct
-            case (Some(vidx), _) =>
+              asStruct { pos => GetStructElement(arg, pos, size) }
+            case (Some(vidx), size) =>
               // if we match the variant, then treat it as a struct
               val variant = GetVariant(arg)
               val vmatch = EqualsInt(variant, vidx)
 
-              asStruct.map { case (oi, b) => (andInt(Some(vmatch), oi), b) }
+              asStruct(GetEnumElement(arg, vidx, _, size))
+                .map(_.map { case (l0, oi, b) => (l0, andInt(Some(vmatch), oi), b) })
           }
         case Pattern.Union(h, ts) =>
-          (h :: ts).flatMap(doesMatch(arg, _))
+          (h :: ts).traverse(doesMatch(arg, _)).map { nene =>
+            val nel = nene.flatten
+            // at the first total match, we can stop
+            stopAt(nel) { case (_, cond, _) => cond.isEmpty }
+          }
       }
     }
 
+    def lets(binds: List[(RefExpr, Expr)], in: Expr): Expr =
+      binds.foldRight(in) { case ((refx, e), r) =>
+        Let(refx, e, r, RecursionKind.NonRecursive)
+      }
+
     def matchExpr(arg: Expr, tmp: F[Long], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], Expr)]): F[Expr] = {
-      def maybeMemo: F[(Expr, Expr => Expr)] =
-        if (isCheap(arg)) Monad[F].pure((arg, identity[Expr]))
-        else tmp.map { nm =>
-          val bound = LocalAnon(nm)
-
-          val fn = { expr: Expr => Let(bound, arg, expr, RecursionKind.NonRecursive) }
-
-          (bound, fn)
-        }
-
       def recur(arg: Expr, branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], Expr)]): F[Expr] = {
         val (p1, r1) = branches.head
 
-        def lets(binds: List[(Bindable, Expr)]): Expr =
-          binds.foldRight(r1) { case ((b, e), r) =>
-            Let(LocalName(b), e, r, RecursionKind.NonRecursive)
-          }
-
-
-        def loop(cbs: NonEmptyList[(Option[IntExpr], List[(Bindable, Expr)])]): F[Expr] =
+        def loop(cbs: NonEmptyList[(List[(LocalAnon, Expr)], Option[IntExpr], List[(Bindable, Expr)])]): F[Expr] =
           cbs match {
-            case NonEmptyList((None, binds), _) =>
+            case NonEmptyList((b0, None, binds), _) =>
               // this is a total match, no fall through
-              Monad[F].pure(lets(binds))
-            case NonEmptyList((Some(cond), binds), others) =>
-              val thisBranch = lets(binds)
-              others match {
+              val allBinds = b0 ::: binds.map { case (b, e) => (LocalName(b), e) }
+              Monad[F].pure(lets(allBinds, r1))
+            case NonEmptyList((b0, Some(cond), binds), others) =>
+              val matchBinds = binds.map { case (b, e) => (LocalName(b), e) }
+              val thisBranch = lets(matchBinds, r1)
+              val res = others match {
                 case oh :: ot =>
                   loop(NonEmptyList(oh, ot)).map { te =>
                     If(cond, thisBranch, te)
@@ -244,17 +331,83 @@ object Matchless {
                       }
                   }
               }
+
+              res.map(lets(b0, _))
           }
 
-        loop(doesMatch(arg, p1))
+        doesMatch(arg, p1).flatMap(loop)
       }
 
-      maybeMemo.flatMap { case (arg, continuation) =>
-        recur(arg, branches).map(continuation)
-      }
+      val argFn = maybeMemo(tmp)(recur(_, branches))
+
+      argFn(arg)
     }
 
     loop(te)
   }
 
+  // toy matcher to see the structure
+  // Left means match any number of items, like *_
+  def matchList[A, B: Monoid](items: List[A], pattern: List[Either[List[A] => B, A => Option[B]]]): Option[B] =
+    pattern match {
+      case Nil =>
+        if (items.isEmpty) Some(Monoid[B].empty)
+        else None
+      case Right(fn) :: pt =>
+        items match {
+          case ih :: it =>
+            fn(ih) match {
+              case None => None
+              case Some(b) => matchList(it, pt).map(Monoid[B].combine(b, _))
+            }
+          case Nil => None
+        }
+
+      case Left(lstFn) :: Nil =>
+        Some(lstFn(items))
+
+      case Left(lstFn) :: (pt@(Left(_) :: _)) =>
+        // it is ambiguous how much to absorb
+        // so, just assume lstFn gets nothing
+        matchList(items, pt)
+          .map(Monoid.combine(lstFn(Nil), _))
+
+      case Left(lstFn) :: (pt@(Right(_) :: _))=>
+        var revLeft: List[A] = Nil
+        var it = items
+        var result: Option[B] = None
+        // this cannot match an empty list
+        while (result.isEmpty && it.nonEmpty) {
+          matchList(it, pt) match {
+            case Some(rb) =>
+              val leftB = lstFn(revLeft.reverse)
+              result = Some(Monoid[B].combine(leftB, rb))
+            case None =>
+              revLeft = it.head :: revLeft
+              it = it.tail
+          }
+        }
+        result
+        /*
+         * The above should be an imperative version
+         * of this code. The imperative code
+         * is easier to translate into low level
+         * instructions
+        items
+          .toStream
+          .mapWithIndex { (a, idx) => afn(a).map((_, idx)) }
+          .collect { case Some(m) => m }
+          .flatMap { case (b, idx) =>
+            val left = items.take(idx)
+            val leftB = Monoid[B].combine(lstFn(left), b)
+
+            val right = items.drop(idx + 1)
+            matchList(right, pt)
+              .map { br =>
+                Monoid[B].combine(leftB, br)
+              }
+          }
+          .headOption
+          */
+    }
 }

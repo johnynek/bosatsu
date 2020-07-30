@@ -337,19 +337,19 @@ object Pattern {
 
     lazy val toSeqPattern: SeqPattern[Pattern[N, T]] = toNamedSeqPattern.unname
 
-    def toPositionalStruct(empty: N, cons: N): Option[Pattern[N, T]] = {
-      def loop(parts: List[ListPart[Pattern[N, T]]]): Option[Pattern[N, T]] =
+    def toPositionalStruct(empty: N, cons: N): Either[(ListPart.Glob, NonEmptyList[ListPart[Pattern[N, T]]]), Pattern[N, T]] = {
+      def loop(parts: List[ListPart[Pattern[N, T]]]): Either[(ListPart.Glob, NonEmptyList[ListPart[Pattern[N, T]]]), Pattern[N, T]] =
         parts match {
-          case Nil => Some(PositionalStruct(empty, Nil))
-          case ListPart.WildList :: Nil => Some(WildCard)
-          case ListPart.NamedList(glob) :: Nil => Some(Var(glob))
+          case Nil => Right(PositionalStruct(empty, Nil))
+          case ListPart.WildList :: Nil => Right(WildCard)
+          case ListPart.NamedList(glob) :: Nil => Right(Var(glob))
           case ListPart.Item(p) :: tail =>
-            val tailList = loop(tail)
-            val tailPat = tailList.getOrElse(ListPat(tail))
-            Some(PositionalStruct(cons, List(p, tailPat)))
-          case (ListPart.WildList | ListPart.NamedList(_)) :: _ =>
+            // we can always make some progress here
+            val tailPat = loop(tail).toOption.getOrElse(ListPat(tail))
+            Right(PositionalStruct(cons, List(p, tailPat)))
+          case (glob: ListPart.Glob) :: h1 :: t =>
             // a prefixed list cannot be represented as a cons cell
-            None
+            Left((glob, NonEmptyList(h1, t)))
         }
 
       loop(parts)
