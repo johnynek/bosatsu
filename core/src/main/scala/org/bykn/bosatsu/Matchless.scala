@@ -9,7 +9,13 @@ import Identifier.{Bindable, Constructor}
 import cats.implicits._
 
 object Matchless {
-  sealed abstract class Expr
+  sealed abstract class Expr {
+    def apply(expr: Expr): App =
+      this match {
+        case App(fn, a) => App(fn, a :+ expr)
+        case notApp => App(notApp, NonEmptyList(expr, Nil))
+      }
+  }
   // these result in Int values which are also used as booleans
   // evaluating these CAN have side effects of mutating LocalAnon
   // variables.
@@ -29,7 +35,17 @@ object Matchless {
     case class LitStr(asString: String) extends StrPart
   }
 
+  // we should probably allocate static slots for each bindable,
+  // and replace the local with an integer offset slot access for
+  // the closure state
   case class Lambda(captures: List[Bindable], arg: Bindable, expr: Expr) extends Expr
+
+  // this is a tail recursive function that should be compiled into a loop
+  // when a call to name is done inside body, that should restart the loop
+  // the type of this Expr a function with the arity of args that returns
+  // the type of body
+  case class LoopFn(captures: List[Bindable], name: Bindable, args: List[Bindable], body: Expr) extends Expr
+
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
   // these are immutable (but can be shadowed)
@@ -39,7 +55,9 @@ object Matchless {
   // these are mutable variables that can be updated while evaluating an IntExpr
   case class LocalAnonMut(ident: Long) extends LocalTmp with CheapExpr
 
-  case class App(fn: Expr, arg: Expr) extends Expr
+  // we aggregate all the applications to potentially make dispatch more efficient
+  // note fn is never an App
+  case class App(fn: Expr, arg: NonEmptyList[Expr]) extends Expr
   case class Let(arg: RefExpr, expr: Expr, in: Expr, recursive: RecursionKind) extends Expr
   case class Literal(lit: Lit) extends CheapExpr
 
@@ -61,6 +79,9 @@ object Matchless {
 
   // string matching is complex done at a lower level
   // return a variant of either value 0, no match, or 1 with
+  // todo: we should probably make this be like SearchList and be explicit
+  // about the algorithm rather than hiding it and requiring an allocation
+  // here.
   case class MatchString(arg: CheapExpr, parts: List[StrPart], binds: Int) extends Expr
 
   case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
@@ -68,12 +89,6 @@ object Matchless {
   // we need to compile calls to constructors into these
   case class MakeEnum(variant: Int, arity: Int) extends Expr
   case class MakeStruct(arity: Int) extends Expr
-
-  // this is a tail recursive function that should be compiled into a loop
-  // when a call to name is done inside body, that should restart the loop
-  // the type of this Expr a function with the arity of args that returns
-  // the type of body
-  case class LoopFn(name: Bindable, args: List[Bindable], body: Expr) extends Expr
 
   private def asCheap(expr: Expr): Option[CheapExpr] =
     expr match {
@@ -114,11 +129,12 @@ object Matchless {
       case (None, r) => r
       case (l, None) => l
     }
+
   // we need a TypeEnv to inline the creation of structs and variants
   def fromLet[F[_]: Monad, A](
     name: Bindable,
-    te: TypedExpr[A],
     rec: RecursionKind,
+    te: TypedExpr[A],
     variantOf: (PackageName, Constructor) => (Option[Int], Int),
     makeAnon: F[Long]): F[Expr] = {
 
@@ -139,9 +155,9 @@ object Matchless {
           val arity = Type.Fun.arity(e.getType)
           TypedExpr.toArgsBody(arity, e) match {
             case Some((params, body)) =>
-              loop(body).map { b =>
-                LoopFn(name, params.map(_._1), b)
-              }
+              val args = params.map(_._1)
+              val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
+              loop(body).map(LoopFn(captures, name, args, _))
             case None =>
               // TODO: I don't think this case should ever happen
               e0
@@ -157,7 +173,8 @@ object Matchless {
         case TypedExpr.Generic(_, expr, _) => loop(expr)
         case TypedExpr.Annotation(term, _, _) => loop(term)
         case TypedExpr.AnnotatedLambda(arg, _, res, _) =>
-          loop(res).map(Lambda(TypedExpr.freeVars(res :: Nil).filterNot(_ === arg), arg, _))
+          val captures = TypedExpr.freeVars(res :: Nil).filterNot(_ === arg)
+          loop(res).map(Lambda(captures, arg, _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {
             case (Some(v), a) => MakeEnum(v, a)
@@ -167,7 +184,8 @@ object Matchless {
           Monad[F].pure(Global(pack, notCons))
         case TypedExpr.Local(bind, _, _) =>
           Monad[F].pure(Local(bind))
-        case TypedExpr.App(fn, a, _, _) => (loop(fn), loop(a)).mapN(App(_, _))
+        case TypedExpr.App(fn, a, _, _) =>
+          (loop(fn), loop(a)).mapN(_(_))
         case TypedExpr.Let(a, e, in, r, _) =>
           (loopLetVal(a, e, r), loop(in)).mapN(Let(Local(a), _, _, r))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
@@ -262,7 +280,7 @@ object Matchless {
                           val (resLet, resBind, leftOpt) =
                             optAnonLeft match {
                               case Some((anonLeft, ln)) =>
-                                val revList = App(reverseFn, anonLeft)
+                                val revList = reverseFn(anonLeft)
                                 ((anonLeft, emptyExpr) :: letTail, (ln, revList) :: binds, Some(anonLeft))
                               case None =>
                                 (letTail, binds, None)
@@ -318,21 +336,6 @@ object Matchless {
                     rec <- doesMatch(localGet, pati)
                   } yield rec.map { case (preLet, ex, b) => ((localGet, expr) :: preLet, ex, b) }
                 }
-
-            def product[A1](sum: NonEmptyList[NonEmptyList[A1]])(fn: (A1, A1) => A1): NonEmptyList[A1] =
-              sum match {
-                case NonEmptyList(h, Nil) =>
-                  // this (a1 + a2 + a3) case
-                  h
-                case NonEmptyList(h0, h1 :: tail) =>
-                  val rightProd = product(NonEmptyList(h1, tail))(fn)
-                  // (a0 + a1 + ...) * rightProd
-                  // = a0 * rightProd + a1 * rightProd + ...
-                  for {
-                    ai <- h0
-                    r <- rightProd
-                  } yield fn(ai, r)
-              }
 
             ands.map(NonEmptyList.fromList(_) match {
               case None => NonEmptyList((Nil, None, Nil), Nil)
@@ -477,4 +480,23 @@ object Matchless {
           .headOption
           */
     }
+
+  /**
+   * return the expanded product of sums
+   */
+  def product[A1](sum: NonEmptyList[NonEmptyList[A1]])(prod: (A1, A1) => A1): NonEmptyList[A1] =
+    sum match {
+      case NonEmptyList(h, Nil) =>
+        // this (a1 + a2 + a3) case
+        h
+      case NonEmptyList(h0, h1 :: tail) =>
+        val rightProd = product(NonEmptyList(h1, tail))(prod)
+        // (a0 + a1 + ...) * rightProd
+        // = a0 * rightProd + a1 * rightProd + ...
+        for {
+          ai <- h0
+          r <- rightProd
+        } yield prod(ai, r)
+    }
+
 }
