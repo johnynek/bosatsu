@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.rankn.NTypeGen
-import cats.{Defer, Monad}
+import cats.{Defer, Monad, Traverse}
 import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import cats.implicits._
@@ -976,6 +976,9 @@ object Generators {
             Gen.const(b)
         }
     }
+
+  def traverseGen[F[_]: Traverse, A, B](fa: F[A])(fn: A => Gen[B]): Gen[F[B]] =
+    fa.traverse(fn)
 
   def shuffle[A](as: List[A]): Gen[List[A]] =
     as match {
