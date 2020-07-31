@@ -52,7 +52,7 @@ object Evaluation {
       fromFn(_ => computedE)
     }
 
-    def fromEnv(identifier: Identifier): Scoped =
+    def fromEnv(identifier: Bindable): Scoped =
       fromFn { env =>
         env.get(identifier) match {
           case Some(e) => e.value
@@ -672,9 +672,9 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
        case Annotation(e, _, _) =>
          // types aren't needed to evaluate
          evalTypedExpr(e, recurse)
-       case Var(None, ident, _, _) =>
+       case Local(ident, _, _) =>
          Scoped.fromEnv(ident)
-       case Var(Some(p), ident, _, _) =>
+       case Global(p, ident, _, _) =>
          val pack = pm.toMap.get(p).getOrElse(sys.error(s"cannot find $p, shouldn't happen due to typechecking"))
          // const is lazy so this won't run until needed
          Scoped.const(getValue(pack, ident).value)
