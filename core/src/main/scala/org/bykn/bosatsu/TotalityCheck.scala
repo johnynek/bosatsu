@@ -113,7 +113,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case Annotation(e, _, _) => checkExpr(e)
       case AnnotatedLambda(_, _, e, _) => checkExpr(e)
       case Lambda(_, e, _) => checkExpr(e)
-      case Var(_, _, _) | Literal(_, _) => Validated.valid(())
+      case Global(_, _, _) | Local(_, _) | Literal(_, _) => Validated.valid(())
       case App(fn, arg, _) => checkExpr(fn) *> checkExpr(arg)
       case Let(_, e1, e2, _, _) => checkExpr(e1) *> checkExpr(e2)
       case m@Match(arg, branches, _) =>

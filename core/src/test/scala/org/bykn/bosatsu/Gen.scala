@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.rankn.NTypeGen
-import cats.{Defer, Monad}
+import cats.{Defer, Monad, Traverse}
 import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import cats.implicits._
@@ -935,9 +935,13 @@ object Generators {
         Gen.zip(bindIdentGen, typeGen, recurse, genTag)
           .map { case (n, tpe, res, tag) => TypedExpr.AnnotatedLambda(n, tpe, res, tag) }
 
-      val varGen =
-        Gen.zip(Gen.option(packageNameGen), identifierGen, typeGen, genTag)
-          .map { case (op, n, t, tag) => TypedExpr.Var(op, n, t, tag) }
+      val localGen =
+        Gen.zip(bindIdentGen, typeGen, genTag)
+          .map { case (n, t, tag) => TypedExpr.Local(n, t, tag) }
+
+      val globalGen =
+        Gen.zip(packageNameGen, identifierGen, typeGen, genTag)
+          .map { case (p, n, t, tag) => TypedExpr.Global(p, n, t, tag) }
 
       val app =
         Gen.zip(recurse, recurse, typeGen, genTag)
@@ -951,7 +955,7 @@ object Generators {
         Gen.zip(recurse, Gen.choose(1, 4).flatMap(nonEmptyN(Gen.zip(genCompiledPattern(depth), recurse), _)), genTag)
           .map { case (arg, branches, tag) => TypedExpr.Match(arg, branches, tag) }
 
-      Gen.oneOf(genGeneric, ann, lam, varGen, app, let, lit, matchGen)
+      Gen.oneOf(genGeneric, ann, lam, localGen, globalGen, app, let, lit, matchGen)
     }
   }
 
@@ -972,6 +976,9 @@ object Generators {
             Gen.const(b)
         }
     }
+
+  def traverseGen[F[_]: Traverse, A, B](fa: F[A])(fn: A => Gen[B]): Gen[F[B]] =
+    fa.traverse(fn)
 
   def shuffle[A](as: List[A]): Gen[List[A]] =
     as match {

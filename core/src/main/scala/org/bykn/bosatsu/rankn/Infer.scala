@@ -62,9 +62,6 @@ object Infer {
   type Cons = (List[(Type.Var, Variance)], List[Type], Type.Const.Defined)
   type Name = (Option[PackageName], Identifier)
 
-  def asFullyQualified(ns: Iterable[(Identifier, Type)]): Map[Name, Type] =
-    ns.iterator.map { case (n, t) => ((None, n), t) }.toMap
-
   case class Env(
     uniq: Ref[Long],
     vars: Map[Name, Type],
@@ -641,11 +638,16 @@ object Infer {
         case Literal(lit, t) =>
           val tpe = Type.getTypeOf(lit)
           instSigma(tpe, expect, region(term)).map(_(TypedExpr.Literal(lit, tpe, t)))
-        case Var(optPack, name, tag) =>
+        case Local(name, tag) =>
           for {
-            vSigma <- lookupVarType((optPack, name), region(term))
+            vSigma <- lookupVarType((None, name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
-           } yield coerce(TypedExpr.Var(optPack, name, vSigma, tag))
+           } yield coerce(TypedExpr.Local(name, vSigma, tag))
+        case Global(pack, name, tag) =>
+          for {
+            vSigma <- lookupVarType((Some(pack), name), region(term))
+            coerce <- instSigma(vSigma, expect, region(term))
+           } yield coerce(TypedExpr.Global(pack, name, vSigma, tag))
         case App(fn, arg, tag) =>
            for {
              typedFn <- inferRho(fn)
