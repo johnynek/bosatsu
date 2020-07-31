@@ -152,30 +152,43 @@ object JsReportsApi {
           }
         }
       }
-      case Left(_) => Future(Json.JString("error"))
+      case Left(err) =>
+        Future(
+          Json
+            .JObject(
+              List(
+                "variant" -> Json.JString("Error"),
+                "error" -> Json.JString(err.getMessage)
+              )
+            )
+        )
     }
     fjson.map(jsonToAny(_)).toJSPromise
   }
 
   @JSExport
-  def postCache(keys: List[String], callback: js.Function) = {
-    val values = for {
-      key <- keys
-      result <- cache.get(key)
-      (promise, tpe) = result
-      valueTry <- promise.value
-      value <- valueTry.toOption
-    } yield {
-      val toJson = valueToJson.toJson(tpe)
-      toJson match {
-        case Left(unsupported) => ???
-        case Right(fn) =>
-          fn(value) match {
-            case Left(err) => ???
-            case Right(j)  => key -> j
-          }
+  def postCache(keys: js.Array[String]): js.Promise[js.Dictionary[js.Any]] = {
+    Future {
+      val jsArray: js.Array[(String, js.Any)] = for {
+        key <- keys
+        result <- cache.get(key)
+        (promise, tpe) = result
+        valueTry <- promise.value
+        value <- valueTry.toOption
+      } yield {
+        val toJson = valueToJson.toJson(tpe)
+        toJson match {
+          case Left(unsupported) => ???
+          case Right(fn) =>
+            fn(value) match {
+              case Left(err) => ???
+              case Right(j)  => key -> jsonToAny(j)
+            }
+        }
       }
-    }
+      val result = collection.mutable.Map() ++ jsArray.toMap
+      result.toJSDictionary
+    }.toJSPromise
   }
 
 }
