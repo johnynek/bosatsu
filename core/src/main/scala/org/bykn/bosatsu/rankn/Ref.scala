@@ -2,12 +2,13 @@ package org.bykn.bosatsu.rankn
 
 import cats.Eval
 // java HashMap performs better than scala in most benchmarks
-import java.util.{HashMap => MutableMap}
+import scala.collection.mutable.{LongMap => MutableMap}
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * This gives a mutable reference in a monadic context
  */
-sealed abstract class Ref[A] {
+sealed trait Ref[A] {
   def get: RefSpace[A]
   def set(a: A): RefSpace[Unit]
   def reset: RefSpace[Unit]
@@ -15,9 +16,9 @@ sealed abstract class Ref[A] {
 
 sealed abstract class RefSpace[+A] {
   final def run: Eval[A] =
-    runState(new MutableMap)
+    runState(new AtomicLong(0L), new MutableMap)
 
-  protected def runState(state: MutableMap[AnyRef, Any]): Eval[A]
+  protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[A]
 
   def map[B](fn: A => B): RefSpace[B] =
     RefSpace.Map(this, fn)
@@ -28,48 +29,47 @@ sealed abstract class RefSpace[+A] {
 
 object RefSpace {
   private case class Pure[A](value: Eval[A]) extends RefSpace[A] {
-    protected def runState(state: MutableMap[AnyRef, Any]) =
+    protected def runState(al: AtomicLong, state: MutableMap[Any]) =
       value
   }
-  private case class AllocRef[A](handle: AnyRef, init: A) extends Ref[A] {
-    val get = GetRef(handle, init)
+  private case class AllocRef[A](handle: Long, init: A) extends RefSpace[A] with Ref[A] {
+    def get = this
     def set(a: A) = SetRef(handle, a)
     val reset = Reset(handle)
-  }
-  private case class GetRef[A](handle: AnyRef, ifEmpty: A) extends RefSpace[A] {
-    protected def runState(state: MutableMap[AnyRef, Any]): Eval[A] =
+
+    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[A] =
       Eval.now {
-        val res = state.get(handle)
-        if (res == null) ifEmpty
-        else {
-          // we know this must be an A
-          res.asInstanceOf[A]
+        state.get(handle) match {
+          case Some(res) =>
+            // we know this must be an A
+            res.asInstanceOf[A]
+          case None => init
         }
       }
   }
-  private case class SetRef(handle: AnyRef, value: Any) extends RefSpace[Unit] {
-    protected def runState(state: MutableMap[AnyRef, Any]): Eval[Unit] =
+  private case class SetRef(handle: Long, value: Any) extends RefSpace[Unit] {
+    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[Unit] =
       { state.put(handle, value); Eval.Unit }
   }
-  private case class Reset(handle: AnyRef) extends RefSpace[Unit] {
-    protected def runState(state: MutableMap[AnyRef, Any]): Eval[Unit] =
+  private case class Reset(handle: Long) extends RefSpace[Unit] {
+    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[Unit] =
       { state.remove(handle); Eval.Unit }
   }
   private case class Alloc[A](init: A) extends RefSpace[Ref[A]] {
-    protected def runState(state: MutableMap[AnyRef, Any]) =
-      Eval.now(AllocRef(new AnyRef, init))
+    protected def runState(al: AtomicLong, state: MutableMap[Any]) =
+      Eval.now(AllocRef(al.getAndIncrement, init))
   }
 
   private case class Map[A, B](init: RefSpace[A], fn: A => B) extends RefSpace[B] {
-    protected def runState(state: MutableMap[AnyRef, Any]) =
-      Eval.defer(init.runState(state)).map(fn)
+    protected def runState(al: AtomicLong, state: MutableMap[Any]) =
+      Eval.defer(init.runState(al, state)).map(fn)
   }
 
   private case class FlatMap[A, B](init: RefSpace[A], fn: A => RefSpace[B]) extends RefSpace[B] {
-    protected def runState(state: MutableMap[AnyRef, Any]): Eval[B] =
-      Eval.defer(init.runState(state))
+    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[B] =
+      Eval.defer(init.runState(al, state))
         .flatMap { a =>
-          fn(a).runState(state)
+          fn(a).runState(al, state)
         }
   }
 

@@ -639,7 +639,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     }
 
   private def evalLetValue(arg: Bindable, e: TypedExpr[T], rec: RecursionKind)(eval: Ref => Scoped): Scoped = {
-    val e0 = eval(e)
+    lazy val e0 = eval(e)
     if (rec.isRecursive) {
       // this could be tail recursive
       if (TypedExpr.selfCallKind(arg, e) == TypedExpr.SelfCallKind.TailCall) {
@@ -686,7 +686,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
        case AnnotatedLambda(name, _, expr, _) =>
          recurse(expr).asLambda(name)
        case l@Let(arg, e, in, rec, _) =>
-         val e0 = recurse(e)
          val eres = evalLetValue(arg, e, rec)(recurse)
          val inres = recurse(in)
 
