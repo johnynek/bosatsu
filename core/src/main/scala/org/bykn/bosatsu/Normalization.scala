@@ -463,7 +463,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       expr match {
         case a@Annotation(_, _, _) => normalizeAnnotation(a, env, p)
         case g@Generic(_, _, _) => normalizeGeneric(g, env, p)
-        case v@Var(_, _, _, _) => normalizeVar(v, env, p)
+        case v@Local(_, _, _) => normalizeLocal(v, env, p)
+        case v@Global(_, _, _, _) => normalizeGlobal(v, env, p)
         case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al, env, p)
         case a@App(_, _, _, _) => normalizeApp(a, env, p)
         case l@Let(_, _, _, _, _) => normalizeLet(l, env, p)
@@ -490,7 +491,18 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         g.copy(in=in, tag=tag)
       }
 
-  def normalizeVar(v: Var[Declaration], env: Env, p: Package.Inferred):
+  def normalizeLocal(v: Local[Declaration], env: Env, p: Package.Inferred):
+    NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
+      env._1.get(v.name) match {
+        case None => norm(p, v.name, v.tag, env).map { ne =>
+          val neTag = getTag(ne)._2
+          v.copy(tag=(v.tag, neTag))
+        }
+        case Some(neTag) =>
+          State.pure(v.copy(tag=(v.tag, neTag)))
+      }
+
+  def normalizeGlobal(v: Global[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, NormalExpressionTag)]] =
       env._1.get(v.name) match {
         case None => norm(p, v.name, v.tag, env).map { ne =>
