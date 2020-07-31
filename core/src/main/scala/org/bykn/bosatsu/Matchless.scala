@@ -18,6 +18,9 @@ object Matchless {
   // local ones
   sealed abstract class RefExpr extends Expr
   sealed trait CheapExpr extends Expr
+  sealed abstract class LocalTmp extends RefExpr {
+    def ident: Long
+  }
 
   sealed abstract class StrPart
   object StrPart {
@@ -26,14 +29,15 @@ object Matchless {
     case class LitStr(asString: String) extends StrPart
   }
 
-  case class Lambda(captures: List[Identifier], arg: Bindable, expr: Expr) extends Expr
+  case class Lambda(captures: List[Bindable], arg: Bindable, expr: Expr) extends Expr
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
   // these are immutable (but can be shadowed)
   case class Local(arg: Bindable) extends RefExpr with CheapExpr
   // these are is a separate namespace from Expr
+  case class LocalAnon(ident: Long) extends LocalTmp with CheapExpr
   // these are mutable variables that can be updated while evaluating an IntExpr
-  case class LocalAnon(ident: Long) extends RefExpr with CheapExpr
+  case class LocalAnonMut(ident: Long) extends LocalTmp with CheapExpr
 
   case class App(fn: Expr, arg: Expr) extends Expr
   case class Let(arg: RefExpr, expr: Expr, in: Expr, recursive: RecursionKind) extends Expr
@@ -41,7 +45,7 @@ object Matchless {
 
   // returns 1 if it does, else 0
   case class EqualsLit(expr: Expr, lit: Lit) extends IntExpr
-  case class EqualsInt(expr: Expr, int: Int) extends IntExpr
+  case class EqualsInt(expr: IntExpr, int: Int) extends IntExpr
   // 1 if both are > 0
   case class AndInt(e1: IntExpr, e2: IntExpr) extends IntExpr
   // returns variant number from 0
@@ -51,7 +55,7 @@ object Matchless {
   // tail until it is true while mutating lst => lst.tail
   // this has the side-effect of mutating lst and leftAcc as well as any side effects that check has
   // which could have nested searches of its own
-  case class SearchList(lst: LocalAnon, init: CheapExpr, check: IntExpr, leftAcc: Option[LocalAnon]) extends IntExpr
+  case class SearchList(lst: LocalAnonMut, init: CheapExpr, check: IntExpr, leftAcc: Option[LocalAnonMut]) extends IntExpr
 
   case class If(cond: IntExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
 
@@ -64,6 +68,12 @@ object Matchless {
   // we need to compile calls to constructors into these
   case class MakeEnum(variant: Int, arity: Int) extends Expr
   case class MakeStruct(arity: Int) extends Expr
+
+  // this is a tail recursive function that should be compiled into a loop
+  // when a call to name is done inside body, that should restart the loop
+  // the type of this Expr a function with the arity of args that returns
+  // the type of body
+  case class LoopFn(name: Bindable, args: List[Bindable], body: Expr) extends Expr
 
   private def asCheap(expr: Expr): Option[CheapExpr] =
     expr match {
@@ -105,8 +115,12 @@ object Matchless {
       case (l, None) => l
     }
   // we need a TypeEnv to inline the creation of structs and variants
-  def fromTypedExpr[F[_]: Monad, A](te: TypedExpr[A])(
-    variantOf: (PackageName, Constructor) => (Option[Int], Int), makeAnon: F[Long]): F[Expr] = {
+  def fromLet[F[_]: Monad, A](
+    name: Bindable,
+    te: TypedExpr[A],
+    rec: RecursionKind,
+    variantOf: (PackageName, Constructor) => (Option[Int], Int),
+    makeAnon: F[Long]): F[Expr] = {
 
     val emptyExpr: Expr =
       empty match {
@@ -117,12 +131,33 @@ object Matchless {
           }
       }
 
+    def loopLetVal(name: Bindable, e: TypedExpr[A], rec: RecursionKind): F[Expr] = {
+      lazy val e0 = loop(e)
+      if (rec.isRecursive) {
+        // this could be tail recursive
+        if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
+          val arity = Type.Fun.arity(e.getType)
+          TypedExpr.toArgsBody(arity, e) match {
+            case Some((params, body)) =>
+              loop(body).map { b =>
+                LoopFn(name, params.map(_._1), b)
+              }
+            case None =>
+              // TODO: I don't think this case should ever happen
+              e0
+          }
+        }
+        else e0
+      }
+      else e0
+    }
+
     def loop(te: TypedExpr[A]): F[Expr] =
       te match {
         case TypedExpr.Generic(_, expr, _) => loop(expr)
         case TypedExpr.Annotation(term, _, _) => loop(term)
         case TypedExpr.AnnotatedLambda(arg, _, res, _) =>
-          loop(res).map(Lambda(TypedExpr.freeVars(res :: Nil), arg, _))
+          loop(res).map(Lambda(TypedExpr.freeVars(res :: Nil).filterNot(_ === arg), arg, _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {
             case (Some(v), a) => MakeEnum(v, a)
@@ -133,7 +168,8 @@ object Matchless {
         case TypedExpr.Local(bind, _, _) =>
           Monad[F].pure(Local(bind))
         case TypedExpr.App(fn, a, _, _) => (loop(fn), loop(a)).mapN(App(_, _))
-        case TypedExpr.Let(a, e, in, r, _) => (loop(e), loop(in)).mapN(Let(Local(a), _, _, r))
+        case TypedExpr.Let(a, e, in, r, _) =>
+          (loopLetVal(a, e, r), loop(in)).mapN(Let(Local(a), _, _, r))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
           (loop(arg), branches.traverse { case (p, te) => loop(te).map((p, _)) })
@@ -142,7 +178,7 @@ object Matchless {
       }
 
     // return the check expression for the check we need to do, and the list of bindings
-    def doesMatch(arg: CheapExpr, pat: Pattern[(PackageName, Constructor), Type]): F[NonEmptyList[(List[(LocalAnon, Expr)], Option[IntExpr], List[(Bindable, Expr)])]] = {
+    def doesMatch(arg: CheapExpr, pat: Pattern[(PackageName, Constructor), Type]): F[NonEmptyList[(List[(LocalTmp, Expr)], Option[IntExpr], List[(Bindable, Expr)])]] = {
       pat match {
         case Pattern.WildCard =>
           // this is a total pattern
@@ -203,18 +239,18 @@ object Matchless {
               // we know all the bindings we will make, allocate
               // anons for them, do the loop, and then return
               // the boolean of did we match
-              val leftF: F[Option[(LocalAnon, Bindable)]] =
+              val leftF: F[Option[(LocalAnonMut, Bindable)]] =
                 glob match {
                   case Pattern.ListPart.WildList =>
                     Monad[F].pure(None)
                   case Pattern.ListPart.NamedList(ln) =>
-                    makeAnon.map { nm => Some((LocalAnon(nm), ln)) }
+                    makeAnon.map { nm => Some((LocalAnonMut(nm), ln)) }
                 }
 
               (leftF, makeAnon)
                 .tupled
                 .flatMap { case (optAnonLeft, tmpList) =>
-                  val anonList = LocalAnon(tmpList)
+                  val anonList = LocalAnonMut(tmpList)
 
                   doesMatch(anonList, Pattern.ListPat(right.toList))
                     .map { cases =>
@@ -266,11 +302,11 @@ object Matchless {
         case Pattern.PositionalStruct((pack, cname), params) =>
           // we assume the patterns have already been optimized
           // so that useless total patterns have been replaced with _
-          def asStruct(getter: Int => Expr): F[NonEmptyList[(List[(LocalAnon, Expr)], Option[IntExpr], List[(Bindable, Expr)])]] = {
+          def asStruct(getter: Int => Expr): F[NonEmptyList[(List[(LocalTmp, Expr)], Option[IntExpr], List[(Bindable, Expr)])]] = {
             // we have an and of a series of ors:
             // (m1 + m2 + m3) * (m4 + m5 + m6) ... =
             // we need to multiply them all out into a single set of ors
-            val ands: F[List[NonEmptyList[(List[(LocalAnon, Expr)], Option[IntExpr], List[(Bindable, Expr)])]]] =
+            val ands: F[List[NonEmptyList[(List[(LocalTmp, Expr)], Option[IntExpr], List[(Bindable, Expr)])]]] =
               params.zipWithIndex
                 .traverse { case (pati, i) =>
                   // we don't want to repeatedly do the get on the recursion, so,
@@ -337,7 +373,7 @@ object Matchless {
       def recur(arg: CheapExpr, branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], Expr)]): F[Expr] = {
         val (p1, r1) = branches.head
 
-        def loop(cbs: NonEmptyList[(List[(LocalAnon, Expr)], Option[IntExpr], List[(Bindable, Expr)])]): F[Expr] =
+        def loop(cbs: NonEmptyList[(List[(LocalTmp, Expr)], Option[IntExpr], List[(Bindable, Expr)])]): F[Expr] =
           cbs match {
             case NonEmptyList((b0, None, binds), _) =>
               // this is a total match, no fall through
@@ -374,7 +410,7 @@ object Matchless {
       argFn(arg)
     }
 
-    loop(te)
+    loopLetVal(name, te, rec)
   }
 
   // toy matcher to see the structure
