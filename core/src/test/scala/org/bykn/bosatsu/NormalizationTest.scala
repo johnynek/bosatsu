@@ -442,7 +442,7 @@ out = \y -> foo(y)
 """
     ), "Extern/Eta",
     ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),Identifier.Name("foo"), Type.Fun(Type.StrType, Type.TyApply(Type.ListType, Type.StrType))),
-    Some("ExternalVar('Extern/Eta','foo')")
+    Some("ExternalVar('Extern/Eta','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::List[Bosatsu/Predef::String]')")
     )
     /*
     normalExpressionTest(
