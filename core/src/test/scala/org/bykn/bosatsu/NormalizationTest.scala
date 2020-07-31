@@ -4,6 +4,8 @@ import org.scalatest.FunSuite
 import java.math.BigInteger
 import cats.data.NonEmptyList
 
+import rankn.Type
+
 class NormalizationTest extends FunSuite {
   import TestUtils._
   import NormalExpression._
@@ -108,7 +110,7 @@ out = [1,2,3].foldLeft(4, add)
           ),
           Literal(Integer(BigInteger.valueOf(4)))
         ),
-        ExternalVar(PackageName(NonEmptyList.of("Bosatsu", "Predef")),Identifier.Name("add"))
+        ExternalVar(PackageName(NonEmptyList.of("Bosatsu", "Predef")),Identifier.Name("add"), Type.Fun(Type.IntType, Type.Fun(Type.IntType, Type.IntType)))
       )
     )
   }
@@ -154,7 +156,7 @@ out = lst.foldLeft(9, add)
       ), "Recur/FoldLeft",
       App(App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
         (PositionalStruct(Some(0),List()),Lambda(LambdaVar(0))),
-        (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(App(App(LambdaVar(4),LambdaVar(2)),App(App(ExternalVar(PackageName(NonEmptyList.of("Bosatsu", "Predef")),Identifier.Name("add")),LambdaVar(0)),LambdaVar(1)))))))
+        (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(App(App(LambdaVar(4),LambdaVar(2)),App(App(ExternalVar(PackageName(NonEmptyList.of("Bosatsu", "Predef")),Identifier.Name("add"), Type.Fun(Type.IntType, Type.Fun(Type.IntType, Type.IntType))),LambdaVar(0)),LambdaVar(1)))))))
       ))))),Struct(1,List(Literal(Integer(BigInteger.valueOf(1))), Struct(1,List(Literal(Integer(BigInteger.valueOf(2))), Struct(1,List(Literal(Integer(BigInteger.valueOf(3))), Struct(0,List())))))))),Literal(Integer(BigInteger.valueOf(9))))
     )
   }
@@ -439,7 +441,7 @@ external def foo(x: String) -> List[String]
 out = \y -> foo(y)
 """
     ), "Extern/Eta",
-    ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),Identifier.Name("foo")),
+    ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),Identifier.Name("foo"), Type.Fun(Type.StrType, Type.TyApply(Type.ListType, Type.StrType))),
     Some("ExternalVar('Extern/Eta','foo')")
     )
     /*
@@ -516,7 +518,7 @@ out = match foo("c"):
 """
         ), "Extern/LitMatch",
       Match(
-        App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "LitMatch")).get),Identifier.Name("foo")),Literal(Str("c"))),
+        App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "LitMatch")).get),Identifier.Name("foo"), Type.Fun(Type.StrType, Type.StrType)),Literal(Str("c"))),
         NonEmptyList.fromList(List(
           (NormalPattern.Literal(Str("d")),Literal(Str("e"))),
           (WildCard,Literal(Str("f")))
