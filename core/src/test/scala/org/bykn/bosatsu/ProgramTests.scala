@@ -105,8 +105,11 @@ class ProgramTests extends FunSuite {
     {
       // non recursive
       val l1 = List(
+        (Identifier.Name("b"), RecursionKind.NonRecursive, Option.empty[String]),
         (Identifier.Name("a"), RecursionKind.NonRecursive, Option.empty[String]),
+        (Identifier.Name("c"), RecursionKind.NonRecursive, Option.empty[String]),
         (Identifier.Name("a"), RecursionKind.NonRecursive, Option.empty[String]),
+        (Identifier.Name("d"), RecursionKind.NonRecursive, Option.empty[String]),
         (Identifier.Name("a"), RecursionKind.NonRecursive, Option.empty[String]))
 
       val p1 = Program((), l1, Nil, ())
@@ -120,8 +123,11 @@ class ProgramTests extends FunSuite {
       }
 
       val expectl1 = List(
+        (Identifier.Name("b"), RecursionKind.NonRecursive, None),
         (Identifier.Name("a0"), RecursionKind.NonRecursive, None),
+        (Identifier.Name("c"), RecursionKind.NonRecursive, Some("a0")),
         (Identifier.Name("a1"), RecursionKind.NonRecursive, Some("a0")),
+        (Identifier.Name("d"), RecursionKind.NonRecursive, Some("a1")),
         (Identifier.Name("a"), RecursionKind.NonRecursive, Some("a1")))
       assert(up1.lets == expectl1)
     }
@@ -129,8 +135,11 @@ class ProgramTests extends FunSuite {
     {
       // recursive
       val l1 = List(
+        (Identifier.Name("b"), RecursionKind.Recursive, Option.empty[String]),
         (Identifier.Name("a"), RecursionKind.Recursive, Option.empty[String]),
+        (Identifier.Name("c"), RecursionKind.Recursive, Option.empty[String]),
         (Identifier.Name("a"), RecursionKind.Recursive, Option.empty[String]),
+        (Identifier.Name("d"), RecursionKind.Recursive, Option.empty[String]),
         (Identifier.Name("a"), RecursionKind.Recursive, Option.empty[String]))
 
       val p1 = Program((), l1, Nil, ())
@@ -144,8 +153,11 @@ class ProgramTests extends FunSuite {
       }
 
       val expectl1 = List(
+        (Identifier.Name("b"), RecursionKind.Recursive, None),
         (Identifier.Name("a0"), RecursionKind.Recursive, Some("a0")),
+        (Identifier.Name("c"), RecursionKind.Recursive, Some("a0")),
         (Identifier.Name("a1"), RecursionKind.Recursive, Some("a1")),
+        (Identifier.Name("d"), RecursionKind.Recursive, Some("a1")),
         (Identifier.Name("a"), RecursionKind.Recursive, None))
       assert(up1.lets == expectl1)
     }
