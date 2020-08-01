@@ -143,7 +143,14 @@ object Matchless {
         case (p, c) =>
           variantOf(p, c) match {
             case (Some(v), s) => MakeEnum(v, s)
-            case (None, s) => MakeStruct(s)
+            case (None, s) =>
+              /* We assume the structure of Lists to be standard linked lists
+               * Empty cannot be a struct
+               */
+
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(s"empty List should not be a struct, found: struct size: $s")
+              // $COVERAGE-ON$
           }
       }
 
@@ -288,10 +295,13 @@ object Matchless {
 
                           (resLet, Some(SearchList(anonList, arg, expr, leftOpt)), resBind)
                         case (_, None, _) =>
+                          // $COVERAGE-OFF$
+
                           // this shouldn't be possible, since there are no total list matches with
                           // one item since we recurse on a ListPat with the first item being Right
                           // which as we can see above always returns Some(_)
                           throw new IllegalStateException(s"$right should not be a total match")
+                          // $COVERAGE-ON$
                       }
                     }
                 }
@@ -299,6 +309,8 @@ object Matchless {
               // we search on the right side, so the left will match nothing
               // this should be banned by SourceConverter/TotalityChecker because
               // it is confusing, but it can be handled
+
+              // $COVERAGE-OFF$
               glob match {
                 case Pattern.ListPart.WildList =>
                   // no binding on the let
@@ -312,6 +324,7 @@ object Matchless {
                       }
                     }
               }
+              // $COVERAGE-ON$
           }
 
         case Pattern.Annotation(p, _) =>

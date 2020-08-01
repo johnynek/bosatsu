@@ -8,8 +8,10 @@ import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration}
 import Identifier.{Bindable, Constructor}
 import rankn.RefSpace
 
+import cats.implicits._
+
 class MatchlessTest extends FunSuite {
-  implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = 300)
+  implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = 1000)
 
   type Fn = (PackageName, Constructor) => (Option[Int], Int)
 
@@ -106,6 +108,43 @@ class MatchlessTest extends FunSuite {
         assert(stopped == nel)
         assert(nel.exists(fn) == false)
       }
+    }
+  }
+
+  test("Mathless.matchList works like SeqPattern") {
+    val genArgs: Gen[(List[Byte], List[Option[Byte => Option[Int]]])] = {
+      val bytes = Gen.choose(Byte.MinValue, Byte.MaxValue)
+      val size = Gen.choose(0, 20)
+      for {
+        s <- size
+        left <- Gen.listOfN(s, bytes)
+        sright <- Gen.choose(0, 2*s)
+        pat <- Gen.listOfN(sright, Arbitrary.arbitrary[Option[Byte => Option[Int]]])
+      } yield (left, pat)
+    }
+
+    import pattern.{SeqPattern, SeqPart, Splitter, Matcher}
+    def toSeqPat[A, B](pat: List[Option[A => Option[B]]]): SeqPattern[A => Option[B]] =
+      SeqPattern.fromList(pat.map {
+        case None => SeqPart.Wildcard
+        case Some(fn) =>SeqPart.Lit(fn)
+      })
+
+    val matcher = SeqPattern.matcher(
+      Splitter.listSplitter(new Matcher[Byte => Option[Int], Byte, Int] {
+        def apply(fn: Byte => Option[Int]) = fn
+      }))
+
+    forAll(genArgs) { case (targ, pat) =>
+      val seqPat = toSeqPat(pat)
+      val matchRes = matcher(seqPat)(targ)
+      val matchlessRes = Matchless.matchList(targ,
+        pat.map {
+          case None => Left { _: List[Byte] => 0 }
+          case Some(fn) => Right(fn)
+        })
+
+      assert(matchlessRes == matchRes)
     }
   }
 }
