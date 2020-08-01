@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Functor}
+import cats.{Applicative, Functor, Eval}
 import cats.data.{ Ior, NonEmptyChain, NonEmptyList, State }
 import cats.implicits._
 import org.bykn.bosatsu.rankn.{ParsedTypeEnv, Type, TypeEnv}
@@ -789,11 +789,14 @@ final class SourceConverter(
   private lazy val localTypeEnv: Result[TypeEnv[Any]] =
     toTypeEnv.map { p => importedTypeEnv ++ TypeEnv.fromParsed(p) }
 
-  private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
+  private def anonNameStrings(): Iterator[String] =
     rankn.Type
       .allBinders
       .iterator
       .map(_.name)
+
+  private def unusedNames(allNames: Bindable => Boolean): Iterator[Bindable] =
+    anonNameStrings()
       .map(Identifier.Name(_))
       .filterNot(allNames)
 
@@ -855,24 +858,62 @@ final class SourceConverter(
     }
   }
 
+  private def dupTopLevel(stmts: Stream[Statement.ValueStatement]): Map[Bindable, Int] = {
+    stmts.foldLeft(Map.empty[Bindable, Int]) { (m, s) =>
+      s.names.distinct.foldLeft(m) { (m, n) =>
+        val cnt = m.get(n) match {
+          case None => 0
+          case Some(c) => c
+        }
+        m.updated(n, cnt + 1)
+      }
+    }
+    .filter { case (_, v) => v > 1 }
+  }
+
   /**
    * Return the lets in order they appear
    */
   private def toLets(stmts: Stream[Statement.ValueStatement]): Result[List[(Bindable, RecursionKind, Expr[Declaration])]] = {
     import Statement._
 
-    // Each time we need a name, we can call anonNames.next()
-    // it is mutable, but in a limited scope
-    // this is lazy, because not all statements need anonymous names
-    lazy val anonNames: Iterator[Bindable] = {
-      // this is safe as a set because we only use it to filter
-      val allNames =
+    val dupTop = dupTopLevel(stmts)
+
+    /*
+     * renames is a queue for each name in the queue. We pop
+     * off a new name, and replace they key with that in
+     * everything up until the next item.
+     *
+     * TODO we need to move the code from Program here
+     * we should do this early, so that we can
+     * keep the invariant early that top level lets
+     * are all distinct
+     */
+    val (renames, names): (Map[Bindable, List[Bindable]], Eval[Set[Bindable]]) = {
+      lazy val allNames: Set[Bindable] =
         stmts
           .flatMap { v => v.names.iterator ++ v.allNames.iterator }
           .toSet
 
-      unusedNames(allNames)
+      if (dupTop.isEmpty) (Map.empty, Eval.later(allNames))
+      else {
+        val (n, r) =
+          dupTop
+            .foldLeft((allNames, Map.empty[Bindable, List[Bindable]])) { case ((newNames, res), (b, cnt)) =>
+              // we rename all but the last
+              val cands: Iterator[Bindable] = anonNameStrings().map(Identifier.appendToName(b, _))
+              // we don't want to reuse anything
+              val renames = cands.filterNot(newNames).take(cnt - 1).toList
+              (newNames ++ renames, res.updated(b, renames))
+            }
+          (r, Eval.now(n))
+      }
     }
+
+    // Each time we need a name, we can call anonNames.next()
+    // it is mutable, but in a limited scope
+    // this is lazy, because not all statements need anonymous names
+    lazy val anonNames: Iterator[Bindable] = unusedNames(names.value)
 
     def bindings(
       b: Pattern[(PackageName, Constructor), Type],
