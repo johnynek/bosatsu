@@ -2,6 +2,7 @@ package org.bykn.bosatsu
 
 import fastparse.all._
 
+import cats.{Apply, Functor}
 import Parser.{maybeSpacesAndLines, spacesAndLines, Combinators}
 import org.typelevel.paiges.{Doc, Document}
 
@@ -15,13 +16,19 @@ object ListLang {
     def value: A
 
     def map[B](fn: A => B): SpliceOrItem[B]
+    def traverse[F[_]: Functor, B](fn: A => F[B]): F[SpliceOrItem[B]]
+
   }
   object SpliceOrItem {
     case class Splice[A](value: A) extends SpliceOrItem[A] {
       def map[B](fn: A => B): Splice[B] = Splice(fn(value))
+      def traverse[F[_]: Functor, B](fn: A => F[B]): F[SpliceOrItem[B]] =
+        Functor[F].map(fn(value))(Splice(_))
     }
     case class Item[A](value: A) extends SpliceOrItem[A] {
       def map[B](fn: A => B): Item[B] = Item(fn(value))
+      def traverse[F[_]: Functor, B](fn: A => F[B]): F[SpliceOrItem[B]] =
+        Functor[F].map(fn(value))(Item(_))
     }
 
     def parser[A](pa: P[A]): P[SpliceOrItem[A]] =
@@ -36,6 +43,8 @@ object ListLang {
 
   case class KVPair[A](key: A, value: A) {
     def map[B](fn: A => B): KVPair[B] = KVPair(fn(key), fn(value))
+    def traverse[F[_]: Apply, B](fn: A => F[B]): F[KVPair[B]] =
+      Apply[F].map2(fn(key), fn(value))(KVPair(_, _))
   }
 
   object KVPair {

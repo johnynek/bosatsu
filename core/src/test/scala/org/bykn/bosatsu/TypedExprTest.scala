@@ -121,6 +121,29 @@ y = match x:
     }
   }
 
+  test("after substitution, a variable is no longer free") {
+    lazy val genNonFree: Gen[TypedExpr[Unit]] =
+     genTypedExpr.flatMap { te =>
+       if (TypedExpr.freeVars(te :: Nil).isEmpty) Gen.const(te)
+       else genNonFree
+     }
+
+    forAll(genTypedExpr, genNonFree) { (te0, te1) =>
+      TypedExpr.freeVars(te0 :: Nil) match {
+        case Nil => ()
+        case b :: _ =>
+          TypedExpr.substitute(b, te1, te0) match {
+            case None =>
+              // te1 has no free variables, this shouldn't fail
+              assert(false)
+
+            case Some(te0sub) =>
+              assert(!TypedExpr.freeVarsSet(te0sub :: Nil)(b))
+          }
+      }
+    }
+  }
+
   test("test some basic normalizations") {
     // inline lets of vars
     assert(TypedExpr.normalize(let("x", varTE("y", intTpe), varTE("x", intTpe))) ==
