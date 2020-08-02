@@ -66,25 +66,32 @@ final class SourceConverter(
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     })
 
-  private def resolveToVar(ident: Identifier, decl: Declaration, bound: Set[Bindable]): Expr[Declaration] =
+  private def resolveToVar(ident: Identifier, decl: Declaration, bound: Set[Bindable], topBound: Set[Bindable]): Expr[Declaration] =
     ident match {
       case c@Constructor(_) =>
         val (p, cons) = nameToCons(c)
         Expr.Global(p, cons, decl)
       case b: Bindable =>
         if (bound(b)) Expr.Local(b, decl)
+        else if (topBound(b)) {
+          // local top level bindings can shadow imports after they are imported
+          Expr.Global(thisPackage, b, decl)
+        }
         else {
           importedNames.get(ident) match {
             case Some((p, n)) => Expr.Global(p, n, decl)
-            case None => Expr.Global(thisPackage, b, decl)
+            case None =>
+              // this is an error, but it will be caught later
+              // at type-checking
+              Expr.Local(b, decl)
           }
         }
     }
 
-  private def apply(decl: Declaration, bound: Set[Bindable]): Result[Expr[Declaration]] = {
+  private def apply(decl: Declaration, bound: Set[Bindable], topBound: Set[Bindable]): Result[Expr[Declaration]] = {
     implicit val parAp = SourceConverter.parallelIor
-    def loop(decl: Declaration) = apply(decl, bound)
-    def withBound(decl: Declaration, newB: Iterable[Bindable]) = apply(decl, bound ++ newB)
+    def loop(decl: Declaration) = apply(decl, bound, topBound)
+    def withBound(decl: Declaration, newB: Iterable[Bindable]) = apply(decl, bound ++ newB, topBound)
 
     decl match {
       case Annotation(term, tpe) =>
@@ -93,7 +100,7 @@ final class SourceConverter(
         (loop(fn), args.toList.traverse(loop(_)))
           .mapN { Expr.buildApp(_, _, decl) }
       case ao@ApplyOp(left, op, right) =>
-        val opVar: Expr[Declaration] = resolveToVar(op, ao.opVar, bound)
+        val opVar: Expr[Declaration] = resolveToVar(op, ao.opVar, bound, topBound)
         (loop(left), loop(right)).mapN { (l, r) =>
           Expr.buildApp(opVar, l :: r :: Nil, decl)
         }
@@ -169,7 +176,7 @@ final class SourceConverter(
       case Parens(p) =>
         loop(p).map(_.as(decl))
       case Var(ident) =>
-        success(resolveToVar(ident, decl, bound))
+        success(resolveToVar(ident, decl, bound, topBound))
       case Match(_, arg, branches) =>
         /*
          * The recursion kind is only there for DefRecursionCheck, once
@@ -924,6 +931,15 @@ final class SourceConverter(
   }
   */
 
+
+  private def parFold[F[_], S, A, B](s0: S, as: List[A])(fn: (S, A) => (S, F[B]))(implicit F: Applicative[F]): F[List[B]] =
+    as match {
+      case Nil => F.pure(Nil)
+      case a :: tail =>
+        val (s1, f) = fn(s0, a)
+        (f, parFold(s1, tail)(fn)).mapN(_ :: _)
+    }
+
   /**
    * Return the lets in order they appear
    */
@@ -945,11 +961,12 @@ final class SourceConverter(
 
     val uniq = stmts.toList // TODO makeUnique(stmts.toList)
 
+    val topNames = uniq.flatMap(_.names)
     val topLevelBindings: Set[Bindable] =
       // TODO Fix this when we have makeUnique working
       // uniq.iterator.flatMap(_.names).toSet
       // if something only appears once, it is unambiguous
-      (uniq.flatMap(_.names))
+      topNames
         .groupBy(identity)
         .iterator
         .collect {
@@ -957,37 +974,48 @@ final class SourceConverter(
         }
         .toSet
 
+    parFold((Set.empty[Bindable], Set.empty[Bindable]), uniq) { case ((topDupe, topBound), stmt) =>
+      stmt match {
+        case b@Bind(BindingStatement(bound, decl, _)) =>
+          val bn = bound.names
+          val topDupe1 = topDupe ++ bn.filter(topLevelBindings)
+          val topBound1 = topBound ++ bn.filterNot(topLevelBindings)
 
-    uniq.traverse {
-      case b@Bind(BindingStatement(bound, decl, _)) =>
-        val pat = convertPattern(bound, b.region)
-        val newBound = topLevelBindings ++ bound.names
-        val rdec = apply(decl, newBound)
-        (pat, rdec).mapN { (p, d) =>
-          bindings(p, d)(newName)
-            .toList
-            .map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
-        }
-      case Def(defstmt@DefStatement(n, pat, _, _)) =>
-        // using body for the outer here is a bummer, but not really a good outer otherwise
-        val newBound = (topLevelBindings + n) ++ pat.flatMap(_.names)
-        val lam = defstmt.toLambdaExpr(
-          { res => apply(res.get, newBound) },
-          success(defstmt.result.get))(
-            convertPattern(_, defstmt.result.get.region),
-            { t => success(toType(t)) })
+          val pat = convertPattern(bound, b.region)
+          val rdec = apply(decl, topDupe1, topBound1)
+          val r = (pat, rdec).mapN { (p, d) =>
+            bindings(p, d)(newName)
+              .toList
+              .map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
+          }
 
-        lam.map { l =>
-          // We rely on DefRecursionCheck to rule out bad recursions
-          val boundName = defstmt.name
-          val rec =
-            if (UnusedLetCheck.freeBound(l).contains(boundName)) RecursionKind.Recursive
-            else RecursionKind.NonRecursive
-          (boundName, rec, l) :: Nil
-        }
-      case ExternalDef(_, _, _) =>
-        success(Nil)
-    }
+          ((topDupe1, topBound1), r)
+        case Def(defstmt@DefStatement(n, pat, _, _)) =>
+          // using body for the outer here is a bummer, but not really a good outer otherwise
+          val (topDupe1, topBound1) =
+            if (topLevelBindings(n)) (topDupe + n, topBound) else (topDupe, topBound + n)
+          // we always consider name in local scope for a def
+          val newBound = (topDupe1 + n) ++ pat.flatMap(_.names)
+
+          val lam = defstmt.toLambdaExpr(
+            { res => apply(res.get, newBound, topBound1) },
+            success(defstmt.result.get))(
+              convertPattern(_, defstmt.result.get.region),
+              { t => success(toType(t)) })
+
+          val r = lam.map { l =>
+            // We rely on DefRecursionCheck to rule out bad recursions
+            val boundName = defstmt.name
+            val rec =
+              if (UnusedLetCheck.freeBound(l).contains(boundName)) RecursionKind.Recursive
+              else RecursionKind.NonRecursive
+            (boundName, rec, l) :: Nil
+          }
+          ((topDupe1, topBound1), r)
+        case ExternalDef(n, _, _) =>
+          ((topDupe, topBound + n), success(Nil))
+      }
+    }(SourceConverter.parallelIor)
     .map(_.flatten)
   }
 
