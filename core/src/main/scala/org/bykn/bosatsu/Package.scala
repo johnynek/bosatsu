@@ -198,20 +198,13 @@ object Package {
                 .iterator
                 .map { case ((p, n), t) => ((Some(p), n), t) }
 
-            val localImported =
-              Referant.importedValues(imps)
-                .iterator
-                .map { case (n, t) => ((None, n), t) }
-
+            // these are local construtors/externals
             val localDefined =
               typeEnv.localValuesOf(p)
                 .iterator
-                .flatMap {
-                  case (n: Identifier.Bindable, t) => ((None, n), t) :: Nil
-                  case (c@Identifier.Constructor(_), t) => ((Some(p), c), t) :: Nil
-                }
+                .map { case (n, t) => ((Some(p), n), t) }
 
-            (fqn ++ localImported ++ localDefined).toMap
+            (fqn ++ localDefined).toMap
           }
 
           val fullTypeEnv = importedTypeEnv ++ typeEnv
@@ -220,7 +213,7 @@ object Package {
               .traverse { case (_, _, expr) => TotalityCheck(fullTypeEnv).checkExpr(expr) }
               .leftMap { errs => errs.map(PackageError.TotalityCheckError(p, _)) }
 
-          val inferenceEither = Infer.typeCheckLets(lets)
+          val inferenceEither = Infer.typeCheckLets(p, lets)
             .runFully(withFQN,
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
             )

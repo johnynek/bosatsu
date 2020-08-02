@@ -46,11 +46,12 @@ x = match B(100):
   }
 
   test("freeVars on simple cases works") {
+    // id and x are fully resolved to top level
     checkLast("""#
 x = 1
 def id(x): x
 y = id(x)
-""") { te => assert(TypedExpr.freeVars(te :: Nil) == List(Name("id"), Name("x"))) }
+""") { te => assert(TypedExpr.freeVars(te :: Nil) == Nil) }
 
     checkLast("""#
 x = 1
@@ -65,6 +66,8 @@ x = Tup2(1, 2)
     checkLast("""#
 struct Tup2(a, b)
 
+# since x is duplicated, it is not (yet) resolved to package
+x = 23
 x = Tup2(1, 2)
 y = match x:
   Tup2(a, _): a

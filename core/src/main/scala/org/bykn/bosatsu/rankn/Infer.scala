@@ -1095,17 +1095,20 @@ object Infer {
   def extendEnvList[A](bindings: List[(Bindable, Type)])(of: Infer[A]): Infer[A] =
     Infer.Impl.ExtendEnvs(bindings.map { case (n, t) => ((None, n), t) }, of)
 
+  private def extendEnvPack[A](pack: PackageName, name: Bindable, tpe: Type)(of: Infer[A]): Infer[A] =
+    Infer.Impl.ExtendEnvs(((Some(pack), name), tpe) :: ((None, name), tpe) :: Nil, of)
+
   /**
    * Packages are generally just lists of lets, this allows you to infer
    * the scheme for each in the context of the list
    */
-  def typeCheckLets[A: HasRegion](ls: List[(Bindable, RecursionKind, Expr[A])]): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] =
+  def typeCheckLets[A: HasRegion](pack: PackageName, ls: List[(Bindable, RecursionKind, Expr[A])]): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] =
     ls match {
       case Nil => Infer.pure(Nil)
       case (nm, rec, expr) :: tail =>
         for {
           te <- if (rec.isRecursive) recursiveTypeCheck(nm, expr) else typeCheck(expr)
-          rest <- extendEnv(nm, te.getType)(typeCheckLets(tail))
+          rest <- extendEnvPack(pack, nm, te.getType)(typeCheckLets(pack, tail))
         } yield (nm, rec, te) :: rest
     }
 

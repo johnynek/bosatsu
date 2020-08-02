@@ -44,6 +44,11 @@ final class SourceConverter(
   private val resolveImportedCons: Map[Identifier, (PackageName, Constructor)] =
     Referant.importedConsNames(imports)
 
+  private val importedNames: Map[Identifier, (PackageName, Identifier)] =
+    imports.foldLeft(Map.empty[Identifier, (PackageName, Identifier)]) { (m, imp) =>
+      m ++ imp.resolveToGlobal
+    }
+
   val importedTypeEnv = Referant.importedTypeEnv(imports)(identity)
 
   private def nameToType(c: Constructor): rankn.Type.Const =
@@ -61,34 +66,39 @@ final class SourceConverter(
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     })
 
-  private def resolveToVar(ident: Identifier, decl: Declaration): Expr[Declaration] =
+  private def resolveToVar(ident: Identifier, decl: Declaration, bound: Set[Bindable]): Expr[Declaration] =
     ident match {
       case c@Constructor(_) =>
         val (p, cons) = nameToCons(c)
         Expr.Global(p, cons, decl)
       case b: Bindable =>
-        // it would be nice to be more
-        // precise and track local scope to see
-        // if we can fully resolve this, i.e.
-        // it is not shadowed and it is imported
-        Expr.Local(b, decl)
+        if (bound(b)) Expr.Local(b, decl)
+        else {
+          importedNames.get(ident) match {
+            case Some((p, n)) => Expr.Global(p, n, decl)
+            case None => Expr.Global(thisPackage, b, decl)
+          }
+        }
     }
 
-  private def apply(decl: Declaration): Result[Expr[Declaration]] = {
+  private def apply(decl: Declaration, bound: Set[Bindable]): Result[Expr[Declaration]] = {
     implicit val parAp = SourceConverter.parallelIor
+    def loop(decl: Declaration) = apply(decl, bound)
+    def withBound(decl: Declaration, newB: Iterable[Bindable]) = apply(decl, bound ++ newB)
+
     decl match {
       case Annotation(term, tpe) =>
-        apply(term).map(Expr.Annotation(_, toType(tpe), decl))
+        loop(term).map(Expr.Annotation(_, toType(tpe), decl))
       case Apply(fn, args, _) =>
-        (apply(fn), args.toList.traverse(apply(_)))
+        (loop(fn), args.toList.traverse(loop(_)))
           .mapN { Expr.buildApp(_, _, decl) }
       case ao@ApplyOp(left, op, right) =>
-        val opVar: Expr[Declaration] = resolveToVar(op, ao.opVar)
-        (apply(left), apply(right)).mapN { (l, r) =>
+        val opVar: Expr[Declaration] = resolveToVar(op, ao.opVar, bound)
+        (loop(left), loop(right)).mapN { (l, r) =>
           Expr.buildApp(opVar, l :: r :: Nil, decl)
         }
       case Binding(BindingStatement(pat, value, prest@Padding(_, rest))) =>
-        val erest = apply(rest)
+        val erest = withBound(rest, pat.names)
 
         def solvePat(pat: Pattern.Parsed, rrhs: Result[Expr[Declaration]]): Result[Expr[Declaration]] =
           pat match {
@@ -114,15 +124,16 @@ final class SourceConverter(
               }
           }
 
-        solvePat(pat, apply(value))
+        solvePat(pat, loop(value))
       case Comment(CommentStatement(_, Padding(_, decl))) =>
-        apply(decl).map(_.as(decl))
+        loop(decl).map(_.as(decl))
       case DefFn(defstmt@DefStatement(_, _, _, _)) =>
         val inExpr = defstmt.result match {
-          case (_, Padding(_, in)) => apply(in)
+          case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
         }
+        val newBindings = defstmt.name :: defstmt.args.flatMap(_.names)
         // TODO
-        val lambda = defstmt.toLambdaExpr({ res => apply(res._1.get) }, success(decl))(
+        val lambda = defstmt.toLambdaExpr({ res => withBound(res._1.get, newBindings) }, success(decl))(
           convertPattern(_, decl.region), { t => success(toType(t)) })
         (inExpr, lambda).mapN { (in, lam) =>
           // We rely on DefRecursionCheck to rule out bad recursions
@@ -133,32 +144,32 @@ final class SourceConverter(
           Expr.Let(boundName, lam, in, recursive = rec, decl)
         }
       case IfElse(ifCases, elseCase) =>
-        def apply0(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
+        def loop0(ifs: NonEmptyList[(Expr[Declaration], Expr[Declaration])], elseC: Expr[Declaration]): Expr[Declaration] =
           ifs match {
             case NonEmptyList((cond, ifTrue), Nil) =>
               Expr.ifExpr(cond, ifTrue, elseC, decl)
             case NonEmptyList(ifTrue, h :: tail) =>
-              val elseC1 = apply0(NonEmptyList(h, tail), elseC)
-              apply0(NonEmptyList.of(ifTrue), elseC1)
+              val elseC1 = loop0(NonEmptyList(h, tail), elseC)
+              loop0(NonEmptyList.of(ifTrue), elseC1)
           }
         val if1 = ifCases.traverse { case (d0, d1) =>
-          apply(d0).product(apply(d1.get))
+          loop(d0).product(loop(d1.get))
         }
-        val else1 = apply(elseCase.get)
+        val else1 = loop(elseCase.get)
 
-        (if1, else1).mapN(apply0(_, _))
+        (if1, else1).mapN(loop0(_, _))
       case Lambda(args, body) =>
         val argsRes = args.traverse(convertPattern(_, decl.region))
-        val bodyRes = apply(body)
+        val bodyRes = withBound(body, args.toList.flatMap(_.names))
         (argsRes, bodyRes).mapN { (args, body) =>
           Expr.buildPatternLambda(args, body, decl)
         }
       case Literal(lit) =>
         success(Expr.Literal(lit, decl))
       case Parens(p) =>
-        apply(p).map(_.as(decl))
+        loop(p).map(_.as(decl))
       case Var(ident) =>
-        success(resolveToVar(ident, decl))
+        success(resolveToVar(ident, decl, bound))
       case Match(_, arg, branches) =>
         /*
          * The recursion kind is only there for DefRecursionCheck, once
@@ -167,9 +178,9 @@ final class SourceConverter(
         val expBranches = branches.get.traverse { case (pat, oidecl) =>
           val decl = oidecl.get
           val newPattern = convertPattern(pat, decl.region)
-          newPattern.product(apply(decl))
+          newPattern.product(withBound(decl, pat.names))
         }
-        (apply(arg), expBranches).mapN(Expr.Match(_, _, decl))
+        (loop(arg), expBranches).mapN(Expr.Match(_, _, decl))
       case m@Matches(a, p) =>
         // x matches p ==
         // match x:
@@ -177,7 +188,7 @@ final class SourceConverter(
         //   _: False
         val True: Expr[Declaration] = Expr.Global(PackageName.PredefName, Identifier.Constructor("True"), m)
         val False: Expr[Declaration] = Expr.Global(PackageName.PredefName, Identifier.Constructor("False"), m)
-        (apply(a), convertPattern(p, m.region)).mapN { (a, p) =>
+        (loop(a), convertPattern(p, m.region)).mapN { (a, p) =>
           val branches = NonEmptyList((p, True), (Pattern.WildCard, False) :: Nil)
           Expr.Match(a, branches, m)
         }
@@ -189,7 +200,7 @@ final class SourceConverter(
             case Nil => success(tup0)
             case h :: tail =>
               val tailExp = tup(tail)
-              val headExp = apply(h)
+              val headExp = loop(h)
               (headExp, tailExp).mapN { (h, t) =>
                 Expr.buildApp(tup2, h :: t :: Nil, tc)
               }
@@ -207,12 +218,12 @@ final class SourceConverter(
 
         decls match {
           case NonEmptyList(one, Nil) =>
-            apply(one)
+            loop(one)
           case twoOrMore =>
             val lldecl =
               ListDecl(ListLang.Cons(twoOrMore.toList.map(SpliceOrItem.Item(_))))(s.region)
 
-            apply(lldecl).map { listExpr =>
+            loop(lldecl).map { listExpr =>
 
               val fnName: Expr[Declaration] =
                 Expr.Global(PackageName.PredefName, Identifier.Name("concat_String"), s)
@@ -226,9 +237,9 @@ final class SourceConverter(
             val revDecs: Result[List[SpliceOrItem[Expr[Declaration]]]] =
               items.reverse.traverse {
                 case SpliceOrItem.Splice(s) =>
-                  apply(s).map(SpliceOrItem.Splice(_))
+                  loop(s).map(SpliceOrItem.Splice(_))
                 case SpliceOrItem.Item(item) =>
-                  apply(item).map(SpliceOrItem.Item(_))
+                  loop(item).map(SpliceOrItem.Item(_))
               }
 
             val pn = PackageName.PredefName
@@ -280,10 +291,11 @@ final class SourceConverter(
               case (SpliceOrItem.Item(_) | SpliceOrItem.Splice(_), _) =>
                 "flat_map_List"
             }
+            val newBound = binding.names
             val opExpr: Expr[Declaration] = Expr.Global(pn, Identifier.Name(opName), l)
             val resExpr: Result[Expr[Declaration]] =
               filter match {
-                case None => apply(res.value)
+                case None => withBound(res.value, newBound)
                 case Some(cond) =>
                   // To do filters, we lift all results into lists,
                   // so single items must be made singleton lists
@@ -293,22 +305,22 @@ final class SourceConverter(
                     case SpliceOrItem.Item(r) =>
                       val rdec: Declaration = r
                       // here we lift the result into a a singleton list
-                      apply(r).map { ritem =>
+                      withBound(r, newBound).map { ritem =>
                         Expr.App(
                           Expr.App(Expr.Global(pn, Identifier.Constructor("NonEmptyList"), rdec), ritem, rdec),
                           empty,
                           rdec)
                       }
-                    case SpliceOrItem.Splice(r) => apply(r)
+                    case SpliceOrItem.Splice(r) => withBound(r, newBound)
                   }
 
-                  (apply(cond), ressing).mapN { (c, sing) =>
+                  (withBound(cond, newBound), ressing).mapN { (c, sing) =>
                     Expr.ifExpr(c, sing, empty, cond)
                   }
               }
             (convertPattern(binding, decl.region),
               resExpr,
-              apply(in)).mapN { (newPattern, resExpr, in) =>
+              loop(in)).mapN { (newPattern, resExpr, in) =>
               val fnExpr: Expr[Declaration] =
                 Expr.buildPatternLambda(NonEmptyList.of(newPattern), resExpr, l)
               Expr.buildApp(opExpr, in :: fnExpr :: Nil, l)
@@ -330,7 +342,7 @@ final class SourceConverter(
             val revDecs: Result[List[KVPair[Expr[Declaration]]]] =
               items.reverse.traverse {
                 case KVPair(k, v) =>
-                  (apply(k), apply(v)).mapN(KVPair(_, _))
+                  (loop(k), loop(v)).mapN(KVPair(_, _))
               }
             revDecs.map(_.foldLeft(empty) {
               case (dict, KVPair(k, v)) => add(dict, k, v)
@@ -349,16 +361,17 @@ final class SourceConverter(
              *   )
              */
 
+            val newBound = binding.names
             val pn = PackageName.PredefName
             val opExpr: Expr[Declaration] = Expr.Global(pn, Identifier.Name("foldLeft"), l)
             val dictSymbol = unusedNames(decl.allNames).next
             val init: Expr[Declaration] = Expr.Local(dictSymbol, l)
-            val added = (apply(k), apply(v)).mapN(add(init, _, _))
+            val added = (withBound(k, newBound), withBound(v, newBound)).mapN(add(init, _, _))
 
             val resExpr: Result[Expr[Declaration]] = filter match {
               case None => added
               case Some(cond0) =>
-                (added, apply(cond0)).mapN { (added, cond) =>
+                (added, withBound(cond0, newBound)).mapN { (added, cond) =>
                   Expr.ifExpr(cond,
                     added,
                     init,
@@ -366,7 +379,7 @@ final class SourceConverter(
                 }
             }
             val newPattern = convertPattern(binding, decl.region)
-            (newPattern, resExpr, apply(in)).mapN { (pat, res, in) =>
+            (newPattern, resExpr, loop(in)).mapN { (pat, res, in) =>
               val foldFn = Expr.Lambda(dictSymbol,
                 Expr.buildPatternLambda(
                   NonEmptyList(pat, Nil),
@@ -386,7 +399,7 @@ final class SourceConverter(
                   case RecordArg.Simple(b) =>
                     (b, success(Expr.Local(b, rc)))
                   case RecordArg.Pair(k, v) =>
-                    (k, apply(v))
+                    (k, loop(v))
                 }
               val mappingList = args.toList.map(argExpr)
               val mapping = mappingList.toMap
@@ -858,98 +871,124 @@ final class SourceConverter(
     }
   }
 
+  private def bindings(
+    b: Pattern[(PackageName, Constructor), Type],
+    decl: Expr[Declaration])(alloc: () => Bindable): NonEmptyList[(Bindable, Expr[Declaration])] =
+    b match {
+      case Pattern.Var(nm) =>
+        NonEmptyList((nm, decl), Nil)
+      case Pattern.Annotation(p, tpe) =>
+        // we can just move the annotation to the expr:
+        bindings(p, Expr.Annotation(decl, tpe, decl.tag))(alloc)
+      case complex =>
+        val (prefix, rightHandSide) = decl match {
+          case n: Expr.Name[Declaration] =>
+            // no need to make a new var to point to a var
+            (Nil, n)
+          case _ =>
+            val ident = alloc()
+            val v = Expr.Local(ident, decl.tag)
+            ((ident, decl) :: Nil, v)
+        }
+
+        val tail: List[(Bindable, Expr[Declaration])] =
+          complex.names.map { nm =>
+            val pat = complex.filterVars(_ == nm)
+            (nm, Expr.Match(rightHandSide,
+              NonEmptyList((pat, Expr.Local(nm, decl.tag)), Nil), decl.tag))
+          }
+
+        def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
+          ls match {
+            case Nil => tail
+            case h :: t => NonEmptyList(h, t ::: tail.toList)
+          }
+
+        NonEmptyList.fromList(tail) match {
+          case Some(netail) =>
+            concat(prefix, netail)
+          case None =>
+            // there are no names to bind here, but we still need to typecheck the match
+            val dummy = alloc()
+            val pat = complex.unbind
+            val shapeMatch = (dummy,
+              Expr.Match(rightHandSide,
+                NonEmptyList.of((pat, Expr.Literal(Lit.fromInt(0), decl.tag))), decl.tag))
+            concat(prefix, NonEmptyList(shapeMatch, Nil))
+          }
+    }
+
+  /*
+  private def makeUnique(stmts: List[Statement.ValueStatement]): List[Statement.ValueStatement] = {
+    stmts
+  }
+  */
+
   /**
    * Return the lets in order they appear
    */
   private def toLets(stmts: Stream[Statement.ValueStatement]): Result[List[(Bindable, RecursionKind, Expr[Declaration])]] = {
     import Statement._
 
-    lazy val allNames: Set[Bindable] =
-      stmts
-        .flatMap { v => v.names.iterator ++ v.allNames.iterator }
+    val newName: () => Bindable = {
+      lazy val allNames: Set[Bindable] =
+        stmts
+          .flatMap { v => v.names.iterator ++ v.allNames.iterator }
+          .toSet
+
+      // Each time we need a name, we can call anonNames.next()
+      // it is mutable, but in a limited scope
+      // this is lazy, because not all statements need anonymous names
+      lazy val anonNames: Iterator[Bindable] = unusedNames(allNames)
+      () => anonNames.next()
+    }
+
+    val uniq = stmts.toList // TODO makeUnique(stmts.toList)
+
+    val topLevelBindings: Set[Bindable] =
+      // TODO Fix this when we have makeUnique working
+      // uniq.iterator.flatMap(_.names).toSet
+      // if something only appears once, it is unambiguous
+      (uniq.flatMap(_.names))
+        .groupBy(identity)
+        .iterator
+        .collect {
+          case (k, vs) if vs.lengthCompare(1) > 0 => k
+        }
         .toSet
 
-    // Each time we need a name, we can call anonNames.next()
-    // it is mutable, but in a limited scope
-    // this is lazy, because not all statements need anonymous names
-    lazy val anonNames: Iterator[Bindable] = unusedNames(allNames)
 
-    def bindings(
-      b: Pattern[(PackageName, Constructor), Type],
-      decl: Expr[Declaration]): NonEmptyList[(Bindable, Expr[Declaration])] =
-      b match {
-        case Pattern.Var(nm) =>
-          NonEmptyList((nm, decl), Nil)
-        case Pattern.Annotation(p, tpe) =>
-          // we can just move the annotation to the expr:
-          bindings(p, Expr.Annotation(decl, tpe, decl.tag))
-        case complex =>
-          val (prefix, rightHandSide) = decl match {
-            case n: Expr.Name[Declaration] =>
-              // no need to make a new var to point to a var
-              (Nil, n)
-            case _ =>
-              val ident = anonNames.next()
-              val v = Expr.Local(ident, decl.tag)
-              ((ident, decl) :: Nil, v)
-          }
+    uniq.traverse {
+      case b@Bind(BindingStatement(bound, decl, _)) =>
+        val pat = convertPattern(bound, b.region)
+        val newBound = topLevelBindings ++ bound.names
+        val rdec = apply(decl, newBound)
+        (pat, rdec).mapN { (p, d) =>
+          bindings(p, d)(newName)
+            .toList
+            .map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
+        }
+      case Def(defstmt@DefStatement(n, pat, _, _)) =>
+        // using body for the outer here is a bummer, but not really a good outer otherwise
+        val newBound = (topLevelBindings + n) ++ pat.flatMap(_.names)
+        val lam = defstmt.toLambdaExpr(
+          { res => apply(res.get, newBound) },
+          success(defstmt.result.get))(
+            convertPattern(_, defstmt.result.get.region),
+            { t => success(toType(t)) })
 
-          val tail: List[(Bindable, Expr[Declaration])] =
-            complex.names.map { nm =>
-              val pat = complex.filterVars(_ == nm)
-              (nm, Expr.Match(rightHandSide,
-                NonEmptyList((pat, Expr.Local(nm, decl.tag)), Nil), decl.tag))
-            }
-
-          def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
-            ls match {
-              case Nil => tail
-              case h :: t => NonEmptyList(h, t ::: tail.toList)
-            }
-
-          NonEmptyList.fromList(tail) match {
-            case Some(netail) =>
-              concat(prefix, netail)
-            case None =>
-              // there are no names to bind here, but we still need to typecheck the match
-              val dummy = anonNames.next()
-              val pat = complex.unbind
-              val shapeMatch = (dummy,
-                Expr.Match(rightHandSide,
-                  NonEmptyList.of((pat, Expr.Literal(Lit.fromInt(0), decl.tag))), decl.tag))
-              concat(prefix, NonEmptyList(shapeMatch, Nil))
-            }
-      }
-
-      stmts.traverse {
-        case b@Bind(BindingStatement(bound, decl, _)) =>
-          val pat = convertPattern(bound, b.region)
-          val rdec = apply(decl)
-          (pat, rdec).mapN { (p, d) =>
-            bindings(p, d)
-              .toList
-              .map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
-          }
-        case Def(defstmt@DefStatement(_, _, _, _)) =>
-          // using body for the outer here is a bummer, but not really a good outer otherwise
-          val lam = defstmt.toLambdaExpr(
-            { res => apply(res.get) },
-            success(defstmt.result.get))(
-              convertPattern(_, defstmt.result.get.region),
-              { t => success(toType(t)) })
-
-          lam.map { l =>
-            // We rely on DefRecursionCheck to rule out bad recursions
-            val boundName = defstmt.name
-            val rec =
-              if (UnusedLetCheck.freeBound(l).contains(boundName)) RecursionKind.Recursive
-              else RecursionKind.NonRecursive
-            (boundName, rec, l) :: Nil
-          }
-        case ExternalDef(_, _, _) =>
-          success(Nil)
-      }
-      .map(_.toList.flatten)
+        lam.map { l =>
+          // We rely on DefRecursionCheck to rule out bad recursions
+          val boundName = defstmt.name
+          val rec =
+            if (UnusedLetCheck.freeBound(l).contains(boundName)) RecursionKind.Recursive
+            else RecursionKind.NonRecursive
+          (boundName, rec, l) :: Nil
+        }
+      case ExternalDef(_, _, _) =>
+        success(Nil)
+    }
+    .map(_.flatten)
   }
 
   def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] = {

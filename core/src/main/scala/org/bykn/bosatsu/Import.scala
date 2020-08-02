@@ -56,7 +56,12 @@ object ImportedName {
   }
 }
 
-case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]])
+case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
+  def resolveToGlobal: Map[Identifier, (A, Identifier)] =
+    items.foldLeft(Map.empty[Identifier, (A, Identifier)]) { case (m0, impName) =>
+      m0.updated(impName.localName, (pack, impName.originalName))
+    }
+}
 
 object Import {
   implicit val document: Document[Import[PackageName, Unit]] =
