@@ -925,22 +925,16 @@ final class SourceConverter(
             (nm, makeMatch(pat, Var(nm)(decl.region)))
           }
 
-        def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
-          ls match {
-            case Nil => tail
-            case h :: t => NonEmptyList(h, t ::: tail.toList)
-          }
-
         NonEmptyList.fromList(tail) match {
           case Some(netail) =>
-            concat(prefix, netail)
+            SourceConverter.concat(prefix, netail)
           case None =>
             // there are no names to bind here, but we still need to typecheck the match
             val dummy = alloc()
             val pat = complex.unbind
             val matchD = makeMatch(pat, Literal(Lit.fromInt(0))(decl.region))
             val shapeMatch = (dummy, matchD)
-            concat(prefix, NonEmptyList(shapeMatch, Nil))
+            SourceConverter.concat(prefix, NonEmptyList(shapeMatch, Nil))
           }
     }
 
@@ -1008,13 +1002,19 @@ final class SourceConverter(
             case Left(d@Def(dstmt)) =>
               val d1 = if (dstmt.name === bind) dstmt.copy(name = newNameV) else dstmt
               val res =
-                dstmt.result.map { body =>
-                  Declaration.substitute(bind, Var(newNameV)(body.region), body) match {
-                    case Some(body1) => body1
-                    case None =>
-                      // $COVERAGE-OFF$
-                      throw new IllegalStateException("we know newName can't mask")
-                      // $COVERAGE-ON$
+                if (dstmt.args.iterator.flatMap(_.names).exists(_ == bind)) {
+                  // the args are shadowing the binding, so we don't need to substitute
+                  dstmt.result
+                }
+                else {
+                  dstmt.result.map { body =>
+                    Declaration.substitute(bind, Var(newNameV)(body.region), body) match {
+                      case Some(body1) => body1
+                      case None =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException("we know newName can't mask")
+                        // $COVERAGE-ON$
+                    }
                   }
                 }
               Left(Def(d1.copy(result = res))(d.region))
@@ -1134,6 +1134,12 @@ object SourceConverter {
     localDefs: Stream[TypeDefinitionStatement]): SourceConverter =
     new SourceConverter(thisPackage, imports, localDefs)
 
+  private def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
+    ls match {
+      case Nil => tail
+      case h :: t => NonEmptyList(h, t ::: tail.toList)
+    }
+
   /**
    * For all duplicate binds, for all but the final
    * value, rename them
@@ -1167,7 +1173,12 @@ object SourceConverter {
               // the old b1 is in scope for this one
               ((b, r, fn(d)) :: acc).reverse ::: tail
             }
-          case Nil => acc.reverse
+          case Nil =>
+            // $COVERAGE-OFF$
+            // this can't happen because we don't rename the very last,
+            // and we only call this method on names that are repeated
+            throw new IllegalStateException(s"didn't find $name in list of lets: ${acc.reverse}")
+            // $COVERAGE-ON$
           case (b, r, d) :: tail =>
             // this b is different from name, but may reference it
             val d1 = fn(d)

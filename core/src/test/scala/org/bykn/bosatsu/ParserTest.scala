@@ -250,6 +250,15 @@ class ParserTest extends ParserTestBase {
     examples.foreach(roundTrip(Identifier.parser, _))
   }
 
+  test("we can append to an identifier and parse it") {
+    forAll(Generators.bindIdentGen, Arbitrary.arbitrary[String]) { (b, str) =>
+      val i1 = Identifier.appendToName(b, str)
+
+      val src = i1.sourceCodeRepr
+      assert(Identifier.unsafe(src).sourceCodeRepr == src)
+    }
+  }
+
   test("we can parse lists") {
     forAll { (ls: List[Long], spaceCnt0: Int) =>
       val spaceCount = spaceCnt0 & 7

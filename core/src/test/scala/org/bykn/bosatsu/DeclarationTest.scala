@@ -48,4 +48,17 @@ class DeclarationTest extends FunSuite {
       }
     }
   }
+
+  test("isCheap is constant under Annotation or Parens") {
+    forAll(genDecl) { d =>
+      val an = Declaration.Annotation(d.toNonBinding, null)(null)
+      assert(an.isCheap == d.isCheap)
+      val p = Declaration.Parens(d)(null)
+      assert(p.isCheap == d.isCheap)
+    }
+
+    assert(Declaration.Var(Identifier.Name(""))(null).isCheap)
+    assert(Declaration.Literal(Lit(""))(null).isCheap)
+    assert(Declaration.Literal(Lit.fromInt(0))(null).isCheap)
+  }
 }
