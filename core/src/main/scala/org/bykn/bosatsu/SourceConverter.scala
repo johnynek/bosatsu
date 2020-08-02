@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.{Applicative, Functor}
-import cats.data.{ Ior, NonEmptyChain, NonEmptyList, State }
+import cats.data.{ Chain, Ior, NonEmptyChain, NonEmptyList, State }
 import cats.implicits._
 import org.bykn.bosatsu.rankn.{ParsedTypeEnv, Type, TypeEnv}
 import scala.collection.immutable.SortedSet
@@ -404,7 +404,7 @@ final class SourceConverter(
               def argExpr(arg: RecordArg): (Bindable, Result[Expr[Declaration]]) =
                 arg match {
                   case RecordArg.Simple(b) =>
-                    (b, success(Expr.Local(b, rc)))
+                    (b, success(resolveToVar(b, rc, bound, topBound)))
                   case RecordArg.Pair(k, v) =>
                     (k, loop(v))
                 }
@@ -878,53 +878,7 @@ final class SourceConverter(
     }
   }
 
-  private def bindings(
-    b: Pattern[(PackageName, Constructor), Type],
-    decl: Expr[Declaration])(alloc: () => Bindable): NonEmptyList[(Bindable, Expr[Declaration])] =
-    b match {
-      case Pattern.Var(nm) =>
-        NonEmptyList((nm, decl), Nil)
-      case Pattern.Annotation(p, tpe) =>
-        // we can just move the annotation to the expr:
-        bindings(p, Expr.Annotation(decl, tpe, decl.tag))(alloc)
-      case complex =>
-        val (prefix, rightHandSide) = decl match {
-          case n: Expr.Name[Declaration] =>
-            // no need to make a new var to point to a var
-            (Nil, n)
-          case _ =>
-            val ident = alloc()
-            val v = Expr.Local(ident, decl.tag)
-            ((ident, decl) :: Nil, v)
-        }
-
-        val tail: List[(Bindable, Expr[Declaration])] =
-          complex.names.map { nm =>
-            val pat = complex.filterVars(_ == nm)
-            (nm, Expr.Match(rightHandSide,
-              NonEmptyList((pat, Expr.Local(nm, decl.tag)), Nil), decl.tag))
-          }
-
-        def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
-          ls match {
-            case Nil => tail
-            case h :: t => NonEmptyList(h, t ::: tail.toList)
-          }
-
-        NonEmptyList.fromList(tail) match {
-          case Some(netail) =>
-            concat(prefix, netail)
-          case None =>
-            // there are no names to bind here, but we still need to typecheck the match
-            val dummy = alloc()
-            val pat = complex.unbind
-            val shapeMatch = (dummy,
-              Expr.Match(rightHandSide,
-                NonEmptyList.of((pat, Expr.Literal(Lit.fromInt(0), decl.tag))), decl.tag))
-            concat(prefix, NonEmptyList(shapeMatch, Nil))
-          }
-    }
-
+  // Flatten pattern bindings out
   private def bindingsDecl(
     b: Pattern.Parsed,
     decl: Declaration)(alloc: () => Bindable): NonEmptyList[(Bindable, Declaration)] =
@@ -942,6 +896,8 @@ final class SourceConverter(
         val ident = alloc()
         NonEmptyList((ident, decl), Nil)
       case complex =>
+        // TODO, flattening the pattern (a, b, c, d) = (1, 2, 3, 4) might be nice...
+        // that is not done yet, it will allocate the tuple, just to destructure it
         val (prefix, rightHandSide) =
           if (decl.isCheap) {
             // no need to make a new var to point to a var
@@ -988,20 +944,23 @@ final class SourceConverter(
           }
     }
 
-  /*
-  private def makeUnique(stmts: List[Statement.ValueStatement]): List[Statement.ValueStatement] = {
-    stmts
+  private def parFold[F[_], S, A, B](s0: S, as: List[A])(fn: (S, A) => (S, F[B]))(implicit F: Applicative[F]): F[List[B]] = {
+    val avec = as.toVector
+    def loop(start: Int, end: Int, s: S): (S, F[Chain[B]]) =
+      if (start >= end) (s, F.pure(Chain.empty))
+      else if (start == (end - 1)) {
+        val (s1, fb) = fn(s, avec(start))
+        (s1, fb.map(Chain.one(_)))
+      }
+      else {
+        val mid = start + (end - start)/2
+        val (s1, f1) = loop(start, mid, s)
+        val (s2, f2) = loop(mid, end, s1)
+        (s2, F.map2(f1, f2)(_ ++ _))
+      }
+
+    loop(0, avec.size, s0)._2.map(_.toList)
   }
-  */
-
-
-  private def parFold[F[_], S, A, B](s0: S, as: List[A])(fn: (S, A) => (S, F[B]))(implicit F: Applicative[F]): F[List[B]] =
-    as match {
-      case Nil => F.pure(Nil)
-      case a :: tail =>
-        val (s1, f) = fn(s0, a)
-        (f, parFold(s1, tail)(fn)).mapN(_ :: _)
-    }
 
   /**
    * Return the lets in order they appear
@@ -1034,7 +993,7 @@ final class SourceConverter(
         case Bind(BindingStatement(bound, decl, _)) =>
           bindingsDecl(bound, decl)(newName)
             .toList
-            .map { case pair@(b, _) =>
+            .map { case pair@(b, d) =>
               (b, RecursionKind.NonRecursive, Right(pair))
             }
       }
@@ -1048,7 +1007,7 @@ final class SourceConverter(
           {
             case Left(d@Def(dstmt)) =>
               val d1 = if (dstmt.name === bind) dstmt.copy(name = newNameV) else dstmt
-              val res1 =
+              val res =
                 dstmt.result.map { body =>
                   Declaration.substitute(bind, Var(newNameV)(body.region), body) match {
                     case Some(body1) => body1
@@ -1058,11 +1017,11 @@ final class SourceConverter(
                       // $COVERAGE-ON$
                   }
                 }
-              Left(Def(d1.copy(result = res1))(d.region))
-            case Right((orig, d)) =>
-              val orig1 = if (orig === bind) newNameV else orig
+              Left(Def(d1.copy(result = res))(d.region))
+            case Right((b0, d)) =>
+              // we don't need to update b0, we discard it anyway
               Declaration.substitute(bind, Var(newNameV)(d.region), d) match {
-                case Some(d1) => Right((orig1, d1))
+                case Some(d1) => Right((b0, d1))
                 case None =>
                   // $COVERAGE-OFF$
                   throw new IllegalStateException("we know newName can't mask")
@@ -1073,61 +1032,44 @@ final class SourceConverter(
         (newNameV, fn)
       }
 
-    val uniq = stmts.toList // TODO makeUnique(stmts.toList)
-
-    val topNames = uniq.flatMap(_.names)
-    val topLevelBindings: Set[Bindable] =
-      // TODO Fix this when we have makeUnique working
-      // uniq.iterator.flatMap(_.names).toSet
-      // if something only appears once, it is unambiguous
-      topNames
-        .groupBy(identity)
-        .iterator
-        .collect {
-          case (k, vs) if vs.lengthCompare(1) > 0 => k
+    val withEx: List[Either[ExternalDef, Flattened]] =
+      stmts.collect { case e@ExternalDef(_, _, _) => Left(e) }.toList :::
+        flatIn.map {
+          case (b, _, Left(d@Def(dstmt))) =>
+            Right(Left(Def(dstmt.copy(name = b))(d.region)))
+          case (b, _, Right((_, d))) => Right(Right((b, d)))
         }
-        .toSet
 
-    parFold((Set.empty[Bindable], Set.empty[Bindable]), uniq) { case ((topDupe, topBound), stmt) =>
+    parFold(Set.empty[Bindable], withEx) { case (topBound, stmt) =>
       stmt match {
-        case Bind(BindingStatement(bound, decl, _)) =>
-          val bn = bound.names
-          val topDupe1 = topDupe ++ bn.filter(topLevelBindings)
-          val topBound1 = topBound ++ bn.filterNot(topLevelBindings)
+        case Right(Right((nm, decl))) =>
 
-          val pat = convertPattern(bound, stmt.region)
-          val rdec = apply(decl, topDupe1, topBound1)
-          val r = (pat, rdec).mapN { (p, d) =>
-            bindings(p, d)(newName)
-              .toList
-              .map { case (n, d) => (n, RecursionKind.NonRecursive, d) }
-          }
+          val r = apply(decl, Set.empty, topBound).map((nm, RecursionKind.NonRecursive, _) :: Nil)
+          (topBound + nm, r)
 
-          ((topDupe1, topBound1), r)
-        case Def(defstmt@DefStatement(n, pat, _, _)) =>
+        case Right(Left(Def(defstmt@DefStatement(n, pat, _, _)))) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
-          val (topDupe1, topBound1) =
-            if (topLevelBindings(n)) (topDupe + n, topBound) else (topDupe, topBound + n)
-          // we always consider name in local scope for a def
-          val newBound = (topDupe1 + n) ++ pat.flatMap(_.names)
+
+          val boundName = defstmt.name
+          // defs are in scope for their body
+          val topBound1 = topBound + boundName
 
           val lam = defstmt.toLambdaExpr(
-            { res => apply(res.get, newBound, topBound1) },
+            { res => apply(res.get, pat.iterator.flatMap(_.names).toSet + boundName, topBound1) },
             success(defstmt.result.get))(
               convertPattern(_, defstmt.result.get.region),
               { t => success(toType(t)) })
 
           val r = lam.map { l =>
             // We rely on DefRecursionCheck to rule out bad recursions
-            val boundName = defstmt.name
             val rec =
               if (UnusedLetCheck.freeBound(l).contains(boundName)) RecursionKind.Recursive
               else RecursionKind.NonRecursive
             (boundName, rec, l) :: Nil
           }
-          ((topDupe1, topBound1), r)
-        case ExternalDef(n, _, _) =>
-          ((topDupe, topBound + n), success(Nil))
+          (topBound1, r)
+        case Left(ExternalDef(n, _, _)) =>
+          (topBound + n, success(Nil))
       }
     }(SourceConverter.parallelIor)
     .map(_.flatten)
@@ -1213,16 +1155,17 @@ object SourceConverter {
     else {
       type BRD = (Bindable, RecursionKind, D)
 
+      @annotation.tailrec
       def renameUntilNext(name: Bindable, lets: List[BRD], acc: List[BRD])(fn: D => D): List[BRD] =
         lets match {
-          case (head@(b1, r, d)) :: tail if b1 == name =>
+          case (head@(b, r, d)) :: tail if b == name =>
             if (r.isRecursive) {
               // the new b1 is in scope right away
               (head :: acc).reverse ::: tail
             }
             else {
               // the old b1 is in scope for this one
-              ((b1, r, fn(d)) :: acc).reverse ::: tail
+              ((b, r, fn(d)) :: acc).reverse ::: tail
             }
           case Nil => acc.reverse
           case (b, r, d) :: tail =>

@@ -1096,7 +1096,7 @@ object Infer {
     Infer.Impl.ExtendEnvs(bindings.map { case (n, t) => ((None, n), t) }, of)
 
   private def extendEnvPack[A](pack: PackageName, name: Bindable, tpe: Type)(of: Infer[A]): Infer[A] =
-    Infer.Impl.ExtendEnvs(((Some(pack), name), tpe) :: ((None, name), tpe) :: Nil, of)
+    Infer.Impl.ExtendEnvs(((Some(pack), name), tpe) :: Nil, of)
 
   /**
    * Packages are generally just lists of lets, this allows you to infer

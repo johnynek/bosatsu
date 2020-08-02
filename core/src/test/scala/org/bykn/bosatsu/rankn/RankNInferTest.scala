@@ -211,7 +211,7 @@ class RankNInferTest extends FunSuite {
     testLetTypes(
       List(
         ("x", lit(100), Type.IntType),
-        ("y", v("x"), Type.IntType)))
+        ("y", Expr.Global(testPackage, Identifier.Name("x"), ()), Type.IntType)))
   }
 
   test("match inference") {

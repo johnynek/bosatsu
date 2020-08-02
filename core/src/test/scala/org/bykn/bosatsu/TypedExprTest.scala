@@ -45,7 +45,8 @@ x = match B(100):
 """)(law)
   }
 
-  test("freeVars on simple cases works") {
+  test("freeVars on top level TypedExpr is Nil") {
+    // all of the names are local to a TypedExpr, nothing can be free
     // id and x are fully resolved to top level
     checkLast("""#
 x = 1
@@ -66,12 +67,11 @@ x = Tup2(1, 2)
     checkLast("""#
 struct Tup2(a, b)
 
-# since x is duplicated, it is not (yet) resolved to package
 x = 23
 x = Tup2(1, 2)
 y = match x:
   Tup2(a, _): a
-""") { te => assert(TypedExpr.freeVars(te :: Nil) == List(Name("x"))) }
+""") { te => assert(TypedExpr.freeVars(te :: Nil) == Nil) }
   }
 
   val intTpe = Type.IntType
