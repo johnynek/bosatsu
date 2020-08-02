@@ -45,9 +45,7 @@ final class SourceConverter(
     Referant.importedConsNames(imports)
 
   private val importedNames: Map[Identifier, (PackageName, Identifier)] =
-    imports.foldLeft(Map.empty[Identifier, (PackageName, Identifier)]) { (m, imp) =>
-      m ++ imp.resolveToGlobal
-    }
+    imports.iterator.flatMap(_.resolveToGlobal).toMap
 
   val importedTypeEnv = Referant.importedTypeEnv(imports)(identity)
 
@@ -66,7 +64,7 @@ final class SourceConverter(
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     })
 
-  private def resolveToVar(ident: Identifier, decl: Declaration, bound: Set[Bindable], topBound: Set[Bindable]): Expr[Declaration] =
+  private def resolveToVar[A](ident: Identifier, decl: A, bound: Set[Bindable], topBound: Set[Bindable]): Expr[A] =
     ident match {
       case c@Constructor(_) =>
         val (p, cons) = nameToCons(c)
@@ -932,7 +930,8 @@ final class SourceConverter(
             // there are no names to bind here, but we still need to typecheck the match
             val dummy = alloc()
             val pat = complex.unbind
-            val matchD = makeMatch(pat, Literal(Lit.fromInt(0))(decl.region))
+            val unitDecl = TupleCons(Nil)(decl.region)
+            val matchD = makeMatch(pat, unitDecl)
             val shapeMatch = (dummy, matchD)
             SourceConverter.concat(prefix, NonEmptyList(shapeMatch, Nil))
           }
@@ -1146,75 +1145,93 @@ object SourceConverter {
    */
   def makeLetsUnique[D](
     lets: List[(Bindable, RecursionKind, D)])(
-    newName: (Bindable, Int) => (Bindable, D => D)): List[(Bindable, RecursionKind, D)] = {
-    val dups: Map[Bindable, Int] =
-      lets.foldLeft(Map.empty[Bindable, Int]) {
-        case (bound, (b, _, _)) =>
-          bound.get(b) match {
-            case Some(c) => bound.updated(b, c + 1)
-            case None => bound.updated(b, 1)
+    newName: (Bindable, Int) => (Bindable, D => D)): List[(Bindable, RecursionKind, D)] =
+      NonEmptyList.fromList(lets) match {
+        case None => Nil
+        case Some(nelets) =>
+          // there is at least 1 let, but maybe no duplicates
+          val dups: Map[Bindable, Int] =
+            nelets.foldLeft(Map.empty[Bindable, Int]) {
+              case (bound, (b, _, _)) =>
+                bound.get(b) match {
+                  case Some(c) => bound.updated(b, c + 1)
+                  case None => bound.updated(b, 1)
+                }
+            }
+            .filter { case (_, v) => v > 1 }
+
+          if (dups.isEmpty) {
+            // no duplicated top level names
+            lets
           }
-      }
-      .filter { case (_, v) => v > 1 }
+          else {
+            // we rename all but the last name for each duplicate
+            type BRD = (Bindable, RecursionKind, D)
 
-    if (dups.isEmpty) lets
-    else {
-      type BRD = (Bindable, RecursionKind, D)
+            @annotation.tailrec
+            def renameUntilNext(name: Bindable, lets: NonEmptyList[BRD], acc: List[BRD])(fn: D => D): NonEmptyList[BRD] = {
+              val NonEmptyList(head @ (b, r, d), tail) = lets
+              if (b == name) {
+                val head1 =
+                  if (r.isRecursive) {
+                    // the new b is in scope right away
+                    head
+                  }
+                  else {
+                    // the old b1 is in scope for this one
+                    (b, r, fn(d))
+                  }
+                NonEmptyList(head1, acc).reverse.concat(tail)
+              }
+              else {
+                NonEmptyList.fromList(tail) match {
+                  case Some(netail) =>
+                    // this b is different from name, but may reference it
+                    val d1 = fn(d)
+                    renameUntilNext(name, netail, (b, r, d1) :: acc)(fn)
+                  case None =>
+                    // head is the last, and the last is never renamed
+                    NonEmptyList(head, acc).reverse
+                }
+              }
+            }
 
-      @annotation.tailrec
-      def renameUntilNext(name: Bindable, lets: List[BRD], acc: List[BRD])(fn: D => D): List[BRD] =
-        lets match {
-          case (head@(b, r, d)) :: tail if b == name =>
-            if (r.isRecursive) {
-              // the new b1 is in scope right away
-              (head :: acc).reverse ::: tail
+            @annotation.tailrec
+            def loop(lets: NonEmptyList[BRD], state: Map[Bindable, (Int, Int)], acc: List[BRD]): NonEmptyList[BRD] = {
+              val head = lets.head
+              NonEmptyList.fromList(lets.tail) match {
+                case Some(netail) =>
+                  val (b, r, d) = head
+                  state.get(b) match {
+                    case Some((cnt, sz)) if cnt < (sz - 1) =>
+                      val newState = state.updated(b, (cnt + 1, sz))
+                      // we have to rename until the next bind
+                      val (b1, renamer) = newName(b, cnt)
+                      val d1 =
+                        if (r.isRecursive) renamer(d)
+                        else d
+
+                      val head1 = (b1, r, d1)
+                      val tail1 = renameUntilNext(b, netail, Nil)(renamer)
+                      loop(tail1, newState, head1 :: acc)
+                    case _ =>
+                      // this is the last one or not a duplicate, we don't change it
+                      loop(netail, state, head :: acc)
+                  }
+                case None =>
+                  // the last one is never renamed
+                  NonEmptyList(head, acc).reverse
+              }
             }
-            else {
-              // the old b1 is in scope for this one
-              ((b, r, fn(d)) :: acc).reverse ::: tail
-            }
-          case Nil =>
-            // $COVERAGE-OFF$
-            // this can't happen because we don't rename the very last,
-            // and we only call this method on names that are repeated
-            throw new IllegalStateException(s"didn't find $name in list of lets: ${acc.reverse}")
-            // $COVERAGE-ON$
-          case (b, r, d) :: tail =>
-            // this b is different from name, but may reference it
-            val d1 = fn(d)
-            renameUntilNext(name, tail, (b, r, d1) :: acc)(fn)
+
+            // there are duplicates
+            val dupState: Map[Bindable, (Int, Int)] =
+              dups.iterator.map { case (k, sz) => (k, (0, sz)) }.toMap
+
+            loop(nelets, dupState, Nil).toList
+          }
         }
 
-      @annotation.tailrec
-      def loop(lets: List[BRD], state: Map[Bindable, (Int, Int)], acc: List[BRD]): List[BRD] =
-        lets match {
-          case Nil => acc.reverse
-          case (l@(b, r, d)) :: tail =>
-            state.get(b) match {
-              case Some((cnt, sz)) if cnt < (sz - 1) =>
-                val newState = state.updated(b, (cnt + 1, sz))
-                // we have to rename until the next bind
-                val (b1, renamer) = newName(b, cnt)
-                val d1 =
-                  if (r.isRecursive) renamer(d)
-                  else d
-
-                val head1 = (b1, r, d1)
-                val tail1 = renameUntilNext(b, tail, Nil)(renamer)
-                loop(tail1, newState, head1 :: acc)
-              case _ =>
-                // this is the last one or not a duplicate, we don't change it
-                loop(tail, state, l :: acc)
-            }
-        }
-
-      // there are duplicates
-      val dupState: Map[Bindable, (Int, Int)] =
-        dups.iterator.map { case (k, sz) => (k, (0, sz)) }.toMap
-
-      loop(lets, dupState, Nil)
-    }
-  }
   sealed abstract class Error {
     def region: Region
     def message: String
