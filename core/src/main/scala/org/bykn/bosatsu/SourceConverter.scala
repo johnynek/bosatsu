@@ -925,6 +925,69 @@ final class SourceConverter(
           }
     }
 
+  private def bindingsDecl(
+    b: Pattern.Parsed,
+    decl: Declaration)(alloc: () => Bindable): NonEmptyList[(Bindable, Declaration)] =
+    b match {
+      case Pattern.Var(nm) =>
+        NonEmptyList((nm, decl), Nil)
+      case Pattern.Annotation(p, tpe) =>
+        // we can just move the annotation to the expr:
+        bindingsDecl(p, Annotation(decl.toNonBinding, tpe)(decl.region))(alloc)
+      case Pattern.WildCard =>
+        // this is silly, but maybe some kind of comment, or side-effecting
+        // debug, or type checking of the rhs
+        // _ = x
+        // just rewrite to an anonymous variable
+        val ident = alloc()
+        NonEmptyList((ident, decl), Nil)
+      case complex =>
+        val (prefix, rightHandSide) =
+          if (decl.isCheap) {
+            // no need to make a new var to point to a var
+            (Nil, decl)
+          }
+          else {
+            val ident = alloc()
+            val v = Var(ident)(decl.region)
+            ((ident, decl) :: Nil, v)
+          }
+
+        val rhsNB: NonBinding = rightHandSide.toNonBinding
+
+        def makeMatch(pat: Pattern.Parsed, res: Declaration): Declaration = {
+          val resOI = OptIndent.same(res)
+          Match(
+            RecursionKind.NonRecursive,
+            rhsNB,
+            OptIndent.same(NonEmptyList((pat, resOI), Nil)))(decl.region)
+        }
+
+        val tail: List[(Bindable, Declaration)] =
+          complex.names.map { nm =>
+            val pat = complex.filterVars(_ == nm)
+            (nm, makeMatch(pat, Var(nm)(decl.region)))
+          }
+
+        def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
+          ls match {
+            case Nil => tail
+            case h :: t => NonEmptyList(h, t ::: tail.toList)
+          }
+
+        NonEmptyList.fromList(tail) match {
+          case Some(netail) =>
+            concat(prefix, netail)
+          case None =>
+            // there are no names to bind here, but we still need to typecheck the match
+            val dummy = alloc()
+            val pat = complex.unbind
+            val matchD = makeMatch(pat, Literal(Lit.fromInt(0))(decl.region))
+            val shapeMatch = (dummy, matchD)
+            concat(prefix, NonEmptyList(shapeMatch, Nil))
+          }
+    }
+
   /*
   private def makeUnique(stmts: List[Statement.ValueStatement]): List[Statement.ValueStatement] = {
     stmts
@@ -959,6 +1022,57 @@ final class SourceConverter(
       () => anonNames.next()
     }
 
+    type Flattened = Either[Def, (Bindable, Declaration)]
+
+    val flatList: List[(Bindable, RecursionKind, Flattened)] =
+      stmts.toList.flatMap {
+        case d@Def(_) =>
+          (d.defstatement.name, RecursionKind.Recursive, Left(d)) :: Nil
+        case e@ExternalDef(_, _, _) =>
+          // we don't allow external defs to shadow at all, so skip it here
+          Nil
+        case Bind(BindingStatement(bound, decl, _)) =>
+          bindingsDecl(bound, decl)(newName)
+            .toList
+            .map { case pair@(b, _) =>
+              (b, RecursionKind.NonRecursive, Right(pair))
+            }
+      }
+
+    val flatIn: List[(Bindable, RecursionKind, Flattened)] =
+      SourceConverter.makeLetsUnique(flatList) { (bind, idx) =>
+        // rename all but the last item
+        // TODO make a better name, close to the original, but also not colliding
+        val newNameV: Bindable = newName()
+        val fn: Flattened => Flattened =
+          {
+            case Left(d@Def(dstmt)) =>
+              val d1 = if (dstmt.name === bind) dstmt.copy(name = newNameV) else dstmt
+              val res1 =
+                dstmt.result.map { body =>
+                  Declaration.substitute(bind, Var(newNameV)(body.region), body) match {
+                    case Some(body1) => body1
+                    case None =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException("we know newName can't mask")
+                      // $COVERAGE-ON$
+                  }
+                }
+              Left(Def(d1.copy(result = res1))(d.region))
+            case Right((orig, d)) =>
+              val orig1 = if (orig === bind) newNameV else orig
+              Declaration.substitute(bind, Var(newNameV)(d.region), d) match {
+                case Some(d1) => Right((orig1, d1))
+                case None =>
+                  // $COVERAGE-OFF$
+                  throw new IllegalStateException("we know newName can't mask")
+                  // $COVERAGE-ON$
+              }
+          }
+
+        (newNameV, fn)
+      }
+
     val uniq = stmts.toList // TODO makeUnique(stmts.toList)
 
     val topNames = uniq.flatMap(_.names)
@@ -976,12 +1090,12 @@ final class SourceConverter(
 
     parFold((Set.empty[Bindable], Set.empty[Bindable]), uniq) { case ((topDupe, topBound), stmt) =>
       stmt match {
-        case b@Bind(BindingStatement(bound, decl, _)) =>
+        case Bind(BindingStatement(bound, decl, _)) =>
           val bn = bound.names
           val topDupe1 = topDupe ++ bn.filter(topLevelBindings)
           val topBound1 = topBound ++ bn.filterNot(topLevelBindings)
 
-          val pat = convertPattern(bound, b.region)
+          val pat = convertPattern(bound, stmt.region)
           val rdec = apply(decl, topDupe1, topBound1)
           val r = (pat, rdec).mapN { (p, d) =>
             bindings(p, d)(newName)

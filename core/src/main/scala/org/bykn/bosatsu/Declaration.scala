@@ -237,6 +237,28 @@ sealed abstract class Declaration {
     loop(this, Set.empty, SortedSet.empty)
   }
 
+  final def isCheap: Boolean = {
+    @annotation.tailrec
+    def loop(decl: Declaration): Boolean =
+      decl match {
+        case Var(_) | Literal(_) => true
+        case Annotation(term, _) => loop(term)
+        case Parens(p) => loop(p)
+        case _ => false
+      }
+
+    loop(this)
+  }
+
+  /**
+   * Wrap in Parens is needed
+   */
+  def toNonBinding: NonBinding =
+    this match {
+      case nb: NonBinding => nb
+      case decl => Parens(decl)(decl.region)
+    }
+
   /**
    * This returns *all* names in the declaration, bound or not
    */
