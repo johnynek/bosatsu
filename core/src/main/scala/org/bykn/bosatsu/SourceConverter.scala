@@ -1168,7 +1168,7 @@ object SourceConverter {
             // we rename all but the last name for each duplicate
             type BRD = (Bindable, RecursionKind, D)
 
-            /**
+            /*
              * Invariant, lets.exists(_._1 == name) == true
              * if this is false, this method will throw
              */
