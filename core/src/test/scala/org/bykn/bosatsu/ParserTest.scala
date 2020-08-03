@@ -13,7 +13,7 @@ import Parser.Indy
 
 import Generators.{shrinkDecl, shrinkStmt}
 
-object TestParseUtils {
+trait ParseFns {
   def region(s0: String, idx: Int): String =
     if (s0.isEmpty) s"empty string, idx = $idx"
     else if (s0.length == idx) {
@@ -25,29 +25,13 @@ object TestParseUtils {
       ("...(" + s.drop(idx - 20).take(20) + ")...")
     }
 
-  def firstDiff(s1: String, s2: String): String =
-    if (s1 == s2) ""
-    else if (s1.isEmpty) s2
-    else if (s2.isEmpty) s1
-    else if (s1(0) == s2(0)) firstDiff(s1.tail, s2.tail)
-    else s"${s1(0).toInt}: ${s1.take(20)}... != ${s2(0).toInt}: ${s2.take(20)}..."
-
-}
-
-abstract class ParserTestBase extends FunSuite {
-  import TestParseUtils._
-
-  // This is so we can make Declarations without the region
-  protected implicit val emptyRegion: Region = Region(0, 0)
-
   def parseUnsafe[A](p: Parser[A], str: String): A =
     p.parse(str) match {
       case Parsed.Success(a, idx) =>
         assert(idx == str.length)
         a
       case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
-        sys.error("nope")
+        sys.error(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
     }
   def parseOpt[A](p: Parser[A], str: String): Option[A] =
     p.parse(str) match {
@@ -57,6 +41,21 @@ abstract class ParserTestBase extends FunSuite {
         None
     }
 
+  def firstDiff(s1: String, s2: String): String =
+    if (s1 == s2) ""
+    else if (s1.isEmpty) s2
+    else if (s2.isEmpty) s1
+    else if (s1(0) == s2(0)) firstDiff(s1.tail, s2.tail)
+    else s"${s1(0).toInt}: ${s1.take(20)}... != ${s2(0).toInt}: ${s2.take(20)}..."
+
+}
+
+object TestParseUtils extends ParseFns
+
+abstract class ParserTestBase extends FunSuite with ParseFns {
+
+  // This is so we can make Declarations without the region
+  protected implicit val emptyRegion: Region = Region(0, 0)
 
   def parseTest[T](p: Parser[T], str: String, expected: T, exidx: Int) =
     p.parse(str) match {
@@ -121,7 +120,6 @@ abstract class ParserTestBase extends FunSuite {
 }
 
 class ParserTest extends ParserTestBase {
-  import TestParseUtils._
   implicit val generatorDrivenConfig = config
 
   test("we can parse integers") {
@@ -248,6 +246,15 @@ class ParserTest extends ParserTestBase {
       "`with \\`internal`", "operator +")
 
     examples.foreach(roundTrip(Identifier.parser, _))
+  }
+
+  test("we can append to an identifier and parse it") {
+    forAll(Generators.bindIdentGen, Arbitrary.arbitrary[String]) { (b, str) =>
+      val i1 = Identifier.appendToName(b, str)
+
+      val src = i1.sourceCodeRepr
+      assert(Identifier.unsafe(src).sourceCodeRepr == src)
+    }
   }
 
   test("we can parse lists") {

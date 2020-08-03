@@ -71,7 +71,7 @@ class RankNInferTest extends FunSuite {
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
-    Infer.typeCheckLets(terms.map { case (k, v, _) => (Identifier.Name(k), RecursionKind.NonRecursive, v) })
+    Infer.typeCheckLets(testPackage, terms.map { case (k, v, _) => (Identifier.Name(k), RecursionKind.NonRecursive, v) })
       .runFully(withBools, boolTypes) match {
         case Left(err) => assert(false, err)
         case Right(tpes) =>
@@ -211,7 +211,7 @@ class RankNInferTest extends FunSuite {
     testLetTypes(
       List(
         ("x", lit(100), Type.IntType),
-        ("y", v("x"), Type.IntType)))
+        ("y", Expr.Global(testPackage, Identifier.Name("x"), ()), Type.IntType)))
   }
 
   test("match inference") {

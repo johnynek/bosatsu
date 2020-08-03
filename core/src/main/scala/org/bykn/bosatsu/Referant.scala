@@ -52,14 +52,7 @@ object Referant {
     imported(imps) {
       case Referant.Constructor(dt, fn) => (dt.packageName, fn.name)
     }
-  /**
-   * There are all the imported values, including the constructor functions
-   */
-  def importedValues[A, B](imps: List[Import[A, NonEmptyList[Referant[B]]]]): Map[Identifier, Type] =
-    imported(imps) {
-      case Referant.Value(t) => t
-      case Referant.Constructor(_, fn) => fn.fnType
-    }
+
   /**
    * Fully qualified original names
    */

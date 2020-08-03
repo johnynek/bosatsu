@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Eval, Traverse, Monad, Monoid}
+import cats.{Applicative, Eval, Monad, Monoid, Traverse}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
@@ -742,20 +742,19 @@ object TypedExpr {
    *
    * This can fail if the free variables in ex are shadowed
    * above ident in in.
+   *
+   * this code is very similar to Declaration.substitute
+   * if bugs are found in one, consult the other
    */
   def substitute[A](ident: Bindable, ex: TypedExpr[A], in: TypedExpr[A]): Option[TypedExpr[A]] = {
-    val exfrees = freeVarsSet(ex :: Nil)
-
     // if we hit a shadow, we don't need to substitute down
     // that branch
-    @inline def shadows(i: Identifier): Boolean = i === ident
+    @inline def shadows(i: Bindable): Boolean = i === ident
 
     // free variables in ex are being rebound,
     // this causes us to return None
-    val masks: Bindable => Boolean = {
-      if (exfrees.isEmpty) { i: Bindable => false }
-      else { i: Bindable => exfrees(i) }
-    }
+    lazy val masks: Bindable => Boolean =
+      freeVarsSet(ex :: Nil)
 
     def loop(in: TypedExpr[A]): Option[TypedExpr[A]] =
       in match {

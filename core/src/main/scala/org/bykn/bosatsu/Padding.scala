@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Functor
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
 
@@ -9,6 +10,9 @@ import Parser.maybeSpace
 case class Padding[T](lines: Int, padded: T) {
   def map[B](fn: T => B): Padding[B] =
     Padding(lines, fn(padded))
+
+  def traverse[F[_]: Functor, B](fn: T => F[B]): F[Padding[B]] =
+    Functor[F].map(fn(padded))(Padding(lines, _))
 }
 object Padding {
   implicit def document[T: Document]: Document[Padding[T]] =

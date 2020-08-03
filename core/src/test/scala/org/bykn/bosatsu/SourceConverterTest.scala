@@ -8,17 +8,8 @@ import Identifier.Bindable
 
 import cats.implicits._
 
-class ProgramTests extends FunSuite {
+class SourceConverterTest extends FunSuite {
   implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = 3000)
-
-  def genProg[A, B, C](
-    genA: Gen[A],
-    genLets: Gen[List[(Bindable, RecursionKind, B)]],
-    genEx: Gen[List[Bindable]],
-    genC: Gen[C]): Gen[Program[A, B, C]] = {
-
-    Gen.zip(genA, genLets, genEx, genC).map { case (a, b, c, d) => Program(a, b, c, d) }
-  }
 
   val genRec = Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive)
 
@@ -28,26 +19,18 @@ class ProgramTests extends FunSuite {
       lets <- Gen.listOfN(cnt, Gen.zip(Generators.bindIdentGen, genRec, Gen.const(())))
     } yield lets
 
-    val gp = genProg(
-      Gen.const(()),
-      genLets,
-      Gen.listOf(Generators.bindIdentGen),
-      Gen.const(()))
-
-    forAll(gp) { prog =>
-      val p1 = Program.makeLetsUnique(prog) { (b, idx) =>
+    forAll(genLets) { lets =>
+      val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
         (Identifier.Backticked(b.asString + s"____${idx}"), identity[Unit])
       }
 
-      val p1sz = p1.lets.size
+      val p1sz = p1.size
       // the total number of lets is unchanged
-      assert(p1sz == prog.lets.size)
+      assert(p1sz == lets.size)
       // the result has distinct names
-      assert(p1sz == p1.lets.iterator.map(_._1).toSet.size)
+      assert(p1sz == p1.iterator.map(_._1).toSet.size)
       // recursiveness is not changed:
-      assert(p1.lets.map(_._2) == prog.lets.map(_._2))
-      // externalDefs is untouched
-      assert(p1.externalDefs == prog.externalDefs)
+      assert(p1.map(_._2) == lets.map(_._2))
     }
   }
 
@@ -62,18 +45,12 @@ class ProgramTests extends FunSuite {
       }
     } yield lets
 
-    val gp = genProg(
-      Gen.const(()),
-      genLets,
-      Gen.listOf(Generators.bindIdentGen),
-      Gen.const(()))
-
-    forAll(gp) { prog =>
-      val p1 = Program.makeLetsUnique(prog) { (b, idx) =>
+    forAll(genLets) { lets =>
+      val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
         (Identifier.Backticked(b.asString + s"____${idx}"), { _ => -idx })
       }
 
-      assert(p1 eq prog)
+      assert(p1 eq lets)
     }
   }
 
@@ -83,19 +60,13 @@ class ProgramTests extends FunSuite {
       lets <- Gen.listOfN(cnt, Generators.bindIdentGen.map { b => (b, RecursionKind.Recursive, b) })
     } yield lets
 
-    val gp = genProg(
-      Gen.const(()),
-      genLets,
-      Gen.listOf(Generators.bindIdentGen),
-      Gen.const(()))
-
-    forAll(gp) { prog =>
-      val p1 = Program.makeLetsUnique(prog) { (b, idx) =>
+    forAll(genLets) { lets =>
+      val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
         val res = Identifier.Backticked(b.asString + s"____${idx}")
         (res, { br: Bindable => if (br == b) res else br })
       }
 
-      p1.lets.foreach { case (bl, _, br) =>
+      p1.foreach { case (bl, _, br) =>
         assert(bl == br)
       }
     }
@@ -112,8 +83,7 @@ class ProgramTests extends FunSuite {
         (Identifier.Name("d"), RecursionKind.NonRecursive, Option.empty[String]),
         (Identifier.Name("a"), RecursionKind.NonRecursive, Option.empty[String]))
 
-      val p1 = Program((), l1, Nil, ())
-      val up1 = Program.makeLetsUnique(p1) {
+      val up1 = SourceConverter.makeLetsUnique(l1) {
         case (Identifier.Name(n), idx) =>
           val b1 = Identifier.Name(n + idx)
           val fn: Option[String] => Option[String] = { _ => Some(n + idx) }
@@ -129,7 +99,7 @@ class ProgramTests extends FunSuite {
         (Identifier.Name("a1"), RecursionKind.NonRecursive, Some("a0")),
         (Identifier.Name("d"), RecursionKind.NonRecursive, Some("a1")),
         (Identifier.Name("a"), RecursionKind.NonRecursive, Some("a1")))
-      assert(up1.lets == expectl1)
+      assert(up1 == expectl1)
     }
 
     {
@@ -142,8 +112,7 @@ class ProgramTests extends FunSuite {
         (Identifier.Name("d"), RecursionKind.Recursive, Option.empty[String]),
         (Identifier.Name("a"), RecursionKind.Recursive, Option.empty[String]))
 
-      val p1 = Program((), l1, Nil, ())
-      val up1 = Program.makeLetsUnique(p1) {
+      val up1 = SourceConverter.makeLetsUnique(l1) {
         case (Identifier.Name(n), idx) =>
           val b1 = Identifier.Name(n + idx)
           val fn: Option[String] => Option[String] = { _ => Some(n + idx) }
@@ -159,7 +128,7 @@ class ProgramTests extends FunSuite {
         (Identifier.Name("a1"), RecursionKind.Recursive, Some("a1")),
         (Identifier.Name("d"), RecursionKind.Recursive, Some("a1")),
         (Identifier.Name("a"), RecursionKind.Recursive, None))
-      assert(up1.lets == expectl1)
+      assert(up1 == expectl1)
     }
   }
 }
