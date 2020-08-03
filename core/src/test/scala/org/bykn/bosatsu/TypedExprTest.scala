@@ -124,13 +124,13 @@ y = match x:
     }
   }
 
-  test("after substitution, a variable is no longer free") {
-    lazy val genNonFree: Gen[TypedExpr[Unit]] =
-     genTypedExpr.flatMap { te =>
-       if (TypedExpr.freeVars(te :: Nil).isEmpty) Gen.const(te)
-       else genNonFree
-     }
+  lazy val genNonFree: Gen[TypedExpr[Unit]] =
+   genTypedExpr.flatMap { te =>
+     if (TypedExpr.freeVars(te :: Nil).isEmpty) Gen.const(te)
+     else genNonFree
+   }
 
+  test("after substitution, a variable is no longer free") {
     forAll(genTypedExpr, genNonFree) { (te0, te1) =>
       TypedExpr.freeVars(te0 :: Nil) match {
         case Nil => ()
@@ -146,6 +146,35 @@ y = match x:
       }
     }
   }
+
+  test("substituting a non-free variable is identity") {
+    def genNotFree[A](te: TypedExpr[A]): Gen[Bindable] = {
+      val frees = TypedExpr.freeVarsSet(te :: Nil).toSet
+      lazy val nf: Gen[Bindable] =
+        Generators.bindIdentGen.flatMap {
+          case isfree if frees(isfree) => nf
+          case notfree => Gen.const(notfree)
+        }
+
+      nf
+    }
+
+    val pair = for {
+      te <- genTypedExpr
+      nf <- genNotFree(te)
+    } yield (nf, te)
+
+    forAll(pair, genNonFree) { case ((b, te0), te1) =>
+        TypedExpr.substitute(b, te1, te0) match {
+          case None =>
+            // te1 has no free variables, this shouldn't fail
+            assert(false)
+
+          case Some(te0sub) => assert(te0sub == te0)
+        }
+    }
+  }
+
 
   test("test some basic normalizations") {
     // inline lets of vars

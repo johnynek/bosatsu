@@ -163,23 +163,25 @@ sealed abstract class Declaration {
         case Annotation(term, _) => loop(term, bound, acc)
         case Apply(fn, args, _) =>
           (fn :: args).foldLeft(acc) { (acc0, d) => loop(d, bound, acc0) }
-        case ApplyOp(left, _, right) =>
+        case ao@ApplyOp(left, _, right) =>
           val acc0 = loop(left, bound, acc)
-          loop(right, bound, acc0)
+          val acc1 = loop(ao.opVar, bound, acc0)
+          loop(right, bound, acc1)
         case Binding(BindingStatement(n, v, in)) =>
           val acc0 = loop(v, bound, acc)
           val bound1 = bound ++ n.names
           loop(in.padded, bound1, acc0)
         case Comment(c) => loop(c.on.padded, bound, acc)
         case DefFn(d) =>
+          val (body, rest) = d.result
           // def sets up a binding to itself, which
           // may or may not be recursive
-          val bound1 = bound + d.name
-          val bound2 = bound1 ++ d.args.flatMap(_.names)
 
-          val (body, rest) = d.result
-          val acc1 = loop(body.get, bound2, acc)
-          loop(rest.padded, bound1, acc1)
+          val boundRest = bound + d.name
+          val boundBody = boundRest ++ d.args.flatMap(_.names)
+
+          val acc1 = loop(body.get, boundBody, acc)
+          loop(rest.padded, boundRest, acc1)
         case IfElse(ifCases, elseCase) =>
           val acc2 = ifCases.foldLeft(acc) { case (acc0, (cond, v)) =>
             val acc1 = loop(cond, bound, acc0)
@@ -189,7 +191,7 @@ sealed abstract class Declaration {
         case Lambda(args, body) =>
           val bound1 = bound ++ args.toList.flatMap(_.names)
           loop(body, bound1, acc)
-        case Literal(lit) => SortedSet.empty
+        case Literal(lit) => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, bound, acc)
           args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
@@ -268,9 +270,9 @@ sealed abstract class Declaration {
         case Annotation(term, _) => loop(term, acc)
         case Apply(fn, args, _) =>
           (fn :: args).foldLeft(acc) { (acc0, d) => loop(d, acc0) }
-        case ApplyOp(left, _, right) =>
+        case ApplyOp(left, op, right) =>
           val acc0 = loop(left, acc)
-          loop(right, acc0)
+          loop(right, acc0 + op)
         case Binding(BindingStatement(n, v, in)) =>
           val acc0 = loop(v, acc ++ n.names)
           loop(in.padded, acc0)
@@ -291,7 +293,7 @@ sealed abstract class Declaration {
         case Lambda(args, body) =>
           val acc1 = acc ++ args.toList.flatMap(_.names)
           loop(body, acc1)
-        case Literal(lit) => SortedSet.empty
+        case Literal(lit) => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, acc)
           args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
@@ -420,7 +422,7 @@ object Declaration {
             case Var(op1: Identifier.Operator) =>
               (loop(left), loop(right))
                 .mapN(ApplyOp(_, op1, _))
-            case notOp =>
+            case _ =>
               loop(aop.toApply)
           }
         case ApplyOp(left, op, right) =>

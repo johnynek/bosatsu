@@ -8,11 +8,17 @@ import Identifier.Bindable
 
 class DeclarationTest extends FunSuite {
 
+  import Generators.shrinkDecl
+
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 500)
+    //PropertyCheckConfiguration(minSuccessful = 500)
+    PropertyCheckConfiguration(minSuccessful = 200)
+
+  implicit val emptyRegion: Region = Region(0, 0)
 
   val genDecl = Generators.genDeclaration(depth = 4)
+
   lazy val genNonFree: Gen[Declaration.NonBinding] =
    genDecl.flatMap {
      case decl: Declaration.NonBinding if decl.freeVars.isEmpty => Gen.const(decl)
@@ -64,9 +70,113 @@ class DeclarationTest extends FunSuite {
         notFree.map((decl, _))
      }
 
-    forAll(genDNF, genNonFree) { case ((d0, b), d1) =>
-      assert(Declaration.substitute(b, d1, d0) == Some(d0))
+    def law(b: Bindable, d1: Declaration.NonBinding, d0: Declaration) = {
+      val frees = d0.freeVars
+
+      // shrinking can cause us to call this law for free variables
+      if (frees(b)) assert(true)
+      else {
+        val subsD0 = Declaration.substitute(b, d1, d0)
+        if (subsD0 == Some(d0)) assert(true)
+        else {
+          subsD0 match {
+            case None => assert(false, "substitute failed")
+            case Some(sub) =>
+              val left = sub.toDoc.render(80)
+              val right = d0.toDoc.render(80)
+
+              // there must be some diff
+              val diffPos =
+                left
+                  .iterator
+                  .zip(right.iterator)
+                  .zipWithIndex
+                  .dropWhile { case ((a, b), idx) => a == b }
+                  .next
+                  ._2
+
+              val line = ("=" * 80) + "\n\n"
+              val leftAt = left.drop(diffPos).take(50)
+              val rightAt = right.drop(diffPos).take(50)
+              val diff = s"offset: $diffPos$line$leftAt\n\n$line$rightAt"
+              val msg = s"left$line${left}\n\nright$line$right\n\ndiff$line$diff"
+              assert(false, msg)
+          }
+        }
+      }
     }
+
+    forAll(genDNF, genNonFree) { case ((d0, b), d1) =>
+      law(b, d1, d0)
+    }
+
+    val regressions: List[(Bindable, Declaration.NonBinding, Declaration)] =
+      List(
+        {
+          import Declaration._
+          import Identifier.{Name, Constructor, Backticked}
+          import OptIndent._
+
+          val b = Identifier.Backticked("")
+          val d1 = Literal(Lit.fromInt(0))
+          val d0 = DefFn(
+            DefStatement(Name("mfLjwok"),List(),None,
+              (NotSameLine(Padding(10,Indented(10,Var(Backticked(""))))),
+                Padding(10,Binding(BindingStatement(
+                  Pattern.Var(Backticked("")),Var(Constructor("Rgt")),Padding(1,DefFn(DefStatement(Backticked(""),List(),None,(NotSameLine(Padding(2,Indented(4,Literal(Lit.fromInt(42))))),Padding(2,DefFn(DefStatement(Name("gkxAckqpatu"),List(),Some(TypeRef.TypeName(TypeName(Constructor("Y")))),(NotSameLine(Padding(6,Indented(8,Literal(Lit("oimsu"))))),Padding(2,Var(Name("j")))))))))))))))))
+
+          (b, d1, d0)
+        }
+      )
+
+    regressions.foreach { case (b, d1, d0) => law(b, d1, d0) }
+
+  }
+
+  test("substituting a free variable with itself is identity") {
+    lazy val genFrees: Gen[(Declaration, Bindable)] =
+      genDecl.flatMap { decl =>
+        val frees = decl.freeVars.toList
+        frees match {
+          case Nil => genFrees
+          case nonEmpty => Gen.oneOf(nonEmpty).map((decl, _))
+        }
+      }
+
+    def law(b: Bindable, d0: Declaration) = {
+      val d1 = Declaration.Var(b)
+      Declaration.substitute(b, d1, d0) match {
+        case None =>
+          // this mean the free variable is also shadowed
+          // at some point
+          ()
+        case Some(res) => assert(res == d0)
+      }
+    }
+
+    forAll(genFrees) { case (d, b) => law(b, d) }
+  }
+
+  test("test example substitutions") {
+    def law(bStr: String, to: String, in: String, res: Option[String]) = {
+      val d1 = TestParseUtils.parseUnsafe(Declaration.parser(""), to)
+      val d0 = TestParseUtils.parseUnsafe(Declaration.parser(""), in)
+      val resD = res.map(TestParseUtils.parseUnsafe(Declaration.parser(""), _))
+      val b = TestParseUtils.parseUnsafe(Identifier.bindableParser, bStr)
+
+
+      assert(Declaration.substitute(b, d1.toNonBinding, d0) == resD)
+    }
+
+    law("b", "12", """x = b
+x""", Some("""x = 12
+x"""))
+
+    law("b", "12", """[x for b in y]""", Some("""[x for b in y]"""))
+    law("b", "12", """[b for z in y]""", Some("""[12 for z in y]"""))
+    law("b", "12", """[b for b in b]""", Some("""[b for b in 12]"""))
+    law("b", "12", """[b for b in b if b]""", Some("""[b for b in 12 if b]"""))
+    law("b", "12", """Foo { b }""", Some("Foo { b: 12 }"))
   }
 
   test("isCheap is constant under Annotation or Parens") {
