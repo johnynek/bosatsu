@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import Parser.{ Combinators, Indy, maybeSpace, spaces, toEOL }
 import cats.data.NonEmptyList
-import cats.implicits._
 import org.bykn.bosatsu.graph.Memoize
 import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
@@ -15,6 +14,7 @@ import ListLang.{KVPair, SpliceOrItem}
 
 import Identifier.{Bindable, Constructor}
 
+import cats.implicits._
 /**
  * Represents the syntactic version of Expr
  */
@@ -163,22 +163,25 @@ sealed abstract class Declaration {
         case Annotation(term, _) => loop(term, bound, acc)
         case Apply(fn, args, _) =>
           (fn :: args).foldLeft(acc) { (acc0, d) => loop(d, bound, acc0) }
-        case ApplyOp(left, _, right) =>
+        case ao@ApplyOp(left, _, right) =>
           val acc0 = loop(left, bound, acc)
-          loop(right, bound, acc0)
+          val acc1 = loop(ao.opVar, bound, acc0)
+          loop(right, bound, acc1)
         case Binding(BindingStatement(n, v, in)) =>
           val acc0 = loop(v, bound, acc)
           val bound1 = bound ++ n.names
           loop(in.padded, bound1, acc0)
         case Comment(c) => loop(c.on.padded, bound, acc)
         case DefFn(d) =>
+          val (body, rest) = d.result
           // def sets up a binding to itself, which
           // may or may not be recursive
-          val bound1 = bound + d.name
-          val bound2 = bound1 ++ d.args.flatMap(_.names)
-          val (body, rest) = d.result
-          val acc1 = loop(body.get, bound2, acc)
-          loop(rest.padded, bound1, acc1)
+
+          val boundRest = bound + d.name
+          val boundBody = boundRest ++ d.args.flatMap(_.names)
+
+          val acc1 = loop(body.get, boundBody, acc)
+          loop(rest.padded, boundRest, acc1)
         case IfElse(ifCases, elseCase) =>
           val acc2 = ifCases.foldLeft(acc) { case (acc0, (cond, v)) =>
             val acc1 = loop(cond, bound, acc0)
@@ -188,7 +191,7 @@ sealed abstract class Declaration {
         case Lambda(args, body) =>
           val bound1 = bound ++ args.toList.flatMap(_.names)
           loop(body, bound1, acc)
-        case Literal(lit) => SortedSet.empty
+        case Literal(lit) => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, bound, acc)
           args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
@@ -236,6 +239,28 @@ sealed abstract class Declaration {
     loop(this, Set.empty, SortedSet.empty)
   }
 
+  final def isCheap: Boolean = {
+    @annotation.tailrec
+    def loop(decl: Declaration): Boolean =
+      decl match {
+        case Var(_) | Literal(_) => true
+        case Annotation(term, _) => loop(term)
+        case Parens(p) => loop(p)
+        case _ => false
+      }
+
+    loop(this)
+  }
+
+  /**
+   * Wrap in Parens is needed
+   */
+  def toNonBinding: NonBinding =
+    this match {
+      case nb: NonBinding => nb
+      case decl => Parens(decl)(decl.region)
+    }
+
   /**
    * This returns *all* names in the declaration, bound or not
    */
@@ -245,9 +270,9 @@ sealed abstract class Declaration {
         case Annotation(term, _) => loop(term, acc)
         case Apply(fn, args, _) =>
           (fn :: args).foldLeft(acc) { (acc0, d) => loop(d, acc0) }
-        case ApplyOp(left, _, right) =>
+        case ApplyOp(left, op, right) =>
           val acc0 = loop(left, acc)
-          loop(right, acc0)
+          loop(right, acc0 + op)
         case Binding(BindingStatement(n, v, in)) =>
           val acc0 = loop(v, acc ++ n.names)
           loop(in.padded, acc0)
@@ -268,7 +293,7 @@ sealed abstract class Declaration {
         case Lambda(args, body) =>
           val acc1 = acc ++ args.toList.flatMap(_.names)
           loop(body, acc1)
-        case Literal(lit) => SortedSet.empty
+        case Literal(lit) => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, acc)
           args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
@@ -332,6 +357,177 @@ object Declaration {
   object ApplyKind {
     case object Dot extends ApplyKind
     case object Parens extends ApplyKind
+  }
+
+  /**
+   * Try to substitute ex for ident in the expression: in
+   *
+   * This can fail if the free variables in ex are shadowed
+   * above ident in in.
+   *
+   * this code is very similar to TypedExpr.substitute
+   * if bugs are found in one, consult the other
+   */
+  def substitute[A](ident: Bindable, ex: NonBinding, in: Declaration): Option[Declaration] = {
+    // if we hit a shadow, we don't need to substitute down
+    // that branch
+    @inline def shadows(i: Bindable): Boolean = i === ident
+
+    // free variables in ex are being rebound,
+    // this causes us to return None
+    lazy val masks: Bindable => Boolean = ex.freeVars
+
+    def loopLL[F[_]](ll: ListLang[F, NonBinding, Pattern.Parsed])(fn: F[NonBinding] => Option[F[NonBinding]]): Option[ListLang[F, NonBinding, Pattern.Parsed]] =
+      ll match {
+        case ListLang.Cons(items) =>
+          items.traverse(fn)
+            .map(ListLang.Cons(_))
+        case ListLang.Comprehension(ex, b, in, filt) =>
+          // b sets up bindings for filt and ex
+          loop(in)
+            .flatMap { in1 =>
+              val pnames = b.names
+              if (pnames.exists(masks)) None
+              else if (pnames.exists(shadows)) Some(ListLang.Comprehension(ex, b, in1, filt))
+              else {
+                // no shadowing or masking
+                (fn(ex), filt.traverse(loop))
+                  .mapN(ListLang.Comprehension(_, b, in1, _))
+              }
+            }
+      }
+
+    def loopRA(ra: RecordArg): Option[RecordArg] =
+      ra match {
+        case RecordArg.Pair(fn, a) =>
+          loop(a).map(RecordArg.Pair(fn, _))
+        case RecordArg.Simple(fn) =>
+          if (fn === ident) {
+            // This is no longer a simple RecordArg
+            Some(RecordArg.Pair(fn, ex))
+          }
+          else Some(ra)
+      }
+
+    def loop(decl: NonBinding): Option[NonBinding] =
+      decl match {
+        case Annotation(term, tpe) =>
+          loop(term).map(Annotation(_, tpe)(decl.region))
+        case Apply(fn, args, kind) =>
+          (loop(fn), args.traverse(loop))
+            .mapN(Apply(_, _, kind)(decl.region))
+        case aop@ApplyOp(left, op, right) if (op: Bindable) === ident =>
+          // we cannot make a general substition on ApplyOp
+          ex match {
+            case Var(op1: Identifier.Operator) =>
+              (loop(left), loop(right))
+                .mapN(ApplyOp(_, op1, _))
+            case _ =>
+              loop(aop.toApply)
+          }
+        case ApplyOp(left, op, right) =>
+          (loop(left), loop(right))
+            .mapN(ApplyOp(_, op, _))
+        case IfElse(ifCases, elseCase) =>
+          val ifs = ifCases.traverse { case (cond, br) =>
+            (loop(cond), br.traverse(loopDec)).tupled
+          }
+          val elsec = elseCase.traverse(loopDec)
+
+          (ifs, elsec).mapN(IfElse(_, _)(decl.region))
+        case Lambda(args, body) =>
+          // sets up a binding
+          val pnames = args.toList.flatMap(_.names)
+          if (pnames.exists(masks)) None
+          else if (pnames.exists(shadows)) Some(decl)
+          else loopDec(body).map(Lambda(args, _)(decl.region))
+        case l@Literal(_) => Some(l)
+        case Match(k, arg, cases) =>
+          val caseRes =
+            cases
+              .traverse { nel =>
+                nel.traverse { case (pat, res) =>
+                  // like lambda:
+                  val pnames = pat.names
+                  if (pnames.exists(masks)) None
+                  else if (pnames.exists(shadows)) Some((pat, res))
+                  else res.traverse(loopDec).map((pat, _))
+                }
+              }
+
+          (loop(arg), caseRes).mapN(Match(k, _, _)(decl.region))
+        case Matches(a, p) =>
+          // matches does not currently set up bindings
+          loop(a).map(Matches(_, p)(decl.region))
+        case Parens(p) =>
+          loopDec(p).map(Parens(_)(decl.region))
+        case TupleCons(items) =>
+          items.traverse(loop).map(TupleCons(_)(decl.region))
+        case Var(name: Bindable) if name === ident =>
+          // here is the substition
+          Some(ex.replaceRegionsNB(decl.region))
+        case Var(_) => Some(decl)
+        case StringDecl(nel) =>
+          nel
+            .traverse {
+              case Left(nb) => loop(nb).map(Left(_))
+              case right => Some(right)
+            }
+            .map(StringDecl(_)(decl.region))
+        case ListDecl(ll) =>
+          loopLL(ll)(_.traverse(loop))
+            .map(ListDecl(_)(decl.region))
+        case DictDecl(ll) =>
+          loopLL(ll)(_.traverse(loop))
+            .map(DictDecl(_)(decl.region))
+        case RecordConstructor(c, args) =>
+          args.traverse(loopRA)
+            .map(RecordConstructor(c, _)(decl.region))
+      }
+
+    def loopDec(decl: Declaration): Option[Declaration] =
+      decl match {
+        case Binding(BindingStatement(n, v, in)) =>
+          val thisNames = n.names
+          if (thisNames.exists(masks)) None
+          else if (thisNames.exists(shadows)) {
+            // we only substitute on v
+            loop(v)
+              .map { v1 =>
+                Binding(BindingStatement(n, v1, in))(decl.region)
+              }
+          }
+          else {
+            // we substitute on both
+            (loop(v), in.traverse(loopDec))
+              .mapN { (v1, in1) =>
+                Binding(BindingStatement(n, v1, in1))(decl.region)
+              }
+          }
+        case Comment(c) =>
+          c.on
+            .traverse(loopDec)
+            .map { p1 =>
+              Comment(CommentStatement(c.message, p1))(decl.region)
+            }
+        case DefFn(DefStatement(nm, args, rtype, (body, rest))) =>
+          // nm is in scope in result
+          def go(scope: List[Bindable], d0: Declaration): Option[Declaration] =
+            if (scope.exists(masks)) None
+            else if (scope.exists(shadows)) Some(d0)
+            else loopDec(d0)
+
+          val bodyScope = nm :: args.flatMap(_.names)
+          val restScope = nm :: Nil
+
+          (body.traverse(go(bodyScope, _)), rest.traverse(go(restScope, _)))
+            .mapN { (b, r) =>
+              DefFn(DefStatement(nm, args, rtype, (b, r)))(decl.region)
+            }
+        case nb: NonBinding => loop(nb)
+      }
+
+    loopDec(in)
   }
 
   private val identDoc: Document[Identifier] =
@@ -442,6 +638,9 @@ object Declaration {
   case class ApplyOp(left: NonBinding, op: Identifier.Operator, right: NonBinding) extends NonBinding {
     val region = left.region + right.region
     def opVar: Var = Var(op)(Region(left.region.end, right.region.start))
+
+    def toApply: Apply =
+      Apply(opVar, NonEmptyList(left, right :: Nil), ApplyKind.Parens)(region)
   }
   case class Binding(binding: BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration

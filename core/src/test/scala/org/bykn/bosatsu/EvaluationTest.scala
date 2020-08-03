@@ -2064,6 +2064,51 @@ tests = TestSuite("test",
   ])
 """), "A", 1)
 
+    // test record syntax
+    runBosatsuTest(List("""package A
+
+struct Foo(one)
+
+def one: 1
+
+two = one.add(1)
+
+foo = Foo { one }
+
+def one: "one"
+
+good = match (one, two, foo):
+  ("one", 2, Foo(1)): True
+  _:     False
+
+tests = TestSuite("test",
+  [
+    Assertion(good, ""),
+  ])
+"""), "A", 1)
+
+    // test local shadowing of a duplicate
+    runBosatsuTest(List("""package A
+
+def one: 1
+
+two = one.add(1)
+
+incA = \one -> one.add(1)
+def incB(one): one.add(1)
+
+def one: "one"
+
+good = match (one, two, incA(0), incB(1)):
+  ("one", 2, 1, 2): True
+  _:     False
+
+tests = TestSuite("test",
+  [
+    Assertion(good, ""),
+  ])
+"""), "A", 1)
+
     // test an example using a predef function, like add
     runBosatsuTest(List("""package A
 
@@ -2414,5 +2459,37 @@ main = Foo(1)
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err, constructor: Foo defined multiple times\nRegion(14,27)")
       ()
     }
+  }
+
+  test("non binding top levels work") {
+  runBosatsuTest(List("""
+package A
+
+# this is basically a typecheck only
+_ = add(1, 2)
+
+test = Assertion(True, "")
+"""), "A", 1)
+
+  runBosatsuTest(List("""
+package A
+
+# this is basically a typecheck only
+x = (1, "1")
+(_, _) = x
+
+test = Assertion(True, "")
+"""), "A", 1)
+
+  runBosatsuTest(List("""
+package A
+
+struct Foo(x, y)
+# this is basically a typecheck only
+x = Foo(1, "1")
+Foo(_, _) = x
+
+test = Assertion(True, "")
+"""), "A", 1)
   }
 }

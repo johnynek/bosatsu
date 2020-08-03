@@ -45,12 +45,14 @@ x = match B(100):
 """)(law)
   }
 
-  test("freeVars on simple cases works") {
+  test("freeVars on top level TypedExpr is Nil") {
+    // all of the names are local to a TypedExpr, nothing can be free
+    // id and x are fully resolved to top level
     checkLast("""#
 x = 1
 def id(x): x
 y = id(x)
-""") { te => assert(TypedExpr.freeVars(te :: Nil) == List(Name("id"), Name("x"))) }
+""") { te => assert(TypedExpr.freeVars(te :: Nil) == Nil) }
 
     checkLast("""#
 x = 1
@@ -65,10 +67,11 @@ x = Tup2(1, 2)
     checkLast("""#
 struct Tup2(a, b)
 
+x = 23
 x = Tup2(1, 2)
 y = match x:
   Tup2(a, _): a
-""") { te => assert(TypedExpr.freeVars(te :: Nil) == List(Name("x"))) }
+""") { te => assert(TypedExpr.freeVars(te :: Nil) == Nil) }
   }
 
   val intTpe = Type.IntType
@@ -120,6 +123,58 @@ y = match x:
         Some(let1))
     }
   }
+
+  lazy val genNonFree: Gen[TypedExpr[Unit]] =
+   genTypedExpr.flatMap { te =>
+     if (TypedExpr.freeVars(te :: Nil).isEmpty) Gen.const(te)
+     else genNonFree
+   }
+
+  test("after substitution, a variable is no longer free") {
+    forAll(genTypedExpr, genNonFree) { (te0, te1) =>
+      TypedExpr.freeVars(te0 :: Nil) match {
+        case Nil => ()
+        case b :: _ =>
+          TypedExpr.substitute(b, te1, te0) match {
+            case None =>
+              // te1 has no free variables, this shouldn't fail
+              assert(false)
+
+            case Some(te0sub) =>
+              assert(!TypedExpr.freeVarsSet(te0sub :: Nil)(b))
+          }
+      }
+    }
+  }
+
+  test("substituting a non-free variable is identity") {
+    def genNotFree[A](te: TypedExpr[A]): Gen[Bindable] = {
+      val frees = TypedExpr.freeVarsSet(te :: Nil).toSet
+      lazy val nf: Gen[Bindable] =
+        Generators.bindIdentGen.flatMap {
+          case isfree if frees(isfree) => nf
+          case notfree => Gen.const(notfree)
+        }
+
+      nf
+    }
+
+    val pair = for {
+      te <- genTypedExpr
+      nf <- genNotFree(te)
+    } yield (nf, te)
+
+    forAll(pair, genNonFree) { case ((b, te0), te1) =>
+        TypedExpr.substitute(b, te1, te0) match {
+          case None =>
+            // te1 has no free variables, this shouldn't fail
+            assert(false)
+
+          case Some(te0sub) => assert(te0sub == te0)
+        }
+    }
+  }
+
 
   test("test some basic normalizations") {
     // inline lets of vars
