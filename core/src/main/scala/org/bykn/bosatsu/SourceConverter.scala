@@ -1168,9 +1168,15 @@ object SourceConverter {
             // we rename all but the last name for each duplicate
             type BRD = (Bindable, RecursionKind, D)
 
+            /**
+             * Invariant, lets.exists(_._1 == name) == true
+             * if this is false, this method will throw
+             */
             @annotation.tailrec
             def renameUntilNext(name: Bindable, lets: NonEmptyList[BRD], acc: List[BRD])(fn: D => D): NonEmptyList[BRD] = {
+              // note this is a total match:
               val NonEmptyList(head @ (b, r, d), tail) = lets
+
               if (b == name) {
                 val head1 =
                   if (r.isRecursive) {
@@ -1184,15 +1190,11 @@ object SourceConverter {
                 NonEmptyList(head1, acc).reverse.concat(tail)
               }
               else {
-                NonEmptyList.fromList(tail) match {
-                  case Some(netail) =>
-                    // this b is different from name, but may reference it
-                    val d1 = fn(d)
-                    renameUntilNext(name, netail, (b, r, d1) :: acc)(fn)
-                  case None =>
-                    // head is the last, and the last is never renamed
-                    NonEmptyList(head, acc).reverse
-                }
+                // if b != name, then that implies there is
+                // at least one item in the tail with b,
+                // so tail cannot be empty
+                val netail = NonEmptyList.fromListUnsafe(tail)
+                renameUntilNext(name, netail, (b, r, fn(d)) :: acc)(fn)
               }
             }
 
@@ -1212,6 +1214,8 @@ object SourceConverter {
                         else d
 
                       val head1 = (b1, r, d1)
+                      // since cnt < (sz - 1) we know that
+                      // b must occur at least once in netail
                       val tail1 = renameUntilNext(b, netail, Nil)(renamer)
                       loop(tail1, newState, head1 :: acc)
                     case _ =>

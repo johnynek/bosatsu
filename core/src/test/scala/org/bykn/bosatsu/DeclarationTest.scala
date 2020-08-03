@@ -4,6 +4,8 @@ import org.scalacheck.Gen
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 
+import Identifier.Bindable
+
 class DeclarationTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
@@ -11,6 +13,12 @@ class DeclarationTest extends FunSuite {
     PropertyCheckConfiguration(minSuccessful = 500)
 
   val genDecl = Generators.genDeclaration(depth = 4)
+  lazy val genNonFree: Gen[Declaration.NonBinding] =
+   genDecl.flatMap {
+     case decl: Declaration.NonBinding if decl.freeVars.isEmpty => Gen.const(decl)
+     case _ => genNonFree
+   }
+
 
   test("freeVarsSet is a subset of allVars") {
     forAll(genDecl) { decl =>
@@ -22,12 +30,6 @@ class DeclarationTest extends FunSuite {
   }
 
   test("after substitution, a variable is no longer free") {
-    lazy val genNonFree: Gen[Declaration.NonBinding] =
-     genDecl.flatMap {
-       case decl: Declaration.NonBinding if decl.freeVars.isEmpty => Gen.const(decl)
-       case _ => genNonFree
-     }
-
     forAll(genDecl, genNonFree) { (d0, d1) =>
       d0.freeVars.toList match {
         case Nil => ()
@@ -46,6 +48,24 @@ class DeclarationTest extends FunSuite {
                 s"subs:\n\n$d0Str\n\n===============\n\n$d1Str===============\n\n$dSubStr")
           }
       }
+    }
+  }
+
+  test("substituting a non-free variable is identity") {
+    val genDNF: Gen[(Declaration, Bindable)] =
+      genDecl.flatMap { decl =>
+        val frees = decl.freeVars
+        lazy val notFree: Gen[Bindable] =
+          Generators.bindIdentGen.flatMap {
+            case b if frees(b) => notFree
+            case b => Gen.const(b)
+          }
+
+        notFree.map((decl, _))
+     }
+
+    forAll(genDNF, genNonFree) { case ((d0, b), d1) =>
+      assert(Declaration.substitute(b, d1, d0) == Some(d0))
     }
   }
 
