@@ -76,7 +76,7 @@ object SeqPart {
           case AnyElem => true
           case Lit(c2) =>
             p1 match {
-              case Lit(c1) => setOpsA.subset(c2, c1)
+              case Lit(c1) => setOpsA.subset(c1, c2)
               case AnyElem => setOpsA.isTop(c2)
             }
         }

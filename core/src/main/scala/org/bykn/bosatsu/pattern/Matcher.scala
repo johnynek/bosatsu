@@ -29,13 +29,19 @@ object Matcher {
       }
   }
 
+  private[this] val someUnit = Some(())
+
   def eqMatcher[A](implicit eqA: Eq[A]): Matcher[A, A, Unit] =
     new Matcher[A, A, Unit] {
-      val someUnit = Some(())
-
       def apply(a: A): A => Option[Unit] =
           { (s: A) => if (eqA.eqv(a, s)) someUnit else None }
     }
 
   val charMatcher: Matcher[Char, Char, Unit] = eqMatcher(Eq.fromUniversalEquals[Char])
+
+  def fnMatch[A]: Matcher[A => Boolean, A, Unit] =
+    new Matcher[A => Boolean, A, Unit] {
+      def apply(p: A => Boolean) =
+      { a: A => if (p(a)) someUnit else None }
+    }
 }

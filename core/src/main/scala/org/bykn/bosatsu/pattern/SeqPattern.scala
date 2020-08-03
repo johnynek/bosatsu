@@ -294,6 +294,10 @@ object SeqPattern {
           case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
             // unnormalized
             intersection(p1, t2)
+          case (c1@Cat(Wildcard, _), c2@Cat(Wildcard, _)) if c1.rightMost.notWild || c2.rightMost.notWild =>
+            // let's avoid the most complex case of both having
+            // wild on the front if possible
+            intersection(c1.reverse, c2.reverse).map(_.reverse)
           case (Cat(Wildcard, Cat(a1, t1)), _) if isAny(a1) =>
             // *. == .*, push Wildcards to the end
             intersection(Cat(AnyElem, Cat(Wildcard, t1)), p2)
@@ -301,25 +305,18 @@ object SeqPattern {
             // *. == .*, push Wildcards to the end
             intersection(p1, Cat(AnyElem, Cat(Wildcard, t2)))
           case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
-            if (c1.rightMost.notWild || c2.rightMost.notWild) {
-              // let's avoid the most complex case of both having
-              // wild on the front if possible
-              intersection(c1.reverse, c2.reverse).map(_.reverse)
-            }
-            else {
-              // both start and end with wild
-              //
-              // *:t1 = (t1 + _:p1)
-              // *:t2 = (t2 + _:p2)
-              // p1 n p2 = t1 n t2 + (_:p1 n t2) + (t1 n _:p2) + _:(p1 n p2)
-              //         = *:((t1 n t2) + (_:p1 n t2) + (t1 n _:p2))
-              val i1 = intersection(t1, t2)
-              val i2 = intersection(Cat(AnyElem, p1), t2)
-              val i3 = intersection(t1, Cat(AnyElem, p2))
-              val union = (i1 ::: i2 ::: i3)
+            // both start and end with wild
+            //
+            // *:t1 = (t1 + _:p1)
+            // *:t2 = (t2 + _:p2)
+            // p1 n p2 = t1 n t2 + (_:p1 n t2) + (t1 n _:p2) + _:(p1 n p2)
+            //         = *:((t1 n t2) + (_:p1 n t2) + (t1 n _:p2))
+            val i1 = intersection(t1, t2)
+            val i2 = intersection(Cat(AnyElem, p1), t2)
+            val i3 = intersection(t1, Cat(AnyElem, p2))
+            val union = (i1 ::: i2 ::: i3)
 
-              unifyUnion(union.map(_.prependWild))
-            }
+            unifyUnion(union.map(_.prependWild))
           case (Cat(h1, t1), Cat(Wildcard, t2)) =>
             // h1 : t1 n *:t2 = h1:t1 n (t2 + _:p2) =
             // p1 n t2 + h1 : (t1 n p2)

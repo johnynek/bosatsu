@@ -22,7 +22,8 @@ class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]]
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 500000)
-    PropertyCheckConfiguration(minSuccessful = 5000)
+    //PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = 50)
 
   val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genCompiledPattern(5, useAnnotation = false)
@@ -229,6 +230,7 @@ enum Either: Left(l), Right(r)
     testTotality(predefTE, patterns("[[], [h, *tail]]"), tight = true)
     testTotality(predefTE, patterns("[[], [h, *tail], [h0, h1, *tail]]"), tight = true)
     testTotality(predefTE, patterns("[[], [*tail, _]]"), tight = true)
+    testTotality(predefTE, patterns("[[*_, True, *_], [] | [False, *_]]"), tight = true)
 
     notTotal(predefTE, patterns("[[], [h, *tail, _]]"))
   }

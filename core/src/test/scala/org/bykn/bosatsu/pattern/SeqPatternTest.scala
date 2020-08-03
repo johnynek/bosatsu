@@ -5,11 +5,11 @@ import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
 import SeqPattern.{Cat, Empty}
+import SeqPart.{Wildcard, AnyElem, Lit}
 
 import cats.implicits._
 
 object StringSeqPatternGen {
-  import SeqPart.{Wildcard, AnyElem, Lit}
 
   type Named = NamedSeqPattern[Char]
   val Named = NamedSeqPattern
@@ -54,10 +54,10 @@ object StringSeqPatternGen {
         t #:: shrinkPat.shrink(t)
     }
 
-  def genNamedFn(nextId: Int): Gen[(Int, Named)] = {
+  def genNamedFn[A](gp: Gen[SeqPart[A]], nextId: Int): Gen[(Int, NamedSeqPattern[A])] = {
     lazy val recur = Gen.lzy(res)
 
-    lazy val genNm: Gen[(Int, Named.Bind[Char])] =
+    lazy val genNm: Gen[(Int, Named.Bind[A])] =
       recur.map { case (i, n) => (i + 1, Named.Bind(i.toString, n)) }
 
     // expected length = L = p_c * 2 * L + pn + L + pe * 0 + pp
@@ -66,21 +66,21 @@ object StringSeqPatternGen {
     // so we need 2*pc + pn < 1
     // e.g. pc = 1/3, pn = 1/9 would work
     // L = (4/9) / (1 - (2/3 + 1/9)) = 4 / (9 - 5) = 1
-    lazy val res: Gen[(Int, NamedSeqPattern[Char])] =
+    lazy val res: Gen[(Int, NamedSeqPattern[A])] =
       Gen.frequency(
         (3, for {
           (i0, n0) <- recur
-          (i1, n1) <- genNamedFn(i0)
+          (i1, n1) <- genNamedFn(gp, i0)
         } yield (i1, NamedSeqPattern.NCat(n0, n1))),
         (1, genNm),
         (1, Gen.const((nextId, NamedSeqPattern.NEmpty))),
-        (4, genPart.map { p => (nextId, NamedSeqPattern.NSeqPart(p)) }))
+        (4, gp.map { p => (nextId, NamedSeqPattern.NSeqPart(p)) }))
 
     res
   }
 
   val genNamed: Gen[NamedSeqPattern[Char]] =
-    genNamedFn(0).map(_._2)
+    genNamedFn(genPart, 0).map(_._2)
 
   implicit val arbNamed: Arbitrary[NamedSeqPattern[Char]] = Arbitrary(genNamed)
 
@@ -348,6 +348,65 @@ abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
 */
 }
 
+class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Boolean], Unit] {
+
+  implicit lazy val shrinkPat: Shrink[SeqPattern[Set[Boolean]]] =
+    Shrink {
+      case Empty => Empty #:: Stream.empty
+      case Cat(Wildcard, t) =>
+        (Cat(AnyElem, t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
+      case Cat(AnyElem, t) =>
+        (Cat(Lit(Set(false)), t) #:: Cat(Lit(Set(true)), t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
+      case Cat(_, t) =>
+        t #:: shrinkPat.shrink(t)
+    }
+
+  val genBool: Gen[Boolean] = Gen.oneOf(true, false)
+
+  val genSetBool: Gen[Set[Boolean]] =
+    // we don't generate Set.empty, which is a bottom type,
+    // which this code does not yet support
+    Gen.oneOf(List(Set(true), Set(false), Set(true, false)))
+
+  def genPart: Gen[SeqPart[Set[Boolean]]] = {
+    import SeqPart._
+
+    Gen.frequency(
+      (15, genSetBool.map(Lit(_))),
+      (2, Gen.const(AnyElem)),
+      (1, Gen.const(Wildcard)))
+  }
+
+  val genNamed: Gen[NamedSeqPattern[Set[Boolean]]] =
+    StringSeqPatternGen.genNamedFn(genPart, 0).map(_._2)
+
+  lazy val genPattern: Gen[SeqPattern[Set[Boolean]]] = {
+    val sp = Gen.frequency(
+      (1, SeqPart.Wildcard),
+      (2, SeqPart.AnyElem),
+      (8, genSetBool.map(SeqPart.Lit(_))))
+
+    Gen.frequency(
+      (1, Gen.const(SeqPattern.Empty)),
+      (5, Gen.zip(sp, Gen.lzy(genPattern)).map { case (h, t) => SeqPattern.Cat(h, t) })
+    )
+  }
+  def genSeq: Gen[List[Boolean]] =
+    Gen.choose(0, 20).flatMap(Gen.listOfN(_, genBool))
+
+  val splitter = Splitter.listSplitter(Matcher.fnMatch[Boolean]: Matcher[Set[Boolean], Boolean, Unit])
+  val pmatcher = SeqPattern.matcher(splitter)
+
+  def matches(p: SeqPattern[Set[Boolean]], s: List[Boolean]): Boolean = pmatcher(p)(s).isDefined
+  def namedMatches(p: NamedSeqPattern[Set[Boolean]], s: List[Boolean]): Boolean =
+    NamedSeqPattern.matcher(splitter)(p)(s).isDefined
+
+  implicit val setOpsBool: SetOps[Set[Boolean]] = SetOps.fromFinite(List(true, false))
+  implicit val ordSet: Ordering[Set[Boolean]] =
+    Ordering.Iterable[Boolean].on { s: Set[Boolean] => s.toList.sorted }
+
+  val setOps: SetOps[SeqPattern[Set[Boolean]]] = SeqPattern.seqPatternSetOps[Set[Boolean]]
+}
 
 class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
   import SeqPart._

@@ -123,6 +123,29 @@ object SetOps {
       def subset(a: A, b: A): Boolean = ordA.equiv(a, b)
     }
 
+  def fromFinite[A](items: Iterable[A]): SetOps[Set[A]] =
+    new SetOps[Set[A]] {
+      require(items.nonEmpty, "the empty set is not allowed")
+
+      val itemsSet = items.toSet
+      val top: Option[Set[A]] = Some(itemsSet)
+      def isTop(a: Set[A]): Boolean = a == itemsSet
+
+      def toList(s: Set[A]): List[Set[A]] =
+        if (s.isEmpty) Nil else s :: Nil
+
+      def intersection(a1: Set[A], a2: Set[A]): List[Set[A]] =
+        toList(a1.intersect(a2))
+
+      def difference(a1: Set[A], a2: Set[A]): List[Set[A]] =
+        toList(a1 -- a2)
+
+      def unifyUnion(u: List[Set[A]]): List[Set[A]] =
+        toList(u.foldLeft(Set.empty[A])(_ | _))
+
+      def subset(a: Set[A], b: Set[A]): Boolean = a.subsetOf(b)
+    }
+
   // for types with only one value, Null, Unit, Nil
   def unit[A](topA: A): SetOps[A] =
     new SetOps[A] {
