@@ -184,6 +184,30 @@ abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
     assert(namedMatches(n, str) == matches(p, str), s"${p.show}")
   }
 
+  def differenceUBLaw(p10: Pattern, p20: Pattern, s: S) = {
+    // intersections get really slow if they get too big
+    val p1 = Pattern.fromList(p10.toList.take(5))
+    val p2 = Pattern.fromList(p20.toList.take(5))
+    // true difference is <= diff
+    val diff = setOps.difference(p1, p2)
+    val diffmatch = diff.exists(matches(_, s))
+
+    if (diffmatch) assert(matches(p1, s), s"diff = $diff")
+
+    if (matches(p1, s) && !matches(p2, s)) {
+      assert(diffmatch, s"diff = $diff")
+    }
+
+    if (diff.isEmpty && matches(p1, s)) {
+      assert(matches(p2, s))
+    }
+
+    if (p2.matchesAny) assert(diff == Nil)
+
+    // the law we wish we had:
+    //if (p2.matches(s) && p1.matches(s)) assert(!diffmatch)
+  }
+
   test("reverse is idempotent") {
     forAll(genPattern) { p: Pattern =>
       assert(p.reverse.reverse == p)
@@ -294,29 +318,13 @@ abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
     forAll(genPattern, genPattern, genSeq)(subsetConsistentWithMatchLaw(_, _, _))
   }
 
+  def diffUBRegressions: List[(Pattern, Pattern, S)] = Nil
+
   test("difference is an upper bound") {
-    forAll(genPattern, genPattern, genSeq) { (p10: Pattern, p20: Pattern, s: S) =>
-      // intersections get really slow if they get too big
-      val p1 = Pattern.fromList(p10.toList.take(5))
-      val p2 = Pattern.fromList(p20.toList.take(5))
-      // true difference is <= diff
-      val diff = setOps.difference(p1, p2)
-      val diffmatch = diff.exists(matches(_, s))
+    //forAll(genPattern, genPattern, genSeq) { case (p1, p2, s) => differenceUBLaw(p1, p2, s) }
 
-      if (diffmatch) assert(matches(p1, s), s"diff = $diff")
-
-      if (matches(p1, s) && !matches(p2, s)) {
-        assert(diffmatch, s"diff = $diff")
-      }
-
-      if (diff.isEmpty && matches(p1, s)) {
-        assert(matches(p2, s))
-      }
-
-      if (p2.matchesAny) assert(diff == Nil)
-
-      // the law we wish we had:
-      //if (p2.matches(s) && p1.matches(s)) assert(!diffmatch)
+    diffUBRegressions.foreach { case (p1, p2, s) =>
+      differenceUBLaw(p1, p2, s)
     }
   }
 
@@ -405,6 +413,15 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
 
   val setOps: SetOps[SeqPattern[Set[Boolean]]] = SeqPattern.seqPatternSetOps[Set[Boolean]]
 
+  override def diffUBRegressions =
+    List({
+      val p1 = Cat(Wildcard,Empty)
+      val p2 = Cat(Lit(Set(true)),Cat(Wildcard,Cat(Lit(Set(true, false)),Cat(Lit(Set(true)),Cat(Wildcard, Empty)))))
+      val s = List(true, false, false)
+
+      (p1, p2, s)
+    })
+
   test("check an example [*_, True, *_], [], [False, *_]") {
     val missing = setOps.missingBranches(
       List(SeqPattern.fromList(Wildcard :: Nil)),
@@ -446,6 +463,13 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
     s.toList.foldRight(Pattern.Empty: Pattern) { (c, r) =>
       Pattern.Cat(Lit(c), r)
     }
+
+  override def diffUBRegressions =
+    List({
+      val p1 = Cat(AnyElem,Cat(Wildcard,Empty))
+      val p2 = Cat(Wildcard,Cat(AnyElem,Cat(Lit('0'),Cat(Lit('1'),Cat(Wildcard, Empty)))))
+      (p1, p2, "11")
+    })
 
   test("some matching examples") {
    val ms: List[(Pattern, String)] =

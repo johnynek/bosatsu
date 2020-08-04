@@ -24,6 +24,12 @@ trait SetOps[A] {
   def intersection(a1: A, a2: A): List[A]
 
   /**
+   * Return true if a1 and a2 are disjoint
+   */
+  def disjoint(a1: A, a2: A): Boolean =
+    intersection(a1, a2).isEmpty
+
+  /**
    * remove a2 from a1 return a union represented as a list
    *
    * this should be the tightest upperbound we can find
