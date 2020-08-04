@@ -6,7 +6,7 @@ import cats.data.NonEmptyList
 
 class NormalizationTest extends FunSuite {
   import TestUtils._
-  import NormalExpression._
+  import LetFreeExpression._
   import Lit._
   import Normalization._
   import NormalPattern.{PositionalStruct, Var, WildCard}
@@ -18,7 +18,7 @@ package NormTest/String
 
 main = "aa"
 """
-        ), "NormTest/String", NormalExpressionTag(Literal(Str("aa")), Set()), Some("Literal('aa')")
+        ), "NormTest/String", LetFreeExpressionTag(Literal(Str("aa")), Set()), Some("Literal('aa')")
       )
 
       normalTagTest(
@@ -27,7 +27,7 @@ package NormTest/Int
 
 main = 22
 """
-        ), "NormTest/Int", NormalExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set())
+        ), "NormTest/Int", LetFreeExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set())
       )
 
       normalTagTest(
@@ -36,7 +36,7 @@ package NormTest/List
 
 main = ["aa"]
 """
-        ), "NormTest/List", NormalExpressionTag(
+        ), "NormTest/List", LetFreeExpressionTag(
           Struct(1,List(Literal(Str("aa")), Struct(0,List()))),
           Set(
             Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
@@ -165,7 +165,7 @@ package Lambda/Identity
 
 out = \x -> x
 """
-      ), "Lambda/Identity", NormalExpressionTag(
+      ), "Lambda/Identity", LetFreeExpressionTag(
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
@@ -175,7 +175,7 @@ package Lambda/Always
 
 out = \x -> \_ -> x
 """
-      ), "Lambda/Always", NormalExpressionTag(
+      ), "Lambda/Always", LetFreeExpressionTag(
         Lambda(Lambda(LambdaVar(1))), Set(Lambda(LambdaVar(1)), LambdaVar(1))
       )
     )
@@ -185,7 +185,7 @@ package Lambda/Always
 
 out = \_ -> \y -> y
 """
-      ), "Lambda/Always", NormalExpressionTag(
+      ), "Lambda/Always", LetFreeExpressionTag(
         Lambda(Lambda(LambdaVar(0))), Set(Lambda(LambdaVar(0)), LambdaVar(0))
       )
     )
@@ -198,7 +198,7 @@ def foo(x):
   x
 out = foo
 """
-      ), "Lambda/Identity", NormalExpressionTag(
+      ), "Lambda/Identity", LetFreeExpressionTag(
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
@@ -211,7 +211,7 @@ def foo(x):
   y
 out = foo
 """
-      ), "Lambda/Identity", NormalExpressionTag(
+      ), "Lambda/Identity", LetFreeExpressionTag(
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
@@ -223,7 +223,7 @@ def foo(x, _):
   x
 out = foo
 """
-      ), "Lambda/Always", NormalExpressionTag(
+      ), "Lambda/Always", LetFreeExpressionTag(
         Lambda(Lambda(LambdaVar(1))), Set(Lambda(LambdaVar(1)), LambdaVar(1))
       )
     )
@@ -235,7 +235,7 @@ def foo(_, y):
   y
 out = foo
 """
-      ), "Lambda/Always", NormalExpressionTag(
+      ), "Lambda/Always", LetFreeExpressionTag(
         Lambda(Lambda(LambdaVar(0))), Set(Lambda(LambdaVar(0)), LambdaVar(0))
       )
     )

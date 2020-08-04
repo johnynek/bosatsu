@@ -180,9 +180,9 @@ object TestUtils {
     def expected: A
   }
   object NormalTestMode {
-    case class TagMode(expected: Normalization.NormalExpressionTag, serialized: Option[String] = None) extends NormalTestMode[Normalization.NormalExpressionTag]
-    case class ExpressionMode(expected: NormalExpression, serialized: Option[String] = None) extends NormalTestMode[NormalExpression]
-    case class ChildrenMode(expected: Set[NormalExpression]) extends NormalTestMode[Set[NormalExpression]]
+    case class TagMode(expected: Normalization.LetFreeExpressionTag, serialized: Option[String] = None) extends NormalTestMode[Normalization.LetFreeExpressionTag]
+    case class ExpressionMode(expected: LetFreeExpression, serialized: Option[String] = None) extends NormalTestMode[LetFreeExpression]
+    case class ChildrenMode(expected: Set[LetFreeExpression]) extends NormalTestMode[Set[LetFreeExpression]]
   }
 
   def normalizeTest[A](packages: List[String], mainPackS: String, expectedMode: NormalTestMode[A]) = {
@@ -225,11 +225,11 @@ object TestUtils {
     testInferred(packages, mainPackS, inferredHandler(_,_))
   }
 
-  def normalTagTest(packages: List[String], mainPackS: String, expected: Normalization.NormalExpressionTag, expectedSerialiazed: Option[String] = None) =
+  def normalTagTest(packages: List[String], mainPackS: String, expected: Normalization.LetFreeExpressionTag, expectedSerialiazed: Option[String] = None) =
     normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected, expectedSerialiazed))
-  def normalExpressionTest(packages: List[String], mainPackS: String, expected: NormalExpression, expectedSerialiazed: Option[String] = None) =
+  def normalExpressionTest(packages: List[String], mainPackS: String, expected: LetFreeExpression, expectedSerialiazed: Option[String] = None) =
     normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected, expectedSerialiazed))
-  def normalChildrenTest(packages: List[String], mainPackS: String, expected: Set[NormalExpression]) =
+  def normalChildrenTest(packages: List[String], mainPackS: String, expected: Set[LetFreeExpression]) =
     normalizeTest(packages, mainPackS, NormalTestMode.ChildrenMode(expected))
 
   def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
