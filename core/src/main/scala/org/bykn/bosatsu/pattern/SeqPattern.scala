@@ -294,16 +294,16 @@ object SeqPattern {
           case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
             // unnormalized
             intersection(p1, t2)
-          case (c1@Cat(Wildcard, _), c2@Cat(Wildcard, _)) if c1.rightMost.notWild || c2.rightMost.notWild =>
-            // let's avoid the most complex case of both having
-            // wild on the front if possible
-            intersection(c1.reverse, c2.reverse).map(_.reverse)
           case (Cat(Wildcard, Cat(a1, t1)), _) if isAny(a1) =>
             // *. == .*, push Wildcards to the end
             intersection(Cat(AnyElem, Cat(Wildcard, t1)), p2)
           case (_, Cat(Wildcard, Cat(a2, t2))) if isAny(a2) =>
             // *. == .*, push Wildcards to the end
             intersection(p1, Cat(AnyElem, Cat(Wildcard, t2)))
+          case (c1@Cat(Wildcard, _), c2@Cat(Wildcard, _)) if c1.rightMost.notWild || c2.rightMost.notWild =>
+            // let's avoid the most complex case of both having
+            // wild on the front if possible
+            intersection(c1.reverse, c2.reverse).map(_.reverse)
           case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
             // both start and end with wild
             //
