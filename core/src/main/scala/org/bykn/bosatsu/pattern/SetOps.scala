@@ -1,5 +1,7 @@
 package org.bykn.bosatsu.pattern
 
+import cats.data.NonEmptyList
+
 /**
  * These are set operations we can do on patterns
  */
@@ -64,9 +66,56 @@ trait SetOps[A] {
    * }
    */
   def missingBranches(top: List[A], branches: List[A]): List[A] = {
-    val missing = branches.foldLeft(top) { (missing, nextBranch) =>
-      differenceAll(missing, nextBranch :: Nil)
-    }
+    // we can subtract in any order
+    // since a - b - c = a - c - b
+    //
+    def oneOf(l: NonEmptyList[A]): NonEmptyList[(A, List[A])] =
+      l match {
+        case NonEmptyList(h, Nil) => NonEmptyList((h, Nil), Nil)
+        case NonEmptyList(h, tail@(tail1 :: tail2)) =>
+          val hr = (h, tail)
+          val tailr = oneOf(NonEmptyList(tail1, tail2))
+            .map { case (h1, t1) => (h1, h :: t1) }
+          NonEmptyList(hr, tailr.toList)
+      }
+
+    def loop(union: List[A], diffs: NonEmptyList[A]): List[A] =
+      if (union.isEmpty) Nil
+      else {
+        // do a greedy n^2 algorithm to try to find
+        // minimal branches
+        val candidates =
+          oneOf(diffs).toList.flatMap { case (dh, dt) =>
+            val u1 = unifyUnion(differenceAll(union, dh :: Nil))
+            // never grow the union, which is possible with differenceAll
+            if (union.forall(u1.toSet)) Nil
+            else {
+              (u1.size, u1, dt) :: Nil
+            }
+          }
+
+        val (u1, d1) =
+          if (candidates.isEmpty) (union, diffs.tail)
+          else {
+            val (_, u1, d1) =
+              candidates
+              .toList
+              .minBy(_._1)
+            (u1, d1)
+          }
+
+        NonEmptyList.fromList(d1) match {
+          case None => u1
+          case Some(d1) => loop(u1, d1)
+        }
+      }
+
+    val missing =
+      NonEmptyList.fromList(branches) match {
+        case None => top
+        case Some(nel) => loop(top, nel)
+      }
+
     // filter any unreachable, which can happen when earlier items shadow later
     // ones
     val unreach = unreachableBranches(missing)

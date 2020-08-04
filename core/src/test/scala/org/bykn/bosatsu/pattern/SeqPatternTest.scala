@@ -142,7 +142,6 @@ object StringSeqPatternGen {
 }
 
 abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
-  import SeqPart.{Wildcard, AnyElem, Lit}
 
   type Pattern = SeqPattern[E]
   val Pattern = SeqPattern
@@ -160,6 +159,31 @@ abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
   def splitter: Splitter[E, I, S, R]
   def setOps: SetOps[Pattern]
 
+  def matches(p: Pattern, s: S): Boolean
+  def namedMatches(p: Named, s: S): Boolean
+
+  def intersectionMatchLaw(p10: Pattern, p20: Pattern, x: S) = {
+    // intersections get really slow if they get too big
+    val p1 = Pattern.fromList(p10.toList.take(5))
+    val p2 = Pattern.fromList(p20.toList.take(5))
+    val n1 = p1.normalize
+    val n2 = p2.normalize
+    val rawintr = setOps.intersection(p1, p2)
+    val intersect = rawintr.map(_.normalize).distinct
+    val sep = matches(p1, x) && matches(p2, x)
+    val together = intersect.exists(matches(_, x))
+
+    assert(together == sep, s"n1: $n1, n2: $n2, intersection: $intersect")
+    //if (together != sep) sys.error(s"n1: $n1, n2: $n2, intersection: $intersect")
+    //else succeed
+  }
+
+  def namedMatchesPatternLaw(n: Named, str: S) = {
+    val p = n.unname
+
+    assert(namedMatches(n, str) == matches(p, str), s"${p.show}")
+  }
+
   test("reverse is idempotent") {
     forAll(genPattern) { p: Pattern =>
       assert(p.reverse.reverse == p)
@@ -174,9 +198,6 @@ abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
       }
     }
   }
-
-  def matches(p: Pattern, s: S): Boolean
-  def namedMatches(p: Named, s: S): Boolean
 
   test("reverse matches the reverse string") {
     forAll(genPattern, genSeq) { (p: Pattern, str: S) =>
@@ -215,22 +236,6 @@ abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
         case _ => ()
       }
     }
-  }
-
-  def intersectionMatchLaw(p10: Pattern, p20: Pattern, x: S) = {
-    // intersections get really slow if they get too big
-    val p1 = Pattern.fromList(p10.toList.take(5))
-    val p2 = Pattern.fromList(p20.toList.take(5))
-    val n1 = p1.normalize
-    val n2 = p2.normalize
-    val rawintr = setOps.intersection(p1, p2)
-    val intersect = rawintr.map(_.normalize).distinct
-    val sep = matches(p1, x) && matches(p2, x)
-    val together = intersect.exists(matches(_, x))
-
-    assert(together == sep, s"n1: $n1, n2: $n2, intersection: $intersect")
-    //if (together != sep) sys.error(s"n1: $n1, n2: $n2, intersection: $intersect")
-    //else succeed
   }
 
   test("intersection(p1, p2).matches(x) == p1.matches(x) && p2.matches(x)") {
@@ -323,13 +328,6 @@ abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
     }
   }
 
-
-  def namedMatchesPatternLaw(n: Named, str: S) = {
-    val p = n.unname
-
-    assert(namedMatches(n, str) == matches(p, str), s"${p.show}")
-  }
-
   test("Named.matches agrees with Pattern.matches") {
     forAll(genNamed, genSeq)(namedMatchesPatternLaw(_, _))
   }
@@ -406,6 +404,18 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
     Ordering.Iterable[Boolean].on { s: Set[Boolean] => s.toList.sorted }
 
   val setOps: SetOps[SeqPattern[Set[Boolean]]] = SeqPattern.seqPatternSetOps[Set[Boolean]]
+
+  test("check an example [*_, True, *_], [], [False, *_]") {
+    val missing = setOps.missingBranches(
+      List(SeqPattern.fromList(Wildcard :: Nil)),
+      List(
+        SeqPattern.fromList(Wildcard :: Lit(Set(true)) :: Wildcard :: Nil),
+        SeqPattern.fromList(Lit(Set(false)) :: Wildcard :: Nil),
+        SeqPattern.fromList(Nil),
+      ))
+
+    assert(missing == Nil)
+  }
 }
 
 class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {

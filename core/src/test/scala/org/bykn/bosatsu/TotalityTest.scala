@@ -22,8 +22,8 @@ class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]]
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 500000)
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 50)
+    PropertyCheckConfiguration(minSuccessful = 50000)
+    //PropertyCheckConfiguration(minSuccessful = 50)
 
   val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genCompiledPattern(5, useAnnotation = false)
