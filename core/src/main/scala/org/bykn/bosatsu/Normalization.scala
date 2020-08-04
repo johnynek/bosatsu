@@ -51,7 +51,7 @@ object LetFreeExpression {
     def maxLambdaVar = None
   }
   case class Match(arg: LetFreeExpression,
-    branches: NonEmptyList[(NormalPattern, LetFreeExpression)])
+    branches: NonEmptyList[(LetFreePattern, LetFreeExpression)])
   extends LetFreeExpression {
     def maxLambdaVar =
       (arg.maxLambdaVar.toList ++ branches.toList.flatMap(_._2.maxLambdaVar))
@@ -84,42 +84,42 @@ object LetFreeExpression {
   }
 }
 
-sealed abstract class NormalPattern {
+sealed abstract class LetFreePattern {
   def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
   def serialize: String = {
     this match {
-      case NormalPattern.WildCard => "WildCard"
-      case NormalPattern.Literal(toLit) => toLit match {
+      case LetFreePattern.WildCard => "WildCard"
+      case LetFreePattern.Literal(toLit) => toLit match {
         case Lit.Str(toStr) => s"Literal('${escapeString(toStr)}')"
         case Lit.Integer(bigInt) => s"Literal($bigInt)"
       }
-      case NormalPattern.Var(name) => s"Var($name)"
-      case NormalPattern.Named(name, pat) => s"Named($name,${pat.serialize})"
-      case NormalPattern.ListPat(parts) => {
+      case LetFreePattern.Var(name) => s"Var($name)"
+      case LetFreePattern.Named(name, pat) => s"Named($name,${pat.serialize})"
+      case LetFreePattern.ListPat(parts) => {
         val inside = parts.map {
           case Left(name) => s"Left(${name.map(_.toString).getOrElse("")})"
           case Right(pat) => s"Right(${pat.serialize})"
         }.mkString(",")
         s"ListPat($inside)"
       }
-      case NormalPattern.PositionalStruct(name, params) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.serialize).mkString(",")})"
-      case NormalPattern.Union(head, rest) => s"Union(${head.serialize},${rest.toList.map(_.serialize).mkString(",")})"
+      case LetFreePattern.PositionalStruct(name, params) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.serialize).mkString(",")})"
+      case LetFreePattern.Union(head, rest) => s"Union(${head.serialize},${rest.toList.map(_.serialize).mkString(",")})"
     }
   }
 }
 
-object NormalPattern {
-  case object WildCard extends NormalPattern
-  case class Literal(toLit: Lit) extends NormalPattern
-  case class Var(name: Int) extends NormalPattern
+object LetFreePattern {
+  case object WildCard extends LetFreePattern
+  case class Literal(toLit: Lit) extends LetFreePattern
+  case class Var(name: Int) extends LetFreePattern
   /**
    * Patterns like foo @ Some(_)
    * @ binds tighter than |, so use ( ) with groups you want to bind
    */
-  case class Named(name: Int, pat: NormalPattern) extends NormalPattern
-  case class ListPat(parts: List[Either[Option[Int], NormalPattern]]) extends NormalPattern
-  case class PositionalStruct(name: Option[Int], params: List[NormalPattern]) extends NormalPattern
-  case class Union(head: NormalPattern, rest: NonEmptyList[NormalPattern]) extends NormalPattern
+  case class Named(name: Int, pat: LetFreePattern) extends LetFreePattern
+  case class ListPat(parts: List[Either[Option[Int], LetFreePattern]]) extends LetFreePattern
+  case class PositionalStruct(name: Option[Int], params: List[LetFreePattern]) extends LetFreePattern
+  case class Union(head: LetFreePattern, rest: NonEmptyList[LetFreePattern]) extends LetFreePattern
 }
 
 object Normalization {
@@ -153,17 +153,17 @@ object Normalization {
   def listAsStructList(lst: List[LetFreeExpression]): LetFreeExpression =
     lst.foldRight(LetFreeExpression.Struct(0, Nil)) { case (ne, acc) => LetFreeExpression.Struct(1, List(ne, acc)) }
 
-  private def maybeBind(pat: NormalPattern): (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] =
+  private def maybeBind(pat: LetFreePattern): (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] =
     pat match {
-      case NormalPattern.WildCard => noop
-      case NormalPattern.Literal(lit) =>
+      case LetFreePattern.WildCard => noop
+      case LetFreePattern.Literal(lit) =>
         { (v, env) => v match {
           case LetFreeExpression.Literal(vlit) => if (vlit == lit) Matches(env) else NoMatch
           case _ => NotProvable
         }}
-      case NormalPattern.Var(n) =>
+      case LetFreePattern.Var(n) =>
         { (v, env) => Matches(env + (n ->  v)) }
-      case NormalPattern.Named(n, p) =>
+      case LetFreePattern.Named(n, p) =>
         val inner = maybeBind(p)
 
         { (v, env) =>
@@ -172,7 +172,7 @@ object Normalization {
             case notMatch => notMatch
           }
         }
-      case NormalPattern.ListPat(items) =>
+      case LetFreePattern.ListPat(items) =>
         items match {
           case Nil =>
             { (arg, acc) =>
@@ -185,7 +185,7 @@ object Normalization {
           case Right(ph) :: ptail =>
             // a right hand side pattern never matches the empty list
             val fnh = maybeBind(ph)
-            val fnt = maybeBind(NormalPattern.ListPat(ptail))
+            val fnt = maybeBind(LetFreePattern.ListPat(ptail))
 
             { (arg, acc) =>
               arg match {
@@ -216,7 +216,7 @@ object Normalization {
             // this is more costly, since we have to match a non infinite tail.
             // we reverse the tails, do the match, and take the rest into
             // the splice
-            val revPat = NormalPattern.ListPat(ptail.reverse)
+            val revPat = LetFreePattern.ListPat(ptail.reverse)
             val fnMatchTail = maybeBind(revPat)
             val ptailSize = ptail.size
 
@@ -246,9 +246,9 @@ object Normalization {
               }
             }
         }
-      case NormalPattern.Union(h, t) =>
+      case LetFreePattern.Union(h, t) =>
         // we can just loop expanding these out:
-        def loop(ps: List[NormalPattern]): (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] =
+        def loop(ps: List[LetFreePattern]): (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] =
           ps match {
             case Nil => neverMatch
             case head :: tail =>
@@ -263,7 +263,7 @@ object Normalization {
               result
           }
         loop(h :: t.toList)
-      case NormalPattern.PositionalStruct(maybeIdx, items) =>
+      case LetFreePattern.PositionalStruct(maybeIdx, items) =>
         // The type in question is not the outer dt, but the type associated
         // with this current constructor
         val itemFns = items.map(maybeBind(_))
@@ -582,17 +582,17 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       branches=branches,
       tag=(m.tag, neTag))
 
-  def normalizePattern(pat: Pattern[(PackageName, Constructor), Type]): NormalPattern = {
+  def normalizePattern(pat: Pattern[(PackageName, Constructor), Type]): LetFreePattern = {
     val names = pat.names
-    def loop(pat: Pattern[(PackageName, Constructor), Type]): NormalPattern =
+    def loop(pat: Pattern[(PackageName, Constructor), Type]): LetFreePattern =
       pat match {
-        case Pattern.WildCard => NormalPattern.WildCard
-        case Pattern.Literal(lit) => NormalPattern.Literal(lit)
-        case Pattern.Var(v) => NormalPattern.Var(names.indexOf(v))
-        case Pattern.Named(n, p) => NormalPattern.Named(names.indexOf(n), loop(p))
+        case Pattern.WildCard => LetFreePattern.WildCard
+        case Pattern.Literal(lit) => LetFreePattern.Literal(lit)
+        case Pattern.Var(v) => LetFreePattern.Var(names.indexOf(v))
+        case Pattern.Named(n, p) => LetFreePattern.Named(names.indexOf(n), loop(p))
         case Pattern.StrPat(items) => sys.error(s"TODO: deal with StrPat($items) in normalization")
         case Pattern.ListPat(items) =>
-          NormalPattern.ListPat(items.map {
+          LetFreePattern.ListPat(items.map {
             case Pattern.ListPart.NamedList(n) =>Left(Some(names.indexOf(n)))
             case Pattern.ListPart.WildList => Left(None)
             case Pattern.ListPart.Item(p) => Right(loop(p))
@@ -601,8 +601,8 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         case Pattern.PositionalStruct(pc@(_, ctor), params) =>
           val dt = definedForCons(pc)
           val name = if (dt.isStruct) None else Some(dt.constructors.indexWhere(_.name == ctor))
-          NormalPattern.PositionalStruct(name, params.map(loop(_)))
-        case Pattern.Union(h, t) => NormalPattern.Union(loop(h), t.map(loop(_)))
+          LetFreePattern.PositionalStruct(name, params.map(loop(_)))
+        case Pattern.Union(h, t) => LetFreePattern.Union(loop(h), t.map(loop(_)))
       }
     loop(pat)
   }

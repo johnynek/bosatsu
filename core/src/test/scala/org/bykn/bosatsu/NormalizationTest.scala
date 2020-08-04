@@ -9,7 +9,7 @@ class NormalizationTest extends FunSuite {
   import LetFreeExpression._
   import Lit._
   import Normalization._
-  import NormalPattern.{PositionalStruct, Var, WildCard}
+  import LetFreePattern.{PositionalStruct, Var, WildCard}
 
   test("Literal") {
       normalTagTest(
@@ -518,7 +518,7 @@ out = match foo("c"):
       Match(
         App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "LitMatch")).get),Identifier.Name("foo")),Literal(Str("c"))),
         NonEmptyList.fromList(List(
-          (NormalPattern.Literal(Str("d")),Literal(Str("e"))),
+          (LetFreePattern.Literal(Str("d")),Literal(Str("e"))),
           (WildCard,Literal(Str("f")))
         )).get
       )
