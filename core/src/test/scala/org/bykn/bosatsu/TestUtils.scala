@@ -187,7 +187,7 @@ object TestUtils {
 
   def normalizeTest[A](packages: List[String], mainPackS: String, expectedMode: NormalTestMode[A]) = {
     def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
-      val normPackMap = NormalizePackageMap(infPackMap).hashKey(ne => (ne, ne.serialize))
+      val normPackMap = LetFreePackageMap(infPackMap).hashKey(ne => (ne, ne.serialize))
       (for {
         pack <- normPackMap.toMap.get(mainPack)
         exprs = pack.program.lets.map { case (_, rec, e) => e }
@@ -195,8 +195,8 @@ object TestUtils {
         fright = exprs.map(_.foldRight(Eval.now(0)) { case (_, m) => m.map(_ + 1) }.value)
         expr <- exprs.lastOption
         tag = expr.tag
-        ser = tag._2.ne._2
-        ne = tag._2.ne._1
+        ser = tag._2.lfe._2
+        ne = tag._2.lfe._1
         children = tag._2.children.map(_._1)
       } yield {
         assert(fleft == fright, s"folds didn't match. left: $fleft, right: $fright")
@@ -205,7 +205,7 @@ object TestUtils {
             expectedSerialiazed.foreach ( s =>
               assert(ser == s, s"serialization error. expected '$s' got '$ser'")
             )
-            assert(ne == expected.ne, s"ne error. expected '${expected.ne}' got '$ne'" )
+            assert(ne == expected.lfe, s"ne error. expected '${expected.lfe}' got '$ne'" )
             assert(children == expected.children, s"children error. expected '${expected.children}' got '$children'" )
             succeed
           case NormalTestMode.ExpressionMode(expected, expectedSerialiazed) =>

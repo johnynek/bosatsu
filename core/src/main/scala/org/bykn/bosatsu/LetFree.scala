@@ -25,7 +25,7 @@ sealed abstract class LetFreeExpression {
       case LetFreeExpression.App(fn, arg) => s"App(${fn.serialize},${arg.serialize})"
       case LetFreeExpression.ExternalVar(pack, defName) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}')"
       case LetFreeExpression.Match(arg, branches) => {
-        val serBranches = branches.toList.map {case (np, ne) => s"${np.serialize},${ne.serialize}"}.mkString(",")
+        val serBranches = branches.toList.map {case (lfp, lfe) => s"${lfp.serialize},${lfe.serialize}"}.mkString(",")
         s"Match(${arg.serialize},$serBranches)"
       }
       case LetFreeExpression.LambdaVar(index) => s"LambdaVar($index)"
@@ -123,9 +123,9 @@ object LetFreePattern {
 }
 
 object LetFreeConversion {
-  case class ExpressionKeyTag[T](ne: T, children: Set[T])
+  case class ExpressionKeyTag[T](lfe: T, children: Set[T])
   type LetFreeExpressionTag = ExpressionKeyTag[LetFreeExpression]
-  def LetFreeExpressionTag(ne: LetFreeExpression, children: Set[LetFreeExpression]) = ExpressionKeyTag(ne, children)
+  def LetFreeExpressionTag(lfe: LetFreeExpression, children: Set[LetFreeExpression]) = ExpressionKeyTag(lfe, children)
   type LetFreePM = PackageMap.Typed[(Declaration, LetFreeExpressionTag)]
   type LetFreePac = Package.Typed[(Declaration, LetFreeExpressionTag)]
 
@@ -139,8 +139,8 @@ object LetFreeConversion {
   val noop: (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] = { (_, env) => Matches(env) }
   val neverMatch: (LetFreeExpression, PatternEnv) => PatternMatch[Nothing] = { (_, _) => NoMatch }
 
-  def structListAsList(ne: LetFreeExpression): PatternMatch[List[LetFreeExpression]] = {
-    ne match {
+  def structListAsList(lfe: LetFreeExpression): PatternMatch[List[LetFreeExpression]] = {
+    lfe match {
       case LetFreeExpression.Struct(0, _) => Matches(Nil)
       case LetFreeExpression.Struct(1, List(value, tail)) => structListAsList(tail) match {
         case Matches(lst) => Matches(value :: lst)
@@ -151,7 +151,7 @@ object LetFreeConversion {
   }
 
   def listAsStructList(lst: List[LetFreeExpression]): LetFreeExpression =
-    lst.foldRight(LetFreeExpression.Struct(0, Nil)) { case (ne, acc) => LetFreeExpression.Struct(1, List(ne, acc)) }
+    lst.foldRight(LetFreeExpression.Struct(0, Nil)) { case (lfe, acc) => LetFreeExpression.Struct(1, List(lfe, acc)) }
 
   private def maybeBind(pat: LetFreePattern): (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] =
     pat match {
@@ -328,7 +328,7 @@ object LetFreeConversion {
 
   def solveMatch(env: PatternEnv, result: LetFreeExpression) =
     ((env.size - 1) to 0 by -1).map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
-      .foldLeft(result) { case (ne, arg) => LetFreeExpression.App(ne, arg) }
+      .foldLeft(result) { case (lfe, arg) => LetFreeExpression.App(lfe, arg) }
 
   def normalOrderReduction(expr: LetFreeExpression): LetFreeExpression = {
     import LetFreeExpression._
@@ -429,14 +429,14 @@ object LetFreeConversion {
   }
 }
 
-case class NormalizePackageMap(pm: PackageMap.Inferred) {
+case class LetFreePackageMap(pm: PackageMap.Inferred) {
   import LetFreeConversion._
   import TypedExpr._
 
   val letFreePackageMap: LetFreePM = {
     val packs = pm.toMap.toList
     val normAll = packs.traverse { case (name, pack) =>
-      normalizePackage(name, pack)
+      letFreeConvertPackage(name, pack)
         .map((name, _))
     }
     PackageMap(normAll.run(Map()).value._2.toMap)
@@ -447,7 +447,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       .map { case (packName, pack) =>
         val newLets = pack.program.lets.map { case (letsName, recursive, expr) =>
           val newExpr = expr.traverse[Id, (Declaration, ExpressionKeyTag[T])] {
-            case (d, neT) => (d, ExpressionKeyTag(fn(neT.ne), neT.children.map(fn)))
+            case (d, lfeT) => (d, ExpressionKeyTag(fn(lfeT.lfe), lfeT.children.map(fn)))
           }
           (letsName, recursive, newExpr)
         }
@@ -458,62 +458,62 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     PackageMap(lst.toMap)
   }
 
-  def normalizeExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):
+  def letFreeConvertExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
       expr match {
-        case a@Annotation(_, _, _) => normalizeAnnotation(a, env, p)
-        case g@Generic(_, _, _) => normalizeGeneric(g, env, p)
-        case v@Local(_, _, _) => normalizeLocal(v, env, p)
-        case v@Global(_, _, _, _) => normalizeGlobal(v, env, p)
-        case al@AnnotatedLambda(_, _, _, _) => normalizeAnnotatedLambda(al, env, p)
-        case a@App(_, _, _, _) => normalizeApp(a, env, p)
-        case l@Let(_, _, _, _, _) => normalizeLet(l, env, p)
-        case l@Literal(_, _, _) => normalizeLiteral(l, env, p)
-        case m@Match(_, _, _) => normalizeMatch(m, env, p)
+        case a@Annotation(_, _, _) => letFreeConvertAnnotation(a, env, p)
+        case g@Generic(_, _, _) => letFreeConvertGeneric(g, env, p)
+        case v@Local(_, _, _) => letFreeConvertLocal(v, env, p)
+        case v@Global(_, _, _, _) => letFreeConvertGlobal(v, env, p)
+        case al@AnnotatedLambda(_, _, _, _) => letFreeConvertAnnotatedLambda(al, env, p)
+        case a@App(_, _, _, _) => letFreeConvertApp(a, env, p)
+        case l@Let(_, _, _, _, _) => letFreeConvertLet(l, env, p)
+        case l@Literal(_, _, _) => letFreeConvertLiteral(l, env, p)
+        case m@Match(_, _, _) => letFreeConvertMatch(m, env, p)
       }
     }
 
-  private def combineWithChildren(nt: LetFreeExpressionTag) = nt.children + nt.ne
+  private def combineWithChildren(nt: LetFreeExpressionTag) = nt.children + nt.lfe
 
-  def normalizeAnnotation(a: Annotation[Declaration], env: Env, p: Package.Inferred):
+  def letFreeConvertAnnotation(a: Annotation[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
-      normalizeExpr(a.term, env, p).map { term =>
-        val neTag = term.tag._2
-        val tag = (a.tag, neTag)
+      letFreeConvertExpr(a.term, env, p).map { term =>
+        val lfeTag = term.tag._2
+        val tag = (a.tag, lfeTag)
         a.copy(term=term, tag=tag)
       }
 
-  def normalizeGeneric(g: Generic[Declaration], env: Env, p: Package.Inferred):
+  def letFreeConvertGeneric(g: Generic[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
-      normalizeExpr(g.in, env, p).map { in =>
-        val neTag = in.tag._2
-        val tag = (g.tag, neTag)
+      letFreeConvertExpr(g.in, env, p).map { in =>
+        val lfeTag = in.tag._2
+        val tag = (g.tag, lfeTag)
         g.copy(in=in, tag=tag)
       }
 
-  def normalizeLocal(v: Local[Declaration], env: Env, p: Package.Inferred):
+  def letFreeConvertLocal(v: Local[Declaration], env: Env, p: Package.Inferred):
+    NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
+      env._1.get(v.name) match {
+        case None => norm(p, v.name, v.tag, env).map { lfe =>
+          val lfeTag = getTag(lfe)._2
+          v.copy(tag=(v.tag, lfeTag))
+        }
+        case Some(lfeTag) =>
+          State.pure(v.copy(tag=(v.tag, lfeTag)))
+      }
+
+  def letFreeConvertGlobal(v: Global[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
       env._1.get(v.name) match {
         case None => norm(p, v.name, v.tag, env).map { ne =>
-          val neTag = getTag(ne)._2
-          v.copy(tag=(v.tag, neTag))
+          val lfeTag = getTag(ne)._2
+          v.copy(tag=(v.tag, lfeTag))
         }
-        case Some(neTag) =>
-          State.pure(v.copy(tag=(v.tag, neTag)))
+        case Some(lfeTag) =>
+          State.pure(v.copy(tag=(v.tag, lfeTag)))
       }
 
-  def normalizeGlobal(v: Global[Declaration], env: Env, p: Package.Inferred):
-    NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
-      env._1.get(v.name) match {
-        case None => norm(p, v.name, v.tag, env).map { ne =>
-          val neTag = getTag(ne)._2
-          v.copy(tag=(v.tag, neTag))
-        }
-        case Some(neTag) =>
-          State.pure(v.copy(tag=(v.tag, neTag)))
-      }
-
-  def normalizeAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred):
+  def letFreeConvertAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
       val lambdaVars = al.arg :: env._2
       val nextEnv: Env = (env._1 ++ lambdaVars.zipWithIndex
@@ -522,24 +522,24 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
         .mapValues(idx => LetFreeExpressionTag(LetFreeExpression.LambdaVar(idx), Set[LetFreeExpression]())),
         lambdaVars)
       for {
-        eExpr <- normalizeExpr(al.expr, nextEnv, p)
-        ne = normalOrderReduction(LetFreeExpression.Lambda(eExpr.tag._2.ne))
+        eExpr <- letFreeConvertExpr(al.expr, nextEnv, p)
+        ne = normalOrderReduction(LetFreeExpression.Lambda(eExpr.tag._2.lfe))
         children = combineWithChildren(eExpr.tag._2)
-        neTag = LetFreeExpressionTag(ne, children)
-      } yield al.copy(expr=eExpr, tag=(al.tag, neTag))
+        lfeTag = LetFreeExpressionTag(ne, children)
+      } yield al.copy(expr=eExpr, tag=(al.tag, lfeTag))
     }
 
-  def normalizeApp(a: App[Declaration], env: Env, p: Package.Inferred):
+  def letFreeConvertApp(a: App[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
       for {
-        efn <- normalizeExpr(a.fn, env, p)
-        earg <- normalizeExpr(a.arg, env, p)
-        ne = normalOrderReduction(LetFreeExpression.App(efn.tag._2.ne, earg.tag._2.ne))
+        efn <- letFreeConvertExpr(a.fn, env, p)
+        earg <- letFreeConvertExpr(a.arg, env, p)
+        ne = normalOrderReduction(LetFreeExpression.App(efn.tag._2.lfe, earg.tag._2.lfe))
         children = combineWithChildren(efn.tag._2) ++ combineWithChildren(earg.tag._2)
-        neTag = LetFreeExpressionTag(ne, children)
-      } yield a.copy(fn=efn, arg=earg, tag=(a.tag, neTag))
+        lfeTag = LetFreeExpressionTag(ne, children)
+      } yield a.copy(fn=efn, arg=earg, tag=(a.tag, lfeTag))
 
-  def normalizeLet(l: Let[Declaration], env: Env, p: Package.Inferred):
+  def letFreeConvertLet(l: Let[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
       l.recursive match {
         case RecursionKind.Recursive =>
@@ -552,37 +552,37 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
           val neWrapper = {ne: LetFreeExpression => normalOrderReduction(LetFreeExpression.Recursion(LetFreeExpression.Lambda(ne)))}
           val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
           for {
-            ee <- normalizeExpr(l.expr, nextEnv, p)
-            eeNe = neWrapper(ee.tag._2.ne)
+            ee <- letFreeConvertExpr(l.expr, nextEnv, p)
+            eeNe = neWrapper(ee.tag._2.lfe)
             eeNeTag = LetFreeExpressionTag(eeNe, ee.tag._2.children)
             nextNextEnv: Env = (env._1 + (l.arg -> eeNeTag), env._2)
-            eIn <- normalizeExpr(l.in, nextNextEnv, p)
+            eIn <- letFreeConvertExpr(l.in, nextNextEnv, p)
           } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
         case _ =>
           for {
-            ee <- normalizeExpr(l.expr, env, p)
+            ee <- letFreeConvertExpr(l.expr, env, p)
             nextEnv: Env = (env._1 + (l.arg -> ee.tag._2), env._2)
-            eIn <- normalizeExpr(l.in, nextEnv, p)
+            eIn <- letFreeConvertExpr(l.in, nextEnv, p)
           } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
       }
 
-  def normalizeLiteral(l: Literal[Declaration], env: Env, p: Package.Inferred): NormState[
+  def letFreeConvertLiteral(l: Literal[Declaration], env: Env, p: Package.Inferred): NormState[
     TypedExpr[(Declaration, LetFreeExpressionTag)]] =
       State.pure(l.copy(tag=(l.tag, LetFreeExpressionTag(LetFreeExpression.Literal(l.lit), Set()))))
 
-  def normalizeMatch(m: Match[Declaration], env: Env, p: Package.Inferred): NormState[
+  def letFreeConvertMatch(m: Match[Declaration], env: Env, p: Package.Inferred): NormState[
     TypedExpr[(Declaration, LetFreeExpressionTag)]] = for {
-      arg <- normalizeExpr(m.arg, env, p)
-      branches <- (m.branches.map { case branch => normalizeBranch(branch, env, p)}).sequence
-      normalBranches = branches.map { case (p, e) => (normalizePattern(p), e.tag._2.ne)}
-      ne=normalOrderReduction(LetFreeExpression.Match(arg.tag._2.ne, normalBranches))
+      arg <- letFreeConvertExpr(m.arg, env, p)
+      branches <- (m.branches.map { case branch => letFreeConvertBranch(branch, env, p)}).sequence
+      letFreeBranches = branches.map { case (p, e) => (letFreeConvertPattern(p), e.tag._2.lfe)}
+      ne=normalOrderReduction(LetFreeExpression.Match(arg.tag._2.lfe, letFreeBranches))
       children=branches.foldLeft(combineWithChildren(arg.tag._2)) { case (tags, br) => tags ++ combineWithChildren(br._2.tag._2) }
-      neTag = LetFreeExpressionTag(ne=ne, children=children)
+      lfeTag = LetFreeExpressionTag(lfe=ne, children=children)
     } yield Match(arg=arg,
       branches=branches,
-      tag=(m.tag, neTag))
+      tag=(m.tag, lfeTag))
 
-  def normalizePattern(pat: Pattern[(PackageName, Constructor), Type]): LetFreePattern = {
+  def letFreeConvertPattern(pat: Pattern[(PackageName, Constructor), Type]): LetFreePattern = {
     val names = pat.names
     def loop(pat: Pattern[(PackageName, Constructor), Type]): LetFreePattern =
       pat match {
@@ -607,7 +607,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
     loop(pat)
   }
 
-  def normalizeBranch(b: (Pattern[(PackageName, Constructor), Type], TypedExpr[Declaration]), env: Env, p: Package.Inferred): NormState[
+  def letFreeConvertBranch(b: (Pattern[(PackageName, Constructor), Type], TypedExpr[Declaration]), env: Env, p: Package.Inferred): NormState[
     (Pattern[(PackageName, Constructor), Type], TypedExpr[(Declaration, LetFreeExpressionTag)])] = {
     val (pattern, expr) = b
     val names = pattern.names.collect { case b: Identifier.Bindable => b }
@@ -618,26 +618,26 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
       .mapValues(idx => LetFreeExpressionTag(LetFreeExpression.LambdaVar(idx), Set[LetFreeExpression]())),
       lambdaVars)
     for {
-      innerExpr <- normalizeExpr(expr, nextEnv, p)
-      normalExpr = names.foldLeft(innerExpr.tag._2.ne) { case (expr, _) => LetFreeExpression.Lambda(expr) }
-      finalExpression = innerExpr.updatedTag((innerExpr.tag._1, innerExpr.tag._2.copy(ne=normalExpr)))
+      innerExpr <- letFreeConvertExpr(expr, nextEnv, p)
+      normalExpr = names.foldLeft(innerExpr.tag._2.lfe) { case (expr, _) => LetFreeExpression.Lambda(expr) }
+      finalExpression = innerExpr.updatedTag((innerExpr.tag._1, innerExpr.tag._2.copy(lfe=normalExpr)))
     } yield (pattern, finalExpression)
   }
 
-  def normalizeProgram(pkgName: PackageName, pack: Package.Inferred): NormState[
+  def letFreeConvertProgram(pkgName: PackageName, pack: Package.Inferred): NormState[
     Program[TypeEnv[Variance], TypedExpr[(Declaration, LetFreeConversion.LetFreeExpressionTag)], Any]] = {
     for {
       lets <- pack.program.lets.map {
-        case (name, recursive, expr) => normalizeNameKindLet(name, recursive, expr, pack, (Map(), Nil)).map((name, recursive, _))
+        case (name, recursive, expr) => letFreeConvertNameKindLet(name, recursive, expr, pack, (Map(), Nil)).map((name, recursive, _))
       }.sequence
     } yield pack.program.copy(
       lets  = lets
     )
   }
 
-  def normalizePackage(pkgName: PackageName, pack: Package.Inferred):
+  def letFreeConvertPackage(pkgName: PackageName, pack: Package.Inferred):
     NormState[LetFreePac] = for {
-    program <- normalizeProgram(pkgName, pack)
+    program <- letFreeConvertProgram(pkgName, pack)
   } yield pack.copy(program = program)
 
   def getTag(ref: ResultingRef) = ref match {
@@ -655,24 +655,24 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
 
   private def norm(pack: Package.Inferred, item: Identifier, t: Declaration, env: Env): NormState[ResultingRef] =
       NameKind(pack, item).get match { // this get should never fail due to type checking
-        case NameKind.Let(name, recursive, expr) => normalizeNameKindLet(
+        case NameKind.Let(name, recursive, expr) => letFreeConvertNameKindLet(
           name, recursive, expr, pack, env
           ).map(res => Right(res))
         case NameKind.Constructor(cn, _, dt, _) =>
-          val neTag = LetFreeExpressionTag(constructor(cn, dt), Set())
-          State.pure(Left((item, (t, neTag))))
+          val lfeTag = LetFreeExpressionTag(constructor(cn, dt), Set())
+          State.pure(Left((item, (t, lfeTag))))
         case NameKind.Import(from, orig) =>
           // we reset the environment in the other package
           for {
             imported <- norm(pm.toMap(from.name), orig, t, (Map.empty, Nil))
-            neTag = getTag(imported)._2
-          } yield Left((item, (t, neTag)))
+            lfeTag = getTag(imported)._2
+          } yield Left((item, (t, lfeTag)))
         case NameKind.ExternalDef(pn, n, scheme) =>
-          val neTag = LetFreeExpressionTag(LetFreeExpression.ExternalVar(pn, n), Set())
-          State.pure(Left((item, (t, neTag))))
+          val lfeTag = LetFreeExpressionTag(LetFreeExpression.ExternalVar(pn, n), Set())
+          State.pure(Left((item, (t, lfeTag))))
       }
 
-  private def normalizeNameKindLet(name: Identifier.Bindable, recursive: RecursionKind, expr: TypedExpr[Declaration], pack: Package.Inferred, env: Env):
+  private def letFreeConvertNameKindLet(name: Identifier.Bindable, recursive: RecursionKind, expr: TypedExpr[Declaration], pack: Package.Inferred, env: Env):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
     for {
       lookup <- State.inspect {
@@ -691,9 +691,9 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
                 .mapValues(idx => LetFreeExpressionTag(LetFreeExpression.LambdaVar(idx), Set[LetFreeExpression]())),
                 lambdaVars)
               for {
-                res <- normalizeExpr(expr, nextEnv, pack)
+                res <- letFreeConvertExpr(expr, nextEnv, pack)
                 tag = res.tag
-                wrappedNe = normalOrderReduction(LetFreeExpression.Recursion(LetFreeExpression.Lambda(tag._2.ne)))
+                wrappedNe = normalOrderReduction(LetFreeExpression.Recursion(LetFreeExpression.Lambda(tag._2.lfe)))
                 children = tag._2.children
                 finalRes = res.updatedTag((res.tag._1, LetFreeExpressionTag(wrappedNe, children)))
                 _ <- State.modify {
@@ -703,7 +703,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
               } yield finalRes
             case _ =>
               for {
-                res <- normalizeExpr(expr, env, pack)
+                res <- letFreeConvertExpr(expr, env, pack)
                 _ <- State.modify {
                   lets: Map[(PackageName, Identifier), TypedExpr[(Declaration, LetFreeExpressionTag)]] =>
                     lets + ((pack.name, name) -> res)
