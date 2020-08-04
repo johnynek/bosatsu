@@ -122,12 +122,12 @@ object LetFreePattern {
   case class Union(head: LetFreePattern, rest: NonEmptyList[LetFreePattern]) extends LetFreePattern
 }
 
-object Normalization {
+object LetFreeConversion {
   case class ExpressionKeyTag[T](ne: T, children: Set[T])
   type LetFreeExpressionTag = ExpressionKeyTag[LetFreeExpression]
   def LetFreeExpressionTag(ne: LetFreeExpression, children: Set[LetFreeExpression]) = ExpressionKeyTag(ne, children)
-  type NormalizedPM = PackageMap.Typed[(Declaration, LetFreeExpressionTag)]
-  type NormalizedPac = Package.Typed[(Declaration, LetFreeExpressionTag)]
+  type LetFreePM = PackageMap.Typed[(Declaration, LetFreeExpressionTag)]
+  type LetFreePac = Package.Typed[(Declaration, LetFreeExpressionTag)]
 
   type PatternEnv = Map[Int, LetFreeExpression]
 
@@ -430,10 +430,10 @@ object Normalization {
 }
 
 case class NormalizePackageMap(pm: PackageMap.Inferred) {
-  import Normalization._
+  import LetFreeConversion._
   import TypedExpr._
 
-  val normalizePackageMap: NormalizedPM = {
+  val letFreePackageMap: LetFreePM = {
     val packs = pm.toMap.toList
     val normAll = packs.traverse { case (name, pack) =>
       normalizePackage(name, pack)
@@ -443,7 +443,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def hashKey[T](fn: LetFreeExpression => T): PackageMap.Typed[(Declaration, ExpressionKeyTag[T])] = {
-    val lst = normalizePackageMap.toMap.toList
+    val lst = letFreePackageMap.toMap.toList
       .map { case (packName, pack) =>
         val newLets = pack.program.lets.map { case (letsName, recursive, expr) =>
           val newExpr = expr.traverse[Id, (Declaration, ExpressionKeyTag[T])] {
@@ -625,7 +625,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def normalizeProgram(pkgName: PackageName, pack: Package.Inferred): NormState[
-    Program[TypeEnv[Variance], TypedExpr[(Declaration, Normalization.LetFreeExpressionTag)], Any]] = {
+    Program[TypeEnv[Variance], TypedExpr[(Declaration, LetFreeConversion.LetFreeExpressionTag)], Any]] = {
     for {
       lets <- pack.program.lets.map {
         case (name, recursive, expr) => normalizeNameKindLet(name, recursive, expr, pack, (Map(), Nil)).map((name, recursive, _))
@@ -636,7 +636,7 @@ case class NormalizePackageMap(pm: PackageMap.Inferred) {
   }
 
   def normalizePackage(pkgName: PackageName, pack: Package.Inferred):
-    NormState[NormalizedPac] = for {
+    NormState[LetFreePac] = for {
     program <- normalizeProgram(pkgName, pack)
   } yield pack.copy(program = program)
 

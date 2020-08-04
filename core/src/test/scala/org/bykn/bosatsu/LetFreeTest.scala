@@ -4,39 +4,39 @@ import org.scalatest.FunSuite
 import java.math.BigInteger
 import cats.data.NonEmptyList
 
-class NormalizationTest extends FunSuite {
+class LetFreeTest extends FunSuite {
   import TestUtils._
   import LetFreeExpression._
   import Lit._
-  import Normalization._
+  import LetFreeConversion._
   import LetFreePattern.{PositionalStruct, Var, WildCard}
 
   test("Literal") {
       normalTagTest(
         List("""
-package NormTest/String
+package LetFreeTest/String
 
 main = "aa"
 """
-        ), "NormTest/String", LetFreeExpressionTag(Literal(Str("aa")), Set()), Some("Literal('aa')")
+        ), "LetFreeTest/String", LetFreeExpressionTag(Literal(Str("aa")), Set()), Some("Literal('aa')")
       )
 
       normalTagTest(
         List("""
-package NormTest/Int
+package LetFreeTest/Int
 
 main = 22
 """
-        ), "NormTest/Int", LetFreeExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set())
+        ), "LetFreeTest/Int", LetFreeExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set())
       )
 
       normalTagTest(
         List("""
-package NormTest/List
+package LetFreeTest/List
 
 main = ["aa"]
 """
-        ), "NormTest/List", LetFreeExpressionTag(
+        ), "LetFreeTest/List", LetFreeExpressionTag(
           Struct(1,List(Literal(Str("aa")), Struct(0,List()))),
           Set(
             Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),

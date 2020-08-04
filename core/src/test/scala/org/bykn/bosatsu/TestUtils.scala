@@ -180,7 +180,7 @@ object TestUtils {
     def expected: A
   }
   object NormalTestMode {
-    case class TagMode(expected: Normalization.LetFreeExpressionTag, serialized: Option[String] = None) extends NormalTestMode[Normalization.LetFreeExpressionTag]
+    case class TagMode(expected: LetFreeConversion.LetFreeExpressionTag, serialized: Option[String] = None) extends NormalTestMode[LetFreeConversion.LetFreeExpressionTag]
     case class ExpressionMode(expected: LetFreeExpression, serialized: Option[String] = None) extends NormalTestMode[LetFreeExpression]
     case class ChildrenMode(expected: Set[LetFreeExpression]) extends NormalTestMode[Set[LetFreeExpression]]
   }
@@ -225,7 +225,7 @@ object TestUtils {
     testInferred(packages, mainPackS, inferredHandler(_,_))
   }
 
-  def normalTagTest(packages: List[String], mainPackS: String, expected: Normalization.LetFreeExpressionTag, expectedSerialiazed: Option[String] = None) =
+  def normalTagTest(packages: List[String], mainPackS: String, expected: LetFreeConversion.LetFreeExpressionTag, expectedSerialiazed: Option[String] = None) =
     normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected, expectedSerialiazed))
   def normalExpressionTest(packages: List[String], mainPackS: String, expected: LetFreeExpression, expectedSerialiazed: Option[String] = None) =
     normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected, expectedSerialiazed))
