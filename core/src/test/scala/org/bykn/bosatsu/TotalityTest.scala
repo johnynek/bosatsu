@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import cats.Eq
 import cats.data.{Chain, NonEmptyList, Writer}
-import cats.implicits._
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalacheck.Gen
 
@@ -17,8 +16,12 @@ import org.typelevel.paiges.Document
 
 import Identifier.Constructor
 
+import cats.implicits._
+
 class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
   import TestParseUtils._
+
+  type Pat = Pattern[(PackageName, Constructor), Type]
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 500000)
@@ -57,6 +60,7 @@ class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]]
   val predefTE = typeEnvOf("""#
 struct Unit
 struct TupleCons(fst, snd)
+enum Bool: False, True
 """)
 
   val setOps: SetOps[Pattern[(PackageName, Constructor), Type]] =
@@ -230,6 +234,7 @@ enum Either: Left(l), Right(r)
     testTotality(predefTE, patterns("[[], [h, *tail]]"), tight = true)
     testTotality(predefTE, patterns("[[], [h, *tail], [h0, h1, *tail]]"), tight = true)
     testTotality(predefTE, patterns("[[], [*tail, _]]"), tight = true)
+    testTotality(predefTE, patterns("[[*_, True, *_], [], [False, *_]]"), tight = true)
     testTotality(predefTE, patterns("[[*_, True, *_], [] | [False, *_]]"), tight = true)
 
     notTotal(predefTE, patterns("[[], [h, *tail, _]]"))
@@ -305,7 +310,6 @@ enum Either: Left(l), Right(r)
   }
 
   test("(a - b) n c == (a n c) - (b n c) regressions") {
-    type Pat = Pattern[(PackageName, Constructor), Type]
     import Pattern._
     import StrPart.{LitStr, NamedStr, WildStr}
     import ListPart.{NamedList, Item}
@@ -325,4 +329,20 @@ enum Either: Left(l), Right(r)
     }
   }
 
+  test("x - top = 0 regressions") {
+    // see: https://github.com/johnynek/bosatsu/issues/475
+    def law(x: Pat, y: Pat) = {
+      if (setOps.isTop(y)) assert(setOps.difference(x, y).isEmpty)
+    }
+
+    val regressions: List[(Pat, Pat)] =
+      List(
+        {
+          val struct = Pattern.PositionalStruct((PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")), Nil)
+          val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
+          (struct, lst)
+        })
+
+    regressions.foreach { case (a, b) => law(a, b) }
+  }
 }

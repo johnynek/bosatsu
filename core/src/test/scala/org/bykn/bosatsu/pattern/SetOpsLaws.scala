@@ -230,9 +230,14 @@ abstract class SetOpsLaws[A] extends FunSuite {
     }
   }
 
+  /*
+   * This isn't true in general because difference is an upper-bound
+   * and you have differences on both sides of the equation.
+   * It is *usually* true, but we can't write a law for that
   test("(a - b) n c = (a n c) - (b n c)") {
     forAll(genItem, genItem, genItem)(diffIntersectionLaw(_, _, _))
   }
+  */
 
   test("missing branches, if added are total and none of the missing are unreachable") {
 

@@ -321,7 +321,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
   def diffUBRegressions: List[(Pattern, Pattern, S)] = Nil
 
   test("difference is an upper bound") {
-    //forAll(genPattern, genPattern, genSeq) { case (p1, p2, s) => differenceUBLaw(p1, p2, s) }
+    forAll(genPattern, genPattern, genSeq) { case (p1, p2, s) => differenceUBLaw(p1, p2, s) }
 
     diffUBRegressions.foreach { case (p1, p2, s) =>
       differenceUBLaw(p1, p2, s)

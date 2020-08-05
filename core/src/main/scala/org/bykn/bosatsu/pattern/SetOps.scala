@@ -1,7 +1,5 @@
 package org.bykn.bosatsu.pattern
 
-import cats.data.NonEmptyList
-
 /**
  * These are set operations we can do on patterns
  */
@@ -74,53 +72,56 @@ trait SetOps[A] {
   def missingBranches(top: List[A], branches: List[A]): List[A] = {
     // we can subtract in any order
     // since a - b - c = a - c - b
-    //
-    def oneOf(l: NonEmptyList[A]): NonEmptyList[(A, List[A])] =
-      l match {
-        case NonEmptyList(h, Nil) => NonEmptyList((h, Nil), Nil)
-        case NonEmptyList(h, tail@(tail1 :: tail2)) =>
-          val hr = (h, tail)
-          val tailr = oneOf(NonEmptyList(tail1, tail2))
-            .map { case (h1, t1) => (h1, h :: t1) }
-          NonEmptyList(hr, tailr.toList)
+
+    def allPerms[B](as: List[B]): List[List[B]] =
+      as match {
+        case Nil => Nil
+        case _ :: Nil => as :: Nil
+        case a :: rest =>
+          val prest = allPerms(rest)
+          // now a could be anywhere in the resulting list
+          prest.flatMap { lst =>
+            val sz = lst.size
+            (0 until sz).map { offset =>
+              lst.take(offset) ::: (a :: lst.drop(offset))
+            }
+            .toList
+          }
       }
 
-    def loop(union: List[A], diffs: NonEmptyList[A]): List[A] =
+    // all permutations can blow up fast, so we only
+    // take a fixed number
+    val lookahead = 4
+
+    def loop(union: List[A], diffs: List[A]): List[A] =
       if (union.isEmpty) Nil
       else {
-        // do a greedy n^2 algorithm to try to find
-        // minimal branches
-        val candidates =
-          oneOf(diffs).toList.flatMap { case (dh, dt) =>
-            val u1 = unifyUnion(differenceAll(union, dh :: Nil))
-            // never grow the union, which is possible with differenceAll
-            if (union.forall(u1.toSet)) Nil
-            else {
-              (u1.size, u1, dt) :: Nil
+        diffs match {
+          case Nil => union
+          case ned =>
+            val peek = diffs.take(lookahead)
+            val trials = allPerms(peek).map { peeks =>
+              val u1 = differenceAll(union, peeks)
+              val ulen = u1.size
+              (ulen, peeks)
             }
-          }
+            val smallest = trials.iterator.map(_._1).min
+            // choose the diff that ends up the smallest
+            // the most times
+            val best = trials
+              .collect { case (ulen, p) if ulen == smallest => p }
+              .flatten
+              .groupBy(identity)
+              .map { case (k, v) => (k, v.size) }
+              .minBy(_._2)
+              ._1
 
-        val (u1, d1) =
-          if (candidates.isEmpty) (union, diffs.tail)
-          else {
-            val (_, u1, d1) =
-              candidates
-              .toList
-              .minBy(_._1)
-            (u1, d1)
-          }
-
-        NonEmptyList.fromList(d1) match {
-          case None => u1
-          case Some(d1) => loop(u1, d1)
+            val u1 = differenceAll(union, best :: Nil)
+            loop(differenceAll(union, best :: Nil), diffs.filterNot(_ == best))
         }
       }
 
-    val missing =
-      NonEmptyList.fromList(branches) match {
-        case None => top
-        case Some(nel) => loop(top, nel)
-      }
+    val missing = loop(top, unifyUnion(branches))
 
     // filter any unreachable, which can happen when earlier items shadow later
     // ones

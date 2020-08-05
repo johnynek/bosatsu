@@ -2,6 +2,7 @@ package org.bykn.bosatsu.pattern
 
 sealed trait SeqPart[+Elem] {
   def notWild: Boolean = false
+  def isWild: Boolean = !notWild
 }
 object SeqPart {
   sealed trait SeqPart1[+Elem] extends SeqPart[Elem] {

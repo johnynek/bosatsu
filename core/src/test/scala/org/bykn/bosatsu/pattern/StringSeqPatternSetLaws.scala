@@ -81,6 +81,16 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
       (Cat(Wildcard, Cat(Lit('q'), Cat(Wildcard, Empty))),
         Cat(Wildcard, Empty),
         Cat(Wildcard, Cat(Lit('p'), Cat(Wildcard, Empty)))) ::
+      /*
+       * This fails currently
+       * see: https://github.com/johnynek/bosatsu/issues/486
+      {
+        val p1 = Cat(Wildcard,Cat(Lit('1'),Cat(Lit('0'),Cat(Lit('0'),Empty))))
+        val p2  = Cat(AnyElem,Cat(Lit('1'),Cat(Wildcard,Cat(Lit('0'),Empty))))
+        val p3 = Cat(Lit('1'),Cat(Lit('1'),Cat(Wildcard,Cat(Lit('0'),Empty))))
+        (p1, p2, p3)
+      } ::
+      */
       Nil
 
     regressions.foreach { case (a, b, c) => diffIntersectionLaw(a, b, c) }

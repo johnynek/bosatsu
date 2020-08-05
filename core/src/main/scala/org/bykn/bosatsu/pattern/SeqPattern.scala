@@ -9,8 +9,7 @@ sealed trait SeqPattern[+A] {
   def matchesAny: Boolean =
     this match {
       case Empty => false
-      case Cat(Wildcard, Empty) => true
-      case Cat(Wildcard, t) => t.matchesAny
+      case Cat(Wildcard, t) => t.matchesEmpty
       case Cat(_, _) => false
     }
 
@@ -368,10 +367,9 @@ object SeqPattern {
           case (Cat(_: SeqPart1[A], _), Empty) =>
             // Cat(SeqPart1[A], _) does not match Empty
             p1 :: Nil
-          case (_, Cat(Wildcard, _)) if p2.matchesAny =>
-            // matches anything
+          case (_, _) if p2.matchesAny || subset(p1, p2) =>
+            // p2 has to be bigger
             Nil
-          case (_, _) if subset(p1, p2) => Nil
           case (Cat(Wildcard, t1@Cat(Wildcard, _)), _) =>
             // unnormalized
             difference(t1, p2)
@@ -445,6 +443,24 @@ object SeqPattern {
               val d2 = part1SetOps.difference(h1, h2).map(Cat(_, t1))
               unifyUnion(d1 ::: d2)
             }
+          case (c1@Cat(Wildcard, Empty), c2@Cat(Wildcard, t2)) if c2.rightMost.isWild =>
+            // this is a common case in totality checking
+            // since we do [*_] - x to see what is missing
+            // we know that t2 does not match Empty because we know c2 does not matchAny
+            //
+            // * - *:m:* = ([] + _:*) - (m:* + _:*:m:*)
+            //           = (([] - m:*) + ([] - _:*:m:*) +
+            //             (_:* - m:*) + (_:* - _:*:m:*)) - (m:* n _:*m:*)
+            //             using that m:* can't match []
+            //           = *((* - m:*) - (m:* n _:*m:*))
+            //           // but m:* n _:*m:* is clearly less than
+            //           // m:* so, we can just return *(* - m:*)
+            //           as an upper bound, or remove any items in the
+            //           intersection
+            val intRight = intersection(t2, Cat(AnyElem, c2))
+            val d1 = difference(c1, t2)
+            val d2 = d1.filterNot { l => intRight.exists(subset(l, _)) }
+            unifyUnion(d2.map(_.prependWild))
           case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
             if (c1.rightMost.notWild || c2.rightMost.notWild) {
               // let's avoid the most complex case of both having
