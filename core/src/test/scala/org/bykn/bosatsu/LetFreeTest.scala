@@ -4,39 +4,39 @@ import org.scalatest.FunSuite
 import java.math.BigInteger
 import cats.data.NonEmptyList
 
-class NormalizationTest extends FunSuite {
+class LetFreeTest extends FunSuite {
   import TestUtils._
-  import NormalExpression._
+  import LetFreeExpression._
   import Lit._
-  import Normalization._
-  import NormalPattern.{PositionalStruct, Var, WildCard}
+  import LetFreeConversion._
+  import LetFreePattern.{PositionalStruct, Var, WildCard}
 
   test("Literal") {
       normalTagTest(
         List("""
-package NormTest/String
+package LetFreeTest/String
 
 main = "aa"
 """
-        ), "NormTest/String", NormalExpressionTag(Literal(Str("aa")), Set()), Some("Literal('aa')")
+        ), "LetFreeTest/String", LetFreeExpressionTag(Literal(Str("aa")), Set()), Some("Literal('aa')")
       )
 
       normalTagTest(
         List("""
-package NormTest/Int
+package LetFreeTest/Int
 
 main = 22
 """
-        ), "NormTest/Int", NormalExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set())
+        ), "LetFreeTest/Int", LetFreeExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set())
       )
 
       normalTagTest(
         List("""
-package NormTest/List
+package LetFreeTest/List
 
 main = ["aa"]
 """
-        ), "NormTest/List", NormalExpressionTag(
+        ), "LetFreeTest/List", LetFreeExpressionTag(
           Struct(1,List(Literal(Str("aa")), Struct(0,List()))),
           Set(
             Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
@@ -165,7 +165,7 @@ package Lambda/Identity
 
 out = \x -> x
 """
-      ), "Lambda/Identity", NormalExpressionTag(
+      ), "Lambda/Identity", LetFreeExpressionTag(
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
@@ -175,7 +175,7 @@ package Lambda/Always
 
 out = \x -> \_ -> x
 """
-      ), "Lambda/Always", NormalExpressionTag(
+      ), "Lambda/Always", LetFreeExpressionTag(
         Lambda(Lambda(LambdaVar(1))), Set(Lambda(LambdaVar(1)), LambdaVar(1))
       )
     )
@@ -185,7 +185,7 @@ package Lambda/Always
 
 out = \_ -> \y -> y
 """
-      ), "Lambda/Always", NormalExpressionTag(
+      ), "Lambda/Always", LetFreeExpressionTag(
         Lambda(Lambda(LambdaVar(0))), Set(Lambda(LambdaVar(0)), LambdaVar(0))
       )
     )
@@ -198,7 +198,7 @@ def foo(x):
   x
 out = foo
 """
-      ), "Lambda/Identity", NormalExpressionTag(
+      ), "Lambda/Identity", LetFreeExpressionTag(
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
@@ -211,7 +211,7 @@ def foo(x):
   y
 out = foo
 """
-      ), "Lambda/Identity", NormalExpressionTag(
+      ), "Lambda/Identity", LetFreeExpressionTag(
         Lambda(LambdaVar(0)), Set(LambdaVar(0))
       )
     )
@@ -223,7 +223,7 @@ def foo(x, _):
   x
 out = foo
 """
-      ), "Lambda/Always", NormalExpressionTag(
+      ), "Lambda/Always", LetFreeExpressionTag(
         Lambda(Lambda(LambdaVar(1))), Set(Lambda(LambdaVar(1)), LambdaVar(1))
       )
     )
@@ -235,7 +235,7 @@ def foo(_, y):
   y
 out = foo
 """
-      ), "Lambda/Always", NormalExpressionTag(
+      ), "Lambda/Always", LetFreeExpressionTag(
         Lambda(Lambda(LambdaVar(0))), Set(Lambda(LambdaVar(0)), LambdaVar(0))
       )
     )
@@ -518,7 +518,7 @@ out = match foo("c"):
       Match(
         App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "LitMatch")).get),Identifier.Name("foo")),Literal(Str("c"))),
         NonEmptyList.fromList(List(
-          (NormalPattern.Literal(Str("d")),Literal(Str("e"))),
+          (LetFreePattern.Literal(Str("d")),Literal(Str("e"))),
           (WildCard,Literal(Str("f")))
         )).get
       )

@@ -12,8 +12,8 @@ class DeclarationTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 500)
     PropertyCheckConfiguration(minSuccessful = 200)
+    //PropertyCheckConfiguration(minSuccessful = 50)
 
   implicit val emptyRegion: Region = Region(0, 0)
 
@@ -155,6 +155,17 @@ class DeclarationTest extends FunSuite {
     }
 
     forAll(genFrees) { case (d, b) => law(b, d) }
+
+    val regressions: List[(String, String)] =
+      List(
+        ("Foo { a }", "a")
+      )
+
+    regressions.foreach { case (decl, v) =>
+      val d = TestParseUtils.parseUnsafe(Declaration.parser(""), decl)
+      val bind = TestParseUtils.parseUnsafe(Identifier.bindableParser, v)
+      law(bind, d)
+    }
   }
 
   test("test example substitutions") {
@@ -177,6 +188,28 @@ x"""))
     law("b", "12", """[b for b in b]""", Some("""[b for b in 12]"""))
     law("b", "12", """[b for b in b if b]""", Some("""[b for b in 12 if b]"""))
     law("b", "12", """Foo { b }""", Some("Foo { b: 12 }"))
+  }
+
+  test("test freeVars with explicit examples") {
+    def law(decls: String, frees: List[String], all: List[String]) = {
+      val binds = frees.map(TestParseUtils.parseUnsafe(Identifier.bindableParser, _))
+      val alls = all.map(TestParseUtils.parseUnsafe(Identifier.bindableParser, _))
+      val decl = TestParseUtils.parseUnsafe(Declaration.parser(""), decls)
+
+      assert(decl.freeVars.toSet == binds.toSet, "freeVars don't match")
+      assert(decl.allNames.toSet == alls.toSet, "allVars don't match")
+    }
+
+    law("a", List("a"), List("a"))
+    law("[a for b in c]", List("a", "c"), List("a", "b", "c"))
+    law("[a for b in c if d]", List("a", "c", "d"), List("a", "b", "c", "d"))
+    law("[a for b in c if b]", List("a", "c"), List("a", "b", "c"))
+    law("[b for b in c if d]", List("c", "d"), List("b", "c", "d"))
+    law("[b for b in c if b]", List("c"), List("b", "c"))
+    law("{ k: a for b in c if d}", List("k", "a", "c", "d"), List("k", "a", "b", "c", "d"))
+    law("{ k: a for b in c if b}", List("k", "a", "c"), List("k", "a", "b", "c"))
+    law("Foo { a }", List("a"), List("a"))
+    law("Foo { a: b }", List("b"), List("b"))
   }
 
   test("isCheap is constant under Annotation or Parens") {
