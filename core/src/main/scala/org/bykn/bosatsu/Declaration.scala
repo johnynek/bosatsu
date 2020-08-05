@@ -232,7 +232,11 @@ sealed abstract class Declaration {
           // A constructor doesn't introduce new bindings
           args.foldLeft(acc) {
             case (acc, RecordArg.Pair(_, v)) => loop(v, bound, acc)
-            case (acc, RecordArg.Simple(n)) => acc
+            case (acc, RecordArg.Simple(n)) =>
+              // TODO this is wrong,
+              // this is the same as Pair(n, Var(n))
+              // and thus n can be free
+              acc
           }
       }
 
@@ -511,7 +515,6 @@ object Declaration {
               Comment(CommentStatement(c.message, p1))(decl.region)
             }
         case DefFn(DefStatement(nm, args, rtype, (body, rest))) =>
-          // nm is in scope in result
           def go(scope: List[Bindable], d0: Declaration): Option[Declaration] =
             if (scope.exists(masks)) None
             else if (scope.exists(shadows)) Some(d0)

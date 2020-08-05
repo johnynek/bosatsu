@@ -11,9 +11,9 @@ class DeclarationTest extends FunSuite {
   import Generators.shrinkDecl
 
   implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 500)
-    PropertyCheckConfiguration(minSuccessful = 200)
+    //PropertyCheckConfiguration(minSuccessful = 50000)
+    PropertyCheckConfiguration(minSuccessful = 500)
+    //PropertyCheckConfiguration(minSuccessful = 200)
 
   implicit val emptyRegion: Region = Region(0, 0)
 
