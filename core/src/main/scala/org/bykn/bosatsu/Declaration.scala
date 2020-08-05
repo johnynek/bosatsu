@@ -214,29 +214,29 @@ sealed abstract class Declaration {
           items.foldLeft(acc) { (acc0, sori) =>
             loop(sori.value, bound, acc0)
           }
-        case ListDecl(ListLang.Comprehension(ex, b, in, _)) =>
+        case ListDecl(ListLang.Comprehension(ex, b, in, filter)) =>
           val acc1 = loop(in, bound, acc)
           val bound1 = bound ++ b.names
-          loop(ex.value, bound1, acc1)
+          val acc2 = loop(ex.value, bound1, acc1)
+          filter.fold(acc2)(loop(_, bound1, acc2))
         case DictDecl(ListLang.Cons(items)) =>
           items.foldLeft(acc) { (acc0, kv) =>
             val acc1 = loop(kv.key, bound, acc0)
             loop(kv.value, bound, acc1)
           }
-        case DictDecl(ListLang.Comprehension(ex, b, in, _)) =>
+        case DictDecl(ListLang.Comprehension(ex, b, in, filter)) =>
           val acc1 = loop(in, bound, acc)
           val bound1 = bound ++ b.names
           val acc2 = loop(ex.key, bound1, acc1)
-          loop(ex.value, bound1, acc2)
+          val acc3 = loop(ex.value, bound1, acc2)
+          filter.fold(acc3)(loop(_, bound1, acc3))
         case RecordConstructor(_, args) =>
           // A constructor doesn't introduce new bindings
           args.foldLeft(acc) {
-            case (acc, RecordArg.Pair(_, v)) => loop(v, bound, acc)
-            case (acc, RecordArg.Simple(n)) =>
-              // TODO this is wrong,
-              // this is the same as Pair(n, Var(n))
-              // and thus n can be free
-              acc
+            case (acc, RecordArg.Pair(_, v)) =>
+              loop(v, bound, acc)
+            case (acc, RecordArg.Simple(v)) =>
+              loop(Var(v)(decl.region), bound, acc)
           }
       }
 
@@ -319,18 +319,20 @@ sealed abstract class Declaration {
           items.foldLeft(acc) { (acc0, sori) =>
             loop(sori.value, acc0)
           }
-        case ListDecl(ListLang.Comprehension(ex, b, in, _)) =>
+        case ListDecl(ListLang.Comprehension(ex, b, in, filter)) =>
           val acc1 = loop(in, acc)
-          loop(ex.value, acc1 ++ b.names)
+          val acc2 = loop(ex.value, acc1 ++ b.names)
+          filter.fold(acc2)(loop(_, acc2))
         case DictDecl(ListLang.Cons(items)) =>
           items.foldLeft(acc) { (acc0, kv) =>
             val acc1 = loop(kv.key, acc0)
             loop(kv.value, acc1)
           }
-        case DictDecl(ListLang.Comprehension(ex, b, in, _)) =>
+        case DictDecl(ListLang.Comprehension(ex, b, in, filter)) =>
           val acc1 = loop(in, acc)
           val acc2 = loop(ex.key, acc1 ++ b.names)
-          loop(ex.value, acc2)
+          val acc3 = loop(ex.value, acc2)
+          filter.fold(acc3)(loop(_, acc3))
         case RecordConstructor(_, args) =>
           args.foldLeft(acc) {
             case (acc, RecordArg.Pair(_, v)) => loop(v, acc)
@@ -407,8 +409,14 @@ object Declaration {
           loop(a).map(RecordArg.Pair(fn, _))
         case RecordArg.Simple(fn) =>
           if (fn === ident) {
-            // This is no longer a simple RecordArg
-            Some(RecordArg.Pair(fn, ex))
+            ex match {
+              case Var(newIdent) if newIdent === fn =>
+                // this is identity
+                Some(ra)
+              case _ =>
+                // This is no longer a simple RecordArg
+                Some(RecordArg.Pair(fn, ex))
+            }
           }
           else Some(ra)
       }
