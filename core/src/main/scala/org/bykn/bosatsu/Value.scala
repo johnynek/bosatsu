@@ -16,6 +16,17 @@ sealed abstract class Value {
   def asFn: Value => Value =
     this match {
       case FnValue(f) => f
+      case LetFreeExprFnValue(toExprFn) => { v: Value => toExprFn(LetFreeEvaluation.ComputedValue(v), None, None) }
+      case other =>
+        // $COVERAGE-OFF$this should be unreachable
+        sys.error(s"invalid cast to Fn: $other")
+        // $COVERAGE-ON$
+    }
+
+  def attemptExprFn: Either[(LetFreeEvaluation.LetFreeValue, LetFreeEvaluation.Cache, LetFreeEvaluation.ToLFV) => Value, Value => Value] =
+    this match {
+      case LetFreeExprFnValue(ef) => Left(ef)
+      case FnValue(f) => Right(f)
       case other =>
         // $COVERAGE-OFF$this should be unreachable
         sys.error(s"invalid cast to Fn: $other")
@@ -102,6 +113,16 @@ object Value {
     }
 
   }
+
+  /*
+  * A LetFreeExprFnValue is a Value that an Evaluator can pass to it a LetFreeExpression that generates the value and it will return a 
+  * Value that is "equivalent" to if it were just passed a Value. This allows external functions to do things like take advantage of caches
+  * or pass the expression to an external system to do compute. This allows external functions to construct evaluation strategies that aren't
+  * in the evaluator itself.
+  * 
+  * The `Cache` itself is defined by LetFreeEvaluation and is optionally passed in by the Evaluator. 
+  */
+  case class LetFreeExprFnValue(toExprFn: (LetFreeEvaluation.LetFreeValue, LetFreeEvaluation.Cache, LetFreeEvaluation.ToLFV) => Value) extends Value
   case class ExternalValue(toAny: Any) extends Value
 
   val False: Value = SumValue(0, UnitValue)
