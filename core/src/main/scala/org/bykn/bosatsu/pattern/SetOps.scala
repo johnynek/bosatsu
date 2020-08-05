@@ -91,7 +91,8 @@ trait SetOps[A] {
 
     // all permutations can blow up fast, so we only
     // take a fixed number
-    val lookahead = 4
+    // 3! = 6
+    val lookahead = 3
 
     def loop(union: List[A], diffs: List[A]): List[A] =
       if (union.isEmpty) Nil
@@ -106,14 +107,14 @@ trait SetOps[A] {
               (ulen, peeks)
             }
             val smallest = trials.iterator.map(_._1).min
-            // choose the diff that ends up the smallest
+            // choose a diff that ends up the smallest
             // the most times
             val best = trials
               .collect { case (ulen, p) if ulen == smallest => p }
               .flatten
               .groupBy(identity)
               .map { case (k, v) => (k, v.size) }
-              .minBy(_._2)
+              .maxBy(_._2)
               ._1
 
             val u1 = differenceAll(union, best :: Nil)
