@@ -70,8 +70,8 @@ enum Bool: False, True
     // TODO would be nice to pass with unions, they are hard
     genPatternNoUnion
 
-  def eqUnion: Gen[Eq[List[Pattern[(PackageName, Constructor), Type]]]] =
-    Gen.const(new Eq[List[Pattern[(PackageName, Constructor), Type]]] {
+  val eqPatterns: Eq[List[Pattern[(PackageName, Constructor), Type]]] =
+    new Eq[List[Pattern[(PackageName, Constructor), Type]]] {
       val e1 = TotalityCheck(predefTE).eqPat
 
       def eqv(a: List[Pattern[(PackageName, Constructor), Type]],
@@ -82,7 +82,10 @@ enum Bool: False, True
               e1.eqv(Pattern.union(a.head, a.tail), Pattern.union(b.head, b.tail))
             case _ => false
           }
-    })
+    }
+
+  def eqUnion: Gen[Eq[List[Pattern[(PackageName, Constructor), Type]]]] =
+    Gen.const(eqPatterns)
 
   def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] = {
     val nameToCons: Constructor => (PackageName, Constructor) =
@@ -344,5 +347,19 @@ enum Either: Left(l), Right(r)
         })
 
     regressions.foreach { case (a, b) => law(a, b) }
+  }
+
+  test("subset consistency regressions") {
+    val regressions: List[(Pat, Pat)] =
+      {
+        val struct = Pattern.PositionalStruct((PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")), Nil)
+        val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
+        (struct, lst)
+      } ::
+      Nil
+
+    regressions.foreach { case (a, b) =>
+      subsetConsistencyLaw(a, b, eqPatterns)
+    }
   }
 }

@@ -257,12 +257,16 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case (PositionalStruct(n, as), rp@ListPat(_)) =>
               structToList(n, as) match {
                 case Some(lp) => intersection(lp, rp)
-                case None => Nil
+                case None =>
+                  if (isTop(rp)) left :: Nil
+                  else Nil
               }
             case (lp@ListPat(_), PositionalStruct(n, as)) =>
               structToList(n, as) match {
                 case Some(rp) => intersection(lp, rp)
-                case None => Nil
+                case None =>
+                  if (isTop(lp)) right :: Nil
+                  else Nil
               }
             case (PositionalStruct(ln, lps), PositionalStruct(rn, rps)) =>
               if (ln == rn) {
