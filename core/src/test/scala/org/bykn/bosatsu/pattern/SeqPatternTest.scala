@@ -428,7 +428,7 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
       List(
         SeqPattern.fromList(Wildcard :: Lit(Set(true)) :: Wildcard :: Nil),
         SeqPattern.fromList(Lit(Set(false)) :: Wildcard :: Nil),
-        SeqPattern.fromList(Nil),
+        SeqPattern.fromList(Nil)
       ))
 
     assert(missing == Nil)

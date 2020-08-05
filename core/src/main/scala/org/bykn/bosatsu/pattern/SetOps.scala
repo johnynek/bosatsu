@@ -104,14 +104,13 @@ trait SetOps[A] {
             val trials = allPerms(peek).map { peeks =>
               val u1 = differenceAll(union, peeks)
               val ulen = u1.size
-              (ulen, peeks)
+              (ulen, peek.head)
             }
             val smallest = trials.iterator.map(_._1).min
-            // choose a diff that ends up the smallest
-            // the most times
+            // choose a diff that starts the most
+            // number of results that are the smallest
             val best = trials
               .collect { case (ulen, p) if ulen == smallest => p }
-              .flatten
               .groupBy(identity)
               .map { case (k, v) => (k, v.size) }
               .maxBy(_._2)
