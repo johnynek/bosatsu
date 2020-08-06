@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import cats.Eq
 import cats.data.{Chain, NonEmptyList, Writer}
-import cats.implicits._
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalacheck.Gen
 
@@ -17,12 +16,17 @@ import org.typelevel.paiges.Document
 
 import Identifier.Constructor
 
+import cats.implicits._
+
 class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
   import TestParseUtils._
+
+  type Pat = Pattern[(PackageName, Constructor), Type]
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 500000)
     PropertyCheckConfiguration(minSuccessful = 5000)
+    //PropertyCheckConfiguration(minSuccessful = 50)
 
   val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genCompiledPattern(5, useAnnotation = false)
@@ -56,6 +60,7 @@ class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]]
   val predefTE = typeEnvOf("""#
 struct Unit
 struct TupleCons(fst, snd)
+enum Bool: False, True
 """)
 
   val setOps: SetOps[Pattern[(PackageName, Constructor), Type]] =
@@ -65,8 +70,8 @@ struct TupleCons(fst, snd)
     // TODO would be nice to pass with unions, they are hard
     genPatternNoUnion
 
-  def eqUnion: Gen[Eq[List[Pattern[(PackageName, Constructor), Type]]]] =
-    Gen.const(new Eq[List[Pattern[(PackageName, Constructor), Type]]] {
+  val eqPatterns: Eq[List[Pattern[(PackageName, Constructor), Type]]] =
+    new Eq[List[Pattern[(PackageName, Constructor), Type]]] {
       val e1 = TotalityCheck(predefTE).eqPat
 
       def eqv(a: List[Pattern[(PackageName, Constructor), Type]],
@@ -77,7 +82,10 @@ struct TupleCons(fst, snd)
               e1.eqv(Pattern.union(a.head, a.tail), Pattern.union(b.head, b.tail))
             case _ => false
           }
-    })
+    }
+
+  def eqUnion: Gen[Eq[List[Pattern[(PackageName, Constructor), Type]]]] =
+    Gen.const(eqPatterns)
 
   def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] = {
     val nameToCons: Constructor => (PackageName, Constructor) =
@@ -229,6 +237,8 @@ enum Either: Left(l), Right(r)
     testTotality(predefTE, patterns("[[], [h, *tail]]"), tight = true)
     testTotality(predefTE, patterns("[[], [h, *tail], [h0, h1, *tail]]"), tight = true)
     testTotality(predefTE, patterns("[[], [*tail, _]]"), tight = true)
+    testTotality(predefTE, patterns("[[*_, True, *_], [], [False, *_]]"), tight = true)
+    testTotality(predefTE, patterns("[[*_, True, *_], [] | [False, *_]]"), tight = true)
 
     notTotal(predefTE, patterns("[[], [h, *tail, _]]"))
   }
@@ -303,7 +313,6 @@ enum Either: Left(l), Right(r)
   }
 
   test("(a - b) n c == (a n c) - (b n c) regressions") {
-    type Pat = Pattern[(PackageName, Constructor), Type]
     import Pattern._
     import StrPart.{LitStr, NamedStr, WildStr}
     import ListPart.{NamedList, Item}
@@ -323,4 +332,34 @@ enum Either: Left(l), Right(r)
     }
   }
 
+  test("x - top = 0 regressions") {
+    // see: https://github.com/johnynek/bosatsu/issues/475
+    def law(x: Pat, y: Pat) = {
+      if (setOps.isTop(y)) assert(setOps.difference(x, y).isEmpty)
+    }
+
+    val regressions: List[(Pat, Pat)] =
+      List(
+        {
+          val struct = Pattern.PositionalStruct((PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")), Nil)
+          val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
+          (struct, lst)
+        })
+
+    regressions.foreach { case (a, b) => law(a, b) }
+  }
+
+  test("subset consistency regressions") {
+    val regressions: List[(Pat, Pat)] =
+      {
+        val struct = Pattern.PositionalStruct((PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")), Nil)
+        val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
+        (struct, lst)
+      } ::
+      Nil
+
+    regressions.foreach { case (a, b) =>
+      subsetConsistencyLaw(a, b, eqPatterns)
+    }
+  }
 }

@@ -9,8 +9,7 @@ sealed trait SeqPattern[+A] {
   def matchesAny: Boolean =
     this match {
       case Empty => false
-      case Cat(Wildcard, Empty) => true
-      case Cat(Wildcard, t) => t.matchesAny
+      case Cat(Wildcard, t) => t.matchesEmpty
       case Cat(_, _) => false
     }
 
@@ -22,13 +21,6 @@ sealed trait SeqPattern[+A] {
     }
 
   def isEmpty: Boolean = this == Empty
-  def nonEmpty: Boolean = !isEmpty
-
-  def isLit: Boolean =
-    this match {
-      case Cat(Lit(_), Empty) => true
-      case _ => false
-    }
 
   /**
    * Concat that SeqPattern on the right
@@ -170,8 +162,9 @@ object SeqPattern {
         // something?
         def unifySeqPart(list: List[SeqPart[A]]): Option[List[SeqPart[A]]] =
           list match {
-            case a :: Wildcard :: Nil if isAny(a) => someWild
-            case Wildcard :: a :: Nil if isAny(a) => someWild
+            case (a: SeqPart1[A]) :: Wildcard :: Nil if isAny(a) => someWild
+            case Wildcard :: (a: SeqPart1[A]) :: Nil if isAny(a) => someWild
+            case Wildcard :: Wildcard :: Nil => someWild
             case Wildcard :: Nil => someWild
             case Nil => someNil
             case _ => None
@@ -237,13 +230,16 @@ object SeqPattern {
        * return true if p1 <= p2, can give false negatives
        */
       def subset(p1: SeqPattern[A], p2: SeqPattern[A]): Boolean =
-        p2.matchesAny || subsetList(p1.toList, p2.toList)
-
-      def isAny(p: SeqPart[A]): Boolean =
-        p match {
-          case p1: SeqPart1[A] => part1SetOps.isTop(p1)
-          case _ => false
+        p2.matchesAny || {
+          // if p2 doesn't matchEmpty but p1 does, we are done
+          // check that case quickly
+          if (!p2.matchesEmpty && p1.matchesEmpty) false
+          else subsetList(p1.toList, p2.toList)
         }
+
+      @inline
+      final def isAny(p: SeqPart1[A]): Boolean =
+        part1SetOps.isTop(p)
 
       private def subsetList(p1: List[SeqPart[A]], p2: List[SeqPart[A]]): Boolean =
         (p1, p2) match {
@@ -260,18 +256,41 @@ object SeqPattern {
           case (_, Wildcard :: Wildcard :: t2) =>
               // normalize the right:
               subsetList(p1, Wildcard :: t2)
-          case (Wildcard :: a1 :: t1, _) if isAny(a1) =>
-              // normalize the left:
-              subsetList(AnyElem :: Wildcard :: t1, p2)
-          case (_, Wildcard :: a2 :: t2) if isAny(a2) =>
-              // normalize the right:
+          case (_, Wildcard :: (a2: SeqPart1[A]) :: t2) if isAny(a2) =>
+              // we know that right can't match empty,
+              // let's see if that helps us rule out matches on the left
               subsetList(p1, AnyElem :: Wildcard :: t2)
-          case (Wildcard :: _, (_: SeqPart1[A]) :: _) => false
+          // either t1 or t2 also ends with Wildcard
+          case (_ :: _, Wildcard :: _) if p2.last.notWild =>
+            // wild on the right but not at the end
+            // yields an approximation. avoid that
+            // if possible
+            subsetList(p1.reverse, p2.reverse)
+          case (Wildcard :: _, _ :: _) if p1.last.notWild && p2.last.notWild =>
+            // if we don't check both here we can loop
+            subsetList(p1.reverse, p2.reverse)
+          case (Wildcard :: t1, (h2: SeqPart1[A]) :: t2) =>
+            // we know right head is not any, so something may
+            // match on the left that won't match on the right
+            // p1 = *t1 = t1 + _:p1
+            // _:p1 <= h2:t2 => (_ <= h2) && (p1 <= t2)
+            isAny(h2) &&
+              subsetList(t1, p2) &&
+              subsetList(p1, t2)
           case ((_: SeqPart1[A]) :: t1, Wildcard :: t2) =>
+            // we could pop off one wildcard to match head
+            // or we could match with nothing but the rest
             // p2 = t2 + _:p2
-            subsetList(p1, t2) || subsetList(t1, p2)
+            // a <= (b + c), is a <= b or a <= c, it is true
+            // if not, it may still be true,
+            // this branch is what gives us the approximation
+            subsetList(t1, p2) || subsetList(p1, t2)
           case (Wildcard :: t1, Wildcard :: t2) =>
-            subsetList(t1, t2) || subsetList(p1, t2)
+            // *t1 = t1 + _:*:t1 <= right
+            //  t1 <= right && (_:*:t1 <= right)
+            //  but right starts with *, so (_:*:t1 <= right) = (*:t1 <= *:t2)
+            //  which is the current question
+            subsetList(t1, p2)
         }
 
       /**
@@ -294,32 +313,29 @@ object SeqPattern {
           case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
             // unnormalized
             intersection(p1, t2)
-          case (Cat(Wildcard, Cat(a1, t1)), _) if isAny(a1) =>
+          case (Cat(Wildcard, Cat(a1: SeqPart1[A], t1)), _) if isAny(a1) =>
             // *. == .*, push Wildcards to the end
             intersection(Cat(AnyElem, Cat(Wildcard, t1)), p2)
-          case (_, Cat(Wildcard, Cat(a2, t2))) if isAny(a2) =>
+          case (_, Cat(Wildcard, Cat(a2: SeqPart1[A], t2))) if isAny(a2) =>
             // *. == .*, push Wildcards to the end
             intersection(p1, Cat(AnyElem, Cat(Wildcard, t2)))
+          case (c1@Cat(Wildcard, _), c2@Cat(Wildcard, _)) if c1.rightMost.notWild || c2.rightMost.notWild =>
+            // let's avoid the most complex case of both having
+            // wild on the front if possible
+            intersection(c1.reverse, c2.reverse).map(_.reverse)
           case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
-            if (c1.rightMost.notWild || c2.rightMost.notWild) {
-              // let's avoid the most complex case of both having
-              // wild on the front if possible
-              intersection(c1.reverse, c2.reverse).map(_.reverse)
-            }
-            else {
-              // both start and end with wild
-              //
-              // *:t1 = (t1 + _:p1)
-              // *:t2 = (t2 + _:p2)
-              // p1 n p2 = t1 n t2 + (_:p1 n t2) + (t1 n _:p2) + _:(p1 n p2)
-              //         = *:((t1 n t2) + (_:p1 n t2) + (t1 n _:p2))
-              val i1 = intersection(t1, t2)
-              val i2 = intersection(Cat(AnyElem, p1), t2)
-              val i3 = intersection(t1, Cat(AnyElem, p2))
-              val union = (i1 ::: i2 ::: i3)
+            // both start and end with wild
+            //
+            // *:t1 = (t1 + _:p1)
+            // *:t2 = (t2 + _:p2)
+            // p1 n p2 = t1 n t2 + (_:p1 n t2) + (t1 n _:p2) + _:(p1 n p2)
+            //         = *:((t1 n t2) + (_:p1 n t2) + (t1 n _:p2))
+            val i1 = intersection(t1, t2)
+            val i2 = intersection(Cat(AnyElem, p1), t2)
+            val i3 = intersection(t1, Cat(AnyElem, p2))
+            val union = (i1 ::: i2 ::: i3)
 
-              unifyUnion(union.map(_.prependWild))
-            }
+            unifyUnion(union.map(_.prependWild))
           case (Cat(h1, t1), Cat(Wildcard, t2)) =>
             // h1 : t1 n *:t2 = h1:t1 n (t2 + _:p2) =
             // p1 n t2 + h1 : (t1 n p2)
@@ -338,6 +354,13 @@ object SeqPattern {
             unifyUnion(intr)
         }
 
+      // this is a best effort difference only using subset
+      // that removes anything from p1 that is a subset of anything in p2
+      private def weakDifferenceAll(p1: List[SeqPattern[A]], p2: List[SeqPattern[A]]): List[SeqPattern[A]] =
+        // always in our tests p2.nonEmpty, so no need to try to optimize
+        // by checking that and skipping the filter
+        p1.filterNot { l => p2.exists(subset(l, _)) }
+
       /**
        * return the patterns that match p1 but not p2
        *
@@ -351,6 +374,9 @@ object SeqPattern {
        *
        * the difference is:
        * (A1 n A2)x(B1 - B2) u (A1 - A2)xB1
+       *
+       * A - (B1 u B2) = ((A - B1) u (A - B2)) - (B1 n B2)
+       * (A1 u A2) - B = (A1 - B) u (A2 - B)
        *
        * The last challenge is we need to operate on
        * s ingle characters, so we need to expand
@@ -369,23 +395,18 @@ object SeqPattern {
           case (Cat(_: SeqPart1[A], _), Empty) =>
             // Cat(SeqPart1[A], _) does not match Empty
             p1 :: Nil
-          case (_, Cat(Wildcard, _)) if p2.matchesAny =>
-            // matches anything
-            Nil
-          case (_, _) if subset(p1, p2) => Nil
           case (Cat(Wildcard, t1@Cat(Wildcard, _)), _) =>
             // unnormalized
             difference(t1, p2)
           case (_, Cat(Wildcard, t2@Cat(Wildcard, _))) =>
             // unnormalized
             difference(p1, t2)
-          case (Cat(Wildcard, Cat(a1, t1)), _) if isAny(a1) =>
+          case (Cat(Wildcard, Cat(a1: SeqPart1[A], t1)), _) if isAny(a1) =>
             // *. == .*, push Wildcards to the end
             difference(Cat(a1, Cat(Wildcard, t1)), p2)
-          case (_, Cat(Wildcard, Cat(a2, t2))) if isAny(a2) =>
+          case (_, Cat(Wildcard, Cat(a2: SeqPart1[A], t2))) if isAny(a2) =>
             // *. == .*, push Wildcards to the end
             difference(p1, Cat(AnyElem, Cat(Wildcard, t2)))
-          case (_, _) if intersection(p1, p2).isEmpty => p1 :: Nil
           case (Cat(Wildcard, t1), Empty) =>
             if (!t1.matchesEmpty) p1 :: Nil
             else {
@@ -393,63 +414,81 @@ object SeqPattern {
               // _:p1 - [] = _:p1
               unifyUnion(Cat(AnyElem, p1) :: difference(t1, Empty))
             }
-          case (Cat(h1: SeqPart1[A], t1), Cat(Wildcard, t2)) =>
-            // h1:t1 - (*:t2) = h1:t1 - t2 - _:p2
-            val d12 = {
-              val dtail = difference(t1, p2)
-              if (dtail == (t1 :: Nil)) p1 :: Nil
-              else {
-                val d1 =
-                  for {
-                    h <- part1SetOps.intersection(h1, AnyElem)
-                    t <- difference(t1, p2)
-                  } yield Cat(h, t)
-
-                val d2 = part1SetOps.difference(h1, AnyElem).map(Cat(_, t1))
-                d1 ::: d2
-              }
+          case (_, _) if subset(p1, p2) =>
+            // p2 has to be bigger
+            Nil
+          case (Cat(h1: SeqPart1[A], t1), Cat(h2: SeqPart1[A], t2)) =>
+            // h1:t1 - h2:t2 = (h1 n h2):(t1 - t2) + (h1 - h2):t1
+            //               = (t1 n t2):(h1 - h2) + (t1 - t2):h1
+            // if t1 n t2 = 0 then t1 - t2 == t1
+            val intH = part1SetOps.intersection(h1, h2)
+            if (intH.isEmpty) {
+              // then h1 - h2 = h1
+              p1 :: Nil
             }
+            else if (disjoint(t1, t2)) {
+              p1 :: Nil
+            }
+            else {
+              val d1 =
+                for {
+                  h <- intH
+                  t <- difference(t1, t2)
+                } yield Cat(h, t)
 
-            val u = differenceAll(d12, t2 :: Nil)
+              val d2 = part1SetOps.difference(h1, h2).map(Cat(_, t1))
+              unifyUnion(d1 ::: d2)
+            }
+          case (Cat(h1: SeqPart1[A], t1), Cat(Wildcard, t2)) =>
+            // h1:t1 - (*:t2) = ((h1:t1 - _:p2) - t2)
+            //
+            // h1:t1 - _:p2 = (h1 n _) : (t1 - p2) + (h1 - _):t1
+            //              = h1 : (t1 - p2)
+            val dtail = difference(t1, p2).map(Cat(h1, _))
+            val u = differenceAll(dtail, t2 :: Nil)
 
             unifyUnion(u)
           case (Cat(Wildcard, t1), Cat(h2: SeqPart1[A], t2)) =>
             // *:t1 - (h2:t2) = t1 + _:p1 - h2:t2
             //   = (t1 - p2) + (_:p1 - h2:t2)
             val d12 = {
-              val dtail = difference(p1, t2)
-              if (dtail == (p1 :: Nil)) Cat(AnyElem, p1) :: Nil
+              //(_:p1 - h2:t2) =
+              //(_ n h2):(p1 - t2) + (_ - h2):p1
+              //h2:(p1 - t2) + (_ - h2):p1
+              //
+              //or:
+              //(_ - h2):(p1 n t2) + _:(p1 - t2)
+              if (disjoint(p1, t2)) {
+                Cat(AnyElem, p1) :: Nil
+              }
               else {
-                val d1 =
-                  for {
-                    h <- part1SetOps.intersection(AnyElem, h2)
-                    t <- dtail
-                  } yield Cat(h, t)
-
+                val dtail = difference(p1, t2)
+                val d1 = dtail.map(Cat(h2, _))
                 val d2 = part1SetOps.difference(AnyElem, h2).map(Cat(_, p1))
                 d1 ::: d2
               }
             }
             val d3 = difference(t1, p2)
             unifyUnion(d12 ::: d3)
-          case (Cat(h1: SeqPart1[A], t1), Cat(h2: SeqPart1[A], t2)) =>
-            // h1:t1 - h2:t2 = (h1 n h2):(t1 - t2) + (h1 - h2):t1
-            //               = (t1 n t2):(h1 - h2) + (t1 - t2):h1
-            // if t1 - t2 == t1, then t1 n t2 = 0
-            val dt = difference(t1, t2)
-            if (dt == (t1 :: Nil)) {
-              p1 :: Nil
-            }
-            else {
-              val d1 =
-                for {
-                  h <- part1SetOps.intersection(h1, h2)
-                  t <- dt
-                } yield Cat(h, t)
-
-              val d2 = part1SetOps.difference(h1, h2).map(Cat(_, t1))
-              unifyUnion(d1 ::: d2)
-            }
+          case (c1@Cat(Wildcard, Empty), c2@Cat(Wildcard, t2)) if c2.rightMost.isWild =>
+            // this is a common case in totality checking
+            // since we do [*_] - x to see what is missing
+            // we know that t2 does not match Empty because we know c2 does not matchAny
+            //
+            // * - *:m:* = ([] + _:*) - (m:* + _:*:m:*)
+            //           = (([] - m:*) + ([] - _:*:m:*) +
+            //             (_:* - m:*) + (_:* - _:*:m:*)) - (m:* n _:*m:*)
+            //             using that m:* can't match []
+            //           = *((* - m:*) - (m:* n _:*m:*))
+            //           // but m:* n _:*m:* is clearly less than
+            //           // m:* so, we can just return *(* - m:*)
+            //           as an upper bound, or remove any items in the
+            //           intersection
+            val intRight = intersection(t2, Cat(AnyElem, c2))
+            val d1 = difference(c1, t2)
+            val d2 = weakDifferenceAll(d1, intRight)
+            // d1 is already unifyUnion'd and weakDiff only filters
+            d2.map(_.prependWild)
           case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
             if (c1.rightMost.notWild || c2.rightMost.notWild) {
               // let's avoid the most complex case of both having
@@ -457,42 +496,44 @@ object SeqPattern {
               difference(c1.reverse, c2.reverse).map(_.reverse)
             }
             else {
-              // both start and end with Wildcard
+              // else they both start and end with Wildcard
+              // clearly these two patterns p1 and p2 overlap
+              // since any non-matching part can be moved into
+              // the wild of the other
               val d1 = difference(t1, t2)
               if (d1.isEmpty) {
-              // if t1 <= t2, then, *:t1 <= *:t2
+                // this probably isn't true since we checked for subset above
+                // but since we have to compute d1 it is worth an O(1) check
+                // if t1 <= t2, then, *:t1 <= *:t2
                 Nil
               }
               else {
-                // x - y = x - (x n y)
-                // which can sometimes unify x and y enough to make
-                // the difference cleaner
-                val int2 = intersection(p1, p2)
-                if (int2.contains(p1) || unifyUnion(int2).contains(p1)) {
-                  // x n y == x, so x - y = 0
-                  Nil
-                }
-                else if (difference(c1.reverseCat.tail, c2.reverseCat.tail).isEmpty) {
-                  // we could have computed the difference test using the init rather
-                  // than the tail, note we know c1/c2 .reverseCat.head == Wildcard
-                  // so if x - y = 0, then x:* - y:* = 0
-                  Nil
-                }
-                else {
-                  // since AnyElem - x is usually an approximate upperbound
-                  // this case adds to approximations because
-                  // it adds differences with _ at the front
+                // p1 - *:t2 = p1 - (t2 + _:*:t2)
+                //             = (p1 - t2) + (p1 - _:*:t2) - (t2 n (_:*:t2))
+                //             = (t1 - t2) + (_:p1 - t2) + (t1 - _:p2) + (_:p1 - _:p2) - (t2 n _:p2)
+                //
+                // we know that (p1 - p2) does not match (t2 n _:p2) because p1 doesn't match p2
+                // and p2 matches t2 and _:p2
+                //
+                //             = ((t1 - t2) + (_:p1 - t2) + (t1 - _:p2) - (t2 n _:p2)) + _:(p1 - p2)
+                //             = *((t1 - t2) + (_:p1 - t2) + (t1 - _:p2) - (t2 n _:p2))
+                val a2 = Cat(AnyElem, c2)
+                val d2 = difference(Cat(AnyElem, c1), t2)
+                val d3 = difference(t1, a2)
+                val lefts = d1 ::: d2 ::: d3
+                val rights = intersection(t2, a2)
 
-                  // *:t1 = t1 + _:p1
-                  // *:t2 = t2 + _:p2
-                  // p1 - p2 = t1 - t2 + _:p1 - t2 + t1 - _:p2 + _:(p1 - p2)
-                  // p1 - p2 = *:(d1 + d2 + d3)
-
-                  val d2 = difference(Cat(AnyElem, p1), t2)
-                  val d3 = difference(t1, Cat(AnyElem, p2))
-                  val union = (d1 ::: d2 ::: d3).map(_.prependWild)
-                  unifyUnion(union)
-                }
+                /*
+                 * ideally we return
+                 * differenceAll(lefts, rights).map(_.prependWild)
+                 * but that difference all could cause an infinite
+                 * loop, so we weaken the bound
+                 * and do a naive difference of exact matching
+                 */
+                val leftDiff = weakDifferenceAll(lefts, rights)
+                // lefts are not unifyUnion'd, and weakDiff only filters
+                // so we want to unify as late as possible
+                unifyUnion(leftDiff.map(_.prependWild))
               }
             }
         }
