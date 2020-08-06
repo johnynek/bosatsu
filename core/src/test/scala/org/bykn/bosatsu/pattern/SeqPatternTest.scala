@@ -568,6 +568,14 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
       law(p1, p2, bs)
     }
   }
+
+  test("test some missing branches") {
+    assert(setOps.missingBranches(Cat(Wildcard, Empty) :: Nil, Pattern.fromList(List(Wildcard, AnyElem, Wildcard)) :: Nil) ==
+      Pattern.fromList(Nil) :: Nil)
+
+    assert(setOps.missingBranches(Cat(Wildcard, Empty) :: Nil, Pattern.fromList(List(Wildcard, Lit(Set(true)), Wildcard)) :: Nil) ==
+      Pattern.fromList(Nil) :: Pattern.fromList(Lit(Set(false)) :: Wildcard :: Nil) :: Nil)
+  }
 }
 
 class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {

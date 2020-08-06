@@ -498,18 +498,46 @@ object SeqPattern {
               //   <= (a n b) + (_:x)
               //   = *:(a n b)
               //
+              // if t1 = [], then the above gives
+              // either empty set or *.
+              // this is a common case when we are
+              // searching for missing branches, we
+              // start at * - x
+              //
+              // (* - t2) n (([] - _:p2) + _:(p1 - p2))
+              // a = * - t2
+              // = (* - t2) n ([] + _:(p1 - p2))
+              // p1 - p2 = a n ([] + _:(a n ([] + _:(a n ([] + _: ...
+              //         <= a n ([] _ :(a n []) + _ _ :(a n []) +++
+              //         = a n (*:(a n []))
+              //
+              //   since a <= *, in the right side we have
+              //   a n * = a
+              //  so p1 - p2 <= a
+              //
+              //  note, a is always an upper bound due
+              //  to formula x = a n (...)
               val as = difference(p1, t2)
-              val bs = difference(t1, Cat(AnyElem, p2))
+              if (t1.isEmpty) {
+                as
+              }
+              else {
+                // if x <= *:(a n b) and a then it is <= a n (*:(a n b))
+                val bs = difference(t1, Cat(AnyElem, p2))
+                // (a1 + a2) n (b1 + b2) =
+                val intr =
+                  for {
+                    ai <- as
+                    bi <- bs
+                    c <- intersection(ai, bi)
+                    // we know that everything
+                    // in the result must be in a
+                    a2 <- as
+                    ca <- intersection(c.prependWild, a2)
+                  } yield ca
 
-              // (a1 + a2) n (b1 + b2) =
-              val intr =
-                for {
-                  ai <- as
-                  bi <- bs
-                  c <- intersection(ai, bi)
-                } yield c
-
-              unifyUnion(intr.map(_.prependWild))
+                unifyUnion(intr)
+              }
             }
         }
     }
