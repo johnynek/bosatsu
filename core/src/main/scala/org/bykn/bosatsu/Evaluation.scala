@@ -6,7 +6,7 @@ import org.bykn.bosatsu.graph.Memoize
 import org.bykn.bosatsu.pattern.Matcher
 import java.math.BigInteger
 import org.bykn.bosatsu.pattern.{NamedSeqPattern, Splitter}
-import org.bykn.bosatsu.rankn.{DefinedType, Type}
+import org.bykn.bosatsu.rankn.{DefinedType, Type, DataRepr}
 import scala.collection.mutable.{Map => MMap}
 
 import cats.implicits._
@@ -479,22 +479,61 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
              */
             val dt: DefinedType[Any] = definedForCons(pc)
 
-            if (dt.isNewType) {
-              // we erase this entirely, and just match the underlying item
-              itemFns.head
-            }
-            else if (dt.isStruct) {
-              if (itemsWild) anyMatch
-              else
-                // this is a struct, which means we expect it
+            dt.dataRepr(ctor) match {
+              case DataRepr.NewType =>
+                // we erase this entirely, and just match the underlying item
+                itemFns.head
+              case DataRepr.Struct(_) =>
+                if (itemsWild) anyMatch
+                else
+                  // this is a struct, which means we expect it
+                  { (arg: Value) =>
+                    arg match {
+                      case p: ProductValue =>
+                        // this is the pattern
+                        // note passing in a List here we could have union patterns
+                        // if all the pattern bindings were known to be of the same type
+                        processArgs(p.toList)
+
+                      case other =>
+                        // $COVERAGE-OFF$this should be unreachable
+                        val itemStr = items.mkString("(", ", ", ")")
+                        sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\n")
+                        // $COVERAGE-ON$
+                    }
+                  }
+              case DataRepr.Enum(idx, _) =>
+                if (itemsWild)
+                  { (arg: Value) =>
+                    arg match {
+                      case s: SumValue =>
+                        if (s.variant == idx) emptyEnv
+                        else None
+                      case other =>
+                        // $COVERAGE-OFF$this should be unreachable
+                        sys.error(s"ill typed in match: $other")
+                        // $COVERAGE-ON$
+                    }
+                  }
+                else
+                  { (arg: Value) =>
+                    arg match {
+                      case s: SumValue =>
+                        if (s.variant == idx) processArgs(s.value.toList)
+                        else None
+                      case other =>
+                        // $COVERAGE-OFF$this should be unreachable
+                        sys.error(s"ill typed in match: $other")
+                        // $COVERAGE-ON$
+                    }
+                  }
+
+              case DataRepr.ZeroNat =>
                 { (arg: Value) =>
                   arg match {
-                    case p: ProductValue =>
-                      // this is the pattern
-                      // note passing in a List here we could have union patterns
-                      // if all the pattern bindings were known to be of the same type
-                      processArgs(p.toList)
-
+                    case ExternalValue(b: BigInteger) =>
+                      if (b == BigInteger.ZERO) emptyEnv
+                      else None
                     case other =>
                       // $COVERAGE-OFF$this should be unreachable
                       val itemStr = items.mkString("(", ", ", ")")
@@ -502,77 +541,43 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                       // $COVERAGE-ON$
                   }
                 }
-            }
-            else {
-              // compute the index of ctor, so we can compare integers later
-              val idx = dt.constructors.indexWhere(_.name == ctor)
 
-              dt.natLike match {
-                case isz: DefinedType.NatLike.Is =>
-                  // we represent Nats with java BigInteger
-                  val isZero = isz.idxIsZero(idx)
-
-                  if (isZero)
-                    { (arg: Value) =>
-                      arg match {
-                        case ExternalValue(b: BigInteger) =>
-                          if (b == BigInteger.ZERO) emptyEnv
-                          else None
-                        case other =>
-                          // $COVERAGE-OFF$this should be unreachable
-                          val itemStr = items.mkString("(", ", ", ")")
-                          sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\n")
-                          // $COVERAGE-ON$
-                      }
-                    }
-                  else {
-                    // We are expecting non-zero
-                    val succMatch = itemFns.head
-
-                    { (arg: Value) =>
-                      arg match {
-                        case ExternalValue(b: BigInteger) =>
-                          if (b != BigInteger.ZERO) {
-                            succMatch(ExternalValue(b.subtract(BigInteger.ONE)))
-                          }
-                          else None
-                        case other =>
-                          // $COVERAGE-OFF$this should be unreachable
-                          val itemStr = items.mkString("(", ", ", ")")
-                          sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\n")
-                          // $COVERAGE-ON$
-                      }
+              case DataRepr.SuccNat =>
+                // We are expecting non-zero
+                val succMatch = itemFns.head
+                if (itemsWild) {
+                  { (arg: Value) =>
+                    arg match {
+                      case ExternalValue(b: BigInteger) =>
+                        if (b != BigInteger.ZERO) emptyEnv
+                        else None
+                      case other =>
+                        // $COVERAGE-OFF$this should be unreachable
+                        val itemStr = items.mkString("(", ", ", ")")
+                        sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\n")
+                        // $COVERAGE-ON$
                     }
                   }
-                case DefinedType.NatLike.Not =>
-                  if (itemsWild)
-                    { (arg: Value) =>
-                      arg match {
-                        case s: SumValue =>
-                          if (s.variant == idx) emptyEnv
-                          else None
-                        case other =>
-                          // $COVERAGE-OFF$this should be unreachable
-                          sys.error(s"ill typed in match: $other")
-                          // $COVERAGE-ON$
-                      }
+                }
+                else {
+                  { (arg: Value) =>
+                    arg match {
+                      case ExternalValue(b: BigInteger) =>
+                        if (b != BigInteger.ZERO) {
+                          succMatch(ExternalValue(b.subtract(BigInteger.ONE)))
+                        }
+                        else None
+                      case other =>
+                        // $COVERAGE-OFF$this should be unreachable
+                        val itemStr = items.mkString("(", ", ", ")")
+                        sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\n")
+                        // $COVERAGE-ON$
                     }
-                  else
-                    { (arg: Value) =>
-                      arg match {
-                        case s: SumValue =>
-                          if (s.variant == idx) processArgs(s.value.toList)
-                          else None
-                        case other =>
-                          // $COVERAGE-OFF$this should be unreachable
-                          sys.error(s"ill typed in match: $other")
-                          // $COVERAGE-ON$
-                      }
-                    }
+                  }
+                }
               }
             }
-        }
-      }
+          }
 
   private def evalBranch(
     branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])],
@@ -687,41 +692,36 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     }
 
   private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
+  private[this] val succNat: Value = {
+    def inc(v: Value): Value = {
+      val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
+      ExternalValue(bi.add(BigInteger.ONE))
+    }
+    FnValue(inc(_))
+  }
 
   private def constructor(c: Constructor, dt: rankn.DefinedType[Any]): Value = {
-    val (enum, arity) = dt.constructors
-      .toList
-      .iterator
-      .zipWithIndex
-      .collectFirst { case (cf, idx) if cf.name == c => (idx, cf.args.size) }
-      .get // the ctor must be in the list or we wouldn't typecheck
-
     // partially erase new-types
     // more advanced new-type erasure would
     // make Apply(Foo, x) into x, but this
     // does not yet do that
-    if (dt.isNewType) FnValue.identity
-    else {
-      val singleItemStruct = dt.isStruct
-
-      dt.natLike match {
-        case isz: DefinedType.NatLike.Is =>
-          // we represent Nats with java BigInteger
-          val isZero = isz.idxIsZero(enum)
-          def inc(v: Value): Value = {
-            val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
-            ExternalValue(bi.add(BigInteger.ONE))
-          }
-          if (isZero) zeroNat
-          else FnValue(inc(_))
-
-        case DefinedType.NatLike.Not =>
+    dt.dataRepr(c) match {
+      case DataRepr.NewType => FnValue.identity
+      case DataRepr.Struct(arity) =>
+        if (arity == 0) UnitValue
+        else FnValue.curry(arity)(ProductValue.fromList(_))
+      case DataRepr.Enum(variant, arity) =>
+        if (arity == 0) SumValue(variant, UnitValue)
+        else if (arity == 1) {
+          FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
+        }
+        else
           FnValue.curry(arity) { args =>
             val prod = ProductValue.fromList(args)
-            if (singleItemStruct) prod
-            else SumValue(enum, prod)
+            SumValue(variant, prod)
           }
-      }
+      case DataRepr.ZeroNat => zeroNat
+      case DataRepr.SuccNat => succNat
     }
   }
 
