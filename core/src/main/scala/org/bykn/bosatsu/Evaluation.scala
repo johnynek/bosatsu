@@ -731,12 +731,18 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     dt.dataRepr(c) match {
       case DataRepr.NewType => FnValue.identity
       case DataRepr.Struct(arity) =>
-        FnValue.curry(arity)(ProductValue.fromList(_))
+        if (arity == 0) UnitValue
+        else FnValue.curry(arity)(ProductValue.fromList(_))
       case DataRepr.Enum(variant, arity) =>
-        FnValue.curry(arity) { args =>
-          val prod = ProductValue.fromList(args)
-          SumValue(variant, prod)
+        if (arity == 0) SumValue(variant, UnitValue)
+        else if (arity == 1) {
+          FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
         }
+        else
+          FnValue.curry(arity) { args =>
+            val prod = ProductValue.fromList(args)
+            SumValue(variant, prod)
+          }
       case DataRepr.ZeroNat => zeroNat
       case DataRepr.SuccNat => succNat
     }
