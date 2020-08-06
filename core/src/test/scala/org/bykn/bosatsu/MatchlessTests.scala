@@ -6,36 +6,31 @@ import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration}
 
 import Identifier.{Bindable, Constructor}
-import rankn.RefSpace
+import rankn.{DataRepr, RefSpace}
 
 import cats.implicits._
 
 class MatchlessTest extends FunSuite {
   implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = 1000)
 
-  type Fn = (PackageName, Constructor) => (Option[Int], Int)
+  type Fn = (PackageName, Constructor) => DataRepr
 
   def fnFromTypeEnv[A](te: rankn.TypeEnv[A]): Fn =
     {
       // the list constructors *have* to be in scope or matching will generate
       // bad code
       case (PackageName.PredefName, Constructor("EmptyList")) =>
-        (Some(0), 0)
+        DataRepr.Enum(0, 0)
       case (PackageName.PredefName, Constructor("NonEmptyList")) =>
-        (Some(1), 2)
+        DataRepr.Enum(1, 2)
       case (pn, cons) =>
         te.getConstructor(pn, cons) match {
-          case Some((args, dt, _)) =>
-            val variant =
-              if (dt.isStruct) None
-              else Some(dt.constructors.indexWhere(_.name == cons))
-
-            (variant, args.length)
-
+          case Some((_, dt, _)) =>
+            dt.dataRepr(cons)
           case None =>
             // todo, the generator *shouldn't* generate this,
             // but it seems to
-            (None, 0)
+            DataRepr.Struct(0)
         }
     }
 
