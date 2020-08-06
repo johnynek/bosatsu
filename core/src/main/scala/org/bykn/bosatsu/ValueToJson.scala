@@ -4,7 +4,7 @@ import cats.Eval
 import cats.data.NonEmptyList
 import cats.implicits._
 import java.math.BigInteger
-import org.bykn.bosatsu.rankn.{DefinedType, Type}
+import org.bykn.bosatsu.rankn.{DefinedType, Type, DataFamily}
 import scala.collection.mutable.{Map => MMap}
 
 import Value._
@@ -233,8 +233,15 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     Left(UnsupportedType(NonEmptyList(tpe, revPath).reverse))
                 })
 
-              dt.natLike match {
-                case DefinedType.NatLike.Not =>
+              dt.dataFamily match {
+                case DataFamily.Nat =>
+                  {
+                    case ExternalValue(b: BigInteger) =>
+                      Right(Json.JNumberStr(b.toString))
+                    case other =>
+                      Left(IllTyped(revPath.reverse, tpe, other))
+                  }
+                case notNat =>
                   val cons = dt.constructors
                   val (_, targs) = Type.applicationArgs(tpe)
                   val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
@@ -251,67 +258,59 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       }
                       .map(_.toMap)
 
-                  if (dt.isNewType) {
-                    lazy val inner = resInner.value.head._2.head._2
 
-                    { v => inner(v) }
-                  }
-                  else if (dt.isStruct) {
-                    lazy val productsInner = resInner.value.head._2
-                    lazy val size = productsInner.size
+                  notNat match {
+                    case DataFamily.NewType =>
+                      lazy val inner = resInner.value.head._2.head._2
 
-                    {
-                      case prod: ProductValue =>
-                        val plist = prod.toList
+                      { v => inner(v) }
+                    case DataFamily.Struct =>
+                      lazy val productsInner = resInner.value.head._2
+                      lazy val size = productsInner.size
 
-                        if (plist.size == size) {
-                          plist.zip(productsInner)
-                            .traverse { case (p, (key, f)) =>
-                              f(p).map((key, _))
-                            }
-                            .map { ps => Json.JObject(ps) }
-                        }
-                        else {
-                          Left(IllTyped(revPath.reverse, tpe, prod))
-                        }
+                      {
+                        case prod: ProductValue =>
+                          val plist = prod.toList
 
-                      case other =>
-                        Left(IllTyped(revPath.reverse, tpe, other))
-                    }
-                  }
-                  else {
-                    lazy val mapping: Map[Int, List[(String, Fn)]] =
-                      // if we are in here, all constituent parts can be solved
-                      resInner.value
+                          if (plist.size == size) {
+                            plist.zip(productsInner)
+                              .traverse { case (p, (key, f)) =>
+                                f(p).map((key, _))
+                              }
+                              .map { ps => Json.JObject(ps) }
+                          }
+                          else {
+                            Left(IllTyped(revPath.reverse, tpe, prod))
+                          }
 
-                    {
-                      case s: SumValue =>
-                        mapping.get(s.variant) match {
-                          case Some(fn) =>
-                            val vlist = s.value.toList
-                            if (vlist.size == fn.size) {
-                              vlist.zip(fn)
-                                .traverse { case (p, (key, f)) =>
-                                  f(p).map((key, _))
-                                }
-                                .map { ps => Json.JObject(ps) }
-                            }
-                            else Left(IllTyped(revPath.reverse, tpe, s))
-                          case None =>
-                            Left(IllTyped(revPath.reverse, tpe, s))
-                        }
-                      case a =>
-                        Left(IllTyped(revPath.reverse, tpe, a))
-                     }
+                        case other =>
+                          Left(IllTyped(revPath.reverse, tpe, other))
+                      }
+                    case _ => // this is Enum
+                      lazy val mapping: Map[Int, List[(String, Fn)]] =
+                        // if we are in here, all constituent parts can be solved
+                        resInner.value
+
+                      {
+                        case s: SumValue =>
+                          mapping.get(s.variant) match {
+                            case Some(fn) =>
+                              val vlist = s.value.toList
+                              if (vlist.size == fn.size) {
+                                vlist.zip(fn)
+                                  .traverse { case (p, (key, f)) =>
+                                    f(p).map((key, _))
+                                  }
+                                  .map { ps => Json.JObject(ps) }
+                              }
+                              else Left(IllTyped(revPath.reverse, tpe, s))
+                            case None =>
+                              Left(IllTyped(revPath.reverse, tpe, s))
+                          }
+                        case a =>
+                          Left(IllTyped(revPath.reverse, tpe, a))
+                       }
                    }
-                case _ =>
-                  // this is nat-like
-                  {
-                    case ExternalValue(b: BigInteger) =>
-                      Right(Json.JNumberStr(b.toString))
-                    case other =>
-                      Left(IllTyped(revPath.reverse, tpe, other))
-                  }
               }
             })
           // put the result in the cache before we compute it
@@ -487,15 +486,13 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     }
                   }
 
-              dt.natLike match {
-                case DefinedType.NatLike.Not =>
-                  if (dt.isNewType) {
-                    // there is one single arg constructor
-                    lazy val inner = resInner.value.head._2.head._2
+              dt.dataFamily match {
+                case DataFamily.NewType =>
+                  // there is one single arg constructor
+                  lazy val inner = resInner.value.head._2.head._2
 
-                    { j => inner(j) }
-                  }
-                  else {
+                  { j => inner(j) }
+                case DataFamily.Struct | DataFamily.Enum =>
                     // This is lazy because we don't want to run
                     // the Evals until we have the first value
                     lazy val mapping: List[(Int, Map[String, (Int, Fn)])] =
@@ -537,8 +534,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       case other =>
                         Left(IllTypedJson(revPath.reverse, tpe, other))
                     }
-                  }
-                case _ =>
+                case DataFamily.Nat =>
                   // this is a nat like type which we encode into integers
                   {
                     case Json.JBigInteger(bi) =>

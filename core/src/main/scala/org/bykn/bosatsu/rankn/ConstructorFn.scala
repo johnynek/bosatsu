@@ -17,6 +17,8 @@ final case class ConstructorFn(
       case (_, t0) :: Nil => t == t0
       case _ => false
     }
+
+  def arity: Int = args.length
 }
 
 object ConstructorFn {
