@@ -1,8 +1,8 @@
 package org.bykn.bosatsu.pattern
 
 import cats.Eq
-import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.prop.PropertyChecks.forAll
+import org.scalacheck.{Arbitrary, Cogen, Gen}
+import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
 abstract class SetOpsLaws[A] extends FunSuite {
@@ -320,7 +320,37 @@ class UnitSetOpsTest extends SetOpsLaws[Unit] {
 }
 
 
+case class Predicate[A](toFn: A => Boolean) { self =>
+  def apply(a: A): Boolean = toFn(a)
+  def &&(that: Predicate[A]): Predicate[A] =
+    Predicate({ a => self(a) && that(a) })
+  def ||(that: Predicate[A]): Predicate[A] =
+    Predicate({ a => self(a) || that(a) })
+  def -(that: Predicate[A]): Predicate[A] =
+    Predicate({ a => self(a) && !that(a) })
+  def unary_! : Predicate[A] =
+    Predicate({ a => !self(a) })
+
+  def product[B](that: Predicate[B]): Predicate[(A, B)] =
+    Predicate { case (a, b) => self(a) && that(b) }
+}
+
+object Predicate {
+  def genPred[A: Cogen]: Gen[Predicate[A]] =
+    Gen.function1(Gen.oneOf(false, true)).map(Predicate(_))
+
+  implicit def arbPred[A: Cogen]: Arbitrary[Predicate[A]] =
+    Arbitrary(genPred[A])
+}
+
+
 class SetOpsTests extends FunSuite {
+
+  implicit val generatorDrivenConfig =
+    //PropertyCheckConfiguration(minSuccessful = 50000)
+    //PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = 500)
+
   test("allPerms is correct") {
     forAll(Gen.choose(0, 6).flatMap(Gen.listOfN(_, Arbitrary.arbitrary[Int]))) { is0 =>
       // make everything distinct
@@ -384,6 +414,77 @@ class SetOpsTests extends FunSuite {
       val normRes = norm(res)
       val naive = norm(prods.foldLeft(v0)(mult(_, _)))
       assert(normRes <= naive)
+    }
+  }
+
+  test("test A - (B | C) <= ((A - B) | (A - C)) - (B n C)") {
+    forAll { (pa: Predicate[Byte], pb: Predicate[Byte], pc: Predicate[Byte]) =>
+      val left = pa - (pb || pc)
+      val right = ((pa - pb) || (pa - pc)) - (pb && pc)
+      val checks = (0 until 256).map(_.toByte)
+      checks.foreach { b =>
+        val ba = pa(b)
+        val bb = pb(b)
+        val bc = pc(b)
+        if (!right(b)) {
+          assert(!left(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+        }
+      }
+    }
+  }
+
+  test("test A - (B | C) >= ((A - B) | (A - C))") {
+    forAll { (pa: Predicate[Byte], pb: Predicate[Byte], pc: Predicate[Byte]) =>
+      val left = pa - (pb || pc)
+      val right = ((pa - pb) || (pa - pc))
+      val checks = (0 until 256).map(_.toByte)
+      checks.foreach { b =>
+        val ba = pa(b)
+        val bb = pb(b)
+        val bc = pc(b)
+        if (left(b)) {
+          assert(right(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+        }
+      }
+    }
+  }
+
+  test("A - (B | C) = (A - B) n (A - C)") {
+    forAll { (pa: Predicate[Byte], pb: Predicate[Byte], pc: Predicate[Byte]) =>
+      val left = pa - (pb || pc)
+      val right = (pa - pb) && (pa - pc)
+      val checks = (0 until 256).map(_.toByte)
+      checks.foreach { b =>
+        val ba = pa(b)
+        val bb = pb(b)
+        val bc = pc(b)
+        assert(left(b) == right(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+      }
+    }
+  }
+
+  test("(A | B) - C = (A - C) | (B - C)") {
+    forAll { (pa: Predicate[Byte], pb: Predicate[Byte], pc: Predicate[Byte]) =>
+      val left = (pa || pb) - pc
+      val right = (pa - pc) || (pb - pc)
+      val checks = (0 until 256).map(_.toByte)
+      checks.foreach { b =>
+        val ba = pa(b)
+        val bb = pb(b)
+        val bc = pc(b)
+        if (!right(b)) {
+          assert(!left(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+        }
+      }
+    }
+  }
+  test("A1 x B1 - A2 x B2 = (A1 n A2)x(B1 - B2) u (A1 - A2)xB1") {
+    forAll { (a1: Predicate[Byte], a2: Predicate[Byte], b1: Predicate[Byte], b2: Predicate[Byte], checks: List[(Byte, Byte)]) =>
+      val left = a1.product(b1) - a2.product(b2)
+      val right = (a1 && a2).product(b1 - b2) || (a1 - a2).product(b1)
+      checks.foreach { ab =>
+        assert(left(ab) == right(ab))
+      }
     }
   }
 }
