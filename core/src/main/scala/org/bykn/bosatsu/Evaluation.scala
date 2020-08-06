@@ -157,33 +157,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   private[this] val envCache: MMap[PackageName, Env] =
     MMap.empty
 
-  private def importedEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] =
-    p.imports.iterator.flatMap { imp =>
-      val pack = pm.toMap.get(imp.pack.name) match {
-        case Some(p) => p
-        case None =>
-          // $COVERAGE-OFF$
-          // should never happen due to typechecking
-          sys.error(s"from ${p.name} import unknown package: ${imp.pack.name}")
-          // $COVERAGE-ON$
-      }
-      imp.items
-        .toList
-        .iterator
-        .filter { in =>
-          // We can ignore type imports, they aren't values
-          in.tag.exists {
-            case Referant.Value(_) | Referant.Constructor(_, _) => true
-            case Referant.DefinedT(_) => false
-          }
-        }
-        .map { in =>
-          val value = getValue(pack, in.originalName)
-          (in.localName, value)
-        }
-    }
-    .toMap
-
   private def externalEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] = {
     val externalNames = p.program.externalDefs
     externalNames.iterator.map { n =>
@@ -215,24 +188,28 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       .filter(_.packageName == p.name)
       .flatMap { dt =>
         dt.constructors.iterator.map { cf =>
-          (cf.name, Eval.now(constructor(cf.name, dt)))
+          (cf.name, Eval.later(constructor(cf.name, dt)))
         }
       }
       .toMap
 
-  private def addLet(env: Env, let: (Bindable, RecursionKind, TypedExpr[T])): Env = {
-    val (name, rec, e) = let
-    val eres = evalLetValue(name, e, rec)(eval)
-
+  private def evalLet(let: (Bindable, RecursionKind, TypedExpr[T])): Eval[Value] =
     // These are added lazily
-    env.updated(name, Eval.later(eres.inEnv(env)))
-  }
+    Eval.later {
+      val (name, rec, e) = let
+      val eres = evalLetValue(name, e, rec)(eval)
+
+      eres.inEnv(Map.empty)
+    }
 
   private def evaluate(pack: Package.Typed[T]): Env =
     envCache.getOrElseUpdate(pack.name, {
-      val initEnv = importedEnv(pack) ++ constructorEnv(pack) ++ externalEnv(pack)
-      // add all the external definitions
-      pack.program.lets.foldLeft(initEnv)(addLet(_, _))
+      constructorEnv(pack) ++
+      externalEnv(pack) ++
+      pack.program.lets.iterator.map { case brt@(name, _, _) =>
+          // there are no free variables at the top level
+          (name, evalLet(brt))
+        }
     })
 
   private def getValue(pack: Package.Typed[T], name: Identifier): Eval[Value] =
