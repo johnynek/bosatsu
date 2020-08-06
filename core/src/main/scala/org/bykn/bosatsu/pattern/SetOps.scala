@@ -73,55 +73,12 @@ trait SetOps[A] {
     // we can subtract in any order
     // since a - b - c = a - c - b
 
-    def allPerms[B](as: List[B]): List[List[B]] =
-      as match {
-        case Nil => Nil
-        case _ :: Nil => as :: Nil
-        case a :: rest =>
-          val prest = allPerms(rest)
-          // now a could be anywhere in the resulting list
-          prest.flatMap { lst =>
-            val sz = lst.size
-            (0 until sz).map { offset =>
-              lst.take(offset) ::: (a :: lst.drop(offset))
-            }
-            .toList
-          }
-      }
-
     // all permutations can blow up fast, so we only
     // take a fixed number
     // 3! = 6
     val lookahead = 3
 
-    def loop(union: List[A], diffs: List[A]): List[A] =
-      if (union.isEmpty) Nil
-      else {
-        diffs match {
-          case Nil => union
-          case ned =>
-            val peek = diffs.take(lookahead)
-            val trials = allPerms(peek).map { peeks =>
-              val u1 = differenceAll(union, peeks)
-              val ulen = u1.size
-              (ulen, peek.head)
-            }
-            val smallest = trials.iterator.map(_._1).min
-            // choose a diff that starts the most
-            // number of results that are the smallest
-            val best = trials
-              .collect { case (ulen, p) if ulen == smallest => p }
-              .groupBy(identity)
-              .map { case (k, v) => (k, v.size) }
-              .maxBy(_._2)
-              ._1
-
-            val u1 = differenceAll(union, best :: Nil)
-            loop(differenceAll(union, best :: Nil), diffs.filterNot(_ == best))
-        }
-      }
-
-    val missing = loop(top, unifyUnion(branches))
+    val missing = SetOps.greedySearch(lookahead, top, unifyUnion(branches))(differenceAll(_, _))(_.size)
 
     // filter any unreachable, which can happen when earlier items shadow later
     // ones
@@ -150,6 +107,48 @@ trait SetOps[A] {
 }
 
 object SetOps {
+
+  def allPerms[A](as: List[A]): List[List[A]] = {
+    def loop(sz: Int, as: List[A]): List[List[A]] =
+      as match {
+        case a :: rest =>
+          // now a could be anywhere in the resulting list
+          for {
+            lst <- loop(sz - 1, rest)
+            offset <- 0 until sz
+          } yield (lst.take(offset) ::: (a :: lst.drop(offset)))
+        case Nil => Nil :: Nil
+      }
+
+    loop(as.size, as)
+  }
+
+  // we search for the best order to apply the diffs that minimizes the score
+  def greedySearch[A, B, C: Ordering](lookahead: Int, union: A, diffs: List[B])(fn: (A, List[B]) => A)(score: A => C): A =
+    diffs match {
+      case Nil => union
+      case ned =>
+        val peek = diffs.take(lookahead)
+        val trials = SetOps.allPerms(peek).map { peeks =>
+          val u1 = fn(union, peeks)
+          val ulen = score(u1)
+          (ulen, peek.head)
+        }
+        val smallest = trials.iterator.map(_._1).min
+        // choose a diff that starts the most
+        // number of results that are the smallest
+        val oc = implicitly[Ordering[C]]
+        val best = trials
+          .collect { case (ulen, p) if oc.equiv(ulen, smallest) => p }
+          .groupBy(identity)
+          .map { case (k, v) => (k, v.size) }
+          .maxBy(_._2)
+          ._1
+
+        val u1 = fn(union, best :: Nil)
+        greedySearch(lookahead, u1, diffs.filterNot(_ == best))(fn)(score)
+    }
+
 
   def distinct[A](implicit ordA: Ordering[A]): SetOps[A] =
     new SetOps[A] {
