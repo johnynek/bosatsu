@@ -568,19 +568,34 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
               case DataRepr.SuccNat =>
                 // We are expecting non-zero
                 val succMatch = itemFns.head
-
-                { (arg: Value) =>
-                  arg match {
-                    case ExternalValue(b: BigInteger) =>
-                      if (b != BigInteger.ZERO) {
-                        succMatch(ExternalValue(b.subtract(BigInteger.ONE)))
-                      }
-                      else None
-                    case other =>
-                      // $COVERAGE-OFF$this should be unreachable
-                      val itemStr = items.mkString("(", ", ", ")")
-                      sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\n")
-                      // $COVERAGE-ON$
+                if (itemsWild) {
+                  { (arg: Value) =>
+                    arg match {
+                      case ExternalValue(b: BigInteger) =>
+                        if (b != BigInteger.ZERO) emptyEnv
+                        else None
+                      case other =>
+                        // $COVERAGE-OFF$this should be unreachable
+                        val itemStr = items.mkString("(", ", ", ")")
+                        sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\n")
+                        // $COVERAGE-ON$
+                    }
+                  }
+                }
+                else {
+                  { (arg: Value) =>
+                    arg match {
+                      case ExternalValue(b: BigInteger) =>
+                        if (b != BigInteger.ZERO) {
+                          succMatch(ExternalValue(b.subtract(BigInteger.ONE)))
+                        }
+                        else None
+                      case other =>
+                        // $COVERAGE-OFF$this should be unreachable
+                        val itemStr = items.mkString("(", ", ", ")")
+                        sys.error(s"ill typed in match (${ctor.asString}$itemStr\n\n$other\n\n")
+                        // $COVERAGE-ON$
+                    }
                   }
                 }
               }
