@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.{Monad, Monoid}
 import cats.data.NonEmptyList
-import org.bykn.bosatsu.rankn.{DataRepr, Type}
+import org.bykn.bosatsu.rankn.{DataRepr, Type, RefSpace}
 
 import Identifier.{Bindable, Constructor}
 
@@ -16,10 +16,6 @@ object Matchless {
         case notApp => App(notApp, NonEmptyList(expr, Nil))
       }
   }
-  // these result in Int values which are also used as booleans
-  // evaluating these CAN have side effects of mutating LocalAnon
-  // variables.
-  sealed abstract class IntExpr extends Expr
   // these hold bindings either in the code, or temporary
   // local ones
   sealed abstract class RefExpr extends Expr
@@ -44,7 +40,7 @@ object Matchless {
   // when a call to name is done inside body, that should restart the loop
   // the type of this Expr a function with the arity of args that returns
   // the type of body
-  case class LoopFn(captures: List[Bindable], name: Bindable, args: List[Bindable], body: Expr) extends Expr
+  case class LoopFn(captures: List[Bindable], name: Bindable, argshead: Bindable, argstail: List[Bindable], body: Expr) extends Expr
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
@@ -58,9 +54,13 @@ object Matchless {
   // we aggregate all the applications to potentially make dispatch more efficient
   // note fn is never an App
   case class App(fn: Expr, arg: NonEmptyList[Expr]) extends Expr
-  case class Let(arg: RefExpr, expr: Expr, in: Expr, recursive: RecursionKind) extends Expr
+  case class Let(arg: Either[LocalTmp, (Bindable, RecursionKind)], expr: Expr, in: Expr) extends Expr
   case class Literal(lit: Lit) extends CheapExpr
 
+  // these result in Int values which are also used as booleans
+  // evaluating these CAN have side effects of mutating LocalAnon
+  // variables.
+  sealed abstract class IntExpr
   // returns 1 if it does, else 0
   case class EqualsLit(expr: Expr, lit: Lit) extends IntExpr
   case class EqualsInt(expr: IntExpr, int: Int) extends IntExpr
@@ -87,12 +87,14 @@ object Matchless {
 
   case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
   case class GetStructElement(arg: Expr, index: Int, size: Int) extends Expr
+
+  sealed abstract class ConsExpr extends Expr
   // we need to compile calls to constructors into these
-  case class MakeEnum(variant: Int, arity: Int) extends Expr
-  case class MakeStruct(arity: Int) extends Expr
-  case object ZeroNat extends Expr
+  case class MakeEnum(variant: Int, arity: Int) extends ConsExpr
+  case class MakeStruct(arity: Int) extends ConsExpr
+  case object ZeroNat extends ConsExpr
   // this is the function Nat -> Nat
-  case object SuccNat extends Expr
+  case object SuccNat extends ConsExpr
 
   case class PrevNat(of: Expr) extends Expr
 
@@ -111,7 +113,7 @@ object Matchless {
             nm <- tmp
             bound = LocalAnon(nm)
             res <- fn(bound)
-          } yield Let(bound, arg, res, RecursionKind.NonRecursive)
+          } yield Let(Left(bound), arg, res)
       }
     }
 
@@ -135,6 +137,17 @@ object Matchless {
       case (None, r) => r
       case (l, None) => l
     }
+
+  // same as fromLet below, but uses RefSpace
+  def fromLet[A](
+    name: Bindable,
+    rec: RecursionKind,
+    te: TypedExpr[A])(
+    variantOf: (PackageName, Constructor) => DataRepr): Expr =
+      (for {
+        c <- RefSpace.allocCounter
+        expr <- fromLet(name, rec, te, variantOf, c)
+      } yield expr).run.value
 
   // we need a TypeEnv to inline the creation of structs and variants
   def fromLet[F[_]: Monad, A](
@@ -166,14 +179,22 @@ object Matchless {
         // this could be tail recursive
         if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
           val arity = Type.Fun.arity(e.getType)
-          TypedExpr.toArgsBody(arity, e) match {
-            case Some((params, body)) =>
-              val args = params.map(_._1)
-              val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
-              loop(body).map(LoopFn(captures, name, args, _))
-            case None =>
-              // TODO: I don't think this case should ever happen
-              e0
+          // we know that arity > 0 because, otherwise we can't have a total
+          // self recursive loop
+          if (arity <= 0) throw new IllegalStateException(s"expected arity > 0, found $arity in $e")
+          else {
+            TypedExpr.toArgsBody(arity, e) match {
+              case Some((params, body)) =>
+                // we know params is non-empty because arity > 0
+                val args = params.map(_._1)
+                val argshead = args.head
+                val argstail = args.tail
+                val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
+                loop(body).map(LoopFn(captures, name, argshead, argstail, _))
+              case None =>
+                // TODO: I don't think this case should ever happen
+                e0
+            }
           }
         }
         else e0
@@ -203,7 +224,7 @@ object Matchless {
         case TypedExpr.App(fn, a, _, _) =>
           (loop(fn), loop(a)).mapN(_(_))
         case TypedExpr.Let(a, e, in, r, _) =>
-          (loopLetVal(a, e, r), loop(in)).mapN(Let(Local(a), _, _, r))
+          (loopLetVal(a, e, r), loop(in)).mapN(Let(Right((a, r)), _, _))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
         case TypedExpr.Match(arg, branches, _) =>
           (loop(arg), branches.traverse { case (p, te) => loop(te).map((p, _)) })
@@ -388,7 +409,9 @@ object Matchless {
                 case single :: Nil =>
                   // if we match, we recur on the inner pattern and prev of current
                   val check = Some(EqualsNat(arg, DataRepr.SuccNat))
-                  val bind: F[(LocalAnon, Expr)] = makeAnon.map { nm => (LocalAnon(nm), PrevNat(arg)) }
+                  // TODO: we are unconditionally decrementing, even if doesMatch
+                  // does not bind. We shouldn't do that.
+                  val bind: F[(LocalAnon, Expr)] = makeAnon.map { nm => (LocalAnon(nm), arg) }
                   for {
                     pre <- bind
                     rest <- doesMatch(pre._1, single)
@@ -410,7 +433,12 @@ object Matchless {
 
     def lets(binds: List[(RefExpr, Expr)], in: Expr): Expr =
       binds.foldRight(in) { case ((refx, e), r) =>
-        Let(refx, e, r, RecursionKind.NonRecursive)
+
+        val arg = refx match {
+          case Local(b) => Right((b, RecursionKind.NonRecursive))
+          case tmp: LocalTmp => Left(tmp)
+        }
+        Let(arg, e, r)
       }
 
     def matchExpr(arg: Expr, tmp: F[Long], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], Expr)]): F[Expr] = {

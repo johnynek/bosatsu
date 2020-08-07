@@ -6,7 +6,7 @@ import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration}
 
 import Identifier.{Bindable, Constructor}
-import rankn.{DataRepr, RefSpace}
+import rankn.DataRepr
 
 import cats.implicits._
 
@@ -49,23 +49,10 @@ class MatchlessTest extends FunSuite {
           } yield (b, r, t, fn)
       }
 
-  val genId: RefSpace[RefSpace[Long]] =
-    RefSpace.newRef(0L)
-      .map { ref =>
-        for {
-          a <- ref.get
-          _ <- ref.set(a + 1L)
-        } yield a
-      }
-
   test("matchless.fromLet is pure: f(x) == f(x)") {
     forAll(genInputs) { case (b, r, t, fn) =>
       def run(): Matchless.Expr =
-        (for {
-          alloc <- genId
-          expr <- Matchless.fromLet(b, r, t, fn, alloc)
-        } yield expr).run.value
-
+        Matchless.fromLet(b, r, t)(fn)
 
       assert(run() == run())
     }

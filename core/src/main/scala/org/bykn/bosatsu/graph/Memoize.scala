@@ -54,6 +54,26 @@ object Memoize {
   }
 
   /**
+   * This memoizes using a hash map in a non-threadsafe manner
+   */
+  def memoizeHashedConcurrent[A, B](fn: A => B): A => B = {
+    val cache: ConcurrentHashMap[A, B] = new ConcurrentHashMap[A, B]()
+
+    { (a: A) =>
+      cache.get(a) match {
+        case null =>
+          // we have never hit this branch, compute that we are working:
+          // if we require this value while computing for a, it is an infinite
+          // loop, and we can't compute it
+          val b = fn(a)
+          cache.put(a, b)
+          b
+        case b => b
+      }
+    }
+  }
+
+  /**
    * This memoizes using a hash map in a threadsafe manner
    * it may loop forever and stack overflow if you don't have a DAG
    */

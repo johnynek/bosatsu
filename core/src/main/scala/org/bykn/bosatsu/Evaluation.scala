@@ -225,6 +225,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       value <- evaluate(pack).get(name)
     } yield (value, tpe.getType)
 
+  // TODO: this only works for lets, not externals, constructors or imports
+  // so, the name should be a Bindable and the name should be evaluateLet
   def evaluateName(p: PackageName, name: Identifier): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
@@ -303,6 +305,23 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
       ea.map(toTest(_))
     }
+
+
+  private val getDataRepr: (PackageName, Constructor) => DataRepr = {
+    (pname, cons) =>
+      val pack = pm.toMap(pname)
+      pack.program
+        .types
+        .getConstructor(pname, cons) match {
+          case Some((_, dt, _)) => dt.dataRepr(cons)
+          case None =>
+            // shouldn't happen for type checked programs
+            // $COVERAGE-OFF$
+            throw new IllegalStateException(s"could not find $cons in ${pack.program.types}")
+            // $COVERAGE-ON$
+        }
+  }
+
 
   private type Ref = TypedExpr[T]
 
