@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Eval
+import cats.{Eval, Functor, Id}
 import java.math.BigInteger
 import java.util.regex
 import org.bykn.bosatsu.graph.Memoize.memoizeHashedConcurrent
@@ -13,10 +13,18 @@ import Value._
 object MatchlessToValue {
   import Matchless._
 
-  def apply(me: Expr)(resolve: (PackageName, Identifier) => Value): Value = {
-    val scope = new Impl.Env(resolve)
-    val fn = scope.loop(me)
-    fn(Impl.Scope.empty)
+  def apply(me: Expr)(resolve: (PackageName, Identifier) => Eval[Value]): Eval[Value] =
+    traverse[Id](me)(resolve)
+
+  // reuse some cache structures across a number of calls
+  def traverse[F[_]: Functor](me: F[Expr])(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
+    val env = new Impl.Env(resolve)
+    val fns = Functor[F].map(me)(env.loop(_))
+    // now that we computed all the functions, compute the values
+
+    Functor[F].map(fns) { fn =>
+      Eval.later(fn(Impl.Scope.empty))
+    }
   }
 
   private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
@@ -68,7 +76,7 @@ object MatchlessToValue {
       def empty(): Scope = Scope(Map.empty, LongMap.empty, MLongMap())
     }
 
-    class Env(resolve: (PackageName, Identifier) => Value) {
+    class Env(resolve: (PackageName, Identifier) => Eval[Value]) {
       val toRegex: List[StrPart] => regex.Pattern =
         memoizeHashedConcurrent { parts: List[StrPart] =>
           val strPattern = parts.map {
@@ -267,7 +275,7 @@ object MatchlessToValue {
             buildLoop(caps, thisName, argshead, argstail, bodyFn)
           case Global(p, n) =>
             val res = resolve(p, n)
-            Function.const(res)
+            Function.const(res.value)
           case Local(b) => { scope => scope.locals(b).value }
           case LocalAnon(a) => { scope => scope.anon(a) }
           case LocalAnonMut(m) => { scope => scope.muts(m) }
