@@ -16,7 +16,7 @@ import Identifier.{Bindable, Constructor}
 object Evaluation {
   import Value._
 
-  type Env = Map[Identifier, Eval[Value]]
+  type Env = Map[Bindable, Eval[Value]]
 
   sealed abstract class Scoped {
     import Scoped.fromFn
@@ -154,7 +154,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   /**
    * Holds the final value of the environment for each Package
    */
-  private[this] val envCache: MMap[PackageName, Env] =
+  private[this] val envCache: MMap[PackageName, Map[Identifier, Eval[Value]]] =
     MMap.empty
 
   private def externalEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] = {
@@ -202,7 +202,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       eres.inEnv(Map.empty)
     }
 
-  private def evaluate(pack: Package.Typed[T]): Env =
+  private def evaluate(pack: Package.Typed[T]): Map[Identifier, Eval[Value]] =
     envCache.getOrElseUpdate(pack.name, {
       constructorEnv(pack) ++
       externalEnv(pack) ++
@@ -319,12 +319,12 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   private lazy val patListSplitter =
     Splitter.listSplitter(patternMatcher)(
       new cats.Monoid[Env] {
-        val empty = Map.empty[Identifier, Eval[Value]]
+        val empty = Map.empty[Bindable, Eval[Value]]
 
         def combine(left: Env, right: Env) = left ++ right
 
         override def combineAll(vs: TraversableOnce[Env]) = {
-          val eb = Map.newBuilder[Identifier, Eval[Value]]
+          val eb = Map.newBuilder[Bindable, Eval[Value]]
           vs.foreach(eb ++= _)
           eb.result
         }
@@ -364,7 +364,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
             else {
               val spat = pat.toNamedSeqPattern
               val nameMap = spat.names.map { n =>
-                (n, Identifier.unsafe(n))
+                (n, Identifier.unsafeBindable(n))
               }.toMap
 
               val matcher = NamedSeqPattern.matcher[Char, Char, String, String](Splitter.stringSplitter(_.toString))(spat)
@@ -399,7 +399,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
                 (NamedSeqPattern.matcher[Pattern[(PackageName, Constructor), Type], Value, List[Value], Env](patListSplitter)
                   .map { case (env0, captures) =>
                     captures.foldLeft(env0) { case (env0, (k, listV)) =>
-                      env0.updated(Identifier.unsafe(k), Eval.now(VList(listV)))
+                      env0.updated(Identifier.unsafeBindable(k), Eval.now(VList(listV)))
                     }
                   })(lpat)
 
