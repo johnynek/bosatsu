@@ -354,13 +354,6 @@ object SeqPattern {
             unifyUnion(intr)
         }
 
-      // this is a best effort difference only using subset
-      // that removes anything from p1 that is a subset of anything in p2
-      private def weakDifferenceAll(p1: List[SeqPattern[A]], p2: List[SeqPattern[A]]): List[SeqPattern[A]] =
-        // always in our tests p2.nonEmpty, so no need to try to optimize
-        // by checking that and skipping the filter
-        p1.filterNot { l => p2.exists(subset(l, _)) }
-
       /**
        * return the patterns that match p1 but not p2
        *
@@ -375,7 +368,13 @@ object SeqPattern {
        * the difference is:
        * (A1 n A2)x(B1 - B2) u (A1 - A2)xB1
        *
-       * A - (B1 u B2) = ((A - B1) u (A - B2)) - (B1 n B2)
+       * A - (B1 u B2) = (A - B1) n (A - B2)
+       * A - (B1 u B2) <= ((A - B1) u (A - B2)) - (B1 n B2)
+       * A - (B1 u B2) >= (A - B1) u (A - B2)
+       *
+       * so if (B1 n B2) = 0, then:
+       * A - (B1 u B2) = (A - B1) u (A - B2)
+       *
        * (A1 u A2) - B = (A1 - B) u (A2 - B)
        *
        * The last challenge is we need to operate on
@@ -410,6 +409,7 @@ object SeqPattern {
           case (Cat(Wildcard, t1), Empty) =>
             if (!t1.matchesEmpty) p1 :: Nil
             else {
+              // use (A + B) - C = (A - C) + (B - C)
               // *:t1 = t1 + _:p1
               // _:p1 - [] = _:p1
               unifyUnion(Cat(AnyElem, p1) :: difference(t1, Empty))
@@ -470,25 +470,6 @@ object SeqPattern {
             }
             val d3 = difference(t1, p2)
             unifyUnion(d12 ::: d3)
-          case (c1@Cat(Wildcard, Empty), c2@Cat(Wildcard, t2)) if c2.rightMost.isWild =>
-            // this is a common case in totality checking
-            // since we do [*_] - x to see what is missing
-            // we know that t2 does not match Empty because we know c2 does not matchAny
-            //
-            // * - *:m:* = ([] + _:*) - (m:* + _:*:m:*)
-            //           = (([] - m:*) + ([] - _:*:m:*) +
-            //             (_:* - m:*) + (_:* - _:*:m:*)) - (m:* n _:*m:*)
-            //             using that m:* can't match []
-            //           = *((* - m:*) - (m:* n _:*m:*))
-            //           // but m:* n _:*m:* is clearly less than
-            //           // m:* so, we can just return *(* - m:*)
-            //           as an upper bound, or remove any items in the
-            //           intersection
-            val intRight = intersection(t2, Cat(AnyElem, c2))
-            val d1 = difference(c1, t2)
-            val d2 = weakDifferenceAll(d1, intRight)
-            // d1 is already unifyUnion'd and weakDiff only filters
-            d2.map(_.prependWild)
           case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
             if (c1.rightMost.notWild || c2.rightMost.notWild) {
               // let's avoid the most complex case of both having
@@ -496,44 +477,66 @@ object SeqPattern {
               difference(c1.reverse, c2.reverse).map(_.reverse)
             }
             else {
-              // else they both start and end with Wildcard
-              // clearly these two patterns p1 and p2 overlap
-              // since any non-matching part can be moved into
-              // the wild of the other
-              val d1 = difference(t1, t2)
-              if (d1.isEmpty) {
-                // this probably isn't true since we checked for subset above
-                // but since we have to compute d1 it is worth an O(1) check
-                // if t1 <= t2, then, *:t1 <= *:t2
-                Nil
+              // both start and end with wildcard
+              //
+              // p1 - (t2 + _:p2) =
+              // if (t2 n (_:*:t2)).isEmpty, then
+              // then we can use a simpler formula
+              // but that is very uncommon (maybe
+              // we can find a proof it can't
+              // happen if t2 ends with Wildcard
+              // which is the case we are in.
+              //
+              // otherwise
+              // this branch is approximate:
+              // (p1 - t2) n (p1 - _:p2) =
+              // (p1 - t2) n ((t1 + _:p1) - _:p2)
+              // (p1 - t2) n ((t1 - _:p2) + _:(p1 - p2))
+              //
+              // x = a n (b + _:x)
+              //   = (a n b) + a n (_:x)
+              //   <= (a n b) + (_:x)
+              //   = *:(a n b)
+              //
+              // if t1 = [], then the above gives
+              // either empty set or *.
+              // this is a common case when we are
+              // searching for missing branches, we
+              // start at * - x
+              //
+              // (* - t2) n (([] - _:p2) + _:(p1 - p2))
+              // a = * - t2
+              // = (* - t2) n ([] + _:(p1 - p2))
+              // p1 - p2 = a n ([] + _:(a n ([] + _:(a n ([] + _: ...
+              //         <= a n ([] _ :(a n []) + _ _ :(a n []) +++
+              //         = a n (*:(a n []))
+              //
+              //   since a <= *, in the right side we have
+              //   a n * = a
+              //  so p1 - p2 <= a
+              //
+              //  note, a is always an upper bound due
+              //  to formula x = a n (...)
+              val as = difference(p1, t2)
+              if (t1.isEmpty) {
+                as
               }
               else {
-                // p1 - *:t2 = p1 - (t2 + _:*:t2)
-                //             = (p1 - t2) + (p1 - _:*:t2) - (t2 n (_:*:t2))
-                //             = (t1 - t2) + (_:p1 - t2) + (t1 - _:p2) + (_:p1 - _:p2) - (t2 n _:p2)
-                //
-                // we know that (p1 - p2) does not match (t2 n _:p2) because p1 doesn't match p2
-                // and p2 matches t2 and _:p2
-                //
-                //             = ((t1 - t2) + (_:p1 - t2) + (t1 - _:p2) - (t2 n _:p2)) + _:(p1 - p2)
-                //             = *((t1 - t2) + (_:p1 - t2) + (t1 - _:p2) - (t2 n _:p2))
-                val a2 = Cat(AnyElem, c2)
-                val d2 = difference(Cat(AnyElem, c1), t2)
-                val d3 = difference(t1, a2)
-                val lefts = d1 ::: d2 ::: d3
-                val rights = intersection(t2, a2)
+                // if x <= *:(a n b) and a then it is <= a n (*:(a n b))
+                val bs = difference(t1, Cat(AnyElem, p2))
+                // (a1 + a2) n (b1 + b2) =
+                val intr =
+                  for {
+                    ai <- as
+                    bi <- bs
+                    c <- intersection(ai, bi)
+                    // we know that everything
+                    // in the result must be in a
+                    a2 <- as
+                    ca <- intersection(c.prependWild, a2)
+                  } yield ca
 
-                /*
-                 * ideally we return
-                 * differenceAll(lefts, rights).map(_.prependWild)
-                 * but that difference all could cause an infinite
-                 * loop, so we weaken the bound
-                 * and do a naive difference of exact matching
-                 */
-                val leftDiff = weakDifferenceAll(lefts, rights)
-                // lefts are not unifyUnion'd, and weakDiff only filters
-                // so we want to unify as late as possible
-                unifyUnion(leftDiff.map(_.prependWild))
+                unifyUnion(intr)
               }
             }
         }
