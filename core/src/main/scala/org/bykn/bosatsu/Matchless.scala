@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.{Monad, Monoid}
 import cats.data.NonEmptyList
-import org.bykn.bosatsu.rankn.Type
+import org.bykn.bosatsu.rankn.{DataRepr, Type}
 
 import Identifier.{Bindable, Constructor}
 
@@ -64,6 +64,7 @@ object Matchless {
   // returns 1 if it does, else 0
   case class EqualsLit(expr: Expr, lit: Lit) extends IntExpr
   case class EqualsInt(expr: IntExpr, int: Int) extends IntExpr
+  case class EqualsNat(expr: Expr, nat: DataRepr.Nat) extends IntExpr
   // 1 if both are > 0
   case class AndInt(e1: IntExpr, e2: IntExpr) extends IntExpr
   // returns variant number from 0
@@ -89,6 +90,11 @@ object Matchless {
   // we need to compile calls to constructors into these
   case class MakeEnum(variant: Int, arity: Int) extends Expr
   case class MakeStruct(arity: Int) extends Expr
+  case object ZeroNat extends Expr
+  // this is the function Nat -> Nat
+  case object SuccNat extends Expr
+
+  case class PrevNat(of: Expr) extends Expr
 
   private def asCheap(expr: Expr): Option[CheapExpr] =
     expr match {
@@ -135,21 +141,21 @@ object Matchless {
     name: Bindable,
     rec: RecursionKind,
     te: TypedExpr[A],
-    variantOf: (PackageName, Constructor) => (Option[Int], Int),
+    variantOf: (PackageName, Constructor) => DataRepr,
     makeAnon: F[Long]): F[Expr] = {
 
     val emptyExpr: Expr =
       empty match {
         case (p, c) =>
           variantOf(p, c) match {
-            case (Some(v), s) => MakeEnum(v, s)
-            case (None, s) =>
+            case DataRepr.Enum(v, s) => MakeEnum(v, s)
+            case other =>
               /* We assume the structure of Lists to be standard linked lists
                * Empty cannot be a struct
                */
 
               // $COVERAGE-OFF$
-              throw new IllegalStateException(s"empty List should not be a struct, found: struct size: $s")
+              throw new IllegalStateException(s"empty List should be an enum, found: $other")
               // $COVERAGE-ON$
           }
       }
@@ -184,8 +190,11 @@ object Matchless {
           loop(res).map(Lambda(captures, arg, _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {
-            case (Some(v), a) => MakeEnum(v, a)
-            case (None, a) => MakeStruct(a)
+            case DataRepr.Enum(v, a) => MakeEnum(v, a)
+            case DataRepr.Struct(a) => MakeStruct(a)
+            case DataRepr.NewType => MakeStruct(1)
+            case DataRepr.ZeroNat => ZeroNat
+            case DataRepr.SuccNat => SuccNat
           })
         case TypedExpr.Global(pack, notCons: Bindable, _, _) =>
           Monad[F].pure(Global(pack, notCons))
@@ -359,16 +368,36 @@ object Matchless {
           }
 
           variantOf(pack, cname) match {
-            case (None, size) =>
+            case DataRepr.Struct(size) =>
               // this is a struct, so we check each parameter
               asStruct { pos => GetStructElement(arg, pos, size) }
-            case (Some(vidx), size) =>
+            case DataRepr.NewType =>
+              // this is a struct, so we check each parameter
+              asStruct { pos => GetStructElement(arg, pos, 1) }
+            case DataRepr.Enum(vidx, size) =>
               // if we match the variant, then treat it as a struct
               val variant = GetVariant(arg)
               val vmatch = EqualsInt(variant, vidx)
 
               asStruct(GetEnumElement(arg, vidx, _, size))
                 .map(_.map { case (l0, oi, b) => (l0, andInt(Some(vmatch), oi), b) })
+            case DataRepr.ZeroNat =>
+              Monad[F].pure(NonEmptyList((Nil, Some(EqualsNat(arg, DataRepr.ZeroNat)), Nil), Nil))
+            case DataRepr.SuccNat =>
+              params match {
+                case single :: Nil =>
+                  // if we match, we recur on the inner pattern and prev of current
+                  val check = Some(EqualsNat(arg, DataRepr.SuccNat))
+                  val bind: F[(LocalAnon, Expr)] = makeAnon.map { nm => (LocalAnon(nm), PrevNat(arg)) }
+                  for {
+                    pre <- bind
+                    rest <- doesMatch(pre._1, single)
+                  } yield rest.map { case (preLets, cond, res) => (pre :: preLets, andInt(check, cond), res) }
+                case other =>
+                  // $COVERAGE-OFF$
+                  throw new IllegalStateException(s"expected typechecked Nat to only have one param, found: $other in $pat")
+                  // $COVERAGE-ON$
+              }
           }
         case Pattern.Union(h, ts) =>
           (h :: ts).traverse(doesMatch(arg, _)).map { nene =>
