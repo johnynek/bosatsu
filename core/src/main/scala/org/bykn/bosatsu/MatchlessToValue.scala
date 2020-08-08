@@ -63,6 +63,9 @@ object MatchlessToValue {
     }
 
   private object Impl {
+    case object Uninitialized
+    val uninit: Value = ExternalValue(Uninitialized)
+
     final case class Scope(
       locals: Map[Bindable, Eval[Value]],
       anon: LongMap[Value],
@@ -70,6 +73,12 @@ object MatchlessToValue {
 
       def let(b: Bindable, v: Eval[Value]): Scope =
         copy(locals = locals.updated(b, v))
+
+      def updateMut(mutIdx: Long, v: Value): Unit = {
+        assert(muts.contains(mutIdx))
+        muts.put(mutIdx, v)
+        ()
+      }
 
       def capture(it: Iterable[Bindable]): Scope = {
         def loc(b: Bindable): Eval[Value] =
@@ -119,8 +128,8 @@ object MatchlessToValue {
           regex.Pattern.compile(strPattern)
         }
 
-      // evaluating intExpr can mutate an existing value in muts
-      private def intExpr(ix: IntExpr): Scope => Int =
+      // evaluating boolExpr can mutate an existing value in muts
+      private def boolExpr(ix: BoolExpr): Scope => Boolean =
         ix match {
           case EqualsLit(expr, lit) =>
 
@@ -131,92 +140,88 @@ object MatchlessToValue {
                 .asExternal
                 .toAny
 
-              if (left == litAny) 1
-              else 0
+              left == litAny
             }
-          case EqualsInt(iexpr, v) =>
-            intExpr(iexpr).andThen { i =>
-              if (i == v) 1
-              else 0
-            }
+
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)
 
             if (zeroOrSucc.isZero)
               natF.andThen { v =>
-                if (v.asExternal.toAny == BigInteger.ZERO) 1
-                else 0
+                v.asExternal.toAny == BigInteger.ZERO
               }
             else
               natF.andThen { v =>
-                if (v.asExternal.toAny != BigInteger.ZERO) 1
-                else 0
+                v.asExternal.toAny != BigInteger.ZERO
               }
 
           case AndInt(ix1, ix2) =>
-            val i1F = intExpr(ix1)
-            val i2F = intExpr(ix2)
+            val i1F = boolExpr(ix1)
+            val i2F = boolExpr(ix2)
 
             { scope: Scope =>
               // we should be lazy
-              if (i1F(scope) == 0) 0
-              else i2F(scope)
+              i1F(scope) && i2F(scope)
             }
 
-          case GetVariant(enumV) =>
-            loop(enumV).andThen(_.asSum.variant)
+          case CheckVariant(enumV, idx, LocalAnonMut(res)) =>
+            val argF = loop(enumV)
+
+            { scope: Scope =>
+              // TODO we should only be calling this on sums
+              val input = argF(scope)
+
+              val sum = input.asSum
+              if (sum.variant == idx) {
+                scope.updateMut(res, sum)
+                true
+              }
+              else false
+            }
 
           case SearchList(LocalAnonMut(mutV), init, check, None) =>
             val initF = loop(init)
-            val checkF = intExpr(check)
+            val checkF = boolExpr(check)
 
             { scope: Scope =>
-              var res = -1
               var currentList = initF(scope)
-              while (res < 0) {
-                scope.muts.put(mutV, currentList)
-                // this can have a side effect, so it has to be in the loop
-                res = checkF(scope)
-                if (res == 0) {
-                  currentList match {
-                    case VList.Cons(_, tail) =>
-                      currentList = tail
-                      // continue on the tail
-                      res = -1
-                    case _ =>
-                      // we are done, we never matched
-                      // and res has been set to 0
-                  }
+              var res = false
+              while (currentList ne null) {
+                currentList match {
+                  case nonempty@VList.Cons(_, tail) =>
+                    scope.updateMut(mutV, nonempty)
+                    res = checkF(scope)
+                    if (res) { currentList = null }
+                    else { currentList = tail }
+                  case _ =>
+                    currentList = null
+                    // we don't match empty lists
                 }
-                // else we matched at the currentList
               }
               res
             }
           case SearchList(LocalAnonMut(mutV), init, check, Some(LocalAnonMut(left))) =>
             val initF = loop(init)
-            val checkF = intExpr(check)
+            val checkF = boolExpr(check)
 
             { scope: Scope =>
-              var res = -1
+              var res = false
               var currentList = initF(scope)
               var leftList = VList.VNil
-              while (res < 0) {
-                scope.muts.put(mutV, currentList)
-                scope.muts.put(left, leftList)
-                // todo we have to redo this check
-                // each time, we should have intExpr return Registers => Int
-                // so we can just re-apply it on new registers
-                res = checkF(scope)
-                if (res == 0) {
-                  currentList match {
-                    case VList.Cons(head, tail) =>
+              while (currentList ne null) {
+                currentList match {
+                  case nonempty@VList.Cons(head, tail) =>
+                    scope.updateMut(mutV, nonempty)
+                    scope.updateMut(left, leftList)
+                    res = checkF(scope)
+                    if (res) { currentList = null }
+                    else {
                       currentList = tail
                       leftList = VList.Cons(head, leftList)
-                      // continue on the tail
-                      res = -1
-                    case _ =>
-                      // we are done, we never matched
-                  }
+                    }
+                  case _ =>
+                    currentList = null
+                    // we don't match empty lists
                 }
               }
               res
@@ -345,30 +350,40 @@ object MatchlessToValue {
                   val scope1 = scope.copy(anon = scope.anon.updated(l, vv))
                   inF(scope1)
                 }
-              case Left(LocalAnonMut(l)) =>
-                { scope: Scope =>
-                  val vv = valueF(scope)
-                  scope.muts.put(l, vv)
-                  val res = inF(scope)
-                  // now we can remove this from mutable scope
-                  scope.muts.remove(l)
-                  res
-                }
+            }
+          case LetMut(LocalAnonMut(l), in) =>
+            val inF = loop(in)
+
+            { scope: Scope =>
+              scope.muts.put(l, uninit)
+              val res = inF(scope)
+              // now we can remove this from mutable scope
+              // we should be able to remove this TODO
+              //scope.muts.remove(l)
+              res
             }
           case Literal(lit) =>
             val v = Value.fromLit(lit)
             Function.const(v)
           case If(cond, thenExpr, elseExpr) =>
-            val condF = intExpr(cond)
+            val condF = boolExpr(cond)
             val thenF = loop(thenExpr)
             val elseF = loop(elseExpr)
 
             { scope: Scope =>
               val cond = condF(scope)
-              if (cond == 0) elseF(scope)
-              else thenF(scope)
+              if (cond) thenF(scope)
+              else elseF(scope)
             }
+          case Always(cond, expr) =>
+            val condF = boolExpr(cond)
+            val exprF = loop(expr)
 
+            { scope: Scope =>
+              val cond = condF(scope)
+              //assert(cond != 1)
+              exprF(scope)
+            }
           case MatchString(str, pat, binds) =>
             // do this before we evaluate the string
             val regexPat = toRegex(pat)
