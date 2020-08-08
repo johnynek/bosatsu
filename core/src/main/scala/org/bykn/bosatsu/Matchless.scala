@@ -22,8 +22,9 @@ object Matchless {
 
   sealed abstract class StrPart
   object StrPart {
-    case object WildStr extends StrPart
-    case object IndexStr extends StrPart
+    sealed abstract class Glob(val capture: Boolean) extends StrPart
+    case object WildStr extends Glob(false)
+    case object IndexStr extends Glob(true)
     case class LitStr(asString: String) extends StrPart
   }
 

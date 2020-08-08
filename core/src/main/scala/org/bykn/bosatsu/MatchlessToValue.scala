@@ -2,8 +2,6 @@ package org.bykn.bosatsu
 
 import cats.{Eval, Functor}
 import java.math.BigInteger
-import java.util.regex
-import org.bykn.bosatsu.graph.Memoize.memoizeHashedConcurrent
 import scala.collection.immutable.LongMap
 import scala.collection.mutable.{LongMap => MLongMap}
 
@@ -99,35 +97,6 @@ object MatchlessToValue {
     }
 
     class Env(resolve: (PackageName, Identifier) => Eval[Value]) {
-      val toRegex: List[StrPart] => regex.Pattern =
-        memoizeHashedConcurrent { parts: List[StrPart] =>
-          val strPattern = parts.map {
-            case StrPart.WildStr => "(?:.*)"
-            case StrPart.IndexStr => "(.*)"
-            case StrPart.LitStr(s) =>
-
-              def wrap(s: String): String =
-                if (s.isEmpty) ""
-                else "\\Q" + s + "\\E"
-
-              def escape(s: String): String = {
-                val slashE = s.indexOf("\\E")
-                if (slashE < 0) wrap(s)
-                else {
-                  val head = wrap(s.substring(0, slashE))
-                  val quoteSlash = "\\\\E"
-                  val tail = wrap(s.substring(slashE + 2))
-                  head + quoteSlash + tail
-                }
-              }
-
-              escape(s)
-          }
-          .mkString
-
-          regex.Pattern.compile(strPattern)
-        }
-
       // evaluating boolExpr can mutate an existing value in muts
       private def boolExpr(ix: BoolExpr): Scope => Boolean =
         ix match {
@@ -340,7 +309,7 @@ object MatchlessToValue {
                 }
                 else {
                   { scope: Scope =>
-                    val vv = Eval.later(valueF(scope))
+                    val vv = Eval.now(valueF(scope))
                     inF(scope.let(b, vv))
                   }
                 }
@@ -386,10 +355,9 @@ object MatchlessToValue {
             }
           case MatchString(str, pat, binds) =>
             // do this before we evaluate the string
-            val regexPat = toRegex(pat)
             loop(str).andThen { strV =>
               val arg = strV.asExternal.toAny.asInstanceOf[String]
-              matchString(arg, regexPat, binds)
+              matchString(arg, pat, binds)
             }
           case GetEnumElement(expr, v, idx, sz) =>
             loop(expr).andThen { e =>
@@ -423,20 +391,75 @@ object MatchlessToValue {
             Function.const(c)
         }
 
-      def matchString(str: String, pat: regex.Pattern, binds: Int): SumValue = {
-        val m = pat.matcher(str)
-        if (m.matches()) {
-          if (binds == 0) Value.True
-          else {
-            var idx = binds
-            var prod: ProductValue = UnitValue
-            while (0 < idx) {
-              val item = m.group(idx)
-              idx = idx - 1
-              prod = ConsValue(ExternalValue(item), prod)
-            }
-            SumValue(1, prod)
+      def matchString(str: String, pat: List[Matchless.StrPart], binds: Int): SumValue = {
+        import Matchless.StrPart._
+
+        val results = new Array[String](binds)
+
+        def loop(offset: Int, pat: List[Matchless.StrPart], next: Int): Boolean =
+          pat match {
+            case Nil => offset == str.length
+            case LitStr(expect) :: tail =>
+              val len = expect.length
+              str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
+            case (h: Glob) :: tail =>
+              tail match {
+                case Nil =>
+                  // we capture all the rest
+                  if (h.capture) {
+                    results(next) = str.substring(offset)
+                  }
+                  true
+                case LitStr(expect) :: tail2 =>
+                  val next1 = if (h.capture) next + 1 else next
+
+                  var start = offset
+                  var result = false
+                  while (start >= 0) {
+                    val candidate = str.indexOf(expect, start)
+                    if (candidate >= 0) {
+                      // we have to skip the current expect string
+                      val check1 = loop(candidate + expect.length, tail2, next1)
+                      if (check1) {
+                        // this was a match, write into next if needed
+                        if (h.capture) {
+                          results(next) = str.substring(offset, candidate)
+                        }
+                        result = true
+                        start = -1
+                      }
+                      else {
+                        // we couldn't match here, try just after candidate
+                        start = candidate + 1
+                      }
+                    }
+                    else {
+                      // no more candidates
+                      start = -1
+                    }
+                  }
+                  result
+                case (_: Glob) :: _ =>
+                  val n1 = if (h.capture) {
+                    // this index gets the empty string
+                    results(next) = ""
+                    // we match the right side first, so this wild gets nothing
+                    next + 1
+                  } else next
+
+                  loop(offset, tail, n1)
+              }
           }
+
+        if (loop(0, pat, 0)) {
+          var idx = binds - 1
+          var prod: ProductValue = UnitValue
+          while (0 <= idx) {
+            val item = results(idx)
+            idx = idx - 1
+            prod = ConsValue(ExternalValue(item), prod)
+          }
+          SumValue(1, prod)
         }
         else {
           // this is (0, UnitValue)
