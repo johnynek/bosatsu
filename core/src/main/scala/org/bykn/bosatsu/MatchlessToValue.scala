@@ -105,11 +105,7 @@ object MatchlessToValue {
             val litAny = lit.unboxToAny
 
             loop(expr).andThen { e =>
-              val left = e
-                .asExternal
-                .toAny
-
-              left == litAny
+              e.asExternal.toAny == litAny
             }
 
           case EqualsNat(nat, zeroOrSucc) =>
@@ -141,9 +137,7 @@ object MatchlessToValue {
             val argF = loop(enumV)
 
             { scope: Scope =>
-              val input = argF(scope)
-              val sum = input.asSum
-              (sum.variant == idx)
+              argF(scope).asSum.variant == idx
             }
 
           case SetMut(LocalAnonMut(mut), expr) =>
@@ -355,6 +349,9 @@ object MatchlessToValue {
                 if (rec.isRecursive) {
 
                   { scope =>
+                    // this is the only one that should
+                    // use lazy/Eval.later
+                    // we use it to tie the recursive knot
                     lazy val scope1: Scope =
                       scope.let(b, vv)
 
@@ -380,6 +377,11 @@ object MatchlessToValue {
             val inF = loop(in)
 
             { scope: Scope =>
+              // we make sure there is
+              // a value that will show up
+              // strange in tests,
+              // for an optimization we could
+              // avoid this
               scope.muts.put(l, uninit)
               val res = inF(scope)
               // now we can remove this from mutable scope
@@ -406,7 +408,7 @@ object MatchlessToValue {
 
             { scope: Scope =>
               val cond = condF(scope)
-              //assert(cond != 1)
+              assert(cond)
               exprF(scope)
             }
           case MatchString(str, pat, binds) =>
@@ -421,7 +423,7 @@ object MatchlessToValue {
               // we could assert e.asSum.variant == v
               // we can comment this out when bugs
               // are fixed
-              //assert(sum.variant == v)
+              assert(sum.variant == v)
               sum.value.get(idx)
             }
 
@@ -438,6 +440,9 @@ object MatchlessToValue {
             }
           case PrevNat(expr) =>
             loop(expr).andThen { bv =>
+              // TODO we could cache
+              // small numbers to make this
+              // faster
               val anyBI = bv.asExternal.toAny
               val bi = anyBI.asInstanceOf[BigInteger]
               ExternalValue(bi.subtract(BigInteger.ONE))
