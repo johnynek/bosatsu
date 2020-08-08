@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Eval, Functor, Id}
+import cats.{Eval, Functor}
 import java.math.BigInteger
 import java.util.regex
 import org.bykn.bosatsu.graph.Memoize.memoizeHashedConcurrent
@@ -13,13 +13,19 @@ import Value._
 object MatchlessToValue {
   import Matchless._
 
-  def apply(me: Expr)(resolve: (PackageName, Identifier) => Eval[Value]): Eval[Value] =
-    traverse[Id](me)(resolve)
-
   // reuse some cache structures across a number of calls
   def traverse[F[_]: Functor](me: F[Expr])(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
     val env = new Impl.Env(resolve)
-    val fns = Functor[F].map(me)(env.loop(_))
+    val fns = Functor[F].map(me) { expr =>
+      /*
+      if (expr.isInstanceOf[Let]) {
+        println("=" * 800)
+        println(expr)
+        println("=" * 800)
+      }
+      */
+      env.loop(expr)
+    }
     // now that we computed all the functions, compute the values
 
     Functor[F].map(fns) { fn =>
@@ -65,11 +71,18 @@ object MatchlessToValue {
       def let(b: Bindable, v: Eval[Value]): Scope =
         copy(locals = locals.updated(b, v))
 
-      def capture(it: Iterable[Bindable]): Scope =
+      def capture(it: Iterable[Bindable]): Scope = {
+        def loc(b: Bindable): Eval[Value] =
+          locals.get(b) match {
+            case Some(v) => v
+            case None => sys.error(s"couldn't find: $b in ${locals.keys.map(_.asString).toList}")
+          }
+
         Scope(
-          it.iterator.map { b => (b, locals(b)) }.toMap,
+          it.iterator.map { b => (b, loc(b)) }.toMap,
             LongMap.empty,
             MLongMap())
+      }
     }
 
     object Scope {
@@ -175,6 +188,7 @@ object MatchlessToValue {
                       // and res has been set to 0
                   }
                 }
+                // else we matched at the currentList
               }
               res
             }
@@ -212,9 +226,11 @@ object MatchlessToValue {
       def buildLoop(caps: List[Bindable], fnName: Bindable, arg0: Bindable, rest: List[Bindable], body: Scope => Value): Scope => Value = {
         val argCount = rest.length + 1
         val argNames: Array[Bindable] = (arg0 :: rest).toArray
+        // we manually put this in below
+        val capNoName = caps.filterNot(_ == fnName)
 
         { scope =>
-          val scope1 = scope.capture(caps)
+          val scope1 = scope.capture(capNoName)
 
           FnValue.curry(argCount) { allArgs =>
             var registers: List[Value] = allArgs
@@ -229,7 +245,10 @@ object MatchlessToValue {
 
             val scope2 = scope1.let(fnName, Eval.now(continueFn))
 
-            def readRegisters(): Scope = {
+            var res: Value = null
+
+            while (res eq null) {
+              // read the registers into the environment
               var idx = 0
               var reg: List[Value] = registers
               var s: Scope = scope2
@@ -240,14 +259,7 @@ object MatchlessToValue {
                 s = s.let(b, Eval.now(v))
                 idx = idx + 1
               }
-              s
-            }
-
-            var res: Value = null
-            while (res eq null) {
-              // read the registers into the environment
-              val scope = readRegisters()
-              res = body(scope)
+              res = body(s)
             }
 
             res
@@ -265,7 +277,7 @@ object MatchlessToValue {
               // hopefully optimization/normalization has lifted anything
               // that doesn't depend on argV above this lambda
               FnValue { argV =>
-                val scope2 = scope.let(arg, Eval.now(argV))
+                val scope2 = scope1.let(arg, Eval.now(argV))
                 resFn(scope2)
               }
             }
@@ -275,7 +287,9 @@ object MatchlessToValue {
             buildLoop(caps, thisName, argshead, argstail, bodyFn)
           case Global(p, n) =>
             val res = resolve(p, n)
-            Function.const(res.value)
+
+            // this has to be lazy, not Function.const which is eager
+            { _: Scope => res.value }
           case Local(b) => { scope => scope.locals(b).value }
           case LocalAnon(a) => { scope => scope.anon(a) }
           case LocalAnonMut(m) => { scope => scope.muts(m) }
@@ -291,16 +305,16 @@ object MatchlessToValue {
             { scope =>
 
               @annotation.tailrec
-              def app(fn: Value => Value, head: Value, tail: List[Scope => Value]): Value = {
-                val res = fn(head)
+              def app(fn: Value, tail: List[Scope => Value]): Value =
                 tail match {
-                  case Nil => res
+                  case Nil => fn
                   case h :: tail =>
-                    app(res.asFn, h(scope), tail)
+                    val next = fn.asFn(h(scope))
+                    app(next, tail)
                 }
-              }
 
-              app(exprFn(scope).asFn, argsFn.head(scope), argsFn.tail)
+              val h1 = exprFn(scope).asFn(argsFn.head(scope))
+              app(h1, argsFn.tail)
             }
           case Let(localOrBind, value, in) =>
             val valueF = loop(value)
@@ -321,7 +335,7 @@ object MatchlessToValue {
                 }
                 else {
                   { scope: Scope =>
-                    val vv = Eval.now(valueF(scope))
+                    val vv = Eval.later(valueF(scope))
                     inF(scope.let(b, vv))
                   }
                 }
@@ -364,12 +378,24 @@ object MatchlessToValue {
             }
           case GetEnumElement(expr, v, idx, sz) =>
             loop(expr).andThen { e =>
-              e.asSum.value.get(idx)
+              val sum = e.asSum
+              // we could assert e.asSum.variant == v
+              // we can comment this out when bugs
+              // are fixed
+              //assert(sum.variant == v)
+              sum.value.get(idx)
             }
 
           case GetStructElement(expr, idx, sz) =>
-            loop(expr).andThen { p =>
-              p.asProduct.get(idx)
+            val loopFn = loop(expr)
+            if (sz == 1) {
+              // this is a newtype
+              loopFn
+            }
+            else {
+              loop(expr).andThen { p =>
+                p.asProduct.get(idx)
+              }
             }
           case PrevNat(expr) =>
             loop(expr).andThen { bv =>

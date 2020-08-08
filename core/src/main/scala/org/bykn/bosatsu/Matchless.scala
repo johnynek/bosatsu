@@ -175,31 +175,35 @@ object Matchless {
 
     def loopLetVal(name: Bindable, e: TypedExpr[A], rec: RecursionKind): F[Expr] = {
       lazy val e0 = loop(e)
-      if (rec.isRecursive) {
-        // this could be tail recursive
-        if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
-          val arity = Type.Fun.arity(e.getType)
-          // we know that arity > 0 because, otherwise we can't have a total
-          // self recursive loop
-          if (arity <= 0) throw new IllegalStateException(s"expected arity > 0, found $arity in $e")
-          else {
-            TypedExpr.toArgsBody(arity, e) match {
-              case Some((params, body)) =>
-                // we know params is non-empty because arity > 0
-                val args = params.map(_._1)
-                val argshead = args.head
-                val argstail = args.tail
-                val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
-                loop(body).map(LoopFn(captures, name, argshead, argstail, _))
-              case None =>
-                // TODO: I don't think this case should ever happen
-                e0
+      rec match {
+        case RecursionKind.Recursive =>
+          // this could be tail recursive
+          if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
+            val arity = Type.Fun.arity(e.getType)
+            // we know that arity > 0 because, otherwise we can't have a total
+            // self recursive loop
+            if (arity <= 0) throw new IllegalStateException(s"expected arity > 0, found $arity in $e")
+            else {
+              TypedExpr.toArgsBody(arity, e) match {
+                case Some((params, body)) =>
+                  // we know params is non-empty because arity > 0
+                  val args = params.map(_._1)
+                  val argshead = args.head
+                  val argstail = args.tail
+                  val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
+                  loop(body).map(LoopFn(captures, name, argshead, argstail, _))
+                case None =>
+                  // TODO: I don't think this case should ever happen
+                  e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
+              }
             }
           }
-        }
-        else e0
+          else {
+            // otherwise let rec x = fn in x
+            e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
+          }
+        case RecursionKind.NonRecursive => e0
       }
-      else e0
     }
 
     def loop(te: TypedExpr[A]): F[Expr] =
@@ -411,7 +415,7 @@ object Matchless {
                   val check = Some(EqualsNat(arg, DataRepr.SuccNat))
                   // TODO: we are unconditionally decrementing, even if doesMatch
                   // does not bind. We shouldn't do that.
-                  val bind: F[(LocalAnon, Expr)] = makeAnon.map { nm => (LocalAnon(nm), arg) }
+                  val bind: F[(LocalAnon, Expr)] = makeAnon.map { nm => (LocalAnon(nm), PrevNat(arg)) }
                   for {
                     pre <- bind
                     rest <- doesMatch(pre._1, single)

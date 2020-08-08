@@ -811,7 +811,6 @@ main = big_list.foldLeft(0, \x, y -> x.add(y))
 """), "A", VInt((0 until 3000).sum))
 
   def sumFn(n: Int): Int = if (n <= 0) 0 else { sumFn(n-1) + n }
-
   evalTest(
     List("""
 package A
@@ -850,7 +849,6 @@ def sum(nat):
 
 main = sum(Succ(Succ(Succ(Zero))))
 """), "A", VInt(sumFn(3)))
-
   }
 
   test("we can mix literal and enum forms of List") {
