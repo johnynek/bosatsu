@@ -89,7 +89,7 @@ object Matchless {
 
   // string matching is complex done at a lower level
   // return a variant of either value 0, no match, or 1 with
-  // todo: we should probably make this be like SearchList and be explicit
+  // TODO: we should probably make this be like SearchList and be explicit
   // about the algorithm rather than hiding it and requiring an allocation
   // here.
   case class MatchString(arg: CheapExpr, parts: List[StrPart], binds: Int) extends Expr

@@ -208,10 +208,10 @@ object MatchlessToValue {
         // we manually put this in below
         val capNoName = caps.filterNot(_ == fnName)
 
-        { scope =>
-          val scope1 = scope.capture(capNoName)
-
-          FnValue.curry(argCount) { allArgs =>
+        if (capNoName.isEmpty) {
+          // We can allocate once
+          val scope1 = Scope.empty()
+          val fn = FnValue.curry(argCount) { allArgs =>
             var registers: List[Value] = allArgs
 
             // the registers are set up
@@ -243,6 +243,46 @@ object MatchlessToValue {
 
             res
           }
+
+          Function.const(fn)
+        }
+        else {
+          { scope =>
+            val scope1 = scope.capture(capNoName)
+
+            FnValue.curry(argCount) { allArgs =>
+              var registers: List[Value] = allArgs
+
+              // the registers are set up
+              // when we recur, that is a continue on the loop,
+              // we just update the registers and return null
+              val continueFn = FnValue.curry(argCount) { continueArgs =>
+                registers = continueArgs
+                null
+              }
+
+              val scope2 = scope1.let(fnName, Eval.now(continueFn))
+
+              var res: Value = null
+
+              while (res eq null) {
+                // read the registers into the environment
+                var idx = 0
+                var reg: List[Value] = registers
+                var s: Scope = scope2
+                while (idx < argCount) {
+                  val b = argNames(idx)
+                  val v = reg.head
+                  reg = reg.tail
+                  s = s.let(b, Eval.now(v))
+                  idx = idx + 1
+                }
+                res = body(s)
+              }
+
+              res
+            }
+          }
         }
       }
       // the locals can be recusive, so we box into Eval for laziness
@@ -251,13 +291,24 @@ object MatchlessToValue {
           case Lambda(caps, arg, res) =>
             val resFn = loop(res)
 
-            { scope =>
-              val scope1 = scope.capture(caps)
-              // hopefully optimization/normalization has lifted anything
-              // that doesn't depend on argV above this lambda
-              FnValue { argV =>
+            if (caps.isEmpty) {
+              // we can allocate once if there is no closure
+              val scope1 = Scope.empty()
+              val fn = FnValue { argV =>
                 val scope2 = scope1.let(arg, Eval.now(argV))
                 resFn(scope2)
+              }
+              Function.const(fn)
+            }
+            else {
+              { scope =>
+                val scope1 = scope.capture(caps)
+                // hopefully optimization/normalization has lifted anything
+                // that doesn't depend on argV above this lambda
+                FnValue { argV =>
+                  val scope2 = scope1.let(arg, Eval.now(argV))
+                  resFn(scope2)
+                }
               }
             }
           case LoopFn(caps, thisName, argshead, argstail, body) =>
