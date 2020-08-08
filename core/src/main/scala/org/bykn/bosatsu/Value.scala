@@ -62,12 +62,11 @@ object Value {
       @annotation.tailrec
       def loop(self: ProductValue, ix: Int): Value =
         self match {
-          case UnitValue =>
-            //throw new IllegalArgumentException(s"exhausted index at $ix on ${this}.get($idx)")
-            UnitValue
           case ConsValue(head, tail) =>
             if (ix <= 0) head
             else loop(tail, ix - 1)
+          case UnitValue =>
+            throw new IllegalArgumentException(s"exhausted index at $ix on ${this}.get($idx)")
         }
 
       loop(this, idx)

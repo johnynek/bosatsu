@@ -15,13 +15,6 @@ object MatchlessToValue {
   def traverse[F[_]: Functor](me: F[Expr])(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
     val env = new Impl.Env(resolve)
     val fns = Functor[F].map(me) { expr =>
-      /*
-      if (expr.isInstanceOf[Let]) {
-        println("=" * 800)
-        println(expr)
-        println("=" * 800)
-      }
-      */
       env.loop(expr)
     }
     // now that we computed all the functions, compute the values
