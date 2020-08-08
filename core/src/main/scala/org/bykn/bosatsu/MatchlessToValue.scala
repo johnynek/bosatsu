@@ -124,13 +124,17 @@ object MatchlessToValue {
                 v.asExternal.toAny != BigInteger.ZERO
               }
 
-          case AndInt(ix1, ix2) =>
+          case TrueConst => Function.const(true)
+          case And(TrueConst, ix2) => boolExpr(ix2)
+          case And(ix1, TrueConst) => boolExpr(ix1)
+          case And(ix1, ix2) =>
             val i1F = boolExpr(ix1)
             val i2F = boolExpr(ix2)
 
             { scope: Scope =>
               // we should be lazy
-              i1F(scope) && i2F(scope)
+              if (i1F(scope)) i2F(scope)
+              else false
             }
 
           case CheckVariant(enumV, idx) =>
@@ -142,16 +146,12 @@ object MatchlessToValue {
               (sum.variant == idx)
             }
 
-          case IfSet(cond, LocalAnonMut(mut), expr) =>
-            val condF = boolExpr(cond)
+          case SetMut(LocalAnonMut(mut), expr) =>
             val exprF = loop(expr)
 
             { scope: Scope =>
-              val bool = condF(scope)
-              bool && {
-                scope.updateMut(mut, exprF(scope))
-                true
-              }
+              scope.updateMut(mut, exprF(scope))
+              true
             }
           case SearchList(LocalAnonMut(mutV), init, check, None) =>
             val initF = loop(init)
@@ -332,7 +332,7 @@ object MatchlessToValue {
               scope.muts.put(l, uninit)
               val res = inF(scope)
               // now we can remove this from mutable scope
-              // we should be able to remove this TODO
+              // we should be able to remove this
               scope.muts.remove(l)
               res
             }
