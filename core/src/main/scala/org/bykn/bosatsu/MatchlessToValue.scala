@@ -133,21 +133,26 @@ object MatchlessToValue {
               i1F(scope) && i2F(scope)
             }
 
-          case CheckVariant(enumV, idx, LocalAnonMut(res)) =>
+          case CheckVariant(enumV, idx) =>
             val argF = loop(enumV)
 
             { scope: Scope =>
-              // TODO we should only be calling this on sums
               val input = argF(scope)
-
               val sum = input.asSum
-              if (sum.variant == idx) {
-                scope.updateMut(res, sum)
-                true
-              }
-              else false
+              (sum.variant == idx)
             }
 
+          case IfSet(cond, LocalAnonMut(mut), expr) =>
+            val condF = boolExpr(cond)
+            val exprF = loop(expr)
+
+            { scope: Scope =>
+              val bool = condF(scope)
+              bool && {
+                scope.updateMut(mut, exprF(scope))
+                true
+              }
+            }
           case SearchList(LocalAnonMut(mutV), init, check, None) =>
             val initF = loop(init)
             val checkF = boolExpr(check)
@@ -328,7 +333,7 @@ object MatchlessToValue {
               val res = inF(scope)
               // now we can remove this from mutable scope
               // we should be able to remove this TODO
-              //scope.muts.remove(l)
+              scope.muts.remove(l)
               res
             }
           case Literal(lit) =>

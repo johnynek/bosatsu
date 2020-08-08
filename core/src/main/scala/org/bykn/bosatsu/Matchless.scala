@@ -66,13 +66,15 @@ object Matchless {
   case class AndInt(e1: BoolExpr, e2: BoolExpr) extends BoolExpr
   // checks if variant matches, and if so, writes to
   // a given mut
-  case class CheckVariant(expr: Expr, expect: Int, target: LocalAnonMut) extends BoolExpr
+  case class CheckVariant(expr: Expr, expect: Int) extends BoolExpr
   // handle list matching, this is a while loop, that is evaluting
   // lst is initialized to init, leftAcc is initialized to empty
   // tail until it is true while mutating lst => lst.tail
   // this has the side-effect of mutating lst and leftAcc as well as any side effects that check has
   // which could have nested searches of its own
   case class SearchList(lst: LocalAnonMut, init: CheapExpr, check: BoolExpr, leftAcc: Option[LocalAnonMut]) extends BoolExpr
+  // if the condition is true, set the mutable variable to the given expr
+  case class IfSet(cond: BoolExpr, target: LocalAnonMut, expr: Expr) extends BoolExpr
 
   case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
   case class Always(cond: BoolExpr, thenExpr: Expr) extends Expr
@@ -295,7 +297,7 @@ object Matchless {
             val boundMatch: LocalAnon = LocalAnon(nm)
             val res: LocalAnonMut = LocalAnonMut(resNum)
 
-            val vmatch = CheckVariant(boundMatch, 1, res)
+            val vmatch = IfSet(CheckVariant(boundMatch, 1), res, boundMatch)
 
             NonEmptyList.of((
               CheckLet(boundMatch, me, CheckMut(res, EmptyBinds)),
@@ -419,7 +421,7 @@ object Matchless {
               // if we match the variant, then treat it as a struct
               makeAnon.flatMap { nm =>
                 val res = LocalAnonMut(nm)
-                val vmatch = CheckVariant(arg, vidx, res)
+                val vmatch = IfSet(CheckVariant(arg, vidx), res, arg)
 
                 asStruct(GetEnumElement(res, vidx, _, size))
                   .map(_.map { case (l0, oi, b) => (CheckMut(res, l0), andBool(Some(vmatch), oi), b) })
