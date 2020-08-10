@@ -97,13 +97,19 @@ object Matchless {
   case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
   case class GetStructElement(arg: Expr, index: Int, size: Int) extends Expr
 
-  sealed abstract class ConsExpr extends Expr
+  sealed abstract class ConsExpr extends Expr {
+    def arity: Int
+  }
   // we need to compile calls to constructors into these
   case class MakeEnum(variant: Int, arity: Int) extends ConsExpr
   case class MakeStruct(arity: Int) extends ConsExpr
-  case object ZeroNat extends ConsExpr
+  case object ZeroNat extends ConsExpr {
+    def arity = 0
+  }
   // this is the function Nat -> Nat
-  case object SuccNat extends ConsExpr
+  case object SuccNat extends ConsExpr {
+    def arity = 1
+  }
 
   case class PrevNat(of: Expr) extends Expr
 
