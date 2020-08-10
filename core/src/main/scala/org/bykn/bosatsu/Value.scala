@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.data.NonEmptyList
 import java.math.BigInteger
 import scala.collection.immutable.SortedMap
 
@@ -48,6 +49,17 @@ sealed abstract class Value {
         sys.error(s"invalid cast to ExternalValue: $this")
         // $COVERAGE-ON$
     }
+
+  final def applyAll(args: NonEmptyList[Value]): Value = {
+    @annotation.tailrec
+    def loop(toFn: Value => Value, args: NonEmptyList[Value]): Value =
+      args.tail match {
+        case h :: tail => loop(toFn(args.head).asFn, NonEmptyList(h, tail))
+        case Nil => toFn(args.head)
+      }
+
+    loop(this.asFn, args)
+  }
 }
 
 object Value {
