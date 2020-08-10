@@ -81,18 +81,14 @@ object Matchless {
   // which could have nested searches of its own
   case class SearchList(lst: LocalAnonMut, init: CheapExpr, check: BoolExpr, leftAcc: Option[LocalAnonMut]) extends BoolExpr
   // set the mutable variable to the given expr and return true
+  // string matching is complex done at a lower level
+  case class MatchString(arg: CheapExpr, parts: List[StrPart], binds: List[LocalAnonMut]) extends BoolExpr
+  // set the mutable variable to the given expr and return true
   case class SetMut(target: LocalAnonMut, expr: Expr) extends BoolExpr
   case object TrueConst extends BoolExpr
 
   case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
   case class Always(cond: BoolExpr, thenExpr: Expr) extends Expr
-
-  // string matching is complex done at a lower level
-  // return a variant of either value 0, no match, or 1 with
-  // TODO: we should probably make this be like SearchList and be explicit
-  // about the algorithm rather than hiding it and requiring an allocation
-  // here.
-  case class MatchString(arg: CheapExpr, parts: List[StrPart], binds: Int) extends Expr
 
   case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
   case class GetStructElement(arg: Expr, index: Int, size: Int) extends Expr
@@ -265,32 +261,24 @@ object Matchless {
                 case Pattern.StrPart.NamedStr(n) => n
               }
 
-          val me = MatchString(
-            arg,
-            items.toList.map {
+          val muts = sbinds.traverse(_ => makeAnon.map(LocalAnonMut(_)))
+
+          val pat = items.toList.map {
               case Pattern.StrPart.NamedStr(n) => StrPart.IndexStr
               case Pattern.StrPart.WildStr => StrPart.WildStr
               case Pattern.StrPart.LitStr(s) => StrPart.LitStr(s)
-            },
-            sbinds.length)
+            }
 
-          // if this matches 0 variant, we don't match, else we
-          // if we match the variant, then treat it as a struct
-          (makeAnon, makeAnon).mapN { (nm, resNum) =>
-            val boundMatch: LocalAnonMut = LocalAnonMut(nm)
-            val res: LocalAnonMut = LocalAnonMut(resNum)
 
-            val vmatch =
-              SetMut(boundMatch, me) &&
-                CheckVariant(boundMatch, 1) &&
-                SetMut(res, boundMatch)
+          muts.map { ms =>
+            val binds = sbinds.zip(ms)
 
-            NonEmptyList.of((
-              boundMatch :: res :: Nil,
-              vmatch,
-              sbinds.mapWithIndex { case (b, idx) =>
-                (b, GetEnumElement(res, 1, idx, sbinds.length))
-              }))
+            NonEmptyList.of((ms,
+              MatchString(
+                arg,
+                pat,
+                ms),
+              binds))
           }
         case lp@Pattern.ListPat(_) =>
 

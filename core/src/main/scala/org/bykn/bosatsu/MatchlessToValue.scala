@@ -207,6 +207,34 @@ object MatchlessToValue {
               scope.updateMut(mut, exprF(scope))
               true
             }
+          case MatchString(str, pat, binds) =>
+            // do this before we evaluate the string
+            binds match {
+              case Nil =>
+                // we have nothing to bind
+                loop(str).map { strV =>
+                  val arg = strV.asExternal.toAny.asInstanceOf[String]
+                  matchString(arg, pat, 0) != null
+                }
+              case _ =>
+                val strExpr = loop(str)
+                val bary = binds.iterator.collect { case LocalAnonMut(id) => id }.toArray
+                // if we mutate scope, it has to be dynamic
+                Dynamic { scope =>
+                  val arg = strExpr(scope).asExternal.toAny.asInstanceOf[String]
+                  val res = matchString(arg, pat, bary.length)
+                  if (res != null) {
+                    var idx = 0
+                    while (idx < bary.length) {
+                      scope.updateMut(bary(idx), ExternalValue(res(idx)))
+                      idx = idx + 1
+                    }
+                    true
+                  }
+                  else false
+                }
+            }
+
           case SearchList(LocalAnonMut(mutV), init, check, None) =>
             val initF = loop(init)
             val checkF = boolExpr(check)
@@ -482,12 +510,6 @@ object MatchlessToValue {
                   res
                 }
             }
-          case MatchString(str, pat, binds) =>
-            // do this before we evaluate the string
-            loop(str).map { strV =>
-              val arg = strV.asExternal.toAny.asInstanceOf[String]
-              matchString(arg, pat, binds)
-            }
           case GetEnumElement(expr, v, idx, sz) =>
             loop(expr).map { e =>
               val sum = e.asSum
@@ -523,10 +545,12 @@ object MatchlessToValue {
             Static(c)
         }
 
-      def matchString(str: String, pat: List[Matchless.StrPart], binds: Int): SumValue = {
+      private[this] val emptyStringArray: Array[String] = new Array[String](0)
+
+      def matchString(str: String, pat: List[Matchless.StrPart], binds: Int): Array[String] = {
         import Matchless.StrPart._
 
-        val results = new Array[String](binds)
+        val results = if (binds > 0) new Array[String](binds) else emptyStringArray
 
         def loop(offset: Int, pat: List[Matchless.StrPart], next: Int): Boolean =
           pat match {
@@ -583,20 +607,7 @@ object MatchlessToValue {
               }
           }
 
-        if (loop(0, pat, 0)) {
-          var idx = binds - 1
-          var prod: ProductValue = UnitValue
-          while (0 <= idx) {
-            val item = results(idx)
-            idx = idx - 1
-            prod = ConsValue(ExternalValue(item), prod)
-          }
-          SumValue(1, prod)
-        }
-        else {
-          // this is (0, UnitValue)
-          Value.False
-        }
+        if (loop(0, pat, 0)) results else null
       }
     }
   }
