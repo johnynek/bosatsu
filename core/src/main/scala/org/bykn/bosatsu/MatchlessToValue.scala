@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
-import cats.{Eval, Functor}
+import cats.{Eval, Functor, Applicative}
+import cats.evidence.Is
 import java.math.BigInteger
 import scala.collection.immutable.LongMap
 import scala.collection.mutable.{LongMap => MLongMap}
@@ -89,15 +90,92 @@ object MatchlessToValue {
       def empty(): Scope = Scope(Map.empty, LongMap.empty, MLongMap())
     }
 
+    sealed abstract class Scoped[A] {
+      def apply(s: Scope): A
+      def map[B](fn: A => B): Scoped[B]
+      // lazily evaluate that (only if it is static or this is false)
+      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean]
+      def toFn: Scope => A
+
+      def withScope(ws: Scope => Scope): Scoped[A]
+    }
+    case class Dynamic[A](toFn: Scope => A) extends Scoped[A] {
+      def apply(s: Scope) = toFn(s)
+      def map[B](fn: A => B): Scoped[B] = Dynamic(toFn.andThen(fn))
+      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] =
+        that match {
+          case Static(b) =>
+            if (b) ev.substitute[Dynamic](this)
+            else {
+              // we don't need to evaluate side-effects in
+              // and chains that end in static false, so we can bail out sooner
+              that
+            }
+          case Dynamic(thatFn) =>
+            val fn = ev.substitute[Scope => ?](toFn)
+            Dynamic { scope =>
+              if (fn(scope)) thatFn(scope)
+              else false
+            }
+        }
+      def withScope(ws: Scope => Scope): Scoped[A] =
+        Dynamic(ws.andThen(toFn))
+    }
+    case class Static[A](value: A) extends Scoped[A] {
+      def apply(s: Scope) = value
+      def map[B](fn: A => B): Scoped[B] = Static(fn(value))
+      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] = {
+        val thisB = ev.substitute[Static](this)
+        if (thisB.value) that
+        else thisB
+      }
+
+      def withScope(ws: Scope => Scope): Scoped[A] = this
+      def toFn = Function.const(value)
+    }
+
+    object Scoped {
+      implicit val matchlessScopedApplicative: Applicative[Scoped] =
+        new Applicative[Scoped] {
+          def pure[A](a: A): Scoped[A] = Static(a)
+          override def map[A, B](aa: Scoped[A])(fn: A => B): Scoped[B] =
+            aa.map(fn)
+          override def map2[A, B, C](aa: Scoped[A], ab: Scoped[B])(fn: (A, B) => C): Scoped[C] =
+            (aa, ab) match {
+              case (Static(a), Static(b)) => Static(fn(a, b))
+              case (Static(a), db) =>
+                db.map(fn(a, _))
+              case (da, Static(b)) =>
+                da.map(fn(_, b))
+              case (da, db) =>
+                val fa = da.toFn
+                val fb = db.toFn
+                Dynamic { s => fn(fa(s), fb(s)) }
+            }
+          override def ap[A, B](sf: Scoped[A => B])(sa: Scoped[A]): Scoped[B] =
+            (sf, sa) match {
+              case (Static(fn), Static(a)) => Static(fn(a))
+              case (Static(fn), db) =>
+                db.map(fn)
+              case (da, Static(a)) =>
+                da.map(_(a))
+              case (df, da) =>
+                val fn = df.toFn
+                val a = da.toFn
+                Dynamic { s => fn(s).apply(a(s)) }
+            }
+        }
+    }
+
     class Env(resolve: (PackageName, Identifier) => Eval[Value]) {
       // evaluating boolExpr can mutate an existing value in muts
-      private def boolExpr(ix: BoolExpr): Scope => Boolean =
+      private def boolExpr(ix: BoolExpr): Scoped[Boolean] =
         ix match {
           case EqualsLit(expr, lit) =>
 
             val litAny = lit.unboxToAny
 
-            loop(expr).andThen { e =>
+            loop(expr).map { e =>
               e.asExternal.toAny == litAny
             }
 
@@ -105,38 +183,27 @@ object MatchlessToValue {
             val natF = loop(nat)
 
             if (zeroOrSucc.isZero)
-              natF.andThen { v =>
+              natF.map { v =>
                 v.asExternal.toAny == BigInteger.ZERO
               }
             else
-              natF.andThen { v =>
+              natF.map { v =>
                 v.asExternal.toAny != BigInteger.ZERO
               }
 
-          case TrueConst => Function.const(true)
+          case TrueConst => Static(true)
           case And(TrueConst, ix2) => boolExpr(ix2)
           case And(ix1, TrueConst) => boolExpr(ix1)
           case And(ix1, ix2) =>
-            val i1F = boolExpr(ix1)
-            val i2F = boolExpr(ix2)
-
-            { scope: Scope =>
-              // we should be lazy
-              if (i1F(scope)) i2F(scope)
-              else false
-            }
+            boolExpr(ix1).and(boolExpr(ix2))
 
           case CheckVariant(enumV, idx) =>
-            val argF = loop(enumV)
-
-            { scope: Scope =>
-              argF(scope).asSum.variant == idx
-            }
+            loop(enumV).map(_.asSum.variant == idx)
 
           case SetMut(LocalAnonMut(mut), expr) =>
             val exprF = loop(expr)
-
-            { scope: Scope =>
+            // this is always dynamic
+            Dynamic { scope: Scope =>
               scope.updateMut(mut, exprF(scope))
               true
             }
@@ -144,7 +211,14 @@ object MatchlessToValue {
             val initF = loop(init)
             val checkF = boolExpr(check)
 
-            { scope: Scope =>
+            // TODO we could optimize
+            // cases where checkF is Static(false) or Static(true)
+            // but that is probably so rare I don't know if it will
+            // help
+            // e.g. [*_, _] should have been normalized
+            // into [_, *_] which wouldn't trigger
+            // this branch
+            Dynamic { scope: Scope =>
               var currentList = initF(scope)
               var res = false
               while (currentList ne null) {
@@ -165,7 +239,8 @@ object MatchlessToValue {
             val initF = loop(init)
             val checkF = boolExpr(check)
 
-            { scope: Scope =>
+            // this is always dynamic
+            Dynamic { scope: Scope =>
               var res = false
               var currentList = initF(scope)
               var leftList = VList.VNil
@@ -189,14 +264,11 @@ object MatchlessToValue {
             }
         }
 
-      def buildLoop(caps: List[Bindable], fnName: Bindable, arg0: Bindable, rest: List[Bindable], body: Scope => Value): Scope => Value = {
+      def buildLoop(caps: List[Bindable], fnName: Bindable, arg0: Bindable, rest: List[Bindable], body: Scoped[Value]): Scoped[Value] = {
         val argCount = rest.length + 1
         val argNames: Array[Bindable] = (arg0 :: rest).toArray
-        // we manually put this in below
-        val capNoName = caps.filterNot(_ == fnName)
-
-        if (capNoName.isEmpty) {
-          // We can allocate once
+        if ((caps.lengthCompare(1) == 0) && (caps.head == fnName)) {
+          // We only capture ourself and we put that in below
           val scope1 = Scope.empty()
           val fn = FnValue.curry(argCount) { allArgs =>
             var registers: List[Value] = allArgs
@@ -231,11 +303,17 @@ object MatchlessToValue {
             res
           }
 
-          Function.const(fn)
+          Static(fn)
         }
         else {
-          { scope =>
-            val scope1 = scope.capture(capNoName)
+          Dynamic { scope =>
+            // TODO this maybe isn't helpful
+            // it doesn't matter if the scope
+            // is too broad for correctness.
+            // It may make things go faster
+            // if the caps are really small
+            // or if we can GC things sooner.
+            val scope1 = scope.capture(caps)
 
             FnValue.curry(argCount) { allArgs =>
               var registers: List[Value] = allArgs
@@ -273,7 +351,7 @@ object MatchlessToValue {
         }
       }
       // the locals can be recusive, so we box into Eval for laziness
-      def loop(me: Expr): Scope => Value =
+      def loop(me: Expr): Scoped[Value] =
         me match {
           case Lambda(caps, arg, res) =>
             val resFn = loop(res)
@@ -285,10 +363,10 @@ object MatchlessToValue {
                 val scope2 = scope1.let(arg, Eval.now(argV))
                 resFn(scope2)
               }
-              Function.const(fn)
+              Static(fn)
             }
             else {
-              { scope =>
+              Dynamic { scope =>
                 val scope1 = scope.capture(caps)
                 // hopefully optimization/normalization has lifted anything
                 // that doesn't depend on argV above this lambda
@@ -305,11 +383,12 @@ object MatchlessToValue {
           case Global(p, n) =>
             val res = resolve(p, n)
 
-            // this has to be lazy, not Function.const which is eager
-            { _: Scope => res.value }
-          case Local(b) => { scope => scope.locals(b).value }
-          case LocalAnon(a) => { scope => scope.anon(a) }
-          case LocalAnonMut(m) => { scope => scope.muts(m) }
+            // this has to be lazy because it could be
+            // in this package, which isn't complete yet
+            Dynamic { _: Scope => res.value }
+          case Local(b) => Dynamic(_.locals(b).value)
+          case LocalAnon(a) => Dynamic(_.anon(a))
+          case LocalAnonMut(m) => Dynamic(_.muts(m))
           case App(expr, args) =>
             // TODO: App(LoopFn(..
             // can be optimized into a while
@@ -317,21 +396,10 @@ object MatchlessToValue {
             // that would do this.... maybe it should
             // be in Matchless
             val exprFn = loop(expr)
-            val argsFn = args.map(loop(_))
+            val argsFn = args.traverse(loop(_))
 
-            { scope =>
-
-              @annotation.tailrec
-              def app(fn: Value, tail: List[Scope => Value]): Value =
-                tail match {
-                  case Nil => fn
-                  case h :: tail =>
-                    val next = fn.asFn(h(scope))
-                    app(next, tail)
-                }
-
-              val h1 = exprFn(scope).asFn(argsFn.head(scope))
-              app(h1, argsFn.tail)
+            Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
+              fn.applyAll(args)
             }
           case Let(localOrBind, value, in) =>
             val valueF = loop(value)
@@ -341,7 +409,7 @@ object MatchlessToValue {
               case Right((b, rec)) =>
                 if (rec.isRecursive) {
 
-                  { scope =>
+                  inF.withScope { scope =>
                     // this is the only one that should
                     // use lazy/Eval.later
                     // we use it to tie the recursive knot
@@ -350,68 +418,78 @@ object MatchlessToValue {
 
                     lazy val vv = Eval.later(valueF(scope1))
 
-                    inF(scope1)
+                    scope1
                   }
                 }
                 else {
-                  { scope: Scope =>
+                  inF.withScope { scope: Scope =>
                     val vv = Eval.now(valueF(scope))
-                    inF(scope.let(b, vv))
+                    scope.let(b, vv)
                   }
                 }
               case Left(LocalAnon(l)) =>
-                { scope: Scope =>
+                inF.withScope { scope: Scope =>
                   val vv = valueF(scope)
-                  val scope1 = scope.copy(anon = scope.anon.updated(l, vv))
-                  inF(scope1)
+                  scope.copy(anon = scope.anon.updated(l, vv))
                 }
             }
           case LetMut(LocalAnonMut(l), in) =>
-            val inF = loop(in)
-
-            { scope: Scope =>
-              // we make sure there is
-              // a value that will show up
-              // strange in tests,
-              // for an optimization we could
-              // avoid this
-              scope.muts.put(l, uninit)
-              val res = inF(scope)
-              // now we can remove this from mutable scope
-              // we should be able to remove this
-              scope.muts.remove(l)
-              res
+            loop(in) match {
+              case s@Static(_) => s
+              case Dynamic(inF) =>
+                Dynamic { scope: Scope =>
+                  // we make sure there is
+                  // a value that will show up
+                  // strange in tests,
+                  // for an optimization we could
+                  // avoid this
+                  scope.muts.put(l, uninit)
+                  val res = inF(scope)
+                  // now we can remove this from mutable scope
+                  // we should be able to remove this
+                  scope.muts.remove(l)
+                  res
+                }
             }
           case Literal(lit) =>
-            val v = Value.fromLit(lit)
-            Function.const(v)
+            Static(Value.fromLit(lit))
           case If(cond, thenExpr, elseExpr) =>
             val condF = boolExpr(cond)
             val thenF = loop(thenExpr)
             val elseF = loop(elseExpr)
 
-            { scope: Scope =>
-              val cond = condF(scope)
-              if (cond) thenF(scope)
-              else elseF(scope)
+            condF match {
+              case Static(b) =>
+                if (b) thenF else elseF
+              case Dynamic(cfn) =>
+                Dynamic { scope: Scope =>
+                  val cond = cfn(scope)
+                  if (cond) thenF(scope)
+                  else elseF(scope)
+                }
             }
           case Always(cond, expr) =>
             val condF = boolExpr(cond)
             val exprF = loop(expr)
 
-            { scope: Scope =>
-              val cond = condF(scope)
-              assert(cond)
-              exprF(scope)
+            condF match {
+              case Static(b) =>
+                assert(b)
+                exprF
+              case dynC =>
+                Applicative[Scoped].map2(dynC, exprF) { (cond, res) =>
+                  assert(cond)
+                  res
+                }
             }
           case MatchString(str, pat, binds) =>
             // do this before we evaluate the string
-            loop(str).andThen { strV =>
+            loop(str).map { strV =>
               val arg = strV.asExternal.toAny.asInstanceOf[String]
               matchString(arg, pat, binds)
             }
           case GetEnumElement(expr, v, idx, sz) =>
-            loop(expr).andThen { e =>
+            loop(expr).map { e =>
               val sum = e.asSum
               // we could assert e.asSum.variant == v
               // we can comment this out when bugs
@@ -427,12 +505,12 @@ object MatchlessToValue {
               loopFn
             }
             else {
-              loop(expr).andThen { p =>
+              loop(expr).map { p =>
                 p.asProduct.get(idx)
               }
             }
           case PrevNat(expr) =>
-            loop(expr).andThen { bv =>
+            loop(expr).map { bv =>
               // TODO we could cache
               // small numbers to make this
               // faster
@@ -442,7 +520,7 @@ object MatchlessToValue {
             }
           case cons: ConsExpr =>
             val c = makeCons(cons)
-            Function.const(c)
+            Static(c)
         }
 
       def matchString(str: String, pat: List[Matchless.StrPart], binds: Int): SumValue = {
