@@ -105,10 +105,16 @@ object MatchlessToValue {
       def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] =
         that match {
           case Static(b) =>
-            if (b) that else ev.substitute[Scoped](this)
+            if (b) ev.substitute[Dynamic](this)
+            else {
+              // we don't need to evaluate side-effects in
+              // and chains that end in static false, so we can bail out sooner
+              that
+            }
           case Dynamic(thatFn) =>
+            val fn = ev.substitute[Scope => ?](toFn)
             Dynamic { scope =>
-              if (ev.coerce(toFn(scope))) thatFn(scope)
+              if (fn(scope)) thatFn(scope)
               else false
             }
         }
@@ -118,9 +124,11 @@ object MatchlessToValue {
     case class Static[A](value: A) extends Scoped[A] {
       def apply(s: Scope) = value
       def map[B](fn: A => B): Scoped[B] = Static(fn(value))
-      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] =
-        if (ev.coerce(value)) that
-        else ev.substitute[Scoped](this)
+      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] = {
+        val thisB = ev.substitute[Static](this)
+        if (thisB.value) that
+        else thisB
+      }
 
       def withScope(ws: Scope => Scope): Scoped[A] = this
       def toFn = Function.const(value)
@@ -259,11 +267,8 @@ object MatchlessToValue {
       def buildLoop(caps: List[Bindable], fnName: Bindable, arg0: Bindable, rest: List[Bindable], body: Scoped[Value]): Scoped[Value] = {
         val argCount = rest.length + 1
         val argNames: Array[Bindable] = (arg0 :: rest).toArray
-        // we manually put this in below
-        val capNoName = caps.filterNot(_ == fnName)
-
-        if (capNoName.isEmpty) {
-          // We can allocate once
+        if ((caps.lengthCompare(1) == 0) && (caps.head == fnName)) {
+          // We only capture ourself and we put that in below
           val scope1 = Scope.empty()
           val fn = FnValue.curry(argCount) { allArgs =>
             var registers: List[Value] = allArgs
@@ -302,7 +307,13 @@ object MatchlessToValue {
         }
         else {
           Dynamic { scope =>
-            val scope1 = scope.capture(capNoName)
+            // TODO this maybe isn't helpful
+            // it doesn't matter if the scope
+            // is too broad for correctness.
+            // It may make things go faster
+            // if the caps are really small
+            // or if we can GC things sooner.
+            val scope1 = scope.capture(caps)
 
             FnValue.curry(argCount) { allArgs =>
               var registers: List[Value] = allArgs
@@ -465,11 +476,10 @@ object MatchlessToValue {
               case Static(b) =>
                 assert(b)
                 exprF
-              case Dynamic(cfn) =>
-                Dynamic { scope: Scope =>
-                  val cond = cfn(scope)
+              case dynC =>
+                Applicative[Scoped].map2(dynC, exprF) { (cond, res) =>
                   assert(cond)
-                  exprF(scope)
+                  res
                 }
             }
           case MatchString(str, pat, binds) =>
