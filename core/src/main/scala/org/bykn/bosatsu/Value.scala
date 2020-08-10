@@ -31,6 +31,15 @@ sealed abstract class Value {
         // $COVERAGE-ON$
     }
 
+  def asProduct:ProductValue =
+    this match {
+      case p: ProductValue => p
+      case _ =>
+        // $COVERAGE-OFF$this should be unreachable
+        sys.error(s"invalid cast to ProductValue: $this")
+        // $COVERAGE-ON$
+    }
+
   def asExternal: ExternalValue =
     this match {
       case ex: ExternalValue => ex
@@ -49,6 +58,19 @@ object Value {
         case ConsValue(head, tail) => head :: tail.toList
       }
 
+    final def get(idx: Int): Value = {
+      @annotation.tailrec
+      def loop(self: ProductValue, ix: Int): Value =
+        self match {
+          case ConsValue(head, tail) =>
+            if (ix <= 0) head
+            else loop(tail, ix - 1)
+          case UnitValue =>
+            throw new IllegalArgumentException(s"exhausted index at $ix on ${this}.get($idx)")
+        }
+
+      loop(this, idx)
+    }
   }
 
   object ProductValue {
@@ -104,8 +126,8 @@ object Value {
   }
   case class ExternalValue(toAny: Any) extends Value
 
-  val False: Value = SumValue(0, UnitValue)
-  val True: Value = SumValue(1, UnitValue)
+  val False: SumValue = SumValue(0, UnitValue)
+  val True: SumValue = SumValue(1, UnitValue)
 
   object TupleCons {
     def unapply(v: Value): Option[(Value, Value)] =

@@ -88,4 +88,16 @@ object RefSpace {
       def flatMap[A, B](fa: RefSpace[A])(fn: A => RefSpace[B]): RefSpace[B] =
         fa.flatMap(fn)
     }
+
+
+  // a counter that starts at 0
+  val allocCounter: RefSpace[RefSpace[Long]] =
+    RefSpace.newRef(0L)
+      .map { ref =>
+        for {
+          a <- ref.get
+          _ <- ref.set(a + 1L)
+        } yield a
+      }
+
 }

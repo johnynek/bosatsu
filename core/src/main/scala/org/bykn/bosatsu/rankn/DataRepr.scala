@@ -8,10 +8,10 @@ package org.bykn.bosatsu.rankn
 sealed abstract class DataRepr
 
 object DataRepr {
-  sealed abstract class Nat extends DataRepr
+  sealed abstract class Nat(val isZero: Boolean) extends DataRepr
 
-  case object ZeroNat extends Nat
-  case object SuccNat extends Nat
+  case object ZeroNat extends Nat(true)
+  case object SuccNat extends Nat(false)
 
   case class Enum(variant: Int, arity: Int) extends DataRepr
   // a struct with arity 1 can be elided, and is called a new-type

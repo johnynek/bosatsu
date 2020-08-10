@@ -12,10 +12,16 @@ sealed abstract class Lit {
       case Lit.Integer(i) => i.toString
       case Lit.Str(s) => "\"" + escape('"', s) + "\""
     }
+
+  def unboxToAny: Any
 }
 object Lit {
-  case class Integer(toBigInteger: BigInteger) extends Lit
-  case class Str(toStr: String) extends Lit
+  case class Integer(toBigInteger: BigInteger) extends Lit {
+    def unboxToAny: Any = toBigInteger
+  }
+  case class Str(toStr: String) extends Lit {
+    def unboxToAny: Any = toStr
+  }
 
   val EmptyStr: Str = Str("")
 
