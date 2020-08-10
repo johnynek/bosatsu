@@ -347,6 +347,9 @@ object Pattern {
             // we can always make some progress here
             val tailPat = loop(tail).toOption.getOrElse(ListPat(tail))
             Right(PositionalStruct(cons, List(p, tailPat)))
+          case (l@ListPart.WildList) :: (r@ListPart.Item(WildCard)) :: t =>
+            // we can switch *_, _ with _, *_
+            loop(r :: l :: t)
           case (glob: ListPart.Glob) :: h1 :: t =>
             // a prefixed list cannot be represented as a cons cell
             Left((glob, NonEmptyList(h1, t)))
