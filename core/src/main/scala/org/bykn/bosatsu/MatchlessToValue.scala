@@ -93,8 +93,16 @@ object MatchlessToValue {
     sealed abstract class Scoped[A] {
       def apply(s: Scope): A
       def map[B](fn: A => B): Scoped[B]
-      // lazily evaluate that (only if it is static or this is false)
-      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean]
+      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] = {
+        // boolean conditions are generally never static, so we can't easily exercise
+        // this code if we specialize it. So, we assume it is dynamic here
+        val thisBool = ev.substitute[Scoped](this)
+        Dynamic { scope =>
+          // this must be lazy in that it only
+          // calls that if thisBool is true
+          thisBool(scope) && that(scope)
+        }
+      }
       def toFn: Scope => A
 
       def withScope(ws: Scope => Scope): Scoped[A]
@@ -102,34 +110,12 @@ object MatchlessToValue {
     case class Dynamic[A](toFn: Scope => A) extends Scoped[A] {
       def apply(s: Scope) = toFn(s)
       def map[B](fn: A => B): Scoped[B] = Dynamic(toFn.andThen(fn))
-      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] =
-        that match {
-          case Static(b) =>
-            if (b) ev.substitute[Dynamic](this)
-            else {
-              // we don't need to evaluate side-effects in
-              // and chains that end in static false, so we can bail out sooner
-              that
-            }
-          case Dynamic(thatFn) =>
-            val fn = ev.substitute[Scope => ?](toFn)
-            Dynamic { scope =>
-              if (fn(scope)) thatFn(scope)
-              else false
-            }
-        }
       def withScope(ws: Scope => Scope): Scoped[A] =
         Dynamic(ws.andThen(toFn))
     }
     case class Static[A](value: A) extends Scoped[A] {
       def apply(s: Scope) = value
       def map[B](fn: A => B): Scoped[B] = Static(fn(value))
-      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] = {
-        val thisB = ev.substitute[Static](this)
-        if (thisB.value) that
-        else thisB
-      }
-
       def withScope(ws: Scope => Scope): Scoped[A] = this
       def toFn = Function.const(value)
     }
@@ -153,17 +139,7 @@ object MatchlessToValue {
                 Dynamic { s => fn(fa(s), fb(s)) }
             }
           override def ap[A, B](sf: Scoped[A => B])(sa: Scoped[A]): Scoped[B] =
-            (sf, sa) match {
-              case (Static(fn), Static(a)) => Static(fn(a))
-              case (Static(fn), db) =>
-                db.map(fn)
-              case (da, Static(a)) =>
-                da.map(_(a))
-              case (df, da) =>
-                val fn = df.toFn
-                val a = da.toFn
-                Dynamic { s => fn(s).apply(a(s)) }
-            }
+            map2(sf, sa)(_(_))
         }
     }
 
@@ -192,8 +168,6 @@ object MatchlessToValue {
               }
 
           case TrueConst => Static(true)
-          case And(TrueConst, ix2) => boolExpr(ix2)
-          case And(ix1, TrueConst) => boolExpr(ix1)
           case And(ix1, ix2) =>
             boolExpr(ix1).and(boolExpr(ix2))
 
@@ -490,29 +464,20 @@ object MatchlessToValue {
             val thenF = loop(thenExpr)
             val elseF = loop(elseExpr)
 
-            condF match {
-              case Static(b) =>
-                if (b) thenF else elseF
-              case Dynamic(cfn) =>
-                Dynamic { scope: Scope =>
-                  val cond = cfn(scope)
-                  if (cond) thenF(scope)
-                  else elseF(scope)
-                }
+            // conditions are (basically) never static
+            // or a previous optimization/normalization
+            // has failed
+            Dynamic { scope: Scope =>
+              if (condF(scope)) thenF(scope)
+              else elseF(scope)
             }
           case Always(cond, expr) =>
             val condF = boolExpr(cond)
             val exprF = loop(expr)
 
-            condF match {
-              case Static(b) =>
-                assert(b)
-                exprF
-              case dynC =>
-                Applicative[Scoped].map2(dynC, exprF) { (cond, res) =>
-                  assert(cond)
-                  res
-                }
+            Applicative[Scoped].map2(condF, exprF) { (cond, res) =>
+              assert(cond)
+              res
             }
           case GetEnumElement(expr, v, idx, sz) =>
             loop(expr).map { e =>

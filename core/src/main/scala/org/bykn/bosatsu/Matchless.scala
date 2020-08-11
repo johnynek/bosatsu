@@ -182,21 +182,19 @@ object Matchless {
           if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
             val arity = Type.Fun.arity(e.getType)
             // we know that arity > 0 because, otherwise we can't have a total
-            // self recursive loop
-            if (arity <= 0) throw new IllegalStateException(s"expected arity > 0, found $arity in $e")
-            else {
-              TypedExpr.toArgsBody(arity, e) match {
-                case Some((params, body)) =>
-                  // we know params is non-empty because arity > 0
-                  val args = params.map(_._1)
-                  val argshead = args.head
-                  val argstail = args.tail
-                  val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
-                  loop(body).map(LoopFn(captures, name, argshead, argstail, _))
-                case None =>
-                  // TODO: I don't think this case should ever happen
-                  e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
-              }
+            // self recursive loop, but property checks send in ill-typed
+            // e and so we handle that by checking for arity > 0
+            TypedExpr.toArgsBody(arity, e) match {
+              case Some((params, body)) if arity > 0 =>
+                // we know params is non-empty because arity > 0
+                val args = params.map(_._1)
+                val argshead = args.head
+                val argstail = args.tail
+                val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
+                loop(body).map(LoopFn(captures, name, argshead, argstail, _))
+              case None =>
+                // TODO: I don't think this case should ever happen
+                e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
             }
           }
           else {
