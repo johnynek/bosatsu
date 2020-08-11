@@ -1,453 +1,281 @@
 package org.bykn.bosatsu.codegen.python
 
-import org.bykn.bosatsu.{PackageName, Identifier, Matchless}
+import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Lit}
 import cats.Monad
 import cats.data.NonEmptyList
-import org.typelevel.paiges.Doc
 
-//import Identifier.Bindable
+import Identifier.Bindable
 import Matchless._
 
+import cats.implicits._
+
 object PythonGen {
+  // Structs are represented as tuples
+  // Enums are represented as tuples with an additional first field holding
+  // the variant
 
-  sealed abstract class PythonExpr {
-    def toDoc: Doc
+  sealed trait Code
+  // Expressions or Code that has a final value
+  sealed trait ValueLike extends Code
+  sealed abstract class Expression extends ValueLike {
+    def identOrParens: Expression =
+      this match {
+        case i: Code.Ident => i
+        case p => Code.Parens(p)
+      }
+  }
+  sealed abstract class Statement extends Code {
+    import Code.Block
+
+    def statements: NonEmptyList[Statement] =
+      this match {
+        case Block(ss) => ss
+        case notBlock => NonEmptyList(notBlock, Nil)
+      }
+
+    def +:(stmt: Statement): Block =
+      Block(stmt :: statements)
+    def :+(stmt: Statement): Block =
+      Block(statements :+ stmt)
   }
 
-  sealed abstract class PythonBoolExpr {
-    def toDoc: Doc
-  }
+  object Code {
+    // True, False, None, numbers
+    case class Literal(asString: String) extends Expression
+    case class PyString(content: String) extends Expression
+    case class Ident(name: String) extends Expression
+    // Binary operator used for +, -, and, == etc...
+    case class Op(left: Expression, name: String, right: Expression) extends Expression
+    case class Parens(expr: Expression) extends Expression
+    case class SelectTuple(arg: Expression, position: Expression) extends Expression
+    case class MakeTuple(args: List[Expression]) extends Expression
+    case class Lambda(args: List[Ident], result: Expression) extends Expression
+    case class Apply(fn: Expression, args: List[Expression]) extends Expression
 
-  object PythonExpr {
-    def ifExpr(conds: NonEmptyList[(PythonExpr, PythonExpr)], elseCond: PythonExpr): PythonExpr = ???
+    // this prepares an expression with a number of statements
+    case class WithValue(statement: Statement, value: ValueLike) extends ValueLike {
+      def +:(stmt: Statement): WithValue =
+        WithValue(stmt +: statement, value)
+
+      def :+(stmt: Statement): WithValue =
+        WithValue(statement :+ stmt, value)
+    }
+    case class IfElse(conds: NonEmptyList[(Expression, ValueLike)], elseCond: ValueLike) extends ValueLike
+
+    case class Block(stmts: NonEmptyList[Statement]) extends Statement
+    case class IfStatement(conds: NonEmptyList[(Expression, Statement)], elseCond: Option[Statement]) extends Statement
+    case class Def(name: Ident, args: List[Ident], body: Statement) extends Statement
+    case class Return(expr: Expression) extends Statement
+    case class Assign(variable: Ident, value: Expression) extends Statement
+
+    def addAssign(variable: Ident, code: ValueLike): Statement =
+      code match {
+        case x: Expression =>
+          Assign(variable, x)
+        case WithValue(stmt, v) =>
+          stmt +: addAssign(variable, v)
+        case IfElse(conds, elseCond) =>
+          IfStatement(
+            conds.map { case (b, v) =>
+              (b, addAssign(variable, b))
+            },
+            Some(addAssign(variable, elseCond))
+          )
+      }
+
+    def let(n: Ident, v: ValueLike, in: ValueLike): ValueLike =
+      WithValue(addAssign(n, v), in)
+
+    def onLasts(cs: List[ValueLike])(fn: List[Expression] => ValueLike): Env[ValueLike] = {
+      def loop(cs: List[ValueLike], setup: List[Statement], args: List[Expression]): Env[ValueLike] =
+        cs match {
+          case Nil => Monad[Env].pure {
+            val res = fn(args.reverse)
+            NonEmptyList.fromList(setup) match {
+              case None => res
+              case Some(nel) =>
+                WithValue(Block(nel.reverse), res)
+            }
+          }
+          case (e: Expression) :: t => loop(t, setup, e :: args)
+          case (ifelse@IfElse(_, _)) :: tail =>
+            // we allocate a result and assign
+            // the result on each value
+            Env.newAssignableVar.flatMap { v =>
+              loop(tail, addAssign(v, ifelse) :: setup, v :: args)
+            }
+          case WithValue(decl, v) :: tail =>
+            loop(v :: tail, decl :: setup, args)
+        }
+
+      loop(cs, Nil, Nil)
+    }
+
+    def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
+      onLasts(c :: Nil) {
+        case x :: Nil => fn(x)
+        case other =>
+          throw new IllegalStateException(s"expected list to have size 1: $other")
+      }
+
+    def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
+      onLasts(c1 :: c2 :: Nil) {
+        case e1 :: e2 :: Nil =>
+          Op(e1, Const.And, e2)
+        case other =>
+          throw new IllegalStateException(s"expected list to have size 2: $other")
+      }
+
+    object Const {
+      val True = Literal("True")
+      val None = Literal("None")
+      val Zero = Literal("0")
+      val One = Literal("1")
+      val Minus = "-"
+      val And = "and"
+      val Eq = "=="
+      val Gt = ">"
+    }
+
   }
 
   sealed abstract class Env[+A]
   object Env {
     implicit def envMonad: Monad[Env] = ???
 
-    def render(env: Env[PythonExpr]): String = ???
+    def render(env: Env[Code]): String = ???
+
+    def escape(b: Bindable): Env[Code.Ident] = ???
+    def nameForAnon(long: Long): Env[Code.Ident] = ???
+    def newAssignableVar: Env[Code.Ident] = ???
   }
 
-  def apply(me: Expr)(resolve: (PackageName, Identifier) => Env[PythonExpr]): Env[PythonExpr] = {
+  def apply(me: Expr)(resolve: (PackageName, Identifier) => Env[ValueLike]): Env[ValueLike] = {
     val ops = new Impl.Ops(resolve)
     ops.loop(me)
   }
 
   private object Impl {
-    class Ops(resolve: (PackageName, Identifier) => Env[PythonExpr]) {
-      def makeCons(ce: ConsExpr): Env[PythonExpr] = ???
-      def boolExpr(ix: BoolExpr): Env[PythonBoolExpr] =
-        ix match {
-          case EqualsLit(expr, lit) => ???
-          case EqualsNat(nat, zeroOrSucc) => ???
-          case TrueConst => ???
-          case And(ix1, ix2) => ???
-          case CheckVariant(enumV, idx) => ???
-          case SetMut(LocalAnonMut(mut), expr) => ???
-          case SearchList(LocalAnonMut(mutV), init, check, optLeft) => ???
-        }
-
-      def loop(expr: Expr): Env[PythonExpr] =
-        expr match {
-          case Lambda(caps, arg, res) => ???
-          case LoopFn(caps, thisName, argshead, argstail, body) => ???
-          case Global(p, n) => ???
-          case Local(b) => ???
-          case LocalAnon(a) => ???
-          case LocalAnonMut(m) => ???
-          case App(expr, args) => ???
-          case Let(localOrBind, value, in) => ???
-          case LetMut(LocalAnonMut(l), in) => ???
-          case Literal(lit) => ???
-          case If(cond, thenExpr, elseExpr) => ???
-          case Always(cond, expr) => ???
-          case MatchString(str, pat, binds) => ???
-          case GetEnumElement(expr, v, idx, sz) => ???
-          case GetStructElement(expr, idx, sz) => ???
-          case PrevNat(expr) => ???
-          case cons: ConsExpr => ???
-        }
-    }
-  }
-
-/*
-  private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
-  private[this] val succNat: Value = {
-    def inc(v: Value): Value = {
-      val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
-      ExternalValue(bi.add(BigInteger.ONE))
-    }
-    FnValue(inc(_))
-  }
-
-  def makeCons(c: ConsExpr): Value =
-    c match {
-      case MakeEnum(variant, arity) =>
-        if (arity == 0) SumValue(variant, UnitValue)
-        else if (arity == 1) {
-          FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
-        }
-        else
-          FnValue.curry(arity) { args =>
-            val prod = ProductValue.fromList(args)
-            SumValue(variant, prod)
-          }
-      case MakeStruct(arity) =>
-        if (arity == 0) UnitValue
-        else if (arity == 1) FnValue.identity
-        else FnValue.curry(arity)(ProductValue.fromList(_))
-      case ZeroNat => zeroNat
-      case SuccNat => succNat
-    }
-
-  private object Impl {
-    case object Uninitialized
-    val uninit: Value = ExternalValue(Uninitialized)
-
-    final case class Scope(
-      locals: Map[Bindable, Eval[Value]],
-      anon: LongMap[Value],
-      muts: MLongMap[Value]) {
-
-      def let(b: Bindable, v: Eval[Value]): Scope =
-        copy(locals = locals.updated(b, v))
-
-      def updateMut(mutIdx: Long, v: Value): Unit = {
-        assert(muts.contains(mutIdx))
-        muts.put(mutIdx, v)
-        ()
-      }
-
-      def capture(it: Iterable[Bindable]): Scope = {
-        def loc(b: Bindable): Eval[Value] =
-          locals.get(b) match {
-            case Some(v) => v
-            case None => sys.error(s"couldn't find: $b in ${locals.keys.map(_.asString).toList}")
-          }
-
-        Scope(
-          it.iterator.map { b => (b, loc(b)) }.toMap,
-            LongMap.empty,
-            MLongMap())
-      }
-    }
-
-    object Scope {
-      def empty(): Scope = Scope(Map.empty, LongMap.empty, MLongMap())
-    }
-
-    sealed abstract class Scoped[A] {
-      def apply(s: Scope): A
-      def map[B](fn: A => B): Scoped[B]
-      // lazily evaluate that (only if it is static or this is false)
-      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean]
-      def toFn: Scope => A
-
-      def withScope(ws: Scope => Scope): Scoped[A]
-    }
-    case class Dynamic[A](toFn: Scope => A) extends Scoped[A] {
-      def apply(s: Scope) = toFn(s)
-      def map[B](fn: A => B): Scoped[B] = Dynamic(toFn.andThen(fn))
-      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] =
-        that match {
-          case Static(b) =>
-            if (b) ev.substitute[Dynamic](this)
-            else {
-              // we don't need to evaluate side-effects in
-              // and chains that end in static false, so we can bail out sooner
-              that
+    class Ops(resolve: (PackageName, Identifier) => Env[ValueLike]) {
+      /**
+       * enums and structs are tuples
+       * enums first parameter is their index
+       * nats are just integers
+       */
+      def makeCons(ce: ConsExpr, args: List[ValueLike]): Env[ValueLike] =
+        ???
+        /*
+        c match {
+          case MakeEnum(variant, arity) =>
+            if (arity == 0) SumValue(variant, UnitValue)
+            else if (arity == 1) {
+              FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
             }
-          case Dynamic(thatFn) =>
-            val fn = ev.substitute[Scope => ?](toFn)
-            Dynamic { scope =>
-              if (fn(scope)) thatFn(scope)
-              else false
-            }
+            else
+              FnValue.curry(arity) { args =>
+                val prod = ProductValue.fromList(args)
+                SumValue(variant, prod)
+              }
+          case MakeStruct(arity) =>
+            if (arity == 0) UnitValue
+            else if (arity == 1) FnValue.identity
+            else FnValue.curry(arity)(ProductValue.fromList(_))
+          case ZeroNat => zeroNat
+          case SuccNat => succNat
         }
-      def withScope(ws: Scope => Scope): Scoped[A] =
-        Dynamic(ws.andThen(toFn))
-    }
-    case class Static[A](value: A) extends Scoped[A] {
-      def apply(s: Scope) = value
-      def map[B](fn: A => B): Scoped[B] = Static(fn(value))
-      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] = {
-        val thisB = ev.substitute[Static](this)
-        if (thisB.value) that
-        else thisB
-      }
-
-      def withScope(ws: Scope => Scope): Scoped[A] = this
-      def toFn = Function.const(value)
-    }
-
-    object Scoped {
-      implicit val matchlessScopedApplicative: Applicative[Scoped] =
-        new Applicative[Scoped] {
-          def pure[A](a: A): Scoped[A] = Static(a)
-          override def map[A, B](aa: Scoped[A])(fn: A => B): Scoped[B] =
-            aa.map(fn)
-          override def map2[A, B, C](aa: Scoped[A], ab: Scoped[B])(fn: (A, B) => C): Scoped[C] =
-            (aa, ab) match {
-              case (Static(a), Static(b)) => Static(fn(a, b))
-              case (Static(a), db) =>
-                db.map(fn(a, _))
-              case (da, Static(b)) =>
-                da.map(fn(_, b))
-              case (da, db) =>
-                val fa = da.toFn
-                val fb = db.toFn
-                Dynamic { s => fn(fa(s), fb(s)) }
-            }
-          override def ap[A, B](sf: Scoped[A => B])(sa: Scoped[A]): Scoped[B] =
-            (sf, sa) match {
-              case (Static(fn), Static(a)) => Static(fn(a))
-              case (Static(fn), db) =>
-                db.map(fn)
-              case (da, Static(a)) =>
-                da.map(_(a))
-              case (df, da) =>
-                val fn = df.toFn
-                val a = da.toFn
-                Dynamic { s => fn(s).apply(a(s)) }
-            }
+      */
+      def litToExpr(lit: Lit): Expression =
+        lit match {
+          case Lit.Str(s) => Code.PyString(s)
+          case Lit.Integer(bi) => Code.Literal(bi.toString)
         }
-    }
 
-    class Env(resolve: (PackageName, Identifier) => Eval[Value]) {
-      // evaluating boolExpr can mutate an existing value in muts
-      private def boolExpr(ix: BoolExpr): Scoped[Boolean] =
+      def boolExpr(ix: BoolExpr): Env[ValueLike] =
         ix match {
           case EqualsLit(expr, lit) =>
-
-            val litAny = lit.unboxToAny
-
-            loop(expr).map { e =>
-              e.asExternal.toAny == litAny
-            }
-
+            val literal = litToExpr(lit)
+            loop(expr).flatMap(Code.onLast(_) { ex => Code.Op(ex, Code.Const.Eq, literal) })
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)
 
             if (zeroOrSucc.isZero)
-              natF.map { v =>
-                v.asExternal.toAny == BigInteger.ZERO
-              }
+              natF.flatMap(Code.onLast(_) { x =>
+                Code.Op(x, Code.Const.Eq, Code.Const.Zero)
+              })
             else
-              natF.map { v =>
-                v.asExternal.toAny != BigInteger.ZERO
-              }
+              natF.flatMap(Code.onLast(_) { x =>
+                Code.Op(x, Code.Const.Gt, Code.Const.Zero)
+              })
 
-          case TrueConst => Static(true)
-          case And(TrueConst, ix2) => boolExpr(ix2)
-          case And(ix1, TrueConst) => boolExpr(ix1)
+          case TrueConst => Monad[Env].pure(Code.Const.True)
           case And(ix1, ix2) =>
-            boolExpr(ix1).and(boolExpr(ix2))
-
+            (boolExpr(ix1), boolExpr(ix2))
+              .mapN(Code.andCode(_, _))
+              .flatten
           case CheckVariant(enumV, idx) =>
-            loop(enumV).map(_.asSum.variant == idx)
-
+            loop(enumV).flatMap { tup =>
+              Code.onLast(tup) { t =>
+                Code.Op(Code.SelectTuple(t, Code.Const.Zero), Code.Const.Eq, Code.Literal(idx.toString))
+              }
+            }
           case SetMut(LocalAnonMut(mut), expr) =>
-            val exprF = loop(expr)
-            // this is always dynamic
-            Dynamic { scope: Scope =>
-              scope.updateMut(mut, exprF(scope))
-              true
-            }
-          case SearchList(LocalAnonMut(mutV), init, check, None) =>
-            val initF = loop(init)
-            val checkF = boolExpr(check)
-
-            // TODO we could optimize
-            // cases where checkF is Static(false) or Static(true)
-            // but that is probably so rare I don't know if it will
-            // help
-            // e.g. [*_, _] should have been normalized
-            // into [_, *_] which wouldn't trigger
-            // this branch
-            Dynamic { scope: Scope =>
-              var currentList = initF(scope)
-              var res = false
-              while (currentList ne null) {
-                currentList match {
-                  case nonempty@VList.Cons(_, tail) =>
-                    scope.updateMut(mutV, nonempty)
-                    res = checkF(scope)
-                    if (res) { currentList = null }
-                    else { currentList = tail }
-                  case _ =>
-                    currentList = null
-                    // we don't match empty lists
+            (Env.nameForAnon(mut), loop(expr))
+              .mapN { (ident, result) =>
+                Code.onLast(result) { resx =>
+                  val a = Code.Assign(ident, resx)
+                  Code.WithValue(a, Code.Const.True)
                 }
               }
-              res
-            }
-          case SearchList(LocalAnonMut(mutV), init, check, Some(LocalAnonMut(left))) =>
-            val initF = loop(init)
-            val checkF = boolExpr(check)
-
-            // this is always dynamic
-            Dynamic { scope: Scope =>
-              var res = false
-              var currentList = initF(scope)
-              var leftList = VList.VNil
-              while (currentList ne null) {
-                currentList match {
-                  case nonempty@VList.Cons(head, tail) =>
-                    scope.updateMut(mutV, nonempty)
-                    scope.updateMut(left, leftList)
-                    res = checkF(scope)
-                    if (res) { currentList = null }
-                    else {
-                      currentList = tail
-                      leftList = VList.Cons(head, leftList)
-                    }
-                  case _ =>
-                    currentList = null
-                    // we don't match empty lists
-                }
-              }
-              res
-            }
+              .flatten
+          case SearchList(LocalAnonMut(mutV), init, check, optLeft) => ???
         }
 
-      def buildLoop(caps: List[Bindable], fnName: Bindable, arg0: Bindable, rest: List[Bindable], body: Scoped[Value]): Scoped[Value] = {
-        val argCount = rest.length + 1
-        val argNames: Array[Bindable] = (arg0 :: rest).toArray
-        if ((caps.lengthCompare(1) == 0) && (caps.head == fnName)) {
-          // We only capture ourself and we put that in below
-          val scope1 = Scope.empty()
-          val fn = FnValue.curry(argCount) { allArgs =>
-            var registers: List[Value] = allArgs
-
-            // the registers are set up
-            // when we recur, that is a continue on the loop,
-            // we just update the registers and return null
-            val continueFn = FnValue.curry(argCount) { continueArgs =>
-              registers = continueArgs
-              null
-            }
-
-            val scope2 = scope1.let(fnName, Eval.now(continueFn))
-
-            var res: Value = null
-
-            while (res eq null) {
-              // read the registers into the environment
-              var idx = 0
-              var reg: List[Value] = registers
-              var s: Scope = scope2
-              while (idx < argCount) {
-                val b = argNames(idx)
-                val v = reg.head
-                reg = reg.tail
-                s = s.let(b, Eval.now(v))
-                idx = idx + 1
-              }
-              res = body(s)
-            }
-
-            res
-          }
-
-          Static(fn)
+      def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Env[Code.Def] =
+        Env.newAssignableVar.map { resName =>
+          Code.Def(defName, arg :: Nil,
+            Code.addAssign(resName, v) :+
+              Code.Return(resName)
+            )
         }
-        else {
-          Dynamic { scope =>
-            // TODO this maybe isn't helpful
-            // it doesn't matter if the scope
-            // is too broad for correctness.
-            // It may make things go faster
-            // if the caps are really small
-            // or if we can GC things sooner.
-            val scope1 = scope.capture(caps)
 
-            FnValue.curry(argCount) { allArgs =>
-              var registers: List[Value] = allArgs
-
-              // the registers are set up
-              // when we recur, that is a continue on the loop,
-              // we just update the registers and return null
-              val continueFn = FnValue.curry(argCount) { continueArgs =>
-                registers = continueArgs
-                null
-              }
-
-              val scope2 = scope1.let(fnName, Eval.now(continueFn))
-
-              var res: Value = null
-
-              while (res eq null) {
-                // read the registers into the environment
-                var idx = 0
-                var reg: List[Value] = registers
-                var s: Scope = scope2
-                while (idx < argCount) {
-                  val b = argNames(idx)
-                  val v = reg.head
-                  reg = reg.tail
-                  s = s.let(b, Eval.now(v))
-                  idx = idx + 1
-                }
-                res = body(s)
-              }
-
-              res
-            }
-          }
-        }
-      }
-      // the locals can be recusive, so we box into Eval for laziness
-      def loop(me: Expr): Scoped[Value] =
-        me match {
-          case Lambda(caps, arg, res) =>
-            val resFn = loop(res)
-
-            if (caps.isEmpty) {
-              // we can allocate once if there is no closure
-              val scope1 = Scope.empty()
-              val fn = FnValue { argV =>
-                val scope2 = scope1.let(arg, Eval.now(argV))
-                resFn(scope2)
-              }
-              Static(fn)
-            }
-            else {
-              Dynamic { scope =>
-                val scope1 = scope.capture(caps)
-                // hopefully optimization/normalization has lifted anything
-                // that doesn't depend on argV above this lambda
-                FnValue { argV =>
-                  val scope2 = scope1.let(arg, Eval.now(argV))
-                  resFn(scope2)
-                }
+      def loop(expr: Expr): Env[ValueLike] =
+        expr match {
+          case Lambda(_, arg, res) =>
+            // python closures work the same so we don't
+            // need to worry about what we capture
+            (Env.escape(arg), loop(expr)).mapN { (arg, res) =>
+              res match {
+                case x: Expression =>
+                  Monad[Env].pure(Code.Lambda(arg :: Nil, x))
+                case v =>
+                  for {
+                    defName <- Env.newAssignableVar
+                    defn <- makeDef(defName, arg, v)
+                  } yield Code.WithValue(defn, defName)
               }
             }
-          case LoopFn(caps, thisName, argshead, argstail, body) =>
-            val bodyFn = loop(body)
-
-            buildLoop(caps, thisName, argshead, argstail, bodyFn)
-          case Global(p, n) =>
-            val res = resolve(p, n)
-
-            // this has to be lazy because it could be
-            // in this package, which isn't complete yet
-            Dynamic { _: Scope => res.value }
-          case Local(b) => Dynamic(_.locals(b).value)
-          case LocalAnon(a) => Dynamic(_.anon(a))
-          case LocalAnonMut(m) => Dynamic(_.muts(m))
+            .flatten
+          case LoopFn(caps, thisName, argshead, argstail, body) => ???
+          case Global(p, n) => resolve(p, n)
+          case Local(b) => Env.escape(b)
+          case LocalAnon(a) => Env.nameForAnon(a)
+          case LocalAnonMut(m) => Env.nameForAnon(m)
+          case App(cons: ConsExpr, args) =>
+            args.traverse(loop).flatMap { pxs => makeCons(cons, pxs.toList) }
           case App(expr, args) =>
-            // TODO: App(LoopFn(..
-            // can be optimized into a while
-            // loop, but there isn't any prior optimization
-            // that would do this.... maybe it should
-            // be in Matchless
-            val exprFn = loop(expr)
-            val argsFn = args.traverse(loop(_))
-
-            Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
-              fn.applyAll(args)
-            }
+            (loop(expr), args.traverse(loop))
+              .mapN { (fn, args) =>
+                Code.onLasts(fn :: args.toList) {
+                  case fn :: ah :: atail =>
+                    // all functions are curried, a future
+                    // optimization would improve that
+                    atail.foldLeft(Code.Apply(fn.identOrParens, ah :: Nil)) { (left, arg) =>
+                      Code.Apply(Code.Parens(left), arg :: Nil)
+                    }
+                  case other => throw new IllegalStateException(s"got $other, expected to match $expr")
+                }
+              }
+              .flatten
           case Let(localOrBind, value, in) =>
             val valueF = loop(value)
             val inF = loop(in)
@@ -455,197 +283,76 @@ object PythonGen {
             localOrBind match {
               case Right((b, rec)) =>
                 if (rec.isRecursive) {
-
-                  inF.withScope { scope =>
-                    // this is the only one that should
-                    // use lazy/Eval.later
-                    // we use it to tie the recursive knot
-                    lazy val scope1: Scope =
-                      scope.let(b, vv)
-
-                    lazy val vv = Eval.later(valueF(scope1))
-
-                    scope1
+                  value match {
+                    case Lambda(_, arg, res) =>
+                      // python defs already support recursion:
+                      for {
+                        dn <- Env.escape(b)
+                        an <- Env.escape(arg)
+                        rV <- loop(res)
+                        defstmt <- makeDef(dn, an, rV)
+                        inV <- loop(in)
+                      } yield Code.WithValue(defstmt, inV)
+                    case notLambda =>
+                      // this shouldn't come up strictly,
+                      // but due to some normalization, it could
+                      // be that some let was floated here and
+                      // the lambda is inside
+                      sys.error(s"???, support recursive value of $notLambda")
                   }
                 }
                 else {
-                  inF.withScope { scope: Scope =>
-                    val vv = Eval.now(valueF(scope))
-                    scope.let(b, vv)
+                  (Env.escape(b), valueF, inF).mapN { (n, v, i) =>
+                    Code.let(n, v, i)
                   }
                 }
               case Left(LocalAnon(l)) =>
-                inF.withScope { scope: Scope =>
-                  val vv = valueF(scope)
-                  scope.copy(anon = scope.anon.updated(l, vv))
-                }
+                (Env.nameForAnon(l), valueF, inF).mapN { (n, v, i) =>
+                    Code.let(n, v, i)
+                  }
             }
-          case LetMut(LocalAnonMut(l), in) =>
-            loop(in) match {
-              case s@Static(_) => s
-              case Dynamic(inF) =>
-                Dynamic { scope: Scope =>
-                  // we make sure there is
-                  // a value that will show up
-                  // strange in tests,
-                  // for an optimization we could
-                  // avoid this
-                  scope.muts.put(l, uninit)
-                  val res = inF(scope)
-                  // now we can remove this from mutable scope
-                  // we should be able to remove this
-                  scope.muts.remove(l)
-                  res
-                }
-            }
-          case Literal(lit) =>
-            Static(Value.fromLit(lit))
+          case LetMut(LocalAnonMut(_), in) =>
+            // we could delete this name, but
+            // there is no need to
+            loop(in)
+          case Literal(lit) => Monad[Env].pure(litToExpr(lit))
           case If(cond, thenExpr, elseExpr) =>
-            val condF = boolExpr(cond)
-            val thenF = loop(thenExpr)
-            val elseF = loop(elseExpr)
-
-            condF match {
-              case Static(b) =>
-                if (b) thenF else elseF
-              case Dynamic(cfn) =>
-                Dynamic { scope: Scope =>
-                  val cond = cfn(scope)
-                  if (cond) thenF(scope)
-                  else elseF(scope)
-                }
+            (boolExpr(cond), loop(thenExpr), loop(elseExpr))
+              .mapN { (cV, thenV, elseV) =>
+                ???
+              }
+          case Always(cond, expr) => ???
+          case MatchString(str, pat, binds) => ???
+          case GetEnumElement(expr, _, idx, _) =>
+            // enums are just structs with the first element being the variant
+            // we could assert the v matches when debugging, but typechecking
+            // should assure this
+            loop(expr).flatMap { tup =>
+              Code.onLast(tup) { t =>
+                Code.SelectTuple(t, Code.Literal((idx + 1).toString))
+              }
             }
-          case Always(cond, expr) =>
-            val condF = boolExpr(cond)
-            val exprF = loop(expr)
-
-            condF match {
-              case Static(b) =>
-                assert(b)
-                exprF
-              case dynC =>
-                Applicative[Scoped].map2(dynC, exprF) { (cond, res) =>
-                  assert(cond)
-                  res
-                }
-            }
-          case MatchString(str, pat, binds) =>
-            // do this before we evaluate the string
-            loop(str).map { strV =>
-              val arg = strV.asExternal.toAny.asInstanceOf[String]
-              matchString(arg, pat, binds)
-            }
-          case GetEnumElement(expr, v, idx, sz) =>
-            loop(expr).map { e =>
-              val sum = e.asSum
-              // we could assert e.asSum.variant == v
-              // we can comment this out when bugs
-              // are fixed
-              assert(sum.variant == v)
-              sum.value.get(idx)
-            }
-
           case GetStructElement(expr, idx, sz) =>
-            val loopFn = loop(expr)
+            val exprR = loop(expr)
             if (sz == 1) {
-              // this is a newtype
-              loopFn
+              // we don't bother to wrap single item structs
+              exprR
             }
             else {
-              loop(expr).map { p =>
-                p.asProduct.get(idx)
+              // structs are just tuples
+              exprR.flatMap { tup =>
+                Code.onLast(tup) { t =>
+                  Code.SelectTuple(t, Code.Literal(idx.toString))
+                }
               }
             }
           case PrevNat(expr) =>
-            loop(expr).map { bv =>
-              // TODO we could cache
-              // small numbers to make this
-              // faster
-              val anyBI = bv.asExternal.toAny
-              val bi = anyBI.asInstanceOf[BigInteger]
-              ExternalValue(bi.subtract(BigInteger.ONE))
+            // Nats are just integers
+            loop(expr).flatMap { nat =>
+              Code.onLast(nat)(Code.Op(_, Code.Const.Minus, Code.Const.One))
             }
-          case cons: ConsExpr =>
-            val c = makeCons(cons)
-            Static(c)
+          case cons: ConsExpr => makeCons(cons, Nil)
         }
-
-      def matchString(str: String, pat: List[Matchless.StrPart], binds: Int): SumValue = {
-        import Matchless.StrPart._
-
-        val results = new Array[String](binds)
-
-        def loop(offset: Int, pat: List[Matchless.StrPart], next: Int): Boolean =
-          pat match {
-            case Nil => offset == str.length
-            case LitStr(expect) :: tail =>
-              val len = expect.length
-              str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
-            case (h: Glob) :: tail =>
-              tail match {
-                case Nil =>
-                  // we capture all the rest
-                  if (h.capture) {
-                    results(next) = str.substring(offset)
-                  }
-                  true
-                case LitStr(expect) :: tail2 =>
-                  val next1 = if (h.capture) next + 1 else next
-
-                  var start = offset
-                  var result = false
-                  while (start >= 0) {
-                    val candidate = str.indexOf(expect, start)
-                    if (candidate >= 0) {
-                      // we have to skip the current expect string
-                      val check1 = loop(candidate + expect.length, tail2, next1)
-                      if (check1) {
-                        // this was a match, write into next if needed
-                        if (h.capture) {
-                          results(next) = str.substring(offset, candidate)
-                        }
-                        result = true
-                        start = -1
-                      }
-                      else {
-                        // we couldn't match here, try just after candidate
-                        start = candidate + 1
-                      }
-                    }
-                    else {
-                      // no more candidates
-                      start = -1
-                    }
-                  }
-                  result
-                case (_: Glob) :: _ =>
-                  val n1 = if (h.capture) {
-                    // this index gets the empty string
-                    results(next) = ""
-                    // we match the right side first, so this wild gets nothing
-                    next + 1
-                  } else next
-
-                  loop(offset, tail, n1)
-              }
-          }
-
-        if (loop(0, pat, 0)) {
-          var idx = binds - 1
-          var prod: ProductValue = UnitValue
-          while (0 <= idx) {
-            val item = results(idx)
-            idx = idx - 1
-            prod = ConsValue(ExternalValue(item), prod)
-          }
-          SumValue(1, prod)
-        }
-        else {
-          // this is (0, UnitValue)
-          Value.False
-        }
-      }
     }
   }
-  */
 }
