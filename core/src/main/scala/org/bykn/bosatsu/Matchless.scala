@@ -261,7 +261,7 @@ object Matchless {
                 case Pattern.StrPart.NamedStr(n) => n
               }
 
-          val muts = sbinds.traverse(_ => makeAnon.map(LocalAnonMut(_)))
+          val muts = sbinds.traverse { b => makeAnon.map(LocalAnonMut(_)).map((b, _)) }
 
           val pat = items.toList.map {
               case Pattern.StrPart.NamedStr(n) => StrPart.IndexStr
@@ -270,8 +270,8 @@ object Matchless {
             }
 
 
-          muts.map { ms =>
-            val binds = sbinds.zip(ms)
+          muts.map { binds =>
+            val ms = binds.map(_._2)
 
             NonEmptyList.of((ms,
               MatchString(
