@@ -81,18 +81,14 @@ object Matchless {
   // which could have nested searches of its own
   case class SearchList(lst: LocalAnonMut, init: CheapExpr, check: BoolExpr, leftAcc: Option[LocalAnonMut]) extends BoolExpr
   // set the mutable variable to the given expr and return true
+  // string matching is complex done at a lower level
+  case class MatchString(arg: CheapExpr, parts: List[StrPart], binds: List[LocalAnonMut]) extends BoolExpr
+  // set the mutable variable to the given expr and return true
   case class SetMut(target: LocalAnonMut, expr: Expr) extends BoolExpr
   case object TrueConst extends BoolExpr
 
   case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
   case class Always(cond: BoolExpr, thenExpr: Expr) extends Expr
-
-  // string matching is complex done at a lower level
-  // return a variant of either value 0, no match, or 1 with
-  // TODO: we should probably make this be like SearchList and be explicit
-  // about the algorithm rather than hiding it and requiring an allocation
-  // here.
-  case class MatchString(arg: CheapExpr, parts: List[StrPart], binds: Int) extends Expr
 
   case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
   case class GetStructElement(arg: Expr, index: Int, size: Int) extends Expr
@@ -192,21 +188,19 @@ object Matchless {
           if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
             val arity = Type.Fun.arity(e.getType)
             // we know that arity > 0 because, otherwise we can't have a total
-            // self recursive loop
-            if (arity <= 0) throw new IllegalStateException(s"expected arity > 0, found $arity in $e")
-            else {
-              TypedExpr.toArgsBody(arity, e) match {
-                case Some((params, body)) =>
-                  // we know params is non-empty because arity > 0
-                  val args = params.map(_._1)
-                  val argshead = args.head
-                  val argstail = args.tail
-                  val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
-                  loop(body).map(LoopFn(captures, name, argshead, argstail, _))
-                case None =>
-                  // TODO: I don't think this case should ever happen
-                  e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
-              }
+            // self recursive loop, but property checks send in ill-typed
+            // e and so we handle that by checking for arity > 0
+            TypedExpr.toArgsBody(arity, e) match {
+              case Some((params, body)) if arity > 0 =>
+                // we know params is non-empty because arity > 0
+                val args = params.map(_._1)
+                val argshead = args.head
+                val argstail = args.tail
+                val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
+                loop(body).map(LoopFn(captures, name, argshead, argstail, _))
+              case None =>
+                // TODO: I don't think this case should ever happen
+                e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
             }
           }
           else {
@@ -271,32 +265,24 @@ object Matchless {
                 case Pattern.StrPart.NamedStr(n) => n
               }
 
-          val me = MatchString(
-            arg,
-            items.toList.map {
+          val muts = sbinds.traverse { b => makeAnon.map(LocalAnonMut(_)).map((b, _)) }
+
+          val pat = items.toList.map {
               case Pattern.StrPart.NamedStr(n) => StrPart.IndexStr
               case Pattern.StrPart.WildStr => StrPart.WildStr
               case Pattern.StrPart.LitStr(s) => StrPart.LitStr(s)
-            },
-            sbinds.length)
+            }
 
-          // if this matches 0 variant, we don't match, else we
-          // if we match the variant, then treat it as a struct
-          (makeAnon, makeAnon).mapN { (nm, resNum) =>
-            val boundMatch: LocalAnonMut = LocalAnonMut(nm)
-            val res: LocalAnonMut = LocalAnonMut(resNum)
 
-            val vmatch =
-              SetMut(boundMatch, me) &&
-                CheckVariant(boundMatch, 1) &&
-                SetMut(res, boundMatch)
+          muts.map { binds =>
+            val ms = binds.map(_._2)
 
-            NonEmptyList.of((
-              boundMatch :: res :: Nil,
-              vmatch,
-              sbinds.mapWithIndex { case (b, idx) =>
-                (b, GetEnumElement(res, 1, idx, sbinds.length))
-              }))
+            NonEmptyList.of((ms,
+              MatchString(
+                arg,
+                pat,
+                ms),
+              binds))
           }
         case lp@Pattern.ListPat(_) =>
 
