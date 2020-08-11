@@ -67,6 +67,7 @@ object PythonGen {
     case class Def(name: Ident, args: List[Ident], body: Statement) extends Statement
     case class Return(expr: Expression) extends Statement
     case class Assign(variable: Ident, value: Expression) extends Statement
+    case object Pass extends Statement
 
     def addAssign(variable: Ident, code: ValueLike): Statement =
       code match {
@@ -80,6 +81,25 @@ object PythonGen {
               (b, addAssign(variable, b))
             },
             Some(addAssign(variable, elseCond))
+          )
+      }
+
+    // boolean expressions can contain side effects
+    // this runs the side effects but discards
+    // and resulting value
+    // we could assert the value, statically
+    // that assertion should always be true
+    def always(v: ValueLike): Statement =
+      v match {
+        case x: Expression => Pass
+        case WithValue(stmt, v) =>
+          stmt +: always(v)
+        case IfElse(conds, elseCond) =>
+          IfStatement(
+            conds.map { case (b, v) =>
+              (b, always(v))
+            },
+            Some(always(elseCond))
           )
       }
 
@@ -109,6 +129,29 @@ object PythonGen {
         }
 
       loop(cs, Nil, Nil)
+    }
+
+    def ifElse(conds: NonEmptyList[(ValueLike, ValueLike)], elseV: ValueLike): Env[ValueLike] = {
+      // for all the non-expression conditions, we need to defer evaluating them
+      // until they are really needed
+      conds match {
+        case NonEmptyList((cx: Expression, t), Nil) =>
+          Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
+        case NonEmptyList((cx: Expression, t), rh :: rt) =>
+          val head = (cx, t)
+          ifElse(NonEmptyList(rh, rt), elseV).map {
+            case IfElse(crest, er) =>
+              // preserve IfElse chains
+              IfElse(head :: crest, er)
+            case nest =>
+              IfElse(NonEmptyList(head, Nil), nest)
+          }
+        case NonEmptyList((cx, t), rest) =>
+          for {
+            cv <- Env.newAssignableVar
+            res <- ifElse(NonEmptyList((cv, t), rest), elseV)
+          } yield let(cv, cx, res)
+      }
     }
 
     def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
@@ -317,11 +360,35 @@ object PythonGen {
             loop(in)
           case Literal(lit) => Monad[Env].pure(litToExpr(lit))
           case If(cond, thenExpr, elseExpr) =>
-            (boolExpr(cond), loop(thenExpr), loop(elseExpr))
-              .mapN { (cV, thenV, elseV) =>
-                ???
+            def combine(expr: Expr): (List[(BoolExpr, Expr)], Expr) =
+              expr match {
+                case If(c1, t1, e1) =>
+                  val (ifs, e2) = combine(e1)
+                  (ifs :+ ((c1, t1)), e1)
+                case last => (Nil, last)
               }
-          case Always(cond, expr) => ???
+
+            val (rest, last) = combine(elseExpr)
+            val ifs = NonEmptyList((cond, thenExpr), rest)
+
+            val ifsV = ifs.traverse { case (c, t) =>
+              (boolExpr(c), loop(t)).tupled
+            }
+
+            (ifsV, loop(elseExpr))
+              .mapN { (ifs, elseV) =>
+                Code.ifElse(ifs, elseV)
+              }
+              .flatten
+
+          case Always(cond, expr) =>
+            (boolExpr(cond).map(Code.always), loop(expr))
+              .mapN {
+                case (Code.Pass, v) => v
+                case (notPass, v) =>
+                  Code.WithValue(notPass, v)
+              }
+
           case MatchString(str, pat, binds) => ???
           case GetEnumElement(expr, _, idx, _) =>
             // enums are just structs with the first element being the variant
