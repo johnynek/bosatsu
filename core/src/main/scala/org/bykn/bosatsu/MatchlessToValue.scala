@@ -217,12 +217,16 @@ object MatchlessToValue {
                   matchString(arg, pat, 0) != null
                 }
               case _ =>
-                val strExpr = loop(str)
                 val bary = binds.iterator.collect { case LocalAnonMut(id) => id }.toArray
+
+                // this may be static
+                val matchScope = loop(str).map { str =>
+                  val arg = str.asExternal.toAny.asInstanceOf[String]
+                  matchString(arg, pat, bary.length)
+                }
                 // if we mutate scope, it has to be dynamic
                 Dynamic { scope =>
-                  val arg = strExpr(scope).asExternal.toAny.asInstanceOf[String]
-                  val res = matchString(arg, pat, bary.length)
+                  val res = matchScope(scope)
                   if (res != null) {
                     var idx = 0
                     while (idx < bary.length) {
