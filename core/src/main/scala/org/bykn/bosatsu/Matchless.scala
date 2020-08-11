@@ -73,7 +73,7 @@ object Matchless {
   case class And(e1: BoolExpr, e2: BoolExpr) extends BoolExpr
   // checks if variant matches, and if so, writes to
   // a given mut
-  case class CheckVariant(expr: Expr, expect: Int) extends BoolExpr
+  case class CheckVariant(expr: Expr, expect: Int, size: Int) extends BoolExpr
   // handle list matching, this is a while loop, that is evaluting
   // lst is initialized to init, leftAcc is initialized to empty
   // tail until it is true while mutating lst => lst.tail
@@ -418,7 +418,7 @@ object Matchless {
                   .run
                   .map { case (anons, ums) =>
                     // now we need to set up the binds if the variant is right
-                    val vmatch = CheckVariant(arg, vidx) && SetMut(res, arg)
+                    val vmatch = CheckVariant(arg, vidx, size) && SetMut(res, arg)
                     // we need to check that the variant is right first
                     val cond1 = anons.foldLeft(vmatch) { case (c, (mut, expr)) =>
                       c && SetMut(mut, expr)

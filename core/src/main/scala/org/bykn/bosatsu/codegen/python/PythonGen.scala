@@ -169,12 +169,15 @@ object PythonGen {
           throw new IllegalStateException(s"expected list to have size 2: $other")
       }
 
+    def buildLoop(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[ValueLike] = ???
+
     object Const {
       val True = Literal("True")
       val None = Literal("None")
       val Zero = Literal("0")
       val One = Literal("1")
       val Minus = "-"
+      val Plus = "+"
       val And = "and"
       val Eq = "=="
       val Gt = ">"
@@ -201,32 +204,52 @@ object PythonGen {
   private object Impl {
     class Ops(resolve: (PackageName, Identifier) => Env[ValueLike]) {
       /**
+       * Unit struct is None
+       * enums with no fields are integers
        * enums and structs are tuples
        * enums first parameter is their index
        * nats are just integers
        */
-      def makeCons(ce: ConsExpr, args: List[ValueLike]): Env[ValueLike] =
-        ???
-        /*
-        c match {
-          case MakeEnum(variant, arity) =>
-            if (arity == 0) SumValue(variant, UnitValue)
-            else if (arity == 1) {
-              FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
-            }
-            else
-              FnValue.curry(arity) { args =>
-                val prod = ProductValue.fromList(args)
-                SumValue(variant, prod)
+      def makeCons(ce: ConsExpr, args: List[ValueLike]): Env[ValueLike] = {
+        // invariant: args.size == arity
+        def applyAll(args: List[ValueLike]): Env[ValueLike] =
+          ce match {
+            case MakeEnum(variant, arity) =>
+              if (arity == 0) Monad[Env].pure(Code.Literal(variant.toString))
+              else {
+                // we make a tuple with the variant in the first position
+                val vExpr = Code.Literal(variant.toString)
+                Code.onLasts(vExpr :: args)(Code.MakeTuple(_))
               }
-          case MakeStruct(arity) =>
-            if (arity == 0) UnitValue
-            else if (arity == 1) FnValue.identity
-            else FnValue.curry(arity)(ProductValue.fromList(_))
-          case ZeroNat => zeroNat
-          case SuccNat => succNat
-        }
-      */
+            case MakeStruct(arity) =>
+                if (arity == 0) Monad[Env].pure(Code.Const.None)
+                else if (arity == 1) Monad[Env].pure(args.head)
+                else Code.onLasts(args)(Code.MakeTuple(_))
+            case ZeroNat =>
+              Monad[Env].pure(Code.Const.Zero)
+            case SuccNat =>
+              Code.onLast(args.head)(Code.Op(_, Code.Const.Plus, Code.Const.One))
+          }
+
+        val sz = args.size
+        def makeLam(cnt: Int, args: List[ValueLike]): Env[ValueLike] =
+          if (cnt == 0) applyAll(args)
+          else if (cnt < 0) {
+            // too many args, this shouldn't typecheck
+            throw new IllegalStateException(s"invalid arity $sz for $ce")
+          }
+          else {
+            // add an arg to the right
+            for {
+              v <- Env.newAssignableVar
+              body <- makeLam(cnt - 1, args :+ v)
+              res <- Code.onLast(body)(Code.Lambda(v :: Nil, _))
+            } yield res
+          }
+
+        makeLam(ce.arity - sz, args)
+      }
+
       def litToExpr(lit: Lit): Expression =
         lit match {
           case Lit.Str(s) => Code.PyString(s)
@@ -255,10 +278,16 @@ object PythonGen {
             (boolExpr(ix1), boolExpr(ix2))
               .mapN(Code.andCode(_, _))
               .flatten
-          case CheckVariant(enumV, idx) =>
+          case CheckVariant(enumV, idx, size) =>
             loop(enumV).flatMap { tup =>
               Code.onLast(tup) { t =>
-                Code.Op(Code.SelectTuple(t, Code.Const.Zero), Code.Const.Eq, Code.Literal(idx.toString))
+                val idxExpr = Code.Literal(idx.toString)
+                if (size == 0) {
+                  // this is represented as an integer
+                  Code.Op(t, Code.Const.Eq, idxExpr)
+                }
+                else
+                  Code.Op(Code.SelectTuple(t, Code.Const.Zero), Code.Const.Eq, idxExpr)
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>
@@ -270,6 +299,7 @@ object PythonGen {
                 }
               }
               .flatten
+          case MatchString(str, pat, binds) => ???
           case SearchList(LocalAnonMut(mutV), init, check, optLeft) => ???
         }
 
@@ -298,7 +328,11 @@ object PythonGen {
               }
             }
             .flatten
-          case LoopFn(caps, thisName, argshead, argstail, body) => ???
+          case LoopFn(_, thisName, argshead, argstail, body) =>
+            // closures capture the same in python, we can ignore captures
+            (Env.escape(thisName), NonEmptyList(argshead, argstail).traverse(Env.escape), loop(body))
+                .mapN(Code.buildLoop(_, _, _))
+                .flatten
           case Global(p, n) => resolve(p, n)
           case Local(b) => Env.escape(b)
           case LocalAnon(a) => Env.nameForAnon(a)
@@ -389,9 +423,8 @@ object PythonGen {
                   Code.WithValue(notPass, v)
               }
 
-          case MatchString(str, pat, binds) => ???
-          case GetEnumElement(expr, _, idx, _) =>
-            // enums are just structs with the first element being the variant
+          case GetEnumElement(expr, _, idx, sz) =>
+            // nonempty enums are just structs with the first element being the variant
             // we could assert the v matches when debugging, but typechecking
             // should assure this
             loop(expr).flatMap { tup =>
