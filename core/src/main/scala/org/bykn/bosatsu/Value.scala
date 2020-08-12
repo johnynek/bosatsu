@@ -3,6 +3,10 @@ package org.bykn.bosatsu
 import java.math.BigInteger
 import scala.collection.immutable.SortedMap
 
+trait FnValueBox {
+  def toFn: Value => Value
+}
+
 /**
  * If we later determine that this performance matters
  * and this wrapping is hurting, we could replace
@@ -10,7 +14,7 @@ import scala.collection.immutable.SortedMap
  * all the reflection into unapply calls but keep
  * most of the API
  */
-abstract class Value {
+sealed abstract class Value {
   import Value._
 
   def asFn: Value => Value =
@@ -85,15 +89,17 @@ object Value {
       if ((value == UnitValue) && ((variant & sizeMask) == 0)) constants(variant)
       else new SumValue(variant, value)
   }
-  trait FnValue extends Value {
-    def toFn: Value => Value
+
+  case class SimpleFnValue(toFn: Value => Value) extends FnValueBox
+
+  class FnValue(fnValueArg: FnValueBox) extends Value {
+    val box = fnValueArg
   }
 
-  case class SimpleFnValue(toFn: Value => Value) extends FnValue
   object FnValue {
-    def apply(toFn: Value => Value) = SimpleFnValue(toFn)
+    def apply(toFn: Value => Value) = new FnValue(SimpleFnValue(toFn))
 
-    def unapply(fnValue: FnValue): Some[Value => Value] = Some(fnValue.toFn)
+    def unapply(fnValue: FnValue): Some[Value => Value] = Some(fnValue.box.toFn)
 
     val identity: FnValue = FnValue(v => v)
 

@@ -9,7 +9,7 @@ object LetFreeEvaluation {
   case class ComputedValue(value: Value) extends LetFreeValue
 
   case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV) => Value)
-      extends Value.FnValue {
+      extends FnValueBox {
     val toFn: Value => Value = { v: Value =>
       toExprFn(ComputedValue(v), None, None)
     }
@@ -19,7 +19,7 @@ object LetFreeEvaluation {
       v: Value
   ): Either[(LetFreeValue, Cache, ToLFV) => Value, Value => Value] = v match {
     case fv @ Value.FnValue(f) =>
-      fv match {
+      fv.fnValue match {
         case ExprFnValue(ef) => Left(ef)
         case _               => Right(f)
       }

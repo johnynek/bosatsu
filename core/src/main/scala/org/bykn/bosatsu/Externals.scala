@@ -44,7 +44,7 @@ object FfiCall {
 
     private[this] def evalExprFn(t: rankn.Type): ExprFnValue = ExprFnValue({ (e1, cache, eval) => Value.ExternalValue(wrapper(e1, t, cache, eval)) })
 
-    def call(t: rankn.Type): Value = evalExprFn(t)
+    def call(t: rankn.Type): Value = new Value.FnValue(evalExprFn(t))
   }
 
   def getJavaType(t: rankn.Type): List[Class[_]] = {
