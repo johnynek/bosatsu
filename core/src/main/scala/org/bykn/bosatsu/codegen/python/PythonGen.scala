@@ -67,9 +67,8 @@ object PythonGen {
     case class Def(name: Ident, args: List[Ident], body: Statement) extends Statement
     case class Return(expr: Expression) extends Statement
     case class Assign(variable: Ident, value: Expression) extends Statement
-    // this is used for scope management
-    case class Del(ident: Ident) extends Statement
     case object Pass extends Statement
+    case class While(cond: Expression, body: Statement) extends Statement
 
     def addAssign(variable: Ident, code: ValueLike): Statement =
       code match {
@@ -169,13 +168,84 @@ object PythonGen {
           throw new IllegalStateException(s"expected list to have size 2: $other")
       }
 
+    def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Env[Code.Def] =
+      Env.newAssignableVar.map { resName =>
+        Code.Def(defName, arg :: Nil,
+          Code.addAssign(resName, v) :+
+            Code.Return(resName)
+          )
+      }
+
+    def makeCurriedDef(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] =
+      args match {
+        case NonEmptyList(a, Nil) =>
+          //  base case
+          makeDef(name, a, body)
+        case NonEmptyList(a, h :: t) =>
+          for {
+            newName <- Env.newAssignableVar
+            fn <- makeCurriedDef(newName, NonEmptyList(h, t), body)
+          } yield Code.Def(name, a :: Nil, fn :+ Code.Return(newName))
+      }
+
+
+    def replaceCallWithAssign(name: Ident, args: NonEmptyList[Ident], body: ValueLike, cont: Ident): Env[ValueLike] = {
+      val initBody = body
+      def loop(body: ValueLike): Env[ValueLike] =
+        body match {
+          case Apply(x, as) => ???
+          case IfElse(ifCases, elseCase) => ???
+          case Lambda(args, lambody) => ???
+          case MakeTuple(tups) => ???
+          case Op(left, op, right) => ???
+          case Parens(p) => loop(p).flatMap(onLast(_)(Parens(_)))
+          case SelectTuple(tup, idx) => ???
+          case WithValue(stmt, v) => ???
+         // case Ident(n) if n == name => throw new IllegalStateException(s"found bare $name in $body, expected only tail calls")
+          case Ident(_) | Literal(_) | PyString(_) => Monad[Env].pure(body)
+        }
+
+      loop(initBody)
+    }
+
     // these are always recursive so we can use def to define them
     def buildLoop(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] = {
-      ???
+
+      /*
+       * bodyUpdate = body except App(foo, args) is replaced with
+       * reseting the inputs, and setting cont to True and having
+       * the value None
+       *
+       * def foo(a)(b)(c):
+       *   cont = True
+       *   res = None
+       *   while cont:
+       *     cont = False
+       *     res = bodyUpdate
+       *   return res
+       */
+      for {
+        cont <- Env.newAssignableVar
+        ac = Assign(cont, Const.True)
+        res <- Env.newAssignableVar
+        ar = Assign(res, Const.None)
+        body1 <- replaceCallWithAssign(name, args, body, cont)
+        setRes = addAssign(res, body1)
+        loop = While(cont, Assign(cont, Const.False) +: setRes)
+        newBody = WithValue(ac +: ar +: loop, res)
+        curried <- makeCurriedDef(name, args, newBody)
+      } yield curried
     }
+
+    def litToExpr(lit: Lit): Expression =
+      lit match {
+        case Lit.Str(s) => Code.PyString(s)
+        case Lit.Integer(bi) => Code.Literal(bi.toString)
+      }
 
     object Const {
       val True = Literal("True")
+      val False = Literal("False")
       val None = Literal("None")
       val Zero = Literal("0")
       val One = Literal("1")
@@ -194,21 +264,44 @@ object PythonGen {
 
     def render(env: Env[Code]): String = ???
 
-    def escape(b: Bindable): Env[Code.Ident] = ???
+    // allocate a unique identifier for b
+    def bind(b: Bindable): Env[Code.Ident] = ???
+    def bindArg(b: Bindable): Env[Code.Ident] = ???
+    // get the mapping for a name in scope
+    def deref(b: Bindable): Env[Code.Ident] = ???
+    // release the current scope for b
+    def unbind(b: Bindable): Env[Unit] = ???
+    def unbindArg(b: Bindable): Env[Unit] = ???
+
     def nameForAnon(long: Long): Env[Code.Ident] = ???
     def newAssignableVar: Env[Code.Ident] = ???
-    def endScope(bi: Code.Ident, vl: ValueLike): Env[ValueLike] = ???
   }
 
   def apply(name: Bindable, me: Expr)(resolve: (PackageName, Identifier) => Env[ValueLike]): Env[Statement] = {
     val ops = new Impl.Ops(resolve)
-    Env.escape(name)
-      .flatMap(ops.topLet(_, me))
+    for {
+      ve <- ops.loop(me)
+      nm <- Env.bind(name)
+      stmt <- ops.topLet(nm, me, ve)
+    } yield stmt
   }
 
   private object Impl {
+    /*
+     * TODO: python scope capture is a bit wierd:
+     * g = lambda x: x + 1
+     * def foo():
+     *   return g(0)
+     *
+     * g = lambda x: x + 2
+     * foo()
+     * # will return 2
+     *
+     * maybe matchless should remove all shadows so all names are unique
+     * and any self reference is always recursion, never a possible shadow
+     */
     class Ops(resolve: (PackageName, Identifier) => Env[ValueLike]) {
-      /**
+      /*
        * Unit struct is None
        * enums with no fields are integers
        * enums and structs are tuples
@@ -255,16 +348,10 @@ object PythonGen {
         makeLam(ce.arity - sz, args)
       }
 
-      def litToExpr(lit: Lit): Expression =
-        lit match {
-          case Lit.Str(s) => Code.PyString(s)
-          case Lit.Integer(bi) => Code.Literal(bi.toString)
-        }
-
       def boolExpr(ix: BoolExpr): Env[ValueLike] =
         ix match {
           case EqualsLit(expr, lit) =>
-            val literal = litToExpr(lit)
+            val literal = Code.litToExpr(lit)
             loop(expr).flatMap(Code.onLast(_) { ex => Code.Op(ex, Code.Const.Eq, literal) })
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)
@@ -308,15 +395,7 @@ object PythonGen {
           case SearchList(LocalAnonMut(mutV), init, check, optLeft) => ???
         }
 
-      def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Env[Code.Def] =
-        Env.newAssignableVar.map { resName =>
-          Code.Def(defName, arg :: Nil,
-            Code.addAssign(resName, v) :+
-              Code.Return(resName)
-            )
-        }
-
-      def topLet(name: Code.Ident, expr: Expr): Env[Statement] = {
+      def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] = {
 
         /*
          * def anonF():
@@ -325,7 +404,7 @@ object PythonGen {
          * name = anonF()
          */
         lazy val worstCase: Env[Statement] =
-          (Env.newAssignableVar, Env.newAssignableVar, loop(expr)).mapN { (defName, resName, v) =>
+          (Env.newAssignableVar, Env.newAssignableVar).mapN { (defName, resName) =>
             val newDef = Code.Def(defName, Nil,
               Code.addAssign(resName, v) :+
                 Code.Return(resName)
@@ -336,12 +415,15 @@ object PythonGen {
 
         expr match {
           case l@LoopFn(_, nm, h, t, b) =>
-            Env.escape(nm)
+            Env.deref(nm)
               .flatMap { nm1 =>
                 if (nm1 == name) {
-                  (NonEmptyList(h, t).traverse(Env.escape), loop(b))
+                  val args = NonEmptyList(h, t)
+                  (args.traverse(Env.bindArg), loop(b))
                     .mapN(Code.buildLoop(nm1, _, _))
-                    .flatten
+                    .flatMap { res =>
+                      res <* args.traverse_(Env.unbindArg)
+                    }
                 }
                 else {
                   // we need to reassign the def to name
@@ -350,28 +432,24 @@ object PythonGen {
               }
           case Lambda(caps, arg, body) =>
             // this isn't recursive, or it would be in a Let
-            if (caps.exists(_ == name)) {
-              // this is refering to a previous value
-              worstCase
-            }
-            else {
-              // no shadow, so we can redefine
-              (Env.escape(arg), loop(body))
-                .mapN(makeDef(name, _, _))
-                .flatten
-            }
+            (Env.bindArg(arg), loop(body))
+              .mapN(Code.makeDef(name, _, _))
+              .flatMap { d =>
+                d <* Env.unbindArg(arg)
+              }
           case Let(Right((n, RecursionKind.Recursive)), Lambda(_, arg, body), Local(n2)) if n == n2 =>
-            (Env.escape(n), Env.escape(arg))
-              .mapN { (ni, arg) =>
+            Env.deref(n)
+              .flatMap { ni =>
                 if (ni == name) {
                   // this is a recursive value in scope for itself
-                  loop(body).flatMap(makeDef(ni, arg, _))
+                  (Env.bindArg(arg), loop(body))
+                    .mapN(Code.makeDef(ni, _, _))
+                    .flatMap(_ <* Env.unbindArg(arg))
                 }
                 else {
                   worstCase
                 }
               }
-              .flatten
 
           case _ => worstCase
         }
@@ -382,25 +460,26 @@ object PythonGen {
           case Lambda(_, arg, res) =>
             // python closures work the same so we don't
             // need to worry about what we capture
-            (Env.escape(arg), loop(expr)).mapN { (arg, res) =>
+            (Env.bindArg(arg), loop(expr)).mapN { (arg, res) =>
               res match {
                 case x: Expression =>
                   Monad[Env].pure(Code.Lambda(arg :: Nil, x))
                 case v =>
                   for {
                     defName <- Env.newAssignableVar
-                    defn <- makeDef(defName, arg, v)
+                    defn <- Code.makeDef(defName, arg, v)
                   } yield Code.WithValue(defn, defName)
               }
             }
-            .flatten
+            .flatMap(_ <* Env.unbindArg(arg))
           case LoopFn(_, thisName, argshead, argstail, body) =>
             // closures capture the same in python, we can ignore captures
-            (Env.escape(thisName), NonEmptyList(argshead, argstail).traverse(Env.escape), loop(body))
+            val allArgs = NonEmptyList(argshead, argstail)
+            (Env.bind(thisName), allArgs.traverse(Env.bindArg), loop(body))
               .mapN { (n, args, body) => Code.buildLoop(n, args, body).map(Code.WithValue(_, n)) }
-              .flatten
+              .flatMap(_ <* allArgs.traverse_(Env.unbindArg))
           case Global(p, n) => resolve(p, n)
-          case Local(b) => Env.escape(b)
+          case Local(b) => Env.deref(b)
           case LocalAnon(a) => Env.nameForAnon(a)
           case LocalAnonMut(m) => Env.nameForAnon(m)
           case App(cons: ConsExpr, args) =>
@@ -424,35 +503,43 @@ object PythonGen {
 
             localOrBind match {
               case Right((b, rec)) =>
-                Env.escape(b)
-                  .flatMap { bi =>
-                    val vE = rec match {
-                      case RecursionKind.NonRecursive =>
-                        value
-
-                      case RecursionKind.Recursive =>
-                        // push the recursion just into the value
-                        Let(localOrBind, value, Local(b))
-                    }
-
-                    (topLet(bi, vE), inF)
-                      .mapN(Code.WithValue(_, _))
-                      .flatMap(Env.endScope(bi, _))
-                  }
+                if (rec.isRecursive) {
+                  // value b is in scope first
+                  for {
+                    bi <- Env.bind(b)
+                    ve <- loop(value)
+                    tl <- topLet(bi, value, ve)
+                    ine <- inF
+                    wv = Code.WithValue(tl, ine)
+                    _ <- Env.unbind(b)
+                  } yield wv
+                }
+                else {
+                  // value b is in scope after ve
+                  for {
+                    ve <- loop(value)
+                    bi <- Env.bind(b)
+                    tl <- topLet(bi, value, ve)
+                    ine <- inF
+                    wv = Code.WithValue(tl, ine)
+                    _ <- Env.unbind(b)
+                  } yield wv
+                }
               case Left(LocalAnon(l)) =>
                 // anonymous names never shadow
-                Env.nameForAnon(l)
-                  .flatMap { bi =>
-                    (topLet(bi, value), inF)
+                (Env.nameForAnon(l), loop(value))
+                  .mapN { (bi, vE) =>
+                    (topLet(bi, value, vE), inF)
                       .mapN(Code.WithValue(_, _))
                   }
+                  .flatten
             }
 
           case LetMut(LocalAnonMut(_), in) =>
             // we could delete this name, but
             // there is no need to
             loop(in)
-          case Literal(lit) => Monad[Env].pure(litToExpr(lit))
+          case Literal(lit) => Monad[Env].pure(Code.litToExpr(lit))
           case If(cond, thenExpr, elseExpr) =>
             def combine(expr: Expr): (List[(BoolExpr, Expr)], Expr) =
               expr match {
