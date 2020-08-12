@@ -116,7 +116,15 @@ object Identifier {
   def unsafeBindable(str: String): Bindable =
     unsafeParse(bindableParser, str)
 
-  def unsafeParse[A <: Identifier](pa: P[A], str: String): A =
+  def optionParse[A](pa: P[A], str: String): Option[A] =
+    pa.parse(str) match {
+      case Parsed.Success(ident, idx) if idx == str.length =>
+        Some(ident)
+      case _ =>
+        None
+    }
+
+  def unsafeParse[A](pa: P[A], str: String): A =
     pa.parse(str) match {
       case Parsed.Success(ident, idx) if idx == str.length =>
         ident

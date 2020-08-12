@@ -270,7 +270,7 @@ object PythonGen {
   object Env {
     implicit def envMonad: Monad[Env] = ???
 
-    def render(env: Env[Code]): String = ???
+    def render(env: Env[List[Statement]]): String = ???
 
     // allocate a unique identifier for b
     def bind(b: Bindable): Env[Code.Ident] = ???
@@ -288,6 +288,98 @@ object PythonGen {
     // top level names are imported across files so they have
     // to be consistently transformed
     def topLevelName(n: Bindable): Env[Code.Ident] = ???
+  }
+
+  private[this] val python2Name = "[_A-Za-z][_0-9A-Za-z]*".r.pattern
+  private[this] val base62Items = (('0' to '9') ++ ('A' to 'Z') ++ ('a' to 'z')).toSet
+
+  private def toBase62(c: Char): String =
+
+    if (base62Items(c)) c.toString
+    else {
+      def toChar(i0: Int): Char =
+        if (i0 < 0) sys.error(s"invalid in: $i0")
+        else if (i0 < 10) (i0 + '0'.toInt).toChar
+        else if (i0 < 36) (i0 - 10 + 'A'.toInt).toChar
+        else if (i0 < 62) (i0 - 36 + 'a'.toInt).toChar
+        else sys.error(s"invalid int: $i0")
+
+      def toString(i: Int): String = {
+        if (i < 62) toChar(i).toString
+        else {
+          val i0 = i % 62
+          val i1 = i / 62
+          toString(i1) + toChar(i0)
+        }
+      }
+
+      "_" + toString(c.toInt) + "_"
+    }
+
+  private def unBase62(str: String, offset: Int, bldr: java.lang.StringBuilder): Int = {
+    var idx = offset
+    var num = 0
+
+    while(idx < str.length) {
+      val c = str.charAt(idx)
+      idx += 1
+      if (c == '_') {
+        // done
+        val numC = num.toChar
+        bldr.append(numC)
+        return (idx - offset)
+      }
+      else {
+        val base =
+          if (c <= '9') '0'.toInt
+          else if (c <= 'Z') ('A'.toInt - 10)
+          else ('a'.toInt - 36)
+
+        num = num * 62 + c.toInt - base
+      }
+    }
+    return -1
+  }
+
+  // we escape by prefixing by three underscores, ___
+  // then we escape _ by __ and any character outside the allowed
+  // range by _base 62_
+  def escape(n: Bindable): Code.Ident = {
+    val str = n.sourceCodeRepr
+    if (!str.startsWith("___") && python2Name.matcher(str).matches) Code.Ident(str)
+    else {
+      // we need to escape
+      Code.Ident("___" + str.map(toBase62).mkString)
+    }
+  }
+  def unescape(ident: Code.Ident): Option[Bindable] = {
+    val str = ident.name
+    val decode =
+      if (str.startsWith("___")) {
+        val bldr = new java.lang.StringBuilder()
+        var idx = 3
+        while (idx < str.length) {
+          val c = str.charAt(idx)
+          idx += 1
+          if (c == '_') {
+            val res = unBase62(str, idx, bldr)
+            if (res < 1) return None
+            else {
+              idx += res
+            }
+          }
+          else {
+            bldr.append(c)
+          }
+        }
+
+        bldr.toString()
+      }
+      else {
+        str
+      }
+
+    Identifier.optionParse(Identifier.bindableParser, decode)
   }
 
   def packageToFile(pn: PackageName): List[String] = ???
