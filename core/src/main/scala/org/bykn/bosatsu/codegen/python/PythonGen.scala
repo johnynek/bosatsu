@@ -217,7 +217,7 @@ object PythonGen {
     }
 
     // these are always recursive so we can use def to define them
-    def buildLoop(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] = {
+    def buildLoop(defName: Ident, selfName: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] = {
 
       /*
        * bodyUpdate = body except App(foo, args) is replaced with
@@ -237,11 +237,11 @@ object PythonGen {
         ac = Assign(cont, Const.True)
         res <- Env.newAssignableVar
         ar = Assign(res, Const.None)
-        body1 <- replaceTailCallWithAssign(name, args, body, cont)
+        body1 <- replaceTailCallWithAssign(selfName, args, body, cont)
         setRes = addAssign(res, body1)
         loop = While(cont, Assign(cont, Const.False) +: setRes)
         newBody = WithValue(ac +: ar +: loop, res)
-        curried <- makeCurriedDef(name, args, newBody)
+        curried <- makeCurriedDef(defName, args, newBody)
       } yield curried
     }
 
@@ -297,6 +297,13 @@ object PythonGen {
           (copy(
             bindings = bindings.updated(b, (c + 1, pname :: s))
           ), pname)
+        }
+
+        def bindTop(b: Bindable): EnvState = {
+          val (c, s) = bindings.getOrElse(b, (0, Nil))
+          val escaped = escape(b)
+          copy(bindings =
+            bindings.updated(b, (c, escaped :: s)))
         }
 
         def deref(b: Bindable): Code.Ident =
@@ -358,6 +365,10 @@ object PythonGen {
     // allocate a unique identifier for b
     def bind(b: Bindable): Env[Code.Ident] =
       Impl.env(_.bind(b))
+
+    // point this name to the top level name
+    def bindTop(b: Bindable): Env[Unit] =
+      Impl.update(_.bindTop(b))
 
     // get the mapping for a name in scope
     def deref(b: Bindable): Env[Code.Ident] =
@@ -611,21 +622,15 @@ object PythonGen {
 
         expr match {
           case l@LoopFn(_, nm, h, t, b) =>
-            Env.deref(nm)
-              .flatMap { nm1 =>
-                if (nm1 == name) {
-                  val args = NonEmptyList(h, t)
-                  (args.traverse(Env.bind), loop(b))
-                    .mapN(Code.buildLoop(nm1, _, _))
-                    .flatMap { res =>
-                      res <* args.traverse_(Env.unbind)
-                    }
+            Env.bind(nm)
+              .flatMap { selfName =>
+                val args = NonEmptyList(h, t)
+                (args.traverse(Env.bind), loop(b))
+                  .mapN(Code.buildLoop(name, selfName, _, _))
+                  .flatMap { res =>
+                    res <* args.traverse_(Env.unbind)
+                  }
                 }
-                else {
-                  // we need to reassign the def to name
-                  worstCase
-                }
-              }
           case Lambda(caps, arg, body) =>
             // this isn't recursive, or it would be in a Let
             (Env.bind(arg), loop(body))
@@ -634,18 +639,21 @@ object PythonGen {
                 d <* Env.unbind(arg)
               }
           case Let(Right((n, RecursionKind.Recursive)), Lambda(_, arg, body), Local(n2)) if n == n2 =>
-            Env.deref(n)
-              .flatMap { ni =>
-                if (ni == name) {
-                  // this is a recursive value in scope for itself
-                  (Env.bind(arg), loop(body))
-                    .mapN(Code.makeDef(ni, _, _))
-                    .flatMap(_ <* Env.unbind(arg))
-                }
-                else {
-                  worstCase
-                }
-              }
+            if (escape(n) == name) {
+              // this is a recursive value in scope for itself
+              // but we need to bind the local name to the global name
+              for {
+                _ <- Env.bindTop(n)
+                arg1 <- Env.bind(arg)
+                body1 <- loop(body)
+                def1 <- Code.makeDef(name, arg1, body1)
+                _ <- Env.unbind(arg)
+                _ <- Env.unbind(n)
+              } yield def1
+            }
+            else {
+              worstCase
+            }
 
           case _ => worstCase
         }
@@ -672,7 +680,7 @@ object PythonGen {
             // closures capture the same in python, we can ignore captures
             val allArgs = NonEmptyList(argshead, argstail)
             (Env.bind(thisName), allArgs.traverse(Env.bind), loop(body))
-              .mapN { (n, args, body) => Code.buildLoop(n, args, body).map(Code.WithValue(_, n)) }
+              .mapN { (n, args, body) => Code.buildLoop(n, n, args, body).map(Code.WithValue(_, n)) }
               .flatMap(_ <* allArgs.traverse_(Env.unbind))
           case Global(p, n) =>
             if (p == packName) {
