@@ -47,10 +47,11 @@ object PythonGen {
     // Binary operator used for +, -, and, == etc...
     case class Op(left: Expression, name: String, right: Expression) extends Expression
     case class Parens(expr: Expression) extends Expression
-    case class SelectTuple(arg: Expression, position: Expression) extends Expression
+    case class SelectTuple(arg: Expression, position: Int) extends Expression
     case class MakeTuple(args: List[Expression]) extends Expression
     case class Lambda(args: List[Ident], result: Expression) extends Expression
     case class Apply(fn: Expression, args: List[Expression]) extends Expression
+    case class DotSelect(ex: Expression, ident: Ident) extends Expression
 
     // this prepares an expression with a number of statements
     case class WithValue(statement: Statement, value: ValueLike) extends ValueLike {
@@ -69,6 +70,7 @@ object PythonGen {
     case class Assign(variable: Ident, value: Expression) extends Statement
     case object Pass extends Statement
     case class While(cond: Expression, body: Statement) extends Statement
+    case class Import(modname: String, alias: Option[Ident]) extends Statement
 
     def addAssign(variable: Ident, code: ValueLike): Statement =
       code match {
@@ -189,20 +191,26 @@ object PythonGen {
       }
 
 
-    def replaceCallWithAssign(name: Ident, args: NonEmptyList[Ident], body: ValueLike, cont: Ident): Env[ValueLike] = {
+    def replaceTailCallWithAssign(name: Ident, args: NonEmptyList[Ident], body: ValueLike, cont: Ident): Env[ValueLike] = {
       val initBody = body
       def loop(body: ValueLike): Env[ValueLike] =
         body match {
-          case Apply(x, as) => ???
-          case IfElse(ifCases, elseCase) => ???
-          case Lambda(args, lambody) => ???
-          case MakeTuple(tups) => ???
-          case Op(left, op, right) => ???
+          case Apply(x, as) if x == name && as.length == args.length =>
+            // do the replacement
+            val vs = args.toList.zip(as).map { case (v, x) => Assign(v, x) }
+
+            val all = vs.foldLeft(Assign(cont, Const.True): Statement)(_ +: _)
+            // set all the values and return the empty tuple
+            Monad[Env].pure(WithValue(all, MakeTuple(Nil)))
           case Parens(p) => loop(p).flatMap(onLast(_)(Parens(_)))
-          case SelectTuple(tup, idx) => ???
-          case WithValue(stmt, v) => ???
-         // case Ident(n) if n == name => throw new IllegalStateException(s"found bare $name in $body, expected only tail calls")
-          case Ident(_) | Literal(_) | PyString(_) => Monad[Env].pure(body)
+          case IfElse(ifCases, elseCase) =>
+            // only the result types are in tail position, we don't need to recurse on conds
+            val ifs = ifCases.traverse { case (cond, res) => loop(res).map((cond, _)) }
+            (ifs, loop(elseCase)).mapN(IfElse(_, _))
+          case WithValue(stmt, v) =>
+            loop(v).map(WithValue(stmt, _))
+          // the rest cannot have a call in the tail position
+          case DotSelect(_, _) | Apply(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectTuple(_, _) | Ident(_) | Literal(_) | PyString(_) => Monad[Env].pure(body)
         }
 
       loop(initBody)
@@ -229,7 +237,7 @@ object PythonGen {
         ac = Assign(cont, Const.True)
         res <- Env.newAssignableVar
         ar = Assign(res, Const.None)
-        body1 <- replaceCallWithAssign(name, args, body, cont)
+        body1 <- replaceTailCallWithAssign(name, args, body, cont)
         setRes = addAssign(res, body1)
         loop = While(cont, Assign(cont, Const.False) +: setRes)
         newBody = WithValue(ac +: ar +: loop, res)
@@ -275,34 +283,27 @@ object PythonGen {
 
     def nameForAnon(long: Long): Env[Code.Ident] = ???
     def newAssignableVar: Env[Code.Ident] = ???
+
+    def importPackage(pack: PackageName): Env[Code.Ident] = ???
+    // top level names are imported across files so they have
+    // to be consistently transformed
+    def topLevelName(n: Bindable): Env[Code.Ident] = ???
   }
 
-  def apply(name: Bindable, me: Expr)(resolve: (PackageName, Identifier) => Env[ValueLike]): Env[Statement] = {
-    val ops = new Impl.Ops(resolve)
+  def packageToFile(pn: PackageName): List[String] = ???
+
+  def apply(packName: PackageName, name: Bindable, me: Expr): Env[Statement] = {
+    val ops = new Impl.Ops(packName)
     for {
       ve <- ops.loop(me)
-      nm <- Env.bind(name)
+      nm <- Env.topLevelName(name)
       stmt <- ops.topLet(nm, me, ve)
     } yield stmt
   }
 
   private object Impl {
-    /*
-     * TODO: python scope capture is a bit wierd:
-     * g = lambda x: x + 1
-     * def foo():
-     *   return g(0)
-     *
-     * g = lambda x: x + 2
-     * foo()
-     * # will return 2
-     *
-     * maybe matchless should remove all shadows so all names are unique
-     * and any self reference is always recursion, never a possible shadow
-     */
-    class Ops(resolve: (PackageName, Identifier) => Env[ValueLike]) {
+    class Ops(packName: PackageName) {
       /*
-       * Unit struct is None
        * enums with no fields are integers
        * enums and structs are tuples
        * enums first parameter is their index
@@ -320,7 +321,7 @@ object PythonGen {
                 Code.onLasts(vExpr :: args)(Code.MakeTuple(_))
               }
             case MakeStruct(arity) =>
-                if (arity == 0) Monad[Env].pure(Code.Const.None)
+                if (arity == 0) Monad[Env].pure(Code.MakeTuple(Nil))
                 else if (arity == 1) Monad[Env].pure(args.head)
                 else Code.onLasts(args)(Code.MakeTuple(_))
             case ZeroNat =>
@@ -379,7 +380,7 @@ object PythonGen {
                   Code.Op(t, Code.Const.Eq, idxExpr)
                 }
                 else
-                  Code.Op(Code.SelectTuple(t, Code.Const.Zero), Code.Const.Eq, idxExpr)
+                  Code.Op(Code.SelectTuple(t, 0), Code.Const.Eq, idxExpr)
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>
@@ -478,7 +479,14 @@ object PythonGen {
             (Env.bind(thisName), allArgs.traverse(Env.bindArg), loop(body))
               .mapN { (n, args, body) => Code.buildLoop(n, args, body).map(Code.WithValue(_, n)) }
               .flatMap(_ <* allArgs.traverse_(Env.unbindArg))
-          case Global(p, n) => resolve(p, n)
+          case Global(p, n) =>
+            if (p == packName) {
+              // This is just a name in the local package
+              Env.topLevelName(n)
+            }
+            else {
+              (Env.importPackage(p), Env.topLevelName(n)).mapN(Code.DotSelect(_, _))
+            }
           case Local(b) => Env.deref(b)
           case LocalAnon(a) => Env.nameForAnon(a)
           case LocalAnonMut(m) => Env.nameForAnon(m)
@@ -576,7 +584,7 @@ object PythonGen {
             // should assure this
             loop(expr).flatMap { tup =>
               Code.onLast(tup) { t =>
-                Code.SelectTuple(t, Code.Literal((idx + 1).toString))
+                Code.SelectTuple(t, idx + 1)
               }
             }
           case GetStructElement(expr, idx, sz) =>
@@ -589,7 +597,7 @@ object PythonGen {
               // structs are just tuples
               exprR.flatMap { tup =>
                 Code.onLast(tup) { t =>
-                  Code.SelectTuple(t, Code.Literal(idx.toString))
+                  Code.SelectTuple(t, idx)
                 }
               }
             }

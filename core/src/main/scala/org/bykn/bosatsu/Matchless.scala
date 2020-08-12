@@ -419,6 +419,10 @@ object Matchless {
                   .run
                   .map { case (anons, ums) =>
                     // now we need to set up the binds if the variant is right
+                    // TODO: on a final branch we don't need to check the variant
+                    // since due to totality we know it has to match. To
+                    // leverage that we need to know if this doesMatch is
+                    // the last possible candidate match
                     val vmatch = CheckVariant(arg, vidx, size) && SetMut(res, arg)
                     // we need to check that the variant is right first
                     val cond1 = anons.foldLeft(vmatch) { case (c, (mut, expr)) =>
