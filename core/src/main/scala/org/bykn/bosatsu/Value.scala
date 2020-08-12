@@ -3,10 +3,6 @@ package org.bykn.bosatsu
 import java.math.BigInteger
 import scala.collection.immutable.SortedMap
 
-trait FnValueBox {
-  def toFn: Value => Value
-}
-
 /**
  * If we later determine that this performance matters
  * and this wrapping is hurting, we could replace
@@ -88,6 +84,10 @@ object Value {
     def apply(variant: Int, value: ProductValue): SumValue =
       if ((value == UnitValue) && ((variant & sizeMask) == 0)) constants(variant)
       else new SumValue(variant, value)
+  }
+
+  trait FnValueBox {
+    def toFn: Value => Value
   }
 
   case class SimpleFnValue(toFn: Value => Value) extends FnValueBox
