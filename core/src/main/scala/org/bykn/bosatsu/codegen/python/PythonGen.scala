@@ -2,7 +2,7 @@ package org.bykn.bosatsu.codegen.python
 
 import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Lit, RecursionKind}
 import cats.Monad
-import cats.data.NonEmptyList
+import cats.data.{NonEmptyList, State}
 
 import Identifier.Bindable
 import Matchless._
@@ -268,26 +268,120 @@ object PythonGen {
 
   sealed abstract class Env[+A]
   object Env {
-    implicit def envMonad: Monad[Env] = ???
+    implicit def envMonad: Monad[Env] =
+      new Monad[Env] {
+        import Impl._
+
+        val m = Monad[State[EnvState, ?]]
+        def pure[A](a: A) = EnvImpl(m.pure(a))
+        override def map[A, B](ea: Env[A])(fn: A => B): Env[B] =
+          EnvImpl(m.map(ea.state)(fn))
+        def flatMap[A, B](ea: Env[A])(fn: A => Env[B]): Env[B] =
+          EnvImpl(m.flatMap(ea.state)(fn.andThen(_.state)))
+        def tailRecM[A, B](a: A)(fn: A => Env[Either[A, B]]): Env[B] =
+          EnvImpl(m.tailRecM(a)(fn.andThen(_.state)))
+      }
+
+    private object Impl {
+
+      case class EnvState(
+        imports: Map[PackageName, (List[Code.Ident], Code.Ident)],
+        bindings: Map[Bindable, (Int, List[Code.Ident])],
+        tops: Set[Bindable],
+        nextTmp: Long) {
+
+        def bind(b: Bindable): (EnvState, Code.Ident) = {
+          val (c, s) = bindings.getOrElse(b, (0, Nil))
+          val pname = Code.Ident(escapeRaw("___b", b.sourceCodeRepr + c.toString))
+
+          (copy(
+            bindings = bindings.updated(b, (c + 1, pname :: s))
+          ), pname)
+        }
+
+        def deref(b: Bindable): Code.Ident =
+          // see if we are shadowing, or top level
+          if (tops(b)) escape(b)
+          else bindings(b)._2.head
+
+        def unbind(b: Bindable): EnvState =
+          bindings.get(b) match {
+            case Some((cnt, _ :: tail)) =>
+              copy(bindings = bindings.updated(b, (cnt, tail)))
+            case other =>
+              throw new IllegalStateException(s"invalid scope: $other for $b with $bindings")
+          }
+
+        def getNextTmp: (EnvState, Long) = (copy(nextTmp = nextTmp + 1L), nextTmp)
+
+        def topLevel(b: Bindable): (EnvState, Code.Ident) =
+          (copy(tops = tops + b), escape(b))
+
+        def addImport(pn: PackageName): (EnvState, Code.Ident) =
+          imports.get(pn) match {
+            case Some((_, alias)) => (this, alias)
+            case None =>
+              val impNumber = imports.size
+              val alias = Code.Ident(escapeRaw("___m", pn.parts.last + impNumber.toString))
+              val filePath = packageToFile(pn)
+              (copy(imports = imports.updated(pn, (filePath, alias))), alias)
+          }
+      }
+
+      implicit class EnvOps[A](val env: Env[A]) extends AnyVal {
+        def state: State[EnvState, A] =
+          env match {
+            case EnvImpl(s) => s
+          }
+      }
+
+      def emptyState: EnvState =
+        EnvState(Map.empty, Map.empty, Set.empty, 0L)
+
+      case class EnvImpl[A](state: State[EnvState, A]) extends Env[A]
+
+      def env[A](fn: EnvState => (EnvState, A)): Env[A] =
+        EnvImpl(State(fn))
+
+      def read[A](fn: EnvState => A): Env[A] =
+        EnvImpl(State { state => (state, fn(state)) })
+
+      def update(fn: EnvState => EnvState): Env[Unit] =
+        EnvImpl(State { state => (fn(state), ()) })
+
+      def run[A](env: Env[A]): (EnvState, A) =
+        env.state.run(emptyState).value
+    }
 
     def render(env: Env[List[Statement]]): String = ???
 
     // allocate a unique identifier for b
-    def bind(b: Bindable): Env[Code.Ident] = ???
-    def bindArg(b: Bindable): Env[Code.Ident] = ???
+    def bind(b: Bindable): Env[Code.Ident] =
+      Impl.env(_.bind(b))
+
     // get the mapping for a name in scope
-    def deref(b: Bindable): Env[Code.Ident] = ???
+    def deref(b: Bindable): Env[Code.Ident] =
+      Impl.read(_.deref(b))
+
     // release the current scope for b
-    def unbind(b: Bindable): Env[Unit] = ???
-    def unbindArg(b: Bindable): Env[Unit] = ???
+    def unbind(b: Bindable): Env[Unit] =
+      Impl.update(_.unbind(b))
 
-    def nameForAnon(long: Long): Env[Code.Ident] = ???
-    def newAssignableVar: Env[Code.Ident] = ???
+    def nameForAnon(long: Long): Env[Code.Ident] =
+      Monad[Env].pure(Code.Ident(s"___a$long"))
+    def newAssignableVar: Env[Code.Ident] =
+      Impl.env(_.getNextTmp)
+        .map { long =>
+          Code.Ident(s"___t$long")
+        }
 
-    def importPackage(pack: PackageName): Env[Code.Ident] = ???
+    def importPackage(pack: PackageName): Env[Code.Ident] =
+      Impl.env(_.addImport(pack))
+
     // top level names are imported across files so they have
     // to be consistently transformed
-    def topLevelName(n: Bindable): Env[Code.Ident] = ???
+    def topLevelName(n: Bindable): Env[Code.Ident] =
+      Impl.env(_.topLevel(n))
   }
 
   private[this] val python2Name = "[_A-Za-z][_0-9A-Za-z]*".r.pattern
@@ -316,6 +410,9 @@ object PythonGen {
       "_" + toString(c.toInt) + "_"
     }
 
+  private def escapeRaw(prefix: String, str: String): String =
+    str.map(toBase62).mkString(prefix, "", "")
+
   private def unBase62(str: String, offset: Int, bldr: java.lang.StringBuilder): Int = {
     var idx = offset
     var num = 0
@@ -341,7 +438,8 @@ object PythonGen {
     return -1
   }
 
-  // we escape by prefixing by three underscores, ___
+  // we escape by prefixing by three underscores, ___ and n (for name)
+  // we use other ___x escapes for different name spaces, e.g. tmps, and anons
   // then we escape _ by __ and any character outside the allowed
   // range by _base 62_
   def escape(n: Bindable): Code.Ident = {
@@ -349,15 +447,15 @@ object PythonGen {
     if (!str.startsWith("___") && python2Name.matcher(str).matches) Code.Ident(str)
     else {
       // we need to escape
-      Code.Ident("___" + str.map(toBase62).mkString)
+      Code.Ident(escapeRaw("___n", str))
     }
   }
   def unescape(ident: Code.Ident): Option[Bindable] = {
     val str = ident.name
     val decode =
-      if (str.startsWith("___")) {
+      if (str.startsWith("___n")) {
         val bldr = new java.lang.StringBuilder()
-        var idx = 3
+        var idx = 4
         while (idx < str.length) {
           val c = str.charAt(idx)
           idx += 1
@@ -382,7 +480,12 @@ object PythonGen {
     Identifier.optionParse(Identifier.bindableParser, decode)
   }
 
-  def packageToFile(pn: PackageName): List[String] = ???
+  // this package should be writen to the path
+  // at foo/bar/baz.py
+  //
+  // relative to some base
+  def packageToFile(pn: PackageName): List[Code.Ident] =
+    pn.parts.map { s => Code.Ident(escapeRaw("___f", s)) }.toList
 
   def apply(packName: PackageName, name: Bindable, me: Expr): Env[Statement] = {
     val ops = new Impl.Ops(packName)
@@ -512,10 +615,10 @@ object PythonGen {
               .flatMap { nm1 =>
                 if (nm1 == name) {
                   val args = NonEmptyList(h, t)
-                  (args.traverse(Env.bindArg), loop(b))
+                  (args.traverse(Env.bind), loop(b))
                     .mapN(Code.buildLoop(nm1, _, _))
                     .flatMap { res =>
-                      res <* args.traverse_(Env.unbindArg)
+                      res <* args.traverse_(Env.unbind)
                     }
                 }
                 else {
@@ -525,19 +628,19 @@ object PythonGen {
               }
           case Lambda(caps, arg, body) =>
             // this isn't recursive, or it would be in a Let
-            (Env.bindArg(arg), loop(body))
+            (Env.bind(arg), loop(body))
               .mapN(Code.makeDef(name, _, _))
               .flatMap { d =>
-                d <* Env.unbindArg(arg)
+                d <* Env.unbind(arg)
               }
           case Let(Right((n, RecursionKind.Recursive)), Lambda(_, arg, body), Local(n2)) if n == n2 =>
             Env.deref(n)
               .flatMap { ni =>
                 if (ni == name) {
                   // this is a recursive value in scope for itself
-                  (Env.bindArg(arg), loop(body))
+                  (Env.bind(arg), loop(body))
                     .mapN(Code.makeDef(ni, _, _))
-                    .flatMap(_ <* Env.unbindArg(arg))
+                    .flatMap(_ <* Env.unbind(arg))
                 }
                 else {
                   worstCase
@@ -553,7 +656,7 @@ object PythonGen {
           case Lambda(_, arg, res) =>
             // python closures work the same so we don't
             // need to worry about what we capture
-            (Env.bindArg(arg), loop(expr)).mapN { (arg, res) =>
+            (Env.bind(arg), loop(expr)).mapN { (arg, res) =>
               res match {
                 case x: Expression =>
                   Monad[Env].pure(Code.Lambda(arg :: Nil, x))
@@ -564,13 +667,13 @@ object PythonGen {
                   } yield Code.WithValue(defn, defName)
               }
             }
-            .flatMap(_ <* Env.unbindArg(arg))
+            .flatMap(_ <* Env.unbind(arg))
           case LoopFn(_, thisName, argshead, argstail, body) =>
             // closures capture the same in python, we can ignore captures
             val allArgs = NonEmptyList(argshead, argstail)
-            (Env.bind(thisName), allArgs.traverse(Env.bindArg), loop(body))
+            (Env.bind(thisName), allArgs.traverse(Env.bind), loop(body))
               .mapN { (n, args, body) => Code.buildLoop(n, args, body).map(Code.WithValue(_, n)) }
-              .flatMap(_ <* allArgs.traverse_(Env.unbindArg))
+              .flatMap(_ <* allArgs.traverse_(Env.unbind))
           case Global(p, n) =>
             if (p == packName) {
               // This is just a name in the local package
