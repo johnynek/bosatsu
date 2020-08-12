@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.codegen.python
 
-import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Lit}
+import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Lit, RecursionKind}
 import cats.Monad
 import cats.data.NonEmptyList
 
@@ -67,6 +67,8 @@ object PythonGen {
     case class Def(name: Ident, args: List[Ident], body: Statement) extends Statement
     case class Return(expr: Expression) extends Statement
     case class Assign(variable: Ident, value: Expression) extends Statement
+    // this is used for scope management
+    case class Del(ident: Ident) extends Statement
     case object Pass extends Statement
 
     def addAssign(variable: Ident, code: ValueLike): Statement =
@@ -102,9 +104,6 @@ object PythonGen {
             Some(always(elseCond))
           )
       }
-
-    def let(n: Ident, v: ValueLike, in: ValueLike): ValueLike =
-      WithValue(addAssign(n, v), in)
 
     def onLasts(cs: List[ValueLike])(fn: List[Expression] => ValueLike): Env[ValueLike] = {
       def loop(cs: List[ValueLike], setup: List[Statement], args: List[Expression]): Env[ValueLike] =
@@ -148,9 +147,10 @@ object PythonGen {
           }
         case NonEmptyList((cx, t), rest) =>
           for {
+            // allocate a new unshadowable var
             cv <- Env.newAssignableVar
             res <- ifElse(NonEmptyList((cv, t), rest), elseV)
-          } yield let(cv, cx, res)
+          } yield WithValue(addAssign(cv, t), res)
       }
     }
 
@@ -169,7 +169,10 @@ object PythonGen {
           throw new IllegalStateException(s"expected list to have size 2: $other")
       }
 
-    def buildLoop(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[ValueLike] = ???
+    // these are always recursive so we can use def to define them
+    def buildLoop(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] = {
+      ???
+    }
 
     object Const {
       val True = Literal("True")
@@ -194,11 +197,13 @@ object PythonGen {
     def escape(b: Bindable): Env[Code.Ident] = ???
     def nameForAnon(long: Long): Env[Code.Ident] = ???
     def newAssignableVar: Env[Code.Ident] = ???
+    def endScope(bi: Code.Ident, vl: ValueLike): Env[ValueLike] = ???
   }
 
-  def apply(me: Expr)(resolve: (PackageName, Identifier) => Env[ValueLike]): Env[ValueLike] = {
+  def apply(name: Bindable, me: Expr)(resolve: (PackageName, Identifier) => Env[ValueLike]): Env[Statement] = {
     val ops = new Impl.Ops(resolve)
-    ops.loop(me)
+    Env.escape(name)
+      .flatMap(ops.topLet(_, me))
   }
 
   private object Impl {
@@ -311,6 +316,67 @@ object PythonGen {
             )
         }
 
+      def topLet(name: Code.Ident, expr: Expr): Env[Statement] = {
+
+        /*
+         * def anonF():
+         *   code
+         *
+         * name = anonF()
+         */
+        lazy val worstCase: Env[Statement] =
+          (Env.newAssignableVar, Env.newAssignableVar, loop(expr)).mapN { (defName, resName, v) =>
+            val newDef = Code.Def(defName, Nil,
+              Code.addAssign(resName, v) :+
+                Code.Return(resName)
+              )
+
+            newDef :+ Code.Assign(name, Code.Apply(defName, Nil))
+          }
+
+        expr match {
+          case l@LoopFn(_, nm, h, t, b) =>
+            Env.escape(nm)
+              .flatMap { nm1 =>
+                if (nm1 == name) {
+                  (NonEmptyList(h, t).traverse(Env.escape), loop(b))
+                    .mapN(Code.buildLoop(nm1, _, _))
+                    .flatten
+                }
+                else {
+                  // we need to reassign the def to name
+                  worstCase
+                }
+              }
+          case Lambda(caps, arg, body) =>
+            // this isn't recursive, or it would be in a Let
+            if (caps.exists(_ == name)) {
+              // this is refering to a previous value
+              worstCase
+            }
+            else {
+              // no shadow, so we can redefine
+              (Env.escape(arg), loop(body))
+                .mapN(makeDef(name, _, _))
+                .flatten
+            }
+          case Let(Right((n, RecursionKind.Recursive)), Lambda(_, arg, body), Local(n2)) if n == n2 =>
+            (Env.escape(n), Env.escape(arg))
+              .mapN { (ni, arg) =>
+                if (ni == name) {
+                  // this is a recursive value in scope for itself
+                  loop(body).flatMap(makeDef(ni, arg, _))
+                }
+                else {
+                  worstCase
+                }
+              }
+              .flatten
+
+          case _ => worstCase
+        }
+      }
+
       def loop(expr: Expr): Env[ValueLike] =
         expr match {
           case Lambda(_, arg, res) =>
@@ -331,8 +397,8 @@ object PythonGen {
           case LoopFn(_, thisName, argshead, argstail, body) =>
             // closures capture the same in python, we can ignore captures
             (Env.escape(thisName), NonEmptyList(argshead, argstail).traverse(Env.escape), loop(body))
-                .mapN(Code.buildLoop(_, _, _))
-                .flatten
+              .mapN { (n, args, body) => Code.buildLoop(n, args, body).map(Code.WithValue(_, n)) }
+              .flatten
           case Global(p, n) => resolve(p, n)
           case Local(b) => Env.escape(b)
           case LocalAnon(a) => Env.nameForAnon(a)
@@ -354,40 +420,34 @@ object PythonGen {
               }
               .flatten
           case Let(localOrBind, value, in) =>
-            val valueF = loop(value)
             val inF = loop(in)
 
             localOrBind match {
               case Right((b, rec)) =>
-                if (rec.isRecursive) {
-                  value match {
-                    case Lambda(_, arg, res) =>
-                      // python defs already support recursion:
-                      for {
-                        dn <- Env.escape(b)
-                        an <- Env.escape(arg)
-                        rV <- loop(res)
-                        defstmt <- makeDef(dn, an, rV)
-                        inV <- loop(in)
-                      } yield Code.WithValue(defstmt, inV)
-                    case notLambda =>
-                      // this shouldn't come up strictly,
-                      // but due to some normalization, it could
-                      // be that some let was floated here and
-                      // the lambda is inside
-                      sys.error(s"???, support recursive value of $notLambda")
+                Env.escape(b)
+                  .flatMap { bi =>
+                    val vE = rec match {
+                      case RecursionKind.NonRecursive =>
+                        value
+
+                      case RecursionKind.Recursive =>
+                        // push the recursion just into the value
+                        Let(localOrBind, value, Local(b))
+                    }
+
+                    (topLet(bi, vE), inF)
+                      .mapN(Code.WithValue(_, _))
+                      .flatMap(Env.endScope(bi, _))
                   }
-                }
-                else {
-                  (Env.escape(b), valueF, inF).mapN { (n, v, i) =>
-                    Code.let(n, v, i)
-                  }
-                }
               case Left(LocalAnon(l)) =>
-                (Env.nameForAnon(l), valueF, inF).mapN { (n, v, i) =>
-                    Code.let(n, v, i)
+                // anonymous names never shadow
+                Env.nameForAnon(l)
+                  .flatMap { bi =>
+                    (topLet(bi, value), inF)
+                      .mapN(Code.WithValue(_, _))
                   }
             }
+
           case LetMut(LocalAnonMut(_), in) =>
             // we could delete this name, but
             // there is no need to
