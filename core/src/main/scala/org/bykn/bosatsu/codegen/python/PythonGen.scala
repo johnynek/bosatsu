@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
-import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Lit, RecursionKind}
+import org.typelevel.paiges.Doc
+import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Lit, RecursionKind, StringUtil}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 
@@ -40,6 +41,82 @@ object PythonGen {
   }
 
   object Code {
+
+    private def par(d: Doc): Doc =
+      Doc.char('(') + d + Doc.char(')')
+
+    private def maybePar(c: Code): Doc =
+      c match {
+        case DotSelect(_, _) | Literal(_) | PyString(_) | Ident(_) | Parens(_) | MakeTuple(_) => toDoc(c)
+        case _ => par(toDoc(c))
+      }
+
+    private def iflike(name: String, cond: Doc, body: Doc): Doc =
+      Doc.text(name) + Doc.char(':') + Doc.space + cond + Doc.char(':') + (Doc.hardLine + body).nested(4)
+
+    def toDoc(c: Code): Doc =
+      c match {
+        case Literal(s) => Doc.text(s)
+        case PyString(s) => Doc.text(StringUtil.escape('"', s))
+        case Ident(i) => Doc.text(i)
+        case Op(left, on, right) =>
+          par(toDoc(left) + Doc.space + Doc.text(on) + Doc.space + toDoc(right))
+        case Parens(inner@Parens(_)) => toDoc(inner)
+        case Parens(p) => par(toDoc(p))
+        case SelectItem(x, i) =>
+          maybePar(x) + Doc.char('[') + Doc.str(i) + Doc.char(']')
+        case MakeTuple(items) =>
+          items match {
+            case Nil => Doc.text("()")
+            case h :: Nil => par(toDoc(h) + Doc.comma)
+            case twoOrMore => par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, twoOrMore.map(toDoc)))
+          }
+        case Lambda(args, res) =>
+          Doc.text("lambda ") + Doc.intercalate(Doc.comma + Doc.space, args.map(toDoc)) + Doc.text(": ") + toDoc(res)
+
+        case Apply(fn, args) =>
+          maybePar(fn) + par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc)))
+
+        case DotSelect(left, right) =>
+          maybePar(left) + Doc.char('.') + toDoc(right)
+
+        case WithValue(stmt, vl) =>
+          toDoc(stmt) + Doc.hardLine + toDoc(vl)
+
+        case IfElse(conds, els) =>
+          val condsDoc = conds.map { case (x, b) => (toDoc(x), toDoc(b)) }
+          val i1 = iflike("if", condsDoc.head._1, condsDoc.head._2)
+          val i2 = condsDoc.tail.map { case (x, b) => iflike("elif", x, b) }
+          val el = Doc.text("else:") + (Doc.hardLine + toDoc(els)).nested(4)
+
+          Doc.intercalate(Doc.hardLine, i1 :: i2) + Doc.hardLine + el
+        case IfStatement(conds, optElse) =>
+          val condsDoc = conds.map { case (x, b) => (toDoc(x), toDoc(b)) }
+          val i1 = iflike("if", condsDoc.head._1, condsDoc.head._2)
+          val i2 = condsDoc.tail.map { case (x, b) => iflike("elif", x, b) }
+          val el = optElse.fold(Doc.empty) { els => Doc.hardLine + Doc.text("else:") + (Doc.hardLine + toDoc(els)).nested(4) }
+
+          Doc.intercalate(Doc.hardLine, i1 :: i2) + el
+
+        case Block(stmts) =>
+          Doc.intercalate(Doc.hardLine, stmts.map(toDoc).toList)
+
+        case Def(nm, args, body) =>
+          Doc.text("def") + Doc.space + Doc.text(nm.name) +
+            par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc))).nested(4) + Doc.char(':') + (Doc.hardLine + toDoc(body)).nested(4)
+
+        case Return(expr) => Doc.text("return ") + toDoc(expr)
+
+        case Assign(nm, expr) => Doc.text(nm.name) + Doc.text(" = ") + toDoc(expr)
+        case Pass => Doc.text("pass")
+        case While(cond, body) =>
+          Doc.text("while") + Doc.space + toDoc(cond) + Doc.char(':') + (Doc.hardLine + toDoc(body)).nested(4)
+        case Import(name, aliasOpt) =>
+          // import name as alias
+          val imp = Doc.text("import") + Doc.space + Doc.text(name)
+          aliasOpt.fold(imp) { a => imp + Doc.space + Doc.text("as") + Doc.space + toDoc(a) }
+      }
+
     // True, False, None, numbers
     case class Literal(asString: String) extends Expression
     case class PyString(content: String) extends Expression
@@ -47,7 +124,7 @@ object PythonGen {
     // Binary operator used for +, -, and, == etc...
     case class Op(left: Expression, name: String, right: Expression) extends Expression
     case class Parens(expr: Expression) extends Expression
-    case class SelectTuple(arg: Expression, position: Int) extends Expression
+    case class SelectItem(arg: Expression, position: Int) extends Expression
     case class MakeTuple(args: List[Expression]) extends Expression
     case class Lambda(args: List[Ident], result: Expression) extends Expression
     case class Apply(fn: Expression, args: List[Expression]) extends Expression
@@ -210,7 +287,7 @@ object PythonGen {
           case WithValue(stmt, v) =>
             loop(v).map(WithValue(stmt, _))
           // the rest cannot have a call in the tail position
-          case DotSelect(_, _) | Apply(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectTuple(_, _) | Ident(_) | Literal(_) | PyString(_) => Monad[Env].pure(body)
+          case DotSelect(_, _) | Apply(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectItem(_, _) | Ident(_) | Literal(_) | PyString(_) => Monad[Env].pure(body)
         }
 
       loop(initBody)
@@ -333,6 +410,16 @@ object PythonGen {
               val filePath = packageToFile(pn)
               (copy(imports = imports.updated(pn, (filePath, alias))), alias)
           }
+
+        def importStatements: List[Code.Import] =
+          imports
+            .iterator
+            .map { case (_, (path, alias)) =>
+              val modName = path.map(_.name).mkString(".")
+              Code.Import(modName, Some(alias))
+            }
+            .toList
+            .sortBy(_.modname)
       }
 
       implicit class EnvOps[A](val env: Env[A]) extends AnyVal {
@@ -360,7 +447,15 @@ object PythonGen {
         env.state.run(emptyState).value
     }
 
-    def render(env: Env[List[Statement]]): String = ???
+    def render(env: Env[List[Statement]]): Doc = {
+      val (state, stmts) = Impl.run(env)
+
+      val imps = state.importStatements
+
+      val impDocs = Doc.intercalate(Doc.hardLine, imps.map(Code.toDoc))
+      val twoLines = Doc.hardLine + Doc.hardLine
+      Doc.intercalate(Doc.hardLine, impDocs :: stmts.map(Code.toDoc))
+    }
 
     // allocate a unique identifier for b
     def bind(b: Bindable): Env[Code.Ident] =
@@ -586,7 +681,7 @@ object PythonGen {
                   Code.Op(t, Code.Const.Eq, idxExpr)
                 }
                 else
-                  Code.Op(Code.SelectTuple(t, 0), Code.Const.Eq, idxExpr)
+                  Code.Op(Code.SelectItem(t, 0), Code.Const.Eq, idxExpr)
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>
@@ -787,7 +882,7 @@ object PythonGen {
             // should assure this
             loop(expr).flatMap { tup =>
               Code.onLast(tup) { t =>
-                Code.SelectTuple(t, idx + 1)
+                Code.SelectItem(t, idx + 1)
               }
             }
           case GetStructElement(expr, idx, sz) =>
@@ -800,7 +895,7 @@ object PythonGen {
               // structs are just tuples
               exprR.flatMap { tup =>
                 Code.onLast(tup) { t =>
-                  Code.SelectTuple(t, idx)
+                  Code.SelectItem(t, idx)
                 }
               }
             }
