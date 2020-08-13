@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import Identifier.Bindable
 
-case class Program[T, +D, +S](
+case class Program[+T, +D, +S](
   types: T,
   lets: List[(Bindable, RecursionKind, D)],
   externalDefs: List[Bindable],

@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Lit, RecursionKind, StringUtil}
+import org.bykn.bosatsu.{PackageName, PackageMap, Identifier, Matchless, Lit, RecursionKind, StringUtil}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 
@@ -362,7 +362,7 @@ object PythonGen {
     private object Impl {
 
       case class EnvState(
-        imports: Map[PackageName, (List[Code.Ident], Code.Ident)],
+        imports: Map[NonEmptyList[String], (List[Code.Ident], Code.Ident)],
         bindings: Map[Bindable, (Int, List[Code.Ident])],
         tops: Set[Bindable],
         nextTmp: Long) {
@@ -401,14 +401,14 @@ object PythonGen {
         def topLevel(b: Bindable): (EnvState, Code.Ident) =
           (copy(tops = tops + b), escape(b))
 
-        def addImport(pn: PackageName): (EnvState, Code.Ident) =
-          imports.get(pn) match {
+        def addImport(parts: NonEmptyList[String]): (EnvState, Code.Ident) =
+          imports.get(parts) match {
             case Some((_, alias)) => (this, alias)
             case None =>
               val impNumber = imports.size
-              val alias = Code.Ident(escapeRaw("___m", pn.parts.last + impNumber.toString))
-              val filePath = packageToFile(pn)
-              (copy(imports = imports.updated(pn, (filePath, alias))), alias)
+              val alias = Code.Ident(escapeRaw("___m", parts.last + impNumber.toString))
+              val filePath = packageToFile(parts)
+              (copy(imports = imports.updated(parts, (filePath, alias))), alias)
           }
 
         def importStatements: List[Code.Import] =
@@ -482,7 +482,10 @@ object PythonGen {
         }
 
     def importPackage(pack: PackageName): Env[Code.Ident] =
-      Impl.env(_.addImport(pack))
+      importDirect(pack.parts)
+
+    def importDirect(parts: NonEmptyList[String]): Env[Code.Ident] =
+      Impl.env(_.addImport(parts))
 
     // top level names are imported across files so they have
     // to be consistently transformed
@@ -590,11 +593,14 @@ object PythonGen {
   // at foo/bar/baz.py
   //
   // relative to some base
-  def packageToFile(pn: PackageName): List[Code.Ident] =
-    pn.parts.map { s => Code.Ident(escapeRaw("___f", s)) }.toList
+  def packageToFile(parts: NonEmptyList[String]): List[Code.Ident] =
+    parts.map { s => Code.Ident(escapeRaw("___f", s)) }.toList
 
-  def apply(packName: PackageName, name: Bindable, me: Expr): Env[Statement] = {
-    val ops = new Impl.Ops(packName)
+  /**
+   * Remap is used to handle remapping external values
+   */
+  def apply(packName: PackageName, name: Bindable, me: Expr)(remap: (PackageName, Bindable) => Env[Option[ValueLike]]): Env[Statement] = {
+    val ops = new Impl.Ops(packName, remap)
     for {
       ve <- ops.loop(me)
       nm <- Env.topLevelName(name)
@@ -602,8 +608,11 @@ object PythonGen {
     } yield stmt
   }
 
+  // compile a set of packages given a set of external remappings
+  def compile[A](pm: PackageMap.Typed[A], externals: Map[(PackageName, Bindable), (NonEmptyList[String], String)]) = ???
+
   private object Impl {
-    class Ops(packName: PackageName) {
+    class Ops(packName: PackageName, remap: (PackageName, Bindable) => Env[Option[ValueLike]]) {
       /*
        * enums with no fields are integers
        * enums and structs are tuples
@@ -778,13 +787,18 @@ object PythonGen {
               .mapN { (n, args, body) => Code.buildLoop(n, n, args, body).map(Code.WithValue(_, n)) }
               .flatMap(_ <* allArgs.traverse_(Env.unbind))
           case Global(p, n) =>
-            if (p == packName) {
-              // This is just a name in the local package
-              Env.topLevelName(n)
-            }
-            else {
-              (Env.importPackage(p), Env.topLevelName(n)).mapN(Code.DotSelect(_, _))
-            }
+            remap(p, n)
+              .flatMap {
+                case Some(v) => Monad[Env].pure(v)
+                case None =>
+                  if (p == packName) {
+                    // This is just a name in the local package
+                    Env.topLevelName(n)
+                  }
+                  else {
+                    (Env.importPackage(p), Env.topLevelName(n)).mapN(Code.DotSelect(_, _))
+                  }
+              }
           case Local(b) => Env.deref(b)
           case LocalAnon(a) => Env.nameForAnon(a)
           case LocalAnonMut(m) => Env.nameForAnon(m)

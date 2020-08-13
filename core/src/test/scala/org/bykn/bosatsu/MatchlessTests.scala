@@ -13,25 +13,20 @@ import cats.implicits._
 class MatchlessTest extends FunSuite {
   implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = 1000)
 
-  type Fn = (PackageName, Constructor) => DataRepr
+  type Fn = (PackageName, Constructor) => Option[DataRepr]
 
   def fnFromTypeEnv[A](te: rankn.TypeEnv[A]): Fn =
     {
       // the list constructors *have* to be in scope or matching will generate
       // bad code
       case (PackageName.PredefName, Constructor("EmptyList")) =>
-        DataRepr.Enum(0, 0)
+        Some(DataRepr.Enum(0, 0))
       case (PackageName.PredefName, Constructor("NonEmptyList")) =>
-        DataRepr.Enum(1, 2)
+        Some(DataRepr.Enum(1, 2))
       case (pn, cons) =>
-        te.getConstructor(pn, cons) match {
-          case Some((_, dt, _)) =>
-            dt.dataRepr(cons)
-          case None =>
-            // todo, the generator *shouldn't* generate this,
-            // but it seems to
-            DataRepr.Struct(0)
-        }
+        te.getConstructor(pn, cons)
+          .map(_._2.dataRepr(cons))
+          .orElse(Some(DataRepr.Struct(0)))
     }
 
   lazy val genInputs: Gen[(Bindable, RecursionKind, TypedExpr[Unit], Fn)] =
