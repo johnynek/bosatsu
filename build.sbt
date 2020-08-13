@@ -125,6 +125,7 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,
+        jython.value % Test,
         // needed for acyclic which we run periodically, not all the time
         //"com.lihaoyi" %% "acyclic" % "0.1.7" % "provided"
       )
