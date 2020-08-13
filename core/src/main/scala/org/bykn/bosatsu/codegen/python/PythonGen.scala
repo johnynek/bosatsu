@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.{PackageName, PackageMap, Identifier, Matchless, Lit, RecursionKind, StringUtil}
+import org.bykn.bosatsu.{PackageName, PackageMap, Identifier, Matchless, RecursionKind}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 
@@ -11,340 +11,12 @@ import Matchless._
 import cats.implicits._
 
 object PythonGen {
-  // Structs are represented as tuples
-  // Enums are represented as tuples with an additional first field holding
-  // the variant
-
-  sealed trait Code
-  // Expressions or Code that has a final value
-  sealed trait ValueLike extends Code
-  sealed abstract class Expression extends ValueLike {
-    def identOrParens: Expression =
-      this match {
-        case i: Code.Ident => i
-        case p => Code.Parens(p)
-      }
-  }
-  sealed abstract class Statement extends Code {
-    import Code.Block
-
-    def statements: NonEmptyList[Statement] =
-      this match {
-        case Block(ss) => ss
-        case notBlock => NonEmptyList(notBlock, Nil)
-      }
-
-    def +:(stmt: Statement): Block =
-      Block(stmt :: statements)
-    def :+(stmt: Statement): Block =
-      Block(statements :+ stmt)
-  }
-
-  object Code {
-
-    private def par(d: Doc): Doc =
-      Doc.char('(') + d + Doc.char(')')
-
-    private def maybePar(c: Code): Doc =
-      c match {
-        case DotSelect(_, _) | Literal(_) | PyString(_) | Ident(_) | Parens(_) | MakeTuple(_) => toDoc(c)
-        case _ => par(toDoc(c))
-      }
-
-    private def iflike(name: String, cond: Doc, body: Doc): Doc =
-      Doc.text(name) + Doc.char(':') + Doc.space + cond + Doc.char(':') + (Doc.hardLine + body).nested(4)
-
-    def toDoc(c: Code): Doc =
-      c match {
-        case Literal(s) => Doc.text(s)
-        case PyString(s) => Doc.text(StringUtil.escape('"', s))
-        case Ident(i) => Doc.text(i)
-        case Op(left, on, right) =>
-          par(toDoc(left) + Doc.space + Doc.text(on) + Doc.space + toDoc(right))
-        case Parens(inner@Parens(_)) => toDoc(inner)
-        case Parens(p) => par(toDoc(p))
-        case SelectItem(x, i) =>
-          maybePar(x) + Doc.char('[') + Doc.str(i) + Doc.char(']')
-        case MakeTuple(items) =>
-          items match {
-            case Nil => Doc.text("()")
-            case h :: Nil => par(toDoc(h) + Doc.comma)
-            case twoOrMore => par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, twoOrMore.map(toDoc)))
-          }
-        case Lambda(args, res) =>
-          Doc.text("lambda ") + Doc.intercalate(Doc.comma + Doc.space, args.map(toDoc)) + Doc.text(": ") + toDoc(res)
-
-        case Apply(fn, args) =>
-          maybePar(fn) + par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc)))
-
-        case DotSelect(left, right) =>
-          maybePar(left) + Doc.char('.') + toDoc(right)
-
-        case WithValue(stmt, vl) =>
-          toDoc(stmt) + Doc.hardLine + toDoc(vl)
-
-        case IfElse(conds, els) =>
-          val condsDoc = conds.map { case (x, b) => (toDoc(x), toDoc(b)) }
-          val i1 = iflike("if", condsDoc.head._1, condsDoc.head._2)
-          val i2 = condsDoc.tail.map { case (x, b) => iflike("elif", x, b) }
-          val el = Doc.text("else:") + (Doc.hardLine + toDoc(els)).nested(4)
-
-          Doc.intercalate(Doc.hardLine, i1 :: i2) + Doc.hardLine + el
-        case IfStatement(conds, optElse) =>
-          val condsDoc = conds.map { case (x, b) => (toDoc(x), toDoc(b)) }
-          val i1 = iflike("if", condsDoc.head._1, condsDoc.head._2)
-          val i2 = condsDoc.tail.map { case (x, b) => iflike("elif", x, b) }
-          val el = optElse.fold(Doc.empty) { els => Doc.hardLine + Doc.text("else:") + (Doc.hardLine + toDoc(els)).nested(4) }
-
-          Doc.intercalate(Doc.hardLine, i1 :: i2) + el
-
-        case Block(stmts) =>
-          Doc.intercalate(Doc.hardLine, stmts.map(toDoc).toList)
-
-        case Def(nm, args, body) =>
-          Doc.text("def") + Doc.space + Doc.text(nm.name) +
-            par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc))).nested(4) + Doc.char(':') + (Doc.hardLine + toDoc(body)).nested(4)
-
-        case Return(expr) => Doc.text("return ") + toDoc(expr)
-
-        case Assign(nm, expr) => Doc.text(nm.name) + Doc.text(" = ") + toDoc(expr)
-        case Pass => Doc.text("pass")
-        case While(cond, body) =>
-          Doc.text("while") + Doc.space + toDoc(cond) + Doc.char(':') + (Doc.hardLine + toDoc(body)).nested(4)
-        case Import(name, aliasOpt) =>
-          // import name as alias
-          val imp = Doc.text("import") + Doc.space + Doc.text(name)
-          aliasOpt.fold(imp) { a => imp + Doc.space + Doc.text("as") + Doc.space + toDoc(a) }
-      }
-
-    // True, False, None, numbers
-    case class Literal(asString: String) extends Expression
-    case class PyString(content: String) extends Expression
-    case class Ident(name: String) extends Expression
-    // Binary operator used for +, -, and, == etc...
-    case class Op(left: Expression, name: String, right: Expression) extends Expression
-    case class Parens(expr: Expression) extends Expression
-    case class SelectItem(arg: Expression, position: Int) extends Expression
-    case class MakeTuple(args: List[Expression]) extends Expression
-    case class Lambda(args: List[Ident], result: Expression) extends Expression
-    case class Apply(fn: Expression, args: List[Expression]) extends Expression
-    case class DotSelect(ex: Expression, ident: Ident) extends Expression
-
-    // this prepares an expression with a number of statements
-    case class WithValue(statement: Statement, value: ValueLike) extends ValueLike {
-      def +:(stmt: Statement): WithValue =
-        WithValue(stmt +: statement, value)
-
-      def :+(stmt: Statement): WithValue =
-        WithValue(statement :+ stmt, value)
-    }
-    case class IfElse(conds: NonEmptyList[(Expression, ValueLike)], elseCond: ValueLike) extends ValueLike
-
-    case class Block(stmts: NonEmptyList[Statement]) extends Statement
-    case class IfStatement(conds: NonEmptyList[(Expression, Statement)], elseCond: Option[Statement]) extends Statement
-    case class Def(name: Ident, args: List[Ident], body: Statement) extends Statement
-    case class Return(expr: Expression) extends Statement
-    case class Assign(variable: Ident, value: Expression) extends Statement
-    case object Pass extends Statement
-    case class While(cond: Expression, body: Statement) extends Statement
-    case class Import(modname: String, alias: Option[Ident]) extends Statement
-
-    def addAssign(variable: Ident, code: ValueLike): Statement =
-      code match {
-        case x: Expression =>
-          Assign(variable, x)
-        case WithValue(stmt, v) =>
-          stmt +: addAssign(variable, v)
-        case IfElse(conds, elseCond) =>
-          IfStatement(
-            conds.map { case (b, v) =>
-              (b, addAssign(variable, b))
-            },
-            Some(addAssign(variable, elseCond))
-          )
-      }
-
-    // boolean expressions can contain side effects
-    // this runs the side effects but discards
-    // and resulting value
-    // we could assert the value, statically
-    // that assertion should always be true
-    def always(v: ValueLike): Statement =
-      v match {
-        case x: Expression => Pass
-        case WithValue(stmt, v) =>
-          stmt +: always(v)
-        case IfElse(conds, elseCond) =>
-          IfStatement(
-            conds.map { case (b, v) =>
-              (b, always(v))
-            },
-            Some(always(elseCond))
-          )
-      }
-
-    def onLasts(cs: List[ValueLike])(fn: List[Expression] => ValueLike): Env[ValueLike] = {
-      def loop(cs: List[ValueLike], setup: List[Statement], args: List[Expression]): Env[ValueLike] =
-        cs match {
-          case Nil => Monad[Env].pure {
-            val res = fn(args.reverse)
-            NonEmptyList.fromList(setup) match {
-              case None => res
-              case Some(nel) =>
-                WithValue(Block(nel.reverse), res)
-            }
-          }
-          case (e: Expression) :: t => loop(t, setup, e :: args)
-          case (ifelse@IfElse(_, _)) :: tail =>
-            // we allocate a result and assign
-            // the result on each value
-            Env.newAssignableVar.flatMap { v =>
-              loop(tail, addAssign(v, ifelse) :: setup, v :: args)
-            }
-          case WithValue(decl, v) :: tail =>
-            loop(v :: tail, decl :: setup, args)
-        }
-
-      loop(cs, Nil, Nil)
-    }
-
-    def ifElse(conds: NonEmptyList[(ValueLike, ValueLike)], elseV: ValueLike): Env[ValueLike] = {
-      // for all the non-expression conditions, we need to defer evaluating them
-      // until they are really needed
-      conds match {
-        case NonEmptyList((cx: Expression, t), Nil) =>
-          Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
-        case NonEmptyList((cx: Expression, t), rh :: rt) =>
-          val head = (cx, t)
-          ifElse(NonEmptyList(rh, rt), elseV).map {
-            case IfElse(crest, er) =>
-              // preserve IfElse chains
-              IfElse(head :: crest, er)
-            case nest =>
-              IfElse(NonEmptyList(head, Nil), nest)
-          }
-        case NonEmptyList((cx, t), rest) =>
-          for {
-            // allocate a new unshadowable var
-            cv <- Env.newAssignableVar
-            res <- ifElse(NonEmptyList((cv, t), rest), elseV)
-          } yield WithValue(addAssign(cv, t), res)
-      }
-    }
-
-    def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
-      onLasts(c :: Nil) {
-        case x :: Nil => fn(x)
-        case other =>
-          throw new IllegalStateException(s"expected list to have size 1: $other")
-      }
-
-    def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
-      onLasts(c1 :: c2 :: Nil) {
-        case e1 :: e2 :: Nil =>
-          Op(e1, Const.And, e2)
-        case other =>
-          throw new IllegalStateException(s"expected list to have size 2: $other")
-      }
-
-    def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Env[Code.Def] =
-      Env.newAssignableVar.map { resName =>
-        Code.Def(defName, arg :: Nil,
-          Code.addAssign(resName, v) :+
-            Code.Return(resName)
-          )
-      }
-
-    def makeCurriedDef(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] =
-      args match {
-        case NonEmptyList(a, Nil) =>
-          //  base case
-          makeDef(name, a, body)
-        case NonEmptyList(a, h :: t) =>
-          for {
-            newName <- Env.newAssignableVar
-            fn <- makeCurriedDef(newName, NonEmptyList(h, t), body)
-          } yield Code.Def(name, a :: Nil, fn :+ Code.Return(newName))
-      }
-
-
-    def replaceTailCallWithAssign(name: Ident, args: NonEmptyList[Ident], body: ValueLike, cont: Ident): Env[ValueLike] = {
-      val initBody = body
-      def loop(body: ValueLike): Env[ValueLike] =
-        body match {
-          case Apply(x, as) if x == name && as.length == args.length =>
-            // do the replacement
-            val vs = args.toList.zip(as).map { case (v, x) => Assign(v, x) }
-
-            val all = vs.foldLeft(Assign(cont, Const.True): Statement)(_ +: _)
-            // set all the values and return the empty tuple
-            Monad[Env].pure(WithValue(all, MakeTuple(Nil)))
-          case Parens(p) => loop(p).flatMap(onLast(_)(Parens(_)))
-          case IfElse(ifCases, elseCase) =>
-            // only the result types are in tail position, we don't need to recurse on conds
-            val ifs = ifCases.traverse { case (cond, res) => loop(res).map((cond, _)) }
-            (ifs, loop(elseCase)).mapN(IfElse(_, _))
-          case WithValue(stmt, v) =>
-            loop(v).map(WithValue(stmt, _))
-          // the rest cannot have a call in the tail position
-          case DotSelect(_, _) | Apply(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectItem(_, _) | Ident(_) | Literal(_) | PyString(_) => Monad[Env].pure(body)
-        }
-
-      loop(initBody)
-    }
-
-    // these are always recursive so we can use def to define them
-    def buildLoop(defName: Ident, selfName: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] = {
-
-      /*
-       * bodyUpdate = body except App(foo, args) is replaced with
-       * reseting the inputs, and setting cont to True and having
-       * the value None
-       *
-       * def foo(a)(b)(c):
-       *   cont = True
-       *   res = None
-       *   while cont:
-       *     cont = False
-       *     res = bodyUpdate
-       *   return res
-       */
-      for {
-        cont <- Env.newAssignableVar
-        ac = Assign(cont, Const.True)
-        res <- Env.newAssignableVar
-        ar = Assign(res, Const.None)
-        body1 <- replaceTailCallWithAssign(selfName, args, body, cont)
-        setRes = addAssign(res, body1)
-        loop = While(cont, Assign(cont, Const.False) +: setRes)
-        newBody = WithValue(ac +: ar +: loop, res)
-        curried <- makeCurriedDef(defName, args, newBody)
-      } yield curried
-    }
-
-    def litToExpr(lit: Lit): Expression =
-      lit match {
-        case Lit.Str(s) => Code.PyString(s)
-        case Lit.Integer(bi) => Code.Literal(bi.toString)
-      }
-
-    object Const {
-      val True = Literal("True")
-      val False = Literal("False")
-      val None = Literal("None")
-      val Zero = Literal("0")
-      val One = Literal("1")
-      val Minus = "-"
-      val Plus = "+"
-      val And = "and"
-      val Eq = "=="
-      val Gt = ">"
-    }
-
-  }
+  import Code.{ValueLike, Statement, Expression}
 
   sealed abstract class Env[+A]
   object Env {
+    import Code._
+
     implicit def envMonad: Monad[Env] =
       new Monad[Env] {
         import Impl._
@@ -491,9 +163,148 @@ object PythonGen {
     // to be consistently transformed
     def topLevelName(n: Bindable): Env[Code.Ident] =
       Impl.env(_.topLevel(n))
+
+    def onLasts(cs: List[ValueLike])(fn: List[Expression] => ValueLike): Env[ValueLike] = {
+      def loop(cs: List[ValueLike], setup: List[Statement], args: List[Expression]): Env[ValueLike] =
+        cs match {
+          case Nil => Monad[Env].pure {
+            val res = fn(args.reverse)
+            NonEmptyList.fromList(setup) match {
+              case None => res
+              case Some(nel) =>
+                WithValue(Block(nel.reverse), res)
+            }
+          }
+          case (e: Expression) :: t => loop(t, setup, e :: args)
+          case (ifelse@IfElse(_, _)) :: tail =>
+            // we allocate a result and assign
+            // the result on each value
+            Env.newAssignableVar.flatMap { v =>
+              loop(tail, addAssign(v, ifelse) :: setup, v :: args)
+            }
+          case WithValue(decl, v) :: tail =>
+            loop(v :: tail, decl :: setup, args)
+        }
+
+      loop(cs, Nil, Nil)
+    }
+
+    def ifElse(conds: NonEmptyList[(ValueLike, ValueLike)], elseV: ValueLike): Env[ValueLike] = {
+      // for all the non-expression conditions, we need to defer evaluating them
+      // until they are really needed
+      conds match {
+        case NonEmptyList((cx: Expression, t), Nil) =>
+          Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
+        case NonEmptyList((cx: Expression, t), rh :: rt) =>
+          val head = (cx, t)
+          ifElse(NonEmptyList(rh, rt), elseV).map {
+            case IfElse(crest, er) =>
+              // preserve IfElse chains
+              IfElse(head :: crest, er)
+            case nest =>
+              IfElse(NonEmptyList(head, Nil), nest)
+          }
+        case NonEmptyList((cx, t), rest) =>
+          for {
+            // allocate a new unshadowable var
+            cv <- Env.newAssignableVar
+            res <- ifElse(NonEmptyList((cv, t), rest), elseV)
+          } yield WithValue(addAssign(cv, t), res)
+      }
+    }
+
+    def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
+      onLasts(c :: Nil) {
+        case x :: Nil => fn(x)
+        case other =>
+          throw new IllegalStateException(s"expected list to have size 1: $other")
+      }
+
+    def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
+      onLasts(c1 :: c2 :: Nil) {
+        case e1 :: e2 :: Nil =>
+          Op(e1, Const.And, e2)
+        case other =>
+          throw new IllegalStateException(s"expected list to have size 2: $other")
+      }
+
+    def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Env[Code.Def] =
+      Env.newAssignableVar.map { resName =>
+        Code.Def(defName, arg :: Nil,
+          Code.addAssign(resName, v) :+
+            Code.Return(resName)
+          )
+      }
+
+    def makeCurriedDef(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] =
+      args match {
+        case NonEmptyList(a, Nil) =>
+          //  base case
+          makeDef(name, a, body)
+        case NonEmptyList(a, h :: t) =>
+          for {
+            newName <- Env.newAssignableVar
+            fn <- makeCurriedDef(newName, NonEmptyList(h, t), body)
+          } yield Code.Def(name, a :: Nil, fn :+ Code.Return(newName))
+      }
+
+
+    def replaceTailCallWithAssign(name: Ident, args: NonEmptyList[Ident], body: ValueLike, cont: Ident): Env[ValueLike] = {
+      val initBody = body
+      def loop(body: ValueLike): Env[ValueLike] =
+        body match {
+          case Apply(x, as) if x == name && as.length == args.length =>
+            // do the replacement
+            val vs = args.toList.zip(as).map { case (v, x) => Assign(v, x) }
+
+            val all = vs.foldLeft(Assign(cont, Const.True): Statement)(_ +: _)
+            // set all the values and return the empty tuple
+            Monad[Env].pure(WithValue(all, MakeTuple(Nil)))
+          case Parens(p) => loop(p).flatMap(onLast(_)(Parens(_)))
+          case IfElse(ifCases, elseCase) =>
+            // only the result types are in tail position, we don't need to recurse on conds
+            val ifs = ifCases.traverse { case (cond, res) => loop(res).map((cond, _)) }
+            (ifs, loop(elseCase)).mapN(IfElse(_, _))
+          case WithValue(stmt, v) =>
+            loop(v).map(WithValue(stmt, _))
+          // the rest cannot have a call in the tail position
+          case DotSelect(_, _) | Apply(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectItem(_, _) | Ident(_) | Literal(_) | PyString(_) => Monad[Env].pure(body)
+        }
+
+      loop(initBody)
+    }
+
+    // these are always recursive so we can use def to define them
+    def buildLoop(defName: Ident, selfName: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] = {
+
+      /*
+       * bodyUpdate = body except App(foo, args) is replaced with
+       * reseting the inputs, and setting cont to True and having
+       * the value ()
+       *
+       * def foo(a)(b)(c):
+       *   cont = True
+       *   res = ()
+       *   while cont:
+       *     cont = False
+       *     res = bodyUpdate
+       *   return res
+       */
+      for {
+        cont <- Env.newAssignableVar
+        ac = Assign(cont, Const.True)
+        res <- Env.newAssignableVar
+        ar = Assign(res, MakeTuple(Nil))
+        body1 <- replaceTailCallWithAssign(selfName, args, body, cont)
+        setRes = addAssign(res, body1)
+        loop = While(cont, Assign(cont, Const.False) +: setRes)
+        newBody = WithValue(ac +: ar +: loop, res)
+        curried <- makeCurriedDef(defName, args, newBody)
+      } yield curried
+    }
+
   }
 
-  private[this] val python2Name = "[_A-Za-z][_0-9A-Za-z]*".r.pattern
   private[this] val base62Items = (('0' to '9') ++ ('A' to 'Z') ++ ('a' to 'z')).toSet
 
   private def toBase62(c: Char): String =
@@ -553,7 +364,7 @@ object PythonGen {
   // range by _base 62_
   def escape(n: Bindable): Code.Ident = {
     val str = n.sourceCodeRepr
-    if (!str.startsWith("___") && python2Name.matcher(str).matches) Code.Ident(str)
+    if (!str.startsWith("___") && Code.python2Name.matcher(str).matches && !Code.pyKeywordList(str)) Code.Ident(str)
     else {
       // we need to escape
       Code.Ident(escapeRaw("___n", str))
@@ -624,20 +435,20 @@ object PythonGen {
         def applyAll(args: List[ValueLike]): Env[ValueLike] =
           ce match {
             case MakeEnum(variant, arity) =>
-              if (arity == 0) Monad[Env].pure(Code.Literal(variant.toString))
+              val vExpr = Code.fromInt(variant)
+              if (arity == 0) Monad[Env].pure(vExpr)
               else {
                 // we make a tuple with the variant in the first position
-                val vExpr = Code.Literal(variant.toString)
-                Code.onLasts(vExpr :: args)(Code.MakeTuple(_))
+                Env.onLasts(vExpr :: args)(Code.MakeTuple(_))
               }
             case MakeStruct(arity) =>
                 if (arity == 0) Monad[Env].pure(Code.MakeTuple(Nil))
                 else if (arity == 1) Monad[Env].pure(args.head)
-                else Code.onLasts(args)(Code.MakeTuple(_))
+                else Env.onLasts(args)(Code.MakeTuple(_))
             case ZeroNat =>
               Monad[Env].pure(Code.Const.Zero)
             case SuccNat =>
-              Code.onLast(args.head)(Code.Op(_, Code.Const.Plus, Code.Const.One))
+              Env.onLast(args.head)(Code.Op(_, Code.Const.Plus, Code.Const.One))
           }
 
         val sz = args.size
@@ -652,7 +463,7 @@ object PythonGen {
             for {
               v <- Env.newAssignableVar
               body <- makeLam(cnt - 1, args :+ v)
-              res <- Code.onLast(body)(Code.Lambda(v :: Nil, _))
+              res <- Env.onLast(body)(Code.Lambda(v :: Nil, _))
             } yield res
           }
 
@@ -663,28 +474,28 @@ object PythonGen {
         ix match {
           case EqualsLit(expr, lit) =>
             val literal = Code.litToExpr(lit)
-            loop(expr).flatMap(Code.onLast(_) { ex => Code.Op(ex, Code.Const.Eq, literal) })
+            loop(expr).flatMap(Env.onLast(_) { ex => Code.Op(ex, Code.Const.Eq, literal) })
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)
 
             if (zeroOrSucc.isZero)
-              natF.flatMap(Code.onLast(_) { x =>
+              natF.flatMap(Env.onLast(_) { x =>
                 Code.Op(x, Code.Const.Eq, Code.Const.Zero)
               })
             else
-              natF.flatMap(Code.onLast(_) { x =>
+              natF.flatMap(Env.onLast(_) { x =>
                 Code.Op(x, Code.Const.Gt, Code.Const.Zero)
               })
 
           case TrueConst => Monad[Env].pure(Code.Const.True)
           case And(ix1, ix2) =>
             (boolExpr(ix1), boolExpr(ix2))
-              .mapN(Code.andCode(_, _))
+              .mapN(Env.andCode(_, _))
               .flatten
           case CheckVariant(enumV, idx, size) =>
             loop(enumV).flatMap { tup =>
-              Code.onLast(tup) { t =>
-                val idxExpr = Code.Literal(idx.toString)
+              Env.onLast(tup) { t =>
+                val idxExpr = Code.fromInt(idx)
                 if (size == 0) {
                   // this is represented as an integer
                   Code.Op(t, Code.Const.Eq, idxExpr)
@@ -696,7 +507,7 @@ object PythonGen {
           case SetMut(LocalAnonMut(mut), expr) =>
             (Env.nameForAnon(mut), loop(expr))
               .mapN { (ident, result) =>
-                Code.onLast(result) { resx =>
+                Env.onLast(result) { resx =>
                   val a = Code.Assign(ident, resx)
                   Code.WithValue(a, Code.Const.True)
                 }
@@ -730,7 +541,7 @@ object PythonGen {
               .flatMap { selfName =>
                 val args = NonEmptyList(h, t)
                 (args.traverse(Env.bind), loop(b))
-                  .mapN(Code.buildLoop(name, selfName, _, _))
+                  .mapN(Env.buildLoop(name, selfName, _, _))
                   .flatMap { res =>
                     res <* args.traverse_(Env.unbind)
                   }
@@ -738,7 +549,7 @@ object PythonGen {
           case Lambda(caps, arg, body) =>
             // this isn't recursive, or it would be in a Let
             (Env.bind(arg), loop(body))
-              .mapN(Code.makeDef(name, _, _))
+              .mapN(Env.makeDef(name, _, _))
               .flatMap { d =>
                 d <* Env.unbind(arg)
               }
@@ -750,7 +561,7 @@ object PythonGen {
                 _ <- Env.bindTop(n)
                 arg1 <- Env.bind(arg)
                 body1 <- loop(body)
-                def1 <- Code.makeDef(name, arg1, body1)
+                def1 <- Env.makeDef(name, arg1, body1)
                 _ <- Env.unbind(arg)
                 _ <- Env.unbind(n)
               } yield def1
@@ -775,7 +586,7 @@ object PythonGen {
                 case v =>
                   for {
                     defName <- Env.newAssignableVar
-                    defn <- Code.makeDef(defName, arg, v)
+                    defn <- Env.makeDef(defName, arg, v)
                   } yield Code.WithValue(defn, defName)
               }
             }
@@ -784,7 +595,7 @@ object PythonGen {
             // closures capture the same in python, we can ignore captures
             val allArgs = NonEmptyList(argshead, argstail)
             (Env.bind(thisName), allArgs.traverse(Env.bind), loop(body))
-              .mapN { (n, args, body) => Code.buildLoop(n, n, args, body).map(Code.WithValue(_, n)) }
+              .mapN { (n, args, body) => Env.buildLoop(n, n, args, body).map(Code.WithValue(_, n)) }
               .flatMap(_ <* allArgs.traverse_(Env.unbind))
           case Global(p, n) =>
             remap(p, n)
@@ -807,7 +618,7 @@ object PythonGen {
           case App(expr, args) =>
             (loop(expr), args.traverse(loop))
               .mapN { (fn, args) =>
-                Code.onLasts(fn :: args.toList) {
+                Env.onLasts(fn :: args.toList) {
                   case fn :: ah :: atail =>
                     // all functions are curried, a future
                     // optimization would improve that
@@ -878,7 +689,7 @@ object PythonGen {
 
             (ifsV, loop(elseExpr))
               .mapN { (ifs, elseV) =>
-                Code.ifElse(ifs, elseV)
+                Env.ifElse(ifs, elseV)
               }
               .flatten
 
@@ -895,7 +706,7 @@ object PythonGen {
             // we could assert the v matches when debugging, but typechecking
             // should assure this
             loop(expr).flatMap { tup =>
-              Code.onLast(tup) { t =>
+              Env.onLast(tup) { t =>
                 Code.SelectItem(t, idx + 1)
               }
             }
@@ -908,7 +719,7 @@ object PythonGen {
             else {
               // structs are just tuples
               exprR.flatMap { tup =>
-                Code.onLast(tup) { t =>
+                Env.onLast(tup) { t =>
                   Code.SelectItem(t, idx)
                 }
               }
@@ -916,7 +727,7 @@ object PythonGen {
           case PrevNat(expr) =>
             // Nats are just integers
             loop(expr).flatMap { nat =>
-              Code.onLast(nat)(Code.Op(_, Code.Const.Minus, Code.Const.One))
+              Env.onLast(nat)(Code.Op(_, Code.Const.Minus, Code.Const.One))
             }
           case cons: ConsExpr => makeCons(cons, Nil)
         }
