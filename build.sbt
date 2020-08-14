@@ -103,7 +103,8 @@ lazy val cli = (project in file("cli")).
       Seq(
         catsEffect.value,
         jawnParser.value % Test,
-        jawnAst.value % Test
+        jawnAst.value % Test,
+        jython.value % Test,
       ),
     PB.targets in Compile := Seq(
      scalapb.gen() -> (sourceManaged in Compile).value
