@@ -13,7 +13,6 @@ sealed abstract class Lit {
       case Lit.Str(s) => "\"" + escape('"', s) + "\""
     }
 }
-
 object Lit {
   case class Integer(toBigInteger: BigInteger) extends Lit
   case class Str(toStr: String) extends Lit
