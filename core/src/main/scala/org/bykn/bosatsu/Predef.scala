@@ -112,6 +112,14 @@ object PredefImpl {
   def add(a: Value, b: Value): Value =
     VInt(i(a).add(i(b)))
 
+  def divBigInteger(a: BigInteger, b: BigInteger): BigInteger =
+    if (b == BigInteger.ZERO) BigInteger.ZERO
+    else a.divide(b)
+
+  def modBigInteger(a: BigInteger, b: BigInteger): BigInteger =
+    if (b == BigInteger.ZERO) a
+    else a.mod(b)
+
   def div(a: Value, b: Value): Value = {
     val bi = i(b)
     if (bi.equals(BigInteger.ZERO)) VOption.none
