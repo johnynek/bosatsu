@@ -23,7 +23,7 @@ sealed abstract class LetFreeExpression {
     def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
     this match {
       case LetFreeExpression.App(fn, arg) => s"App(${fn.serialize},${arg.serialize})"
-      case LetFreeExpression.ExternalVar(pack, defName) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}')"
+      case LetFreeExpression.ExternalVar(pack, defName, tpe) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}', '${escapeString(TypeRef.fromTypes(None, tpe :: Nil).apply(tpe).toDoc.render(100))}')"
       case LetFreeExpression.Match(arg, branches) => {
         val serBranches = branches.toList.map {case (lfp, lfe) => s"${lfp.serialize},${lfe.serialize}"}.mkString(",")
         s"Match(${arg.serialize},$serBranches)"
@@ -38,6 +38,19 @@ sealed abstract class LetFreeExpression {
       case LetFreeExpression.Recursion(lambda) => s"Recursion(${lambda.serialize})"
     }
   }
+
+  def varSet: Set[Int] = this match {
+    case LetFreeExpression.Lambda(expr) => expr.varSet.collect { case n if n > 0 => n - 1}
+    case LetFreeExpression.App(fn, arg) => fn.varSet ++ arg.varSet
+    case LetFreeExpression.ExternalVar(_, _, _) => Set()
+    case LetFreeExpression.Match(arg, branches) => branches.map {
+      branch => branch._2.varSet.map(_ - LetFreePattern.varCount(0, List(branch._1))).filter(_ >= 0)
+    }.foldLeft(arg.varSet){ case (s1, s2) => s1 ++ s2 }
+    case LetFreeExpression.Struct(enum, args) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.varSet }
+    case LetFreeExpression.Literal(_) => Set()
+    case LetFreeExpression.Recursion(lambda) => lambda.varSet.collect { case n if n > 0 => n - 1}
+    case LetFreeExpression.LambdaVar(name) => Set(name)
+  }
 }
 
 object LetFreeExpression {
@@ -46,7 +59,7 @@ object LetFreeExpression {
     def maxLambdaVar = (fn.maxLambdaVar.toList ++ arg.maxLambdaVar.toList)
       .reduceLeftOption(Math.max)
   }
-  case class ExternalVar(pack: PackageName, defName: Identifier)
+  case class ExternalVar(pack: PackageName, defName: Identifier, tpe: rankn.Type)
   extends LetFreeExpression {
     def maxLambdaVar = None
   }
@@ -82,11 +95,12 @@ object LetFreeExpression {
   case class Recursion(lambda: LetFreeExpression) extends LetFreeExpression {
     def maxLambdaVar = lambda.maxLambdaVar
   }
+
 }
 
 sealed abstract class LetFreePattern {
   def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
-  def serialize: String = {
+  def serialize: String =
     this match {
       case LetFreePattern.WildCard => "WildCard"
       case LetFreePattern.Literal(toLit) => toLit match {
@@ -104,11 +118,41 @@ sealed abstract class LetFreePattern {
       }
       case LetFreePattern.PositionalStruct(name, params) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.serialize).mkString(",")})"
       case LetFreePattern.Union(head, rest) => s"Union(${head.serialize},${rest.toList.map(_.serialize).mkString(",")})"
+      case LetFreePattern.StrPat(parts) => {
+        val inside = parts.map {
+          case LetFreePattern.StrPart.WildStr => "WildStr"
+          case LetFreePattern.StrPart.NamedStr(name) => s"NamedStr($name)"
+          case LetFreePattern.StrPart.LitStr(toString) => s"LitStr($toString)"
+        }.toList.mkString(",")
+        s"StrPat($inside)"
+      }
     }
-  }
 }
 
 object LetFreePattern {
+  def varCount(floor: Int, patterns: List[LetFreePattern]): Int = patterns match {
+    case head :: rest => head match {
+      case LetFreePattern.WildCard => floor
+      case LetFreePattern.Literal(_) => 0
+      case LetFreePattern.Var(name) => floor.max(name + 1)
+      case LetFreePattern.Named(name, pat) => varCount(name + 1, List(pat))
+      case LetFreePattern.ListPat(parts) => {
+        val result = parts.foldLeft((floor, List[LetFreePattern]())) {
+          case ((fl, lst), Left(n)) => (fl.max(n.getOrElse(fl)), lst)
+          case ((fl, lst), Right(pat)) => (fl, pat :: lst)
+        }
+        varCount(result._1, result._2)
+      }
+      case LetFreePattern.PositionalStruct(name, params) => varCount(name.getOrElse(floor).max(floor), params)
+      case LetFreePattern.Union(uHead, _) => varCount(floor, List(uHead))
+      case LetFreePattern.StrPat(parts) => parts.foldLeft(floor) {
+        case (n, LetFreePattern.StrPart.NamedStr(name)) => n.max(name)
+        case (n, _) => n 
+      }
+    }
+    case _ => floor
+  }
+
   case object WildCard extends LetFreePattern
   case class Literal(toLit: Lit) extends LetFreePattern
   case class Var(name: Int) extends LetFreePattern
@@ -120,6 +164,14 @@ object LetFreePattern {
   case class ListPat(parts: List[Either[Option[Int], LetFreePattern]]) extends LetFreePattern
   case class PositionalStruct(name: Option[Int], params: List[LetFreePattern]) extends LetFreePattern
   case class Union(head: LetFreePattern, rest: NonEmptyList[LetFreePattern]) extends LetFreePattern
+  case class StrPat(parts: NonEmptyList[StrPart]) extends LetFreePattern
+
+  sealed abstract class StrPart
+  object StrPart {
+    final case object WildStr extends StrPart
+    final case class NamedStr(idx: Int) extends StrPart
+    final case class LitStr(asString: String) extends StrPart
+  }
 }
 
 object LetFreeConversion {
@@ -129,42 +181,57 @@ object LetFreeConversion {
   type LetFreePM = PackageMap.Typed[(Declaration, LetFreeExpressionTag)]
   type LetFreePac = Package.Typed[(Declaration, LetFreeExpressionTag)]
 
-  type PatternEnv = Map[Int, LetFreeExpression]
+  type PatternEnv[T] = Map[Int, T]
 
   sealed trait PatternMatch[+A]
   case class Matches[A](env: A) extends PatternMatch[A]
   case object NoMatch extends PatternMatch[Nothing]
   case object NotProvable extends PatternMatch[Nothing]
 
-  val noop: (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] = { (_, env) => Matches(env) }
-  val neverMatch: (LetFreeExpression, PatternEnv) => PatternMatch[Nothing] = { (_, _) => NoMatch }
+  def noop[T]: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { (_, env) => Matches(env) }
+  def neverMatch[T]: (T, PatternEnv[T]) => PatternMatch[Nothing] = { (_, _) => NoMatch }
 
-  def structListAsList(lfe: LetFreeExpression): PatternMatch[List[LetFreeExpression]] = {
+  def structListAsList(lfe: LetFreeExpression): Option[List[LetFreeExpression]] = {
     lfe match {
-      case LetFreeExpression.Struct(0, _) => Matches(Nil)
-      case LetFreeExpression.Struct(1, List(value, tail)) => structListAsList(tail) match {
-        case Matches(lst) => Matches(value :: lst)
-        case notMatch => notMatch
-      }
-      case _ => NotProvable
+      case LetFreeExpression.Struct(0, _) => Some(Nil)
+      case LetFreeExpression.Struct(1, List(value, tail)) => structListAsList(tail).map(value :: _)
+      case _ => None
     }
   }
 
   def listAsStructList(lst: List[LetFreeExpression]): LetFreeExpression =
     lst.foldRight(LetFreeExpression.Struct(0, Nil)) { case (lfe, acc) => LetFreeExpression.Struct(1, List(lfe, acc)) }
 
-  private def maybeBind(pat: LetFreePattern): (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] =
+  case class LitValue(toAny: Any)
+
+  implicit val neToLitValue: LetFreeExpression => Option[LitValue] = {
+    case LetFreeExpression.Literal(lit) => Some(LitValue(lit.toAny))
+    case _ => None
+  }
+  implicit val neToStruct: LetFreeExpression => Option[(Int, List[LetFreeExpression])] = {
+    case LetFreeExpression.Struct(enum, args) => Some((enum, args))
+    case _ => None
+  }
+  implicit val neToList: LetFreeExpression => Option[List[LetFreeExpression]] = structListAsList(_)
+  implicit val neFromList: List[LetFreeExpression] => LetFreeExpression = listAsStructList(_)
+
+  def maybeBind[T](pat: LetFreePattern)(implicit
+    toLitValue: T => Option[LitValue],
+    toStruct: T => Option[(Int, List[T])],
+    toList: T => Option[List[T]],
+    fromList: List[T] => T,
+    ): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
     pat match {
       case LetFreePattern.WildCard => noop
       case LetFreePattern.Literal(lit) =>
-        { (v, env) => v match {
-          case LetFreeExpression.Literal(vlit) => if (vlit == lit) Matches(env) else NoMatch
+        { (v, env) => toLitValue(v) match {
+          case Some(LitValue(v)) => if (v == lit.toAny) Matches(env) else NoMatch
           case _ => NotProvable
         }}
       case LetFreePattern.Var(n) =>
         { (v, env) => Matches(env + (n ->  v)) }
       case LetFreePattern.Named(n, p) =>
-        val inner = maybeBind(p)
+        val inner = maybeBind[T](p)
 
         { (v, env) =>
           inner(v, env) match {
@@ -176,20 +243,20 @@ object LetFreeConversion {
         items match {
           case Nil =>
             { (arg, acc) =>
-              arg match {
-                case LetFreeExpression.Struct(0, List()) => Matches(acc)
-                case LetFreeExpression.Struct(_, _) => NoMatch
+              toStruct(arg) match {
+                case Some((0, _)) => Matches(acc)
+                case Some((1, _)) => NoMatch
                 case _ => NotProvable
               }
             }
           case Right(ph) :: ptail =>
             // a right hand side pattern never matches the empty list
-            val fnh = maybeBind(ph)
-            val fnt = maybeBind(LetFreePattern.ListPat(ptail))
+            val fnh = maybeBind[T](ph)
+            val fnt = maybeBind[T](LetFreePattern.ListPat(ptail))
 
             { (arg, acc) =>
-              arg match {
-                case LetFreeExpression.Struct(1, List(argHead, structTail)) =>
+              toStruct(arg) match {
+                case Some((1, List(argHead, structTail))) =>
                   fnh(argHead, acc) match {
                     case NoMatch => NoMatch
                     case NotProvable => fnt(structTail, acc) match {
@@ -198,7 +265,7 @@ object LetFreeConversion {
                     }
                     case Matches(acc1) => fnt(structTail, acc1)
                   }
-                case LetFreeExpression.Struct(_, _) => NoMatch
+                case Some(_) => NoMatch
                 case _ => NotProvable
               }
             }
@@ -217,44 +284,34 @@ object LetFreeConversion {
             // we reverse the tails, do the match, and take the rest into
             // the splice
             val revPat = LetFreePattern.ListPat(ptail.reverse)
-            val fnMatchTail = maybeBind(revPat)
+            val fnMatchTail = maybeBind[T](revPat)
             val ptailSize = ptail.size
 
             { (arg, acc) =>
-              arg match {
-                case s@LetFreeExpression.Struct(_, _)  =>
-                  // we only allow one splice, so we assume the rest of the patterns
-                  structListAsList(s) match {
-                    case NotProvable => NotProvable
-                    case Matches(asList) =>
-                      val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
-                      fnMatchTail(listAsStructList(revArgTail), acc) match {
-                        case m@Matches(acc1) => splice.map {nm =>
-                          val rest = listAsStructList(spliceVals.reverse)
-                          Matches(acc1 + (nm -> rest))
-                        }.getOrElse(m)
-                        case notMatch => notMatch
-                      }
-                    case nomatch =>
-                      // type checking will ensure this is either a list or a
-                      // LetFreeExpression that will produce a list
-                      // $COVERAGE-OFF$this should be unreachable
-                      sys.error(s"ill typed in match: $nomatch")
-                      // $COVERAGE-ON$
+              // we only allow one splice, so we assume the rest of the patterns
+              toList(arg) match {
+                case None => NotProvable
+                case Some(asList) =>
+                  val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
+                  fnMatchTail(fromList(revArgTail), acc) match {
+                    case m@Matches(acc1) => splice.map {nm =>
+                      val rest = fromList(spliceVals.reverse)
+                      Matches(acc1 + (nm -> rest))
+                    }.getOrElse(m)
+                    case notMatch => notMatch
                   }
-                case _ => NotProvable
               }
             }
         }
       case LetFreePattern.Union(h, t) =>
         // we can just loop expanding these out:
-        def loop(ps: List[LetFreePattern]): (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] =
+        def loop(ps: List[LetFreePattern]): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
           ps match {
             case Nil => neverMatch
             case head :: tail =>
-              val fnh = maybeBind(head)
-              val fnt: (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] = loop(tail)
-              val result: (LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv] = { case (arg, acc) =>
+              val fnh = maybeBind[T](head)
+              val fnt: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = loop(tail)
+              val result: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { case (arg, acc) =>
                 fnh(arg, acc) match {
                   case NoMatch  => fnt(arg, acc)
                   case notNoMatch => notNoMatch
@@ -266,12 +323,12 @@ object LetFreeConversion {
       case LetFreePattern.PositionalStruct(maybeIdx, items) =>
         // The type in question is not the outer dt, but the type associated
         // with this current constructor
-        val itemFns = items.map(maybeBind(_))
+        val itemFns = items.map(maybeBind[T](_))
 
-        def processArgs(as: List[LetFreeExpression], acc: PatternEnv): PatternMatch[PatternEnv] = {
+        def processArgs(as: List[T], acc: PatternEnv[T]): PatternMatch[PatternEnv[T]] = {
           // manually write out foldM hoping for performance improvements
           @annotation.tailrec
-          def loop(vs: List[LetFreeExpression], fns: List[(LetFreeExpression, PatternEnv) => PatternMatch[PatternEnv]], env: (PatternEnv, PatternMatch[PatternEnv])): PatternMatch[PatternEnv] =
+          def loop(vs: List[T], fns: List[(T, PatternEnv[T]) => PatternMatch[PatternEnv[T]]], env: (PatternEnv[T], PatternMatch[PatternEnv[T]])): PatternMatch[PatternEnv[T]] =
             vs match {
               case Nil => env._2
               case vh :: vt =>
@@ -293,9 +350,9 @@ object LetFreeConversion {
         maybeIdx match {
           case None =>
             // this is a struct, which means we expect it
-            { (arg: LetFreeExpression, acc: PatternEnv) =>
-              arg match {
-                case LetFreeExpression.Struct(_, args) =>
+            { (arg: T, acc: PatternEnv[T]) =>
+              toStruct(arg) match {
+                case Some((_, args)) =>
                   processArgs(args, acc)
                 case _ =>
                   NotProvable
@@ -304,9 +361,9 @@ object LetFreeConversion {
 
           case Some(idx) =>
             // we don't check if idx < 0, because if we compiled, it can't be
-            val result = { (arg: LetFreeExpression, acc: PatternEnv) =>
-              arg match {
-                case LetFreeExpression.Struct(enumId, args) =>
+            val result = { (arg: T, acc: PatternEnv[T]) =>
+              toStruct(arg) match {
+                case Some((enumId, args)) =>
                   if (enumId == idx) processArgs(args, acc)
                   else NoMatch
                 case _ =>
@@ -315,18 +372,19 @@ object LetFreeConversion {
             }
             result
         }
+        case LetFreePattern.StrPat(parts) => {(v, env) => NotProvable}
   }
 
   def findMatch(m: LetFreeExpression.Match) =
     m.branches.collectFirst(Function.unlift( { case (pat, result) =>
-      maybeBind(pat).apply(m.arg, Map()) match {
+      maybeBind[LetFreeExpression](pat).apply(m.arg, Map()) match {
         case Matches(env) => Some(Some((pat, env, result)))
         case NotProvable => Some(None)
         case NoMatch => None
       }
     })).get // Totallity of matches should ensure this will always find something unless something has gone terribly wrong
 
-  def solveMatch(env: PatternEnv, result: LetFreeExpression) =
+  def solveMatch(env: PatternEnv[LetFreeExpression], result: LetFreeExpression) =
     ((env.size - 1) to 0 by -1).map(env.get(_).get) // If this exceptions then somehow we didn't get enough names in the env
       .foldLeft(result) { case (lfe, arg) => LetFreeExpression.App(lfe, arg) }
 
@@ -335,7 +393,7 @@ object LetFreeConversion {
     val res = headReduction(expr) match {
       case App(fn, arg) =>
         App(normalOrderReduction(fn), normalOrderReduction(arg))
-      case extVar @ ExternalVar(_, _) => extVar
+      case extVar @ ExternalVar(_, _, _) => extVar
       // check for a match reduction opportunity (beta except for Match instead of lambda)
       case Match(arg, branches) =>
         Match(normalOrderReduction(arg), branches.map{ case (p, s) => (p, normalOrderReduction(s))})
@@ -391,7 +449,7 @@ object LetFreeConversion {
         case App(fn, arg)                           =>
           App(applyLambdaSubstituion(fn, subst, idx),
             applyLambdaSubstituion(arg, subst, idx))
-        case ext @ ExternalVar(_, _)                => ext
+        case ext @ ExternalVar(_, _, _)                => ext
         case Match(arg, branches)                   =>
           Match(applyLambdaSubstituion(arg, subst, idx), branches.map {
             case (enum, expr) => (enum, applyLambdaSubstituion(expr, subst, idx))
@@ -413,7 +471,7 @@ object LetFreeConversion {
       case App(fn, arg) =>
         App(incrementLambdaVars(fn, lambdaDepth),
           incrementLambdaVars(arg, lambdaDepth))
-      case ext @ ExternalVar(_, _) => ext
+      case ext @ ExternalVar(_, _, _) => ext
       case Match(arg, branches) =>
         Match(incrementLambdaVars(arg, lambdaDepth), branches.map {
           case (enum, expr) => (enum, incrementLambdaVars(expr, lambdaDepth))
@@ -590,7 +648,12 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
         case Pattern.Literal(lit) => LetFreePattern.Literal(lit)
         case Pattern.Var(v) => LetFreePattern.Var(names.indexOf(v))
         case Pattern.Named(n, p) => LetFreePattern.Named(names.indexOf(n), loop(p))
-        case Pattern.StrPat(items) => sys.error(s"TODO: deal with StrPat($items) in normalization")
+        case Pattern.StrPat(items) => LetFreePattern.StrPat(
+          items.map {
+            case Pattern.StrPart.WildStr => LetFreePattern.StrPart.WildStr
+            case Pattern.StrPart.NamedStr(n) => LetFreePattern.StrPart.NamedStr(names.indexOf(n))
+            case Pattern.StrPart.LitStr(asString) => LetFreePattern.StrPart.LitStr(asString)
+          })
         case Pattern.ListPat(items) =>
           LetFreePattern.ListPat(items.map {
             case Pattern.ListPart.NamedList(n) =>Left(Some(names.indexOf(n)))
@@ -667,8 +730,8 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
             imported <- norm(pm.toMap(from.name), orig, t, (Map.empty, Nil))
             lfeTag = getTag(imported)._2
           } yield Left((item, (t, lfeTag)))
-        case NameKind.ExternalDef(pn, n, scheme) =>
-          val lfeTag = LetFreeExpressionTag(LetFreeExpression.ExternalVar(pn, n), Set())
+        case NameKind.ExternalDef(pn, n, defType) =>
+          val lfeTag = LetFreeExpressionTag(LetFreeExpression.ExternalVar(pn, n, defType), Set())  
           State.pure(Left((item, (t, lfeTag))))
       }
 
