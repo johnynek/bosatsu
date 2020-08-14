@@ -35,10 +35,21 @@ object Code {
         case notBlock => NonEmptyList(notBlock, Nil)
       }
 
-    def +:(stmt: Statement): Block =
-      Block(stmt :: statements)
-    def :+(stmt: Statement): Block =
-      Block(statements :+ stmt)
+    def +:(stmt: Statement): Statement =
+      stmt match {
+        case Pass => this
+        case _ =>
+          if (this == Pass) stmt
+          else Block(stmt :: statements)
+      }
+
+    def :+(stmt: Statement): Statement =
+      stmt match {
+        case Pass => this
+        case _ =>
+          if (this == Pass) stmt
+          else Block(statements :+ stmt)
+      }
   }
 
   private def par(d: Doc): Doc =

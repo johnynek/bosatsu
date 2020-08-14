@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.{PackageName, Identifier, Matchless, RecursionKind, Par}
+import org.bykn.bosatsu.{PackageName, Identifier, Matchless, RecursionKind, Par, Parser}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import scala.concurrent.ExecutionContext
@@ -81,7 +81,7 @@ object PythonGen {
             case Some(alias) => (this, alias)
             case None =>
               val impNumber = imports.size
-              val alias = Code.Ident(escapeRaw("___i", mod.last + impNumber.toString))
+              val alias = Code.Ident(escapeRaw("___i", mod.last.name + impNumber.toString))
               (copy(imports = imports.updated(mod, alias)), alias)
           }
 
@@ -128,7 +128,7 @@ object PythonGen {
 
       val impDocs = Doc.intercalate(Doc.hardLine, imps.map(Code.toDoc))
       val twoLines = Doc.hardLine + Doc.hardLine
-      Doc.intercalate(Doc.hardLine, impDocs :: stmts.map(Code.toDoc))
+      Doc.intercalate(twoLines, impDocs :: stmts.map(Code.toDoc))
     }
 
     // allocate a unique identifier for b
@@ -448,6 +448,35 @@ object PythonGen {
     } yield stmt
   }
 
+  // parses a nested map with
+  //
+  // { packageName: { bind: foo.bar.baz } }
+  //
+  val externalParser: fastparse.all.P[List[(PackageName, Bindable, Module, Code.Ident)]] = {
+    import fastparse.all._
+
+    val identParser: P[Code.Ident] = Parser.py2Ident.map(Code.Ident(_))
+    val modParser: P[(Module, Code.Ident)] =
+      identParser
+        .rep(sep = P("."), min = 2)
+        .map { items =>
+          // min = 1 ensures this is safe
+          (NonEmptyList.fromListUnsafe(items.init.toList), items.last)
+        }
+
+    val inner: P[List[(Bindable, (Module, Code.Ident))]] =
+      Parser.dictLikeParser(Identifier.bindableParser, modParser)
+
+    val outer: P[List[(PackageName, List[(Bindable, (Module, Code.Ident))])]] =
+      Parser.dictLikeParser(PackageName.parser, inner) ~ Parser.maybeSpacesAndLines
+
+    outer.map { items =>
+      items.flatMap { case (p, bs) =>
+        bs.map { case (b, (m, i)) => (p, b, m, i) }
+      }
+    }
+  }
+
   // compile a set of packages given a set of external remappings
   def renderAll(pm: Map[PackageName, List[(Bindable, Expr)]], externals: Map[(PackageName, Bindable), (Module, Code.Ident)])(implicit ec: ExecutionContext): Map[PackageName, (Module, Doc)] = {
     val externalRemap: (PackageName, Bindable) => Env[Option[ValueLike]] =
@@ -634,7 +663,7 @@ object PythonGen {
           case Lambda(_, arg, res) =>
             // python closures work the same so we don't
             // need to worry about what we capture
-            (Env.bind(arg), loop(expr)).mapN { (arg, res) =>
+            (Env.bind(arg), loop(res)).mapN { (arg, res) =>
               res match {
                 case x: Expression =>
                   Monad[Env].pure(Code.Lambda(arg :: Nil, x))

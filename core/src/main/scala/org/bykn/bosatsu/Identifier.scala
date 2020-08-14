@@ -117,22 +117,10 @@ object Identifier {
     unsafeParse(bindableParser, str)
 
   def optionParse[A](pa: P[A], str: String): Option[A] =
-    pa.parse(str) match {
-      case Parsed.Success(ident, idx) if idx == str.length =>
-        Some(ident)
-      case _ =>
-        None
-    }
+    Parser.optionParse(pa, str)
 
   def unsafeParse[A](pa: P[A], str: String): A =
-    pa.parse(str) match {
-      case Parsed.Success(ident, idx) if idx == str.length =>
-        ident
-      case Parsed.Success(_, idx) =>
-        sys.error(s"partial parse of $str ignores: ${str.substring(idx)}")
-      case Parsed.Failure(exp, idx, extra) =>
-        sys.error(s"failed to parse: $str: $exp at $idx: (${str.substring(idx)}) with trace: ${extra.traced.trace}")
-    }
+    Parser.unsafeParse(pa, str)
 
   implicit def order[A <: Identifier]: Order[A] =
     Order.by[A, String](_.asString)
