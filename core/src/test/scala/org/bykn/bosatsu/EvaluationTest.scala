@@ -350,10 +350,9 @@ main = 6.mod_Int(4)
 package Foo
 
 main = match 6.div(4):
-  Some(0): 42
-  Some(1): 100
-  Some(x): x
-  None: -1
+  0: 42
+  1: 100
+  x: x
 """), "Foo", VInt(100))
 
     evalTest(
