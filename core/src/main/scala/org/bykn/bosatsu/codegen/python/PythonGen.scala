@@ -1,9 +1,10 @@
 package org.bykn.bosatsu.codegen.python
 
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.{PackageName, PackageMap, Identifier, Matchless, RecursionKind}
+import org.bykn.bosatsu.{PackageName, Identifier, Matchless, RecursionKind, Par}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
+import scala.concurrent.ExecutionContext
 
 import Identifier.Bindable
 import Matchless._
@@ -12,6 +13,8 @@ import cats.implicits._
 
 object PythonGen {
   import Code.{ValueLike, Statement, Expression}
+
+  type Module = NonEmptyList[Code.Ident]
 
   sealed abstract class Env[+A]
   object Env {
@@ -34,7 +37,7 @@ object PythonGen {
     private object Impl {
 
       case class EnvState(
-        imports: Map[NonEmptyList[String], (List[Code.Ident], Code.Ident)],
+        imports: Map[Module, Code.Ident],
         bindings: Map[Bindable, (Int, List[Code.Ident])],
         tops: Set[Bindable],
         nextTmp: Long) {
@@ -73,21 +76,20 @@ object PythonGen {
         def topLevel(b: Bindable): (EnvState, Code.Ident) =
           (copy(tops = tops + b), escape(b))
 
-        def addImport(parts: NonEmptyList[String]): (EnvState, Code.Ident) =
-          imports.get(parts) match {
-            case Some((_, alias)) => (this, alias)
+        def addImport(mod: Module): (EnvState, Code.Ident) =
+          imports.get(mod) match {
+            case Some(alias) => (this, alias)
             case None =>
               val impNumber = imports.size
-              val alias = Code.Ident(escapeRaw("___m", parts.last + impNumber.toString))
-              val filePath = packageToFile(parts)
-              (copy(imports = imports.updated(parts, (filePath, alias))), alias)
+              val alias = Code.Ident(escapeRaw("___i", mod.last + impNumber.toString))
+              (copy(imports = imports.updated(mod, alias)), alias)
           }
 
         def importStatements: List[Code.Import] =
           imports
             .iterator
-            .map { case (_, (path, alias)) =>
-              val modName = path.map(_.name).mkString(".")
+            .map { case (path, alias) =>
+              val modName = path.map(_.name).toList.mkString(".")
               Code.Import(modName, Some(alias))
             }
             .toList
@@ -147,6 +149,7 @@ object PythonGen {
 
     def nameForAnon(long: Long): Env[Code.Ident] =
       Monad[Env].pure(Code.Ident(s"___a$long"))
+
     def newAssignableVar: Env[Code.Ident] =
       Impl.env(_.getNextTmp)
         .map { long =>
@@ -154,9 +157,12 @@ object PythonGen {
         }
 
     def importPackage(pack: PackageName): Env[Code.Ident] =
-      importDirect(pack.parts)
+      importEscape(pack.parts)
 
-    def importDirect(parts: NonEmptyList[String]): Env[Code.Ident] =
+    def importEscape(parts: NonEmptyList[String]): Env[Code.Ident] =
+      importLiteral(parts.map(escapeModule))
+
+    def importLiteral(parts: NonEmptyList[Code.Ident]): Env[Code.Ident] =
       Impl.env(_.addImport(parts))
 
     // top level names are imported across files so they have
@@ -310,6 +316,7 @@ object PythonGen {
   private def toBase62(c: Char): String =
 
     if (base62Items(c)) c.toString
+    else if (c == '_') "__"
     else {
       def toChar(i0: Int): Char =
         if (i0 < 0) sys.error(s"invalid in: $i0")
@@ -341,10 +348,17 @@ object PythonGen {
       val c = str.charAt(idx)
       idx += 1
       if (c == '_') {
-        // done
-        val numC = num.toChar
-        bldr.append(numC)
-        return (idx - offset)
+        if (idx != offset + 1) {
+          // done
+          val numC = num.toChar
+          bldr.append(numC)
+          return (idx - offset)
+        }
+        else {
+          // "__" decodes to "_"
+          bldr.append('_')
+          return (idx - offset)
+        }
       }
       else {
         val base =
@@ -362,6 +376,12 @@ object PythonGen {
   // we use other ___x escapes for different name spaces, e.g. tmps, and anons
   // then we escape _ by __ and any character outside the allowed
   // range by _base 62_
+  // ___t: tmp
+  // ___a anons
+  // ___n: name
+  // ___m: modules
+  // ___i: import alias
+  // ___b: shadowable (internal) names
   def escape(n: Bindable): Code.Ident = {
     val str = n.sourceCodeRepr
     if (!str.startsWith("___") && Code.python2Name.matcher(str).matches && !Code.pyKeywordList(str)) Code.Ident(str)
@@ -370,6 +390,15 @@ object PythonGen {
       Code.Ident(escapeRaw("___n", str))
     }
   }
+
+  def escapeModule(str: String): Code.Ident = {
+    if (!str.startsWith("___") && Code.python2Name.matcher(str).matches && !Code.pyKeywordList(str)) Code.Ident(str)
+    else {
+      // we need to escape
+      Code.Ident(escapeRaw("___m", str))
+    }
+  }
+
   def unescape(ident: Code.Ident): Option[Bindable] = {
     val str = ident.name
     val decode =
@@ -404,8 +433,8 @@ object PythonGen {
   // at foo/bar/baz.py
   //
   // relative to some base
-  def packageToFile(parts: NonEmptyList[String]): List[Code.Ident] =
-    parts.map { s => Code.Ident(escapeRaw("___f", s)) }.toList
+  def packageToFile(parts: NonEmptyList[String]): Module =
+    parts.map(escapeModule)
 
   /**
    * Remap is used to handle remapping external values
@@ -420,7 +449,33 @@ object PythonGen {
   }
 
   // compile a set of packages given a set of external remappings
-  def compile[A](pm: PackageMap.Typed[A], externals: Map[(PackageName, Bindable), (NonEmptyList[String], String)]) = ???
+  def renderAll(pm: Map[PackageName, List[(Bindable, Expr)]], externals: Map[(PackageName, Bindable), (Module, Code.Ident)])(implicit ec: ExecutionContext): Map[PackageName, (Module, Doc)] = {
+    val externalRemap: (PackageName, Bindable) => Env[Option[ValueLike]] =
+      { (p, b) =>
+        externals.get((p, b)) match {
+          case None => Monad[Env].pure(None)
+          case Some((m, i)) =>
+            Env.importLiteral(m)
+              .map { alias => Some(Code.DotSelect(alias, i)) }
+        }
+      }
+
+    val all = pm
+      .toList
+      .traverse { case (p, lets) =>
+        Par.start {
+          val stmts =
+            lets
+              .traverse { case (b, x) =>
+                apply(p, b, x)(externalRemap)
+              }
+          val modName = p.parts.map(escapeModule)
+          (p, (modName, Env.render(stmts)))
+        }
+      }
+
+    Par.await(all).toMap
+  }
 
   private object Impl {
     class Ops(packName: PackageName, remap: (PackageName, Bindable) => Env[Option[ValueLike]]) {
