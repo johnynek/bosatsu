@@ -59,7 +59,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   final def run(args: List[String]): Either[Help, IO[Output]] =
     MainCommand.command
       .parse(args.toList)
-      .map(_.run)
+      .map(_.run.widen)
 
   sealed abstract class Output
   object Output {
@@ -70,7 +70,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   }
 
   sealed abstract class MainCommand {
-    def run: IO[Output]
+    type Result <: Output
+    def run: IO[Result]
   }
 
   object MainCommand {
@@ -403,6 +404,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
 
+      type Result = Output.EvaluationResult
+
       def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] =
         for {
           ins <- inputs.read
@@ -444,7 +447,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                   }
         } yield out
 
-      def run = runEval.map(_._2: Output)
+      def run = runEval.map(_._2)
     }
 
     case class ToJson(
@@ -455,6 +458,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       outputOpt: Option[Path],
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
+
+      type Result = Output.JsonOutput
 
       private def showError[A](prefix: String, str: String, idx: Int): IO[A] = {
         val errMsg0 = str.substring(idx + 1)
@@ -500,9 +505,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
               moduleIOMonad.raiseError(new Exception(s"cannot convert type to Json: $tpeStr"))
             }
 
-            def process[F[_]: Traverse](io: IO[String], extract: Json => IO[F[Json]], inject: F[Json] => Json): IO[Output] =
+            def process[F[_]: Traverse](io: IO[String], extract: Json => IO[F[Json]], inject: F[Json] => Json): IO[Output.JsonOutput] =
               v2j.valueFnToJsonFn(res.tpe) match {
-                case Left(unsup) => unsupported[Output](res.tpe, unsup)
+                case Left(unsup) => unsupported(res.tpe, unsup)
                 case Right((arity, fnGen)) =>
                   fnGen(res.value.value) match {
                     case Right(fn) =>
@@ -522,7 +527,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                           }
                         }
                         .map { fjson =>
-                          Output.JsonOutput(inject(fjson), outputOpt): Output
+                          Output.JsonOutput(inject(fjson), outputOpt)
                         }
                     case Left(valueError) =>
                       // shouldn't happen since value should be well typed
@@ -565,6 +570,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       ifout: Option[Path],
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
+
+    type Result = Output.CompileOut
+
     def run =
         for {
           ins <- inputs.read
@@ -591,6 +599,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       dependencies: PathGen,
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
+
+      type Result = Output.TestOutput
 
       def run =
         tests.read
