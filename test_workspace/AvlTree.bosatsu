@@ -231,9 +231,7 @@ def size_tests:
 
 def log2(i):
      int_loop(i, 0, \n, cnt ->
-        rr = match n.div(2):
-             None: 0
-             Some(n): n
+        rr = n.div(2)
         (rr, cnt.add(1)))
 
 def all_n(n): range(n).foldLeft(Empty)(add_i)
