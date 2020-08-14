@@ -105,7 +105,7 @@ external struct Int
 external def add(a: Int, b: Int) -> Int
 external def sub(a: Int, b: Int) -> Int
 external def times(a: Int, b: Int) -> Int
-external def div(a: Int, b: Int) -> Option[Int]
+external def div(a: Int, b: Int) -> Int
 external def eq_Int(a: Int, b: Int) -> Bool
 external def gcd_Int(a: Int, b: Int) -> Int
 external def cmp_Int(a: Int, b: Int) -> Comparison
