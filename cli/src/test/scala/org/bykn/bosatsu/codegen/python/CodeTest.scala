@@ -142,4 +142,36 @@ class CodeTest extends FunSuite {
       assertParse(str)
     }
   }
+
+  test("test bug with IfElse") {
+    import Code._
+
+    val ifElse = IfElse(NonEmptyList.of((Literal("a"), Literal("b"))), Literal("c"))
+    val stmt = addAssign(Ident("bar"), ifElse)
+
+    assert(toDoc(stmt).renderTrim(80) == """if a:
+    bar = b
+else:
+    bar = c""")
+  }
+
+  test("test some Operator examples") {
+    import Code._
+
+    val apbpc = Op(Literal("a"), Const.Plus, Op(Literal("b"), Const.Plus, Literal("c")))
+
+    assert(toDoc(apbpc).renderTrim(80) == """a + b + c""")
+
+    val apbmc = Op(Literal("a"), Const.Plus, Op(Literal("b"), Const.Minus, Literal("c")))
+
+    assert(toDoc(apbmc).renderTrim(80) == """a + b - c""")
+
+    val ambmc = Op(Literal("a"), Const.Minus, Op(Literal("b"), Const.Minus, Literal("c")))
+
+    assert(toDoc(ambmc).renderTrim(80) == """a - (b - c)""")
+
+    val amzmbmc = Op(Op(Literal("a"), Const.Minus, Literal("z")), Const.Minus, Op(Literal("b"), Const.Minus, Literal("c")))
+
+    assert(toDoc(amzmbmc).renderTrim(80) == """(a - z) - (b - c)""")
+  }
 }
