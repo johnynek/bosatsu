@@ -202,10 +202,13 @@ object LetFreeConversion {
   def listAsStructList(lst: List[LetFreeExpression]): LetFreeExpression =
     lst.foldRight(LetFreeExpression.Struct(0, Nil)) { case (lfe, acc) => LetFreeExpression.Struct(1, List(lfe, acc)) }
 
-  case class LitValue(toAny: Any)
+  def litToAny(lit: Lit): Any = lit match {
+    case Lit.Integer(i) => i
+    case Lit.Str(s) => s
+  }
 
-  implicit val neToLitValue: LetFreeExpression => Option[LitValue] = {
-    case LetFreeExpression.Literal(lit) => Some(LitValue(lit.toAny))
+  implicit val neToLitValue: LetFreeExpression => Option[Lit] = {
+    case LetFreeExpression.Literal(lit) => Some(lit)
     case _ => None
   }
   implicit val neToStruct: LetFreeExpression => Option[(Int, List[LetFreeExpression])] = {
@@ -216,7 +219,7 @@ object LetFreeConversion {
   implicit val neFromList: List[LetFreeExpression] => LetFreeExpression = listAsStructList(_)
 
   def maybeBind[T](pat: LetFreePattern)(implicit
-    toLitValue: T => Option[LitValue],
+    toLitValue: T => Option[Lit],
     toStruct: T => Option[(Int, List[T])],
     toList: T => Option[List[T]],
     fromList: List[T] => T,
@@ -225,7 +228,7 @@ object LetFreeConversion {
       case LetFreePattern.WildCard => noop
       case LetFreePattern.Literal(lit) =>
         { (v, env) => toLitValue(v) match {
-          case Some(LitValue(v)) => if (v == lit.toAny) Matches(env) else NoMatch
+          case Some(v) => if (v == lit) Matches(env) else NoMatch
           case _ => NotProvable
         }}
       case LetFreePattern.Var(n) =>
