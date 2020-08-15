@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
 import cats.data.NonEmptyList
+import java.math.BigInteger
 import org.bykn.bosatsu.{Lit, StringUtil}
 import org.typelevel.paiges.Doc
 
@@ -46,7 +47,7 @@ object Code {
 
   private def maybePar(c: Code): Doc =
     c match {
-      case DotSelect(_, _) | Literal(_) | PyString(_) | Ident(_) | Parens(_) | MakeTuple(_) => toDoc(c)
+      case DotSelect(_, _) | Literal(_) | PyInt(_) | PyString(_) | Ident(_) | Parens(_) | MakeTuple(_) => toDoc(c)
       case _ => par(toDoc(c))
     }
 
@@ -56,10 +57,10 @@ object Code {
   def toDoc(c: Code): Doc =
     c match {
       case Literal(s) => Doc.text(s)
+      case PyInt(bi) => Doc.text(bi.toString)
       case PyString(s) => Doc.char('"') + Doc.text(StringUtil.escape('"', s)) + Doc.char('"')
       case Ident(i) => Doc.text(i)
-      case Op(left, on, right) =>
-        par(maybePar(left) + Doc.space + Doc.text(on) + Doc.space + maybePar(right))
+      case o@Op(_, _, _) => o.toDoc
       case Parens(inner@Parens(_)) => toDoc(inner)
       case Parens(p) => par(toDoc(p))
       case SelectItem(x, i) =>
@@ -112,10 +113,50 @@ object Code {
 
   // True, False, None, numbers
   case class Literal(asString: String) extends Expression
+  case class PyInt(toBigInteger: BigInteger) extends Expression
   case class PyString(content: String) extends Expression
   case class Ident(name: String) extends Dotable // a kind of expression
   // Binary operator used for +, -, and, == etc...
-  case class Op(left: Expression, name: String, right: Expression) extends Expression
+  case class Op(left: Expression, op: Operator, right: Expression) extends Expression {
+    // operators like + can associate
+    //
+    def toDoc: Doc = {
+      def loop(left: Expression, rights: NonEmptyList[(Operator, Expression)]): Doc =
+        // a op1 b op2 c if op1 and op2 associate no need for a parens
+        // left match {
+        //   case Op(_,
+        // par(maybePar(left) + Doc.space + Doc.text(on.name) + Doc.space + maybePar(right))
+        left match {
+          case Op(l1, o1, r1) =>
+            if (o1.associates(rights.head._1)) loop(l1, (o1, r1) :: rights)
+            else loop(Parens(left), rights)
+          case leftNotOp =>
+            rights.head match {
+              case (ol, Op(r1, o2, r2)) =>
+                loop(left, NonEmptyList((ol, r1), (o2, r2) :: rights.tail))
+              case (ol, rightNotOp) =>
+                rights.tail match {
+                  case Nil =>
+                    maybePar(leftNotOp) + Doc.space + Doc.text(ol.name) + Doc.space + maybePar(rightNotOp)
+                  case (o2, r2) :: rest =>
+                    val leftDoc = maybePar(leftNotOp) + Doc.space + Doc.text(ol.name) + Doc.space
+                    if (ol.associates(o2)) {
+                      leftDoc + loop(rightNotOp, NonEmptyList((o2, r2), rest))
+                    }
+                    else {
+                      // we need to put a parens ending after rightNotOp
+                      // leftNotOp ol (rightNotOp o2 r2 :: rest)
+                      leftDoc + par(loop(rightNotOp, NonEmptyList((o2, r2), rest)))
+                    }
+                }
+
+            }
+        }
+
+      loop(left, NonEmptyList((op, right), Nil))
+    }
+  }
+
   case class Parens(expr: Expression) extends Expression
   case class SelectItem(arg: Expression, position: Int) extends Expression
   case class MakeTuple(args: List[Expression]) extends Expression
@@ -160,7 +201,7 @@ object Code {
       case IfElse(conds, elseCond) =>
         IfStatement(
           conds.map { case (b, v) =>
-            (b, addAssign(variable, b))
+            (b, addAssign(variable, v))
           },
           Some(addAssign(variable, elseCond))
         )
@@ -188,24 +229,37 @@ object Code {
   def litToExpr(lit: Lit): Expression =
     lit match {
       case Lit.Str(s) => PyString(s)
-      case Lit.Integer(bi) => Literal(bi.toString)
+      case Lit.Integer(bi) => PyInt(bi)
     }
 
   def fromInt(i: Int): Expression =
     if (i == 0) Const.Zero
     else if (i == 1) Const.One
-    else Literal(i.toString)
+    else PyInt(BigInteger.valueOf(i.toLong))
 
+  sealed abstract class Operator(val name: String) {
+    def associates(that: Operator): Boolean = {
+      // true if (a this b) that c == a this (b that c)
+      this match {
+        case Const.Plus => (that == Const.Plus) || (that == Const.Minus)
+        case Const.Minus => false
+        case Const.And => that == Const.And
+        case _ => false
+      }
+    }
+  }
   object Const {
+    case object Plus extends Operator("+")
+    case object Minus extends Operator("-")
+    case object And extends Operator("and")
+    case object Eq extends Operator("==")
+    case object Gt extends Operator(">")
+
     val True = Literal("True")
     val False = Literal("False")
-    val Zero = Literal("0")
-    val One = Literal("1")
-    val Minus = "-"
-    val Plus = "+"
-    val And = "and"
-    val Eq = "=="
-    val Gt = ">"
+
+    val Zero = PyInt(BigInteger.ZERO)
+    val One = PyInt(BigInteger.ONE)
   }
 
   val python2Name: java.util.regex.Pattern =
