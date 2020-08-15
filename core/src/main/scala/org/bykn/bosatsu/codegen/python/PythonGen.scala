@@ -247,26 +247,14 @@ object PythonGen {
           throw new IllegalStateException(s"expected list to have size 2: $other")
       }
 
-    def toReturn(v: ValueLike): Env[Statement] =
-      v match {
-        case x: Expression =>
-          Monad[Env].pure(Code.Return(x))
-        case WithValue(stmt, v) =>
-          toReturn(v).map(stmt :+ _)
-        case ie@IfElse(_, _) =>
-          Env.newAssignableVar.map { resName =>
-            Code.addAssign(resName, ie) :+ Code.Return(resName)
-          }
-      }
-
-    def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Env[Code.Def] =
-      toReturn(v).map(Code.Def(defName, arg :: Nil, _))
+    def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Code.Def =
+      Code.Def(defName, arg :: Nil, toReturn(v))
 
     def makeCurriedDef(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] =
       args match {
         case NonEmptyList(a, Nil) =>
           //  base case
-          makeDef(name, a, body)
+          Monad[Env].pure(makeDef(name, a, body))
         case NonEmptyList(a, h :: t) =>
           for {
             newName <- Env.newAssignableVar
@@ -549,20 +537,52 @@ object PythonGen {
     object PredefExternal {
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
-          Identifier.unsafeBindable("add") -> {
+          (Identifier.unsafeBindable("add"),
+            (
+              input => (Env.onLasts(input) {
+                case arg0 :: arg1 :: Nil => arg0.evalPlus(arg1)
+                case other => throw new IllegalStateException(s"expected arity 2 got: $other")
+              })
+            , 2)),
+          (Identifier.unsafeBindable("sub"),
             ({
               input => Env.onLasts(input) {
-                case arg0 :: arg1 :: Nil => Code.Op(arg0, Code.Const.Plus, arg1)
+                case arg0 :: arg1 :: Nil => arg0.evalMinus(arg1)
                 case other => throw new IllegalStateException(s"expected arity 2 got: $other")
               }
-            }, 2)
-          })
+            } , 2)),
+          (Identifier.unsafeBindable("times"),
+            ({
+              input => Env.onLasts(input) {
+                case arg0 :: arg1 :: Nil =>
+                  arg0.evalTimes(arg1)
+                case other => throw new IllegalStateException(s"expected arity 2 got: $other")
+              }
+            }, 2))
+          )
 
       def unapply(expr: Expr): Option[(List[ValueLike] => Env[ValueLike], Int)] =
         expr match {
           case Global(PackageName.PredefName, name) => results.get(name)
           case _ => None
         }
+
+      def makeLambda(arity: Int)(fn: List[ValueLike] => Env[ValueLike]): Env[ValueLike] =
+        if (arity <= 0) fn(Nil)
+        else if (arity == 1)
+          for {
+            arg <- Env.newAssignableVar
+            body <- fn(arg :: Nil)
+            res <- Env.onLast(body)(Code.Lambda(arg :: Nil, _))
+          } yield res
+        else {
+          for {
+            arg <- Env.newAssignableVar
+            body <- makeLambda(arity - 1) { args => fn(arg :: args) }
+            res <- Env.onLast(body)(Code.Lambda(arg :: Nil, _))
+          } yield res
+        }
+
     }
 
     class Ops(packName: PackageName, remap: (PackageName, Bindable) => Env[Option[ValueLike]]) {
@@ -590,7 +610,7 @@ object PythonGen {
             case ZeroNat =>
               Monad[Env].pure(Code.Const.Zero)
             case SuccNat =>
-              Env.onLast(args.head)(Code.Op(_, Code.Const.Plus, Code.Const.One))
+              Env.onLast(args.head)(_.evalPlus(Code.Const.One))
           }
 
         val sz = args.size
@@ -672,7 +692,8 @@ object PythonGen {
             case ex: Expression =>
               Monad[Env].pure(Code.Assign(name, ex))
             case _ =>
-              (Env.newAssignableVar, Env.toReturn(v)).mapN { (defName, body) =>
+              Env.newAssignableVar.map { defName =>
+                val body = Code.toReturn(v)
                 val newDef = Code.Def(defName, Nil, body)
 
                 newDef :+ Code.Assign(name, Code.Apply(defName, Nil))
@@ -709,7 +730,7 @@ object PythonGen {
             (Env.bind(arg), loop(body))
               .mapN(Env.makeDef(name, _, _))
               .flatMap { d =>
-                d <* Env.unbind(arg)
+                Env.unbind(arg).as(d)
               }
           case Let(Right((n, RecursionKind.Recursive)), Lambda(_, arg, body), Local(n2)) if n == n2 =>
             if (escape(n) == name) {
@@ -719,7 +740,7 @@ object PythonGen {
                 _ <- Env.bindTop(n)
                 arg1 <- Env.bind(arg)
                 body1 <- loop(body)
-                def1 <- Env.makeDef(name, arg1, body1)
+                def1 = Env.makeDef(name, arg1, body1)
                 _ <- Env.unbind(arg)
                 _ <- Env.unbind(n)
               } yield def1
@@ -744,7 +765,7 @@ object PythonGen {
                 case v =>
                   for {
                     defName <- Env.newAssignableVar
-                    defn <- Env.makeDef(defName, arg, v)
+                    defn = Env.makeDef(defName, arg, v)
                   } yield Code.WithValue(defn, defName)
               }
             }
@@ -779,7 +800,7 @@ object PythonGen {
 
           case PredefExternal((fn, arity)) =>
             // make a lambda
-            ???
+            PredefExternal.makeLambda(arity)(fn)
           case Global(p, n) =>
             remap(p, n)
               .flatMap {
@@ -915,7 +936,7 @@ object PythonGen {
           case PrevNat(expr) =>
             // Nats are just integers
             loop(expr).flatMap { nat =>
-              Env.onLast(nat)(Code.Op(_, Code.Const.Minus, Code.Const.One))
+              Env.onLast(nat)(_.evalMinus(Code.Const.One))
             }
           case cons: ConsExpr => makeCons(cons, Nil)
         }

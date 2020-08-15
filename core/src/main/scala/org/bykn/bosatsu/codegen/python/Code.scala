@@ -24,6 +24,51 @@ object Code {
         case i: Code.Ident => i
         case p => Code.Parens(p)
       }
+
+    def evalPlus(that: Expression): Expression =
+      (this, that) match {
+        case (Code.PyInt(a), Code.PyInt(b)) =>
+          Code.PyInt(a.add(b))
+        case (Code.PyInt(a), Code.Op(b, Code.Const.Plus, Code.PyInt(c))) =>
+          b.evalPlus(Code.PyInt(a.add(c)))
+        case (Code.Op(b, Code.Const.Plus, Code.PyInt(c)), Code.PyInt(a)) =>
+          b.evalPlus(Code.PyInt(c.add(a)))
+        case (Code.Op(a1, Code.Const.Plus, Code.PyInt(a2)), Code.Op(b1, Code.Const.Plus, Code.PyInt(b2))) =>
+          a1.evalPlus(b1.evalPlus(Code.PyInt(a2.add(b2))))
+        case (_, _) =>
+          // TODO, this could also optimize when we have Minus
+          Code.Op(this, Code.Const.Plus, that)
+      }
+
+    def evalMinus(that: Expression): Expression =
+      (this, that) match {
+        case (Code.PyInt(a), Code.PyInt(b)) =>
+          Code.PyInt(a.subtract(b))
+        case (Code.PyInt(a), Code.Op(b, Code.Const.Minus, Code.PyInt(c))) =>
+          b.evalMinus(Code.PyInt(a.subtract(c)))
+        case (Code.Op(b, Code.Const.Minus, Code.PyInt(c)), Code.PyInt(a)) =>
+          b.evalPlus(Code.PyInt(a.subtract(c)))
+        case (Code.Op(a1, Code.Const.Minus, Code.PyInt(a2)), Code.Op(b1, Code.Const.Minus, Code.PyInt(b2))) =>
+          a1.evalMinus(b1).evalMinus(Code.PyInt(b2.subtract(a2)))
+        case (_, _) =>
+          // TODO, this could also optimize when we have Plus
+          Code.Op(this, Code.Const.Minus, that)
+      }
+
+    def evalTimes(that: Expression): Expression =
+      (this, that) match {
+        case (Code.PyInt(a), Code.PyInt(b)) =>
+          Code.PyInt(a.multiply(b))
+        case (Code.PyInt(a), Code.Op(b, Code.Const.Times, Code.PyInt(c))) =>
+          b.evalTimes(Code.PyInt(a.multiply(c)))
+        case (Code.Op(b, Code.Const.Times, Code.PyInt(c)), Code.PyInt(a)) =>
+          b.evalTimes(Code.PyInt(c.multiply(a)))
+        case (Code.Op(a1, Code.Const.Times, Code.PyInt(a2)), Code.Op(b1, Code.Const.Times, Code.PyInt(b2))) =>
+          a1.evalTimes(b1.evalTimes(Code.PyInt(a2.multiply(b2))))
+        case (_, _) =>
+          // TODO, this could also optimize when we have Minus
+          Code.Op(this, Code.Const.Times, that)
+      }
   }
 
   // something we can a . after
@@ -229,6 +274,20 @@ object Code {
         )
     }
 
+  def toReturn(v: ValueLike): Statement =
+    v match {
+      case x: Expression => Code.Return(x)
+      case WithValue(stmt, v) =>
+        stmt :+ toReturn(v)
+      case ie@IfElse(conds, elseCond) =>
+        IfStatement(
+          conds.map { case (c, v) =>
+            (c, toReturn(v))
+          },
+          Some(toReturn(elseCond)))
+    }
+
+
   // boolean expressions can contain side effects
   // this runs the side effects but discards
   // and resulting value
@@ -266,6 +325,10 @@ object Code {
         case Const.Plus => (that == Const.Plus) || (that == Const.Minus)
         case Const.Minus => false
         case Const.And => that == Const.And
+        case Const.Times =>
+          // (a * b) * c == a * (b * c)
+          // (a * b) + c != a * (b + c)
+          (that == Const.Times)
         case _ => false
       }
     }
@@ -273,6 +336,7 @@ object Code {
   object Const {
     case object Plus extends Operator("+")
     case object Minus extends Operator("-")
+    case object Times extends Operator("*")
     case object And extends Operator("and")
     case object Eq extends Operator("==")
     case object Gt extends Operator(">")
