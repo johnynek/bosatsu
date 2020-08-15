@@ -42,26 +42,36 @@ object PythonGen {
         tops: Set[Bindable],
         nextTmp: Long) {
 
-        def bind(b: Bindable): (EnvState, Code.Ident) = {
+        private def bindInc(b: Bindable, inc: Int)(fn: Int => Code.Ident): (EnvState, Code.Ident) = {
           val (c, s) = bindings.getOrElse(b, (0, Nil))
-          val pname = Code.Ident(escapeRaw("___b", b.sourceCodeRepr + c.toString))
+          val pname = fn(c)
 
           (copy(
-            bindings = bindings.updated(b, (c + 1, pname :: s))
+            bindings = bindings.updated(b, (c + inc, pname :: s))
           ), pname)
         }
 
-        def bindTop(b: Bindable): EnvState = {
-          val (c, s) = bindings.getOrElse(b, (0, Nil))
-          val escaped = escape(b)
-          copy(bindings =
-            bindings.updated(b, (c, escaped :: s)))
-        }
+        def bind(b: Bindable): (EnvState, Code.Ident) =
+          bindInc(b, 1) { c =>
+            Code.Ident(escapeRaw("___b", b.sourceCodeRepr + c.toString))
+          }
+
+        def bindTop(b: Bindable): EnvState =
+          subs(b, escape(b))
+
+        // in loops we need to substitute
+        // bindings for mutable variables
+        def subs(b: Bindable, c: Code.Ident): EnvState =
+          bindInc(b, 0)(_ => c)._1
 
         def deref(b: Bindable): Code.Ident =
           // see if we are shadowing, or top level
-          if (tops(b)) escape(b)
-          else bindings(b)._2.head
+          bindings.get(b) match {
+            case Some((_, h :: _)) => h
+            case _ if tops(b) => escape(b)
+            case other =>
+              throw new IllegalStateException(s"unexpected deref: $b with bindings: $other")
+          }
 
         def unbind(b: Bindable): EnvState =
           bindings.get(b) match {
@@ -138,6 +148,9 @@ object PythonGen {
     // point this name to the top level name
     def bindTop(b: Bindable): Env[Unit] =
       Impl.update(_.bindTop(b))
+
+    def subs(b: Bindable, i: Code.Ident): Env[Unit] =
+      Impl.update(_.subs(b, i))
 
     // get the mapping for a name in scope
     def deref(b: Bindable): Env[Code.Ident] =
@@ -234,13 +247,20 @@ object PythonGen {
           throw new IllegalStateException(s"expected list to have size 2: $other")
       }
 
-    def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Env[Code.Def] =
-      Env.newAssignableVar.map { resName =>
-        Code.Def(defName, arg :: Nil,
-          Code.addAssign(resName, v) :+
-            Code.Return(resName)
-          )
+    def toReturn(v: ValueLike): Env[Statement] =
+      v match {
+        case x: Expression =>
+          Monad[Env].pure(Code.Return(x))
+        case WithValue(stmt, v) =>
+          toReturn(v).map(stmt :+ _)
+        case ie@IfElse(_, _) =>
+          Env.newAssignableVar.map { resName =>
+            Code.addAssign(resName, ie) :+ Code.Return(resName)
+          }
       }
+
+    def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Env[Code.Def] =
+      toReturn(v).map(Code.Def(defName, arg :: Nil, _))
 
     def makeCurriedDef(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] =
       args match {
@@ -255,17 +275,27 @@ object PythonGen {
       }
 
 
-    def replaceTailCallWithAssign(name: Ident, args: NonEmptyList[Ident], body: ValueLike, cont: Ident): Env[ValueLike] = {
+    def replaceTailCallWithAssign(name: Ident, argSize: Int, body: ValueLike)(onArgs: List[Expression] => Statement): Env[ValueLike] = {
       val initBody = body
       def loop(body: ValueLike): Env[ValueLike] =
         body match {
-          case Apply(x, as) if x == name && as.length == args.length =>
-            // do the replacement
-            val vs = args.toList.zip(as).map { case (v, x) => Assign(v, x) }
-
-            val all = vs.foldLeft(Assign(cont, Const.True): Statement)(_ +: _)
-            // set all the values and return the empty tuple
-            Monad[Env].pure(WithValue(all, MakeTuple(Nil)))
+          case a@Apply(_, _) =>
+            // we have recurried the args by this point:
+            val (fn0, args0) = a.uncurry
+            if (fn0 == name) {
+              val flatArgs = args0.flatten
+              if (flatArgs.length == argSize) {
+                val all = onArgs(flatArgs)
+                // set all the values and return the empty tuple
+                Monad[Env].pure(WithValue(all, MakeTuple(Nil)))
+              }
+              else {
+                throw new IllegalStateException(s"expected a tailcall for $name in $initBody, but found: $a")
+              }
+            }
+            else {
+              Monad[Env].pure(a)
+            }
           case Parens(p) => loop(p).flatMap(onLast(_)(Parens(_)))
           case IfElse(ifCases, elseCase) =>
             // only the result types are in tail position, we don't need to recurse on conds
@@ -274,15 +304,14 @@ object PythonGen {
           case WithValue(stmt, v) =>
             loop(v).map(WithValue(stmt, _))
           // the rest cannot have a call in the tail position
-          case DotSelect(_, _) | Apply(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectItem(_, _) | Ident(_) | Literal(_) | PyString(_) => Monad[Env].pure(body)
+          case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectItem(_, _) | Ident(_) | Literal(_) | PyString(_) | PyInt(_) => Monad[Env].pure(body)
         }
 
       loop(initBody)
     }
 
     // these are always recursive so we can use def to define them
-    def buildLoop(defName: Ident, selfName: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] = {
-
+    def buildLoop(selfName: Ident, fnMutArgs: NonEmptyList[(Ident, Ident)], body: ValueLike): Env[Statement] = {
       /*
        * bodyUpdate = body except App(foo, args) is replaced with
        * reseting the inputs, and setting cont to True and having
@@ -296,16 +325,25 @@ object PythonGen {
        *     res = bodyUpdate
        *   return res
        */
+      val fnArgs = fnMutArgs.map(_._1)
+      val mutArgs = fnMutArgs.map(_._2)
+
+      def assignMut(cont: Code.Ident)(args: List[Expression]): Statement = {
+        // do the replacement
+        val vs = mutArgs.toList.zip(args).map { case (v, x) => Assign(v, x) }
+        vs.foldLeft(Assign(cont, Const.True): Statement)(_ +: _)
+      }
+
       for {
         cont <- Env.newAssignableVar
-        ac = Assign(cont, Const.True)
+        ac = assignMut(cont)(fnArgs.toList)
         res <- Env.newAssignableVar
         ar = Assign(res, MakeTuple(Nil))
-        body1 <- replaceTailCallWithAssign(selfName, args, body, cont)
+        body1 <- replaceTailCallWithAssign(selfName, mutArgs.length, body)(assignMut(cont))
         setRes = addAssign(res, body1)
         loop = While(cont, Assign(cont, Const.False) +: setRes)
         newBody = WithValue(ac +: ar +: loop, res)
-        curried <- makeCurriedDef(defName, args, newBody)
+        curried <- makeCurriedDef(selfName, fnArgs, newBody)
       } yield curried
     }
 
@@ -507,6 +545,26 @@ object PythonGen {
   }
 
   private object Impl {
+
+    object PredefExternal {
+      val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
+        Map(
+          Identifier.unsafeBindable("add") -> {
+            ({
+              input => Env.onLasts(input) {
+                case arg0 :: arg1 :: Nil => Code.Op(arg0, Code.Const.Plus, arg1)
+                case other => throw new IllegalStateException(s"expected arity 2 got: $other")
+              }
+            }, 2)
+          })
+
+      def unapply(expr: Expr): Option[(List[ValueLike] => Env[ValueLike], Int)] =
+        expr match {
+          case Global(PackageName.PredefName, name) => results.get(name)
+          case _ => None
+        }
+    }
+
     class Ops(packName: PackageName, remap: (PackageName, Bindable) => Env[Option[ValueLike]]) {
       /*
        * enums with no fields are integers
@@ -610,26 +668,42 @@ object PythonGen {
          * name = anonF()
          */
         lazy val worstCase: Env[Statement] =
-          (Env.newAssignableVar, Env.newAssignableVar).mapN { (defName, resName) =>
-            val newDef = Code.Def(defName, Nil,
-              Code.addAssign(resName, v) :+
-                Code.Return(resName)
-              )
+          v match {
+            case ex: Expression =>
+              Monad[Env].pure(Code.Assign(name, ex))
+            case _ =>
+              (Env.newAssignableVar, Env.toReturn(v)).mapN { (defName, body) =>
+                val newDef = Code.Def(defName, Nil, body)
 
-            newDef :+ Code.Assign(name, Code.Apply(defName, Nil))
+                newDef :+ Code.Assign(name, Code.Apply(defName, Nil))
+              }
           }
 
         expr match {
           case l@LoopFn(_, nm, h, t, b) =>
-            Env.bind(nm)
-              .flatMap { selfName =>
-                val args = NonEmptyList(h, t)
-                (args.traverse(Env.bind), loop(b))
-                  .mapN(Env.buildLoop(name, selfName, _, _))
-                  .flatMap { res =>
-                    res <* args.traverse_(Env.unbind)
-                  }
-                }
+            // note, name is already bound
+            val args = NonEmptyList(h, t)
+            val boundA = args.traverse(Env.bind)
+            val subsA = args.traverse { a =>
+              for {
+                mut <- Env.newAssignableVar
+                _ <- Env.subs(a, mut)
+              } yield (a, mut)
+            }
+
+            val unbindA = args.traverse_(Env.unbind)
+
+            for {
+              as <- boundA
+              subs <- subsA
+              subs1 = as.zipWith(subs) { case (b, (_, m)) => (b, m) }
+              body <- loop(b)
+              loopRes <- Env.buildLoop(name, subs1, body)
+              // we have bound this name twice, once for the top and once for substitution
+              _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
+              _ <- unbindA
+            } yield loopRes
+
           case Lambda(caps, arg, body) =>
             // this isn't recursive, or it would be in a Let
             (Env.bind(arg), loop(body))
@@ -676,11 +750,36 @@ object PythonGen {
             }
             .flatMap(_ <* Env.unbind(arg))
           case LoopFn(_, thisName, argshead, argstail, body) =>
+            // note, thisName is already bound because LoopFn
+            // is a lambda, not a def
             // closures capture the same in python, we can ignore captures
-            val allArgs = NonEmptyList(argshead, argstail)
-            (Env.bind(thisName), allArgs.traverse(Env.bind), loop(body))
-              .mapN { (n, args, body) => Env.buildLoop(n, n, args, body).map(Code.WithValue(_, n)) }
-              .flatMap(_ <* allArgs.traverse_(Env.unbind))
+            val args = NonEmptyList(argshead, argstail)
+
+            val boundA = args.traverse(Env.bind)
+            val subsA = args.traverse { a =>
+              for {
+                mut <- Env.newAssignableVar
+                _ <- Env.subs(a, mut)
+              } yield (a, mut)
+            }
+
+            val unbindA = args.traverse_(Env.unbind)
+
+            for {
+              nameI <- Env.deref(thisName)
+              as <- boundA
+              subs <- subsA
+              body <- loop(body)
+              subs1 = as.zipWith(subs) { case (b, (_, m)) => (b, m) }
+              loopRes <- Env.buildLoop(nameI, subs1, body)
+              // we have bound the args twice: once as args, once as interal muts
+              _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
+              _ <- unbindA
+            } yield Code.WithValue(loopRes, nameI)
+
+          case PredefExternal((fn, arity)) =>
+            // make a lambda
+            ???
           case Global(p, n) =>
             remap(p, n)
               .flatMap {
@@ -697,6 +796,11 @@ object PythonGen {
           case Local(b) => Env.deref(b)
           case LocalAnon(a) => Env.nameForAnon(a)
           case LocalAnonMut(m) => Env.nameForAnon(m)
+          case App(PredefExternal((fn, arity)), args) if args.length == arity =>
+            args
+              .toList
+              .traverse(loop)
+              .flatMap(fn)
           case App(cons: ConsExpr, args) =>
             args.traverse(loop).flatMap { pxs => makeCons(cons, pxs.toList) }
           case App(expr, args) =>
@@ -706,8 +810,8 @@ object PythonGen {
                   case fn :: ah :: atail =>
                     // all functions are curried, a future
                     // optimization would improve that
-                    atail.foldLeft(Code.Apply(fn.identOrParens, ah :: Nil)) { (left, arg) =>
-                      Code.Apply(Code.Parens(left), arg :: Nil)
+                    atail.foldLeft(Code.Apply(fn, ah :: Nil)) { (left, arg) =>
+                      Code.Apply(left, arg :: Nil)
                     }
                   case other => throw new IllegalStateException(s"got $other, expected to match $expr")
                 }

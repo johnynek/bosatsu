@@ -56,10 +56,12 @@ object Code {
   private def par(d: Doc): Doc =
     Doc.char('(') + d + Doc.char(')')
 
-  private def maybePar(c: Code): Doc =
+  private def maybePar(c: Expression): Doc =
     c match {
-      case DotSelect(_, _) | Literal(_) | PyInt(_) | PyString(_) | Ident(_) | Parens(_) | MakeTuple(_) => toDoc(c)
-      case _ => par(toDoc(c))
+      case Lambda(_, _) => par(toDoc(c))
+      case _ => toDoc(c)
+      //case Apply(_, _) | DotSelect(_, _) | Literal(_) | PyInt(_) | PyString(_) | Ident(_) | Parens(_) | MakeTuple(_) => toDoc(c)
+      //case _ => par(toDoc(c))
     }
 
   private def iflike(name: String, cond: Doc, body: Doc): Doc =
@@ -172,7 +174,16 @@ object Code {
   case class SelectItem(arg: Expression, position: Int) extends Expression
   case class MakeTuple(args: List[Expression]) extends Expression
   case class Lambda(args: List[Ident], result: Expression) extends Expression
-  case class Apply(fn: Expression, args: List[Expression]) extends Expression
+  case class Apply(fn: Expression, args: List[Expression]) extends Expression {
+    def uncurry: (Expression, List[List[Expression]]) =
+      fn match {
+        case a@Apply(_, _) =>
+          val (fn0, args0) = a.uncurry
+          (fn0, args0 :+ args)
+        case _ =>
+          (fn, args :: Nil)
+      }
+  }
   case class DotSelect(ex: Dotable, ident: Ident) extends Dotable
 
   /////////////////////////
