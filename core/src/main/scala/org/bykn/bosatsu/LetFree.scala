@@ -231,7 +231,7 @@ object LetFreeConversion {
     toLitValue: T => Option[LitValue],
     toStruct: T => Option[(Int, List[T])],
     toList: T => Option[List[T]],
-    fromList: List[T] => T,
+    fromList: List[T] => T
     ): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
     pat match {
       case LetFreePattern.WildCard => noop
