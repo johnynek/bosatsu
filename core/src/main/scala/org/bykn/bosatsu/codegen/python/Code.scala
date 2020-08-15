@@ -25,6 +25,18 @@ object Code {
         case p => Code.Parens(p)
       }
 
+    def evalAnd(that: Expression): Expression =
+      that match {
+        case Const.True => this
+        case Const.False => Const.False
+        case _ =>
+          this match {
+            case Const.True => that
+            case Const.False => Const.False
+            case _ => Op(this, Const.And, that)
+          }
+      }
+
     def evalPlus(that: Expression): Expression =
       (this, that) match {
         case (Code.PyInt(a), Code.PyInt(b)) =>
@@ -340,6 +352,7 @@ object Code {
     case object And extends Operator("and")
     case object Eq extends Operator("==")
     case object Gt extends Operator(">")
+    case object Lt extends Operator("<")
 
     val True = Literal("True")
     val False = Literal("False")

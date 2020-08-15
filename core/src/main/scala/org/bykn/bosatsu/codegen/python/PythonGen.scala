@@ -227,8 +227,9 @@ object PythonGen {
           for {
             // allocate a new unshadowable var
             cv <- Env.newAssignableVar
+            assigned = addAssign(cv, cx)
             res <- ifElse(NonEmptyList((cv, t), rest), elseV)
-          } yield WithValue(addAssign(cv, t), res)
+          } yield WithValue(assigned, res)
       }
     }
 
@@ -242,7 +243,7 @@ object PythonGen {
     def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
       onLasts(c1 :: c2 :: Nil) {
         case e1 :: e2 :: Nil =>
-          Op(e1, Const.And, e2)
+          e1.evalAnd(e2)
         case other =>
           throw new IllegalStateException(s"expected list to have size 2: $other")
       }
@@ -558,6 +559,31 @@ object PythonGen {
                   arg0.evalTimes(arg1)
                 case other => throw new IllegalStateException(s"expected arity 2 got: $other")
               }
+            }, 2)),
+          (Identifier.unsafeBindable("cmp_Int"),
+            ({
+              input =>
+                Env.newAssignableVar
+                  .flatMap { res =>
+                    Env.onLasts(input) {
+                      case arg0 :: arg1 :: Nil =>
+                        if (arg0 == arg1) {
+                          // if two things have the same expression, they are equal
+                          Code.fromInt(1)
+                        }
+                        else {
+                          // if arg0 < arg1: 0
+                          // elif arg0 == arg1: 1
+                          // else: 2
+                            Code.IfElse(
+                              NonEmptyList(
+                                (Code.Op(arg0, Code.Const.Lt, arg1), Code.fromInt(0)),
+                                (Code.Op(arg0, Code.Const.Eq, arg1), Code.fromInt(1)) :: Nil),
+                              Code.fromInt(2))
+                        }
+                      case other => throw new IllegalStateException(s"expected arity 2 got: $other")
+                    }
+                  }
             }, 2))
           )
 
@@ -655,9 +681,9 @@ object PythonGen {
               .mapN(Env.andCode(_, _))
               .flatten
           case CheckVariant(enumV, idx, size) =>
+            val idxExpr = Code.fromInt(idx)
             loop(enumV).flatMap { tup =>
               Env.onLast(tup) { t =>
-                val idxExpr = Code.fromInt(idx)
                 if (size == 0) {
                   // this is represented as an integer
                   Code.Op(t, Code.Const.Eq, idxExpr)
@@ -885,7 +911,7 @@ object PythonGen {
               expr match {
                 case If(c1, t1, e1) =>
                   val (ifs, e2) = combine(e1)
-                  (ifs :+ ((c1, t1)), e1)
+                  (ifs :+ ((c1, t1)), e2)
                 case last => (Nil, last)
               }
 
@@ -896,7 +922,7 @@ object PythonGen {
               (boolExpr(c), loop(t)).tupled
             }
 
-            (ifsV, loop(elseExpr))
+            (ifsV, loop(last))
               .mapN { (ifs, elseV) =>
                 Env.ifElse(ifs, elseV)
               }
