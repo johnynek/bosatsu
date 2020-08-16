@@ -115,7 +115,7 @@ class PathModuleTest extends FunSuite {
 
     val inputs = files.map { nm => s"--input test_workspace/$nm" }.mkString(" ")
 
-    val out = run(s"transpile $inputs --outdir pyout --lang python --externals ex.txt --package_root test_workspace".split("\\s+"): _*)
+    val out = run(s"transpile $inputs --outdir pyout --lang python --package_root test_workspace".split("\\s+"): _*)
     out match {
       case PathModule.Output.TranspileOut(_, _) =>
         assert(true)

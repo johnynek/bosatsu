@@ -377,11 +377,11 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     }
 
     sealed abstract class Transpiler(val name: String) {
-      def renderAll(pm: PackageMap.Typed[Any], externals: NonEmptyList[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]]
+      def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]]
     }
     object Transpiler {
       case object PythonTranspiler extends Transpiler("python") {
-        def renderAll(pm: PackageMap.Typed[Any], externals: NonEmptyList[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]] = {
+        def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]] = {
           import codegen.python.PythonGen
 
           val cmp = MatchlessFromTypedExpr.compile(pm)
@@ -460,7 +460,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       packRes: PackageResolver,
       generator: Transpiler,
       outDir: Path,
-      exts: NonEmptyList[Path]) extends MainCommand {
+      exts: List[Path]) extends MainCommand {
 
       //case class TranspileOut(outs: Map[PackageName, (List[String], Doc)], base: Path) extends Output
       type Result = Output.TranspileOut
@@ -909,7 +909,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       val transpileOpt = (srcs, includes, colorOpt, packRes, Transpiler.opt,
         Opts.option[Path]("outdir", help = "directory to write all output into"),
-        Opts.options[Path]("externals", help = "external descriptors the transpiler uses to rewrite external defs"))
+        Opts.options[Path]("externals", help = "external descriptors the transpiler uses to rewrite external defs").orEmpty)
         .mapN(TranspileCommand(_, _, _, _, _, _, _))
       val evalOpt = (srcs, mainP, includes, colorOpt, packRes)
         .mapN(Evaluate(_, _, _, _, _))
