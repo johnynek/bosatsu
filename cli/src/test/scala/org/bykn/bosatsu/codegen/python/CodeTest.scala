@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
+import org.python.core.{ParserFacade => JythonParserFacade}
 
 class CodeTest extends FunSuite {
   implicit val generatorDrivenConfig =
@@ -122,7 +123,7 @@ class CodeTest extends FunSuite {
 
   def assertParse(str: String) = {
     try {
-      val mod = org.python.core.ParserFacade.parseExpressionOrModule(new java.io.StringReader(str), "filename.py", new org.python.core.CompilerFlags())
+      val mod = JythonParserFacade.parseExpressionOrModule(new java.io.StringReader(str), "filename.py", new org.python.core.CompilerFlags())
       assert(mod != null)
     }
     catch {

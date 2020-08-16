@@ -540,10 +540,10 @@ object PythonGen {
         Map(
           (Identifier.unsafeBindable("add"),
             (
-              input => (Env.onLasts(input) {
+              input => Env.onLasts(input) {
                 case arg0 :: arg1 :: Nil => arg0.evalPlus(arg1)
                 case other => throw new IllegalStateException(s"expected arity 2 got: $other")
-              })
+              }
             , 2)),
           (Identifier.unsafeBindable("sub"),
             ({
@@ -584,7 +584,21 @@ object PythonGen {
                       case other => throw new IllegalStateException(s"expected arity 2 got: $other")
                     }
                   }
-            }, 2))
+            }, 2)),
+            //external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+            // def int_loop(i, a, fn):
+            //   if i <= 0: a
+            //   else:
+            //     (i1, a1) = fn(i, a)
+            //     if i1 >= i: a
+            //     else int_loop(i1, a, fn)
+          (Identifier.unsafeBindable("int_loop"),
+            ({
+              input => Env.onLasts(input) {
+                case intV :: state :: fn :: Nil => ???
+                case other => throw new IllegalStateException(s"expected arity 3 got: $other")
+              }
+            }, 3))
           )
 
       def unapply(expr: Expr): Option[(List[ValueLike] => Env[ValueLike], Int)] =
