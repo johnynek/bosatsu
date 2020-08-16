@@ -108,9 +108,7 @@ object PythonGen {
 
       implicit class EnvOps[A](val env: Env[A]) extends AnyVal {
         def state: State[EnvState, A] =
-          env match {
-            case EnvImpl(s) => s
-          }
+          env.asInstanceOf[EnvImpl[A]].state
       }
 
       def emptyState: EnvState =
@@ -627,7 +625,7 @@ object PythonGen {
                                 cont := Code.Op(Code.Op(Code.fromInt(0), Code.Const.Lt, tmp_i),
                                   Code.Const.And,
                                   Code.Op(tmp_i, Code.Const.Lt, _i)),
-                                _i := tmp_i,
+                                _i := tmp_i
                                 )
                              )
                           ),

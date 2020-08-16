@@ -12,9 +12,11 @@ object MatchlessFromTypedExpr {
 
     val gdr = pm.getDataRepr
 
-    val allItems = pm.toMap
+    // on JS Par.F[A] is actually Id[A], so we need to hold hands a bit
+
+    val allItemsList = pm.toMap
       .toList
-      .traverse { case (pname, pack) =>
+      .traverse[Par.F, (PackageName, List[(Bindable, Matchless.Expr)])] { case (pname, pack) =>
         val lets = pack.program.lets
 
         Par.start {
@@ -35,7 +37,10 @@ object MatchlessFromTypedExpr {
           (pname, exprs)
         }
       }
-      .map(_.toMap)
+
+    // JS needs this to not see through the Par.F as Id
+    // really we want Par.F to be an opaque type
+    val allItems = cats.Functor[Par.F].map(allItemsList)(_.toMap)
 
     Par.await(allItems)
   }

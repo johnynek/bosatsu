@@ -13,7 +13,7 @@ import org.bykn.bosatsu.DirectEC.directEC
 
 class PythonGenTest extends FunSuite {
 
-  implicit val showStr = Show[String](identity)
+  implicit val showStr: Show[String] = Show.show[String](identity)
 
   def compileFile(path: String): PackageMap.Typed[Any] = {
     val str = new String(Files.readAllBytes(Paths.get(path)), "UTF-8")
