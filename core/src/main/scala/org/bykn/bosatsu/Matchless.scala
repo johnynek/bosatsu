@@ -199,8 +199,9 @@ object Matchless {
                 val argstail = args.tail
                 val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
                 loop(body).map(LoopFn(captures, name, argshead, argstail, _))
-              case None =>
-                // TODO: I don't think this case should ever happen
+              case _ =>
+                // TODO: I don't think this case should ever happen in real code
+                // but it definitely does in fuzz tests
                 e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
             }
           }

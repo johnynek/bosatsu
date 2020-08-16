@@ -53,6 +53,15 @@ class MatchlessTest extends FunSuite {
     }
   }
 
+  test("regressions") {
+    // this is illegal code, but it shouldn't throw a match error:
+    val name = Identifier.Name("foo")
+    val te = TypedExpr.Local(name, rankn.Type.IntType, ())
+    // this should not throw
+    val me = Matchless.fromLet(name, RecursionKind.Recursive, te)(fnFromTypeEnv(rankn.TypeEnv.empty))
+    assert(me != null)
+  }
+
   def genNE[A](max: Int, ga: Gen[A]): Gen[NonEmptyList[A]] =
     for {
       h <- ga
