@@ -70,7 +70,9 @@ object PythonGen {
             case Some((_, h :: _)) => h
             case _ if tops(b) => escape(b)
             case other =>
+              // $COVERAGE-OFF$
               throw new IllegalStateException(s"unexpected deref: $b with bindings: $other")
+              // $COVERAGE-ON$
           }
 
         def unbind(b: Bindable): EnvState =
@@ -78,7 +80,9 @@ object PythonGen {
             case Some((cnt, _ :: tail)) =>
               copy(bindings = bindings.updated(b, (cnt, tail)))
             case other =>
+              // $COVERAGE-OFF$
               throw new IllegalStateException(s"invalid scope: $other for $b with $bindings")
+              // $COVERAGE-ON$
           }
 
         def getNextTmp: (EnvState, Long) = (copy(nextTmp = nextTmp + 1L), nextTmp)
@@ -206,6 +210,24 @@ object PythonGen {
       loop(cs, Nil, Nil)
     }
 
+    def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
+      onLasts(c :: Nil) {
+        case x :: Nil => fn(x)
+        case other =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(s"expected list to have size 1: $other")
+          // $COVERAGE-ON$
+      }
+
+    def onLast2(c1: ValueLike, c2: ValueLike)(fn: (Expression, Expression)=> ValueLike): Env[ValueLike] =
+      onLasts(c1 :: c2 :: Nil) {
+        case x1 :: x2 :: Nil => fn(x1, x2)
+        case other =>
+          // $COVERAGE-OFF$
+          throw new IllegalStateException(s"expected list to have size 2: $other")
+          // $COVERAGE-ON$
+      }
+
     def ifElse(conds: NonEmptyList[(ValueLike, ValueLike)], elseV: ValueLike): Env[ValueLike] = {
       // for all the non-expression conditions, we need to defer evaluating them
       // until they are really needed
@@ -231,20 +253,8 @@ object PythonGen {
       }
     }
 
-    def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
-      onLasts(c :: Nil) {
-        case x :: Nil => fn(x)
-        case other =>
-          throw new IllegalStateException(s"expected list to have size 1: $other")
-      }
-
     def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
-      onLasts(c1 :: c2 :: Nil) {
-        case e1 :: e2 :: Nil =>
-          e1.evalAnd(e2)
-        case other =>
-          throw new IllegalStateException(s"expected list to have size 2: $other")
-      }
+      onLast2(c1, c2)(_.evalAnd(_))
 
     def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Code.Def =
       Code.Def(defName, arg :: Nil, toReturn(v))
@@ -277,7 +287,9 @@ object PythonGen {
                 Monad[Env].pure(WithValue(all, MakeTuple(Nil)))
               }
               else {
+                // $COVERAGE-OFF$
                 throw new IllegalStateException(s"expected a tailcall for $name in $initBody, but found: $a")
+                // $COVERAGE-ON$
               }
             }
             else {
@@ -538,48 +550,36 @@ object PythonGen {
         Map(
           (Identifier.unsafeBindable("add"),
             (
-              input => Env.onLasts(input) {
-                case arg0 :: arg1 :: Nil => arg0.evalPlus(arg1)
-                case other => throw new IllegalStateException(s"expected arity 2 got: $other")
-              }
+              input => Env.onLast2(input.head, input.tail.head)(_.evalPlus(_))
             , 2)),
           (Identifier.unsafeBindable("sub"),
             ({
-              input => Env.onLasts(input) {
-                case arg0 :: arg1 :: Nil => arg0.evalMinus(arg1)
-                case other => throw new IllegalStateException(s"expected arity 2 got: $other")
-              }
+              input => Env.onLast2(input.head, input.tail.head)(_.evalMinus(_))
             } , 2)),
           (Identifier.unsafeBindable("times"),
             ({
-              input => Env.onLasts(input) {
-                case arg0 :: arg1 :: Nil =>
-                  arg0.evalTimes(arg1)
-                case other => throw new IllegalStateException(s"expected arity 2 got: $other")
-              }
+              input => Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
             }, 2)),
           (Identifier.unsafeBindable("cmp_Int"),
             ({
               input =>
                 Env.newAssignableVar
                   .flatMap { res =>
-                    Env.onLasts(input) {
-                      case arg0 :: arg1 :: Nil =>
-                        if (arg0 == arg1) {
-                          // if two things have the same expression, they are equal
-                          Code.fromInt(1)
-                        }
-                        else {
-                          // if arg0 < arg1: 0
-                          // elif arg0 == arg1: 1
-                          // else: 2
-                            Code.IfElse(
-                              NonEmptyList(
-                                (Code.Op(arg0, Code.Const.Lt, arg1), Code.fromInt(0)),
-                                (Code.Op(arg0, Code.Const.Eq, arg1), Code.fromInt(1)) :: Nil),
-                              Code.fromInt(2))
-                        }
-                      case other => throw new IllegalStateException(s"expected arity 2 got: $other")
+                    Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+                      if (arg0 == arg1) {
+                        // if two things have the same expression, they are equal
+                        Code.fromInt(1)
+                      }
+                      else {
+                        // if arg0 < arg1: 0
+                        // elif arg0 == arg1: 1
+                        // else: 2
+                          Code.IfElse(
+                            NonEmptyList(
+                              (Code.Op(arg0, Code.Const.Lt, arg1), Code.fromInt(0)),
+                              (Code.Op(arg0, Code.Const.Eq, arg1), Code.fromInt(1)) :: Nil),
+                            Code.fromInt(2))
+                      }
                     }
                   }
             }, 2)),
@@ -630,7 +630,10 @@ object PythonGen {
                              )
                           ),
                           _a)
-                      case other => throw new IllegalStateException(s"expected arity 3 got: $other")
+                      case other =>
+                        // $COVERAGE-OFF$
+                        throw new IllegalStateException(s"expected arity 3 got: $other")
+                        // $COVERAGE-ON$
                     }
                   }
             }, 3))
@@ -693,7 +696,9 @@ object PythonGen {
           if (cnt == 0) applyAll(args)
           else if (cnt < 0) {
             // too many args, this shouldn't typecheck
+            // $COVERAGE-OFF$
             throw new IllegalStateException(s"invalid arity $sz for $ce")
+            // $COVERAGE-ON$
           }
           else {
             // add an arg to the right
@@ -893,7 +898,10 @@ object PythonGen {
                     atail.foldLeft(Code.Apply(fn, ah :: Nil)) { (left, arg) =>
                       Code.Apply(left, arg :: Nil)
                     }
-                  case other => throw new IllegalStateException(s"got $other, expected to match $expr")
+                  case other =>
+                    // $COVERAGE-OFF$
+                    throw new IllegalStateException(s"got $other, expected to match $expr")
+                    // $COVERAGE-ON$
                 }
               }
               .flatten
