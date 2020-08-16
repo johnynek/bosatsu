@@ -1,0 +1,59 @@
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "actions/cache@v2"
+      - uses: "coursier/cache-action@v2"
+      - name: "java ${{matrix.java}} setup"
+        uses: "olafurpg/setup-java@v6"
+        with:
+          java-version: "${{matrix.java}}"
+      - run: "sbt \"++${{matrix.scala}} coreJVM/test cli/test doc\""
+      - run: "./test_cli.sh"
+    strategy:
+      matrix:
+        java:
+          - '8'
+          - '11'
+        scala:
+          - '2.11.12'
+          - '2.12.9'
+  testJS:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "actions/cache@v2"
+      - uses: "coursier/cache-action@v2"
+      - name: "java ${{matrix.java}} setup"
+        uses: "olafurpg/setup-java@v6"
+        with:
+          java-version: "${{matrix.java}}"
+      - run: "sbt \"++${{matrix.scala}} coreJS/test\""
+    strategy:
+      matrix:
+        java:
+          - '11'
+        scala:
+          - '2.12.9'
+  testWithCoverageReport:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "actions/cache@v2"
+      - uses: "coursier/cache-action@v2"
+      - name: "java ${{matrix.java}} setup"
+        uses: "olafurpg/setup-java@v6"
+        with:
+          java-version: "${{matrix.java}}"
+      - run: sbt coverage clean coreJVM/test cli/test coverageReport
+      - run: "bash <(curl -s https://codecov.io/bash)"
+    strategy:
+      matrix:
+        java:
+          - '8'
+name: ci
+on:
+  pull_request: {}
+  push: {}
+
