@@ -25,6 +25,12 @@ object Code {
         case p => Code.Parens(p)
       }
 
+    def apply(args: Expression*): Apply =
+      Apply(this, args.toList)
+
+    def get(idx: Int): SelectItem =
+      SelectItem(this, idx)
+
     def evalAnd(that: Expression): Expression =
       that match {
         case Const.True => this
@@ -185,7 +191,10 @@ object Code {
   case class Literal(asString: String) extends Expression
   case class PyInt(toBigInteger: BigInteger) extends Expression
   case class PyString(content: String) extends Expression
-  case class Ident(name: String) extends Dotable // a kind of expression
+  case class Ident(name: String) extends Dotable { // a kind of expression
+    def :=(vl: ValueLike): Statement =
+      addAssign(this, vl)
+  }
   // Binary operator used for +, -, and, == etc...
   case class Op(left: Expression, op: Operator, right: Expression) extends Expression {
     // operators like + can associate
@@ -285,6 +294,10 @@ object Code {
           Some(addAssign(variable, elseCond))
         )
     }
+
+  def block(stmt: Statement, rest: Statement*): Statement =
+    if (rest.isEmpty) stmt
+    else Block(NonEmptyList(stmt, rest.toList))
 
   def toReturn(v: ValueLike): Statement =
     v match {

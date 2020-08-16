@@ -35,11 +35,11 @@ def mult(n1: Nat, n2: Nat) -> Nat:
           Succ(mult(n1, n2).add(add(n1, n2)))
 
 def to_Int(n: Nat) -> Int:
-    def loop(n: Nat, acc: Int):
+    def loop(acc: Int, n: Nat):
       recur n:
         Zero: acc
-        Succ(n): loop(n, acc + 1)
-    loop(n, 0)
+        Succ(n): loop(acc + 1, n)
+    loop(0, n)
 
 def to_Nat(i: Int) -> Nat:
   int_loop(i, Zero, \i, nat -> (i.sub(1), Succ(nat)))

@@ -199,7 +199,7 @@ object PythonGen {
             // we allocate a result and assign
             // the result on each value
             Env.newAssignableVar.flatMap { v =>
-              loop(tail, addAssign(v, ifelse) :: setup, v :: args)
+              loop(tail, (v := ifelse) :: setup, v :: args)
             }
           case WithValue(decl, v) :: tail =>
             loop(v :: tail, decl :: setup, args)
@@ -227,7 +227,7 @@ object PythonGen {
           for {
             // allocate a new unshadowable var
             cv <- Env.newAssignableVar
-            assigned = addAssign(cv, cx)
+            assigned = cv := cx
             res <- ifElse(NonEmptyList((cv, t), rest), elseV)
           } yield WithValue(assigned, res)
       }
@@ -329,7 +329,7 @@ object PythonGen {
         res <- Env.newAssignableVar
         ar = Assign(res, MakeTuple(Nil))
         body1 <- replaceTailCallWithAssign(selfName, mutArgs.length, body)(assignMut(cont))
-        setRes = addAssign(res, body1)
+        setRes = res := body1
         loop = While(cont, Assign(cont, Const.False) +: setRes)
         newBody = WithValue(ac +: ar +: loop, res)
         curried <- makeCurriedDef(selfName, fnArgs, newBody)
@@ -590,14 +590,51 @@ object PythonGen {
             //   if i <= 0: a
             //   else:
             //     (i1, a1) = fn(i, a)
-            //     if i1 >= i: a
+            //     if i <= i1: a
             //     else int_loop(i1, a, fn)
+            //
+            // def int_loop(i, a, fn):
+            //   cont = (0 < i)
+            //   res = a
+            //   _i = i
+            //   _a = a
+            //   while cont:
+            //     res = fn(_i)(_a)
+            //     tmp_i = res[0]
+            //     _a = res[1][0]
+            //     cont = (0 < tmp_i) and (tmp_i < _i)
+            //     _i = tmp_i
+            //   return _a
           (Identifier.unsafeBindable("int_loop"),
             ({
-              input => Env.onLasts(input) {
-                case intV :: state :: fn :: Nil => ???
-                case other => throw new IllegalStateException(s"expected arity 3 got: $other")
-              }
+              input =>
+                (Env.newAssignableVar, Env.newAssignableVar, Env.newAssignableVar, Env.newAssignableVar, Env.newAssignableVar)
+                  .tupled
+                  .flatMap { case (cont, res, _i, _a, tmp_i) =>
+                    Env.onLasts(input) {
+                      case i :: a :: fn :: Nil =>
+                        Code.WithValue(
+                          Code.block(
+                            cont := Code.Op(Code.fromInt(0), Code.Const.Lt, i),
+                            res := a,
+                            _i := i,
+                            _a := a,
+                            Code.While(cont,
+                              Code.block(
+                                res := fn(_i)(_a),
+                                tmp_i := res.get(0),
+                                _a := res.get(1).get(0),
+                                cont := Code.Op(Code.Op(Code.fromInt(0), Code.Const.Lt, tmp_i),
+                                  Code.Const.And,
+                                  Code.Op(tmp_i, Code.Const.Lt, _i)),
+                                _i := tmp_i,
+                                )
+                             )
+                          ),
+                          _a)
+                      case other => throw new IllegalStateException(s"expected arity 3 got: $other")
+                    }
+                  }
             }, 3))
           )
 
@@ -722,7 +759,7 @@ object PythonGen {
       def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] = {
 
         lazy val worstCase: Env[Statement] =
-          Monad[Env].pure(Code.addAssign(name, v))
+          Monad[Env].pure(name := v)
 
         expr match {
           case l@LoopFn(_, nm, h, t, b) =>
