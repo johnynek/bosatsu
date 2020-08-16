@@ -707,24 +707,8 @@ object PythonGen {
 
       def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] = {
 
-        /*
-         * def anonF():
-         *   code
-         *
-         * name = anonF()
-         */
         lazy val worstCase: Env[Statement] =
-          v match {
-            case ex: Expression =>
-              Monad[Env].pure(Code.Assign(name, ex))
-            case _ =>
-              Env.newAssignableVar.map { defName =>
-                val body = Code.toReturn(v)
-                val newDef = Code.Def(defName, Nil, body)
-
-                newDef :+ Code.Assign(name, Code.Apply(defName, Nil))
-              }
-          }
+          Monad[Env].pure(Code.addAssign(name, v))
 
         expr match {
           case l@LoopFn(_, nm, h, t, b) =>
