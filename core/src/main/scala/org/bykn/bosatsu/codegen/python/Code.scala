@@ -24,6 +24,30 @@ object Code {
         case i: Code.Ident => i
         case p => Code.Parens(p)
       }
+
+    def apply(args: Expression*): Apply =
+      Apply(this, args.toList)
+
+    def get(idx: Int): SelectItem =
+      SelectItem(this, idx)
+
+
+    def eval(op: Operator, x: Expression): Expression =
+      Op(this, op, x).simplify
+
+    def evalAnd(that: Expression): Expression =
+      eval(Const.And, that)
+
+    def evalPlus(that: Expression): Expression =
+      eval(Const.Plus, that)
+
+    def evalMinus(that: Expression): Expression =
+      eval(Const.Minus, that)
+
+    def evalTimes(that: Expression): Expression =
+      eval(Const.Times, that)
+
+    def simplify: Expression = this
   }
 
   // something we can a . after
@@ -36,19 +60,32 @@ object Code {
         case notBlock => NonEmptyList(notBlock, Nil)
       }
 
-    def +:(stmt: Statement): Block =
-      Block(stmt :: statements)
-    def :+(stmt: Statement): Block =
-      Block(statements :+ stmt)
+    def +:(stmt: Statement): Statement =
+      stmt match {
+        case Pass => this
+        case _ =>
+          if (this == Pass) stmt
+          else Block(stmt :: statements)
+      }
+
+    def :+(stmt: Statement): Statement =
+      stmt match {
+        case Pass => this
+        case _ =>
+          if (this == Pass) stmt
+          else Block(statements :+ stmt)
+      }
   }
 
   private def par(d: Doc): Doc =
     Doc.char('(') + d + Doc.char(')')
 
-  private def maybePar(c: Code): Doc =
+  private def maybePar(c: Expression): Doc =
     c match {
-      case DotSelect(_, _) | Literal(_) | PyInt(_) | PyString(_) | Ident(_) | Parens(_) | MakeTuple(_) => toDoc(c)
-      case _ => par(toDoc(c))
+      case Lambda(_, _) => par(toDoc(c))
+      case _ => toDoc(c)
+      //case Apply(_, _) | DotSelect(_, _) | Literal(_) | PyInt(_) | PyString(_) | Ident(_) | Parens(_) | MakeTuple(_) => toDoc(c)
+      //case _ => par(toDoc(c))
     }
 
   private def iflike(name: String, cond: Doc, body: Doc): Doc =
@@ -115,7 +152,10 @@ object Code {
   case class Literal(asString: String) extends Expression
   case class PyInt(toBigInteger: BigInteger) extends Expression
   case class PyString(content: String) extends Expression
-  case class Ident(name: String) extends Dotable // a kind of expression
+  case class Ident(name: String) extends Dotable { // a kind of expression
+    def :=(vl: ValueLike): Statement =
+      addAssign(this, vl)
+  }
   // Binary operator used for +, -, and, == etc...
   case class Op(left: Expression, op: Operator, right: Expression) extends Expression {
     // operators like + can associate
@@ -155,13 +195,153 @@ object Code {
 
       loop(left, NonEmptyList((op, right), Nil))
     }
+
+    // prefer constants on the right
+    override def simplify: Expression =
+      this match {
+        case Op(PyInt(a), io: IntOp, PyInt(b)) =>
+          PyInt(io(a, b))
+        case Op(i@PyInt(a), Const.Times, right) =>
+          if (a == BigInteger.ZERO) i
+          else if (a == BigInteger.ONE) right.simplify
+          else right.simplify.evalTimes(i)
+        case Op(left, Const.Times, i@PyInt(b)) =>
+          if (b == BigInteger.ZERO) i
+          else if (b == BigInteger.ONE) left.simplify
+          else {
+            val l1 = left.simplify
+            if (l1 == left) this
+            else (l1.evalTimes(i))
+          }
+        case Op(i@PyInt(a), Const.Plus, right) =>
+          if (a == BigInteger.ZERO) right.simplify
+          else {
+            val r1 = right.simplify
+            // put the constant on the right
+            r1.evalPlus(i)
+          }
+        case Op(left, Const.Plus, i@PyInt(b)) =>
+          if (b == BigInteger.ZERO) left.simplify
+          else {
+            val l1 = left.simplify
+            if (l1 == left) {
+              l1 match {
+                case Op(ll, io: IntOp, rl) =>
+                  io match {
+                    case Const.Plus =>
+                      // right associate
+                      ll.evalPlus(rl.evalPlus(i))
+                    case Const.Minus =>
+                      //(ll - rl) + i == ll - (rl - i)
+                      ll.evalMinus(rl.evalMinus(i))
+                    case _ => this
+                  }
+                case _ => this
+              }
+            }
+            else (l1.evalPlus(i))
+          }
+        case Op(i@PyInt(_), Const.Minus, right) =>
+          val r1 = right.simplify
+          if (r1 == right) {
+            r1 match {
+              case Op(rl, io: IntOp, rr) =>
+                io match {
+                  case Const.Plus =>
+                    // right associate
+                    rl.evalPlus(rr.evalPlus(i))
+                  case Const.Minus =>
+                    //i - (rl - rr)
+                    rr match {
+                      case ri@PyInt(_) =>
+                        Op(i.evalPlus(ri), Const.Minus, rl)
+                      case _ => this
+                    }
+                  case _ => this
+                }
+              case _ => this
+            }
+          }
+          else (i.evalMinus(r1))
+        case Op(left, Const.Minus, i@PyInt(b)) =>
+          if (b == BigInteger.ZERO) left.simplify
+          else {
+            val l1 = left.simplify
+            if (l1 == left) {
+              l1 match {
+                case Op(ll, io: IntOp, rl) =>
+                  io match {
+                    case Const.Plus =>
+                      // (ll + rl) - i == ll + (rl - i)
+                      ll.evalPlus(rl.evalMinus(i))
+                    case Const.Minus =>
+                      //(ll - rl) - i == ll - (rl + i)
+                      ll.evalMinus(rl.evalPlus(i))
+                    case _ => this
+                  }
+                case _ => this
+              }
+            }
+            else (l1.evalMinus(i))
+          }
+        case Op(a, Const.Eq, b) =>
+          if (a == b) Const.True
+          else this
+        case Op(a, Const.Gt | Const.Lt, b) if a == b => Const.False
+        case Op(PyInt(a), Const.Gt, PyInt(b)) =>
+          if (a.compareTo(b) > 0) Const.True
+          else Const.False
+        case Op(PyInt(a), Const.Lt, PyInt(b)) =>
+          if (a.compareTo(b) < 0) Const.True
+          else Const.False
+        case Op(a, Const.And, b) =>
+          (a, b) match {
+            case (Const.True, _) => b
+            case (_, Const.True) => a
+            case (Const.False, _) => Const.False
+            case (_, Const.False) => Const.False
+            case _ => this
+          }
+        case _ =>
+          val l1 = left.simplify
+          val r1 = right.simplify
+          if ((l1 != left) || (r1 != right)) {
+            Op(l1, op, r1).simplify
+          }
+          else {
+            (left, op) match {
+              case (Op(ll, Const.Plus, lr), Const.Plus) =>
+                // right associate
+                ll.evalPlus(lr.evalPlus(right))
+              case (Op(ll, Const.Minus, lr), Const.Plus) =>
+                // right associate
+                ll.evalPlus(right.evalMinus(lr))
+              case (Op(ll, Const.Plus, lr), Const.Minus) =>
+                // right associate
+                ll.evalMinus(right.evalMinus(lr))
+              case (Op(ll, Const.Times, lr), Const.Times) =>
+                // right associate
+                ll.evalTimes(lr.evalTimes(right))
+              case _ => this
+            }
+          }
+      }
   }
 
   case class Parens(expr: Expression) extends Expression
   case class SelectItem(arg: Expression, position: Int) extends Expression
   case class MakeTuple(args: List[Expression]) extends Expression
   case class Lambda(args: List[Ident], result: Expression) extends Expression
-  case class Apply(fn: Expression, args: List[Expression]) extends Expression
+  case class Apply(fn: Expression, args: List[Expression]) extends Expression {
+    def uncurry: (Expression, List[List[Expression]]) =
+      fn match {
+        case a@Apply(_, _) =>
+          val (fn0, args0) = a.uncurry
+          (fn0, args0 :+ args)
+        case _ =>
+          (fn, args :: Nil)
+      }
+  }
   case class DotSelect(ex: Dotable, ident: Ident) extends Dotable
 
   /////////////////////////
@@ -207,6 +387,24 @@ object Code {
         )
     }
 
+  def block(stmt: Statement, rest: Statement*): Statement =
+    if (rest.isEmpty) stmt
+    else Block(NonEmptyList(stmt, rest.toList))
+
+  def toReturn(v: ValueLike): Statement =
+    v match {
+      case x: Expression => Code.Return(x)
+      case WithValue(stmt, v) =>
+        stmt :+ toReturn(v)
+      case ie@IfElse(conds, elseCond) =>
+        IfStatement(
+          conds.map { case (c, v) =>
+            (c, toReturn(v))
+          },
+          Some(toReturn(elseCond)))
+    }
+
+
   // boolean expressions can contain side effects
   // this runs the side effects but discards
   // and resulting value
@@ -233,9 +431,12 @@ object Code {
     }
 
   def fromInt(i: Int): Expression =
-    if (i == 0) Const.Zero
-    else if (i == 1) Const.One
-    else PyInt(BigInteger.valueOf(i.toLong))
+    fromLong(i.toLong)
+
+  def fromLong(i: Long): Expression =
+    if (i == 0L) Const.Zero
+    else if (i == 1L) Const.One
+    else PyInt(BigInteger.valueOf(i))
 
   sealed abstract class Operator(val name: String) {
     def associates(that: Operator): Boolean = {
@@ -244,16 +445,32 @@ object Code {
         case Const.Plus => (that == Const.Plus) || (that == Const.Minus)
         case Const.Minus => false
         case Const.And => that == Const.And
+        case Const.Times =>
+          // (a * b) * c == a * (b * c)
+          // (a * b) + c != a * (b + c)
+          (that == Const.Times)
         case _ => false
       }
     }
   }
+
+  sealed abstract class IntOp(nm: String) extends Operator(nm) {
+    def apply(a: BigInteger, b: BigInteger): BigInteger =
+      this match {
+        case Const.Plus => a.add(b)
+        case Const.Minus => a.subtract(b)
+        case Const.Times => a.multiply(b)
+      }
+  }
+
   object Const {
-    case object Plus extends Operator("+")
-    case object Minus extends Operator("-")
+    case object Plus extends IntOp("+")
+    case object Minus extends IntOp("-")
+    case object Times extends IntOp("*")
     case object And extends Operator("and")
     case object Eq extends Operator("==")
     case object Gt extends Operator(">")
+    case object Lt extends Operator("<")
 
     val True = Literal("True")
     val False = Literal("False")

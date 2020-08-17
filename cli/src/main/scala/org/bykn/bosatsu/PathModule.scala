@@ -4,10 +4,12 @@ import cats.effect.IO
 import com.monovore.decline.Argument
 import org.typelevel.paiges.Doc
 
+import java.nio.file.{Path => JPath}
+
 import cats.implicits._
 
 object PathModule extends MainModule[IO] {
-  type Path = java.nio.file.Path
+  type Path = JPath
 
   override def pathArg: Argument[Path] =
     Argument.readPath
@@ -122,6 +124,16 @@ object PathModule extends MainModule[IO] {
           case Some(path) => CodeGenWrite.writeDoc(path, jdoc)
           case None => IO(println(jdoc.renderTrim(80)))
         }
+
+      case Output.TranspileOut(outs, base) =>
+        def path(p: List[String]): Path =
+          p.foldLeft(base)(_.resolve(_))
+
+        outs.toList.map { case (_, (p, d)) =>
+          (p, CodeGenWrite.writeDoc(path(p.toList), d))
+        }
+        .sortBy(_._1)
+        .traverse_ { case (_, w) => w }
 
       case Output.CompileOut(packList, ifout, output) =>
         val ifres = ifout match {

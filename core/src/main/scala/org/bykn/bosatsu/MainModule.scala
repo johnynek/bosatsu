@@ -5,6 +5,7 @@ import cats.{Eval, MonadError, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
 import fastparse.all.{P, Parsed}
 import org.typelevel.paiges.Doc
+import scala.concurrent.ExecutionContext
 import scala.util.{ Failure, Success, Try }
 
 import LocationMap.Colorize
@@ -59,7 +60,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
   final def run(args: List[String]): Either[Help, IO[Output]] =
     MainCommand.command
       .parse(args.toList)
-      .map(_.run)
+      .map(_.run.widen)
 
   sealed abstract class Output
   object Output {
@@ -67,10 +68,12 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output
+    case class TranspileOut(outs: Map[PackageName, (NonEmptyList[String], Doc)], base: Path) extends Output
   }
 
   sealed abstract class MainCommand {
-    def run: IO[Output]
+    type Result <: Output
+    def run: IO[Result]
   }
 
   object MainCommand {
@@ -259,7 +262,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                   case Some(packs) =>
                     // TODO: this use the number of cores in the threadpool but we could configure
                     // this
-                    import scala.concurrent.ExecutionContext.Implicits.global
+                    import ExecutionContext.Implicits.global
 
                     val packsString = packs.map { case ((path, lm), parsed) => ((path.toString, lm), parsed) }
                     PackageMap.typeCheckParsed[String](packsString, ifs, "predef").strictToValidated match {
@@ -373,6 +376,60 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       }
     }
 
+    sealed abstract class Transpiler(val name: String) {
+      def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]]
+    }
+    object Transpiler {
+      case object PythonTranspiler extends Transpiler("python") {
+        def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]] = {
+          import codegen.python.PythonGen
+
+          val cmp = MatchlessFromTypedExpr.compile(pm)
+          moduleIOMonad.catchNonFatal {
+            val parsedExt = externals.map(Parser.unsafeParse(PythonGen.externalParser, _))
+            val extMap = parsedExt
+              .toList
+              .flatten
+              .groupBy { case (p, b, _, _) => (p, b) }
+              .map {
+                case (k, (_, _, m, f) :: Nil) =>
+                  (k, (m, f))
+                case (_, moreThanOne) =>
+                  // TODO this is terrible, we should summarrize all duplicates, or
+                  // have an explicit policy of overwriting with the last one
+                  throw new IllegalArgumentException(s"expected each package/name to map to just one file, found: $moreThanOne")
+              }
+
+            PythonGen.renderAll(cmp, extMap)
+              .iterator
+              .map { case (k, (path, doc)) =>
+                (k, (path.map(_.name), doc))
+              }
+              .toMap
+          }
+        }
+      }
+
+      val all: List[Transpiler] = List(PythonTranspiler)
+
+      implicit def argumentForTranspiler: Argument[Transpiler] =
+        new Argument[Transpiler] {
+          val nameTo = all.iterator.map { t => (t.name, t) }.toMap
+
+          def defaultMetavar: String = "transpiler"
+          def read(string: String): ValidatedNel[String, Transpiler] =
+            nameTo.get(string) match {
+              case Some(t) => Validated.valid(t)
+              case None =>
+                val keys = nameTo.keys.toList.sorted.mkString(",")
+                Validated.invalidNel(s"unknown transpiler: $string, expected one of: $keys")
+            }
+        }
+
+      val opt: Opts[Transpiler] =
+        Opts.option[Transpiler]("lang", "language to transpile to")
+    }
+
     sealed abstract class JsonInput {
       def read: IO[String]
     }
@@ -396,12 +453,40 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     type PathGen = org.bykn.bosatsu.PathGen[IO, Path]
     val PathGen = org.bykn.bosatsu.PathGen
 
+    case class TranspileCommand(
+      inputs: PathGen,
+      deps: PathGen,
+      errColor: Colorize,
+      packRes: PackageResolver,
+      generator: Transpiler,
+      outDir: Path,
+      exts: List[Path]) extends MainCommand {
+
+      //case class TranspileOut(outs: Map[PackageName, (List[String], Doc)], base: Path) extends Output
+      type Result = Output.TranspileOut
+
+      // TODO this could be configurable, but the default is fine for CPU-bound tasks we run with
+      import ExecutionContext.Implicits.global
+
+      def run =
+        for {
+          ins <- inputs.read
+          ds <- deps.read
+          pn <- buildPackMap(ins, ds, errColor, packRes)
+          (packs, names) = pn
+          extStrs <- exts.traverse(readPath)
+          data <- generator.renderAll(packs, extStrs)
+        } yield Output.TranspileOut(data, outDir)
+    }
+
     case class Evaluate(
       inputs: PathGen,
       mainPackage: MainIdentifier,
       deps: PathGen,
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
+
+      type Result = Output.EvaluationResult
 
       def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] =
         for {
@@ -444,7 +529,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                   }
         } yield out
 
-      def run = runEval.map(_._2: Output)
+      def run = runEval.map(_._2)
     }
 
     case class ToJson(
@@ -455,6 +540,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       outputOpt: Option[Path],
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
+
+      type Result = Output.JsonOutput
 
       private def showError[A](prefix: String, str: String, idx: Int): IO[A] = {
         val errMsg0 = str.substring(idx + 1)
@@ -500,9 +587,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
               moduleIOMonad.raiseError(new Exception(s"cannot convert type to Json: $tpeStr"))
             }
 
-            def process[F[_]: Traverse](io: IO[String], extract: Json => IO[F[Json]], inject: F[Json] => Json): IO[Output] =
+            def process[F[_]: Traverse](io: IO[String], extract: Json => IO[F[Json]], inject: F[Json] => Json): IO[Output.JsonOutput] =
               v2j.valueFnToJsonFn(res.tpe) match {
-                case Left(unsup) => unsupported[Output](res.tpe, unsup)
+                case Left(unsup) => unsupported(res.tpe, unsup)
                 case Right((arity, fnGen)) =>
                   fnGen(res.value.value) match {
                     case Right(fn) =>
@@ -522,7 +609,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                           }
                         }
                         .map { fjson =>
-                          Output.JsonOutput(inject(fjson), outputOpt): Output
+                          Output.JsonOutput(inject(fjson), outputOpt)
                         }
                     case Left(valueError) =>
                       // shouldn't happen since value should be well typed
@@ -565,6 +652,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       ifout: Option[Path],
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
+
+    type Result = Output.CompileOut
+
     def run =
         for {
           ins <- inputs.read
@@ -591,6 +681,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       dependencies: PathGen,
       errColor: Colorize,
       packRes: PackageResolver) extends MainCommand {
+
+      type Result = Output.TestOutput
 
       def run =
         tests.read
@@ -815,7 +907,10 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         Opts.subcommand("json", "json writing and transformation tools")(subs)
       }
 
-
+      val transpileOpt = (srcs, includes, colorOpt, packRes, Transpiler.opt,
+        Opts.option[Path]("outdir", help = "directory to write all output into"),
+        Opts.options[Path]("externals", help = "external descriptors the transpiler uses to rewrite external defs").orEmpty)
+        .mapN(TranspileCommand(_, _, _, _, _, _, _))
       val evalOpt = (srcs, mainP, includes, colorOpt, packRes)
         .mapN(Evaluate(_, _, _, _, _))
       val typeCheckOpt = (srcs, ifaces, outputPath.orNone, interfaceOutputPath.orNone, colorOpt, noSearchRes)
@@ -827,6 +922,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         .orElse(Opts.subcommand("type-check", "type check a set of packages")(typeCheckOpt))
         .orElse(Opts.subcommand("test", "test a set of bosatsu modules")(testOpt))
         .orElse(jsonCommand)
+        .orElse(Opts.subcommand("transpile", "transpile bosatsu into another language")(transpileOpt))
     }
 
     def command: Command[MainCommand] =
