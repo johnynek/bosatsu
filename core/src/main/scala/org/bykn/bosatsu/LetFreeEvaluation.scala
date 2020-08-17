@@ -9,7 +9,7 @@ object LetFreeEvaluation {
   case class ComputedValue(value: Value) extends LetFreeValue
 
   case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV) => Value)
-      extends Value.FnValueArg {
+      extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
       toExprFn(ComputedValue(v), None, None)
     }
@@ -32,4 +32,12 @@ object LetFreeEvaluation {
 
   type Cache = Option[CMap[String, (Future[Value], Type)]]
   type ToLFV = Option[LetFreeValue => Future[Value]]
+
+
+  def exprFn(wrapper: (LetFreeEvaluation.LetFreeValue, rankn.Type, LetFreeEvaluation.Cache, LetFreeEvaluation.ToLFV) => Any): FfiCall = {
+
+    def evalExprFn(t: rankn.Type): ExprFnValue = ExprFnValue({ (e1, cache, eval) => Value.ExternalValue(wrapper(e1, t, cache, eval)) })
+
+    FfiCall.FromFn { t => new Value.FnValue(evalExprFn(t)) }
+  }
 }
