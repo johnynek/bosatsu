@@ -39,13 +39,7 @@ object FfiCall {
     def call(t: rankn.Type): Value = evalFn
   }
 
-  final case class ExprFn(wrapper: (LetFreeEvaluation.LetFreeValue, rankn.Type, LetFreeEvaluation.Cache, LetFreeEvaluation.ToLFV) => Any) extends FfiCall {
-    import LetFreeEvaluation.ExprFnValue
-
-    private[this] def evalExprFn(t: rankn.Type): ExprFnValue = ExprFnValue({ (e1, cache, eval) => Value.ExternalValue(wrapper(e1, t, cache, eval)) })
-
-    def call(t: rankn.Type): Value = new Value.FnValue(evalExprFn(t))
-  }
+  case class FromFn(callFn: rankn.Type => Value) extends FfiCall { def call(t: rankn.Type) = callFn(t) }
 
   def getJavaType(t: rankn.Type): List[Class[_]] = {
     def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
