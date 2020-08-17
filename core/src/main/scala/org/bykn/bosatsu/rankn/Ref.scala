@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
 
-import cats.Eval
+import cats.{StackSafeMonad, Eval}
 // java HashMap performs better than scala in most benchmarks
 import scala.collection.mutable.{LongMap => MutableMap}
 import java.util.concurrent.atomic.AtomicLong
@@ -73,9 +73,31 @@ object RefSpace {
         }
   }
 
-  def pure[A](a: A): RefSpace[A] = Pure(Eval.now(a))
+  def pure[A](a: A): RefSpace[A] = liftEval(Eval.now(a))
+
+  def liftEval[A](eval: Eval[A]): RefSpace[A] = Pure(eval)
 
   def newRef[A](initial: A): RefSpace[Ref[A]] =
     Alloc(initial)
+
+  implicit val monadForRefSpace: StackSafeMonad[RefSpace] =
+    new StackSafeMonad[RefSpace] {
+      def pure[A](a: A): RefSpace[A] = RefSpace.pure(a)
+      override def map[A, B](fa: RefSpace[A])(fn: A => B): RefSpace[B] =
+        fa.map(fn)
+      def flatMap[A, B](fa: RefSpace[A])(fn: A => RefSpace[B]): RefSpace[B] =
+        fa.flatMap(fn)
+    }
+
+
+  // a counter that starts at 0
+  val allocCounter: RefSpace[RefSpace[Long]] =
+    RefSpace.newRef(0L)
+      .map { ref =>
+        for {
+          a <- ref.get
+          _ <- ref.set(a + 1L)
+        } yield a
+      }
 
 }

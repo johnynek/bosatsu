@@ -1,8 +1,10 @@
 package org.bykn.bosatsu.rankn
 
 import cats.{Applicative, Eval, Traverse}
-import org.bykn.bosatsu.{TypeName, PackageName}
+import org.bykn.bosatsu.{TypeName, PackageName, Identifier}
 import scala.collection.immutable.SortedMap
+
+import Identifier.Constructor
 
 import cats.implicits._
 
@@ -18,21 +20,6 @@ final case class DefinedType[+A](
   require(typeParams.distinct == typeParams, typeParams.toString)
 
   /**
-   * A type with exactly one constructor is a struct
-   */
-  val isStruct: Boolean = constructors.lengthCompare(1) == 0
-
-  /**
-   * A newtype is just a wrapper for another type.
-   * It could be removed statically from the program
-   */
-  val isNewType: Boolean =
-    constructors match {
-      case cf :: Nil => cf.isSingleArg
-      case _ => false
-    }
-
-  /**
    * This is not the full type, since the full type
    * has a ForAll(typeParams, ... in front if the
    * typeParams is nonEmpty
@@ -44,32 +31,57 @@ final case class DefinedType[+A](
     Type.TyConst(toTypeConst)
 
   /**
-   * Is this type Nat like: enum Nat: Zero, Succ(n: Nat)
+   * A type with exactly one constructor is a struct
    */
-  val natLike: DefinedType.NatLike =
+  def isStruct: Boolean = dataFamily == DataFamily.Struct
+
+  val dataRepr: Constructor => DataRepr =
     constructors match {
+      case cf :: Nil =>
+        if (cf.isSingleArg) Function.const(DataRepr.NewType)
+        else Function.const(DataRepr.Struct(cf.arity))
       case c0 :: c1 :: Nil =>
         // exactly two constructor functions
-        if (c0.isZeroArg && c1.hasSingleArgType(toTypeTyConst)) DefinedType.NatLike.ZeroFirst
-        else if (c1.isZeroArg && c0.hasSingleArgType(toTypeTyConst)) DefinedType.NatLike.ZeroLast
-        else DefinedType.NatLike.Not
-      case _ => DefinedType.NatLike.Not
+        if (c0.isZeroArg && c1.hasSingleArgType(toTypeTyConst)) {
+          val zero = c0.name
+          val one = c1.name
+
+          { cons => if (cons == zero) DataRepr.ZeroNat else DataRepr.SuccNat }
+        }
+        else if (c1.isZeroArg && c0.hasSingleArgType(toTypeTyConst)) {
+          val zero = c1.name
+          val one = c0.name
+
+          { cons => if (cons == zero) DataRepr.ZeroNat else DataRepr.SuccNat }
+        }
+        else {
+           val zero = c0.name
+           val zrep = DataRepr.Enum(0, c0.arity)
+           val orep = DataRepr.Enum(1, c1.arity)
+
+          { cons => if (cons == zero) zrep else orep }
+        }
+      case cons =>
+        val mapping = cons.zipWithIndex.map { case (c, idx) => c.name -> DataRepr.Enum(idx, c.arity) }.toMap
+
+        mapping
     }
+
+  val dataFamily: DataFamily =
+    constructors match {
+      case cf :: Nil =>
+        if (cf.isSingleArg) DataFamily.NewType
+        else DataFamily.Struct
+      case c0 :: c1 :: Nil =>
+        // exactly two constructor functions
+        if (c0.isZeroArg && c1.hasSingleArgType(toTypeTyConst)) DataFamily.Nat
+        else if (c1.isZeroArg && c0.hasSingleArgType(toTypeTyConst)) DataFamily.Nat
+        else DataFamily.Enum
+      case cons => DataFamily.Enum
+  }
 }
 
 object DefinedType {
-  sealed abstract class NatLike
-  object NatLike {
-    final case object Not extends NatLike
-    final case class Is(val zeroFirst: Boolean) extends NatLike {
-      @inline def zeroLast: Boolean = !zeroFirst
-      def idxIsZero(idx: Int): Boolean =
-        (zeroFirst && (idx == 0)) || (zeroLast && (idx == 1))
-    }
-    val ZeroFirst: Is = Is(true)
-    val ZeroLast: Is = Is(false)
-  }
-
   def toTypeConst(pn: PackageName, nm: TypeName): Type.Const.Defined =
     Type.Const.Defined(pn, nm)
 

@@ -112,11 +112,35 @@ object PredefImpl {
   def add(a: Value, b: Value): Value =
     VInt(i(a).add(i(b)))
 
-  def div(a: Value, b: Value): Value = {
-    val bi = i(b)
-    if (bi.equals(BigInteger.ZERO)) VOption.none
-    else VOption.some(VInt(i(a).divide(bi)))
+  def divBigInteger(a: BigInteger, b: BigInteger): BigInteger = {
+    if (b == BigInteger.ZERO) BigInteger.ZERO
+    else if (b == BigInteger.ONE) a
+    else {
+      val mod = modBigInteger(a, b)
+      a.subtract(mod).divide(b)
+    }
   }
+
+  def modBigInteger(a: BigInteger, b: BigInteger): BigInteger = {
+    val s = b.signum
+    if (s == 0) a
+    else if (s > 0) a.mod(b)
+    else {
+      // java does not support negative modulus
+      // d = a / b
+      // we want a = d * b + (a % b)
+      // and sign of (a % b).signum == b.signum
+      // so (a % b) = a - d * b
+      val res0 = a.remainder(b)
+      val sr = res0.signum
+      if (sr == 0) res0
+      else if (res0.signum == s) res0
+      else res0.add(b)
+    }
+  }
+
+  def div(a: Value, b: Value): Value =
+    VInt(divBigInteger(i(a), i(b)))
 
   def sub(a: Value, b: Value): Value =
     VInt(i(a).subtract(i(b)))
@@ -132,10 +156,22 @@ object PredefImpl {
     Comparison.fromInt(i(a).compareTo(i(b)))
 
   def mod_Int(a: Value, b: Value): Value =
-    VInt(i(a).mod(i(b).abs()))
+    VInt(modBigInteger(i(a), i(b)))
+
+  def gcdBigInteger(a: BigInteger, b: BigInteger): BigInteger = {
+    @annotation.tailrec
+    def gcd(a: BigInteger, b: BigInteger): BigInteger =
+      if (b == BigInteger.ZERO) a
+      else {
+        gcd(b, modBigInteger(a, b))
+      }
+
+    if (b.signum > 0) a.gcd(b)
+    else gcd(a, b)
+  }
 
   def gcd_Int(a: Value, b: Value): Value =
-    VInt(i(a).gcd(i(b)))
+    VInt(gcdBigInteger(i(a), i(b)))
 
   //def intLoop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
   final def intLoop(intValue: Value, state: Value, fn: Value): Value = {

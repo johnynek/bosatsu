@@ -350,10 +350,9 @@ main = 6.mod_Int(4)
 package Foo
 
 main = match 6.div(4):
-  Some(0): 42
-  Some(1): 100
-  Some(x): x
-  None: -1
+  0: 42
+  1: 100
+  x: x
 """), "Foo", VInt(100))
 
     evalTest(
@@ -811,7 +810,6 @@ main = big_list.foldLeft(0, \x, y -> x.add(y))
 """), "A", VInt((0 until 3000).sum))
 
   def sumFn(n: Int): Int = if (n <= 0) 0 else { sumFn(n-1) + n }
-
   evalTest(
     List("""
 package A
@@ -850,7 +848,6 @@ def sum(nat):
 
 main = sum(Succ(Succ(Succ(Zero))))
 """), "A", VInt(sumFn(3)))
-
   }
 
   test("we can mix literal and enum forms of List") {

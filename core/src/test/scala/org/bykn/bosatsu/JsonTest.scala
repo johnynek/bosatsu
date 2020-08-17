@@ -2,11 +2,12 @@ package org.bykn.bosatsu
 
 import cats.Eq
 import cats.implicits._
+import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import TestUtils.typeEnvOf
 
-import rankn.{NTypeGen, Type}
+import rankn.{NTypeGen, Type, TypeEnv}
 
 import GenJson._
 
@@ -26,6 +27,25 @@ class JsonTest extends FunSuite {
   def law(j: Json) = {
     assert(assertParser(j.render) == j)
   }
+
+  val withType: Gen[(TypeEnv[Unit], Type)] =
+    Generators
+      .typeEnvGen(PackageName.parts("Foo"), Gen.const(()))
+      .flatMap { te =>
+        val tyconsts =
+          te.allDefinedTypes.map(_.toTypeConst)
+        val theseTypes = NTypeGen.genDepth(4, if (tyconsts.isEmpty) None else Some(Gen.oneOf(tyconsts)))
+
+        theseTypes.map((te, _))
+      }
+
+  val optTE: Gen[(Option[TypeEnv[Unit]], Type)] =
+    for {
+      (te, tpe) <- withType
+      none <- Gen.oneOf(true, false)
+      optTE = if (none) None else Some(te)
+    } yield (optTE, tpe)
+
 
   test("we can parse all the json we generate") {
     forAll { j: Json => law(j) }
@@ -53,9 +73,12 @@ class JsonTest extends FunSuite {
   }
 
   test("we can decode and encode json in the same cases") {
-    val jsonCodec = ValueToJson({ _ => None})
 
-    def law(t: Type, j: Json) = {
+    def law(te: Option[TypeEnv[Any]], t: Type, j: Json) = {
+      val jsonCodec = te match {
+        case None => ValueToJson(_ => None)
+        case Some(te) => ValueToJson(te.toDefinedType(_))
+      }
       val toJson = jsonCodec.toJson(t)
       val fromJson = jsonCodec.toValue(t)
 
@@ -73,17 +96,17 @@ class JsonTest extends FunSuite {
       }
     }
 
-    forAll(NTypeGen.genPredefType, GenJson.arbJson.arbitrary)(law(_, _))
+    forAll(optTE, GenJson.arbJson.arbitrary) { case ((ote, tpe), json) => law(ote, tpe, json) }
 
-    val regressions = List((Type.TyApply(Type.OptionType, Type.BoolType), Json.JBool.False))
+    val regressions = List((None, Type.TyApply(Type.OptionType, Type.BoolType), Json.JBool.False))
 
-    regressions.foreach { case (t, j) => law(t, j) }
+    regressions.foreach { case (te, t, j) => law(te, t, j) }
   }
 
   test("if valueToToJson gives 0 arity, it is not a function type") {
-    val jsonCodec = ValueToJson({ _ => None})
 
-    forAll(NTypeGen.genPredefType) { t =>
+    forAll(withType) { case (te, t) =>
+      val jsonCodec = ValueToJson(te.toDefinedType(_))
       jsonCodec.valueFnToJsonFn(t) match {
         case Left(_) => ()
         case Right((arity, _)) =>
@@ -96,9 +119,12 @@ class JsonTest extends FunSuite {
   }
 
   test("we can decode and encode value in the same cases") {
-    val jsonCodec = ValueToJson({ _ => None})
 
-    def law(t: Type, v: Value) = {
+    def law(ote: Option[TypeEnv[Unit]], t: Type, v: Value) = {
+      val jsonCodec = ote match {
+        case None => ValueToJson(_ => None)
+        case Some(te) => ValueToJson(te.toDefinedType(_))
+      }
       val toJson = jsonCodec.toJson(t)
       val fromJson = jsonCodec.toValue(t)
 
@@ -116,12 +142,12 @@ class JsonTest extends FunSuite {
       }
     }
 
-    forAll(NTypeGen.genPredefType, GenValue.genValue)(law(_, _))
+    forAll(optTE, GenValue.genValue) { case ((ote, t), v) => law(ote, t, v) }
 
-    val regressions: List[(Type, Value)] =
+    val regressions: List[(Option[TypeEnv[Unit]], Type, Value)] =
       List()
 
-    regressions.foreach { case (t, v) => law(t, v) }
+    regressions.foreach { case (ote, t, v) => law(ote, t, v) }
   }
 
   test("some hand written cases round trip") {

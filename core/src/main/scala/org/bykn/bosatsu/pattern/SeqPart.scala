@@ -2,6 +2,7 @@ package org.bykn.bosatsu.pattern
 
 sealed trait SeqPart[+Elem] {
   def notWild: Boolean = false
+  def isWild: Boolean = !notWild
 }
 object SeqPart {
   sealed trait SeqPart1[+Elem] extends SeqPart[Elem] {
@@ -76,7 +77,7 @@ object SeqPart {
           case AnyElem => true
           case Lit(c2) =>
             p1 match {
-              case Lit(c1) => setOpsA.subset(c2, c1)
+              case Lit(c1) => setOpsA.subset(c1, c2)
               case AnyElem => setOpsA.isTop(c2)
             }
         }

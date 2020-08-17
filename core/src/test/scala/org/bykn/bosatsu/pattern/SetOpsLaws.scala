@@ -1,8 +1,8 @@
 package org.bykn.bosatsu.pattern
 
 import cats.Eq
-import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.prop.PropertyChecks.forAll
+import org.scalacheck.{Arbitrary, Cogen, Gen}
+import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
 abstract class SetOpsLaws[A] extends FunSuite {
@@ -230,9 +230,14 @@ abstract class SetOpsLaws[A] extends FunSuite {
     }
   }
 
+  /*
+   * This isn't true in general because difference is an upper-bound
+   * and you have differences on both sides of the equation.
+   * It is *usually* true, but we can't write a law for that
   test("(a - b) n c = (a n c) - (b n c)") {
     forAll(genItem, genItem, genItem)(diffIntersectionLaw(_, _, _))
   }
+  */
 
   test("missing branches, if added are total and none of the missing are unreachable") {
 
@@ -312,4 +317,174 @@ class UnitSetOpsTest extends SetOpsLaws[Unit] {
     def eqv(left: List[Unit], right: List[Unit]) =
       left.toSet == right.toSet
   })
+}
+
+
+case class Predicate[A](toFn: A => Boolean) { self =>
+  def apply(a: A): Boolean = toFn(a)
+  def &&(that: Predicate[A]): Predicate[A] =
+    Predicate({ a => self(a) && that(a) })
+  def ||(that: Predicate[A]): Predicate[A] =
+    Predicate({ a => self(a) || that(a) })
+  def -(that: Predicate[A]): Predicate[A] =
+    Predicate({ a => self(a) && !that(a) })
+  def unary_! : Predicate[A] =
+    Predicate({ a => !self(a) })
+
+  def product[B](that: Predicate[B]): Predicate[(A, B)] =
+    Predicate { case (a, b) => self(a) && that(b) }
+}
+
+object Predicate {
+  def genPred[A: Cogen]: Gen[Predicate[A]] =
+    Gen.function1(Gen.oneOf(false, true)).map(Predicate(_))
+
+  implicit def arbPred[A: Cogen]: Arbitrary[Predicate[A]] =
+    Arbitrary(genPred[A])
+}
+
+
+class SetOpsTests extends FunSuite {
+
+  implicit val generatorDrivenConfig =
+    //PropertyCheckConfiguration(minSuccessful = 50000)
+    //PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = 500)
+
+  test("allPerms is correct") {
+    forAll(Gen.choose(0, 6).flatMap(Gen.listOfN(_, Arbitrary.arbitrary[Int]))) { is0 =>
+      // make everything distinct
+      val is = is0.zipWithIndex
+      val perms = SetOps.allPerms(is)
+
+      def fact(i: Int, acc: Int): Int =
+        if (i <= 1) acc
+        else fact(i - 1, i * acc)
+
+      assert(perms.length == fact(is0.size, 1))
+
+      perms.foreach { p =>
+        assert(p.sorted == is.sorted)
+      }
+      val pi = perms.zipWithIndex
+
+      for {
+        (p1, i1) <- pi
+        (p2, i2) <- pi
+      } assert((i1 >= i2 || (p1 != p2)))
+    }
+  }
+
+  test("greedySearch finds the optimal path if lookahead is greater than size") {
+    // we need a non-commutative operation to test this
+    // use 2x2 matrix multiplication
+    def mult(left: Vector[Vector[Double]], right: Vector[Vector[Double]]): Vector[Vector[Double]] = {
+      def dot(v1: Vector[Double], v2: Vector[Double]) =
+        v1.iterator.zip(v2.iterator).map { case (a, b) => a*b }.sum
+
+      def trans(v1: Vector[Vector[Double]]) =
+        Vector(Vector(v1(0)(0), v1(1)(0)), Vector(v1(0)(1), v1(1)(1)))
+
+      val res = Vector(Vector(0.0, 0.0), Vector(0.0, 0.0))
+
+      val data = for {
+        (r, ri) <- left.zipWithIndex
+        (c, ci) <- trans(right).zipWithIndex
+      } yield ((ri, ci), dot(r, c))
+
+      data.foldLeft(res) { case (v, ((r, c), d)) => v.updated(r, v(r).updated(c, d)) }
+    }
+
+    def norm(left: Vector[Vector[Double]]): Double =
+      left.map(_.map { x => x*x }.sum).sum
+
+
+    val genMat: Gen[Vector[Vector[Double]]] = {
+      val elem = Gen.choose(-1.0, 1.0)
+      Gen.listOfN(4, elem).map { vs =>
+        Vector(
+          Vector(vs(0), vs(1)),
+          Vector(vs(2), vs(3))
+        )
+      }
+    }
+
+    forAll(genMat, Gen.listOfN(5, genMat)) { (v0, prods) =>
+      val res = SetOps.greedySearch(5, v0, prods)({(v, ps) => ps.foldLeft(v)(mult(_, _))})(norm(_))
+      val normRes = norm(res)
+      val naive = norm(prods.foldLeft(v0)(mult(_, _)))
+      assert(normRes <= naive)
+    }
+  }
+
+  test("test A - (B | C) <= ((A - B) | (A - C)) - (B n C)") {
+    forAll { (pa: Predicate[Byte], pb: Predicate[Byte], pc: Predicate[Byte]) =>
+      val left = pa - (pb || pc)
+      val right = ((pa - pb) || (pa - pc)) - (pb && pc)
+      val checks = (0 until 256).map(_.toByte)
+      checks.foreach { b =>
+        val ba = pa(b)
+        val bb = pb(b)
+        val bc = pc(b)
+        if (!right(b)) {
+          assert(!left(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+        }
+      }
+    }
+  }
+
+  test("test A - (B | C) >= ((A - B) | (A - C))") {
+    forAll { (pa: Predicate[Byte], pb: Predicate[Byte], pc: Predicate[Byte]) =>
+      val left = pa - (pb || pc)
+      val right = ((pa - pb) || (pa - pc))
+      val checks = (0 until 256).map(_.toByte)
+      checks.foreach { b =>
+        val ba = pa(b)
+        val bb = pb(b)
+        val bc = pc(b)
+        if (left(b)) {
+          assert(right(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+        }
+      }
+    }
+  }
+
+  test("A - (B | C) = (A - B) n (A - C)") {
+    forAll { (pa: Predicate[Byte], pb: Predicate[Byte], pc: Predicate[Byte]) =>
+      val left = pa - (pb || pc)
+      val right = (pa - pb) && (pa - pc)
+      val checks = (0 until 256).map(_.toByte)
+      checks.foreach { b =>
+        val ba = pa(b)
+        val bb = pb(b)
+        val bc = pc(b)
+        assert(left(b) == right(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+      }
+    }
+  }
+
+  test("(A | B) - C = (A - C) | (B - C)") {
+    forAll { (pa: Predicate[Byte], pb: Predicate[Byte], pc: Predicate[Byte]) =>
+      val left = (pa || pb) - pc
+      val right = (pa - pc) || (pb - pc)
+      val checks = (0 until 256).map(_.toByte)
+      checks.foreach { b =>
+        val ba = pa(b)
+        val bb = pb(b)
+        val bc = pc(b)
+        if (!right(b)) {
+          assert(!left(b), s"ba = $ba, bb = $bb, bc = $bc, ${left(b)} != ${right(b)}")
+        }
+      }
+    }
+  }
+  test("A1 x B1 - A2 x B2 = (A1 n A2)x(B1 - B2) u (A1 - A2)xB1") {
+    forAll { (a1: Predicate[Byte], a2: Predicate[Byte], b1: Predicate[Byte], b2: Predicate[Byte], checks: List[(Byte, Byte)]) =>
+      val left = a1.product(b1) - a2.product(b2)
+      val right = (a1 && a2).product(b1 - b2) || (a1 - a2).product(b1)
+      checks.foreach { ab =>
+        assert(left(ab) == right(ab))
+      }
+    }
+  }
 }

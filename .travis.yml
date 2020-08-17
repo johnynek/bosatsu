@@ -17,18 +17,6 @@ jdk:
 
 matrix:
   include:
-    - scala: 2.11.12
-      language: scala
-      jdk: openjdk8
-      env: PLATFORM=jvm
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJVM/test cli/test doc
-
-    - scala: 2.12.9
-      language: scala
-      jdk: openjdk8
-      env: PLATFORM=jvm
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coverage coreJVM/test cli/test coverageReport doc && codecov && ./test_cli.sh
-
     - scala: 2.12.9
       language: scala
       jdk: openjdk8
@@ -50,6 +38,3 @@ matrix:
       script:
         - bazel build //...
         - bazel test --test_output errors //...
-
-install:
- - pip install --user codecov
