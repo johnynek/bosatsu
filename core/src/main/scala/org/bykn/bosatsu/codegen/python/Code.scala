@@ -93,7 +93,9 @@ object Code {
     c match {
       case PyInt(bi) => Doc.text(bi.toString)
       case PyString(s) => Doc.char('"') + Doc.text(StringUtil.escape('"', s)) + Doc.char('"')
-      case PyBool(b) => Doc.text(b.toString)
+      case PyBool(b) =>
+        if (b) Doc.text("True")
+        else Doc.text("False")
       case Ident(i) => Doc.text(i)
       case o@Op(_, _, _) => o.toDoc
       case Parens(inner@Parens(_)) => toDoc(inner)
