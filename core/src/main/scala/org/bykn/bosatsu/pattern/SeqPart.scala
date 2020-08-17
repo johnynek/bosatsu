@@ -56,8 +56,12 @@ object SeqPart {
           case (Lit(c1), Lit(c2)) =>
             setOpsA.intersection(c1, c2)
               .map(toPart1(_))
-          case (AnyElem, _) => p2 :: Nil
-          case (_, AnyElem) => p1 :: Nil
+          case (AnyElem, _) =>
+            if (isTop(p2)) AnyElem :: Nil
+            else p2 :: Nil
+          case (_, AnyElem) =>
+            if (isTop(p1)) AnyElem :: Nil
+            else p1 :: Nil
         }
 
       def difference(p1: SeqPart1[A], p2: SeqPart1[A]): List[SeqPart1[A]] =

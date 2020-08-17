@@ -398,7 +398,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               }
             }
             else left :: Nil
-      }
+        }
 
       def isTop(p: Pattern[Cons, Type]): Boolean =
         p match {
