@@ -10,6 +10,8 @@ import scala.util.{ Failure, Success, Try }
 import LocationMap.Colorize
 import IorMethods.IorExtension
 
+import Identifier.Bindable
+
 import cats.implicits._
 
 /**
@@ -300,28 +302,28 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           case Some(p) if !paths.contains(p) => p :: paths
           case _ => paths
         }
-      def getMain(ps: List[(Path, PackageName)]): IO[(PackageName, Option[Identifier])]
+      def getMain(ps: List[(Path, PackageName)]): IO[(PackageName, Option[Bindable])]
     }
     object MainIdentifier {
-      case class FromPackage(mainPackage: PackageName, value: Option[Identifier]) extends MainIdentifier {
+      case class FromPackage(mainPackage: PackageName, value: Option[Bindable]) extends MainIdentifier {
         def path: Option[Path] = None
-        def getMain(ps: List[(Path, PackageName)]): IO[(PackageName, Option[Identifier])] =
+        def getMain(ps: List[(Path, PackageName)]): IO[(PackageName, Option[Bindable])] =
           moduleIOMonad.pure((mainPackage, value))
       }
       case class FromFile(mainFile: Path) extends MainIdentifier {
         def path: Option[Path] = Some(mainFile)
-        def getMain(ps: List[(Path, PackageName)]): IO[(PackageName, Option[Identifier])] =
+        def getMain(ps: List[(Path, PackageName)]): IO[(PackageName, Option[Bindable])] =
           ps.collectFirst { case (path, pn) if path == mainFile => pn } match {
             case None => moduleIOMonad.raiseError(new Exception(s"could not find file $mainFile in parsed sources"))
             case Some(p) => moduleIOMonad.pure((p, None))
           }
       }
 
-      def opts(pnOpts: Opts[(PackageName, Option[Identifier])], fileOpts: Opts[Path]): Opts[MainIdentifier] =
+      def opts(pnOpts: Opts[(PackageName, Option[Bindable])], fileOpts: Opts[Path]): Opts[MainIdentifier] =
         pnOpts.map { case (p, i) => FromPackage(p, i) }
           .orElse(fileOpts.map(FromFile(_)))
 
-      def list(packs: Opts[List[(PackageName, Option[Identifier])]], files: Opts[List[Path]]): Opts[List[MainIdentifier]] =
+      def list(packs: Opts[List[(PackageName, Option[Bindable])]], files: Opts[List[Path]]): Opts[List[MainIdentifier]] =
         (packs, files).mapN { (ps, fs) =>
           ps.map { case (p, i) => FromPackage(p, i) } ::: fs.map(FromFile(_))
         }
@@ -690,9 +692,9 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       implicit val argPack: Argument[PackageName] =
         argFromParser(PackageName.parser, "packageName", "package name", "Must be capitalized strings separated by /")
 
-      implicit val argValue: Argument[(PackageName, Option[Identifier])] = {
+      implicit val argValue: Argument[(PackageName, Option[Bindable])] = {
         import fastparse.all._
-        argFromParser(P(PackageName.parser ~ ("::" ~ Identifier.parser).?),
+        argFromParser(P(PackageName.parser ~ ("::" ~ Identifier.bindableParser).?),
           "valueIdent",
           "package or package::name",
           "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz.")
@@ -749,7 +751,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       val mainP =
           MainIdentifier.opts(
-            Opts.option[(PackageName, Option[Identifier])]("main", help = "main value to evaluate (package name or full identifier"),
+            Opts.option[(PackageName, Option[Bindable])]("main", help = "main value to evaluate (package name or full identifier to a value)"),
             Opts.option[Path]("main_file", help = "file containing the main package to evaluate"))
 
       val testP =

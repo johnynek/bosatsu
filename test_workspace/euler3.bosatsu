@@ -27,8 +27,8 @@ def all_factors(n):
     next_factor = smallest_factor(i)
     next_facs = [next_factor, *facs]
     match i.div(next_factor):
-      None | Some(1): (0, next_facs)
-      Some(smaller): (smaller, next_facs))
+      1: (0, next_facs)
+      smaller: (smaller, next_facs))
 
 def largest_factor(n):
   match all_factors(n):

@@ -1,9 +1,10 @@
 package org.bykn.bosatsu
 
+import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
-import rankn.{NTypeGen, Type}
+import rankn.{NTypeGen, Type, TypeEnv}
 import TestUtils.typeEnvOf
 
 class ValueToDocTest extends FunSuite {
@@ -12,9 +13,20 @@ class ValueToDocTest extends FunSuite {
     PropertyCheckConfiguration(minSuccessful = 1000)
 
   test("never throw when converting to doc") {
-    val vd = ValueToDoc({ _ => None})
+    val tegen = Generators.typeEnvGen(PackageName.parts("Foo"), Gen.const(()))
 
-    forAll(NTypeGen.genPredefType, GenValue.genValue) { (t, v) =>
+    val withType: Gen[(TypeEnv[Any], Type)] =
+      tegen.flatMap { te =>
+        val tyconsts =
+          te.allDefinedTypes.map(_.toTypeConst)
+        val theseTypes = NTypeGen.genDepth(4, if (tyconsts.isEmpty) None else Some(Gen.oneOf(tyconsts)))
+
+        theseTypes.map((te, _))
+      }
+
+
+    forAll(withType, GenValue.genValue) { case ((te, t), v) =>
+      val vd = ValueToDoc(te.toDefinedType(_))
       vd.toDoc(t)(v)
       succeed
     }

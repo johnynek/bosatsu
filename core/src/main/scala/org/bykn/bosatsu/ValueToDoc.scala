@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.Eval
 import cats.implicits._
 import java.math.BigInteger
-import org.bykn.bosatsu.rankn.{DefinedType, Type}
+import org.bykn.bosatsu.rankn.{DefinedType, Type, DataFamily}
 import org.typelevel.paiges.{Doc, Document}
 import scala.collection.mutable.{Map => MMap}
 
@@ -209,32 +209,28 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     }
 
 
-                  dt.natLike match {
-                    case DefinedType.NatLike.Not =>
-                      if (dt.isNewType) {
-                        // the outer wrapping is so we add it back
+                  dt.dataFamily match {
+                    case DataFamily.NewType =>
+                      // the outer wrapping is so we add it back
 
-                        { v => params(0, v :: Nil, v) }
-                      }
-                      else if (dt.isStruct) {
-                        {
-                          case prod: ProductValue =>
-                            val plist = prod.toList
-                            params(0, prod.toList, prod)
+                      { v => params(0, v :: Nil, v) }
+                    case DataFamily.Struct =>
+                      {
+                        case prod: ProductValue =>
+                          val plist = prod.toList
+                          params(0, prod.toList, prod)
 
-                          case other =>
-                            Left(IllTyped(revPath.reverse, tpe, other))
-                        }
+                        case other =>
+                          Left(IllTyped(revPath.reverse, tpe, other))
                       }
-                      else {
-                        {
-                          case s: SumValue =>
-                            params(s.variant, s.value.toList, s)
-                          case a =>
-                            Left(IllTyped(revPath.reverse, tpe, a))
-                         }
+                    case DataFamily.Enum =>
+                      {
+                        case s: SumValue =>
+                          params(s.variant, s.value.toList, s)
+                        case a =>
+                          Left(IllTyped(revPath.reverse, tpe, a))
                        }
-                    case _ =>
+                    case DataFamily.Nat =>
                       // this is nat-like
                       // TODO, maybe give a warning
                       {

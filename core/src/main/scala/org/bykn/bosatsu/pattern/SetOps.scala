@@ -22,6 +22,12 @@ trait SetOps[A] {
   def intersection(a1: A, a2: A): List[A]
 
   /**
+   * Return true if a1 and a2 are disjoint
+   */
+  def disjoint(a1: A, a2: A): Boolean =
+    intersection(a1, a2).isEmpty
+
+  /**
    * remove a2 from a1 return a union represented as a list
    *
    * this should be the tightest upperbound we can find
@@ -64,9 +70,16 @@ trait SetOps[A] {
    * }
    */
   def missingBranches(top: List[A], branches: List[A]): List[A] = {
-    val missing = branches.foldLeft(top) { (missing, nextBranch) =>
-      differenceAll(missing, nextBranch :: Nil)
-    }
+    // we can subtract in any order
+    // since a - b - c = a - c - b
+
+    // all permutations can blow up fast, so we only
+    // take a fixed number
+    // 3! = 6
+    val lookahead = 3
+
+    val missing = SetOps.greedySearch(lookahead, top, unifyUnion(branches))(differenceAll(_, _))(_.size)
+
     // filter any unreachable, which can happen when earlier items shadow later
     // ones
     val unreach = unreachableBranches(missing)
@@ -95,6 +108,48 @@ trait SetOps[A] {
 
 object SetOps {
 
+  def allPerms[A](as: List[A]): List[List[A]] = {
+    def loop(sz: Int, as: List[A]): List[List[A]] =
+      as match {
+        case a :: rest =>
+          // now a could be anywhere in the resulting list
+          for {
+            lst <- loop(sz - 1, rest)
+            offset <- 0 until sz
+          } yield (lst.take(offset) ::: (a :: lst.drop(offset)))
+        case Nil => Nil :: Nil
+      }
+
+    loop(as.size, as)
+  }
+
+  // we search for the best order to apply the diffs that minimizes the score
+  def greedySearch[A, B, C: Ordering](lookahead: Int, union: A, diffs: List[B])(fn: (A, List[B]) => A)(score: A => C): A =
+    diffs match {
+      case Nil => union
+      case ned =>
+        val peek = diffs.take(lookahead)
+        val trials = SetOps.allPerms(peek).map { peeks =>
+          val u1 = fn(union, peeks)
+          val ulen = score(u1)
+          (ulen, peek.head)
+        }
+        val smallest = trials.iterator.map(_._1).min
+        // choose a diff that starts the most
+        // number of results that are the smallest
+        val oc = implicitly[Ordering[C]]
+        val best = trials
+          .collect { case (ulen, p) if oc.equiv(ulen, smallest) => p }
+          .groupBy(identity)
+          .map { case (k, v) => (k, v.size) }
+          .maxBy(_._2)
+          ._1
+
+        val u1 = fn(union, best :: Nil)
+        greedySearch(lookahead, u1, diffs.filterNot(_ == best))(fn)(score)
+    }
+
+
   def distinct[A](implicit ordA: Ordering[A]): SetOps[A] =
     new SetOps[A] {
       def top: Option[A] = None
@@ -121,6 +176,29 @@ object SetOps {
       }
 
       def subset(a: A, b: A): Boolean = ordA.equiv(a, b)
+    }
+
+  def fromFinite[A](items: Iterable[A]): SetOps[Set[A]] =
+    new SetOps[Set[A]] {
+      require(items.nonEmpty, "the empty set is not allowed")
+
+      val itemsSet = items.toSet
+      val top: Option[Set[A]] = Some(itemsSet)
+      def isTop(a: Set[A]): Boolean = a == itemsSet
+
+      def toList(s: Set[A]): List[Set[A]] =
+        if (s.isEmpty) Nil else s :: Nil
+
+      def intersection(a1: Set[A], a2: Set[A]): List[Set[A]] =
+        toList(a1.intersect(a2))
+
+      def difference(a1: Set[A], a2: Set[A]): List[Set[A]] =
+        toList(a1 -- a2)
+
+      def unifyUnion(u: List[Set[A]]): List[Set[A]] =
+        toList(u.foldLeft(Set.empty[A])(_ | _))
+
+      def subset(a: Set[A], b: Set[A]): Boolean = a.subsetOf(b)
     }
 
   // for types with only one value, Null, Unit, Nil
