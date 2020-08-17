@@ -119,8 +119,22 @@ object Value {
       if ((value == UnitValue) && ((variant & sizeMask) == 0)) constants(variant)
       else new SumValue(variant, value)
   }
-  case class FnValue(toFn: Value => Value) extends Value
+
+  trait FnValueArg {
+    def toFn: Value => Value
+  }
+
+  case class SimpleFnValue(toFn: Value => Value) extends FnValueArg
+
+  class FnValue(fnValueArg: FnValueArg) extends Value {
+    val arg = fnValueArg
+  }
+
   object FnValue {
+    def apply(toFn: Value => Value) = new FnValue(SimpleFnValue(toFn))
+
+    def unapply(fnValue: FnValue): Some[Value => Value] = Some(fnValue.arg.toFn)
+
     val identity: FnValue = FnValue(v => v)
 
     def curry(arity: Int)(vs: List[Value] => Value): Value = {
@@ -136,6 +150,7 @@ object Value {
     }
 
   }
+
   case class ExternalValue(toAny: Any) extends Value
 
   val False: SumValue = SumValue(0, UnitValue)
