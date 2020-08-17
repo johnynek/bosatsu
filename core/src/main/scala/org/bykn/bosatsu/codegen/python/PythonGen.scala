@@ -303,7 +303,7 @@ object PythonGen {
           case WithValue(stmt, v) =>
             loop(v).map(WithValue(stmt, _))
           // the rest cannot have a call in the tail position
-          case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectItem(_, _) | Ident(_) | Literal(_) | PyString(_) | PyInt(_) => Monad[Env].pure(body)
+          case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectItem(_, _) | Ident(_) | PyBool(_) | PyString(_) | PyInt(_) => Monad[Env].pure(body)
         }
 
       loop(initBody)
