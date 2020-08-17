@@ -78,15 +78,15 @@ object LetFreeEvaluation {
     def toKey: String = toJson.render.hashCode.toString
   }
 
-  case class LazyValue(expression: LetFreeExpression, scope: List[LetFreeValue])
-      extends LetFreeValue {
+  case class LazyValue(expression: LetFreeExpression, scope: List[LetFreeValue]) extends LetFreeValue {
     def cleanedScope: List[(Int, LetFreeValue)] =
       expression.varSet.toList.sorted.map { n => (n, scope(n)) }
   }
+
   case class ComputedValue(value: Value) extends LetFreeValue
 
   implicit def nvToLitValue(
-      implicit extEnv: ExtEnv,
+    implicit extEnv: ExtEnv,
       cache: Cache
   ): LetFreeValue => Option[LetFreeConversion.LitValue] = { nv =>
     valueToLitValue(nvToV(nv))
@@ -168,12 +168,12 @@ object LetFreeEvaluation {
       case ComputedValue(value) => value
     }
 
-  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV) => Value)
-      extends Value.FnValueArg {
+  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV) => Value) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
       toExprFn(ComputedValue(v), None, None)
     }
   }
+
 
   def attemptExprFn(
       v: Value
@@ -189,6 +189,7 @@ object LetFreeEvaluation {
     // $COVERAGE-ON$
 
   }
+
 
   import scala.concurrent.ExecutionContext.Implicits.global
   def applyApplyable(
@@ -386,4 +387,14 @@ case class LetFreeEvaluation(
         dt <- pack.program.types.getType(pn, t)
       } yield dt
   })
+  type Cache = Option[CMap[String, (Future[Value], Type)]]
+  type ToLFV = Option[LetFreeEvaluation.LetFreeValue => Future[Value]]
+
+
+  def exprFn(wrapper: (LetFreeEvaluation.LetFreeValue, rankn.Type, LetFreeEvaluation.Cache, LetFreeEvaluation.ToLFV) => Any): FfiCall = {
+
+    def evalExprFn(t: rankn.Type): LetFreeEvaluation.ExprFnValue = LetFreeEvaluation.ExprFnValue({ (e1, cache, eval) => Value.ExternalValue(wrapper(e1, t, cache, eval)) })
+
+    FfiCall.FromFn { t => new Value.FnValue(evalExprFn(t)) }
+  }
 }

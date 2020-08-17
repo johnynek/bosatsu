@@ -120,18 +120,20 @@ object Value {
       else new SumValue(variant, value)
   }
 
-  trait FnValueArg {
-    def toFn: Value => Value
-  }
-
-  case class SimpleFnValue(toFn: Value => Value) extends FnValueArg
-
-  class FnValue(fnValueArg: FnValueArg) extends Value {
-    val arg = fnValueArg
+  class FnValue(fnValueArg: FnValue.Arg) extends Value {
+    val arg: FnValue.Arg = fnValueArg
   }
 
   object FnValue {
-    def apply(toFn: Value => Value) = new FnValue(SimpleFnValue(toFn))
+    trait Arg {
+      def toFn: Value => Value
+    }
+
+    case class SimpleFnValue(toFn: Value => Value) extends Arg
+
+
+    def apply(toFn: Value => Value): FnValue =
+      new FnValue(SimpleFnValue(toFn))
 
     def unapply(fnValue: FnValue): Some[Value => Value] = Some(fnValue.arg.toFn)
 
