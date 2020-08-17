@@ -147,7 +147,7 @@ class CodeTest extends FunSuite {
   test("test bug with IfElse") {
     import Code._
 
-    val ifElse = IfElse(NonEmptyList.of((Literal("a"), Literal("b"))), Literal("c"))
+    val ifElse = IfElse(NonEmptyList.of((Ident("a"), Ident("b"))), Ident("c"))
     val stmt = addAssign(Ident("bar"), ifElse)
 
     assert(toDoc(stmt).renderTrim(80) == """if a:
@@ -159,19 +159,19 @@ else:
   test("test some Operator examples") {
     import Code._
 
-    val apbpc = Op(Literal("a"), Const.Plus, Op(Literal("b"), Const.Plus, Literal("c")))
+    val apbpc = Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Plus, Ident("c")))
 
     assert(toDoc(apbpc).renderTrim(80) == """a + b + c""")
 
-    val apbmc = Op(Literal("a"), Const.Plus, Op(Literal("b"), Const.Minus, Literal("c")))
+    val apbmc = Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Minus, Ident("c")))
 
     assert(toDoc(apbmc).renderTrim(80) == """a + b - c""")
 
-    val ambmc = Op(Literal("a"), Const.Minus, Op(Literal("b"), Const.Minus, Literal("c")))
+    val ambmc = Op(Ident("a"), Const.Minus, Op(Ident("b"), Const.Minus, Ident("c")))
 
     assert(toDoc(ambmc).renderTrim(80) == """a - (b - c)""")
 
-    val amzmbmc = Op(Op(Literal("a"), Const.Minus, Literal("z")), Const.Minus, Op(Literal("b"), Const.Minus, Literal("c")))
+    val amzmbmc = Op(Op(Ident("a"), Const.Minus, Ident("z")), Const.Minus, Op(Ident("b"), Const.Minus, Ident("c")))
 
     assert(toDoc(amzmbmc).renderTrim(80) == """(a - z) - (b - c)""")
   }

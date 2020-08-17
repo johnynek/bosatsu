@@ -84,8 +84,6 @@ object Code {
     c match {
       case Lambda(_, _) => par(toDoc(c))
       case _ => toDoc(c)
-      //case Apply(_, _) | DotSelect(_, _) | Literal(_) | PyInt(_) | PyString(_) | Ident(_) | Parens(_) | MakeTuple(_) => toDoc(c)
-      //case _ => par(toDoc(c))
     }
 
   private def iflike(name: String, cond: Doc, body: Doc): Doc =
@@ -93,9 +91,11 @@ object Code {
 
   def toDoc(c: Code): Doc =
     c match {
-      case Literal(s) => Doc.text(s)
       case PyInt(bi) => Doc.text(bi.toString)
       case PyString(s) => Doc.char('"') + Doc.text(StringUtil.escape('"', s)) + Doc.char('"')
+      case PyBool(b) =>
+        if (b) Doc.text("True")
+        else Doc.text("False")
       case Ident(i) => Doc.text(i)
       case o@Op(_, _, _) => o.toDoc
       case Parens(inner@Parens(_)) => toDoc(inner)
@@ -148,10 +148,9 @@ object Code {
   // Here are all the expressions
   /////////////////////////
 
-  // True, False, None, numbers
-  case class Literal(asString: String) extends Expression
   case class PyInt(toBigInteger: BigInteger) extends Expression
   case class PyString(content: String) extends Expression
+  case class PyBool(toBoolean: Boolean) extends Expression
   case class Ident(name: String) extends Dotable { // a kind of expression
     def :=(vl: ValueLike): Statement =
       addAssign(this, vl)
@@ -472,8 +471,8 @@ object Code {
     case object Gt extends Operator(">")
     case object Lt extends Operator("<")
 
-    val True = Literal("True")
-    val False = Literal("False")
+    val True = PyBool(true)
+    val False = PyBool(false)
 
     val Zero = PyInt(BigInteger.ZERO)
     val One = PyInt(BigInteger.ONE)
