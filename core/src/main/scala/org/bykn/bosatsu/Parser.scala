@@ -378,10 +378,12 @@ object Parser {
     pa.parse(str) match {
       case Parsed.Success(a, idx) if idx == str.length =>
         a
+      // $COVERAGE-OFF$
       case Parsed.Success(_, idx) =>
         sys.error(s"partial parse of $str ignores: ${str.substring(idx)}")
       case Parsed.Failure(exp, idx, extra) =>
         sys.error(s"failed to parse: $str: $exp at $idx: (${str.substring(idx)}) with trace: ${extra.traced.trace}")
+      // $COVERAGE-ON$
     }
 
 }

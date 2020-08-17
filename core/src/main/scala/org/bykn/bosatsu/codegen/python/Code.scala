@@ -31,62 +31,23 @@ object Code {
     def get(idx: Int): SelectItem =
       SelectItem(this, idx)
 
+
+    def eval(op: Operator, x: Expression): Expression =
+      Op(this, op, x).simplify
+
     def evalAnd(that: Expression): Expression =
-      that match {
-        case Const.True => this
-        case Const.False => Const.False
-        case _ =>
-          this match {
-            case Const.True => that
-            case Const.False => Const.False
-            case _ => Op(this, Const.And, that)
-          }
-      }
+      eval(Const.And, that)
 
     def evalPlus(that: Expression): Expression =
-      (this, that) match {
-        case (Code.PyInt(a), Code.PyInt(b)) =>
-          Code.PyInt(a.add(b))
-        case (Code.PyInt(a), Code.Op(b, Code.Const.Plus, Code.PyInt(c))) =>
-          b.evalPlus(Code.PyInt(a.add(c)))
-        case (Code.Op(b, Code.Const.Plus, Code.PyInt(c)), Code.PyInt(a)) =>
-          b.evalPlus(Code.PyInt(c.add(a)))
-        case (Code.Op(a1, Code.Const.Plus, Code.PyInt(a2)), Code.Op(b1, Code.Const.Plus, Code.PyInt(b2))) =>
-          a1.evalPlus(b1.evalPlus(Code.PyInt(a2.add(b2))))
-        case (_, _) =>
-          // TODO, this could also optimize when we have Minus
-          Code.Op(this, Code.Const.Plus, that)
-      }
+      eval(Const.Plus, that)
 
     def evalMinus(that: Expression): Expression =
-      (this, that) match {
-        case (Code.PyInt(a), Code.PyInt(b)) =>
-          Code.PyInt(a.subtract(b))
-        case (Code.PyInt(a), Code.Op(b, Code.Const.Minus, Code.PyInt(c))) =>
-          b.evalMinus(Code.PyInt(a.subtract(c)))
-        case (Code.Op(b, Code.Const.Minus, Code.PyInt(c)), Code.PyInt(a)) =>
-          b.evalPlus(Code.PyInt(a.subtract(c)))
-        case (Code.Op(a1, Code.Const.Minus, Code.PyInt(a2)), Code.Op(b1, Code.Const.Minus, Code.PyInt(b2))) =>
-          a1.evalMinus(b1).evalMinus(Code.PyInt(b2.subtract(a2)))
-        case (_, _) =>
-          // TODO, this could also optimize when we have Plus
-          Code.Op(this, Code.Const.Minus, that)
-      }
+      eval(Const.Minus, that)
 
     def evalTimes(that: Expression): Expression =
-      (this, that) match {
-        case (Code.PyInt(a), Code.PyInt(b)) =>
-          Code.PyInt(a.multiply(b))
-        case (Code.PyInt(a), Code.Op(b, Code.Const.Times, Code.PyInt(c))) =>
-          b.evalTimes(Code.PyInt(a.multiply(c)))
-        case (Code.Op(b, Code.Const.Times, Code.PyInt(c)), Code.PyInt(a)) =>
-          b.evalTimes(Code.PyInt(c.multiply(a)))
-        case (Code.Op(a1, Code.Const.Times, Code.PyInt(a2)), Code.Op(b1, Code.Const.Times, Code.PyInt(b2))) =>
-          a1.evalTimes(b1.evalTimes(Code.PyInt(a2.multiply(b2))))
-        case (_, _) =>
-          // TODO, this could also optimize when we have Minus
-          Code.Op(this, Code.Const.Times, that)
-      }
+      eval(Const.Times, that)
+
+    def simplify: Expression = this
   }
 
   // something we can a . after
@@ -234,6 +195,137 @@ object Code {
 
       loop(left, NonEmptyList((op, right), Nil))
     }
+
+    // prefer constants on the right
+    override def simplify: Expression =
+      this match {
+        case Op(PyInt(a), io: IntOp, PyInt(b)) =>
+          PyInt(io(a, b))
+        case Op(i@PyInt(a), Const.Times, right) =>
+          if (a == BigInteger.ZERO) i
+          else if (a == BigInteger.ONE) right.simplify
+          else right.simplify.evalTimes(i)
+        case Op(left, Const.Times, i@PyInt(b)) =>
+          if (b == BigInteger.ZERO) i
+          else if (b == BigInteger.ONE) left.simplify
+          else {
+            val l1 = left.simplify
+            if (l1 == left) this
+            else (l1.evalTimes(i))
+          }
+        case Op(i@PyInt(a), Const.Plus, right) =>
+          if (a == BigInteger.ZERO) right.simplify
+          else {
+            val r1 = right.simplify
+            // put the constant on the right
+            r1.evalPlus(i)
+          }
+        case Op(left, Const.Plus, i@PyInt(b)) =>
+          if (b == BigInteger.ZERO) left.simplify
+          else {
+            val l1 = left.simplify
+            if (l1 == left) {
+              l1 match {
+                case Op(ll, io: IntOp, rl) =>
+                  io match {
+                    case Const.Plus =>
+                      // right associate
+                      ll.evalPlus(rl.evalPlus(i))
+                    case Const.Minus =>
+                      //(ll - rl) + i == ll - (rl - i)
+                      ll.evalMinus(rl.evalMinus(i))
+                    case _ => this
+                  }
+                case _ => this
+              }
+            }
+            else (l1.evalPlus(i))
+          }
+        case Op(i@PyInt(_), Const.Minus, right) =>
+          val r1 = right.simplify
+          if (r1 == right) {
+            r1 match {
+              case Op(rl, io: IntOp, rr) =>
+                io match {
+                  case Const.Plus =>
+                    // right associate
+                    rl.evalPlus(rr.evalPlus(i))
+                  case Const.Minus =>
+                    //i - (rl - rr)
+                    rr match {
+                      case ri@PyInt(_) =>
+                        Op(i.evalPlus(ri), Const.Minus, rl)
+                      case _ => this
+                    }
+                  case _ => this
+                }
+              case _ => this
+            }
+          }
+          else (i.evalMinus(r1))
+        case Op(left, Const.Minus, i@PyInt(b)) =>
+          if (b == BigInteger.ZERO) left.simplify
+          else {
+            val l1 = left.simplify
+            if (l1 == left) {
+              l1 match {
+                case Op(ll, io: IntOp, rl) =>
+                  io match {
+                    case Const.Plus =>
+                      // (ll + rl) - i == ll + (rl - i)
+                      ll.evalPlus(rl.evalMinus(i))
+                    case Const.Minus =>
+                      //(ll - rl) - i == ll - (rl + i)
+                      ll.evalMinus(rl.evalPlus(i))
+                    case _ => this
+                  }
+                case _ => this
+              }
+            }
+            else (l1.evalMinus(i))
+          }
+        case Op(a, Const.Eq, b) =>
+          if (a == b) Const.True
+          else this
+        case Op(a, Const.Gt | Const.Lt, b) if a == b => Const.False
+        case Op(PyInt(a), Const.Gt, PyInt(b)) =>
+          if (a.compareTo(b) > 0) Const.True
+          else Const.False
+        case Op(PyInt(a), Const.Lt, PyInt(b)) =>
+          if (a.compareTo(b) < 0) Const.True
+          else Const.False
+        case Op(a, Const.And, b) =>
+          (a, b) match {
+            case (Const.True, _) => b
+            case (_, Const.True) => a
+            case (Const.False, _) => Const.False
+            case (_, Const.False) => Const.False
+            case _ => this
+          }
+        case _ =>
+          val l1 = left.simplify
+          val r1 = right.simplify
+          if ((l1 != left) || (r1 != right)) {
+            Op(l1, op, r1).simplify
+          }
+          else {
+            (left, op) match {
+              case (Op(ll, Const.Plus, lr), Const.Plus) =>
+                // right associate
+                ll.evalPlus(lr.evalPlus(right))
+              case (Op(ll, Const.Minus, lr), Const.Plus) =>
+                // right associate
+                ll.evalPlus(right.evalMinus(lr))
+              case (Op(ll, Const.Plus, lr), Const.Minus) =>
+                // right associate
+                ll.evalMinus(right.evalMinus(lr))
+              case (Op(ll, Const.Times, lr), Const.Times) =>
+                // right associate
+                ll.evalTimes(lr.evalTimes(right))
+              case _ => this
+            }
+          }
+      }
   }
 
   case class Parens(expr: Expression) extends Expression
@@ -339,9 +431,12 @@ object Code {
     }
 
   def fromInt(i: Int): Expression =
-    if (i == 0) Const.Zero
-    else if (i == 1) Const.One
-    else PyInt(BigInteger.valueOf(i.toLong))
+    fromLong(i.toLong)
+
+  def fromLong(i: Long): Expression =
+    if (i == 0L) Const.Zero
+    else if (i == 1L) Const.One
+    else PyInt(BigInteger.valueOf(i))
 
   sealed abstract class Operator(val name: String) {
     def associates(that: Operator): Boolean = {
@@ -358,10 +453,20 @@ object Code {
       }
     }
   }
+
+  sealed abstract class IntOp(nm: String) extends Operator(nm) {
+    def apply(a: BigInteger, b: BigInteger): BigInteger =
+      this match {
+        case Const.Plus => a.add(b)
+        case Const.Minus => a.subtract(b)
+        case Const.Times => a.multiply(b)
+      }
+  }
+
   object Const {
-    case object Plus extends Operator("+")
-    case object Minus extends Operator("-")
-    case object Times extends Operator("*")
+    case object Plus extends IntOp("+")
+    case object Minus extends IntOp("-")
+    case object Times extends IntOp("*")
     case object And extends Operator("and")
     case object Eq extends Operator("==")
     case object Gt extends Operator(">")
