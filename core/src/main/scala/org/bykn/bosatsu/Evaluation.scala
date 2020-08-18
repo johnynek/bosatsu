@@ -1,12 +1,12 @@
 package org.bykn.bosatsu
 
 import cats.Eval
-import org.bykn.bosatsu.rankn.{Type, DataRepr}
+import org.bykn.bosatsu.rankn.Type
 import scala.collection.mutable.{Map => MMap}
 
 import cats.implicits._
 
-import Identifier.{Bindable, Constructor}
+import Identifier.Bindable
 
 case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   import Value._
@@ -40,6 +40,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     .toMap
   }
 
+  private[this] lazy val gdr = pm.getDataRepr
+
   private def evalLets(thisPack: PackageName, lets: List[(Bindable, RecursionKind, TypedExpr[T])]): List[(Bindable, Eval[Value])] = {
     val exprs: List[(Bindable, Matchless.Expr)] =
       rankn.RefSpace
@@ -48,7 +50,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           lets
             .traverse {
               case (name, rec, te) =>
-                Matchless.fromLet(name, rec, te, getDataRepr, c)
+                Matchless.fromLet(name, rec, te, gdr, c)
                  .map((name, _))
             }
       }
@@ -158,22 +160,6 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
       ea.map(toTest(_))
     }
-
-
-  private val getDataRepr: (PackageName, Constructor) => DataRepr = {
-    (pname, cons) =>
-      val pack = pm.toMap(pname)
-      pack.program
-        .types
-        .getConstructor(pname, cons) match {
-          case Some((_, dt, _)) => dt.dataRepr(cons)
-          case None =>
-            // shouldn't happen for type checked programs
-            // $COVERAGE-OFF$
-            throw new IllegalStateException(s"could not find $cons in ${pack.program.types}")
-            // $COVERAGE-ON$
-        }
-  }
 
   /**
    * Convert a typechecked value to Json

@@ -164,12 +164,13 @@ object Parser {
     spacesAndLines.?.opaque("maybeSpacesAndLines")
 
   val lowerIdent: P[String] =
-    P(CharIn('a' to 'z').! ~ CharsWhile(identifierChar _).?.!)
-      .map { case (a, b) => a + b }
+    P(CharIn('a' to 'z') ~ CharsWhile(identifierChar _).?).!
 
   val upperIdent: P[String] =
-    P(CharIn('A' to 'Z').! ~ CharsWhile(identifierChar _).?.!)
-      .map { case (a, b) => a + b }
+    P(CharIn('A' to 'Z') ~ CharsWhile(identifierChar _).?).!
+
+  val py2Ident: P[String] =
+    P(CharIn('_' :: ('A' to 'Z').toList ::: ('a' to 'z').toList) ~ CharsWhile(identifierChar _).?).!
 
   def tokenP[T](s: String, t: T): P[T] = P(s).map(_ => t)
 
@@ -364,4 +365,25 @@ object Parser {
    * repeatedly parsing End will OOM
    */
   val toEOL: P[Unit] = P(maybeSpace ~ ("\n" | End))
+
+  def optionParse[A](pa: P[A], str: String): Option[A] =
+    pa.parse(str) match {
+      case Parsed.Success(ident, idx) if idx == str.length =>
+        Some(ident)
+      case _ =>
+        None
+    }
+
+  def unsafeParse[A](pa: P[A], str: String): A =
+    pa.parse(str) match {
+      case Parsed.Success(a, idx) if idx == str.length =>
+        a
+      // $COVERAGE-OFF$
+      case Parsed.Success(_, idx) =>
+        sys.error(s"partial parse of $str ignores: ${str.substring(idx)}")
+      case Parsed.Failure(exp, idx, extra) =>
+        sys.error(s"failed to parse: $str: $exp at $idx: (${str.substring(idx)}) with trace: ${extra.traced.trace}")
+      // $COVERAGE-ON$
+    }
+
 }

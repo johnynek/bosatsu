@@ -9,7 +9,7 @@ import org.typelevel.paiges.{Doc, Document}
 
 import cats.implicits._
 import fastparse.all._
-import Parser.Indy
+import Parser.{optionParse, unsafeParse, Indy}
 
 import Generators.{shrinkDecl, shrinkStmt}
 
@@ -23,22 +23,6 @@ trait ParseFns {
     else {
       val s = s0.updated(idx, '*')
       ("...(" + s.drop(idx - 20).take(20) + ")...")
-    }
-
-  def parseUnsafe[A](p: Parser[A], str: String): A =
-    p.parse(str) match {
-      case Parsed.Success(a, idx) =>
-        assert(idx == str.length)
-        a
-      case Parsed.Failure(exp, idx, extra) =>
-        sys.error(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
-    }
-  def parseOpt[A](p: Parser[A], str: String): Option[A] =
-    p.parse(str) match {
-      case Parsed.Success(a, idx) if idx == str.length =>
-        Some(a)
-      case _ =>
-        None
     }
 
   def firstDiff(s1: String, s2: String): String =
@@ -641,7 +625,7 @@ x""")
         case Some(pat) =>
           // if we convert to string this parses the same as a pattern:
           val decStr = dec.toDoc.render(80)
-          val parsePat = parseUnsafe(Pattern.bindParser, decStr)
+          val parsePat = unsafeParse(Pattern.bindParser, decStr)
           assert(pat == parsePat)
       }
     }
@@ -661,7 +645,7 @@ x""")
 
     def law2(dec: Declaration.NonBinding) = {
       val decStr = dec.toDoc.render(80)
-      val parsePat = parseOpt(Pattern.matchParser, decStr)
+      val parsePat = optionParse(Pattern.matchParser, decStr)
       (Declaration.toPattern(dec), parsePat) match {
         case (None, None) => succeed
         case (Some(p0), Some(p1)) => assert(p0 == p1)
@@ -676,8 +660,8 @@ x""")
 
 
     def testEqual(decl: String) = {
-      val dec = parseUnsafe(Declaration.parser(""), decl).asInstanceOf[Declaration.NonBinding]
-      val patt = parseUnsafe(Pattern.matchParser, decl)
+      val dec = unsafeParse(Declaration.parser(""), decl).asInstanceOf[Declaration.NonBinding]
+      val patt = unsafeParse(Pattern.matchParser, decl)
       Declaration.toPattern(dec) match {
         case Some(p2) => assert(p2 == patt)
         case None => fail(s"could not convert $decl to pattern")

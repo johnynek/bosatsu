@@ -362,4 +362,21 @@ enum Either: Left(l), Right(r)
       subsetConsistencyLaw(a, b, eqPatterns)
     }
   }
+
+  test("difference is idempotent regressions") {
+    import Pattern._
+    import ListPart._
+    import Identifier.Name
+    import StrPart.WildStr
+
+    val regressions: List[(Pat, Pat)] =
+      List(
+        {
+          val left = ListPat(List(Item(WildCard), WildList))
+          val right = ListPat(List(Item(Var(Name("bey6ct"))), Item(Literal(Lit.fromInt(42))), Item(StrPat(NonEmptyList.of(WildStr))), Item(Literal(Lit("agfn"))), Item(WildCard)))
+          (left, right)
+        })
+
+    regressions.foreach { case (a, b) => differenceIsIdempotent(a, b, eqPatterns) }
+  }
 }

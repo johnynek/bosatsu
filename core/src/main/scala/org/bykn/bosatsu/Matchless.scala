@@ -19,6 +19,7 @@ object Matchless {
   // these hold bindings either in the code, or temporary
   // local ones
   sealed trait CheapExpr extends Expr
+  sealed abstract class FnExpr extends Expr
 
   sealed abstract class StrPart
   object StrPart {
@@ -31,13 +32,13 @@ object Matchless {
   // we should probably allocate static slots for each bindable,
   // and replace the local with an integer offset slot access for
   // the closure state
-  case class Lambda(captures: List[Bindable], arg: Bindable, expr: Expr) extends Expr
+  case class Lambda(captures: List[Bindable], arg: Bindable, expr: Expr) extends FnExpr
 
   // this is a tail recursive function that should be compiled into a loop
   // when a call to name is done inside body, that should restart the loop
   // the type of this Expr a function with the arity of args that returns
   // the type of body
-  case class LoopFn(captures: List[Bindable], name: Bindable, argshead: Bindable, argstail: List[Bindable], body: Expr) extends Expr
+  case class LoopFn(captures: List[Bindable], name: Bindable, argshead: Bindable, argstail: List[Bindable], body: Expr) extends FnExpr
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
@@ -73,7 +74,7 @@ object Matchless {
   case class And(e1: BoolExpr, e2: BoolExpr) extends BoolExpr
   // checks if variant matches, and if so, writes to
   // a given mut
-  case class CheckVariant(expr: Expr, expect: Int) extends BoolExpr
+  case class CheckVariant(expr: Expr, expect: Int, size: Int) extends BoolExpr
   // handle list matching, this is a while loop, that is evaluting
   // lst is initialized to init, leftAcc is initialized to empty
   // tail until it is true while mutating lst => lst.tail
@@ -93,13 +94,19 @@ object Matchless {
   case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
   case class GetStructElement(arg: Expr, index: Int, size: Int) extends Expr
 
-  sealed abstract class ConsExpr extends Expr
+  sealed abstract class ConsExpr extends Expr {
+    def arity: Int
+  }
   // we need to compile calls to constructors into these
   case class MakeEnum(variant: Int, arity: Int) extends ConsExpr
   case class MakeStruct(arity: Int) extends ConsExpr
-  case object ZeroNat extends ConsExpr
+  case object ZeroNat extends ConsExpr {
+    def arity = 0
+  }
   // this is the function Nat -> Nat
-  case object SuccNat extends ConsExpr
+  case object SuccNat extends ConsExpr {
+    def arity = 1
+  }
 
   case class PrevNat(of: Expr) extends Expr
 
@@ -141,7 +148,7 @@ object Matchless {
     name: Bindable,
     rec: RecursionKind,
     te: TypedExpr[A])(
-    variantOf: (PackageName, Constructor) => DataRepr): Expr =
+    variantOf: (PackageName, Constructor) => Option[DataRepr]): Expr =
       (for {
         c <- RefSpace.allocCounter
         expr <- fromLet(name, rec, te, variantOf, c)
@@ -152,7 +159,7 @@ object Matchless {
     name: Bindable,
     rec: RecursionKind,
     te: TypedExpr[A],
-    variantOf: (PackageName, Constructor) => DataRepr,
+    variantOf: (PackageName, Constructor) => Option[DataRepr],
     makeAnon: F[Long]): F[Expr] = {
 
     type UnionMatch = NonEmptyList[(List[LocalAnonMut], BoolExpr, List[(Bindable, Expr)])]
@@ -162,7 +169,7 @@ object Matchless {
       empty match {
         case (p, c) =>
           variantOf(p, c) match {
-            case DataRepr.Enum(v, s) => MakeEnum(v, s)
+            case Some(DataRepr.Enum(v, s)) => MakeEnum(v, s)
             case other =>
               /* We assume the structure of Lists to be standard linked lists
                * Empty cannot be a struct
@@ -215,11 +222,18 @@ object Matchless {
           loop(res).map(Lambda(captures, arg, _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {
-            case DataRepr.Enum(v, a) => MakeEnum(v, a)
-            case DataRepr.Struct(a) => MakeStruct(a)
-            case DataRepr.NewType => MakeStruct(1)
-            case DataRepr.ZeroNat => ZeroNat
-            case DataRepr.SuccNat => SuccNat
+            case Some(dr) =>
+              dr match {
+                case DataRepr.Enum(v, a) => MakeEnum(v, a)
+                case DataRepr.Struct(a) => MakeStruct(a)
+                case DataRepr.NewType => MakeStruct(1)
+                case DataRepr.ZeroNat => ZeroNat
+                case DataRepr.SuccNat => SuccNat
+              }
+            case None =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(s"could not find $cons in global data types")
+                // $COVERAGE-ON$
           })
         case TypedExpr.Global(pack, notCons: Bindable, _, _) =>
           Monad[F].pure(Global(pack, notCons))
@@ -267,7 +281,6 @@ object Matchless {
               case Pattern.StrPart.WildStr => StrPart.WildStr
               case Pattern.StrPart.LitStr(s) => StrPart.LitStr(s)
             }
-
 
           muts.map { binds =>
             val ms = binds.map(_._2)
@@ -403,47 +416,58 @@ object Matchless {
               }
 
           variantOf(pack, cname) match {
-            case DataRepr.Struct(size) => forStruct(size)
-            case DataRepr.NewType => forStruct(1)
-            case DataRepr.Enum(vidx, size) =>
-              // if we match the variant, then treat it as a struct
-              makeAnon.flatMap { nm =>
-                val res = LocalAnonMut(nm)
-                asStruct { pos => GetEnumElement(res, vidx, pos, size) }
-                  .run
-                  .map { case (anons, ums) =>
-                    // now we need to set up the binds if the variant is right
-                    val vmatch = CheckVariant(arg, vidx) && SetMut(res, arg)
-                    // we need to check that the variant is right first
-                    val cond1 = anons.foldLeft(vmatch) { case (c, (mut, expr)) =>
-                      c && SetMut(mut, expr)
-                    }
+            case Some(dr) =>
+              dr match {
+                case DataRepr.Struct(size) => forStruct(size)
+                case DataRepr.NewType => forStruct(1)
+                case DataRepr.Enum(vidx, size) =>
+                  // if we match the variant, then treat it as a struct
+                  makeAnon.flatMap { nm =>
+                    val res = LocalAnonMut(nm)
+                    asStruct { pos => GetEnumElement(res, vidx, pos, size) }
+                      .run
+                      .map { case (anons, ums) =>
+                        // now we need to set up the binds if the variant is right
+                        // TODO: on a final branch we don't need to check the variant
+                        // since due to totality we know it has to match. To
+                        // leverage that we need to know if this doesMatch is
+                        // the last possible candidate match
+                        val vmatch = CheckVariant(arg, vidx, size) && SetMut(res, arg)
+                        // we need to check that the variant is right first
+                        val cond1 = anons.foldLeft(vmatch) { case (c, (mut, expr)) =>
+                          c && SetMut(mut, expr)
+                        }
 
-                    ums.map { case (pre, cond, b) =>
-                      val pre1 = anons.foldLeft(pre) { case (pre, (mut, _)) => mut :: pre }
-                      (res :: pre1, cond1 && cond, b)
-                    }
+                        ums.map { case (pre, cond, b) =>
+                          val pre1 = anons.foldLeft(pre) { case (pre, (mut, _)) => mut :: pre }
+                          (res :: pre1, cond1 && cond, b)
+                        }
+                      }
+                  }
+                case DataRepr.ZeroNat =>
+                  Monad[F].pure(NonEmptyList((Nil, EqualsNat(arg, DataRepr.ZeroNat), Nil), Nil))
+                case DataRepr.SuccNat =>
+                  params match {
+                    case single :: Nil =>
+                      // if we match, we recur on the inner pattern and prev of current
+                      val check = EqualsNat(arg, DataRepr.SuccNat)
+                      for {
+                        nm <- makeAnon
+                        loc = LocalAnonMut(nm)
+                        prev = PrevNat(arg)
+                        rest <- doesMatch(loc, single)
+                      } yield rest.map { case (preLets, cond, res) => (loc ::preLets, check && SetMut(loc, prev) && cond, res) }
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(s"expected typechecked Nat to only have one param, found: $other in $pat")
+                      // $COVERAGE-ON$
                   }
               }
-            case DataRepr.ZeroNat =>
-              Monad[F].pure(NonEmptyList((Nil, EqualsNat(arg, DataRepr.ZeroNat), Nil), Nil))
-            case DataRepr.SuccNat =>
-              params match {
-                case single :: Nil =>
-                  // if we match, we recur on the inner pattern and prev of current
-                  val check = EqualsNat(arg, DataRepr.SuccNat)
-                  for {
-                    nm <- makeAnon
-                    loc = LocalAnonMut(nm)
-                    prev = PrevNat(arg)
-                    rest <- doesMatch(loc, single)
-                  } yield rest.map { case (preLets, cond, res) => (loc ::preLets, check && SetMut(loc, prev) && cond, res) }
-                case other =>
-                  // $COVERAGE-OFF$
-                  throw new IllegalStateException(s"expected typechecked Nat to only have one param, found: $other in $pat")
-                  // $COVERAGE-ON$
-              }
-          }
+            case None =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(s"could not find $cons in global data types")
+                // $COVERAGE-ON$
+            }
         case Pattern.Union(h, ts) =>
           (h :: ts).traverse(doesMatch(arg, _)).map { nene =>
             val nel = nene.flatten

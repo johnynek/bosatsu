@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
+import org.python.core.{ParserFacade => JythonParserFacade}
 
 class CodeTest extends FunSuite {
   implicit val generatorDrivenConfig =
@@ -122,7 +123,7 @@ class CodeTest extends FunSuite {
 
   def assertParse(str: String) = {
     try {
-      val mod = org.python.core.ParserFacade.parseExpressionOrModule(new java.io.StringReader(str), "filename.py", new org.python.core.CompilerFlags())
+      val mod = JythonParserFacade.parseExpressionOrModule(new java.io.StringReader(str), "filename.py", new org.python.core.CompilerFlags())
       assert(mod != null)
     }
     catch {
@@ -146,7 +147,7 @@ class CodeTest extends FunSuite {
   test("test bug with IfElse") {
     import Code._
 
-    val ifElse = IfElse(NonEmptyList.of((Literal("a"), Literal("b"))), Literal("c"))
+    val ifElse = IfElse(NonEmptyList.of((Ident("a"), Ident("b"))), Ident("c"))
     val stmt = addAssign(Ident("bar"), ifElse)
 
     assert(toDoc(stmt).renderTrim(80) == """if a:
@@ -158,20 +159,108 @@ else:
   test("test some Operator examples") {
     import Code._
 
-    val apbpc = Op(Literal("a"), Const.Plus, Op(Literal("b"), Const.Plus, Literal("c")))
+    val apbpc = Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Plus, Ident("c")))
 
     assert(toDoc(apbpc).renderTrim(80) == """a + b + c""")
 
-    val apbmc = Op(Literal("a"), Const.Plus, Op(Literal("b"), Const.Minus, Literal("c")))
+    val apbmc = Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Minus, Ident("c")))
 
     assert(toDoc(apbmc).renderTrim(80) == """a + b - c""")
 
-    val ambmc = Op(Literal("a"), Const.Minus, Op(Literal("b"), Const.Minus, Literal("c")))
+    val ambmc = Op(Ident("a"), Const.Minus, Op(Ident("b"), Const.Minus, Ident("c")))
 
     assert(toDoc(ambmc).renderTrim(80) == """a - (b - c)""")
 
-    val amzmbmc = Op(Op(Literal("a"), Const.Minus, Literal("z")), Const.Minus, Op(Literal("b"), Const.Minus, Literal("c")))
+    val amzmbmc = Op(Op(Ident("a"), Const.Minus, Ident("z")), Const.Minus, Op(Ident("b"), Const.Minus, Ident("c")))
 
     assert(toDoc(amzmbmc).renderTrim(80) == """(a - z) - (b - c)""")
+  }
+
+  test("x.evalAnd(True) == x") {
+    forAll(genExpr(4)) { x =>
+      assert(x.evalAnd(Code.Const.True) == x)
+      assert(Code.Const.True.evalAnd(x) == x)
+    }
+  }
+  test("x.evalAnd(False) == False") {
+    forAll(genExpr(4)) { x =>
+      assert(x.evalAnd(Code.Const.False) == Code.Const.False)
+      assert(Code.Const.False.evalAnd(x) == Code.Const.False)
+    }
+  }
+
+  test("x.evalPlus(y) == (x + y)") {
+    forAll { (x: Int, y: Int) =>
+      val cx = Code.fromInt(x)
+      val cy = Code.fromInt(y)
+      assert(cx.evalPlus(cy) == Code.fromLong(x.toLong + y.toLong))
+    }
+  }
+
+  test("x.evalMinus(y) == (x - y)") {
+    forAll { (x: Int, y: Int) =>
+      val cx = Code.fromInt(x)
+      val cy = Code.fromInt(y)
+      assert(cx.evalMinus(cy) == Code.fromLong(x.toLong - y.toLong))
+    }
+  }
+
+  def runAll(op: Code.Expression): Option[Code.PyInt] =
+    op match {
+      case pi@Code.PyInt(_) => Some(pi)
+      case Code.Op(left, op: Code.IntOp, right) =>
+        for {
+          l <- runAll(left)
+          r <- runAll(right)
+        } yield Code.PyInt(op(l.toBigInteger, r.toBigInteger))
+      case _ => None
+    }
+
+  def genOp(depth: Int, go: Gen[Code.IntOp], gen0: Gen[Code.Expression]): Gen[Code.Expression] =
+    if (depth <= 0) gen0
+    else {
+      val rec = Gen.lzy(genIntOp(depth - 1, go))
+      Gen.oneOf(
+        rec,
+        Gen.zip(rec, go, rec).map { case (a, op, b) => Code.Op(a, op, b) }
+      )
+    }
+
+  def genIntOp(depth: Int, go: Gen[Code.IntOp]): Gen[Code.Expression] =
+    genOp(depth, go, Gen.choose(-1024, 1024).map(Code.fromInt))
+
+
+  test("any sequence of IntOps is optimized") {
+    forAll(genIntOp(5, Gen.oneOf(Code.Const.Plus, Code.Const.Minus, Code.Const.Times))) { op =>
+      // adding zero collapses to an Int
+      assert(Some(op.evalPlus(Code.fromInt(0))) == runAll(op))
+      assert(Some(Code.fromInt(0).evalPlus(op)) == runAll(op))
+      assert(Some(op.evalMinus(Code.fromInt(0))) == runAll(op))
+      assert(Some(Code.fromInt(0).evalMinus(op)) == runAll(op.evalTimes(Code.fromInt(-1))))
+      assert(Some(Code.fromInt(1).evalTimes(op)) == runAll(op))
+    }
+  }
+
+  test("any sequence of +/- leaves only a single PyInt at the end") {
+    val gen = genOp(
+      5,
+      Gen.oneOf(Code.Const.Plus, Code.Const.Minus),
+      Gen.oneOf(Gen.choose(-1024, 1024).map(Code.fromInt), Gen.identifier.map(Code.Ident(_))))
+
+    forAll(gen) { op =>
+      val simpOp = op.simplify
+      def assertGood(x: Code.Expression, isRight: Boolean): org.scalatest.Assertion =
+        x match {
+          case Code.PyInt(_) => assert(isRight, s"found: $x on the left inside of $simpOp")
+          case Code.Op(left, _, right) =>
+            assertGood(left, false)
+            assertGood(right, isRight)
+          case _ =>
+            // not an int or op, this is fine
+            assert(true)
+        }
+
+      assertGood(simpOp, true)
+    }
   }
 }

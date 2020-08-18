@@ -27,6 +27,12 @@ abstract class SetOpsLaws[A] extends FunSuite {
     assert(eqA.eqv(a12, a21), s"$a12 != $a21")
   }
 
+  def differenceIsIdempotent(a: A, b: A, eqAs: Eq[List[A]]) = {
+    val c = unifyUnion(difference(a, b))
+    val c1 = unifyUnion(differenceAll(c, b :: Nil))
+    assert(eqAs.eqv(c, c1), s"c = $c\n\nc1 = $c1")
+  }
+
   test("intersection is commutative") {
     forAll(genItem, genItem, eqUnion)(intersectionIsCommutative(_, _, _))
   }
@@ -59,11 +65,7 @@ abstract class SetOpsLaws[A] extends FunSuite {
   }
 
   test("difference is idempotent: (a - b) = c, c - b == c") {
-    forAll(genItem, genItem) { (a, b) =>
-      val c = unifyUnion(difference(a, b))
-      val c1 = unifyUnion(differenceAll(c, b :: Nil))
-      assert(c == c1)
-    }
+    forAll(genItem, genItem, eqUnion)(differenceIsIdempotent(_, _, _))
   }
 
   def selfDifferenceLaw(p1: A, p2: A) = {

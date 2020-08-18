@@ -171,7 +171,7 @@ object MatchlessToValue {
           case And(ix1, ix2) =>
             boolExpr(ix1).and(boolExpr(ix2))
 
-          case CheckVariant(enumV, idx) =>
+          case CheckVariant(enumV, idx, _) =>
             loop(enumV).map(_.asSum.variant == idx)
 
           case SetMut(LocalAnonMut(mut), expr) =>
