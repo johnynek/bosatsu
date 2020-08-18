@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
 import cats.data.NonEmptyList
+import java.math.BigInteger
 import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
@@ -176,6 +177,30 @@ else:
     assert(toDoc(amzmbmc).renderTrim(80) == """(a - z) - (b - c)""")
   }
 
+  test("x.eval(Eq, x) == True") {
+    forAll(genExpr(4)) { x =>
+      assert(x.eval(Code.Const.Eq, x) == Code.Const.True)
+    }
+  }
+  test("we can do integer comparisons") {
+    forAll { (i1: Int, i2: Int) =>
+      val cmp = i1.compareTo(i2)
+
+      val p1 = Code.fromInt(i1)
+      val p2 = Code.fromInt(i2)
+
+      if (cmp == 0) {
+        assert(p1.eval(Code.Const.Eq, p2) == Code.Const.True)
+      }
+      else if (cmp < 0) {
+        assert(p1.eval(Code.Const.Lt, p2) == Code.Const.True)
+      }
+      else {
+        assert(p1.eval(Code.Const.Gt, p2) == Code.Const.True)
+      }
+    }
+  }
+
   test("x.evalAnd(True) == x") {
     forAll(genExpr(4)) { x =>
       assert(x.evalAnd(Code.Const.True) == x)
@@ -202,6 +227,27 @@ else:
       val cx = Code.fromInt(x)
       val cy = Code.fromInt(y)
       assert(cx.evalMinus(cy) == Code.fromLong(x.toLong - y.toLong))
+    }
+  }
+
+  test("x.evalTimes(y) == (x * y)") {
+    forAll { (x: Int, y: Int) =>
+      val cx = Code.fromInt(x)
+      val cy = Code.fromInt(y)
+      assert(cx.evalTimes(cy) == Code.fromLong(x.toLong * y.toLong))
+    }
+  }
+
+  test("x.eval(op, y).eval(op, z) == op(op(x, y), z") {
+    val gi = Gen.choose(-1024L, 1024L)
+
+    val gop = Gen.oneOf(Code.Const.Plus, Code.Const.Minus, Code.Const.Times)
+    forAll(gi, gi, gi, gop, gop) { (a, b, c, op1, op2) =>
+      val left = Code.Op(Code.Op(Code.fromLong(a), op1, Code.fromLong(b)), op2, Code.fromLong(c))
+      assert(left.simplify == Code.PyInt(op2(op1(BigInteger.valueOf(a), BigInteger.valueOf(b)), BigInteger.valueOf(c))))
+
+      val right = Code.Op(Code.fromLong(a), op1, Code.Op(Code.fromLong(b), op2, Code.fromLong(c)))
+      assert(right.simplify == Code.PyInt(op1(BigInteger.valueOf(a), op2(BigInteger.valueOf(b), BigInteger.valueOf(c)))))
     }
   }
 

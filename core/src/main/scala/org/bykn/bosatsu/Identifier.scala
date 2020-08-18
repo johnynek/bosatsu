@@ -50,6 +50,11 @@ object Identifier {
 
   private[this] val opPrefix = Doc.text("operator ")
 
+  object Bindable {
+    implicit def bindableOrder: Order[Bindable] =
+      Identifier.order
+  }
+
   implicit def document[A <: Identifier]: Document[A] =
     Document.instance[A] {
       case Backticked(lit) =>
