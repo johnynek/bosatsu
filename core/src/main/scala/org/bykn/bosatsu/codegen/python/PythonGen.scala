@@ -478,11 +478,28 @@ object PythonGen {
    */
   def apply(packName: PackageName, name: Bindable, me: Expr)(remap: (PackageName, Bindable) => Env[Option[ValueLike]]): Env[Statement] = {
     val ops = new Impl.Ops(packName, remap)
-    for {
-      ve <- ops.loop(me)
-      nm <- Env.topLevelName(name)
-      stmt <- ops.topLet(nm, me, ve)
-    } yield stmt
+
+    // if we have a top level let rec with the same name, handle it more cleanly
+    val nmVeEnv =
+      me match {
+        case Let(Right((n1, r)), inner, Local(n2)) if ((n1 === name) && (n2 === name)) =>
+          // we can just bind now at the top level
+          for {
+            nm <- Env.topLevelName(name)
+            ve <- ops.loop(inner)
+          } yield (nm, inner, ve)
+        case _ =>
+          for {
+            // name is not in scope yet
+            ve <- ops.loop(me)
+            nm <- Env.topLevelName(name)
+          } yield (nm, me, ve)
+      }
+
+    nmVeEnv
+      .flatMap { case (nm, me, ve) =>
+        ops.topLet(nm, me, ve)
+      }
   }
 
   // parses a nested map with
