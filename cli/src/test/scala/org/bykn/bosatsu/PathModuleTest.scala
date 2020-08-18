@@ -109,8 +109,12 @@ class PathModuleTest extends FunSuite {
     val files =
       List("Nat.bosatsu",
         "Bool.bosatsu",
+        "List.bosatsu",
         "euler1.bosatsu",
+        "euler2.bosatsu",
         "euler3.bosatsu",
+        "euler4.bosatsu",
+        "euler5.bosatsu",
         "euler6.bosatsu")
 
     val inputs = files.map { nm => s"--input test_workspace/$nm" }.mkString(" ")

@@ -185,6 +185,10 @@ object Matchless {
       lazy val e0 = loop(e)
       rec match {
         case RecursionKind.Recursive =>
+
+          def letrec(e: Expr): Expr =
+            Let(Right((name, RecursionKind.Recursive)), e, Local(name))
+
           // this could be tail recursive
           if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
             val arity = Type.Fun.arity(e.getType)
@@ -198,16 +202,16 @@ object Matchless {
                 val argshead = args.head
                 val argstail = args.tail
                 val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
-                loop(body).map(LoopFn(captures, name, argshead, argstail, _))
+                loop(body).map { v => letrec(LoopFn(captures, name, argshead, argstail, v)) }
               case _ =>
                 // TODO: I don't think this case should ever happen in real code
                 // but it definitely does in fuzz tests
-                e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
+                e0.map(letrec)
             }
           }
           else {
             // otherwise let rec x = fn in x
-            e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
+            e0.map(letrec)
           }
         case RecursionKind.NonRecursive => e0
       }
