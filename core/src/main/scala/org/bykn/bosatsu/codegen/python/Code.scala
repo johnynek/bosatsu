@@ -456,6 +456,9 @@ object Code {
     }
   }
 
+  // just for better type inference
+  def pass: Statement = Pass
+
   def toReturn(v: ValueLike): Statement =
     v match {
       case x: Expression => Code.Return(x)

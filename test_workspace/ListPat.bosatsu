@@ -1,0 +1,20 @@
+package ListPat
+
+def any(as: List[Bool]) -> Bool:
+    as matches [*_, True, *_]
+
+def one_count(is, acc):
+    recur is:
+        [*_, 1, *rest]: one_count(rest, acc.add(1))
+        _: acc
+
+tests = TestSuite("ListPat tests", [
+  Assertion(any([]) matches False, "any([])"),
+  Assertion(any([True]) matches True, "any([True])"),
+  Assertion(any([False]) matches False, "any([False])"),
+  Assertion(any([False, False]) matches False, "any([False, False])"),
+  Assertion(any([False, True]) matches True, "any([False, True])"),
+  Assertion(any([True, False]) matches True, "any([True, False])"),
+  Assertion(any([True, True]) matches True, "any([True, True])"),
+  Assertion(one_count([0, 0, 1, 0, 1], 0) matches 2, "one_count 1"),
+])

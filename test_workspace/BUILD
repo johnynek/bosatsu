@@ -94,6 +94,12 @@ bosatsu_test(
     packages = ["Queue"],
    )
 
+bosatsu_test(
+    name = "list_pat",
+    srcs = ["ListPat.bosatsu"],
+    packages = ["ListPat"],
+   )
+
 bosatsu_library(
     name = "treelist",
     deps = [":list"],
