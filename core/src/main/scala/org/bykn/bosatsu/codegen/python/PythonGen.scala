@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.{PackageName, Identifier, Matchless, RecursionKind, Par, Parser}
+import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import scala.concurrent.ExecutionContext
@@ -185,17 +185,18 @@ object PythonGen {
     def topLevelName(n: Bindable): Env[Code.Ident] =
       Impl.env(_.topLevel(n))
 
-    def onLasts(cs: List[ValueLike])(fn: List[Expression] => ValueLike): Env[ValueLike] = {
+    def onLastsM(cs: List[ValueLike])(fn: List[Expression] => Env[ValueLike]): Env[ValueLike] = {
       def loop(cs: List[ValueLike], setup: List[Statement], args: List[Expression]): Env[ValueLike] =
         cs match {
-          case Nil => Monad[Env].pure {
+          case Nil =>
             val res = fn(args.reverse)
             NonEmptyList.fromList(setup) match {
               case None => res
               case Some(nel) =>
-                WithValue(Block(nel.reverse), res)
+                val stmts = nel.reverse
+                val stmt = Code.block(stmts.head, stmts.tail :_*)
+                res.map(stmt.withValue(_))
             }
-          }
           case (e: Expression) :: t => loop(t, setup, e :: args)
           case (ifelse@IfElse(_, _)) :: tail =>
             // we allocate a result and assign
@@ -210,14 +211,20 @@ object PythonGen {
       loop(cs, Nil, Nil)
     }
 
-    def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
-      onLasts(c :: Nil) {
+    def onLasts(cs: List[ValueLike])(fn: List[Expression] => ValueLike): Env[ValueLike] =
+      onLastsM(cs)(fn.andThen(Monad[Env].pure(_)))
+
+    def onLastM(c: ValueLike)(fn: Expression => Env[ValueLike]): Env[ValueLike] =
+      onLastsM(c :: Nil) {
         case x :: Nil => fn(x)
         case other =>
           // $COVERAGE-OFF$
           throw new IllegalStateException(s"expected list to have size 1: $other")
           // $COVERAGE-ON$
       }
+
+    def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
+      onLastM(c)(fn.andThen(Monad[Env].pure(_)))
 
     def onLast2(c1: ValueLike, c2: ValueLike)(fn: (Expression, Expression)=> ValueLike): Env[ValueLike] =
       onLasts(c1 :: c2 :: Nil) {
@@ -249,12 +256,50 @@ object PythonGen {
             cv <- Env.newAssignableVar
             assigned = cv := cx
             res <- ifElse(NonEmptyList((cv, t), rest), elseV)
-          } yield WithValue(assigned, res)
+          } yield assigned.withValue(res)
       }
     }
 
+    def ifElseS(cond: ValueLike, thenS: Statement, elseS: Statement): Env[Statement] =
+      cond match {
+        case x: Expression => Monad[Env].pure(ifStatement(NonEmptyList((x, thenS), Nil), Some(elseS)))
+        case WithValue(stmt, vl) =>
+          ifElseS(vl, thenS, elseS).map(stmt +: _)
+        case v =>
+          // this is a branch, don't multiply code by writing on each
+          // branch, that could give an exponential blowup
+          Env.newAssignableVar
+            .map { tmp =>
+              Code.block(
+                tmp := v,
+                ifStatement(NonEmptyList((tmp, thenS), Nil), Some(elseS))
+              )
+            }
+      }
+
     def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
-      onLast2(c1, c2)(_.evalAnd(_))
+      (c1, c2) match {
+        case (_, x2: Expression) =>
+          onLast(c1)(_.evalAnd(x2))
+        case (Code.Const.True, c2) => Monad[Env].pure(c2)
+        case _ =>
+          // we know that c2 is not a simple expression
+          // res = False
+          // if c1:
+          //   res = c2
+          Env.onLastM(c1) { x1 =>
+            for {
+              res <- Env.newAssignableVar
+              ifstmt <- ifElseS(x1, res := c2, Code.Pass)
+            } yield {
+                Code.block(
+                  res := Code.Const.False,
+                  ifstmt
+                )
+                .withValue(res)
+            }
+          }
+      }
 
     def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Code.Def =
       Code.Def(defName, arg :: Nil, toReturn(v))
@@ -284,7 +329,7 @@ object PythonGen {
               if (flatArgs.length == argSize) {
                 val all = onArgs(flatArgs)
                 // set all the values and return the empty tuple
-                Monad[Env].pure(WithValue(all, MakeTuple(Nil)))
+                Monad[Env].pure(all.withValue(MakeTuple(Nil)))
               }
               else {
                 // $COVERAGE-OFF$
@@ -301,9 +346,9 @@ object PythonGen {
             val ifs = ifCases.traverse { case (cond, res) => loop(res).map((cond, _)) }
             (ifs, loop(elseCase)).mapN(IfElse(_, _))
           case WithValue(stmt, v) =>
-            loop(v).map(WithValue(stmt, _))
+            loop(v).map(stmt.withValue(_))
           // the rest cannot have a call in the tail position
-          case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | SelectItem(_, _) | Ident(_) | PyBool(_) | PyString(_) | PyInt(_) => Monad[Env].pure(body)
+          case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | MakeList(_) | SelectItem(_, _) | SelectRange(_, _, _) | Ident(_) | PyBool(_) | PyString(_) | PyInt(_) => Monad[Env].pure(body)
         }
 
       loop(initBody)
@@ -341,7 +386,7 @@ object PythonGen {
         body1 <- replaceTailCallWithAssign(selfName, mutArgs.length, body)(assignMut(cont))
         setRes = res := body1
         loop = While(cont, Assign(cont, Const.False) +: setRes)
-        newBody = WithValue(ac +: ar +: loop, res)
+        newBody = (ac +: ar +: loop).withValue(res)
         curried <- makeCurriedDef(selfName, fnArgs, newBody)
       } yield curried
     }
@@ -473,13 +518,6 @@ object PythonGen {
 
     Identifier.optionParse(Identifier.bindableParser, decode)
   }
-
-  // this package should be writen to the path
-  // at foo/bar/baz.py
-  //
-  // relative to some base
-  def packageToFile(parts: NonEmptyList[String]): Module =
-    parts.map(escapeModule)
 
   /**
    * Remap is used to handle remapping external values
@@ -636,33 +674,70 @@ object PythonGen {
                   .flatMap { case (cont, res, _i, _a, tmp_i) =>
                     Env.onLasts(input) {
                       case i :: a :: fn :: Nil =>
-                        Code.WithValue(
-                          Code.block(
-                            cont := Code.Op(Code.fromInt(0), Code.Const.Lt, i),
-                            res := a,
-                            _i := i,
-                            _a := a,
-                            Code.While(cont,
-                              Code.block(
-                                res := fn(_i)(_a),
-                                tmp_i := res.get(0),
-                                _a := res.get(1).get(0),
-                                cont := Code.Op(Code.Op(Code.fromInt(0), Code.Const.Lt, tmp_i),
-                                  Code.Const.And,
-                                  Code.Op(tmp_i, Code.Const.Lt, _i)),
-                                _i := tmp_i
-                                )
-                             )
-                          ),
-                          _a)
+                        Code.block(
+                          cont := Code.Op(Code.fromInt(0), Code.Const.Lt, i),
+                          res := a,
+                          _i := i,
+                          _a := a,
+                          Code.While(cont,
+                            Code.block(
+                              res := fn(_i)(_a),
+                              tmp_i := res.get(0),
+                              _a := res.get(1).get(0),
+                              cont := Code.Op(Code.Op(Code.fromInt(0), Code.Const.Lt, tmp_i),
+                                Code.Const.And,
+                                Code.Op(tmp_i, Code.Const.Lt, _i)),
+                              _i := tmp_i
+                              )
+                           )
+                        )
+                        .withValue(_a)
                       case other =>
                         // $COVERAGE-OFF$
                         throw new IllegalStateException(s"expected arity 3 got: $other")
                         // $COVERAGE-ON$
                     }
                   }
-            }, 3))
-          )
+            }, 3)),
+        (Identifier.unsafeBindable("concat_String"),
+          ({ input =>
+            Env.onLastM(input.head) { listOfStrings =>
+              // convert to python list, then call "".join(seq)
+              Env.newAssignableVar
+                .flatMap { pyList =>
+                  bosatsuListToPython(pyList, listOfStrings)
+                    .map { loop =>
+                      Code.block(
+                        pyList := Code.MakeList(Nil),
+                        loop
+                      )
+                      .withValue {
+                        Code.PyString("").dot(Code.Ident("join"))(pyList)
+                      }
+                    }
+                }
+            }
+          }, 1))
+      )
+
+      def bosatsuListToPython(pyList: Code.Ident, bList: Expression): Env[Statement] =
+        Env.newAssignableVar
+          .map { tmp =>
+            // tmp = bList
+            // while tmp != 0:
+            //   //(_, h, tail) = tmp
+            //   pyList.append(tmp[1])
+            //   tmp = tmp[2]
+            Code.block(
+              tmp := bList,
+              Code.While(Code.Op(tmp, Code.Const.Neq, Code.fromInt(0)),
+                Code.block(
+                  Code.Call(pyList.dot(Code.Ident("append"))(tmp.get(1))),
+                  tmp := tmp.get(2)
+                )
+              )
+            )
+          }
 
       def unapply(expr: Expr): Option[(List[ValueLike] => Env[ValueLike], Int)] =
         expr match {
@@ -768,27 +843,173 @@ object PythonGen {
                   Code.Op(t, Code.Const.Eq, idxExpr)
                 }
                 else
-                  Code.Op(Code.SelectItem(t, 0), Code.Const.Eq, idxExpr)
+                  Code.Op(t.get(0), Code.Const.Eq, idxExpr)
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>
             (Env.nameForAnon(mut), loop(expr))
               .mapN { (ident, result) =>
                 Env.onLast(result) { resx =>
-                  val a = Code.Assign(ident, resx)
-                  Code.WithValue(a, Code.Const.True)
+                  (ident := resx).withValue(Code.Const.True)
                 }
               }
               .flatten
-          case MatchString(str, pat, binds) => ???
+          case MatchString(str, pat, binds) =>
+            (loop(str), binds.traverse { case LocalAnonMut(m) => Env.nameForAnon(m) })
+              .mapN { (strVL, binds) =>
+                Env.onLastM(strVL)(matchString(_, pat, binds))
+              }
+              .flatten
           case SearchList(LocalAnonMut(mutV), init, check, optLeft) => ???
         }
 
-      def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] = {
+      def matchString(strEx: Expression, pat: List[StrPart], binds: List[Code.Ident]): Env[ValueLike] = {
+        import StrPart.{LitStr, Glob}
+        val bindArray = binds.toArray
+        // return a value like expression that contains the boolean result
+        // and assigns all the bindings along the way
+        def loop(offsetIdent: Code.Ident, pat: List[StrPart], next: Int): Env[ValueLike] =
+          pat match {
+            case Nil =>
+              //offset == str.length
+              Monad[Env].pure(Code.Op(offsetIdent, Code.Const.Eq, strEx.dot(Code.Ident("__len__"))()))
+            case LitStr(expect) :: tail =>
+              //val len = expect.length
+              //str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
+              //
+              // strEx.startswith(expect, offsetIdent)
+              loop(offsetIdent, tail, next)
+                .flatMap { loopRes =>
+                  val regionMatches = strEx.dot(Code.Ident("startswith"))(Code.PyString(expect), offsetIdent)
+                  val rest =
+                    (
+                      offsetIdent := (offsetIdent.evalPlus(Code.fromInt(expect.length)))
+                    ).withValue(loopRes)
 
-        lazy val worstCase: Env[Statement] =
-          Monad[Env].pure(name := v)
+                  Env.andCode(regionMatches, rest)
+                }
+            case (h: Glob) :: tail =>
+              tail match {
+                case Nil =>
+                  // we capture all the rest
+                  Monad[Env].pure(
+                    if (h.capture) {
+                      // b = str[offset:]
+                      (bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), None))
+                        .withValue(Code.Const.True)
+                    }
+                    else Code.Const.True
+                  )
+                case LitStr(expect) :: tail2 =>
+                  // here we have to make a loop
+                  // searching for expect, and then see if we
+                  // can match the rest of the pattern
+                  val next1 = if (h.capture) next + 1 else next
 
+                  /*
+                   * this is the scala code for the below
+                   * it is in MatchlessToValue but left here
+                   * as an aid to read the code below
+                   *
+                  var start = offset
+                  var result = false
+                  while (start >= 0) {
+                    val candidate = str.indexOf(expect, start)
+                    if (candidate >= 0) {
+                      // we have to skip the current expect string
+                      val candidateOffset = candidate + expect.lenth
+                      val check1 = loop(candidateOffset, tail2, next1)
+                      if (check1) {
+                        // this was a match, write into next if needed
+                        if (h.capture) {
+                          results(next) = str.substring(offset, candidate)
+                        }
+                        result = true
+                        start = -1
+                      }
+                      else {
+                        // we couldn't match here, try just after candidate
+                        start = candidate + 1
+                      }
+                    }
+                    else {
+                      // no more candidates
+                      start = -1
+                    }
+                  }
+                  result
+                  */
+                  (Env.newAssignableVar, Env.newAssignableVar, Env.newAssignableVar, Env.newAssignableVar)
+                    .mapN { (start, result, candidate, candOffset) =>
+                      val searchEnv = loop(candOffset, tail2, next1)
+
+                      def onSearch(search: ValueLike): Env[Statement] =
+                        Env.ifElseS(search,
+                          {
+                            // we have matched
+                            val capture = if (h.capture) (bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), Some(candidate))) else Code.Pass
+                            Code.block(
+                              capture,
+                              result := Code.Const.True,
+                              start := Code.fromInt(-1)
+                            )
+                          },
+                          {
+                            // we couldn't match at start, advance just after the
+                            // candidate
+                            start := candidate.evalPlus(Code.fromInt(1))
+                          })
+
+                      def findBranch(search: ValueLike): Env[Statement] =
+                        onSearch(search)
+                          .flatMap { onS =>
+                            Env.ifElseS(
+                              Code.Op(candidate, Code.Const.Gt, Code.fromInt(-1)),
+                              {
+                                // update candidate and search
+                                Code.block(
+                                  candOffset := Code.Op(candidate, Code.Const.Plus, Code.fromInt(expect.length)),
+                                  onS)
+                              },
+                              {
+                                // else no more candidates
+                                start := Code.fromInt(-1)
+                              }
+                            )
+                          }
+
+                      for {
+                        search <- searchEnv
+                        find <- findBranch(search)
+                      } yield
+                        (Code.block(
+                          start := offsetIdent,
+                          result := Code.Const.False,
+                          Code.While(Code.Op(start, Code.Const.Gt, Code.fromInt(-1)),
+                            Code.block(
+                              candidate := strEx.dot(Code.Ident("find"))(Code.PyString(expect), start),
+                              find
+                            )
+                          )
+                        )
+                        .withValue(result))
+                    }
+                    .flatten
+                case (_: Glob) :: _ =>
+                  // $COVERAGE-OFF$
+                  throw new IllegalArgumentException(s"pattern: $pat should have been prevented: adjacent globs are not permitted (one is always empty)")
+                  // $COVERAGE-ON$
+              }
+          }
+
+        Env.newAssignableVar
+          .flatMap { offsetIdent =>
+            loop(offsetIdent, pat, 0)
+              .map { res => (offsetIdent := Code.fromInt(0)).withValue(res) }
+          }
+      }
+
+      def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] =
         expr match {
           case l@LoopFn(_, nm, h, t, b) =>
             // note, name is already bound
@@ -815,32 +1036,14 @@ object PythonGen {
             } yield loopRes
 
           case Lambda(caps, arg, body) =>
-            // this isn't recursive, or it would be in a Let
             (Env.bind(arg), loop(body))
               .mapN(Env.makeDef(name, _, _))
               .flatMap { d =>
                 Env.unbind(arg).as(d)
               }
-          case Let(Right((n, RecursionKind.Recursive)), Lambda(_, arg, body), Local(n2)) if n == n2 =>
-            if (escape(n) == name) {
-              // this is a recursive value in scope for itself
-              // but we need to bind the local name to the global name
-              for {
-                _ <- Env.bindTop(n)
-                arg1 <- Env.bind(arg)
-                body1 <- loop(body)
-                def1 = Env.makeDef(name, arg1, body1)
-                _ <- Env.unbind(arg)
-                _ <- Env.unbind(n)
-              } yield def1
-            }
-            else {
-              worstCase
-            }
-
-          case _ => worstCase
+          case _ =>
+            Monad[Env].pure(name := v)
         }
-      }
 
       def loop(expr: Expr): Env[ValueLike] =
         expr match {
@@ -855,7 +1058,7 @@ object PythonGen {
                   for {
                     defName <- Env.newAssignableVar
                     defn = Env.makeDef(defName, arg, v)
-                  } yield Code.WithValue(defn, defName)
+                  } yield defn.withValue(defName)
               }
             }
             .flatMap(_ <* Env.unbind(arg))
@@ -885,7 +1088,7 @@ object PythonGen {
               // we have bound the args twice: once as args, once as interal muts
               _ <- subs.traverse_ { case (a, _) => Env.unbind(a) }
               _ <- unbindA
-            } yield Code.WithValue(loopRes, nameI)
+            } yield loopRes.withValue(nameI)
 
           case PredefExternal((fn, arity)) =>
             // make a lambda
@@ -942,7 +1145,7 @@ object PythonGen {
                     ve <- loop(value)
                     tl <- topLet(bi, value, ve)
                     ine <- inF
-                    wv = Code.WithValue(tl, ine)
+                    wv = tl.withValue(ine)
                     _ <- Env.unbind(b)
                   } yield wv
                 }
@@ -953,7 +1156,7 @@ object PythonGen {
                     bi <- Env.bind(b)
                     tl <- topLet(bi, value, ve)
                     ine <- inF
-                    wv = Code.WithValue(tl, ine)
+                    wv = tl.withValue(ine)
                     _ <- Env.unbind(b)
                   } yield wv
                 }
@@ -962,7 +1165,7 @@ object PythonGen {
                 (Env.nameForAnon(l), loop(value))
                   .mapN { (bi, vE) =>
                     (topLet(bi, value, vE), inF)
-                      .mapN(Code.WithValue(_, _))
+                      .mapN(_.withValue(_))
                   }
                   .flatten
             }
@@ -996,20 +1199,14 @@ object PythonGen {
 
           case Always(cond, expr) =>
             (boolExpr(cond).map(Code.always), loop(expr))
-              .mapN {
-                case (Code.Pass, v) => v
-                case (notPass, v) =>
-                  Code.WithValue(notPass, v)
-              }
+              .mapN(_.withValue(_))
 
           case GetEnumElement(expr, _, idx, sz) =>
             // nonempty enums are just structs with the first element being the variant
             // we could assert the v matches when debugging, but typechecking
             // should assure this
             loop(expr).flatMap { tup =>
-              Env.onLast(tup) { t =>
-                Code.SelectItem(t, idx + 1)
-              }
+              Env.onLast(tup)(_.get(idx + 1))
             }
           case GetStructElement(expr, idx, sz) =>
             val exprR = loop(expr)
@@ -1020,9 +1217,7 @@ object PythonGen {
             else {
               // structs are just tuples
               exprR.flatMap { tup =>
-                Env.onLast(tup) { t =>
-                  Code.SelectItem(t, idx)
-                }
+                Env.onLast(tup)(_.get(idx))
               }
             }
           case PrevNat(expr) =>

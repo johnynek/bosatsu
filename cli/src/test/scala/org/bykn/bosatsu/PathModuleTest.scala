@@ -108,8 +108,13 @@ class PathModuleTest extends FunSuite {
   test("test transpile on a few files") {
     val files =
       List("Nat.bosatsu",
+        "AvlTree.bosatsu",
+        "BinNat.bosatsu",
         "Bool.bosatsu",
         "List.bosatsu",
+        "PatternExamples.bosatsu",
+        "Queue.bosatsu",
+        "StrConcatExample.bosatsu",
         "euler1.bosatsu",
         "euler2.bosatsu",
         "euler3.bosatsu",
