@@ -160,8 +160,16 @@ short = ["foo", "bar"] matches ["foo", *_]
 The caveat is that you cannot have any bindings in the pattern when used
 as a matches expression.
 
+A key feature of Bosatsu pattern matching: at least one branch must match.
+The compiler will check this and fail to compile any code that could fail
+to match at runtime. The error will list the branches that are not covered.
+
 ## Functions
-As we have seen, each function returns a single value which is the final expression in the function block.
+As we have seen in above examples, each function returns a single value which is the final expression in the function block.
+The reason for this difference with Python is that in Bosatsu, there are no side-effects. There is
+no reason to compute something if it is not going to be returned, and as such, the last line of
+every def would be a return. Like Python chooses to omit return in `lambda` expressions, we choose
+to remove `return` entirely from bosatsu.
 
 All functions internally are functions of a single value returning a single value. We have syntax to
 call multiple variable functions, but that is just syntactic sugar over curried functions.
