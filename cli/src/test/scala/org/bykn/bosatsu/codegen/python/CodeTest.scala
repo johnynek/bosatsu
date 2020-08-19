@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
 import cats.data.NonEmptyList
+import java.math.BigInteger
 import org.scalacheck.Gen
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
@@ -30,7 +31,7 @@ class CodeTest extends FunSuite {
     val genDotselect =
       genNel(5, genIdent)
         .map { nel =>
-          nel.tail.foldLeft(nel.head: Code.Dotable)(Code.DotSelect(_, _))
+          nel.tail.foldLeft(nel.head: Code.Expression)(_.dot(_))
         }
 
     val genZero =
@@ -55,6 +56,12 @@ class CodeTest extends FunSuite {
           items <- Gen.listOfN(sz, rec)
         } yield Code.MakeTuple(items)
 
+      val genList =
+        for {
+          sz <- Gen.choose(0, 10)
+          items <- Gen.listOfN(sz, rec)
+        } yield Code.MakeList(items)
+
       val genApp =
         for {
           fn <- rec
@@ -66,19 +73,36 @@ class CodeTest extends FunSuite {
         (5, genZero),
         (1, genOp),
         (2, rec.map(Code.Parens(_))),
-        (2, Gen.zip(rec, Gen.choose(0, 100)).map { case (a, p) => Code.SelectItem(a, p) }),
-        (1, genTup),
+        (2, Gen.zip(rec, Gen.choose(0, 100)).map { case (a, p) => a.get(p) }),
+        (1, Gen.zip(rec, Gen.option(rec), Gen.option(rec)).map { case (a, s, e) => Code.SelectRange(a, s, e) }),
+        (1, Gen.oneOf(genTup, genList)), // these can really blow things up
         (2, Gen.zip(Gen.listOf(genIdent), rec).map { case (args, x) => Code.Lambda(args, x) }),
         (1, genApp)
       )
     }
   }
 
+  def genValueLike(depth: Int): Gen[Code.ValueLike] =
+    if (depth <= 0) genExpr(0)
+    else {
+      val rec = Gen.lzy(genValueLike(depth - 1))
+      val recX = Gen.lzy(genExpr(depth - 1))
+      val recS = Gen.lzy(genStatement(depth - 1))
+
+      val cond = Gen.zip(recX, rec)
+      Gen.frequency(
+        (10, recX),
+        (1, Gen.zip(recS, rec).map { case (s, r) => s.withValue(r) }),
+        (1, Gen.zip(genNel(4, cond), rec).map { case (conds, e) => Code.IfElse(conds, e) })
+      )
+    }
+
   def genNel[A](max: Int, genA: Gen[A]): Gen[NonEmptyList[A]] =
     for {
       cnt <- Gen.choose(1, max)
       lst <- Gen.listOfN(cnt, genA)
     } yield NonEmptyList.fromListUnsafe(lst)
+
 
   def genStatement(depth: Int): Gen[Code.Statement] = {
     val genZero = {
@@ -92,16 +116,25 @@ class CodeTest extends FunSuite {
     else {
       val recStmt = Gen.lzy(genStatement(depth - 1))
       val recExpr = Gen.lzy(genExpr(depth - 1))
+      val recVL = Gen.lzy(genValueLike(depth - 1))
+
+      val genCall =
+        for {
+          fn <- recExpr
+          sz <- Gen.choose(0, 10)
+          items <- Gen.listOfN(sz, recExpr)
+        } yield Code.Call(Code.Apply(fn, items))
 
       val genBlock = genNel(5, recStmt).map(Code.Block(_))
-      val genRet = recExpr.map(Code.Return(_))
-      val genAssign = Gen.zip(genIdent, recExpr).map { case (v, e) => Code.Assign(v, e) }
+      val genRet = recVL.map(Code.toReturn(_))
+      val genAlways = recVL.map(Code.always(_))
+      val genAssign = Gen.zip(genIdent, recVL).map { case (v, e) => Code.addAssign(v, e) }
       val genWhile = Gen.zip(recExpr, recStmt).map { case (c, b) => Code.While(c, b) }
       val genIf =
         for {
           conds <- genNel(4, Gen.zip(recExpr, recStmt))
           elseCond <- Gen.option(recStmt)
-        } yield Code.IfStatement(conds, elseCond)
+        } yield Code.ifStatement(conds, elseCond)
 
       val genDef =
        for {
@@ -116,7 +149,9 @@ class CodeTest extends FunSuite {
         (5, genAssign),
         (10, genRet),
         (1, genBlock),
-        (1, genIf)
+        (1, genIf),
+        (1, genCall),
+        (1, genAlways)
       )
     }
   }
@@ -176,6 +211,30 @@ else:
     assert(toDoc(amzmbmc).renderTrim(80) == """(a - z) - (b - c)""")
   }
 
+  test("x.eval(Eq, x) == True") {
+    forAll(genExpr(4)) { x =>
+      assert(x.eval(Code.Const.Eq, x) == Code.Const.True)
+    }
+  }
+  test("we can do integer comparisons") {
+    forAll { (i1: Int, i2: Int) =>
+      val cmp = i1.compareTo(i2)
+
+      val p1 = Code.fromInt(i1)
+      val p2 = Code.fromInt(i2)
+
+      if (cmp == 0) {
+        assert(p1.eval(Code.Const.Eq, p2) == Code.Const.True)
+      }
+      else if (cmp < 0) {
+        assert(p1.eval(Code.Const.Lt, p2) == Code.Const.True)
+      }
+      else {
+        assert(p1.eval(Code.Const.Gt, p2) == Code.Const.True)
+      }
+    }
+  }
+
   test("x.evalAnd(True) == x") {
     forAll(genExpr(4)) { x =>
       assert(x.evalAnd(Code.Const.True) == x)
@@ -202,6 +261,27 @@ else:
       val cx = Code.fromInt(x)
       val cy = Code.fromInt(y)
       assert(cx.evalMinus(cy) == Code.fromLong(x.toLong - y.toLong))
+    }
+  }
+
+  test("x.evalTimes(y) == (x * y)") {
+    forAll { (x: Int, y: Int) =>
+      val cx = Code.fromInt(x)
+      val cy = Code.fromInt(y)
+      assert(cx.evalTimes(cy) == Code.fromLong(x.toLong * y.toLong))
+    }
+  }
+
+  test("x.eval(op, y).eval(op, z) == op(op(x, y), z") {
+    val gi = Gen.choose(-1024L, 1024L)
+
+    val gop = Gen.oneOf(Code.Const.Plus, Code.Const.Minus, Code.Const.Times)
+    forAll(gi, gi, gi, gop, gop) { (a, b, c, op1, op2) =>
+      val left = Code.Op(Code.Op(Code.fromLong(a), op1, Code.fromLong(b)), op2, Code.fromLong(c))
+      assert(left.simplify == Code.PyInt(op2(op1(BigInteger.valueOf(a), BigInteger.valueOf(b)), BigInteger.valueOf(c))))
+
+      val right = Code.Op(Code.fromLong(a), op1, Code.Op(Code.fromLong(b), op2, Code.fromLong(c)))
+      assert(right.simplify == Code.PyInt(op1(BigInteger.valueOf(a), op2(BigInteger.valueOf(b), BigInteger.valueOf(c)))))
     }
   }
 
@@ -261,6 +341,40 @@ else:
         }
 
       assertGood(simpOp, true)
+    }
+  }
+
+  test("Code.block as at most 1 Pass and if so, only at the end") {
+    import Code._
+
+    assert(block(Pass) == Pass)
+    assert(block(Pass, Pass) == Pass)
+
+    forAll(genNel(4, genStatement(3))) { case NonEmptyList(h, t) =>
+      val stmt = block(h, t :_*)
+
+      def passCount(s: Statement): Int =
+        s match {
+          case Pass => 1
+          case Block(s) => s.toList.map(passCount).sum
+          case _ => 0
+        }
+
+      def notPassCount(s: Statement): Int =
+        s match {
+          case Pass => 0
+          case Block(s) => s.toList.map(notPassCount).sum
+          case _ => 1
+        }
+
+      val pc = passCount(stmt)
+      assert(pc <= 1)
+      if (pc == 1) {
+        t.foreach { s =>
+          assert(notPassCount(s) == 0)
+        }
+        assert(notPassCount(h) == 0)
+      }
     }
   }
 }

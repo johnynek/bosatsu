@@ -9,6 +9,8 @@ import scala.collection.mutable.{LongMap => MLongMap}
 import Identifier.Bindable
 import Value._
 
+import cats.implicits._
+
 object MatchlessToValue {
   import Matchless._
 
@@ -407,6 +409,9 @@ object MatchlessToValue {
             Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
               fn.applyAll(args)
             }
+          case Let(Right((n1, r)), loopFn@LoopFn(_, n2, _, _, _), Local(n3)) if (n1 === n3) && (n1 === n2) && r.isRecursive =>
+            // LoopFn already correctly handles recursion
+            loop(loopFn)
           case Let(localOrBind, value, in) =>
             val valueF = loop(value)
             val inF = loop(in)
