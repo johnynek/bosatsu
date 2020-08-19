@@ -31,7 +31,7 @@ class CodeTest extends FunSuite {
     val genDotselect =
       genNel(5, genIdent)
         .map { nel =>
-          nel.tail.foldLeft(nel.head: Code.Dotable)(Code.DotSelect(_, _))
+          nel.tail.foldLeft(nel.head: Code.Expression)(_.dot(_))
         }
 
     val genZero =
@@ -56,6 +56,12 @@ class CodeTest extends FunSuite {
           items <- Gen.listOfN(sz, rec)
         } yield Code.MakeTuple(items)
 
+      val genList =
+        for {
+          sz <- Gen.choose(0, 10)
+          items <- Gen.listOfN(sz, rec)
+        } yield Code.MakeList(items)
+
       val genApp =
         for {
           fn <- rec
@@ -67,8 +73,9 @@ class CodeTest extends FunSuite {
         (5, genZero),
         (1, genOp),
         (2, rec.map(Code.Parens(_))),
-        (2, Gen.zip(rec, Gen.choose(0, 100)).map { case (a, p) => Code.SelectItem(a, p) }),
-        (1, genTup),
+        (2, Gen.zip(rec, Gen.choose(0, 100)).map { case (a, p) => a.get(p) }),
+        (1, Gen.zip(rec, Gen.option(rec), Gen.option(rec)).map { case (a, s, e) => Code.SelectRange(a, s, e) }),
+        (1, Gen.oneOf(genTup, genList)), // these can really blow things up
         (2, Gen.zip(Gen.listOf(genIdent), rec).map { case (args, x) => Code.Lambda(args, x) }),
         (1, genApp)
       )
@@ -94,6 +101,13 @@ class CodeTest extends FunSuite {
       val recStmt = Gen.lzy(genStatement(depth - 1))
       val recExpr = Gen.lzy(genExpr(depth - 1))
 
+      val genCall =
+        for {
+          fn <- recExpr
+          sz <- Gen.choose(0, 10)
+          items <- Gen.listOfN(sz, recExpr)
+        } yield Code.Call(Code.Apply(fn, items))
+
       val genBlock = genNel(5, recStmt).map(Code.Block(_))
       val genRet = recExpr.map(Code.Return(_))
       val genAssign = Gen.zip(genIdent, recExpr).map { case (v, e) => Code.Assign(v, e) }
@@ -117,7 +131,8 @@ class CodeTest extends FunSuite {
         (5, genAssign),
         (10, genRet),
         (1, genBlock),
-        (1, genIf)
+        (1, genIf),
+        (1, genCall)
       )
     }
   }

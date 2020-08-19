@@ -110,6 +110,7 @@ class PathModuleTest extends FunSuite {
       List("Nat.bosatsu",
         "Bool.bosatsu",
         "List.bosatsu",
+        "StrConcatExample.bosatsu",
         "euler1.bosatsu",
         "euler2.bosatsu",
         "euler3.bosatsu",

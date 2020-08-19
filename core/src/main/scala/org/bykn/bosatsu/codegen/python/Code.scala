@@ -31,6 +31,8 @@ object Code {
     def get(idx: Int): SelectItem =
       SelectItem(this, idx)
 
+    def dot(ident: Code.Ident): DotSelect =
+      DotSelect(this, ident)
 
     def eval(op: Operator, x: Expression): Expression =
       Op(this, op, x).simplify
@@ -49,9 +51,6 @@ object Code {
 
     def simplify: Expression = this
   }
-
-  // something we can a . after
-  sealed abstract class Dotable extends Expression
 
   sealed abstract class Statement extends Code {
     def statements: NonEmptyList[Statement] =
@@ -74,6 +73,16 @@ object Code {
         case _ =>
           if (this == Pass) stmt
           else Block(statements :+ stmt)
+      }
+
+    def withValue(vl: ValueLike): ValueLike =
+      this match {
+        case Pass => vl
+        case _ =>
+          vl match {
+            case wv@WithValue(_, _) => this +: wv
+            case _ => WithValue(this, vl)
+          }
       }
   }
 
@@ -102,12 +111,18 @@ object Code {
       case Parens(p) => par(toDoc(p))
       case SelectItem(x, i) =>
         maybePar(x) + Doc.char('[') + Doc.str(i) + Doc.char(']')
+      case SelectRange(x, os, oe) =>
+        val middle = os.fold(Doc.empty)(toDoc) + Doc.text(":") + oe.fold(Doc.empty)(toDoc)
+        maybePar(x) + Doc.char('[') + middle + Doc.char(']')
       case MakeTuple(items) =>
         items match {
           case Nil => Doc.text("()")
           case h :: Nil => par(toDoc(h) + Doc.comma)
           case twoOrMore => par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, twoOrMore.map(toDoc)))
         }
+      case MakeList(items) =>
+        val inner = items.map(toDoc)
+        Doc.char('[') + Doc.intercalate(Doc.comma + Doc.lineOrSpace, inner) + Doc.char(']')
       case Lambda(args, res) =>
         Doc.text("lambda ") + Doc.intercalate(Doc.comma + Doc.space, args.map(toDoc)) + Doc.text(": ") + toDoc(res)
 
@@ -116,6 +131,11 @@ object Code {
 
       case DotSelect(left, right) =>
         toDoc(left) + Doc.char('.') + toDoc(right)
+
+      case Call(ap) => toDoc(ap)
+
+      case IfStatement(conds, Some(Pass)) =>
+        toDoc(IfStatement(conds, None))
 
       case IfStatement(conds, optElse) =>
         val condsDoc = conds.map { case (x, b) => (toDoc(x), toDoc(b)) }
@@ -151,7 +171,7 @@ object Code {
   case class PyInt(toBigInteger: BigInteger) extends Expression
   case class PyString(content: String) extends Expression
   case class PyBool(toBoolean: Boolean) extends Expression
-  case class Ident(name: String) extends Dotable { // a kind of expression
+  case class Ident(name: String) extends Expression {
     def :=(vl: ValueLike): Statement =
       addAssign(this, vl)
   }
@@ -329,7 +349,10 @@ object Code {
 
   case class Parens(expr: Expression) extends Expression
   case class SelectItem(arg: Expression, position: Int) extends Expression
+  // foo[a:b]
+  case class SelectRange(arg: Expression, start: Option[Expression], end: Option[Expression]) extends Expression
   case class MakeTuple(args: List[Expression]) extends Expression
+  case class MakeList(args: List[Expression]) extends Expression
   case class Lambda(args: List[Ident], result: Expression) extends Expression
   case class Apply(fn: Expression, args: List[Expression]) extends Expression {
     def uncurry: (Expression, List[List[Expression]]) =
@@ -341,7 +364,7 @@ object Code {
           (fn, args :: Nil)
       }
   }
-  case class DotSelect(ex: Dotable, ident: Ident) extends Dotable
+  case class DotSelect(ex: Expression, ident: Ident) extends Expression
 
   /////////////////////////
   // Here are all the ValueLike
@@ -362,6 +385,7 @@ object Code {
   // Here are all the Statements
   /////////////////////////
 
+  case class Call(sideEffect: Apply) extends Statement
   case class Block(stmts: NonEmptyList[Statement]) extends Statement
   case class IfStatement(conds: NonEmptyList[(Expression, Statement)], elseCond: Option[Statement]) extends Statement
   case class Def(name: Ident, args: List[Ident], body: Statement) extends Statement
@@ -371,6 +395,35 @@ object Code {
   case class While(cond: Expression, body: Statement) extends Statement
   case class Import(modname: String, alias: Option[Ident]) extends Statement
 
+  def ifStatement(conds: NonEmptyList[(Expression, Statement)], elseCond: Option[Statement]): Statement = {
+    val allBranches: List[(Expression, Statement)] =
+      conds.map { case (e, s) => (e.simplify, s) }.toList ::: (
+        elseCond match {
+          case Some(s) => (Code.Const.True, s) :: Nil
+          case None => Nil
+        })
+
+    // we know the returned expression is never a constant expression
+    def untilTrue(lst: List[(Expression, Statement)]): (List[(Expression, Statement)], Statement) =
+      lst match {
+        case Nil => (Nil, Pass)
+        case (Code.Const.True, last) :: _ =>
+          (Nil, last)
+        case head :: tail =>
+          val (rest, e) = untilTrue(tail)
+          (head :: rest, e)
+      }
+
+    val (branches, last) = untilTrue(allBranches)
+    NonEmptyList.fromList(branches) match {
+      case Some(nel) =>
+        val ec = if (last == Pass) None else Some(last)
+        IfStatement(nel, ec)
+      case None =>
+        last
+    }
+  }
+
   def addAssign(variable: Ident, code: ValueLike): Statement =
     code match {
       case x: Expression =>
@@ -378,7 +431,7 @@ object Code {
       case WithValue(stmt, v) =>
         stmt +: addAssign(variable, v)
       case IfElse(conds, elseCond) =>
-        IfStatement(
+        ifStatement(
           conds.map { case (b, v) =>
             (b, addAssign(variable, v))
           },
@@ -386,9 +439,20 @@ object Code {
         )
     }
 
-  def block(stmt: Statement, rest: Statement*): Statement =
-    if (rest.isEmpty) stmt
-    else Block(NonEmptyList(stmt, rest.toList))
+  def flatten(s: Statement): List[Statement] =
+    s match {
+      case Pass => Nil
+      case Block(stmts) => stmts.toList.flatMap(flatten)
+      case single => single :: Nil
+    }
+
+  def block(stmt: Statement, rest: Statement*): Statement = {
+    val all = (stmt :: rest.toList).flatMap(flatten)
+    NonEmptyList.fromList(all) match {
+      case None => Pass
+      case Some(nel) => Block(nel)
+    }
+  }
 
   def toReturn(v: ValueLike): Statement =
     v match {
@@ -396,7 +460,7 @@ object Code {
       case WithValue(stmt, v) =>
         stmt :+ toReturn(v)
       case ie@IfElse(conds, elseCond) =>
-        IfStatement(
+        ifStatement(
           conds.map { case (c, v) =>
             (c, toReturn(v))
           },
@@ -415,7 +479,7 @@ object Code {
       case WithValue(stmt, v) =>
         stmt +: always(v)
       case IfElse(conds, elseCond) =>
-        IfStatement(
+        ifStatement(
           conds.map { case (b, v) =>
             (b, always(v))
           },
@@ -468,6 +532,7 @@ object Code {
     case object Times extends IntOp("*")
     case object And extends Operator("and")
     case object Eq extends Operator("==")
+    case object Neq extends Operator("!=")
     case object Gt extends Operator(">")
     case object Lt extends Operator("<")
 

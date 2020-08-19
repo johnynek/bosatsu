@@ -74,4 +74,30 @@ class PythonGenTest extends FunSuite {
     }
   }
 
+  intr.close()
+
+  val strConcat = new PythonInterpreter()
+
+  test("we can compile StrConcatExample") {
+    val path: String = "test_workspace/StrConcatExample.bosatsu"
+
+    val bosatsuPM = compileFile(path)
+    val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
+
+    val packMap = PythonGen.renderAll(matchless, Map.empty)
+    val doc = packMap(PackageName.parts("StrConcatExample"))._2
+
+    strConcat.execfile(isfromString(doc.renderTrim(80)), "StrConcatExample.py")
+
+  }
+
+  test("res0 .. res4 are all 1 (True)") {
+
+    val one = new PyInteger(1)
+    (0 to 4).foreach { i =>
+      val res = s"res$i"
+
+      assert(strConcat.get(res) == one)
+    }
+  }
 }

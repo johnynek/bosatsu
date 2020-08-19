@@ -11,21 +11,26 @@ def m2s(m):
         "mahina": "sarah"
         _: m
 
-res0 = match "${x} ${y} and ${z}":
-        "hello atticus and mahina": True
-        _: False
+res0 = "${x} ${y} and ${z}" matches "hello atticus and mahina"
 
-res1 = match "${ident(x)} ${y} and ${m2s(z)}":
-        "hello atticus and sarah": True
-        _: False
+res1 = "${ident(x)} ${y} and ${m2s(z)}" matches "hello atticus and sarah"
 
-res2 = match "${x}":
-    "hello": True
+res2 = "${x}" matches "hello"
+
+res3 = match "${x} ${y} and ${z}":
+    "hello ${rest}": rest matches "atticus${_}mahina"
+    _: False
+
+res4 = match "${x} ${y} and ${z}":
+    "${left}atticus${right}":
+        (left, right) matches ("hello ", " and mahina")
     _: False
 
 test = TestSuite("interpolation", [
     Assertion(res0, "res0"),
     Assertion(res1, "res1"),
     Assertion(res2, "res2"),
+    Assertion(res3, "res3"),
+    Assertion(res4, "res4"),
 ])
 
