@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.{PackageName, Identifier, Matchless, RecursionKind, Par, Parser}
+import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import scala.concurrent.ExecutionContext
@@ -519,13 +519,6 @@ object PythonGen {
     Identifier.optionParse(Identifier.bindableParser, decode)
   }
 
-  // this package should be writen to the path
-  // at foo/bar/baz.py
-  //
-  // relative to some base
-  def packageToFile(parts: NonEmptyList[String]): Module =
-    parts.map(escapeModule)
-
   /**
    * Remap is used to handle remapping external values
    */
@@ -1003,16 +996,9 @@ object PythonGen {
                     }
                     .flatten
                 case (_: Glob) :: _ =>
-                  val (cap, n1) =
-                    if (h.capture) {
-                      // we match the right side first, so this wild gets nothing
-                      (bindArray(next) := Code.PyString(""), next + 1)
-                    }
-                    else (Code.Pass, next)
-
-                  loop(offsetIdent, tail, n1).map { vl =>
-                    cap.withValue(vl)
-                  }
+                  // $COVERAGE-OFF$
+                  throw new IllegalArgumentException(s"pattern: $pat should have been prevented: adjacent globs are not permitted (one is always empty)")
+                  // $COVERAGE-ON$
               }
           }
 
@@ -1023,11 +1009,7 @@ object PythonGen {
           }
       }
 
-      def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] = {
-
-        lazy val worstCase: Env[Statement] =
-          Monad[Env].pure(name := v)
-
+      def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] =
         expr match {
           case l@LoopFn(_, nm, h, t, b) =>
             // note, name is already bound
@@ -1054,32 +1036,14 @@ object PythonGen {
             } yield loopRes
 
           case Lambda(caps, arg, body) =>
-            // this isn't recursive, or it would be in a Let
             (Env.bind(arg), loop(body))
               .mapN(Env.makeDef(name, _, _))
               .flatMap { d =>
                 Env.unbind(arg).as(d)
               }
-          case Let(Right((n, RecursionKind.Recursive)), Lambda(_, arg, body), Local(n2)) if n == n2 =>
-            if (escape(n) == name) {
-              // this is a recursive value in scope for itself
-              // but we need to bind the local name to the global name
-              for {
-                _ <- Env.bindTop(n)
-                arg1 <- Env.bind(arg)
-                body1 <- loop(body)
-                def1 = Env.makeDef(name, arg1, body1)
-                _ <- Env.unbind(arg)
-                _ <- Env.unbind(n)
-              } yield def1
-            }
-            else {
-              worstCase
-            }
-
-          case _ => worstCase
+          case _ =>
+            Monad[Env].pure(name := v)
         }
-      }
 
       def loop(expr: Expr): Env[ValueLike] =
         expr match {
