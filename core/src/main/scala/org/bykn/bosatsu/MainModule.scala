@@ -69,6 +69,25 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output
     case class TranspileOut(outs: Map[PackageName, (NonEmptyList[String], Doc)], base: Path) extends Output
+    case class LetFreeEvaluationResult(lfe: LetFreeExpression, tpe: rankn.Type, v2j: ValueToJson, extEnv: Map[Identifier, Eval[Value]]) extends Output {
+      def unsupported(tpe: rankn.Type, j: JsonEncodingError.UnsupportedType): String = {
+        val tMap = TypeRef.fromTypes(None, tpe :: Nil)
+        val path = j.path.init
+        val badType = j.path.last
+        val msg = Doc.text("the type") + Doc.space + tMap(badType).toDoc + Doc.space + Doc.text("isn't supported")
+        val tpeStr = msg.render(80)
+
+        s"cannot convert type to Json: $tpeStr"
+      }
+      def value(cache: LetFreeEvaluation.Cache) = LetFreeEvaluation.evaluate(lfe, extEnv, cache)
+      def optJ(v: Value) = v2j.toJson(tpe) match {
+        case Left(unsup) => Right(unsupported(tpe, unsup))
+        case Right(fn) => fn(v) match {
+          case Left(valueError) => Right(s"unexpected value error: $valueError")
+          case Right(j) => Left(j)
+        }
+      }
+    }
   }
 
   sealed abstract class MainCommand {
@@ -293,6 +312,19 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           (thesePacks, lst) = packsList
           packMap = packs.foldLeft(PackageMap.toAnyTyped(thesePacks))(_ + _)
         } yield (packMap, lst)
+
+    def buildLetFreePackMap(
+      srcs: List[Path],
+      deps: List[Path],
+      errColor: Colorize,
+      packRes: PackageResolver): IO[(PackageMap.Typed[(Declaration, LetFreeConversion.LetFreeExpressionTag)], List[(Path, PackageName)])] =
+        for {
+          packs <- readPackages(deps)
+          ifaces = packs.map(Package.interfaceOf(_))
+          packsList <- typeCheck0(srcs, ifaces, errColor, packRes)
+          (infPackMap, lst) = packsList
+          letFreePackMap = LetFreePackageMap(infPackMap).letFreePackageMap
+        } yield (letFreePackMap, lst)
 
     /**
      * This allows us to use either a path or packagename to select
@@ -530,6 +562,48 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         } yield out
 
       def run = runEval.map(_._2)
+    }
+
+    case class LetFreeEvaluate(
+      inputs: PathGen,
+      mainPackage: MainIdentifier,
+      deps: PathGen,
+      errColor: Colorize,
+      packRes: PackageResolver
+      ) extends MainCommand {
+
+      type Result = Output.LetFreeEvaluationResult
+
+      def run: IO[Output.LetFreeEvaluationResult] =
+        for {
+          ins <- inputs.read
+          ds <- deps.read
+          pn <- buildLetFreePackMap(mainPackage.addIfAbsent(ins), ds, errColor, packRes)
+          (packs, names) = pn
+          mainPackageNameValue <- mainPackage.getMain(names)
+          (mainPackageName, value) = mainPackageNameValue
+          out <- if (packs.toMap.contains(mainPackageName)) {
+            val ev = LetFreeEvaluation(packs, Predef.jvmExternals)
+            val v2j = ev.valueToJson
+
+            val res = value match {
+              case None => ev.evaluateLast(mainPackageName)
+              case Some(ident) => ev.evaluateName(mainPackageName, ident)
+            }
+
+            res match {
+              case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
+              case Some((ne, tpe, extEnv)) => {
+
+                moduleIOMonad.pure(Output.LetFreeEvaluationResult(ne, tpe, v2j, extEnv))
+
+              }
+            }
+          }
+          else {
+            moduleIOMonad.raiseError(new Exception(s"package ${mainPackageName.asString} not found"))
+          }
+        } yield out
     }
 
     case class ToJson(

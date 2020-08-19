@@ -118,6 +118,16 @@ object PathModule extends MainModule[IO] {
           val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
           print(doc.render(100))
         }
+      case res@Output.LetFreeEvaluationResult(lfe, tpe, _, _) => for {
+        _ <- print(s"LetFree Expression: $lfe")
+        _ <- print(s"Type: $tpe")
+        v = res.value(None)
+        _ <- print(s"Value: $v")
+        _ <- res.optJ(v) match {
+          case Left(json) => print(json.toDoc.renderTrim(80))
+          case Right(err) => print(err)
+        }
+      } yield ()
       case Output.JsonOutput(json, pathOpt) =>
         val jdoc = json.toDoc
         pathOpt match {
