@@ -448,9 +448,11 @@ object Code {
 
   def block(stmt: Statement, rest: Statement*): Statement = {
     val all = (stmt :: rest.toList).flatMap(flatten)
-    NonEmptyList.fromList(all) match {
-      case None => Pass
-      case Some(nel) => Block(nel)
+    all match {
+      case Nil => Pass
+      case one :: Nil => one
+      case head :: tail =>
+        Block(NonEmptyList(head, tail))
     }
   }
 
