@@ -82,11 +82,27 @@ class CodeTest extends FunSuite {
     }
   }
 
+  def genValueLike(depth: Int): Gen[Code.ValueLike] =
+    if (depth <= 0) genExpr(0)
+    else {
+      val rec = Gen.lzy(genValueLike(depth - 1))
+      val recX = Gen.lzy(genExpr(depth - 1))
+      val recS = Gen.lzy(genStatement(depth - 1))
+
+      val cond = Gen.zip(recX, rec)
+      Gen.frequency(
+        (10, recX),
+        (1, Gen.zip(recS, rec).map { case (s, r) => s.withValue(r) }),
+        (1, Gen.zip(genNel(4, cond), rec).map { case (conds, e) => Code.IfElse(conds, e) })
+      )
+    }
+
   def genNel[A](max: Int, genA: Gen[A]): Gen[NonEmptyList[A]] =
     for {
       cnt <- Gen.choose(1, max)
       lst <- Gen.listOfN(cnt, genA)
     } yield NonEmptyList.fromListUnsafe(lst)
+
 
   def genStatement(depth: Int): Gen[Code.Statement] = {
     val genZero = {
@@ -100,6 +116,7 @@ class CodeTest extends FunSuite {
     else {
       val recStmt = Gen.lzy(genStatement(depth - 1))
       val recExpr = Gen.lzy(genExpr(depth - 1))
+      val recVL = Gen.lzy(genValueLike(depth - 1))
 
       val genCall =
         for {
@@ -109,14 +126,15 @@ class CodeTest extends FunSuite {
         } yield Code.Call(Code.Apply(fn, items))
 
       val genBlock = genNel(5, recStmt).map(Code.Block(_))
-      val genRet = recExpr.map(Code.Return(_))
-      val genAssign = Gen.zip(genIdent, recExpr).map { case (v, e) => Code.Assign(v, e) }
+      val genRet = recVL.map(Code.toReturn(_))
+      val genAlways = recVL.map(Code.always(_))
+      val genAssign = Gen.zip(genIdent, recVL).map { case (v, e) => Code.addAssign(v, e) }
       val genWhile = Gen.zip(recExpr, recStmt).map { case (c, b) => Code.While(c, b) }
       val genIf =
         for {
           conds <- genNel(4, Gen.zip(recExpr, recStmt))
           elseCond <- Gen.option(recStmt)
-        } yield Code.IfStatement(conds, elseCond)
+        } yield Code.ifStatement(conds, elseCond)
 
       val genDef =
        for {
@@ -132,7 +150,8 @@ class CodeTest extends FunSuite {
         (10, genRet),
         (1, genBlock),
         (1, genIf),
-        (1, genCall)
+        (1, genCall),
+        (1, genAlways)
       )
     }
   }
@@ -322,6 +341,40 @@ else:
         }
 
       assertGood(simpOp, true)
+    }
+  }
+
+  test("Code.block as at most 1 Pass and if so, only at the end") {
+    import Code._
+
+    assert(block(Pass) == Pass)
+    assert(block(Pass, Pass) == Pass)
+
+    forAll(genNel(4, genStatement(3))) { case NonEmptyList(h, t) =>
+      val stmt = block(h, t :_*)
+
+      def passCount(s: Statement): Int =
+        s match {
+          case Pass => 1
+          case Block(s) => s.toList.map(passCount).sum
+          case _ => 0
+        }
+
+      def notPassCount(s: Statement): Int =
+        s match {
+          case Pass => 0
+          case Block(s) => s.toList.map(notPassCount).sum
+          case _ => 1
+        }
+
+      val pc = passCount(stmt)
+      assert(pc <= 1)
+      if (pc == 1) {
+        t.foreach { s =>
+          assert(notPassCount(s) == 0)
+        }
+        assert(notPassCount(h) == 0)
+      }
     }
   }
 }

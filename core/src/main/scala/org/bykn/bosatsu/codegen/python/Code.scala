@@ -396,25 +396,25 @@ object Code {
   case class Import(modname: String, alias: Option[Ident]) extends Statement
 
   def ifStatement(conds: NonEmptyList[(Expression, Statement)], elseCond: Option[Statement]): Statement = {
-    val allBranches: List[(Expression, Statement)] =
-      conds.map { case (e, s) => (e.simplify, s) }.toList ::: (
-        elseCond match {
-          case Some(s) => (Code.Const.True, s) :: Nil
-          case None => Nil
-        })
+    val simpConds = conds.map { case (e, s) => (e.simplify, s) }
+
+    val allBranches: NonEmptyList[(Expression, Statement)] =
+      elseCond match {
+        case Some(s) => simpConds :+ ((Code.Const.True, s))
+        case None => simpConds
+      }
 
     // we know the returned expression is never a constant expression
     def untilTrue(lst: List[(Expression, Statement)]): (List[(Expression, Statement)], Statement) =
       lst match {
         case Nil => (Nil, Pass)
-        case (Code.Const.True, last) :: _ =>
-          (Nil, last)
+        case (Code.Const.True, last) :: _ => (Nil, last)
         case head :: tail =>
           val (rest, e) = untilTrue(tail)
           (head :: rest, e)
       }
 
-    val (branches, last) = untilTrue(allBranches)
+    val (branches, last) = untilTrue(allBranches.toList)
     NonEmptyList.fromList(branches) match {
       case Some(nel) =>
         val ec = if (last == Pass) None else Some(last)
