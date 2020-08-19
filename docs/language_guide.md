@@ -30,14 +30,14 @@ The smaller differences come from adding features found in functional programmin
 1. sum types, which we call enums following Rust.
 1. a package system with explicit import and export syntax.
 1. powerful pattern matching
-1. a highly Python-inspired syntax including function definition, literal integers and strings, literal lists, list comprehensions, tuples [(todo)](https://github.com/johnynek/bosatsu/issues/18) and (string key) dictionaries [(todo)](https://github.com/johnynek/bosatsu/issues/14). Generally, if a syntax is possible to support in the current type system with immutable values, we generally intend to support it.
+1. a highly Python-inspired syntax including function definition, literal integers and strings, literal lists, list comprehensions, tuples and (string key) dictionaries. Generally, if a syntax is possible to support in the current type system with immutable values, we generally intend to support it.
 
 There are also some un-features, or items we don't currently and may never support
 1. There is very limited recursion. We only allow recursion which can never be used to make an
-   infinite loop. So data structures can only be recurrsive in covariant positions (not the
+   infinite loop. So data structures can only be recursive in covariant positions (not the
    arguments of functions), and recursive functions have to be a certain form that will always
    terminate
-1. There is no `while` syntax. The closest we have is a built in foldLeft function over lists. There is a design sketch of automatically translating for loops on lists into folds [issue 20](https://github.com/johnynek/bosatsu/issues/20).
+1. There is no `while` syntax. The closest we have are tail-recursive functions which recurse on sub-values of the inputs. There is a design sketch of automatically translating for loops on lists into folds [issue 20](https://github.com/johnynek/bosatsu/issues/20).
 
 # Language Guide
 This is a brief language guide to  describe Bosatsu syntax.
@@ -58,9 +58,9 @@ message1 = 'bar'
 message2 = "this has 'single quotes'"
 
 ```
-We plan to support Ruby's string interpolation syntax:
+There is string interpolation syntax:
 ```
-profile = 'my favorite animal is #{animal}'
+profile = 'my favorite animal is ${animal}'
 ```
 Where `animal` would be any expression that has type `String`.
 
@@ -71,13 +71,16 @@ Like Python, Bosatsu supports a syntax for literal lists:
 ```
 favorite_animals = ["elephant", "humpback whale", "dog"]
 ```
+
+Unlike Python, but like all of Bosatsu, lists are immutable values.
 In addition to ability to construct lists from items, we can also "splice" in other lists:
 
 ```
 new_favorites = ["mammoth", *favorite_animals]
 ```
 
-Just as we can build up lists literally, we can also use match to tear them down:
+Just as we can build up lists literally, we can also use match to tear them down which we discuss
+more later:
 ```
 top_animal = match new_favorites:
   [most_fav, *rest]: most_fav
@@ -99,11 +102,74 @@ def increment_by_2(x):
 ```
 This is a legal program. Don't think of x being mutated (since it isn't if it is captured by an anonymous function). Think of each new line being a new variable that happens to have the same value.
 
+Note this is a difference from python: in python capturing works by reference, not by value, so if
+the original value is changed, so is the capture. Not so in Bosatsu: lexical scope is always in
+play.
+
 We recommend not changing the type of a name in a given scope (and may enforce this in the future).
 
+## Pattern Matching
+Bosatsu has powerful pattern matching. You can match on literal values, strings and lists in
+addition to user defined types as discussed later.
+
+Here are some examples:
+```
+result0 = match "foo":
+  "baz":
+    "we matched baz"
+  "foo":
+    "we matched foo"
+  _:
+    "hmmm, didn't match"
+
+result1 = match "foo":
+  "f${rest}":
+    "we start with f followed by ${rest}"
+  _:
+    "hmmm, didn't match"
+
+result2 = match ["foo", "bar"]:
+  ["f${rest}", "baz"]:
+    "this won't match"
+  ["f${rest}", *_]:
+    "we start with f followed by ${rest}"
+  _:
+    "hmmm, didn't match"
+
+result3 = match [False, True, True]:
+  [*_, True, *_]: "at least one is true"
+  _: "all items are false, or the list is empty"
+
+result4 = match [False, True, True]:
+  [*_, True, *tail]:
+    match tail:
+      []: "True with tail empty"
+      [True]: "True with tail == [True] (this branch matches)"
+      _: "True with something else"
+  _: "all items are false, or the list is empty"
+```
+
+A common shorthand for checking if something matches is:
+```
+long = match ["foo", "bar"]:
+  ["foo", *_]: True
+  _: False
+
+short = ["foo", "bar"] matches ["foo", *_]
+```
+The caveat is that you cannot have any bindings in the pattern when used
+as a matches expression.
+
+A key feature of Bosatsu pattern matching: at least one branch must match.
+The compiler will check this and fail to compile any code that could fail
+to match at runtime. The error will list the branches that are not covered.
 
 ## Functions
-As we have seen, each function returns a single value which is the final expression in the function block.
+As we have seen in above examples, each function returns a single value which is the final expression in the function block.
+The reason for this difference with Python is that in Bosatsu, there are no side-effects. There is
+no reason to compute something if it is not going to be returned, and as such, the last line of
+every def would be a return. Like Python chooses to omit return in `lambda` expressions, we choose
+to remove `return` entirely from bosatsu.
 
 All functions internally are functions of a single value returning a single value. We have syntax to
 call multiple variable functions, but that is just syntactic sugar over curried functions.
@@ -124,7 +190,7 @@ add_with_three = \x -> \y -> add_Int(add_Int(x, y), 3)
 ```
 Think of `\` ans an ASCII version of `λ`.
 
-All of these functions have type `Int -> Int -> Int`, which is to say, given two integers (the two on the left) we can produce a new integer (always! remember Bosatsu is total, no exceptions!).
+All of these functions have type `Int -> Int -> Int`, which is to say, given two integers (the two on the left) we can produce a new integer (always! Remember Bosatsu is total, no exceptions!).
 
 ### Scope difference for defs
 Unlike normal bindings, defs ARE in scope in their body. However, in order to prevent unbounded
@@ -152,12 +218,10 @@ both of these two values `inc10` and `inc10_again` have the type `Int -> Int` an
 We have very limited support for recursion so that we may prove that all recursive functions
 terminate. Here is an example:
 ```
-enum List: Empty, NonEmpty(head: a, tail: List[a])
-
 def len(lst):
   recur lst:
-    Empty: 0
-    NonEmpty(_, tail): len(tail).add(1)
+    []: 0
+    [_, *tail]: len(tail).add(1)
 ```
 In the above, we see the `recur` syntax. This is a normal match with two restrictions: 1. it can only be
 on a literal parameter of the nearest enclosing def, 2. a function may have at most one recur in a
@@ -171,6 +235,18 @@ substructure of lst, and is used in the same parameter as list appeared in.
 These are strict rules, but they guarantee that each recursive function terminates in a finite
 number of steps, and can never loop forever. The recommendation is to avoid recursive defs as much
 as possible and limit the number of arguments as much as possible.
+
+Tail recursive loops are optimized into loops, which are safe for cases where recursion
+depth is high. If you can, prefer to use tail recursive loops:
+```
+def len(lst):
+  def loop(acc, lst):
+    recur lst:
+      []: acc
+      [_, *tail]: loop(acc.add(1), tail)
+
+  loop(0, lst)
+```
 
 ## Custom Data Types
 All type names start with an uppercase character. We can think of a definition as two things:
@@ -264,21 +340,20 @@ struct Tuple[a, b](fst: b, snd: a)
 
 Types are assigned left to right when they are omitted.
 
+### Limited Recursion in Custom Data Types
 Types must form a directed acyclic graph (DAG) with the exception that they
 may refer to themselves in covariant positions (i.e. not in the inputs to functions).
 
-E.g. in Predef we will find a standard linked list:
-```
-enum List: EmptyList, NonEmptyList(head: a, tail: List[a])
-```
-
-On the other hand, the following is disallowed:
+An example of a type that does not refer to itself in the covariant position is:
 ```
 struct W(fn: W[a, b] -> a -> b)
 ```
-Here `W` is in scope inside the definition of W. The types, like packages, must form an acyclic graph. If we allow types like the above, we actually open the door to recursion at the value level since we allow the y-combinator to be typed. By banning recursive types, the type of fix-point combinators becomes infinite, and thus ill-typed. This restriction is currently required to preserve totality in Bosatsu (a more advanced language can allow some recursion that it can prove does not violate totality).
+Here `W` is in scope inside the definition of W. The types, like packages, must form an acyclic graph.
+If we allow types like the above, we actually open the door to recursion at the value level since we allow the y-combinator to be typed.
+By banning some recursive types, the type of fix-point combinators becomes infinite, and thus ill-typed.
+This restriction is currently required to preserve totality in Bosatsu (a more advanced language can allow more recursion that it can prove does not violate totality).
 
-An import recursive type we can write is `List`:
+An import recursive type we can write is `List`. Indeed in Predef we will find a standard linked list:
 ```
 enum List:
   Empty, NonEmpty(head: a, tail: List[a])
@@ -286,7 +361,7 @@ enum List:
 
 Data-structures have two simple rules:
 1. they must form a DAG
-2. if they refer to themselves, they do so in covariant positions (rougly, not as inputs to
+2. if they refer to themselves, they do so in covariant positions (roughly, not as inputs to
    functions).
 
 ### Tuples
@@ -318,7 +393,7 @@ enum GoodOrBad:
 ```
 In the above example, `GoodOrBad` has a single type parameter `a`. So `Bad(1)` and `Good(1)` are of the same type.
 
-### Pattern Matching
+### Pattern Matching on Custom Types
 As we have already seen examples of, Bosatsu features powerful pattern matching. Literal values,
 such as integers or strings, as well as lists and tuples can appear in pattern matches. Patterns can
 be nested and combined in unions. There is a special wildcard term that can appear in a pattern
@@ -353,7 +428,7 @@ Type variables are all lower case. There is an explicit syntax for function type
 support for universal quantification sometimes called generic values or generic functions: `forall a. a -> List[a]`.
 
 ## The Bosatsu Predef
-The predef includes List, Option, Either types and some associated functions.
+The predef includes Int, String, List, Option, Either types and some associated functions.
 
 ## Packages
 All names are private unless exported. All names from external packages must be imported. There can be no cycles in the dependency graph of Bosatsu packages.
@@ -411,13 +486,28 @@ Sometimes such opacity is useful to enforce modularity.
 There is syntax for declaring external values and functions. This is obviously dangerous since it
 gives the user a chance to violate totality. Use with caution.
 
+An example function we cannot implement in bosatsu is:
+```
+def int_loop(int_v: Int, state: a, fn: Int -> a -> (Int, a)) -> a:
+  if cmp_Int(int_v, 0) matches GT:
+    (next_i, next_state) = fn(int_v, state)
+    if cmp_Int(next_i, int_v) matches LT:
+      # make sure we always decrease int_v
+      int_loop(next_i, next_state, fn)
+    else:
+      next_state
+  else:
+    a
+```
+We cannot write this function, even though it is total, because Bosatsu cannot prove
+that the loop terminates. The only recursions we can do are on values that are substructures
+of inputs in the same position. This gives a simple proof that the loop will terminate.
 
-As we discussed above, we cannot implement `foldLeft` in Bosatu. In the predef, we can find the following:
+Instead, we implement this function in Predef as an external def that has to be supplied to the
+compiler with a promise that it is indeed total.
 ```
-external def foldLeft(lst: List[a], init: b, fn: b -> a -> b) -> b
-external def range(exclusive_upper: Int): List[Int]
+external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
 ```
-These functions are not implemented in Bosatsu, and are supplied by the runtime. They are all total functions, but have no representation in Bosatsu currently.
 
 External values and types work exactly like internally defined types from any other point of view.
 
