@@ -1,0 +1,3 @@
+package Bosatsu/Simple
+
+out = "This is so simple"

@@ -214,4 +214,31 @@ class PathModuleTest extends FunSuite {
     }
   }
 
+  import PathModule.MainCommand.LetFreeEvaluate
+  import PathModule.MainCommand.PathGen
+  import PathModule.MainCommand.MainIdentifier
+  import PathModule.MainCommand.PackageResolver
+  import PathModule.Output
+  import java.nio.file.{Path => JPath}
+  import java.nio.file.{Paths => JPaths}
+  import cats.effect.IO
+
+  test("let free evaluate") {
+    LetFreeEvaluate(
+      PathGen.Direct[IO, JPath](JPaths.get("test_workspace/Simple.bosatsu")),
+      MainIdentifier.FromPackage(PackageName(NonEmptyList("Bosatsu", List("Simple"))), None),
+      PathGen.Combine[IO, JPath](Nil),
+      LocationMap.Colorize.Console,
+      PackageResolver.ExplicitOnly
+    ).run.map { 
+      case res@Output.LetFreeEvaluationResult(lfe, tpe, _, _) => {
+        val v = res.value(None)
+        res.optJ(v) match {
+          case Left(json) => assert(json.toDoc.renderTrim(80) == "\"This is so simple\"")
+          case Right(err) => fail(err)
+        }
+      }
+    }
+    .unsafeRunSync()
+  }
 }
