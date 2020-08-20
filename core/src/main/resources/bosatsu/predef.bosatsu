@@ -57,26 +57,26 @@ def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
   # make the loop function as small as possible
   def loop(lst, item):
     recur lst:
-      EmptyList: item
-      NonEmptyList(head, tail): loop(tail, fn(item, head))
+      []: item
+      [head, *tail]: loop(tail, fn(item, head))
   loop(lst, item)
 
 def reverse_concat(front: List[a], back: List[a]) -> List[a]:
-  foldLeft(front, back, \tail, h -> NonEmptyList(h, tail))
+  foldLeft(front, back, \tail, h -> [h, *tail])
 
 def reverse(as: List[a]) -> List[a]:
-  reverse_concat(as, EmptyList)
-
-def map_List(lst: List[a], fn: a -> b) -> List[b]:
-  lst.foldLeft(EmptyList, \t, a -> NonEmptyList(fn(a), t)).reverse
-
-def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
-  lst.foldLeft(EmptyList, \t, a -> fn(a).reverse_concat(t)).reverse
+  reverse_concat(as, [])
 
 def concat(front: List[a], back: List[a]) -> List[a]:
   match back:
     []: front
     _: reverse_concat(reverse(front), back)
+
+def map_List(lst: List[a], fn: a -> b) -> List[b]:
+  lst.foldLeft([], \t, a -> [fn(a), *t]).reverse
+
+def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
+  lst.foldLeft([], \t, a -> fn(a).reverse_concat(t)).reverse
 
 def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
   \(x1, x2) -> f(x1, x2)
@@ -113,19 +113,19 @@ external def mod_Int(a: Int, mod: Int) -> Int
 
 
 # this loops until the returned Int is <= 0 or the returned Int is >= intValue
-external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+external def int_loop(intValue: Int, state: a, fn: Int -> a -> (Int, a)) -> a
 
 def range(exclusiveUpper: Int) -> List[Int]:
-  int_loop(exclusiveUpper, EmptyList, \i, tail ->
+  int_loop(exclusiveUpper, [], \i, tail ->
     inext = i.sub(1)
-    TupleCons(inext, TupleCons(NonEmptyList(inext, tail), Unit)))
+    (inext, [inext, *tail]))
 
 def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: a -> Int -> a) -> a:
   diff = exclusiveUpper.sub(inclusiveLower)
   int_loop(diff, init, \diff0, a ->
     idx = exclusiveUpper.sub(diff0)
     a1 = fn(a, idx)
-    TupleCons(diff0.sub(1), TupleCons(a1, Unit)))
+    (diff0.sub(1), a1))
 
 external struct String
 external def string_Order_fn(str0: String, str1: String) -> Comparison
