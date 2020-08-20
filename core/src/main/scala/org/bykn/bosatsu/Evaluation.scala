@@ -9,8 +9,6 @@ import cats.implicits._
 import Identifier.Bindable
 
 case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
-  import Value._
-
   /**
    * Holds the final value of the environment for each Package
    */
@@ -121,44 +119,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   def evalTest(ps: PackageName): Option[Eval[Test]] =
     lastTest(ps).map { ea =>
-      def toAssert(a: ProductValue): Test =
-        a match {
-          case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
-            Test.Assertion(true, message)
-          case ConsValue(False, ConsValue(Str(message), UnitValue)) =>
-            Test.Assertion(false, message)
-          case other =>
-            // $COVERAGE-OFF$
-            sys.error(s"expected test value: $other")
-            // $COVERAGE-ON$
-        }
-      def toSuite(a: ProductValue): Test =
-        a match {
-          case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
-            Test.Suite(name, tests.map(toTest(_)))
-          case other =>
-            // $COVERAGE-OFF$
-            sys.error(s"expected test value: $other")
-            // $COVERAGE-ON$
-        }
-
-      def toTest(a: Value): Test =
-        a match {
-          case s: SumValue =>
-            if (s.variant == 0) toAssert(s.value)
-            else if (s.variant == 1) toSuite(s.value)
-            else {
-              // $COVERAGE-OFF$
-              sys.error(s"unexpected variant in: $s")
-              // $COVERAGE-ON$
-            }
-          case unexpected =>
-            // $COVERAGE-OFF$
-            sys.error(s"unreachable if compilation has worked: $unexpected")
-            // $COVERAGE-ON$
-        }
-
-      ea.map(toTest(_))
+      ea.map(Test.fromValue(_))
     }
 
   /**
