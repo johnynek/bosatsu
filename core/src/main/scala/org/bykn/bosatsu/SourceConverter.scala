@@ -253,16 +253,19 @@ final class SourceConverter(
             def mkN(c: String): Expr[Declaration] =
               Expr.Global(pn, Identifier.Name(c), l)
 
-            val empty: Expr[Declaration] = mkC("EmptyList")
+            val Empty: Expr[Declaration] = mkC("EmptyList")
             def cons(head: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
               Expr.buildApp(mkC("NonEmptyList"), head :: tail :: Nil, l)
 
             def concat(headList: Expr[Declaration], tail: Expr[Declaration]): Expr[Declaration] =
               Expr.buildApp(mkN("concat"), headList :: tail :: Nil, l)
 
-            revDecs.map(_.foldLeft(empty) {
+            revDecs.map(_.foldLeft(Empty) {
               case (tail, SpliceOrItem.Item(i)) =>
                 cons(i, tail)
+              case (Empty, SpliceOrItem.Splice(s)) =>
+                // concat(s, Empty) = s
+                s
               case (tail, SpliceOrItem.Splice(s)) =>
                 concat(s, tail)
             })
