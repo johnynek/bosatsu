@@ -9,7 +9,7 @@ import org.scalacheck.Gen
 import org.scalatest.FunSuite
 import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.python.util.PythonInterpreter
-import org.python.core.{PyInteger, PyFunction}
+import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
 
 import org.bykn.bosatsu.DirectEC.directEC
 
@@ -21,11 +21,54 @@ class PythonGenTest extends FunSuite {
 
   implicit val showStr: Show[String] = Show.show[String](identity)
 
-  def compileFile(path: String): PackageMap.Typed[Any] = {
-    val str = new String(Files.readAllBytes(Paths.get(path)), "UTF-8")
+  // for some reason, these need to be defs or Jython will NPE
+  def zero = new PyInteger(0)
+  def one = new PyInteger(1)
 
-    val pack = Parser.unsafeParse(Package.parser(None), str)
-    val packNEL = NonEmptyList((("", LocationMap(str)), pack), Nil)
+  @annotation.tailrec
+  final def foreachList(lst: PyObject)(fn: PyObject => Unit): Unit = {
+    if (lst == zero) ()
+    else {
+      val tup = lst.asInstanceOf[PyTuple]
+      val head = tup.getArray()(1)
+      val tail = tup.getArray()(2)
+      fn(head)
+      foreachList(tail)(fn)
+    }
+  }
+
+  // enum Test:
+  //   Assertion(value: Bool, message: String)
+  //   TestSuite(name: String, tests: List[Test])
+  def checkTest(testValue: PyObject, prefix: String): Unit = {
+    val tup = testValue.asInstanceOf[PyTuple]
+    tup.getArray()(0) match {
+      case x if x == zero =>
+        // True == one in our encoding
+        assert(tup.getArray()(1) == one, prefix + "/" + tup.getArray()(2).toString)
+        ()
+      case x if x == one =>
+        val suite = tup.getArray()(1).toString
+        foreachList(tup.getArray()(2)) { t => checkTest(t, prefix + "/" + suite); () }
+      case other =>
+        assert(false, s"expected a Test to have 0 or 1 in first tuple entry: $tup")
+        ()
+    }
+  }
+
+  def compileFile(path: String, rest: String*): PackageMap.Typed[Any] = {
+    def toS(s: String): String =
+      new String(Files.readAllBytes(Paths.get(path)), "UTF-8")
+
+
+    val packNEL =
+      NonEmptyList(path, rest.toList)
+        .map { s =>
+          val str = toS(s)
+          val pack = Parser.unsafeParse(Package.parser(None), str)
+          (("", LocationMap(str)), pack)
+        }
+
     PackageMap.typeCheckParsed(packNEL, Nil, "").right.get
   }
 
@@ -44,7 +87,7 @@ class PythonGenTest extends FunSuite {
     val natDoc = packMap(PackageName.parts("Bosatsu", "Nat"))._2
 
     intr.execfile(isfromString(natDoc.renderTrim(80)), "nat.py")
-
+    checkTest(intr.get("tests"), "Nat.bosatsu")
   }
 
   test("to_Nat works like identity") {
@@ -76,9 +119,9 @@ class PythonGenTest extends FunSuite {
 
   intr.close()
 
-  val strConcat = new PythonInterpreter()
 
   test("we can compile StrConcatExample") {
+    val strConcat = new PythonInterpreter()
     val path: String = "test_workspace/StrConcatExample.bosatsu"
 
     val bosatsuPM = compileFile(path)
@@ -88,16 +131,26 @@ class PythonGenTest extends FunSuite {
     val doc = packMap(PackageName.parts("StrConcatExample"))._2
 
     strConcat.execfile(isfromString(doc.renderTrim(80)), "StrConcatExample.py")
+    checkTest(strConcat.get("test"), "StrConcatExample")
 
+    strConcat.close()
   }
 
-  test("res0 .. res4 are all 1 (True)") {
 
-    val one = new PyInteger(1)
-    (0 to 4).foreach { i =>
-      val res = s"res$i"
+  test("test some list pattern matches") {
+    val listPy = new PythonInterpreter()
+    val bosatsuPM = compileFile(
+      "test_workspace/ListPat.bosatsu"
+    )
 
-      assert(strConcat.get(res) == one)
-    }
+    val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
+
+    val packMap = PythonGen.renderAll(matchless, Map.empty)
+    val doc = packMap(PackageName.parts("ListPat"))._2
+
+    listPy.execfile(isfromString(doc.renderTrim(80)), "ListPat.py")
+
+    checkTest(listPy.get("tests"), "")
+    listPy.close()
   }
 }

@@ -375,7 +375,7 @@ object PythonGen {
       def assignMut(cont: Code.Ident)(args: List[Expression]): Statement = {
         // do the replacement
         val vs = mutArgs.toList.zip(args).map { case (v, x) => Assign(v, x) }
-        vs.foldLeft(Assign(cont, Const.True): Statement)(_ +: _)
+        vs.foldLeft(cont := Const.True)(_ +: _)
       }
 
       for {
@@ -860,7 +860,14 @@ object PythonGen {
                 Env.onLastM(strVL)(matchString(_, pat, binds))
               }
               .flatten
-          case SearchList(LocalAnonMut(mutV), init, check, optLeft) => ???
+          case SearchList(locMut, init, check, optLeft) =>
+            // check to see if we can find a non-empty
+            // list that matches check
+            (loop(init), boolExpr(check))
+              .mapN { (initVL, checkVL) =>
+                searchList(locMut, initVL, checkVL, optLeft)
+              }
+              .flatten
         }
 
       def matchString(strEx: Expression, pat: List[StrPart], binds: List[Code.Ident]): Env[ValueLike] = {
@@ -1007,6 +1014,68 @@ object PythonGen {
             loop(offsetIdent, pat, 0)
               .map { res => (offsetIdent := Code.fromInt(0)).withValue(res) }
           }
+      }
+
+      def searchList(locMut: LocalAnonMut, initVL: ValueLike, checkVL: ValueLike, optLeft: Option[LocalAnonMut]): Env[ValueLike] = {
+        /*
+         * here is the implementation from MatchlessToValue
+         *
+            Dynamic { scope: Scope =>
+              var res = false
+              var currentList = initF(scope)
+              var leftList = VList.VNil
+              while (currentList ne null) {
+                currentList match {
+                  case nonempty@VList.Cons(head, tail) =>
+                    scope.updateMut(mutV, nonempty)
+                    scope.updateMut(left, leftList)
+                    res = checkF(scope)
+                    if (res) { currentList = null }
+                    else {
+                      currentList = tail
+                      leftList = VList.Cons(head, leftList)
+                    }
+                  case _ =>
+                    currentList = null
+                    // we don't match empty lists
+                }
+              }
+              res
+            }
+        */
+       // note, lists are encoded as:
+       // EmptyList = 0
+       // NonEmptyList(a, b) = (1, a, b)
+       (Env.nameForAnon(locMut.ident), optLeft.traverse { lm => Env.nameForAnon(lm.ident) }, Env.newAssignableVar, Env.newAssignableVar)
+         .mapN { (currentList, optLeft, res, tmpList) =>
+            Code
+              .block(
+                res := Code.Const.False,
+                tmpList := initVL,
+                optLeft.fold(Code.pass)(_ := Code.fromInt(0)), // left := EmptyList
+                // we don't match empty lists, so if currentList reaches Empty we are done
+                Code.While(Code.Op(tmpList, Code.Const.Neq, Code.fromInt(0)),
+                  Code.block(
+                      currentList := tmpList,
+                      res := checkVL,
+                      Code.ifStatement(
+                        NonEmptyList(
+                          (res, (tmpList := Code.fromInt(0))),
+                          Nil),
+                        Some {
+                          Code.block(
+                            tmpList := tmpList.get(2), // tail of the list
+                            optLeft.fold(Code.pass) { left =>
+                              val head = currentList.get(1)
+                              val cons = Code.MakeTuple(List(Code.fromInt(1), head, left))
+                              left := cons
+                            }
+                          )
+                        })
+                    )
+                  )
+              ).withValue(res)
+         }
       }
 
       def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] =
