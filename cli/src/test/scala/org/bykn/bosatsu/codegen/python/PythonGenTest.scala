@@ -87,7 +87,7 @@ class PythonGenTest extends FunSuite {
     val natDoc = packMap(PackageName.parts("Bosatsu", "Nat"))._2
 
     intr.execfile(isfromString(natDoc.renderTrim(80)), "nat.py")
-
+    checkTest(intr.get("tests"), "Nat.bosatsu")
   }
 
   test("to_Nat works like identity") {
@@ -117,11 +117,11 @@ class PythonGenTest extends FunSuite {
     }
   }
 
-  //intr.close()
+  intr.close()
 
-  val strConcat = new PythonInterpreter()
 
   test("we can compile StrConcatExample") {
+    val strConcat = new PythonInterpreter()
     val path: String = "test_workspace/StrConcatExample.bosatsu"
 
     val bosatsuPM = compileFile(path)
@@ -131,23 +131,14 @@ class PythonGenTest extends FunSuite {
     val doc = packMap(PackageName.parts("StrConcatExample"))._2
 
     strConcat.execfile(isfromString(doc.renderTrim(80)), "StrConcatExample.py")
+    checkTest(strConcat.get("test"), "StrConcatExample")
 
+    strConcat.close()
   }
 
-  test("res0 .. res4 are all 1 (True)") {
-
-    val one = new PyInteger(1)
-    (0 to 4).foreach { i =>
-      val res = s"res$i"
-
-      assert(strConcat.get(res) == one)
-    }
-  }
-  strConcat.close()
-
-  val listPy = new PythonInterpreter()
 
   test("test some list pattern matches") {
+    val listPy = new PythonInterpreter()
     val bosatsuPM = compileFile(
       "test_workspace/ListPat.bosatsu",
     )
@@ -160,5 +151,6 @@ class PythonGenTest extends FunSuite {
     listPy.execfile(isfromString(doc.renderTrim(80)), "ListPat.py")
 
     checkTest(listPy.get("tests"), "")
+    listPy.close()
   }
 }
