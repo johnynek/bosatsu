@@ -1064,7 +1064,7 @@ object PythonGen {
                           Nil),
                         Some {
                           Code.block(
-                            tmpList := tmpList.get(3), // tail of the list
+                            tmpList := tmpList.get(2), // tail of the list
                             optLeft.fold(Code.pass) { left =>
                               val head = currentList.get(1)
                               val cons = Code.MakeTuple(List(Code.fromInt(1), head, left))

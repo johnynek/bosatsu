@@ -21,8 +21,9 @@ class PythonGenTest extends FunSuite {
 
   implicit val showStr: Show[String] = Show.show[String](identity)
 
-  val zero = new PyInteger(0)
-  val one = new PyInteger(1)
+  // for some reason, these need to be defs or Jython will NPE
+  def zero = new PyInteger(0)
+  def one = new PyInteger(1)
 
   @annotation.tailrec
   final def foreachList(lst: PyObject)(fn: PyObject => Unit): Unit = {
@@ -74,7 +75,7 @@ class PythonGenTest extends FunSuite {
   def isfromString(s: String): InputStream =
     new ByteArrayInputStream(s.getBytes("UTF-8"))
 
-  def intr = new PythonInterpreter()
+  val intr = new PythonInterpreter()
 
   test("we can compile Nat.bosatsu") {
     val natPathBosatu: String = "test_workspace/Nat.bosatsu"
@@ -142,24 +143,22 @@ class PythonGenTest extends FunSuite {
       assert(strConcat.get(res) == one)
     }
   }
-  //strConcat.close()
+  strConcat.close()
 
   val listPy = new PythonInterpreter()
 
-  /*
   test("test some list pattern matches") {
     val bosatsuPM = compileFile(
-      "test_workspace/ListPats.bosatsu",
+      "test_workspace/ListPat.bosatsu",
     )
 
     val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
 
     val packMap = PythonGen.renderAll(matchless, Map.empty)
-    val doc = packMap(PackageName.parts("ListPats"))._2
+    val doc = packMap(PackageName.parts("ListPat"))._2
 
-    listPy.execfile(isfromString(doc.renderTrim(80)), "ListPats.py")
+    listPy.execfile(isfromString(doc.renderTrim(80)), "ListPat.py")
 
     checkTest(listPy.get("tests"), "")
   }
-  */
 }
