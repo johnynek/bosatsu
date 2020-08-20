@@ -606,6 +606,10 @@ object PythonGen {
     Par.await(all).toMap
   }
 
+  // These are values replaced with python operations
+  def intrinsicValues: Map[PackageName, Set[Bindable]] =
+    Map((PackageName.PredefName, Impl.PredefExternal.results.keySet))
+
   private object Impl {
 
     object PredefExternal {

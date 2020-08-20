@@ -384,6 +384,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]] = {
           import codegen.python.PythonGen
 
+          val allExternals = pm.allExternals
           val cmp = MatchlessFromTypedExpr.compile(pm)
           moduleIOMonad.catchNonFatal {
             val parsedExt = externals.map(Parser.unsafeParse(PythonGen.externalParser, _))
@@ -394,18 +395,51 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
               .map {
                 case (k, (_, _, m, f) :: Nil) =>
                   (k, (m, f))
-                case (_, moreThanOne) =>
+                case (k, moreThanOne) =>
                   // TODO this is terrible, we should summarrize all duplicates, or
                   // have an explicit policy of overwriting with the last one
-                  throw new IllegalArgumentException(s"expected each package/name to map to just one file, found: $moreThanOne")
+                  throw new IllegalArgumentException(s"expected each package/name to map to just one file, for $k found: $moreThanOne")
               }
 
-            PythonGen.renderAll(cmp, extMap)
-              .iterator
-              .map { case (k, (path, doc)) =>
-                (k, (path.map(_.name), doc))
-              }
-              .toMap
+            val exts = extMap.keySet
+            val intrinsic = PythonGen.intrinsicValues
+            val missingExternals =
+              allExternals
+                .iterator
+                .flatMap { case (p, names) =>
+                  val missing = names.filterNot { case n =>
+                    exts((p, n)) || intrinsic.get(p).exists(_(n))
+                  }
+
+                  if (missing.isEmpty) Nil
+                  else (p, missing.sorted) :: Nil
+                }
+                .toList
+
+            if (missingExternals.isEmpty) {
+              PythonGen.renderAll(cmp, extMap)
+                .iterator
+                .map { case (k, (path, doc)) =>
+                  (k, (path.map(_.name), doc))
+                }
+                .toMap
+            }
+            else {
+              // we need to render this nicer
+              val missingDoc =
+                missingExternals
+                  .sortBy(_._1)
+                  .map { case (p, names) =>
+                    (Doc.text("package") + Doc.lineOrSpace + Doc.text(p.asString) + Doc.lineOrSpace +
+                      Doc.char('[') +
+                      Doc.intercalate(Doc.comma + Doc.lineOrSpace, names.map { b => Doc.text(b.sourceCodeRepr) }) + Doc.char(']')
+                      ).nested(4)
+                  }
+
+              val message = Doc.text("Missing external values:") + (Doc.line + Doc.intercalate(Doc.line, missingDoc)).nested(4)
+
+              throw new IllegalArgumentException(message.renderTrim(80))
+            }
           }
         }
       }
