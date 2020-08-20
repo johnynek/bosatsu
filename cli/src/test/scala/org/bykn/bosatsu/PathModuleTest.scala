@@ -112,6 +112,7 @@ class PathModuleTest extends FunSuite {
         "BinNat.bosatsu",
         "Bool.bosatsu",
         "List.bosatsu",
+        "ListPat.bosatsu",
         "PatternExamples.bosatsu",
         "Queue.bosatsu",
         "StrConcatExample.bosatsu",
