@@ -140,7 +140,7 @@ class PythonGenTest extends FunSuite {
   test("test some list pattern matches") {
     val listPy = new PythonInterpreter()
     val bosatsuPM = compileFile(
-      "test_workspace/ListPat.bosatsu",
+      "test_workspace/ListPat.bosatsu"
     )
 
     val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)

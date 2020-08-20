@@ -1073,7 +1073,7 @@ object PythonGen {
                           )
                         })
                     )
-                  ),
+                  )
               ).withValue(res)
          }
       }
