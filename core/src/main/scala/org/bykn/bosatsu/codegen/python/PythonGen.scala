@@ -646,6 +646,10 @@ object PythonGen {
                     }
                   }
             }, 2)),
+          (Identifier.unsafeBindable("eq_Int"),
+            ({
+              input => Env.onLast2(input.head, input.tail.head)(_.eval(Code.Const.Eq, _))
+            }, 2)),
             //external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
             // def int_loop(i, a, fn):
             //   if i <= 0: a
