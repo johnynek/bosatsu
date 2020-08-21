@@ -47,7 +47,18 @@ class CodeTest extends FunSuite {
     else {
       val rec = Gen.lzy(genExpr(depth - 1))
 
-      val opName = Gen.oneOf(Code.Const.Minus, Code.Const.Plus, Code.Const.And, Code.Const.Eq, Code.Const.Gt)
+      val opName = Gen.oneOf(
+        Code.Const.Minus,
+        Code.Const.Plus,
+        Code.Const.Times,
+        Code.Const.Div,
+        Code.Const.Mod,
+        Code.Const.And,
+        Code.Const.Eq,
+        Code.Const.Neq,
+        Code.Const.Gt,
+        Code.Const.Lt)
+
       val genOp = Gen.zip(rec, opName, rec).map { case (a, b, c) => Code.Op(a, b, c) }
 
       val genTup =
