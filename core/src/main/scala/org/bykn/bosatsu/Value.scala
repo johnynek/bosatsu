@@ -287,19 +287,94 @@ object Value {
   }
 
   object VDict {
+    private def ordering(fn: Value): Ordering[Value] =
+      new Ordering[Value] {
+        def compare(v1: Value, v2: Value): Int = {
+          // these Values are keys, but we need to convert them
+          // back to tuples where the values are ignored for scala
+          val v = fn
+            .asFn(Tuple.fromList(v1 :: null :: Nil))
+            .asFn(Tuple.fromList(v2 :: null :: Nil))
+            .asSum
+            .variant
+          if (v == 0) -1
+          else if (v == 1) 0
+          else if (v == 2) 1
+          else {
+            // $COVERAGE-OFF$
+            sys.error(s"expected variant to be 0, 1, 2: found: $v")
+            // $COVERAGE-ON$
+          }
+        }
+      }
+
+    //enum Tree: Empty, Branch(size: Int, height: Int, key: a, left: Tree[a], right: Tree[a])
+    //struct Dict[k, v](ord: Order[(k, v)], tree: Tree[(k, v)])
     def unapply(v: Value): Option[SortedMap[Value, Value]] =
       v match {
-        case ExternalValue(v: SortedMap[_, _]) => Some(v.asInstanceOf[SortedMap[Value, Value]])
+        case ConsValue(ordFn, ConsValue(tree, UnitValue)) =>
+          implicit val ord: Ordering[Value] =
+            ordering(ordFn)
+
+          def treeToList(t: Value, acc: SortedMap[Value, Value]): SortedMap[Value, Value] = {
+            val v = t.asSum
+            if (v.variant == 0) acc // empty
+            else {
+              v.value.toList match {
+                case _ :: _ :: Tuple(k :: v :: Nil) :: left :: right :: Nil =>
+                  val acc1 = acc.updated(k, v)
+                  val acc2 = treeToList(left, acc1)
+                  treeToList(right, acc2)
+                case other =>
+                  // $COVERAGE-OFF$
+                  sys.error(s"ill-shaped: $other")
+                  // $COVERAGE-ON$
+              }
+            }
+          }
+
+          Some(treeToList(tree, SortedMap.empty[Value, Value]))
         case _ => None
       }
 
-    def fromStringKeys(kvs: List[(String, Value)]): Value = {
-      implicit val ord: Ordering[Value] =
-        implicitly[Ordering[String]].on { case Str(str) => str }
+    private val strOrd: Value =
+      FnValue { tup1 =>
+        FnValue { tup2 =>
+          (tup1, tup2) match {
+            case (Tuple(ExternalValue(k1: String) :: _), Tuple(ExternalValue(k2: String) :: _)) =>
+              Comparison.fromInt(k1.compareTo(k2))
+            case _ =>
+              // $COVERAGE-OFF$
+              sys.error(s"ill-typed in String Dict order: $tup1, $tup2")
+              // $COVERAGE-ON$
+            }
+        }
+      }
 
-      val bldr = SortedMap.newBuilder[Value, Value]
-      bldr ++= kvs.iterator.map { case (k, v) => (Str(k), v) }
-      ExternalValue(bldr.result)
+    def fromStringKeys(kvs: List[(String, Value)]): Value = {
+      val allItems: Array[(String, Value)] = kvs.toArray
+
+      def makeTree(start: Int, end: Int): (BigInteger, BigInteger, SumValue) =
+        if (start >= end) (BigInteger.valueOf(0L), BigInteger.ZERO, SumValue(0, UnitValue))
+        else {
+          val mid = end / 2
+          val (k, v) = allItems(mid)
+          val (lh, lz, left) = makeTree(start, mid)
+          val (rh, rz, right) = makeTree(mid + 1, end)
+          val h = lh.max(rh).add(BigInteger.ONE)
+          val z = lz.add(rz).add(BigInteger.ONE)
+          (h, z, SumValue(1,
+            ProductValue.fromList(
+              ExternalValue(z) ::
+              ExternalValue(h) ::
+              Tuple.fromList(ExternalValue(k) :: v :: Nil) ::
+              left ::
+              right ::
+              Nil)))
+        }
+
+      val (_, _, tree) = makeTree(0, allItems.length)
+      ProductValue.fromList(strOrd :: tree :: Nil)
     }
   }
 }
