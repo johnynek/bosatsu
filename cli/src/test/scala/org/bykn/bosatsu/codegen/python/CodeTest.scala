@@ -377,4 +377,37 @@ else:
       }
     }
   }
+
+  test("simplify is idempotent") {
+    forAll(genExpr(4)) { expr =>
+      assert(expr.simplify.simplify == expr.simplify)
+    }
+  }
+
+  test("simplify on Ternary removes branches when possible") {
+    forAll(genExpr(3), genExpr(3), genExpr(3)) { (t, c, f) =>
+      val tern = Code.Ternary(t, c, f).simplify
+      c.simplify match {
+        case Code.PyBool(b) =>
+          if (b) {
+            assert(tern == t.simplify)
+          }
+          else {
+            assert(tern == f.simplify)
+          }
+        case whoKnows =>
+          assert(tern == Code.Ternary(t.simplify, whoKnows, f.simplify))
+      }
+    }
+  }
+
+
+  test("identOrParens is true") {
+    forAll(genExpr(4)) { expr =>
+      expr.identOrParens match {
+        case Code.Ident(_) | Code.Parens(_) => assert(true)
+        case other => assert(false, other.toString)
+      }
+    }
+  }
 }

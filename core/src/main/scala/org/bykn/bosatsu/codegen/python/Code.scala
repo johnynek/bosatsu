@@ -303,16 +303,16 @@ object Code {
             }
             else (l1.evalMinus(i))
           }
-        case Op(a, Const.Eq, b) =>
-          if (a == b) Const.True
-          else this
+        case Op(a, Const.Eq, b) if a == b => Const.True
         case Op(a, Const.Gt | Const.Lt, b) if a == b => Const.False
         case Op(PyInt(a), Const.Gt, PyInt(b)) =>
-          if (a.compareTo(b) > 0) Const.True
-          else Const.False
+          fromBoolean(a.compareTo(b) > 0)
         case Op(PyInt(a), Const.Lt, PyInt(b)) =>
-          if (a.compareTo(b) < 0) Const.True
-          else Const.False
+          fromBoolean(a.compareTo(b) < 0)
+        case Op(PyInt(a), Const.Neq, PyInt(b)) =>
+          fromBoolean(a != b)
+        case Op(PyInt(a), Const.Eq, PyInt(b)) =>
+          fromBoolean(a == b)
         case Op(a, Const.And, b) =>
           (a, b) match {
             case (Const.True, _) => b
@@ -505,6 +505,10 @@ object Code {
     if (i == 0L) Const.Zero
     else if (i == 1L) Const.One
     else PyInt(BigInteger.valueOf(i))
+
+
+  def fromBoolean(b: Boolean): Expression =
+    if (b) Code.Const.True else Code.Const.False
 
   sealed abstract class Operator(val name: String) {
     def associates(that: Operator): Boolean = {
