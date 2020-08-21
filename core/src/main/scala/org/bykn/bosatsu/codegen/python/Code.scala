@@ -2,7 +2,7 @@ package org.bykn.bosatsu.codegen.python
 
 import cats.data.NonEmptyList
 import java.math.BigInteger
-import org.bykn.bosatsu.{Lit, StringUtil}
+import org.bykn.bosatsu.{Lit, PredefImpl, StringUtil}
 import org.typelevel.paiges.Doc
 
 // Structs are represented as tuples
@@ -135,7 +135,11 @@ object Code {
         maybePar(fn) + par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc))).nested(4)
 
       case DotSelect(left, right) =>
-        toDoc(left) + Doc.char('.') + toDoc(right)
+        val ld = left match {
+          case PyInt(_) => par(toDoc(left))
+          case _ => toDoc(left)
+        }
+        ld + Doc.char('.') + toDoc(right)
 
       case Call(ap) => toDoc(ap)
 
@@ -574,6 +578,8 @@ object Code {
         case Const.Plus => a.add(b)
         case Const.Minus => a.subtract(b)
         case Const.Times => a.multiply(b)
+        case Const.Div => PredefImpl.divBigInteger(a, b)
+        case Const.Mod => PredefImpl.modBigInteger(a, b)
       }
   }
 
@@ -581,6 +587,8 @@ object Code {
     case object Plus extends IntOp("+")
     case object Minus extends IntOp("-")
     case object Times extends IntOp("*")
+    case object Div extends IntOp("//")
+    case object Mod extends IntOp("%")
     case object And extends Operator("and")
     case object Eq extends Operator("==")
     case object Neq extends Operator("!=")
@@ -606,6 +614,5 @@ object Code {
     "continue",  "finally",   "is",        "return",
     "def",       "for",       "lambda",    "try"
   )
-
 }
 
