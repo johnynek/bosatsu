@@ -287,7 +287,7 @@ object Value {
   }
 
   object VDict {
-    private def ordering(fn: Value): Ordering[Value] =
+    def keyOrderingFromOrdFn(fn: FnValue): Ordering[Value] =
       new Ordering[Value] {
         def compare(v1: Value, v2: Value): Int = {
           // these Values are keys, but we need to convert them
@@ -312,9 +312,9 @@ object Value {
     //struct Dict[k, v](ord: Order[(k, v)], tree: Tree[(k, v)])
     def unapply(v: Value): Option[SortedMap[Value, Value]] =
       v match {
-        case ConsValue(ordFn, ConsValue(tree, UnitValue)) =>
+        case ConsValue(ordFn: FnValue, ConsValue(tree, UnitValue)) =>
           implicit val ord: Ordering[Value] =
-            ordering(ordFn)
+            keyOrderingFromOrdFn(ordFn)
 
           def treeToList(t: Value, acc: SortedMap[Value, Value]): SortedMap[Value, Value] = {
             val v = t.asSum
@@ -334,10 +334,13 @@ object Value {
           }
 
           Some(treeToList(tree, SortedMap.empty[Value, Value]))
+        // $COVERAGE-OFF$
+        // we generally don't test ill-typed conversion
         case _ => None
+        // $COVERAGE-ON$
       }
 
-    private val strOrd: Value =
+    val strOrdFn: FnValue =
       FnValue { tup1 =>
         FnValue { tup2 =>
           (tup1, tup2) match {
@@ -352,13 +355,15 @@ object Value {
       }
 
     def fromStringKeys(kvs: List[(String, Value)]): Value = {
-      val allItems: Array[(String, Value)] = kvs.toArray
+      val allItems: Array[(String, Value)] = kvs.toMap.toArray
       java.util.Arrays.sort(allItems, Ordering[String].on { kv: (String, Value) => kv._1 })
 
+      val empty = (BigInteger.ZERO, BigInteger.ZERO, SumValue(0, UnitValue))
+
       def makeTree(start: Int, end: Int): (BigInteger, BigInteger, SumValue) =
-        if (start >= end) (BigInteger.valueOf(0L), BigInteger.ZERO, SumValue(0, UnitValue))
+        if (start >= end) empty
         else {
-          val mid = end / 2
+          val mid = start + ((end - start) / 2)
           val (k, v) = allItems(mid)
           val (lh, lz, left) = makeTree(start, mid)
           val (rh, rz, right) = makeTree(mid + 1, end)
@@ -375,7 +380,7 @@ object Value {
         }
 
       val (_, _, tree) = makeTree(0, allItems.length)
-      ProductValue.fromList(strOrd :: tree :: Nil)
+      ProductValue.fromList(strOrdFn :: tree :: Nil)
     }
   }
 }
