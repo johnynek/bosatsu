@@ -240,13 +240,25 @@ object PythonGen {
       // until they are really needed
       conds match {
         case NonEmptyList((cx: Expression, t), Nil) =>
-          Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
+          (t, elseV) match {
+            case (tx: Expression, elseX: Expression) =>
+              Monad[Env].pure(Ternary(tx, cx, elseX))
+            case _ =>
+              Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
+          }
         case NonEmptyList((cx: Expression, t), rh :: rt) =>
           val head = (cx, t)
           ifElse(NonEmptyList(rh, rt), elseV).map {
             case IfElse(crest, er) =>
               // preserve IfElse chains
               IfElse(head :: crest, er)
+            case nestX: Expression =>
+              t match {
+                case tx: Expression =>
+                  Ternary(tx, cx, nestX)
+                case _ =>
+                  IfElse(NonEmptyList(head, Nil), nestX)
+              }
             case nest =>
               IfElse(NonEmptyList(head, Nil), nest)
           }
@@ -345,13 +357,13 @@ object PythonGen {
             // only the result types are in tail position, we don't need to recurse on conds
             val ifs = ifCases.traverse { case (cond, res) => loop(res).map((cond, _)) }
             (ifs, loop(elseCase))
-              .mapN(Env.ifElse(_, _))
+              .mapN(ifElse(_, _))
               .flatten
           case Ternary(ifTrue, cond, ifFalse) =>
-            // both conditions are in the tail position
+            // both results are in the tail position
             (loop(ifTrue), loop(ifFalse))
               .mapN { (t, f) =>
-                Env.ifElse(NonEmptyList((t, cond), Nil), f)
+                ifElse(NonEmptyList((cond, t), Nil), f)
               }
               .flatten
           case WithValue(stmt, v) =>
@@ -697,7 +709,7 @@ object PythonGen {
                             // we know b != 0 because we are in the while loop
                             /// b = a % b
                             tmpb := Code.Op(tmpa, Code.Const.Mod, tmpb),
-                            tmpa := tmpc,
+                            tmpa := tmpc
                           )
                         )
                       )

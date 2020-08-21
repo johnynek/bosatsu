@@ -383,6 +383,8 @@ object Code {
       cond.simplify match {
         case PyBool(b) =>
           if (b) ifTrue.simplify else ifFalse.simplify
+        case PyInt(i) =>
+          if (i != BigInteger.ZERO) ifTrue.simplify else ifFalse.simplify
         case notStatic =>
           Ternary(ifTrue.simplify, notStatic, ifFalse.simplify)
       }

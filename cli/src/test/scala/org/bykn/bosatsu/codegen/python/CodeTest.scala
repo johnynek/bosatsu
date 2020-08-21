@@ -399,6 +399,13 @@ else:
           else {
             assert(tern == f.simplify)
           }
+        case Code.PyInt(i) =>
+          if (i != BigInteger.ZERO) {
+            assert(tern == t.simplify)
+          }
+          else {
+            assert(tern == f.simplify)
+          }
         case whoKnows =>
           assert(tern == Code.Ternary(t.simplify, whoKnows, f.simplify))
       }
