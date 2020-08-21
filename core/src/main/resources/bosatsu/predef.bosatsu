@@ -154,6 +154,8 @@ enum Test:
 
 #############
 # AVL trees used to implement dictionaries
+# these are private implementation details
+# and not exported intentionally
 #############
 
 enum Tree[a]:
@@ -267,13 +269,6 @@ def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
 
     loop(tree)
 
-def min(tree: Tree[a]) -> Option[a]:
-    recur tree:
-        Empty: None
-        Branch { key, left: Empty, ... }: Some(key)
-        Branch { left, ... }: min(left)
-
-
 def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
     Order(fn) = ord
 
@@ -297,14 +292,6 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
 
     loop(tree)
 
-def fold_left_Tree(t: Tree[a], left_v: b, fn: b -> a -> b) -> b:
-    recur t:
-        Empty: left_v
-        Branch { key, left, right, ... }:
-            v1 = fold_left_Tree(left, left_v, fn)
-            v2 = fn(v1, key)
-            fold_left_Tree(right, v2, fn)
-
 def fold_right_Tree(t: Tree[a], right_v: b, fn: a -> b -> b) -> b:
     recur t:
         Empty: right_v
@@ -317,14 +304,6 @@ def fold_right_Tree(t: Tree[a], right_v: b, fn: a -> b -> b) -> b:
 #############
 # Standard dictionaries
 #############
-# external struct Dict[k, v]
-
-# external def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]
-# external def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]
-# external def get_key(dict: Dict[k, v], key: k) -> Option[v]
-# external def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]
-# external def items(dict: Dict[k, v]) -> List[(k, v)]
-# external def clear_Dict(dict: Dict[k, v]) -> Dict[k, v]
 
 struct Dict[k, v](order: Order[(k, v)], tree: Tree[(k, v)])
 
@@ -340,22 +319,22 @@ def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]:
 
 def get_key(dict: Dict[k, v], key: k) -> Option[v]:
     Dict(ord, tree) = dict
-    match min(tree):
-        None: None
-        Some((_, v)):
+    match tree:
+        Branch { key: (_, v), ... }:
             # fill in a fake v
             match contains(ord, tree, (key, v)):
                 Some((_, v)): Some(v)
                 None: None
+        Empty: None
 
 def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]:
     Dict(ord, tree) = dict
-    match min(tree):
-        None: dict
-        Some((_, v)):
+    match tree:
+        Branch { key: (_, v), ... }:
             # fill in a fake v
             tree1 = remove_item(ord, tree, (key, v))
             Dict(ord, tree1)
+        Empty: dict
 
 def items(dict: Dict[k, v]) -> List[(k, v)]:
     Dict(_, tree) = dict
