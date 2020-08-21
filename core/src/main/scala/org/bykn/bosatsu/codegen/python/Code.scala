@@ -22,7 +22,8 @@ object Code {
     def identOrParens: Expression =
       this match {
         case i: Code.Ident => i
-        case p => Code.Parens(p)
+        case p@Code.Parens(_) => p
+        case other => Code.Parens(other)
       }
 
     def apply(args: Expression*): Apply =
@@ -49,7 +50,7 @@ object Code {
     def evalTimes(that: Expression): Expression =
       eval(Const.Times, that)
 
-    def simplify: Expression = this
+    def simplify: Expression
   }
 
   sealed abstract class Statement extends Code {
@@ -91,7 +92,7 @@ object Code {
 
   private def maybePar(c: Expression): Doc =
     c match {
-      case Lambda(_, _) => par(toDoc(c))
+      case Lambda(_, _) | Ternary(_, _, _) => par(toDoc(c))
       case _ => toDoc(c)
     }
 
@@ -107,27 +108,31 @@ object Code {
         else Doc.text("False")
       case Ident(i) => Doc.text(i)
       case o@Op(_, _, _) => o.toDoc
-      case Parens(inner@Parens(_)) => toDoc(inner)
+      case Parens(inner@Parens(_)) => toDoc(inner).nested(4)
       case Parens(p) => par(toDoc(p))
       case SelectItem(x, i) =>
         maybePar(x) + Doc.char('[') + Doc.str(i) + Doc.char(']')
       case SelectRange(x, os, oe) =>
         val middle = os.fold(Doc.empty)(toDoc) + Doc.text(":") + oe.fold(Doc.empty)(toDoc)
-        maybePar(x) + Doc.char('[') + middle + Doc.char(']')
+        maybePar(x) + (Doc.char('[') + middle + Doc.char(']')).nested(4)
+      case Ternary(ift, cond, iff) =>
+        // python parses the else condition as the rest of experssion, so
+        // no need to put parens around it
+        maybePar(ift) + Doc.text(" if ") + maybePar(cond) + Doc.text(" else ") + toDoc(iff)
       case MakeTuple(items) =>
         items match {
           case Nil => Doc.text("()")
-          case h :: Nil => par(toDoc(h) + Doc.comma)
-          case twoOrMore => par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, twoOrMore.map(toDoc)))
+          case h :: Nil => par(toDoc(h) + Doc.comma).nested(4)
+          case twoOrMore => par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, twoOrMore.map(toDoc))).nested(4)
         }
       case MakeList(items) =>
         val inner = items.map(toDoc)
-        Doc.char('[') + Doc.intercalate(Doc.comma + Doc.lineOrSpace, inner) + Doc.char(']')
+        (Doc.char('[') + Doc.intercalate(Doc.comma + Doc.lineOrSpace, inner) + Doc.char(']')).nested(4)
       case Lambda(args, res) =>
         Doc.text("lambda ") + Doc.intercalate(Doc.comma + Doc.space, args.map(toDoc)) + Doc.text(": ") + toDoc(res)
 
       case Apply(fn, args) =>
-        maybePar(fn) + par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc)))
+        maybePar(fn) + par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc))).nested(4)
 
       case DotSelect(left, right) =>
         toDoc(left) + Doc.char('.') + toDoc(right)
@@ -168,12 +173,20 @@ object Code {
   // Here are all the expressions
   /////////////////////////
 
-  case class PyInt(toBigInteger: BigInteger) extends Expression
-  case class PyString(content: String) extends Expression
-  case class PyBool(toBoolean: Boolean) extends Expression
+  case class PyInt(toBigInteger: BigInteger) extends Expression {
+    def simplify = this
+  }
+  case class PyString(content: String) extends Expression {
+    def simplify = this
+  }
+  case class PyBool(toBoolean: Boolean) extends Expression {
+    def simplify = this
+  }
   case class Ident(name: String) extends Expression {
     def :=(vl: ValueLike): Statement =
       addAssign(this, vl)
+
+    def simplify = this
   }
   // Binary operator used for +, -, and, == etc...
   case class Op(left: Expression, op: Operator, right: Expression) extends Expression {
@@ -303,20 +316,21 @@ object Code {
             }
             else (l1.evalMinus(i))
           }
-        case Op(a, Const.Eq, b) =>
-          if (a == b) Const.True
-          else this
-        case Op(a, Const.Gt | Const.Lt, b) if a == b => Const.False
+        case Op(a, Const.Eq, b) if a == b => Const.True
+        case Op(a, Const.Gt | Const.Lt | Const.Neq, b) if a == b => Const.False
         case Op(PyInt(a), Const.Gt, PyInt(b)) =>
           if (a.compareTo(b) > 0) Const.True
           else Const.False
         case Op(PyInt(a), Const.Lt, PyInt(b)) =>
           if (a.compareTo(b) < 0) Const.True
           else Const.False
+        case Op(PyInt(a), Const.Neq, PyInt(b)) =>
+          if (a.compareTo(b) != 0) Const.True
+          else Const.False
         case Op(a, Const.And, b) =>
           (a, b) match {
-            case (Const.True, _) => b
-            case (_, Const.True) => a
+            case (Const.True, _) => b.simplify
+            case (_, Const.True) => a.simplify
             case (Const.False, _) => Const.False
             case (_, Const.False) => Const.False
             case _ => this
@@ -347,13 +361,38 @@ object Code {
       }
   }
 
-  case class Parens(expr: Expression) extends Expression
-  case class SelectItem(arg: Expression, position: Int) extends Expression
+  case class Parens(expr: Expression) extends Expression {
+    def simplify: Expression =
+      expr.simplify match {
+        case x@(PyBool(_) | Ident(_) | PyInt(_) | PyString(_) | Parens(_)) => x
+        case exprS => Parens(exprS)
+      }
+  }
+  case class SelectItem(arg: Expression, position: Int) extends Expression {
+    def simplify: Expression = SelectItem(arg.simplify, position)
+  }
   // foo[a:b]
-  case class SelectRange(arg: Expression, start: Option[Expression], end: Option[Expression]) extends Expression
-  case class MakeTuple(args: List[Expression]) extends Expression
-  case class MakeList(args: List[Expression]) extends Expression
-  case class Lambda(args: List[Ident], result: Expression) extends Expression
+  case class SelectRange(arg: Expression, start: Option[Expression], end: Option[Expression]) extends Expression {
+    def simplify = SelectRange(arg, start.map(_.simplify), end.map(_.simplify))
+  }
+  case class Ternary(ifTrue: Expression, cond: Expression, ifFalse: Expression) extends Expression {
+    def simplify: Expression =
+      cond.simplify match {
+        case PyBool(b) =>
+          if (b) ifTrue.simplify else ifFalse.simplify
+        case notStatic =>
+          Ternary(ifTrue.simplify, notStatic, ifFalse.simplify)
+      }
+  }
+  case class MakeTuple(args: List[Expression]) extends Expression {
+    def simplify = MakeTuple(args.map(_.simplify))
+  }
+  case class MakeList(args: List[Expression]) extends Expression {
+    def simplify = MakeList(args.map(_.simplify))
+  }
+  case class Lambda(args: List[Ident], result: Expression) extends Expression {
+    def simplify = Lambda(args, result.simplify)
+  }
   case class Apply(fn: Expression, args: List[Expression]) extends Expression {
     def uncurry: (Expression, List[List[Expression]]) =
       fn match {
@@ -363,8 +402,12 @@ object Code {
         case _ =>
           (fn, args :: Nil)
       }
+
+    def simplify = Apply(fn.simplify, args.map(_.simplify))
   }
-  case class DotSelect(ex: Expression, ident: Ident) extends Expression
+  case class DotSelect(ex: Expression, ident: Ident) extends Expression {
+    def simplify = DotSelect(ex.simplify, ident)
+  }
 
   /////////////////////////
   // Here are all the ValueLike
