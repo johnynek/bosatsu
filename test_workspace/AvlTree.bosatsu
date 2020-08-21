@@ -99,15 +99,15 @@ def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
 
     loop(tree)
 
-def contains(ord: Order[a], tree: Tree[a], item: a) -> Bool:
+def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
     Order(fn) = ord
 
-    def loop(tree: Tree[a]) -> Bool:
+    def loop(tree: Tree[a]) -> Option[a]:
         recur tree:
-            Empty: False
+            Empty: None
             Branch { key, left, right, ... }:
                 match fn(item, key):
-                    EQ: True
+                    EQ: Some(key)
                     LT: loop(left)
                     GT: loop(right)
 
@@ -164,7 +164,7 @@ struct Module[a](
     order: Order[a],
     add: Tree[a] -> a -> Tree[a],
     single: a -> Tree[a],
-    contains: Tree[a] -> a -> Bool,
+    contains: Tree[a] -> a -> Option[a],
     remove: Tree[a] -> a -> Tree[a],
     fold_left: forall b. Tree[a] -> b -> (b -> a -> b) -> b,
     fold_right: forall b. Tree[a] -> b -> (a -> b -> b) -> b,
@@ -180,11 +180,52 @@ def module(ord: Order[a]) -> Module[a]:
         fold_left: fold_left_Tree,
         fold_right: fold_right_Tree,
     }
+
+struct Dict[k, v](order: Order[(k, v)], tree: Tree[(k, v)])
+
+def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]:
+    Order(fn) = comp
+    pair_ord = Order(\(k1, _), (k2, _) -> fn(k1, k2))
+    Dict(pair_ord, Empty)
+
+def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]:
+    Dict(ord, tree) = dict
+    new_tree = add_item(ord, tree, (key, value))
+    Dict(ord, new_tree)
+
+def get_key(dict: Dict[k, v], key: k) -> Option[v]:
+    Dict(ord, tree) = dict
+    match min(tree):
+        None: None
+        Some((_, v)):
+            # fill in a fake v
+            match contains(ord, tree, (key, v)):
+                Some((_, v)): Some(v)
+                None: None
+
+def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]:
+    Dict(ord, tree) = dict
+    match min(tree):
+        None: dict
+        Some((_, v)):
+            # fill in a fake v
+            tree1 = remove_item(ord, tree, (key, v))
+            Dict(ord, tree1)
+
+def items(dict: Dict[k, v]) -> List[(k, v)]:
+    Dict(_, tree) = dict
+    tree.fold_right_Tree([], \kv, tail -> [kv, *tail])
+
+def clear_Dict(dict: Dict[k, v]) -> Dict[k, v]:
+    Dict(ord, _) = dict
+    Dict(ord, Empty)
 #####################
 # test code
 #####################
 
-Module { add: add_i, contains: contains_i, single: single_i, remove: rem_i ...} = module(Order(cmp_Int))
+Module { add: add_i, contains: contains_i_opt, single: single_i, remove: rem_i ...} = module(Order(cmp_Int))
+
+contains_i = \tree, i -> (contains_i_opt(tree, i) matches Some(_))
 
 def not(x): False if x else True
 

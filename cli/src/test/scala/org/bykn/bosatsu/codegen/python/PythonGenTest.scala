@@ -119,38 +119,41 @@ class PythonGenTest extends FunSuite {
 
   intr.close()
 
-
-  test("we can compile StrConcatExample") {
-    val strConcat = new PythonInterpreter()
-    val path: String = "test_workspace/StrConcatExample.bosatsu"
+  def runBoTests(path: String, pn: PackageName, testName: String) = {
+    val intr = new PythonInterpreter()
 
     val bosatsuPM = compileFile(path)
     val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
 
     val packMap = PythonGen.renderAll(matchless, Map.empty)
-    val doc = packMap(PackageName.parts("StrConcatExample"))._2
+    val doc = packMap(pn)._2
 
-    strConcat.execfile(isfromString(doc.renderTrim(80)), "StrConcatExample.py")
-    checkTest(strConcat.get("test"), "StrConcatExample")
+    intr.execfile(isfromString(doc.renderTrim(80)), "test.py")
+    checkTest(intr.get(testName), pn.asString)
 
-    strConcat.close()
+    intr.close()
+  }
+
+
+  test("we can compile StrConcatExample") {
+    runBoTests(
+      "test_workspace/StrConcatExample.bosatsu",
+      PackageName.parts("StrConcatExample"),
+      "test")
   }
 
 
   test("test some list pattern matches") {
-    val listPy = new PythonInterpreter()
-    val bosatsuPM = compileFile(
-      "test_workspace/ListPat.bosatsu"
-    )
+    runBoTests(
+      "test_workspace/ListPat.bosatsu",
+      PackageName.parts("ListPat"),
+      "tests")
+  }
 
-    val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
-
-    val packMap = PythonGen.renderAll(matchless, Map.empty)
-    val doc = packMap(PackageName.parts("ListPat"))._2
-
-    listPy.execfile(isfromString(doc.renderTrim(80)), "ListPat.py")
-
-    checkTest(listPy.get("tests"), "")
-    listPy.close()
+  test("test euler6") {
+    runBoTests(
+      "test_workspace/euler6.bosatsu",
+      PackageName.parts("Euler", "P6"),
+      "tests")
   }
 }
