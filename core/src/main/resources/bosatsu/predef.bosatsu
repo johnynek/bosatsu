@@ -50,6 +50,9 @@ struct TupleCons(first, second)
 enum Bool:
   False, True
 
+#############
+# Support for built-in lists
+#############
 enum List:
   EmptyList, NonEmptyList(head: a, tail: List[a])
 
@@ -78,28 +81,30 @@ def map_List(lst: List[a], fn: a -> b) -> List[b]:
 def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
   lst.foldLeft([], \t, a -> fn(a).reverse_concat(t)).reverse
 
+#############
+# Some utilities for dealing with functions
+#############
+
 def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
   \(x1, x2) -> f(x1, x2)
 
 def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
   \(x1, x2, x3) -> f(x1, x2, x3)
 
+#############
+# Standardize notion of ordering
+#############
 enum Comparison:
     LT, EQ, GT
+
+struct Order(to_Fn: a -> a -> Comparison)
 
 enum Option:
   None, Some(v)
 
-struct Order(to_Fn: a -> a -> Comparison)
-
-external struct Dict[k, v]
-external def clear_Dict(dict: Dict[k, v]) -> Dict[k, v]
-external def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]
-external def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]
-external def get_key(dict: Dict[k, v], key: k) -> Option[v]
-external def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]
-external def items(dict: Dict[k, v]) -> List[(k, v)]
-
+#############
+# Int functions
+#############
 external struct Int
 
 external def add(a: Int, b: Int) -> Int
@@ -127,15 +132,214 @@ def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: a -> Int -
     a1 = fn(a, idx)
     (diff0.sub(1), a1))
 
+#############
+# String functions
+#############
 external struct String
+
 external def string_Order_fn(str0: String, str1: String) -> Comparison
 string_Order = Order(string_Order_fn)
 external def concat_String(items: List[String]) -> String
 
 external def int_to_String(i: Int) -> String
 
+external def trace(prefix: String, item: a) -> a
+
+#############
+# Support for built-in testing:
+#############
 enum Test:
   Assertion(value: Bool, message: String)
   TestSuite(name: String, tests: List[Test])
 
-external def trace(prefix: String, item: a) -> a
+#############
+# AVL trees used to implement dictionaries
+# these are private implementation details
+# and not exported intentionally
+#############
+
+enum Tree[a]:
+    Empty, Branch(size: Int, height: Int, key: a, left: Tree[a], right: Tree[a])
+
+enum Rotation: LeftRo, NoRo, RightRo
+
+def operator >(i, j):
+    cmp_Int(i, j) matches GT
+
+def rotation(left: Int, right: Int, max_diff: Int) -> Rotation:
+    if left.sub(right) > max_diff:
+        RightRo
+    elif right.sub(left) > max_diff:
+        LeftRo
+    else:
+        NoRo
+
+def max(i, j):
+    match cmp_Int(i, j):
+        LT: j
+        _: i
+
+# properly balanced trees:
+# h < c log_2(n + 2) + b, c ~= 1.44, b ~= -1.33
+def height(t: Tree[a]) -> Int:
+    match t:
+        Empty: 0
+        Branch { height: h, ... }: h
+
+def size(t: Tree[a]) -> Int:
+    match t:
+        Empty: 0
+        Branch { size: s, ... }: s
+
+def branch(sz, item, left, right):
+    h = max(height(left), height(right))
+    Branch(sz, h.add(1), item, left, right)
+
+def branch_s(item, left, right):
+    sz = size(left).add(size(right)).add(1)
+    branch(sz, item, left, right)
+
+def balance(t: Tree[a]) -> Tree[a]:
+    match t:
+        Empty: Empty
+        Branch { key: top_item, left, right, ... }:
+          match rotation(height(left), height(right), 1):
+              NoRo: t
+              RightRo:
+                  match left:
+                      Empty: t
+                      Branch { key: inner_item, left, right: left_right, ... }:
+                          match rotation(height(left), height(left_right), 0):
+                              RightRo | NoRo:
+                                  res_r = branch_s(top_item, left_right, right)
+                                  branch_s(inner_item, left, res_r)
+                              LeftRo:
+                                  match left_right:
+                                      Empty: trace("unreachable", t)
+                                      Branch { key: lrv, left: left_right_left, right: left_right_right, ...}:
+                                          res_r = branch_s(top_item, left_right_right, right)
+                                          res_l = branch_s(inner_item, left, left_right_left)
+                                          branch_s(lrv, res_l, res_r)
+              LeftRo:
+                  match right:
+                      Empty: t
+                      Branch { key: inner_item, left: right_left, right: right_right, ...}:
+                          match rotation(height(right_left), height(right_right), 0):
+                              LeftRo | NoRo:
+                                  res_l = branch_s(top_item, left, right_left)
+                                  branch_s(inner_item, res_l, right_right)
+                              RightRo:
+                                  match right_left:
+                                      Empty: trace("unreachable", t)
+                                      Branch { key: right_left_key, right: right_left_left, left: right_left_right, ... }:
+                                          branch_s(
+                                            right_left_key,
+                                            branch_s(top_item, left, right_left_left),
+                                            branch_s(inner_item, right_left_right, right_right))
+
+def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
+    Order(fn) = ord
+
+    def loop(tree: Tree[a]) -> Tree[a]:
+        recur tree:
+            Empty: Branch(1, 1, item, Empty, Empty)
+            Branch(s, h, item0, left, right):
+                match fn(item, item0):
+                    EQ: Branch(s, h, item, left, right)
+                    LT:
+                        left = loop(left)
+                        branch(s.add(1), item0, left, right).balance
+                    GT:
+                        right = loop(right)
+                        branch(s.add(1), item0, left, right).balance
+
+    loop(tree)
+
+def contains(ord: Order[a], tree: Tree[a], item: a) -> Option[a]:
+    Order(fn) = ord
+
+    def loop(tree: Tree[a]) -> Option[a]:
+        recur tree:
+            Empty: None
+            Branch { key, left, right, ... }:
+                match fn(item, key):
+                    EQ: Some(key)
+                    LT: loop(left)
+                    GT: loop(right)
+
+    loop(tree)
+
+def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
+    Order(fn) = ord
+
+    def loop(tree: Tree[a]) -> Tree[a]:
+        recur tree:
+            Empty: Empty
+            Branch { size, key, left, right, ... }:
+                match fn(item, key):
+                    EQ:
+                        match right:
+                            Empty: left
+                            _:
+                                right = loop(right)
+                                branch(size.sub(1), key, left, right).balance
+                    LT:
+                        left = loop(left)
+                        branch(size.sub(1), key, left, right).balance
+                    GT:
+                        right = loop(right)
+                        branch(size.sub(1), key, left, right).balance
+
+    loop(tree)
+
+def fold_right_Tree(t: Tree[a], right_v: b, fn: a -> b -> b) -> b:
+    recur t:
+        Empty: right_v
+        Branch { key, left, right, ... }:
+            v1 = fold_right_Tree(right, right_v, fn)
+            v2 = fn(key, v1)
+            fold_right_Tree(left, v2, fn)
+
+
+#############
+# Standard dictionaries
+#############
+
+struct Dict[k, v](order: Order[(k, v)], tree: Tree[(k, v)])
+
+def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]:
+    Order(fn) = comp
+    pair_ord = Order(\(k1, _), (k2, _) -> fn(k1, k2))
+    Dict(pair_ord, Empty)
+
+def add_key(dict: Dict[k, v], key: k, value: v) -> Dict[k, v]:
+    Dict(ord, tree) = dict
+    new_tree = add_item(ord, tree, (key, value))
+    Dict(ord, new_tree)
+
+def get_key(dict: Dict[k, v], key: k) -> Option[v]:
+    Dict(ord, tree) = dict
+    match tree:
+        Branch { key: (_, v), ... }:
+            # fill in a fake v
+            match contains(ord, tree, (key, v)):
+                Some((_, v)): Some(v)
+                None: None
+        Empty: None
+
+def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]:
+    Dict(ord, tree) = dict
+    match tree:
+        Branch { key: (_, v), ... }:
+            # fill in a fake v
+            tree1 = remove_item(ord, tree, (key, v))
+            Dict(ord, tree1)
+        Empty: dict
+
+def items(dict: Dict[k, v]) -> List[(k, v)]:
+    Dict(_, tree) = dict
+    tree.fold_right_Tree([], \kv, tail -> [kv, *tail])
+
+def clear_Dict(dict: Dict[k, v]) -> Dict[k, v]:
+    Dict(ord, _) = dict
+    Dict(ord, Empty)
