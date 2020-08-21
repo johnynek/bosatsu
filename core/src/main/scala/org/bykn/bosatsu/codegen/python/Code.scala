@@ -372,7 +372,15 @@ object Code {
       }
   }
   case class SelectItem(arg: Expression, position: Int) extends Expression {
-    def simplify: Expression = SelectItem(arg.simplify, position)
+    def simplify: Expression =
+      arg match {
+        case MakeTuple(items) if items.lengthCompare(position) > 0 =>
+          items(position).simplify
+        case MakeList(items) if items.lengthCompare(position) > 0 =>
+          items(position).simplify
+        case _ =>
+          SelectItem(arg.simplify, position)
+      }
   }
   // foo[a:b]
   case class SelectRange(arg: Expression, start: Option[Expression], end: Option[Expression]) extends Expression {

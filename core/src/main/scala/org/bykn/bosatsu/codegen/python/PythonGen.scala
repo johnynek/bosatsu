@@ -242,7 +242,7 @@ object PythonGen {
         case NonEmptyList((cx: Expression, t), Nil) =>
           (t, elseV) match {
             case (tx: Expression, elseX: Expression) =>
-              Monad[Env].pure(Ternary(tx, cx, elseX))
+              Monad[Env].pure(Ternary(tx, cx, elseX).simplify)
             case _ =>
               Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
           }
@@ -255,7 +255,7 @@ object PythonGen {
             case nestX: Expression =>
               t match {
                 case tx: Expression =>
-                  Ternary(tx, cx, nestX)
+                  Ternary(tx, cx, nestX).simplify
                 case _ =>
                   IfElse(NonEmptyList(head, Nil), nestX)
               }
@@ -293,7 +293,7 @@ object PythonGen {
       (c1, c2) match {
         case (_, x2: Expression) =>
           onLast(c1)(_.evalAnd(x2))
-        case (Code.Const.True, c2) => Monad[Env].pure(c2)
+        case (t: Expression, c2) if t.simplify == Code.Const.True => Monad[Env].pure(c2)
         case _ =>
           // we know that c2 is not a simple expression
           // res = False
@@ -637,20 +637,16 @@ object PythonGen {
       private val cmpFn: List[ValueLike] => Env[ValueLike] = {
         input =>
           Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
-            if (arg0 == arg1) {
-              // if two things have the same expression, they are equal
-              Code.fromInt(1)
-            }
-            else {
-              // if arg0 < arg1: 0
-              // elif arg0 == arg1: 1
-              // else: 2
-                Code.IfElse(
-                  NonEmptyList(
-                    (arg0.eval(Code.Const.Lt, arg1), Code.fromInt(0)),
-                    (arg0.eval(Code.Const.Eq, arg1), Code.fromInt(1)) :: Nil),
-                  Code.fromInt(2))
-            }
+              // 0 if arg0 < arg1 else (
+              //     1 if arg0 == arg1 else 2
+              //   )
+              Code.Ternary(
+                Code.fromInt(0),
+                Code.Op(arg0, Code.Const.Lt, arg1),
+                Code.Ternary(
+                  Code.fromInt(1),
+                  Code.Op(arg0, Code.Const.Eq, arg1),
+                  Code.fromInt(2))).simplify
           }
       }
 
@@ -675,7 +671,7 @@ object PythonGen {
                   Code.Op(a, Code.Const.Div, b),
                   b, // 0 is false in python
                   Code.fromInt(0)
-                )
+                ).simplify
               }
             }, 2)),
           (Identifier.unsafeBindable("mod_Int"),
@@ -685,7 +681,7 @@ object PythonGen {
                   Code.Op(a, Code.Const.Mod, b),
                   b, // 0 is false in python
                   a
-                )
+                ).simplify
               }
             }, 2)),
           (Identifier.unsafeBindable("cmp_Int"), (cmpFn, 2)),
@@ -792,7 +788,10 @@ object PythonGen {
           }, 1)),
         (Identifier.unsafeBindable("int_to_String"),
           ({
-            input => Env.onLast(input.head) { i => Code.Apply(Code.DotSelect(i, Code.Ident("__str__")), Nil) }
+            input => Env.onLast(input.head) {
+              case Code.PyInt(i) => Code.PyString(i.toString)
+              case i => Code.Apply(Code.DotSelect(i, Code.Ident("__str__")), Nil)
+            }
           }, 1)),
         (Identifier.unsafeBindable("trace"),
           ({
