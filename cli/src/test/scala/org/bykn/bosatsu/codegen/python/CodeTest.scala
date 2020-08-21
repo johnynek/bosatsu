@@ -69,6 +69,9 @@ class CodeTest extends FunSuite {
           items <- Gen.listOfN(sz, rec)
         } yield Code.Apply(fn, items)
 
+      val genTern =
+        Gen.zip(rec, rec, rec).map { case (t, c, f) => Code.Ternary(t, c, f) }
+
       Gen.frequency(
         (5, genZero),
         (1, genOp),
@@ -77,7 +80,8 @@ class CodeTest extends FunSuite {
         (1, Gen.zip(rec, Gen.option(rec), Gen.option(rec)).map { case (a, s, e) => Code.SelectRange(a, s, e) }),
         (1, Gen.oneOf(genTup, genList)), // these can really blow things up
         (2, Gen.zip(Gen.listOf(genIdent), rec).map { case (args, x) => Code.Lambda(args, x) }),
-        (1, genApp)
+        (1, genApp),
+        (1, genTern)
       )
     }
   }
@@ -237,8 +241,8 @@ else:
 
   test("x.evalAnd(True) == x") {
     forAll(genExpr(4)) { x =>
-      assert(x.evalAnd(Code.Const.True) == x)
-      assert(Code.Const.True.evalAnd(x) == x)
+      assert(x.evalAnd(Code.Const.True) == x.simplify)
+      assert(Code.Const.True.evalAnd(x) == x.simplify)
     }
   }
   test("x.evalAnd(False) == False") {
@@ -400,7 +404,6 @@ else:
       }
     }
   }
-
 
   test("identOrParens is true") {
     forAll(genExpr(4)) { expr =>
