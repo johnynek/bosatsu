@@ -384,6 +384,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]] = {
           import codegen.python.PythonGen
 
+          val allExternals = pm.allExternals
           val cmp = MatchlessFromTypedExpr.compile(pm)
           moduleIOMonad.catchNonFatal {
             val parsedExt = externals.map(Parser.unsafeParse(PythonGen.externalParser, _))
@@ -394,34 +395,66 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
               .map {
                 case (k, (_, _, m, f) :: Nil) =>
                   (k, (m, f))
-                case (_, moreThanOne) =>
+                case (k, moreThanOne) =>
                   // TODO this is terrible, we should summarrize all duplicates, or
                   // have an explicit policy of overwriting with the last one
-                  throw new IllegalArgumentException(s"expected each package/name to map to just one file, found: $moreThanOne")
+                  throw new IllegalArgumentException(s"expected each package/name to map to just one file, for $k found: $moreThanOne")
               }
 
-            val docs =
-              PythonGen.renderAll(cmp, extMap)
+            val exts = extMap.keySet
+            val intrinsic = PythonGen.intrinsicValues
+            val missingExternals =
+              allExternals
                 .iterator
-                .map { case (k, (path, doc)) =>
+                .flatMap { case (p, names) =>
+                  val missing = names.filterNot { case n =>
+                    exts((p, n)) || intrinsic.get(p).exists(_(n))
+                  }
+
+                  if (missing.isEmpty) Nil
+                  else (p, missing.sorted) :: Nil
+                }
+                .toList
+
+            if (missingExternals.isEmpty) {
+              val docs = PythonGen.renderAll(cmp, extMap)
+                .iterator
+                .map { case (_, (path, doc)) =>
                   (path.map(_.name), doc)
                 }
                 .toList
 
-            // python also needs empty __init__.py files in every parent directory
-            def prefixes[A](paths: List[(NonEmptyList[String], A)]): List[(NonEmptyList[String], Doc)] = {
-              val inits =
-                paths.map { case (path, _) =>
-                  val parent = path.init
-                  val initPy = parent :+ "__init__.py"
-                  NonEmptyList.fromListUnsafe(initPy)
-                }
-                .toSet
+              // python also needs empty __init__.py files in every parent directory
+              def prefixes[A](paths: List[(NonEmptyList[String], A)]): List[(NonEmptyList[String], Doc)] = {
+                val inits =
+                  paths.map { case (path, _) =>
+                    val parent = path.init
+                    val initPy = parent :+ "__init__.py"
+                    NonEmptyList.fromListUnsafe(initPy)
+                  }
+                  .toSet
 
-              inits.toList.sorted.map { p => (p, Doc.empty) }
+                inits.toList.sorted.map { p => (p, Doc.empty) }
+              }
+
+              prefixes(docs) ::: docs
             }
+            else {
+              // we need to render this nicer
+              val missingDoc =
+                missingExternals
+                  .sortBy(_._1)
+                  .map { case (p, names) =>
+                    (Doc.text("package") + Doc.lineOrSpace + Doc.text(p.asString) + Doc.lineOrSpace +
+                      Doc.char('[') +
+                      Doc.intercalate(Doc.comma + Doc.lineOrSpace, names.map { b => Doc.text(b.sourceCodeRepr) }) + Doc.char(']')
+                      ).nested(4)
+                  }
 
-            prefixes(docs) ::: docs
+              val message = Doc.text("Missing external values:") + (Doc.line + Doc.intercalate(Doc.line, missingDoc)).nested(4)
+
+              throw new IllegalArgumentException(message.renderTrim(80))
+            }
           }
         }
       }

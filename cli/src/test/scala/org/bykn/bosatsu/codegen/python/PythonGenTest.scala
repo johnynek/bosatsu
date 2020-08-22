@@ -69,7 +69,13 @@ class PythonGenTest extends FunSuite {
           (("", LocationMap(str)), pack)
         }
 
-    PackageMap.typeCheckParsed(packNEL, Nil, "").right.get
+    val res = PackageMap.typeCheckParsed(packNEL, Nil, "")
+    res.left match {
+      case Some(err) => sys.error(err.toString)
+      case None => ()
+    }
+
+    res.right.get
   }
 
   def isfromString(s: String): InputStream =
@@ -155,5 +161,12 @@ class PythonGenTest extends FunSuite {
       "test_workspace/euler6.bosatsu",
       PackageName.parts("Euler", "P6"),
       "tests")
+  }
+
+  test("test IntTests") {
+    runBoTests(
+      "test_workspace/IntTests.bosatsu",
+      PackageName.parts("IntTests"),
+      "test")
   }
 }
