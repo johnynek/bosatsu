@@ -47,7 +47,18 @@ class CodeTest extends FunSuite {
     else {
       val rec = Gen.lzy(genExpr(depth - 1))
 
-      val opName = Gen.oneOf(Code.Const.Minus, Code.Const.Plus, Code.Const.And, Code.Const.Eq, Code.Const.Gt)
+      val opName = Gen.oneOf(
+        Code.Const.Minus,
+        Code.Const.Plus,
+        Code.Const.Times,
+        Code.Const.Div,
+        Code.Const.Mod,
+        Code.Const.And,
+        Code.Const.Eq,
+        Code.Const.Neq,
+        Code.Const.Gt,
+        Code.Const.Lt)
+
       val genOp = Gen.zip(rec, opName, rec).map { case (a, b, c) => Code.Op(a, b, c) }
 
       val genTup =
@@ -386,6 +397,15 @@ else:
     forAll(genExpr(4)) { expr =>
       assert(expr.simplify.simplify == expr.simplify)
     }
+
+    val regressions: List[Code.Expression] =
+      List(
+        Code.SelectItem(Code.Ternary(Code.fromInt(0), Code.fromInt(0), Code.MakeTuple(List(Code.fromInt(42)))), 0)
+      )
+
+    regressions.foreach { expr =>
+      assert(expr.simplify.simplify == expr.simplify)
+    }
   }
 
   test("simplify on Ternary removes branches when possible") {
@@ -399,8 +419,24 @@ else:
           else {
             assert(tern == f.simplify)
           }
+        case Code.PyInt(i) =>
+          if (i != BigInteger.ZERO) {
+            assert(tern == t.simplify)
+          }
+          else {
+            assert(tern == f.simplify)
+          }
         case whoKnows =>
           assert(tern == Code.Ternary(t.simplify, whoKnows, f.simplify))
+      }
+    }
+  }
+
+  test("identOrParens is true") {
+    forAll(genExpr(4)) { expr =>
+      expr.identOrParens match {
+        case Code.Ident(_) | Code.Parens(_) => assert(true)
+        case other => assert(false, other.toString)
       }
     }
   }

@@ -29,6 +29,14 @@ case class PackageMap[A, B, C, +D](toMap: Map[PackageName, Package[A, B, C, D]])
             .map(_._2.dataRepr(cons))
         }
   }
+
+  def allExternals(implicit ev: D <:< Program[TypeEnv[Any], Any, Any]): Map[PackageName, List[Identifier.Bindable]] =
+    toMap
+      .iterator
+      .map { case (name, pack) =>
+        (name, ev(pack.program).externalDefs)
+      }
+      .toMap
 }
 
 object PackageMap {

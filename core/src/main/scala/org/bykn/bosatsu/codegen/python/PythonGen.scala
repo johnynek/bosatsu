@@ -242,7 +242,7 @@ object PythonGen {
         case NonEmptyList((cx: Expression, t), Nil) =>
           (t, elseV) match {
             case (tx: Expression, elseX: Expression) =>
-              Monad[Env].pure(Ternary(tx, cx, elseX))
+              Monad[Env].pure(Ternary(tx, cx, elseX).simplify)
             case _ =>
               Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
           }
@@ -255,7 +255,7 @@ object PythonGen {
             case nestX: Expression =>
               t match {
                 case tx: Expression =>
-                  Ternary(tx, cx, nestX)
+                  Ternary(tx, cx, nestX).simplify
                 case _ =>
                   IfElse(NonEmptyList(head, Nil), nestX)
               }
@@ -293,7 +293,7 @@ object PythonGen {
       (c1, c2) match {
         case (_, x2: Expression) =>
           onLast(c1)(_.evalAnd(x2))
-        case (Code.Const.True, c2) => Monad[Env].pure(c2)
+        case (t: Expression, c2) if t.simplify == Code.Const.True => Monad[Env].pure(c2)
         case _ =>
           // we know that c2 is not a simple expression
           // res = False
@@ -359,16 +359,16 @@ object PythonGen {
             (ifs, loop(elseCase))
               .mapN(ifElse(_, _))
               .flatten
+          case Ternary(ifTrue, cond, ifFalse) =>
+            // both results are in the tail position
+            (loop(ifTrue), loop(ifFalse))
+              .mapN { (t, f) =>
+                ifElse(NonEmptyList((cond, t), Nil), f)
+              }
+              .flatten
           case WithValue(stmt, v) =>
             loop(v).map(stmt.withValue(_))
           // the rest cannot have a call in the tail position
-          case Ternary(ift, cond, iff) =>
-            // both the ifs and iff are tail position
-            (loop(ift), loop(iff))
-              .mapN { (t, f) =>
-                ifElse(NonEmptyList((cond, t), Nil),  f)
-              }
-              .flatten
           case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | MakeList(_) | SelectItem(_, _) | SelectRange(_, _, _) | Ident(_) | PyBool(_) | PyString(_) | PyInt(_) => Monad[Env].pure(body)
         }
 
@@ -627,9 +627,29 @@ object PythonGen {
     Par.await(all).toMap
   }
 
+  // These are values replaced with python operations
+  def intrinsicValues: Map[PackageName, Set[Bindable]] =
+    Map((PackageName.PredefName, Impl.PredefExternal.results.keySet))
+
   private object Impl {
 
     object PredefExternal {
+      private val cmpFn: List[ValueLike] => Env[ValueLike] = {
+        input =>
+          Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+              // 0 if arg0 < arg1 else (
+              //     1 if arg0 == arg1 else 2
+              //   )
+              Code.Ternary(
+                Code.fromInt(0),
+                Code.Op(arg0, Code.Const.Lt, arg1),
+                Code.Ternary(
+                  Code.fromInt(1),
+                  Code.Op(arg0, Code.Const.Eq, arg1),
+                  Code.fromInt(2))).simplify
+          }
+      }
+
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (Identifier.unsafeBindable("add"),
@@ -644,36 +664,55 @@ object PythonGen {
             ({
               input => Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
             }, 2)),
-          (Identifier.unsafeBindable("cmp_Int"),
+          (Identifier.unsafeBindable("div"),
             ({
-              input =>
-                Env.newAssignableVar
-                  .flatMap { res =>
-                    Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
-                      if (arg0 == arg1) {
-                        // if two things have the same expression, they are equal
-                        Code.fromInt(1)
-                      }
-                      else {
-                        // if arg0 < arg1: 0
-                        // elif arg0 == arg1: 1
-                        // else: 2
-                        // or:
-                        // 0 if arg0 < arg1 else 1 if arg0 == arg1 else 2
-                        Code.Ternary(
-                          Code.fromInt(0),
-                          arg0.eval(Code.Const.Lt, arg1),
-                          Code.Ternary(
-                            Code.fromInt(1),
-                            arg0.eval(Code.Const.Eq, arg1),
-                            Code.fromInt(2)))
-                      }
-                    }
-                  }
+              input => Env.onLast2(input.head, input.tail.head) { (a, b) =>
+                Code.Ternary(
+                  Code.Op(a, Code.Const.Div, b),
+                  b, // 0 is false in python
+                  Code.fromInt(0)
+                ).simplify
+              }
             }, 2)),
+          (Identifier.unsafeBindable("mod_Int"),
+            ({
+              input => Env.onLast2(input.head, input.tail.head) { (a, b) =>
+                Code.Ternary(
+                  Code.Op(a, Code.Const.Mod, b),
+                  b, // 0 is false in python
+                  a
+                ).simplify
+              }
+            }, 2)),
+          (Identifier.unsafeBindable("cmp_Int"), (cmpFn, 2)),
           (Identifier.unsafeBindable("eq_Int"),
             ({
               input => Env.onLast2(input.head, input.tail.head)(_.eval(Code.Const.Eq, _))
+            }, 2)),
+
+          (Identifier.unsafeBindable("gcd_Int"),
+            ({
+              input =>
+                (Env.newAssignableVar, Env.newAssignableVar, Env.newAssignableVar)
+                  .mapN { (tmpa, tmpb, tmpc) =>
+                    Env.onLast2(input.head, input.tail.head) { (a, b) =>
+                      Code.block(
+                        tmpa := a,
+                        tmpb := b,
+                        Code.While(tmpb,
+                          Code.block(
+                            tmpc := tmpb,
+                            // we know b != 0 because we are in the while loop
+                            /// b = a % b
+                            tmpb := Code.Op(tmpa, Code.Const.Mod, tmpb),
+                            tmpa := tmpc
+                          )
+                        )
+                      )
+                      .withValue(tmpa)
+                    }
+                  }
+                  .flatten
             }, 2)),
             //external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
             // def int_loop(i, a, fn):
@@ -746,7 +785,22 @@ object PythonGen {
                     }
                 }
             }
-          }, 1))
+          }, 1)),
+        (Identifier.unsafeBindable("int_to_String"),
+          ({
+            input => Env.onLast(input.head) {
+              case Code.PyInt(i) => Code.PyString(i.toString)
+              case i => Code.Apply(Code.DotSelect(i, Code.Ident("__str__")), Nil)
+            }
+          }, 1)),
+        (Identifier.unsafeBindable("trace"),
+          ({
+            input => Env.onLast2(input.head, input.tail.head) { (msg, i) =>
+              Code.Call(Code.Apply(Code.Ident("print"), msg :: i :: Nil))
+                .withValue(i)
+            }
+          }, 2)),
+        (Identifier.unsafeBindable("string_Order_fn"), (cmpFn, 2))
       )
 
       def bosatsuListToPython(pyList: Code.Ident, bList: Expression): Env[Statement] =
