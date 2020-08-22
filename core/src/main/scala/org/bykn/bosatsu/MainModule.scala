@@ -68,7 +68,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output
-    case class TranspileOut(outs: Map[PackageName, (NonEmptyList[String], Doc)], base: Path) extends Output
+    case class TranspileOut(outs: List[(NonEmptyList[String], Doc)], base: Path) extends Output
   }
 
   sealed abstract class MainCommand {
@@ -377,11 +377,11 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     }
 
     sealed abstract class Transpiler(val name: String) {
-      def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]]
+      def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]]
     }
     object Transpiler {
       case object PythonTranspiler extends Transpiler("python") {
-        def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]] = {
+        def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]] = {
           import codegen.python.PythonGen
 
           val allExternals = pm.allExternals
@@ -417,12 +417,27 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 .toList
 
             if (missingExternals.isEmpty) {
-              PythonGen.renderAll(cmp, extMap)
+              val docs = PythonGen.renderAll(cmp, extMap)
                 .iterator
-                .map { case (k, (path, doc)) =>
-                  (k, (path.map(_.name), doc))
+                .map { case (_, (path, doc)) =>
+                  (path.map(_.name), doc)
                 }
-                .toMap
+                .toList
+
+              // python also needs empty __init__.py files in every parent directory
+              def prefixes[A](paths: List[(NonEmptyList[String], A)]): List[(NonEmptyList[String], Doc)] = {
+                val inits =
+                  paths.map { case (path, _) =>
+                    val parent = path.init
+                    val initPy = parent :+ "__init__.py"
+                    NonEmptyList.fromListUnsafe(initPy)
+                  }
+                  .toSet
+
+                inits.toList.sorted.map { p => (p, Doc.empty) }
+              }
+
+              prefixes(docs) ::: docs
             }
             else {
               // we need to render this nicer

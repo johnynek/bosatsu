@@ -619,8 +619,18 @@ object PythonGen {
               .traverse { case (b, x) =>
                 apply(p, b, x)(externalRemap)
               }
-          val modName = p.parts.map(escapeModule)
-          (p, (modName, Env.render(stmts)))
+
+          def modName(p: NonEmptyList[String]): Module =
+            p match {
+              case NonEmptyList(h, Nil) =>
+                val Code.Ident(m) = escapeModule(h)
+
+                NonEmptyList(Code.Ident(m + ".py"), Nil)
+              case NonEmptyList(h, t1 :: t2) =>
+                escapeModule(h) :: modName(NonEmptyList(t1, t2))
+            }
+
+          (p, (modName(p.parts), Env.render(stmts)))
         }
       }
 
