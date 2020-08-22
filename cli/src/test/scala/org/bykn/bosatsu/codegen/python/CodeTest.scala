@@ -397,6 +397,15 @@ else:
     forAll(genExpr(4)) { expr =>
       assert(expr.simplify.simplify == expr.simplify)
     }
+
+    val regressions: List[Code.Expression] =
+      List(
+        Code.SelectItem(Code.Ternary(Code.fromInt(0), Code.fromInt(0), Code.MakeTuple(List(Code.fromInt(42)))), 0)
+      )
+
+    regressions.foreach { expr =>
+      assert(expr.simplify.simplify == expr.simplify)
+    }
   }
 
   test("simplify on Ternary removes branches when possible") {

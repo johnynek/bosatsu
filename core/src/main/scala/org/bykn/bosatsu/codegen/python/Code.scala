@@ -373,13 +373,13 @@ object Code {
   }
   case class SelectItem(arg: Expression, position: Int) extends Expression {
     def simplify: Expression =
-      arg match {
+      arg.simplify match {
         case MakeTuple(items) if items.lengthCompare(position) > 0 =>
-          items(position).simplify
+          items(position)
         case MakeList(items) if items.lengthCompare(position) > 0 =>
-          items(position).simplify
-        case _ =>
-          SelectItem(arg.simplify, position)
+          items(position)
+        case simp =>
+          SelectItem(simp, position)
       }
   }
   // foo[a:b]
