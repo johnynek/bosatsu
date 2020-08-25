@@ -104,11 +104,7 @@ def digit_list(n):
   rev_list = int_loop(n, [], \n, acc ->
     this_digit = n.mod_Int(10)
     next_acc = [this_digit, *acc]
-    next_n = match n.div(10):
-      None:
-        # can't really happen because 10 is not zero
-        n
-      Some(next): next
+    next_n = n.div(10)
     (next_n, next_acc))
   reverse(rev_list)
 
