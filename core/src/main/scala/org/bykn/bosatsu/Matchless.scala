@@ -91,8 +91,12 @@ object Matchless {
   case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
   case class Always(cond: BoolExpr, thenExpr: Expr) extends Expr
 
-  case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
-  case class GetStructElement(arg: Expr, index: Int, size: Int) extends Expr
+  /**
+   * These aren't really super cheap, but when we treat them cheap we check that we will only
+   * call them one time
+   */
+  case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends CheapExpr
+  case class GetStructElement(arg: Expr, index: Int, size: Int) extends CheapExpr
 
   sealed abstract class ConsExpr extends Expr {
     def arity: Int
@@ -254,6 +258,47 @@ object Matchless {
             .flatMap { case (a, b) => matchExpr(a, makeAnon, b) }
       }
 
+    /*
+     * A simple pattern is either:
+     * 1. one that has no binding what-so-ever
+     * 2. a total binding to a given name
+     * 3. or we return None indicating not one of these
+     */
+    def maybeSimple(p: Pattern[(PackageName, Constructor), Type]): Option[Either[Bindable, Unit]] =
+      p match {
+        case Pattern.WildCard => Some(Right(()))
+        case Pattern.Literal(_) => Some(Right(()))
+        case Pattern.Var(v) => Some(Left(v))
+        case Pattern.Named(v, p) =>
+          maybeSimple(p) match {
+            case Some(Right(_)) => Some(Left(v))
+            case _ => None
+          }
+        case Pattern.StrPat(s) =>
+          s match {
+            case NonEmptyList(Pattern.StrPart.WildStr, Nil) => Some(Right(()))
+            case NonEmptyList(Pattern.StrPart.NamedStr(n), Nil) => Some(Left(n))
+            case _ => None
+          }
+        case Pattern.ListPat(l) =>
+          l match {
+            case Pattern.ListPart.WildList :: Nil => Some(Right(()))
+            case Pattern.ListPart.NamedList(n) :: Nil => Some(Left(n))
+            case _ => None
+          }
+        case Pattern.Annotation(p, _) => maybeSimple(p)
+        case Pattern.PositionalStruct(_, ps) =>
+          ps.traverse(maybeSimple).flatMap { inners =>
+            if (inners.forall(_ === Right(()))) Some(Right(()))
+            else None
+          }
+        case Pattern.Union(h, t) =>
+          (h :: t.toList).traverse(maybeSimple).flatMap { inners =>
+            if (inners.forall(_ === Right(()))) Some(Right(()))
+            else None
+          }
+      }
+
     // return the check expression for the check we need to do, and the list of bindings
     def doesMatch(arg: CheapExpr, pat: Pattern[(PackageName, Constructor), Type]): F[UnionMatch] = {
       pat match {
@@ -380,20 +425,28 @@ object Matchless {
           // we assume the patterns have already been optimized
           // so that useless total patterns have been replaced with _
           type Locals = Chain[(LocalAnonMut, Expr)]
-          def asStruct(getter: Int => Expr): WriterT[F, Locals, UnionMatch] = {
+          def asStruct(getter: Int => CheapExpr): WriterT[F, Locals, UnionMatch] = {
             // we have an and of a series of ors:
             // (m1 + m2 + m3) * (m4 + m5 + m6) ... =
             // we need to multiply them all out into a single set of ors
-            def operate(pat: Pattern[(PackageName, Constructor), Type], idx: Int): WriterT[F, Locals, UnionMatch] = {
-              for {
-                nm <- WriterT.valueT[F, Locals, Long](makeAnon)
-                lam = LocalAnonMut(nm)
-                um <- WriterT.valueT[F, Locals, UnionMatch](doesMatch(lam, pat))
-                // if this is a total match, we don't need to do the getter at all
-                chain = if (um == wildMatch) Chain.empty else Chain.one((lam, getter(idx)))
-                _ <- WriterT.tell[F, Locals](chain)
-              } yield um
-            }
+            def operate(pat: Pattern[(PackageName, Constructor), Type], idx: Int): WriterT[F, Locals, UnionMatch] =
+              // if we have a simple pattern, we have at most one name inside
+              // so we will do a single get, otherwise we will have to
+              // get many times to set up each variable
+              maybeSimple(pat) match {
+                case Some(_) =>
+                  WriterT.valueT[F, Locals, UnionMatch](doesMatch(getter(idx), pat))
+                case None =>
+                  // we make an anonymous variable and write to that:
+                  for {
+                    nm <- WriterT.valueT[F, Locals, Long](makeAnon)
+                    lam = LocalAnonMut(nm)
+                    um <- WriterT.valueT[F, Locals, UnionMatch](doesMatch(lam, pat))
+                    // if this is a total match, we don't need to do the getter at all
+                    chain = if (um == wildMatch) Chain.empty else Chain.one((lam, getter(idx)))
+                    _ <- WriterT.tell[F, Locals](chain)
+                  } yield um
+                }
 
             val ands: WriterT[F, Locals, List[UnionMatch]] =
               params.zipWithIndex
