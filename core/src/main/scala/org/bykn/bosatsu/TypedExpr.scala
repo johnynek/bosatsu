@@ -54,44 +54,90 @@ sealed abstract class TypedExpr[+T] { self: Product =>
 
     // We need a consistent naming for meta variables,
     // so build this table once
-    def rept(t: Type): String =
-      tfn(t).toDoc.renderWideStream.mkString
+    def rept(t: Type): Doc = tfn(t).toDoc
 
-    def loop(te: TypedExpr[T]): String = {
+    def loop(te: TypedExpr[T]): Doc = {
       te match {
         case Generic(params, expr, _) =>
-          val pstr = params.toList.map(_.name).mkString(",")
-          s"(generic [$pstr] ${loop(expr)})"
+          val pstr = Doc.intercalate(Doc.comma + Doc.lineOrSpace, params.toList.map { p => Doc.text(p.name) })
+          (Doc.text("(generic") + Doc.lineOrSpace + Doc.char('[') + pstr + Doc.char(']') + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
         case Annotation(expr, tpe, _) =>
-          s"(ann ${rept(tpe)} ${loop(expr)})"
+          (Doc.text("(ann") + Doc.lineOrSpace + rept(tpe) + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
         case a@AnnotatedLambda(arg, tpe, res, _) =>
-          s"(lambda ${arg.asString} ${rept(tpe)} ${loop(res)})"
+          (Doc.text("(lambda") + Doc.lineOrSpace + Doc.text(arg.sourceCodeRepr) + Doc.lineOrSpace + rept(tpe) + Doc.lineOrSpace + loop(res) + Doc.char(')')).nested(4)
         case Local(v, tpe, _) =>
-          s"(var ${v.asString} ${rept(tpe)})"
+          (Doc.text("(var") + Doc.lineOrSpace + Doc.text(v.sourceCodeRepr) + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
         case Global(p, v, tpe, _) =>
-          val pstr = p.asString + "::"
-          s"(var $pstr${v.asString} ${rept(tpe)})"
+          val pstr = Doc.text(p.asString + "::" + v.sourceCodeRepr)
+          (Doc.text("(var") + Doc.lineOrSpace + pstr + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
         case App(fn, arg, tpe, _) =>
-          s"(ap ${loop(fn)} ${loop(arg)} ${rept(tpe)})"
+          (Doc.text("(ap") + Doc.lineOrSpace + loop(fn) + Doc.lineOrSpace + loop(arg) + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
         case Let(n, b, in, rec, _) =>
-          val nm = if (rec.isRecursive) "letrec" else "let"
-          s"($nm $n ${loop(b)} ${loop(in)})"
+          val nm = if (rec.isRecursive) Doc.text("(letrec") else Doc.text("(let")
+          (nm + Doc.lineOrSpace + Doc.text(n.sourceCodeRepr) + Doc.lineOrSpace + loop(b) + Doc.lineOrSpace + loop(in) + Doc.char(')')).nested(4)
         case Literal(v, tpe, _) =>
-          s"(lit ${v.repr} ${rept(tpe)})"
+          (Doc.text("(lit") + Doc.lineOrSpace + Doc.text(v.repr) + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
         case Match(arg, branches, _) =>
           implicit val docType: Document[Type] =
-            Document.instance { tpe => Doc.text(rept(tpe)) }
+            Document.instance { tpe => rept(tpe) }
           val cpat = Pattern.compiledDocument[Type]
-          def pat(p: Pattern[(PackageName, Constructor), Type]): String =
-            cpat.document(p).renderWideStream.mkString
+          def pat(p: Pattern[(PackageName, Constructor), Type]): Doc =
+            cpat.document(p)
 
-          val bstr = branches.toList.map { case (p, t) => s"[${pat(p)}, ${loop(t)}]" }.mkString("[", ", ", "]")
-          s"(match ${loop(arg)} $bstr)"
+          val bstr = branches.toList.map { case (p, t) => (Doc.char('[') + pat(p) + Doc.comma + Doc.lineOrSpace + loop(t) + Doc.char(']')).nested(4) }
+          (Doc.text("(match") + Doc.lineOrSpace + loop(arg) + Doc.lineOrSpace + Doc.intercalate(Doc.lineOrSpace, bstr).nested(4) + Doc.char(')')).nested(4)
       }
     }
 
-    loop(this)
+    loop(this).renderTrim(100)
   }
+
+
+  /**
+   * All the free variables in this expression in order
+   * encountered and with duplicates (to see how often
+   * they appear)
+   */
+  lazy val freeVarsDup: List[Bindable] =
+    this match {
+      case Generic(_, expr, _) =>
+        expr.freeVarsDup
+      case Annotation(t, _, _) =>
+        t.freeVarsDup
+      case Local(ident, _, _) =>
+        ident :: Nil
+      case Global(_, _, _, _) =>
+        Nil
+      case AnnotatedLambda(arg, _, res, _) =>
+        res.freeVarsDup.filterNot(_ === arg)
+      case App(fn, arg, _, _) =>
+        fn.freeVarsDup ::: arg.freeVarsDup
+      case Let(arg, argE, in, rec, _) =>
+        val argFree0 = argE.freeVarsDup
+        val argFree =
+          if (rec.isRecursive) {
+            argFree0.filterNot(_ === arg)
+          }
+          else argFree0
+
+        argFree ::: (in.freeVarsDup.filterNot(_ === arg))
+      case Literal(_, _, _) =>
+        Nil
+      case Match(arg, branches, _) =>
+        val argFree = arg.freeVarsDup
+
+        // Maintain the order we encounter things:
+        val branchFrees = branches.toList.flatMap { case (p, b) =>
+          // these are not free variables in this branch
+          val newBinds = p.names.toSet
+          b.freeVarsDup.filterNot(newBinds)
+        }
+
+        argFree ::: branchFrees
+    }
+
+  def notFree(b: Bindable): Boolean =
+    !freeVarsDup.exists(_ === b)
 }
 
 object TypedExpr {
@@ -681,61 +727,13 @@ object TypedExpr {
    * Return the list of the free vars
    */
   def freeVars[A](ts: List[TypedExpr[A]]): List[Bindable] =
-    freeVarsDup(ts).reverse.distinct
+    freeVarsDup(ts).distinct
 
   def freeVarsSet[A](ts: List[TypedExpr[A]]): SortedSet[Bindable] =
     SortedSet(freeVarsDup(ts): _*)
 
-  private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] = {
-
-    // usually we can recurse in a loop, but sometimes not
-    def cheat(te: TypedExpr[A], bound: Set[Bindable], acc: List[Bindable]): List[Bindable] =
-      go(te :: Nil, bound, acc)
-
-    @annotation.tailrec
-    def go(ts: List[TypedExpr[A]], bound: Set[Bindable], acc: List[Bindable]): List[Bindable] =
-      ts match {
-        case Nil => acc
-        case Generic(_, expr, _) :: tail =>
-          go(expr :: tail, bound, acc)
-        case Annotation(t, _, _) :: tail =>
-          go(t :: tail, bound, acc)
-        case Local(ident, _, _) :: tail if !bound(ident) =>
-          go(tail, bound, ident :: acc)
-        case (_: Name[A]) :: tail =>
-          go(tail, bound, acc)
-        case AnnotatedLambda(arg, _, res, _) :: tail =>
-          val acc1 = cheat(res, bound + arg, acc)
-          go(tail, bound, acc1)
-        case App(fn, arg, _, _) :: tail =>
-          go(fn :: arg :: tail, bound, acc)
-        case Let(arg, argE, in, rec, _) :: tail =>
-          val barg = bound + arg
-          val acc1 = cheat(in, barg, acc)
-          if (rec.isRecursive) {
-            // if rec is recursive, arg is in scope
-            // also in argE
-            val acc2 = cheat(argE, barg, acc1)
-            go(tail, bound, acc2)
-          }
-          else {
-            go(argE :: tail, bound, acc1)
-          }
-        case Literal(_, _, _) :: tail =>
-          go(tail, bound, acc)
-        case Match(arg, branches, _) :: tail =>
-          // Maintain the order we encounter things:
-          val acc1 = cheat(arg, bound, acc)
-          val acc2 = branches.foldLeft(acc1) { case (acc1, (p, b)) =>
-            // these are not free variables in this branch
-            val newBinds = p.names
-            cheat(b, bound ++ newBinds, acc1)
-          }
-          go(tail, bound, acc2)
-      }
-
-    go(ts, Set.empty, Nil)
-  }
+  private def freeVarsDup[A](ts: List[TypedExpr[A]]): List[Bindable] =
+    ts.flatMap(_.freeVarsDup)
 
   /**
    * Try to substitute ex for ident in the expression: in
@@ -1023,16 +1021,14 @@ object TypedExpr {
         // \x -> generic(g) = generic(\x -> g) if the type of x doesn't have free types with vars
         val e1 = normalize(expr).getOrElse(expr)
         e1 match {
-          case App(fn, Local(ident, _, _), _, _)
-            if ident === arg && !freeVarsDup(fn :: Nil).exists(_ === ident) =>
+          case App(fn, Local(ident, _, _), _, _) if ident === arg && fn.notFree(ident) =>
             // if ident is not free in fn we can return fn
             val tetpe = te.getType
               normalize1 {
                 if (fn.getType == tetpe) fn
                 else Annotation(fn, tetpe, te.tag)
               }
-          case Let(arg1, ex, in, rec, tag1)
-            if !freeVarsDup(ex :: Nil).exists(_ === arg) =>
+          case Let(arg1, ex, in, rec, tag1) if ex.notFree(arg) =>
             // \x ->
             //   y = z
             //   f(y)
@@ -1042,9 +1038,8 @@ object TypedExpr {
             //avoid recomputing y
             //TODO: we could reorder Lets if we have several in a row
             normalize1(Let(arg1, ex, AnnotatedLambda(arg, tpe, in, tag), rec, tag1))
-          case m@Match(arg1, branches, tag1)
+          case m@Match(arg1, branches, tag1) if arg1.notFree(arg) =>
             // same as above: if match does not depend on lambda arg, lift it out
-            if !freeVarsDup(arg1 :: Nil).exists(_ === arg) =>
               val b1 = branches.traverse { case (p, b) =>
                 if (!p.names.contains(arg)) Some((p, AnnotatedLambda(arg, tpe, b, tag)))
                 else None
@@ -1074,8 +1069,7 @@ object TypedExpr {
             val expr2 = if (tpe != expr.getType) Annotation(expr, tpe, expr.tag) else expr
             val l = Let(b, a2, expr2, RecursionKind.NonRecursive, tag)
             normalize1(l)
-          case Let(arg1, ex, in, rec, tag1)
-            if !freeVarsDup(a1 :: Nil).exists(_ === arg1) =>
+          case Let(arg1, ex, in, rec, tag1) if a1.notFree(arg1) =>
               // (app (let x y z) w) == (let x y (app z w)) if w does not have x free
               normalize1(Let(arg1, ex, App(in, a1, tpe, tag), rec, tag1))
           case _ =>
@@ -1086,7 +1080,7 @@ object TypedExpr {
         // note, Infer has already checked
         // to make sure rec is accurate
         val in1 = normalize(in).getOrElse(in)
-        val cnt = freeVarsDup(in1 :: Nil).count(_ === arg)
+        val cnt = in1.freeVarsDup.count(_ === arg)
         if (cnt > 0) {
           // the arg is needed
           val ex1 = normalize(ex).getOrElse(ex)
@@ -1118,7 +1112,7 @@ object TypedExpr {
           Some(in1)
         }
 
-      case Match(_, NonEmptyList((p, e), Nil), _) if !freeVarsDup(e :: Nil).exists(p.names.toSet) =>
+      case Match(_, NonEmptyList((p, e), Nil), _) if !e.freeVarsDup.exists(p.names.toSet) =>
         // match x:
         //   foo: fn
         //
@@ -1141,7 +1135,7 @@ object TypedExpr {
           branches
             .traverse { case (p, t) =>
               val (c, t1) = ncount(t)
-              val freeT1 = freeVarsDup(t1 :: Nil).toSet
+              val freeT1 = t1.freeVarsDup.toSet
               // we don't need to keep any variables that aren't free
               // TODO: we can still replace total matches with _
               // such as Foo(_, _, _) for structs or unions that are total
