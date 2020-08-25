@@ -27,13 +27,12 @@ class PythonGenTest extends FunSuite {
 
   @annotation.tailrec
   final def foreachList(lst: PyObject)(fn: PyObject => Unit): Unit = {
-    if (lst == zero) ()
+    val tup = lst.asInstanceOf[PyTuple]
+    val ary = tup.getArray()
+    if (ary(0) == zero) () // empty list
     else {
-      val tup = lst.asInstanceOf[PyTuple]
-      val head = tup.getArray()(1)
-      val tail = tup.getArray()(2)
-      fn(head)
-      foreachList(tail)(fn)
+      fn(ary(1))
+      foreachList(ary(2))(fn)
     }
   }
 

@@ -643,6 +643,15 @@ object PythonGen {
 
   private object Impl {
 
+    val emptyList: Expression =
+      Code.MakeTuple(Code.fromInt(0) :: Nil)
+
+    def consList(head: Expression, tail: Expression): Expression =
+      Code.MakeTuple(List(Code.fromInt(1), head, tail))
+
+    def isNonEmpty(expr: Expression): Expression =
+      Code.Op(expr.get(0), Code.Const.Neq, Code.fromInt(0))
+
     object PredefExternal {
       private val cmpFn: List[ValueLike] => Env[ValueLike] = {
         input =>
@@ -823,7 +832,7 @@ object PythonGen {
             //   tmp = tmp[2]
             Code.block(
               tmp := bList,
-              Code.While(Code.Op(tmp, Code.Const.Neq, Code.fromInt(0)),
+              Code.While(isNonEmpty(tmp),
                 Code.block(
                   Code.Call(pyList.dot(Code.Ident("append"))(tmp.get(1))),
                   tmp := tmp.get(2)
@@ -867,9 +876,14 @@ object PythonGen {
         // invariant: args.size == arity
         def applyAll(args: List[ValueLike]): Env[ValueLike] =
           ce match {
-            case MakeEnum(variant, arity) =>
+            case MakeEnum(variant, arity, famArities) =>
+              // if all arities are 0, we use
+              // integers to represent,
+              // otherwise, we use tuples with the first
+              // item being the variant
+              val useInts = famArities.forall(_ == 0)
               val vExpr = Code.fromInt(variant)
-              if (arity == 0) Monad[Env].pure(vExpr)
+              if (useInts) Monad[Env].pure(vExpr)
               else {
                 // we make a tuple with the variant in the first position
                 Env.onLasts(vExpr :: args)(Code.MakeTuple(_))
@@ -927,11 +941,16 @@ object PythonGen {
             (boolExpr(ix1), boolExpr(ix2))
               .mapN(Env.andCode(_, _))
               .flatten
-          case CheckVariant(enumV, idx, size) =>
+          case CheckVariant(enumV, idx, size, famArities) =>
+            // if all arities are 0, we use
+            // integers to represent,
+            // otherwise, we use tuples with the first
+            // item being the variant
+            val useInts = famArities.forall(_ == 0)
             val idxExpr = Code.fromInt(idx)
             loop(enumV).flatMap { tup =>
               Env.onLast(tup) { t =>
-                if (size == 0) {
+                if (useInts) {
                   // this is represented as an integer
                   Code.Op(t, Code.Const.Eq, idxExpr)
                 }
@@ -1136,32 +1155,28 @@ object PythonGen {
               res
             }
         */
-       // note, lists are encoded as:
-       // EmptyList = 0
-       // NonEmptyList(a, b) = (1, a, b)
        (Env.nameForAnon(locMut.ident), optLeft.traverse { lm => Env.nameForAnon(lm.ident) }, Env.newAssignableVar, Env.newAssignableVar)
          .mapN { (currentList, optLeft, res, tmpList) =>
             Code
               .block(
                 res := Code.Const.False,
                 tmpList := initVL,
-                optLeft.fold(Code.pass)(_ := Code.fromInt(0)), // left := EmptyList
+                optLeft.fold(Code.pass)(_ := emptyList),
                 // we don't match empty lists, so if currentList reaches Empty we are done
-                Code.While(Code.Op(tmpList, Code.Const.Neq, Code.fromInt(0)),
+                Code.While(isNonEmpty(tmpList),
                   Code.block(
                       currentList := tmpList,
                       res := checkVL,
                       Code.ifStatement(
                         NonEmptyList(
-                          (res, (tmpList := Code.fromInt(0))),
+                          (res, (tmpList := emptyList)),
                           Nil),
                         Some {
                           Code.block(
                             tmpList := tmpList.get(2), // tail of the list
                             optLeft.fold(Code.pass) { left =>
                               val head = currentList.get(1)
-                              val cons = Code.MakeTuple(List(Code.fromInt(1), head, left))
-                              left := cons
+                              left := consList(head, left)
                             }
                           )
                         })
