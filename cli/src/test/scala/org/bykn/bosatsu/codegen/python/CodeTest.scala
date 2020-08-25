@@ -140,6 +140,14 @@ class CodeTest extends FunSuite {
           items <- Gen.listOfN(sz, recExpr)
         } yield Code.Call(Code.Apply(fn, items))
 
+      val genClass =
+        for {
+          nm <- genIdent
+          exCnt <- Gen.choose(0, 3)
+          ex <- Gen.listOfN(exCnt, genIdent)
+          body <- recStmt
+        } yield Code.ClassDef(nm, ex, body)
+
       val genBlock = genNel(5, recStmt).map(Code.Block(_))
       val genRet = recVL.map(Code.toReturn(_))
       val genAlways = recVL.map(Code.always(_))
@@ -166,6 +174,7 @@ class CodeTest extends FunSuite {
         (1, genBlock),
         (1, genIf),
         (1, genCall),
+        (1, genClass),
         (1, genAlways)
       )
     }

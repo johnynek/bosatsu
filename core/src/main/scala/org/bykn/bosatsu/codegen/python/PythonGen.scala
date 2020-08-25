@@ -53,7 +53,7 @@ object PythonGen {
 
         def bind(b: Bindable): (EnvState, Code.Ident) =
           bindInc(b, 1) { c =>
-            Code.Ident(escapeRaw("___b", b.sourceCodeRepr + c.toString))
+            Code.Ident(escapeRaw("___b", b.asString + c.toString))
           }
 
         def bindTop(b: Bindable): EnvState =
@@ -394,9 +394,18 @@ object PythonGen {
       val mutArgs = fnMutArgs.map(_._2)
 
       def assignMut(cont: Code.Ident)(args: List[Expression]): Statement = {
-        // do the replacement
-        val vs = mutArgs.toList.zip(args).map { case (v, x) => Assign(v, x) }
-        vs.foldLeft(cont := Const.True)(_ +: _)
+        // do the replacement in one atomic go. otherwise
+        // we could mutate a variable a later expression depends on
+        // some times we generate code that does x = x, remove those cases
+        val (left, right) =
+          mutArgs.toList.zip(args)
+            .filter { case (x, y) => x != y }
+            .unzip
+
+        Code.block(
+          cont := Const.True,
+          if (left.nonEmpty) (MakeTuple(left) := MakeTuple(right)) else Pass
+        )
       }
 
       for {
@@ -494,7 +503,7 @@ object PythonGen {
   // ___i: import alias
   // ___b: shadowable (internal) names
   def escape(n: Bindable): Code.Ident = {
-    val str = n.sourceCodeRepr
+    val str = n.asString
     if (!str.startsWith("___") && Code.python2Name.matcher(str).matches && !Code.pyKeywordList(str)) Code.Ident(str)
     else {
       // we need to escape
@@ -569,6 +578,70 @@ object PythonGen {
       }
   }
 
+  def addUnitTest(name: Bindable): Env[Statement] = {
+    // we could inspect the Expr, but for now, we will just put
+    // everything in a single test:
+    // class BosatsuTests(unittest.TestCase):
+    //   def test_all(self):
+    //     # iterate through making assertions
+    //
+    (Env.importLiteral(NonEmptyList(Code.Ident("unittest"), Nil)),
+      Env.newAssignableVar,
+      Env.topLevelName(name)
+      )
+      .mapN { (importedName, tmpVar, testName) =>
+        import Impl._
+
+        val loopName = Code.Ident("test_loop")
+        val argName = Code.Ident("value")
+        val selfName = Code.Ident("self")
+
+        val isAssertion: Code.Expression =
+          Code.Op(argName.get(0), Code.Const.Eq, Code.fromInt(0))
+
+        // Assertion(bool, msg)
+        val testAssertion: Code.Statement =
+          Code.Call(Code.Apply(selfName.dot(Code.Ident("assertTrue")),
+            argName.get(1) :: argName.get(2) :: Nil))
+
+        // TestSuite(suiteName, tests)
+        val testSuite: Code.Statement =
+          Code.block(
+            tmpVar := argName.get(2), // get the test list
+            Code.While(isNonEmpty(tmpVar),
+              Code.block(
+                Code.Call(Code.Apply(loopName, headList(tmpVar) :: Nil)),
+                tmpVar := tailList(tmpVar)
+              )
+            )
+        )
+
+        val loopBody: Code.Statement =
+          Code.IfStatement(
+            NonEmptyList((isAssertion, testAssertion), Nil),
+            Some(testSuite))
+
+        val recTest =
+          Code.Def(
+            loopName,
+            argName :: Nil,
+            loopBody)
+
+        val body =
+          Code.block(
+            recTest,
+            Code.Call(Code.Apply(loopName, testName :: Nil)))
+
+        val defBody =
+          Code.Def(Code.Ident("test_all"),
+            selfName :: Nil,
+            body)
+
+        Code.ClassDef(Code.Ident("BosatsuTests"), List(importedName.dot(Code.Ident("TestCase"))),
+          defBody)
+      }
+  }
+
   // parses a nested map with
   //
   // { packageName: { bind: foo.bar.baz } }
@@ -599,7 +672,7 @@ object PythonGen {
   }
 
   // compile a set of packages given a set of external remappings
-  def renderAll(pm: Map[PackageName, List[(Bindable, Expr)]], externals: Map[(PackageName, Bindable), (Module, Code.Ident)])(implicit ec: ExecutionContext): Map[PackageName, (Module, Doc)] = {
+  def renderAll(pm: Map[PackageName, List[(Bindable, Expr)]], externals: Map[(PackageName, Bindable), (Module, Code.Ident)], tests: Map[PackageName, Bindable])(implicit ec: ExecutionContext): Map[PackageName, (Module, Doc)] = {
     val externalRemap: (PackageName, Bindable) => Env[Option[ValueLike]] =
       { (p, b) =>
         externals.get((p, b)) match {
@@ -614,11 +687,20 @@ object PythonGen {
       .toList
       .traverse { case (p, lets) =>
         Par.start {
-          val stmts =
+          val stmts0: Env[List[Statement]] =
             lets
               .traverse { case (b, x) =>
                 apply(p, b, x)(externalRemap)
               }
+
+          val testStmt: Env[Option[Statement]] =
+            tests.get(p).traverse(addUnitTest)
+
+          val stmts = (stmts0, testStmt)
+            .mapN {
+              case (s, None) => s
+              case (s, Some(t)) => s :+ t
+            }
 
           def modName(p: NonEmptyList[String]): Module =
             p match {
@@ -651,6 +733,12 @@ object PythonGen {
 
     def isNonEmpty(expr: Expression): Expression =
       Code.Op(expr.get(0), Code.Const.Neq, Code.fromInt(0))
+
+    def headList(lst: Expression): Expression =
+      lst.get(1)
+
+    def tailList(lst: Expression): Expression =
+      lst.get(2)
 
     object PredefExternal {
       private val cmpFn: List[ValueLike] => Env[ValueLike] = {
@@ -834,8 +922,8 @@ object PythonGen {
               tmp := bList,
               Code.While(isNonEmpty(tmp),
                 Code.block(
-                  Code.Call(pyList.dot(Code.Ident("append"))(tmp.get(1))),
-                  tmp := tmp.get(2)
+                  Code.Call(pyList.dot(Code.Ident("append"))(headList(tmp))),
+                  tmp := tailList(tmp)
                 )
               )
             )
@@ -1173,10 +1261,9 @@ object PythonGen {
                           Nil),
                         Some {
                           Code.block(
-                            tmpList := tmpList.get(2), // tail of the list
+                            tmpList := tailList(tmpList),
                             optLeft.fold(Code.pass) { left =>
-                              val head = currentList.get(1)
-                              left := consList(head, left)
+                              left := consList(headList(currentList), left)
                             }
                           )
                         })
