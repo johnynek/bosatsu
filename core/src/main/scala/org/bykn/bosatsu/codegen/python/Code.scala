@@ -2,7 +2,7 @@ package org.bykn.bosatsu.codegen.python
 
 import cats.data.NonEmptyList
 import java.math.BigInteger
-import org.bykn.bosatsu.{Lit, StringUtil}
+import org.bykn.bosatsu.{Lit, PredefImpl, StringUtil}
 import org.typelevel.paiges.Doc
 
 // Structs are represented as tuples
@@ -135,7 +135,11 @@ object Code {
         maybePar(fn) + par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc))).nested(4)
 
       case DotSelect(left, right) =>
-        toDoc(left) + Doc.char('.') + toDoc(right)
+        val ld = left match {
+          case PyInt(_) => par(toDoc(left))
+          case _ => toDoc(left)
+        }
+        ld + Doc.char('.') + toDoc(right)
 
       case Call(ap) => toDoc(ap)
 
@@ -319,14 +323,13 @@ object Code {
         case Op(a, Const.Eq, b) if a == b => Const.True
         case Op(a, Const.Gt | Const.Lt | Const.Neq, b) if a == b => Const.False
         case Op(PyInt(a), Const.Gt, PyInt(b)) =>
-          if (a.compareTo(b) > 0) Const.True
-          else Const.False
+          fromBoolean(a.compareTo(b) > 0)
         case Op(PyInt(a), Const.Lt, PyInt(b)) =>
-          if (a.compareTo(b) < 0) Const.True
-          else Const.False
+          fromBoolean(a.compareTo(b) < 0)
         case Op(PyInt(a), Const.Neq, PyInt(b)) =>
-          if (a.compareTo(b) != 0) Const.True
-          else Const.False
+          fromBoolean(a != b)
+        case Op(PyInt(a), Const.Eq, PyInt(b)) =>
+          fromBoolean(a == b)
         case Op(a, Const.And, b) =>
           (a, b) match {
             case (Const.True, _) => b.simplify
@@ -369,7 +372,15 @@ object Code {
       }
   }
   case class SelectItem(arg: Expression, position: Int) extends Expression {
-    def simplify: Expression = SelectItem(arg.simplify, position)
+    def simplify: Expression =
+      arg.simplify match {
+        case MakeTuple(items) if items.lengthCompare(position) > 0 =>
+          items(position)
+        case MakeList(items) if items.lengthCompare(position) > 0 =>
+          items(position)
+        case simp =>
+          SelectItem(simp, position)
+      }
   }
   // foo[a:b]
   case class SelectRange(arg: Expression, start: Option[Expression], end: Option[Expression]) extends Expression {
@@ -380,6 +391,8 @@ object Code {
       cond.simplify match {
         case PyBool(b) =>
           if (b) ifTrue.simplify else ifFalse.simplify
+        case PyInt(i) =>
+          if (i != BigInteger.ZERO) ifTrue.simplify else ifFalse.simplify
         case notStatic =>
           Ternary(ifTrue.simplify, notStatic, ifFalse.simplify)
       }
@@ -549,6 +562,10 @@ object Code {
     else if (i == 1L) Const.One
     else PyInt(BigInteger.valueOf(i))
 
+
+  def fromBoolean(b: Boolean): Expression =
+    if (b) Code.Const.True else Code.Const.False
+
   sealed abstract class Operator(val name: String) {
     def associates(that: Operator): Boolean = {
       // true if (a this b) that c == a this (b that c)
@@ -571,6 +588,8 @@ object Code {
         case Const.Plus => a.add(b)
         case Const.Minus => a.subtract(b)
         case Const.Times => a.multiply(b)
+        case Const.Div => PredefImpl.divBigInteger(a, b)
+        case Const.Mod => PredefImpl.modBigInteger(a, b)
       }
   }
 
@@ -578,6 +597,8 @@ object Code {
     case object Plus extends IntOp("+")
     case object Minus extends IntOp("-")
     case object Times extends IntOp("*")
+    case object Div extends IntOp("//")
+    case object Mod extends IntOp("%")
     case object And extends Operator("and")
     case object Eq extends Operator("==")
     case object Neq extends Operator("!=")
@@ -603,6 +624,5 @@ object Code {
     "continue",  "finally",   "is",        "return",
     "def",       "for",       "lambda",    "try"
   )
-
 }
 

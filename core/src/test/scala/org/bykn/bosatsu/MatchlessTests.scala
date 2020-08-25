@@ -20,9 +20,9 @@ class MatchlessTest extends FunSuite {
       // the list constructors *have* to be in scope or matching will generate
       // bad code
       case (PackageName.PredefName, Constructor("EmptyList")) =>
-        Some(DataRepr.Enum(0, 0))
+        Some(DataRepr.Enum(0, 0, List(0, 1)))
       case (PackageName.PredefName, Constructor("NonEmptyList")) =>
-        Some(DataRepr.Enum(1, 2))
+        Some(DataRepr.Enum(1, 2, List(0, 1)))
       case (pn, cons) =>
         te.getConstructor(pn, cons)
           .map(_._2.dataRepr(cons))

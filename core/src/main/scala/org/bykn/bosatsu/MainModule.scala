@@ -68,7 +68,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     case class EvaluationResult(value: Eval[Value], tpe: rankn.Type, doc: Eval[Doc]) extends Output
     case class JsonOutput(json: Json, output: Option[Path]) extends Output
     case class CompileOut(packList: List[Package.Typed[Any]], ifout: Option[Path], output: Option[Path]) extends Output
-    case class TranspileOut(outs: Map[PackageName, (NonEmptyList[String], Doc)], base: Path) extends Output
+
+    case class TranspileOut(outs: List[(NonEmptyList[String], Doc)], base: Path) extends Output
     case class LetFreeEvaluationResult(lfe: LetFreeExpression, tpe: rankn.Type, v2j: ValueToJson, extEnv: Map[Identifier, Eval[Value]]) extends Output {
       def unsupported(tpe: rankn.Type, j: JsonEncodingError.UnsupportedType): String = {
         val tMap = TypeRef.fromTypes(None, tpe :: Nil)
@@ -409,13 +410,14 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     }
 
     sealed abstract class Transpiler(val name: String) {
-      def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]]
+      def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]]
     }
     object Transpiler {
       case object PythonTranspiler extends Transpiler("python") {
-        def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[Map[PackageName, (NonEmptyList[String], Doc)]] = {
+        def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]] = {
           import codegen.python.PythonGen
 
+          val allExternals = pm.allExternals
           val cmp = MatchlessFromTypedExpr.compile(pm)
           moduleIOMonad.catchNonFatal {
             val parsedExt = externals.map(Parser.unsafeParse(PythonGen.externalParser, _))
@@ -426,18 +428,66 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
               .map {
                 case (k, (_, _, m, f) :: Nil) =>
                   (k, (m, f))
-                case (_, moreThanOne) =>
+                case (k, moreThanOne) =>
                   // TODO this is terrible, we should summarrize all duplicates, or
                   // have an explicit policy of overwriting with the last one
-                  throw new IllegalArgumentException(s"expected each package/name to map to just one file, found: $moreThanOne")
+                  throw new IllegalArgumentException(s"expected each package/name to map to just one file, for $k found: $moreThanOne")
               }
 
-            PythonGen.renderAll(cmp, extMap)
-              .iterator
-              .map { case (k, (path, doc)) =>
-                (k, (path.map(_.name), doc))
+            val exts = extMap.keySet
+            val intrinsic = PythonGen.intrinsicValues
+            val missingExternals =
+              allExternals
+                .iterator
+                .flatMap { case (p, names) =>
+                  val missing = names.filterNot { case n =>
+                    exts((p, n)) || intrinsic.get(p).exists(_(n))
+                  }
+
+                  if (missing.isEmpty) Nil
+                  else (p, missing.sorted) :: Nil
+                }
+                .toList
+
+            if (missingExternals.isEmpty) {
+              val docs = PythonGen.renderAll(cmp, extMap)
+                .iterator
+                .map { case (_, (path, doc)) =>
+                  (path.map(_.name), doc)
+                }
+                .toList
+
+              // python also needs empty __init__.py files in every parent directory
+              def prefixes[A](paths: List[(NonEmptyList[String], A)]): List[(NonEmptyList[String], Doc)] = {
+                val inits =
+                  paths.map { case (path, _) =>
+                    val parent = path.init
+                    val initPy = parent :+ "__init__.py"
+                    NonEmptyList.fromListUnsafe(initPy)
+                  }
+                  .toSet
+
+                inits.toList.sorted.map { p => (p, Doc.empty) }
               }
-              .toMap
+
+              prefixes(docs) ::: docs
+            }
+            else {
+              // we need to render this nicer
+              val missingDoc =
+                missingExternals
+                  .sortBy(_._1)
+                  .map { case (p, names) =>
+                    (Doc.text("package") + Doc.lineOrSpace + Doc.text(p.asString) + Doc.lineOrSpace +
+                      Doc.char('[') +
+                      Doc.intercalate(Doc.comma + Doc.lineOrSpace, names.map { b => Doc.text(b.sourceCodeRepr) }) + Doc.char(']')
+                      ).nested(4)
+                  }
+
+              val message = Doc.text("Missing external values:") + (Doc.line + Doc.intercalate(Doc.line, missingDoc)).nested(4)
+
+              throw new IllegalArgumentException(message.renderTrim(80))
+            }
           }
         }
       }

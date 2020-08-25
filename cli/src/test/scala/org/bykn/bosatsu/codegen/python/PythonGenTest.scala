@@ -27,13 +27,12 @@ class PythonGenTest extends FunSuite {
 
   @annotation.tailrec
   final def foreachList(lst: PyObject)(fn: PyObject => Unit): Unit = {
-    if (lst == zero) ()
+    val tup = lst.asInstanceOf[PyTuple]
+    val ary = tup.getArray()
+    if (ary(0) == zero) () // empty list
     else {
-      val tup = lst.asInstanceOf[PyTuple]
-      val head = tup.getArray()(1)
-      val tail = tup.getArray()(2)
-      fn(head)
-      foreachList(tail)(fn)
+      fn(ary(1))
+      foreachList(ary(2))(fn)
     }
   }
 
@@ -69,7 +68,13 @@ class PythonGenTest extends FunSuite {
           (("", LocationMap(str)), pack)
         }
 
-    PackageMap.typeCheckParsed(packNEL, Nil, "").right.get
+    val res = PackageMap.typeCheckParsed(packNEL, Nil, "")
+    res.left match {
+      case Some(err) => sys.error(err.toString)
+      case None => ()
+    }
+
+    res.right.get
   }
 
   def isfromString(s: String): InputStream =
@@ -155,5 +160,12 @@ class PythonGenTest extends FunSuite {
       "test_workspace/euler6.bosatsu",
       PackageName.parts("Euler", "P6"),
       "tests")
+  }
+
+  test("test IntTests") {
+    runBoTests(
+      "test_workspace/IntTests.bosatsu",
+      PackageName.parts("IntTests"),
+      "test")
   }
 }

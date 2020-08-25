@@ -139,7 +139,7 @@ object PathModule extends MainModule[IO] {
         def path(p: List[String]): Path =
           p.foldLeft(base)(_.resolve(_))
 
-        outs.toList.map { case (_, (p, d)) =>
+        outs.toList.map { case (p, d) =>
           (p, CodeGenWrite.writeDoc(path(p.toList), d))
         }
         .sortBy(_._1)

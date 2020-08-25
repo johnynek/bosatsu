@@ -242,7 +242,7 @@ object PythonGen {
         case NonEmptyList((cx: Expression, t), Nil) =>
           (t, elseV) match {
             case (tx: Expression, elseX: Expression) =>
-              Monad[Env].pure(Ternary(tx, cx, elseX))
+              Monad[Env].pure(Ternary(tx, cx, elseX).simplify)
             case _ =>
               Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
           }
@@ -255,7 +255,7 @@ object PythonGen {
             case nestX: Expression =>
               t match {
                 case tx: Expression =>
-                  Ternary(tx, cx, nestX)
+                  Ternary(tx, cx, nestX).simplify
                 case _ =>
                   IfElse(NonEmptyList(head, Nil), nestX)
               }
@@ -293,7 +293,7 @@ object PythonGen {
       (c1, c2) match {
         case (_, x2: Expression) =>
           onLast(c1)(_.evalAnd(x2))
-        case (Code.Const.True, c2) => Monad[Env].pure(c2)
+        case (t: Expression, c2) if t.simplify == Code.Const.True => Monad[Env].pure(c2)
         case _ =>
           // we know that c2 is not a simple expression
           // res = False
@@ -359,16 +359,16 @@ object PythonGen {
             (ifs, loop(elseCase))
               .mapN(ifElse(_, _))
               .flatten
+          case Ternary(ifTrue, cond, ifFalse) =>
+            // both results are in the tail position
+            (loop(ifTrue), loop(ifFalse))
+              .mapN { (t, f) =>
+                ifElse(NonEmptyList((cond, t), Nil), f)
+              }
+              .flatten
           case WithValue(stmt, v) =>
             loop(v).map(stmt.withValue(_))
           // the rest cannot have a call in the tail position
-          case Ternary(ift, cond, iff) =>
-            // both the ifs and iff are tail position
-            (loop(ift), loop(iff))
-              .mapN { (t, f) =>
-                ifElse(NonEmptyList((cond, t), Nil),  f)
-              }
-              .flatten
           case DotSelect(_, _) | Op(_, _, _) | Lambda(_, _) | MakeTuple(_) | MakeList(_) | SelectItem(_, _) | SelectRange(_, _, _) | Ident(_) | PyBool(_) | PyString(_) | PyInt(_) => Monad[Env].pure(body)
         }
 
@@ -619,17 +619,56 @@ object PythonGen {
               .traverse { case (b, x) =>
                 apply(p, b, x)(externalRemap)
               }
-          val modName = p.parts.map(escapeModule)
-          (p, (modName, Env.render(stmts)))
+
+          def modName(p: NonEmptyList[String]): Module =
+            p match {
+              case NonEmptyList(h, Nil) =>
+                val Code.Ident(m) = escapeModule(h)
+
+                NonEmptyList(Code.Ident(m + ".py"), Nil)
+              case NonEmptyList(h, t1 :: t2) =>
+                escapeModule(h) :: modName(NonEmptyList(t1, t2))
+            }
+
+          (p, (modName(p.parts), Env.render(stmts)))
         }
       }
 
     Par.await(all).toMap
   }
 
+  // These are values replaced with python operations
+  def intrinsicValues: Map[PackageName, Set[Bindable]] =
+    Map((PackageName.PredefName, Impl.PredefExternal.results.keySet))
+
   private object Impl {
 
+    val emptyList: Expression =
+      Code.MakeTuple(Code.fromInt(0) :: Nil)
+
+    def consList(head: Expression, tail: Expression): Expression =
+      Code.MakeTuple(List(Code.fromInt(1), head, tail))
+
+    def isNonEmpty(expr: Expression): Expression =
+      Code.Op(expr.get(0), Code.Const.Neq, Code.fromInt(0))
+
     object PredefExternal {
+      private val cmpFn: List[ValueLike] => Env[ValueLike] = {
+        input =>
+          Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
+              // 0 if arg0 < arg1 else (
+              //     1 if arg0 == arg1 else 2
+              //   )
+              Code.Ternary(
+                Code.fromInt(0),
+                Code.Op(arg0, Code.Const.Lt, arg1),
+                Code.Ternary(
+                  Code.fromInt(1),
+                  Code.Op(arg0, Code.Const.Eq, arg1),
+                  Code.fromInt(2))).simplify
+          }
+      }
+
       val results: Map[Bindable, (List[ValueLike] => Env[ValueLike], Int)] =
         Map(
           (Identifier.unsafeBindable("add"),
@@ -644,36 +683,55 @@ object PythonGen {
             ({
               input => Env.onLast2(input.head, input.tail.head)(_.evalTimes(_))
             }, 2)),
-          (Identifier.unsafeBindable("cmp_Int"),
+          (Identifier.unsafeBindable("div"),
             ({
-              input =>
-                Env.newAssignableVar
-                  .flatMap { res =>
-                    Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
-                      if (arg0 == arg1) {
-                        // if two things have the same expression, they are equal
-                        Code.fromInt(1)
-                      }
-                      else {
-                        // if arg0 < arg1: 0
-                        // elif arg0 == arg1: 1
-                        // else: 2
-                        // or:
-                        // 0 if arg0 < arg1 else 1 if arg0 == arg1 else 2
-                        Code.Ternary(
-                          Code.fromInt(0),
-                          arg0.eval(Code.Const.Lt, arg1),
-                          Code.Ternary(
-                            Code.fromInt(1),
-                            arg0.eval(Code.Const.Eq, arg1),
-                            Code.fromInt(2)))
-                      }
-                    }
-                  }
+              input => Env.onLast2(input.head, input.tail.head) { (a, b) =>
+                Code.Ternary(
+                  Code.Op(a, Code.Const.Div, b),
+                  b, // 0 is false in python
+                  Code.fromInt(0)
+                ).simplify
+              }
             }, 2)),
+          (Identifier.unsafeBindable("mod_Int"),
+            ({
+              input => Env.onLast2(input.head, input.tail.head) { (a, b) =>
+                Code.Ternary(
+                  Code.Op(a, Code.Const.Mod, b),
+                  b, // 0 is false in python
+                  a
+                ).simplify
+              }
+            }, 2)),
+          (Identifier.unsafeBindable("cmp_Int"), (cmpFn, 2)),
           (Identifier.unsafeBindable("eq_Int"),
             ({
               input => Env.onLast2(input.head, input.tail.head)(_.eval(Code.Const.Eq, _))
+            }, 2)),
+
+          (Identifier.unsafeBindable("gcd_Int"),
+            ({
+              input =>
+                (Env.newAssignableVar, Env.newAssignableVar, Env.newAssignableVar)
+                  .mapN { (tmpa, tmpb, tmpc) =>
+                    Env.onLast2(input.head, input.tail.head) { (a, b) =>
+                      Code.block(
+                        tmpa := a,
+                        tmpb := b,
+                        Code.While(tmpb,
+                          Code.block(
+                            tmpc := tmpb,
+                            // we know b != 0 because we are in the while loop
+                            /// b = a % b
+                            tmpb := Code.Op(tmpa, Code.Const.Mod, tmpb),
+                            tmpa := tmpc
+                          )
+                        )
+                      )
+                      .withValue(tmpa)
+                    }
+                  }
+                  .flatten
             }, 2)),
             //external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
             // def int_loop(i, a, fn):
@@ -746,7 +804,22 @@ object PythonGen {
                     }
                 }
             }
-          }, 1))
+          }, 1)),
+        (Identifier.unsafeBindable("int_to_String"),
+          ({
+            input => Env.onLast(input.head) {
+              case Code.PyInt(i) => Code.PyString(i.toString)
+              case i => Code.Apply(Code.DotSelect(i, Code.Ident("__str__")), Nil)
+            }
+          }, 1)),
+        (Identifier.unsafeBindable("trace"),
+          ({
+            input => Env.onLast2(input.head, input.tail.head) { (msg, i) =>
+              Code.Call(Code.Apply(Code.Ident("print"), msg :: i :: Nil))
+                .withValue(i)
+            }
+          }, 2)),
+        (Identifier.unsafeBindable("string_Order_fn"), (cmpFn, 2))
       )
 
       def bosatsuListToPython(pyList: Code.Ident, bList: Expression): Env[Statement] =
@@ -759,7 +832,7 @@ object PythonGen {
             //   tmp = tmp[2]
             Code.block(
               tmp := bList,
-              Code.While(Code.Op(tmp, Code.Const.Neq, Code.fromInt(0)),
+              Code.While(isNonEmpty(tmp),
                 Code.block(
                   Code.Call(pyList.dot(Code.Ident("append"))(tmp.get(1))),
                   tmp := tmp.get(2)
@@ -803,9 +876,14 @@ object PythonGen {
         // invariant: args.size == arity
         def applyAll(args: List[ValueLike]): Env[ValueLike] =
           ce match {
-            case MakeEnum(variant, arity) =>
+            case MakeEnum(variant, arity, famArities) =>
+              // if all arities are 0, we use
+              // integers to represent,
+              // otherwise, we use tuples with the first
+              // item being the variant
+              val useInts = famArities.forall(_ == 0)
               val vExpr = Code.fromInt(variant)
-              if (arity == 0) Monad[Env].pure(vExpr)
+              if (useInts) Monad[Env].pure(vExpr)
               else {
                 // we make a tuple with the variant in the first position
                 Env.onLasts(vExpr :: args)(Code.MakeTuple(_))
@@ -863,11 +941,16 @@ object PythonGen {
             (boolExpr(ix1), boolExpr(ix2))
               .mapN(Env.andCode(_, _))
               .flatten
-          case CheckVariant(enumV, idx, size) =>
+          case CheckVariant(enumV, idx, size, famArities) =>
+            // if all arities are 0, we use
+            // integers to represent,
+            // otherwise, we use tuples with the first
+            // item being the variant
+            val useInts = famArities.forall(_ == 0)
             val idxExpr = Code.fromInt(idx)
             loop(enumV).flatMap { tup =>
               Env.onLast(tup) { t =>
-                if (size == 0) {
+                if (useInts) {
                   // this is represented as an integer
                   Code.Op(t, Code.Const.Eq, idxExpr)
                 }
@@ -1072,32 +1155,28 @@ object PythonGen {
               res
             }
         */
-       // note, lists are encoded as:
-       // EmptyList = 0
-       // NonEmptyList(a, b) = (1, a, b)
        (Env.nameForAnon(locMut.ident), optLeft.traverse { lm => Env.nameForAnon(lm.ident) }, Env.newAssignableVar, Env.newAssignableVar)
          .mapN { (currentList, optLeft, res, tmpList) =>
             Code
               .block(
                 res := Code.Const.False,
                 tmpList := initVL,
-                optLeft.fold(Code.pass)(_ := Code.fromInt(0)), // left := EmptyList
+                optLeft.fold(Code.pass)(_ := emptyList),
                 // we don't match empty lists, so if currentList reaches Empty we are done
-                Code.While(Code.Op(tmpList, Code.Const.Neq, Code.fromInt(0)),
+                Code.While(isNonEmpty(tmpList),
                   Code.block(
                       currentList := tmpList,
                       res := checkVL,
                       Code.ifStatement(
                         NonEmptyList(
-                          (res, (tmpList := Code.fromInt(0))),
+                          (res, (tmpList := emptyList)),
                           Nil),
                         Some {
                           Code.block(
                             tmpList := tmpList.get(2), // tail of the list
                             optLeft.fold(Code.pass) { left =>
                               val head = currentList.get(1)
-                              val cons = Code.MakeTuple(List(Code.fromInt(1), head, left))
-                              left := cons
+                              left := consList(head, left)
                             }
                           )
                         })
