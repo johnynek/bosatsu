@@ -109,18 +109,18 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Global(_, _, _, _) =>
         Nil
       case AnnotatedLambda(arg, _, res, _) =>
-        res.freeVarsDup.filterNot(_ === arg)
+        TypedExpr.filterNot(res.freeVarsDup)(_ === arg)
       case App(fn, arg, _, _) =>
         fn.freeVarsDup ::: arg.freeVarsDup
       case Let(arg, argE, in, rec, _) =>
         val argFree0 = argE.freeVarsDup
         val argFree =
           if (rec.isRecursive) {
-            argFree0.filterNot(_ === arg)
+            TypedExpr.filterNot(argFree0)(_ === arg)
           }
           else argFree0
 
-        argFree ::: (in.freeVarsDup.filterNot(_ === arg))
+        argFree ::: (TypedExpr.filterNot(in.freeVarsDup)(_ === arg))
       case Literal(_, _, _) =>
         Nil
       case Match(arg, branches, _) =>
@@ -130,7 +130,9 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         val branchFrees = branches.toList.flatMap { case (p, b) =>
           // these are not free variables in this branch
           val newBinds = p.names.toSet
-          b.freeVarsDup.filterNot(newBinds)
+          val bfree = b.freeVarsDup
+          if (newBinds.isEmpty) bfree
+          else TypedExpr.filterNot(bfree)(newBinds)
         }
 
         argFree ::: branchFrees
@@ -141,6 +143,18 @@ sealed abstract class TypedExpr[+T] { self: Product =>
 }
 
 object TypedExpr {
+
+  // filter b from a pretty short lst but try to conserve lst if possible
+  private def filterNot[A](lst: List[A])(b: A => Boolean): List[A] =
+    lst match {
+      case Nil => lst
+      case h :: tail =>
+        val t1 = filterNot(tail)(b)
+        if (b(h)) t1
+        else if (t1 eq tail) lst
+        else (h :: t1) // we only allocate here
+    }
+
   type Rho[A] = TypedExpr[A] // an expression with a Rho type (no top level forall)
 
   sealed abstract class Name[A] extends TypedExpr[A] with Product
