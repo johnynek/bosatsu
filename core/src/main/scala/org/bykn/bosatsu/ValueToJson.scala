@@ -492,7 +492,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   lazy val inner = resInner.value.head._2.head._2
 
                   { j => inner(j) }
-                case DataFamily.Struct | DataFamily.Enum(_) =>
+                case DataFamily.Struct | DataFamily.Enum =>
                     // This is lazy because we don't want to run
                     // the Evals until we have the first value
                     lazy val mapping: List[(Int, Map[String, (Int, Fn)])] =

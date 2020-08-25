@@ -27,7 +27,7 @@ sealed abstract class DataFamily
 
 object DataFamily {
   case object Nat extends DataFamily
-  case class Enum(arities: List[Int]) extends DataFamily
+  case object Enum extends DataFamily
   case object Struct extends DataFamily
   case object NewType extends DataFamily
 }

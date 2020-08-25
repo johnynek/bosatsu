@@ -78,8 +78,8 @@ final case class DefinedType[+A](
         // exactly two constructor functions
         if (c0.isZeroArg && c1.hasSingleArgType(toTypeTyConst)) DataFamily.Nat
         else if (c1.isZeroArg && c0.hasSingleArgType(toTypeTyConst)) DataFamily.Nat
-        else DataFamily.Enum(constructors.map(_.arity))
-      case cons => DataFamily.Enum(cons.map(_.arity))
+        else DataFamily.Enum
+      case _ => DataFamily.Enum
   }
 }
 
