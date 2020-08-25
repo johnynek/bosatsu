@@ -223,7 +223,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                         case other =>
                           Left(IllTyped(revPath.reverse, tpe, other))
                       }
-                    case DataFamily.Enum =>
+                    case DataFamily.Enum(_) =>
                       {
                         case s: SumValue =>
                           params(s.variant, s.value.toList, s)

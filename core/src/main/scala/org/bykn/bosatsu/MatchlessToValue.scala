@@ -38,7 +38,7 @@ object MatchlessToValue {
 
   def makeCons(c: ConsExpr): Value =
     c match {
-      case MakeEnum(variant, arity) =>
+      case MakeEnum(variant, arity, _) =>
         if (arity == 0) SumValue(variant, UnitValue)
         else if (arity == 1) {
           FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
@@ -173,7 +173,7 @@ object MatchlessToValue {
           case And(ix1, ix2) =>
             boolExpr(ix1).and(boolExpr(ix2))
 
-          case CheckVariant(enumV, idx, _) =>
+          case CheckVariant(enumV, idx, _, _) =>
             loop(enumV).map(_.asSum.variant == idx)
 
           case SetMut(LocalAnonMut(mut), expr) =>

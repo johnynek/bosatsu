@@ -55,14 +55,16 @@ final case class DefinedType[+A](
           { cons => if (cons == zero) DataRepr.ZeroNat else DataRepr.SuccNat }
         }
         else {
+           val famArities = c0.arity :: c1.arity :: Nil
            val zero = c0.name
-           val zrep = DataRepr.Enum(0, c0.arity)
-           val orep = DataRepr.Enum(1, c1.arity)
+           val zrep = DataRepr.Enum(0, c0.arity, famArities)
+           val orep = DataRepr.Enum(1, c1.arity, famArities)
 
           { cons => if (cons == zero) zrep else orep }
         }
       case cons =>
-        val mapping = cons.zipWithIndex.map { case (c, idx) => c.name -> DataRepr.Enum(idx, c.arity) }.toMap
+        val famArities = cons.map(_.arity)
+        val mapping = cons.zipWithIndex.map { case (c, idx) => c.name -> DataRepr.Enum(idx, c.arity, famArities) }.toMap
 
         mapping
     }
@@ -76,8 +78,8 @@ final case class DefinedType[+A](
         // exactly two constructor functions
         if (c0.isZeroArg && c1.hasSingleArgType(toTypeTyConst)) DataFamily.Nat
         else if (c1.isZeroArg && c0.hasSingleArgType(toTypeTyConst)) DataFamily.Nat
-        else DataFamily.Enum
-      case cons => DataFamily.Enum
+        else DataFamily.Enum(constructors.map(_.arity))
+      case cons => DataFamily.Enum(cons.map(_.arity))
   }
 }
 

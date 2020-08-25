@@ -74,7 +74,7 @@ object Matchless {
   case class And(e1: BoolExpr, e2: BoolExpr) extends BoolExpr
   // checks if variant matches, and if so, writes to
   // a given mut
-  case class CheckVariant(expr: Expr, expect: Int, size: Int) extends BoolExpr
+  case class CheckVariant(expr: Expr, expect: Int, size: Int, famArities: List[Int]) extends BoolExpr
   // handle list matching, this is a while loop, that is evaluting
   // lst is initialized to init, leftAcc is initialized to empty
   // tail until it is true while mutating lst => lst.tail
@@ -102,7 +102,7 @@ object Matchless {
     def arity: Int
   }
   // we need to compile calls to constructors into these
-  case class MakeEnum(variant: Int, arity: Int) extends ConsExpr
+  case class MakeEnum(variant: Int, arity: Int, famArities: List[Int]) extends ConsExpr
   case class MakeStruct(arity: Int) extends ConsExpr
   case object ZeroNat extends ConsExpr {
     def arity = 0
@@ -173,7 +173,7 @@ object Matchless {
       empty match {
         case (p, c) =>
           variantOf(p, c) match {
-            case Some(DataRepr.Enum(v, s)) => MakeEnum(v, s)
+            case Some(DataRepr.Enum(v, s, f)) => MakeEnum(v, s, f)
             case other =>
               /* We assume the structure of Lists to be standard linked lists
                * Empty cannot be a struct
@@ -232,7 +232,7 @@ object Matchless {
           Monad[F].pure(variantOf(pack, cons) match {
             case Some(dr) =>
               dr match {
-                case DataRepr.Enum(v, a) => MakeEnum(v, a)
+                case DataRepr.Enum(v, a, f) => MakeEnum(v, a, f)
                 case DataRepr.Struct(a) => MakeStruct(a)
                 case DataRepr.NewType => MakeStruct(1)
                 case DataRepr.ZeroNat => ZeroNat
@@ -430,11 +430,11 @@ object Matchless {
             // (m1 + m2 + m3) * (m4 + m5 + m6) ... =
             // we need to multiply them all out into a single set of ors
             def operate(pat: Pattern[(PackageName, Constructor), Type], idx: Int): WriterT[F, Locals, UnionMatch] =
-              // if we have a simple pattern, we have at most one name inside
-              // so we will do a single get, otherwise we will have to
-              // get many times to set up each variable
               maybeSimple(pat) match {
                 case Some(_) =>
+                  // if we have a simple pattern, we have at most one name inside
+                  // so we will do a single get, otherwise we will have to
+                  // get many times to set up each variable
                   WriterT.valueT[F, Locals, UnionMatch](doesMatch(getter(idx), pat))
                 case None =>
                   // we make an anonymous variable and write to that:
@@ -477,7 +477,7 @@ object Matchless {
               dr match {
                 case DataRepr.Struct(size) => forStruct(size)
                 case DataRepr.NewType => forStruct(1)
-                case DataRepr.Enum(vidx, size) =>
+                case DataRepr.Enum(vidx, size, f) =>
                   // if we match the variant, then treat it as a struct
                   makeAnon.flatMap { nm =>
                     val res = LocalAnonMut(nm)
@@ -489,7 +489,7 @@ object Matchless {
                         // since due to totality we know it has to match. To
                         // leverage that we need to know if this doesMatch is
                         // the last possible candidate match
-                        val vmatch = CheckVariant(arg, vidx, size) && SetMut(res, arg)
+                        val vmatch = CheckVariant(arg, vidx, size, f) && SetMut(res, arg)
                         // we need to check that the variant is right first
                         val cond1 = anons.foldLeft(vmatch) { case (c, (mut, expr)) =>
                           c && SetMut(mut, expr)
