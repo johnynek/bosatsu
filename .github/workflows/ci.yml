@@ -94,6 +94,7 @@ jobs:
         uses: "olafurpg/setup-scala@v6"
         with:
           java-version: "graalvm@"
+      - name: "install native-image"
         run: |
           java -version
           gu install native-image
