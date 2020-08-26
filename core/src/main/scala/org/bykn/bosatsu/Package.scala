@@ -83,6 +83,16 @@ object Package {
       }
     }
 
+  /**
+   * Return the last binding in the file with the test type
+   */
+  def testValue[A](tp: Typed[A]): Option[(Identifier.Bindable, RecursionKind, TypedExpr[A])] =
+    tp
+      .program
+      .lets
+      .filter { case (_, _, te) => te.getType == Type.TestType }
+      .lastOption
+
   def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
     FixType.fix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](p)
 

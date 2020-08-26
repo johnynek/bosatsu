@@ -417,7 +417,15 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 .toList
 
             if (missingExternals.isEmpty) {
-              val docs = PythonGen.renderAll(cmp, extMap)
+              val tests = pm
+                .toMap
+                .iterator
+                .flatMap { case (n, pack) =>
+                  Package.testValue(pack).iterator.map { case (bn, _, _) => (n, bn) }
+                }
+                .toMap
+
+              val docs = PythonGen.renderAll(cmp, extMap, tests)
                 .iterator
                 .map { case (_, (path, doc)) =>
                   (path.map(_.name), doc)

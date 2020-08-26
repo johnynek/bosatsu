@@ -50,6 +50,9 @@ object Code {
     def evalTimes(that: Expression): Expression =
       eval(Const.Times, that)
 
+    def :=(vl: ValueLike): Statement =
+      addAssign(this, vl)
+
     def simplify: Expression
   }
 
@@ -143,6 +146,14 @@ object Code {
 
       case Call(ap) => toDoc(ap)
 
+      case ClassDef(name, ex, body) =>
+        val exDoc =
+          if (ex.isEmpty) Doc.empty
+          else par(Doc.intercalate(Doc.comma + Doc.space, ex.map(toDoc)))
+
+          Doc.text("class") + Doc.space + Doc.text(name.name) + exDoc + Doc.char(':') + (Doc.hardLine +
+            toDoc(body)).nested(4)
+
       case IfStatement(conds, Some(Pass)) =>
         toDoc(IfStatement(conds, None))
 
@@ -163,7 +174,7 @@ object Code {
 
       case Return(expr) => Doc.text("return ") + toDoc(expr)
 
-      case Assign(nm, expr) => Doc.text(nm.name) + Doc.text(" = ") + toDoc(expr)
+      case Assign(nm, expr) => toDoc(nm) + Doc.text(" = ") + toDoc(expr)
       case Pass => Doc.text("pass")
       case While(cond, body) =>
         Doc.text("while") + Doc.space + toDoc(cond) + Doc.char(':') + (Doc.hardLine + toDoc(body)).nested(4)
@@ -187,9 +198,6 @@ object Code {
     def simplify = this
   }
   case class Ident(name: String) extends Expression {
-    def :=(vl: ValueLike): Statement =
-      addAssign(this, vl)
-
     def simplify = this
   }
   // Binary operator used for +, -, and, == etc...
@@ -442,11 +450,13 @@ object Code {
   /////////////////////////
 
   case class Call(sideEffect: Apply) extends Statement
+  // extends are really certain DotSelects, but we can't constrain that much
+  case class ClassDef(name: Ident, extendList: List[Expression], body: Statement) extends Statement
   case class Block(stmts: NonEmptyList[Statement]) extends Statement
   case class IfStatement(conds: NonEmptyList[(Expression, Statement)], elseCond: Option[Statement]) extends Statement
   case class Def(name: Ident, args: List[Ident], body: Statement) extends Statement
   case class Return(expr: Expression) extends Statement
-  case class Assign(variable: Ident, value: Expression) extends Statement
+  case class Assign(target: Expression, value: Expression) extends Statement
   case object Pass extends Statement
   case class While(cond: Expression, body: Statement) extends Statement
   case class Import(modname: String, alias: Option[Ident]) extends Statement
@@ -480,7 +490,7 @@ object Code {
     }
   }
 
-  def addAssign(variable: Ident, code: ValueLike): Statement =
+  def addAssign(variable: Expression, code: ValueLike): Statement =
     code match {
       case x: Expression =>
         Assign(variable, x)
