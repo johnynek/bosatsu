@@ -16,7 +16,7 @@ class PythonGenTest extends FunSuite {
     def law(b: Bindable) = {
       val ident = PythonGen.escape(b)
       PythonGen.unescape(ident) match {
-        case Some(b1) => assert(b1 == b)
+        case Some(b1) => assert(b1.asString == b.asString)
         case None => assert(false, s"$b => $ident could not round trip")
       }
     }

@@ -521,32 +521,32 @@ object PythonGen {
 
   def unescape(ident: Code.Ident): Option[Bindable] = {
     val str = ident.name
-    val decode =
-      if (str.startsWith("___n")) {
-        val bldr = new java.lang.StringBuilder()
-        var idx = 4
-        while (idx < str.length) {
-          val c = str.charAt(idx)
-          idx += 1
-          if (c == '_') {
-            val res = unBase62(str, idx, bldr)
-            if (res < 1) return None
-            else {
-              idx += res
-            }
-          }
+    if (str.startsWith("___n")) {
+      val bldr = new java.lang.StringBuilder()
+      var idx = 4
+      while (idx < str.length) {
+        val c = str.charAt(idx)
+        idx += 1
+        if (c == '_') {
+          val res = unBase62(str, idx, bldr)
+          if (res < 1) return None
           else {
-            bldr.append(c)
+            idx += res
           }
         }
-
-        bldr.toString()
-      }
-      else {
-        str
+        else {
+          bldr.append(c)
+        }
       }
 
-    Identifier.optionParse(Identifier.bindableParser, decode)
+      val res = bldr.toString()
+      Identifier
+        .optionParse(Identifier.bindableParser, res)
+        .orElse(Some(Identifier.Backticked(res)))
+    }
+    else {
+      Identifier.optionParse(Identifier.bindableParser, str)
+    }
   }
 
   /**
