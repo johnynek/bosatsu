@@ -521,7 +521,7 @@ object PythonGen {
 
   def unescape(ident: Code.Ident): Option[Bindable] = {
     val str = ident.name
-    if (str.startsWith("___n")) {
+    val res = if (str.startsWith("___n")) {
       val bldr = new java.lang.StringBuilder()
       var idx = 4
       while (idx < str.length) {
@@ -539,13 +539,17 @@ object PythonGen {
         }
       }
 
-      val res = bldr.toString()
+      bldr.toString()
+    }
+    else {
+      str
+    }
+
+    if (str.isEmpty) None
+    else {
       Identifier
         .optionParse(Identifier.bindableParser, res)
         .orElse(Some(Identifier.Backticked(res)))
-    }
-    else {
-      Identifier.optionParse(Identifier.bindableParser, str)
     }
   }
 
