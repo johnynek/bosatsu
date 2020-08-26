@@ -24,7 +24,9 @@ class PythonGenTest extends FunSuite {
     forAll(bindIdentGen)(law(_))
 
     val examples: List[Bindable] =
-      List("`12 =_=`").map(unsafeBindable)
+      List(
+        "`12 =_=`",
+        "`N`").map(unsafeBindable)
 
     examples.foreach(law(_))
 
@@ -42,12 +44,14 @@ class PythonGenTest extends FunSuite {
 
   test("if unescape works, escape would round trip") {
     forAll { (s: String) =>
-      val ident = Code.Ident(s)
-      PythonGen.unescape(ident) match {
-        case Some(b) =>
-          assert(PythonGen.escape(b) == ident)
-        case None =>
-          ()
+      if (Code.python2Name.matcher(s).matches) {
+        val ident = Code.Ident(s)
+        PythonGen.unescape(ident) match {
+          case Some(b) =>
+            assert(PythonGen.escape(b) == ident)
+          case None =>
+            ()
+        }
       }
     }
   }
