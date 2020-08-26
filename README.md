@@ -89,16 +89,6 @@ An example is the dependencies file used by the bazel build of this repo:
 ./bosatsuj json write --package_root test_workspace --input_dir test_workspace --main_file test_workspace/gen_deps.bosatsu
 ```
 
-### Bazel rules
-
-This repo include bazel rules to call bosatsu so you can build libraries, write tests, and generate json using bosatsu
-and [Bazel](https://github.com/bazelbuild/bazel/). For a working example see [this example](test_workspace/).
-```
-cd test_workspace
-bazel build ...
-cat bazel-build/testjson.json
-```
-
 ## Future features
 
 We would like to implement a number of features:

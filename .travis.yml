@@ -27,14 +27,3 @@ matrix:
         deploy_key: bosatsu_deploy_key
         edge: true
 
-
-    - language: generic
-      before_install:
-        - wget 'https://github.com/bazelbuild/bazel/releases/download/1.2.0/bazel-1.2.0-installer-linux-x86_64.sh'
-        - sha256sum -c .bazel-installer-linux-x86_64.sh.sha256
-        - chmod +x bazel-1.2.0-installer-linux-x86_64.sh
-        - ./bazel-1.2.0-installer-linux-x86_64.sh --user
-        - cp .bazelrc.travis .bazelrc
-      script:
-        - bazel build //...
-        - bazel test --test_output errors //...
