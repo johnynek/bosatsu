@@ -4,10 +4,10 @@ import cats.data.NonEmptyList
 import java.math.BigInteger
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
 import org.python.core.{ParserFacade => JythonParserFacade}
+import org.scalatest.funsuite.AnyFunSuite
 
-class CodeTest extends FunSuite {
+class CodeTest extends AnyFunSuite {
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 50000)
     PropertyCheckConfiguration(minSuccessful = 5000)

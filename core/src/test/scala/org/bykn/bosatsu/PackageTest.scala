@@ -3,12 +3,12 @@ package org.bykn.bosatsu
 import cats.Show
 import cats.data.{Validated, ValidatedNel}
 import fastparse.all._
-import org.scalatest.FunSuite
 import scala.concurrent.ExecutionContext
 
 import IorMethods.IorExtension
+import org.scalatest.funsuite.AnyFunSuite
 
-class PackageTest extends FunSuite {
+class PackageTest extends AnyFunSuite {
 
   def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] = {
     // use parallelism to typecheck

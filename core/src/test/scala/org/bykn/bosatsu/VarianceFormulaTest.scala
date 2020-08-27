@@ -1,9 +1,10 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.rankn.{DefinedType, TypeEnv}
-import org.scalatest.FunSuite
+import scalatest.funsuite.AnyFunSuite.AnyFunSuite
+import org.scalatest
 
-class VarianceFormulaTest extends FunSuite {
+class VarianceFormulaTest extends AnyFunSuite {
 
   def testVariance(teStr: String, variances: Map[String, List[Variance]]) = {
     val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)

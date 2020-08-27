@@ -3,7 +3,6 @@ package org.bykn.bosatsu
 import cats.data.Writer
 import cats.implicits._
 import org.scalacheck.Gen
-import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import scala.collection.immutable.SortedSet
 
@@ -11,8 +10,9 @@ import TestUtils.checkLast
 
 import Identifier.{Bindable, Name}
 import rankn.{Type, NTypeGen}
+import org.scalatest.funsuite.AnyFunSuite
 
-class TypedExprTest extends FunSuite {
+class TypedExprTest extends AnyFunSuite {
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)

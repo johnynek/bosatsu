@@ -2,10 +2,10 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
-import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration}
+import org.scalatest.funsuite.AnyFunSuite
 
-class PatternTest extends FunSuite {
+class PatternTest extends AnyFunSuite {
   implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = 300)
 
   val patGen = Gen.choose(0, 5).flatMap(Generators.genPattern(_))

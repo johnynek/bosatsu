@@ -6,14 +6,14 @@ import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.file.{Paths, Files}
 import org.bykn.bosatsu.{PackageMap, MatchlessFromTypedExpr, Parser, Package, LocationMap, PackageName}
 import org.scalacheck.Gen
-import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.python.util.PythonInterpreter
 import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
 
 import org.bykn.bosatsu.DirectEC.directEC
+import org.scalatest.funsuite.AnyFunSuite
 
-class PythonGenTest extends FunSuite {
+class PythonGenTest extends AnyFunSuite {
 
   implicit val generatorDrivenConfig =
     // these tests are slow

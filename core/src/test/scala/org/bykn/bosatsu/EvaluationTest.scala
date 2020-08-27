@@ -1,12 +1,12 @@
 package org.bykn.bosatsu
 
-import org.scalatest.FunSuite
 
 import Value._
 
 import LocationMap.Colorize
+import org.scalatest.funsuite.AnyFunSuite
 
-class EvaluationTest extends FunSuite {
+class EvaluationTest extends AnyFunSuite {
 
   import TestUtils._
 
