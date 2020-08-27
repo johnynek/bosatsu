@@ -86,11 +86,16 @@ lazy val rootJS = root.js
 
 lazy val scalaReflect = Def.setting { "org.scala-lang" % "scala-reflect" % scalaVersion.value }
 
+lazy val headCommit = git.gitHeadCommit
+
 lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("base")).
+  enablePlugins(BuildInfoPlugin).
   settings(
     commonSettings,
     name := "bosatsu-base",
-    libraryDependencies += scalaReflect.value
+    libraryDependencies += scalaReflect.value,
+    buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion, headCommit),
+    buildInfoPackage := "org.bykn.bosatsu"
   )
 
 lazy val baseJS = base.js
