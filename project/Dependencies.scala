@@ -8,10 +8,10 @@ object Dependencies {
   lazy val dagon = Def.setting("com.stripe" %%% "dagon-core" % "0.2.2")
   lazy val decline = Def.setting("com.monovore" %%% "decline" % "1.2.0")
   lazy val fastparse = Def.setting("com.lihaoyi" %%% "fastparse" % "1.0.0")
-  lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "0.14.3")
-  lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "0.14.3")
+  lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.0.0")
+  lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.0.0")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.1")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.3.0")
-  lazy val scalaCheck = Def.setting("org.scalacheck" %%% "scalacheck" % "1.13.5")
+  lazy val scalaCheck = Def.setting("org.scalacheck" %%% "scalacheck" % "1.14.3")
   lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.0.8")
 }
