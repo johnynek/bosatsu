@@ -33,6 +33,16 @@ abstract class SetOpsLaws[A] extends FunSuite {
     assert(eqAs.eqv(c, c1), s"c = $c\n\nc1 = $c1")
   }
 
+  def emptyIntersectionMeansDiffIdent(p1: A, p2: A, eqU: Eq[List[A]]) = {
+    val inter = intersection(p1, p2)
+    val diff = difference(p1, p2)
+
+    if (inter.isEmpty) {
+      assert(eqU.eqv(diff, p1 :: Nil), s"diff = $diff")
+    }
+  }
+
+
   test("intersection is commutative") {
     forAll(genItem, genItem, eqUnion)(intersectionIsCommutative(_, _, _))
   }
@@ -99,14 +109,6 @@ abstract class SetOpsLaws[A] extends FunSuite {
   }
 
   test("if a n b = 0 then a - b = a") {
-    def law(p1: A, p2: A, eqU: Eq[List[A]]) = {
-      val inter = intersection(p1, p2)
-      val diff = difference(p1, p2)
-
-      if (inter.isEmpty) {
-        assert(eqU.eqv(diff, p1 :: Nil), s"diff = $diff")
-      }
-
       // difference is an upper bound, so this is not true
       // although we wish it were
       /*
@@ -115,9 +117,8 @@ abstract class SetOpsLaws[A] extends FunSuite {
         assert(inter == Nil)
       }
       */
-    }
 
-    forAll(genItem, genItem, eqUnion)(law(_, _, _))
+    forAll(genItem, genItem, eqUnion)(emptyIntersectionMeansDiffIdent(_, _, _))
   }
 
   test("x - y = z, then x - y - z = 0") {
