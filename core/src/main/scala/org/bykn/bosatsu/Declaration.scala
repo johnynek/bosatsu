@@ -8,7 +8,7 @@ import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
 
 import Indy.IndyMethods
-import org.bykn.fastparse_cats.StringInstances._
+import FastParseCats.StringInstances._
 
 import ListLang.{KVPair, SpliceOrItem}
 
