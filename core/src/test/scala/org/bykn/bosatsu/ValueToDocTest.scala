@@ -10,7 +10,7 @@ import TestUtils.typeEnvOf
 class ValueToDocTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
   test("never throw when converting to doc") {
     val tegen = Generators.typeEnvGen(PackageName.parts("Foo"), Gen.const(()))

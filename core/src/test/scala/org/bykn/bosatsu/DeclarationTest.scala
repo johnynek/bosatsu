@@ -14,7 +14,7 @@ class DeclarationTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 200)
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 200 else 20)
     //PropertyCheckConfiguration(minSuccessful = 50)
 
   implicit val emptyRegion: Region = Region(0, 0)

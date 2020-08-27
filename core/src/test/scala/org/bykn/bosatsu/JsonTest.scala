@@ -14,7 +14,7 @@ import GenJson._
 class JsonTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
   def assertParser(str: String): Json =
     Json.parser.parse(str) match {
