@@ -7,7 +7,7 @@ object Dependencies {
   lazy val catsEffect = Def.setting("org.typelevel" %%% "cats-effect" % "2.1.4")
   lazy val dagon = Def.setting("com.stripe" %%% "dagon-core" % "0.2.2")
   lazy val decline = Def.setting("com.monovore" %%% "decline" % "1.2.0")
-  lazy val fastparse = Def.setting("com.lihaoyi" %%% "fastparse" % "1.0.0")
+  lazy val fastparse = Def.setting("com.lihaoyi" %%% "fastparse" % "2.3.0")
   lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.0.0")
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.0.0")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.1")
