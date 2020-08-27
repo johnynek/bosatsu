@@ -5,8 +5,9 @@ import Dependencies._
 lazy val commonSettings = Seq(
   organization := "org.bykn",
   version      := "0.1.0-SNAPSHOT",
-  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.8"),
-  crossScalaVersions := Seq("2.11.12", "2.12.9"),
+  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.10"),
+  scalaVersion := "2.12.12",
+  crossScalaVersions := Seq("2.11.12", "2.12.12"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation",                      // Emit warning and location for usages of deprecated APIs.
