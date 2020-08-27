@@ -2,7 +2,7 @@ package org.bykn.bosatsu.codegen.python
 
 import org.bykn.bosatsu.Identifier.{Bindable, unsafeBindable}
 import org.bykn.bosatsu.Generators.bindIdentGen
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
 class PythonGenTest extends FunSuite {

@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 
 class LocationMapTest extends FunSuite {
   implicit val generatorDrivenConfig =

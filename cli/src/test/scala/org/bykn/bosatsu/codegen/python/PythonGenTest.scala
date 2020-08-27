@@ -7,7 +7,7 @@ import java.nio.file.{Paths, Files}
 import org.bykn.bosatsu.{PackageMap, MatchlessFromTypedExpr, Parser, Package, LocationMap, PackageName}
 import org.scalacheck.Gen
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.python.util.PythonInterpreter
 import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
 

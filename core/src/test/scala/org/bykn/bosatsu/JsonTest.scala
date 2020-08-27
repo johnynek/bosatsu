@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.Eq
 import cats.implicits._
 import org.scalacheck.Gen
-import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import TestUtils.typeEnvOf
 

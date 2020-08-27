@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration}
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration}
 
 import Identifier.{Bindable, Constructor}
 import rankn.DataRepr
