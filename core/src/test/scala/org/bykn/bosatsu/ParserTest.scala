@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import Parser.Combinators
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.{Doc, Document}
 
 import cats.implicits._
@@ -95,12 +95,8 @@ abstract class ParserTestBase extends FunSuite with ParseFns {
         assert(idx == atIdx, msg)
     }
 
-  def config: PropertyCheckConfiguration = {
-    if (System.getenv("PLATFORM") == "js")
-      PropertyCheckConfiguration(minSuccessful = 10)
-    else
-      PropertyCheckConfiguration(minSuccessful = 300)
-  }
+  def config: PropertyCheckConfiguration =
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 300 else 10)
 }
 
 class ParserTest extends ParserTestBase {

@@ -3,7 +3,7 @@ package org.bykn.bosatsu.graph
 import cats.data.{NonEmptyList, Validated}
 import org.scalacheck.Gen
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.forAll
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
 
 import cats.implicits._
 

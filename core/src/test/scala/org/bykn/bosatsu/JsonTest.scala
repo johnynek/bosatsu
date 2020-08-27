@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.Eq
 import cats.implicits._
 import org.scalacheck.Gen
-import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import TestUtils.typeEnvOf
 
@@ -14,7 +14,7 @@ import GenJson._
 class JsonTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
   def assertParser(str: String): Json =
     Json.parser.parse(str) match {

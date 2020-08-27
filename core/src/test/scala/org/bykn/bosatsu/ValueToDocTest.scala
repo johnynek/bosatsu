@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
 import rankn.{NTypeGen, Type, TypeEnv}
@@ -10,7 +10,7 @@ import TestUtils.typeEnvOf
 class ValueToDocTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 1000)
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
   test("never throw when converting to doc") {
     val tegen = Generators.typeEnvGen(PackageName.parts("Foo"), Gen.const(()))

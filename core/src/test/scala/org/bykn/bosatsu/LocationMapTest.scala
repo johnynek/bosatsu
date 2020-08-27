@@ -2,11 +2,11 @@ package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 
 class LocationMapTest extends FunSuite {
   implicit val generatorDrivenConfig =
-    PropertyCheckConfiguration(minSuccessful = 50000)
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 50000 else 100)
 
   test("single line locations") {
     val singleLine: Gen[String] =

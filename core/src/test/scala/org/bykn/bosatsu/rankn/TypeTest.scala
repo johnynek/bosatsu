@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
 class TypeTest extends FunSuite {
