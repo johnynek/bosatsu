@@ -25,7 +25,7 @@ class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]]
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 50000 else 100)
     //PropertyCheckConfiguration(minSuccessful = 50)
 
   val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
@@ -266,9 +266,9 @@ enum Either: Left(l), Right(r)
 
 
   test("test intersection") {
-    val p0 :: p1 :: Nil = patterns("[[*_], [*_, _]]")
+    val p0 :: p1 :: p1norm :: Nil = patterns("[[*_], [*_, _], [_, *_]]")
       TotalityCheck(predefTE).intersection(p0, p1) match {
-        case List(intr) => assert(p1 == intr)
+        case List(intr) => assert(intr == p1norm)
         case other => fail(s"expected exactly one intersection: $other")
       }
 
@@ -378,5 +378,30 @@ enum Either: Left(l), Right(r)
         })
 
     regressions.foreach { case (a, b) => differenceIsIdempotent(a, b, eqPatterns) }
+  }
+
+  test("if a n b = 0 then a - b = a regressions") {
+
+    import Pattern._
+    import ListPart._
+    import Identifier.Name
+    import StrPart.WildStr
+
+    val regressions: List[(Pat, Pat)] =
+      List(
+        {
+          val left = ListPat(List(Item(WildCard), WildList))
+          val right = ListPat(List(Item(Var(Name("bey6ct"))), Item(Literal(Lit.fromInt(42))), Item(StrPat(NonEmptyList.of(WildStr))), Item(Literal(Lit("agfn"))), Item(WildCard)))
+          (left, right)
+        },
+        {
+          val left = ListPat(List(NamedList(Name("a")), Item(WildCard), Item(Var(Name("b")))))
+          val right = ListPat(List())
+          val te = TotalityCheck(predefTE)
+          (left, right)
+        }
+      )
+
+    regressions.foreach { case (a, b) => emptyIntersectionMeansDiffIdent(a, b, eqPatterns) }
   }
 }
