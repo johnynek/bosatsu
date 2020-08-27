@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.NonEmptyList
 import java.nio.file.{Path, Paths}
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.prop.PropertyChecks.forAll
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
 import org.scalatest.FunSuite
 
 import scala.collection.JavaConverters._

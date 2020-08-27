@@ -4,7 +4,7 @@ import cats.data.Writer
 import cats.implicits._
 import org.scalacheck.Gen
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import scala.collection.immutable.SortedSet
 
 import TestUtils.checkLast

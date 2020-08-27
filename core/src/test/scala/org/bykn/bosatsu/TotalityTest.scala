@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Eq
 import cats.data.{Chain, NonEmptyList, Writer}
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalacheck.Gen
 
 import org.bykn.bosatsu.pattern.{SetOps, SetOpsLaws}

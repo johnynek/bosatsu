@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.bykn.bosatsu.rankn.Type
 
 class TypeRefTest extends FunSuite {
