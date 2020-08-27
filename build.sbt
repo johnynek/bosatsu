@@ -5,9 +5,9 @@ import Dependencies._
 lazy val commonSettings = Seq(
   organization := "org.bykn",
   version      := "0.1.0-SNAPSHOT",
-  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.10"),
+  addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.11.0" cross CrossVersion.full),
   scalaVersion := "2.12.12",
-  crossScalaVersions := Seq("2.11.12", "2.12.12"),
+  crossScalaVersions := Seq("2.12.12"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation",                      // Emit warning and location for usages of deprecated APIs.
@@ -125,7 +125,6 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         cats.value,
         decline.value,
         fastparse.value,
-        fastparseCats.value,
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,

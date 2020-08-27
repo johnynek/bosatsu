@@ -4,7 +4,7 @@ import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
 import fastparse.all._
 import org.typelevel.paiges.Doc
 
-import org.bykn.fastparse_cats.StringInstances._
+import FastParseCats.StringInstances._
 import cats.implicits._
 
 object Parser {

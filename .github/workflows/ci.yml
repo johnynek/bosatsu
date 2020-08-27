@@ -18,7 +18,6 @@ jobs:
           - '8'
           - '11'
         scala:
-          - '2.11.12'
           - '2.12.12'
     timeout-minutes: 30
   testPY:
@@ -93,7 +92,7 @@ jobs:
       - name: "graalvm setup"
         uses: "olafurpg/setup-scala@v6"
         with:
-          java-version: "graalvm@"
+          java-version: "graalvm@20.1.0"
       - name: "install native-image"
         run: |
           java -version
