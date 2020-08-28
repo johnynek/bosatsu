@@ -341,7 +341,7 @@ object PythonGen {
               if (flatArgs.length == argSize) {
                 val all = onArgs(flatArgs)
                 // set all the values and return the empty tuple
-                Monad[Env].pure(all.withValue(MakeTuple(Nil)))
+                Monad[Env].pure(all.withValue(Code.Const.Unit))
               }
               else {
                 // $COVERAGE-OFF$
@@ -412,7 +412,7 @@ object PythonGen {
         cont <- Env.newAssignableVar
         ac = assignMut(cont)(fnArgs.toList)
         res <- Env.newAssignableVar
-        ar = Assign(res, MakeTuple(Nil))
+        ar = Assign(res, Code.Const.Unit)
         body1 <- replaceTailCallWithAssign(selfName, mutArgs.length, body)(assignMut(cont))
         setRes = res := body1
         loop = While(cont, Assign(cont, Const.False) +: setRes)
@@ -911,6 +911,58 @@ object PythonGen {
                 .withValue(i)
             }
           }, 2)),
+        (Identifier.unsafeBindable("partition_String"),
+          ({
+            input =>
+              Env.newAssignableVar
+                .flatMap { res =>
+                  Env.onLast2(input.head, input.tail.head) { (str, sep) =>
+                  // if sep == "": None
+                  // else:
+                  //   (a, s1, b) = str.partition(sep)
+                  //   if s1: (1, (a, (b, ())))
+                  //   else: (0, )
+                  val a = res.get(0)
+                  val s1 = res.get(1)
+                  val b = res.get(2)
+                  val success = Code.MakeTuple(Code.fromInt(1) ::
+                    Code.MakeTuple(a :: Code.MakeTuple(b :: Code.Const.Unit :: Nil) :: Nil) ::
+                    Nil
+                    )
+                  val fail = Code.MakeTuple(Code.fromInt(0) :: Nil)
+                  val nonEmpty =
+                    (res := str.dot(Code.Ident("partition"))(sep))
+                      .withValue(Code.Ternary(success, s1, fail))
+
+                  Code.IfElse(NonEmptyList((sep, nonEmpty), Nil), fail)
+                }
+              }
+          }, 2)),
+        (Identifier.unsafeBindable("rpartition_String"),
+          ({
+            input =>
+              Env.newAssignableVar
+                .flatMap { res =>
+                  Env.onLast2(input.head, input.tail.head) { (str, sep) =>
+                  // (a, s1, b) = str.partition(sep)
+                  // if s1: (1, (a, (b, ())))
+                  // else: (0, )
+                  val a = res.get(0)
+                  val s1 = res.get(1)
+                  val b = res.get(2)
+                  val success = Code.MakeTuple(Code.fromInt(1) ::
+                    Code.MakeTuple(a :: Code.MakeTuple(b :: Code.Const.Unit :: Nil) :: Nil) ::
+                    Nil
+                    )
+                  val fail = Code.MakeTuple(Code.fromInt(0) :: Nil)
+                  val nonEmpty =
+                    (res := str.dot(Code.Ident("rpartition"))(sep))
+                      .withValue(Code.Ternary(success, s1, fail))
+
+                  Code.IfElse(NonEmptyList((sep, nonEmpty), Nil), fail)
+                }
+              }
+          }, 2)),
         (Identifier.unsafeBindable("string_Order_fn"), (cmpFn, 2))
       )
 
@@ -981,7 +1033,7 @@ object PythonGen {
                 Env.onLasts(vExpr :: args)(Code.MakeTuple(_))
               }
             case MakeStruct(arity) =>
-                if (arity == 0) Monad[Env].pure(Code.MakeTuple(Nil))
+                if (arity == 0) Monad[Env].pure(Code.Const.Unit)
                 else if (arity == 1) Monad[Env].pure(args.head)
                 else Env.onLasts(args)(Code.MakeTuple(_))
             case ZeroNat =>

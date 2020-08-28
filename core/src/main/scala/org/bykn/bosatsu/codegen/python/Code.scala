@@ -205,6 +205,7 @@ object Code {
     // operators like + can associate
     //
     def toDoc: Doc = {
+      // invariant: all items in right associate
       def loop(left: Expression, rights: NonEmptyList[(Operator, Expression)]): Doc =
         // a op1 b op2 c if op1 and op2 associate no need for a parens
         // left match {
@@ -216,13 +217,20 @@ object Code {
             else loop(Parens(left), rights)
           case leftNotOp =>
             rights.head match {
+              case (ol, or@Op(_, o2, _)) if !ol.associates(o2) =>
+                // we we can't break rights.head because the ops
+                // don't associate. We wrap or in Parens
+                val rights1 = (ol, Parens(or))
+                loop(leftNotOp, NonEmptyList(rights1, rights.tail))
               case (ol, Op(r1, o2, r2)) =>
-                loop(left, NonEmptyList((ol, r1), (o2, r2) :: rights.tail))
+                // maintain the invariant that all the rights associate
+                loop(leftNotOp, NonEmptyList((ol, r1), (o2, r2) :: rights.tail))
               case (ol, rightNotOp) =>
                 rights.tail match {
                   case Nil =>
                     maybePar(leftNotOp) + Doc.space + Doc.text(ol.name) + Doc.space + maybePar(rightNotOp)
                   case (o2, r2) :: rest =>
+                    // everything in rights associate
                     val leftDoc = maybePar(leftNotOp) + Doc.space + Doc.text(ol.name) + Doc.space
                     if (ol.associates(o2)) {
                       leftDoc + loop(rightNotOp, NonEmptyList((o2, r2), rest))
@@ -339,12 +347,15 @@ object Code {
         case Op(PyInt(a), Const.Eq, PyInt(b)) =>
           fromBoolean(a == b)
         case Op(a, Const.And, b) =>
-          (a, b) match {
-            case (Const.True, _) => b.simplify
-            case (_, Const.True) => a.simplify
-            case (Const.False, _) => Const.False
-            case (_, Const.False) => Const.False
-            case _ => this
+          a.simplify match {
+            case Const.True => b.simplify
+            case Const.False => Const.False
+            case a1 =>
+              b.simplify match {
+                case Const.True => a1
+                case Const.False => Const.False
+                case b1 => Op(a1, Const.And, b1)
+              }
           }
         case _ =>
           val l1 = left.simplify
@@ -620,6 +631,8 @@ object Code {
 
     val Zero = PyInt(BigInteger.ZERO)
     val One = PyInt(BigInteger.ONE)
+
+    val Unit = MakeTuple(Nil)
   }
 
   val python2Name: java.util.regex.Pattern =

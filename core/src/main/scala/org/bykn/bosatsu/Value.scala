@@ -190,6 +190,9 @@ object Value {
         case Nil => UnitValue
         case h :: tail => TupleCons(h, fromList(tail))
       }
+
+    def apply(vs: Value*): ProductValue =
+      fromList(vs.toList)
   }
 
   object Comparison {

@@ -81,6 +81,8 @@ object Predef {
       .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
       .add(packageName, "string_Order_fn", FfiCall.Fn2(PredefImpl.string_Order_Fn(_, _)))
       .add(packageName, "concat_String", FfiCall.Fn1(PredefImpl.concat_String(_)))
+      .add(packageName, "partition_String", FfiCall.Fn2(PredefImpl.partitionString(_, _)))
+      .add(packageName, "rpartition_String", FfiCall.Fn2(PredefImpl.rightPartitionString(_, _)))
 
   def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
     predefPackage :: ps.map(_.withImport(predefImports))
@@ -223,5 +225,39 @@ object PredefImpl {
         sys.error(s"type error: $other")
         //$COVERAGE-ON$
     }
+
+  // return an Option[(String, String)]
+  def partitionString(arg: Value, sep: Value): Value = {
+    val sepS = sep.asExternal.toAny.asInstanceOf[String]
+
+    if (sepS.isEmpty) Value.VOption.none
+    else {
+      val argS = arg.asExternal.toAny.asInstanceOf[String]
+
+      val idx = argS.indexOf(sepS)
+      if (idx < 0) Value.VOption.none
+      else Value.VOption.some {
+        val left = argS.substring(0, idx)
+        val right = argS.substring(idx + sepS.length)
+        Value.Tuple(Value.ExternalValue(left), Value.ExternalValue(right))
+      }
+    }
+  }
+
+  def rightPartitionString(arg: Value, sep: Value): Value = {
+    val sepS = sep.asExternal.toAny.asInstanceOf[String]
+
+    if (sepS.isEmpty) Value.VOption.none
+    else {
+      val argS = arg.asExternal.toAny.asInstanceOf[String]
+      val idx = argS.lastIndexOf(sepS)
+      if (idx < 0) Value.VOption.none
+      else Value.VOption.some {
+        val left = argS.substring(0, idx)
+        val right = argS.substring(idx + sepS.length)
+        Value.Tuple(Value.ExternalValue(left), Value.ExternalValue(right))
+      }
+    }
+  }
 }
 
