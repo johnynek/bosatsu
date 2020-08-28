@@ -30,7 +30,7 @@ sealed abstract class LetFreeExpression {
       }
       case LetFreeExpression.LambdaVar(index) => s"LambdaVar($index)"
       case LetFreeExpression.Lambda(expr) => s"Lambda(${expr.serialize})"
-      case LetFreeExpression.Struct(enum, args) => s"Struct($enum,${args.map(_.serialize).mkString(",")})"
+      case LetFreeExpression.Struct(enum, args, _) => s"Struct($enum,${args.map(_.serialize).mkString(",")})"
       case LetFreeExpression.Literal(toLit) => toLit match {
         case Lit.Str(toStr) => s"Literal('${escapeString(toStr)}')"
         case Lit.Integer(bigInt) => s"Literal($bigInt)"
@@ -46,7 +46,7 @@ sealed abstract class LetFreeExpression {
     case LetFreeExpression.Match(arg, branches) => branches.map {
       branch => branch._2.varSet.map(_ - LetFreePattern.varCount(0, List(branch._1))).filter(_ >= 0)
     }.foldLeft(arg.varSet){ case (s1, s2) => s1 ++ s2 }
-    case LetFreeExpression.Struct(enum, args) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.varSet }
+    case LetFreeExpression.Struct(enum, args, _) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.varSet }
     case LetFreeExpression.Literal(_) => Set()
     case LetFreeExpression.Recursion(lambda) => lambda.varSet.collect { case n if n > 0 => n - 1}
     case LetFreeExpression.LambdaVar(name) => Set(name)
@@ -86,7 +86,7 @@ object LetFreeExpression {
   case class Lambda(expr: LetFreeExpression) extends LetFreeExpression {
     def maxLambdaVar = expr.maxLambdaVar.map(_ - 1)
   }
-  case class Struct(enum: Int, args: List[LetFreeExpression]) extends LetFreeExpression {
+  case class Struct(enum: Int, args: List[LetFreeExpression], dataFamily: DataFamily) extends LetFreeExpression {
     def maxLambdaVar = args.flatMap(_.maxLambdaVar).reduceLeftOption(Math.max)
   }
   case class Literal(lit: Lit) extends LetFreeExpression {
@@ -116,7 +116,7 @@ sealed abstract class LetFreePattern {
         }.mkString(",")
         s"ListPat($inside)"
       }
-      case LetFreePattern.PositionalStruct(name, params) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.serialize).mkString(",")})"
+      case LetFreePattern.PositionalStruct(name, params, df) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.serialize).mkString(",")})"
       case LetFreePattern.Union(head, rest) => s"Union(${head.serialize},${rest.toList.map(_.serialize).mkString(",")})"
       case LetFreePattern.StrPat(parts) => {
         val inside = parts.map {
@@ -143,7 +143,7 @@ object LetFreePattern {
         }
         varCount(result._1, result._2)
       }
-      case LetFreePattern.PositionalStruct(name, params) => varCount(name.getOrElse(floor).max(floor), params)
+      case LetFreePattern.PositionalStruct(name, params, df) => varCount(name.getOrElse(floor).max(floor), params)
       case LetFreePattern.Union(uHead, _) => varCount(floor, List(uHead))
       case LetFreePattern.StrPat(parts) => parts.foldLeft(floor) {
         case (n, LetFreePattern.StrPart.NamedStr(name)) => n.max(name)
@@ -162,7 +162,7 @@ object LetFreePattern {
    */
   case class Named(name: Int, pat: LetFreePattern) extends LetFreePattern
   case class ListPat(parts: List[Either[Option[Int], LetFreePattern]]) extends LetFreePattern
-  case class PositionalStruct(name: Option[Int], params: List[LetFreePattern]) extends LetFreePattern
+  case class PositionalStruct(name: Option[Int], params: List[LetFreePattern], dataFamily: DataFamily) extends LetFreePattern
   case class Union(head: LetFreePattern, rest: NonEmptyList[LetFreePattern]) extends LetFreePattern
   case class StrPat(parts: NonEmptyList[StrPart]) extends LetFreePattern
 
@@ -193,14 +193,14 @@ object LetFreeConversion {
 
   def structListAsList(lfe: LetFreeExpression): Option[List[LetFreeExpression]] = {
     lfe match {
-      case LetFreeExpression.Struct(0, _) => Some(Nil)
-      case LetFreeExpression.Struct(1, List(value, tail)) => structListAsList(tail).map(value :: _)
+      case LetFreeExpression.Struct(0, _, _) => Some(Nil)
+      case LetFreeExpression.Struct(1, List(value, tail), _) => structListAsList(tail).map(value :: _)
       case _ => None
     }
   }
 
   def listAsStructList(lst: List[LetFreeExpression]): LetFreeExpression =
-    lst.foldRight(LetFreeExpression.Struct(0, Nil)) { case (lfe, acc) => LetFreeExpression.Struct(1, List(lfe, acc)) }
+    lst.foldRight(LetFreeExpression.Struct(0, Nil, DataFamily.Enum)) { case (lfe, acc) => LetFreeExpression.Struct(1, List(lfe, acc), DataFamily.Enum) }
 
   case class LitValue(toAny: Any) {
     def equivToLit(lit: Lit) = lit match {
@@ -220,8 +220,8 @@ object LetFreeConversion {
     case LetFreeExpression.Literal(lit) => Some(LitValue.fromLit(lit))
     case _ => None
   }
-  implicit val neToStruct: LetFreeExpression => Option[(Int, List[LetFreeExpression])] = {
-    case LetFreeExpression.Struct(enum, args) => Some((enum, args))
+  implicit val neToStruct: (LetFreeExpression, DataFamily) => Option[(Int, List[LetFreeExpression])] = {
+    case (LetFreeExpression.Struct(enum, args, _), df) => Some((enum, args))
     case _ => None
   }
   implicit val neToList: LetFreeExpression => Option[List[LetFreeExpression]] = structListAsList(_)
@@ -229,7 +229,7 @@ object LetFreeConversion {
 
   def maybeBind[T](pat: LetFreePattern)(implicit
     toLitValue: T => Option[LitValue],
-    toStruct: T => Option[(Int, List[T])],
+    toStruct: (T, DataFamily) => Option[(Int, List[T])],
     toList: T => Option[List[T]],
     fromList: List[T] => T
     ): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
@@ -255,7 +255,7 @@ object LetFreeConversion {
         items match {
           case Nil =>
             { (arg, acc) =>
-              toStruct(arg) match {
+              toStruct(arg, DataFamily.Enum) match {
                 case Some((0, _)) => Matches(acc)
                 case Some((1, _)) => NoMatch
                 case _ => NotProvable
@@ -267,7 +267,7 @@ object LetFreeConversion {
             val fnt = maybeBind[T](LetFreePattern.ListPat(ptail))
 
             { (arg, acc) =>
-              toStruct(arg) match {
+              toStruct(arg, DataFamily.Enum) match {
                 case Some((1, List(argHead, structTail))) =>
                   fnh(argHead, acc) match {
                     case NoMatch => NoMatch
@@ -332,7 +332,7 @@ object LetFreeConversion {
               result
           }
         loop(h :: t.toList)
-      case LetFreePattern.PositionalStruct(maybeIdx, items) =>
+      case LetFreePattern.PositionalStruct(maybeIdx, items, df) =>
         // The type in question is not the outer dt, but the type associated
         // with this current constructor
         val itemFns = items.map(maybeBind[T](_))
@@ -363,7 +363,7 @@ object LetFreeConversion {
           case None =>
             // this is a struct, which means we expect it
             { (arg: T, acc: PatternEnv[T]) =>
-              toStruct(arg) match {
+              toStruct(arg, df) match {
                 case Some((_, args)) =>
                   processArgs(args, acc)
                 case _ =>
@@ -374,7 +374,7 @@ object LetFreeConversion {
           case Some(idx) =>
             // we don't check if idx < 0, because if we compiled, it can't be
             val result = { (arg: T, acc: PatternEnv[T]) =>
-              toStruct(arg) match {
+              toStruct(arg, df) match {
                 case Some((enumId, args)) =>
                   if (enumId == idx) processArgs(args, acc)
                   else NoMatch
@@ -413,7 +413,7 @@ object LetFreeConversion {
       // check for eta reduction
       case Lambda(expr)       =>
         Lambda(normalOrderReduction(expr))
-      case Struct(enum, args) => Struct(enum, args.map(normalOrderReduction(_)))
+      case Struct(enum, args, df) => Struct(enum, args.map(normalOrderReduction(_)), df)
       case l @ Literal(_)     => l
       case Recursion(innerExpr) => Recursion(normalOrderReduction(innerExpr))
     }
@@ -470,8 +470,8 @@ object LetFreeConversion {
         case LambdaVar(varIndex) if varIndex > idx  => LambdaVar(varIndex - 1)
         case lv @ LambdaVar(_)                      => lv
         case Lambda(fn)                             => Lambda(applyLambdaSubstituion(fn, subst.map(incrementLambdaVars(_, 0)), idx + 1))
-        case Struct(enum, args)                     =>
-          Struct(enum, args.map(applyLambdaSubstituion(_, subst, idx)))
+        case Struct(enum, args, df)                     =>
+          Struct(enum, args.map(applyLambdaSubstituion(_, subst, idx)), df)
         case l @ Literal(_)                         => l
         case r @ Recursion(fn)                      => Recursion(applyLambdaSubstituion(fn, subst, idx))
       }
@@ -491,8 +491,8 @@ object LetFreeConversion {
       case LambdaVar(varIndex) if varIndex >= lambdaDepth => LambdaVar(varIndex + 1)
       case lv @ LambdaVar(_)                      => lv
       case Lambda(fn)                             => Lambda(incrementLambdaVars(fn, lambdaDepth + 1))
-      case Struct(enum, args) =>
-        Struct(enum, args.map(incrementLambdaVars(_, lambdaDepth)))
+      case Struct(enum, args, df) =>
+        Struct(enum, args.map(incrementLambdaVars(_, lambdaDepth)), df)
       case l @ Literal(_) => l
       case Recursion(fn) => Recursion(incrementLambdaVars(fn, lambdaDepth))
     }
@@ -675,8 +675,9 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
         case Pattern.Annotation(p, tpe) => loop(p)
         case Pattern.PositionalStruct(pc@(_, ctor), params) =>
           val dt = definedForCons(pc)
+          val df = dt.dataFamily
           val name = if (dt.isStruct) None else Some(dt.constructors.indexWhere(_.name == ctor))
-          LetFreePattern.PositionalStruct(name, params.map(loop(_)))
+          LetFreePattern.PositionalStruct(name, params.map(loop(_)), df)
         case Pattern.Union(h, t) => LetFreePattern.Union(loop(h), t.map(loop(_)))
       }
     loop(pat)
@@ -800,7 +801,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
         if (params == 0) expr
         else loop(params - 1, LetFreeExpression.Lambda(expr))
 
-        loop(arity, LetFreeExpression.Struct(enum, ((arity - 1) to 0 by -1).map(LetFreeExpression.LambdaVar(_)).toList))
+        loop(arity, LetFreeExpression.Struct(enum, ((arity - 1) to 0 by -1).map(LetFreeExpression.LambdaVar(_)).toList, dt.dataFamily))
   }
 
   private def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =

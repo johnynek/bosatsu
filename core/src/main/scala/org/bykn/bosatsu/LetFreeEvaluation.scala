@@ -6,6 +6,7 @@ import scala.annotation.tailrec
 import rankn.Type
 import scala.concurrent.Future
 import scala.collection.concurrent.{Map => CMap}
+import java.math.BigInteger
 
 object LetFreeEvaluation {
   import LetFreeConversion.LitValue
@@ -13,9 +14,41 @@ object LetFreeEvaluation {
   implicit val valueToLitValue: Value => Option[LitValue] = { v =>
     Some(LitValue(v.asExternal.toAny))
   }
-  implicit val valueToStruct: Value => Option[(Int, List[Value])] = { v =>
-    val vSum = v.asSum
-    Some((vSum.variant, vSum.value.toList))
+  implicit val valueToStruct
+      : (Value, rankn.DataFamily) => Option[(Int, List[Value])] = {
+    case (v, df) =>
+      df match {
+        case rankn.DataFamily.Enum => {
+          val vSum = v.asSum
+          Some((vSum.variant, vSum.value.toList))
+        }
+        case rankn.DataFamily.Nat => {
+          val vExt = v.asExternal
+          val length: BigInteger = vExt.toAny.asInstanceOf[BigInteger]
+          def loop(n: BigInteger, res: (Int, List[Value])): (Int, List[Value]) =
+            if (n.compareTo(BigInteger.valueOf(0)) < 1) {
+              res
+            } else {
+              loop(
+                n.add(BigInteger.valueOf(-1)),
+                (
+                  1,
+                  List(
+                    Value.SumValue(res._1, Value.ProductValue.fromList(res._2))
+                  )
+                )
+              )
+            }
+          Some(loop(length, (0, Nil)))
+        }
+        case rankn.DataFamily.Struct => {
+          val vProd = v.asProduct
+          Some((0, vProd.toList))
+        }
+        case rankn.DataFamily.NewType => {
+          Some((0, List(v)))
+        }
+      }
   }
   implicit val valueToList: Value => Option[List[Value]] = { value =>
     @tailrec
@@ -95,45 +128,47 @@ object LetFreeEvaluation {
   implicit def nvToStruct(
       implicit extEnv: ExtEnv,
       cache: Cache
-  ): LetFreeValue => Option[(Int, List[LetFreeValue])] =
-    nv =>
+  ): (LetFreeValue, rankn.DataFamily) => Option[(Int, List[LetFreeValue])] = {
+    case (nv, df) =>
       nv match {
         case ComputedValue(v) =>
-          valueToStruct(v).map {
+          valueToStruct(v, df).map {
             case (n, lst) => (n, lst.map(vv => ComputedValue(vv)))
           }
         case LazyValue(expr, scope) =>
           expr match {
-            case LetFreeExpression.Struct(n, lst) =>
+            case LetFreeExpression.Struct(n, lst, df) =>
               Some((n, lst.map(ne => LazyValue(ne, scope))))
             case LetFreeExpression.App(fn, arg) =>
               nvToStruct.apply(
                 applyApplyable(
                   evalToApplyable(LazyValue(fn, scope)),
                   LazyValue(arg, scope)
-                )
+                ),
+                df
               )
             case LetFreeExpression.ExternalVar(p, n, tpe) =>
-              nvToStruct.apply(ComputedValue(extEnv(n).value))
+              nvToStruct.apply(ComputedValue(extEnv(n).value), df)
             case LetFreeExpression.Recursion(LetFreeExpression.Lambda(expr)) =>
-              nvToStruct.apply(LazyValue(expr, nv :: scope))
+              nvToStruct.apply(LazyValue(expr, nv :: scope), df)
             case LetFreeExpression.LambdaVar(index) =>
-              nvToStruct.apply(scope(index))
+              nvToStruct.apply(scope(index), df)
             case mtch @ LetFreeExpression.Match(_, _) =>
-              nvToStruct.apply(simplifyMatch(mtch, scope))
+              nvToStruct.apply(simplifyMatch(mtch, scope), df)
             case other =>
               sys.error(
                 s"Type checking should mean this isn't a lambda or a literal: $other"
               )
           }
       }
+  }
   implicit def nvToList(
       implicit extEnv: ExtEnv,
       cache: Cache
   ): LetFreeValue => Option[List[LetFreeValue]] = { normalValue =>
     @tailrec
     def loop(nv: LetFreeValue, acc: List[LetFreeValue]): List[LetFreeValue] = {
-      nvToStruct.apply(nv).get match {
+      nvToStruct.apply(nv, rankn.DataFamily.Enum).get match {
         case (0, _)          => acc
         case (1, List(h, t)) => loop(t, h :: acc)
         case _               => sys.error("boom")
@@ -152,10 +187,20 @@ object LetFreeEvaluation {
         loop(
           n - 1,
           LetFreeExpression
-            .Struct(1, List(LetFreeExpression.LambdaVar(n - 1), acc))
+            .Struct(
+              1,
+              List(LetFreeExpression.LambdaVar(n - 1), acc),
+              rankn.DataFamily.Enum
+            )
         )
     }
-    LazyValue(loop(scope.length, LetFreeExpression.Struct(0, Nil)), scope)
+    LazyValue(
+      loop(
+        scope.length,
+        LetFreeExpression.Struct(0, Nil, rankn.DataFamily.Enum)
+      ),
+      scope
+    )
   }
 
   type Applyable = Either[Value, (LetFreeExpression.Lambda, List[LetFreeValue])]
@@ -200,7 +245,10 @@ object LetFreeEvaluation {
       attemptExprFn(v) match {
         case Left(eFn) =>
           ComputedValue(eFn(arg, cache, Some(nv => Future(nvToV(nv)))))
-        case Right(fn) => ComputedValue(fn(nvToV(arg)))
+        case Right(fn) => {
+          val v = nvToV(arg)
+          ComputedValue(fn(v))
+        }
       }
     case Right((LetFreeExpression.Lambda(expr), scope)) =>
       LazyValue(expr, arg :: scope)
@@ -277,11 +325,29 @@ object LetFreeEvaluation {
     case LetFreeExpression.LambdaVar(index) => nvToV(scope(index))
     case LetFreeExpression.Lambda(expr) =>
       Value.FnValue(v => evalToValue(expr, ComputedValue(v) :: scope))
-    case LetFreeExpression.Struct(enum, args) =>
-      Value.SumValue(
-        enum,
-        Value.ProductValue.fromList(args.map(arg => evalToValue(arg, scope)))
-      )
+    case LetFreeExpression.Struct(enum, args, df) =>
+      df match {
+        case rankn.DataFamily.Enum =>
+          Value.SumValue(
+            enum,
+            Value.ProductValue.fromList(
+              args.map(arg => evalToValue(arg, scope))
+            )
+          )
+        case rankn.DataFamily.Nat =>
+          if (enum == 0) {
+            Value.ExternalValue(BigInteger.valueOf(0))
+          } else {
+            Value.ExternalValue(
+              evalToValue(args.head, scope).asExternal.toAny
+                .asInstanceOf[BigInteger]
+                .add(BigInteger.ONE)
+            )
+          }
+        case rankn.DataFamily.Struct =>
+          Value.ProductValue.fromList(args.map(arg => evalToValue(arg, scope)))
+        case rankn.DataFamily.NewType => evalToValue(args.head, scope)
+      }
     case LetFreeExpression.Literal(lit) => Value.fromLit(lit)
     case LetFreeExpression.Recursion(lambda) => {
       lambda match {
@@ -308,7 +374,8 @@ case class LetFreeEvaluation(
 
   def evaluateLast(
       p: PackageName
-  ): Option[(LetFreeExpression, Type, Map[Identifier, Eval[Value]])] =
+  ): Option[(LetFreeExpression, Type, Map[Identifier, Eval[Value]])] = {
+
     for {
       pack <- packs.toMap.get(p)
       (name, _, tpe) <- pack.program.lets.lastOption
@@ -319,6 +386,7 @@ case class LetFreeEvaluation(
       tpe.getType,
       extEnv
     )
+  }
 
   def evaluateName(
       p: PackageName,

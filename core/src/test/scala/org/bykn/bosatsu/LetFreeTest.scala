@@ -5,6 +5,7 @@ import java.math.BigInteger
 import cats.data.NonEmptyList
 
 import rankn.Type
+import rankn.DataFamily._
 
 class LetFreeTest extends FunSuite {
   import TestUtils._
@@ -39,12 +40,12 @@ package LetFreeTest/List
 main = ["aa"]
 """
         ), "LetFreeTest/List", LetFreeExpressionTag(
-          Struct(1,List(Literal(Str("aa")), Struct(0,List()))),
+          Struct(1,List(Literal(Str("aa")), Struct(0,List(), Enum)), Enum),
           Set(
-            Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0))))),
+            Lambda(Lambda(Struct(1,List(LambdaVar(1), LambdaVar(0)), Enum))),
             Literal(Str("aa")),
-            Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)))),
-            Struct(0,List())
+            Lambda(Struct(1,List(Literal(Str("aa")), LambdaVar(0)), Enum)),
+            Struct(0,List(), Enum)
           )
         ),
         Some("Struct(1,Literal('aa'),Struct(0,))")
@@ -63,8 +64,8 @@ def foo(x):
 out = foo
 """
       ), "Recur/Some", Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
-        (PositionalStruct(Some(0), Nil),Struct(1,List(Literal(Str("a")), Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(0,List())))))))),
-      (PositionalStruct(Some(1), List(WildCard, Var(0))),Lambda(Struct(1,List(Literal(Str("zero")), App(LambdaVar(2),LambdaVar(0))))))
+        (PositionalStruct(Some(0), Nil, Enum),Struct(1,List(Literal(Str("a")), Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(0,List(), Enum)), Enum)), Enum)), Enum)),
+      (PositionalStruct(Some(1), List(WildCard, Var(0)), Enum),Lambda(Struct(1,List(Literal(Str("zero")), App(LambdaVar(2),LambdaVar(0))), Enum)))
       )))))
     )
   }
@@ -81,8 +82,8 @@ def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
 out = foldLeft
 """
       ), "Recur/FoldLeft", Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
-        (PositionalStruct(Some(0),List()),Lambda(Lambda(LambdaVar(1)))),
-        (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))
+        (PositionalStruct(Some(0),List(), Enum),Lambda(Lambda(LambdaVar(1)))),
+        (PositionalStruct(Some(1),List(Var(0), Var(1)), Enum),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))
       )))))
     )
   }
@@ -103,10 +104,10 @@ out = [1,2,3].foldLeft(4, add)
         App(
           App(
             Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
-              (PositionalStruct(Some(0),List()),Lambda(Lambda(LambdaVar(1)))),
-              (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))
+              (PositionalStruct(Some(0),List(), Enum),Lambda(Lambda(LambdaVar(1)))),
+              (PositionalStruct(Some(1),List(Var(0), Var(1)), Enum),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))
             ))))),
-            Struct(1,List(Literal(Integer(BigInteger.valueOf(1))), Struct(1,List(Literal(Integer(BigInteger.valueOf(2))), Struct(1,List(Literal(Integer(BigInteger.valueOf(3))), Struct(0,List())))))))
+            Struct(1,List(Literal(Integer(BigInteger.valueOf(1))), Struct(1,List(Literal(Integer(BigInteger.valueOf(2))), Struct(1,List(Literal(Integer(BigInteger.valueOf(3))), Struct(0,List(), Enum)), Enum)), Enum)), Enum)
           ),
           Literal(Integer(BigInteger.valueOf(4)))
         ),
@@ -131,8 +132,8 @@ out = foldLeft
 """
       ), "Recur/FoldLeft",
       Lambda(Lambda(Lambda(App(App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
-        (PositionalStruct(Some(0),List()),Lambda(LambdaVar(0))),
-        (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(App(App(LambdaVar(4),LambdaVar(2)),App(App(LambdaVar(5),LambdaVar(0)),LambdaVar(1)))))))
+        (PositionalStruct(Some(0),List(), Enum),Lambda(LambdaVar(0))),
+        (PositionalStruct(Some(1),List(Var(0), Var(1)), Enum),Lambda(Lambda(Lambda(App(App(LambdaVar(4),LambdaVar(2)),App(App(LambdaVar(5),LambdaVar(0)),LambdaVar(1)))))))
       ))))),LambdaVar(2)),LambdaVar(1)))))
     )
   }
@@ -155,9 +156,9 @@ out = lst.foldLeft(9, add)
 """
       ), "Recur/FoldLeft",
       App(App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of(
-        (PositionalStruct(Some(0),List()),Lambda(LambdaVar(0))),
-        (PositionalStruct(Some(1),List(Var(0), Var(1))),Lambda(Lambda(Lambda(App(App(LambdaVar(4),LambdaVar(2)),App(App(ExternalVar(PackageName(NonEmptyList.of("Bosatsu", "Predef")),Identifier.Name("add"), Type.Fun(Type.IntType, Type.Fun(Type.IntType, Type.IntType))),LambdaVar(0)),LambdaVar(1)))))))
-      ))))),Struct(1,List(Literal(Integer(BigInteger.valueOf(1))), Struct(1,List(Literal(Integer(BigInteger.valueOf(2))), Struct(1,List(Literal(Integer(BigInteger.valueOf(3))), Struct(0,List())))))))),Literal(Integer(BigInteger.valueOf(9))))
+        (PositionalStruct(Some(0),List(), Enum),Lambda(LambdaVar(0))),
+        (PositionalStruct(Some(1),List(Var(0), Var(1)), Enum),Lambda(Lambda(Lambda(App(App(LambdaVar(4),LambdaVar(2)),App(App(ExternalVar(PackageName(NonEmptyList.of("Bosatsu", "Predef")),Identifier.Name("add"), Type.Fun(Type.IntType, Type.Fun(Type.IntType, Type.IntType))),LambdaVar(0)),LambdaVar(1)))))))
+      ))))),Struct(1,List(Literal(Integer(BigInteger.valueOf(1))), Struct(1,List(Literal(Integer(BigInteger.valueOf(2))), Struct(1,List(Literal(Integer(BigInteger.valueOf(3))), Struct(0,List(), Enum)), Enum)), Enum)), Enum)),Literal(Integer(BigInteger.valueOf(9))))
     )
   }
   test("Lambda") {
@@ -254,7 +255,7 @@ def result(x, c):
 out=result
 """
       ), "Match/Vars",
-        Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List()))))),Lambda(Lambda(Lambda(Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List(LambdaVar(1), Struct(0,List()))))))))))))))
+        Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List(), Enum)), Enum)), Enum),Lambda(Lambda(Lambda(Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List(LambdaVar(1), Struct(0,List(), Enum)), Enum)), Enum)), Enum))))))))
       )
 
     normalExpressionTest(
@@ -269,7 +270,7 @@ out=match Pair(1, "two"):
 
 """
       ), "Match/Structs",
-      Struct(0,List(Literal(Lit(3)), Literal(Lit.Str("two")), Literal(Lit(1))))
+      Struct(0,List(Literal(Lit(3)), Literal(Lit.Str("two")), Literal(Lit(1))), Enum)
     )
     normalExpressionTest(
       List("""
@@ -318,11 +319,11 @@ out = match ["a","b","c","d","e"]:
         Struct(0,List(
           Literal(Str("a")),
           Struct(0,List(
-            Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(1,List(Literal(Str("d")), Struct(1,List(Literal(Str("e")), Struct(0,List()))))))))),
-            Struct(0,List())
-          ))
-        ))
-      ))
+            Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(1,List(Literal(Str("d")), Struct(1,List(Literal(Str("e")), Struct(0,List(), Enum)), Enum)), Enum)), Enum)), Enum),
+            Struct(0,List(), Enum)
+          ), Enum)
+        ), Enum)
+      ), Enum)
 
     )
   normalExpressionTest(
@@ -370,7 +371,7 @@ import Imp/First [fizz]
 out=fizz(1,2)
 """
       ), "Imp/Second",
-      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List())))))
+      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List(), Enum)), Enum)), Enum)
     )
     normalExpressionTest(
       List("""
@@ -387,7 +388,7 @@ def fizz(f, s):
   (s, f)
 """
       ), "Imp/First",
-      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List())))))
+      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List(), Enum)), Enum)), Enum)
     )
   }
   test("external") {
@@ -542,13 +543,13 @@ main = (rec_fn(lst1), rec_fn(lst1))
       ), "Substitution/Lambda",
       Struct(0,
         List(
-          App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(Some(0), Nil),Struct(1,List())), (PositionalStruct(Some(1), List(WildCard, Var(0))),Lambda(App(LambdaVar(2), LambdaVar(0))))))))),Struct(1,List(Literal(Str("zooom")),Struct(0,List())))),
+          App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(Some(0), Nil, Enum),Struct(1,List(), Enum)), (PositionalStruct(Some(1), List(WildCard, Var(0)), Enum),Lambda(App(LambdaVar(2), LambdaVar(0))))))))),Struct(1,List(Literal(Str("zooom")),Struct(0,List(), Enum)), Enum)),
           Struct(0,List(
-            App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(Some(0), Nil),Struct(1,List())),(PositionalStruct(Some(1), List(WildCard, Var(0))),Lambda(App(LambdaVar(2), LambdaVar(0))))))))),Struct(1,List(Literal(Str("zooom")), Struct(0,List())))),
-            Struct(0,List())
-          ))
+            App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(Some(0), Nil, Enum),Struct(1,List(), Enum)),(PositionalStruct(Some(1), List(WildCard, Var(0)), Enum),Lambda(App(LambdaVar(2), LambdaVar(0))))))))),Struct(1,List(Literal(Str("zooom")), Struct(0,List(), Enum)), Enum)),
+            Struct(0,List(), Enum)
+          ), Enum)
         )
-      )
+      , Enum)
     )
     normalExpressionTest(
       List("""
