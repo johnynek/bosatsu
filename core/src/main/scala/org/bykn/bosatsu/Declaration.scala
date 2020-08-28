@@ -873,7 +873,7 @@ object Declaration {
    * that cannot be used by identifiers
    */
   val keywords: Set[String] =
-    Set("if", "else", "elif", "match", "matches", "def", "recur", "struct", "enum")
+    Set("from", "import", "if", "else", "elif", "match", "matches", "def", "recur", "struct", "enum")
 
   /**
    * A Parser that matches keywords

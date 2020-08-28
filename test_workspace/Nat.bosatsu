@@ -1,6 +1,6 @@
 package Bosatsu/Nat
 
-import Bosatsu/Predef [ add as operator +, times as operator * ]
+from Bosatsu/Predef import add as operator +, times as operator *
 export [ Nat(), times2, add, mult, to_Int, to_Nat ]
 
 # This is the traditional encoding of natural numbers

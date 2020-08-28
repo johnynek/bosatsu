@@ -1,6 +1,6 @@
 package Queue
 
-import Bosatsu/List [ eq_List ]
+from Bosatsu/List import eq_List
 export [ Queue,
   empty_Queue, fold_Queue, push, unpush, pop_value, pop, reverse_Queue, eq_Queue,
   to_List, from_List

@@ -1,6 +1,6 @@
 package Euler/Two
 
-import Bosatsu/List [ sum ]
+from Bosatsu/List import sum
 
 # see:
 # https://projecteuler.net/problem=2

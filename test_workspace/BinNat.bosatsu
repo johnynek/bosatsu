@@ -1,6 +1,6 @@
 package Bosatsu/BinNat
 
-import Bosatsu/Nat [ Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat ]
+from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat
 
 export [ BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2 ]
 # a natural number with three variants:

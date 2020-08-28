@@ -1,6 +1,6 @@
 package BazelDepsApi
 
-import DictTools [ merge as merge_Dict ]
+from DictTools import merge as merge_Dict
 
 export [
   Artifact(), Config(), Resolver(), Replacement(), maven_central,

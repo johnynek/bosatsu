@@ -1,6 +1,6 @@
 package Bosatsu/Dict
 
-import Bosatsu/List [ eq_List ]
+from Bosatsu/List import eq_List
 
 export [ eq_Dict, eq_Pair ]
 

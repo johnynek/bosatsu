@@ -446,7 +446,7 @@ In some other package:
 ```
 package Animals/Report
 
-import Animals/Favorites [ mammals ]
+from Animals/Favorites import mammals
 export [ most_fav ]
 
 most_fav = match mammals:

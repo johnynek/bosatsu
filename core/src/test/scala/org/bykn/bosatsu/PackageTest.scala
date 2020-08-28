@@ -53,7 +53,7 @@ main = 1
     val p2 = parse(
 """
 package Foo2
-import Foo [ main as mainFoo ]
+from Foo import main as mainFoo
 export [ main, ]
 
 main = mainFoo
@@ -62,7 +62,7 @@ main = mainFoo
     val p3 = parse(
 """
 package Foo
-import Foo2 [ main as mainFoo ]
+from Foo2 import main as mainFoo
 
 main = 1
 """)
@@ -74,7 +74,7 @@ main = 1
     val p4 = parse(
 """
 package P4
-import Foo2 [ main as one ]
+from Foo2 import main as one
 
 external def add(a: a, b: a) -> a
 
@@ -112,7 +112,7 @@ def tail(list):
     val p6 = parse(
 """
 package P6
-import P5 [ Option, List, NonEmpty, Empty, head,  tail ]
+from P5 import Option, List, NonEmpty, Empty, head,  tail
 export [ data ]
 
 data = NonEmpty(1, NonEmpty(2, Empty))
@@ -124,8 +124,8 @@ main = head(data)
     val p7 = parse(
 """
 package P7
-import P6 [ data as p6_data ]
-import P5 [ Option, List, NonEmpty as Cons, Empty as Nil, head,  tail ]
+from P6 import data as p6_data
+from P5 import Option, List, NonEmpty as Cons, Empty as Nil, head,  tail
 
 data = Cons(1, Cons(2, Nil))
 data1 = Cons(0, p6_data)
@@ -174,7 +174,7 @@ def takeFoo(foo):
   val p2 = parse(
 """
 package R2
-import R1 [ Foo as Bar, mkFoo, takeFoo ]
+from R1 import Foo as Bar, mkFoo, takeFoo
 
 # note Bar is the same as foo
 struct Baz(b: Bar)

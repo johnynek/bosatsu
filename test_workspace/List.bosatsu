@@ -1,7 +1,7 @@
 package Bosatsu/List
 
-import Bosatsu/Bool [ not ]
-import Bosatsu/Nat [ Nat, Zero, Succ ]
+from Bosatsu/Bool import not
+from Bosatsu/Nat import Nat, Zero, Succ
 export [ any, eq_List, exists, head, for_all, size, sum, sort, uncons, zip ]
 
 def any(as: List[Bool]) -> Bool:

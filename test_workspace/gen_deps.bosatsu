@@ -1,8 +1,9 @@
 package GenDeps
 
-import BazelDepsApi [
+from BazelDepsApi import (
   Config, Artifact, Replacement, default_options_with_scala, merge_dep_List, scala_dep,
-  scala_dep_modules, standard_scala_replacements ]
+  scala_dep_modules, standard_scala_replacements
+  )
 
 cats_version = '2.0.0'
 cats_effect_version = '2.0.0'

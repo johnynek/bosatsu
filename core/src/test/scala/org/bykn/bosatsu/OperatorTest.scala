@@ -109,7 +109,7 @@ operator == = eq_Int
   """
 package T2
 
-import T1 [ operator + as operator ++, `*`, `==` ]
+from T1 import operator + as operator ++, `*`, `==`
 
 `.+` = `++`
 `+.` = `++`

@@ -460,6 +460,14 @@ class ParserTest extends ParserTestBase {
 
     expectFail(Operators.operatorToken, "=", 0)
   }
+
+  test("test import statements") {
+    roundTrip(Import.parser, "import Foo [bar, baz]")
+    roundTrip(Import.parser, "import Foo [bar as quux, baz]")
+    roundTrip(Import.parser, "from Foo import bar, baz")
+    roundTrip(Import.parser, "from Foo import bar as quux, baz")
+    roundTrip(Import.parser, "from Foo import (\nbar as quux,\nbaz)")
+  }
 }
 
 /**
