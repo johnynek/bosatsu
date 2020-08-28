@@ -1,9 +1,9 @@
-package IntTests
+package PredefTests
 
 operator / = div
 operator % = mod_Int
 
-test = TestSuite("IntTests", [
+test_int = TestSuite("Int tests", [
       Assertion((4 % -3) matches -2, "(4 % -3) == -2"),
       Assertion((-8 % -2) matches 0, "(-8 % -2) == 0"),
       Assertion((-8 / -2) matches 4, "(-8 / -2) == 4"),
@@ -25,3 +25,17 @@ test = TestSuite("IntTests", [
       Assertion(int_to_String(123) matches "123", "123 str"),
       Assertion(int_to_String(-123) matches "-123", "-123 str"),
     ])
+
+test_string = TestSuite("String tests", [
+  Assertion("foo".partition_String("f") matches Some(("", "oo")), "foo partition_String f"),
+  Assertion("foo".partition_String("") matches None, "foo partition_String \"\""),
+  Assertion("foo".partition_String("x") matches None, "foo partition_String x"),
+  Assertion("foo".rpartition_String("o") matches Some(("fo", "")), "foo rpartition_String o"),
+  Assertion("foo".rpartition_String("") matches None, "foo rpartition_String \"\""),
+  Assertion("foo".rpartition_String("x") matches None, "foo rpartition_String x"),
+])
+
+test = TestSuite("Predef tests", [
+    test_int,
+    test_string,
+])
