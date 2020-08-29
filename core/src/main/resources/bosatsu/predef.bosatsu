@@ -1,6 +1,6 @@
 package Bosatsu/Predef
 
-export [
+export (
   Bool(),
   Comparison(),
   Int,
@@ -44,7 +44,7 @@ export [
   trace,
   uncurry2,
   uncurry3,
-]
+)
 
 struct Unit
 struct TupleCons(first, second)

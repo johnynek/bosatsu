@@ -2,7 +2,7 @@ package Bosatsu/Dict
 
 from Bosatsu/List import eq_List
 
-export [ eq_Dict, eq_Pair ]
+export eq_Dict, eq_Pair
 
 
 def eq_Pair(eq_a, eq_b, (l1, l2), (r1, r2)) -> Bool:

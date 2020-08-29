@@ -338,6 +338,17 @@ object Parser {
     }
 
     /**
+     * either: a, b, c, ..
+     * or (a, b, c, ) where we allow newlines:
+     * return true if we do have parens
+     */
+    def itemsMaybeParens: P[(Boolean, NonEmptyList[T])] = {
+      val withP = item.parensLines1Cut.map((true, _))
+      val noP = item.nonEmptyListOfWs(maybeSpace).map((false, _))
+      withP | noP
+    }
+
+    /**
      * Parse a python-like tuple or a parens
      */
     def tupleOrParens: P[Either[T, List[T]]] = {

@@ -1,10 +1,10 @@
 package Queue
 
 from Bosatsu/List import eq_List
-export [ Queue,
+export (Queue,
   empty_Queue, fold_Queue, push, unpush, pop_value, pop, reverse_Queue, eq_Queue,
   to_List, from_List
-]
+)
 
 struct Queue(front: List[a], back: List[a])
 

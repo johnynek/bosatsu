@@ -2,7 +2,7 @@ package Bosatsu/BinNat
 
 from Bosatsu/Nat import Nat, Zero as NatZero, Succ as NatSucc, times2 as times2_Nat
 
-export [ BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2 ]
+export BinNat(), toInt, toNat, toBinNat, next, add_BinNat, times2
 # a natural number with three variants:
 # Zero = 0
 # Odd(n) = 2n + 1

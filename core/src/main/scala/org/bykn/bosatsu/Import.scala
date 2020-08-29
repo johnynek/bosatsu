@@ -6,7 +6,7 @@ import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 
-import Parser.{spaces, maybeSpace, Combinators}
+import Parser.{spaces, Combinators}
 
 sealed abstract class ImportedName[+T] {
   def originalName: Identifier
@@ -74,22 +74,13 @@ object Import {
     }
 
   val parser: P[Import[PackageName, Unit]] = {
-    val original = P("import" ~ spaces ~/ PackageName.parser ~ maybeSpace ~
-      ImportedName.parser.nonEmptyListSyntax).map { case (pname, imported) =>
-        Import(pname, imported)
-      }
+    val pyimps = ImportedName.parser.itemsMaybeParens
 
-    val pyimps =
-      (ImportedName.parser.parensLines1Cut |
-        ImportedName.parser.nonEmptyListOfWs(maybeSpace))
-
-    val pythonStyle = P("from" ~ spaces ~/ PackageName.parser ~ spaces ~
+    P("from" ~ spaces ~/ PackageName.parser ~ spaces ~
       "import" ~ spaces ~ pyimps)
-      .map { case (pname, imported) =>
+      .map { case (pname, (_, imported)) =>
         Import(pname, imported)
       }
-
-    original | pythonStyle
   }
 
   /**

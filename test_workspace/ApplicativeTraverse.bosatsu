@@ -2,7 +2,7 @@ package Bosatsu/Example/ApplicativeTraverse
 
 from Bosatsu/List import eq_List
 from Bosatsu/Option import eq_Option
-export [Applicative(), Traverse(), traverse_List, applicative_Option]
+export Applicative(), Traverse(), traverse_List, applicative_Option
 
 # Represents the Applicative typeclass
 struct Applicative(

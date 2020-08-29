@@ -462,9 +462,8 @@ class ParserTest extends ParserTestBase {
   }
 
   test("test import statements") {
-    roundTrip(Import.parser, "import Foo [bar, baz]")
-    roundTrip(Import.parser, "import Foo [bar as quux, baz]")
     roundTrip(Import.parser, "from Foo import bar, baz")
+    roundTrip(Import.parser, "from Foo import bar as quux, baz")
     roundTrip(Import.parser, "from Foo import bar as quux, baz")
     roundTrip(Import.parser, "from Foo import (\nbar as quux,\nbaz)")
   }
@@ -1148,8 +1147,8 @@ external def foo2(i: Integer, b: a) -> String
     roundTrip(Package.parser(None),
 """
 package Foo/Bar
-import Baz [Bippy]
-export [foo]
+from Baz import Bippy
+export foo
 
 foo = 1
 """)
@@ -1203,24 +1202,24 @@ def z:
 
     expectFail(Package.parser(None),
       """package Foo
-import Baz [ a, , b]
+from Baz import a, , b
 
 x = 1
-""", 28)
+""", 31)
 
     expectFail(Package.parser(None),
       """package Foo
-export [ x, , y ]
+export x, , y
 
 x = 1
-""", 24)
+""", 22)
 
     expectFail(Package.parser(None),
       """package Foo
-export [ x, , ]
+export x, ,
 
 x = 1
-""", 24)
+""", 22)
     expectFail(Package.parser(None),
       """package Foo
 
