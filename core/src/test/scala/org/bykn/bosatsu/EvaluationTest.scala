@@ -1571,7 +1571,7 @@ main = fn(0, 1, 2)
       List("""
 package A
 
-export [ foo ]
+export foo
 
 foo = 3
 """, """
@@ -1588,7 +1588,7 @@ baz = fooz
       List("""
 package A
 
-export [ foo ]
+export foo
 
 foo = 3
 bar = 3

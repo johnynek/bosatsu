@@ -46,7 +46,7 @@ class PackageTest extends FunSuite {
     val p1 = parse(
 """
 package Foo
-export [ main ]
+export main
 
 main = 1
 """)
@@ -54,7 +54,7 @@ main = 1
 """
 package Foo2
 from Foo import main as mainFoo
-export [ main, ]
+export main,
 
 main = mainFoo
 """)
@@ -86,7 +86,7 @@ main = add(one, 42)
 """
 package P5
 
-export [ Option(), List(), head, tail ]
+export Option(), List(), head, tail
 
 enum Option:
   None
@@ -113,7 +113,7 @@ def tail(list):
 """
 package P6
 from P5 import Option, List, NonEmpty, Empty, head,  tail
-export [ data ]
+export data
 
 data = NonEmpty(1, NonEmpty(2, Empty))
 
@@ -160,7 +160,7 @@ main = maybeOne(42)
 """
 package R1
 
-export [ Foo(), mkFoo, takeFoo ]
+export Foo(), mkFoo, takeFoo
 
 struct Foo
 

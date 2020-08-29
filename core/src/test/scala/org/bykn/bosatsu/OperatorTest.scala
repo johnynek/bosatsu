@@ -100,7 +100,7 @@ test = TestSuite("precedence",
     runBosatsuTest(List("""
 package T1
 
-export [ operator +, operator *, operator == ]
+export operator +, operator *, operator ==
 
 operator + = add
 operator * = times
