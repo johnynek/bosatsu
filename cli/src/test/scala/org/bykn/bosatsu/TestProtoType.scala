@@ -159,7 +159,7 @@ class TestProtoType extends FunSuite {
     TestUtils.testInferred(List(
 """package Foo
 
-export [bar]
+export bar
 
 bar = 1
 """

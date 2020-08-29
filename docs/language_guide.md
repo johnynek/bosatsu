@@ -435,7 +435,7 @@ All names are private unless exported. All names from external packages must be 
 
 ```
 package Animals/Favorites
-export [ mammals, birds ]
+export mammals, birds
 
 mammals = ["elephant", "whale", "dog"]
 
@@ -446,8 +446,8 @@ In some other package:
 ```
 package Animals/Report
 
-import Animals/Favorites [ mammals ]
-export [ most_fav ]
+from Animals/Favorites import mammals
+export most_fav
 
 most_fav = match mammals:
   [head, *tail]: head
@@ -461,7 +461,7 @@ We export types slightly differently. We can export just the type, or the type a
 
 package Great/Types
 
-export [ ClearOption(), OpaqueOption, foldO, noneO, someO ]
+export ClearOption(), OpaqueOption, foldO, noneO, someO
 
 enum ClearOption:
   CNone, CSome(get)
