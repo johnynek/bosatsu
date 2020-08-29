@@ -477,7 +477,7 @@ object LetFreeConversion {
       }
   }
 
-  private def incrementLambdaVars(expr: LetFreeExpression, lambdaDepth: Int): LetFreeExpression = {
+  def incrementLambdaVars(expr: LetFreeExpression, lambdaDepth: Int): LetFreeExpression = {
     import LetFreeExpression._
     expr match {
       case App(fn, arg) =>
@@ -586,7 +586,10 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
   def letFreeConvertAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
       val lambdaVars = al.arg :: env._2
-      val nextEnv: Env = (env._1 ++ lambdaVars.zipWithIndex
+      val env1 = env._1.mapValues { case ExpressionKeyTag(lfe, children) =>
+        LetFreeExpressionTag(LetFreeConversion.incrementLambdaVars(lfe, -1), children)
+      }
+      val nextEnv: Env = (env1 ++ lambdaVars.zipWithIndex
         .reverse
         .toMap
         .mapValues(idx => LetFreeExpressionTag(LetFreeExpression.LambdaVar(idx), Set[LetFreeExpression]())),
