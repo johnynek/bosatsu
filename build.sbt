@@ -78,7 +78,19 @@ lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
   .aggregate(core)
   .settings(
     commonSettings,
-    name := "bosatsu"
+    name := "bosatsu",
+  )
+
+lazy val docs = (project in file("docs"))
+  .enablePlugins(ParadoxPlugin)
+  .settings(
+    name := "paradox docs",
+    paradoxTheme := Some(builtinParadoxTheme("generic")),
+    paradoxProperties in Compile ++= Map(
+      "empty" -> "",
+      "version" -> version.value
+    ),
+    publish / skip := true
   )
 
 lazy val rootJVM = root.jvm
@@ -95,7 +107,7 @@ lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
     name := "bosatsu-base",
     libraryDependencies += scalaReflect.value,
     buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion, headCommit),
-    buildInfoPackage := "org.bykn.bosatsu"
+    buildInfoPackage := "org.bykn.bosatsu",
   )
 
 lazy val baseJS = base.js

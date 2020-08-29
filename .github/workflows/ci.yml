@@ -10,7 +10,7 @@ jobs:
           java-version: "${{matrix.java}}"
       - name: "run JVM tests"
         run: |
-          sbt "++${{matrix.scala}} coreJVM/test; cli/test; doc"
+          sbt "++${{matrix.scala}} coreJVM/test; cli/test; doc; paradox"
           ./test_cli.sh
     strategy:
       matrix:
