@@ -21,7 +21,7 @@ matrix:
       language: scala
       jdk: openjdk8
       env: PLATFORM=js
-      script: sbt "++ ${TRAVIS_SCALA_VERSION}" coreJS/test && sbt "++ ${TRAVIS_SCALA_VERSION}" jsapiJS/fullOptJS && ./elmui/build.sh
+      script: sbt "++${TRAVIS_SCALA_VERSION} coreJS/test; paradox; jsapiJS/fullOptJS" && ./elmui/build.sh
       deploy:
         provider: pages:git
         deploy_key: bosatsu_deploy_key
