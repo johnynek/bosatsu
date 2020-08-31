@@ -2,7 +2,7 @@ package org.bykn.bosatsu.pattern
 
 import cats.Eq
 import org.scalacheck.{Arbitrary, Cogen, Gen}
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 
 abstract class SetOpsLaws[A] extends FunSuite {
@@ -26,6 +26,22 @@ abstract class SetOpsLaws[A] extends FunSuite {
 
     assert(eqA.eqv(a12, a21), s"$a12 != $a21")
   }
+
+  def differenceIsIdempotent(a: A, b: A, eqAs: Eq[List[A]]) = {
+    val c = unifyUnion(difference(a, b))
+    val c1 = unifyUnion(differenceAll(c, b :: Nil))
+    assert(eqAs.eqv(c, c1), s"c = $c\n\nc1 = $c1")
+  }
+
+  def emptyIntersectionMeansDiffIdent(p1: A, p2: A, eqU: Eq[List[A]]) = {
+    val inter = intersection(p1, p2)
+    val diff = difference(p1, p2)
+
+    if (inter.isEmpty) {
+      assert(eqU.eqv(diff, p1 :: Nil), s"diff = $diff")
+    }
+  }
+
 
   test("intersection is commutative") {
     forAll(genItem, genItem, eqUnion)(intersectionIsCommutative(_, _, _))
@@ -59,11 +75,7 @@ abstract class SetOpsLaws[A] extends FunSuite {
   }
 
   test("difference is idempotent: (a - b) = c, c - b == c") {
-    forAll(genItem, genItem) { (a, b) =>
-      val c = unifyUnion(difference(a, b))
-      val c1 = unifyUnion(differenceAll(c, b :: Nil))
-      assert(c == c1)
-    }
+    forAll(genItem, genItem, eqUnion)(differenceIsIdempotent(_, _, _))
   }
 
   def selfDifferenceLaw(p1: A, p2: A) = {
@@ -97,14 +109,6 @@ abstract class SetOpsLaws[A] extends FunSuite {
   }
 
   test("if a n b = 0 then a - b = a") {
-    def law(p1: A, p2: A, eqU: Eq[List[A]]) = {
-      val inter = intersection(p1, p2)
-      val diff = difference(p1, p2)
-
-      if (inter.isEmpty) {
-        assert(eqU.eqv(diff, p1 :: Nil), s"diff = $diff")
-      }
-
       // difference is an upper bound, so this is not true
       // although we wish it were
       /*
@@ -113,9 +117,8 @@ abstract class SetOpsLaws[A] extends FunSuite {
         assert(inter == Nil)
       }
       */
-    }
 
-    forAll(genItem, genItem, eqUnion)(law(_, _, _))
+    forAll(genItem, genItem, eqUnion)(emptyIntersectionMeansDiffIdent(_, _, _))
   }
 
   test("x - y = z, then x - y - z = 0") {

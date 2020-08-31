@@ -50,6 +50,11 @@ object Identifier {
 
   private[this] val opPrefix = Doc.text("operator ")
 
+  object Bindable {
+    implicit def bindableOrder: Order[Bindable] =
+      Identifier.order
+  }
+
   implicit def document[A <: Identifier]: Document[A] =
     Document.instance[A] {
       case Backticked(lit) =>
@@ -116,15 +121,11 @@ object Identifier {
   def unsafeBindable(str: String): Bindable =
     unsafeParse(bindableParser, str)
 
-  def unsafeParse[A <: Identifier](pa: P[A], str: String): A =
-    pa.parse(str) match {
-      case Parsed.Success(ident, idx) if idx == str.length =>
-        ident
-      case Parsed.Success(_, idx) =>
-        sys.error(s"partial parse of $str ignores: ${str.substring(idx)}")
-      case Parsed.Failure(exp, idx, extra) =>
-        sys.error(s"failed to parse: $str: $exp at $idx: (${str.substring(idx)}) with trace: ${extra.traced.trace}")
-    }
+  def optionParse[A](pa: P[A], str: String): Option[A] =
+    Parser.optionParse(pa, str)
+
+  def unsafeParse[A](pa: P[A], str: String): A =
+    Parser.unsafeParse(pa, str)
 
   implicit def order[A <: Identifier]: Order[A] =
     Order.by[A, String](_.asString)

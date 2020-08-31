@@ -1,6 +1,6 @@
 package Bosatsu/Option
 
-export [ eq_Option ]
+export eq_Option
 
 def eq_Option(eq: a -> a -> Bool, left: Option[a], right: Option[a]) -> Bool:
   match (left, right):

@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.NonEmptyList
 import java.nio.file.{Path, Paths}
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.prop.PropertyChecks.forAll
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
 import org.scalatest.FunSuite
 
 import scala.collection.JavaConverters._
@@ -74,7 +74,7 @@ class PathModuleTest extends FunSuite {
 
   def run(args: String*): PathModule.Output =
     PathModule.run(args.toList) match {
-      case Left(_) => fail(s"got help on command: ${args.toList}")
+      case Left(h) => fail(s"got help: $h on command: ${args.toList}")
       case Right(io) =>
         val output = io.unsafeRunSync()
         // This is a cheat, but at least we call the code so
@@ -102,6 +102,15 @@ class PathModuleTest extends FunSuite {
         assert(res.head.assertions == 1)
         assert(res.head.failureCount == 0)
       case other => fail(s"expected test output: $other")
+    }
+  }
+
+  test("test python transpile on the entire test_workspace") {
+    val out = run(s"transpile --input_dir test_workspace/ --outdir pyout --lang python --package_root test_workspace".split("\\s+"): _*)
+    out match {
+      case PathModule.Output.TranspileOut(_, _) =>
+        assert(true)
+      case other => fail(s"expected transpile output: $other")
     }
   }
 

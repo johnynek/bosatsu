@@ -376,6 +376,9 @@ object Pattern {
             loop(tail, ListPart.Item(p) :: front)
           case SeqPart.AnyElem :: tail =>
             loop(tail, ListPart.Item(WildCard) :: front)
+          case SeqPart.Wildcard :: SeqPart.AnyElem :: tail =>
+            // *_, _ is the same as _, *_
+            loop(SeqPart.AnyElem :: SeqPart.Wildcard :: tail, front)
           case SeqPart.Wildcard :: tail =>
             loop(tail, ListPart.WildList :: front)
         }
@@ -425,6 +428,9 @@ object Pattern {
             val tailRes = loop(tail, Nil)
             if (tailRes.head == StrPart.WildStr) tailRes
             else tailRes.prepend(StrPart.WildStr)
+          case SeqPart.Wildcard :: SeqPart.AnyElem :: tail =>
+            // *_, _ is the same as _, *_
+            loop(SeqPart.AnyElem :: SeqPart.Wildcard :: tail, front)
           case SeqPart.Wildcard :: tail =>
             val tailRes = loop(tail, Nil).prepend(StrPart.WildStr)
 

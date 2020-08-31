@@ -1,16 +1,14 @@
 package org.bykn.bosatsu
 
 import cats.Eval
-import org.bykn.bosatsu.rankn.{Type, DataRepr}
+import org.bykn.bosatsu.rankn.Type
 import scala.collection.mutable.{Map => MMap}
 
 import cats.implicits._
 
-import Identifier.{Bindable, Constructor}
+import Identifier.Bindable
 
 case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
-  import Value._
-
   /**
    * Holds the final value of the environment for each Package
    */
@@ -40,6 +38,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     .toMap
   }
 
+  private[this] lazy val gdr = pm.getDataRepr
+
   private def evalLets(thisPack: PackageName, lets: List[(Bindable, RecursionKind, TypedExpr[T])]): List[(Bindable, Eval[Value])] = {
     val exprs: List[(Bindable, Matchless.Expr)] =
       rankn.RefSpace
@@ -48,7 +48,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
           lets
             .traverse {
               case (name, rec, te) =>
-                Matchless.fromLet(name, rec, te, getDataRepr, c)
+                Matchless.fromLet(name, rec, te, gdr, c)
                  .map((name, _))
             }
       }
@@ -95,7 +95,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   def lastTest(p: PackageName): Option[Eval[Value]] =
     for {
       pack <- pm.toMap.get(p)
-      name <- pack.program.lets.collect { case (name, _, te) if te.getType == Type.TestType => name }.lastOption
+      (name, _, _) <- Package.testValue(pack)
       value <- evaluate(p).get(name)
     } yield value
 
@@ -119,61 +119,8 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   def evalTest(ps: PackageName): Option[Eval[Test]] =
     lastTest(ps).map { ea =>
-      def toAssert(a: ProductValue): Test =
-        a match {
-          case ConsValue(True, ConsValue(Str(message), UnitValue)) =>
-            Test.Assertion(true, message)
-          case ConsValue(False, ConsValue(Str(message), UnitValue)) =>
-            Test.Assertion(false, message)
-          case other =>
-            // $COVERAGE-OFF$
-            sys.error(s"expected test value: $other")
-            // $COVERAGE-ON$
-        }
-      def toSuite(a: ProductValue): Test =
-        a match {
-          case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
-            Test.Suite(name, tests.map(toTest(_)))
-          case other =>
-            // $COVERAGE-OFF$
-            sys.error(s"expected test value: $other")
-            // $COVERAGE-ON$
-        }
-
-      def toTest(a: Value): Test =
-        a match {
-          case s: SumValue =>
-            if (s.variant == 0) toAssert(s.value)
-            else if (s.variant == 1) toSuite(s.value)
-            else {
-              // $COVERAGE-OFF$
-              sys.error(s"unexpected variant in: $s")
-              // $COVERAGE-ON$
-            }
-          case unexpected =>
-            // $COVERAGE-OFF$
-            sys.error(s"unreachable if compilation has worked: $unexpected")
-            // $COVERAGE-ON$
-        }
-
-      ea.map(toTest(_))
+      ea.map(Test.fromValue(_))
     }
-
-
-  private val getDataRepr: (PackageName, Constructor) => DataRepr = {
-    (pname, cons) =>
-      val pack = pm.toMap(pname)
-      pack.program
-        .types
-        .getConstructor(pname, cons) match {
-          case Some((_, dt, _)) => dt.dataRepr(cons)
-          case None =>
-            // shouldn't happen for type checked programs
-            // $COVERAGE-OFF$
-            throw new IllegalStateException(s"could not find $cons in ${pack.program.types}")
-            // $COVERAGE-ON$
-        }
-  }
 
   /**
    * Convert a typechecked value to Json

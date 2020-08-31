@@ -19,6 +19,7 @@ object Matchless {
   // these hold bindings either in the code, or temporary
   // local ones
   sealed trait CheapExpr extends Expr
+  sealed abstract class FnExpr extends Expr
 
   sealed abstract class StrPart
   object StrPart {
@@ -31,13 +32,13 @@ object Matchless {
   // we should probably allocate static slots for each bindable,
   // and replace the local with an integer offset slot access for
   // the closure state
-  case class Lambda(captures: List[Bindable], arg: Bindable, expr: Expr) extends Expr
+  case class Lambda(captures: List[Bindable], arg: Bindable, expr: Expr) extends FnExpr
 
   // this is a tail recursive function that should be compiled into a loop
   // when a call to name is done inside body, that should restart the loop
   // the type of this Expr a function with the arity of args that returns
   // the type of body
-  case class LoopFn(captures: List[Bindable], name: Bindable, argshead: Bindable, argstail: List[Bindable], body: Expr) extends Expr
+  case class LoopFn(captures: List[Bindable], name: Bindable, argshead: Bindable, argstail: List[Bindable], body: Expr) extends FnExpr
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
@@ -73,7 +74,7 @@ object Matchless {
   case class And(e1: BoolExpr, e2: BoolExpr) extends BoolExpr
   // checks if variant matches, and if so, writes to
   // a given mut
-  case class CheckVariant(expr: Expr, expect: Int) extends BoolExpr
+  case class CheckVariant(expr: Expr, expect: Int, size: Int, famArities: List[Int]) extends BoolExpr
   // handle list matching, this is a while loop, that is evaluting
   // lst is initialized to init, leftAcc is initialized to empty
   // tail until it is true while mutating lst => lst.tail
@@ -90,16 +91,26 @@ object Matchless {
   case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
   case class Always(cond: BoolExpr, thenExpr: Expr) extends Expr
 
-  case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends Expr
-  case class GetStructElement(arg: Expr, index: Int, size: Int) extends Expr
+  /**
+   * These aren't really super cheap, but when we treat them cheap we check that we will only
+   * call them one time
+   */
+  case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends CheapExpr
+  case class GetStructElement(arg: Expr, index: Int, size: Int) extends CheapExpr
 
-  sealed abstract class ConsExpr extends Expr
+  sealed abstract class ConsExpr extends Expr {
+    def arity: Int
+  }
   // we need to compile calls to constructors into these
-  case class MakeEnum(variant: Int, arity: Int) extends ConsExpr
+  case class MakeEnum(variant: Int, arity: Int, famArities: List[Int]) extends ConsExpr
   case class MakeStruct(arity: Int) extends ConsExpr
-  case object ZeroNat extends ConsExpr
+  case object ZeroNat extends ConsExpr {
+    def arity = 0
+  }
   // this is the function Nat -> Nat
-  case object SuccNat extends ConsExpr
+  case object SuccNat extends ConsExpr {
+    def arity = 1
+  }
 
   case class PrevNat(of: Expr) extends Expr
 
@@ -141,7 +152,7 @@ object Matchless {
     name: Bindable,
     rec: RecursionKind,
     te: TypedExpr[A])(
-    variantOf: (PackageName, Constructor) => DataRepr): Expr =
+    variantOf: (PackageName, Constructor) => Option[DataRepr]): Expr =
       (for {
         c <- RefSpace.allocCounter
         expr <- fromLet(name, rec, te, variantOf, c)
@@ -152,7 +163,7 @@ object Matchless {
     name: Bindable,
     rec: RecursionKind,
     te: TypedExpr[A],
-    variantOf: (PackageName, Constructor) => DataRepr,
+    variantOf: (PackageName, Constructor) => Option[DataRepr],
     makeAnon: F[Long]): F[Expr] = {
 
     type UnionMatch = NonEmptyList[(List[LocalAnonMut], BoolExpr, List[(Bindable, Expr)])]
@@ -162,7 +173,7 @@ object Matchless {
       empty match {
         case (p, c) =>
           variantOf(p, c) match {
-            case DataRepr.Enum(v, s) => MakeEnum(v, s)
+            case Some(DataRepr.Enum(v, s, f)) => MakeEnum(v, s, f)
             case other =>
               /* We assume the structure of Lists to be standard linked lists
                * Empty cannot be a struct
@@ -178,6 +189,10 @@ object Matchless {
       lazy val e0 = loop(e)
       rec match {
         case RecursionKind.Recursive =>
+
+          def letrec(e: Expr): Expr =
+            Let(Right((name, RecursionKind.Recursive)), e, Local(name))
+
           // this could be tail recursive
           if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
             val arity = Type.Fun.arity(e.getType)
@@ -191,16 +206,16 @@ object Matchless {
                 val argshead = args.head
                 val argstail = args.tail
                 val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
-                loop(body).map(LoopFn(captures, name, argshead, argstail, _))
+                loop(body).map { v => letrec(LoopFn(captures, name, argshead, argstail, v)) }
               case _ =>
                 // TODO: I don't think this case should ever happen in real code
                 // but it definitely does in fuzz tests
-                e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
+                e0.map(letrec)
             }
           }
           else {
             // otherwise let rec x = fn in x
-            e0.map { value => Let(Right((name, RecursionKind.Recursive)), value, Local(name)) }
+            e0.map(letrec)
           }
         case RecursionKind.NonRecursive => e0
       }
@@ -215,11 +230,18 @@ object Matchless {
           loop(res).map(Lambda(captures, arg, _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {
-            case DataRepr.Enum(v, a) => MakeEnum(v, a)
-            case DataRepr.Struct(a) => MakeStruct(a)
-            case DataRepr.NewType => MakeStruct(1)
-            case DataRepr.ZeroNat => ZeroNat
-            case DataRepr.SuccNat => SuccNat
+            case Some(dr) =>
+              dr match {
+                case DataRepr.Enum(v, a, f) => MakeEnum(v, a, f)
+                case DataRepr.Struct(a) => MakeStruct(a)
+                case DataRepr.NewType => MakeStruct(1)
+                case DataRepr.ZeroNat => ZeroNat
+                case DataRepr.SuccNat => SuccNat
+              }
+            case None =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(s"could not find $cons in global data types")
+                // $COVERAGE-ON$
           })
         case TypedExpr.Global(pack, notCons: Bindable, _, _) =>
           Monad[F].pure(Global(pack, notCons))
@@ -234,6 +256,47 @@ object Matchless {
           (loop(arg), branches.traverse { case (p, te) => loop(te).map((p, _)) })
             .tupled
             .flatMap { case (a, b) => matchExpr(a, makeAnon, b) }
+      }
+
+    /*
+     * A simple pattern is either:
+     * 1. one that has no binding what-so-ever
+     * 2. a total binding to a given name
+     * 3. or we return None indicating not one of these
+     */
+    def maybeSimple(p: Pattern[(PackageName, Constructor), Type]): Option[Either[Bindable, Unit]] =
+      p match {
+        case Pattern.WildCard => Some(Right(()))
+        case Pattern.Literal(_) => Some(Right(()))
+        case Pattern.Var(v) => Some(Left(v))
+        case Pattern.Named(v, p) =>
+          maybeSimple(p) match {
+            case Some(Right(_)) => Some(Left(v))
+            case _ => None
+          }
+        case Pattern.StrPat(s) =>
+          s match {
+            case NonEmptyList(Pattern.StrPart.WildStr, Nil) => Some(Right(()))
+            case NonEmptyList(Pattern.StrPart.NamedStr(n), Nil) => Some(Left(n))
+            case _ => None
+          }
+        case Pattern.ListPat(l) =>
+          l match {
+            case Pattern.ListPart.WildList :: Nil => Some(Right(()))
+            case Pattern.ListPart.NamedList(n) :: Nil => Some(Left(n))
+            case _ => None
+          }
+        case Pattern.Annotation(p, _) => maybeSimple(p)
+        case Pattern.PositionalStruct(_, ps) =>
+          ps.traverse(maybeSimple).flatMap { inners =>
+            if (inners.forall(_ === Right(()))) Some(Right(()))
+            else None
+          }
+        case Pattern.Union(h, t) =>
+          (h :: t.toList).traverse(maybeSimple).flatMap { inners =>
+            if (inners.forall(_ === Right(()))) Some(Right(()))
+            else None
+          }
       }
 
     // return the check expression for the check we need to do, and the list of bindings
@@ -267,7 +330,6 @@ object Matchless {
               case Pattern.StrPart.WildStr => StrPart.WildStr
               case Pattern.StrPart.LitStr(s) => StrPart.LitStr(s)
             }
-
 
           muts.map { binds =>
             val ms = binds.map(_._2)
@@ -363,20 +425,28 @@ object Matchless {
           // we assume the patterns have already been optimized
           // so that useless total patterns have been replaced with _
           type Locals = Chain[(LocalAnonMut, Expr)]
-          def asStruct(getter: Int => Expr): WriterT[F, Locals, UnionMatch] = {
+          def asStruct(getter: Int => CheapExpr): WriterT[F, Locals, UnionMatch] = {
             // we have an and of a series of ors:
             // (m1 + m2 + m3) * (m4 + m5 + m6) ... =
             // we need to multiply them all out into a single set of ors
-            def operate(pat: Pattern[(PackageName, Constructor), Type], idx: Int): WriterT[F, Locals, UnionMatch] = {
-              for {
-                nm <- WriterT.valueT[F, Locals, Long](makeAnon)
-                lam = LocalAnonMut(nm)
-                um <- WriterT.valueT[F, Locals, UnionMatch](doesMatch(lam, pat))
-                // if this is a total match, we don't need to do the getter at all
-                chain = if (um == wildMatch) Chain.empty else Chain.one((lam, getter(idx)))
-                _ <- WriterT.tell[F, Locals](chain)
-              } yield um
-            }
+            def operate(pat: Pattern[(PackageName, Constructor), Type], idx: Int): WriterT[F, Locals, UnionMatch] =
+              maybeSimple(pat) match {
+                case Some(_) =>
+                  // if we have a simple pattern, we have at most one name inside
+                  // so we will do a single get, otherwise we will have to
+                  // get many times to set up each variable
+                  WriterT.valueT[F, Locals, UnionMatch](doesMatch(getter(idx), pat))
+                case None =>
+                  // we make an anonymous variable and write to that:
+                  for {
+                    nm <- WriterT.valueT[F, Locals, Long](makeAnon)
+                    lam = LocalAnonMut(nm)
+                    um <- WriterT.valueT[F, Locals, UnionMatch](doesMatch(lam, pat))
+                    // if this is a total match, we don't need to do the getter at all
+                    chain = if (um == wildMatch) Chain.empty else Chain.one((lam, getter(idx)))
+                    _ <- WriterT.tell[F, Locals](chain)
+                  } yield um
+                }
 
             val ands: WriterT[F, Locals, List[UnionMatch]] =
               params.zipWithIndex
@@ -403,47 +473,58 @@ object Matchless {
               }
 
           variantOf(pack, cname) match {
-            case DataRepr.Struct(size) => forStruct(size)
-            case DataRepr.NewType => forStruct(1)
-            case DataRepr.Enum(vidx, size) =>
-              // if we match the variant, then treat it as a struct
-              makeAnon.flatMap { nm =>
-                val res = LocalAnonMut(nm)
-                asStruct { pos => GetEnumElement(res, vidx, pos, size) }
-                  .run
-                  .map { case (anons, ums) =>
-                    // now we need to set up the binds if the variant is right
-                    val vmatch = CheckVariant(arg, vidx) && SetMut(res, arg)
-                    // we need to check that the variant is right first
-                    val cond1 = anons.foldLeft(vmatch) { case (c, (mut, expr)) =>
-                      c && SetMut(mut, expr)
-                    }
+            case Some(dr) =>
+              dr match {
+                case DataRepr.Struct(size) => forStruct(size)
+                case DataRepr.NewType => forStruct(1)
+                case DataRepr.Enum(vidx, size, f) =>
+                  // if we match the variant, then treat it as a struct
+                  makeAnon.flatMap { nm =>
+                    val res = LocalAnonMut(nm)
+                    asStruct { pos => GetEnumElement(res, vidx, pos, size) }
+                      .run
+                      .map { case (anons, ums) =>
+                        // now we need to set up the binds if the variant is right
+                        // TODO: on a final branch we don't need to check the variant
+                        // since due to totality we know it has to match. To
+                        // leverage that we need to know if this doesMatch is
+                        // the last possible candidate match
+                        val vmatch = CheckVariant(arg, vidx, size, f) && SetMut(res, arg)
+                        // we need to check that the variant is right first
+                        val cond1 = anons.foldLeft(vmatch) { case (c, (mut, expr)) =>
+                          c && SetMut(mut, expr)
+                        }
 
-                    ums.map { case (pre, cond, b) =>
-                      val pre1 = anons.foldLeft(pre) { case (pre, (mut, _)) => mut :: pre }
-                      (res :: pre1, cond1 && cond, b)
-                    }
+                        ums.map { case (pre, cond, b) =>
+                          val pre1 = anons.foldLeft(pre) { case (pre, (mut, _)) => mut :: pre }
+                          (res :: pre1, cond1 && cond, b)
+                        }
+                      }
+                  }
+                case DataRepr.ZeroNat =>
+                  Monad[F].pure(NonEmptyList((Nil, EqualsNat(arg, DataRepr.ZeroNat), Nil), Nil))
+                case DataRepr.SuccNat =>
+                  params match {
+                    case single :: Nil =>
+                      // if we match, we recur on the inner pattern and prev of current
+                      val check = EqualsNat(arg, DataRepr.SuccNat)
+                      for {
+                        nm <- makeAnon
+                        loc = LocalAnonMut(nm)
+                        prev = PrevNat(arg)
+                        rest <- doesMatch(loc, single)
+                      } yield rest.map { case (preLets, cond, res) => (loc ::preLets, check && SetMut(loc, prev) && cond, res) }
+                    case other =>
+                      // $COVERAGE-OFF$
+                      throw new IllegalStateException(s"expected typechecked Nat to only have one param, found: $other in $pat")
+                      // $COVERAGE-ON$
                   }
               }
-            case DataRepr.ZeroNat =>
-              Monad[F].pure(NonEmptyList((Nil, EqualsNat(arg, DataRepr.ZeroNat), Nil), Nil))
-            case DataRepr.SuccNat =>
-              params match {
-                case single :: Nil =>
-                  // if we match, we recur on the inner pattern and prev of current
-                  val check = EqualsNat(arg, DataRepr.SuccNat)
-                  for {
-                    nm <- makeAnon
-                    loc = LocalAnonMut(nm)
-                    prev = PrevNat(arg)
-                    rest <- doesMatch(loc, single)
-                  } yield rest.map { case (preLets, cond, res) => (loc ::preLets, check && SetMut(loc, prev) && cond, res) }
-                case other =>
-                  // $COVERAGE-OFF$
-                  throw new IllegalStateException(s"expected typechecked Nat to only have one param, found: $other in $pat")
-                  // $COVERAGE-ON$
-              }
-          }
+            case None =>
+              // $COVERAGE-OFF$
+              throw new IllegalStateException(s"could not find $cons in global data types")
+                // $COVERAGE-ON$
+            }
         case Pattern.Union(h, ts) =>
           (h :: ts).traverse(doesMatch(arg, _)).map { nene =>
             val nel = nene.flatten

@@ -398,7 +398,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               }
             }
             else left :: Nil
-      }
+        }
 
       def isTop(p: Pattern[Cons, Type]): Boolean =
         p match {
@@ -535,8 +535,16 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case _ if patternSetOps.isTop(p) => WildCard
       case strPat@StrPat(_) =>
         StrPat.fromSeqPattern(strPat.toSeqPattern)
-      case lp@ListPat(_) =>
-        ListPat.fromSeqPattern(lp.toSeqPattern)
+      case ListPat(parts) =>
+        val p1 =
+          parts.map {
+            case Pattern.ListPart.WildList | Pattern.ListPart.NamedList(_) =>
+              Pattern.ListPart.WildList
+            case Pattern.ListPart.Item(p) =>
+              Pattern.ListPart.Item(normalizePattern(p))
+          }
+
+        ListPat.fromSeqPattern(ListPat(p1).toSeqPattern)
       case PositionalStruct(n, params) =>
         val normParams = params.map(normalizePattern)
         structToList(n, normParams) match {

@@ -8,7 +8,9 @@ import cats.Order
 import cats.implicits._
 import scala.concurrent.ExecutionContext
 
-import rankn.TypeEnv
+import Identifier.Constructor
+
+import rankn.{DataRepr, TypeEnv}
 
 case class PackageMap[A, B, C, +D](toMap: Map[PackageName, Package[A, B, C, D]]) {
   def +[D1 >: D](pack: Package[A, B, C, D1]): PackageMap[A, B, C, D1] =
@@ -16,6 +18,25 @@ case class PackageMap[A, B, C, +D](toMap: Map[PackageName, Package[A, B, C, D]])
 
   def ++[D1 >: D](packs: Iterable[Package[A, B, C, D1]]): PackageMap[A, B, C, D1] =
     packs.foldLeft(this: PackageMap[A, B, C, D1])(_ + _)
+
+  def getDataRepr(implicit ev: D <:< Program[TypeEnv[Any], Any, Any]): (PackageName, Constructor) => Option[DataRepr] = {
+    (pname, cons) =>
+      toMap.get(pname)
+        .flatMap { pack =>
+          ev(pack.program)
+            .types
+            .getConstructor(pname, cons)
+            .map(_._2.dataRepr(cons))
+        }
+  }
+
+  def allExternals(implicit ev: D <:< Program[TypeEnv[Any], Any, Any]): Map[PackageName, List[Identifier.Bindable]] =
+    toMap
+      .iterator
+      .map { case (name, pack) =>
+        (name, ev(pack.program).externalDefs)
+      }
+      .toMap
 }
 
 object PackageMap {

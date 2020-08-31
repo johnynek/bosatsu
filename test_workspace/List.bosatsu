@@ -1,8 +1,11 @@
 package Bosatsu/List
 
-import Bosatsu/Bool [ not ]
-import Bosatsu/Nat [ Nat, Zero, Succ ]
-export [ eq_List, exists, head, for_all, size, sum, sort, uncons, zip ]
+from Bosatsu/Bool import not
+from Bosatsu/Nat import Nat, Zero, Succ
+export any, eq_List, exists, head, for_all, size, sum, sort, uncons, zip
+
+def any(as: List[Bool]) -> Bool:
+    as matches [*_, True, *_]
 
 def for_all(xs: List[a], fn: a -> Bool) -> Bool:
   recur xs:
@@ -129,5 +132,12 @@ tests = TestSuite("List tests", [
   unconsTest,
   zipTest,
   sortTest,
+  Assertion(any([]) matches False, "any([])"),
+  Assertion(any([True]) matches True, "any([True])"),
+  Assertion(any([False]) matches False, "any([False])"),
+  Assertion(any([False, False]) matches False, "any([False, False])"),
+  Assertion(any([False, True]) matches True, "any([False, True])"),
+  Assertion(any([True, False]) matches True, "any([True, False])"),
+  Assertion(any([True, True]) matches True, "any([True, True])"),
   ])
 

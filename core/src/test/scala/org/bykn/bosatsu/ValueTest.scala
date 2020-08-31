@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
-import org.scalacheck.Gen
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalacheck.{Arbitrary, Gen}
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import Value._
 
@@ -9,6 +9,7 @@ class ValueTest extends FunSuite {
   import GenValue.genValue
 
   implicit val generatorDrivenConfig =
+    //PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 500)
 
   test("SumValue.toString is what we expect") {
@@ -64,5 +65,51 @@ class ValueTest extends FunSuite {
     }
 
     assert(VList.unapply(VList.VNil) == Some(Nil))
+  }
+
+  val stringValue: Gen[List[(String, Value)]] =
+    Gen.listOf(Gen.zip(Arbitrary.arbitrary[String], genValue))
+
+  test("VDict round trips") {
+    forAll(stringValue) { svs =>
+      val dictv = VDict.fromStringKeys(svs)
+      val svsDedup = svs.toMap.toList.sortBy(_._1)
+
+      dictv match {
+        case VDict(asMap) =>
+          val asList = asMap.toList.map {
+            case (ExternalValue(s: String), v) => (s, v)
+            case kv =>
+              sys.error(s"expected a string key, found: $kv")
+          }
+          assert(asList == svsDedup)
+        case other =>
+          assert(false, s"$other didn't match VDict")
+      }
+    }
+  }
+
+  test("Tuple.fromList/unapply works") {
+    forAll(Gen.listOf(genValue)) { vs =>
+      Tuple.fromList(vs) match {
+        case Tuple(items) =>
+          assert(items == vs)
+        case notTuple =>
+          assert(fail, s"not tuple: $notTuple")
+      }
+    }
+  }
+
+  test("strOrdFn round trips correctly") {
+    val ord = VDict.keyOrderingFromOrdFn(VDict.strOrdFn)
+
+    // the above should compare keys of tuples
+    forAll(stringValue) { svs =>
+      val svsSorted = svs.sortBy(_._1)
+
+      val sortByOrd = svs.sortBy { case (k, _) => ExternalValue(k): Value }(ord)
+
+      assert(svsSorted == sortByOrd)
+    }
   }
 }

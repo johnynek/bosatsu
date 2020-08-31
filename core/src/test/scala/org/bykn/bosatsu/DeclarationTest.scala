@@ -2,9 +2,11 @@ package org.bykn.bosatsu
 
 import org.scalacheck.Gen
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 
 import Identifier.Bindable
+
+import Parser.unsafeParse
 
 class DeclarationTest extends FunSuite {
 
@@ -12,7 +14,7 @@ class DeclarationTest extends FunSuite {
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = 200)
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 200 else 20)
     //PropertyCheckConfiguration(minSuccessful = 50)
 
   implicit val emptyRegion: Region = Region(0, 0)
@@ -162,18 +164,18 @@ class DeclarationTest extends FunSuite {
       )
 
     regressions.foreach { case (decl, v) =>
-      val d = TestParseUtils.parseUnsafe(Declaration.parser(""), decl)
-      val bind = TestParseUtils.parseUnsafe(Identifier.bindableParser, v)
+      val d = unsafeParse(Declaration.parser(""), decl)
+      val bind = unsafeParse(Identifier.bindableParser, v)
       law(bind, d)
     }
   }
 
   test("test example substitutions") {
     def law(bStr: String, to: String, in: String, res: Option[String]) = {
-      val d1 = TestParseUtils.parseUnsafe(Declaration.parser(""), to)
-      val d0 = TestParseUtils.parseUnsafe(Declaration.parser(""), in)
-      val resD = res.map(TestParseUtils.parseUnsafe(Declaration.parser(""), _))
-      val b = TestParseUtils.parseUnsafe(Identifier.bindableParser, bStr)
+      val d1 = unsafeParse(Declaration.parser(""), to)
+      val d0 = unsafeParse(Declaration.parser(""), in)
+      val resD = res.map(unsafeParse(Declaration.parser(""), _))
+      val b = unsafeParse(Identifier.bindableParser, bStr)
 
 
       assert(Declaration.substitute(b, d1.toNonBinding, d0) == resD)
@@ -192,9 +194,9 @@ x"""))
 
   test("test freeVars with explicit examples") {
     def law(decls: String, frees: List[String], all: List[String]) = {
-      val binds = frees.map(TestParseUtils.parseUnsafe(Identifier.bindableParser, _))
-      val alls = all.map(TestParseUtils.parseUnsafe(Identifier.bindableParser, _))
-      val decl = TestParseUtils.parseUnsafe(Declaration.parser(""), decls)
+      val binds = frees.map(unsafeParse(Identifier.bindableParser, _))
+      val alls = all.map(unsafeParse(Identifier.bindableParser, _))
+      val decl = unsafeParse(Declaration.parser(""), decls)
 
       assert(decl.freeVars.toSet == binds.toSet, "freeVars don't match")
       assert(decl.allNames.toSet == alls.toSet, "allVars don't match")

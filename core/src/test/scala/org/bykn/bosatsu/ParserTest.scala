@@ -4,12 +4,12 @@ import cats.data.NonEmptyList
 import Parser.Combinators
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.{Doc, Document}
 
 import cats.implicits._
 import fastparse.all._
-import Parser.Indy
+import Parser.{optionParse, unsafeParse, Indy}
 
 import Generators.{shrinkDecl, shrinkStmt}
 
@@ -23,22 +23,6 @@ trait ParseFns {
     else {
       val s = s0.updated(idx, '*')
       ("...(" + s.drop(idx - 20).take(20) + ")...")
-    }
-
-  def parseUnsafe[A](p: Parser[A], str: String): A =
-    p.parse(str) match {
-      case Parsed.Success(a, idx) =>
-        assert(idx == str.length)
-        a
-      case Parsed.Failure(exp, idx, extra) =>
-        sys.error(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
-    }
-  def parseOpt[A](p: Parser[A], str: String): Option[A] =
-    p.parse(str) match {
-      case Parsed.Success(a, idx) if idx == str.length =>
-        Some(a)
-      case _ =>
-        None
     }
 
   def firstDiff(s1: String, s2: String): String =
@@ -111,12 +95,8 @@ abstract class ParserTestBase extends FunSuite with ParseFns {
         assert(idx == atIdx, msg)
     }
 
-  def config: PropertyCheckConfiguration = {
-    if (System.getenv("PLATFORM") == "js")
-      PropertyCheckConfiguration(minSuccessful = 10)
-    else
-      PropertyCheckConfiguration(minSuccessful = 300)
-  }
+  def config: PropertyCheckConfiguration =
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 300 else 10)
 }
 
 class ParserTest extends ParserTestBase {
@@ -480,6 +460,13 @@ class ParserTest extends ParserTestBase {
 
     expectFail(Operators.operatorToken, "=", 0)
   }
+
+  test("test import statements") {
+    roundTrip(Import.parser, "from Foo import bar, baz")
+    roundTrip(Import.parser, "from Foo import bar as quux, baz")
+    roundTrip(Import.parser, "from Foo import bar as quux, baz")
+    roundTrip(Import.parser, "from Foo import (\nbar as quux,\nbaz)")
+  }
 }
 
 /**
@@ -641,7 +628,7 @@ x""")
         case Some(pat) =>
           // if we convert to string this parses the same as a pattern:
           val decStr = dec.toDoc.render(80)
-          val parsePat = parseUnsafe(Pattern.bindParser, decStr)
+          val parsePat = unsafeParse(Pattern.bindParser, decStr)
           assert(pat == parsePat)
       }
     }
@@ -661,7 +648,7 @@ x""")
 
     def law2(dec: Declaration.NonBinding) = {
       val decStr = dec.toDoc.render(80)
-      val parsePat = parseOpt(Pattern.matchParser, decStr)
+      val parsePat = optionParse(Pattern.matchParser, decStr)
       (Declaration.toPattern(dec), parsePat) match {
         case (None, None) => succeed
         case (Some(p0), Some(p1)) => assert(p0 == p1)
@@ -676,8 +663,8 @@ x""")
 
 
     def testEqual(decl: String) = {
-      val dec = parseUnsafe(Declaration.parser(""), decl).asInstanceOf[Declaration.NonBinding]
-      val patt = parseUnsafe(Pattern.matchParser, decl)
+      val dec = unsafeParse(Declaration.parser(""), decl).asInstanceOf[Declaration.NonBinding]
+      val patt = unsafeParse(Pattern.matchParser, decl)
       Declaration.toPattern(dec) match {
         case Some(p2) => assert(p2 == patt)
         case None => fail(s"could not convert $decl to pattern")
@@ -1160,8 +1147,8 @@ external def foo2(i: Integer, b: a) -> String
     roundTrip(Package.parser(None),
 """
 package Foo/Bar
-import Baz [Bippy]
-export [foo]
+from Baz import Bippy
+export foo
 
 foo = 1
 """)
@@ -1215,24 +1202,24 @@ def z:
 
     expectFail(Package.parser(None),
       """package Foo
-import Baz [ a, , b]
+from Baz import a, , b
 
 x = 1
-""", 28)
+""", 31)
 
     expectFail(Package.parser(None),
       """package Foo
-export [ x, , y ]
+export x, , y
 
 x = 1
-""", 24)
+""", 22)
 
     expectFail(Package.parser(None),
       """package Foo
-export [ x, , ]
+export x, ,
 
 x = 1
-""", 24)
+""", 22)
     expectFail(Package.parser(None),
       """package Foo
 

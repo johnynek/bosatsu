@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import org.scalatest.prop.PropertyChecks.{forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import org.typelevel.jawn.ast.{JValue, JParser}
 

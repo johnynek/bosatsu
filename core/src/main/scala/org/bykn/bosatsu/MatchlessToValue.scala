@@ -9,6 +9,8 @@ import scala.collection.mutable.{LongMap => MLongMap}
 import Identifier.Bindable
 import Value._
 
+import cats.implicits._
+
 object MatchlessToValue {
   import Matchless._
 
@@ -36,7 +38,7 @@ object MatchlessToValue {
 
   def makeCons(c: ConsExpr): Value =
     c match {
-      case MakeEnum(variant, arity) =>
+      case MakeEnum(variant, arity, _) =>
         if (arity == 0) SumValue(variant, UnitValue)
         else if (arity == 1) {
           FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
@@ -171,7 +173,7 @@ object MatchlessToValue {
           case And(ix1, ix2) =>
             boolExpr(ix1).and(boolExpr(ix2))
 
-          case CheckVariant(enumV, idx) =>
+          case CheckVariant(enumV, idx, _, _) =>
             loop(enumV).map(_.asSum.variant == idx)
 
           case SetMut(LocalAnonMut(mut), expr) =>
@@ -407,6 +409,9 @@ object MatchlessToValue {
             Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
               fn.applyAll(args)
             }
+          case Let(Right((n1, r)), loopFn@LoopFn(_, n2, _, _, _), Local(n3)) if (n1 === n3) && (n1 === n2) && r.isRecursive =>
+            // LoopFn already correctly handles recursion
+            loop(loopFn)
           case Let(localOrBind, value, in) =>
             val valueF = loop(value)
             val inF = loop(in)
