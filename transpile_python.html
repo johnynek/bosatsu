@@ -2,7 +2,7 @@
 <html class="no-js" lang="en">
 
 <head>
-<title>Bosatsu Design Philosophy and Goals · Bosatsu Documentation</title>
+<title>Compiling to Python · Bosatsu Documentation</title>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="description" content='paradox docs'/>
@@ -35,11 +35,11 @@
 </div>
 <div class="nav-toc">
 <ul>
-  <li><a href="design.html" class="active page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
   <li><a href="getting_started.html" class="page">Getting started</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="transpile_python.html" class="active page">Compiling to Python</a></li>
 </ul>
 </div>
 
@@ -76,11 +76,11 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 </div>
 <div class="nav-toc">
 <ul>
-  <li><a href="design.html" class="active page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
   <li><a href="getting_started.html" class="page">Getting started</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
   <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
-  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
+  <li><a href="transpile_python.html" class="active page">Compiling to Python</a></li>
 </ul>
 </div>
 
@@ -97,7 +97,7 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-breadcrumbs">
 <ul>
   <li><a href="index.html">Bosatsu Documentation</a></li>
-  <li>Bosatsu Design Philosophy and Goals</li>
+  <li>Compiling to Python</li>
 </ul>
 </div>
 </div>
@@ -105,46 +105,18 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
-<h1><a href="#bosatsu-design-philosophy-and-goals" name="bosatsu-design-philosophy-and-goals" class="anchor"><span class="anchor-link"></span></a>Bosatsu Design Philosophy and Goals</h1>
-<p>Bosatsu has three main themes:</p>
-<ol>
-  <li>correctness</li>
-  <li>simplicity</li>
-  <li>usability</li>
-</ol>
-<p>These are roughly in priority order: correctness is more important than simplicity: we don&rsquo;t want to sacrifice correctness for usability. Similarly, generally, we prefer simplicity to usability. Some features which can increase usability make a language considerably more complex. In general, we will be skeptical of such trades.</p>
-<h2><a href="#relationship-to-python" name="relationship-to-python" class="anchor"><span class="anchor-link"></span></a>Relationship to Python</h2>
-<p>The main user experience of the language is inspired by Python. It is a bit of a mystery that despite Python being currently one of the fastest growing languages, as well as already being incredibly popular, that it has not been more influential in language design. No other language in the top 20 most commonly used languages is very syntactically similar to Python. Put succinctly, we want Bosatsu to by a minimalistic statically typed Python.</p>
-<p>A goal in that package relationships should be clear in Bosatsu. All external names must be explicitly imported, and all values are private unless exported. To see the dependencies between packages no type inference is required.</p>
-<h2><a href="#problem-domain-for-bosatsu" name="problem-domain-for-bosatsu" class="anchor"><span class="anchor-link"></span></a>Problem domain for Bosatsu</h2>
-<p>In the current programming landscape, the vast majority of code is either in Turing complete languages or very anemic data-structure languages (JSON, YAML, TOML). Bosatsu is exploring an intermediate space. Bosatsu is not designed as a general purpose language. Bosatsu is a total language: all functions return values. This rules out both infinite loops and non-explicit failure possibilities (exceptions, crashes, etc&hellip;). The goal of Bosatsu is somewhat similar to Google&rsquo;s <a href="https://github.com/bazelbuild/starlark">Starlark</a> language, a Python like language for configuration and embedded applications. Starlark is used to configure bazel builds, but you can imagine configuring systems currently configured with yaml or json, or replacing general purpose languages in systems configured with those (e.g. Scala&rsquo;s sbt is configured with scala).</p>
-<h2><a href="#differences-with-starlark" name="differences-with-starlark" class="anchor"><span class="anchor-link"></span></a>Differences with Starlark</h2>
-<p>The biggest three differences between Bosatsu and Starlark are: 1. Bosatsu is statically typed 1. all values are immutable 1. there are no side-effects.</p>
-<p>The smaller differences come from adding features found in functional programming that Python lacks: a more powerful anonymous function syntax as well as the ability to define enums similar to Rust.</p>
+<h1><a href="#compiling-to-python" name="compiling-to-python" class="anchor"><span class="anchor-link"></span></a>Compiling to Python</h1>
+<p>Bosatsu can currently be interpretted using the <code>eval</code> subcommand, or it can be compiled to Python using the <code>transpile</code> subcommand.</p>
+<p>For instance, to compile all our test code into Python:</p>
+<pre><code>./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --lang Python --outdir pyout
+</code></pre>
+<p>Then in the pyout directory we will find one Python file for each Bosatsu package.</p>
 <div class="source-github">
-The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/design.md">here</a>.
+The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/transpile_python.md">here</a>.
 </div>
 
-<div class="nav-next">
-<p><strong>Next:</strong> <a href="getting_started.html">Getting started</a></p>
-</div>
 </div>
 <div class="large-3 show-for-large column" data-sticky-container>
-<nav class="sidebar sticky" data-sticky data-anchor="docs" data-sticky-on="large">
-<div class="page-nav">
-<div class="nav-title">On this page:</div>
-<div class="nav-toc">
-<ul>
-  <li><a href="design.html#bosatsu-design-philosophy-and-goals" class="header">Bosatsu Design Philosophy and Goals</a>
-  <ul>
-    <li><a href="design.html#relationship-to-python" class="header">Relationship to Python</a></li>
-    <li><a href="design.html#problem-domain-for-bosatsu" class="header">Problem domain for Bosatsu</a></li>
-    <li><a href="design.html#differences-with-starlark" class="header">Differences with Starlark</a></li>
-  </ul></li>
-</ul>
-</div>
-</div>
-</nav>
 </div>
 </div>
 

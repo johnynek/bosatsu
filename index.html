@@ -36,7 +36,10 @@
 <div class="nav-toc">
 <ul>
   <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="getting_started.html" class="page">Getting started</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
 </ul>
 </div>
 
@@ -74,7 +77,10 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="nav-toc">
 <ul>
   <li><a href="design.html" class="page">Bosatsu Design Philosophy and Goals</a></li>
+  <li><a href="getting_started.html" class="page">Getting started</a></li>
   <li><a href="language_guide.html" class="page">Language Guide</a></li>
+  <li><a href="generating_json.html" class="page">Generating JSON from Bosatsu Values</a></li>
+  <li><a href="transpile_python.html" class="page">Compiling to Python</a></li>
 </ul>
 </div>
 
@@ -94,6 +100,35 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
 <div class="page-content row">
 <div class="small-12 large-9 column" id="docs">
 <h1><a href="#bosatsu-documentation" name="bosatsu-documentation" class="anchor"><span class="anchor-link"></span></a>Bosatsu Documentation</h1>
+<p>Bosatsu (菩薩) is the transliteration in Japanese of the sanskrit bodhisattva. A bodhisattva is someone who can reach enlightenment but decides not to, to help others achieve that goal. &ndash; Wikipedia</p>
+<p>Bosatsu is a simple, non-turing complete language designed for configuration, queries and scripting. It borrows from <a href="https://www.python.org/">Python</a>, <a href="https://www.haskell.org/">Haskell</a>, <a href="https://hackage.haskell.org/package/dhall">Dhall</a> and <a href="https://www.rust-lang.org/en-US/">Rust</a>.</p>
+<p>Here is a working Bosatsu program to solve the first <a href="https://projecteuler.net/">Project Euler</a> problem:</p>
+<pre><code>package Euler/One
+
+# see:
+# https://projecteuler.net/problem=1
+# Find the sum of all the multiples of 3 or 5 below 1000.
+
+operator == = eq_Int
+operator % = mod_Int
+
+def operator ||(x, y):
+  True if x else y
+
+def keep(i):
+  (i % 3 == 0) || (i % 5 == 0)
+
+def sum(as): as.foldLeft(0, add)
+
+# here is the pytthon version:
+# &gt;&gt;&gt; sum(i for i in xrange(1000) if keep_fn(i))
+# 233168
+#
+# bosatsu version here
+computed = sum([i for i in range(1000) if keep(i)])
+
+test = Assertion(computed == 233168, &quot;expected 233168&quot;)
+</code></pre>
 <p>Bosatsu is a new language with the following main features:</p>
 <ol>
   <li>a highly Python-inspired syntax including function definition, literal integers and strings, literal lists, list comprehensions, tuples and (string key) dictionaries. Generally, if a syntax is possible to support in the current type system with immutable values, we generally intend to support it.</li>
@@ -103,7 +138,12 @@ C16.952,7,17,6.553,17,6c0-0.553-0.048-1-0.6-1H3.6C3.048,5,3,5.447,3,6C3,6.553,3.
   <li>sum types, which we call enums following Rust.</li>
   <li>a package system with explicit import and export syntax.</li>
 </ol>
-<p>There are also some un-features, or items we don&rsquo;t currently and may never support 1. There is very limited recursion. We only allow recursion which can never be used to make an  infinite loop. 1. Data structures can only be recursive in covariant positions (not the  arguments of functions), and recursive functions have to be a certain form that will always  terminate 1. There is no <code>while</code> syntax. The closest we have are tail-recursive functions which recurse on sub-values of the inputs. There is a design sketch of automatically translating for loops on lists into folds <a href="https://github.com/johnynek/bosatsu/issues/20">issue 20</a>.</p>
+<p>There are also some un-features, or items we don&rsquo;t currently and may never support</p>
+<ol>
+  <li>There is very limited recursion. We only allow recursion which can never be used to make an  infinite loop.</li>
+  <li>Data structures can only be recursive in covariant positions (not the  arguments of functions), and recursive functions have to be a certain form that will always  terminate</li>
+  <li>There is no <code>while</code> syntax. The closest we have are tail-recursive functions which recurse on sub-values of the inputs. There is a design sketch of automatically translating for loops on lists into folds <a href="https://github.com/johnynek/bosatsu/issues/20">issue 20</a>.</li>
+</ol>
 <div class="source-github">
 The source code for this page can be found <a href="https://github.com/johnynek/bosatsu/tree/master/docs/src/main/paradox/index.md">here</a>.
 </div>
