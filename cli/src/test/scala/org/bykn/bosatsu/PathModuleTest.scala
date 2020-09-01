@@ -204,39 +204,4 @@ class PathModuleTest extends FunSuite {
       case other => fail(s"unexpeced: $other")
     }
   }
-
-  import PathModule.MainCommand.LetFreeEvaluate
-  import PathModule.MainCommand.PathGen
-  import PathModule.MainCommand.MainIdentifier
-  import PathModule.MainCommand.PackageResolver
-  import PathModule.Output
-  import java.nio.file.{Path => JPath}
-  import java.nio.file.{Paths => JPaths}
-  import cats.effect.IO
-
-  def letFreeTest(fileName: String, packageName: String) = NonEmptyList.fromList(packageName.split("/").toList) match {
-    case None => fail(s"bad packageName: $packageName")
-    case Some(pn) => LetFreeEvaluate(
-      PathGen.Direct[IO, JPath](JPaths.get(s"test_workspace/${fileName}.bosatsu")),
-      MainIdentifier.FromPackage(PackageName(pn), None),
-      PathGen.Combine[IO, JPath](Nil),
-      LocationMap.Colorize.Console,
-      PackageResolver.ExplicitOnly
-    ).run.map { 
-      case res@Output.LetFreeEvaluationResult(lfe, tpe, _, _) => {
-        val v = res.value(None)
-        val test = Test.fromValue(v)
-        assert(test.assertions > 0)
-        assert(test.failures == None)
-      }
-    }.unsafeRunSync()
-  }
-
-  test("simple let free evaluate") {
-    letFreeTest("Simple", "Bosatsu/Simple")
-  }
-  
-  test("euler1 let free evaluate") {
-    letFreeTest("euler1", "Euler/One")
-  }
 }
