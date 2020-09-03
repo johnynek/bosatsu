@@ -115,18 +115,23 @@ object LetFreeEvaluation {
     lazy val toStructStruct = nvToStructImpl(this, rankn.DataFamily.Struct)
     lazy val toStructNewType = nvToStructImpl(this, rankn.DataFamily.NewType)
 
-    def toStruct(df: rankn.DataFamily): Option[(Int, List[LetFreeValue])] = df match {
-      case rankn.DataFamily.Nat => toStructNat
-      case rankn.DataFamily.Enum => toStructEnum
-      case rankn.DataFamily.Struct => toStructStruct
-      case rankn.DataFamily.NewType => toStructNewType
-    }
+    def toStruct(df: rankn.DataFamily): Option[(Int, List[LetFreeValue])] =
+      df match {
+        case rankn.DataFamily.Nat     => toStructNat
+        case rankn.DataFamily.Enum    => toStructEnum
+        case rankn.DataFamily.Struct  => toStructStruct
+        case rankn.DataFamily.NewType => toStructNewType
+      }
 
     implicit val extEnv: ExtEnv
     implicit val cache: Cache
   }
 
-  case class LazyValue(expression: LetFreeExpression, scope: List[LetFreeValue], value: Eval[Value])(implicit extEnvArg: ExtEnv, cacheArg: Cache)
+  case class LazyValue(
+      expression: LetFreeExpression,
+      scope: List[LetFreeValue],
+      value: Eval[Value]
+  )(implicit extEnvArg: ExtEnv, cacheArg: Cache)
       extends LetFreeValue {
     def cleanedScope: List[(Int, LetFreeValue)] =
       expression.varSet.toList.sorted.map { n => (n, scope(n)) }
@@ -135,7 +140,10 @@ object LetFreeEvaluation {
     implicit val cache = cacheArg
   }
 
-  case class ComputedValue(value: Value)(implicit extEnvArg: ExtEnv, cacheArg: Cache) extends LetFreeValue {
+  case class ComputedValue(value: Value)(
+      implicit extEnvArg: ExtEnv,
+      cacheArg: Cache
+  ) extends LetFreeValue {
     implicit val extEnv = extEnvArg
     implicit val cache = cacheArg
   }
@@ -149,41 +157,49 @@ object LetFreeEvaluation {
   implicit def nvToStruct(
       implicit extEnv: ExtEnv,
       cache: Cache
-  ): (LetFreeValue, rankn.DataFamily) => Option[(Int, List[LetFreeValue])] = { case (nv, df) => nvToStructImpl(nv, df) }
-  
-  def nvToStructImpl(nv: LetFreeValue, df: rankn.DataFamily)(implicit extEnv: ExtEnv, cache: Cache) = {
-      nv match {
-        case ComputedValue(v) =>
-          valueToStruct(v, df).map {
-            case (n, lst) => (n, lst.map(vv => ComputedValue(vv)))
-          }
-        case LazyValue(expr, scope, value) =>
-          expr match {
-            case LetFreeExpression.Struct(n, lst, df) =>
-              Some((n, lst.zipWithIndex.map { case (ne, i) => 
+  ): (LetFreeValue, rankn.DataFamily) => Option[(Int, List[LetFreeValue])] = {
+    case (nv, df) => nvToStructImpl(nv, df)
+  }
+
+  def nvToStructImpl(
+      nv: LetFreeValue,
+      df: rankn.DataFamily
+  )(implicit extEnv: ExtEnv, cache: Cache) = {
+    nv match {
+      case ComputedValue(v) =>
+        valueToStruct(v, df).map {
+          case (n, lst) => (n, lst.map(vv => ComputedValue(vv)))
+        }
+      case LazyValue(expr, scope, value) =>
+        expr match {
+          case LetFreeExpression.Struct(n, lst, df) =>
+            Some((n, lst.zipWithIndex.map {
+              case (ne, i) =>
                 // There is a possible optimization here where we don't need to evaluate the whole struct just for an arg
                 LazyValue(ne, scope, value.map { v => v.structArgs(df)(i) })
-              }))
-            case LetFreeExpression.App(fn, arg) =>
-                applyApplyable(
-                  evalToApplyable(LazyValue(fn, scope, Eval.later { evalToValue(fn, scope)})),
-                  LazyValue(arg, scope, Eval.later {evalToValue(arg, scope)}),
-                  Some(value)
-                ).toStruct(df)
-            case LetFreeExpression.ExternalVar(p, n, tpe) =>
-              ComputedValue(extEnv(n).value).toStruct(df)
-            case LetFreeExpression.Recursion(LetFreeExpression.Lambda(expr)) =>
-              LazyValue(expr, nv :: scope, value).toStruct(df)
-            case LetFreeExpression.LambdaVar(index) =>
-              scope(index).toStruct(df)
-            case mtch @ LetFreeExpression.Match(_, _) =>
-              simplifyMatch(mtch, scope).toStruct(df)
-            case other =>
-              sys.error(
-                s"Type checking should mean this isn't a lambda or a literal: $other"
-              )
-          }
-      }
+            }))
+          case LetFreeExpression.App(fn, arg) =>
+            applyApplyable(
+              evalToApplyable(LazyValue(fn, scope, Eval.later {
+                evalToValue(fn, scope)
+              })),
+              LazyValue(arg, scope, Eval.later { evalToValue(arg, scope) }),
+              Some(value)
+            ).toStruct(df)
+          case LetFreeExpression.ExternalVar(p, n, tpe) =>
+            ComputedValue(extEnv(n).value).toStruct(df)
+          case LetFreeExpression.Recursion(LetFreeExpression.Lambda(expr)) =>
+            LazyValue(expr, nv :: scope, value).toStruct(df)
+          case LetFreeExpression.LambdaVar(index) =>
+            scope(index).toStruct(df)
+          case mtch @ LetFreeExpression.Match(_, _) =>
+            simplifyMatch(mtch, scope).toStruct(df)
+          case other =>
+            sys.error(
+              s"Type checking should mean this isn't a lambda or a literal: $other"
+            )
+        }
+    }
   }
   implicit def nvToList(
       implicit extEnv: ExtEnv,
@@ -218,9 +234,9 @@ object LetFreeEvaluation {
         )
     }
     val expr = loop(
-        scope.length,
-        LetFreeExpression.Struct(0, Nil, rankn.DataFamily.Enum)
-      )
+      scope.length,
+      LetFreeExpression.Struct(0, Nil, rankn.DataFamily.Enum)
+    )
     LazyValue(
       expr,
       scope,
@@ -236,21 +252,27 @@ object LetFreeEvaluation {
   def nvToV(lfv: LetFreeValue)(implicit extEnv: ExtEnv, cache: Cache): Value =
     lfv match {
       case LazyValue(_, _, eval) => eval.value
-      case ComputedValue(value) => value
+      case ComputedValue(value)  => value
     }
 
-  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV) => Value)(implicit extEnv: ExtEnv, cache: Cache)
-      extends Value.FnValue.Arg {
+  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV) => Value)(
+      implicit extEnv: ExtEnv,
+      cache: Cache
+  ) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
       toExprFn(ComputedValue(v), None, None)
     }
   }
 
-  case class LetFreeFnValue(lambda: LetFreeExpression.Lambda, scope: List[LetFreeValue])(implicit extEnv: ExtEnv, cache: Cache)
+  case class LetFreeFnValue(
+      lambda: LetFreeExpression.Lambda,
+      scope: List[LetFreeValue]
+  )(implicit extEnv: ExtEnv, cache: Cache)
       extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
-      evalToValue(lambda.expr, ComputedValue(v) :: scope)(extEnv, cache)}
-  }      
+      evalToValue(lambda.expr, ComputedValue(v) :: scope)(extEnv, cache)
+    }
+  }
 
   def attemptExprFn(
       v: Value
@@ -283,24 +305,26 @@ object LetFreeEvaluation {
         }
       }
     case Right((LetFreeExpression.Lambda(expr), scope)) =>
-      LazyValue(expr, arg :: scope, value.getOrElse(Eval.later {evalToValue(expr, arg::scope)}))
+      LazyValue(expr, arg :: scope, value.getOrElse(Eval.later {
+        evalToValue(expr, arg :: scope)
+      }))
   }
 
   def fnValueToLetFree(value: Value) = value match {
     case fnValue: Value.FnValue =>
       fnValue.arg match {
         case LetFreeFnValue(lambda, scope) => Right((lambda, scope))
-        case _ => Left(fnValue)
+        case _                             => Left(fnValue)
       }
-      case value => Left(value)
+    case value => Left(value)
   }
 
   def evalToApplyable(
       nv: LetFreeValue
   )(implicit extEnv: ExtEnv, cache: Cache): Applyable = {
-  
+
     val value = nv match {
-      case ComputedValue(value) => value
+      case ComputedValue(value)       => value
       case LazyValue(ne, scope, eval) => eval.value
     }
     fnValueToLetFree(value)
@@ -320,7 +344,9 @@ object LetFreeEvaluation {
               nvToList(extEnv, cache),
               nvFromList(extEnv, cache)
             )
-            .apply(LazyValue(mtch.arg, scope, Eval.later {evalToValue(mtch.arg, scope)}), Map()) match {
+            .apply(LazyValue(mtch.arg, scope, Eval.later {
+              evalToValue(mtch.arg, scope)
+            }), Map()) match {
             case LetFreeConversion.Matches(env) => Some((pat, env, result))
             case LetFreeConversion.NoMatch      => None
             case LetFreeConversion.NotProvable =>
@@ -331,9 +357,9 @@ object LetFreeEvaluation {
 
     ((patEnv.size - 1) to 0 by -1)
       .map(patEnv.get(_).get)
-      .foldLeft[LetFreeValue](LazyValue(result, scope, Eval.later { evalToValue(result, scope) })) { (fn, arg) =>
-        applyApplyable(evalToApplyable(fn), arg)
-      }
+      .foldLeft[LetFreeValue](LazyValue(result, scope, Eval.later {
+        evalToValue(result, scope)
+      })) { (fn, arg) => applyApplyable(evalToApplyable(fn), arg) }
   }
 
   def evalToValue(
@@ -342,13 +368,15 @@ object LetFreeEvaluation {
   )(implicit extEnv: ExtEnv, cache: Cache): Value = ne match {
     case LetFreeExpression.App(fn, arg) => {
       val applyable = evalToApplyable(ComputedValue(evalToValue(fn, scope)))
-      nvToV(applyApplyable(applyable, LazyValue(arg, scope, Eval.later {evalToValue(arg, scope)} )))
+      nvToV(applyApplyable(applyable, LazyValue(arg, scope, Eval.later {
+        evalToValue(arg, scope)
+      })))
     }
     case LetFreeExpression.ExternalVar(p, n, tpe) => extEnv(n).value
     case mtch @ LetFreeExpression.Match(_, _) =>
       nvToV(simplifyMatch(mtch, scope))
     case LetFreeExpression.LambdaVar(index) => nvToV(scope(index))
-    case lambda@LetFreeExpression.Lambda(_) =>
+    case lambda @ LetFreeExpression.Lambda(_) =>
       new Value.FnValue(
         LetFreeFnValue(lambda, scope)
       )
@@ -379,7 +407,9 @@ object LetFreeEvaluation {
     case LetFreeExpression.Recursion(lambda) => {
       lambda match {
         case LetFreeExpression.Lambda(expr) => {
-          val nextScope = LazyValue(ne, scope, Eval.later {evalToValue(ne, scope)}) :: scope
+          val nextScope = LazyValue(ne, scope, Eval.later {
+            evalToValue(ne, scope)
+          }) :: scope
           evalToValue(expr, nextScope)
         }
         case _ => sys.error("A Recursion should always contain a Lambda")
