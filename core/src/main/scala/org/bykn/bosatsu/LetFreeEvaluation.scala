@@ -158,7 +158,7 @@ object LetFreeEvaluation {
       implicit extEnv: ExtEnv,
       cache: Cache
   ): (LetFreeValue, rankn.DataFamily) => Option[(Int, List[LetFreeValue])] = {
-    case (nv, df) => nvToStructImpl(nv, df)
+    case (nv, df) => nv.toStruct(df)
   }
 
   def nvToStructImpl(
