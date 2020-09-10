@@ -441,7 +441,7 @@ object LetFreeConversion {
       case Recursion(Lambda(innerExpr)) if(innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true)) =>
         applyLambdaSubstituion(innerExpr, None, 0)
       // eta reduction
-      case Lambda(App(innerExpr, LambdaVar(0))) if innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true) =>
+      case Lambda(App(innerExpr, LambdaVar(0))) /* if innerExpr.maxLambdaVar.map(_ < 0).getOrElse(true) */ =>
         applyLambdaSubstituion(innerExpr, Some(LambdaVar(0)), 0)
       case _ => expr
     }
@@ -587,7 +587,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
       val lambdaVars = al.arg :: env._2
       val env1 = env._1.mapValues { case ExpressionKeyTag(lfe, children) =>
-        LetFreeExpressionTag(LetFreeConversion.incrementLambdaVars(lfe, -1), children)
+        LetFreeExpressionTag(LetFreeConversion.incrementLambdaVars(lfe, 0), children)
       }
       val nextEnv: Env = (env1 ++ lambdaVars.zipWithIndex
         .reverse
@@ -691,7 +691,13 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
     val (pattern, expr) = b
     val names = pattern.names.collect { case b: Identifier.Bindable => b }
     val lambdaVars = names ++ env._2
-    val nextEnv = (env._1 ++ lambdaVars.zipWithIndex
+    val env1 = env._1.mapValues { case ExpressionKeyTag(lfe, children) =>
+      LetFreeExpressionTag(
+        names.foldLeft(lfe) { 
+          (expr, _) => LetFreeConversion.incrementLambdaVars(lfe, 0)
+        } , children)
+    }
+    val nextEnv = (env1 ++ lambdaVars.zipWithIndex
       .reverse
       .toMap
       .mapValues(idx => LetFreeExpressionTag(LetFreeExpression.LambdaVar(idx), Set[LetFreeExpression]())),
