@@ -25,21 +25,11 @@ object LetFreeEvaluation {
         case rankn.DataFamily.Nat => {
           val vExt = v.asExternal
           val length: BigInteger = vExt.toAny.asInstanceOf[BigInteger]
-          def loop(n: BigInteger, res: (Int, List[Value])): (Int, List[Value]) =
-            if (n.compareTo(BigInteger.valueOf(0)) < 1) {
-              res
-            } else {
-              loop(
-                n.add(BigInteger.valueOf(-1)),
-                (
-                  1,
-                  List(
-                    Value.SumValue(res._1, Value.ProductValue.fromList(res._2))
-                  )
-                )
-              )
-            }
-          Some(loop(length, (0, Nil)))
+          if (length.compareTo(BigInteger.ZERO) <= 0) {
+            Some((0, Nil))
+          } else {
+            Some((1, List(Value.ExternalValue(length.add(BigInteger.valueOf(-1))))))
+          }
         }
         case rankn.DataFamily.Struct => {
           val vProd = v.asProduct
