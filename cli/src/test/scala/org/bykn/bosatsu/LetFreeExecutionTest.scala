@@ -68,4 +68,9 @@ class LetFreeExecutionTest extends FunSuite {
   test("euler6 let free evaluate") {
     letFreeTest(List("euler6", "List", "Bool", "Nat"), "Euler/P6")
   }
+
+  test("euler7 let free evaluate") {
+    letFreeTest(List("euler7", "List", "Bool", "Nat"), "Euler/P7")
+  }
+
 }
