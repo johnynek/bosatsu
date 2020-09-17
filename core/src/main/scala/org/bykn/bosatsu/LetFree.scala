@@ -389,7 +389,7 @@ object LetFreeConversion {
 
   def findMatch(m: LetFreeExpression.Match) =
     m.branches.collectFirst(Function.unlift( { case (pat, result) =>
-      maybeBind[LetFreeExpression](pat).apply(m.arg, Map()) match {
+      maybeBind[LetFreeExpression](pat).apply(m.arg, Map.empty) match {
         case Matches(env) => Some(Some((pat, env, result)))
         case NotProvable => Some(None)
         case NoMatch => None
@@ -563,7 +563,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
 
   def letFreeConvertLocal(v: Local[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
-      env._1.get(v.name) match {
+      env.get(v.name) match {
         case None => norm(p, v.name, v.tag, env).map { lfe =>
           val lfeTag = getTag(lfe)._2
           v.copy(tag=(v.tag, lfeTag))
@@ -574,7 +574,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
 
   def letFreeConvertGlobal(v: Global[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
-      env._1.get(v.name) match {
+      env.get(v.name) match {
         case None => norm(p, v.name, v.tag, env).map { ne =>
           val lfeTag = getTag(ne)._2
           v.copy(tag=(v.tag, lfeTag))
@@ -585,16 +585,10 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
 
   def letFreeConvertAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
-      val lambdaVars = al.arg :: env._2
-      val env1 = (env._1 - al.arg).mapValues { case ExpressionKeyTag(lfe, children) =>
+      val nextEnv = (env - al.arg).mapValues { case ExpressionKeyTag(lfe, children) =>
         LetFreeExpressionTag(LetFreeConversion.incrementLambdaVars(lfe, 0), children)
-      }
-      val nextEnv: Env = (lambdaVars.zipWithIndex
-        .reverse
-        .toMap
-        .mapValues(idx => LetFreeExpressionTag(LetFreeExpression.LambdaVar(idx), Set[LetFreeExpression]())) 
-        ++ env1,
-        lambdaVars)
+      } + (al.arg -> LetFreeExpressionTag(LetFreeExpression.LambdaVar(0), Set()))
+
       for {
         eExpr <- letFreeConvertExpr(al.expr, nextEnv, p)
         ne = normalOrderReduction(LetFreeExpression.Lambda(eExpr.tag._2.lfe))
@@ -617,29 +611,23 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
       l.recursive match {
         case RecursionKind.Recursive =>
-          val lambdaVars = l.arg :: env._2
-          val env1 = (env._1 - l.arg).mapValues { case ExpressionKeyTag(lfe, children) =>
+          val nextEnv = (env - l.arg).mapValues { case ExpressionKeyTag(lfe, children) =>
             LetFreeExpressionTag(LetFreeConversion.incrementLambdaVars(lfe, 0), children)
-          }
-          val nextEnv = (lambdaVars.zipWithIndex
-            .reverse
-            .toMap
-            .mapValues(idx => LetFreeExpressionTag(LetFreeExpression.LambdaVar(idx), Set[LetFreeExpression]()))
-            ++ env1,
-            lambdaVars)
+          } + (l.arg -> LetFreeExpressionTag(LetFreeExpression.LambdaVar(0), Set()))
+
           val neWrapper = {ne: LetFreeExpression => normalOrderReduction(LetFreeExpression.Recursion(LetFreeExpression.Lambda(ne)))}
           val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
           for {
             ee <- letFreeConvertExpr(l.expr, nextEnv, p)
             eeNe = neWrapper(ee.tag._2.lfe)
             eeNeTag = LetFreeExpressionTag(eeNe, ee.tag._2.children)
-            nextNextEnv: Env = (env._1 + (l.arg -> eeNeTag), env._2)
+            nextNextEnv: Env = env + (l.arg -> eeNeTag)
             eIn <- letFreeConvertExpr(l.in, nextNextEnv, p)
           } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
         case _ =>
           for {
             ee <- letFreeConvertExpr(l.expr, env, p)
-            nextEnv: Env = (env._1 + (l.arg -> ee.tag._2), env._2)
+            nextEnv: Env = env + (l.arg -> ee.tag._2)
             eIn <- letFreeConvertExpr(l.in, nextEnv, p)
           } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
       }
@@ -696,20 +684,18 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
     val (pattern, expr) = b
     val names = pattern.names.collect { case b: Identifier.Bindable => b }
 
-    val env1 = (env._1 -- names).mapValues { case ExpressionKeyTag(lfe, children) =>
-      LetFreeExpressionTag(
-        names.foldLeft(lfe) { 
-          (expr, _) => LetFreeConversion.incrementLambdaVars(expr, 0)
-        } , children)
-    }
-
-    val lambdaVars = names ++ env._2
-    val lv = lambdaVars.zipWithIndex
+    val lv = names.zipWithIndex
       .reverse
       .toMap
       .mapValues(idx => LetFreeExpressionTag(LetFreeExpression.LambdaVar(idx), Set[LetFreeExpression]()))
 
-    val nextEnv = (lv ++ env1, lambdaVars)
+    val nextEnv = lv ++ ((env -- names).mapValues { case ExpressionKeyTag(lfe, children) =>
+      LetFreeExpressionTag(
+        names.foldLeft(lfe) { 
+          (expr, _) => LetFreeConversion.incrementLambdaVars(expr, 0)
+        } , children)
+    })
+
     for {
       innerExpr <- letFreeConvertExpr(expr, nextEnv, p)
       normalExpr = names.foldLeft(innerExpr.tag._2.lfe) { case (expr, _) => LetFreeExpression.Lambda(expr) }
@@ -721,7 +707,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
     Program[TypeEnv[Variance], TypedExpr[(Declaration, LetFreeConversion.LetFreeExpressionTag)], Any]] = {
     for {
       lets <- pack.program.lets.map {
-        case (name, recursive, expr) => letFreeConvertNameKindLet(name, recursive, expr, pack, (Map(), Nil)).map((name, recursive, _))
+        case (name, recursive, expr) => letFreeConvertNameKindLet(name, recursive, expr, pack, Map()).map((name, recursive, _))
       }.sequence
     } yield pack.program.copy(
       lets  = lets
@@ -743,7 +729,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
 
   private type SourceRef = Ref[Declaration]
   private type ResultingRef = Ref[(Declaration,  LetFreeExpressionTag)]
-  private type Env = (Map[Identifier, LetFreeExpressionTag], List[Identifier])
+  private type Env = Map[Identifier, LetFreeExpressionTag]
   private type NormState[A] = State[Map[(PackageName, Identifier), TypedExpr[(Declaration, LetFreeExpressionTag)]], A]
 
   private def norm(pack: Package.Inferred, item: Identifier, t: Declaration, env: Env): NormState[ResultingRef] =
@@ -757,7 +743,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
         case NameKind.Import(from, orig) =>
           // we reset the environment in the other package
           for {
-            imported <- norm(pm.toMap(from.name), orig, t, (Map.empty, Nil))
+            imported <- norm(pm.toMap(from.name), orig, t, Map.empty)
             lfeTag = getTag(imported)._2
           } yield Left((item, (t, lfeTag)))
         case NameKind.ExternalDef(pn, n, defType) =>
@@ -778,12 +764,10 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
         case None =>
           recursive match {
             case RecursionKind.Recursive =>
-              val lambdaVars = name :: env._2
-              val env1 = env._1 - name
-              val nextEnv = (lambdaVars.zipWithIndex
-                .toMap
-                .mapValues(idx => LetFreeExpressionTag(LetFreeExpression.LambdaVar(idx), Set[LetFreeExpression]())) ++ env1,
-                lambdaVars)
+              val nextEnv = (env - name).mapValues { case ExpressionKeyTag(lfe, children) =>
+                LetFreeExpressionTag(LetFreeConversion.incrementLambdaVars(lfe, 0), children)
+              } + (name -> LetFreeExpressionTag(LetFreeExpression.LambdaVar(0), Set()))
+
               for {
                 res <- letFreeConvertExpr(expr, nextEnv, pack)
                 tag = res.tag
