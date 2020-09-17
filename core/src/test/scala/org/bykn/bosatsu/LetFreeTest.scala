@@ -359,14 +359,14 @@ out = match Buzz:
     normalExpressionTest(
       List("""
 package Imp/First
-export [fizz]
+export fizz
 
 def fizz(f, s):
   (s, f)
 """,
 """
 package Imp/Second
-import Imp/First [fizz]
+from Imp/First import fizz
 
 out=fizz(1,2)
 """
@@ -376,13 +376,13 @@ out=fizz(1,2)
     normalExpressionTest(
       List("""
 package Imp/First
-import Imp/Second [fizz]
+from Imp/Second import fizz
 
 out=fizz(1,2)
 """,
 """
 package Imp/Second
-export [fizz]
+export fizz
 
 def fizz(f, s):
   (s, f)

@@ -1386,7 +1386,7 @@ a = 1
 """, """
 package B
 
-import A [ a ]
+from A import a
 
 main = a"""), "B") { case PackageError.UnknownImportName(_, _, _, _) => () }
 
@@ -1394,7 +1394,7 @@ main = a"""), "B") { case PackageError.UnknownImportName(_, _, _, _) => () }
       List("""
 package B
 
-import A [ a ]
+from A import a
 
 main = a"""), "B") { case PackageError.UnknownImportPackage(_, _) => () }
 
@@ -1571,12 +1571,12 @@ main = fn(0, 1, 2)
       List("""
 package A
 
-export [ foo ]
+export foo
 
 foo = 3
 """, """
 package B
-import A [ fooz ]
+from A import fooz
 
 baz = fooz
 """), "B") { case te@PackageError.UnknownImportName(_, _, _, _) =>
@@ -1588,13 +1588,13 @@ baz = fooz
       List("""
 package A
 
-export [ foo ]
+export foo
 
 foo = 3
 bar = 3
 """, """
 package B
-import A [ bar ]
+from A import bar
 
 baz = bar
 """), "B") { case te@PackageError.UnknownImportName(_, _, _, _) =>
@@ -2239,7 +2239,7 @@ main = Foo(1, "2")
       List("""
 package Err
 
-import Bosatsu/Predef [ foldLeft ]
+from Bosatsu/Predef import foldLeft
 
 main = 1
 """), "Err") { case sce@PackageError.DuplicatedImport(_) =>
@@ -2253,7 +2253,7 @@ main = 1
       """
         |package Err
         |
-        |import Bosatsu/Predef [ foldLeft ]
+        |from Bosatsu/Predef import foldLeft
         |
         |main = 1
         |""".stripMargin

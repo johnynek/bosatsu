@@ -3,10 +3,10 @@ package org.bykn.bosatsu
 import cats.Functor
 import cats.implicits._
 import org.typelevel.paiges.{Doc, Document}
-import org.bykn.fastparse_cats.StringInstances._
 
 import fastparse.all._
 
+import FastParseCats.StringInstances._
 import Parser.{maybeSpace, Indy}
 import Indy.IndyMethods
 

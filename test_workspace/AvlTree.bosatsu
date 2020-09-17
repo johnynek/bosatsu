@@ -1,6 +1,6 @@
 package AvlTree
 
-export [ Tree, Module, module ]
+export Tree, Module, module
 
 enum Tree[a]:
     Empty, Branch(size: Int, height: Int, key: a, left: Tree[a], right: Tree[a])

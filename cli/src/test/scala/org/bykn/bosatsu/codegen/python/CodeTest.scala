@@ -3,7 +3,7 @@ package org.bykn.bosatsu.codegen.python
 import cats.data.NonEmptyList
 import java.math.BigInteger
 import org.scalacheck.Gen
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import org.python.core.{ParserFacade => JythonParserFacade}
 
@@ -140,6 +140,14 @@ class CodeTest extends FunSuite {
           items <- Gen.listOfN(sz, recExpr)
         } yield Code.Call(Code.Apply(fn, items))
 
+      val genClass =
+        for {
+          nm <- genIdent
+          exCnt <- Gen.choose(0, 3)
+          ex <- Gen.listOfN(exCnt, genIdent)
+          body <- recStmt
+        } yield Code.ClassDef(nm, ex, body)
+
       val genBlock = genNel(5, recStmt).map(Code.Block(_))
       val genRet = recVL.map(Code.toReturn(_))
       val genAlways = recVL.map(Code.always(_))
@@ -166,6 +174,7 @@ class CodeTest extends FunSuite {
         (1, genBlock),
         (1, genIf),
         (1, genCall),
+        (1, genClass),
         (1, genAlways)
       )
     }
@@ -439,5 +448,14 @@ else:
         case other => assert(false, other.toString)
       }
     }
+  }
+
+  test("(a == b) and (b == c) renders correctly") {
+    val left = Code.Op(Code.Ident("a"), Code.Const.Eq, Code.Ident("b"))
+    val right = Code.Op(Code.Ident("b"), Code.Const.Eq, Code.Ident("c"))
+    val and = left.evalAnd(right)
+
+    assert(Code.toDoc(and).renderTrim(80) == "(a == b) and (b == c)")
+    assert(Code.toDoc(Code.Ident("z").evalAnd(and)).renderTrim(80) == "z and (a == b) and (b == c)")
   }
 }

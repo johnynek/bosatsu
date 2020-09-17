@@ -7,7 +7,7 @@ import java.nio.file.{Paths, Files}
 import org.bykn.bosatsu.{PackageMap, MatchlessFromTypedExpr, Parser, Package, LocationMap, PackageName}
 import org.scalacheck.Gen
 import org.scalatest.FunSuite
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.python.util.PythonInterpreter
 import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
 
@@ -88,7 +88,7 @@ class PythonGenTest extends FunSuite {
     val bosatsuPM = compileFile(natPathBosatu)
     val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
 
-    val packMap = PythonGen.renderAll(matchless, Map.empty)
+    val packMap = PythonGen.renderAll(matchless, Map.empty, Map.empty)
     val natDoc = packMap(PackageName.parts("Bosatsu", "Nat"))._2
 
     intr.execfile(isfromString(natDoc.renderTrim(80)), "nat.py")
@@ -130,7 +130,7 @@ class PythonGenTest extends FunSuite {
     val bosatsuPM = compileFile(path)
     val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
 
-    val packMap = PythonGen.renderAll(matchless, Map.empty)
+    val packMap = PythonGen.renderAll(matchless, Map.empty, Map.empty)
     val doc = packMap(pn)._2
 
     intr.execfile(isfromString(doc.renderTrim(80)), "test.py")
@@ -162,10 +162,10 @@ class PythonGenTest extends FunSuite {
       "tests")
   }
 
-  test("test IntTests") {
+  test("test PredefTests") {
     runBoTests(
-      "test_workspace/IntTests.bosatsu",
-      PackageName.parts("IntTests"),
+      "test_workspace/PredefTests.bosatsu",
+      PackageName.parts("PredefTests"),
       "test")
   }
 }

@@ -4,7 +4,7 @@ import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
 import fastparse.all._
 import org.typelevel.paiges.Doc
 
-import org.bykn.fastparse_cats.StringInstances._
+import FastParseCats.StringInstances._
 import cats.implicits._
 
 object Parser {
@@ -335,6 +335,17 @@ object Parser {
     def parensLines1Cut: P[NonEmptyList[T]] = {
       val nel = item.nonEmptyListOfWs(maybeSpacesAndLines)
       P("(" ~/ maybeSpacesAndLines ~ nel ~ maybeSpacesAndLines ~ ")")
+    }
+
+    /**
+     * either: a, b, c, ..
+     * or (a, b, c, ) where we allow newlines:
+     * return true if we do have parens
+     */
+    def itemsMaybeParens: P[(Boolean, NonEmptyList[T])] = {
+      val withP = item.parensLines1Cut.map((true, _))
+      val noP = item.nonEmptyListOfWs(maybeSpace).map((false, _))
+      withP | noP
     }
 
     /**

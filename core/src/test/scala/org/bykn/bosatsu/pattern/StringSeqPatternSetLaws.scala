@@ -2,7 +2,7 @@ package org.bykn.bosatsu.pattern
 
 import cats.Eq
 import org.scalacheck.Gen
-import org.scalatest.prop.PropertyChecks.PropertyCheckConfiguration
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.PropertyCheckConfiguration
 
 import cats.implicits._
 

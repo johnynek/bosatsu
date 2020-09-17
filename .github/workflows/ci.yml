@@ -5,19 +5,48 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-java@v6"
+        uses: "olafurpg/setup-scala@v6"
         with:
           java-version: "${{matrix.java}}"
-      - run: "sbt \"++${{matrix.scala}} coreJVM/test; cli/test; doc\""
-      - run: "./test_cli.sh"
+      - name: "run JVM tests"
+        run: |
+          sbt "++${{matrix.scala}} coreJVM/test; cli/test; doc; paradox"
+          ./test_cli.sh
     strategy:
       matrix:
         java:
           - '8'
           - '11'
         scala:
-          - '2.11.12'
-          - '2.12.9'
+          - '2.12.11'
+    timeout-minutes: 30
+  testPY:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "coursier/cache-action@v2"
+      - name: "java ${{matrix.java}} setup"
+        uses: "olafurpg/setup-scala@v6"
+        with:
+          java-version: "${{matrix.java}}"
+      - name: "python setup"
+        uses: "actions/setup-python@v2"
+        with:
+          python-version: "${{matrix.python}}"
+      - name: "build assembly"
+        run: "sbt \"++${{matrix.scala}} cli/assembly\""
+      - name: "generate python code"
+        run: "./bosatsuj transpile --input_dir test_workspace/ --package_root test_workspace/ --lang python --outdir pyout"
+      - name: "run python tests"
+        run: "python3 -m unittest discover pyout -v --pattern \"*.py\""
+    strategy:
+      matrix:
+        java:
+          - '11'
+        scala:
+          - '2.12.11'
+        python:
+          - '3.5'
     timeout-minutes: 30
   testJS:
     runs-on: ubuntu-latest
@@ -25,16 +54,17 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-java@v6"
+        uses: "olafurpg/setup-scala@v6"
         with:
           java-version: "${{matrix.java}}"
-      - run: "sbt \"++${{matrix.scala}} coreJS/test\""
+      - name: "run coreJS tests"
+        run: "sbt \"++${{matrix.scala}} coreJS/test\""
     strategy:
       matrix:
         java:
           - '11'
         scala:
-          - '2.12.9'
+          - '2.12.11'
     timeout-minutes: 30
   testWithCoverageReport:
     runs-on: ubuntu-latest
@@ -42,16 +72,42 @@ jobs:
       - uses: "actions/checkout@v2.1.0"
       - uses: "coursier/cache-action@v2"
       - name: "java ${{matrix.java}} setup"
-        uses: "olafurpg/setup-java@v6"
+        uses: "olafurpg/setup-scala@v6"
         with:
           java-version: "${{matrix.java}}"
-      - run: "sbt \"coverage; clean; coreJVM/test; cli/test; coverageReport\""
-      - run: "bash <(curl -s https://codecov.io/bash)"
+      - name: "run tests with coverage"
+        run: |
+          sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"
+          bash <(curl -s https://codecov.io/bash)
     strategy:
       matrix:
         java:
           - '8'
     timeout-minutes: 30
+  buildWithGraal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v2.1.0"
+      - uses: "coursier/cache-action@v2"
+      - name: "graalvm setup"
+        uses: "olafurpg/setup-scala@v6"
+        with:
+          java-version: "graalvm@20.1.0"
+      - name: "install native-image"
+        run: |
+          java -version
+          gu install native-image
+      - name: "build assembly jar and native image"
+        run: |
+          sbt "++${{matrix.scala}} cli/assembly"
+          ./build_native.sh
+      - name: "run bosatsu tests"
+        run: |
+          ./bosatsu test --input_dir test_workspace/ --package_root test_workspace/
+    strategy:
+      matrix:
+        scala:
+          - '2.12.11'
 name: ci
 on:
   pull_request: {}

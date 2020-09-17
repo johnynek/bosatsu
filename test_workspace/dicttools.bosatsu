@@ -1,6 +1,6 @@
 package DictTools
 
-export [ merge ]
+export merge
 
 def merge(left: Dict[k, v], right: Dict[k, v], fn: v -> v -> v) -> Dict[k, v]:
   right.items.foldLeft(left, \d, (k, v) ->

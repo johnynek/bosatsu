@@ -5,8 +5,9 @@ import Dependencies._
 lazy val commonSettings = Seq(
   organization := "org.bykn",
   version      := "0.1.0-SNAPSHOT",
-  addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.8"),
-  crossScalaVersions := Seq("2.11.12", "2.12.9"),
+  addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.11.0" cross CrossVersion.full),
+  scalaVersion := "2.12.11",
+  crossScalaVersions := Seq("2.12.11"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation",                      // Emit warning and location for usages of deprecated APIs.
@@ -77,7 +78,19 @@ lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
   .aggregate(core)
   .settings(
     commonSettings,
-    name := "bosatsu"
+    name := "bosatsu",
+  )
+
+lazy val docs = (project in file("docs"))
+  .enablePlugins(ParadoxPlugin)
+  .settings(
+    name := "paradox docs",
+    paradoxTheme := Some(builtinParadoxTheme("generic")),
+    paradoxProperties in Compile ++= Map(
+      "empty" -> "",
+      "version" -> version.value
+    ),
+    publish / skip := true
   )
 
 lazy val rootJVM = root.jvm
@@ -85,11 +98,16 @@ lazy val rootJS = root.js
 
 lazy val scalaReflect = Def.setting { "org.scala-lang" % "scala-reflect" % scalaVersion.value }
 
+lazy val headCommit = git.gitHeadCommit
+
 lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("base")).
+  enablePlugins(BuildInfoPlugin).
   settings(
     commonSettings,
     name := "bosatsu-base",
-    libraryDependencies += scalaReflect.value
+    libraryDependencies += scalaReflect.value,
+    buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion, headCommit),
+    buildInfoPackage := "org.bykn.bosatsu",
   )
 
 lazy val baseJS = base.js
@@ -124,7 +142,6 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         cats.value,
         decline.value,
         fastparse.value,
-        fastparseCats.value,
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,

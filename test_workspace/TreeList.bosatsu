@@ -1,7 +1,7 @@
 package TreeList
 
-import Bosatsu/List [ eq_List ]
-export [ TreeList, empty, cons, decons, head, get, fold, eq_TreeList ]
+from Bosatsu/List import eq_List
+export TreeList, empty, cons, decons, head, get, fold, eq_TreeList
 
 # implementation of O(1) cons/uncons O(log N) list-like data structure
 

@@ -95,7 +95,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   def lastTest(p: PackageName): Option[Eval[Value]] =
     for {
       pack <- pm.toMap.get(p)
-      name <- pack.program.lets.collect { case (name, _, te) if te.getType == Type.TestType => name }.lastOption
+      (name, _, _) <- Package.testValue(pack)
       value <- evaluate(p).get(name)
     } yield value
 

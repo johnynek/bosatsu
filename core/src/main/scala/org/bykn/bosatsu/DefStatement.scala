@@ -5,9 +5,9 @@ import cats.Applicative
 import cats.data.NonEmptyList
 import cats.implicits._
 import fastparse.all._
-import org.bykn.fastparse_cats.StringInstances._
 import org.typelevel.paiges.{ Doc, Document }
 
+import FastParseCats.StringInstances._
 import Identifier.{Bindable, Constructor}
 
 case class DefStatement[A, B](

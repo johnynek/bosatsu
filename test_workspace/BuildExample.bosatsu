@@ -1,6 +1,6 @@
 package BuildExample
 
-import BuildLibrary [ build, files, library, empty, LibArgs, build_all ]
+from BuildLibrary import build, files, library, empty, LibArgs, build_all
 
 lib1 = library(
   files(["file1.bosatsu", "file2.bosatsu"]),

@@ -5,7 +5,7 @@ import cats.Eq
 import cats.effect.{IO, Resource}
 import org.bykn.bosatsu.rankn.Type
 import org.scalacheck.Gen
-import org.scalatest.prop.PropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.FunSuite
 import scala.util.{Failure, Success, Try}
 import cats.implicits._
@@ -159,7 +159,7 @@ class TestProtoType extends FunSuite {
     TestUtils.testInferred(List(
 """package Foo
 
-export [bar]
+export bar
 
 bar = 1
 """

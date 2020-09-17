@@ -50,6 +50,9 @@ object Code {
     def evalTimes(that: Expression): Expression =
       eval(Const.Times, that)
 
+    def :=(vl: ValueLike): Statement =
+      addAssign(this, vl)
+
     def simplify: Expression
   }
 
@@ -143,6 +146,14 @@ object Code {
 
       case Call(ap) => toDoc(ap)
 
+      case ClassDef(name, ex, body) =>
+        val exDoc =
+          if (ex.isEmpty) Doc.empty
+          else par(Doc.intercalate(Doc.comma + Doc.space, ex.map(toDoc)))
+
+          Doc.text("class") + Doc.space + Doc.text(name.name) + exDoc + Doc.char(':') + (Doc.hardLine +
+            toDoc(body)).nested(4)
+
       case IfStatement(conds, Some(Pass)) =>
         toDoc(IfStatement(conds, None))
 
@@ -163,7 +174,7 @@ object Code {
 
       case Return(expr) => Doc.text("return ") + toDoc(expr)
 
-      case Assign(nm, expr) => Doc.text(nm.name) + Doc.text(" = ") + toDoc(expr)
+      case Assign(nm, expr) => toDoc(nm) + Doc.text(" = ") + toDoc(expr)
       case Pass => Doc.text("pass")
       case While(cond, body) =>
         Doc.text("while") + Doc.space + toDoc(cond) + Doc.char(':') + (Doc.hardLine + toDoc(body)).nested(4)
@@ -187,9 +198,6 @@ object Code {
     def simplify = this
   }
   case class Ident(name: String) extends Expression {
-    def :=(vl: ValueLike): Statement =
-      addAssign(this, vl)
-
     def simplify = this
   }
   // Binary operator used for +, -, and, == etc...
@@ -197,6 +205,7 @@ object Code {
     // operators like + can associate
     //
     def toDoc: Doc = {
+      // invariant: all items in right associate
       def loop(left: Expression, rights: NonEmptyList[(Operator, Expression)]): Doc =
         // a op1 b op2 c if op1 and op2 associate no need for a parens
         // left match {
@@ -208,13 +217,20 @@ object Code {
             else loop(Parens(left), rights)
           case leftNotOp =>
             rights.head match {
+              case (ol, or@Op(_, o2, _)) if !ol.associates(o2) =>
+                // we we can't break rights.head because the ops
+                // don't associate. We wrap or in Parens
+                val rights1 = (ol, Parens(or))
+                loop(leftNotOp, NonEmptyList(rights1, rights.tail))
               case (ol, Op(r1, o2, r2)) =>
-                loop(left, NonEmptyList((ol, r1), (o2, r2) :: rights.tail))
+                // maintain the invariant that all the rights associate
+                loop(leftNotOp, NonEmptyList((ol, r1), (o2, r2) :: rights.tail))
               case (ol, rightNotOp) =>
                 rights.tail match {
                   case Nil =>
                     maybePar(leftNotOp) + Doc.space + Doc.text(ol.name) + Doc.space + maybePar(rightNotOp)
                   case (o2, r2) :: rest =>
+                    // everything in rights associate
                     val leftDoc = maybePar(leftNotOp) + Doc.space + Doc.text(ol.name) + Doc.space
                     if (ol.associates(o2)) {
                       leftDoc + loop(rightNotOp, NonEmptyList((o2, r2), rest))
@@ -331,12 +347,15 @@ object Code {
         case Op(PyInt(a), Const.Eq, PyInt(b)) =>
           fromBoolean(a == b)
         case Op(a, Const.And, b) =>
-          (a, b) match {
-            case (Const.True, _) => b.simplify
-            case (_, Const.True) => a.simplify
-            case (Const.False, _) => Const.False
-            case (_, Const.False) => Const.False
-            case _ => this
+          a.simplify match {
+            case Const.True => b.simplify
+            case Const.False => Const.False
+            case a1 =>
+              b.simplify match {
+                case Const.True => a1
+                case Const.False => Const.False
+                case b1 => Op(a1, Const.And, b1)
+              }
           }
         case _ =>
           val l1 = left.simplify
@@ -442,11 +461,13 @@ object Code {
   /////////////////////////
 
   case class Call(sideEffect: Apply) extends Statement
+  // extends are really certain DotSelects, but we can't constrain that much
+  case class ClassDef(name: Ident, extendList: List[Expression], body: Statement) extends Statement
   case class Block(stmts: NonEmptyList[Statement]) extends Statement
   case class IfStatement(conds: NonEmptyList[(Expression, Statement)], elseCond: Option[Statement]) extends Statement
   case class Def(name: Ident, args: List[Ident], body: Statement) extends Statement
   case class Return(expr: Expression) extends Statement
-  case class Assign(variable: Ident, value: Expression) extends Statement
+  case class Assign(target: Expression, value: Expression) extends Statement
   case object Pass extends Statement
   case class While(cond: Expression, body: Statement) extends Statement
   case class Import(modname: String, alias: Option[Ident]) extends Statement
@@ -480,7 +501,7 @@ object Code {
     }
   }
 
-  def addAssign(variable: Ident, code: ValueLike): Statement =
+  def addAssign(variable: Expression, code: ValueLike): Statement =
     code match {
       case x: Expression =>
         Assign(variable, x)
@@ -610,6 +631,8 @@ object Code {
 
     val Zero = PyInt(BigInteger.ZERO)
     val One = PyInt(BigInteger.ONE)
+
+    val Unit = MakeTuple(Nil)
   }
 
   val python2Name: java.util.regex.Pattern =

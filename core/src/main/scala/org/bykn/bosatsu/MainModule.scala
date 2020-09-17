@@ -450,7 +450,15 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 .toList
 
             if (missingExternals.isEmpty) {
-              val docs = PythonGen.renderAll(cmp, extMap)
+              val tests = pm
+                .toMap
+                .iterator
+                .flatMap { case (n, pack) =>
+                  Package.testValue(pack).iterator.map { case (bn, _, _) => (n, bn) }
+                }
+                .toMap
+
+              val docs = PythonGen.renderAll(cmp, extMap, tests)
                 .iterator
                 .map { case (_, (path, doc)) =>
                   (path.map(_.name), doc)
@@ -1049,8 +1057,16 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         .orElse(Opts.subcommand("transpile", "transpile bosatsu into another language")(transpileOpt))
     }
 
-    def command: Command[MainCommand] =
-      Command("bosatsu", "a total and functional programming language")(opts)
+    def command: Command[MainCommand] = {
+      val versionInfo =
+        (s"version: ${BuildInfo.version}" ::
+          s"scala-version: ${BuildInfo.scalaVersion}" ::
+          (BuildInfo.gitHeadCommit.toList.map { sha => s"git-sha: ${sha}" })
+        )
+        .mkString("\n")
+
+      Command("bosatsu", s"a total and functional programming language\n\n$versionInfo")(opts)
+    }
   }
 
 }
