@@ -6,7 +6,7 @@ import java.nio.file.{Paths => JPaths}
 import cats.effect.IO
 import org.scalatest.FunSuite
 
-class LetFreeExecutionTest extends FunSuite {
+class LetFreeEvaluationTest extends FunSuite {
   import PathModule.MainCommand.LetFreeEvaluate
   import PathModule.MainCommand.PathGen
   import PathModule.MainCommand.MainIdentifier
