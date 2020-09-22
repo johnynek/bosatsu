@@ -290,6 +290,8 @@ object Type {
         case TyApply(ListType, t) => Some(t)
         case _ => None
       }
+
+    def apply(t: Type): Type = TyApply(ListType, t)
   }
 
   sealed abstract class Const

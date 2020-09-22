@@ -763,19 +763,29 @@ def fizz(f, s):
     )
   }
   test("external") {
-    /*
     normalExpressionTest(
       List(
-"""
+        """
 package Extern/Simple
 
 external def foo(x: String) -> List[String]
 
 out = foo
 """
-      ), "Extern/Simple",
-      ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "Simple")).get),Identifier.Name("foo"))
-    )
+      ),
+      "Extern/Simple",
+      ExternalVar(
+        PackageName(
+          NonEmptyList
+            .fromList(
+              List("Extern", "Simple")
+            )
+            .get
+        ),
+        Identifier.Name("foo"),
+        Type.Fun(Type.StrType, Type.ListT(Type.StrType))
+      )
+    ) /*
     normalExpressionTest(
       List(
 """
