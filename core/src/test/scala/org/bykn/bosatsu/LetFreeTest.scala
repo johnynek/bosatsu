@@ -5,7 +5,7 @@ import java.math.BigInteger
 import cats.data.NonEmptyList
 
 import rankn.Type
-import rankn.DataFamily._
+import rankn.DataFamily.{Enum, Struct => DFStruct}
 
 class LetFreeTest extends FunSuite {
   import TestUtils._
@@ -255,7 +255,15 @@ def result(x, c):
 out=result
 """
       ), "Match/Vars",
-        Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List(), Enum)), Enum)), Enum),Lambda(Lambda(Lambda(Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List(LambdaVar(1), Struct(0,List(), Enum)), Enum)), Enum)), Enum))))))))
+        Lambda(Match(
+          LambdaVar(0),
+          NonEmptyList.of(
+            (
+              PositionalStruct(None,List(Var(0), PositionalStruct(None,List(Var(1), PositionalStruct(None,List(), DFStruct)), DFStruct)), DFStruct),
+              Lambda(Lambda(Lambda(Struct(0,List(LambdaVar(2), Struct(0,List(LambdaVar(0), Struct(0,List(LambdaVar(1), Struct(0,List(), DFStruct)), DFStruct)), DFStruct)), DFStruct))))
+            )
+          )
+        ))
       )
 
     normalExpressionTest(
@@ -270,7 +278,7 @@ out=match Pair(1, "two"):
 
 """
       ), "Match/Structs",
-      Struct(0,List(Literal(Lit(3)), Literal(Lit.Str("two")), Literal(Lit(1))), Enum)
+      Struct(0,List(Literal(Lit(3)), Literal(Lit.Str("two")), Literal(Lit(1))), DFStruct)
     )
     normalExpressionTest(
       List("""
@@ -320,9 +328,9 @@ out = match ["a","b","c","d","e"]:
           Literal(Str("a")),
           Struct(0,List(
             Struct(1,List(Literal(Str("b")), Struct(1,List(Literal(Str("c")), Struct(1,List(Literal(Str("d")), Struct(1,List(Literal(Str("e")), Struct(0,List(), Enum)), Enum)), Enum)), Enum)), Enum),
-            Struct(0,List(), Enum)
-          ), Enum)
-        ), Enum)
+            Struct(0,List(), DFStruct)
+          ), DFStruct)
+        ), DFStruct)
       ), Enum)
 
     )
@@ -371,7 +379,7 @@ from Imp/First import fizz
 out=fizz(1,2)
 """
       ), "Imp/Second",
-      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List(), Enum)), Enum)), Enum)
+      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List(), DFStruct)), DFStruct)), DFStruct)
     )
     normalExpressionTest(
       List("""
@@ -388,7 +396,7 @@ def fizz(f, s):
   (s, f)
 """
       ), "Imp/First",
-      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List(), Enum)), Enum)), Enum)
+      Struct(0,List(Literal(Integer(BigInteger.valueOf(2))), Struct(0,List(Literal(Integer(BigInteger.valueOf(1))), Struct(0,List(), DFStruct)), DFStruct)), DFStruct)
     )
   }
   test("external") {
@@ -546,10 +554,10 @@ main = (rec_fn(lst1), rec_fn(lst1))
           App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(Some(0), Nil, Enum),Struct(1,List(), Enum)), (PositionalStruct(Some(1), List(WildCard, Var(0)), Enum),Lambda(App(LambdaVar(2), LambdaVar(0))))))))),Struct(1,List(Literal(Str("zooom")),Struct(0,List(), Enum)), Enum)),
           Struct(0,List(
             App(Recursion(Lambda(Lambda(Match(LambdaVar(0),NonEmptyList.of((PositionalStruct(Some(0), Nil, Enum),Struct(1,List(), Enum)),(PositionalStruct(Some(1), List(WildCard, Var(0)), Enum),Lambda(App(LambdaVar(2), LambdaVar(0))))))))),Struct(1,List(Literal(Str("zooom")), Struct(0,List(), Enum)), Enum)),
-            Struct(0,List(), Enum)
-          ), Enum)
+            Struct(0,List(), DFStruct)
+          ), DFStruct)
         )
-      , Enum)
+      , DFStruct)
     )
     normalExpressionTest(
       List("""
