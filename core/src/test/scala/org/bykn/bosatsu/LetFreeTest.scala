@@ -785,22 +785,31 @@ out = foo
         Identifier.Name("foo"),
         Type.Fun(Type.StrType, Type.ListT(Type.StrType))
       )
-    ) /*
+    )
     normalExpressionTest(
       List(
-"""
+        """
 package Extern/Apply
 
 external def foo(x: String) -> List[String]
 
 out = foo("bar")
 """
-    ), "Extern/Apply",
-    App(ExternalVar(PackageName(NonEmptyList.of("Extern", "Apply")),Identifier.Name("foo")),Literal(Str("bar")))
+      ),
+      "Extern/Apply",
+      App(
+        ExternalVar(
+          PackageName(NonEmptyList.of("Extern", "Apply")),
+          Identifier.Name("foo"),
+          Type.Fun(Type.StrType, Type.ListT(Type.StrType))
+        ),
+        Literal(Str("bar"))
+      )
     )
+
     normalExpressionTest(
       List(
-"""
+        """
 package Extern/Match
 
 external def foo(x: String) -> List[String]
@@ -809,9 +818,51 @@ out = match foo("bar"):
   [a, _, _]: a
   _: "boom"
 """
-    ), "Extern/Match",
-    Match(App(ExternalVar(PackageName(NonEmptyList.of(Extern, Match)),Name("foo")),Literal(Str("bar"))),NonEmptyList.of(PositionalStruct(Some(1),List(Var(0), PositionalStruct(Some(1),List(WildCard, PositionalStruct(Some(1),List(WildCard, PositionalStruct(Some(0),List()))))))),Lambda(LambdaVar(0))), (WildCard,Literal(Str("boom")))))
-     */
+      ),
+      "Extern/Match",
+      Match(
+        App(
+          ExternalVar(
+            PackageName(NonEmptyList.of("Extern", "Match")),
+            Identifier.Name("foo"),
+            Type.Fun(Type.StrType, Type.ListT(Type.StrType))
+          ),
+          Literal(Str("bar"))
+        ),
+        NonEmptyList.of(
+          (
+            PositionalStruct(
+              Some(1),
+              List(
+                Var(0),
+                PositionalStruct(
+                  Some(1),
+                  List(
+                    WildCard,
+                    PositionalStruct(
+                      Some(1),
+                      List(
+                        WildCard,
+                        PositionalStruct(
+                          Some(0),
+                          List(),
+                          Enum
+                        )
+                      ),
+                      Enum
+                    )
+                  ),
+                  Enum
+                )
+              ),
+              Enum
+            ),
+            Lambda(LambdaVar(0))
+          ),
+          (WildCard, Literal(Str("boom")))
+        )
+      )
+    )
 
     normalExpressionTest(
       List(
