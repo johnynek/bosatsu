@@ -12,7 +12,7 @@ class LetFreeTest extends FunSuite {
   import LetFreeExpression._
   import Lit._
   import LetFreeConversion._
-  import LetFreePattern.{PositionalStruct, Var, WildCard}
+  import LetFreePattern.{PositionalStruct, Var, WildCard, ListPat}
 
   test("Literal") {
     normalTagTest(
@@ -884,7 +884,6 @@ out = \y -> foo(y)
         "ExternalVar('Extern/Eta','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::List[Bosatsu/Predef::String]')"
       )
     )
-    /*
     normalExpressionTest(
       List("""
 package Extern/List
@@ -894,17 +893,49 @@ external def foo(x: String) -> List[String]
 out = match foo("arg"):
   [*_, _, _, last]: last
   _: "'zero\\'"
-"""
-      ), "Extern/List",
+"""),
+      "Extern/List",
       Match(
-        App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "List")).get),Identifier.Name("foo")),Literal(Str("arg"))),
-        NonEmptyList.fromList(List(
-          (ListPat(List(Left(None), Right(WildCard), Right(WildCard), Right(Var(0)))),Lambda(LambdaVar(0))),
-        (WildCard,Literal(Str("'zero\\'")))
-        )).get
+        App(
+          ExternalVar(
+            PackageName(NonEmptyList.of("Extern", "List")),
+            Identifier.Name("foo"),
+            Type.Fun(Type.StrType, Type.ListT(Type.StrType))
+          ),
+          Literal(Str("arg"))
+        ),
+        NonEmptyList.of(
+          (
+            PositionalStruct(
+              Some(1),
+              List(
+                WildCard,
+                PositionalStruct(
+                  Some(1),
+                  List(
+                    WildCard,
+                    ListPat(
+                      List(
+                        Left(None),
+                        Right(Var(0))
+                      )
+                    )
+                  ),
+                  Enum
+                )
+              ),
+              Enum
+            ),
+            Lambda(LambdaVar(0))
+          ),
+          (WildCard, Literal(Str("'zero\\'")))
+        )
       ),
-      Some("Match(App(ExternalVar('Extern/List','foo'),Literal('arg')),ListPat(Left(),Right(WildCard),Right(WildCard),Right(Var(0))),Lambda(LambdaVar(0)),WildCard,Literal('\\'zero\\\\\\''))")
+      Some(
+        "Match(App(ExternalVar('Extern/List','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::List[Bosatsu/Predef::String]'),Literal('arg')),PositionalStruct(1,WildCard,PositionalStruct(1,WildCard,ListPat(Left(),Right(Var(0))))),Lambda(LambdaVar(0)),WildCard,Literal('\\'zero\\\\\\''))"
+      )
     )
+    /*
     normalExpressionTest(
       List("""
 package Extern/List
