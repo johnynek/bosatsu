@@ -295,10 +295,20 @@ object LetFreeEvaluation {
           ComputedValue(fn(v))
         }
       }
-    case Right((LetFreeExpression.Lambda(expr), scope)) =>
+    case Right((LetFreeExpression.Lambda(expr), scope)) => {
+      // By evaluating when we add to the scope we don't have to overflow the stack later when we
+      // need to use the value
+      val _ = arg match {
+        case LazyValue(_, _, eval) => {
+          eval.value
+          ()
+        }
+        case _       => ()
+      }
       LazyValue(expr, arg :: scope, value.getOrElse(Eval.later {
         evalToValue(expr, arg :: scope)
       }))
+    }
   }
 
   def fnValueToLetFree(value: Value) = value match {
