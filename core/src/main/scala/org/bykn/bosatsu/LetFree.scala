@@ -545,27 +545,18 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
       }
 
   def letFreeConvertLocal(v: Local[Declaration], env: Env, p: Package.Inferred):
-    NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
-      env.get(v.name) match {
-        case None => norm(p, v.name, v.tag, env).map { lfe =>
-          val lfeTag = getTag(lfe)._2
-          v.copy(tag=(v.tag, lfeTag))
-        }
-        case Some(lfeTag) =>
-          State.pure(v.copy(tag=(v.tag, lfeTag)))
-      }
+    NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
+      val lfeTag = env(v.name)
+      State.pure(v.copy(tag=(v.tag, lfeTag)))
+    }
 
   def letFreeConvertGlobal(v: Global[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
-      env.get(v.name) match {
-        case None => norm(p, v.name, v.tag, env).map { ne =>
-          val lfeTag = getTag(ne)._2
-          v.copy(tag=(v.tag, lfeTag))
-        }
-        case Some(lfeTag) =>
-          State.pure(v.copy(tag=(v.tag, lfeTag)))
+      norm(p, v.name, v.tag, env).map { ne =>
+        val lfeTag = getTag(ne)._2
+        v.copy(tag=(v.tag, lfeTag))
       }
-
+    
   def letFreeConvertAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
       val nextEnv = (env - al.arg).mapValues { case ExpressionKeyTag(lfe, children) =>
