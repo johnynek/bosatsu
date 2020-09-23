@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
-import cats.Id
 import rankn._
 
 import Identifier.Constructor
@@ -510,22 +509,6 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
         .map((name, _))
     }
     PackageMap(normAll.run(Map()).value._2.toMap)
-  }
-
-  def hashKey[T](fn: LetFreeExpression => T): PackageMap.Typed[(Declaration, ExpressionKeyTag[T])] = {
-    val lst = letFreePackageMap.toMap.toList
-      .map { case (packName, pack) =>
-        val newLets = pack.program.lets.map { case (letsName, recursive, expr) =>
-          val newExpr = expr.traverse[Id, (Declaration, ExpressionKeyTag[T])] {
-            case (d, lfeT) => (d, ExpressionKeyTag(fn(lfeT.lfe), lfeT.children.map(fn)))
-          }
-          (letsName, recursive, newExpr)
-        }
-        val newProgram = pack.program.copy(lets = newLets)
-        val newPack = pack.copy(program = newProgram)
-        (packName, newPack)
-      }
-    PackageMap(lst.toMap)
   }
 
   def letFreeConvertExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):

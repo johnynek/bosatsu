@@ -22,8 +22,7 @@ package LetFreeTest/String
 main = "aa"
 """),
       "LetFreeTest/String",
-      LetFreeExpressionTag(Literal(Str("aa")), Set()),
-      Some("Literal('aa')")
+      LetFreeExpressionTag(Literal(Str("aa")), Set())
     )
 
     normalTagTest(
@@ -51,8 +50,7 @@ main = ["aa"]
           Lambda(Struct(1, List(Literal(Str("aa")), LambdaVar(0)), Enum)),
           Struct(0, List(), Enum)
         )
-      ),
-      Some("Struct(1,Literal('aa'),Struct(0,))")
+      )
     )
   }
   test("recurse") {
@@ -879,9 +877,6 @@ out = \y -> foo(y)
         PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),
         Identifier.Name("foo"),
         Type.Fun(Type.StrType, Type.TyApply(Type.ListType, Type.StrType))
-      ),
-      Some(
-        "ExternalVar('Extern/Eta','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::List[Bosatsu/Predef::String]')"
       )
     )
     normalExpressionTest(
@@ -930,9 +925,6 @@ out = match foo("arg"):
           ),
           (WildCard, Literal(Str("'zero\\'")))
         )
-      ),
-      Some(
-        "Match(App(ExternalVar('Extern/List','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::List[Bosatsu/Predef::String]'),Literal('arg')),PositionalStruct(1,WildCard,PositionalStruct(1,WildCard,ListPat(Left(),Right(Var(0))))),Lambda(LambdaVar(0)),WildCard,Literal('\\'zero\\\\\\''))"
       )
     )
 
