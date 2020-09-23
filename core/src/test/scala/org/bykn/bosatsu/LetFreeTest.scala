@@ -12,7 +12,7 @@ class LetFreeTest extends FunSuite {
   import LetFreeExpression._
   import Lit._
   import LetFreeConversion._
-  import LetFreePattern.{PositionalStruct, Var, WildCard, ListPat}
+  import LetFreePattern.{PositionalStruct, Var, WildCard, ListPat, Named}
 
   test("Literal") {
     normalTagTest(
@@ -935,7 +935,7 @@ out = match foo("arg"):
         "Match(App(ExternalVar('Extern/List','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::List[Bosatsu/Predef::String]'),Literal('arg')),PositionalStruct(1,WildCard,PositionalStruct(1,WildCard,ListPat(Left(),Right(Var(0))))),Lambda(LambdaVar(0)),WildCard,Literal('\\'zero\\\\\\''))"
       )
     )
-    /*
+
     normalExpressionTest(
       List("""
 package Extern/List
@@ -945,16 +945,38 @@ external def foo(x: String) -> List[String]
 out = match foo("arg"):
   [*_, _, _, last]: last
   _: "zero"
-"""
-        ), "Extern/List",
+"""),
+      "Extern/List",
       Match(
-        App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "List")).get),Identifier.Name("foo")),Literal(Str("arg"))),
-        NonEmptyList.fromList(List(
-          (ListPat(List(Left(None), Right(WildCard), Right(WildCard), Right(Var(0)))),Lambda(LambdaVar(0))),
-          (WildCard,Literal(Str("zero")))
-        )).get
+        App(
+          ExternalVar(
+            PackageName(NonEmptyList.of("Extern", "List")),
+            Identifier.Name("foo"),
+            Type.Fun(Type.StrType, Type.ListT(Type.StrType))
+          ),
+          Literal(Str("arg"))
+        ),
+        NonEmptyList.of(
+          (
+            PositionalStruct(
+              Some(1),
+              List(
+                WildCard,
+                PositionalStruct(
+                  Some(1),
+                  List(WildCard, ListPat(List(Left(None), Right(Var(0))))),
+                  Enum
+                )
+              ),
+              Enum
+            ),
+            Lambda(LambdaVar(0))
+          ),
+          (WildCard, Literal(Str("zero")))
+        )
       )
     )
+
     normalExpressionTest(
       List("""
 package Extern/NamedMatch
@@ -966,17 +988,51 @@ struct Stuff(a,b)
 out = match Stuff(foo("c"), "d"):
   Stuff(lst@[_], _): lst
   Stuff(_, y): [y]
-"""
-        ), "Extern/NamedMatch",
+"""),
+      "Extern/NamedMatch",
       Match(
-        Struct(0,List(App(ExternalVar(PackageName(NonEmptyList.fromList(List("Extern", "NamedMatch")).get),Identifier.Name("foo")),Literal(Str("c"))), Literal(Str("d")))),
-        NonEmptyList.fromList(List(
-          (PositionalStruct(None,List(Named(0,ListPat(List(Right(WildCard)))), WildCard)),Lambda(LambdaVar(0))),
-          (PositionalStruct(None,List(WildCard, Var(0))),Lambda(Struct(1,List(LambdaVar(0), Struct(0,List())))))
-        )).get
+        Struct(
+          0,
+          List(
+            App(
+              ExternalVar(
+                PackageName(NonEmptyList.of("Extern", "NamedMatch")),
+                Identifier.Name("foo"),
+                Type.Fun(Type.StrType, Type.ListT(Type.StrType))
+              ),
+              Literal(Str("c"))
+            ),
+            Literal(Str("d"))
+          ),
+          DFStruct
+        ),
+        NonEmptyList.of(
+          (
+            PositionalStruct(
+              None,
+              List(
+                Named(
+                  0,
+                  PositionalStruct(
+                    Some(1),
+                    List(WildCard, PositionalStruct(Some(0), List(), Enum)),
+                    Enum
+                  )
+                ),
+                WildCard
+              ),
+              DFStruct
+            ),
+            Lambda(LambdaVar(0))
+          ),
+          (
+            PositionalStruct(None, List(WildCard, Var(0)), DFStruct),
+            Lambda(Struct(1, List(LambdaVar(0), Struct(0, List(), Enum)), Enum))
+          )
+        )
       )
     )
-     */
+
     normalExpressionTest(
       List("""
 package Extern/LitMatch
