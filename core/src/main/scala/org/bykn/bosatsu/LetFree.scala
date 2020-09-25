@@ -47,7 +47,7 @@ sealed abstract class LetFreeExpression {
     }.foldLeft(arg.varSet){ case (s1, s2) => s1 ++ s2 }
     case LetFreeExpression.Struct(enum, args, _) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.varSet }
     case LetFreeExpression.Literal(_) => Set()
-    case LetFreeExpression.Recursion(lambda) => lambda.varSet.collect { case n if n > 0 => n - 1}
+    case LetFreeExpression.Recursion(lambda) => lambda.varSet
     case LetFreeExpression.LambdaVar(name) => Set(name)
   }
 }

@@ -1159,4 +1159,114 @@ out = \x,y -> x(y, y)
       Lambda(Lambda(App(App(LambdaVar(1), LambdaVar(0)), LambdaVar(0))))
     )
   }
+  test("varSet") {
+    letFreeVarSetTest(
+      List(
+        """
+package VarSet/External
+
+external def foo(x: String) -> List[String]
+
+def bar(_):
+  foo
+
+out = bar
+"""
+      ),
+      "VarSet/External",
+      1,
+      Set()
+    )
+
+    letFreeVarSetTest(
+      List(
+        """
+package VarSet/Match
+
+def bar(y, _, x):
+  match x:
+    2: y
+    _: "boom"
+
+out = bar
+"""
+      ),
+      "VarSet/Match",
+      3,
+      Set(0, 2)
+    )
+
+    letFreeVarSetTest(
+      List(
+        """
+package VarSet/Struct
+
+struct Foo(a, b)
+
+def bar(x):
+  Foo(1, x)
+
+out = bar
+"""
+      ),
+      "VarSet/Struct",
+      1,
+      Set(0)
+    )
+
+    letFreeVarSetTest(
+      List(
+        """
+package VarSet/Recursion
+
+enum Thing:
+  Thing1, Thing2(a: Int, t: Thing)
+
+def foo(k: Int):
+  def bar(x):
+    recur x:
+      Thing1: k
+      Thing2(_, t): bar(t)
+  bar
+
+out = foo
+"""
+      ),
+      "VarSet/Recursion",
+      1,
+      Set(0)
+    )
+
+    letFreeVarSetTest(
+      List(
+        """
+package VarSet/LambdaVar
+
+def foo(k, _):
+  k
+
+out = foo
+"""
+      ),
+      "VarSet/LambdaVar",
+      2,
+      Set(1)
+    )
+
+    letFreeVarSetTest(
+      List(
+        """
+package VarSet/Literal
+
+def foo(_, _):
+  25
+
+out = foo
+"""
+      ),
+      "VarSet/Literal",
+      2,
+      Set()
+    )
+  }
 }

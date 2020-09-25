@@ -177,12 +177,23 @@ object TestUtils {
           fail(tes + "\n" + errs.toString)
       }
   }
-  sealed abstract class NormalTestMode[A] {
-    def expected: A
-  }
+  sealed abstract class NormalTestMode[A]
+
   object NormalTestMode {
-    case class TagMode(expected: LetFreeConversion.LetFreeExpressionTag, serialized: Option[String] = None) extends NormalTestMode[LetFreeConversion.LetFreeExpressionTag]
-    case class ExpressionMode(expected: LetFreeExpression, serialized: Option[String] = None) extends NormalTestMode[LetFreeExpression]
+    case class TagMode(expected: LetFreeConversion.LetFreeExpressionTag) extends NormalTestMode[LetFreeConversion.LetFreeExpressionTag]
+    case class ExpressionMode(expected: LetFreeExpression) extends NormalTestMode[LetFreeExpression]
+    case class VarSetMode(lambdaCount: Int, vars: Set[Int]) extends NormalTestMode[LetFreeExpression]
+  }
+
+  def unwrapLambda(expression: LetFreeExpression, lambdaCount: Int): Option[LetFreeExpression] = {
+    if (lambdaCount <= 0) {
+      Some(expression)
+    } else {
+      expression match {
+        case LetFreeExpression.Lambda(expr) => unwrapLambda(expr, lambdaCount - 1)
+        case _ => None
+      }
+    }
   }
 
   def normalizeTest[A](packages: List[String], mainPackS: String, expectedMode: NormalTestMode[A]) = {
@@ -200,13 +211,22 @@ object TestUtils {
       } yield {
         assert(fleft == fright, s"folds didn't match. left: $fleft, right: $fright")
         expectedMode match {
-          case NormalTestMode.TagMode(expected, expectedSerialiazed) =>
+          case NormalTestMode.TagMode(expected) =>
             assert(ne == expected.lfe, s"ne error. expected '${expected.lfe}' got '$ne'" )
             assert(children == expected.children, s"children error. expected '${expected.children}' got '$children'" )
             succeed
-          case NormalTestMode.ExpressionMode(expected, expectedSerialiazed) =>
+          case NormalTestMode.ExpressionMode(expected) =>
             assert(ne == expected, s"ne error. expected '${expected}' got '$ne'" )
             succeed
+          case NormalTestMode.VarSetMode(lambdaCount, vars) =>
+            unwrapLambda(ne, lambdaCount) match {
+              case Some(expr) => {
+                assert(expr.varSet == vars, s"expected: $vars, got: ${expr.varSet}")
+                succeed
+              }
+              case None => fail(s"Could not unwrap expression $lambdaCount times: $ne")
+            }
+            
         }
       }
       ).getOrElse(fail("There should be a last expression"))
@@ -219,6 +239,9 @@ object TestUtils {
     normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected))
   def normalExpressionTest(packages: List[String], mainPackS: String, expected: LetFreeExpression) =
     normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected))
+  def letFreeVarSetTest(packages: List[String], mainPackS: String, lambdaCount: Int, vars: Set[Int]) =
+    normalizeTest(packages, mainPackS, NormalTestMode.VarSetMode(lambdaCount, vars)
+    )
 
   def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
     val mainPack = PackageName.parse(mainPackS).get
