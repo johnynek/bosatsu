@@ -162,10 +162,10 @@ class PythonGenTest extends AnyFunSuite {
       "tests")
   }
 
-  test("test IntTests") {
+  test("test PredefTests") {
     runBoTests(
-      "test_workspace/IntTests.bosatsu",
-      PackageName.parts("IntTests"),
+      "test_workspace/PredefTests.bosatsu",
+      PackageName.parts("PredefTests"),
       "test")
   }
 }

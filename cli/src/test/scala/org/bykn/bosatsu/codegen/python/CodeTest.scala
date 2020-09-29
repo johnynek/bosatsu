@@ -449,4 +449,13 @@ else:
       }
     }
   }
+
+  test("(a == b) and (b == c) renders correctly") {
+    val left = Code.Op(Code.Ident("a"), Code.Const.Eq, Code.Ident("b"))
+    val right = Code.Op(Code.Ident("b"), Code.Const.Eq, Code.Ident("c"))
+    val and = left.evalAnd(right)
+
+    assert(Code.toDoc(and).renderTrim(80) == "(a == b) and (b == c)")
+    assert(Code.toDoc(Code.Ident("z").evalAnd(and)).renderTrim(80) == "z and (a == b) and (b == c)")
+  }
 }

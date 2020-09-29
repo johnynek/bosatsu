@@ -6,7 +6,7 @@ import cats.implicits._
 import fastparse.all._
 import org.typelevel.paiges.{Doc, Document}
 
-import Parser.{spaces, maybeSpace, Combinators}
+import Parser.{spaces, Combinators}
 
 sealed abstract class ImportedName[+T] {
   def originalName: Identifier
@@ -66,14 +66,19 @@ case class Import[A, B](pack: A, items: NonEmptyList[ImportedName[B]]) {
 object Import {
   implicit val document: Document[Import[PackageName, Unit]] =
     Document.instance[Import[PackageName, Unit]] { case Import(pname, items) =>
-      Doc.text("import ") + Document[PackageName].document(pname) + Doc.space +
+      val itemDocs = items.toList.map(Document[ImportedName[Unit]].document _)
+
+      Doc.text("from") + Doc.space + Document[PackageName].document(pname) + Doc.space + Doc.text("import") +
         // TODO: use paiges to pack this in nicely using .group or something
-        Doc.char('[') + Doc.intercalate(Doc.text(", "), items.toList.map(Document[ImportedName[Unit]].document _)) + Doc.char(']')
+        Doc.space + Doc.intercalate(Doc.text(", "), itemDocs)
     }
 
   val parser: P[Import[PackageName, Unit]] = {
-    P("import" ~ spaces ~/ PackageName.parser ~ maybeSpace ~
-      ImportedName.parser.nonEmptyListSyntax).map { case (pname, imported) =>
+    val pyimps = ImportedName.parser.itemsMaybeParens
+
+    P("from" ~ spaces ~/ PackageName.parser ~ spaces ~
+      "import" ~ spaces ~ pyimps)
+      .map { case (pname, (_, imported)) =>
         Import(pname, imported)
       }
   }

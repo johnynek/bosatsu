@@ -1,11 +1,11 @@
 package BazelDepsApi
 
-import DictTools [ merge as merge_Dict ]
+from DictTools import merge as merge_Dict
 
-export [
+export (
   Artifact(), Config(), Resolver(), Replacement(), maven_central,
   default_options_with_scala, scala_dep, scala_dep_modules,
-  merge_deps, merge_dep_List, standard_scala_replacements ]
+  merge_deps, merge_dep_List, standard_scala_replacements )
 
 struct Resolver(id: String, type: String, url: String)
 

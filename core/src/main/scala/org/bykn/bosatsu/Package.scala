@@ -8,7 +8,7 @@ import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
 
 import rankn._
-import Parser.{spaces, maybeSpace, Combinators}
+import Parser.{spaces, Combinators}
 
 import FixType.Fix
 import LocationMap.Colorize
@@ -126,9 +126,7 @@ object Package {
         case nonEmptyExports =>
           Doc.line +
             Doc.text("export ") +
-            Doc.text("[ ") +
             Doc.intercalate(Doc.text(", "), nonEmptyExports.map(Document[ExportedName[Unit]].document _)) +
-            Doc.text(" ]") +
             Doc.line
       }
       val b = statments.map(Document[Statement].document(_))
@@ -143,7 +141,7 @@ object Package {
       case Some(p) => parsePack.?.map(_.getOrElse(p))
     }
     val im = Padding.parser(Import.parser ~ Parser.toEOL).map(_.padded).rep().map(_.toList)
-    val ex = Padding.parser(P("export" ~ maybeSpace ~ ExportedName.parser.nonEmptyListSyntax ~ Parser.toEOL)).map(_.padded)
+    val ex = Padding.parser(P("export" ~ spaces ~/ ExportedName.parser.itemsMaybeParens.map(_._2) ~ Parser.toEOL)).map(_.padded)
     val body = Statement.parser
     (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ body).map { case (p, i, e, b) =>
       Package(p, i, e, b)

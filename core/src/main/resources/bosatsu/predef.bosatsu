@@ -1,6 +1,6 @@
 package Bosatsu/Predef
 
-export [
+export (
   Bool(),
   Comparison(),
   Int,
@@ -30,6 +30,8 @@ export [
   items,
   map_List,
   mod_Int,
+  partition_String,
+  rpartition_String,
   range,
   range_fold,
   remove_key,
@@ -42,7 +44,7 @@ export [
   trace,
   uncurry2,
   uncurry3,
-]
+)
 
 struct Unit
 struct TupleCons(first, second)
@@ -140,6 +142,15 @@ external struct String
 external def string_Order_fn(str0: String, str1: String) -> Comparison
 string_Order = Order(string_Order_fn)
 external def concat_String(items: List[String]) -> String
+
+# if this returns Some((a, b)) then arg == concat_String([a, sep, b])
+# a and b are always proper substrings, so partition_String(a, "") == None
+# this matches from the left, so partition_String(a, sep) == None
+external def partition_String(arg: String, sep: String) -> Option[(String, String)]
+# if this returns Some((a, b)) then arg == concat_String([a, sep, b])
+# a and b are always proper substrings, so rpartition_String(a, "") == None
+# this matches from the right, so partition_String(b, sep) == None
+external def rpartition_String(arg: String, sep: String) -> Option[(String, String)]
 
 external def int_to_String(i: Int) -> String
 
