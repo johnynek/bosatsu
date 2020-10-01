@@ -40,10 +40,10 @@ object DefRecursionCheck {
     def region = decl.region
     def message = "unexpected recur: may only appear unnested inside a def"
   }
-  case class RecurNotOnArg(decl: Declaration.Match, fnname: Bindable, args: List[Bindable]) extends RecursionError {
+  case class RecurNotOnArg(decl: Declaration.Match, fnname: Bindable, args: List[Pattern.Parsed]) extends RecursionError {
     def region = decl.region
     def message = {
-      val argStr = args.map(_.sourceCodeRepr).mkString(", ")
+      val argStr = args.iterator.map { pat => Pattern.document.document(pat).render(80) }.mkString(", ")
       s"recur not on an argument to the def of ${fnname.sourceCodeRepr}, args: $argStr"
     }
   }
@@ -110,7 +110,7 @@ object DefRecursionCheck {
           case InRecurBranch(ir, _) => ir.defNamesContain(n)
         }
 
-      def inDef(fnname: Bindable, args: List[Bindable]): InDef =
+      def inDef(fnname: Bindable, args: List[Pattern.Parsed]): InDef =
         InDef(this, fnname, args)
     }
     sealed abstract class InDefState extends State {
@@ -122,7 +122,7 @@ object DefRecursionCheck {
         }
     }
     case object TopLevel extends State
-    case class InDef(outer: State, fnname: Bindable, args: List[Bindable]) extends InDefState {
+    case class InDef(outer: State, fnname: Bindable, args: List[Pattern.Parsed]) extends InDefState {
 
       def setRecur(index: Int, m: Declaration.Match): InDefRecurred =
         InDefRecurred(this, index, m, 0)
@@ -139,12 +139,12 @@ object DefRecursionCheck {
      */
     def getRecurIndex(
       fnname: Bindable,
-      args: List[Bindable],
+      args: List[Pattern.Parsed],
       m: Declaration.Match): ValidatedNel[RecursionError, Int] = {
       import Declaration._
       m.arg match {
         case Var(v) =>
-          val idx = args.indexOf(v)
+          val idx = args.indexWhere { p => p.topNames.contains(v) }
           if (idx < 0) Validated.invalidNel(RecurNotOnArg(m, fnname, args))
           else Validated.valid(idx)
         case notVar =>
@@ -398,9 +398,9 @@ object DefRecursionCheck {
      */
     def checkDef[A](state: State, defstmt: DefStatement[Pattern.Parsed, (OptIndent[Declaration], A)]): Res = {
       val body = defstmt.result._1.get
-      val args = defstmt.args.flatMap(_.names)
-      val state1 = state.inDef(defstmt.name, args)
-      checkForIllegalBinds(state, defstmt.name :: args, body) {
+      val nameArgs = defstmt.args.flatMap(_.names)
+      val state1 = state.inDef(defstmt.name, defstmt.args)
+      checkForIllegalBinds(state, defstmt.name :: nameArgs, body) {
         val st = setSt(state1) *> checkDecl(body) *> (getSt.flatMap {
           case InDef(_, _, _) =>
             // we never hit a recur

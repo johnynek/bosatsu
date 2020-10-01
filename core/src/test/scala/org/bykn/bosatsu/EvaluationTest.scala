@@ -2489,4 +2489,20 @@ Foo(_, _) = x
 test = Assertion(True, "")
 """), "A", 1)
   }
+
+  test("recursion check with _ pattern: issue 573") {
+    runBosatsuTest(List("""
+package VarSet/Recursion
+
+enum Thing:
+  Thing1, Thing2(a: Int, t: Thing)
+
+def bar(y, _: String, x):
+  recur x:
+    Thing1: y
+    Thing2(i, t): bar(i, "boom", t)
+
+test = Assertion(True, "")
+"""), "VarSet/Recursion", 1)
+  }
 }
