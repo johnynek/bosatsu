@@ -97,7 +97,7 @@ object DefRecursionCheck {
       final def outerDefNames: List[Bindable] =
         this match {
           case TopLevel => Nil
-          case InDef(outer, n, _) => n :: outer.outerDefNames
+          case InDef(outer, n, _, _) => n :: outer.outerDefNames
           case InDefRecurred(id, _, _, _) => id.outerDefNames
           case InRecurBranch(ir, _) => ir.outerDefNames
         }
@@ -105,24 +105,27 @@ object DefRecursionCheck {
       final def defNamesContain(n: Bindable): Boolean =
         this match {
           case TopLevel => false
-          case InDef(outer, dn, _) => (dn == n) || outer.defNamesContain(n)
+          case InDef(outer, dn, _, _) => (dn == n) || outer.defNamesContain(n)
           case InDefRecurred(id, _, _, _) => id.defNamesContain(n)
           case InRecurBranch(ir, _) => ir.defNamesContain(n)
         }
 
       def inDef(fnname: Bindable, args: List[Pattern.Parsed]): InDef =
-        InDef(this, fnname, args)
+        InDef(this, fnname, args, Set.empty)
     }
     sealed abstract class InDefState extends State {
       final def defname: Bindable =
         this match {
-          case InDef(_, defname, _) => defname
+          case InDef(_, defname, _, _) => defname
           case InDefRecurred(ir, _, _, _) => ir.defname
           case InRecurBranch(InDefRecurred(ir, _, _, _), _) => ir.defname
         }
     }
     case object TopLevel extends State
-    case class InDef(outer: State, fnname: Bindable, args: List[Pattern.Parsed]) extends InDefState {
+    case class InDef(outer: State, fnname: Bindable, args: List[Pattern.Parsed], localScope: Set[Bindable]) extends InDefState {
+
+      def addLocal(b: Bindable): InDef =
+        InDef(outer, fnname, args, localScope + b)
 
       def setRecur(index: Int, m: Declaration.Match): InDefRecurred =
         InDefRecurred(this, index, m, 0)
@@ -140,13 +143,19 @@ object DefRecursionCheck {
     def getRecurIndex(
       fnname: Bindable,
       args: List[Pattern.Parsed],
-      m: Declaration.Match): ValidatedNel[RecursionError, Int] = {
+      m: Declaration.Match,
+      locals: Set[Bindable]): ValidatedNel[RecursionError, Int] = {
       import Declaration._
       m.arg match {
         case Var(v) =>
-          val idx = args.indexWhere { p => p.topNames.contains(v) }
-          if (idx < 0) Validated.invalidNel(RecurNotOnArg(m, fnname, args))
-          else Validated.valid(idx)
+          v match {
+            case b: Bindable if locals(b) =>
+              Validated.invalidNel(RecurNotOnArg(m, fnname, args))
+            case _ =>
+              val idx = args.indexWhere { p => p.topNames.contains(v) }
+              if (idx < 0) Validated.invalidNel(RecurNotOnArg(m, fnname, args))
+              else Validated.valid(idx)
+          }
         case notVar =>
           Validated.invalidNel(RecurNotOnArg(m, fnname, args))
       }
@@ -211,9 +220,14 @@ object DefRecursionCheck {
     def checkForIllegalBindsSt[A](
       bs: Iterable[Bindable],
       decl: Declaration): St[Unit] =
-        getSt.flatMap { state =>
-          toSt(checkForIllegalBinds(state, bs, decl)(unitValid))
-        }
+        for {
+          state <- getSt
+          _ <- toSt(checkForIllegalBinds(state, bs, decl)(unitValid))
+          _ <- (state match {
+            case id@InDef(_, _, _, _) => setSt(bs.foldLeft(id)(_.addLocal(_)))
+            case _ => unitSt
+          })
+        } yield ()
 
     def checkApply(nm: Bindable, args: NonEmptyList[Declaration], region: Region): St[Unit] =
       getSt.flatMap {
@@ -297,13 +311,13 @@ object DefRecursionCheck {
           getSt.flatMap {
             case TopLevel | InRecurBranch(_, _) | InDefRecurred(_, _, _, _) =>
               failSt(UnexpectedRecur(recur))
-            case InDef(_, defname, args) =>
-              toSt(getRecurIndex(defname, args, recur)).flatMap { idx =>
+            case InDef(_, defname, args, locals) =>
+              toSt(getRecurIndex(defname, args, recur, locals)).flatMap { idx =>
                 // on all these branchs, use the the same
                 // parent state
                 def beginBranch(pat: Pattern.Parsed): St[Unit] =
                   getSt.flatMap {
-                    case ir@InDef(_, _, _) =>
+                    case ir@InDef(_, _, _, _) =>
                       val rec = ir.setRecur(idx, recur)
                       setSt(rec) *> beginBranch(pat)
                     case irr@InDefRecurred(_, _, _, _) =>
@@ -402,7 +416,7 @@ object DefRecursionCheck {
       val state1 = state.inDef(defstmt.name, defstmt.args)
       checkForIllegalBinds(state, defstmt.name :: nameArgs, body) {
         val st = setSt(state1) *> checkDecl(body) *> (getSt.flatMap {
-          case InDef(_, _, _) =>
+          case InDef(_, _, _, _) =>
             // we never hit a recur
             unitSt
           case InDefRecurred(_, _, _, cnt) if cnt > 0 =>
