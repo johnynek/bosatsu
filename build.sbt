@@ -142,7 +142,8 @@ lazy val parser = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pur
     libraryDependencies ++=
       Seq(
         cats.value,
-        munit.value % Test
+        munit.value % Test,
+        munitScalacheck.value % Test,
       )
   )
   .jsSettings(commonJsSettings)
