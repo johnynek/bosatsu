@@ -54,6 +54,32 @@ sealed abstract class Pattern[+N, +T] {
   }
 
   /**
+   * What are the names that will be bound to the entire pattern,
+   * foo @ Bar(x) would return List(foo)
+   * foo @ bar @ baz would return List(foo, bar, bar)
+   * Bar(x) would return Nil
+   */
+  lazy val topNames: List[Bindable] = {
+    this match {
+      case (Pattern.WildCard | Pattern.Literal(_)) => Nil
+      case Pattern.Var(v) => v :: Nil
+      case Pattern.Named(v, p) => v :: p.topNames
+      case Pattern.StrPat(_) => Nil
+      case Pattern.ListPat(Pattern.ListPart.NamedList(n) :: Nil) => n :: Nil
+      case Pattern.ListPat(_) => Nil
+      case Pattern.Annotation(p, _) => p.topNames
+      case Pattern.PositionalStruct(_, _) => Nil
+      case Pattern.Union(h, t) =>
+        // the intersection of all top level names
+        // is okay
+        val pats = h :: t.toList
+        val patIntr = pats.map(_.topNames.toSet).reduce(_ & _)
+        // put them in the same order as written:
+        pats.flatMap(_.topNames).iterator.filter(patIntr).toList.distinct
+    }
+  }
+
+  /**
    * List all the names that strictly smaller than anything that would match this pattern
    * e.g. a top level var, would not be returned
    */

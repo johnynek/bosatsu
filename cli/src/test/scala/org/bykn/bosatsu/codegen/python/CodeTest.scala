@@ -10,8 +10,8 @@ import org.python.core.{ParserFacade => JythonParserFacade}
 class CodeTest extends FunSuite {
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 500)
+    //PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful = 500)
 
   lazy val genPy2Name: Gen[String] = {
     val letters = (('A' to 'Z') ++ ('a' to 'z')).toList
