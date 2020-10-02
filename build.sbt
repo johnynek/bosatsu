@@ -202,7 +202,7 @@ lazy val jsapi = (crossProject(JSPlatform).crossType(CrossType.Pure) in file("js
 lazy val jsapiJS = jsapi.js
 
 lazy val bench = project
-  .dependsOn(core.jvm)
+  .dependsOn(core.jvm, parser.jvm)
   .settings(moduleName := "bosatsu-bench")
   .settings(commonSettings)
   .settings(

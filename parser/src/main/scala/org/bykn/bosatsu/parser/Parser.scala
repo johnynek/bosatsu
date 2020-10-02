@@ -2,6 +2,7 @@ package org.bykn.bosatsu.parser
 
 import cats.{Eval, Monad, Defer, Alternative, FlatMap, Now, MonoidK}
 import cats.data.NonEmptyList
+import java.util.BitSet
 
 import cats.implicits._
 
@@ -207,16 +208,13 @@ object Parser extends ParserInstances {
 
   val fail: Parser1[Nothing] = oneOf1(Nil)
 
-  def charIn(c0: Char, cs: Char*): Parser1[Char] = {
-    val ary = (c0 :: cs.toList).toArray
-    java.util.Arrays.sort(ary)
-    Impl.CharIn(ary)
-  }
+  def charIn(c0: Char, cs: Char*): Parser1[Char] =
+    charIn1(c0 :: cs.toList)
 
   def charIn1(cs: Iterable[Char]): Parser1[Char] = {
     val ary = cs.toArray
     java.util.Arrays.sort(ary)
-    Impl.CharIn(ary)
+    Impl.CharIn(Impl.bitSetFor(ary), Impl.rangesFor(ary))
   }
 
   def charIn(cs: Iterable[Char]): Parser[Char] =
@@ -599,7 +597,8 @@ object Parser extends ParserInstances {
 
     case class Rep[A](p1: Parser1[A], min: Int) extends Parser1[List[A]] {
       override def parseMut(state: State): List[A] = {
-        val bldr = if (state.capture) List.newBuilder[A] else null
+        val cap = state.capture
+        val bldr = if (cap) List.newBuilder[A] else null
         var cnt = 0
         var offset = state.offset
 
@@ -607,7 +606,7 @@ object Parser extends ParserInstances {
           val a = p1.parseMut(state)
           if (state.error eq null) {
             cnt += 1
-            if (state.capture) {
+            if (cap) {
               bldr += a
             }
             offset = state.offset
@@ -621,7 +620,7 @@ object Parser extends ParserInstances {
               // return the latest
               state.offset = offset
               state.error = null
-              return if (state.capture) bldr.result() else null
+              return if (cap) bldr.result() else null
             }
             else {
               return null
@@ -636,18 +635,20 @@ object Parser extends ParserInstances {
       if (min < 1) throw new IllegalArgumentException(s"expected min >= 1, found: $min")
 
       override def parseMut(state: State): NonEmptyList[A] = {
-        val bldr = if (state.capture) List.newBuilder[A] else null
+        val cap = state.capture
+        val bldr = if (cap) List.newBuilder[A] else null
         val a0 = p1.parseMut(state)
 
         if (state.error ne null) return null
         var cnt = 1
         var offset = state.offset
 
+
         while (true) {
           val a = p1.parseMut(state)
           if (state.error eq null) {
             cnt += 1
-            if (state.capture) {
+            if (cap) {
               bldr += a
             }
             offset = state.offset
@@ -657,7 +658,7 @@ object Parser extends ParserInstances {
               // return the latest
               state.offset = offset
               state.error = null
-              return if (state.capture) NonEmptyList(a0, bldr.result()) else null
+              return if (cap) NonEmptyList(a0, bldr.result()) else null
             }
             else {
               return null
@@ -668,23 +669,34 @@ object Parser extends ParserInstances {
       }
     }
 
-    case class CharIn(charArray: Array[Char]) extends Parser1[Char] {
-      if (charArray.length == 0) throw new IllegalArgumentException("expected at least one matching character")
-
-      val ranges: NonEmptyList[(Char, Char)] = {
-        def rangesFrom(start: Char, end: Char, idx: Int): NonEmptyList[(Char, Char)] =
-          if (idx >= charArray.length || (idx < 0)) NonEmptyList((start, end), Nil)
-          else {
-            val end1 = charArray(idx)
-            if (end1.toInt == end.toInt + 1) rangesFrom(start, end1, idx + 1)
-            else {
-              // we had a break:
-              (start, end) :: rangesFrom(end1, end1, idx + 1)
-            }
-          }
-
-        rangesFrom(charArray(0), charArray(0), 1)
+    // invariant: array is sorted
+    def bitSetFor(charArray: Array[Char]): BitSet = {
+      var idx = 0
+      val bs = new BitSet(charArray(charArray.length - 1).toInt + 1)
+      while (idx < charArray.length) {
+        bs.set(charArray(idx).toInt)
+        idx += 1
       }
+
+      bs
+    }
+
+    def rangesFor(charArray: Array[Char]): NonEmptyList[(Char, Char)] = {
+      def rangesFrom(start: Char, end: Char, idx: Int): NonEmptyList[(Char, Char)] =
+        if (idx >= charArray.length || (idx < 0)) NonEmptyList((start, end), Nil)
+        else {
+          val end1 = charArray(idx)
+          if (end1.toInt == end.toInt + 1) rangesFrom(start, end1, idx + 1)
+          else {
+            // we had a break:
+            (start, end) :: rangesFrom(end1, end1, idx + 1)
+          }
+        }
+
+      rangesFrom(charArray(0), charArray(0), 1)
+    }
+
+    case class CharIn(bitSet: BitSet, ranges: NonEmptyList[(Char, Char)]) extends Parser1[Char] {
 
       def makeError(offset: Int): Error =
         Error.combined(ranges.map { case (s, e) => Expectation.InRange(offset, s, e).toError })
@@ -692,8 +704,7 @@ object Parser extends ParserInstances {
       override def parseMut(state: State): Char = {
         if (state.offset < state.str.length) {
           val char = state.str.charAt(state.offset)
-          val idx = java.util.Arrays.binarySearch(charArray, char)
-          if (idx >= 0) {
+          if (bitSet.get(char.toInt)) {
             // we found the character
             state.offset += 1
             char
