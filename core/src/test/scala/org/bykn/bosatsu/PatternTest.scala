@@ -41,10 +41,23 @@ class PatternTest extends FunSuite {
     }
   }
 
+  test("topNames is a subset of names") {
+    forAll(patGen) { p =>
+      p.topNames.toSet.subsetOf(p.names.toSet)
+    }
+  }
+
+  test("topNames and substructures are disjoint") {
+    forAll(patGen) { p =>
+      p.topNames.toSet.intersect(p.substructures.toSet).isEmpty
+    }
+  }
+
   test("singlynamed implies there is exacly one name") {
     forAll(patGen) { p =>
       p match {
         case Pattern.SinglyNamed(n) =>
+          assert(p.topNames == (n :: Nil))
           assert(p.names == (n :: Nil))
           // we can name with the same name, and still be singly named
           assert(Pattern.SinglyNamed.unapply(Pattern.Named(n, p)) == Some(n))

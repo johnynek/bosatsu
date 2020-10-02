@@ -2489,4 +2489,40 @@ Foo(_, _) = x
 test = Assertion(True, "")
 """), "A", 1)
   }
+
+  test("recursion check with _ pattern: issue 573") {
+    runBosatsuTest(List("""
+package VarSet/Recursion
+
+enum Thing:
+  Thing1, Thing2(a: Int, t: Thing)
+
+def bar(y, _: String, x):
+  recur x:
+    Thing1: y
+    Thing2(i, t): bar(i, "boom", t)
+
+test = Assertion(True, "")
+"""), "VarSet/Recursion", 1)
+  }
+
+  test("recursion check with shadowing") {
+    evalFail(List("""
+package S
+
+enum Thing:
+  Thing1, Thing2(a: Int, t: Thing)
+
+def bar(y, _: String, x):
+  x = Thing2(0, x)
+  recur x:
+    Thing1: y
+    Thing2(i, t): bar(i, "boom", t)
+
+test = Assertion(True, "")
+"""), "S") { case re@PackageError.RecursionError(_, _) =>
+      assert(re.message(Map.empty, Colorize.None) == "in file: <unknown source>, package S, recur not on an argument to the def of bar, args: y, _: String, x\nRegion(107,165)\n")
+      ()
+    }
+  }
 }
