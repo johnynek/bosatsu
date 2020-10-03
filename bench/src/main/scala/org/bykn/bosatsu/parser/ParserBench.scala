@@ -26,8 +26,6 @@ class ParserBench {
   }
 
   object Local {
-    import cats.implicits._
-
     val digit = Parser.charIn1('0' to '9')
     val digit1 = Parser.charIn1('1' to '9')
     def maybeNeg[A](p1: Parser1[A]): Parser1[String] =
