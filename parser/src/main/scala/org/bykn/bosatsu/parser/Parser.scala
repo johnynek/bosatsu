@@ -2,7 +2,6 @@ package org.bykn.bosatsu.parser
 
 import cats.{Eval, Monad, Defer, Alternative, FlatMap, Now, MonoidK}
 import cats.data.NonEmptyList
-import java.util.BitSet
 
 import cats.implicits._
 
@@ -76,10 +75,23 @@ sealed abstract class Parser1[+A] extends Parser[A] {
 
   def orElse1[A1 >: A](that: Parser1[A1]): Parser1[A1] =
     Parser.oneOf1(this :: that :: Nil)
+
+  def rep: Parser[List[A]] =
+    Parser.rep(this)
+
+  def rep(min: Int): Parser[List[A]] =
+    Parser.rep(this, min = min)
+
+  def rep1: Parser1[NonEmptyList[A]] =
+    Parser.rep1(this)
+
+  def rep1(min: Int): Parser1[NonEmptyList[A]] =
+    Parser.rep1(this, min = min)
 }
 
 object Parser extends ParserInstances {
   sealed abstract class Expectation {
+    def offset: Int
     def toError: Error = Error.MissedExpectation(this)
   }
 
@@ -87,17 +99,20 @@ object Parser extends ParserInstances {
     case class Str(offset: Int, str: String) extends Expectation
     // expected a character in a given range
     case class InRange(offset: Int, lower: Char, upper: Char) extends Expectation
-    case object Failure extends Expectation
+    case class Failure(offset: Int) extends Expectation
     case class StartOfString(offset: Int) extends Expectation
     case class EndOfString(offset: Int, length: Int) extends Expectation
     case class Length(offset: Int, expected: Int, actual: Int) extends Expectation
   }
+
   sealed abstract class Error {
     def expected: NonEmptyList[Expectation]
+    def offsets: NonEmptyList[Int] =
+      expected.map(_.offset).distinct
   }
   object Error {
     case class MissedExpectation(expectation: Expectation) extends Error {
-      val expected = NonEmptyList(expectation, Nil)
+      def expected = NonEmptyList(expectation, Nil)
     }
 
     case class Combined(errors: NonEmptyList[Error]) extends Error {
@@ -107,10 +122,6 @@ object Parser extends ParserInstances {
     def combined(errors: NonEmptyList[Error]): Error =
       if (errors.tail.isEmpty) errors.head
       else Combined(errors)
-
-    case object AlwaysFail extends Error {
-      def expected = NonEmptyList(Expectation.Failure, Nil)
-    }
   }
 
   def pure[A](a: A): Parser[A] =
@@ -214,7 +225,7 @@ object Parser extends ParserInstances {
   def charIn1(cs: Iterable[Char]): Parser1[Char] = {
     val ary = cs.toArray
     java.util.Arrays.sort(ary)
-    Impl.CharIn(Impl.bitSetFor(ary), Impl.rangesFor(ary))
+    Impl.CharIn(BitSetUtil.bitSetFor(ary), Impl.rangesFor(ary))
   }
 
   def charIn(cs: Iterable[Char]): Parser[Char] =
@@ -482,7 +493,7 @@ object Parser extends ParserInstances {
         // never advanced the offset
         state.error =
           NonEmptyList.fromList(errs.reverse) match {
-            case None => Error.AlwaysFail
+            case None => Expectation.Failure(offset).toError
             case Some(errsNEL) => Error.combined(errsNEL)
           }
         null.asInstanceOf[A]
@@ -533,7 +544,13 @@ object Parser extends ParserInstances {
     }
 
     def flatMap[A, B](parser: Parser[A], fn: A => Parser[B], state: State): B = {
+      // we can't void before flatMap unfortunately, because
+      // we need to be able to produce the next parser
+      val cap = state.capture
+      state.capture = true
       val a = parser.parseMut(state)
+      state.capture = cap
+
       if (state.error eq null) {
         fn(a).parseMut(state)
       }
@@ -586,13 +603,35 @@ object Parser extends ParserInstances {
       }
 
     case class Defer1[A](fn: () => Parser1[A]) extends Parser1[A] {
-      lazy val computed: Parser[A] = compute(fn)
-      override def parseMut(state: State): A = computed.parseMut(state)
+      private[this] var computed: Parser[A] = null
+      override def parseMut(state: State): A = {
+
+        val p =
+          if (computed eq null) {
+            val res = compute(fn)
+            computed = res
+            res
+          }
+          else computed
+
+        p.parseMut(state)
+      }
     }
 
     case class Defer[A](fn: () => Parser[A]) extends Parser[A] {
-      lazy val computed: Parser[A] = compute(fn)
-      override def parseMut(state: State): A = computed.parseMut(state)
+      private[this] var computed: Parser[A] = null
+      override def parseMut(state: State): A = {
+
+        val p =
+          if (computed eq null) {
+            val res = compute(fn)
+            computed = res
+            res
+          }
+          else computed
+
+        p.parseMut(state)
+      }
     }
 
     case class Rep[A](p1: Parser1[A], min: Int) extends Parser1[List[A]] {
@@ -615,16 +654,13 @@ object Parser extends ParserInstances {
             // this is a partial parse, which is a failure
             return null
           }
+          else if (cnt >= min) {
+            // return the latest
+            state.error = null
+            return if (cap) bldr.result() else null
+          }
           else {
-            if (cnt >= min) {
-              // return the latest
-              state.offset = offset
-              state.error = null
-              return if (cap) bldr.result() else null
-            }
-            else {
-              return null
-            }
+            return null
           }
         }
         sys.error("unreachable")
@@ -653,32 +689,21 @@ object Parser extends ParserInstances {
             }
             offset = state.offset
           }
+          else if (state.offset != offset) {
+            // we partially consumed, this is an error
+            return null
+          }
+          else if (cnt >= min) {
+            // return the latest
+            state.error = null
+            return if (cap) NonEmptyList(a0, bldr.result()) else null
+          }
           else {
-            if (cnt >= min) {
-              // return the latest
-              state.offset = offset
-              state.error = null
-              return if (cap) NonEmptyList(a0, bldr.result()) else null
-            }
-            else {
-              return null
-            }
+            return null
           }
         }
         sys.error("unreachable")
       }
-    }
-
-    // invariant: array is sorted
-    def bitSetFor(charArray: Array[Char]): BitSet = {
-      var idx = 0
-      val bs = new BitSet(charArray(charArray.length - 1).toInt + 1)
-      while (idx < charArray.length) {
-        bs.set(charArray(idx).toInt)
-        idx += 1
-      }
-
-      bs
     }
 
     def rangesFor(charArray: Array[Char]): NonEmptyList[(Char, Char)] = {
@@ -686,7 +711,7 @@ object Parser extends ParserInstances {
         if (idx >= charArray.length || (idx < 0)) NonEmptyList((start, end), Nil)
         else {
           val end1 = charArray(idx)
-          if (end1.toInt == end.toInt + 1) rangesFrom(start, end1, idx + 1)
+          if ((end1.toInt == end.toInt + 1) || (end1 == end)) rangesFrom(start, end1, idx + 1)
           else {
             // we had a break:
             (start, end) :: rangesFrom(end1, end1, idx + 1)
@@ -696,7 +721,7 @@ object Parser extends ParserInstances {
       rangesFrom(charArray(0), charArray(0), 1)
     }
 
-    case class CharIn(bitSet: BitSet, ranges: NonEmptyList[(Char, Char)]) extends Parser1[Char] {
+    case class CharIn(bitSet: BitSetUtil.Tpe, ranges: NonEmptyList[(Char, Char)]) extends Parser1[Char] {
 
       def makeError(offset: Int): Error =
         Error.combined(ranges.map { case (s, e) => Expectation.InRange(offset, s, e).toError })
@@ -704,7 +729,7 @@ object Parser extends ParserInstances {
       override def parseMut(state: State): Char = {
         if (state.offset < state.str.length) {
           val char = state.str.charAt(state.offset)
-          if (bitSet.get(char.toInt)) {
+          if (BitSetUtil.isSet(bitSet, char.toInt)) {
             // we found the character
             state.offset += 1
             char

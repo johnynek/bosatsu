@@ -73,7 +73,8 @@ lazy val commonJsSettings = Seq(
   scalaJSOptimizerOptions := scalaJSOptimizerOptions.value.withBatchMode(scala.sys.env.get("TRAVIS").isDefined),
   coverageEnabled := false,
   scalaJSUseMainModuleInitializer := false,
-  scalacOptions += "-P:scalajs:sjsDefinedByDefault"
+  scalacOptions += "-P:scalajs:sjsDefinedByDefault",
+  scalaJSModuleKind := ModuleKind.CommonJSModule
 )
 
 lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("."))

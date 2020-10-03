@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.parser
 
-import cats.{Eq, Id, Functor}
+import cats.{Eq, Id, Functor, Defer}
 import cats.arrow.FunctionK
 import org.scalacheck.Prop.forAll
 import org.scalacheck.{Arbitrary, Gen, Cogen}
@@ -27,6 +27,8 @@ sealed abstract class GenT[F[_]] { self =>
         val fa = a
       }
     }
+
+  override def toString: String = s"GenT($fa)"
 }
 
 object GenT {
@@ -50,25 +52,61 @@ object ParserGen {
   val pures: Gen[GenT[Gen]] =
     Gen.oneOf(arbGen[Int], arbGen[Boolean], arbGen[String], arbGen[(Int, Int)])
 
-  val expects: Gen[GenT[Parser]] =
+  val expect0: Gen[GenT[Parser]] =
     Arbitrary.arbitrary[String].map { str =>
       if (str.isEmpty) GenT(Parser.fail: Parser[Unit])
       else GenT(Parser.expect(str))
     }
 
+  val charIn: Gen[GenT[Parser]] =
+    Arbitrary.arbitrary[List[Char]].map { cs =>
+      GenT(Parser.charIn(cs))
+    }
+
+  val charIn1: Gen[GenT[Parser1]] =
+    Gen.zip(Arbitrary.arbitrary[Char],
+      Arbitrary.arbitrary[List[Char]])
+        .map { case (c0, cs) =>
+          GenT(Parser.charIn1(c0 :: cs))
+        }
+
+  val expect1: Gen[GenT[Parser1]] =
+    Arbitrary.arbitrary[String].flatMap { str =>
+      if (str.isEmpty) expect1
+      else Gen.const(GenT(Parser.expect(str)))
+    }
+
+  val fail: Gen[GenT[Parser]] =
+    Gen.const(GenT(Parser.fail: Parser[Unit]))
+
   def void(g: GenT[Parser]): GenT[Parser] =
     GenT(Parser.void(g.fa))
+
+  def void1(g: GenT[Parser1]): GenT[Parser1] =
+    GenT(Parser.void1(g.fa))
 
   def string(g: GenT[Parser]): GenT[Parser] =
     GenT(Parser.string(g.fa))
 
+  def string1(g: GenT[Parser1]): GenT[Parser1] =
+    GenT(Parser.string1(g.fa))
+
   def backtrack(g: GenT[Parser]): GenT[Parser] =
+    GenT(g.fa.backtrack)(g.cogen)
+
+  def backtrack1(g: GenT[Parser1]): GenT[Parser1] =
     GenT(g.fa.backtrack)(g.cogen)
 
   def product(ga: GenT[Parser], gb: GenT[Parser]): GenT[Parser] = {
     implicit val ca: Cogen[ga.A] = ga.cogen
     implicit val cb: Cogen[gb.A] = gb.cogen
     GenT[Parser, (ga.A, gb.A)](ga.fa ~ gb.fa)
+  }
+
+  def product1(ga: GenT[Parser1], gb: GenT[Parser1]): GenT[Parser1] = {
+    implicit val ca: Cogen[ga.A] = ga.cogen
+    implicit val cb: Cogen[gb.A] = gb.cogen
+    GenT[Parser1, (ga.A, gb.A)](ga.fa ~ gb.fa)
   }
 
   def mapped(ga: GenT[Parser]): Gen[GenT[Parser]] = {
@@ -82,6 +120,31 @@ object ParserGen {
     }
   }
 
+  def mapped1(ga: GenT[Parser1]): Gen[GenT[Parser1]] = {
+    pures.flatMap { genRes =>
+      implicit val ca: Cogen[ga.A] = ga.cogen
+      implicit val cb: Cogen[genRes.A] = genRes.cogen
+      val fnGen: Gen[ga.A => genRes.A] = Gen.function1(genRes.fa)
+      fnGen.map { fn =>
+        GenT(ga.fa.map(fn))
+      }
+    }
+  }
+
+  def flatMapped(ga: Gen[GenT[Parser]]): Gen[GenT[Parser]] =
+    Gen.zip(ga, pures).flatMap { case (parser, genRes) =>
+      // TODO we need a Gen[A] for Parser
+      val gfn0: Gen[parser.A => genRes.A] =
+        Gen.function1(genRes.fa)(parser.cogen)
+
+      val gfn: Gen[parser.A => Parser[genRes.A]] =
+        gfn0.map { fn => fn.andThen { (out: genRes.A) => Parser.pure(out) } }
+
+      gfn.map { fn =>
+        GenT(parser.fa.flatMap(fn))(genRes.cogen)
+      }
+    }
+
   def orElse(ga: GenT[Parser], gb: GenT[Parser], res: GenT[Gen]): Gen[GenT[Parser]] = {
     val genFn1: Gen[ga.A => res.A] = Gen.function1(res.fa)(ga.cogen)
     val genFn2: Gen[gb.A => res.A] = Gen.function1(res.fa)(gb.cogen)
@@ -89,6 +152,16 @@ object ParserGen {
 
     Gen.zip(genFn1, genFn2).map { case (f1, f2) =>
       GenT(ga.fa.map(f1).orElse(gb.fa.map(f2)))
+    }
+  }
+
+  def orElse1(ga: GenT[Parser1], gb: GenT[Parser1], res: GenT[Gen]): Gen[GenT[Parser1]] = {
+    val genFn1: Gen[ga.A => res.A] = Gen.function1(res.fa)(ga.cogen)
+    val genFn2: Gen[gb.A => res.A] = Gen.function1(res.fa)(gb.cogen)
+    implicit val cogenResA: Cogen[res.A] = res.cogen
+
+    Gen.zip(genFn1, genFn2).map { case (f1, f2) =>
+      GenT(ga.fa.map(f1).orElse1(gb.fa.map(f2)))
     }
   }
 
@@ -100,19 +173,44 @@ object ParserGen {
       (3, pures.flatMap(_.toId).map(_.transform(new FunctionK[Id, Parser] {
         def apply[A](g: Id[A]): Parser[A] = Parser.pure(g)
       }))),
-     (3, expects),
+     (5, expect0),
+     (5, charIn),
      (1, rec.map(void(_))),
      (1, rec.map(string(_))),
      (1, rec.map(backtrack(_))),
      (1, rec.flatMap(mapped(_))),
+     (1, flatMapped(rec)),
      (1, Gen.zip(rec, rec).map { case (g1, g2) => product(g1, g2) }),
      (1, Gen.zip(rec, rec, pures).flatMap { case (g1, g2, p) => orElse(g1, g2, p) })
+    )
+  }
+
+  // Generate a random parser
+  lazy val gen1: Gen[GenT[Parser1]] = {
+    val rec = Gen.lzy(gen1)
+
+    Gen.frequency(
+     (7, expect1),
+     (7, charIn1),
+     (1, rec.map(void1(_))),
+     (1, rec.map(string1(_))),
+     (1, rec.map(backtrack1(_))),
+     (1, rec.flatMap(mapped1(_))),
+     (1, Gen.zip(rec, rec).map { case (g1, g2) => product1(g1, g2) }),
+     (1, Gen.zip(rec, rec, pures).flatMap { case (g1, g2, p) => orElse1(g1, g2, p) })
     )
   }
 
 }
 
 class ParserTest extends munit.ScalaCheckSuite {
+
+  val tests: Int = if (BitSetUtil.isScalaJs) 200 else 5000
+
+  override def scalaCheckTestParameters =
+    super.scalaCheckTestParameters
+      .withMinSuccessfulTests(tests)
+      .withMaxDiscardRatio(10)
 
   def parseTest[A: Eq](p: Parser[A], str: String, a: A) =
     p.parse(str) match {
@@ -231,6 +329,40 @@ class ParserTest extends munit.ScalaCheckSuite {
     }
   }
 
+  property("expected in errors gives valid offsets") {
+    forAll(ParserGen.gen, Arbitrary.arbitrary[String]) { (genP, str) =>
+      genP.fa.parse(str) match {
+        case Left(err) =>
+          err.offsets.forall { off =>
+            (0 <= off) && (off <= str.length)
+          }
+        case Right(_) => true
+      }
+
+    }
+  }
+
+  property("oneOf nesting doesn't change results") {
+    forAll(Gen.listOf(ParserGen.gen), Gen.listOf(ParserGen.gen), Arbitrary.arbitrary[String]) { (genP1, genP2, str) =>
+      val oneOf1 = Parser.oneOf((genP1 ::: genP2).map(_.fa))
+      val oneOf2 = Parser.oneOf(genP1.map(_.fa)).orElse(
+        Parser.oneOf(genP2.map(_.fa)))
+
+      assertEquals(oneOf1.parse(str), oneOf2.parse(str))
+    }
+  }
+
+  property("oneOf1 nesting doesn't change results") {
+    forAll(Gen.listOf(ParserGen.gen1), Gen.listOf(ParserGen.gen1), Arbitrary.arbitrary[String]) { (genP1, genP2, str) =>
+      val oneOf1 = Parser.oneOf1((genP1 ::: genP2).map(_.fa))
+      val oneOf2 = Parser.oneOf1(genP1.map(_.fa)).orElse1(
+        Parser.oneOf1(genP2.map(_.fa))
+      )
+
+      assertEquals(oneOf1.parse(str), oneOf2.parse(str))
+    }
+  }
+
   property("string can be recovered with index") {
     forAll(ParserGen.gen, Arbitrary.arbitrary[String]) { (genP, str) =>
       val r1 = genP.fa.string.parse(str)
@@ -248,8 +380,90 @@ class ParserTest extends munit.ScalaCheckSuite {
     }
   }
 
+  property("backtrack.? pure always succeeds") {
+    forAll(ParserGen.gen, Arbitrary.arbitrary[String]) { (genP, str) =>
+      val p1 = genP.fa.backtrack.?
+
+      assert(p1.parse(str).isRight)
+    }
+  }
+
   test("range messages seem to work") {
     val pa = Parser.charIn1('0' to '9')
     assertEquals(pa.parse("z").toString, "Left(MissedExpectation(InRange(0,0,9)))")
+  }
+
+  test("partial parse fails in rep") {
+    val partial = Parser.length(1) ~ Parser.fail
+    // we can't return empty list here
+    assert(partial.rep.parse("foo").isLeft)
+
+    val p2 = Parser.expect("f").orElse1((Parser.expect("boo") ~ Parser.expect("p")).void)
+    assert(p2.rep1.parse("fboop").isRight)
+    assert(p2.rep1(2).parse("fboop").isRight)
+    assert(p2.rep1(3).parse("fboop").isLeft)
+    assert(p2.rep1.parse("fboof").isLeft)
+  }
+
+  test("defer does not run eagerly") {
+    var cnt = 0
+    val res = Defer[Parser].defer {
+      cnt += 1
+      Parser.expect("foo")
+    }
+    assert(cnt == 0)
+    assert(res.parse("foo") == Right(("", ())))
+    assert(cnt == 1)
+    assert(res.parse("foo") == Right(("", ())))
+    assert(cnt == 1)
+  }
+
+  test("defer1 does not run eagerly") {
+    var cnt = 0
+    val res = Defer[Parser1].defer {
+      cnt += 1
+      Parser.expect("foo")
+    }
+    assert(cnt == 0)
+    assert(res.parse("foo") == Right(("", ())))
+    assert(cnt == 1)
+    assert(res.parse("foo") == Right(("", ())))
+    assert(cnt == 1)
+  }
+
+  property("charIn matches charWhere") {
+    forAll { (cs: List[Char], str: String) =>
+      val cset = cs.toSet
+      val p1 = Parser.charIn(cs)
+      val p2 = Parser.charWhere(cset)
+
+      assertEquals(p1.parse(str), p2.parse(str))
+    }
+  }
+
+  property("charIn1 matches charWhere1") {
+    forAll { (c0: Char, cs0: List[Char], str: String) =>
+      val cs = c0 :: cs0
+      val cset = cs.toSet
+      val p1 = Parser.charIn1(cs)
+      val p2 = Parser.charWhere1(cset)
+
+      assertEquals(p1.parse(str), p2.parse(str))
+    }
+  }
+
+  property("Parser.end gives the right error") {
+    forAll { str: String =>
+      Parser.end.parse(str) match {
+        case Right((rest, _)) =>
+          assertEquals(str, "")
+          assertEquals(rest, "")
+        case Left(Parser.Error.MissedExpectation(Parser.Expectation.EndOfString(off, len))) =>
+          assertEquals(off, 0)
+          assertEquals(len, str.length)
+        case other =>
+          fail(s"unexpected failure: $other")
+      }
+    }
   }
 }
