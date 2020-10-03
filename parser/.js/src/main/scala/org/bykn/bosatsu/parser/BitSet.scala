@@ -9,13 +9,14 @@ object BitSetUtil {
   @inline final val isScalaJvm = false
 
   @inline def isSet(b: BitSet, idx: Int): Boolean =
-    b(idx)
+    (idx == 0) || ((idx > 0) && b(idx))
 
   def bitSetFor(charArray: Array[Char]): BitSet = {
-    var idx = 0
-    val bs = new BitSet(charArray(charArray.length - 1).toInt + 1)
+    val min = charArray(0).toInt
+    val bs = new BitSet(charArray(charArray.length - 1).toInt + 1 - min)
+    var idx = 1
     while (idx < charArray.length) {
-      bs += charArray(idx).toInt
+      bs += charArray(idx).toInt - min
       idx += 1
     }
 

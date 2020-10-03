@@ -225,7 +225,7 @@ object Parser extends ParserInstances {
   def charIn1(cs: Iterable[Char]): Parser1[Char] = {
     val ary = cs.toArray
     java.util.Arrays.sort(ary)
-    Impl.CharIn(BitSetUtil.bitSetFor(ary), Impl.rangesFor(ary))
+    Impl.CharIn(ary(0).toInt, BitSetUtil.bitSetFor(ary), Impl.rangesFor(ary))
   }
 
   def charIn(cs: Iterable[Char]): Parser[Char] =
@@ -721,7 +721,7 @@ object Parser extends ParserInstances {
       rangesFrom(charArray(0), charArray(0), 1)
     }
 
-    case class CharIn(bitSet: BitSetUtil.Tpe, ranges: NonEmptyList[(Char, Char)]) extends Parser1[Char] {
+    case class CharIn(min: Int, bitSet: BitSetUtil.Tpe, ranges: NonEmptyList[(Char, Char)]) extends Parser1[Char] {
 
       def makeError(offset: Int): Error =
         Error.combined(ranges.map { case (s, e) => Expectation.InRange(offset, s, e).toError })
@@ -729,7 +729,8 @@ object Parser extends ParserInstances {
       override def parseMut(state: State): Char = {
         if (state.offset < state.str.length) {
           val char = state.str.charAt(state.offset)
-          if (BitSetUtil.isSet(bitSet, char.toInt)) {
+          val cInt = char.toInt
+          if (BitSetUtil.isSet(bitSet, cInt - min)) {
             // we found the character
             state.offset += 1
             char
