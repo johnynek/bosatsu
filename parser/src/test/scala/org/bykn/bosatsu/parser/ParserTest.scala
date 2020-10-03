@@ -71,9 +71,9 @@ object ParserGen {
         }
 
   val expect1: Gen[GenT[Parser1]] =
-    Arbitrary.arbitrary[String].flatMap { str =>
-      if (str.isEmpty) expect1
-      else Gen.const(GenT(Parser.expect(str)))
+    Arbitrary.arbitrary[String].map { str =>
+      if (str.isEmpty) GenT(Parser.fail: Parser1[Unit])
+      else GenT(Parser.expect(str))
     }
 
   val fail: Gen[GenT[Parser]] =
@@ -190,11 +190,11 @@ object ParserGen {
     val rec = Gen.lzy(gen1)
 
     Gen.frequency(
-     (7, expect1),
-     (7, charIn1),
-     (1, rec.map(void1(_))),
-     (1, rec.map(string1(_))),
-     (1, rec.map(backtrack1(_))),
+     (8, expect1),
+     (8, charIn1),
+     (2, rec.map(void1(_))),
+     (2, rec.map(string1(_))),
+     (2, rec.map(backtrack1(_))),
      (1, rec.flatMap(mapped1(_))),
      (1, Gen.zip(rec, rec).map { case (g1, g2) => product1(g1, g2) }),
      (1, Gen.zip(rec, rec, pures).flatMap { case (g1, g2, p) => orElse1(g1, g2, p) })
@@ -205,7 +205,7 @@ object ParserGen {
 
 class ParserTest extends munit.ScalaCheckSuite {
 
-  val tests: Int = if (BitSetUtil.isScalaJs) 200 else 5000
+  val tests: Int = if (BitSetUtil.isScalaJs) 50 else 500
 
   override def scalaCheckTestParameters =
     super.scalaCheckTestParameters
@@ -464,6 +464,22 @@ class ParserTest extends munit.ScalaCheckSuite {
         case other =>
           fail(s"unexpected failure: $other")
       }
+    }
+  }
+
+  property("rep can be reimplemented with oneOf and defer") {
+    forAll(ParserGen.gen1, Arbitrary.arbitrary[String]) { (genP, str) =>
+      def rep[A](pa: Parser1[A]): Parser[List[A]] =
+        Defer[Parser].fix[List[A]] { tail =>
+          (pa ~ tail)
+            .map { case (h, t) => h :: t }
+            .orElse(Parser.pure(Nil))
+        }
+
+      val lst1 = rep(genP.fa)
+      val lst2 = genP.fa.rep
+
+      assertEquals(lst1.parse(str), lst2.parse(str))
     }
   }
 }
