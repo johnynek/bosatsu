@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.parser
 
-import cats.{Eq, Id, Functor, Defer}
+import cats.{Eq, Id, FlatMap, Functor, Defer, MonoidK, Monad}
 import cats.arrow.FunctionK
 import org.scalacheck.Prop.forAll
 import org.scalacheck.{Arbitrary, Gen, Cogen}
@@ -100,13 +100,13 @@ object ParserGen {
   def product(ga: GenT[Parser], gb: GenT[Parser]): GenT[Parser] = {
     implicit val ca: Cogen[ga.A] = ga.cogen
     implicit val cb: Cogen[gb.A] = gb.cogen
-    GenT[Parser, (ga.A, gb.A)](ga.fa ~ gb.fa)
+    GenT[Parser, (ga.A, gb.A)](FlatMap[Parser].product(ga.fa, gb.fa))
   }
 
   def product1(ga: GenT[Parser1], gb: GenT[Parser1]): GenT[Parser1] = {
     implicit val ca: Cogen[ga.A] = ga.cogen
     implicit val cb: Cogen[gb.A] = gb.cogen
-    GenT[Parser1, (ga.A, gb.A)](ga.fa ~ gb.fa)
+    GenT[Parser1, (ga.A, gb.A)](FlatMap[Parser1].product(ga.fa, gb.fa))
   }
 
   def mapped(ga: GenT[Parser]): Gen[GenT[Parser]] = {
@@ -125,8 +125,11 @@ object ParserGen {
       implicit val ca: Cogen[ga.A] = ga.cogen
       implicit val cb: Cogen[genRes.A] = genRes.cogen
       val fnGen: Gen[ga.A => genRes.A] = Gen.function1(genRes.fa)
-      fnGen.map { fn =>
-        GenT(ga.fa.map(fn))
+      fnGen.flatMap { fn =>
+        Gen.oneOf(
+          GenT(ga.fa.map(fn)),
+          GenT(FlatMap[Parser1].map(ga.fa)(fn))
+        )
       }
     }
   }
@@ -140,8 +143,11 @@ object ParserGen {
       val gfn: Gen[parser.A => Parser[genRes.A]] =
         gfn0.map { fn => fn.andThen { (out: genRes.A) => Parser.pure(out) } }
 
-      gfn.map { fn =>
-        GenT(parser.fa.flatMap(fn))(genRes.cogen)
+      gfn.flatMap { fn =>
+        Gen.oneOf(
+          GenT(parser.fa.flatMap(fn))(genRes.cogen),
+          GenT(FlatMap[Parser].flatMap(parser.fa)(fn))(genRes.cogen)
+        )
       }
     }
 
@@ -252,17 +258,13 @@ class ParserTest extends munit.ScalaCheckSuite {
   val digit = Parser.charIn1('0' to '9')
   val digit1 = Parser.charIn1('1' to '9')
   def maybeNeg[A](p1: Parser1[A]): Parser1[String] =
-    Parser.oneOf1(
-      (Parser.expect("-") ~ p1) ::
-      p1 ::
-      Nil).string
+     (Parser.expect("-").?.with1 ~ p1).string
 
   val bigIntP =
-    maybeNeg(Parser.oneOf1(
-      (digit1 ~ Parser.rep(digit)) ::
-      Parser.expect("0") ::
-      Nil
-    ))
+    maybeNeg(
+      ((digit1 ~ Parser.rep(digit)).void)
+        .orElse1(Parser.expect("0"))
+    )
     .map(BigInt(_))
 
   property("test an example with BigInt") {
@@ -452,6 +454,16 @@ class ParserTest extends munit.ScalaCheckSuite {
     }
   }
 
+  property("charIn1 matches charIn varargs") {
+    forAll { (c0: Char, cs0: List[Char], str: String) =>
+      val cs = c0 :: cs0
+      val p1 = Parser.charIn1(cs)
+      val p2 = Parser.charIn(c0, cs0: _*)
+
+      assertEquals(p1.parse(str), p2.parse(str))
+    }
+  }
+
   property("Parser.end gives the right error") {
     forAll { str: String =>
       Parser.end.parse(str) match {
@@ -480,6 +492,19 @@ class ParserTest extends munit.ScalaCheckSuite {
       val lst2 = genP.fa.rep
 
       assertEquals(lst1.parse(str), lst2.parse(str))
+    }
+  }
+
+  property("MonoidK[Parser].empty never succeeds") {
+    forAll { str: String =>
+      assert(MonoidK[Parser].empty.parse(str).isLeft)
+      assert(MonoidK[Parser1].empty.parse(str).isLeft)
+    }
+  }
+
+  property("Monad.pure is an identity function") {
+    forAll { (i: Int, str: String) =>
+      assertEquals(Monad[Parser].pure(i).parse(str), Right((str, i)))
     }
   }
 }
