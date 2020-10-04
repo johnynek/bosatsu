@@ -143,8 +143,21 @@ sealed abstract class Parser1[+A] extends Parser[A] {
 
 object Parser extends ParserInstances {
   sealed abstract class Expectation {
+    import Expectation._
+
     def offset: Int
     def toError: Error = Error.MissedExpectation(this)
+
+    def translateOffset(inc: Int): Expectation = {
+      this match {
+        case Str(o, str) => Str(o + inc, str)
+        case InRange(o, l, c) => InRange(o + inc, l, c)
+        case Failure(o) => Failure(o + inc)
+        case StartOfString(o) => StartOfString(o + inc)
+        case EndOfString(o, length) => EndOfString(o + inc, length)
+        case Length(o, expected, actual) => Length(o + inc, expected, actual)
+      }
+    }
   }
 
   object Expectation {
@@ -161,6 +174,12 @@ object Parser extends ParserInstances {
     def expected: NonEmptyList[Expectation]
     def offsets: NonEmptyList[Int] =
       expected.map(_.offset).distinct
+
+    def translateOffset(inc: Int): Error =
+      this match {
+        case Error.MissedExpectation(x) => Error.MissedExpectation(x.translateOffset(inc))
+        case Error.Combined(es) => Error.Combined(es.map(_.translateOffset(inc)))
+      }
   }
   object Error {
     case class MissedExpectation(expectation: Expectation) extends Error {
