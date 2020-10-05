@@ -58,7 +58,7 @@ jobs:
         with:
           java-version: "${{matrix.java}}"
       - name: "run coreJS tests"
-        run: "sbt \"++${{matrix.scala}} coreJS/test\""
+        run: "sbt \"++${{matrix.scala}} coreJS/test; parserJS/test\""
     strategy:
       matrix:
         java:
@@ -77,7 +77,7 @@ jobs:
           java-version: "${{matrix.java}}"
       - name: "run tests with coverage"
         run: |
-          sbt "coverage; clean; coreJVM/test; cli/test; coverageReport"
+          sbt "coverage; clean; coreJVM/test; cli/test; parserJVM/test; coverageReport"
           bash <(curl -s https://codecov.io/bash)
     strategy:
       matrix:

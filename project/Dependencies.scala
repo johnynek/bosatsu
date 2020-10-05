@@ -11,6 +11,8 @@ object Dependencies {
   lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.0.0")
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.0.0")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.2")
+  lazy val munit = Def.setting("org.scalameta" %%% "munit" % "0.7.13")
+  lazy val munitScalacheck = Def.setting("org.scalameta" %%% "munit-scalacheck" % "0.7.13")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.3.0")
   lazy val scalaCheck = Def.setting("org.scalacheck" %%% "scalacheck" % "1.14.3")
   lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.0.9")
