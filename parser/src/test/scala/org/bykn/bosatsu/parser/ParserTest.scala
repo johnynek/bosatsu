@@ -121,7 +121,8 @@ object ParserGen {
     Gen.oneOf(
       GenT[Parser, (ga.A, gb.A)](FlatMap[Parser].product(ga.fa, gb.fa)),
       GenT[Parser, (ga.A, gb.A)](FlatMap[Parser].map2(ga.fa, gb.fa)((_, _))),
-      GenT[Parser, (ga.A, gb.A)](FlatMap[Parser].map2Eval(ga.fa, Eval.later(gb.fa))((_, _)).value)
+      GenT[Parser, (ga.A, gb.A)](FlatMap[Parser].map2Eval(ga.fa, Eval.later(gb.fa))((_, _)).value),
+      GenT[Parser, (ga.A, gb.A)](FlatMap[Parser].map2Eval(ga.fa, Eval.now(gb.fa))((_, _)).value)
     )
   }
 
@@ -131,7 +132,8 @@ object ParserGen {
     Gen.oneOf(
       GenT[Parser1, (ga.A, gb.A)](FlatMap[Parser1].product(ga.fa, gb.fa)),
       GenT[Parser1, (ga.A, gb.A)](FlatMap[Parser1].map2(ga.fa, gb.fa)((_, _))),
-      GenT[Parser1, (ga.A, gb.A)](FlatMap[Parser1].map2Eval(ga.fa, Eval.later(gb.fa))((_, _)).value)
+      GenT[Parser1, (ga.A, gb.A)](FlatMap[Parser1].map2Eval(ga.fa, Eval.later(gb.fa))((_, _)).value),
+      GenT[Parser1, (ga.A, gb.A)](FlatMap[Parser1].map2Eval(ga.fa, Eval.now(gb.fa))((_, _)).value),
     )
   }
 
@@ -193,6 +195,50 @@ object ParserGen {
       }
     }
 
+  // if we use a Parser here, we could loop forever parsing nothing
+  def tailRecM(ga: Gen[GenT[Parser1]]): Gen[GenT[Parser]] =
+    Gen.zip(pures, pures).flatMap { case (genRes1, genRes2) =>
+      val genPR: Gen[Parser[Either[genRes1.A, genRes2.A]]] = {
+        ga.flatMap { init =>
+          val mapFn: Gen[init.A => Either[genRes1.A, genRes2.A]] =
+            Gen.function1(Gen.either(genRes1.fa, genRes2.fa))(init.cogen)
+
+          mapFn.map { fn =>
+            init.fa.map(fn)
+          }
+        }
+      }
+
+      val gfn = Gen.function1(genPR)(genRes1.cogen)
+
+      Gen.zip(genRes1.fa, gfn)
+        .map { case (init, fn) =>
+          GenT(Monad[Parser].tailRecM(init)(fn))(genRes2.cogen),
+        }
+    }
+
+  def tailRecM1(ga: Gen[GenT[Parser1]]): Gen[GenT[Parser1]] =
+    Gen.zip(pures, pures).flatMap { case (genRes1, genRes2) =>
+      val genPR: Gen[Parser1[Either[genRes1.A, genRes2.A]]] = {
+        ga.flatMap { init =>
+          val mapFn: Gen[init.A => Either[genRes1.A, genRes2.A]] =
+            Gen.function1(Gen.either(genRes1.fa, genRes2.fa))(init.cogen)
+
+          mapFn.map { fn =>
+            init.fa.map(fn)
+          }
+        }
+      }
+
+      val gfn = Gen.function1(genPR)(genRes1.cogen)
+
+      Gen.zip(genRes1.fa, gfn)
+        .map { case (init, fn) =>
+          GenT(FlatMap[Parser1].tailRecM(init)(fn))(genRes2.cogen),
+        }
+    }
+
+
   def flatMapped1(ga: Gen[GenT[Parser]], ga1: Gen[GenT[Parser1]]): Gen[GenT[Parser1]] =
     Gen.zip(ga, ga1, pures).flatMap { case (parser, parser1, genRes) =>
       val genPR: Gen[Parser1[genRes.A]] = {
@@ -231,8 +277,11 @@ object ParserGen {
     val genFn2: Gen[gb.A => res.A] = Gen.function1(res.fa)(gb.cogen)
     implicit val cogenResA: Cogen[res.A] = res.cogen
 
-    Gen.zip(genFn1, genFn2).map { case (f1, f2) =>
-      GenT(ga.fa.map(f1).orElse(gb.fa.map(f2)))
+    Gen.zip(genFn1, genFn2).flatMap { case (f1, f2) =>
+      Gen.oneOf(
+        GenT(ga.fa.map(f1).orElse(gb.fa.map(f2))),
+        GenT(MonoidK[Parser].combineK(ga.fa.map(f1), gb.fa.map(f2)))
+      )
     }
   }
 
@@ -241,8 +290,11 @@ object ParserGen {
     val genFn2: Gen[gb.A => res.A] = Gen.function1(res.fa)(gb.cogen)
     implicit val cogenResA: Cogen[res.A] = res.cogen
 
-    Gen.zip(genFn1, genFn2).map { case (f1, f2) =>
-      GenT(ga.fa.map(f1).orElse1(gb.fa.map(f2)))
+    Gen.zip(genFn1, genFn2).flatMap { case (f1, f2) =>
+      Gen.oneOf(
+        GenT(ga.fa.map(f1).orElse1(gb.fa.map(f2))),
+        GenT(MonoidK[Parser1].combineK(ga.fa.map(f1), gb.fa.map(f2)))
+      )
     }
   }
 
@@ -263,6 +315,7 @@ object ParserGen {
      (1, rec.map(defer(_))),
      (1, Gen.lzy(gen1.map(rep(_)))),
      (1, rec.flatMap(mapped(_))),
+     (1, tailRecM(Gen.lzy(gen1))),
      (1, Gen.choose(0, 10).map { l => GenT(Parser.length(l)) }),
      (1, flatMapped(rec)),
      (1, Gen.zip(rec, rec).flatMap { case (g1, g2) => product(g1, g2) }),
@@ -284,6 +337,7 @@ object ParserGen {
      (1, rec.map(rep1(_))),
      (1, rec.flatMap(mapped1(_))),
      (1, flatMapped1(gen, rec)),
+     (1, tailRecM1(rec)),
      (1, Gen.choose(1, 10).map { l => GenT(Parser.length1(l)) }),
      (1, Gen.zip(rec, rec).flatMap { case (g1, g2) => product1(g1, g2) }),
      (1, Gen.zip(rec, rec, pures).flatMap { case (g1, g2, p) => orElse1(g1, g2, p) })
@@ -431,10 +485,12 @@ class ParserTest extends munit.ScalaCheckSuite {
       val r2 = genP.fa.void.parse(str)
       val r3 = FlatMap[Parser1].void(genP.fa).parse(str)
       val r4 = genP.fa.as(()).parse(str)
+      val r5 = ((genP.fa.void: Parser[Unit]) <* Monad[Parser].unit).parse(str)
 
       assertEquals(r2, r1.map { case (off, _) => (off, ()) })
       assertEquals(r2, r3)
       assertEquals(r2, r4)
+      assertEquals(r2, r5)
     }
   }
 

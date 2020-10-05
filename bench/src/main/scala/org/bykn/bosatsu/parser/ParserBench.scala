@@ -26,8 +26,8 @@ class ParserBench {
   }
 
   object Local {
-    val digit = Parser.charIn1('0' to '9')
-    val digit1 = Parser.charIn1('1' to '9')
+    val digit = Parser.charIn('0' to '9')
+    val digit1 = Parser.charIn('1' to '9')
     def maybeNeg[A](p1: Parser1[A]): Parser1[String] =
       Parser.oneOf1(
         (Parser.expect("-") ~ p1) ::

@@ -721,17 +721,22 @@ object Parser extends ParserInstances {
 
     final def tailRecM[A, B](init: Parser[Either[A, B]], fn: A => Parser[Either[A, B]], state: State): B = {
       var p: Parser[Either[A, B]] = init
+      // we have to capture
+      val c0 = state.capture
+      state.capture = true
       while (state.error eq null) {
         val res = p.parseMut(state)
         if (state.error eq null) {
           res match {
             case Right(b) =>
+              state.capture = c0
               return b
             case Left(a) =>
               p = fn(a)
           }
         }
       }
+      state.capture = c0
       null.asInstanceOf[B]
     }
 
@@ -795,69 +800,52 @@ object Parser extends ParserInstances {
       }
     }
 
-    case class Rep[A](p1: Parser1[A]) extends Parser[List[A]] {
-      override def parseMut(state: State): List[A] = {
-        val cap = state.capture
-        val bldr = if (cap) List.newBuilder[A] else null
-        var offset = state.offset
+    final def rep[A](p: Parser1[A], min: Int, state: State): List[A] = {
+      val cap = state.capture
+      val bldr = if (cap) List.newBuilder[A] else null
+      var offset = state.offset
+      var cnt = 0
 
-        while (true) {
-          val a = p1.parseMut(state)
-          if (state.error eq null) {
-            if (cap) { bldr += a }
-            offset = state.offset
-          }
-          else if (state.offset != offset) {
-            // this is a partial parse, which is a failure
-            return null
-          }
-          else {
-            // return the latest
-            state.error = null
-            return if (cap) bldr.result() else null
-          }
+      while (true) {
+        val a = p.parseMut(state)
+        if (state.error eq null) {
+          cnt += 1
+          if (cap) { bldr += a }
+          offset = state.offset
         }
-        // $COVERAGE-OFF$
-        sys.error("unreachable")
-        // $COVERAGE-ON$
+        else if (state.offset != offset) {
+          // we partially consumed, this is an error
+          return null
+        }
+        else if (cnt >= min) {
+          // return the latest
+          state.error = null
+          return if (cap) bldr.result() else null
+        }
+        else {
+          return null
+        }
       }
+      // $COVERAGE-OFF$
+      sys.error("unreachable")
+      // $COVERAGE-ON$
+    }
+
+    case class Rep[A](p1: Parser1[A]) extends Parser[List[A]] {
+      override def parseMut(state: State): List[A] = Impl.rep(p1, 0, state)
     }
 
     case class Rep1[A](p1: Parser1[A], min: Int) extends Parser1[NonEmptyList[A]] {
       if (min < 1) throw new IllegalArgumentException(s"expected min >= 1, found: $min")
 
       override def parseMut(state: State): NonEmptyList[A] = {
-        val cap = state.capture
-        val bldr = if (cap) List.newBuilder[A] else null
-        val a0 = p1.parseMut(state)
+        val head = p1.parseMut(state)
 
-        if (state.error ne null) return null
-        var cnt = 1
-        var offset = state.offset
-
-        while (true) {
-          val a = p1.parseMut(state)
-          if (state.error eq null) {
-            cnt += 1
-            if (cap) { bldr += a }
-            offset = state.offset
-          }
-          else if (state.offset != offset) {
-            // we partially consumed, this is an error
-            return null
-          }
-          else if (cnt >= min) {
-            // return the latest
-            state.error = null
-            return if (cap) NonEmptyList(a0, bldr.result()) else null
-          }
-          else {
-            return null
-          }
+        if (state.error ne null) null
+        else {
+          val tail = Impl.rep(p1, min - 1, state)
+          if (state.capture) NonEmptyList(head, tail) else null
         }
-        // $COVERAGE-OFF$
-        sys.error("unreachable")
-        // $COVERAGE-ON$
       }
     }
 
