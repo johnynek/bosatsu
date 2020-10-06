@@ -533,13 +533,16 @@ class ParserTest extends munit.ScalaCheckSuite {
   }
 
   def orElse[A](p1: Parser[A], p2: Parser[A], str: String): Either[Parser.Error, (String, A)] = {
-    p1.parse(str) match {
+    if (p1 == Parser.Fail) p2.parse(str)
+    else if (p2 == Parser.Fail) p1.parse(str)
+    else p1.parse(str) match {
       case left@Left(err) =>
         if (err.failedAtOffset == 0) {
           p2.parse(str)
             .leftMap { err1 =>
               if (err1.failedAtOffset == 0) {
-                Parser.Error(err1.failedAtOffset, Parser.Expectation.unify(err.expected ::: err1.expected))
+                val errs = err.expected ::: err1.expected
+                Parser.Error(err1.failedAtOffset, Parser.Expectation.unify(errs))
               }
               else err1
             }
