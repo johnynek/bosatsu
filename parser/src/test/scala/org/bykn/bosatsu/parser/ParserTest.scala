@@ -457,7 +457,7 @@ class ParserTest extends munit.ScalaCheckSuite {
               assertEquals(s.drop(len), rest)
             }
             else fail(s"expected to not parse: $rest, $first")
-          case Left(Parser.Error(NonEmptyList(Parser.Expectation.Length(off, l, a), Nil))) =>
+          case Left(Parser.Error(0, NonEmptyList(Parser.Expectation.Length(off, l, a), Nil))) =>
             assertEquals(off, 0)
             assertEquals(l, len)
             assertEquals(a, s.length)
@@ -529,6 +529,51 @@ class ParserTest extends munit.ScalaCheckSuite {
       )
 
       assertEquals(oneOf1.parse(str), oneOf2.parse(str))
+    }
+  }
+
+  def orElse[A](p1: Parser[A], p2: Parser[A], str: String): Either[Parser.Error, (String, A)] = {
+    p1.parse(str) match {
+      case left@Left(err) =>
+        if (err.failedAtOffset == 0) {
+          p2.parse(str)
+            .leftMap { err1 =>
+              if (err1.failedAtOffset == 0) {
+                Parser.Error(err1.failedAtOffset, Parser.Expectation.unify(err.expected ::: err1.expected))
+              }
+              else err1
+            }
+        }
+        else left
+      case right => right
+    }
+  }
+
+  property("oneOf composes as expected") {
+    forAll(ParserGen.gen, ParserGen.gen, Arbitrary.arbitrary[String]) { (genP1, genP2, str) =>
+      assertEquals(genP1.fa.orElse(genP2.fa).parse(str), orElse(genP1.fa, genP2.fa, str))
+    }
+  }
+
+  property("oneOf1 composes as expected") {
+    forAll(ParserGen.gen1, ParserGen.gen1, Arbitrary.arbitrary[String]) { (genP1, genP2, str) =>
+      assertEquals(genP1.fa.orElse1(genP2.fa).parse(str), orElse(genP1.fa, genP2.fa, str))
+    }
+  }
+
+  property("oneOf same as foldLeft(fail)(_.orElse(_))") {
+    forAll(Gen.listOf(ParserGen.gen), Arbitrary.arbitrary[String]) { (genP1, str) =>
+      val oneOfImpl = genP1.foldLeft(Parser.fail: Parser[Any]) { (leftp, p) => leftp.orElse(p.fa) }
+
+      assertEquals(oneOfImpl.parse(str), Parser.oneOf(genP1.map(_.fa)).parse(str))
+    }
+  }
+
+  property("oneOf1 same as foldLeft(fail)(_.orElse1(_))") {
+    forAll(Gen.listOf(ParserGen.gen1), Arbitrary.arbitrary[String]) { (genP1, str) =>
+      val oneOfImpl = genP1.foldLeft(Parser.fail[Any]) { (leftp, p) => leftp.orElse1(p.fa) }
+
+      assertEquals(oneOfImpl.parse(str), Parser.oneOf1(genP1.map(_.fa)).parse(str))
     }
   }
 
@@ -629,7 +674,7 @@ class ParserTest extends munit.ScalaCheckSuite {
 
   test("range messages seem to work") {
     val pa = Parser.charIn('0' to '9')
-    assertEquals(pa.parse("z").toString, "Left(Error(NonEmptyList(InRange(0,0,9))))")
+    assertEquals(pa.parse("z").toString, "Left(Error(0,NonEmptyList(InRange(0,0,9))))")
   }
 
   test("partial parse fails in rep") {
@@ -696,7 +741,7 @@ class ParserTest extends munit.ScalaCheckSuite {
         case Right((rest, _)) =>
           assertEquals(str, "")
           assertEquals(rest, "")
-        case Left(Parser.Error(NonEmptyList(Parser.Expectation.EndOfString(off, len), Nil))) =>
+        case Left(Parser.Error(0, NonEmptyList(Parser.Expectation.EndOfString(off, len), Nil))) =>
           assertEquals(off, 0)
           assertEquals(len, str.length)
         case other =>
@@ -800,12 +845,12 @@ class ParserTest extends munit.ScalaCheckSuite {
     }
   }
 
-  property("x and !x never both parse") {
+  property("exactly one of x or !x parse") {
     forAll(ParserGen.gen, Arbitrary.arbitrary[String]) { (p1, str) =>
       val notx = !p1.fa
 
-      val both = p1.fa.parse(str).isRight && notx.parse(str).isRight
-      assert(!both)
+      val xor = p1.fa.parse(str).isRight ^ notx.parse(str).isRight
+      assert(xor)
     }
   }
 
@@ -817,6 +862,14 @@ class ParserTest extends munit.ScalaCheckSuite {
       assertEquals(m1.isRight, m2.isRight)
       if (m1.isRight) {
         assert(x.fa.parse(str) == m2)
+      }
+    }
+  }
+
+  property("if x matches then x.peek matches but returns the whole string and unit") {
+    forAll(ParserGen.gen, Arbitrary.arbitrary[String]) { (x, str) =>
+      if (x.fa.parse(str).isRight) {
+        assertEquals(x.fa.peek.parse(str), Right((str, ())))
       }
     }
   }

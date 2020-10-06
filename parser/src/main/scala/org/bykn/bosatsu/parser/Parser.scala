@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.parser
 
-import cats.{Eval, Monad, Defer, Alternative, FlatMap, Now, MonoidK}
+import cats.{Eval, Monad, Defer, Alternative, FlatMap, Now, MonoidK, Order}
 import cats.data.NonEmptyList
 
 import cats.implicits._
@@ -21,8 +21,9 @@ sealed abstract class Parser[+A] {
     val state = new Parser.Impl.State(str)
     val result = parseMut(state)
     val err = state.error
-    if (err eq null) Right((str.substring(state.offset), result))
-    else Left(err)
+    val offset = state.offset
+    if (err eq null) Right((str.substring(offset), result))
+    else Left(Parser.Error(offset, Parser.Expectation.unify(err)))
   }
 
   def ? : Parser[Option[A]] =
@@ -159,39 +160,113 @@ sealed abstract class Parser1[+A] extends Parser[A] {
 object Parser extends ParserInstances {
   sealed abstract class Expectation {
     def offset: Int
-    def toError: Error = Error(NonEmptyList(this, Nil))
+    def toNEL: NonEmptyList[Expectation] = NonEmptyList(this, Nil)
   }
 
   object Expectation {
     case class Str(offset: Int, str: String) extends Expectation
     // expected a character in a given range
     case class InRange(offset: Int, lower: Char, upper: Char) extends Expectation
-    case class Failure(offset: Int) extends Expectation
     case class StartOfString(offset: Int) extends Expectation
     case class EndOfString(offset: Int, length: Int) extends Expectation
     case class Length(offset: Int, expected: Int, actual: Int) extends Expectation
     case class ExpectedFailureAt(offset: Int, matched: String) extends Expectation
+    // this is the result of oneOf(Nil) at a given location
+    case class EmptyOneOf(offset: Int) extends Expectation
 
-    // seems like a semigroup on NonEmptyList[Expectation]
-    def merge(errors: NonEmptyList[Expectation]): NonEmptyList[Expectation] =
-      NonEmptyList.fromListUnsafe(
+    implicit val catsOrderExpectation: Order[Expectation] =
+      new Order[Expectation] {
+        def compare(left: Expectation, right: Expectation): Int = {
+          val c = Integer.compare(left.offset, right.offset)
+          if (c != 0) c
+          else if (left == right) 0
+          else {
+            // these are never equal
+            (left, right) match {
+              case (Str(_, s1), Str(_, s2)) => s1.compare(s2)
+              case (Str(_, _), _) => -1
+              case (InRange(_, _, _), Str(_, _)) => 1
+              case (InRange(_, l1, u1), InRange(_, l2, u2)) =>
+                val c1 = Character.compare(l1, l2)
+                if (c1 == 0) Character.compare(u1, u2)
+                else c1
+              case (InRange(_, _, _), _) => -1
+              case (StartOfString(_), Str(_, _) | InRange(_, _, _)) => 1
+              case (StartOfString(_), _) => -1 // if they have the same offset, already handled above
+              case (EndOfString(_, _), Str(_, _) | InRange(_, _, _) | StartOfString(_)) => 1
+              case (EndOfString(_, l1), EndOfString(_, l2)) =>
+                Integer.compare(l1, l2)
+              case (EndOfString(_, _), _) => -1
+              case (Length(_, _, _), Str(_, _) | InRange(_, _, _) | StartOfString(_) | EndOfString(_, _)) => 1
+              case (Length(_, e1, a1), Length(_, e2, a2)) =>
+                val c1 = Integer.compare(e1, e2)
+                if (c1 == 0) Integer.compare(a1, a2)
+                else c1
+              case (Length(_, _, _), _) => -1
+              case (ExpectedFailureAt(_, _), EmptyOneOf(_)) => -1
+              case (ExpectedFailureAt(_, m1), ExpectedFailureAt(_, m2)) =>
+                m1.compare(m2)
+              case (ExpectedFailureAt(_, _), _) => 1
+              case (EmptyOneOf(_), _) => 1
+            }
+          }
+        }
+      }
+
+    /**
+     * Sort, dedup and unify ranges for the errors accumulated
+     * This is called just before finally returning an error in Parser.parse
+     */
+    def unify(errors: NonEmptyList[Expectation]): NonEmptyList[Expectation] = {
+      val nonFails =
         errors
           .toList
           .distinct
-          .sortBy(_.offset)
-        )
+          .filter {
+            case EmptyOneOf(_) => false
+            case _ => true
+          }
+
+      val nonFailOffsets = nonFails.iterator.map(_.offset).toSet
+
+      // oneOf(Nil) failures without other failures at that location
+      val missingFailOffsets =
+        errors.toList
+          .collect { case f@EmptyOneOf(o) if !nonFailOffsets(o) => f }
+          .distinct
+
+      // merge all the ranges:
+      val rangeMerge: List[InRange] =
+        nonFails
+          .collect { case InRange(o, l, u) => (o, l to u) }
+          .groupBy(_._1)
+          .iterator
+          .flatMap { case (o, ranges) =>
+            // TODO: this could be optimized to not enumerate the set
+            // for instance, a cheap thing to do is see if they
+            // overlap or not
+            val ary = ranges.iterator.map(_._2).flatten.toArray
+            java.util.Arrays.sort(ary)
+            Impl.rangesFor(ary)
+              .map { case (l, u) => InRange(o, l, u) }
+              .toList
+          }
+          .toList
+
+      val nonFailsRanges =
+        if (rangeMerge.isEmpty) nonFails
+        else nonFails.filterNot(_.isInstanceOf[InRange])
+
+      NonEmptyList.fromListUnsafe(
+        rangeMerge ::: nonFailsRanges ::: missingFailOffsets
+      )
+      .sorted
+    }
   }
 
-  final case class Error(expected: NonEmptyList[Expectation]) {
+  final case class Error(failedAtOffset: Int, expected: NonEmptyList[Expectation]) {
     def offsets: NonEmptyList[Int] =
       expected.map(_.offset).distinct
-  }
-  object Error {
-    def combined(errors: NonEmptyList[Error]): Error =
-      errors match {
-        case NonEmptyList(h, Nil) => h
-        case _ => Error(Expectation.merge(errors.flatMap(_.expected)))
-      }
   }
 
   final class With1[+A](val parser: Parser[A]) extends AnyVal {
@@ -239,7 +314,6 @@ object Parser extends ParserInstances {
     flatten(parsers, Nil) match {
       case h :: Nil => h
       case nel => Impl.OneOf1(Impl.mergeCharIn[A, Parser1[A]](nel))
-      //case nel => Impl.OneOf1(nel)
     }
   }
 
@@ -565,7 +639,7 @@ object Parser extends ParserInstances {
 
     final class State(val str: String) {
       var offset: Int = 0
-      var error: Error = null
+      var error: NonEmptyList[Expectation] = null
       var capture: Boolean = true
     }
 
@@ -585,7 +659,7 @@ object Parser extends ParserInstances {
           res
         }
         else {
-          state.error = Expectation.Length(offset, len, state.str.length - offset).toError
+          state.error = Expectation.Length(offset, len, state.str.length - offset).toNEL
           null
         }
       }
@@ -632,7 +706,7 @@ object Parser extends ParserInstances {
     case object StartParser extends Parser[Unit] {
       override def parseMut(state: State): Unit = {
         if (state.offset != 0) {
-          state.error = Expectation.StartOfString(state.offset).toError
+          state.error = Expectation.StartOfString(state.offset).toNEL
         }
         ()
       }
@@ -641,7 +715,7 @@ object Parser extends ParserInstances {
     case object EndParser extends Parser[Unit] {
       override def parseMut(state: State): Unit = {
         if (state.offset != state.str.length) {
-          state.error = Expectation.EndOfString(state.offset, state.str.length).toError
+          state.error = Expectation.EndOfString(state.offset, state.str.length).toNEL
         }
         ()
       }
@@ -680,7 +754,7 @@ object Parser extends ParserInstances {
           ()
         }
         else {
-          state.error = Expectation.Str(offset, message).toError
+          state.error = Expectation.Str(offset, message).toNEL
           ()
         }
       }
@@ -689,7 +763,7 @@ object Parser extends ParserInstances {
     final def oneOf[A](all: List[Parser[A]], state: State): A = {
       var ps = all
       val offset = state.offset
-      var errs: List[Error] = Nil
+      var errs: List[Expectation] = Nil
       while (ps.nonEmpty) {
         val thisParser = ps.head
         ps = ps.tail
@@ -703,7 +777,7 @@ object Parser extends ParserInstances {
           // we failed to parse, but didn't consume input
           // is unchanged we continue
           // else we stop
-          errs = state.error :: errs
+          errs = state.error.toList reverse_::: errs
           state.error = null
         }
       }
@@ -711,8 +785,8 @@ object Parser extends ParserInstances {
       // never advanced the offset
       state.error =
         NonEmptyList.fromList(errs.reverse) match {
-          case None => Expectation.Failure(offset).toError
-          case Some(errsNEL) => Error.combined(errsNEL)
+          case None => Expectation.EmptyOneOf(offset).toNEL
+          case Some(errsNEL) => errsNEL
         }
       null.asInstanceOf[A]
     }
@@ -911,6 +985,7 @@ object Parser extends ParserInstances {
       }
     }
 
+    // invariant: input must be sorted
     def rangesFor(charArray: Array[Char]): NonEmptyList[(Char, Char)] = {
       def rangesFrom(start: Char, end: Char, idx: Int): NonEmptyList[(Char, Char)] =
         if (idx >= charArray.length || (idx < 0)) NonEmptyList((start, end), Nil)
@@ -930,7 +1005,6 @@ object Parser extends ParserInstances {
      * Merge CharIn bitsets
      */
     def mergeCharIn[A, P <: Parser[A]](ps: List[P]): List[P] = {
-      // if there are no anychars look for CharIn we can merge
       def loop(ps: List[P], front: List[(Int, BitSetUtil.Tpe)]): List[P] = {
         @inline
         def frontRes: List[P] =
@@ -941,21 +1015,22 @@ object Parser extends ParserInstances {
 
         ps match {
           case Nil => frontRes
+          case AnyChar :: tail =>
+            // AnyChar is bigger than all subsequent CharIn:
+            // and any direct prefix CharIns
+            val tail1 = tail.filterNot(_.isInstanceOf[CharIn])
+            AnyChar.asInstanceOf[P] :: tail1
           case CharIn(m, bs, _) :: tail =>
             loop(tail, (m, bs) :: front)
           case h :: tail =>
+            // h is not an AnyChar or CharIn
+            // we make our prefix frontRes
+            // and resume working on the tail
             frontRes ::: (h :: loop(tail, Nil))
         }
       }
 
-      if (ps.exists(_ == AnyChar)) {
-        // AnyChar is a superset of CharIn, so we can remove all of those
-        ps.filterNot(_.isInstanceOf[CharIn])
-      }
-      else {
-        loop(ps, Nil)
-      }
-
+      loop(ps, Nil)
     }
 
     case object AnyChar extends Parser1[Char] {
@@ -967,7 +1042,7 @@ object Parser extends ParserInstances {
           char
         }
         else {
-          state.error = Expectation.InRange(offset, Char.MinValue, Char.MaxValue).toError
+          state.error = Expectation.InRange(offset, Char.MinValue, Char.MaxValue).toNEL
           '\u0000'
         }
       }
@@ -977,8 +1052,8 @@ object Parser extends ParserInstances {
 
       override def toString = s"CharIn($min, bitSet = ..., $ranges)"
 
-      def makeError(offset: Int): Error =
-        Error.combined(ranges.map { case (s, e) => Expectation.InRange(offset, s, e).toError })
+      def makeError(offset: Int): NonEmptyList[Expectation] =
+        ranges.map { case (s, e) => Expectation.InRange(offset, s, e) }
 
       override def parseMut(state: State): Char = {
         val offset = state.offset
@@ -1020,7 +1095,7 @@ object Parser extends ParserInstances {
           val matchedStr = state.str.substring(offset, state.offset)
           // we don't reset the offset, so if the underlying parser
           // advanced it will fail in a OneOf
-          state.error = Expectation.ExpectedFailureAt(offset, matchedStr).toError
+          state.error = Expectation.ExpectedFailureAt(offset, matchedStr).toNEL
         }
 
         ()
