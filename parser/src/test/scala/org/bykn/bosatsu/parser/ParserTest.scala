@@ -2,6 +2,7 @@ package org.bykn.bosatsu.parser
 
 import cats.{Eq, Id, FlatMap, Functor, Defer, MonoidK, Monad, Eval}
 import cats.arrow.FunctionK
+import cats.data.NonEmptyList
 import org.scalacheck.Prop.forAll
 import org.scalacheck.{Arbitrary, Gen, Cogen}
 
@@ -313,6 +314,7 @@ object ParserGen {
      (1, rec.map(string(_))),
      (1, rec.map(backtrack(_))),
      (1, rec.map(defer(_))),
+     (1, rec.map { gen => GenT(!gen.fa) }),
      (1, Gen.lzy(gen1.map(rep(_)))),
      (1, rec.flatMap(mapped(_))),
      (1, tailRecM(Gen.lzy(gen1))),
@@ -392,7 +394,9 @@ class ParserTest extends munit.ScalaCheckSuite {
     parseTest(Parser.product(fooP, barP), "foobar", ((), ()))
   }
 
-  val digit = Parser.charIn('0' to '9')
+  // we can use String => Iterable[Char]
+  val digit = Parser.charIn("0123456789")
+  // or use a range which reads a bit nicer:
   val digit1 = Parser.charIn('1' to '9')
   def maybeNeg[A](p1: Parser1[A]): Parser1[String] =
      (Parser.expect("-").?.with1 ~ p1).string
@@ -453,7 +457,7 @@ class ParserTest extends munit.ScalaCheckSuite {
               assertEquals(s.drop(len), rest)
             }
             else fail(s"expected to not parse: $rest, $first")
-          case Left(Parser.Error.MissedExpectation(Parser.Expectation.Length(off, l, a))) =>
+          case Left(Parser.Error(0, NonEmptyList(Parser.Expectation.Length(off, l, a), Nil))) =>
             assertEquals(off, 0)
             assertEquals(l, len)
             assertEquals(a, s.length)
@@ -525,6 +529,51 @@ class ParserTest extends munit.ScalaCheckSuite {
       )
 
       assertEquals(oneOf1.parse(str), oneOf2.parse(str))
+    }
+  }
+
+  def orElse[A](p1: Parser[A], p2: Parser[A], str: String): Either[Parser.Error, (String, A)] = {
+    p1.parse(str) match {
+      case left@Left(err) =>
+        if (err.failedAtOffset == 0) {
+          p2.parse(str)
+            .leftMap { err1 =>
+              if (err1.failedAtOffset == 0) {
+                Parser.Error(err1.failedAtOffset, Parser.Expectation.unify(err.expected ::: err1.expected))
+              }
+              else err1
+            }
+        }
+        else left
+      case right => right
+    }
+  }
+
+  property("oneOf composes as expected") {
+    forAll(ParserGen.gen, ParserGen.gen, Arbitrary.arbitrary[String]) { (genP1, genP2, str) =>
+      assertEquals(genP1.fa.orElse(genP2.fa).parse(str), orElse(genP1.fa, genP2.fa, str))
+    }
+  }
+
+  property("oneOf1 composes as expected") {
+    forAll(ParserGen.gen1, ParserGen.gen1, Arbitrary.arbitrary[String]) { (genP1, genP2, str) =>
+      assertEquals(genP1.fa.orElse1(genP2.fa).parse(str), orElse(genP1.fa, genP2.fa, str))
+    }
+  }
+
+  property("oneOf same as foldLeft(fail)(_.orElse(_))") {
+    forAll(Gen.listOf(ParserGen.gen), Arbitrary.arbitrary[String]) { (genP1, str) =>
+      val oneOfImpl = genP1.foldLeft(Parser.fail: Parser[Any]) { (leftp, p) => leftp.orElse(p.fa) }
+
+      assertEquals(oneOfImpl.parse(str), Parser.oneOf(genP1.map(_.fa)).parse(str))
+    }
+  }
+
+  property("oneOf1 same as foldLeft(fail)(_.orElse1(_))") {
+    forAll(Gen.listOf(ParserGen.gen1), Arbitrary.arbitrary[String]) { (genP1, str) =>
+      val oneOfImpl = genP1.foldLeft(Parser.fail[Any]) { (leftp, p) => leftp.orElse1(p.fa) }
+
+      assertEquals(oneOfImpl.parse(str), Parser.oneOf1(genP1.map(_.fa)).parse(str))
     }
   }
 
@@ -625,7 +674,7 @@ class ParserTest extends munit.ScalaCheckSuite {
 
   test("range messages seem to work") {
     val pa = Parser.charIn('0' to '9')
-    assertEquals(pa.parse("z").toString, "Left(MissedExpectation(InRange(0,0,9)))")
+    assertEquals(pa.parse("z").toString, "Left(Error(0,NonEmptyList(InRange(0,0,9))))")
   }
 
   test("partial parse fails in rep") {
@@ -692,7 +741,7 @@ class ParserTest extends munit.ScalaCheckSuite {
         case Right((rest, _)) =>
           assertEquals(str, "")
           assertEquals(rest, "")
-        case Left(Parser.Error.MissedExpectation(Parser.Expectation.EndOfString(off, len))) =>
+        case Left(Parser.Error(0, NonEmptyList(Parser.Expectation.EndOfString(off, len), Nil))) =>
           assertEquals(off, 0)
           assertEquals(len, str.length)
         case other =>
@@ -777,6 +826,60 @@ class ParserTest extends munit.ScalaCheckSuite {
         case (Left(_), l) => assert(l.isLeft)
         case (ra, rb) => assertEquals(ra, rb)
       }
+    }
+  }
+
+  test("charWhere(_ => true) == anyChar") {
+    assertEquals(Parser.charWhere(_ => true), Parser.anyChar)
+  }
+
+  property("with1 *> and with1 <* work as expected") {
+    forAll(ParserGen.gen, ParserGen.gen1, Arbitrary.arbitrary[String]) { (p1, p2, str) =>
+      val rp1 = p1.fa.with1 *> p2.fa
+      val rp2 = (p1.fa.with1 ~ p2.fa).map(_._2)
+      assertEquals(rp1.parse(str), rp2.parse(str))
+
+      val rp3 = p1.fa.with1 <* p2.fa
+      val rp4 = (p1.fa.with1 ~ p2.fa).map(_._1)
+      assertEquals(rp3.parse(str), rp4.parse(str))
+    }
+  }
+
+  property("exactly one of x or !x parse") {
+    forAll(ParserGen.gen, Arbitrary.arbitrary[String]) { (p1, str) =>
+      val notx = !p1.fa
+
+      val xor = p1.fa.parse(str).isRight ^ notx.parse(str).isRight
+      assert(xor)
+    }
+  }
+
+  property("if x ~ y matches then x ~ y.peek match") {
+    forAll(ParserGen.gen, ParserGen.gen, Arbitrary.arbitrary[String]) { (x, y, str) =>
+      val m1 = (x.fa ~ y.fa).parse(str)
+      val m2 = ((x.fa ~ y.fa.peek).map(_._1)).parse(str)
+
+      assertEquals(m1.isRight, m2.isRight)
+      if (m1.isRight) {
+        assert(x.fa.parse(str) == m2)
+      }
+    }
+  }
+
+  property("if x matches then x.peek matches but returns the whole string and unit") {
+    forAll(ParserGen.gen, Arbitrary.arbitrary[String]) { (x, str) =>
+      if (x.fa.parse(str).isRight) {
+        assertEquals(x.fa.peek.parse(str), Right((str, ())))
+      }
+    }
+  }
+
+  property("BitSetUtil union works") {
+    forAll { cs: List[List[Char]] =>
+      val arys = cs.filter(_.nonEmpty).map(_.toArray.sorted)
+      val bs = arys.map { ary => (ary(0).toInt, BitSetUtil.bitSetFor(ary)) }
+      val sortedFlat = BitSetUtil.union(bs)
+      assertEquals(sortedFlat.toSet, cs.flatten.toSet)
     }
   }
 }
