@@ -5,6 +5,8 @@ import cats.implicits._
 import rankn._
 
 import Identifier.Constructor
+import org.bykn.bosatsu.LetFreePattern.ListPart
+import scala.annotation.tailrec 
 
 sealed abstract class LetFreeExpression {
   /*
@@ -160,7 +162,48 @@ object LetFreePattern {
    * @ binds tighter than |, so use ( ) with groups you want to bind
    */
   case class Named(name: Int, pat: LetFreePattern) extends LetFreePattern
-  case class ListPat(parts: List[Either[Option[Int], LetFreePattern]]) extends LetFreePattern
+
+  type ListPart = Either[ListPart.Glob, LetFreePattern]
+  object ListPart {
+    type Glob = Option[Int]
+  }
+
+  case class ListPat(parts: List[ListPart]) extends LetFreePattern {
+    lazy val toPositionalStruct: Either[(ListPart.Glob, NonEmptyList[ListPart]), LetFreePattern] = {
+      def loop(parts: List[ListPart]): Either[(ListPart.Glob, NonEmptyList[ListPart]), LetFreePattern] =
+        parts match {
+          case Nil => Right(PositionalStruct(Some(0), Nil, DataFamily.Enum))
+          case Left(None) :: Nil => Right(WildCard)
+          case Left(Some(n)) :: Nil => Right(Var(n))
+          case Right(p) :: tail =>
+            // we can always make some progress here
+            val tailPat = loop(tail).toOption.getOrElse(ListPat(tail))
+            Right(PositionalStruct(Some(1), List(p, tailPat), DataFamily.Enum))
+          case (l@Left(None)) :: (r@Right(WildCard)) :: t =>
+            // we can switch *_, _ with _, *_
+            loop(r :: l :: t)
+          case (Left(glob)) :: h1 :: t =>
+            // a prefixed list cannot be represented as a cons cell
+            Left((glob, NonEmptyList(h1, t)))
+        }
+
+      loop(parts)
+    }
+
+    lazy val toMatchList: (List[LetFreePattern], List[(ListPart.Glob, List[LetFreePattern])]) = {
+      def loop(parts: List[ListPart]): (List[LetFreePattern], List[(ListPart.Glob, List[LetFreePattern])]) = parts match {
+        case Nil => (Nil, Nil)
+        case Left(None) :: Right(WildCard) :: tail => loop(Right(WildCard) :: Left(None) :: tail)
+        case Left(glob) :: tail => loop(tail) match {
+          case (prefix, rest) => (Nil, (glob, prefix) :: rest)
+        }
+        case Right(item) :: tail => loop(tail) match {
+          case (prefix, rest) => (item :: prefix, rest)
+        }
+      }
+      loop(parts)
+    }     
+  }
   case class PositionalStruct(name: Option[Int], params: List[LetFreePattern], dataFamily: DataFamily) extends LetFreePattern
   case class Union(head: LetFreePattern, rest: NonEmptyList[LetFreePattern]) extends LetFreePattern
   case class StrPat(parts: NonEmptyList[StrPart]) extends LetFreePattern
@@ -250,70 +293,104 @@ object LetFreeConversion {
             case notMatch => notMatch
           }
         }
-      case LetFreePattern.ListPat(items) =>
-        items match {
-          case Nil =>
-            { (arg, acc) =>
-              toStruct(arg, DataFamily.Enum) match {
-                case Some((0, _)) => Matches(acc)
-                case Some((1, _)) => NoMatch
-                case _ => NotProvable
-              }
-            }
-          case Right(ph) :: ptail =>
-            // a right hand side pattern never matches the empty list
-            val fnh = maybeBind[T](ph)
-            val fnt = maybeBind[T](LetFreePattern.ListPat(ptail))
-
-            { (arg, acc) =>
-              toStruct(arg, DataFamily.Enum) match {
-                case Some((1, List(argHead, structTail))) =>
-                  fnh(argHead, acc) match {
-                    case NoMatch => NoMatch
-                    case NotProvable => fnt(structTail, acc) match {
-                      case NoMatch => NoMatch
-                      case _ => NotProvable
-                    }
-                    case Matches(acc1) => fnt(structTail, acc1)
-                  }
-                case Some(_) => NoMatch
-                case _ => NotProvable
-              }
-            }
-          case Left(splice) :: Nil =>
-            // this is the common and easy case: a total match of the tail
-            // we don't need to match on it being a list, because we have
-            // already type checked
-            splice match {
-              case Some(ident) =>
-                { (v, env) => Matches(env + (ident -> v)) }
-              case None =>
-                noop
-            }
-          case Left(splice) :: ptail =>
-            // this is more costly, since we have to match a non infinite tail.
-            // we reverse the tails, do the match, and take the rest into
-            // the splice
-            val revPat = LetFreePattern.ListPat(ptail.reverse)
-            val fnMatchTail = maybeBind[T](revPat)
-            val ptailSize = ptail.size
-
-            { (arg, acc) =>
-              // we only allow one splice, so we assume the rest of the patterns
-              toList(arg) match {
-                case None => NotProvable
-                case Some(asList) =>
-                  val (revArgTail, spliceVals) = asList.reverse.splitAt(ptailSize)
-                  fnMatchTail(fromList(revArgTail), acc) match {
-                    case m@Matches(acc1) => splice.map {nm =>
-                      val rest = fromList(spliceVals.reverse)
-                      Matches(acc1 + (nm -> rest))
-                    }.getOrElse(m)
-                    case notMatch => notMatch
-                  }
-              }
-            }
+      case lp@LetFreePattern.ListPat(_) => {
+        case class StructList(asT: T) {
+          lazy val parts = {
+            val strct = toStruct(asT, DataFamily.Enum)
+            strct.map { case (i, List(h, t)) => (i, h, StructList(t))}
+          }
         }
+
+        def consumePrefix(prefix: List[LetFreePattern]):(T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])] = { 
+          val matchers = prefix.map(maybeBind[T](_))
+          val initial: (T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])] = {(x: T, env: PatternEnv[T]) => Matches((x, env))}
+          matchers.foldRight[(T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])]](initial) {
+            case (fn, acc) => {(x: T, env: PatternEnv[T]) =>
+              toStruct(x, DataFamily.Enum) match {
+                case None => NotProvable
+                // Possible optimization below because we hit the end of the list and there's no point in going on
+                case Some((0, _)) => NoMatch
+                case Some((1, List(head, tail))) => fn(head, env) match {
+                  case Matches(nextEnv) => acc(tail, nextEnv)
+                  case NotProvable => NotProvable
+                  case NoMatch => NoMatch
+                } 
+                case _ => sys.error("List can only have the structures")
+              }
+            }
+          }
+        }
+        def consumeMatch(glob: ListPart.Glob, suffix: List[LetFreePattern]): (T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])] = {
+          val suffixConsumer = consumePrefix(suffix)
+          @tailrec
+          def loop(v: T, env: PatternEnv[T], acc: List[T]): PatternMatch[(T, PatternEnv[T], List[T])] = suffixConsumer(v, env) match {
+            case Matches((vRest, nextEnv)) => Matches((vRest, nextEnv, acc))
+            case NotProvable => NotProvable
+            case NoMatch => toStruct(v, DataFamily.Enum) match {
+              case None => NotProvable
+              case Some((0, _)) => NoMatch
+              case Some((1, List(h, tail))) => loop(tail, env, h :: acc)
+              case Some(_) => sys.error("Type checking means v is a list so the above should be exhaustive.")
+            }
+          }
+          {(x: T, env: PatternEnv[T]) => loop(x, env, Nil) match {
+            case Matches((x, env, acc)) => glob match {
+              case None => Matches((x, env))
+              case Some(n) => Matches((x, env + (n -> fromList(acc.reverse))))
+            }
+            case NoMatch => NoMatch
+            case NotProvable => NotProvable
+          }}
+        }
+
+        def loop(matchList: List[(ListPart.Glob, List[LetFreePattern])]):
+          (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = matchList match {
+          case Nil => {(v, env) => toStruct(v, DataFamily.Enum) match {
+            case None => NotProvable
+            case Some((0, _)) => Matches(env)
+            case Some(_) => NoMatch
+          }}
+          case (None, Nil) :: Nil => {(v, env) => Matches(env)}
+          case (Some(n), Nil) :: Nil => {(v, env) => Matches(env + (n -> v))}
+          case (glob, suffix) :: Nil => {(v, env) =>
+            toList(v) match {
+              case None => NotProvable
+              case Some(lst) => if (lst.length < suffix.length) NoMatch else {
+                val (globList, tail) = lst.splitAt(lst.length - suffix.length)
+                val globEnv = glob match {
+                  case None => env
+                  case Some(n) => env + (n -> fromList(globList))
+                }
+                tail.zip(suffix).foldLeft[PatternMatch[PatternEnv[T]]](Matches(globEnv)) {
+                  case (Matches(env), (x, pat)) => maybeBind[T](pat).apply(x, env)
+                  case (noMatch, _) => noMatch
+                }
+              } 
+            }
+          }
+          case (glob, suffix) :: tail => {
+            val tailMatcher: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = loop(tail)
+            val prefixConsumer: (T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])] = consumeMatch(glob, suffix)
+            val result: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { (v, env) => prefixConsumer(v, env) match {
+              case Matches((remainder, nextEnv)) => tailMatcher(remainder, nextEnv)
+              case NoMatch => NoMatch
+              case NotProvable => NotProvable
+            }}
+            result
+          }
+        }
+        val (prefix, matchList) = lp.toMatchList
+        val prefixConsumer = consumePrefix(prefix)
+        val matchesConsumer = loop(matchList)
+        (v, env) => {
+          prefixConsumer(v, env) match {
+          case Matches((remainder, env)) => matchesConsumer(remainder, env)
+          case NoMatch => NoMatch
+          case NotProvable => NotProvable
+        }
+        }
+      }
+
       case LetFreePattern.Union(h, t) =>
         // we can just loop expanding these out:
         def loop(ps: List[LetFreePattern]): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =

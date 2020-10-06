@@ -76,6 +76,10 @@ class LetFreeEvaluationTest extends FunSuite {
     letFreeTest(List("euler7", "List", "Bool", "Nat"), "Euler/P7")
   }
 
+  test("list pat let free evaluate") {
+    letFreeTest(List("ListPat", "List", "Bool", "Nat"), "ListPat")
+  }
+
   test("LetFreeValue") {
     implicit val extEnv: ExtEnv = Map()
     implicit val cache: Cache = None
