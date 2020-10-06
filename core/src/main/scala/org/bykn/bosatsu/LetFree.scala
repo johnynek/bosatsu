@@ -294,46 +294,50 @@ object LetFreeConversion {
           }
         }
       case lp@LetFreePattern.ListPat(_) => {
+        sealed abstract class StructListResult
+        case object Empty extends StructListResult
+        case class Cons(h: T, t: StructList) extends StructListResult
         case class StructList(asT: T) {
           lazy val parts = {
             val strct = toStruct(asT, DataFamily.Enum)
-            strct.map { case (i, List(h, t)) => (i, h, StructList(t))}
+            strct.map { 
+              case (1, List(h, t)) => Cons(h, StructList(t))
+              case (0, Nil) => Empty
+            }
           }
         }
 
-        def consumePrefix(prefix: List[LetFreePattern]):(T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])] = { 
+        def consumePrefix(prefix: List[LetFreePattern]):(StructList, PatternEnv[T]) => PatternMatch[(StructList, PatternEnv[T])] = { 
           val matchers = prefix.map(maybeBind[T](_))
-          val initial: (T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])] = {(x: T, env: PatternEnv[T]) => Matches((x, env))}
-          matchers.foldRight[(T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])]](initial) {
-            case (fn, acc) => {(x: T, env: PatternEnv[T]) =>
-              toStruct(x, DataFamily.Enum) match {
+          val initial: (StructList, PatternEnv[T]) => PatternMatch[(StructList, PatternEnv[T])] = {(x: StructList, env: PatternEnv[T]) => Matches((x, env))}
+          matchers.foldRight[(StructList, PatternEnv[T]) => PatternMatch[(StructList, PatternEnv[T])]](initial) {
+            case (fn, acc) => {(x: StructList, env: PatternEnv[T]) =>
+              x.parts match {
                 case None => NotProvable
                 // Possible optimization below because we hit the end of the list and there's no point in going on
-                case Some((0, _)) => NoMatch
-                case Some((1, List(head, tail))) => fn(head, env) match {
+                case Some(Empty) => NoMatch
+                case Some(Cons(head, tail)) => fn(head, env) match {
                   case Matches(nextEnv) => acc(tail, nextEnv)
                   case NotProvable => NotProvable
                   case NoMatch => NoMatch
-                } 
-                case _ => sys.error("List can only have the structures")
+                }
               }
             }
           }
         }
-        def consumeMatch(glob: ListPart.Glob, suffix: List[LetFreePattern]): (T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])] = {
+        def consumeMatch(glob: ListPart.Glob, suffix: List[LetFreePattern]): (StructList, PatternEnv[T]) => PatternMatch[(StructList, PatternEnv[T])] = {
           val suffixConsumer = consumePrefix(suffix)
           @tailrec
-          def loop(v: T, env: PatternEnv[T], acc: List[T]): PatternMatch[(T, PatternEnv[T], List[T])] = suffixConsumer(v, env) match {
+          def loop(v: StructList, env: PatternEnv[T], acc: List[T]): PatternMatch[(StructList, PatternEnv[T], List[T])] = suffixConsumer(v, env) match {
             case Matches((vRest, nextEnv)) => Matches((vRest, nextEnv, acc))
             case NotProvable => NotProvable
-            case NoMatch => toStruct(v, DataFamily.Enum) match {
+            case NoMatch => v.parts match {
               case None => NotProvable
-              case Some((0, _)) => NoMatch
-              case Some((1, List(h, tail))) => loop(tail, env, h :: acc)
-              case Some(_) => sys.error("Type checking means v is a list so the above should be exhaustive.")
+              case Some(Empty) => NoMatch
+              case Some(Cons(h, tail)) => loop(tail, env, h :: acc)
             }
           }
-          {(x: T, env: PatternEnv[T]) => loop(x, env, Nil) match {
+          {(x: StructList, env: PatternEnv[T]) => loop(x, env, Nil) match {
             case Matches((x, env, acc)) => glob match {
               case None => Matches((x, env))
               case Some(n) => Matches((x, env + (n -> fromList(acc.reverse))))
@@ -344,16 +348,16 @@ object LetFreeConversion {
         }
 
         def loop(matchList: List[(ListPart.Glob, List[LetFreePattern])]):
-          (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = matchList match {
-          case Nil => {(v, env) => toStruct(v, DataFamily.Enum) match {
+          (StructList, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = matchList match {
+          case Nil => {(v, env) => v.parts match {
             case None => NotProvable
-            case Some((0, _)) => Matches(env)
+            case Some(Empty) => Matches(env)
             case Some(_) => NoMatch
           }}
           case (None, Nil) :: Nil => {(v, env) => Matches(env)}
-          case (Some(n), Nil) :: Nil => {(v, env) => Matches(env + (n -> v))}
+          case (Some(n), Nil) :: Nil => {(v, env) => Matches(env + (n -> v.asT))}
           case (glob, suffix) :: Nil => {(v, env) =>
-            toList(v) match {
+            toList(v.asT) match {
               case None => NotProvable
               case Some(lst) => if (lst.length < suffix.length) NoMatch else {
                 val (globList, tail) = lst.splitAt(lst.length - suffix.length)
@@ -369,9 +373,9 @@ object LetFreeConversion {
             }
           }
           case (glob, suffix) :: tail => {
-            val tailMatcher: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = loop(tail)
-            val prefixConsumer: (T, PatternEnv[T]) => PatternMatch[(T, PatternEnv[T])] = consumeMatch(glob, suffix)
-            val result: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { (v, env) => prefixConsumer(v, env) match {
+            val tailMatcher: (StructList, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = loop(tail)
+            val prefixConsumer: (StructList, PatternEnv[T]) => PatternMatch[(StructList, PatternEnv[T])] = consumeMatch(glob, suffix)
+            val result: (StructList, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { (v, env) => prefixConsumer(v, env) match {
               case Matches((remainder, nextEnv)) => tailMatcher(remainder, nextEnv)
               case NoMatch => NoMatch
               case NotProvable => NotProvable
@@ -383,11 +387,12 @@ object LetFreeConversion {
         val prefixConsumer = consumePrefix(prefix)
         val matchesConsumer = loop(matchList)
         (v, env) => {
-          prefixConsumer(v, env) match {
-          case Matches((remainder, env)) => matchesConsumer(remainder, env)
-          case NoMatch => NoMatch
-          case NotProvable => NotProvable
-        }
+          val structList = StructList(v)
+          prefixConsumer(structList, env) match {
+            case Matches((remainder, env)) => matchesConsumer(remainder, env)
+            case NoMatch => NoMatch
+            case NotProvable => NotProvable
+          }
         }
       }
 
