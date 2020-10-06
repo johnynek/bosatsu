@@ -32,7 +32,7 @@ def keep(i):
 
 def sum(as): as.foldLeft(0, add)
 
-# here is the pytthon version:
+# here is the python version:
 # >>> sum(i for i in xrange(1000) if keep_fn(i))
 # 233168
 #
