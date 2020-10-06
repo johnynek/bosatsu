@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Show
 import cats.data.{NonEmptyList, Validated}
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 import java.math.BigInteger
 import language.experimental.macros
 

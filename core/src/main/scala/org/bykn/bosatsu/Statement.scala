@@ -3,11 +3,9 @@ package org.bykn.bosatsu
 import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, spaces, toEOL }
 import cats.data.NonEmptyList
 import cats.implicits._
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
-
-import FastParseCats.StringInstances._
 
 import Indy.IndyMethods
 import Identifier.{Bindable, Constructor}

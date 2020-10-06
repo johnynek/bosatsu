@@ -1,10 +1,9 @@
 package org.bykn.bosatsu
 
-import fastparse.all._
-
 import cats.{Apply, Functor}
 import Parser.{maybeSpacesAndLines, spacesAndLines, Combinators}
 import org.typelevel.paiges.{Doc, Document}
+import org.bykn.bosatsu.parser.{Parser => P}
 
 /**
  * Represents the list construction sublanguage

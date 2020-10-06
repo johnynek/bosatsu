@@ -1,9 +1,8 @@
 package org.bykn.bosatsu
 
+import org.bykn.bosatsu.parser.{Parser => P}
 import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-
-import fastparse.all._
 
 class FreeVarTest extends FunSuite {
   implicit val generatorDrivenConfig =

@@ -1,8 +1,8 @@
 package org.bykn.bosatsu
 
-import fastparse.all._
 import java.math.{BigInteger, BigDecimal}
 import org.typelevel.paiges.Doc
+import org.bykn.bosatsu.parser.{Parser => P}
 import cats.Eq
 
 /**

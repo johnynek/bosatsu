@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+/*
 import cats.{Alternative, Eval, Now, Monad}
 import fastparse.Api
 import fastparse.core
@@ -126,3 +127,4 @@ object FastParseCats {
     val api = fastparse.all
   }
 }
+*/

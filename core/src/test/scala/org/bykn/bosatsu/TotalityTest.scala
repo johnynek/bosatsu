@@ -10,7 +10,7 @@ import org.bykn.bosatsu.pattern.{SetOps, SetOpsLaws}
 import rankn._
 
 import Parser.Combinators
-import fastparse.all.Parsed
+import org.bykn.bosatsu.parser.{Parser => P}
 
 import org.typelevel.paiges.Document
 

@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.typelevel.paiges.{ Doc, Document }
 import Parser.Combinators
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 
 class OperatorTest extends ParserTestBase {
 

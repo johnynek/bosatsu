@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 
 abstract class GenericStringUtil {
   protected def decodeTable: Map[Char, Char]

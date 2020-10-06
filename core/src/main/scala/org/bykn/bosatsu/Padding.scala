@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Functor
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.maybeSpace

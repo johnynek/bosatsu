@@ -2,10 +2,9 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import cats.implicits._
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 
-import FastParseCats.StringInstances._
 /**
  * Represents a commented thing. Commented[A] would probably
  * be a better name
@@ -34,6 +33,8 @@ object CommentStatement {
       .map { case (m, on) => CommentStatement(m, on) }
   }
 
-  val commentPart: P[String] = P("#" ~/ CharsWhile(_ != '\n').?.!)
+  val commentPart: P1[String] =
+    P.charIn('#') ~ P.charsWhile(_ != '\n').?.string)
 }
+
 

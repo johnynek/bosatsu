@@ -3,12 +3,11 @@ package org.bykn.bosatsu
 import Parser.{ Combinators, Indy, maybeSpace, spaces, toEOL }
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.graph.Memoize
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
 
 import Indy.IndyMethods
-import FastParseCats.StringInstances._
 
 import ListLang.{KVPair, SpliceOrItem}
 

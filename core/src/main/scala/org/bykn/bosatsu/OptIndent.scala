@@ -4,9 +4,8 @@ import cats.Functor
 import cats.implicits._
 import org.typelevel.paiges.{Doc, Document}
 
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 
-import FastParseCats.StringInstances._
 import Parser.{maybeSpace, Indy}
 import Indy.IndyMethods
 

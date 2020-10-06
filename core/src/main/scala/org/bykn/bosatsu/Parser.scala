@@ -1,10 +1,10 @@
 package org.bykn.bosatsu
 
 import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
-import fastparse.all._
 import org.typelevel.paiges.Doc
 
-import FastParseCats.StringInstances._
+import org.bykn.bosatsu.parser.{Parser => P}
+
 import cats.implicits._
 
 object Parser {

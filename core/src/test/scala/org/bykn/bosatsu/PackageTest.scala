@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Show
 import cats.data.{Validated, ValidatedNel}
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 import org.scalatest.FunSuite
 import scala.concurrent.ExecutionContext
 

@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
 import cats.{Eval, MonadError, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
-import fastparse.all.{P, Parsed}
+import org.bykn.bosatsu.parser.{Parser => P}
 import org.typelevel.paiges.Doc
 import scala.concurrent.ExecutionContext
 import scala.util.{ Failure, Success, Try }
@@ -842,7 +842,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         argFromParser(PackageName.parser, "packageName", "package name", "Must be capitalized strings separated by /")
 
       implicit val argValue: Argument[(PackageName, Option[Bindable])] = {
-        import fastparse.all._
         argFromParser(P(PackageName.parser ~ ("::" ~ Identifier.bindableParser).?),
           "valueIdent",
           "package or package::name",

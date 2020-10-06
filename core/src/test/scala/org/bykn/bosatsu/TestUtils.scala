@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.Eval
 import cats.data.{Ior, Validated}
 import cats.implicits._
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 import org.bykn.bosatsu.rankn._
 import org.scalatest.{Assertion, Assertions}
 import scala.concurrent.ExecutionContext

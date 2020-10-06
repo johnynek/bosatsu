@@ -12,7 +12,7 @@ import TestUtils.{checkLast, testPackage}
 
 import Identifier.Constructor
 
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 
 class RankNInferTest extends FunSuite {
 

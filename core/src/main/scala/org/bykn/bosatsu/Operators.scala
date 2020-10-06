@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 
 object Operators {
 

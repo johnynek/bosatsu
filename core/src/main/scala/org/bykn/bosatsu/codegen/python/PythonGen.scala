@@ -4,6 +4,7 @@ import org.typelevel.paiges.Doc
 import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
+import org.bykn.bosatsu.parser.{Parser => P}
 import scala.concurrent.ExecutionContext
 
 import Identifier.Bindable
@@ -650,9 +651,7 @@ object PythonGen {
   //
   // { packageName: { bind: foo.bar.baz } }
   //
-  val externalParser: fastparse.all.P[List[(PackageName, Bindable, Module, Code.Ident)]] = {
-    import fastparse.all._
-
+  val externalParser: P[List[(PackageName, Bindable, Module, Code.Ident)]] = {
     val identParser: P[Code.Ident] = Parser.py2Ident.map(Code.Ident(_))
     val modParser: P[(Module, Code.Ident)] =
       identParser

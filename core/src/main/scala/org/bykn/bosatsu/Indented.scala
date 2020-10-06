@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 
 case class Indented[T](spaces: Int, value: T) {

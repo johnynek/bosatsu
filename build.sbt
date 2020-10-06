@@ -159,7 +159,6 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         alleycats.value,
         cats.value,
         decline.value,
-        fastparse.value,
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,
@@ -177,7 +176,7 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
       scalacOptions += "-P:acyclic:force"
       */
   )
-  .dependsOn(base)
+  .dependsOn(base, parser)
   .jsSettings(commonJsSettings)
 
 lazy val coreJVM = core.jvm
