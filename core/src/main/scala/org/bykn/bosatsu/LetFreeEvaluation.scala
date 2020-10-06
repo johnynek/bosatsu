@@ -419,23 +419,6 @@ case class LetFreeEvaluation(
     )
   }
 
-  def evaluateName(
-      p: PackageName,
-      name: Identifier
-  ): Option[(LetFreeExpression, Type, Map[Identifier, Eval[Value]])] =
-    for {
-      pack <- packs.toMap.get(p)
-      (_, _, tpe) <- pack.program.lets.reverse.collectFirst(Function.unlift {
-        tup => if (tup._1 == name) Some(tup) else None
-      })
-      lfe = tpe.tag._2.lfe
-      extEnv = externalEnv(pack) ++ importedEnv(pack)
-    } yield (
-      lfe,
-      tpe.getType,
-      extEnv
-    )
-
   private def externalEnv(
       p: Package.Typed[(Declaration, LetFreeExpressionTag)]
   ): LetFreeEvaluation.ExtEnv = {

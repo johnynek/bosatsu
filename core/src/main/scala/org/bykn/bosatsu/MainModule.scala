@@ -644,10 +644,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             val ev = LetFreeEvaluation(packs, Predef.jvmExternals)
             val v2j = ev.valueToJson
 
-            val res = value match {
-              case None => ev.evaluateLast(mainPackageName)
-              case Some(ident) => ev.evaluateName(mainPackageName, ident)
-            }
+            val res = ev.evaluateLast(mainPackageName)
 
             res match {
               case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
