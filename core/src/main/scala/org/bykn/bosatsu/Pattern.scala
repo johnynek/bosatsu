@@ -61,14 +61,10 @@ sealed abstract class Pattern[+N, +T] {
    */
   lazy val topNames: List[Bindable] = {
     this match {
-      case (Pattern.WildCard | Pattern.Literal(_)) => Nil
       case Pattern.Var(v) => v :: Nil
-      case Pattern.Named(v, p) => v :: p.topNames
-      case Pattern.StrPat(_) => Nil
+      case Pattern.Named(v, p) => (v :: p.topNames).distinct
       case Pattern.ListPat(Pattern.ListPart.NamedList(n) :: Nil) => n :: Nil
-      case Pattern.ListPat(_) => Nil
       case Pattern.Annotation(p, _) => p.topNames
-      case Pattern.PositionalStruct(_, _) => Nil
       case Pattern.Union(h, t) =>
         // the intersection of all top level names
         // is okay
@@ -76,6 +72,7 @@ sealed abstract class Pattern[+N, +T] {
         val patIntr = pats.map(_.topNames.toSet).reduce(_ & _)
         // put them in the same order as written:
         pats.flatMap(_.topNames).iterator.filter(patIntr).toList.distinct
+      case Pattern.ListPat(_) | Pattern.WildCard | Pattern.Literal(_) | Pattern.StrPat(_) | Pattern.PositionalStruct(_, _) => Nil
     }
   }
 

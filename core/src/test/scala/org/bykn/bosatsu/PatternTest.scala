@@ -54,7 +54,7 @@ class PatternTest extends FunSuite {
   }
 
   test("singlynamed implies there is exacly one name") {
-    forAll(patGen) { p =>
+    def law(p: Pattern.Parsed) =
       p match {
         case Pattern.SinglyNamed(n) =>
           assert(p.topNames == (n :: Nil))
@@ -67,7 +67,9 @@ class PatternTest extends FunSuite {
           assert(Pattern.SinglyNamed.unapply(Pattern.union(Pattern.Var(n), p :: Nil)) == Some(n))
         case _ =>
       }
-    }
+
+    forAll(patGen) { p => law(p) }
+    law(Pattern.Named(Identifier.Name("x"), Pattern.Named(Identifier.Name("x"), Pattern.WildCard)))
   }
 
   test("test some examples for singly named") {
