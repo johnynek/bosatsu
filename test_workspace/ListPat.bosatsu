@@ -8,6 +8,21 @@ def one_count(is, acc):
         [*_, 1, *rest]: one_count(rest, acc.add(1))
         _: acc
 
+enum Result:
+  Success(n), Fail(err)
+def fn(lst):
+  match lst:
+    [*_, (True, x), *_, (False, _)]: Success(x)
+    [*_, (True, _), *tailList, (True, _)]:
+      match tailList:
+        [(_, h), *_]: Success(h)
+        _: Fail("empty tail list")
+    _: Fail("fall through")
+
+length = 10
+lst1 = [(True, n) for n in range(length)]
+result1 = fn(lst1)
+
 tests = TestSuite("ListPat tests", [
   Assertion(any([]) matches False, "any([])"),
   Assertion(any([True]) matches True, "any([True])"),
@@ -17,4 +32,5 @@ tests = TestSuite("ListPat tests", [
   Assertion(any([True, False]) matches True, "any([True, False])"),
   Assertion(any([True, True]) matches True, "any([True, True])"),
   Assertion(one_count([0, 0, 1, 0, 1], 0) matches 2, "one_count 1"),
+  Assertion(result1 matches Success(1), "match 2nd character of 2nd pattern")
 ])
