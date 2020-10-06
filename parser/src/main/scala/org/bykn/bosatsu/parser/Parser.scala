@@ -227,40 +227,39 @@ object Parser extends ParserInstances {
             case _ => true
           }
 
-      val nonFailOffsets = nonFails.iterator.map(_.offset).toSet
+      if (nonFails.isEmpty) {
+        // there are only EmptyOneOf
+        // take the maximum one
+        NonEmptyList(errors.maximum, Nil)
+      }
+      else {
+        // merge all the ranges:
+        val rangeMerge: List[InRange] =
+          nonFails
+            .collect { case InRange(o, l, u) => (o, l to u) }
+            .groupBy(_._1)
+            .iterator
+            .flatMap { case (o, ranges) =>
+              // TODO: this could be optimized to not enumerate the set
+              // for instance, a cheap thing to do is see if they
+              // overlap or not
+              val ary = ranges.iterator.map(_._2).flatten.toArray
+              java.util.Arrays.sort(ary)
+              Impl.rangesFor(ary)
+                .map { case (l, u) => InRange(o, l, u) }
+                .toList
+            }
+            .toList
 
-      // oneOf(Nil) failures without other failures at that location
-      val missingFailOffsets =
-        errors.toList
-          .collect { case f@EmptyOneOf(o) if !nonFailOffsets(o) => f }
-          .distinct
+        val nonFailsRanges =
+          if (rangeMerge.isEmpty) nonFails
+          else nonFails.filterNot(_.isInstanceOf[InRange])
 
-      // merge all the ranges:
-      val rangeMerge: List[InRange] =
-        nonFails
-          .collect { case InRange(o, l, u) => (o, l to u) }
-          .groupBy(_._1)
-          .iterator
-          .flatMap { case (o, ranges) =>
-            // TODO: this could be optimized to not enumerate the set
-            // for instance, a cheap thing to do is see if they
-            // overlap or not
-            val ary = ranges.iterator.map(_._2).flatten.toArray
-            java.util.Arrays.sort(ary)
-            Impl.rangesFor(ary)
-              .map { case (l, u) => InRange(o, l, u) }
-              .toList
-          }
-          .toList
-
-      val nonFailsRanges =
-        if (rangeMerge.isEmpty) nonFails
-        else nonFails.filterNot(_.isInstanceOf[InRange])
-
-      NonEmptyList.fromListUnsafe(
-        rangeMerge ::: nonFailsRanges ::: missingFailOffsets
-      )
-      .sorted
+        NonEmptyList.fromListUnsafe(
+          rangeMerge ::: nonFailsRanges
+        )
+        .sorted
+      }
     }
   }
 
