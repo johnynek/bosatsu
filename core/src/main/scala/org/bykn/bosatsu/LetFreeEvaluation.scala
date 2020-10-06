@@ -11,10 +11,10 @@ import java.math.BigInteger
 object LetFreeEvaluation {
   import LetFreeConversion.LitValue
 
-  implicit val valueToLitValue: Value => Option[LitValue] = { v =>
+  val valueToLitValue: Value => Option[LitValue] = { v =>
     Some(LitValue(v.asExternal.toAny))
   }
-  implicit val valueToStruct
+  val valueToStruct
       : (Value, rankn.DataFamily) => Option[(Int, List[Value])] = {
     case (v, df) =>
       df match {
@@ -39,41 +39,6 @@ object LetFreeEvaluation {
           Some((0, List(v)))
         }
       }
-  }
-  implicit val valueToList: Value => Option[List[Value]] = { value =>
-    @tailrec
-    def loop(v: Value, acc: List[Value]): List[Value] = {
-      val vSum = v.asSum
-      vSum.variant match {
-        case 0 => acc
-        case 1 =>
-          vSum.value.toList match {
-            case List(h, t) => loop(t, h :: acc)
-            case _ =>
-              sys.error(
-                "typechecking should make sure we have exactly two args here"
-              )
-          }
-        case n =>
-          sys.error(
-            s"typechecking should make sure this is only 0 or 1 and not $n"
-          )
-      }
-    }
-    Some(loop(value, Nil).reverse)
-  }
-
-  implicit val valueFromList: List[Value] => Value = { fullList =>
-    @tailrec
-    def loop(lst: List[Value], acc: Value): Value = lst match {
-      case Nil => acc
-      case head :: tail =>
-        loop(
-          tail,
-          Value.SumValue(1, Value.ProductValue.fromList(List(head, acc)))
-        )
-    }
-    loop(fullList.reverse, Value.SumValue(0, Value.UnitValue))
   }
 
   sealed trait LetFreeValue {
