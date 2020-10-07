@@ -8,6 +8,7 @@ import scala.concurrent.Future
 import scala.collection.concurrent.{Map => CMap}
 import scala.collection.immutable.IntMap
 import java.math.BigInteger
+import org.bykn.bosatsu.rankn.DataFamily
 
 object LetFreeEvaluation {
   import LetFreeConversion.LitValue
@@ -104,14 +105,14 @@ object LetFreeEvaluation {
     implicit val cache = cacheArg
   }
 
-  implicit def nvToLitValue(
-      implicit extEnv: ExtEnv,
-      cache: Cache
+  def nvToLitValue(
+    implicit extEnv: ExtEnv,
+    cache: Cache
   ): LetFreeValue => Option[LetFreeConversion.LitValue] = { nv =>
     valueToLitValue(nvToV(nv))
   }
-  implicit def nvToStruct(
-      implicit extEnv: ExtEnv,
+  def nvToStruct(
+      extEnv: ExtEnv,
       cache: Cache
   ): (LetFreeValue, rankn.DataFamily) => Option[(Int, List[LetFreeValue])] = {
     case (nv, df) => nv.toStruct(df)
@@ -157,7 +158,7 @@ object LetFreeEvaluation {
         }
     }
   }
-  implicit def nvToList(
+  def nvToList(
       implicit extEnv: ExtEnv,
       cache: Cache
   ): LetFreeValue => Option[List[LetFreeValue]] = { normalValue =>
@@ -297,6 +298,14 @@ object LetFreeEvaluation {
     fnValueToLetFree(value)
   }
 
+  case class LetFreeValueMaybeBind(pat: LetFreePattern)(implicit extEnv: ExtEnv, cache: Cache) extends LetFreeConversion.MaybeBind[LetFreeValue](pat) {
+    def toLitValue(t: LetFreeValue): Option[LitValue] = nvToLitValue(extEnv, cache)(t)
+    def toStruct(t: LetFreeValue, df: DataFamily) = nvToStruct(extEnv, cache)(t, df)
+    def toList(t: LetFreeValue): Option[List[LetFreeValue]] = nvToList(extEnv, cache)(t)
+    def fromList(lst: List[LetFreeValue]): LetFreeValue = nvFromList(extEnv, cache)(lst)
+    def maybeBind(pat: LetFreePattern) = LetFreeValueMaybeBind(pat).apply(_, _)
+  }
+
   def simplifyMatch(
       mtch: LetFreeExpression.Match,
       scope: List[LetFreeValue]
@@ -304,13 +313,7 @@ object LetFreeEvaluation {
     val (_, patEnv, result) = mtch.branches.toList
       .collectFirst(Function.unlift({
         case (pat, result) =>
-          LetFreeConversion
-            .maybeBind[LetFreeValue](pat)(
-              nvToLitValue(extEnv, cache),
-              nvToStruct(extEnv, cache),
-              nvToList(extEnv, cache),
-              nvFromList(extEnv, cache)
-            )
+          LetFreeValueMaybeBind(pat)
             .apply(LazyValue(mtch.arg, scope, Eval.later {
               evalToValue(mtch.arg, scope)
             }), IntMap.empty) match {

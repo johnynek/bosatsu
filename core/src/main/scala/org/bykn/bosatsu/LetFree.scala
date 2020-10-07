@@ -259,24 +259,25 @@ object LetFreeConversion {
     }
   }
 
-  implicit val neToLitValue: LetFreeExpression => Option[LitValue] = {
+  val neToLitValue: LetFreeExpression => Option[LitValue] = {
     case LetFreeExpression.Literal(lit) => Some(LitValue.fromLit(lit))
     case _ => None
   }
-  implicit val neToStruct: (LetFreeExpression, DataFamily) => Option[(Int, List[LetFreeExpression])] = {
+  val neToStruct: (LetFreeExpression, DataFamily) => Option[(Int, List[LetFreeExpression])] = {
     case (LetFreeExpression.Struct(enum, args, _), df) => Some((enum, args))
     case _ => None
   }
-  implicit val neToList: LetFreeExpression => Option[List[LetFreeExpression]] = structListAsList(_)
-  implicit val neFromList: List[LetFreeExpression] => LetFreeExpression = listAsStructList(_)
+  val neToList: LetFreeExpression => Option[List[LetFreeExpression]] = structListAsList(_)
+  val neFromList: List[LetFreeExpression] => LetFreeExpression = listAsStructList(_)
 
-  def maybeBind[T](pat: LetFreePattern)(implicit
-    toLitValue: T => Option[LitValue],
-    toStruct: (T, DataFamily) => Option[(Int, List[T])],
-    toList: T => Option[List[T]],
-    fromList: List[T] => T
-    ): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
-    pat match {
+  abstract class MaybeBind[T](pat: LetFreePattern) {
+    def toLitValue(t: T): Option[LitValue]
+    def toStruct(t: T, df: DataFamily): Option[(Int, List[T])]
+    def toList(t: T): Option[List[T]]
+    def fromList(lst: List[T]): T
+    def maybeBind(pat: LetFreePattern): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]]
+  
+    val apply: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = pat match {
       case LetFreePattern.WildCard => noop
       case LetFreePattern.Literal(lit) =>
         { (v, env) => toLitValue(v) match {
@@ -286,7 +287,7 @@ object LetFreeConversion {
       case LetFreePattern.Var(n) =>
         { (v, env) => Matches(env + (n ->  v)) }
       case LetFreePattern.Named(n, p) =>
-        val inner = maybeBind[T](p)
+        val inner = maybeBind(p)
 
         { (v, env) =>
           inner(v, env) match {
@@ -309,7 +310,7 @@ object LetFreeConversion {
         }
 
         def consumePrefix(prefix: List[LetFreePattern]):(StructList, PatternEnv[T]) => PatternMatch[(StructList, PatternEnv[T])] = { 
-          val matchers = prefix.map(maybeBind[T](_))
+          val matchers = prefix.map(maybeBind(_))
           val initial: (StructList, PatternEnv[T]) => PatternMatch[(StructList, PatternEnv[T])] = {(x: StructList, env: PatternEnv[T]) => Matches((x, env))}
           matchers.foldRight[(StructList, PatternEnv[T]) => PatternMatch[(StructList, PatternEnv[T])]](initial) {
             case (fn, acc) => {(x: StructList, env: PatternEnv[T]) =>
@@ -367,7 +368,7 @@ object LetFreeConversion {
                   case Some(n) => env + (n -> fromList(globList))
                 }
                 tail.zip(suffix).foldLeft[PatternMatch[PatternEnv[T]]](Matches(globEnv)) {
-                  case (Matches(env), (x, pat)) => maybeBind[T](pat).apply(x, env)
+                  case (Matches(env), (x, pat)) => maybeBind(pat).apply(x, env)
                   case (noMatch, _) => noMatch
                 }
               } 
@@ -403,7 +404,7 @@ object LetFreeConversion {
           ps match {
             case Nil => neverMatch
             case head :: tail =>
-              val fnh = maybeBind[T](head)
+              val fnh = maybeBind(head)
               val fnt: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = loop(tail)
               val result: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { case (arg, acc) =>
                 fnh(arg, acc) match {
@@ -417,7 +418,7 @@ object LetFreeConversion {
       case LetFreePattern.PositionalStruct(maybeIdx, items, df) =>
         // The type in question is not the outer dt, but the type associated
         // with this current constructor
-        val itemFns = items.map(maybeBind[T](_))
+        val itemFns = items.map(maybeBind(_))
 
         def processArgs(as: List[T], acc: PatternEnv[T]): PatternMatch[PatternEnv[T]] = {
           // manually write out foldM hoping for performance improvements
@@ -467,11 +468,19 @@ object LetFreeConversion {
             result
         }
         case LetFreePattern.StrPat(parts) => {(v, env) => NotProvable}
+    }
   }
 
+  case class LetFreeExpressionMaybeBind(pat: LetFreePattern) extends MaybeBind[LetFreeExpression](pat) {
+    def toLitValue(t: LetFreeExpression): Option[LitValue] = neToLitValue(t)
+    def toStruct(t: LetFreeExpression, df: DataFamily): Option[(Int, List[LetFreeExpression])] = neToStruct(t, df)
+    def toList(t: LetFreeExpression): Option[List[LetFreeExpression]] = neToList(t)
+    def fromList(lst: List[LetFreeExpression]): LetFreeExpression = neFromList(lst)
+    def maybeBind(pat: LetFreePattern): (LetFreeExpression, PatternEnv[LetFreeExpression]) => PatternMatch[PatternEnv[LetFreeExpression]] = LetFreeExpressionMaybeBind(pat).apply(_, _)
+  }
   def findMatch(m: LetFreeExpression.Match) =
     m.branches.collectFirst(Function.unlift( { case (pat, result) =>
-      maybeBind[LetFreeExpression](pat).apply(m.arg, IntMap.empty) match {
+      LetFreeExpressionMaybeBind(pat).apply(m.arg, IntMap.empty) match {
         case Matches(env) => Some(Some((pat, env, result)))
         case NotProvable => Some(None)
         case NoMatch => None
