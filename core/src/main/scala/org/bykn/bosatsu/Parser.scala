@@ -259,94 +259,78 @@ object Parser {
    * Parse python-like dicts: delimited by curlies "{" "}" and
    * keys separated by colon
    */
-  def dictLikeParser[K, V](pkey: P[K], pvalue: P[V]): P[List[(K, V)]] = {
+  def dictLikeParser[K, V](pkey: P1[K], pvalue: P1[V]): P1[List[(K, V)]] = {
     val ws = maybeSpacesAndLines
-    val kv = P(pkey ~ ws ~ ":" ~ ws ~ pvalue)
+    val kv = (pkey ~ ((ws ~ ":" ~ ws).with1 *> pvalue))
     val kvs = kv.nonEmptyListOfWs(ws)
-    nonEmptyListToList(kvs)
-      .bracketed(P("{" ~ ws), P(ws ~ "}"))
+    val kvlist = nonEmptyListToList(kvs)
+
+    (P.char('{') ~ ws) *> kvlist <* (ws ~ P.char('}'))
   }
 
-  implicit class Combinators[T](val item: P[T]) extends AnyVal {
-    def list: P[List[T]] =
-      nonEmptyListToList(nonEmptyList)
-
-    def nonEmptyList: P[NonEmptyList[T]] =
+  implicit class Combinators[T](val item: P1[T]) extends AnyVal {
+    def nonEmptyList: P1[NonEmptyList[T]] =
       nonEmptyListOfWs(maybeSpace)
 
-    def nonEmptyListOfWs(ws: P[Unit]): P[NonEmptyList[T]] =
+    def nonEmptyListOfWs(ws: P[Unit]): P1[NonEmptyList[T]] =
       nonEmptyListOfWsSep(ws, P(","), allowTrailing = true)
 
-    def maybeAp(fn: P[T => T]): P[T] =
+    def maybeAp(fn: P[T => T]): P1[T] =
       (item ~ fn.?)
         .map {
           case (a, None) => a
           case (a, Some(f)) => f(a)
         }
 
-    def nonEmptyListOfWsSep(ws: P[Unit], sep: P[Unit], allowTrailing: Boolean): P[NonEmptyList[T]] = {
-      val wsSep = ws ~ sep ~ ws
-      val rest = {
-          // if min == 1, many can parse 0, but that allows
-          // wsSep to be parsed by itselt, which isn't okay
-          val many1 = item.rep(sep = wsSep, min = 1)
-          (wsSep ~ many1).?
-        }
-      val trail = if (allowTrailing) (ws ~ sep).? else Pass
-      P(item ~ rest ~ trail)
+    def nonEmptyListOfWsSep(ws: P[Unit], sep: P[Unit], allowTrailing: Boolean): P1[NonEmptyList[T]] = {
+      val wsSep = (ws ~ sep ~ ws).void
+      val rest = (wsSep *> item).rep1
+      val trail =
+        if (allowTrailing) (ws ~ sep).?.void
+        else P.unit
+
+      (item ~ rest <* trail)
         .map {
           case (h, None) => NonEmptyList(h, Nil)
-          case (h, Some(nel)) => NonEmptyList(h, nel.toList)
+          case (h, Some(nel)) => h :: nel
         }
     }
 
-    def bracketed(left: P[Unit], right: P[Unit]): P[T] =
-      left ~ item ~ right
+    def bracketed[A, B](left: P[A], right: P[B]): P1[T] =
+      left *> item <* right
 
-    def nonEmptyListSyntax: P[NonEmptyList[T]] = {
+    def nonEmptyListSyntax: P1[NonEmptyList[T]] = {
       val ws = maybeSpacesAndLines
-      nonEmptyListOfWs(ws).bracketed(P("[" ~/ ws), P(ws ~ "]"))
+      val ts = nonEmptyListOfWs(ws)
+      (P.char('[') ~ ws) *> ts <* (ws ~ P.char(']'))
     }
 
-    def listSyntax: P[List[T]] = {
+    def listSyntax: P1[List[T]] = {
       val ws = maybeSpacesAndLines
       nonEmptyListToList(nonEmptyListOfWs(ws))
-        .bracketed(P("[" ~/ ws), P(ws ~ "]"))
+        .bracketed(P.char('[') ~ ws, ws ~ P.char(']'))
     }
 
-    def region: P[(Region, T)] =
-      P(Index ~ item ~ Index).map { case (s, t, e) =>
-        (Region(s, e), t)
-      }
+    def region: P1[(Region, T)] =
+      (P.index, item, P.index)
+        .mapN { (s, t, e) => (Region(s, e), t) }
 
-    def wrappedSpace(left: P[Unit], right: P[Unit]): P[T] =
-      P(left ~ maybeSpace ~ item ~ maybeSpace ~ right)
+    def parensCut: P1[T] =
+      bracketed(P.char('(') ~ maybeSpacesAndLines, maybeSpacesAndLines ~ P.char(')'))
 
-    def parens: P[T] =
-      wrappedSpace("(", ")")
-
-    def parensCut: P[T] =
-      P("(" ~/ maybeSpacesAndLines ~ item ~ maybeSpacesAndLines ~ ")")
-
-    def parensLines1: P[NonEmptyList[T]] = {
-      val nel = item.nonEmptyListOfWs(maybeSpacesAndLines)
-      P("(" ~ maybeSpacesAndLines ~ nel ~ maybeSpacesAndLines ~ ")")
-    }
-
-    def parensLines1Cut: P[NonEmptyList[T]] = {
-      val nel = item.nonEmptyListOfWs(maybeSpacesAndLines)
-      P("(" ~/ maybeSpacesAndLines ~ nel ~ maybeSpacesAndLines ~ ")")
-    }
+    def parensLines1Cut: P1[NonEmptyList[T]] =
+      item.nonEmptyListOfWs(maybeSpacesAndLines)
+        .parensCut
 
     /**
      * either: a, b, c, ..
      * or (a, b, c, ) where we allow newlines:
      * return true if we do have parens
      */
-    def itemsMaybeParens: P[(Boolean, NonEmptyList[T])] = {
+    def itemsMaybeParens: P1[(Boolean, NonEmptyList[T])] = {
       val withP = item.parensLines1Cut.map((true, _))
       val noP = item.nonEmptyListOfWs(maybeSpace).map((false, _))
-      withP | noP
+      withP.orElse1(noP)
     }
 
     /**
@@ -354,20 +338,17 @@ object Parser {
      */
     def tupleOrParens: P[Either[T, List[T]]] = {
       val ws = maybeSpacesAndLines
-      val single = item ~ ws
-      val sep = P("," ~ ws)
-      val twoAndMore = (item ~ ws).rep(sep = sep)
-      val trailing = sep
+      val sep = (ws.with1 ~ P.char(',') ~ ws).void
+      val twoAndMore = (sep ~ item).rep
+      val trailing = sep.?.map(_.isDefined)
 
-      (single ~ (sep ~ twoAndMore.? ~ trailing.?).?).?
+      (item ~ twoAndMore ~ trailing).?
         .map {
           case None => Right(Nil)
-          case Some((h, None)) => Left(h)
-          case Some((h, Some(None))) => Right(h :: Nil)
-          case Some((h, Some(Some(tail)))) => Right(h :: tail.toList)
+          case Some(((h, Nil), false)) => Left(h)
+          case Some(((h, items), _)) => Right(h :: items)
         }
-        .bracketed(P("(" ~ ws), P(ws ~ ")"))
-
+        .bracketed(P.char('(') ~ ws, ws ~ P.char(')'))
     }
   }
 

@@ -3,7 +3,9 @@ package org.bykn.bosatsu
 import cats.{Apply, Functor}
 import Parser.{maybeSpacesAndLines, spacesAndLines, Combinators}
 import org.typelevel.paiges.{Doc, Document}
-import org.bykn.bosatsu.parser.{Parser => P}
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+
+import cats.implicits._
 
 /**
  * Represents the list construction sublanguage
@@ -30,8 +32,10 @@ object ListLang {
         Functor[F].map(fn(value))(Item(_))
     }
 
-    def parser[A](pa: P[A]): P[SpliceOrItem[A]] =
-      P("*" ~ pa).map(Splice(_)) | pa.map(Item(_))
+    def parser[A](pa: P1[A]): P1[SpliceOrItem[A]] =
+      (P.char('*') *> pa)
+        .map(Splice(_))
+        .orElse1(pa.map(Item(_)))
 
     implicit def document[A](implicit A: Document[A]): Document[SpliceOrItem[A]] =
       Document.instance[SpliceOrItem[A]] {
@@ -49,8 +53,8 @@ object ListLang {
   object KVPair {
     private[this] val sep: Doc = Doc.text(": ")
 
-    def parser[A](p: P[A]): P[KVPair[A]] =
-      P(p ~ maybeSpacesAndLines ~ ":" ~ maybeSpacesAndLines ~ p)
+    def parser[A](p: P1[A]): P1[KVPair[A]] =
+      ((p <* maybeSpacesAndLines <* P.char(':') <* maybeSpacesAndLines) ~ p)
         .map { case (k, v) => KVPair(k, v) }
 
     implicit def document[A](implicit A: Document[A]): Document[KVPair[A]] =
@@ -62,16 +66,15 @@ object ListLang {
   case class Cons[F[_], A](items: List[F[A]]) extends ListLang[F, A, Nothing]
   case class Comprehension[F[_], A, B](expr: F[A], binding: B, in: A, filter: Option[A]) extends ListLang[F, A, B]
 
-  def parser[A, B](pa: P[A], pbind: P[B]): P[ListLang[SpliceOrItem, A, B]] =
-    genParser(P("["), SpliceOrItem.parser(pa), pa, pbind, P("]"))
+  def parser[A, B](pa: P1[A], pbind: P1[B]): P1[ListLang[SpliceOrItem, A, B]] =
+    genParser(P.char('['), SpliceOrItem.parser(pa), pa, pbind, P.char(']'))
 
-  def dictParser[A, B](pa: P[A], pbind: P[B]): P[ListLang[KVPair, A, B]] =
-    genParser(P("{"), KVPair.parser(pa), pa, pbind, P("}"))
+  def dictParser[A, B](pa: P1[A], pbind: P1[B]): P1[ListLang[KVPair, A, B]] =
+    genParser(P.char('{'), KVPair.parser(pa), pa, pbind, P.char('}'))
 
-  def genParser[F[_], A, B](left: P[Unit], fa: P[F[A]], pa: P[A], pbind: P[B], right: P[Unit]): P[ListLang[F, A, B]] = {
-    val sia = fa
+  def genParser[F[_], A, B](left: P1[Unit], fa: P1[F[A]], pa: P1[A], pbind: P1[B], right: P1[Unit]): P1[ListLang[F, A, B]] = {
     // construct the tail of a list, so we will finally have at least one item
-    val consTail = sia.nonEmptyListOfWs(maybeSpacesAndLines).?
+    val consTail = fa.nonEmptyListOfWs(maybeSpacesAndLines).?
       .map { tail =>
         val listTail = tail match {
           case None => Nil
@@ -80,23 +83,21 @@ object ListLang {
 
         { a: F[A] => Cons(a :: listTail) }
       }
-      .opaque("ConsListTail")
 
-    val filterExpr = P("if" ~ spacesAndLines ~ pa)
-    // TODO, we don't know if the parsers absorb trailing spaces, they probably
-    // shouldn't but currently it looks like they are
-    val comp = P(
-      "for" ~ spacesAndLines ~/ pbind ~ maybeSpacesAndLines ~
-      "in" ~ spacesAndLines ~/ pa ~ (maybeSpacesAndLines ~ filterExpr).?)
-        .map { case (b, i, f) =>
+    val filterExpr = P.expect("if") *> spacesAndLines *> pa
+
+    val comp =
+      (P.expect("for") *> spacesAndLines *> pbind <* maybeSpacesAndLines,
+        P.expect("in") *> spacesAndLines *> pa,
+        (maybeSpacesAndLines *> filterExpr).?)
+        .mapN { (b, i, f) =>
           { e: F[A] => Comprehension(e, b, i, f) }
         }
-        .opaque("ListComprehension")
 
-    val commaCons = ("," ~ maybeSpacesAndLines ~ consTail)
-    val inner = commaCons | (spacesAndLines ~ (commaCons | comp))
+    val commaCons = P.char(',') *> maybeSpacesAndLines *> consTail
+    val inner = commaCons.orElse(spacesAndLines *> commaCons.orElse(comp))
 
-    P(left ~/ maybeSpacesAndLines ~ (sia ~ inner.?).? ~ maybeSpacesAndLines ~ right)
+    (left *> maybeSpacesAndLines *> (fa ~ inner.?).? <* maybeSpacesAndLines <* right)
       .map {
         case None => Cons(Nil)
         case Some((a, None)) => Cons(a :: Nil)

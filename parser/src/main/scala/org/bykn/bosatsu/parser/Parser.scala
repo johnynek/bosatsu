@@ -116,6 +116,13 @@ sealed abstract class Parser1[+A] extends Parser[A] {
   override def ~[B](that: Parser[B]): Parser1[(A, B)] =
     Parser.product10(this, that)
 
+  def *>[B](that: Parser[B]): Parser1[B] =
+    (this ~ that).map(_._2)
+
+  def <*[B](that: Parser[B]): Parser1[A] =
+    (this ~ that).map(_._1)
+
+
   override def map[B](fn: A => B): Parser1[B] =
     Parser.map1(this)(fn)
 
