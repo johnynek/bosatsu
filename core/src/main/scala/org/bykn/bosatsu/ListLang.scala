@@ -84,11 +84,11 @@ object ListLang {
         { a: F[A] => Cons(a :: listTail) }
       }
 
-    val filterExpr = P.expect("if") *> spacesAndLines *> pa
+    val filterExpr = P.string1("if") *> spacesAndLines *> pa
 
     val comp =
-      (P.expect("for") *> spacesAndLines *> pbind <* maybeSpacesAndLines,
-        P.expect("in") *> spacesAndLines *> pa,
+      (P.string1("for") *> spacesAndLines *> pbind <* maybeSpacesAndLines,
+        P.string1("in") *> spacesAndLines *> pa,
         (maybeSpacesAndLines *> filterExpr).?)
         .mapN { (b, i, f) =>
           { e: F[A] => Comprehension(e, b, i, f) }

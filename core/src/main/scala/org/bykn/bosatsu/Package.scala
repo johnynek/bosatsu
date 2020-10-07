@@ -135,14 +135,16 @@ object Package {
 
   def parser(defaultPack: Option[PackageName]): P[Package[PackageName, Unit, Unit, List[Statement]]] = {
     // TODO: support comments before the Statement
-    val parsePack = Padding.parser(P("package" ~ spaces ~/ PackageName.parser ~ Parser.toEOL)).map(_.padded)
-    val pname = defaultPack match {
-      case None => parsePack
-      case Some(p) => parsePack.?.map(_.getOrElse(p))
-    }
-    val im = Padding.parser(Import.parser ~ Parser.toEOL).map(_.padded).rep().map(_.toList)
-    val ex = Padding.parser(P("export" ~ spaces ~/ ExportedName.parser.itemsMaybeParens.map(_._2) ~ Parser.toEOL)).map(_.padded)
-    val body = Statement.parser
+    val parsePack = Padding.parser((P.string1("package") ~ spaces).backtrack *> PackageName.parser <* Parser.toEOL).map(_.padded)
+    val pname: P[PackageName] =
+      defaultPack match {
+        case None => parsePack
+        case Some(p) => parsePack.?.map(_.getOrElse(p))
+      }
+
+    val im = Padding.parser(Import.parser <* Parser.toEOL).map(_.padded).rep
+    val ex = Padding.parser((P.string1("export") ~ spaces).backtrack *> ExportedName.parser.itemsMaybeParens.map(_._2) <* Parser.toEOL).map(_.padded)
+    val body: P[List[Statement]] = Statement.parser
     (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ body).map { case (p, i, e, b) =>
       Package(p, i, e, b)
     }

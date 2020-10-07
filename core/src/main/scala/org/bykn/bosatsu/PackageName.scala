@@ -20,13 +20,14 @@ object PackageName {
     Document.instance[PackageName] { pn => Doc.text(pn.asString) }
 
   implicit val parser: P[PackageName] =
-    P(upperIdent ~ ("/" ~ upperIdent).rep()).map { case (head, tail) =>
-      PackageName(NonEmptyList(head, tail.toList))
-    }
+    (upperIdent ~ (P.char('/') *> upperIdent).rep)
+      .map { case (head, tail) =>
+        PackageName(NonEmptyList(head, tail))
+      }
 
   def parse(s: String): Option[PackageName] =
     parser.parse(s) match {
-      case Parsed.Success(pn, idx) if idx == s.length => Some(pn)
+      case Right(("", pn)) => Some(pn)
       case _ => None
     }
 

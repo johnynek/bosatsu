@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import Parser.{ Combinators, Indy, maybeSpace, spaces, toEOL }
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.graph.Memoize
-import org.bykn.bosatsu.parser.{Parser => P}
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
 
@@ -561,10 +561,10 @@ object Declaration {
     // Person { name: "Frank", age }
     final case class Simple(field: Bindable) extends RecordArg
 
-    def parser(indent: String, declP: P[NonBinding]): P[RecordArg] = {
-      val pairFn: P[Bindable => Pair] = {
+    def parser(indent: String, declP: P1[NonBinding]): P1[RecordArg] = {
+      val pairFn: P1[Bindable => Pair] = {
         val ws = Parser.maybeIndentedOrSpace(indent)
-        P(ws ~ ":" ~ ws ~ declP)
+        (ws.with1 *> P.char(':') *> ws *> declP)
           .map { decl => Pair(_, decl) }
       }
 
@@ -877,23 +877,20 @@ object Declaration {
   /**
    * A Parser that matches keywords
    */
-  val keywordsP: P[Unit] =
-    keywords
-      .iterator
-      .map(P(_))
-      .reduce(_ | _) ~ spaces
+  val keywordsP: P1[Unit] =
+    P.oneOf1(keywords.toList.sorted.map(P.string1(_))) ~ spaces
 
   val varP: P[Var] =
-    (!keywordsP ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }).opaque("bindable name")
+    !keywordsP ~ Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
 
   // this returns a Var with a Constructor or a RecordConstrutor
-  def recordConstructorP(indent: String, declP: P[NonBinding], noAnn: P[NonBinding]): P[NonBinding] = {
+  def recordConstructorP(indent: String, declP: P1[NonBinding], noAnn: P1[NonBinding]): P1[NonBinding] = {
     val ws = Parser.maybeIndentedOrSpace(indent)
-    val kv = RecordArg.parser(indent, noAnn)
+    val kv: P1[RecordArg] = RecordArg.parser(indent, noAnn)
     val kvs = kv.nonEmptyListOfWs(ws)
 
     // here is the record style: Foo {x: 1, ...
-    val recArgs = maybeSpace ~ kvs.bracketed(P("{" ~/ ws), P(ws ~ "}"))
+    val recArgs = maybeSpace.with1 *> kvs.bracketed(P.char('{') ~ ws, ws ~ P.char('}'))
 
     // here is tuple style: Foo(a, b)
     val tupArgs = declP
@@ -923,12 +920,12 @@ object Declaration {
         Binding(bind)(region)
       }
 
-  private def listP(p: P[NonBinding]): P[ListDecl] =
+  private def listP(p: P1[NonBinding]): P1[ListDecl] =
     ListLang.parser(p, Pattern.bindParser)
       .region
       .map { case (r, l) => ListDecl(l)(r) }
 
-  private def dictP(p: P[NonBinding]): P[DictDecl] =
+  private def dictP(p: P1[NonBinding]): P1[DictDecl] =
     ListLang.dictParser(p, Pattern.bindParser)
       .region
       .map { case (r, l) => DictDecl(l)(r) }
@@ -947,8 +944,8 @@ object Declaration {
    * or not. If false, we only parse NonBinding, if true
    * we also parse Bind, Def, Comment
    */
-  private[this] val parserCache: ((ParseMode, String)) => P[Declaration] =
-    Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P[Declaration]] { case ((pm, indent), rec) =>
+  private[this] val parserCache: ((ParseMode, String)) => P1[Declaration] =
+    Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P1[Declaration]] { case ((pm, indent), rec) =>
 
       val recurse: P[Declaration] = P(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
       val recIndy: Indy[Declaration] = Indy { i => rec((ParseMode.Decl, i)) }

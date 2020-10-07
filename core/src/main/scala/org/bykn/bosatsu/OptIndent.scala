@@ -61,9 +61,9 @@ object OptIndent {
   def indy[A](p: Indy[A]): Indy[OptIndent[A]] = {
     val ind = Indented.indy(p)
     // we need to read at least 1 new line here
-    val not = ind.mapF(Padding.parser1(_)).map(notSame[A](_))
+    val not = ind.mapF { p => Padding.parser1(p).map(notSame[A](_)): P[OptIndent[A]] }
     val sm = p.map(same[A](_))
-    not.combineK(sm)
+    not <+> sm
   }
 
   /**
@@ -72,9 +72,9 @@ object OptIndent {
    *   B
    */
   def block[A, B](first: Indy[A], next: Indy[B]): Indy[(A, OptIndent[B])] =
-    blockLike(first, next, (maybeSpace ~ P.char(':').void))
+    blockLike(first, next, maybeSpace ~ P.char(':'))
 
-  def blockLike[A, B](first: Indy[A], next: Indy[B], sep: P[Unit]): Indy[(A, OptIndent[B])] =
+  def blockLike[A, B, C](first: Indy[A], next: Indy[B], sep: P[C]): Indy[(A, OptIndent[B])] =
     first
       .cutLeftP((sep ~ maybeSpace).void)
       .cutThen(OptIndent.indy(next))

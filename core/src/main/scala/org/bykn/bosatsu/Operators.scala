@@ -44,7 +44,7 @@ object Operators {
       "?", "~").map(_.intern)
 
   private def from(strs: Iterable[String]): P1[Unit] =
-    P.oneOf1(strs.map(P.expect(_)).toList)
+    P.oneOf1(strs.map(P.string1(_)).toList)
 
   /**
    * strings for operators allowed in single character

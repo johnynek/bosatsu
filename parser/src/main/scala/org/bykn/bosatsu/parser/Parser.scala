@@ -293,11 +293,21 @@ object Parser extends ParserInstances {
     Impl.Pure(a)
 
   /**
-   * this is an error if string is empty
+   * Parse a given string or
+   * fail. This backtracks on failure
+   * this is an error if the string is empty
    */
-  def expect(str: String): Parser1[Unit] =
+  def string1(str: String): Parser1[Unit] =
     if (str.length == 1) char(str.charAt(0))
-    else Impl.Expect(str)
+    else Impl.Str(str)
+
+  /**
+   * Parse a potentially empty string or
+   * fail. This backtracks on failure
+   */
+  def string(str: String): Parser[Unit] =
+    if (str.length == 0) unit
+    else string1(str)
 
   def oneOf1[A](parsers: List[Parser1[A]]): Parser1[A] = {
     @annotation.tailrec
@@ -369,6 +379,26 @@ object Parser extends ParserInstances {
    */
   def rep1[A](p1: Parser1[A], min: Int): Parser1[NonEmptyList[A]] =
     Impl.Rep1(p1, min)
+
+  /**
+   * Repeat 1 or more times with a separator
+   */
+  def rep1Sep[A](p1: Parser1[A], min: Int, sep: Parser[Any]): Parser1[NonEmptyList[A]] = {
+    if (min <= 0) throw new IllegalArgumentException(s"require min > 0, found: $min")
+    val rest = (sep.with1 *> p1).rep(min - 1)
+    (p1 ~ rest).map { case (h, t) => NonEmptyList(h, t) }
+  }
+
+  /**
+   * Repeat 0 or more times with a separator
+   */
+  def repSep[A](p1: Parser1[A], min: Int, sep: Parser[Any]): Parser[List[A]] = {
+    if (min <= 0) rep1Sep(p1, 1, sep).?.map {
+      case None => Nil
+      case Some(nel) => nel.toList
+    }
+    else rep1Sep(p1, min, sep).map(_.toList)
+  }
 
   def product10[A, B](first: Parser1[A], second: Parser[B]): Parser1[(A, B)] =
     Impl.Prod1(first, second)
@@ -472,7 +502,7 @@ object Parser extends ParserInstances {
   def void1[A](pa: Parser1[A]): Parser1[Unit] =
     pa match {
       case v@Impl.Void1(_) => v
-      case p: Impl.Expect => p
+      case p: Impl.Str => p
       case notVoid => Impl.Void1(Impl.unmap1(pa))
     }
 
@@ -542,7 +572,7 @@ object Parser extends ParserInstances {
   def backtrack1[A](pa: Parser1[A]): Parser1[A] =
     pa match {
       case bt: Impl.Backtrack1[A] => bt
-      case Impl.AnyChar | Impl.CharIn(_, _, _) | Impl.Expect(_) | Impl.Length(_) =>
+      case Impl.AnyChar | Impl.CharIn(_, _, _) | Impl.Str(_) | Impl.Length(_) =>
         // these already backtrack (either nothing or everything)
         pa
       case nbt => Impl.Backtrack1(nbt)
@@ -659,7 +689,7 @@ object Parser extends ParserInstances {
         case Defer1(fn) =>
           Defer1(() => unmap1(compute1(fn)))
         case Rep1(p, m) => Rep1(unmap1(p), m)
-        case AnyChar | CharIn(_, _, _) | Expect(_) | Fail() | Length(_) | TailRecM1(_, _) | FlatMap1(_, _) =>
+        case AnyChar | CharIn(_, _, _) | Str(_) | Fail() | Length(_) | TailRecM1(_, _) | FlatMap1(_, _) =>
           // we can't transform this significantly
           pa
 
@@ -772,7 +802,7 @@ object Parser extends ParserInstances {
         Impl.backtrack(parser, state)
     }
 
-    case class Expect(message: String) extends Parser1[Unit] {
+    case class Str(message: String) extends Parser1[Unit] {
       if (message.isEmpty) throw new IllegalArgumentException("we need a non-empty string to expect a message")
 
       override def parseMut(state: State): Unit = {

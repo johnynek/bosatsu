@@ -15,6 +15,7 @@ object Parser {
    * continue the current indentation block
    */
   type Indy[A] = Kleisli[P, String, A]
+  type Indy1[A] = Kleisli[P1, String, A]
 
   object Indy {
     def apply[A](fn: String => P[A]): Indy[A] =
@@ -22,11 +23,6 @@ object Parser {
 
     def lift[A](p: P[A]): Indy[A] =
       Kleisli.liftF(p)
-
-    def suspend[A](ind: => Indy[A]): Indy[A] = {
-      lazy val force = ind
-      Indy { i => force(i) }
-    }
 
     /**
      * Without parsing anything return
@@ -40,7 +36,7 @@ object Parser {
      * starting now
      */
     val parseIndent: Indy[Unit] =
-      apply(indent => P(indent))
+      apply(indent => P.string1(indent))
 
     val toEOLIndent: Indy[Unit] =
       lift(toEOL) *> parseIndent
@@ -52,11 +48,11 @@ object Parser {
       def ? : Indy[Option[A]] =
         toKleisli.mapF(_.? : P[Option[A]])
 
-      def rep(min: Int = 0, sepIndy: Indy[Unit]): Indy[Seq[A]] =
+      def rep(min: Int = 0, sepIndy: Indy[Unit]): Indy[List[A]] =
         Indy { indent =>
           val pa = toKleisli(indent)
           val sep = sepIndy(indent)
-          pa.rep(min, sep = sep)
+          P.repSep(pa, min, sep)
         }
 
       def nonEmptyList(sepIndy: Indy[Unit]): Indy[NonEmptyList[A]] =
@@ -69,16 +65,18 @@ object Parser {
 
       def cutThen[B](that: Indy[B]): Indy[(A, B)] =
         Indy { indent =>
-          toKleisli(indent) ~/ that(indent)
+          toKleisli(indent) ~ that(indent)
         }
 
       def cutLeftP(that: P[Any]): Indy[A] =
         Indy { indent =>
-          (toKleisli(indent) ~/ that).map(_._1)
+          toKleisli(indent) <* that
         }
 
       def cutRight[B](that: Indy[B]): Indy[B] =
-        cutThen(that).map(_._2)
+        Indy { indent =>
+          toKleisli(indent) *> that(indent)
+        }
 
 
       /**
@@ -88,13 +86,14 @@ object Parser {
         Parser.Indy { indent =>
           // run this one time, not each spaces are parsed
           val noIndent = toKleisli.run(indent)
-          val someIndent = Parser
-            .spaces.!
+          val someIndent: P[A] = Parser
+            .spaces
+            .string
             .flatMap { thisIndent =>
               toKleisli.run(indent + thisIndent)
             }
 
-          someIndent | noIndent
+          someIndent <+> noIndent
         }
     }
   }
@@ -117,11 +116,16 @@ object Parser {
   def parse[A](p: P[A], str: String): ValidatedNel[Error, (LocationMap, A)] = {
     val lm = LocationMap(str)
     p.parse(str) match {
-      case Parsed.Success(a, idx) if idx == str.length =>
+      case Right(("", a)) =>
         Validated.valid((lm, a))
-      case Parsed.Success(a, idx) =>
+      case Right((rest, a)) =>
+        val idx = str.indexOf(rest)
         Validated.invalidNel(Error.PartialParse(a, idx, lm))
-      case Parsed.Failure(_, idx, _) =>
+      case Left(err) =>
+        // TODO, we have much more detailed failure
+        // information now, including a list of expectations
+        // we had at a point.
+        val idx = err.failedAtOffset
         Validated.invalidNel(Error.ParseFailure(idx, lm))
     }
   }
@@ -147,7 +151,7 @@ object Parser {
   // used to parse possibly empty indentation
   def indentation(str: String): P[Unit] =
     if (str.isEmpty) P.unit
-    else P.expect(str).void
+    else P.string1(str).void
 
   // parse one or more space characters
   val spaces: P1[Unit] = P.charsWhile1(isSpace _).void
@@ -157,13 +161,13 @@ object Parser {
   /** prefer to parse Right, then Left
    */
   def either[A, B](pb: P[B], pa: P[A]): P[Either[B, A]] =
-    pa.map(Right(_)) | pb.map(Left(_))
+    pa.map(Right(_)).orElse(pb.map(Left(_)))
 
   def maybeIndentedOrSpace(indent: String): P[Unit] =
-    spaces.orElse(P.expect("\n" + indent)).rep.void
+    spaces.orElse1(P.string1("\n" + indent)).rep.void
 
   val spacesAndLines: P1[Unit] =
-    P.charsWhile1(_.isWhitespace)
+    P.charsWhile1(_.isWhitespace).void
 
   val maybeSpacesAndLines: P[Unit] =
     spacesAndLines.?.void
@@ -179,7 +183,11 @@ object Parser {
 
   // requires a string longer than 1
   def tokenP[T](s: String, t: T): P1[T] =
-    P.expect(s).as(t)
+    P.string1(s).as(t)
+
+  // parse a keyword and some space or backtrack
+  def keySpace(str: String): P1[Unit] =
+    (P.string1(str) ~ spaces).void.backtrack
 
   val digit19: P1[Char] = P.charIn('1' to '9')
   val digit09: P1[Char] = P.charIn('0' to '9')
@@ -218,12 +226,12 @@ object Parser {
      */
     val digits: P[Unit] = digit09.rep.void
     val digits1: P1[Unit] = digit09.rep1.void
-    val int: P1[Any] = P.char('0').orElse(digit19 ~ digits)
+    val int: P1[Unit] = P.char('0') <+> (digit19 ~ digits).void
     val frac: P1[Any] = P.char('.') ~ digits1
     val exp: P1[Unit] = (P.charIn("eE") ~ P.charIn("+-").? ~ digits1).void
 
     val parser: P1[String] =
-      (P.char('-').? ~ int ~ frac.? ~ exp.?).string
+      (P.char('-').?.with1 ~ int ~ frac.? ~ exp.?).string
 
     // this gives you the individual parts of a floating point string
     case class Parts(negative: Boolean, leftOfPoint: String, floatingPart: String, exp: String) {
@@ -261,7 +269,7 @@ object Parser {
    */
   def dictLikeParser[K, V](pkey: P1[K], pvalue: P1[V]): P1[List[(K, V)]] = {
     val ws = maybeSpacesAndLines
-    val kv = (pkey ~ ((ws ~ ":" ~ ws).with1 *> pvalue))
+    val kv = (pkey ~ ((ws ~ P.char(':') ~ ws).with1 *> pvalue))
     val kvs = kv.nonEmptyListOfWs(ws)
     val kvlist = nonEmptyListToList(kvs)
 
@@ -273,7 +281,7 @@ object Parser {
       nonEmptyListOfWs(maybeSpace)
 
     def nonEmptyListOfWs(ws: P[Unit]): P1[NonEmptyList[T]] =
-      nonEmptyListOfWsSep(ws, P(","), allowTrailing = true)
+      nonEmptyListOfWsSep(ws, P.char(','), allowTrailing = true)
 
     def maybeAp(fn: P[T => T]): P1[T] =
       (item ~ fn.?)
@@ -284,20 +292,16 @@ object Parser {
 
     def nonEmptyListOfWsSep(ws: P[Unit], sep: P[Unit], allowTrailing: Boolean): P1[NonEmptyList[T]] = {
       val wsSep = (ws ~ sep ~ ws).void
-      val rest = (wsSep *> item).rep1
+      val rest = (wsSep.with1 *> item).rep1
       val trail =
         if (allowTrailing) (ws ~ sep).?.void
         else P.unit
 
-      (item ~ rest <* trail)
-        .map {
-          case (h, None) => NonEmptyList(h, Nil)
-          case (h, Some(nel)) => h :: nel
-        }
+      P.rep1Sep(item, min = 1, sep = wsSep) <* trail
     }
 
     def bracketed[A, B](left: P[A], right: P[B]): P1[T] =
-      left *> item <* right
+      left.with1 *> item <* right
 
     def nonEmptyListSyntax: P1[NonEmptyList[T]] = {
       val ws = maybeSpacesAndLines
@@ -307,13 +311,14 @@ object Parser {
 
     def listSyntax: P1[List[T]] = {
       val ws = maybeSpacesAndLines
-      nonEmptyListToList(nonEmptyListOfWs(ws))
-        .bracketed(P.char('[') ~ ws, ws ~ P.char(']'))
+      val lst = nonEmptyListToList(nonEmptyListOfWs(ws))
+
+      (P.char('[') ~ ws) *> lst <* (ws ~ P.char(']'))
     }
 
     def region: P1[(Region, T)] =
-      (P.index, item, P.index)
-        .mapN { (s, t, e) => (Region(s, e), t) }
+      (P.index.with1 ~ item ~ P.index)
+        .map { case ((s, t), e) => (Region(s, e), t) }
 
     def parensCut: P1[T] =
       bracketed(P.char('(') ~ maybeSpacesAndLines, maybeSpacesAndLines ~ P.char(')'))
@@ -336,23 +341,30 @@ object Parser {
     /**
      * Parse a python-like tuple or a parens
      */
-    def tupleOrParens: P[Either[T, List[T]]] = {
+    def tupleOrParens: P1[Either[T, List[T]]] = {
       val ws = maybeSpacesAndLines
       val sep = (ws.with1 ~ P.char(',') ~ ws).void
-      val twoAndMore = (sep ~ item).rep
+      val twoAndMore = (sep *> item).rep
       val trailing = sep.?.map(_.isDefined)
 
-      (item ~ twoAndMore ~ trailing).?
+      val either = (item ~ twoAndMore ~ trailing).?
         .map {
           case None => Right(Nil)
-          case Some(((h, Nil), false)) => Left(h)
-          case Some(((h, items), _)) => Right(h :: items)
+          case Some(((h, Nil), false)) =>
+            // 1 item, no trailing comment, that's a parens
+            Left(h)
+          case Some(((h, items), _)) =>
+            // either more than one item or a single item with
+            // a trailing comma
+            Right(h :: items)
         }
-        .bracketed(P.char('(') ~ ws, ws ~ P.char(')'))
+
+
+      (P.char('(') ~ ws) *> either <* (ws ~ P.char(')'))
     }
   }
 
-  val newline: P1[Unit] = P.void(P.charIn('\n'))
+  val newline: P1[Unit] = P.char('\n')
   val toEOL: P[Unit] = (maybeSpace ~ newline.orElse(P.end)).void
 
   def optionParse[A](pa: P[A], str: String): Option[A] =

@@ -81,7 +81,7 @@ object Identifier {
    * the keyword operator preceding a rawOperator
    */
   val operator: P1[Operator] =
-    P.expect("operator") *> Parser.spaces *> rawOperator
+    P.string1("operator") *> Parser.spaces *> rawOperator
 
   /**
    * Name, Backticked or non-raw operator

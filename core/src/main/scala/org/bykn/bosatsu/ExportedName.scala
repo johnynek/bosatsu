@@ -62,7 +62,7 @@ object ExportedName {
   val parser: P1[ExportedName[Unit]] =
     Identifier.bindableParser.map(Binding(_, ()))
       .orElse1(
-        (Identifier.consParser ~ P.expect("()").?)
+        (Identifier.consParser ~ P.string1("()").?)
           .map {
             case (n, None) => TypeName(n, ())
             case (n, Some(_)) => Constructor(n, ())

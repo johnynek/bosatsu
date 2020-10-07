@@ -32,9 +32,9 @@ abstract class GenericStringUtil {
   /**
    * String content without the delimiter
    */
-  def undelimitedString1(endP: P1[Unit], min: Int): P1[String] = {
+  def undelimitedString1(endP: P1[Unit]): P1[String] = {
     escapeString.orElse1((!endP).with1 ~ P.anyChar)
-      .rep(min = min)
+      .rep1
       .string
       .flatMap { str =>
         unescape(str) match {
@@ -46,13 +46,13 @@ abstract class GenericStringUtil {
 
   def escapedString(q: Char): P1[String] = {
     val end: P1[Unit] = P.char(q)
-    (end ~ undelimitedString(end, min = 0) ~ end).string
+    (end ~ undelimitedString1(end).? ~ end).string
   }
 
   def interpolatedString[A](quoteChar: Char, istart: P1[Unit], interp: P[A], iend: P1[Unit]): P1[List[Either[A, (Region, String)]]] = {
     val strQuote = P.char(quoteChar)
 
-    val strLit: P1[String] = undelimitedString1(strQuote.orElse1(istart), min = 1)
+    val strLit: P1[String] = undelimitedString1(strQuote.orElse1(istart))
     val notStr: P1[A] = (istart ~ interp ~ iend).map { case ((_, a), _) => a }
 
     val either: P1[Either[A], (Region, String)] =

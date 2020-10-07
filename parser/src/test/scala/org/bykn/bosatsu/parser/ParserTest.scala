@@ -55,8 +55,7 @@ object ParserGen {
 
   val expect0: Gen[GenT[Parser]] =
     Arbitrary.arbitrary[String].map { str =>
-      if (str.isEmpty) GenT(Parser.fail: Parser[Unit])
-      else GenT(Parser.expect(str))
+      GenT(Parser.string(str))
     }
 
   val charIn: Gen[GenT[Parser]] =
@@ -76,7 +75,7 @@ object ParserGen {
   val expect1: Gen[GenT[Parser1]] =
     Arbitrary.arbitrary[String].map { str =>
       if (str.isEmpty) GenT(Parser.fail: Parser1[Unit])
-      else GenT(Parser.expect(str))
+      else GenT(Parser.string1(str))
     }
 
   val fail: Gen[GenT[Parser]] =
@@ -377,10 +376,10 @@ class ParserTest extends munit.ScalaCheckSuite {
     parseTest(Parser.pure(42), "anything", 42)
   }
 
-  val fooP = Parser.expect("foo")
-  val barP = Parser.expect("bar")
+  val fooP = Parser.string1("foo")
+  val barP = Parser.string1("bar")
 
-  test("expect tests") {
+  test("string tests") {
     parseTest(fooP, "foobar", ())
     parseFail(fooP, "bar")
 
@@ -399,12 +398,12 @@ class ParserTest extends munit.ScalaCheckSuite {
   // or use a range which reads a bit nicer:
   val digit1 = Parser.charIn('1' to '9')
   def maybeNeg[A](p1: Parser1[A]): Parser1[String] =
-     (Parser.expect("-").?.with1 ~ p1).string
+     (Parser.char('-').?.with1 ~ p1).string
 
   val bigIntP =
     maybeNeg(
       ((digit1 ~ Parser.rep(digit)).void)
-        .orElse1(Parser.expect("0"))
+        .orElse1(Parser.char('0'))
     )
     .map(BigInt(_))
 
@@ -418,11 +417,11 @@ class ParserTest extends munit.ScalaCheckSuite {
     forAll { (s: String) =>
       if (s.isEmpty) {
         intercept[IllegalArgumentException] {
-          Parser.expect(s)
+          Parser.string1(s)
         }
       }
       else {
-        val pa = Parser.expect(s)
+        val pa = Parser.string1(s)
         assertEquals((Parser.start ~ pa ~ Parser.end).void.parse(s), Right(("", ())))
         assert((pa ~ Parser.start).parse(s).isLeft)
         assert((Parser.end ~ pa).parse(s).isLeft)
@@ -685,7 +684,7 @@ class ParserTest extends munit.ScalaCheckSuite {
     // we can't return empty list here
     assert(partial.rep.parse("foo").isLeft)
 
-    val p2 = Parser.expect("f").orElse1((Parser.expect("boo") ~ Parser.expect("p")).void)
+    val p2 = Parser.string1("f").orElse1((Parser.string1("boo") ~ Parser.string1("p")).void)
     assert(p2.rep1.parse("fboop").isRight)
     assert(p2.rep1(2).parse("fboop").isRight)
     assert(p2.rep1(3).parse("fboop").isLeft)
@@ -696,7 +695,7 @@ class ParserTest extends munit.ScalaCheckSuite {
     var cnt = 0
     val res = Defer[Parser].defer {
       cnt += 1
-      Parser.expect("foo")
+      Parser.string1("foo")
     }
     assert(cnt == 0)
     assert(res.parse("foo") == Right(("", ())))
@@ -709,7 +708,7 @@ class ParserTest extends munit.ScalaCheckSuite {
     var cnt = 0
     val res = Defer[Parser1].defer {
       cnt += 1
-      Parser.expect("foo")
+      Parser.string1("foo")
     }
     assert(cnt == 0)
     assert(res.parse("foo") == Right(("", ())))
