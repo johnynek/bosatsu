@@ -60,7 +60,9 @@ lazy val commonSettings = Seq(
 
   scalacOptions in (Compile, console) --= Seq("-Ywarn-unused:imports", "-Xfatal-warnings"),
 
-  testOptions in Test += Tests.Argument("-oDF")
+  testOptions in Test += Tests.Argument("-oDF"),
+
+  testFrameworks += new TestFramework("munit.Framework")
 )
 
 lazy val commonJsSettings = Seq(
@@ -71,7 +73,8 @@ lazy val commonJsSettings = Seq(
   scalaJSOptimizerOptions := scalaJSOptimizerOptions.value.withBatchMode(scala.sys.env.get("TRAVIS").isDefined),
   coverageEnabled := false,
   scalaJSUseMainModuleInitializer := false,
-  scalacOptions += "-P:scalajs:sjsDefinedByDefault"
+  scalacOptions += "-P:scalajs:sjsDefinedByDefault",
+  scalaJSModuleKind := ModuleKind.CommonJSModule
 )
 
 lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("."))
@@ -125,11 +128,26 @@ lazy val cli = (project in file("cli")).
         jawnParser.value % Test,
         jawnAst.value % Test,
         jython.value % Test,
+        munit.value % Test,
       ),
     PB.targets in Compile := Seq(
      scalapb.gen() -> (sourceManaged in Compile).value
    )
   ).dependsOn(coreJVM % "compile->compile;test->test")
+
+lazy val parser = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("parser")).
+  settings(
+    commonSettings,
+    name := "bosatsu-parser",
+    test in assembly := {},
+    libraryDependencies ++=
+      Seq(
+        cats.value,
+        munit.value % Test,
+        munitScalacheck.value % Test,
+      )
+  )
+  .jsSettings(commonJsSettings)
 
 lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
@@ -145,6 +163,7 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,
+        munit.value % Test,
         // needed for acyclic which we run periodically, not all the time
         //"com.lihaoyi" %% "acyclic" % "0.1.7" % "provided"
       )
@@ -184,7 +203,7 @@ lazy val jsapi = (crossProject(JSPlatform).crossType(CrossType.Pure) in file("js
 lazy val jsapiJS = jsapi.js
 
 lazy val bench = project
-  .dependsOn(core.jvm)
+  .dependsOn(core.jvm, parser.jvm)
   .settings(moduleName := "bosatsu-bench")
   .settings(commonSettings)
   .settings(
