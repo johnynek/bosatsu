@@ -100,10 +100,10 @@ object Identifier {
       case Backticked(b) => Backticked(b + suffix)
       case notBack =>
         // try to stry the same
-        val p = operator | nameParser
+        val p = operator.orElse1(nameParser)
         val cand = i.sourceCodeRepr + suffix
         p.parse(cand) match {
-          case Parsed.Success(ident, idx) if idx == cand.length =>
+          case Right(("", ident)) =>
             ident
           case _ =>
             // just turn it into a Backticked

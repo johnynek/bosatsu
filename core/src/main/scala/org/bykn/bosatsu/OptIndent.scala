@@ -4,7 +4,7 @@ import cats.Functor
 import cats.implicits._
 import org.typelevel.paiges.{Doc, Document}
 
-import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+import org.bykn.bosatsu.parser.{Parser => P}
 
 import Parser.{maybeSpace, Indy}
 import Indy.IndyMethods
@@ -76,6 +76,6 @@ object OptIndent {
 
   def blockLike[A, B](first: Indy[A], next: Indy[B], sep: P[Unit]): Indy[(A, OptIndent[B])] =
     first
-      .cutLeftP(sep ~/ maybeSpace)
+      .cutLeftP((sep ~ maybeSpace).void)
       .cutThen(OptIndent.indy(next))
 }
