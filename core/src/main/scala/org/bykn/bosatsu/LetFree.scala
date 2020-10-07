@@ -7,6 +7,7 @@ import rankn._
 import Identifier.Constructor
 import org.bykn.bosatsu.LetFreePattern.ListPart
 import scala.annotation.tailrec 
+import scala.collection.immutable.IntMap
 
 sealed abstract class LetFreeExpression {
   /*
@@ -223,7 +224,7 @@ object LetFreeConversion {
   type LetFreePM = PackageMap.Typed[(Declaration, LetFreeExpressionTag)]
   type LetFreePac = Package.Typed[(Declaration, LetFreeExpressionTag)]
 
-  type PatternEnv[T] = Map[Int, T]
+  type PatternEnv[T] = IntMap[T]
 
   sealed trait PatternMatch[+A]
   case class Matches[A](env: A) extends PatternMatch[A]
@@ -470,7 +471,7 @@ object LetFreeConversion {
 
   def findMatch(m: LetFreeExpression.Match) =
     m.branches.collectFirst(Function.unlift( { case (pat, result) =>
-      maybeBind[LetFreeExpression](pat).apply(m.arg, Map.empty) match {
+      maybeBind[LetFreeExpression](pat).apply(m.arg, IntMap.empty) match {
         case Matches(env) => Some(Some((pat, env, result)))
         case NotProvable => Some(None)
         case NoMatch => None

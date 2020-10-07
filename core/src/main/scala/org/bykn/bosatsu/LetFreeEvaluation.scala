@@ -6,6 +6,7 @@ import scala.annotation.tailrec
 import rankn.Type
 import scala.concurrent.Future
 import scala.collection.concurrent.{Map => CMap}
+import scala.collection.immutable.IntMap
 import java.math.BigInteger
 
 object LetFreeEvaluation {
@@ -312,7 +313,7 @@ object LetFreeEvaluation {
             )
             .apply(LazyValue(mtch.arg, scope, Eval.later {
               evalToValue(mtch.arg, scope)
-            }), Map()) match {
+            }), IntMap.empty) match {
             case LetFreeConversion.Matches(env) => Some((pat, env, result))
             case LetFreeConversion.NoMatch      => None
             case LetFreeConversion.NotProvable =>
