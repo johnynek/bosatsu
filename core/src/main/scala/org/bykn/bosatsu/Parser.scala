@@ -240,7 +240,7 @@ object Parser {
         }
   }
 
-  def escapedString(q: Char): P[String] =
+  def escapedString(q: Char): P1[String] =
     StringUtil.escapedString(q)
 
   def escape(quoteChar: Char, str: String): String =
@@ -372,30 +372,23 @@ object Parser {
   }
 
   val newline: P1[Unit] = P.void(P.charIn('\n'))
-  /**
-   * Parse until the end of a line or to end of file.
-   * WARNING: never use this with .rep because
-   * repeatedly parsing End will OOM
-   */
-  val toEOL: P[Unit] = P(maybeSpace ~ ("\n" | End))
+  val toEOL: P[Unit] = (maybeSpace ~ newline.orElse(P.end)).void
 
   def optionParse[A](pa: P[A], str: String): Option[A] =
     pa.parse(str) match {
-      case Parsed.Success(ident, idx) if idx == str.length =>
-        Some(ident)
-      case _ =>
-        None
+      case Right(("", a)) => Some(a)
+      case _ => None
     }
 
   def unsafeParse[A](pa: P[A], str: String): A =
     pa.parse(str) match {
-      case Parsed.Success(a, idx) if idx == str.length =>
-        a
+      case Right(("", a)) => a
       // $COVERAGE-OFF$
-      case Parsed.Success(_, idx) =>
-        sys.error(s"partial parse of $str ignores: ${str.substring(idx)}")
-      case Parsed.Failure(exp, idx, extra) =>
-        sys.error(s"failed to parse: $str: $exp at $idx: (${str.substring(idx)}) with trace: ${extra.traced.trace}")
+      case Right((rest, _)) =>
+        sys.error(s"partial parse of $str ignores: $rest")
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        sys.error(s"failed to parse: $str: at $idx: (${str.substring(idx)}) with errors: ${err.expected}")
       // $COVERAGE-ON$
     }
 

@@ -59,12 +59,15 @@ object ExportedName {
     }
   }
 
-  val parser: P[ExportedName[Unit]] =
-    Identifier.bindableParser.map(Binding(_, ())) |
-      P(Identifier.consParser ~ "()".!.?).map {
-        case (n, None) => TypeName(n, ())
-        case (n, Some(_)) => Constructor(n, ())
-      }
+  val parser: P1[ExportedName[Unit]] =
+    Identifier.bindableParser.map(Binding(_, ()))
+      .orElse1(
+        (Identifier.consParser ~ P.expect("()").?)
+          .map {
+            case (n, None) => TypeName(n, ())
+            case (n, Some(_)) => Constructor(n, ())
+          }
+      )
 
   private[bosatsu] def buildExportMap[T](exs: List[ExportedName[T]]): Map[Identifier, NonEmptyList[ExportedName[T]]] =
     exs match {
