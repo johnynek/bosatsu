@@ -78,6 +78,7 @@ class LetFreeEvaluationTest extends FunSuite {
 
   test("list pat let free evaluate") {
     letFreeTest(List("ListPat", "List", "Bool", "Nat"), "ListPat")
+    letFreeTest(List("ExtendedListPattern/ManyGlobs", "List", "Bool", "Nat"), "ManyGlobs")
   }
 
   test("LetFreeValue") {

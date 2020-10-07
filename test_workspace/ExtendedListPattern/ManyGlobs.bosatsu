@@ -1,0 +1,20 @@
+package ManyGlobs
+
+enum Result:
+  Success(n), Fail(err)
+def fn(lst):
+  match lst:
+    [*_, (True, x), *_, (False, _)]: Success(x)
+    [*_, (True, _), *tailList, (True, _)]:
+      match tailList:
+        [(_, h), *_]: Success(h)
+        _: Fail("empty tail list")
+    _: Fail("fall through")
+
+length = 1000
+lst1 = [(True, n) for n in range(length)]
+result1 = fn(lst1)
+
+tests = TestSuite("ListPat tests", [
+  Assertion(result1 matches Success(1), "match 2nd character of 2nd pattern")
+])
