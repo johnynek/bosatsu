@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
 import org.typelevel.paiges.Doc
 
-import org.bykn.bosatsu.parser.{Parser => P}
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 
 import cats.implicits._
 
@@ -144,9 +144,15 @@ object Parser {
   def identifierChar(c: Char): Boolean =
     isNum(c) || isUpper(c) || isLower(c) || (c == '_')
 
-  val spaces: P[Unit] = P(CharsWhile(isSpace _))
-  val nonSpaces: P[String] = P(CharsWhile { c => !isSpace(c) }.!)
-  val maybeSpace: P[Unit] = spaces.?
+  // used to parse possibly empty indentation
+  def indentation(str: String): P[Unit] =
+    if (str.isEmpty) P.unit
+    else P.expect(str).void
+
+  // parse one or more space characters
+  val spaces: P1[Unit] = P.charsWhile1(isSpace _).void
+  val nonSpaces: P1[String] = P.charsWhile1 { c => !isSpace(c) }
+  val maybeSpace: P[Unit] = spaces.?.void
 
   /** prefer to parse Right, then Left
    */
@@ -154,26 +160,29 @@ object Parser {
     pa.map(Right(_)) | pb.map(Left(_))
 
   def maybeIndentedOrSpace(indent: String): P[Unit] =
-    (Parser.spaces | P("\n" ~ indent)).rep().map(_ => ())
+    spaces.orElse(P.expect("\n" + indent)).rep.void
 
-  val spacesAndLines: P[Unit] = P(CharsWhile { c =>
-    c.isWhitespace
-  }).opaque("spacesAndLines")
+  val spacesAndLines: P1[Unit] =
+    P.charsWhile1(_.isWhitespace)
 
   val maybeSpacesAndLines: P[Unit] =
-    spacesAndLines.?.opaque("maybeSpacesAndLines")
+    spacesAndLines.?.void
 
-  val lowerIdent: P[String] =
-    P(CharIn('a' to 'z') ~ CharsWhile(identifierChar _).?).!
+  val lowerIdent: P1[String] =
+    (P.charIn('a' to 'z') ~ P.charsWhile(identifierChar _)).string
 
-  val upperIdent: P[String] =
-    P(CharIn('A' to 'Z') ~ CharsWhile(identifierChar _).?).!
+  val upperIdent: P1[String] =
+    (P.charIn('A' to 'Z') ~ P.charsWhile(identifierChar _)).string
 
-  val py2Ident: P[String] =
-    P(CharIn('_' :: ('A' to 'Z').toList ::: ('a' to 'z').toList) ~ CharsWhile(identifierChar _).?).!
+  val py2Ident: P1[String] =
+    (P.charIn('_' :: ('A' to 'Z').toList ::: ('a' to 'z').toList) ~ P.charsWhile(identifierChar _)).string
 
-  def tokenP[T](s: String, t: T): P[T] = P(s).map(_ => t)
+  // requires a string longer than 1
+  def tokenP[T](s: String, t: T): P1[T] =
+    P.expect(s).as(t)
 
+  val digit19: P1[Char] = P.charIn('1' to '9')
+  val digit09: P1[Char] = P.charIn('0' to '9')
   /**
    * This parser allows _ between any two digits to allow
    * literals such as:
@@ -184,19 +193,13 @@ object Parser {
    * but I think banning things like that shouldn't
    * be done by the parser
    */
-  val integerString: P[String] = {
+  val integerString: P1[String] = {
 
-    val digit1 = CharIn('1' to '9')
-    val digit0 = CharIn('0' to '9')
-    val rest = P("_".? ~ digit0).rep()
-    val nonZero: P[String] = P(digit1 ~ rest).!
+    val rest = (P.char('_').?.with1 ~ digit09).rep
+    val nonZero: P1[Unit] = (digit19 ~ rest).void
 
-    val positive: P[String] = tokenP("0", "0") | nonZero
-    P(CharIn("+-").!.? ~ positive)
-      .map {
-        case (None, rest) => rest
-        case (Some(s), rest) => s + rest
-      }
+    val positive: P1[Unit] = P.char('0').orElse1(nonZero)
+    (P.charIn("+-") ~ positive).string
   }
 
   object JsonNumber {
@@ -213,16 +216,14 @@ object Parser {
      *     plus = %x2B                ; +
      *     zero = %x30                ; 0
      */
-    val digit09: P[Unit] = CharIn('0' to '9')
-    val digit19: P[Unit] = CharIn('1' to '9')
-    val digits: P[Unit] = digit09.rep()
-    val digits1: P[Unit] = digit09.rep(min = 1)
-    val int: P[Unit] = P("0") | (digit19 ~ digits)
-    val frac: P[Unit] = P("." ~ digits1)
-    val exp: P[Unit] = P("e" | "E") ~ P(("+" | "-").?) ~ digits1
+    val digits: P[Unit] = digit09.rep.void
+    val digits1: P1[Unit] = digit09.rep1.void
+    val int: P1[Any] = P.char('0').orElse(digit19 ~ digits)
+    val frac: P1[Any] = P.char('.') ~ digits1
+    val exp: P1[Unit] = (P.charIn("eE") ~ P.charIn("+-").? ~ digits1).void
 
-    val parser: P[String] =
-      P(("-").? ~ int ~ frac.? ~ exp.?).!
+    val parser: P1[String] =
+      (P.char('-').? ~ int ~ frac.? ~ exp.?).string
 
     // this gives you the individual parts of a floating point string
     case class Parts(negative: Boolean, leftOfPoint: String, floatingPart: String, exp: String) {
@@ -232,9 +233,9 @@ object Parser {
       }
     }
 
-    val partsParser: P[Parts] =
-      P(CharIn("-").map(_ => true).? ~ int.! ~ frac.!.? ~ exp.!.?)
-        .map { case (optNeg, left, float, exp) =>
+    val partsParser: P1[Parts] =
+      (P.char('-').as(true).?.with1 ~ int.string ~ frac.string.? ~ exp.string.?)
+        .map { case (((optNeg, left), float), exp) =>
           Parts(optNeg.isDefined, left, float.getOrElse(""), exp.getOrElse(""))
         }
   }
@@ -370,6 +371,7 @@ object Parser {
     }
   }
 
+  val newline: P1[Unit] = P.void(P.charIn('\n'))
   /**
    * Parse until the end of a line or to end of file.
    * WARNING: never use this with .rep because

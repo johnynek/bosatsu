@@ -145,6 +145,13 @@ sealed abstract class Parser1[+A] extends Parser[A] {
     Parser.rep(this)
 
   /**
+   * Repeat min, with min >= 0, or more times
+   */
+  def rep(min: Int): Parser[List[A]] =
+    if (min == 0) rep
+    else rep1(min).map(_.toList)
+
+  /**
    * Repeat one or more times
    */
   def rep1: Parser1[NonEmptyList[A]] =
@@ -282,7 +289,8 @@ object Parser extends ParserInstances {
    * this is an error if string is empty
    */
   def expect(str: String): Parser1[Unit] =
-    Impl.Expect(str)
+    if (str.length == 1) char(str.charAt(0))
+    else Impl.Expect(str)
 
   def oneOf1[A](parsers: List[Parser1[A]]): Parser1[A] = {
     @annotation.tailrec
@@ -394,14 +402,19 @@ object Parser extends ParserInstances {
   val Fail: Parser1[Nothing] = Impl.Fail()
   def fail[A]: Parser1[A] = Fail
 
-  def charIn(c0: Char, cs: Char*): Parser1[Char] =
-    charIn(c0 :: cs.toList)
+  val unit: Parser[Unit] = pure(())
 
   /**
    * Parse 1 character from the string
    */
   def anyChar: Parser1[Char] =
     Impl.AnyChar
+
+  def char(c: Char): Parser1[Unit] =
+    charIn(c).void
+
+  def charIn(c0: Char, cs: Char*): Parser1[Char] =
+    charIn(c0 :: cs.toList)
 
   /**
    * An empty iterable is the same as fail
@@ -421,6 +434,22 @@ object Parser extends ParserInstances {
 
   def charWhere(fn: Char => Boolean): Parser1[Char] =
     charIn(Impl.allChars.filter(fn))
+
+  /**
+   * Parse a string while the given function is true
+   */
+  def charsWhile(fn: Char => Boolean): Parser[String] =
+    charWhere(fn).rep.string
+
+  /**
+   * Parse a string while the given function is true
+   * parses at least one character
+   */
+  def charsWhile1(fn: Char => Boolean): Parser1[String] =
+    charWhere(fn).rep1.string
+
+  def until(p: Parser[Any]): Parser[String] =
+    (not(p).with1 ~ anyChar).rep.string
 
   def void[A](pa: Parser[A]): Parser[Unit] =
     pa match {
@@ -593,7 +622,8 @@ object Parser extends ParserInstances {
         case Defer(fn) =>
           Defer(() => unmap(compute(fn)))
         case Rep(p) => Rep(unmap1(p))
-        case Pure(_) | Index | StartParser | EndParser | TailRecM(_, _) | FlatMap(_, _) =>
+        case Pure(_) => Parser.unit
+        case Index | StartParser | EndParser | TailRecM(_, _) | FlatMap(_, _) =>
           // we can't transform this significantly
           pa
       }

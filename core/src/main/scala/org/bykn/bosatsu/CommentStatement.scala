@@ -25,16 +25,18 @@ object CommentStatement {
    * this is to allow a P[Unit] that does nothing for testing or other applications
    */
   def parser[T](onP: Parser.Indy[T]): Parser.Indy[CommentStatement[T]] = Parser.Indy { indent =>
-    val commentBlock: P[NonEmptyList[String]] =
-      P(commentPart ~ ("\n" ~ indent ~ commentPart).rep() ~ ("\n" | End))
-        .map { case (c1, cs) => NonEmptyList(c1, cs.toList) }
+    val sep = Parser.newline ~ Parser.indentation(indent)
 
-    P(commentBlock ~ onP(indent))
+    val commentBlock: P1[NonEmptyList[String]] =
+      (commentPart ~ (sep *> commentPart).rep ~ Parser.newline.orElse(P.end))
+        .map { case ((c1, cs), _) => NonEmptyList(c1, cs) }
+
+    (commentBlock ~ onP(indent))
       .map { case (m, on) => CommentStatement(m, on) }
   }
 
   val commentPart: P1[String] =
-    P.charIn('#') ~ P.charsWhile(_ != '\n').?.string)
+    (P.char('#') ~ P.until(P.char('\n'))).map(_._2)
 }
 
 
