@@ -67,10 +67,10 @@ object Operators {
    */
   val operatorToken: P1[String] = {
     val singles = from(singleToks)
-    // = can appear with at least one other character
-    val twoOrMore = multiToksP.rep1(min = 2).void.backtrack
 
-    twoOrMore.orElse1(singles)
+    // write this in a way to avoid backtracking
+    ((singles ~ multiToksP.rep).void)
+      .orElse1(multiToksP.rep1(min = 2).void)
       .string
       .map(_.intern)
   }
