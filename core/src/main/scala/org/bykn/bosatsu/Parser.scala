@@ -197,7 +197,7 @@ object Parser {
     val nonZero: P1[Unit] = (digit19 ~ rest).void
 
     val positive: P1[Unit] = P.char('0').orElse1(nonZero)
-    (P.charIn("+-") ~ positive).string
+    (P.charIn("+-").?.with1 *> positive).string
   }
 
   object JsonNumber {

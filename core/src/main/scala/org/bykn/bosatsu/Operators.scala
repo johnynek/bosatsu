@@ -68,12 +68,9 @@ object Operators {
   val operatorToken: P1[String] = {
     val singles = from(singleToks)
     // = can appear with at least one other character
-    val twoOrMore: P1[Unit] = multiToksP.rep1(min = 2).void
-    // we can also repeat core operators one or more times
-    val singleP = singles.rep1.void
+    val twoOrMore = multiToksP.rep1(min = 2).void.backtrack
 
-    twoOrMore
-      .orElse1(singleP)
+    twoOrMore.orElse1(singles)
       .string
       .map(_.intern)
   }
@@ -122,8 +119,7 @@ object Operators {
      */
     def infixOps1[A](p: P1[A]): P1[A => Formula[A]] = {
       val chain: P1[NonEmptyList[(String, A)]] =
-        (Parser.maybeSpace.with1 *> operatorToken ~ (Parser.maybeSpacesAndLines.with1 *> p))
-          .rep1
+        ((Parser.maybeSpace.with1 *> operatorToken).backtrack ~ (Parser.maybeSpacesAndLines.with1 *> p)).rep1
 
       chain.map { rest =>
 

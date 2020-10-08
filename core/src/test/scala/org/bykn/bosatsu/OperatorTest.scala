@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import org.typelevel.paiges.{ Doc, Document }
-import org.bykn.bosatsu.parser.{Parser1 => P1}
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 
 import Parser.Combinators
 
@@ -27,7 +27,10 @@ class OperatorTest extends ParserTestBase {
   lazy val formP: P1[F] =
     Operators.Formula
       .parser(
-        Parser.integerString.map(F.Num(_)).orElse1(formP.parensCut)
+        Parser
+          .integerString
+          .map(F.Num(_))
+          .orElse1(P.defer1(formP.parensCut))
       )
       .map(F.Form(_))
 
