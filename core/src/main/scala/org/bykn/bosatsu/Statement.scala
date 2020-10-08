@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, spaces, keySpace, toEOL }
+import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, keySpace, toEOL, toEOL1 }
 import cats.data.NonEmptyList
 import cats.implicits._
 import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
@@ -143,7 +143,7 @@ object Statement {
 
      val bindingP: P1[Statement] =
        Declaration
-         .bindingParser[Unit](Declaration.nonBindingParser, Indy.lift(toEOL), cutPattern = true)("")
+         .bindingParser[Unit](Declaration.nonBindingParser, Indy.lift(toEOL1), cutPattern = true)("")
          .region
          .map { case (region, bs) =>
             Bind(bs)(region)
@@ -156,12 +156,12 @@ object Statement {
          .map { case (region, p) => PaddingStatement(p)(region) }
 
      val commentP: P1[Statement] =
-       CommentStatement.parser(Indy.lift(PassWith(()))).region
+       CommentStatement.parser(_ => P.unit).region
          .map { case (region, cs) => Comment(cs)(region) }.run("")
 
-     val defBody = maybeSpace *> OptIndent.indy(Declaration.parser).run("")
+     val defBody = maybeSpace.with1 *> OptIndent.indy(Declaration.parser).run("")
      val defP: P1[Statement] =
-      DefStatement.parser(Pattern.bindParser, defBody ~ toEOL).region
+      DefStatement.parser(Pattern.bindParser, defBody <* toEOL).region
         .map { case (region, DefStatement(nm, args, ret, body)) =>
           Def(DefStatement(nm, args, ret, body))(region)
         }
@@ -225,7 +225,7 @@ object Statement {
              case (n, Some(args)) => (n, args.toList)
            }
 
-       val sep = Indy.lift(P.char(',') ~ maybeSpace)
+       val sep = (Indy.lift(P.char(',') <* maybeSpace))
          .combineK(Indy.toEOLIndent)
          .void
 
@@ -253,7 +253,7 @@ object Statement {
    * This parses the *rest* of the string (it must end with End)
    */
   val parser: P[List[Statement]] =
-    parser1.rep ~ Parser.maybeSpacesAndLines ~ P.end
+    parser1.rep <* Parser.maybeSpacesAndLines <* P.end
 
   private def constructor(name: Constructor, taDoc: Doc, args: List[(Bindable, Option[TypeRef])]): Doc =
     Document[Identifier].document(name) + taDoc +

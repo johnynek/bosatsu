@@ -4,7 +4,7 @@ import cats.Functor
 import cats.implicits._
 import org.typelevel.paiges.{Doc, Document}
 
-import org.bykn.bosatsu.parser.{Parser => P}
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 
 import Parser.{maybeSpace, Indy}
 import Indy.IndyMethods
@@ -61,7 +61,7 @@ object OptIndent {
   def indy[A](p: Indy[A]): Indy[OptIndent[A]] = {
     val ind = Indented.indy(p)
     // we need to read at least 1 new line here
-    val not = ind.mapF { p => Padding.parser1(p).map(notSame[A](_)): P[OptIndent[A]] }
+    val not = ind.mapF { p => Padding.parser1(p).map(notSame[A](_)): P1[OptIndent[A]] }
     val sm = p.map(same[A](_))
     not <+> sm
   }

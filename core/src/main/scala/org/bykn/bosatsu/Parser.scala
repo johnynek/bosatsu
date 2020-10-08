@@ -14,58 +14,49 @@ object Parser {
    * should be parsed after a new-line to
    * continue the current indentation block
    */
-  type Indy[A] = Kleisli[P, String, A]
-  type Indy1[A] = Kleisli[P1, String, A]
+  type Indy[A] = Kleisli[P1, String, A]
 
   object Indy {
-    def apply[A](fn: String => P[A]): Indy[A] =
+    def apply[A](fn: String => P1[A]): Indy[A] =
       Kleisli(fn)
 
-    def lift[A](p: P[A]): Indy[A] =
+    def lift[A](p: P1[A]): Indy[A] =
       Kleisli.liftF(p)
 
     /**
-     * Without parsing anything return
-     * the current indentation level
+     * Parse spaces, end of line, then the next indentation
      */
-    val currentIndentation: Indy[String] =
-      Kleisli.ask
-
-    /**
-     * Parse exactly the current indentation
-     * starting now
-     */
-    val parseIndent: Indy[Unit] =
-      apply(indent => P.string1(indent))
-
     val toEOLIndent: Indy[Unit] =
-      lift(toEOL) *> parseIndent
+      apply { indent =>
+        toEOL1 <* P.string(indent)
+      }
 
     implicit class IndyMethods[A](val toKleisli: Indy[A]) extends AnyVal {
       def region: Indy[(Region, A)] =
         toKleisli.mapF(_.region)
 
-      def ? : Indy[Option[A]] =
-        toKleisli.mapF(_.? : P[Option[A]])
+      /**
+       * Parse exactly the current indentation
+       * starting now
+       */
+      def indentBefore: Indy[A] =
+        apply(indent => P.string1(indent) *> toKleisli.run(indent))
 
-      def rep(min: Int = 0, sepIndy: Indy[Unit]): Indy[List[A]] =
+      def nonEmptyList(sepIndy: Indy[Unit]): Indy[NonEmptyList[A]] =
         Indy { indent =>
           val pa = toKleisli(indent)
           val sep = sepIndy(indent)
-          P.repSep(pa, min, sep)
-        }
-
-      def nonEmptyList(sepIndy: Indy[Unit]): Indy[NonEmptyList[A]] =
-        rep(1, sepIndy).map { as =>
-          as.toList match {
-            case h :: tail => NonEmptyList(h, tail)
-            case Nil => sys.error("rep 1 matched 0")
-          }
+          P.rep1Sep(pa, min = 1, sep)
         }
 
       def cutThen[B](that: Indy[B]): Indy[(A, B)] =
         Indy { indent =>
           toKleisli(indent) ~ that(indent)
+        }
+
+      def cutThenOpt[B](that: Indy[B]): Indy[(A, Option[B])] =
+        Indy { indent =>
+          toKleisli(indent) ~ that(indent).?
         }
 
       def cutLeftP(that: P[Any]): Indy[A] =
@@ -78,15 +69,14 @@ object Parser {
           toKleisli(indent) *> that(indent)
         }
 
-
       /**
        * This optionally allows extra indentation that starts now
        */
       def maybeMore: Parser.Indy[A] =
-        Parser.Indy { indent =>
+        Indy { indent =>
           // run this one time, not each spaces are parsed
           val noIndent = toKleisli.run(indent)
-          val someIndent: P[A] = Parser
+          val someIndent: P1[A] = Parser
             .spaces
             .string
             .flatMap { thisIndent =>
@@ -366,6 +356,7 @@ object Parser {
 
   val newline: P1[Unit] = P.char('\n')
   val toEOL: P[Unit] = (maybeSpace ~ newline.orElse(P.end)).void
+  val toEOL1: P1[Unit] = (maybeSpace.with1 *> newline)
 
   def optionParse[A](pa: P[A], str: String): Option[A] =
     pa.parse(str) match {

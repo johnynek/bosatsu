@@ -145,9 +145,8 @@ object Package {
     val im = Padding.parser(Import.parser <* Parser.toEOL).map(_.padded).rep
     val ex = Padding.parser((P.string1("export") ~ spaces).backtrack *> ExportedName.parser.itemsMaybeParens.map(_._2) <* Parser.toEOL).map(_.padded)
     val body: P[List[Statement]] = Statement.parser
-    (pname ~ im ~ Parser.nonEmptyListToList(ex) ~ body).map { case (p, i, e, b) =>
-      Package(p, i, e, b)
-    }
+    (pname, im, Parser.nonEmptyListToList(ex), body)
+      .mapN { (p, i, e, b) => Package(p, i, e, b) }
   }
 
   /**

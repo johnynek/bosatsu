@@ -170,7 +170,7 @@ object TypeRef {
         .map { case (args, e) => TypeLambda(args, e) }
 
     val maybeArrow: P1[TypeRef => TypeRef] =
-      ((maybeSpace.with1 *> "->").backtrack *> maybeSpace *> recurse)
+      (((maybeSpace.with1 ~ P.string1("->")).backtrack ~ maybeSpace) *> recurse)
         .map { right => TypeArrow(_, right) }
 
     val maybeApp: P1[TypeRef => TypeRef] =

@@ -55,7 +55,7 @@ abstract class GenericStringUtil {
     val strLit: P1[String] = undelimitedString1(strQuote.orElse1(istart))
     val notStr: P1[A] = (istart ~ interp ~ iend).map { case ((_, a), _) => a }
 
-    val either: P1[Either[A], (Region, String)] =
+    val either: P1[Either[A, (Region, String)]] =
       ((P.index.with1 ~ strLit ~ P.index).map { case ((s, str), l) => Right((Region(s, l), str)) })
         .orElse1(notStr.map(Left(_)))
 

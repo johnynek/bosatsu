@@ -1,10 +1,10 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, maybeSpace, spaces }
+import Parser.{ Combinators, maybeSpace }
 import cats.Applicative
 import cats.data.NonEmptyList
 import cats.implicits._
-import org.bykn.bosatsu.parser.{Parser => P}
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 
 import Identifier.{Bindable, Constructor}
@@ -57,13 +57,13 @@ object DefStatement {
     /**
      * The resultTParser should parse some indentation any newlines
      */
-    def parser[A, B](argParser: P[A], resultTParser: P[B]): P[DefStatement[A, B]] = {
-      val args = argParser.parensLines1
-      val result = P("->" ~/ maybeSpace ~ TypeRef.parser).?
-      P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~ maybeSpace ~
-        result ~ maybeSpace ~ ":" ~/ resultTParser)
-        .map {
-          case (name, optArgs, resType, res) =>
+    def parser[A, B](argParser: P1[A], resultTParser: P1[B]): P1[DefStatement[A, B]] = {
+      val args = argParser.parensLines1Cut
+      val result = (P.string1("->") *> maybeSpace *> TypeRef.parser).?
+      (Parser.keySpace("def") *> (Identifier.bindableParser ~ args.?) <* maybeSpace,
+        result.with1 <* (maybeSpace.with1 ~ P.char(':')),
+        resultTParser)
+          .mapN { case ((name, optArgs), resType, res) =>
             val args = optArgs match {
               case None => Nil
               case Some(ne) => ne.toList

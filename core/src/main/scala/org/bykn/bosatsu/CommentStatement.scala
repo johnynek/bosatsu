@@ -23,7 +23,7 @@ object CommentStatement {
   /** on should make sure indent is matching
    * this is to allow a P[Unit] that does nothing for testing or other applications
    */
-  def parser[T](onP: Parser.Indy[T]): Parser.Indy[CommentStatement[T]] = Parser.Indy { indent =>
+  def parser[T](onP: String => P[T]): Parser.Indy[CommentStatement[T]] = Parser.Indy { indent =>
     val sep = Parser.newline ~ Parser.indentation(indent)
 
     val commentBlock: P1[NonEmptyList[String]] =

@@ -532,6 +532,9 @@ object Parser extends ParserInstances {
    * it succeeds, basically rewind on success
    */
   def peek(pa: Parser[Any]): Parser[Unit] =
+    // TODO: we can adjust Rep/Rep1 to do minimal
+    // work since we rewind after we are sure there is
+    // a match
     Impl.Peek(void(pa))
 
   /**

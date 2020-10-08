@@ -32,7 +32,7 @@ object Indented {
   def indy[T](p: Parser.Indy[T]): Parser.Indy[Indented[T]] =
     Parser.Indy { indent =>
       for {
-        thisIndent <- Parser.indentation(indent) *> Parser.spaces.string
+        thisIndent <- Parser.indentation(indent).with1 *> Parser.spaces.string
         t <- p.run(indent + thisIndent)
       } yield Indented(Indented.spaceCount(thisIndent), t)
     }
