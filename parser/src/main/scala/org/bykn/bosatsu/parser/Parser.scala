@@ -1162,6 +1162,7 @@ object Parser extends ParserInstances {
           // we don't reset the offset, so if the underlying parser
           // advanced it will fail in a OneOf
           state.error = Chain.one(Expectation.ExpectedFailureAt(offset, matchedStr))
+          state.offset = offset
         }
 
         ()

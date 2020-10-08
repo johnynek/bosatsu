@@ -16,11 +16,8 @@ class JsonTest extends FunSuite {
   implicit val generatorDrivenConfig =
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
-  def assertParser(str: String): Json =
-    Parser.unsafeParse(Json.parser, str)
-
   def law(j: Json) =
-    assert(assertParser(j.render) == j)
+    assert(Parser.unsafeParse(Json.parser, j.render) == j)
 
   val withType: Gen[(TypeEnv[Unit], Type)] =
     Generators
@@ -40,6 +37,11 @@ class JsonTest extends FunSuite {
       optTE = if (none) None else Some(te)
     } yield (optTE, tpe)
 
+
+  test("test some example escapes") {
+    assert(Parser.unsafeParse(JsonStringUtil.escapedToken.string, "\\u0000") == "\\u0000")
+    assert(Parser.unsafeParse(JsonStringUtil.escapedString('\''), "'\\u0000'") == 0.toChar.toString)
+  }
 
   test("we can parse all the json we generate") {
     forAll { j: Json => law(j) }

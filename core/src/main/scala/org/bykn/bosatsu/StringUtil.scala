@@ -14,17 +14,21 @@ abstract class GenericStringUtil {
       s"\\u$strPad$strHex"
    }.toArray
 
-  private val escapeString: P1[Unit] = {
+  val escapedToken: P1[Unit] = {
     val escapes = P.charIn(decodeTable.keys.toSeq)
-    val oct = P.charIn('0' until '8')
-    val hex = P.charIn(('0' to '9') ++ ('a' to 'f') ++ ('A' to 'F'))
+
+    val oct = P.charIn('0' to '7')
     val octP = P.char('o') ~ oct ~ oct
+
+    val hex = P.charIn(('0' to '9') ++ ('a' to 'f') ++ ('A' to 'F'))
     val hex2 = hex ~ hex
     val hexP = P.char('x') ~ hex2
+
     val hex4 = hex2 ~ hex2
     val u4 = P.char('u') ~ hex4
     val hex8 = hex4 ~ hex4
     val u8 = P.char('U') ~ hex8
+
     val after = P.oneOf1[Any](escapes :: octP :: hexP :: u4 :: u8 :: Nil)
     (P.char('\\') ~ after).void
   }
@@ -33,7 +37,7 @@ abstract class GenericStringUtil {
    * String content without the delimiter
    */
   def undelimitedString1(endP: P1[Unit]): P1[String] = {
-    escapeString.orElse1((!endP).with1 ~ P.anyChar)
+    escapedToken.orElse1((!endP).with1 ~ P.anyChar)
       .rep1
       .string
       .flatMap { str =>
@@ -46,7 +50,7 @@ abstract class GenericStringUtil {
 
   def escapedString(q: Char): P1[String] = {
     val end: P1[Unit] = P.char(q)
-    (end ~ undelimitedString1(end).? ~ end).string
+    end *> undelimitedString1(end).orElse(P.pure("")) <* end
   }
 
   def interpolatedString[A](quoteChar: Char, istart: P1[Unit], interp: P[A], iend: P1[Unit]): P1[List[Either[A, (Region, String)]]] = {

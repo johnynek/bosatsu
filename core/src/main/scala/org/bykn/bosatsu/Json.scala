@@ -161,23 +161,19 @@ object Json {
     val num = Parser.JsonNumber.parser.map(JNumberStr(_))
 
     val listSep: P1[Unit] =
-      (whitespaces0.with1 ~ P.char(',') ~ whitespaces0).void
+      ((whitespaces0.with1 ~ P.char(',')).backtrack ~ whitespaces0).void
 
     def rep[A](pa: P1[A]): P[List[A]] =
-      (whitespaces0, (pa ~ (listSep *> pa).rep).?, whitespaces0)
-        .mapN {
-          case (_, None, _) => Nil
-          case (_, Some((h, t)), _) => h :: t
-        }
+      (whitespaces0 *> P.repSep(pa, min = 0, sep = listSep) <* whitespaces0)
 
-    val list = (P.char('[') *> (rep(recurse).with1 <* P.char(']')))
+    val list = (P.char('[') *> rep(recurse) <* P.char(']'))
       .map { vs => JArray(vs.toVector) }
 
     val kv: P1[(String, Json)] =
       justStr ~ ((whitespaces0.with1 ~ P.char(':') ~ whitespaces0) *> recurse)
 
-    val obj = (P.char('{') ~ (rep(kv) <* P.char('}')))
-      .map { case (_, vs) => JObject(vs.toList) }
+    val obj = (P.char('{') *> rep(kv) <* P.char('}'))
+      .map { vs => JObject(vs.toList) }
 
     P.oneOf1(pnull :: bool :: str :: num :: list :: obj :: Nil)
   }
