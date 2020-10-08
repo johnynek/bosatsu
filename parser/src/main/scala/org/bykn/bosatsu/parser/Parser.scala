@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.parser
 
 import cats.{Eval, Monad, Defer, Alternative, FlatMap, Now, MonoidK, Order}
-import cats.data.NonEmptyList
+import cats.data.{Chain, NonEmptyList}
 
 import cats.implicits._
 
@@ -23,7 +23,7 @@ sealed abstract class Parser[+A] {
     val err = state.error
     val offset = state.offset
     if (err eq null) Right((str.substring(offset), result))
-    else Left(Parser.Error(offset, Parser.Expectation.unify(err)))
+    else Left(Parser.Error(offset, Parser.Expectation.unify(NonEmptyList.fromListUnsafe(err.toList))))
   }
 
   def ? : Parser[Option[A]] =
@@ -160,7 +160,6 @@ sealed abstract class Parser1[+A] extends Parser[A] {
 object Parser extends ParserInstances {
   sealed abstract class Expectation {
     def offset: Int
-    def toNEL: NonEmptyList[Expectation] = NonEmptyList(this, Nil)
   }
 
   object Expectation {
@@ -172,7 +171,7 @@ object Parser extends ParserInstances {
     case class Length(offset: Int, expected: Int, actual: Int) extends Expectation
     case class ExpectedFailureAt(offset: Int, matched: String) extends Expectation
     // this is the result of oneOf(Nil) at a given location
-    case class EmptyOneOf(offset: Int) extends Expectation
+    case class Fail(offset: Int) extends Expectation
 
     implicit val catsOrderExpectation: Order[Expectation] =
       new Order[Expectation] {
@@ -203,11 +202,11 @@ object Parser extends ParserInstances {
                 if (c1 == 0) Integer.compare(a1, a2)
                 else c1
               case (Length(_, _, _), _) => -1
-              case (ExpectedFailureAt(_, _), EmptyOneOf(_)) => -1
+              case (ExpectedFailureAt(_, _), Fail(_)) => -1
               case (ExpectedFailureAt(_, m1), ExpectedFailureAt(_, m2)) =>
                 m1.compare(m2)
               case (ExpectedFailureAt(_, _), _) => 1
-              case (EmptyOneOf(_), _) => 1
+              case (Fail(_), _) => 1
             }
           }
         }
@@ -218,45 +217,31 @@ object Parser extends ParserInstances {
      * This is called just before finally returning an error in Parser.parse
      */
     def unify(errors: NonEmptyList[Expectation]): NonEmptyList[Expectation] = {
-      val nonFails =
+      // merge all the ranges:
+      val rangeMerge: List[InRange] =
         errors
           .toList
-          .distinct
-          .filter {
-            case EmptyOneOf(_) => false
-            case _ => true
+          .collect { case InRange(o, l, u) => (o, l to u) }
+          .groupBy(_._1)
+          .iterator
+          .flatMap { case (o, ranges) =>
+            // TODO: this could be optimized to not enumerate the set
+            // for instance, a cheap thing to do is see if they
+            // overlap or not
+            val ary = ranges.iterator.map(_._2).flatten.toArray
+            java.util.Arrays.sort(ary)
+            Impl.rangesFor(ary)
+              .map { case (l, u) => InRange(o, l, u) }
+              .toList
           }
+          .toList
 
-      if (nonFails.isEmpty) {
-        // there are only EmptyOneOf
-        // take the maximum one
-        NonEmptyList(errors.maximum, Nil)
-      }
+      if (rangeMerge.isEmpty) errors.distinct.sorted
       else {
-        // merge all the ranges:
-        val rangeMerge: List[InRange] =
-          nonFails
-            .collect { case InRange(o, l, u) => (o, l to u) }
-            .groupBy(_._1)
-            .iterator
-            .flatMap { case (o, ranges) =>
-              // TODO: this could be optimized to not enumerate the set
-              // for instance, a cheap thing to do is see if they
-              // overlap or not
-              val ary = ranges.iterator.map(_._2).flatten.toArray
-              java.util.Arrays.sort(ary)
-              Impl.rangesFor(ary)
-                .map { case (l, u) => InRange(o, l, u) }
-                .toList
-            }
-            .toList
-
-        val nonFailsRanges =
-          if (rangeMerge.isEmpty) nonFails
-          else nonFails.filterNot(_.isInstanceOf[InRange])
+        val nonRanges = errors.toList.filterNot(_.isInstanceOf[InRange])
 
         NonEmptyList.fromListUnsafe(
-          rangeMerge ::: nonFailsRanges
+          (rangeMerge reverse_::: nonRanges).distinct
         )
         .sorted
       }
@@ -306,13 +291,17 @@ object Parser extends ParserInstances {
         case Nil => acc.reverse.distinct
         case Impl.OneOf1(ps) :: rest =>
           flatten(ps ::: rest, acc)
+        case Impl.Fail() :: rest =>
+          flatten(rest, acc)
         case notOneOf :: rest =>
           flatten(rest, notOneOf :: acc)
       }
 
-    flatten(parsers, Nil) match {
-      case h :: Nil => h
-      case nel => Impl.OneOf1(Impl.mergeCharIn[A, Parser1[A]](nel))
+    val flat = flatten(parsers, Nil)
+    Impl.mergeCharIn[A, Parser1[A]](flat) match {
+      case Nil => fail
+      case p :: Nil => p
+      case two => Impl.OneOf1(two)
     }
   }
 
@@ -325,13 +314,17 @@ object Parser extends ParserInstances {
           flatten(ps ::: rest, acc)
         case Impl.OneOf1(ps) :: rest =>
           flatten(ps ::: rest, acc)
+        case Impl.Fail() :: rest =>
+          flatten(rest, acc)
         case notOneOf :: rest =>
           flatten(rest, notOneOf :: acc)
       }
 
-    flatten(ps, Nil) match {
-      case h :: Nil => h
-      case nel => Impl.OneOf(Impl.mergeCharIn[A, Parser[A]](nel))
+    val flat = flatten(ps, Nil)
+    Impl.mergeCharIn[A, Parser[A]](flat) match {
+      case Nil => fail
+      case p :: Nil => p
+      case two => Impl.OneOf(two)
     }
   }
 
@@ -398,8 +391,7 @@ object Parser extends ParserInstances {
   def defer[A](pa: => Parser[A]): Parser[A] =
     Impl.Defer(() => pa)
 
-  val Fail: Parser1[Nothing] = oneOf1(Nil)
-
+  val Fail: Parser1[Nothing] = Impl.Fail()
   def fail[A]: Parser1[A] = Fail
 
   def charIn(c0: Char, cs: Char*): Parser1[Char] =
@@ -630,7 +622,7 @@ object Parser extends ParserInstances {
         case Defer1(fn) =>
           Defer1(() => unmap1(compute1(fn)))
         case Rep1(p, m) => Rep1(unmap1(p), m)
-        case AnyChar | CharIn(_, _, _) | Expect(_) | Length(_) | TailRecM1(_, _) | FlatMap1(_, _) =>
+        case AnyChar | CharIn(_, _, _) | Expect(_) | Fail() | Length(_) | TailRecM1(_, _) | FlatMap1(_, _) =>
           // we can't transform this significantly
           pa
 
@@ -638,7 +630,7 @@ object Parser extends ParserInstances {
 
     final class State(val str: String) {
       var offset: Int = 0
-      var error: NonEmptyList[Expectation] = null
+      var error: Chain[Expectation] = null
       var capture: Boolean = true
     }
 
@@ -658,7 +650,7 @@ object Parser extends ParserInstances {
           res
         }
         else {
-          state.error = Expectation.Length(offset, len, state.str.length - offset).toNEL
+          state.error = Chain.one(Expectation.Length(offset, len, state.str.length - offset))
           null
         }
       }
@@ -705,7 +697,7 @@ object Parser extends ParserInstances {
     case object StartParser extends Parser[Unit] {
       override def parseMut(state: State): Unit = {
         if (state.offset != 0) {
-          state.error = Expectation.StartOfString(state.offset).toNEL
+          state.error = Chain.one(Expectation.StartOfString(state.offset))
         }
         ()
       }
@@ -714,7 +706,7 @@ object Parser extends ParserInstances {
     case object EndParser extends Parser[Unit] {
       override def parseMut(state: State): Unit = {
         if (state.offset != state.str.length) {
-          state.error = Expectation.EndOfString(state.offset, state.str.length).toNEL
+          state.error = Chain.one(Expectation.EndOfString(state.offset, state.str.length))
         }
         ()
       }
@@ -753,16 +745,23 @@ object Parser extends ParserInstances {
           ()
         }
         else {
-          state.error = Expectation.Str(offset, message).toNEL
+          state.error = Chain.one(Expectation.Str(offset, message))
           ()
         }
+      }
+    }
+
+    case class Fail[A]() extends Parser1[A] {
+      override def parseMut(state: State): A = {
+        state.error = Chain.one(Expectation.Fail(state.offset));
+        null.asInstanceOf[A]
       }
     }
 
     final def oneOf[A](all: List[Parser[A]], state: State): A = {
       var ps = all
       val offset = state.offset
-      var errs: List[Expectation] = Nil
+      var errs: Chain[Expectation] = Chain.nil
       while (ps.nonEmpty) {
         val thisParser = ps.head
         ps = ps.tail
@@ -776,25 +775,23 @@ object Parser extends ParserInstances {
           // we failed to parse, but didn't consume input
           // is unchanged we continue
           // else we stop
-          errs = state.error.toList reverse_::: errs
+          errs = errs ++ state.error
           state.error = null
         }
       }
       // if we got here, all of them failed, but we
       // never advanced the offset
-      state.error =
-        NonEmptyList.fromList(errs.reverse) match {
-          case None => Expectation.EmptyOneOf(offset).toNEL
-          case Some(errsNEL) => errsNEL
-        }
+      state.error = errs
       null.asInstanceOf[A]
     }
 
     case class OneOf1[A](all: List[Parser1[A]]) extends Parser1[A] {
+      require(all.lengthCompare(2) >= 0, s"expected more than two items, found: ${all.size}")
       override def parseMut(state: State): A = oneOf(all, state)
     }
 
     case class OneOf[A](all: List[Parser[A]]) extends Parser[A] {
+      require(all.lengthCompare(2) >= 0, s"expected more than two items, found: ${all.size}")
       override def parseMut(state: State): A = oneOf(all, state)
     }
 
@@ -1041,7 +1038,7 @@ object Parser extends ParserInstances {
           char
         }
         else {
-          state.error = Expectation.InRange(offset, Char.MinValue, Char.MaxValue).toNEL
+          state.error = Chain.one(Expectation.InRange(offset, Char.MinValue, Char.MaxValue))
           '\u0000'
         }
       }
@@ -1051,8 +1048,8 @@ object Parser extends ParserInstances {
 
       override def toString = s"CharIn($min, bitSet = ..., $ranges)"
 
-      def makeError(offset: Int): NonEmptyList[Expectation] =
-        ranges.map { case (s, e) => Expectation.InRange(offset, s, e) }
+      def makeError(offset: Int): Chain[Expectation] =
+        Chain.fromSeq(ranges.toList.map { case (s, e) => Expectation.InRange(offset, s, e) })
 
       override def parseMut(state: State): Char = {
         val offset = state.offset
@@ -1094,7 +1091,7 @@ object Parser extends ParserInstances {
           val matchedStr = state.str.substring(offset, state.offset)
           // we don't reset the offset, so if the underlying parser
           // advanced it will fail in a OneOf
-          state.error = Expectation.ExpectedFailureAt(offset, matchedStr).toNEL
+          state.error = Chain.one(Expectation.ExpectedFailureAt(offset, matchedStr))
         }
 
         ()
