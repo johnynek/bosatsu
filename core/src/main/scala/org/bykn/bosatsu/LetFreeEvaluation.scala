@@ -64,9 +64,7 @@ object LetFreeEvaluation {
           )
         )
     }
-
-    def toKey: String = toJson.render.hashCode.toString
-
+    
     lazy val toStructNat = nvToStructImpl(this, rankn.DataFamily.Nat)
     lazy val toStructEnum = nvToStructImpl(this, rankn.DataFamily.Enum)
     lazy val toStructStruct = nvToStructImpl(this, rankn.DataFamily.Struct)
@@ -152,9 +150,11 @@ object LetFreeEvaluation {
           case mtch @ LetFreeExpression.Match(_, _) =>
             simplifyMatch(mtch, scope).toStruct(df)
           case other =>
+            // $COVERAGE-ON$ this should be unreachable
             sys.error(
               s"Type checking should mean this isn't a lambda or a literal: $other"
             )
+            // $COVERAGE-OFF$
         }
     }
   }
@@ -167,7 +167,10 @@ object LetFreeEvaluation {
       nv.toStruct(rankn.DataFamily.Enum).get match {
         case (0, _)          => acc
         case (1, List(h, t)) => loop(t, h :: acc)
-        case _               => sys.error("boom")
+        case _               =>
+          // $COVERAGE-ON$ this should be unreachable
+          sys.error("Type checking should only allow this to be applied to a list struct")
+          // $COVERAGE-OFF$
       }
     }
     Some(loop(normalValue, Nil).reverse)
@@ -241,7 +244,7 @@ object LetFreeEvaluation {
         case _               => Right(f)
       }
     case other =>
-      // $COVERAGE-OFF$this should be unreachable
+      // $COVERAGE-OFF$ this should be unreachable
       sys.error(s"invalid cast to Fn: $other")
     // $COVERAGE-ON$
 
@@ -388,7 +391,9 @@ object LetFreeEvaluation {
           }) :: scope
           evalToValue(expr, nextScope)
         }
+        // $COVERAGE-OFF$ unreachable due to a Recursion should always contain a Lambda
         case _ => sys.error("A Recursion should always contain a Lambda")
+        // $COVERAGE-ON$
       }
     }
   }
@@ -466,13 +471,6 @@ case class LetFreeEvaluation(
         }
     }.toMap
 
-  val valueToJson: ValueToJson = ValueToJson({
-    case Type.Const.Defined(pn, t) =>
-      for {
-        pack <- packs.toMap.get(pn)
-        dt <- pack.program.types.getType(pn, t)
-      } yield dt
-  })
   type Cache = Option[CMap[String, (Future[Value], Type)]]
   type ToLFV = Option[LetFreeEvaluation.LetFreeValue => Future[Value]]
 
