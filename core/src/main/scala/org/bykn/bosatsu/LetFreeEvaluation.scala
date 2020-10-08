@@ -150,11 +150,11 @@ object LetFreeEvaluation {
           case mtch @ LetFreeExpression.Match(_, _) =>
             simplifyMatch(mtch, scope).toStruct(df)
           case other =>
-            // $COVERAGE-ON$ this should be unreachable
+            // $COVERAGE-OFF$ this should be unreachable
             sys.error(
               s"Type checking should mean this isn't a lambda or a literal: $other"
             )
-            // $COVERAGE-OFF$
+            // $COVERAGE-ON$
         }
     }
   }
@@ -168,9 +168,9 @@ object LetFreeEvaluation {
         case (0, _)          => acc
         case (1, List(h, t)) => loop(t, h :: acc)
         case _               =>
-          // $COVERAGE-ON$ this should be unreachable
+          // $COVERAGE-OFF$ this should be unreachable
           sys.error("Type checking should only allow this to be applied to a list struct")
-          // $COVERAGE-OFF$
+          // $COVERAGE-ON$
       }
     }
     Some(loop(normalValue, Nil).reverse)
