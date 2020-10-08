@@ -564,7 +564,7 @@ object Declaration {
     def parser(indent: String, declP: P1[NonBinding]): P1[RecordArg] = {
       val pairFn: P1[Bindable => Pair] = {
         val ws = Parser.maybeIndentedOrSpace(indent)
-        (ws.with1 *> P.char(':') *> ws *> declP)
+        ((ws.with1 *> P.char(':')).backtrack *> ws *> declP)
           .map { decl => Pair(_, decl) }
       }
 
@@ -894,7 +894,7 @@ object Declaration {
     val kvs = kv.nonEmptyListOfWs(ws)
 
     // here is the record style: Foo {x: 1, ...
-    val recArgs = maybeSpace.with1 *> kvs.bracketed(P.char('{') ~ ws, ws ~ P.char('}'))
+    val recArgs = kvs.bracketed((maybeSpace.with1 ~ P.char('{')).backtrack ~ ws, ws ~ P.char('}'))
 
     // here is tuple style: Foo(a, b)
     val tupArgs = declP
@@ -934,7 +934,7 @@ object Declaration {
       .region
       .map { case (r, l) => DictDecl(l)(r) }
 
-  private val lits = Lit.integerParser.region.map { case (r, l) => Literal(l)(r) }
+  val lits: P1[Literal] = Lit.integerParser.region.map { case (r, l) => Literal(l)(r) }
 
   private sealed abstract class ParseMode
   private object ParseMode {

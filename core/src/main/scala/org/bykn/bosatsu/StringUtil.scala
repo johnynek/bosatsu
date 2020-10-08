@@ -36,8 +36,8 @@ abstract class GenericStringUtil {
   /**
    * String content without the delimiter
    */
-  def undelimitedString1(endP: P1[Unit]): P1[String] = {
-    escapedToken.orElse1((!endP).with1 ~ P.anyChar)
+  def undelimitedString1(endP: P1[Unit]): P1[String] =
+    escapedToken.backtrack.orElse1((!endP).with1 ~ P.anyChar)
       .rep1
       .string
       .flatMap { str =>
@@ -46,7 +46,6 @@ abstract class GenericStringUtil {
           case Left(_) => P.fail
         }
       }
-  }
 
   def escapedString(q: Char): P1[String] = {
     val end: P1[Unit] = P.char(q)

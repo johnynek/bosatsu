@@ -281,10 +281,9 @@ object Parser {
         }
 
     def nonEmptyListOfWsSep(ws: P[Unit], sep: P[Unit], allowTrailing: Boolean): P1[NonEmptyList[T]] = {
-      val wsSep = (ws ~ sep ~ ws).void
-      val rest = (wsSep.with1 *> item).rep1
+      val wsSep = ((ws ~ sep).backtrack ~ ws).void
       val trail =
-        if (allowTrailing) (ws ~ sep).?.void
+        if (allowTrailing) (ws ~ sep).backtrack.?.void
         else P.unit
 
       P.rep1Sep(item, min = 1, sep = wsSep) <* trail
@@ -333,20 +332,20 @@ object Parser {
      */
     def tupleOrParens: P1[Either[T, List[T]]] = {
       val ws = maybeSpacesAndLines
-      val sep = (ws.with1 ~ P.char(',') ~ ws).void
-      val twoAndMore = (sep *> item).rep
+      val sep = ((ws.with1 ~ P.char(',')).backtrack ~ ws).void
+      val twoAndMore = P.repSep(item, min = 0, sep = sep)
       val trailing = sep.?.map(_.isDefined)
 
-      val either = (item ~ twoAndMore ~ trailing).?
+      val either = (item ~ (sep *> twoAndMore <* trailing).?).?
         .map {
           case None => Right(Nil)
-          case Some(((h, Nil), false)) =>
+          case Some((a, None)) =>
             // 1 item, no trailing comment, that's a parens
-            Left(h)
-          case Some(((h, items), _)) =>
+            Left(a)
+          case Some((a, Some(items))) =>
             // either more than one item or a single item with
             // a trailing comma
-            Right(h :: items)
+            Right(a :: items)
         }
 
 

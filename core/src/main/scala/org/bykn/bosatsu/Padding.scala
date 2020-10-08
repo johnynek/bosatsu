@@ -24,14 +24,14 @@ object Padding {
    * This allows an empty padding
    */
   def parser[T](p: P1[T]): P1[Padding[T]] =
-    ((maybeSpace.with1 ~ Parser.newline).void.rep.with1 ~ p)
+    ((maybeSpace.with1 ~ Parser.newline).backtrack.void.rep.with1 ~ p)
       .map { case (vec, t) => Padding(vec.size, t) }
 
   /**
    * Parses a padding of length 1 or more, then p
    */
   def parser1[T](p: P[T]): P1[Padding[T]] =
-    ((maybeSpace.with1 ~ Parser.newline).void.rep1 ~ p)
+    ((maybeSpace.with1 ~ Parser.newline).backtrack.void.rep1 ~ p)
       .map { case (vec, t) => Padding(vec.size, t) }
 
   /**
