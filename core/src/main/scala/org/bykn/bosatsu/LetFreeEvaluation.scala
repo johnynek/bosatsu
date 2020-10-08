@@ -64,7 +64,7 @@ object LetFreeEvaluation {
           )
         )
     }
-    
+
     lazy val toStructNat = nvToStructImpl(this, rankn.DataFamily.Nat)
     lazy val toStructEnum = nvToStructImpl(this, rankn.DataFamily.Enum)
     lazy val toStructStruct = nvToStructImpl(this, rankn.DataFamily.Struct)
@@ -470,6 +470,14 @@ case class LetFreeEvaluation(
           exts.get(in.originalName).map { value => (in.localName, value) }
         }
     }.toMap
+
+  val valueToJson: ValueToJson = ValueToJson({
+    case Type.Const.Defined(pn, t) =>
+      for {
+        pack <- packs.toMap.get(pn)
+        dt <- pack.program.types.getType(pn, t)
+      } yield dt
+  })
 
   type Cache = Option[CMap[String, (Future[Value], Type)]]
   type ToLFV = Option[LetFreeEvaluation.LetFreeValue => Future[Value]]
