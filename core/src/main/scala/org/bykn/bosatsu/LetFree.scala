@@ -246,17 +246,11 @@ object LetFreeConversion {
     lst.foldRight(LetFreeExpression.Struct(0, Nil, DataFamily.Enum)) { case (lfe, acc) => LetFreeExpression.Struct(1, List(lfe, acc), DataFamily.Enum) }
 
   case class LitValue(toAny: Any) {
-    def equivToLit(lit: Lit) = lit match {
-      case Lit.Integer(i) => i == toAny
-      case Lit.Str(s) => s == toAny
-    }
+    def equivToLit(lit: Lit) = toAny == lit.unboxToAny
   }
 
   object LitValue {
-    def fromLit(lit: Lit) = lit match {
-      case Lit.Integer(i) => LitValue(i)
-      case Lit.Str(s) => LitValue(s)
-    }
+    def fromLit(lit: Lit) = LitValue(lit.unboxToAny)
   }
 
   val neToLitValue: LetFreeExpression => Option[LitValue] = {
