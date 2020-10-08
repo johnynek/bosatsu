@@ -181,7 +181,7 @@ object TestUtils {
 
   object NormalTestMode {
     case class TagMode(expected: LetFreeConversion.LetFreeExpressionTag) extends NormalTestMode[LetFreeConversion.LetFreeExpressionTag]
-    case class ExpressionMode(expected: LetFreeExpression) extends NormalTestMode[LetFreeExpression]
+    case class ExpressionMode(expected: LetFreeExpression, extraAssertions: List[LetFreeExpression => Assertion]) extends NormalTestMode[LetFreeExpression]
     case class VarSetMode(lambdaCount: Int, vars: Set[Int]) extends NormalTestMode[LetFreeExpression]
   }
 
@@ -215,8 +215,9 @@ object TestUtils {
             assert(ne == expected.lfe, s"ne error. expected '${expected.lfe}' got '$ne'" )
             assert(children == expected.children, s"children error. expected '${expected.children}' got '$children'" )
             succeed
-          case NormalTestMode.ExpressionMode(expected) =>
+          case NormalTestMode.ExpressionMode(expected, extraAssertions) =>
             assert(ne == expected, s"ne error. expected '${expected}' got '$ne'" )
+            extraAssertions.foreach(_.apply(ne))
             succeed
           case NormalTestMode.VarSetMode(lambdaCount, vars) =>
             unwrapLambda(ne, lambdaCount) match {
@@ -237,8 +238,8 @@ object TestUtils {
 
   def normalTagTest(packages: List[String], mainPackS: String, expected: LetFreeConversion.LetFreeExpressionTag) =
     normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected))
-  def normalExpressionTest(packages: List[String], mainPackS: String, expected: LetFreeExpression) =
-    normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected))
+  def normalExpressionTest(packages: List[String], mainPackS: String, expected: LetFreeExpression, extraAssertions: List[LetFreeExpression => Assertion] = Nil) =
+    normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected, extraAssertions))
   def letFreeVarSetTest(packages: List[String], mainPackS: String, lambdaCount: Int, vars: Set[Int]) =
     normalizeTest(packages, mainPackS, NormalTestMode.VarSetMode(lambdaCount, vars)
     )
