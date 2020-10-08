@@ -10,7 +10,6 @@ import org.bykn.bosatsu.pattern.{SetOps, SetOpsLaws}
 import rankn._
 
 import Parser.Combinators
-import org.bykn.bosatsu.parser.{Parser => P}
 
 import org.typelevel.paiges.Document
 
@@ -19,8 +18,6 @@ import Identifier.Constructor
 import cats.implicits._
 
 class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
-  import TestParseUtils._
-
   type Pat = Pattern[(PackageName, Constructor), Type]
 
   implicit val generatorDrivenConfig =
@@ -125,13 +122,8 @@ enum Bool: False, True
         }
       }
 
-    Pattern.matchParser.listSyntax.parse(str) match {
-      case Parsed.Success(pats, idx) =>
-        pats.map(parsedToExpr _)
-      case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
-        sys.error("could not produce TypeEnv")
-    }
+    Parser.unsafeParse(Pattern.matchParser.listSyntax, str)
+      .map(parsedToExpr _)
   }
 
   def notTotal(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], testMissing: Boolean = true): Unit = {

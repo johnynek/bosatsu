@@ -17,16 +17,10 @@ class JsonTest extends FunSuite {
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
   def assertParser(str: String): Json =
-    Json.parser.parse(str) match {
-      case fastparse.all.Parsed.Success(j1, len) if len == str.length => j1
-      case other =>
-        fail(s"failed to parse:\n\n$str\n\nerror: $other")
-        Json.JNull
-    }
+    Parser.unsafeParse(Json.parser, str)
 
-  def law(j: Json) = {
+  def law(j: Json) =
     assert(assertParser(j.render) == j)
-  }
 
   val withType: Gen[(TypeEnv[Unit], Type)] =
     Generators
@@ -55,12 +49,8 @@ class JsonTest extends FunSuite {
     forAll(genJsonNumber)(law(_))
 
     forAll(genJsonNumber) { num =>
-      Parser.JsonNumber.partsParser.parse(num.asString) match {
-        case fastparse.all.Parsed.Success(parts, _) =>
-          assert(parts.asString == num.asString)
-        case other =>
-          fail(s"failed to parse:\n\n${num.asString}\n\nerror: $other")
-      }
+      val parts = Parser.unsafeParse(Parser.JsonNumber.partsParser, num.asString)
+      assert(parts.asString == num.asString)
     }
 
     val regressions = List(
@@ -165,10 +155,7 @@ enum MyNat: Z, S(prev: MyNat)
     val jsonConv = ValueToJson(te.toDefinedType(_))
 
     def stringToType(t: String): Type = {
-      val tr = TypeRef.parser.parse(t) match {
-        case fastparse.all.Parsed.Success(tr, l) if l == t.length => tr
-        case other => sys.error(s"could not parse: $t, $other")
-      }
+      val tr = Parser.unsafeParse(TypeRef.parser, t)
 
       TypeRefConverter[cats.Id](tr) { cons =>
         te.referencedPackages.toList.flatMap { pack =>
@@ -181,10 +168,7 @@ enum MyNat: Z, S(prev: MyNat)
     }
 
     def stringToJson(s: String): Json =
-      Json.parser.parse(s) match {
-        case fastparse.all.Parsed.Success(j, l) if l == s.length => j
-        case other => sys.error(s"could not parse: $s, $other")
-      }
+      Parser.unsafeParse(Json.parser, s)
 
     def law(tpe: String, json: String) = {
       val t = stringToType(tpe)

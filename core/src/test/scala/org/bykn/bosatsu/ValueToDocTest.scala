@@ -47,10 +47,7 @@ enum MyNat: Z, S(prev: MyNat)
     val conv = ValueToDoc(te.toDefinedType(_))
 
     def stringToType(t: String): Type = {
-      val tr = TypeRef.parser.parse(t) match {
-        case fastparse.all.Parsed.Success(tr, l) if l == t.length => tr
-        case other => sys.error(s"could not parse: $t, $other")
-      }
+      val tr = Parser.unsafeParse(TypeRef.parser, t)
 
       TypeRefConverter[cats.Id](tr) { cons =>
         te.referencedPackages.toList.flatMap { pack =>

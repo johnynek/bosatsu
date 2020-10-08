@@ -3,7 +3,6 @@ package org.bykn.bosatsu
 import cats.Eval
 import cats.data.{Ior, Validated}
 import cats.implicits._
-import org.bykn.bosatsu.parser.{Parser => P}
 import org.bykn.bosatsu.rankn._
 import org.scalatest.{Assertion, Assertions}
 import scala.concurrent.ExecutionContext
@@ -12,7 +11,6 @@ import Assertions.{succeed, fail}
 import IorMethods.IorExtension
 
 object TestUtils {
-  import TestParseUtils.region
 
   def typeEnvOf(pack: PackageName, str: String): TypeEnv[Unit] = {
 
@@ -29,13 +27,7 @@ object TestUtils {
   }
 
   def statementsOf(pack: PackageName, str: String): List[Statement] =
-    Statement.parser.parse(str) match {
-      case Parsed.Success(stmt, idx) =>
-        assert(idx == str.length)
-        stmt
-      case Parsed.Failure(exp, idx, extra) =>
-        sys.error(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
-    }
+    Parser.unsafeParse(Statement.parser, str)
 
   /**
    * Make sure no illegal final types escaped into a TypedExpr
@@ -66,20 +58,17 @@ object TestUtils {
 
   val testPackage: PackageName = PackageName.parts("Test")
 
-  def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion =
-    Statement.parser.parse(statement) match {
-      case Parsed.Success(stmts, _) =>
-        Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
-          case Validated.Invalid(errs) =>
-            fail("inference failure: " + errs.toList.map(_.message(Map.empty, LocationMap.Colorize.None)).mkString("\n"))
-          case Validated.Valid(program) =>
-            // make sure all the TypedExpr are valid
-            program.lets.foreach { case (_, _, te) => assertValid(te) }
-            fn(program.lets.last._3)
-        }
-      case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
+  def checkLast(statement: String)(fn: TypedExpr[Declaration] => Assertion): Assertion = {
+    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
+      case Validated.Invalid(errs) =>
+        fail("inference failure: " + errs.toList.map(_.message(Map.empty, LocationMap.Colorize.None)).mkString("\n"))
+      case Validated.Valid(program) =>
+        // make sure all the TypedExpr are valid
+        program.lets.foreach { case (_, _, te) => assertValid(te) }
+        fn(program.lets.last._3)
     }
+  }
 
   def makeInputArgs(files: List[(Int, Any)]): List[String] =
     ("--package_root" :: Int.MaxValue.toString :: Nil) ::: files.flatMap { case (idx, _) => "--input" :: idx.toString :: Nil }

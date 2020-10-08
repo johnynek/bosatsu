@@ -8,7 +8,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import org.typelevel.paiges.{Doc, Document}
 
 import cats.implicits._
-import org.bykn.bosatsu.parser.{Parser => P}
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import Parser.{optionParse, unsafeParse, Indy}
 
 import Generators.{shrinkDecl, shrinkStmt}
@@ -41,57 +41,67 @@ abstract class ParserTestBase extends FunSuite with ParseFns {
   // This is so we can make Declarations without the region
   protected implicit val emptyRegion: Region = Region(0, 0)
 
-  def parseTest[T](p: Parser[T], str: String, expected: T, exidx: Int) =
+  def parseTest[T](p: P[T], str: String, expected: T, exidx: Int) =
     p.parse(str) match {
-      case Parsed.Success(t, idx) =>
+      case Right((rest, t)) =>
+        val idx = if (rest == "") str.length else str.indexOf(rest)
         lazy val message = firstDiff(t.toString, expected.toString)
         assert(t == expected, s"difference: $message, input syntax:\n\n\n$str\n\n")
         assert(idx == exidx)
-      case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        fail(s"failed to parse: $str: at $idx in region ${region(str, idx)} with err: ${err}")
     }
 
-  def parseTestAll[T](p: Parser[T], str: String, expected: T) =
+  def parseTestAll[T](p: P[T], str: String, expected: T) =
     parseTest(p, str, expected, str.length)
 
-  def roundTrip[T: Document](p: Parser[T], str: String, lax: Boolean = false) =
+  def roundTrip[T: Document](p: P[T], str: String, lax: Boolean = false) =
     p.parse(str) match {
-      case Parsed.Success(t, idx) =>
+      case Right((rest, t)) =>
+        val idx = if (rest == "") str.length else str.indexOf(rest)
         if (!lax) {
           assert(idx == str.length, s"parsed: $t from: $str")
         }
         val tstr = Document[T].document(t).render(80)
         p.parse(tstr) match {
-          case Parsed.Success(t1, _) =>
+          case Right((_, t1)) =>
             assert(t1 == t)
-          case Parsed.Failure(exp, idx, extra) =>
+          case Left(err) =>
+            val idx = err.failedAtOffset
             val diff = firstDiff(str, tstr)
-            fail(s"Diff: $diff.\nfailed to reparse: $tstr: $exp at $idx in region ${region(tstr, idx)} with trace: ${extra.traced.trace}")
+            fail(s"Diff: $diff.\nfailed to reparse: $tstr: $idx in region ${region(tstr, idx)} with err: ${err}")
         }
-      case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        fail(s"failed to parse: $str: $idx in region ${region(str, idx)} with err: ${err}")
     }
 
-  def roundTripExact[T: Document](p: Parser[T], str: String) =
+  def roundTripExact[T: Document](p: P[T], str: String) =
     p.parse(str) match {
-      case Parsed.Success(t, idx) =>
+      case Right((rest, t)) =>
+        val idx = if (rest == "") str.length else str.indexOf(rest)
         assert(idx == str.length, s"parsed: $t from: $str")
         val tstr = Document[T].document(t).render(80)
         assert(tstr == str)
-      case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}")
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        fail(s"failed to parse: $str: $idx in region ${region(str, idx)} with err: ${err}")
     }
 
-  def law[T: Document](p: Parser[T])(t: T) = {
+  def law[T: Document](p: P[T])(t: T) = {
     val syntax = Document[T].document(t).render(80)
     parseTestAll(p, syntax, t)
   }
 
-  def expectFail[T](p: Parser[T], str: String, atIdx: Int) =
+  def expectFail[T](p: P[T], str: String, atIdx: Int) =
     p.parse(str) match {
-      case Parsed.Success(t, idx) => fail(s"parsed $t to: $idx: ${region(str, idx)}")
-      case Parsed.Failure(exp, idx, extra) =>
-        def msg = s"failed to parse: $str: $exp at $idx in region ${region(str, idx)} with trace: ${extra.traced.trace}"
+      case Right((rest, t)) =>
+        val idx = if (rest == "") str.length else str.indexOf(rest)
+        fail(s"parsed $t to: $idx: ${region(str, idx)}")
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        def msg = s"failed to parse: $str: at $idx in region ${region(str, idx)} with err: ${err}"
         assert(idx == atIdx, msg)
     }
 
@@ -199,7 +209,7 @@ class ParserTest extends ParserTestBase {
     def singleq(str1: String, res: List[Either[Json, String]]) =
       parseTestAll(
         StringUtil
-          .interpolatedString('\'', P("${"), Json.parser, P("}"))
+          .interpolatedString('\'', P.string1("${"), Json.parser, P.char('}'))
           .map(_.map {
             case Right((_, str)) => Right(str)
             case Left(l) => Left(l)
@@ -245,7 +255,13 @@ class ParserTest extends ParserTestBase {
         case ',' => "," + (" " * spaceCount)
         case c => c.toString
       }
-      parseTestAll(Parser.integerString.list.wrappedSpace("List(", ")"),
+
+      val listOfStr: P1[List[String]] =
+        (P.string1("List(") *> Parser.integerString.nonEmptyList.map(_.toList) <* P.char(')'))
+          .orElse1(P.string1("List()").as(Nil))
+
+      parseTestAll(
+        listOfStr,
         str,
         ls.map(_.toString))
     }
@@ -363,7 +379,7 @@ class ParserTest extends ParserTestBase {
   }
 
   test("we can parse blocks") {
-    val indy = OptIndent.block(Indy.lift(P("if foo")), Indy.lift(P("bar")))
+    val indy = OptIndent.block(Indy.lift(P.string1("if foo")), Indy.lift(P.string1("bar")))
     val p = indy.run("")
     parseTestAll(p, "if foo: bar", ((), OptIndent.same(())))
     parseTestAll(p, "if foo:\n\tbar", ((), OptIndent.paddedIndented(1, 4, ())))
@@ -371,18 +387,18 @@ class ParserTest extends ParserTestBase {
     parseTestAll(p, "if foo:\n  bar", ((), OptIndent.paddedIndented(1, 2, ())))
 
     import Indy.IndyMethods
-    val repeated = indy.nonEmptyList(Indy.lift(Parser.toEOL))
+    val repeated = indy.nonEmptyList(Indy.lift(Parser.toEOL1))
 
     val single = ((), OptIndent.notSame(Padding(1, Indented(2, ()))))
     parseTestAll(repeated.run(""), "if foo:\n  bar\nif foo:\n  bar",
       NonEmptyList.of(single, single))
 
     // we can nest blocks
-    parseTestAll(OptIndent.block(Indy.lift(P("nest")), indy)(""), "nest: if foo: bar",
+    parseTestAll(OptIndent.block(Indy.lift(P.string1("nest")), indy)(""), "nest: if foo: bar",
       ((), OptIndent.same(((), OptIndent.same(())))))
-    parseTestAll(OptIndent.block(Indy.lift(P("nest")), indy)(""), "nest:\n  if foo: bar",
+    parseTestAll(OptIndent.block(Indy.lift(P.string1("nest")), indy)(""), "nest:\n  if foo: bar",
       ((), OptIndent.paddedIndented(1, 2, ((), OptIndent.same(())))))
-    parseTestAll(OptIndent.block(Indy.lift(P("nest")), indy)(""), "nest:\n  if foo:\n    bar",
+    parseTestAll(OptIndent.block(Indy.lift(P.string1("nest")), indy)(""), "nest:\n  if foo:\n    bar",
       ((), OptIndent.paddedIndented(1, 2, ((), OptIndent.paddedIndented(1, 2, ())))))
 
     val simpleBlock = OptIndent.block(Indy.lift(Parser.lowerIdent ~ Parser.maybeSpace), Indy.lift(Parser.lowerIdent))
@@ -482,7 +498,7 @@ class SyntaxParseTest extends ParserTestBase {
   test("we can parse comments") {
     val gen = Generators.commentGen(Generators.padding(Generators.genDeclaration(0), 1))
     forAll(gen) { comment =>
-      parseTestAll(CommentStatement.parser(Parser.Indy.lift(Padding.parser(Declaration.parser("")))).run(""),
+      parseTestAll(CommentStatement.parser(i => Padding.parser(Declaration.parser(i))).run(""),
         Document[CommentStatement[Padding[Declaration]]].document(comment).render(80),
         comment)
     }
@@ -510,7 +526,7 @@ class SyntaxParseTest extends ParserTestBase {
 
     forAll(Generators.defGen(Generators.optIndent(Generators.genDeclaration(0)))) { defn =>
       parseTestAll[DefStatement[Pattern.Parsed, OptIndent[Declaration]]](
-        DefStatement.parser(Pattern.bindParser, Parser.maybeSpace ~ OptIndent.indy(Declaration.parser).run("")),
+        DefStatement.parser(Pattern.bindParser, Parser.maybeSpace.with1 *> OptIndent.indy(Declaration.parser).run("")),
         Document[DefStatement[Pattern.Parsed, OptIndent[Declaration]]].document(defn).render(80),
         defn)
     }
@@ -707,8 +723,8 @@ x""",
   test("we can parse if") {
     import Declaration._
 
-    val liftVar = Parser.Indy.lift(varP: P[Declaration])
-    val liftVar0 = Parser.Indy.lift(varP: P[NonBinding])
+    val liftVar = Parser.Indy.lift(varP: P1[Declaration])
+    val liftVar0 = Parser.Indy.lift(varP: P1[NonBinding])
     val parser0 = ifElseP(liftVar0, liftVar)("")
 
     roundTrip[Declaration](parser0,
@@ -776,8 +792,8 @@ else: y""")
   }
 
   test("we can parse a match") {
-    val liftVar = Parser.Indy.lift(Declaration.varP: P[Declaration])
-    val liftVar0 = Parser.Indy.lift(Declaration.varP: P[Declaration.NonBinding])
+    val liftVar = Parser.Indy.lift(Declaration.varP: P1[Declaration])
+    val liftVar0 = Parser.Indy.lift(Declaration.varP: P1[Declaration.NonBinding])
     roundTrip[Declaration](Declaration.matchP(liftVar0, liftVar)(""),
 """match x:
   y:

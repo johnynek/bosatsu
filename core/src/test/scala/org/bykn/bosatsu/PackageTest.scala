@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import cats.Show
 import cats.data.{Validated, ValidatedNel}
-import org.bykn.bosatsu.parser.{Parser => P}
 import org.scalatest.FunSuite
 import scala.concurrent.ExecutionContext
 
@@ -19,13 +18,7 @@ class PackageTest extends FunSuite {
   }
 
   def parse(s: String): Package.Parsed =
-    Package.parser(None).parse(s) match {
-      case Parsed.Success(p, idx) =>
-        assert(idx == s.length)
-        p
-      case Parsed.Failure(exp, idx, extra) =>
-        sys.error(s"failed to parse: $s: $exp at $idx with trace: ${extra.traced.trace}")
-    }
+    Parser.unsafeParse(Package.parser(None), s)
 
   def parseUnit(ss: Iterable[String]) =
     resolveThenInfer(ss.map(parse(_)))

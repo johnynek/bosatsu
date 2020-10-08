@@ -208,6 +208,10 @@ lazy val bench = project
   .settings(
     publish := {},
     publishLocal := {},
+    libraryDependencies ++=
+      Seq(
+        fastparse.value
+      ),
     publishArtifact := false)
   .settings(coverageEnabled := false)
   .enablePlugins(JmhPlugin)
