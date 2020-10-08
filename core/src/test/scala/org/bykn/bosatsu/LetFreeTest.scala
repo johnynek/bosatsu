@@ -115,7 +115,7 @@ out = foo
       List({ lfe: LetFreeExpression =>
         assert(
           lfe.serialize ==
-            "[Recursion(Lambda(Lambda(Match(LambdaVar(0),PositionalStruct(0,),Struct(1,Literal('a'),Struct(1,Literal('b'),Struct(1,Literal('c'),Struct(0,)))),PositionalStruct(1,WildCard,Var(0)),Lambda(Struct(1,Literal('zero'),App(LambdaVar(2),LambdaVar(0))))))))]",
+            "Recursion(Lambda(Lambda(Match(LambdaVar(0),PositionalStruct(0,),Struct(1,Literal('a'),Struct(1,Literal('b'),Struct(1,Literal('c'),Struct(0,)))),PositionalStruct(1,WildCard,Var(0)),Lambda(Struct(1,Literal('zero'),App(LambdaVar(2),LambdaVar(0))))))))",
           "Serializations test"
         )
       })
