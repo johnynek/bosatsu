@@ -955,6 +955,7 @@ object Declaration {
       val recurse: P1[Declaration] = P.defer1(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
       val recIndy: Indy[Declaration] = Indy { i => rec((ParseMode.Decl, i)) }
 
+      // TODO: aren't NonBinding independent of indentation level?
       val recNonBind: P1[NonBinding] = P.defer1(rec((ParseMode.NB, indent))).asInstanceOf[P1[NonBinding]]
       val recNBIndy: Indy[NonBinding] = Indy { i => rec((ParseMode.NB, i)).asInstanceOf[P1[NonBinding]] }
 

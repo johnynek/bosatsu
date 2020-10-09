@@ -78,6 +78,14 @@ sealed abstract class Parser[+A] {
   def with1: Parser.With1[A] =
     new Parser.With1(this)
 
+  /**
+   * If we can parse this then that, do so,
+   * if we fail that without consuming, rewind
+   * before this without consuming.
+   * If either consume 1 or more, do not rewind
+   */
+  def softProduct[B](that: Parser[B]): Parser[(A, B)] =
+    Parser.softProduct(this, that)
 
   /**
    * A parser that succeeds consuming nothing if this
@@ -169,6 +177,16 @@ sealed abstract class Parser1[+A] extends Parser[A] {
    */
   def rep1(min: Int): Parser1[NonEmptyList[A]] =
     Parser.rep1(this, min = min)
+
+  /**
+   * If we can parse this then that, do so,
+   * if we fail that without consuming, rewind
+   * before this without consuming.
+   * If either consume 1 or more, do not rewind
+   */
+  override def softProduct[B](that: Parser[B]): Parser1[(A, B)] =
+    Parser.softProduct10(this, that)
+
 }
 
 object Parser extends ParserInstances {
@@ -279,14 +297,24 @@ object Parser extends ParserInstances {
      * of extra work is you already know the result as is
      * the case for ~
      */
-     def flatMap[B](fn: A => Parser1[B]): Parser1[B] =
-        Parser.flatMap01(parser)(fn)
+    def flatMap[B](fn: A => Parser1[B]): Parser1[B] =
+       Parser.flatMap01(parser)(fn)
 
-     def *>[B](that: Parser1[B]): Parser1[B] =
-       product01(void(parser), that).map(_._2)
+    def *>[B](that: Parser1[B]): Parser1[B] =
+      product01(void(parser), that).map(_._2)
 
-     def <*[B](that: Parser1[B]): Parser1[A] =
-       product01(parser, void1(that)).map(_._1)
+    def <*[B](that: Parser1[B]): Parser1[A] =
+      product01(parser, void1(that)).map(_._1)
+
+    /**
+     * If we can parse this then that, do so,
+     * if we fail that without consuming, rewind
+     * before this without consuming.
+     * If either consume 1 or more, do not rewind
+     */
+    def softProduct[B](that: Parser1[B]): Parser1[(A, B)] =
+      Parser.softProduct01(parser, that)
+
   }
 
   def pure[A](a: A): Parser[A] =
@@ -381,11 +409,13 @@ object Parser extends ParserInstances {
     Impl.Rep1(p1, min)
 
   /**
+   *
    * Repeat 1 or more times with a separator
    */
   def rep1Sep[A](p1: Parser1[A], min: Int, sep: Parser[Any]): Parser1[NonEmptyList[A]] = {
     if (min <= 0) throw new IllegalArgumentException(s"require min > 0, found: $min")
-    val rest = (sep.with1 *> p1).rep(min - 1)
+
+    val rest = sep.void.with1.softProduct(p1).map(_._2).rep(min - 1)
     (p1 ~ rest).map { case (h, t) => NonEmptyList(h, t) }
   }
 
@@ -408,6 +438,15 @@ object Parser extends ParserInstances {
 
   def product[A, B](first: Parser[A], second: Parser[B]): Parser[(A, B)] =
     Impl.Prod(first, second)
+
+  def softProduct10[A, B](first: Parser1[A], second: Parser[B]): Parser1[(A, B)] =
+    Impl.SoftProd1(first, second)
+
+  def softProduct01[A, B](first: Parser[A], second: Parser1[B]): Parser1[(A, B)] =
+    Impl.SoftProd1(first, second)
+
+  def softProduct[A, B](first: Parser[A], second: Parser[B]): Parser[(A, B)] =
+    Impl.SoftProd(first, second)
 
   def map[A, B](p: Parser[A])(fn: A => B): Parser[B] =
     Impl.Map(p, fn)
@@ -659,6 +698,7 @@ object Parser extends ParserInstances {
         case Backtrack(p) => Backtrack(unmap(p))
         case OneOf(ps) => OneOf(ps.map(unmap))
         case Prod(p1, p2) => Prod(unmap(p1), unmap(p2))
+        case SoftProd(p1, p2) => SoftProd(unmap(p1), unmap(p2))
         case Defer(fn) =>
           Defer(() => unmap(compute(fn)))
         case Rep(p) => Rep(unmap1(p))
@@ -689,6 +729,7 @@ object Parser extends ParserInstances {
         case Backtrack1(p) => Backtrack1(unmap1(p))
         case OneOf1(ps) => OneOf1(ps.map(unmap1))
         case Prod1(p1, p2) => Prod1(unmap(p1), unmap(p2))
+        case SoftProd1(p1, p2) => SoftProd1(unmap(p1), unmap(p2))
         case Defer1(fn) =>
           Defer1(() => unmap1(compute1(fn)))
         case Rep1(p, m) => Rep1(unmap1(p), m)
@@ -877,11 +918,42 @@ object Parser extends ParserInstances {
 
     // we know that at least one of first | second is Parser1
     case class Prod1[A, B](first: Parser[A], second: Parser[B]) extends Parser1[(A, B)] {
+      require(first.isInstanceOf[Parser1[_]] || second.isInstanceOf[Parser1[_]])
       override def parseMut(state: State): (A, B) = prod(first, second, state)
     }
 
     case class Prod[A, B](first: Parser[A], second: Parser[B]) extends Parser[(A, B)] {
       override def parseMut(state: State): (A, B) = prod(first, second, state)
+    }
+
+    final def softProd[A, B](pa: Parser[A], pb: Parser[B], state: State): (A, B) = {
+      val offset = state.offset
+      val a = pa.parseMut(state)
+      if (state.error eq null) {
+        val offseta = state.offset
+        val b = pb.parseMut(state)
+        // pa passed, if pb fails without consuming, rewind to offset
+        if (state.error ne null) {
+          if (state.offset == offseta) {
+            state.offset = offset
+          }
+          // else partial parse of b, don't rewind
+          null
+        }
+        else if (state.capture) (a, b)
+        else null
+      }
+      else null
+    }
+
+    // we know that at least one of first | second is Parser1
+    case class SoftProd1[A, B](first: Parser[A], second: Parser[B]) extends Parser1[(A, B)] {
+      require(first.isInstanceOf[Parser1[_]] || second.isInstanceOf[Parser1[_]])
+      override def parseMut(state: State): (A, B) = softProd(first, second, state)
+    }
+
+    case class SoftProd[A, B](first: Parser[A], second: Parser[B]) extends Parser[(A, B)] {
+      override def parseMut(state: State): (A, B) = softProd(first, second, state)
     }
 
     final def map[A, B](parser: Parser[A], fn: A => B, state: State): B = {

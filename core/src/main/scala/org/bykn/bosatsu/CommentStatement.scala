@@ -23,16 +23,18 @@ object CommentStatement {
   /** on should make sure indent is matching
    * this is to allow a P[Unit] that does nothing for testing or other applications
    */
-  def parser[T](onP: String => P[T]): Parser.Indy[CommentStatement[T]] = Parser.Indy { indent =>
-    val sep = Parser.newline ~ Parser.indentation(indent)
+  def parser[T](onP: String => P[T]): Parser.Indy[CommentStatement[T]] =
+    Parser.Indy { indent =>
+      val sep = Parser.newline ~ Parser.indentation(indent)
 
-    val commentBlock: P1[NonEmptyList[String]] =
-      (commentPart ~ (sep *> commentPart).rep ~ Parser.newline.orElse(P.end))
-        .map { case ((c1, cs), _) => NonEmptyList(c1, cs) }
+      val commentBlock: P1[NonEmptyList[String]] =
+        // the backtrack is because we can't tell
+        // if the next line is part of the comment until we see the # or not
+        P.rep1Sep(commentPart, min = 1, sep = sep) <* Parser.newline.orElse(P.end)
 
-    (commentBlock ~ onP(indent))
-      .map { case (m, on) => CommentStatement(m, on) }
-  }
+      (commentBlock ~ onP(indent))
+        .map { case (m, on) => CommentStatement(m, on) }
+    }
 
   val commentPart: P1[String] =
     (P.char('#') ~ P.until(P.char('\n'))).map(_._2)

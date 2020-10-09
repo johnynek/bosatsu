@@ -876,6 +876,16 @@ class ParserTest extends munit.ScalaCheckSuite {
     }
   }
 
+  property("a.softProduct(b) == a ~ b in success of expected (not partials)") {
+    forAll(ParserGen.gen, ParserGen.gen, Arbitrary.arbitrary[String]) { (a, b, str) =>
+      val left = a.fa.softProduct(b.fa)
+      val right = a.fa ~ b.fa
+      val leftRes = left.parse(str).leftMap(_.expected)
+      val rightRes = right.parse(str).leftMap(_.expected)
+      assertEquals(leftRes, rightRes)
+    }
+  }
+
   property("BitSetUtil union works") {
     forAll { cs: List[List[Char]] =>
       val arys = cs.filter(_.nonEmpty).map(_.toArray.sorted)
