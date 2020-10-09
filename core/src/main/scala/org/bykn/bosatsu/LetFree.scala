@@ -134,22 +134,22 @@ sealed abstract class LetFreePattern {
 object LetFreePattern {
   def varCount(floor: Int, patterns: List[LetFreePattern]): Int = patterns match {
     case head :: rest => head match {
-      case LetFreePattern.WildCard => floor
-      case LetFreePattern.Literal(_) => 0
-      case LetFreePattern.Var(name) => floor.max(name + 1)
-      case LetFreePattern.Named(name, pat) => varCount(name + 1, List(pat))
+      case LetFreePattern.WildCard => varCount(floor, rest)
+      case LetFreePattern.Literal(_) => varCount(0, rest)
+      case LetFreePattern.Var(name) => varCount(floor.max(name + 1), rest)
+      case LetFreePattern.Named(name, pat) => varCount(name + 1, pat :: rest)
       case LetFreePattern.ListPat(parts) => {
-        val result = parts.foldLeft((floor, List[LetFreePattern]())) {
+        val result = parts.foldLeft((floor, rest)) {
           case ((fl, lst), Left(n)) => (fl.max(n.map(_ + 1).getOrElse(fl)), lst)
           case ((fl, lst), Right(pat)) => (fl, pat :: lst)
         }
         varCount(result._1, result._2)
       }
-      case LetFreePattern.PositionalStruct(name, params, df) => varCount(name.getOrElse(floor).max(floor), params)
-      case LetFreePattern.Union(uHead, _) => varCount(floor, List(uHead))
+      case LetFreePattern.PositionalStruct(name, params, df) => varCount(name.getOrElse(floor).max(floor), params ++ rest)
+      case LetFreePattern.Union(uHead, _) => varCount(floor, uHead :: rest)
       case LetFreePattern.StrPat(parts) => parts.foldLeft(floor) {
-        case (n, LetFreePattern.StrPart.NamedStr(name)) => n.max(name+1)
-        case (n, _) => n 
+        case (n, LetFreePattern.StrPart.NamedStr(name)) => varCount(n.max(name+1), rest)
+        case (n, _) => varCount(n, rest)
       }
     }
     case _ => floor
