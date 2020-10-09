@@ -140,7 +140,7 @@ object LetFreePattern {
       case LetFreePattern.Named(name, pat) => varCount(name + 1, List(pat))
       case LetFreePattern.ListPat(parts) => {
         val result = parts.foldLeft((floor, List[LetFreePattern]())) {
-          case ((fl, lst), Left(n)) => (fl.max(n.getOrElse(fl)), lst)
+          case ((fl, lst), Left(n)) => (fl.max(n.map(_ + 1).getOrElse(fl)), lst)
           case ((fl, lst), Right(pat)) => (fl, pat :: lst)
         }
         varCount(result._1, result._2)
@@ -148,7 +148,7 @@ object LetFreePattern {
       case LetFreePattern.PositionalStruct(name, params, df) => varCount(name.getOrElse(floor).max(floor), params)
       case LetFreePattern.Union(uHead, _) => varCount(floor, List(uHead))
       case LetFreePattern.StrPat(parts) => parts.foldLeft(floor) {
-        case (n, LetFreePattern.StrPart.NamedStr(name)) => n.max(name)
+        case (n, LetFreePattern.StrPart.NamedStr(name)) => n.max(name+1)
         case (n, _) => n 
       }
     }
