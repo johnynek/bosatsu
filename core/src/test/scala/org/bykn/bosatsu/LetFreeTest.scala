@@ -1210,7 +1210,7 @@ package VarSet/Match
 
 def bar(y, _, _, x):
   match x:
-    a@[b, *c, d, 2] | a@[_, b, *c, d, 3]: (a, b, c, d)
+    a@[b, *c, d, 2 | 3]: (a, b, c, d)
     _: (y, 0, y, 0)
 
 out = bar
