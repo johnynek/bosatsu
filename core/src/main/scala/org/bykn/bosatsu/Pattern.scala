@@ -959,7 +959,7 @@ object Pattern {
 
     // The next three are depend on each other so must be lazy
     lazy val named: P1[Parsed] =
-      P.defer1(maybeSpace.with1 *> P.char('@') *> maybeSpace *> nonAnnotated)
+      P.defer1((maybeSpace.with1 *> P.char('@')).backtrack *> maybeSpace *> nonAnnotated)
 
     lazy val pvarOrName = (Identifier.bindableParser ~ named.?)
       .map {
@@ -976,13 +976,13 @@ object Pattern {
       val unionRest = nonAnnotated
         .nonEmptyListOfWsSep(maybeSpace, bar, allowTrailing = false)
 
-      (bar *> maybeSpace *> unionRest)
+      ((maybeSpace.with1 *> bar).backtrack *> maybeSpace *> unionRest)
         .map { ne =>
           { pat: Parsed => union(pat, ne.toList) }
         }
     }
     val typeAnnotOp: P[Parsed => Parsed] = {
-      (P.char(':') *> maybeSpace *> TypeRef.parser)
+      ((maybeSpace *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser)
         .map { tpe =>
           { pat: Parsed => Annotation(pat, tpe) }
         }
@@ -990,8 +990,8 @@ object Pattern {
 
     // We only allow type annotation not at the top level, must be inside
     // Struct or parens
-    if (isMatch) nonAnnotated.maybeAp(maybeSpace *> unionOp)
-    else nonAnnotated.maybeAp(maybeSpace *> unionOp.orElse(typeAnnotOp))
+    if (isMatch) nonAnnotated.maybeAp(unionOp)
+    else nonAnnotated.maybeAp(unionOp.orElse(typeAnnotOp))
   }
 }
 

@@ -924,13 +924,13 @@ object Declaration {
         Binding(bind)(region)
       }
 
-  private def listP(p: P1[NonBinding]): P1[ListDecl] =
-    ListLang.parser(p, Pattern.bindParser)
+  private def listP(p: P1[NonBinding], src: P1[NonBinding]): P1[ListDecl] =
+    ListLang.parser(p, src, Pattern.bindParser)
       .region
       .map { case (r, l) => ListDecl(l)(r) }
 
-  private def dictP(p: P1[NonBinding]): P1[DictDecl] =
-    ListLang.dictParser(p, Pattern.bindParser)
+  private def dictP(p: P1[NonBinding], src: P1[NonBinding]): P1[DictDecl] =
+    ListLang.dictParser(p, src, Pattern.bindParser)
       .region
       .map { case (r, l) => DictDecl(l)(r) }
 
@@ -941,6 +941,7 @@ object Declaration {
     case object Decl extends ParseMode
     case object NB extends ParseMode
     case object BranchArg extends ParseMode
+    case object ComprehensionSource extends ParseMode
   }
   /*
    * This is not fully type-safe but we do it for efficiency:
@@ -959,6 +960,8 @@ object Declaration {
 
       val recArg: P1[NonBinding] = P.defer1(rec((ParseMode.BranchArg, indent)).asInstanceOf[P1[NonBinding]])
       val recArgIndy: Indy[NonBinding] = Indy { i => rec((ParseMode.BranchArg, i)).asInstanceOf[P1[NonBinding]] }
+
+      val recComp: P1[NonBinding] = P.defer1(rec((ParseMode.ComprehensionSource, indent))).asInstanceOf[P1[NonBinding]]
 
       val tupOrPar: P1[NonBinding] =
         (recNonBind
@@ -979,9 +982,9 @@ object Declaration {
             lambdaP(lambBody)(indent) ::
             ifElseP(recArgIndy, recIndy)(indent) ::
             matchP(recArgIndy, recIndy)(indent) ::
-            dictP(recArg) ::
+            dictP(recArg, recComp) ::
             varP ::
-            listP(recNonBind) ::
+            listP(recNonBind, recComp) ::
             lits ::
             stringDeclOrLit(recNBIndy)(indent) ::
             tupOrPar ::
@@ -996,7 +999,7 @@ object Declaration {
         // here we are using . syntax foo.bar(1, 2)
         // we also allow foo.(anyExpression)(1, 2)
         val fn = varP.orElse1(recNonBind.parensCut)
-        val slashcontinuation = (maybeSpace ~ P.char('\\') ~ toEOL1 ~ Parser.maybeSpacesAndLines).?.void
+        val slashcontinuation = ((maybeSpace ~ P.char('\\') ~ toEOL1).backtrack ~ Parser.maybeSpacesAndLines).?.void
         val dotApply: P1[NonBinding => NonBinding] =
           (slashcontinuation.with1 *> P.char('.') *> (fn ~ params.?))
             .region
@@ -1027,7 +1030,7 @@ object Declaration {
         if (pm == ParseMode.BranchArg) applied
         else {
           val an: P1[NonBinding => NonBinding] =
-            (maybeSpace.backtrack.with1 *> P.char(':') *> maybeSpace *> TypeRef.parser)
+            ((maybeSpace.with1 *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser)
               .region
               .map { case (r, tpe) =>
                 { nb: NonBinding => Annotation(nb, tpe)(nb.region + r) }
@@ -1040,7 +1043,7 @@ object Declaration {
       val matched: P1[NonBinding] = {
         // x matches p
         val matchesOp =
-          (maybeSpace.with1 *> P.string1("matches") *> maybeSpace *> Pattern.matchParser)
+          ((maybeSpace.with1 *> P.string1("matches") *> spaces).backtrack *> Pattern.matchParser)
             .region
             .map { case (region, pat) =>
 
@@ -1085,7 +1088,7 @@ object Declaration {
       val ternary: P1[Declaration => NonBinding] =
         // we can't cut after if, because in a list comprehension the if suffix is ambiguous
         // until we see if the else happens or not. Once we see the else, we can cut
-        ((keySpace("if") *> recNonBind.backtrack) ~ (spaces *> keySpace("else") *> recNonBind))
+        (((spaces *> P.string1("if") *> spaces).backtrack *> recNonBind.backtrack) ~ (spaces *> keySpace("else") *> recNonBind))
           .region
           .map { case (region, (cond, falseCase)) =>
             { trueCase: Declaration =>
@@ -1095,7 +1098,8 @@ object Declaration {
           }
 
       val finalNonBind: P1[NonBinding] =
-        postOperators(matched).maybeAp(spaces *> ternary)
+        if (pm != ParseMode.ComprehensionSource) postOperators(matched).maybeAp(ternary)
+        else postOperators(matched)
 
       if (pm != ParseMode.Decl) finalNonBind
       else {
@@ -1130,6 +1134,8 @@ object Declaration {
     Indy { i => parserCache((ParseMode.Decl, i)) }
   val nonBindingParser: Indy[NonBinding] =
     Indy { i => parserCache((ParseMode.NB, i)) }.asInstanceOf[Indy[NonBinding]]
+  val nonBindingParserNoTern: Indy[NonBinding] =
+    Indy { i => parserCache((ParseMode.ComprehensionSource, i)) }.asInstanceOf[Indy[NonBinding]]
   val nonBindingParserNoAnn: Indy[NonBinding] =
     Indy { i => parserCache((ParseMode.BranchArg, i)) }.asInstanceOf[Indy[NonBinding]]
 }

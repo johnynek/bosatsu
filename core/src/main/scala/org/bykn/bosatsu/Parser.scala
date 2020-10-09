@@ -40,7 +40,7 @@ object Parser {
        * starting now
        */
       def indentBefore: Indy[A] =
-        apply(indent => P.string1(indent) *> toKleisli.run(indent))
+        apply(indent => P.string(indent).with1 *> toKleisli.run(indent))
 
       def nonEmptyList(sepIndy: Indy[Unit]): Indy[NonEmptyList[A]] =
         Indy { indent =>

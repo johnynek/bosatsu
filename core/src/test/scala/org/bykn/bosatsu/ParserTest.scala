@@ -448,7 +448,7 @@ class ParserTest extends ParserTestBase {
     val pident = Parser.lowerIdent
     implicit val stringDoc: Document[String] = Document.instance[String](Doc.text(_))
 
-    val llp = ListLang.parser(pident, pident)
+    val llp = ListLang.parser(pident, pident, pident)
     roundTrip(llp, "[a]")
     roundTrip(llp, "[]")
     roundTrip(llp, "[  ]")
@@ -941,20 +941,22 @@ x""")
   }
 
   test("we can parse declaration lists") {
+
+    val ll = ListLang.parser(Declaration.parser(""), Declaration.nonBindingParserNoTern(""), Pattern.matchParser)
+
     roundTrip(Declaration.parser(""), "[]")
     roundTrip(Declaration.parser(""), "[1]")
     roundTrip(Declaration.parser(""), "[1, 2, 3]")
     roundTrip(Declaration.parser(""), "[1, *x, 3]")
     roundTrip(Declaration.parser(""), "[Foo(a, b), *acc]")
-    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.matchParser), "[foo(a, b)]")
-    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.matchParser), "[x for y in z]")
-    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.matchParser), "[x for (y, z) in w]")
-    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.matchParser), "[x for (y, z) in w if w1]")
-    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.matchParser), "[*x for y in z]")
-    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.matchParser), "[*x for (y, z) in w]")
-    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.matchParser), "[*x for (y, z) in w if w1]")
-    roundTrip(ListLang.parser(Declaration.parser(""), Pattern.matchParser),
-      "[x for x in range(4) if x.eq_Int(2)]")
+    roundTrip(ll, "[foo(a, b)]")
+    roundTrip(ll, "[x for y in z]")
+    roundTrip(ll, "[x for (y, z) in w]")
+    roundTrip(ll, "[x for (y, z) in w if w1]")
+    roundTrip(ll, "[*x for y in z]")
+    roundTrip(ll, "[*x for (y, z) in w]")
+    roundTrip(ll, "[*x for (y, z) in w if w1]")
+    roundTrip(ll, "[x for x in range(4) if x.eq_Int(2)]")
     roundTrip(ListLang.SpliceOrItem.parser(Declaration.parser("")), "a")
     roundTrip(ListLang.SpliceOrItem.parser(Declaration.parser("")), "foo(a, b)")
     roundTrip(ListLang.SpliceOrItem.parser(Declaration.parser("")), "*foo(a, b)")

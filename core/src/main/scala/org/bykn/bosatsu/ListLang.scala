@@ -66,11 +66,11 @@ object ListLang {
   case class Cons[F[_], A](items: List[F[A]]) extends ListLang[F, A, Nothing]
   case class Comprehension[F[_], A, B](expr: F[A], binding: B, in: A, filter: Option[A]) extends ListLang[F, A, B]
 
-  def parser[A, B](pa: P1[A], pbind: P1[B]): P1[ListLang[SpliceOrItem, A, B]] =
-    genParser(P.char('['), SpliceOrItem.parser(pa), pa, pbind, P.char(']'))
+  def parser[A, B](pa: P1[A], psrc: P1[A], pbind: P1[B]): P1[ListLang[SpliceOrItem, A, B]] =
+    genParser(P.char('['), SpliceOrItem.parser(pa), psrc, pbind, P.char(']'))
 
-  def dictParser[A, B](pa: P1[A], pbind: P1[B]): P1[ListLang[KVPair, A, B]] =
-    genParser(P.char('{'), KVPair.parser(pa), pa, pbind, P.char('}'))
+  def dictParser[A, B](pa: P1[A], psrc: P1[A], pbind: P1[B]): P1[ListLang[KVPair, A, B]] =
+    genParser(P.char('{'), KVPair.parser(pa), psrc, pbind, P.char('}'))
 
   def genParser[F[_], A, B](left: P1[Unit], fa: P1[F[A]], pa: P1[A], pbind: P1[B], right: P1[Unit]): P1[ListLang[F, A, B]] = {
     // construct the tail of a list, so we will finally have at least one item
@@ -88,8 +88,8 @@ object ListLang {
 
     val comp =
       (P.string1("for") *> spacesAndLines *> pbind <* maybeSpacesAndLines,
-        P.string1("in") *> spacesAndLines *> pa,
-        (maybeSpacesAndLines *> filterExpr).?)
+        P.string1("in") *> spacesAndLines *> pa  <* maybeSpacesAndLines,
+        filterExpr.?)
         .mapN { (b, i, f) =>
           { e: F[A] => Comprehension(e, b, i, f) }
         }
