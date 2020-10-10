@@ -976,7 +976,6 @@ x""")
     roundTrip(Declaration.parser(""), "[x for y in [1, 2] if foo]")
   }
 
-  /*
   test("we can parse any Declaration") {
     forAll(Generators.genDeclaration(5))(law(Declaration.parser("").map(_.replaceRegions(emptyRegion))))
 
@@ -990,7 +989,7 @@ x""")
     decl("(x : Bar)")
     decl("y if y < z else q")
     decl("[x for x in xs if x < y ]")
-    decl("[x for x in xs if x < y else xy ]")
+    decl("[x for x in (xs if x < y else xy) ]")
     decl("y = [x for x in xs if x < y ]\ny")
 
     decl("x.f(y).g(z)")
@@ -1003,7 +1002,7 @@ x""")
             | .g(z) \
             | .h(w)""".stripMargin)
   }
-
+/*
   test("we can parse any Statement") {
     forAll(Generators.genStatements(4, 10))(law(Statement.parser.map(_.map(_.replaceRegions(emptyRegion)))))
 

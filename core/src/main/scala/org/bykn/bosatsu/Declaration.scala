@@ -1038,7 +1038,9 @@ object Declaration {
         if (pm == ParseMode.BranchArg) applied
         else {
           val an: P1[NonBinding => NonBinding] =
-            ((maybeSpace.with1 *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser)
+            (maybeSpace.with1 *> P.char(':') *> maybeSpace *> TypeRef.parser)
+              // TODO remove this backtrack
+              .backtrack
               .region
               .map { case (r, tpe) =>
                 { nb: NonBinding => Annotation(nb, tpe)(nb.region + r) }
