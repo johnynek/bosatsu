@@ -884,7 +884,7 @@ object Pattern {
     P.defer1(matchOrNot(isMatch = false))
 
   private val maybePartial: P[(Constructor, StructKind.Style) => StructKind.NamedKind] = {
-    val partial = (maybeSpace ~ P.string1("...")).as(
+    val partial = (maybeSpace ~ P.string1("...")).backtrack.as(
       { (n: Constructor, s: StructKind.Style) => StructKind.NamedPartial(n, s) }
     )
 
@@ -899,14 +899,14 @@ object Pattern {
     // We do maybeSpace, then { } then either a Bindable or Bindable: Pattern
     // maybe followed by ...
     val item: P1[Either[Bindable, (Bindable, Parsed)]] =
-      (Identifier.bindableParser ~ ((maybeSpace ~ P.char(':') ~ maybeSpace) *> recurse).?)
+      (Identifier.bindableParser ~ (((maybeSpace ~ P.char(':')).backtrack ~ maybeSpace) *> recurse).?)
         .map {
           case (b, None) => Left(b)
           case (b, Some(pat)) => Right((b, pat))
         }
 
     val items = item.nonEmptyList ~ maybePartial
-    ((maybeSpace.with1 ~ P.char('{') ~ maybeSpace) *> items <* (maybeSpace ~ P.char('}')))
+    (((maybeSpace.with1 ~ P.char('{')).backtrack ~ maybeSpace) *> items <* (maybeSpace ~ P.char('}')))
       .map { case (args, fn) =>
         { (c: Constructor) => recordPat(c, args)(fn) }
       }

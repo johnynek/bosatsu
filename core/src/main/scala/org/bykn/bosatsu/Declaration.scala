@@ -955,7 +955,7 @@ object Declaration {
       val recurse: P1[Declaration] = P.defer1(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
       val recIndy: Indy[Declaration] = Indy { i => rec((ParseMode.Decl, i)) }
 
-      // TODO: aren't NonBinding independent of indentation level?
+      // TODO: aren't NonBinding independent of indentation level>
       val recNonBind: P1[NonBinding] = P.defer1(rec((ParseMode.NB, indent))).asInstanceOf[P1[NonBinding]]
       val recNBIndy: Indy[NonBinding] = Indy { i => rec((ParseMode.NB, i)).asInstanceOf[P1[NonBinding]] }
 
@@ -965,13 +965,20 @@ object Declaration {
       val recComp: P1[NonBinding] = P.defer1(rec((ParseMode.ComprehensionSource, indent))).asInstanceOf[P1[NonBinding]]
 
       val tupOrPar: P1[NonBinding] =
-        (recNonBind
-          .tupleOrParens
-          .region
+        Parser.parens((recNonBind
+          .tupleOrParens0
           .map {
-            case (r, Left(p)) => Parens(p)(r)
-            case (r, Right(tup)) => TupleCons(tup)(r)
-          }).orElse1(recurse.parensCut.region.map { case (r, d) => Parens(d)(r) })
+            case Left(p) => { r: Region =>  Parens(p)(r) }
+            case Right(tup) => { r: Region => TupleCons(tup.toList)(r) }
+          })
+           // TODO the backtrack here would be nice to avoid
+          .backtrack
+          .orElse(recurse.map { d => { r: Region => Parens(d)(r) } })
+          // or it could be () which is just unit
+          .orElse(P.pure({ r: Region => TupleCons(Nil)(r) }))
+        )
+        .region
+        .map { case (r, fn) => fn(r) }
 
       // since \x -> y: t will parse like \x -> (y: t)
       // if we are in a branch arg, we can't parse annotations on the body of the lambda

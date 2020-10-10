@@ -28,7 +28,7 @@ object Parser {
      */
     val toEOLIndent: Indy[Unit] =
       apply { indent =>
-        toEOL1 <* P.string(indent)
+        (toEOL1 *> P.string(indent)).backtrack
       }
 
     implicit class IndyMethods[A](val toKleisli: Indy[A]) extends AnyVal {
@@ -83,7 +83,11 @@ object Parser {
               toKleisli.run(indent + thisIndent)
             }
 
-          someIndent <+> noIndent
+          // this backtrack is unfortunate
+          // because if these is space, but incorrect
+          // code inside, we don't point to the
+          // correct location.
+          someIndent.backtrack <+> noIndent
         }
     }
   }
@@ -310,7 +314,7 @@ object Parser {
         .map { case ((s, t), e) => (Region(s, e), t) }
 
     def parensCut: P1[T] =
-      bracketed(P.char('(') ~ maybeSpacesAndLines, maybeSpacesAndLines ~ P.char(')'))
+      parens(item)
 
     def parensLines1Cut: P1[NonEmptyList[T]] =
       item.nonEmptyListOfWs(maybeSpacesAndLines)
@@ -330,32 +334,43 @@ object Parser {
     /**
      * Parse a python-like tuple or a parens
      */
-    def tupleOrParens: P1[Either[T, List[T]]] = {
+    def tupleOrParens: P1[Either[T, List[T]]] =
+      parens {
+        tupleOrParens0.?
+          .map {
+            case None => Right(Nil)
+            case Some(Left(t)) => Left(t)
+            case Some(Right(l)) => Right(l.toList)
+          }
+      }
+
+    def tupleOrParens0: P1[Either[T, NonEmptyList[T]]] = {
       val ws = maybeSpacesAndLines
       val sep = ((ws.with1 ~ P.char(',')).backtrack ~ ws).void
       val twoAndMore = P.repSep(item, min = 0, sep = sep)
       val trailing = sep.?.map(_.isDefined)
 
-      val either = (item ~ (sep *> twoAndMore <* trailing).?).?
+      (item ~ (sep *> twoAndMore <* trailing).?)
         .map {
-          case None => Right(Nil)
-          case Some((a, None)) =>
+          case ((a, None)) =>
             // 1 item, no trailing comment, that's a parens
             Left(a)
-          case Some((a, Some(items))) =>
+          case ((a, Some(items))) =>
             // either more than one item or a single item with
             // a trailing comma
-            Right(a :: items)
+            Right(NonEmptyList(a, items))
         }
-
-
-      (P.char('(') ~ ws) *> either <* (ws ~ P.char(')'))
     }
   }
 
+  def parens[A](pa: P[A]): P1[A] = {
+    val ws = maybeSpacesAndLines
+    (P.char('(') ~ ws) *> pa <* (ws ~ P.char(')'))
+  }
+
   val newline: P1[Unit] = P.char('\n')
-  val toEOL: P[Unit] = (maybeSpace ~ newline.orElse(P.end)).void
-  val toEOL1: P1[Unit] = (maybeSpace.with1 *> newline)
+  val toEOL: P[Unit] = maybeSpace *> newline.orElse(P.end)
+  val toEOL1: P1[Unit] = maybeSpace.with1 *> newline
 
   def optionParse[A](pa: P[A], str: String): Option[A] =
     pa.parse(str) match {
