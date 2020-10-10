@@ -759,7 +759,7 @@ object Declaration {
    * this is needed for parsing declarations currently because
    * patterns and some Declarations are ambiguous, so only the = signals them
    */
-  def bindingParser[T](parser: Indy[NonBinding], rest: Indy[T], cutPattern: Boolean): Indy[BindingStatement[Pattern.Parsed, NonBinding, T]] = {
+  def bindingParser[T](parser: Indy[NonBinding], cutPattern: Boolean): Indy[T => BindingStatement[Pattern.Parsed, NonBinding, T]] = {
     val eqP: P[Unit] = P.char('=') <* (!Operators.multiToksP)
     val patPart = Pattern.bindParser <* maybeSpace <* eqP
     val cutOrNot = if (cutPattern) patPart else patPart.backtrack
@@ -767,9 +767,8 @@ object Declaration {
 
     // allow = to be like a block, we can continue on the next line indented
     OptIndent.blockLike(pat, parser, P.unit)
-      .cutThen(rest)
-      .map { case ((pat, value), rest) =>
-        BindingStatement(pat, value.get, rest)
+      .map { case (pat, value) =>
+        { rest => BindingStatement(pat, value.get, rest) }
       }
   }
 
@@ -918,10 +917,11 @@ object Declaration {
 
   private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] =
     // we can't cut the pattern here because we have some ambiguity in declarations
-    bindingParser[Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL1), restP(decl), cutPattern = false)
+    bindingParser[Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL1), cutPattern = false)
+      .cutThen(restP(decl))
       .region
-      .map { case (region, bind) =>
-        Binding(bind)(region)
+      .map { case (region, (bindfn, decl)) =>
+        Binding(bindfn(decl))(region)
       }
 
   private def listP(p: P1[NonBinding], src: P1[NonBinding]): P1[ListDecl] =

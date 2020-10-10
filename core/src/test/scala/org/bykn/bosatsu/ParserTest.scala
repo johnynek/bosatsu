@@ -1002,7 +1002,7 @@ x""")
             | .g(z) \
             | .h(w)""".stripMargin)
   }
-/*
+
   test("we can parse any Statement") {
     forAll(Generators.genStatements(4, 10))(law(Statement.parser.map(_.map(_.replaceRegions(emptyRegion)))))
 
@@ -1175,6 +1175,7 @@ external def foo2(i: Integer, b: a) -> String
 """)
   }
 
+
   test("we can parse any package") {
     roundTrip(Package.parser(None),
 """
@@ -1203,6 +1204,7 @@ main = run(x)
 """)
   }
 
+  /*
   test("parse errors point near where they occur") {
     expectFail(Statement.parser,
       """x = 1

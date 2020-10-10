@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, keySpace, toEOL, toEOL1 }
+import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, keySpace, toEOL }
 import cats.data.NonEmptyList
 import cats.implicits._
 import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
@@ -142,11 +142,11 @@ object Statement {
   final val parser1: P1[Statement] = {
 
      val bindingP: P1[Statement] =
-       Declaration
-         .bindingParser[Unit](Declaration.nonBindingParser, Indy.lift(toEOL1), cutPattern = true)("")
+       (Declaration
+         .bindingParser[Unit](Declaration.nonBindingParser, cutPattern = true)("") <* toEOL)
          .region
          .map { case (region, bs) =>
-            Bind(bs)(region)
+            Bind(bs(()))(region)
          }
 
      val paddingSP: P1[Statement] =

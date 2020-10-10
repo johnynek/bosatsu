@@ -47,7 +47,7 @@ object ImportedName {
 
   val parser: P1[ImportedName[Unit]] = {
     def basedOn(of: P1[Identifier]): P1[ImportedName[Unit]] =
-      (of ~ (spaces *> P.string1("as") *> spaces *> of).?)
+      (of ~ ((spaces *> P.string1("as") *> spaces).backtrack *> of).?)
         .map {
           case (from, Some(to)) => ImportedName.Renamed(from, to, ())
           case (orig, None) => ImportedName.OriginalName(orig, ())
@@ -78,7 +78,7 @@ object Import {
   val parser: P1[Import[PackageName, Unit]] = {
     val pyimps = ImportedName.parser.itemsMaybeParens.map(_._2)
 
-    ((P.string1("from") ~ spaces) *> PackageName.parser <* spaces,
+    ((P.string1("from") ~ spaces).backtrack *> PackageName.parser <* spaces,
       P.string1("import") *> spaces *> pyimps)
       .mapN(Import(_, _))
   }
