@@ -207,7 +207,7 @@ object Statement {
      }
 
      val struct =
-       (structKey *> (Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?).region <* toEOL)
+       ((structKey *> Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?).region <* toEOL)
          .map { case (region, ((name, typeArgs), argsOpt)) =>
            val argList = argsOpt match {
              case None => Nil

@@ -1204,7 +1204,6 @@ main = run(x)
 """)
   }
 
-  /*
   test("parse errors point near where they occur") {
     expectFail(Statement.parser,
       """x = 1
@@ -1258,16 +1257,13 @@ x = 1
       """package Foo
 
 x = Foo(bar if bar)
-""", 25)
-/*
-    TODO: we don't pass this yet due, I think, to backtracking
+""", 31)
+
 
     expectFail(Package.parser(None),
       """package Foo
 
 z = [x for x in xs if x < y else ]
-""", 18)
-*/
+""", 41)
   }
-  */
 }
