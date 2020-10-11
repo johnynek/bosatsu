@@ -876,9 +876,9 @@ class ParserTest extends munit.ScalaCheckSuite {
     }
   }
 
-  property("a.softProduct(b) == a ~ b in success of expected (not partials)") {
+  property("a.soft.poduct(b) == a ~ b in success of expected (not partials)") {
     forAll(ParserGen.gen, ParserGen.gen, Arbitrary.arbitrary[String]) { (a, b, str) =>
-      val left = a.fa.softProduct(b.fa)
+      val left = a.fa.soft ~  b.fa
       val right = a.fa ~ b.fa
       val leftRes = left.parse(str).leftMap(_.expected)
       val rightRes = right.parse(str).leftMap(_.expected)

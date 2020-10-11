@@ -26,7 +26,7 @@ object Padding {
   def parser[T](p: P1[T]): P1[Padding[T]] = {
     val spacing = (maybeSpace.with1 ~ Parser.newline).backtrack.void.rep
 
-    spacing.with1.softProduct(p)
+    (spacing.with1.soft ~ p)
       .map { case (vec, t) => Padding(vec.size, t) }
   }
 

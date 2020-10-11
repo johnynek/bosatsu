@@ -95,7 +95,7 @@ object ListLang {
         }
 
     val commaCons = P.char(',') *> maybeSpacesAndLines *> consTail
-    val inner = commaCons.orElse(spacesAndLines *> commaCons.orElse(comp))
+    val inner = commaCons.orElse(spacesAndLines.soft *> commaCons.orElse(comp))
 
     (left *> maybeSpacesAndLines *> (fa ~ inner.?).? <* maybeSpacesAndLines <* right)
       .map {

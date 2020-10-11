@@ -688,9 +688,11 @@ object Declaration {
   case class DictDecl(list: ListLang[KVPair, NonBinding, Pattern.Parsed])(implicit val region: Region) extends NonBinding
 
   val matchKindParser: P1[RecursionKind] =
-    (P.string1("match")
+    P.string1("match")
       .as(RecursionKind.NonRecursive)
-      .orElse1(P.string1("recur").as(RecursionKind.Recursive)) <* Parser.spaces.peek)
+      .orElse1(
+        P.string1("recur")
+        .as(RecursionKind.Recursive)).soft <* Parser.spaces.peek
 
   /**
    * A pattern can also be a declaration in some cases
@@ -754,13 +756,13 @@ object Declaration {
       case _ => None
     }
 
+  val eqP: P[Unit] = P.char('=') <* (!Operators.multiToksP)
   /**
    * if cutPattern = false, we put Pattern.bindParser in NoCut
    * this is needed for parsing declarations currently because
    * patterns and some Declarations are ambiguous, so only the = signals them
    */
   def bindingParser[T](parser: Indy[NonBinding], cutPattern: Boolean): Indy[T => BindingStatement[Pattern.Parsed, NonBinding, T]] = {
-    val eqP: P[Unit] = P.char('=') <* (!Operators.multiToksP)
     val patPart = Pattern.bindParser <* maybeSpace <* eqP
     val cutOrNot = if (cutPattern) patPart else patPart.backtrack
     val pat: Indy[Pattern.Parsed] = Indy.lift(cutOrNot)
@@ -965,7 +967,7 @@ object Declaration {
       val recComp: P1[NonBinding] = P.defer1(rec((ParseMode.ComprehensionSource, indent))).asInstanceOf[P1[NonBinding]]
 
       val tupOrPar: P1[NonBinding] =
-        Parser.parens((recNonBind
+        Parser.parens(((recNonBind <* (!(maybeSpace ~ eqP)))
           .tupleOrParens0
           .map {
             case Left(p) => { r: Region =>  Parens(p)(r) }
