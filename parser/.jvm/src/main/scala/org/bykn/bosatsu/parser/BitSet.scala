@@ -8,7 +8,7 @@ object BitSetUtil {
   @inline final val isScalaJs = false
   @inline final val isScalaJvm = true
 
-  @inline def isSet(b: BitSet, idx: Int): Boolean =
+  @inline final def isSet(b: BitSet, idx: Int): Boolean =
     // BitSet can't deal with negatives, so mask those out
     b.get(idx & Int.MaxValue)
 

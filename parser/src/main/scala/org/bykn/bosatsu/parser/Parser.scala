@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.parser
 
 import cats.{Eval, Monad, Defer, Alternative, FlatMap, Now, MonoidK, Order}
-import cats.data.NonEmptyList
+import cats.data.{Chain, NonEmptyList}
 
 import cats.implicits._
 
@@ -23,7 +23,7 @@ sealed abstract class Parser[+A] {
     val err = state.error
     val offset = state.offset
     if (err eq null) Right((str.substring(offset), result))
-    else Left(Parser.Error(offset, Parser.Expectation.unify(err)))
+    else Left(Parser.Error(offset, Parser.Expectation.unify(NonEmptyList.fromListUnsafe(err.toList))))
   }
 
   def ? : Parser[Option[A]] =
@@ -78,6 +78,13 @@ sealed abstract class Parser[+A] {
   def with1: Parser.With1[A] =
     new Parser.With1(this)
 
+  /**
+   * If we can parse this then that, do so,
+   * if we fail that without consuming, rewind
+   * before this without consuming.
+   * If either consume 1 or more, do not rewind
+   */
+  def soft: Parser.Soft[A] = new Parser.Soft(this)
 
   /**
    * A parser that succeeds consuming nothing if this
@@ -116,6 +123,13 @@ sealed abstract class Parser1[+A] extends Parser[A] {
   override def ~[B](that: Parser[B]): Parser1[(A, B)] =
     Parser.product10(this, that)
 
+  def *>[B](that: Parser[B]): Parser1[B] =
+    (this ~ that).map(_._2)
+
+  def <*[B](that: Parser[B]): Parser1[A] =
+    (this ~ that).map(_._1)
+
+
   override def map[B](fn: A => B): Parser1[B] =
     Parser.map1(this)(fn)
 
@@ -145,6 +159,13 @@ sealed abstract class Parser1[+A] extends Parser[A] {
     Parser.rep(this)
 
   /**
+   * Repeat min, with min >= 0, or more times
+   */
+  def rep(min: Int): Parser[List[A]] =
+    if (min == 0) rep
+    else rep1(min).map(_.toList)
+
+  /**
    * Repeat one or more times
    */
   def rep1: Parser1[NonEmptyList[A]] =
@@ -155,12 +176,19 @@ sealed abstract class Parser1[+A] extends Parser[A] {
    */
   def rep1(min: Int): Parser1[NonEmptyList[A]] =
     Parser.rep1(this, min = min)
+
+  /**
+   * If we can parse this then that, do so,
+   * if we fail that without consuming, rewind
+   * before this without consuming.
+   * If either consume 1 or more, do not rewind
+   */
+  override def soft: Parser.Soft1[A] = new Parser.Soft1(this)
 }
 
 object Parser extends ParserInstances {
   sealed abstract class Expectation {
     def offset: Int
-    def toNEL: NonEmptyList[Expectation] = NonEmptyList(this, Nil)
   }
 
   object Expectation {
@@ -172,7 +200,7 @@ object Parser extends ParserInstances {
     case class Length(offset: Int, expected: Int, actual: Int) extends Expectation
     case class ExpectedFailureAt(offset: Int, matched: String) extends Expectation
     // this is the result of oneOf(Nil) at a given location
-    case class EmptyOneOf(offset: Int) extends Expectation
+    case class Fail(offset: Int) extends Expectation
 
     implicit val catsOrderExpectation: Order[Expectation] =
       new Order[Expectation] {
@@ -203,11 +231,11 @@ object Parser extends ParserInstances {
                 if (c1 == 0) Integer.compare(a1, a2)
                 else c1
               case (Length(_, _, _), _) => -1
-              case (ExpectedFailureAt(_, _), EmptyOneOf(_)) => -1
+              case (ExpectedFailureAt(_, _), Fail(_)) => -1
               case (ExpectedFailureAt(_, m1), ExpectedFailureAt(_, m2)) =>
                 m1.compare(m2)
               case (ExpectedFailureAt(_, _), _) => 1
-              case (EmptyOneOf(_), _) => 1
+              case (Fail(_), _) => 1
             }
           }
         }
@@ -218,45 +246,31 @@ object Parser extends ParserInstances {
      * This is called just before finally returning an error in Parser.parse
      */
     def unify(errors: NonEmptyList[Expectation]): NonEmptyList[Expectation] = {
-      val nonFails =
+      // merge all the ranges:
+      val rangeMerge: List[InRange] =
         errors
           .toList
-          .distinct
-          .filter {
-            case EmptyOneOf(_) => false
-            case _ => true
+          .collect { case InRange(o, l, u) => (o, l to u) }
+          .groupBy(_._1)
+          .iterator
+          .flatMap { case (o, ranges) =>
+            // TODO: this could be optimized to not enumerate the set
+            // for instance, a cheap thing to do is see if they
+            // overlap or not
+            val ary = ranges.iterator.map(_._2).flatten.toArray
+            java.util.Arrays.sort(ary)
+            Impl.rangesFor(ary)
+              .map { case (l, u) => InRange(o, l, u) }
+              .toList
           }
+          .toList
 
-      if (nonFails.isEmpty) {
-        // there are only EmptyOneOf
-        // take the maximum one
-        NonEmptyList(errors.maximum, Nil)
-      }
+      if (rangeMerge.isEmpty) errors.distinct.sorted
       else {
-        // merge all the ranges:
-        val rangeMerge: List[InRange] =
-          nonFails
-            .collect { case InRange(o, l, u) => (o, l to u) }
-            .groupBy(_._1)
-            .iterator
-            .flatMap { case (o, ranges) =>
-              // TODO: this could be optimized to not enumerate the set
-              // for instance, a cheap thing to do is see if they
-              // overlap or not
-              val ary = ranges.iterator.map(_._2).flatten.toArray
-              java.util.Arrays.sort(ary)
-              Impl.rangesFor(ary)
-                .map { case (l, u) => InRange(o, l, u) }
-                .toList
-            }
-            .toList
-
-        val nonFailsRanges =
-          if (rangeMerge.isEmpty) nonFails
-          else nonFails.filterNot(_.isInstanceOf[InRange])
+        val nonRanges = errors.toList.filterNot(_.isInstanceOf[InRange])
 
         NonEmptyList.fromListUnsafe(
-          rangeMerge ::: nonFailsRanges
+          (rangeMerge reverse_::: nonRanges).distinct
         )
         .sorted
       }
@@ -280,24 +294,80 @@ object Parser extends ParserInstances {
      * of extra work is you already know the result as is
      * the case for ~
      */
-     def flatMap[B](fn: A => Parser1[B]): Parser1[B] =
-        Parser.flatMap01(parser)(fn)
+    def flatMap[B](fn: A => Parser1[B]): Parser1[B] =
+       Parser.flatMap01(parser)(fn)
 
-     def *>[B](that: Parser1[B]): Parser1[B] =
-       product01(void(parser), that).map(_._2)
+    def *>[B](that: Parser1[B]): Parser1[B] =
+      product01(void(parser), that).map(_._2)
 
-     def <*[B](that: Parser1[B]): Parser1[A] =
-       product01(parser, void1(that)).map(_._1)
+    def <*[B](that: Parser1[B]): Parser1[A] =
+      product01(parser, void1(that)).map(_._1)
+
+    /**
+     * If we can parse this then that, do so,
+     * if we fail that without consuming, rewind
+     * before this without consuming.
+     * If either consume 1 or more, do not rewind
+     */
+    def soft: Soft01[A] = new Soft01(parser)
+  }
+
+  /**
+   * If we can parse this then that, do so,
+   * if we fail that without consuming, rewind
+   * before this without consuming.
+   * If either consume 1 or more, do not rewind
+   */
+  sealed class Soft[+A](parser: Parser[A]) {
+    def ~[B](that: Parser[B]): Parser[(A, B)] =
+      softProduct(parser, that)
+
+    def *>[B](that: Parser[B]): Parser[B] =
+      softProduct(void(parser), that).map(_._2)
+
+    def <*[B](that: Parser[B]): Parser[A] =
+      softProduct(parser, void(that)).map(_._1)
+  }
+  final class Soft1[+A](parser: Parser1[A]) extends Soft(parser) {
+    override def ~[B](that: Parser[B]): Parser1[(A, B)] =
+      softProduct10(parser, that)
+
+    override def *>[B](that: Parser[B]): Parser1[B] =
+      softProduct10(void1(parser), that).map(_._2)
+
+    override def <*[B](that: Parser[B]): Parser1[A] =
+      softProduct10(parser, void(that)).map(_._1)
+  }
+  final class Soft01[+A](val parser: Parser[A]) extends AnyVal {
+    def ~[B](that: Parser1[B]): Parser1[(A, B)] =
+      softProduct01(parser, that)
+
+    def *>[B](that: Parser1[B]): Parser1[B] =
+      softProduct01(void(parser), that).map(_._2)
+
+    def <*[B](that: Parser1[B]): Parser1[A] =
+      softProduct01(parser, void1(that)).map(_._1)
   }
 
   def pure[A](a: A): Parser[A] =
     Impl.Pure(a)
 
   /**
-   * this is an error if string is empty
+   * Parse a given string or
+   * fail. This backtracks on failure
+   * this is an error if the string is empty
    */
-  def expect(str: String): Parser1[Unit] =
-    Impl.Expect(str)
+  def string1(str: String): Parser1[Unit] =
+    if (str.length == 1) char(str.charAt(0))
+    else Impl.Str(str)
+
+  /**
+   * Parse a potentially empty string or
+   * fail. This backtracks on failure
+   */
+  def string(str: String): Parser[Unit] =
+    if (str.length == 0) unit
+    else string1(str)
 
   def oneOf1[A](parsers: List[Parser1[A]]): Parser1[A] = {
     @annotation.tailrec
@@ -306,13 +376,17 @@ object Parser extends ParserInstances {
         case Nil => acc.reverse.distinct
         case Impl.OneOf1(ps) :: rest =>
           flatten(ps ::: rest, acc)
+        case Impl.Fail() :: rest =>
+          flatten(rest, acc)
         case notOneOf :: rest =>
           flatten(rest, notOneOf :: acc)
       }
 
-    flatten(parsers, Nil) match {
-      case h :: Nil => h
-      case nel => Impl.OneOf1(Impl.mergeCharIn[A, Parser1[A]](nel))
+    val flat = flatten(parsers, Nil)
+    Impl.mergeCharIn[A, Parser1[A]](flat) match {
+      case Nil => fail
+      case p :: Nil => p
+      case two => Impl.OneOf1(two)
     }
   }
 
@@ -325,13 +399,17 @@ object Parser extends ParserInstances {
           flatten(ps ::: rest, acc)
         case Impl.OneOf1(ps) :: rest =>
           flatten(ps ::: rest, acc)
+        case Impl.Fail() :: rest =>
+          flatten(rest, acc)
         case notOneOf :: rest =>
           flatten(rest, notOneOf :: acc)
       }
 
-    flatten(ps, Nil) match {
-      case h :: Nil => h
-      case nel => Impl.OneOf(Impl.mergeCharIn[A, Parser[A]](nel))
+    val flat = flatten(ps, Nil)
+    Impl.mergeCharIn[A, Parser[A]](flat) match {
+      case Nil => fail
+      case p :: Nil => p
+      case two => Impl.OneOf(two)
     }
   }
 
@@ -362,6 +440,28 @@ object Parser extends ParserInstances {
   def rep1[A](p1: Parser1[A], min: Int): Parser1[NonEmptyList[A]] =
     Impl.Rep1(p1, min)
 
+  /**
+   *
+   * Repeat 1 or more times with a separator
+   */
+  def rep1Sep[A](p1: Parser1[A], min: Int, sep: Parser[Any]): Parser1[NonEmptyList[A]] = {
+    if (min <= 0) throw new IllegalArgumentException(s"require min > 0, found: $min")
+
+    val rest = (sep.void.with1.soft *> p1).rep(min - 1)
+    (p1 ~ rest).map { case (h, t) => NonEmptyList(h, t) }
+  }
+
+  /**
+   * Repeat 0 or more times with a separator
+   */
+  def repSep[A](p1: Parser1[A], min: Int, sep: Parser[Any]): Parser[List[A]] = {
+    if (min <= 0) rep1Sep(p1, 1, sep).?.map {
+      case None => Nil
+      case Some(nel) => nel.toList
+    }
+    else rep1Sep(p1, min, sep).map(_.toList)
+  }
+
   def product10[A, B](first: Parser1[A], second: Parser[B]): Parser1[(A, B)] =
     Impl.Prod1(first, second)
 
@@ -370,6 +470,15 @@ object Parser extends ParserInstances {
 
   def product[A, B](first: Parser[A], second: Parser[B]): Parser[(A, B)] =
     Impl.Prod(first, second)
+
+  def softProduct10[A, B](first: Parser1[A], second: Parser[B]): Parser1[(A, B)] =
+    Impl.SoftProd1(first, second)
+
+  def softProduct01[A, B](first: Parser[A], second: Parser1[B]): Parser1[(A, B)] =
+    Impl.SoftProd1(first, second)
+
+  def softProduct[A, B](first: Parser[A], second: Parser[B]): Parser[(A, B)] =
+    Impl.SoftProd(first, second)
 
   def map[A, B](p: Parser[A])(fn: A => B): Parser[B] =
     Impl.Map(p, fn)
@@ -398,18 +507,22 @@ object Parser extends ParserInstances {
   def defer[A](pa: => Parser[A]): Parser[A] =
     Impl.Defer(() => pa)
 
-  val Fail: Parser1[Nothing] = oneOf1(Nil)
-
+  val Fail: Parser1[Nothing] = Impl.Fail()
   def fail[A]: Parser1[A] = Fail
 
-  def charIn(c0: Char, cs: Char*): Parser1[Char] =
-    charIn(c0 :: cs.toList)
+  val unit: Parser[Unit] = pure(())
 
   /**
    * Parse 1 character from the string
    */
   def anyChar: Parser1[Char] =
     Impl.AnyChar
+
+  def char(c: Char): Parser1[Unit] =
+    charIn(c).void
+
+  def charIn(c0: Char, cs: Char*): Parser1[Char] =
+    charIn(c0 :: cs.toList)
 
   /**
    * An empty iterable is the same as fail
@@ -430,6 +543,22 @@ object Parser extends ParserInstances {
   def charWhere(fn: Char => Boolean): Parser1[Char] =
     charIn(Impl.allChars.filter(fn))
 
+  /**
+   * Parse a string while the given function is true
+   */
+  def charsWhile(fn: Char => Boolean): Parser[String] =
+    charWhere(fn).rep.string
+
+  /**
+   * Parse a string while the given function is true
+   * parses at least one character
+   */
+  def charsWhile1(fn: Char => Boolean): Parser1[String] =
+    charWhere(fn).rep1.string
+
+  def until(p: Parser[Any]): Parser[String] =
+    (not(p).with1 ~ anyChar).rep.string
+
   def void[A](pa: Parser[A]): Parser[Unit] =
     pa match {
       case v@Impl.Void(_) => v
@@ -444,7 +573,7 @@ object Parser extends ParserInstances {
   def void1[A](pa: Parser1[A]): Parser1[Unit] =
     pa match {
       case v@Impl.Void1(_) => v
-      case p: Impl.Expect => p
+      case p: Impl.Str => p
       case notVoid => Impl.Void1(Impl.unmap1(pa))
     }
 
@@ -474,6 +603,9 @@ object Parser extends ParserInstances {
    * it succeeds, basically rewind on success
    */
   def peek(pa: Parser[Any]): Parser[Unit] =
+    // TODO: we can adjust Rep/Rep1 to do minimal
+    // work since we rewind after we are sure there is
+    // a match
     Impl.Peek(void(pa))
 
   /**
@@ -514,7 +646,7 @@ object Parser extends ParserInstances {
   def backtrack1[A](pa: Parser1[A]): Parser1[A] =
     pa match {
       case bt: Impl.Backtrack1[A] => bt
-      case Impl.AnyChar | Impl.CharIn(_, _, _) | Impl.Expect(_) | Impl.Length(_) =>
+      case Impl.AnyChar | Impl.CharIn(_, _, _) | Impl.Str(_) | Impl.Length(_) =>
         // these already backtrack (either nothing or everything)
         pa
       case nbt => Impl.Backtrack1(nbt)
@@ -598,10 +730,12 @@ object Parser extends ParserInstances {
         case Backtrack(p) => Backtrack(unmap(p))
         case OneOf(ps) => OneOf(ps.map(unmap))
         case Prod(p1, p2) => Prod(unmap(p1), unmap(p2))
+        case SoftProd(p1, p2) => SoftProd(unmap(p1), unmap(p2))
         case Defer(fn) =>
           Defer(() => unmap(compute(fn)))
         case Rep(p) => Rep(unmap1(p))
-        case Pure(_) | Index | StartParser | EndParser | TailRecM(_, _) | FlatMap(_, _) =>
+        case Pure(_) => Parser.unit
+        case Index | StartParser | EndParser | TailRecM(_, _) | FlatMap(_, _) =>
           // we can't transform this significantly
           pa
       }
@@ -627,10 +761,11 @@ object Parser extends ParserInstances {
         case Backtrack1(p) => Backtrack1(unmap1(p))
         case OneOf1(ps) => OneOf1(ps.map(unmap1))
         case Prod1(p1, p2) => Prod1(unmap(p1), unmap(p2))
+        case SoftProd1(p1, p2) => SoftProd1(unmap(p1), unmap(p2))
         case Defer1(fn) =>
           Defer1(() => unmap1(compute1(fn)))
         case Rep1(p, m) => Rep1(unmap1(p), m)
-        case AnyChar | CharIn(_, _, _) | Expect(_) | Length(_) | TailRecM1(_, _) | FlatMap1(_, _) =>
+        case AnyChar | CharIn(_, _, _) | Str(_) | Fail() | Length(_) | TailRecM1(_, _) | FlatMap1(_, _) =>
           // we can't transform this significantly
           pa
 
@@ -638,7 +773,7 @@ object Parser extends ParserInstances {
 
     final class State(val str: String) {
       var offset: Int = 0
-      var error: NonEmptyList[Expectation] = null
+      var error: Chain[Expectation] = null
       var capture: Boolean = true
     }
 
@@ -658,7 +793,7 @@ object Parser extends ParserInstances {
           res
         }
         else {
-          state.error = Expectation.Length(offset, len, state.str.length - offset).toNEL
+          state.error = Chain.one(Expectation.Length(offset, len, state.str.length - offset))
           null
         }
       }
@@ -705,7 +840,7 @@ object Parser extends ParserInstances {
     case object StartParser extends Parser[Unit] {
       override def parseMut(state: State): Unit = {
         if (state.offset != 0) {
-          state.error = Expectation.StartOfString(state.offset).toNEL
+          state.error = Chain.one(Expectation.StartOfString(state.offset))
         }
         ()
       }
@@ -714,7 +849,7 @@ object Parser extends ParserInstances {
     case object EndParser extends Parser[Unit] {
       override def parseMut(state: State): Unit = {
         if (state.offset != state.str.length) {
-          state.error = Expectation.EndOfString(state.offset, state.str.length).toNEL
+          state.error = Chain.one(Expectation.EndOfString(state.offset, state.str.length))
         }
         ()
       }
@@ -743,7 +878,7 @@ object Parser extends ParserInstances {
         Impl.backtrack(parser, state)
     }
 
-    case class Expect(message: String) extends Parser1[Unit] {
+    case class Str(message: String) extends Parser1[Unit] {
       if (message.isEmpty) throw new IllegalArgumentException("we need a non-empty string to expect a message")
 
       override def parseMut(state: State): Unit = {
@@ -753,16 +888,23 @@ object Parser extends ParserInstances {
           ()
         }
         else {
-          state.error = Expectation.Str(offset, message).toNEL
+          state.error = Chain.one(Expectation.Str(offset, message))
           ()
         }
+      }
+    }
+
+    case class Fail[A]() extends Parser1[A] {
+      override def parseMut(state: State): A = {
+        state.error = Chain.one(Expectation.Fail(state.offset));
+        null.asInstanceOf[A]
       }
     }
 
     final def oneOf[A](all: List[Parser[A]], state: State): A = {
       var ps = all
       val offset = state.offset
-      var errs: List[Expectation] = Nil
+      var errs: Chain[Expectation] = Chain.nil
       while (ps.nonEmpty) {
         val thisParser = ps.head
         ps = ps.tail
@@ -776,25 +918,23 @@ object Parser extends ParserInstances {
           // we failed to parse, but didn't consume input
           // is unchanged we continue
           // else we stop
-          errs = state.error.toList reverse_::: errs
+          errs = errs ++ state.error
           state.error = null
         }
       }
       // if we got here, all of them failed, but we
       // never advanced the offset
-      state.error =
-        NonEmptyList.fromList(errs.reverse) match {
-          case None => Expectation.EmptyOneOf(offset).toNEL
-          case Some(errsNEL) => errsNEL
-        }
+      state.error = errs
       null.asInstanceOf[A]
     }
 
     case class OneOf1[A](all: List[Parser1[A]]) extends Parser1[A] {
+      require(all.lengthCompare(2) >= 0, s"expected more than two items, found: ${all.size}")
       override def parseMut(state: State): A = oneOf(all, state)
     }
 
     case class OneOf[A](all: List[Parser[A]]) extends Parser[A] {
+      require(all.lengthCompare(2) >= 0, s"expected more than two items, found: ${all.size}")
       override def parseMut(state: State): A = oneOf(all, state)
     }
 
@@ -810,11 +950,42 @@ object Parser extends ParserInstances {
 
     // we know that at least one of first | second is Parser1
     case class Prod1[A, B](first: Parser[A], second: Parser[B]) extends Parser1[(A, B)] {
+      require(first.isInstanceOf[Parser1[_]] || second.isInstanceOf[Parser1[_]])
       override def parseMut(state: State): (A, B) = prod(first, second, state)
     }
 
     case class Prod[A, B](first: Parser[A], second: Parser[B]) extends Parser[(A, B)] {
       override def parseMut(state: State): (A, B) = prod(first, second, state)
+    }
+
+    final def softProd[A, B](pa: Parser[A], pb: Parser[B], state: State): (A, B) = {
+      val offset = state.offset
+      val a = pa.parseMut(state)
+      if (state.error eq null) {
+        val offseta = state.offset
+        val b = pb.parseMut(state)
+        // pa passed, if pb fails without consuming, rewind to offset
+        if (state.error ne null) {
+          if (state.offset == offseta) {
+            state.offset = offset
+          }
+          // else partial parse of b, don't rewind
+          null
+        }
+        else if (state.capture) (a, b)
+        else null
+      }
+      else null
+    }
+
+    // we know that at least one of first | second is Parser1
+    case class SoftProd1[A, B](first: Parser[A], second: Parser[B]) extends Parser1[(A, B)] {
+      require(first.isInstanceOf[Parser1[_]] || second.isInstanceOf[Parser1[_]])
+      override def parseMut(state: State): (A, B) = softProd(first, second, state)
+    }
+
+    case class SoftProd[A, B](first: Parser[A], second: Parser[B]) extends Parser[(A, B)] {
+      override def parseMut(state: State): (A, B) = softProd(first, second, state)
     }
 
     final def map[A, B](parser: Parser[A], fn: A => B, state: State): B = {
@@ -1041,7 +1212,7 @@ object Parser extends ParserInstances {
           char
         }
         else {
-          state.error = Expectation.InRange(offset, Char.MinValue, Char.MaxValue).toNEL
+          state.error = Chain.one(Expectation.InRange(offset, Char.MinValue, Char.MaxValue))
           '\u0000'
         }
       }
@@ -1051,8 +1222,8 @@ object Parser extends ParserInstances {
 
       override def toString = s"CharIn($min, bitSet = ..., $ranges)"
 
-      def makeError(offset: Int): NonEmptyList[Expectation] =
-        ranges.map { case (s, e) => Expectation.InRange(offset, s, e) }
+      def makeError(offset: Int): Chain[Expectation] =
+        Chain.fromSeq(ranges.toList.map { case (s, e) => Expectation.InRange(offset, s, e) })
 
       override def parseMut(state: State): Char = {
         val offset = state.offset
@@ -1094,7 +1265,8 @@ object Parser extends ParserInstances {
           val matchedStr = state.str.substring(offset, state.offset)
           // we don't reset the offset, so if the underlying parser
           // advanced it will fail in a OneOf
-          state.error = Expectation.ExpectedFailureAt(offset, matchedStr).toNEL
+          state.error = Chain.one(Expectation.ExpectedFailureAt(offset, matchedStr))
+          state.offset = offset
         }
 
         ()
