@@ -273,6 +273,7 @@ object LetFreeConversion {
     def toStruct(t: T, df: DataFamily): Option[(Int, List[T])]
     def toList(t: T): Option[List[T]]
     def fromList(lst: List[T]): T
+    def fromString(str: String): T
     def maybeBind(pat: LetFreePattern): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]]
   
     val apply: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = pat match {
@@ -465,7 +466,29 @@ object LetFreeConversion {
             }
             result
         }
-        case LetFreePattern.StrPat(parts) => {(v, env) => NotProvable}
+        case LetFreePattern.StrPat(parts) =>
+          val listParts: List[LetFreePattern.ListPart] = parts.toList.flatMap {
+            case LetFreePattern.StrPart.WildStr => List(Left(None))
+            case LetFreePattern.StrPart.NamedStr(n) => List(Left(Some(n)))
+            case LetFreePattern.StrPart.LitStr(str) => str.toList.map(c => Right(LetFreePattern.Literal(Lit.Str(str))))
+          }
+          val listMaybeBind = maybeBind(LetFreePattern.ListPat(listParts))
+          (v, env) => toLitValue(v) match {
+              case None => NotProvable
+              case Some(LitValue(str)) => listMaybeBind(fromList(str.asInstanceOf[String].toList.map(c => fromString(c.toString))), IntMap.empty) match {
+                case Matches(listEnv) => {
+                  val strEnv: PatternEnv[T] = listEnv.map { case (i, lst) => 
+                    val str = toList(lst).get
+                      .flatMap(toLitValue(_))
+                      .map(lv => lv.toAny.asInstanceOf[String])
+                      .mkString
+                    (i -> fromString(str))
+                  }
+                  Matches(env ++ strEnv)
+                }
+                case noMatch => noMatch
+              }
+            }       
     }
   }
 
@@ -474,6 +497,7 @@ object LetFreeConversion {
     def toStruct(t: LetFreeExpression, df: DataFamily): Option[(Int, List[LetFreeExpression])] = neToStruct(t, df)
     def toList(t: LetFreeExpression): Option[List[LetFreeExpression]] = neToList(t)
     def fromList(lst: List[LetFreeExpression]): LetFreeExpression = neFromList(lst)
+    def fromString(str: String): LetFreeExpression = LetFreeExpression.Literal(Lit.Str(str))
     def maybeBind(pat: LetFreePattern): (LetFreeExpression, PatternEnv[LetFreeExpression]) => PatternMatch[PatternEnv[LetFreeExpression]] = LetFreeExpressionMaybeBind(pat).apply(_, _)
   }
   def findMatch(m: LetFreeExpression.Match) =
