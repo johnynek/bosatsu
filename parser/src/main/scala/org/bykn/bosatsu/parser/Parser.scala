@@ -31,6 +31,22 @@ sealed abstract class Parser[+A] {
   }
 
   /**
+   * Parse all or fail
+   * same as (this <* Parser.end).map(_._2)
+   */
+  final def parseAll(str: String): Either[Parser.Error, A] = {
+    val state = new Parser.Impl.State(str)
+    val result = parseMut(state)
+    val err = state.error
+    val offset = state.offset
+    if (err eq null) {
+      if (offset == str.length) Right(result)
+      else Left(Parser.Error(offset, NonEmptyList(Parser.Expectation.EndOfString(offset, str.length), Nil)))
+    }
+    else Left(Parser.Error(offset, Parser.Expectation.unify(NonEmptyList.fromListUnsafe(err.toList))))
+  }
+
+  /**
    * If this returns an epsilon failure, change to success with
    * a value of None, else Some for the parsed value
    */
@@ -732,13 +748,18 @@ object Parser extends ParserInstances {
 
     val optTail: List[Parser[Option[Nothing]]] = Parser.pure(None) :: Nil
 
+    final def doesBacktrackCheat(p: Parser[Any]): Boolean =
+      doesBacktrack(p)
+
     @annotation.tailrec
-    final def doesBacktrack[A](p: Parser[A]): Boolean =
+    final def doesBacktrack(p: Parser[Any]): Boolean =
       p match {
         case Backtrack(_) | Backtrack1(_) | AnyChar | CharIn(_, _, _) | Str(_) | Length(_) |
           StartParser | EndParser | Index | Pure(_) => true
         case Map(p, _) => doesBacktrack(p)
         case Map1(p, _) => doesBacktrack(p)
+        case SoftProd(a, b) => doesBacktrackCheat(a) && doesBacktrack(b)
+        case SoftProd1(a, b) => doesBacktrackCheat(a) && doesBacktrack(b)
         case _ => false
       }
 
