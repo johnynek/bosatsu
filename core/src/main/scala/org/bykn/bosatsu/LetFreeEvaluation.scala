@@ -175,7 +175,7 @@ object LetFreeEvaluation {
     }
     Some(loop(normalValue, Nil).reverse)
   }
-  implicit def nvFromList(
+  def nvFromList(
       implicit extEnv: ExtEnv,
       cache: Cache
   ): List[LetFreeValue] => LetFreeValue = { scope =>
@@ -306,6 +306,7 @@ object LetFreeEvaluation {
     def toStruct(t: LetFreeValue, df: DataFamily) = nvToStruct(extEnv, cache)(t, df)
     def toList(t: LetFreeValue): Option[List[LetFreeValue]] = nvToList(extEnv, cache)(t)
     def fromList(lst: List[LetFreeValue]): LetFreeValue = nvFromList(extEnv, cache)(lst)
+    def fromString(str: String): LetFreeValue = LazyValue(LetFreeExpression.Literal(Lit.Str(str)), Nil, Eval.now(Value.Str(str)))
     def maybeBind(pat: LetFreePattern) = LetFreeValueMaybeBind(pat).apply(_, _)
   }
 
