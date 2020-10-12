@@ -1,11 +1,9 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import cats.implicits._
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 
-import FastParseCats.StringInstances._
 /**
  * Represents a commented thing. Commented[A] would probably
  * be a better name
@@ -25,15 +23,20 @@ object CommentStatement {
   /** on should make sure indent is matching
    * this is to allow a P[Unit] that does nothing for testing or other applications
    */
-  def parser[T](onP: Parser.Indy[T]): Parser.Indy[CommentStatement[T]] = Parser.Indy { indent =>
-    val commentBlock: P[NonEmptyList[String]] =
-      P(commentPart ~ ("\n" ~ indent ~ commentPart).rep() ~ ("\n" | End))
-        .map { case (c1, cs) => NonEmptyList(c1, cs.toList) }
+  def parser[T](onP: String => P[T]): Parser.Indy[CommentStatement[T]] =
+    Parser.Indy { indent =>
+      val sep = Parser.newline ~ Parser.indentation(indent)
 
-    P(commentBlock ~ onP(indent))
-      .map { case (m, on) => CommentStatement(m, on) }
-  }
+      val commentBlock: P1[NonEmptyList[String]] =
+        // if the next line is part of the comment until we see the # or not
+        P.rep1Sep(commentPart, min = 1, sep = sep) <* Parser.newline.orElse(P.end)
 
-  val commentPart: P[String] = P("#" ~/ CharsWhile(_ != '\n').?.!)
+      (commentBlock ~ onP(indent))
+        .map { case (m, on) => CommentStatement(m, on) }
+    }
+
+  val commentPart: P1[String] =
+    (P.char('#') ~ P.until(P.char('\n'))).map(_._2)
 }
+
 

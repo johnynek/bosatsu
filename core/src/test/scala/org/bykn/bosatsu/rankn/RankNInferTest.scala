@@ -12,8 +12,6 @@ import TestUtils.{checkLast, testPackage}
 
 import Identifier.Constructor
 
-import fastparse.all._
-
 class RankNInferTest extends FunSuite {
 
   val emptyRegion: Region = Region(0, 0)
@@ -30,13 +28,10 @@ class RankNInferTest extends FunSuite {
   def asFullyQualified(ns: Iterable[(Identifier, Type)]): Map[Infer.Name, Type] =
     ns.iterator.map { case (n, t) => ((Some(testPackage), n), t) }.toMap
 
-  def typeFrom(str: String): Type =
-    TypeRef.parser.parse(str) match {
-      case Parsed.Success(typeRef, _) =>
-        TypeRefConverter[cats.Id](typeRef)(strToConst(_))
-      case Parsed.Failure(exp, idx, extra) =>
-        sys.error(s"failed to parse: $str: $exp at $idx with trace: ${extra.traced.trace}")
-    }
+  def typeFrom(str: String): Type = {
+    val typeRef = Parser.unsafeParse(TypeRef.parser, str)
+    TypeRefConverter[cats.Id](typeRef)(strToConst(_))
+  }
 
   def runUnify(left: String, right: String) = {
     val t1 = typeFrom(left)
@@ -146,17 +141,14 @@ class RankNInferTest extends FunSuite {
   /**
    * Test that a program is ill-typed
    */
-  def parseProgramIllTyped(statement: String) =
-    Statement.parser.parse(statement) match {
-      case Parsed.Success(stmts, _) =>
-        Package.inferBody(testPackage, Nil, stmts) match {
-          case Ior.Left(_) | Ior.Both(_, _) => assert(true)
-          case Ior.Right(program) =>
-            fail("expected an invalid program, but got: " + program.lets.toString)
-        }
-      case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $statement: $exp at $idx with trace: ${extra.traced.trace}")
+  def parseProgramIllTyped(statement: String) = {
+    val stmts = Parser.unsafeParse(Statement.parser, statement)
+    Package.inferBody(testPackage, Nil, stmts) match {
+      case Ior.Left(_) | Ior.Both(_, _) => assert(true)
+      case Ior.Right(program) =>
+        fail("expected an invalid program, but got: " + program.lets.toString)
     }
+  }
 
   test("assert some basic unifications") {
     assertTypesUnify("forall a. a", "forall b. b")

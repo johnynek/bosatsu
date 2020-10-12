@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Applicative
 import cats.data.NonEmptyList
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 import org.bykn.bosatsu.pattern.{NamedSeqPattern, SeqPattern, SeqPart}
 
@@ -843,24 +843,23 @@ object Pattern {
     loop(p, None, env)
   }
 
-  private[this] val pwild = P("_").map(_ => WildCard)
-  private[this] val plit: P[Pattern[Nothing, Nothing]] = {
+  private[this] val pwild = P.char('_').as(WildCard)
+  private[this] val plit: P1[Pattern[Nothing, Nothing]] = {
     val intp = Lit.integerParser.map(Literal(_))
-    val start = P("${")
-    val end = P("}")
+    val start = P.string1("${")
+    val end = P.char('}')
 
-    val pwild = P("_").map(_ => StrPart.WildStr)
+    val pwild = P.char('_').as(StrPart.WildStr)
     val pname = Identifier.bindableParser.map(StrPart.NamedStr(_))
 
-    def strp(q: Char): P[List[StrPart]] = {
-      StringUtil.interpolatedString(q, start, pwild | pname, end)
+    def strp(q: Char): P1[List[StrPart]] =
+      StringUtil.interpolatedString(q, start, pwild.orElse(pname), end)
         .map(_.map {
           case Left(p) => p
           case Right((_, str)) => StrPart.LitStr(str)
         })
-    }
 
-    val eitherString = strp('\'') | strp('"')
+    val eitherString = strp('\'') <+> strp('"')
     // don't emit complex patterns for simple strings:
     val str = eitherString.map {
       case Nil => Literal(Lit.EmptyStr)
@@ -868,73 +867,74 @@ object Pattern {
       case h :: tail => StrPat(NonEmptyList(h, tail))
     }
 
-    str | intp
+    str <+> intp
   }
 
   /**
    * This does not allow a top-level type annotation which would be ambiguous
    * with : used for ending the match case block
    */
-  val matchParser: P[Parsed] =
-    P(matchOrNot(isMatch = true))
+  val matchParser: P1[Parsed] =
+    P.defer1(matchOrNot(isMatch = true))
 
   /**
    * A Pattern in a match position allows top level un-parenthesized type annotation
    */
-  val bindParser: P[Parsed] =
-    P(matchOrNot(isMatch = false))
+  val bindParser: P1[Parsed] =
+    P.defer1(matchOrNot(isMatch = false))
 
   private val maybePartial: P[(Constructor, StructKind.Style) => StructKind.NamedKind] = {
-    val partial = P(maybeSpace ~ "...").map { _ =>
+    val partial = (maybeSpace ~ P.string1("...")).backtrack.as(
       { (n: Constructor, s: StructKind.Style) => StructKind.NamedPartial(n, s) }
-    }
-    val notPartial = PassWith(
+    )
+
+    val notPartial = P.pure(
       { (n: Constructor, s: StructKind.Style) => StructKind.Named(n, s) }
     )
 
-    partial | notPartial
+    partial.orElse(notPartial)
   }
 
-  private def parseRecordStruct(recurse: P[Parsed]): P[Constructor => PositionalStruct[StructKind, TypeRef]] = {
+  private def parseRecordStruct(recurse: P[Parsed]): P1[Constructor => PositionalStruct[StructKind, TypeRef]] = {
     // We do maybeSpace, then { } then either a Bindable or Bindable: Pattern
     // maybe followed by ...
-    val item: P[Either[Bindable, (Bindable, Parsed)]] =
-      (Identifier.bindableParser ~ P(maybeSpace ~ ":" ~ maybeSpace ~ recurse).?)
+    val item: P1[Either[Bindable, (Bindable, Parsed)]] =
+      (Identifier.bindableParser ~ (((maybeSpace ~ P.char(':')).backtrack ~ maybeSpace) *> recurse).?)
         .map {
           case (b, None) => Left(b)
           case (b, Some(pat)) => Right((b, pat))
         }
 
     val items = item.nonEmptyList ~ maybePartial
-    (maybeSpace ~ P("{") ~ maybeSpace ~ items ~ maybeSpace ~ P("}"))
+    (((maybeSpace.with1 ~ P.char('{')).backtrack ~ maybeSpace) *> items <* (maybeSpace ~ P.char('}')))
       .map { case (args, fn) =>
         { (c: Constructor) => recordPat(c, args)(fn) }
       }
   }
 
-  private def parseTupleStruct(recurse: P[Parsed]): P[Constructor => PositionalStruct[StructKind, TypeRef]] = {
+  private def parseTupleStruct(recurse: P1[Parsed]): P1[Constructor => PositionalStruct[StructKind, TypeRef]] = {
     // There are three cases:
     // Foo(1 or more patterns)
     // Foo(1 or more patterns, ...)
     // Foo(...)
 
-    val oneOrMore = P(recurse.nonEmptyList.map(_.toList) ~ maybePartial)
-    val onlyPartial = P("...").map { _ =>
+    val oneOrMore = recurse.nonEmptyList.map(_.toList) ~ maybePartial
+    val onlyPartial = P.string1("...").as {
       (Nil, { (n: Constructor, s: StructKind.Style) => StructKind.NamedPartial(n, s) })
     }
 
-    (oneOrMore | onlyPartial)
-      .parens
+    (oneOrMore <+> onlyPartial)
+      .parensCut
       .map { case (args, fn) =>
         { (n: Constructor) => PositionalStruct(fn(n, StructKind.Style.TupleLike), args) }
       }
   }
 
-  private def matchOrNot(isMatch: Boolean): P[Parsed] = {
-    val recurse = P(bindParser)
+  private def matchOrNot(isMatch: Boolean): P1[Parsed] = {
+    val recurse = P.defer1(bindParser)
 
     val positional =
-      P(Identifier.consParser ~ (parseTupleStruct(recurse) | parseRecordStruct(recurse)).?)
+      (Identifier.consParser ~ (parseTupleStruct(recurse) <+> parseRecordStruct(recurse)).?)
         .map {
           case (n, None) =>
             PositionalStruct(StructKind.Named(n, StructKind.Style.TupleLike), Nil)
@@ -946,52 +946,52 @@ object Pattern {
       case Right(tup) => PositionalStruct(StructKind.Tuple, tup)
     }
 
-    val listItem: P[ListPart[Parsed]] = {
-      val maybeNamed: P[ListPart[Parsed]] =
-        P("_").map(_ => ListPart.WildList) |
-          Identifier.bindableParser.map(ListPart.NamedList(_))
+    val listItem: P1[ListPart[Parsed]] = {
+      val maybeNamed: P1[ListPart[Parsed]] =
+        P.char('_')
+          .as(ListPart.WildList)
+          .orElse1(Identifier.bindableParser.map(ListPart.NamedList(_)))
 
-      P("*" ~ maybeNamed) | recurse.map(ListPart.Item(_))
+      (P.char('*') *> maybeNamed) <+> recurse.map(ListPart.Item(_))
     }
 
     val listP = listItem.listSyntax.map(ListPat(_))
 
-    lazy val named: P[Parsed] =
-      P(maybeSpace ~ "@" ~ maybeSpace ~ nonAnnotated)
+    // The next three are depend on each other so must be lazy
+    lazy val named: P1[Parsed] =
+      P.defer1((maybeSpace.with1 *> P.char('@')).backtrack *> maybeSpace *> nonAnnotated)
 
     lazy val pvarOrName = (Identifier.bindableParser ~ named.?)
       .map {
         case (n, None) => Var(n)
         case (n, Some(p)) => Named(n, p)
       }
-    lazy val nonAnnotated = plit | pwild | tupleOrParens | positional | listP | pvarOrName
+
+    lazy val nonAnnotated =
+      P.defer1(P.oneOf1(plit :: pwild :: tupleOrParens :: positional :: listP :: pvarOrName :: Nil))
+
     // A union can't have an annotation, we need to be inside a parens for that
-    val unionOp: P[Parsed => Parsed] = {
+    val unionOp: P1[Parsed => Parsed] = {
+      val bar = P.char('|')
       val unionRest = nonAnnotated
-        .nonEmptyListOfWsSep(maybeSpace, P("|"), allowTrailing = false)
-      ("|" ~ maybeSpace ~ unionRest)
+        .nonEmptyListOfWsSep(maybeSpace, bar, allowTrailing = false)
+
+      ((maybeSpace.with1 *> bar).backtrack *> maybeSpace *> unionRest)
         .map { ne =>
           { pat: Parsed => union(pat, ne.toList) }
         }
     }
     val typeAnnotOp: P[Parsed => Parsed] = {
-      P(":" ~ maybeSpace ~ TypeRef.parser)
+      ((maybeSpace *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser)
         .map { tpe =>
           { pat: Parsed => Annotation(pat, tpe) }
         }
     }
 
-    def maybeOp(opP: P[Parsed => Parsed]): P[Parsed] =
-      (nonAnnotated ~ (maybeSpace ~ opP).?)
-        .map {
-          case (p, None) => p
-          case (p, Some(op)) => op(p)
-        }
-
     // We only allow type annotation not at the top level, must be inside
     // Struct or parens
-    if (isMatch) maybeOp(unionOp)
-    else maybeOp(unionOp | typeAnnotOp)
+    if (isMatch) nonAnnotated.maybeAp(unionOp)
+    else nonAnnotated.maybeAp(unionOp.orElse(typeAnnotOp))
   }
 }
 

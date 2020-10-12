@@ -159,7 +159,6 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         alleycats.value,
         cats.value,
         decline.value,
-        fastparse.value,
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,
@@ -177,7 +176,7 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
       scalacOptions += "-P:acyclic:force"
       */
   )
-  .dependsOn(base)
+  .dependsOn(base, parser)
   .jsSettings(commonJsSettings)
 
 lazy val coreJVM = core.jvm
@@ -209,6 +208,10 @@ lazy val bench = project
   .settings(
     publish := {},
     publishLocal := {},
+    libraryDependencies ++=
+      Seq(
+        fastparse.value
+      ),
     publishArtifact := false)
   .settings(coverageEnabled := false)
   .enablePlugins(JmhPlugin)

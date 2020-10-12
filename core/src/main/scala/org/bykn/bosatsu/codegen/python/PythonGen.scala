@@ -4,6 +4,7 @@ import org.typelevel.paiges.Doc
 import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import scala.concurrent.ExecutionContext
 
 import Identifier.Bindable
@@ -650,23 +651,20 @@ object PythonGen {
   //
   // { packageName: { bind: foo.bar.baz } }
   //
-  val externalParser: fastparse.all.P[List[(PackageName, Bindable, Module, Code.Ident)]] = {
-    import fastparse.all._
-
-    val identParser: P[Code.Ident] = Parser.py2Ident.map(Code.Ident(_))
-    val modParser: P[(Module, Code.Ident)] =
-      identParser
-        .rep(sep = P("."), min = 2)
+  val externalParser: P1[List[(PackageName, Bindable, Module, Code.Ident)]] = {
+    val identParser: P1[Code.Ident] = Parser.py2Ident.map(Code.Ident(_))
+    val modParser: P1[(Module, Code.Ident)] =
+      P.rep1Sep(identParser, min = 2, sep = P.char('.'))
         .map { items =>
-          // min = 1 ensures this is safe
+          // min = 2 ensures this is safe
           (NonEmptyList.fromListUnsafe(items.init.toList), items.last)
         }
 
-    val inner: P[List[(Bindable, (Module, Code.Ident))]] =
+    val inner: P1[List[(Bindable, (Module, Code.Ident))]] =
       Parser.dictLikeParser(Identifier.bindableParser, modParser)
 
-    val outer: P[List[(PackageName, List[(Bindable, (Module, Code.Ident))])]] =
-      Parser.dictLikeParser(PackageName.parser, inner) ~ Parser.maybeSpacesAndLines
+    val outer: P1[List[(PackageName, List[(Bindable, (Module, Code.Ident))])]] =
+      Parser.dictLikeParser(PackageName.parser, inner) <* Parser.maybeSpacesAndLines
 
     outer.map { items =>
       items.flatMap { case (p, bs) =>
