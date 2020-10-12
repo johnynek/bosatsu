@@ -46,7 +46,10 @@ sealed abstract class LetFreeExpression {
     case LetFreeExpression.App(fn, arg) => fn.varSet ++ arg.varSet
     case LetFreeExpression.ExternalVar(_, _, _) => Set()
     case LetFreeExpression.Match(arg, branches) => branches.map {
-      branch => branch._2.varSet.map(_ - LetFreePattern.varCount(0, List(branch._1))).filter(_ >= 0)
+      branch => {
+        val varCount = LetFreePattern.varCount(0, List(branch._1))
+        branch._2.varSet.map(_ - varCount).filter(_ >= 0)
+      }
     }.foldLeft(arg.varSet){ case (s1, s2) => s1 ++ s2 }
     case LetFreeExpression.Struct(enum, args, _) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.varSet }
     case LetFreeExpression.Literal(_) => Set()
@@ -132,6 +135,7 @@ sealed abstract class LetFreePattern {
 }
 
 object LetFreePattern {
+  @tailrec
   def varCount(floor: Int, patterns: List[LetFreePattern]): Int = patterns match {
     case head :: rest => head match {
       case LetFreePattern.WildCard => varCount(floor, rest)
@@ -147,9 +151,9 @@ object LetFreePattern {
       }
       case LetFreePattern.PositionalStruct(name, params, df) => varCount(name.getOrElse(floor).max(floor), params ++ rest)
       case LetFreePattern.Union(uHead, _) => varCount(floor, uHead :: rest)
-      case LetFreePattern.StrPat(parts) => parts.foldLeft(floor) {
-        case (n, LetFreePattern.StrPart.NamedStr(name)) => varCount(n.max(name+1), rest)
-        case (n, _) => varCount(n, rest)
+      case LetFreePattern.StrPat(parts) => {
+        val newFloor = (NonEmptyList.of(floor) ++ (parts.collect { case LetFreePattern.StrPart.NamedStr(name) => name+1})).maximum
+        varCount(newFloor, rest)
       }
     }
     case _ => floor
