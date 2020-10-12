@@ -1314,7 +1314,6 @@ object Parser extends ParserInstances {
         if (state.error ne null) {
           // under failed, so we succeed
           state.error = null
-          state.offset = offset
         }
         else {
           // under succeeded but we expected failure here
@@ -1322,9 +1321,9 @@ object Parser extends ParserInstances {
           // we don't reset the offset, so if the underlying parser
           // advanced it will fail in a OneOf
           state.error = Chain.one(Expectation.ExpectedFailureAt(offset, matchedStr))
-          state.offset = offset
         }
 
+        state.offset = offset
         ()
       }
     }
