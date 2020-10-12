@@ -674,6 +674,78 @@ class ParserTest extends munit.ScalaCheckSuite {
     }
   }
 
+  property("a.soft ~ b composes as expected") {
+    forAll(ParserGen.gen, ParserGen.gen, Arbitrary.arbitrary[String]) { (p1, p2, str) =>
+      val composed = p1.fa.soft ~ p2.fa
+      val cres = composed.parse(str)
+
+      val sequence =
+        for {
+          pair1 <- p1.fa.parse(str)
+          (s1, a1) = pair1
+          off = if (s1 == "") str.length else str.indexOf(s1)
+          // make the offsets the same
+          sfix = " " * off + s1
+          p3 = (Parser.length(off) ~ p2.fa).map(_._2)
+          pair2 <- (p3.parse(sfix).leftMap {
+            case Parser.Error(fidx, errs) if (fidx == off) => Parser.Error(0, errs)
+            case notEps2 => notEps2
+          })
+          (s2, a2) = pair2
+        } yield (s2, (a1, a2))
+
+      assertEquals(cres, sequence)
+    }
+  }
+
+  property("a1.soft ~ b composes as expected") {
+    forAll(ParserGen.gen1, ParserGen.gen, Arbitrary.arbitrary[String]) { (p1, p2, str) =>
+      val composed = p1.fa.soft ~ p2.fa
+      val cres = composed.parse(str)
+
+      val sequence =
+        for {
+          pair1 <- p1.fa.parse(str)
+          (s1, a1) = pair1
+          off = if (s1 == "") str.length else str.indexOf(s1)
+          // make the offsets the same
+          sfix = " " * off + s1
+          p3 = (Parser.length(off) ~ p2.fa).map(_._2)
+          pair2 <- (p3.parse(sfix).leftMap {
+            case Parser.Error(fidx, errs) if (fidx == off) => Parser.Error(0, errs)
+            case notEps2 => notEps2
+          })
+          (s2, a2) = pair2
+        } yield (s2, (a1, a2))
+
+      assertEquals(cres, sequence)
+    }
+  }
+
+  property("a.with1.soft ~ b1 composes as expected") {
+    forAll(ParserGen.gen, ParserGen.gen1, Arbitrary.arbitrary[String]) { (p1, p2, str) =>
+      val composed = p1.fa.with1.soft ~ p2.fa
+      val cres = composed.parse(str)
+
+      val sequence =
+        for {
+          pair1 <- p1.fa.parse(str)
+          (s1, a1) = pair1
+          off = if (s1 == "") str.length else str.indexOf(s1)
+          // make the offsets the same
+          sfix = " " * off + s1
+          p3 = (Parser.length(off) ~ p2.fa).map(_._2)
+          pair2 <- (p3.parse(sfix).leftMap {
+            case Parser.Error(fidx, errs) if (fidx == off) => Parser.Error(0, errs)
+            case notEps2 => notEps2
+          })
+          (s2, a2) = pair2
+        } yield (s2, (a1, a2))
+
+      assertEquals(cres, sequence)
+    }
+  }
+
   test("range messages seem to work") {
     val pa = Parser.charIn('0' to '9')
     assertEquals(pa.parse("z").toString, "Left(Error(0,NonEmptyList(InRange(0,0,9))))")
@@ -876,13 +948,38 @@ class ParserTest extends munit.ScalaCheckSuite {
     }
   }
 
-  property("a.soft.poduct(b) == a ~ b in success of expected (not partials)") {
+  property("(a.soft ~ b) == a ~ b in success of expected (not partials)") {
     forAll(ParserGen.gen, ParserGen.gen, Arbitrary.arbitrary[String]) { (a, b, str) =>
       val left = a.fa.soft ~  b.fa
       val right = a.fa ~ b.fa
       val leftRes = left.parse(str).leftMap(_.expected)
       val rightRes = right.parse(str).leftMap(_.expected)
       assertEquals(leftRes, rightRes)
+    }
+  }
+
+  property("(a.soft ~ b) == softProduct(a, b)") {
+    forAll(ParserGen.gen, ParserGen.gen, Arbitrary.arbitrary[String]) { (a, b, str) =>
+      val left = a.fa.soft ~  b.fa
+      val right = Parser.softProduct(a.fa, b.fa)
+      assertEquals(left.parse(str), right.parse(str))
+      assertEquals((a.fa.soft *> b.fa).parse(str), Parser.softProduct(a.fa.void, b.fa).map(_._2).parse(str))
+      assertEquals((a.fa.soft <* b.fa).parse(str), Parser.softProduct(a.fa, b.fa.void).map(_._1).parse(str))
+    }
+  }
+
+  property("(a1.soft ~ b) == softProduct10(a, b)") {
+    forAll(ParserGen.gen1, ParserGen.gen, Arbitrary.arbitrary[String]) { (a, b, str) =>
+      val left1 = a.fa.soft ~  b.fa
+      val right1 = Parser.softProduct10(a.fa, b.fa)
+      assertEquals(left1.parse(str), right1.parse(str))
+
+      val left2 = b.fa.soft ~  a.fa
+      val right2 = Parser.softProduct01(b.fa, a.fa)
+      assertEquals(left2.parse(str), right2.parse(str))
+
+      assertEquals((a.fa.soft *> b.fa).parse(str), Parser.softProduct10(a.fa.void, b.fa).map(_._2).parse(str))
+      assertEquals((b.fa.with1.soft <* a.fa).parse(str), Parser.softProduct01(b.fa, a.fa.void).map(_._1).parse(str))
     }
   }
 
