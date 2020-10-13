@@ -895,10 +895,10 @@ out = \y -> foo(y)
       List("""
 package Extern/List
 
-external def foo(x: String) -> List[String]
+external def foo(x: String) -> List[(String, Int)]
 
 out = match foo("arg"):
-  [*_, _, _, last]: last
+  [*_, _, _, (last, 1)]: last
   _: "'zero\\'"
 """),
       "Extern/List",
@@ -907,7 +907,10 @@ out = match foo("arg"):
           ExternalVar(
             PackageName(NonEmptyList.of("Extern", "List")),
             Identifier.Name("foo"),
-            Type.Fun(Type.StrType, Type.ListT(Type.StrType))
+            Type.Fun(
+              Type.StrType,
+              Type.ListT(Type.Tuple(List(Type.StrType, Type.IntType)))
+            )
           ),
           Literal(Str("arg"))
         ),
@@ -924,7 +927,25 @@ out = match foo("arg"):
                     ListPat(
                       List(
                         Left(None),
-                        Right(Var(0))
+                        Right(
+                          PositionalStruct(
+                            None,
+                            List(
+                              Var(0),
+                              PositionalStruct(
+                                None,
+                                List(
+                                  LetFreePattern.Literal(
+                                    Integer(BigInteger.valueOf(1))
+                                  ),
+                                  PositionalStruct(None, List(), DFStruct)
+                                ),
+                                DFStruct
+                              )
+                            ),
+                            DFStruct
+                          )
+                        )
                       )
                     )
                   ),
@@ -937,7 +958,14 @@ out = match foo("arg"):
           ),
           (WildCard, Literal(Str("'zero\\'")))
         )
-      )
+      ),
+      List({ lfe: LetFreeExpression =>
+        assert(
+          lfe.serialize ==
+            "Match(App(ExternalVar('Extern/List','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::List[(Bosatsu/Predef::String, Bosatsu/Predef::Int)]'),Literal('arg')),PositionalStruct(1,WildCard,PositionalStruct(1,WildCard,ListPat(Left(),Right(PositionalStruct(,Var(0),PositionalStruct(,Literal(1),PositionalStruct(,))))))),Lambda(LambdaVar(0)),WildCard,Literal('\\'zero\\\\\\''))",
+          "Serializations test"
+        )
+      })
     )
 
     normalExpressionTest(
@@ -1051,7 +1079,7 @@ out = match foo("c"):
       Match(
         App(
           ExternalVar(
-            PackageName(NonEmptyList.fromList(List("Extern", "LitMatch")).get),
+            PackageName(NonEmptyList.of("Extern", "LitMatch")),
             Identifier.Name("foo"),
             Type.Fun(Type.StrType, Type.StrType)
           ),
@@ -1309,6 +1337,22 @@ out = foo
       "VarSet/Literal",
       2,
       Set()
+    )
+  }
+
+  test("LetFreeExpression conversions") {
+    assert(
+      LetFreeConversion.structListAsList(
+        App(
+          ExternalVar(
+            PackageName(NonEmptyList.of("Extern", "LitMatch")),
+            Identifier.Name("foo"),
+            Type.Fun(Type.StrType, Type.ListT(Type.StrType))
+          ),
+          Literal(Str("bar"))
+        )
+      ) == None,
+      "Should not be able to convert"
     )
   }
 }
