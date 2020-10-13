@@ -81,7 +81,7 @@ object Identifier {
    * the keyword operator preceding a rawOperator
    */
   val operator: P1[Operator] =
-    P.string1("operator") *> Parser.spaces *> rawOperator
+    (P.string1("operator").soft *> Parser.spaces) *> rawOperator
 
   /**
    * Name, Backticked or non-raw operator
@@ -102,9 +102,8 @@ object Identifier {
         // try to stry the same
         val p = operator.orElse1(nameParser)
         val cand = i.sourceCodeRepr + suffix
-        p.parse(cand) match {
-          case Right(("", ident)) =>
-            ident
+        p.parseAll(cand) match {
+          case Right(ident) => ident
           case _ =>
             // just turn it into a Backticked
             Backticked(i.asString + suffix)
