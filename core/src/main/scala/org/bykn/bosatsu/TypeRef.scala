@@ -1,10 +1,10 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, lowerIdent, maybeSpace }
+import Parser.{ Combinators, lowerIdent, maybeSpace, keySpace }
 import cats.Applicative
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 import org.bykn.bosatsu.rankn.Type
 
@@ -160,32 +160,35 @@ object TypeRef {
         }
     }
 
-  val parser: P[TypeRef] = {
+  val parser: P1[TypeRef] = {
     val tvar = lowerIdent.map(TypeVar(_))
     val tname = Identifier.consParser.map { cn => TypeName(Name(cn)) }
-    val recurse = P(parser)
+    val recurse = P.defer1(parser)
 
-    val lambda: P[TypeLambda] =
-      P("forall" ~ Parser.spaces ~/ tvar.nonEmptyList ~ maybeSpace ~ "." ~ maybeSpace ~ recurse)
+    val lambda: P1[TypeLambda] =
+      (keySpace("forall") *> tvar.nonEmptyList ~ (maybeSpace *> P.char('.') *> maybeSpace *> recurse))
         .map { case (args, e) => TypeLambda(args, e) }
 
-    val maybeArrow: P[TypeRef => TypeRef] =
-      P((maybeSpace ~ "->" ~/ maybeSpace ~ recurse))
+    val maybeArrow: P1[TypeRef => TypeRef] =
+      ((maybeSpace.with1.soft ~ P.string1("->") ~ maybeSpace) *> recurse)
         .map { right => TypeArrow(_, right) }
 
-    val maybeApp: P[TypeRef => TypeRef] =
-      P(("[" ~/ maybeSpace ~ recurse.nonEmptyList ~ maybeSpace ~ "]"))
+    val maybeApp: P1[TypeRef => TypeRef] =
+      (P.char('[') *> maybeSpace *> recurse.nonEmptyList <* maybeSpace <* P.char(']'))
         .map { args => TypeApply(_, args) }
 
-    val tupleOrParens: P[TypeRef] =
+    val tupleOrParens: P1[TypeRef] =
       recurse.tupleOrParens.map {
         case Left(par) => par
         case Right(tup) => TypeTuple(tup)
       }
 
-    ((lambda | tvar | tname | tupleOrParens) ~ maybeApp.? ~ maybeArrow.?)
+    val base =
+      P.oneOf1(lambda :: tvar :: tname :: tupleOrParens :: Nil)
+
+    (base ~ maybeApp.? ~ maybeArrow.?)
       .map {
-        case (t, optF1, optF2) =>
+        case ((t, optF1), optF2) =>
           val t1 = optF1.fold(t)(_(t))
           optF2.fold(t1)(_(t1))
       }

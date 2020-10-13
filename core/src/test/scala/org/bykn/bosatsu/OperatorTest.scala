@@ -1,8 +1,9 @@
 package org.bykn.bosatsu
 
 import org.typelevel.paiges.{ Doc, Document }
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+
 import Parser.Combinators
-import fastparse.all._
 
 class OperatorTest extends ParserTestBase {
 
@@ -23,10 +24,15 @@ class OperatorTest extends ParserTestBase {
     case class Form(toForm: Formula[F]) extends F
   }
 
-  lazy val formP: Parser[F] =
+  lazy val formP: P1[F] =
     Operators.Formula
-      .parser(Parser.integerString.map(F.Num(_)) |
-        P(formP.parens)).map(F.Form(_))
+      .parser(
+        Parser
+          .integerString
+          .map(F.Num(_))
+          .orElse1(P.defer1(formP.parensCut))
+      )
+      .map(F.Form(_))
 
   implicit val document: Document[Formula[String]] =
     Document.instance[Formula[String]] {

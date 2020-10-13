@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
 
@@ -59,12 +59,15 @@ object ExportedName {
     }
   }
 
-  val parser: P[ExportedName[Unit]] =
-    Identifier.bindableParser.map(Binding(_, ())) |
-      P(Identifier.consParser ~ "()".!.?).map {
-        case (n, None) => TypeName(n, ())
-        case (n, Some(_)) => Constructor(n, ())
-      }
+  val parser: P1[ExportedName[Unit]] =
+    Identifier.bindableParser.map(Binding(_, ()))
+      .orElse1(
+        (Identifier.consParser ~ P.string1("()").?)
+          .map {
+            case (n, None) => TypeName(n, ())
+            case (n, Some(_)) => Constructor(n, ())
+          }
+      )
 
   private[bosatsu] def buildExportMap[T](exs: List[ExportedName[T]]): Map[Identifier, NonEmptyList[ExportedName[T]]] =
     exs match {

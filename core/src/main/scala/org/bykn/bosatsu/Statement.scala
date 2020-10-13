@@ -1,13 +1,11 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, spaces, toEOL }
+import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, keySpace, toEOL }
 import cats.data.NonEmptyList
 import cats.implicits._
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
-
-import FastParseCats.StringInstances._
 
 import Indy.IndyMethods
 import Identifier.{Bindable, Constructor}
@@ -141,53 +139,61 @@ object Statement {
   case class Comment(comment: CommentStatement[Unit])(val region: Region) extends Statement
 
   // Parse a single item
-  final val parser1: P[Statement] = {
-     val bindingP: P[Statement] =
-       Declaration
-         .bindingParser[Unit](Declaration.nonBindingParser, Indy.lift(toEOL), cutPattern = true)("")
+  final val parser1: P1[Statement] = {
+
+     val bindingP: P1[Statement] =
+       (Declaration
+         .bindingParser[Unit](Declaration.nonBindingParser, cutPattern = true)("") <* toEOL)
          .region
          .map { case (region, bs) =>
-            Bind(bs)(region)
+            Bind(bs(()))(region)
          }
 
-     val paddingSP: P[Statement] =
+     val paddingSP: P1[Statement] =
        Padding
          .nonEmptyParser
          .region
          .map { case (region, p) => PaddingStatement(p)(region) }
 
-     val commentP: P[Statement] =
-       CommentStatement.parser(Indy.lift(PassWith(()))).region
+     val commentP: P1[Statement] =
+       CommentStatement.parser(_ => P.unit).region
          .map { case (region, cs) => Comment(cs)(region) }.run("")
 
-     val defBody = maybeSpace ~ OptIndent.indy(Declaration.parser).run("")
-     val defP: P[Statement] =
-      DefStatement.parser(Pattern.bindParser, defBody ~ toEOL).region
+     val defBody = maybeSpace.with1 *> OptIndent.indy(Declaration.parser).run("")
+     val defP: P1[Statement] =
+      DefStatement.parser(Pattern.bindParser, defBody <* toEOL).region
         .map { case (region, DefStatement(nm, args, ret, body)) =>
           Def(DefStatement(nm, args, ret, body))(region)
         }
 
-     val argParser: P[(Bindable, Option[TypeRef])] =
-       P(Identifier.bindableParser ~ maybeSpace ~ (":" ~/ maybeSpace ~ TypeRef.parser).?)
+     val argParser: P1[(Bindable, Option[TypeRef])] =
+       Identifier.bindableParser ~ ((maybeSpace *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser).?
 
-     val typeParams: P[NonEmptyList[TypeRef.TypeVar]] =
+     val typeParams: P1[NonEmptyList[TypeRef.TypeVar]] =
        lowerIdent.nonEmptyListSyntax.map { nel => nel.map { s => TypeRef.TypeVar(s.intern) } }
+
+     val structKey = keySpace("struct")
 
      val external = {
        val typeParamsList = Parser.nonEmptyListToList(typeParams)
 
        val externalStruct =
-         (P("struct" ~ spaces ~/ Identifier.consParser ~ typeParamsList).region ~ toEOL).map {
-           case (region, (name, tva)) => ExternalStruct(name, tva)(region)
-         }
+         (structKey *> (Identifier.consParser ~ typeParamsList).region <* toEOL)
+           .map {
+             case (region, (name, tva)) => ExternalStruct(name, tva)(region)
+           }
 
        val externalDef = {
-         val argParser: P[(Bindable, TypeRef)] = P(Identifier.bindableParser ~ ":" ~/ maybeSpace ~ TypeRef.parser)
-         val args = P("(" ~ maybeSpace ~ argParser.nonEmptyList ~ maybeSpace ~ ")")
-         val result = P(maybeSpace ~ "->" ~/ maybeSpace ~ TypeRef.parser)
-         ((P("def" ~ spaces ~/ Identifier.bindableParser ~ args.? ~ result).region) ~ toEOL)
+         val argParser: P1[(Bindable, TypeRef)] =
+           Identifier.bindableParser ~ (maybeSpace *> P.char(':') *> maybeSpace *> TypeRef.parser)
+
+         val args = P.char('(') *> maybeSpace *> argParser.nonEmptyList <* maybeSpace <* P.char(')')
+
+         val result = maybeSpace.with1 *> P.string1("->") *> maybeSpace *> TypeRef.parser
+
+         (((keySpace("def") *> Identifier.bindableParser ~ args.? ~ result).region) <* toEOL)
            .map {
-             case (region, (name, optArgs, resType)) =>
+             case (region, ((name, optArgs), resType)) =>
                val alist = optArgs match {
                  case None => Nil
                  case Some(ne) => ne.toList
@@ -197,12 +203,12 @@ object Statement {
            }
        }
 
-       P("external" ~ spaces ~/ (externalStruct|externalDef))
+       keySpace("external") *> externalStruct.orElse1(externalDef)
      }
 
      val struct =
-       (P("struct" ~ spaces ~/ Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?).region ~ toEOL)
-         .map { case (region, (name, typeArgs, argsOpt)) =>
+       ((structKey *> Identifier.consParser ~ typeParams.? ~ argParser.parensLines1Cut.?).region <* toEOL)
+         .map { case (region, ((name, typeArgs), argsOpt)) =>
            val argList = argsOpt match {
              case None => Nil
              case Some(ne) => ne.toList
@@ -212,38 +218,42 @@ object Statement {
          }
 
      val enum = {
-       val constructorP = P(Identifier.consParser ~ argParser.parensLines1Cut.?)
-         .map {
-           case (n, None) => (n, Nil)
-           case (n, Some(args)) => (n, args.toList)
-         }
+       val constructorP =
+         (Identifier.consParser ~ argParser.parensLines1Cut.?)
+           .map {
+             case (n, None) => (n, Nil)
+             case (n, Some(args)) => (n, args.toList)
+           }
 
-       val sep = Indy.lift(P("," ~ maybeSpace)).combineK(Indy.toEOLIndent).map(_ => ())
-       val variants = Indy.lift(constructorP ~ maybeSpace).nonEmptyList(sep)
+       val sep = (Indy.lift(P.char(',') <* maybeSpace))
+         .combineK(Indy.toEOLIndent)
+         .void
+
+       val variants = Indy.lift(constructorP <* maybeSpace).nonEmptyList(sep)
 
        val nameVars =
          OptIndent.block(
-           Indy.lift(P("enum" ~ spaces ~/ Identifier.consParser ~ (typeParams.?))),
+           Indy.lift(keySpace("enum") *> Identifier.consParser ~ (typeParams.?)),
            variants
          )
          .run("")
          .region
 
-       (nameVars ~ toEOL)
+       (nameVars <* toEOL)
          .map { case (region, ((ename, typeArgs), vars)) =>
            Enum(ename, typeArgs, vars)(region)
          }
      }
 
      // bindingP should come last so there is no ambiguity about identifiers
-     commentP | paddingSP | defP | struct | enum | external | bindingP
+     P.oneOf1(commentP :: paddingSP :: defP :: struct :: enum :: external :: bindingP :: Nil)
   }
 
   /**
    * This parses the *rest* of the string (it must end with End)
    */
   val parser: P[List[Statement]] =
-    parser1.rep().map(_.toList) ~ Parser.maybeSpacesAndLines ~ End
+    parser1.rep <* Parser.maybeSpacesAndLines <* P.end
 
   private def constructor(name: Constructor, taDoc: Doc, args: List[(Bindable, Option[TypeRef])]): Doc =
     Document[Identifier].document(name) + taDoc +

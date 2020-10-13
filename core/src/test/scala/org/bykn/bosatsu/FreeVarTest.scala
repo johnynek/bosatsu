@@ -3,8 +3,6 @@ package org.bykn.bosatsu
 import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 
-import fastparse.all._
-
 class FreeVarTest extends FunSuite {
   implicit val generatorDrivenConfig =
     PropertyCheckConfiguration(minSuccessful = 1000)
@@ -13,13 +11,14 @@ class FreeVarTest extends FunSuite {
 
   def assertFreeVars(stmt: String, vars: List[String]) =
     Statement.parser.parse(stmt) match {
-      case Parsed.Success(t, idx) =>
-        assert(idx == stmt.length)
+      case Right((rest, t)) =>
+        assert(rest == "")
 
         val found = Statement.valuesOf(t).flatMap(_.freeVars).toList.sorted
         assert(found == vars.sorted.map(Identifier.Name(_)))
-      case Parsed.Failure(exp, idx, extra) =>
-        fail(s"failed to parse: $stmt: $exp at $idx with trace: ${extra.traced.trace}")
+      case Left(errs) =>
+        val idx = errs.failedAtOffset
+        fail(s"failed to parse: $stmt: at $idx with errs: ${errs}")
     }
 
   test("freeVar examples") {

@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Functor
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.maybeSpace
@@ -20,33 +20,27 @@ object Padding {
       Doc.line.repeat(padding.lines) + Document[T].document(padding.padded)
     }
 
-  private def parser[A](p: P[A], min: Int): P[Padding[A]] =
-    // if we have a P[Unit] then rep() is also P[Unit] due to weird shit
-    // If p consumes nothing, toEOL is dangerous because
-    // it can match End, and End.rep() will OOM when it hits
-    // the end of the file
-    (P(maybeSpace ~ "\n").map(_ => 0).rep(min) ~ p)
-      .map { case (vec, t) => Padding(vec.size, t) }
-
   /**
    * This allows an empty padding
-   * this is a bit dangerous with a p that consumes nothing
-   * as parsers that succeed without consuming input
-   * are dangerous to use with rep
    */
-  def parser[T](p: P[T]): P[Padding[T]] =
-    parser(p, 0)
+  def parser[T](p: P1[T]): P1[Padding[T]] = {
+    val spacing = (maybeSpace.with1.soft ~ Parser.newline).void.rep
+
+    (spacing.with1.soft ~ p)
+      .map { case (vec, t) => Padding(vec.size, t) }
+  }
 
   /**
    * Parses a padding of length 1 or more, then p
    */
-  def parser1[T](p: P[T]): P[Padding[T]] =
-    parser(p, 1)
+  def parser1[T](p: P[T]): P1[Padding[T]] =
+    ((maybeSpace.with1.soft ~ Parser.newline).void.rep1 ~ p)
+      .map { case (vec, t) => Padding(vec.size, t) }
 
   /**
    * This is parser1 by itself, with the padded value being ()
    */
-  val nonEmptyParser: P[Padding[Unit]] =
-    parser1(PassWith(()))
+  val nonEmptyParser: P1[Padding[Unit]] =
+    parser1(P.unit)
 }
 
