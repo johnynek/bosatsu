@@ -4,6 +4,7 @@ import cats.data.{NonEmptyList, State}
 import cats.implicits._
 import cats.Id
 import rankn._
+import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
 
@@ -439,7 +440,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
       letFreeConvertPackage(name, pack)
         .map((name, _))
     }
-    PackageMap(normAll.run(Map()).value._2.toMap)
+    PackageMap(SortedMap(normAll.run(Map()).value._2: _*))
   }
 
   def hashKey[T](fn: LetFreeExpression => T): PackageMap.Typed[(Declaration, ExpressionKeyTag[T])] = {
@@ -455,7 +456,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
         val newPack = pack.copy(program = newProgram)
         (packName, newPack)
       }
-    PackageMap(lst.toMap)
+    PackageMap(SortedMap(lst: _*))
   }
 
   def letFreeConvertExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):
