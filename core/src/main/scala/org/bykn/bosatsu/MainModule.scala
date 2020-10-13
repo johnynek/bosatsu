@@ -613,10 +613,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       private def ioJson(io: IO[String]): IO[Json] =
         io.flatMap { jsonString =>
-          Json.parserFile.parse(jsonString) match {
-            case Right((rest, j)) =>
-              if (rest == "") moduleIOMonad.pure(j)
-              else showError("unexpected data at the input", jsonString, jsonString.indexOf(rest))
+          Json.parserFile.parseAll(jsonString) match {
+            case Right(j) => moduleIOMonad.pure(j)
             case Left(err) =>
               val idx = err.failedAtOffset
               showError("could not parse a JSON record", jsonString, idx)
@@ -831,8 +829,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         new Argument[A] {
           def defaultMetavar: String = defmeta
           def read(string: String): ValidatedNel[String, A] =
-            p.parse(string) match {
-              case Right(("", a)) => Validated.valid(a)
+            p.parseAll(string) match {
+              case Right(a) => Validated.valid(a)
               case _ =>
                 val sugSpace = if (suggestion.nonEmpty) s" $suggestion" else ""
                 Validated.invalidNel(s"could not parse $string as a $typeName." + sugSpace)

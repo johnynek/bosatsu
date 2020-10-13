@@ -83,8 +83,8 @@ object Parser {
               toKleisli.run(indent + thisIndent)
             }
 
-          // this backtrack is unfortunate
-          // because if these is space, but incorrect
+          // TODO remove this backtracking
+          // because if there is space, but incorrect
           // code inside, we don't point to the
           // correct location.
           someIndent.backtrack <+> noIndent
@@ -142,14 +142,8 @@ object Parser {
   def identifierChar(c: Char): Boolean =
     isNum(c) || isUpper(c) || isLower(c) || (c == '_')
 
-  // used to parse possibly empty indentation
-  def indentation(str: String): P[Unit] =
-    if (str.isEmpty) P.unit
-    else P.string1(str).void
-
   // parse one or more space characters
   val spaces: P1[Unit] = P.charsWhile1(isSpace _).void
-  val nonSpaces: P1[String] = P.charsWhile1 { c => !isSpace(c) }
   val maybeSpace: P[Unit] = spaces.?.void
 
   /** prefer to parse Right, then Left
@@ -174,10 +168,6 @@ object Parser {
 
   val py2Ident: P1[String] =
     (P.charIn('_' :: ('A' to 'Z').toList ::: ('a' to 'z').toList) ~ P.charsWhile(identifierChar _)).string
-
-  // requires a string longer than 1
-  def tokenP[T](s: String, t: T): P1[T] =
-    P.string1(s).as(t)
 
   // parse a keyword and some space or backtrack
   def keySpace(str: String): P1[Unit] =
@@ -236,7 +226,7 @@ object Parser {
     }
 
     val partsParser: P1[Parts] =
-      (P.char('-').as(true).?.with1 ~ int.string ~ frac.string.? ~ exp.string.?)
+      (P.char('-').?.with1 ~ int.string ~ frac.string.? ~ exp.string.?)
         .map { case (((optNeg, left), float), exp) =>
           Parts(optNeg.isDefined, left, float.getOrElse(""), exp.getOrElse(""))
         }
@@ -373,17 +363,11 @@ object Parser {
   val toEOL1: P1[Unit] = maybeSpace.with1 *> newline
 
   def optionParse[A](pa: P[A], str: String): Option[A] =
-    pa.parse(str) match {
-      case Right(("", a)) => Some(a)
-      case _ => None
-    }
+    pa.parseAll(str).toOption
 
   def unsafeParse[A](pa: P[A], str: String): A =
-    pa.parse(str) match {
-      case Right(("", a)) => a
-      // $COVERAGE-OFF$
-      case Right((rest, _)) =>
-        sys.error(s"partial parse of $str ignores: $rest")
+    pa.parseAll(str) match {
+      case Right(a) => a
       case Left(err) =>
         val idx = err.failedAtOffset
         sys.error(s"failed to parse: $str: at $idx: (${str.substring(idx)}) with errors: ${err.expected}")
