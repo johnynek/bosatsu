@@ -110,6 +110,7 @@ lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
     buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion, headCommit),
     buildInfoPackage := "org.bykn.bosatsu",
   )
+  .jsSettings(commonJsSettings)
 
 lazy val baseJS = base.js
 lazy val baseJVM = base.jvm
@@ -131,7 +132,8 @@ lazy val cli = (project in file("cli")).
     PB.targets in Compile := Seq(
      scalapb.gen() -> (sourceManaged in Compile).value
    )
-  ).dependsOn(coreJVM % "compile->compile;test->test")
+  )
+  .dependsOn(coreJVM % "compile->compile;test->test")
 
 lazy val parser = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("parser")).
   settings(
