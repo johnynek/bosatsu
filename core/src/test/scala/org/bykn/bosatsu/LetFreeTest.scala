@@ -1,10 +1,10 @@
 package org.bykn.bosatsu
 
-import org.scalatest.FunSuite
 import java.math.BigInteger
 import cats.data.NonEmptyList
+import org.scalatest.funsuite.AnyFunSuite
 
-class LetFreeTest extends FunSuite {
+class LetFreeTest extends AnyFunSuite {
   import TestUtils._
   import LetFreeExpression._
   import Lit._

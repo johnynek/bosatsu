@@ -1,18 +1,18 @@
 package org.bykn.bosatsu
 
-import alleycats.std.map._ // TODO use SortedMap everywhere
 import org.bykn.bosatsu.graph.Memoize
 import cats.{Foldable, Show}
 import cats.data.{Ior, IorT, NonEmptyList, Validated, ValidatedNel, ReaderT}
 import cats.Order
 import cats.implicits._
 import scala.concurrent.ExecutionContext
+import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
 
 import rankn.{DataRepr, TypeEnv}
 
-case class PackageMap[A, B, C, +D](toMap: Map[PackageName, Package[A, B, C, D]]) {
+case class PackageMap[A, B, C, +D](toMap: SortedMap[PackageName, Package[A, B, C, D]]) {
   def +[D1 >: D](pack: Package[A, B, C, D1]): PackageMap[A, B, C, D1] =
     PackageMap(toMap + (pack.name -> pack))
 
@@ -41,7 +41,7 @@ case class PackageMap[A, B, C, +D](toMap: Map[PackageName, Package[A, B, C, D]])
 
 object PackageMap {
   def empty[A, B, C, D]: PackageMap[A, B, C, D] =
-    PackageMap(Map.empty)
+    PackageMap(SortedMap.empty)
 
   def fromIterable[A, B, C, D](ps: Iterable[Package[A, B, C, D]]): PackageMap[A, B, C, D] =
     empty[A, B, C, D] ++ ps
@@ -150,7 +150,7 @@ object PackageMap {
         }
     }
 
-    type M = Map[PackageName, PackageFix]
+    type M = SortedMap[PackageName, PackageFix]
     val r: ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], M] =
       map.toMap.traverse(step)
 

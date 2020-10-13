@@ -3,9 +3,9 @@ package org.bykn.bosatsu.codegen.python
 import org.bykn.bosatsu.Identifier.{Bindable, unsafeBindable}
 import org.bykn.bosatsu.Generators.bindIdentGen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
+import org.scalatest.funsuite.AnyFunSuite
 
-class PythonGenTest extends FunSuite {
+class PythonGenTest extends AnyFunSuite {
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 50000)
     PropertyCheckConfiguration(minSuccessful = 5000)

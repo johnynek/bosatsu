@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
-import org.scalatest.FunSuite
+import org.scalatest.funsuite.AnyFunSuite
 
 object VarianceGen {
   val gen: Gen[Variance] = Gen.oneOf(
@@ -14,7 +14,7 @@ object VarianceGen {
   implicit val arbVar: Arbitrary[Variance] = Arbitrary(gen)
 }
 
-class VarianceTest extends FunSuite {
+class VarianceTest extends AnyFunSuite {
   import VarianceGen.arbVar
 
   val V = Variance.varianceBoundedSemilattice

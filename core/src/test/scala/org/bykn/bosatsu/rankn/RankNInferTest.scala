@@ -1,7 +1,6 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.{Ior, NonEmptyList}
-import org.scalatest.FunSuite
 import org.bykn.bosatsu._
 
 import Expr._
@@ -12,7 +11,9 @@ import TestUtils.{checkLast, testPackage}
 
 import Identifier.Constructor
 
-class RankNInferTest extends FunSuite {
+import org.scalatest.funsuite.AnyFunSuite
+
+class RankNInferTest extends AnyFunSuite {
 
   val emptyRegion: Region = Region(0, 0)
 

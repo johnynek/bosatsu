@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import java.math.BigInteger
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
+import org.scalatest.funsuite.AnyFunSuite
 
 object IntLaws {
   implicit class BIMethods(val self: BigInteger) extends AnyVal {
@@ -15,7 +15,7 @@ object IntLaws {
   }
 }
 
-class IntLaws extends FunSuite {
+class IntLaws extends AnyFunSuite {
   import IntLaws.BIMethods
 
   implicit val generatorDrivenConfig =

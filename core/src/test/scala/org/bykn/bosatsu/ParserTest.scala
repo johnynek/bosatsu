@@ -3,7 +3,6 @@ package org.bykn.bosatsu
 import cats.data.NonEmptyList
 import Parser.Combinators
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.{Doc, Document}
 
@@ -11,7 +10,8 @@ import cats.implicits._
 import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import Parser.{optionParse, unsafeParse, Indy}
 
-//import Generators.{shrinkDecl, shrinkStmt}
+import Generators.{shrinkDecl, shrinkStmt}
+import org.scalatest.funsuite.AnyFunSuite
 
 trait ParseFns {
   def region(s0: String, idx: Int): String =
@@ -36,7 +36,7 @@ trait ParseFns {
 
 object TestParseUtils extends ParseFns
 
-abstract class ParserTestBase extends FunSuite with ParseFns {
+abstract class ParserTestBase extends AnyFunSuite with ParseFns {
 
   // This is so we can make Declarations without the region
   protected implicit val emptyRegion: Region = Region(0, 0)

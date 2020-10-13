@@ -1,11 +1,11 @@
 package org.bykn.bosatsu
 
 import cats.data.Validated
-import org.scalatest.FunSuite
 
 import cats.implicits._
+import org.scalatest.funsuite.AnyFunSuite
 
-class DefRecursionCheckTest extends FunSuite {
+class DefRecursionCheckTest extends AnyFunSuite {
 
   def allowed(teStr: String) = {
     val stmt = TestUtils.statementsOf(PackageName.PredefName, teStr)

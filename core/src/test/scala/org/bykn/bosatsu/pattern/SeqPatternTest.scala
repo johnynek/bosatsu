@@ -2,12 +2,12 @@ package org.bykn.bosatsu.pattern
 
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
 
 import SeqPattern.{Cat, Empty}
 import SeqPart.{Wildcard, AnyElem, Lit}
 
 import cats.implicits._
+import org.scalatest.funsuite.AnyFunSuite
 
 object StringSeqPatternGen {
 
@@ -141,7 +141,7 @@ object StringSeqPatternGen {
 
 }
 
-abstract class SeqPatternLaws[E, I, S, R] extends FunSuite {
+abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
 
   type Pattern = SeqPattern[E]
   val Pattern = SeqPattern
