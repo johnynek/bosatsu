@@ -10,10 +10,8 @@ class FreeVarTest extends FunSuite {
     //PropertyCheckConfiguration(minSuccessful = 5)
 
   def assertFreeVars(stmt: String, vars: List[String]) =
-    Statement.parser.parse(stmt) match {
-      case Right((rest, t)) =>
-        assert(rest == "")
-
+    Statement.parser.parseAll(stmt) match {
+      case Right(t) =>
         val found = Statement.valuesOf(t).flatMap(_.freeVars).toList.sorted
         assert(found == vars.sorted.map(Identifier.Name(_)))
       case Left(errs) =>
