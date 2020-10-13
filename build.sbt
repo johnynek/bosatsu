@@ -70,11 +70,9 @@ lazy val commonJsSettings = Seq(
   parallelExecution := false,
   jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
   // batch mode decreases the amount of memory needed to compile scala.js code
-  scalaJSOptimizerOptions := scalaJSOptimizerOptions.value.withBatchMode(scala.sys.env.get("TRAVIS").isDefined),
+  scalaJSLinkerConfig := scalaJSLinkerConfig.value.withBatchMode(scala.sys.env.get("TRAVIS").isDefined).withModuleKind(ModuleKind.CommonJSModule),
   coverageEnabled := false,
   scalaJSUseMainModuleInitializer := false,
-  scalacOptions += "-P:scalajs:sjsDefinedByDefault",
-  scalaJSModuleKind := ModuleKind.CommonJSModule
 )
 
 lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("."))
@@ -162,6 +160,7 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         paiges.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,
+        scalaTestPlusScalacheck.value % Test,
         munit.value % Test,
         // needed for acyclic which we run periodically, not all the time
         //"com.lihaoyi" %% "acyclic" % "0.1.7" % "provided"
@@ -195,6 +194,7 @@ lazy val jsapi = (crossProject(JSPlatform).crossType(CrossType.Pure) in file("js
         decline.value,
         scalaCheck.value % Test,
         scalaTest.value % Test,
+        scalaTestPlusScalacheck.value % Test,
       )
   )
   .dependsOn(base, core)

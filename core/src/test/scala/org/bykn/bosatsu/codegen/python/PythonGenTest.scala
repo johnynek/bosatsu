@@ -3,8 +3,7 @@ package org.bykn.bosatsu.codegen.python
 import org.bykn.bosatsu.Identifier.{Bindable, unsafeBindable}
 import org.bykn.bosatsu.Generators.bindIdentGen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import scalatest.funsuite.AnyFunSuite.AnyFunSuite
-import org.scalatest
+import org.scalatest.funsuite.AnyFunSuite
 
 class PythonGenTest extends AnyFunSuite {
   implicit val generatorDrivenConfig =

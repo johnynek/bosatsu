@@ -2,8 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.Validated
 import org.bykn.bosatsu.rankn.TypeEnv
-import scalatest.funsuite.AnyFunSuite.AnyFunSuite
-import org.scalatest
+import org.scalatest.funsuite.AnyFunSuite
 
 class TypeRecursionCheckTest extends AnyFunSuite {
 

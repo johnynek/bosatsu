@@ -3,8 +3,7 @@ package org.bykn.bosatsu
 import java.math.BigInteger
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import scalatest.funsuite.AnyFunSuite.AnyFunSuite
-import org.scalatest
+import org.scalatest.funsuite.AnyFunSuite
 
 object IntLaws {
   implicit class BIMethods(val self: BigInteger) extends AnyVal {

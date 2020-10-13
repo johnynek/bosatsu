@@ -1,7 +1,6 @@
 package org.bykn.bosatsu
 
-import scalatest.funsuite.AnyFunSuite.AnyFunSuite
-import org.scalatest
+import org.scalatest.funsuite.AnyFunSuite
 
 class Regressions extends AnyFunSuite {
   import TestUtils._

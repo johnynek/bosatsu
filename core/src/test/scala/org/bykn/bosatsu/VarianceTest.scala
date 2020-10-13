@@ -2,8 +2,7 @@ package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
-import scalatest.funsuite.AnyFunSuite.AnyFunSuite
-import org.scalatest
+import org.scalatest.funsuite.AnyFunSuite
 
 object VarianceGen {
   val gen: Gen[Variance] = Gen.oneOf(

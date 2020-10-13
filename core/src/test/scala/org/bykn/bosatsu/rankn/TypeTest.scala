@@ -3,8 +3,7 @@ package org.bykn.bosatsu.rankn
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import scalatest.funsuite.AnyFunSuite.AnyFunSuite
-import org.scalatest
+import org.scalatest.funsuite.AnyFunSuite
 
 class TypeTest extends AnyFunSuite {
   implicit val generatorDrivenConfig =

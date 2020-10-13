@@ -3,8 +3,7 @@ package org.bykn.bosatsu.pattern
 import cats.Eq
 import org.scalacheck.{Arbitrary, Cogen, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import scalatest.funsuite.AnyFunSuite.AnyFunSuite
-import org.scalatest
+import org.scalatest.funsuite.AnyFunSuite
 
 abstract class SetOpsLaws[A] extends AnyFunSuite {
   val setOps: SetOps[A]

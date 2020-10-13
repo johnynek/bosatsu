@@ -1,8 +1,7 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.rankn.{DefinedType, TypeEnv}
-import scalatest.funsuite.AnyFunSuite.AnyFunSuite
-import org.scalatest
+import org.scalatest.funsuite.AnyFunSuite
 
 class VarianceFormulaTest extends AnyFunSuite {
 
