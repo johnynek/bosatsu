@@ -709,7 +709,86 @@ out = match Buzz:
       "Match/Union",
       Literal(Str("buzzzzzzz"))
     )
+    normalExpressionTest(
+      List("""
+package Match/ListPat
+
+list = [1,2,3,4,5]
+
+out = match list:
+  [*start, 4, *_]: start
+  _ : []
+"""),
+      "Match/ListPat",
+      Struct(
+        1,
+        List(
+          Literal(Integer(BigInteger.valueOf(1))),
+          Struct(
+            1,
+            List(
+              Literal(Integer(BigInteger.valueOf(2))),
+              Struct(
+                1,
+                List(
+                  Literal(Integer(BigInteger.valueOf(3))),
+                  Struct(0, List(), Enum)
+                ),
+                Enum
+              )
+            ),
+            Enum
+          )
+        ),
+        Enum
+      )
+    )
+    normalExpressionTest(
+      List("""
+package Match/ListPat
+
+external def fn(x: String) -> List[Int]
+list = [1, *fn("bar")]
+
+out = match list:
+  [*start, 4, *_]: start
+  _ : []
+"""),
+      "Match/ListPat",
+      Match(
+        Struct(
+          1,
+          List(
+            Literal(Integer(BigInteger.valueOf(1))),
+            App(
+              ExternalVar(
+                PackageName(NonEmptyList.of("Match", "ListPat")),
+                Identifier.Name("fn"),
+                Type.Fun(Type.StrType, Type.ListT(Type.IntType))
+              ),
+              Literal(Str("bar"))
+            )
+          ),
+          Enum
+        ),
+        NonEmptyList.of(
+          (
+            ListPat(
+              List(
+                Left(Some(0)),
+                Right(LetFreePattern.Literal(Integer(BigInteger.valueOf(4)))),
+                Left(None)
+              )
+            ),
+            Lambda(LambdaVar(0))
+          ),
+          (WildCard, Struct(0, List(), Enum))
+        )
+      )
+    )
+
   }
+
   test("imports") {
     normalExpressionTest(
       List("""
