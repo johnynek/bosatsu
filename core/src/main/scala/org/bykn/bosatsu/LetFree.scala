@@ -487,7 +487,7 @@ object LetFreeConversion {
           val listParts: List[LetFreePattern.ListPart] = parts.toList.flatMap {
             case LetFreePattern.StrPart.WildStr => List(Left(None))
             case LetFreePattern.StrPart.NamedStr(n) => List(Left(Some(n)))
-            case LetFreePattern.StrPart.LitStr(str) => str.toList.map(c => Right(LetFreePattern.Literal(Lit.Str(str))))
+            case LetFreePattern.StrPart.LitStr(str) => str.toList.map(c => Right(LetFreePattern.Literal(Lit.Str(c.toString))))
           }
           val listMaybeBind = maybeBind(LetFreePattern.ListPat(listParts))
           (v, env) => toLitValue(v) match {

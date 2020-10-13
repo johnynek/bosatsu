@@ -81,6 +81,10 @@ class LetFreeEvaluationTest extends AnyFunSuite {
     letFreeTest(List("ExtendedListPattern/ManyGlobs", "List", "Bool", "Nat"), "ManyGlobs")
   }
 
+  test("String Concat Example") {
+    letFreeTest(List("StrConcatExample"), "StrConcatExample")
+  }
+
   test("LetFreeValue") {
     implicit val extEnv: ExtEnv = Map()
     implicit val cache: Cache = None
