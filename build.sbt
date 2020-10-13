@@ -81,6 +81,7 @@ lazy val root = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
     commonSettings,
     name := "bosatsu",
   )
+  .jsSettings(commonJsSettings)
 
 lazy val docs = (project in file("docs"))
   .enablePlugins(ParadoxPlugin)
