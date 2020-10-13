@@ -4,14 +4,14 @@ import cats.Eq
 import cats.implicits._
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
 import TestUtils.typeEnvOf
 
 import rankn.{NTypeGen, Type, TypeEnv}
 
 import GenJson._
+import org.scalatest.funsuite.AnyFunSuite
 
-class JsonTest extends FunSuite {
+class JsonTest extends AnyFunSuite {
 
   implicit val generatorDrivenConfig =
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)

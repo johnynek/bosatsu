@@ -1,10 +1,10 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatest.funsuite.AnyFunSuite
 
-class LocationMapTest extends FunSuite {
+class LocationMapTest extends AnyFunSuite {
   implicit val generatorDrivenConfig =
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 50000 else 100)
 
