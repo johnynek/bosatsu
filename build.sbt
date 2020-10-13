@@ -157,7 +157,6 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
     test in assembly := {},
     libraryDependencies ++=
       Seq(
-        alleycats.value,
         cats.value,
         decline.value,
         paiges.value,
@@ -192,7 +191,6 @@ lazy val jsapi = (crossProject(JSPlatform).crossType(CrossType.Pure) in file("js
     test in assembly := {},
     libraryDependencies ++=
       Seq(
-        alleycats.value,
         cats.value,
         decline.value,
         scalaCheck.value % Test,
