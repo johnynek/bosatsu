@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.Order
 import cats.data.NonEmptyList
 import cats.implicits._
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{Doc, Document}
 import Parser.upperIdent
 
@@ -19,14 +19,15 @@ object PackageName {
   implicit val document: Document[PackageName] =
     Document.instance[PackageName] { pn => Doc.text(pn.asString) }
 
-  implicit val parser: P[PackageName] =
-    P(upperIdent ~ ("/" ~ upperIdent).rep()).map { case (head, tail) =>
-      PackageName(NonEmptyList(head, tail.toList))
-    }
+  implicit val parser: P1[PackageName] =
+    (upperIdent ~ (P.char('/') *> upperIdent).rep)
+      .map { case (head, tail) =>
+        PackageName(NonEmptyList(head, tail))
+      }
 
   def parse(s: String): Option[PackageName] =
     parser.parse(s) match {
-      case Parsed.Success(pn, idx) if idx == s.length => Some(pn)
+      case Right(("", pn)) => Some(pn)
       case _ => None
     }
 

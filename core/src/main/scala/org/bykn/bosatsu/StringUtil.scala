@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 
 abstract class GenericStringUtil {
   protected def decodeTable: Map[Char, Char]
@@ -14,47 +14,55 @@ abstract class GenericStringUtil {
       s"\\u$strPad$strHex"
    }.toArray
 
-  private val escapeString: P[Unit] = {
-    val escapes = CharIn(decodeTable.keys.toSeq)
-    val oct = CharIn('0' until '8')
-    val hex = CharIn(('0' to '9') ++ ('a' to 'f') ++ ('A' to 'F'))
-    val octP = P("o" ~ oct ~ oct)
-    val hexP = P("x" ~ hex ~ hex)
-    val u4 = P("u" ~ hex.rep(4))
-    val u8 = P("U" ~ hex.rep(8))
-    val after = escapes | octP | hexP | u4 | u8
-    P("\\" ~ after)
+  val escapedToken: P1[Unit] = {
+    val escapes = P.charIn(decodeTable.keys.toSeq)
+
+    val oct = P.charIn('0' to '7')
+    val octP = P.char('o') ~ oct ~ oct
+
+    val hex = P.charIn(('0' to '9') ++ ('a' to 'f') ++ ('A' to 'F'))
+    val hex2 = hex ~ hex
+    val hexP = P.char('x') ~ hex2
+
+    val hex4 = hex2 ~ hex2
+    val u4 = P.char('u') ~ hex4
+    val hex8 = hex4 ~ hex4
+    val u8 = P.char('U') ~ hex8
+
+    val after = P.oneOf1[Any](escapes :: octP :: hexP :: u4 :: u8 :: Nil)
+    (P.char('\\') ~ after).void
   }
 
   /**
    * String content without the delimiter
    */
-  def undelimitedString(endP: P[Unit], min: Int): P[String] =
-    P(escapeString | (!endP ~ AnyChar))
-      .rep(min = min).!
+  def undelimitedString1(endP: P1[Unit]): P1[String] =
+    escapedToken.backtrack.orElse1((!endP).with1 ~ P.anyChar)
+      .rep1
+      .string
       .flatMap { str =>
         unescape(str) match {
-          case Right(str1) => PassWith(str1)
-          case Left(_) => Fail
+          case Right(str1) => P.pure(str1)
+          case Left(_) => P.fail
         }
       }
 
-  def escapedString(q: Char): P[String] = {
-    val end: P[Unit] = P(q.toString)
-    end ~ undelimitedString(end, min = 0) ~ end
+  def escapedString(q: Char): P1[String] = {
+    val end: P1[Unit] = P.char(q)
+    end *> undelimitedString1(end).orElse(P.pure("")) <* end
   }
 
-  def interpolatedString[A](quoteChar: Char, istart: P[Unit], interp: P[A], iend: P[Unit]): P[List[Either[A, (Region, String)]]] = {
-    val strQuote = P(quoteChar.toString)
+  def interpolatedString[A](quoteChar: Char, istart: P1[Unit], interp: P[A], iend: P1[Unit]): P1[List[Either[A, (Region, String)]]] = {
+    val strQuote = P.char(quoteChar)
 
-    // we need to parse a nonempty string, or the rep() below will loop forever
-    val strLit = undelimitedString(strQuote | istart, min = 1)
-    val notStr = istart ~/ interp ~ iend
+    val strLit: P1[String] = undelimitedString1(strQuote.orElse1(istart))
+    val notStr: P1[A] = (istart ~ interp ~ iend).map { case ((_, a), _) => a }
 
-    val either = (Index ~ strLit ~ Index).map { case (s, str, l) => Right((Region(s, l), str)) } |
-      notStr.map(Left(_))
+    val either: P1[Either[A, (Region, String)]] =
+      ((P.index.with1 ~ strLit ~ P.index).map { case ((s, str), l) => Right((Region(s, l), str)) })
+        .orElse1(notStr.map(Left(_)))
 
-    (strQuote ~ either.rep() ~ strQuote).map(_.toList)
+    (strQuote ~ either.rep ~ strQuote).map { case ((_, lst), _) => lst }
   }
 
   def escape(quoteChar: Char, str: String): String = {

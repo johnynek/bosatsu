@@ -1,9 +1,11 @@
 package org.bykn.bosatsu
 
-import fastparse.all._
 import java.math.{BigInteger, BigDecimal}
 import org.typelevel.paiges.Doc
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import cats.Eq
+
+import cats.implicits._
 
 /**
  * A simple JSON ast for output
@@ -143,33 +145,40 @@ object Json {
         }
     }
 
-  private[this] val whitespace: P[Unit] = CharIn(" \t\r\n")
-  private[this] val whitespaces0 = whitespace.rep()
+  private[this] val whitespace: P1[Unit] = P.charIn(" \t\r\n").void
+  private[this] val whitespaces0: P[Unit] = whitespace.rep.void
   /**
    * This doesn't have to be super fast (but is fairly fast) since we use it in places
    * where speed won't matter: feeding it into a program that will convert it to bosatsu
    * structured data
    */
-  val parser: P[Json] = {
-    val recurse = P(parser)
-    val pnull = P("null").map(_ => JNull)
-    val bool = P("true").map(_ => JBool.True) | P("false").map(_ => JBool.False)
+  val parser: P1[Json] = {
+    val recurse = P.defer1(parser)
+    val pnull = P.string1("null").as(JNull)
+    val bool = P.string1("true").as(JBool.True).orElse1(P.string1("false").as(JBool.False))
     val justStr = JsonStringUtil.escapedString('"')
     val str = justStr.map(JString(_))
     val num = Parser.JsonNumber.parser.map(JNumberStr(_))
 
-    val listSep = P(whitespaces0 ~ "," ~/ whitespaces0)
-    val list = P("[" ~/ whitespaces0 ~ recurse.rep(sep = listSep) ~ whitespaces0 ~ "]")
+    val listSep: P1[Unit] =
+      (whitespaces0.with1.soft ~ P.char(',') ~ whitespaces0).void
+
+    def rep[A](pa: P1[A]): P[List[A]] =
+      (whitespaces0 *> P.repSep(pa, min = 0, sep = listSep) <* whitespaces0)
+
+    val list = (P.char('[') *> rep(recurse) <* P.char(']'))
       .map { vs => JArray(vs.toVector) }
 
-    val kv = justStr ~ whitespaces0 ~ P(":") ~/ whitespaces0 ~ recurse
-    val obj = P("{" ~/ whitespaces0 ~ kv.rep(sep = listSep) ~ whitespaces0 ~ "}")
+    val kv: P1[(String, Json)] =
+      justStr ~ ((whitespaces0.with1 ~ P.char(':') ~ whitespaces0) *> recurse)
+
+    val obj = (P.char('{') *> rep(kv) <* P.char('}'))
       .map { vs => JObject(vs.toList) }
 
-    pnull | bool | str | num | list | obj
+    P.oneOf1(pnull :: bool :: str :: num :: list :: obj :: Nil)
   }
 
   // any whitespace followed by json followed by whitespace followed by end
-  val parserFile: P[Json] = whitespaces0 ~ parser ~ whitespaces0 ~ End
+  val parserFile: P1[Json] = whitespaces0.with1 *> (parser ~ whitespaces0 ~ P.end).map(_._1._1)
 
 }

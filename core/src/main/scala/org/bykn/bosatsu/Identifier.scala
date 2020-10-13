@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Order
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.{lowerIdent, upperIdent}
@@ -64,34 +64,34 @@ object Identifier {
       case Operator(n) => opPrefix + Doc.text(n)
     }
 
-  val nameParser: P[Name] =
+  val nameParser: P1[Name] =
     lowerIdent.map { n => Name(n.intern) }
 
-  val consParser: P[Constructor] =
+  val consParser: P1[Constructor] =
     upperIdent.map { c => Constructor(c.intern) }
 
   /**
    * This is used to apply operators, it is the
    * raw operator tokens without an `operator` prefix
    */
-  val rawOperator: P[Operator] =
+  val rawOperator: P1[Operator] =
     Operators.operatorToken.map { op => Operator(op.intern) }
 
   /**
    * the keyword operator preceding a rawOperator
    */
-  val operator: P[Operator] =
-    P("operator" ~ Parser.spaces ~ rawOperator)
+  val operator: P1[Operator] =
+    P.string1("operator") *> Parser.spaces *> rawOperator
 
   /**
    * Name, Backticked or non-raw operator
    */
-  val bindableParser: P[Bindable] =
+  val bindableParser: P1[Bindable] =
     // operator has to come first to not look like a Name
-    operator | nameParser | Parser.escapedString('`').map { b => Backticked(b.intern) }
+    P.oneOf1(operator :: nameParser :: Parser.escapedString('`').map { b => Backticked(b.intern) } :: Nil)
 
-  val parser: P[Identifier] =
-    bindableParser | consParser
+  val parser: P1[Identifier] =
+    bindableParser.orElse1(consParser)
 
   // When we are allocating new names, we want
   // them to be similar
@@ -100,10 +100,10 @@ object Identifier {
       case Backticked(b) => Backticked(b + suffix)
       case notBack =>
         // try to stry the same
-        val p = operator | nameParser
+        val p = operator.orElse1(nameParser)
         val cand = i.sourceCodeRepr + suffix
         p.parse(cand) match {
-          case Parsed.Success(ident, idx) if idx == cand.length =>
+          case Right(("", ident)) =>
             ident
           case _ =>
             // just turn it into a Backticked

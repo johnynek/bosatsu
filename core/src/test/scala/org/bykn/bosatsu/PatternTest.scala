@@ -11,10 +11,7 @@ class PatternTest extends FunSuite {
   val patGen = Gen.choose(0, 5).flatMap(Generators.genPattern(_))
 
   def pat(s: String): Pattern.Parsed =
-    Pattern.bindParser.parse(s) match {
-      case fastparse.all.Parsed.Success(p, idx) if idx == s.length => p
-      case other => sys.error(s"could not parse $s, $other")
-    }
+    Parser.unsafeParse(Pattern.bindParser, s)
 
   test("Pattern.unbind is the same as filterVars(Set.empty)") {
     forAll(patGen) { p =>
