@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import cats.Show
 import cats.data.{NonEmptyList, Validated}
-import fastparse.all._
 import java.math.BigInteger
 import language.experimental.macros
 
@@ -27,10 +26,11 @@ object Predef {
    */
   val predefPackage: Package.Parsed =
     Package.parser(None).parse(predefString) match {
-      case Parsed.Success(pack, _) => pack
-      case Parsed.Failure(exp, idx, extra) =>
+      case Right((_, pack)) => pack
+      case Left(err) =>
+        val idx = err.failedAtOffset
         val lm = LocationMap(predefString)
-        sys.error(s"couldn't parse predef: ${lm.showContext(idx, 2, LocationMap.Colorize.None)} with trace: ${extra.traced.trace}")
+        sys.error(s"couldn't parse predef: ${lm.showContext(idx, 2, LocationMap.Colorize.None)} with errs: ${err}")
     }
 
   /**

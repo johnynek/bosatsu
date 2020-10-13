@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.typelevel.paiges.{Document, Doc}
 import java.math.BigInteger
-import fastparse.all._
+import org.bykn.bosatsu.parser.{Parser1 => P1}
 
 import Parser.escape
 
@@ -30,16 +30,16 @@ object Lit {
   def apply(bi: BigInteger): Lit = Integer(bi)
   def apply(str: String): Lit = Str(str)
 
-  val integerParser: P[Integer] =
+  val integerParser: P1[Integer] =
     Parser.integerString.map { str => Integer(new BigInteger(str.filterNot(_ == '_'))) }
 
-  val stringParser: P[Str] = {
+  val stringParser: P1[Str] = {
     val q1 = '\''
     val q2 = '"'
-    def str(q: Char): P[Str] =
+    def str(q: Char): P1[Str] =
       Parser.escapedString(q).map(Str(_))
 
-    str(q1) | str(q2)
+    str(q1).orElse1(str(q2))
   }
 
   implicit val litOrdering: Ordering[Lit] =
@@ -53,7 +53,7 @@ object Lit {
         }
     }
 
-  val parser: P[Lit] = integerParser | stringParser
+  val parser: P1[Lit] = integerParser.orElse1(stringParser)
 
   implicit val document: Document[Lit] =
     Document.instance[Lit] {

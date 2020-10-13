@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
-import fastparse.all._
+import cats.data.NonEmptyList
+import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 
 object Operators {
 
@@ -42,8 +43,8 @@ object Operators {
       "&", "^", "|",
       "?", "~").map(_.intern)
 
-  private def from(strs: Iterable[String]): P[Unit] =
-    strs.map(P(_)).reduce(_ | _)
+  private def from(strs: Iterable[String]): P1[Unit] =
+    P.oneOf1(strs.map(P.string1(_)).toList)
 
   /**
    * strings for operators allowed in single character
@@ -52,7 +53,7 @@ object Operators {
   val multiToks: List[String] =
     ".".intern :: singleToks ::: List("=".intern)
 
-  val multiToksP: P[Unit] =
+  val multiToksP: P1[Unit] =
     from(multiToks)
 
   private val priorityMap: Map[String, Int] =
@@ -64,13 +65,14 @@ object Operators {
   /**
    * Here are a list of operators we allow
    */
-  val operatorToken: P[String] = {
+  val operatorToken: P1[String] = {
     val singles = from(singleToks)
-    // = can appear with at least one other character
-    val twoOrMore: P[Unit] = multiToksP.rep(min = 2)
-    // we can also repeat core operators one or more times
-    val singleP = singles.rep(min = 1)
-    (twoOrMore | singleP).!.map(_.intern)
+
+    // write this in a way to avoid backtracking
+    ((singles ~ multiToksP.rep).void)
+      .orElse1(multiToksP.rep1(min = 2).void)
+      .string
+      .map(_.intern)
   }
 
   sealed abstract class Formula[+A] {
@@ -115,22 +117,20 @@ object Operators {
      * Parse a chain of at least 1 operator being applied
      * with the operator precedence handled by the formula
      */
-    def infixOps1[A](p: P[A]): P[A => Formula[A]] = {
-      val chain: P[List[(String, A)]] =
-        P(Parser.maybeSpace ~ operatorToken ~/ Parser.maybeSpacesAndLines ~ p)
-          .rep(min = 1)
-          .map(_.toList)
+    def infixOps1[A](p: P1[A]): P1[A => Formula[A]] = {
+      val chain: P1[NonEmptyList[(String, A)]] =
+        ((Parser.maybeSpace.with1.soft *> operatorToken) ~ (Parser.maybeSpacesAndLines.with1 *> p)).rep1
 
       chain.map { rest =>
 
-        { a: A => toFormula(Sym(a), rest.map { case (o, s) => (o, Sym(s)) }) }
+        { a: A => toFormula(Sym(a), rest.toList.map { case (o, s) => (o, Sym(s)) }) }
       }
     }
     /**
      * An a formula is a series of A's separated by spaces, with
      * the correct parenthesis
      */
-    def parser[A](p: P[A]): P[Formula[A]] =
+    def parser[A](p: P1[A]): P1[Formula[A]] =
       (p ~ (infixOps1(p)).?)
         .map {
           case (a, None) => Sym(a)

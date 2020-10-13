@@ -30,14 +30,14 @@ class ParserBench {
     val digit1 = Parser.charIn('1' to '9')
     def maybeNeg[A](p1: Parser1[A]): Parser1[String] =
       Parser.oneOf1(
-        (Parser.expect("-") ~ p1) ::
+        (Parser.string1("-") ~ p1) ::
         p1 ::
         Nil).string
 
     val bigIntP =
       maybeNeg(Parser.oneOf1(
         (digit1 ~ Parser.rep(digit)) ::
-        Parser.expect("0") ::
+        Parser.char('0') ::
         Nil
       ))
       .map(BigInt(_))

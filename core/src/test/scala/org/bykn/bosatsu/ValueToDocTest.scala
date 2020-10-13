@@ -2,12 +2,12 @@ package org.bykn.bosatsu
 
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
 
 import rankn.{NTypeGen, Type, TypeEnv}
 import TestUtils.typeEnvOf
+import org.scalatest.funsuite.AnyFunSuite
 
-class ValueToDocTest extends FunSuite {
+class ValueToDocTest extends AnyFunSuite {
 
   implicit val generatorDrivenConfig =
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
@@ -47,10 +47,7 @@ enum MyNat: Z, S(prev: MyNat)
     val conv = ValueToDoc(te.toDefinedType(_))
 
     def stringToType(t: String): Type = {
-      val tr = TypeRef.parser.parse(t) match {
-        case fastparse.all.Parsed.Success(tr, l) if l == t.length => tr
-        case other => sys.error(s"could not parse: $t, $other")
-      }
+      val tr = Parser.unsafeParse(TypeRef.parser, t)
 
       TypeRefConverter[cats.Id](tr) { cons =>
         te.referencedPackages.toList.flatMap { pack =>

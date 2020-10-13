@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
 import cats.{Eval, MonadError, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
-import fastparse.all.{P, Parsed}
+import org.bykn.bosatsu.parser.{Parser => P}
 import org.typelevel.paiges.Doc
 import scala.concurrent.ExecutionContext
 import scala.util.{ Failure, Success, Try }
@@ -685,11 +685,10 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       private def ioJson(io: IO[String]): IO[Json] =
         io.flatMap { jsonString =>
-          Json.parserFile.parse(jsonString) match {
-            case Parsed.Success(j, idx) =>
-              if (idx == jsonString.length) moduleIOMonad.pure(j)
-              else showError("unexpected data at the input", jsonString, idx)
-            case Parsed.Failure(_, idx, _) =>
+          Json.parserFile.parseAll(jsonString) match {
+            case Right(j) => moduleIOMonad.pure(j)
+            case Left(err) =>
+              val idx = err.failedAtOffset
               showError("could not parse a JSON record", jsonString, idx)
           }
         }
@@ -902,8 +901,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         new Argument[A] {
           def defaultMetavar: String = defmeta
           def read(string: String): ValidatedNel[String, A] =
-            p.parse(string) match {
-              case Parsed.Success(a, l) if l == string.length => Validated.valid(a)
+            p.parseAll(string) match {
+              case Right(a) => Validated.valid(a)
               case _ =>
                 val sugSpace = if (suggestion.nonEmpty) s" $suggestion" else ""
                 Validated.invalidNel(s"could not parse $string as a $typeName." + sugSpace)
@@ -913,13 +912,11 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       implicit val argPack: Argument[PackageName] =
         argFromParser(PackageName.parser, "packageName", "package name", "Must be capitalized strings separated by /")
 
-      implicit val argValue: Argument[(PackageName, Option[Bindable])] = {
-        import fastparse.all._
-        argFromParser(P(PackageName.parser ~ ("::" ~ Identifier.bindableParser).?),
+      implicit val argValue: Argument[(PackageName, Option[Bindable])] =
+        argFromParser((PackageName.parser ~ (P.string1("::") *> Identifier.bindableParser).?),
           "valueIdent",
           "package or package::name",
           "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz.")
-      }
 
       def toList[A](neo: Opts[NonEmptyList[A]]): Opts[List[A]] =
         neo.orNone.map {

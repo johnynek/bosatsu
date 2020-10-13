@@ -5,11 +5,11 @@ import cats.data.NonEmptyList
 import java.nio.file.{Path => JPath}
 import java.nio.file.{Paths => JPaths}
 import cats.effect.IO
-import org.scalatest.FunSuite
+import org.scalatest.funsuite.AnyFunSuite
 import LetFreeEvaluation.{ComputedValue, LazyValue, ExtEnv, Cache}
 import Value.ExternalValue
 
-class LetFreeEvaluationTest extends FunSuite {
+class LetFreeEvaluationTest extends AnyFunSuite {
   import PathModule.MainCommand.LetFreeEvaluate
   import PathModule.MainCommand.PathGen
   import PathModule.MainCommand.MainIdentifier

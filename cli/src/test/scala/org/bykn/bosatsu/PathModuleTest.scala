@@ -4,12 +4,12 @@ import cats.data.NonEmptyList
 import java.nio.file.{Path, Paths}
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
-import org.scalatest.FunSuite
 
 import scala.collection.JavaConverters._
 import scala.util.{Failure, Success, Try}
+import org.scalatest.funsuite.AnyFunSuite
 
-class PathModuleTest extends FunSuite {
+class PathModuleTest extends AnyFunSuite {
 
   implicit val arbPath: Arbitrary[Path] =
     Arbitrary {

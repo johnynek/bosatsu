@@ -2,9 +2,9 @@ package org.bykn.bosatsu
 
 import cats.data.Validated
 import org.bykn.bosatsu.rankn.TypeEnv
-import org.scalatest.FunSuite
+import org.scalatest.funsuite.AnyFunSuite
 
-class TypeRecursionCheckTest extends FunSuite {
+class TypeRecursionCheckTest extends AnyFunSuite {
 
   def allowed(teStr: String) = {
     val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)

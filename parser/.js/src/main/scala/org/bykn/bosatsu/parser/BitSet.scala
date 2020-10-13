@@ -8,7 +8,7 @@ object BitSetUtil {
   @inline final val isScalaJs = true
   @inline final val isScalaJvm = false
 
-  @inline def isSet(b: BitSet, idx: Int): Boolean =
+  @inline final def isSet(b: BitSet, idx: Int): Boolean =
     (idx >= 0) && b(idx)
 
   def bitSetFor(charArray: Array[Char]): BitSet = {

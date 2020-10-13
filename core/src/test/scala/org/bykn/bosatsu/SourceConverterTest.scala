@@ -1,14 +1,14 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration}
 
 import Identifier.Bindable
 
 import cats.implicits._
+import org.scalatest.funsuite.AnyFunSuite
 
-class SourceConverterTest extends FunSuite {
+class SourceConverterTest extends AnyFunSuite {
   implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 3000 else 20)
 
   val genRec = Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive)

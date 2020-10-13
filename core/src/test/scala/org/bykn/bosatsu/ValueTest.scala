@@ -2,10 +2,10 @@ package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
 import Value._
+import org.scalatest.funsuite.AnyFunSuite
 
-class ValueTest extends FunSuite {
+class ValueTest extends AnyFunSuite {
   import GenValue.genValue
 
   implicit val generatorDrivenConfig =

@@ -1,13 +1,12 @@
 package org.bykn.bosatsu
 
-import org.scalatest.FunSuite
 import java.math.BigInteger
 import cats.data.NonEmptyList
-
+import org.scalatest.funsuite.AnyFunSuite
 import rankn.Type
 import rankn.DataFamily.{Enum, Struct => DFStruct}
 
-class LetFreeTest extends FunSuite {
+class LetFreeTest extends AnyFunSuite {
   import TestUtils._
   import LetFreeExpression._
   import Lit._

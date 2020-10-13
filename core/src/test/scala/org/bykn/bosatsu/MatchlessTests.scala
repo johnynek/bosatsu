@@ -2,15 +2,15 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration}
 
 import Identifier.{Bindable, Constructor}
 import rankn.DataRepr
 
 import cats.implicits._
+import org.scalatest.funsuite.AnyFunSuite
 
-class MatchlessTest extends FunSuite {
+class MatchlessTest extends AnyFunSuite {
   implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
   type Fn = (PackageName, Constructor) => Option[DataRepr]

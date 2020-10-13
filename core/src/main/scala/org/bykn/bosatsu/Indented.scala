@@ -1,7 +1,10 @@
 package org.bykn.bosatsu
 
-import fastparse.all._
 import org.typelevel.paiges.{ Doc, Document }
+
+import org.bykn.bosatsu.parser.{Parser => P}
+
+import cats.implicits._
 
 case class Indented[T](spaces: Int, value: T) {
   require(spaces > 0, s"need non-empty indentation: $spaces")
@@ -31,7 +34,7 @@ object Indented {
   def indy[T](p: Parser.Indy[T]): Parser.Indy[Indented[T]] =
     Parser.Indy { indent =>
       for {
-        thisIndent <- P(indent ~/ Parser.spaces.!)
+        thisIndent <- P.string(indent).with1 *> Parser.spaces.string
         t <- p.run(indent + thisIndent)
       } yield Indented(Indented.spaceCount(thisIndent), t)
     }
