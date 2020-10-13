@@ -9,7 +9,24 @@ import org.bykn.bosatsu.LetFreePattern.ListPart
 import scala.annotation.tailrec 
 import scala.collection.immutable.IntMap
 
+/*
+ * The LetFreeExpression is an attempting to be a stripped down version of a bosatsu expression
+ * to give a semantic representation of the output of the computation. It is not intended to represent
+ * the computation that produces the output, even though it does contain enough information to be
+ * evaluated. As such it can be used to sometimes tell if two expressions will produce the same 
+ * outputs for cacheing purposes. It also makes functions inspectable which means it's possible
+ * to translate them into code for extrenal computation (eg sql statements).
+ * 
+ * As the name implies, it expression eliminates Lets by inlining the values. This creates an issue
+ * for how to represent a recurrsive Lets so we introduce a Recursion expression that is only valid
+ * if it contains a Lambda, where the applying the argument is the recursive call. All variable names
+ * are eliminated and replaced with De Bruijn indicies so that expressions get the same representation
+ * regardless of variable name choice or nesting. Where possible Match and App are normalized,
+ * even when it will produce a less efficient computation. No recurrsive functions or external functions
+ * are applied as they are considered runtime concerns.
+ */
 sealed abstract class LetFreeExpression {
+
   /*
    * maxLambdaVar is to keep track of what is the largest de bruijn index
    * of lambda variables in the expression. This is useful because if this number
