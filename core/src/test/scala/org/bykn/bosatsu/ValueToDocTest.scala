@@ -2,12 +2,12 @@ package org.bykn.bosatsu
 
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
 
 import rankn.{NTypeGen, Type, TypeEnv}
 import TestUtils.typeEnvOf
+import org.scalatest.funsuite.AnyFunSuite
 
-class ValueToDocTest extends FunSuite {
+class ValueToDocTest extends AnyFunSuite {
 
   implicit val generatorDrivenConfig =
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)

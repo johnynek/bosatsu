@@ -1,12 +1,12 @@
 package org.bykn.bosatsu
 
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
 import org.typelevel.jawn.ast.{JValue, JParser}
 
 import GenJson._
+import org.scalatest.funsuite.AnyFunSuite
 
-class JsonJawnTest extends FunSuite {
+class JsonJawnTest extends AnyFunSuite {
 
   implicit val generatorDrivenConfig =
     PropertyCheckConfiguration(minSuccessful = 500)

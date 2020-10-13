@@ -1,14 +1,14 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.Gen
-import org.scalatest.FunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 
 import Identifier.Bindable
 
 import Parser.unsafeParse
+import org.scalatest.funsuite.AnyFunSuite
 
-class DeclarationTest extends FunSuite {
+class DeclarationTest extends AnyFunSuite {
 
   import Generators.shrinkDecl
 

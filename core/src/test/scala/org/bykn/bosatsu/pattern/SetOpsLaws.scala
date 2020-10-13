@@ -3,9 +3,10 @@ package org.bykn.bosatsu.pattern
 import cats.Eq
 import org.scalacheck.{Arbitrary, Cogen, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-import org.scalatest.FunSuite
+import scalatest.funsuite.AnyFunSuite.AnyFunSuite
+import org.scalatest
 
-abstract class SetOpsLaws[A] extends FunSuite {
+abstract class SetOpsLaws[A] extends AnyFunSuite {
   val setOps: SetOps[A]
 
   def genItem: Gen[A]
@@ -347,7 +348,7 @@ object Predicate {
 }
 
 
-class SetOpsTests extends FunSuite {
+class SetOpsTests extends AnyFunSuite {
 
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 50000)

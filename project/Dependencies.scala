@@ -15,5 +15,5 @@ object Dependencies {
   lazy val munitScalacheck = Def.setting("org.scalameta" %%% "munit-scalacheck" % "0.7.14")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.3.0")
   lazy val scalaCheck = Def.setting("org.scalacheck" %%% "scalacheck" % "1.14.3")
-  lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.0.9")
+  lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.2.2")
 }
