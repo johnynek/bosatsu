@@ -5,7 +5,7 @@ import Parser.{maybeSpacesAndLines, spacesAndLines, Combinators}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 
-import cats.implicits._
+import cats.syntax.all._
 
 /**
  * Represents the list construction sublanguage

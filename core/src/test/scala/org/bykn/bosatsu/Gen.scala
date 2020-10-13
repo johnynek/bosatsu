@@ -4,7 +4,6 @@ import org.bykn.bosatsu.rankn.NTypeGen
 import cats.{Defer, Monad, Traverse}
 import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
-import cats.implicits._
 
 import rankn.NTypeGen.{consIdentGen, packageNameGen, lowerIdent, typeNameGen}
 

@@ -3,8 +3,6 @@ package org.bykn.bosatsu.parser
 import cats.{Eval, Monad, Defer, Alternative, FlatMap, Now, MonoidK, Order}
 import cats.data.{Chain, NonEmptyList}
 
-import cats.implicits._
-
 /**
  * Following the haskell library trifecta,
  * these parsers either parse successfully, parse 0 and fail,

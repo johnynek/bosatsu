@@ -3,8 +3,6 @@ package org.bykn.bosatsu.graph
 import cats.Order
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
-
-import cats.implicits._
 import org.scalatest.funsuite.AnyFunSuite
 
 class ToposortTest extends AnyFunSuite {

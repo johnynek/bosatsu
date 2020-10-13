@@ -2,8 +2,6 @@ package org.bykn.bosatsu
 
 import scala.util.{ Failure, Success, Try }
 
-import cats.implicits._
-
 object Main {
   def main(args: Array[String]): Unit =
     PathModule.run(args.toList) match {

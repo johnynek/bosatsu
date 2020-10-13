@@ -1,7 +1,6 @@
 package org.bykn.bosatsu
 
 import cats.data.Writer
-import cats.implicits._
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import scala.collection.immutable.SortedSet

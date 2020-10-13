@@ -5,7 +5,7 @@ import org.bykn.bosatsu.graph.Memoize
 import cats.{Foldable, Show}
 import cats.data.{Ior, IorT, NonEmptyList, Validated, ValidatedNel, ReaderT}
 import cats.Order
-import cats.implicits._
+import cats.syntax.all._
 import scala.concurrent.ExecutionContext
 
 import Identifier.Constructor

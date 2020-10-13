@@ -6,8 +6,6 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCh
 
 import Identifier.{Bindable, Constructor}
 import rankn.DataRepr
-
-import cats.implicits._
 import org.scalatest.funsuite.AnyFunSuite
 
 class MatchlessTest extends AnyFunSuite {

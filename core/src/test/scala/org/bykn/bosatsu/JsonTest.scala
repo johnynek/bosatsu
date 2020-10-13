@@ -1,7 +1,6 @@
 package org.bykn.bosatsu
 
 import cats.Eq
-import cats.implicits._
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
 import TestUtils.typeEnvOf

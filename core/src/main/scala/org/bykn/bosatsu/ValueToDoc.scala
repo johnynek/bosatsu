@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Eval
-import cats.implicits._
+import cats.syntax.all._
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.{DefinedType, Type, DataFamily}
 import org.typelevel.paiges.{Doc, Document}

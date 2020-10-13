@@ -4,7 +4,7 @@ import cats.Eval
 import org.bykn.bosatsu.rankn.Type
 import scala.collection.mutable.{Map => MMap}
 
-import cats.implicits._
+import cats.syntax.all._
 
 import Identifier.Bindable
 

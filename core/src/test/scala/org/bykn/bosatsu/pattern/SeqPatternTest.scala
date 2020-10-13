@@ -5,8 +5,6 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 
 import SeqPattern.{Cat, Empty}
 import SeqPart.{Wildcard, AnyElem, Lit}
-
-import cats.implicits._
 import org.scalatest.funsuite.AnyFunSuite
 
 object StringSeqPatternGen {

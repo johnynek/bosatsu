@@ -6,8 +6,6 @@ import cats.data.NonEmptyList
 import org.scalacheck.Prop.forAll
 import org.scalacheck.{Arbitrary, Gen, Cogen}
 
-import cats.implicits._
-
 sealed abstract class GenT[F[_]] { self =>
   type A
   val cogen: Cogen[A]

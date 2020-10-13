@@ -5,7 +5,7 @@ import org.typelevel.paiges.Doc
 import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import cats.Eq
 
-import cats.implicits._
+import cats.syntax.all._
 
 /**
  * A simple JSON ast for output

@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Applicative
 import cats.data.{Chain, Validated, ValidatedNec, Writer, NonEmptyChain}
-import cats.implicits._
+import cats.syntax.all._
 
 import Expr._
 import Identifier.Bindable

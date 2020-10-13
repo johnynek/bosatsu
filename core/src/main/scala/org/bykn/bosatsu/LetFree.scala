@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, State}
-import cats.implicits._
+import cats.syntax.all._
 import cats.Id
 import rankn._
 

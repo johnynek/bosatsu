@@ -4,7 +4,7 @@ import cats.Show
 import cats.data.Validated
 import org.openjdk.jmh.annotations.{Benchmark, Scope, State}
 
-import cats.implicits._
+import cats.syntax.all._
 import IorMethods.IorExtension
 
 @State(Scope.Thread)

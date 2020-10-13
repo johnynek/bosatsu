@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import cats.Eval
 import cats.data.{Ior, Validated}
-import cats.implicits._
 import org.bykn.bosatsu.rankn._
 import org.scalatest.{Assertion, Assertions}
 import scala.concurrent.ExecutionContext

@@ -5,7 +5,7 @@ import cats.data.{NonEmptyList, State}
 import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
 import scala.collection.immutable.SortedMap
 
-import cats.implicits._
+import cats.syntax.all._
 
 sealed abstract class VarianceFormula {
   import VarianceFormula._

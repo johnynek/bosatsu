@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.{Foldable, Functor}
 import cats.data.NonEmptyList
-import cats.implicits._
+import cats.syntax.all._
 import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{Doc, Document}
 

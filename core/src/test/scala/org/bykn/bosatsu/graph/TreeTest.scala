@@ -3,8 +3,6 @@ package org.bykn.bosatsu.graph
 import cats.data.{NonEmptyList, Validated}
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
-
-import cats.implicits._
 import org.scalatest.funsuite.AnyFunSuite
 
 class TreeTest extends AnyFunSuite {

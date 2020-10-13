@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
-import cats.implicits._
+import cats.syntax.all._
 import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3

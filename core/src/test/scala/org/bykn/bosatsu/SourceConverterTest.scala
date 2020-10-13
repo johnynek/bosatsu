@@ -4,8 +4,6 @@ import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration}
 
 import Identifier.Bindable
-
-import cats.implicits._
 import org.scalatest.funsuite.AnyFunSuite
 
 class SourceConverterTest extends AnyFunSuite {

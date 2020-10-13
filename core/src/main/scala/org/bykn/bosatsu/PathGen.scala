@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.{Monoid, Monad}
 
-import cats.implicits._
+import cats.syntax.all._
 
 sealed abstract class PathGen[IO[_], Path] {
   def read(implicit m: Monad[IO]): IO[List[Path]]

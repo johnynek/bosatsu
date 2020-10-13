@@ -15,8 +15,6 @@ import org.typelevel.paiges.Document
 
 import Identifier.Constructor
 
-import cats.implicits._
-
 class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
   type Pat = Pattern[(PackageName, Constructor), Type]
 

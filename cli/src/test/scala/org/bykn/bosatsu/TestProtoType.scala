@@ -7,7 +7,6 @@ import org.bykn.bosatsu.rankn.Type
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import scala.util.{Failure, Success, Try}
-import cats.implicits._
 
 import java.io.File
 import java.nio.file.Path

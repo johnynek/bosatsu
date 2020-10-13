@@ -5,8 +5,6 @@ import Parser.Combinators
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.typelevel.paiges.{Doc, Document}
-
-import cats.implicits._
 import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
 import Parser.{optionParse, unsafeParse, Indy}
 

@@ -6,7 +6,7 @@ import org.bykn.bosatsu.rankn.{DataRepr, Type, RefSpace}
 
 import Identifier.{Bindable, Constructor}
 
-import cats.implicits._
+import cats.syntax.all._
 
 object Matchless {
   sealed abstract class Expr {

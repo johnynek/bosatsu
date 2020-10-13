@@ -4,8 +4,6 @@ import cats.Eq
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.PropertyCheckConfiguration
 
-import cats.implicits._
-
 class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
   type Pattern = SeqPattern[Char]
   val Pattern = SeqPattern

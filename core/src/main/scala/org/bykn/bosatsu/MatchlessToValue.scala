@@ -9,7 +9,7 @@ import scala.collection.mutable.{LongMap => MLongMap}
 import Identifier.Bindable
 import Value._
 
-import cats.implicits._
+import cats.syntax.all._
 
 object MatchlessToValue {
   import Matchless._

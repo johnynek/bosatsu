@@ -4,8 +4,6 @@ import org.typelevel.paiges.{ Doc, Document }
 
 import org.bykn.bosatsu.parser.{Parser => P}
 
-import cats.implicits._
-
 case class Indented[T](spaces: Int, value: T) {
   require(spaces > 0, s"need non-empty indentation: $spaces")
 }

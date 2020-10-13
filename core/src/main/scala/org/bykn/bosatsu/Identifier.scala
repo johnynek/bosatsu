@@ -6,8 +6,6 @@ import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.{lowerIdent, upperIdent}
 
-import cats.implicits._
-
 sealed abstract class Identifier {
   def asString: String
 

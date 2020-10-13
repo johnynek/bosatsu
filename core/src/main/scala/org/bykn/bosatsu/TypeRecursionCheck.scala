@@ -4,7 +4,7 @@ import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
 import org.bykn.bosatsu.graph.Paths
 
-import cats.implicits._
+import cats.syntax.all._
 
 /**
  * This checks to make sure any recursion of types is legal

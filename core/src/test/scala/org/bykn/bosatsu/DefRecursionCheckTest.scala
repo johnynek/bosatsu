@@ -1,8 +1,6 @@
 package org.bykn.bosatsu
 
 import cats.data.Validated
-
-import cats.implicits._
 import org.scalatest.funsuite.AnyFunSuite
 
 class DefRecursionCheckTest extends AnyFunSuite {

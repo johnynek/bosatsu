@@ -4,7 +4,7 @@ import scala.concurrent.ExecutionContext
 
 import Identifier.Bindable
 
-import cats.implicits._
+import cats.syntax.all._
 
 object MatchlessFromTypedExpr {
   // compile a set of packages given a set of external remappings
