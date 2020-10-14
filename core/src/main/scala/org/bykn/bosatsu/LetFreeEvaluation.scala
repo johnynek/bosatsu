@@ -10,6 +10,12 @@ import scala.collection.immutable.IntMap
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.DataFamily
 
+/*
+ * LetFreeEvaluation exists so that we can verify that LetFreeExpressions do describe the same
+ * output that the TypedExpressions that they are converted from describe.
+ * 
+ * It is also useful for prototyping applications that heavily use LetFreeExpressions.
+ */
 object LetFreeEvaluation {
   import LetFreeConversion.LitValue
 
@@ -141,10 +147,12 @@ object LetFreeEvaluation {
               LazyValue(arg, scope, Eval.later { evalToValue(arg, scope) }),
               Some(value)
             ).toStruct(df)
+            // $COVERAGE-OFF$ we don't have ExternalVar or Recursion structs 
           case LetFreeExpression.ExternalVar(p, n, tpe) =>
             ComputedValue(extEnv(n).value).toStruct(df)
           case LetFreeExpression.Recursion(LetFreeExpression.Lambda(expr)) =>
             LazyValue(expr, nv :: scope, value).toStruct(df)
+            // $COVERAGE-ON$
           case LetFreeExpression.LambdaVar(index) =>
             scope(index).toStruct(df)
           case mtch @ LetFreeExpression.Match(_, _) =>
