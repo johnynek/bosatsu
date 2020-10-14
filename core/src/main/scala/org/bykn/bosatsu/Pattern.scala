@@ -165,6 +165,53 @@ sealed abstract class Pattern[+N, +T] {
       case Pattern.Union(h, t) =>
         Pattern.Union(h.filterVars(keep), t.map(_.filterVars(keep)))
     }
+
+  /**
+   * a collision happens when the same binding happens twice
+   * not separated by a union
+   */
+  def collisionBinds: List[Bindable] = {
+
+    def loop(pat: Pattern[N, T]): (Set[Bindable], List[Bindable]) =
+      pat match {
+        case Pattern.WildCard | Pattern.Literal(_) => (Set.empty, Nil)
+        case Pattern.Var(v) => (Set(v), Nil)
+        case Pattern.Named(v, p) =>
+          val (s1, l1) = loop(p)
+          if (s1(v)) (s1, v :: l1)
+          else (s1 + v, l1)
+        case Pattern.StrPat(items) =>
+          items.foldLeft((Set.empty[Bindable], List.empty[Bindable])) {
+            case (res, Pattern.StrPart.WildStr | Pattern.StrPart.LitStr(_)) => res
+            case ((s1, l1), Pattern.StrPart.NamedStr(v)) =>
+              if (s1(v)) (s1, v :: l1)
+              else (s1 + v, l1)
+          }
+        case Pattern.ListPat(items) =>
+          items.foldLeft((Set.empty[Bindable], List.empty[Bindable])) {
+            case (res, Pattern.ListPart.WildList) => res
+            case ((s1, l1), Pattern.ListPart.NamedList(v)) =>
+              if (s1(v)) (s1, v :: l1)
+              else (s1 + v, l1)
+            case ((s1, l1), Pattern.ListPart.Item(p)) =>
+              val (s2, l2) = loop(p)
+              val dups = (s1 & s2) -- l2
+              (s1 | s2, dups.toList ::: l2)
+          }
+        case Pattern.Annotation(p, _) => loop(p)
+        case Pattern.PositionalStruct(_, params) =>
+          params.foldLeft((Set.empty[Bindable], List.empty[Bindable])) {
+            case ((s1, l1), p) =>
+              val (s2, l2) = loop(p)
+              val dups = ((s1 & s2) -- l1) ++ l2
+              (s1 | s2, dups.toList ::: l1)
+          }
+        case Pattern.Union(h, t) =>
+          (h :: t.toList).foldMap(loop)
+      }
+
+    loop(this)._2.distinct.sorted
+  }
 }
 
 object Pattern {

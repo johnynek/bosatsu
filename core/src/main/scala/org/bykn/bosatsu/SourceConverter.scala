@@ -578,8 +578,15 @@ final class SourceConverter(
     }
   }
 
-  private def convertPattern(pat: Pattern.Parsed, region: Region): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
-    unTuplePattern(pat, region)
+  private def convertPattern(pat: Pattern.Parsed, region: Region): Result[Pattern[(PackageName, Constructor), rankn.Type]] = {
+    val nonTupled = unTuplePattern(pat, region)
+    val collisions = pat.collisionBinds
+    NonEmptyList.fromList(collisions) match {
+      case None => nonTupled
+      case Some(nel) =>
+        SourceConverter.addError(nonTupled, SourceConverter.PatternShadow(nel, pat, region))
+    }
+  }
 
   private[this] val empty = Pattern.PositionalStruct((PackageName.PredefName, Constructor("EmptyList")), Nil)
   private[this] val nonEmpty = (PackageName.PredefName, Constructor("NonEmptyList"))
@@ -1273,6 +1280,13 @@ object SourceConverter {
     def region = duplicates.head
     def message =
       s"${kind.asString}: ${name.sourceCodeRepr} defined multiple times"
+  }
+
+  final case class PatternShadow(names: NonEmptyList[Bindable], pattern: Pattern.Parsed, region: Region) extends Error {
+    def message = {
+      val str = names.toList.map(_.sourceCodeRepr).mkString(", ")
+      "repeated bindings in pattern: " + str
+    }
   }
 
   sealed abstract class ConstructorSyntax {
