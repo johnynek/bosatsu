@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
 import rankn._
+import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
 import org.bykn.bosatsu.LetFreePattern.ListPart
@@ -639,7 +640,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
       letFreeConvertPackage(name, pack)
         .map((name, _))
     }
-    PackageMap(normAll.run(Map()).value._2.toMap)
+    PackageMap(SortedMap(normAll.run(Map()).value._2: _*))
   }
 
   def letFreeConvertExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):
