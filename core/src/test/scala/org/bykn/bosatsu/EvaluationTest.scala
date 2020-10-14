@@ -1,6 +1,5 @@
 package org.bykn.bosatsu
 
-
 import Value._
 
 import LocationMap.Colorize
@@ -929,7 +928,7 @@ def eq_List(lst1, lst2):
 
 lst1 = [0, 0, 1, 1, 2, 2, 3, 3]
 lst2 = [*[x, x] for x in range(4)]
-lst3 = [*[y, y] for (y, y) in [(x, x) for x in range(4)]]
+lst3 = [*[y, y] for (_, y) in [(x, x) for x in range(4)]]
 
 main = match (eq_List(lst1, lst2), eq_List(lst1, lst3)):
   (True, True): 1
@@ -2524,5 +2523,40 @@ test = Assertion(True, "")
       assert(re.message(Map.empty, Colorize.None) == "in file: <unknown source>, package S, recur not on an argument to the def of bar, args: y, _: String, x\nRegion(107,165)\n")
       ()
     }
+  }
+
+  test("bindings can't be duplicated in patterns, issue 584") {
+    evalFail(List("""
+package Foo
+
+out = match (1,2):
+  (a, a): a
+
+test = Assertion(True, "")
+"""), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(43,44)")
+      ()
+    }
+    evalFail(List("""
+package Foo
+
+out = match [(1,2), (1, 0)]:
+  [(a, a), (1, 0)]: a
+  _: 0
+
+test = Assertion(True, "")
+"""), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(63,64)")
+      ()
+    }
+    runBosatsuTest(List("""
+package Foo
+
+out = match [(1,2), (1, 0)]:
+  [(a, _) | (_, a), (1, 0)]: a
+  _: 0
+
+test = Assertion(out.eq_Int(1), "")
+"""), "Foo", 1)
   }
 }
