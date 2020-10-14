@@ -2533,9 +2533,30 @@ out = match (1,2):
   (a, a): a
 
 test = Assertion(True, "")
-"""), "S") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+"""), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(43,44)")
       ()
     }
+    evalFail(List("""
+package Foo
+
+out = match [(1,2), (1, 0)]:
+  [(a, a), (1, 0)]: a
+  _: 0
+
+test = Assertion(True, "")
+"""), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(63,64)")
+      ()
+    }
+    runBosatsuTest(List("""
+package Foo
+
+out = match [(1,2), (1, 0)]:
+  [(a, _) | (_, a), (1, 0)]: a
+  _: 0
+
+test = Assertion(out.eq_Int(1), "")
+"""), "Foo", 1)
   }
 }

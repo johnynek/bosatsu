@@ -195,16 +195,17 @@ sealed abstract class Pattern[+N, +T] {
               else (s1 + v, l1)
             case ((s1, l1), Pattern.ListPart.Item(p)) =>
               val (s2, l2) = loop(p)
-              val dups = (s1 & s2) -- l2
-              (s1 | s2, dups.toList ::: l2)
+              // here are new duplicates
+              val dups = ((s1 & s2) -- l2) -- l1
+              (s1 | s2, dups.toList ::: l2 ::: l1)
           }
         case Pattern.Annotation(p, _) => loop(p)
         case Pattern.PositionalStruct(_, params) =>
           params.foldLeft((Set.empty[Bindable], List.empty[Bindable])) {
             case ((s1, l1), p) =>
               val (s2, l2) = loop(p)
-              val dups = ((s1 & s2) -- l1) ++ l2
-              (s1 | s2, dups.toList ::: l1)
+              val dups = ((s1 & s2) -- l2) -- l1
+              (s1 | s2, dups.toList ::: l2 ::: l1)
           }
         case Pattern.Union(h, t) =>
           (h :: t.toList).foldMap(loop)
