@@ -166,12 +166,12 @@ object TestUtils {
           fail(tes + "\n" + errs.toString)
       }
   }
-  sealed abstract class NormalTestMode[A]
+  sealed abstract class NormalTestMode
 
   object NormalTestMode {
-    case class TagMode(expected: LetFreeConversion.LetFreeExpressionTag) extends NormalTestMode[LetFreeConversion.LetFreeExpressionTag]
-    case class ExpressionMode(expected: LetFreeExpression, extraAssertions: List[LetFreeExpression => Assertion]) extends NormalTestMode[LetFreeExpression]
-    case class VarSetMode(lambdaCount: Int, vars: Set[Int]) extends NormalTestMode[LetFreeExpression]
+    case class TagMode(expected: LetFreeConversion.LetFreeExpressionTag) extends NormalTestMode
+    case class ExpressionMode(expected: LetFreeExpression, extraAssertions: List[LetFreeExpression => Assertion]) extends NormalTestMode
+    case class VarSetMode(lambdaCount: Int, vars: Set[Int]) extends NormalTestMode
   }
 
   def unwrapLambda(expression: LetFreeExpression, lambdaCount: Int): Option[LetFreeExpression] = {
@@ -185,7 +185,7 @@ object TestUtils {
     }
   }
 
-  def normalizeTest[A](packages: List[String], mainPackS: String, expectedMode: NormalTestMode[A]) = {
+  def normalizeTest(packages: List[String], mainPackS: String, expectedMode: NormalTestMode) = {
     def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
       val normPackMap = LetFreePackageMap(infPackMap).letFreePackageMap
       (for {
@@ -216,7 +216,6 @@ object TestUtils {
               }
               case None => fail(s"Could not unwrap expression $lambdaCount times: $ne")
             }
-            
         }
       }
       ).getOrElse(fail("There should be a last expression"))
@@ -232,6 +231,21 @@ object TestUtils {
   def letFreeVarSetTest(packages: List[String], mainPackS: String, lambdaCount: Int, vars: Set[Int]) =
     normalizeTest(packages, mainPackS, NormalTestMode.VarSetMode(lambdaCount, vars)
     )
+  def letFreeEvaluateTest(packages: List[String], mainPackS: String, ext: Externals, assertions: List[Value => Assertion]) = {
+    def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
+      val normPackMap = LetFreePackageMap(infPackMap).letFreePackageMap
+      LetFreeEvaluation(normPackMap, ext).evaluateLast(mainPack) match {
+        case Some(res) => {
+          val value = LetFreeEvaluation.evaluate(res._1, res._3, None)
+          assertions.foreach(_.apply(value))
+          succeed
+        }
+        case None => fail("There should be a last expression")
+      }
+    }
+
+    testInferred(packages, mainPackS, inferredHandler(_,_))
+  }
 
   def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
     val mainPack = PackageName.parse(mainPackS).get
