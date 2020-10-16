@@ -163,6 +163,8 @@ final class SourceConverter(
         val else1 = loop(elseCase.get)
 
         (if1, else1).mapN(loop0(_, _))
+      case tern@Ternary(t, c, f) =>
+        loop(IfElse(NonEmptyList((c, OptIndent.same(t)), Nil), OptIndent.same(f))(tern.region))
       case Lambda(args, body) =>
         val argsRes = args.traverse(convertPattern(_, decl.region))
         val bodyRes = withBound(body, args.toList.flatMap(_.names))
