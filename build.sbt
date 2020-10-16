@@ -70,7 +70,7 @@ lazy val commonJsSettings = Seq(
   parallelExecution := false,
   jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
   // batch mode decreases the amount of memory needed to compile scala.js code
-  scalaJSLinkerConfig := scalaJSLinkerConfig.value.withBatchMode(scala.sys.env.get("TRAVIS").isDefined),
+  scalaJSLinkerConfig := scalaJSLinkerConfig.value.withBatchMode(scala.sys.env.get("TRAVIS").isDefined).withModuleKind(ModuleKind.CommonJSModule),
   coverageEnabled := false,
   scalaJSUseMainModuleInitializer := false,
 )
