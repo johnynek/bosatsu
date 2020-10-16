@@ -2559,4 +2559,17 @@ out = match [(1,2), (1, 0)]:
 test = Assertion(out.eq_Int(1), "")
 """), "Foo", 1)
   }
+
+  test("test some complex list patterns, issue 574") {
+    runBosatsuTest(List("""
+package Foo
+
+out = match [(True, 2), (True, 0)]:
+  [*_, (True, x), *_, (False, _)]: x
+  [*_, (True, _), *_, (_, y)]: y
+  _: -1
+
+test = Assertion(out.eq_Int(0), "")
+"""), "Foo", 1)
+  }
 }
