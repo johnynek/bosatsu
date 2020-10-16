@@ -20,4 +20,6 @@ mkdir -p compiler/out
 cp elmui/index.html compiler/
 cp elmui/out/main.js compiler/out/
 cp elmui/out/bosatsu.js compiler/out/
+cp elmui/out/bosatsu-jsapi-opt.js.map compiler/out/
+
 cp -a docs/target/paradox/site/main/* ./

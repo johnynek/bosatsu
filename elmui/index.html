@@ -2,6 +2,9 @@
 <html>
   <head></head>
   <body>
+    <script>
+      let exports = {}
+    </script>
     <script type="text/javascript" src="out/bosatsu.js"></script>
     <script type="text/javascript" src="out/main.js"></script>
     <div id="elm"></div>
@@ -25,7 +28,7 @@
         node: document.getElementById('elm')
       });
       app.ports.toJS.subscribe(function (msg) {
-        let res = Bosatsu.evaluate(null, "/file", {"/file": msg })
+        let res = exports.Bosatsu.evaluate(null, "/file", {"/file": msg })
         app.ports.toElm.send(escapeHtml(res))
       });
     </script>
