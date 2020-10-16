@@ -70,7 +70,6 @@ sealed abstract class Declaration {
           }
         DefStatement.document[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])].document(d)
       case IfElse(ifCases, elseCase) =>
-        // TODO, we could make this ternary if it is small enough
         def checkBody(cb: (Declaration, OptIndent[Declaration])): Doc = {
           val (check, optbody) = cb
           val sep = optbody.sepDoc
@@ -82,6 +81,9 @@ sealed abstract class Declaration {
         val tail = Doc.text("else:") + elseDoc :: Nil
         val parts = (Doc.text("if ") + checkBody(ifCases.head)) :: (ifCases.tail.map(Doc.text("elif ") + checkBody(_))) ::: tail
         Doc.intercalate(Doc.line, parts)
+      case Ternary(trueCase, cond, falseCase) =>
+        Doc.intercalate(Doc.space,
+          trueCase.toDoc :: Doc.text("if") :: cond.toDoc :: Doc.text("else") :: falseCase.toDoc :: Nil)
       case Lambda(args, body) =>
         Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Pattern.Parsed].document(_))) + Doc.text(" -> ") + body.toDoc
       case Literal(lit) => Document[Lit].document(lit)
@@ -187,6 +189,10 @@ sealed abstract class Declaration {
             loop(v.get, bound, acc1)
           }
           loop(elseCase.get, bound, acc2)
+        case Ternary(t, c, f) =>
+          val acc1 = loop(t, bound, acc)
+          val acc2 = loop(c, bound, acc1)
+          loop(f, bound, acc2)
         case Lambda(args, body) =>
           val bound1 = bound ++ args.toList.flatMap(_.names)
           loop(body, bound1, acc)
@@ -293,6 +299,10 @@ sealed abstract class Declaration {
             loop(v.get, acc1)
           }
           loop(elseCase.get, acc2)
+        case Ternary(t, c, f) =>
+          val acc1 = loop(t, acc)
+          val acc2 = loop(c, acc1)
+          loop(f, acc2)
         case Lambda(args, body) =>
           val acc1 = acc ++ args.toList.flatMap(_.names)
           loop(body, acc1)
@@ -446,6 +456,8 @@ object Declaration {
           val elsec = elseCase.traverse(loopDec)
 
           (ifs, elsec).mapN(IfElse(_, _)(decl.region))
+        case Ternary(t, c, f) =>
+          (loop(t), loop(c), loop(f)).mapN(Ternary(_, _, _))
         case Lambda(args, body) =>
           // sets up a binding
           val pnames = args.toList.flatMap(_.names)
@@ -564,7 +576,7 @@ object Declaration {
     def parser(indent: String, declP: P1[NonBinding]): P1[RecordArg] = {
       val pairFn: P1[Bindable => Pair] = {
         val ws = Parser.maybeIndentedOrSpace(indent)
-        ((ws.with1 *> P.char(':')).backtrack *> ws *> declP)
+        ((ws.with1.soft *> P.char(':')) *> ws *> declP)
           .map { decl => Pair(_, decl) }
       }
 
@@ -591,6 +603,8 @@ object Declaration {
         case IfElse(ifCases, elseCase) =>
           IfElse(ifCases.map { case (bool, res) => (bool.replaceRegionsNB(r), res.map(_.replaceRegions(r))) },
             elseCase.map(_.replaceRegions(r)))(r)
+        case Ternary(t, c, f) =>
+          Ternary(t.replaceRegionsNB(r), c.replaceRegionsNB(r), f.replaceRegionsNB(r))
         case Lambda(args, body) =>
           Lambda(args, body.replaceRegions(r))(r)
         case Literal(lit) => Literal(lit)(r)
@@ -657,6 +671,9 @@ object Declaration {
   case class DefFn(deffn: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
   case class IfElse(ifCases: NonEmptyList[(NonBinding, OptIndent[Declaration])],
     elseCase: OptIndent[Declaration])(implicit val region: Region) extends NonBinding
+  case class Ternary(trueCase: NonBinding, cond: NonBinding, falseCase: NonBinding) extends NonBinding {
+    val region = trueCase.region + falseCase.region
+  }
   case class Lambda(args: NonEmptyList[Pattern.Parsed], body: Declaration)(implicit val region: Region) extends NonBinding
   case class Literal(lit: Lit)(implicit val region: Region) extends NonBinding
   case class Match(
@@ -895,7 +912,7 @@ object Declaration {
     val kvs = kv.nonEmptyListOfWs(ws)
 
     // here is the record style: Foo {x: 1, ...
-    val recArgs = kvs.bracketed((maybeSpace.with1 ~ P.char('{')).backtrack ~ ws, ws ~ P.char('}'))
+    val recArgs = kvs.bracketed(maybeSpace.with1.soft ~ P.char('{') ~ ws, ws ~ P.char('}'))
 
     // here is tuple style: Foo(a, b)
     val tupArgs = declP
@@ -985,6 +1002,7 @@ object Declaration {
       // since \x -> y: t will parse like \x -> (y: t)
       // if we are in a branch arg, we can't parse annotations on the body of the lambda
       val lambBody = if (pm == ParseMode.BranchArg) recArgIndy.asInstanceOf[Indy[Declaration]] else recIndy
+      val ternaryElseP = if (pm == ParseMode.BranchArg) recArg else recNonBind
 
       val allNonBind: P1[NonBinding] =
         P.defer1(
@@ -1040,7 +1058,7 @@ object Declaration {
         if (pm == ParseMode.BranchArg) applied
         else {
           val an: P1[NonBinding => NonBinding] =
-            (maybeSpace.with1 *> P.char(':') *> maybeSpace *> TypeRef.parser)
+            (maybeSpace.with1.soft *> P.char(':') *> maybeSpace *> TypeRef.parser)
               // TODO remove this backtrack
               .backtrack
               .region
@@ -1097,14 +1115,10 @@ object Declaration {
       // here is if/ternary operator
       // it fully recurses on the else branch, which will parse any repeated ternaryies
       // so no need to repeat here for correct precedence
-      val ternary: P1[Declaration => NonBinding] =
-        (((spaces *> P.string1("if") *> spaces).backtrack *> recNonBind) ~ (spaces *> keySpace("else") *> recNonBind))
-          .region
-          .map { case (region, (cond, falseCase)) =>
-            { trueCase: Declaration =>
-              val ifcase = NonEmptyList.of((cond, OptIndent.same(trueCase)))
-              IfElse(ifcase, OptIndent.same(falseCase))(trueCase.region + region)
-            }
+      val ternary: P1[NonBinding => NonBinding] =
+        (((spaces *> P.string1("if") *> spaces).backtrack *> recNonBind) ~ (spaces *> keySpace("else") *> ternaryElseP))
+          .map { case (cond, falseCase) =>
+            { trueCase: NonBinding => Ternary(trueCase, cond, falseCase) }
           }
 
       val finalNonBind: P1[NonBinding] =

@@ -293,6 +293,8 @@ object DefRecursionCheck {
           }
           val e = checkDecl(elseCase.get)
           ifs *> e
+        case Ternary(t, c, f) =>
+          checkDecl(t) *> checkDecl(c) *> checkDecl(f)
         case Lambda(args, body) =>
           // these args create new bindings:
           checkForIllegalBindsSt(args.toList.flatMap(_.names), decl) *> checkDecl(body)
