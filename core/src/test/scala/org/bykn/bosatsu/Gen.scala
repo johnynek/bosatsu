@@ -207,7 +207,14 @@ object Generators {
     // TODO we can't parse if since we get confused about it being a ternary expression
     val pat = genPattern(1, useUnion = true)
     val comp = Gen.zip(genSpliceOrItem(dec, dec), pat, dec, Gen.option(dec))
-      .map { case (a, b, c, _) => ListLang.Comprehension(a, b, c, None) }
+      .map { case (a, b, c0, _) =>
+        val c = c0 match {
+          case tern@Declaration.Ternary(_, _, _) =>
+            Declaration.Parens(tern)(emptyRegion)
+          case not => not
+        }
+        ListLang.Comprehension(a, b, c, None)
+      }
 
     Gen.oneOf(cons, comp).map(Declaration.ListDecl(_)(emptyRegion))
   }
@@ -230,7 +237,14 @@ object Generators {
     // TODO we can't parse if since we get confused about it being a ternary expression
     val pat = genPattern(1, useUnion = true)
     val comp = Gen.zip(dec, dec, pat, dec, Gen.option(dec))
-      .map { case (k, v, b, c, _) => ListLang.Comprehension(ListLang.KVPair(k, v), b, c, None) }
+      .map { case (k, v, b, c0, _) =>
+        val c = c0 match {
+          case tern@Declaration.Ternary(_, _, _) =>
+            Declaration.Parens(tern)(emptyRegion)
+          case not => not
+        }
+        ListLang.Comprehension(ListLang.KVPair(k, v), b, c, None)
+      }
 
     Gen.oneOf(cons, comp).map(Declaration.DictDecl(_)(emptyRegion))
   }
@@ -329,6 +343,21 @@ object Generators {
 
     Gen.zip(nonEmptyN(genIf, 2), padBody)
       .map { case (ifs, elsec) => IfElse(ifs, elsec)(emptyRegion) }
+  }
+
+  def ternaryGen(argGen0: Gen[NonBinding]): Gen[Declaration.Ternary] = {
+    import Declaration._
+
+    val argGen = argGen0.map {
+      case lam@Lambda(_, _) => Parens(lam)(emptyRegion)
+      case ife@IfElse(_, _) => Parens(ife)(emptyRegion)
+      case tern@Ternary(_, _, _) => Parens(tern)(emptyRegion)
+      case matches@Matches(_, _) => Parens(matches)(emptyRegion)
+      case m@Match(_, _, _) => Parens(m)(emptyRegion)
+      case not => not
+    }
+    Gen.zip(argGen, argGen, argGen)
+      .map { case (t, c, f) => Ternary(t, c, f) }
   }
 
   def genStyle(args: List[Pattern.Parsed]): Gen[Pattern.StructKind.Style] =
@@ -506,7 +535,7 @@ object Generators {
 
       val fixa = a match {
         // matches binds tighter than all these
-        case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) => Parens(a)(emptyRegion)
+        case Lambda(_, _) | IfElse(_, _) | ApplyOp(_, _, _) | Match(_, _, _) | Ternary(_, _, _) => Parens(a)(emptyRegion)
         case _ => a
       }
       Matches(fixa, p)(emptyRegion)
@@ -617,6 +646,7 @@ object Generators {
       (2, applyGen(recNon)),
       (1, applyOpGen(simpleDecl(depth - 1))),
       (1, ifElseGen(recNon, recur)),
+      (1, ternaryGen(recNon)),
       (1, genStringDecl(recNon)),
       (1, listGen(recNon)),
       (1, dictGen(recNon)),
@@ -667,6 +697,9 @@ object Generators {
             inner #::: inner.flatMap(apply _)
           case IfElse(ifCases, elseCase) =>
             elseCase.get #:: ifCases.toList.toStream.map(_._2.get)
+          case Ternary(t, c, f) =>
+            val s = Stream(t, c, f)
+            s #::: s.flatMap(apply(_))
           case Match(_, typeName, args) =>
             args.get.toList.toStream.flatMap {
               case (_, decl) => decl.get #:: apply(decl.get)
@@ -677,7 +710,10 @@ object Generators {
           case Comment(c) => Stream.empty
           case Lambda(args, body) => body #:: Stream.empty
           case Literal(_) => Stream.empty
-          case Parens(p) => p #:: Stream.empty
+          case Parens(_) =>
+            // by removing parens we can make invalid
+            // expressions
+            Stream.empty
           case TupleCons(Nil) => Stream.empty
           case TupleCons(h :: tail) => h #:: TupleCons(tail)(emptyRegion) #:: apply(TupleCons(tail)(emptyRegion))
           case Var(_) => Stream.empty

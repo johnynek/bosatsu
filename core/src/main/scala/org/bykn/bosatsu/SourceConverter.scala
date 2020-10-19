@@ -163,6 +163,8 @@ final class SourceConverter(
         val else1 = loop(elseCase.get)
 
         (if1, else1).mapN(loop0(_, _))
+      case tern@Ternary(t, c, f) =>
+        loop(IfElse(NonEmptyList((c, OptIndent.same(t)), Nil), OptIndent.same(f))(tern.region))
       case Lambda(args, body) =>
         val argsRes = args.traverse(convertPattern(_, decl.region))
         val bodyRes = withBound(body, args.toList.flatMap(_.names))
@@ -578,8 +580,15 @@ final class SourceConverter(
     }
   }
 
-  private def convertPattern(pat: Pattern.Parsed, region: Region): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
-    unTuplePattern(pat, region)
+  private def convertPattern(pat: Pattern.Parsed, region: Region): Result[Pattern[(PackageName, Constructor), rankn.Type]] = {
+    val nonTupled = unTuplePattern(pat, region)
+    val collisions = pat.collisionBinds
+    NonEmptyList.fromList(collisions) match {
+      case None => nonTupled
+      case Some(nel) =>
+        SourceConverter.addError(nonTupled, SourceConverter.PatternShadow(nel, pat, region))
+    }
+  }
 
   private[this] val empty = Pattern.PositionalStruct((PackageName.PredefName, Constructor("EmptyList")), Nil)
   private[this] val nonEmpty = (PackageName.PredefName, Constructor("NonEmptyList"))
@@ -1273,6 +1282,13 @@ object SourceConverter {
     def region = duplicates.head
     def message =
       s"${kind.asString}: ${name.sourceCodeRepr} defined multiple times"
+  }
+
+  final case class PatternShadow(names: NonEmptyList[Bindable], pattern: Pattern.Parsed, region: Region) extends Error {
+    def message = {
+      val str = names.toList.map(_.sourceCodeRepr).mkString(", ")
+      "repeated bindings in pattern: " + str
+    }
   }
 
   sealed abstract class ConstructorSyntax {
