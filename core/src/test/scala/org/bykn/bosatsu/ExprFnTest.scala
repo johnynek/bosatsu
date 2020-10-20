@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import java.math.BigInteger
 import org.scalatest.funsuite.AnyFunSuite
 import cats.data.NonEmptyList
+import scala.math.sqrt
 
 class ExprFnTest extends AnyFunSuite {
   import TestUtils._
@@ -39,7 +40,14 @@ out = [1,2,3,4].map_List(sqrt).foldLeft(0, add)
           (PackageName(NonEmptyList.of("Ext", "Sqrt")), "sqrt") -> FfiCall.Fn1(
             v =>
               Value.ExternalValue(
-                v.asExternal.toAny.asInstanceOf[BigInteger].sqrt()
+                BigInteger.valueOf(
+                  sqrt(
+                    v.asExternal.toAny
+                      .asInstanceOf[BigInteger]
+                      .longValue()
+                      .toDouble
+                  ).toLong
+                )
               )
           )
         )
