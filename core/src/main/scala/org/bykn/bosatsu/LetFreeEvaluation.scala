@@ -222,9 +222,9 @@ object LetFreeEvaluation {
     }
   }
 
-  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV) => Value) extends Value.FnValue.Arg {
+  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV, ExtEnv) => Value) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
-      toExprFn(ComputedValue(v), None, None)
+      toExprFn(ComputedValue(v), None, None, Map.empty)
     }
   }
 
@@ -240,7 +240,7 @@ object LetFreeEvaluation {
 
   def attemptExprFn(
       v: Value
-  ): Either[(LetFreeValue, Cache, ToLFV) => Value, Value => Value] = v match {
+  ): Either[(LetFreeValue, Cache, ToLFV, ExtEnv) => Value, Value => Value] = v match {
     case fv @ Value.FnValue(f) =>
       fv.arg match {
         case ExprFnValue(ef) => Left(ef)
@@ -262,7 +262,7 @@ object LetFreeEvaluation {
     case Left(v) =>
       attemptExprFn(v) match {
         case Left(eFn) =>
-          ComputedValue(eFn(arg, cache, Some(nv => Future(nvToV(nv)))))
+          ComputedValue(eFn(arg, cache, Some(nv => Future(nvToV(nv))), extEnv))
         case Right(fn) => {
           val v = nvToV(arg)
           ComputedValue(fn(v))
@@ -496,7 +496,7 @@ case class LetFreeEvaluation(
   )(implicit extEnv: LetFreeEvaluation.ExtEnv, cache: Cache): FfiCall = {
 
     def evalExprFn(t: rankn.Type): LetFreeEvaluation.ExprFnValue =
-      LetFreeEvaluation.ExprFnValue({ (e1, cache, eval) =>
+      LetFreeEvaluation.ExprFnValue({ (e1, cache, eval, extEnv) =>
         Value.ExternalValue(wrapper(e1, t, cache, eval))
       })
 
