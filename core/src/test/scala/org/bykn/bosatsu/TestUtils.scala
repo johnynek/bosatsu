@@ -134,7 +134,7 @@ object TestUtils {
       Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
         ((i.toString, lm), parsed)
       }
-  }
+    }
 
     val parsedPaths = parsed match {
       case Validated.Valid(vs) => vs
@@ -234,7 +234,7 @@ object TestUtils {
   def letFreeEvaluateTest(packages: List[String], mainPackS: String, ext: Externals, assertions: List[Value => Assertion]) = {
     def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
       val normPackMap = LetFreePackageMap(infPackMap).letFreePackageMap
-      LetFreeEvaluation(normPackMap, ext).evaluateLast(mainPack) match {
+      LetFreeEvaluation(normPackMap, Predef.jvmExternals ++ ext).evaluateLast(mainPack) match {
         case Some(res) => {
           val value = LetFreeEvaluation.evaluate(res._1, res._3, None)
           assertions.foreach(_.apply(value))
