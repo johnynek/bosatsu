@@ -71,10 +71,10 @@ object LetFreeEvaluation {
         )
     }
 
-    lazy val toStructNat = nvToStructImpl(this, rankn.DataFamily.Nat)
-    lazy val toStructEnum = nvToStructImpl(this, rankn.DataFamily.Enum)
-    lazy val toStructStruct = nvToStructImpl(this, rankn.DataFamily.Struct)
-    lazy val toStructNewType = nvToStructImpl(this, rankn.DataFamily.NewType)
+    def toStructNat: Option[(Int, List[LetFreeValue])]
+    def toStructEnum: Option[(Int, List[LetFreeValue])]
+    def toStructStruct: Option[(Int, List[LetFreeValue])]
+    def toStructNewType: Option[(Int, List[LetFreeValue])]
 
     def toStruct(df: rankn.DataFamily): Option[(Int, List[LetFreeValue])] =
       df match {
@@ -83,9 +83,6 @@ object LetFreeEvaluation {
         case rankn.DataFamily.Struct  => toStructStruct
         case rankn.DataFamily.NewType => toStructNewType
       }
-
-    implicit val extEnv: ExtEnv
-    implicit val cache: Cache
   }
 
   case class LazyValue(
@@ -97,16 +94,17 @@ object LetFreeEvaluation {
     def cleanedScope: List[(Int, LetFreeValue)] =
       expression.varSet.toList.sorted.map { n => (n, scope(n)) }
 
-    implicit val extEnv = extEnvArg
-    implicit val cache = cacheArg
+    lazy val toStructNat: Option[(Int, List[LetFreeValue])] = lazyToStructImpl(this, rankn.DataFamily.Nat)
+    lazy val toStructEnum: Option[(Int, List[LetFreeValue])] = lazyToStructImpl(this, rankn.DataFamily.Enum)
+    lazy val toStructStruct: Option[(Int, List[LetFreeValue])] = lazyToStructImpl(this, rankn.DataFamily.Struct)
+    lazy val toStructNewType: Option[(Int, List[LetFreeValue])] = lazyToStructImpl(this, rankn.DataFamily.NewType)
   }
 
-  case class ComputedValue(value: Value)(
-      implicit extEnvArg: ExtEnv,
-      cacheArg: Cache
-  ) extends LetFreeValue {
-    implicit val extEnv = extEnvArg
-    implicit val cache = cacheArg
+  case class ComputedValue(value: Value) extends LetFreeValue {
+    lazy val toStructNat: Option[(Int, List[LetFreeValue])] = computedToStructImpl(this, rankn.DataFamily.Nat)
+    lazy val toStructEnum: Option[(Int, List[LetFreeValue])] = computedToStructImpl(this, rankn.DataFamily.Enum)
+    lazy val toStructStruct: Option[(Int, List[LetFreeValue])] = computedToStructImpl(this, rankn.DataFamily.Struct)
+    lazy val toStructNewType: Option[(Int, List[LetFreeValue])] = computedToStructImpl(this, rankn.DataFamily.NewType)
   }
 
   def nvToLitValue(
@@ -122,49 +120,49 @@ object LetFreeEvaluation {
     case (nv, df) => nv.toStruct(df)
   }
 
-  def nvToStructImpl(
-      nv: LetFreeValue,
-      df: rankn.DataFamily
-  )(implicit extEnv: ExtEnv, cache: Cache) = {
-    nv match {
-      case ComputedValue(v) =>
-        valueToStruct(v, df).map {
-          case (n, lst) => (n, lst.map(vv => ComputedValue(vv)))
-        }
-      case LazyValue(expr, scope, value) =>
-        expr match {
-          case LetFreeExpression.Struct(n, lst, df) =>
-            Some((n, lst.zipWithIndex.map {
-              case (ne, i) =>
-                // There is a possible optimization here where we don't need to evaluate the whole struct just for an arg
-                LazyValue(ne, scope, value.map { v => v.structArgs(df)(i) })
-            }))
-          case LetFreeExpression.App(fn, arg) =>
-            applyApplyable(
-              evalToApplyable(LazyValue(fn, scope, Eval.later {
-                evalToValue(fn, scope)
-              })),
-              LazyValue(arg, scope, Eval.later { evalToValue(arg, scope) }),
-              Some(value)
-            ).toStruct(df)
-            // $COVERAGE-OFF$ we don't have ExternalVar or Recursion structs 
-          case LetFreeExpression.ExternalVar(p, n, tpe) =>
-            ComputedValue(extEnv(n).value).toStruct(df)
-          case LetFreeExpression.Recursion(LetFreeExpression.Lambda(expr)) =>
-            LazyValue(expr, nv :: scope, value).toStruct(df)
-            // $COVERAGE-ON$
-          case LetFreeExpression.LambdaVar(index) =>
-            scope(index).toStruct(df)
-          case mtch @ LetFreeExpression.Match(_, _) =>
-            simplifyMatch(mtch, scope).toStruct(df)
-          case other =>
-            // $COVERAGE-OFF$ this should be unreachable
-            sys.error(
-              s"Type checking should mean this isn't a lambda or a literal: $other"
-            )
-            // $COVERAGE-ON$
-        }
+  def computedToStructImpl(cv: ComputedValue, df: DataFamily) = cv match {
+    case ComputedValue(v) => valueToStruct(v, df).map {
+      case (n, lst) => (n, lst.map(vv => ComputedValue(vv)))
     }
+  }
+
+  def lazyToStructImpl(
+    lv: LazyValue,
+    df: rankn.DataFamily
+  )(implicit extEnv: ExtEnv, cache: Cache) = lv match {
+    case LazyValue(expr, scope, value) =>
+      expr match {
+        case LetFreeExpression.Struct(n, lst, df) =>
+          Some((n, lst.zipWithIndex.map {
+            case (ne, i) =>
+              // There is a possible optimization here where we don't need to evaluate the whole struct just for an arg
+              LazyValue(ne, scope, value.map { v => v.structArgs(df)(i) })
+          }))
+        case LetFreeExpression.App(fn, arg) =>
+          applyApplyable(
+            evalToApplyable(LazyValue(fn, scope, Eval.later {
+              evalToValue(fn, scope)
+            })),
+            LazyValue(arg, scope, Eval.later { evalToValue(arg, scope) }),
+            Some(value)
+          ).toStruct(df)
+          // $COVERAGE-OFF$ we don't have ExternalVar or Recursion structs 
+        case LetFreeExpression.ExternalVar(p, n, tpe) =>
+          ComputedValue(extEnv(n).value).toStruct(df)
+        case LetFreeExpression.Recursion(LetFreeExpression.Lambda(expr)) =>
+          LazyValue(expr, lv :: scope, value).toStruct(df)
+          // $COVERAGE-ON$
+        case LetFreeExpression.LambdaVar(index) =>
+          scope(index).toStruct(df)
+        case mtch @ LetFreeExpression.Match(_, _) =>
+          simplifyMatch(mtch, scope).toStruct(df)
+        case other =>
+          // $COVERAGE-OFF$ this should be unreachable
+          sys.error(
+            s"Type checking should mean this isn't a lambda or a literal: $other"
+          )
+          // $COVERAGE-ON$
+      }
   }
   def nvToList(
       implicit extEnv: ExtEnv,
@@ -224,10 +222,7 @@ object LetFreeEvaluation {
     }
   }
 
-  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV) => Value)(
-      implicit extEnv: ExtEnv,
-      cache: Cache
-  ) extends Value.FnValue.Arg {
+  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV) => Value) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
       toExprFn(ComputedValue(v), None, None)
     }
