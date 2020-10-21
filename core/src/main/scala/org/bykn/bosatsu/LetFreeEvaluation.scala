@@ -409,6 +409,22 @@ object LetFreeEvaluation {
   ): Value = {
     LetFreeEvaluation.evalToValue(ne, Nil)(extEnv, cache)
   }
+
+  def exprFn(
+    wrapper: (
+      LetFreeValue,
+      rankn.Type,
+      Cache,
+      ToLFV,
+      ExtEnv
+    ) => Any
+  ): FfiCall = {
+    def evalExprFn(t: rankn.Type): ExprFnValue = ExprFnValue { case (e1, cache, eval, extEnv) =>
+      Value.ExternalValue(wrapper(e1, t, cache, eval, extEnv))
+    }
+
+    FfiCall.FromFn { t => new Value.FnValue(evalExprFn(t)) }
+  }
 }
 
 case class LetFreeEvaluation(
@@ -482,24 +498,4 @@ case class LetFreeEvaluation(
         dt <- pack.program.types.getType(pn, t)
       } yield dt
   })
-
-  type Cache = Option[CMap[String, (Future[Value], Type)]]
-  type ToLFV = Option[LetFreeEvaluation.LetFreeValue => Future[Value]]
-
-  def exprFn(
-      wrapper: (
-          LetFreeEvaluation.LetFreeValue,
-          rankn.Type,
-          LetFreeEvaluation.Cache,
-          LetFreeEvaluation.ToLFV
-      ) => Any
-  )(implicit extEnv: LetFreeEvaluation.ExtEnv, cache: Cache): FfiCall = {
-
-    def evalExprFn(t: rankn.Type): LetFreeEvaluation.ExprFnValue =
-      LetFreeEvaluation.ExprFnValue({ (e1, cache, eval, extEnv) =>
-        Value.ExternalValue(wrapper(e1, t, cache, eval))
-      })
-
-    FfiCall.FromFn { t => new Value.FnValue(evalExprFn(t)) }
-  }
 }
