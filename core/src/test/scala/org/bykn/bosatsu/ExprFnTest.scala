@@ -13,7 +13,7 @@ class ExprFnTest extends AnyFunSuite {
       List("""
 package Ext/Add
 
-out = [1,2,3].foldLeft(4, add)   
+out = [1,2,3].foldLeft(4, add)
 """),
       "Ext/Add",
       Externals(Map.empty),
@@ -32,7 +32,7 @@ package Ext/Sqrt
 
 external def sqrt(x: Int) -> Int
 
-out = [1,2,3,4].map_List(sqrt).foldLeft(0, add)   
+out = [1,2,3,4].map_List(sqrt).foldLeft(0, add)
 """),
       "Ext/Sqrt",
       Externals(
@@ -55,6 +55,34 @@ out = [1,2,3,4].map_List(sqrt).foldLeft(0, add)
       List(v =>
         assert(
           v.asExternal.toAny == BigInteger.valueOf(5),
+          "should just be a number"
+        )
+      )
+    )
+  }
+  
+  test("test of expression function externals") {
+    letFreeEvaluateTest(
+      List("""
+package Ext/ExprListFilter
+
+external def expr_list_filter(lst: List[a], fn: a -> Bool) -> Int
+
+out = [1,2,3,4].expr_list_filter(\_ -> True)
+"""),
+      "Ext/ExprListFilter",
+      Externals(
+        Map(
+          (PackageName(NonEmptyList.of("Ext", "ExprListFilter")), "expr_list_filter") -> LetFreeEvaluation.exprFn(2,
+            {
+              case (t, args) => BigInteger.ONE
+            }
+          )
+        )
+      ),
+      List(v =>
+        assert(
+          v.asExternal.toAny == BigInteger.valueOf(1),
           "should just be a number"
         )
       )

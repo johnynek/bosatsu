@@ -222,9 +222,9 @@ object LetFreeEvaluation {
     }
   }
 
-  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ToLFV, ExtEnv) => Value) extends Value.FnValue.Arg {
+  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ExtEnv) => Value) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
-      toExprFn(ComputedValue(v), None, None, Map.empty)
+      toExprFn(ComputedValue(v), None, Map.empty)
     }
   }
 
@@ -240,7 +240,7 @@ object LetFreeEvaluation {
 
   def attemptExprFn(
       v: Value
-  ): Either[(LetFreeValue, Cache, ToLFV, ExtEnv) => Value, Value => Value] = v match {
+  ): Either[(LetFreeValue, Cache, ExtEnv) => Value, Value => Value] = v match {
     case fv @ Value.FnValue(f) =>
       fv.arg match {
         case ExprFnValue(ef) => Left(ef)
@@ -253,7 +253,6 @@ object LetFreeEvaluation {
 
   }
 
-  import scala.concurrent.ExecutionContext.Implicits.global
   def applyApplyable(
       applyable: Applyable,
       arg: LetFreeValue,
@@ -262,7 +261,7 @@ object LetFreeEvaluation {
     case Left(v) =>
       attemptExprFn(v) match {
         case Left(eFn) =>
-          ComputedValue(eFn(arg, cache, Some(nv => Future(nvToV(nv))), extEnv))
+          ComputedValue(eFn(arg, cache, extEnv))
         case Right(fn) => {
           val v = nvToV(arg)
           ComputedValue(fn(v))
@@ -411,19 +410,26 @@ object LetFreeEvaluation {
   }
 
   def exprFn(
+    arity: Int,
     wrapper: (
-      LetFreeValue,
       rankn.Type,
-      Cache,
-      ToLFV,
-      ExtEnv
+      List[(LetFreeValue, Cache, ExtEnv)]
     ) => Any
   ): FfiCall = {
-    def evalExprFn(t: rankn.Type): ExprFnValue = ExprFnValue { case (e1, cache, eval, extEnv) =>
-      Value.ExternalValue(wrapper(e1, t, cache, eval, extEnv))
-    }
+    def evalExprFn(t: rankn.Type, revArgs: List[(LetFreeValue, Cache, ExtEnv)]): ExprFnValue =
+      if (revArgs.length + 1 < arity) {
+        ExprFnValue { case (e1, cache, extEnv) =>
+          val arg = (e1, cache, extEnv)
+          new Value.FnValue(evalExprFn(t, arg :: revArgs))
+        }
+      } else {
+        ExprFnValue { case (e1, cache, extEnv) =>
+          val arg = (e1, cache, extEnv)
+          Value.ExternalValue(wrapper(t, (arg :: revArgs).reverse))
+        }
+      }
 
-    FfiCall.FromFn { t => new Value.FnValue(evalExprFn(t)) }
+    FfiCall.FromFn { t => new Value.FnValue(evalExprFn(t, Nil)) }
   }
 }
 
