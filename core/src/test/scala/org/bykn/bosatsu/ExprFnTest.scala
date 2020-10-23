@@ -5,6 +5,9 @@ import org.scalatest.funsuite.AnyFunSuite
 import cats.data.NonEmptyList
 import scala.math.sqrt
 import scala.annotation.tailrec
+import scala.collection.mutable
+import LetFreeEvaluation.LazyValue
+import LetFreeExpression.Lambda
 
 class ExprFnTest extends AnyFunSuite {
   import TestUtils._
@@ -24,6 +27,34 @@ class ExprFnTest extends AnyFunSuite {
       Value.VList.Cons(head, acc)
     }
   }
+
+  def externalFilter(counter: mutable.Map[Boolean, Int]) =
+    LetFreeEvaluation.exprFn(
+      2,
+      {
+        case (t, List(lst, fnValue @ LazyValue(Lambda(expr), scope, _)))
+            if !expr.varSet.contains(0) => {
+          LetFreeEvaluation.evalToValue(
+            expr,
+            LetFreeEvaluation.ComputedValue(Value.UnitValue) :: scope
+          )(fnValue.extEnv, fnValue.cache) match {
+            case Value.True  => lst.toValue
+            case Value.False => Value.VList.VNil
+            case _           => sys.error("this should always be a boolean")
+          }
+        }
+        case (t, List(lst, fnValue)) => {
+          val actualList = sumValueToList(lst.toValue).filter { x =>
+            val res = fnValue.toValue.asFn(x).asSum == Value.True
+            val cnt = counter.get(res).getOrElse(0)
+            counter += (res -> (cnt + 1))
+            res
+          }
+          listToSumValue(actualList)
+
+        }
+      }
+    )
 
   test("test of built in externals") {
     letFreeEvaluateTest(
@@ -79,6 +110,7 @@ out = [1,2,3,4].map_List(sqrt).foldLeft(0, add)
   }
 
   test("test of expression function externals") {
+    val counter = mutable.Map[Boolean, Int]()
     letFreeEvaluateTest(
       List("""
 package Ext/ExprListFilter
@@ -93,41 +125,20 @@ out = [1,2,3,4].expr_list_filter(\_ -> False)
           (
             PackageName(NonEmptyList.of("Ext", "ExprListFilter")),
             "expr_list_filter"
-          ) -> LetFreeEvaluation.exprFn(
-            2,
-            {
-              case (
-                    t,
-                    List(
-                      lst,
-                      fnValue @ LetFreeEvaluation
-                        .LazyValue(LetFreeExpression.Lambda(expr), scope, _)
-                    )
-                  ) if !expr.varSet.contains(0) => {
-                LetFreeEvaluation.evalToValue(
-                  expr,
-                  LetFreeEvaluation.ComputedValue(Value.UnitValue) :: scope
-                )(fnValue.extEnv, fnValue.cache) match {
-                  case Value.True  => lst.toValue
-                  case Value.False => Value.VList.VNil
-                  case _           => sys.error("this should always be a boolean")
-                }
-              }
-              case (t, List(lst, fnValue)) => {
-                val actualList = sumValueToList(lst.toValue).filter(x =>
-                  fnValue.toValue.asFn(x).asSum == Value.True
-                )
-                listToSumValue(actualList)
-              }
-            }
-          )
+          ) -> externalFilter(counter)
         )
       ),
-      List(v =>
-        assert(
-          v.asSum == BigInteger.valueOf(1),
-          "should just be a number"
-        )
+      List(
+        v =>
+          assert(
+            v.asSum == Value.VList.VNil,
+            "should just be a number"
+          ),
+        v =>
+          assert(
+            counter.toList == Nil,
+            "no counts"
+          )
       )
     )
   }
