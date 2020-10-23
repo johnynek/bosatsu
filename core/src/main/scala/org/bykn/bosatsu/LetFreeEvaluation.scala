@@ -71,6 +71,8 @@ object LetFreeEvaluation {
         )
     }
 
+    def toValue: Value
+
     def toStructNat: Option[(Int, List[LetFreeValue])]
     def toStructEnum: Option[(Int, List[LetFreeValue])]
     def toStructStruct: Option[(Int, List[LetFreeValue])]
@@ -98,6 +100,11 @@ object LetFreeEvaluation {
     lazy val toStructEnum: Option[(Int, List[LetFreeValue])] = lazyToStructImpl(this, rankn.DataFamily.Enum)
     lazy val toStructStruct: Option[(Int, List[LetFreeValue])] = lazyToStructImpl(this, rankn.DataFamily.Struct)
     lazy val toStructNewType: Option[(Int, List[LetFreeValue])] = lazyToStructImpl(this, rankn.DataFamily.NewType)
+
+    val extEnv = extEnvArg
+    val cache = cacheArg
+
+    lazy val toValue = value.value
   }
 
   case class ComputedValue(value: Value) extends LetFreeValue {
@@ -105,6 +112,8 @@ object LetFreeEvaluation {
     lazy val toStructEnum: Option[(Int, List[LetFreeValue])] = computedToStructImpl(this, rankn.DataFamily.Enum)
     lazy val toStructStruct: Option[(Int, List[LetFreeValue])] = computedToStructImpl(this, rankn.DataFamily.Struct)
     lazy val toStructNewType: Option[(Int, List[LetFreeValue])] = computedToStructImpl(this, rankn.DataFamily.NewType)
+
+    val toValue = value
   }
 
   def nvToLitValue(
@@ -181,6 +190,7 @@ object LetFreeEvaluation {
     }
     Some(loop(normalValue, Nil).reverse)
   }
+
   def nvFromList(
       implicit extEnv: ExtEnv,
       cache: Cache
@@ -222,9 +232,9 @@ object LetFreeEvaluation {
     }
   }
 
-  case class ExprFnValue(toExprFn: (LetFreeValue, Cache, ExtEnv) => Value) extends Value.FnValue.Arg {
+  case class ExprFnValue(toExprFn: LetFreeValue => Value) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
-      toExprFn(ComputedValue(v), None, Map.empty)
+      toExprFn(ComputedValue(v))
     }
   }
 
@@ -240,7 +250,7 @@ object LetFreeEvaluation {
 
   def attemptExprFn(
       v: Value
-  ): Either[(LetFreeValue, Cache, ExtEnv) => Value, Value => Value] = v match {
+  ): Either[LetFreeValue => Value, Value => Value] = v match {
     case fv @ Value.FnValue(f) =>
       fv.arg match {
         case ExprFnValue(ef) => Left(ef)
@@ -261,7 +271,7 @@ object LetFreeEvaluation {
     case Left(v) =>
       attemptExprFn(v) match {
         case Left(eFn) =>
-          ComputedValue(eFn(arg, cache, extEnv))
+          ComputedValue(eFn(arg))
         case Right(fn) => {
           val v = nvToV(arg)
           ComputedValue(fn(v))
@@ -413,19 +423,17 @@ object LetFreeEvaluation {
     arity: Int,
     wrapper: (
       rankn.Type,
-      List[(LetFreeValue, Cache, ExtEnv)]
-    ) => Any
+      List[LetFreeValue]
+    ) => Value
   ): FfiCall = {
-    def evalExprFn(t: rankn.Type, revArgs: List[(LetFreeValue, Cache, ExtEnv)]): ExprFnValue =
+    def evalExprFn(t: rankn.Type, revArgs: List[LetFreeValue]): ExprFnValue =
       if (revArgs.length + 1 < arity) {
-        ExprFnValue { case (e1, cache, extEnv) =>
-          val arg = (e1, cache, extEnv)
+        ExprFnValue { arg =>
           new Value.FnValue(evalExprFn(t, arg :: revArgs))
         }
       } else {
-        ExprFnValue { case (e1, cache, extEnv) =>
-          val arg = (e1, cache, extEnv)
-          Value.ExternalValue(wrapper(t, (arg :: revArgs).reverse))
+        ExprFnValue { case arg =>
+          wrapper(t, (arg :: revArgs).reverse)
         }
       }
 
