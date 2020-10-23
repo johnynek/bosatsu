@@ -1300,7 +1300,9 @@ operator || = \a,b ->
     (True, _): True
     (False, result): result
 
-out = \x -> True || x
+operator < = \a, b -> a.cmp_Int(b) matches LT
+
+out = \x -> True || (x < 5)
 """),
         "Match/Or",
         Lambda(Struct(1, Nil, Enum))
