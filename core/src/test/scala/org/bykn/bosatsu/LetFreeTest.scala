@@ -1290,6 +1290,23 @@ out = \x,y -> x(y, y)
       Lambda(Lambda(App(App(LambdaVar(1), LambdaVar(0)), LambdaVar(0))))
     )
   }
+  test("match simplification") {
+    normalExpressionTest(
+      List("""
+package Match/Or
+
+operator || = \a,b ->
+  match (a,b):
+    (True, _): True
+    (False, result): result
+
+out = \x -> True || x
+"""),
+        "Match/Or",
+        Lambda(Struct(1, Nil, Enum))
+    )
+  }
+
   test("varSet") {
     letFreeVarSetTest(
       List(
