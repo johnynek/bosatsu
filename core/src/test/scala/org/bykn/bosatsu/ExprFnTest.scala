@@ -8,6 +8,7 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 import LetFreeEvaluation.LazyValue
 import LetFreeExpression.Lambda
+import Value.ExternalValue
 
 class ExprFnTest extends AnyFunSuite {
   import TestUtils._
@@ -55,6 +56,36 @@ class ExprFnTest extends AnyFunSuite {
         }
       }
     )
+
+  test("Nat Data struct args") {
+    letFreeEvaluateTest(
+      List(
+        """
+package Nat/Struct
+
+enum Count:
+  Inc(x: Count), Zero
+
+four = Inc(Inc(Inc(Inc(Zero))))
+
+def toInt(count):
+  recur count:
+    Zero: 0
+    Inc(rest): toInt(rest).add(1)
+
+result = toInt(four)      
+      """
+      ),
+      "Nat/Struct",
+      Externals(Map.empty),
+      List(v =>
+        assert(
+          v.asExternal.toAny == BigInteger.valueOf(4),
+          "should just be a number"
+        )
+      )
+    )
+  }
 
   test("test of built in externals") {
     letFreeEvaluateTest(
@@ -109,7 +140,7 @@ out = [1,2,3,4].map_List(sqrt).foldLeft(0, add)
     )
   }
 
-  test("test of expression function externals") {
+  test("expression filter function that doesn't do row checks: False") {
     val counter = mutable.Map[Boolean, Int]()
     letFreeEvaluateTest(
       List("""
@@ -132,43 +163,137 @@ out = [1,2,3,4].expr_list_filter(\_ -> False)
         v =>
           assert(
             v.asSum == Value.VList.VNil,
-            "should just be a number"
+            "should be empty list"
           ),
         v =>
           assert(
-            counter.toList == Nil,
+            counter.toSet == Set.empty,
             "no counts"
           )
       )
     )
   }
 
-  test("Nat Data struct args") {
+  test("expression filter function that doesn't do row checks: True") {
+    val counter = mutable.Map[Boolean, Int]()
     letFreeEvaluateTest(
-      List(
-        """
-package Nat/Struct
+      List("""
+package Ext/ExprListFilter
 
-enum Count:
-  Inc(x: Count), Zero
+external def expr_list_filter(lst: List[a], fn: a -> Bool) -> List[a]
 
-four = Inc(Inc(Inc(Inc(Zero))))
-
-def toInt(count):
-  recur count:
-    Zero: 0
-    Inc(rest): toInt(rest).add(1)
-
-result = toInt(four)      
-      """
-      ),
-      "Nat/Struct",
-      Externals(Map.empty),
-      List(v =>
-        assert(
-          v.asExternal.toAny == BigInteger.valueOf(4),
-          "should just be a number"
+out = [1,2,3,4].expr_list_filter(\_ -> True)
+"""),
+      "Ext/ExprListFilter",
+      Externals(
+        Map(
+          (
+            PackageName(NonEmptyList.of("Ext", "ExprListFilter")),
+            "expr_list_filter"
+          ) -> externalFilter(counter)
         )
+      ),
+      List(
+        v =>
+          assert(
+            v.asSum == listToSumValue(
+              List(1L, 2L, 3L, 4L).map(k =>
+                ExternalValue(BigInteger.valueOf(k))
+              )
+            ),
+            "should just be a number"
+          ),
+        v =>
+          assert(
+            counter.toSet == Set.empty,
+            "no counts"
+          )
+      )
+    )
+  }
+
+  test("expression filter function that does do row checks") {
+    val counter = mutable.Map[Boolean, Int]()
+    letFreeEvaluateTest(
+      List("""
+package Ext/ExprListFilter
+
+operator < = \a, b -> a.cmp_Int(b) matches LT
+
+external def expr_list_filter(lst: List[a], fn: a -> Bool) -> List[a]
+
+out = [1,2,3,4].expr_list_filter(\x -> x < 3)
+"""),
+      "Ext/ExprListFilter",
+      Externals(
+        Map(
+          (
+            PackageName(NonEmptyList.of("Ext", "ExprListFilter")),
+            "expr_list_filter"
+          ) -> externalFilter(counter)
+        )
+      ),
+      List(
+        v =>
+          assert(
+            v.asSum == listToSumValue(
+              List(1L, 2L).map(k =>
+                ExternalValue(BigInteger.valueOf(k))
+              )
+            ),
+            "should just be a number"
+          ),
+        v =>
+          assert(
+            counter.toSet == Set(true -> 2, false -> 2),
+            "no counts"
+          )
+      )
+    )
+  }
+
+  test("expression filter function that's a bit more complicated'") {
+    val counter = mutable.Map[Boolean, Int]()
+    letFreeEvaluateTest(
+      List("""
+package Ext/ExprListFilter
+
+operator < = \a, b -> a.cmp_Int(b) matches LT
+
+operator || = \a, b -> match (a,b):
+  (True, _): True
+  (False, result): result
+
+external def expr_list_filter(lst: List[a], fn: a -> Bool) -> List[a]
+
+list_of_filters = [\x -> True || (x < 3), \x -> False || (x < 3)]
+
+out = list_of_filters.flat_map_List(\fn -> [1,2,3,4].expr_list_filter(fn))
+"""),
+      "Ext/ExprListFilter",
+      Externals(
+        Map(
+          (
+            PackageName(NonEmptyList.of("Ext", "ExprListFilter")),
+            "expr_list_filter"
+          ) -> externalFilter(counter)
+        )
+      ),
+      List(
+        v =>
+          assert(
+            v.asSum == listToSumValue(
+              List(1L, 2L, 3L, 4L, 1L, 2L).map(k =>
+                ExternalValue(BigInteger.valueOf(k))
+              )
+            ),
+            "should just be a number"
+          ),
+        v =>
+          assert(
+            counter.toSet == Set(true -> 36, false -> 12),
+            "no counts"
+          )
       )
     )
   }
