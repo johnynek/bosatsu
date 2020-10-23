@@ -142,4 +142,34 @@ out = [1,2,3,4].expr_list_filter(\_ -> False)
       )
     )
   }
+
+  test("Nat Data struct args") {
+    letFreeEvaluateTest(
+      List(
+        """
+package Nat/Struct
+
+enum Count:
+  Inc(x: Count), Zero
+
+four = Inc(Inc(Inc(Inc(Zero))))
+
+def toInt(count):
+  recur count:
+    Zero: 0
+    Inc(rest): toInt(rest).add(1)
+
+result = toInt(four)      
+      """
+      ),
+      "Nat/Struct",
+      Externals(Map.empty),
+      List(v =>
+        assert(
+          v.asExternal.toAny == BigInteger.valueOf(4),
+          "should just be a number"
+        )
+      )
+    )
+  }
 }
