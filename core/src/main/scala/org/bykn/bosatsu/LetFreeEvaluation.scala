@@ -302,10 +302,7 @@ object LetFreeEvaluation {
     case value => Left(value)
   }
 
-  def evalToApplyable(
-      nv: LetFreeValue
-  )(implicit extEnv: ExtEnv, cache: Cache): Applyable = {
-
+  def evalToApplyable(nv: LetFreeValue): Applyable = {
     val value = nv match {
       case ComputedValue(value)       => value
       case LazyValue(ne, scope, eval) => eval.value

@@ -9,6 +9,7 @@ import scala.collection.mutable
 import LetFreeEvaluation.LazyValue
 import LetFreeExpression.Lambda
 import Value.ExternalValue
+import org.bykn.bosatsu.LetFreeEvaluation.LetFreeValue
 
 class ExprFnTest extends AnyFunSuite {
   import TestUtils._
@@ -29,33 +30,48 @@ class ExprFnTest extends AnyFunSuite {
     }
   }
 
-  def externalFilter(counter: mutable.Map[Boolean, Int]) =
+  def externalFilter(counter: mutable.Map[Boolean, Int]) = {
+    def boringFilter(lst: LetFreeValue, fn: Value => Value) = {
+      val actualList = sumValueToList(lst.toValue).filter { x =>
+        val res = fn(x).asSum == Value.True
+        val cnt = counter.get(res).getOrElse(0)
+        counter += (res -> (cnt + 1))
+        res
+      }
+      listToSumValue(actualList)
+    }
     LetFreeEvaluation.exprFn(
       2,
       {
-        case (t, List(lst, fnValue @ LazyValue(Lambda(expr), scope, _)))
-            if !expr.varSet.contains(0) => {
-          LetFreeEvaluation.evalToValue(
-            expr,
-            LetFreeEvaluation.ComputedValue(Value.UnitValue) :: scope
-          )(fnValue.extEnv, fnValue.cache) match {
-            case Value.True  => lst.toValue
-            case Value.False => Value.VList.VNil
-            case _           => sys.error("this should always be a boolean")
+        case (t, List(lst, fnValue @ LazyValue(_, _, _))) => {
+          val applyable = LetFreeEvaluation.evalToApplyable(fnValue)
+          applyable match {
+            case Right((Lambda(expr), scope)) if !expr.varSet.contains(0) =>
+              LetFreeEvaluation.evalToValue(
+                expr,
+                LetFreeEvaluation.ComputedValue(Value.UnitValue) :: scope
+              )(fnValue.extEnv, fnValue.cache) match {
+                case Value.True  => lst.toValue
+                case Value.False => Value.VList.VNil
+                case _           => sys.error("this should always be a boolean")
+              }
+            case Right((Lambda(expr), scope)) => {
+              val fn = fnValue.toValue.asFn
+              boringFilter(lst, fn)
+            }
+            case Left(v) => {
+              val fn = v.asFn
+              boringFilter(lst, fn)
+            }
           }
         }
         case (t, List(lst, fnValue)) => {
-          val actualList = sumValueToList(lst.toValue).filter { x =>
-            val res = fnValue.toValue.asFn(x).asSum == Value.True
-            val cnt = counter.get(res).getOrElse(0)
-            counter += (res -> (cnt + 1))
-            res
-          }
-          listToSumValue(actualList)
-
+          val fn = fnValue.toValue.asFn
+          boringFilter(lst, fn)
         }
       }
     )
+  }
 
   test("Nat Data struct args") {
     letFreeEvaluateTest(
@@ -237,9 +253,7 @@ out = [1,2,3,4].expr_list_filter(\x -> x < 3)
         v =>
           assert(
             v.asSum == listToSumValue(
-              List(1L, 2L).map(k =>
-                ExternalValue(BigInteger.valueOf(k))
-              )
+              List(1L, 2L).map(k => ExternalValue(BigInteger.valueOf(k)))
             ),
             "should just be a number"
           ),
@@ -291,7 +305,7 @@ out = list_of_filters.flat_map_List(\fn -> [1,2,3,4].expr_list_filter(fn))
           ),
         v =>
           assert(
-            counter.toSet == Set(true -> 36, false -> 12),
+            counter.toSet == Set(true -> 12, false -> 12),
             "no counts"
           )
       )
