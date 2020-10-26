@@ -990,8 +990,6 @@ object Declaration {
             case Left(p) => { r: Region =>  Parens(p)(r) }
             case Right(tup) => { r: Region => TupleCons(tup.toList)(r) }
           })
-           // TODO the backtrack here would be nice to avoid
-          .backtrack
           .orElse(recurse.map { d => { r: Region => Parens(d)(r) } })
           // or it could be () which is just unit
           .orElse(P.pure({ r: Region => TupleCons(Nil)(r) }))
