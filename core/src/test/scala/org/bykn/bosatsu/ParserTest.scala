@@ -1003,6 +1003,9 @@ x""")
     decl("""|x \
             | .g(z) \
             | .h(w)""".stripMargin)
+    decl("""|(y = 1
+            |_ = y
+            |2)""".stripMargin)
   }
 
   test("we can parse any Statement") {

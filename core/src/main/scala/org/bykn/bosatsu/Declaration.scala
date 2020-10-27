@@ -984,14 +984,12 @@ object Declaration {
       val recComp: P1[NonBinding] = P.defer1(rec((ParseMode.ComprehensionSource, indent))).asInstanceOf[P1[NonBinding]]
 
       val tupOrPar: P1[NonBinding] =
-        Parser.parens(((recNonBind <* (!(maybeSpace ~ eqP)))
+        Parser.parens(((recNonBind.soft <* (!(maybeSpace ~ eqP)))
           .tupleOrParens0
           .map {
             case Left(p) => { r: Region =>  Parens(p)(r) }
             case Right(tup) => { r: Region => TupleCons(tup.toList)(r) }
           })
-           // TODO the backtrack here would be nice to avoid
-          .backtrack
           .orElse(recurse.map { d => { r: Region => Parens(d)(r) } })
           // or it could be () which is just unit
           .orElse(P.pure({ r: Region => TupleCons(Nil)(r) }))
@@ -1101,7 +1099,7 @@ object Declaration {
 
         // one or more operators
         val ops: P1[NonBinding => Operators.Formula[NonBinding]] =
-          Operators.Formula.infixOps1(nb)
+          (!(maybeSpace ~ eqP)).with1 *> Operators.Formula.infixOps1(nb)
 
         // This already parses as many as it can, so we don't need repFn
         val form = ops.map { fn =>
