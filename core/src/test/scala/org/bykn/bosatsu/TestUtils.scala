@@ -9,6 +9,7 @@ import scala.concurrent.ExecutionContext
 
 import Assertions.{succeed, fail}
 import IorMethods.IorExtension
+import org.bykn.bosatsu.LetFreeEvaluation.LazyValue
 
 object TestUtils {
 
@@ -231,12 +232,13 @@ object TestUtils {
   def letFreeVarSetTest(packages: List[String], mainPackS: String, lambdaCount: Int, vars: Set[Int]) =
     normalizeTest(packages, mainPackS, NormalTestMode.VarSetMode(lambdaCount, vars)
     )
-  def letFreeEvaluateTest(packages: List[String], mainPackS: String, ext: Externals, assertions: List[Value => Assertion]) = {
+  def letFreeEvaluateTest(packages: List[String], mainPackS: String, ext: Externals, assertions: List[LazyValue => Assertion]) = {
     def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
       val normPackMap = LetFreePackageMap(infPackMap).letFreePackageMap
       LetFreeEvaluation(normPackMap, Predef.jvmExternals ++ ext).evaluateLast(mainPack) match {
         case Some(res) => {
-          val value = LetFreeEvaluation.evaluate(res._1, res._3, None)
+          val value = LazyValue(res._1, Nil, Eval.later {LetFreeEvaluation.evaluate(res._1, res._3, None)})(res._3, None)
+          
           assertions.foreach(_.apply(value))
           succeed
         }

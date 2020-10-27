@@ -96,7 +96,7 @@ result = toInt(four)
       Externals(Map.empty),
       List(v =>
         assert(
-          v.asExternal.toAny == BigInteger.valueOf(4),
+          v.toValue.asExternal.toAny == BigInteger.valueOf(4),
           "should just be a number"
         )
       )
@@ -114,7 +114,7 @@ out = [1,2,3].foldLeft(4, add)
       Externals(Map.empty),
       List(v =>
         assert(
-          v.asExternal.toAny == BigInteger.valueOf(10),
+          v.toValue.asExternal.toAny == BigInteger.valueOf(10),
           "should just be a number"
         )
       )
@@ -149,7 +149,7 @@ out = [1,2,3,4].map_List(sqrt).foldLeft(0, add)
       ),
       List(v =>
         assert(
-          v.asExternal.toAny == BigInteger.valueOf(5),
+          v.toValue.asExternal.toAny == BigInteger.valueOf(5),
           "should just be a number"
         )
       )
@@ -178,7 +178,7 @@ out = [1,2,3,4].expr_list_filter(\_ -> False)
       List(
         v =>
           assert(
-            v.asSum == Value.VList.VNil,
+            v.toValue.asSum == Value.VList.VNil,
             "should be empty list"
           ),
         v =>
@@ -212,7 +212,7 @@ out = [1,2,3,4].expr_list_filter(\_ -> True)
       List(
         v =>
           assert(
-            v.asSum == listToSumValue(
+            v.toValue.asSum == listToSumValue(
               List(1L, 2L, 3L, 4L).map(k =>
                 ExternalValue(BigInteger.valueOf(k))
               )
@@ -252,7 +252,7 @@ out = [1,2,3,4].expr_list_filter(\x -> x < 3)
       List(
         v =>
           assert(
-            v.asSum == listToSumValue(
+            v.toValue.asSum == listToSumValue(
               List(1L, 2L).map(k => ExternalValue(BigInteger.valueOf(k)))
             ),
             "should just be a number"
@@ -266,6 +266,45 @@ out = [1,2,3,4].expr_list_filter(\x -> x < 3)
     )
   }
 
+    test("expression filter function that does do row checks and reverses") {
+    val counter = mutable.Map[Boolean, Int]()
+    letFreeEvaluateTest(
+      List("""
+package Ext/ExprListFilter
+
+operator < = \a, b -> a.cmp_Int(b) matches LT
+
+external def expr_list_filter(lst: List[a], fn: a -> Bool) -> List[a]
+
+out = [1,2,3,4].expr_list_filter(\x -> x < 3).reverse
+"""),
+      "Ext/ExprListFilter",
+      Externals(
+        Map(
+          (
+            PackageName(NonEmptyList.of("Ext", "ExprListFilter")),
+            "expr_list_filter"
+          ) -> externalFilter(counter)
+        )
+      ),
+      List(
+        v =>
+          assert(
+            v.toValue.asSum == listToSumValue(
+              List(2L, 1L).map(k => ExternalValue(BigInteger.valueOf(k)))
+            ),
+            "should just be a number"
+          ),
+        v =>
+          assert(
+            counter.toSet == Set(true -> 4, false -> 4),
+            "no counts"
+          ),
+        v => assert(v.expression == LetFreeExpression.Literal(Lit.Str("bbb")), "see the expression")
+      )
+    )
+  }
+/*
   test("expression filter function that's a bit more complicated'") {
     val counter = mutable.Map[Boolean, Int]()
     letFreeEvaluateTest(
@@ -280,7 +319,7 @@ operator || = \a, b -> match (a,b):
 
 external def expr_list_filter(lst: List[a], fn: a -> Bool) -> List[a]
 
-list_of_filters = [\x -> True || (x < 3), \x -> False || (x < 3)]
+list_of_filters = [\x -> True || (x < 2), \x -> False || (x < 2)]
 
 out = list_of_filters.flat_map_List(\fn -> [1,2,3,4].expr_list_filter(fn))
 """),
@@ -296,8 +335,8 @@ out = list_of_filters.flat_map_List(\fn -> [1,2,3,4].expr_list_filter(fn))
       List(
         v =>
           assert(
-            v.asSum == listToSumValue(
-              List(1L, 2L, 3L, 4L, 1L, 2L).map(k =>
+            v.toValue.asSum == listToSumValue(
+              List(1L, 2L, 3L, 4L, 1L).map(k =>
                 ExternalValue(BigInteger.valueOf(k))
               )
             ),
@@ -305,10 +344,12 @@ out = list_of_filters.flat_map_List(\fn -> [1,2,3,4].expr_list_filter(fn))
           ),
         v =>
           assert(
-            counter.toSet == Set(true -> 12, false -> 12),
+            counter.toSet == Set(true -> 6, false -> 18),
             "no counts"
-          )
+          ),
+        v => assert(v.expression == LetFreeExpression.Literal(Lit.Str("bbb")), "see the expression")
       )
     )
   }
+  */
 }

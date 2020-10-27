@@ -144,8 +144,7 @@ object LetFreeEvaluation {
         case LetFreeExpression.Struct(n, lst, df) =>
           Some((n, lst.zipWithIndex.map {
             case (ne, i) =>
-              // There is a possible optimization here where we don't need to evaluate the whole struct just for an arg
-              LazyValue(ne, scope, value.map { v => v.structArgs(df)(i) })
+              LazyValue(ne, scope, value.map { v => v.structArgs(df)(i) }.memoize)
           }))
         case LetFreeExpression.App(fn, arg) =>
           applyApplyable(
