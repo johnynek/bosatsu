@@ -266,7 +266,7 @@ out = [1,2,3,4].expr_list_filter(\x -> x < 3)
     )
   }
 
-    test("expression filter function that does do row checks and reverses") {
+  test("expression filter function that does do row checks and reverses") {
     val counter = mutable.Map[Boolean, Int]()
     letFreeEvaluateTest(
       List("""
@@ -297,14 +297,12 @@ out = [1,2,3,4].expr_list_filter(\x -> x < 3).reverse
           ),
         v =>
           assert(
-            counter.toSet == Set(true -> 4, false -> 4),
+            counter.toSet == Set(true -> 2, false -> 2),
             "no counts"
-          ),
-        v => assert(v.expression == LetFreeExpression.Literal(Lit.Str("bbb")), "see the expression")
+          )
       )
     )
   }
-/*
   test("expression filter function that's a bit more complicated'") {
     val counter = mutable.Map[Boolean, Int]()
     letFreeEvaluateTest(
@@ -344,12 +342,10 @@ out = list_of_filters.flat_map_List(\fn -> [1,2,3,4].expr_list_filter(fn))
           ),
         v =>
           assert(
-            counter.toSet == Set(true -> 6, false -> 18),
+            counter.toSet == Set(true -> 1, false -> 3),
             "no counts"
-          ),
-        v => assert(v.expression == LetFreeExpression.Literal(Lit.Str("bbb")), "see the expression")
+          )
       )
     )
   }
-  */
 }
