@@ -10,6 +10,7 @@ import LetFreeEvaluation.LazyValue
 import LetFreeExpression.Lambda
 import Value.ExternalValue
 import org.bykn.bosatsu.LetFreeEvaluation.LetFreeValue
+import org.bykn.bosatsu.LetFreeEvaluation.ComputedValue
 
 class ExprFnTest extends AnyFunSuite {
   import TestUtils._
@@ -44,9 +45,9 @@ class ExprFnTest extends AnyFunSuite {
       2,
       {
         case (t, List(lst, fnValue @ LazyValue(_, _, _))) => {
-          val applyable = LetFreeEvaluation.evalToApplyable(fnValue)
+          val applyable = fnValue.toLeaf
           applyable match {
-            case Right((Lambda(expr), scope)) if !expr.varSet.contains(0) =>
+            case LetFreeEvaluation.Leaf.Lambda(Lambda(expr), scope, _, _) if !expr.varSet.contains(0) =>
               LetFreeEvaluation.evalToValue(
                 expr,
                 LetFreeEvaluation.ComputedValue(Value.UnitValue) :: scope
@@ -55,11 +56,11 @@ class ExprFnTest extends AnyFunSuite {
                 case Value.False => Value.VList.VNil
                 case _           => sys.error("this should always be a boolean")
               }
-            case Right((Lambda(expr), scope)) => {
+            case LetFreeEvaluation.Leaf.Lambda(lambda, scope, _, _) => {
               val fn = fnValue.toValue.asFn
               boringFilter(lst, fn)
             }
-            case Left(v) => {
+            case LetFreeEvaluation.Leaf.Value(ComputedValue(v)) => {
               val fn = v.asFn
               boringFilter(lst, fn)
             }
@@ -94,7 +95,8 @@ result = toInt(four)
       ),
       "Nat/Struct",
       Externals(Map.empty),
-      List(v =>
+      List(
+        v =>
         assert(
           v.toValue.asExternal.toAny == BigInteger.valueOf(4),
           "should just be a number"
@@ -102,7 +104,6 @@ result = toInt(four)
       )
     )
   }
-
   test("test of built in externals") {
     letFreeEvaluateTest(
       List("""
