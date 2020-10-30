@@ -118,8 +118,9 @@ object Operators {
      * with the operator precedence handled by the formula
      */
     def infixOps1[A](p: P1[A]): P1[A => Formula[A]] = {
+      val opA = operatorToken ~ (Parser.maybeSpacesAndLines.with1 *> p)
       val chain: P1[NonEmptyList[(String, A)]] =
-        ((Parser.maybeSpace.with1.soft *> operatorToken) ~ (Parser.maybeSpacesAndLines.with1 *> p)).rep1
+        P.rep1Sep(opA, min = 1, sep = Parser.maybeSpace)
 
       chain.map { rest =>
 
@@ -131,7 +132,7 @@ object Operators {
      * the correct parenthesis
      */
     def parser[A](p: P1[A]): P1[Formula[A]] =
-      (p ~ (infixOps1(p)).?)
+      (p ~ (Parser.maybeSpace.with1 *> infixOps1(p)).?)
         .map {
           case (a, None) => Sym(a)
           case (a, Some(f)) => f(a)

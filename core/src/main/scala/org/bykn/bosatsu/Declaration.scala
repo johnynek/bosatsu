@@ -971,7 +971,16 @@ object Declaration {
   private[this] val parserCache: ((ParseMode, String)) => P1[Declaration] =
     Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P1[Declaration]] { case ((pm, indent), rec) =>
 
-      val recurse: P1[Declaration] = P.defer1(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
+      // TODO:
+      // since we do a hard set of the mode in these, we lose the thread if we are inside a
+      // BranchArg so the trailing values : should be interpretted as a the branch end.
+      // This may actually make the file ambiguous in some cases, or at least point
+      // to a strange place on parse errors.
+      //
+      // I think we need to separate block-like expressions using : from NonBinding
+      // and make sure that we don't have block like expressions in certain places
+
+      val recurseDecl: P1[Declaration] = P.defer1(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
       val recIndy: Indy[Declaration] = Indy { i => rec((ParseMode.Decl, i)) }
 
       // TODO: aren't NonBinding independent of indentation level>
@@ -990,7 +999,7 @@ object Declaration {
             case Left(p) => { r: Region =>  Parens(p)(r) }
             case Right(tup) => { r: Region => TupleCons(tup.toList)(r) }
           })
-          .orElse(recurse.map { d => { r: Region => Parens(d)(r) } })
+          .orElse(recurseDecl.map { d => { r: Region => Parens(d)(r) } })
           // or it could be () which is just unit
           .orElse(P.pure({ r: Region => TupleCons(Nil)(r) }))
         )
@@ -1057,7 +1066,10 @@ object Declaration {
         else {
           val an: P1[NonBinding => NonBinding] =
             (maybeSpace.with1.soft *> P.char(':') *> maybeSpace *> TypeRef.parser)
-              // TODO remove this backtrack
+              // TODO remove this backtrack,
+              // currently we can confuse ending a block with type annotation
+              // without backtracking here due to nesting losing track of
+              // when a trailing item is in a BranchArg in e.g. match or if bodies
               .backtrack
               .region
               .map { case (r, tpe) =>
@@ -1099,7 +1111,7 @@ object Declaration {
 
         // one or more operators
         val ops: P1[NonBinding => Operators.Formula[NonBinding]] =
-          (!(maybeSpace ~ eqP)).with1 *> Operators.Formula.infixOps1(nb)
+          maybeSpace.with1.soft *> ((!eqP).with1 *> Operators.Formula.infixOps1(nb))
 
         // This already parses as many as it can, so we don't need repFn
         val form = ops.map { fn =>
