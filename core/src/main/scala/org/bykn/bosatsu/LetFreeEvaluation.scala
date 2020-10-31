@@ -307,15 +307,6 @@ object LetFreeEvaluation {
     // $COVERAGE-ON$
   }
 
-  def fnValueToLetFree(value: Value) = value match {
-    case fnValue: Value.FnValue =>
-      fnValue.arg match {
-        case LetFreeFnValue(lambda, scope) => Right((lambda, scope))
-        case _                             => Left(fnValue)
-      }
-    case value => Left(value)
-  }
-
   case class LetFreeValueMaybeBind(pat: LetFreePattern)(implicit extEnv: ExtEnv, cache: Cache) extends LetFreeConversion.MaybeBind[LetFreeValue](pat) {
     def toLitValue(t: LetFreeValue): Option[LitValue] = nvToLitValue(extEnv, cache)(t)
     def toStruct(t: LetFreeValue, df: DataFamily) = nvToStruct(extEnv, cache)(t, df)
