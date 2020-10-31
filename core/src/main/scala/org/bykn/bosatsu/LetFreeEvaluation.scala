@@ -248,13 +248,6 @@ object LetFreeEvaluation {
   type Cache = Option[CMap[String, (Future[Value], rankn.Type)]]
   type ToLFV = Option[LetFreeValue => Future[Value]]
 
-  def nvToV(lfv: LetFreeValue)(implicit extEnv: ExtEnv, cache: Cache): Value = {
-    lfv match {
-      case LazyValue(_, _, eval) => eval.value
-      case ComputedValue(value)  => value
-    }
-  }
-
   case class ExprFnValue(toExprFn: LetFreeValue => Value) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
       toExprFn(ComputedValue(v))
@@ -392,9 +385,8 @@ object LetFreeEvaluation {
       applyLeaf(leaf,argV).toValue
     }
     case LetFreeExpression.ExternalVar(p, n, tpe) => extEnv(n).value
-    case mtch @ LetFreeExpression.Match(_, _) =>
-      nvToV(simplifyMatch(mtch, scope))
-    case LetFreeExpression.LambdaVar(index) => nvToV(scope(index))
+    case mtch @ LetFreeExpression.Match(_, _) => simplifyMatch(mtch, scope).toValue
+    case LetFreeExpression.LambdaVar(index) => scope(index).toValue
     case lambda @ LetFreeExpression.Lambda(_) =>
       new Value.FnValue(
         LetFreeFnValue(lambda, scope)
