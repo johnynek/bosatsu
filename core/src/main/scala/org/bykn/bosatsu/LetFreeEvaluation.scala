@@ -150,9 +150,11 @@ object LetFreeEvaluation {
 
   sealed abstract class Leaf {
     lazy val toValue = this match {
-      case Leaf.Struct(enum, args, df) => evaluateStruct(enum, args, df) { _.toValue }
+      case Leaf.Struct(enum, args, df) => evaluateStruct(enum, args, df)
       case Leaf.Value(ComputedValue(v)) => v
-      case Leaf.Lambda(expr, scope, extEnv, cache) => evalToValue(expr, scope)(extEnv, cache)
+      case Leaf.Lambda(expr, scope, extEnv, cache) => new Value.FnValue(
+        LetFreeFnValue(expr, scope)(extEnv, cache)
+      )
       case Leaf.Literal(LetFreeExpression.Literal(lit)) => Value.fromLit(lit)
     } 
   }
@@ -177,15 +179,15 @@ object LetFreeEvaluation {
         LazyValue(arg, scope)
       ).toLeaf
     }
-      // $COVERAGE-OFF$ we don't have ExternalVar or Recursion structs 
     case LetFreeExpression.ExternalVar(p, n, tpe) =>
       Leaf.Value(ComputedValue(extEnv(n).value))
     case LetFreeExpression.Recursion(LetFreeExpression.Lambda(lambdaExpr)) => {
       lazy val leaf: Leaf = evalToLeaf(lambdaExpr, LazyValue(expr, scope)  :: scope)
       leaf
     }
+    // $COVERAGE-OFF$ we don't have Recursions without lambdas 
     case LetFreeExpression.Recursion(notLambda) => sys.error(s"Recursion should always contain a Lambda")
-      // $COVERAGE-ON$
+    // $COVERAGE-ON$
     case LetFreeExpression.LambdaVar(index) =>
       scope(index).toLeaf
     case mtch @ LetFreeExpression.Match(_, _) =>
@@ -341,12 +343,12 @@ object LetFreeEvaluation {
       .foldLeft[LetFreeValue](LazyValue(result, scope)) { (fn, arg) => applyLeaf(fn.toLeaf, arg) }
   }
 
-  def evaluateStruct[A](enum: Int, args: List[A], df: DataFamily)(argFn: A => Value): Value = df match {
+  def evaluateStruct(enum: Int, args: List[LetFreeValue], df: DataFamily): Value = df match {
     case rankn.DataFamily.Enum =>
       Value.SumValue(
         enum,
         Value.ProductValue.fromList(
-          args.map(argFn)
+          args.map(_.toValue)
         )
       )
     case rankn.DataFamily.Nat =>
@@ -354,46 +356,20 @@ object LetFreeEvaluation {
         Value.ExternalValue(BigInteger.valueOf(0))
       } else {
         Value.ExternalValue(
-          argFn(args.head).asExternal.toAny
+          args.head.toValue.asExternal.toAny
             .asInstanceOf[BigInteger]
             .add(BigInteger.ONE)
         )
       }
     case rankn.DataFamily.Struct =>
-      Value.ProductValue.fromList(args.map(argFn))
-    case rankn.DataFamily.NewType => argFn(args.head)
+      Value.ProductValue.fromList(args.map(_.toValue))
+    case rankn.DataFamily.NewType => args.head.toValue
   }
 
   def evalToValue(
       ne: LetFreeExpression,
       scope: List[LetFreeValue]
-  )(implicit extEnv: ExtEnv, cache: Cache): Value = ne match {
-    case LetFreeExpression.App(fn, arg) => {
-      val leaf = ComputedValue(evalToValue(fn, scope)).toLeaf
-      val argV = LazyValue(arg, scope)
-      applyLeaf(leaf,argV).toValue
-    }
-    case LetFreeExpression.ExternalVar(p, n, tpe) => extEnv(n).value
-    case mtch @ LetFreeExpression.Match(_, _) => simplifyMatch(mtch, scope).toValue
-    case LetFreeExpression.LambdaVar(index) => scope(index).toValue
-    case lambda @ LetFreeExpression.Lambda(_) =>
-      new Value.FnValue(
-        LetFreeFnValue(lambda, scope)
-      )
-    case LetFreeExpression.Struct(enum, args, df) => evaluateStruct(enum, args, df) { evalToValue(_, scope) }
-    case LetFreeExpression.Literal(lit) => Value.fromLit(lit)
-    case LetFreeExpression.Recursion(lambda) => {
-      lambda match {
-        case LetFreeExpression.Lambda(expr) => {
-          val nextScope = LazyValue(ne, scope) :: scope
-          evalToValue(expr, nextScope)
-        }
-        // $COVERAGE-OFF$ unreachable due to a Recursion should always contain a Lambda
-        case _ => sys.error("A Recursion should always contain a Lambda")
-        // $COVERAGE-ON$
-      }
-    }
-  }
+  )(implicit extEnv: ExtEnv, cache: Cache): Value = LazyValue(ne, scope).toValue
 
   def evaluate(
       ne: LetFreeExpression,
