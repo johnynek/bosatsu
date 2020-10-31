@@ -145,7 +145,9 @@ object LetFreeEvaluation {
     lv.toLeaf match {
       case Leaf.Struct(n, values, _) => Some((n, values))
       case Leaf.Value(cv@ComputedValue(_)) => cv.toStruct(df)
+      // $COVERAGE-OFF$
       case other => sys.error(s"we should not get $other")
+      // $COVERAGE-ON$
     }
 
   sealed abstract class Leaf {
@@ -300,7 +302,9 @@ object LetFreeEvaluation {
           ComputedValue(fn(v))
         }
       }
+    // $COVERAGE-OFF$ structs aren't applyable
     case _ => sys.error("structs aren't applyable")
+    // $COVERAGE-ON$
   }
 
   def fnValueToLetFree(value: Value) = value match {
@@ -332,8 +336,10 @@ object LetFreeEvaluation {
             .apply(LazyValue(mtch.arg, scope), IntMap.empty) match {
             case LetFreeConversion.Matches(env) => Some((pat, env, result))
             case LetFreeConversion.NoMatch      => None
+            // $COVERAGE-OFF$
             case LetFreeConversion.NotProvable =>
               sys.error("For value we should never be NotProvable")
+            // $COVERAGE-ON$
           }
       }))
       .get
