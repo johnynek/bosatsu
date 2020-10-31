@@ -44,10 +44,11 @@ class ExprFnTest extends AnyFunSuite {
     LetFreeEvaluation.exprFn(
       2,
       {
-        case (t, List(lst, fnValue @ LazyValue(_, _, _))) => {
+        case (t, List(lst, fnValue @ LazyValue(_, _))) => {
           val applyable = fnValue.toLeaf
           applyable match {
-            case LetFreeEvaluation.Leaf.Lambda(Lambda(expr), scope, _, _) if !expr.varSet.contains(0) =>
+            case LetFreeEvaluation.Leaf.Lambda(Lambda(expr), scope, _, _)
+                if !expr.varSet.contains(0) =>
               LetFreeEvaluation.evalToValue(
                 expr,
                 LetFreeEvaluation.ComputedValue(Value.UnitValue) :: scope
@@ -95,8 +96,7 @@ result = toInt(four)
       ),
       "Nat/Struct",
       Externals(Map.empty),
-      List(
-        v =>
+      List(v =>
         assert(
           v.toValue.asExternal.toAny == BigInteger.valueOf(4),
           "should just be a number"

@@ -51,7 +51,7 @@ object LetFreeEvaluation {
 
   sealed trait LetFreeValue {
     def toJson: Json = this match {
-      case ilv @ LazyValue(expression, scope, _) =>
+      case ilv @ LazyValue(expression, scope) =>
         Json.JObject(
           List(
             "state" -> Json.JString("expression"),
@@ -90,11 +90,9 @@ object LetFreeEvaluation {
   }
 
   case class LazyValue(
-      expression: LetFreeExpression,
-      scope: List[LetFreeValue],
-      value: Eval[Value]
-  )(implicit extEnvArg: ExtEnv, cacheArg: Cache)
-      extends LetFreeValue {
+    expression: LetFreeExpression,
+    scope: List[LetFreeValue]
+  )(implicit extEnvArg: ExtEnv, cacheArg: Cache) extends LetFreeValue {
     def cleanedScope: List[(Int, LetFreeValue)] =
       expression.varSet.toList.sorted.map { n => (n, scope(n)) }
 
@@ -171,19 +169,19 @@ object LetFreeEvaluation {
     case LetFreeExpression.Struct(n, lst, df) =>
       Leaf.Struct(n, lst.zipWithIndex.map {
         case (argExpr, i) =>
-          LazyValue(argExpr, scope, Eval.later { evalToValue(argExpr, scope) })
+          LazyValue(argExpr, scope)
       }, df)
     case LetFreeExpression.App(fn, arg) => {
       applyLeaf(
         evalToLeaf(fn, scope),
-        LazyValue(arg, scope, Eval.later { evalToValue(arg, scope) })
+        LazyValue(arg, scope)
       ).toLeaf
     }
       // $COVERAGE-OFF$ we don't have ExternalVar or Recursion structs 
     case LetFreeExpression.ExternalVar(p, n, tpe) =>
       Leaf.Value(ComputedValue(extEnv(n).value))
     case LetFreeExpression.Recursion(LetFreeExpression.Lambda(lambdaExpr)) => {
-      lazy val leaf: Leaf = evalToLeaf(lambdaExpr, LazyValue(expr, scope, Eval.later { leaf.toValue })  :: scope)
+      lazy val leaf: Leaf = evalToLeaf(lambdaExpr, LazyValue(expr, scope)  :: scope)
       leaf
     }
     case LetFreeExpression.Recursion(notLambda) => sys.error(s"Recursion should always contain a Lambda")
@@ -238,8 +236,7 @@ object LetFreeEvaluation {
     )
     LazyValue(
       expr,
-      scope,
-      Eval.later { evalToValue(expr, scope) }
+      scope
     )
   }
 
@@ -284,15 +281,13 @@ object LetFreeEvaluation {
       // By evaluating when we add to the scope we don't have to overflow the stack later when we
       // need to use the value
       val _ = arg match {
-        case lv@LazyValue(_, _, _) => {
+        case lv@LazyValue(_, _) => {
           lv.toValue
           ()
         }
         case _       => ()
       }
-      LazyValue(expr, arg :: scope, value.getOrElse(Eval.later {
-        evalToValue(expr, arg :: scope)
-      }))
+      LazyValue(expr, arg :: scope)
     }
     case Leaf.Value(lfv) =>
       attemptExprFn(lfv.toValue) match {
@@ -320,7 +315,7 @@ object LetFreeEvaluation {
     def toStruct(t: LetFreeValue, df: DataFamily) = nvToStruct(extEnv, cache)(t, df)
     def toList(t: LetFreeValue): Option[List[LetFreeValue]] = nvToList(extEnv, cache)(t)
     def fromList(lst: List[LetFreeValue]): LetFreeValue = nvFromList(extEnv, cache)(lst)
-    def fromString(str: String): LetFreeValue = LazyValue(LetFreeExpression.Literal(Lit.Str(str)), Nil, Eval.now(Value.Str(str)))
+    def fromString(str: String): LetFreeValue = LazyValue(LetFreeExpression.Literal(Lit.Str(str)), Nil)
     def maybeBind(pat: LetFreePattern) = LetFreeValueMaybeBind(pat).apply(_, _)
   }
 
@@ -332,9 +327,7 @@ object LetFreeEvaluation {
       .collectFirst(Function.unlift({
         case (pat, result) =>
           LetFreeValueMaybeBind(pat)
-            .apply(LazyValue(mtch.arg, scope, Eval.later {
-              evalToValue(mtch.arg, scope)
-            }), IntMap.empty) match {
+            .apply(LazyValue(mtch.arg, scope), IntMap.empty) match {
             case LetFreeConversion.Matches(env) => Some((pat, env, result))
             case LetFreeConversion.NoMatch      => None
             case LetFreeConversion.NotProvable =>
@@ -345,9 +338,7 @@ object LetFreeEvaluation {
 
     ((patEnv.size - 1) to 0 by -1)
       .map(patEnv.get(_).get)
-      .foldLeft[LetFreeValue](LazyValue(result, scope, Eval.later {
-        evalToValue(result, scope)
-      })) { (fn, arg) => applyLeaf(fn.toLeaf, arg) }
+      .foldLeft[LetFreeValue](LazyValue(result, scope)) { (fn, arg) => applyLeaf(fn.toLeaf, arg) }
   }
 
   def evaluateStruct[A](enum: Int, args: List[A], df: DataFamily)(argFn: A => Value): Value = df match {
@@ -379,9 +370,7 @@ object LetFreeEvaluation {
   )(implicit extEnv: ExtEnv, cache: Cache): Value = ne match {
     case LetFreeExpression.App(fn, arg) => {
       val leaf = ComputedValue(evalToValue(fn, scope)).toLeaf
-      val argV = LazyValue(arg, scope, Eval.later {
-        evalToValue(arg, scope)
-      })
+      val argV = LazyValue(arg, scope)
       applyLeaf(leaf,argV).toValue
     }
     case LetFreeExpression.ExternalVar(p, n, tpe) => extEnv(n).value
@@ -396,9 +385,7 @@ object LetFreeEvaluation {
     case LetFreeExpression.Recursion(lambda) => {
       lambda match {
         case LetFreeExpression.Lambda(expr) => {
-          val nextScope = LazyValue(ne, scope, Eval.later {
-            evalToValue(ne, scope)
-          }) :: scope
+          val nextScope = LazyValue(ne, scope) :: scope
           evalToValue(expr, nextScope)
         }
         // $COVERAGE-OFF$ unreachable due to a Recursion should always contain a Lambda

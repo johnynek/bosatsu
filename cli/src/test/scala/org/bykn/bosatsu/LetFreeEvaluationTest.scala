@@ -1,6 +1,5 @@
 package org.bykn.bosatsu
 
-import cats.Eval
 import cats.data.NonEmptyList
 import java.nio.file.{Path => JPath}
 import java.nio.file.{Paths => JPaths}
@@ -99,8 +98,7 @@ class LetFreeEvaluationTest extends AnyFunSuite {
         LetFreeExpression.Lambda(LetFreeExpression.LambdaVar(1)),
         LetFreeExpression.LambdaVar(3)
       ),
-      scope,
-      Eval.later(ExternalValue(100))
+      scope
     )
 
     val computedJson0 = Json.JObject(

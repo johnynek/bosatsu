@@ -237,7 +237,7 @@ object TestUtils {
       val normPackMap = LetFreePackageMap(infPackMap).letFreePackageMap
       LetFreeEvaluation(normPackMap, Predef.jvmExternals ++ ext).evaluateLast(mainPack) match {
         case Some(res) => {
-          val value = LazyValue(res._1, Nil, Eval.later {LetFreeEvaluation.evaluate(res._1, res._3, None)})(res._3, None)
+          val value = LazyValue(res._1, Nil)(res._3, None)
           
           assertions.foreach(_.apply(value))
           succeed
