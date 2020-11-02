@@ -11,7 +11,15 @@ class LetFreeTest extends AnyFunSuite {
   import LetFreeExpression._
   import Lit._
   import LetFreeConversion._
-  import LetFreePattern.{PositionalStruct, Var, WildCard, ListPat, Named, StrPat, StrPart}
+  import LetFreePattern.{
+    PositionalStruct,
+    Var,
+    WildCard,
+    ListPat,
+    Named,
+    StrPat,
+    StrPart
+  }
 
   test("Literal") {
     normalTagTest(
@@ -95,8 +103,27 @@ out = foo
                   )
                 ),
                 (
-                  PositionalStruct(Some(1),List(StrPat(NonEmptyList.of(StrPart.LitStr("a: "), StrPart.NamedStr(0))), Var(1)),Enum),
-                  Lambda(Lambda(Struct(1,List(LambdaVar(0), App(LambdaVar(3),LambdaVar(1))),Enum)))),
+                  PositionalStruct(
+                    Some(1),
+                    List(
+                      StrPat(
+                        NonEmptyList
+                          .of(StrPart.LitStr("a: "), StrPart.NamedStr(0))
+                      ),
+                      Var(1)
+                    ),
+                    Enum
+                  ),
+                  Lambda(
+                    Lambda(
+                      Struct(
+                        1,
+                        List(LambdaVar(0), App(LambdaVar(3), LambdaVar(1))),
+                        Enum
+                      )
+                    )
+                  )
+                ),
                 (
                   PositionalStruct(Some(1), List(WildCard, Var(0)), Enum),
                   Lambda(
@@ -1308,8 +1335,8 @@ operator < = \a, b -> a.cmp_Int(b) matches LT
 
 out = \x -> True || (x < 5)
 """),
-        "Match/Or",
-        Lambda(Struct(1, Nil, Enum))
+      "Match/Or",
+      Lambda(Struct(1, Nil, Enum))
     )
   }
 
