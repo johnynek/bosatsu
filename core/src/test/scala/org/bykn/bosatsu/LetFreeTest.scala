@@ -11,7 +11,7 @@ class LetFreeTest extends AnyFunSuite {
   import LetFreeExpression._
   import Lit._
   import LetFreeConversion._
-  import LetFreePattern.{PositionalStruct, Var, WildCard, ListPat, Named}
+  import LetFreePattern.{PositionalStruct, Var, WildCard, ListPat, Named, StrPat, StrPart}
 
   test("Literal") {
     normalTagTest(
@@ -60,6 +60,7 @@ package Recur/Some
 def foo(x):
   recur x:
     []: ["a","b","c"]
+    ["a: ${bar}", *t]: NonEmptyList(bar, foo(t))
     [_, *t]: NonEmptyList("zero", foo(t))
 
 out = foo
@@ -94,6 +95,9 @@ out = foo
                   )
                 ),
                 (
+                  PositionalStruct(Some(1),List(StrPat(NonEmptyList.of(StrPart.LitStr("a: "), StrPart.NamedStr(0))), Var(1)),Enum),
+                  Lambda(Lambda(Struct(1,List(LambdaVar(0), App(LambdaVar(3),LambdaVar(1))),Enum)))),
+                (
                   PositionalStruct(Some(1), List(WildCard, Var(0)), Enum),
                   Lambda(
                     Struct(
@@ -114,7 +118,7 @@ out = foo
       List({ lfe: LetFreeExpression =>
         assert(
           lfe.serialize ==
-            "Recursion(Lambda(Lambda(Match(LambdaVar(0),PositionalStruct(0,),Struct(1,Literal('a'),Struct(1,Literal('b'),Struct(1,Literal('c'),Struct(0,)))),PositionalStruct(1,WildCard,Var(0)),Lambda(Struct(1,Literal('zero'),App(LambdaVar(2),LambdaVar(0))))))))",
+            "Recursion(Lambda(Lambda(Match(LambdaVar(0),PositionalStruct(0,),Struct(1,Literal('a'),Struct(1,Literal('b'),Struct(1,Literal('c'),Struct(0,)))),PositionalStruct(1,StrPat(LitStr(a: ),NamedStr(0)),Var(1)),Lambda(Lambda(Struct(1,LambdaVar(0),App(LambdaVar(3),LambdaVar(1))))),PositionalStruct(1,WildCard,Var(0)),Lambda(Struct(1,Literal('zero'),App(LambdaVar(2),LambdaVar(0))))))))",
           "Serializations test"
         )
       })
