@@ -60,16 +60,6 @@ sealed abstract class Value {
 
     loop(this.asFn, args)
   }
-
-  def structArgs(df: rankn.DataFamily): List[Value] = {
-    import rankn.DataFamily._
-    df match {
-      case Nat => List(this.asExternal)
-      case Enum => this.asSum.value.toList
-      case Struct => this.asProduct.toList
-      case NewType => List(this.asExternal)
-    }
-  }
 }
 
 object Value {
