@@ -229,6 +229,91 @@ out = [1,2,3,4].expr_list_filter(\_ -> True)
     )
   }
 
+  test(
+    "expression filter function that doesn't do row checks even though it happens in an int_loop"
+  ) {
+    val counter = mutable.Map[Boolean, Int]()
+    letFreeEvaluateTest(
+      List("""
+package Ext/ExprListIntLoopFilter
+
+external def expr_list_filter(lst: List[a], fn: a -> Bool) -> List[a]
+
+out = int_loop(2, [1,2,3,4], \i, lst -> (i, lst.expr_list_filter(\_ -> True)))
+"""),
+      "Ext/ExprListIntLoopFilter",
+      Externals(
+        Map(
+          (
+            PackageName(NonEmptyList.of("Ext", "ExprListIntLoopFilter")),
+            "expr_list_filter"
+          ) -> externalFilter(counter)
+        )
+      ),
+      List(
+        v =>
+          assert(
+            v.toValue.asSum == listToSumValue(
+              List(1L, 2L, 3L, 4L).map(k =>
+                ExternalValue(BigInteger.valueOf(k))
+              )
+            ),
+            "should just be a number"
+          ),
+        v =>
+          assert(
+            counter.toSet == Set.empty,
+            "no counts"
+          )
+      )
+    )
+  }
+
+  test(
+    "expression filter function that wouldn't do row checks except inital calling is happening in an external"
+  ) {
+    val counter = mutable.Map[Boolean, Int]()
+    letFreeEvaluateTest(
+      List("""
+package Ext/ExprListExtCaller
+
+external def expr_list_filter(lst: List[a], fn: a -> Bool) -> List[a]
+external def external_caller(fn: a -> b, x: a)-> b
+
+out = external_caller(expr_list_filter([1, 2, 3, 4]), \_ -> True)
+"""),
+      "Ext/ExprListExtCaller",
+      Externals(
+        Map(
+          (
+            PackageName(NonEmptyList.of("Ext", "ExprListExtCaller")),
+            "expr_list_filter"
+          ) -> externalFilter(counter),
+          (
+            PackageName(NonEmptyList.of("Ext", "ExprListExtCaller")),
+            "external_caller"
+          ) -> FfiCall.Fn2((fnV, v) => fnV.asFn.apply(v))
+        )
+      ),
+      List(
+        v =>
+          assert(
+            v.toValue.asSum == listToSumValue(
+              List(1L, 2L, 3L, 4L).map(k =>
+                ExternalValue(BigInteger.valueOf(k))
+              )
+            ),
+            "should just be a number"
+          ),
+        v =>
+          assert(
+            counter.toSet == Set(true -> 4),
+            "all rows true"
+          )
+      )
+    )
+  }
+
   test("expression filter function that does do row checks") {
     val counter = mutable.Map[Boolean, Int]()
     letFreeEvaluateTest(
