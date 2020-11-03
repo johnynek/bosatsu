@@ -47,6 +47,28 @@ class LetFreeEvaluationTest extends AnyFunSuite {
     letFreeTest(List("Simple"), "Bosatsu/Simple")
   }
 
+  test("missing module") {
+    try {
+      letFreeTest(List("Simple"), "Bosatsu/NotSimple")
+      fail()
+    } catch {
+      case err: java.lang.Exception => {
+        assert(err.getMessage() == "package Bosatsu/NotSimple not found")
+      }
+    }
+  }
+
+  test("empty package") {
+    try {
+      letFreeTest(List("EmptyPackage"), "Bosatsu/EmptyPackage")
+      fail()
+    } catch {
+      case err: java.lang.Exception => {
+        assert(err.getMessage() == "found no main expression")
+      }
+    }
+  }
+
   test("euler1 let free evaluate") {
     letFreeTest(List("euler1"), "Euler/One")
   }
@@ -77,7 +99,10 @@ class LetFreeEvaluationTest extends AnyFunSuite {
 
   test("list pat let free evaluate") {
     letFreeTest(List("ListPat", "List", "Bool", "Nat"), "ListPat")
-    letFreeTest(List("ExtendedListPattern/ManyGlobs", "List", "Bool", "Nat"), "ManyGlobs")
+    letFreeTest(
+      List("ExtendedListPattern/ManyGlobs", "List", "Bool", "Nat"),
+      "ManyGlobs"
+    )
   }
 
   test("String Concat Example") {
