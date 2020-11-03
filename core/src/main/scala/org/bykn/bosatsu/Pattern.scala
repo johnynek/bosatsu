@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Applicative
 import cats.data.NonEmptyList
-import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{ Doc, Document }
 import org.bykn.bosatsu.pattern.{NamedSeqPattern, SeqPattern, SeqPart}
 

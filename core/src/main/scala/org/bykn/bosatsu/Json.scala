@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import java.math.{BigInteger, BigDecimal}
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P, Parser1 => P1}
 import cats.Eq
 
 import cats.implicits._

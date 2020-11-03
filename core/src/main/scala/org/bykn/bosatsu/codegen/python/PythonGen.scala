@@ -4,7 +4,7 @@ import org.typelevel.paiges.Doc
 import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
-import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P, Parser1 => P1}
 import scala.concurrent.ExecutionContext
 
 import Identifier.Bindable

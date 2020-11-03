@@ -7,7 +7,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import org.typelevel.paiges.{Doc, Document}
 
 import cats.implicits._
-import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P, Parser1 => P1}
 import Parser.{optionParse, unsafeParse, Indy}
 
 import Generators.{shrinkDecl, shrinkStmt}

@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import org.typelevel.paiges.{ Doc, Document }
-import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P, Parser1 => P1}
 
 import Parser.Combinators
 
