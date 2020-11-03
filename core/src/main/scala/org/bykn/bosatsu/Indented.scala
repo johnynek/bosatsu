@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.typelevel.paiges.{ Doc, Document }
 
-import org.bykn.bosatsu.parser.{Parser => P}
+import cats.parse.{Parser => P}
 
 import cats.implicits._
 
