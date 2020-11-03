@@ -4,7 +4,7 @@ import cats.Functor
 import cats.implicits._
 import org.typelevel.paiges.{Doc, Document}
 
-import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P, Parser1 => P1}
 
 import Parser.{maybeSpace, Indy}
 import Indy.IndyMethods
