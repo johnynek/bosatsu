@@ -7,6 +7,7 @@ import cats.effect.IO
 import org.scalatest.funsuite.AnyFunSuite
 import LetFreeEvaluation.{ComputedValue, LazyValue, ExtEnv, Cache}
 import Value.ExternalValue
+import org.scalatest.Assertion
 
 class LetFreeEvaluationTest extends AnyFunSuite {
   import PathModule.MainCommand.LetFreeEvaluate
@@ -15,7 +16,11 @@ class LetFreeEvaluationTest extends AnyFunSuite {
   import PathModule.MainCommand.PackageResolver
   import PathModule.Output
 
-  def letFreeTest(fileNames: List[String], packageName: String) =
+  def letFreeTest(
+      fileNames: List[String],
+      packageName: String,
+      altAsserts: List[Output.LetFreeEvaluationResult => Assertion] = Nil
+  ) =
     NonEmptyList.fromList(packageName.split("/").toList) match {
       case None => fail(s"bad packageName: $packageName")
       case Some(pn) =>
@@ -33,18 +38,40 @@ class LetFreeEvaluationTest extends AnyFunSuite {
           PackageResolver.ExplicitOnly
         ).run
           .map {
-            case res @ Output.LetFreeEvaluationResult(lfe, tpe, _, _) => {
-              val v = res.value(None)
-              val test = Test.fromValue(v)
-              assert(test.assertions > 0)
-              assert(test.failures == None)
-            }
+            case res @ Output.LetFreeEvaluationResult(lfe, tpe, _, _) =>
+              altAsserts match {
+                case Nil => {
+                  val v = res.value(None)
+                  val test = Test.fromValue(v)
+                  assert(test.assertions > 0)
+                  assert(test.failures == None)
+                }
+                case lst => lst.foreach(_.apply(res))
+              }
           }
           .unsafeRunSync()
     }
 
   test("simple let free evaluate") {
     letFreeTest(List("Simple"), "Bosatsu/Simple")
+  }
+
+  test("simple let free evaluate json") {
+    letFreeTest(
+      List("Simple"),
+      "Bosatsu/Simple",
+      List(
+        { v: Output.LetFreeEvaluationResult =>
+          assert(
+            v.optJ(v.value(None)).left.get.render == """{
+  "name": "Simple pass and fail",
+  "tests": [ { "value": true, "message": "Passing test" } ]
+}""",
+            "should just be some json"
+          )
+        }
+      )
+    )
   }
 
   test("missing module") {
