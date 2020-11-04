@@ -1,0 +1,3 @@
+package Bosatsu/FnOut
+
+out = \x -> x

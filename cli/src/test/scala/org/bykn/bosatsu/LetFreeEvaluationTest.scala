@@ -74,6 +74,23 @@ class LetFreeEvaluationTest extends AnyFunSuite {
     )
   }
 
+  test("fn out json") {
+    letFreeTest(
+      List("FnOut"),
+      "Bosatsu/FnOut",
+      List(
+        { v: Output.LetFreeEvaluationResult =>
+          assert(
+            v.optJ(v.value(None))
+              .right
+              .get == "cannot convert type to Json: the type forall a. a -> a isn't supported",
+            "should just be some json"
+          )
+        }
+      )
+    )
+  }
+
   test("missing module") {
     try {
       letFreeTest(List("Simple"), "Bosatsu/NotSimple")
