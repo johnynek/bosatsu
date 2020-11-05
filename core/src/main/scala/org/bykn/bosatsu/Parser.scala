@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
 import org.typelevel.paiges.Doc
 
-import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P, Parser1 => P1}
 
 import cats.implicits._
 

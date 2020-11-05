@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.Order
 import cats.data.NonEmptyList
 import cats.implicits._
-import org.bykn.bosatsu.parser.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P, Parser1 => P1}
 import org.typelevel.paiges.{Doc, Document}
 import Parser.upperIdent
 

@@ -136,20 +136,6 @@ lazy val cli = (project in file("cli")).
   )
   .dependsOn(coreJVM % "compile->compile;test->test")
 
-lazy val parser = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("parser")).
-  settings(
-    commonSettings,
-    name := "bosatsu-parser",
-    test in assembly := {},
-    libraryDependencies ++=
-      Seq(
-        cats.value,
-        munit.value % Test,
-        munitScalacheck.value % Test,
-      )
-  )
-  .jsSettings(commonJsSettings)
-
 lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
     commonSettings,
@@ -158,6 +144,7 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
     libraryDependencies ++=
       Seq(
         cats.value,
+        catsParse.value,
         decline.value,
         paiges.value,
         scalaCheck.value % Test,
@@ -177,7 +164,7 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
       scalacOptions += "-P:acyclic:force"
       */
   )
-  .dependsOn(base, parser)
+  .dependsOn(base)
   .jsSettings(commonJsSettings)
 
 lazy val coreJVM = core.jvm
@@ -203,16 +190,14 @@ lazy val jsapi = (crossProject(JSPlatform).crossType(CrossType.Pure) in file("js
 lazy val jsapiJS = jsapi.js
 
 lazy val bench = project
-  .dependsOn(core.jvm, parser.jvm)
+  .dependsOn(core.jvm)
   .settings(moduleName := "bosatsu-bench")
   .settings(commonSettings)
   .settings(
     publish := {},
     publishLocal := {},
     libraryDependencies ++=
-      Seq(
-        fastparse.value
-      ),
+      Seq(),
     publishArtifact := false)
   .settings(coverageEnabled := false)
   .enablePlugins(JmhPlugin)
