@@ -192,27 +192,6 @@ object LetFreePattern {
   }
 
   case class ListPat(parts: List[ListPart]) extends LetFreePattern {
-    lazy val toPositionalStruct: Either[(ListPart.Glob, NonEmptyList[ListPart]), LetFreePattern] = {
-      def loop(parts: List[ListPart]): Either[(ListPart.Glob, NonEmptyList[ListPart]), LetFreePattern] =
-        parts match {
-          case Nil => Right(PositionalStruct(Some(0), Nil, DataFamily.Enum))
-          case Left(None) :: Nil => Right(WildCard)
-          case Left(Some(n)) :: Nil => Right(Var(n))
-          case Right(p) :: tail =>
-            // we can always make some progress here
-            val tailPat = loop(tail).toOption.getOrElse(ListPat(tail))
-            Right(PositionalStruct(Some(1), List(p, tailPat), DataFamily.Enum))
-          case (l@Left(None)) :: (r@Right(WildCard)) :: t =>
-            // we can switch *_, _ with _, *_
-            loop(r :: l :: t)
-          case (Left(glob)) :: h1 :: t =>
-            // a prefixed list cannot be represented as a cons cell
-            Left((glob, NonEmptyList(h1, t)))
-        }
-
-      loop(parts)
-    }
-
     lazy val toMatchList: (List[LetFreePattern], List[(ListPart.Glob, List[LetFreePattern])]) = {
       def loop(parts: List[ListPart]): (List[LetFreePattern], List[(ListPart.Glob, List[LetFreePattern])]) = parts match {
         case Nil => (Nil, Nil)
@@ -366,16 +345,11 @@ object LetFreeConversion {
           }}
         }
 
-        def loop(matchList: List[(ListPart.Glob, List[LetFreePattern])]):
+        def loop(matchList: NonEmptyList[(ListPart.Glob, List[LetFreePattern])]):
           (StructList, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = matchList match {
-          case Nil => {(v, env) => v.parts match {
-            case None => NotProvable
-            case Some(Empty) => Matches(env)
-            case Some(_) => NoMatch
-          }}
-          case (None, Nil) :: Nil => {(v, env) => Matches(env)}
-          case (Some(n), Nil) :: Nil => {(v, env) => Matches(env + (n -> v.asT))}
-          case (glob, suffix) :: Nil => {(v, env) =>
+          case NonEmptyList((None, Nil), Nil) => {(v, env) => Matches(env)}
+          case NonEmptyList((Some(n), Nil), Nil) => {(v, env) => Matches(env + (n -> v.asT))}
+          case NonEmptyList((glob, suffix), Nil) => {(v, env) =>
             toList(v.asT) match {
               case None => NotProvable
               case Some(lst) => if (lst.length < suffix.length) NoMatch else {
@@ -391,7 +365,8 @@ object LetFreeConversion {
               } 
             }
           }
-          case (glob, suffix) :: tail => {
+          case NonEmptyList((glob, suffix), h :: ltail) => {
+            val tail = NonEmptyList(h, ltail)
             val tailMatcher: (StructList, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = loop(tail)
             val prefixConsumer: (StructList, PatternEnv[T]) => PatternMatch[(StructList, PatternEnv[T])] = consumeMatch(glob, suffix)
             val result: (StructList, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { (v, env) => prefixConsumer(v, env) match {
@@ -404,7 +379,16 @@ object LetFreeConversion {
         }
         val (prefix, matchList) = lp.toMatchList
         val prefixConsumer = consumePrefix(prefix)
-        val matchesConsumer = loop(matchList)
+        val matchesConsumer = NonEmptyList.fromList(matchList) match {
+          // $COVERAGE-OFF$ this case is actually optimized away. If there are no globs the listpattern becomes a positionalstruct
+          case None => { (v: StructList, env:PatternEnv[T]) => v.parts match {
+            case None => NotProvable
+            case Some(Empty) => Matches(env)
+            case Some(_) => NoMatch
+          }}
+          // $COVERAGE-ON$
+          case Some(lst) => loop(lst)
+        }
         (v, env) => {
           val structList = StructList(v)
           prefixConsumer(structList, env) match {
