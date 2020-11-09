@@ -60,7 +60,10 @@ sealed abstract class LetFreeExpression {
     }
   }
 
-  def varSet: Set[Int] =
+  /*
+   * varSet is the set of indices of variables referenced in the passed in environment
+   */
+  lazy val varSet: Set[Int] =
     this match {
       case LetFreeExpression.Lambda(expr) =>
         expr.varSet.collect { case n if n > 0 => n - 1 }
