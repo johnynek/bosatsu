@@ -186,9 +186,9 @@ object TestUtils {
     }
 
   def normalizeTest(
-      packages: List[String],
-      mainPackS: String,
-      expectedMode: NormalTestMode
+    packages: List[String],
+    mainPackS: String,
+    expectedMode: NormalTestMode
   ) = {
     def inferredHandler(
         infPackMap: PackageMap.Inferred,

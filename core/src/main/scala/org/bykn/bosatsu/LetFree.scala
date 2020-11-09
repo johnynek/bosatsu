@@ -60,21 +60,25 @@ sealed abstract class LetFreeExpression {
     }
   }
 
-  def varSet: Set[Int] = this match {
-    case LetFreeExpression.Lambda(expr) => expr.varSet.collect { case n if n > 0 => n - 1}
-    case LetFreeExpression.App(fn, arg) => fn.varSet ++ arg.varSet
-    case LetFreeExpression.ExternalVar(_, _, _) => Set.empty
-    case LetFreeExpression.Match(arg, branches) => branches.map {
-      branch => {
-        val varCount = LetFreePattern.varCount(0, List(branch._1))
-        branch._2.varSet.map(_ - varCount).filter(_ >= 0)
-      }
-    }.foldLeft(arg.varSet){ case (s1, s2) => s1 ++ s2 }
-    case LetFreeExpression.Struct(enum, args, _) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.varSet }
-    case LetFreeExpression.Literal(_) => Set.empty
-    case LetFreeExpression.Recursion(lambda) => lambda.varSet
-    case LetFreeExpression.LambdaVar(name) => Set(name)
-  }
+  def varSet: Set[Int] =
+    this match {
+      case LetFreeExpression.Lambda(expr) =>
+        expr.varSet.collect { case n if n > 0 => n - 1 }
+      case LetFreeExpression.App(fn, arg)         => fn.varSet ++ arg.varSet
+      case LetFreeExpression.ExternalVar(_, _, _) => Set.empty
+      case LetFreeExpression.Match(arg, branches) =>
+        branches
+          .map { branch =>
+            val varCount = LetFreePattern.varCount(0, List(branch._1))
+            branch._2.varSet.map(_ - varCount).filter(_ >= 0)
+          }
+          .foldLeft(arg.varSet) { case (s1, s2) => s1.union(s2) }
+      case LetFreeExpression.Struct(enum, args, _) =>
+        args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.varSet }
+      case LetFreeExpression.Literal(_)        => Set.empty
+      case LetFreeExpression.Recursion(lambda) => lambda.varSet
+      case LetFreeExpression.LambdaVar(name)   => Set(name)
+    }
 }
 
 object LetFreeExpression {
