@@ -38,7 +38,10 @@ object NTypeGen {
   val packageNameGen: Gen[PackageName] =
     for {
       pc <- Gen.choose(1, 5)
-      (h :: tail) <- Gen.listOfN(pc, upperIdent)
+      (h, tail) <- Gen.listOfN(pc, upperIdent).map {
+        case Nil => sys.error("got an empty list, but import count min is 1")
+        case h :: tail => (h, tail)
+      }
     } yield PackageName(NonEmptyList(h, tail))
 
   val genConst: Gen[Type.Const] =
