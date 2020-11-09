@@ -6,6 +6,7 @@ lazy val commonSettings = Seq(
   organization := "org.bykn",
   version      := "0.1.0-SNAPSHOT",
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.11.0" cross CrossVersion.full),
+  addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
   scalaVersion := "2.12.11",
   crossScalaVersions := Seq("2.12.11"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
