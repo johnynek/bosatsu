@@ -186,43 +186,66 @@ object TestUtils {
     }
   }
 
-  def normalizeTest(packages: List[String], mainPackS: String, expectedMode: NormalTestMode) = {
-    def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
-      val normPackMap = LetFreePackageMap(infPackMap).letFreePackageMap
+  def normalizeTest(
+      packages: List[String],
+      mainPackS: String,
+      expectedMode: NormalTestMode
+  ) = {
+    def inferredHandler(
+        infPackMap: PackageMap.Inferred,
+        mainPack: PackageName
+    ): Assertion =
       (for {
-        pack <- normPackMap.toMap.get(mainPack)
+        pack <-
+          LetFreePackageMap(infPackMap).letFreePackageMap.toMap.get(mainPack)
         exprs = pack.program.lets.map { case (_, rec, e) => e }
         fleft = exprs.map(_.size.toInt)
-        fright = exprs.map(_.foldRight(Eval.now(0)) { case (_, m) => m.map(_ + 1) }.value)
+        fright = exprs.map(_.foldRight(Eval.now(0)) {
+          case (_, m) => m.map(_ + 1)
+        }.value)
         expr <- exprs.lastOption
         tag = expr.tag
         ne = tag._2.lfe
         children = tag._2.children
       } yield {
-        assert(fleft == fright, s"folds didn't match. left: $fleft, right: $fright")
+        assert(
+          fleft == fright,
+          s"folds didn't match. left: $fleft, right: $fright"
+        )
         expectedMode match {
           case NormalTestMode.TagMode(expected) =>
-            assert(ne == expected.lfe, s"ne error. expected '${expected.lfe}' got '$ne'" )
-            assert(children == expected.children, s"children error. expected '${expected.children}' got '$children'" )
+            assert(
+              ne == expected.lfe,
+              s"ne error. expected '${expected.lfe}' got '$ne'"
+            )
+            assert(
+              children == expected.children,
+              s"children error. expected '${expected.children}' got '$children'"
+            )
             succeed
           case NormalTestMode.ExpressionMode(expected, extraAssertions) =>
-            assert(ne == expected, s"ne error. expected '${expected}' got '$ne'" )
+            assert(
+              ne == expected,
+              s"ne error. expected '${expected}' got '$ne'"
+            )
             extraAssertions.foreach(_.apply(ne))
             succeed
           case NormalTestMode.VarSetMode(lambdaCount, vars) =>
             unwrapLambda(ne, lambdaCount) match {
               case Some(expr) => {
-                assert(expr.varSet == vars, s"expected: $vars, got: ${expr.varSet}")
+                assert(
+                  expr.varSet == vars,
+                  s"expected: $vars, got: ${expr.varSet}"
+                )
                 succeed
               }
-              case None => fail(s"Could not unwrap expression $lambdaCount times: $ne")
+              case None =>
+                fail(s"Could not unwrap expression $lambdaCount times: $ne")
             }
         }
-      }
-      ).getOrElse(fail("There should be a last expression"))
-    }
+      }).getOrElse(fail("There should be a last expression"))
 
-    testInferred(packages, mainPackS, inferredHandler(_,_))
+    testInferred(packages, mainPackS, inferredHandler(_, _))
   }
 
   def normalTagTest(packages: List[String], mainPackS: String, expected: LetFreeConversion.LetFreeExpressionTag) =
