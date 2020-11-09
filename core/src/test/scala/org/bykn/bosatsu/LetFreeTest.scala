@@ -29,7 +29,7 @@ package LetFreeTest/String
 main = "aa"
 """),
       "LetFreeTest/String",
-      LetFreeExpressionTag(Literal(Str("aa")), Set())
+      LetFreeExpressionTag(Literal(Str("aa")), Set.empty)
     )
 
     normalTagTest(
@@ -39,7 +39,7 @@ package LetFreeTest/Int
 main = 22
 """),
       "LetFreeTest/Int",
-      LetFreeExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set())
+      LetFreeExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set.empty)
     )
 
     normalTagTest(
@@ -1356,7 +1356,7 @@ out = bar
       ),
       "VarSet/External",
       1,
-      Set()
+      Set.empty
     )
 
     letFreeVarSetTest(
@@ -1465,7 +1465,7 @@ out = foo
       ),
       "VarSet/Literal",
       2,
-      Set()
+      Set.empty
     )
   }
 

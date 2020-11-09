@@ -63,7 +63,7 @@ sealed abstract class LetFreeExpression {
   def varSet: Set[Int] = this match {
     case LetFreeExpression.Lambda(expr) => expr.varSet.collect { case n if n > 0 => n - 1}
     case LetFreeExpression.App(fn, arg) => fn.varSet ++ arg.varSet
-    case LetFreeExpression.ExternalVar(_, _, _) => Set()
+    case LetFreeExpression.ExternalVar(_, _, _) => Set.empty
     case LetFreeExpression.Match(arg, branches) => branches.map {
       branch => {
         val varCount = LetFreePattern.varCount(0, List(branch._1))
@@ -71,7 +71,7 @@ sealed abstract class LetFreeExpression {
       }
     }.foldLeft(arg.varSet){ case (s1, s2) => s1 ++ s2 }
     case LetFreeExpression.Struct(enum, args, _) => args.foldLeft(Set[Int]()) { case (s, arg) => s ++ arg.varSet }
-    case LetFreeExpression.Literal(_) => Set()
+    case LetFreeExpression.Literal(_) => Set.empty
     case LetFreeExpression.Recursion(lambda) => lambda.varSet
     case LetFreeExpression.LambdaVar(name) => Set(name)
   }
@@ -678,7 +678,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
       val nextEnv = (env - al.arg).mapValues { case ExpressionKeyTag(lfe, children) =>
         LetFreeExpressionTag(LetFreeConversion.incrementLambdaVars(lfe, 0), children)
-      } + (al.arg -> LetFreeExpressionTag(LetFreeExpression.LambdaVar(0), Set()))
+      } + (al.arg -> LetFreeExpressionTag(LetFreeExpression.LambdaVar(0), Set.empty))
 
       for {
         eExpr <- letFreeConvertExpr(al.expr, nextEnv, p)
@@ -704,7 +704,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
         case RecursionKind.Recursive =>
           val nextEnv = (env - l.arg).mapValues { case ExpressionKeyTag(lfe, children) =>
             LetFreeExpressionTag(LetFreeConversion.incrementLambdaVars(lfe, 0), children)
-          } + (l.arg -> LetFreeExpressionTag(LetFreeExpression.LambdaVar(0), Set()))
+          } + (l.arg -> LetFreeExpressionTag(LetFreeExpression.LambdaVar(0), Set.empty))
 
           val neWrapper = {ne: LetFreeExpression => normalOrderReduction(LetFreeExpression.Recursion(LetFreeExpression.Lambda(ne)))}
           val originalLambda = AnnotatedLambda(arg=l.arg, tpe=l.expr.getType, expr=l.in, tag=l.tag)
@@ -725,7 +725,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
 
   def letFreeConvertLiteral(l: Literal[Declaration], env: Env, p: Package.Inferred): NormState[
     TypedExpr[(Declaration, LetFreeExpressionTag)]] =
-      State.pure(l.copy(tag=(l.tag, LetFreeExpressionTag(LetFreeExpression.Literal(l.lit), Set()))))
+      State.pure(l.copy(tag=(l.tag, LetFreeExpressionTag(LetFreeExpression.Literal(l.lit), Set.empty))))
 
   def letFreeConvertMatch(m: Match[Declaration], env: Env, p: Package.Inferred): NormState[
     TypedExpr[(Declaration, LetFreeExpressionTag)]] = for {
@@ -829,7 +829,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
           name, recursive, expr, pack, env
           ).map(res => Right(res))
         case NameKind.Constructor(cn, _, dt, _) =>
-          val lfeTag = LetFreeExpressionTag(constructor(cn, dt), Set())
+          val lfeTag = LetFreeExpressionTag(constructor(cn, dt), Set.empty)
           State.pure(Left((item, (t, lfeTag))))
         case NameKind.Import(from, orig) =>
           // we reset the environment in the other package
@@ -838,7 +838,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
             lfeTag = getTag(imported)._2
           } yield Left((item, (t, lfeTag)))
         case NameKind.ExternalDef(pn, n, defType) =>
-          val lfeTag = LetFreeExpressionTag(LetFreeExpression.ExternalVar(pn, n, defType), Set())  
+          val lfeTag = LetFreeExpressionTag(LetFreeExpression.ExternalVar(pn, n, defType), Set.empty)  
           State.pure(Left((item, (t, lfeTag))))
       }
 
@@ -857,7 +857,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
             case RecursionKind.Recursive =>
               val nextEnv = (env - name).mapValues { case ExpressionKeyTag(lfe, children) =>
                 LetFreeExpressionTag(LetFreeConversion.incrementLambdaVars(lfe, 0), children)
-              } + (name -> LetFreeExpressionTag(LetFreeExpression.LambdaVar(0), Set()))
+              } + (name -> LetFreeExpressionTag(LetFreeExpression.LambdaVar(0), Set.empty))
 
               for {
                 res <- letFreeConvertExpr(expr, nextEnv, pack)
