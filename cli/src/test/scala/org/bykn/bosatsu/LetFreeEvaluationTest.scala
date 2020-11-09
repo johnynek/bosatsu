@@ -1,6 +1,4 @@
 package org.bykn.bosatsu
-
-import cats.data.NonEmptyList
 import java.nio.file.{Path => JPath, Paths => JPaths}
 import cats.effect.IO
 import org.scalatest.funsuite.AnyFunSuite
@@ -17,7 +15,7 @@ class LetFreeEvaluationTest extends AnyFunSuite {
       packageName: String,
       altAsserts: List[Output.LetFreeEvaluationResult => Assertion] = Nil
   ) =
-    NonEmptyList.fromList(packageName.split("/").toList) match {
+    PackageName.parse(packageName) match {
       case None => fail(s"bad packageName: $packageName")
       case Some(pn) =>
         LetFreeEvaluate(
@@ -28,7 +26,7 @@ class LetFreeEvaluationTest extends AnyFunSuite {
               )
             )
           ),
-          MainIdentifier.FromPackage(PackageName(pn), None),
+          MainIdentifier.FromPackage(pn, None),
           PathGen.Combine[IO, JPath](Nil),
           LocationMap.Colorize.Console,
           PackageResolver.ExplicitOnly
