@@ -2,6 +2,7 @@ package ManyGlobs
 
 enum Result:
   Success(n), Fail(err)
+
 def fn(lst):
   match lst:
     [*_, (True, x), *_, (False, _)]: Success(x)

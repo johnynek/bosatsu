@@ -144,7 +144,7 @@ out = foo
       ),
       List({ lfe: LetFreeExpression =>
         assert(
-          lfe.serialize ==
+          lfe.asString ==
             "Recursion(Lambda(Lambda(Match(LambdaVar(0),PositionalStruct(0,),Struct(1,Literal('a'),Struct(1,Literal('b'),Struct(1,Literal('c'),Struct(0,)))),PositionalStruct(1,StrPat(LitStr(a: ),NamedStr(0)),Var(1)),Lambda(Lambda(Struct(1,LambdaVar(0),App(LambdaVar(3),LambdaVar(1))))),PositionalStruct(1,WildCard,Var(0)),Lambda(Struct(1,Literal('zero'),App(LambdaVar(2),LambdaVar(0))))))))",
           "Serializations test"
         )
@@ -284,8 +284,8 @@ out = [1,2,3].foldLeft(4, add)
       ),
       List({ lfe: LetFreeExpression =>
         assert(
-          lfe.serialize == "App(App(App(Recursion(Lambda(Lambda(Match(LambdaVar(0),PositionalStruct(0,),Lambda(Lambda(LambdaVar(1))),PositionalStruct(1,Var(0),Var(1)),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))))),Struct(1,Literal(1),Struct(1,Literal(2),Struct(1,Literal(3),Struct(0,))))),Literal(4)),ExternalVar('Bosatsu/Predef','add', 'Bosatsu/Predef::Int -> Bosatsu/Predef::Int -> Bosatsu/Predef::Int'))",
-          s"Serializations test got: ${lfe.serialize}"
+          lfe.asString == "App(App(App(Recursion(Lambda(Lambda(Match(LambdaVar(0),PositionalStruct(0,),Lambda(Lambda(LambdaVar(1))),PositionalStruct(1,Var(0),Var(1)),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))))),Struct(1,Literal(1),Struct(1,Literal(2),Struct(1,Literal(3),Struct(0,))))),Literal(4)),ExternalVar('Bosatsu/Predef','add', 'Bosatsu/Predef::Int -> Bosatsu/Predef::Int -> Bosatsu/Predef::Int'))",
+          s"Serializations test got: ${lfe.asString}"
         )
       })
     )
@@ -1071,7 +1071,7 @@ out = match foo("arg"):
       ),
       List({ lfe: LetFreeExpression =>
         assert(
-          lfe.serialize ==
+          lfe.asString ==
             "Match(App(ExternalVar('Extern/List','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::List[(Bosatsu/Predef::String, Bosatsu/Predef::Int)]'),Literal('arg')),PositionalStruct(1,WildCard,PositionalStruct(1,WildCard,ListPat(Left(),Right(PositionalStruct(,Var(0),PositionalStruct(,Literal(1),PositionalStruct(,))))))),Lambda(LambdaVar(0)),WildCard,Literal('\\'zero\\\\\\''))",
           "Serializations test"
         )
@@ -1211,7 +1211,7 @@ out = match foo("c"):
       ),
       List({ lfe: LetFreeExpression =>
         assert(
-          lfe.serialize ==
+          lfe.asString ==
             "Match(App(ExternalVar('Extern/LitMatch','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::String'),Literal('c')),Named(0,Union(Literal('d'),Literal('dd'))),Lambda(LambdaVar(0)),WildCard,Literal('f'))",
           "Serializations test"
         )

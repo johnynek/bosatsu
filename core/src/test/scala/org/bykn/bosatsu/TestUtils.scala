@@ -175,7 +175,7 @@ object TestUtils {
     case class VarSetMode(lambdaCount: Int, vars: Set[Int]) extends NormalTestMode
   }
 
-  def unwrapLambda(expression: LetFreeExpression, lambdaCount: Int): Option[LetFreeExpression] = {
+  def unwrapLambda(expression: LetFreeExpression, lambdaCount: Int): Option[LetFreeExpression] =
     if (lambdaCount <= 0) {
       Some(expression)
     } else {
@@ -184,7 +184,6 @@ object TestUtils {
         case _ => None
       }
     }
-  }
 
   def normalizeTest(
       packages: List[String],

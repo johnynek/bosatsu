@@ -55,7 +55,7 @@ object LetFreeEvaluation {
         Json.JObject(
           List(
             "state" -> Json.JString("expression"),
-            "expression" -> Json.JString(expression.serialize),
+            "expression" -> Json.JString(expression.asString),
             "scope" -> Json.JArray(ilv.cleanedScope.map {
               case (n, nv) =>
                 Json.JArray(Vector(Json.JNumberStr(n.toString), nv.toJson))

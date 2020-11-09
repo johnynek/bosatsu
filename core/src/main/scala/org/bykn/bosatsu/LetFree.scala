@@ -19,7 +19,7 @@ import scala.collection.immutable.IntMap
  * to translate them into code for extrenal computation (eg sql statements).
  * 
  * As the name implies, it expression eliminates Lets by inlining the values. This creates an issue
- * for how to represent a recurrsive Lets so we introduce a Recursion expression that is only valid
+ * for how to represent a recursive Lets so we introduce a Recursion expression that is only valid
  * if it contains a Lambda, where the applying the argument is the recursive call. All variable names
  * are eliminated and replaced with De Bruijn indicies so that expressions get the same representation
  * regardless of variable name choice or nesting. Where possible Match and App are normalized,
@@ -39,23 +39,24 @@ sealed abstract class LetFreeExpression {
    */
   def maxLambdaVar: Option[Int]
 
-  def serialize: String = {
+  def asString: String = {
     def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
+
     this match {
-      case LetFreeExpression.App(fn, arg) => s"App(${fn.serialize},${arg.serialize})"
+      case LetFreeExpression.App(fn, arg) => s"App(${fn.asString},${arg.asString})"
       case LetFreeExpression.ExternalVar(pack, defName, tpe) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}', '${escapeString(TypeRef.fromTypes(None, tpe :: Nil).apply(tpe).toDoc.render(100))}')"
       case LetFreeExpression.Match(arg, branches) => {
-        val serBranches = branches.toList.map {case (lfp, lfe) => s"${lfp.serialize},${lfe.serialize}"}.mkString(",")
-        s"Match(${arg.serialize},$serBranches)"
+        val serBranches = branches.toList.map {case (lfp, lfe) => s"${lfp.serialize},${lfe.asString}"}.mkString(",")
+        s"Match(${arg.asString},$serBranches)"
       }
       case LetFreeExpression.LambdaVar(index) => s"LambdaVar($index)"
-      case LetFreeExpression.Lambda(expr) => s"Lambda(${expr.serialize})"
-      case LetFreeExpression.Struct(enum, args, _) => s"Struct($enum,${args.map(_.serialize).mkString(",")})"
+      case LetFreeExpression.Lambda(expr) => s"Lambda(${expr.asString})"
+      case LetFreeExpression.Struct(enum, args, _) => s"Struct($enum,${args.map(_.asString).mkString(",")})"
       case LetFreeExpression.Literal(toLit) => toLit match {
         case Lit.Str(toStr) => s"Literal('${escapeString(toStr)}')"
         case Lit.Integer(bigInt) => s"Literal($bigInt)"
       }
-      case LetFreeExpression.Recursion(lambda) => s"Recursion(${lambda.serialize})"
+      case LetFreeExpression.Recursion(lambda) => s"Recursion(${lambda.asString})"
     }
   }
 

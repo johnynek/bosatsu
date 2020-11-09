@@ -16,5 +16,5 @@ tests = TestSuite("ListPat tests", [
   Assertion(any([False, True]) matches True, "any([False, True])"),
   Assertion(any([True, False]) matches True, "any([True, False])"),
   Assertion(any([True, True]) matches True, "any([True, True])"),
-  Assertion(one_count([0, 0, 1, 0, 1], 0) matches 2, "one_count 1")
+  Assertion(one_count([0, 0, 1, 0, 1], 0) matches 2, "one_count 1"),
 ])
