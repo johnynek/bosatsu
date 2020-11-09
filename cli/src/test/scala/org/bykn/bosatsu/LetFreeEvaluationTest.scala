@@ -1,20 +1,16 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import java.nio.file.{Path => JPath}
-import java.nio.file.{Paths => JPaths}
+import java.nio.file.{Path => JPath, Paths => JPaths}
 import cats.effect.IO
 import org.scalatest.funsuite.AnyFunSuite
 import LetFreeEvaluation.{ComputedValue, LazyValue, ExtEnv, Cache}
 import Value.ExternalValue
 import org.scalatest.Assertion
+import PathModule.MainCommand.{LetFreeEvaluate, MainIdentifier, PackageResolver}
+import PathModule.Output
 
 class LetFreeEvaluationTest extends AnyFunSuite {
-  import PathModule.MainCommand.LetFreeEvaluate
-  import PathModule.MainCommand.PathGen
-  import PathModule.MainCommand.MainIdentifier
-  import PathModule.MainCommand.PackageResolver
-  import PathModule.Output
 
   def letFreeTest(
       fileNames: List[String],
