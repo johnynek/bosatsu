@@ -262,7 +262,7 @@ object LetFreeConversion {
   ): Option[List[LetFreeExpression]] = {
     lfe match {
       case LetFreeExpression.Struct(0, _, _) => Some(Nil)
-      case LetFreeExpression.Struct(1, value :: tail :: NIl, _) =>
+      case LetFreeExpression.Struct(1, value :: tail :: Nil, _) =>
         structListAsList(tail).map(value :: _)
       case _ => None
     }
@@ -926,7 +926,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
         if (params == 0) expr
         else loop(params - 1, LetFreeExpression.Lambda(expr))
 
-        loop(arity, LetFreeExpression.Struct(enum, ((arity - 1) to 0 by -1).map(LetFreeExpression.LambdaVar(_)).toList, dt.dataFamily))
+        loop(arity, LetFreeExpression.Struct(enum, ((arity - 1) to 0 by -1).iterator.map(LetFreeExpression.LambdaVar(_)).toList, dt.dataFamily))
   }
 
   private def definedForCons(pc: (PackageName, Constructor)): DefinedType[Any] =

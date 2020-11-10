@@ -397,9 +397,7 @@ package Ext/ExprListFilter
 
 operator < = \a, b -> a.cmp_Int(b) matches LT
 
-operator || = \a, b -> match (a,b):
-  (True, _): True
-  (False, result): result
+operator || = \a, b -> True if a else b
 
 external def expr_list_filter(lst: List[a], fn: a -> Bool) -> List[a]
 
