@@ -657,7 +657,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
       letFreeConvertPackage(name, pack)
         .map((name, _))
     }
-    PackageMap(SortedMap(normAll.run(Map()).value._2: _*))
+    PackageMap(SortedMap(normAll.run(Map.empty).value._2: _*))
   }
 
   def letFreeConvertExpr(expr: TypedExpr[Declaration], env: Env, p: Package.Inferred):
@@ -830,7 +830,7 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
     Program[TypeEnv[Variance], TypedExpr[(Declaration, LetFreeConversion.LetFreeExpressionTag)], Any]] = {
     for {
       lets <- pack.program.lets.map {
-        case (name, recursive, expr) => letFreeConvertNameKindLet(name, recursive, expr, pack, Map()).map((name, recursive, _))
+        case (name, recursive, expr) => letFreeConvertNameKindLet(name, recursive, expr, pack, Map.empty).map((name, recursive, _))
       }.sequence
     } yield pack.program.copy(
       lets  = lets

@@ -148,7 +148,7 @@ class LetFreeEvaluationTest extends AnyFunSuite {
   }
 
   test("LetFreeValue") {
-    implicit val extEnv: ExtEnv = Map()
+    implicit val extEnv: ExtEnv = Map.empty
     implicit val cache: Cache = None
     val scope = List(
       ComputedValue(ExternalValue(100)),
