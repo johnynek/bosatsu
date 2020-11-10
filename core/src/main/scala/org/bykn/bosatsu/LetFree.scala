@@ -262,7 +262,7 @@ object LetFreeConversion {
   ): Option[List[LetFreeExpression]] = {
     lfe match {
       case LetFreeExpression.Struct(0, _, _) => Some(Nil)
-      case LetFreeExpression.Struct(1, List(value, tail), _) =>
+      case LetFreeExpression.Struct(1, value :: tail :: NIl, _) =>
         structListAsList(tail).map(value :: _)
       case _ => None
     }
@@ -324,8 +324,9 @@ object LetFreeConversion {
           lazy val parts = {
             val strct = toStruct(asT, DataFamily.Enum)
             strct.map { 
-              case (1, List(h, t)) => Cons(h, StructList(t))
+              case (1, h :: t :: Nil) => Cons(h, StructList(t))
               case (0, Nil) => Empty
+              case _ => sys.error("type checking should ensure this is always a bosatsu List")
             }
           }
         }
