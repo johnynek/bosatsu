@@ -182,8 +182,7 @@ object LetFreePattern {
                 case ((fl, lst), Right(pat)) => (fl, pat :: lst)
               }
               loop(result._1, result._2)
-            case LetFreePattern.PositionalStruct(None, params, df) => loop(floor, params ++ rest)
-            case LetFreePattern.PositionalStruct(Some(name), params, df) => loop(floor.max(floor + 1), params ++ rest)
+            case LetFreePattern.PositionalStruct(_, params, df) => loop(floor, params ++ rest)
             case LetFreePattern.Union(uHead, _) => loop(floor, uHead :: rest)
             case LetFreePattern.StrPat(parts) =>
               val newFloor = (NonEmptyList.of(floor) ++ (parts.collect {
