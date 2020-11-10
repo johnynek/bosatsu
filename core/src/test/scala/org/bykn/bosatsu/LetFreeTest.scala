@@ -10,7 +10,6 @@ class LetFreeTest extends AnyFunSuite {
   import TestUtils._
   import LetFreeExpression._
   import Lit._
-  import LetFreeConversion._
   import LetFreePattern.{
     PositionalStruct,
     Var,
@@ -22,42 +21,34 @@ class LetFreeTest extends AnyFunSuite {
   }
 
   test("Literal") {
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package LetFreeTest/String
 
 main = "aa"
 """),
       "LetFreeTest/String",
-      LetFreeExpressionTag(Literal(Str("aa")), Set.empty)
+      Literal(Str("aa"))
     )
 
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package LetFreeTest/Int
 
 main = 22
 """),
       "LetFreeTest/Int",
-      LetFreeExpressionTag(Literal(Integer(BigInteger.valueOf(22))), Set.empty)
+      Literal(Integer(BigInteger.valueOf(22)))
     )
 
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package LetFreeTest/List
 
 main = ["aa"]
 """),
       "LetFreeTest/List",
-      LetFreeExpressionTag(
-        Struct(1, List(Literal(Str("aa")), Struct(0, List(), Enum)), Enum),
-        Set(
-          Lambda(Lambda(Struct(1, List(LambdaVar(1), LambdaVar(0)), Enum))),
-          Literal(Str("aa")),
-          Lambda(Struct(1, List(Literal(Str("aa")), LambdaVar(0)), Enum)),
-          Struct(0, List(), Enum)
-        )
-      )
+      Struct(1, List(Literal(Str("aa")), Struct(0, List(), Enum)), Enum)
     )
   }
   test("recurse") {
@@ -446,44 +437,35 @@ out = lst.foldLeft(9, add)
     )
   }
   test("Lambda") {
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package Lambda/Identity
 
 out = \x -> x
 """),
       "Lambda/Identity",
-      LetFreeExpressionTag(
-        Lambda(LambdaVar(0)),
-        Set(LambdaVar(0))
-      )
+      Lambda(LambdaVar(0))
     )
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package Lambda/Always
 
 out = \x -> \_ -> x
 """),
       "Lambda/Always",
-      LetFreeExpressionTag(
-        Lambda(Lambda(LambdaVar(1))),
-        Set(Lambda(LambdaVar(1)), LambdaVar(1))
-      )
+      Lambda(Lambda(LambdaVar(1)))
     )
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package Lambda/Always
 
 out = \_ -> \y -> y
 """),
       "Lambda/Always",
-      LetFreeExpressionTag(
-        Lambda(Lambda(LambdaVar(0))),
-        Set(Lambda(LambdaVar(0)), LambdaVar(0))
-      )
+      Lambda(Lambda(LambdaVar(0)))
     )
 
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package Lambda/Identity
 
@@ -492,12 +474,9 @@ def foo(x):
 out = foo
 """),
       "Lambda/Identity",
-      LetFreeExpressionTag(
-        Lambda(LambdaVar(0)),
-        Set(LambdaVar(0))
-      )
+      Lambda(LambdaVar(0))
     )
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package Lambda/Identity
 
@@ -507,12 +486,9 @@ def foo(x):
 out = foo
 """),
       "Lambda/Identity",
-      LetFreeExpressionTag(
-        Lambda(LambdaVar(0)),
-        Set(LambdaVar(0))
-      )
+      Lambda(LambdaVar(0))
     )
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package Lambda/Always
 
@@ -521,12 +497,9 @@ def foo(x, _):
 out = foo
 """),
       "Lambda/Always",
-      LetFreeExpressionTag(
-        Lambda(Lambda(LambdaVar(1))),
-        Set(Lambda(LambdaVar(1)), LambdaVar(1))
-      )
+      Lambda(Lambda(LambdaVar(1)))
     )
-    normalTagTest(
+    normalExpressionTest(
       List("""
 package Lambda/Always
 
@@ -535,10 +508,7 @@ def foo(_, y):
 out = foo
 """),
       "Lambda/Always",
-      LetFreeExpressionTag(
-        Lambda(Lambda(LambdaVar(0))),
-        Set(Lambda(LambdaVar(0)), LambdaVar(0))
-      )
+      Lambda(Lambda(LambdaVar(0)))
     )
   }
   test("Match") {

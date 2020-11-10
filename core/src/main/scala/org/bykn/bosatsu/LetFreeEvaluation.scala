@@ -409,7 +409,7 @@ case class LetFreeEvaluation(
     for {
       pack <- packs.toMap.get(p)
       (name, _, tpe) <- pack.program.lets.lastOption
-      lfe = tpe.tag._2.lfe
+      lfe = tpe.tag._2
       extEnv = externalEnv(pack) ++ importedEnv(pack)
     } yield (
       lfe,

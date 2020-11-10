@@ -170,7 +170,6 @@ object TestUtils {
   sealed abstract class NormalTestMode
 
   object NormalTestMode {
-    case class TagMode(expected: LetFreeConversion.LetFreeExpressionTag) extends NormalTestMode
     case class ExpressionMode(expected: LetFreeExpression, extraAssertions: List[LetFreeExpression => Assertion]) extends NormalTestMode
     case class VarSetMode(lambdaCount: Int, vars: Set[Int]) extends NormalTestMode
   }
@@ -203,34 +202,22 @@ object TestUtils {
           case (_, m) => m.map(_ + 1)
         }.value)
         expr <- exprs.lastOption
-        tag = expr.tag
-        ne = tag._2.lfe
-        children = tag._2.children
+        lfe = expr.tag._2
       } yield {
         assert(
           fleft == fright,
           s"folds didn't match. left: $fleft, right: $fright"
         )
         expectedMode match {
-          case NormalTestMode.TagMode(expected) =>
-            assert(
-              ne == expected.lfe,
-              s"ne error. expected '${expected.lfe}' got '$ne'"
-            )
-            assert(
-              children == expected.children,
-              s"children error. expected '${expected.children}' got '$children'"
-            )
-            succeed
           case NormalTestMode.ExpressionMode(expected, extraAssertions) =>
             assert(
-              ne == expected,
-              s"ne error. expected '${expected}' got '$ne'"
+              lfe == expected,
+              s"lfe error. expected '${expected}' got '$lfe'"
             )
-            extraAssertions.foreach(_.apply(ne))
+            extraAssertions.foreach(_.apply(lfe))
             succeed
           case NormalTestMode.VarSetMode(lambdaCount, vars) =>
-            unwrapLambda(ne, lambdaCount) match {
+            unwrapLambda(lfe, lambdaCount) match {
               case Some(expr) => {
                 assert(
                   expr.varSet == vars,
@@ -239,7 +226,7 @@ object TestUtils {
                 succeed
               }
               case None =>
-                fail(s"Could not unwrap expression $lambdaCount times: $ne")
+                fail(s"Could not unwrap expression $lambdaCount times: $lfe")
             }
         }
       }).getOrElse(fail("There should be a last expression"))
@@ -247,8 +234,6 @@ object TestUtils {
     testInferred(packages, mainPackS, inferredHandler(_, _))
   }
 
-  def normalTagTest(packages: List[String], mainPackS: String, expected: LetFreeConversion.LetFreeExpressionTag) =
-    normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected))
   def normalExpressionTest(packages: List[String], mainPackS: String, expected: LetFreeExpression, extraAssertions: List[LetFreeExpression => Assertion] = Nil) =
     normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected, extraAssertions))
   def letFreeVarSetTest(packages: List[String], mainPackS: String, lambdaCount: Int, vars: Set[Int]) =
