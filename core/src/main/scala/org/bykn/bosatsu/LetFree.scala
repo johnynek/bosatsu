@@ -166,7 +166,7 @@ object LetFreePattern {
    */
   def varCount(pattern: LetFreePattern): Int = {
     @tailrec
-    def loop(floor: Int, patterns: List[LetFreePattern]) =
+    def loop(floor: Int, patterns: List[LetFreePattern]): Int =
       patterns match {
         case head :: rest =>
           head match {
