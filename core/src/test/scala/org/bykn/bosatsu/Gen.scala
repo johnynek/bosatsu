@@ -865,7 +865,10 @@ object Generators {
     for {
       p <- packageNameGen
       importCount <- Gen.choose(1, 10)
-      (h :: tail) <- Gen.listOfN(importCount, importedNameGen)
+      (h, tail) <- Gen.listOfN(importCount, importedNameGen).map {
+        case Nil => sys.error("got an empty list, but import count min is 1")
+        case h :: tail => (h, tail)
+      }
     } yield Import(p, NonEmptyList(h, tail))
 
   val exportedNameGen: Gen[ExportedName[Unit]] =
