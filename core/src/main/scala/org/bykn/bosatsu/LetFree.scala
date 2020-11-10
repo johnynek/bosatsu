@@ -254,10 +254,16 @@ object LetFreeConversion {
   def noop[T]: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { (_, env) => Matches(env) }
   def neverMatch[T]: (T, PatternEnv[T]) => PatternMatch[Nothing] = { (_, _) => NoMatch }
 
-  def structListAsList(lfe: LetFreeExpression): Option[List[LetFreeExpression]] = {
+  /*
+   * Takes bosatsu's List structure and converts it into a scala List, if it can.
+   */
+  def structListAsList(
+      lfe: LetFreeExpression
+  ): Option[List[LetFreeExpression]] = {
     lfe match {
       case LetFreeExpression.Struct(0, _, _) => Some(Nil)
-      case LetFreeExpression.Struct(1, List(value, tail), _) => structListAsList(tail).map(value :: _)
+      case LetFreeExpression.Struct(1, List(value, tail), _) =>
+        structListAsList(tail).map(value :: _)
       case _ => None
     }
   }
