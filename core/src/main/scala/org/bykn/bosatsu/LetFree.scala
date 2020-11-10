@@ -175,23 +175,21 @@ object LetFreePattern {
             case LetFreePattern.Var(name)  => loop(floor.max(name + 1), rest)
             case LetFreePattern.Named(name, pat) =>
               loop(floor.max(name + 1), pat :: rest)
-            case LetFreePattern.ListPat(parts) => {
+            case LetFreePattern.ListPat(parts) =>
               val result = parts.foldLeft((floor, rest)) {
-                case ((fl, lst), Left(n)) =>
-                  (fl.max(n.map(_ + 1).getOrElse(fl)), lst)
+                case ((fl, lst), Left(None)) => (fl, lst)
+                case ((fl, lst), Left(Some(n))) => (fl.max(n + 1), lst)
                 case ((fl, lst), Right(pat)) => (fl, pat :: lst)
               }
               loop(result._1, result._2)
-            }
-            case LetFreePattern.PositionalStruct(name, params, df) =>
-              loop(name.getOrElse(floor).max(floor), params ++ rest)
+            case LetFreePattern.PositionalStruct(None, params, df) => loop(floor, params ++ rest)
+            case LetFreePattern.PositionalStruct(Some(name), params, df) => loop(floor.max(floor + 1), params ++ rest)
             case LetFreePattern.Union(uHead, _) => loop(floor, uHead :: rest)
-            case LetFreePattern.StrPat(parts) => {
+            case LetFreePattern.StrPat(parts) =>
               val newFloor = (NonEmptyList.of(floor) ++ (parts.collect {
                 case LetFreePattern.StrPart.NamedStr(name) => name + 1
               })).maximum
               loop(newFloor, rest)
-            }
           }
         case Nil => floor
       }
