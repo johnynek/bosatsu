@@ -46,7 +46,7 @@ sealed abstract class LetFreeExpression {
       case LetFreeExpression.App(fn, arg) => s"App(${fn.asString},${arg.asString})"
       case LetFreeExpression.ExternalVar(pack, defName, tpe) => s"ExternalVar('${escapeString(pack.asString)}','${escapeString(defName.asString)}', '${escapeString(TypeRef.fromTypes(None, tpe :: Nil).apply(tpe).toDoc.render(100))}')"
       case LetFreeExpression.Match(arg, branches) => {
-        val serBranches = branches.toList.map {case (lfp, lfe) => s"${lfp.serialize},${lfe.asString}"}.mkString(",")
+        val serBranches = branches.toList.map {case (lfp, lfe) => s"${lfp.asString},${lfe.asString}"}.mkString(",")
         s"Match(${arg.asString},$serBranches)"
       }
       case LetFreeExpression.LambdaVar(index) => s"LambdaVar($index)"
@@ -67,12 +67,12 @@ sealed abstract class LetFreeExpression {
     this match {
       case LetFreeExpression.Lambda(expr) =>
         expr.varSet.collect { case n if n > 0 => n - 1 }
-      case LetFreeExpression.App(fn, arg)         => fn.varSet ++ arg.varSet
+      case LetFreeExpression.App(fn, arg)         => fn.varSet.union(arg.varSet)
       case LetFreeExpression.ExternalVar(_, _, _) => Set.empty
       case LetFreeExpression.Match(arg, branches) =>
         branches
           .map { branch =>
-            val varCount = LetFreePattern.varCount(0, List(branch._1))
+            val varCount = LetFreePattern.varCount(branch._1)
             branch._2.varSet.map(_ - varCount).filter(_ >= 0)
           }
           .foldLeft(arg.varSet) { case (s1, s2) => s1.union(s2) }
@@ -131,7 +131,7 @@ object LetFreeExpression {
 
 sealed abstract class LetFreePattern {
   def escapeString(unescaped: String) = StringUtil.escape('\'', unescaped)
-  def serialize: String =
+  def asString: String =
     this match {
       case LetFreePattern.WildCard => "WildCard"
       case LetFreePattern.Literal(toLit) => toLit match {
@@ -139,16 +139,16 @@ sealed abstract class LetFreePattern {
         case Lit.Integer(bigInt) => s"Literal($bigInt)"
       }
       case LetFreePattern.Var(name) => s"Var($name)"
-      case LetFreePattern.Named(name, pat) => s"Named($name,${pat.serialize})"
+      case LetFreePattern.Named(name, pat) => s"Named($name,${pat.asString})"
       case LetFreePattern.ListPat(parts) => {
         val inside = parts.map {
           case Left(name) => s"Left(${name.map(_.toString).getOrElse("")})"
-          case Right(pat) => s"Right(${pat.serialize})"
+          case Right(pat) => s"Right(${pat.asString})"
         }.mkString(",")
         s"ListPat($inside)"
       }
-      case LetFreePattern.PositionalStruct(name, params, df) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.serialize).mkString(",")})"
-      case LetFreePattern.Union(head, rest) => s"Union(${head.serialize},${rest.toList.map(_.serialize).mkString(",")})"
+      case LetFreePattern.PositionalStruct(name, params, df) => s"PositionalStruct(${name.map(_.toString).getOrElse("")},${params.map(_.asString).mkString(",")})"
+      case LetFreePattern.Union(head, rest) => s"Union(${head.asString},${rest.toList.map(_.asString).mkString(",")})"
       case LetFreePattern.StrPat(parts) => {
         val inside = parts.map {
           case LetFreePattern.StrPart.WildStr => "WildStr"
@@ -161,28 +161,41 @@ sealed abstract class LetFreePattern {
 }
 
 object LetFreePattern {
-  @tailrec
-  def varCount(floor: Int, patterns: List[LetFreePattern]): Int = patterns match {
-    case head :: rest => head match {
-      case LetFreePattern.WildCard => varCount(floor, rest)
-      case LetFreePattern.Literal(_) => varCount(0, rest)
-      case LetFreePattern.Var(name) => varCount(floor.max(name + 1), rest)
-      case LetFreePattern.Named(name, pat) => varCount(name + 1, pat :: rest)
-      case LetFreePattern.ListPat(parts) => {
-        val result = parts.foldLeft((floor, rest)) {
-          case ((fl, lst), Left(n)) => (fl.max(n.map(_ + 1).getOrElse(fl)), lst)
-          case ((fl, lst), Right(pat)) => (fl, pat :: lst)
-        }
-        varCount(result._1, result._2)
+  /*
+   * varCount gets the number of variables assigned in the pattern by finding the largest index and adding one to it. floor is the candidate so far.
+   */
+  def varCount(pattern: LetFreePattern): Int = {
+    @tailrec
+    def loop(floor: Int, patterns: List[LetFreePattern]) =
+      patterns match {
+        case head :: rest =>
+          head match {
+            case LetFreePattern.WildCard   => loop(floor, rest)
+            case LetFreePattern.Literal(_) => loop(0, rest)
+            case LetFreePattern.Var(name)  => loop(floor.max(name + 1), rest)
+            case LetFreePattern.Named(name, pat) =>
+              loop(floor.max(name + 1), pat :: rest)
+            case LetFreePattern.ListPat(parts) => {
+              val result = parts.foldLeft((floor, rest)) {
+                case ((fl, lst), Left(n)) =>
+                  (fl.max(n.map(_ + 1).getOrElse(fl)), lst)
+                case ((fl, lst), Right(pat)) => (fl, pat :: lst)
+              }
+              loop(result._1, result._2)
+            }
+            case LetFreePattern.PositionalStruct(name, params, df) =>
+              loop(name.getOrElse(floor).max(floor), params ++ rest)
+            case LetFreePattern.Union(uHead, _) => loop(floor, uHead :: rest)
+            case LetFreePattern.StrPat(parts) => {
+              val newFloor = (NonEmptyList.of(floor) ++ (parts.collect {
+                case LetFreePattern.StrPart.NamedStr(name) => name + 1
+              })).maximum
+              loop(newFloor, rest)
+            }
+          }
+        case Nil => floor
       }
-      case LetFreePattern.PositionalStruct(name, params, df) => varCount(name.getOrElse(floor).max(floor), params ++ rest)
-      case LetFreePattern.Union(uHead, _) => varCount(floor, uHead :: rest)
-      case LetFreePattern.StrPat(parts) => {
-        val newFloor = (NonEmptyList.of(floor) ++ (parts.collect { case LetFreePattern.StrPart.NamedStr(name) => name+1})).maximum
-        varCount(newFloor, rest)
-      }
-    }
-    case _ => floor
+    loop(0, List(pattern))
   }
 
   case object WildCard extends LetFreePattern
