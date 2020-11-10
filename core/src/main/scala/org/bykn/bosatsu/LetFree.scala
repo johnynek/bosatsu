@@ -290,6 +290,12 @@ object LetFreeConversion {
   val neToList: LetFreeExpression => Option[List[LetFreeExpression]] = structListAsList(_)
   val neFromList: List[LetFreeExpression] => LetFreeExpression = listAsStructList(_)
 
+  /*
+   * MaybeBind is an implementation of determining if a T satisfies a LetFreePattern and if it does it creates an environment
+   * for right hand evaluation. This has been implemented for T as a LetFreeExpression, a Value, and a LetFreeValue. When
+   * attempting to bind it result in a Matches, NoMatch, or NotProvable which means there's not enough present information to
+   * determine what this would do at runtime (eg this may be running at compile time.)
+   */
   abstract class MaybeBind[T](pat: LetFreePattern) {
     def toLitValue(t: T): Option[LitValue]
     def toStruct(t: T, df: DataFamily): Option[(Int, List[T])]
@@ -501,6 +507,7 @@ object LetFreeConversion {
             case LetFreePattern.StrPart.LitStr(str) => str.toList.map(c => Right(LetFreePattern.Literal(Lit.Str(c.toString))))
           }
           val listMaybeBind = maybeBind(LetFreePattern.ListPat(listParts))
+
           (v, env) => toLitValue(v) match {
               case None => NotProvable
               case Some(LitValue(str)) => listMaybeBind(fromList(str.asInstanceOf[String].toList.map(c => fromString(c.toString))), IntMap.empty) match {
