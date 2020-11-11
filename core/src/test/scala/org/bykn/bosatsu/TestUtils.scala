@@ -10,6 +10,7 @@ import scala.concurrent.ExecutionContext
 import Assertions.{succeed, fail}
 import IorMethods.IorExtension
 import org.bykn.bosatsu.LetFreeEvaluation.LazyValue
+import scala.util.hashing.MurmurHash3
 
 object TestUtils {
 
@@ -170,7 +171,7 @@ object TestUtils {
   sealed abstract class NormalTestMode
 
   object NormalTestMode {
-    case class ExpressionMode(expected: LetFreeExpression, extraAssertions: List[LetFreeExpression => Assertion]) extends NormalTestMode
+    case class ExpressionMode(expected: Either[LetFreeExpression, Int], extraAssertions: List[LetFreeExpression => Assertion]) extends NormalTestMode
     case class VarSetMode(lambdaCount: Int, vars: Set[Int]) extends NormalTestMode
   }
 
@@ -210,10 +211,19 @@ object TestUtils {
         )
         expectedMode match {
           case NormalTestMode.ExpressionMode(expected, extraAssertions) =>
-            assert(
-              lfe == expected,
-              s"lfe error. expected '${expected}' got '$lfe'"
-            )
+            expected match {
+              case Left(expectedExpr) => assert(
+                  lfe == expectedExpr,
+                  s"lfe error in '$mainPackS'. expected '${expectedExpr}' got '$lfe'"
+                )
+              case Right(expectedHash) =>
+                val hash = MurmurHash3.stringHash(lfe.asString)
+                assert(
+                  hash == expectedHash,
+                  s"hash error in '$mainPackS'. expected $expectedHash got $hash, '$lfe'"
+                )
+            }
+
             extraAssertions.foreach(_.apply(lfe))
             succeed
           case NormalTestMode.VarSetMode(lambdaCount, vars) =>
@@ -234,7 +244,7 @@ object TestUtils {
     testInferred(packages, mainPackS, inferredHandler(_, _))
   }
 
-  def normalExpressionTest(packages: List[String], mainPackS: String, expected: LetFreeExpression, extraAssertions: List[LetFreeExpression => Assertion] = Nil) =
+  def normalExpressionTest(packages: List[String], mainPackS: String, expected: Either[LetFreeExpression, Int], extraAssertions: List[LetFreeExpression => Assertion] = Nil) =
     normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected, extraAssertions))
   def letFreeVarSetTest(packages: List[String], mainPackS: String, lambdaCount: Int, vars: Set[Int]) =
     normalizeTest(packages, mainPackS, NormalTestMode.VarSetMode(lambdaCount, vars)

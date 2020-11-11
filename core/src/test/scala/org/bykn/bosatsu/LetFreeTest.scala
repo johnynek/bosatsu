@@ -5,21 +5,11 @@ import cats.data.NonEmptyList
 import org.scalatest.funsuite.AnyFunSuite
 import rankn.Type
 import rankn.DataFamily.{Enum, Struct => DFStruct}
+import TestUtils._
+import LetFreeExpression._
+import Lit._
 
 class LetFreeTest extends AnyFunSuite {
-  import TestUtils._
-  import LetFreeExpression._
-  import Lit._
-  import LetFreePattern.{
-    PositionalStruct,
-    Var,
-    WildCard,
-    ListPat,
-    Named,
-    StrPat,
-    StrPart
-  }
-
   test("Literal") {
     normalExpressionTest(
       List("""
@@ -28,7 +18,7 @@ package LetFreeTest/String
 main = "aa"
 """),
       "LetFreeTest/String",
-      Literal(Str("aa"))
+      Left(Literal(Str("aa")))
     )
 
     normalExpressionTest(
@@ -38,7 +28,7 @@ package LetFreeTest/Int
 main = 22
 """),
       "LetFreeTest/Int",
-      Literal(Integer(BigInteger.valueOf(22)))
+      Left(Literal(Integer(BigInteger.valueOf(22))))
     )
 
     normalExpressionTest(
@@ -48,7 +38,7 @@ package LetFreeTest/List
 main = ["aa"]
 """),
       "LetFreeTest/List",
-      Struct(1, List(Literal(Str("aa")), Struct(0, List(), Enum)), Enum)
+      Left(Struct(1, List(Literal(Str("aa")), Struct(0, List(), Enum)), Enum))
     )
   }
   test("recurse") {
@@ -65,81 +55,7 @@ def foo(x):
 out = foo
 """),
       "Recur/Some",
-      Recursion(
-        Lambda(
-          Lambda(
-            Match(
-              LambdaVar(0),
-              NonEmptyList.of(
-                (
-                  PositionalStruct(Some(0), Nil, Enum),
-                  Struct(
-                    1,
-                    List(
-                      Literal(Str("a")),
-                      Struct(
-                        1,
-                        List(
-                          Literal(Str("b")),
-                          Struct(
-                            1,
-                            List(Literal(Str("c")), Struct(0, List(), Enum)),
-                            Enum
-                          )
-                        ),
-                        Enum
-                      )
-                    ),
-                    Enum
-                  )
-                ),
-                (
-                  PositionalStruct(
-                    Some(1),
-                    List(
-                      StrPat(
-                        NonEmptyList
-                          .of(StrPart.LitStr("a: "), StrPart.NamedStr(0))
-                      ),
-                      Var(1)
-                    ),
-                    Enum
-                  ),
-                  Lambda(
-                    Lambda(
-                      Struct(
-                        1,
-                        List(LambdaVar(0), App(LambdaVar(3), LambdaVar(1))),
-                        Enum
-                      )
-                    )
-                  )
-                ),
-                (
-                  PositionalStruct(Some(1), List(WildCard, Var(0)), Enum),
-                  Lambda(
-                    Struct(
-                      1,
-                      List(
-                        Literal(Str("zero")),
-                        App(LambdaVar(2), LambdaVar(0))
-                      ),
-                      Enum
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      ),
-      List({ lfe: LetFreeExpression =>
-        assert(
-          lfe.asString ==
-            "Recursion(Lambda(Lambda(Match(LambdaVar(0),PositionalStruct(0,),Struct(1,Literal('a'),Struct(1,Literal('b'),Struct(1,Literal('c'),Struct(0,)))),PositionalStruct(1,StrPat(LitStr(a: ),NamedStr(0)),Var(1)),Lambda(Lambda(Struct(1,LambdaVar(0),App(LambdaVar(3),LambdaVar(1))))),PositionalStruct(1,WildCard,Var(0)),Lambda(Struct(1,Literal('zero'),App(LambdaVar(2),LambdaVar(0))))))))",
-          "Serializations test"
-        )
-      })
+      Right(789742180)
     )
   }
   test("foldLeft w/o loop") {
@@ -155,39 +71,7 @@ def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
 out = foldLeft
 """),
       "Recur/FoldLeft",
-      Recursion(
-        Lambda(
-          Lambda(
-            Match(
-              LambdaVar(0),
-              NonEmptyList.of(
-                (
-                  PositionalStruct(Some(0), List(), Enum),
-                  Lambda(Lambda(LambdaVar(1)))
-                ),
-                (
-                  PositionalStruct(Some(1), List(Var(0), Var(1)), Enum),
-                  Lambda(
-                    Lambda(
-                      Lambda(
-                        Lambda(
-                          App(
-                            App(
-                              App(LambdaVar(5), LambdaVar(3)),
-                              App(App(LambdaVar(0), LambdaVar(1)), LambdaVar(2))
-                            ),
-                            LambdaVar(0)
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
+      Right(873201835)
     )
   }
   test("foldLeft w/o loop applied") {
@@ -203,82 +87,7 @@ def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
 out = [1,2,3].foldLeft(4, add)
 """),
       "Recur/FoldLeft",
-      App(
-        App(
-          App(
-            Recursion(
-              Lambda(
-                Lambda(
-                  Match(
-                    LambdaVar(0),
-                    NonEmptyList.of(
-                      (
-                        PositionalStruct(Some(0), List(), Enum),
-                        Lambda(Lambda(LambdaVar(1)))
-                      ),
-                      (
-                        PositionalStruct(Some(1), List(Var(0), Var(1)), Enum),
-                        Lambda(
-                          Lambda(
-                            Lambda(
-                              Lambda(
-                                App(
-                                  App(
-                                    App(LambdaVar(5), LambdaVar(3)),
-                                    App(
-                                      App(LambdaVar(0), LambdaVar(1)),
-                                      LambdaVar(2)
-                                    )
-                                  ),
-                                  LambdaVar(0)
-                                )
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            ),
-            Struct(
-              1,
-              List(
-                Literal(Integer(BigInteger.valueOf(1))),
-                Struct(
-                  1,
-                  List(
-                    Literal(Integer(BigInteger.valueOf(2))),
-                    Struct(
-                      1,
-                      List(
-                        Literal(Integer(BigInteger.valueOf(3))),
-                        Struct(0, List(), Enum)
-                      ),
-                      Enum
-                    )
-                  ),
-                  Enum
-                )
-              ),
-              Enum
-            )
-          ),
-          Literal(Integer(BigInteger.valueOf(4)))
-        ),
-        ExternalVar(
-          PackageName(NonEmptyList.of("Bosatsu", "Predef")),
-          Identifier.Name("add"),
-          Type.Fun(Type.IntType, Type.Fun(Type.IntType, Type.IntType))
-        )
-      ),
-      List({ lfe: LetFreeExpression =>
-        assert(
-          lfe.asString == "App(App(App(Recursion(Lambda(Lambda(Match(LambdaVar(0),PositionalStruct(0,),Lambda(Lambda(LambdaVar(1))),PositionalStruct(1,Var(0),Var(1)),Lambda(Lambda(Lambda(Lambda(App(App(App(LambdaVar(5),LambdaVar(3)),App(App(LambdaVar(0),LambdaVar(1)),LambdaVar(2))),LambdaVar(0)))))))))),Struct(1,Literal(1),Struct(1,Literal(2),Struct(1,Literal(3),Struct(0,))))),Literal(4)),ExternalVar('Bosatsu/Predef','add', 'Bosatsu/Predef::Int -> Bosatsu/Predef::Int -> Bosatsu/Predef::Int'))",
-          s"Serializations test got: ${lfe.asString}"
-        )
-      })
+      Right(-213085200)
     )
   }
   test("foldLeft") {
@@ -297,53 +106,7 @@ def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
 out = foldLeft
 """),
       "Recur/FoldLeft",
-      Lambda(
-        Lambda(
-          Lambda(
-            App(
-              App(
-                Recursion(
-                  Lambda(
-                    Lambda(
-                      Match(
-                        LambdaVar(0),
-                        NonEmptyList.of(
-                          (
-                            PositionalStruct(Some(0), List(), Enum),
-                            Lambda(LambdaVar(0))
-                          ),
-                          (
-                            PositionalStruct(
-                              Some(1),
-                              List(Var(0), Var(1)),
-                              Enum
-                            ),
-                            Lambda(
-                              Lambda(
-                                Lambda(
-                                  App(
-                                    App(LambdaVar(4), LambdaVar(2)),
-                                    App(
-                                      App(LambdaVar(5), LambdaVar(0)),
-                                      LambdaVar(1)
-                                    )
-                                  )
-                                )
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                ),
-                LambdaVar(2)
-              ),
-              LambdaVar(1)
-            )
-          )
-        )
-      )
+      Right(1762482636)
     )
   }
   test("foldLeft applied") {
@@ -364,76 +127,7 @@ def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
 out = lst.foldLeft(9, add)
 """),
       "Recur/FoldLeft",
-      App(
-        App(
-          Recursion(
-            Lambda(
-              Lambda(
-                Match(
-                  LambdaVar(0),
-                  NonEmptyList.of(
-                    (
-                      PositionalStruct(Some(0), List(), Enum),
-                      Lambda(LambdaVar(0))
-                    ),
-                    (
-                      PositionalStruct(Some(1), List(Var(0), Var(1)), Enum),
-                      Lambda(
-                        Lambda(
-                          Lambda(
-                            App(
-                              App(LambdaVar(4), LambdaVar(2)),
-                              App(
-                                App(
-                                  ExternalVar(
-                                    PackageName(
-                                      NonEmptyList.of("Bosatsu", "Predef")
-                                    ),
-                                    Identifier.Name("add"),
-                                    Type.Fun(
-                                      Type.IntType,
-                                      Type.Fun(Type.IntType, Type.IntType)
-                                    )
-                                  ),
-                                  LambdaVar(0)
-                                ),
-                                LambdaVar(1)
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          ),
-          Struct(
-            1,
-            List(
-              Literal(Integer(BigInteger.valueOf(1))),
-              Struct(
-                1,
-                List(
-                  Literal(Integer(BigInteger.valueOf(2))),
-                  Struct(
-                    1,
-                    List(
-                      Literal(Integer(BigInteger.valueOf(3))),
-                      Struct(0, List(), Enum)
-                    ),
-                    Enum
-                  )
-                ),
-                Enum
-              )
-            ),
-            Enum
-          )
-        ),
-        Literal(Integer(BigInteger.valueOf(9)))
-      )
+      Right(771154806)
     )
   }
   test("Lambda") {
@@ -444,7 +138,7 @@ package Lambda/Identity
 out = \x -> x
 """),
       "Lambda/Identity",
-      Lambda(LambdaVar(0))
+      Left(Lambda(LambdaVar(0)))
     )
     normalExpressionTest(
       List("""
@@ -453,7 +147,7 @@ package Lambda/Always
 out = \x -> \_ -> x
 """),
       "Lambda/Always",
-      Lambda(Lambda(LambdaVar(1)))
+      Left(Lambda(Lambda(LambdaVar(1))))
     )
     normalExpressionTest(
       List("""
@@ -462,7 +156,7 @@ package Lambda/Always
 out = \_ -> \y -> y
 """),
       "Lambda/Always",
-      Lambda(Lambda(LambdaVar(0)))
+      Left(Lambda(Lambda(LambdaVar(0))))
     )
 
     normalExpressionTest(
@@ -474,7 +168,7 @@ def foo(x):
 out = foo
 """),
       "Lambda/Identity",
-      Lambda(LambdaVar(0))
+      Left(Lambda(LambdaVar(0)))
     )
     normalExpressionTest(
       List("""
@@ -486,7 +180,7 @@ def foo(x):
 out = foo
 """),
       "Lambda/Identity",
-      Lambda(LambdaVar(0))
+      Left(Lambda(LambdaVar(0)))
     )
     normalExpressionTest(
       List("""
@@ -497,7 +191,7 @@ def foo(x, _):
 out = foo
 """),
       "Lambda/Always",
-      Lambda(Lambda(LambdaVar(1)))
+      Left(Lambda(Lambda(LambdaVar(1))))
     )
     normalExpressionTest(
       List("""
@@ -508,7 +202,7 @@ def foo(_, y):
 out = foo
 """),
       "Lambda/Always",
-      Lambda(Lambda(LambdaVar(0)))
+      Left(Lambda(Lambda(LambdaVar(0))))
     )
   }
   test("Match") {
@@ -523,52 +217,7 @@ def result(x, c):
 out=result
 """),
       "Match/Vars",
-      Lambda(
-        Match(
-          LambdaVar(0),
-          NonEmptyList.of(
-            (
-              PositionalStruct(
-                None,
-                List(
-                  Var(0),
-                  PositionalStruct(
-                    None,
-                    List(Var(1), PositionalStruct(None, List(), DFStruct)),
-                    DFStruct
-                  )
-                ),
-                DFStruct
-              ),
-              Lambda(
-                Lambda(
-                  Lambda(
-                    Struct(
-                      0,
-                      List(
-                        LambdaVar(2),
-                        Struct(
-                          0,
-                          List(
-                            LambdaVar(0),
-                            Struct(
-                              0,
-                              List(LambdaVar(1), Struct(0, List(), DFStruct)),
-                              DFStruct
-                            )
-                          ),
-                          DFStruct
-                        )
-                      ),
-                      DFStruct
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
+      Right(1735444640)
     )
 
     normalExpressionTest(
@@ -583,10 +232,12 @@ out=match Pair(1, "two"):
 
 """),
       "Match/Structs",
-      Struct(
-        0,
-        List(Literal(Lit(3)), Literal(Lit.Str("two")), Literal(Lit(1))),
-        DFStruct
+      Left(
+        Struct(
+          0,
+          List(Literal(Lit(3)), Literal(Lit.Str("two")), Literal(Lit(1))),
+          DFStruct
+        )
       )
     )
     normalExpressionTest(
@@ -599,7 +250,7 @@ out=match None:
 
 """),
       "Match/None",
-      Literal(Str("not some"))
+      Left(Literal(Str("not some")))
     )
     normalExpressionTest(
       List("""
@@ -610,7 +261,7 @@ out = match [1,2,3]:
   _: 0
 """),
       "Match/List",
-      Literal(Integer(BigInteger.valueOf(3)))
+      Left(Literal(Integer(BigInteger.valueOf(3))))
     )
     normalExpressionTest(
       List("""
@@ -621,7 +272,7 @@ out = match [1,2,3,4,5]:
   _: 0
 """),
       "Match/List",
-      Literal(Integer(BigInteger.valueOf(5)))
+      Left(Literal(Integer(BigInteger.valueOf(5))))
     )
     normalExpressionTest(
       List("""
@@ -632,55 +283,7 @@ out = match ["a","b","c","d","e"]:
   []: None
 """),
       "Match/List",
-      Struct(
-        1,
-        List(
-          Struct(
-            0,
-            List(
-              Literal(Str("a")),
-              Struct(
-                0,
-                List(
-                  Struct(
-                    1,
-                    List(
-                      Literal(Str("b")),
-                      Struct(
-                        1,
-                        List(
-                          Literal(Str("c")),
-                          Struct(
-                            1,
-                            List(
-                              Literal(Str("d")),
-                              Struct(
-                                1,
-                                List(
-                                  Literal(Str("e")),
-                                  Struct(0, List(), Enum)
-                                ),
-                                Enum
-                              )
-                            ),
-                            Enum
-                          )
-                        ),
-                        Enum
-                      )
-                    ),
-                    Enum
-                  ),
-                  Struct(0, List(), DFStruct)
-                ),
-                DFStruct
-              )
-            ),
-            DFStruct
-          )
-        ),
-        Enum
-      )
+      Right(-616285537)
     )
     normalExpressionTest(
       List("""
@@ -694,7 +297,7 @@ out = match Baz("abc"):
   Buzz: "buzzzzzzz"
 """),
       "Match/Union",
-      Literal(Str("abc"))
+      Left(Literal(Str("abc")))
     )
     normalExpressionTest(
       List("""
@@ -708,7 +311,7 @@ out = match Buzz:
   Buzz: "buzzzzzzz"
 """),
       "Match/Union",
-      Literal(Str("buzzzzzzz"))
+      Left(Literal(Str("buzzzzzzz")))
     )
     normalExpressionTest(
       List("""
@@ -721,28 +324,7 @@ out = match list:
   _ : []
 """),
       "Match/ListPat",
-      Struct(
-        1,
-        List(
-          Literal(Integer(BigInteger.valueOf(1))),
-          Struct(
-            1,
-            List(
-              Literal(Integer(BigInteger.valueOf(2))),
-              Struct(
-                1,
-                List(
-                  Literal(Integer(BigInteger.valueOf(3))),
-                  Struct(0, List(), Enum)
-                ),
-                Enum
-              )
-            ),
-            Enum
-          )
-        ),
-        Enum
-      )
+      Right(-859671442)
     )
     normalExpressionTest(
       List("""
@@ -756,36 +338,7 @@ out = match list:
   _ : []
 """),
       "Match/ListPat",
-      Match(
-        Struct(
-          1,
-          List(
-            Literal(Integer(BigInteger.valueOf(1))),
-            App(
-              ExternalVar(
-                PackageName(NonEmptyList.of("Match", "ListPat")),
-                Identifier.Name("fn"),
-                Type.Fun(Type.StrType, Type.ListT(Type.IntType))
-              ),
-              Literal(Str("bar"))
-            )
-          ),
-          Enum
-        ),
-        NonEmptyList.of(
-          (
-            ListPat(
-              List(
-                Left(Some(0)),
-                Right(LetFreePattern.Literal(Integer(BigInteger.valueOf(4)))),
-                Left(None)
-              )
-            ),
-            Lambda(LambdaVar(0))
-          ),
-          (WildCard, Struct(0, List(), Enum))
-        )
-      )
+      Right(-172975627)
     )
 
   }
@@ -805,21 +358,7 @@ from Imp/First import fizz
 out=fizz(1,2)
 """),
       "Imp/Second",
-      Struct(
-        0,
-        List(
-          Literal(Integer(BigInteger.valueOf(2))),
-          Struct(
-            0,
-            List(
-              Literal(Integer(BigInteger.valueOf(1))),
-              Struct(0, List(), DFStruct)
-            ),
-            DFStruct
-          )
-        ),
-        DFStruct
-      )
+      Right(501925842)
     )
     normalExpressionTest(
       List("""
@@ -835,21 +374,7 @@ def fizz(f, s):
   (s, f)
 """),
       "Imp/First",
-      Struct(
-        0,
-        List(
-          Literal(Integer(BigInteger.valueOf(2))),
-          Struct(
-            0,
-            List(
-              Literal(Integer(BigInteger.valueOf(1))),
-              Struct(0, List(), DFStruct)
-            ),
-            DFStruct
-          )
-        ),
-        DFStruct
-      )
+      Right(501925842)
     )
   }
   test("external") {
@@ -864,17 +389,7 @@ out = foo
 """
       ),
       "Extern/Simple",
-      ExternalVar(
-        PackageName(
-          NonEmptyList
-            .fromList(
-              List("Extern", "Simple")
-            )
-            .get
-        ),
-        Identifier.Name("foo"),
-        Type.Fun(Type.StrType, Type.ListT(Type.StrType))
-      )
+      Right(1331104799)
     )
     normalExpressionTest(
       List(
@@ -887,14 +402,7 @@ out = foo("bar")
 """
       ),
       "Extern/Apply",
-      App(
-        ExternalVar(
-          PackageName(NonEmptyList.of("Extern", "Apply")),
-          Identifier.Name("foo"),
-          Type.Fun(Type.StrType, Type.ListT(Type.StrType))
-        ),
-        Literal(Str("bar"))
-      )
+      Right(-2134255842)
     )
 
     normalExpressionTest(
@@ -910,48 +418,7 @@ out = match foo("bar"):
 """
       ),
       "Extern/Match",
-      Match(
-        App(
-          ExternalVar(
-            PackageName(NonEmptyList.of("Extern", "Match")),
-            Identifier.Name("foo"),
-            Type.Fun(Type.StrType, Type.ListT(Type.StrType))
-          ),
-          Literal(Str("bar"))
-        ),
-        NonEmptyList.of(
-          (
-            PositionalStruct(
-              Some(1),
-              List(
-                Var(0),
-                PositionalStruct(
-                  Some(1),
-                  List(
-                    WildCard,
-                    PositionalStruct(
-                      Some(1),
-                      List(
-                        WildCard,
-                        PositionalStruct(
-                          Some(0),
-                          List(),
-                          Enum
-                        )
-                      ),
-                      Enum
-                    )
-                  ),
-                  Enum
-                )
-              ),
-              Enum
-            ),
-            Lambda(LambdaVar(0))
-          ),
-          (WildCard, Literal(Str("boom")))
-        )
-      )
+      Right(1388824635)
     )
 
     normalExpressionTest(
@@ -965,10 +432,12 @@ out = \y -> foo(y)
 """
       ),
       "Extern/Eta",
-      ExternalVar(
-        PackageName(NonEmptyList.fromList(List("Extern", "Eta")).get),
-        Identifier.Name("foo"),
-        Type.Fun(Type.StrType, Type.TyApply(Type.ListType, Type.StrType))
+      Left(
+        ExternalVar(
+          PackageName(NonEmptyList.of("Extern", "Eta")),
+          Identifier.Name("foo"),
+          Type.Fun(Type.StrType, Type.TyApply(Type.ListType, Type.StrType))
+        )
       )
     )
     normalExpressionTest(
@@ -982,70 +451,7 @@ out = match foo("arg"):
   _: "'zero\\'"
 """),
       "Extern/List",
-      Match(
-        App(
-          ExternalVar(
-            PackageName(NonEmptyList.of("Extern", "List")),
-            Identifier.Name("foo"),
-            Type.Fun(
-              Type.StrType,
-              Type.ListT(Type.Tuple(List(Type.StrType, Type.IntType)))
-            )
-          ),
-          Literal(Str("arg"))
-        ),
-        NonEmptyList.of(
-          (
-            PositionalStruct(
-              Some(1),
-              List(
-                WildCard,
-                PositionalStruct(
-                  Some(1),
-                  List(
-                    WildCard,
-                    ListPat(
-                      List(
-                        Left(None),
-                        Right(
-                          PositionalStruct(
-                            None,
-                            List(
-                              Var(0),
-                              PositionalStruct(
-                                None,
-                                List(
-                                  LetFreePattern.Literal(
-                                    Integer(BigInteger.valueOf(1))
-                                  ),
-                                  PositionalStruct(None, List(), DFStruct)
-                                ),
-                                DFStruct
-                              )
-                            ),
-                            DFStruct
-                          )
-                        )
-                      )
-                    )
-                  ),
-                  Enum
-                )
-              ),
-              Enum
-            ),
-            Lambda(LambdaVar(0))
-          ),
-          (WildCard, Literal(Str("'zero\\'")))
-        )
-      ),
-      List({ lfe: LetFreeExpression =>
-        assert(
-          lfe.asString ==
-            "Match(App(ExternalVar('Extern/List','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::List[(Bosatsu/Predef::String, Bosatsu/Predef::Int)]'),Literal('arg')),PositionalStruct(1,WildCard,PositionalStruct(1,WildCard,ListPat(Left(),Right(PositionalStruct(,Var(0),PositionalStruct(,Literal(1),PositionalStruct(,))))))),Lambda(LambdaVar(0)),WildCard,Literal('\\'zero\\\\\\''))",
-          "Serializations test"
-        )
-      })
+      Right(518564136)
     )
 
     normalExpressionTest(
@@ -1059,34 +465,7 @@ out = match foo("arg"):
   _: "zero"
 """),
       "Extern/List",
-      Match(
-        App(
-          ExternalVar(
-            PackageName(NonEmptyList.of("Extern", "List")),
-            Identifier.Name("foo"),
-            Type.Fun(Type.StrType, Type.ListT(Type.StrType))
-          ),
-          Literal(Str("arg"))
-        ),
-        NonEmptyList.of(
-          (
-            PositionalStruct(
-              Some(1),
-              List(
-                WildCard,
-                PositionalStruct(
-                  Some(1),
-                  List(WildCard, ListPat(List(Left(None), Right(Var(0))))),
-                  Enum
-                )
-              ),
-              Enum
-            ),
-            Lambda(LambdaVar(0))
-          ),
-          (WildCard, Literal(Str("zero")))
-        )
-      )
+      Right(1997121119)
     )
 
     normalExpressionTest(
@@ -1102,47 +481,7 @@ out = match Stuff(foo("c"), "d"):
   Stuff(_, y): [y]
 """),
       "Extern/NamedMatch",
-      Match(
-        Struct(
-          0,
-          List(
-            App(
-              ExternalVar(
-                PackageName(NonEmptyList.of("Extern", "NamedMatch")),
-                Identifier.Name("foo"),
-                Type.Fun(Type.StrType, Type.ListT(Type.StrType))
-              ),
-              Literal(Str("c"))
-            ),
-            Literal(Str("d"))
-          ),
-          DFStruct
-        ),
-        NonEmptyList.of(
-          (
-            PositionalStruct(
-              None,
-              List(
-                Named(
-                  0,
-                  PositionalStruct(
-                    Some(1),
-                    List(WildCard, PositionalStruct(Some(0), List(), Enum)),
-                    Enum
-                  )
-                ),
-                WildCard
-              ),
-              DFStruct
-            ),
-            Lambda(LambdaVar(0))
-          ),
-          (
-            PositionalStruct(None, List(WildCard, Var(0)), DFStruct),
-            Lambda(Struct(1, List(LambdaVar(0), Struct(0, List(), Enum)), Enum))
-          )
-        )
-      )
+      Right(1989857311)
     )
 
     normalExpressionTest(
@@ -1156,36 +495,7 @@ out = match foo("c"):
   _: "f"
 """),
       "Extern/LitMatch",
-      Match(
-        App(
-          ExternalVar(
-            PackageName(NonEmptyList.of("Extern", "LitMatch")),
-            Identifier.Name("foo"),
-            Type.Fun(Type.StrType, Type.StrType)
-          ),
-          Literal(Str("c"))
-        ),
-        NonEmptyList.of(
-          (
-            LetFreePattern.Named(
-              0,
-              LetFreePattern.Union(
-                LetFreePattern.Literal(Str("d")),
-                NonEmptyList.of(LetFreePattern.Literal(Str("dd")))
-              )
-            ),
-            Lambda(LambdaVar(0))
-          ),
-          (WildCard, Literal(Str("f")))
-        )
-      ),
-      List({ lfe: LetFreeExpression =>
-        assert(
-          lfe.asString ==
-            "Match(App(ExternalVar('Extern/LitMatch','foo', 'Bosatsu/Predef::String -> Bosatsu/Predef::String'),Literal('c')),Named(0,Union(Literal('d'),Literal('dd'))),Lambda(LambdaVar(0)),WildCard,Literal('f'))",
-          "Serializations test"
-        )
-      })
+      Right(-2045553259)
     )
   }
   test("Lambda Substitution") {
@@ -1202,75 +512,7 @@ lst1 = ["zooom"]
 main = (rec_fn(lst1), rec_fn(lst1))
 """),
       "Substitution/Lambda",
-      Struct(
-        0,
-        List(
-          App(
-            Recursion(
-              Lambda(
-                Lambda(
-                  Match(
-                    LambdaVar(0),
-                    NonEmptyList.of(
-                      (
-                        PositionalStruct(Some(0), Nil, Enum),
-                        Struct(1, List(), Enum)
-                      ),
-                      (
-                        PositionalStruct(Some(1), List(WildCard, Var(0)), Enum),
-                        Lambda(App(LambdaVar(2), LambdaVar(0)))
-                      )
-                    )
-                  )
-                )
-              )
-            ),
-            Struct(
-              1,
-              List(Literal(Str("zooom")), Struct(0, List(), Enum)),
-              Enum
-            )
-          ),
-          Struct(
-            0,
-            List(
-              App(
-                Recursion(
-                  Lambda(
-                    Lambda(
-                      Match(
-                        LambdaVar(0),
-                        NonEmptyList.of(
-                          (
-                            PositionalStruct(Some(0), Nil, Enum),
-                            Struct(1, List(), Enum)
-                          ),
-                          (
-                            PositionalStruct(
-                              Some(1),
-                              List(WildCard, Var(0)),
-                              Enum
-                            ),
-                            Lambda(App(LambdaVar(2), LambdaVar(0)))
-                          )
-                        )
-                      )
-                    )
-                  )
-                ),
-                Struct(
-                  1,
-                  List(Literal(Str("zooom")), Struct(0, List(), Enum)),
-                  Enum
-                )
-              ),
-              Struct(0, List(), DFStruct)
-            ),
-            DFStruct
-          )
-        ),
-        DFStruct
-      )
+      Right(819406151)
     )
     normalExpressionTest(
       List("""
@@ -1279,7 +521,7 @@ package Substitution/Eta
 out = \x,y -> x(y)
 """),
       "Substitution/Eta",
-      Lambda(LambdaVar(0))
+      Left(Lambda(LambdaVar(0)))
     )
     normalExpressionTest(
       List("""
@@ -1288,7 +530,7 @@ package Substitution/Eta2
 out = \x,y -> x(y, y)
 """),
       "Substitution/Eta2",
-      Lambda(Lambda(App(App(LambdaVar(1), LambdaVar(0)), LambdaVar(0))))
+      Left(Lambda(Lambda(App(App(LambdaVar(1), LambdaVar(0)), LambdaVar(0)))))
     )
   }
   test("match simplification") {
@@ -1306,7 +548,7 @@ operator < = \a, b -> a.cmp_Int(b) matches LT
 out = \x -> True || (x < 5)
 """),
       "Match/Or",
-      Lambda(Struct(1, Nil, Enum))
+      Left(Lambda(Struct(1, Nil, Enum)))
     )
   }
 
