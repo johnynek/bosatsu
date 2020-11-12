@@ -9,6 +9,8 @@ import scala.collection.concurrent.{Map => CMap}
 import scala.collection.immutable.IntMap
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.DataFamily
+import cats.data.NonEmptyList
+import org.bykn.bosatsu.rankn.TypeEnv
 
 /*
  * LetFreeEvaluation exists so that we can verify that LetFreeExpressions do describe the same
@@ -402,13 +404,12 @@ case class LetFreeEvaluation(
     externals: Externals
 ) {
 
-  def evaluateLast(
-      p: PackageName
-  ): Option[(LetFreeExpression, Type, Map[Identifier, Eval[Value]])] = {
+  type Pack = Package[Package.Interface, NonEmptyList[Referant[Variance]], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[(Declaration, LetFreeExpressionTag)], Any]]
 
+  def evaluateCollect(p: PackageName, fn: Pack => Option[(Identifier.Bindable, RecursionKind, TypedExpr[(Declaration, LetFreeExpressionTag)])]) = {
     for {
       pack <- packs.toMap.get(p)
-      (name, _, tpe) <- pack.program.lets.lastOption
+      (name, _, tpe) <- fn(pack)
       lfe = tpe.tag._2
       extEnv = externalEnv(pack) ++ importedEnv(pack)
     } yield (
@@ -417,6 +418,12 @@ case class LetFreeEvaluation(
       extEnv
     )
   }
+
+  def evaluateLast(
+      p: PackageName
+  ): Option[(LetFreeExpression, Type, Map[Identifier, Eval[Value]])] = evaluateCollect(p, {pack => pack.program.lets.lastOption})
+
+  def evalLastTest(p: PackageName) = evaluateCollect(p, {pack => Package.testValue(pack)})
 
   private def externalEnv(
       p: Package.Typed[(Declaration, LetFreeExpressionTag)]
