@@ -661,6 +661,67 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         } yield out
     }
 
+    case class LetFreeTestRun(
+      tests: PathGen,
+      testPacks: List[MainIdentifier],
+      deps: PathGen,
+      errColor: Colorize,
+      packRes: PackageResolver
+      ) extends MainCommand {
+
+      type Result = Output.TestOutput
+
+      def run: IO[Output.TestOutput] =
+      tests.read
+        .product(deps.read)
+        .flatMap { case (testPaths, dependencies) =>
+            val tests1 = MainIdentifier.addAnyAbsent(testPacks, testPaths)
+            if (tests1.isEmpty && dependencies.isEmpty) {
+              moduleIOMonad.raiseError(new Exception("no test sources or test dependencies"))
+            }
+            else {
+              val typeChecked = buildLetFreePackMap(tests1, dependencies, errColor, packRes)
+
+              val withTestPackNames = typeChecked
+                .flatMap { case (packs, nameMap) =>
+
+                  testPacks.traverse(_.getMain(nameMap))
+                    .map { testPackNames: List[(PackageName, Option[Identifier])] =>
+                      (packs, nameMap, testPackNames.map(_._1))
+                    }
+                }
+
+              withTestPackNames.map { case (packs, nameMap, testPackNames) =>
+                val testIt: Iterator[PackageName] =
+                  if (testPacks.isEmpty) {
+                    // if there are no given files or packages to test, assume
+                    // we test all the files
+                    nameMap.iterator.map(_._2)
+                  }
+                  else {
+                    // otherwise we have a specific list packages/files to test
+                    testPackNames.iterator
+                  }
+
+                val testPackages: List[PackageName] =
+                  testIt
+                    .toList
+                    .sorted
+                    .distinct
+                val ev = LetFreeEvaluation(packs, Predef.jvmExternals)
+
+                val res0 = testPackages.map { p => (p, ev.evalLastTest(p)) }
+                val res =
+                  if (testPacks.isEmpty) res0.filter { case (_, testRes) => testRes.isDefined }
+                  else res0
+
+                Output.TestOutput(res, errColor)
+              }
+            }
+          }
+    }
+
+
     case class ToJson(
       inputs: PathGen,
       deps: PathGen,
@@ -1042,7 +1103,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       val typeCheckOpt = (srcs, ifaces, outputPath.orNone, interfaceOutputPath.orNone, colorOpt, noSearchRes)
         .mapN(TypeCheck(_, _, _, _, _, _))
       val testOpt = (srcs, testP, includes, colorOpt, packRes)
-        .mapN(RunTests(_, _, _, _, _))
+
+      .mapN(RunTests(_, _, _, _, _))
 
       Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
         .orElse(Opts.subcommand("type-check", "type check a set of packages")(typeCheckOpt))

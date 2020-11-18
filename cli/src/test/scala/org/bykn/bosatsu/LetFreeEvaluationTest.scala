@@ -5,8 +5,14 @@ import org.scalatest.funsuite.AnyFunSuite
 import LetFreeEvaluation.{ComputedValue, LazyValue, ExtEnv, Cache}
 import Value.ExternalValue
 import org.scalatest.Assertion
-import PathModule.MainCommand.{LetFreeEvaluate, MainIdentifier, PackageResolver}
+import PathModule.MainCommand.{
+  LetFreeEvaluate,
+  MainIdentifier,
+  PackageResolver,
+  LetFreeTestRun
+}
 import PathModule.Output
+import cats.data.NonEmptyList
 
 class LetFreeEvaluationTest extends AnyFunSuite {
 
@@ -45,6 +51,33 @@ class LetFreeEvaluationTest extends AnyFunSuite {
           }
           .unsafeRunSync()
     }
+
+  def letFreeTestDirectory() =
+    LetFreeTestRun(
+      PathGen.ChildrenOfDir[IO, JPath](
+        JPaths.get(s"test_workspace"),
+        PathModule.hasExtension(".bosatsu"),
+        false,
+        PathModule.unfoldDir.get
+      ),
+      Nil,
+      PathGen.Combine[IO, JPath](Nil),
+      LocationMap.Colorize.Console,
+      PackageResolver.LocalRoots(
+        NonEmptyList.of(JPaths.get(s"test_workspace")),
+        None
+      )
+    ).run
+      .map {
+        case res @ Output.TestOutput(tests, _) =>
+          tests.collect {
+            case (p, Some(evalTest)) =>
+              val test = evalTest.value
+              assert(test.assertions > 0)
+              assert(test.failures == None)
+          }
+      }
+      .unsafeRunSync()
 
   test("simple let free evaluate") {
     letFreeTest(List("Simple"), "Bosatsu/Simple")
@@ -107,34 +140,6 @@ class LetFreeEvaluationTest extends AnyFunSuite {
     }
   }
 
-  test("euler1 let free evaluate") {
-    letFreeTest(List("euler1"), "Euler/One")
-  }
-
-  test("euler2 let free evaluate") {
-    letFreeTest(List("euler2", "List", "Bool", "Nat"), "Euler/Two")
-  }
-
-  test("euler3 let free evaluate") {
-    letFreeTest(List("euler3"), "Euler/Three")
-  }
-
-  test("euler4 let free evaluate") {
-    letFreeTest(List("euler4", "List", "Bool", "Nat"), "Euler/Four")
-  }
-
-  test("euler5 let free evaluate") {
-    letFreeTest(List("euler5", "List", "Bool", "Nat"), "Euler/P5")
-  }
-
-  test("euler6 let free evaluate") {
-    letFreeTest(List("euler6", "List", "Bool", "Nat"), "Euler/P6")
-  }
-
-  test("euler7 let free evaluate") {
-    letFreeTest(List("euler7", "List", "Bool", "Nat"), "Euler/P7")
-  }
-
   test("list pat let free evaluate") {
     letFreeTest(List("ListPat", "List", "Bool", "Nat"), "ListPat")
     letFreeTest(
@@ -143,8 +148,8 @@ class LetFreeEvaluationTest extends AnyFunSuite {
     )
   }
 
-  test("String Concat Example") {
-    letFreeTest(List("StrConcatExample"), "StrConcatExample")
+  test("test workspace") {
+    letFreeTestDirectory()
   }
 
   test("LetFreeValue") {

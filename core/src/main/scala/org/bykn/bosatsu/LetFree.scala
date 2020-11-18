@@ -695,11 +695,24 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
     }
 
   def letFreeConvertGlobal(v: Global[Declaration], env: Env, p: Package.Inferred):
-    NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] =
-      norm(p, v.name, v.tag, env).map { ne =>
+    NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {     
+      val name = if (p.name == v.pack) {
+        v.name
+      } else {
+        (for {
+          items <- p.imports.collectFirst { case im if im.pack.name == v.pack => im.items }
+          localName <- items.collectFirst { case importedName if importedName.originalName == v.name => importedName.localName }
+        } yield localName) match {
+          case Some(n) => n
+          case None => sys.error(s"typechecking means we should find ${v.name}")
+        }
+      }
+
+      norm(p, name, v.tag, env).map { ne =>
         val lfeTag = getTag(ne)._2
         v.copy(tag=(v.tag, lfeTag))
       }
+    }
     
   def letFreeConvertAnnotatedLambda(al: AnnotatedLambda[Declaration], env: Env, p: Package.Inferred):
     NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
@@ -841,22 +854,25 @@ case class LetFreePackageMap(pm: PackageMap.Inferred) {
   private type NormState[A] = State[Map[(PackageName, Identifier), TypedExpr[(Declaration, LetFreeExpressionTag)]], A]
 
   private def norm(pack: Package.Inferred, item: Identifier, t: Declaration, env: Env): NormState[ResultingRef] =
-      NameKind(pack, item).get match { // this get should never fail due to type checking
-        case NameKind.Let(name, recursive, expr) => letFreeConvertNameKindLet(
-          name, recursive, expr, pack, env
-          ).map(res => Right(res))
-        case NameKind.Constructor(cn, _, dt, _) =>
-          val lfeTag = constructor(cn, dt)
-          State.pure(Left((item, (t, lfeTag))))
-        case NameKind.Import(from, orig) =>
-          // we reset the environment in the other package
-          for {
-            imported <- norm(pm.toMap(from.name), orig, t, Map.empty)
-            lfeTag = getTag(imported)._2
-          } yield Left((item, (t, lfeTag)))
-        case NameKind.ExternalDef(pn, n, defType) =>
-          val lfeTag = LetFreeExpression.ExternalVar(pn, n, defType)
-          State.pure(Left((item, (t, lfeTag))))
+      NameKind(pack, item) match {
+        case Some(namekind) => namekind match {
+          case NameKind.Let(name, recursive, expr) => letFreeConvertNameKindLet(
+            name, recursive, expr, pack, env
+            ).map(res => Right(res))
+          case NameKind.Constructor(cn, _, dt, _) =>
+            val lfeTag = constructor(cn, dt)
+            State.pure(Left((item, (t, lfeTag))))
+          case NameKind.Import(from, orig) =>
+            // we reset the environment in the other package
+            for {
+              imported <- norm(pm.toMap(from.name), orig, t, Map.empty)
+              lfeTag = getTag(imported)._2
+            } yield Left((item, (t, lfeTag)))
+          case NameKind.ExternalDef(pn, n, defType) =>
+            val lfeTag = LetFreeExpression.ExternalVar(pn, n, defType)
+            State.pure(Left((item, (t, lfeTag))))
+        }
+        case None => sys.error(s"we didn't find an item $item in pack.name ${pack.name}")
       }
 
   private def letFreeConvertNameKindLet(name: Identifier.Bindable, recursive: RecursionKind, expr: TypedExpr[Declaration], pack: Package.Inferred, env: Env):

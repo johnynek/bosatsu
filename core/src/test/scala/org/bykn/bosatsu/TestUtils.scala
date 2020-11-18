@@ -185,7 +185,7 @@ object TestUtils {
       }
     }
 
-  def normalizeTest(
+  def letFreeTest(
     packages: List[String],
     mainPackS: String,
     expectedMode: NormalTestMode
@@ -245,9 +245,9 @@ object TestUtils {
   }
 
   def normalExpressionTest(packages: List[String], mainPackS: String, expected: Either[LetFreeExpression, Int], extraAssertions: List[LetFreeExpression => Assertion] = Nil) =
-    normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected, extraAssertions))
+    letFreeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected, extraAssertions))
   def letFreeVarSetTest(packages: List[String], mainPackS: String, lambdaCount: Int, vars: Set[Int]) =
-    normalizeTest(packages, mainPackS, NormalTestMode.VarSetMode(lambdaCount, vars)
+    letFreeTest(packages, mainPackS, NormalTestMode.VarSetMode(lambdaCount, vars)
     )
   def letFreeEvaluateTest(packages: List[String], mainPackS: String, ext: Externals, assertions: List[LazyValue => Assertion]) = {
     def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {

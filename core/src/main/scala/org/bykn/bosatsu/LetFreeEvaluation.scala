@@ -424,6 +424,8 @@ case class LetFreeEvaluation(
   ): Option[(LetFreeExpression, Type, Map[Identifier, Eval[Value]])] = evaluateCollect(p, {pack => pack.program.lets.lastOption})
 
   def evalLastTest(p: PackageName) = evaluateCollect(p, {pack => Package.testValue(pack)})
+    .map { case (lfe, tpe, extEnv) => LetFreeEvaluation.evaluate(lfe, extEnv, None) }
+    .map(v => Eval.later(Test.fromValue(v)))
 
   private def externalEnv(
       p: Package.Typed[(Declaration, LetFreeExpressionTag)]
