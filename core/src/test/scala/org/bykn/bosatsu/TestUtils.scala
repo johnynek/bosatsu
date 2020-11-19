@@ -1,6 +1,5 @@
 package org.bykn.bosatsu
 
-import cats.Eval
 import cats.data.{Ior, Validated}
 import cats.implicits._
 import org.bykn.bosatsu.rankn._
@@ -166,61 +165,6 @@ object TestUtils {
           fail(tes + "\n" + errs.toString)
       }
   }
-  sealed abstract class NormalTestMode[A] {
-    def expected: A
-  }
-  object NormalTestMode {
-    case class TagMode(expected: LetFreeConversion.LetFreeExpressionTag, serialized: Option[String] = None) extends NormalTestMode[LetFreeConversion.LetFreeExpressionTag]
-    case class ExpressionMode(expected: LetFreeExpression, serialized: Option[String] = None) extends NormalTestMode[LetFreeExpression]
-    case class ChildrenMode(expected: Set[LetFreeExpression]) extends NormalTestMode[Set[LetFreeExpression]]
-  }
-
-  def normalizeTest[A](packages: List[String], mainPackS: String, expectedMode: NormalTestMode[A]) = {
-    def inferredHandler(infPackMap: PackageMap.Inferred, mainPack: PackageName): Assertion = {
-      val normPackMap = LetFreePackageMap(infPackMap).hashKey(ne => (ne, ne.serialize))
-      (for {
-        pack <- normPackMap.toMap.get(mainPack)
-        exprs = pack.program.lets.map { case (_, rec, e) => e }
-        fleft = exprs.map(_.size.toInt)
-        fright = exprs.map(_.foldRight(Eval.now(0)) { case (_, m) => m.map(_ + 1) }.value)
-        expr <- exprs.lastOption
-        tag = expr.tag
-        ser = tag._2.lfe._2
-        ne = tag._2.lfe._1
-        children = tag._2.children.map(_._1)
-      } yield {
-        assert(fleft == fright, s"folds didn't match. left: $fleft, right: $fright")
-        expectedMode match {
-          case NormalTestMode.TagMode(expected, expectedSerialiazed) =>
-            expectedSerialiazed.foreach ( s =>
-              assert(ser == s, s"serialization error. expected '$s' got '$ser'")
-            )
-            assert(ne == expected.lfe, s"ne error. expected '${expected.lfe}' got '$ne'" )
-            assert(children == expected.children, s"children error. expected '${expected.children}' got '$children'" )
-            succeed
-          case NormalTestMode.ExpressionMode(expected, expectedSerialiazed) =>
-            expectedSerialiazed.foreach( s =>
-              assert(ser == s, s"serialization error. expected '$s' got '$ser'")
-            )
-            assert(ne == expected, s"ne error. expected '${expected}' got '$ne'" )
-            succeed
-          case NormalTestMode.ChildrenMode(expected) =>
-            assert(children == expected, s"children error. expected '${expected}' got '$children'" )
-            succeed
-        }
-      }
-      ).getOrElse(fail("There should be a last expression"))
-    }
-
-    testInferred(packages, mainPackS, inferredHandler(_,_))
-  }
-
-  def normalTagTest(packages: List[String], mainPackS: String, expected: LetFreeConversion.LetFreeExpressionTag, expectedSerialiazed: Option[String] = None) =
-    normalizeTest(packages, mainPackS, NormalTestMode.TagMode(expected, expectedSerialiazed))
-  def normalExpressionTest(packages: List[String], mainPackS: String, expected: LetFreeExpression, expectedSerialiazed: Option[String] = None) =
-    normalizeTest(packages, mainPackS, NormalTestMode.ExpressionMode(expected, expectedSerialiazed))
-  def normalChildrenTest(packages: List[String], mainPackS: String, expected: Set[LetFreeExpression]) =
-    normalizeTest(packages, mainPackS, NormalTestMode.ChildrenMode(expected))
 
   def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
     val mainPack = PackageName.parse(mainPackS).get
