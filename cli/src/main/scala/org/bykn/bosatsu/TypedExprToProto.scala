@@ -11,7 +11,7 @@ import org.bykn.bosatsu.rankn.{DefinedType, Type, TypeEnv}
 import scala.util.{Failure, Success, Try}
 import scala.reflect.ClassTag
 import scala.collection.immutable.SortedMap
-import scalapb.{GeneratedMessage, GeneratedMessageCompanion, Message}
+import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 import Identifier.{Bindable, Constructor}
 
@@ -245,7 +245,7 @@ object ProtoConverter {
         p.value match {
           case Value.Empty => Failure(new Exception(s"empty type found in $p"))
           case Value.TypeConst(tc) =>
-            val proto.TypeConst(packidx, tidx) = tc
+            val proto.TypeConst(packidx, tidx, _) = tc
             str(packidx)
               .product(str(tidx))
               .flatMap { case (pack, t) =>
@@ -254,13 +254,13 @@ object ProtoConverter {
               }
           case Value.TypeVar(tv) =>
             str(tv.varName).map { n => Type.TyVar(Type.Var.Bound(n)) }
-          case Value.TypeForAll(TypeForAll(args, in)) =>
+          case Value.TypeForAll(TypeForAll(args, in, _)) =>
             for {
               inT <- tpe(in)
               args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
             } yield Type.forAll(args, inT)
 
-          case Value.TypeApply(TypeApply(left, right)) =>
+          case Value.TypeApply(TypeApply(left, right, _)) =>
             (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
         }
       }
@@ -286,9 +286,9 @@ object ProtoConverter {
           case Value.LitPat(l) =>
             litFromProto(l).map(Pattern.Literal(_))
           case Value.VarNamePat(sidx) => bindable(sidx).map(Pattern.Var(_))
-          case Value.NamedPat(proto.NamedPat(nidx, pidx)) =>
+          case Value.NamedPat(proto.NamedPat(nidx, pidx, _)) =>
             (bindable(nidx), pat(pidx)).mapN(Pattern.Named(_, _))
-          case Value.ListPat(proto.ListPat(lp)) =>
+          case Value.ListPat(proto.ListPat(lp, _)) =>
             def decodePart(part: proto.ListPart): Try[Pattern.ListPart[Pattern[(PackageName, Constructor), Type]]] =
               part.value match {
                 case proto.ListPart.Value.Empty => Failure(new Exception(s"invalid empty list pattern in $p"))
@@ -298,7 +298,7 @@ object ProtoConverter {
               }
 
             lp.toList.traverse(decodePart).map(Pattern.ListPat(_))
-          case Value.StrPat(proto.StrPat(items)) =>
+          case Value.StrPat(proto.StrPat(items, _)) =>
             def decodePart(part: proto.StrPart): Try[Pattern.StrPart] =
               part.value match {
                 case proto.StrPart.Value.Empty => Failure(new Exception(s"invalid empty list pattern in $p"))
@@ -316,17 +316,17 @@ object ProtoConverter {
                   .traverse(decodePart)
                   .map(Pattern.StrPat(_))
             }
-          case Value.AnnotationPat(proto.AnnotationPat(pidx, tidx)) =>
+          case Value.AnnotationPat(proto.AnnotationPat(pidx, tidx, _)) =>
             (pat(pidx), ds.tryType(tidx - 1, s"invalid type index $tidx in: $p"))
               .mapN(Pattern.Annotation(_, _))
-          case Value.StructPat(proto.StructPattern(packIdx, cidx, args)) =>
+          case Value.StructPat(proto.StructPattern(packIdx, cidx, args, _)) =>
             str(packIdx)
               .product(str(cidx))
               .flatMap { case (p, c) => fullNameFromStr(p, c, s"invalid structpat names: $p, $c") }
               .flatMap { pc =>
                 args.toList.traverse(pat).map(Pattern.PositionalStruct(pc, _))
               }
-          case Value.UnionPat(proto.UnionPattern(pats)) =>
+          case Value.UnionPat(proto.UnionPattern(pats, _)) =>
             pats.toList match {
               case p0 :: p1 :: prest =>
                 (pat(p0), pat(p1), prest.traverse(pat))
@@ -369,7 +369,7 @@ object ProtoConverter {
 
         ex.value match {
           case Value.Empty => Failure(new Exception("invalid empty TypedExpr"))
-          case Value.GenericExpr(proto.GenericExpr(typeParams, expr)) =>
+          case Value.GenericExpr(proto.GenericExpr(typeParams, expr, _)) =>
             NonEmptyList.fromList(typeParams.toList) match {
               case Some(nel) =>
                 (nel.traverse(str), exprOf(expr))
@@ -379,13 +379,13 @@ object ProtoConverter {
                   }
               case None => Failure(new Exception(s"invalid empty type params in generic: $ex"))
             }
-          case Value.AnnotationExpr(proto.AnnotationExpr(expr, tpe)) =>
+          case Value.AnnotationExpr(proto.AnnotationExpr(expr, tpe, _)) =>
             (exprOf(expr), typeOf(tpe))
               .mapN(TypedExpr.Annotation(_, _, ()))
-          case Value.LambdaExpr(proto.LambdaExpr(varName, varTpe, expr)) =>
+          case Value.LambdaExpr(proto.LambdaExpr(varName, varTpe, expr, _)) =>
             (bindable(varName), typeOf(varTpe), exprOf(expr))
               .mapN(TypedExpr.AnnotatedLambda(_, _, _, ()))
-          case Value.VarExpr(proto.VarExpr(pack, varname, tpe)) =>
+          case Value.VarExpr(proto.VarExpr(pack, varname, tpe, _)) =>
             val tryPack =
               if (pack == 0) Success(None)
               else for {
@@ -401,21 +401,21 @@ object ProtoConverter {
                 case (Some(p), tpe) =>
                   ident(varname).map(TypedExpr.Global(p, _, tpe, ()))
               }
-          case Value.AppExpr(proto.AppExpr(fn, arg, resTpe)) =>
+          case Value.AppExpr(proto.AppExpr(fn, arg, resTpe, _)) =>
             (exprOf(fn), exprOf(arg), typeOf(resTpe))
               .mapN(TypedExpr.App(_, _, _, ()))
-          case Value.LetExpr(proto.LetExpr(nm, nmexpr, inexpr, rec)) =>
+          case Value.LetExpr(proto.LetExpr(nm, nmexpr, inexpr, rec, _)) =>
             val tryRec = recursionKindFromProto(rec, ex.toString)
             (bindable(nm), exprOf(nmexpr), exprOf(inexpr), tryRec)
               .mapN(TypedExpr.Let(_, _, _, _, ()))
-          case Value.LiteralExpr(proto.LiteralExpr(lit, tpe)) =>
+          case Value.LiteralExpr(proto.LiteralExpr(lit, tpe, _)) =>
             lit match {
               case None => Failure(new Exception(s"invalid missing literal in $ex"))
               case Some(lit) =>
                 (litFromProto(lit), typeOf(tpe))
                   .mapN(TypedExpr.Literal(_, _, ()))
             }
-          case Value.MatchExpr(proto.MatchExpr(argId, branches)) =>
+          case Value.MatchExpr(proto.MatchExpr(argId, branches, _)) =>
             def buildBranch(b: proto.Branch): Try[(Pattern[(PackageName, Constructor), Type], TypedExpr[Unit])] =
               (ds.tryPattern(b.pattern - 1, s"invalid pattern in $ex"), exprOf(b.resultExpr)).tupled
 
@@ -446,7 +446,7 @@ object ProtoConverter {
     fullNameFromStr(pstr, tstr, context).map { case (p, c) => Type.Const.Defined(p, TypeName(c)) }
 
   def typeConstFromProto(p: proto.TypeConst): DTab[Type.Const.Defined] = {
-    val proto.TypeConst(packidx, tidx) = p
+    val proto.TypeConst(packidx, tidx, _) = p
     lookup(packidx, s"package in: $p")
       .product(lookup(tidx, s"type in: $p"))
       .flatMapF { case (pack, t) => typeConstFromStr(pack, t, p.toString) }
@@ -919,7 +919,7 @@ object ProtoConverter {
     ref.referant match {
       case proto.Referant.Referant.Value(t) =>
         lookupType(t, s"invalid type in $ref").map(Referant.Value(_))
-      case proto.Referant.Referant.DefinedType(proto.DefinedTypeReference(dt)) =>
+      case proto.Referant.Referant.DefinedType(proto.DefinedTypeReference(dt, _)) =>
         dt match {
           case proto.DefinedTypeReference.Value.LocalDefinedTypePtr(idx) =>
             lookupDts(idx, s"invalid defined type in $ref")
@@ -931,9 +931,9 @@ object ProtoConverter {
           case proto.DefinedTypeReference.Value.Empty =>
             ReaderT.liftF(Failure(new Exception(s"empty referant found: $ref")))
         }
-      case proto.Referant.Referant.Constructor(proto.ConstructorReference(consRef)) =>
+      case proto.Referant.Referant.Constructor(proto.ConstructorReference(consRef, _)) =>
         consRef match {
-          case proto.ConstructorReference.Value.LocalConstructor(proto.ConstructorPtr(dtIdx, cIdx)) =>
+          case proto.ConstructorReference.Value.LocalConstructor(proto.ConstructorPtr(dtIdx, cIdx, _)) =>
             lookupDts(dtIdx, s"invalid defined type in $ref").flatMap { dt =>
               // cIdx is 1 based:
               val fixedIdx = cIdx - 1
@@ -944,7 +944,7 @@ object ProtoConverter {
                   Success(Referant.Constructor(dt, cf))
               })
             }
-          case proto.ConstructorReference.Value.ImportedConstructor(proto.ImportedConstructor(packId, typeId, consId)) =>
+          case proto.ConstructorReference.Value.ImportedConstructor(proto.ImportedConstructor(packId, typeId, consId, _)) =>
             (lookup(packId, s"imported constructor package in $ref"),
               lookup(typeId, s"imported constructor typename in $ref"),
               lookup(consId, s"imported constructor name in $ref"))
@@ -1041,7 +1041,7 @@ object ProtoConverter {
     // packagesFromProto can handle just interfaces as well
     packagesFromProto(ps.interfaces, Nil).map(_._1)
 
-  def read[A <: GeneratedMessage with Message[A]](path: Path)(implicit gmc: GeneratedMessageCompanion[A]): IO[A] =
+  def read[A <: GeneratedMessage](path: Path)(implicit gmc: GeneratedMessageCompanion[A]): IO[A] =
     IO {
       val f = path.toFile
       val ios = new BufferedInputStream(new FileInputStream(f))
