@@ -16,6 +16,13 @@ import cats.implicits._
 object MatchlessToValueWithExpr {
   import Matchless._
 
+  sealed trait ValueWithExpr {}
+  case class LazyValue(
+      expression: Expr,
+      scope: Map[(PackageName, Identifier), ValueWithExpr]
+  ) extends ValueWithExpr
+  case class ComputedValue(value: Value) extends ValueWithExpr
+
   // reuse some cache structures across a number of calls
   def traverse[F[_]: Functor](me: F[Expr])(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
     val env = new Impl.Env(resolve)
