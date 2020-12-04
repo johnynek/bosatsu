@@ -16,7 +16,27 @@ import cats.implicits._
 object MatchlessToValueWithExpr {
   import Matchless._
 
-  sealed trait ValueWithExpr {}
+  sealed abstract class Leaf {
+    def asValueWithExpr: ValueWithExpr
+  }
+
+  object Leaf {
+    case class Cons(head: ValueWithExpr, tail: ValueWithExpr, asValueWithExpr: ValueWithExpr) extends Leaf
+    case object LNil extends Leaf {
+      val asValueWithExpr = ComputedValue(VList.VNil)
+    }
+  }
+
+  sealed abstract class ValueWithExpr {
+    def evalAndThen[A](fn: Value => A): A = this match {
+      case ComputedValue(value) => fn(value)
+      case LazyValue(expression, scope) => ???
+    }
+
+    def eval: Value = evalAndThen[Value](identity(_))
+
+    lazy val asLeaf: Leaf = ???
+  }
   case class LazyValue(
       expression: Expr,
       scope: Map[(PackageName, Identifier), ValueWithExpr]
@@ -26,7 +46,7 @@ object MatchlessToValueWithExpr {
   // reuse some cache structures across a number of calls
   def traverse[F[_]: Functor](
       me: F[Expr]
-  )(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
+  )(resolve: (PackageName, Identifier) => Eval[ValueWithExpr]): F[Eval[ValueWithExpr]] = {
     val env = new Impl.Env(resolve)
     val fns = Functor[F].map(me) { expr =>
       env.loop(expr)
@@ -38,30 +58,30 @@ object MatchlessToValueWithExpr {
     }
   }
 
-  private[this] val zeroNat: Value = ExternalValue(BigInteger.ZERO)
-  private[this] val succNat: Value = {
+  private[this] val zeroNat: ValueWithExpr = ComputedValue(ExternalValue(BigInteger.ZERO))
+  private[this] val succNat: ValueWithExpr = {
     def inc(v: Value): Value = {
       val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
       ExternalValue(bi.add(BigInteger.ONE))
     }
-    FnValue(inc(_))
+    ComputedValue(FnValue(inc(_)))
   }
 
-  def makeCons(c: ConsExpr): Value =
+  def makeCons(c: ConsExpr): ValueWithExpr =
     c match {
       case MakeEnum(variant, arity, _) =>
-        if (arity == 0) SumValue(variant, UnitValue)
+        if (arity == 0) ComputedValue(SumValue(variant, UnitValue))
         else if (arity == 1) {
-          FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
+          ComputedValue(FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) })
         } else
-          FnValue.curry(arity) { args =>
+          ComputedValue(FnValue.curry(arity) { args =>
             val prod = ProductValue.fromList(args)
             SumValue(variant, prod)
-          }
+          })
       case MakeStruct(arity) =>
-        if (arity == 0) UnitValue
-        else if (arity == 1) FnValue.identity
-        else FnValue.curry(arity)(ProductValue.fromList(_))
+        if (arity == 0) ComputedValue(UnitValue)
+        else if (arity == 1) ComputedValue(FnValue.identity)
+        else ComputedValue(FnValue.curry(arity)(ProductValue.fromList(_)))
       case ZeroNat => zeroNat
       case SuccNat => succNat
     }
@@ -71,22 +91,22 @@ object MatchlessToValueWithExpr {
     val uninit: Value = ExternalValue(Uninitialized)
 
     final case class Scope(
-        locals: Map[Bindable, Eval[Value]],
-        anon: LongMap[Value],
-        muts: MLongMap[Value]
+        locals: Map[Bindable, Eval[ValueWithExpr]],
+        anon: LongMap[ValueWithExpr],
+        muts: MLongMap[ValueWithExpr]
     ) {
 
-      def let(b: Bindable, v: Eval[Value]): Scope =
+      def let(b: Bindable, v: Eval[ValueWithExpr]): Scope =
         copy(locals = locals.updated(b, v))
 
-      def updateMut(mutIdx: Long, v: Value): Unit = {
+      def updateMut(mutIdx: Long, v: ValueWithExpr): Unit = {
         assert(muts.contains(mutIdx))
         muts.put(mutIdx, v)
         ()
       }
 
       def capture(it: Iterable[Bindable]): Scope = {
-        def loc(b: Bindable): Eval[Value] =
+        def loc(b: Bindable): Eval[ValueWithExpr] =
           locals.get(b) match {
             case Some(v) => v
             case None =>
@@ -164,7 +184,7 @@ object MatchlessToValueWithExpr {
         }
     }
 
-    class Env(resolve: (PackageName, Identifier) => Eval[Value]) {
+    class Env(resolve: (PackageName, Identifier) => Eval[ValueWithExpr]) {
       // evaluating boolExpr can mutate an existing value in muts
       private def boolExpr(ix: BoolExpr): Scoped[Boolean] =
         ix match {
@@ -172,19 +192,19 @@ object MatchlessToValueWithExpr {
             val litAny = lit.unboxToAny
 
             loop(expr).map { e =>
-              e.asExternal.toAny == litAny
+              e.evalAndThen(v => v.asExternal.toAny == litAny)
             }
 
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)
 
             if (zeroOrSucc.isZero)
-              natF.map { v =>
-                v.asExternal.toAny == BigInteger.ZERO
+              natF.map { ve =>
+                ve.evalAndThen(v => v.asExternal.toAny == BigInteger.ZERO)
               }
             else
-              natF.map { v =>
-                v.asExternal.toAny != BigInteger.ZERO
+              natF.map { ve =>
+                ve.evalAndThen(v => v.asExternal.toAny != BigInteger.ZERO)
               }
 
           case TrueConst => Static(true)
@@ -192,7 +212,7 @@ object MatchlessToValueWithExpr {
             boolExpr(ix1).and(boolExpr(ix2))
 
           case CheckVariant(enumV, idx, _, _) =>
-            loop(enumV).map(_.asSum.variant == idx)
+            loop(enumV).map(_.evalAndThen(_.asSum.variant == idx))
 
           case SetMut(LocalAnonMut(mut), expr) =>
             val exprF = loop(expr)
@@ -206,27 +226,27 @@ object MatchlessToValueWithExpr {
             binds match {
               case Nil =>
                 // we have nothing to bind
-                loop(str).map { strV =>
+                loop(str).map( v => v.evalAndThen { strV =>
                   val arg = strV.asExternal.toAny.asInstanceOf[String]
                   matchString(arg, pat, 0) != null
-                }
+                })
               case _ =>
                 val bary = binds.iterator.collect { case LocalAnonMut(id) =>
                   id
                 }.toArray
 
                 // this may be static
-                val matchScope = loop(str).map { str =>
+                val matchScope = loop(str).map( v => v.evalAndThen { str =>
                   val arg = str.asExternal.toAny.asInstanceOf[String]
                   matchString(arg, pat, bary.length)
-                }
+                })
                 // if we mutate scope, it has to be dynamic
                 Dynamic { scope =>
                   val res = matchScope(scope)
                   if (res != null) {
                     var idx = 0
                     while (idx < bary.length) {
-                      scope.updateMut(bary(idx), ExternalValue(res(idx)))
+                      scope.updateMut(bary(idx), ComputedValue(ExternalValue(res(idx))))
                       idx = idx + 1
                     }
                     true
@@ -246,15 +266,15 @@ object MatchlessToValueWithExpr {
             // into [_, *_] which wouldn't trigger
             // this branch
             Dynamic { scope: Scope =>
-              var currentList = initF(scope)
+              var currentList = initF(scope).asLeaf
               var res = false
               while (currentList ne null) {
                 currentList match {
-                  case nonempty @ VList.Cons(_, tail) =>
+                  case Leaf.Cons(_, tail, nonempty) =>
                     scope.updateMut(mutV, nonempty)
                     res = checkF(scope)
                     if (res) { currentList = null }
-                    else { currentList = tail }
+                    else { currentList = tail.asLeaf }
                   case _ =>
                     currentList = null
                   // we don't match empty lists
@@ -274,18 +294,18 @@ object MatchlessToValueWithExpr {
             // this is always dynamic
             Dynamic { scope: Scope =>
               var res = false
-              var currentList = initF(scope)
-              var leftList = VList.VNil
+              var currentList = initF(scope).asLeaf
+              var leftList: Leaf = Leaf.LNil
               while (currentList ne null) {
                 currentList match {
-                  case nonempty @ VList.Cons(head, tail) =>
+                  case Leaf.Cons(head, tail, nonempty) =>
                     scope.updateMut(mutV, nonempty)
-                    scope.updateMut(left, leftList)
+                    scope.updateMut(left, leftList.asValueWithExpr)
                     res = checkF(scope)
                     if (res) { currentList = null }
                     else {
-                      currentList = tail
-                      leftList = VList.Cons(head, leftList)
+                      currentList = tail.asLeaf
+                      leftList = Leaf.Cons(head, leftList.asValueWithExpr, ComputedValue(VList.Cons(head.eval, leftList.asValueWithExpr.eval)))
                     }
                   case _ =>
                     currentList = null
@@ -301,8 +321,8 @@ object MatchlessToValueWithExpr {
           fnName: Bindable,
           arg0: Bindable,
           rest: List[Bindable],
-          body: Scoped[Value]
-      ): Scoped[Value] = {
+          body: Scoped[ValueWithExpr]
+      ): Scoped[ValueWithExpr] = {
         val argCount = rest.length + 1
         val argNames: Array[Bindable] = (arg0 :: rest).toArray
         if ((caps.lengthCompare(1) == 0) && (caps.head == fnName)) {
@@ -319,7 +339,7 @@ object MatchlessToValueWithExpr {
               null
             }
 
-            val scope2 = scope1.let(fnName, Eval.now(continueFn))
+            val scope2 = scope1.let(fnName, Eval.now(ComputedValue(continueFn)))
 
             var res: Value = null
 
@@ -330,18 +350,18 @@ object MatchlessToValueWithExpr {
               var s: Scope = scope2
               while (idx < argCount) {
                 val b = argNames(idx)
-                val v = reg.head
+                val v = ComputedValue(reg.head)
                 reg = reg.tail
                 s = s.let(b, Eval.now(v))
                 idx = idx + 1
               }
-              res = body(s)
+              res = body(s).eval
             }
 
             res
           }
 
-          Static(fn)
+          Static(ComputedValue(fn))
         } else {
           Dynamic { scope =>
             // TODO this maybe isn't helpful
@@ -352,7 +372,7 @@ object MatchlessToValueWithExpr {
             // or if we can GC things sooner.
             val scope1 = scope.capture(caps)
 
-            FnValue.curry(argCount) { allArgs =>
+            ComputedValue(FnValue.curry(argCount) { allArgs =>
               var registers: List[Value] = allArgs
 
               // the registers are set up
@@ -363,7 +383,7 @@ object MatchlessToValueWithExpr {
                 null
               }
 
-              val scope2 = scope1.let(fnName, Eval.now(continueFn))
+              val scope2 = scope1.let(fnName, Eval.now(ComputedValue(continueFn)))
 
               var res: Value = null
 
@@ -376,19 +396,19 @@ object MatchlessToValueWithExpr {
                   val b = argNames(idx)
                   val v = reg.head
                   reg = reg.tail
-                  s = s.let(b, Eval.now(v))
+                  s = s.let(b, Eval.now(ComputedValue(v)))
                   idx = idx + 1
                 }
-                res = body(s)
+                res = body(s).eval
               }
 
               res
-            }
+            })
           }
         }
       }
       // the locals can be recusive, so we box into Eval for laziness
-      def loop(me: Expr): Scoped[Value] =
+      def loop(me: Expr): Scoped[ValueWithExpr] =
         me match {
           case Lambda(caps, arg, res) =>
             val resFn = loop(res)
@@ -397,19 +417,19 @@ object MatchlessToValueWithExpr {
               // we can allocate once if there is no closure
               val scope1 = Scope.empty()
               val fn = FnValue { argV =>
-                val scope2 = scope1.let(arg, Eval.now(argV))
-                resFn(scope2)
+                val scope2 = scope1.let(arg, Eval.now(ComputedValue(argV)))
+                resFn(scope2).eval
               }
-              Static(fn)
+              Static(ComputedValue(fn))
             } else {
               Dynamic { scope =>
                 val scope1 = scope.capture(caps)
                 // hopefully optimization/normalization has lifted anything
                 // that doesn't depend on argV above this lambda
-                FnValue { argV =>
-                  val scope2 = scope1.let(arg, Eval.now(argV))
-                  resFn(scope2)
-                }
+                ComputedValue(FnValue { argV =>
+                  val scope2 = scope1.let(arg, Eval.now(ComputedValue(argV)))
+                  resFn(scope2).eval
+                })
               }
             }
           case LoopFn(caps, thisName, argshead, argstail, body) =>
@@ -435,7 +455,7 @@ object MatchlessToValueWithExpr {
             val argsFn = args.traverse(loop(_))
 
             Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
-              fn.applyAll(args)
+              ComputedValue(fn.eval.applyAll(args.map(_.eval)))
             }
           case Let(Right((n1, r)), loopFn @ LoopFn(_, n2, _, _, _), Local(n3))
               if (n1 === n3) && (n1 === n2) && r.isRecursive =>
@@ -482,7 +502,7 @@ object MatchlessToValueWithExpr {
                   // strange in tests,
                   // for an optimization we could
                   // avoid this
-                  scope.muts.put(l, uninit)
+                  scope.muts.put(l, ComputedValue(uninit))
                   val res = inF(scope)
                   // now we can remove this from mutable scope
                   // we should be able to remove this
@@ -491,7 +511,7 @@ object MatchlessToValueWithExpr {
                 }
             }
           case Literal(lit) =>
-            Static(Value.fromLit(lit))
+            Static(ComputedValue(Value.fromLit(lit)))
           case If(cond, thenExpr, elseExpr) =>
             val condF = boolExpr(cond)
             val thenF = loop(thenExpr)
@@ -514,12 +534,12 @@ object MatchlessToValueWithExpr {
             }
           case GetEnumElement(expr, v, idx, sz) =>
             loop(expr).map { e =>
-              val sum = e.asSum
+              val sum = e.eval.asSum
               // we could assert e.asSum.variant == v
               // we can comment this out when bugs
               // are fixed
               assert(sum.variant == v)
-              sum.value.get(idx)
+              ComputedValue(sum.value.get(idx))
             }
 
           case GetStructElement(expr, idx, sz) =>
@@ -529,7 +549,7 @@ object MatchlessToValueWithExpr {
               loopFn
             } else {
               loop(expr).map { p =>
-                p.asProduct.get(idx)
+                ComputedValue(p.eval.asProduct.get(idx))
               }
             }
           case PrevNat(expr) =>
@@ -537,9 +557,9 @@ object MatchlessToValueWithExpr {
               // TODO we could cache
               // small numbers to make this
               // faster
-              val anyBI = bv.asExternal.toAny
+              val anyBI = bv.eval.asExternal.toAny
               val bi = anyBI.asInstanceOf[BigInteger]
-              ExternalValue(bi.subtract(BigInteger.ONE))
+              ComputedValue(ExternalValue(bi.subtract(BigInteger.ONE)))
             }
           case cons: ConsExpr =>
             val c = makeCons(cons)
