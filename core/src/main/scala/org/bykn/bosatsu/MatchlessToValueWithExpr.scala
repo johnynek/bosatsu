@@ -1,7 +1,5 @@
 package org.bykn.bosatsu
 
-package org.bykn.bosatsu
-
 import cats.{Eval, Functor, Applicative}
 import cats.evidence.Is
 import java.math.BigInteger
