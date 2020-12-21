@@ -37,7 +37,12 @@ object MatchlessToValueWithExpr {
 
     def eval: Value = evalAndThen[Value](identity(_))
 
-    lazy val asLeaf: Leaf = ???
+    lazy val asLeaf: Leaf = this match {
+      case cv @ ComputedValue(VList.Cons(head, tail)) =>
+        Leaf.Cons(ComputedValue(head), ComputedValue(tail), cv)
+      case ComputedValue(_)             => Leaf.LNil
+      case LazyValue(expression, scope) => ???
+    }
   }
   case class LazyValue(
       expression: Expr,
