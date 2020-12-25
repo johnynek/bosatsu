@@ -8,6 +8,24 @@ import cats.implicits._
 
 import Identifier.Bindable
 
+object Evaluate {
+  type F[A] = List[(Bindable, A)]
+  case class MatchlessTraverse[V](
+      traverse: (
+          F[Matchless.Expr],
+          (PackageName, Identifier) => Eval[V]
+      ) => F[Eval[V]]
+  )
+
+  val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, ?)])
+  implicit val matchlessToValue: MatchlessTraverse[Value] = MatchlessTraverse(
+    (
+        exprs: F[Matchless.Expr],
+        evalFn: (PackageName, Identifier) => Eval[Value]
+    ) => MatchlessToValue.traverse[F](exprs)(evalFn)(ffunc)
+  )
+}
+
 case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   /**
    * Holds the final value of the environment for each Package
