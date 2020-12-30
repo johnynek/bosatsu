@@ -8,29 +8,18 @@ import cats.implicits._
 
 import Identifier.Bindable
 
-object Evaluate {
+abstract class AbstractEvaluation[T, V] {
+  val pm: PackageMap.Typed[T]
+  val externals: Externals
   type F[A] = List[(Bindable, A)]
-  case class MatchlessTraverse[V](
-      traverse: (
-          F[Matchless.Expr],
-          (PackageName, Identifier) => Eval[V]
-      ) => F[Eval[V]]
-  )
+  def evaluateExpressions(exprs: F[Matchless.Expr], evalFn: (PackageName, Identifier) => Eval[V]): F[Eval[V]]
+  def wrapValue(value: Value): V
+  def evalV(v: V): Value
 
-  val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, ?)])
-  implicit val matchlessToValue: MatchlessTraverse[Value] = MatchlessTraverse(
-    (
-        exprs: F[Matchless.Expr],
-        evalFn: (PackageName, Identifier) => Eval[Value]
-    ) => MatchlessToValue.traverse[F](exprs)(evalFn)(ffunc)
-  )
-}
-
-case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   /**
    * Holds the final value of the environment for each Package
    */
-  private[this] val envCache: MMap[PackageName, Map[Identifier, Eval[Value]]] =
+  private[this] val envCache: MMap[PackageName, Map[Identifier, Eval[V]]] =
     MMap.empty
 
   private def externalEnv(p: Package.Typed[T]): Map[Identifier, Eval[Value]] = {
@@ -58,7 +47,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   private[this] lazy val gdr = pm.getDataRepr
 
-  private def evalLets(thisPack: PackageName, lets: List[(Bindable, RecursionKind, TypedExpr[T])]): List[(Bindable, Eval[Value])] = {
+  private def evalLets(thisPack: PackageName, lets: List[(Bindable, RecursionKind, TypedExpr[T])]): List[(Bindable, Eval[V])] = {
     val exprs: List[(Bindable, Matchless.Expr)] =
       rankn.RefSpace
         .allocCounter
@@ -73,22 +62,23 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
       .run
       .value
 
-    val evalFn: (PackageName, Identifier) => Eval[Value] =
+    val evalFn: (PackageName, Identifier) => Eval[V] =
       { (p, i) =>
         if (p == thisPack) Eval.defer(evaluate(p)(i))
         else evaluate(p)(i)
       }
 
-    Evaluate.matchlessToValue.traverse(exprs, evalFn)
+    evaluateExpressions(exprs, evalFn)
   }
 
-  private def evaluate(packName: PackageName): Map[Identifier, Eval[Value]] =
+  private def evaluate(packName: PackageName): Map[Identifier, Eval[V]] =
     envCache.getOrElseUpdate(packName, {
       val pack = pm.toMap(packName)
-      externalEnv(pack) ++ evalLets(packName, pack.program.lets)
+      val extMap: Map[Identifier, Eval[V]] = externalEnv(pack).mapValues(_.map(wrapValue(_)))
+      extMap ++ evalLets(packName, pack.program.lets)
     })
 
-  def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
+  def evaluateLast(p: PackageName): Option[(Eval[V], Type)] =
     for {
       pack <- pm.toMap.get(p)
       (name, _, tpe) <- pack.program.lets.lastOption
@@ -96,7 +86,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     } yield (value, tpe.getType)
 
   // TODO: this only works for lets, not externals
-  def evaluateName(p: PackageName, name: Bindable): Option[(Eval[Value], Type)] =
+  def evaluateName(p: PackageName, name: Bindable): Option[(Eval[V], Type)] =
     for {
       pack <- pm.toMap.get(p)
       (_, _, tpe) <- pack.program.lets.filter { case (n, _, _) => n == name }.lastOption
@@ -108,7 +98,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
    * this is the test that is run when we test
    * the package
    */
-  def lastTest(p: PackageName): Option[Eval[Value]] =
+  def lastTest(p: PackageName): Option[Eval[V]] =
     for {
       pack <- pm.toMap.get(p)
       (name, _, _) <- Package.testValue(pack)
@@ -135,7 +125,7 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
 
   def evalTest(ps: PackageName): Option[Eval[Test]] =
     lastTest(ps).map { ea =>
-      ea.map(Test.fromValue(_))
+      ea.map(v => Test.fromValue(evalV(v)))
     }
 
   /**
@@ -163,4 +153,12 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
         dt <- pack.program.types.getType(pn, t)
       } yield dt
   })
+}
+
+case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) extends AbstractEvaluation[T, Value] {
+  def evalV(v: Value) = v
+  def wrapValue(value: Value) = value
+
+  val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, ?)])
+  def evaluateExpressions(exprs: F[Matchless.Expr], evalFn: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = MatchlessToValue.traverse[F](exprs)(evalFn)(ffunc)
 }
