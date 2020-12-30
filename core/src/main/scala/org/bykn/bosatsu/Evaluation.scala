@@ -12,7 +12,10 @@ abstract class AbstractEvaluation[T, V] {
   val pm: PackageMap.Typed[T]
   val externals: Externals
   type F[A] = List[(Bindable, A)]
-  def evaluateExpressions(exprs: F[Matchless.Expr], evalFn: (PackageName, Identifier) => Eval[V]): F[Eval[V]]
+  def evaluateExpressions(
+      exprs: F[Matchless.Expr],
+      evalFn: (PackageName, Identifier) => Eval[V]
+  ): F[Eval[V]]
   def wrapValue(value: Value): V
   def evalV(v: V): Value
 
@@ -74,7 +77,8 @@ abstract class AbstractEvaluation[T, V] {
   private def evaluate(packName: PackageName): Map[Identifier, Eval[V]] =
     envCache.getOrElseUpdate(packName, {
       val pack = pm.toMap(packName)
-      val extMap: Map[Identifier, Eval[V]] = externalEnv(pack).mapValues(_.map(wrapValue(_)))
+      val extMap: Map[Identifier, Eval[V]] =
+        externalEnv(pack).mapValues(_.map(wrapValue(_)))
       extMap ++ evalLets(packName, pack.program.lets)
     })
 
@@ -155,10 +159,14 @@ abstract class AbstractEvaluation[T, V] {
   })
 }
 
-case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) extends AbstractEvaluation[T, Value] {
+case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals)
+    extends AbstractEvaluation[T, Value] {
   def evalV(v: Value) = v
   def wrapValue(value: Value) = value
 
-  val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, ?)])
-  def evaluateExpressions(exprs: F[Matchless.Expr], evalFn: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = MatchlessToValue.traverse[F](exprs)(evalFn)(ffunc)
+  private val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, ?)])
+  def evaluateExpressions(
+      exprs: F[Matchless.Expr],
+      evalFn: (PackageName, Identifier) => Eval[Value]
+  ): F[Eval[Value]] = MatchlessToValue.traverse[F](exprs)(evalFn)(ffunc)
 }
