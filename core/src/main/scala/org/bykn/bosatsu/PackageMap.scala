@@ -118,9 +118,9 @@ object PackageMap {
     // We use the ReaderT to build the list of imports we are on
     // to detect circular dependencies, if the current package imports itself transitively we
     // want to report the full path
-    val step: Package[PackageName, A, B, C] => ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], PackageFix] =
-      Memoize.memoizeDagHashed[Package[PackageName, A, B, C], ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], PackageFix]] { (p, rec) =>
-      val edeps = ReaderT.ask[Either[NonEmptyList[PackageError], ?], List[PackageName]]
+    val step: Package[PackageName, A, B, C] => ReaderT[Either[NonEmptyList[PackageError], *], List[PackageName], PackageFix] =
+      Memoize.memoizeDagHashed[Package[PackageName, A, B, C], ReaderT[Either[NonEmptyList[PackageError], *], List[PackageName], PackageFix]] { (p, rec) =>
+      val edeps = ReaderT.ask[Either[NonEmptyList[PackageError], *], List[PackageName]]
         .flatMapF {
           case nonE@(h :: tail) if nonE.contains(p.name) =>
             Left(NonEmptyList.of(PackageError.CircularDependency(p, NonEmptyList(h, tail))))
@@ -139,7 +139,7 @@ object PackageMap {
                   .map { p => Import(Package.fix[A, B, C](Right(p)), i.items) }
               case Left(iface) =>
                 ReaderT.pure[
-                  Either[NonEmptyList[PackageError], ?],
+                  Either[NonEmptyList[PackageError], *],
                   List[PackageName],
                   Import[FixPackage[A, B, C], A]](Import(Package.fix[A, B, C](Left(iface)), i.items))
             }
@@ -151,7 +151,7 @@ object PackageMap {
     }
 
     type M = SortedMap[PackageName, PackageFix]
-    val r: ReaderT[Either[NonEmptyList[PackageError], ?], List[PackageName], M] =
+    val r: ReaderT[Either[NonEmptyList[PackageError], *], List[PackageName], M] =
       map.toMap.traverse(step)
 
     // we start with no imports on

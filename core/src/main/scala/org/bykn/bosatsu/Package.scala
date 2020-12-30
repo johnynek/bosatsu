@@ -256,7 +256,7 @@ object Package {
 
           val inference = Validated.fromEither(inferenceEither).leftMap(NonEmptyList.of(_))
 
-          Parallel[Ior[NonEmptyList[PackageError], ?]]
+          Parallel[Ior[NonEmptyList[PackageError], *]]
             .parProductR(checks.toIor)(inference.toIor)
         }
     }
