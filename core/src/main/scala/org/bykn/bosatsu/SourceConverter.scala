@@ -493,7 +493,7 @@ final class SourceConverter(
       args.traverse(buildParam _)
 
     // This is a functor on List[(Bindable, Option[A])]
-    val deep = Functor[List].compose(Functor[(Bindable, ?)]).compose(Functor[Option])
+    val deep = Functor[List].compose(Functor[(Bindable, *)]).compose(Functor[Option])
 
     def updateInferedWithDecl(
       typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],

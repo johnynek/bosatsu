@@ -9,7 +9,7 @@ import Identifier.Bindable
 
 object UnusedLetCheck {
 
-  private[this] val ap = Applicative[Writer[Chain[(Bindable, Region)], ?]]
+  private[this] val ap = Applicative[Writer[Chain[(Bindable, Region)], *]]
   private[this] val empty: Writer[Chain[(Bindable, Region)], Set[Bindable]] = ap.pure(Set.empty)
 
   private[this] def checkArg(arg: Bindable, reg: => Region, w: Writer[Chain[(Bindable, Region)], Set[Bindable]]) =

@@ -92,7 +92,7 @@ object DefinedType {
 
   implicit val definedTypeTraverse: Traverse[DefinedType] =
     new Traverse[DefinedType] {
-      val listTup = Traverse[List].compose[(Type.Var.Bound, ?)]
+      val listTup = Traverse[List].compose[(Type.Var.Bound, *)]
       def traverse[F[_]: Applicative, A, B](da: DefinedType[A])(fn: A => F[B]): F[DefinedType[B]] =
         listTup.traverse(da.annotatedTypeParams)(fn).map { ap =>
           da.copy(annotatedTypeParams = ap)

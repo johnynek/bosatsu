@@ -204,7 +204,7 @@ object DefRecursionCheck {
      * to a sequential (Monadic) State tracking, and can only accumulate errors
      * until we hit the first one
      */
-    type St[A] = StateT[Either[NonEmptyList[RecursionError], ?], State, A]
+    type St[A] = StateT[Either[NonEmptyList[RecursionError], *], State, A]
 
     // Scala has trouble infering types like St, we we make these typed
     // helper functions to use below
