@@ -170,3 +170,19 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals)
       evalFn: (PackageName, Identifier) => Eval[Value]
   ): F[Eval[Value]] = MatchlessToValue.traverse[F](exprs)(evalFn)(ffunc)
 }
+
+case class ExprEvaluation[T](pm: PackageMap.Typed[T], externals: Externals)
+    extends AbstractEvaluation[T, MatchlessToValueWithExpr.ValueWithExpr] {
+  def evalV(v: MatchlessToValueWithExpr.ValueWithExpr) = v.eval
+  def wrapValue(value: Value) = MatchlessToValueWithExpr.ComputedValue(value)
+
+  private val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, ?)])
+  def evaluateExpressions(
+      exprs: F[Matchless.Expr],
+      evalFn: (
+          PackageName,
+          Identifier
+      ) => Eval[MatchlessToValueWithExpr.ValueWithExpr]
+  ): F[Eval[MatchlessToValueWithExpr.ValueWithExpr]] =
+    MatchlessToValueWithExpr.traverse[F](exprs)(evalFn)(ffunc)
+}
