@@ -233,7 +233,7 @@ object TypeRef {
 
     val state0: S = (Map.empty, Type.allBinders.map(_.name))
     tpes.traverse { tpe =>
-      TypeRef.fromTypeA[State[S, ?]](
+      TypeRef.fromTypeA[State[S, *]](
         tpe,
         encodeSkolem _,
         encodeMeta _,
