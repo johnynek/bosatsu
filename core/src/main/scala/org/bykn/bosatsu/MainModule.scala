@@ -731,12 +731,14 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         } yield Output.CompileOut(packList, ifout, output)
     }
 
-    case class RunTests(
+    case class RunTests[V](
       tests: PathGen,
       testPacks: List[MainIdentifier],
       dependencies: PathGen,
       errColor: Colorize,
-      packRes: PackageResolver) extends MainCommand {
+      packRes: PackageResolver,
+      createEv: (PackageMap.Typed[Any], Externals) => AbstractEvaluation[Any, V]
+      ) extends MainCommand {
 
       type Result = Output.TestOutput
 
@@ -777,7 +779,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                       .toList
                       .sorted
                       .distinct
-                  val ev = Evaluation(packs, Predef.jvmExternals)
+                  val ev = createEv(packs, Predef.jvmExternals)
                   val res0 = testPackages.map { p => (p, ev.evalTest(p)) }
                   val res =
                     if (testPacks.isEmpty) res0.filter { case (_, testRes) => testRes.isDefined }
@@ -970,7 +972,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       val typeCheckOpt = (srcs, ifaces, outputPath.orNone, interfaceOutputPath.orNone, colorOpt, noSearchRes)
         .mapN(TypeCheck(_, _, _, _, _, _))
       val testOpt = (srcs, testP, includes, colorOpt, packRes)
-        .mapN(RunTests(_, _, _, _, _))
+        .mapN(RunTests(_, _, _, _, _, ((pm, ext) => Evaluation(pm, ext))))
 
       Opts.subcommand("eval", "evaluate an expression and print the output")(evalOpt)
         .orElse(Opts.subcommand("type-check", "type check a set of packages")(typeCheckOpt))
