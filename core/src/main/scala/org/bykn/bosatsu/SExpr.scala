@@ -23,7 +23,7 @@ object SExpr {
   case class Integer[A](toBigInt: BigInt, tag: A) extends SExpr[A]
   case class Floating[A](toBigDecimal: BigDecimal, tag: A) extends SExpr[A]
   case class Str[A](asString: String, tag: A) extends SExpr[A]
-  case class Repeated[A](kind: BracketKind, items: List[SExpr[A]], tag: A) extends SExpr[A]
+  case class Repeated[A](kind: BracketKind, items: Vector[SExpr[A]], tag: A) extends SExpr[A]
 
   def parser[A](tagger: Tagger[A]): P1[SExpr[A]] = cats.Defer[P1].fix[SExpr[A]] { rec =>
     val comment = (P.char(';') ~ P.until(P.char('\n')) ~ P.char('\n')).void
@@ -46,7 +46,7 @@ object SExpr {
 
     def repeated(b: BracketKind): P1[Repeated[A]] =
       tagger(P.char(b.start) *> ws.? *> P.repSep(rec, sep = ws, min = 0) <* ws.? <* P.char(b.end))
-        .map { case (as, tag) => Repeated(b, as, tag) }
+        .map { case (as, tag) => Repeated(b, as.toVector, tag) }
 
     val rep = List(BracketKind.Parens, BracketKind.Square, BracketKind.Curly).map(repeated)
 

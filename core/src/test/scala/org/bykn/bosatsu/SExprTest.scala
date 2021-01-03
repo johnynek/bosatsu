@@ -52,7 +52,7 @@ object GenSExpr {
       cnt <- Gen.choose(0, 4)
       bracket <- genBracket
       lst <- Gen.listOfN(cnt, ga)
-    } yield SExpr.Repeated(bracket, lst, ())
+    } yield SExpr.Repeated(bracket, lst.toVector, ())
 
   lazy val genExpr: Gen[SExpr[Unit]] = {
     val rec = Gen.lzy(genExpr)
