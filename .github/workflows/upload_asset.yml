@@ -20,7 +20,7 @@ jobs:
           java-version: "${{matrix.java}}"
       - name: "build assembly"
         run: |
-          sbt \"++${{matrix.scala}} cli/assembly\"
+          sbt ++${{matrix.scala}} cli/assembly
           cp cli/target/scala-2.12/bosatsu-cli-assembly-0.1.0-SNAPSHOT.jar bosatsu.jar
       - name: Create Release
         id: create_release
