@@ -2,8 +2,7 @@ package org.bykn.bosatsu
 
 import cats.parse.{Parser => P, Parser1 => P1}
 
-abstract class GenericStringUtil {
-  protected def decodeTable: Map[Char, Char]
+class GenericStringUtil(val decodeTable: Map[Char, Char]) {
 
   private val encodeTable = decodeTable.iterator.map { case (v, k) => (k, s"\\$v") }.toMap
 
@@ -14,38 +13,34 @@ abstract class GenericStringUtil {
       s"\\u$strPad$strHex"
    }.toArray
 
-  val escapedToken: P1[Unit] = {
-    val escapes = P.charIn(decodeTable.keys.toSeq)
+  val escapedToken: P1[Char] = {
+    val escapes = P.charIn(decodeTable.keys.toSeq).map(decodeTable(_))
 
     val oct = P.charIn('0' to '7')
-    val octP = P.char('o') ~ oct ~ oct
+    val octP = P.char('o') *> (oct ~ oct).string.map(Integer.parseInt(_, 8).toChar)
+
+    def hexStr(s: String): Char =
+      Integer.parseInt(s, 16).toChar
 
     val hex = P.charIn(('0' to '9') ++ ('a' to 'f') ++ ('A' to 'F'))
     val hex2 = hex ~ hex
-    val hexP = P.char('x') ~ hex2
+    val hexP = P.char('x') *> hex2.string.map(hexStr)
 
     val hex4 = hex2 ~ hex2
-    val u4 = P.char('u') ~ hex4
+    val u4 = P.char('u') *> hex4.string.map(hexStr)
     val hex8 = hex4 ~ hex4
-    val u8 = P.char('U') ~ hex8
+    val u8 = P.char('U') *> hex8.string.map(hexStr)
 
-    val after = P.oneOf1[Any](escapes :: octP :: hexP :: u4 :: u8 :: Nil)
-    (P.char('\\') ~ after).void
+    val after = P.oneOf1[Char](escapes :: octP :: hexP :: u4 :: u8 :: Nil)
+    (P.char('\\') *> after)
   }
 
   /**
    * String content without the delimiter
    */
   def undelimitedString1(endP: P1[Unit]): P1[String] =
-    escapedToken.backtrack.orElse1((!endP).with1 ~ P.anyChar)
-      .rep1
-      .string
-      .flatMap { str =>
-        unescape(str) match {
-          case Right(str1) => P.pure(str1)
-          case Left(_) => P.fail
-        }
-      }
+    escapedToken.backtrack.orElse1((!endP).with1 *> P.anyChar)
+      .repAs1[String]
 
   def escapedString(q: Char): P1[String] = {
     val end: P1[Unit] = P.char(q)
@@ -145,10 +140,8 @@ abstract class GenericStringUtil {
   }
 }
 
-object StringUtil extends GenericStringUtil {
-  // Here are the rules for escaping in python/bosatsu
-  lazy val decodeTable: Map[Char, Char] =
-    Map(
+// Here are the rules for escaping in python/bosatsu
+object StringUtil extends GenericStringUtil(Map(
       ('\\', '\\'),
       ('\'', '\''),
       ('\"', '\"'),
@@ -161,11 +154,10 @@ object StringUtil extends GenericStringUtil {
       ('r', '\r'),
       ('t', '\t'),
       ('v', 11.toChar)) // vertical tab
-}
+)
 
-object JsonStringUtil extends GenericStringUtil {
-  // Here are the rules for escaping in json
-  lazy val decodeTable: Map[Char, Char] =
+// Here are the rules for escaping in json
+object JsonStringUtil extends GenericStringUtil(
     Map(
       ('\\', '\\'),
       ('\'', '\''),
@@ -174,5 +166,8 @@ object JsonStringUtil extends GenericStringUtil {
       ('f', 12.toChar), // form-feed
       ('n', '\n'),
       ('r', '\r'),
-      ('t', '\t'))
+      ('t', '\t'))) {
+
+  val strParser: P1[String] =
+    escapedString('"')
 }

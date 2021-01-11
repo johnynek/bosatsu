@@ -156,7 +156,7 @@ object Json {
     val recurse = P.defer1(parser)
     val pnull = P.string1("null").as(JNull)
     val bool = P.string1("true").as(JBool.True).orElse1(P.string1("false").as(JBool.False))
-    val justStr = JsonStringUtil.escapedString('"')
+    val justStr = JsonStringUtil.strParser
     val str = justStr.map(JString(_))
     val num = Parser.JsonNumber.parser.map(JNumberStr(_))
 
