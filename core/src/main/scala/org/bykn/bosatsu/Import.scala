@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.{Foldable, Functor}
 import cats.data.NonEmptyList
 import cats.implicits._
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 
 import Parser.{spaces, Combinators}
@@ -45,16 +45,16 @@ object ImportedName {
           Document[Identifier].document(to)
     }
 
-  val parser: P1[ImportedName[Unit]] = {
-    def basedOn(of: P1[Identifier]): P1[ImportedName[Unit]] =
-      (of ~ ((spaces *> P.string1("as") *> spaces).backtrack *> of).?)
+  val parser: P[ImportedName[Unit]] = {
+    def basedOn(of: P[Identifier]): P[ImportedName[Unit]] =
+      (of ~ ((spaces *> P.string("as") *> spaces).backtrack *> of).?)
         .map {
           case (from, Some(to)) => ImportedName.Renamed(from, to, ())
           case (orig, None) => ImportedName.OriginalName(orig, ())
         }
 
     basedOn(Identifier.bindableParser)
-      .orElse1(basedOn(Identifier.consParser))
+      .orElse(basedOn(Identifier.consParser))
   }
 }
 
@@ -75,11 +75,11 @@ object Import {
         Doc.space + Doc.intercalate(Doc.text(", "), itemDocs)
     }
 
-  val parser: P1[Import[PackageName, Unit]] = {
+  val parser: P[Import[PackageName, Unit]] = {
     val pyimps = ImportedName.parser.itemsMaybeParens.map(_._2)
 
-    ((P.string1("from") ~ spaces).backtrack *> PackageName.parser <* spaces,
-      P.string1("import") *> spaces *> pyimps)
+    ((P.string("from") ~ spaces).backtrack *> PackageName.parser <* spaces,
+      P.string("import") *> spaces *> pyimps)
       .mapN(Import(_, _))
   }
 

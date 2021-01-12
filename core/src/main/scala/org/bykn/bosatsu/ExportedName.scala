@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
 
@@ -59,10 +59,10 @@ object ExportedName {
     }
   }
 
-  val parser: P1[ExportedName[Unit]] =
+  val parser: P[ExportedName[Unit]] =
     Identifier.bindableParser.map(Binding(_, ()))
-      .orElse1(
-        (Identifier.consParser ~ P.string1("()").?)
+      .orElse(
+        (Identifier.consParser ~ P.string("()").?)
           .map {
             case (n, None) => TypeName(n, ())
             case (n, Some(_)) => Constructor(n, ())

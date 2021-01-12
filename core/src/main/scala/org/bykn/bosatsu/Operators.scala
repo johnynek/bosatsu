@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P}
 
 object Operators {
 
@@ -43,8 +43,8 @@ object Operators {
       "&", "^", "|",
       "?", "~").map(_.intern)
 
-  private def from(strs: Iterable[String]): P1[Unit] =
-    P.oneOf1(strs.map(P.string1(_)).toList)
+  private def from(strs: Iterable[String]): P[Unit] =
+    P.oneOf(strs.map(P.string(_)).toList)
 
   /**
    * strings for operators allowed in single character
@@ -53,7 +53,7 @@ object Operators {
   val multiToks: List[String] =
     ".".intern :: singleToks ::: List("=".intern)
 
-  val multiToksP: P1[Unit] =
+  val multiToksP: P[Unit] =
     from(multiToks)
 
   private val priorityMap: Map[String, Int] =
@@ -65,12 +65,12 @@ object Operators {
   /**
    * Here are a list of operators we allow
    */
-  val operatorToken: P1[String] = {
+  val operatorToken: P[String] = {
     val singles = from(singleToks)
 
     // write this in a way to avoid backtracking
-    ((singles ~ multiToksP.rep).void)
-      .orElse1(multiToksP.rep1(min = 2).void)
+    ((singles ~ multiToksP.rep0).void)
+      .orElse(multiToksP.rep(min = 2).void)
       .string
       .map(_.intern)
   }
@@ -117,10 +117,10 @@ object Operators {
      * Parse a chain of at least 1 operator being applied
      * with the operator precedence handled by the formula
      */
-    def infixOps1[A](p: P1[A]): P1[A => Formula[A]] = {
+    def infixOps1[A](p: P[A]): P[A => Formula[A]] = {
       val opA = operatorToken ~ (Parser.maybeSpacesAndLines.with1 *> p)
-      val chain: P1[NonEmptyList[(String, A)]] =
-        P.rep1Sep(opA, min = 1, sep = Parser.maybeSpace)
+      val chain: P[NonEmptyList[(String, A)]] =
+        P.repSep(opA, min = 1, sep = Parser.maybeSpace)
 
       chain.map { rest =>
 
@@ -131,7 +131,7 @@ object Operators {
      * An a formula is a series of A's separated by spaces, with
      * the correct parenthesis
      */
-    def parser[A](p: P1[A]): P1[Formula[A]] =
+    def parser[A](p: P[A]): P[Formula[A]] =
       (p ~ (Parser.maybeSpace.with1 *> infixOps1(p)).?)
         .map {
           case (a, None) => Sym(a)

@@ -4,7 +4,7 @@ import Parser.{ Combinators, lowerIdent, maybeSpace, keySpace }
 import cats.Applicative
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 import org.bykn.bosatsu.rankn.Type
 
@@ -160,31 +160,31 @@ object TypeRef {
         }
     }
 
-  val parser: P1[TypeRef] = {
+  val parser: P[TypeRef] = {
     val tvar = lowerIdent.map(TypeVar(_))
     val tname = Identifier.consParser.map { cn => TypeName(Name(cn)) }
-    val recurse = P.defer1(parser)
+    val recurse = P.defer(parser)
 
-    val lambda: P1[TypeLambda] =
+    val lambda: P[TypeLambda] =
       (keySpace("forall") *> tvar.nonEmptyList ~ (maybeSpace *> P.char('.') *> maybeSpace *> recurse))
         .map { case (args, e) => TypeLambda(args, e) }
 
-    val maybeArrow: P1[TypeRef => TypeRef] =
-      ((maybeSpace.with1.soft ~ P.string1("->") ~ maybeSpace) *> recurse)
+    val maybeArrow: P[TypeRef => TypeRef] =
+      ((maybeSpace.with1.soft ~ P.string("->") ~ maybeSpace) *> recurse)
         .map { right => TypeArrow(_, right) }
 
-    val maybeApp: P1[TypeRef => TypeRef] =
+    val maybeApp: P[TypeRef => TypeRef] =
       (P.char('[') *> maybeSpace *> recurse.nonEmptyList <* maybeSpace <* P.char(']'))
         .map { args => TypeApply(_, args) }
 
-    val tupleOrParens: P1[TypeRef] =
+    val tupleOrParens: P[TypeRef] =
       recurse.tupleOrParens.map {
         case Left(par) => par
         case Right(tup) => TypeTuple(tup)
       }
 
     val base =
-      P.oneOf1(lambda :: tvar :: tname :: tupleOrParens :: Nil)
+      P.oneOf(lambda :: tvar :: tname :: tupleOrParens :: Nil)
 
     (base ~ maybeApp.? ~ maybeArrow.?)
       .map {

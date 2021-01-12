@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.{Apply, Functor}
 import Parser.{maybeSpacesAndLines, spacesAndLines, Combinators}
 import org.typelevel.paiges.{Doc, Document}
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P}
 
 import cats.implicits._
 
@@ -32,10 +32,10 @@ object ListLang {
         Functor[F].map(fn(value))(Item(_))
     }
 
-    def parser[A](pa: P1[A]): P1[SpliceOrItem[A]] =
+    def parser[A](pa: P[A]): P[SpliceOrItem[A]] =
       (P.char('*') *> pa)
         .map(Splice(_))
-        .orElse1(pa.map(Item(_)))
+        .orElse(pa.map(Item(_)))
 
     implicit def document[A](implicit A: Document[A]): Document[SpliceOrItem[A]] =
       Document.instance[SpliceOrItem[A]] {
@@ -53,7 +53,7 @@ object ListLang {
   object KVPair {
     private[this] val sep: Doc = Doc.text(": ")
 
-    def parser[A](p: P1[A]): P1[KVPair[A]] =
+    def parser[A](p: P[A]): P[KVPair[A]] =
       ((p <* maybeSpacesAndLines <* P.char(':') <* maybeSpacesAndLines) ~ p)
         .map { case (k, v) => KVPair(k, v) }
 
@@ -66,13 +66,13 @@ object ListLang {
   case class Cons[F[_], A](items: List[F[A]]) extends ListLang[F, A, Nothing]
   case class Comprehension[F[_], A, B](expr: F[A], binding: B, in: A, filter: Option[A]) extends ListLang[F, A, B]
 
-  def parser[A, B](pa: P1[A], psrc: P1[A], pbind: P1[B]): P1[ListLang[SpliceOrItem, A, B]] =
+  def parser[A, B](pa: P[A], psrc: P[A], pbind: P[B]): P[ListLang[SpliceOrItem, A, B]] =
     genParser(P.char('['), SpliceOrItem.parser(pa), psrc, pbind, P.char(']'))
 
-  def dictParser[A, B](pa: P1[A], psrc: P1[A], pbind: P1[B]): P1[ListLang[KVPair, A, B]] =
+  def dictParser[A, B](pa: P[A], psrc: P[A], pbind: P[B]): P[ListLang[KVPair, A, B]] =
     genParser(P.char('{'), KVPair.parser(pa), psrc, pbind, P.char('}'))
 
-  def genParser[F[_], A, B](left: P1[Unit], fa: P1[F[A]], pa: P1[A], pbind: P1[B], right: P1[Unit]): P1[ListLang[F, A, B]] = {
+  def genParser[F[_], A, B](left: P[Unit], fa: P[F[A]], pa: P[A], pbind: P[B], right: P[Unit]): P[ListLang[F, A, B]] = {
     // construct the tail of a list, so we will finally have at least one item
     val consTail = fa.nonEmptyListOfWs(maybeSpacesAndLines).?
       .map { tail =>
@@ -84,11 +84,11 @@ object ListLang {
         { a: F[A] => Cons(a :: listTail) }
       }
 
-    val filterExpr = P.string1("if") *> spacesAndLines *> pa
+    val filterExpr = P.string("if") *> spacesAndLines *> pa
 
     val comp =
-      (P.string1("for") *> spacesAndLines *> pbind <* maybeSpacesAndLines,
-        P.string1("in") *> spacesAndLines *> pa  <* maybeSpacesAndLines,
+      (P.string("for") *> spacesAndLines *> pbind <* maybeSpacesAndLines,
+        P.string("in") *> spacesAndLines *> pa  <* maybeSpacesAndLines,
         filterExpr.?)
         .mapN { (b, i, f) =>
           { e: F[A] => Comprehension(e, b, i, f) }
