@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.typelevel.paiges.{ Doc, Document }
 
-import cats.parse.{Parser => P}
+import cats.parse.{Parser0 => P0}
 
 import cats.implicits._
 
@@ -34,7 +34,7 @@ object Indented {
   def indy[T](p: Parser.Indy[T]): Parser.Indy[Indented[T]] =
     Parser.Indy { indent =>
       for {
-        thisIndent <- P.string(indent).with1 *> Parser.spaces.string
+        thisIndent <- Parser.string0(indent).with1 *> Parser.spaces.string
         t <- p.run(indent + thisIndent)
       } yield Indented(Indented.spaceCount(thisIndent), t)
     }

@@ -4,7 +4,7 @@ import cats.Functor
 import cats.implicits._
 import org.typelevel.paiges.{Doc, Document}
 
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser0 => P0, Parser => P}
 
 import Parser.{maybeSpace, Indy}
 import Indy.IndyMethods
@@ -61,7 +61,7 @@ object OptIndent {
   def indy[A](p: Indy[A]): Indy[OptIndent[A]] = {
     val ind = Indented.indy(p)
     // we need to read at least 1 new line here
-    val not = ind.mapF { p => Padding.parser1(p).map(notSame[A](_)): P1[OptIndent[A]] }
+    val not = ind.mapF { p => Padding.parser1(p).map(notSame[A](_)): P[OptIndent[A]] }
     val sm = p.map(same[A](_))
     not <+> sm
   }
@@ -74,7 +74,7 @@ object OptIndent {
   def block[A, B](first: Indy[A], next: Indy[B]): Indy[(A, OptIndent[B])] =
     blockLike(first, next, maybeSpace ~ P.char(':'))
 
-  def blockLike[A, B, C](first: Indy[A], next: Indy[B], sep: P[C]): Indy[(A, OptIndent[B])] =
+  def blockLike[A, B, C](first: Indy[A], next: Indy[B], sep: P0[C]): Indy[(A, OptIndent[B])] =
     first
       .cutLeftP((sep ~ maybeSpace).void)
       .cutThen(OptIndent.indy(next))
