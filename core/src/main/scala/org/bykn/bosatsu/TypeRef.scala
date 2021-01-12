@@ -4,7 +4,7 @@ import Parser.{ Combinators, lowerIdent, maybeSpace, keySpace }
 import cats.Applicative
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 import org.bykn.bosatsu.rankn.Type
 

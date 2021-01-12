@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.{Apply, Functor}
 import Parser.{maybeSpacesAndLines, spacesAndLines, Combinators}
 import org.typelevel.paiges.{Doc, Document}
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser => P}
 
 import cats.implicits._
 

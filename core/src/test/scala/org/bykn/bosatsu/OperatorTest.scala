@@ -1,7 +1,8 @@
 package org.bykn.bosatsu
 
 import org.typelevel.paiges.{ Doc, Document }
-import cats.parse.{Parser0 => P0, Parser0 => P0}
+
+import cats.parse.{Parser => P}
 
 import Parser.Combinators
 
@@ -24,7 +25,7 @@ class OperatorTest extends ParserTestBase {
     case class Form(toForm: Formula[F]) extends F
   }
 
-  lazy val formP: Parser[F] =
+  lazy val formP: P[F] =
     Operators.Formula
       .parser(
         Parser

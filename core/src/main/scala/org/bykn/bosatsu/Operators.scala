@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser => P}
 
 object Operators {
 
@@ -70,7 +70,7 @@ object Operators {
 
     // write this in a way to avoid backtracking
     ((singles ~ multiToksP.rep0).void)
-      .orElse(multiToksP.rep(rep = 2).void)
+      .orElse(multiToksP.rep(min = 2).void)
       .string
       .map(_.intern)
   }

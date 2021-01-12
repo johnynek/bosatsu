@@ -5,8 +5,6 @@ import org.typelevel.paiges.Doc
 import cats.parse.{Parser0 => P0, Parser => P}
 import cats.Eq
 
-import cats.implicits._
-
 /**
  * A simple JSON ast for output
  */

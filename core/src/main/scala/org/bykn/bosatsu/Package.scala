@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.{Functor, Parallel}
 import cats.data.{Chain, Ior, ValidatedNel, Validated, NonEmptyList, Writer}
 import cats.implicits._
-import cats.parse.{Parser0 => P0}
+import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
 import scala.util.hashing.MurmurHash3
 
@@ -135,7 +135,7 @@ object Package {
 
   def parser(defaultPack: Option[PackageName]): P0[Package[PackageName, Unit, Unit, List[Statement]]] = {
     // TODO: support comments before the Statement
-    val parsePack = Padding.parser((Parser.string("package").soft ~ spaces) *> PackageName.parser <* Parser.toEOL).map(_.padded)
+    val parsePack = Padding.parser((P.string("package").soft ~ spaces) *> PackageName.parser <* Parser.toEOL).map(_.padded)
     val pname: P0[PackageName] =
       defaultPack match {
         case None => parsePack
@@ -143,7 +143,7 @@ object Package {
       }
 
     val im = Padding.parser(Import.parser <* Parser.toEOL).map(_.padded).rep0
-    val ex = Padding.parser((Parser.string("export").soft ~ spaces) *> ExportedName.parser.itemsMaybeParens.map(_._2) <* Parser.toEOL).map(_.padded)
+    val ex = Padding.parser((P.string("export").soft ~ spaces) *> ExportedName.parser.itemsMaybeParens.map(_._2) <* Parser.toEOL).map(_.padded)
     val body: P0[List[Statement]] = Statement.parser
     (pname, im, Parser.nonEmptyListToList(ex), body)
       .mapN { (p, i, e, b) => Package(p, i, e, b) }
