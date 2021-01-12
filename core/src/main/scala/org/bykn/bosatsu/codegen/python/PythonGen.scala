@@ -4,7 +4,7 @@ import org.typelevel.paiges.Doc
 import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P}
 import scala.concurrent.ExecutionContext
 
 import Identifier.Bindable
@@ -651,19 +651,19 @@ object PythonGen {
   //
   // { packageName: { bind: foo.bar.baz } }
   //
-  val externalParser: P1[List[(PackageName, Bindable, Module, Code.Ident)]] = {
-    val identParser: P1[Code.Ident] = Parser.py2Ident.map(Code.Ident(_))
-    val modParser: P1[(Module, Code.Ident)] =
-      P.rep1Sep(identParser, min = 2, sep = P.char('.'))
+  val externalParser: P[List[(PackageName, Bindable, Module, Code.Ident)]] = {
+    val identParser: P[Code.Ident] = Parser.py2Ident.map(Code.Ident(_))
+    val modParser: P[(Module, Code.Ident)] =
+      P.repSep(identParser, min = 2, sep = P.char('.'))
         .map { items =>
           // min = 2 ensures this is safe
           (NonEmptyList.fromListUnsafe(items.init.toList), items.last)
         }
 
-    val inner: P1[List[(Bindable, (Module, Code.Ident))]] =
+    val inner: P[List[(Bindable, (Module, Code.Ident))]] =
       Parser.dictLikeParser(Identifier.bindableParser, modParser)
 
-    val outer: P1[List[(PackageName, List[(Bindable, (Module, Code.Ident))])]] =
+    val outer: P[List[(PackageName, List[(Bindable, (Module, Code.Ident))])]] =
       Parser.dictLikeParser(PackageName.parser, inner) <* Parser.maybeSpacesAndLines
 
     outer.map { items =>

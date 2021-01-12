@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser0 => P0, Parser => P}
 
 abstract class GenericStringUtil {
   protected def decodeTable: Map[Char, Char]
@@ -14,7 +14,7 @@ abstract class GenericStringUtil {
       s"\\u$strPad$strHex"
    }.toArray
 
-  val escapedToken: P1[Unit] = {
+  val escapedToken: P[Unit] = {
     val escapes = P.charIn(decodeTable.keys.toSeq)
 
     val oct = P.charIn('0' to '7')
@@ -29,16 +29,16 @@ abstract class GenericStringUtil {
     val hex8 = hex4 ~ hex4
     val u8 = P.char('U') ~ hex8
 
-    val after = P.oneOf1[Any](escapes :: octP :: hexP :: u4 :: u8 :: Nil)
+    val after = P.oneOf[Any](escapes :: octP :: hexP :: u4 :: u8 :: Nil)
     (P.char('\\') ~ after).void
   }
 
   /**
    * String content without the delimiter
    */
-  def undelimitedString1(endP: P1[Unit]): P1[String] =
-    escapedToken.backtrack.orElse1((!endP).with1 ~ P.anyChar)
-      .rep1
+  def undelimitedString1(endP: P[Unit]): P[String] =
+    escapedToken.backtrack.orElse((!endP).with1 ~ P.anyChar)
+      .rep
       .string
       .flatMap { str =>
         unescape(str) match {
@@ -47,22 +47,22 @@ abstract class GenericStringUtil {
         }
       }
 
-  def escapedString(q: Char): P1[String] = {
-    val end: P1[Unit] = P.char(q)
+  def escapedString(q: Char): P[String] = {
+    val end: P[Unit] = P.char(q)
     end *> undelimitedString1(end).orElse(P.pure("")) <* end
   }
 
-  def interpolatedString[A](quoteChar: Char, istart: P1[Unit], interp: P[A], iend: P1[Unit]): P1[List[Either[A, (Region, String)]]] = {
+  def interpolatedString[A](quoteChar: Char, istart: P[Unit], interp: P0[A], iend: P[Unit]): P[List[Either[A, (Region, String)]]] = {
     val strQuote = P.char(quoteChar)
 
-    val strLit: P1[String] = undelimitedString1(strQuote.orElse1(istart))
-    val notStr: P1[A] = (istart ~ interp ~ iend).map { case ((_, a), _) => a }
+    val strLit: P[String] = undelimitedString1(strQuote.orElse(istart))
+    val notStr: P[A] = (istart ~ interp ~ iend).map { case ((_, a), _) => a }
 
-    val either: P1[Either[A, (Region, String)]] =
+    val either: P[Either[A, (Region, String)]] =
       ((P.index.with1 ~ strLit ~ P.index).map { case ((s, str), l) => Right((Region(s, l), str)) })
-        .orElse1(notStr.map(Left(_)))
+        .orElse(notStr.map(Left(_)))
 
-    (strQuote ~ either.rep ~ strQuote).map { case ((_, lst), _) => lst }
+    (strQuote ~ either.rep0 ~ strQuote).map { case ((_, lst), _) => lst }
   }
 
   def escape(quoteChar: Char, str: String): String = {

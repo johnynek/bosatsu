@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Order
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 
 import Parser.{lowerIdent, upperIdent}
@@ -64,34 +64,34 @@ object Identifier {
       case Operator(n) => opPrefix + Doc.text(n)
     }
 
-  val nameParser: P1[Name] =
+  val nameParser: P[Name] =
     lowerIdent.map { n => Name(n.intern) }
 
-  val consParser: P1[Constructor] =
+  val consParser: P[Constructor] =
     upperIdent.map { c => Constructor(c.intern) }
 
   /**
    * This is used to apply operators, it is the
    * raw operator tokens without an `operator` prefix
    */
-  val rawOperator: P1[Operator] =
+  val rawOperator: P[Operator] =
     Operators.operatorToken.map { op => Operator(op.intern) }
 
   /**
    * the keyword operator preceding a rawOperator
    */
-  val operator: P1[Operator] =
-    (P.string1("operator").soft *> Parser.spaces) *> rawOperator
+  val operator: P[Operator] =
+    (P.string("operator").soft *> Parser.spaces) *> rawOperator
 
   /**
    * Name, Backticked or non-raw operator
    */
-  val bindableParser: P1[Bindable] =
+  val bindableParser: P[Bindable] =
     // operator has to come first to not look like a Name
-    P.oneOf1(operator :: nameParser :: Parser.escapedString('`').map { b => Backticked(b.intern) } :: Nil)
+    P.oneOf(operator :: nameParser :: Parser.escapedString('`').map { b => Backticked(b.intern) } :: Nil)
 
-  val parser: P1[Identifier] =
-    bindableParser.orElse1(consParser)
+  val parser: P[Identifier] =
+    bindableParser.orElse(consParser)
 
   // When we are allocating new names, we want
   // them to be similar
@@ -100,7 +100,7 @@ object Identifier {
       case Backticked(b) => Backticked(b + suffix)
       case notBack =>
         // try to stry the same
-        val p = operator.orElse1(nameParser)
+        val p = operator.orElse(nameParser)
         val cand = i.sourceCodeRepr + suffix
         p.parseAll(cand) match {
           case Right(ident) => ident
@@ -120,10 +120,10 @@ object Identifier {
   def unsafeBindable(str: String): Bindable =
     unsafeParse(bindableParser, str)
 
-  def optionParse[A](pa: P[A], str: String): Option[A] =
+  def optionParse[A](pa: P0[A], str: String): Option[A] =
     Parser.optionParse(pa, str)
 
-  def unsafeParse[A](pa: P[A], str: String): A =
+  def unsafeParse[A](pa: P0[A], str: String): A =
     Parser.unsafeParse(pa, str)
 
   implicit def order[A <: Identifier]: Order[A] =

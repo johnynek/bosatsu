@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import cats.data.{Chain, Validated, ValidatedNel, NonEmptyList}
 import cats.{Eval, MonadError, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
-import cats.parse.{Parser => P}
+import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.Doc
 import scala.concurrent.ExecutionContext
 import scala.util.{ Failure, Success, Try }
@@ -195,7 +195,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
        case class FileError(readPath: Path, error: Throwable) extends ParseError
     }
 
-    def parseString[A](p: P[A], path: Path, str: String): ValidatedNel[ParseError, (LocationMap, A)] =
+    def parseString[A](p: P0[A], path: Path, str: String): ValidatedNel[ParseError, (LocationMap, A)] =
       Parser.parse(p, str).leftMap { nel =>
         nel.map {
           case pp@Parser.Error.PartialParse(_, _, _) => ParseError.PartialParse(pp, path)
@@ -203,7 +203,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         }
       }
 
-    def parseFile[A](p: P[A], path: Path): IO[ValidatedNel[ParseError, (LocationMap, A)]] =
+    def parseFile[A](p: P0[A], path: Path): IO[ValidatedNel[ParseError, (LocationMap, A)]] =
       parseFileOrError(p, path)
         .map {
           case Right(v) => v
@@ -213,7 +213,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     /**
      * If we cannot read the file, return the throwable, else parse
      */
-    def parseFileOrError[A](p: P[A], path: Path): IO[Either[Throwable, ValidatedNel[ParseError, (LocationMap, A)]]] =
+    def parseFileOrError[A](p: P0[A], path: Path): IO[Either[Throwable, ValidatedNel[ParseError, (LocationMap, A)]]] =
       readPath(path)
         .attempt
         .map(_.map(parseString(p, path, _)))
@@ -825,7 +825,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
     val opts: Opts[MainCommand] = {
 
-      def argFromParser[A](p: P[A], defmeta: String, typeName: String, suggestion: String): Argument[A] =
+      def argFromParser[A](p: P0[A], defmeta: String, typeName: String, suggestion: String): Argument[A] =
         new Argument[A] {
           def defaultMetavar: String = defmeta
           def read(string: String): ValidatedNel[String, A] =
@@ -841,7 +841,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         argFromParser(PackageName.parser, "packageName", "package name", "Must be capitalized strings separated by /")
 
       implicit val argValue: Argument[(PackageName, Option[Bindable])] =
-        argFromParser((PackageName.parser ~ (P.string1("::") *> Identifier.bindableParser).?),
+        argFromParser((PackageName.parser ~ (P.string("::") *> Identifier.bindableParser).?),
           "valueIdent",
           "package or package::name",
           "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz.")

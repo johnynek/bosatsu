@@ -4,7 +4,7 @@ import Parser.{ Combinators, maybeSpace }
 import cats.Applicative
 import cats.data.NonEmptyList
 import cats.implicits._
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 
 import Identifier.{Bindable, Constructor}
@@ -57,9 +57,9 @@ object DefStatement {
     /**
      * The resultTParser should parse some indentation any newlines
      */
-    def parser[A, B](argParser: P1[A], resultTParser: P1[B]): P1[DefStatement[A, B]] = {
+    def parser[A, B](argParser: P[A], resultTParser: P[B]): P[DefStatement[A, B]] = {
       val args = argParser.parensLines1Cut
-      val result = (P.string1("->") *> maybeSpace *> TypeRef.parser).?
+      val result = (P.string("->") *> maybeSpace *> TypeRef.parser).?
       (Parser.keySpace("def") *> (Identifier.bindableParser ~ args.?) <* maybeSpace,
         result.with1 <* (maybeSpace.with1 ~ P.char(':')),
         resultTParser)
