@@ -1006,6 +1006,15 @@ x""")
     decl("""|(y = 1
             |_ = y
             |2)""".stripMargin)
+
+    decl("""|(y = 1
+            |# just ignore y
+            |_ = y
+            |2)""".stripMargin)
+
+    decl("""|[1,
+            |  (# comment in a list
+            |2)]""".stripMargin)
   }
 
   test("we can parse any Statement") {
