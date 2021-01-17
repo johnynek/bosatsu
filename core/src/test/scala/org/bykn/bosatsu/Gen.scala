@@ -657,6 +657,16 @@ object Generators {
     )
   }
 
+  def makeComment(c: CommentStatement[Padding[Declaration]]): Declaration = {
+    import Declaration._
+    c.on.padded match {
+      case nb: NonBinding =>
+        CommentNB(CommentStatement(c.message, Padding(c.on.lines, nb)))(emptyRegion)
+      case _ =>
+        Comment(c)(emptyRegion)
+    }
+  }
+
   def genDeclaration(depth: Int): Gen[Declaration] = {
     import Declaration._
 
@@ -670,7 +680,7 @@ object Generators {
     if (depth <= 0) unnested
     else Gen.frequency(
       (3, genNonBinding(depth)),
-      (1, commentGen(padding(recur, 1)).map(Comment(_)(emptyRegion))), // make sure we have 1 space to prevent comments following each other
+      (1, commentGen(padding(recur, 1)).map(makeComment)), // make sure we have 1 space to prevent comments following each other
       (1, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
       (1, bindGen(pat, recNon, padding(recur, 1)).map(Binding(_)(emptyRegion)))
     )
@@ -707,7 +717,8 @@ object Generators {
           case Matches(a, _) =>
             a #:: apply(a)
           // the rest can't be shrunk
-          case Comment(c) => Stream.empty
+          case Comment(c) => c.on.padded #:: Stream.empty
+          case CommentNB(c) => c.on.padded #:: Stream.empty
           case Lambda(args, body) => body #:: Stream.empty
           case Literal(_) => Stream.empty
           case Parens(_) =>

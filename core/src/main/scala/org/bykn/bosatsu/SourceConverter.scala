@@ -150,6 +150,8 @@ final class SourceConverter(
         solvePat(pat, loop(value))
       case Comment(CommentStatement(_, Padding(_, decl))) =>
         loop(decl).map(_.as(decl))
+      case CommentNB(CommentStatement(_, Padding(_, decl))) =>
+        loop(decl).map(_.as(decl))
       case DefFn(defstmt@DefStatement(_, _, _, _)) =>
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
