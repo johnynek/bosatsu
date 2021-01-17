@@ -280,6 +280,8 @@ object DefRecursionCheck {
               checkDecl(next.padded)
         case Comment(cs) =>
           checkDecl(cs.on.padded)
+        case CommentNB(cs) =>
+          checkDecl(cs.on.padded)
         case DefFn(defstmt) =>
           // we can use the name of the def after we have defined it, which is the next part
           getSt.flatMap { state =>

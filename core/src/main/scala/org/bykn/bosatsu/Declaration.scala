@@ -59,6 +59,8 @@ sealed abstract class Declaration {
         BindingStatement.document(Document[Pattern.Parsed], Document.instance[NonBinding](_.toDoc), withNewLine).document(b)
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
+      case CommentNB(c) =>
+        CommentStatement.document[Padding[NonBinding]].document(c)
       case DefFn(d) =>
         implicit val pairDoc: Document[(OptIndent[Declaration], Padding[Declaration])] =
           Document.instance {
@@ -173,6 +175,7 @@ sealed abstract class Declaration {
           val bound1 = bound ++ n.names
           loop(in.padded, bound1, acc0)
         case Comment(c) => loop(c.on.padded, bound, acc)
+        case CommentNB(c) => loop(c.on.padded, bound, acc)
         case DefFn(d) =>
           val (body, rest) = d.result
           // def sets up a binding to itself, which
@@ -286,6 +289,7 @@ sealed abstract class Declaration {
           val acc0 = loop(v, acc ++ n.names)
           loop(in.padded, acc0)
         case Comment(c) => loop(c.on.padded, acc)
+        case CommentNB(c) => loop(c.on.padded, acc)
         case DefFn(d) =>
           // def sets up a binding to itself, which
           // may or may not be recursive
@@ -449,6 +453,10 @@ object Declaration {
         case ApplyOp(left, op, right) =>
           (loop(left), loop(right))
             .mapN(ApplyOp(_, op, _))
+        case CommentNB(CommentStatement(msg, Padding(l, nb))) =>
+          loop(nb).map { nb1 =>
+            CommentNB(CommentStatement(msg, Padding(l, nb1)))(decl.region)
+          }
         case IfElse(ifCases, elseCase) =>
           val ifs = ifCases.traverse { case (cond, br) =>
             (loop(cond), br.traverse(loopDec)).tupled
@@ -600,6 +608,8 @@ object Declaration {
           Apply(fn.replaceRegionsNB(r), args.map(_.replaceRegionsNB(r)), s)(r)
         case ApplyOp(left, op, right) =>
           ApplyOp(left.replaceRegionsNB(r), op, right.replaceRegionsNB(r))
+        case CommentNB(CommentStatement(msg, p)) =>
+          CommentNB(CommentStatement(msg, p.map(_.replaceRegionsNB(r))))(r)
         case IfElse(ifCases, elseCase) =>
           IfElse(ifCases.map { case (bool, res) => (bool.replaceRegionsNB(r), res.map(_.replaceRegions(r))) },
             elseCase.map(_.replaceRegions(r)))(r)
@@ -649,6 +659,13 @@ object Declaration {
       Document.instance(_.toDoc)
   }
 
+  /**
+    * These are "binding" kinds, (not-NonBinding)
+    */
+  case class Binding(binding: BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class DefFn(deffn: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
+
   //
   // We use the pattern of an implicit region for two reasons:
   // 1. we don't want the region to play a role in pattern matching or equality, since it is about
@@ -666,9 +683,8 @@ object Declaration {
     def toApply: Apply =
       Apply(opVar, NonEmptyList(left, right :: Nil), ApplyKind.Parens)(region)
   }
-  case class Binding(binding: BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]])(implicit val region: Region) extends Declaration
-  case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
-  case class DefFn(deffn: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
+  case class CommentNB(comment: CommentStatement[Padding[NonBinding]])(implicit val region: Region) extends NonBinding
+
   case class IfElse(ifCases: NonEmptyList[(NonBinding, OptIndent[Declaration])],
     elseCase: OptIndent[Declaration])(implicit val region: Region) extends NonBinding
   case class Ternary(trueCase: NonBinding, cond: NonBinding, falseCase: NonBinding) extends NonBinding {
@@ -794,12 +810,27 @@ object Declaration {
   private def restP(parser: Indy[Declaration]): Indy[Padding[Declaration]] =
     parser.indentBefore.mapF(Padding.parser(_))
 
-  def commentP(parser: Indy[Declaration]): Parser.Indy[Comment] =
+  def commentP(parser: Indy[Declaration]): Parser.Indy[Declaration] =
     CommentStatement.parser(
         { indent => Padding.parser(P.string0(indent).with1 *>  parser(indent)) }
       )
       .region
-      .map { case (r, c) => Comment(c)(r) }
+      .map {
+        case (r, c) =>
+          c.on.padded match {
+            case nb: NonBinding =>
+              CommentNB(CommentStatement(c.message, Padding(c.on.lines, nb)))(r)
+            case _ =>
+              Comment(c)(r)
+          }
+      }
+
+  def commentNBP(parser: P[NonBinding]): P[CommentNB] =
+    CommentStatement.parser(
+        { indent => Padding.parser(Parser.maybeSpace.soft.with1 *> parser) }
+      )("")
+      .region
+      .map { case (r, c) => CommentNB(c)(r) }
 
   def defP(parser: Indy[Declaration]): Indy[DefFn] = {
     val restParser: Indy[(OptIndent[Declaration], Padding[Declaration])] =
@@ -1024,6 +1055,7 @@ object Declaration {
             stringDeclOrLit(recNBIndy)(indent) ::
             tupOrPar ::
             recordConstructorP(indent, recNonBind, recArg) ::
+            commentNBP(recNonBind) :: 
             Nil))
 
       /*
