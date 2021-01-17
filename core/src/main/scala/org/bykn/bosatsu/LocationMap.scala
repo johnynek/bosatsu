@@ -24,6 +24,23 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
       }
       .toList
 
+  /**
+   * convert tab to tab, but otherwise space
+   * return the white space before this column
+   */
+  private def spaceOf(row: Int, col: Int): Option[String] =
+    getLine(row)
+      .map { line =>
+        val bldr = new java.lang.StringBuilder
+        var idx = 0
+        while (idx < col) {
+          val c = if (line.length > idx) line.charAt(idx) else ' '
+          if (c == '\t') bldr.append('\t')
+          else bldr.append(' ')
+          idx = idx + 1
+        }
+        bldr.toString()
+      }
 
   def showContext(offset: Int, previousLines: Int, color: Colorize): Option[Doc] =
     toLineCol(offset)
@@ -37,7 +54,9 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
         val pointerPad = Doc.spaces(toLineStr(r).render(0).length)
         val lineDocs = lines.map { case (no, l) => toLineStr(no) + Doc.text(l) }
         val ctx = Doc.intercalate(Doc.hardLine, lineDocs)
-        ctx + Doc.hardLine + pointerPad + LocationMap.pointerTo(c, color) + Doc.hardLine
+        // convert to spaces
+        val colPad = spaceOf(r, c).get
+        ctx + Doc.hardLine + pointerPad + LocationMap.pointerTo(colPad, color) + Doc.hardLine
       }
 
   def showRegion(region: Region, previousLines: Int, color: Colorize): Option[Doc] =
@@ -53,7 +72,10 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
           val pointerPad = Doc.spaces(toLineStr(l0).render(0).length)
           val lineDocs = lines.map { case (no, l) => toLineStr(no) + Doc.text(l) }
           val ctx = Doc.intercalate(Doc.hardLine, lineDocs)
-          ctx + Doc.hardLine + pointerPad + LocationMap.pointerRange(c0, c1 + 1, color) + Doc.hardLine
+          val c0Pad = spaceOf(l0, c0).get
+          // we go one more to cover the column
+          val c1Pad = spaceOf(l0, c1 + 1).get
+          ctx + Doc.hardLine + pointerPad + LocationMap.pointerRange(c0Pad, c1Pad, color) + Doc.hardLine
         }
         else {
           // we span multiple lines, show the start and the end:
@@ -100,20 +122,21 @@ object LocationMap {
    * with 0 based indexing:
    * e.g. pointerTo(2) == "  ^"
    */
-  def pointerTo(column: Int, color: Colorize): Doc = {
-    val col = Doc.spaces(column)
+  def pointerTo(colStr: String, color: Colorize): Doc = {
+    val col = Doc.text(colStr)
     val pointer = Doc.char('^')
     col + color.red(pointer)
   }
 
-  def pointerRange(start: Int, exEnd: Int, color: Colorize): Doc = {
-    val width = exEnd - start
-    if (width <= 0) Doc.empty
-    else {
-      val col = Doc.spaces(start)
-      val pointer = Doc.char('^') * width
-      col + color.red(pointer)
+  def pointerRange(startPad: String, endPad: String, color: Colorize): Doc = {
+    val col = Doc.text(startPad)
+    // just use tab for any tabs
+    val pointerStr = endPad.drop(startPad.length).map {
+      case '\t' => '\t'
+      case _ => '^'
     }
+    val pointer = Doc.text(pointerStr)
+    col + color.red(pointer)
   }
 
   def charsLineNumber(i: Int): Int = {
