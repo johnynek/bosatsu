@@ -21,7 +21,11 @@ object TestUtils {
 
     val stmt = statementsOf(pack, str)
     val srcConv = SourceConverter(pack, Nil, Statement.definitionsOf(stmt))
-    val Ior.Right(prog) = srcConv.toProgram(stmt)
+    val prog = srcConv.toProgram(stmt) match {
+        case Ior.Right(prog) => prog
+        case Ior.Both(_, prog) => prog
+        case Ior.Left(err) => sys.error(err.toString)
+      }
     TypeEnv.fromParsed(prog.types._2)
   }
 
