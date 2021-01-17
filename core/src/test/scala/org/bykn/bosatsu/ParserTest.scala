@@ -514,7 +514,7 @@ class SyntaxParseTest extends ParserTestBase {
     parseTestAll(
       Declaration.parser(""),
       commentLit,
-      Declaration.Comment(
+      Declaration.CommentNB(
         CommentStatement(NonEmptyList.of("foo", "bar"),
           Padding(1, Declaration.Literal(Lit.fromInt(1))))))
 
@@ -525,7 +525,7 @@ class SyntaxParseTest extends ParserTestBase {
     parseTestAll(
       Declaration.parser(""),
       parensComment,
-      Declaration.Parens(Declaration.Comment(
+      Declaration.Parens(Declaration.CommentNB(
         CommentStatement(NonEmptyList.of("foo", "bar"),
           Padding(1, Declaration.Literal(Lit.fromInt(1)))))))
   }
@@ -554,7 +554,7 @@ foo"""
       Declaration.parser(""),
       defWithComment,
       Declaration.DefFn(DefStatement(Identifier.Name("foo"), List(Pattern.Var(Identifier.Name("a"))), None,
-        (OptIndent.paddedIndented(1, 2, Declaration.Comment(CommentStatement(NonEmptyList.of(" comment here"),
+        (OptIndent.paddedIndented(1, 2, Declaration.CommentNB(CommentStatement(NonEmptyList.of(" comment here"),
           Padding(0, mkVar("a"))))),
          Padding(0, mkVar("foo"))))))
 
@@ -727,7 +727,7 @@ x""",
       """x = foo(4)
 # x is really great
 x""",
-    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")),Apply(mkVar("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), ApplyKind.Parens),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,mkVar("x"))))))))
+    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")),Apply(mkVar("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), ApplyKind.Parens),Padding(0,CommentNB(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,mkVar("x"))))))))
 
     // allow indentation after =
     roundTrip(parser(""),
@@ -1006,6 +1006,24 @@ x""")
     decl("""|(y = 1
             |_ = y
             |2)""".stripMargin)
+
+    decl("""|(y = 1
+            |# just ignore y
+            |_ = y
+            |2)""".stripMargin)
+
+    decl("""|[1,
+            |  (# comment in a list
+            |2)]""".stripMargin)
+
+    decl("""|[1,
+            |  # comment in a list
+            | 2]""".stripMargin)
+
+    decl("""|[1,
+            |  # comment in a list
+            |    # 1.5
+            |  2]""".stripMargin)
   }
 
   test("we can parse any Statement") {
