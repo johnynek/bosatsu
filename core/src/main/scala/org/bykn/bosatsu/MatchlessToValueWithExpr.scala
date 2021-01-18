@@ -15,17 +15,19 @@ object MatchlessToValueWithExpr {
   import Matchless._
 
   sealed abstract class Leaf {
-    def asValueWithExpr: ValueWithExpr
+    def asValue: Value
   }
 
   object Leaf {
     case class Cons(
         head: ValueWithExpr,
-        tail: ValueWithExpr,
-        asValueWithExpr: ValueWithExpr
-    ) extends Leaf
+        tail: ValueWithExpr
+    ) extends Leaf {
+      lazy val asValue = VList.Cons(head.eval, tail.eval)
+    }
+
     case object LNil extends Leaf {
-      val asValueWithExpr = ComputedValue(VList.VNil)
+      lazy val asValue = VList.VNil
     }
   }
 
@@ -33,15 +35,17 @@ object MatchlessToValueWithExpr {
     def evalAndThen[A](fn: Value => A): A = this match {
       case ComputedValue(value)         => fn(value)
       case LazyValue(expression, scope) => ???
+      case LeafValue(leaf)              => fn(leaf.asValue)
     }
 
     def eval: Value = evalAndThen[Value](identity(_))
 
     lazy val asLeaf: Leaf = this match {
       case cv @ ComputedValue(VList.Cons(head, tail)) =>
-        Leaf.Cons(ComputedValue(head), ComputedValue(tail), cv)
+        Leaf.Cons(ComputedValue(head), ComputedValue(tail))
       case ComputedValue(_)             => Leaf.LNil
       case LazyValue(expression, scope) => ???
+      case LeafValue(leaf)              => leaf
     }
   }
   case class LazyValue(
@@ -49,6 +53,7 @@ object MatchlessToValueWithExpr {
       scope: Map[(PackageName, Identifier), ValueWithExpr]
   ) extends ValueWithExpr
   case class ComputedValue(value: Value) extends ValueWithExpr
+  case class LeafValue(leaf: Leaf) extends ValueWithExpr
 
   // reuse some cache structures across a number of calls
   def traverse[F[_]: Functor](
@@ -286,15 +291,15 @@ object MatchlessToValueWithExpr {
             // into [_, *_] which wouldn't trigger
             // this branch
             Dynamic { scope: Scope =>
-              var currentList = initF(scope).asLeaf
+              var currentList = initF(scope)
               var res = false
               while (currentList ne null) {
-                currentList match {
-                  case Leaf.Cons(_, tail, nonempty) =>
-                    scope.updateMut(mutV, nonempty)
+                currentList.asLeaf match {
+                  case Leaf.Cons(_, tail) =>
+                    scope.updateMut(mutV, currentList)
                     res = checkF(scope)
                     if (res) { currentList = null }
-                    else { currentList = tail.asLeaf }
+                    else { currentList = tail }
                   case _ =>
                     currentList = null
                   // we don't match empty lists
@@ -314,23 +319,20 @@ object MatchlessToValueWithExpr {
             // this is always dynamic
             Dynamic { scope: Scope =>
               var res = false
-              var currentList = initF(scope).asLeaf
+              var currentList = initF(scope)
               var leftList: Leaf = Leaf.LNil
               while (currentList ne null) {
-                currentList match {
-                  case Leaf.Cons(head, tail, nonempty) =>
-                    scope.updateMut(mutV, nonempty)
-                    scope.updateMut(left, leftList.asValueWithExpr)
+                currentList.asLeaf match {
+                  case Leaf.Cons(head, tail) =>
+                    scope.updateMut(mutV, currentList)
+                    scope.updateMut(left, LeafValue(leftList))
                     res = checkF(scope)
                     if (res) { currentList = null }
                     else {
-                      currentList = tail.asLeaf
+                      currentList = tail
                       leftList = Leaf.Cons(
                         head,
-                        leftList.asValueWithExpr,
-                        ComputedValue(
-                          VList.Cons(head.eval, leftList.asValueWithExpr.eval)
-                        )
+                        LeafValue(leftList)
                       )
                     }
                   case _ =>
