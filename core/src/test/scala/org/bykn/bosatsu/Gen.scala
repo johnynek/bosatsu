@@ -48,11 +48,14 @@ object Generators {
 
   val opGen: Gen[Identifier.Operator] = {
     val sing = Gen.oneOf(Operators.singleToks).map(Identifier.Operator(_))
-    val multi = for {
-      c <- Gen.choose(2, 5)
-      multiGen = Gen.oneOf(Operators.multiToks)
-      ms <- Gen.listOfN(c, multiGen)
-    } yield Identifier.Operator(ms.mkString)
+    lazy val multi: Gen[Identifier.Operator] =
+      for {
+        c <- Gen.choose(2, 5)
+        multiGen = Gen.oneOf(Operators.multiToks)
+        ms <- Gen.listOfN(c, multiGen)
+        asStr = ms.mkString
+        res <- (if (asStr != "<-") Gen.const(Identifier.Operator(asStr)) else multi)
+      } yield res
 
     Gen.frequency((4, sing), (1, multi))
   }
@@ -710,6 +713,9 @@ object Generators {
           case Ternary(t, c, f) =>
             val s = Stream(t, c, f)
             s #::: s.flatMap(apply(_))
+          case LeftApply(p, reg, r, b) =>
+            // todo, we should really interleave shrinking r and b
+            r #:: b.padded #:: Stream.empty
           case Match(_, typeName, args) =>
             args.get.toList.toStream.flatMap {
               case (_, decl) => decl.get #:: apply(decl.get)
