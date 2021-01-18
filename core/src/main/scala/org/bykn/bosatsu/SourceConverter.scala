@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Functor}
+import cats.{Applicative, Traverse}
 import cats.data.{ Chain, Ior, NonEmptyChain, NonEmptyList, State }
 import cats.implicits._
 import org.bykn.bosatsu.rankn.{ParsedTypeEnv, Type, TypeEnv}
@@ -49,14 +49,31 @@ final class SourceConverter(
 
   val importedTypeEnv = Referant.importedTypeEnv(imports)(identity)
 
-  private def nameToType(c: Constructor): rankn.Type.Const =
-    typeCache.getOrElseUpdate(c, {
-      val tc = TypeName(c)
-      val (p1, c1) =
-        if (localTypeNames(c)) (thisPackage, tc)
-        else importedTypes.getOrElse(c, (thisPackage, tc))
-      Type.Const.Defined(p1, c1)
-    })
+  private def nameToType(c: Constructor, region: Region): Result[rankn.Type.Const] =
+    typeCache.get(c) match {
+      case Some(r) => success(r)
+      case None =>
+        val tc = TypeName(c)
+        if (localTypeNames(c)) {
+          val res = Type.Const.Defined(thisPackage, tc)
+          typeCache.update(c, res)
+          success(res)
+        }
+        else {
+          importedTypes.get(c) match {
+            case Some((p, t)) =>
+              val res = Type.Const.Defined(p, t)
+              typeCache.update(c, res)
+              success(res)
+            case None =>
+              // this is an error
+              val bestEffort = Type.Const.Defined(thisPackage, tc)
+              SourceConverter.partial(
+                SourceConverter.UnknownTypeName(c, region),
+                bestEffort)
+          }
+        }
+    }
 
   private def nameToCons(c: Constructor): (PackageName, Constructor) =
     consCache.getOrElseUpdate(c, {
@@ -93,7 +110,7 @@ final class SourceConverter(
 
     decl match {
       case Annotation(term, tpe) =>
-        loop(term).map(Expr.Annotation(_, toType(tpe), decl))
+        (loop(term), toType(tpe, decl.region)).mapN(Expr.Annotation(_, _, decl))
       case Apply(fn, args, _) =>
         (loop(fn), args.toList.traverse(loop(_)))
           .mapN { Expr.buildApp(_, _, decl) }
@@ -112,10 +129,11 @@ final class SourceConverter(
                 Expr.Let(arg, rhs, e, RecursionKind.NonRecursive, decl)
               }
             case Pattern.Annotation(pat, tpe) =>
-              val realTpe = toType(tpe)
-              // move the annotation to the right
-              val newRhs = rrhs.map(Expr.Annotation(_, realTpe, decl))
-              solvePat(pat, newRhs)
+              toType(tpe, decl.region).flatMap { realTpe =>
+                // move the annotation to the right
+                val newRhs = rrhs.map(Expr.Annotation(_, realTpe, decl))
+                solvePat(pat, newRhs)
+              }
             case Pattern.Named(nm, p) =>
                // this is the same as creating a let nm = value first
               (solvePat(p, rrhs), rrhs).mapN { (inner, rhs) =>
@@ -132,6 +150,8 @@ final class SourceConverter(
         solvePat(pat, loop(value))
       case Comment(CommentStatement(_, Padding(_, decl))) =>
         loop(decl).map(_.as(decl))
+      case CommentNB(CommentStatement(_, Padding(_, decl))) =>
+        loop(decl).map(_.as(decl))
       case DefFn(defstmt@DefStatement(_, _, _, _)) =>
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
@@ -139,7 +159,7 @@ final class SourceConverter(
         val newBindings = defstmt.name :: defstmt.args.flatMap(_.names)
         // TODO
         val lambda = defstmt.toLambdaExpr({ res => withBound(res._1.get, newBindings) }, success(decl))(
-          convertPattern(_, decl.region), { t => success(toType(t)) })
+          convertPattern(_, decl.region), { t => toType(t, decl.region) })
         (inExpr, lambda).mapN { (in, lam) =>
           // We rely on DefRecursionCheck to rule out bad recursions
           val boundName = defstmt.name
@@ -452,8 +472,8 @@ final class SourceConverter(
     }
   }
 
-  private def toType(t: TypeRef): Type =
-    TypeRefConverter[cats.Id](t)(nameToType _)
+  private def toType(t: TypeRef, region: Region): Result[Type] =
+    TypeRefConverter[Result](t)(nameToType(_, region))
 
   def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): Result[rankn.DefinedType[Unit]] = {
     import Statement._
@@ -492,8 +512,8 @@ final class SourceConverter(
     def buildParams(args: List[(Bindable, Option[Type])]): VarState[List[(Bindable, Type)]] =
       args.traverse(buildParam _)
 
-    // This is a functor on List[(Bindable, Option[A])]
-    val deep = Functor[List].compose(Functor[(Bindable, *)]).compose(Functor[Option])
+    // This is a traverse on List[(Bindable, Option[A])]
+    val deep = Traverse[List].compose(Traverse[(Bindable, *)]).compose(Traverse[Option])
 
     def updateInferedWithDecl(
       typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
@@ -521,58 +541,63 @@ final class SourceConverter(
 
     tds match {
       case Struct(nm, typeArgs, args) =>
-        val argsType = deep.map(args)(toType(_))
-        val initVars = existingVars(argsType)
-        val initState = ((initVars.toSet, initVars.reverse), 0L)
-        val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
-        // we reverse to make sure we see in traversal order
-        val typeParams0 = typeVars.reverseMap { tv =>
-          tv.toVar match {
-            case b@Type.Var.Bound(_) => b
-            // $COVERAGE-OFF$ this should be unreachable
-            case unexpected =>
-              sys.error(s"unexpectedly parsed a non bound var: $unexpected")
-            // $COVERAGE-ON$
+        deep.traverse(args)(toType(_, tds.region))
+          .flatMap { argsType =>
+            val initVars = existingVars(argsType)
+            val initState = ((initVars.toSet, initVars.reverse), 0L)
+            val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
+            // we reverse to make sure we see in traversal order
+            val typeParams0 = typeVars.reverseMap { tv =>
+              tv.toVar match {
+                case b@Type.Var.Bound(_) => b
+                // $COVERAGE-OFF$ this should be unreachable
+                case unexpected =>
+                  sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+                // $COVERAGE-ON$
+              }
+            }
+
+            updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
+              val tname = TypeName(nm)
+              val consFn = rankn.ConstructorFn.build(pname, tname, typeParams, nm, params)
+
+              rankn.DefinedType(pname,
+                tname,
+                typeParams.map((_, ())),
+                consFn :: Nil)
+            }
           }
-        }
-
-        updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
-          val tname = TypeName(nm)
-          val consFn = rankn.ConstructorFn.build(pname, tname, typeParams, nm, params)
-
-          rankn.DefinedType(pname,
-            tname,
-            typeParams.map((_, ())),
-            consFn :: Nil)
-        }
       case Enum(nm, typeArgs, items) =>
-        val conArgs = items.get.map { case (nm, args) =>
-          val argsType = deep.map(args)(toType)
-          (nm, argsType)
+        items.get.traverse { case (nm, args) =>
+          deep.traverse(args)(toType(_, tds.region))
+            .map((nm, _))
         }
-        val constructorsS = conArgs.traverse { case (nm, argsType) =>
-          buildParams(argsType).map { params =>
-            (nm, params)
+        .flatMap { conArgs =>
+
+          val constructorsS = conArgs.traverse { case (nm, argsType) =>
+            buildParams(argsType).map { params =>
+              (nm, params)
+            }
           }
-        }
-        val initVars = existingVars(conArgs.toList.flatMap(_._2))
-        val initState = ((initVars.toSet, initVars.reverse), 0L)
-        val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
-        // we reverse to make sure we see in traversal order
-        val typeParams0 = typeVars.reverseMap { tv =>
-          tv.toVar match {
-            case b@Type.Var.Bound(_) => b
-            // $COVERAGE-OFF$ this should be unreachable
-            case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
-            // $COVERAGE-ON$
+          val initVars = existingVars(conArgs.toList.flatMap(_._2))
+          val initState = ((initVars.toSet, initVars.reverse), 0L)
+          val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
+          // we reverse to make sure we see in traversal order
+          val typeParams0 = typeVars.reverseMap { tv =>
+            tv.toVar match {
+              case b@Type.Var.Bound(_) => b
+              // $COVERAGE-OFF$ this should be unreachable
+              case unexpected => sys.error(s"unexpectedly parsed a non bound var: $unexpected")
+              // $COVERAGE-ON$
+            }
           }
-        }
-        updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
-          val tname = TypeName(nm)
-          val finalCons = constructors.toList.map { case (c, params) =>
-            rankn.ConstructorFn.build(pname, tname, typeParams, c, params)
+          updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
+            val tname = TypeName(nm)
+            val finalCons = constructors.toList.map { case (c, params) =>
+              rankn.ConstructorFn.build(pname, tname, typeParams, c, params)
+            }
+            rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
           }
-          rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
         }
       case ExternalStruct(nm, targs) =>
         // TODO make a real check here
@@ -768,7 +793,7 @@ final class SourceConverter(
           })
         }
       },
-      { t => SourceConverter.success(toType(t)) },
+      { t => toType(t, region) },
       { items => items.map(unlistPattern) }
     )(SourceConverter.parallelIor) // use the parallel, not the default Applicative which is Monadic
 
@@ -1058,7 +1083,7 @@ final class SourceConverter(
           val r = apply(decl, Set.empty, topBound).map((nm, RecursionKind.NonRecursive, _) :: Nil)
           (topBound + nm, r)
 
-        case Right(Left(Def(defstmt@DefStatement(n, pat, _, _)))) =>
+        case Right(Left(d @ Def(defstmt@DefStatement(n, pat, _, _)))) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
 
           val boundName = defstmt.name
@@ -1069,7 +1094,7 @@ final class SourceConverter(
             { res => apply(res.get, pat.iterator.flatMap(_.names).toSet + boundName, topBound1) },
             success(defstmt.result.get))(
               convertPattern(_, defstmt.result.get.region),
-              { t => success(toType(t)) })
+              { t => toType(t, d.region) })
 
           val r = lam.map { l =>
             // We rely on DefRecursionCheck to rule out bad recursions
@@ -1088,38 +1113,44 @@ final class SourceConverter(
 
   def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] = {
     val stmts = Statement.valuesOf(ss)
-    val exts = stmts.collect {
-      case Statement.ExternalDef(name, params, result) =>
-        val tpe: rankn.Type = {
-          def buildType(ts: List[rankn.Type]): rankn.Type =
-            ts match {
-              case Nil => toType(result)
-              case h :: tail => rankn.Type.Fun(h, buildType(tail))
+    stmts.collect {
+      case ed@Statement.ExternalDef(name, params, result) =>
+        (params.traverse { p => toType(p._2, ed.region) }, toType(result, ed.region))
+          .mapN { (paramTypes, resType) =>
+            val tpe: rankn.Type = {
+              def buildType(ts: List[rankn.Type]): rankn.Type =
+                ts match {
+                  case Nil => resType
+                  case h :: tail => rankn.Type.Fun(h, buildType(tail))
+                }
+              buildType(paramTypes)
             }
-          buildType(params.map { p => toType(p._2) })
-        }
-        val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
-        // these vars were parsed so they are never skolem vars
-        val freeBound = freeVars.map {
-          case b@rankn.Type.Var.Bound(_) => b
-          case s@rankn.Type.Var.Skolem(_, _) =>
-            // $COVERAGE-OFF$ this should be unreachable
-            sys.error(s"invariant violation: parsed a skolem var: $s")
-            // $COVERAGE-ON$
-        }
-        val maybeForAll = rankn.Type.forAll(freeBound, tpe)
-        (name, maybeForAll)
-      }
 
-    val pte1 = toTypeEnv.map { p =>
-      exts.foldLeft(p) { case (pte, (name, tpe)) =>
-        pte.addExternalValue(thisPackage, name, tpe)
-      }
+            val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
+            // these vars were parsed so they are never skolem vars
+            val freeBound = freeVars.map {
+              case b@rankn.Type.Var.Bound(_) => b
+              case s@rankn.Type.Var.Skolem(_, _) =>
+                // $COVERAGE-OFF$ this should be unreachable
+                sys.error(s"invariant violation: parsed a skolem var: $s")
+                // $COVERAGE-ON$
+            }
+            val maybeForAll = rankn.Type.forAll(freeBound, tpe)
+            (name, maybeForAll)
+          }
     }
+    .sequence
+    .flatMap { exts =>
+      val pte1 = toTypeEnv.map { p =>
+        exts.foldLeft(p) { case (pte, (name, tpe)) =>
+          pte.addExternalValue(thisPackage, name, tpe)
+        }
+      }
 
-    implicit val parallel = SourceConverter.parallelIor
-    (checkExternalDefShadowing(stmts), toLets(stmts), pte1).mapN { (_, binds, pte1) =>
-      Program((importedTypeEnv, pte1), binds, exts.map(_._1).toList, ss)
+      implicit val parallel = SourceConverter.parallelIor
+      (checkExternalDefShadowing(stmts), toLets(stmts), pte1).mapN { (_, binds, pte1) =>
+        Program((importedTypeEnv, pte1), binds, exts.map(_._1).toList, ss)
+      }
     }
   }
 }
@@ -1353,5 +1384,9 @@ object SourceConverter {
       val disc = tstr(discoveredTypes)
       s"${statement.name.asString} found declared: $decl, not a superset of $disc"
     }
+  }
+
+  final case class UnknownTypeName(tpe: Constructor, region: Region) extends Error {
+    def message = s"unknown type: ${tpe.asString}"
   }
 }

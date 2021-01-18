@@ -7,7 +7,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import org.typelevel.paiges.{Doc, Document}
 
 import cats.implicits._
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser0 => P0, Parser => P}
 import Parser.{optionParse, unsafeParse, Indy}
 
 import Generators.{shrinkDecl, shrinkStmt}
@@ -41,7 +41,7 @@ abstract class ParserTestBase extends AnyFunSuite with ParseFns {
   // This is so we can make Declarations without the region
   protected implicit val emptyRegion: Region = Region(0, 0)
 
-  def parseTest[T](p: P[T], str: String, expected: T, exidx: Int) =
+  def parseTest[T](p: P0[T], str: String, expected: T, exidx: Int) =
     p.parse(str) match {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
@@ -53,10 +53,10 @@ abstract class ParserTestBase extends AnyFunSuite with ParseFns {
         fail(s"failed to parse: $str: at $idx in region ${region(str, idx)} with err: ${err}")
     }
 
-  def parseTestAll[T](p: P[T], str: String, expected: T) =
+  def parseTestAll[T](p: P0[T], str: String, expected: T) =
     parseTest(p, str, expected, str.length)
 
-  def roundTrip[T: Document](p: P[T], str: String, lax: Boolean = false) =
+  def roundTrip[T: Document](p: P0[T], str: String, lax: Boolean = false) =
     p.parse(str) match {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
@@ -77,7 +77,7 @@ abstract class ParserTestBase extends AnyFunSuite with ParseFns {
         fail(s"failed to parse: $str: $idx in region ${region(str, idx)} with err: ${err}")
     }
 
-  def roundTripExact[T: Document](p: P[T], str: String) =
+  def roundTripExact[T: Document](p: P0[T], str: String) =
     p.parse(str) match {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
@@ -89,12 +89,12 @@ abstract class ParserTestBase extends AnyFunSuite with ParseFns {
         fail(s"failed to parse: $str: $idx in region ${region(str, idx)} with err: ${err}")
     }
 
-  def law[T: Document](p: P[T])(t: T) = {
+  def law[T: Document](p: P0[T])(t: T) = {
     val syntax = Document[T].document(t).render(80)
     parseTestAll(p, syntax, t)
   }
 
-  def expectFail[T](p: P[T], str: String, atIdx: Int) =
+  def expectFail[T](p: P0[T], str: String, atIdx: Int) =
     p.parse(str) match {
       case Right((rest, t)) =>
         val idx = if (rest == "") str.length else str.indexOf(rest)
@@ -209,7 +209,7 @@ class ParserTest extends ParserTestBase {
     def singleq(str1: String, res: List[Either[Json, String]]) =
       parseTestAll(
         StringUtil
-          .interpolatedString('\'', P.string1("${"), Json.parser, P.char('}'))
+          .interpolatedString('\'', P.string("${"), Json.parser, P.char('}'))
           .map(_.map {
             case Right((_, str)) => Right(str)
             case Left(l) => Left(l)
@@ -256,8 +256,8 @@ class ParserTest extends ParserTestBase {
         case c => c.toString
       }
 
-      val listOfStr: P1[List[String]] =
-        P.string1("List(") *>
+      val listOfStr: P[List[String]] =
+        P.string("List(") *>
           Parser.integerString.nonEmptyList.map(_.toList)
             .orElse(P.pure(Nil)) <*
             P.char(')')
@@ -315,7 +315,7 @@ class ParserTest extends ParserTestBase {
 
   test("we can parse RecordConstructors") {
     def check(str: String) =
-      roundTrip[Declaration](Declaration.recordConstructorP("", Declaration.varP, Declaration.varP.orElse1(Declaration.lits)), str)
+      roundTrip[Declaration](Declaration.recordConstructorP("", Declaration.varP, Declaration.varP.orElse(Declaration.lits)), str)
 
     check("Foo { bar }")
     check("Foo{bar}")
@@ -381,7 +381,7 @@ class ParserTest extends ParserTestBase {
   }
 
   test("we can parse blocks") {
-    val indy = OptIndent.block(Indy.lift(P.string1("if foo")), Indy.lift(P.string1("bar")))
+    val indy = OptIndent.block(Indy.lift(P.string("if foo")), Indy.lift(P.string("bar")))
     val p = indy.run("")
     parseTestAll(p, "if foo: bar", ((), OptIndent.same(())))
     parseTestAll(p, "if foo:\n\tbar", ((), OptIndent.paddedIndented(1, 4, ())))
@@ -396,11 +396,11 @@ class ParserTest extends ParserTestBase {
       NonEmptyList.of(single, single))
 
     // we can nest blocks
-    parseTestAll(OptIndent.block(Indy.lift(P.string1("nest")), indy)(""), "nest: if foo: bar",
+    parseTestAll(OptIndent.block(Indy.lift(P.string("nest")), indy)(""), "nest: if foo: bar",
       ((), OptIndent.same(((), OptIndent.same(())))))
-    parseTestAll(OptIndent.block(Indy.lift(P.string1("nest")), indy)(""), "nest:\n  if foo: bar",
+    parseTestAll(OptIndent.block(Indy.lift(P.string("nest")), indy)(""), "nest:\n  if foo: bar",
       ((), OptIndent.paddedIndented(1, 2, ((), OptIndent.same(())))))
-    parseTestAll(OptIndent.block(Indy.lift(P.string1("nest")), indy)(""), "nest:\n  if foo:\n    bar",
+    parseTestAll(OptIndent.block(Indy.lift(P.string("nest")), indy)(""), "nest:\n  if foo:\n    bar",
       ((), OptIndent.paddedIndented(1, 2, ((), OptIndent.paddedIndented(1, 2, ())))))
 
     val simpleBlock = OptIndent.block(Indy.lift(Parser.lowerIdent <* Parser.maybeSpace), Indy.lift(Parser.lowerIdent))
@@ -514,7 +514,7 @@ class SyntaxParseTest extends ParserTestBase {
     parseTestAll(
       Declaration.parser(""),
       commentLit,
-      Declaration.Comment(
+      Declaration.CommentNB(
         CommentStatement(NonEmptyList.of("foo", "bar"),
           Padding(1, Declaration.Literal(Lit.fromInt(1))))))
 
@@ -525,7 +525,7 @@ class SyntaxParseTest extends ParserTestBase {
     parseTestAll(
       Declaration.parser(""),
       parensComment,
-      Declaration.Parens(Declaration.Comment(
+      Declaration.Parens(Declaration.CommentNB(
         CommentStatement(NonEmptyList.of("foo", "bar"),
           Padding(1, Declaration.Literal(Lit.fromInt(1)))))))
   }
@@ -554,7 +554,7 @@ foo"""
       Declaration.parser(""),
       defWithComment,
       Declaration.DefFn(DefStatement(Identifier.Name("foo"), List(Pattern.Var(Identifier.Name("a"))), None,
-        (OptIndent.paddedIndented(1, 2, Declaration.Comment(CommentStatement(NonEmptyList.of(" comment here"),
+        (OptIndent.paddedIndented(1, 2, Declaration.CommentNB(CommentStatement(NonEmptyList.of(" comment here"),
           Padding(0, mkVar("a"))))),
          Padding(0, mkVar("foo"))))))
 
@@ -727,7 +727,7 @@ x""",
       """x = foo(4)
 # x is really great
 x""",
-    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")),Apply(mkVar("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), ApplyKind.Parens),Padding(0,Comment(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,mkVar("x"))))))))
+    Binding(BindingStatement(Pattern.Var(Identifier.Name("x")),Apply(mkVar("foo"),NonEmptyList.of(Literal(Lit.fromInt(4))), ApplyKind.Parens),Padding(0,CommentNB(CommentStatement(NonEmptyList.of(" x is really great"),Padding(0,mkVar("x"))))))))
 
     // allow indentation after =
     roundTrip(parser(""),
@@ -739,8 +739,8 @@ x""",
   test("we can parse if") {
     import Declaration._
 
-    val liftVar = Parser.Indy.lift(varP: P1[Declaration])
-    val liftVar0 = Parser.Indy.lift(varP: P1[NonBinding])
+    val liftVar = Parser.Indy.lift(varP: P[Declaration])
+    val liftVar0 = Parser.Indy.lift(varP: P[NonBinding])
     val parser0 = ifElseP(liftVar0, liftVar)("")
 
     roundTrip[Declaration](parser0,
@@ -808,8 +808,8 @@ else: y""")
   }
 
   test("we can parse a match") {
-    val liftVar = Parser.Indy.lift(Declaration.varP: P1[Declaration])
-    val liftVar0 = Parser.Indy.lift(Declaration.varP: P1[Declaration.NonBinding])
+    val liftVar = Parser.Indy.lift(Declaration.varP: P[Declaration])
+    val liftVar0 = Parser.Indy.lift(Declaration.varP: P[Declaration.NonBinding])
     roundTrip[Declaration](Declaration.matchP(liftVar0, liftVar)(""),
 """match x:
   y:
@@ -1006,6 +1006,24 @@ x""")
     decl("""|(y = 1
             |_ = y
             |2)""".stripMargin)
+
+    decl("""|(y = 1
+            |# just ignore y
+            |_ = y
+            |2)""".stripMargin)
+
+    decl("""|[1,
+            |  (# comment in a list
+            |2)]""".stripMargin)
+
+    decl("""|[1,
+            |  # comment in a list
+            | 2]""".stripMargin)
+
+    decl("""|[1,
+            |  # comment in a list
+            |    # 1.5
+            |  2]""".stripMargin)
   }
 
   test("we can parse any Statement") {

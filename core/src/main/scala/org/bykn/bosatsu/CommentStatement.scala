@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 
 /**
@@ -23,20 +23,20 @@ object CommentStatement {
   /** on should make sure indent is matching
    * this is to allow a P[Unit] that does nothing for testing or other applications
    */
-  def parser[T](onP: String => P[T]): Parser.Indy[CommentStatement[T]] =
+  def parser[T](onP: String => P0[T]): Parser.Indy[CommentStatement[T]] =
     Parser.Indy { indent =>
-      val sep = Parser.newline ~ P.string(indent)
+      val sep = Parser.newline ~ Parser.maybeSpace
 
-      val commentBlock: P1[NonEmptyList[String]] =
+      val commentBlock: P[NonEmptyList[String]] =
         // if the next line is part of the comment until we see the # or not
-        P.rep1Sep(commentPart, min = 1, sep = sep) <* Parser.newline.orElse(P.end)
+        commentPart.repSep(sep = sep) <* Parser.newline.orElse(P.end)
 
       (commentBlock ~ onP(indent))
         .map { case (m, on) => CommentStatement(m, on) }
     }
 
-  val commentPart: P1[String] =
-    (P.char('#') ~ P.until(P.char('\n'))).map(_._2)
+  val commentPart: P[String] =
+    P.char('#') *> P.until0(P.char('\n'))
 }
 
 

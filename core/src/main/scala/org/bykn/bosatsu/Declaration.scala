@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import Parser.{ Combinators, Indy, maybeSpace, spaces, toEOL1, keySpace }
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.graph.Memoize
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
 
@@ -59,6 +59,8 @@ sealed abstract class Declaration {
         BindingStatement.document(Document[Pattern.Parsed], Document.instance[NonBinding](_.toDoc), withNewLine).document(b)
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
+      case CommentNB(c) =>
+        CommentStatement.document[Padding[NonBinding]].document(c)
       case DefFn(d) =>
         implicit val pairDoc: Document[(OptIndent[Declaration], Padding[Declaration])] =
           Document.instance {
@@ -173,6 +175,7 @@ sealed abstract class Declaration {
           val bound1 = bound ++ n.names
           loop(in.padded, bound1, acc0)
         case Comment(c) => loop(c.on.padded, bound, acc)
+        case CommentNB(c) => loop(c.on.padded, bound, acc)
         case DefFn(d) =>
           val (body, rest) = d.result
           // def sets up a binding to itself, which
@@ -286,6 +289,7 @@ sealed abstract class Declaration {
           val acc0 = loop(v, acc ++ n.names)
           loop(in.padded, acc0)
         case Comment(c) => loop(c.on.padded, acc)
+        case CommentNB(c) => loop(c.on.padded, acc)
         case DefFn(d) =>
           // def sets up a binding to itself, which
           // may or may not be recursive
@@ -449,6 +453,10 @@ object Declaration {
         case ApplyOp(left, op, right) =>
           (loop(left), loop(right))
             .mapN(ApplyOp(_, op, _))
+        case CommentNB(CommentStatement(msg, Padding(l, nb))) =>
+          loop(nb).map { nb1 =>
+            CommentNB(CommentStatement(msg, Padding(l, nb1)))(decl.region)
+          }
         case IfElse(ifCases, elseCase) =>
           val ifs = ifCases.traverse { case (cond, br) =>
             (loop(cond), br.traverse(loopDec)).tupled
@@ -573,8 +581,8 @@ object Declaration {
     // Person { name: "Frank", age }
     final case class Simple(field: Bindable) extends RecordArg
 
-    def parser(indent: String, declP: P1[NonBinding]): P1[RecordArg] = {
-      val pairFn: P1[Bindable => Pair] = {
+    def parser(indent: String, declP: P[NonBinding]): P[RecordArg] = {
+      val pairFn: P[Bindable => Pair] = {
         val ws = Parser.maybeIndentedOrSpace(indent)
         ((ws.with1.soft *> P.char(':')) *> ws *> declP)
           .map { decl => Pair(_, decl) }
@@ -600,6 +608,8 @@ object Declaration {
           Apply(fn.replaceRegionsNB(r), args.map(_.replaceRegionsNB(r)), s)(r)
         case ApplyOp(left, op, right) =>
           ApplyOp(left.replaceRegionsNB(r), op, right.replaceRegionsNB(r))
+        case CommentNB(CommentStatement(msg, p)) =>
+          CommentNB(CommentStatement(msg, p.map(_.replaceRegionsNB(r))))(r)
         case IfElse(ifCases, elseCase) =>
           IfElse(ifCases.map { case (bool, res) => (bool.replaceRegionsNB(r), res.map(_.replaceRegions(r))) },
             elseCase.map(_.replaceRegions(r)))(r)
@@ -649,6 +659,13 @@ object Declaration {
       Document.instance(_.toDoc)
   }
 
+  /**
+    * These are "binding" kinds, (not-NonBinding)
+    */
+  case class Binding(binding: BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
+  case class DefFn(deffn: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
+
   //
   // We use the pattern of an implicit region for two reasons:
   // 1. we don't want the region to play a role in pattern matching or equality, since it is about
@@ -666,9 +683,8 @@ object Declaration {
     def toApply: Apply =
       Apply(opVar, NonEmptyList(left, right :: Nil), ApplyKind.Parens)(region)
   }
-  case class Binding(binding: BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]])(implicit val region: Region) extends Declaration
-  case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
-  case class DefFn(deffn: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
+  case class CommentNB(comment: CommentStatement[Padding[NonBinding]])(implicit val region: Region) extends NonBinding
+
   case class IfElse(ifCases: NonEmptyList[(NonBinding, OptIndent[Declaration])],
     elseCase: OptIndent[Declaration])(implicit val region: Region) extends NonBinding
   case class Ternary(trueCase: NonBinding, cond: NonBinding, falseCase: NonBinding) extends NonBinding {
@@ -704,11 +720,11 @@ object Declaration {
    */
   case class DictDecl(list: ListLang[KVPair, NonBinding, Pattern.Parsed])(implicit val region: Region) extends NonBinding
 
-  val matchKindParser: P1[RecursionKind] =
-    P.string1("match")
+  val matchKindParser: P[RecursionKind] =
+    P.string("match")
       .as(RecursionKind.NonRecursive)
-      .orElse1(
-        P.string1("recur")
+      .orElse(
+        P.string("recur")
         .as(RecursionKind.Recursive)).soft <* Parser.spaces.peek
 
   /**
@@ -773,7 +789,7 @@ object Declaration {
       case _ => None
     }
 
-  val eqP: P[Unit] = P.char('=') <* (!Operators.multiToksP)
+  val eqP: P0[Unit] = P.char('=') <* (!Operators.multiToksP)
   /**
    * if cutPattern = false, we put Pattern.bindParser in NoCut
    * this is needed for parsing declarations currently because
@@ -794,12 +810,27 @@ object Declaration {
   private def restP(parser: Indy[Declaration]): Indy[Padding[Declaration]] =
     parser.indentBefore.mapF(Padding.parser(_))
 
-  def commentP(parser: Indy[Declaration]): Parser.Indy[Comment] =
+  def commentP(parser: Indy[Declaration]): Parser.Indy[Declaration] =
     CommentStatement.parser(
-        { indent => Padding.parser(P.string(indent).with1 *>  parser(indent)) }
+        { indent => Padding.parser(P.string0(indent).with1 *>  parser(indent)) }
       )
       .region
-      .map { case (r, c) => Comment(c)(r) }
+      .map {
+        case (r, c) =>
+          c.on.padded match {
+            case nb: NonBinding =>
+              CommentNB(CommentStatement(c.message, Padding(c.on.lines, nb)))(r)
+            case _ =>
+              Comment(c)(r)
+          }
+      }
+
+  def commentNBP(parser: P[NonBinding]): P[CommentNB] =
+    CommentStatement.parser(
+        { indent => Padding.parser(Parser.maybeSpace.soft.with1 *> parser) }
+      )("")
+      .region
+      .map { case (r, c) => CommentNB(c)(r) }
 
   def defP(parser: Indy[Declaration]): Indy[DefFn] = {
     val restParser: Indy[(OptIndent[Declaration], Padding[Declaration])] =
@@ -823,7 +854,7 @@ object Declaration {
      */
     val elseTerm: Indy[OptIndent[Declaration]] =
       OptIndent
-        .block(Indy.lift(P.string1("else") <* maybeSpace), expr)
+        .block(Indy.lift(P.string("else") <* maybeSpace), expr)
         .map(_._2)
         .maybeMore // allow extra indentation
 
@@ -848,14 +879,14 @@ object Declaration {
   }
 
   def stringDeclOrLit(inner: Indy[NonBinding]): Indy[NonBinding] = {
-    val start = P.string1("${")
+    val start = P.string("${")
     val end = P.char('}')
     val q1 = '\''
     val q2 = '"'
 
     inner.mapF { p =>
       val plist = StringUtil.interpolatedString(q1, start, p, end)
-        .orElse1(StringUtil.interpolatedString(q2, start, p, end))
+        .orElse(StringUtil.interpolatedString(q2, start, p, end))
 
       plist.region.map {
         case (r, Nil) =>
@@ -872,7 +903,7 @@ object Declaration {
   def lambdaP(parser: Indy[Declaration]): Indy[Lambda] = {
     val params = Indy.lift(P.char('\\') *> maybeSpace *> Pattern.bindParser.nonEmptyList)
 
-    OptIndent.blockLike(params, parser, maybeSpace.with1 *> P.string1("->"))
+    OptIndent.blockLike(params, parser, maybeSpace.with1 *> P.string("->"))
       .region
       .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
   }
@@ -899,16 +930,16 @@ object Declaration {
   /**
    * A Parser that matches keywords
    */
-  val keywordsP: P1[Unit] =
-    P.oneOf1(keywords.toList.sorted.map(P.string1(_))) <* spaces
+  val keywordsP: P[Unit] =
+    P.oneOf(keywords.toList.sorted.map(P.string(_))) <* spaces
 
-  val varP: P1[Var] =
+  val varP: P[Var] =
     (!keywordsP).with1 *> Identifier.bindableParser.region.map { case (r, i) => Var(i)(r) }
 
   // this returns a Var with a Constructor or a RecordConstrutor
-  def recordConstructorP(indent: String, declP: P1[NonBinding], noAnn: P1[NonBinding]): P1[NonBinding] = {
+  def recordConstructorP(indent: String, declP: P[NonBinding], noAnn: P[NonBinding]): P[NonBinding] = {
     val ws = Parser.maybeIndentedOrSpace(indent)
-    val kv: P1[RecordArg] = RecordArg.parser(indent, noAnn)
+    val kv: P[RecordArg] = RecordArg.parser(indent, noAnn)
     val kvs = kv.nonEmptyListOfWs(ws)
 
     // here is the record style: Foo {x: 1, ...
@@ -943,17 +974,17 @@ object Declaration {
         Binding(bindfn(decl))(region)
       }
 
-  private def listP(p: P1[NonBinding], src: P1[NonBinding]): P1[ListDecl] =
+  private def listP(p: P[NonBinding], src: P[NonBinding]): P[ListDecl] =
     ListLang.parser(p, src, Pattern.bindParser)
       .region
       .map { case (r, l) => ListDecl(l)(r) }
 
-  private def dictP(p: P1[NonBinding], src: P1[NonBinding]): P1[DictDecl] =
+  private def dictP(p: P[NonBinding], src: P[NonBinding]): P[DictDecl] =
     ListLang.dictParser(p, src, Pattern.bindParser)
       .region
       .map { case (r, l) => DictDecl(l)(r) }
 
-  val lits: P1[Literal] = Lit.integerParser.region.map { case (r, l) => Literal(l)(r) }
+  val lits: P[Literal] = Lit.integerParser.region.map { case (r, l) => Literal(l)(r) }
 
   private sealed abstract class ParseMode
   private object ParseMode {
@@ -968,8 +999,8 @@ object Declaration {
    * or not. If false, we only parse NonBinding, if true
    * we also parse Bind, Def, Comment
    */
-  private[this] val parserCache: ((ParseMode, String)) => P1[Declaration] =
-    Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P1[Declaration]] { case ((pm, indent), rec) =>
+  private[this] val parserCache: ((ParseMode, String)) => P[Declaration] =
+    Memoize.memoizeDagHashedConcurrent[(ParseMode, String), P[Declaration]] { case ((pm, indent), rec) =>
 
       // TODO:
       // since we do a hard set of the mode in these, we lose the thread if we are inside a
@@ -980,19 +1011,19 @@ object Declaration {
       // I think we need to separate block-like expressions using : from NonBinding
       // and make sure that we don't have block like expressions in certain places
 
-      val recurseDecl: P1[Declaration] = P.defer1(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
+      val recurseDecl: P[Declaration] = P.defer(rec((ParseMode.Decl, indent))) // needs to be inside a P for laziness
       val recIndy: Indy[Declaration] = Indy { i => rec((ParseMode.Decl, i)) }
 
       // TODO: aren't NonBinding independent of indentation level>
-      val recNonBind: P1[NonBinding] = P.defer1(rec((ParseMode.NB, indent))).asInstanceOf[P1[NonBinding]]
-      val recNBIndy: Indy[NonBinding] = Indy { i => rec((ParseMode.NB, i)).asInstanceOf[P1[NonBinding]] }
+      val recNonBind: P[NonBinding] = P.defer(rec((ParseMode.NB, indent))).asInstanceOf[P[NonBinding]]
+      val recNBIndy: Indy[NonBinding] = Indy { i => rec((ParseMode.NB, i)).asInstanceOf[P[NonBinding]] }
 
-      val recArg: P1[NonBinding] = P.defer1(rec((ParseMode.BranchArg, indent)).asInstanceOf[P1[NonBinding]])
-      val recArgIndy: Indy[NonBinding] = Indy { i => rec((ParseMode.BranchArg, i)).asInstanceOf[P1[NonBinding]] }
+      val recArg: P[NonBinding] = P.defer(rec((ParseMode.BranchArg, indent)).asInstanceOf[P[NonBinding]])
+      val recArgIndy: Indy[NonBinding] = Indy { i => rec((ParseMode.BranchArg, i)).asInstanceOf[P[NonBinding]] }
 
-      val recComp: P1[NonBinding] = P.defer1(rec((ParseMode.ComprehensionSource, indent))).asInstanceOf[P1[NonBinding]]
+      val recComp: P[NonBinding] = P.defer(rec((ParseMode.ComprehensionSource, indent))).asInstanceOf[P[NonBinding]]
 
-      val tupOrPar: P1[NonBinding] =
+      val tupOrPar: P[NonBinding] =
         Parser.parens(((recNonBind.soft <* (!(maybeSpace ~ eqP)))
           .tupleOrParens0
           .map {
@@ -1011,9 +1042,9 @@ object Declaration {
       val lambBody = if (pm == ParseMode.BranchArg) recArgIndy.asInstanceOf[Indy[Declaration]] else recIndy
       val ternaryElseP = if (pm == ParseMode.BranchArg) recArg else recNonBind
 
-      val allNonBind: P1[NonBinding] =
-        P.defer1(
-          P.oneOf1(
+      val allNonBind: P[NonBinding] =
+        P.defer(
+          P.oneOf(
             lambdaP(lambBody)(indent) ::
             ifElseP(recArgIndy, recIndy)(indent) ::
             matchP(recArgIndy, recIndy)(indent) ::
@@ -1024,18 +1055,19 @@ object Declaration {
             stringDeclOrLit(recNBIndy)(indent) ::
             tupOrPar ::
             recordConstructorP(indent, recNonBind, recArg) ::
+            commentNBP(recNonBind) :: 
             Nil))
 
       /*
        * This is where we parse application, either direct, or dot-style
        */
-      val applied: P1[NonBinding] = {
+      val applied: P[NonBinding] = {
         val params = recNonBind.parensLines1Cut
         // here we are using . syntax foo.bar(1, 2)
         // we also allow foo.(anyExpression)(1, 2)
-        val fn = varP.orElse1(recNonBind.parensCut)
+        val fn = varP.orElse(recNonBind.parensCut)
         val slashcontinuation = ((maybeSpace ~ P.char('\\') ~ toEOL1).backtrack ~ Parser.maybeSpacesAndLines).?.void
-        val dotApply: P1[NonBinding => NonBinding] =
+        val dotApply: P[NonBinding => NonBinding] =
           (slashcontinuation.with1 *> P.char('.') *> (fn ~ params.?))
             .region
             .map { case (r2, (fn, argsOpt)) =>
@@ -1045,26 +1077,26 @@ object Declaration {
             }
 
         // here we directly call a function foo(1, 2)
-        val applySuffix: P1[NonBinding => NonBinding] =
+        val applySuffix: P[NonBinding => NonBinding] =
           params
             .region
             .map { case (r, args) =>
               { fn: NonBinding => Apply(fn, args, ApplyKind.Parens)(fn.region + r) }
             }
 
-        def repFn[A](fn: P1[A => A]): P[A => A] =
-          fn.rep.map { opList =>
+        def repFn[A](fn: P[A => A]): P0[A => A] =
+          fn.rep0.map { opList =>
             { (a: A) => opList.foldLeft(a) { (arg, fn) => fn(arg) } }
           }
 
-        (allNonBind ~ repFn(dotApply.orElse1(applySuffix)))
+        (allNonBind ~ repFn(dotApply.orElse(applySuffix)))
           .map { case (a, f) => f(a) }
       }
       // lower priority than calls is type annotation
-      val annotated: P1[NonBinding] =
+      val annotated: P[NonBinding] =
         if (pm == ParseMode.BranchArg) applied
         else {
-          val an: P1[NonBinding => NonBinding] =
+          val an: P[NonBinding => NonBinding] =
             (maybeSpace.with1.soft *> P.char(':') *> maybeSpace *> TypeRef.parser)
               // TODO remove this backtrack,
               // currently we can confuse ending a block with type annotation
@@ -1080,16 +1112,16 @@ object Declaration {
         }
 
       // matched
-      val matched: P1[NonBinding] = {
+      val matched: P[NonBinding] = {
         // x matches p
         val matchesOp =
-          ((maybeSpace.with1 *> P.string1("matches") *> spaces).backtrack *> Pattern.matchParser)
+          ((maybeSpace.with1 *> P.string("matches") *> spaces).backtrack *> Pattern.matchParser)
             .region
             .map { case (region, pat) =>
 
               { nb: NonBinding => Matches(nb, pat)(nb.region + region) }
             }
-            .rep1
+            .rep
             .map { fns => fns.toList.reduceLeft(_.andThen(_)) }
 
         annotated.maybeAp(matchesOp)
@@ -1097,7 +1129,7 @@ object Declaration {
 
       // Applying is higher precedence than any operators
       // now parse an operator apply
-      def postOperators(nb: P1[NonBinding]): P1[NonBinding] = {
+      def postOperators(nb: P[NonBinding]): P[NonBinding] = {
 
         def convert(form: Operators.Formula[NonBinding]): NonBinding =
           form match {
@@ -1110,7 +1142,7 @@ object Declaration {
           }
 
         // one or more operators
-        val ops: P1[NonBinding => Operators.Formula[NonBinding]] =
+        val ops: P[NonBinding => Operators.Formula[NonBinding]] =
           maybeSpace.with1.soft *> ((!eqP).with1 *> Operators.Formula.infixOps1(nb))
 
         // This already parses as many as it can, so we don't need repFn
@@ -1125,20 +1157,20 @@ object Declaration {
       // here is if/ternary operator
       // it fully recurses on the else branch, which will parse any repeated ternaryies
       // so no need to repeat here for correct precedence
-      val ternary: P1[NonBinding => NonBinding] =
-        (((spaces *> P.string1("if") *> spaces).backtrack *> recNonBind) ~ (spaces *> keySpace("else") *> ternaryElseP))
+      val ternary: P[NonBinding => NonBinding] =
+        (((spaces *> P.string("if") *> spaces).backtrack *> recNonBind) ~ (spaces *> keySpace("else") *> ternaryElseP))
           .map { case (cond, falseCase) =>
             { trueCase: NonBinding => Ternary(trueCase, cond, falseCase) }
           }
 
-      val finalNonBind: P1[NonBinding] =
+      val finalNonBind: P[NonBinding] =
         if (pm != ParseMode.ComprehensionSource) postOperators(matched).maybeAp(ternary)
         else postOperators(matched)
 
       if (pm != ParseMode.Decl) finalNonBind
       else {
-        val finalBind: P1[Declaration] = P.defer1(
-          P.oneOf1(
+        val finalBind: P[Declaration] = P.defer(
+          P.oneOf(
           // these have keywords which need to be parsed before var (def, match, if)
             defP(recIndy)(indent) ::
             // these are not ambiguous with patterns
@@ -1160,7 +1192,7 @@ object Declaration {
           )
 
         // we have to parse non-binds last
-        finalBind.orElse1(finalNonBind)
+        finalBind.orElse(finalNonBind)
       }
     }
 

@@ -28,6 +28,9 @@ project/plugins/project/
 # emacs
 TAGS
 
+# vim
+*.swp
+
 # bazel
 bazel-*
 .bazelrc

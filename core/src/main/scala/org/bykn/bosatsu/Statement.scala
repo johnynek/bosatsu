@@ -3,7 +3,7 @@ package org.bykn.bosatsu
 import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, keySpace, toEOL }
 import cats.data.NonEmptyList
 import cats.implicits._
-import cats.parse.{Parser => P, Parser1 => P1}
+import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 import scala.collection.immutable.SortedSet
 
@@ -139,9 +139,9 @@ object Statement {
   case class Comment(comment: CommentStatement[Unit])(val region: Region) extends Statement
 
   // Parse a single item
-  final val parser1: P1[Statement] = {
+  final val parser1: P[Statement] = {
 
-     val bindingP: P1[Statement] =
+     val bindingP: P[Statement] =
        (Declaration
          .bindingParser[Unit](Declaration.nonBindingParser, cutPattern = true)("") <* toEOL)
          .region
@@ -149,27 +149,27 @@ object Statement {
             Bind(bs(()))(region)
          }
 
-     val paddingSP: P1[Statement] =
+     val paddingSP: P[Statement] =
        Padding
          .nonEmptyParser
          .region
          .map { case (region, p) => PaddingStatement(p)(region) }
 
-     val commentP: P1[Statement] =
+     val commentP: P[Statement] =
        CommentStatement.parser(_ => P.unit).region
          .map { case (region, cs) => Comment(cs)(region) }.run("")
 
      val defBody = maybeSpace.with1 *> OptIndent.indy(Declaration.parser).run("")
-     val defP: P1[Statement] =
+     val defP: P[Statement] =
       DefStatement.parser(Pattern.bindParser, defBody <* toEOL).region
         .map { case (region, DefStatement(nm, args, ret, body)) =>
           Def(DefStatement(nm, args, ret, body))(region)
         }
 
-     val argParser: P1[(Bindable, Option[TypeRef])] =
+     val argParser: P[(Bindable, Option[TypeRef])] =
        Identifier.bindableParser ~ ((maybeSpace *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser).?
 
-     val typeParams: P1[NonEmptyList[TypeRef.TypeVar]] =
+     val typeParams: P[NonEmptyList[TypeRef.TypeVar]] =
        lowerIdent.nonEmptyListSyntax.map { nel => nel.map { s => TypeRef.TypeVar(s.intern) } }
 
      val structKey = keySpace("struct")
@@ -184,12 +184,12 @@ object Statement {
            }
 
        val externalDef = {
-         val argParser: P1[(Bindable, TypeRef)] =
+         val argParser: P[(Bindable, TypeRef)] =
            Identifier.bindableParser ~ (maybeSpace *> P.char(':') *> maybeSpace *> TypeRef.parser)
 
          val args = P.char('(') *> maybeSpace *> argParser.nonEmptyList <* maybeSpace <* P.char(')')
 
-         val result = maybeSpace.with1 *> P.string1("->") *> maybeSpace *> TypeRef.parser
+         val result = maybeSpace.with1 *> P.string("->") *> maybeSpace *> TypeRef.parser
 
          (((keySpace("def") *> Identifier.bindableParser ~ args.? ~ result).region) <* toEOL)
            .map {
@@ -203,7 +203,7 @@ object Statement {
            }
        }
 
-       keySpace("external") *> externalStruct.orElse1(externalDef)
+       keySpace("external") *> externalStruct.orElse(externalDef)
      }
 
      val struct =
@@ -246,14 +246,14 @@ object Statement {
      }
 
      // bindingP should come last so there is no ambiguity about identifiers
-     P.oneOf1(commentP :: paddingSP :: defP :: struct :: enum :: external :: bindingP :: Nil)
+     P.oneOf(commentP :: paddingSP :: defP :: struct :: enum :: external :: bindingP :: Nil)
   }
 
   /**
    * This parses the *rest* of the string (it must end with End)
    */
-  val parser: P[List[Statement]] =
-    parser1.rep <* Parser.maybeSpacesAndLines <* P.end
+  val parser: P0[List[Statement]] =
+    parser1.rep0 <* Parser.maybeSpacesAndLines <* P.end
 
   private def constructor(name: Constructor, taDoc: Doc, args: List[(Bindable, Option[TypeRef])]): Doc =
     Document[Identifier].document(name) + taDoc +

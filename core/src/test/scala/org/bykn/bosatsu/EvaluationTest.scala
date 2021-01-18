@@ -2572,4 +2572,18 @@ out = match [(True, 2), (True, 0)]:
 test = Assertion(out.eq_Int(0), "")
 """), "Foo", 1)
   }
+
+  test("unknown type constructor message is good. issue 653") {
+    evalFail(List("""
+package Foo
+
+struct Bar(baz: Either[Int, String])
+
+test = Assertion(True, "")
+
+"""), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, unknown type: Either\nRegion(14,50)")
+      ()
+    }
+  }
 }
