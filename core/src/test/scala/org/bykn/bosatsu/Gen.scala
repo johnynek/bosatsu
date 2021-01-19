@@ -303,6 +303,12 @@ object Generators {
         BindingStatement(b, value, in)
       }
 
+  def leftApplyGen(patGen: Gen[Pattern.Parsed], dec: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.LeftApply] =
+    Gen.zip(patGen, dec, padding(bodyGen))
+      .map { case (p, value, in) =>
+        Declaration.LeftApply(p, emptyRegion, value, in)
+      }
+
   def padding[T](tgen: Gen[T], min: Int = 0): Gen[Padding[T]] =
     Gen.zip(Gen.choose(min, 10), tgen)
       .map { case (e, t) => Padding(e, t) }
@@ -685,7 +691,8 @@ object Generators {
       (3, genNonBinding(depth)),
       (1, commentGen(padding(recur, 1)).map(makeComment)), // make sure we have 1 space to prevent comments following each other
       (1, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
-      (1, bindGen(pat, recNon, padding(recur, 1)).map(Binding(_)(emptyRegion)))
+      (1, bindGen(pat, recNon, padding(recur, 1)).map(Binding(_)(emptyRegion))),
+      (1, leftApplyGen(pat, recNon, recur))
     )
   }
 

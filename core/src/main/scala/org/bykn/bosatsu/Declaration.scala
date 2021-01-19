@@ -202,6 +202,8 @@ sealed abstract class Declaration {
         case Lambda(args, body) =>
           val bound1 = bound ++ args.toList.flatMap(_.names)
           loop(body, bound1, acc)
+        case la@LeftApply(_, _, _, _) =>
+          loop(la.rewrite, bound, acc)
         case Literal(lit) => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, bound, acc)
