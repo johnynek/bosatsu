@@ -191,6 +191,8 @@ final class SourceConverter(
         (argsRes, bodyRes).mapN { (args, body) =>
           Expr.buildPatternLambda(args, body, decl)
         }
+      case la@LeftApply(_, _, _, _) =>
+        loop(la.rewrite).map(_.as(decl))
       case Literal(lit) =>
         success(Expr.Literal(lit, decl))
       case Parens(p) =>
@@ -971,7 +973,7 @@ final class SourceConverter(
             val matchD = makeMatch(pat, unitDecl)
             val shapeMatch = (dummy, matchD)
             SourceConverter.concat(prefix, NonEmptyList(shapeMatch, Nil))
-          }
+        }
     }
 
   private def parFold[F[_], S, A, B](s0: S, as: List[A])(fn: (S, A) => (S, F[B]))(implicit F: Applicative[F]): F[List[B]] = {

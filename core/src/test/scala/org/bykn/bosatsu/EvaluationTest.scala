@@ -51,6 +51,19 @@ test = Assertion(eq_String("hello", foo), "checking equality")
       List("""
 package Foo
 
+def let(arg, in): in(arg)
+
+def foo:
+  x <- let(3)
+  x.add(1)
+
+test = Assertion(foo matches 4, "checking equality")
+"""), "Foo", 1)
+
+    runBosatsuTest(
+      List("""
+package Foo
+
 test = TestSuite("three trivial tests", [ Assertion(True, "t0"),
     Assertion(True, "t1"),
     Assertion(True, "t2"),

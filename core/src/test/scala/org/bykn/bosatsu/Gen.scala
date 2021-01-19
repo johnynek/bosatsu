@@ -48,11 +48,14 @@ object Generators {
 
   val opGen: Gen[Identifier.Operator] = {
     val sing = Gen.oneOf(Operators.singleToks).map(Identifier.Operator(_))
-    val multi = for {
-      c <- Gen.choose(2, 5)
-      multiGen = Gen.oneOf(Operators.multiToks)
-      ms <- Gen.listOfN(c, multiGen)
-    } yield Identifier.Operator(ms.mkString)
+    lazy val multi: Gen[Identifier.Operator] =
+      for {
+        c <- Gen.choose(2, 5)
+        multiGen = Gen.oneOf(Operators.multiToks)
+        ms <- Gen.listOfN(c, multiGen)
+        asStr = ms.mkString
+        res <- (if (asStr != "<-") Gen.const(Identifier.Operator(asStr)) else multi)
+      } yield res
 
     Gen.frequency((4, sing), (1, multi))
   }
@@ -298,6 +301,12 @@ object Generators {
     Gen.zip(patGen, dec, tgen)
       .map { case (b, value, in) =>
         BindingStatement(b, value, in)
+      }
+
+  def leftApplyGen(patGen: Gen[Pattern.Parsed], dec: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.LeftApply] =
+    Gen.zip(patGen, dec, padding(bodyGen))
+      .map { case (p, value, in) =>
+        Declaration.LeftApply(p, emptyRegion, value, in)
       }
 
   def padding[T](tgen: Gen[T], min: Int = 0): Gen[Padding[T]] =
@@ -682,7 +691,8 @@ object Generators {
       (3, genNonBinding(depth)),
       (1, commentGen(padding(recur, 1)).map(makeComment)), // make sure we have 1 space to prevent comments following each other
       (1, defGen(Gen.zip(optIndent(recur), padding(recur, 1))).map(DefFn(_)(emptyRegion))),
-      (1, bindGen(pat, recNon, padding(recur, 1)).map(Binding(_)(emptyRegion)))
+      (1, bindGen(pat, recNon, padding(recur, 1)).map(Binding(_)(emptyRegion))),
+      (1, leftApplyGen(pat, recNon, recur))
     )
   }
 
@@ -710,6 +720,9 @@ object Generators {
           case Ternary(t, c, f) =>
             val s = Stream(t, c, f)
             s #::: s.flatMap(apply(_))
+          case LeftApply(p, reg, r, b) =>
+            // todo, we should really interleave shrinking r and b
+            r #:: b.padded #:: Stream.empty
           case Match(_, typeName, args) =>
             args.get.toList.toStream.flatMap {
               case (_, decl) => decl.get #:: apply(decl.get)

@@ -475,10 +475,13 @@ class ParserTest extends ParserTestBase {
     val allLen3 = (allLen2, withEq).mapN(_ + _)
 
     (singleToks ::: allLen2 ::: allLen3).foreach { opStr =>
-      roundTrip(Operators.operatorToken, opStr)
+      if (opStr != "<-") {
+        roundTrip(Operators.operatorToken, opStr)
+      }
     }
 
     expectFail(Operators.operatorToken, "=", 1)
+    expectFail(Operators.operatorToken, "<-", 2)
   }
 
   test("test import statements") {

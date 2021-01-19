@@ -44,7 +44,7 @@ object Operators {
       "?", "~").map(_.intern)
 
   private def from(strs: Iterable[String]): P[Unit] =
-    P.oneOf(strs.map(P.string(_)).toList)
+    P.stringIn(strs).void
 
   /**
    * strings for operators allowed in single character
@@ -69,8 +69,9 @@ object Operators {
     val singles = from(singleToks)
 
     // write this in a way to avoid backtracking
-    ((singles ~ multiToksP.rep0).void)
-      .orElse(multiToksP.rep(min = 2).void)
+    (((P.string("<-") | P.char('=')) ~ multiToksP.rep).void |
+      (singles ~ multiToksP.rep0).void |
+      multiToksP.rep(min = 2).void)
       .string
       .map(_.intern)
   }

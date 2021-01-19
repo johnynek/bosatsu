@@ -295,6 +295,8 @@ object DefRecursionCheck {
           }
           val e = checkDecl(elseCase.get)
           ifs *> e
+        case la@LeftApply(_, _, _, _) =>
+          checkDecl(la.rewrite)
         case Ternary(t, c, f) =>
           checkDecl(t) *> checkDecl(c) *> checkDecl(f)
         case Lambda(args, body) =>
