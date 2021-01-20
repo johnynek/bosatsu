@@ -92,12 +92,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case PositionalStruct(name, args) =>
         // This is total if the struct has a single constructor AND each of the patterns is total
         val argCheck = args.parTraverse_(validatePattern)
-        val nameCheck = inEnv.definedTypeFor(name) match {
-          case None =>
-            Left(NonEmptyList.of(UnknownConstructor(name, p, inEnv)))
-          case Some(_) =>
-            checkArity(name, args.size, p)
-        }
+        val nameCheck = checkArity(name, args.size, p)
         (nameCheck, argCheck).parMapN { (_, _) => () }
 
       case _ => validUnit
