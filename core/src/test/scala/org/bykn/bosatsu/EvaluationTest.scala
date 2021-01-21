@@ -2599,4 +2599,24 @@ test = Assertion(True, "")
       ()
     }
   }
+
+  test("Match on constructors from another package") {
+    runBosatsuTest(
+      """
+package Foo
+
+export FooE()
+
+enum FooE: Foo1, Foo2
+""" ::
+"""
+package Bar
+
+from Foo import Foo1, Foo2
+
+x = Foo1
+
+test = Assertion(x matches Foo1, "x matches Foo1")
+""" :: Nil, "Bar", 1)
+  }
 }
