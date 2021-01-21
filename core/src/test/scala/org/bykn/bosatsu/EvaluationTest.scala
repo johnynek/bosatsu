@@ -2615,8 +2615,11 @@ package Bar
 from Foo import Foo1, Foo2
 
 x = Foo1
+m = match x:
+      Foo1: True
+      Foo2: False
 
-test = Assertion(x matches Foo1, "x matches Foo1")
+test = Assertion(m, "x matches Foo1")
 """ :: Nil, "Bar", 1)
   }
 }

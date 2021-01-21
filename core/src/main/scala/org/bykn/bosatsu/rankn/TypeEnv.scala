@@ -55,7 +55,8 @@ class TypeEnv[+A] private (
       val nec = constructors.updated((pack, cf.name), (cf.args, dt, cf.fnType))
       // add this constructor to the values
       val v1 = values.updated((pack, cf.name), cf.fnType)
-      new TypeEnv(values = v1, constructors = nec, definedTypes = definedTypes)
+      val dt1 = definedTypes.updated((dt.packageName, dt.name), dt)
+      new TypeEnv(values = v1, constructors = nec, definedTypes = dt1)
     }
 
   /**
