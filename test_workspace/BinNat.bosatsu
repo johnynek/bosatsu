@@ -67,7 +67,7 @@ def prev(b: BinNat) -> BinNat:
 def add_BinNat(left: BinNat, right: BinNat) -> BinNat:
   recur left:
     Zero: right
-    odd @ Odd(left):
+    Odd(left) as odd:
       match right:
         Zero: odd
         Odd(right):
@@ -76,7 +76,7 @@ def add_BinNat(left: BinNat, right: BinNat) -> BinNat:
         Even(right):
           # 2left + 1 + 2(right + 1) = 2((left + right) + 1) + 1
           Odd(add_BinNat(left, right.next))
-    even @ Even(left):
+    Even(left) as even:
       match right:
         Zero: even
         Odd(right):

@@ -960,7 +960,7 @@ def fib(n):
   recur n:
     Z: 1
     S(Z): 1
-    S(n1@S(n2)): fib(n1).add(fib(n2))
+    S(S(n2) as n1): fib(n1).add(fib(n2))
 
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
@@ -976,7 +976,7 @@ def fib(n):
   recur n:
     Z: 1
     S(Z): 1
-    S(n1@S(n2)): fib(n1).add(fib(n2))
+    S(S(n2) as n1): fib(n1).add(fib(n2))
 
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
@@ -992,7 +992,7 @@ def fib(n):
   recur n:
     Z: 1
     S(Z): 1
-    S(n1@S(n2)): fib(n1).add(fib(n2))
+    S(S(n2) as n1): fib(n1).add(fib(n2))
 
 # fib(5) = 1, 1, 2, 3, 5, 8
 main = fib(S(S(S(S(S(Z))))))
@@ -1030,12 +1030,12 @@ def bad_len(list):
   recur list:
     []: 0
     [2] | [3]: -1
-    [*_, four@4]:
+    [*_, 4 as four]:
       #ignore_binding,
       _ = four
       -1
     [100, *_]: -1
-    [*init, last@(_: Int)]:
+    [*init, (_: Int) as last]:
       #ignore binding
       _ = last
       bad_len(init).add(1)

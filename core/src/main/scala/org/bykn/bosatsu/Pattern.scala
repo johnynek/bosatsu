@@ -55,8 +55,8 @@ sealed abstract class Pattern[+N, +T] {
 
   /**
    * What are the names that will be bound to the entire pattern,
-   * foo @ Bar(x) would return List(foo)
-   * foo @ bar @ baz would return List(foo, bar, bar)
+   * Bar(x) as foo would return List(foo)
+   * foo as bar as baz would return List(baz, bar, foo)
    * Bar(x) would return Nil
    */
   lazy val topNames: List[Bindable] = {
@@ -398,8 +398,8 @@ object Pattern {
   }
 
   /**
-   * Patterns like foo @ Some(_)
-   * @ binds tighter than |, so use ( ) with groups you want to bind
+   * Patterns like Some(_) as foo
+   * as binds tighter than |, so use ( ) with groups you want to bind
    */
   case class Named[N, T](name: Bindable, pat: Pattern[N, T]) extends Pattern[N, T]
   case class ListPat[N, T](parts: List[ListPart[Pattern[N, T]]]) extends Pattern[N, T] {
@@ -549,7 +549,7 @@ object Pattern {
    * If this pattern is:
    * x
    * (x: T)
-   * x@(unnamed)
+   * unnamed as x
    * x | x | x
    * then it is "SinglyNamed"
    */
@@ -655,9 +655,9 @@ object Pattern {
       case Named(n, u@Union(_, _)) =>
         // union is also an operator, so we need to use parens to explicitly bind | more tightly
         // than the @ on the left.
-        Document[Identifier].document(n) + Doc.char('@') + Doc.char('(') + document.document(u) + Doc.char(')')
+        Doc.char('(') + document.document(u) + Doc.char(')') + Doc.text(" as ") + Document[Identifier].document(n)
       case Named(n, p) =>
-        Document[Identifier].document(n) + Doc.char('@') + document.document(p)
+        document.document(p) + Doc.text(" as ") + Document[Identifier].document(n)
       case StrPat(items) =>
         // prefer ' if possible, else use "
         val useDouble = items.exists {
@@ -776,10 +776,10 @@ object Pattern {
       case Var(n) => Document[Identifier].document(n)
       case Named(n, u@Union(_, _)) =>
         // union is also an operator, so we need to use parens to explicitly bind | more tightly
-        // than the @ on the left.
-        Document[Identifier].document(n) + Doc.char('@') + Doc.char('(') + doc.document(u) + Doc.char(')')
+        // than the as on the left.
+        Doc.char('(') + doc.document(u) + Doc.char(')') + Doc.text(" as ") + Document[Identifier].document(n)
       case Named(n, p) =>
-        Document[Identifier].document(n) + Doc.char('@') + doc.document(p)
+        doc.document(p) + Doc.text(" as ") + Document[Identifier].document(n)
       case StrPat(items) => document.document(StrPat(items))
       case ListPat(items) =>
         Doc.char('[') + Doc.intercalate(Doc.text(", "),
@@ -1002,23 +1002,25 @@ object Pattern {
 
     val listP = listItem.listSyntax.map(ListPat(_))
 
-    // The next three are depend on each other so must be lazy
-    lazy val named: P[Parsed] =
-      P.defer((maybeSpace.with1 *> P.char('@')).backtrack *> maybeSpace *> nonAnnotated)
+    val pvar = Identifier.bindableParser.map(Var(_))
 
-    lazy val pvarOrName = (Identifier.bindableParser ~ named.?)
-      .map {
-        case (n, None) => Var(n)
-        case (n, Some(p)) => Named(n, p)
-      }
+    val nonAnnotated =
+      P.defer(P.oneOf(plit :: pwild :: tupleOrParens :: positional :: listP :: pvar :: Nil))
 
-    lazy val nonAnnotated =
-      P.defer(P.oneOf(plit :: pwild :: tupleOrParens :: positional :: listP :: pvarOrName :: Nil))
+    val namedOp: P[Parsed => Parsed] =
+      ((maybeSpace.with1 *> P.string("as") <* Parser.spaces).backtrack *> Identifier.bindableParser)
+        .map { n =>
+          { pat: Parsed => Named(n, pat) }
+        }
+
+    val withAs: P[Parsed] =
+      (nonAnnotated ~ namedOp.rep0)
+        .map { case (p, ops) => ops.foldLeft(p) { (p, fn) => fn(p) } }
 
     // A union can't have an annotation, we need to be inside a parens for that
     val unionOp: P[Parsed => Parsed] = {
       val bar = P.char('|')
-      val unionRest = nonAnnotated
+      val unionRest = withAs
         .nonEmptyListOfWsSep(maybeSpace, bar, allowTrailing = false)
 
       ((maybeSpace.with1 *> bar).backtrack *> maybeSpace *> unionRest)
@@ -1026,8 +1028,8 @@ object Pattern {
           { pat: Parsed => union(pat, ne.toList) }
         }
     }
-    val typeAnnotOp: P0[Parsed => Parsed] = {
-      ((maybeSpace *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser)
+    val typeAnnotOp: P[Parsed => Parsed] = {
+      ((maybeSpace.with1 *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser)
         .map { tpe =>
           { pat: Parsed => Annotation(pat, tpe) }
         }
@@ -1035,8 +1037,8 @@ object Pattern {
 
     // We only allow type annotation not at the top level, must be inside
     // Struct or parens
-    if (isMatch) nonAnnotated.maybeAp(unionOp)
-    else nonAnnotated.maybeAp(unionOp.orElse(typeAnnotOp))
+    if (isMatch) withAs.maybeAp(unionOp)
+    else withAs.maybeAp(unionOp.orElse(typeAnnotOp))
   }
 }
 

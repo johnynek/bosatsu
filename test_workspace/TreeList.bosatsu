@@ -31,17 +31,17 @@ operator + = add
 def cons(head: a, TreeList(tail): TreeList[a]) -> TreeList[a]:
   match tail:
     []: TreeList([Single(head)])
-    [s1 @ Single(_)]:
+    [Single(_) as s1]:
       TreeList([Single(head), s1])
-    [ Single(_), b1 @Branch(_, _, _, _), *t]:
+    [ Single(_), Branch(_, _, _, _) as b1, *t]:
       TreeList([Single(head), b1, *t])
-    [s1 @ Single(_), s2 @ Single(_), *t]:
+    [Single(_) as s1, Single(_) as s2, *t]:
       TreeList([Branch(3, head, s1, s2), *t])
     [Branch(_, _, _, _), Single(_), *_]:
       # illegal state, we can just return empty
       empty
-    [branch @ Branch(_, _, _, _)]: TreeList([Single(head), branch])
-    [b1@Branch(s1, _, _, _), b2@Branch(s2, _, _, _), *t]:
+    [Branch(_, _, _, _) as branch]: TreeList([Single(head), branch])
+    [Branch(s1, _, _, _) as b1, Branch(s2, _, _, _) as b2, *t]:
       if (eq_Int(s1, s2)):
         TreeList([Branch(s1 + s2 + 1, head, b1, b2), *t])
       else:
