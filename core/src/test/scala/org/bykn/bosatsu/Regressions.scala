@@ -13,11 +13,11 @@ struct Field(name: String, extract: a -> b)
 
 def applyFields(fields, row):
   recur fields:
-    (f, Some(s)):
+    case (f, Some(s)):
       Field(_, fn) = f
       rec = applyFields(s, row)
       (fn(row), Some(rec))
-    (f, None):
+    case (f, None):
       Field(_, fn) = f
       (fn(row), None)
 
