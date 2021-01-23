@@ -945,7 +945,7 @@ struct Foo
 struct Bar(f: Foo)
 def ignore(_): Foo
 def add(x):
-  (b@(y: Foo)) = x
+  ((y: Foo) as b) = x
   _ = ignore(y)
   Bar(b)
 """, "Foo -> Bar")
