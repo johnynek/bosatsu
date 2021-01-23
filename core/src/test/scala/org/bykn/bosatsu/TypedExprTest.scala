@@ -40,8 +40,8 @@ class TypedExprTest extends AnyFunSuite {
     checkLast("""
 enum AB: A, B(x)
 x = match B(100):
-  A: 10
-  B(b): b
+  case A: 10
+  case B(b): b
 """)(law)
   }
 
@@ -70,7 +70,7 @@ struct Tup2(a, b)
 x = 23
 x = Tup2(1, 2)
 y = match x:
-  Tup2(a, _): a
+  case Tup2(a, _): a
 """) { te => assert(TypedExpr.freeVars(te :: Nil) == Nil) }
   }
 
@@ -322,14 +322,14 @@ x = \_ -> 1
       """
 x = 10
 y = match x:
-  z: z
+  case z: z
 """) { te => assert(countMatch(te) == 0) }
 
     checkLast(
       """
 x = 10
 y = match x:
-  _: 20
+  case _: 20
 """) { te => assert(countMatch(te) == 0) }
   }
 
@@ -339,7 +339,7 @@ y = match x:
       """
 x = 10
 y = match x:
-  _: 20
+  case _: 20
 """) { te => assert(countLet(te) == 0) }
 
     checkLast(
@@ -368,8 +368,8 @@ enum N: Z, S(prev: N)
 
 def list_len(list, acc):
   recur list:
-    E: acc
-    NE(_, t): list_len(t, S(acc))
+    case E: acc
+    case NE(_, t): list_len(t, S(acc))
 """) { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == TailCall) }
 
     checkLast(
@@ -379,8 +379,8 @@ enum N: Z, S(prev: N)
 
 def list_len(list):
   recur list:
-    E: Z
-    NE(_, t): S(list_len(t))
+    case E: Z
+    case NE(_, t): S(list_len(t))
 """) { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NonTailCall) }
 
     checkLast(
@@ -389,8 +389,8 @@ enum List[a]: E, NE(head: a, tail: List[a])
 
 def list_len(list):
   match list:
-    E: 0
-    NE(_, _): 1
+    case E: 0
+    case NE(_, _): 1
 """) { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NoCall) }
 
   }

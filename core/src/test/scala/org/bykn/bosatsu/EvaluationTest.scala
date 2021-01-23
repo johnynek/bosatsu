@@ -22,7 +22,7 @@ x = 1
     evalTest(
       List("""
 # test shadowing
-x = match 1: x: x
+x = match 1: case x: x
 """), "Package0", VInt(1))
 
     evalTest(
@@ -41,8 +41,8 @@ foo = "hello"
 
 def eq_String(a, b):
   match string_Order_fn(a, b):
-    EQ: True
-    _: False
+    case EQ: True
+    case _: False
 
 test = Assertion(eq_String("hello", foo), "checking equality")
 """), "Foo", 1)
@@ -79,9 +79,9 @@ package Foo
 x = 1
 
 z = match x.cmp_Int(1):
-  EQ:
+  case EQ:
     "foo"
-  _:
+  case _:
     "bar"
 """), "Foo", Str("foo"))
 
@@ -104,8 +104,8 @@ package Foo
 x = Some(1)
 
 z = match x:
-  Some(v): add(v, 10)
-  None: 0
+  case Some(v): add(v, 10)
+  case None: 0
 """), "Foo", VInt(11))
 
     // Use a local name collision and see it not have a problem
@@ -118,8 +118,8 @@ enum Option: None, Some(get)
 x = Some(1)
 
 z = match x:
-  Some(v): add(v, 10)
-  None: 0
+  case Some(v): add(v, 10)
+  case None: 0
 """), "Foo", VInt(11))
 
     evalTest(
@@ -132,8 +132,8 @@ enum Option: Some(get), None
 x = Some(1)
 
 z = match x:
-  None: 0
-  Some(v): add(v, 10)
+  case None: 0
+  case Some(v): add(v, 10)
 """), "Foo", VInt(11))
   }
 
@@ -237,8 +237,8 @@ package Foo
 x = 1
 
 main = match x:
-  1: "good"
-  _: "bad"
+  case 1: "good"
+  case _: "bad"
 """), "Foo", Str("good"))
 
     evalTest(
@@ -260,8 +260,8 @@ package Foo
 x = "1"
 
 main = match x:
-  "1": "good"
-  _: "bad"
+  case "1": "good"
+  case _: "bad"
 """), "Foo", Str("good"))
 
     evalTest(
@@ -273,8 +273,8 @@ struct Pair(fst, snd)
 x = Pair(1, "1")
 
 main = match x:
-  Pair(_, "1"): "good"
-  _: "bad"
+  case Pair(_, "1"): "good"
+  case _: "bad"
 """), "Foo", Str("good"))
   }
 
@@ -286,8 +286,8 @@ package Foo
 x = (1, "1")
 
 main = match x:
-  (_, "1"): "good"
-  _: "bad"
+  case (_, "1"): "good"
+  case _: "bad"
 """), "Foo", Str("good"))
 
     evalTest(
@@ -301,8 +301,8 @@ def go(u):
   _ = u
   (_, y) = x
   match y:
-    "1": "good"
-    _: "bad"
+    case "1": "good"
+    case _: "bad"
 
 main = go(())
 """), "Foo", Str("good"))
@@ -362,9 +362,9 @@ main = 6.mod_Int(4)
 package Foo
 
 main = match 6.div(4):
-  0: 42
-  1: 100
-  x: x
+  case 0: 42
+  case 1: 100
+  case x: x
 """), "Foo", VInt(100))
 
     evalTest(
@@ -386,11 +386,11 @@ threer = range(3)
 
 def zip(as, bs):
   recur as:
-    []: []
-    [ah, *atail]:
+    case []: []
+    case [ah, *atail]:
       match bs:
-        []: []
-        [bh, *btail]: [(ah, bh), *zip(atail, btail)]
+        case []: []
+        case [bh, *btail]: [(ah, bh), *zip(atail, btail)]
 
 def and(a, b):
   b if a else False
@@ -414,11 +414,11 @@ package Foo
 
 def zip(as: List[a], bs: List[b]) -> List[(a, b)]:
   recur as:
-    []: []
-    [ah, *atail]:
+    case []: []
+    case [ah, *atail]:
       match bs:
-        []: []
-        [bh, *btail]: [(ah, bh), *zip(atail, btail)]
+        case []: []
+        case [bh, *btail]: [(ah, bh), *zip(atail, btail)]
 
 main = 1
 """), "Foo", VInt(1))
@@ -455,8 +455,8 @@ package Foo
 
 def headOption(as):
   match as:
-    []: None
-    [a, *_]: Some(a)
+    case []: None
+    case [a, *_]: Some(a)
 
 main = headOption([1])
 """), "Foo", SumValue(1, ConsValue(VInt(1), UnitValue)))
@@ -597,16 +597,14 @@ struct W(fn: W[a, b] -> a -> b)
 
 def call(w0, w1):
   match w0:
-    W(fn): trace("fn(w1)", fn(w1))
+    case W(fn): trace("fn(w1)", fn(w1))
 
 def y(f):
   g = \w -> \a -> trace("calling f", f(call(w, w), a))
   g(W(g))
 
 def ltEqZero(i):
-  match i.cmp_Int(0):
-    GT: False
-    _: True
+  i.cmp_Int(0) matches (LT | EQ)
 
 fac = trace("made fac", y(\f, i -> 1 if ltEqZero(i) else f(i).times(i)))
 
@@ -624,8 +622,8 @@ enum GoodOrBad:
 
 def unbox(gb: GoodOrBad[a]):
   match gb:
-    Good(g): g
-    Bad(b): b
+    case Good(g): g
+    case Bad(b): b
 
 (main: Int) = unbox(Good(42))
 """), "A", VInt(42))
@@ -669,9 +667,9 @@ something = Yep(
   1)
 
 one = match something:
-  Yep(a): a
-  Nope: 0
-  _: 42
+  case Yep(a): a
+  case Nope: 0
+  case _: 42
 
 main = one
 """), "Total") { case PackageError.TotalityCheckError(_, _) => () }
@@ -704,8 +702,8 @@ int = IsInt(42, refl)
 # this takes StringOrInt[a] and returns a
 def getValue(v: StringOrInt[a]) -> a:
   match v:
-    IsStr(s, leib): coerce(s, leib)
-    IsInt(i, leib): coerce(i, leib)
+    case IsStr(s, leib): coerce(s, leib)
+    case IsInt(i, leib): coerce(i, leib)
 
 main = getValue(int)
 """), "A", VInt(42))
@@ -730,8 +728,8 @@ int = IsInt(42, refl)
 # this takes StringOrInt[a] and returns a
 def getValue(v):
   match v:
-    IsStr(s, _): s
-    IsInt(i, _): i
+    case IsStr(s, _): s
+    case IsInt(i, _): i
 
 main = getValue(int)
 """), "A"){ case PackageError.TypeErrorIn(_, _) => () }
@@ -929,14 +927,14 @@ package A
 
 def eq_List(lst1, lst2):
   recur lst1:
-    []:
+    case []:
       match lst2:
-        []: True
-        _: False
-    [h1, *t1]:
+        case []: True
+        case _: False
+    case [h1, *t1]:
       match lst2:
-        []: False
-        [h2, *t2]:
+        case []: False
+        case [h2, *t2]:
           eq_List(t1, t2) if eq_Int(h1, h2) else False
 
 lst1 = [0, 0, 1, 1, 2, 2, 3, 3]
@@ -944,8 +942,8 @@ lst2 = [*[x, x] for x in range(4)]
 lst3 = [*[y, y] for (_, y) in [(x, x) for x in range(4)]]
 
 main = match (eq_List(lst1, lst2), eq_List(lst1, lst3)):
-  (True, True): 1
-  _           : 0
+  case (True, True): 1
+  case _           : 0
 """), "A", VInt(1))
   }
 
@@ -1005,8 +1003,8 @@ package A
 
 def bad_len(list):
   recur list:
-    []: 0
-    [*init, _]: bad_len(init).add(1)
+    case []: 0
+    case [*init, _]: bad_len(init).add(1)
 
 main = bad_len([1, 2, 3, 5])
 """), "A", VInt(4))
@@ -1016,8 +1014,8 @@ package A
 
 def last(list):
   match list:
-    []: -1
-    [*_, s]: s
+    case []: -1
+    case [*_, s]: s
 
 main = last([1, 2, 3, 5])
 """), "A", VInt(5))
@@ -1028,14 +1026,14 @@ package A
 
 def bad_len(list):
   recur list:
-    []: 0
-    [2] | [3]: -1
-    [*_, 4 as four]:
+    case []: 0
+    case [2] | [3]: -1
+    case [*_, 4 as four]:
       #ignore_binding,
       _ = four
       -1
-    [100, *_]: -1
-    [*init, (_: Int) as last]:
+    case [100, *_]: -1
+    case [*init, (_: Int) as last]:
       #ignore binding
       _ = last
       bad_len(init).add(1)
@@ -1053,8 +1051,8 @@ tuple = (1, "two")
 constructed = uncurry2(TwoVar, tuple)
 
 main = match constructed:
-  TwoVar(1, "two"): "good"
-  _: "bad"
+  case TwoVar(1, "two"): "good"
+  case _: "bad"
 """), "A", Str("good"))
   }
   test("uncurry3") {
@@ -1067,8 +1065,8 @@ tuple = (1, "two", 3)
 constructed = uncurry3(ThreeVar, tuple)
 
 main = match constructed:
-  ThreeVar(1, "two", 3): "good"
-  _: "bad"
+  case ThreeVar(1, "two", 3): "good"
+  case _: "bad"
 """), "A", Str("good"))
   }
 
@@ -1112,8 +1110,8 @@ e2 = e1.add_key("hello", "world").add_key("hello1", "world1")
 lst = e2.items
 
 main = match lst:
-  [("hello", "world"), ("hello1", "world1")]: "good"
-  _: "bad"
+  case [("hello", "world"), ("hello1", "world1")]: "good"
+  case _: "bad"
 """), "A", Str("good"))
 
     evalTest(List("""
@@ -1124,8 +1122,8 @@ e2 = e1.add_key("hello", "world").add_key("hello1", "world1")
 lst = e2.items
 
 main = match lst:
-  [("hello", "world"), ("hello1", "world1")]: "good"
-  _: "bad"
+  case [("hello", "world"), ("hello1", "world1")]: "good"
+  case _: "bad"
 """), "A", Str("good"))
 
     evalTest(List("""
@@ -1138,8 +1136,8 @@ e = {
 lst = e.items
 
 main = match lst:
-  [("hello", "world"), ("hello1", "world1")]: "good"
-  _: "bad"
+  case [("hello", "world"), ("hello1", "world1")]: "good"
+  case _: "bad"
 """), "A", Str("good"))
 
     evalTest(List("""
@@ -1151,8 +1149,8 @@ e = { k: v for (k, v) in pairs }
 lst = e.items
 
 main = match lst:
-  [("hello", "world"), ("hello1", "world1")]: "good"
-  _: "bad"
+  case [("hello", "world"), ("hello1", "world1")]: "good"
+  case _: "bad"
 """), "A", Str("good"))
 
     evalTest(List("""
@@ -1162,15 +1160,15 @@ pairs = [("hello", 42), ("hello1", 24)]
 
 def is_hello(s):
   match s.string_Order_fn("hello"):
-    EQ: True
-    _: False
+    case EQ: True
+    case _: False
 
 e = { k: v for (k, v) in pairs if is_hello(k) }
 lst = e.items
 
 main = match lst:
-  [("hello", res)]: res
-  _: -1
+  case [("hello", res)]: res
+  case _: -1
 """), "A", VInt(42))
 
     evalTestJson(
@@ -1428,7 +1426,7 @@ package B
 x = 1
 
 main = match x:
-  Foo: 2
+  case Foo: 2
 """), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
     val msg = te.message(Map.empty, Colorize.None)
     assert(!msg.contains("Name("))
@@ -1443,9 +1441,9 @@ package B
 struct X
 
 main = match 1:
-  X1: 0
+  case X1: 0
 """), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package B, unknown constructor X1\nRegion(44,45)")
+      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package B, unknown constructor X1\nRegion(49,50)")
       ()
     }
 
@@ -1454,10 +1452,10 @@ main = match 1:
 package A
 
 main = match [1, 2, 3]:
-  []: 0
-  [*a, *b, _]: 2
+  case []: 0
+  case [*a, *b, _]: 2
 """), "A") { case te@PackageError.TotalityCheckError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(19,60)\nmultiple splices in pattern, only one per match allowed")
+      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(19,70)\nmultiple splices in pattern, only one per match allowed")
       ()
     }
 
@@ -1468,9 +1466,9 @@ package A
 enum Foo: Bar(a), Baz(b)
 
 main = match Bar(a):
-  Baz(b): b
+  case Baz(b): b
 """), "A") { case te@PackageError.TotalityCheckError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(45,70)\nnon-total match, missing: Bar(_)")
+      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(45,75)\nnon-total match, missing: Bar(_)")
       ()
     }
 
@@ -1555,12 +1553,12 @@ package A
 
 def fn(x, y):
   match x:
-    0: y
-    x: fn(x - 1, y + 1)
+    case 0: y
+    case x: fn(x - 1, y + 1)
 
 main = fn
 """), "A") { case te@PackageError.RecursionError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, invalid recursion on fn\nRegion(53,69)\n")
+      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, invalid recursion on fn\nRegion(63,79)\n")
       ()
     }
 
@@ -1570,12 +1568,12 @@ package A
 
 def fn(x, y):
   match x:
-    0: y
-    x: x
+    case 0: y
+    case x: x
 
 main = fn(0, 1, 2)
 """), "A") { case te@PackageError.TypeErrorIn(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, type error: expected type Bosatsu/Predef::Int to be the same as type ?a -> ?b\nhint: this often happens when you apply the wrong number of arguments to a function.\nRegion(63,74)")
+      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, type error: expected type Bosatsu/Predef::Int to be the same as type ?a -> ?b\nhint: this often happens when you apply the wrong number of arguments to a function.\nRegion(73,84)")
       ()
     }
 
@@ -1624,11 +1622,11 @@ struct Pair(f, s)
 struct Trip(f, s, t)
 
 Trip(a, b, c) = match Pair(1, "two"):
-  Pair(f, s): Trip(3, s, f)
+  case Pair(f, s): Trip(3, s, f)
 
 bgood = match b:
-  "two": True
-  _: False
+  case "two": True
+  case _: False
 
 tests = TestSuite("test triple",
   [ Assertion(a.eq_Int(3), "a == 3"),
@@ -1731,31 +1729,29 @@ def and(x, y):
 operator && = and
 
 def equals(compare, x, y):
-  match compare(x,y):
-    EQ: True
-    _: False
+  compare(x,y) matches EQ
 
 def cmp_Bool(x, y):
   match (x, y):
-    (True, False): GT
-    (False, True): LT
-    _: EQ
+    case (True, False): GT
+    case (False, True): LT
+    case _: EQ
 
 def equal_List(is_equal, l1, l2):
   recur l1:
-    []: match l2:
-      []: True
-      _: False
-    [h1, *r1]: match l2:
-      []: False
-      [h2, *r2]: is_equal(h1, h2) && equal_List(is_equal, r1, r2)
+    case []: match l2:
+      case []: True
+      case _: False
+    case [h1, *r1]: match l2:
+      case []: False
+      case [h2, *r2]: is_equal(h1, h2) && equal_List(is_equal, r1, r2)
 
 def equal_RowEntry(re1, re2):
   match (re1, re2):
-    (REBool(RecordValue(x1)), REBool(RecordValue(x2))): cmp_Bool.equals(x1, x2)
-    (REInt(RecordValue(x1)), REInt(RecordValue(x2))): cmp_Int.equals(x1, x2)
-    (REString(RecordValue(x1)), REString(RecordValue(x2))): string_Order_fn.equals(x1, x2)
-    _: False
+    case (REBool(RecordValue(x1)), REBool(RecordValue(x2))): cmp_Bool.equals(x1, x2)
+    case (REInt(RecordValue(x1)), REInt(RecordValue(x2))): cmp_Int.equals(x1, x2)
+    case (REString(RecordValue(x1)), REString(RecordValue(x2))): string_Order_fn.equals(x1, x2)
+    case _: False
 
 equal_rows = equal_List(equal_RowEntry)
 
@@ -1783,7 +1779,7 @@ package A
 struct Pair(first, second)
 
 f2 = match Pair(1, "1"):
-  Pair { first, ... }: first
+  case Pair { first, ... }: first
 
 tests = TestSuite("test record",
   [
@@ -2021,7 +2017,7 @@ struct Foo(x, y)
 
 a = Foo(42, "42")
 x = match a:
-   Foo(y, _): y
+  case Foo(y, _): y
 
 tests = TestSuite("test record",
   [
@@ -2035,7 +2031,7 @@ struct Foo(x, y)
 
 a = Foo(42, "42")
 x = match a:
-   Foo(y, _): y
+  case Foo(y, _): y
 
 def add_x(a):
   # note x has a closure over a, but
@@ -2064,8 +2060,8 @@ two = one.add(1)
 def one: "one"
 
 good = match (one, two):
-  ("one", 2): True
-  _:     False
+  case ("one", 2): True
+  case _:     False
 
 tests = TestSuite("test",
   [
@@ -2087,8 +2083,8 @@ foo = Foo { one }
 def one: "one"
 
 good = match (one, two, foo):
-  ("one", 2, Foo(1)): True
-  _:     False
+  case ("one", 2, Foo(1)): True
+  case _:     False
 
 tests = TestSuite("test",
   [
@@ -2109,8 +2105,8 @@ def incB(one): one.add(1)
 def one: "one"
 
 good = match (one, two, incA(0), incB(1)):
-  ("one", 2, 1, 2): True
-  _:     False
+  case ("one", 2, 1, 2): True
+  case _:     False
 
 tests = TestSuite("test",
   [
@@ -2128,8 +2124,8 @@ def add(x, y):
   x.sub(y)
 
 good = match two:
-  2: True
-  _:     False
+  case 2: True
+  case _:     False
 
 tests = TestSuite("test",
   [
@@ -2284,11 +2280,11 @@ package Err
 x = [1, 2, 3]
 
 main = match x:
-  [*_, *_]: "bad"
-  _: "still bad"
+  case [*_, *_]: "bad"
+  case _: "still bad"
 
 """), "Err") { case sce@PackageError.TotalityCheckError(_, _) =>
-      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err\nRegion(36,79)\nmultiple splices in pattern, only one per match allowed")
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err\nRegion(36,89)\nmultiple splices in pattern, only one per match allowed")
       ()
     }
   }
@@ -2302,13 +2298,13 @@ package Err
 x = "foo bar"
 
 main = match x:
-  "$dollar{_}$dollar{_}": "bad"
-  _: "still bad"
+  case "$dollar{_}$dollar{_}": "bad"
+  case _: "still bad"
 
 """), "Err") { case sce@PackageError.TotalityCheckError(_, _) =>
       val dollar = '$'
       assert(sce.message(Map.empty, Colorize.None) ==
-        s"in file: <unknown source>, package Err\nRegion(36,81)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent bindings aren't allowed)")
+        s"in file: <unknown source>, package Err\nRegion(36,91)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent bindings aren't allowed)")
       ()
     }
   }
@@ -2345,8 +2341,8 @@ package A
 
 enum MyBool: T, F
 main = match T:
-  T: (\x -> x)(True)
-  F: False
+  case T: (\x -> x)(True)
+  case F: False
 
 tests = Assertion(main, "t1")
 """), "A", 1)
@@ -2385,12 +2381,12 @@ w = 1
 
 def inc(x):
   match w:
-    1:
+    case 1:
       y = x
       z = y
       y = w
       z.add(y)
-    x: x
+    case x: x
 
 tests = Assertion(inc(1).eq_Int(2), "t1")
 """), "A", 1)
@@ -2543,31 +2539,31 @@ test = Assertion(True, "")
 package Foo
 
 out = match (1,2):
-  (a, a): a
+  case (a, a): a
 
 test = Assertion(True, "")
 """), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(43,44)")
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(48,49)")
       ()
     }
     evalFail(List("""
 package Foo
 
 out = match [(1,2), (1, 0)]:
-  [(a, a), (1, 0)]: a
-  _: 0
+  case [(a, a), (1, 0)]: a
+  case _: 0
 
 test = Assertion(True, "")
 """), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(63,64)")
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(68,69)")
       ()
     }
     runBosatsuTest(List("""
 package Foo
 
 out = match [(1,2), (1, 0)]:
-  [(a, _) | (_, a), (1, 0)]: a
-  _: 0
+  case [(a, _) | (_, a), (1, 0)]: a
+  case _: 0
 
 test = Assertion(out.eq_Int(1), "")
 """), "Foo", 1)
@@ -2578,9 +2574,9 @@ test = Assertion(out.eq_Int(1), "")
 package Foo
 
 out = match [(True, 2), (True, 0)]:
-  [*_, (True, x), *_, (False, _)]: x
-  [*_, (True, _), *_, (_, y)]: y
-  _: -1
+  case [*_, (True, x), *_, (False, _)]: x
+  case [*_, (True, _), *_, (_, y)]: y
+  case _: -1
 
 test = Assertion(out.eq_Int(0), "")
 """), "Foo", 1)
@@ -2616,8 +2612,8 @@ from Foo import Foo1, Foo2
 
 x = Foo1
 m = match x:
-      Foo1: True
-      Foo2: False
+      case Foo1: True
+      case Foo2: False
 
 test = Assertion(m, "x matches Foo1")
 """ :: Nil, "Bar", 1)
