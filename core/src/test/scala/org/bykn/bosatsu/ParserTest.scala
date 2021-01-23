@@ -643,9 +643,9 @@ x""")
     roundTrip(Pattern.matchParser, "_")
     roundTrip(Pattern.matchParser, "(a, b)")
     roundTrip(Pattern.matchParser, "(a, b) | _")
-    roundTrip(Pattern.matchParser, "foo @ _")
-    roundTrip(Pattern.matchParser, "foo @ Some(_) | None")
-    roundTrip(Pattern.matchParser, "Bar | foo @ Some(_) | None")
+    roundTrip(Pattern.matchParser, "_ as foo")
+    roundTrip(Pattern.matchParser, "Some(_) as foo | None")
+    roundTrip(Pattern.matchParser, "Bar | Some(_) as foo | None")
     roundTrip(Pattern.bindParser, "x: Int")
 
     implicit def docList[A: Document]: Document[NonEmptyList[A]] =
