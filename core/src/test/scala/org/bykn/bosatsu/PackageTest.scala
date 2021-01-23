@@ -91,15 +91,15 @@ enum List:
 
 def head(list):
   match list:
-    Empty:
+    case Empty:
       None
-    NonEmpty(h, _):
+    case NonEmpty(h, _):
       Some(h)
 
 def tail(list):
   match list:
-    Empty: None
-    NonEmpty(_, t): Some(t)
+    case Empty: None
+    case NonEmpty(_, t): Some(t)
 """)
 
     val p6 = parse(
@@ -160,7 +160,7 @@ struct Foo
 mkFoo = Foo
 def takeFoo(foo):
   match foo:
-    Foo:
+    case Foo:
       0
 """)
 
@@ -177,7 +177,7 @@ baz = Baz(mkFoo)
 main = takeFoo(mkFoo)
 
 main2 = match baz:
-  Baz(fooAsBar):
+  case Baz(fooAsBar):
     # here we pass a fooAsBar which has type Bar =:= Foo to takeFoo
     takeFoo(fooAsBar)
 """)

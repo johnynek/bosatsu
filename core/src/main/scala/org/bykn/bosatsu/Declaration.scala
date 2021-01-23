@@ -95,10 +95,12 @@ sealed abstract class Declaration {
       case Match(kind, typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
 
+        val caseDoc = Doc.text("case ")
+
         implicit val patDoc: Document[(Pattern.Parsed, OptIndent[Declaration])] =
           Document.instance[(Pattern.Parsed, OptIndent[Declaration])] {
             case (pat, decl) =>
-              Document[Pattern.Parsed].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
+              caseDoc + Document[Pattern.Parsed].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
           }
         implicit def linesDoc[T: Document]: Document[NonEmptyList[T]] =
           Document.instance { ts => Doc.intercalate(Doc.line, ts.toList.map(Document[T].document _)) }
@@ -940,7 +942,10 @@ object Declaration {
 
   def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
     val withTrailingExpr = expr.cutLeftP(maybeSpace)
-    val branch = OptIndent.block(Indy.lift(Pattern.matchParser), withTrailingExpr)
+    // TODO: make this strict
+    val bp = (P.string("case") *> Parser.spaces).?.with1 *> Pattern.matchParser
+    //val bp = (P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser
+    val branch = OptIndent.block(Indy.lift(bp), withTrailingExpr)
 
     val left = Indy.lift(matchKindParser <* spaces).cutThen(arg).cutLeftP(maybeSpace)
     OptIndent.block(left, branch.nonEmptyList(Indy.toEOLIndent))
