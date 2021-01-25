@@ -83,23 +83,23 @@ class PatternTest extends AnyFunSuite {
       }
 
     check("foo", "foo")
-    check("foo@foo", "foo")
-    check("foo@(foo@foo)", "foo")
-    check("foo@Foo(_, _)", "foo")
+    check("foo as foo", "foo")
+    check("(foo as foo) as foo", "foo")
+    check("Foo(_, _)as foo", "foo")
     check("foo: T", "foo")
-    check("foo@(_: T)", "foo")
-    check("foo@(_, _)", "foo")
+    check("(_: T) as foo", "foo")
+    check("(_, _) as foo", "foo")
     check("foo | foo", "foo")
-    check("foo@[*_]", "foo")
-    check("(foo@X) | (foo@Y)", "foo")
+    check("[*_] as foo", "foo")
+    check("(X as foo) | (Y as foo)", "foo")
 
     checkNot("foo | bar")
-    checkNot("foo@Foo(x, y)")
-    checkNot("foo@(x, y)")
+    checkNot("Foo(x, y)as foo")
+    checkNot("(x, y)as foo")
     checkNot("_")
     checkNot("[foo]")
     checkNot("Foo(x, y)")
-    checkNot("foo@bar")
+    checkNot("bar as foo")
     checkNot("Foo(foo)")
   }
 

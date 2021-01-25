@@ -475,10 +475,13 @@ class ParserTest extends ParserTestBase {
     val allLen3 = (allLen2, withEq).mapN(_ + _)
 
     (singleToks ::: allLen2 ::: allLen3).foreach { opStr =>
-      roundTrip(Operators.operatorToken, opStr)
+      if (opStr != "<-") {
+        roundTrip(Operators.operatorToken, opStr)
+      }
     }
 
     expectFail(Operators.operatorToken, "=", 1)
+    expectFail(Operators.operatorToken, "<-", 2)
   }
 
   test("test import statements") {
@@ -640,9 +643,9 @@ x""")
     roundTrip(Pattern.matchParser, "_")
     roundTrip(Pattern.matchParser, "(a, b)")
     roundTrip(Pattern.matchParser, "(a, b) | _")
-    roundTrip(Pattern.matchParser, "foo @ _")
-    roundTrip(Pattern.matchParser, "foo @ Some(_) | None")
-    roundTrip(Pattern.matchParser, "Bar | foo @ Some(_) | None")
+    roundTrip(Pattern.matchParser, "_ as foo")
+    roundTrip(Pattern.matchParser, "Some(_) as foo | None")
+    roundTrip(Pattern.matchParser, "Bar | Some(_) as foo | None")
     roundTrip(Pattern.bindParser, "x: Int")
 
     implicit def docList[A: Document]: Document[NonEmptyList[A]] =
@@ -812,59 +815,59 @@ else: y""")
     val liftVar0 = Parser.Indy.lift(Declaration.varP: P[Declaration.NonBinding])
     roundTrip[Declaration](Declaration.matchP(liftVar0, liftVar)(""),
 """match x:
-  y:
+  case y:
     z
-  w:
+  case w:
     r""")
     roundTrip(Declaration.parser(""),
 """match 1:
-  Foo(a, b):
+  case Foo(a, b):
     a.plus(b)
-  Bar:
+  case Bar:
     42""")
     roundTrip(Declaration.parser(""),
 
 """match 1:
-  (a, b):
+  case (a, b):
     a.plus(b)
-  ():
+  case ():
     42""")
 
     roundTrip(Declaration.parser(""),
 
 """match 1:
-  (a, (b, c)):
+  case (a, (b, c)):
     a.plus(b).plus(e)
-  (1,):
+  case (1,):
     42""")
 
     roundTrip(Declaration.parser(""),
 """match 1:
-  Foo(a, b):
+  case Foo(a, b):
     a.plus(b)
-  Bar:
+  case Bar:
     match x:
-      True:
+      case True:
         100
-      False:
+      case False:
         99""")
 
     roundTrip(Declaration.parser(""),
 """foo(1, match 2:
-  Foo:
+  case Foo:
 
     foo
-  Bar:
+  case Bar:
 
     # this is the bar case
     bar, 100)""")
 
     roundTrip(Declaration.parser(""),
 """if (match 2:
-  Foo:
+  case Foo:
 
     foo
-  Bar:
+  case Bar:
 
     # this is the bar case
     bar):
@@ -875,33 +878,33 @@ else:
     roundTrip(Declaration.parser(""),
 """if True:
   match 1:
-    Foo(f):
+    case Foo(f):
       1
 else:
   100""")
 
     roundTrip(Declaration.parser(""),
 """match x:
-  Bar(_, _):
+  case Bar(_, _):
     10""")
 
     roundTrip(Declaration.parser(""),
 """match x:
-  Bar(_, _):
+  case Bar(_, _):
       if True: 0
       else: 10""")
 
     roundTrip(Declaration.parser(""),
 """match x:
-  Bar(_, _):
+  case Bar(_, _):
       if True: 0
       else: 10""")
 
     roundTrip(Declaration.parser(""),
 """match x:
-  []: 0
-  [x]: 1
-  _: 2""")
+  case []: 0
+  case [x]: 1
+  case _: 2""")
 
     roundTrip(Declaration.parser(""),
 """Foo(x) = bar
@@ -917,13 +920,13 @@ x""")
 
     roundTrip(Declaration.parser(""),
 """match x:
-  Some(_) | None: 1""")
+  case Some(_) | None: 1""")
 
     roundTrip(Declaration.parser(""),
 """match x:
-  Some(_) | None: 1
-  y: y
-  [x | y, _]: z""")
+  case Some(_) | None: 1
+  case y: y
+  case [x | y, _]: z""")
 
 
     roundTrip(Declaration.parser(""),

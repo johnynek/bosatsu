@@ -81,38 +81,38 @@ def foo(foo): foo
     allowed("""#
 def len(lst):
   recur lst:
-    []: 0
-    [_, *tail]: len(tail)
+    case []: 0
+    case [_, *tail]: len(tail)
 """)
     allowed("""#
 def len(lst):
   empty = 0
   recur lst:
-    []: empty
-    [_, *tail]: len(tail).add(1)
+    case []: empty
+    case [_, *tail]: len(tail).add(1)
 """)
     allowed("""#
 def len(lst, acc):
   recur lst:
-    []: acc
-    [_, *tail]: len(tail, acc.add(1))
+    case []: acc
+    case [_, *tail]: len(tail, acc.add(1))
 """)
     disallowed("""#
 def len(lst):
   recur lst:
-    [*list]: len(list)
+    case [*list]: len(list)
 """)
     disallowed("""#
 def len(lst):
   recur lst:
-    [h, *t]: len(lst)
-    []: 0
+    case [h, *t]: len(lst)
+    case []: 0
 """)
     disallowed("""#
 def len(lst):
   recur lst:
-    []: 0
-    [_, *tail]:
+    case []: 0
+    case [_, *tail]:
       # we can't trivially see this is okay
       fn = \arg -> arg(tail)
       fn(len)
@@ -123,32 +123,32 @@ def len(lst):
     disallowed("""#
 def len(lst):
   recur lst:
-    []:
+    case []:
       len = \x -> 0
       len(lst)
-    [_, *tail]: len(tail)
+    case [_, *tail]: len(tail)
 """)
 
     disallowed("""#
 def len(lst):
   len = "shadow"
   recur lst:
-    []: 0
-    [_, *tail]: len(tail)
+    case []: 0
+    case [_, *tail]: len(tail)
 """)
     disallowed("""#
 def len(lst):
   recur lst:
-    []: 0
-    [_, *tail]:
+    case []: 0
+    case [_, *tail]:
       len = "shadow"
       len(tail)
 """)
     disallowed("""#
 def len(lst):
   recur lst:
-    []: 0
-    [_, *tail]:
+    case []: 0
+    case [_, *tail]:
       # shadowing len is not okay
       fn = \len -> len(tail)
       fn(len)
@@ -156,8 +156,8 @@ def len(lst):
     disallowed("""#
 def len(lst):
   recur lst:
-    []: 0
-    [_, *len]:
+    case []: 0
+    case [_, *len]:
       # shadowing len is not okay
       12
 """)
@@ -168,8 +168,8 @@ def len(lst):
   # by this method, and currently inaccessible
   x = len
   recur lst:
-    []: 0
-    [_, *_]:
+    case []: 0
+    case [_, *_]:
       # shadowing len is not okay
       12
 """)
@@ -179,8 +179,8 @@ def len(lst):
     len = l.add(r)
     len
   recur lst:
-    []: 0
-    [_, *t]: len_helper(len(t), 1)
+    case []: 0
+    case [_, *t]: len_helper(len(t), 1)
 """)
   }
 
@@ -195,18 +195,18 @@ def loop(x):
     disallowed("""#
 def len(lst):
   recur lst:
-    []: 0
-    [_, *tail]: 1
+    case []: 0
+    case [_, *tail]: 1
 """)
 
     disallowed("""#
 def len(lst):
   def foo(x):
     recur lst:
-      0: 1
+      case 0: 1
   recur lst:
-    []: 0
-    [_, *tail]: 1
+    case []: 0
+    case [_, *tail]: 1
 """)
   }
 
@@ -215,28 +215,28 @@ def len(lst):
 def len(lst):
   def foo(x): x
   recur lst:
-    []: 0
-    [_, *tail]: 1
+    case []: 0
+    case [_, *tail]: 1
 """)
     disallowed("""#
 def len(lst):
   def bar(x):
     def foo(x):
       recur x:
-        []: 0
-        [_, *t]: foo(t)
+        case []: 0
+        case [_, *t]: foo(t)
     foo(x)
   recur lst:
-    []: 0
-    [_, *tail]: 1
+    case []: 0
+    case [_, *tail]: 1
 """)
 
     allowed("""#
 def len(lst):
   def foo(x): x
   recur lst:
-    []: 0
-    [_, *tail]: len(tail)
+    case []: 0
+    case [_, *tail]: len(tail)
 """)
   }
 
@@ -247,11 +247,11 @@ def len(lst):
     disallowed("""#
 def foo(lstA, lstB):
   x = recur lstA:
-    []: 1
-    [a, *as]: foo(as, [1,*lstB])
+    case []: 1
+    case [a, *as]: foo(as, [1,*lstB])
   y = recur lstB:
-    []: 2
-    [b, *bs]: foo([1, *lstA], bs)
+    case []: 2
+    case [b, *bs]: foo([1, *lstA], bs)
   x.add(y)
 """)
   }
@@ -260,22 +260,22 @@ def foo(lstA, lstB):
     allowed("""#
 def len(lst, a):
   recur lst:
-    []: a
-    [_, *tail]: len(tail, a.plus(1))
+    case []: a
+    case [_, *tail]: len(tail, a.plus(1))
 """)
     allowed("""#
 def len(a, lst):
   recur lst:
-    []: a
-    [_, *tail]: len(a.plus(1), tail)
+    case []: a
+    case [_, *tail]: len(a.plus(1), tail)
 """)
   }
   test("recur is not return") {
     allowed("""#
 def dots(lst):
   a = recur lst:
-    []: ""
-    [head, *tail]: dots(tail).concat(head)
+    case []: ""
+    case [head, *tail]: dots(tail).concat(head)
   a.concat(".")
 """)
   }
@@ -283,12 +283,12 @@ def dots(lst):
     disallowed("""#
 def foo(lst):
   a = recur lst:
-    []: 0
-    [_, *tail]: foo(tail).plus(1)
+    case []: 0
+    case [_, *tail]: foo(tail).plus(1)
 
   b = recur lst:
-    []: 1
-    [_, *tail]: foo(tail).plus(2)
+    case []: 1
+    case [_, *tail]: foo(tail).plus(2)
 
   a.plus(b)
 """)
@@ -296,12 +296,12 @@ def foo(lst):
     disallowed("""#
 def foo(lstA, lstB):
   a = recur lstA:
-    []: 0
-    [_, *tail]: foo(tail, listB).plus(1)
+    case []: 0
+    case [_, *tail]: foo(tail, listB).plus(1)
 
   b = recur lstB:
-    []: 1
-    [_, *tail]: foo(lstA.concat(1), tail).plus(2)
+    case []: 1
+    case [_, *tail]: foo(lstA.concat(1), tail).plus(2)
 
   a.plus(b)
 """)
@@ -310,18 +310,18 @@ def foo(lstA, lstB):
     allowed("""#
 def zip(lstA, lstB):
   match lstA:
-    []: []
-    [headA, *tailA]: recur lstB:
-      []: []
-      [headB, *tailB]: [(headA, headB)].concat(zip(tailA, tailB))
+    case []: []
+    case [headA, *tailA]: recur lstB:
+      case []: []
+      case [headB, *tailB]: [(headA, headB)].concat(zip(tailA, tailB))
 """)
     allowed("""#
 def zip(lstA, lstB):
   recur lstA:
-    []: []
-    [headA, *tailA]: match lstB:
-      []: []
-      [headB, *tailB]: [(headA, headB)].concat(zip(tailA, tailB))
+    case []: []
+    case [headA, *tailA]: match lstB:
+      case []: []
+      case [headB, *tailB]: [(headA, headB)].concat(zip(tailA, tailB))
 """)
   }
 
@@ -330,13 +330,13 @@ def zip(lstA, lstB):
 def foo(x):
   def bar(x):
     recur x:
-      []: 0
-      [_, *t]: bar(t)
+      case []: 0
+      case [_, *t]: bar(t)
 
   def baz(x):
     recur x:
-      []: 0
-      [_, *t]: baz(t)
+      case []: 0
+      case [_, *t]: baz(t)
   baz([bar([1])])
 """)
   }
@@ -345,20 +345,20 @@ def foo(x):
     allowed("""#
 def foo(x):
   recur x:
-    []: 0
-    [_, *t]: foo(t)
+    case []: 0
+    case [_, *t]: foo(t)
 """)
     disallowed("""#
 def foo(x):
   recur bar(x):
-    []: 0
-    [_, *t]: foo(t)
+    case []: 0
+    case [_, *t]: foo(t)
 """)
     disallowed("""#
 def foo(x):
   recur y:
-    []: 0
-    [_, *t]: foo(t)
+    case []: 0
+    case [_, *t]: foo(t)
 """)
   }
 
@@ -366,16 +366,16 @@ def foo(x):
     disallowed("""#
 def len(acc, x):
   recur x:
-    []: acc
-    [_, *t]: len(t)
+    case []: acc
+    case [_, *t]: len(t)
 """)
   }
   test("we can use a list comprehension") {
     allowed("""#
 def nest(lst):
   recur lst:
-    []: []
-    [_, *tail]: [NonEmptyList(h, nest(tail)) for h in lst]
+    case []: []
+    case [_, *tail]: [NonEmptyList(h, nest(tail)) for h in lst]
 """)
   }
 
@@ -394,12 +394,12 @@ def len(lst):
   # this is doing nothing, but is a nested recursion
   def len0(lst):
     recur lst:
-      []: 0
-      [_, *t]: len0(t).add(1)
+      case []: 0
+      case [_, *t]: len0(t).add(1)
 
   recur lst:
-    []: 0
-    [_, *t]: len(t)
+    case []: 0
+    case [_, *t]: len(t)
 """)
   }
 
@@ -409,8 +409,8 @@ def id(x): x
 
 def len(lst):
   recur lst:
-    []: 0
-    [_, *t]: id(len(t))
+    case []: 0
+    case [_, *t]: id(len(t))
 """)
   }
 }

@@ -57,6 +57,9 @@ sealed abstract class Declaration {
            Doc.line + d0.document(pd)
         }
         BindingStatement.document(Document[Pattern.Parsed], Document.instance[NonBinding](_.toDoc), withNewLine).document(b)
+      case LeftApply(pat, _, arg, body) =>
+        Document[Pattern.Parsed].document(pat) + Doc.text(" <- ") + arg.toDoc + Doc.line +
+        Document[Padding[Declaration]].document(body)
       case Comment(c) =>
         CommentStatement.document[Padding[Declaration]].document(c)
       case CommentNB(c) =>
@@ -92,10 +95,12 @@ sealed abstract class Declaration {
       case Match(kind, typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
 
+        val caseDoc = Doc.text("case ")
+
         implicit val patDoc: Document[(Pattern.Parsed, OptIndent[Declaration])] =
           Document.instance[(Pattern.Parsed, OptIndent[Declaration])] {
             case (pat, decl) =>
-              Document[Pattern.Parsed].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
+              caseDoc + Document[Pattern.Parsed].document(pat) + Doc.text(":") + decl.sepDoc + pid.document(decl)
           }
         implicit def linesDoc[T: Document]: Document[NonEmptyList[T]] =
           Document.instance { ts => Doc.intercalate(Doc.line, ts.toList.map(Document[T].document _)) }
@@ -199,6 +204,8 @@ sealed abstract class Declaration {
         case Lambda(args, body) =>
           val bound1 = bound ++ args.toList.flatMap(_.names)
           loop(body, bound1, acc)
+        case la@LeftApply(_, _, _, _) =>
+          loop(la.rewrite, bound, acc)
         case Literal(lit) => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, bound, acc)
@@ -303,6 +310,8 @@ sealed abstract class Declaration {
             loop(v.get, acc1)
           }
           loop(elseCase.get, acc2)
+        case la@LeftApply(_, _, _, _) =>
+          loop(la.rewrite, acc)
         case Ternary(t, c, f) =>
           val acc1 = loop(t, acc)
           val acc2 = loop(c, acc1)
@@ -363,6 +372,8 @@ sealed abstract class Declaration {
         Comment(CommentStatement(lines, c.map(_.replaceRegions(r))))(r)
       case DefFn(d) =>
         DefFn(d.copy(result = (d.result._1.map(_.replaceRegions(r)), d.result._2.map(_.replaceRegions(r)))))(r)
+      case LeftApply(p, _, right, b) =>
+        LeftApply(p, r, right.replaceRegionsNB(r), b.map(_.replaceRegions(r)))
       case nb: NonBinding => nb.replaceRegionsNB(r)
     }
 }
@@ -554,6 +565,23 @@ object Declaration {
             .mapN { (b, r) =>
               DefFn(DefStatement(nm, args, rtype, (b, r)))(decl.region)
             }
+        case LeftApply(n, r, v, in) =>
+          val thisNames = n.names
+          if (thisNames.exists(masks)) None
+          else if (thisNames.exists(shadows)) {
+            // we only substitute on v
+            loop(v)
+              .map { v1 =>
+                LeftApply(n, r, v1, in)
+              }
+          }
+          else {
+            // we substitute on both
+            (loop(v), in.traverse(loopDec))
+              .mapN { (v1, in1) =>
+                LeftApply(n, r, v1, in1)
+              }
+          }
         case nb: NonBinding => loop(nb)
       }
 
@@ -665,6 +693,13 @@ object Declaration {
   case class Binding(binding: BindingStatement[Pattern.Parsed, NonBinding, Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class Comment(comment: CommentStatement[Padding[Declaration]])(implicit val region: Region) extends Declaration
   case class DefFn(deffn: DefStatement[Pattern.Parsed, (OptIndent[Declaration], Padding[Declaration])])(implicit val region: Region) extends Declaration
+  case class LeftApply(arg: Pattern.Parsed, argRegion: Region, fn: NonBinding, result: Padding[Declaration]) extends Declaration {
+    def region: Region = argRegion + result.padded.region
+    def rewrite: NonBinding = {
+      val lam = Lambda(NonEmptyList(arg, Nil), result.padded)(argRegion + result.padded.region)
+      Apply(fn, NonEmptyList(lam, Nil), ApplyKind.Parens)(region)
+    }
+  }
 
   //
   // We use the pattern of an implicit region for two reasons:
@@ -789,23 +824,20 @@ object Declaration {
       case _ => None
     }
 
-  val eqP: P0[Unit] = P.char('=') <* (!Operators.multiToksP)
-  /**
-   * if cutPattern = false, we put Pattern.bindParser in NoCut
-   * this is needed for parsing declarations currently because
-   * patterns and some Declarations are ambiguous, so only the = signals them
-   */
-  def bindingParser[T](parser: Indy[NonBinding], cutPattern: Boolean): Indy[T => BindingStatement[Pattern.Parsed, NonBinding, T]] = {
-    val patPart = Pattern.bindParser <* maybeSpace <* eqP
+  def bindingLike[S](parser: Indy[NonBinding], sym: P[S], cutPattern: Boolean): Indy[(Pattern.Parsed, Region, S, NonBinding)] = {
+    val patPart = Pattern.bindParser.region ~ (maybeSpace *> sym <* maybeSpace)
     val cutOrNot = if (cutPattern) patPart else patPart.backtrack
-    val pat: Indy[Pattern.Parsed] = Indy.lift(cutOrNot)
 
     // allow = to be like a block, we can continue on the next line indented
-    OptIndent.blockLike(pat, parser, P.unit)
-      .map { case (pat, value) =>
-        { rest => BindingStatement(pat, value.get, rest) }
+    OptIndent.blockLike(Indy.lift(cutOrNot), parser, P.unit)
+      .map { case (((reg, pat), s), value) =>
+        (pat, reg, s, value.get)
       }
   }
+
+  val eqP: P[Unit] = P.char('=') <* (!Operators.multiToksP)
+  val leftApplyFnP: P[Unit] = P.string("<-") <* (!Operators.multiToksP)
+  val bindOp: P[Unit] = eqP | leftApplyFnP
 
   private def restP(parser: Indy[Declaration]): Indy[Padding[Declaration]] =
     parser.indentBefore.mapF(Padding.parser(_))
@@ -910,7 +942,10 @@ object Declaration {
 
   def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
     val withTrailingExpr = expr.cutLeftP(maybeSpace)
-    val branch = OptIndent.block(Indy.lift(Pattern.matchParser), withTrailingExpr)
+    // TODO: make this strict
+    val bp = (P.string("case") *> Parser.spaces).?.with1 *> Pattern.matchParser
+    //val bp = (P.string("case") *> Parser.spaces).with1 *> Pattern.matchParser
+    val branch = OptIndent.block(Indy.lift(bp), withTrailingExpr)
 
     val left = Indy.lift(matchKindParser <* spaces).cutThen(arg).cutLeftP(maybeSpace)
     OptIndent.block(left, branch.nonEmptyList(Indy.toEOLIndent))
@@ -965,14 +1000,19 @@ object Declaration {
       }
   }
 
-  private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] =
+  private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] = {
+    val op = eqP.as(true) | leftApplyFnP.as(false)
     // we can't cut the pattern here because we have some ambiguity in declarations
-    bindingParser[Padding[Declaration]](nonBindingParser <* Indy.lift(toEOL1), cutPattern = false)
+    bindingLike(nonBindingParser <* Indy.lift(toEOL1), op, cutPattern = false)
       .cutThen(restP(decl))
       .region
-      .map { case (region, (bindfn, decl)) =>
-        Binding(bindfn(decl))(region)
+      .map { case (region, ((pat, preg, isEq, value), decl)) =>
+        if (isEq)
+          Binding(BindingStatement(pat, value, decl))(region)
+        else 
+          LeftApply(pat, preg, value, decl)
       }
+  }
 
   private def listP(p: P[NonBinding], src: P[NonBinding]): P[ListDecl] =
     ListLang.parser(p, src, Pattern.bindParser)
@@ -1024,7 +1064,7 @@ object Declaration {
       val recComp: P[NonBinding] = P.defer(rec((ParseMode.ComprehensionSource, indent))).asInstanceOf[P[NonBinding]]
 
       val tupOrPar: P[NonBinding] =
-        Parser.parens(((recNonBind.soft <* (!(maybeSpace ~ eqP)))
+        Parser.parens(((recNonBind.soft <* (!(maybeSpace ~ bindOp)))
           .tupleOrParens0
           .map {
             case Left(p) => { r: Region =>  Parens(p)(r) }
@@ -1143,7 +1183,7 @@ object Declaration {
 
         // one or more operators
         val ops: P[NonBinding => Operators.Formula[NonBinding]] =
-          maybeSpace.with1.soft *> ((!eqP).with1 *> Operators.Formula.infixOps1(nb))
+          maybeSpace.with1.soft *> ((!bindOp).with1 *> Operators.Formula.infixOps1(nb))
 
         // This already parses as many as it can, so we don't need repFn
         val form = ops.map { fn =>

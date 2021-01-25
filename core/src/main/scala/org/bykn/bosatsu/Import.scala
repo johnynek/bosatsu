@@ -87,7 +87,7 @@ object Import {
    * This only keeps the last name if there are duplicate local names
    * checking for duplicate local names should be done at another layer
    */
-  def locals[F[_], A, B, C](imp: Import[A, F[B]])(pn: PartialFunction[B, C])(implicit F: Foldable[F]): Map[Identifier, C] = {
+  def locals[F[_]: Foldable, A, B, C](imp: Import[A, F[B]])(pn: PartialFunction[B, C]): Map[Identifier, C] = {
     val fn = pn.lift
     imp.items.foldLeft(Map.empty[Identifier, C]) { case (m0, impName) =>
       impName.tag.foldLeft(m0) { (m1, b) =>

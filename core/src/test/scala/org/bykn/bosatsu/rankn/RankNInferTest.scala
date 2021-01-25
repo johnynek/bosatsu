@@ -413,8 +413,8 @@ struct Pair(fst, snd)
 
 def swap_maybe(x: a, y, swap) -> Pair[a, a]:
   match swap:
-    T: Pair(y, x)
-    F: Pair(x, y)
+    case T: Pair(y, x)
+    case F: Pair(x, y)
 
 def res:
   Pair(r, _) = swap_maybe(1, 2, F)
@@ -479,8 +479,8 @@ enum Option:
 
 x = Some(1)
 main = match x:
-  None: 0
-  Some(y): y
+  case None: 0
+  case Some(y): y
 """, "Int")
 
    parseProgram("""#
@@ -490,8 +490,8 @@ enum List:
 
 x = NonEmpty(1, Empty)
 main = match x:
-  Empty: 0
-  NonEmpty(y, _): y
+  case Empty: 0
+  case NonEmpty(y, _): y
 """, "Int")
 
    parseProgram("""#
@@ -502,8 +502,8 @@ struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -
 
 def optBind(opt, bindFn):
   match opt:
-    None: None
-    Some(a): bindFn(a)
+    case None: None
+    case Some(a): bindFn(a)
 
 main = Monad(Some, optBind)
 """, "Monad[Opt]")
@@ -516,8 +516,8 @@ struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -
 
 def opt_bind(opt, bind_fn):
   match opt:
-    None: None
-    Some(a): bind_fn(a)
+    case None: None
+    case Some(a): bind_fn(a)
 
 option_monad = Monad(Some, opt_bind)
 
@@ -545,8 +545,8 @@ struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -
 
 def opt_bind(opt, bind_fn):
   match opt:
-    None: None
-    Some(a): bind_fn(a)
+    case None: None
+    case Some(a): bind_fn(a)
 
 option_monad = Monad(Some, opt_bind)
 
@@ -816,8 +816,8 @@ main = foo("Not an Int")
 x = "foo"
 
 main = match x:
-  1: "can't really be an int"
-  y: y
+  case 1: "can't really be an int"
+  case y: y
 """)
 
   parseProgramIllTyped("""#
@@ -825,8 +825,8 @@ main = match x:
 x = 1
 
 main = match x:
-  "1": "can't really be a string"
-  y: y
+  case "1": "can't really be a string"
+  case y: y
 """)
   }
 
@@ -857,8 +857,8 @@ enum Nat: Zero, Succ(prev: Nat)
 
 def len(l):
   recur l:
-    Zero: 0
-    Succ(p): len(p)
+    case Zero: 0
+    case Succ(p): len(p)
 
 main = len(Succ(Succ(Zero)))
 """, "Int")
@@ -870,8 +870,8 @@ enum Nat: Zero, Succ(prev: Nat)
 def len(l):
   def len0(l):
     recur l:
-      Zero: 0
-      Succ(p): len0(p)
+      case Zero: 0
+      case Succ(p): len0(p)
   len0(l)
 
 main = len(Succ(Succ(Zero)))
@@ -924,7 +924,7 @@ struct Nil
 #Nil
 def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
   match cra_fn:
-    (_: Wrap[(forall x. Foo[x]) -> Nil]): Nil
+    case (_: Wrap[(forall x. Foo[x]) -> Nil]): Nil
 main = foo
 """, "Wrap[(forall ssss. Foo[ssss]) -> Nil] -> Nil")
   }
@@ -945,7 +945,7 @@ struct Foo
 struct Bar(f: Foo)
 def ignore(_): Foo
 def add(x):
-  (b@(y: Foo)) = x
+  ((y: Foo) as b) = x
   _ = ignore(y)
   Bar(b)
 """, "Foo -> Bar")

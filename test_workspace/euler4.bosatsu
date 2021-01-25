@@ -17,10 +17,10 @@ operator - = sub
 def max_opt(o1, o2):
     match o1:
         None: o2
-        s1 @ Some(v1):
+        Some(v1) as s1:
             match o2:
                 None: s1
-                s2 @ Some(v2):
+                Some(v2) as s2:
                     s2 if v2 > v1 else s1
 
 # given a maximum value, and a function to Option[Int], return
