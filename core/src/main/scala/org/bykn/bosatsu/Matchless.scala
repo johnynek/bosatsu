@@ -88,6 +88,35 @@ object Matchless {
   case class SetMut(target: LocalAnonMut, expr: Expr) extends BoolExpr
   case object TrueConst extends BoolExpr
 
+  def hasSideEffect(bx: BoolExpr): Boolean =
+    bx match {
+      case EqualsLit(e, _) => hasSideEffect(e)
+      case EqualsNat(e, _) => hasSideEffect(e)
+      case And(b1, b2) => hasSideEffect(b1) || hasSideEffect(b2)
+      case CheckVariant(e, _, _, _) => hasSideEffect(e)
+      case SearchList(_, i, b, l) =>
+        l.nonEmpty || hasSideEffect(i) || hasSideEffect(b)
+      case SetMut(_, _) => true
+      case MatchString(a, _, b) => b.nonEmpty || hasSideEffect(a)
+      case TrueConst => false
+    }
+
+  def hasSideEffect(x: Expr): Boolean =
+    x match {
+      case If(b, e1, e2) => hasSideEffect(b) || hasSideEffect(e1) || hasSideEffect(e2)
+      case Always(c, e) => hasSideEffect(c) || hasSideEffect(e)
+      case GetEnumElement(e, _, _, _) => hasSideEffect(e)
+      case GetStructElement(e, _, _) => hasSideEffect(e)
+      case PrevNat(e) => hasSideEffect(e)
+      case MakeEnum(_, _, _) | MakeStruct(_) | ZeroNat | SuccNat | Lambda(_, _, _) |
+        LoopFn(_, _, _, _, _) | Global(_, _) | Local(_) | LocalAnon(_) | LocalAnonMut(_) | Literal(_) => false
+      case App(f, as) =>
+        (f :: as.toList).exists(hasSideEffect)
+      case Let(_, e, i) =>
+        hasSideEffect(e) || hasSideEffect(i)
+      case LetMut(_, e) => hasSideEffect(e)
+    }
+
   case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
   case class Always(cond: BoolExpr, thenExpr: Expr) extends Expr
 
@@ -573,7 +602,11 @@ object Matchless {
                       // this must be total, but we still need
                       // to evaluate cond since it can have side
                       // effects
-                      Monad[F].pure(Always(cond, thisBranch))
+                      val e =
+                        if (hasSideEffect(cond)) Always(cond, thisBranch)
+                        else thisBranch
+
+                      Monad[F].pure(e)
                     case bh :: bt =>
                       recur(arg, NonEmptyList(bh, bt)).map { te =>
                         If(cond, thisBranch, te)
