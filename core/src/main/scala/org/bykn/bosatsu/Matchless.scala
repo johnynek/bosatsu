@@ -17,7 +17,7 @@ object Matchless {
       }
   }
   // these hold bindings either in the code, or temporary
-  // local ones
+  // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr extends Expr
   sealed abstract class FnExpr extends Expr
 
@@ -68,13 +68,13 @@ object Matchless {
       }
   }
   // returns 1 if it does, else 0
-  case class EqualsLit(expr: Expr, lit: Lit) extends BoolExpr
-  case class EqualsNat(expr: Expr, nat: DataRepr.Nat) extends BoolExpr
+  case class EqualsLit(expr: CheapExpr, lit: Lit) extends BoolExpr
+  case class EqualsNat(expr: CheapExpr, nat: DataRepr.Nat) extends BoolExpr
   // 1 if both are > 0
   case class And(e1: BoolExpr, e2: BoolExpr) extends BoolExpr
   // checks if variant matches, and if so, writes to
   // a given mut
-  case class CheckVariant(expr: Expr, expect: Int, size: Int, famArities: List[Int]) extends BoolExpr
+  case class CheckVariant(expr: CheapExpr, expect: Int, size: Int, famArities: List[Int]) extends BoolExpr
   // handle list matching, this is a while loop, that is evaluting
   // lst is initialized to init, leftAcc is initialized to empty
   // tail until it is true while mutating lst => lst.tail
@@ -88,6 +88,16 @@ object Matchless {
   case class SetMut(target: LocalAnonMut, expr: Expr) extends BoolExpr
   case object TrueConst extends BoolExpr
 
+  def hasSideEffect(bx: BoolExpr): Boolean =
+    bx match {
+      case SetMut(_, _) => true
+      case TrueConst | CheckVariant(_, _, _, _) | EqualsLit(_, _) | EqualsNat(_, _) => false
+      case MatchString(_, _, b) => b.nonEmpty
+      case And(b1, b2) => hasSideEffect(b1) || hasSideEffect(b2)
+      case SearchList(_, _, b, l) =>
+        l.nonEmpty || hasSideEffect(b)
+    }
+
   case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
   case class Always(cond: BoolExpr, thenExpr: Expr) extends Expr
 
@@ -95,8 +105,8 @@ object Matchless {
    * These aren't really super cheap, but when we treat them cheap we check that we will only
    * call them one time
    */
-  case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends CheapExpr
-  case class GetStructElement(arg: Expr, index: Int, size: Int) extends CheapExpr
+  case class GetEnumElement(arg: CheapExpr, variant: Int, index: Int, size: Int) extends CheapExpr
+  case class GetStructElement(arg: CheapExpr, index: Int, size: Int) extends CheapExpr
 
   sealed abstract class ConsExpr extends Expr {
     def arity: Int
@@ -573,7 +583,11 @@ object Matchless {
                       // this must be total, but we still need
                       // to evaluate cond since it can have side
                       // effects
-                      Monad[F].pure(Always(cond, thisBranch))
+                      val e =
+                        if (hasSideEffect(cond)) Always(cond, thisBranch)
+                        else thisBranch
+
+                      Monad[F].pure(e)
                     case bh :: bt =>
                       recur(arg, NonEmptyList(bh, bt)).map { te =>
                         If(cond, thisBranch, te)
