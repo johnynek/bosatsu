@@ -17,7 +17,7 @@ object Matchless {
       }
   }
   // these hold bindings either in the code, or temporary
-  // local ones
+  // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr extends Expr
   sealed abstract class FnExpr extends Expr
 
@@ -68,13 +68,13 @@ object Matchless {
       }
   }
   // returns 1 if it does, else 0
-  case class EqualsLit(expr: Expr, lit: Lit) extends BoolExpr
-  case class EqualsNat(expr: Expr, nat: DataRepr.Nat) extends BoolExpr
+  case class EqualsLit(expr: CheapExpr, lit: Lit) extends BoolExpr
+  case class EqualsNat(expr: CheapExpr, nat: DataRepr.Nat) extends BoolExpr
   // 1 if both are > 0
   case class And(e1: BoolExpr, e2: BoolExpr) extends BoolExpr
   // checks if variant matches, and if so, writes to
   // a given mut
-  case class CheckVariant(expr: Expr, expect: Int, size: Int, famArities: List[Int]) extends BoolExpr
+  case class CheckVariant(expr: CheapExpr, expect: Int, size: Int, famArities: List[Int]) extends BoolExpr
   // handle list matching, this is a while loop, that is evaluting
   // lst is initialized to init, leftAcc is initialized to empty
   // tail until it is true while mutating lst => lst.tail
@@ -90,31 +90,12 @@ object Matchless {
 
   def hasSideEffect(bx: BoolExpr): Boolean =
     bx match {
-      case EqualsLit(e, _) => hasSideEffect(e)
-      case EqualsNat(e, _) => hasSideEffect(e)
-      case And(b1, b2) => hasSideEffect(b1) || hasSideEffect(b2)
-      case CheckVariant(e, _, _, _) => hasSideEffect(e)
-      case SearchList(_, i, b, l) =>
-        l.nonEmpty || hasSideEffect(i) || hasSideEffect(b)
       case SetMut(_, _) => true
-      case MatchString(a, _, b) => b.nonEmpty || hasSideEffect(a)
-      case TrueConst => false
-    }
-
-  def hasSideEffect(x: Expr): Boolean =
-    x match {
-      case If(b, e1, e2) => hasSideEffect(b) || hasSideEffect(e1) || hasSideEffect(e2)
-      case Always(c, e) => hasSideEffect(c) || hasSideEffect(e)
-      case GetEnumElement(e, _, _, _) => hasSideEffect(e)
-      case GetStructElement(e, _, _) => hasSideEffect(e)
-      case PrevNat(e) => hasSideEffect(e)
-      case MakeEnum(_, _, _) | MakeStruct(_) | ZeroNat | SuccNat | Lambda(_, _, _) |
-        LoopFn(_, _, _, _, _) | Global(_, _) | Local(_) | LocalAnon(_) | LocalAnonMut(_) | Literal(_) => false
-      case App(f, as) =>
-        (f :: as.toList).exists(hasSideEffect)
-      case Let(_, e, i) =>
-        hasSideEffect(e) || hasSideEffect(i)
-      case LetMut(_, e) => hasSideEffect(e)
+      case TrueConst | CheckVariant(_, _, _, _) | EqualsLit(_, _) | EqualsNat(_, _) => false
+      case MatchString(_, _, b) => b.nonEmpty
+      case And(b1, b2) => hasSideEffect(b1) || hasSideEffect(b2)
+      case SearchList(_, _, b, l) =>
+        l.nonEmpty || hasSideEffect(b)
     }
 
   case class If(cond: BoolExpr, thenExpr: Expr, elseExpr: Expr) extends Expr
@@ -124,8 +105,8 @@ object Matchless {
    * These aren't really super cheap, but when we treat them cheap we check that we will only
    * call them one time
    */
-  case class GetEnumElement(arg: Expr, variant: Int, index: Int, size: Int) extends CheapExpr
-  case class GetStructElement(arg: Expr, index: Int, size: Int) extends CheapExpr
+  case class GetEnumElement(arg: CheapExpr, variant: Int, index: Int, size: Int) extends CheapExpr
+  case class GetStructElement(arg: CheapExpr, index: Int, size: Int) extends CheapExpr
 
   sealed abstract class ConsExpr extends Expr {
     def arity: Int
