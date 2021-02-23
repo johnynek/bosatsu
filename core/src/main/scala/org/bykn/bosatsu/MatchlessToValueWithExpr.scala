@@ -48,12 +48,23 @@ object MatchlessToValueWithExpr {
       case LeafValue(leaf)              => leaf
     }
   }
+
+  final case class Scope(
+      locals: Map[Bindable, Eval[ValueWithExpr]],
+      anon: LongMap[ValueWithExpr],
+      muts: MLongMap[ValueWithExpr]
+  )
   case class LazyValue(
       expression: Expr,
-      scope: Map[(PackageName, Identifier), ValueWithExpr]
+      scope: Scope
   ) extends ValueWithExpr
   case class ComputedValue(value: Value) extends ValueWithExpr
   case class LeafValue(leaf: Leaf) extends ValueWithExpr
+
+  def evalToValue(
+      me: Expr,
+      scope: Scope
+  ): Value = LazyValue(me, scope).eval
 
   // reuse some cache structures across a number of calls
   def traverse[F[_]: Functor](
