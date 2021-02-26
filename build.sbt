@@ -7,8 +7,8 @@ lazy val commonSettings = Seq(
   version      := "0.0.7",
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.11.3" cross CrossVersion.full),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
-  scalaVersion := "2.12.11",
-  crossScalaVersions := Seq("2.12.11"),
+  scalaVersion := "2.12.13",
+  crossScalaVersions := Seq("2.12.13"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation",                      // Emit warning and location for usages of deprecated APIs.
