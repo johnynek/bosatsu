@@ -2,7 +2,7 @@ import sbt._
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 
 object Dependencies {
-  lazy val cats = Def.setting("org.typelevel" %%% "cats-core" % "2.5.0")
+  lazy val cats = Def.setting("org.typelevel" %%% "cats-core" % "2.6.0")
   lazy val catsEffect = Def.setting("org.typelevel" %%% "cats-effect" % "2.5.0")
   lazy val catsParse = Def.setting("org.typelevel" %%% "cats-parse" % "0.3.2")
   lazy val decline = Def.setting("com.monovore" %%% "decline" % "2.0.0")
