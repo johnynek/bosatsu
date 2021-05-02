@@ -5,7 +5,7 @@ addSbtPlugin("com.thesamet" % "sbt-protoc" % "0.99.34")
 addSbtPlugin("com.typesafe.sbt" % "sbt-git" % "1.0.0")
 addSbtPlugin("org.portable-scala" % "sbt-scalajs-crossproject" % "1.0.0")
 addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.5.1")
-addSbtPlugin("org.scoverage" % "sbt-scoverage" % "1.7.0")
+addSbtPlugin("org.scoverage" % "sbt-scoverage" % "1.7.1")
 addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.0")
 
 // This is adding this compiler plugin as a dependency for the build, not the code itself
