@@ -5,7 +5,7 @@ import Dependencies._
 lazy val commonSettings = Seq(
   organization := "org.bykn",
   version      := "0.0.7",
-  addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.11.3" cross CrossVersion.full),
+  addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.0" cross CrossVersion.full),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
   scalaVersion := "2.12.11",
   crossScalaVersions := Seq("2.12.11"),
