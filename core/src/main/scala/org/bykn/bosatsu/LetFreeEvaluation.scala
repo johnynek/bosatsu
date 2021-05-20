@@ -91,12 +91,17 @@ object LetFreeEvaluation {
       }
   }
 
+  case class VarsTag(exprThunk: () => TypedExpr[VarsTag]) {
+    lazy val expr = exprThunk()
+    lazy val varSet: Set[String] = ???
+  }
+
   case class LazyValue(
-    expression: TypedExpr[Unit],
-    scope: List[LetFreeValue]
+    expression: TypedExpr[VarsTag],
+    scope: Map[String, LetFreeValue]
   )(implicit extEnvArg: ExtEnv, cacheArg: Cache) extends LetFreeValue {
-    def cleanedScope: List[(Int, LetFreeValue)] =
-      expression.varSet.toList.sorted.map { n => (n, scope(n)) }
+    def cleanedScope: List[(String, LetFreeValue)] =
+      expression.tag.varSet.toList.sorted.map { n => (n, scope(n)) }
 
     lazy val toStructNat: Option[(Int, List[LetFreeValue])] = lazyToStructImpl(this, rankn.DataFamily.Nat)
     lazy val toStructEnum: Option[(Int, List[LetFreeValue])] = lazyToStructImpl(this, rankn.DataFamily.Enum)
