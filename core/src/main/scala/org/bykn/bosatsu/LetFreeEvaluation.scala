@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Eval
-import LetFreeConversion.LetFreeExpressionTag
+// import LetFreeConversion.LetFreeExpressionTag
 import scala.annotation.tailrec
 import rankn.Type
 import scala.concurrent.Future
@@ -92,7 +92,7 @@ object LetFreeEvaluation {
   }
 
   case class LazyValue(
-    expression: LetFreeExpression,
+    expression: TypedExpr[Unit],
     scope: List[LetFreeValue]
   )(implicit extEnvArg: ExtEnv, cacheArg: Cache) extends LetFreeValue {
     def cleanedScope: List[(Int, LetFreeValue)] =
