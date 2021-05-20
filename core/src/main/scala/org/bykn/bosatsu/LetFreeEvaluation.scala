@@ -96,6 +96,8 @@ object LetFreeEvaluation {
     lazy val varSet: Set[String] = ???
   }
 
+  def varTagTypedExpr[X](expr: TypedExpr[X]): TypedExpr[VarsTag] = ???
+
   case class LazyValue(
     expression: TypedExpr[VarsTag],
     scope: Map[String, LetFreeValue]
