@@ -17,7 +17,7 @@ jdk:
 
 matrix:
   include:
-    - scala: 2.12.12
+    - scala: 2.12.14
       language: scala
       jdk: openjdk8
       env: PLATFORM=js
