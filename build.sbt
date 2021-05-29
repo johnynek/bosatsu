@@ -61,7 +61,7 @@ lazy val commonSettings = Seq(
 
   scalacOptions in (Compile, console) --= Seq("-Ywarn-unused:imports", "-Xfatal-warnings"),
 
-  testOptions in Test += Tests.Argument("-oDF"),
+  Test / testOptions += Tests.Argument("-oDF"),
 )
 
 lazy val commonJsSettings = Seq(
@@ -119,8 +119,16 @@ lazy val cli = (project in file("cli")).
   settings(
     commonSettings,
     name := "bosatsu-cli",
-    test in assembly := {},
-    mainClass in assembly := Some("org.bykn.bosatsu.Main"),
+    assembly / test := {},
+    assembly / mainClass := Some("org.bykn.bosatsu.Main"),
+    assembly / assemblyMergeStrategy := {
+      case PathList("scala", "annotation", "nowarn.class") =>
+        // this is duplicated in scala-collection-compat
+        MergeStrategy.last
+      case x =>
+        val oldStrategy = (assembly / assemblyMergeStrategy).value
+	oldStrategy(x)
+    },
     libraryDependencies ++=
       Seq(
         catsEffect.value,
@@ -138,7 +146,7 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
   settings(
     commonSettings,
     name := "bosatsu-core",
-    test in assembly := {},
+    assembly / test := {},
     libraryDependencies ++=
       Seq(
         cats.value,
@@ -172,7 +180,7 @@ lazy val jsapi = (crossProject(JSPlatform).crossType(CrossType.Pure) in file("js
     commonSettings,
     commonJsSettings,
     name := "bosatsu-jsapi",
-    test in assembly := {},
+    assembly / test := {},
     libraryDependencies ++=
       Seq(
         cats.value,
