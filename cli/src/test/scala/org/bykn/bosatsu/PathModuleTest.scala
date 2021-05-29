@@ -9,6 +9,9 @@ import scala.collection.JavaConverters._
 import scala.util.{Failure, Success, Try}
 import org.scalatest.funsuite.AnyFunSuite
 
+// allow us to unsafeRunSync
+import cats.effect.unsafe.implicits.global
+
 class PathModuleTest extends AnyFunSuite {
 
   implicit val arbPath: Arbitrary[Path] =
