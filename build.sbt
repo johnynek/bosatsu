@@ -122,7 +122,7 @@ lazy val cli = (project in file("cli")).
     assembly / test := {},
     assembly / mainClass := Some("org.bykn.bosatsu.Main"),
     assembly / assemblyMergeStrategy := {
-      case PathList("scala", "annotation", "nowarn$.class") =>
+      case PathList("scala", "annotation", "nowarn$.class" | "nowarn.class") =>
         // this is duplicated in scala-collection-compat
         MergeStrategy.last
       case x =>
