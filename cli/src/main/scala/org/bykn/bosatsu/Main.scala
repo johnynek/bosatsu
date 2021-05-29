@@ -1,8 +1,6 @@
 package org.bykn.bosatsu
 
-import scala.util.{ Failure, Success, Try }
-
-import cats.effect.{ExitCode, IOApp}
+import cats.effect.{ExitCode, IO, IOApp}
 
 object Main extends IOApp {
   def run(args: List[String]): IO[ExitCode] =
