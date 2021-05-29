@@ -58,6 +58,8 @@ class TestProtoType extends AnyFunSuite {
       }
     }
 
+    // allow us to unsafeRunSync
+    import cats.effect.unsafe.implicits.global
     tempRes.use(fn).unsafeRunSync
   }
 
