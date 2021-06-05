@@ -120,7 +120,8 @@ lazy val cli = (project in file("cli")).
     commonSettings,
     name := "bosatsu-cli",
     test in assembly := {},
-    mainClass in assembly := Some("org.bykn.bosatsu.Main"),
+    assembly / mainClass := Some("org.bykn.bosatsu.Main"),
+    Compile / mainClass := Some("org.bykn.bosatsu.Main"),
     libraryDependencies ++=
       Seq(
         catsEffect.value,
@@ -130,9 +131,11 @@ lazy val cli = (project in file("cli")).
       ),
     PB.targets in Compile := Seq(
      scalapb.gen() -> (sourceManaged in Compile).value
+    ),
+    nativeImageOptions ++= Seq("--static", "--no-fallback", "--verbose", "--initialize-at-build-time")
    )
-  )
   .dependsOn(coreJVM % "compile->compile;test->test")
+  .enablePlugins(NativeImagePlugin)
 
 lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
