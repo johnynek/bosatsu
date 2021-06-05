@@ -59,7 +59,7 @@ lazy val commonSettings = Seq(
     "-Ywarn-value-discard"               // Warn when non-Unit expression results are unused.
   ),
 
-  scalacOptions in (Compile, console) --= Seq("-Ywarn-unused:imports", "-Xfatal-warnings"),
+  Compile / console / scalacOptions --= Seq("-Ywarn-unused:imports", "-Xfatal-warnings"),
 
   Test / testOptions += Tests.Argument("-oDF"),
 )
@@ -87,7 +87,7 @@ lazy val docs = (project in file("docs"))
   .settings(
     name := "paradox docs",
     paradoxTheme := Some(builtinParadoxTheme("generic")),
-    paradoxProperties in Compile ++= Map(
+    Compile / paradoxProperties ++= Map(
       "empty" -> "",
       "version" -> version.value
     ),
@@ -120,7 +120,6 @@ lazy val cli = (project in file("cli")).
     commonSettings,
     name := "bosatsu-cli",
     assembly / test := {},
-    assembly / mainClass := Some("org.bykn.bosatsu.Main"),
     assembly / assemblyMergeStrategy := {
       case PathList("scala", "annotation", "nowarn$.class" | "nowarn.class") =>
         // this is duplicated in scala-collection-compat
@@ -129,6 +128,8 @@ lazy val cli = (project in file("cli")).
         val oldStrategy = (assembly / assemblyMergeStrategy).value
 	oldStrategy(x)
     },
+    assembly / mainClass := Some("org.bykn.bosatsu.Main"),
+    Compile / mainClass := Some("org.bykn.bosatsu.Main"),
     libraryDependencies ++=
       Seq(
         catsEffect.value,
@@ -136,11 +137,13 @@ lazy val cli = (project in file("cli")).
         jawnAst.value % Test,
         jython.value % Test,
       ),
-    PB.targets in Compile := Seq(
-     scalapb.gen() -> (sourceManaged in Compile).value
+    Compile / PB.targets := Seq(
+     scalapb.gen() -> (Compile / sourceManaged).value
+    ),
+    nativeImageOptions ++= Seq("--static", "--no-fallback", "--verbose", "--initialize-at-build-time")
    )
-  )
   .dependsOn(coreJVM % "compile->compile;test->test")
+  .enablePlugins(NativeImagePlugin)
 
 lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
