@@ -140,7 +140,8 @@ lazy val cli = (project in file("cli")).
     Compile / PB.targets := Seq(
      scalapb.gen() -> (Compile / sourceManaged).value
     ),
-    nativeImageOptions ++= Seq("--static", "--no-fallback", "--verbose", "--initialize-at-build-time")
+    nativeImageOptions ++= Seq("--static", "--no-fallback", "--verbose", "--initialize-at-build-time"),
+    nativeImageVersion := "21.1.0"
    )
   .dependsOn(coreJVM % "compile->compile;test->test")
   .enablePlugins(NativeImagePlugin)
