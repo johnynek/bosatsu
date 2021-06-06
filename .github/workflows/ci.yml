@@ -93,9 +93,9 @@ jobs:
         uses: "olafurpg/setup-scala@v10"
         with:
           java-version: "graalvm@21.1.0"
-      - name: "build assembly jar and native image"
+      - name: "build native image"
         run: |
-          sbt "++${{matrix.scala}} cli/assembly; cli/nativeImage"
+                sbt "++${{matrix.scala}} cli/nativeImage"
           cp cli/target/native-image/bosatsu-cli bosatsu
       - name: "run bosatsu tests"
         run: |

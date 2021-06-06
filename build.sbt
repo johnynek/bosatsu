@@ -115,8 +115,9 @@ lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
 lazy val baseJS = base.js
 lazy val baseJVM = base.jvm
 
-lazy val cli = (project in file("cli")).
-  settings(
+lazy val cli = (project in file("cli"))
+  .enablePlugins(NativeImagePlugin)
+  .settings(
     commonSettings,
     name := "bosatsu-cli",
     assembly / test := {},
@@ -144,7 +145,6 @@ lazy val cli = (project in file("cli")).
     nativeImageVersion := "21.1.0"
    )
   .dependsOn(coreJVM % "compile->compile;test->test")
-  .enablePlugins(NativeImagePlugin)
 
 lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
