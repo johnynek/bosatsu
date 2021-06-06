@@ -117,9 +117,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       packRes: PackageResolver,
       done: Set[PackageName]): IO[ParseTransResult] = {
 
-      def maybeRead(p: Path): IO[Option[String]] =
-        readPath(p).map(Option(_)).recover { case _ => None }
-
       val maybeReadPack: IO[Option[(Path, String)]] =
         if (done(search)) {
           moduleIOMonad.pure(Option.empty[(Path, String)])

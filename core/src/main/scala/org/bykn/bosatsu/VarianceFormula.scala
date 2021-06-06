@@ -279,8 +279,6 @@ object VarianceFormula {
       // What are the constraints on bound with the given unknown, in the current dt
       def constrainTpe(bound: Type.Var.Bound, u: Unknown, tpe: Type): VarianceFormula = {
 
-        val unitState = State.pure[SolutionState, Unit](())
-
         def loop(shadows: Set[Type.Var], tpe: Type): VarianceFormula =
           tpe match {
             case ForAll(vars, tpe) => loop(shadows ++ vars.toList, tpe)
