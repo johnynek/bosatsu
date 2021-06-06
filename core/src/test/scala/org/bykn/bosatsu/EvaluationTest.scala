@@ -1443,7 +1443,7 @@ struct X
 main = match 1:
   case X1: 0
 """), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package B, unknown constructor X1\nRegion(49,50)")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package B, unknown constructor X1\nRegion(49,50)")
       ()
     }
 
@@ -1455,7 +1455,7 @@ main = match [1, 2, 3]:
   case []: 0
   case [*a, *b, _]: 2
 """), "A") { case te@PackageError.TotalityCheckError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(19,70)\nmultiple splices in pattern, only one per match allowed")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(19,70)\nmultiple splices in pattern, only one per match allowed")
       ()
     }
 
@@ -1468,7 +1468,7 @@ enum Foo: Bar(a), Baz(b)
 main = match Bar(a):
   case Baz(b): b
 """), "A") { case te@PackageError.TotalityCheckError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(45,75)\nnon-total match, missing: Bar(_)")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(45,75)\nnon-total match, missing: Bar(_)")
       ()
     }
 
@@ -1482,7 +1482,7 @@ def fn(x):
 
 main = fn
 """), "A") { case te@PackageError.RecursionError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, recur but no recursive call to fn\nRegion(25,42)\n")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, recur but no recursive call to fn\nRegion(25,42)\n")
       ()
     }
 
@@ -1496,7 +1496,7 @@ def fn(x):
 
 main = fn
 """), "A") { case te@PackageError.RecursionError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,43)\n")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,43)\n")
       ()
     }
 
@@ -1510,7 +1510,7 @@ def fn(x):
 
 main = fn
 """), "A") { case te@PackageError.RecursionError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,42)\n")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,42)\n")
       ()
     }
 
@@ -1526,7 +1526,7 @@ def fn(x):
 
 main = fn
 """), "A") { case te@PackageError.RecursionError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, unexpected recur: may only appear unnested inside a def\nRegion(47,70)\n")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, unexpected recur: may only appear unnested inside a def\nRegion(47,70)\n")
       ()
     }
 
@@ -1543,7 +1543,7 @@ def fn(x):
 
 main = fn
 """), "A") { case te@PackageError.RecursionError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, illegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,81)\n")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, illegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,81)\n")
       ()
     }
 
@@ -1558,7 +1558,7 @@ def fn(x, y):
 
 main = fn
 """), "A") { case te@PackageError.RecursionError(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, invalid recursion on fn\nRegion(63,79)\n")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, invalid recursion on fn\nRegion(63,79)\n")
       ()
     }
 
@@ -1573,7 +1573,7 @@ def fn(x, y):
 
 main = fn(0, 1, 2)
 """), "A") { case te@PackageError.TypeErrorIn(_, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, type error: expected type Bosatsu/Predef::Int to be the same as type ?a -> ?b\nhint: this often happens when you apply the wrong number of arguments to a function.\nRegion(73,84)")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, type error: expected type Bosatsu/Predef::Int to be the same as type ?a -> ?b\nhint: this often happens when you apply the wrong number of arguments to a function.\nRegion(73,84)")
       ()
     }
 
@@ -1590,7 +1590,7 @@ from A import fooz
 
 baz = fooz
 """), "B") { case te@PackageError.UnknownImportName(_, _, _, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in <unknown source> package: A does not have name fooz. Nearest: foo")
+      assert(te.message(Map.empty, Colorize.None) == "in <unknown source> package: A does not have name fooz. Nearest: foo")
       ()
     }
 
@@ -1608,7 +1608,7 @@ from A import bar
 
 baz = bar
 """), "B") { case te@PackageError.UnknownImportName(_, _, _, _) =>
-      val b = assert(te.message(Map.empty, Colorize.None) == "in <unknown source> package: A has bar but it is not exported. Add to exports")
+      assert(te.message(Map.empty, Colorize.None) == "in <unknown source> package: A has bar but it is not exported. Add to exports")
       ()
     }
   }

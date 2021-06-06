@@ -128,7 +128,7 @@ class RankNInferTest extends AnyFunSuite {
       val rendered = te.repr
       val tp = te.getType
       lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
-      assert(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
+      assert(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr, in: $rendered")
 
       assert(Type.metaTvs(tp :: Nil).isEmpty,
         s"illegal inferred type: $teStr")
@@ -242,9 +242,6 @@ class RankNInferTest extends AnyFunSuite {
   }
 
   test("match with custom non-generic types") {
-    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
-    def tv(a: String): Type = Type.TyVar(b(a))
-
     import OptionTypes._
 
     val constructors = Map(
@@ -338,7 +335,6 @@ class RankNInferTest extends AnyFunSuite {
     def tv(a: String): Type = Type.TyVar(b(a))
 
     val pureName = defType("Pure")
-    val pureType: Type.Tau = Type.TyConst(pureName)
     val optName = defType("Option")
     val optType: Type.Tau = Type.TyConst(optName)
 

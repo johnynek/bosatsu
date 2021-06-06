@@ -207,6 +207,7 @@ enum MyNat: Z, S(prev: MyNat)
 
       toV match {
         case Right(toV) =>
+          assert(toJ.isRight)
           val j = stringToJson(json)
           toV(j) match {
             case Left(_) => succeed

@@ -32,7 +32,7 @@ object Par {
   @inline def promise[A]: P[A] = Promise[A]()
 
   @inline def complete[A](p: P[A], f: F[A]): Unit = {
-    val p1 = p.completeWith(f)
+    p.completeWith(f)
     ()
   }
 
