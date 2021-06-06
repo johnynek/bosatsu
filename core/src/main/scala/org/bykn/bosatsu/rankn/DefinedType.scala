@@ -44,13 +44,11 @@ final case class DefinedType[+A](
         // exactly two constructor functions
         if (c0.isZeroArg && c1.hasSingleArgType(toTypeTyConst)) {
           val zero = c0.name
-          val one = c1.name
 
           { cons => if (cons == zero) DataRepr.ZeroNat else DataRepr.SuccNat }
         }
         else if (c1.isZeroArg && c0.hasSingleArgType(toTypeTyConst)) {
           val zero = c1.name
-          val one = c0.name
 
           { cons => if (cons == zero) DataRepr.ZeroNat else DataRepr.SuccNat }
         }

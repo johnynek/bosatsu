@@ -540,8 +540,6 @@ class SyntaxParseTest extends ParserTestBase {
   }
 
   test("we can parse DefStatement") {
-    val indDoc = Document[Indented[Declaration]]
-
     forAll(Generators.defGen(Generators.optIndent(Generators.genDeclaration(0)))) { defn =>
       parseTestAll[DefStatement[Pattern.Parsed, OptIndent[Declaration]]](
         DefStatement.parser(Pattern.bindParser, Parser.maybeSpace.with1 *> OptIndent.indy(Declaration.parser).run("")),

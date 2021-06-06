@@ -643,9 +643,6 @@ object Generators {
 
     val unnested = unnestedDeclGen
 
-    val pat: Gen[Pattern.Parsed] = bindIdentGen.map(Pattern.Var(_))
-    //val pat = genPattern(0)
-
     val recur = Gen.lzy(genDeclaration(depth - 1))
     val recNon = Gen.lzy(genNonBinding(depth - 1))
     if (depth <= 0) unnested
