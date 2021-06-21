@@ -1,0 +1,10 @@
+coverage:
+  require_ci_to_pass: false
+  notify:
+    wait_for_ci: false
+  status:
+    project:
+      default:
+        target: auto
+        # scalacheck tests can fluctuate up and down in coverage
+        threshold: 2%

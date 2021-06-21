@@ -13,12 +13,6 @@ object TestUtils {
 
   def typeEnvOf(pack: PackageName, str: String): TypeEnv[Unit] = {
 
-    val tpeFn: Identifier.Constructor => Type.Const =
-      { tpe => Type.Const.Defined(pack, TypeName(tpe)) }
-
-    val consFn: Identifier.Constructor => (PackageName, Identifier.Constructor) =
-      { cons => (pack, cons) }
-
     val stmt = statementsOf(pack, str)
     val srcConv = SourceConverter(pack, Nil, Statement.definitionsOf(stmt))
     val prog = srcConv.toProgram(stmt) match {
@@ -171,7 +165,6 @@ object TestUtils {
   }
 
   def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
-    val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
       Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>

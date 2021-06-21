@@ -867,7 +867,6 @@ object Pattern {
             }
 
         case ListPat(items) =>
-          type L = ListPart[Pattern[C, T]]
           items.foldLeft(env) {
             case (env, ListPart.WildList) => env
             case (env, ListPart.NamedList(n)) =>

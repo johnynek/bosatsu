@@ -7,8 +7,8 @@ lazy val commonSettings = Seq(
   version      := "0.0.7",
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.0" cross CrossVersion.full),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
-  scalaVersion := "2.12.11",
-  crossScalaVersions := Seq("2.12.11"),
+  scalaVersion := "2.12.14",
+  crossScalaVersions := Seq("2.12.14"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation",                      // Emit warning and location for usages of deprecated APIs.
@@ -52,16 +52,16 @@ lazy val commonSettings = Seq(
     "-Ywarn-unused-import",             // Warn if an import selector is not referenced.
     //"-Ywarn-unused",
     //"-Ywarn-unused:implicits",           // Warn if an implicit parameter is unused.
-    /* "-Ywarn-unused:locals",              // Warn if a local definition is unused. */
+    /* "-Ywarn-unused:locals",              // Warn if a local definition is unused */
     /* "-Ywarn-unused:params",              // Warn if a value parameter is unused. */
     /* "-Ywarn-unused:patvars",             // Warn if a variable bound in a pattern is unused. */
     /* "-Ywarn-unused:privates",            // Warn if a private member is unused. */
     "-Ywarn-value-discard"               // Warn when non-Unit expression results are unused.
   ),
 
-  scalacOptions in (Compile, console) --= Seq("-Ywarn-unused:imports", "-Xfatal-warnings"),
+  Compile / console / scalacOptions --= Seq("-Ywarn-unused:imports", "-Xfatal-warnings"),
 
-  testOptions in Test += Tests.Argument("-oDF"),
+  Test / testOptions += Tests.Argument("-oDF"),
 )
 
 lazy val commonJsSettings = Seq(
@@ -87,7 +87,7 @@ lazy val docs = (project in file("docs"))
   .settings(
     name := "paradox docs",
     paradoxTheme := Some(builtinParadoxTheme("generic")),
-    paradoxProperties in Compile ++= Map(
+    Compile / paradoxProperties ++= Map(
       "empty" -> "",
       "version" -> version.value
     ),
@@ -115,12 +115,22 @@ lazy val base = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
 lazy val baseJS = base.js
 lazy val baseJVM = base.jvm
 
-lazy val cli = (project in file("cli")).
-  settings(
+lazy val cli = (project in file("cli"))
+  .enablePlugins(NativeImagePlugin)
+  .settings(
     commonSettings,
     name := "bosatsu-cli",
-    test in assembly := {},
-    mainClass in assembly := Some("org.bykn.bosatsu.Main"),
+    assembly / test := {},
+    assembly / assemblyMergeStrategy := {
+      case PathList("scala", "annotation", "nowarn$.class" | "nowarn.class") =>
+        // this is duplicated in scala-collection-compat
+        MergeStrategy.last
+      case x =>
+        val oldStrategy = (assembly / assemblyMergeStrategy).value
+	oldStrategy(x)
+    },
+    assembly / mainClass := Some("org.bykn.bosatsu.Main"),
+    Compile / mainClass := Some("org.bykn.bosatsu.Main"),
     libraryDependencies ++=
       Seq(
         catsEffect.value,
@@ -128,17 +138,19 @@ lazy val cli = (project in file("cli")).
         jawnAst.value % Test,
         jython.value % Test,
       ),
-    PB.targets in Compile := Seq(
-     scalapb.gen() -> (sourceManaged in Compile).value
+    Compile / PB.targets := Seq(
+     scalapb.gen() -> (Compile / sourceManaged).value
+    ),
+    nativeImageOptions ++= Seq("--static", "--no-fallback", "--verbose", "--initialize-at-build-time"),
+    nativeImageVersion := "21.1.0"
    )
-  )
   .dependsOn(coreJVM % "compile->compile;test->test")
 
 lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure) in file("core")).
   settings(
     commonSettings,
     name := "bosatsu-core",
-    test in assembly := {},
+    assembly / test := {},
     libraryDependencies ++=
       Seq(
         cats.value,
@@ -172,7 +184,7 @@ lazy val jsapi = (crossProject(JSPlatform).crossType(CrossType.Pure) in file("js
     commonSettings,
     commonJsSettings,
     name := "bosatsu-jsapi",
-    test in assembly := {},
+    assembly / test := {},
     libraryDependencies ++=
       Seq(
         cats.value,

@@ -17,9 +17,6 @@ abstract class SetOpsLaws[A] extends AnyFunSuite {
 
   import setOps._
 
-  private implicit val arbSetOpsItem: Arbitrary[A] = Arbitrary(genItem)
-
-
   def intersectionIsCommutative(a1: A, a2: A, eqA: Eq[List[A]]) = {
     val a12 = intersection(a1, a2)
     val a21 = intersection(a2, a1)

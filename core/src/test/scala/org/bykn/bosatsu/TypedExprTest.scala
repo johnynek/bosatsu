@@ -94,6 +94,9 @@ y = match x:
   def app(fn: TypedExpr[Unit], arg: TypedExpr[Unit], tpe: Type): TypedExpr[Unit] =
     TypedExpr.App(fn, arg, tpe, ())
 
+  def lam(n: String, nt: Type, res: TypedExpr[Unit]): TypedExpr[Unit] = 
+    TypedExpr.AnnotatedLambda(Identifier.Name(n), nt, res, ())
+
   test("test let substitution") {
     {
       // substitution in let
@@ -176,25 +179,27 @@ y = match x:
   }
 
 
-  test("test some basic normalizations") {
+  test("let x = y in x == y") {
     // inline lets of vars
     assert(TypedExpr.normalize(let("x", varTE("y", intTpe), varTE("x", intTpe))) ==
       Some(varTE("y", intTpe)))
+  }
 
+  val normalLet =
+    let("x", varTE("y", intTpe),
+      let("y", app(varTE("z", intTpe), int(43), intTpe),
+         app(app(varTE("x", intTpe), varTE("y", intTpe), intTpe),
+           varTE("y", intTpe), intTpe)))
+
+  test("we can't inline using a shadow: let x = y in let y = z in x(y, y)") {
     // we can't inline a shadow
     // x = y
     // y = z(43)
     // x(y, y)
-    val normalLet =
-      let("x", varTE("y", intTpe),
-        let("y", app(varTE("z", intTpe), int(43), intTpe),
-           app(app(varTE("x", intTpe), varTE("y", intTpe), intTpe),
-             varTE("y", intTpe), intTpe)))
-
     assert(TypedExpr.normalize(normalLet) == None)
+  }
 
-    // if w doesn't have x free:
-    // (app (let x y z) w) == let x y (app z w)
+  test("if w doesn't have x free: (app (let x y z) w) == let x y (app z w)") {
     assert(TypedExpr.normalize(app(normalLet, varTE("w", intTpe), intTpe)) ==
       Some(
         let("x", varTE("y", intTpe),
@@ -202,6 +207,26 @@ y = match x:
              app(app(app(varTE("x", intTpe), varTE("y", intTpe), intTpe),
                varTE("y", intTpe), intTpe),
                varTE("w", intTpe), intTpe)))))
+  }
+
+  test("\\x -> f(x) == f") {
+    val f = varTE("f", Type.Fun(intTpe, intTpe))
+    val left = lam("x", intTpe, app(f, varTE("x", intTpe), intTpe))
+    
+    assert(TypedExpr.normalize(left) == Some(f))
+  }
+
+  test("(\\x -> f(x, z))(y) == f(y, z)") {
+    val int2int = Type.Fun(intTpe, intTpe)
+    val f = varTE("f", Type.Fun(intTpe, int2int))
+    val z = varTE("z", intTpe)
+    val lamf = lam("x", intTpe, app(app(f, varTE("x", intTpe), int2int), z, intTpe))
+    val y = varTE("y", intTpe)
+    val left = app(lamf, y, intTpe)
+    val right = app(app(f, y, int2int), z, intTpe)
+    val res = TypedExpr.normalize(left)
+
+    assert(res == Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
   }
 
   val genTypedExpr = Generators.genTypedExpr(Gen.const(()), 3, NTypeGen.genDepth03)

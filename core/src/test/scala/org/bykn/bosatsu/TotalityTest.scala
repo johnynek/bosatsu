@@ -389,7 +389,6 @@ enum Either: Left(l), Right(r)
         {
           val left = ListPat(List(NamedList(Name("a")), Item(WildCard), Item(Var(Name("b")))))
           val right = ListPat(List())
-          val te = TotalityCheck(predefTE)
           (left, right)
         }
       )

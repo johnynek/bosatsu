@@ -25,7 +25,7 @@ class TestBench {
       case Validated.Valid(vs) => vs
       case Validated.Invalid(errs) =>
         errs.toList.foreach { p =>
-          p.showContext(LocationMap.Colorize.None).foreach(System.err.println)
+          p.showContext(LocationMap.Colorize.None).foreach { d => System.err.println(d.render(100)) }
         }
         sys.error("failed to parse") //errs.toString)
     }
@@ -86,10 +86,10 @@ def max_of(n, fn):
     next_i = i.sub(1)
     res1 = match fn(i):
       None: res
-      sm1 @ Some(m1):
+      Some(m1) as sm1:
         match res:
-          None: sm1
-          sm @ Some(m): sm1 if m1 > m else sm
+          case None: sm1
+          case Some(m) as sm: sm1 if m1 > m else sm
     (next_i, res1))
 
 # return the first defined value from largest to smallest

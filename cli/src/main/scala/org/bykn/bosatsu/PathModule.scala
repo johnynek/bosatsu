@@ -111,7 +111,7 @@ object PathModule extends MainModule[IO] {
           print(fullOut.render(80)) *> IO.raiseError(new Exception(excepMessage))
         }
       case Output.EvaluationResult(_, tpe, resDoc) =>
-        IO.suspend {
+        IO.defer {
           val tMap = TypeRef.fromTypes(None, tpe :: Nil)
           val tDoc = tMap(tpe).toDoc
 

@@ -67,7 +67,7 @@ object Memoize {
             // if this function is circular fn will loop here blowing
             // the stack
             val res = fn(a, self)
-            val prev = cache.put(a, res)
+            val _ = cache.put(a, res)
             // doesn't matter if won this race or not
             // two people can concurrently race.
             res

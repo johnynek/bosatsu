@@ -872,7 +872,6 @@ final class SourceConverter(
     else {
       val grouped = extDefNames.groupBy(_._1)
       val extDefNamesSet = grouped.keySet
-      val dupExts = grouped.filter { case (_, vs) => vs.lengthCompare(1) > 0 }
 
       val dupRes = grouped.toList.traverse_ { case (name, dups) =>
         dups.toList match {

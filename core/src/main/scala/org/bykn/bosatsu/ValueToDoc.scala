@@ -217,7 +217,6 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     case DataFamily.Struct =>
                       {
                         case prod: ProductValue =>
-                          val plist = prod.toList
                           params(0, prod.toList, prod)
 
                         case other =>

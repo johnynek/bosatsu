@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Order, Eq}
+import cats.Eq
 import cats.data.{NonEmptyList, Validated, ValidatedNel}
 import cats.implicits._
 import org.bykn.bosatsu.pattern.{SeqPattern, SeqPart, SetOps}
@@ -515,8 +515,6 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case Named(_, p) => normalizePattern(p)
       case Annotation(p, t) => normalizePattern(p)
       case u@Union(_, _) =>
-        implicit val ordPat: Order[Pattern[Cons, Type]] = Order.fromOrdering
-
         val flattened = Pattern.flatten(u).map(normalizePattern(_))
 
         patternSetOps.unifyUnion(flattened.toList) match {

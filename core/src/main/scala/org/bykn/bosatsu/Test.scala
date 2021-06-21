@@ -53,7 +53,6 @@ object Test {
 
   def report(t: Test, c: LocationMap.Colorize): (Int, Int, Doc) = {
 
-    val passDoc = c.green(Doc.text("pass"))
     val failDoc = c.red(Doc.text("fail"))
 
     def init(t: List[Test]): (Int, Int, Doc) =
