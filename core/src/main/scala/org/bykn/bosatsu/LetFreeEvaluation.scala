@@ -12,6 +12,8 @@ import org.bykn.bosatsu.rankn.DataFamily
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.rankn.TypeEnv
 
+import Identifier.{Bindable, Constructor}
+
 /*
  * LetFreeEvaluation exists so that we can verify that LetFreeExpressions do describe the same
  * output that the TypedExpressions that they are converted from describe.
@@ -58,7 +60,7 @@ object LetFreeEvaluation {
         Json.JObject(
           List(
             "state" -> Json.JString("expression"),
-            "expression" -> Json.JString(expression.asString),
+            "expression" -> Json.JString(expressionToString(expression)),
             "scope" -> Json.JArray(ilv.cleanedScope.map { case (n, nv) =>
               Json.JArray(Vector(Json.JNumberStr(n.toString), nv.toJson))
             }.toVector)
@@ -97,6 +99,8 @@ object LetFreeEvaluation {
   }
 
   def varTagTypedExpr[X](expr: TypedExpr[X]): TypedExpr[VarsTag] = ???
+
+  def expressionToString(expr: TypedExpr[VarsTag]): String = ???
 
   case class LazyValue(
       expression: TypedExpr[VarsTag],
@@ -197,7 +201,7 @@ object LetFreeEvaluation {
   }
 
   def evalToLeaf(
-      expr: LetFreeExpression,
+      expr: TypedExpr[VarsTag],
       scope: List[LetFreeValue]
   )(implicit extEnv: ExtEnv, cache: Cache): Leaf = expr match {
     case LetFreeExpression.Struct(n, lst, df) =>
