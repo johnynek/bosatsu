@@ -93,8 +93,13 @@ object LetFreeEvaluation {
       }
   }
 
-  case class VarsTag(exprThunk: () => TypedExpr[VarsTag]) {
+  case class VarsTag(
+      exprThunk: () => TypedExpr[VarsTag],
+      extEnvArg: ExtEnv,
+      cacheArg: Cache
+  ) {
     lazy val expr = exprThunk()
+    lazy val leaf = evalToLeaf(expr, ???)(extEnvArg, cacheArg)
     lazy val varSet: Set[String] = ???
   }
 
