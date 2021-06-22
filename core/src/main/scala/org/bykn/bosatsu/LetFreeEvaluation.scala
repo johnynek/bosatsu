@@ -204,6 +204,20 @@ object LetFreeEvaluation {
       expr: TypedExpr[VarsTag],
       scope: List[LetFreeValue]
   )(implicit extEnv: ExtEnv, cache: Cache): Leaf = expr match {
+    case a @ TypedExpr.Annotation(_, _, _) =>
+      ??? //letFreeConvertAnnotation(a, env, p)
+    case g @ TypedExpr.Generic(_, _, _) =>
+      ??? //letFreeConvertGeneric(g, env, p)
+    case v @ TypedExpr.Local(_, _, _) => ??? //letFreeConvertLocal(v, env, p)
+    case v @ TypedExpr.Global(_, _, _, _) =>
+      ??? //letFreeConvertGlobal(v, env, p)
+    case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
+      ??? //letFreeConvertAnnotatedLambda(al, env, p)
+    case a @ TypedExpr.App(_, _, _, _)    => ??? //letFreeConvertApp(a, env, p)
+    case l @ TypedExpr.Let(_, _, _, _, _) => ??? //letFreeConvertLet(l, env, p)
+    case l @ TypedExpr.Literal(_, _, _) =>
+      ??? //letFreeConvertLiteral(l, env, p)
+    case m @ TypedExpr.Match(_, _, _) => ??? //letFreeConvertMatch(m, env, p)
     case LetFreeExpression.Struct(n, lst, df) =>
       Leaf.Struct(
         n,
