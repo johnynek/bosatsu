@@ -176,13 +176,13 @@ object LetFreeEvaluation {
 
   sealed abstract class Leaf {
     lazy val toValue = this match {
-      case Leaf.Struct(enum, args, df)  => evaluateStruct(enum, args, df)
-      case Leaf.Value(ComputedValue(v)) => v
-      case Leaf.Lambda(expr, scope, extEnv, cache) =>
-        new Value.FnValue(
+      case Leaf.Struct(enum, args, df)             => evaluateStruct(enum, args, df)
+      case Leaf.Value(ComputedValue(v))            => v
+      case Leaf.Lambda(expr, scope, extEnv, cache) => ???
+      /* new Value.FnValue(
           LetFreeFnValue(expr, scope)(extEnv, cache)
-        )
-      case Leaf.Literal(LetFreeExpression.Literal(lit)) => Value.fromLit(lit)
+        ) */
+      case Leaf.Literal(TypedExpr.Literal(lit, _, _)) => Value.fromLit(lit)
     }
   }
   object Leaf {
@@ -213,6 +213,14 @@ object LetFreeEvaluation {
       p: Package.Inferred
   )(implicit extEnv: ExtEnv, cache: Cache): Leaf = evalToLeaf(g.in, scope, p)
 
+  def localToLeaf(
+      v: TypedExpr.Local[VarsTag],
+      scope: Map[String, LetFreeValue],
+      p: Package.Inferred
+  ): Leaf = {
+    scope(v.name.asString).toLeaf
+  }
+
   def evalToLeaf(
       expr: TypedExpr[VarsTag],
       scope: Map[String, LetFreeValue],
@@ -220,7 +228,7 @@ object LetFreeEvaluation {
   )(implicit extEnv: ExtEnv, cache: Cache): Leaf = expr match {
     case a @ TypedExpr.Annotation(_, _, _) => annotationToLeaf(a, scope, p)
     case g @ TypedExpr.Generic(_, _, _)    => genericToLeaf(g, scope, p)
-    case v @ TypedExpr.Local(_, _, _)      => ??? //letFreeConvertLocal(v, env, p)
+    case v @ TypedExpr.Local(_, _, _)      => localToLeaf(v, env, p)
     case v @ TypedExpr.Global(_, _, _, _) =>
       ??? //letFreeConvertGlobal(v, env, p)
     case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
@@ -325,7 +333,7 @@ object LetFreeEvaluation {
   }
 
   case class LetFreeFnValue(
-      lambda: LetFreeExpression.Lambda,
+      lambda: TypedExpr.Lambda,
       scope: List[LetFreeValue]
   )(implicit extEnv: ExtEnv, cache: Cache)
       extends Value.FnValue.Arg {
@@ -450,7 +458,7 @@ object LetFreeEvaluation {
   }
 
   def evalToValue(
-      ne: LetFreeExpression,
+      ne: TypedExpr[VarsTag],
       scope: List[LetFreeValue]
   )(implicit extEnv: ExtEnv, cache: Cache): Value = LazyValue(ne, scope).toValue
 
