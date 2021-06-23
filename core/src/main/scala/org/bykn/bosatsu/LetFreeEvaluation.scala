@@ -56,7 +56,7 @@ object LetFreeEvaluation {
 
   sealed trait LetFreeValue {
     def toJson: Json = this match {
-      case ilv @ LazyValue(expression, scope) =>
+      case ilv @ LazyValue(expression, scope, p) =>
         Json.JObject(
           List(
             "state" -> Json.JString("expression"),
@@ -93,13 +93,8 @@ object LetFreeEvaluation {
       }
   }
 
-  case class VarsTag(
-      exprThunk: () => TypedExpr[VarsTag],
-      extEnvArg: ExtEnv,
-      cacheArg: Cache
-  ) {
+  case class VarsTag(exprThunk: () => TypedExpr[VarsTag]) {
     lazy val expr = exprThunk()
-    lazy val leaf = evalToLeaf(expr, ???)(extEnvArg, cacheArg)
     lazy val varSet: Set[String] = ???
   }
 
@@ -109,7 +104,8 @@ object LetFreeEvaluation {
 
   case class LazyValue(
       expression: TypedExpr[VarsTag],
-      scope: Map[String, LetFreeValue]
+      scope: Map[String, LetFreeValue],
+      p: Package.Inferred
   )(implicit extEnvArg: ExtEnv, cacheArg: Cache)
       extends LetFreeValue {
     def cleanedScope: List[(String, LetFreeValue)] =
@@ -127,7 +123,7 @@ object LetFreeEvaluation {
     val extEnv = extEnvArg
     val cache = cacheArg
 
-    lazy val toLeaf = evalToLeaf(expression, scope)
+    lazy val toLeaf = evalToLeaf(expression, scope, p)
     lazy val toValue = toLeaf.toValue
   }
 
@@ -196,24 +192,35 @@ object LetFreeEvaluation {
         df: DataFamily
     ) extends Leaf
     case class Lambda(
-        expr: LetFreeExpression.Lambda,
-        scope: List[LetFreeValue],
+        expr: TypedExpr[VarsTag],
+        scope: Map[String, LetFreeValue],
         extEnv: ExtEnv,
         cache: Cache
     ) extends Leaf
-    case class Literal(expr: LetFreeExpression.Literal) extends Leaf
+    case class Literal(expr: TypedExpr.Literal[VarsTag]) extends Leaf
     case class Value(value: ComputedValue) extends Leaf
   }
 
+  def annotationToLeaf(
+      a: TypedExpr.Annotation[VarsTag],
+      scope: Map[String, LetFreeValue],
+      p: Package.Inferred
+  )(implicit extEnv: ExtEnv, cache: Cache): Leaf = evalToLeaf(a.term, scope, p)
+
+  def genericToLeaf(
+      g: TypedExpr.Generic[VarsTag],
+      scope: Map[String, LetFreeValue],
+      p: Package.Inferred
+  )(implicit extEnv: ExtEnv, cache: Cache): Leaf = evalToLeaf(g.in, scope, p)
+
   def evalToLeaf(
       expr: TypedExpr[VarsTag],
-      scope: List[LetFreeValue]
+      scope: Map[String, LetFreeValue],
+      p: Package.Inferred
   )(implicit extEnv: ExtEnv, cache: Cache): Leaf = expr match {
-    case a @ TypedExpr.Annotation(_, _, _) =>
-      ??? //letFreeConvertAnnotation(a, env, p)
-    case g @ TypedExpr.Generic(_, _, _) =>
-      ??? //letFreeConvertGeneric(g, env, p)
-    case v @ TypedExpr.Local(_, _, _) => ??? //letFreeConvertLocal(v, env, p)
+    case a @ TypedExpr.Annotation(_, _, _) => annotationToLeaf(a, scope, p)
+    case g @ TypedExpr.Generic(_, _, _)    => genericToLeaf(g, scope, p)
+    case v @ TypedExpr.Local(_, _, _)      => ??? //letFreeConvertLocal(v, env, p)
     case v @ TypedExpr.Global(_, _, _, _) =>
       ??? //letFreeConvertGlobal(v, env, p)
     case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
