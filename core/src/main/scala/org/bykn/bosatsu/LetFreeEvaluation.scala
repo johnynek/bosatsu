@@ -221,56 +221,227 @@ object LetFreeEvaluation {
     scope(v.name.asString).toLeaf
   }
 
+  private def norm(
+      pack: Package.Inferred,
+      item: Identifier,
+      scope: Map[String, LetFreeValue]
+  )(implicit pm: PackageMap.Inferred, extEnv: ExtEnv): Leaf =
+    NameKind(pack, item) match {
+      case Some(namekind) =>
+        namekind match {
+          case NameKind.Let(name, recursive, expr) =>
+            nameKindLetToLeaf(
+              name,
+              recursive,
+              expr,
+              pack,
+              scope
+            )
+          case NameKind.Constructor(cn, _, dt, _) => constructor(cn, dt)
+          case NameKind.Import(from, orig)        =>
+            // we reset the environment in the other package
+            norm(pm.toMap(from.name), orig, Map.empty)
+
+          case NameKind.ExternalDef(pn, n, defType) =>
+            Leaf.Value(ComputedValue(extEnv(n).value))
+        }
+      case None =>
+        sys.error(s"we didn't find an item $item in pack.name ${pack.name}")
+    }
+
+  def globalToLeaf(
+      v: TypedExpr.Global[VarsTag],
+      scope: Map[String, LetFreeValue],
+      p: Package.Inferred
+  )(implicit pm: PackageMap.Inferred, extEnv: ExtEnv): Leaf = {
+    val name = if (p.name == v.pack) {
+      v.name
+    } else {
+      (for {
+        items <- p.imports.collectFirst {
+          case im if im.pack.name == v.pack => im.items
+        }
+        localName <- items.toList.collectFirst {
+          case importedName if importedName.originalName == v.name =>
+            importedName.localName
+        }
+      } yield localName) match {
+        case Some(n) => n
+        case None    => sys.error(s"typechecking means we should find ${v.name}")
+      }
+    }
+
+    norm(p, name, scope)
+  }
+
+  def letToLeaf(
+      l: TypedExpr.Let[VarsTag],
+      scope: Map[String, LetFreeValue],
+      p: Package.Inferred
+  ): Leaf = ??? /*
+    l.recursive match {
+      case RecursionKind.Recursive =>
+        val nextEnv = (env - l.arg).mapValues { lfe =>
+          LetFreeConversion.incrementLambdaVars(lfe, 0)
+        } + (l.arg -> LetFreeExpression.LambdaVar(0))
+
+        val neWrapper = { ne: LetFreeExpression =>
+          normalOrderReduction(
+            LetFreeExpression.Recursion(LetFreeExpression.Lambda(ne))
+          )
+        }
+        val originalLambda = AnnotatedLambda(
+          arg = l.arg,
+          tpe = l.expr.getType,
+          expr = l.in,
+          tag = l.tag
+        )
+        for {
+          ee <- letFreeConvertExpr(l.expr, nextEnv, p)
+          eeNeTag = neWrapper(ee.tag._2)
+          nextNextEnv: Env = env + (l.arg -> eeNeTag)
+          eIn <- letFreeConvertExpr(l.in, nextNextEnv, p)
+        } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
+      case _ =>
+        for {
+          ee <- letFreeConvertExpr(l.expr, env, p)
+          nextEnv: Env = env + (l.arg -> ee.tag._2)
+          eIn <- letFreeConvertExpr(l.in, nextEnv, p)
+        } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
+    } */
+
+  private def nameKindLetToLeaf(
+      name: Identifier.Bindable,
+      recursive: RecursionKind,
+      expr: TypedExpr[Declaration],
+      pack: Package.Inferred,
+      scope: Map[String, LetFreeValue]
+  ): Leaf = ??? /*
+    for {
+      lookup <- State.inspect {
+        lets: Map[(PackageName, Identifier), TypedExpr[
+          (Declaration, LetFreeExpressionTag)
+        ]] =>
+          lets.get((pack.name, name))
+      }
+      outExpr <- lookup match {
+        case Some(res) =>
+          State.pure(res): NormState[
+            TypedExpr[(Declaration, LetFreeExpressionTag)]
+          ]
+        case None =>
+          recursive match {
+            case RecursionKind.Recursive =>
+              val nextEnv = (env - name).mapValues { lfe =>
+                LetFreeConversion.incrementLambdaVars(lfe, 0)
+              } + (name -> LetFreeExpression.LambdaVar(0))
+
+              for {
+                res <- letFreeConvertExpr(expr, nextEnv, pack)
+                tag = res.tag
+                wrappedNe = normalOrderReduction(
+                  LetFreeExpression.Recursion(LetFreeExpression.Lambda(tag._2))
+                )
+                finalRes = res.updatedTag((res.tag._1, wrappedNe))
+                _ <- State.modify {
+                  lets: Map[(PackageName, Identifier), TypedExpr[
+                    (Declaration, LetFreeExpressionTag)
+                  ]] =>
+                    lets + ((pack.name, name) -> finalRes)
+                }
+              } yield finalRes
+            case _ =>
+              for {
+                res <- letFreeConvertExpr(expr, env, pack)
+                _ <- State.modify {
+                  lets: Map[(PackageName, Identifier), TypedExpr[
+                    (Declaration, LetFreeExpressionTag)
+                  ]] =>
+                    lets + ((pack.name, name) -> res)
+                }
+              } yield res
+          }
+      }
+    } yield outExpr */
+
+  private def constructor(
+      c: Constructor,
+      dt: rankn.DefinedType[Any]
+  ): Leaf = ??? /* {
+    val (enum, arity) =
+      dt.constructors.toList.iterator.zipWithIndex.collectFirst {
+        case (cf, idx) if cf.name == c => (idx, cf.args.size)
+      }.get
+
+    def loop(params: Int, expr: LetFreeExpression): LetFreeExpression =
+      if (params == 0) expr
+      else loop(params - 1, LetFreeExpression.Lambda(expr))
+
+    loop(
+      arity,
+      LetFreeExpression.Struct(
+        enum,
+        ((arity - 1) to 0 by -1).iterator
+          .map(LetFreeExpression.LambdaVar(_))
+          .toList,
+        dt.dataFamily
+      )
+    )
+  } */
+
   def evalToLeaf(
       expr: TypedExpr[VarsTag],
       scope: Map[String, LetFreeValue],
       p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache): Leaf = expr match {
-    case a @ TypedExpr.Annotation(_, _, _) => annotationToLeaf(a, scope, p)
-    case g @ TypedExpr.Generic(_, _, _)    => genericToLeaf(g, scope, p)
-    case v @ TypedExpr.Local(_, _, _)      => localToLeaf(v, env, p)
-    case v @ TypedExpr.Global(_, _, _, _) =>
-      ??? //letFreeConvertGlobal(v, env, p)
-    case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
-      ??? //letFreeConvertAnnotatedLambda(al, env, p)
-    case a @ TypedExpr.App(_, _, _, _)    => ??? //letFreeConvertApp(a, env, p)
-    case l @ TypedExpr.Let(_, _, _, _, _) => ??? //letFreeConvertLet(l, env, p)
-    case l @ TypedExpr.Literal(_, _, _) =>
-      ??? //letFreeConvertLiteral(l, env, p)
-    case m @ TypedExpr.Match(_, _, _) => ??? //letFreeConvertMatch(m, env, p)
-    case LetFreeExpression.Struct(n, lst, df) =>
-      Leaf.Struct(
-        n,
-        lst.zipWithIndex.map { case (argExpr, i) =>
-          LazyValue(argExpr, scope)
-        },
-        df
-      )
-    case LetFreeExpression.App(fn, arg) => {
-      applyLeaf(
-        evalToLeaf(fn, scope),
-        LazyValue(arg, scope)
-      ).toLeaf
+  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
+    expr match {
+      case a @ TypedExpr.Annotation(_, _, _) => annotationToLeaf(a, scope, p)
+      case g @ TypedExpr.Generic(_, _, _)    => genericToLeaf(g, scope, p)
+      case v @ TypedExpr.Local(_, _, _)      => localToLeaf(v, scope, p)
+      case v @ TypedExpr.Global(_, _, _, _)  => globalToLeaf(v, env, p)
+      case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
+        ??? //letFreeConvertAnnotatedLambda(al, env, p)
+      case a @ TypedExpr.App(_, _, _, _) => ??? //letFreeConvertApp(a, env, p)
+      case l @ TypedExpr.Let(_, _, _, _, _) =>
+        ??? //letFreeConvertLet(l, env, p)
+      case l @ TypedExpr.Literal(_, _, _) =>
+        ??? //letFreeConvertLiteral(l, env, p)
+      case m @ TypedExpr.Match(_, _, _) => ??? //letFreeConvertMatch(m, env, p)
+      case LetFreeExpression.Struct(n, lst, df) =>
+        Leaf.Struct(
+          n,
+          lst.zipWithIndex.map { case (argExpr, i) =>
+            LazyValue(argExpr, scope)
+          },
+          df
+        )
+      case LetFreeExpression.App(fn, arg) => {
+        applyLeaf(
+          evalToLeaf(fn, scope),
+          LazyValue(arg, scope)
+        ).toLeaf
+      }
+      case LetFreeExpression.ExternalVar(p, n, tpe) =>
+        Leaf.Value(ComputedValue(extEnv(n).value))
+      case LetFreeExpression.Recursion(
+            LetFreeExpression.Lambda(lambdaExpr)
+          ) => {
+        lazy val leaf: Leaf =
+          evalToLeaf(lambdaExpr, LazyValue(expr, scope) :: scope)
+        leaf
+      }
+      // $COVERAGE-OFF$ we don't have Recursions without lambdas
+      case LetFreeExpression.Recursion(notLambda) =>
+        sys.error(s"Recursion should always contain a Lambda")
+      // $COVERAGE-ON$
+      case LetFreeExpression.LambdaVar(index) =>
+        scope(index).toLeaf
+      case mtch @ LetFreeExpression.Match(_, _) =>
+        simplifyMatch(mtch, scope).toLeaf
+      case lambda @ LetFreeExpression.Lambda(_) =>
+        Leaf.Lambda(lambda, scope, extEnv, cache)
+      case lit @ LetFreeExpression.Literal(_) => Leaf.Literal(lit)
     }
-    case LetFreeExpression.ExternalVar(p, n, tpe) =>
-      Leaf.Value(ComputedValue(extEnv(n).value))
-    case LetFreeExpression.Recursion(LetFreeExpression.Lambda(lambdaExpr)) => {
-      lazy val leaf: Leaf =
-        evalToLeaf(lambdaExpr, LazyValue(expr, scope) :: scope)
-      leaf
-    }
-    // $COVERAGE-OFF$ we don't have Recursions without lambdas
-    case LetFreeExpression.Recursion(notLambda) =>
-      sys.error(s"Recursion should always contain a Lambda")
-    // $COVERAGE-ON$
-    case LetFreeExpression.LambdaVar(index) =>
-      scope(index).toLeaf
-    case mtch @ LetFreeExpression.Match(_, _) =>
-      simplifyMatch(mtch, scope).toLeaf
-    case lambda @ LetFreeExpression.Lambda(_) =>
-      Leaf.Lambda(lambda, scope, extEnv, cache)
-    case lit @ LetFreeExpression.Literal(_) => Leaf.Literal(lit)
-  }
 
   def nvToList(implicit
       extEnv: ExtEnv,
