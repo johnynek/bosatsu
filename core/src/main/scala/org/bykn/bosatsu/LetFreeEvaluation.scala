@@ -274,6 +274,22 @@ object LetFreeEvaluation {
     norm(p, name, scope)
   }
 
+  /*
+  def annotatedLambdaToLeaf(
+      al: AnnotatedLambda[Declaration],
+      env: Env,
+      p: Package.Inferred
+  ): NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
+    val nextEnv = (env - al.arg).mapValues { lfe =>
+      LetFreeConversion.incrementLambdaVars(lfe, 0)
+    } + (al.arg -> LetFreeExpression.LambdaVar(0))
+
+    for {
+      eExpr <- letFreeConvertExpr(al.expr, nextEnv, p)
+      lfeTag = normalOrderReduction(LetFreeExpression.Lambda(eExpr.tag._2))
+    } yield al.copy(expr = eExpr, tag = (al.tag, lfeTag))
+  }*/
+
   def letToLeaf(
       l: TypedExpr.Let[VarsTag],
       scope: Map[String, LetFreeValue],
@@ -398,7 +414,7 @@ object LetFreeEvaluation {
       case a @ TypedExpr.Annotation(_, _, _) => annotationToLeaf(a, scope, p)
       case g @ TypedExpr.Generic(_, _, _)    => genericToLeaf(g, scope, p)
       case v @ TypedExpr.Local(_, _, _)      => localToLeaf(v, scope, p)
-      case v @ TypedExpr.Global(_, _, _, _)  => globalToLeaf(v, env, p)
+      case v @ TypedExpr.Global(_, _, _, _)  => globalToLeaf(v, scope, p)
       case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
         ??? //letFreeConvertAnnotatedLambda(al, env, p)
       case a @ TypedExpr.App(_, _, _, _) => ??? //letFreeConvertApp(a, env, p)
@@ -407,6 +423,8 @@ object LetFreeEvaluation {
       case l @ TypedExpr.Literal(_, _, _) =>
         ??? //letFreeConvertLiteral(l, env, p)
       case m @ TypedExpr.Match(_, _, _) => ??? //letFreeConvertMatch(m, env, p)
+
+      /*
       case LetFreeExpression.Struct(n, lst, df) =>
         Leaf.Struct(
           n,
@@ -441,6 +459,7 @@ object LetFreeEvaluation {
       case lambda @ LetFreeExpression.Lambda(_) =>
         Leaf.Lambda(lambda, scope, extEnv, cache)
       case lit @ LetFreeExpression.Literal(_) => Leaf.Literal(lit)
+      */
     }
 
   def nvToList(implicit
