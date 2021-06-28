@@ -106,7 +106,7 @@ object LetFreeEvaluation {
       expression: TypedExpr[VarsTag],
       scope: Map[String, LetFreeValue],
       p: Package.Inferred
-  )(implicit extEnvArg: ExtEnv, cacheArg: Cache)
+  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred)
       extends LetFreeValue {
     def cleanedScope: List[(String, LetFreeValue)] =
       expression.tag.varSet.toList.sorted.map { n => (n, scope(n)) }
@@ -119,9 +119,6 @@ object LetFreeEvaluation {
       lazyToStructImpl(this, rankn.DataFamily.Struct)
     lazy val toStructNewType: Option[(Int, List[LetFreeValue])] =
       lazyToStructImpl(this, rankn.DataFamily.NewType)
-
-    val extEnv = extEnvArg
-    val cache = cacheArg
 
     lazy val toLeaf = evalToLeaf(expression, scope, p)
     lazy val toValue = toLeaf.toValue
@@ -205,13 +202,15 @@ object LetFreeEvaluation {
       a: TypedExpr.Annotation[VarsTag],
       scope: Map[String, LetFreeValue],
       p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache): Leaf = evalToLeaf(a.term, scope, p)
+  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
+    evalToLeaf(a.term, scope, p)
 
   def genericToLeaf(
       g: TypedExpr.Generic[VarsTag],
       scope: Map[String, LetFreeValue],
       p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache): Leaf = evalToLeaf(g.in, scope, p)
+  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
+    evalToLeaf(g.in, scope, p)
 
   def localToLeaf(
       v: TypedExpr.Local[VarsTag],
@@ -459,7 +458,7 @@ object LetFreeEvaluation {
       case lambda @ LetFreeExpression.Lambda(_) =>
         Leaf.Lambda(lambda, scope, extEnv, cache)
       case lit @ LetFreeExpression.Literal(_) => Leaf.Literal(lit)
-      */
+       */
     }
 
   def nvToList(implicit
