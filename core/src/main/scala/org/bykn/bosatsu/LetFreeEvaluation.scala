@@ -293,8 +293,22 @@ object LetFreeEvaluation {
 
       case _ =>
         val nextScope = scope + (l.arg.asString -> LazyValue(l.expr, scope, p))
-        evalToLeaf(l.in, nextScope, p)
+        evalToLeaf(l.in, nextScope, p) 
     }
+
+  def appToLeaf(
+      a: TypedExpr.App[VarsTag],
+      scope: Map[String, LetFreeValue],
+      p: Package.Inferred
+  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
+    ??? /*
+    for {
+      efn <- letFreeConvertExpr(a.fn, env, p)
+      earg <- letFreeConvertExpr(a.arg, env, p)
+      lfeTag = normalOrderReduction(
+        LetFreeExpression.App(efn.tag._2, earg.tag._2)
+      )
+    } yield a.copy(fn = efn, arg = earg, tag = (a.tag, lfeTag)) */
 
   private def nameKindLetToLeaf(
       name: Identifier.Bindable,
