@@ -273,57 +273,28 @@ object LetFreeEvaluation {
     norm(p, name, scope)
   }
 
-  /*
   def annotatedLambdaToLeaf(
-      al: AnnotatedLambda[Declaration],
-      env: Env,
+      al: TypedExpr.AnnotatedLambda[VarsTag],
+      scope: Map[String, LetFreeValue],
       p: Package.Inferred
-  ): NormState[TypedExpr[(Declaration, LetFreeExpressionTag)]] = {
-    val nextEnv = (env - al.arg).mapValues { lfe =>
-      LetFreeConversion.incrementLambdaVars(lfe, 0)
-    } + (al.arg -> LetFreeExpression.LambdaVar(0))
-
-    for {
-      eExpr <- letFreeConvertExpr(al.expr, nextEnv, p)
-      lfeTag = normalOrderReduction(LetFreeExpression.Lambda(eExpr.tag._2))
-    } yield al.copy(expr = eExpr, tag = (al.tag, lfeTag))
-  }*/
+  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
+    Leaf.Lambda(al.expr, scope, extEnv, cache)
 
   def letToLeaf(
       l: TypedExpr.Let[VarsTag],
       scope: Map[String, LetFreeValue],
       p: Package.Inferred
-  ): Leaf = ??? /*
+  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
     l.recursive match {
       case RecursionKind.Recursive =>
-        val nextEnv = (env - l.arg).mapValues { lfe =>
-          LetFreeConversion.incrementLambdaVars(lfe, 0)
-        } + (l.arg -> LetFreeExpression.LambdaVar(0))
+        lazy val lv: LazyValue = LazyValue(l.expr, nextScope, p)
+        lazy val nextScope = scope + (l.arg.asString -> lv)
+        evalToLeaf(l.in, nextScope, p)
 
-        val neWrapper = { ne: LetFreeExpression =>
-          normalOrderReduction(
-            LetFreeExpression.Recursion(LetFreeExpression.Lambda(ne))
-          )
-        }
-        val originalLambda = AnnotatedLambda(
-          arg = l.arg,
-          tpe = l.expr.getType,
-          expr = l.in,
-          tag = l.tag
-        )
-        for {
-          ee <- letFreeConvertExpr(l.expr, nextEnv, p)
-          eeNeTag = neWrapper(ee.tag._2)
-          nextNextEnv: Env = env + (l.arg -> eeNeTag)
-          eIn <- letFreeConvertExpr(l.in, nextNextEnv, p)
-        } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
       case _ =>
-        for {
-          ee <- letFreeConvertExpr(l.expr, env, p)
-          nextEnv: Env = env + (l.arg -> ee.tag._2)
-          eIn <- letFreeConvertExpr(l.in, nextEnv, p)
-        } yield Let(l.arg, ee, eIn, l.recursive, (l.tag, eIn.tag._2))
-    } */
+        val nextScope = scope + (l.arg.asString -> LazyValue(l.expr, scope, p))
+        evalToLeaf(l.in, nextScope, p)
+    }
 
   private def nameKindLetToLeaf(
       name: Identifier.Bindable,
@@ -415,7 +386,7 @@ object LetFreeEvaluation {
       case v @ TypedExpr.Local(_, _, _)      => localToLeaf(v, scope, p)
       case v @ TypedExpr.Global(_, _, _, _)  => globalToLeaf(v, scope, p)
       case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
-        ??? //letFreeConvertAnnotatedLambda(al, env, p)
+        annotatedLambdaToLeaf(al, scope, p)
       case a @ TypedExpr.App(_, _, _, _) => ??? //letFreeConvertApp(a, env, p)
       case l @ TypedExpr.Let(_, _, _, _, _) =>
         ??? //letFreeConvertLet(l, env, p)
