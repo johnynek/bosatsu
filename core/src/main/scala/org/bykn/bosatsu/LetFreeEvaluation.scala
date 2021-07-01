@@ -190,6 +190,7 @@ object LetFreeEvaluation {
     ) extends Leaf
     case class Lambda(
         expr: TypedExpr[VarsTag],
+        arg: Bindable,
         scope: Map[String, LetFreeValue],
         extEnv: ExtEnv,
         cache: Cache
@@ -278,7 +279,7 @@ object LetFreeEvaluation {
       scope: Map[String, LetFreeValue],
       p: Package.Inferred
   )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
-    Leaf.Lambda(al.expr, scope, extEnv, cache)
+    Leaf.Lambda(al.expr, al.arg, scope, extEnv, cache)
 
   def letToLeaf(
       l: TypedExpr.Let[VarsTag],
@@ -293,22 +294,18 @@ object LetFreeEvaluation {
 
       case _ =>
         val nextScope = scope + (l.arg.asString -> LazyValue(l.expr, scope, p))
-        evalToLeaf(l.in, nextScope, p) 
+        evalToLeaf(l.in, nextScope, p)
     }
 
   def appToLeaf(
       a: TypedExpr.App[VarsTag],
       scope: Map[String, LetFreeValue],
       p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
-    ??? /*
-    for {
-      efn <- letFreeConvertExpr(a.fn, env, p)
-      earg <- letFreeConvertExpr(a.arg, env, p)
-      lfeTag = normalOrderReduction(
-        LetFreeExpression.App(efn.tag._2, earg.tag._2)
-      )
-    } yield a.copy(fn = efn, arg = earg, tag = (a.tag, lfeTag)) */
+  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf = {
+    val fn = evalToLeaf(a.fn, scope, p)
+    val arg = LazyValue(a.arg, scope, p)
+    applyLeaf(fn, arg).toLeaf
+  }
 
   private def nameKindLetToLeaf(
       name: Identifier.Bindable,
@@ -401,9 +398,8 @@ object LetFreeEvaluation {
       case v @ TypedExpr.Global(_, _, _, _)  => globalToLeaf(v, scope, p)
       case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
         annotatedLambdaToLeaf(al, scope, p)
-      case a @ TypedExpr.App(_, _, _, _) => ??? //letFreeConvertApp(a, env, p)
-      case l @ TypedExpr.Let(_, _, _, _, _) =>
-        ??? //letFreeConvertLet(l, env, p)
+      case a @ TypedExpr.App(_, _, _, _)    => appToLeaf(a, scope, p)
+      case l @ TypedExpr.Let(_, _, _, _, _) => letToLeaf(l, scope, p)
       case l @ TypedExpr.Literal(_, _, _) =>
         ??? //letFreeConvertLiteral(l, env, p)
       case m @ TypedExpr.Match(_, _, _) => ??? //letFreeConvertMatch(m, env, p)
@@ -533,20 +529,20 @@ object LetFreeEvaluation {
 
   def applyLeaf(
       applyable: Leaf,
-      arg: LetFreeValue,
-      value: Option[Eval[Value]] = None
+      arg: LetFreeValue
   )(implicit extEnv: ExtEnv, cache: Cache): LetFreeValue = applyable match {
-    case Leaf.Lambda(LetFreeExpression.Lambda(expr), scope, _, _) => {
+    case Leaf.Lambda(expr, argName, scope, _, _) => {
       // By evaluating when we add to the scope we don't have to overflow the stack later when we
       // need to use the value
       val _ = arg match {
-        case lv @ LazyValue(_, _) => {
+        case lv @ LazyValue(_, _, _) => {
           lv.toValue
           ()
         }
         case _ => ()
       }
-      LazyValue(expr, arg :: scope)
+      val nextScope = scope + (argName.asString -> arg)
+      LazyValue(expr, nextScope, arg.p)
     }
     case Leaf.Value(lfv) =>
       attemptExprFn(lfv.toValue) match {
