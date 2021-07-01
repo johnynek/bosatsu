@@ -304,7 +304,7 @@ object LetFreeEvaluation {
   )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf = {
     val fn = evalToLeaf(a.fn, scope, p)
     val arg = LazyValue(a.arg, scope, p)
-    applyLeaf(fn, arg).toLeaf
+    applyLeaf(fn, arg, p).toLeaf
   }
 
   private def nameKindLetToLeaf(
@@ -529,7 +529,8 @@ object LetFreeEvaluation {
 
   def applyLeaf(
       applyable: Leaf,
-      arg: LetFreeValue
+      arg: LetFreeValue,
+      p: Package.Inferred
   )(implicit extEnv: ExtEnv, cache: Cache): LetFreeValue = applyable match {
     case Leaf.Lambda(expr, argName, scope, _, _) => {
       // By evaluating when we add to the scope we don't have to overflow the stack later when we
