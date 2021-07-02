@@ -200,24 +200,44 @@ object TypedExprNormalization {
             val scopeIn = si.updated(arg, (rec, ex1, si))
 
             val in1 = normalize1(namerec, in, scopeIn, typeEnv).get
-            val cnt = in1.freeVarsDup.count(_ === arg)
-            if (cnt > 0) {
-              // the arg is needed
-              val shouldInline = (!rec.isRecursive) && {
-                (cnt == 1) || Impl.isSimple(ex1)
-              }
-              val inlined = if (shouldInline) substitute(arg, ex1, in1) else None
-              inlined match {
-                case Some(il) =>
-                  normalize1(namerec, il, scope, typeEnv)
-                case None =>
-                  if ((in1 eq in) && (ex1 eq ex)) None
-                  else normalize1(namerec, Let(arg, ex1, in1, rec, tag), scope, typeEnv)
-              }
-            }
-            else {
-              // let x = y in z if x isn't free in z = z
-              Some(in1)
+            in1 match {
+              case Match(marg, branches, mtag) if marg.notFree(arg) && branches.exists { case (p, r) => p.names.contains(arg) || r.notFree(arg) } =>
+                // x = y
+                // match z:
+                //   case w: ww
+                //
+                // can be rewritten as
+                // match z:
+                //   case w:
+                //     x = y
+                //     ww
+                //
+                // when z is not free in x, and at least one branch is not free in x
+                val b1 = branches.map { case (p, r) =>
+                  if (p.names.contains(arg) || r.notFree(arg)) (p, r)
+                  else (p, Let(arg, ex1, r, rec, tag))
+                }
+                normalize1(namerec, Match(marg, b1, mtag), scope, typeEnv)
+              case _ =>
+                val cnt = in1.freeVarsDup.count(_ === arg)
+                if (cnt > 0) {
+                  // the arg is needed
+                  val shouldInline = (!rec.isRecursive) && {
+                    (cnt == 1) || Impl.isSimple(ex1)
+                  }
+                  val inlined = if (shouldInline) substitute(arg, ex1, in1) else None
+                  inlined match {
+                    case Some(il) =>
+                      normalize1(namerec, il, scope, typeEnv)
+                    case None =>
+                      if ((in1 eq in) && (ex1 eq ex)) None
+                      else normalize1(namerec, Let(arg, ex1, in1, rec, tag), scope, typeEnv)
+                  }
+                }
+                else {
+                  // let x = y in z if x isn't free in z = z
+                  Some(in1)
+                }
             }
         }
 
@@ -423,7 +443,8 @@ object TypedExprNormalization {
               // $COVERAGE-OFF$
               sys.error(s"no branch matched in ${m.repr} matched: $p::$c(${args.map(_.repr)})")
               // $COVERAGE-ON$
-            case (MaybeNamedStruct(b, pats), r) :: Nil =>
+            case (MaybeNamedStruct(b, pats), r) :: rest if rest.isEmpty || pats.forall(isTotal) =>
+              // If there are no more items, or all inner patterns are total, we are done
 
               // exactly one matches, this can be a sequential match
               def matchAll(argPat: List[(TypedExpr[A], Pattern[(PackageName, Constructor), Type])]): TypedExpr[A] =

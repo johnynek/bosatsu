@@ -166,6 +166,23 @@ y = match x:
     }
 
     checkLast("""#
+enum E: Left(l), Right(r)
+
+def inner:
+  x = Left(1)
+  z = 1
+  match x:
+    case Left(_): z
+    case Right(r):
+      match z:
+        case 1: 1
+        case _: r
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
 x = 23
 y = match x:
   case 42: 0
