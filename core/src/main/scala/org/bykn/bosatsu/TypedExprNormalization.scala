@@ -155,7 +155,10 @@ object TypedExprNormalization {
         None
       case Global(p, n: Bindable, _, _) =>
         scope.getGlobal(p, n).flatMap {
-          case (RecursionKind.NonRecursive, te, _) if Impl.isSimple(te) => Some(te)
+          case (RecursionKind.NonRecursive, te, _) if Impl.isSimple(te, lambdaSimple = false) =>
+            // for a reason I don't understand, inlining lambdas here causes a stack overflow
+            // there is probably something somewhat unsound about this substitution that I don't understand
+            Some(te)
           case _ => None
         }
       case Local(_, _, _) =>
@@ -226,7 +229,7 @@ object TypedExprNormalization {
                 if (cnt > 0) {
                   // the arg is needed
                   val shouldInline = (!rec.isRecursive) && {
-                    (cnt == 1) || Impl.isSimple(ex1)
+                    (cnt == 1) || Impl.isSimple(ex1, lambdaSimple = true)
                   }
                   val inlined = if (shouldInline) substitute(arg, ex1, in1) else None
                   inlined match {
@@ -316,15 +319,16 @@ object TypedExprNormalization {
     normalizeLetOpt(None, te, emptyScope, TypeEnv.empty)
 
   private object Impl {
-    def isSimple[A](ex: TypedExpr[A]): Boolean =
+    @annotation.tailrec
+    final def isSimple[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
       ex match {
         case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
-        case Annotation(t, _, _) => isSimple(t)
-        case Generic(_, t, _) => isSimple(t)
+        case Annotation(t, _, _) => isSimple(t, lambdaSimple)
+        case Generic(_, t, _) => isSimple(t, lambdaSimple)
         case AnnotatedLambda(_, _, _, _) =>
-          // always inline lambdas so we can possibly
+          // maybe inline lambdas so we can possibly
           // apply (\x -> f)(g) => let x = g in f
-          true
+          lambdaSimple
         case _ => false
       }
 
