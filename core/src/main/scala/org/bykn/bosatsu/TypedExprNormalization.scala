@@ -85,8 +85,11 @@ object TypedExprNormalization {
               case None =>
                 if (freeVars == vars.toList) None
                 else Some(Generic(nonEmpty, in, tag))
-              case Some(in1) =>
-                Some(Generic(nonEmpty, in1, tag))
+              case Some(gen@Generic(_, _, _)) =>
+                // in1 could be a generic in a
+                Some(forAll(nonEmpty, gen))
+              case Some(notGen) =>
+                Some(Generic(nonEmpty, notGen, tag))
             }
         }
       case Annotation(term, tpe, tag) =>
