@@ -90,6 +90,34 @@ y = match x:
     checkLast("""#
 struct Tup2(a, b)
 
+def inner:
+  z = 1
+  fn = Tup2
+  x = fn(z, 2)
+  match x:
+    case Tup2(a, _): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+def inner:
+  x = Tup2(1, 2)
+  match x:
+    case Tup2(a, _): a
+
+y = inner
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
 x = 23
 cons = Tup2
 x = cons(1, 2)

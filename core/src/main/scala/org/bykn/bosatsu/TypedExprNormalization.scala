@@ -147,9 +147,14 @@ object TypedExprNormalization {
             if (notApp eq expr) None
             else Some(AnnotatedLambda(arg, tpe, notApp, tag))
         }
-      case Global(_, _, _, _) | Literal(_, _, _) =>
+      case Global(_, _: Constructor, _, _) | Literal(_, _, _) =>
         // these are fundamental
         None
+      case Global(p, n: Bindable, _, _) =>
+        scope.getGlobal(p, n).flatMap {
+          case (RecursionKind.NonRecursive, te, _) if Impl.isSimple(te) => Some(te)
+          case _ => None
+        }
       case Local(_, _, _) =>
         // TODO we could look in the scope
         // and potentially simplify, but maybe it
@@ -198,19 +203,8 @@ object TypedExprNormalization {
             val cnt = in1.freeVarsDup.count(_ === arg)
             if (cnt > 0) {
               // the arg is needed
-              def isSimple(ex: TypedExpr[A]): Boolean =
-                ex match {
-                  case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
-                  case Annotation(t, _, _) => isSimple(t)
-                  case Generic(_, t, _) => isSimple(t)
-                  case AnnotatedLambda(_, _, _, _) =>
-                    // always inline lambdas so we can possibly
-                    // apply (\x -> f)(g) => let x = g in f
-                    true
-                  case _ => false
-                }
               val shouldInline = (!rec.isRecursive) && {
-                (cnt == 1) || isSimple(ex1)
+                (cnt == 1) || Impl.isSimple(ex1)
               }
               val inlined = if (shouldInline) substitute(arg, ex1, in1) else None
               inlined match {
@@ -299,6 +293,18 @@ object TypedExprNormalization {
     normalizeLetOpt(None, te, emptyScope, TypeEnv.empty)
 
   private object Impl {
+    def isSimple[A](ex: TypedExpr[A]): Boolean =
+      ex match {
+        case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
+        case Annotation(t, _, _) => isSimple(t)
+        case Generic(_, t, _) => isSimple(t)
+        case AnnotatedLambda(_, _, _, _) =>
+          // always inline lambdas so we can possibly
+          // apply (\x -> f)(g) => let x = g in f
+          true
+        case _ => false
+      }
+
     sealed abstract class EvalResult[A]
     object EvalResult {
       case class Cons[A](pack: PackageName, cons: Constructor, args: List[TypedExpr[A]]) extends EvalResult[A]
