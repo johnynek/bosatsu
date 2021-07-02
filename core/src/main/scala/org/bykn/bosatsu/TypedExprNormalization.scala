@@ -325,7 +325,10 @@ object TypedExprNormalization {
         case Local(b, _, _) =>
           scope.getLocal(b).flatMap {
             case (_, t, s) =>
-              evaluate(t, s)
+              // local values may have free values defined in
+              // their scope. we could handle these with let bindings
+              if (t.freeVarsDup.isEmpty) evaluate(t, s)
+              else None
           }
         case Let(arg, expr, in, RecursionKind.NonRecursive, _) =>
           evaluate(in, scope.updated(arg, (RecursionKind.NonRecursive, expr, scope)))
@@ -342,6 +345,8 @@ object TypedExprNormalization {
         case Global(pack, n: Bindable, _, _) =>
           scope.getGlobal(pack, n).flatMap {
             case (_, t, s) =>
+              // Global values never have free values,
+              // so it is safe to substitute into our current scope
               evaluate(t, s)
           }
         case Generic(_, in, _) =>
@@ -353,27 +358,39 @@ object TypedExprNormalization {
           None
       }
 
-    
+    type Pat = Pattern[(PackageName, Constructor), Type]
+    type Branch[A] = (Pat, TypedExpr[A])
+
     def maybeEvalMatch[A](m: Match[_ <: A], scope: Scope[A], typeEnv: TypeEnv[Variance]): Option[TypedExpr[A]] =
       evaluate(m.arg, scope).flatMap {
         case EvalResult.Cons(p, c, args) =>
 
           val alen = args.length
-          type Branch = (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
 
-          def isTotal(p: Pattern[(PackageName, Constructor), Type]): Boolean =
+          def isTotal(p: Pat): Boolean =
             p match {
               case Pattern.WildCard | Pattern.Var(_) => true
               case Pattern.Named(_, p) => isTotal(p)
+              case Pattern.Annotation(p, _) => isTotal(p)
+              case Pattern.Union(h, t) => isTotal(h) || t.exists(isTotal)
               case _ => false
             }
 
           // The Option signals we can't complete
-          def expandMatches(br: Branch): Option[List[Branch]] =
+          def expandMatches(br: Branch[A]): Option[List[Branch[A]]] =
             br match {
               case (ps@Pattern.PositionalStruct((p0, c0), args0), res) =>
                 if (p0 == p && c0 == c && args0.length == alen) Some((ps, res) :: Nil)
                 else Some(Nil)
+              case (Pattern.Named(n, p), res) =>
+                expandMatches((p, res)).map { bs =>
+                  bs.map { case (bp, br) =>
+                    (Pattern.Named(n, bp), br)
+                  }
+                }
+              case (Pattern.Annotation(p, _), res) =>
+                // The annotation is only used at inference time, the values have already been typed
+                expandMatches((p, res))
               case (Pattern.Union(h, t), r) =>
                 (h :: t.toList).traverse { p => expandMatches((p, r)) }.map(_.flatten)
               case br@(p, _) if isTotal(p) => Some(br :: Nil)
@@ -383,23 +400,45 @@ object TypedExprNormalization {
               case _ => None
             }
 
+          object MaybeNamedStruct {
+            def unapply(p: Pat): Option[(Option[Bindable], List[Pat])] =
+              p match {
+                case Pattern.Named(n, Pattern.PositionalStruct(_, pats)) =>
+                  Some((Some(n), pats))
+                case Pattern.PositionalStruct(_, pats) =>
+                  Some((None, pats))
+                case _ =>
+                  None
+              }
+          }
+
           m.branches.toList.traverse(expandMatches).map(_.flatten).flatMap {
             case Nil =>
               // $COVERAGE-OFF$
               sys.error(s"no branch matched in ${m.repr} matched: $p::$c(${args.map(_.repr)})")
               // $COVERAGE-ON$
-            case (Pattern.PositionalStruct(_, pats), r) :: Nil =>
+            case (MaybeNamedStruct(b, pats), r) :: Nil =>
+
               // exactly one matches, this can be a sequential match
               def matchAll(argPat: List[(TypedExpr[A], Pattern[(PackageName, Constructor), Type])]): TypedExpr[A] =
                 argPat match {
                   case Nil => r
                   case (a, p) :: tail =>
                     val tr = matchAll(tail)
-                    // This will get simplified later
-                    Match(a, NonEmptyList((p, tr), Nil), m.tag)
+                    p match {
+                      case Pattern.WildCard =>
+                        // we don't care about this value
+                        tr
+                      case Pattern.Var(b) =>
+                        Let(b, a, tr, RecursionKind.NonRecursive, m.tag)
+                      case _ =>
+                        // This will get simplified later
+                        Match(a, NonEmptyList((p, tr), Nil), m.tag)
+                    }
                 }
 
-              Some(matchAll(args.zip(pats)))
+              val res = matchAll(args.zip(pats))
+              Some(b.fold(res)(Let(_, m.arg, res, RecursionKind.NonRecursive, m.tag)))
             case h :: t =>
               // more than one branch might match, wait till runtime
               val m1 = Match(m.arg, NonEmptyList(h, t), m.tag)
@@ -407,8 +446,45 @@ object TypedExprNormalization {
               else Some(m1)
           }
 
-        case EvalResult.Constant(lit) =>
-          // TODO we can evaluate literal matches at compile time
+        case EvalResult.Constant(li @ Lit.Integer(i)) =>
+          def makeLet(p: Pattern[(PackageName, Constructor), Type]): Option[List[Bindable]] =
+            p match {
+              case Pattern.Named(v, p) =>
+                makeLet(p).map(v :: _)
+              case Pattern.WildCard => Some(Nil)
+              case Pattern.Var(v) => Some(v :: Nil)
+              case Pattern.Annotation(p, _) => makeLet(p)
+              case Pattern.Literal(Lit.Integer(j)) =>
+                if (j == i) Some(Nil)
+                else None
+              case Pattern.Literal(Lit.Str(_)) =>
+                None
+              case Pattern.Union(h, t) =>
+                (h :: t).toList.iterator.map(makeLet).reduce(_.orElse(_))
+              case Pattern.PositionalStruct(_, _) | Pattern.ListPat(_) | Pattern.StrPat(_) => None
+            }
+
+          @annotation.tailrec
+          def find[B, R](nel: NonEmptyList[(B, R)])(fn: ((B, R)) => Option[R]): Option[R] =
+            nel.tail match {
+              case Nil => fn(nel.head)
+              case h :: t => fn(nel.head) match {
+                case None => find(NonEmptyList(h, t))(fn)
+                case some => some
+              }
+            }
+
+          find[Pat, TypedExpr[A]](m.branches) { case (p, r0) =>
+            val r: TypedExpr[A] = r0
+            makeLet(p).map { names =>
+              val lit = Literal[A](li, Type.getTypeOf(li), m.tag)
+              // all these names are bound to the lit
+              names.distinct.foldLeft(r) { case (r, n) =>
+                Let(n, lit, r, RecursionKind.NonRecursive, m.tag)
+              }
+            }
+          }
+        case EvalResult.Constant(i @ Lit.Str(_)) =>
           None
       }
   }

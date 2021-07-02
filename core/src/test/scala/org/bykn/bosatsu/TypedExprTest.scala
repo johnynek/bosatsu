@@ -136,6 +136,17 @@ y = match x:
       case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
+
+    checkLast("""#
+x = 23
+y = match x:
+  case 42: 0
+  case 23 as y: y
+  case _: -1
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(23))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
   }
 
   val intTpe = Type.IntType
