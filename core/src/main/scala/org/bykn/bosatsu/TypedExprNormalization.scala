@@ -204,7 +204,7 @@ object TypedExprNormalization {
 
             val in1 = normalize1(namerec, in, scopeIn, typeEnv).get
             in1 match {
-              case Match(marg, branches, mtag) if marg.notFree(arg) && branches.exists { case (p, r) => p.names.contains(arg) || r.notFree(arg) } =>
+              case Match(marg, branches, mtag) if !rec.isRecursive && marg.notFree(arg) && branches.exists { case (p, r) => p.names.contains(arg) || r.notFree(arg) } =>
                 // x = y
                 // match z:
                 //   case w: ww
