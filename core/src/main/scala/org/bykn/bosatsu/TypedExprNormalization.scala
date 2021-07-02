@@ -178,38 +178,53 @@ object TypedExprNormalization {
         // to make sure rec is accurate
         val (ni, si) = nameScope(arg, rec, scope)
         val ex1 = normalize1(ni, ex, si, typeEnv).get
-        val scopeIn = si.updated(arg, (rec, ex1, si))
+        ex1 match {
+          case Let(ex1a, ex1ex, ex1in, RecursionKind.NonRecursive, ex1tag) if !rec.isRecursive && in.notFree(ex1a) =>
+            // according to a SPJ paper, it is generally better
+            // to float lets out of nesting inside in:
+            // let foo = let bar = x in bar in foo
+            //
+            // is better to write:
+            // let bar = x in let foo = bar in foo
+            // since you are going to evaluate and keep in scope
+            // the expression
+            // we can lift
+            val l1 = Let(ex1a, ex1ex, Let(arg, ex1in, in, RecursionKind.NonRecursive, tag), RecursionKind.NonRecursive, ex1tag)
+            normalize1(namerec, l1, scope, typeEnv)
+          case _ =>
+            val scopeIn = si.updated(arg, (rec, ex1, si))
 
-        val in1 = normalize1(namerec, in, scopeIn, typeEnv).get
-        val cnt = in1.freeVarsDup.count(_ === arg)
-        if (cnt > 0) {
-          // the arg is needed
-          def isSimple(ex: TypedExpr[A]): Boolean =
-            ex match {
-              case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
-              case Annotation(t, _, _) => isSimple(t)
-              case Generic(_, t, _) => isSimple(t)
-              case AnnotatedLambda(_, _, _, _) =>
-                // always inline lambdas so we can possibly
-                // apply (\x -> f)(g) => let x = g in f
-                true
-              case _ => false
+            val in1 = normalize1(namerec, in, scopeIn, typeEnv).get
+            val cnt = in1.freeVarsDup.count(_ === arg)
+            if (cnt > 0) {
+              // the arg is needed
+              def isSimple(ex: TypedExpr[A]): Boolean =
+                ex match {
+                  case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
+                  case Annotation(t, _, _) => isSimple(t)
+                  case Generic(_, t, _) => isSimple(t)
+                  case AnnotatedLambda(_, _, _, _) =>
+                    // always inline lambdas so we can possibly
+                    // apply (\x -> f)(g) => let x = g in f
+                    true
+                  case _ => false
+                }
+              val shouldInline = (!rec.isRecursive) && {
+                (cnt == 1) || isSimple(ex1)
+              }
+              val inlined = if (shouldInline) substitute(arg, ex1, in1) else None
+              inlined match {
+                case Some(il) =>
+                  normalize1(namerec, il, scope, typeEnv)
+                case None =>
+                  if ((in1 eq in) && (ex1 eq ex)) None
+                  else normalize1(namerec, Let(arg, ex1, in1, rec, tag), scope, typeEnv)
+              }
             }
-          val shouldInline = (!rec.isRecursive) && {
-            (cnt == 1) || isSimple(ex1)
-          }
-          val inlined = if (shouldInline) substitute(arg, ex1, in1) else None
-          inlined match {
-            case Some(il) =>
-              normalize1(namerec, il, scope, typeEnv)
-            case None =>
-              if ((in1 eq in) && (ex1 eq ex)) None
-              else normalize1(namerec, Let(arg, ex1, in1, rec, tag), scope, typeEnv)
-          }
-        }
-        else {
-          // let x = y in z if x isn't free in z = z
-          Some(in1)
+            else {
+              // let x = y in z if x isn't free in z = z
+              Some(in1)
+            }
         }
 
       case Match(_, NonEmptyList((p, e), Nil), _) if !e.freeVarsDup.exists(p.names.toSet) =>
@@ -312,6 +327,8 @@ object TypedExprNormalization {
             case (_, t, s) =>
               evaluate(t, s)
           }
+        case Let(arg, expr, in, RecursionKind.NonRecursive, _) =>
+          evaluate(in, scope.updated(arg, (RecursionKind.NonRecursive, expr, scope)))
         case FnArgs(fn, args) =>
           evaluate(fn, scope).map {
             case EvalResult.Cons(p, c, ahead) => EvalResult.Cons(p, c, ahead ::: args.toList)
@@ -331,8 +348,7 @@ object TypedExprNormalization {
           // if we can evaluate, we are okay
           evaluate(in, scope)
         case Annotation(te, _, _) =>
-          // TODO we may be able to handle this
-          None
+          evaluate(te, scope)
         case _ =>
           None
       }
@@ -391,7 +407,9 @@ object TypedExprNormalization {
               else Some(m1)
           }
 
-        case EvalResult.Constant(lit) => None
+        case EvalResult.Constant(lit) =>
+          // TODO we can evaluate literal matches at compile time
+          None
       }
   }
 
