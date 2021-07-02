@@ -100,11 +100,9 @@ object TypedExprNormalization {
           case _ if e1.getType == tpe =>
             // the type is already right
             Some(e1)
-          case Annotation(t1, _, tag) =>
-            Some(Annotation(t1, tpe, tag))
-          case notAnn =>
-            if (notAnn eq term) None
-            else Some(Annotation(notAnn, tpe, tag))
+          case notSameTpe =>
+            if (notSameTpe eq term) None
+            else Some(Annotation(notSameTpe, tpe, tag))
         }
 
       case AnnotatedLambda(arg, tpe, expr, tag) =>

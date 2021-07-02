@@ -27,6 +27,16 @@ class TypedExprTest extends AnyFunSuite {
     }.run._1
   }
 
+  /**
+   * Assert two bits of code normalize to the same thing
+   */
+  def normSame(s1: String, s2: String) =
+    checkLast(s1) { t1 =>
+      checkLast(s2) { t2 =>
+        assert(t1.void == t2.void)
+      }
+    }
+
   test("freeVarsSet is a subset of allVars") {
     def law[A](te: TypedExpr[A]) = {
       val frees = TypedExpr.freeVarsSet(te :: Nil).toSet
@@ -86,6 +96,17 @@ y = match x:
       case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
+
+    normSame("""#
+struct Tup2(a, b)
+
+x = 23
+x = Tup2(1, 2)
+y = match x:
+  case Tup2(a, _): a
+""", """#
+y = 1
+""")
 
     checkLast("""#
 struct Tup2(a, b)
@@ -192,6 +213,63 @@ y = match x:
       case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(23))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
     }
+  }
+
+  test("we can lift a match above a lambda") {
+    normSame("""#
+struct Tup2(a, b)
+
+y = Tup2(1, 2)
+
+def inner_match(x):
+  match y:
+    case Tup2(a, _): Tup2(a, x)
+""", """#
+struct Tup2(a, b)
+inner_match = \x -> Tup2(1, x)
+""")
+
+    normSame("""#
+struct Tup2(a, b)
+enum Eith: L(left), R(right)
+
+def run(y):
+  def inner_match(x):
+    match y:
+      case L(a): Tup2(a, x)
+      case R(b): Tup2(x, b)
+
+  inner_match
+""", """#
+struct Tup2(a, b)
+enum Eith: L(left), R(right)
+
+def run(y):
+  match y:
+    case L(a): \x -> Tup2(a, x)
+    case R(b): \x -> Tup2(x, b)
+""")
+  }
+
+  test("we can push lets into match") {
+    normSame("""#
+struct Tup2(a, b)
+enum Eith: L(left), R(right)
+
+def run(y, x):
+  z = y
+  match x:
+    L(_): z
+    R(r): r
+""", """#
+struct Tup2(a, b)
+enum Eith: L(left), R(right)
+
+def run(y, x):
+  match x:
+    L(_): y
+    R(r): r
+""")
   }
 
   val intTpe = Type.IntType
