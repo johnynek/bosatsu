@@ -227,7 +227,7 @@ object Package {
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
             )
             .map { lets =>
-              val normalLets = TypedExprNormalization.normalizeAll(lets)
+              val normalLets = TypedExprNormalization.normalizeAll(p, lets, fullTypeEnv)
               Program(typeEnv, normalLets, extDefs, stmts)
             }
             .left

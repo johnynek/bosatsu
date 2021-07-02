@@ -74,6 +74,70 @@ y = match x:
 """) { te => assert(TypedExpr.freeVars(te :: Nil) == Nil) }
   }
 
+  test("we can inline struct/destruct") {
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
+x = Tup2(1, 2)
+y = match x:
+  case Tup2(a, _): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
+cons = Tup2
+x = cons(1, 2)
+y = match x:
+  case Tup2(a, _): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
+x = Tup2(Tup2(1, 3), 2)
+y = match x:
+  case Tup2(Tup2(a, _), _): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
+x = Tup2(0, Tup2(1, 2))
+y = match x:
+  case Tup2(_, Tup2(a, _)): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+enum E: Left(l), Right(r)
+
+x = 23
+x = Left(1)
+y = match x:
+  case Left(l): l
+  case Right(r): r
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+  }
+
   val intTpe = Type.IntType
 
   def lit(l: Lit): TypedExpr[Unit] =
