@@ -113,7 +113,7 @@ class RankNInferTest extends AnyFunSuite {
   def parseProgram(statement: String, tpe: String) =
     checkLast(statement) { te0 =>
 
-      val te = TypedExpr.normalize(te0).getOrElse(te0)
+      val te = te0 // TypedExprNormalization.normalize(te0).getOrElse(te0)
       te.traverseType[cats.Id] {
         case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
           fail(s"illegate skolem ($t) escape in $te")

@@ -181,7 +181,7 @@ y = match x:
 
   test("let x = y in x == y") {
     // inline lets of vars
-    assert(TypedExpr.normalize(let("x", varTE("y", intTpe), varTE("x", intTpe))) ==
+    assert(TypedExprNormalization.normalize(let("x", varTE("y", intTpe), varTE("x", intTpe))) ==
       Some(varTE("y", intTpe)))
   }
 
@@ -196,11 +196,11 @@ y = match x:
     // x = y
     // y = z(43)
     // x(y, y)
-    assert(TypedExpr.normalize(normalLet) == None)
+    assert(TypedExprNormalization.normalize(normalLet) == None)
   }
 
   test("if w doesn't have x free: (app (let x y z) w) == let x y (app z w)") {
-    assert(TypedExpr.normalize(app(normalLet, varTE("w", intTpe), intTpe)) ==
+    assert(TypedExprNormalization.normalize(app(normalLet, varTE("w", intTpe), intTpe)) ==
       Some(
         let("x", varTE("y", intTpe),
           let("y", app(varTE("z", intTpe), int(43), intTpe),
@@ -213,7 +213,7 @@ y = match x:
     val f = varTE("f", Type.Fun(intTpe, intTpe))
     val left = lam("x", intTpe, app(f, varTE("x", intTpe), intTpe))
     
-    assert(TypedExpr.normalize(left) == Some(f))
+    assert(TypedExprNormalization.normalize(left) == Some(f))
   }
 
   test("(\\x -> f(x, z))(y) == f(y, z)") {
@@ -224,7 +224,7 @@ y = match x:
     val y = varTE("y", intTpe)
     val left = app(lamf, y, intTpe)
     val right = app(app(f, y, int2int), z, intTpe)
-    val res = TypedExpr.normalize(left)
+    val res = TypedExprNormalization.normalize(left)
 
     assert(res == Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
   }
