@@ -153,6 +153,21 @@ y = match x:
 struct Tup2(a, b)
 
 x = 23
+cons = Tup2
+x = cons(1, 2)
+y = match x:
+  case Tup2(_, _) as t:
+    Tup2(a, _) = t
+    a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
 x = Tup2(Tup2(1, 3), 2)
 y = match x:
   case Tup2(Tup2(a, _), _): a
@@ -269,6 +284,23 @@ def run(y, x):
   match x:
     L(_): y
     R(r): r
+""")
+  }
+
+  test("we can evaluate constant matches") {
+    normSame("""#
+x = match 1:
+  case (1 | 2) as x: x
+  case _: -1
+""", """#
+x = 1
+""")
+
+    normSame("""#
+x = match 1:
+  case _: -1
+""", """#
+x = -1
 """)
   }
 

@@ -432,12 +432,12 @@ object TypedExprNormalization {
             }
 
           object MaybeNamedStruct {
-            def unapply(p: Pat): Option[(Option[Bindable], List[Pat])] =
+            def unapply(p: Pat): Option[(List[Bindable], List[Pat])] =
               p match {
-                case Pattern.Named(n, Pattern.PositionalStruct(_, pats)) =>
-                  Some((Some(n), pats))
+                case Pattern.Named(n, MaybeNamedStruct(ns, pats)) =>
+                  Some((n :: ns, pats))
                 case Pattern.PositionalStruct(_, pats) =>
-                  Some((None, pats))
+                  Some((Nil, pats))
                 case _ =>
                   None
               }
@@ -470,7 +470,7 @@ object TypedExprNormalization {
                 }
 
               val res = matchAll(args.zip(pats))
-              Some(b.fold(res)(Let(_, m.arg, res, RecursionKind.NonRecursive, m.tag)))
+              Some(b.foldRight(res)(Let(_, m.arg, _, RecursionKind.NonRecursive, m.tag)))
             case h :: t =>
               // more than one branch might match, wait till runtime
               val m1 = Match(m.arg, NonEmptyList(h, t), m.tag)
@@ -489,25 +489,24 @@ object TypedExprNormalization {
               case Pattern.Literal(Lit.Integer(j)) =>
                 if (j == i) Some(Nil)
                 else None
-              case Pattern.Literal(Lit.Str(_)) =>
-                None
               case Pattern.Union(h, t) =>
                 (h :: t).toList.iterator.map(makeLet).reduce(_.orElse(_))
-              case Pattern.PositionalStruct(_, _) | Pattern.ListPat(_) | Pattern.StrPat(_) => None
+              // $COVERAGE-OFF$ this is ill-typed so should be unreachable
+              case Pattern.PositionalStruct(_, _) | Pattern.ListPat(_) | Pattern.StrPat(_) | Pattern.Literal(Lit.Str(_)) => None
+              // $COVERAGE-ON$
             }
 
           @annotation.tailrec
-          def find[B, R](nel: NonEmptyList[(B, R)])(fn: ((B, R)) => Option[R]): Option[R] =
-            nel.tail match {
-              case Nil => fn(nel.head)
-              case h :: t => fn(nel.head) match {
-                case None => find(NonEmptyList(h, t))(fn)
+          def find[B, R](ls: List[(B, R)])(fn: ((B, R)) => Option[R]): Option[R] =
+            ls match {
+              case Nil => None
+              case h :: t => fn(h) match {
+                case None => find(t)(fn)
                 case some => some
               }
             }
 
-          find[Pat, TypedExpr[A]](m.branches) { case (p, r0) =>
-            val r: TypedExpr[A] = r0
+          find[Pat, TypedExpr[A]](m.branches.toList) { case (p, r) =>
             makeLet(p).map { names =>
               val lit = Literal[A](li, Type.getTypeOf(li), m.tag)
               // all these names are bound to the lit

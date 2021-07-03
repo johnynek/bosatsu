@@ -126,7 +126,6 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Match(arg, branches, _) =>
         val argFree = arg.freeVarsDup
 
-        // Maintain the order we encounter things:
         val branchFrees = branches.toList.flatMap { case (p, b) =>
           // these are not free variables in this branch
           val newBinds = p.names.toSet
@@ -134,8 +133,21 @@ sealed abstract class TypedExpr[+T] { self: Product =>
           if (newBinds.isEmpty) bfree
           else TypedExpr.filterNot(bfree)(newBinds)
         }
+        // we can only take one branch, so count the max on each branch:
+        val branchFreeMax = branchFrees
+          .zipWithIndex
+          .groupBy(identity) // group-by-name x branch
+          .map { case ((name, branch), names) => (names.length, branch, name) }
+          .groupBy(_._3) // group by just the name now
+          .toList
+          .flatMap { case (_, vs) =>
+            val (cnt, branch, name) = vs.maxBy(_._1)
+            List.fill(cnt)((branch, name))
+          }
+          .sorted
+          .map(_._2)
 
-        argFree ::: branchFrees
+        argFree ::: branchFreeMax
     }
 
   def notFree(b: Bindable): Boolean =
