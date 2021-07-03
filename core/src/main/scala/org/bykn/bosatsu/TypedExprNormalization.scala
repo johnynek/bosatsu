@@ -168,8 +168,9 @@ object TypedExprNormalization {
       case App(fn, arg, tpe, tag) =>
         val f1 = normalize1(None, fn, scope, typeEnv).get
         lazy val a1 = normalize1(None, arg, scope, typeEnv).get
+        val ws = Impl.WithScope(scope)
         f1 match {
-          case AnnotatedLambda(b, ltpe, expr, ltag) =>
+          case ws.ResolveToLambda(b, ltpe, expr, ltag) =>
             // (\y -> z)(x) = let y = x in z
             val a2 = if (ltpe != arg.getType) Annotation(arg, ltpe, ltag) else arg
             val expr2 = if (tpe != expr.getType) Annotation(expr, tpe, expr.tag) else expr
@@ -317,6 +318,49 @@ object TypedExprNormalization {
     normalizeLetOpt(None, te, emptyScope, TypeEnv.empty)
 
   private object Impl {
+
+    case class WithScope[A](scope: Scope[A]) {
+      object ResolveToLambda {
+        def unapply(te: TypedExpr[A]): Option[(Bindable, Type, TypedExpr[A], A)] =
+          te match {
+            case AnnotatedLambda(b, ltpe, expr, ltag) => Some((b, ltpe, expr, ltag))
+            case Global(p, n: Bindable, _, _) =>
+              scope.getGlobal(p, n).flatMap {
+                case (RecursionKind.NonRecursive, te, scope1) =>
+                  val s1 = WithScope(scope1)
+                  te match {
+                    case s1.ResolveToLambda(b0, ltpe, expr, ltag) =>
+                      // we can't just replace variables if the scopes don't match.
+                      // we could also repair the scope by making a let binding
+                      // for any names that don't match (which has to be done recursively
+                      val scopeMatches = expr.freeVarsDup.distinct.forall { b => (b === b0) || (scope1.getLocal(b) == scope.getLocal(b)) }
+                      if (scopeMatches) Some((b0, ltpe, expr, ltag))
+                      else None
+                    case _ => None
+                  }
+                case _ => None
+              }
+            case Local(nm, _, _) =>
+              scope.getLocal(nm).flatMap {
+                case (RecursionKind.NonRecursive, te, scope1) =>
+                  val s1 = WithScope(scope1)
+                  te match {
+                    case s1.ResolveToLambda(b0, ltpe, expr, ltag) =>
+                      // we can't just replace variables if the scopes don't match.
+                      // we could also repair the scope by making a let binding
+                      // for any names that don't match (which has to be done recursively
+                      val scopeMatches = expr.freeVarsDup.distinct.forall { b => (b === b0) || (scope1.getLocal(b) == scope.getLocal(b)) }
+                      if (scopeMatches) Some((b0, ltpe, expr, ltag))
+                      else None
+                    case _ => None
+                  }
+                case _ => None
+              }
+            case _ => None
+          }
+      }
+    }
+
     @annotation.tailrec
     final def isSimple[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
       ex match {

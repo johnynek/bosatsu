@@ -126,7 +126,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Match(arg, branches, _) =>
         val argFree = arg.freeVarsDup
 
-        val branchFrees = branches.toList.flatMap { case (p, b) =>
+        val branchFrees = branches.toList.map { case (p, b) =>
           // these are not free variables in this branch
           val newBinds = p.names.toSet
           val bfree = b.freeVarsDup
@@ -136,6 +136,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         // we can only take one branch, so count the max on each branch:
         val branchFreeMax = branchFrees
           .zipWithIndex
+          .flatMap { case (names, br) => names.map((_, br)) }
           .groupBy(identity) // group-by-name x branch
           .map { case ((name, branch), names) => (names.length, branch, name) }
           .groupBy(_._3) // group by just the name now
