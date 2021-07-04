@@ -541,7 +541,7 @@ object TypedExprNormalization {
             }
 
           @annotation.tailrec
-          def find[B, R](ls: List[(B, R)])(fn: ((B, R)) => Option[R]): Option[R] =
+          def find[X, Y](ls: List[X])(fn: X => Option[Y]): Option[Y] =
             ls match {
               case Nil => None
               case h :: t => fn(h) match {
@@ -550,7 +550,7 @@ object TypedExprNormalization {
               }
             }
 
-          find[Pat, TypedExpr[A]](m.branches.toList) { case (p, r) =>
+          find[Branch[A], TypedExpr[A]](m.branches.toList) { case (p, r) =>
             makeLet(p).map { names =>
               val lit = Literal[A](li, Type.getTypeOf(li), m.tag)
               // all these names are bound to the lit
