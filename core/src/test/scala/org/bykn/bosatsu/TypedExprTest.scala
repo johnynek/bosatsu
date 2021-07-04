@@ -302,6 +302,17 @@ x = match 1:
 """, """#
 x = -1
 """)
+
+    normSame("""#
+y = 21
+
+def foo(_):
+  match y:
+    case 42: 0
+    case x: x
+""", """#
+foo = \_ -> 21
+""")
   }
 
   val intTpe = Type.IntType

@@ -152,7 +152,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
     }
 
   def notFree(b: Bindable): Boolean =
-    !freeVarsDup.exists(_ === b)
+    !freeVarsDup.contains(b)
 }
 
 object TypedExpr {
