@@ -319,6 +319,18 @@ object TypedExprNormalization {
 
   private object Impl {
 
+    def scopeMatches[A](names: Set[Bindable], scope: Scope[A], scope1: Scope[A]): Boolean =
+      names.forall { b =>
+        (scope.getLocal(b), scope1.getLocal(b)) match {
+          case (None, None) => true
+          case (Some((r1, t1, s1)), Some((r2, t2, s2))) =>
+            (r1 == r2) &&
+              (t1.void == t2.void) &&
+              scopeMatches(t1.freeVarsDup.toSet, s1, s2)
+          case _ => false
+        }
+      }
+
     case class WithScope[A](scope: Scope[A]) {
       object ResolveToLambda {
         def unapply(te: TypedExpr[A]): Option[(Bindable, Type, TypedExpr[A], A)] =
@@ -333,8 +345,7 @@ object TypedExprNormalization {
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
-                      val scopeMatches = expr.freeVarsDup.distinct.forall { b => (b === b0) || (scope1.getLocal(b) == scope.getLocal(b)) }
-                      if (scopeMatches) Some((b0, ltpe, expr, ltag))
+                      if (scopeMatches(expr.freeVarsDup.toSet - b0, scope, scope1)) Some((b0, ltpe, expr, ltag))
                       else None
                     case _ => None
                   }
@@ -349,8 +360,7 @@ object TypedExprNormalization {
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
-                      val scopeMatches = expr.freeVarsDup.distinct.forall { b => (b === b0) || (scope1.getLocal(b) == scope.getLocal(b)) }
-                      if (scopeMatches) Some((b0, ltpe, expr, ltag))
+                      if (scopeMatches(expr.freeVarsDup.toSet - b0, scope, scope1)) Some((b0, ltpe, expr, ltag))
                       else None
                     case _ => None
                   }
@@ -399,11 +409,12 @@ object TypedExprNormalization {
         case Literal(lit, _, _) => Some(EvalResult.Constant(lit))
         case Local(b, _, _) =>
           scope.getLocal(b).flatMap {
-            case (_, t, s) =>
+            case (RecursionKind.NonRecursive, t, s) =>
               // local values may have free values defined in
               // their scope. we could handle these with let bindings
-              if (t.freeVarsDup.isEmpty) evaluate(t, s)
+              if (scopeMatches(t.freeVarsDup.toSet, s, scope)) evaluate(t, s)
               else None
+            case _ => None
           }
         case Let(arg, expr, in, RecursionKind.NonRecursive, _) =>
           evaluate(in, scope.updated(arg, (RecursionKind.NonRecursive, expr, scope)))

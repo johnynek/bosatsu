@@ -313,6 +313,24 @@ def foo(_):
 """, """#
 foo = \_ -> 21
 """)
+
+    /*
+     * This does not yet work
+    normSame("""#
+struct Tup2(a, b)
+
+def foo(_):
+  y = 1
+  z = Tup2(y, y)
+  y = 0
+  match z:
+    case Tup2(0, 0): y
+    case Tup2(1, 1): 1
+    case _: 2
+""", """#
+foo = \_ -> 1
+""")
+    */
   }
 
   val intTpe = Type.IntType
