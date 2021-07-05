@@ -21,7 +21,26 @@ import Identifier.{Bindable, Constructor}
  * It is also useful for prototyping applications that heavily use LetFreeExpressions.
  */
 object LetFreeEvaluation {
-  import LetFreeConversion.LitValue
+  type ExtEnv = Map[Identifier, Eval[Value]]
+  type Cache = Option[CMap[String, (Future[Value], rankn.Type)]]
+
+  case class LitValue(toAny: Any) {
+    def equivToLit(lit: Lit) = toAny == lit.unboxToAny
+  }
+
+  object LitValue {
+    def fromLit(lit: Lit) = LitValue(lit.unboxToAny)
+  }
+
+}
+
+case class LetFreeEvaluation[T](
+    pm: PackageMap.Typed[T],
+    externals: Externals,
+    extEnv: LetFreeEvaluation.ExtEnv,
+    cache: LetFreeEvaluation.Cache
+) {
+  import LetFreeEvaluation._
 
   val valueToLitValue: Value => Option[LitValue] = { v =>
     Some(LitValue(v.asExternal.toAny))
@@ -93,23 +112,15 @@ object LetFreeEvaluation {
       }
   }
 
-  case class VarsTag(exprThunk: () => TypedExpr[VarsTag]) {
-    lazy val expr = exprThunk()
-    lazy val varSet: Set[String] = ???
-  }
-
-  def varTagTypedExpr[X](expr: TypedExpr[X]): TypedExpr[VarsTag] = ???
-
-  def expressionToString(expr: TypedExpr[VarsTag]): String = ???
+  def expressionToString(expr: TypedExpr[T]): String = ???
 
   case class LazyValue(
-      expression: TypedExpr[VarsTag],
+      expression: TypedExpr[T],
       scope: Map[String, LetFreeValue],
-      p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred)
-      extends LetFreeValue {
-    def cleanedScope: List[(String, LetFreeValue)] =
-      expression.tag.varSet.toList.sorted.map { n => (n, scope(n)) }
+      p: Package.Typed[T]
+  ) extends LetFreeValue {
+    def cleanedScope: List[(String, LetFreeValue)] = ???
+    //  expression.tag.varSet.toList.sorted.map { n => (n, scope(n)) }
 
     lazy val toStructNat: Option[(Int, List[LetFreeValue])] =
       lazyToStructImpl(this, rankn.DataFamily.Nat)
@@ -141,7 +152,7 @@ object LetFreeEvaluation {
   def nvToLitValue(implicit
       extEnv: ExtEnv,
       cache: Cache
-  ): LetFreeValue => Option[LetFreeConversion.LitValue] = { lfv =>
+  ): LetFreeValue => Option[LitValue] = { lfv =>
     valueToLitValue(lfv.toValue)
   }
 
@@ -162,20 +173,19 @@ object LetFreeEvaluation {
   def lazyToStructImpl(
       lv: LazyValue,
       df: rankn.DataFamily
-  )(implicit extEnv: ExtEnv, cache: Cache) =
-    lv.toLeaf match {
-      case Leaf.Struct(n, values, _)         => Some((n, values))
-      case Leaf.Value(cv @ ComputedValue(_)) => cv.toStruct(df)
-      // $COVERAGE-OFF$
-      case other => sys.error(s"we should not get $other")
-      // $COVERAGE-ON$
-    }
+  ) = lv.toLeaf match {
+    case Leaf.Struct(n, values, _)         => Some((n, values))
+    case Leaf.Value(cv @ ComputedValue(_)) => cv.toStruct(df)
+    // $COVERAGE-OFF$
+    case other => sys.error(s"we should not get $other")
+    // $COVERAGE-ON$
+  }
 
   sealed abstract class Leaf {
     lazy val toValue = this match {
-      case Leaf.Struct(enum, args, df)             => evaluateStruct(enum, args, df)
-      case Leaf.Value(ComputedValue(v))            => v
-      case Leaf.Lambda(expr, scope, extEnv, cache) => ???
+      case Leaf.Struct(enum, args, df)   => evaluateStruct(enum, args, df)
+      case Leaf.Value(ComputedValue(v))  => v
+      case Leaf.Lambda(expr, arg, scope) => ???
       /* new Value.FnValue(
           LetFreeFnValue(expr, scope)(extEnv, cache)
         ) */
@@ -185,47 +195,45 @@ object LetFreeEvaluation {
   object Leaf {
     case class Struct(
         n: Int,
-        values: List[LetFreeEvaluation.LazyValue],
+        values: List[LazyValue],
         df: DataFamily
     ) extends Leaf
     case class Lambda(
-        expr: TypedExpr[VarsTag],
+        expr: TypedExpr[T],
         arg: Bindable,
-        scope: Map[String, LetFreeValue],
-        extEnv: ExtEnv,
-        cache: Cache
+        scope: Map[String, LetFreeValue]
     ) extends Leaf
-    case class Literal(expr: TypedExpr.Literal[VarsTag]) extends Leaf
+    case class Literal(expr: TypedExpr.Literal[T]) extends Leaf
     case class Value(value: ComputedValue) extends Leaf
   }
 
   def annotationToLeaf(
-      a: TypedExpr.Annotation[VarsTag],
+      a: TypedExpr.Annotation[T],
       scope: Map[String, LetFreeValue],
-      p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
+      p: Package.Typed[T]
+  ): Leaf =
     evalToLeaf(a.term, scope, p)
 
   def genericToLeaf(
-      g: TypedExpr.Generic[VarsTag],
+      g: TypedExpr.Generic[T],
       scope: Map[String, LetFreeValue],
-      p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
+      p: Package.Typed[T]
+  ): Leaf =
     evalToLeaf(g.in, scope, p)
 
   def localToLeaf(
-      v: TypedExpr.Local[VarsTag],
+      v: TypedExpr.Local[T],
       scope: Map[String, LetFreeValue],
-      p: Package.Inferred
+      p: Package.Typed[T]
   ): Leaf = {
     scope(v.name.asString).toLeaf
   }
 
   private def norm(
-      pack: Package.Inferred,
+      pack: Package.Typed[T],
       item: Identifier,
       scope: Map[String, LetFreeValue]
-  )(implicit pm: PackageMap.Inferred, extEnv: ExtEnv): Leaf =
+  ): Leaf =
     NameKind(pack, item) match {
       case Some(namekind) =>
         namekind match {
@@ -250,10 +258,10 @@ object LetFreeEvaluation {
     }
 
   def globalToLeaf(
-      v: TypedExpr.Global[VarsTag],
+      v: TypedExpr.Global[T],
       scope: Map[String, LetFreeValue],
-      p: Package.Inferred
-  )(implicit pm: PackageMap.Inferred, extEnv: ExtEnv): Leaf = {
+      p: Package.Typed[T]
+  ): Leaf = {
     val name = if (p.name == v.pack) {
       v.name
     } else {
@@ -275,17 +283,17 @@ object LetFreeEvaluation {
   }
 
   def annotatedLambdaToLeaf(
-      al: TypedExpr.AnnotatedLambda[VarsTag],
+      al: TypedExpr.AnnotatedLambda[T],
       scope: Map[String, LetFreeValue],
-      p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
-    Leaf.Lambda(al.expr, al.arg, scope, extEnv, cache)
+      p: Package.Typed[T]
+  ): Leaf =
+    Leaf.Lambda(al.expr, al.arg, scope)
 
   def letToLeaf(
-      l: TypedExpr.Let[VarsTag],
+      l: TypedExpr.Let[T],
       scope: Map[String, LetFreeValue],
-      p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
+      p: Package.Typed[T]
+  ): Leaf =
     l.recursive match {
       case RecursionKind.Recursive =>
         lazy val lv: LazyValue = LazyValue(l.expr, nextScope, p)
@@ -298,10 +306,10 @@ object LetFreeEvaluation {
     }
 
   def appToLeaf(
-      a: TypedExpr.App[VarsTag],
+      a: TypedExpr.App[T],
       scope: Map[String, LetFreeValue],
-      p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf = {
+      p: Package.Typed[T]
+  ): Leaf = {
     val fn = evalToLeaf(a.fn, scope, p)
     val arg = LazyValue(a.arg, scope, p)
     applyLeaf(fn, arg, p).toLeaf
@@ -310,8 +318,8 @@ object LetFreeEvaluation {
   private def nameKindLetToLeaf(
       name: Identifier.Bindable,
       recursive: RecursionKind,
-      expr: TypedExpr[Declaration],
-      pack: Package.Inferred,
+      expr: TypedExpr[T],
+      pack: Package.Typed[T],
       scope: Map[String, LetFreeValue]
   ): Leaf = ??? /*
     for {
@@ -387,10 +395,10 @@ object LetFreeEvaluation {
   } */
 
   def evalToLeaf(
-      expr: TypedExpr[VarsTag],
+      expr: TypedExpr[T],
       scope: Map[String, LetFreeValue],
-      p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache, pm: PackageMap.Inferred): Leaf =
+      p: Package.Typed[T]
+  ): Leaf =
     expr match {
       case a @ TypedExpr.Annotation(_, _, _) => annotationToLeaf(a, scope, p)
       case g @ TypedExpr.Generic(_, _, _)    => genericToLeaf(g, scope, p)
@@ -462,37 +470,30 @@ object LetFreeEvaluation {
     Some(loop(normalValue, Nil).reverse)
   }
 
-  def nvFromList(implicit
-      extEnv: ExtEnv,
-      cache: Cache
-  ): List[LetFreeValue] => LetFreeValue = { scope =>
-    @tailrec
-    def loop(n: Int, acc: LetFreeExpression): LetFreeExpression = n match {
-      case 0 => acc
-      case _ =>
-        loop(
-          n - 1,
-          LetFreeExpression
-            .Struct(
-              1,
-              List(LetFreeExpression.LambdaVar(n - 1), acc),
-              rankn.DataFamily.Enum
-            )
-        )
-    }
-    val expr = loop(
-      scope.length,
-      LetFreeExpression.Struct(0, Nil, rankn.DataFamily.Enum)
-    )
-    LazyValue(
-      expr,
-      scope
-    )
+  def nvFromList(p: Package.Typed[T]): List[LetFreeValue] => LetFreeValue = {
+    scope =>
+      @tailrec
+      def loop(n: Int, acc: LetFreeExpression): LetFreeExpression = n match {
+        case 0 => acc
+        case _ =>
+          loop(
+            n - 1,
+            LetFreeExpression
+              .Struct(
+                1,
+                List(LetFreeExpression.LambdaVar(n - 1), acc),
+                rankn.DataFamily.Enum
+              )
+          )
+      }
+      val expr = loop(
+        scope.length,
+        LetFreeExpression.Struct(0, Nil, rankn.DataFamily.Enum)
+      )
+      LazyValue(expr, scope, p)
   }
 
   type Applyable = Either[Value, (LetFreeExpression.Lambda, List[LetFreeValue])]
-  type ExtEnv = Map[Identifier, Eval[Value]]
-  type Cache = Option[CMap[String, (Future[Value], rankn.Type)]]
   type ToLFV = Option[LetFreeValue => Future[Value]]
 
   case class ExprFnValue(toExprFn: LetFreeValue => Value)
@@ -530,9 +531,9 @@ object LetFreeEvaluation {
   def applyLeaf(
       applyable: Leaf,
       arg: LetFreeValue,
-      p: Package.Inferred
-  )(implicit extEnv: ExtEnv, cache: Cache): LetFreeValue = applyable match {
-    case Leaf.Lambda(expr, argName, scope, _, _) => {
+      p: Package.Typed[T]
+  ): LetFreeValue = applyable match {
+    case Leaf.Lambda(expr, argName, scope) => {
       // By evaluating when we add to the scope we don't have to overflow the stack later when we
       // need to use the value
       val _ = arg match {
@@ -629,7 +630,7 @@ object LetFreeEvaluation {
   }
 
   def evalToValue(
-      ne: TypedExpr[VarsTag],
+      ne: TypedExpr[T],
       scope: List[LetFreeValue]
   )(implicit extEnv: ExtEnv, cache: Cache): Value = LazyValue(ne, scope).toValue
 
@@ -659,12 +660,6 @@ object LetFreeEvaluation {
 
     FfiCall.FromFn { t => new Value.FnValue(evalExprFn(t, Nil)) }
   }
-}
-
-case class LetFreeEvaluation(
-    packs: PackageMap.Typed[(Declaration, LetFreeExpressionTag)],
-    externals: Externals
-) {
 
   type Pack = Package[Package.Interface, NonEmptyList[
     Referant[Variance]
