@@ -32,6 +32,340 @@ object LetFreeEvaluation {
     def fromLit(lit: Lit) = LitValue(lit.unboxToAny)
   }
 
+  type PatternEnv[T] = Map[Bindable, T]
+  type PatternPNC = org.bykn.bosatsu.Pattern[
+    (PackageName, Identifier.Constructor),
+    rankn.Type
+  ]
+
+  sealed trait PatternMatch[+A]
+  case class Matches[A](env: A) extends PatternMatch[A]
+  case object NoMatch extends PatternMatch[Nothing]
+  case object NotProvable extends PatternMatch[Nothing]
+
+  def noop[T]: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = { (_, env) =>
+    Matches(env)
+  }
+  def neverMatch[T]: (T, PatternEnv[T]) => PatternMatch[Nothing] = { (_, _) =>
+    NoMatch
+  }
+
+  /*
+   * MaybeBind is an implementation of determining if a T satisfies a Pattern and if it does it creates an environment
+   * for right hand evaluation. This has been implemented for T as a LetFreeExpression, a Value, and a LetFreeValue. When
+   * attempting to bind it result in a Matches, NoMatch, or NotProvable which means there's not enough present information to
+   * determine what this would do at runtime (eg this may be running at compile time.)
+   */
+  abstract class MaybeBind[T](
+      pat: PatternPNC
+  ) {
+    def toLitValue(t: T): Option[LitValue]
+    def toStruct(t: T, df: DataFamily): Option[(Int, List[T])]
+    def toList(t: T): Option[List[T]]
+    def fromList(lst: List[T]): T
+    def fromString(str: String): T
+    def maybeBind(
+        pat: PatternPNC
+    ): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]]
+
+    val apply: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = pat match {
+      case Pattern.WildCard => noop
+      case Pattern.Literal(lit) => { (v, env) =>
+        toLitValue(v) match {
+          case Some(lv) => if (lv.equivToLit(lit)) Matches(env) else NoMatch
+          case _        => NotProvable
+        }
+      }
+      case Pattern.Var(n) => { (v, env) => Matches(env + (n -> v)) }
+      case Pattern.Named(n, p) =>
+        val inner = maybeBind(p)
+
+        { (v, env) =>
+          inner(v, env) match {
+            case Matches(env1) => Matches(env1 + (n -> v))
+            case notMatch      => notMatch
+          }
+        }
+      case lp @ Pattern.ListPat(_) => {
+        sealed abstract class StructListResult
+        case object Empty extends StructListResult
+        case class Cons(h: T, t: StructList) extends StructListResult
+        case class StructList(asT: T) {
+          lazy val parts = {
+            val strct = toStruct(asT, DataFamily.Enum)
+            strct.map {
+              case (1, h :: t :: Nil) => Cons(h, StructList(t))
+              case (0, Nil)           => Empty
+              case _ =>
+                sys.error(
+                  "type checking should ensure this is always a bosatsu List"
+                )
+            }
+          }
+        }
+
+        def consumePrefix(
+            prefix: List[PatternPNC]
+        ): (StructList, PatternEnv[T]) => PatternMatch[
+          (StructList, PatternEnv[T])
+        ] = {
+          val matchers = prefix.map(maybeBind(_))
+          val initial: (StructList, PatternEnv[T]) => PatternMatch[
+            (StructList, PatternEnv[T])
+          ] = { (x: StructList, env: PatternEnv[T]) => Matches((x, env)) }
+          matchers.foldRight[(StructList, PatternEnv[T]) => PatternMatch[
+            (StructList, PatternEnv[T])
+          ]](initial) {
+            case (fn, acc) => { (x: StructList, env: PatternEnv[T]) =>
+              x.parts match {
+                case None => NotProvable
+                // Possible optimization below because we hit the end of the list and there's no point in going on
+                case Some(Empty) => NoMatch
+                case Some(Cons(head, tail)) =>
+                  fn(head, env) match {
+                    case Matches(nextEnv) => acc(tail, nextEnv)
+                    case NotProvable      => NotProvable
+                    case NoMatch          => NoMatch
+                  }
+              }
+            }
+          }
+        }
+        def consumeMatch(
+            glob: Pattern.ListPart.Glob,
+            suffix: List[PatternPNC]
+        ): (StructList, PatternEnv[T]) => PatternMatch[
+          (StructList, PatternEnv[T])
+        ] = {
+          val suffixConsumer = consumePrefix(suffix)
+          @tailrec
+          def loop(
+              v: StructList,
+              env: PatternEnv[T],
+              acc: List[T]
+          ): PatternMatch[(StructList, PatternEnv[T], List[T])] =
+            suffixConsumer(v, env) match {
+              case Matches((vRest, nextEnv)) => Matches((vRest, nextEnv, acc))
+              case NotProvable               => NotProvable
+              case NoMatch =>
+                v.parts match {
+                  case None                => NotProvable
+                  case Some(Empty)         => NoMatch
+                  case Some(Cons(h, tail)) => loop(tail, env, h :: acc)
+                }
+            }
+          { (x: StructList, env: PatternEnv[T]) =>
+            loop(x, env, Nil) match {
+              case Matches((x, env, acc)) =>
+                glob match {
+                  case None => Matches((x, env))
+                  case Some(n) =>
+                    Matches((x, env + (n -> fromList(acc.reverse))))
+                }
+              case NoMatch     => NoMatch
+              case NotProvable => NotProvable
+            }
+          }
+        }
+
+        def loop(
+            matchList: NonEmptyList[(ListPart.Glob, List[PatternPNC])]
+        ): (StructList, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
+          matchList match {
+            case NonEmptyList((None, Nil), Nil) => { (v, env) => Matches(env) }
+            case NonEmptyList((Some(n), Nil), Nil) => { (v, env) =>
+              Matches(env + (n -> v.asT))
+            }
+            case NonEmptyList((glob, suffix), Nil) => { (v, env) =>
+              toList(v.asT) match {
+                case None => NotProvable
+                case Some(lst) =>
+                  if (lst.length < suffix.length) NoMatch
+                  else {
+                    val (globList, tail) =
+                      lst.splitAt(lst.length - suffix.length)
+                    val globEnv = glob match {
+                      case None    => env
+                      case Some(n) => env + (n -> fromList(globList))
+                    }
+                    tail
+                      .zip(suffix)
+                      .foldLeft[PatternMatch[PatternEnv[T]]](Matches(globEnv)) {
+                        case (Matches(env), (x, pat)) =>
+                          maybeBind(pat).apply(x, env)
+                        case (noMatch, _) => noMatch
+                      }
+                  }
+              }
+            }
+            case NonEmptyList((glob, suffix), h :: ltail) => {
+              val tail = NonEmptyList(h, ltail)
+              val tailMatcher
+                  : (StructList, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
+                loop(tail)
+              val prefixConsumer: (StructList, PatternEnv[T]) => PatternMatch[
+                (StructList, PatternEnv[T])
+              ] = consumeMatch(glob, suffix)
+              val result: (StructList, PatternEnv[T]) => PatternMatch[
+                PatternEnv[T]
+              ] = { (v, env) =>
+                prefixConsumer(v, env) match {
+                  case Matches((remainder, nextEnv)) =>
+                    tailMatcher(remainder, nextEnv)
+                  case NoMatch     => NoMatch
+                  case NotProvable => NotProvable
+                }
+              }
+              result
+            }
+          }
+        val (prefix, matchList) = lp.toMatchList
+        val prefixConsumer = consumePrefix(prefix)
+        val matchesConsumer = NonEmptyList.fromList(matchList) match {
+          // $COVERAGE-OFF$ this case is actually optimized away. If there are no globs the listpattern becomes a positionalstruct
+          case None => { (v: StructList, env: PatternEnv[T]) =>
+            v.parts match {
+              case None        => NotProvable
+              case Some(Empty) => Matches(env)
+              case Some(_)     => NoMatch
+            }
+          }
+          // $COVERAGE-ON$
+          case Some(lst) => loop(lst)
+        }
+        (v, env) => {
+          val structList = StructList(v)
+          prefixConsumer(structList, env) match {
+            case Matches((remainder, env)) => matchesConsumer(remainder, env)
+            case NoMatch                   => NoMatch
+            case NotProvable               => NotProvable
+          }
+        }
+      }
+
+      case LetFreePattern.Union(h, t) =>
+        // we can just loop expanding these out:
+        def loop(
+            ps: List[LetFreePattern]
+        ): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
+          ps match {
+            case Nil => neverMatch
+            case head :: tail =>
+              val fnh = maybeBind(head)
+              val fnt: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = loop(
+                tail
+              )
+              val result: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = {
+                case (arg, acc) =>
+                  fnh(arg, acc) match {
+                    case NoMatch    => fnt(arg, acc)
+                    case notNoMatch => notNoMatch
+                  }
+              }
+              result
+          }
+        loop(h :: t.toList)
+      case LetFreePattern.PositionalStruct(maybeIdx, items, df) =>
+        // The type in question is not the outer dt, but the type associated
+        // with this current constructor
+        val itemFns = items.map(maybeBind(_))
+
+        def processArgs(
+            as: List[T],
+            acc: PatternEnv[T]
+        ): PatternMatch[PatternEnv[T]] = {
+          // manually write out foldM hoping for performance improvements
+          @annotation.tailrec
+          def loop(
+              vs: List[T],
+              fns: List[(T, PatternEnv[T]) => PatternMatch[PatternEnv[T]]],
+              env: (PatternEnv[T], PatternMatch[PatternEnv[T]])
+          ): PatternMatch[PatternEnv[T]] =
+            vs match {
+              case Nil => env._2
+              case vh :: vt =>
+                fns match {
+                  case fh :: ft =>
+                    (fh(vh, env._1), env._2) match {
+                      case (_, NoMatch) => NoMatch
+                      case (NoMatch, _) => NoMatch
+                      case (Matches(env1), Matches(_)) =>
+                        loop(vt, ft, (env1, Matches(env1)))
+                      case (Matches(env1), NotProvable) =>
+                        loop(vt, ft, (env1, NotProvable))
+                      case (NotProvable, _) =>
+                        loop(vt, ft, (env._1, NotProvable))
+                    }
+                  case Nil =>
+                    env._2 // mismatch in size, shouldn't happen statically
+                }
+            }
+          loop(as, itemFns, (acc, Matches(acc)))
+        }
+
+        maybeIdx match {
+          case None =>
+            // this is a struct, which means we expect it
+            { (arg: T, acc: PatternEnv[T]) =>
+              toStruct(arg, df) match {
+                case Some((_, args)) =>
+                  processArgs(args, acc)
+                case _ =>
+                  NotProvable
+              }
+            }
+
+          case Some(idx) =>
+            // we don't check if idx < 0, because if we compiled, it can't be
+            val result = { (arg: T, acc: PatternEnv[T]) =>
+              toStruct(arg, df) match {
+                case Some((enumId, args)) =>
+                  if (enumId == idx) processArgs(args, acc)
+                  else NoMatch
+                case _ =>
+                  NotProvable
+              }
+            }
+            result
+        }
+      case Pattern.StrPat(parts) =>
+        val listParts: List[LetFreePattern.ListPart] = parts.toList.flatMap {
+          case Pattern.StrPart.WildStr     => List(Left(None))
+          case Pattern.StrPart.NamedStr(n) => List(Left(Some(n)))
+          case Pattern.StrPart.LitStr(str) =>
+            str.toList.map(c => Right(Pattern.Literal(Lit.Str(c.toString))))
+        }
+        val listMaybeBind = maybeBind(LetFreePattern.ListPat(listParts))
+
+        (v, env) =>
+          toLitValue(v) match {
+            case None => NotProvable
+            case Some(LitValue(str)) =>
+              listMaybeBind(
+                fromList(
+                  str
+                    .asInstanceOf[String]
+                    .toList
+                    .map(c => fromString(c.toString))
+                ),
+                IntMap.empty
+              ) match {
+                case Matches(listEnv) => {
+                  val strEnv: PatternEnv[T] = listEnv.map { case (i, lst) =>
+                    val str = toList(lst).get
+                      .flatMap(toLitValue(_))
+                      .map(lv => lv.toAny.asInstanceOf[String])
+                      .mkString
+                    (i -> fromString(str))
+                  }
+                  Matches(env ++ strEnv)
+                }
+                case noMatch => noMatch
+              }
+          }
+    }
+  }
+
 }
 
 case class LetFreeEvaluation[T](
@@ -315,6 +649,56 @@ case class LetFreeEvaluation[T](
     applyLeaf(fn, arg, p).toLeaf
   }
 
+  def literalToLeaf(
+      l: TypedExpr.Literal[T],
+      scope: Map[String, LetFreeValue],
+      p: Package.Typed[T]
+  ): Leaf = Leaf.Literal(l)
+
+  def matchToLeaf(
+      m: TypedExpr.Match[T],
+      scope: Map[String, LetFreeValue],
+      p: Package.Typed[T]
+  ): Leaf = ???
+  /*for {
+    arg <- letFreeConvertExpr(m.arg, env, p)
+    branches <- (m.branches.map { case branch =>
+      letFreeConvertBranch(branch, env, p)
+    }).sequence
+    letFreeBranches = branches.map { case (p, e) =>
+      (letFreeConvertPattern(p), e.tag._2)
+    }
+    lfeTag = normalOrderReduction(
+      LetFreeExpression.Match(arg.tag._2, letFreeBranches)
+    )
+  } yield Match(arg = arg, branches = branches, tag = (m.tag, lfeTag)) */
+
+  def simplifyMatch(
+      mtch: TypedExpr.Match[T],
+      scope: Map[String, LetFreeValue],
+      p: Package.Typed[T]
+  ): LetFreeValue = {
+    val (_, patEnv, result) = mtch.branches.toList
+      .collectFirst(Function.unlift({ case (pat, result) =>
+        LetFreeValueMaybeBind(pat)
+          .apply(LazyValue(mtch.arg, scope), IntMap.empty) match {
+          case LetFreeConversion.Matches(env) => Some((pat, env, result))
+          case LetFreeConversion.NoMatch      => None
+          // $COVERAGE-OFF$
+          case LetFreeConversion.NotProvable =>
+            sys.error("For value we should never be NotProvable")
+          // $COVERAGE-ON$
+        }
+      }))
+      .get
+
+    ((patEnv.size - 1) to 0 by -1)
+      .map(patEnv.get(_).get)
+      .foldLeft[LetFreeValue](LazyValue(result, scope)) { (fn, arg) =>
+        applyLeaf(fn.toLeaf, arg)
+      }
+  }
+
   private def nameKindLetToLeaf(
       name: Identifier.Bindable,
       recursive: RecursionKind,
@@ -560,9 +944,11 @@ case class LetFreeEvaluation[T](
     // $COVERAGE-ON$
   }
 
-  case class LetFreeValueMaybeBind(pat: LetFreePattern)(implicit
-      extEnv: ExtEnv,
-      cache: Cache
+  case class LetFreeValueMaybeBind(
+      pat: org.bykn.bosatsu.Pattern[
+        (PackageName, Identifier.Constructor),
+        rankn.Type
+      ]
   ) extends LetFreeConversion.MaybeBind[LetFreeValue](pat) {
     def toLitValue(t: LetFreeValue): Option[LitValue] =
       nvToLitValue(extEnv, cache)(t)
@@ -575,31 +961,6 @@ case class LetFreeEvaluation[T](
     def fromString(str: String): LetFreeValue =
       LazyValue(LetFreeExpression.Literal(Lit.Str(str)), Nil)
     def maybeBind(pat: LetFreePattern) = LetFreeValueMaybeBind(pat).apply(_, _)
-  }
-
-  def simplifyMatch(
-      mtch: LetFreeExpression.Match,
-      scope: List[LetFreeValue]
-  )(implicit extEnv: ExtEnv, cache: Cache): LetFreeValue = {
-    val (_, patEnv, result) = mtch.branches.toList
-      .collectFirst(Function.unlift({ case (pat, result) =>
-        LetFreeValueMaybeBind(pat)
-          .apply(LazyValue(mtch.arg, scope), IntMap.empty) match {
-          case LetFreeConversion.Matches(env) => Some((pat, env, result))
-          case LetFreeConversion.NoMatch      => None
-          // $COVERAGE-OFF$
-          case LetFreeConversion.NotProvable =>
-            sys.error("For value we should never be NotProvable")
-          // $COVERAGE-ON$
-        }
-      }))
-      .get
-
-    ((patEnv.size - 1) to 0 by -1)
-      .map(patEnv.get(_).get)
-      .foldLeft[LetFreeValue](LazyValue(result, scope)) { (fn, arg) =>
-        applyLeaf(fn.toLeaf, arg)
-      }
   }
 
   def evaluateStruct(
