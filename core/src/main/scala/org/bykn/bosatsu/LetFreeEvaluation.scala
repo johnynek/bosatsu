@@ -356,12 +356,13 @@ object LetFreeEvaluation {
           result
         }
       case Pattern.StrPat(parts) =>
-        val listParts: List[LetFreePattern.ListPart] = parts.toList.flatMap {
-          case Pattern.StrPart.WildStr     => List(Left(None))
-          case Pattern.StrPart.NamedStr(n) => List(Left(Some(n)))
-          case Pattern.StrPart.LitStr(str) =>
-            str.toList.map(c => Right(Pattern.Literal(Lit.Str(c.toString))))
-        }
+        val listParts: List[Pattern.ListPart[PatternPNC]] =
+          parts.toList.flatMap {
+            case Pattern.StrPart.WildStr     => List(Left(None))
+            case Pattern.StrPart.NamedStr(n) => List(Left(Some(n)))
+            case Pattern.StrPart.LitStr(str) =>
+              str.toList.map(c => Right(Pattern.Literal(Lit.Str(c.toString))))
+          }
         val listMaybeBind = maybeBind(LetFreePattern.ListPat(listParts))
 
         (v, env) =>
