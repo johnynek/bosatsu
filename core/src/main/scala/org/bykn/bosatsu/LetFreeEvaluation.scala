@@ -358,12 +358,15 @@ object LetFreeEvaluation {
       case Pattern.StrPat(parts) =>
         val listParts: List[Pattern.ListPart[PatternPNC]] =
           parts.toList.flatMap {
-            case Pattern.StrPart.WildStr     => List(Left(None))
-            case Pattern.StrPart.NamedStr(n) => List(Left(Some(n)))
+            case Pattern.StrPart.WildStr => List(Pattern.ListPart.WildList)
+            case Pattern.StrPart.NamedStr(n) =>
+              List(Pattern.ListPart.NamedList(n))
             case Pattern.StrPart.LitStr(str) =>
-              str.toList.map(c => Right(Pattern.Literal(Lit.Str(c.toString))))
+              str.toList.map(c =>
+                Pattern.ListPart.Item(Pattern.Literal(Lit.Str(c.toString)))
+              )
           }
-        val listMaybeBind = maybeBind(LetFreePattern.ListPat(listParts))
+        val listMaybeBind = maybeBind(Pattern.ListPat(listParts))
 
         (v, env) =>
           toLitValue(v) match {
@@ -376,7 +379,7 @@ object LetFreeEvaluation {
                     .toList
                     .map(c => fromString(c.toString))
                 ),
-                IntMap.empty
+                Map.empty
               ) match {
                 case Matches(listEnv) => {
                   val strEnv: PatternEnv[T] = listEnv.map { case (i, lst) =>
@@ -686,7 +689,7 @@ case class LetFreeEvaluation[T](
       m: TypedExpr.Match[T],
       scope: Map[String, LetFreeValue],
       p: Package.Typed[T]
-  ): Leaf = ???
+  ): Leaf = simplifyMatch(m, scope, p).toLeaf
   /*for {
     arg <- letFreeConvertExpr(m.arg, env, p)
     branches <- (m.branches.map { case branch =>
@@ -708,7 +711,7 @@ case class LetFreeEvaluation[T](
     val (_, patEnv, result) = mtch.branches.toList
       .collectFirst(Function.unlift({ case (pat, result) =>
         LetFreeValueMaybeBind(pat)
-          .apply(LazyValue(mtch.arg, scope), IntMap.empty) match {
+          .apply(LazyValue(mtch.arg, scope, p), IntMap.empty) match {
           case LetFreeConversion.Matches(env) => Some((pat, env, result))
           case LetFreeConversion.NoMatch      => None
           // $COVERAGE-OFF$
@@ -721,8 +724,8 @@ case class LetFreeEvaluation[T](
 
     ((patEnv.size - 1) to 0 by -1)
       .map(patEnv.get(_).get)
-      .foldLeft[LetFreeValue](LazyValue(result, scope)) { (fn, arg) =>
-        applyLeaf(fn.toLeaf, arg)
+      .foldLeft[LetFreeValue](LazyValue(result, scope, p)) { (fn, arg) =>
+        applyLeaf(fn.toLeaf, arg, p)
       }
   }
 
@@ -819,9 +822,8 @@ case class LetFreeEvaluation[T](
         annotatedLambdaToLeaf(al, scope, p)
       case a @ TypedExpr.App(_, _, _, _)    => appToLeaf(a, scope, p)
       case l @ TypedExpr.Let(_, _, _, _, _) => letToLeaf(l, scope, p)
-      case l @ TypedExpr.Literal(_, _, _) =>
-        ??? //letFreeConvertLiteral(l, env, p)
-      case m @ TypedExpr.Match(_, _, _) => ??? //letFreeConvertMatch(m, env, p)
+      case l @ TypedExpr.Literal(_, _, _)   => literalToLeaf(l, scope, p)
+      case m @ TypedExpr.Match(_, _, _)     => matchToLeaf(m, scope, p)
 
       /*
       case LetFreeExpression.Struct(n, lst, df) =>
