@@ -263,7 +263,6 @@ def rem_decreases_size(t, i, msg):
 def size_tests:
     TestSuite('size tests', [
       add_increases_size(Empty, 1, "Empty.add(1)"),
-      add_increases_size(single_i(1), 2, "Empty.add(1)"),
       add_increases_size(single_i(1), 2, "single(1).add(2)"),
       Assertion(single_i(1).size.eq_i(single_i(1).add_i(1).size), "single(1) + 1 has same size"),
       rem_decreases_size(single_i(1), 1, "single(1) - 1"),

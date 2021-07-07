@@ -27,6 +27,16 @@ class TypedExprTest extends AnyFunSuite {
     }.run._1
   }
 
+  /**
+   * Assert two bits of code normalize to the same thing
+   */
+  def normSame(s1: String, s2: String) =
+    checkLast(s1) { t1 =>
+      checkLast(s2) { t2 =>
+        assert(t1.void == t2.void)
+      }
+    }
+
   test("freeVarsSet is a subset of allVars") {
     def law[A](te: TypedExpr[A]) = {
       val frees = TypedExpr.freeVarsSet(te :: Nil).toSet
@@ -72,6 +82,255 @@ x = Tup2(1, 2)
 y = match x:
   case Tup2(a, _): a
 """) { te => assert(TypedExpr.freeVars(te :: Nil) == Nil) }
+  }
+
+  test("we can inline struct/destruct") {
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
+x = Tup2(1, 2)
+y = match x:
+  case Tup2(a, _): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    normSame("""#
+struct Tup2(a, b)
+
+x = 23
+x = Tup2(1, 2)
+y = match x:
+  case Tup2(a, _): a
+""", """#
+y = 1
+""")
+
+    checkLast("""#
+struct Tup2(a, b)
+
+def inner:
+  z = 1
+  fn = Tup2
+  x = fn(z, 2)
+  match x:
+    case Tup2(a, _): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+def inner:
+  x = Tup2(1, 2)
+  match x:
+    case Tup2(a, _): a
+
+y = inner
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
+cons = Tup2
+x = cons(1, 2)
+y = match x:
+  case Tup2(a, _): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
+cons = Tup2
+x = cons(1, 2)
+y = match x:
+  case Tup2(_, _) as t:
+    Tup2(a, _) = t
+    a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
+x = Tup2(Tup2(1, 3), 2)
+y = match x:
+  case Tup2(Tup2(a, _), _): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+struct Tup2(a, b)
+
+x = 23
+x = Tup2(0, Tup2(1, 2))
+y = match x:
+  case Tup2(_, Tup2(a, _)): a
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+enum E: Left(l), Right(r)
+
+x = 23
+x = Left(1)
+y = match x:
+  case Left(l): l
+  case Right(r): r
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+enum E: Left(l), Right(r)
+
+def inner:
+  x = Left(1)
+  z = 1
+  match x:
+    case Left(_): z
+    case Right(r):
+      match z:
+        case 1: 1
+        case _: r
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+
+    checkLast("""#
+x = 23
+y = match x:
+  case 42: 0
+  case 23 as y: y
+  case _: -1
+""") {
+      case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(23))
+      case notLit => fail(s"expected Literal got: ${notLit.repr}")
+    }
+  }
+
+  test("we can lift a match above a lambda") {
+    normSame("""#
+struct Tup2(a, b)
+
+y = Tup2(1, 2)
+
+def inner_match(x):
+  match y:
+    case Tup2(a, _): Tup2(a, x)
+""", """#
+struct Tup2(a, b)
+inner_match = \x -> Tup2(1, x)
+""")
+
+    normSame("""#
+struct Tup2(a, b)
+enum Eith: L(left), R(right)
+
+def run(y):
+  def inner_match(x):
+    match y:
+      case L(a): Tup2(a, x)
+      case R(b): Tup2(x, b)
+
+  inner_match
+""", """#
+struct Tup2(a, b)
+enum Eith: L(left), R(right)
+
+def run(y):
+  match y:
+    case L(a): \x -> Tup2(a, x)
+    case R(b): \x -> Tup2(x, b)
+""")
+  }
+
+  test("we can push lets into match") {
+    normSame("""#
+struct Tup2(a, b)
+enum Eith: L(left), R(right)
+
+def run(y, x):
+  z = y
+  match x:
+    L(_): z
+    R(r): r
+""", """#
+struct Tup2(a, b)
+enum Eith: L(left), R(right)
+
+def run(y, x):
+  match x:
+    L(_): y
+    R(r): r
+""")
+  }
+
+  test("we can evaluate constant matches") {
+    normSame("""#
+x = match 1:
+  case (1 | 2) as x: x
+  case _: -1
+""", """#
+x = 1
+""")
+
+    normSame("""#
+x = match 1:
+  case _: -1
+""", """#
+x = -1
+""")
+
+    normSame("""#
+y = 21
+
+def foo(_):
+  match y:
+    case 42: 0
+    case x: x
+""", """#
+foo = \_ -> 21
+""")
+
+    /*
+     * This does not yet work
+    normSame("""#
+struct Tup2(a, b)
+
+def foo(_):
+  y = 1
+  z = Tup2(y, y)
+  y = 0
+  match z:
+    case Tup2(0, 0): y
+    case Tup2(1, 1): 1
+    case _: 2
+""", """#
+foo = \_ -> 1
+""")
+    */
   }
 
   val intTpe = Type.IntType
@@ -181,7 +440,7 @@ y = match x:
 
   test("let x = y in x == y") {
     // inline lets of vars
-    assert(TypedExpr.normalize(let("x", varTE("y", intTpe), varTE("x", intTpe))) ==
+    assert(TypedExprNormalization.normalize(let("x", varTE("y", intTpe), varTE("x", intTpe))) ==
       Some(varTE("y", intTpe)))
   }
 
@@ -196,11 +455,11 @@ y = match x:
     // x = y
     // y = z(43)
     // x(y, y)
-    assert(TypedExpr.normalize(normalLet) == None)
+    assert(TypedExprNormalization.normalize(normalLet) == None)
   }
 
   test("if w doesn't have x free: (app (let x y z) w) == let x y (app z w)") {
-    assert(TypedExpr.normalize(app(normalLet, varTE("w", intTpe), intTpe)) ==
+    assert(TypedExprNormalization.normalize(app(normalLet, varTE("w", intTpe), intTpe)) ==
       Some(
         let("x", varTE("y", intTpe),
           let("y", app(varTE("z", intTpe), int(43), intTpe),
@@ -213,7 +472,7 @@ y = match x:
     val f = varTE("f", Type.Fun(intTpe, intTpe))
     val left = lam("x", intTpe, app(f, varTE("x", intTpe), intTpe))
     
-    assert(TypedExpr.normalize(left) == Some(f))
+    assert(TypedExprNormalization.normalize(left) == Some(f))
   }
 
   test("(\\x -> f(x, z))(y) == f(y, z)") {
@@ -224,7 +483,7 @@ y = match x:
     val y = varTE("y", intTpe)
     val left = app(lamf, y, intTpe)
     val right = app(app(f, y, int2int), z, intTpe)
-    val res = TypedExpr.normalize(left)
+    val res = TypedExprNormalization.normalize(left)
 
     assert(res == Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
   }

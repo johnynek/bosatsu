@@ -227,10 +227,7 @@ object Package {
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
             )
             .map { lets =>
-              val normalLets = lets.map { case (n, r, e) =>
-                val norme = TypedExpr.normalize(e).getOrElse(e)
-                (n, r, norme)
-              }
+              val normalLets = TypedExprNormalization.normalizeAll(p, lets, fullTypeEnv)
               Program(typeEnv, normalLets, extDefs, stmts)
             }
             .left
