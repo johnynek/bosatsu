@@ -6,7 +6,6 @@ import scala.annotation.tailrec
 import rankn.Type
 import scala.concurrent.Future
 import scala.collection.concurrent.{Map => CMap}
-import scala.collection.immutable.IntMap
 import java.math.BigInteger
 import org.bykn.bosatsu.rankn.DataFamily
 import cats.data.NonEmptyList
@@ -691,43 +690,31 @@ case class LetFreeEvaluation[T](
       scope: Map[String, LetFreeValue],
       p: Package.Typed[T]
   ): Leaf = simplifyMatch(m, scope, p).toLeaf
-  /*for {
-    arg <- letFreeConvertExpr(m.arg, env, p)
-    branches <- (m.branches.map { case branch =>
-      letFreeConvertBranch(branch, env, p)
-    }).sequence
-    letFreeBranches = branches.map { case (p, e) =>
-      (letFreeConvertPattern(p), e.tag._2)
-    }
-    lfeTag = normalOrderReduction(
-      LetFreeExpression.Match(arg.tag._2, letFreeBranches)
-    )
-  } yield Match(arg = arg, branches = branches, tag = (m.tag, lfeTag)) */
 
   def simplifyMatch(
       mtch: TypedExpr.Match[T],
       scope: Map[String, LetFreeValue],
       p: Package.Typed[T]
   ): LetFreeValue = {
-    val (_, patEnv, result) = mtch.branches.toList
+    val (_, patEnv: Map[Bindable, LetFreeValue], result) = mtch.branches.toList
       .collectFirst(Function.unlift({ case (pat, result) =>
         LetFreeValueMaybeBind(pat)
-          .apply(LazyValue(mtch.arg, scope, p), IntMap.empty) match {
-          case LetFreeConversion.Matches(env) => Some((pat, env, result))
-          case LetFreeConversion.NoMatch      => None
+          .apply(LazyValue(mtch.arg, scope, p), Map.empty) match {
+          case Matches(env) => Some((pat, env, result))
+          case NoMatch      => None
           // $COVERAGE-OFF$
-          case LetFreeConversion.NotProvable =>
+          case NotProvable =>
             sys.error("For value we should never be NotProvable")
           // $COVERAGE-ON$
         }
       }))
       .get
 
-    ((patEnv.size - 1) to 0 by -1)
-      .map(patEnv.get(_).get)
-      .foldLeft[LetFreeValue](LazyValue(result, scope, p)) { (fn, arg) =>
-        applyLeaf(fn.toLeaf, arg, p)
-      }
+    LazyValue(
+      result,
+      scope ++ (patEnv.map { case (k, v) => (k.asString, v) }),
+      p
+    )
   }
 
   private def nameKindLetToLeaf(
@@ -980,7 +967,7 @@ case class LetFreeEvaluation[T](
         (PackageName, Identifier.Constructor),
         rankn.Type
       ]
-  ) extends LetFreeConversion.MaybeBind[LetFreeValue](pat) {
+  ) extends MaybeBind[LetFreeValue](pat) {
     def toLitValue(t: LetFreeValue): Option[LitValue] =
       nvToLitValue(extEnv, cache)(t)
     def toStruct(t: LetFreeValue, df: DataFamily) =
