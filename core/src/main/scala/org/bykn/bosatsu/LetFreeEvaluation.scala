@@ -33,8 +33,8 @@ object LetFreeEvaluation {
   }
 
   type PatternEnv[T] = Map[Bindable, T]
-  type PatternPNC = org.bykn.bosatsu.Pattern[
-    (PackageName, Identifier.Constructor),
+  type PatternPNC = Pattern[
+    (PackageName, Constructor),
     rankn.Type
   ]
 
@@ -48,6 +48,26 @@ object LetFreeEvaluation {
   }
   def neverMatch[T]: (T, PatternEnv[T]) => PatternMatch[Nothing] = { (_, _) =>
     NoMatch
+  }
+
+  def listPatToMatchList(
+      parts: List[Pattern.ListPart[PatternPNC]]
+  ): (List[PatternPNC], List[(Pattern.ListPart.Glob, List[PatternPNC])]) = {
+    parts match {
+      case Nil => (Nil, Nil)
+      case (w1 @ Pattern.ListPart.WildList) :: (w2 @ Pattern.ListPart.Item(
+            Pattern.WildCard
+          )) :: tail =>
+        listPatToMatchList(w2 :: w1 :: tail)
+      case (glob: Pattern.ListPart.Glob) :: tail =>
+        listPatToMatchList(tail) match {
+          case (prefix, rest) => (Nil, (glob, prefix) :: rest)
+        }
+      case Pattern.ListPart.Item(item) :: tail =>
+        listPatToMatchList(tail) match {
+          case (prefix, rest) => (item :: prefix, rest)
+        }
+    }
   }
 
   /*
@@ -67,6 +87,7 @@ object LetFreeEvaluation {
     def maybeBind(
         pat: PatternPNC
     ): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]]
+    def definedForCons(pc: (PackageName, Constructor)): rankn.DefinedType[Any]
 
     val apply: (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] = pat match {
       case Pattern.WildCard => noop
@@ -158,8 +179,8 @@ object LetFreeEvaluation {
             loop(x, env, Nil) match {
               case Matches((x, env, acc)) =>
                 glob match {
-                  case None => Matches((x, env))
-                  case Some(n) =>
+                  case Pattern.ListPart.WildList => Matches((x, env))
+                  case Pattern.ListPart.NamedList(n) =>
                     Matches((x, env + (n -> fromList(acc.reverse))))
                 }
               case NoMatch     => NoMatch
@@ -169,12 +190,15 @@ object LetFreeEvaluation {
         }
 
         def loop(
-            matchList: NonEmptyList[(ListPart.Glob, List[PatternPNC])]
+            matchList: NonEmptyList[(Pattern.ListPart.Glob, List[PatternPNC])]
         ): (StructList, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
           matchList match {
-            case NonEmptyList((None, Nil), Nil) => { (v, env) => Matches(env) }
-            case NonEmptyList((Some(n), Nil), Nil) => { (v, env) =>
-              Matches(env + (n -> v.asT))
+            case NonEmptyList((Pattern.ListPart.WildList, Nil), Nil) => {
+              (v, env) => Matches(env)
+            }
+            case NonEmptyList((Pattern.ListPart.NamedList(n), Nil), Nil) => {
+              (v, env) =>
+                Matches(env + (n -> v.asT))
             }
             case NonEmptyList((glob, suffix), Nil) => { (v, env) =>
               toList(v.asT) match {
@@ -185,8 +209,9 @@ object LetFreeEvaluation {
                     val (globList, tail) =
                       lst.splitAt(lst.length - suffix.length)
                     val globEnv = glob match {
-                      case None    => env
-                      case Some(n) => env + (n -> fromList(globList))
+                      case Pattern.ListPart.WildList => env
+                      case Pattern.ListPart.NamedList(n) =>
+                        env + (n -> fromList(globList))
                     }
                     tail
                       .zip(suffix)
@@ -219,7 +244,7 @@ object LetFreeEvaluation {
               result
             }
           }
-        val (prefix, matchList) = lp.toMatchList
+        val (prefix, matchList) = listPatToMatchList(lp.parts)
         val prefixConsumer = consumePrefix(prefix)
         val matchesConsumer = NonEmptyList.fromList(matchList) match {
           // $COVERAGE-OFF$ this case is actually optimized away. If there are no globs the listpattern becomes a positionalstruct
@@ -243,10 +268,10 @@ object LetFreeEvaluation {
         }
       }
 
-      case LetFreePattern.Union(h, t) =>
+      case Pattern.Union(h, t) =>
         // we can just loop expanding these out:
         def loop(
-            ps: List[LetFreePattern]
+            ps: List[PatternPNC]
         ): (T, PatternEnv[T]) => PatternMatch[PatternEnv[T]] =
           ps match {
             case Nil => neverMatch
@@ -265,7 +290,7 @@ object LetFreeEvaluation {
               result
           }
         loop(h :: t.toList)
-      case LetFreePattern.PositionalStruct(maybeIdx, items, df) =>
+      case Pattern.PositionalStruct(pc, items) =>
         // The type in question is not the outer dt, but the type associated
         // with this current constructor
         val itemFns = items.map(maybeBind(_))
@@ -303,30 +328,32 @@ object LetFreeEvaluation {
           loop(as, itemFns, (acc, Matches(acc)))
         }
 
-        maybeIdx match {
-          case None =>
-            // this is a struct, which means we expect it
-            { (arg: T, acc: PatternEnv[T]) =>
-              toStruct(arg, df) match {
-                case Some((_, args)) =>
-                  processArgs(args, acc)
-                case _ =>
-                  NotProvable
-              }
-            }
+        val dt = definedForCons(pc)
+        val df = dt.dataFamily
 
-          case Some(idx) =>
-            // we don't check if idx < 0, because if we compiled, it can't be
-            val result = { (arg: T, acc: PatternEnv[T]) =>
-              toStruct(arg, df) match {
-                case Some((enumId, args)) =>
-                  if (enumId == idx) processArgs(args, acc)
-                  else NoMatch
-                case _ =>
-                  NotProvable
-              }
+        if (dt.isStruct) {
+          // this is a struct, which means we expect it
+          { (arg: T, acc: PatternEnv[T]) =>
+            toStruct(arg, df) match {
+              case Some((_, args)) =>
+                processArgs(args, acc)
+              case _ =>
+                NotProvable
             }
-            result
+          }
+        } else {
+          val ctor = pc._2
+          val idx: Int = dt.constructors.indexWhere(_.name == ctor)
+          val result = { (arg: T, acc: PatternEnv[T]) =>
+            toStruct(arg, df) match {
+              case Some((enumId, args)) =>
+                if (enumId == idx) processArgs(args, acc)
+                else NoMatch
+              case _ =>
+                NotProvable
+            }
+          }
+          result
         }
       case Pattern.StrPat(parts) =>
         val listParts: List[LetFreePattern.ListPart] = parts.toList.flatMap {
@@ -365,7 +392,6 @@ object LetFreeEvaluation {
           }
     }
   }
-
 }
 
 case class LetFreeEvaluation[T](
