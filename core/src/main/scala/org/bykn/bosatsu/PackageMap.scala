@@ -235,8 +235,8 @@ object PackageMap {
     /*
      * We memoize this function to avoid recomputing diamond dependencies
      */
-    val infer: ResolvedU => Par.F[Ior[NonEmptyList[PackageError], Package.Inferred]] =
-      Memoize.memoizeDagFuture[ResolvedU, Ior[NonEmptyList[PackageError], Package.Inferred]] {
+    val infer0: ResolvedU => Par.F[Ior[NonEmptyList[PackageError], (TypeEnv[Variance], Package.Inferred)]] =
+      Memoize.memoizeDagFuture[ResolvedU, Ior[NonEmptyList[PackageError], (TypeEnv[Variance], Package.Inferred)]] {
         // TODO, we ignore importMap here, we only check earlier we don't
         // have duplicate imports
         case (Package(nm, imports, exports, (stmt, importMap)), recurse) =>
@@ -285,7 +285,7 @@ object PackageMap {
                  * Here we have a source we need to fully resolve
                  */
                 IorT(recurse(p))
-                  .flatMap { packF =>
+                  .flatMap { case (_, packF) =>
                     val packInterface = Package.interfaceOf(packF)
                     val exMap = ExportedName.buildExportMap(packF.exports)
                     val ior = items
@@ -313,15 +313,15 @@ object PackageMap {
             inferImports
               .flatMap { imps =>
                 // run this in a thread
-                IorT(Par.start(Package.inferBody(nm, imps, stmt).map((imps, _))))
+                IorT(Par.start(Package.inferBodyUnopt(nm, imps, stmt).map((imps, _))))
               }
 
           inferBody
-            .flatMap { case (imps, program@Program(types, lets, _, _)) =>
+            .flatMap { case (imps, (fte, program@Program(types, lets, _, _))) =>
               val ior = ExportedName
                 .buildExports(nm, exports, types, lets) match {
                   case Validated.Valid(exps) =>
-                    Ior.right(Package(nm, imps, exps, program))
+                    Ior.right((fte, Package(nm, imps, exps, program)))
                   case Validated.Invalid(badPackages) =>
                     Ior.left(badPackages.map { n =>
                       PackageError.UnknownExport(n, nm, lets): PackageError
@@ -332,7 +332,27 @@ object PackageMap {
             .value
         }
 
+    /**
+     * Since Par.F is starts computation when start is called
+     * we want to start all the computations *then* collect
+     * the result together
+     */
+    val infer: ResolvedU => Par.F[Ior[NonEmptyList[PackageError], Package.Inferred]] =
+      infer0.andThen { parF =>
+        // As soon as each Par.F is complete, we can start normalizing that one
+        parF.flatMap { ior =>
+          ior.traverse {
+            case (fte, pack) =>
+              Par.start(
+                pack.copy(program = TypedExprNormalization.normalizeProgram(pack.name, fte, pack.program))
+              )
+          }
+        }
+      }
+
     val fut = ps.toMap.parTraverse(infer.andThen(IorT(_)))
+
+    // Wait until all the resolution is complete
     Par.await(fut.value)
       .map(PackageMap(_))
   }

@@ -152,13 +152,29 @@ object Package {
   /**
    * After having type checked the imports, we now type check the body
    * in order to type check the exports
+   *
+   * This is used by test code
    */
   def inferBody(
     p: PackageName,
     imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
     stmts: List[Statement]):
       Ior[NonEmptyList[PackageError],
-      Program[TypeEnv[Variance], TypedExpr[Declaration], List[Statement]]] = {
+      Program[TypeEnv[Variance], TypedExpr[Declaration], List[Statement]]] =
+        inferBodyUnopt(p, imps, stmts).map {
+          case (fullTypeEnv, prog) =>
+            TypedExprNormalization.normalizeProgram(p, fullTypeEnv, prog)
+        }
+
+  /**
+   * Infer the types but do not optimize/normalize the lets
+   */
+  def inferBodyUnopt(
+    p: PackageName,
+    imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
+    stmts: List[Statement]):
+      Ior[NonEmptyList[PackageError],
+      (TypeEnv[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], List[Statement]])] = {
 
     // here we make a pass to get all the local names
     val localDefs = Statement.definitionsOf(stmts)
@@ -227,8 +243,7 @@ object Package {
               Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
             )
             .map { lets =>
-              val normalLets = TypedExprNormalization.normalizeAll(p, lets, fullTypeEnv)
-              Program(typeEnv, normalLets, extDefs, stmts)
+              (fullTypeEnv, Program(typeEnv, lets, extDefs, stmts))
             }
             .left
             .map(PackageError.TypeErrorIn(_, p))
