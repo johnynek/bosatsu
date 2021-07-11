@@ -1,9 +1,8 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.graph.Memoize
-import cats.{Foldable, Show}
+import cats.{Foldable, Monad, Order, Show}
 import cats.data.{Ior, IorT, NonEmptyList, Validated, ValidatedNel, ReaderT}
-import cats.Order
 import cats.implicits._
 import scala.concurrent.ExecutionContext
 import scala.collection.immutable.SortedMap
@@ -340,7 +339,7 @@ object PackageMap {
     val infer: ResolvedU => Par.F[Ior[NonEmptyList[PackageError], Package.Inferred]] =
       infer0.andThen { parF =>
         // As soon as each Par.F is complete, we can start normalizing that one
-        parF.flatMap { ior =>
+        Monad[Par.F].flatMap(parF) { ior =>
           ior.traverse {
             case (fte, pack) =>
               Par.start(
