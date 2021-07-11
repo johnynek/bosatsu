@@ -331,7 +331,7 @@ object PackageMap {
             .value
         }
 
-    /**
+    /*
      * Since Par.F is starts computation when start is called
      * we want to start all the computations *then* collect
      * the result together
