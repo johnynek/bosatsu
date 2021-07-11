@@ -141,6 +141,7 @@ lazy val cli = (project in file("cli"))
     Compile / PB.targets := Seq(
      scalapb.gen() -> (Compile / sourceManaged).value
     ),
+    PB.protocVersion := "3.17.3",
     nativeImageOptions ++= Seq("--static", "--no-fallback", "--verbose", "--initialize-at-build-time"),
     nativeImageVersion := "21.1.0"
    )
