@@ -536,9 +536,29 @@ object Code {
   // just for better type inference
   def pass: Statement = Pass
 
+  private object FinalAssign {
+    def unapply(stmt: Statement): Option[(Statement, Ident, Expression)] =
+      stmt match {
+        case Block(stmts) =>
+          unapply(stmts.last).map { case (s0, i, e) =>
+            val s1 =
+              NonEmptyList.fromList(stmts.init) match {
+                case None => s0
+                case Some(inits) => Block(inits) :+ s0
+              }
+            (s1, i, e)
+          }
+
+        case Assign(i @ Ident(_), expr) => Some((Pass, i, expr))
+        case _ => None
+      }
+  }
+
   def toReturn(v: ValueLike): Statement =
     v match {
       case x: Expression => Code.Return(x)
+      case WithValue(FinalAssign(s0, v0, x0), v) if v0 == v =>
+        s0 :+ Code.Return(x0)
       case WithValue(stmt, v) =>
         stmt :+ toReturn(v)
       case ie@IfElse(conds, elseCond) =>

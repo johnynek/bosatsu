@@ -327,7 +327,8 @@ object Matchless {
       }
 
     // return the check expression for the check we need to do, and the list of bindings
-    def doesMatch(arg: CheapExpr, pat: Pattern[(PackageName, Constructor), Type]): F[UnionMatch] = {
+    // if must match is true, we know that the pattern must match, so we can potentially remove some checks
+    def doesMatch(arg: CheapExpr, pat: Pattern[(PackageName, Constructor), Type], mustMatch: Boolean): F[UnionMatch] = {
       pat match {
         case Pattern.WildCard =>
           // this is a total pattern
@@ -337,7 +338,7 @@ object Matchless {
         case Pattern.Var(v) =>
           Monad[F].pure(NonEmptyList((Nil, TrueConst, (v, arg) :: Nil), Nil))
         case Pattern.Named(v, p) =>
-          doesMatch(arg, p).map(_.map { case (l0, cond, bs) =>
+          doesMatch(arg, p, mustMatch).map(_.map { case (l0, cond, bs) =>
             (l0, cond, (v, arg) :: bs)
           })
         case Pattern.StrPat(items) =>
@@ -371,7 +372,7 @@ object Matchless {
         case lp@Pattern.ListPat(_) =>
 
           lp.toPositionalStruct(empty, cons) match {
-            case Right(p) => doesMatch(arg, p)
+            case Right(p) => doesMatch(arg, p, mustMatch)
             case Left((glob, right@NonEmptyList(Pattern.ListPart.Item(_), _))) =>
               // we have a non-trailing list pattern
               // to match, this becomes a search problem
@@ -395,7 +396,7 @@ object Matchless {
                 .flatMap { case (optAnonLeft, tmpList) =>
                   val anonList = LocalAnonMut(tmpList)
 
-                  doesMatch(anonList, Pattern.ListPat(right.toList))
+                  doesMatch(anonList, Pattern.ListPat(right.toList), false)
                     .map { cases =>
                       cases.map {
                         case (_, TrueConst, _) =>
@@ -432,10 +433,10 @@ object Matchless {
               glob match {
                 case Pattern.ListPart.WildList =>
                   // no binding on the let
-                  doesMatch(arg, Pattern.ListPat(right.toList))
+                  doesMatch(arg, Pattern.ListPat(right.toList), mustMatch)
                 case Pattern.ListPart.NamedList(ln) =>
                   // bind empty to ln
-                  doesMatch(arg, Pattern.ListPat(right.toList))
+                  doesMatch(arg, Pattern.ListPat(right.toList), mustMatch)
                     .map { nel =>
                       nel.map { case (preLet, expr, binds) =>
                         (preLet, expr, (ln, emptyExpr) :: binds)
@@ -447,7 +448,7 @@ object Matchless {
 
         case Pattern.Annotation(p, _) =>
           // we discard types at this point
-          doesMatch(arg, p)
+          doesMatch(arg, p, mustMatch)
         case Pattern.PositionalStruct((pack, cname), params) =>
           // we assume the patterns have already been optimized
           // so that useless total patterns have been replaced with _
@@ -469,7 +470,7 @@ object Matchless {
                   for {
                     nm <- WriterT.valueT[F, Locals, Long](makeAnon)
                     lam = LocalAnonMut(nm)
-                    um <- WriterT.valueT[F, Locals, UnionMatch](doesMatch(lam, pat))
+                    um <- WriterT.valueT[F, Locals, UnionMatch](doesMatch(lam, pat, mustMatch))
                     // if this is a total match, we don't need to do the getter at all
                     chain = if (um == wildMatch) Chain.empty else Chain.one((lam, getter(idx)))
                     _ <- WriterT.tell[F, Locals](chain)
@@ -507,31 +508,27 @@ object Matchless {
                 case DataRepr.NewType => forStruct(1)
                 case DataRepr.Enum(vidx, size, f) =>
                   // if we match the variant, then treat it as a struct
-                  makeAnon.flatMap { nm =>
-                    val res = LocalAnonMut(nm)
-                    asStruct { pos => GetEnumElement(res, vidx, pos, size) }
-                      .run
-                      .map { case (anons, ums) =>
-                        if (ums == wildMatch) {
-                          // we just need to check the variant
-                          assert(anons.isEmpty, "anons must by construction always be empty on wildMatch")
-                          val cv = CheckVariant(arg, vidx, size, f)
-                          NonEmptyList((Nil, cv, Nil), Nil)
+                  val cv: BoolExpr = if (mustMatch) TrueConst else CheckVariant(arg, vidx, size, f)
+                  asStruct { pos => GetEnumElement(arg, vidx, pos, size) }
+                    .run
+                    .map { case (anons, ums) =>
+                      if (ums == wildMatch) {
+                        // we just need to check the variant
+                        assert(anons.isEmpty, "anons must by construction always be empty on wildMatch")
+                        NonEmptyList((Nil, cv, Nil), Nil)
+                      }
+                      else {
+                        // now we need to set up the binds if the variant is right
+                        val cond1 = anons.foldLeft(cv) { case (c, (mut, expr)) =>
+                          c && SetMut(mut, expr)
                         }
-                        else {
-                          // now we need to set up the binds if the variant is right
-                          val vmatch = CheckVariant(arg, vidx, size, f) && SetMut(res, arg)
-                          val cond1 = anons.foldLeft(vmatch) { case (c, (mut, expr)) =>
-                            c && SetMut(mut, expr)
-                          }
 
-                          ums.map { case (pre, cond, b) =>
-                            val pre1 = anons.foldLeft(pre) { case (pre, (mut, _)) => mut :: pre }
-                            (res :: pre1, cond1 && cond, b)
-                          }
+                        ums.map { case (pre, cond, b) =>
+                          val pre1 = anons.foldLeft(pre) { case (pre, (mut, _)) => mut :: pre }
+                          (pre1, cond1 && cond, b)
                         }
                       }
-                  }
+                    }
                 case DataRepr.ZeroNat =>
                   Monad[F].pure(NonEmptyList((Nil, EqualsNat(arg, DataRepr.ZeroNat), Nil), Nil))
                 case DataRepr.SuccNat =>
@@ -543,7 +540,7 @@ object Matchless {
                         nm <- makeAnon
                         loc = LocalAnonMut(nm)
                         prev = PrevNat(arg)
-                        rest <- doesMatch(loc, single)
+                        rest <- doesMatch(loc, single, mustMatch)
                       } yield rest.map { case (preLets, cond, res) => (loc ::preLets, check && SetMut(loc, prev) && cond, res) }
                     case other =>
                       // $COVERAGE-OFF$
@@ -557,7 +554,9 @@ object Matchless {
                 // $COVERAGE-ON$
             }
         case Pattern.Union(h, ts) =>
-          (h :: ts).traverse(doesMatch(arg, _)).map { nene =>
+          // note this list is exactly as long as h :: ts
+          val unionMustMatch = NonEmptyList.fromListUnsafe(List.fill(ts.size)(false) ::: mustMatch :: Nil)
+          ((h :: ts).zip(unionMustMatch)).traverse { case (p, mm) => doesMatch(arg, p, mm) }.map { nene =>
             val nel = nene.flatten
             // at the first total match, we can stop
             stopAt(nel) {
@@ -615,7 +614,7 @@ object Matchless {
               res.map(checkLets(b0, _))
           }
 
-        doesMatch(arg, p1).flatMap(loop)
+        doesMatch(arg, p1, branches.tail.isEmpty).flatMap(loop)
       }
 
       val argFn = maybeMemo(tmp)(recur(_, branches))

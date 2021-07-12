@@ -292,9 +292,9 @@ object PythonGen {
 
     def andCode(c1: ValueLike, c2: ValueLike): Env[ValueLike] =
       (c1, c2) match {
+        case (t: Expression, c2) if t.simplify == Code.Const.True => Monad[Env].pure(c2)
         case (_, x2: Expression) =>
           onLast(c1)(_.evalAnd(x2))
-        case (t: Expression, c2) if t.simplify == Code.Const.True => Monad[Env].pure(c2)
         case _ =>
           // we know that c2 is not a simple expression
           // res = False
@@ -405,7 +405,13 @@ object PythonGen {
 
         Code.block(
           cont := Const.True,
-          if (left.nonEmpty) (MakeTuple(left) := MakeTuple(right)) else Pass
+          if (left.isEmpty) Pass
+          else if (left.lengthCompare(1) == 0) {
+            left.head := right.head
+          }
+          else {
+            (MakeTuple(left) := MakeTuple(right))
+          }
         )
       }
 
