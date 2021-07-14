@@ -530,12 +530,13 @@ object Matchless {
                       }
                     }
                 case DataRepr.ZeroNat =>
-                  Monad[F].pure(NonEmptyList((Nil, EqualsNat(arg, DataRepr.ZeroNat), Nil), Nil))
+                  val cv: BoolExpr = if (mustMatch) TrueConst else EqualsNat(arg, DataRepr.ZeroNat)
+                  Monad[F].pure(NonEmptyList((Nil, cv, Nil), Nil))
                 case DataRepr.SuccNat =>
                   params match {
                     case single :: Nil =>
                       // if we match, we recur on the inner pattern and prev of current
-                      val check = EqualsNat(arg, DataRepr.SuccNat)
+                      val check = if (mustMatch) TrueConst else EqualsNat(arg, DataRepr.SuccNat)
                       for {
                         nm <- makeAnon
                         loc = LocalAnonMut(nm)
