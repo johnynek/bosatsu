@@ -182,7 +182,7 @@ class CodeTest extends AnyFunSuite {
 
   def assertParse(str: String) = {
     try {
-      val mod = JythonParserFacade.parseExpressionOrModule(new java.io.StringReader(str), "filename.py", new org.python.core.CompilerFlags())
+      val mod = JythonBarrier.run(JythonParserFacade.parseExpressionOrModule(new java.io.StringReader(str), "filename.py", new org.python.core.CompilerFlags()))
       assert(mod != null)
     }
     catch {
