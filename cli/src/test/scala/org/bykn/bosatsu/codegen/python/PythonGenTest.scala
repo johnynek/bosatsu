@@ -4,6 +4,7 @@ import cats.Show
 import cats.data.NonEmptyList
 import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.file.{Paths, Files}
+import java.util.concurrent.Semaphore
 import org.bykn.bosatsu.{PackageMap, MatchlessFromTypedExpr, Parser, Package, LocationMap, PackageName}
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
@@ -12,6 +13,19 @@ import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
 
 import org.bykn.bosatsu.DirectEC.directEC
 import org.scalatest.funsuite.AnyFunSuite
+
+// Jython seems to have some thread safety issues
+object JythonBarrier {
+  private val sem = new Semaphore(1)
+
+  def run[A](a: => A): A = {
+    sem.acquire()
+    try a
+    finally {
+      sem.release()
+    }
+  }
+}
 
 class PythonGenTest extends AnyFunSuite {
 
@@ -80,7 +94,7 @@ class PythonGenTest extends AnyFunSuite {
   def isfromString(s: String): InputStream =
     new ByteArrayInputStream(s.getBytes("UTF-8"))
 
-  val intr = new PythonInterpreter()
+  val intr = JythonBarrier.run(new PythonInterpreter())
 
   test("we can compile Nat.bosatsu") {
     val natPathBosatu: String = "test_workspace/Nat.bosatsu"
@@ -91,40 +105,45 @@ class PythonGenTest extends AnyFunSuite {
     val packMap = PythonGen.renderAll(matchless, Map.empty, Map.empty)
     val natDoc = packMap(PackageName.parts("Bosatsu", "Nat"))._2
 
-    intr.execfile(isfromString(natDoc.renderTrim(80)), "nat.py")
-    checkTest(intr.get("tests"), "Nat.bosatsu")
+    JythonBarrier.run {
+      intr.execfile(isfromString(natDoc.renderTrim(80)), "nat.py")
+      checkTest(intr.get("tests"), "Nat.bosatsu")
+    }
   }
 
   test("to_Nat works like identity") {
+    JythonBarrier.run {
+      val fn = intr.get("to_Nat", classOf[PyFunction])
 
-    val fn = intr.get("to_Nat", classOf[PyFunction])
-
-    forAll(Gen.choose(-100, 100)) { (i: Int) =>
-      // this is O(N) computation, it shouldn't get too big
-      val arg = new PyInteger(i)
-      val res = fn.__call__(arg)
-      if (i <= 0) {
-        assert(res == new PyInteger(0))
-      }
-      else {
-        assert(fn.__call__(arg) == arg)
+      forAll(Gen.choose(-100, 100)) { (i: Int) =>
+        // this is O(N) computation, it shouldn't get too big
+        val arg = new PyInteger(i)
+        val res = fn.__call__(arg)
+        if (i <= 0) {
+          assert(res == new PyInteger(0))
+        }
+        else {
+          assert(fn.__call__(arg) == arg)
+        }
       }
     }
   }
 
   test("mult works like multiplication") {
 
-    val fn = intr.get("mult", classOf[PyFunction])
+    JythonBarrier.run {
+      val fn = intr.get("mult", classOf[PyFunction])
 
-    forAll(Gen.choose(0, 100), Gen.choose(0, 100)) { (i1, i2) =>
-      val m1 = fn.__call__(new PyInteger(i1)).asInstanceOf[PyFunction]
-      assert(m1.__call__(new PyInteger(i2)) == new PyInteger(i1 * i2))
+      forAll(Gen.choose(0, 100), Gen.choose(0, 100)) { (i1, i2) =>
+        val m1 = fn.__call__(new PyInteger(i1)).asInstanceOf[PyFunction]
+        assert(m1.__call__(new PyInteger(i2)) == new PyInteger(i1 * i2))
+      }
     }
   }
 
-  intr.close()
+  JythonBarrier.run(intr.close())
 
-  def runBoTests(path: String, pn: PackageName, testName: String) = {
+  def runBoTests(path: String, pn: PackageName, testName: String) = JythonBarrier.run {
     val intr = new PythonInterpreter()
 
     val bosatsuPM = compileFile(path)

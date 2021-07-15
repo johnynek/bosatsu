@@ -102,48 +102,65 @@ object Code {
   private def iflike(name: String, cond: Doc, body: Doc): Doc =
     Doc.text(name) + Doc.space + cond + Doc.char(':') + (Doc.hardLine + body).nested(4)
 
-  def toDoc(c: Code): Doc =
-    c match {
+  private val trueDoc = Doc.text("True")
+  private val falseDoc = Doc.text("False")
+  private val lamDoc = Doc.text("lambda ")
+  private val colonSpace = Doc.text(": ")
+  private val spaceIfSpace = Doc.text(" if ")
+  private val spaceElseSpace = Doc.text(" else ")
+  private val unitDoc = Doc.text("()")
+  private val elseColon = Doc.text("else:")
+  private val defDoc = Doc.text("def")
+  private val retSpaceDoc = Doc.text("return ")
+  private val whileDoc = Doc.text("while")
+  private val spaceEqSpace = Doc.text(" = ")
+
+  def exprToDoc(expr: Expression): Doc =
+    expr match {
       case PyInt(bi) => Doc.text(bi.toString)
       case PyString(s) => Doc.char('"') + Doc.text(StringUtil.escape('"', s)) + Doc.char('"')
       case PyBool(b) =>
-        if (b) Doc.text("True")
-        else Doc.text("False")
+        if (b) trueDoc
+        else falseDoc
       case Ident(i) => Doc.text(i)
       case o@Op(_, _, _) => o.toDoc
-      case Parens(inner@Parens(_)) => toDoc(inner).nested(4)
-      case Parens(p) => par(toDoc(p))
+      case Parens(inner@Parens(_)) => exprToDoc(inner)
+      case Parens(p) => par(exprToDoc(p))
       case SelectItem(x, i) =>
         maybePar(x) + Doc.char('[') + Doc.str(i) + Doc.char(']')
       case SelectRange(x, os, oe) =>
-        val middle = os.fold(Doc.empty)(toDoc) + Doc.text(":") + oe.fold(Doc.empty)(toDoc)
+        val middle = os.fold(Doc.empty)(exprToDoc) + Doc.char(':') + oe.fold(Doc.empty)(exprToDoc)
         maybePar(x) + (Doc.char('[') + middle + Doc.char(']')).nested(4)
       case Ternary(ift, cond, iff) =>
         // python parses the else condition as the rest of experssion, so
         // no need to put parens around it
-        maybePar(ift) + Doc.text(" if ") + maybePar(cond) + Doc.text(" else ") + toDoc(iff)
+        maybePar(ift) + spaceIfSpace + maybePar(cond) + spaceElseSpace + exprToDoc(iff)
       case MakeTuple(items) =>
         items match {
-          case Nil => Doc.text("()")
-          case h :: Nil => par(toDoc(h) + Doc.comma).nested(4)
-          case twoOrMore => par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, twoOrMore.map(toDoc))).nested(4)
+          case Nil => unitDoc
+          case h :: Nil => par(exprToDoc(h) + Doc.comma).nested(4)
+          case twoOrMore => par(Doc.intercalate(Doc.comma + Doc.line, twoOrMore.map(exprToDoc)).grouped).nested(4)
         }
       case MakeList(items) =>
-        val inner = items.map(toDoc)
-        (Doc.char('[') + Doc.intercalate(Doc.comma + Doc.lineOrSpace, inner) + Doc.char(']')).nested(4)
+        val inner = items.map(exprToDoc)
+        (Doc.char('[') + Doc.intercalate(Doc.comma + Doc.line, inner).grouped + Doc.char(']')).nested(4)
       case Lambda(args, res) =>
-        Doc.text("lambda ") + Doc.intercalate(Doc.comma + Doc.space, args.map(toDoc)) + Doc.text(": ") + toDoc(res)
+        lamDoc + Doc.intercalate(Doc.comma + Doc.space, args.map(exprToDoc)) + colonSpace + exprToDoc(res)
 
       case Apply(fn, args) =>
-        maybePar(fn) + par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc))).nested(4)
+        maybePar(fn) + par(Doc.intercalate(Doc.comma + Doc.line, args.map(exprToDoc)).grouped).nested(4)
 
       case DotSelect(left, right) =>
         val ld = left match {
-          case PyInt(_) => par(toDoc(left))
-          case _ => toDoc(left)
+          case PyInt(_) => par(exprToDoc(left))
+          case _ => exprToDoc(left)
         }
-        ld + Doc.char('.') + toDoc(right)
+        ld + Doc.char('.') + exprToDoc(right)
+    }
 
+  def toDoc(c: Code): Doc =
+    c match {
+      case expr: Expression => exprToDoc(expr)
       case Call(ap) => toDoc(ap)
 
       case ClassDef(name, ex, body) =>
@@ -161,7 +178,7 @@ object Code {
         val condsDoc = conds.map { case (x, b) => (toDoc(x), toDoc(b)) }
         val i1 = iflike("if", condsDoc.head._1, condsDoc.head._2)
         val i2 = condsDoc.tail.map { case (x, b) => iflike("elif", x, b) }
-        val el = optElse.fold(Doc.empty) { els => Doc.hardLine + Doc.text("else:") + (Doc.hardLine + toDoc(els)).nested(4) }
+        val el = optElse.fold(Doc.empty) { els => Doc.hardLine + elseColon + (Doc.hardLine + toDoc(els)).nested(4) }
 
         Doc.intercalate(Doc.hardLine, i1 :: i2) + el
 
@@ -169,15 +186,15 @@ object Code {
         Doc.intercalate(Doc.hardLine, stmts.map(toDoc).toList)
 
       case Def(nm, args, body) =>
-        Doc.text("def") + Doc.space + Doc.text(nm.name) +
+        defDoc + Doc.space + Doc.text(nm.name) +
           par(Doc.intercalate(Doc.comma + Doc.lineOrSpace, args.map(toDoc))).nested(4) + Doc.char(':') + (Doc.hardLine + toDoc(body)).nested(4)
 
-      case Return(expr) => Doc.text("return ") + toDoc(expr)
+      case Return(expr) => retSpaceDoc + toDoc(expr)
 
-      case Assign(nm, expr) => toDoc(nm) + Doc.text(" = ") + toDoc(expr)
+      case Assign(nm, expr) => toDoc(nm) + spaceEqSpace + toDoc(expr)
       case Pass => Doc.text("pass")
       case While(cond, body) =>
-        Doc.text("while") + Doc.space + toDoc(cond) + Doc.char(':') + (Doc.hardLine + toDoc(body)).nested(4)
+        whileDoc + Doc.space + toDoc(cond) + Doc.char(':') + (Doc.hardLine + toDoc(body)).nested(4)
       case Import(name, aliasOpt) =>
         // import name as alias
         val imp = Doc.text("import") + Doc.space + Doc.text(name)

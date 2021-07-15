@@ -19,7 +19,7 @@ object CodeGenWrite {
     IO {
       Option(p.getParent).foreach(_.toFile.mkdirs)
       val pw = new PrintWriter(p.toFile, "UTF-8")
-      try d.renderStream(80).foreach(pw.print(_))
+      try d.renderStream(100).foreach(pw.print(_))
       finally {
         pw.close
       }
