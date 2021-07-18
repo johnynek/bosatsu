@@ -96,6 +96,8 @@ object Package {
   /**
    * Discard any top level values that are not referenced, exported,
    * the final test value, or the final expression
+   *
+   * This is used to remove private top levels that were inlined.
    */
   def discardUnused[A](tp: Typed[A]): Typed[A] = {
     val pinned: Set[Identifier] =
@@ -103,13 +105,16 @@ object Package {
         tp.program.lets.lastOption.map(_._1)  ++
         testValue(tp).map(_._1)
 
+    def topLevels(s: Set[TypedExpr.Global[A]]): Set[Identifier] =
+      s.collect { case TypedExpr.Global(p, i, _, _) if p === tp.name => i }
+
+    val letWithGlobals = tp.program.lets.map { case tup @ (_, _, te) => (tup, topLevels(te.globals)) }
+
+    @annotation.tailrec
     def loop(reached: Set[Identifier]): Set[Identifier] = {
-      val reachedLets = tp.program.lets.filter { case (bn, _, _) => reached(bn) }
-      val step = reachedLets
-        .foldMap { case (_, _, te) => te.globals }
-        .collect {
-          case TypedExpr.Global(p, i, _, _) if p === tp.name => i
-        } | reached
+      val step = letWithGlobals
+        .filter { case ((bn, _, _), _) => reached(bn) }
+        .foldMap { case ((_, _, _), tops) => tops } | reached
 
       if (step == reached) reached
       else loop(step)
@@ -117,7 +122,7 @@ object Package {
 
     val reached = loop(pinned)
 
-    val reachedLets = tp.program.lets.filter { case (bn, _, _) => reached(bn) }
+    val reachedLets = letWithGlobals.collect { case (tup @ (bn, _, _), _) if reached(bn) => tup }
     tp.copy(program = tp.program.copy(lets = reachedLets))
   }
 
