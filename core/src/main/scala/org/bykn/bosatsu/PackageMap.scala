@@ -342,9 +342,10 @@ object PackageMap {
         Monad[Par.F].flatMap(parF) { ior =>
           ior.traverse {
             case (fte, pack) =>
-              Par.start(
-                pack.copy(program = TypedExprNormalization.normalizeProgram(pack.name, fte, pack.program))
-              )
+              Par.start {
+                val optPack = pack.copy(program = TypedExprNormalization.normalizeProgram(pack.name, fte, pack.program))
+                Package.discardUnused(optPack)
+              }
           }
         }
       }

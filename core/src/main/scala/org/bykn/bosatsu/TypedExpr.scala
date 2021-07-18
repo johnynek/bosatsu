@@ -447,6 +447,16 @@ object TypedExpr {
             .flatMap(fn)
       }
     }
+
+    /**
+     * Here are all the global names inside this expression
+     */
+    def globals: Set[Global[A]] =
+      traverseUp[Writer[Set[Global[A]], *]] {
+        case g @ Global(_, _, _, _) => Writer.tell(Set(g)).as(g)
+        case notG => Monad[Writer[Set[Global[A]], *]].pure(notG)
+      }
+      .written
   }
 
   def zonkMeta[F[_]: Applicative, A](te: TypedExpr[A])(fn: Type.Meta => F[Option[Type.Rho]]): F[TypedExpr[A]] =
