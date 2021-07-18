@@ -113,11 +113,10 @@ object Package {
     @annotation.tailrec
     def loop(reached: Set[Identifier]): Set[Identifier] = {
       val step = letWithGlobals
-        .filter { case ((bn, _, _), _) => reached(bn) }
-        .foldMap { case ((_, _, _), tops) => tops } | reached
+        .foldMap { case ((bn, _, _), tops) => if (reached(bn)) tops else Set.empty[Identifier] }
 
-      if (step == reached) reached
-      else loop(step)
+      if (step.forall(reached)) reached
+      else loop(step | reached)
     }
 
     val reached = loop(pinned)
