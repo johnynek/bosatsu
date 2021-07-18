@@ -93,6 +93,38 @@ object Package {
       .filter { case (_, _, te) => te.getType == Type.TestType }
       .lastOption
 
+  /**
+   * Discard any top level values that are not referenced, exported,
+   * the final test value, or the final expression
+   *
+   * This is used to remove private top levels that were inlined.
+   */
+  def discardUnused[A](tp: Typed[A]): Typed[A] = {
+    val pinned: Set[Identifier] =
+      tp.exports.iterator.map(_.name).toSet ++
+        tp.program.lets.lastOption.map(_._1)  ++
+        testValue(tp).map(_._1)
+
+    def topLevels(s: Set[TypedExpr.Global[A]]): Set[Identifier] =
+      s.collect { case TypedExpr.Global(p, i, _, _) if p === tp.name => i }
+
+    val letWithGlobals = tp.program.lets.map { case tup @ (_, _, te) => (tup, topLevels(te.globals)) }
+
+    @annotation.tailrec
+    def loop(reached: Set[Identifier]): Set[Identifier] = {
+      val step = letWithGlobals
+        .foldMap { case ((bn, _, _), tops) => if (reached(bn)) tops else Set.empty[Identifier] }
+
+      if (step.forall(reached)) reached
+      else loop(step | reached)
+    }
+
+    val reached = loop(pinned)
+
+    val reachedLets = letWithGlobals.collect { case (tup @ (bn, _, _), _) if reached(bn) => tup }
+    tp.copy(program = tp.program.copy(lets = reachedLets))
+  }
+
   def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
     FixType.fix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](p)
 

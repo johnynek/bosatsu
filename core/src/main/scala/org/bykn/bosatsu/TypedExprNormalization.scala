@@ -52,11 +52,14 @@ object TypedExprNormalization {
     loop(emptyScope, lets, Nil)
   }
 
-  def normalizeProgram[A](p: PackageName, fullTypeEnv: TypeEnv[Variance], prog: Program[TypeEnv[Variance], TypedExpr[Declaration], A]): Program[TypeEnv[Variance], TypedExpr[Declaration], A] = {
-    val Program(typeEnv, lets, extDefs, stmts) = prog
-    val normalLets = normalizeAll(p, lets, fullTypeEnv)
-    Program(typeEnv, normalLets, extDefs, stmts)
-  }
+  def normalizeProgram[A](
+    p: PackageName,
+    fullTypeEnv: TypeEnv[Variance],
+    prog: Program[TypeEnv[Variance], TypedExpr[Declaration], A]): Program[TypeEnv[Variance], TypedExpr[Declaration], A] = {
+      val Program(typeEnv, lets, extDefs, stmts) = prog
+      val normalLets = normalizeAll(p, lets, fullTypeEnv)
+      Program(typeEnv, normalLets, extDefs, stmts)
+    }
 
   // if you have made one step of progress, use this to recurse
   // so we don't throw away if we don't progress more
