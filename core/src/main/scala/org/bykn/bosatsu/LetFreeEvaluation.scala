@@ -725,53 +725,38 @@ case class LetFreeEvaluation[T](
       expr: TypedExpr[T],
       pack: Package.Typed[T],
       scope: Map[String, LetFreeValue]
-  ): NormState[Leaf] = ??? /*
+  ): NormState[Leaf] =
     for {
       lookup <- State.inspect {
-        lets: Map[(PackageName, Identifier), TypedExpr[
-          (Declaration, LetFreeExpressionTag)
-        ]] =>
+        lets: Map[(PackageName, Identifier), LetFreeValue] =>
           lets.get((pack.name, name))
       }
       outExpr <- lookup match {
         case Some(res) =>
-          State.pure(res): NormState[
-            TypedExpr[(Declaration, LetFreeExpressionTag)]
-          ]
+          res.toLeaf
         case None =>
           recursive match {
             case RecursionKind.Recursive =>
-              val nextEnv = (env - name).mapValues { lfe =>
-                LetFreeConversion.incrementLambdaVars(lfe, 0)
-              } + (name -> LetFreeExpression.LambdaVar(0))
-
+              val v = LazyValue(expr, scope, pack)
               for {
-                res <- letFreeConvertExpr(expr, nextEnv, pack)
-                tag = res.tag
-                wrappedNe = normalOrderReduction(
-                  LetFreeExpression.Recursion(LetFreeExpression.Lambda(tag._2))
-                )
-                finalRes = res.updatedTag((res.tag._1, wrappedNe))
                 _ <- State.modify {
-                  lets: Map[(PackageName, Identifier), TypedExpr[
-                    (Declaration, LetFreeExpressionTag)
-                  ]] =>
-                    lets + ((pack.name, name) -> finalRes)
+                  lets: Map[(PackageName, Identifier), LetFreeValue] =>
+                    lets + ((pack.name, name) -> v)
                 }
-              } yield finalRes
+                res <- v.toLeaf
+              } yield res
             case _ =>
+              val v = LazyValue(expr, scope, pack)
               for {
-                res <- letFreeConvertExpr(expr, env, pack)
                 _ <- State.modify {
-                  lets: Map[(PackageName, Identifier), TypedExpr[
-                    (Declaration, LetFreeExpressionTag)
-                  ]] =>
-                    lets + ((pack.name, name) -> res)
+                  lets: Map[(PackageName, Identifier), LetFreeValue] =>
+                    lets + ((pack.name, name) -> v)
                 }
+                res <- v.toLeaf
               } yield res
           }
       }
-    } yield outExpr */
+    } yield outExpr
 
   private def constructor(
       c: Constructor,
