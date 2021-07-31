@@ -74,7 +74,7 @@ object TypedExprNormalization {
    */
   def normalizeLetOpt[A](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[Variance]): Option[TypedExpr[A]] =
     te match {
-      case Generic(vars, in, tag) =>
+      case Generic(vars, in) =>
         // normalize the inside, then get all the freeBoundTyVars and
         // and if we can reallocate typevars to be the a, b, ... do so,
         // if they are the same, return none
@@ -93,12 +93,12 @@ object TypedExprNormalization {
             normalizeLetOpt(namerec, in, scope, typeEnv) match {
               case None =>
                 if (freeVars == vars.toList) None
-                else Some(Generic(nonEmpty, in, tag))
-              case Some(gen@Generic(_, _, _)) =>
+                else Some(Generic(nonEmpty, in))
+              case Some(gen@Generic(_, _)) =>
                 // in1 could be a generic in a
                 Some(forAll(nonEmpty, gen))
               case Some(notGen) =>
-                Some(Generic(nonEmpty, notGen, tag))
+                Some(Generic(nonEmpty, notGen))
             }
         }
       case Annotation(term, tpe, tag) =>
@@ -385,7 +385,7 @@ object TypedExprNormalization {
       ex match {
         case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
         case Annotation(t, _, _) => isSimple(t, lambdaSimple)
-        case Generic(_, t, _) => isSimple(t, lambdaSimple)
+        case Generic(_, t) => isSimple(t, lambdaSimple)
         case AnnotatedLambda(_, _, _, _) =>
           // maybe inline lambdas so we can possibly
           // apply (\x -> f)(g) => let x = g in f
@@ -444,7 +444,7 @@ object TypedExprNormalization {
               // so it is safe to substitute into our current scope
               evaluate(t, s)
           }
-        case Generic(_, in, _) =>
+        case Generic(_, in) =>
           // if we can evaluate, we are okay
           evaluate(in, scope)
         case Annotation(te, _, _) =>

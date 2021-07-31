@@ -375,7 +375,7 @@ object ProtoConverter {
                 (nel.traverse(str), exprOf(expr))
                   .mapN { (strs, expr) =>
                     val bs = strs.map(Type.Var.Bound(_))
-                    TypedExpr.Generic(bs, expr, ())
+                    TypedExpr.Generic(bs, expr)
                   }
               case None => Failure(new Exception(s"invalid empty type params in generic: $ex"))
             }
@@ -626,7 +626,7 @@ object ProtoConverter {
         case None =>
           import TypedExpr._
           te match {
-            case g@Generic(tvars, expr, _) =>
+            case g@Generic(tvars, expr) =>
               tvars.toList.traverse { v => getId(v.name) }
                 .product(typedExprToProto(expr))
                 .flatMap { case (tparams, exid) =>

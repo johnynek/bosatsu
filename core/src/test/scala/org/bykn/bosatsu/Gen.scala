@@ -984,8 +984,8 @@ object Generators {
     if (depth <= 0) lit
     else {
       val genGeneric =
-        Gen.zip(Generators.nonEmpty(NTypeGen.genBound), recurse, genTag)
-          .map { case (vs, t, tag) => TypedExpr.Generic(vs, t, tag) }
+        Gen.zip(Generators.nonEmpty(NTypeGen.genBound), recurse)
+          .map { case (vs, t) => TypedExpr.Generic(vs, t) }
 
       val ann =
         Gen.zip(recurse, typeGen, genTag)
