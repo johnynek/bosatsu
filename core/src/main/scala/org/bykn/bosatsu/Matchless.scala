@@ -236,7 +236,7 @@ object Matchless {
 
     def loop(te: TypedExpr[A]): F[Expr] =
       te match {
-        case TypedExpr.Generic(_, expr, _) => loop(expr)
+        case TypedExpr.Generic(_, expr) => loop(expr)
         case TypedExpr.Annotation(term, _, _) => loop(term)
         case TypedExpr.AnnotatedLambda(arg, _, res, _) =>
           val captures = TypedExpr.freeVars(res :: Nil).filterNot(_ === arg)
