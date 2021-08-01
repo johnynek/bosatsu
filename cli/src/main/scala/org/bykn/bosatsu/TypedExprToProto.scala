@@ -701,6 +701,8 @@ object ProtoConverter {
                   val ex = proto.MatchExpr(argId, branches)
                   writeExpr(m, proto.TypedExpr(proto.TypedExpr.Value.MatchExpr(ex)))
                 }
+            case Loop(nm, binds, body, _) => ???
+            case Recur(nm, rebinds, tpe, _) => ???
           }
       }
       .onFailPrint(s"in typedExprToProto: $te")

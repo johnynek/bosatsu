@@ -19,7 +19,6 @@ object Matchless {
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr extends Expr
-  sealed abstract class FnExpr extends Expr
 
   sealed abstract class StrPart
   object StrPart {
@@ -32,13 +31,13 @@ object Matchless {
   // we should probably allocate static slots for each bindable,
   // and replace the local with an integer offset slot access for
   // the closure state
-  case class Lambda(captures: List[Bindable], arg: Bindable, expr: Expr) extends FnExpr
+  case class Lambda(captures: List[Bindable], arg: Bindable, expr: Expr) extends Expr
 
   // this is a tail recursive function that should be compiled into a loop
   // when a call to name is done inside body, that should restart the loop
   // the type of this Expr a function with the arity of args that returns
   // the type of body
-  case class LoopFn(captures: List[Bindable], name: Bindable, argshead: Bindable, argstail: List[Bindable], body: Expr) extends FnExpr
+  case class LoopFn(captures: List[Bindable], name: Bindable, argshead: Bindable, argstail: List[Bindable], body: Expr) extends Expr
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
@@ -269,6 +268,10 @@ object Matchless {
           (loop(arg), branches.traverse { case (p, te) => loop(te).map((p, _)) })
             .tupled
             .flatMap { case (a, b) => matchExpr(a, makeAnon, b) }
+        case TypedExpr.Loop(nm, binds, body, _) =>
+          ???
+        case TypedExpr.Recur(nm, rebinds, tpe, _) =>
+          ???
       }
 
     /*

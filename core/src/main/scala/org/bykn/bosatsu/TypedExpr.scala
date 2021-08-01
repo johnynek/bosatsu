@@ -45,6 +45,8 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Match(_, branches, _) =>
         // all branches have the same type:
         branches.head._2.getType
+      case Loop(_, _, body, _) => body.getType
+      case Recur(_, _, tpe, _) => tpe
     }
 
   // TODO: we need to make sure this parsable and maybe have a mode that has the compiler
@@ -86,6 +88,11 @@ sealed abstract class TypedExpr[+T] { self: Product =>
 
           val bstr = branches.toList.map { case (p, t) => (Doc.char('[') + pat(p) + Doc.comma + Doc.lineOrSpace + loop(t) + Doc.char(']')).nested(4) }
           (Doc.text("(match") + Doc.lineOrSpace + loop(arg) + Doc.lineOrSpace + Doc.intercalate(Doc.lineOrSpace, bstr).nested(4) + Doc.char(')')).nested(4)
+        case Loop(nm, binds, body, _) =>
+          val bindDoc = Doc.intercalate(Doc.line, binds.toList.map { case (b, arg) => Doc.text(b.sourceCodeRepr) + Doc.space + loop(arg) })
+          (Doc.text("(loop") + Doc.lineOrSpace + bindDoc + Doc.lineOrSpace + loop(body) + Doc.char(')')).nested(4)
+        case Recur(nm, rebinds, tpe, _) =>
+          (Doc.text("(recur") + Doc.lineOrSpace + Doc.intercalate(Doc.lineOrSpace, rept(tpe) :: rebinds.toList.map(loop)) + Doc.char(')'))
       }
     }
 
@@ -149,6 +156,12 @@ sealed abstract class TypedExpr[+T] { self: Product =>
           .map(_._2)
 
         argFree ::: branchFreeMax
+
+        case Loop(_, binds, body, _) =>
+          val bindFrees = binds.foldMap { case (_, te) => te.freeVarsDup }
+          body.freeVarsDup.filterNot(binds.foldMap { case (b, _) => Set(b) })
+        case Recur(_, rebinds, _, _) =>
+          rebinds.foldMap(_.freeVarsDup)
     }
 
   def notFree(b: Bindable): Boolean =
@@ -188,6 +201,17 @@ object TypedExpr {
   // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
+
+  // These loop contstruct has no explicit syntax but is implied by tail recursive functions.
+  /**
+   * Start of a while loop
+   */
+  case class Loop[A](name: Bindable, binds: NonEmptyList[(Bindable, TypedExpr[A])], body: TypedExpr[A], tag: A) extends TypedExpr[A]
+  /**
+   * This jumps back out to the nearest enclosing Loop with the matching name
+   */
+  case class Recur[A](name: Bindable, rebind: NonEmptyList[TypedExpr[A]], tpe: Type, tag: A) extends TypedExpr[A]
+
 
   /**
    * For a recursive binding, what kind of call do we have?
@@ -281,6 +305,18 @@ object TypedExpr {
               acc.merge(callKind(n, arity, b))
             }
           }
+      case Loop(nm, binds, body, _) =>
+        val bindNoCall = binds.forall { case (_, te) => callKind(n, arity, te) == SelfCallKind.NoCall }
+        if (bindNoCall) callKind(n, arity, body)
+        else SelfCallKind.NonTailCall
+
+      case Recur(nm, rebinds, _, _) =>
+        // a recur call is a tail call if the original loop is a tail call and
+        // we have no calls at all. If we do call here, it isn't a tail
+        // call because this branch of the loop doesn't stop
+        val bindNoCall = rebinds.forall { te => callKind(n, arity, te) == SelfCallKind.NoCall }
+        if (bindNoCall) SelfCallKind.NoCall
+        else SelfCallKind.NonTailCall
     }
 
   /**
@@ -346,18 +382,6 @@ object TypedExpr {
     }
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
-    def updatedTag(t: A): TypedExpr[A] =
-      self match {
-        case Generic(ts, te) => Generic(ts, te.updatedTag(t))
-        case a@Annotation(_, _, _) => a.copy(tag=t)
-        case al@AnnotatedLambda(_, _, _, _) => al.copy(tag=t)
-        case v@Local(_, _, _) => v.copy(tag=t)
-        case g@Global(_, _, _, _) => g.copy(tag=t)
-        case a@App(_, _, _, _) => a.copy(tag=t)
-        case let@Let(_, _, _, _, _) => let.copy(tag=t)
-        case lit@Literal(_, _, _) => lit.copy(tag=t)
-        case m@Match(_, _, _) => m.copy(tag=t)
-      }
 
     def allTypes: SortedSet[Type] =
       traverseType { t => Writer(SortedSet(t), t) }.run._1
@@ -406,6 +430,13 @@ object TypedExpr {
               p.traverseType(fn).product(t.traverseType(fn))
           }
           (expr.traverseType(fn), tbranch).mapN(Match(_, _, tag))
+        case Loop(nm, binds, body, tag) =>
+          (binds.traverse { case (b, te) => te.traverseType(fn).map((b, _)) },
+            body.traverseType(fn))
+            .mapN { (binds, body) => Loop(nm, binds, body, tag) }
+        case Recur(nm, rebinds, tpe, tag) =>
+          (rebinds.traverse(_.traverseType(fn)), fn(tpe))
+            .mapN { (rebinds, tpe) => Recur(nm, rebinds, tpe, tag) }
       }
 
     /**
@@ -446,6 +477,19 @@ object TypedExpr {
           (loop(expr), tbranch)
             .mapN(Match(_, _, tag))
             .flatMap(fn)
+        case Loop(nm, binds, body, tag) =>
+          for {
+            body1 <- loop(body)
+            revB <- binds.reverse
+                .traverse { case (b, te) => loop(te).map((b, _)) }
+            bind1 = revB.reverse
+            res <- fn(Loop(nm, bind1, body1, tag))
+          } yield res
+        case Recur(nm, rebinds, tpe, tag) =>
+          for {
+            revB <- rebinds.reverse.traverse(loop)
+            res <- fn(Recur(nm, revB.reverse, tpe, tag))
+          } yield res
       }
     }
 
@@ -594,7 +638,7 @@ object TypedExpr {
                 finish(expr).map(forAll(ps, _))
               case unreach =>
                 // $COVERAGE-OFF$
-                sys.error(s"Match quantification yielded neither Generic nor Match")
+                sys.error(s"Match quantification yielded neither Generic nor Match: $unreach")
                 // $COVERAGE-ON$
             }
 
@@ -602,12 +646,16 @@ object TypedExpr {
 
         case nonest@(Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _)) =>
           Applicative[F].pure(nonest)
+        // $COVERAGE-OFF$
+        case lr@(Loop(_, _, _, _) | Recur(_, _, _, _)) =>
+          sys.error(s"invariant violation: loop or recur found during quantification/typeinference: $lr")
+        // $COVERAGE-ON$
       }
 
     deepQuantify(env, rho)
   }
 
-  implicit val traverseTypedExpr: Traverse[TypedExpr] = new Traverse[TypedExpr] {
+  implicit val traverseTypedExpr: Traverse[TypedExpr] = new Traverse[TypedExpr] { self =>
     def traverse[F[_]: Applicative, T, S](typedExprT: TypedExpr[T])(fn: T => F[S]): F[TypedExpr[S]] =
       typedExprT match {
         case Generic(params, expr) =>
@@ -639,6 +687,16 @@ object TypedExpr {
               t.traverse(fn).map((p, _))
           }
           (expr.traverse(fn), tbranch, fn(tag)).mapN(Match(_, _, _))
+      case Loop(nm, binds, body, tag) =>
+        (binds.traverse { case (n, te) => traverse(te)(fn).map((n, _)) },
+          traverse(body)(fn),
+          fn(tag))
+          .mapN { (binds, body, tag) => Loop(nm, binds, body, tag) }
+
+      case Recur(nm, rebinds, tpe, tag) =>
+        (rebinds.traverse(traverse(_)(fn)),
+          fn(tag))
+          .mapN { (rebinds, tag) => Recur(nm, rebinds, tpe, tag) }
       }
 
     def foldLeft[A, B](typedExprA: TypedExpr[A], b: B)(f: (B, A) => B): B = typedExprA match {
@@ -665,6 +723,13 @@ object TypedExpr {
         val b1 = foldLeft(arg, b)(f)
         val b2 = branches.foldLeft(b1) { case (bn, (p,t)) => foldLeft(t, bn)(f) }
         f(b2, tag)
+      case Loop(_, binds, body, tag) =>
+        val b1 = binds.foldLeft(b) { case (b, (_, te)) => foldLeft(te, b)(f) }
+        val b2 = foldLeft(body, b1)(f)
+        f(b2, tag)
+      case Recur(_, rebinds, _, tag) =>
+        val b1 = rebinds.foldLeft(b) { (b, te) => foldLeft(te, b)(f) }
+        f(b1, tag)
     }
 
     def foldRight[A, B](typedExprA: TypedExpr[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = typedExprA match {
@@ -691,6 +756,13 @@ object TypedExpr {
         val b1 = f(tag, lb)
         val b2 = branches.foldRight(b1) { case ((p,t), bn) => foldRight(t, bn)(f) }
         foldRight(arg, b2)(f)
+      case Loop(_, binds, body, tag) =>
+        val b1 = f(tag, lb)
+        val b2 = binds.foldRight(b1) { case ((_, te), b) => foldRight(te, b)(f) }
+        foldRight(body, b2)(f)
+      case Recur(_, rebinds, _, tag) =>
+        val b1 = f(tag, lb)
+        rebinds.foldRight(b1) { (te, b) => foldRight(te, b)(f) }
     }
 
     override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] = te match {
@@ -704,6 +776,16 @@ object TypedExpr {
       case lit@Literal(_, _, _) => lit.copy(tag = fn(lit.tag))
       case Match(arg, branches, tag) =>
         Match(map(arg)(fn), branches.map { case (p, t) => (p, map(t)(fn)) }, fn(tag))
+      case Loop(nm, binds, body, tag) =>
+        val binds1 = binds.map { case (n, te) => (n, map(te)(fn)) }
+        val body1 = map(body)(fn)
+        val tag1 = fn(tag)
+        Loop(nm, binds1, body1, tag1)
+
+      case Recur(nm, rebinds, tpe, tag) =>
+        val rebinds1 = rebinds.map(map(_)(fn))
+        val tag1 = fn(tag)
+        Recur(nm, rebinds1, tpe, tag1)
     }
   }
 
@@ -755,6 +837,10 @@ object TypedExpr {
                 // TODO: this is wrong. We are leaving metas in the types
                 // embedded in patterns
                 Match(arg, branches.map { case (p, expr) => (p, self(expr)) }, tag)
+              // $COVERAGE-OFF$
+              case lr@(Loop(_, _, _, _) | Recur(_, _, _, _)) =>
+                sys.error(s"invariant violation: loop or recur found during quantification/typeinference: $lr")
+              // $COVERAGE-ON$
             }
         }
     }
@@ -825,6 +911,10 @@ object TypedExpr {
             else loop(b).map((p, _))
           }
           (arg1, b1).mapN(Match(_, _, tag))
+        case Loop(nm, binds, body, _) =>
+          ???
+        case Recur(nm, rebinds, tpe, _) =>
+          ???
       }
 
     loop(in)
@@ -876,6 +966,16 @@ object TypedExpr {
         }
         val expr1 = substituteTypeVar(expr, env)
         Match(expr1, branches1, tag)
+      case Loop(nm, binds, body, tag) =>
+        Loop(nm,
+          binds.map { case (b, te) => (b, substituteTypeVar(te, env)) },
+          substituteTypeVar(body, env),
+          tag)
+      case Recur(nm, rebinds, tpe, tag) =>
+        Recur(nm,
+          rebinds.map(substituteTypeVar(_, env)),
+          Type.substituteVar(tpe, env),
+          tag)
     }
 
   private def replaceVarType[A](te: TypedExpr[A], name: Bindable, tpe: Type): TypedExpr[A] = {
@@ -914,6 +1014,10 @@ object TypedExpr {
       case lit@Literal(_, _, _) => lit
       case Match(arg, branches, tag) =>
         Match(recur(arg), branches.map { case (p, t) => (p, recur(t)) }, tag)
+      // $COVERAGE-OFF$
+      case lr@(Loop(_, _, _, _) | Recur(_, _, _, _)) =>
+        sys.error(s"invariant violation: loop or recur found during quantification/typeinference: $lr")
+      // $COVERAGE-ON$
     }
   }
 
