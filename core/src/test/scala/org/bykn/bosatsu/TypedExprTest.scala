@@ -1,16 +1,16 @@
 package org.bykn.bosatsu
 
-import cats.data.Writer
+import cats.data.{State, Writer}
 import cats.implicits._
-import org.scalacheck.Gen
+import org.scalacheck.{Arbitrary, Gen}
+import org.scalatest.funsuite.AnyFunSuite
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import scala.collection.immutable.SortedSet
 
-import TestUtils.checkLast
-
+import Arbitrary.arbitrary
 import Identifier.{Bindable, Name}
+import TestUtils.checkLast
 import rankn.{Type, NTypeGen}
-import org.scalatest.funsuite.AnyFunSuite
 
 class TypedExprTest extends AnyFunSuite {
 
@@ -488,7 +488,17 @@ foo = \_ -> 1
     assert(res == Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
   }
 
-  val genTypedExpr = Generators.genTypedExpr(Gen.const(()), 3, NTypeGen.genDepth03)
+  def gen[A](g: Gen[A]): Gen[TypedExpr[A]] =
+    Generators.genTypedExpr(g, 3, NTypeGen.genDepth03)
+
+  val genTypedExpr: Gen[TypedExpr[Unit]] =
+    gen(Gen.const(()))
+
+  val genTypedExprInt: Gen[TypedExpr[Int]] =
+    gen(Gen.choose(Int.MinValue, Int.MaxValue))
+
+  val genTypedExprChar: Gen[TypedExpr[Char]] =
+    gen(Gen.choose('a', 'z'))
 
   test("TypedExpr.substituteTypeVar of identity is identity") {
     forAll(genTypedExpr, Gen.listOf(NTypeGen.genBound)) { (te, bounds) =>
@@ -677,5 +687,97 @@ def list_len(list):
     case NE(_, _): 1
 """) { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NoCall) }
 
+  }
+
+  test("TypedExpr.fold matches traverse") {
+    def law[A, B](init: A, te: TypedExpr[B])(fn: (A, B) => A) = {
+      val viaFold = te.foldLeft(init)(fn)
+      val viaTraverse = te.traverse_[State[A, *], Unit] { b =>
+        for {
+          i <- State.get[A]
+          i1 = fn(i, b)
+          _ <- State.set(i1)
+        } yield ()
+      }
+
+      assert(viaFold == viaTraverse.runS(init).value, s"${te.repr}")
+    }
+
+    def lawR[A, B](te: TypedExpr[B], a: A)(fn: (B, A) => A) = {
+      val viaFold = te.foldRight(cats.Eval.now(a)) { (b, r) => r.map { j => fn(b, j) } }.value
+      val viaTraverse: State[A, Unit] = te.traverse_[State[A, *], Unit] { b =>
+        for {
+          i <- State.get[A]
+          i1 = fn(b, i)
+          _ <- State.set(i1)
+        } yield ()
+      }
+
+      assert(viaFold == viaTraverse.runS(a).value, s"${te.repr}")
+    }
+
+
+    forAll(genTypedExprInt, Gen.choose(0, 1000)) { (te, init) =>
+      // make a commutative int function
+      law(init, te) { (a, b) => (a + 1) * b }
+      lawR(te, init) { (a, b) => (a + 1) + b }
+      law(init, te) { (a, b) => a + b }
+    }
+  }
+
+  test("foldMap from traverse matches foldMap") {
+    import cats.data.Const
+    import cats.Monoid
+
+    def law[A, B: Monoid](te: TypedExpr[A])(fn: A => B) = {
+      val viaFold = te.foldMap(fn)
+      val viaTraverse: Const[B, Unit] = te.traverse[Const[B, *], Unit] { b =>
+        Const[B, Unit](fn(b))
+      }.void
+
+      assert(viaFold == viaTraverse.getConst, s"${te.repr}")
+    }
+
+    forAll(genTypedExprChar, arbitrary[Char => Int])(law(_)(_))
+    // non-commutative
+    forAll(genTypedExprChar, arbitrary[Char => String])(law(_)(_))
+
+    val lamconst: TypedExpr[String] = 
+      TypedExpr.AnnotatedLambda(Identifier.Name("x"), intTpe, int(1).as("a"), "b")
+
+    assert(lamconst.foldMap(identity) == "ab")
+    assert(lamconst.traverse { a => Const[String, Unit](a) }.getConst == "ab")
+  }
+
+  test("TypedExpr.traverse.void matches traverse_") {
+    import cats.data.Const
+    forAll(genTypedExprInt, arbitrary[Int => String]) { (te, fn) =>
+      assert(te.traverse { i => Const[String, Unit](fn(i)) }.void ==
+        te.traverse_ { i => Const[String, Unit](fn(i)) })
+    }
+  }
+
+  test("TypedExpr.foldRight matches foldRight for commutative funs") {
+    forAll(genTypedExprInt, Gen.choose(0, 1000)) { (te, init) =>
+
+      val right = te.foldRight(cats.Eval.now(init)) { (i, ej) => ej.map(_ + i) }.value
+      val left = te.foldLeft(init)(_ + _)
+      assert(right == left)
+    }
+  }
+
+  test("TypedExpr.foldRight matches foldRight for non-commutative funs") {
+    forAll(genTypedExprInt) { te =>
+
+      val right = te.foldRight(cats.Eval.now("")) { (i, ej) => ej.map { j => i.toString + j } }.value
+      val left = te.foldLeft("") { (i, j) => i + j.toString }
+      assert(right == left)
+    }
+  }
+
+  test("TypedExpr.map matches traverse with Id") {
+    forAll(genTypedExprInt, arbitrary[Int => Int]) { (te, fn) =>
+      assert(te.map(fn) == te.traverse[cats.Id, Int](fn))
+    }
   }
 }
