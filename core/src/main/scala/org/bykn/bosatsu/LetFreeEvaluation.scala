@@ -514,6 +514,23 @@ case class LetFreeEvaluation[T](
     val toValue = State.pure(value)
   }
 
+  case class StructValue(n: Int, values: List[LetFreeValue], df: DataFamily)
+      extends LetFreeValue {
+
+    lazy val toLeaf: NormState[Leaf] = State.pure(Leaf.Struct(n, values, df))
+    lazy val toValue: NormState[Value] =
+      State.pure(evaluateStruct(n, values, df))
+
+    lazy val toStructNat: Option[(Int, List[LetFreeValue])] = Some((n, values))
+    lazy val toStructEnum: Option[(Int, List[LetFreeValue])] = Some((n, values))
+    lazy val toStructStruct: Option[(Int, List[LetFreeValue])] = Some(
+      (n, values)
+    )
+    lazy val toStructNewType: Option[(Int, List[LetFreeValue])] = Some(
+      (n, values)
+    )
+  }
+
   def nvToLitValue(implicit
       extEnv: ExtEnv,
       cache: Cache
@@ -560,7 +577,7 @@ case class LetFreeEvaluation[T](
   object Leaf {
     case class Struct(
         n: Int,
-        values: List[LazyValue],
+        values: List[LetFreeValue],
         df: DataFamily
     ) extends Leaf
     case class Lambda(
@@ -790,7 +807,7 @@ case class LetFreeEvaluation[T](
   ): NormState[Leaf] =
     expr match {
       case a @ TypedExpr.Annotation(_, _, _) => annotationToLeaf(a, scope, p)
-      case g @ TypedExpr.Generic(_, _, _)    => genericToLeaf(g, scope, p)
+      case g @ TypedExpr.Generic(_, _)       => genericToLeaf(g, scope, p)
       case v @ TypedExpr.Local(_, _, _)      => localToLeaf(v, scope, p)
       case v @ TypedExpr.Global(_, _, _, _)  => globalToLeaf(v, scope, p)
       case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
@@ -859,26 +876,22 @@ case class LetFreeEvaluation[T](
   }
 
   def nvFromList(p: Package.Typed[T]): List[LetFreeValue] => LetFreeValue = {
-    scope =>
+    lst =>
       @tailrec
-      def loop(n: Int, acc: LetFreeExpression): LetFreeExpression = n match {
-        case 0 => acc
-        case _ =>
-          loop(
-            n - 1,
-            LetFreeExpression
-              .Struct(
+      def loop(vals: List[LetFreeValue], acc: StructValue): StructValue =
+        vals match {
+          case Nil => acc
+          case h :: tail =>
+            loop(
+              tail,
+              StructValue(
                 1,
-                List(LetFreeExpression.LambdaVar(n - 1), acc),
+                List(h, acc),
                 rankn.DataFamily.Enum
               )
-          )
-      }
-      val expr = loop(
-        scope.length,
-        LetFreeExpression.Struct(0, Nil, rankn.DataFamily.Enum)
-      )
-      LazyValue(expr, scope, p)
+            )
+        }
+      loop(lst.reverse, StructValue(0, Nil, rankn.DataFamily.Enum))
   }
 
   type Applyable = Either[Value, (LetFreeExpression.Lambda, List[LetFreeValue])]
