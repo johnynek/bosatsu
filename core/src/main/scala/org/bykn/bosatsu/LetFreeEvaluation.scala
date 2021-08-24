@@ -567,9 +567,9 @@ case class LetFreeEvaluation[T](
     lazy val toValue = this match {
       case Leaf.Struct(enum, args, df)  => evaluateStruct(enum, args, df)
       case Leaf.Value(ComputedValue(v)) => v
-      case Leaf.Lambda(expr, arg, scope, p) =>
+      case Leaf.Lambda(lambda, scope, p) =>
         new Value.FnValue(
-          LetFreeFnValue(expr, arg, scope, p)
+          LetFreeFnValue(lambda.expr, lambda.arg, scope, p)
         )
       case Leaf.Literal(TypedExpr.Literal(lit, _, _)) => Value.fromLit(lit)
     }
@@ -581,8 +581,7 @@ case class LetFreeEvaluation[T](
         df: DataFamily
     ) extends Leaf
     case class Lambda(
-        expr: TypedExpr[T],
-        arg: Bindable,
+        lambda: TypedExpr.AnnotatedLambda[T],
         scope: Map[String, LetFreeValue],
         p: Package.Typed[T]
     ) extends Leaf
@@ -670,7 +669,7 @@ case class LetFreeEvaluation[T](
       scope: Map[String, LetFreeValue],
       p: Package.Typed[T]
   ): NormState[Leaf] =
-    State.pure(Leaf.Lambda(al.expr, al.arg, scope, p))
+    State.pure(Leaf.Lambda(al, scope, p))
 
   def letToLeaf(
       l: TypedExpr.Let[T],
@@ -695,8 +694,9 @@ case class LetFreeEvaluation[T](
   ): NormState[Leaf] = for {
     fn <- evalToLeaf(a.fn, scope, p)
     arg = LazyValue(a.arg, scope, p)
-    res <- applyLeaf(fn, arg, p).toLeaf
-  } yield res
+    applied <- applyLeaf(fn, arg, p)
+    leaf <- applied.toLeaf
+  } yield leaf
 
   def literalToLeaf(
       l: TypedExpr.Literal[T],
@@ -778,13 +778,13 @@ case class LetFreeEvaluation[T](
   private def constructor(
       c: Constructor,
       dt: rankn.DefinedType[Any]
-  ): NormState[Leaf] = ??? /* {
+  ): NormState[Leaf] = {
     val (enum, arity) =
       dt.constructors.toList.iterator.zipWithIndex.collectFirst {
         case (cf, idx) if cf.name == c => (idx, cf.args.size)
       }.get
 
-    def loop(params: Int, expr: LetFreeExpression): LetFreeExpression =
+    def loop(params: Int, expr: TypedExpr[T]): LetFreeExpression =
       if (params == 0) expr
       else loop(params - 1, LetFreeExpression.Lambda(expr))
 
@@ -798,7 +798,7 @@ case class LetFreeEvaluation[T](
         dt.dataFamily
       )
     )
-  } */
+  }
 
   def evalToLeaf(
       expr: TypedExpr[T],
@@ -934,8 +934,8 @@ case class LetFreeEvaluation[T](
       applyable: Leaf,
       arg: LetFreeValue,
       p: Package.Typed[T]
-  ): LetFreeValue = applyable match {
-    case Leaf.Lambda(expr, argName, scope) => {
+  ): NormState[LetFreeValue] = applyable match {
+    case Leaf.Lambda(lambda, scope, _) => {
       // By evaluating when we add to the scope we don't have to overflow the stack later when we
       // need to use the value
       val _ = arg match {
@@ -945,16 +945,19 @@ case class LetFreeEvaluation[T](
         }
         case _ => ()
       }
-      val nextScope = scope + (argName.asString -> arg)
-      LazyValue(expr, nextScope, arg.p)
+      val nextScope = scope + (lambda.arg.asString -> arg)
+      State.pure(LazyValue(lambda.expr, nextScope, p))
     }
     case Leaf.Value(lfv) =>
-      attemptExprFn(lfv.toValue) match {
-        case Left(eFn) =>
-          ComputedValue(eFn(arg))
-        case Right(fn) => {
-          val v = arg.toValue
-          ComputedValue(fn(v))
+      lfv.toValue.flatMap { v =>
+        attemptExprFn(v) match {
+          case Left(eFn) =>
+            State.pure(ComputedValue(eFn(arg)))
+          case Right(fn) => {
+            arg.toValue.map { argV =>
+              ComputedValue(fn(argV))
+            }
+          }
         }
       }
     // $COVERAGE-OFF$ structs aren't applyable
