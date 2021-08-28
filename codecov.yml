@@ -8,3 +8,8 @@ coverage:
         target: auto
         # scalacheck tests can fluctuate up and down in coverage
         threshold: 2%
+    patch:
+      default:
+        target: auto
+        # scalacheck tests can fluctuate up and down in coverage
+        threshold: 2%
