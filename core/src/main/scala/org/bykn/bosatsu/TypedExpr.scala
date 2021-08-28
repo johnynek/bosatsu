@@ -736,11 +736,11 @@ object TypedExpr {
       case Generic(_, e) =>
         foldRight(e, lb)(f)
       case Annotation(e, _, tag) =>
-        val lb1 = foldRight(e, lb)(f)
-        f(tag, lb1)
+        val lb1 = f(tag, lb)
+        foldRight(e, lb1)(f)
       case AnnotatedLambda(_, _, e, tag) =>
-        val lb1 = foldRight(e, lb)(f)
-        f(tag, lb1)
+        val lb1 = f(tag, lb)
+        foldRight(e, lb1)(f)
       case n: Name[A] => f(n.tag, lb)
       case App(fn, a, _, tag) =>
         val b1 = f(tag, lb)
