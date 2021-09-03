@@ -10,9 +10,9 @@ class Macro(val c: Context) {
   def smac(file: c.Expr[String]) = file.tree match {
     case Literal(Constant(s: String)) =>
       val res = STry(
-        Source.fromFile(s, "UTF-8").getLines.mkString("\n")
+        Source.fromFile(s, "UTF-8").getLines().mkString("\n")
       ).getOrElse(
-        Source.fromFile(s"external/org_bykn_bosatsu/$s", "UTF-8").getLines.mkString("\n")
+        Source.fromFile(s"external/org_bykn_bosatsu/$s", "UTF-8").getLines().mkString("\n")
       )
       q"$res"
   }

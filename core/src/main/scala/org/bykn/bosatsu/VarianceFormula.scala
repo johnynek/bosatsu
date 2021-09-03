@@ -102,7 +102,7 @@ object VarianceFormula {
         if (solved.isEmpty) {
           if (!ss.isSolved) {
             val (solves, _, finish) =
-              iteration(ss.constraints.mapValues(_ => Phantom), ss.constraints, ss.constraints.size + 100)
+              iteration(ss.constraints.view.mapValues(_ => Phantom).toMap, ss.constraints, ss.constraints.size + 100)
 
             if (finish) {
               copy(constraints = Map.empty,
@@ -254,9 +254,9 @@ object VarianceFormula {
         }
       }
 
-      def constructorVariance(tpe: Type): Stream[VarianceFormula] =
+      def constructorVariance(tpe: Type): LazyList[VarianceFormula] =
         tpe match {
-          case FnType => Stream(Contravariant.toF, Covariant.toF)
+          case FnType => LazyList(Contravariant.toF, Covariant.toF)
           case TyConst(Const.Defined(p, tn)) =>
             // TODO need error handling if we don't know about this type
             val thisDt: DefinedType[VarianceFormula] =
@@ -264,15 +264,15 @@ object VarianceFormula {
                 .orElse(imports.getType(p, tn).map(_.map(Known(_))))
                 .getOrElse(sys.error(s"unknown: $p, $tn in $dt"))
 
-            thisDt.annotatedTypeParams.map(_._2).toStream
+            thisDt.annotatedTypeParams.map(_._2).to(LazyList)
           case TyApply(tpe, _) =>
             constructorVariance(tpe).tail
           case TyVar(_) =>
             // TODO: we assume the worst case: this is invariant, is this safe?
-            Stream.continually(Invariant.toF)
+            LazyList.continually(Invariant.toF)
           case TyMeta(_) =>
             // TODO: error here:
-            Stream.continually(Invariant.toF)
+            LazyList.continually(Invariant.toF)
           case ForAll(_, tpe) => constructorVariance(tpe)
         }
 

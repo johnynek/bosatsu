@@ -149,7 +149,7 @@ object PathModule extends MainModule[IO] {
     }
 
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {
-    import scala.collection.JavaConverters._
+    import scala.jdk.CollectionConverters._
 
     def getP(p: Path): Option[PackageName] = {
       val subPath = p.relativize(packFile)

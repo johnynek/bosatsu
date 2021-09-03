@@ -5,7 +5,7 @@ import cats.kernel.BoundedSemilattice
 sealed abstract class Variance {
   import Variance._
 
-  def unary_-(): Variance =
+  def unary_- : Variance =
     this match {
       case Contravariant => Covariant
       case Covariant => Contravariant
@@ -55,18 +55,5 @@ object Variance {
       override def empty = Phantom
       override def combine(a: Variance, b: Variance): Variance =
         a + b
-
-      override def combineAllOption(as: TraversableOnce[Variance]): Option[Variance] =
-        if (as.isEmpty) None
-        else Some {
-          val iter = as.toIterator
-          var res = iter.next()
-          // Invariant is the top, so we can stop when we see it.
-          while(iter.hasNext && res != Invariant) {
-            res = res + iter.next()
-          }
-          res
-        }
     }
-
 }

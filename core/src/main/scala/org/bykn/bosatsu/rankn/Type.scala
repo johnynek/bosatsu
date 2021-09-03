@@ -133,7 +133,7 @@ object Type {
       case v@TyVar(n) => env.getOrElse(n, v)
       case ForAll(ns, rho) =>
         val boundSet: Set[Var] = ns.toList.toSet
-        val env1 = env.filterKeys { v => !boundSet(v) }
+        val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
         forAll(ns.toList, substituteVar(rho, env1))
       case m@TyMeta(_) => m
       case c@TyConst(_) => c
@@ -321,9 +321,9 @@ object Type {
       }
   }
 
-  val allBinders: Stream[Var.Bound] = {
-    val letters = ('a' to 'z').toStream
-    val allIntegers = Stream.iterate(0L)(_ + 1L)
+  val allBinders: LazyList[Var.Bound] = {
+    val letters = ('a' to 'z').to(LazyList)
+    val allIntegers = LazyList.iterate(0L)(_ + 1L)
     val lettersWithNumber =
       for {
         num <- allIntegers

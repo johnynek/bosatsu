@@ -17,7 +17,8 @@ class JsonJawnTest extends AnyFunSuite {
       case JString(str) => assert(j2.asString == str); ()
       case JNumberStr(nstr) => assert(BigDecimal(nstr) == j2.asBigDecimal); ()
       case JNull => assert(j2.isNull); ()
-      case JBool(t) => assert(j2.asBoolean == t); ()
+      case JBool.True => assert(j2.asBoolean); ()
+      case JBool.False => assert(!j2.asBoolean); ()
       case JArray(js) =>
         js.zipWithIndex.foreach { case (j, idx) =>
           matches(j, j2.get(idx))

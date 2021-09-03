@@ -64,7 +64,7 @@ object GenJson {
           case JString(str) => ss.shrink(str).map(JString(_))
           case JNumberStr(nstr) => Stream.empty
           case JNull => Stream.empty
-          case JBool(_) => Stream.empty
+          case JBool.True | JBool.False => Stream.empty
           case JArray(js) =>
             (0 until js.size).toStream.map { sz =>
               JArray(js.take(sz))

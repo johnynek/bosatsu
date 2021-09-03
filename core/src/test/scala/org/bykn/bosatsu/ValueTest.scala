@@ -95,7 +95,7 @@ class ValueTest extends AnyFunSuite {
         case Tuple(items) =>
           assert(items == vs)
         case notTuple =>
-          assert(fail, s"not tuple: $notTuple")
+          assert(false, s"not tuple: $notTuple")
       }
     }
   }

@@ -47,7 +47,7 @@ class TypeEnv[+A] private (
     values.get((p, n))
 
   def localValuesOf(p: PackageName): SortedMap[Identifier, Type] =
-    (SortedMap.newBuilder[Identifier, Type] ++= values.iterator.collect { case ((pn, n), v) if pn == p => (n, v) }).result
+    (SortedMap.newBuilder[Identifier, Type] ++= values.iterator.collect { case ((pn, n), v) if pn == p => (n, v) }).result()
 
   def addConstructor[A1 >: A](pack: PackageName,
     dt: DefinedType[A1],

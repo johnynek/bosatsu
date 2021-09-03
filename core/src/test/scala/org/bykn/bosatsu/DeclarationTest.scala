@@ -94,7 +94,7 @@ class DeclarationTest extends AnyFunSuite {
                   .zip(right.iterator)
                   .zipWithIndex
                   .dropWhile { case ((a, b), idx) => a == b }
-                  .next
+                  .next()
                   ._2
 
               val line = ("=" * 80) + "\n\n"
