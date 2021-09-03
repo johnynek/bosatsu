@@ -65,11 +65,11 @@ sealed abstract class TypeDefinitionStatement extends Statement {
 
 object Statement {
 
-  def definitionsOf(stmts: Iterable[Statement]): Stream[TypeDefinitionStatement] =
-    stmts.iterator.collect { case tds: TypeDefinitionStatement => tds }.toStream
+  def definitionsOf(stmts: Iterable[Statement]): LazyList[TypeDefinitionStatement] =
+    stmts.iterator.collect { case tds: TypeDefinitionStatement => tds }.to(LazyList)
 
-  def valuesOf(stmts: Iterable[Statement]): Stream[ValueStatement] =
-    stmts.iterator.collect { case vs: ValueStatement => vs }.toStream
+  def valuesOf(stmts: Iterable[Statement]): LazyList[ValueStatement] =
+    stmts.iterator.collect { case vs: ValueStatement => vs }.to(LazyList)
 
   /**
    * These introduce new values into scope

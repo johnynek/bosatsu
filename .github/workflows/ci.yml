@@ -18,7 +18,7 @@ jobs:
           - '8'
           - '11'
         scala:
-          - '2.12.14'
+          - '2.13.6'
     timeout-minutes: 30
   testPY:
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
         java:
           - '11'
         scala:
-          - '2.12.14'
+          - '2.13.6'
         python:
           - '3.5'
     timeout-minutes: 30
@@ -64,7 +64,7 @@ jobs:
         java:
           - '11'
         scala:
-          - '2.12.14'
+          - '2.13.6'
     timeout-minutes: 30
   testWithCoverageReport:
     runs-on: ubuntu-latest
@@ -103,7 +103,7 @@ jobs:
     strategy:
       matrix:
         scala:
-          - '2.12.14'
+          - '2.13.6'
 name: ci
 on:
   pull_request: {}

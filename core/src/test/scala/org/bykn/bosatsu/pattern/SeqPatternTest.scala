@@ -412,16 +412,16 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
 
   implicit val setOpsBool: SetOps[Set[Boolean]] = SetOps.fromFinite(List(true, false))
   implicit val ordSet: Ordering[Set[Boolean]] =
-    Ordering.Iterable[Boolean].on { s: Set[Boolean] => s.toList.sorted }
+    Ordering[List[Boolean]].on { s: Set[Boolean] => s.toList.sorted }
 
   val setOps: SetOps[SeqPattern[Set[Boolean]]] = SeqPattern.seqPatternSetOps[Set[Boolean]]
 
 
-  // we can sometimes enumerate a finite Stream of matches
-  def enumerate(sp: SeqPattern[Set[Boolean]]): Option[Stream[List[Boolean]]] =
+  // we can sometimes enumerate a finite LazyList of matches
+  def enumerate(sp: SeqPattern[Set[Boolean]]): Option[LazyList[List[Boolean]]] =
     if (sp.toList.exists(_.isWild)) None
     else {
-      def loop(sp: SeqPattern[Set[Boolean]]): Stream[List[Boolean]] =
+      def loop(sp: SeqPattern[Set[Boolean]]): LazyList[List[Boolean]] =
         sp match {
           case Cat(hsp, rest) =>
             val rests = loop(rest)
@@ -436,7 +436,7 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
               tail <- rests
               h <- heads
             } yield h :: tail
-          case Empty => Stream(Nil)
+          case Empty => LazyList(Nil)
         }
 
       Some(loop(sp))

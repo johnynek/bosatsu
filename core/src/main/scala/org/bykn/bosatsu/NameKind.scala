@@ -13,9 +13,9 @@ object NameKind {
   case class Import[T](fromPack: Package.Interface, originalName: Identifier) extends NameKind[T]
   case class ExternalDef[T](pack: PackageName, defName: Identifier, defType: rankn.Type) extends NameKind[T]
 
-  def externals[T](from: Package.Typed[T]): Stream[ExternalDef[T]] = {
+  def externals[T](from: Package.Typed[T]): Iterable[ExternalDef[T]] = {
     val prog = from.program
-    prog.externalDefs.toStream.map { n =>
+    prog.externalDefs.to(LazyList).map { n =>
       // The type could be an import, so we need to check for the type
       // in the TypeEnv
       val pn = from.name

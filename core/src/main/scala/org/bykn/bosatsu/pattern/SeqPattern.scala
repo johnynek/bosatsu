@@ -216,7 +216,7 @@ object SeqPattern {
 
         // stop after the first unification and loop
         if (pairs.hasNext) {
-          val (pair, i, j) = pairs.next
+          val (pair, i, j) = pairs.next()
           items(i) = null
           items(j) = null
           val rest = items.iterator.filterNot(_ == null).toList
@@ -575,11 +575,11 @@ object SeqPattern {
             matchEnd(t).andThen(_.headOption.map(_._2))
         }
 
-      def matchEnd(p: SeqPattern[A]): S => Stream[(S, R)] =
+      def matchEnd(p: SeqPattern[A]): S => LazyList[(S, R)] =
         p match {
-          case Empty => { s: S => (s, split.monoidResult.empty) #:: Stream.Empty }
+          case Empty => { s: S => (s, split.monoidResult.empty) #:: LazyList.empty }
           case Cat(p: SeqPart1[A], t) =>
-            val splitFn: S => Stream[(S, I, R, S)] = p match {
+            val splitFn: S => LazyList[(S, I, R, S)] = p match {
               case Lit(c) => split.positions(c)
               case AnyElem => split.anySplits(_: S)
             }

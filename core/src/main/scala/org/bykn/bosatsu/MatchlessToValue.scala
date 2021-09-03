@@ -23,7 +23,7 @@ object MatchlessToValue {
     // now that we computed all the functions, compute the values
 
     Functor[F].map(fns) { fn =>
-      Eval.later(fn(Impl.Scope.empty))
+      Eval.later(fn(Impl.Scope.empty()))
     }
   }
 
