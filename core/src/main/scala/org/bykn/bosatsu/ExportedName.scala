@@ -119,7 +119,7 @@ object ExportedName {
        }
 
      exports.traverse(expName1).map(_.flatten)
-    }
+  }
 
   def typeEnvFromExports[A](packageName: PackageName, exports: List[ExportedName[Referant[A]]]): TypeEnv[A] =
     exports.foldLeft((TypeEnv.empty): TypeEnv[A]) { (te, exp) =>
