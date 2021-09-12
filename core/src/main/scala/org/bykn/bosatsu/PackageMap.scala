@@ -319,8 +319,13 @@ object PackageMap {
             .flatMap { case (imps, (fte, program@Program(types, lets, _, _))) =>
               val ior = ExportedName
                 .buildExports(nm, exports, types, lets) match {
-                  case Validated.Valid(exps) =>
-                    Ior.right((fte, Package(nm, imps, exps, program)))
+                  case Validated.Valid(exports) =>
+                    // We have a result, which we can continue to check
+                    val res = (fte, Package(nm, imps, exports, program))
+                    NonEmptyList.fromList(Package.checkValuesHaveExportedTypes(nm, exports)) match {
+                      case None => Ior.right(res)
+                      case Some(errs) => Ior.both(errs, res)
+                    }
                   case Validated.Invalid(badPackages) =>
                     Ior.left(badPackages.map { n =>
                       PackageError.UnknownExport(n, nm, lets): PackageError
