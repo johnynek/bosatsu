@@ -41,3 +41,6 @@ node_modules/
 # vscode wants to put metals directories here
 .metals
 .bloop
+project/metals.sbt
+project/project/metals.sbt
+project/project/project/metals.sbt

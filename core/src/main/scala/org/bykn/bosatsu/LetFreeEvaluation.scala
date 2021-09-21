@@ -78,7 +78,7 @@ object LetFreeEvaluation {
   abstract class MaybeBind[T](
       pat: PatternPNC
   ) {
-    def toLitValue(t: T): Option[LitValue]
+    def toLitValue(t: T): NormState[Option[LitValue], T]
     def toStruct(t: T, df: DataFamily): Option[(Int, List[T])]
     def toList(t: T): Option[List[T]]
     def fromList(lst: List[T]): T
@@ -395,6 +395,8 @@ object LetFreeEvaluation {
           }
     }
   }
+
+  type NormState[A, V] = State[Map[(PackageName, Identifier), V], A]
 
 }
 
@@ -718,7 +720,7 @@ case class LetFreeEvaluation[T](
   ): LetFreeValue = {
     val (_, patEnv: Map[Bindable, LetFreeValue], result) = mtch.branches.toList
       .collectFirst(Function.unlift({ case (pat, result) =>
-        LetFreeValueMaybeBind(pat)
+        LetFreeValueMaybeBind(pat, p)
           .apply(LazyValue(mtch.arg, scope, p), Map.empty) match {
           case Matches(env) => Some((pat, env, result))
           case NoMatch      => None
@@ -887,7 +889,7 @@ case class LetFreeEvaluation[T](
       p: Package.Typed[T]
   ) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
-      evalToValue(lambda, scope + (arg.asString -> ComputedValue(v)))
+      evalToValue(lambda, scope + (arg.asString -> ComputedValue(v)), p)
     }
   }
 
@@ -947,18 +949,19 @@ case class LetFreeEvaluation[T](
       pat: org.bykn.bosatsu.Pattern[
         (PackageName, Identifier.Constructor),
         rankn.Type
-      ]
+      ],
+      p: Package.Typed[T]
   ) extends MaybeBind[LetFreeValue](pat) {
-    def toLitValue(t: LetFreeValue): Option[LitValue] =
+    def toLitValue(t: LetFreeValue): NormState[Option[LitValue]] =
       nvToLitValue(extEnv, cache)(t)
     def toStruct(t: LetFreeValue, df: DataFamily) =
       nvToStruct(extEnv, cache)(t, df)
     def toList(t: LetFreeValue): Option[List[LetFreeValue]] =
       nvToList(extEnv, cache)(t)
     def fromList(lst: List[LetFreeValue]): LetFreeValue =
-      nvFromList(extEnv, cache)(lst)
+      nvFromList(p)(lst)
     def fromString(str: String): LetFreeValue =
-      LazyValue(LetFreeExpression.Literal(Lit.Str(str)), Nil)
+      ComputedValue(Value.Str(str))
     def maybeBind(pat: LetFreePattern) = LetFreeValueMaybeBind(pat).apply(_, _)
   }
 
