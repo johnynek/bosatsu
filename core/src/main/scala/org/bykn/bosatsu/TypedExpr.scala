@@ -323,18 +323,18 @@ object TypedExpr {
    * If we expect expr to be a lambda of the given arity, return
    * the parameter names and types and the rest of the body
    */
-  def toArgsBody[A](arity: Int, expr: TypedExpr[A]): Option[(List[(Bindable, Type)], TypedExpr[A])] =
+  def toArgsBody[A](arity: Int, expr: TypedExpr[A]): Option[(List[Type.Var.Bound], List[(Bindable, Type)], TypedExpr[A])] =
     expr match {
       case _ if arity == 0 =>
-        Some((Nil, expr))
-      case Generic(_, e) => toArgsBody(arity, e)
+        Some((Nil, Nil, expr))
+      case Generic(foralls, e) => toArgsBody(arity, e).map { case (f, p, t) => (foralls.toList ::: f, p, t) }
       case Annotation(e, _, _) => toArgsBody(arity, e)
       case AnnotatedLambda(name, tpe, expr, _) =>
-        toArgsBody(arity - 1, expr).map { case (args0, body) =>
-          ((name, tpe) :: args0, body)
+        toArgsBody(arity - 1, expr).map { case (fs, args0, body) =>
+          (Nil, (name, tpe) :: args0, forAll(fs, body))
         }
       case Let(arg, e, in, r, t) =>
-        toArgsBody(arity, in).flatMap { case (args, body) =>
+        toArgsBody(arity, in).flatMap { case (fs, args, body) =>
           // if args0 don't shadow arg, we can push
           // it down
           if (args.exists(_._1 == arg)) {
@@ -345,12 +345,12 @@ object TypedExpr {
           }
           else {
             // push it down:
-            Some((args, Let(arg, e, body, r, t)))
+            Some((Nil, args, Let(arg, e, forAll(fs, body), r, t)))
           }
         }
       case Match(arg, branches, tag) =>
         val argSetO = branches.traverse { case (p, b) =>
-          toArgsBody(arity, b).flatMap { case (n, b1) =>
+          toArgsBody(arity, b).flatMap { case (fs, n, b1) =>
             val nset: Bindable => Boolean = n.iterator.map(_._1).toSet
             if (p.names.exists(nset)) {
               // this we shadow, so we
@@ -359,14 +359,14 @@ object TypedExpr {
               None
             }
             else {
-              Some((n, (p, b1)))
+              Some((n, (p, forAll(fs, b1))))
             }
           }
         }
 
         argSetO.flatMap { argSet =>
           if (argSet.map(_._1).toList.toSet.size == 1) {
-            Some((argSet.head._1, Match(arg, argSet.map(_._2), tag)))
+            Some((Nil, argSet.head._1, Match(arg, argSet.map(_._2), tag)))
           }
           else {
             None
@@ -878,7 +878,7 @@ object TypedExpr {
 
     def loop(in: TypedExpr[A]): Option[TypedExpr[A]] =
       in match {
-        case Local(i, _, _) if i === ident => Some(ex)
+        case Local(i, _, _) if shadows(i) => Some(ex)
         case Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _) => Some(in)
         case Generic(a, expr) =>
           loop(expr).map(Generic(a, _))
@@ -911,10 +911,17 @@ object TypedExpr {
             else loop(b).map((p, _))
           }
           (arg1, b1).mapN(Match(_, _, tag))
-        case Loop(nm, binds, body, _) =>
-          ???
-        case Recur(nm, rebinds, tpe, _) =>
-          ???
+        case Loop(nm, binds, body, tag) =>
+          if (binds.exists { case (b, _) => masks(b) }) None
+          else if (binds.exists { case (b, _) => shadows(b) }) Some(in)
+          else {
+            (binds.traverse { case (b, te) => loop(te).map((b, _)) },
+              loop(body)).mapN(Loop(nm, _, _, tag))
+          }
+        case Recur(nm, rebinds, tpe, tag) =>
+          rebinds
+            .traverse(loop)
+            .map(Recur(nm, _, tpe, tag))
       }
 
     loop(in)
@@ -1068,6 +1075,12 @@ object TypedExpr {
         Generic(ps1, ex0)
       case expr =>
         Generic(params, expr)
+    }
+
+  def forAll[A](params: List[Type.Var.Bound], expr: TypedExpr[A]): TypedExpr[A] =
+    NonEmptyList.fromList(params) match {
+      case None => expr
+      case Some(nel) => forAll(nel, expr)
     }
 
   def lambda[A](arg: Bindable, tpe: Type, expr: TypedExpr[A], tag: A): TypedExpr[A] =

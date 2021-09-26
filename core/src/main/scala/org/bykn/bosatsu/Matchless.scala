@@ -212,7 +212,7 @@ object Matchless {
             // self recursive loop, but property checks send in ill-typed
             // e and so we handle that by checking for arity > 0
             TypedExpr.toArgsBody(arity, e) match {
-              case Some((params, body)) if arity > 0 =>
+              case Some((_, params, body)) if arity > 0 =>
                 // we know params is non-empty because arity > 0
                 val args = params.map(_._1)
                 val argshead = args.head

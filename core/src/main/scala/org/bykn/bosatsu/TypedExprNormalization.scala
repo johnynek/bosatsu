@@ -69,11 +69,87 @@ object TypedExprNormalization {
       case s@Some(te) => s
     }
 
+  private def toAppList[A](ap: TypedExpr[A], args: List[(TypedExpr[A], Type, A)]): Option[(TypedExpr[A], NonEmptyList[(TypedExpr[A], Type, A)])] =
+    /*
+     * This isn't quite right... in the case of generic functions with specific args you will have
+     * to deal with Generic and Annotation, I think... we need to maintain the fully typed
+     * version of the tree, so, maybe this transformation only works for mono-morphic recursion
+     * where the types are always the same on each loop. It's not clear to me if we currently
+     * even can infer or allow polymorphic recursion due to have recursive type inference works.
+     */
+    ap match {
+      case App(left, right, tpe, tag) =>
+        toAppList(left, (right, tpe, tag) :: args) match {
+          case None =>
+            // end of the line
+            Some((left, NonEmptyList((right, tpe, tag), args)))
+          case some => some
+        }
+      case notApp => None
+    }
+
+  private def applyToRecur[A](name: Bindable, arity: Int, body: TypedExpr[A]): TypedExpr[A] =
+    ???
+
+  private def buildLoopFn[A](name: Bindable, args: NonEmptyList[(Bindable, Type)], recurBody: TypedExpr[A], tag: A): TypedExpr[A] = {
+    val anons = NonEmptyList.fromListUnsafe(Type
+      .allBinders
+      .iterator
+      .map(_.name)
+      .map(Identifier.Name(_))
+      .filterNot((args.map(_._1).toList ::: recurBody.freeVarsDup).toSet)
+      .take(args.length)
+      .toList)
+
+    val newBinders: NonEmptyList[(Bindable, Type)] = args.zip(anons).map { case ((_, t), b1) => (b1, t) }
+    val inits: NonEmptyList[TypedExpr[A]] = newBinders.map { case (b, t) => TypedExpr.Local(b, t, tag) }
+
+    val loopBody = TypedExpr.Loop(name, args.zip(inits).map { case ((b, _), t) => (b, t) }, recurBody, tag)
+
+    def lamLoop(args: List[(Bindable, Type)], body: TypedExpr[A]): TypedExpr[A] =
+      args match {
+        case Nil => body
+        case (b, t) :: tail =>
+          val body1 = lamLoop(tail, body)
+          TypedExpr.AnnotatedLambda(b, t, body1, tag)
+      }
+
+    lamLoop(newBinders.toList, loopBody)
+  }
+
+  // Just check the head, not a full recursive check, that we can convert this loop/recur
+  private def toLoopRecurHead[A](namerec: Option[Bindable], te: TypedExpr[A]): TypedExpr[A] =
+    namerec match {
+      case None => te
+      case Some(bn) =>
+        TypedExpr.selfCallKind(bn, te) match {
+          case TypedExpr.SelfCallKind.TailCall =>
+            val arity = Type.Fun.arity(te.getType)
+            // we know that arity > 0 because, otherwise we can't have a total
+            // self recursive loop, but property checks send in ill-typed
+            // te and so we handle that by checking for arity > 0
+            TypedExpr.toArgsBody(arity, te) match {
+              case Some((foralls, ph :: pt, body)) =>
+                // we know params is non-empty because arity > 0
+                // We need to convert the inner Apply(bn, ...) calls into
+                val recurBody = applyToRecur(bn, arity, body)
+                TypedExpr.forAll(foralls, buildLoopFn(bn, NonEmptyList(ph, pt), recurBody, te.tag))
+              case _ =>
+                // TODO: I don't think this case should ever happen in real code
+                // but it definitely does in fuzz tests
+                te
+            }
+          case _ =>
+            // not a loop
+            te
+        }
+    }
+
   /**
    * if the te is not in normal form, transform it into normal form
    */
-  def normalizeLetOpt[A](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[Variance]): Option[TypedExpr[A]] =
-    te match {
+  private def normalizeLetOpt[A](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[Variance]): Option[TypedExpr[A]] =
+    toLoopRecurHead(namerec, te) match {
       case Generic(vars, in) =>
         // normalize the inside, then get all the freeBoundTyVars and
         // and if we can reallocate typevars to be the a, b, ... do so,
@@ -321,6 +397,8 @@ object TypedExprNormalization {
           // see if that unlocked any new changes
           normalize1(namerec, Match(a1, branches1a, tag), scope, typeEnv)
         }
+      case Loop(nm, binds, body, tag) => ???
+      case Recur(nm, rebinds, tpe, tag) => ???
     }
 
   def normalize[A](te: TypedExpr[A]): Option[TypedExpr[A]] =
