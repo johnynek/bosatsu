@@ -204,7 +204,7 @@ object TypeRef {
    * to TypeRef
    */
   def fromTypes(pack: Option[PackageName], tpes: List[Type]): Map[Type, TypeRef] = {
-    type S = (Map[Long, TypeRef], Stream[String])
+    type S = (Map[Long, TypeRef], LazyList[String])
     def encodeSkolem(sk: Type.Var.Skolem): State[S, TypeRef] =
       // Make use a typevar
       State.pure(TypeRef.TypeVar("$" + s"${sk.name}${sk.id}"))

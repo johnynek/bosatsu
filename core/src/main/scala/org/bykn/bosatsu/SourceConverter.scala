@@ -26,7 +26,7 @@ import SourceConverter.{success, Result}
 final class SourceConverter(
   thisPackage: PackageName,
   imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
-  localDefs: Stream[TypeDefinitionStatement]) {
+  localDefs: Seq[TypeDefinitionStatement]) {
   /*
    * We should probably error for non-predef name collisions.
    * Maybe we should even error even or predef collisions that
@@ -396,7 +396,7 @@ final class SourceConverter(
             val newBound = binding.names
             val pn = PackageName.PredefName
             val opExpr: Expr[Declaration] = Expr.Global(pn, Identifier.Name("foldLeft"), l)
-            val dictSymbol = unusedNames(decl.allNames).next
+            val dictSymbol = unusedNames(decl.allNames).next()
             val init: Expr[Declaration] = Expr.Local(dictSymbol, l)
             val added = (withBound(k, newBound), withBound(v, newBound)).mapN(add(init, _, _))
 
@@ -549,7 +549,7 @@ final class SourceConverter(
             val initState = ((initVars.toSet, initVars.reverse), 0L)
             val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
             // we reverse to make sure we see in traversal order
-            val typeParams0 = typeVars.reverseMap { tv =>
+            val typeParams0 = reverseMap(typeVars) { tv =>
               tv.toVar match {
                 case b@Type.Var.Bound(_) => b
                 // $COVERAGE-OFF$ this should be unreachable
@@ -585,7 +585,7 @@ final class SourceConverter(
           val initState = ((initVars.toSet, initVars.reverse), 0L)
           val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
           // we reverse to make sure we see in traversal order
-          val typeParams0 = typeVars.reverseMap { tv =>
+          val typeParams0 = reverseMap(typeVars) { tv =>
             tv.toVar match {
               case b@Type.Var.Bound(_) => b
               // $COVERAGE-OFF$ this should be unreachable
@@ -605,6 +605,18 @@ final class SourceConverter(
         // TODO make a real check here
         success(rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), ()) }, Nil))
     }
+  }
+
+  private def reverseMap[A, B](as: List[A])(fn: A => B): List[B] = {
+    @annotation.tailrec
+    def loop(as: List[A], acc: List[B]): List[B] =
+      as match {
+        case Nil => acc
+        case a :: tail =>
+          loop(tail, fn(a) :: acc)
+      }
+
+    loop(as, Nil)
   }
 
   private def convertPattern(pat: Pattern.Parsed, region: Region): Result[Pattern[(PackageName, Constructor), rankn.Type]] = {
@@ -860,7 +872,7 @@ final class SourceConverter(
   /**
    * Externals are not permitted to be shadowed at the top level
    */
-  private def checkExternalDefShadowing(values: Stream[Statement.ValueStatement]): Result[Unit] = {
+  private def checkExternalDefShadowing(values: Seq[Statement.ValueStatement]): Result[Unit] = {
     val extDefNames =
       values.collect {
         case ed@Statement.ExternalDef(name, _, _) => (name, ed.region)
@@ -996,7 +1008,7 @@ final class SourceConverter(
   /**
    * Return the lets in order they appear
    */
-  private def toLets(stmts: Stream[Statement.ValueStatement]): Result[List[(Bindable, RecursionKind, Expr[Declaration])]] = {
+  private def toLets(stmts: Seq[Statement.ValueStatement]): Result[List[(Bindable, RecursionKind, Expr[Declaration])]] = {
     import Statement._
 
     val newName: () => Bindable = {
@@ -1174,7 +1186,7 @@ object SourceConverter {
   def apply(
     thisPackage: PackageName,
     imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
-    localDefs: Stream[TypeDefinitionStatement]): SourceConverter =
+    localDefs: Seq[TypeDefinitionStatement]): SourceConverter =
     new SourceConverter(thisPackage, imports, localDefs)
 
   private def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =

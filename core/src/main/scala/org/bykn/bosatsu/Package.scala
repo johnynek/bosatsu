@@ -305,6 +305,47 @@ object Package {
         }
     }
   }
+
+  def checkValuesHaveExportedTypes(pn: PackageName, exports: List[ExportedName[Referant[Variance]]]): List[PackageError] = {
+    val exportedTypes: List[DefinedType[Variance]] = exports
+      .iterator
+      .map(_.tag)
+      .collect {
+        case Referant.Constructor(dt, _) => dt
+        case Referant.DefinedT(dt) => dt
+      }
+      .toList
+      .distinct
+
+    val exportedTE = TypeEnv.fromDefinitions(exportedTypes)
+
+    type Exp = ExportedName[Referant[Variance]]
+    val usedTypes: Iterator[(Type.Const, Exp, Type)] = exports
+      .iterator
+      .flatMap { n =>
+        n.tag match {
+          case Referant.Value(t) => Iterator.single((t, n))
+          case _ => Iterator.empty
+        }
+      }
+      .flatMap { case (t, n) => Type.constantsOf(t).map((_, n, t)) }
+      .filter { case (Type.Const.Defined(p, _), _, _) => p === pn }
+
+
+    def errorFor(t: (Type.Const, Exp, Type)): List[PackageError] =
+      exportedTE.toDefinedType(t._1) match {
+        case None =>
+          if (Type.TyConst(t._1) != Type.FnType)
+            PackageError.PrivateTypeEscape(t._2, t._3, pn, t._1) :: Nil
+          else {
+            // Fn is kind of a virtual type that is not defined as data or external
+            Nil
+          }
+        case Some(_) => Nil
+      }
+
+    usedTypes.flatMap(errorFor).toList
+  }
 }
 
 
@@ -358,6 +399,18 @@ object PackageError {
         if (candidates.nonEmpty) "\n" + s"perhaps you meant:$candstr"
         else ""
       header + suggestion
+    }
+  }
+
+  case class PrivateTypeEscape[A](ex: ExportedName[A],
+    exType: Type,
+    in: PackageName,
+    privateType: Type.Const) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
+      val (lm, sourceName) = getMapSrc(sourceMap, in)
+      val pt = Type.TyConst(privateType)
+      val tpeMap = showTypes(in, exType :: pt :: Nil)
+      s"in $sourceName export ${ex.name.sourceCodeRepr} of type ${tpeMap(exType)} references private type ${tpeMap(pt)}"
     }
   }
 

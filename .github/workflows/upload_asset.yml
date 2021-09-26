@@ -21,7 +21,7 @@ jobs:
       - name: "build assembly"
         run: |
           sbt ++${{matrix.scala}} cli/assembly
-          cp cli/target/scala-2.12/bosatsu-cli-assembly-*.jar bosatsu.jar
+          cp cli/target/scala-2.13/bosatsu-cli-assembly-*.jar bosatsu.jar
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -47,5 +47,5 @@ jobs:
         java:
           - '8'
         scala:
-          - '2.12.11'
+          - '2.13.6'
     timeout-minutes: 30

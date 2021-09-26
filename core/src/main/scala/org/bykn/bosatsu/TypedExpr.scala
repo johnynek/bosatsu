@@ -925,7 +925,7 @@ object TypedExpr {
       case Generic(params, expr) =>
         // we need to remove the params which are shadowed below
         val paramSet: Set[Type.Var] = params.toList.toSet
-        val env1 = env.filterKeys { k => !paramSet(k) }
+        val env1 = env.iterator.filter { case (k, _) => !paramSet(k) }.toMap
         Generic(params, substituteTypeVar(expr, env1))
       case Annotation(of, tpe, tag) =>
         Annotation(
@@ -1044,7 +1044,7 @@ object TypedExpr {
              * We have to be careful not to collide with the free vars in expr
              */
             val free = freeVarsSet(expr :: Nil)
-            val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next
+            val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next()
             // \name -> (expr((name: arg)): result)
             // TODO: why do we need coarg when we already know the type (arg)?
             val result1 = cores(App(expr, coarg(Local(name, arg, expr.tag)), result, expr.tag))

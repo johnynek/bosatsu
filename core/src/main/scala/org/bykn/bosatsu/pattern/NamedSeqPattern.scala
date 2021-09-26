@@ -217,14 +217,14 @@ object NamedSeqPattern {
     def matchEnd[E, I, S, R](
       split: Splitter[E, I, S, R],
       m: List[Machine[E]],
-      capturing: List[String]): S => Stream[(S, (R, Map[String, S]))] =
+      capturing: List[String]): S => LazyList[(S, (R, Map[String, S]))] =
       m match {
         case Nil =>
           // we always match the end
           val res = (split.monoidResult.empty, Map.empty[String, S])
 
           { str: S =>
-            (str, res) #:: Stream.Empty
+            (str, res) #:: LazyList.empty
           }
         case StartName(n) :: tail =>
           matchEnd(split, tail, n :: capturing)

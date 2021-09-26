@@ -2618,4 +2618,25 @@ m = match x:
 test = Assertion(m, "x matches Foo1")
 """ :: Nil, "Bar", 1)
   }
+
+  test("its an error to export a value and not its type. issue 782") {
+    evalFail("""
+package Foo
+
+export bar
+
+struct Bar
+
+bar = Bar
+
+""" :: """
+package UseBar
+from Foo import bar
+
+x = bar
+""" :: Nil, "UseBar") { case sce =>
+      assert(sce.message(Map.empty, Colorize.None) == "in <unknown source> export bar of type Bar references private type Bar")
+      ()
+    }
+  }
 }
