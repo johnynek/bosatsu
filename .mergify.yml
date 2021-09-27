@@ -1,0 +1,20 @@
+pull_request_rules:
+  - name: Automatic merge on approval
+    conditions:
+      - "#approved-reviews-by>=1"
+    actions:
+      merge:
+        method: merge
+  - name: merge scala-steward's PRs
+    conditions:
+      - author=scala-steward
+      - check-success=test (8, 2.13.6)
+      - check-success=test (11, 2.13.6)
+      - check-success=testPY (11, 2.13.6, 3.5)
+      - check-success=testJS (11, 2.13.6)
+      - check-success=testWithCoverageReport (8)
+      - check-success=buildWithGraal (2.13.6)
+    actions:
+      merge:
+        method: squash
+        strict: true
