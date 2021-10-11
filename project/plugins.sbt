@@ -6,7 +6,7 @@ addSbtPlugin("com.typesafe.sbt" % "sbt-git" % "1.0.2")
 addSbtPlugin("org.portable-scala" % "sbt-scalajs-crossproject" % "1.1.0")
 addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.7.1")
 addSbtPlugin("org.scalameta" % "sbt-native-image" % "0.3.1")
-addSbtPlugin("org.scoverage" % "sbt-scoverage" % "1.9.0")
+addSbtPlugin("org.scoverage" % "sbt-scoverage" % "1.9.1")
 addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.3")
 
 // This is adding this compiler plugin as a dependency for the build, not the code itself
