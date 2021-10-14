@@ -534,7 +534,7 @@ case class LetFreeEvaluation[T](
       lazyToStructImpl(this, rankn.DataFamily.NewType)
 
     lazy val toLeaf = evalToLeaf(expression, scope, p)
-    lazy val toValue = toLeaf.map(_.toValue)
+    lazy val toValue = toLeaf.flatMap(_.toValue)
   }
 
   case class ComputedValue(value: Value) extends LetFreeValue {
@@ -556,7 +556,7 @@ case class LetFreeEvaluation[T](
 
     lazy val toLeaf: NormState[Leaf] = State.pure(Leaf.Struct(n, values, df))
     lazy val toValue: NormState[Value] =
-      State.pure(evaluateStruct(n, values, df))
+      evaluateStruct(n, values, df)
 
     lazy val toStructNat: Option[(Int, List[LetFreeValue])] = Some((n, values))
     lazy val toStructEnum: Option[(Int, List[LetFreeValue])] = Some((n, values))
@@ -601,14 +601,17 @@ case class LetFreeEvaluation[T](
   }
 
   sealed abstract class Leaf {
-    lazy val toValue = this match {
+    lazy val toValue: NormState[Value] = this match {
       case Leaf.Struct(enum, args, df)  => evaluateStruct(enum, args, df)
-      case Leaf.Value(ComputedValue(v)) => v
+      case Leaf.Value(ComputedValue(v)) => State.pure(v)
       case Leaf.Lambda(lambda, scope, p) =>
-        new Value.FnValue(
-          LetFreeFnValue(lambda.expr, lambda.arg, scope, p)
+        State.pure(
+          new Value.FnValue(
+            LetFreeFnValue(lambda.expr, lambda.arg, scope, p)
+          )
         )
-      case Leaf.Literal(TypedExpr.Literal(lit, _, _)) => Value.fromLit(lit)
+      case Leaf.Literal(TypedExpr.Literal(lit, _, _)) =>
+        State.pure(Value.fromLit(lit))
     }
   }
   object Leaf {
@@ -746,32 +749,54 @@ case class LetFreeEvaluation[T](
       m: TypedExpr.Match[T],
       scope: Map[String, LetFreeValue],
       p: Package.Typed[T]
-  ): NormState[Leaf] = simplifyMatch(m, scope, p).toLeaf
+  ): NormState[Leaf] = simplifyMatch(m, scope, p).flatMap(_.toLeaf)
+
+  def collectFirst[A, B](
+      lst: List[A],
+      fn: (A => NormState[Option[B]])
+  ): NormState[Option[B]] = lst match {
+    case Nil => State.pure(None)
+    case h :: tail =>
+      val nsOptB = fn(h)
+      nsOptB.flatMap {
+        case None => collectFirst(tail, fn)
+        case _    => nsOptB
+      }
+  }
 
   def simplifyMatch(
       mtch: TypedExpr.Match[T],
       scope: Map[String, LetFreeValue],
       p: Package.Typed[T]
-  ): LetFreeValue = {
-    val (_, patEnv: Map[Bindable, LetFreeValue], result) = mtch.branches.toList
-      .collectFirst(Function.unlift({ case (pat, result) =>
+  ): NormState[LetFreeValue] = {
+    collectFirst[
+      (Pattern[(PackageName, Constructor), Type], TypedExpr[T]),
+      (
+          Pattern[(PackageName, Constructor), Type],
+          PatternEnv[LetFreeValue],
+          TypedExpr[T]
+      )
+    ](
+      mtch.branches.toList,
+      { case (pat, result) =>
         LetFreeValueMaybeBind(pat, p)
-          .apply(LazyValue(mtch.arg, scope, p), Map.empty) match {
-          case Matches(env) => Some((pat, env, result))
-          case NoMatch      => None
-          // $COVERAGE-OFF$
-          case NotProvable =>
-            sys.error("For value we should never be NotProvable")
-          // $COVERAGE-ON$
-        }
-      }))
-      .get
-
-    LazyValue(
-      result,
-      scope ++ (patEnv.map { case (k, v) => (k.asString, v) }),
-      p
-    )
+          .apply(LazyValue(mtch.arg, scope, p), Map.empty)
+          .map {
+            case Matches(env) => Some((pat, env, result))
+            case NoMatch      => None
+            // $COVERAGE-OFF$
+            case NotProvable =>
+              sys.error("For value we should never be NotProvable")
+            // $COVERAGE-ON$
+          }
+      }
+    ).map(_.get).map { case (_, patEnv: Map[Bindable, LetFreeValue], result) =>
+      LazyValue(
+        result,
+        scope ++ (patEnv.map { case (k, v) => (k.asString, v) }),
+        p
+      )
+    }
   }
 
   private def nameKindLetToLeaf(
@@ -1004,26 +1029,32 @@ case class LetFreeEvaluation[T](
       enum: Int,
       args: List[LetFreeValue],
       df: DataFamily
-  ): Value = df match {
+  ): NormState[Value] = df match {
     case rankn.DataFamily.Enum =>
-      Value.SumValue(
-        enum,
-        Value.ProductValue.fromList(
-          args.map(_.toValue)
+      traverseForNS(args.map(_.toValue)).map(lst =>
+        Value.SumValue(
+          enum,
+          Value.ProductValue.fromList(
+            lst
+          )
         )
       )
     case rankn.DataFamily.Nat =>
       if (args.isEmpty) {
-        Value.ExternalValue(BigInteger.valueOf(0))
+        State.pure(Value.ExternalValue(BigInteger.valueOf(0)))
       } else {
-        Value.ExternalValue(
-          args.head.toValue.asExternal.toAny
-            .asInstanceOf[BigInteger]
-            .add(BigInteger.ONE)
-        )
+
+        args.head.toValue
+          .map(
+            _.asExternal.toAny
+              .asInstanceOf[BigInteger]
+              .add(BigInteger.ONE)
+          )
+          .map(Value.ExternalValue(_))
       }
     case rankn.DataFamily.Struct =>
-      Value.ProductValue.fromList(args.map(_.toValue))
+      traverseForNS(args.map(_.toValue))
+        .map(Value.ProductValue.fromList(_))
     case rankn.DataFamily.NewType => args.head.toValue
   }
 
