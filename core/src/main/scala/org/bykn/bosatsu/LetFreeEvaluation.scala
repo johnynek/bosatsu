@@ -1098,10 +1098,10 @@ case class LetFreeEvaluation[T](
   ): NormState[Value] = LazyValue(ne, scope, p).toValue
 
   def evaluate(
-      ne: LetFreeExpression,
+      ne: TypedExpr[T],
       extEnv: Map[Identifier, Eval[Value]],
-      cache: LetFreeEvaluation.Cache
-  ): Value = evalToValue(ne, Nil)(extEnv, cache)
+      p: Package.Typed[T]
+  ): NormState[Value] = evalToValue(ne, Map.empty, p)
 
   def exprFn(
       arity: Int,
@@ -1127,16 +1127,17 @@ case class LetFreeEvaluation[T](
   type Pack = Package[Package.Interface, NonEmptyList[
     Referant[Variance]
   ], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[
-    (Declaration, LetFreeExpressionTag)
+    (Declaration, T)
   ], Any]]
 
+  /*
   def evaluateCollect(
       p: PackageName,
       fn: Pack => Option[
         (
             Identifier.Bindable,
             RecursionKind,
-            TypedExpr[(Declaration, LetFreeExpressionTag)]
+            TypedExpr[(Declaration, T)]
         )
       ]
   ) = {
@@ -1164,8 +1165,9 @@ case class LetFreeEvaluation[T](
       }
       .map(v => Eval.later(Test.fromValue(v)))
 
+
   private def externalEnv(
-      p: Package.Typed[(Declaration, LetFreeExpressionTag)]
+      p: Package.Typed[(Declaration, T)]
   ): LetFreeEvaluation.ExtEnv = {
     val externalNames = p.program.externalDefs
     externalNames.iterator.map { n =>
@@ -1189,7 +1191,7 @@ case class LetFreeEvaluation[T](
   }
 
   private def importedEnv(
-      p: Package.Typed[(Declaration, LetFreeExpressionTag)]
+      p: Package.Typed[(Declaration, T)]
   ): LetFreeEvaluation.ExtEnv =
     p.imports.iterator.flatMap { imp =>
       val pack = packs.toMap.get(imp.pack.name) match {
@@ -1213,4 +1215,5 @@ case class LetFreeEvaluation[T](
       dt <- pack.program.types.getType(pn, t)
     } yield dt
   })
+   */
 }
