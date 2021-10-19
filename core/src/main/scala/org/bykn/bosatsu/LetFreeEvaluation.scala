@@ -1196,33 +1196,24 @@ case class LetFreeEvaluation[T](
 
   def evaluateCollect(
       p: PackageName,
-      fn: Pack => Option[
-        (
-            Identifier.Bindable,
-            RecursionKind,
-            TypedExpr[T]
-        )
-      ]
-  ) = {
-    for {
-      pack <- pm.toMap.get(p)
-      (name, _, tpe) <- fn(pack)
-      extEnv = externalEnv(pack) ++ importedEnv(pack)
-    } yield (
-      tpe,
-      extEnv,
-      pack
-    )
-  }
+      fn: Pack => Option[(Identifier.Bindable, RecursionKind, TypedExpr[T])]
+  ) = for {
+    pack <- pm.toMap.get(p)
+    (name, _, tpe) <- fn(pack)
+    extEnv = externalEnv(pack) ++ importedEnv(pack)
+  } yield (
+    tpe,
+    extEnv,
+    pack
+  )
 
   def evaluateLast(
       p: PackageName
-  ) =
-    evaluateCollect(p, { pack => pack.program.lets.lastOption })
-      .map { case (tpe, extEnv, pack) =>
-        evaluate(tpe, extEnv, pack)
-      }
-      .map(v => Eval.later(Test.fromValue(v)))
+  ) = evaluateCollect(p, { pack => pack.program.lets.lastOption })
+    .map { case (tpe, extEnv, pack) =>
+      evaluate(tpe, extEnv, pack)
+    }
+    .map(v => Eval.later(Test.fromValue(v)))
 
   def evalLastTest(p: PackageName) =
     evaluateCollect(p, { pack => Package.testValue(pack) })
