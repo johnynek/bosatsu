@@ -84,8 +84,8 @@ object LetFreeEvaluation {
       pat: PatternPNC
   ) {
     def toLitValue(t: T): NormState[Option[LitValue], T]
-    def toStruct(t: T, df: DataFamily): Option[(Int, List[T])]
-    def toList(t: T): Option[List[T]]
+    def toStruct(t: T, df: DataFamily): NormState[Option[(Int, List[T])], T]
+    def toList(t: T): NormState[Option[List[T]], T]
     def fromList(lst: List[T]): T
     def fromString(str: String): T
     def maybeBind(
@@ -95,7 +95,8 @@ object LetFreeEvaluation {
 
     val apply: (T, PatternEnv[T]) => NormState[PatternMatch[PatternEnv[T]], T] =
       pat match {
-        case Pattern.WildCard => noop
+        case Pattern.Annotation(_, _) => ???
+        case Pattern.WildCard         => noop
         case Pattern.Literal(lit) => { (v, env) =>
           toLitValue(v).map {
             case Some(lv) => if (lv.equivToLit(lit)) Matches(env) else NoMatch
@@ -119,16 +120,16 @@ object LetFreeEvaluation {
           case object Empty extends StructListResult
           case class Cons(h: T, t: StructList) extends StructListResult
           case class StructList(asT: T) {
-            lazy val parts = {
+            lazy val parts: NormState[Option[StructListResult], T] = {
               val strct = toStruct(asT, DataFamily.Enum)
-              strct.map {
+              strct.map(_.map {
                 case (1, h :: t :: Nil) => Cons(h, StructList(t))
                 case (0, Nil)           => Empty
                 case _ =>
                   sys.error(
                     "type checking should ensure this is always a bosatsu List"
                   )
-              }
+              })
             }
           }
 
@@ -148,7 +149,7 @@ object LetFreeEvaluation {
                 (StructList, PatternEnv[T])
               ], T]](initial) {
                 case (fn, acc) => { (x: StructList, env: PatternEnv[T]) =>
-                  x.parts match {
+                  x.parts.flatMap {
                     case None => State.pure(NotProvable)
                     // Possible optimization below because we hit the end of the list and there's no point in going on
                     case Some(Empty) => State.pure(NoMatch)
@@ -169,29 +170,29 @@ object LetFreeEvaluation {
             (StructList, PatternEnv[T])
           ], T] = {
             val suffixConsumer = consumePrefix(suffix)
+            type NormStateT[X] = NormState[X, T]
+            val F = implicitly[cats.FlatMap[NormStateT]]
 
-            @tailrec
             def loop(
-                v: StructList,
+                vInit: StructList,
                 env: PatternEnv[T],
-                acc: List[T]
+                accInit: List[T]
             ): NormState[PatternMatch[
               (StructList, PatternEnv[T], List[T])
-            ], T] = suffixConsumer(v, env).flatMap { case (pm) =>
-              val res: NormState[PatternMatch[
-                (StructList, PatternEnv[T], List[T])
-              ], T] = pm match {
-                case Matches((vRest, nextEnv)) =>
-                  State.pure(Matches((vRest, nextEnv, acc)))
-                case NotProvable => State.pure(NotProvable)
-                case NoMatch =>
-                  v.parts match {
-                    case None                => State.pure(NotProvable)
-                    case Some(Empty)         => State.pure(NoMatch)
-                    case Some(Cons(h, tail)) => loop(tail, env, h :: acc)
-                  }
+            ], T] = F.tailRecM((vInit, accInit)) { case (v, acc) =>
+              suffixConsumer(v, env).flatMap { case (pm) =>
+                pm match {
+                  case Matches((vRest, nextEnv)) =>
+                    State.pure(Right(Matches((vRest, nextEnv, acc))))
+                  case NotProvable => State.pure(Right(NotProvable))
+                  case NoMatch =>
+                    v.parts.map {
+                      case None                => Right(NotProvable)
+                      case Some(Empty)         => Right(NoMatch)
+                      case Some(Cons(h, tail)) => Left((tail, h :: acc))
+                    }
+                }
               }
-              res
             }
 
             { (x: StructList, env: PatternEnv[T]) =>
@@ -223,7 +224,7 @@ object LetFreeEvaluation {
                   State.pure(Matches(env + (n -> v.asT)))
               }
               case NonEmptyList((glob, suffix), Nil) => { (v, env) =>
-                toList(v.asT) match {
+                toList(v.asT).flatMap {
                   case None => State.pure(NotProvable)
                   case Some(lst) =>
                     if (lst.length < suffix.length) State.pure(NoMatch)
@@ -283,10 +284,10 @@ object LetFreeEvaluation {
             NonEmptyList.fromList(matchList) match {
               // $COVERAGE-OFF$ this case is actually optimized away. If there are no globs the listpattern becomes a positionalstruct
               case None => { (v: StructList, env: PatternEnv[T]) =>
-                v.parts match {
-                  case None        => State.pure(NotProvable)
-                  case Some(Empty) => State.pure(Matches(env))
-                  case Some(_)     => State.pure(NoMatch)
+                v.parts.map {
+                  case None        => NotProvable
+                  case Some(Empty) => Matches(env)
+                  case Some(_)     => NoMatch
                 }
               }
               // $COVERAGE-ON$
@@ -340,41 +341,47 @@ object LetFreeEvaluation {
               as: List[T],
               acc: PatternEnv[T]
           ): NormState[PatternMatch[PatternEnv[T]], T] = {
+            type NormStateT[X] = NormState[X, T]
+            val F = implicitly[cats.FlatMap[NormStateT]]
+
             // manually write out foldM hoping for performance improvements
-            @annotation.tailrec
+            // @annotation.tailrec
             def loop(
-                vs: List[T],
-                fns: List[
+                vsInit: List[T],
+                fnsInit: List[
                   (
                       T,
                       PatternEnv[T]
                   ) => NormState[PatternMatch[PatternEnv[T]], T]
                 ],
-                env: (PatternEnv[T], PatternMatch[PatternEnv[T]])
+                envInit: (PatternEnv[T], PatternMatch[PatternEnv[T]])
             ): NormState[PatternMatch[PatternEnv[T]], T] =
-              vs match {
-                case Nil => State.pure(env._2)
-                case vh :: vt =>
-                  fns match {
-                    case fh :: ft =>
-                      fh(vh, env._1).flatMap { h =>
-                        (h, env._2) match {
-                          case (_, NoMatch) => State.pure(NoMatch)
-                          case (NoMatch, _) => State.pure(NoMatch)
-                          case (Matches(env1), Matches(_)) =>
-                            loop(vt, ft, (env1, Matches(env1)))
-                          case (Matches(env1), NotProvable) =>
-                            loop(vt, ft, (env1, NotProvable))
-                          case (NotProvable, _) =>
-                            loop(vt, ft, (env._1, NotProvable))
+              F.tailRecM((vsInit, fnsInit, envInit)) { case (vs, fns, env) =>
+                vs match {
+                  case Nil => State.pure(Right(env._2))
+                  case vh :: vt =>
+                    fns match {
+                      case fh :: ft =>
+                        fh(vh, env._1).map { h =>
+                          (h, env._2) match {
+                            case (_, NoMatch) => Right(NoMatch)
+                            case (NoMatch, _) => Right(NoMatch)
+                            case (Matches(env1), Matches(_)) =>
+                              Left((vt, ft, (env1, Matches(env1))))
+                            case (Matches(env1), NotProvable) =>
+                              Left((vt, ft, (env1, NotProvable)))
+                            case (NotProvable, _) =>
+                              Left((vt, ft, (env._1, NotProvable)))
+                          }
                         }
-                      }
-                    case Nil =>
-                      State.pure(
-                        env._2
-                      ) // mismatch in size, shouldn't happen statically
-                  }
+                      case Nil =>
+                        State.pure(
+                          Right(env._2)
+                        ) // mismatch in size, shouldn't happen statically
+                    }
+                }
               }
+
             loop(as, itemFns, (acc, Matches(acc)))
           }
 
@@ -384,7 +391,7 @@ object LetFreeEvaluation {
           if (dt.isStruct) {
             // this is a struct, which means we expect it
             { (arg: T, acc: PatternEnv[T]) =>
-              toStruct(arg, df) match {
+              toStruct(arg, df).flatMap {
                 case Some((_, args)) =>
                   processArgs(args, acc)
                 case _ =>
@@ -399,7 +406,7 @@ object LetFreeEvaluation {
                 PatternEnv[T]
             ) => NormState[PatternMatch[PatternEnv[T]], T] = {
               (arg: T, acc: PatternEnv[T]) =>
-                toStruct(arg, df) match {
+                toStruct(arg, df).flatMap {
                   case Some((enumId, args)) =>
                     if (enumId == idx) processArgs(args, acc)
                     else State.pure(NoMatch)
@@ -437,9 +444,11 @@ object LetFreeEvaluation {
                 ).flatMap {
                   case Matches(listEnv: PatternEnv[T]) => {
                     val nsListPE = listEnv.toList.map { case (i, lst) =>
-                      val lstOfStates: List[NormState[Option[LitValue], T]] =
-                        toList(lst).get.map(toLitValue(_))
-                      val nsStr = traverseForNS(lstOfStates)
+                      val lstOfStates: NormState[List[Option[LitValue]], T] =
+                        toList(lst).flatMap(opt =>
+                          traverseForNS(opt.get.map(toLitValue(_)))
+                        )
+                      val nsStr = lstOfStates
                         .map(
                           _.flatten
                             .map(lv => lv.toAny.asInstanceOf[String])
@@ -469,8 +478,7 @@ object LetFreeEvaluation {
 case class LetFreeEvaluation[T](
     pm: PackageMap.Typed[T],
     externals: Externals,
-    extEnv: LetFreeEvaluation.ExtEnv,
-    cache: LetFreeEvaluation.Cache
+    extEnv: LetFreeEvaluation.ExtEnv
 ) {
   import LetFreeEvaluation._
 
@@ -524,17 +532,20 @@ case class LetFreeEvaluation[T](
             "data" -> Json.JString(value.toString)
           )
         )
+      case StructValue(_, _, _) => ???
     }
 
     def toLeaf: NormState[Leaf]
     def toValue: NormState[Value]
 
-    def toStructNat: Option[(Int, List[LetFreeValue])]
-    def toStructEnum: Option[(Int, List[LetFreeValue])]
-    def toStructStruct: Option[(Int, List[LetFreeValue])]
-    def toStructNewType: Option[(Int, List[LetFreeValue])]
+    def toStructNat: NormState[Option[(Int, List[LetFreeValue])]]
+    def toStructEnum: NormState[Option[(Int, List[LetFreeValue])]]
+    def toStructStruct: NormState[Option[(Int, List[LetFreeValue])]]
+    def toStructNewType: NormState[Option[(Int, List[LetFreeValue])]]
 
-    def toStruct(df: rankn.DataFamily): Option[(Int, List[LetFreeValue])] =
+    def toStruct(
+        df: rankn.DataFamily
+    ): NormState[Option[(Int, List[LetFreeValue])]] =
       df match {
         case rankn.DataFamily.Nat     => toStructNat
         case rankn.DataFamily.Enum    => toStructEnum
@@ -569,14 +580,14 @@ case class LetFreeEvaluation[T](
   }
 
   case class ComputedValue(value: Value) extends LetFreeValue {
-    lazy val toStructNat: Option[(Int, List[LetFreeValue])] =
-      computedToStructImpl(this, rankn.DataFamily.Nat)
-    lazy val toStructEnum: Option[(Int, List[LetFreeValue])] =
-      computedToStructImpl(this, rankn.DataFamily.Enum)
-    lazy val toStructStruct: Option[(Int, List[LetFreeValue])] =
-      computedToStructImpl(this, rankn.DataFamily.Struct)
-    lazy val toStructNewType: Option[(Int, List[LetFreeValue])] =
-      computedToStructImpl(this, rankn.DataFamily.NewType)
+    lazy val toStructNat =
+      State.pure(computedToStructImpl(this, rankn.DataFamily.Nat))
+    lazy val toStructEnum =
+      State.pure(computedToStructImpl(this, rankn.DataFamily.Enum))
+    lazy val toStructStruct =
+      State.pure(computedToStructImpl(this, rankn.DataFamily.Struct))
+    lazy val toStructNewType =
+      State.pure(computedToStructImpl(this, rankn.DataFamily.NewType))
 
     lazy val toLeaf = State.pure(Leaf.Value(this))
     val toValue = State.pure(value)
@@ -589,28 +600,24 @@ case class LetFreeEvaluation[T](
     lazy val toValue: NormState[Value] =
       evaluateStruct(n, values, df)
 
-    lazy val toStructNat: Option[(Int, List[LetFreeValue])] = Some((n, values))
-    lazy val toStructEnum: Option[(Int, List[LetFreeValue])] = Some((n, values))
-    lazy val toStructStruct: Option[(Int, List[LetFreeValue])] = Some(
-      (n, values)
-    )
-    lazy val toStructNewType: Option[(Int, List[LetFreeValue])] = Some(
-      (n, values)
-    )
+    lazy val toStructNat = State.pure(Some((n, values)))
+    lazy val toStructEnum = State.pure(Some((n, values)))
+    lazy val toStructStruct = State.pure(Some((n, values)))
+    lazy val toStructNewType = State.pure(Some((n, values)))
   }
 
   def nvToLitValue(implicit
-      extEnv: ExtEnv,
-      cache: Cache
+      extEnv: ExtEnv
   ): LetFreeValue => NormState[Option[LitValue]] = { lfv =>
     lfv.toValue.map(valueToLitValue)
   }
 
   def nvToStruct(
-      extEnv: ExtEnv,
-      cache: Cache
-  ): (LetFreeValue, rankn.DataFamily) => Option[(Int, List[LetFreeValue])] = {
-    case (nv, df) => nv.toStruct(df)
+      extEnv: ExtEnv
+  ): (LetFreeValue, rankn.DataFamily) => NormState[
+    Option[(Int, List[LetFreeValue])]
+  ] = { case (nv, df) =>
+    nv.toStruct(df)
   }
 
   def computedToStructImpl(cv: ComputedValue, df: DataFamily) = cv match {
@@ -623,8 +630,8 @@ case class LetFreeEvaluation[T](
   def lazyToStructImpl(
       lv: LazyValue,
       df: rankn.DataFamily
-  ) = lv.toLeaf.map {
-    case Leaf.Struct(n, values, _)         => Some((n, values))
+  ): NormState[Option[(Int, List[LetFreeValue])]] = lv.toLeaf.flatMap {
+    case Leaf.Struct(n, values, _)         => State.pure(Some((n, values)))
     case Leaf.Value(cv @ ComputedValue(_)) => cv.toStruct(df)
     // $COVERAGE-OFF$
     case other => sys.error(s"we should not get $other")
@@ -633,12 +640,13 @@ case class LetFreeEvaluation[T](
 
   sealed abstract class Leaf {
     lazy val toValue: NormState[Value] = this match {
+      case Leaf.Constructor(_)          => ???
       case Leaf.Struct(enum, args, df)  => evaluateStruct(enum, args, df)
       case Leaf.Value(ComputedValue(v)) => State.pure(v)
       case Leaf.Lambda(lambda, scope, p) =>
-        State.pure(
+        State.inspect(sa =>
           new Value.FnValue(
-            LetFreeFnValue(lambda.expr, lambda.arg, scope, p)
+            LetFreeFnValue(lambda.expr, lambda.arg, scope, p, sa)
           )
         )
       case Leaf.Literal(TypedExpr.Literal(lit, _, _)) =>
@@ -925,23 +933,28 @@ case class LetFreeEvaluation[T](
     }
 
   def nvToList(implicit
-      extEnv: ExtEnv,
-      cache: Cache
-  ): LetFreeValue => Option[List[LetFreeValue]] = { normalValue =>
-    @tailrec
-    def loop(nv: LetFreeValue, acc: List[LetFreeValue]): List[LetFreeValue] = {
-      nv.toStruct(rankn.DataFamily.Enum).get match {
-        case (0, _)          => acc
-        case (1, List(h, t)) => loop(t, h :: acc)
-        case _               =>
-          // $COVERAGE-OFF$ this should be unreachable
-          sys.error(
-            "Type checking should only allow this to be applied to a list struct"
-          )
-        // $COVERAGE-ON$
-      }
+      extEnv: ExtEnv
+  ): LetFreeValue => NormState[Option[List[LetFreeValue]]] = { normalValue =>
+    val F = implicitly[cats.FlatMap[NormState]]
+    //@tailrec
+    def loop(
+        nvInit: LetFreeValue,
+        accInit: List[LetFreeValue]
+    ): NormState[List[LetFreeValue]] = F.tailRecM((nvInit, accInit)) {
+      case (nv, acc) =>
+        nv.toStruct(rankn.DataFamily.Enum)
+          .map(_.get match {
+            case (0, _)          => Right(acc)
+            case (1, List(h, t)) => Left((t, h :: acc))
+            case _               =>
+              // $COVERAGE-OFF$ this should be unreachable
+              sys.error(
+                "Type checking should only allow this to be applied to a list struct"
+              )
+            // $COVERAGE-ON$
+          })
     }
-    Some(loop(normalValue, Nil).reverse)
+    loop(normalValue, Nil).map(_.reverse).map(Some(_))
   }
 
   def nvFromList(p: Package.Typed[T]): List[LetFreeValue] => LetFreeValue = {
@@ -963,7 +976,8 @@ case class LetFreeEvaluation[T](
       loop(lst.reverse, StructValue(0, Nil, rankn.DataFamily.Enum))
   }
 
-  type Applyable = Either[Value, (LetFreeExpression.Lambda, List[LetFreeValue])]
+  type Applyable =
+    Either[Value, (TypedExpr.AnnotatedLambda[T], List[LetFreeValue])]
   type ToLFV = Option[LetFreeValue => Future[Value]]
 
   case class ExprFnValue(toExprFn: LetFreeValue => Value)
@@ -977,10 +991,14 @@ case class LetFreeEvaluation[T](
       lambda: TypedExpr[T],
       arg: Bindable,
       scope: Map[String, LetFreeValue],
-      p: Package.Typed[T]
+      p: Package.Typed[T],
+      startState: Map[(PackageName, Identifier), LetFreeValue]
   ) extends Value.FnValue.Arg {
-    val toFn: Value => NormState[Value] = { v: Value =>
+    val toFn: Value => Value = { v: Value =>
       evalToValue(lambda, scope + (arg.asString -> ComputedValue(v)), p)
+        .run(startState)
+        .value
+        ._2
     }
   }
 
@@ -1037,25 +1055,32 @@ case class LetFreeEvaluation[T](
   }
 
   case class LetFreeValueMaybeBind(
-      pat: org.bykn.bosatsu.Pattern[
+      pat: Pattern[
         (PackageName, Identifier.Constructor),
         rankn.Type
       ],
       p: Package.Typed[T]
   ) extends MaybeBind[LetFreeValue](pat) {
     def toLitValue(t: LetFreeValue): NormState[Option[LitValue]] =
-      nvToLitValue(extEnv, cache)(t)
+      nvToLitValue(extEnv)(t)
     def toStruct(t: LetFreeValue, df: DataFamily) =
-      nvToStruct(extEnv, cache)(t, df)
-    def toList(t: LetFreeValue): Option[List[LetFreeValue]] =
-      nvToList(extEnv, cache)(t)
+      nvToStruct(extEnv)(t, df)
+    def toList(t: LetFreeValue): NormState[Option[List[LetFreeValue]]] =
+      nvToList(extEnv)(t)
     def fromList(lst: List[LetFreeValue]): LetFreeValue =
       nvFromList(p)(lst)
     def fromString(str: String): LetFreeValue =
       ComputedValue(Value.Str(str))
-    def maybeBind(pat: LetFreePattern) = {
-      (v: LetFreeValue, env: PatternEnv[LetFreeValue]) => this.apply(v, env)
+    def maybeBind(
+        pat: Pattern[
+          (PackageName, Identifier.Constructor),
+          rankn.Type
+        ]
+    ) = { (v: LetFreeValue, env: PatternEnv[LetFreeValue]) =>
+      this.apply(v, env)
     }
+    def definedForCons(pc: (PackageName, Constructor)): rankn.DefinedType[Any] =
+      ???
   }
 
   def evaluateStruct(
