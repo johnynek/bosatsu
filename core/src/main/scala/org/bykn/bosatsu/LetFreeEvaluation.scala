@@ -1080,7 +1080,7 @@ case class LetFreeEvaluation[T](
       this.apply(v, env)
     }
     def definedForCons(pc: (PackageName, Constructor)): rankn.DefinedType[Any] =
-      ???
+      pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
   }
 
   def evaluateStruct(
@@ -1126,7 +1126,7 @@ case class LetFreeEvaluation[T](
       ne: TypedExpr[T],
       extEnv: Map[Identifier, Eval[Value]],
       p: Package.Typed[T]
-  ): NormState[Value] = evalToValue(ne, Map.empty, p)
+  ): Value = evalToValue(ne, Map.empty, p).run(Map.empty).value._2
 
   def exprFn(
       arity: Int,
@@ -1151,49 +1151,9 @@ case class LetFreeEvaluation[T](
 
   type Pack = Package[Package.Interface, NonEmptyList[
     Referant[Variance]
-  ], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[
-    (Declaration, T)
-  ], Any]]
+  ], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[T], Any]]
 
-  /*
-  def evaluateCollect(
-      p: PackageName,
-      fn: Pack => Option[
-        (
-            Identifier.Bindable,
-            RecursionKind,
-            TypedExpr[(Declaration, T)]
-        )
-      ]
-  ) = {
-    for {
-      pack <- packs.toMap.get(p)
-      (name, _, tpe) <- fn(pack)
-      lfe = tpe.tag._2
-      extEnv = externalEnv(pack) ++ importedEnv(pack)
-    } yield (
-      lfe,
-      tpe.getType,
-      extEnv
-    )
-  }
-
-  def evaluateLast(
-      p: PackageName
-  ): Option[(LetFreeExpression, Type, Map[Identifier, Eval[Value]])] =
-    evaluateCollect(p, { pack => pack.program.lets.lastOption })
-
-  def evalLastTest(p: PackageName) =
-    evaluateCollect(p, { pack => Package.testValue(pack) })
-      .map { case (lfe, tpe, extEnv) =>
-        LetFreeEvaluation.evaluate(lfe, extEnv, None)
-      }
-      .map(v => Eval.later(Test.fromValue(v)))
-
-
-  private def externalEnv(
-      p: Package.Typed[(Declaration, T)]
-  ): LetFreeEvaluation.ExtEnv = {
+  private def externalEnv(p: Package.Typed[T]): LetFreeEvaluation.ExtEnv = {
     val externalNames = p.program.externalDefs
     externalNames.iterator.map { n =>
       val tpe = p.program.types.getValue(p.name, n) match {
@@ -1216,10 +1176,10 @@ case class LetFreeEvaluation[T](
   }
 
   private def importedEnv(
-      p: Package.Typed[(Declaration, T)]
+      p: Package.Typed[T]
   ): LetFreeEvaluation.ExtEnv =
     p.imports.iterator.flatMap { imp =>
-      val pack = packs.toMap.get(imp.pack.name) match {
+      val pack = pm.toMap.get(imp.pack.name) match {
         case Some(p) => p
         case None    =>
           // $COVERAGE-OFF$
@@ -1234,11 +1194,41 @@ case class LetFreeEvaluation[T](
         }
     }.toMap
 
-  val valueToJson: ValueToJson = ValueToJson({ case Type.Const.Defined(pn, t) =>
+  def evaluateCollect(
+      p: PackageName,
+      fn: Pack => Option[
+        (
+            Identifier.Bindable,
+            RecursionKind,
+            TypedExpr[T]
+        )
+      ]
+  ) = {
     for {
-      pack <- packs.toMap.get(pn)
-      dt <- pack.program.types.getType(pn, t)
-    } yield dt
-  })
-   */
+      pack <- pm.toMap.get(p)
+      (name, _, tpe) <- fn(pack)
+      extEnv = externalEnv(pack) ++ importedEnv(pack)
+    } yield (
+      tpe,
+      extEnv,
+      pack
+    )
+  }
+
+  def evaluateLast(
+      p: PackageName
+  ) =
+    evaluateCollect(p, { pack => pack.program.lets.lastOption })
+      .map { case (tpe, extEnv, pack) =>
+        evaluate(tpe, extEnv, pack)
+      }
+      .map(v => Eval.later(Test.fromValue(v)))
+
+  def evalLastTest(p: PackageName) =
+    evaluateCollect(p, { pack => Package.testValue(pack) })
+      .map { case (tpe, extEnv, pack) =>
+        evaluate(tpe, extEnv, pack)
+      }
+      .map(v => Eval.later(Test.fromValue(v)))
+
 }
