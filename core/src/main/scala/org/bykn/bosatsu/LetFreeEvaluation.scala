@@ -790,16 +790,16 @@ case class LetFreeEvaluation[T](
       p: Package.Typed[T]
   ): NormState[Leaf] = simplifyMatch(m, scope, p).flatMap(_.toLeaf)
 
-  def collectFirst[A, B](
-      lst: List[A],
-      fn: (A => NormState[Option[B]])
-  ): NormState[Option[B]] = lst match {
-    case Nil => State.pure(None)
+  def collectFirst[A, B, S[_]](
+      lstInit: List[A],
+      fn: (A => S[Option[B]])
+  )(implicit mon: cats.Monad[S]): S[Option[B]] = mon.tailRecM(lstInit) {
+    case Nil => mon.pure(Right(None))
     case h :: tail =>
       val nsOptB = fn(h)
-      nsOptB.flatMap {
-        case None => collectFirst(tail, fn)
-        case _    => nsOptB
+      mon.map(nsOptB) {
+        case None  => Left(tail)
+        case someV => Right(someV)
       }
   }
 
@@ -814,7 +814,8 @@ case class LetFreeEvaluation[T](
           Pattern[(PackageName, Constructor), Type],
           PatternEnv[LetFreeValue],
           TypedExpr[T]
-      )
+      ),
+      NormState
     ](
       mtch.branches.toList,
       { case (pat, result) =>
