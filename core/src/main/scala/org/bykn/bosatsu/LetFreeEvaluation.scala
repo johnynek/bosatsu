@@ -1,7 +1,6 @@
 package org.bykn.bosatsu
 
 import cats.Eval
-// import LetFreeConversion.LetFreeExpressionTag
 import scala.annotation.tailrec
 import rankn.Type
 import scala.concurrent.Future
@@ -14,13 +13,7 @@ import org.bykn.bosatsu.rankn.TypeEnv
 import Identifier.{Bindable, Constructor}
 import cats.Applicative
 
-/*
- * LetFreeEvaluation exists so that we can verify that LetFreeExpressions do describe the same
- * output that the TypedExpressions that they are converted from describe.
- *
- * It is also useful for prototyping applications that heavily use LetFreeExpressions.
- */
-object LetFreeEvaluation {
+object ExpressionEvaluation {
   type ExtEnv = Map[Identifier, Eval[Value]]
   type Cache = Option[CMap[String, (Future[Value], rankn.Type)]]
 
@@ -76,7 +69,7 @@ object LetFreeEvaluation {
 
   /*
    * MaybeBind is an implementation of determining if a T satisfies a Pattern and if it does it creates an environment
-   * for right hand evaluation. This has been implemented for T as a LetFreeExpression, a Value, and a LetFreeValue. When
+   * for right hand evaluation. This has been implemented for T as a Value, and a ExpressionValue. When
    * attempting to bind it result in a Matches, NoMatch, or NotProvable which means there's not enough present information to
    * determine what this would do at runtime (eg this may be running at compile time.)
    */
@@ -475,12 +468,12 @@ object LetFreeEvaluation {
 
 }
 
-case class LetFreeEvaluation[T](
+case class ExpressionEvaluation[T](
     pm: PackageMap.Typed[T],
     externals: Externals,
-    extEnv: LetFreeEvaluation.ExtEnv
+    extEnv: ExpressionEvaluation.ExtEnv
 ) {
-  import LetFreeEvaluation._
+  import ExpressionEvaluation._
 
   val valueToLitValue: Value => Option[LitValue] = { v =>
     Some(LitValue(v.asExternal.toAny))
@@ -513,7 +506,7 @@ case class LetFreeEvaluation[T](
       }
   }
 
-  sealed trait LetFreeValue {
+  sealed trait ExpressionValue {
     def toJson: Json = this match {
       case ilv @ LazyValue(expression, scope, p) =>
         Json.JObject(
@@ -538,14 +531,14 @@ case class LetFreeEvaluation[T](
     def toLeaf: NormState[Leaf]
     def toValue: NormState[Value]
 
-    def toStructNat: NormState[Option[(Int, List[LetFreeValue])]]
-    def toStructEnum: NormState[Option[(Int, List[LetFreeValue])]]
-    def toStructStruct: NormState[Option[(Int, List[LetFreeValue])]]
-    def toStructNewType: NormState[Option[(Int, List[LetFreeValue])]]
+    def toStructNat: NormState[Option[(Int, List[ExpressionValue])]]
+    def toStructEnum: NormState[Option[(Int, List[ExpressionValue])]]
+    def toStructStruct: NormState[Option[(Int, List[ExpressionValue])]]
+    def toStructNewType: NormState[Option[(Int, List[ExpressionValue])]]
 
     def toStruct(
         df: rankn.DataFamily
-    ): NormState[Option[(Int, List[LetFreeValue])]] =
+    ): NormState[Option[(Int, List[ExpressionValue])]] =
       df match {
         case rankn.DataFamily.Nat     => toStructNat
         case rankn.DataFamily.Enum    => toStructEnum
@@ -554,32 +547,32 @@ case class LetFreeEvaluation[T](
       }
   }
 
-  type NormState[A] = State[Map[(PackageName, Identifier), LetFreeValue], A]
+  type NormState[A] = State[Map[(PackageName, Identifier), ExpressionValue], A]
 
   def expressionToString(expr: TypedExpr[T]): String = ???
 
   case class LazyValue(
       expression: TypedExpr[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
-  ) extends LetFreeValue {
-    def cleanedScope: List[(String, LetFreeValue)] = ???
+  ) extends ExpressionValue {
+    def cleanedScope: List[(String, ExpressionValue)] = ???
     //  expression.tag.varSet.toList.sorted.map { n => (n, scope(n)) }
 
-    lazy val toStructNat: NormState[Option[(Int, List[LetFreeValue])]] =
+    lazy val toStructNat: NormState[Option[(Int, List[ExpressionValue])]] =
       lazyToStructImpl(this, rankn.DataFamily.Nat)
-    lazy val toStructEnum: NormState[Option[(Int, List[LetFreeValue])]] =
+    lazy val toStructEnum: NormState[Option[(Int, List[ExpressionValue])]] =
       lazyToStructImpl(this, rankn.DataFamily.Enum)
-    lazy val toStructStruct: NormState[Option[(Int, List[LetFreeValue])]] =
+    lazy val toStructStruct: NormState[Option[(Int, List[ExpressionValue])]] =
       lazyToStructImpl(this, rankn.DataFamily.Struct)
-    lazy val toStructNewType: NormState[Option[(Int, List[LetFreeValue])]] =
+    lazy val toStructNewType: NormState[Option[(Int, List[ExpressionValue])]] =
       lazyToStructImpl(this, rankn.DataFamily.NewType)
 
     lazy val toLeaf = evalToLeaf(expression, scope, p)
     lazy val toValue = toLeaf.flatMap(_.toValue)
   }
 
-  case class ComputedValue(value: Value) extends LetFreeValue {
+  case class ComputedValue(value: Value) extends ExpressionValue {
     lazy val toStructNat =
       State.pure(computedToStructImpl(this, rankn.DataFamily.Nat))
     lazy val toStructEnum =
@@ -593,8 +586,8 @@ case class LetFreeEvaluation[T](
     val toValue = State.pure(value)
   }
 
-  case class StructValue(n: Int, values: List[LetFreeValue], df: DataFamily)
-      extends LetFreeValue {
+  case class StructValue(n: Int, values: List[ExpressionValue], df: DataFamily)
+      extends ExpressionValue {
 
     lazy val toLeaf: NormState[Leaf] = State.pure(Leaf.Struct(n, values, df))
     lazy val toValue: NormState[Value] =
@@ -608,14 +601,14 @@ case class LetFreeEvaluation[T](
 
   def nvToLitValue(implicit
       extEnv: ExtEnv
-  ): LetFreeValue => NormState[Option[LitValue]] = { lfv =>
+  ): ExpressionValue => NormState[Option[LitValue]] = { lfv =>
     lfv.toValue.map(valueToLitValue)
   }
 
   def nvToStruct(
       extEnv: ExtEnv
-  ): (LetFreeValue, rankn.DataFamily) => NormState[
-    Option[(Int, List[LetFreeValue])]
+  ): (ExpressionValue, rankn.DataFamily) => NormState[
+    Option[(Int, List[ExpressionValue])]
   ] = { case (nv, df) =>
     nv.toStruct(df)
   }
@@ -630,7 +623,7 @@ case class LetFreeEvaluation[T](
   def lazyToStructImpl(
       lv: LazyValue,
       df: rankn.DataFamily
-  ): NormState[Option[(Int, List[LetFreeValue])]] = lv.toLeaf.flatMap {
+  ): NormState[Option[(Int, List[ExpressionValue])]] = lv.toLeaf.flatMap {
     case Leaf.Struct(n, values, _)         => State.pure(Some((n, values)))
     case Leaf.Value(cv @ ComputedValue(_)) => cv.toStruct(df)
     // $COVERAGE-OFF$
@@ -646,7 +639,7 @@ case class LetFreeEvaluation[T](
       case Leaf.Lambda(lambda, scope, p) =>
         State.inspect(sa =>
           new Value.FnValue(
-            LetFreeFnValue(lambda.expr, lambda.arg, scope, p, sa)
+            ExpressionFnValue(lambda.expr, lambda.arg, scope, p, sa)
           )
         )
       case Leaf.Literal(TypedExpr.Literal(lit, _, _)) =>
@@ -656,12 +649,12 @@ case class LetFreeEvaluation[T](
   object Leaf {
     case class Struct(
         n: Int,
-        values: List[LetFreeValue],
+        values: List[ExpressionValue],
         df: DataFamily
     ) extends Leaf
     case class Lambda(
         lambda: TypedExpr.AnnotatedLambda[T],
-        scope: Map[String, LetFreeValue],
+        scope: Map[String, ExpressionValue],
         p: Package.Typed[T]
     ) extends Leaf
     case class Literal(expr: TypedExpr.Literal[T]) extends Leaf
@@ -671,21 +664,21 @@ case class LetFreeEvaluation[T](
 
   def annotationToLeaf(
       a: TypedExpr.Annotation[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] =
     evalToLeaf(a.term, scope, p)
 
   def genericToLeaf(
       g: TypedExpr.Generic[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] =
     evalToLeaf(g.in, scope, p)
 
   def localToLeaf(
       v: TypedExpr.Local[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] = {
     scope(v.name.asString).toLeaf
@@ -694,7 +687,7 @@ case class LetFreeEvaluation[T](
   private def norm(
       pack: Package.Typed[T],
       item: Identifier,
-      scope: Map[String, LetFreeValue]
+      scope: Map[String, ExpressionValue]
   ): NormState[Leaf] =
     NameKind(pack, item) match {
       case Some(namekind) =>
@@ -722,7 +715,7 @@ case class LetFreeEvaluation[T](
 
   def globalToLeaf(
       v: TypedExpr.Global[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] = {
     val name = if (p.name == v.pack) {
@@ -747,14 +740,14 @@ case class LetFreeEvaluation[T](
 
   def annotatedLambdaToLeaf(
       al: TypedExpr.AnnotatedLambda[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] =
     State.pure(Leaf.Lambda(al, scope, p))
 
   def letToLeaf(
       l: TypedExpr.Let[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] =
     l.recursive match {
@@ -770,7 +763,7 @@ case class LetFreeEvaluation[T](
 
   def appToLeaf(
       a: TypedExpr.App[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] = for {
     fn <- evalToLeaf(a.fn, scope, p)
@@ -780,13 +773,13 @@ case class LetFreeEvaluation[T](
 
   def literalToLeaf(
       l: TypedExpr.Literal[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] = State.pure(Leaf.Literal(l))
 
   def matchToLeaf(
       m: TypedExpr.Match[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] = simplifyMatch(m, scope, p).flatMap(_.toLeaf)
 
@@ -805,21 +798,21 @@ case class LetFreeEvaluation[T](
 
   def simplifyMatch(
       mtch: TypedExpr.Match[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
-  ): NormState[LetFreeValue] = {
+  ): NormState[ExpressionValue] = {
     collectFirst[
       (Pattern[(PackageName, Constructor), Type], TypedExpr[T]),
       (
           Pattern[(PackageName, Constructor), Type],
-          PatternEnv[LetFreeValue],
+          PatternEnv[ExpressionValue],
           TypedExpr[T]
       ),
       NormState
     ](
       mtch.branches.toList,
       { case (pat, result) =>
-        LetFreeValueMaybeBind(pat, p)
+        ExpressionValueMaybeBind(pat, p)
           .apply(LazyValue(mtch.arg, scope, p), Map.empty)
           .map {
             case Matches(env) => Some((pat, env, result))
@@ -830,12 +823,13 @@ case class LetFreeEvaluation[T](
             // $COVERAGE-ON$
           }
       }
-    ).map(_.get).map { case (_, patEnv: Map[Bindable, LetFreeValue], result) =>
-      LazyValue(
-        result,
-        scope ++ (patEnv.map { case (k, v) => (k.asString, v) }),
-        p
-      )
+    ).map(_.get).map {
+      case (_, patEnv: Map[Bindable, ExpressionValue], result) =>
+        LazyValue(
+          result,
+          scope ++ (patEnv.map { case (k, v) => (k.asString, v) }),
+          p
+        )
     }
   }
 
@@ -844,11 +838,11 @@ case class LetFreeEvaluation[T](
       recursive: RecursionKind,
       expr: TypedExpr[T],
       pack: Package.Typed[T],
-      scope: Map[String, LetFreeValue]
+      scope: Map[String, ExpressionValue]
   ): NormState[Leaf] =
     for {
       lookup <- State.inspect {
-        lets: Map[(PackageName, Identifier), LetFreeValue] =>
+        lets: Map[(PackageName, Identifier), ExpressionValue] =>
           lets.get((pack.name, name))
       }
       outExpr <- lookup match {
@@ -860,7 +854,7 @@ case class LetFreeEvaluation[T](
               val v = LazyValue(expr, scope, pack)
               for {
                 _ <- State.modify {
-                  lets: Map[(PackageName, Identifier), LetFreeValue] =>
+                  lets: Map[(PackageName, Identifier), ExpressionValue] =>
                     lets + ((pack.name, name) -> v)
                 }
                 res <- v.toLeaf
@@ -869,7 +863,7 @@ case class LetFreeEvaluation[T](
               val v = LazyValue(expr, scope, pack)
               for {
                 _ <- State.modify {
-                  lets: Map[(PackageName, Identifier), LetFreeValue] =>
+                  lets: Map[(PackageName, Identifier), ExpressionValue] =>
                     lets + ((pack.name, name) -> v)
                 }
                 res <- v.toLeaf
@@ -880,7 +874,7 @@ case class LetFreeEvaluation[T](
 
   def evalToLeaf(
       expr: TypedExpr[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Leaf] =
     expr match {
@@ -895,105 +889,71 @@ case class LetFreeEvaluation[T](
       case l @ TypedExpr.Literal(_, _, _)   => literalToLeaf(l, scope, p)
       case m @ TypedExpr.Match(_, _, _)     => matchToLeaf(m, scope, p)
 
-      /*
-      case LetFreeExpression.Struct(n, lst, df) =>
-        Leaf.Struct(
-          n,
-          lst.zipWithIndex.map { case (argExpr, i) =>
-            LazyValue(argExpr, scope)
-          },
-          df
-        )
-      case LetFreeExpression.App(fn, arg) => {
-        applyLeaf(
-          evalToLeaf(fn, scope),
-          LazyValue(arg, scope)
-        ).toLeaf
-      }
-      case LetFreeExpression.ExternalVar(p, n, tpe) =>
-        Leaf.Value(ComputedValue(extEnv(n).value))
-      case LetFreeExpression.Recursion(
-            LetFreeExpression.Lambda(lambdaExpr)
-          ) => {
-        lazy val leaf: Leaf =
-          evalToLeaf(lambdaExpr, LazyValue(expr, scope) :: scope)
-        leaf
-      }
-      // $COVERAGE-OFF$ we don't have Recursions without lambdas
-      case LetFreeExpression.Recursion(notLambda) =>
-        sys.error(s"Recursion should always contain a Lambda")
-      // $COVERAGE-ON$
-      case LetFreeExpression.LambdaVar(index) =>
-        scope(index).toLeaf
-      case mtch @ LetFreeExpression.Match(_, _) =>
-        simplifyMatch(mtch, scope).toLeaf
-      case lambda @ LetFreeExpression.Lambda(_) =>
-        Leaf.Lambda(lambda, scope, extEnv, cache)
-      case lit @ LetFreeExpression.Literal(_) => Leaf.Literal(lit)
-       */
     }
 
   def nvToList(implicit
       extEnv: ExtEnv
-  ): LetFreeValue => NormState[Option[List[LetFreeValue]]] = { normalValue =>
-    val F = implicitly[cats.FlatMap[NormState]]
-    //@tailrec
-    def loop(
-        nvInit: LetFreeValue,
-        accInit: List[LetFreeValue]
-    ): NormState[List[LetFreeValue]] = F.tailRecM((nvInit, accInit)) {
-      case (nv, acc) =>
-        nv.toStruct(rankn.DataFamily.Enum)
-          .map(_.get match {
-            case (0, _)          => Right(acc)
-            case (1, List(h, t)) => Left((t, h :: acc))
-            case _               =>
-              // $COVERAGE-OFF$ this should be unreachable
-              sys.error(
-                "Type checking should only allow this to be applied to a list struct"
-              )
-            // $COVERAGE-ON$
-          })
-    }
-    loop(normalValue, Nil).map(_.reverse).map(Some(_))
+  ): ExpressionValue => NormState[Option[List[ExpressionValue]]] = {
+    normalValue =>
+      val F = implicitly[cats.FlatMap[NormState]]
+      //@tailrec
+      def loop(
+          nvInit: ExpressionValue,
+          accInit: List[ExpressionValue]
+      ): NormState[List[ExpressionValue]] = F.tailRecM((nvInit, accInit)) {
+        case (nv, acc) =>
+          nv.toStruct(rankn.DataFamily.Enum)
+            .map(_.get match {
+              case (0, _)          => Right(acc)
+              case (1, List(h, t)) => Left((t, h :: acc))
+              case _               =>
+                // $COVERAGE-OFF$ this should be unreachable
+                sys.error(
+                  "Type checking should only allow this to be applied to a list struct"
+                )
+              // $COVERAGE-ON$
+            })
+      }
+      loop(normalValue, Nil).map(_.reverse).map(Some(_))
   }
 
-  def nvFromList(p: Package.Typed[T]): List[LetFreeValue] => LetFreeValue = {
-    lst =>
-      @tailrec
-      def loop(vals: List[LetFreeValue], acc: StructValue): StructValue =
-        vals match {
-          case Nil => acc
-          case h :: tail =>
-            loop(
-              tail,
-              StructValue(
-                1,
-                List(h, acc),
-                rankn.DataFamily.Enum
-              )
+  def nvFromList(
+      p: Package.Typed[T]
+  ): List[ExpressionValue] => ExpressionValue = { lst =>
+    @tailrec
+    def loop(vals: List[ExpressionValue], acc: StructValue): StructValue =
+      vals match {
+        case Nil => acc
+        case h :: tail =>
+          loop(
+            tail,
+            StructValue(
+              1,
+              List(h, acc),
+              rankn.DataFamily.Enum
             )
-        }
-      loop(lst.reverse, StructValue(0, Nil, rankn.DataFamily.Enum))
+          )
+      }
+    loop(lst.reverse, StructValue(0, Nil, rankn.DataFamily.Enum))
   }
 
   type Applyable =
-    Either[Value, (TypedExpr.AnnotatedLambda[T], List[LetFreeValue])]
-  type ToLFV = Option[LetFreeValue => Future[Value]]
+    Either[Value, (TypedExpr.AnnotatedLambda[T], List[ExpressionValue])]
+  type ToLFV = Option[ExpressionValue => Future[Value]]
 
-  case class ExprFnValue(toExprFn: LetFreeValue => Value)
+  case class ExprFnValue(toExprFn: ExpressionValue => Value)
       extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
       toExprFn(ComputedValue(v))
     }
   }
 
-  case class LetFreeFnValue(
+  case class ExpressionFnValue(
       lambda: TypedExpr[T],
       arg: Bindable,
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T],
-      startState: Map[(PackageName, Identifier), LetFreeValue]
+      startState: Map[(PackageName, Identifier), ExpressionValue]
   ) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
       evalToValue(lambda, scope + (arg.asString -> ComputedValue(v)), p)
@@ -1005,7 +965,7 @@ case class LetFreeEvaluation[T](
 
   def attemptExprFn(
       v: Value
-  ): Either[LetFreeValue => Value, Value => Value] = v match {
+  ): Either[ExpressionValue => Value, Value => Value] = v match {
     case fv @ Value.FnValue(f) =>
       fv.arg match {
         case ExprFnValue(ef) => Left(ef)
@@ -1020,7 +980,7 @@ case class LetFreeEvaluation[T](
 
   def applyLeaf(
       applyable: Leaf,
-      arg: LetFreeValue,
+      arg: ExpressionValue,
       p: Package.Typed[T]
   ): NormState[Leaf] = applyable match {
     case Leaf.Lambda(lambda, scope, _) => {
@@ -1055,29 +1015,29 @@ case class LetFreeEvaluation[T](
     // $COVERAGE-ON$
   }
 
-  case class LetFreeValueMaybeBind(
+  case class ExpressionValueMaybeBind(
       pat: Pattern[
         (PackageName, Identifier.Constructor),
         rankn.Type
       ],
       p: Package.Typed[T]
-  ) extends MaybeBind[LetFreeValue](pat) {
-    def toLitValue(t: LetFreeValue): NormState[Option[LitValue]] =
+  ) extends MaybeBind[ExpressionValue](pat) {
+    def toLitValue(t: ExpressionValue): NormState[Option[LitValue]] =
       nvToLitValue(extEnv)(t)
-    def toStruct(t: LetFreeValue, df: DataFamily) =
+    def toStruct(t: ExpressionValue, df: DataFamily) =
       nvToStruct(extEnv)(t, df)
-    def toList(t: LetFreeValue): NormState[Option[List[LetFreeValue]]] =
+    def toList(t: ExpressionValue): NormState[Option[List[ExpressionValue]]] =
       nvToList(extEnv)(t)
-    def fromList(lst: List[LetFreeValue]): LetFreeValue =
+    def fromList(lst: List[ExpressionValue]): ExpressionValue =
       nvFromList(p)(lst)
-    def fromString(str: String): LetFreeValue =
+    def fromString(str: String): ExpressionValue =
       ComputedValue(Value.Str(str))
     def maybeBind(
         pat: Pattern[
           (PackageName, Identifier.Constructor),
           rankn.Type
         ]
-    ) = { (v: LetFreeValue, env: PatternEnv[LetFreeValue]) =>
+    ) = { (v: ExpressionValue, env: PatternEnv[ExpressionValue]) =>
       this.apply(v, env)
     }
     def definedForCons(pc: (PackageName, Constructor)): rankn.DefinedType[Any] =
@@ -1086,7 +1046,7 @@ case class LetFreeEvaluation[T](
 
   def evaluateStruct(
       enum: Int,
-      args: List[LetFreeValue],
+      args: List[ExpressionValue],
       df: DataFamily
   ): NormState[Value] = df match {
     case rankn.DataFamily.Enum =>
@@ -1119,7 +1079,7 @@ case class LetFreeEvaluation[T](
 
   def evalToValue(
       ne: TypedExpr[T],
-      scope: Map[String, LetFreeValue],
+      scope: Map[String, ExpressionValue],
       p: Package.Typed[T]
   ): NormState[Value] = LazyValue(ne, scope, p).toValue
 
@@ -1133,10 +1093,10 @@ case class LetFreeEvaluation[T](
       arity: Int,
       wrapper: (
           rankn.Type,
-          List[LetFreeValue]
+          List[ExpressionValue]
       ) => Value
   ): FfiCall = {
-    def evalExprFn(t: rankn.Type, revArgs: List[LetFreeValue]): ExprFnValue =
+    def evalExprFn(t: rankn.Type, revArgs: List[ExpressionValue]): ExprFnValue =
       if (revArgs.length + 1 < arity) {
         ExprFnValue { arg =>
           new Value.FnValue(evalExprFn(t, arg :: revArgs))
@@ -1154,7 +1114,7 @@ case class LetFreeEvaluation[T](
     Referant[Variance]
   ], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[T], Any]]
 
-  private def externalEnv(p: Package.Typed[T]): LetFreeEvaluation.ExtEnv = {
+  private def externalEnv(p: Package.Typed[T]): ExpressionEvaluation.ExtEnv = {
     val externalNames = p.program.externalDefs
     externalNames.iterator.map { n =>
       val tpe = p.program.types.getValue(p.name, n) match {
@@ -1178,7 +1138,7 @@ case class LetFreeEvaluation[T](
 
   private def importedEnv(
       p: Package.Typed[T]
-  ): LetFreeEvaluation.ExtEnv =
+  ): ExpressionEvaluation.ExtEnv =
     p.imports.iterator.flatMap { imp =>
       val pack = pm.toMap.get(imp.pack.name) match {
         case Some(p) => p
