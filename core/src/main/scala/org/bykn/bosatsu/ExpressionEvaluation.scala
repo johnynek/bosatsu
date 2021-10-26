@@ -628,7 +628,6 @@ case class ExpressionEvaluation[T](
 
   sealed abstract class Leaf {
     lazy val toValue: NormState[Value] = this match {
-      case Leaf.Constructor(_)          => ???
       case Leaf.Struct(enum, args, df)  => evaluateStruct(enum, args, df)
       case Leaf.Value(ComputedValue(v)) => State.pure(v)
       case Leaf.Lambda(lambda, scope, p, extEnv) =>
@@ -655,7 +654,6 @@ case class ExpressionEvaluation[T](
     ) extends Leaf
     case class Literal(expr: TypedExpr.Literal[T]) extends Leaf
     case class Value(value: ComputedValue) extends Leaf
-    case class Constructor(constructor: NameKind.Constructor[T]) extends Leaf
   }
 
   def annotationToLeaf(
@@ -700,8 +698,8 @@ case class ExpressionEvaluation[T](
               extEnv,
               scope
             )
-          case c @ NameKind.Constructor(_, _, _, _) =>
-            State.pure(Leaf.Constructor(c))
+          case c @ NameKind.Constructor(cn, _, dt, _) =>
+            State.pure(constructor(cn, dt))
           case NameKind.Import(from, orig) =>
             // we reset the environment in the other package
             val impPack = pm.toMap(from.name)
@@ -1128,6 +1126,18 @@ case class ExpressionEvaluation[T](
   type Pack = Package[Package.Interface, NonEmptyList[
     Referant[Variance]
   ], Referant[Variance], Program[TypeEnv[Variance], TypedExpr[T], Any]]
+
+  private def constructor(
+      c: Constructor,
+      dt: rankn.DefinedType[Any]
+  ): Leaf.Struct = {
+    val (enum, arity) =
+      dt.constructors.toList.iterator.zipWithIndex.collectFirst {
+        case (cf, idx) if cf.name == c => (idx, cf.args.size)
+      }.get
+
+    Leaf.Struct(enum, Nil, dt.dataFamily)
+  }
 
   private def externalEnv(p: Package.Typed[T]): ExpressionEvaluation.ExtEnv = {
     val externalNames = p.program.externalDefs
