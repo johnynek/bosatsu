@@ -573,6 +573,59 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       def run = runEval.map(_._2)
     }
 
+    case class ExpressionEvaluate(
+      inputs: PathGen,
+      mainPackage: MainIdentifier,
+      deps: PathGen,
+      errColor: Colorize,
+      packRes: PackageResolver) extends MainCommand {
+
+      type Result = Output.EvaluationResult
+
+      def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] =
+        for {
+          ins <- inputs.read
+          ds <- deps.read
+          pn <- buildPackMap(mainPackage.addIfAbsent(ins), ds, errColor, packRes)
+          (packs, names) = pn
+          mainPackageNameValue <- mainPackage.getMain(names)
+          (mainPackageName, value) = mainPackageNameValue
+          out <- if (packs.toMap.contains(mainPackageName)) {
+                    val ev = ExpressionEvaluation(packs, Predef.jvmExternals)
+
+                    val res: Option[Value] = value match {
+                      case None => ev.evaluateLast(mainPackageName)
+                      case Some(ident) => ??? // ev.evaluateName(mainPackageName, ident)
+                    }
+
+                    res match {
+                      case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
+                      case Some(eval) =>
+                        // here is the doc:
+                        val memoE = eval.memoize
+                        val fn = ??? // ev.valueToDoc.toDoc(tpe)
+                        val edoc =
+                          memoE.map { v =>
+                            fn(v) match {
+                              case Right(d) => d
+                              case Left(err) =>
+                                // $COVERAGE-OFF$ unreachable due to being well typed
+                                sys.error(s"got illtyped error: $err")
+                                // $COVERAGE-ON$
+                            }
+                          }
+
+                        moduleIOMonad.pure((ev, Output.EvaluationResult(eval, tpe, edoc)))
+                    }
+                  }
+                  else {
+                    moduleIOMonad.raiseError(new Exception(s"package ${mainPackageName.asString} not found"))
+                  }
+        } yield out
+
+      def run = runEval.map(_._2)
+    }
+
     case class ToJson(
       inputs: PathGen,
       deps: PathGen,
