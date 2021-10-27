@@ -1199,7 +1199,6 @@ case class ExpressionEvaluation[T](
     .map { case (tpe, extEnv, pack) =>
       evaluate(tpe, extEnv, pack)
     }
-    .map(v => Eval.later(Test.fromValue(v)))
 
   def evalLastTest(p: PackageName) =
     evaluateCollect(p, { pack => Package.testValue(pack) })
