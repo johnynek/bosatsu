@@ -1,30 +1,28 @@
 package org.bykn.bosatsu
+
 import java.nio.file.{Path => JPath, Paths => JPaths}
 import cats.effect.IO
 import org.scalatest.funsuite.AnyFunSuite
-import LetFreeEvaluation.{ComputedValue, LazyValue, ExtEnv, Cache}
+// import ExpressionEvaluation.{ComputedValue, LazyValue, ExtEnv, Cache}
 import Value.ExternalValue
 import org.scalatest.Assertion
-import PathModule.MainCommand.{
-  LetFreeEvaluate,
-  MainIdentifier,
-  PackageResolver,
-  LetFreeTestRun
-}
-import PathModule.Output
 import cats.data.NonEmptyList
+import PathModule.MainCommand.{
+  ExpressionEvaluate,
+  MainIdentifier,
+  PackageResolver
+}
 
 class LetFreeEvaluationTest extends AnyFunSuite {
 
   def letFreeTest(
       fileNames: List[String],
-      packageName: String,
-      altAsserts: List[Output.LetFreeEvaluationResult => Assertion] = Nil
-  ) =
+      packageName: String
+  ) = {
     PackageName.parse(packageName) match {
       case None => fail(s"bad packageName: $packageName")
-      case Some(pn) =>
-        LetFreeEvaluate(
+      case Some(pn) => {
+        ExpressionEvaluate(
           PathGen.Combine(
             fileNames.map(fileName =>
               PathGen.Direct[IO, JPath](
@@ -37,17 +35,8 @@ class LetFreeEvaluationTest extends AnyFunSuite {
           LocationMap.Colorize.Console,
           PackageResolver.ExplicitOnly
         ).run
-          .map { case res @ Output.LetFreeEvaluationResult(lfe, tpe, _, _) =>
-            altAsserts match {
-              case Nil => {
-                val v = res.value(None)
-                val test = Test.fromValue(v)
-                assert(test.assertions > 0)
-                assert(test.failures == None)
-              }
-              case lst => lst.foreach(_.apply(res))
-            }
-          }
           .unsafeRunSync()
+      }
     }
+  }
 }
