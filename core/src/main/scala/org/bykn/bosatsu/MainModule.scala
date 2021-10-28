@@ -582,7 +582,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       type Result = Output.EvaluationResult
 
-      def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] =
+      def runEval: IO[(ExpressionEvaluation[Any], Output.EvaluationResult)] =
         for {
           ins <- inputs.read
           ds <- deps.read
@@ -593,17 +593,17 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           out <- if (packs.toMap.contains(mainPackageName)) {
                     val ev = ExpressionEvaluation(packs, Predef.jvmExternals)
 
-                    val res: Option[Value] = value match {
+                    val res: Option[(Eval[Value], rankn.Type)] = value match {
                       case None => ev.evaluateLast(mainPackageName)
-                      case Some(ident) => ??? // ev.evaluateName(mainPackageName, ident)
+                      case Some(ident) => ev.evaluateName(mainPackageName, ident)
                     }
 
                     res match {
                       case None => moduleIOMonad.raiseError(new Exception("found no main expression"))
-                      case Some(eval) =>
+                      case Some((eval, tpe)) =>
                         // here is the doc:
                         val memoE = eval.memoize
-                        val fn = ??? // ev.valueToDoc.toDoc(tpe)
+                        val fn = ev.valueToDoc.toDoc(tpe)
                         val edoc =
                           memoE.map { v =>
                             fn(v) match {

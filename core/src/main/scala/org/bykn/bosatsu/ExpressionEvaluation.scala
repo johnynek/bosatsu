@@ -1100,7 +1100,8 @@ case class ExpressionEvaluation[T](
       ne: TypedExpr[T],
       extEnv: Map[Identifier, Eval[Value]],
       p: Package.Typed[T]
-  ): Value = evalToValue(ne, Map.empty, p, extEnv).run(Map.empty).value._2
+  ): (Eval[Value], rankn.Type) =
+    (evalToValue(ne, Map.empty, p, extEnv).run(Map.empty).map(_._2), ne.getType)
 
   def exprFn(
       arity: Int,
@@ -1205,6 +1206,27 @@ case class ExpressionEvaluation[T](
       .map { case (tpe, extEnv, pack) =>
         evaluate(tpe, extEnv, pack)
       }
-      .map(v => Eval.later(Test.fromValue(v)))
+      .map(v => Eval.later(Test.fromValue(v._1.value)))
 
+  def evaluateName(
+      p: PackageName,
+      name: Bindable
+  ): Option[(Eval[Value], Type)] =
+    evaluateCollect(
+      p,
+      { pack =>
+        pack.program.lets.filter { case (n, _, _) => n == name }.lastOption
+      }
+    )
+      .map { case (tpe, extEnv, pack) =>
+        evaluate(tpe, extEnv, pack)
+      }
+
+  val valueToDoc: ValueToDoc = ValueToDoc({
+    case Type.Const.Defined(pn, t) =>
+      for {
+        pack <- pm.toMap.get(pn)
+        dt <- pack.program.types.getType(pn, t)
+      } yield dt
+  })
 }
