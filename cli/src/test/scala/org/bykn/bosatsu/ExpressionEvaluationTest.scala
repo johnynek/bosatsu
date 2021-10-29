@@ -12,12 +12,15 @@ import PathModule.MainCommand.{
   MainIdentifier,
   PackageResolver
 }
+import PathModule.Output
+import cats.effect.unsafe.implicits.global
 
-class LetFreeEvaluationTest extends AnyFunSuite {
+class ExpressionEvaluationTest extends AnyFunSuite {
 
   def letFreeTest(
       fileNames: List[String],
-      packageName: String
+      packageName: String,
+      altAsserts: List[Output.EvaluationResult => Assertion] = Nil
   ) = {
     PackageName.parse(packageName) match {
       case None => fail(s"bad packageName: $packageName")
@@ -35,6 +38,17 @@ class LetFreeEvaluationTest extends AnyFunSuite {
           LocationMap.Colorize.Console,
           PackageResolver.ExplicitOnly
         ).run
+          .map { case res @ Output.EvaluationResult(_, _, _) =>
+            altAsserts match {
+              case Nil => {
+                val v = res.value
+                val test = Test.fromValue(v.value)
+                assert(test.assertions > 0)
+                assert(test.failures == None)
+              }
+              case lst => lst.foreach(_.apply(res))
+            }
+          }
           .unsafeRunSync()
       }
     }
