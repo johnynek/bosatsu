@@ -47,5 +47,5 @@ jobs:
         java:
           - '8'
         scala:
-          - '2.13.6'
+          - '2.13.7'
     timeout-minutes: 30
