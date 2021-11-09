@@ -1057,14 +1057,14 @@ case class ExpressionEvaluation[T](
   }
 
   def evaluateStruct(
-      enum: Int,
+      variant: Int,
       args: List[ExpressionValue],
       df: DataFamily
   ): NormState[Value] = df match {
     case rankn.DataFamily.Enum =>
       traverseForNS(args.map(_.toValue)).map(lst =>
         Value.SumValue(
-          enum,
+          variant,
           Value.ProductValue.fromList(
             lst
           )
