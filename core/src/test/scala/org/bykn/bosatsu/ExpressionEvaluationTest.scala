@@ -5,6 +5,8 @@ import TestUtils.testInferred
 import org.scalatest.Assertion
 import org.scalatest.Assertions.{succeed, fail}
 import cats.Eval
+import java.math.BigInteger
+import Value.{SumValue, ConsValue, ExternalValue, UnitValue}
 
 object ExpressionEvaluationTest {
   def evalTest(
@@ -41,6 +43,42 @@ main = "aa"
       "LetFreeTest/String",
       Externals(Map.empty),
       List({ x => assert(x._1.value == Value.ExternalValue("aa"), x._1.value) })
+    )
+
+    evalTest(
+      List("""
+package LetFreeTest/String
+main = 22
+"""),
+      "LetFreeTest/String",
+      Externals(Map.empty),
+      List({ x =>
+        assert(
+          x._1.value == Value.ExternalValue(BigInteger.valueOf(22)),
+          x._1.value
+        )
+      })
+    )
+
+    evalTest(
+      List("""
+package LetFreeTest/String
+main = [23]
+"""),
+      "LetFreeTest/String",
+      Externals(Map.empty),
+      List({ x =>
+        assert(
+          x._1.value == SumValue(
+            1,
+            ConsValue(
+              ExternalValue(BigInteger.valueOf(23)),
+              ConsValue(SumValue(0, UnitValue), UnitValue)
+            )
+          ),
+          x._1.value
+        )
+      })
     )
   }
 }
