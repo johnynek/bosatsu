@@ -40,7 +40,7 @@ main = "aa"
 """),
       "LetFreeTest/String",
       Externals(Map.empty),
-      List()
+      List({ x => assert(x._1.value == Value.ExternalValue("aa"), x._1.value) })
     )
   }
 }
