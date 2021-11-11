@@ -369,7 +369,7 @@ object PackageError {
     existing
       .iterator
       .map { case (i, a) =>
-        val d = EditDistance(ident.asString.toIterable, i.asString.toIterable)
+        val d = EditDistance.string(ident.asString, i.asString)
         (i, d, a)
       }
       .filter(_._2 < ident.asString.length) // don't show things that require total edits
