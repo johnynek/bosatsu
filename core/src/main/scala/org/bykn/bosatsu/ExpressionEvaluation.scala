@@ -622,7 +622,7 @@ case class ExpressionEvaluation[T](
     case Leaf.Struct(n, values, _)         => State.pure(Some((n, values)))
     case Leaf.Value(cv @ ComputedValue(_)) => cv.toStruct(df)
     // $COVERAGE-OFF$
-    case other => sys.error(s"we should not get $other")
+    case other => sys.error(s"we should not get df: $df, leaf: $other")
     // $COVERAGE-ON$
   }
 
@@ -906,7 +906,7 @@ case class ExpressionEvaluation[T](
   val nvToList: ExpressionValue => NormState[Option[List[ExpressionValue]]] = {
     normalValue =>
       val F = implicitly[cats.FlatMap[NormState]]
-      //@tailrec
+
       def loop(
           nvInit: ExpressionValue,
           accInit: List[ExpressionValue]

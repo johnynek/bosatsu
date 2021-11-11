@@ -6,7 +6,7 @@ import org.scalatest.Assertion
 import org.scalatest.Assertions.{succeed, fail}
 import cats.Eval
 import java.math.BigInteger
-import Value.{SumValue, ConsValue, ExternalValue, UnitValue}
+import Value.{SumValue, ConsValue, ExternalValue, UnitValue, FnValue}
 
 object ExpressionEvaluationTest {
   def evalTest(
@@ -79,6 +79,44 @@ main = [23]
           x._1.value
         )
       })
+    )
+  }
+
+  test("recurse") {
+    evalTest(
+      List("""
+package Recur/Some
+def foo(x):
+  recur x:
+    []: ["a","b","c"]
+    ["a: ${bar}", *t]: NonEmptyList(bar, foo(t))
+    [_, *t]: NonEmptyList("zero", foo(t))
+out = foo
+"""),
+      "Recur/Some",
+      Externals(Map.empty),
+      List({ x =>
+        x._1.value match {
+          case FnValue(_) => succeed
+          case _          => fail()
+        }
+      })
+    )
+  }
+
+  test("foldLeft w/o loop applied") {
+    evalTest(
+      List("""
+package Recur/FoldLeft
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  recur lst:
+    EmptyList: item
+    NonEmptyList(head, tail): foldLeft(tail, fn(item, head), fn)
+out = [1,2,3].foldLeft(4, add)
+"""),
+      "Recur/FoldLeft",
+      Externals(Map.empty),
+      List({ x => assert(x._1.value == Value.ExternalValue("aa"), x._1.value) })
     )
   }
 }
