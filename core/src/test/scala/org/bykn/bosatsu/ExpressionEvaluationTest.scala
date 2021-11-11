@@ -107,16 +107,20 @@ out = foo
   test("foldLeft w/o loop applied") {
     evalTest(
       List("""
-package Recur/FoldLeft
-def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
-  recur lst:
-    EmptyList: item
-    NonEmptyList(head, tail): foldLeft(tail, fn(item, head), fn)
-out = [1,2,3].foldLeft(4, add)
+package Match/Basic
+
+out = match [1,2,3]:
+  EmptyList: 0
+  NonEmptyList(head, _): head
 """),
-      "Recur/FoldLeft",
+      "Match/Basic",
       Externals(Map.empty),
-      List({ x => assert(x._1.value == Value.ExternalValue("aa"), x._1.value) })
+      List({ x =>
+        assert(
+          x._1.value == Value.ExternalValue(BigInteger.valueOf(1)),
+          x._1.value
+        )
+      })
     )
   }
 }
