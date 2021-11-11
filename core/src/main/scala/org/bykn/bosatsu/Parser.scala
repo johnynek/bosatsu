@@ -93,10 +93,11 @@ object Parser {
   }
 
   sealed trait Error {
-    def showContext(errColor: LocationMap.Colorize): Option[Doc] =
+    def showContext(errColor: LocationMap.Colorize): Doc =
       this match {
         case Error.ParseFailure(pos, locations) =>
-          locations.showContext(pos, 2, errColor)
+          // this must return a value since the position is legitimate
+          locations.showContext(pos, 2, errColor).get
       }
   }
 

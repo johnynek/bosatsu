@@ -174,16 +174,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           }
         }
 
-    sealed trait ParseError {
-      def showContext(errColor: Colorize): Option[Doc] =
-        this match {
-          case ParseError.ParseFailure(err, _) =>
-            err.showContext(errColor)
-          case ParseError.FileError(_, _) =>
-            None
-        }
-    }
-
+    sealed trait ParseError
     object ParseError {
        case class ParseFailure(error: Parser.Error.ParseFailure, path: Path) extends ParseError
        case class FileError(readPath: Path, error: Throwable) extends ParseError
