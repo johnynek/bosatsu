@@ -95,26 +95,20 @@ object Parser {
   sealed trait Error {
     def showContext(errColor: LocationMap.Colorize): Option[Doc] =
       this match {
-        case Error.PartialParse(_, pos, locations) =>
-          locations.showContext(pos, 2, errColor)
         case Error.ParseFailure(pos, locations) =>
           locations.showContext(pos, 2, errColor)
       }
   }
 
   object Error {
-    case class PartialParse[A](got: A, position: Int, locations: LocationMap) extends Error
     case class ParseFailure(position: Int, locations: LocationMap) extends Error
   }
 
   def parse[A](p: P0[A], str: String): ValidatedNel[Error, (LocationMap, A)] = {
     val lm = LocationMap(str)
-    p.parse(str) match {
-      case Right(("", a)) =>
+    p.parseAll(str) match {
+      case Right(a) =>
         Validated.valid((lm, a))
-      case Right((rest, a)) =>
-        val idx = str.indexOf(rest)
-        Validated.invalidNel(Error.PartialParse(a, idx, lm))
       case Left(err) =>
         // TODO, we have much more detailed failure
         // information now, including a list of expectations
@@ -124,26 +118,11 @@ object Parser {
     }
   }
 
-  def inRange(lower: Char, c: Char, upper: Char): Boolean =
-    (lower <= c) && (c <= upper)
-
-  def isNum(c: Char): Boolean =
-    inRange('0', c, '9')
-
-  def isLower(c: Char): Boolean =
-    inRange('a', c, 'z')
-
-  def isUpper(c: Char): Boolean =
-    inRange('A', c, 'Z')
-
-  def isSpace(c: Char): Boolean =
-    (c == ' ') | (c == '\t')
-
-  def identifierChar(c: Char): Boolean =
-    isNum(c) || isUpper(c) || isLower(c) || (c == '_')
+  val identifierCharsP: P0[String] =
+    P.charIn('_' :: ('a' to 'z').toList ::: ('A' to 'Z').toList ::: ('0' to '9').toList).repAs0
 
   // parse one or more space characters
-  val spaces: P[Unit] = P.charsWhile(isSpace _).void
+  val spaces: P[Unit] = P.charIn(Set(' ', '\t')).rep.void
   val maybeSpace: P0[Unit] = spaces.?.void
 
   /** prefer to parse Right, then Left
@@ -161,13 +140,13 @@ object Parser {
     spacesAndLines.?.void
 
   val lowerIdent: P[String] =
-    (P.charIn('a' to 'z') ~ P.charsWhile0(identifierChar _)).string
+    (P.charIn('a' to 'z') ~ identifierCharsP).string
 
   val upperIdent: P[String] =
-    (P.charIn('A' to 'Z') ~ P.charsWhile0(identifierChar _)).string
+    (P.charIn('A' to 'Z') ~ identifierCharsP).string
 
   val py2Ident: P[String] =
-    (P.charIn('_' :: ('A' to 'Z').toList ::: ('a' to 'z').toList) ~ P.charsWhile0(identifierChar _)).string
+    (P.charIn('_' :: ('A' to 'Z').toList ::: ('a' to 'z').toList) ~ identifierCharsP).string
 
   // parse a keyword and some space or backtrack
   def keySpace(str: String): P[Unit] =
@@ -371,7 +350,5 @@ object Parser {
       case Left(err) =>
         val idx = err.failedAtOffset
         sys.error(s"failed to parse: $str: at $idx: (${str.substring(idx)}) with errors: ${err.expected}")
-      // $COVERAGE-ON$
     }
-
 }

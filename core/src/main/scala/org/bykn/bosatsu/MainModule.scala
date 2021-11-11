@@ -177,8 +177,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     sealed trait ParseError {
       def showContext(errColor: Colorize): Option[Doc] =
         this match {
-          case ParseError.PartialParse(err, _) =>
-            err.showContext(errColor)
           case ParseError.ParseFailure(err, _) =>
             err.showContext(errColor)
           case ParseError.FileError(_, _) =>
@@ -187,7 +185,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     }
 
     object ParseError {
-       case class PartialParse[A](error: Parser.Error.PartialParse[A], path: Path) extends ParseError
        case class ParseFailure(error: Parser.Error.ParseFailure, path: Path) extends ParseError
        case class FileError(readPath: Path, error: Throwable) extends ParseError
     }
@@ -195,7 +192,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     def parseString[A](p: P0[A], path: Path, str: String): ValidatedNel[ParseError, (LocationMap, A)] =
       Parser.parse(p, str).leftMap { nel =>
         nel.map {
-          case pp@Parser.Error.PartialParse(_, _, _) => ParseError.PartialParse(pp, path)
           case pf@Parser.Error.ParseFailure(_, _) => ParseError.ParseFailure(pf, path)
         }
       }
@@ -794,12 +790,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         case Validated.Valid(a) => Success(a)
         case Validated.Invalid(errs) =>
           val msgs = errs.toList.flatMap {
-            case ParseError.PartialParse(pp, path) =>
-              // we should never be partial here
-              val (r, c) = pp.locations.toLineCol(pp.position).get
-              val ctx = pp.locations.showContext(pp.position, 2, color).get
-              List(s"failed to parse completely $path at line ${r + 1}, column ${c + 1}",
-                  ctx.render(80))
             case ParseError.ParseFailure(pf, path) =>
               // we should never be partial here
               val (r, c) = pf.locations.toLineCol(pf.position).get

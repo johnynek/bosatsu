@@ -217,7 +217,7 @@ object Statement {
            Struct(name, typeArgs, argList)(region)
          }
 
-     val enum = {
+     val enumP = {
        val constructorP =
          (Identifier.consParser ~ argParser.parensLines1Cut.?)
            .map {
@@ -246,7 +246,7 @@ object Statement {
      }
 
      // bindingP should come last so there is no ambiguity about identifiers
-     P.oneOf(commentP :: paddingSP :: defP :: struct :: enum :: external :: bindingP :: Nil)
+     P.oneOf(commentP :: paddingSP :: defP :: struct :: enumP :: external :: bindingP :: Nil)
   }
 
   /**
