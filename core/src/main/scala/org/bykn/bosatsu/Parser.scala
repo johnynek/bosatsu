@@ -1,9 +1,9 @@
 package org.bykn.bosatsu
 
 import cats.data.{Kleisli, Validated, ValidatedNel, NonEmptyList}
-import org.typelevel.paiges.Doc
-
 import cats.parse.{Parser0 => P0, Parser => P}
+import org.typelevel.paiges.Doc
+import scala.collection.immutable.SortedMap
 
 import cats.implicits._
 
@@ -95,14 +95,71 @@ object Parser {
   sealed trait Error {
     def showContext(errColor: LocationMap.Colorize): Doc =
       this match {
-        case Error.ParseFailure(pos, locations) =>
-          // this must return a value since the position is legitimate
-          locations.showContext(pos, 2, errColor).get
+        case Error.ParseFailure(_, locations, exps) =>
+          Error.showExpectations(locations, exps, errColor)
       }
   }
 
   object Error {
-    case class ParseFailure(position: Int, locations: LocationMap) extends Error
+    case class ParseFailure(position: Int, locations: LocationMap, expected: NonEmptyList[P.Expectation]) extends Error
+
+    def showExpectations(locations: LocationMap, expected: NonEmptyList[P.Expectation], errColor: LocationMap.Colorize): Doc = {
+      val errs: SortedMap[Int, NonEmptyList[P.Expectation]] = expected.groupBy(_.offset)
+
+      def show(s: String): Doc = {
+        val q = '\''
+        if (s.forall(_.isWhitespace)) {
+          val chars = s.length
+          val plural = if (chars == 1) "char" else "chars"
+          Doc.text(s"$chars whitespace $plural \"") + Doc.intercalate(Doc.empty,
+            s.map {
+              case '\t' => Doc.text("\\t")
+              case '\n' => Doc.text("\\n")
+              case '\r' => Doc.text("\\r")
+              case c => Doc.char(c)
+            }) + Doc.char('"')
+        }
+        else {
+          Doc.char(q) + Doc.text(escape(q, s)) + Doc.char(q)
+        }
+      }
+
+      def expToDoc(e: P.Expectation): Doc =
+        e match {
+          case P.Expectation.OneOfStr(_, strs: List[String]) =>
+            strs match {
+              case one :: Nil =>
+                Doc.text("expected ") + show(one)
+              case _ =>
+                Doc.text("expected one of: ") + Doc.intercalate(Doc.line, strs.map(show)).grouped.nested(4)
+            }
+          case P.Expectation.InRange(_, lower, upper) =>
+            if (lower == upper) {
+              Doc.text("expected char: ") + show(lower.toString)
+            }
+            else {
+              Doc.text("expected char in range: [") + show(lower.toString) + Doc.text(", ") + show(upper.toString) + Doc.text("]")
+            }
+          case P.Expectation.StartOfString(_) => Doc.text("expected start of the file")
+          case P.Expectation.EndOfString(_, length) =>
+            Doc.text(s"expected end of file but $length characters remaining")
+          case P.Expectation.Length(_, expected, actual) =>
+            Doc.text(s"expected $expected more characters but only $actual remaining")
+          case P.Expectation.ExpectedFailureAt(_, matched) =>
+            Doc.text("expected failure but the parser matched: ") + show(matched)
+          case P.Expectation.Fail(_) =>
+            Doc.text("failed")
+          case P.Expectation.FailWith(_, message) =>
+            Doc.text(s"failed with message: $message")
+          case P.Expectation.WithContext(_, expect) =>
+            expToDoc(expect)
+        }
+
+      Doc.intercalate(Doc.hardLine, errs.map { case (pos, xs) =>
+        locations.showContext(pos, 2, errColor).get + (
+          Doc.hardLine + Doc.intercalate(Doc.comma + Doc.line, xs.toList.map(expToDoc)).grouped).nested(4)
+      })
+    }
   }
 
   def parse[A](p: P0[A], str: String): ValidatedNel[Error, (LocationMap, A)] = {
@@ -111,11 +168,8 @@ object Parser {
       case Right(a) =>
         Validated.valid((lm, a))
       case Left(err) =>
-        // TODO, we have much more detailed failure
-        // information now, including a list of expectations
-        // we had at a point.
         val idx = err.failedAtOffset
-        Validated.invalidNel(Error.ParseFailure(idx, lm))
+        Validated.invalidNel(Error.ParseFailure(idx, lm, err.expected))
     }
   }
 

@@ -183,7 +183,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     def parseString[A](p: P0[A], path: Path, str: String): ValidatedNel[ParseError, (LocationMap, A)] =
       Parser.parse(p, str).leftMap { nel =>
         nel.map {
-          case pf@Parser.Error.ParseFailure(_, _) => ParseError.ParseFailure(pf, path)
+          case pf@Parser.Error.ParseFailure(_, _, _) => ParseError.ParseFailure(pf, path)
         }
       }
 
@@ -784,7 +784,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             case ParseError.ParseFailure(pf, path) =>
               // we should never be partial here
               val (r, c) = pf.locations.toLineCol(pf.position).get
-              val ctx = pf.locations.showContext(pf.position, 2, color).get
+              val ctx = pf.showContext(color)
               List(s"failed to parse $path at line ${r + 1}, column ${c + 1}",
                   ctx.render(80))
             case ParseError.FileError(path, err) =>
