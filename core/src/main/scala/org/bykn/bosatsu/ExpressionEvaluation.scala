@@ -508,7 +508,7 @@ case class ExpressionEvaluation[T](
 
   sealed trait ExpressionValue {
     def toJson: Json = this match {
-      case ilv @ LazyValue(expression, scope, p, extEnv) =>
+      case ilv @ LazyValue(expression, scope, p, extEnv, _) =>
         Json.JObject(
           List(
             "state" -> Json.JString("expression"),
@@ -555,7 +555,8 @@ case class ExpressionEvaluation[T](
       expression: TypedExpr[T],
       scope: Map[String, ExpressionValue],
       p: Package.Typed[T],
-      extEnv: ExtEnv
+      extEnv: ExtEnv,
+      recursiveId: Option[String] = None
   ) extends ExpressionValue {
     def cleanedScope: List[(String, ExpressionValue)] = ???
     //  expression.tag.varSet.toList.sorted.map { n => (n, scope(n)) }
@@ -569,7 +570,8 @@ case class ExpressionEvaluation[T](
     lazy val toStructNewType: NormState[Option[(Int, List[ExpressionValue])]] =
       lazyToStructImpl(this, rankn.DataFamily.NewType)
 
-    lazy val toLeaf = evalToLeaf(expression, scope, p, extEnv)
+    lazy val toLeaf =
+      evalToLeaf(expression, scope, p, extEnv, (recursiveId.map((_, this))))
     lazy val toValue = toLeaf.flatMap(_.toValue)
   }
 
@@ -748,9 +750,12 @@ case class ExpressionEvaluation[T](
       al: TypedExpr.AnnotatedLambda[T],
       scope: Map[String, ExpressionValue],
       p: Package.Typed[T],
-      extEnv: ExtEnv
-  ): NormState[Leaf] =
-    State.pure(Leaf.Lambda(al, scope, p, extEnv))
+      extEnv: ExtEnv,
+      recursiveId: Option[(String, ExpressionValue)]
+  ): NormState[Leaf] = recursiveId match {
+    case None     => State.pure(Leaf.Lambda(al, scope, p, extEnv))
+    case Some(id) => State.pure(Leaf.Lambda(al, scope + id, p, extEnv))
+  }
 
   def letToLeaf(
       l: TypedExpr.Let[T],
@@ -760,8 +765,9 @@ case class ExpressionEvaluation[T](
   ): NormState[Leaf] =
     l.recursive match {
       case RecursionKind.Recursive =>
-        lazy val lv: LazyValue = LazyValue(l.expr, nextScope, p, extEnv)
-        lazy val nextScope = scope + (l.arg.asString -> lv)
+        val lv: LazyValue =
+          LazyValue(l.expr, scope, p, extEnv, Some(l.arg.asString))
+        val nextScope = scope + (l.arg.asString -> lv)
         evalToLeaf(l.in, nextScope, p, extEnv)
 
       case _ =>
@@ -893,7 +899,8 @@ case class ExpressionEvaluation[T](
       expr: TypedExpr[T],
       scope: Map[String, ExpressionValue],
       p: Package.Typed[T],
-      extEnv: ExtEnv
+      extEnv: ExtEnv,
+      recursiveId: Option[(String, ExpressionValue)] = None
   ): NormState[Leaf] =
     expr match {
       case a @ TypedExpr.Annotation(_, _, _) =>
@@ -902,7 +909,7 @@ case class ExpressionEvaluation[T](
       case v @ TypedExpr.Local(_, _, _) => localToLeaf(v, scope, p)
       case v @ TypedExpr.Global(_, _, _, _) => globalToLeaf(v, scope, p, extEnv)
       case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
-        annotatedLambdaToLeaf(al, scope, p, extEnv)
+        annotatedLambdaToLeaf(al, scope, p, extEnv, recursiveId)
       case a @ TypedExpr.App(_, _, _, _)    => appToLeaf(a, scope, p, extEnv)
       case l @ TypedExpr.Let(_, _, _, _, _) => letToLeaf(l, scope, p, extEnv)
       case l @ TypedExpr.Literal(_, _, _)   => literalToLeaf(l, scope, p)
@@ -1006,7 +1013,7 @@ case class ExpressionEvaluation[T](
       // By evaluating when we add to the scope we don't have to overflow the stack later when we
       // need to use the value
       val _ = arg match {
-        case lv @ LazyValue(_, _, _, _) => {
+        case lv @ LazyValue(_, _, _, _, _) => {
           lv.toValue
           ()
         }
@@ -1229,9 +1236,9 @@ case class ExpressionEvaluation[T](
       }
 
   val valueToDoc: ValueToDoc = ValueToDoc({ case Type.Const.Defined(pn, t) =>
-      for {
-        pack <- pm.toMap.get(pn)
-        dt <- pack.program.types.getType(pn, t)
-      } yield dt
+    for {
+      pack <- pm.toMap.get(pn)
+      dt <- pack.program.types.getType(pn, t)
+    } yield dt
   })
 }

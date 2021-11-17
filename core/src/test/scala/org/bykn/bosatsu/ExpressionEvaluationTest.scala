@@ -192,4 +192,24 @@ out = [1,2,3].foldLeft(4, add)
       })
     )
   }
+
+  test("nested foldLeft applied") {
+    evalTest(
+      List("""
+package Recur/FoldLeft
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  def loop(lstL: List[a], itemL: b) -> b:
+    recur lstL:
+      EmptyList: itemL
+      NonEmptyList(head, tail): loop(tail, fn(itemL, head))
+  loop(lst, item)
+out = [1,2,3].foldLeft(4, add)
+"""),
+      "Recur/FoldLeft",
+      Externals(Map.empty),
+      List({ x =>
+        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(10)))
+      })
+    )
+  }
 }
