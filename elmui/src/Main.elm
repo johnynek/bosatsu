@@ -17,6 +17,7 @@ import Json.Encode
 -- MAIN
 
 
+main : Program () Model Msg
 main =
     Browser.element { init = init, subscriptions = subs, update = update, view = view }
 
@@ -164,10 +165,12 @@ textHtml t =
             []
 
 
+green : Element.Color
 green =
     Element.rgb255 167 255 143
 
 
+blue : Element.Color
 blue =
     Element.rgb 0 0 1
 
