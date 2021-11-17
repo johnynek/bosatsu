@@ -104,7 +104,7 @@ out = foo
     )
   }
 
-  test("foldLeft w/o loop applied") {
+  test("basic match") {
     evalTest(
       List("""
 package Match/Basic
@@ -129,12 +129,28 @@ out = match [1,2,3]:
       List("""
 package Predef/Applied
 
-out = 1.add(4)
+out = 1.sub(4)
 """),
       "Predef/Applied",
       Externals(Map.empty),
       List({ x =>
-        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(5)))
+        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(-3)))
+      })
+    )
+  }
+
+  test("apply function") {
+    evalTest(
+      List("""
+package Apply/Function
+def first(_, a):
+  a
+out = first(1,2)
+"""),
+      "Apply/Function",
+      Externals(Map.empty),
+      List({ x =>
+        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(2)))
       })
     )
   }
