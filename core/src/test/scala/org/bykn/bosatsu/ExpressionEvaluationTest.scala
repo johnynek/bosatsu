@@ -188,7 +188,7 @@ out = [1,2,3].foldLeft(4, add)
       "Recur/FoldLeft",
       Externals(Map.empty),
       List({ x =>
-        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(5)))
+        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(10)))
       })
     )
   }

@@ -686,7 +686,8 @@ case class ExpressionEvaluation[T](
       pack: Package.Typed[T],
       extEnv: ExtEnv,
       item: Identifier,
-      scope: Map[String, ExpressionValue]
+      scope: Map[String, ExpressionValue],
+      selfValue: ExpressionValue
   ): NormState[Leaf] =
     NameKind(pack, item) match {
       case Some(namekind) =>
@@ -698,7 +699,8 @@ case class ExpressionEvaluation[T](
               expr,
               pack,
               extEnv,
-              scope
+              scope,
+              selfValue
             )
           case c @ NameKind.Constructor(cn, _, dt, _) =>
             State.pure(constructor(cn, dt))
@@ -706,7 +708,7 @@ case class ExpressionEvaluation[T](
             // we reset the environment in the other package
             val impPack = pm.toMap(from.name)
             val impExtEnv = externalEnv(impPack) ++ importedEnv(impPack)
-            norm(impPack, impExtEnv, orig, Map.empty)
+            norm(impPack, impExtEnv, orig, Map.empty, selfValue)
 
           case NameKind.ExternalDef(pn, n, defType) => {
             State.pure(Leaf.Value(ComputedValue(extEnv(n).value)))
@@ -739,7 +741,7 @@ case class ExpressionEvaluation[T](
       }
     }
 
-    norm(p, extEnv, name, scope)
+    norm(p, extEnv, name, scope, LazyValue(v, scope, p, extEnv))
   }
 
   def annotatedLambdaToLeaf(
@@ -850,7 +852,8 @@ case class ExpressionEvaluation[T](
       expr: TypedExpr[T],
       pack: Package.Typed[T],
       extEnv: ExtEnv,
-      scope: Map[String, ExpressionValue]
+      scope: Map[String, ExpressionValue],
+      selfValue: ExpressionValue
   ): NormState[Leaf] =
     for {
       lookup <- State.inspect {
@@ -863,7 +866,9 @@ case class ExpressionEvaluation[T](
         case None =>
           recursive match {
             case RecursionKind.Recursive =>
-              val v = LazyValue(expr, scope, pack, extEnv)
+              val nextScope = scope + (name.asString -> selfValue)
+              val v: ExpressionValue = LazyValue(expr, nextScope, pack, extEnv)
+
               for {
                 _ <- State.modify {
                   lets: Map[(PackageName, Identifier), ExpressionValue] =>
