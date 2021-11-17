@@ -109,15 +109,16 @@ out = foo
       List("""
 package Match/Basic
 
-out = match [1,2,3]:
-  EmptyList: 0
-  NonEmptyList(head, _): head
+out = match [10,2,3]:
+  []: 0
+  [_, h2, *_]: h2
+  [head, *_]: head
 """),
       "Match/Basic",
       Externals(Map.empty),
       List({ x =>
         assert(
-          x._1.value == Value.ExternalValue(BigInteger.valueOf(1)),
+          x._1.value == Value.ExternalValue(BigInteger.valueOf(2)),
           x._1.value
         )
       })
@@ -151,6 +152,25 @@ out = first(1,2)
       Externals(Map.empty),
       List({ x =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(2)))
+      })
+    )
+  }
+
+  test("Positional struct") {
+    evalTest(
+      List("""
+package Positional/Minus
+def floorMinus(pair):
+  match pair:
+    (a, b): match cmp_Int(a,b):
+      LT: b.sub(a)
+      _: -1
+out = floorMinus((2,5))
+"""),
+      "Positional/Minus",
+      Externals(Map.empty),
+      List({ x =>
+        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(3)))
       })
     )
   }
