@@ -123,4 +123,37 @@ out = match [1,2,3]:
       })
     )
   }
+
+  test("predef applied") {
+    evalTest(
+      List("""
+package Predef/Applied
+
+out = 1.add(4)
+"""),
+      "Predef/Applied",
+      Externals(Map.empty),
+      List({ x =>
+        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(5)))
+      })
+    )
+  }
+
+  test("foldLeft applied") {
+    evalTest(
+      List("""
+package Recur/FoldLeft
+def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+  recur lst:
+    EmptyList: item
+    NonEmptyList(head, tail): foldLeft(tail, fn(item, head), fn)
+out = [1,2,3].foldLeft(4, add)
+"""),
+      "Recur/FoldLeft",
+      Externals(Map.empty),
+      List({ x =>
+        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(5)))
+      })
+    )
+  }
 }
