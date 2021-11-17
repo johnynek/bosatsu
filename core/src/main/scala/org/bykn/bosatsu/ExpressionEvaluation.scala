@@ -87,7 +87,7 @@ object ExpressionEvaluation {
 
     val apply: (T, PatternEnv[T]) => NormState[PatternMatch[PatternEnv[T]], T] =
       pat match {
-        case Pattern.Annotation(_, _) => ???
+        case Pattern.Annotation(p, _) => maybeBind(p)
         case Pattern.WildCard         => noop
         case Pattern.Literal(lit) => { (v, env) =>
           toLitValue(v).map {
@@ -327,7 +327,9 @@ object ExpressionEvaluation {
         case Pattern.PositionalStruct(pc, items) =>
           // The type in question is not the outer dt, but the type associated
           // with this current constructor
-          val itemFns = items.map(maybeBind(_))
+          val itemFns: List[
+            (T, PatternEnv[T]) => NormState[PatternMatch[PatternEnv[T]], T]
+          ] = items.map(maybeBind(_))
 
           def processArgs(
               as: List[T],
@@ -1049,9 +1051,8 @@ case class ExpressionEvaluation[T](
           (PackageName, Identifier.Constructor),
           rankn.Type
         ]
-    ) = { (v: ExpressionValue, env: PatternEnv[ExpressionValue]) =>
-      this.apply(v, env)
-    }
+    ) = (v: ExpressionValue, env: PatternEnv[ExpressionValue]) =>
+      ExpressionValueMaybeBind(pat, p).apply(v, env)
     def definedForCons(pc: (PackageName, Constructor)): rankn.DefinedType[Any] =
       pm.toMap(pc._1).program.types.getConstructor(pc._1, pc._2).get._2
   }
@@ -1222,8 +1223,7 @@ case class ExpressionEvaluation[T](
         evaluate(tpe, extEnv, pack)
       }
 
-  val valueToDoc: ValueToDoc = ValueToDoc({
-    case Type.Const.Defined(pn, t) =>
+  val valueToDoc: ValueToDoc = ValueToDoc({ case Type.Const.Defined(pn, t) =>
       for {
         pack <- pm.toMap.get(pn)
         dt <- pack.program.types.getType(pn, t)
