@@ -212,4 +212,29 @@ out = [1,2,3].foldLeft(4, add)
       })
     )
   }
+
+  test("matching") {
+    evalTest(
+      List("""
+package Match/Structs
+struct Pair(f, s)
+struct Trip(f, s, t)
+out=match Pair(1, "two"):
+  Pair(f, s): Trip(3, s, f)
+"""),
+      "Match/Structs",
+      Externals(Map.empty),
+      List({ x =>
+        assert(
+          x._1.value == ConsValue(
+            ExternalValue(BigInteger.valueOf(3)),
+            ConsValue(
+              ExternalValue("two"),
+              ConsValue(ExternalValue(BigInteger.valueOf(1)), UnitValue)
+            )
+          )
+        )
+      })
+    )
+  }
 }
