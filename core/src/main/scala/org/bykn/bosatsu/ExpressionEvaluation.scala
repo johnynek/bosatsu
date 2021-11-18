@@ -634,10 +634,17 @@ case class ExpressionEvaluation[T](
     lazy val toValue: NormState[Value] = this match {
       case Leaf.Struct(enum, args, df)  => evaluateStruct(enum, args, df)
       case Leaf.Value(ComputedValue(v)) => State.pure(v)
-      case Leaf.Lambda(lambda, scope, p, extEnv) =>
+      case Leaf.Lambda(lambda, scope, p, extEnv, recursiveId) =>
         State.inspect(sa =>
           new Value.FnValue(
-            ExpressionFnValue(lambda.expr, lambda.arg, scope, p, extEnv, sa)
+            ExpressionFnValue(
+              lambda.expr,
+              lambda.arg,
+              scope ++ recursiveId.toList.toMap,
+              p,
+              extEnv,
+              sa
+            )
           )
         )
       case Leaf.Literal(TypedExpr.Literal(lit, _, _)) =>
@@ -654,7 +661,8 @@ case class ExpressionEvaluation[T](
         lambda: TypedExpr.AnnotatedLambda[T],
         scope: Map[String, ExpressionValue],
         p: Package.Typed[T],
-        extEnv: ExtEnv
+        extEnv: ExtEnv,
+        recursiveId: Option[(String, ExpressionValue)]
     ) extends Leaf
     case class Literal(expr: TypedExpr.Literal[T]) extends Leaf
     case class Value(value: ComputedValue) extends Leaf
@@ -753,8 +761,8 @@ case class ExpressionEvaluation[T](
       extEnv: ExtEnv,
       recursiveId: Option[(String, ExpressionValue)]
   ): NormState[Leaf] = recursiveId match {
-    case None     => State.pure(Leaf.Lambda(al, scope, p, extEnv))
-    case Some(id) => State.pure(Leaf.Lambda(al, scope + id, p, extEnv))
+    case None     => State.pure(Leaf.Lambda(al, scope, p, extEnv, None))
+    case Some(id) => State.pure(Leaf.Lambda(al, scope, p, extEnv, recursiveId))
   }
 
   def letToLeaf(
@@ -1009,7 +1017,7 @@ case class ExpressionEvaluation[T](
       p: Package.Typed[T],
       extEnv: ExtEnv
   ): NormState[Leaf] = applyable match {
-    case Leaf.Lambda(lambda, scope, _, _) => {
+    case Leaf.Lambda(lambda, scope, _, _, recursiveId) => {
       // By evaluating when we add to the scope we don't have to overflow the stack later when we
       // need to use the value
       val _ = arg match {
@@ -1019,7 +1027,8 @@ case class ExpressionEvaluation[T](
         }
         case _ => ()
       }
-      val nextScope = scope + (lambda.arg.asString -> arg)
+      val nextScope =
+        (scope + (lambda.arg.asString -> arg)) ++ recursiveId.toList.toMap
       LazyValue(lambda.expr, nextScope, p, extEnv).toLeaf
     }
     case Leaf.Value(lfv) =>
