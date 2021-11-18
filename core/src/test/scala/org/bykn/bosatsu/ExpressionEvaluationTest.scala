@@ -7,27 +7,34 @@ import org.scalatest.Assertions.{succeed, fail}
 import cats.Eval
 import java.math.BigInteger
 import Value.{SumValue, ConsValue, ExternalValue, UnitValue, FnValue}
+import org.bykn.bosatsu.TypedExpr.AnnotatedLambda
 
 object ExpressionEvaluationTest {
   def evalTest(
       packages: List[String],
       mainPackS: String,
       ext: Externals,
-      assertions: List[((Eval[Value], rankn.Type)) => Assertion]
+      assertions: List[
+        (
+            (Eval[Value], rankn.Type),
+            ExpressionEvaluation[Declaration]
+        ) => Assertion
+      ]
   ) = {
     def inferredHandler(
         infPackMap: PackageMap.Inferred,
         mainPack: PackageName
-    ) = ExpressionEvaluation(infPackMap, Predef.jvmExternals ++ ext)
-      .evaluateLast(mainPack) match {
-      case Some(res) => {
+    ) = {
+      val ev = ExpressionEvaluation(infPackMap, Predef.jvmExternals ++ ext)
+      ev.evaluateLast(mainPack) match {
+        case Some(res) => {
 
-        assertions.foreach(_.apply(res))
-        succeed
+          assertions.foreach(_.apply(res, ev))
+          succeed
+        }
+        case None => fail("There should be a last expression")
       }
-      case None => fail("There should be a last expression")
     }
-
     testInferred(packages, mainPackS, inferredHandler(_, _))
   }
 }
@@ -42,7 +49,9 @@ main = "aa"
 """),
       "LetFreeTest/String",
       Externals(Map.empty),
-      List({ x => assert(x._1.value == Value.ExternalValue("aa"), x._1.value) })
+      List({ (x, _) =>
+        assert(x._1.value == Value.ExternalValue("aa"), x._1.value)
+      })
     )
 
     evalTest(
@@ -52,7 +61,7 @@ main = 22
 """),
       "LetFreeTest/String",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         assert(
           x._1.value == Value.ExternalValue(BigInteger.valueOf(22)),
           x._1.value
@@ -67,7 +76,7 @@ main = [23]
 """),
       "LetFreeTest/String",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         assert(
           x._1.value == SumValue(
             1,
@@ -95,7 +104,7 @@ out = foo
 """),
       "Recur/Some",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         x._1.value match {
           case FnValue(_) => succeed
           case _          => fail()
@@ -116,7 +125,7 @@ out = match [10,2,3]:
 """),
       "Match/Basic",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         assert(
           x._1.value == Value.ExternalValue(BigInteger.valueOf(2)),
           x._1.value
@@ -134,7 +143,7 @@ out = 1.sub(4)
 """),
       "Predef/Applied",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(-3)))
       })
     )
@@ -150,7 +159,7 @@ out = first(1,2)
 """),
       "Apply/Function",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(2)))
       })
     )
@@ -169,7 +178,7 @@ out = floorMinus((2,5))
 """),
       "Positional/Minus",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(3)))
       })
     )
@@ -187,7 +196,7 @@ out = [1,2,3].foldLeft(4, add)
 """),
       "Recur/FoldLeft",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(10)))
       })
     )
@@ -207,7 +216,7 @@ out = [1,2,3].foldLeft(4, add)
 """),
       "Recur/FoldLeft",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(10)))
       })
     )
@@ -224,7 +233,7 @@ out=match Pair(1, "two"):
 """),
       "Match/Structs",
       Externals(Map.empty),
-      List({ x =>
+      List({ (x, _) =>
         assert(
           x._1.value == ConsValue(
             ExternalValue(BigInteger.valueOf(3)),
@@ -234,6 +243,36 @@ out=match Pair(1, "two"):
             )
           )
         )
+      })
+    )
+  }
+
+  test("Lambda") {
+    evalTest(
+      List("""
+package Lambda/Identity
+
+out = \x -> x
+"""),
+      "Lambda/Identity",
+      Externals(Map.empty),
+      List({ (x, ev) =>
+        x._1.value match {
+          case fn: FnValue =>
+            fn.arg match {
+              case efn: ev.ExpressionFnValue =>
+                assert(efn.arg.asString == "x")
+                efn.lambda match {
+                  case TypedExpr.Local(name, _, _) =>
+                    assert(name.asString == "x")
+                  case notLocal =>
+                    throw new Exception(s"not a lambda: $notLocal")
+                }
+              case _ => fail()
+            }
+          case _ => fail()
+        }
+
       })
     )
   }

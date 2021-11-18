@@ -973,10 +973,12 @@ case class ExpressionEvaluation[T](
     Either[Value, (TypedExpr.AnnotatedLambda[T], List[ExpressionValue])]
   type ToLFV = Option[ExpressionValue => Future[Value]]
 
-  case class ExprFnValue(toExprFn: ExpressionValue => Value)
-      extends Value.FnValue.Arg {
+  val self = this
+  case class ExprFnValue(
+      toExprFn: (ExpressionValue, ExpressionEvaluation[T]) => Value
+  ) extends Value.FnValue.Arg {
     val toFn: Value => Value = { v: Value =>
-      toExprFn(ComputedValue(v))
+      toExprFn(ComputedValue(v), self)
     }
   }
 
@@ -998,7 +1000,10 @@ case class ExpressionEvaluation[T](
 
   def attemptExprFn(
       v: Value
-  ): Either[ExpressionValue => Value, Value => Value] = v match {
+  ): Either[
+    (ExpressionValue, ExpressionEvaluation[T]) => Value,
+    Value => Value
+  ] = v match {
     case fv @ Value.FnValue(f) =>
       fv.arg match {
         case ExprFnValue(ef) => Left(ef)
@@ -1035,7 +1040,7 @@ case class ExpressionEvaluation[T](
       lfv.toValue.flatMap { v =>
         attemptExprFn(v) match {
           case Left(eFn) =>
-            ComputedValue(eFn(arg)).toLeaf
+            ComputedValue(eFn(arg, self)).toLeaf
           case Right(fn) => {
             arg.toValue.flatMap { argV =>
               ComputedValue(fn(argV)).toLeaf
@@ -1134,15 +1139,15 @@ case class ExpressionEvaluation[T](
   ): FfiCall = {
     def evalExprFn(t: rankn.Type, revArgs: List[ExpressionValue]): ExprFnValue =
       if (revArgs.length + 1 < arity) {
-        ExprFnValue { arg =>
+        ExprFnValue { (arg, ev) =>
           new Value.FnValue(evalExprFn(t, arg :: revArgs))
         }
       } else {
-        ExprFnValue { case arg =>
+        ExprFnValue { case (arg, ev) =>
           wrapper(t, (arg :: revArgs).reverse)
         }
       }
-
+      
     FfiCall.FromFn { t => new Value.FnValue(evalExprFn(t, Nil)) }
   }
 
