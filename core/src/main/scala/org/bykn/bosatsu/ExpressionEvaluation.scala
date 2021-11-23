@@ -632,7 +632,7 @@ case class ExpressionEvaluation[T](
 
   sealed abstract class Leaf {
     lazy val toValue: NormState[Value] = this match {
-      case Leaf.Struct(enum, args, df)  => evaluateStruct(enum, args, df)
+      case Leaf.Struct(variant, args, df)  => evaluateStruct(variant, args, df)
       case Leaf.Value(ComputedValue(v)) => State.pure(v)
       case Leaf.Lambda(lambda, scope, p, extEnv, recursiveId) =>
         State.inspect(sa =>
