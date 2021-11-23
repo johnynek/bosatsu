@@ -8,6 +8,7 @@ import cats.Eval
 import java.math.BigInteger
 import Value.{SumValue, ConsValue, ExternalValue, UnitValue, FnValue}
 import org.bykn.bosatsu.TypedExpr.AnnotatedLambda
+import cats.data.NonEmptyList
 
 object ExpressionEvaluationTest {
   def evalTest(
@@ -266,7 +267,141 @@ out = \x -> x
                   case TypedExpr.Local(name, _, _) =>
                     assert(name.asString == "x")
                   case notLocal =>
-                    throw new Exception(s"not a lambda: $notLocal")
+                    throw new Exception(s"not a local: $notLocal")
+                }
+              case _ => fail()
+            }
+          case _ => fail()
+        }
+
+      })
+    )
+    evalTest(
+      List("""
+package Lambda/Always
+out = \x -> \_ -> x
+"""),
+      "Lambda/Always",
+      Externals(Map.empty),
+      List({ (x, ev) =>
+        x._1.value match {
+          case fn: FnValue =>
+            fn.arg match {
+              case efn: ev.ExpressionFnValue =>
+                assert(efn.arg.asString == "x")
+                efn.lambda match {
+                  case TypedExpr.AnnotatedLambda(
+                        _,
+                        _,
+                        TypedExpr.Local(name, _, _),
+                        _
+                      ) =>
+                    assert(name.asString == "x")
+                  case notLambda =>
+                    throw new Exception(s"not a lambda: $notLambda")
+                }
+              case _ => fail()
+            }
+          case _ => fail()
+        }
+
+      })
+    )
+
+    evalTest(
+      List("""
+package Lambda/Always
+out = \_ -> \y -> y
+"""),
+      "Lambda/Always",
+      Externals(Map.empty),
+      List({ (x, ev) =>
+        x._1.value match {
+          case fn: FnValue =>
+            fn.arg match {
+              case efn: ev.ExpressionFnValue =>
+                assert(efn.arg.asString == "a")
+                efn.lambda match {
+                  case TypedExpr.AnnotatedLambda(
+                        Identifier.Name(arg),
+                        _,
+                        TypedExpr.Local(name, _, _),
+                        _
+                      ) =>
+                    assert(arg == "y")
+                    assert(name.asString == "y")
+                  case notLambda =>
+                    throw new Exception(s"not a lambda: $notLambda")
+                }
+              case _ => fail()
+            }
+          case _ => fail()
+        }
+
+      })
+    )
+    evalTest(
+      List("""
+package Lambda/Identity
+
+def foo(x):
+  x
+out = foo
+"""),
+      "Lambda/Identity",
+      Externals(Map.empty),
+      List({ (x, ev) =>
+        x._1.value match {
+          case fn: FnValue =>
+            fn.arg match {
+              case efn: ev.ExpressionFnValue =>
+                assert(efn.arg.asString == "x")
+                efn.lambda match {
+                  case TypedExpr.Local(name, _, _) =>
+                    assert(name.asString == "x")
+                  case notLocal =>
+                    throw new Exception(s"not a local: $notLocal")
+                }
+              case _ => fail()
+            }
+          case _ => fail()
+        }
+
+      })
+    )
+    evalTest(
+      List("""
+package Match/Vars
+def result(x, c):
+  match x:
+    (a, b): (b, c, a)
+out=result
+"""),
+      "Match/Vars",
+      Externals(Map.empty),
+      List({ (x, ev) =>
+        x._1.value match {
+          case fn: FnValue =>
+            fn.arg match {
+              case efn: ev.ExpressionFnValue =>
+                assert(efn.arg.asString == "x")
+                efn.lambda match {
+                  case TypedExpr.Match(
+                        TypedExpr.Local(name, _, _),
+                        NonEmptyList(
+                          (
+                            _,
+                            TypedExpr
+                              .AnnotatedLambda(Identifier.Name(c), _, _, _)
+                          ),
+                          Nil
+                        ),
+                        _
+                      ) =>
+                    assert(name.asString == "x")
+                    assert(c == "c")
+                  case notMatch =>
+                    throw new Exception(s"not the match I wanted: $notMatch")
                 }
               case _ => fail()
             }
