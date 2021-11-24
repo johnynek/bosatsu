@@ -596,4 +596,20 @@ def fizz(f, s):
       )
     )
   }
+
+  test("external") {
+    val fn1 = FfiCall.Fn1(x => x)
+    evalTest(
+      List("""
+package Extern/Simple
+external def foo(x: String) -> List[String]
+out = foo
+"""),
+      "Extern/Simple",
+      Externals(
+        Map((PackageName(NonEmptyList("Extern", List("Simple"))), "foo") -> fn1)
+      ),
+      List({ case ((v, t), ev) => assert(v.value == fn1.call(t)) })
+    )
+  }
 }
