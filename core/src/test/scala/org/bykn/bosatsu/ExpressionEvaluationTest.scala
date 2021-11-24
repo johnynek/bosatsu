@@ -410,5 +410,134 @@ out=result
 
       })
     )
+
+    evalTest(
+      List("""
+package Match/Structs
+struct Pair(f, s)
+struct Trip(f, s, t)
+out=match Pair(1, "two"):
+  Pair(f, s): Trip(3, s, f)
+"""),
+      "Match/Structs",
+      Externals(Map.empty),
+      List({ (x, ev) =>
+        assert(
+          x._1.value == ConsValue(
+            Value.ExternalValue(BigInteger.valueOf(3)),
+            ConsValue(
+              Value.ExternalValue("two"),
+              ConsValue(Value.ExternalValue(BigInteger.valueOf(1)), UnitValue)
+            )
+          )
+        )
+
+      })
+    )
+    evalTest(
+      List("""
+package Match/None
+out=match None:
+  Some(_): "some"
+  _: "not some"
+"""),
+      "Match/None",
+      Externals(Map.empty),
+      List({ (x, ev) => assert(x._1.value == Value.ExternalValue("not some")) })
+    )
+
+    evalTest(
+      List("""
+package Match/List
+out = match [1,2,3]:
+  [_, _, last]: last
+  _: 0
+"""),
+      "Match/List",
+      Externals(Map.empty),
+      List({ (x, ev) =>
+        assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(3)))
+      })
+    )
+
+    evalTest(
+      List("""
+package Match/List
+out = match ["a","b","c","d","e"]:
+  [h, *t]: Some((h, t))
+  []: None
+"""),
+      "Match/List",
+      Externals(Map.empty),
+      List(
+        (
+            (
+                x,
+                ev
+            ) =>
+              x._1.value match {
+                case Value.VOption(
+                      Some(
+                        Value.TupleCons(
+                          ExternalValue("a"),
+                          Value.TupleCons(Value.VList(list), UnitValue)
+                        )
+                      )
+                    ) =>
+                  assert(
+                    list == List(
+                      ExternalValue("b"),
+                      ExternalValue("c"),
+                      ExternalValue("d"),
+                      ExternalValue("e")
+                    )
+                  )
+                case _ => fail()
+              }
+        )
+      )
+    )
+
+    evalTest(
+      List("""
+package Match/Union
+enum Bar:
+  Baz(a), Fizz(a), Buzz
+out = match Baz("abc"):
+  Baz(x) | Fizz(x): x
+  Buzz: "buzzzzzzz"
+"""),
+      "Match/Union",
+      Externals(Map.empty),
+      List(
+        (
+            (
+                x,
+                ev
+            ) => assert(x._1.value == ExternalValue("abc"))
+        )
+      )
+    )
+
+    evalTest(
+      List("""
+package Match/Union
+enum Bar:
+  Baz(a), Fizz(a), Buzz
+out = match Buzz:
+  Baz(x) | Fizz(x): x
+  Buzz: "buzzzzzzz"
+"""),
+      "Match/Union",
+      Externals(Map.empty),
+      List(
+        (
+            (
+                x,
+                ev
+            ) => assert(x._1.value == ExternalValue("buzzzzzzz"))
+        )
+      )
+    )
   }
 }
