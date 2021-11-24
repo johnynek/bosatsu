@@ -540,4 +540,60 @@ out = match Buzz:
       )
     )
   }
+
+  test("imports") {
+    evalTest(
+      List(
+        """
+package Imp/First
+export fizz
+def fizz(f, s):
+  (s, f)
+""",
+        """
+package Imp/Second
+from Imp/First import fizz
+out=fizz(1,2)
+"""
+      ),
+      "Imp/Second",
+      Externals(Map.empty),
+      List((v, ev) =>
+        v._1.value match {
+          case Value.Tuple(List(a, b)) => {
+            assert(a == ExternalValue(BigInteger.valueOf(2)))
+            assert(b == ExternalValue(BigInteger.valueOf(1)))
+          }
+          case _ => fail()
+        }
+      )
+    )
+
+    evalTest(
+      List(
+        """
+package Imp/First
+from Imp/Second import fizz
+out=fizz(1,2)
+""",
+        """
+package Imp/Second
+export fizz
+def fizz(f, s):
+  (s, f)
+"""
+      ),
+      "Imp/First",
+      Externals(Map.empty),
+      List((v, ev) =>
+        v._1.value match {
+          case Value.Tuple(List(a, b)) => {
+            assert(a == ExternalValue(BigInteger.valueOf(2)))
+            assert(b == ExternalValue(BigInteger.valueOf(1)))
+          }
+          case _ => fail()
+        }
+      )
+    )
+  }
 }
