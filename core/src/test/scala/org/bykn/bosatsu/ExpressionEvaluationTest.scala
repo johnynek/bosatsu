@@ -598,7 +598,7 @@ def fizz(f, s):
   }
 
   test("external") {
-    val fn1 = FfiCall.Fn1(x => x)
+    val fn1 = FfiCall.Fn1(x => Value.VList(List(x)))
     evalTest(
       List("""
 package Extern/Simple
