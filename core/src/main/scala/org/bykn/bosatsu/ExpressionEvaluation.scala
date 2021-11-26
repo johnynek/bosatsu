@@ -684,7 +684,7 @@ case class ExpressionEvaluation[T](
       extEnv: ExtEnv,
       recursiveId: Option[(String, ExpressionValue)]
   ): NormState[Leaf] =
-    evalToLeaf(g.in, scope, p, extEnv)
+    evalToLeaf(g.in, scope, p, extEnv, recursiveId)
 
   def localToLeaf(
       v: TypedExpr.Local[T],
