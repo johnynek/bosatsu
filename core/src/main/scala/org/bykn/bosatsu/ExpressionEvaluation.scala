@@ -672,15 +672,17 @@ case class ExpressionEvaluation[T](
       a: TypedExpr.Annotation[T],
       scope: Map[String, ExpressionValue],
       p: Package.Typed[T],
-      extEnv: ExtEnv
+      extEnv: ExtEnv,
+      recursiveId: Option[(String, ExpressionValue)]
   ): NormState[Leaf] =
-    evalToLeaf(a.term, scope, p, extEnv)
+    evalToLeaf(a.term, scope, p, extEnv, recursiveId)
 
   def genericToLeaf(
       g: TypedExpr.Generic[T],
       scope: Map[String, ExpressionValue],
       p: Package.Typed[T],
-      extEnv: ExtEnv
+      extEnv: ExtEnv,
+      recursiveId: Option[(String, ExpressionValue)]
   ): NormState[Leaf] =
     evalToLeaf(g.in, scope, p, extEnv)
 
@@ -912,8 +914,8 @@ case class ExpressionEvaluation[T](
   ): NormState[Leaf] =
     expr match {
       case a @ TypedExpr.Annotation(_, _, _) =>
-        annotationToLeaf(a, scope, p, extEnv)
-      case g @ TypedExpr.Generic(_, _)  => genericToLeaf(g, scope, p, extEnv)
+        annotationToLeaf(a, scope, p, extEnv, recursiveId)
+      case g @ TypedExpr.Generic(_, _)  => genericToLeaf(g, scope, p, extEnv, recursiveId)
       case v @ TypedExpr.Local(_, _, _) => localToLeaf(v, scope, p)
       case v @ TypedExpr.Global(_, _, _, _) => globalToLeaf(v, scope, p, extEnv)
       case al @ TypedExpr.AnnotatedLambda(_, _, _, _) =>
