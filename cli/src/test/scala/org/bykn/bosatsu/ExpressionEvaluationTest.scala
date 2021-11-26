@@ -17,7 +17,7 @@ import cats.effect.unsafe.implicits.global
 
 class ExpressionEvaluationTest extends AnyFunSuite {
 
-  def letFreeTest(
+  def eeTest(
       fileNames: List[String],
       packageName: String,
       altAsserts: List[Output.EvaluationResult => Assertion] = Nil
@@ -53,4 +53,36 @@ class ExpressionEvaluationTest extends AnyFunSuite {
       }
     }
   }
+
+  test("simple let free evaluate") {
+    eeTest(List("Simple"), "Bosatsu/Simple")
+  }
+
+  test("missing module") {
+    try {
+      eeTest(List("Simple"), "Bosatsu/NotSimple")
+      fail()
+    } catch {
+      case err: java.lang.Exception => {
+        assert(err.getMessage() == "package Bosatsu/NotSimple not found")
+      }
+    }
+  }
+
+  test("list pat let free evaluate") {
+    eeTest(List("ListPat", "List", "Bool", "Nat"), "ListPat")
+    eeTest(
+      List("ExtendedListPattern/ManyGlobs", "List", "Bool", "Nat"),
+      "ManyGlobs"
+    )
+  }
+
+  test("test workspace") {
+    eeTest(List("euler1"), "Euler/One")
+    // eeTest(List("euler2", "List", "Nat", "Bool"), "Euler/Two")
+    eeTest(List("euler3", "List", "Nat", "Bool"), "Euler/Three")
+    // eeTest(List("euler4", "List", "Nat", "Bool"), "Euler/Four")
+    eeTest(List("euler5", "List", "Nat", "Bool"), "Euler/P5")
+  }
+
 }

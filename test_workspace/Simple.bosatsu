@@ -1,0 +1,3 @@
+package Bosatsu/Simple
+
+out = TestSuite("Simple pass and fail", [Assertion(True, "Passing test")])
