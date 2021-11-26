@@ -625,11 +625,14 @@ package Rec/Fib
 external def addLog(x: Int, y: Int) -> Int
 
 def fib(n):
-  range(n).foldLeft([], \revFib, _ ->
-    match revFib:
-      []: [1]
-      [h]: [2, h]
-      [h1, h2, *_]: [h1.addLog(h2), *revFib])
+  def loop(ins, outs):
+    recur ins:
+      []: outs
+      [_, *rest]: match outs:
+        []: loop(rest, [1])
+        [h]: loop(rest, [2, h])
+        [h1, h2, *_]: loop(rest, [h1.addLog(h2), *outs])
+  loop(range(n), [])
 
 out = fib(7)
 """),
