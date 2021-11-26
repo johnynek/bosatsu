@@ -612,4 +612,39 @@ out = foo
       List({ case ((v, t), ev) => assert(v.value == fn1.call(t)) })
     )
   }
+
+  test("recursion complexity") {
+    var cnt = 0
+    val fn2 = FfiCall.Fn2({ case (Value.VInt(x), Value.VInt(y)) =>
+      cnt = cnt + 1
+      Value.VInt(x.add(y))
+    })
+    evalTest(
+      List("""
+package Rec/Fib
+external def addLog(x: Int, y: Int) -> Int
+
+def fib(n):
+  range(n).foldLeft([], \revFib, _ ->
+    match revFib:
+      []: [1]
+      [h]: [2, h]
+      [h1, h2, *_]: [h1.addLog(h2), *revFib])
+
+out = fib(7)
+"""),
+      "Rec/Fib",
+      Externals(
+        Map((PackageName(NonEmptyList("Rec", List("Fib"))), "addLog") -> fn2)
+      ),
+      List({ case ((v, t), ev) =>
+        assert(
+          v.value == Value.VList(
+            List(21, 13, 8, 5, 3, 2, 1).map(Value.VInt(_))
+          )
+        )
+        assert(cnt == 26)
+      })
+    )
+  }
 }
