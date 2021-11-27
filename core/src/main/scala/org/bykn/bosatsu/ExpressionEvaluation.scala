@@ -593,8 +593,7 @@ case class ExpressionEvaluation[T](
       extends ExpressionValue {
 
     lazy val toLeaf: NormState[Leaf] = State.pure(Leaf.Struct(n, values, df))
-    lazy val toValue: NormState[Value] =
-      evaluateStruct(n, values, df)
+    lazy val toValue: NormState[Value] = toLeaf.flatMap(_.toValue)
 
     lazy val toStructNat = State.pure(Some((n, values)))
     lazy val toStructEnum = State.pure(Some((n, values)))
