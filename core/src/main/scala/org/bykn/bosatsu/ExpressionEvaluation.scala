@@ -1026,13 +1026,12 @@ case class ExpressionEvaluation[T](
     case Leaf.Lambda(lambda, scope, _, _, recursiveId) => {
       // By evaluating when we add to the scope we don't have to overflow the stack later when we
       // need to use the value
-      val _ = arg match {
+      /* val doEv: NormState[Unit] = arg match {
         case lv @ LazyValue(_, _, _, _, _) => {
-          lv.toValue
-          ()
+          lv.toValue.map(_ => ())
         }
-        case _ => ()
-      }
+        case _ => State.pure(())
+      }*/
       val nextScope =
         (scope + (lambda.arg.asString -> arg)) ++ recursiveId.toList.toMap
       LazyValue(lambda.expr, nextScope, p, extEnv).toLeaf
