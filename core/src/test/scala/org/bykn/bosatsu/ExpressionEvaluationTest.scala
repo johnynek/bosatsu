@@ -614,11 +614,22 @@ out = foo
   }
 
   test("recursion complexity") {
-    var cnt = 0
+    var calls: Map[(BigInteger, BigInteger), Int] = Map.empty
     val fn2 = FfiCall.Fn2({ case (Value.VInt(x), Value.VInt(y)) =>
-      cnt = cnt + 1
+      println(s"$x $y")
+      val cnt = calls.get((x, y)) match {
+        case None    => 1
+        case Some(n) => n + 1
+      }
+      /*if (cnt > 1) {
+        throw new Error(s"called $x $y")
+      }*/
+      calls = calls + ((x, y) -> cnt)
+      println(calls)
+
       Value.VInt(x.add(y))
     })
+
     evalTest(
       List("""
 package Rec/Fib
@@ -629,12 +640,13 @@ def fib(n):
     recur ins:
       []: outs
       [_, *rest]: match outs:
+        [h1, h2, *_]:
+          loop(rest, [h1.addLog(h2), *outs])
         []: loop(rest, [1])
         [h]: loop(rest, [2, h])
-        [h1, h2, *_]: loop(rest, [h1.addLog(h2), *outs])
   loop(range(n), [])
 
-out = fib(7)
+out = fib(12)
 """),
       "Rec/Fib",
       Externals(
@@ -643,10 +655,10 @@ out = fib(7)
       List({ case ((v, t), ev) =>
         assert(
           v.value == Value.VList(
-            List(21, 13, 8, 5, 3, 2, 1).map(Value.VInt(_))
+            List(233, 144, 89, 55, 34, 21, 13, 8, 5, 3, 2, 1).map(Value.VInt(_))
           )
         )
-        assert(cnt == 26)
+        assert(calls.values.sum == 10)
       })
     )
   }
