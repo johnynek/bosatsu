@@ -83,6 +83,9 @@ class ExpressionEvaluationTest extends AnyFunSuite {
     eeTest(List("euler3", "List", "Nat", "Bool"), "Euler/Three")
     eeTest(List("euler4", "List", "Nat", "Bool"), "Euler/Four")
     eeTest(List("euler5", "List", "Nat", "Bool"), "Euler/P5")
+    eeTest(List("euler6", "List", "Nat", "Bool"), "Euler/P6")
+    eeTest(List("euler7", "List", "Nat", "Bool"), "Euler/P7")
+    eeTest(List("recordset", "List", "Nat", "Bool"), "RecordSet/Library")
   }
 
 }
