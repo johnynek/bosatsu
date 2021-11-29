@@ -14,7 +14,7 @@ object ExpressionEvaluationTest {
   def evalTest(
       packages: List[String],
       mainPackS: String,
-      ext: Externals,
+      ext: (ExpressionEvaluation[Declaration] => Externals),
       assertions: List[
         (
             (Eval[Value], rankn.Type),
@@ -26,7 +26,10 @@ object ExpressionEvaluationTest {
         infPackMap: PackageMap.Inferred,
         mainPack: PackageName
     ) = {
-      val ev = ExpressionEvaluation(infPackMap, Predef.jvmExternals ++ ext)
+      val ev: ExpressionEvaluation[Declaration] = ExpressionEvaluation(
+        infPackMap,
+        arg => (Predef.jvmExternals ++ ext(arg))
+      )
       ev.evaluateLast(mainPack) match {
         case Some(res) => {
 
@@ -49,7 +52,7 @@ package LetFreeTest/String
 main = "aa"
 """),
       "LetFreeTest/String",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue("aa"), x._1.value)
       })
@@ -61,7 +64,7 @@ package LetFreeTest/String
 main = 22
 """),
       "LetFreeTest/String",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(
           x._1.value == Value.ExternalValue(BigInteger.valueOf(22)),
@@ -76,7 +79,7 @@ package LetFreeTest/String
 main = [23]
 """),
       "LetFreeTest/String",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(
           x._1.value == SumValue(
@@ -104,7 +107,7 @@ def foo(x):
 out = foo
 """),
       "Recur/Some",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         x._1.value match {
           case FnValue(_) => succeed
@@ -125,7 +128,7 @@ out = match [10,2,3]:
   [head, *_]: head
 """),
       "Match/Basic",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(
           x._1.value == Value.ExternalValue(BigInteger.valueOf(2)),
@@ -143,7 +146,7 @@ package Predef/Applied
 out = 1.sub(4)
 """),
       "Predef/Applied",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(-3)))
       })
@@ -159,7 +162,7 @@ def first(_, a):
 out = first(1,2)
 """),
       "Apply/Function",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(2)))
       })
@@ -178,7 +181,7 @@ def floorMinus(pair):
 out = floorMinus((2,5))
 """),
       "Positional/Minus",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(3)))
       })
@@ -196,7 +199,7 @@ def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
 out = [1,2,3].foldLeft(4, add)
 """),
       "Recur/FoldLeft",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(10)))
       })
@@ -216,7 +219,7 @@ def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
 out = [1,2,3].foldLeft(4, add)
 """),
       "Recur/FoldLeft",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(10)))
       })
@@ -233,7 +236,7 @@ out=match Pair(1, "two"):
   Pair(f, s): Trip(3, s, f)
 """),
       "Match/Structs",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, _) =>
         assert(
           x._1.value == ConsValue(
@@ -256,7 +259,7 @@ package Lambda/Identity
 out = \x -> x
 """),
       "Lambda/Identity",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, ev) =>
         x._1.value match {
           case fn: FnValue =>
@@ -282,7 +285,7 @@ package Lambda/Always
 out = \x -> \_ -> x
 """),
       "Lambda/Always",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, ev) =>
         x._1.value match {
           case fn: FnValue =>
@@ -314,7 +317,7 @@ package Lambda/Always
 out = \_ -> \y -> y
 """),
       "Lambda/Always",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, ev) =>
         x._1.value match {
           case fn: FnValue =>
@@ -349,7 +352,7 @@ def foo(x):
 out = foo
 """),
       "Lambda/Identity",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, ev) =>
         x._1.value match {
           case fn: FnValue =>
@@ -378,7 +381,7 @@ def result(x, c):
 out=result
 """),
       "Match/Vars",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, ev) =>
         x._1.value match {
           case fn: FnValue =>
@@ -420,7 +423,7 @@ out=match Pair(1, "two"):
   Pair(f, s): Trip(3, s, f)
 """),
       "Match/Structs",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, ev) =>
         assert(
           x._1.value == ConsValue(
@@ -442,7 +445,7 @@ out=match None:
   _: "not some"
 """),
       "Match/None",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, ev) => assert(x._1.value == Value.ExternalValue("not some")) })
     )
 
@@ -454,7 +457,7 @@ out = match [1,2,3]:
   _: 0
 """),
       "Match/List",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List({ (x, ev) =>
         assert(x._1.value == Value.ExternalValue(BigInteger.valueOf(3)))
       })
@@ -468,7 +471,7 @@ out = match ["a","b","c","d","e"]:
   []: None
 """),
       "Match/List",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List(
         (
             (
@@ -508,7 +511,7 @@ out = match Baz("abc"):
   Buzz: "buzzzzzzz"
 """),
       "Match/Union",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List(
         (
             (
@@ -529,7 +532,7 @@ out = match Buzz:
   Buzz: "buzzzzzzz"
 """),
       "Match/Union",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List(
         (
             (
@@ -557,7 +560,7 @@ out=fizz(1,2)
 """
       ),
       "Imp/Second",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List((v, ev) =>
         v._1.value match {
           case Value.Tuple(List(a, b)) => {
@@ -584,7 +587,7 @@ def fizz(f, s):
 """
       ),
       "Imp/First",
-      Externals(Map.empty),
+      _ => Externals(Map.empty),
       List((v, ev) =>
         v._1.value match {
           case Value.Tuple(List(a, b)) => {
@@ -606,29 +609,72 @@ external def foo(x: String) -> List[String]
 out = foo
 """),
       "Extern/Simple",
-      Externals(
-        Map((PackageName(NonEmptyList("Extern", List("Simple"))), "foo") -> fn1)
-      ),
+      _ =>
+        Externals(
+          Map(
+            (PackageName(NonEmptyList("Extern", List("Simple"))), "foo") -> fn1
+          )
+        ),
       List({ case ((v, t), ev) => assert(v.value == fn1.call(t)) })
     )
   }
 
   test("recursion complexity") {
     var calls: Map[(BigInteger, BigInteger), Int] = Map.empty
-    val fn2 = FfiCall.Fn2({ case (Value.VInt(x), Value.VInt(y)) =>
-      println(s"$x $y")
-      val cnt = calls.get((x, y)) match {
-        case None    => 1
-        case Some(n) => n + 1
-      }
-      /*if (cnt > 1) {
-        throw new Error(s"called $x $y")
-      }*/
-      calls = calls + ((x, y) -> cnt)
-      println(calls)
+    val fn2 = FfiCall.Fn2({
+      case (Value.VInt(x), Value.VInt(y)) =>
+        val cnt = calls.get((x, y)) match {
+          case None    => 1
+          case Some(n) => n + 1
+        }
+        calls = calls + ((x, y) -> cnt)
 
-      Value.VInt(x.add(y))
+        Value.VInt(x.add(y))
+      case _ => throw new Error("should be ints")
     })
+
+    evalTest(
+      List("""
+package Rec/Fib
+external def addLog(x: Int, y: Int) -> Int
+
+def fib(n):
+  def loop(ins, outs):
+    recur ins:
+      []: outs
+      [_, *rest]: match outs:
+        [h1, h2, *_]:
+          loop(rest, [h1.addLog(h2), *outs])
+        []: loop(rest, [1])
+        [h]: loop(rest, [2, h])
+  loop(range(n), [])
+
+out = fib(12)
+"""),
+      "Rec/Fib",
+      _ =>
+        Externals(
+          Map((PackageName(NonEmptyList("Rec", List("Fib"))), "addLog") -> fn2)
+        ),
+      List({ case ((v, t), ev) =>
+        assert(
+          v.value == Value.VList(
+            List(233, 144, 89, 55, 34, 21, 13, 8, 5, 3, 2, 1).map(Value.VInt(_))
+          )
+        )
+        assert(calls.values.sum == 10)
+      })
+    )
+  }
+  /*
+  test("expressionFn") {
+    case class Foo(x: String)
+    val externalsGenerator = (ev: new FnValue(ExprFnValue({(v: ExpressionValue, ev: ExpressionEvaluation[T]) => {
+      v match {
+        case ev.LazyValue(ex, _, _, _, _) => ExternalValue(Foo(ex.repr))
+        case _ => ExternalValue(Foo("no expression"))
+      }
+    }}))
 
     evalTest(
       List("""
@@ -661,5 +707,5 @@ out = fib(12)
         assert(calls.values.sum == 10)
       })
     )
-  }
+  }*/
 }

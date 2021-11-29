@@ -591,7 +591,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           mainPackageNameValue <- mainPackage.getMain(names)
           (mainPackageName, value) = mainPackageNameValue
           out <- if (packs.toMap.contains(mainPackageName)) {
-                    val ev = ExpressionEvaluation(packs, Predef.jvmExternals)
+                    val ev: ExpressionEvaluation[Any] = ExpressionEvaluation(packs, _ => Predef.jvmExternals)
 
                     val res: Option[(Eval[Value], rankn.Type)] = value match {
                       case None => ev.evaluateLast(mainPackageName)

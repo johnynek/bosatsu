@@ -424,10 +424,11 @@ object ExpressionEvaluation {
 
 case class ExpressionEvaluation[T](
     pm: PackageMap.Typed[T],
-    externals: Externals
+    externalsGenerator: (ExpressionEvaluation[T] => Externals)
 ) {
   import ExpressionEvaluation._
 
+  lazy val externals = externalsGenerator(this)
   val topLets =
     collection.mutable.Map[(PackageName, Identifier), ExpressionValue]()
   val valueToLitValue: Value => Option[LitValue] = { v =>
