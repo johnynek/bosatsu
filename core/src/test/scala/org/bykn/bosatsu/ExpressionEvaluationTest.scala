@@ -666,46 +666,68 @@ out = fib(12)
       })
     )
   }
-  /*
+
   test("expressionFn") {
-    case class Foo(x: String)
-    val externalsGenerator = (ev: new FnValue(ExprFnValue({(v: ExpressionValue, ev: ExpressionEvaluation[T]) => {
-      v match {
-        case ev.LazyValue(ex, _, _, _, _) => ExternalValue(Foo(ex.repr))
-        case _ => ExternalValue(Foo("no expression"))
-      }
-    }}))
+    case class Foo(n: Value, x: String)
+    def externalsGenerator[T](ev: ExpressionEvaluation[T]) = {
+      val foo = ev.exprFn(
+        1,
+        { case (t: rankn.Type, args: List[ev.ExpressionValue]) =>
+          args match {
+            case List(lv @ ev.LazyValue(ex, _, _, _, _)) =>
+              ExternalValue(Foo(lv.toValue, ex.repr))
+            case List(other) =>
+              ExternalValue(Foo(other.toValue, "no expression"))
+            case _ => throw new Error("wrong number of args")
+          }
+        }
+      )
+      Externals(
+        Map((PackageName(NonEmptyList("Expr", List("Fn"))), "foo") -> foo)
+      )
+    }
 
     evalTest(
       List("""
-package Rec/Fib
-external def addLog(x: Int, y: Int) -> Int
+package Expr/Fn
+external struct Foo
+external def foo(x: Int) -> Foo
 
-def fib(n):
-  def loop(ins, outs):
-    recur ins:
-      []: outs
-      [_, *rest]: match outs:
-        [h1, h2, *_]:
-          loop(rest, [h1.addLog(h2), *outs])
-        []: loop(rest, [1])
-        [h]: loop(rest, [2, h])
-  loop(range(n), [])
-
-out = fib(12)
+out = foo(3)
 """),
-      "Rec/Fib",
-      Externals(
-        Map((PackageName(NonEmptyList("Rec", List("Fib"))), "addLog") -> fn2)
-      ),
+      "Expr/Fn",
+      externalsGenerator(_),
       List({ case ((v, t), ev) =>
         assert(
-          v.value == Value.VList(
-            List(233, 144, 89, 55, 34, 21, 13, 8, 5, 3, 2, 1).map(Value.VInt(_))
+          v.value == ExternalValue(
+            Foo(Value.VInt(3), "(lit 3 Bosatsu/Predef::Int)")
           )
         )
-        assert(calls.values.sum == 10)
       })
     )
-  }*/
+
+    evalTest(
+      List("""
+package Expr/Fn
+external struct Foo
+external def foo(x: Int) -> Foo
+
+out = foo(1.add(2))
+"""),
+      "Expr/Fn",
+      externalsGenerator(_),
+      List({ case ((v, t), ev) =>
+        assert(
+          v.value == ExternalValue(
+            Foo(
+              Value.VInt(3),
+              """(ap (ap (var Bosatsu/Predef::add Bosatsu/Predef::Int -> Bosatsu/Predef::Int -> Bosatsu/Predef::Int)
+        (lit 1 Bosatsu/Predef::Int) Bosatsu/Predef::Int -> Bosatsu/Predef::Int) (lit 2
+        Bosatsu/Predef::Int) Bosatsu/Predef::Int)"""
+            )
+          )
+        )
+      })
+    )
+  }
 }
