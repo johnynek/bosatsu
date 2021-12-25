@@ -387,10 +387,11 @@ object Parser {
     }
   }
 
-  def parens[A](pa: P0[A]): P[A] = {
-    val ws = maybeSpacesAndLines
+  private def parens[A](pa: P0[A]): P[A] =
+    parens(pa, maybeSpacesAndLines)
+
+  def parens[A](pa: P0[A], ws: P0[Any]): P[A] =
     (P.char('(') ~ ws) *> pa <* (ws ~ P.char(')'))
-  }
 
   val newline: P[Unit] = P.char('\n')
   val toEOL: P0[Unit] = maybeSpace *> newline.orElse(P.end)

@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, Indy, maybeSpace, spaces, toEOL1, keySpace }
+import Parser.{ Combinators, Indy, maybeSpace, maybeSpacesAndLines, spaces, toEOL1, keySpace }
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.graph.Memoize
 import cats.parse.{Parser0 => P0, Parser => P}
@@ -1063,17 +1063,32 @@ object Declaration {
 
       val recComp: P[NonBinding] = P.defer(rec((ParseMode.ComprehensionSource, indent))).asInstanceOf[P[NonBinding]]
 
+      val nestedBlock: P[Region => Declaration.NonBinding] = {
+        /**
+         * we can either do: ( y = 1
+         * y)
+         * starting a new declaration without indentation,
+         * or (
+         *     y = 1
+         *     y)
+         * where we allow more indentation.
+         */
+        val noIndent = recurseDecl
+        val withIndent = Parser.newline *> Parser.spaces.string.flatMap { indent => recIndy(indent) }
+        maybeSpace.with1 *> (withIndent | noIndent).map { d => { r: Region => Parens(d)(r) } } <* maybeSpacesAndLines
+      }
+
       val tupOrPar: P[NonBinding] =
-        Parser.parens(((recNonBind.soft <* (!(maybeSpace ~ bindOp)))
+        Parser.parens(((maybeSpacesAndLines.with1.soft *> (recNonBind.soft <* (!(maybeSpace ~ bindOp)) <* maybeSpacesAndLines))
           .tupleOrParens0
           .map {
             case Left(p) => { r: Region =>  Parens(p)(r) }
             case Right(tup) => { r: Region => TupleCons(tup.toList)(r) }
           })
-          .orElse(recurseDecl.map { d => { r: Region => Parens(d)(r) } })
+          .orElse(nestedBlock)
           // or it could be () which is just unit
           .orElse(P.pure({ r: Region => TupleCons(Nil)(r) }))
-        )
+        , P.unit)
         .region
         .map { case (r, fn) => fn(r) }
 

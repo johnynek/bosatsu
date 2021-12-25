@@ -22,7 +22,7 @@ trait ParseFns {
     }
     else {
       val s = s0.updated(idx, '*')
-      ("...(" + s.drop(idx - 20).take(20) + ")...")
+      ("...(" + s.drop(idx - 20).take(30) + ")...")
     }
 
   def firstDiff(s1: String, s2: String): String =
@@ -1289,5 +1289,35 @@ x = Foo(bar if bar)
 
 z = [x for x in xs if x < y else ]
 """, 41)
+  }
+
+  test("using parens to make blocks") {
+    roundTrip(Package.parser(None),
+"""package Foo
+
+x = (
+  y = 3
+  y
+)
+""", lax = true)
+
+    roundTrip(Package.parser(None),
+"""package Foo
+
+x = (
+  def foo(x): x
+  (
+    foo(1)
+  )
+)
+""", lax = true)
+
+    roundTrip(Package.parser(None),
+"""package Foo
+
+x = ( y = 3
+y
+)
+""", lax = true)
   }
 }
