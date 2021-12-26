@@ -552,13 +552,13 @@ object Declaration {
             .map { p1 =>
               Comment(CommentStatement(c.message, p1))(decl.region)
             }
-        case DefFn(ds@DefStatement(nm, args, rtype, (body, rest))) =>
+        case DefFn(DefStatement(nm, args, rtype, (body, rest))) =>
           def go(scope: List[Bindable], d0: Declaration): Option[Declaration] =
             if (scope.exists(masks)) None
             else if (scope.exists(shadows)) Some(d0)
             else loopDec(d0)
 
-          val bodyScope = nm :: ds.args.patternNames
+          val bodyScope = nm :: args.patternNames
           val restScope = nm :: Nil
 
           (body.traverse(go(bodyScope, _)), rest.traverse(go(restScope, _)))
