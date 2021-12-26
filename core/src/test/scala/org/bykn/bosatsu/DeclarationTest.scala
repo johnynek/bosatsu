@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 
@@ -122,10 +123,10 @@ class DeclarationTest extends AnyFunSuite {
           val b = Identifier.Backticked("")
           val d1 = Literal(Lit.fromInt(0))
           val d0 = DefFn(
-            DefStatement(Name("mfLjwok"),List(),None,
+            DefStatement(Name("mfLjwok"),NonEmptyList.of(Pattern.Var(Name("foo"))),None,
               (NotSameLine(Padding(10,Indented(10,Var(Backticked(""))))),
                 Padding(10,Binding(BindingStatement(
-                  Pattern.Var(Backticked("")),Var(Constructor("Rgt")),Padding(1,DefFn(DefStatement(Backticked(""),List(),None,(NotSameLine(Padding(2,Indented(4,Literal(Lit.fromInt(42))))),Padding(2,DefFn(DefStatement(Name("gkxAckqpatu"),List(),Some(TypeRef.TypeName(TypeName(Constructor("Y")))),(NotSameLine(Padding(6,Indented(8,Literal(Lit("oimsu"))))),Padding(2,Var(Name("j")))))))))))))))))
+                  Pattern.Var(Backticked("")),Var(Constructor("Rgt")),Padding(1,DefFn(DefStatement(Backticked(""),NonEmptyList.of(Pattern.Var(Name("bar"))),None,(NotSameLine(Padding(2,Indented(4,Literal(Lit.fromInt(42))))),Padding(2,DefFn(DefStatement(Name("gkxAckqpatu"),NonEmptyList.of(Pattern.Var(Name("quux"))),Some(TypeRef.TypeName(TypeName(Constructor("Y")))),(NotSameLine(Padding(6,Indented(8,Literal(Lit("oimsu"))))),Padding(2,Var(Name("j")))))))))))))))))
 
           (b, d1, d0)
         }

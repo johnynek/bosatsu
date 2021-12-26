@@ -37,26 +37,22 @@ x = x.plus(1)
 """)
     // shadowing is okay
     allowed("""#
-def foo:
+foo = (
   x = 1
   x = 1.plus(1)
-  x
-""")
-
-    disallowed("""#
-def foo: foo
+  x)
 """)
 
     // typechecking catches this issue
     allowed("""#
-def foo:
+foo = (
   x = x
-  x
+  x)
 """)
     allowed("""#
-def foo:
+foo = (
   x = 1
-  x
+  x)
 """)
   }
 

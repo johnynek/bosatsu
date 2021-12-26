@@ -23,7 +23,7 @@ class FreeVarTest extends AnyFunSuite {
   test("freeVar examples") {
     assertFreeVars("""x = y""", List("y"))
     assertFreeVars("""y = 1""", Nil)
-    assertFreeVars("""external def foo -> Int""", Nil)
+    assertFreeVars("""external foo: Int""", Nil)
     assertFreeVars("""def foo(x): y""", List("y"))
     assertFreeVars("""def foo(x):
   y = x

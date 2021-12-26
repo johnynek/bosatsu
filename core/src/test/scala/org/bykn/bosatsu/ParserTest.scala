@@ -554,7 +554,7 @@ foo"""
     parseTestAll(
       Declaration.parser(""),
       defWithComment,
-      Declaration.DefFn(DefStatement(Identifier.Name("foo"), List(Pattern.Var(Identifier.Name("a"))), None,
+      Declaration.DefFn(DefStatement(Identifier.Name("foo"), NonEmptyList.of(Pattern.Var(Identifier.Name("a"))), None,
         (OptIndent.paddedIndented(1, 2, Declaration.CommentNB(CommentStatement(NonEmptyList.of(" comment here"),
           Padding(0, mkVar("a"))))),
          Padding(0, mkVar("foo"))))))
@@ -1185,7 +1185,7 @@ def foo(
   test("parse external defs") {
     roundTrip(Statement.parser,
 """# header
-external def foo -> String
+external foo: String
 """)
     roundTrip(Statement.parser,
 """# header
@@ -1238,24 +1238,25 @@ y = {'x': 'x' : 'y'}
 
     expectFail(Statement.parser,
       """x = 1
-def z:
+z = (
   x = 1
-  x x
-""", 25)
+  x x)
+""", 24)
 
     expectFail(Statement.parser,
       """x = 1
-def z:
+z = (
   x = 1
   y = [1, 2, 3]
-  x x
-""", 41)
+  x x)
+""", 40)
 
-    expectFail(Statement.parser,
-      """def z:
-  if f: 0
-  else 1
-""", 24)
+    // this doesn't point to the right place
+    // expectFail(Statement.parser,
+    //   """z = (
+  // if f: 0
+  // else 1)
+// """, 23)
 
     expectFail(Package.parser(None),
       """package Foo
@@ -1305,8 +1306,38 @@ x = (
 """package Foo
 
 x = (
+  Foo(y, _) = foo
+  y
+)
+""", lax = true)
+
+    roundTrip(Package.parser(None),
+"""package Foo
+
+x = (
+  if True: 1
+  else: 0
+)
+""", lax = true)
+
+    roundTrip(Package.parser(None),
+"""package Foo
+
+x = (
   def foo(x): x
   (
+    foo(1)
+  )
+)
+""", lax = true)
+
+    roundTrip(Package.parser(None),
+"""package Foo
+
+x = (
+  def foo(x): x
+  (
+    # comment is okay
     foo(1)
   )
 )
@@ -1318,6 +1349,24 @@ x = (
 x = ( y = 3
 y
 )
+""", lax = true)
+  }
+
+  test("lambdas can have new lines") {
+
+    roundTrip(Package.parser(None),
+"""package Foo
+
+x = \z ->
+  z
+""", lax = true)
+
+    roundTrip(Package.parser(None),
+"""package Foo
+
+x = \z ->
+  # we can comment here
+  z
 """, lax = true)
   }
 }

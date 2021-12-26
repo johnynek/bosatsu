@@ -156,7 +156,7 @@ final class SourceConverter(
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
         }
-        val newBindings = defstmt.name :: defstmt.args.flatMap(_.names)
+        val newBindings = defstmt.name :: defstmt.args.toList.flatMap(_.names)
         // TODO
         val lambda = defstmt.toLambdaExpr({ res => withBound(res._1.get, newBindings) }, success(decl))(
           convertPattern(_, decl.region), { t => toType(t, decl.region) })

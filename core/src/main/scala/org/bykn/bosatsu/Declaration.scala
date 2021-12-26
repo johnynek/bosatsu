@@ -187,7 +187,7 @@ sealed abstract class Declaration {
           // may or may not be recursive
 
           val boundRest = bound + d.name
-          val boundBody = boundRest ++ d.args.flatMap(_.names)
+          val boundBody = boundRest ++ d.args.toList.flatMap(_.names)
 
           val acc1 = loop(body.get, boundBody, acc)
           loop(rest.padded, boundRest, acc1)
@@ -300,7 +300,7 @@ sealed abstract class Declaration {
         case DefFn(d) =>
           // def sets up a binding to itself, which
           // may or may not be recursive
-          val acc1 = (acc + d.name) ++ d.args.flatMap(_.names)
+          val acc1 = (acc + d.name) ++ d.args.toList.flatMap(_.names)
           val (body, rest) = d.result
           val acc2 = loop(body.get, acc1)
           loop(rest.padded, acc2)
@@ -558,7 +558,7 @@ object Declaration {
             else if (scope.exists(shadows)) Some(d0)
             else loopDec(d0)
 
-          val bodyScope = nm :: args.flatMap(_.names)
+          val bodyScope = nm :: args.toList.flatMap(_.names)
           val restScope = nm :: Nil
 
           (body.traverse(go(bodyScope, _)), rest.traverse(go(restScope, _)))
@@ -844,7 +844,7 @@ object Declaration {
 
   def commentP(parser: Indy[Declaration]): Parser.Indy[Declaration] =
     CommentStatement.parser(
-        { indent => Padding.parser(P.string0(indent).with1 *>  parser(indent)) }
+        { indent => Padding.parser(P.string0(indent).with1 *> parser(indent)) }
       )
       .region
       .map {
@@ -857,10 +857,10 @@ object Declaration {
           }
       }
 
-  def commentNBP(parser: P[NonBinding]): P[CommentNB] =
+  def commentNBP(parser: P[NonBinding]): Indy[CommentNB] =
     CommentStatement.parser(
-        { indent => Padding.parser(Parser.maybeSpace.soft.with1 *> parser) }
-      )("")
+        { indent => Padding.parser(P.string0(indent).with1 *> (Parser.maybeSpace.soft.with1 *> parser)) }
+      )
       .region
       .map { case (r, c) => CommentNB(c)(r) }
 
@@ -1079,7 +1079,8 @@ object Declaration {
       }
 
       val tupOrPar: P[NonBinding] =
-        Parser.parens(((maybeSpacesAndLines.with1.soft *> (recNonBind.soft <* (!(maybeSpace ~ bindOp)) <* maybeSpacesAndLines))
+        // TODO: the backtrack here is bad...
+        Parser.parens(((maybeSpacesAndLines.with1.soft *> ((recNonBind <* (!(maybeSpace ~ bindOp))).backtrack <* maybeSpacesAndLines))
           .tupleOrParens0
           .map {
             case Left(p) => { r: Region =>  Parens(p)(r) }
@@ -1110,7 +1111,9 @@ object Declaration {
             stringDeclOrLit(recNBIndy)(indent) ::
             tupOrPar ::
             recordConstructorP(indent, recNonBind, recArg) ::
-            commentNBP(recNonBind) :: 
+            // TODO: comment is ambiguous with binding/non-binding...
+            // so it prevents us commenting a binding statement
+            commentNBP(recNonBind)(indent) :: 
             Nil))
 
       /*

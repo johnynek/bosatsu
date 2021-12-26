@@ -25,11 +25,11 @@ object CommentStatement {
    */
   def parser[T](onP: String => P0[T]): Parser.Indy[CommentStatement[T]] =
     Parser.Indy { indent =>
-      val sep = Parser.newline ~ Parser.maybeSpace
+      val sep = Parser.newline
 
       val commentBlock: P[NonEmptyList[String]] =
         // if the next line is part of the comment until we see the # or not
-        commentPart.repSep(sep = sep) <* Parser.newline.orElse(P.end)
+        (Parser.maybeSpace.with1.soft *> commentPart).repSep(sep = sep) <* Parser.newline.orElse(P.end)
 
       (commentBlock ~ onP(indent))
         .map { case (m, on) => CommentStatement(m, on) }

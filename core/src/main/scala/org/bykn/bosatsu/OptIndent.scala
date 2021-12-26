@@ -76,6 +76,6 @@ object OptIndent {
 
   def blockLike[A, B, C](first: Indy[A], next: Indy[B], sep: P0[C]): Indy[(A, OptIndent[B])] =
     first
-      .cutLeftP((sep ~ maybeSpace).void)
+      .cutLeftP(sep ~ maybeSpace)
       .cutThen(OptIndent.indy(next))
 }
