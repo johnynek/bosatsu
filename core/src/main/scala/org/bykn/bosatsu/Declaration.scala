@@ -187,7 +187,7 @@ sealed abstract class Declaration {
           // may or may not be recursive
 
           val boundRest = bound + d.name
-          val boundBody = boundRest ++ d.args.toList.flatMap(_.names)
+          val boundBody = boundRest ++ d.args.patternNames
 
           val acc1 = loop(body.get, boundBody, acc)
           loop(rest.padded, boundRest, acc1)
@@ -202,7 +202,7 @@ sealed abstract class Declaration {
           val acc2 = loop(c, bound, acc1)
           loop(f, bound, acc2)
         case Lambda(args, body) =>
-          val bound1 = bound ++ args.toList.flatMap(_.names)
+          val bound1 = bound ++ args.patternNames
           loop(body, bound1, acc)
         case la@LeftApply(_, _, _, _) =>
           loop(la.rewrite, bound, acc)
@@ -300,7 +300,7 @@ sealed abstract class Declaration {
         case DefFn(d) =>
           // def sets up a binding to itself, which
           // may or may not be recursive
-          val acc1 = (acc + d.name) ++ d.args.toList.flatMap(_.names)
+          val acc1 = (acc + d.name) ++ d.args.patternNames
           val (body, rest) = d.result
           val acc2 = loop(body.get, acc1)
           loop(rest.padded, acc2)
@@ -317,7 +317,7 @@ sealed abstract class Declaration {
           val acc2 = loop(c, acc1)
           loop(f, acc2)
         case Lambda(args, body) =>
-          val acc1 = acc ++ args.toList.flatMap(_.names)
+          val acc1 = acc ++ args.patternNames
           loop(body, acc1)
         case Literal(lit) => acc
         case Match(_, typeName, args) =>
@@ -479,7 +479,7 @@ object Declaration {
           (loop(t), loop(c), loop(f)).mapN(Ternary(_, _, _))
         case Lambda(args, body) =>
           // sets up a binding
-          val pnames = args.toList.flatMap(_.names)
+          val pnames = args.patternNames
           if (pnames.exists(masks)) None
           else if (pnames.exists(shadows)) Some(decl)
           else loopDec(body).map(Lambda(args, _)(decl.region))
@@ -552,13 +552,13 @@ object Declaration {
             .map { p1 =>
               Comment(CommentStatement(c.message, p1))(decl.region)
             }
-        case DefFn(DefStatement(nm, args, rtype, (body, rest))) =>
+        case DefFn(ds@DefStatement(nm, args, rtype, (body, rest))) =>
           def go(scope: List[Bindable], d0: Declaration): Option[Declaration] =
             if (scope.exists(masks)) None
             else if (scope.exists(shadows)) Some(d0)
             else loopDec(d0)
 
-          val bodyScope = nm :: args.toList.flatMap(_.names)
+          val bodyScope = nm :: ds.args.patternNames
           val restScope = nm :: Nil
 
           (body.traverse(go(bodyScope, _)), rest.traverse(go(restScope, _)))

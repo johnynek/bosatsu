@@ -95,7 +95,7 @@ object Statement {
         case Def(defstatement) =>
           val innerFrees = defstatement.result.get.freeVars
           // but the def name and, args shadow
-          (innerFrees - defstatement.name) -- defstatement.args.toList.flatMap(_.names)
+          (innerFrees - defstatement.name) -- defstatement.args.patternNames
         case ExternalDef(name, _, _) => SortedSet.empty
       }
 
@@ -106,8 +106,7 @@ object Statement {
       this match {
         case Bind(BindingStatement(pat, decl, _)) => decl.allNames ++ pat.names
         case Def(defstatement) =>
-          (defstatement.result.get.allNames + defstatement.name) ++
-            defstatement.args.toList.flatMap(_.names)
+          (defstatement.result.get.allNames + defstatement.name) ++ defstatement.args.patternNames
         case ExternalDef(name, _, _) => SortedSet(name)
       }
     }
