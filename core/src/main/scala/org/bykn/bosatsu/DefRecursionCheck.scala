@@ -301,7 +301,7 @@ object DefRecursionCheck {
           checkDecl(t) *> checkDecl(c) *> checkDecl(f)
         case Lambda(args, body) =>
           // these args create new bindings:
-          checkForIllegalBindsSt(args.toList.flatMap(_.names), decl) *> checkDecl(body)
+          checkForIllegalBindsSt(args.patternNames, decl) *> checkDecl(body)
         case Literal(_) =>
           unitSt
         case Match(RecursionKind.NonRecursive, arg, cases) =>
@@ -418,7 +418,7 @@ object DefRecursionCheck {
      */
     def checkDef[A](state: State, defstmt: DefStatement[Pattern.Parsed, (OptIndent[Declaration], A)]): Res = {
       val body = defstmt.result._1.get
-      val nameArgs = defstmt.args.toList.flatMap(_.names)
+      val nameArgs = defstmt.args.patternNames
       val state1 = state.inDef(defstmt.name, defstmt.args)
       checkForIllegalBinds(state, defstmt.name :: nameArgs, body) {
         val st = setSt(state1) *> checkDecl(body) *> (getSt.flatMap {
