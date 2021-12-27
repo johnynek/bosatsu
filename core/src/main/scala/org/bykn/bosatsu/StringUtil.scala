@@ -15,23 +15,25 @@ abstract class GenericStringUtil {
    }.toArray
 
   val escapedToken: P[Char] = {
-    import Integer.parseInt
+    def parseIntStr(p: P[Any], base: Int): P[Char] =
+      p.string.map(Integer.parseInt(_, base).toChar)
 
     val escapes = P.charIn(decodeTable.keys.toSeq).map(decodeTable(_))
 
     val oct = P.charIn('0' to '7')
-    val octP = P.char('o') *> (oct ~ oct).string.map(parseInt(_, 8).toChar)
+    val octP = P.char('o') *> parseIntStr(oct ~ oct, 8)
 
     val hex = P.charIn(('0' to '9') ++ ('a' to 'f') ++ ('A' to 'F'))
     val hex2 = hex ~ hex
-    val hexP = P.char('x') *> hex2.string.map(parseInt(_, 16).toChar)
+    val hexP = P.char('x') *> parseIntStr(hex2, 16)
 
     val hex4 = hex2 ~ hex2
-    val u4 = P.char('u') *> hex4.string.map(parseInt(_, 16).toChar)
+    val u4 = P.char('u') *> parseIntStr(hex4, 16)
     val hex8 = hex4 ~ hex4
-    val u8 = P.char('U') *> hex8.string.map(parseInt(_, 16).toChar)
+    val u8 = P.char('U') *> parseIntStr(hex8, 16)
 
-    val after = P.oneOf(escapes :: octP :: hexP :: u4 :: u8 :: Nil)
+    // do the oneOf in a guess order of likelihood
+    val after = P.oneOf(escapes :: u4 :: hexP :: u8 :: Nil)
     P.char('\\') *> after
   }
 
