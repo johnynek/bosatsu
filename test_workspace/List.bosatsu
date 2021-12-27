@@ -87,15 +87,17 @@ operator =*= = eq_List(eq_Int)
 
 def not(x): False if x else True
 
-def headTest:
+headTest = (
     res = head([1, 2, 3]) matches Some(1)
     Assertion(res, "head test")
+)
 
-def unconsTest:
+unconsTest = (
     res = uncons([1, 2, 3]) matches Some((1, [2, 3]))
     Assertion(res, "uncons test")
+)
 
-def zipTest:
+zipTest = (
     test1 = zip([1, 2], ["1", "2"]) matches [(1, "1"), (2, "2")]
 
     test2 = zip([1], ["1", "2"]) matches [(1, "1")]
@@ -107,8 +109,9 @@ def zipTest:
       Assertion(test2, "left smaller"),
       Assertion(test3, "right smaller"),
     ])
+)
 
-def sortTest:
+sortTest = (
     sort_Int = sort(Order(cmp_Int))
     test1 = sort_Int([3, 1, 2]) matches [1, 2, 3]
     test2 = sort_Int([1, 2, 3]) matches [1, 2, 3]
@@ -121,6 +124,7 @@ def sortTest:
       Assertion(test3, "2, 3, 1"),
       Assertion(test4, "1, 2, 1"),
     ])
+)
 
 tests = TestSuite("List tests", [
   Assertion([1, 2, 3] =*= [1, 2, 3], "list [1, 2, 3]"),

@@ -95,7 +95,7 @@ object Statement {
         case Def(defstatement) =>
           val innerFrees = defstatement.result.get.freeVars
           // but the def name and, args shadow
-          (innerFrees - defstatement.name) -- defstatement.args.flatMap(_.names)
+          (innerFrees - defstatement.name) -- defstatement.args.patternNames
         case ExternalDef(name, _, _) => SortedSet.empty
       }
 
@@ -106,8 +106,7 @@ object Statement {
       this match {
         case Bind(BindingStatement(pat, decl, _)) => decl.allNames ++ pat.names
         case Def(defstatement) =>
-          (defstatement.result.get.allNames + defstatement.name) ++
-            defstatement.args.flatMap(_.names)
+          (defstatement.result.get.allNames + defstatement.name) ++ defstatement.args.patternNames
         case ExternalDef(name, _, _) => SortedSet(name)
       }
     }
@@ -183,27 +182,30 @@ object Statement {
              case (region, (name, tva)) => ExternalStruct(name, tva)(region)
            }
 
+       val argParser: P[(Bindable, TypeRef)] = Identifier.bindableParser ~ (
+         maybeSpace *> P.char(':') *> maybeSpace *> TypeRef.parser)
+
        val externalDef = {
-         val argParser: P[(Bindable, TypeRef)] =
-           Identifier.bindableParser ~ (maybeSpace *> P.char(':') *> maybeSpace *> TypeRef.parser)
 
          val args = P.char('(') *> maybeSpace *> argParser.nonEmptyList <* maybeSpace <* P.char(')')
 
          val result = maybeSpace.with1 *> P.string("->") *> maybeSpace *> TypeRef.parser
 
-         (((keySpace("def") *> Identifier.bindableParser ~ args.? ~ result).region) <* toEOL)
+         (((keySpace("def") *> Identifier.bindableParser ~ args ~ result).region) <* toEOL)
            .map {
-             case (region, ((name, optArgs), resType)) =>
-               val alist = optArgs match {
-                 case None => Nil
-                 case Some(ne) => ne.toList
-               }
-
-               ExternalDef(name, alist, resType)(region)
+             case (region, ((name, args), resType)) =>
+               ExternalDef(name, args.toList, resType)(region)
            }
        }
 
-       keySpace("external") *> externalStruct.orElse(externalDef)
+       val externalVal =
+         (argParser <* toEOL)
+           .region
+           .map { case (region, (name, resType)) =>
+             ExternalDef(name, Nil, resType)(region)
+           }
+
+       keySpace("external") *> P.oneOf(externalStruct :: externalDef :: externalVal :: Nil)
      }
 
      val struct =
@@ -318,14 +320,14 @@ object Statement {
         Doc.text("enum ") + Document[Constructor].document(nm) + taDoc + Doc.char(':') +
           colonSep +
           indentedCons + Doc.line
+      case ExternalDef(name, Nil, res) =>
+        Doc.text("external ") + Document[Bindable].document(name) + Doc.text(": ") + res.toDoc + Doc.line
       case ExternalDef(name, args, res) =>
-        val argDoc = args match {
-          case Nil => Doc.empty
-          case nonEmpty =>
-            val da = Doc.intercalate(Doc.text(", "), nonEmpty.map { case (n, tr) =>
-              Document[Bindable].document(n) + Doc.text(": ") + tr.toDoc
-            })
-            Doc.char('(') + da + Doc.char(')')
+        val argDoc = {
+          val da = Doc.intercalate(Doc.text(", "), args.map { case (n, tr) =>
+            Document[Bindable].document(n) + Doc.text(": ") + tr.toDoc
+          })
+          Doc.char('(') + da + Doc.char(')')
         }
         Doc.text("external def ") + Document[Bindable].document(name) + argDoc + Doc.text(" -> ") + res.toDoc + Doc.line
       case ExternalStruct(nm, targs) =>

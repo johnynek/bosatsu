@@ -145,7 +145,7 @@ object Generators {
   def defGen[T](dec: Gen[T]): Gen[DefStatement[Pattern.Parsed, T]] =
     for {
       name <- bindIdentGen
-      args <- Gen.listOf(argGen)
+      args <- nonEmpty(argGen)
       retType <- Gen.option(typeRefGen)
       body <- dec
     } yield DefStatement(name, args.map(argToPat), retType, body)

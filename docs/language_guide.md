@@ -172,7 +172,8 @@ every def would be a return. Like Python chooses to omit return in `lambda` expr
 to remove `return` entirely from bosatsu.
 
 All functions internally are functions of a single value returning a single value. We have syntax to
-call multiple variable functions, but that is just syntactic sugar over curried functions.
+call multiple variable functions, but that is just syntactic sugar over curried functions. All def statements
+require at least one argument since they all are functions.
 
 So, we can write:
 ```

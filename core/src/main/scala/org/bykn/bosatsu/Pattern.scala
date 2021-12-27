@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Applicative
+import cats.{Applicative, Foldable}
 import cats.data.NonEmptyList
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
@@ -369,6 +369,10 @@ object Pattern {
 
       go(pat)
     }
+  }
+
+  implicit class FoldablePattern[F[_], N, T](private val pats: F[Pattern[N, T]]) extends AnyVal {
+    def patternNames(implicit F: Foldable[F]): List[Bindable] = F.toList(pats).flatMap(_.names)
   }
 
   case object WildCard extends Pattern[Nothing, Nothing]

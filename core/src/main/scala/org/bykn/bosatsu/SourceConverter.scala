@@ -156,7 +156,7 @@ final class SourceConverter(
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
         }
-        val newBindings = defstmt.name :: defstmt.args.flatMap(_.names)
+        val newBindings = defstmt.name :: defstmt.args.patternNames
         // TODO
         val lambda = defstmt.toLambdaExpr({ res => withBound(res._1.get, newBindings) }, success(decl))(
           convertPattern(_, decl.region), { t => toType(t, decl.region) })
@@ -187,7 +187,7 @@ final class SourceConverter(
         loop(IfElse(NonEmptyList((c, OptIndent.same(t)), Nil), OptIndent.same(f))(tern.region))
       case Lambda(args, body) =>
         val argsRes = args.traverse(convertPattern(_, decl.region))
-        val bodyRes = withBound(body, args.toList.flatMap(_.names))
+        val bodyRes = withBound(body, args.patternNames)
         (argsRes, bodyRes).mapN { (args, body) =>
           Expr.buildPatternLambda(args, body, decl)
         }

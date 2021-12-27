@@ -261,7 +261,7 @@ object Expr {
       .iterator
       .map(_.name)
       .map(Identifier.Name(_))
-      .filterNot(allNames(body) ++ args.toList.flatMap(_.names))
+      .filterNot(allNames(body) ++ args.patternNames)
 
     def loop(
       args: NonEmptyList[Pattern[(PackageName, Constructor), Type]],

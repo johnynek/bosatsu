@@ -229,7 +229,7 @@ contains_i = \tree, i -> (contains_i_opt(tree, i) matches Some(_))
 
 def not(x): False if x else True
 
-def contains_test:
+contains_test = (
     def add_law(t, i, msg):
         Assertion(t.add_i(i).contains_i(i), msg)
 
@@ -244,6 +244,7 @@ def contains_test:
       missing_law(single_i(2).rem_i(2), 2, "Empty + 2 - 2, !contains(2)"),
       missing_law(single_i(2).rem_i(2).rem_i(2), 2, "Empty + 2 - 2, !contains(2)")
     ])
+)
 
 def eq_i(a, b):
     cmp_Int(a, b) matches EQ
@@ -260,7 +261,7 @@ def rem_decreases_size(t, i, msg):
     diff_one = eq_i(s0.sub(s1), 1)
     Assertion(diff_one, msg)
 
-def size_tests:
+size_tests = (
     TestSuite('size tests', [
       add_increases_size(Empty, 1, "Empty.add(1)"),
       add_increases_size(single_i(1), 2, "single(1).add(2)"),
@@ -268,6 +269,7 @@ def size_tests:
       rem_decreases_size(single_i(1), 1, "single(1) - 1"),
       rem_decreases_size(single_i(2).add_i(3), 2, "single(2) + 3 - 2"),
     ])
+)
 
 def log2(i):
      int_loop(i, 0, \n, cnt ->
@@ -276,7 +278,7 @@ def log2(i):
 
 def all_n(n): range(n).foldLeft(Empty)(add_i)
 
-def height_tests:
+height_tests =(
     # h < c log_2(n + 2) + b, c ~= 1.44, b ~= -1.33
     # we can weaken this to: 3/2 * log_2(n + 2)
     def size_law(n):
@@ -291,8 +293,9 @@ def height_tests:
     TestSuite("height_tests", [
       size_law(n) for n in range(30)
     ])
+)
 
-def fold_left_tests:
+fold_left_tests = (
   TestSuite("fold_left_tests", [
     Assertion(all_n(100).fold_left_Tree(0, \i, _ -> i.add(1)).eq_i(100), "sum 100"),
     Assertion(all_n(100).fold_left_Tree(0, max).eq_i(99), "max 100"),
@@ -301,8 +304,9 @@ def fold_left_tests:
           -1: i
           _: acc).eq_i(0), "first is 0"),
   ])
+)
 
-def fold_right_tests:
+fold_right_tests = (
   TestSuite("fold_right_tests", [
     Assertion(all_n(100).fold_right_Tree(0, \_, i -> i.add(1)).eq_i(100), "sum 100"),
     Assertion(all_n(100).fold_right_Tree(0, max).eq_i(99), "max 100"),
@@ -311,6 +315,7 @@ def fold_right_tests:
           -1: i
           _: acc).eq_i(99), "last is 99"),
   ])
+)
 
 tests = TestSuite("AvlTree tests", [
     contains_test,

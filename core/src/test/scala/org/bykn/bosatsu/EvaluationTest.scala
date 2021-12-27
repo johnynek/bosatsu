@@ -53,9 +53,10 @@ package Foo
 
 def let(arg, in): in(arg)
 
-def foo:
+foo = (
   x <- let(3)
   x.add(1)
+)
 
 test = Assertion(foo matches 4, "checking equality")
 """), "Foo", 1)
@@ -336,17 +337,6 @@ sum1 = three.foldLeft(0, \x, y -> add(x, y))
 same = sum0.eq_Int(sum1)
 """), "Foo", True)
 
-  }
-
-  test("test zero arg defs") {
-    evalTest(
-      List("""
-package Foo
-
-def foo: 42
-
-main = foo
-"""), "Foo", VInt(42))
   }
 
   test("test Int functions") {
@@ -1793,9 +1783,10 @@ package A
 
 struct Pair(first, second)
 
-def res:
+res = (
   Pair { first, ... } = Pair(1, 2)
   first
+)
 
 tests = TestSuite("test record",
   [
@@ -2053,11 +2044,11 @@ tests = TestSuite("test record",
   test("test ordered shadowing issue #328") {
     runBosatsuTest(List("""package A
 
-def one: 1
+one = 1
 
 two = one.add(1)
 
-def one: "one"
+one = "one"
 
 good = match (one, two):
   case ("one", 2): True
@@ -2074,13 +2065,13 @@ tests = TestSuite("test",
 
 struct Foo(one)
 
-def one: 1
+one = 1
 
 two = one.add(1)
 
 foo = Foo { one }
 
-def one: "one"
+one = "one"
 
 good = match (one, two, foo):
   case ("one", 2, Foo(1)): True
@@ -2095,14 +2086,14 @@ tests = TestSuite("test",
     // test local shadowing of a duplicate
     runBosatsuTest(List("""package A
 
-def one: 1
+one = 1
 
 two = one.add(1)
 
 incA = \one -> one.add(1)
 def incB(one): one.add(1)
 
-def one: "one"
+one = "one"
 
 good = match (one, two, incA(0), incB(1)):
   case ("one", 2, 1, 2): True
@@ -2315,9 +2306,10 @@ package A
 
 x: Int = 1
 
-def y:
+y = (
   z: Int = x
   z
+)
 
 tests = Assertion(y.eq_Int(x), "none")
 """), "A", 1)
@@ -2327,9 +2319,10 @@ package A
 
 x: Int = 1
 
-def y:
+y = (
   z: Int = x
   z: Int
+)
 
 tests = Assertion(y.eq_Int(x), "none")
 """), "A", 1)
@@ -2415,10 +2408,11 @@ test = Assertion(three.eq_Int(3), "let inside apply")
   runBosatsuTest(List("""
 package A
 
-def substitute:
+substitute = (
   x = 40
   y = x.add(1)
   y.add(1)
+)
 
 test = Assertion(substitute.eq_Int(42), "basis substitution")
 """), "A", 1)

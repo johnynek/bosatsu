@@ -382,7 +382,7 @@ main = y
   test("test inference with partial def annotation") {
     parseProgram("""#
 
-def ident -> forall a. a -> a:
+ident: forall a. a -> a =
   \x -> x
 
 main = ident(1)
@@ -412,9 +412,10 @@ def swap_maybe(x: a, y, swap) -> Pair[a, a]:
     case T: Pair(y, x)
     case F: Pair(x, y)
 
-def res:
+res = (
   Pair(r, _) = swap_maybe(1, 2, F)
   r
+)
 
 main = res
 """, "Int")
@@ -427,9 +428,10 @@ struct Pair(fst: a, snd: a)
 def mkPair(y, x: a):
   Pair(x, y)
 
-def fst:
+fst = (
   Pair(f, _) = mkPair(1, 2)
   f
+)
 
 main = fst
 """, "Int")
@@ -562,7 +564,7 @@ main = use_bind(None, None, None, option_monad)
 
 struct Foo
 
-def fst -> Foo: Foo
+fst: Foo = Foo
 
 main = fst
 """, "Foo")
@@ -572,7 +574,7 @@ main = fst
 enum Foo:
   Bar, Baz(a)
 
-def fst -> Foo[a]: Bar
+fst: Foo[a] = Bar
 
 main = fst
 """, "forall a. Foo[a]")
@@ -961,27 +963,30 @@ d = c
 struct Foo
 struct Bar
 
-def x:
+x = (
   f = Foo
   f: Bar
+)
 """)
 
     parseProgramIllTyped("""#
 struct Foo
 struct Bar
 
-def x:
+x = (
   f: Bar = Foo
   f
+)
 """)
     parseProgramIllTyped("""#
 struct Pair(a, b)
 struct Foo
 struct Bar
 
-def x:
+x = (
   Pair(f: Bar, g) = Pair(Foo, Foo)
   f
+)
 """)
 
     parseProgramIllTyped("""#
@@ -989,9 +994,10 @@ struct Pair(a, b)
 struct Foo
 struct Bar
 
-def x:
+x = (
   Pair(f, g) = Pair(Foo: Bar, Foo)
   f
+)
 """)
 
     parseProgramIllTyped("""#
@@ -1005,18 +1011,20 @@ x: Bar = Foo
 struct Foo
 struct Bar
 
-def x:
+x = (
   f = Foo
   f: Foo
+)
 """, "Foo")
 
     parseProgram("""#
 struct Foo
 struct Bar
 
-def x:
+x = (
   f: Foo = Foo
   f
+)
 """, "Foo")
     parseProgram("""#
 struct Pair(a, b)
@@ -1024,19 +1032,21 @@ struct Foo
 
 def ignore(_): Foo
 
-def x:
+x = (
   Pair(f: Foo, g) = Pair(Foo, Foo)
   _ = ignore(g)
   f
+)
 """, "Foo")
 
     parseProgram("""#
 struct Pair(a, b)
 struct Foo
 
-def x:
+x = (
   Pair(f, _) = Pair(Foo: Foo, Foo)
   f
+)
 """, "Foo")
 
     parseProgram("""#
@@ -1051,12 +1061,13 @@ x: Foo = Foo
 struct Foo
 
 # this should just be: type Foo
-def foo:
+foo = (
   # TODO, we would like this test to pass with
   # the annotations below
   #def ident(x: a) -> a: x
   def ident(x): x
   ident(Foo)
+)
 
 """, "Foo")
   }

@@ -111,12 +111,13 @@ y = 1
     checkLast("""#
 struct Tup2(a, b)
 
-def inner:
+inner = (
   z = 1
   fn = Tup2
   x = fn(z, 2)
   match x:
     case Tup2(a, _): a
+)
 """) {
       case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
@@ -125,10 +126,11 @@ def inner:
     checkLast("""#
 struct Tup2(a, b)
 
-def inner:
+inner = (
   x = Tup2(1, 2)
   match x:
     case Tup2(a, _): a
+)
 
 y = inner
 """) {
@@ -204,7 +206,7 @@ y = match x:
     checkLast("""#
 enum E: Left(l), Right(r)
 
-def inner:
+inner = (
   x = Left(1)
   z = 1
   match x:
@@ -213,6 +215,7 @@ def inner:
       match z:
         case 1: 1
         case _: r
+)
 """) {
       case TypedExpr.Literal(lit, _, _) => assert(lit == Lit.fromInt(1))
       case notLit => fail(s"expected Literal got: ${notLit.repr}")
@@ -638,10 +641,11 @@ y = match x:
 
     checkLast(
       """
-def foo:
+foo = (
   x = 1
   _ = x
   42
+)
 """) { te => assert(countLet(te) == 0) }
   }
 

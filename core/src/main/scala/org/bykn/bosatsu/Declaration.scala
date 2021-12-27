@@ -187,7 +187,7 @@ sealed abstract class Declaration {
           // may or may not be recursive
 
           val boundRest = bound + d.name
-          val boundBody = boundRest ++ d.args.flatMap(_.names)
+          val boundBody = boundRest ++ d.args.patternNames
 
           val acc1 = loop(body.get, boundBody, acc)
           loop(rest.padded, boundRest, acc1)
@@ -202,7 +202,7 @@ sealed abstract class Declaration {
           val acc2 = loop(c, bound, acc1)
           loop(f, bound, acc2)
         case Lambda(args, body) =>
-          val bound1 = bound ++ args.toList.flatMap(_.names)
+          val bound1 = bound ++ args.patternNames
           loop(body, bound1, acc)
         case la@LeftApply(_, _, _, _) =>
           loop(la.rewrite, bound, acc)
@@ -300,7 +300,7 @@ sealed abstract class Declaration {
         case DefFn(d) =>
           // def sets up a binding to itself, which
           // may or may not be recursive
-          val acc1 = (acc + d.name) ++ d.args.flatMap(_.names)
+          val acc1 = (acc + d.name) ++ d.args.patternNames
           val (body, rest) = d.result
           val acc2 = loop(body.get, acc1)
           loop(rest.padded, acc2)
@@ -317,7 +317,7 @@ sealed abstract class Declaration {
           val acc2 = loop(c, acc1)
           loop(f, acc2)
         case Lambda(args, body) =>
-          val acc1 = acc ++ args.toList.flatMap(_.names)
+          val acc1 = acc ++ args.patternNames
           loop(body, acc1)
         case Literal(lit) => acc
         case Match(_, typeName, args) =>
@@ -479,7 +479,7 @@ object Declaration {
           (loop(t), loop(c), loop(f)).mapN(Ternary(_, _, _))
         case Lambda(args, body) =>
           // sets up a binding
-          val pnames = args.toList.flatMap(_.names)
+          val pnames = args.patternNames
           if (pnames.exists(masks)) None
           else if (pnames.exists(shadows)) Some(decl)
           else loopDec(body).map(Lambda(args, _)(decl.region))
@@ -558,7 +558,7 @@ object Declaration {
             else if (scope.exists(shadows)) Some(d0)
             else loopDec(d0)
 
-          val bodyScope = nm :: args.flatMap(_.names)
+          val bodyScope = nm :: args.patternNames
           val restScope = nm :: Nil
 
           (body.traverse(go(bodyScope, _)), rest.traverse(go(restScope, _)))
@@ -844,7 +844,7 @@ object Declaration {
 
   def commentP(parser: Indy[Declaration]): Parser.Indy[Declaration] =
     CommentStatement.parser(
-        { indent => Padding.parser(P.string0(indent).with1 *>  parser(indent)) }
+        { indent => Padding.parser(P.string0(indent).with1 *> parser(indent)) }
       )
       .region
       .map {
@@ -857,10 +857,10 @@ object Declaration {
           }
       }
 
-  def commentNBP(parser: P[NonBinding]): P[CommentNB] =
+  def commentNBP(parser: P[NonBinding]): Indy[CommentNB] =
     CommentStatement.parser(
-        { indent => Padding.parser(Parser.maybeSpace.soft.with1 *> parser) }
-      )("")
+        { indent => Padding.parser(P.string0(indent).with1 *> (Parser.maybeSpace.soft.with1 *> parser)) }
+      )
       .region
       .map { case (r, c) => CommentNB(c)(r) }
 
@@ -1079,7 +1079,8 @@ object Declaration {
       }
 
       val tupOrPar: P[NonBinding] =
-        Parser.parens(((maybeSpacesAndLines.with1.soft *> (recNonBind.soft <* (!(maybeSpace ~ bindOp)) <* maybeSpacesAndLines))
+        // TODO: the backtrack here is bad...
+        Parser.parens(((maybeSpacesAndLines.with1.soft *> ((recNonBind <* (!(maybeSpace ~ bindOp))).backtrack <* maybeSpacesAndLines))
           .tupleOrParens0
           .map {
             case Left(p) => { r: Region =>  Parens(p)(r) }
@@ -1110,7 +1111,9 @@ object Declaration {
             stringDeclOrLit(recNBIndy)(indent) ::
             tupOrPar ::
             recordConstructorP(indent, recNonBind, recArg) ::
-            commentNBP(recNonBind) :: 
+            // TODO: comment is ambiguous with binding/non-binding...
+            // so it prevents us commenting a binding statement
+            commentNBP(recNonBind)(indent) :: 
             Nil))
 
       /*
