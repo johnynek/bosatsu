@@ -1251,12 +1251,11 @@ z = (
   x x)
 """, 40)
 
-    // this doesn't point to the right place
-    // expectFail(Statement.parser,
-    //   """z = (
-  // if f: 0
-  // else 1)
-// """, 23)
+    expectFail(Statement.parser,
+      """z = (
+  if f: 0
+  else 1)
+""", 23)
 
     expectFail(Package.parser(None),
       """package Foo
