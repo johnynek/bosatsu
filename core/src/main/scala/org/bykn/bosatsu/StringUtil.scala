@@ -33,7 +33,7 @@ abstract class GenericStringUtil {
     val u8 = P.char('U') *> parseIntStr(hex8, 16)
 
     // do the oneOf in a guess order of likelihood
-    val after = P.oneOf(escapes :: u4 :: hexP :: u8 :: Nil)
+    val after = P.oneOf(escapes :: u4 :: hexP :: u8 :: octP :: Nil)
     P.char('\\') *> after
   }
 

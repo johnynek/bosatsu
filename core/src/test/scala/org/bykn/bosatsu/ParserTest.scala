@@ -195,6 +195,10 @@ class ParserTest extends ParserTestBase {
     forAll(qstr) { case (s, c) => law(s, c) }
 
     parseTestAll(Parser.escapedString('\''), "''", "")
+    parseTestAll(Parser.escapedString('\''), "'\\o44'", "$")
+    parseTestAll(Parser.escapedString('\''), "'\\x24'", "$")
+    parseTestAll(Parser.escapedString('\''), "'\\u0024'", "$")
+    parseTestAll(Parser.escapedString('\''), "'\\U00000024'", "$")
     parseTestAll(Parser.escapedString('"'), "\"\"", "")
     parseTestAll(Parser.escapedString('\''), "'foo\\tbar'", "foo\tbar")
     parseTestAll(Parser.escapedString('\''), "'foo\tbar'", "foo\tbar")
