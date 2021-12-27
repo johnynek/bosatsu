@@ -1305,6 +1305,7 @@ x = (
 """package Foo
 
 x = (
+  # some pattern matching
   Foo(y, _) = foo
   y
 )
@@ -1314,6 +1315,7 @@ x = (
 """package Foo
 
 x = (
+  # an if/else block
   if True: 1
   else: 0
 )
@@ -1334,6 +1336,7 @@ x = (
 """package Foo
 
 x = (
+  # here is foo
   def foo(x): x
   (
     # comment is okay
