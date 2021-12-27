@@ -888,19 +888,19 @@ object Declaration {
       OptIndent
         .block(Indy.lift(P.string("else") <* maybeSpace), expr)
         .map(_._2)
-        .maybeMore // allow extra indentation
 
-    val elifs1 = {
-      val elifs = ifelif("elif").nonEmptyList(sepIndy = Indy.toEOLIndent)
-      (elifs <* Indy.toEOLIndent).maybeMore // allow extra indentation
-    }
+    val elifs1 =
+      ifelif("elif").nonEmptyList(sepIndy = Indy.toEOLIndent) <* Indy.toEOLIndent
+
+    val notIfs = Indy { indent =>
+      elifs1(indent).?.with1 ~ elseTerm(indent)
+    }.maybeMore
 
     (ifelif("if") <* Indy.toEOLIndent)
-      .cutThenOpt(elifs1)
-      .cutThen(elseTerm)
+      .cutThen(notIfs)
       .region
       .map {
-        case (region, ((ifcase, optElses), elseBody)) =>
+        case (region, (ifcase, (optElses, elseBody))) =>
           val elses =
             optElses match {
               case None => Nil
@@ -1155,7 +1155,7 @@ object Declaration {
         if (pm == ParseMode.BranchArg) applied
         else {
           val an: P[NonBinding => NonBinding] =
-            (maybeSpace.with1.soft *> P.char(':') *> maybeSpace *> TypeRef.parser)
+            TypeRef.annotationParser
               // TODO remove this backtrack,
               // currently we can confuse ending a block with type annotation
               // without backtracking here due to nesting losing track of

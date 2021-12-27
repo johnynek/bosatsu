@@ -196,7 +196,7 @@ class ParserTest extends ParserTestBase {
 
     parseTestAll(Parser.escapedString('\''), "''", "")
     parseTestAll(Parser.escapedString('"'), "\"\"", "")
-    parseTestAll(Parser.escapedString('\''), "'foo\\qbar'", "foo\\qbar")
+    parseTestAll(Parser.escapedString('\''), "'foo\\tbar'", "foo\tbar")
     parseTestAll(Parser.escapedString('\''), "'foo\tbar'", "foo\tbar")
 
     val regressions = List(("'", '\''))
@@ -219,7 +219,7 @@ class ParserTest extends ParserTestBase {
     // scala complains about things that look like interpolation strings that aren't interpolated
     val dollar = '$'.toString
     singleq("''", List())
-    singleq("'foo\\qbar'", List(Right("foo\\qbar")))
+    singleq("'foo\\\\qbar'", List(Right("foo\\qbar")))
     singleq("'foo\tbar'", List(Right("foo\tbar")))
     singleq(s"'foo\\$dollar{bar}'", List(Right(s"foo$dollar{bar}")))
     // foo$bar is okay, it is only foo${bar} that needs to be escaped

@@ -14,38 +14,33 @@ abstract class GenericStringUtil {
       s"\\u$strPad$strHex"
    }.toArray
 
-  val escapedToken: P[Unit] = {
-    val escapes = P.charIn(decodeTable.keys.toSeq)
+  val escapedToken: P[Char] = {
+    import Integer.parseInt
+
+    val escapes = P.charIn(decodeTable.keys.toSeq).map(decodeTable(_))
 
     val oct = P.charIn('0' to '7')
-    val octP = P.char('o') ~ oct ~ oct
+    val octP = P.char('o') *> (oct ~ oct).string.map(parseInt(_, 8).toChar)
 
     val hex = P.charIn(('0' to '9') ++ ('a' to 'f') ++ ('A' to 'F'))
     val hex2 = hex ~ hex
-    val hexP = P.char('x') ~ hex2
+    val hexP = P.char('x') *> hex2.string.map(parseInt(_, 16).toChar)
 
     val hex4 = hex2 ~ hex2
-    val u4 = P.char('u') ~ hex4
+    val u4 = P.char('u') *> hex4.string.map(parseInt(_, 16).toChar)
     val hex8 = hex4 ~ hex4
-    val u8 = P.char('U') ~ hex8
+    val u8 = P.char('U') *> hex8.string.map(parseInt(_, 16).toChar)
 
-    val after = P.oneOf[Any](escapes :: octP :: hexP :: u4 :: u8 :: Nil)
-    (P.char('\\') ~ after).void
+    val after = P.oneOf(escapes :: octP :: hexP :: u4 :: u8 :: Nil)
+    P.char('\\') *> after
   }
 
   /**
    * String content without the delimiter
    */
   def undelimitedString1(endP: P[Unit]): P[String] =
-    escapedToken.backtrack.orElse((!endP).with1 ~ P.anyChar)
-      .rep
-      .string
-      .flatMap { str =>
-        unescape(str) match {
-          case Right(str1) => P.pure(str1)
-          case Left(_) => P.fail
-        }
-      }
+    escapedToken.orElse((!endP).with1 *> P.anyChar)
+      .repAs
 
   def escapedString(q: Char): P[String] = {
     val end: P[Unit] = P.char(q)
