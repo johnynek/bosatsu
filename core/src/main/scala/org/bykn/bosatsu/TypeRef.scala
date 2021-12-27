@@ -194,6 +194,9 @@ object TypeRef {
       }
   }
 
+  val annotationParser: P[TypeRef] =
+    maybeSpace.with1.soft *> P.char(':') *> maybeSpace *> parser
+
   /**
    * In a given PackageName, convert the
    * Type back to a TypeRef, which should parse correctly for non-meta

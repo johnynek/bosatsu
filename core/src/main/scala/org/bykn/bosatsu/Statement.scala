@@ -166,7 +166,7 @@ object Statement {
         }
 
      val argParser: P[(Bindable, Option[TypeRef])] =
-       Identifier.bindableParser ~ ((maybeSpace *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser).?
+       Identifier.bindableParser ~ TypeRef.annotationParser.?
 
      val typeParams: P[NonEmptyList[TypeRef.TypeVar]] =
        lowerIdent.nonEmptyListSyntax.map { nel => nel.map { s => TypeRef.TypeVar(s.intern) } }
@@ -182,8 +182,7 @@ object Statement {
              case (region, (name, tva)) => ExternalStruct(name, tva)(region)
            }
 
-       val argParser: P[(Bindable, TypeRef)] = Identifier.bindableParser ~ (
-         maybeSpace *> P.char(':') *> maybeSpace *> TypeRef.parser)
+       val argParser: P[(Bindable, TypeRef)] = Identifier.bindableParser ~ TypeRef.annotationParser
 
        val externalDef = {
 

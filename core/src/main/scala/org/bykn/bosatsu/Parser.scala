@@ -28,7 +28,7 @@ object Parser {
      */
     val toEOLIndent: Indy[Unit] =
       apply { indent =>
-        (toEOL1 *> P.string0(indent)).backtrack
+        toEOL1 *> P.string0(indent)
       }
 
     implicit class IndyMethods[A](val toKleisli: Indy[A]) extends AnyVal {
@@ -45,18 +45,13 @@ object Parser {
       def nonEmptyList(sepIndy: Indy[Unit]): Indy[NonEmptyList[A]] =
         Indy { indent =>
           val pa = toKleisli(indent)
-          val sep = sepIndy(indent)
+          val sep = sepIndy(indent).backtrack
           P.repSep(pa, min = 1, sep)
         }
 
       def cutThen[B](that: Indy[B]): Indy[(A, B)] =
         Indy { indent =>
           toKleisli(indent) ~ that(indent)
-        }
-
-      def cutThenOpt[B](that: Indy[B]): Indy[(A, Option[B])] =
-        Indy { indent =>
-          toKleisli(indent) ~ that(indent).?
         }
 
       def cutLeftP(that: P0[Any]): Indy[A] =
@@ -83,11 +78,7 @@ object Parser {
               toKleisli.run(indent + thisIndent)
             }
 
-          // TODO remove this backtracking
-          // because if there is space, but incorrect
-          // code inside, we don't point to the
-          // correct location.
-          someIndent.backtrack <+> noIndent
+          someIndent.orElse(noIndent)
         }
     }
   }
@@ -205,7 +196,7 @@ object Parser {
 
   // parse a keyword and some space or backtrack
   def keySpace(str: String): P[Unit] =
-    (P.string(str) ~ spaces).void.backtrack
+    (P.string(str).soft ~ spaces).void
 
   val digit19: P[Char] = P.charIn('1' to '9')
   val digit09: P[Char] = P.charIn('0' to '9')
@@ -309,9 +300,9 @@ object Parser {
         }
 
     def nonEmptyListOfWsSep(ws: P0[Unit], sep: P0[Unit], allowTrailing: Boolean): P[NonEmptyList[T]] = {
-      val wsSep = ((ws ~ sep).backtrack ~ ws).void
+      val wsSep = (ws.soft ~ sep ~ ws).void
       val trail =
-        if (allowTrailing) (ws ~ sep).backtrack.?.void
+        if (allowTrailing) (ws.soft ~ sep).?.void
         else P.unit
 
       P.repSep(item, min = 1, sep = wsSep) <* trail
@@ -370,7 +361,7 @@ object Parser {
 
     def tupleOrParens0: P[Either[T, NonEmptyList[T]]] = {
       val ws = maybeSpacesAndLines
-      val sep = ((ws.with1 ~ P.char(',')).backtrack ~ ws).void
+      val sep = (ws.soft ~ P.char(',') ~ ws).void
       val twoAndMore = P.repSep0(item, min = 0, sep = sep)
       val trailing = sep.?.map(_.isDefined)
 

@@ -195,8 +195,12 @@ class ParserTest extends ParserTestBase {
     forAll(qstr) { case (s, c) => law(s, c) }
 
     parseTestAll(Parser.escapedString('\''), "''", "")
+    parseTestAll(Parser.escapedString('\''), "'\\o44'", "$")
+    parseTestAll(Parser.escapedString('\''), "'\\x24'", "$")
+    parseTestAll(Parser.escapedString('\''), "'\\u0024'", "$")
+    parseTestAll(Parser.escapedString('\''), "'\\U00000024'", "$")
     parseTestAll(Parser.escapedString('"'), "\"\"", "")
-    parseTestAll(Parser.escapedString('\''), "'foo\\qbar'", "foo\\qbar")
+    parseTestAll(Parser.escapedString('\''), "'foo\\tbar'", "foo\tbar")
     parseTestAll(Parser.escapedString('\''), "'foo\tbar'", "foo\tbar")
 
     val regressions = List(("'", '\''))
@@ -219,7 +223,7 @@ class ParserTest extends ParserTestBase {
     // scala complains about things that look like interpolation strings that aren't interpolated
     val dollar = '$'.toString
     singleq("''", List())
-    singleq("'foo\\qbar'", List(Right("foo\\qbar")))
+    singleq("'foo\\\\qbar'", List(Right("foo\\qbar")))
     singleq("'foo\tbar'", List(Right("foo\tbar")))
     singleq(s"'foo\\$dollar{bar}'", List(Right(s"foo$dollar{bar}")))
     // foo$bar is okay, it is only foo${bar} that needs to be escaped
@@ -1251,12 +1255,11 @@ z = (
   x x)
 """, 40)
 
-    // this doesn't point to the right place
-    // expectFail(Statement.parser,
-    //   """z = (
-  // if f: 0
-  // else 1)
-// """, 23)
+    expectFail(Statement.parser,
+      """z = (
+  if f: 0
+  else 1)
+""", 23)
 
     expectFail(Package.parser(None),
       """package Foo
@@ -1306,6 +1309,7 @@ x = (
 """package Foo
 
 x = (
+  # some pattern matching
   Foo(y, _) = foo
   y
 )
@@ -1315,6 +1319,7 @@ x = (
 """package Foo
 
 x = (
+  # an if/else block
   if True: 1
   else: 0
 )
@@ -1335,6 +1340,7 @@ x = (
 """package Foo
 
 x = (
+  # here is foo
   def foo(x): x
   (
     # comment is okay

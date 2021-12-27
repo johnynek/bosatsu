@@ -932,7 +932,7 @@ object Pattern {
     P.defer(matchOrNot(isMatch = false))
 
   private val maybePartial: P0[(Constructor, StructKind.Style) => StructKind.NamedKind] = {
-    val partial = (maybeSpace ~ P.string("...")).backtrack.as(
+    val partial = (maybeSpace.soft ~ P.string("...")).as(
       { (n: Constructor, s: StructKind.Style) => StructKind.NamedPartial(n, s) }
     )
 
@@ -947,14 +947,14 @@ object Pattern {
     // We do maybeSpace, then { } then either a Bindable or Bindable: Pattern
     // maybe followed by ...
     val item: P[Either[Bindable, (Bindable, Parsed)]] =
-      (Identifier.bindableParser ~ (((maybeSpace ~ P.char(':')).backtrack ~ maybeSpace) *> recurse).?)
+      (Identifier.bindableParser ~ ((maybeSpace.soft ~ P.char(':') ~ maybeSpace) *> recurse).?)
         .map {
           case (b, None) => Left(b)
           case (b, Some(pat)) => Right((b, pat))
         }
 
     val items = item.nonEmptyList ~ maybePartial
-    (((maybeSpace.with1 ~ P.char('{')).backtrack ~ maybeSpace) *> items <* (maybeSpace ~ P.char('}')))
+    ((maybeSpace.with1.soft ~ P.char('{') ~ maybeSpace) *> items <* (maybeSpace ~ P.char('}')))
       .map { case (args, fn) =>
         { (c: Constructor) => recordPat(c, args)(fn) }
       }
@@ -1026,17 +1026,16 @@ object Pattern {
       val unionRest = withAs
         .nonEmptyListOfWsSep(maybeSpace, bar, allowTrailing = false)
 
-      ((maybeSpace.with1 *> bar).backtrack *> maybeSpace *> unionRest)
+      (maybeSpace.with1.soft *> bar *> maybeSpace *> unionRest)
         .map { ne =>
           { pat: Parsed => union(pat, ne.toList) }
         }
     }
-    val typeAnnotOp: P[Parsed => Parsed] = {
-      ((maybeSpace.with1 *> P.char(':')).backtrack *> maybeSpace *> TypeRef.parser)
+    val typeAnnotOp: P[Parsed => Parsed] =
+      TypeRef.annotationParser
         .map { tpe =>
           { pat: Parsed => Annotation(pat, tpe) }
         }
-    }
 
     // We only allow type annotation not at the top level, must be inside
     // Struct or parens
