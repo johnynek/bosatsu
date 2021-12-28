@@ -448,6 +448,24 @@ class ParserTest extends ParserTestBase {
     }
   }
 
+  test("we can parse fully pathed types") {
+    import rankn.Type
+    import Type._
+
+    def check(s: String, t: Type) = parseTestAll(Type.fullyResolvedParser, s, t)
+
+    val varA = TyVar(Var.Bound("a"))
+    val varB = TyVar(Var.Bound("b"))
+    val FooBarBar = TyConst(Const.Defined(PackageName.parts("Foo", "Bar"), TypeName(Identifier.Constructor("Bar"))))
+    check("a", varA)
+    check("Foo/Bar::Bar", FooBarBar)
+    check("a -> Foo/Bar::Bar", Fun(varA, FooBarBar))
+    check("forall a, b. Foo/Bar::Bar[a, b]", Type.forAll(List(Var.Bound("a"), Var.Bound("b")), TyApply(TyApply(FooBarBar, varA), varB)))
+    check("forall a. forall b. Foo/Bar::Bar[a, b]", Type.forAll(List(Var.Bound("a"), Var.Bound("b")), TyApply(TyApply(FooBarBar, varA), varB)))
+    check("(a)", varA)
+    check("(a, b)", Tuple(List(varA, varB)))
+  }
+
   test("we can parse python style list expressions") {
     val pident = Parser.lowerIdent
     implicit val stringDoc: Document[String] = Document.instance[String](Doc.text(_))

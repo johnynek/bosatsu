@@ -1,14 +1,14 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, lowerIdent, maybeSpace, keySpace }
 import cats.Applicative
 import cats.data.{NonEmptyList, State}
 import cats.implicits._
 import cats.parse.{Parser => P}
-import org.typelevel.paiges.{ Doc, Document }
 import org.bykn.bosatsu.rankn.Type
-
 import org.bykn.bosatsu.{TypeName => Name}
+import org.typelevel.paiges.{ Doc, Document }
+
+import Parser.{ Combinators, maybeSpace, keySpace }
 
 /**
  * This AST is the syntactic version of Type
@@ -160,39 +160,19 @@ object TypeRef {
         }
     }
 
-  val parser: P[TypeRef] = {
-    val tvar = lowerIdent.map(TypeVar(_))
-    val tname = Identifier.consParser.map { cn => TypeName(Name(cn)) }
-    val recurse = P.defer(parser)
+  private object TypeRefParser extends TypeParser[TypeRef] {
+    override lazy val makeVar: String => TypeVar = TypeVar(_)
+    lazy val parseName = Identifier.consParser.map { cn => TypeName(Name(cn)) }
+    def makeFn(in: TypeRef, out: TypeRef) = TypeArrow(in, out)
 
-    val lambda: P[TypeLambda] =
-      (keySpace("forall") *> tvar.nonEmptyList ~ (maybeSpace *> P.char('.') *> maybeSpace *> recurse))
-        .map { case (args, e) => TypeLambda(args, e) }
+    def applyTypes(cons: TypeRef, args: NonEmptyList[TypeRef]) = TypeApply(cons, args)
+    def universal(vars: NonEmptyList[String], in: TypeRef) =
+      TypeLambda(vars.map(makeVar), in)
 
-    val maybeArrow: P[TypeRef => TypeRef] =
-      ((maybeSpace.with1.soft ~ P.string("->") ~ maybeSpace) *> recurse)
-        .map { right => TypeArrow(_, right) }
-
-    val maybeApp: P[TypeRef => TypeRef] =
-      (P.char('[') *> maybeSpace *> recurse.nonEmptyList <* maybeSpace <* P.char(']'))
-        .map { args => TypeApply(_, args) }
-
-    val tupleOrParens: P[TypeRef] =
-      recurse.tupleOrParens.map {
-        case Left(par) => par
-        case Right(tup) => TypeTuple(tup)
-      }
-
-    val base =
-      P.oneOf(lambda :: tvar :: tname :: tupleOrParens :: Nil)
-
-    (base ~ maybeApp.? ~ maybeArrow.?)
-      .map {
-        case ((t, optF1), optF2) =>
-          val t1 = optF1.fold(t)(_(t))
-          optF2.fold(t1)(_(t1))
-      }
+    def makeTuple(items: List[TypeRef]) = TypeTuple(items)
   }
+
+  def parser: P[TypeRef] = TypeRefParser.parser
 
   val annotationParser: P[TypeRef] =
     maybeSpace.with1.soft *> P.char(':') *> maybeSpace *> parser

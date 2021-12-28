@@ -1,8 +1,9 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
+import cats.parse.{Parser => P}
 import cats.{Applicative, Eq}
-import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier}
+import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, TypeParser, Parser}
 import scala.collection.immutable.SortedSet
 
 import cats.implicits._
@@ -55,6 +56,13 @@ object Type {
         }
     }
 
+  @annotation.tailrec
+  def applyAll(fn: Type, args: List[Type]): Type =
+    args match {
+      case Nil => fn
+      case a :: as =>
+        applyAll(Type.TyApply(fn, a), as)
+    }
 
   def constantsOf(t: Type): List[Const] =
     t match {
@@ -307,6 +315,21 @@ object Type {
     case class Bound(name: String) extends Var
     case class Skolem(name: String, id: Long) extends Var
 
+    object Bound {
+      private[this] val cache: Array[Bound] =
+        ('a' to 'z').map { c => new Bound(c.toString) }.toArray
+
+      def apply(str: String): Bound =
+        if (str.length == 1) {
+          val c = str.charAt(0)
+          if ('a' <= c && c <= 'z') {
+            cache(c - 'a')
+          }
+          else new Bound(str)
+        }
+        else new Bound(str)
+    }
+
     implicit val varOrdering: Ordering[Var] =
       new Ordering[Var] {
         def compare(a: Var, b: Var): Int =
@@ -406,4 +429,22 @@ object Type {
           case Some(rho) => rho
         }
     }
+
+  private object FullResolved extends TypeParser[Type] {
+    lazy val makeVar = { s => Type.TyVar(Type.Var.Bound(s)) }
+    lazy val parseName = ((PackageName.parser <* P.string("::")) ~ Identifier.consParser)
+        .map { case (p, n) => Type.TyConst(Type.Const.Defined(p, TypeName(n))) }
+
+    def makeFn(in: Type, out: Type) = Type.Fun(in, out)
+    def applyTypes(left: Type, args: NonEmptyList[Type]) = applyAll(left, args.toList)
+
+    def universal(vs: NonEmptyList[String], on: Type) =
+      Type.forAll(vs.toList.map { s => Type.Var.Bound(s) }, on) 
+
+    def makeTuple(lst: List[Type]) = Type.Tuple(lst)
+  }
+  /**
+   * Parse fully resolved types: package::type
+   */
+  def fullyResolvedParser: P[Type] = FullResolved.parser
 }

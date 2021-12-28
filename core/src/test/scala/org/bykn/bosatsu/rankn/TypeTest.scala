@@ -11,6 +11,12 @@ class TypeTest extends AnyFunSuite {
     PropertyCheckConfiguration(minSuccessful = 500)
     //PropertyCheckConfiguration(minSuccessful = 5)
 
+  def parse(s: String): Type =
+    Type.fullyResolvedParser.parseAll(s) match {
+      case Right(t) => t
+      case Left(err) => sys.error(err.toString)
+    }
+
   test("free vars are not duplicated") {
     forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
       val frees = Type.freeTyVars(ts)
@@ -81,11 +87,10 @@ class TypeTest extends AnyFunSuite {
   }
 
   test("Type.freeTyVars is empty for ForAll fully bound") {
-    val ba = Type.Var.Bound("a")
-    val fa = Type.ForAll(NonEmptyList.of(ba), Type.TyVar(ba))
+    val fa = parse("forall a. a")
     assert(Type.freeTyVars(fa :: Nil).isEmpty)
 
-    val fb = Type.ForAll(NonEmptyList.of(ba), Type.Fun(Type.TyVar(ba), Type.IntType))
+    val fb = parse("forall a. a -> Bosatsu/Predef::Int")
     assert(Type.freeTyVars(fb :: Nil).isEmpty)
   }
 
