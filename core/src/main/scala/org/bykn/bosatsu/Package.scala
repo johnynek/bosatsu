@@ -346,6 +346,18 @@ object Package {
 
     usedTypes.flatMap(errorFor).toList
   }
+
+  /**
+   * The parsed representation of the predef.
+   */
+  val predefPackage: Package.Parsed =
+    parser(None).parse(Predef.predefString) match {
+      case Right((_, pack)) => pack
+      case Left(err) =>
+        val idx = err.failedAtOffset
+        val lm = LocationMap(Predef.predefString)
+        sys.error(s"couldn't parse predef: ${lm.showContext(idx, 2, LocationMap.Colorize.None)} with errs: ${err}")
+    }
 }
 
 
