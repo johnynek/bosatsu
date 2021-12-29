@@ -8,7 +8,7 @@ import org.scalatest.funsuite.AnyFunSuite
 class DefRecursionCheckTest extends AnyFunSuite {
 
   def allowed(teStr: String) = {
-    val stmt = TestUtils.statementsOf(PackageName.PredefName, teStr)
+    val stmt = TestUtils.statementsOf(teStr)
     stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
       case Validated.Valid(_) => succeed
       case Validated.Invalid(errs) =>
@@ -17,7 +17,7 @@ class DefRecursionCheckTest extends AnyFunSuite {
   }
 
   def disallowed(teStr: String) = {
-    val stmt = TestUtils.statementsOf(PackageName.PredefName, teStr)
+    val stmt = TestUtils.statementsOf(teStr)
     stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
       case Validated.Valid(_) => fail("expected failure")
       case Validated.Invalid(_) => succeed

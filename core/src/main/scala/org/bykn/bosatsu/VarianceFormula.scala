@@ -277,12 +277,12 @@ object VarianceFormula {
         }
 
       // What are the constraints on bound with the given unknown, in the current dt
-      def constrainTpe(bound: Type.Var.Bound, u: Unknown, tpe: Type): VarianceFormula = {
+      def constrainTpe(bound: Type.Var.Bound, tpe: Type): VarianceFormula = {
 
         def loop(shadows: Set[Type.Var], tpe: Type): VarianceFormula =
           tpe match {
             case ForAll(vars, tpe) => loop(shadows ++ vars.toList, tpe)
-            case TyConst(dt@Const.Defined(_, _)) =>
+            case TyConst(Const.Defined(_, _)) =>
               // this is just a raw type
               Phantom.toF
             case TyVar(b) =>
@@ -315,7 +315,7 @@ object VarianceFormula {
       external *> hks *> dt.annotatedTypeParams.traverse_ { case (b, u) =>
         dt.constructors.traverse_ { cf =>
           cf.args.traverse_ { case (_, tpe) =>
-            val formula = constrainTpe(b, u, tpe)
+            val formula = constrainTpe(b, tpe)
             constrainUnknown(u, formula)
           }
         }

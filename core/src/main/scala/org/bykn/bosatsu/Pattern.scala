@@ -44,7 +44,7 @@ sealed abstract class Pattern[+N, +T] {
           val next = items.collect { case Pattern.ListPart.Item(inner) => inner }
           loop(next ::: tail, seen ++ globs, globs reverse_::: acc)
         case Pattern.Annotation(p, _) :: tail => loop(p :: tail, seen, acc)
-        case Pattern.PositionalStruct(name, params) :: tail =>
+        case Pattern.PositionalStruct(_, params) :: tail =>
           loop(params ::: tail, seen, acc)
         case Pattern.Union(h, t) :: tail =>
           loop(h :: (t.toList) ::: tail, seen, acc)
@@ -111,7 +111,7 @@ sealed abstract class Pattern[+N, +T] {
           val next = items.collect { case ListPart.Item(inner) => (inner, false) }
           loop(next ::: tail, seen ++ globs, globs reverse_::: acc)
         case (Pattern.Annotation(p, _), isTop) :: tail => loop((p, isTop) :: tail, seen, acc)
-        case (Pattern.PositionalStruct(name, params), _) :: tail =>
+        case (Pattern.PositionalStruct(_, params), _) :: tail =>
           loop(params.map((_, false)) ::: tail, seen, acc)
         case (Pattern.Union(h, t), isTop) :: tail =>
           val all = (h :: t.toList).map { p => cheat((p, isTop) :: tail, seen, acc) }
@@ -138,7 +138,7 @@ sealed abstract class Pattern[+N, +T] {
       case Pattern.WildCard | Pattern.Literal(_) => this
       case p@Pattern.Var(v) =>
         if (keep(v)) p else Pattern.WildCard
-      case n@Pattern.Named(v, p) =>
+      case Pattern.Named(v, p) =>
         val inner = p.filterVars(keep)
         if (keep(v)) Pattern.Named(v, inner)
         else inner
@@ -274,7 +274,7 @@ object Pattern {
       Document.instance {
         case WildStr => wildDoc
         case NamedStr(b) => prefix + Document[Bindable].document(b) + Doc.char('}')
-        case LitStr(s) => Doc.text(s)
+        case LitStr(s) => Doc.text(StringUtil.escape(q, s))
       }
   }
 
@@ -821,7 +821,7 @@ object Pattern {
           case None =>
             val args = a match {
               case Nil => Doc.empty
-              case notEmpty => tup(a.map(doc.document(_)))
+              case _ => tup(a.map(doc.document(_)))
             }
             Doc.text(c.asString) + args
         }
@@ -857,7 +857,7 @@ object Pattern {
     def loop(p0: Pattern[C, T], typeOf: Option[T], env: Map[K, T]): Map[K, T] =
       p0 match {
         case WildCard => env
-        case Literal(lit) => env
+        case Literal(_) => env
         case Var(n) => update(env, n, typeOf)
         case Named(n, p1) =>
           val e1 = loop(p1, typeOf, env)

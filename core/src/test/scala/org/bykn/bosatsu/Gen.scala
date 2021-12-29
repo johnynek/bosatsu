@@ -103,11 +103,10 @@ object Generators {
       def apply(tr: TypeRef): Stream[TypeRef] = {
         import TypeRef._
         tr match {
-          case TypeVar(v) => Stream.empty
-          case TypeName(n) => Stream.empty
+          case TypeVar(_) | TypeName(_) => Stream.empty
           case TypeArrow(l, r) => Stream(l, r)
           case TypeApply(of, args) => of #:: args.toList.toStream
-          case TypeLambda(params, expr) => expr #:: Stream.empty
+          case TypeLambda(_, expr) => expr #:: Stream.empty
           case TypeTuple(ts) =>
             def drop(as: List[TypeRef]): Stream[TypeTuple] =
               as match {
@@ -190,7 +189,7 @@ object Generators {
     res.filter {
       case Declaration.StringDecl(NonEmptyList(Right(_), Nil)) =>
         false
-      case a => true
+      case _ => true
     }
   }
 
@@ -292,7 +291,7 @@ object Generators {
       def protect(d: NonBinding): NonBinding =
         d match {
           case Var(_) | Apply(_, _, _) | Parens(_) | Matches(_, _) => d
-          case notSafe => Parens(d)(emptyRegion)
+          case _ => Parens(d)(emptyRegion)
         }
       ApplyOp(protect(l), op, protect(r))
     }
@@ -445,7 +444,7 @@ object Generators {
 
         def makeValid(nel: NonEmptyList[Pattern.StrPart]): NonEmptyList[Pattern.StrPart] =
           nel match {
-            case NonEmptyList(h, Nil) => nel
+            case NonEmptyList(_, Nil) => nel
             case NonEmptyList(h1, h2 :: t) if isWild(h1) && isWild(h2) =>
               makeValid(NonEmptyList(h2, t))
             case NonEmptyList(Pattern.StrPart.LitStr(h1), Pattern.StrPart.LitStr(h2) :: t) =>
@@ -513,7 +512,7 @@ object Generators {
 
   def genCompiledPattern(depth: Int, useUnion: Boolean = true, useAnnotation: Boolean = true): Gen[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] =
     genPatternGen(
-      { args: List[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] => Gen.zip(packageNameGen, consIdentGen) },
+      { _: List[Pattern[(PackageName, Identifier.Constructor), rankn.Type]] => Gen.zip(packageNameGen, consIdentGen) },
       NTypeGen.genDepth03, depth, useUnion = useUnion, useAnnotation = useAnnotation)
 
   def matchGen(argGen0: Gen[NonBinding], bodyGen: Gen[Declaration]): Gen[Declaration.Match] = {
@@ -552,7 +551,7 @@ object Generators {
 
   val genLit: Gen[Lit] = {
     val str = for {
-      q <- Gen.oneOf('\'', '"')
+      //q <- Gen.oneOf('\'', '"')
       //str <- Arbitrary.arbitrary[String]
       str <- lowerIdent // TODO
     } yield Lit.Str(str)
@@ -703,7 +702,7 @@ object Generators {
           case Apply(fn, args, _) =>
             val next = fn #:: args.toList.toStream
             next.flatMap(apply _)
-          case ao@ApplyOp(left, op, right) =>
+          case ao@ApplyOp(left, _, right) =>
             left #:: ao.opVar #:: right #:: Stream.empty
           case Binding(b) =>
             val next = b.value #:: b.in.padded #:: Stream.empty
@@ -717,10 +716,10 @@ object Generators {
           case Ternary(t, c, f) =>
             val s = Stream(t, c, f)
             s #::: s.flatMap(apply(_))
-          case LeftApply(p, reg, r, b) =>
+          case LeftApply(_, _, r, b) =>
             // todo, we should really interleave shrinking r and b
             r #:: b.padded #:: Stream.empty
-          case Match(_, typeName, args) =>
+          case Match(_, _, args) =>
             args.get.toList.toStream.flatMap {
               case (_, decl) => decl.get #:: apply(decl.get)
             }
@@ -729,7 +728,7 @@ object Generators {
           // the rest can't be shrunk
           case Comment(c) => c.on.padded #:: Stream.empty
           case CommentNB(c) => c.on.padded #:: Stream.empty
-          case Lambda(args, body) => body #:: Stream.empty
+          case Lambda(_, body) => body #:: Stream.empty
           case Literal(_) => Stream.empty
           case Parens(_) =>
             // by removing parens we can make invalid
@@ -786,7 +785,7 @@ object Generators {
             .map { bod =>
               Def(ds.copy(result = bod))(emptyRegion)
             }
-        case rest => Stream.empty
+        case _ => Stream.empty
       }
     })
 
@@ -825,7 +824,6 @@ object Generators {
       name <- consIdentGen
       ta <- Gen.listOf(typeRefVarGen)
       consc <- Gen.choose(1, 5)
-      i <- Gen.choose(1, 16)
       cons <- optIndent(nonEmptyN(constructorGen, consc))
     } yield Statement.Enum(name, NonEmptyList.fromList(ta.distinct), cons)(emptyRegion)
 
@@ -1165,7 +1163,7 @@ object Generators {
       exts: Set[Identifier.Bindable]): Gen[List[(Identifier.Bindable, RecursionKind, TypedExpr[A])]] = {
         val allTC = te.allDefinedTypes.map(_.toTypeConst)
         val theseTypes = NTypeGen.genDepth(4, if (allTC.isEmpty) None else Some(Gen.oneOf(allTC)))
-        val oneLet = Gen.zip(bindIdentGen,
+        val oneLet = Gen.zip(bindIdentGen.filter { b => !exts(b) },
           Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive),
           genTypedExpr(genA, 4, theseTypes))
 

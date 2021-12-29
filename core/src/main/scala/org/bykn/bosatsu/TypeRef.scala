@@ -8,7 +8,7 @@ import org.bykn.bosatsu.rankn.Type
 import org.bykn.bosatsu.{TypeName => Name}
 import org.typelevel.paiges.{ Doc, Document }
 
-import Parser.{ Combinators, maybeSpace, keySpace }
+import Parser.maybeSpace
 
 /**
  * This AST is the syntactic version of Type

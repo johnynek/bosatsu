@@ -27,7 +27,7 @@ class PatternTest extends AnyFunSuite {
   }
 
   test("filtering and keeping all names is identity") {
-    forAll(patGen, Gen.listOf(Gen.identifier)) { (p, ids) =>
+    forAll(patGen) { p =>
       assert(p.filterVars(p.names.toSet) == p)
     }
   }
@@ -79,7 +79,7 @@ class PatternTest extends AnyFunSuite {
     def checkNot(str: String) =
       pat(str) match {
         case Pattern.SinglyNamed(n) => fail(s"unexpected singlynamed: $n")
-        case other => succeed
+        case _ => succeed
       }
 
     check("foo", "foo")

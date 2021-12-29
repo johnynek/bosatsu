@@ -53,7 +53,7 @@ class TestProtoType extends AnyFunSuite {
       f.toPath
     }) { path =>
       IO {
-        val r = path.toFile.delete
+        val _ = path.toFile.delete
         ()
       }
     }

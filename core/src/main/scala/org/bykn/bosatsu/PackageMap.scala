@@ -238,7 +238,7 @@ object PackageMap {
       Memoize.memoizeDagFuture[ResolvedU, Ior[NonEmptyList[PackageError], (TypeEnv[Variance], Package.Inferred)]] {
         // TODO, we ignore importMap here, we only check earlier we don't
         // have duplicate imports
-        case (Package(nm, imports, exports, (stmt, importMap)), recurse) =>
+        case (Package(nm, imports, exports, (stmt, _)), recurse) =>
 
           def getImport[A, B](packF: Package.Inferred,
             exMap: Map[Identifier, NonEmptyList[ExportedName[A]]],

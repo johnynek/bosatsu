@@ -33,7 +33,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         Type.forAll(params.toList, expr.getType)
       case Annotation(_, tpe, _) =>
         tpe
-      case a@AnnotatedLambda(arg, tpe, res, _) =>
+      case AnnotatedLambda(_, tpe, res, _) =>
         Type.Fun(tpe, res.getType)
       case Local(_, tpe, _) => tpe
       case Global(_, _, tpe, _) => tpe
@@ -63,7 +63,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
           (Doc.text("(generic") + Doc.lineOrSpace + Doc.char('[') + pstr + Doc.char(']') + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
         case Annotation(expr, tpe, _) =>
           (Doc.text("(ann") + Doc.lineOrSpace + rept(tpe) + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
-        case a@AnnotatedLambda(arg, tpe, res, _) =>
+        case AnnotatedLambda(arg, tpe, res, _) =>
           (Doc.text("(lambda") + Doc.lineOrSpace + Doc.text(arg.sourceCodeRepr) + Doc.lineOrSpace + rept(tpe) + Doc.lineOrSpace + loop(res) + Doc.char(')')).nested(4)
         case Local(v, tpe, _) =>
           (Doc.text("(var") + Doc.lineOrSpace + Doc.text(v.sourceCodeRepr) + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
@@ -594,7 +594,7 @@ object TypedExpr {
                 finish(expr).map(forAll(ps, _))
               case unreach =>
                 // $COVERAGE-OFF$
-                sys.error(s"Match quantification yielded neither Generic nor Match")
+                sys.error(s"Match quantification yielded neither Generic nor Match: $unreach")
                 // $COVERAGE-ON$
             }
 
@@ -663,7 +663,7 @@ object TypedExpr {
         f(b, tag)
       case Match(arg, branches, tag) =>
         val b1 = foldLeft(arg, b)(f)
-        val b2 = branches.foldLeft(b1) { case (bn, (p,t)) => foldLeft(t, bn)(f) }
+        val b2 = branches.foldLeft(b1) { case (bn, (_, t)) => foldLeft(t, bn)(f) }
         f(b2, tag)
     }
 
@@ -689,7 +689,7 @@ object TypedExpr {
         f(tag, lb)
       case Match(arg, branches, tag) =>
         val b1 = f(tag, lb)
-        val b2 = branches.foldRight(b1) { case ((p,t), bn) => foldRight(t, bn)(f) }
+        val b2 = branches.foldRight(b1) { case ((_, t), bn) => foldRight(t, bn)(f) }
         foldRight(arg, b2)(f)
     }
 
@@ -724,7 +724,7 @@ object TypedExpr {
                 self(expr)
               case Local(name, _, t) => Local(name, tpe, t)
               case Global(p, name, _, t) => Global(p, name, tpe, t)
-              case AnnotatedLambda(arg, argT, res, tag) =>
+              case AnnotatedLambda(_, _, _, _) =>
                 // only some coercions would make sense here
                 // how to handle?
                 // one way out could be to return a type to Annotation
@@ -732,7 +732,8 @@ object TypedExpr {
                 Annotation(expr, tpe, expr.tag)
               case App(fn, arg, _, tag) =>
                 fn.getType match {
-                  case Type.Fun(ta: Type.Rho, tr) =>
+                  case Type.Fun(ta: Type.Rho, _) =>
+                    //case Type.Fun(ta: Type.Rho, tr) =>
                     // we know that we should coerce arg with ta, and narrow tr to tpe
                     // this makes an infinite loop:
                     //val cfn = coerceRho(Type.Fun(ta, tpe))
@@ -974,23 +975,24 @@ object TypedExpr {
         val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
         val quants = ps.toList.toSet
         val collisions = frees.intersect(quants)
-        NonEmptyList.fromList(collisions.toList) match {
-          case None => Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag))
-          case Some(cols) =>
+        if (collisions.isEmpty) {
+          Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag))
+        }
+        else {
             // don't replace with any existing type variable or any of the free variables
-            val replacements = Type.allBinders.iterator.filterNot(quants | frees)
-            val repMap: Map[Type.Var.Bound, Type.Var.Bound] =
-              collisions
-                .iterator
-                .zip(replacements)
-                .toMap
+          val replacements = Type.allBinders.iterator.filterNot(quants | frees)
+          val repMap: Map[Type.Var.Bound, Type.Var.Bound] =
+            collisions
+              .iterator
+              .zip(replacements)
+              .toMap
 
-            val ps1 = ps.map { v => repMap.getOrElse(v, v) }
-            val typeMap: Map[Type.Var, Type] =
-              repMap.iterator.map { case (k, v) => (k, Type.TyVar(v)) }.toMap
-            val ex1 = substituteTypeVar(ex0, typeMap)
-            Generic(ps1,
-              AnnotatedLambda(arg, tpe, ex1, tag))
+          val ps1 = ps.map { v => repMap.getOrElse(v, v) }
+          val typeMap: Map[Type.Var, Type] =
+            repMap.iterator.map { case (k, v) => (k, Type.TyVar(v)) }.toMap
+          val ex1 = substituteTypeVar(ex0, typeMap)
+          Generic(ps1,
+            AnnotatedLambda(arg, tpe, ex1, tag))
         }
       case notGen =>
         AnnotatedLambda(arg, tpe, notGen, tag)

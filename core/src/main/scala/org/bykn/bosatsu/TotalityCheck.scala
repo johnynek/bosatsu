@@ -227,8 +227,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
             case (Var(va), Var(vb)) => Var(Ordering[Bindable].min(va, vb)) :: Nil
             case (Named(va, pa), Named(vb, pb)) if va == vb =>
               intersection(pa, pb).map(Named(va, _))
-            case (Named(va, pa), r) => intersection(pa, r)
-            case (l, Named(vb, pb)) => intersection(l, pb)
+            case (Named(_, pa), r) => intersection(pa, r)
+            case (l, Named(_, pb)) => intersection(l, pb)
             case (WildCard, v) => v :: Nil
             case (v, WildCard) => v :: Nil
             case (_, _) if left == right => left :: Nil
@@ -357,7 +357,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
               case Some(rp) => difference(lp, rp)
               case None => left :: Nil
             }
-          case (_, PositionalStruct(nm, ps)) if isTop(left) =>
+          case (_, PositionalStruct(nm, _)) if isTop(left) =>
             inEnv.definedTypeFor(nm) match {
               case None =>
                 // just assume this is infinitely bigger than unknown
@@ -513,7 +513,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
       case WildCard | Literal(_) => p
       case Var(_) => WildCard
       case Named(_, p) => normalizePattern(p)
-      case Annotation(p, t) => normalizePattern(p)
+      case Annotation(p, _) => normalizePattern(p)
       case u@Union(_, _) =>
         val flattened = Pattern.flatten(u).map(normalizePattern(_))
 

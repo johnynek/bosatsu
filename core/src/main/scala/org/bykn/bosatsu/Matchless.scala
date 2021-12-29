@@ -354,7 +354,7 @@ object Matchless {
           val muts = sbinds.traverse { b => makeAnon.map(LocalAnonMut(_)).map((b, _)) }
 
           val pat = items.toList.map {
-              case Pattern.StrPart.NamedStr(n) => StrPart.IndexStr
+              case Pattern.StrPart.NamedStr(_) => StrPart.IndexStr
               case Pattern.StrPart.WildStr => StrPart.WildStr
               case Pattern.StrPart.LitStr(s) => StrPart.LitStr(s)
             }

@@ -70,7 +70,7 @@ object ProtoConverter {
             next
           })
 
-        case Failure(err) =>
+        case Failure(_) =>
           System.err.println(message)
           self
      }
@@ -80,9 +80,6 @@ object ProtoConverter {
     MonadError[Tab, Throwable].raiseError(ex)
   private def tabPure[S, A](a: A): Tab[A] =
     Monad[Tab].pure(a)
-
-  private def lift[S, A](ta: Try[A]): Tab[A] =
-    StateT.liftF(ta)
 
   private def get(fn: SerState => Either[(SerState, Int), Int]): Tab[Int] =
     StateT.get[Try, SerState]
@@ -512,7 +509,7 @@ object ProtoConverter {
           proto.Literal.Value.IntValueAs64(i.longValueExact)
         }
         catch {
-          case ae: ArithmeticException =>
+          case _: ArithmeticException =>
             proto.Literal.Value.IntValueAsString(i.toString)
         }
       case Lit.Str(str) =>
@@ -1322,7 +1319,7 @@ object ProtoConverter {
     else {
       def makeLoadDT(
         load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]
-      ): Type.Const => Try[DefinedType[Variance]] = { case tc@Type.Const.Defined(p, n) =>
+      ): Type.Const => Try[DefinedType[Variance]] = { case tc@Type.Const.Defined(p, _) =>
         val res = load(p.asString).map {
           case Left((_, dt)) =>
             dt.toDefinedType(tc)

@@ -98,7 +98,7 @@ object Identifier {
   def appendToName(i: Bindable, suffix: String): Bindable =
     i match {
       case Backticked(b) => Backticked(b + suffix)
-      case notBack =>
+      case _ =>
         // try to stry the same
         val p = operator.orElse(nameParser)
         val cand = i.sourceCodeRepr + suffix

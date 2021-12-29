@@ -64,14 +64,14 @@ class PythonGenTest extends AnyFunSuite {
         val suite = tup.getArray()(1).toString
         foreachList(tup.getArray()(2)) { t => checkTest(t, prefix + "/" + suite); () }
       case other =>
-        assert(false, s"expected a Test to have 0 or 1 in first tuple entry: $tup")
+        assert(false, s"expected a Test to have 0 or 1 in first tuple entry: $tup, $other")
         ()
     }
   }
 
   def compileFile(path: String, rest: String*): PackageMap.Typed[Any] = {
     def toS(s: String): String =
-      new String(Files.readAllBytes(Paths.get(path)), "UTF-8")
+      new String(Files.readAllBytes(Paths.get(s)), "UTF-8")
 
 
     val packNEL =

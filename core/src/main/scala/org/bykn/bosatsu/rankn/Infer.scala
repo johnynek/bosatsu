@@ -389,7 +389,7 @@ object Infer {
     def assertRho(t: Type, context: => String): Infer[Type.Rho] =
       t match {
         case r: Type.Rho => pure(r)
-        case notRho => fail(Error.ExpectedRho(t, context))
+        case _ => fail(Error.ExpectedRho(t, context))
       }
 
     /*
@@ -768,7 +768,7 @@ object Infer {
           // are missing here.
 
           expect match {
-            case Expected.Check((resT, resReg)) =>
+            case Expected.Check((resT, _)) =>
               for {
                 tsigma <- inferSigma(term)
                 tbranches <- branches.traverse { case (p, r) =>
@@ -782,7 +782,7 @@ object Infer {
                 tbranches <- branches.traverse { case (p, r) =>
                   inferBranch(p, Expected.Check((tsigma.getType, region(term))), r)
                 }
-                resT = tbranches.map { case (p, te) => (te.getType, region(te)) }
+                resT = tbranches.map { case (_, te) => (te.getType, region(te)) }
                 _ <- resT.flatMap { t0 => resT.map((t0, _)) }.traverse_ {
                   case (t0, t1) if t0 eq t1 => Infer.unit
                   // TODO
@@ -1035,7 +1035,6 @@ object Infer {
       for {
         ref <- initRef[(Type.Rho, Region)](Error.InferIncomplete("inferRho", t))
         expr <- typeCheckRho(t, Expected.Inf(ref))
-        rho <- (Lift(ref.get): Infer[(Type.Rho, Region)])
         _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
       } yield expr
   }

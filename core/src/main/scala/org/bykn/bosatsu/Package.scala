@@ -407,7 +407,7 @@ object PackageError {
     in: PackageName,
     privateType: Type.Const) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
-      val (lm, sourceName) = getMapSrc(sourceMap, in)
+      val (_, sourceName) = getMapSrc(sourceMap, in)
       val pt = Type.TyConst(privateType)
       val tpeMap = showTypes(in, exType :: pt :: Nil)
       s"in $sourceName export ${ex.name.sourceCodeRepr} of type ${tpeMap(exType)} references private type ${tpeMap(pt)}"
@@ -530,7 +530,7 @@ object PackageError {
             Doc.hardLine + fnHint + context1
 
           doc.render(80)
-        case Infer.Error.VarNotInScope((pack, name), scope, region) =>
+        case Infer.Error.VarNotInScope((_, name), scope, region) =>
           val ctx = lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
           val candidates: List[String] =
             nearest(name, scope.map { case ((_, n), _) => (n, ()) }, 3)
@@ -542,7 +542,7 @@ object PackageError {
           val qname = "\"" + name.sourceCodeRepr + "\""
           (Doc.text("name ") + Doc.text(qname) + Doc.text(" unknown.") + Doc.text(cmessage) + Doc.hardLine +
             ctx).render(80)
-        case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, tvs) =>
+        case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _) =>
           val context0 =
             if (r0 == r1) Doc.space // sometimes the region of the error is the same on right and left
             else {
@@ -558,7 +558,7 @@ object PackageError {
             context1
 
           doc.render(80)
-        case uc@Infer.Error.UnknownConstructor((p, n), region, _) =>
+        case uc@Infer.Error.UnknownConstructor((_, n), region, _) =>
           val near = nearest(n, uc.knownConstructors.map { case (_, n) => (n, ()) }.toMap, 3)
             .map { case (n, _) => n.asString }
 
@@ -638,7 +638,9 @@ object PackageError {
               Doc.text(s"invalid string pattern: ") +
                 Document[Pattern.Parsed].document(pat) +
                 Doc.text(" (adjacent bindings aren't allowed)")
-            case MultipleSplicesInPattern(pat, _) =>
+            case MultipleSplicesInPattern(_, _) =>
+              // TODO: get printing of compiled patterns working well
+              //val docp = Document[Pattern.Parsed].document(Pattern.ListPat(pat)) +
               Doc.text("multiple splices in pattern, only one per match allowed")
           }
       }
@@ -661,7 +663,7 @@ object PackageError {
           message + Doc.hardLine + rdoc
         }
 
-      val packDoc = Doc.text(s"in package ${pack.asString}:")
+      val packDoc = Doc.text(s"in file: $sourceName, package ${pack.asString}:")
       val line2 = Doc.hardLine + Doc.hardLine
       (packDoc + (line2 + Doc.intercalate(line2, docs.toList)).nested(2)).render(80)
     }

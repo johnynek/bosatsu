@@ -171,6 +171,7 @@ class CodeTest extends AnyFunSuite {
         (5, genWhile),
         (5, genAssign),
         (10, genRet),
+        (1, genDef),
         (1, genBlock),
         (1, genIf),
         (1, genCall),
@@ -186,7 +187,7 @@ class CodeTest extends AnyFunSuite {
       assert(mod != null)
     }
     catch {
-      case x: Throwable =>
+      case _: Throwable =>
         val msg = "\n\n" + ("=" * 80) + "\n\n" + str + "\n\n" + ("=" * 80)
         assert(false, msg)
     }

@@ -13,7 +13,7 @@ object TestUtils {
 
   def typeEnvOf(pack: PackageName, str: String): TypeEnv[Unit] = {
 
-    val stmt = statementsOf(pack, str)
+    val stmt = statementsOf(str)
     val srcConv = SourceConverter(pack, Nil, Statement.definitionsOf(stmt))
     val prog = srcConv.toProgram(stmt) match {
         case Ior.Right(prog) => prog
@@ -23,7 +23,7 @@ object TestUtils {
     TypeEnv.fromParsed(prog.types._2)
   }
 
-  def statementsOf(pack: PackageName, str: String): List[Statement] =
+  def statementsOf(str: String): List[Statement] =
     Parser.unsafeParse(Statement.parser, str)
 
   /**
@@ -110,7 +110,7 @@ object TestUtils {
         results.collect { case (_, Some(t)) => t.value } match {
           case t :: Nil =>
             assert(t.assertions == assertionCount, s"${t.assertions} != $assertionCount")
-            val (suc, failcount, message) = Test.report(t, LocationMap.Colorize.None)
+            val (_, failcount, message) = Test.report(t, LocationMap.Colorize.None)
             assert(t.failures.map(_.assertions).getOrElse(0) == failcount)
             if (failcount > 0) fail(message.render(80))
             else succeed
@@ -147,7 +147,7 @@ object TestUtils {
 
     val fullParsed =
         Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
-          .map { case ((path, lm), p) => (path, p) }
+          .map { case ((path, _), p) => (path, p) }
 
     PackageMap
       .resolveThenInfer(fullParsed , Nil).strictToValidated match {
@@ -164,7 +164,7 @@ object TestUtils {
       }
   }
 
-  def evalFail(packages: List[String], mainPackS: String, extern: Externals = Externals.empty)(errFn: PartialFunction[PackageError, Unit]) = {
+  def evalFail(packages: List[String])(errFn: PartialFunction[PackageError, Unit]) = {
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
       Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>

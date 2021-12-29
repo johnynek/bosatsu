@@ -153,7 +153,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 (Chain.empty[((Path, LocationMap), Package.Parsed)], newDone)
               ): ParseTransResult
             )
-          case Some(item@(plm, pack)) =>
+          case Some(item@(_, pack)) =>
             val imps = imports(pack).filterNot(done)
             parseTransitivePacks(imps, packRes, newDone)
               .map(_.map { case (newPacks, newDone) => (item +: newPacks, newDone) })

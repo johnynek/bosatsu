@@ -193,7 +193,7 @@ def go(x):
   y
 
 main = go(IntCase(42))
-"""), "Err") { case PackageError.TypeErrorIn(_, _) => () }
+""")) { case PackageError.TypeErrorIn(_, _) => () }
 
     val errPack = """
 package Err
@@ -208,7 +208,7 @@ def go(x):
 main = go(IntCase(42))
 """
     val packs = Map((PackageName.parts("Err"), (LocationMap(errPack), "Err.bosatsu")))
-    evalFail(List(errPack), "Err") { case te@PackageError.TypeErrorIn(_, _) =>
+    evalFail(List(errPack)) { case te@PackageError.TypeErrorIn(_, _) =>
       val msg = te.message(packs, Colorize.None)
       assert(msg.contains("type error: expected type Bosatsu/Predef::Int to be the same as type Bosatsu/Predef::String"))
       ()
@@ -543,7 +543,7 @@ main = if True:
   1
 else:
   "1"
-"""), "Foo") { case PackageError.TypeErrorIn(_, _) => () }
+""")) { case PackageError.TypeErrorIn(_, _) => () }
   }
 
   test("test the list literals work even when we have conflicting local names") {
@@ -599,7 +599,7 @@ def ltEqZero(i):
 fac = trace("made fac", y(\f, i -> 1 if ltEqZero(i) else f(i).times(i)))
 
 main = fac(6)
-"""), "Y") { case PackageError.CircularType(_, _) => () }
+""")) { case PackageError.CircularType(_, _) => () }
   }
 
   test("check type aligned enum") {
@@ -643,7 +643,7 @@ one = match something:
   Yep(a): a
 
 main = one
-"""), "Total") { case PackageError.TotalityCheckError(_, _) => () }
+""")) { case PackageError.TotalityCheckError(_, _) => () }
   }
 
   test("unreachable patterns are an error") {
@@ -662,7 +662,7 @@ one = match something:
   case _: 42
 
 main = one
-"""), "Total") { case PackageError.TotalityCheckError(_, _) => () }
+""")) { case PackageError.TotalityCheckError(_, _) => () }
   }
 
   test("Leibniz type equality example") {
@@ -722,7 +722,7 @@ def getValue(v):
     case IsInt(i, _): i
 
 main = getValue(int)
-"""), "A"){ case PackageError.TypeErrorIn(_, _) => () }
+""")){ case PackageError.TypeErrorIn(_, _) => () }
 
   }
 
@@ -736,7 +736,7 @@ def plus(x: a, y):
   x.add(y)
 
 main = plus(1, 2)
-"""), "A"){ case PackageError.TypeErrorIn(_, _) => () }
+""")){ case PackageError.TypeErrorIn(_, _) => () }
   }
 
   test("unused let fails compilation") {
@@ -750,7 +750,7 @@ def plus(x, y):
   x.add(y)
 
 main = plus(1, 2)
-"""), "A"){ case le@PackageError.UnusedLetError(_, _) =>
+""")){ case le@PackageError.UnusedLetError(_, _) =>
       val msg = le.message(Map.empty, Colorize.None)
       assert(!msg.contains("Name("))
       assert(msg.contains("unused let binding: z\n  Region(68,84)"))
@@ -798,7 +798,7 @@ def bad(foo):
     baz: bad(baz)
 
 main = bad(Bar)
-"""), "A"){ case PackageError.RecursionError(_, _) => () }
+""")){ case PackageError.RecursionError(_, _) => () }
 
   evalTest(
     List("""
@@ -1388,7 +1388,7 @@ package B
 
 from A import a
 
-main = a"""), "B") { case PackageError.UnknownImportName(_, _, _, _) => () }
+main = a""")) { case PackageError.UnknownImportName(_, _, _, _) => () }
 
     evalFail(
       List("""
@@ -1396,13 +1396,13 @@ package B
 
 from A import a
 
-main = a"""), "B") { case PackageError.UnknownImportPackage(_, _) => () }
+main = a""")) { case PackageError.UnknownImportPackage(_, _) => () }
 
     evalFail(
       List("""
 package B
 
-main = a"""), "B") { case te@PackageError.TypeErrorIn(_, _) =>
+main = a""")) { case te@PackageError.TypeErrorIn(_, _) =>
     val msg = te.message(Map.empty, Colorize.None)
     assert(!msg.contains("Name("))
     assert(msg.contains("package B, name \"a\" unknown"))
@@ -1417,7 +1417,7 @@ x = 1
 
 main = match x:
   case Foo: 2
-"""), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case te@PackageError.SourceConverterErrorIn(_, _) =>
     val msg = te.message(Map.empty, Colorize.None)
     assert(!msg.contains("Name("))
     assert(msg.contains("package B, unknown constructor Foo"))
@@ -1432,7 +1432,7 @@ struct X
 
 main = match 1:
   case X1: 0
-"""), "B") { case te@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case te@PackageError.SourceConverterErrorIn(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package B, unknown constructor X1\nRegion(49,50)")
       ()
     }
@@ -1444,7 +1444,7 @@ package A
 main = match [1, 2, 3]:
   case []: 0
   case [*a, *b, _]: 2
-"""), "A") { case te@PackageError.TotalityCheckError(_, _) =>
+""")) { case te@PackageError.TotalityCheckError(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(19,70)\nmultiple splices in pattern, only one per match allowed")
       ()
     }
@@ -1457,7 +1457,7 @@ enum Foo: Bar(a), Baz(b)
 
 main = match Bar(a):
   case Baz(b): b
-"""), "A") { case te@PackageError.TotalityCheckError(_, _) =>
+""")) { case te@PackageError.TotalityCheckError(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nRegion(45,75)\nnon-total match, missing: Bar(_)")
       ()
     }
@@ -1471,7 +1471,7 @@ def fn(x):
     y: 0
 
 main = fn
-"""), "A") { case te@PackageError.RecursionError(_, _) =>
+""")) { case te@PackageError.RecursionError(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, recur but no recursive call to fn\nRegion(25,42)\n")
       ()
     }
@@ -1485,7 +1485,7 @@ def fn(x):
     y: 0
 
 main = fn
-"""), "A") { case te@PackageError.RecursionError(_, _) =>
+""")) { case te@PackageError.RecursionError(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,43)\n")
       ()
     }
@@ -1499,7 +1499,7 @@ def fn(x):
     y: 0
 
 main = fn
-"""), "A") { case te@PackageError.RecursionError(_, _) =>
+""")) { case te@PackageError.RecursionError(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, recur not on an argument to the def of fn, args: x\nRegion(25,42)\n")
       ()
     }
@@ -1515,7 +1515,7 @@ def fn(x):
         z: 100
 
 main = fn
-"""), "A") { case te@PackageError.RecursionError(_, _) =>
+""")) { case te@PackageError.RecursionError(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, unexpected recur: may only appear unnested inside a def\nRegion(47,70)\n")
       ()
     }
@@ -1532,7 +1532,7 @@ def fn(x):
         z: 100
 
 main = fn
-"""), "A") { case te@PackageError.RecursionError(_, _) =>
+""")) { case te@PackageError.RecursionError(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, illegal shadowing on: fn. Recursive shadowing of def names disallowed\nRegion(25,81)\n")
       ()
     }
@@ -1547,7 +1547,7 @@ def fn(x, y):
     case x: fn(x - 1, y + 1)
 
 main = fn
-"""), "A") { case te@PackageError.RecursionError(_, _) =>
+""")) { case te@PackageError.RecursionError(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, invalid recursion on fn\nRegion(63,79)\n")
       ()
     }
@@ -1562,7 +1562,7 @@ def fn(x, y):
     case x: x
 
 main = fn(0, 1, 2)
-"""), "A") { case te@PackageError.TypeErrorIn(_, _) =>
+""")) { case te@PackageError.TypeErrorIn(_, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, type error: expected type Bosatsu/Predef::Int to be the same as type ?a -> ?b\nhint: this often happens when you apply the wrong number of arguments to a function.\nRegion(73,84)")
       ()
     }
@@ -1579,7 +1579,7 @@ package B
 from A import fooz
 
 baz = fooz
-"""), "B") { case te@PackageError.UnknownImportName(_, _, _, _) =>
+""")) { case te@PackageError.UnknownImportName(_, _, _, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in <unknown source> package: A does not have name fooz. Nearest: foo")
       ()
     }
@@ -1597,7 +1597,7 @@ package B
 from A import bar
 
 baz = bar
-"""), "B") { case te@PackageError.UnknownImportName(_, _, _, _) =>
+""")) { case te@PackageError.UnknownImportName(_, _, _, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in <unknown source> package: A has bar but it is not exported. Add to exports")
       ()
     }
@@ -1887,7 +1887,7 @@ get = \Pair(first, ...) -> first
 # missing second
 first = 1
 res = get(Pair { first })
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
 
     evalFail(
       List("""
@@ -1901,7 +1901,7 @@ get = \Pair(first, ...) -> first
 first = 1
 second = 3
 res = get(Pair { first, second, third })
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
 
     evalFail(
       List("""
@@ -1912,7 +1912,7 @@ struct Pair(first, second)
 get = \Pair { first } -> first
 
 res = get(Pair(1, "two"))
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
 
     evalFail(
       List("""
@@ -1924,7 +1924,7 @@ struct Pair(first, second)
 get = \Pair(first) -> first
 
 res = get(Pair(1, "two"))
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
 
     evalFail(
       List("""
@@ -1936,7 +1936,7 @@ struct Pair(first, second)
 get = \Pair { first, sec: _ } -> first
 
 res = get(Pair(1, "two"))
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
 
     evalFail(
       List("""
@@ -1948,7 +1948,7 @@ struct Pair(first, second)
 get = \Pair { first, sec: _, ... } -> first
 
 res = get(Pair(1, "two"))
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
 
     evalFail(
       List("""
@@ -1960,7 +1960,7 @@ struct Pair(first, second)
 get = \Pair(first, _, _) -> first
 
 res = get(Pair(1, "two"))
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
 
     evalFail(
       List("""
@@ -1972,7 +1972,7 @@ struct Pair(first, second)
 get = \Pair(first, _, _, ...) -> first
 
 res = get(Pair(1, "two"))
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
   }
 
   test("exercise total matching inside of a struct with a list") {
@@ -2134,7 +2134,7 @@ external def foo(x: String) -> List[String]
 
 def foo(x): x
 
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) =>
       assert(s.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(57,71)")
       ()
     }
@@ -2147,7 +2147,7 @@ external def foo(x: String) -> List[String]
 
 foo = 1
 
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) =>
       assert(s.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, bind names foo shadow external def\nRegion(57,65)")
       ()
     }
@@ -2159,7 +2159,7 @@ package A
 external def foo(x: String) -> List[String]
 
 external def foo(x: String) -> List[String]
-"""), "A") { case s@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case s@PackageError.SourceConverterErrorIn(_, _) =>
       assert(s.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, external def: foo defined multiple times\nRegion(21,55)")
       ()
     }
@@ -2191,7 +2191,7 @@ package Err
 struct Foo[a](a)
 
 main = Foo(1, "2")
-"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err, Foo found declared: [a], not a superset of [anon0]\nRegion(14,30)")
       ()
     }
@@ -2203,7 +2203,7 @@ package Err
 struct Foo[a](a: a, b: b)
 
 main = Foo(1, "2")
-"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err, Foo found declared: [a], not a superset of [a, b]\nRegion(14,39)")
       ()
     }
@@ -2215,7 +2215,7 @@ package Err
 enum Enum[a]: Foo(a)
 
 main = Foo(1, "2")
-"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err, Enum found declared: [a], not a superset of [anon0]\nRegion(14,34)")
       ()
     }
@@ -2227,7 +2227,7 @@ package Err
 enum Enum[a]: Foo(a: a), Bar(a: b)
 
 main = Foo(1, "2")
-"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err, Enum found declared: [a], not a superset of [a, b]\nRegion(14,48)")
       ()
     }
@@ -2241,7 +2241,7 @@ package Err
 from Bosatsu/Predef import foldLeft
 
 main = 1
-"""), "Err") { case sce@PackageError.DuplicatedImport(_) =>
+""")) { case sce@PackageError.DuplicatedImport(_) =>
       assert(sce.message(Map.empty, Colorize.None) == "duplicate import in <unknown source> package Bosatsu/Predef imports foldLeft as foldLeft")
       ()
     }
@@ -2257,7 +2257,7 @@ main = 1
         |main = 1
         |""".stripMargin
 
-    evalFail(List(pack, pack), "Err") { case sce@PackageError.DuplicatedPackageError(_, _) =>
+    evalFail(List(pack, pack)) { case sce@PackageError.DuplicatedPackageError(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "package Err duplicated in 0, 1")
       ()
     }
@@ -2274,7 +2274,7 @@ main = match x:
   case [*_, *_]: "bad"
   case _: "still bad"
 
-"""), "Err") { case sce@PackageError.TotalityCheckError(_, _) =>
+""")) { case sce@PackageError.TotalityCheckError(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err\nRegion(36,89)\nmultiple splices in pattern, only one per match allowed")
       ()
     }
@@ -2292,7 +2292,7 @@ main = match x:
   case "$dollar{_}$dollar{_}": "bad"
   case _: "still bad"
 
-"""), "Err") { case sce@PackageError.TotalityCheckError(_, _) =>
+""")) { case sce@PackageError.TotalityCheckError(_, _) =>
       val dollar = '$'
       assert(sce.message(Map.empty, Colorize.None) ==
         s"in file: <unknown source>, package Err\nRegion(36,91)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent bindings aren't allowed)")
@@ -2438,7 +2438,7 @@ struct Foo
 struct Foo(x)
 
 main = Foo(1)
-"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err, type name: Foo defined multiple times\nRegion(14,24)")
       ()
     }
@@ -2454,7 +2454,7 @@ enum Bar: Foo
 struct Foo(x)
 
 main = Foo(1)
-"""), "Err") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err, constructor: Foo defined multiple times\nRegion(14,27)")
       ()
     }
@@ -2522,7 +2522,7 @@ def bar(y, _: String, x):
     Thing2(i, t): bar(i, "boom", t)
 
 test = Assertion(True, "")
-"""), "S") { case re@PackageError.RecursionError(_, _) =>
+""")) { case re@PackageError.RecursionError(_, _) =>
       assert(re.message(Map.empty, Colorize.None) == "in file: <unknown source>, package S, recur not on an argument to the def of bar, args: y, _: String, x\nRegion(107,165)\n")
       ()
     }
@@ -2536,7 +2536,7 @@ out = match (1,2):
   case (a, a): a
 
 test = Assertion(True, "")
-"""), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(48,49)")
       ()
     }
@@ -2548,7 +2548,7 @@ out = match [(1,2), (1, 0)]:
   case _: 0
 
 test = Assertion(True, "")
-"""), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, repeated bindings in pattern: a\nRegion(68,69)")
       ()
     }
@@ -2584,7 +2584,7 @@ struct Bar(baz: Either[Int, String])
 
 test = Assertion(True, "")
 
-"""), "Foo") { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
       assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, unknown type: Either\nRegion(14,50)")
       ()
     }
@@ -2628,7 +2628,7 @@ package UseBar
 from Foo import bar
 
 x = bar
-""" :: Nil, "UseBar") { case sce =>
+""" :: Nil) { case sce =>
       assert(sce.message(Map.empty, Colorize.None) == "in <unknown source> export bar of type Bar references private type Bar")
       ()
     }

@@ -66,7 +66,7 @@ object TypedExprNormalization {
   private def normalize1[A](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[Variance]): Some[TypedExpr[A]] =
     normalizeLetOpt(namerec, te, scope, typeEnv) match {
       case None => Some(te)
-      case s@Some(te) => s
+      case s@Some(_) => s
     }
 
   /**
@@ -303,7 +303,7 @@ object TypedExprNormalization {
         val a1 = normalize1(None, arg, scope, typeEnv).get
         if (changed1 == 0) {
           val m1 = Match(a1, branches, tag)
-          Impl.maybeEvalMatch(m1, scope, typeEnv) match {
+          Impl.maybeEvalMatch(m1, scope) match {
             case None =>
               // if only the arg changes, there
               // is no need to rerun the normalization
@@ -409,7 +409,7 @@ object TypedExprNormalization {
               case Some((fn0, args)) =>
                 Some((fn0, args :+ arg))
             }
-          case notApp => None
+          case _ => None
         }
     }
 
@@ -456,7 +456,7 @@ object TypedExprNormalization {
     type Pat = Pattern[(PackageName, Constructor), Type]
     type Branch[A] = (Pat, TypedExpr[A])
 
-    def maybeEvalMatch[A](m: Match[_ <: A], scope: Scope[A], typeEnv: TypeEnv[Variance]): Option[TypedExpr[A]] =
+    def maybeEvalMatch[A](m: Match[_ <: A], scope: Scope[A]): Option[TypedExpr[A]] =
       evaluate(m.arg, scope).flatMap {
         case EvalResult.Cons(p, c, args) =>
 
@@ -579,7 +579,7 @@ object TypedExprNormalization {
               }
             }
           }
-        case EvalResult.Constant(i @ Lit.Str(_)) =>
+        case EvalResult.Constant(Lit.Str(_)) =>
           None
       }
   }

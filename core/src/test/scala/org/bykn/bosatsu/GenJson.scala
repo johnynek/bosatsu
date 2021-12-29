@@ -55,14 +55,14 @@ object GenJson {
     Arbitrary(Gen.choose(0, 4).flatMap(genJson(_)))
 
   implicit def shrinkJson(
-    implicit ss: Shrink[String],
-    sd: Shrink[Double]): Shrink[Json] =
+    implicit ss: Shrink[String]
+  ): Shrink[Json] =
     Shrink[Json](new Function1[Json, Stream[Json]] {
       def apply(j: Json): Stream[Json] = {
         import Json._
         j match {
           case JString(str) => ss.shrink(str).map(JString(_))
-          case JNumberStr(nstr) => Stream.empty
+          case JNumberStr(_) => Stream.empty
           case JNull => Stream.empty
           case JBool.True | JBool.False => Stream.empty
           case JArray(js) =>

@@ -16,17 +16,17 @@ sealed abstract class ImportedName[+T] {
 
   def map[U](fn: T => U): ImportedName[U] =
     this match {
-      case o@ImportedName.OriginalName(n, t) =>
+      case ImportedName.OriginalName(n, t) =>
         ImportedName.OriginalName(n, fn(t))
-      case r@ImportedName.Renamed(o, l, t) =>
+      case ImportedName.Renamed(o, l, t) =>
         ImportedName.Renamed(o, l, fn(t))
     }
 
   def traverse[F[_], U](fn: T => F[U])(implicit F: Functor[F]): F[ImportedName[U]] =
     this match {
-      case o@ImportedName.OriginalName(n, t) =>
+      case ImportedName.OriginalName(n, t) =>
         F.map(fn(t))(ImportedName.OriginalName(n, _))
-      case r@ImportedName.Renamed(o, l, t) =>
+      case ImportedName.Renamed(o, l, t) =>
         F.map(fn(t))(ImportedName.Renamed(o, l, _))
     }
 }
@@ -119,7 +119,7 @@ object ImportMap {
     is.iterator
       .flatMap { case Import(p, is) => is.toList.iterator.map((p, _)) }
       .foldLeft((List.empty[(A, ImportedName[B])], ImportMap.empty[A, B])) {
-        case ((dups, imap), pim@(pack, im)) =>
+        case ((dups, imap), pim@(_, im)) =>
           val dups1 = imap(im.localName) match {
             case Some(nm) => nm :: dups
             case None => dups

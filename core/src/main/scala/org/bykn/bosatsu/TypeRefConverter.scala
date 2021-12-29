@@ -1,9 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Applicative
-import cats.data.NonEmptyList
 import cats.implicits._
-import cats.parse.{Parser => P}
 import org.bykn.bosatsu.rankn.Type
 import org.bykn.bosatsu.Identifier.Constructor
 
