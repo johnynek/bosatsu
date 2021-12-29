@@ -3,6 +3,7 @@ package org.bykn.bosatsu.rankn
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P}
 import cats.{Applicative, Eq}
+import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, TypeParser}
 import scala.collection.immutable.SortedSet
 
@@ -61,8 +62,19 @@ object Type {
     args match {
       case Nil => fn
       case a :: as =>
-        applyAll(Type.TyApply(fn, a), as)
+        applyAll(TyApply(fn, a), as)
     }
+
+  def unapplyAll(fn: Type): (Type, List[Type]) = {
+    @annotation.tailrec
+    def loop(fn: Type, acc: List[Type]): (Type, List[Type]) =
+      fn match {
+        case TyApply(fn, a) => loop(fn, a :: acc)
+        case notApply => (notApply, acc)
+      }
+
+    loop(fn, Nil)
+  }
 
   def constantsOf(t: Type): List[Const] =
     t match {
@@ -442,9 +454,49 @@ object Type {
       Type.forAll(vs.toList.map { s => Type.Var.Bound(s) }, on) 
 
     def makeTuple(lst: List[Type]) = Type.Tuple(lst)
+
+    def unapplyVar(a: Type): Option[String] =
+      a match {
+        case TyVar(Var.Bound(s)) => Some(s)
+        case _ => None
+      }
+
+    private[this] val coloncolon = Doc.text("::")
+
+    def unapplyName(a: Type): Option[Doc] =
+      a match {
+        case TyConst(Const.Defined(p, n)) =>
+          Some(Document[PackageName].document(p) + coloncolon + Document[Identifier].document(n.ident))
+        case _ => None
+      }
+
+    def unapplyFn(a: Type): Option[(Type, Type)] =
+      a match {
+        case Fun(a, b) => Some((a, b))
+        case _ => None
+      }
+
+    def unapplyUniversal(a: Type): Option[(List[String], Type)] =
+      a match {
+        case ForAll(vs, arg) => Some((vs.map(_.name).toList, arg))
+        case _ => None
+      }
+
+    def unapplyTypeApply(a: Type): Option[(Type, List[Type])] =
+      a match {
+        case ta@TyApply(_, _) => Some(unapplyAll(ta))
+        case _ => None
+      }
+
+    def unapplyTuple(a: Type): Option[List[Type]] =
+      a match {
+        case Tuple(as) => Some(as)
+        case _ => None
+      }
   }
   /**
    * Parse fully resolved types: package::type
    */
   def fullyResolvedParser: P[Type] = FullResolved.parser
+  def fullyResolvedDocument: Document[Type] = FullResolved.document
 }

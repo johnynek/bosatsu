@@ -20,33 +20,7 @@ sealed abstract class TypeRef {
   import TypeRef._
 
   def toDoc: Doc =
-    this match {
-      case TypeVar(v) => Doc.text(v)
-      case TypeName(n) => Document[Identifier].document(n.ident)
-      case TypeArrow(inner@TypeArrow(_, _), right) =>
-        Doc.char('(') + inner.toDoc + Doc.char(')') + spaceArrow + right.toDoc
-      case TypeArrow(inner@TypeLambda(_, _), right) =>
-        Doc.char('(') + inner.toDoc + Doc.char(')') + spaceArrow + right.toDoc
-      case TypeArrow(left, right) =>
-        left.toDoc + spaceArrow + right.toDoc
-      case TypeApply(of, args) =>
-        val ofDoc = of match {
-          case tl@TypeLambda(_, _) => Doc.char('(') + tl.toDoc + Doc.char(')')
-          case nonLambda => nonLambda.toDoc
-        }
-        ofDoc + Doc.char('[') + Doc.intercalate(commaSpace, args.toList.map(_.toDoc)) + Doc.char(']')
-      case TypeLambda(params, expr) =>
-        Doc.text("forall ") + Doc.intercalate(commaSpace,
-          params.toList.map(_.toDoc)) +
-          Doc.char('.') + Doc.space + expr.toDoc
-      case TypeTuple(ts) =>
-        ts match {
-          case Nil => Doc.text("()")
-          case h :: Nil => Doc.char('(') + h.toDoc + Doc.text(",)")
-          case twoAndMore =>
-            Doc.char('(') + Doc.intercalate(Doc.text(", "), twoAndMore.map(_.toDoc)) + Doc.char(')')
-        }
-    }
+    TypeRef.document.document(this)
 
   /**
    * Nested TypeLambda can be combined, and should be generally
@@ -68,11 +42,8 @@ sealed abstract class TypeRef {
 }
 
 object TypeRef {
-  private val spaceArrow = Doc.text(" -> ")
-  private val commaSpace = Doc.text(", ")
   private val colonSpace = Doc.text(": ")
 
-  implicit val document: Document[TypeRef] = Document.instance[TypeRef](_.toDoc)
 
   def argDoc[A: Document](st: (A, Option[TypeRef])): Doc =
     st match {
@@ -107,23 +78,30 @@ object TypeRef {
         ts.traverse(loop(_)).map(TypeTuple(_))
       case TyConst(defined@Type.Const.Defined(_, _)) =>
         onConst(defined)
-      case TyVar(Type.Var.Bound(v)) =>
-        Applicative[F].pure(TypeVar(v))
       case Type.Fun(from, to) =>
         (loop(from), loop(to)).mapN { (ftr, ttr) =>
           TypeArrow(ftr, ttr)
         }
-      case TyApply(on, arg) =>
-        (loop(on), loop(arg)).mapN {
-          case (TypeApply(of, args1), arg) =>
-            TypeApply(of, args1 :+ arg)
-          case (of, arg1) =>
-            TypeApply(of, NonEmptyList(arg1, Nil))
+      case ta@TyApply(_, _) =>
+        val (on, args) = unapplyAll(ta)
+        (loop(on), args.traverse(loop)).mapN {
+          (of, arg1) =>
+            TypeApply(of, NonEmptyList.fromListUnsafe(arg1))
         }
-      case TyVar(sk@Type.Var.Skolem(_, _)) =>
-        onSkolem(sk)
+      case TyVar(tv) =>
+        tv match {
+          case Type.Var.Bound(v) =>
+            Applicative[F].pure(TypeVar(v))
+          case sk@Type.Var.Skolem(_, _) =>
+            onSkolem(sk)
+        }
       case TyMeta(Type.Meta(id, _)) =>
         onMeta(id)
+      // $COVERAGE-OFF$
+      case other =>
+        // the extractors mess this up
+        sys.error(s"unreachable: $other")
+        // $COVERAGE-ON$
     }
   }
 
@@ -170,8 +148,45 @@ object TypeRef {
       TypeLambda(vars.map(makeVar), in)
 
     def makeTuple(items: List[TypeRef]) = TypeTuple(items)
+
+    def unapplyVar(a: TypeRef): Option[String] =
+      a match {
+        case TypeVar(s) => Some(s)
+        case _ => None
+      }
+
+    def unapplyName(a: TypeRef): Option[Doc] =
+      a match {
+        case TypeName(n) => Some(Document[Identifier].document(n.ident))
+        case _ => None
+      }
+
+    def unapplyFn(a: TypeRef): Option[(TypeRef, TypeRef)] =
+      a match {
+        case TypeArrow(a, b) => Some((a, b))
+        case _ => None
+      }
+
+    def unapplyUniversal(a: TypeRef): Option[(List[String], TypeRef)] =
+      a match {
+        case TypeLambda(vs, a) => Some((vs.map(_.asString).toList, a))
+        case _ => None
+      }
+
+    def unapplyTypeApply(a: TypeRef): Option[(TypeRef, List[TypeRef])] =
+      a match {
+        case TypeApply(a, args) => Some((a, args.toList))
+        case _ => None
+      }
+
+    def unapplyTuple(a: TypeRef): Option[List[TypeRef]] =
+      a match {
+        case TypeTuple(as) => Some(as)
+        case _ => None
+      }
   }
 
+  implicit def document: Document[TypeRef] = TypeRefParser.document
   def parser: P[TypeRef] = TypeRefParser.parser
 
   val annotationParser: P[TypeRef] =
