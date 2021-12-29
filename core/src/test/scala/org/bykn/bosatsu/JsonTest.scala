@@ -186,9 +186,9 @@ enum MyNat: Z, S(prev: MyNat)
                 case Right(j1) => assert(Eq[Json].eqv(j1, j), s"$j1 != $j")
                 case Left(err) => fail(err.toString)
               }
-            case Left(err) => fail(s"could not handle to Json: $tpe, $t, $toV")
+            case Left(err) => fail(s"could not handle to Json: $tpe, $t, $toV, $err")
           }
-        case Left(err) => fail(s"could not handle to Value: $tpe, $t, $toJ")
+        case Left(err) => fail(s"could not handle to Value: $tpe, $t, $toJ, $err")
       }
     }
 

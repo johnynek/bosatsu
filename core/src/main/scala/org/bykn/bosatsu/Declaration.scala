@@ -206,7 +206,7 @@ sealed abstract class Declaration {
           loop(body, bound1, acc)
         case la@LeftApply(_, _, _, _) =>
           loop(la.rewrite, bound, acc)
-        case Literal(lit) => acc
+        case Literal(_) => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, bound, acc)
           args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>
@@ -319,7 +319,7 @@ sealed abstract class Declaration {
         case Lambda(args, body) =>
           val acc1 = acc ++ args.patternNames
           loop(body, acc1)
-        case Literal(lit) => acc
+        case Literal(_) => acc
         case Match(_, typeName, args) =>
           val acc1 = loop(typeName, acc)
           args.get.foldLeft(acc1) { case (acc0, (pat, res)) =>

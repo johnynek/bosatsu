@@ -578,7 +578,7 @@ object Code {
         s0 :+ Code.Return(x0)
       case WithValue(stmt, v) =>
         stmt :+ toReturn(v)
-      case ie@IfElse(conds, elseCond) =>
+      case IfElse(conds, elseCond) =>
         ifStatement(
           conds.map { case (c, v) =>
             (c, toReturn(v))
@@ -594,7 +594,7 @@ object Code {
   // that assertion should always be true
   def always(v: ValueLike): Statement =
     v match {
-      case x: Expression => Pass
+      case _: Expression => Pass
       case WithValue(stmt, v) =>
         stmt +: always(v)
       case IfElse(conds, elseCond) =>

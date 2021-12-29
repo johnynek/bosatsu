@@ -484,7 +484,7 @@ object MatchlessToValue {
               assert(cond)
               res
             }
-          case GetEnumElement(expr, v, idx, sz) =>
+          case GetEnumElement(expr, v, idx, _) =>
             loop(expr).map { e =>
               val sum = e.asSum
               // we could assert e.asSum.variant == v

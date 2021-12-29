@@ -3,7 +3,7 @@ package org.bykn.bosatsu.rankn
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P}
 import cats.{Applicative, Eq}
-import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, TypeParser, Parser}
+import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, TypeParser}
 import scala.collection.immutable.SortedSet
 
 import cats.implicits._
@@ -74,7 +74,7 @@ object Type {
 
   def hasNoVars(t: Type): Boolean =
     t match {
-      case TyConst(c) => true
+      case TyConst(_) => true
       case TyVar(_) | TyMeta(_) => false
       case TyApply(on, arg) => hasNoVars(on) && hasNoVars(arg)
       case fa@ForAll(_, _) => freeTyVars(fa :: Nil).isEmpty
@@ -395,7 +395,7 @@ object Type {
     def loop(tpes: List[Type], acc: Set[Type.Var.Bound]): Set[Type.Var.Bound] =
       tpes match {
         case Nil => acc
-        case Type.ForAll(tvs, body) :: rest =>
+        case Type.ForAll(tvs, _) :: rest =>
           loop(rest, acc ++ tvs.toList)
         case Type.TyApply(arg, res) :: rest =>
           loop(arg :: res :: rest, acc)

@@ -96,7 +96,7 @@ object Statement {
           val innerFrees = defstatement.result.get.freeVars
           // but the def name and, args shadow
           (innerFrees - defstatement.name) -- defstatement.args.patternNames
-        case ExternalDef(name, _, _) => SortedSet.empty
+        case ExternalDef(_, _, _) => SortedSet.empty
       }
 
     /**

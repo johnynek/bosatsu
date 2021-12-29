@@ -101,7 +101,7 @@ object PredefImpl {
   private def i(a: Value): BigInteger =
     a match {
       case VInt(bi) => bi
-      case other => sys.error(s"expected integer: $a")
+      case _ => sys.error(s"expected integer: $a")
     }
 
   def add(a: Value, b: Value): Value =

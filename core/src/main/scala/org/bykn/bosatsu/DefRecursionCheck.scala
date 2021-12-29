@@ -72,7 +72,7 @@ object DefRecursionCheck {
     s match {
       case vs: ValueStatement =>
         vs match {
-          case Bind(BindingStatement(pat, decl, _)) =>
+          case Bind(BindingStatement(_, decl, _)) =>
             checkDeclV(TopLevel, decl)
           case Def(defn) =>
             // make this the same shape as a in declaration
@@ -156,7 +156,7 @@ object DefRecursionCheck {
               if (idx < 0) Validated.invalidNel(RecurNotOnArg(m, fnname, args))
               else Validated.valid(idx)
           }
-        case notVar =>
+        case _ =>
           Validated.invalidNel(RecurNotOnArg(m, fnname, args))
       }
     }
@@ -170,7 +170,7 @@ object DefRecursionCheck {
         case v@Declaration.Var(nm) =>
           if (pat.substructures.contains(nm)) unitValid
           else Validated.invalidNel(RecursionNotSubstructural(fnname, pat, v))
-        case notVar =>
+        case _ =>
           // we can only recur with vars
           Validated.invalidNel(RecursionArgNotVar(fnname, decl))
       }
@@ -397,7 +397,7 @@ object DefRecursionCheck {
                 (f.traverse_(checkDecl))
           }
 
-        case RecordConstructor(name, args) =>
+        case RecordConstructor(_, args) =>
           def checkArg(arg: RecordArg): St[Unit] =
             arg match {
               case RecordArg.Simple(b) =>

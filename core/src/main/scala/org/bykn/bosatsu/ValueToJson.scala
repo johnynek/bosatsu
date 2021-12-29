@@ -216,7 +216,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             case Type.ForAll(_, inner) =>
               // we assume the generic positions don't matter and to continue
               loop(inner, tpe :: revPath).value
-            case otherType =>
+            case _ =>
               // We can have complicated recursion here, we
               // need to be careful with Eval.later/lazy to tie the knot
               val fullPath = tpe :: revPath
@@ -453,7 +453,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             case Type.ForAll(_, inner) =>
               // we assume the generic positions don't matter and to continue
               loop(inner, tpe :: revPath).value
-            case otherType =>
+            case _ =>
               val fullPath = tpe :: revPath
 
               val dt =

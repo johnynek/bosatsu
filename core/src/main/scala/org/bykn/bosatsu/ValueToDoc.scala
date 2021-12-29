@@ -130,7 +130,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               loop(inner, tpe :: revPath).value
             case Type.TyVar(_) =>
               // we don't really know what to do with
-              { v => Right(Doc.text("<unknown>")) }
+              { _ => Right(Doc.text("<unknown>")) }
             case fn@Type.Fun(_, _) =>
               def arity(fn: Type): Int =
                 fn match {
@@ -149,7 +149,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                   Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
               }
-            case otherType =>
+            case _ =>
               // We can have complicated recursion here, we
               // need to be careful with Eval.later/lazy to tie the knot
               val fullPath = tpe :: revPath

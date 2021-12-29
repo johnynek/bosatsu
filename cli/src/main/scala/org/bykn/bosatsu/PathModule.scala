@@ -171,7 +171,7 @@ object PathModule extends MainModule[IO] {
     def loop(roots: List[Path]): Option[PackageName] =
       roots match {
         case Nil => None
-        case h :: t if packFile.startsWith(h) => getP(h)
+        case h :: _ if packFile.startsWith(h) => getP(h)
         case _ :: t => loop(t)
       }
 

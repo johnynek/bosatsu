@@ -244,7 +244,7 @@ object SeqPattern {
       private def subsetList(p1: List[SeqPart[A]], p2: List[SeqPart[A]]): Boolean =
         (p1, p2) match {
           case (Nil, Nil) => true
-          case (Nil, (_: SeqPart1[A]) :: t) => false
+          case (Nil, (_: SeqPart1[A]) :: _) => false
           case (Nil, Wildcard :: t) =>
             subsetList(Nil, t)
           case (_ :: _, Nil) => false
@@ -285,7 +285,7 @@ object SeqPattern {
             // if not, it may still be true,
             // this branch is what gives us the approximation
             subsetList(t1, p2) || subsetList(p1, t2)
-          case (Wildcard :: t1, Wildcard :: t2) =>
+          case (Wildcard :: t1, Wildcard :: _) =>
             // *t1 = t1 + _:*:t1 <= right
             //  t1 <= right && (_:*:t1 <= right)
             //  but right starts with *, so (_:*:t1 <= right) = (*:t1 <= *:t2)
@@ -323,7 +323,7 @@ object SeqPattern {
             // let's avoid the most complex case of both having
             // wild on the front if possible
             intersection(c1.reverse, c2.reverse).map(_.reverse)
-          case (c1@Cat(Wildcard, t1), c2@Cat(Wildcard, t2)) =>
+          case (Cat(Wildcard, t1), Cat(Wildcard, t2)) =>
             // both start and end with wild
             //
             // *:t1 = (t1 + _:p1)
@@ -587,7 +587,7 @@ object SeqPattern {
 
             { s: S =>
               splitFn(s)
-                .map { case (pre, i, r, post)  =>
+                .map { case (pre, _, r, post)  =>
                   tailMatch(post)
                     .map { rtail => (pre, split.monoidResult.combine(r, rtail)) }
                 }

@@ -119,7 +119,7 @@ final class SourceConverter(
         (loop(left), loop(right)).mapN { (l, r) =>
           Expr.buildApp(opVar, l :: r :: Nil, decl)
         }
-      case Binding(BindingStatement(pat, value, prest@Padding(_, rest))) =>
+      case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
         val erest = withBound(rest, pat.names)
 
         def solvePat(pat: Pattern.Parsed, rrhs: Result[Expr[Declaration]]): Result[Expr[Declaration]] =
@@ -1030,21 +1030,22 @@ final class SourceConverter(
       stmts.toList.flatMap {
         case d@Def(_) =>
           (d.defstatement.name, RecursionKind.Recursive, Left(d)) :: Nil
-        case e@ExternalDef(_, _, _) =>
+        case ExternalDef(_, _, _) =>
           // we don't allow external defs to shadow at all, so skip it here
           Nil
         case Bind(BindingStatement(bound, decl, _)) =>
           bindingsDecl(bound, decl)(newName)
             .toList
-            .map { case pair@(b, d) =>
+            .map { case pair@(b, _) =>
               (b, RecursionKind.NonRecursive, Right(pair))
             }
       }
 
     val flatIn: List[(Bindable, RecursionKind, Flattened)] =
-      SourceConverter.makeLetsUnique(flatList) { (bind, idx) =>
+      SourceConverter.makeLetsUnique(flatList) { (bind, _) =>
         // rename all but the last item
         // TODO make a better name, close to the original, but also not colliding
+        // by using idx
         val newNameV: Bindable = newName()
         val fn: Flattened => Flattened =
           {
@@ -1096,7 +1097,7 @@ final class SourceConverter(
           val r = apply(decl, Set.empty, topBound).map((nm, RecursionKind.NonRecursive, _) :: Nil)
           (topBound + nm, r)
 
-        case Right(Left(d @ Def(defstmt@DefStatement(n, pat, _, _)))) =>
+        case Right(Left(d @ Def(defstmt@DefStatement(_, pat, _, _)))) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
 
           val boundName = defstmt.name

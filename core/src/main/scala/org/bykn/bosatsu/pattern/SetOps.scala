@@ -127,7 +127,7 @@ object SetOps {
   def greedySearch[A, B, C: Ordering](lookahead: Int, union: A, diffs: List[B])(fn: (A, List[B]) => A)(score: A => C): A =
     diffs match {
       case Nil => union
-      case ned =>
+      case _ =>
         val peek = diffs.take(lookahead)
         val trials = SetOps.allPerms(peek).map { peeks =>
           val u1 = fn(union, peeks)

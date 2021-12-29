@@ -94,7 +94,7 @@ class DeclarationTest extends AnyFunSuite {
                   .iterator
                   .zip(right.iterator)
                   .zipWithIndex
-                  .dropWhile { case ((a, b), idx) => a == b }
+                  .dropWhile { case ((a, b), _) => a == b }
                   .next()
                   ._2
 

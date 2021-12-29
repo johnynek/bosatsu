@@ -23,7 +23,7 @@ class RankNInferTest extends AnyFunSuite {
     str.asString match {
       case "Int" => Type.Const.predef("Int")
       case "String" => Type.Const.predef("String")
-      case s => Type.Const.Defined(testPackage, TypeName(str))
+      case _ => Type.Const.Defined(testPackage, TypeName(str))
     }
 
   def asFullyQualified(ns: Iterable[(Identifier, Type)]): Map[Infer.Name, Type] =
@@ -256,7 +256,7 @@ class RankNInferTest extends AnyFunSuite {
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
       Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOption ++ boolTypes) match {
-        case Left(err) => assert(true)
+        case Left(_) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
 
@@ -299,7 +299,7 @@ class RankNInferTest extends AnyFunSuite {
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
       Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOptionGen ++ boolTypes) match {
-        case Left(err) => assert(true)
+        case Left(_) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
 

@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.codegen.python
 
 import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser}
+import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser, RecursionKind}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
@@ -569,7 +569,7 @@ object PythonGen {
     // if we have a top level let rec with the same name, handle it more cleanly
     val nmVeEnv =
       me match {
-        case Let(Right((n1, r)), inner, Local(n2)) if ((n1 === name) && (n2 === name)) =>
+        case Let(Right((n1, RecursionKind.NonRecursive)), inner, Local(n2)) if ((n1 === name) && (n2 === name)) =>
           // we can just bind now at the top level
           for {
             nm <- Env.topLevelName(name)
@@ -1024,7 +1024,7 @@ object PythonGen {
         // invariant: args.size == arity
         def applyAll(args: List[ValueLike]): Env[ValueLike] =
           ce match {
-            case MakeEnum(variant, arity, famArities) =>
+            case MakeEnum(variant, _, famArities) =>
               // if all arities are 0, we use
               // integers to represent,
               // otherwise, we use tuples with the first
@@ -1089,7 +1089,7 @@ object PythonGen {
             (boolExpr(ix1), boolExpr(ix2))
               .mapN(Env.andCode(_, _))
               .flatten
-          case CheckVariant(enumV, idx, size, famArities) =>
+          case CheckVariant(enumV, idx, _, famArities) =>
             // if all arities are 0, we use
             // integers to represent,
             // otherwise, we use tuples with the first
@@ -1335,7 +1335,7 @@ object PythonGen {
 
       def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] =
         expr match {
-          case l@LoopFn(_, nm, h, t, b) =>
+          case LoopFn(_, _, h, t, b) =>
             // note, name is already bound
             val args = NonEmptyList(h, t)
             val boundA = args.traverse(Env.bind)
@@ -1359,7 +1359,11 @@ object PythonGen {
               _ <- unbindA
             } yield loopRes
 
-          case Lambda(caps, arg, body) =>
+          case Lambda(_, arg, body) =>
+            // TODO: we could look up all the captured
+            // names and allocate tuple and generate a static function
+            // that accesses the closure from the tuple, but since
+            // python supports closures, it seems like a lot of work for nothing
             (Env.bind(arg), loop(body))
               .mapN(Env.makeDef(name, _, _))
               .flatMap { d =>
@@ -1525,7 +1529,7 @@ object PythonGen {
             (boolExpr(cond).map(Code.always), loop(expr))
               .mapN(_.withValue(_))
 
-          case GetEnumElement(expr, _, idx, sz) =>
+          case GetEnumElement(expr, _, idx, _) =>
             // nonempty enums are just structs with the first element being the variant
             // we could assert the v matches when debugging, but typechecking
             // should assure this

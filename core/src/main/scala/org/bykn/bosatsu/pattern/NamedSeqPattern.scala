@@ -194,7 +194,7 @@ object NamedSeqPattern {
 
           val headm: I => Option[R] =
             p1 match {
-              case AnyElem => { i: I => someEmpty }
+              case AnyElem => { _: I => someEmpty }
               case Lit(c) => split.matcher(c)
             }
 
