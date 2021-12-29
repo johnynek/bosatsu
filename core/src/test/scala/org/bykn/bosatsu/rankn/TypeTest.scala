@@ -24,10 +24,42 @@ class TypeTest extends AnyFunSuite {
     }
   }
 
+  test("Tuple unapply is the inverse of apply") {
+    forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
+      Type.Tuple(ts) match {
+        case Type.Tuple(ts1) => assert(ts1 == ts)
+        case notTup => fail(notTup.toString)
+      }
+    }
+
+    assert(Type.Tuple.unapply(parse("()")) == Some(Nil))
+    assert(Type.Tuple.unapply(parse("(a, b, c)")) ==
+      Some(List("a", "b", "c").map(parse)))
+  }
+
+  test("unapplyAll is the inverse of applyAll") {
+    forAll(NTypeGen.genDepth03) { ts =>
+      val (left, args) = Type.unapplyAll(ts)
+      assert(Type.applyAll(left, args) == ts)
+    }
+
+    assert(Type.unapplyAll(parse("foo[bar]")) ==
+      (parse("foo"), List(parse("bar"))))
+  }
+
   test("types are well ordered") {
     forAll(NTypeGen.genDepth03, NTypeGen.genDepth03, NTypeGen.genDepth03) {
       org.bykn.bosatsu.OrderingLaws.law(_, _, _)
     }
+  }
+
+  test("we can parse types") {
+    def law(t: Type) = {
+      val str = Type.fullyResolvedDocument.document(t).render(80)
+      assert(Type.fullyResolvedParser.parseAll(str) == Right(t), s"$str != $t")
+    }
+
+    forAll(NTypeGen.genDepth03)(law(_))
   }
 
   test("test all binders") {

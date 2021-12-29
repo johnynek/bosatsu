@@ -581,9 +581,6 @@ object Infer {
     /**
      * Allocate a new Meta variable which
      * will point to a Tau (no forall anywhere) type
-     *
-     * this is called newTyVarTy for some reason in
-     * the paper's implementation
      */
     def newMetaType: Infer[Type.TyMeta] =
       for {
@@ -591,7 +588,7 @@ object Infer {
         ref <- lift(RefSpace.newRef[Option[Type.Tau]](None))
       } yield Type.TyMeta(Type.Meta(id, ref))
 
-    def newSkolemTyVar(tv: Type.Var): Infer[Type.Var.Skolem] =
+    def newSkolemTyVar(tv: Type.Var.Bound): Infer[Type.Var.Skolem] =
       nextId.map(Type.Var.Skolem(tv.name, _))
 
     /**

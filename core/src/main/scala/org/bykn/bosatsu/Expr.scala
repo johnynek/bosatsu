@@ -126,7 +126,7 @@ object Expr {
    * running inference, then quantifying over that skolem
    * variable.
    */
-  def skolemizeFreeVars[F[_]: Applicative, A](expr: Expr[A])(newSkolemTyVar: Type.Var => F[Type.Var.Skolem]): Option[F[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
+  def skolemizeFreeVars[F[_]: Applicative, A](expr: Expr[A])(newSkolemTyVar: Type.Var.Bound => F[Type.Var.Skolem]): Option[F[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
     val w = Expr.traverseType(expr, { t =>
       val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
       Writer(frees, t)

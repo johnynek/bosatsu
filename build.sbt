@@ -44,6 +44,7 @@ lazy val commonSettings = Seq(
     /* "-Ywarn-unused:privates",            // Warn if a private member is unused. */
     "-Ywarn-value-discard",               // Warn when non-Unit expression results are unused.
     "-Xsource:3",
+    "-Ypatmat-exhaust-depth", "40",
     "-Wconf:cat=deprecation&msg=.*Stream.*:s"
   ),
 
