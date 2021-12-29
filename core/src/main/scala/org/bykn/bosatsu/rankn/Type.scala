@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
-import cats.parse.{Parser => P}
+import cats.parse.{Parser => P, Numbers}
 import cats.{Applicative, Eq}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
@@ -447,8 +447,23 @@ object Type {
       val tvar = Parser.lowerIdent.map { s => Type.TyVar(Type.Var.Bound(s)) }
       val name = ((PackageName.parser <* P.string("::")) ~ Identifier.consParser)
         .map { case (p, n) => Type.TyConst(Type.Const.Defined(p, TypeName(n))) }
+      val longParser: P[Long] = Numbers.signedIntString.mapFilter { str =>
+        try Some(str.toLong)
+        catch {
+          case _: NumberFormatException => None
+        }
+      }
+      val skolem = (P.char('$') *> Parser.lowerIdent, P.char('$') *> longParser)
+        .mapN(Var.Skolem(_, _))
+        .map(TyVar(_))
 
-      tvar.orElse(name)
+      // this null is bad, but we have no way to reallocate this
+      // and won't parse before type inference anyway
+      // the ideal solution is to better static type information
+      // to have fully inferred types with no skolems or metas
+      val meta = (P.char('?') *> longParser).map { l => TyMeta(Meta(l, null)) }
+
+      tvar.orElse(name).orElse(skolem).orElse(meta)
     }
 
     def makeFn(in: Type, out: Type) = Type.Fun(in, out)
@@ -466,6 +481,11 @@ object Type {
         case TyConst(Const.Defined(p, n)) =>
           Some(Document[PackageName].document(p) + coloncolon + Document[Identifier].document(n.ident))
         case TyVar(Var.Bound(s)) => Some(Doc.text(s))
+        case TyVar(Var.Skolem(n, i)) =>
+          val dol = "$"
+          Some(Doc.text(dol + n + dol + i.toString))
+        case TyMeta(Meta(i, _)) =>
+          Some(Doc.text("?" + i.toString))
         case _ => None
       }
 

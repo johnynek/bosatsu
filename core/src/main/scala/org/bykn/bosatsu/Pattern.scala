@@ -651,8 +651,8 @@ object Pattern {
         }
     }
 
-  implicit lazy val document: Document[Parsed] =
-    Document.instance[Parsed] {
+  implicit def document[T: Document]: Document[Pattern[StructKind, T]] =
+    Document.instance[Pattern[StructKind, T]] {
       case WildCard => Doc.char('_')
       case Literal(lit) => Document[Lit].document(lit)
       case Var(n) => Document[Identifier].document(n)
@@ -688,7 +688,7 @@ object Pattern {
          *   3. at the top level we need parens to distinguish a: Integer from being the rhs of a
          *      case
          */
-        document.document(p) + Doc.text(": ") + Document[TypeRef].document(t)
+        document.document(p) + Doc.text(": ") + Document[T].document(t)
       case PositionalStruct(n, Nil) =>
         n match {
           case StructKind.Tuple =>
@@ -743,7 +743,7 @@ object Pattern {
               Doc.text(" }")
         }
       case Union(head, rest) =>
-        def doc(p: Parsed): Doc =
+        def doc(p: Pattern[StructKind, T]): Doc =
           p match {
             case Annotation(_, _) | Union(_, _) =>
               // if an annotation or union is embedded, we need to put parens for parsing

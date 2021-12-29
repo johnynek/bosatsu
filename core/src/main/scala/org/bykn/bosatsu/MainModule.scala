@@ -610,18 +610,18 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           .runEval
           .flatMap { case (ev, res) =>
             val v2j = ev.valueToJson
-            def unsupported[A](tpe: rankn.Type, j: JsonEncodingError.UnsupportedType): IO[A] = {
-              val tMap = TypeRef.fromTypes(None, tpe :: Nil)
+            def unsupported[A](j: JsonEncodingError.UnsupportedType): IO[A] = {
+              def typeDoc(t: rankn.Type) = rankn.Type.fullyResolvedDocument.document(t)
               val path = j.path.init
               val badType = j.path.last
               val pathMsg = path match {
                 case Nil => Doc.empty
                 case nonE =>
                   val sep = Doc.lineOrSpace + Doc.text("contains") + Doc.lineOrSpace
-                  val pd = (Doc.intercalate(sep, nonE.map(tMap(_).toDoc)) + sep + tMap(badType).toDoc).nested(4)
+                  val pd = (Doc.intercalate(sep, nonE.map(typeDoc(_))) + sep + typeDoc(badType)).nested(4)
                   pd + Doc.hardLine + Doc.hardLine + Doc.text("but") + Doc.hardLine + Doc.hardLine
               }
-              val msg = pathMsg + Doc.text("the type") + Doc.space + tMap(badType).toDoc + Doc.space + Doc.text("isn't supported")
+              val msg = pathMsg + Doc.text("the type") + Doc.space + typeDoc(badType) + Doc.space + Doc.text("isn't supported")
               val tpeStr = msg.render(80)
 
               moduleIOMonad.raiseError(new Exception(s"cannot convert type to Json: $tpeStr"))
@@ -629,7 +629,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
             def process[F[_]: Traverse](io: IO[String], extract: Json => IO[F[Json]], inject: F[Json] => Json): IO[Output.JsonOutput] =
               v2j.valueFnToJsonFn(res.tpe) match {
-                case Left(unsup) => unsupported(res.tpe, unsup)
+                case Left(unsup) => unsupported(unsup)
                 case Right((arity, fnGen)) =>
                   fnGen(res.value.value) match {
                     case Right(fn) =>
@@ -660,7 +660,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             mode match {
               case JsonMode.Write =>
                 v2j.toJson(res.tpe) match {
-                  case Left(unsup) => unsupported(res.tpe, unsup)
+                  case Left(unsup) => unsupported(unsup)
                   case Right(fn) =>
                     fn(res.value.value) match {
                       case Left(valueError) =>

@@ -38,9 +38,8 @@ object JsApi {
     module.runWith(files)("eval" :: main ::: makeInputArgs(files.keys)) match {
       case Left(err) =>
         new Error(s"error: ${err.getMessage}")
-      case Right(module.Output.EvaluationResult(res, tpe, resDoc)) =>
-          val tMap = TypeRef.fromTypes(None, tpe :: Nil)
-          val tDoc = tMap(tpe).toDoc
+      case Right(module.Output.EvaluationResult(_, tpe, resDoc)) =>
+          val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
           val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
         new EvalSuccess(doc.render(80))
       case Right(other) =>

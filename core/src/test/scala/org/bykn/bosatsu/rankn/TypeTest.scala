@@ -60,6 +60,22 @@ class TypeTest extends AnyFunSuite {
     }
 
     forAll(NTypeGen.genDepth03)(law(_))
+
+
+    forAll(NTypeGen.lowerIdent, Gen.choose(Long.MinValue, Long.MaxValue)) { (b, id) =>
+      val str = "$" + b + "$" + id.toString
+      val tpe = parse(str)
+      law(tpe)
+      tpe match {
+        case Type.TyVar(Type.Var.Skolem(b1, i1)) =>
+          assert((b1, i1) == (b, id))
+        case other => fail(other.toString)
+      }
+    }
+
+    forAll { l: Long =>
+      assert(parse("?" + l.toString).asInstanceOf[Type.TyMeta].toMeta.id == l)
+    }
   }
 
   test("test all binders") {

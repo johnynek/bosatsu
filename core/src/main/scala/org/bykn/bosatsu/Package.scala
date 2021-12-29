@@ -360,10 +360,17 @@ sealed abstract class PackageError {
 }
 
 object PackageError {
-  def showTypes(pack: PackageName, tpes: List[Type]): Map[Type, String] =
-    TypeRef.fromTypes(Some(pack), tpes).map { case (k, v) =>
-      (k, v.toDoc.render(80))
-    }.toMap
+  def showTypes(pack: PackageName, tpes: List[Type]): Map[Type, Doc] = {
+    // TODO: we should use the imports in each package to talk about
+    // types in ways that are local to that package
+    require(pack ne null)
+    tpes
+      .iterator
+      .map { t =>
+        (t, Type.fullyResolvedDocument.document(t))
+      }
+      .toMap
+  }
 
   def nearest[A](ident: Identifier, existing: Map[Identifier, A], count: Int): List[(Identifier, A)] =
     existing
@@ -410,7 +417,7 @@ object PackageError {
       val (_, sourceName) = getMapSrc(sourceMap, in)
       val pt = Type.TyConst(privateType)
       val tpeMap = showTypes(in, exType :: pt :: Nil)
-      s"in $sourceName export ${ex.name.sourceCodeRepr} of type ${tpeMap(exType)} references private type ${tpeMap(pt)}"
+      s"in $sourceName export ${ex.name.sourceCodeRepr} of type ${tpeMap(exType).render(80)} references private type ${tpeMap(pt).render(80)}"
     }
   }
 
@@ -525,8 +532,8 @@ object PackageError {
             }
 
           val tmap = showTypes(pack, List(t0, t1))
-          val doc = Doc.text("type error: expected type ") + Doc.text(tmap(t0)) +
-            context0 + Doc.text("to be the same as type ") + Doc.text(tmap(t1)) +
+          val doc = Doc.text("type error: expected type ") + tmap(t0) +
+            context0 + Doc.text("to be the same as type ") + tmap(t1) +
             Doc.hardLine + fnHint + context1
 
           doc.render(80)
@@ -553,8 +560,8 @@ object PackageError {
             lm.showRegion(r1, 2, errColor).getOrElse(Doc.str(r1)) // we should highlight the whole region
 
           val tmap = showTypes(pack, List(t0, t1))
-          val doc = Doc.text("type ") + Doc.text(tmap(t0)) + context0 +
-            Doc.text("does not subsume type ") + Doc.text(tmap(t1)) + Doc.hardLine +
+          val doc = Doc.text("type ") + tmap(t0) + context0 +
+            Doc.text("does not subsume type ") + tmap(t1) + Doc.hardLine +
             context1
 
           doc.render(80)
@@ -609,7 +616,7 @@ object PackageError {
           val showT = showTypes(pack, allTypes)
 
           val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
-            Doc.text(showT(t))
+            showT(t)
           })
 
           Doc.text("non-total match, missing: ") +
@@ -621,7 +628,7 @@ object PackageError {
           val showT = showTypes(pack, allTypes)
 
           val doc = Pattern.compiledDocument(Document.instance[Type] { t =>
-            Doc.text(showT(t))
+            showT(t)
           })
 
           Doc.text("unreachable branches: ") +
