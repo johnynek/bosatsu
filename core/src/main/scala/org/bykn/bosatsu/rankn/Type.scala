@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import cats.parse.{Parser => P}
 import cats.{Applicative, Eq}
 import org.typelevel.paiges.{Doc, Document}
-import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, TypeParser}
+import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import scala.collection.immutable.SortedSet
 
 import cats.implicits._
@@ -443,9 +443,13 @@ object Type {
     }
 
   private object FullResolved extends TypeParser[Type] {
-    lazy val makeVar = { s => Type.TyVar(Type.Var.Bound(s)) }
-    lazy val parseName = ((PackageName.parser <* P.string("::")) ~ Identifier.consParser)
+    lazy val parseRoot = {
+      val tvar = Parser.lowerIdent.map { s => Type.TyVar(Type.Var.Bound(s)) }
+      val name = ((PackageName.parser <* P.string("::")) ~ Identifier.consParser)
         .map { case (p, n) => Type.TyConst(Type.Const.Defined(p, TypeName(n))) }
+
+      tvar.orElse(name)
+    }
 
     def makeFn(in: Type, out: Type) = Type.Fun(in, out)
     def applyTypes(left: Type, args: NonEmptyList[Type]) = applyAll(left, args.toList)
@@ -455,18 +459,13 @@ object Type {
 
     def makeTuple(lst: List[Type]) = Type.Tuple(lst)
 
-    def unapplyVar(a: Type): Option[String] =
-      a match {
-        case TyVar(Var.Bound(s)) => Some(s)
-        case _ => None
-      }
-
     private[this] val coloncolon = Doc.text("::")
 
-    def unapplyName(a: Type): Option[Doc] =
+    def unapplyRoot(a: Type): Option[Doc] =
       a match {
         case TyConst(Const.Defined(p, n)) =>
           Some(Document[PackageName].document(p) + coloncolon + Document[Identifier].document(n.ident))
+        case TyVar(Var.Bound(s)) => Some(Doc.text(s))
         case _ => None
       }
 
