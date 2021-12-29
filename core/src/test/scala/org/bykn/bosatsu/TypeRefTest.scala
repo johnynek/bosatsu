@@ -22,8 +22,15 @@ class TypeRefTest extends AnyFunSuite {
 
     forAll(typeRefGen) { tr =>
       val tpe = TypeRefConverter[cats.Id](tr) { c => Type.Const.Defined(pn, TypeName(c)) }
-      val tr1 = TypeRef.fromTypes(Some(pn), tpe :: Nil)(tpe)
-      assert(tr1 == tr.normalizeForAll)
+      val tr1 = TypeRefConverter.fromTypeA[Option](tpe,
+        { _ => None },
+        { _ => None },
+        {
+          case Type.Const.Defined(p, t) if p == pn => Some(TypeRef.TypeName(t))
+          case _ => None
+        })
+
+      assert(tr1 == Some(tr.normalizeForAll))
     }
   }
 }

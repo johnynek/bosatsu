@@ -13,7 +13,6 @@ import org.bykn.bosatsu.{
   Pattern => GenPattern,
   Region,
   RecursionKind,
-  TypeRef,
   TypedExpr,
   Variance}
 
@@ -129,8 +128,7 @@ object Infer {
 
     case class NotUnifiable(left: Type, right: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
       def message = {
-        val tStrMap = TypeRef.fromTypes(None, left :: right :: Nil)
-        def tStr(t: Type): String = tStrMap(t).toDoc.render(80)
+        def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
       }
     }
@@ -138,8 +136,7 @@ object Infer {
     case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type.Var.Skolem], reg: Region) extends TypeError {
       def message = {
         val bads = badTvs.map(Type.TyVar(_))
-        val tStrMap = TypeRef.fromTypes(None, tpe :: bads.toList)
-        def tStr(t: Type): String = tStrMap(t).toDoc.render(80)
+        def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"type ${tStr(tpe)} not polymorphic enough in $in, bad type variables: ${bads.map(tStr).toList.mkString(", ")}, at $reg"
       }
     }
@@ -147,8 +144,7 @@ object Infer {
     case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type.Var]) extends TypeError {
       def message = {
         val bads = badTvs.map(Type.TyVar(_))
-        val tStrMap = TypeRef.fromTypes(None, inferred :: declared :: bads.toList)
-        def tStr(t: Type): String = tStrMap(t).toDoc.render(80)
+        def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"subsumption check failed: ${tStr(inferred)} ${tStr(declared)}, bad types: ${bads.map(tStr).toList.mkString(", ")}"
       }
     }

@@ -112,8 +112,7 @@ object PathModule extends MainModule[IO] {
         }
       case Output.EvaluationResult(_, tpe, resDoc) =>
         IO.defer {
-          val tMap = TypeRef.fromTypes(None, tpe :: Nil)
-          val tDoc = tMap(tpe).toDoc
+          val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
 
           val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
           print(doc.render(100))

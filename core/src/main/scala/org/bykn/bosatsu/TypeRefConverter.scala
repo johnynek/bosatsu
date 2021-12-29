@@ -1,9 +1,11 @@
 package org.bykn.bosatsu
 
 import cats.Applicative
-import cats.implicits._
+import cats.data.NonEmptyList
 import org.bykn.bosatsu.rankn.Type
 import org.bykn.bosatsu.Identifier.Constructor
+
+import cats.implicits._
 
 object TypeRefConverter {
   /**
@@ -30,4 +32,51 @@ object TypeRefConverter {
         ts.traverse(toType).map(Type.Tuple(_))
     }
   }
+
+  def fromTypeA[F[_]: Applicative](
+    tpe: Type,
+    onSkolem: Type.Var.Skolem => F[TypeRef],
+    onMeta: Long => F[TypeRef],
+    onConst: Type.Const.Defined => F[TypeRef]): F[TypeRef] = {
+    import Type._
+    import TypeRef._
+
+    def loop(tpe: Type) = fromTypeA(tpe, onSkolem, onMeta, onConst)
+
+    tpe match {
+      case ForAll(vs, in) =>
+        val args = vs.map { case Type.Var.Bound(b) => TypeVar(b) }
+        loop(in).map(TypeLambda(args, _))
+      case Type.Tuple(ts) =>
+        // this needs to be above TyConst
+        ts.traverse(loop(_)).map(TypeTuple(_))
+      case TyConst(defined@Type.Const.Defined(_, _)) =>
+        onConst(defined)
+      case Type.Fun(from, to) =>
+        (loop(from), loop(to)).mapN { (ftr, ttr) =>
+          TypeArrow(ftr, ttr)
+        }
+      case ta@TyApply(_, _) =>
+        val (on, args) = unapplyAll(ta)
+        (loop(on), args.traverse(loop)).mapN {
+          (of, arg1) =>
+            TypeApply(of, NonEmptyList.fromListUnsafe(arg1))
+        }
+      case TyVar(tv) =>
+        tv match {
+          case Type.Var.Bound(v) =>
+            Applicative[F].pure(TypeVar(v))
+          case sk@Type.Var.Skolem(_, _) =>
+            onSkolem(sk)
+        }
+      case TyMeta(Type.Meta(id, _)) =>
+        onMeta(id)
+      // $COVERAGE-OFF$
+      case other =>
+        // the extractors mess this up
+        sys.error(s"unreachable: $other")
+        // $COVERAGE-ON$
+    }
+  }
+
 }

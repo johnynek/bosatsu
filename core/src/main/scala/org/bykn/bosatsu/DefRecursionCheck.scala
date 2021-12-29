@@ -43,7 +43,7 @@ object DefRecursionCheck {
   case class RecurNotOnArg(decl: Declaration.Match, fnname: Bindable, args: NonEmptyList[Pattern.Parsed]) extends RecursionError {
     def region = decl.region
     def message = {
-      val argStr = args.iterator.map { pat => Pattern.document.document(pat).render(80) }.mkString(", ")
+      val argStr = args.iterator.map { pat => Pattern.document[TypeRef].document(pat).render(80) }.mkString(", ")
       s"recur not on an argument to the def of ${fnname.sourceCodeRepr}, args: $argStr"
     }
   }

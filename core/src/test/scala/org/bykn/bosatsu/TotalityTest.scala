@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Eq
-import cats.data.{Chain, NonEmptyList, Writer}
+import cats.data.NonEmptyList
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalacheck.Gen
 
@@ -32,14 +32,13 @@ class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]]
     Generators.genCompiledPattern(5, useUnion = false, useAnnotation = false)
 
   def showPat(pat: Pattern[(PackageName, Constructor), Type]): String = {
-    val allTypes = pat.traverseType { t => Writer(Chain.one(t), ()) }.run._1.toList
-    val toStr = TypeRef.fromTypes(None, allTypes)
     val pat0 = pat.mapName {
       case (_, n) =>
         Pattern.StructKind.Named(n, Pattern.StructKind.Style.TupleLike)
-    }.mapType { t => toStr(t) }
+    }
 
-    Document[Pattern.Parsed].document(pat0).render(80)
+    implicit val tdoc = Type.fullyResolvedDocument
+    Document[Pattern[Pattern.StructKind, Type]].document(pat0).render(80)
   }
 
   def showPats(pats: List[Pattern[(PackageName, Constructor), Type]]): String =

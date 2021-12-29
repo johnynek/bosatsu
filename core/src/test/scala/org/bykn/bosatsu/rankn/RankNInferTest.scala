@@ -127,7 +127,7 @@ class RankNInferTest extends AnyFunSuite {
       // make sure we can render repr:
       val rendered = te.repr
       val tp = te.getType
-      lazy val teStr = TypeRef.fromTypes(None, tp :: Nil)(tp).toDoc.render(80)
+      lazy val teStr = Type.fullyResolvedDocument.document(tp).render(80)
       assert(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr, in: $rendered")
 
       assert(Type.metaTvs(tp :: Nil).isEmpty,

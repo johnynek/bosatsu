@@ -1563,7 +1563,7 @@ def fn(x, y):
 
 main = fn(0, 1, 2)
 """)) { case te@PackageError.TypeErrorIn(_, _) =>
-      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, type error: expected type Bosatsu/Predef::Int to be the same as type ?a -> ?b\nhint: this often happens when you apply the wrong number of arguments to a function.\nRegion(73,84)")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A, type error: expected type Bosatsu/Predef::Int to be the same as type ?2 -> ?3\nhint: this often happens when you apply the wrong number of arguments to a function.\nRegion(73,84)")
       ()
     }
 
@@ -2629,7 +2629,7 @@ from Foo import bar
 
 x = bar
 """ :: Nil) { case sce =>
-      assert(sce.message(Map.empty, Colorize.None) == "in <unknown source> export bar of type Bar references private type Bar")
+      assert(sce.message(Map.empty, Colorize.None) == "in <unknown source> export bar of type Foo::Bar references private type Foo::Bar")
       ()
     }
   }

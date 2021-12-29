@@ -50,11 +50,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   // TODO: we need to make sure this parsable and maybe have a mode that has the compiler
   // emit these
   def repr: String = {
-    val tfn = TypeRef.fromTypes(None, this.allTypes.toList)
-
-    // We need a consistent naming for meta variables,
-    // so build this table once
-    def rept(t: Type): Doc = tfn(t).toDoc
+    def rept(t: Type): Doc = Type.fullyResolvedDocument.document(t)
 
     def loop(te: TypedExpr[T]): Doc = {
       te match {
