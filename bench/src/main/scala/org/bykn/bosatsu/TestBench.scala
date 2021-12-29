@@ -32,7 +32,7 @@ class TestBench {
     }
 
     implicit val show: Show[(String, LocationMap)] = Show.show { case (s, _) => s }
-    PackageMap.resolveThenInfer(Predef.withPredefA(("predef", LocationMap("")), parsedPaths), Nil).strictToValidated match {
+    PackageMap.resolveThenInfer(PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths), Nil).strictToValidated match {
       case Validated.Valid(packMap) =>
         (packMap, mainPack)
       case other => sys.error(s"expected clean compilation: $other")

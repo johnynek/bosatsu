@@ -8,6 +8,7 @@ import scala.concurrent.ExecutionContext
 import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
+import IorMethods.IorExtension
 
 import rankn.{DataRepr, TypeEnv}
 
@@ -385,11 +386,50 @@ object PackageMap {
     val useInternalPredef = !ifs.exists { p: Package.Interface => p.name == PackageName.PredefName }
     // Now we have completed all IO, here we do all the checks we need for correctness
     val parsed =
-        if (useInternalPredef) Predef.withPredefA[(A, LocationMap)]((predefKey, LocationMap("")), packs.toList)
-        else Predef.withPredefImportsA[(A, LocationMap)](packs.toList)
+        if (useInternalPredef) withPredefA[(A, LocationMap)]((predefKey, LocationMap("")), packs.toList)
+        else withPredefImportsA[(A, LocationMap)](packs.toList)
 
     PackageMap.resolveThenInfer[A](
       parsed.map { case ((a, _), p) => (a, p) },
       ifs)
   }
+
+  /**
+   * Here is the fully compiled Predef
+   */
+  val predefCompiled: Package.Inferred = {
+    import DirectEC.directEC
+
+    //implicit val showUnit: Show[Unit] = Show.show[Unit](_ => "predefCompiled")
+    val inferred = PackageMap.resolveThenInfer(((), Package.predefPackage) :: Nil, Nil).strictToValidated
+
+    inferred match {
+      case Validated.Valid(v) =>
+        v.toMap.get(PackageName.PredefName) match {
+          case None => sys.error("internal error: predef package not found after compilation")
+          case Some(inf) => inf
+        }
+      case Validated.Invalid(errs) =>
+        sys.error(s"expected no errors, found: $errs")
+    }
+  }
+
+  private val predefImportList = predefCompiled.exports
+    .map(_.name)
+    .distinct
+    .sorted
+    .map(ImportedName.OriginalName(_, ()))
+
+  private val predefImports: Import[PackageName, Unit] =
+    Import(PackageName.PredefName, NonEmptyList.fromList(predefImportList).get)
+
+  private def withPredefImportsA[A](ps: List[(A, Package.Parsed)]): List[(A, Package.Parsed)] =
+    ps.map { case (a, p) => (a, p.withImport(predefImports)) }
+
+  def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
+    Package.predefPackage :: ps.map(_.withImport(predefImports))
+
+  def withPredefA[A](predefA: A, ps: List[(A, Package.Parsed)]): List[(A, Package.Parsed)] =
+    (predefA, Package.predefPackage) :: withPredefImportsA(ps)
+
 }

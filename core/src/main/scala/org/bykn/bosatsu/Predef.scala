@@ -1,11 +1,7 @@
 package org.bykn.bosatsu
 
-import cats.Show
-import cats.data.{NonEmptyList, Validated}
 import java.math.BigInteger
 import language.experimental.macros
-
-import IorMethods.IorExtension
 
 object Predef {
   /**
@@ -21,49 +17,8 @@ object Predef {
   val predefString: String =
     loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
 
-  /**
-   * The parsed representation of the predef.
-   */
-  val predefPackage: Package.Parsed =
-    Package.parser(None).parse(predefString) match {
-      case Right((_, pack)) => pack
-      case Left(err) =>
-        val idx = err.failedAtOffset
-        val lm = LocationMap(predefString)
-        sys.error(s"couldn't parse predef: ${lm.showContext(idx, 2, LocationMap.Colorize.None)} with errs: ${err}")
-    }
-
-  /**
-   * Here is the fully compiled Predef
-   */
-  val predefCompiled: Package.Inferred = {
-    import DirectEC.directEC
-
-    implicit val showUnit: Show[Unit] = Show.show[Unit](_ => "predefCompiled")
-    val inferred = PackageMap.resolveThenInfer(((), predefPackage) :: Nil, Nil).strictToValidated
-
-    inferred match {
-      case Validated.Valid(v) =>
-        v.toMap.get(packageName) match {
-          case None => sys.error("internal error: predef package not found after compilation")
-          case Some(inf) => inf
-        }
-      case Validated.Invalid(errs) =>
-        sys.error(s"expected no errors, found: $errs")
-    }
-  }
-
   private def packageName: PackageName =
     PackageName.PredefName
-
-  val predefImportList = predefCompiled.exports
-    .map(_.name)
-    .distinct
-    .sorted
-    .map(ImportedName.OriginalName(_, ()))
-
-  val predefImports: Import[PackageName, Unit] =
-    Import(packageName, NonEmptyList.fromList(predefImportList).get)
 
   val jvmExternals: Externals =
     Externals
@@ -83,15 +38,6 @@ object Predef {
       .add(packageName, "concat_String", FfiCall.Fn1(PredefImpl.concat_String(_)))
       .add(packageName, "partition_String", FfiCall.Fn2(PredefImpl.partitionString(_, _)))
       .add(packageName, "rpartition_String", FfiCall.Fn2(PredefImpl.rightPartitionString(_, _)))
-
-  def withPredef(ps: List[Package.Parsed]): List[Package.Parsed] =
-    predefPackage :: ps.map(_.withImport(predefImports))
-
-  def withPredefA[A](predefA: A, ps: List[(A, Package.Parsed)]): List[(A, Package.Parsed)] =
-    (predefA, predefPackage) :: withPredefImportsA(ps)
-
-  def withPredefImportsA[A](ps: List[(A, Package.Parsed)]): List[(A, Package.Parsed)] =
-    ps.map { case (a, p) => (a, p.withImport(predefImports)) }
 }
 
 object PredefImpl {

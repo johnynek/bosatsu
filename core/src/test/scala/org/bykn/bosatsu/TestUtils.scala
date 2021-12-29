@@ -146,7 +146,7 @@ object TestUtils {
     import ExecutionContext.Implicits.global
 
     val fullParsed =
-        Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
+        PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths)
           .map { case ((path, _), p) => (path, p) }
 
     PackageMap
@@ -181,7 +181,7 @@ object TestUtils {
     // use parallelism to typecheck
     import ExecutionContext.Implicits.global
     val withPre =
-      Predef.withPredefA(("predef", LocationMap("")), parsedPaths)
+      PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths)
 
     val withPrePaths = withPre.map { case ((path, _), p) => (path, p) }
     PackageMap.resolveThenInfer(withPrePaths, Nil).left match {

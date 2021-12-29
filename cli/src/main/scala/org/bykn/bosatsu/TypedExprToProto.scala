@@ -1376,7 +1376,7 @@ object ProtoConverter {
       }
 
       val predefIface = {
-        val iface = Package.interfaceOf(Predef.predefCompiled)
+        val iface = Package.interfaceOf(PackageMap.predefCompiled)
         (iface, ExportedName.typeEnvFromExports(iface.name, iface.exports))
       }
 

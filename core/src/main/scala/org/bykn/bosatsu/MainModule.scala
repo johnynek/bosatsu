@@ -219,7 +219,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
             !ifs.exists { p: Package.Interface => p.name == PackageName.PredefName }
 
           if (useInternalPredef) {
-            moduleIOMonad.pure((PackageMap.fromIterable(Predef.predefCompiled :: Nil), Nil))
+            moduleIOMonad.pure((PackageMap.fromIterable(PackageMap.predefCompiled :: Nil), Nil))
           }
           else {
             moduleIOMonad.pure((PackageMap.empty, Nil))

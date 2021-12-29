@@ -130,7 +130,7 @@ main = head(data1)
 
   test("test Predef working") {
 
-    assert(Predef.predefPackage != null)
+    assert(Package.predefPackage != null)
 
     val p = parse(
 """
@@ -144,7 +144,7 @@ def maybeOne(x):
 
 main = maybeOne(42)
 """)
-    valid(resolveThenInfer(Predef.withPredef(p :: Nil)))
+    valid(resolveThenInfer(PackageMap.withPredef(p :: Nil)))
   }
 
   test("test using a renamed type") {
