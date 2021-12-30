@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import org.bykn.bosatsu.graph.Memoize
 import cats.{Foldable, Monad, Show}
-import cats.data.{Ior, IorT, NonEmptyList, Validated, ValidatedNel, ReaderT}
+import cats.data.{Ior, IorT, NonEmptyList, NonEmptyMap, Validated, ValidatedNel, ReaderT}
 import scala.concurrent.ExecutionContext
 import scala.collection.immutable.SortedMap
 
@@ -142,11 +142,17 @@ object PackageMap {
   def resolveAll[A: Show](ps: List[(A, Package.Parsed)], ifs: List[Package.Interface]): Ior[NonEmptyList[PackageError], Resolved] = {
 
     type AP = (A, Package.Parsed)
-    val (nonUnique, unique): (Map[PackageName, (AP, NonEmptyList[AP])], Map[PackageName, AP]) =
-      CollectionUtils.uniqueByKey(ps)(_._2.name) match {
-        case Right(unique) =>
-          (Map.empty, unique)
-        case Left(res) => res
+    val (nonUnique, unique): (SortedMap[PackageName, (AP, NonEmptyList[AP])], SortedMap[PackageName, AP]) =
+      NonEmptyList.fromList(ps) match {
+        case Some(neps) =>
+          CollectionUtils.uniqueByKey(neps)(_._2.name)
+            .fold(
+              { a => (a.toSortedMap, SortedMap.empty) },
+              { b => (SortedMap.empty, b.toSortedMap) },
+              { (a, b) => (a.toSortedMap, b.toSortedMap) }
+            )
+        case None =>
+          (SortedMap.empty, SortedMap.empty)
       }
 
     def toProg(p: Package.Parsed):
@@ -185,10 +191,12 @@ object PackageMap {
       }
     // keep all the errors
     val nuEr: Ior[NonEmptyList[PackageError], Unit] =
-      if (nonUnique.nonEmpty) {
-        Ior.left(NonEmptyList.one[PackageError](PackageError.DuplicatedPackageError[A](nonUnique, Show[A].show(_))))
+      NonEmptyMap.fromMap(nonUnique) match {
+        case Some(nenu) =>
+          Ior.left(NonEmptyList.one[PackageError](PackageError.DuplicatedPackageError[A](nenu, Show[A].show(_))))
+        case None =>
+          Ior.right(())
       }
-      else Ior.right(())
 
     (nuEr, check, res.toIor).parMapN { (_, _, r) => r }
   }

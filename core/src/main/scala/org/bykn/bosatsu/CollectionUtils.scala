@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Order
-import cats.data.NonEmptyList
+import cats.data.{Ior, NonEmptyList, NonEmptyMap}
 import scala.collection.immutable.SortedMap
 import scala.util.{Success, Failure, Try}
 
@@ -9,11 +9,9 @@ import cats.implicits._
 
 object CollectionUtils {
   /**
-   * Either return a unique mapping from B to A, or return a pair of duplicates
-   * and the unque subset
+   * Return the unique keys on the Right, and the duplicate keys on the Left (and possibly Both)
    */
-  def uniqueByKey[A, B: Order](as: List[A])(fn: A => B): Either[(SortedMap[B, (A, NonEmptyList[A])], SortedMap[B, A]), SortedMap[B, A]] = {
-    val m: SortedMap[B, NonEmptyList[A]] = as.groupByNel(fn)
+  def uniqueByKey[A, B: Order](as: NonEmptyList[A])(fn: A => B): Ior[NonEmptyMap[B, (A, NonEmptyList[A])], NonEmptyMap[B, A]] = {
     def check(as: NonEmptyList[A]): Either[(A, NonEmptyList[A]), A] =
       as match {
         case NonEmptyList(a, Nil) =>
@@ -22,19 +20,32 @@ object CollectionUtils {
           Left((a0, NonEmptyList(a1, tail)))
       }
 
-    val checked: SortedMap[B, Either[(A, NonEmptyList[A]), A]] = m.map { case (b, as) => (b, check(as)) }
+    // We know this is nonEmpty, so good and bad can't both be empty
+    val checked: SortedMap[B, Either[(A, NonEmptyList[A]), A]] = as.groupBy(fn).map { case (b, as) => (b, check(as)) }
     val good: SortedMap[B, A] = checked.collect { case (b, Right(a)) => (b, a) }
     val bad: SortedMap[B, (A, NonEmptyList[A])] = checked.collect { case (b, Left(a)) => (b, a) }
 
-    if (bad.isEmpty) Right(good)
-    else Left((bad, good))
+    (NonEmptyMap.fromMap(bad), NonEmptyMap.fromMap(good)) match {
+      case (None, Some(goodNE)) => Ior.right(goodNE)
+      case (Some(badNE), None) => Ior.left(badNE)
+      case (Some(badNE), Some(goodNE)) => Ior.both(badNE, goodNE)
+      // $COVERAGE-OFF$
+      case _ =>
+        sys.error("unreachable due to as being nonempty")
+    }
   }
 
   def listToUnique[A, K: Order, V](l: List[A])(key: A => K, value: A => V, msg: => String): Try[SortedMap[K, V]] =
-    uniqueByKey(l)(key) match {
-      case Right(b) => Success(b.map { case (k, a) => (k, value(a)) })
-      case Left((errMap, _)) =>
-        Failure(new IllegalArgumentException(s"$msg, $errMap"))
-      }
+    NonEmptyList.fromList(l) match {
+      case None => Success(SortedMap.empty[K, V])
+      case Some(nel) =>
+        uniqueByKey(nel)(key) match {
+          case Ior.Right(b) => Success(b.toSortedMap.map { case (k, a) => (k, value(a)) })
+          case Ior.Left(errMap) =>
+            Failure(new IllegalArgumentException(s"$msg, $errMap"))
+          case Ior.Both(errMap, _) =>
+            Failure(new IllegalArgumentException(s"$msg, $errMap"))
+          }
+    }
 
 }

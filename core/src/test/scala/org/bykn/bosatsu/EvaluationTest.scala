@@ -2629,7 +2629,7 @@ from Foo import bar
 
 x = bar
 """ :: Nil) { case sce =>
-      assert(sce.message(Map.empty, Colorize.None) == "in <unknown source> export bar of type Foo::Bar references private type Foo::Bar")
+      assert(sce.message(Map.empty, Colorize.None) == "in <unknown source> export bar of type Foo::Bar has an unexported (private) type.")
       ()
     }
   }

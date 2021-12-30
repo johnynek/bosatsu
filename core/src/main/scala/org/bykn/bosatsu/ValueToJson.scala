@@ -77,8 +77,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
   private[this] def get[A](e: Either[UnsupportedType, A]): A =
     e match {
       case Right(a) => a
+      // $COVERAGE-OFF$
       case Left(u) =>
-        // $COVERAGE-OFF$
         sys.error(s"should have only called on a supported type: $u")
         // $COVERAGE-ON$
     }
@@ -109,8 +109,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               {
                 case ExternalValue(v: BigInteger) =>
                   Right(Json.JNumberStr(v.toString))
+                // $COVERAGE-OFF$this should be unreachable
                 case other =>
-                  // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
               }
@@ -118,8 +118,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               {
                 case ExternalValue(v: String) =>
                   Right(Json.JString(v))
+                // $COVERAGE-OFF$this should be unreachable
                 case other =>
-                  // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))
                   // $COVERAGE-ON$
               }

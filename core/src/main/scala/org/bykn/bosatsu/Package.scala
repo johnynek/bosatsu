@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.{Functor, Parallel}
-import cats.data.{Chain, Ior, ValidatedNel, Validated, NonEmptyList, Writer}
+import cats.data.{Chain, Ior, ValidatedNel, Validated, NonEmptyList, Writer, NonEmptyMap}
 import cats.implicits._
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{Doc, Document}
@@ -427,7 +427,13 @@ object PackageError {
       val (_, sourceName) = getMapSrc(sourceMap, in)
       val pt = Type.TyConst(privateType)
       val tpeMap = showTypes(in, exType :: pt :: Nil)
-      s"in $sourceName export ${ex.name.sourceCodeRepr} of type ${tpeMap(exType).render(80)} references private type ${tpeMap(pt).render(80)}"
+      val first = s"in $sourceName export ${ex.name.sourceCodeRepr} of type ${tpeMap(exType).render(80)}"
+      if (exType == pt) {
+        s"$first has an unexported (private) type."
+      }
+      else {
+        s"$first references an unexported (private) type ${tpeMap(pt).render(80)}."
+      }
     }
   }
 
@@ -700,13 +706,12 @@ object PackageError {
     }
   }
 
-  case class DuplicatedPackageError[A](dups: Map[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], show: A => String) extends PackageError {
+  case class DuplicatedPackageError[A](dups: NonEmptyMap[PackageName, ((A, Package.Parsed), NonEmptyList[(A, Package.Parsed)])], show: A => String) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
       val packDoc = Doc.text("package ")
       val dupInDoc = Doc.text(" duplicated in ")
       val dupMessages = dups
-        .toList
-        .sortBy(_._1)
+        .toSortedMap
         .map { case (pname, (one, nelist)) =>
           val dupsrcs = Doc.intercalate(Doc.comma + Doc.lineOrSpace,
             (one :: nelist.toList)
