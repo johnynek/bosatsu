@@ -361,30 +361,34 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     }
 
     sealed abstract class Transpiler(val name: String) {
-      def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]]
+      def renderAll(pm: PackageMap.Typed[Any], externals: List[String], evaluators: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]]
     }
     object Transpiler {
       case object PythonTranspiler extends Transpiler("python") {
-        def renderAll(pm: PackageMap.Typed[Any], externals: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]] = {
+        def renderAll(pm: PackageMap.Typed[Any], externals: List[String], evaluators: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]] = {
           import codegen.python.PythonGen
+
+          def listToUnique[A, K, V](l: List[A])(key: A => K, value: A => V, msg: String): Map[K, V] =
+            l.groupBy(key)
+              .map {
+                case (k, a :: Nil) =>
+                  (k, value(a))
+                case (k, moreThanOne) =>
+                  // TODO this is terrible, we should summarrize all duplicates, or
+                  // have an explicit policy of overwriting with the last one
+                  throw new IllegalArgumentException(s"$msg, for $k found: $moreThanOne")
+              }
+
 
           val allExternals = pm.allExternals
           val cmp = MatchlessFromTypedExpr.compile(pm)
           moduleIOMonad.catchNonFatal {
             val parsedExt = externals.map(Parser.unsafeParse(PythonGen.externalParser, _))
-            val extMap = parsedExt
-              .toList
-              .flatten
-              .groupBy { case (p, b, _, _) => (p, b) }
-              .map {
-                case (k, (_, _, m, f) :: Nil) =>
-                  (k, (m, f))
-                case (k, moreThanOne) =>
-                  // TODO this is terrible, we should summarrize all duplicates, or
-                  // have an explicit policy of overwriting with the last one
-                  throw new IllegalArgumentException(s"expected each package/name to map to just one file, for $k found: $moreThanOne")
-              }
-
+            val extMap = listToUnique(parsedExt.flatten)(
+              { case (p, b, _, _) => (p, b) },
+              { case (_, _, m, f) => (m, f) },
+              "expected each package/name to map to just one file"
+              )
             val exts = extMap.keySet
             val intrinsic = PythonGen.intrinsicValues
             val missingExternals =
@@ -409,7 +413,25 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 }
                 .toMap
 
-              val docs = PythonGen.renderAll(cmp, extMap, tests)
+              val parsedEvals = evaluators.map(Parser.unsafeParse(PythonGen.evaluatorParser, _))
+              val typeEvalMap = listToUnique(parsedEvals.flatten)(
+                { t => t._1 },
+                { t => t._2 },
+                "expected each type to have to just one evaluator"
+                )
+              val evalMap = pm
+                .toMap
+                .iterator
+                .flatMap { case (n, p) =>
+                  val optEval = p.program.lets.findLast { case (_, _, te) => typeEvalMap.contains(te.getType) }
+                  optEval.map { case (b, _, te) =>
+                    val (m, i) = typeEvalMap(te.getType)
+                    (n, (b, m, i))
+                  }
+                }
+                .toMap
+
+              val docs = PythonGen.renderAll(cmp, extMap, tests, evalMap)
                 .iterator
                 .map { case (_, (path, doc)) =>
                   (path.map(_.name), doc)
@@ -501,7 +523,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       packRes: PackageResolver,
       generator: Transpiler,
       outDir: Path,
-      exts: List[Path]) extends MainCommand {
+      exts: List[Path],
+      evals: List[Path]) extends MainCommand {
 
       //case class TranspileOut(outs: Map[PackageName, (List[String], Doc)], base: Path) extends Output
       type Result = Output.TranspileOut
@@ -516,7 +539,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           pn <- buildPackMap(ins, ds, errColor, packRes)
           (packs, names) = pn
           extStrs <- exts.traverse(readPath)
-          data <- generator.renderAll(packs, extStrs)
+          evalStrs <- evals.traverse(readPath)
+          data <- generator.renderAll(packs, extStrs, evalStrs)
         } yield Output.TranspileOut(data, outDir)
     }
 
@@ -941,8 +965,10 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       val transpileOpt = (srcs, includes, colorOpt, packRes, Transpiler.opt,
         Opts.option[Path]("outdir", help = "directory to write all output into"),
-        Opts.options[Path]("externals", help = "external descriptors the transpiler uses to rewrite external defs").orEmpty)
-        .mapN(TranspileCommand(_, _, _, _, _, _, _))
+        Opts.options[Path]("externals", help = "external descriptors the transpiler uses to rewrite external defs").orEmpty,
+        Opts.options[Path]("evaluators", help = "evaluators which run values of certain types").orEmpty
+        )
+        .mapN(TranspileCommand(_, _, _, _, _, _, _, _))
       val evalOpt = (srcs, mainP, includes, colorOpt, packRes)
         .mapN(Evaluate(_, _, _, _, _))
       val typeCheckOpt = (srcs, ifaces, outputPath.orNone, interfaceOutputPath.orNone, colorOpt, noSearchRes)

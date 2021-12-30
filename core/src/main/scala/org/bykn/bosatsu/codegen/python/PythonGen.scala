@@ -1,10 +1,11 @@
 package org.bykn.bosatsu.codegen.python
 
-import org.typelevel.paiges.Doc
-import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser, RecursionKind}
 import cats.Monad
 import cats.data.{NonEmptyList, State}
 import cats.parse.{Parser => P}
+import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser, RecursionKind}
+import org.bykn.bosatsu.rankn.Type
+import org.typelevel.paiges.Doc
 import scala.concurrent.ExecutionContext
 
 import Identifier.Bindable
@@ -563,7 +564,7 @@ object PythonGen {
   /**
    * Remap is used to handle remapping external values
    */
-  def apply(packName: PackageName, name: Bindable, me: Expr)(remap: (PackageName, Bindable) => Env[Option[ValueLike]]): Env[Statement] = {
+  private def apply(packName: PackageName, name: Bindable, me: Expr)(remap: (PackageName, Bindable) => Env[Option[ValueLike]]): Env[Statement] = {
     val ops = new Impl.Ops(packName, remap)
 
     // if we have a top level let rec with the same name, handle it more cleanly
@@ -583,13 +584,13 @@ object PythonGen {
           } yield (nm, me, ve)
       }
 
-    nmVeEnv
-      .flatMap { case (nm, me, ve) =>
-        ops.topLet(nm, me, ve)
-      }
+    for {
+      (nm, me, ve) <- nmVeEnv
+      stmt <- ops.topLet(nm, me, ve)
+    } yield stmt
   }
 
-  def addUnitTest(name: Bindable): Env[Statement] = {
+  private def addUnitTest(name: Bindable): Env[Statement] = {
     // we could inspect the Expr, but for now, we will just put
     // everything in a single test:
     // class BosatsuTests(unittest.TestCase):
@@ -653,24 +654,40 @@ object PythonGen {
       }
   }
 
+  private def addMainEval(name: Bindable, mod: Module, ci: Code.Ident): Env[Statement] =
+    /*
+     * this does:
+     * if __name__ == "__main__":
+     *   from Module import ci
+     *   ci(name)
+     */
+    (Env.importLiteral(mod), Env.topLevelName(name))
+      .mapN { (importedName, argName) =>
+        Code.mainStatement(
+          Code.Call(importedName.dot(ci)(argName))
+        )
+      }
+
+  private val modParser: P[(Module, Code.Ident)] = {
+    val identParser: P[Code.Ident] = Parser.py2Ident.map(Code.Ident(_))
+    P.repSep(identParser, min = 2, sep = P.char('.'))
+      .map { items =>
+        // min = 2 ensures this is safe
+        (NonEmptyList.fromListUnsafe(items.init.toList), items.last)
+      }
+  }
+
   // parses a nested map with
   //
   // { packageName: { bind: foo.bar.baz } }
   //
   val externalParser: P[List[(PackageName, Bindable, Module, Code.Ident)]] = {
-    val identParser: P[Code.Ident] = Parser.py2Ident.map(Code.Ident(_))
-    val modParser: P[(Module, Code.Ident)] =
-      P.repSep(identParser, min = 2, sep = P.char('.'))
-        .map { items =>
-          // min = 2 ensures this is safe
-          (NonEmptyList.fromListUnsafe(items.init.toList), items.last)
-        }
 
     val inner: P[List[(Bindable, (Module, Code.Ident))]] =
       Parser.dictLikeParser(Identifier.bindableParser, modParser)
 
     val outer: P[List[(PackageName, List[(Bindable, (Module, Code.Ident))])]] =
-      Parser.dictLikeParser(PackageName.parser, inner) <* Parser.maybeSpacesAndLines
+      Parser.maybeSpacesAndLines.with1 *> Parser.dictLikeParser(PackageName.parser, inner) <* Parser.maybeSpacesAndLines
 
     outer.map { items =>
       items.flatMap { case (p, bs) =>
@@ -679,8 +696,18 @@ object PythonGen {
     }
   }
 
+  // parses a map of of evaluators
+  // { fullyqualifiedType: foo.bar.baz, }
+  val evaluatorParser: P[List[(Type, (Module, Code.Ident))]] =
+    Parser.maybeSpacesAndLines.with1 *> Parser.dictLikeParser(Type.fullyResolvedParser, modParser) <* Parser.maybeSpacesAndLines
+
   // compile a set of packages given a set of external remappings
-  def renderAll(pm: Map[PackageName, List[(Bindable, Expr)]], externals: Map[(PackageName, Bindable), (Module, Code.Ident)], tests: Map[PackageName, Bindable])(implicit ec: ExecutionContext): Map[PackageName, (Module, Doc)] = {
+  def renderAll(
+    pm: Map[PackageName, List[(Bindable, Expr)]],
+    externals: Map[(PackageName, Bindable), (Module, Code.Ident)],
+    tests: Map[PackageName, Bindable],
+    evaluators: Map[PackageName, (Bindable, Module, Code.Ident)])(implicit ec: ExecutionContext): Map[PackageName, (Module, Doc)] = {
+
     val externalRemap: (PackageName, Bindable) => Env[Option[ValueLike]] =
       { (p, b) =>
         externals.get((p, b)) match {
@@ -701,13 +728,15 @@ object PythonGen {
                 apply(p, b, x)(externalRemap)
               }
 
+          val evalStmt: Env[Option[Statement]] =
+            evaluators.get(p).traverse { case (b, m, c) => addMainEval(b, m, c) }
+
           val testStmt: Env[Option[Statement]] =
             tests.get(p).traverse(addUnitTest)
 
-          val stmts = (stmts0, testStmt)
-            .mapN {
-              case (s, None) => s
-              case (s, Some(t)) => s :+ t
+          val stmts = (stmts0, testStmt, evalStmt)
+            .mapN { (s, optT, optM) =>
+              s :++ optT.toList :++ optM.toList
             }
 
           def modName(p: NonEmptyList[String]): Module =

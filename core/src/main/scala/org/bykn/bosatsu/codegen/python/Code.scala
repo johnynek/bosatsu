@@ -518,6 +518,15 @@ object Code {
     }
   }
 
+  /*
+   * if __name__ == "__main__":
+   *   stmt
+   */
+  def mainStatement(stmt: Statement): Statement = {
+    val cond = Op(Ident("__name__"), Const.Eq, PyString("__main__"))
+    IfStatement(NonEmptyList.of((cond, stmt)), None)
+  }
+
   def addAssign(variable: Expression, code: ValueLike): Statement =
     code match {
       case x: Expression =>
