@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
-import cats.{Applicative, Eq}
+import cats.{Applicative, Eq, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import scala.collection.immutable.SortedSet
@@ -24,8 +24,8 @@ object Type {
   case class TyMeta(toMeta: Meta) extends Rho
   case class TyApply(on: Type, arg: Type) extends Rho
 
-  implicit val typeOrdering: Ordering[Type] =
-    new Ordering[Type] {
+  implicit val typeOrder: Order[Type] =
+    new Order[Type] {
       val boundOrd: Ordering[Var.Bound] =
         Ordering[String].on[Var.Bound] { case Var.Bound(v) => v }
 
@@ -56,6 +56,8 @@ object Type {
           case (TyApply(_, _), _) => 1
         }
     }
+
+  implicit val typeOrdering: Ordering[Type] = typeOrder.toOrdering
 
   @annotation.tailrec
   def applyAll(fn: Type, args: List[Type]): Type =

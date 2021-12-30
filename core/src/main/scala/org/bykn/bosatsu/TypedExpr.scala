@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Eval, Monad, Monoid, Traverse}
+import cats.{Applicative, Eval, Monad, Traverse}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
@@ -133,6 +133,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         val branchFreeMax = branchFrees
           .zipWithIndex
           .flatMap { case (names, br) => names.map((_, br)) }
+          // these groupBys are okay because we sort at the end
           .groupBy(identity) // group-by-name x branch
           .map { case ((name, branch), names) => (names.length, branch, name) }
           .groupBy(_._3) // group by just the name now
@@ -333,12 +334,6 @@ object TypedExpr {
           }
         }
       case _ => None
-    }
-
-  private implicit val setM: Monoid[SortedSet[Type]] =
-    new Monoid[SortedSet[Type]] {
-      def empty = SortedSet.empty
-      def combine(a: SortedSet[Type], b: SortedSet[Type]) = a ++ b
     }
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {

@@ -490,11 +490,11 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
           val structs = u
             .collect { case Pattern.PositionalStruct(n, a) => (n, a) }
-            .groupBy { case (n, a) => (n, a.size) }
+            .groupByNel { case (n, a) => (n, a.size) }
             .iterator
             .flatMap { case ((n, arity), as) =>
               getProd(arity)
-                .unifyUnion(as.map(_._2))
+                .unifyUnion(as.toList.map(_._2))
                 .map(Pattern.PositionalStruct(n, _): Pattern[Cons, Type])
             }
             .toList

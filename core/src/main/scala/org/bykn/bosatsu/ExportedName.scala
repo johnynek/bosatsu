@@ -69,13 +69,6 @@ object ExportedName {
           }
       )
 
-  private[bosatsu] def buildExportMap[T](exs: List[ExportedName[T]]): Map[Identifier, NonEmptyList[ExportedName[T]]] =
-    exs match {
-      case Nil => Map.empty
-      case h :: tail => NonEmptyList(h, tail).groupBy(_.name)
-    }
-
-
   /**
    * Build exports into referants given a typeEnv
    * The only error we have have here is if we name an export we didn't define

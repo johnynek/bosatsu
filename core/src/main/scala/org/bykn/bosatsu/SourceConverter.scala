@@ -26,7 +26,7 @@ import SourceConverter.{success, Result}
 final class SourceConverter(
   thisPackage: PackageName,
   imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
-  localDefs: Seq[TypeDefinitionStatement]) {
+  localDefs: List[TypeDefinitionStatement]) {
   /*
    * We should probably error for non-predef name collisions.
    * Maybe we should even error even or predef collisions that
@@ -814,36 +814,33 @@ final class SourceConverter(
   private lazy val toTypeEnv: Result[ParsedTypeEnv[Unit]] = {
     val sunit = success(())
 
-    val dupTypes = localDefs.groupBy(_.name)
+    val dupTypes = localDefs.groupByNel(_.name)
       .toList
       .traverse { case (n, tes) =>
-        tes.toList match {
-          case Nil | _ :: Nil => sunit
-          case h :: (t@(_ :: _)) =>
-            val dupRegions = NonEmptyList(h, t).map(_.region)
-            SourceConverter.partial(SourceConverter.Duplication(n, SourceConverter.DupKind.TypeName, dupRegions),
-              ())
-          }
+        if (tes.tail.isEmpty) sunit
+        else {
+          val dupRegions = tes.map(_.region)
+          SourceConverter.partial(SourceConverter.Duplication(n, SourceConverter.DupKind.TypeName, dupRegions),
+            ())
+        }
       }
 
     val dupCons = localDefs
       .flatMap { ts => ts.constructors.map { c => (c, ts) } }
-      .groupBy(_._1)
+      .groupByNel(_._1)
       .toList
       .traverse { case (n, tes) =>
-        if (tes.iterator.map(_._2.name).toSet.size == 1) {
+        if (tes.tail.isEmpty) sunit
+        else if (tes.iterator.map(_._2.name).toSet.size == 1) {
           // these are colliding constructors, but if they also collide on type
           // name we have already reported it above
           sunit
         }
-        else
-          tes.toList match {
-            case Nil | _ :: Nil => sunit
-            case h :: (t@(_ :: _)) =>
-              val dupRegions = NonEmptyList(h, t).map(_._2.region)
-              SourceConverter.partial(SourceConverter.Duplication(n, SourceConverter.DupKind.Constructor, dupRegions),
-                ())
-            }
+        else {
+          val dupRegions = tes.map(_._2.region)
+          SourceConverter.partial(SourceConverter.Duplication(n, SourceConverter.DupKind.Constructor, dupRegions),
+            ())
+        }
       }
 
     val pd = localDefs
@@ -872,7 +869,7 @@ final class SourceConverter(
   /**
    * Externals are not permitted to be shadowed at the top level
    */
-  private def checkExternalDefShadowing(values: Seq[Statement.ValueStatement]): Result[Unit] = {
+  private def checkExternalDefShadowing(values: List[Statement.ValueStatement]): Result[Unit] = {
     val extDefNames =
       values.collect {
         case ed@Statement.ExternalDef(name, _, _) => (name, ed.region)
@@ -882,13 +879,13 @@ final class SourceConverter(
 
     if (extDefNames.isEmpty) sunit
     else {
-      val grouped = extDefNames.groupBy(_._1)
+      val grouped = extDefNames.groupByNel(_._1)
       val extDefNamesSet = grouped.keySet
 
       val dupRes = grouped.toList.traverse_ { case (name, dups) =>
-        dups.toList match {
-          case Nil | (_ :: Nil) => sunit
-          case (_, r1) :: (_, r2) :: rest =>
+        dups match {
+          case NonEmptyList(_, Nil) => sunit
+          case NonEmptyList((_, r1), (_, r2) :: rest) =>
             SourceConverter.partial(
               SourceConverter.Duplication(name, SourceConverter.DupKind.ExtDef, NonEmptyList(r1, r2 :: rest.map(_._2))),
               ())
@@ -1072,8 +1069,8 @@ final class SourceConverter(
               // we don't need to update b0, we discard it anyway
               Declaration.substitute(bind, Var(newNameV)(d.region), d) match {
                 case Some(d1) => Right((b0, d1))
+                // $COVERAGE-OFF$
                 case None =>
-                  // $COVERAGE-OFF$
                   throw new IllegalStateException("we know newName can't mask")
                   // $COVERAGE-ON$
               }
@@ -1126,7 +1123,7 @@ final class SourceConverter(
   }
 
   def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] = {
-    val stmts = Statement.valuesOf(ss)
+    val stmts = Statement.valuesOf(ss).toList
     stmts.collect {
       case ed@Statement.ExternalDef(name, params, result) =>
         (params.traverse { p => toType(p._2, ed.region) }, toType(result, ed.region))
@@ -1184,11 +1181,11 @@ object SourceConverter {
   private val parallelIor: Applicative[Result] =
     Ior.catsDataParallelForIor[NonEmptyChain[Error]].applicative
 
-  def apply(
+  def toProgram( 
     thisPackage: PackageName,
     imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
-    localDefs: Seq[TypeDefinitionStatement]): SourceConverter =
-    new SourceConverter(thisPackage, imports, localDefs)
+    stmts: List[Statement]): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] =
+      (new SourceConverter(thisPackage, imports, Statement.definitionsOf(stmts).toList)).toProgram(stmts)
 
   private def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
     ls match {

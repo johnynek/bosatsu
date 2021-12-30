@@ -109,7 +109,7 @@ class PathModuleTest extends AnyFunSuite {
   }
 
   test("test python transpile on the entire test_workspace") {
-    val out = run(s"transpile --input_dir test_workspace/ --outdir pyout --lang python --package_root test_workspace".split("\\s+").toSeq: _*)
+    val out = run("transpile --input_dir test_workspace/ --outdir pyout --lang python --package_root test_workspace".split("\\s+").toSeq: _*)
     out match {
       case PathModule.Output.TranspileOut(_, _) =>
         assert(true)

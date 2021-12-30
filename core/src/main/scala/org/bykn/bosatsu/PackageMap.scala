@@ -1,9 +1,8 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.graph.Memoize
-import cats.{Foldable, Monad, Order, Show}
-import cats.data.{Ior, IorT, NonEmptyList, Validated, ValidatedNel, ReaderT}
-import cats.implicits._
+import cats.{Foldable, Monad, Show}
+import cats.data.{Ior, IorT, NonEmptyList, NonEmptyMap, Validated, ValidatedNel, ReaderT}
 import scala.concurrent.ExecutionContext
 import scala.collection.immutable.SortedMap
 
@@ -11,6 +10,8 @@ import Identifier.Constructor
 import IorMethods.IorExtension
 
 import rankn.{DataRepr, TypeEnv}
+
+import cats.implicits._
 
 case class PackageMap[A, B, C, +D](toMap: SortedMap[PackageName, Package[A, B, C, D]]) {
   def +[D1 >: D](pack: Package[A, B, C, D1]): PackageMap[A, B, C, D1] =
@@ -45,31 +46,6 @@ object PackageMap {
 
   def fromIterable[A, B, C, D](ps: Iterable[Package[A, B, C, D]]): PackageMap[A, B, C, D] =
     empty[A, B, C, D] ++ ps
-  /**
-   * Either return a unique mapping from B to A, or return a pair of duplicates
-   * and the unque subset
-   */
-  def uniqueByKey[A, B: Order](as: List[A])(fn: A => B): Either[(Map[B, (A, NonEmptyList[A])], Map[B, A]), Map[B, A]] =
-    as match {
-      case Nil => Right(Map.empty)
-      case h :: tail =>
-        val nea = NonEmptyList(h, tail)
-        val m: Map[B, NonEmptyList[A]] = nea.groupBy(fn)
-        def check(as: NonEmptyList[A]): Either[(A, NonEmptyList[A]), A] =
-          as match {
-            case NonEmptyList(a, Nil) =>
-              Right(a)
-            case NonEmptyList(a0, a1 :: tail) =>
-              Left((a0, NonEmptyList(a1, tail)))
-          }
-
-        val checked = m.map { case (b, as) => (b, check(as)) }
-        val good = checked.collect { case (b, Right(a)) => (b, a) }.toMap
-        val bad = checked.collect { case (b, Left(a)) => (b, a) }.toMap
-
-        if (bad.isEmpty) Right(good)
-        else Left((bad, good))
-    }
 
   import Package.FixPackage
 
@@ -166,11 +142,17 @@ object PackageMap {
   def resolveAll[A: Show](ps: List[(A, Package.Parsed)], ifs: List[Package.Interface]): Ior[NonEmptyList[PackageError], Resolved] = {
 
     type AP = (A, Package.Parsed)
-    val (nonUnique, unique): (Map[PackageName, (AP, NonEmptyList[AP])], Map[PackageName, AP]) =
-      uniqueByKey(ps)(_._2.name) match {
-        case Right(unique) =>
-          (Map.empty, unique)
-        case Left(res) => res
+    val (nonUnique, unique): (SortedMap[PackageName, (AP, NonEmptyList[AP])], SortedMap[PackageName, AP]) =
+      NonEmptyList.fromList(ps) match {
+        case Some(neps) =>
+          CollectionUtils.uniqueByKey(neps)(_._2.name)
+            .fold(
+              { a => (a.toSortedMap, SortedMap.empty) },
+              { b => (SortedMap.empty, b.toSortedMap) },
+              { (a, b) => (a.toSortedMap, b.toSortedMap) }
+            )
+        case None =>
+          (SortedMap.empty, SortedMap.empty)
       }
 
     def toProg(p: Package.Parsed):
@@ -209,10 +191,12 @@ object PackageMap {
       }
     // keep all the errors
     val nuEr: Ior[NonEmptyList[PackageError], Unit] =
-      if (nonUnique.nonEmpty) {
-        Ior.left(NonEmptyList.one[PackageError](PackageError.DuplicatedPackageError[A](nonUnique, Show[A].show(_))))
+      NonEmptyMap.fromMap(nonUnique) match {
+        case Some(nenu) =>
+          Ior.left(NonEmptyList.one[PackageError](PackageError.DuplicatedPackageError[A](nenu, Show[A].show(_))))
+        case None =>
+          Ior.right(())
       }
-      else Ior.right(())
 
     (nuEr, check, res.toIor).parMapN { (_, _, r) => r }
   }
@@ -287,7 +271,7 @@ object PackageMap {
                 IorT(recurse(p))
                   .flatMap { case (_, packF) =>
                     val packInterface = Package.interfaceOf(packF)
-                    val exMap = ExportedName.buildExportMap(packF.exports)
+                    val exMap = packF.exports.groupByNel(_.name)
                     val ior = items
                       .parTraverse(getImport(packF, exMap, _))
                       .map(Import(packInterface, _))
@@ -297,7 +281,7 @@ object PackageMap {
                 /*
                  * this import is already an interface, we can stop here
                  */
-                val exMap = ExportedName.buildExportMap(iface.exports)
+                val exMap = iface.exports.groupByNel(_.name)
                 // this is very fast and does not need to be done in a thread
                 val ior = items
                   .parTraverse(getImportIface(iface, exMap, _))
