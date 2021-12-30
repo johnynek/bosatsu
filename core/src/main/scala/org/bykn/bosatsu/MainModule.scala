@@ -8,10 +8,10 @@ import org.typelevel.paiges.Doc
 import scala.concurrent.ExecutionContext
 import scala.util.{ Failure, Success, Try }
 
-import LocationMap.Colorize
-import IorMethods.IorExtension
-
+import CollectionUtils.listToUnique
 import Identifier.Bindable
+import IorMethods.IorExtension
+import LocationMap.Colorize
 
 import cats.implicits._
 
@@ -368,18 +368,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         def renderAll(pm: PackageMap.Typed[Any], externals: List[String], evaluators: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]] = {
           import codegen.python.PythonGen
 
-          def listToUnique[A, K, V](l: List[A])(key: A => K, value: A => V, msg: String): Map[K, V] =
-            l.groupBy(key)
-              .map {
-                case (k, a :: Nil) =>
-                  (k, value(a))
-                case (k, moreThanOne) =>
-                  // TODO this is terrible, we should summarrize all duplicates, or
-                  // have an explicit policy of overwriting with the last one
-                  throw new IllegalArgumentException(s"$msg, for $k found: $moreThanOne")
-              }
-
-
           val allExternals = pm.allExternals
           val cmp = MatchlessFromTypedExpr.compile(pm)
           moduleIOMonad.catchNonFatal {
@@ -388,7 +376,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
               { case (p, b, _, _) => (p, b) },
               { case (_, _, m, f) => (m, f) },
               "expected each package/name to map to just one file"
-              )
+              ).get
+
             val exts = extMap.keySet
             val intrinsic = PythonGen.intrinsicValues
             val missingExternals =
@@ -418,7 +407,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 { t => t._1 },
                 { t => t._2 },
                 "expected each type to have to just one evaluator"
-                )
+                ).get
+
               val evalMap = pm
                 .toMap
                 .iterator
@@ -848,12 +838,6 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           "package or package::name",
           "Must be a package name with an optional :: value, e.g. Foo/Bar or Foo/Bar::baz.")
 
-      def toList[A](neo: Opts[NonEmptyList[A]]): Opts[List[A]] =
-        neo.orNone.map {
-          case None => Nil
-          case Some(ne) => ne.toList
-        }
-
       implicit val argColor: Argument[Colorize] =
         new Argument[Colorize] {
           def defaultMetavar: String = "color"
@@ -867,18 +851,21 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
         }
 
       def pathGen(arg: String, help: String, ext: String): Opts[PathGen] = {
-        val direct = toList(Opts.options[Path](arg, help = help))
+        val direct = Opts.options[Path](arg, help = help)
+          .orEmpty
           .map { paths => paths.foldMap(PathGen.Direct[IO, Path](_): PathGen) }
 
         unfoldDir match {
           case None => direct
           case Some(unfold) =>
             val select = hasExtension(ext)
-            val child1 = toList(Opts.options[Path](arg + "_dir", help = s"all $help in directory"))
+            val child1 = Opts.options[Path](arg + "_dir", help = s"all $help in directory")
+              .orEmpty
               .map { paths =>
                 paths.foldMap(PathGen.ChildrenOfDir[IO, Path](_, select, false, unfold): PathGen)
               }
-            val childMany = toList(Opts.options[Path](arg + "_all_subdir", help = s"all $help recursively in all directories"))
+            val childMany = Opts.options[Path](arg + "_all_subdir", help = s"all $help recursively in all directories")
+              .orEmpty
               .map { paths =>
                 paths.foldMap(PathGen.ChildrenOfDir[IO, Path](_, select, true, unfold): PathGen)
               }
@@ -904,8 +891,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       val testP =
           MainIdentifier.list(
-            toList(Opts.options[PackageName]("test_package", help = "package for which to run tests").map(_.map((_, None)))),
-            toList(Opts.options[Path]("test_file", help = "file containing the package for which to run tests")))
+            Opts.options[PackageName]("test_package", help = "package for which to run tests").map(_.map((_, None))).orEmpty,
+            Opts.options[Path]("test_file", help = "file containing the package for which to run tests").orEmpty)
 
       val outputPath = Opts.option[Path]("output", help = "output path")
       val interfaceOutputPath = Opts.option[Path]("interface_out", help = "interface output path")
@@ -994,5 +981,4 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       Command("bosatsu", s"a total and functional programming language\n\n$versionInfo")(opts)
     }
   }
-
 }

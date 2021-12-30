@@ -117,15 +117,21 @@ object TypeRecursionCheck {
 
     // Here we are just checking if we can find a loop from dt to dt that is covariant
     def checkSelfRecursions(dt: DefinedType[Variance]): ValidatedNel[NonEmptyList[DefinedType[Variance]], Unit] = {
-      val graph = buildEdges(dt)
-        .groupBy(_._1)
-        .iterator
-        .map { case (src, edges) =>
-          (src, edges.map { case (_, v, r) => (v, r) })
-        }
-        .toMap
+      type DT = DefinedType[Variance]
+      val graphFn: DT => List[(Variance, DT)] = {
+        // This Map is safe since it is used as a function
+        val m = buildEdges(dt)
+          .groupBy(_._1)
+          .iterator
+          .map { case (src, edges) =>
+            (src, edges.map { case (_, v, r) => (v, r) })
+          }
+          .toMap
 
-      val loops = Paths.allCycles(dt)(graph.getOrElse(_, Nil))
+        { d: DT => m.getOrElse(d, Nil) }
+      }
+
+      val loops = Paths.allCycles(dt)(graphFn)
       // filter bad loops:
       val bad = loops.filter { loop =>
         val variance =

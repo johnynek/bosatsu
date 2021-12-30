@@ -209,9 +209,7 @@ object Package {
       (TypeEnv[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], List[Statement]])] = {
 
     // here we make a pass to get all the local names
-    val localDefs = Statement.definitionsOf(stmts)
-    val optProg = SourceConverter(p, imps.map { i => i.copy(pack = i.pack.name) }, localDefs)
-      .toProgram(stmts)
+    val optProg = SourceConverter.toProgram(p, imps.map { i => i.copy(pack = i.pack.name) }, stmts)
       .leftMap(_.map(PackageError.SourceConverterErrorIn(_, p): PackageError).toNonEmptyList)
 
     optProg.flatMap {
