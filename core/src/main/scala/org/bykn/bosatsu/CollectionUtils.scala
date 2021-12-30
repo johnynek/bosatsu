@@ -32,6 +32,7 @@ object CollectionUtils {
       // $COVERAGE-OFF$
       case _ =>
         sys.error("unreachable due to as being nonempty")
+      // $COVERAGE-ON$
     }
   }
 
