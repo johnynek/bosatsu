@@ -1,20 +1,31 @@
+queue_rules:
+  - name: default
+    conditions:
+      - check-success=test (8, 2.13.7)
+      - check-success=test (11, 2.13.7)
+      - check-success=testPY (11, 2.13.7, 3.5)
+      - check-success=testJS (11, 2.13.7)
+      - check-success=testWithCoverageReport (8)
+      - check-success=buildWithGraal (2.13.7)
+
 pull_request_rules:
   - name: Automatic merge on approval
     conditions:
       - "#approved-reviews-by>=1"
     actions:
-      merge:
+      queue:
         method: merge
+        name: default
   - name: merge scala-steward's PRs
     conditions:
       - author=scala-steward
-      - check-success=test (8, 2.13.6)
-      - check-success=test (11, 2.13.6)
-      - check-success=testPY (11, 2.13.6, 3.5)
-      - check-success=testJS (11, 2.13.6)
+      - check-success=test (8, 2.13.7)
+      - check-success=test (11, 2.13.7)
+      - check-success=testPY (11, 2.13.7, 3.5)
+      - check-success=testJS (11, 2.13.7)
       - check-success=testWithCoverageReport (8)
-      - check-success=buildWithGraal (2.13.6)
+      - check-success=buildWithGraal (2.13.7)
     actions:
-      merge:
+      queue:
         method: squash
-        strict: true
+        name: default
