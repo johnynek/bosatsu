@@ -1,8 +1,5 @@
 package org.bykn.bosatsu
 
-import cats.{Monad, Id, Parallel}
-import scala.concurrent.ExecutionContext
-
 /**
  * This is an abstraction to handle parallel computation, not effectful
  * computation. It is used in places where we have parallelism in expensive
@@ -18,20 +15,16 @@ object Par {
     def get: A = value
   }
 
-  type F[A] = Id[A]
+  type F[A] = cats.Id[A]
   type P[A] = Box[A]
+  type EC = DummyImplicit
+  type ExecutionService = Unit
 
-  implicit def orgByknBosatsuParFMonad(implicit ec: ExecutionContext): Monad[F] =
-    cats.catsInstancesForId
+  def newService(): ExecutionService = ()
+  def shutdownService(es: ExecutionService): Unit = es
+  def ecFromService(es: ExecutionService): EC = DummyImplicit.dummyImplicit
 
-  // since Future has already started, standard Parallel.identity is parallel
-  implicit def orgByknBosatsuParParallel(implicit ec: ExecutionContext): Parallel[F] =
-    Parallel.identity
-
-  @inline def start[A](a: => A)(implicit ec: ExecutionContext): F[A] =
-    a
-
-  @inline def now[A](a: A): F[A] = a
+  @inline def start[A](a: => A): F[A] = a
 
   @inline def await[A](f: F[A]): A = f
 

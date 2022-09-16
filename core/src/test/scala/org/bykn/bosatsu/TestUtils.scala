@@ -4,7 +4,6 @@ import cats.data.{Ior, Validated}
 import cats.implicits._
 import org.bykn.bosatsu.rankn._
 import org.scalatest.{Assertion, Assertions}
-import scala.concurrent.ExecutionContext
 
 import Assertions.{succeed, fail}
 import IorMethods.IorExtension
@@ -123,7 +122,7 @@ object TestUtils {
     }
   }
 
-  def testInferred(packages: List[String], mainPackS: String, inferredHandler: (PackageMap.Inferred, PackageName) => Assertion ) = {
+  def testInferred(packages: List[String], mainPackS: String, inferredHandler: (PackageMap.Inferred, PackageName) => Assertion)(implicit ec: Par.EC) = {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
@@ -140,9 +139,6 @@ object TestUtils {
         }
         sys.error("failed to parse") //errs.toString)
     }
-
-    // use parallelism to typecheck
-    import ExecutionContext.Implicits.global
 
     val fullParsed =
         PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths)
@@ -163,7 +159,7 @@ object TestUtils {
       }
   }
 
-  def evalFail(packages: List[String])(errFn: PartialFunction[PackageError, Unit]) = {
+  def evalFail(packages: List[String])(errFn: PartialFunction[PackageError, Unit])(implicit ec: Par.EC) = {
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
       Parser.parse(Package.parser(None), pack).map { case (lm, parsed) =>
@@ -178,7 +174,6 @@ object TestUtils {
     }
 
     // use parallelism to typecheck
-    import ExecutionContext.Implicits.global
     val withPre =
       PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths)
 
