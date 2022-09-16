@@ -26,8 +26,6 @@ object Par {
   def shutdownService(es: ExecutionService): Unit = es
   def ecFromService(es: ExecutionService): EC = DummyImplicit.dummyImplicit
 
-  def withEC[A](fn: EC => A): A = fn(DummyImplicit.dummyImplicit)
-
   implicit def orgByknBosatsuParFMonad: Monad[F] =
     cats.catsInstancesForId
 

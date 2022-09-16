@@ -25,14 +25,6 @@ object Par {
 
   def ecFromService(es: ExecutionService): EC = ExecutionContext.fromExecutor(es)
 
-  def withEC[A](fn: EC => A): A = {
-    val pool = newService()
-    try fn(ecFromService(pool))
-    finally {
-      shutdownService(pool)
-    }
-  }
-
   implicit def orgByknBosatsuParFMonad(implicit ec: EC): Monad[F] =
     cats.implicits.catsStdInstancesForFuture
 

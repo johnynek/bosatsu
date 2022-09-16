@@ -266,7 +266,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 NonEmptyList.fromList(packs) match {
                   case Some(packs) =>
 
-                  val packsString = packs.map { case ((path, lm), parsed) => ((path.toString, lm), parsed) }
+                    val packsString = packs.map { case ((path, lm), parsed) => ((path.toString, lm), parsed) }
                     PackageMap.typeCheckParsed[String](packsString, ifs, "predef").strictToValidated match {
                       case Validated.Valid(p) =>
                         val pathToName: List[(Path, PackageName)] =
