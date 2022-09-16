@@ -3,7 +3,6 @@ package org.bykn.bosatsu
 import org.bykn.bosatsu.graph.Memoize
 import cats.{Foldable, Monad, Show}
 import cats.data.{Ior, IorT, NonEmptyList, NonEmptyMap, Validated, ValidatedNel, ReaderT}
-import scala.concurrent.ExecutionContext
 import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
@@ -204,7 +203,7 @@ object PackageMap {
   /**
    * Infer all the types in a resolved PackageMap
    */
-  def inferAll(ps: Resolved)(implicit cpuEC: ExecutionContext): Ior[NonEmptyList[PackageError], Inferred] = {
+  def inferAll(ps: Resolved)(implicit cpuEC: Par.EC): Ior[NonEmptyList[PackageError], Inferred] = {
 
     import Par.F
 
@@ -349,7 +348,7 @@ object PackageMap {
 
   def resolveThenInfer[A: Show](
     ps: List[(A, Package.Parsed)],
-    ifs: List[Package.Interface])(implicit cpuEC: ExecutionContext): Ior[NonEmptyList[PackageError], Inferred] =
+    ifs: List[Package.Interface])(implicit cpuEC: Par.EC): Ior[NonEmptyList[PackageError], Inferred] =
       resolveAll(ps, ifs).flatMap(inferAll)
 
   def buildSourceMap[F[_]: Foldable, A](parsedFiles: F[((A, LocationMap), Package.Parsed)]): Map[PackageName, (LocationMap, String)] =
@@ -365,7 +364,7 @@ object PackageMap {
   def typeCheckParsed[A: Show](
     packs: NonEmptyList[((A, LocationMap), Package.Parsed)],
     ifs: List[Package.Interface],
-    predefKey: A)(implicit cpuEC: ExecutionContext): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
+    predefKey: A)(implicit cpuEC: Par.EC): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
     // if we have passed in a use supplied predef, don't use the internal one
     val useInternalPredef = !ifs.exists { p: Package.Interface => p.name == PackageName.PredefName }
     // Now we have completed all IO, here we do all the checks we need for correctness

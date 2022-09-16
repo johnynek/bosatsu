@@ -5,7 +5,6 @@ import cats.{Eval, MonadError, Traverse}
 import com.monovore.decline.{Argument, Command, Help, Opts}
 import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.Doc
-import scala.concurrent.ExecutionContext
 import scala.util.{ Failure, Success, Try }
 
 import CollectionUtils.listToUnique
@@ -53,9 +52,31 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
   def hasExtension(str: String): Path => Boolean
 
+  // we can do side effects in here
+  def delay[A](a: => A): IO[A]
+
   //////////////////////////////
   // Below here are concrete and should not use override
   //////////////////////////////
+
+  final def withEC[A](fn: Par.EC => IO[A]): IO[A] =
+    delay(Par.newService())
+      .flatMap { es =>
+        fn(Par.ecFromService(es))
+          .flatMap { a =>
+            delay {
+              Par.shutdownService(es)  
+              a
+            }
+          }
+          .recoverWith {
+            case e =>
+              delay {
+                Par.shutdownService(es)  
+              }.flatMap(_ => moduleIOMonad.raiseError[A](e))
+          }
+      }
+
 
   final def run(args: List[String]): Either[Help, IO[Output]] =
     MainCommand.command
@@ -210,7 +231,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       ifs: List[Package.Interface],
       errColor: Colorize,
       packRes: PackageResolver
-      ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+      )(implicit ec: Par.EC): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
       NonEmptyList.fromList(inputs) match {
         case None =>
           // we should still return the predef
@@ -232,7 +253,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       ifs: List[Package.Interface],
       errColor: Colorize,
       packRes: PackageResolver
-      ): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
+      )(implicit ec: Par.EC): IO[(PackageMap.Inferred, List[(Path, PackageName)])] =
       parseAllInputs(inputs.toList, ifs.map(_.name).toSet, packRes)
         .flatMap { ins =>
           moduleIOMonad.fromTry {
@@ -244,11 +265,8 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 // errors
                 NonEmptyList.fromList(packs) match {
                   case Some(packs) =>
-                    // TODO: this use the number of cores in the threadpool but we could configure
-                    // this
-                    import ExecutionContext.Implicits.global
 
-                    val packsString = packs.map { case ((path, lm), parsed) => ((path.toString, lm), parsed) }
+                  val packsString = packs.map { case ((path, lm), parsed) => ((path.toString, lm), parsed) }
                     PackageMap.typeCheckParsed[String](packsString, ifs, "predef").strictToValidated match {
                       case Validated.Valid(p) =>
                         val pathToName: List[(Path, PackageName)] =
@@ -269,7 +287,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       srcs: List[Path],
       deps: List[Path],
       errColor: Colorize,
-      packRes: PackageResolver): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] =
+      packRes: PackageResolver)(implicit ec: Par.EC): IO[(PackageMap.Typed[Any], List[(Path, PackageName)])] =
         for {
           packs <- readPackages(deps)
           ifaces = packs.map(Package.interfaceOf(_))
@@ -361,11 +379,11 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     }
 
     sealed abstract class Transpiler(val name: String) {
-      def renderAll(pm: PackageMap.Typed[Any], externals: List[String], evaluators: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]]
+      def renderAll(pm: PackageMap.Typed[Any], externals: List[String], evaluators: List[String])(implicit ec: Par.EC): IO[List[(NonEmptyList[String], Doc)]]
     }
     object Transpiler {
       case object PythonTranspiler extends Transpiler("python") {
-        def renderAll(pm: PackageMap.Typed[Any], externals: List[String], evaluators: List[String])(implicit ec: ExecutionContext): IO[List[(NonEmptyList[String], Doc)]] = {
+        def renderAll(pm: PackageMap.Typed[Any], externals: List[String], evaluators: List[String])(implicit ec: Par.EC): IO[List[(NonEmptyList[String], Doc)]] = {
           import codegen.python.PythonGen
 
           val allExternals = pm.allExternals
@@ -519,19 +537,18 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       //case class TranspileOut(outs: Map[PackageName, (List[String], Doc)], base: Path) extends Output
       type Result = Output.TranspileOut
 
-      // TODO this could be configurable, but the default is fine for CPU-bound tasks we run with
-      import ExecutionContext.Implicits.global
-
       def run =
-        for {
-          ins <- inputs.read
-          ds <- deps.read
-          pn <- buildPackMap(ins, ds, errColor, packRes)
-          (packs, names) = pn
-          extStrs <- exts.traverse(readPath)
-          evalStrs <- evals.traverse(readPath)
-          data <- generator.renderAll(packs, extStrs, evalStrs)
-        } yield Output.TranspileOut(data, outDir)
+        withEC { implicit ec =>
+          for {
+            ins <- inputs.read
+            ds <- deps.read
+            pn <- buildPackMap(ins, ds, errColor, packRes)
+            (packs, names) = pn
+            extStrs <- exts.traverse(readPath)
+            evalStrs <- evals.traverse(readPath)
+            data <- generator.renderAll(packs, extStrs, evalStrs)
+          } yield Output.TranspileOut(data, outDir)
+        }
     }
 
     case class Evaluate(
@@ -543,7 +560,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       type Result = Output.EvaluationResult
 
-      def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] =
+      def runEval: IO[(Evaluation[Any], Output.EvaluationResult)] = withEC { implicit ec =>
         for {
           ins <- inputs.read
           ds <- deps.read
@@ -583,6 +600,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                     moduleIOMonad.raiseError(new Exception(s"package ${mainPackageName.asString} not found"))
                   }
         } yield out
+      }
 
       def run = runEval.map(_._2)
     }
@@ -710,6 +728,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     type Result = Output.CompileOut
 
     def run =
+      withEC { implicit ec =>
         for {
           ins <- inputs.read
           ifpaths <- ifaces.read
@@ -727,6 +746,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 .toList
                 .sortBy(_.name)
         } yield Output.CompileOut(packList, ifout, output)
+      }
     }
 
     case class RunTests(
@@ -738,7 +758,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
 
       type Result = Output.TestOutput
 
-      def run =
+      def run = withEC { implicit ec =>
         tests.read
           .product(dependencies.read)
           .flatMap { case (testPaths, dependencies) =>
@@ -785,6 +805,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                 }
               }
           }
+        }
     }
 
     def errors(msgs: List[String]): Try[Nothing] =

@@ -6,7 +6,6 @@ import cats.parse.{Parser => P}
 import org.bykn.bosatsu.{PackageName, Identifier, Matchless, Par, Parser, RecursionKind}
 import org.bykn.bosatsu.rankn.Type
 import org.typelevel.paiges.Doc
-import scala.concurrent.ExecutionContext
 
 import Identifier.Bindable
 import Matchless._
@@ -706,7 +705,7 @@ object PythonGen {
     pm: Map[PackageName, List[(Bindable, Expr)]],
     externals: Map[(PackageName, Bindable), (Module, Code.Ident)],
     tests: Map[PackageName, Bindable],
-    evaluators: Map[PackageName, (Bindable, Module, Code.Ident)])(implicit ec: ExecutionContext): Map[PackageName, (Module, Doc)] = {
+    evaluators: Map[PackageName, (Bindable, Module, Code.Ident)])(implicit ec: Par.EC): Map[PackageName, (Module, Doc)] = {
 
     val externalRemap: (PackageName, Bindable) => Env[Option[ValueLike]] =
       { (p, b) =>

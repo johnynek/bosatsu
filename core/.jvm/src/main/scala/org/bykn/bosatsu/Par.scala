@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.{Monad, Parallel}
+import java.util.concurrent.Executors
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.concurrent.duration.Duration
 
@@ -13,15 +14,33 @@ import scala.concurrent.duration.Duration
 object Par {
   type F[A] = Future[A]
   type P[A] = Promise[A]
+  type EC = ExecutionContext
+  type ExecutionService = java.util.concurrent.ExecutorService
 
-  implicit def orgByknBosatsuParFMonad(implicit ec: ExecutionContext): Monad[F] =
+  def newService(): ExecutionService =
+    Executors.newWorkStealingPool()
+
+  def shutdownService(es: ExecutionService): Unit =
+    es.shutdown()
+
+  def ecFromService(es: ExecutionService): EC = ExecutionContext.fromExecutor(es)
+
+  def withEC[A](fn: EC => A): A = {
+    val pool = newService()
+    try fn(ecFromService(pool))
+    finally {
+      shutdownService(pool)
+    }
+  }
+
+  implicit def orgByknBosatsuParFMonad(implicit ec: EC): Monad[F] =
     cats.implicits.catsStdInstancesForFuture
 
   // since Future has already started, standard Parallel.identity is parallel
-  implicit def orgByknBosatsuParParallel(implicit ec: ExecutionContext): Parallel[F] =
+  implicit def orgByknBosatsuParParallel(implicit ec: EC): Parallel[F] =
     Parallel.identity
 
-  @inline def start[A](a: => A)(implicit ec: ExecutionContext): F[A] =
+  @inline def start[A](a: => A)(implicit ec: EC): F[A] =
     Future(a)
 
   @inline def now[A](a: A): F[A] = Future.successful(a)

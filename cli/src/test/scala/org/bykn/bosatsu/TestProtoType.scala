@@ -15,7 +15,7 @@ import java.nio.file.Path
 import Identifier.Constructor
 import org.scalatest.funsuite.AnyFunSuite
 
-class TestProtoType extends AnyFunSuite {
+class TestProtoType extends AnyFunSuite with ParTest {
   implicit val generatorDrivenConfig =
     //PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 100)

@@ -1,14 +1,12 @@
 package org.bykn.bosatsu
 
-import scala.concurrent.ExecutionContext
-
 import Identifier.Bindable
 
 import cats.implicits._
 
 object MatchlessFromTypedExpr {
   // compile a set of packages given a set of external remappings
-  def compile[A](pm: PackageMap.Typed[A])(implicit ec: ExecutionContext): Map[PackageName, List[(Bindable, Matchless.Expr)]] = {
+  def compile[A](pm: PackageMap.Typed[A])(implicit ec: Par.EC): Map[PackageName, List[(Bindable, Matchless.Expr)]] = {
 
     val gdr = pm.getDataRepr
 
