@@ -6,8 +6,8 @@ addSbtPlugin("com.github.sbt" % "sbt-git" % "2.0.0")
 addSbtPlugin("org.portable-scala" % "sbt-scalajs-crossproject" % "1.2.0")
 addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.10.0")
 addSbtPlugin("org.scalameta" % "sbt-native-image" % "0.3.2")
-addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.0.3")
+addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.0.6")
 addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.3")
 
 // This is adding this compiler plugin as a dependency for the build, not the code itself
-libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.10"
+libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.12"
