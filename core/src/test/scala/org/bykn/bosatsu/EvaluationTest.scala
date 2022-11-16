@@ -5,7 +5,7 @@ import Value._
 import LocationMap.Colorize
 import org.scalatest.funsuite.AnyFunSuite
 
-class EvaluationTest extends AnyFunSuite {
+class EvalationTest extends AnyFunSuite with ParTest {
 
   import TestUtils._
 
