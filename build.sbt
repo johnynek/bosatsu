@@ -7,8 +7,8 @@ lazy val commonSettings = Seq(
   version      := "0.0.7",
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full),
   addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1"),
-  scalaVersion := "2.13.7",
-  crossScalaVersions := Seq("2.13.7"),
+  scalaVersion := "2.13.10",
+  crossScalaVersions := Seq("2.13.10"),
   // from: https://tpolecat.github.io/2017/04/25/scalac-flags.html
   scalacOptions ++= Seq(
     "-deprecation",                      // Emit warning and location for usages of deprecated APIs.
@@ -151,13 +151,13 @@ lazy val core = (crossProject(JSPlatform, JVMPlatform).crossType(CrossType.Pure)
         scalaTest.value % Test,
         scalaTestPlusScalacheck.value % Test,
         // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % "acyclic_2.13.7" % "0.3.2" % "provided"
+        "com.lihaoyi" % "acyclic_2.13.10" % "0.3.6" % "provided"
       )
       // periodically we use acyclic to ban cyclic dependencies and make compilation faster
       ,
       autoCompilerPlugins := true,
 
-      addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.7" % "0.3.2"),
+      addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.10" % "0.3.6"),
 
       scalacOptions += "-P:acyclic:force"
   )
