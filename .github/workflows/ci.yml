@@ -92,7 +92,7 @@ jobs:
       - name: "graalvm setup"
         uses: "olafurpg/setup-scala@v10"
         with:
-          java-version: "graalvm@21.1.0"
+          java-version: "graalvm@22.3.0"
       - name: "build native image"
         run: |
           sbt "++${{matrix.scala}} cli/nativeImage"
