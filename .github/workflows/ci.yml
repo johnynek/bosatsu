@@ -46,7 +46,7 @@ jobs:
         scala:
           - '2.13.7'
         python:
-          - '3.5'
+          - '3.9'
     timeout-minutes: 30
   testJS:
     runs-on: ubuntu-latest
