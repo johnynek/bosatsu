@@ -2,16 +2,13 @@ package org.bykn.bosatsu
 
 import cats.Show
 import cats.data.{Validated, ValidatedNel}
-import scala.concurrent.ExecutionContext
 
 import IorMethods.IorExtension
 import org.scalatest.funsuite.AnyFunSuite
 
-class PackageTest extends AnyFunSuite {
+class PackageTest extends AnyFunSuite with ParTest {
 
   def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] = {
-    // use parallelism to typecheck
-    import ExecutionContext.Implicits.global
     implicit val showInt: Show[Int] = Show.fromToString
     PackageMap.resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil)
       .strictToValidated

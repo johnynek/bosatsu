@@ -65,6 +65,8 @@ object PathModule extends MainModule[IO] {
   def print(str: => String): IO[Unit] =
     IO(println(str))
 
+  def delay[A](a: => A): IO[A] = IO(a)
+
   def reportOutput(out: Output): IO[Unit] =
     out match {
       case Output.TestOutput(resMap, color) =>

@@ -108,6 +108,9 @@ class MemoryMain[F[_], K: Ordering](split: K => List[String])(
 
     loop(roots)
   }
+
+  def delay[A](a: => A): IO[A] =
+    Kleisli(_ => innerMonad.pure(a))
 }
 
 
