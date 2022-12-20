@@ -1141,7 +1141,7 @@ object ProtoConverter {
         lets <- prog.lets.traverse(letToProto)
         exdefs <- prog.externalDefs.traverse { nm => extDefToProto(nm, prog.types.getValue(cpack.name, nm)) }
         dts <- dtVect.traverse(definedTypeToProto)
-      } yield { ss: SerState =>
+      } yield { (ss: SerState) =>
           proto.Package(
             strings = ss.strings.inOrder,
             types = ss.types.inOrder,

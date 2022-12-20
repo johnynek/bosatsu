@@ -577,7 +577,7 @@ object SeqPattern {
 
       def matchEnd(p: SeqPattern[A]): S => LazyList[(S, R)] =
         p match {
-          case Empty => { s: S => (s, split.monoidResult.empty) #:: LazyList.empty }
+          case Empty => { (s: S) => (s, split.monoidResult.empty) #:: LazyList.empty }
           case Cat(p: SeqPart1[A], t) =>
             val splitFn: S => LazyList[(S, I, R, S)] = p match {
               case Lit(c) => split.positions(c)
@@ -585,7 +585,7 @@ object SeqPattern {
             }
             val tailMatch = apply(t)
 
-            { s: S =>
+            { (s: S) =>
               splitFn(s)
                 .map { case (pre, _, r, post)  =>
                   tailMatch(post)

@@ -381,7 +381,7 @@ object Type {
 
   object Meta {
     implicit val orderingMeta: Ordering[Meta] =
-      Ordering.by { m: Meta => m.id }
+      Ordering.by { (m: Meta) => m.id }
   }
 
   /**

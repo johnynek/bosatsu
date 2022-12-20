@@ -73,7 +73,7 @@ object Splitter {
     final def positions(c: P): List[V] => LazyList[(List[V], V, R, List[V])] = {
       val matchFn = matcher(c)
 
-      { str: List[V] =>
+      { (str: List[V]) =>
         def loop(tail: List[V], acc: List[V]): LazyList[(List[V], V, R, List[V])] =
           tail match {
             case Nil => LazyList.empty

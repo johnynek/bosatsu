@@ -113,7 +113,7 @@ class ParserTest extends ParserTestBase {
   implicit val generatorDrivenConfig = config
 
   test("we can parse integers") {
-    forAll { b: BigInt =>
+    forAll { (b: BigInt) =>
       val bstr = b.toString
       parseTestAll(Parser.integerString, bstr, bstr)
     }
@@ -166,9 +166,9 @@ class ParserTest extends ParserTestBase {
     assert(Parser.unescape("\\u00").isLeft)
     assert(Parser.unescape("\\u000").isLeft)
     assert(Parser.unescape("\\U0000").isLeft)
-    forAll { s: String => Parser.unescape(s); succeed }
+    forAll { (s: String) => Parser.unescape(s); succeed }
     // more brutal tests
-    forAll { s: String =>
+    forAll { (s: String) =>
       val prefixes = List('x', 'o', 'u', 'U').map { c => s"\\$c" }
       prefixes.foreach { p =>
         Parser.unescape(s"$p$s")
@@ -556,7 +556,7 @@ class SyntaxParseTest extends ParserTestBase {
   }
 
   test("we can parse Lit.Integer") {
-    forAll { bi: BigInt =>
+    forAll { (bi: BigInt) =>
       roundTrip(Lit.parser, bi.toString)
     }
   }

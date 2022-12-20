@@ -13,7 +13,7 @@ abstract class SetOpsLaws[A] extends AnyFunSuite {
   def eqUnion: Gen[Eq[List[A]]]
 
   def eqA: Gen[Eq[A]] =
-    eqUnion.map(Eq.by { a: A => a :: Nil }(_))
+    eqUnion.map(Eq.by { (a: A) => a :: Nil }(_))
 
   import setOps._
 
@@ -284,8 +284,8 @@ class DistinctSetOpsTest extends SetOpsLaws[Byte] {
 class IMapSetOpsTest extends SetOpsLaws[Byte] {
   val setOps: SetOps[Byte] =
     SetOps.imap(SetOps.distinct[Byte],
-      { b: Byte => (b ^ 0xFF).toByte },
-      { b: Byte => (b ^ 0xFF).toByte })
+      { (b: Byte) => (b ^ 0xFF).toByte },
+      { (b: Byte) => (b ^ 0xFF).toByte })
 
   val genItem: Gen[Byte] = Gen.choose(Byte.MinValue, Byte.MaxValue)
 

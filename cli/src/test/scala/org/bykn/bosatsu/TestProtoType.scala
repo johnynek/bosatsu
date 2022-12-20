@@ -63,7 +63,7 @@ class TestProtoType extends AnyFunSuite with ParTest {
     tempRes.use(fn).unsafeRunSync()
   }
 
-  def tabLaw[A: Eq, B](f: A => ProtoConverter.Tab[B])(g: (ProtoConverter.SerState, B) => ProtoConverter.DTab[A]) = { a: A =>
+  def tabLaw[A: Eq, B](f: A => ProtoConverter.Tab[B])(g: (ProtoConverter.SerState, B) => ProtoConverter.DTab[A]) = { (a: A) =>
     f(a).run(ProtoConverter.SerState.empty) match {
       case Success((ss, b)) =>
         val ds = ProtoConverter.DecodeState.init(ss.strings.inOrder)

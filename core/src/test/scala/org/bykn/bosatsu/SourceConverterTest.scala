@@ -63,7 +63,7 @@ class SourceConverterTest extends AnyFunSuite {
     forAll(genLets) { lets =>
       val p1 = SourceConverter.makeLetsUnique(lets) { (b, idx) =>
         val res = Identifier.Backticked(b.asString + s"____${idx}")
-        (res, { br: Bindable => if (br == b) res else br })
+        (res, { (br: Bindable) => if (br == b) res else br })
       }
 
       p1.foreach { case (bl, _, br) =>

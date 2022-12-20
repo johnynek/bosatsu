@@ -9,7 +9,7 @@ case class Region(start: Int, end: Int) {
 
 object Region {
   implicit val ordering: Ordering[Region] =
-    Ordering.by { r: Region => (r.start, r.end) }
+    Ordering.by { (r: Region) => (r.start, r.end) }
 
   implicit val regionOrder: Order[Region] =
     Order.fromOrdering(ordering)

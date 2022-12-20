@@ -18,8 +18,8 @@ object PathGen {
       val pureEmpty: IO[List[Path]] = m.pure(Nil)
 
       lazy val rec: List[Path] => IO[List[Path]] =
-        if (recurse) { children: List[Path] => children.traverse(step).map(_.flatten) }
-        else { _: List[Path] => pureEmpty }
+        if (recurse) { (children: List[Path]) => children.traverse(step).map(_.flatten) }
+        else { (_: List[Path]) => pureEmpty }
 
       def step(path: Path): IO[List[Path]] =
         unfold(path).flatMap {

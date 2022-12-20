@@ -179,7 +179,7 @@ object MatchlessToValue {
           case SetMut(LocalAnonMut(mut), expr) =>
             val exprF = loop(expr)
             // this is always dynamic
-            Dynamic { scope: Scope =>
+            Dynamic { (scope: Scope) =>
               scope.updateMut(mut, exprF(scope))
               true
             }
@@ -226,7 +226,7 @@ object MatchlessToValue {
             // e.g. [*_, _] should have been normalized
             // into [_, *_] which wouldn't trigger
             // this branch
-            Dynamic { scope: Scope =>
+            Dynamic { (scope: Scope) =>
               var currentList = initF(scope)
               var res = false
               while (currentList ne null) {
@@ -248,7 +248,7 @@ object MatchlessToValue {
             val checkF = boolExpr(check)
 
             // this is always dynamic
-            Dynamic { scope: Scope =>
+            Dynamic { (scope: Scope) =>
               var res = false
               var currentList = initF(scope)
               var leftList = VList.VNil
@@ -393,7 +393,7 @@ object MatchlessToValue {
 
             // this has to be lazy because it could be
             // in this package, which isn't complete yet
-            Dynamic { _: Scope => res.value }
+            Dynamic { (_: Scope) => res.value }
           case Local(b) => Dynamic(_.locals(b).value)
           case LocalAnon(a) => Dynamic(_.anon(a))
           case LocalAnonMut(m) => Dynamic(_.muts(m))
@@ -433,13 +433,13 @@ object MatchlessToValue {
                   }
                 }
                 else {
-                  inF.withScope { scope: Scope =>
+                  inF.withScope { (scope: Scope) =>
                     val vv = Eval.now(valueF(scope))
                     scope.let(b, vv)
                   }
                 }
               case Left(LocalAnon(l)) =>
-                inF.withScope { scope: Scope =>
+                inF.withScope { (scope: Scope) =>
                   val vv = valueF(scope)
                   scope.copy(anon = scope.anon.updated(l, vv))
                 }
@@ -448,7 +448,7 @@ object MatchlessToValue {
             loop(in) match {
               case s@Static(_) => s
               case Dynamic(inF) =>
-                Dynamic { scope: Scope =>
+                Dynamic { (scope: Scope) =>
                   // we make sure there is
                   // a value that will show up
                   // strange in tests,
@@ -472,7 +472,7 @@ object MatchlessToValue {
             // conditions are (basically) never static
             // or a previous optimization/normalization
             // has failed
-            Dynamic { scope: Scope =>
+            Dynamic { (scope: Scope) =>
               if (condF(scope)) thenF(scope)
               else elseF(scope)
             }

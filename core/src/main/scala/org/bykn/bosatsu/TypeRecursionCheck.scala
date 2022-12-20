@@ -128,7 +128,7 @@ object TypeRecursionCheck {
           }
           .toMap
 
-        { d: DT => m.getOrElse(d, Nil) }
+        { (d: DT) => m.getOrElse(d, Nil) }
       }
 
       val loops = Paths.allCycles(dt)(graphFn)

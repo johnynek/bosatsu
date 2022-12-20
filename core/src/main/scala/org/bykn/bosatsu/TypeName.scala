@@ -7,8 +7,8 @@ case class TypeName(ident: Identifier.Constructor)
 
 object TypeName {
   implicit val typeNameOrder: Order[TypeName] =
-    Order.by { tn: TypeName => tn.ident }
+    Order.by { (tn: TypeName) => tn.ident }
 
   implicit val typeNameOrdering: Ordering[TypeName] =
-    Ordering.by { tn: TypeName => tn.ident }
+    Ordering.by { (tn: TypeName) => tn.ident }
 }

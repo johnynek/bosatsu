@@ -1013,7 +1013,7 @@ object Pattern {
     val namedOp: P[Parsed => Parsed] =
       ((maybeSpace.with1 *> P.string("as") <* Parser.spaces).backtrack *> Identifier.bindableParser)
         .map { n =>
-          { pat: Parsed => Named(n, pat) }
+          { (pat: Parsed) => Named(n, pat) }
         }
 
     val withAs: P[Parsed] =
@@ -1028,13 +1028,13 @@ object Pattern {
 
       (maybeSpace.with1.soft *> bar *> maybeSpace *> unionRest)
         .map { ne =>
-          { pat: Parsed => union(pat, ne.toList) }
+          { (pat: Parsed) => union(pat, ne.toList) }
         }
     }
     val typeAnnotOp: P[Parsed => Parsed] =
       TypeRef.annotationParser
         .map { tpe =>
-          { pat: Parsed => Annotation(pat, tpe) }
+          { (pat: Parsed) => Annotation(pat, tpe) }
         }
 
     // We only allow type annotation not at the top level, must be inside
