@@ -1308,7 +1308,7 @@ object PythonGen {
         /*
          * here is the implementation from MatchlessToValue
          *
-            Dynamic { scope: Scope =>
+            Dynamic { (scope: Scope) =>
               var res = false
               var currentList = initF(scope)
               var leftList = VList.VNil

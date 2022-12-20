@@ -58,7 +58,7 @@ object VarianceFormula {
     private case class IdImpl(toLong: Long) extends Identifier
 
     val nextIdent: State[SolutionState, Identifier] =
-      State { ss: SolutionState =>
+      State { (ss: SolutionState) =>
         require(ss.next.toLong < Long.MaxValue, "we shouldn't run long enough to overflow Long")
         (ss.copy(next = IdImpl(ss.next.toLong + 1L)), ss.next)
       }

@@ -28,8 +28,8 @@ class ToposortTest extends AnyFunSuite {
       assert(res.layersAreTotalOrder)
     }
 
-    forAll { ints: List[Int] => law(ints.distinct) }
-    forAll { strings: List[String] => law(strings.distinct) }
+    forAll { (ints: List[Int]) => law(ints.distinct) }
+    forAll { (strings: List[String]) => law(strings.distinct) }
   }
 
   /*

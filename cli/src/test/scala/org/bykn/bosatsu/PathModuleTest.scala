@@ -33,13 +33,13 @@ class PathModuleTest extends AnyFunSuite {
   }
 
   test("no roots means no Package") {
-    forAll { p: Path =>
+    forAll { (p: Path) =>
       assert(PathModule.pathPackage(Nil, p) == None)
     }
   }
 
   test("empty path is not okay for a package") {
-    forAll { roots: List[Path] =>
+    forAll { (roots: List[Path]) =>
       assert(PathModule.pathPackage(roots, Paths.get("")) == None)
     }
   }

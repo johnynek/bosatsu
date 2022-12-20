@@ -125,7 +125,7 @@ object Operators {
 
       chain.map { rest =>
 
-        { a: A => toFormula(Sym(a), rest.toList.map { case (o, s) => (o, Sym(s)) }) }
+        { (a: A) => toFormula(Sym(a), rest.toList.map { case (o, s) => (o, Sym(s)) }) }
       }
     }
     /**

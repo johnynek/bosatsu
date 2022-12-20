@@ -44,7 +44,7 @@ class JsonTest extends AnyFunSuite {
   }
 
   test("we can parse all the json we generate") {
-    forAll { j: Json => law(j) }
+    forAll { (j: Json) => law(j) }
   }
 
   test("we can parse hard Json numbers") {

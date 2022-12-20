@@ -139,7 +139,7 @@ object NamedSeqPattern {
 
           val res = Some((split.monoidResult.empty, Map.empty[String, S]))
 
-          { str: S =>
+          { (str: S) =>
             if (split.isEmpty(str)) res
             else None
           }
@@ -194,7 +194,7 @@ object NamedSeqPattern {
 
           val headm: I => Option[R] =
             p1 match {
-              case AnyElem => { _: I => someEmpty }
+              case AnyElem => { (_: I) => someEmpty }
               case Lit(c) => split.matcher(c)
             }
 
@@ -203,7 +203,7 @@ object NamedSeqPattern {
               tail,
               capturing)
 
-          { str: S =>
+          { (str: S) =>
             for {
               ht <- split.uncons(str)
               (h, t) = ht
@@ -223,7 +223,7 @@ object NamedSeqPattern {
           // we always match the end
           val res = (split.monoidResult.empty, Map.empty[String, S])
 
-          { str: S =>
+          { (str: S) =>
             (str, res) #:: LazyList.empty
           }
         case StartName(n) :: tail =>
@@ -259,7 +259,7 @@ object NamedSeqPattern {
           }
 
 
-          { s: S =>
+          { (s: S) =>
             splits(s).map { case (pre, i, r, post) =>
               mtail(post)
                 .map { case (rp, mapRes) =>

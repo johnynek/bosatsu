@@ -17,7 +17,7 @@ class TreeTest extends AnyFunSuite {
 
         val cache = scala.collection.mutable.Map[Int, List[Int]]()
 
-        { node: Int =>
+        { (node: Int) =>
           // the expected number of neighbors is 1.5, that means the graph is expected to be finite
           cache.getOrElseUpdate(node, {
             val count = rng.nextInt(3)
@@ -54,7 +54,7 @@ class TreeTest extends AnyFunSuite {
         b <- nodeGen
       } yield {
 
-        (init, { node: Int =>
+        (init, { (node: Int) =>
           // only 1 neighbor, but this is in a cyclic group so it can't be a dag
           List((node * a + b) % p)
         })

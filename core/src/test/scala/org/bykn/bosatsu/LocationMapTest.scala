@@ -27,7 +27,7 @@ class LocationMapTest extends AnyFunSuite {
   }
 
   test("we can reassemble input with getLine") {
-    forAll { str: String =>
+    forAll { (str: String) =>
       val lm = LocationMap(str)
 
       val reconstruct = Iterator.iterate(0)(_ + 1)
@@ -64,7 +64,7 @@ class LocationMapTest extends AnyFunSuite {
   }
 
   test("if a string is not empty, 0 offset is (0, 0)") {
-    forAll { s: String =>
+    forAll { (s: String) =>
       LocationMap(s).toLineCol(0) match {
         case Some(r) => assert(r == ((0, 0)))
         case None => assert(s.isEmpty)

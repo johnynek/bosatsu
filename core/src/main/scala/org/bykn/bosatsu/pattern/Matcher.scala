@@ -19,7 +19,7 @@ object Matcher {
         def apply(p: P): S => Option[R1] = {
           val next = self(p)
 
-          { s: S =>
+          { (s: S) =>
             next(s) match {
               case None => None
               case Some(r) => Some(fn(s, r))
@@ -42,6 +42,6 @@ object Matcher {
   def fnMatch[A]: Matcher[A => Boolean, A, Unit] =
     new Matcher[A => Boolean, A, Unit] {
       def apply(p: A => Boolean) =
-      { a: A => if (p(a)) someUnit else None }
+      { (a: A) => if (p(a)) someUnit else None }
     }
 }

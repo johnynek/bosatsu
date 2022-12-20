@@ -81,7 +81,7 @@ object ListLang {
           case Some(ne) => ne.toList
         }
 
-        { a: F[A] => Cons(a :: listTail) }
+        { (a: F[A]) => Cons(a :: listTail) }
       }
 
     val filterExpr = P.string("if") *> spacesAndLines *> pa
@@ -91,7 +91,7 @@ object ListLang {
         P.string("in") *> spacesAndLines *> pa  <* maybeSpacesAndLines,
         filterExpr.?)
         .mapN { (b, i, f) =>
-          { e: F[A] => Comprehension(e, b, i, f) }
+          { (e: F[A]) => Comprehension(e, b, i, f) }
         }
 
     val commaCons = P.char(',') *> maybeSpacesAndLines *> consTail

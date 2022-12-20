@@ -212,7 +212,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
   }
 
   test("reverse is idempotent") {
-    forAll(genPattern) { p: Pattern =>
+    forAll(genPattern) { (p: Pattern) =>
       assert(p.reverse.reverse == p)
     }
   }
@@ -276,7 +276,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
   }
 
   test("matchesEmpty is right") {
-    forAll(genPattern) { p: Pattern =>
+    forAll(genPattern) { (p: Pattern) =>
       if (p.matchesEmpty) assert(matches(p, splitter.emptySeq))
     }
   }
@@ -412,7 +412,7 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
 
   implicit val setOpsBool: SetOps[Set[Boolean]] = SetOps.fromFinite(List(true, false))
   implicit val ordSet: Ordering[Set[Boolean]] =
-    Ordering[List[Boolean]].on { s: Set[Boolean] => s.toList.sorted }
+    Ordering[List[Boolean]].on { (s: Set[Boolean]) => s.toList.sorted }
 
   val setOps: SetOps[SeqPattern[Set[Boolean]]] = SeqPattern.seqPatternSetOps[Set[Boolean]]
 

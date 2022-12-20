@@ -14,7 +14,7 @@ object Tree {
     val mapToTree: Map[A, Tree[A]] = toMap(t)
 
 
-    { a: A => mapToTree.get(a).fold(List.empty[A])(_.children.map(_.item)) }
+    { (a: A) => mapToTree.get(a).fold(List.empty[A])(_.children.map(_.item)) }
   }
 
   /**

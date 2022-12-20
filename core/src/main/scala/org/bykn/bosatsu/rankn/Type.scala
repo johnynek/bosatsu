@@ -314,9 +314,13 @@ object Type {
       }
   }
 
-  sealed abstract class Const
+  sealed abstract class Const {
+    def toDefined: Const.Defined
+  }
   object Const {
-    case class Defined(packageName: PackageName, name: TypeName) extends Const
+    case class Defined(packageName: PackageName, name: TypeName) extends Const {
+      def toDefined: Defined = this
+    }
 
     def predef(name: String): Defined =
       Defined(PackageName.PredefName, TypeName(Identifier.Constructor(name)))
@@ -381,7 +385,7 @@ object Type {
 
   object Meta {
     implicit val orderingMeta: Ordering[Meta] =
-      Ordering.by { m: Meta => m.id }
+      Ordering.by { (m: Meta) => m.id }
   }
 
   /**

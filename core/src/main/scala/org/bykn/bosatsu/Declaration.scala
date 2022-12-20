@@ -985,7 +985,7 @@ object Declaration {
       .parensLines1Cut
       .region
       .map { case (r, args) =>
-        { nm: Var => Apply(nm, args, ApplyKind.Parens)(nm.region + r) }
+        { (nm: Var) => Apply(nm, args, ApplyKind.Parens)(nm.region + r) }
       }
 
     (Identifier.consParser ~ Parser.either(recArgs, tupArgs).?)
@@ -1075,7 +1075,7 @@ object Declaration {
          */
         val noIndent = recurseDecl
         val withIndent = Parser.newline *> Parser.spaces.string.flatMap { indent => recIndy(indent) }
-        maybeSpace.with1 *> (withIndent | noIndent).map { d => { r: Region => Parens(d)(r) } } <* maybeSpacesAndLines
+        maybeSpace.with1 *> (withIndent | noIndent).map { d => { (r: Region) => Parens(d)(r) } } <* maybeSpacesAndLines
       }
 
       val tupOrPar: P[NonBinding] =
@@ -1083,12 +1083,12 @@ object Declaration {
         Parser.parens(((maybeSpacesAndLines.with1.soft *> ((recNonBind <* (!(maybeSpace ~ bindOp))).backtrack <* maybeSpacesAndLines))
           .tupleOrParens0
           .map {
-            case Left(p) => { r: Region =>  Parens(p)(r) }
-            case Right(tup) => { r: Region => TupleCons(tup.toList)(r) }
+            case Left(p) => { (r: Region) =>  Parens(p)(r) }
+            case Right(tup) => { (r: Region) => TupleCons(tup.toList)(r) }
           })
           .orElse(nestedBlock)
           // or it could be () which is just unit
-          .orElse(P.pure({ r: Region => TupleCons(Nil)(r) }))
+          .orElse(P.pure({ (r: Region) => TupleCons(Nil)(r) }))
         , P.unit)
         .region
         .map { case (r, fn) => fn(r) }
@@ -1131,7 +1131,7 @@ object Declaration {
             .map { case (r2, (fn, argsOpt)) =>
               val args = argsOpt.fold(List.empty[NonBinding])(_.toList)
 
-              { head: NonBinding => Apply(fn, NonEmptyList(head, args), ApplyKind.Dot)(head.region + r2) }
+              { (head: NonBinding) => Apply(fn, NonEmptyList(head, args), ApplyKind.Dot)(head.region + r2) }
             }
 
         // here we directly call a function foo(1, 2)
@@ -1139,7 +1139,7 @@ object Declaration {
           params
             .region
             .map { case (r, args) =>
-              { fn: NonBinding => Apply(fn, args, ApplyKind.Parens)(fn.region + r) }
+              { (fn: NonBinding) => Apply(fn, args, ApplyKind.Parens)(fn.region + r) }
             }
 
         def repFn[A](fn: P[A => A]): P0[A => A] =
@@ -1163,7 +1163,7 @@ object Declaration {
               .backtrack
               .region
               .map { case (r, tpe) =>
-                { nb: NonBinding => Annotation(nb, tpe)(nb.region + r) }
+                { (nb: NonBinding) => Annotation(nb, tpe)(nb.region + r) }
               }
 
           applied.maybeAp(an)
@@ -1177,7 +1177,7 @@ object Declaration {
             .region
             .map { case (region, pat) =>
 
-              { nb: NonBinding => Matches(nb, pat)(nb.region + region) }
+              { (nb: NonBinding) => Matches(nb, pat)(nb.region + region) }
             }
             .rep
             .map { fns => fns.toList.reduceLeft(_.andThen(_)) }
@@ -1206,7 +1206,7 @@ object Declaration {
         // This already parses as many as it can, so we don't need repFn
         val form = ops.map { fn =>
 
-          { d: NonBinding => convert(fn(d)) }
+          { (d: NonBinding) => convert(fn(d)) }
         }
 
         nb.maybeAp(form)
@@ -1218,7 +1218,7 @@ object Declaration {
       val ternary: P[NonBinding => NonBinding] =
         (((spaces *> P.string("if") *> spaces).backtrack *> recNonBind) ~ (spaces *> keySpace("else") *> ternaryElseP))
           .map { case (cond, falseCase) =>
-            { trueCase: NonBinding => Ternary(trueCase, cond, falseCase) }
+            { (trueCase: NonBinding) => Ternary(trueCase, cond, falseCase) }
           }
 
       val finalNonBind: P[NonBinding] =

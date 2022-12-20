@@ -134,7 +134,7 @@ object Matchless {
     }
 
   private def maybeMemo[F[_]: Monad](tmp: F[Long])(fn: CheapExpr => F[Expr]): Expr => F[Expr] =
-    { arg: Expr =>
+    { (arg: Expr) =>
       asCheap(arg) match {
         case Some(c) => fn(c)
         case None =>

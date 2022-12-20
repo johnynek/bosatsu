@@ -105,7 +105,7 @@ object PackageMap {
         }
 
       edeps
-        .flatMap { deps: List[Import[Either[Package.Interface, Package[PackageName, A, B, C]], A]] =>
+        .flatMap { (deps: List[Import[Either[Package.Interface, Package[PackageName, A, B, C]], A]]) =>
           deps.traverse { i =>
             i.pack match {
               case Right(pack) =>
@@ -366,7 +366,7 @@ object PackageMap {
     ifs: List[Package.Interface],
     predefKey: A)(implicit cpuEC: Par.EC): Ior[NonEmptyList[PackageError], PackageMap.Inferred] = {
     // if we have passed in a use supplied predef, don't use the internal one
-    val useInternalPredef = !ifs.exists { p: Package.Interface => p.name == PackageName.PredefName }
+    val useInternalPredef = !ifs.exists { (p: Package.Interface) => p.name == PackageName.PredefName }
     // Now we have completed all IO, here we do all the checks we need for correctness
     val parsed =
         if (useInternalPredef) withPredefA[(A, LocationMap)]((predefKey, LocationMap("")), packs.toList)

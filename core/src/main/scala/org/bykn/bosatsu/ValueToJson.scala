@@ -560,12 +560,12 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
     Type.Fun.uncurry(t) match {
       case None =>
         // this isn't a function at all
-        toJson(t).map { fn: (Value => Either[DataError, Json]) =>
+        toJson(t).map { (fn: (Value) => Either[DataError, Json]) =>
 
           (0, fn.andThen { either =>
             either.map { result =>
 
-              { args: Json.JArray =>
+              { (args: Json.JArray) =>
                 if (args.toVector.isEmpty) Right(result)
                 else Left(IllTypedJson(Nil, t, args))
               }
@@ -603,7 +603,7 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 }
               }
 
-              val jsonFn = { inputs: Json.JArray =>
+              val jsonFn = { (inputs: Json.JArray) =>
                 if (inputs.toVector.size != arity) Left(IllTypedJson(Nil, t, inputs))
                 else {
                   // we know arity >= 1 because it is a function, so the fromListUnsafe will succeed

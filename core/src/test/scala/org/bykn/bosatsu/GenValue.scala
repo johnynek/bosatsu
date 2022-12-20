@@ -6,7 +6,7 @@ import Value._
 object GenValue {
 
   val cogenValue: Cogen[Value] =
-    Cogen[Int].contramap { v: Value => v.hashCode }
+    Cogen[Int].contramap { (v: Value) => v.hashCode }
 
   lazy val genProd: Gen[ProductValue] =
     Gen.lzy(Gen.oneOf(Gen.const(UnitValue),

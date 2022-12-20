@@ -73,7 +73,7 @@ class TypeTest extends AnyFunSuite {
       }
     }
 
-    forAll { l: Long =>
+    forAll { (l: Long) =>
       assert(parse("?" + l.toString).asInstanceOf[Type.TyMeta].toMeta.id == l)
     }
   }

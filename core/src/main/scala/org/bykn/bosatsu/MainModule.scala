@@ -237,7 +237,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           // we should still return the predef
           // if it is not in ifs
           val useInternalPredef =
-            !ifs.exists { p: Package.Interface => p.name == PackageName.PredefName }
+            !ifs.exists { (p: Package.Interface) => p.name == PackageName.PredefName }
 
           if (useInternalPredef) {
             moduleIOMonad.pure((PackageMap.fromIterable(PackageMap.predefCompiled :: Nil), Nil))
@@ -773,7 +773,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                   .flatMap { case (packs, nameMap) =>
 
                     testPacks.traverse(_.getMain(nameMap))
-                      .map { testPackNames: List[(PackageName, Option[Identifier])] =>
+                      .map { (testPackNames: List[(PackageName, Option[Identifier])]) =>
                         (packs, nameMap, testPackNames.map(_._1))
                       }
                   }

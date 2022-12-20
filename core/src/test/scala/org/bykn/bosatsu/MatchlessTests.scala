@@ -126,7 +126,7 @@ class MatchlessTest extends AnyFunSuite {
       val matchRes = matcher(seqPat)(targ)
       val matchlessRes = Matchless.matchList(targ,
         pat.map {
-          case None => Left { _: List[Byte] => 0 }
+          case None => Left { (_: List[Byte]) => 0 }
           case Some(fn) => Right(fn)
         })
 
