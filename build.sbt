@@ -132,7 +132,7 @@ lazy val cli = (project in file("cli"))
     ),
     PB.protocVersion := "3.19.1",
     nativeImageOptions ++= Seq("--static", "--no-fallback", "--verbose", "--initialize-at-build-time"),
-    nativeImageVersion := "21.1.0"
+    nativeImageVersion := "22.3.0"
    )
   .dependsOn(coreJVM % "compile->compile;test->test")
 
