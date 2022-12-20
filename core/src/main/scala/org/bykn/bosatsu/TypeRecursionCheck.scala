@@ -30,7 +30,8 @@ object TypeRecursionCheck {
     def typeLocalDepends(dt: DefinedType[Variance]): List[DefinedType[Variance]] = {
       val depends = for {
         cons <- dt.constructors
-        Type.Const.Defined(p, n) <- cons.args.flatMap { case (_, t) => Type.constantsOf(t) }
+        const <- cons.args.flatMap { case (_, t) => Type.constantsOf(t) }
+        Type.Const.Defined(p, n) = const.toDefined
         dt1 <- typeMap.get((p, n)).toList // we only need edges into this package,
       } yield dt1
 

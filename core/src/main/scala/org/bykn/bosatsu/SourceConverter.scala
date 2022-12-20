@@ -421,7 +421,7 @@ final class SourceConverter(
               Expr.buildApp(opExpr, in :: empty :: foldFn :: Nil, l)
             }
           }
-        case rc@RecordConstructor(name, args) =>
+      case rc@RecordConstructor(name, args) =>
           val (p, c) = nameToCons(name)
           val cons: Expr[Declaration] = Expr.Global(p, c, rc)
           localTypeEnv.flatMap(_.getConstructor(p, c) match {
