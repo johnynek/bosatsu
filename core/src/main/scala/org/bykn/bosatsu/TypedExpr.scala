@@ -443,10 +443,10 @@ object TypedExpr {
     /**
      * Here are all the global names inside this expression
      */
-    def globals: Set[Global[A]] =
-      traverseUp[Writer[Set[Global[A]], *]] {
-        case g @ Global(_, _, _, _) => Writer.tell(Set(g)).as(g)
-        case notG => Monad[Writer[Set[Global[A]], *]].pure(notG)
+    def globals: Set[(PackageName, Identifier)] =
+      traverseUp[Writer[Set[(PackageName, Identifier)], *]] {
+        case g @ Global(p, i, _, _) => Writer.tell(Set[(PackageName, Identifier)]((p, i))).as(g)
+        case notG => Monad[Writer[Set[(PackageName, Identifier)], *]].pure(notG)
       }
       .written
   }
