@@ -60,8 +60,8 @@ class MemoryMain[F[_], K: Ordering](split: K => List[String])(
 
   def unfoldDir: Option[Path => IO[Option[IO[List[Path]]]]] = None
 
-  def hasExtension(str: String): Path => Boolean =
-    Function.const(false)
+  def hasExtension(str: String): (Path => Boolean) =
+    Function.const(false)(_)
 
     def runWith(
       files: Iterable[(K, String)],

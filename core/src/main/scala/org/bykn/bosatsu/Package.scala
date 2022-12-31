@@ -105,8 +105,8 @@ object Package {
         tp.program.lets.lastOption.map(_._1)  ++
         testValue(tp).map(_._1)
 
-    def topLevels(s: Set[TypedExpr.Global[A]]): Set[Identifier] =
-      s.collect { case TypedExpr.Global(p, i, _, _) if p === tp.name => i }
+    def topLevels(s: Set[(PackageName, Identifier)]): Set[Identifier] =
+      s.collect { case (p, i) if p === tp.name => i }
 
     val letWithGlobals = tp.program.lets.map { case tup @ (_, _, te) => (tup, topLevels(te.globals)) }
 

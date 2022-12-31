@@ -359,7 +359,7 @@ object Value {
 
     def fromStringKeys(kvs: List[(String, Value)]): Value = {
       val allItems: Array[(String, Value)] = kvs.toMap.toArray
-      java.util.Arrays.sort(allItems, Ordering[String].on { kv: (String, Value) => kv._1 })
+      java.util.Arrays.sort(allItems, Ordering[String].on { (kv: (String, Value)) => kv._1 })
 
       val empty = (BigInteger.ZERO, BigInteger.ZERO, SumValue(0, UnitValue))
 
