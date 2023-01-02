@@ -61,7 +61,7 @@ object Package {
    * 1 a package of the same kind
    * 2 an interface
    */
-  type FixPackage[B, C, D] = Fix[Lambda[a => Either[Interface, Package[a, B, C, D]]]]
+  type FixPackage[B, C, D] = Fix[λ[a => Either[Interface, Package[a, B, C, D]]]]
   type PackageF[A, B, C] = Either[Interface, Package[FixPackage[A, B, C], A, B, C]]
   type PackageF2[A, B] = PackageF[A, A, B]
   type Parsed = Package[PackageName, Unit, Unit, List[Statement]]
@@ -126,10 +126,10 @@ object Package {
   }
 
   def fix[A, B, C](p: PackageF[A, B, C]): FixPackage[A, B, C] =
-    FixType.fix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](p)
+    FixType.fix[λ[a => Either[Interface, Package[a, A, B, C]]]](p)
 
   def unfix[A, B, C](fp: FixPackage[A, B, C]): PackageF[A, B, C] =
-    FixType.unfix[Lambda[a => Either[Interface, Package[a, A, B, C]]]](fp)
+    FixType.unfix[λ[a => Either[Interface, Package[a, A, B, C]]]](fp)
   /**
    * build a Parsed Package from a Statement. This is useful for testing or
    * library usages.
