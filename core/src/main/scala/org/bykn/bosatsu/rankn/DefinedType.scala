@@ -53,10 +53,10 @@ final case class DefinedType[+A](
           { cons => if (cons == zero) DataRepr.ZeroNat else DataRepr.SuccNat }
         }
         else {
-           val famArities = c0.arity :: c1.arity :: Nil
-           val zero = c0.name
-           val zrep = DataRepr.Enum(0, c0.arity, famArities)
-           val orep = DataRepr.Enum(1, c1.arity, famArities)
+          val famArities = c0.arity :: c1.arity :: Nil
+          val zero = c0.name
+          val zrep = DataRepr.Enum(0, c0.arity, famArities)
+          val orep = DataRepr.Enum(1, c1.arity, famArities)
 
           { cons => if (cons == zero) zrep else orep }
         }

@@ -63,7 +63,7 @@ class MemoryMain[F[_], K: Ordering](split: K => List[String])(
   def hasExtension(str: String): (Path => Boolean) =
     Function.const(false)(_)
 
-    def runWith(
+  def runWith(
       files: Iterable[(K, String)],
       packages: Iterable[(K, List[Package.Typed[Unit]])] = Nil,
       interfaces: Iterable[(K, List[Package.Interface])] = Nil)(cmd: List[String]): F[Output] =

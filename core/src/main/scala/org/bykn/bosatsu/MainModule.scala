@@ -833,7 +833,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
                       err.getClass.toString)
               }
           }
-        errors(msgs)
+          errors(msgs)
       }
 
     val opts: Opts[MainCommand] = {

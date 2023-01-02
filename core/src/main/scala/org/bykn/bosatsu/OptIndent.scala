@@ -51,12 +51,15 @@ object OptIndent {
     if (padding == 0 && indenting == 0) SameLine(a)
     else NotSameLine(Padding(padding, Indented(indenting, a)))
 
-  implicit def document[A: Document]: Document[OptIndent[A]] =
+  implicit def document[A: Document]: Document[OptIndent[A]] = {
+    val da = Document[A]
+    val dpi = Document[Padding[Indented[A]]]
+
     Document.instance[OptIndent[A]] {
-      case SameLine(a) => Document[A].document(a)
-      case NotSameLine(p) =>
-        Document[Padding[Indented[A]]].document(p)
+      case SameLine(a) => da.document(a)
+      case NotSameLine(p) => dpi.document(p)
     }
+  }
 
   def indy[A](p: Indy[A]): Indy[OptIndent[A]] = {
     val ind = Indented.indy(p)
@@ -72,9 +75,9 @@ object OptIndent {
    *   B
    */
   def block[A, B](first: Indy[A], next: Indy[B]): Indy[(A, OptIndent[B])] =
-    blockLike(first, next, maybeSpace ~ P.char(':'))
+    blockLike(first, next, (maybeSpace ~ P.char(':')).void)
 
-  def blockLike[A, B, C](first: Indy[A], next: Indy[B], sep: P0[C]): Indy[(A, OptIndent[B])] =
+  def blockLike[A, B](first: Indy[A], next: Indy[B], sep: P0[Unit]): Indy[(A, OptIndent[B])] =
     first
       .cutLeftP(sep ~ maybeSpace)
       .cutThen(OptIndent.indy(next))

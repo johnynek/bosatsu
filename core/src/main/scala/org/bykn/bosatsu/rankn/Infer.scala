@@ -874,7 +874,7 @@ object Infer {
                 case l@ListPart.NamedList(splice) =>
                   // this is *a pattern that has list type, and binds that type to the name
                   Infer.pure((l, (splice, lst) :: Nil))
-                  case ListPart.Item(p) =>
+                case ListPart.Item(p) =>
                   // This is a non-splice
                   checkPat(p, inner, reg).map { case (p, l) => (ListPart.Item(p), l) }
               }

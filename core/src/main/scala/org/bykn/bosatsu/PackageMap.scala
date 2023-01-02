@@ -146,12 +146,12 @@ object PackageMap {
         case Some(neps) =>
           CollectionUtils.uniqueByKey(neps)(_._2.name)
             .fold(
-              { a => (a.toSortedMap, SortedMap.empty) },
-              { b => (SortedMap.empty, b.toSortedMap) },
+              { a => (a.toSortedMap, SortedMap.empty[PackageName, AP]) },
+              { b => (SortedMap.empty[PackageName, (AP, NonEmptyList[AP])], b.toSortedMap) },
               { (a, b) => (a.toSortedMap, b.toSortedMap) }
             )
         case None =>
-          (SortedMap.empty, SortedMap.empty)
+          (SortedMap.empty[PackageName, (AP, NonEmptyList[AP])], SortedMap.empty[PackageName, AP])
       }
 
     def toProg(p: Package.Parsed):

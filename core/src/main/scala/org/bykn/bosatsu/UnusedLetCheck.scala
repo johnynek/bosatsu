@@ -58,7 +58,7 @@ object UnusedLetCheck {
         }
         .map(_.combineAll)
 
-      (argCheck, bcheck).mapN(_ ++ _)
+        (argCheck, bcheck).mapN(_ ++ _)
     }
 
   /**

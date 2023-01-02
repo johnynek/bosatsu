@@ -49,10 +49,10 @@ object DefStatement {
       line0 + Document[B].document(result)
     }
 
-    /**
-     * The resultTParser should parse some indentation any newlines
-     */
-    def parser[A, B](argParser: P[A], resultTParser: P[B]): P[DefStatement[A, B]] = {
+  /**
+   * The resultTParser should parse some indentation any newlines
+   */
+  def parser[A, B](argParser: P[A], resultTParser: P[B]): P[DefStatement[A, B]] = {
       val args = argParser.parensLines1Cut
       val result = (P.string("->") *> maybeSpace *> TypeRef.parser).?
       (Parser.keySpace("def") *> (Identifier.bindableParser ~ args) <* maybeSpace,

@@ -245,9 +245,9 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           // so we can recurse
           successCache.put(tpe, res)
           res
-        }
+      }
 
-      loop(tpe, Nil).value
-    }
+    loop(tpe, Nil).value
+  }
 
 }
