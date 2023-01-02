@@ -271,21 +271,29 @@ object Statement {
 
   private implicit val dunit: Document[Unit] = Document.instance[Unit](_ => Doc.empty)
 
-  implicit lazy val document: Document[Statement] =
+  implicit lazy val document: Document[Statement] = {
+    val db = Document[BindingStatement[Pattern.Parsed, Declaration.NonBinding, Unit]]
+    val dc = Document[CommentStatement[Unit]]
+    implicit val pair: Document[OptIndent[Declaration]] =
+      Document.instance[OptIndent[Declaration]] {
+        body =>
+          body.sepDoc +
+          OptIndent.document(Declaration.document).document(body)
+      }
+    val dd = DefStatement.document[Pattern.Parsed, OptIndent[Declaration]]
+
+    implicit val consDoc = Document.instance[(Constructor, List[(Bindable, Option[TypeRef])])] {
+      case (nm, parts) => constructor(nm, Doc.empty, parts)
+    }
+
     Document.instance[Statement] {
       case Bind(bs) =>
-        Document[BindingStatement[Pattern.Parsed, Declaration.NonBinding, Unit]].document(bs) + Doc.line
+        db.document(bs) + Doc.line
       case Comment(cm) =>
         // Comments already end with newline
-        Document[CommentStatement[Unit]].document(cm)
+        dc.document(cm)
       case Def(d) =>
-        implicit val pair: Document[OptIndent[Declaration]] =
-          Document.instance[OptIndent[Declaration]] {
-            body =>
-              body.sepDoc +
-              Document[OptIndent[Declaration]].document(body)
-          }
-        DefStatement.document[Pattern.Parsed, OptIndent[Declaration]].document(d) + Doc.line
+        dd.document(d) + Doc.line
       case PaddingStatement(p) =>
         // this will just be some number of lines
         Padding.document[Unit].document(p)
@@ -296,9 +304,6 @@ object Statement {
         }
         Doc.text("struct ") + constructor(nm, taDoc, args) + Doc.line
       case Enum(nm, typeArgs, parts) =>
-        implicit val consDoc = Document.instance[(Constructor, List[(Bindable, Option[TypeRef])])] {
-          case (nm, parts) => constructor(nm, Doc.empty, parts)
-        }
 
         val (colonSep, itemSep) = parts match {
           case OptIndent.SameLine(_) => (Doc.space, Doc.text(", "))
@@ -334,6 +339,7 @@ object Statement {
         val argsDoc = docTypeArgs(targs)
         Doc.text("external struct ") + Document[Constructor].document(nm) + argsDoc + Doc.line
     }
+  }
 
   implicit lazy val documentList: Document[List[Statement]] =
     Document.instance[List[Statement]] { stmts =>
