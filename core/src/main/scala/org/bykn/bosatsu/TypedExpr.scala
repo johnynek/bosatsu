@@ -351,7 +351,7 @@ object TypedExpr {
       }
 
     def allTypes: SortedSet[Type] =
-      traverseType { t => Writer(SortedSet(t), t) }.run._1
+      traverseType { t => Writer[SortedSet[Type], Type](SortedSet(t), t) }.run._1
 
     /**
      * Traverse all the *non-shadowed* types inside the TypedExpr
@@ -559,7 +559,7 @@ object TypedExpr {
           type Branch = (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
 
           def allTypes[X](p: Pattern[X, Type]): SortedSet[Type] =
-            p.traverseType { t => Writer(SortedSet(t), t) }.run._1
+            p.traverseType { t => Writer[SortedSet[Type], Type](SortedSet(t), t) }.run._1
 
           val allMatchMetas: F[SortedSet[Type.Meta]] =
             getMetaTyVars(arg.getType :: branches.foldMap { case (p, _) => allTypes(p) }.toList)

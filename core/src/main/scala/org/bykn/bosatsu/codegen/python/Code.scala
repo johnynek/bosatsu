@@ -168,8 +168,8 @@ object Code {
           if (ex.isEmpty) Doc.empty
           else par(Doc.intercalate(Doc.comma + Doc.space, ex.map(toDoc)))
 
-          Doc.text("class") + Doc.space + Doc.text(name.name) + exDoc + Doc.char(':') + (Doc.hardLine +
-            toDoc(body)).nested(4)
+        Doc.text("class") + Doc.space + Doc.text(name.name) + exDoc + Doc.char(':') + (Doc.hardLine +
+          toDoc(body)).nested(4)
 
       case IfStatement(conds, Some(Pass)) =>
         toDoc(IfStatement(conds, None))

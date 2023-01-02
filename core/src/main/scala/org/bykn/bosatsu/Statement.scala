@@ -279,11 +279,12 @@ object Statement {
         // Comments already end with newline
         Document[CommentStatement[Unit]].document(cm)
       case Def(d) =>
-        implicit val pair = Document.instance[OptIndent[Declaration]] {
-          body =>
-            body.sepDoc +
-            Document[OptIndent[Declaration]].document(body)
-        }
+        implicit val pair: Document[OptIndent[Declaration]] =
+          Document.instance[OptIndent[Declaration]] {
+            body =>
+              body.sepDoc +
+              Document[OptIndent[Declaration]].document(body)
+          }
         DefStatement.document[Pattern.Parsed, OptIndent[Declaration]].document(d) + Doc.line
       case PaddingStatement(p) =>
         // this will just be some number of lines

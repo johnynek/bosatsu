@@ -319,8 +319,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           res
         }
 
-      supported(tpe).map(_ => loop(tpe, Nil).value)
-    }
+    supported(tpe).map(_ => loop(tpe, Nil).value)
+  }
 
   /**
    * Convert a Json to a Value
@@ -549,8 +549,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
           res
       }
 
-      supported(tpe).map(_ => loop(tpe, Nil).value)
-    }
+    supported(tpe).map(_ => loop(tpe, Nil).value)
+  }
 
   /**
    * Given a type return the function to convert it a function

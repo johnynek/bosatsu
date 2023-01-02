@@ -583,10 +583,10 @@ object PythonGen {
           } yield (nm, me, ve)
       }
 
-    for {
-      (nm, me, ve) <- nmVeEnv
-      stmt <- ops.topLet(nm, me, ve)
-    } yield stmt
+    nmVeEnv
+      .flatMap { case (nm, me, ve) =>
+        ops.topLet(nm, me, ve)
+      }
   }
 
   private def addUnitTest(name: Bindable): Env[Statement] = {

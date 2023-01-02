@@ -217,7 +217,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     }
 
   lazy val patternSetOps: SetOps[Pattern[Cons, Type]] =
-    new SetOps[Pattern[Cons, Type]] {
+    new SetOps[Pattern[Cons, Type]] { self =>
       val top = Some(WildCard)
 
       def intersection(
@@ -415,7 +415,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case Pattern.Union(h, t) =>
             val u = h :: t.toList
             u.exists(isTop(_)) || {
-              missingBranches(WildCard :: Nil, u).isEmpty
+              self.missingBranches(WildCard :: Nil, u).isEmpty
             }
         }
 
