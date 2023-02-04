@@ -1,5 +1,7 @@
 *.class
 *.log
+.bsp
+.vscode/*
 
 # elm
 elmui/out/*
@@ -41,3 +43,5 @@ node_modules/
 # vscode wants to put metals directories here
 .metals
 .bloop
+project/metals.sbt
+project/project/*
