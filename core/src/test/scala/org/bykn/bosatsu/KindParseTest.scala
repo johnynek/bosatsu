@@ -28,6 +28,9 @@ class KindParseTest extends ParserTestBase {
     )
   }
 
+  val genArg: Gen[Kind.Arg] =
+    Gen.zip(genVariance, genKind).map { case (v, k) => Kind.Arg(v, k) }
+
   test("we can parse everything we generate") {
     forAll(genKind) { law(Kind.parser) }
   }
@@ -55,21 +58,28 @@ class KindParseTest extends ParserTestBase {
     parseTestAll(Kind.parser, "* -> (* -> *)", Kind(Type.in, Type.in))
   }
 
-  test("order is consistent with isHigherKind") {
-    forAll(genKind) { k =>
-      assert((k.order > 1) == k.isHigherOrder)
-    }
-  }
-
   test("order is consistent with isType") {
     forAll(genKind) { k =>
       assert((k.order == 0) == k.isType)
     }
   }
 
+  test("order is consistent with isOrder1") {
+    forAll(genKind) { k =>
+      assert((k.order == 1) == k.isOrder1)
+    }
+  }
+
+  test("order is consistent with isHigherKind") {
+    forAll(genKind) { k =>
+      assert((k.order > 1) == k.isHigherOrder)
+    }
+  }
+
   test("order is non-negative") {
     forAll(genKind) { k =>
       assert(k.order >= 0)
+      assert(k.isType || k.isOrder1 || k.isHigherOrder)
     }
   }
 
@@ -79,6 +89,16 @@ class KindParseTest extends ParserTestBase {
       val ord1 = k1.order
       val ord2 = Kind.Cons(k0.in, k1).order
       assert(ord2 == scala.math.max(ord0 + 1, ord1))
+    }
+  }
+
+  test("toArgs and Kind.apply are inverses") {
+    forAll(genKind) { k =>
+      assert(Kind(k.toArgs: _*) == k)
+    }
+
+    forAll(Gen.listOf(genArg)) { args =>
+      assert(Kind(args: _*).toArgs == args)
     }
   }
 

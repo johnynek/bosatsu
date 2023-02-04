@@ -7,6 +7,18 @@ import scala.annotation.tailrec
 sealed abstract class Kind {
   def toDoc: Doc = Kind.toDoc(this)
 
+  def toArgs: List[Kind.Arg] = {
+    @tailrec
+    def loop(k: Kind, acc: List[Kind.Arg]): List[Kind.Arg] =
+      k match {
+        case Kind.Type => acc.reverse
+        case Kind.Cons(arg, rest) =>
+          loop(rest, arg :: acc)
+      }
+
+    loop(this, Nil)
+  }
+
   def withVar(v: Variance): Kind.Arg = Kind.Arg(v, this)
   def in: Kind.Arg = withVar(Variance.in)
   def co: Kind.Arg = withVar(Variance.co)
@@ -15,13 +27,14 @@ sealed abstract class Kind {
 
   def isType: Boolean = this == Kind.Type
 
-  def order: Int =
+  // is order == 1, this is called a "generic" type in some language
+  @tailrec
+  final def isOrder1: Boolean =
     this match {
-      case Kind.Type => 0
-      case Kind.Cons(Kind.Arg(_, i), o) =>
-        scala.math.max(i.order + 1, o.order)
+      case Kind.Type => false
+      case Kind.Cons(Kind.Arg(_, in), rest) =>
+        in.isType && (rest.isType || rest.isOrder1)
     }
-
   // is order 2 or more
   @tailrec
   final def isHigherOrder: Boolean =
@@ -30,6 +43,14 @@ sealed abstract class Kind {
       case Kind.Cons(Kind.Arg(_, in), rest) =>
         (!in.isType) || rest.isHigherOrder
     }
+
+  def order: Int =
+    this match {
+      case Kind.Type => 0
+      case Kind.Cons(Kind.Arg(_, i), o) =>
+        scala.math.max(i.order + 1, o.order)
+    }
+
 }
 
 object Kind {
