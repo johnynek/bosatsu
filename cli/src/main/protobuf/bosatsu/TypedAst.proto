@@ -38,9 +38,27 @@ enum Variance {
   Invariant = 3;
 }
 
+message TypeKind {
+
+}
+
+message ConsKind {
+  Variance variance = 1;
+  Kind input = 2;
+  Kind output = 3;
+}
+
+message Kind {
+  oneof value {
+    TypeKind type = 1;
+    ConsKind cons = 2;
+  }
+}
+
 message TypeParam {
   TypeVar typeVar = 1;
   Variance variance = 2;
+  Kind kind = 3;
 }
 
 message FnParam {
