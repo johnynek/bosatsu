@@ -36,7 +36,7 @@ object TypedExprNormalization {
     if (r.isRecursive) (Some(b), scope - b)
     else (None, scope)
 
-  def normalizeAll[A](pack: PackageName, lets: List[(Bindable, RecursionKind, TypedExpr[A])], typeEnv: TypeEnv[Variance]): List[(Bindable, RecursionKind, TypedExpr[A])] = {
+  def normalizeAll[A, V](pack: PackageName, lets: List[(Bindable, RecursionKind, TypedExpr[A])], typeEnv: TypeEnv[V]): List[(Bindable, RecursionKind, TypedExpr[A])] = {
     @annotation.tailrec
     def loop(scope: Scope[A], lets: List[(Bindable, RecursionKind, TypedExpr[A])], acc: List[(Bindable, RecursionKind, TypedExpr[A])]): List[(Bindable, RecursionKind, TypedExpr[A])] =
       lets match {
@@ -52,10 +52,10 @@ object TypedExprNormalization {
     loop(emptyScope, lets, Nil)
   }
 
-  def normalizeProgram[A](
+  def normalizeProgram[A, V](
     p: PackageName,
-    fullTypeEnv: TypeEnv[Variance],
-    prog: Program[TypeEnv[Variance], TypedExpr[Declaration], A]): Program[TypeEnv[Variance], TypedExpr[Declaration], A] = {
+    fullTypeEnv: TypeEnv[V],
+    prog: Program[TypeEnv[V], TypedExpr[Declaration], A]): Program[TypeEnv[V], TypedExpr[Declaration], A] = {
       val Program(typeEnv, lets, extDefs, stmts) = prog
       val normalLets = normalizeAll(p, lets, fullTypeEnv)
       Program(typeEnv, normalLets, extDefs, stmts)
@@ -63,7 +63,7 @@ object TypedExprNormalization {
 
   // if you have made one step of progress, use this to recurse
   // so we don't throw away if we don't progress more
-  private def normalize1[A](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[Variance]): Some[TypedExpr[A]] =
+  private def normalize1[A, V](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[V]): Some[TypedExpr[A]] =
     normalizeLetOpt(namerec, te, scope, typeEnv) match {
       case None => Some(te)
       case s@Some(_) => s
@@ -72,7 +72,7 @@ object TypedExprNormalization {
   /**
    * if the te is not in normal form, transform it into normal form
    */
-  def normalizeLetOpt[A](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[Variance]): Option[TypedExpr[A]] =
+  def normalizeLetOpt[A, V](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[V]): Option[TypedExpr[A]] =
     te match {
       case Generic(vars, in) =>
         // normalize the inside, then get all the freeBoundTyVars and

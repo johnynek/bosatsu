@@ -237,8 +237,8 @@ class RankNInferTest extends AnyFunSuite {
       ((pn, Constructor("None")), (Nil, Nil, optName)))
 
     val definedOptionGen = Map(
-      ((pn, Constructor("Some")), (List((Bound("a"), Variance.co)), List(Type.TyVar(Bound("a"))), optName)),
-      ((pn, Constructor("None")), (List((Bound("a"), Variance.co)), Nil, optName)))
+      ((pn, Constructor("Some")), (List((Bound("a"), Kind.Type.co)), List(Type.TyVar(Bound("a"))), optName)),
+      ((pn, Constructor("None")), (List((Bound("a"), Kind.Type.co)), Nil, optName)))
   }
 
   test("match with custom non-generic types") {
@@ -292,10 +292,14 @@ class RankNInferTest extends AnyFunSuite {
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOptionGen ++ boolTypes) match {
-        case Left(err) => assert(false, err)
-        case Right(tpe) => assert(tpe.getType == ty, term.toString)
-      }
+      Infer
+        .typeCheck(term)
+        .runFully(
+          withBools ++ asFullyQualified(constructors),
+          definedOptionGen ++ boolTypes) match {
+            case Left(err) => assert(false, err)
+            case Right(tpe) => assert(tpe.getType == ty, term.toString)
+          }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
       Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOptionGen ++ boolTypes) match {
@@ -343,11 +347,11 @@ class RankNInferTest extends AnyFunSuite {
      * struct Pure(pure: forall a. a -> f[a])
      */
     val defined = Map(
-      ((pn, Constructor("Pure")), (List((b("f"), Variance.in)),
+      ((pn, Constructor("Pure")), (List((b("f"), Kind.Type.in)),
         List(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
-      ((pn, Constructor("Some")), (List((b("a"), Variance.co)), List(tv("a")), optName)),
-      ((pn, Constructor("None")), (List((b("a"), Variance.co)), Nil, optName)))
+      ((pn, Constructor("Some")), (List((b("a"), Kind.Type.co)), List(tv("a")), optName)),
+      ((pn, Constructor("None")), (List((b("a"), Kind.Type.co)), Nil, optName)))
 
     val constructors = Map(
       (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b("f")),

@@ -9,6 +9,7 @@ import org.bykn.bosatsu.{
   Expr,
   HasRegion,
   Identifier,
+  Kind,
   PackageName,
   Pattern => GenPattern,
   Region,
@@ -58,14 +59,14 @@ object Infer {
    * the next are the types of the args of the constructor
    * the final is the defined type this creates
    */
-  type Cons = (List[(Type.Var, Variance)], List[Type], Type.Const.Defined)
+  type Cons = (List[(Type.Var, Kind.Arg)], List[Type], Type.Const.Defined)
   type Name = (Option[PackageName], Identifier)
 
   case class Env(
     uniq: Ref[Long],
     vars: Map[Name, Type],
     typeCons: Map[(PackageName, Constructor), Cons],
-    variances: Map[Type.Const.Defined, List[Variance]]) {
+    variances: Map[Type.Const.Defined, List[Kind.Arg]]) {
 
     def addVars(vt: List[(Name, Type)]): Env =
       copy(vars = vt.foldLeft(vars)(_ + _))
@@ -243,7 +244,7 @@ object Infer {
           })
     }
 
-    case object GetVarianceMap extends Infer[Map[Type.Const.Defined, List[Variance]]] {
+    case object GetVarianceMap extends Infer[Map[Type.Const.Defined, List[Kind.Arg]]] {
       def run(env: Env) = RefSpace.pure(Right(env.variances))
     }
 
@@ -267,13 +268,14 @@ object Infer {
 
     def varianceOf(t: Type): Infer[Option[Variance]] = {
       import Type._
-      def variances(vs: Map[Type.Const.Defined, List[Variance]], t: Type): Option[List[Variance]] =
+      def variances(vs: Map[Type.Const.Defined, List[Kind.Arg]], t: Type): Option[List[Variance]] =
         t match {
-          case FnType => Some(Variance.in :: Variance.co :: Nil)
+          case FnType => Some(Variance.contra :: Variance.co :: Nil)
           case TyApply(left, _) =>
             variances(vs, left).map(_.drop(1))
           case TyConst(defined@Const.Defined(_, _)) =>
-            vs.get(defined)
+            // TODO: don't ignore Kind
+            vs.get(defined).map(_.map(_.variance))
           case TyVar(_) => None
           case TyMeta(_) =>
             // this is almost certainly a bug in this approach.

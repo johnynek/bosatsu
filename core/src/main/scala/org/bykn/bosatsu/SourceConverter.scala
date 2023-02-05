@@ -25,7 +25,7 @@ import SourceConverter.{success, Result}
  */
 final class SourceConverter(
   thisPackage: PackageName,
-  imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
+  imports: List[Import[PackageName, NonEmptyList[Referant[Kind.Arg]]]],
   localDefs: List[TypeDefinitionStatement]) {
   /*
    * We should probably error for non-predef name collisions.
@@ -47,7 +47,8 @@ final class SourceConverter(
   private val importedNames: Map[Identifier, (PackageName, Identifier)] =
     imports.iterator.flatMap(_.resolveToGlobal).toMap
 
-  val importedTypeEnv = Referant.importedTypeEnv(imports)(identity)
+  val importedTypeEnv: TypeEnv[Kind.Arg] =
+    Referant.importedTypeEnv(imports)(identity)
 
   private def nameToType(c: Constructor, region: Region): Result[rankn.Type.Const] =
     typeCache.get(c) match {
@@ -1122,7 +1123,7 @@ final class SourceConverter(
     .map(_.flatten)
   }
 
-  def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] = {
+  def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Kind.Arg], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] = {
     val stmts = Statement.valuesOf(ss).toList
     stmts.collect {
       case ed@Statement.ExternalDef(name, params, result) =>
@@ -1183,8 +1184,8 @@ object SourceConverter {
 
   def toProgram( 
     thisPackage: PackageName,
-    imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
-    stmts: List[Statement]): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] =
+    imports: List[Import[PackageName, NonEmptyList[Referant[Kind.Arg]]]],
+    stmts: List[Statement]): Result[Program[(TypeEnv[Kind.Arg], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] =
       (new SourceConverter(thisPackage, imports, Statement.definitionsOf(stmts).toList)).toProgram(stmts)
 
   private def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =

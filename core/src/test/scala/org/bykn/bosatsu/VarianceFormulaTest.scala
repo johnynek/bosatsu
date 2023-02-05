@@ -13,7 +13,7 @@ class VarianceFormulaTest extends AnyFunSuite {
         val teMap = DefinedType.listToMap(teVar)
         variances.foreach { case (n, vs) =>
           val dt = teMap((PackageName.PredefName, TypeName(Identifier.Constructor(n))))
-          assert(dt.annotatedTypeParams.map(_._2) == vs)
+          assert(dt.annotatedTypeParams.map(_._2) == vs.map(Kind.Type.withVar(_)))
         }
     }
   }

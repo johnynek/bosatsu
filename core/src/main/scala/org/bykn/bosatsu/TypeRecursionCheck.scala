@@ -20,14 +20,14 @@ object TypeRecursionCheck {
    * this is okay, and cannot be used to break totality
    */
   def checkLegitRecursion(
-    imports: TypeEnv[Variance],
-    packageDefinedTypes: List[DefinedType[Variance]]): ValidatedNel[NonEmptyList[DefinedType[Variance]], Unit] = {
+    imports: TypeEnv[Kind.Arg],
+    packageDefinedTypes: List[DefinedType[Kind.Arg]]): ValidatedNel[NonEmptyList[DefinedType[Kind.Arg]], Unit] = {
 
     val typeMap = DefinedType.listToMap(packageDefinedTypes)
 
     // Check DAG-ness of non-self-loops in current package,
     // imports are already a DAG
-    def typeLocalDepends(dt: DefinedType[Variance]): List[DefinedType[Variance]] = {
+    def typeLocalDepends(dt: DefinedType[Kind.Arg]): List[DefinedType[Kind.Arg]] = {
       val depends = for {
         cons <- dt.constructors
         const <- cons.args.flatMap { case (_, t) => Type.constantsOf(t) }
@@ -39,7 +39,7 @@ object TypeRecursionCheck {
       depends.distinct.filterNot(_ == dt)
     }
 
-    val assertDag: ValidatedNel[NonEmptyList[DefinedType[Variance]], Unit] =
+    val assertDag: ValidatedNel[NonEmptyList[DefinedType[Kind.Arg]], Unit] =
       packageDefinedTypes.traverse_ { dt =>
         // TODO, this can be optimized to check the entire graph at once
         NonEmptyList.fromList(Paths.allCycle0(dt)(typeLocalDepends _)) match {
@@ -49,13 +49,13 @@ object TypeRecursionCheck {
         }
       }
 
-    def getDT(dt: Type.Const.Defined): Option[DefinedType[Variance]] = {
+    def getDT(dt: Type.Const.Defined): Option[DefinedType[Kind.Arg]] = {
       val tn = dt.name
       typeMap.get((dt.packageName, tn))
         .orElse(imports.getType(dt.packageName, tn))
     }
 
-    def buildEdges(dt: DefinedType[Variance]): List[(DefinedType[Variance], Variance, DefinedType[Variance])] = {
+    def buildEdges(dt: DefinedType[Kind.Arg]): List[(DefinedType[Kind.Arg], Variance, DefinedType[Kind.Arg])] = {
       /*
        * enum L: E, N(head: a, tail: L[a])
        *
@@ -64,9 +64,9 @@ object TypeRecursionCheck {
        * Tree[a] -> + L[Tree[a]] => Tree -> + L, L -> + Tree
        */
       def tpeToEdge(
-        src: DefinedType[Variance],
+        src: DefinedType[Kind.Arg],
         v: Variance,
-        t: Type): List[(DefinedType[Variance], Variance, DefinedType[Variance])] = {
+        t: Type): List[(DefinedType[Kind.Arg], Variance, DefinedType[Kind.Arg])] = {
           import Type._
           t match {
             case Fun(a, b) =>
@@ -79,12 +79,12 @@ object TypeRecursionCheck {
               }
             case TyVar(_) | TyMeta(_) => Nil
             case rest@(ForAll(_, _) | TyApply(_, _)) =>
-              def build(t: Type, targs: List[Type]): (Option[DefinedType[Variance]], List[(Variance, Type)]) = {
+              def build(t: Type, targs: List[Type]): (Option[DefinedType[Kind.Arg]], List[(Kind.Arg, Type)]) = {
                 val (left, newArgs) = Type.applicationArgs(t)
                 val args = newArgs ::: targs
-                lazy val worstCaseArgs = args.map((Variance.in, _))
+                lazy val worstCaseArgs = args.map((Kind.Type.in, _))
                 left match {
-                  case FnType => (None, List(Variance.contra, Variance.co).zip(args))
+                  case FnType => (None, List(Kind.Type.contra, Kind.Type.co).zip(args))
                   case TyConst(dt@Const.Defined(_, _)) =>
                     getDT(dt) match {
                       case None =>
@@ -100,7 +100,10 @@ object TypeRecursionCheck {
               }
 
               val (dest, vargs) = build(rest, Nil)
-              val next = vargs.flatMap { case (v1, a) => tpeToEdge(src, v * v1, a) }
+              val next = vargs.flatMap { case (v1, a) =>
+                // TODO: Kind -- this may not be right, just a hack to compile
+                tpeToEdge(src, v1.variance * v, a)
+              }
               dest.fold(next) { dtDest =>
                 (dt, v, dtDest) :: next
               }
@@ -117,8 +120,8 @@ object TypeRecursionCheck {
     }
 
     // Here we are just checking if we can find a loop from dt to dt that is covariant
-    def checkSelfRecursions(dt: DefinedType[Variance]): ValidatedNel[NonEmptyList[DefinedType[Variance]], Unit] = {
-      type DT = DefinedType[Variance]
+    def checkSelfRecursions(dt: DefinedType[Kind.Arg]): ValidatedNel[NonEmptyList[DefinedType[Kind.Arg]], Unit] = {
+      type DT = DefinedType[Kind.Arg]
       val graphFn: DT => List[(Variance, DT)] = {
         // This Map is safe since it is used as a function
         val m = buildEdges(dt)

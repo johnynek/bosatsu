@@ -202,7 +202,9 @@ object VarianceFormula {
    * It may be the case that we can always infer the variance, we don't actually
    * have a proof on how often this fails (if ever).
    */
-  def solve(imports: TypeEnv[Variance], current: List[DefinedType[Unit]]): Either[NonEmptyList[DefinedType[Unit]], List[DefinedType[Variance]]] = {
+  def solve(
+    imports: TypeEnv[Kind.Arg],
+    current: List[DefinedType[Unit]]): Either[NonEmptyList[DefinedType[Unit]], List[DefinedType[Kind.Arg]]] = {
     val travListDT = Traverse[NonEmptyList].compose[DefinedType]
 
     def constrain(unknowns: SortedMap[(PackageName, TypeName), DefinedType[Unknown]], dt: DefinedType[Unknown]): State[SolutionState, Unit] = {
@@ -261,7 +263,7 @@ object VarianceFormula {
             // TODO need error handling if we don't know about this type
             val thisDt: DefinedType[VarianceFormula] =
               unknowns.get((p, tn))
-                .orElse(imports.getType(p, tn).map(_.map(Known(_))))
+                .orElse(imports.getType(p, tn).map(_.map { arg => Known(arg.variance) }))
                 .getOrElse(sys.error(s"unknown: $p, $tn in $dt"))
 
             thisDt.annotatedTypeParams.map(_._2).to(LazyList)
@@ -347,7 +349,9 @@ object VarianceFormula {
           simplified = ss.simplify
         } yield finish(dts, simplified)
 
+        // TODO: not every arg is a Type
         state.run(SolutionState.empty).value._2
+          .map(_.map(_.map { v => Kind.Arg(v, Kind.Type) }))
     }
   }
 }

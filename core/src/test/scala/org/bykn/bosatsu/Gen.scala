@@ -965,7 +965,7 @@ object Generators {
   val interfaceGen: Gen[Package.Interface] =
     for {
       p <- packageNameGen
-      te <- typeEnvGen(p, Gen.oneOf(Variance.co, Variance.phantom, Variance.contra, Variance.in))
+      te <- typeEnvGen(p, Gen.oneOf(Kind.Type.co, Kind.Type.phantom, Kind.Type.contra, Kind.Type.in))
       exs0 <- smallList(exportGen(te))
       exs = exs0.map { ex => (ex.name, ex) }.toMap.values.toList // don't duplicate exported names
     } yield Package(p, Nil, exs, ())
@@ -1069,11 +1069,11 @@ object Generators {
         (1, shuffle(existing.toList).map(_.take(2).toMap))
       )
 
-    def impFromExp(exp: List[(Package.Interface, ExportedName[Referant[Variance]])]): Gen[List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]]] =
+    def impFromExp(exp: List[(Package.Interface, ExportedName[Referant[Kind.Arg]])]): Gen[List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]]] =
       exp.groupBy(_._1)
         .toList
         .traverse { case (p, exps) =>
-          val genImps: Gen[List[ImportedName[NonEmptyList[Referant[Variance]]]]] =
+          val genImps: Gen[List[ImportedName[NonEmptyList[Referant[Kind.Arg]]]]] =
             exps.groupBy(_._2.name)
               .iterator
               .toList
@@ -1104,9 +1104,9 @@ object Generators {
           }
         }
 
-    val genImports: Gen[List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]]] =
+    val genImports: Gen[List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]]] =
       genDeps.flatMap { packs =>
-        val exps: List[(Package.Interface, ExportedName[Referant[Variance]])] =
+        val exps: List[(Package.Interface, ExportedName[Referant[Kind.Arg]])] =
           (for {
             (_, p) <- packs.iterator
             exp <- p.exports
@@ -1119,7 +1119,7 @@ object Generators {
         } yield imp
       }
 
-    def definedTypesFromImp(i: Import[Package.Interface, NonEmptyList[Referant[Variance]]]): List[rankn.Type.Const] =
+    def definedTypesFromImp(i: Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]): List[rankn.Type.Const] =
       i.items.toList.flatMap { in =>
         in.tag.toList.flatMap {
           case Referant.DefinedT(dt) => dt.toTypeConst :: Nil
@@ -1129,22 +1129,22 @@ object Generators {
       }
 
     def genTypeEnv(pn: PackageName,
-      imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]]): StateT[Gen, (rankn.TypeEnv[Variance], Set[Identifier.Bindable]), Unit] =
-        StateT.get[Gen, (rankn.TypeEnv[Variance], Set[Identifier.Bindable])]
+      imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]]): StateT[Gen, (rankn.TypeEnv[Kind.Arg], Set[Identifier.Bindable]), Unit] =
+        StateT.get[Gen, (rankn.TypeEnv[Kind.Arg], Set[Identifier.Bindable])]
           .flatMap { case (te, extDefs) =>
             StateT.liftF(Gen.choose(0, 9))
               .flatMap {
                 case 0 =>
                   // 1 in 10 chance of stopping
-                  StateT.pure[Gen, (rankn.TypeEnv[Variance], Set[Identifier.Bindable]), Unit](())
+                  StateT.pure[Gen, (rankn.TypeEnv[Kind.Arg], Set[Identifier.Bindable]), Unit](())
                 case _ =>
                   // add something:
                   val tyconsts =
                     te.allDefinedTypes.map(_.toTypeConst) ++
                       imps.flatMap(definedTypesFromImp)
                   val theseTypes = NTypeGen.genDepth(4, if (tyconsts.isEmpty) None else Some(Gen.oneOf(tyconsts)))
-                  val genV: Gen[Variance] =
-                    Gen.oneOf(Variance.co, Variance.contra, Variance.in, Variance.phantom)
+                  val genV: Gen[Kind.Arg] =
+                    Gen.oneOf(Kind.Type.co, Kind.Type.contra, Kind.Type.in, Kind.Type.phantom)
                   val genDT = genDefinedType(pn, genV, theseTypes)
                   val genEx: Gen[(Identifier.Bindable, rankn.Type)] =
                     Gen.zip(bindIdentGen, theseTypes)
@@ -1159,7 +1159,7 @@ object Generators {
               }
           }
 
-    def genLets(te: rankn.TypeEnv[Variance],
+    def genLets(te: rankn.TypeEnv[Kind.Arg],
       exts: Set[Identifier.Bindable]): Gen[List[(Identifier.Bindable, RecursionKind, TypedExpr[A])]] = {
         val allTC = te.allDefinedTypes.map(_.toTypeConst)
         val theseTypes = NTypeGen.genDepth(4, if (allTC.isEmpty) None else Some(Gen.oneOf(allTC)))
@@ -1172,7 +1172,7 @@ object Generators {
 
     def genProg(
       pn: PackageName,
-      imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]]): Gen[Program[rankn.TypeEnv[Variance], TypedExpr[A], Any]] =
+      imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]]): Gen[Program[rankn.TypeEnv[Kind.Arg], TypedExpr[A], Any]] =
         genTypeEnv(pn, imps)
           .runS((rankn.TypeEnv.empty, Set.empty))
           .flatMap { case (te, b) =>
@@ -1182,17 +1182,17 @@ object Generators {
     /*
      * Exports are types, constructors, or values
      */
-    def genExports(pn: PackageName, p: Program[rankn.TypeEnv[Variance], TypedExpr[A], Any]): Gen[List[ExportedName[Referant[Variance]]]] = {
-      def expnames: List[ExportedName[Referant[Variance]]] =
+    def genExports(pn: PackageName, p: Program[rankn.TypeEnv[Kind.Arg], TypedExpr[A], Any]): Gen[List[ExportedName[Referant[Kind.Arg]]]] = {
+      def expnames: List[ExportedName[Referant[Kind.Arg]]] =
         p.lets.map { case (n, _, te) =>
           ExportedName.Binding(n, Referant.Value(te.getType))
         }
-      def exts: List[ExportedName[Referant[Variance]]] =
+      def exts: List[ExportedName[Referant[Kind.Arg]]] =
         p.externalDefs.flatMap { n =>
           p.types.getValue(pn, n).map { t => ExportedName.Binding(n, Referant.Value(t)) }
         }
 
-      def cons: List[ExportedName[Referant[Variance]]] =
+      def cons: List[ExportedName[Referant[Kind.Arg]]] =
         p.types.allDefinedTypes.flatMap { dt =>
           if (dt.packageName == pn) {
             val dtex = ExportedName.TypeName(dt.name.ident, Referant.DefinedT(dt))

@@ -54,10 +54,10 @@ object PackageMap {
   type Resolved = MapF2[Unit, (List[Statement], ImportMap[PackageName, Unit])]
   type Typed[+T] = PackageMap[
     Package.Interface,
-    NonEmptyList[Referant[Variance]],
-    Referant[Variance],
+    NonEmptyList[Referant[Kind.Arg]],
+    Referant[Kind.Arg],
     Program[
-      TypeEnv[Variance],
+      TypeEnv[Kind.Arg],
       TypedExpr[T],
       Any
     ]
@@ -218,8 +218,8 @@ object PackageMap {
     /*
      * We memoize this function to avoid recomputing diamond dependencies
      */
-    val infer0: ResolvedU => Par.F[Ior[NonEmptyList[PackageError], (TypeEnv[Variance], Package.Inferred)]] =
-      Memoize.memoizeDagFuture[ResolvedU, Ior[NonEmptyList[PackageError], (TypeEnv[Variance], Package.Inferred)]] {
+    val infer0: ResolvedU => Par.F[Ior[NonEmptyList[PackageError], (TypeEnv[Kind.Arg], Package.Inferred)]] =
+      Memoize.memoizeDagFuture[ResolvedU, Ior[NonEmptyList[PackageError], (TypeEnv[Kind.Arg], Package.Inferred)]] {
         // TODO, we ignore importMap here, we only check earlier we don't
         // have duplicate imports
         case (Package(nm, imports, exports, (stmt, _)), recurse) =>
@@ -259,7 +259,7 @@ object PackageMap {
            * type can have the same name as a constructor. After this step, each
            * distinct object has its own entry in the list
            */
-          type ImpRes = Import[Package.Interface, NonEmptyList[Referant[Variance]]]
+          type ImpRes = Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]
           def stepImport(imp: Import[Package.Resolved, Unit]): FutVal[ImpRes] = {
             val Import(fixpack, items) = imp
             Package.unfix(fixpack) match {

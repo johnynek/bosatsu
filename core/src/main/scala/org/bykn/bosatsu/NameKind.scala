@@ -8,7 +8,7 @@ object NameKind {
   case class Constructor[T](
     cn: Identifier.Constructor,
     params: List[(Bindable, rankn.Type)],
-    defined: rankn.DefinedType[Variance],
+    defined: rankn.DefinedType[Kind.Arg],
     valueType: rankn.Type) extends NameKind[T]
   case class Import[T](fromPack: Package.Interface, originalName: Identifier) extends NameKind[T]
   case class ExternalDef[T](pack: PackageName, defName: Identifier, defType: rankn.Type) extends NameKind[T]
