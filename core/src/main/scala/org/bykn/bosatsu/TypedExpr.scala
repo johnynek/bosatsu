@@ -55,7 +55,10 @@ sealed abstract class TypedExpr[+T] { self: Product =>
     def loop(te: TypedExpr[T]): Doc = {
       te match {
         case Generic(params, expr) =>
-          val pstr = Doc.intercalate(Doc.comma + Doc.lineOrSpace, params.toList.map { p => Doc.text(p.name) })
+          val pstr = Doc.intercalate(
+            Doc.comma + Doc.lineOrSpace,
+            params.toList.map { case (p, k) => Doc.text(p.name) + Doc.text(": ") + k.toDoc }
+          )
           (Doc.text("(generic") + Doc.lineOrSpace + Doc.char('[') + pstr + Doc.char(']') + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
         case Annotation(expr, tpe, _) =>
           (Doc.text("(ann") + Doc.lineOrSpace + rept(tpe) + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
@@ -173,7 +176,7 @@ object TypedExpr {
    *
    * The paper says to add TyLam and TyApp nodes, but it never mentions what to do with them
    */
-  case class Generic[T](typeVars: NonEmptyList[Type.Var.Bound], in: TypedExpr[T]) extends TypedExpr[T] {
+  case class Generic[T](typeVars: NonEmptyList[(Type.Var.Bound, Kind)], in: TypedExpr[T]) extends TypedExpr[T] {
     def tag: T = in.tag
   }
   case class Annotation[T](term: TypedExpr[T], coerce: Type, tag: T) extends TypedExpr[T]
@@ -361,13 +364,13 @@ object TypedExpr {
         case gen@Generic(params, expr) =>
           // params shadow below, so they are not free values
           // and can easily create bugs if passed into fn
-          val shadowed: Set[Type.Var.Bound] = params.toList.toSet
+          val shadowed: Set[Type.Var.Bound] = params.toList.iterator.map(_._1).toSet
           val shadowFn: Type => F[Type] = {
             case tvar@Type.TyVar(v: Type.Var.Bound) if shadowed(v) => Applicative[F].pure(tvar)
             case notShadowed => fn(notShadowed)
           }
 
-          val paramsF = params.traverse_ { v => fn(Type.TyVar(v)) }
+          val paramsF = params.traverse_ { v => fn(Type.TyVar(v._1)) }
           (paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
             .map(Generic(params, _))
         case Annotation(of, tpe, tag) =>
@@ -478,9 +481,12 @@ object TypedExpr {
         case Some(metas) =>
           val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
           val aligned = Type.alignBinders(metas, used)
+          // TODO Kind: we need to infer the correct Kinds for these metas
+          val typeArgs: NonEmptyList[(Type.Var.Bound, Kind)] =
+            aligned.map { case (_, b) => (b, Kind.Type) }
           val bound = aligned.traverse_ { case (m, n) => writeFn(m, n) }
           // we only need to zonk after doing a write:
-          (bound *> zonkMeta(rho)(zFn)).map(forAll(aligned.map(_._2), _))
+          (bound *> zonkMeta(rho)(zFn)).map(forAll(typeArgs, _))
       }
 
     type Name = (Option[PackageName], Identifier)
@@ -826,7 +832,7 @@ object TypedExpr {
     typedExpr match {
       case Generic(params, expr) =>
         // we need to remove the params which are shadowed below
-        val paramSet: Set[Type.Var] = params.toList.toSet
+        val paramSet: Set[Type.Var] = params.toList.iterator.map(_._1).toSet
         val env1 = env.iterator.filter { case (k, _) => !paramSet(k) }.toMap
         Generic(params, substituteTypeVar(expr, env1))
       case Annotation(of, tpe, tag) =>
@@ -941,7 +947,7 @@ object TypedExpr {
       }
     }
 
-  def forAll[A](params: NonEmptyList[Type.Var.Bound], expr: TypedExpr[A]): TypedExpr[A] =
+  def forAll[A](params: NonEmptyList[(Type.Var.Bound, Kind)], expr: TypedExpr[A]): TypedExpr[A] =
     expr match {
       case Generic(ps, ex0) =>
         // if params and ps have duplicates, that
@@ -964,7 +970,7 @@ object TypedExpr {
         // due to covariance in the return type, we can always lift
         // generics on the return value out of the lambda
         val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
-        val quants = ps.toList.toSet
+        val quants = ps.toList.iterator.map(_._1).toSet
         val collisions = frees.intersect(quants)
         if (collisions.isEmpty) {
           Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag))
@@ -978,7 +984,7 @@ object TypedExpr {
               .zip(replacements)
               .toMap
 
-          val ps1 = ps.map { v => repMap.getOrElse(v, v) }
+          val ps1 = ps.map { case (v, k) => (repMap.getOrElse(v, v), k) }
           val typeMap: Map[Type.Var, Type] =
             repMap.iterator.map { case (k, v) => (k, Type.TyVar(v)) }.toMap
           val ex1 = substituteTypeVar(ex0, typeMap)

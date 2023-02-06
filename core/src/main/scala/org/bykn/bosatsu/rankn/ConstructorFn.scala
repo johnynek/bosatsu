@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
 
-import org.bykn.bosatsu.{TypeName, PackageName}
+import org.bykn.bosatsu.{Kind, TypeName, PackageName}
 import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
 
 final case class ConstructorFn(
@@ -23,13 +23,13 @@ final case class ConstructorFn(
 
 object ConstructorFn {
 
-  def build(packageName: PackageName, typeName: TypeName, tparams: List[Type.Var.Bound], name: Constructor, fnParams: List[(Bindable, Type)]): ConstructorFn = {
+  def build(packageName: PackageName, typeName: TypeName, tparams: List[(Type.Var.Bound, Kind)], name: Constructor, fnParams: List[(Bindable, Type)]): ConstructorFn = {
     val tc: Type = Type.const(packageName, typeName)
 
     def loop(params: List[Type]): Type =
        params match {
          case Nil =>
-           tparams.foldLeft(tc) { (res, v) =>
+           tparams.foldLeft(tc) { case (res, (v, _)) =>
              Type.TyApply(res, Type.TyVar(v))
            }
          case h :: tail =>

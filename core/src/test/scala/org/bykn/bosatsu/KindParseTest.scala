@@ -6,31 +6,13 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
   PropertyCheckConfiguration
 }
 
+import rankn.NTypeGen.{genKind, genKindArg => genArg}
+
 class KindParseTest extends ParserTestBase {
   override def config: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful =
       if (Platform.isScalaJvm) 5000 else 100
     )
-
-  val genVariance =
-    Gen.oneOf(Variance.co, Variance.in, Variance.contra, Variance.phantom)
-
-  val genKind: Gen[Kind] = {
-    val recurse = Gen.lzy(genKind)
-    Gen.frequency(
-      (2, Gen.const(Kind.Type)),
-      (
-        1,
-        Gen.zip(genVariance, recurse, recurse).map { case (v, a, b) =>
-          Kind.Cons(a.withVar(v), b)
-        }
-      )
-    )
-  }
-
-  val genArg: Gen[Kind.Arg] =
-    Gen.zip(genVariance, genKind).map { case (v, k) => Kind.Arg(v, k) }
-
   test("we can parse everything we generate") {
     forAll(genKind) { law(Kind.parser) }
   }

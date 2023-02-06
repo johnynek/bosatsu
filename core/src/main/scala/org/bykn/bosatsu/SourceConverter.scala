@@ -562,7 +562,9 @@ final class SourceConverter(
 
             updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
               val tname = TypeName(nm)
-              val consFn = rankn.ConstructorFn.build(pname, tname, typeParams, nm, params)
+              // TODO we have to find the kinds of the type params
+              val withKinds = typeParams.map((_, Kind.Type))
+              val consFn = rankn.ConstructorFn.build(pname, tname, withKinds, nm, params)
 
               rankn.DefinedType(pname,
                 tname,
@@ -597,7 +599,9 @@ final class SourceConverter(
           updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
             val tname = TypeName(nm)
             val finalCons = constructors.toList.map { case (c, params) =>
-              rankn.ConstructorFn.build(pname, tname, typeParams, c, params)
+              // TODO Kind compute the kinds
+              val withKinds = typeParams.map((_, Kind.Type))
+              rankn.ConstructorFn.build(pname, tname, withKinds, c, params)
             }
             rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
           }
@@ -1147,7 +1151,8 @@ final class SourceConverter(
                 sys.error(s"invariant violation: parsed a skolem var: $s")
                 // $COVERAGE-ON$
             }
-            val maybeForAll = rankn.Type.forAll(freeBound, tpe)
+            // TODO: Kind support parsing kinds
+            val maybeForAll = rankn.Type.forAll(freeBound.map { n => (n, Kind.Type) }, tpe)
             (name, maybeForAll)
           }
     }

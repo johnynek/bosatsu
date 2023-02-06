@@ -314,13 +314,15 @@ object Infer {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
           for {
-            sks1 <- tvs.traverse(newSkolemTyVar)
+            // TODO Kind
+            sks1 <- tvs.traverse { case (b, _) => newSkolemTyVar(b) }
             sksT = sks1.map(Type.TyVar(_))
-            sks2ty <- skolemize(substTyRho(tvs, sksT)(ty))
+            sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty))
             (sks2, ty2) = sks2ty
           } yield (sks1.toList ::: sks2, ty2)
         case Type.TyApply(left, right) =>
           // Rule PRFUN
+          // we know the kind of left is k -> x, and right has kind k
           varianceOf(left)
             .product(skolemize(left))
             .flatMap {
@@ -397,9 +399,11 @@ object Infer {
     def instantiate(t: Type): Infer[Type.Rho] =
       t match {
         case Type.ForAll(vars, ty) =>
+          // TODO Kind we know the kinds of these type variables but
+          // we are ignoring it
           vars.traverse(_ => newMetaType)
             .map { vars1T =>
-              substTyRho(vars, vars1T)(ty)
+              substTyRho(vars.map(_._1), vars1T)(ty)
             }
         case rho: Type.Rho => pure(rho)
       }
@@ -1051,7 +1055,8 @@ object Infer {
         val aligned = Type.alignBinders(skols, used)
         val newVars = aligned.map(_._2)
         val te2 = substTyExpr(skols, newVars.map(Type.TyVar(_)), te)
-        TypedExpr.forAll(newVars, te2)
+        // TODO: we have to not forget the skolem kinds
+        TypedExpr.forAll(newVars.map((_, Kind.Type)), te2)
       }
     }
 

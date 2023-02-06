@@ -51,6 +51,8 @@ class RankNInferTest extends AnyFunSuite {
   def defType(n: String): Type.Const.Defined =
     Type.Const.Defined(testPackage, TypeName(Identifier.Constructor(n)))
 
+  def b(a: String) = (Type.Var.Bound(a), Kind.Type)
+
   val withBools: Map[Infer.Name, Type] =
     Map(
       (Some(PackageName.PredefName), Identifier.unsafe("True")) -> Type.BoolType,
@@ -178,10 +180,10 @@ class RankNInferTest extends AnyFunSuite {
     testType(lit(100), Type.IntType)
     testType(let("x", lambda("y", v("y")), lit(100)), Type.IntType)
     testType(lambda("y", v("y")),
-      ForAll(NonEmptyList.of(Bound("a")),
+      ForAll(NonEmptyList.of(b("a")),
         Type.Fun(Type.TyVar(Bound("a")),Type.TyVar(Bound("a")))))
     testType(lambda("y", lambda("z", v("y"))),
-      ForAll(NonEmptyList.of(Bound("a"), Bound("b")),
+      ForAll(NonEmptyList.of(b("a"), b("b")),
         Type.Fun(Type.TyVar(Bound("a")),
           Type.Fun(Type.TyVar(Bound("b")),Type.TyVar(Bound("a"))))))
 
@@ -194,7 +196,7 @@ class RankNInferTest extends AnyFunSuite {
     testType(let("x", lit(0), ife(lit(true), v("x"), lit(1))), Type.IntType)
 
     val identFnType =
-      ForAll(NonEmptyList.of(Bound("a")),
+      ForAll(NonEmptyList.of(b("a")),
         Type.Fun(Type.TyVar(Bound("a")), Type.TyVar(Bound("a"))))
     testType(let("x", lambda("y", v("y")),
       ife(lit(true), v("x"),
@@ -281,8 +283,7 @@ class RankNInferTest extends AnyFunSuite {
   }
 
   test("match with custom generic types") {
-    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
-    def tv(a: String): Type = Type.TyVar(b(a))
+    def tv(a: String): Type = Type.TyVar(Type.Var.Bound(a))
 
     import OptionTypes._
 
@@ -335,8 +336,7 @@ class RankNInferTest extends AnyFunSuite {
   }
 
   test("Test a constructor with ForAll") {
-    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
-    def tv(a: String): Type = Type.TyVar(b(a))
+    def tv(a: String): Type = Type.TyVar(Type.Var.Bound(a))
 
     val pureName = defType("Pure")
     val optName = defType("Option")
@@ -347,11 +347,11 @@ class RankNInferTest extends AnyFunSuite {
      * struct Pure(pure: forall a. a -> f[a])
      */
     val defined = Map(
-      ((pn, Constructor("Pure")), (List((b("f"), Kind.Type.in)),
-        List(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
+      ((pn, Constructor("Pure")), (List((Type.Var.Bound("f"), Kind.Type.in)),
+        List(Type.ForAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
-      ((pn, Constructor("Some")), (List((b("a"), Kind.Type.co)), List(tv("a")), optName)),
-      ((pn, Constructor("None")), (List((b("a"), Kind.Type.co)), Nil, optName)))
+      ((pn, Constructor("Some")), (List((Type.Var.Bound("a"), Kind.Type.co)), List(tv("a")), optName)),
+      ((pn, Constructor("None")), (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, optName)))
 
     val constructors = Map(
       (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b("f")),

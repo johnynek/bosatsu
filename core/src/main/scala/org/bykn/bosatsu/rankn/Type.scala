@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
 import cats.{Applicative, Eq, Order}
 import org.typelevel.paiges.{Doc, Document}
-import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
+import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import scala.collection.immutable.SortedSet
 
 import cats.implicits._
@@ -18,7 +18,7 @@ object Type {
   sealed abstract class Rho extends Type
   type Tau = Rho // no forall anywhere
 
-  case class ForAll(vars: NonEmptyList[Var.Bound], in: Rho) extends Type
+  case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho) extends Type
   case class TyConst(tpe: Const) extends Rho
   case class TyVar(toVar: Var) extends Rho
   case class TyMeta(toMeta: Meta) extends Rho
@@ -29,7 +29,9 @@ object Type {
       val boundOrd: Ordering[Var.Bound] =
         Ordering[String].on[Var.Bound] { case Var.Bound(v) => v }
 
-      val list = org.bykn.bosatsu.ListOrdering.onType(boundOrd)
+      val list = org.bykn.bosatsu.ListOrdering.onType(
+        Ordering.Tuple2(boundOrd, Kind.orderingKind)
+      )
 
       def compare(a: Type, b: Type): Int =
         (a, b) match {
@@ -94,7 +96,7 @@ object Type {
       case fa@ForAll(_, _) => freeTyVars(fa :: Nil).isEmpty
     }
 
-  final def forAll(vars: List[Var.Bound], in: Type): Type =
+  final def forAll(vars: List[(Var.Bound, Kind)], in: Type): Type =
     NonEmptyList.fromList(vars) match {
       case None => in
       case Some(ne) =>
@@ -154,7 +156,7 @@ object Type {
       case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
       case v@TyVar(n) => env.getOrElse(n, v)
       case ForAll(ns, rho) =>
-        val boundSet: Set[Var] = ns.toList.toSet
+        val boundSet: Set[Var] = ns.toList.iterator.map(_._1).toSet
         val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
         forAll(ns.toList, substituteVar(rho, env1))
       case m@TyMeta(_) => m
@@ -194,7 +196,7 @@ object Type {
           else go(rest, bound, tv :: acc)
         case Type.TyApply(a, b) :: rest => go(a :: b :: rest, bound, acc)
         case Type.ForAll(tvs, ty) :: rest =>
-          val acc1 = cheat(ty :: Nil, bound ++ tvs.toList, acc)
+          val acc1 = cheat(ty :: Nil, bound ++ tvs.toList.iterator.map(_._1), acc)
           // note, tvs ARE NOT bound in rest
           go(rest, bound, acc1)
         case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
@@ -414,7 +416,7 @@ object Type {
       tpes match {
         case Nil => acc
         case Type.ForAll(tvs, _) :: rest =>
-          loop(rest, acc ++ tvs.toList)
+          loop(rest, acc ++ tvs.toList.iterator.map(_._1))
         case Type.TyApply(arg, res) :: rest =>
           loop(arg :: res :: rest, acc)
         case _ :: rest => loop(rest, acc)
@@ -476,7 +478,8 @@ object Type {
     def applyTypes(left: Type, args: NonEmptyList[Type]) = applyAll(left, args.toList)
 
     def universal(vs: NonEmptyList[String], on: Type) =
-      Type.forAll(vs.toList.map { s => Type.Var.Bound(s) }, on) 
+      // TODO support parsing Kinds
+      Type.forAll(vs.toList.map { s => (Type.Var.Bound(s), Kind.Type) }, on) 
 
     def makeTuple(lst: List[Type]) = Type.Tuple(lst)
 
@@ -503,7 +506,9 @@ object Type {
 
     def unapplyUniversal(a: Type): Option[(List[String], Type)] =
       a match {
-        case ForAll(vs, arg) => Some((vs.map(_.name).toList, arg))
+        case ForAll(vs, arg) =>
+          // TODO: support Kind
+          Some((vs.map(_._1.name).toList, arg))
         case _ => None
       }
 

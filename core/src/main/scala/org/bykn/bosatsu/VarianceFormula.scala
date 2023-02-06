@@ -246,7 +246,7 @@ object VarianceFormula {
           case TyMeta(_) => unit // probably should be an error
           case ForAll(bound, in) =>
             // remove these bound variables:
-            constrainHKinParam(in, umap -- bound.toList)
+            constrainHKinParam(in, umap -- bound.toList.iterator.map(_._1))
         }
 
       val umap: Map[Var, Unknown] = dt.annotatedTypeParams.toMap
@@ -283,7 +283,7 @@ object VarianceFormula {
 
         def loop(shadows: Set[Type.Var], tpe: Type): VarianceFormula =
           tpe match {
-            case ForAll(vars, tpe) => loop(shadows ++ vars.toList, tpe)
+            case ForAll(vars, tpe) => loop(shadows ++ vars.toList.iterator.map(_._1), tpe)
             case TyConst(Const.Defined(_, _)) =>
               // this is just a raw type
               Phantom.toF

@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Order
 import cats.parse.{Parser => P, Parser0 => P0}
 import org.typelevel.paiges.{Doc, Document}
 import scala.annotation.tailrec
@@ -129,4 +130,24 @@ object Kind {
     varCase | noVar
   }
 
+  implicit val orderKind: Order[Kind] =
+    new Order[Kind] {
+      val ordVar = Order[Variance]
+      def compare(left: Kind, right: Kind): Int =
+        (left, right) match {
+          case (Type, Type) => 0
+          case (Type, _) => -1
+          case (Cons(_, _), Type) => 1
+          case (Cons(al, kl), Cons(ar, kr)) =>
+            val cv = ordVar.compare(al.variance, ar.variance)
+            if (cv != 0) cv
+            else {
+              val ca = compare(al.kind, ar.kind)
+              if (ca != 0) ca
+              else compare(kl, kr)
+            }
+        }
+    }
+  
+  implicit val orderingKind: Ordering[Kind] = orderKind.toOrdering
 }

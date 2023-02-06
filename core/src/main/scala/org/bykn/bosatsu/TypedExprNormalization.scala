@@ -86,7 +86,7 @@ object TypedExprNormalization {
         // then we don't need the forall
         val tpe = in.getType
         val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
-        val freeVars = vars.toList.filter(frees)
+        val freeVars = vars.toList.filter { case (t, _) => frees(t) }
         NonEmptyList.fromList(freeVars) match {
           case None => normalize1(namerec, in, scope, typeEnv)
           case Some(nonEmpty) =>

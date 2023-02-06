@@ -26,7 +26,8 @@ object TypeRefConverter {
         (toType(a), bs.toList.traverse(toType)).mapN(Type.applyAll(_, _))
       case TypeLambda(pars, e) =>
         toType(e).map { te =>
-          Type.forAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }.toList, te)
+          // TODO Kind support
+          Type.forAll(pars.map { case TypeVar(v) => (Type.Var.Bound(v), Kind.Type) }.toList, te)
         }
       case TypeTuple(ts) =>
         ts.traverse(toType).map(Type.Tuple(_))
@@ -45,7 +46,8 @@ object TypeRefConverter {
 
     tpe match {
       case ForAll(vs, in) =>
-        val args = vs.map { case Type.Var.Bound(b) => TypeVar(b) }
+        // TODO Kind support in TypeRef
+        val args = vs.map { case (Type.Var.Bound(b), _) => TypeVar(b) }
         loop(in).map(TypeLambda(args, _))
       case Type.Tuple(ts) =>
         // this needs to be above TyConst

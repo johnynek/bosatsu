@@ -60,6 +60,25 @@ object NTypeGen {
     }
   }
 
+  val genVariance =
+    Gen.oneOf(Variance.co, Variance.in, Variance.contra, Variance.phantom)
+
+  val genKind: Gen[Kind] = {
+    val recurse = Gen.lzy(genKind)
+    Gen.frequency(
+      (2, Gen.const(Kind.Type)),
+      (
+        1,
+        Gen.zip(genVariance, recurse, recurse).map { case (v, a, b) =>
+          Kind.Cons(a.withVar(v), b)
+        }
+      )
+    )
+  }
+
+  val genKindArg: Gen[Kind.Arg] =
+    Gen.zip(genVariance, genKind).map { case (v, k) => Kind.Arg(v, k) }
+
   val genPredefType: Gen[Type] = {
     import Type._
 
@@ -106,7 +125,9 @@ object NTypeGen {
       val genForAll =
         for {
           c <- Gen.choose(1, 5)
-          as <- Gen.listOfN(c, genBound)
+          // TODO Kind actually generate kinds
+          ks = Gen.const(Kind.Type) // genKind
+          as <- Gen.listOfN(c, Gen.zip(genBound, ks))
           in <- recurse
         } yield Type.forAll(as, in)
 

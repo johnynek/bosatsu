@@ -34,7 +34,6 @@ object Generators {
       tail <- Gen.listOfN(cnt, t)
     } yield NonEmptyList(h, tail)
 
-
   val typeRefVarGen: Gen[TypeRef.TypeVar] =
     lowerIdent.map(TypeRef.TypeVar(_))
 
@@ -917,13 +916,14 @@ object Generators {
   def genDefinedType[A](p: PackageName, inner: Gen[A], genType: Gen[rankn.Type]): Gen[rankn.DefinedType[A]] =
     for {
       t <- typeNameGen
-      params0 <- smallList(Gen.zip(NTypeGen.genBound, inner))
-      params = params0.toMap.toList // don't generate duplicate type parameters
+      paramKeys <- smallList(NTypeGen.genBound).map(_.distinct)
+      params <- paramKeys.traverse { p => inner.map((p, _)) }
+      paramKinds <- paramKeys.traverse { p => NTypeGen.genKind.map((p, _)) }
       genCons: Gen[rankn.ConstructorFn] =
         for {
           cons <- consIdentGen
           ps <- smallList(Gen.zip(bindIdentGen, genType))
-        } yield rankn.ConstructorFn.build(p, t, params.map(_._1), cons, ps)
+        } yield rankn.ConstructorFn.build(p, t, paramKinds, cons, ps)
       cons0 <- smallList(genCons)
       cons = cons0.map { cf => (cf.name, cf) }.toMap.values.toList
     } yield rankn.DefinedType(p, t, params, cons)
@@ -982,7 +982,7 @@ object Generators {
     if (depth <= 0) lit
     else {
       val genGeneric =
-        Gen.zip(Generators.nonEmpty(NTypeGen.genBound), recurse)
+        Gen.zip(Generators.nonEmpty(Gen.zip(NTypeGen.genBound, NTypeGen.genKind)), recurse)
           .map { case (vs, t) => TypedExpr.Generic(vs, t) }
 
       val ann =

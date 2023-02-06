@@ -460,8 +460,8 @@ class ParserTest extends ParserTestBase {
     check("a", varA)
     check("Foo/Bar::Bar", FooBarBar)
     check("a -> Foo/Bar::Bar", Fun(varA, FooBarBar))
-    check("forall a, b. Foo/Bar::Bar[a, b]", Type.forAll(List(Var.Bound("a"), Var.Bound("b")), TyApply(TyApply(FooBarBar, varA), varB)))
-    check("forall a. forall b. Foo/Bar::Bar[a, b]", Type.forAll(List(Var.Bound("a"), Var.Bound("b")), TyApply(TyApply(FooBarBar, varA), varB)))
+    check("forall a, b. Foo/Bar::Bar[a, b]", Type.forAll(List((Var.Bound("a"), Kind.Type), (Var.Bound("b"), Kind.Type)), TyApply(TyApply(FooBarBar, varA), varB)))
+    check("forall a. forall b. Foo/Bar::Bar[a, b]", Type.forAll(List((Var.Bound("a"), Kind.Type), (Var.Bound("b"), Kind.Type)), TyApply(TyApply(FooBarBar, varA), varB)))
     check("(a)", varA)
     check("(a, b)", Tuple(List(varA, varB)))
   }
