@@ -5,9 +5,8 @@ import cats.{StackSafeMonad, Eval}
 import scala.collection.mutable.{LongMap => MutableMap}
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * This gives a mutable reference in a monadic context
- */
+/** This gives a mutable reference in a monadic context
+  */
 sealed trait Ref[A] {
   def get: RefSpace[A]
   def set(a: A): RefSpace[Unit]
@@ -32,7 +31,9 @@ object RefSpace {
     protected def runState(al: AtomicLong, state: MutableMap[Any]) =
       value
   }
-  private case class AllocRef[A](handle: Long, init: A) extends RefSpace[A] with Ref[A] {
+  private case class AllocRef[A](handle: Long, init: A)
+      extends RefSpace[A]
+      with Ref[A] {
     def get = this
     def set(a: A) = SetRef(handle, a)
     val reset = Reset(handle)
@@ -48,26 +49,33 @@ object RefSpace {
       }
   }
   private case class SetRef(handle: Long, value: Any) extends RefSpace[Unit] {
-    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[Unit] =
-      { state.put(handle, value); Eval.Unit }
+    protected def runState(
+        al: AtomicLong,
+        state: MutableMap[Any]
+    ): Eval[Unit] = { state.put(handle, value); Eval.Unit }
   }
   private case class Reset(handle: Long) extends RefSpace[Unit] {
-    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[Unit] =
-      { state.remove(handle); Eval.Unit }
+    protected def runState(
+        al: AtomicLong,
+        state: MutableMap[Any]
+    ): Eval[Unit] = { state.remove(handle); Eval.Unit }
   }
   private case class Alloc[A](init: A) extends RefSpace[Ref[A]] {
     protected def runState(al: AtomicLong, state: MutableMap[Any]) =
       Eval.now(AllocRef(al.getAndIncrement, init))
   }
 
-  private case class Map[A, B](init: RefSpace[A], fn: A => B) extends RefSpace[B] {
+  private case class Map[A, B](init: RefSpace[A], fn: A => B)
+      extends RefSpace[B] {
     protected def runState(al: AtomicLong, state: MutableMap[Any]) =
       Eval.defer(init.runState(al, state)).map(fn)
   }
 
-  private case class FlatMap[A, B](init: RefSpace[A], fn: A => RefSpace[B]) extends RefSpace[B] {
+  private case class FlatMap[A, B](init: RefSpace[A], fn: A => RefSpace[B])
+      extends RefSpace[B] {
     protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[B] =
-      Eval.defer(init.runState(al, state))
+      Eval
+        .defer(init.runState(al, state))
         .flatMap { a =>
           fn(a).runState(al, state)
         }
@@ -89,10 +97,10 @@ object RefSpace {
         fa.flatMap(fn)
     }
 
-
   // a counter that starts at 0
   val allocCounter: RefSpace[RefSpace[Long]] =
-    RefSpace.newRef(0L)
+    RefSpace
+      .newRef(0L)
       .map { ref =>
         for {
           a <- ref.get

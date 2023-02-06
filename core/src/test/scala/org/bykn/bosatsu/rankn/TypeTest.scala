@@ -2,18 +2,21 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import org.scalatest.funsuite.AnyFunSuite
 
 class TypeTest extends AnyFunSuite {
   implicit val generatorDrivenConfig =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
+    // PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 500)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  // PropertyCheckConfiguration(minSuccessful = 5)
 
   def parse(s: String): Type =
     Type.fullyResolvedParser.parseAll(s) match {
-      case Right(t) => t
+      case Right(t)  => t
       case Left(err) => sys.error(err.toString)
     }
 
@@ -28,13 +31,15 @@ class TypeTest extends AnyFunSuite {
     forAll(Gen.listOf(NTypeGen.genDepth03)) { ts =>
       Type.Tuple(ts) match {
         case Type.Tuple(ts1) => assert(ts1 == ts)
-        case notTup => fail(notTup.toString)
+        case notTup          => fail(notTup.toString)
       }
     }
 
     assert(Type.Tuple.unapply(parse("()")) == Some(Nil))
-    assert(Type.Tuple.unapply(parse("(a, b, c)")) ==
-      Some(List("a", "b", "c").map(parse)))
+    assert(
+      Type.Tuple.unapply(parse("(a, b, c)")) ==
+        Some(List("a", "b", "c").map(parse))
+    )
   }
 
   test("unapplyAll is the inverse of applyAll") {
@@ -43,8 +48,10 @@ class TypeTest extends AnyFunSuite {
       assert(Type.applyAll(left, args) == ts)
     }
 
-    assert(Type.unapplyAll(parse("foo[bar]")) ==
-      (parse("foo"), List(parse("bar"))))
+    assert(
+      Type.unapplyAll(parse("foo[bar]")) ==
+        (parse("foo"), List(parse("bar")))
+    )
   }
 
   test("types are well ordered") {
@@ -61,16 +68,16 @@ class TypeTest extends AnyFunSuite {
 
     forAll(NTypeGen.genDepth03)(law(_))
 
-
-    forAll(NTypeGen.lowerIdent, Gen.choose(Long.MinValue, Long.MaxValue)) { (b, id) =>
-      val str = "$" + b + "$" + id.toString
-      val tpe = parse(str)
-      law(tpe)
-      tpe match {
-        case Type.TyVar(Type.Var.Skolem(b1, i1)) =>
-          assert((b1, i1) == (b, id))
-        case other => fail(other.toString)
-      }
+    forAll(NTypeGen.lowerIdent, Gen.choose(Long.MinValue, Long.MaxValue)) {
+      (b, id) =>
+        val str = "$" + b + "$" + id.toString
+        val tpe = parse(str)
+        law(tpe)
+        tpe match {
+          case Type.TyVar(Type.Var.Skolem(b1, i1)) =>
+            assert((b1, i1) == (b, id))
+          case other => fail(other.toString)
+        }
     }
 
     forAll { (l: Long) =>
@@ -79,8 +86,10 @@ class TypeTest extends AnyFunSuite {
   }
 
   test("test all binders") {
-    assert(Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
-      ("a" #:: Stream.iterate(0)(_ + 1).map { i => s"a$i" }).take(100))
+    assert(
+      Type.allBinders.filter(_.name.startsWith("a")).take(100).map(_.name) ==
+        ("a" #:: Stream.iterate(0)(_ + 1).map { i => s"a$i" }).take(100)
+    )
   }
 
   test("tyVarBinders is identity for Bound") {
@@ -102,7 +111,7 @@ class TypeTest extends AnyFunSuite {
   test("hasNoVars fully recurses") {
     def allTypesIn(t: Type): List[Type] =
       t match {
-        case f@Type.ForAll(bounds, in) =>
+        case f @ Type.ForAll(bounds, in) =>
           // filter bounds out, since they are shadowed
           val boundSet = bounds.toList.toSet[Type.Var]
           f :: (allTypesIn(in).filterNot { it =>
@@ -110,8 +119,8 @@ class TypeTest extends AnyFunSuite {
             // if we intersect, this is not a legit type to consider
             (boundSet & frees).nonEmpty
           })
-        case t@Type.TyApply(a, b) => t :: allTypesIn(a) ::: allTypesIn(b)
-        case other => other :: Nil
+        case t @ Type.TyApply(a, b) => t :: allTypesIn(a) ::: allTypesIn(b)
+        case other                  => other :: Nil
       }
 
     def law(t: Type) = {
@@ -126,10 +135,19 @@ class TypeTest extends AnyFunSuite {
 
     val pastFails =
       List(
-        Type.ForAll(NonEmptyList.of(Type.Var.Bound("x"), Type.Var.Bound("ogtumm"), Type.Var.Bound("t")),
-          Type.TyVar(Type.Var.Bound("x"))),
-        Type.ForAll(NonEmptyList.of(Type.Var.Bound("a")),Type.TyVar(Type.Var.Bound("a")))
+        Type.ForAll(
+          NonEmptyList.of(
+            Type.Var.Bound("x"),
+            Type.Var.Bound("ogtumm"),
+            Type.Var.Bound("t")
+          ),
+          Type.TyVar(Type.Var.Bound("x"))
+        ),
+        Type.ForAll(
+          NonEmptyList.of(Type.Var.Bound("a")),
+          Type.TyVar(Type.Var.Bound("a"))
         )
+      )
 
     pastFails.foreach(law)
   }
@@ -167,7 +185,8 @@ class TypeTest extends AnyFunSuite {
   def genSubs(depth: Int): Gen[Map[Type.Var, Type]] = {
     val pair = Gen.zip(
       NTypeGen.genBound,
-      NTypeGen.genDepth(depth, Some(NTypeGen.genConst)))
+      NTypeGen.genDepth(depth, Some(NTypeGen.genConst))
+    )
     Gen.mapOf(pair)
   }
 
@@ -212,7 +231,9 @@ class TypeTest extends AnyFunSuite {
       // now subs1 has keys that can be completely removed, so
       // after substitution, those keys should be gone
       val t1 = Type.substituteVar(t, subs1)
-      assert((Type.freeBoundTyVars(t1 :: Nil).toSet & subs1.keySet) == Set.empty)
+      assert(
+        (Type.freeBoundTyVars(t1 :: Nil).toSet & subs1.keySet) == Set.empty
+      )
     }
 
     forAll(NTypeGen.genDepth03, genSubs(3))(law _)
@@ -224,11 +245,24 @@ class TypeTest extends AnyFunSuite {
     import Type.Fun.{uncurry, curry}
     assert(uncurry(b("a")) == None)
 
-    assert(uncurry(Type.Fun(b("a"), b("b"))) == Some((NonEmptyList.of(b("a")), b("b"))))
+    assert(
+      uncurry(Type.Fun(b("a"), b("b"))) == Some(
+        (NonEmptyList.of(b("a")), b("b"))
+      )
+    )
     assert(curry(NonEmptyList.of(b("a")), b("b")) == Type.Fun(b("a"), b("b")))
 
-    assert(uncurry(Type.Fun(b("a"), Type.Fun(b("b"), b("c")))) == Some((NonEmptyList.of(b("a"), b("b")), b("c"))))
-    assert(curry(NonEmptyList.of(b("a"), b("b")), b("c")) == Type.Fun(b("a"), Type.Fun(b("b"), b("c"))))
+    assert(
+      uncurry(Type.Fun(b("a"), Type.Fun(b("b"), b("c")))) == Some(
+        (NonEmptyList.of(b("a"), b("b")), b("c"))
+      )
+    )
+    assert(
+      curry(NonEmptyList.of(b("a"), b("b")), b("c")) == Type.Fun(
+        b("a"),
+        Type.Fun(b("b"), b("c"))
+      )
+    )
 
     forAll(NTypeGen.genDepth03) { t =>
       assert(Type.Fun.arity(t) >= 0)

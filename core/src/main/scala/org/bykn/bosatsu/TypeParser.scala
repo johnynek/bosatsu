@@ -2,9 +2,15 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P}
-import org.typelevel.paiges.{ Doc, Document }
+import org.typelevel.paiges.{Doc, Document}
 
-import Parser.{ Combinators, lowerIdent, maybeSpace, maybeSpacesAndLines, keySpace }
+import Parser.{
+  Combinators,
+  lowerIdent,
+  maybeSpace,
+  maybeSpacesAndLines,
+  keySpace
+}
 
 abstract class TypeParser[A] {
   /*
@@ -25,24 +31,31 @@ abstract class TypeParser[A] {
   protected def unapplyTypeApply(a: A): Option[(A, List[A])]
   protected def unapplyTuple(a: A): Option[List[A]]
 
-
   final val parser: P[A] = P.recursive[A] { recurse =>
     val lambda =
-      (keySpace("forall") *> lowerIdent.nonEmptyListOfWs(maybeSpacesAndLines) ~ (maybeSpacesAndLines *> P.char('.') *> maybeSpacesAndLines *> recurse))
+      (keySpace("forall") *> lowerIdent.nonEmptyListOfWs(
+        maybeSpacesAndLines
+      ) ~ (maybeSpacesAndLines *> P.char(
+        '.'
+      ) *> maybeSpacesAndLines *> recurse))
         .map { case (args, e) => universal(args, e) }
 
     val tupleOrParens: P[A] =
       recurse.tupleOrParens.map {
-        case Left(par) => par
+        case Left(par)  => par
         case Right(tup) => makeTuple(tup)
       }
 
     val appP: P[A => A] =
-      (P.char('[') *> maybeSpacesAndLines *> recurse.nonEmptyListOfWs(maybeSpacesAndLines) <* maybeSpacesAndLines <* P.char(']'))
+      (P.char('[') *> maybeSpacesAndLines *> recurse.nonEmptyListOfWs(
+        maybeSpacesAndLines
+      ) <* maybeSpacesAndLines <* P.char(']'))
         .map { args => applyTypes(_, args) }
 
     val arrowP: P[A => A] =
-      ((maybeSpace.with1.soft ~ P.string("->") ~ maybeSpacesAndLines) *> recurse)
+      ((maybeSpace.with1.soft ~ P.string(
+        "->"
+      ) ~ maybeSpacesAndLines) *> recurse)
         .map { right => makeFn(_, right) }
 
     P.oneOf(lambda :: parseRoot :: tupleOrParens :: Nil)
@@ -62,10 +75,13 @@ abstract class TypeParser[A] {
       case None => ()
       case Some(ts) =>
         return ts match {
-          case Nil => unitDoc
+          case Nil      => unitDoc
           case h :: Nil => Doc.char('(') + toDoc(h) + commaPar
           case twoAndMore =>
-            Doc.char('(') + Doc.intercalate(commaSpace, twoAndMore.map(toDoc)) + Doc.char(')')
+            Doc.char('(') + Doc.intercalate(
+              commaSpace,
+              twoAndMore.map(toDoc)
+            ) + Doc.char(')')
         }
     }
 
@@ -76,12 +92,12 @@ abstract class TypeParser[A] {
         val dout = spaceArrow + toDoc(out)
         return unapplyFn(in).orElse(unapplyUniversal(in)) match {
           case Some(_) => par(din) + dout
-          case None => din + dout
+          case None    => din + dout
         }
     }
 
     unapplyRoot(a) match {
-      case None => ()
+      case None    => ()
       case Some(d) => return d
     }
 
@@ -90,17 +106,19 @@ abstract class TypeParser[A] {
       case Some((of, args)) =>
         val ofDoc0 = toDoc(of)
         val ofDoc = unapplyUniversal(of) match {
-          case None => ofDoc0
+          case None    => ofDoc0
           case Some(_) => par(ofDoc0)
         }
-        return ofDoc + Doc.char('[') + Doc.intercalate(commaSpace, args.map(toDoc)) + Doc.char(']')
+        return ofDoc + Doc.char('[') + Doc.intercalate(
+          commaSpace,
+          args.map(toDoc)
+        ) + Doc.char(']')
     }
 
     unapplyUniversal(a) match {
       case None => ()
       case Some((vars, in)) =>
-        return forAll + Doc.intercalate(commaSpace,
-          vars.map(Doc.text(_))) +
+        return forAll + Doc.intercalate(commaSpace, vars.map(Doc.text(_))) +
           Doc.char('.') + Doc.space + toDoc(in)
     }
 

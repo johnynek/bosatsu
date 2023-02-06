@@ -4,10 +4,9 @@ import cats.implicits._
 
 object Toposort {
 
-  /**
-   * A result is the subdag in layers,
-   * as well as a set of loopNodes (a sorted list of nodes that don't form a dag)
-   */
+  /** A result is the subdag in layers, as well as a set of loopNodes (a sorted
+    * list of nodes that don't form a dag)
+    */
   sealed abstract class Result[A] {
     // these are the nodes which depend on a cyclic subgraph
     def loopNodes: List[A]
@@ -16,7 +15,7 @@ object Toposort {
     // if this is success, return Some with the layers
     def toSuccess: Option[Vector[List[A]]] =
       this match {
-        case Success(res) => Some(res)
+        case Success(res)  => Some(res)
         case Failure(_, _) => None
       }
 
@@ -26,7 +25,7 @@ object Toposort {
 
     def isSuccess: Boolean =
       this match {
-        case Success(_) => true
+        case Success(_)    => true
         case Failure(_, _) => false
       }
 
@@ -35,15 +34,15 @@ object Toposort {
   final case class Success[A](layers: Vector[List[A]]) extends Result[A] {
     def loopNodes = Nil
   }
-  final case class Failure[A](loopNodes: List[A], layers: Vector[List[A]]) extends Result[A]
+  final case class Failure[A](loopNodes: List[A], layers: Vector[List[A]])
+      extends Result[A]
 
-  /**
-   * Build a deterministic topological sort
-   * of a graph. The items in the position i depend only
-   * on things at position i-1 or less.
-   *
-   * return a result which tells us the layers of the dag, and the non-dag nodes
-   */
+  /** Build a deterministic topological sort of a graph. The items in the
+    * position i depend only on things at position i-1 or less.
+    *
+    * return a result which tells us the layers of the dag, and the non-dag
+    * nodes
+    */
   def sort[A: Ordering](n: Iterable[A])(fn: A => List[A]): Result[A] =
     if (n.isEmpty) Success(Vector.empty)
     else {
@@ -56,13 +55,12 @@ object Toposort {
             nonEmpty.traverse(rec).map(_.max + 1)
         }
       }
-      val res = n
-        .toList
+      val res = n.toList
         // go through in a deterministic order
         .sorted
         .map { n =>
           depth(n) match {
-            case None => Left(n)
+            case None    => Left(n)
             case Some(d) => Right((d, n))
           }
         }
@@ -76,13 +74,12 @@ object Toposort {
           // we have to be bad if we aren't good
           bad = true
           Vector.empty
-        }
-        else {
+        } else {
           val len = goodIt.max + 1
           val ary = Array.fill(len)(List.newBuilder[A])
           res.foreach {
             case Right((idx, a)) => ary(idx) += a
-            case Left(_) => bad = true
+            case Left(_)         => bad = true
           }
 
           // the items are already sorted since we added them in sorted order

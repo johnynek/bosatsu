@@ -10,7 +10,9 @@ object Dependencies {
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.4.0")
   lazy val jython = Def.setting("org.python" % "jython-standalone" % "2.7.3")
   lazy val paiges = Def.setting("org.typelevel" %%% "paiges-core" % "0.4.2")
-  lazy val scalaCheck = Def.setting("org.scalacheck" %%% "scalacheck" % "1.17.0")
+  lazy val scalaCheck =
+    Def.setting("org.scalacheck" %%% "scalacheck" % "1.17.0")
   lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.2.15")
-  lazy val scalaTestPlusScalacheck = Def.setting("org.scalatestplus" %%% "scalacheck-1-17" % "3.2.15.0")
+  lazy val scalaTestPlusScalacheck =
+    Def.setting("org.scalatestplus" %%% "scalacheck-1-17" % "3.2.15.0")
 }
