@@ -37,8 +37,7 @@ object NameKind {
         prog.types
           .getConstructor(from.name, cn)
           .map { case (dt, cfn) =>
-            val tpe = cfn.fnType(dt.packageName, dt.name, dt.annotatedTypeParams.map(_._1))
-            Constructor(cn, cfn.args, dt, tpe)
+            Constructor(cn, cfn.args, dt, dt.fnTypeOf(cfn))
           }
       }
 

@@ -47,15 +47,12 @@ class TypeEnv[+A] private (
   def getExternalValue(p: PackageName, n: Identifier): Option[Type] =
     values.get((p, n))
 
-  private def getConsType[A1](dt: DefinedType[A1], cf: ConstructorFn)(implicit ev: A1 <:< Variance): Type =
-    cf.fnType(dt.packageName, dt.name, dt.annotatedTypeParams.map(_._1))  
-
   // when we have resolved, we can get the types of constructors out
   def getValue(p: PackageName, n: Identifier)(implicit ev: A <:< Variance): Option[Type] =
     n match {
       case c @ Constructor(_) =>
         // constructors are never external defs
-        constructors.get((p, c)).map { case (dt, cfn) => getConsType(dt, cfn) }
+        constructors.get((p, c)).map { case (dt, cfn) => dt.fnTypeOf(cfn) }
       case notCons => getExternalValue(p, notCons)
     }
 
@@ -65,7 +62,7 @@ class TypeEnv[+A] private (
     // add externals
     bldr ++= values.iterator.collect { case ((pn, n), v) if pn == p => (n, v) }
     // add constructors
-    bldr ++= constructors.iterator.collect { case ((pn, n), (dt, cf)) if pn == p => (n, getConsType(dt, cf)) }
+    bldr ++= constructors.iterator.collect { case ((pn, n), (dt, cf)) if pn == p => (n, dt.fnTypeOf(cf)) }
 
     bldr.result()
   }
@@ -74,9 +71,6 @@ class TypeEnv[+A] private (
     dt: DefinedType[A1],
     cf: ConstructorFn): TypeEnv[A1] = {
       val nec = constructors.updated((pack, cf.name), (dt, cf))
-      // add this constructor to the values
-      // TODO: we have to get these back out later
-      //val v1 = values.updated((pack, cf.name), cf.fnType)
       val dt1 = definedTypes.updated((dt.packageName, dt.name), dt)
       new TypeEnv(values = values, constructors = nec, definedTypes = dt1)
     }

@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.rankn
 
 import cats.{Applicative, Eval, Traverse}
-import org.bykn.bosatsu.{TypeName, PackageName, Identifier}
+import org.bykn.bosatsu.{TypeName, PackageName, Identifier, Variance}
 import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
@@ -79,6 +79,10 @@ final case class DefinedType[+A](
         else DataFamily.Enum
       case _ => DataFamily.Enum
   }
+
+  def fnTypeOf(cf: ConstructorFn)(implicit ev: A <:< Variance): Type =
+    // evidence to prove that we only ask for this after inference
+    cf.fnType(packageName, name, annotatedTypeParams.map(_._1))
 }
 
 object DefinedType {
