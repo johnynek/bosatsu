@@ -5,8 +5,7 @@ import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
 
 final case class ConstructorFn(
   name: Constructor,
-  args: List[(Bindable, Type)],
-  fnType: Type) {
+  args: List[(Bindable, Type)]) {
 
   def isZeroArg: Boolean = args == Nil
 
@@ -19,26 +18,21 @@ final case class ConstructorFn(
     }
 
   def arity: Int = args.length
-}
 
-object ConstructorFn {
-
-  def build(packageName: PackageName, typeName: TypeName, tparams: List[Type.Var.Bound], name: Constructor, fnParams: List[(Bindable, Type)]): ConstructorFn = {
+  def fnType(packageName: PackageName, typeName: TypeName, dtTypeParams: List[Type.Var.Bound]): Type = {
     val tc: Type = Type.const(packageName, typeName)
 
     def loop(params: List[Type]): Type =
        params match {
          case Nil =>
-           tparams.foldLeft(tc) { (res, v) =>
+           dtTypeParams.foldLeft(tc) { (res, v) =>
              Type.TyApply(res, Type.TyVar(v))
            }
          case h :: tail =>
            Type.Fun(h, loop(tail))
        }
 
-    val resT = loop(fnParams.map(_._2))
-    val fnType = Type.forAll(tparams, resT)
-
-    ConstructorFn(name, fnParams, fnType)
+    val resT = loop(args.map(_._2))
+    Type.forAll(dtTypeParams, resT)
   }
 }

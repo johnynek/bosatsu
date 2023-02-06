@@ -26,7 +26,7 @@ case class PackageMap[A, B, C, +D](toMap: SortedMap[PackageName, Package[A, B, C
           ev(pack.program)
             .types
             .getConstructor(pname, cons)
-            .map(_._2.dataRepr(cons))
+            .map(_._1.dataRepr(cons))
         }
   }
 

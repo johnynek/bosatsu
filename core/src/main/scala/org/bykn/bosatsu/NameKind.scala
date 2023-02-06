@@ -19,7 +19,7 @@ object NameKind {
       // The type could be an import, so we need to check for the type
       // in the TypeEnv
       val pn = from.name
-      val tpe = prog.types.getValue(pn, n).get
+      val tpe = prog.types.getExternalValue(pn, n).get
       ExternalDef[T](pn, n, tpe)
     }
   }
@@ -36,8 +36,9 @@ object NameKind {
       item.toConstructor.flatMap { cn =>
         prog.types
           .getConstructor(from.name, cn)
-          .map { case (params, dt, tpe) =>
-            Constructor(cn, params, dt, tpe)
+          .map { case (dt, cfn) =>
+            val tpe = cfn.fnType(dt.packageName, dt.name, dt.annotatedTypeParams.map(_._1))
+            Constructor(cn, cfn.args, dt, tpe)
           }
       }
 

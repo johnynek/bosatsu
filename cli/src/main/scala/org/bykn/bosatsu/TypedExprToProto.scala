@@ -768,10 +768,7 @@ object ProtoConverter {
         tpe <- lookupType(p.typeOf, s"invalid type id: $p")
       } yield (bn, tpe)
 
-    def consFromProto(
-      tc: Type.Const.Defined,
-      tp: List[Type.Var.Bound],
-      c: proto.ConstructorFn): DTab[rankn.ConstructorFn] =
+    def consFromProto(c: proto.ConstructorFn): DTab[rankn.ConstructorFn] =
       lookup(c.name, c.toString)
         .flatMap { cname =>
           ReaderT.liftF(toConstructor(cname))
@@ -779,7 +776,7 @@ object ProtoConverter {
               //def
               c.params.toList.traverse(fnParamFromProto)
                 .map { fnParams =>
-                  rankn.ConstructorFn.build(tc.packageName, tc.name, tp, cname, fnParams)
+                  rankn.ConstructorFn(cname, fnParams)
                 }
             }
         }
@@ -790,7 +787,7 @@ object ProtoConverter {
         for {
           tconst <- typeConstFromProto(tc)
           tparams <- pdt.typeParams.toList.traverse(paramFromProto)
-          cons <- pdt.constructors.toList.traverse(consFromProto(tconst, tparams.map(_._1), _))
+          cons <- pdt.constructors.toList.traverse(consFromProto)
         } yield DefinedType(tconst.packageName, tconst.name, tparams, cons)
     }
   }

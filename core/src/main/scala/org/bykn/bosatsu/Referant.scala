@@ -65,7 +65,7 @@ object Referant {
         val key = (pn, orig)
         i.tag.toList.iterator.collect {
           case Referant.Value(t) => (key, t)
-          case Referant.Constructor(_, fn) => (key, fn.fnType)
+          case Referant.Constructor(dt, fn) => (key, fn.fnType(dt.packageName, dt.name, dt.annotatedTypeParams.map(_._1)))
         }
       }
     }
