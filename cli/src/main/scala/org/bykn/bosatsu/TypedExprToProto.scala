@@ -251,11 +251,15 @@ object ProtoConverter {
               }
           case Value.TypeVar(tv) =>
             str(tv.varName).map { n => Type.TyVar(Type.Var.Bound(n)) }
-          case Value.TypeForAll(TypeForAll(args, in, _)) =>
-            for {
-              inT <- tpe(in)
-              args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
-            } yield Type.forAll(args, inT)
+          case Value.TypeForAll(TypeForAll(args, kinds, in, _)) =>
+            if (args.length != kinds.length)
+              Failure(new Exception(s"args and kinds len mismatch: $p"))
+            else
+              for {
+                inT <- tpe(in)
+                args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
+                kinds <- kinds.traverse { k => kindFromProto(Some(k)) }
+              } yield Type.forAll(args.zip(kinds), inT)
 
           case Value.TypeApply(TypeApply(left, right, _)) =>
             (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
@@ -366,16 +370,21 @@ object ProtoConverter {
 
         ex.value match {
           case Value.Empty => Failure(new Exception("invalid empty TypedExpr"))
-          case Value.GenericExpr(proto.GenericExpr(typeParams, expr, _)) =>
-            NonEmptyList.fromList(typeParams.toList) match {
-              case Some(nel) =>
-                (nel.traverse(str), exprOf(expr))
-                  .mapN { (strs, expr) =>
-                    val bs = strs.map(Type.Var.Bound(_))
-                    TypedExpr.Generic(bs, expr)
-                  }
-              case None => Failure(new Exception(s"invalid empty type params in generic: $ex"))
-            }
+          case ge @ Value.GenericExpr(proto.GenericExpr(typeParams, kinds, expr, _)) =>
+            if (typeParams.length != kinds.length)
+              Failure(new Exception(s"bound and kinds length mismatch in $ge"))
+            else
+              NonEmptyList.fromList(typeParams.toList) match {
+                case Some(nel) =>
+                  (nel.traverse(str), kinds.traverse { k => kindFromProto(Some(k)) }, exprOf(expr))
+                    .mapN { (strs, kindsSeq, expr) =>
+                      // we know the length is the same as the params NEL
+                      val kinds = NonEmptyList.fromListUnsafe(kindsSeq.toList)
+                      val bs = strs.map(Type.Var.Bound(_))
+                      TypedExpr.Generic(bs.zip(kinds), expr)
+                    }
+                case None => Failure(new Exception(s"invalid empty type params in generic($ge): $ex"))
+              }
           case Value.AnnotationExpr(proto.AnnotationExpr(expr, tpe, _)) =>
             (exprOf(expr), typeOf(tpe))
               .mapN(TypedExpr.Annotation(_, _, ()))
@@ -476,9 +485,10 @@ object ProtoConverter {
             case Type.ForAll(bs, t) =>
               typeToProto(t).flatMap { idx =>
                 bs.toList
-                  .traverse { b => getId(b.name) }
+                  .traverse { case (b, _) => getId(b.name) }
                   .flatMap { ids =>
-                    getTypeId(p, proto.Type(Value.TypeForAll(TypeForAll(ids, idx))))
+                    lazy val ks = bs.map { case (_, k) => kindToProto(k) }
+                    getTypeId(p, proto.Type(Value.TypeForAll(TypeForAll(ids, ks.toList, idx))))
                   }
               }
             case Type.TyApply(on, arg) =>
@@ -624,10 +634,11 @@ object ProtoConverter {
           import TypedExpr._
           te match {
             case g@Generic(tvars, expr) =>
-              tvars.toList.traverse { v => getId(v.name) }
+              tvars.toList.traverse { case (v, _) => getId(v.name) }
                 .product(typedExprToProto(expr))
                 .flatMap { case (tparams, exid) =>
-                  val ex = proto.GenericExpr(tparams, exid)
+                  val ks = tvars.map { case (_, k) => kindToProto(k) }
+                  val ex = proto.GenericExpr(tparams, ks.toList, exid)
                   writeExpr(g, proto.TypedExpr(proto.TypedExpr.Value.GenericExpr(ex)))
                 }
             case a@Annotation(term, tpe, _) =>
@@ -798,7 +809,7 @@ object ProtoConverter {
 
     def consFromProto(
       tc: Type.Const.Defined,
-      tp: List[Type.Var.Bound],
+      tp: List[(Type.Var.Bound, Kind)],
       c: proto.ConstructorFn): DTab[rankn.ConstructorFn] =
       lookup(c.name, c.toString)
         .flatMap { cname =>
@@ -818,7 +829,12 @@ object ProtoConverter {
         for {
           tconst <- typeConstFromProto(tc)
           tparams <- pdt.typeParams.toList.traverse(paramFromProto)
-          cons <- pdt.constructors.toList.traverse(consFromProto(tconst, tparams.map(_._1), _))
+          cons <- pdt.constructors.toList.traverse(
+            consFromProto(
+              tconst,
+              tparams.map { case (b, ka) => (b, ka.kind) },
+              _)
+          )
         } yield DefinedType(tconst.packageName, tconst.name, tparams, cons)
     }
   }

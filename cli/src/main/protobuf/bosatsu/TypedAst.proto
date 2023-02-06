@@ -2,35 +2,6 @@ syntax = "proto3";
 
 package bosatsu;
 
-message TypeConst {
-  int32 packageName = 1;
-  int32 typeName = 2;
-}
-
-message TypeVar {
-  int32 varName = 1;
-}
-
-message TypeForAll {
-  repeated int32 varNames = 1;
-  int32 typeValue = 2;
-}
-
-// represents left[right] type application
-message TypeApply {
-  int32 left = 1;
-  int32 right = 2;
-}
-
-message Type {
-  oneof value {
-    TypeConst typeConst = 1;
-    TypeVar typeVar = 2;
-    TypeForAll typeForAll = 3;
-    TypeApply typeApply = 4;
-  }
-}
-
 enum Variance {
   Phantom = 0;
   Covariant = 1;
@@ -52,6 +23,36 @@ message Kind {
   oneof value {
     TypeKind type = 1;
     ConsKind cons = 2;
+  }
+}
+
+message TypeConst {
+  int32 packageName = 1;
+  int32 typeName = 2;
+}
+
+message TypeVar {
+  int32 varName = 1;
+}
+
+message TypeForAll {
+  repeated int32 varNames = 1;
+  repeated Kind kinds = 2;
+  int32 typeValue = 3;
+}
+
+// represents left[right] type application
+message TypeApply {
+  int32 left = 1;
+  int32 right = 2;
+}
+
+message Type {
+  oneof value {
+    TypeConst typeConst = 1;
+    TypeVar typeVar = 2;
+    TypeForAll typeForAll = 3;
+    TypeApply typeApply = 4;
   }
 }
 
@@ -154,7 +155,8 @@ enum RecursionKind {
 
 message GenericExpr {
   repeated int32 varNames = 1;
-  int32 expr = 2;
+  repeated Kind kinds = 2;
+  int32 expr = 3;
 }
 
 message AnnotationExpr {
