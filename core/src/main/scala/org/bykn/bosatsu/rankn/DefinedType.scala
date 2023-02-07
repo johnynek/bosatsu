@@ -80,9 +80,24 @@ final case class DefinedType[+A](
       case _ => DataFamily.Enum
   }
 
-  def fnTypeOf(cf: ConstructorFn)(implicit ev: A <:< Variance): Type =
+  def fnTypeOf(cf: ConstructorFn)(implicit ev: A <:< Variance): Type = {
     // evidence to prove that we only ask for this after inference
-    cf.fnType(packageName, name, annotatedTypeParams.map(_._1))
+    val tc: Type = Type.const(packageName, name)
+
+    val dtTypeParams = annotatedTypeParams.map(_._1)
+    def loop(params: List[Type]): Type =
+       params match {
+         case Nil =>
+           dtTypeParams.foldLeft(tc) { (res, v) =>
+             Type.TyApply(res, Type.TyVar(v))
+           }
+         case h :: tail =>
+           Type.Fun(h, loop(tail))
+       }
+
+    val resT = loop(cf.args.map(_._2))
+    Type.forAll(dtTypeParams, resT)
+  }
 }
 
 object DefinedType {
