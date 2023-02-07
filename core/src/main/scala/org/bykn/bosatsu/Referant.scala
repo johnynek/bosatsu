@@ -57,7 +57,7 @@ object Referant {
    * Fully qualified original names
    */
   def fullyQualifiedImportedValues[A, B](
-    imps: List[Import[A, NonEmptyList[Referant[B]]]])(nameOf: A => PackageName): Map[(PackageName, Identifier), Type] =
+    imps: List[Import[A, NonEmptyList[Referant[B]]]])(nameOf: A => PackageName)(implicit ev: B <:< Kind.Arg): Map[(PackageName, Identifier), Type] =
     imps.iterator.flatMap { item =>
       val pn = nameOf(item.pack)
       item.items.toList.iterator.flatMap { i =>
@@ -65,7 +65,7 @@ object Referant {
         val key = (pn, orig)
         i.tag.toList.iterator.collect {
           case Referant.Value(t) => (key, t)
-          case Referant.Constructor(_, fn) => (key, fn.fnType)
+          case Referant.Constructor(dt, fn) => (key, dt.fnTypeOf(fn))
         }
       }
     }

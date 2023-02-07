@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.rankn
 
 import cats.{Applicative, Eval, Traverse}
-import org.bykn.bosatsu.{TypeName, PackageName, Identifier}
+import org.bykn.bosatsu.{Kind, TypeName, PackageName, Identifier}
 import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
@@ -78,6 +78,26 @@ final case class DefinedType[+A](
         else if (c1.isZeroArg && c0.hasSingleArgType(toTypeTyConst)) DataFamily.Nat
         else DataFamily.Enum
       case _ => DataFamily.Enum
+  }
+
+  def fnTypeOf(cf: ConstructorFn)(implicit ev: A <:< Kind.Arg): Type = {
+    // evidence to prove that we only ask for this after inference
+    val tc: Type = Type.const(packageName, name)
+
+    val dtTypeParams = annotatedTypeParams.map(_._1)
+    def loop(params: List[Type]): Type =
+       params match {
+         case Nil =>
+           dtTypeParams.foldLeft(tc) { (res, v) =>
+             Type.TyApply(res, Type.TyVar(v))
+           }
+         case h :: tail =>
+           Type.Fun(h, loop(tail))
+       }
+
+    val resT = loop(cf.args.map(_._2))
+    val typeArgs = annotatedTypeParams.map { case (b, ka) => (b, ev(ka).kind) }
+    Type.forAll(typeArgs, resT)
   }
 }
 

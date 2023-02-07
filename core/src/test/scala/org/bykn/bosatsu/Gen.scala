@@ -918,12 +918,11 @@ object Generators {
       t <- typeNameGen
       paramKeys <- smallList(NTypeGen.genBound).map(_.distinct)
       params <- paramKeys.traverse { p => inner.map((p, _)) }
-      paramKinds <- paramKeys.traverse { p => NTypeGen.genKind.map((p, _)) }
       genCons: Gen[rankn.ConstructorFn] =
         for {
           cons <- consIdentGen
           ps <- smallList(Gen.zip(bindIdentGen, genType))
-        } yield rankn.ConstructorFn.build(p, t, paramKinds, cons, ps)
+        } yield rankn.ConstructorFn(cons, ps)
       cons0 <- smallList(genCons)
       cons = cons0.map { cf => (cf.name, cf) }.toMap.values.toList
     } yield rankn.DefinedType(p, t, params, cons)

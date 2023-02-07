@@ -425,8 +425,8 @@ final class SourceConverter(
       case rc@RecordConstructor(name, args) =>
           val (p, c) = nameToCons(name)
           val cons: Expr[Declaration] = Expr.Global(p, c, rc)
-          localTypeEnv.flatMap(_.getConstructor(p, c) match {
-            case Some((params, _, _)) =>
+          localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
+            case Some(params) =>
               def argExpr(arg: RecordArg): (Bindable, Result[Expr[Declaration]]) =
                 arg match {
                   case RecordArg.Simple(b) =>
@@ -562,9 +562,7 @@ final class SourceConverter(
 
             updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
               val tname = TypeName(nm)
-              // TODO we have to find the kinds of the type params
-              val withKinds = typeParams.map((_, Kind.Type))
-              val consFn = rankn.ConstructorFn.build(pname, tname, withKinds, nm, params)
+              val consFn = rankn.ConstructorFn(nm, params)
 
               rankn.DefinedType(pname,
                 tname,
@@ -597,11 +595,8 @@ final class SourceConverter(
             }
           }
           updateInferedWithDecl(typeArgs, typeParams0).map { typeParams =>
-            val tname = TypeName(nm)
             val finalCons = constructors.toList.map { case (c, params) =>
-              // TODO Kind compute the kinds
-              val withKinds = typeParams.map((_, Kind.Type))
-              rankn.ConstructorFn.build(pname, tname, withKinds, c, params)
+              rankn.ConstructorFn(c, params)
             }
             rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
           }
@@ -706,8 +701,8 @@ final class SourceConverter(
       case (Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike), rargs) =>
         rargs.flatMap { args =>
           val pc@(p, c) = nameToCons(nm)
-          localTypeEnv.flatMap(_.getConstructor(p, c) match {
-            case Some((params, _, _)) =>
+          localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
+            case Some(params) =>
               val argLen = args.size
               val paramLen = params.size
               if (argLen == paramLen) {
@@ -727,8 +722,8 @@ final class SourceConverter(
       case (Pattern.StructKind.NamedPartial(nm, Pattern.StructKind.Style.TupleLike), rargs) =>
         rargs.flatMap { args =>
           val pc@(p, c) = nameToCons(nm)
-          localTypeEnv.flatMap(_.getConstructor(p, c) match {
-            case Some((params, _, _)) =>
+          localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
+            case Some(params) =>
               val argLen = args.size
               val paramLen = params.size
               if (argLen <= paramLen) {
@@ -749,8 +744,8 @@ final class SourceConverter(
       case (Pattern.StructKind.Named(nm, Pattern.StructKind.Style.RecordLike(fs)), rargs) =>
         rargs.flatMap { args =>
           val pc@(p, c) = nameToCons(nm)
-          localTypeEnv.flatMap(_.getConstructor(p, c) match {
-            case Some((params, _, _)) =>
+          localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
+            case Some(params) =>
               val mapping = fs.toList.iterator.map(_.field).zip(args.iterator).toMap
               lazy val present = SortedSet(fs.toList.iterator.map(_.field).toList: _*)
               def get(b: Bindable): Result[Pattern[(PackageName, Constructor), rankn.Type]] =
@@ -784,8 +779,8 @@ final class SourceConverter(
       case (Pattern.StructKind.NamedPartial(nm, Pattern.StructKind.Style.RecordLike(fs)), rargs) =>
         rargs.flatMap { args =>
           val pc@(p, c) = nameToCons(nm)
-          localTypeEnv.flatMap(_.getConstructor(p, c) match {
-            case Some((params, _, _)) =>
+          localTypeEnv.flatMap(_.getConstructorParams(p, c) match {
+            case Some(params) =>
               val mapping = fs.toList.iterator.map(_.field).zip(args.iterator).toMap
               def get(b: Bindable): Pattern[(PackageName, Constructor), rankn.Type] =
                 mapping.get(b) match {
