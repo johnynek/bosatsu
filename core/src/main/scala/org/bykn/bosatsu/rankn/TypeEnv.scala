@@ -1,14 +1,12 @@
 package org.bykn.bosatsu.rankn
 
-import org.bykn.bosatsu.{TypeName, PackageName}
-import scala.collection.immutable.SortedMap
-
-import org.bykn.bosatsu.Identifier
+import org.bykn.bosatsu.{TypeName, PackageName, Identifier, Variance}
 import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
+import scala.collection.immutable.SortedMap
 
 class TypeEnv[+A] private (
   protected val values: SortedMap[(PackageName, Identifier), Type],
-  protected val constructors: SortedMap[(PackageName, Constructor), (List[(Bindable, Type)], DefinedType[A], Type)],
+  protected val constructors: SortedMap[(PackageName, Constructor), (DefinedType[A], ConstructorFn)],
   val definedTypes: SortedMap[(PackageName, TypeName), DefinedType[A]]) {
 
   override def equals(that: Any): Boolean =
@@ -37,26 +35,44 @@ class TypeEnv[+A] private (
   def allDefinedTypes: List[DefinedType[A]] =
     definedTypes.values.toList.sortBy { dt => (dt.packageName, dt.name) }
 
-  def getConstructor(p: PackageName, c: Constructor): Option[(List[(Bindable, Type)], DefinedType[A], Type)] =
+  def getConstructor(p: PackageName, c: Constructor): Option[(DefinedType[A], ConstructorFn)] =
     constructors.get((p, c))
+
+  def getConstructorParams(p: PackageName, c: Constructor): Option[List[(Bindable, Type)]] =
+    constructors.get((p, c)).map(_._2.args)
 
   def getType(p: PackageName, t: TypeName): Option[DefinedType[A]] =
     definedTypes.get((p, t))
 
-  def getValue(p: PackageName, n: Identifier): Option[Type] =
+  def getExternalValue(p: PackageName, n: Identifier): Option[Type] =
     values.get((p, n))
 
-  def localValuesOf(p: PackageName): SortedMap[Identifier, Type] =
-    (SortedMap.newBuilder[Identifier, Type] ++= values.iterator.collect { case ((pn, n), v) if pn == p => (n, v) }).result()
+  // when we have resolved, we can get the types of constructors out
+  def getValue(p: PackageName, n: Identifier)(implicit ev: A <:< Variance): Option[Type] =
+    n match {
+      case c @ Constructor(_) =>
+        // constructors are never external defs
+        constructors.get((p, c)).map { case (dt, cfn) => dt.fnTypeOf(cfn) }
+      case notCons => getExternalValue(p, notCons)
+    }
+
+  // when we have resolved, we can get the types of constructors out
+  def localValuesOf(p: PackageName)(implicit ev: A <:< Variance): SortedMap[Identifier, Type] = {
+    val bldr = SortedMap.newBuilder[Identifier, Type]
+    // add externals
+    bldr ++= values.iterator.collect { case ((pn, n), v) if pn == p => (n, v) }
+    // add constructors
+    bldr ++= constructors.iterator.collect { case ((pn, n), (dt, cf)) if pn == p => (n, dt.fnTypeOf(cf)) }
+
+    bldr.result()
+  }
 
   def addConstructor[A1 >: A](pack: PackageName,
     dt: DefinedType[A1],
     cf: ConstructorFn): TypeEnv[A1] = {
-      val nec = constructors.updated((pack, cf.name), (cf.args, dt, cf.fnType))
-      // add this constructor to the values
-      val v1 = values.updated((pack, cf.name), cf.fnType)
+      val nec = constructors.updated((pack, cf.name), (dt, cf))
       val dt1 = definedTypes.updated((dt.packageName, dt.name), dt)
-      new TypeEnv(values = v1, constructors = nec, definedTypes = dt1)
+      new TypeEnv(values = values, constructors = nec, definedTypes = dt1)
     }
 
   /**
@@ -76,16 +92,12 @@ class TypeEnv[+A] private (
     val dt1 = definedTypes.updated((dt.packageName, dt.name), dt)
     val cons1 =
       dt.constructors
-        .foldLeft(constructors: SortedMap[(PackageName, Constructor), (List[(Bindable, Type)], DefinedType[A1], Type)]) {
+        .foldLeft(constructors: SortedMap[(PackageName, Constructor), (DefinedType[A1], ConstructorFn)]) {
           case (cons0, cf) =>
-            cons0.updated((dt.packageName, cf.name), (cf.args, dt, cf.fnType))
+            cons0.updated((dt.packageName, cf.name), (dt, cf))
         }
-    // here we have to actually add the constructor values:
-    val v1 = dt.constructors.foldLeft(values) { case (v0, cf) =>
-      v0.updated((dt.packageName, cf.name), cf.fnType)
-    }
 
-    new TypeEnv(constructors = cons1, definedTypes = dt1, values = v1)
+    new TypeEnv(constructors = cons1, definedTypes = dt1, values = values)
   }
 
   /**
@@ -99,10 +111,10 @@ class TypeEnv[+A] private (
       values = values.updated((pack, name), t))
 
   lazy val typeConstructors: SortedMap[(PackageName, Constructor), (List[(Type.Var, A)], List[Type], Type.Const.Defined)] =
-    constructors.map { case (pc, (params, dt, _)) =>
+    constructors.map { case (pc, (dt, cf)) =>
       (pc,
         (dt.annotatedTypeParams,
-          params.map(_._2),
+          cf.args.map(_._2),
           dt.toTypeConst))
     }
 
@@ -124,7 +136,7 @@ object TypeEnv {
   val empty: TypeEnv[Nothing] =
     new TypeEnv(
       SortedMap.empty[(PackageName, Identifier), Type],
-      SortedMap.empty[(PackageName, Constructor), (List[(Bindable, Type)], DefinedType[Nothing], Type)],
+      SortedMap.empty[(PackageName, Constructor), (DefinedType[Nothing], ConstructorFn)],
       SortedMap.empty[(PackageName, TypeName), DefinedType[Nothing]])
 
   /**

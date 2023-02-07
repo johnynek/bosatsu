@@ -25,7 +25,7 @@ class MatchlessTest extends AnyFunSuite {
         Some(DataRepr.Enum(1, 2, List(0, 1)))
       case (pn, cons) =>
         te.getConstructor(pn, cons)
-          .map(_._2.dataRepr(cons))
+          .map(_._1.dataRepr(cons))
           .orElse(Some(DataRepr.Struct(0)))
     }
 

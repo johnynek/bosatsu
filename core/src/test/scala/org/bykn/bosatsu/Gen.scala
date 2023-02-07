@@ -923,7 +923,7 @@ object Generators {
         for {
           cons <- consIdentGen
           ps <- smallList(Gen.zip(bindIdentGen, genType))
-        } yield rankn.ConstructorFn.build(p, t, params.map(_._1), cons, ps)
+        } yield rankn.ConstructorFn(cons, ps)
       cons0 <- smallList(genCons)
       cons = cons0.map { cf => (cf.name, cf) }.toMap.values.toList
     } yield rankn.DefinedType(p, t, params, cons)
