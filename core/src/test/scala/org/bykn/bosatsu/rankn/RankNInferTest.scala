@@ -117,7 +117,7 @@ class RankNInferTest extends AnyFunSuite {
 
       val te = te0 // TypedExprNormalization.normalize(te0).getOrElse(te0)
       te.traverseType[cats.Id] {
-        case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
+        case t@Type.TyVar(Type.Var.Skolem(_, _, _)) =>
           fail(s"illegate skolem ($t) escape in $te")
           t
         case t@Type.TyMeta(_) =>

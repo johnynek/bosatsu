@@ -506,7 +506,7 @@ object ProtoConverter {
               getId(n).flatMap { id =>
                 getTypeId(p, proto.Type(Value.TypeVar(TypeVar(id))))
               }
-            case Type.TyVar(Type.Var.Skolem(_, _)) | Type.TyMeta(_) =>
+            case Type.TyVar(Type.Var.Skolem(_, _, _)) | Type.TyMeta(_) =>
               tabFail(new Exception(s"invalid type to serialize: $p"))
           }
       }

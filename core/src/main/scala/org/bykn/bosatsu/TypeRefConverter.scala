@@ -68,10 +68,10 @@ object TypeRefConverter {
         tv match {
           case Type.Var.Bound(v) =>
             Applicative[F].pure(TypeVar(v))
-          case sk@Type.Var.Skolem(_, _) =>
+          case sk: Type.Var.Skolem =>
             onSkolem(sk)
         }
-      case TyMeta(Type.Meta(id, _)) =>
+      case TyMeta(Type.Meta(_, id, _)) =>
         onMeta(id)
       // $COVERAGE-OFF$
       case other =>

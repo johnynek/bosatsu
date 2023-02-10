@@ -12,6 +12,7 @@ sealed abstract class Variance {
       case topOrBottom => topOrBottom
     }
 
+  // if you have f[x] the variance of the result is the arg of f times variance of x
   def *(that: Variance): Variance =
     (this, that) match {
       case (Phantom, _) => Phantom

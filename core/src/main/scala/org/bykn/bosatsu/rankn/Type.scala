@@ -48,7 +48,7 @@ object Type {
             Ordering[Var].compare(v0, v1)
           case (TyVar(_), ForAll(_, _) | TyConst(_)) => 1
           case (TyVar(_), _) => -1
-          case (TyMeta(Meta(i0, _)), TyMeta(Meta(i1, _))) =>
+          case (TyMeta(Meta(_, i0, _)), TyMeta(Meta(_, i1, _))) =>
             java.lang.Long.compare(i0, i1)
           case (TyMeta(_), TyApply(_, _)) => -1
           case (TyMeta(_), _) => 1
@@ -190,7 +190,7 @@ object Type {
           val isBound =
             tv match {
               case b@Type.Var.Bound(_) => bound(b)
-              case Type.Var.Skolem(_, _) => false
+              case Type.Var.Skolem(_, _, _) => false
             }
           if (isBound) go(rest, bound, acc)
           else go(rest, bound, tv :: acc)
@@ -333,7 +333,7 @@ object Type {
   }
   object Var {
     case class Bound(name: String) extends Var
-    case class Skolem(name: String, id: Long) extends Var
+    case class Skolem(name: String, kind: Kind, id: Long) extends Var
 
     object Bound {
       private[this] val cache: Array[Bound] =
@@ -356,10 +356,15 @@ object Type {
           (a, b) match {
             case (Bound(a), Bound(b)) => a.compareTo(b)
             case (Bound(_), _) => -1
-            case (Skolem(n0, i0), Skolem(n1, i1)) =>
+            case (Skolem(n0, k0, i0), Skolem(n1, k1, i1)) =>
               val c = java.lang.Long.compare(i0, i1)
-              if (c == 0) n0.compareTo(n1) else c
-            case (Skolem(_, _), _) => 1
+              if (c != 0) c
+              else {
+                val cn = n0.compareTo(n1)
+                if (cn != 0) cn
+                else Order[Kind].compare(k0, k1)
+              }
+            case (Skolem(_, _, _), _) => 1
           }
       }
   }
@@ -383,7 +388,7 @@ object Type {
     NonEmptyList((items.head, bs.head), items.tail.zip(bs.tail))
   }
 
-  case class Meta(id: Long, ref: Ref[Option[Type.Tau]])
+  case class Meta(kind: Kind, id: Long, ref: Ref[Option[Type.Tau]])
 
   object Meta {
     implicit val orderingMeta: Ordering[Meta] =
@@ -462,14 +467,16 @@ object Type {
         }
       }
       val skolem = (P.char('$') *> Parser.lowerIdent, P.char('$') *> longParser)
-        .mapN(Var.Skolem(_, _))
+        // TODO Kind
+        .mapN(Var.Skolem(_, Kind.Type, _))
         .map(TyVar(_))
 
       // this null is bad, but we have no way to reallocate this
       // and won't parse before type inference anyway
       // the ideal solution is to better static type information
       // to have fully inferred types with no skolems or metas
-      val meta = (P.char('?') *> longParser).map { l => TyMeta(Meta(l, null)) }
+      // TODO Kind
+      val meta = (P.char('?') *> longParser).map { l => TyMeta(Meta(Kind.Type, l, null)) }
 
       tvar.orElse(name).orElse(skolem).orElse(meta)
     }
@@ -490,10 +497,12 @@ object Type {
         case TyConst(Const.Defined(p, n)) =>
           Some(Document[PackageName].document(p) + coloncolon + Document[Identifier].document(n.ident))
         case TyVar(Var.Bound(s)) => Some(Doc.text(s))
-        case TyVar(Var.Skolem(n, i)) =>
+        case TyVar(Var.Skolem(n, _, i)) =>
+          // TODO Kind
           val dol = "$"
           Some(Doc.text(dol + n + dol + i.toString))
-        case TyMeta(Meta(i, _)) =>
+        case TyMeta(Meta(_, i, _)) =>
+          // TODO Kind
           Some(Doc.text("?" + i.toString))
         case _ => None
       }
