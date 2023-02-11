@@ -203,22 +203,36 @@ class KindParseTest extends ParserTestBase {
     // if we try to pass a kind, it has to be a subkind to accept
     // (+* -> *) -> *
     trait CoMonad[F[+_]]
+    // (-* -> *) -> *
+    trait ContraMonad[F[-_]]
     // (* -> *) -> *
     trait Monad[F[_]]
     // ((+* -> *) -> *) -> *
     trait CoMonadTrans[F[_[+_]]]
+    trait ContraMonadTrans[F[_[-_]]]
     // ((* -> *) -> *) -> *
     trait MonadTrans[F[_[_]]]
 
     new MonadTrans[Monad] {}
+
     // this does not compile
-    // new MonadTrans[CoMonad]
+    // new MonadTrans[CoMonad] {}
     check("(* -> *) -> *", "(+* -> *) -> *", false)
+    // this does not compile
+    // new MonadTrans[ContraMonad] {}
+    check("(* -> *) -> *", "(-* -> *) -> *", false)
 
     new CoMonadTrans[CoMonad] {}
     // CoMonadTrans accepts Monad
     new CoMonadTrans[Monad] {}
     check("(+* -> *) -> *", "(* -> *) -> *")
+    new ContraMonadTrans[Monad] {}
+    check("(-* -> *) -> *", "(* -> *) -> *")
+    new ContraMonadTrans[ContraMonad] {}
+    check("(-* -> *) -> *", "(-* -> *) -> *")
+    // this does not compile
+    // new CoMonadTrans[ContraMonad] {}
+    check("(+* -> *) -> *", "(-* -> *) -> *", false)
   }
 
   test("we can find all kinds in the allKinds list") {
