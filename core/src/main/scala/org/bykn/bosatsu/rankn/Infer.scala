@@ -69,7 +69,10 @@ object Infer {
     variances: Map[Type.Const.Defined, List[Kind.Arg]]) {
 
     def addVars(vt: List[(Name, Type)]): Env =
-      copy(vars = vt.foldLeft(vars)(_ + _))
+      copy(vars = vars ++ vt)
+
+    def getKind(t: Type, region: Region): Either[Error, Kind] =
+      Right(Kind.Type)
   }
 
   object Env {
@@ -77,12 +80,14 @@ object Infer {
       vars: Map[Name, Type],
       typeCons: Map[(PackageName, Constructor), Cons]): Env = {
 
+      // TODO Kind we probably want to remove these
       val variances = typeCons
         .iterator
         .map { case (_, (vs, _, c)) =>
           (c, vs.map(_._2))
         }
         .toMap
+
         // TODO, the typeCons don't require all these variances to match
       Env(uniq, vars, typeCons, variances)
     }
@@ -248,6 +253,10 @@ object Infer {
       def run(env: Env) = RefSpace.pure(Right(env.variances))
     }
 
+    case class GetKind(tpe: Type, r: Region) extends Infer[Kind] {
+      def run(env: Env) = RefSpace.pure(env.getKind(tpe, r))
+    }
+
     case class ExtendEnvs[A](vt: List[(Name, Type)], in: Infer[A]) extends Infer[A] {
       def run(env: Env) = in.run(env.addVars(vt))
     }
@@ -266,7 +275,7 @@ object Infer {
 
     def nextId: Infer[Long] = NextId
 
-    def kindOf(t: Type): Infer[Kind] = pure(Kind.Type) // TODO Kind
+    def kindOf(t: Type, r: Region): Infer[Kind] = GetKind(t, r)
     def varianceOf(t: Type): Infer[Option[Variance]] = {
       import Type._
       def variances(vs: Map[Type.Const.Defined, List[Kind.Arg]], t: Type): Option[List[Variance]] =
@@ -453,7 +462,7 @@ object Infer {
             coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
           } yield coerce
         case (rho1: Type.Rho, Type.TyApply(l2, r2)) =>
-          (kindOf(l2), kindOf(r2))
+          (kindOf(l2, right), kindOf(r2, right))
             .tupled
             .flatMap { case (kl, kr) =>
               unifyTyApp(rho1, kl, kr, left, right).flatMap {
@@ -476,7 +485,7 @@ object Infer {
               }
             }
         case (ta@Type.TyApply(l1, r1), rho2) =>
-          (kindOf(l1), kindOf(r1))
+          (kindOf(l1, left), kindOf(r1, left))
             .tupled
             .flatMap { case (kl, kr) =>
               unifyTyApp(rho2, kl, kr, left, right).flatMap {
@@ -605,6 +614,7 @@ object Infer {
         ref <- lift(RefSpace.newRef[Option[Type.Tau]](None))
       } yield Type.TyMeta(Type.Meta(kind, id, ref))
 
+    // TODO: it would be nice to support kind inference on skolem variables
     def newSkolemTyVar(tv: Type.Var.Bound, kind: Kind): Infer[Type.Var.Skolem] =
       nextId.map(Type.Var.Skolem(tv.name, kind, _))
 
