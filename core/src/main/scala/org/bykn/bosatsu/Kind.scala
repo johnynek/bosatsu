@@ -81,9 +81,10 @@ object Kind {
     }
 
   // Can we use the right Kind in place of a left
+  // put another way, can we "widen" k2 into k1
   def leftSubsumesRight(k1: Kind, k2: Kind): Boolean =
     (k1, k2) match {
-      case (Type, Type) => true
+      case (Type, Type)                                   => true
       case (Cons(Arg(v1, a1), b1), Cons(Arg(v2, a2), b2)) =>
         // since kind itself is contravariant in the argument to the function
         // we switch the order of the check in the a2 and a1
