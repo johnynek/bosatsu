@@ -204,7 +204,7 @@ object VarianceFormula {
    */
   def solve(
     imports: TypeEnv[Kind.Arg],
-    current: List[DefinedType[Unit]]): Either[NonEmptyList[DefinedType[Unit]], List[DefinedType[Kind.Arg]]] = {
+    current: List[DefinedType[Option[Kind.Arg]]]): Either[NonEmptyList[DefinedType[Unit]], List[DefinedType[Kind.Arg]]] = {
     val travListDT = Traverse[NonEmptyList].compose[DefinedType]
 
     def constrain(unknowns: SortedMap[(PackageName, TypeName), DefinedType[Unknown]], dt: DefinedType[Unknown]): State[SolutionState, Unit] = {

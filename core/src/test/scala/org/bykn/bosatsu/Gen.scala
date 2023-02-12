@@ -795,11 +795,13 @@ object Generators {
       args <- Gen.listOfN(argc, argGen)
     } yield (name, args)
 
+  val genTypeArgs: Gen[List[(TypeRef.TypeVar, Option[Kind.Arg])]] =
+    Gen.listOf(Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKindArg))).map(_.distinctBy(_._1))
 
   val genStruct: Gen[Statement] =
-    Gen.zip(constructorGen, Gen.listOf(typeRefVarGen))
+    Gen.zip(constructorGen, genTypeArgs)
       .map { case ((name, args), ta) =>
-        Statement.Struct(name, NonEmptyList.fromList(ta.distinct), args)(emptyRegion)
+        Statement.Struct(name, NonEmptyList.fromList(ta), args)(emptyRegion)
       }
 
   val genExternalStruct: Gen[Statement] =
@@ -821,10 +823,10 @@ object Generators {
   val genEnum: Gen[Statement] =
     for {
       name <- consIdentGen
-      ta <- Gen.listOf(typeRefVarGen)
+      ta <- genTypeArgs
       consc <- Gen.choose(1, 5)
       cons <- optIndent(nonEmptyN(constructorGen, consc))
-    } yield Statement.Enum(name, NonEmptyList.fromList(ta.distinct), cons)(emptyRegion)
+    } yield Statement.Enum(name, NonEmptyList.fromList(ta), cons)(emptyRegion)
 
   def genStatement(depth: Int): Gen[Statement] = {
     val decl = genDeclaration(depth)

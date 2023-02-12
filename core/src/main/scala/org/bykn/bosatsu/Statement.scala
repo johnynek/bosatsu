@@ -123,12 +123,12 @@ object Statement {
   // TypeDefinitionStatement types:
   //////
   case class Enum(name: Constructor,
-    typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
+    typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
     items: OptIndent[NonEmptyList[(Constructor, List[(Bindable, Option[TypeRef])])]]
     )(val region: Region) extends TypeDefinitionStatement
   case class ExternalStruct(name: Constructor, typeArgs: List[TypeRef.TypeVar])(val region: Region) extends TypeDefinitionStatement
   case class Struct(name: Constructor,
-    typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
+    typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
     args: List[(Bindable, Option[TypeRef])])(val region: Region) extends TypeDefinitionStatement
 
   ////
@@ -168,12 +168,12 @@ object Statement {
      val argParser: P[(Bindable, Option[TypeRef])] =
        Identifier.bindableParser ~ TypeRef.annotationParser.?
 
-     val typeParams: P[NonEmptyList[TypeRef.TypeVar]] =
-       lowerIdent.nonEmptyListSyntax.map { nel => nel.map { s => TypeRef.TypeVar(s.intern) } }
-
      val structKey = keySpace("struct")
 
      val external = {
+       // Externals only allow order 1 invariant kinds
+       val typeParams: P[NonEmptyList[TypeRef.TypeVar]] =
+         lowerIdent.nonEmptyListSyntax.map { nel => nel.map { s => TypeRef.TypeVar(s.intern) } }
        val typeParamsList = Parser.nonEmptyListToList(typeParams)
 
        val externalStruct =
@@ -205,6 +205,16 @@ object Statement {
            }
 
        keySpace("external") *> P.oneOf(externalStruct :: externalDef :: externalVal :: Nil)
+     }
+
+     val typeParams: P[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]] = {
+       val kindAnnot: P[Kind.Arg] =
+         (maybeSpace.soft.with1 *> (P.char(':') *> maybeSpace *> Kind.paramKindParser))
+
+       val item: P[(TypeRef.TypeVar, Option[Kind.Arg])] =
+         (lowerIdent.map { s => TypeRef.TypeVar(s.intern) } ~ kindAnnot.?)
+       
+       item.nonEmptyListSyntax
      }
 
      val struct =
@@ -261,11 +271,15 @@ object Statement {
       (if (args.nonEmpty) { Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(TypeRef.argDoc[Bindable] _)) + Doc.char(')') }
       else Doc.empty)
 
-  private def docTypeArgs(targs: List[TypeRef.TypeVar]): Doc =
+  private val colonSpace = Doc.text(": ")
+  private def docTypeArgs(targs: List[(TypeRef.TypeVar, Option[Kind.Arg])]): Doc =
     targs match {
       case Nil => Doc.empty
       case nonEmpty =>
-        val params = nonEmpty.map { case TypeRef.TypeVar(v) => Doc.text(v) }
+        val params = nonEmpty.map {
+          case (TypeRef.TypeVar(v), None) => Doc.text(v)
+          case (TypeRef.TypeVar(v), Some(k)) => Doc.text(v) + (colonSpace + Kind.argDoc(k))
+        }
         Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
     }
 
@@ -336,7 +350,7 @@ object Statement {
         }
         Doc.text("external def ") + Document[Bindable].document(name) + argDoc + Doc.text(" -> ") + res.toDoc + Doc.line
       case ExternalStruct(nm, targs) =>
-        val argsDoc = docTypeArgs(targs)
+        val argsDoc = docTypeArgs(targs.map((_, None)))
         Doc.text("external struct ") + Document[Constructor].document(nm) + argsDoc + Doc.line
     }
   }

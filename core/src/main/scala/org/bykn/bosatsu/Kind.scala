@@ -20,7 +20,11 @@ sealed abstract class Kind {
     loop(this, Nil)
   }
 
-  def withVar(v: Variance): Kind.Arg = Kind.Arg(v, this)
+  def withVar(v: Variance): Kind.Arg = {
+    if (isType && (v == Variance.in)) Kind.invariantTypeArg
+    else Kind.Arg(v, this)
+  }
+
   def in: Kind.Arg = withVar(Variance.in)
   def co: Kind.Arg = withVar(Variance.co)
   def contra: Kind.Arg = withVar(Variance.contra)
@@ -67,6 +71,8 @@ object Kind {
   // Map[k: *, v: *] => * -> * -> *: Cons(Type, Cons(Type, Type))
   // Function[-A, +B] => -* -> +* -> *
   case class Cons(arg: Arg, result: Kind) extends Kind
+
+  val invariantTypeArg: Arg = Arg(Variance.in, Type)
 
   def apply(args: Arg*): Kind =
     args.foldRight(Type: Kind)(_.returns(_))

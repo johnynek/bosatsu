@@ -10,7 +10,7 @@ import IorMethods.IorExtension
 
 object TestUtils {
 
-  def typeEnvOf(pack: PackageName, str: String): TypeEnv[Unit] = {
+  def typeEnvOf(pack: PackageName, str: String): TypeEnv[Option[Kind.Arg]] = {
 
     val stmt = statementsOf(str)
     val prog = SourceConverter.toProgram(pack, Nil, stmt) match {

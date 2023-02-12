@@ -478,7 +478,7 @@ final class SourceConverter(
   private def toType(t: TypeRef, region: Region): Result[Type] =
     TypeRefConverter[Result](t)(nameToType(_, region))
 
-  def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): Result[rankn.DefinedType[Unit]] = {
+  def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): Result[rankn.DefinedType[Option[Kind.Arg]]] = {
     import Statement._
 
     def typeVar(i: Long): Type.TyVar =
@@ -519,27 +519,26 @@ final class SourceConverter(
     val deep = Traverse[List].compose(Traverse[(Bindable, *)]).compose(Traverse[Option])
 
     def updateInferedWithDecl(
-      typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
-      typeParams0: List[Type.Var.Bound]): Result[List[Type.Var.Bound]] =
+      typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
+      typeParams0: List[Type.Var.Bound]): Result[List[(Type.Var.Bound, Option[Kind.Arg])]] =
         typeArgs match {
-          case None => success(typeParams0)
+          case None => success(typeParams0.map((_, None)))
           case Some(decl) =>
-            val neBound = decl.map(_.toBoundVar)
-            val declTV: List[Type.Var.Bound] = neBound.toList
-            val declSet = declTV.toSet
+            val neBound = decl.map { case (v, k) => (v.toBoundVar, k) }
+            val declSet = neBound.toList.iterator.map(_._1).toSet
             val missingFromDecl = typeParams0.filterNot(declSet)
-            val bestEffort = declTV.distinct ::: missingFromDecl
-            if ((declSet.size != declTV.size) || missingFromDecl.nonEmpty) {
+            if ((declSet.size != neBound.size) || missingFromDecl.nonEmpty) {
+              val bestEffort = neBound.toList.distinctBy(_._1) ::: missingFromDecl.map((_, None))
               // we have a lint that fails if declTV is not
               // a superset of what you would derive from the args
               // the purpose here is to control the *order* of
               // and to allow introducing phantom parameters, not
               // it is confusing if some are explicit, but some are not
               SourceConverter.partial(
-                SourceConverter.InvalidTypeParameters(neBound, typeParams0, tds),
+                SourceConverter.InvalidTypeParameters(neBound.map(_._1), typeParams0, tds),
                 bestEffort)
             }
-            else success(bestEffort)
+            else success(neBound.toList ::: missingFromDecl.map((_, None)))
         }
 
     tds match {
@@ -566,7 +565,7 @@ final class SourceConverter(
 
               rankn.DefinedType(pname,
                 tname,
-                typeParams.map((_, ())),
+                typeParams,
                 consFn :: Nil)
             }
           }
@@ -598,12 +597,12 @@ final class SourceConverter(
             val finalCons = constructors.toList.map { case (c, params) =>
               rankn.ConstructorFn(c, params)
             }
-            rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
+            rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
           }
         }
       case ExternalStruct(nm, targs) =>
         // TODO make a real check here
-        success(rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), ()) }, Nil))
+        success(rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), Some(Kind.Type.in)) }, Nil))
     }
   }
 
@@ -811,7 +810,7 @@ final class SourceConverter(
       { items => items.map(unlistPattern) }
     )(SourceConverter.parallelIor) // use the parallel, not the default Applicative which is Monadic
 
-  private lazy val toTypeEnv: Result[ParsedTypeEnv[Unit]] = {
+  private lazy val toTypeEnv: Result[ParsedTypeEnv[Option[Kind.Arg]]] = {
     val sunit = success(())
 
     val dupTypes = localDefs.groupByNel(_.name)
@@ -844,7 +843,7 @@ final class SourceConverter(
       }
 
     val pd = localDefs
-      .foldM(ParsedTypeEnv.empty[Unit]) { (te, d) =>
+      .foldM(ParsedTypeEnv.empty[Option[Kind.Arg]]) { (te, d) =>
         toDefinition(thisPackage, d)
           .map(te.addDefinedType(_))
       }
@@ -1122,7 +1121,7 @@ final class SourceConverter(
     .map(_.flatten)
   }
 
-  def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Kind.Arg], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] = {
+  def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Kind.Arg], ParsedTypeEnv[Option[Kind.Arg]]), Expr[Declaration], List[Statement]]] = {
     val stmts = Statement.valuesOf(ss).toList
     stmts.collect {
       case ed@Statement.ExternalDef(name, params, result) =>
@@ -1185,7 +1184,7 @@ object SourceConverter {
   def toProgram( 
     thisPackage: PackageName,
     imports: List[Import[PackageName, NonEmptyList[Referant[Kind.Arg]]]],
-    stmts: List[Statement]): Result[Program[(TypeEnv[Kind.Arg], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] =
+    stmts: List[Statement]): Result[Program[(TypeEnv[Kind.Arg], ParsedTypeEnv[Option[Kind.Arg]]), Expr[Declaration], List[Statement]]] =
       (new SourceConverter(thisPackage, imports, Statement.definitionsOf(stmts).toList)).toProgram(stmts)
 
   private def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =

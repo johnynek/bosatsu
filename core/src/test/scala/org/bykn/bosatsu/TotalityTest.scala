@@ -50,7 +50,7 @@ class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]]
   def showPatsU(pats: List[Pattern[(PackageName, Constructor), Type]]): String =
     showPats(pats.map(_.unbind))
 
-  def typeEnvOf(str: String): TypeEnv[Unit] =
+  def typeEnvOf(str: String): TypeEnv[Option[Kind.Arg]] =
     TestUtils.typeEnvOf(PackageName.PredefName, str)
 
   val predefTE = typeEnvOf("""#
