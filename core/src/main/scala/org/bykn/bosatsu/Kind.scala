@@ -151,6 +151,15 @@ object Kind {
   private[this] def par(d: Doc): Doc =
     Doc.char('(') + (d + Doc.char(')'))
 
+  def argDoc(a: Arg): Doc =
+    varDoc(a.variance) + (a.kind match {
+      case Type => toDoc(Type)
+      case cons =>
+        // to get associativity right, need parens
+        val inner = toDoc(cons)
+        if (a.variance != Variance.in) par(inner) else inner
+    })
+
   def toDoc(k: Kind): Doc =
     k match {
       case Type                          => Doc.char('*')
@@ -181,7 +190,6 @@ object Kind {
     )
 
   val parser: P[Kind] = P.recursive[Kind] { recurse =>
-
     val ws: P0[Unit] = Parser.maybeSpacesAndLines
 
     val pType: P[Type.type] = P.char('*').as(Type)
@@ -207,13 +215,32 @@ object Kind {
     varCase | noVar
   }
 
+  // When a kind appears in a struct/enum type parameter list we allow an outer variance
+  val paramKindParser: P[Kind.Arg] = {
+    // a -> b -> c needs to be parsed as a -> (b -> c)
+    val ws = Parser.maybeSpacesAndLines
+    val arg = P.char('*').as(Type) | Parser.parens(parser, ws)
+
+    // variance binds tighter than ->
+    val kindArg: P[Arg] =
+      (varianceParser.orElse(P.pure(Variance.in)).with1 ~ arg).map {
+        case (v, i) => Arg(v, i)
+      }
+
+    val rhs = P.string("->") *> (ws *> parser)
+    (kindArg ~ (ws.soft *> rhs).?).map {
+      case (k, None)    => k
+      case (i, Some(o)) => Arg(Variance.in, Cons(i, o))
+    }
+  }
+
   implicit val orderKind: Order[Kind] =
     new Order[Kind] {
       val ordVar = Order[Variance]
       def compare(left: Kind, right: Kind): Int =
         (left, right) match {
-          case (Type, Type) => 0
-          case (Type, _) => -1
+          case (Type, Type)       => 0
+          case (Type, _)          => -1
           case (Cons(_, _), Type) => 1
           case (Cons(al, kl), Cons(ar, kr)) =>
             val cv = ordVar.compare(al.variance, ar.variance)
@@ -225,6 +252,6 @@ object Kind {
             }
         }
     }
-  
+
   implicit val orderingKind: Ordering[Kind] = orderKind.toOrdering
 }

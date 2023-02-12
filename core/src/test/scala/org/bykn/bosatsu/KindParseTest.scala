@@ -235,4 +235,14 @@ class KindParseTest extends ParserTestBase {
     check(Kind(Type.withVar(Variance.in)))
     check(Kind(Type.withVar(Variance.co), Type.withVar(Variance.co)))
   }
+
+  test("we can parse Kind.Arg") {
+    forAll(genArg) { a =>
+      Kind.paramKindParser.parseAll(Kind.argDoc(a).render(80)) match {
+        case Right(a1) =>
+          assert(a1 === a)
+        case err => fail(err.toString)
+      }
+    }
+  }
 }
