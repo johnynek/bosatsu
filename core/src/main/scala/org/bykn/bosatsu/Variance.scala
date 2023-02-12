@@ -50,6 +50,8 @@ object Variance {
   def contra: Variance = Contravariant
   def in: Variance = Invariant
 
+  val all: List[Variance] = Phantom :: Covariant :: Contravariant :: Invariant :: Nil
+
   implicit val varianceBoundedSemilattice: BoundedSemilattice[Variance] =
     new BoundedSemilattice[Variance] {
       override def empty = Phantom
