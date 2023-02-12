@@ -41,7 +41,7 @@ object Generators {
     for {
       e <- Gen.lzy(typeRefGen)
       cnt <- Gen.choose(1, 3)
-      args <- Gen.listOfN(cnt, typeRefVarGen)
+      args <- Gen.listOfN(cnt, Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKind)))
       nel = NonEmptyList.fromListUnsafe(args)
     } yield TypeRef.TypeLambda(nel, e)
 

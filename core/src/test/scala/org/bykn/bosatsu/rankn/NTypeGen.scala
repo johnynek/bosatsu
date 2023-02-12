@@ -125,8 +125,7 @@ object NTypeGen {
       val genForAll =
         for {
           c <- Gen.choose(1, 5)
-          // TODO Kind actually generate kinds
-          ks = Gen.const(Kind.Type) // genKind
+          ks = NTypeGen.genKind
           as <- Gen.listOfN(c, Gen.zip(genBound, ks))
           in <- recurse
         } yield Type.forAll(as, in)

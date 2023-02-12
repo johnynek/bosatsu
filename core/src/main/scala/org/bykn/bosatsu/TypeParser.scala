@@ -12,7 +12,7 @@ abstract class TypeParser[A] {
    */
   protected def parseRoot: P[A]
   protected def makeFn(in: A, out: A): A
-  protected def universal(vars: NonEmptyList[String], in: A): A
+  protected def universal(vars: NonEmptyList[(String, Option[Kind])], in: A): A
   protected def applyTypes(cons: A, args: NonEmptyList[A]): A
   protected def makeTuple(items: List[A]): A
 
@@ -21,14 +21,19 @@ abstract class TypeParser[A] {
    */
   protected def unapplyRoot(a: A): Option[Doc]
   protected def unapplyFn(a: A): Option[(A, A)]
-  protected def unapplyUniversal(a: A): Option[(List[String], A)]
+  protected def unapplyUniversal(a: A): Option[(List[(String, Option[Kind])], A)]
   protected def unapplyTypeApply(a: A): Option[(A, List[A])]
   protected def unapplyTuple(a: A): Option[List[A]]
 
 
   final val parser: P[A] = P.recursive[A] { recurse =>
+    val univItem: P[(String, Option[Kind])] = {
+      val kindP: P[Kind] =
+        (maybeSpacesAndLines.soft.with1 *> (P.char(':') *> maybeSpacesAndLines *> Kind.parser))
+      lowerIdent ~ kindP.?
+    }
     val lambda =
-      (keySpace("forall") *> lowerIdent.nonEmptyListOfWs(maybeSpacesAndLines) ~ (maybeSpacesAndLines *> P.char('.') *> maybeSpacesAndLines *> recurse))
+      (keySpace("forall") *> univItem.nonEmptyListOfWs(maybeSpacesAndLines) ~ (maybeSpacesAndLines *> P.char('.') *> maybeSpacesAndLines *> recurse))
         .map { case (args, e) => universal(args, e) }
 
     val tupleOrParens: P[A] =
@@ -100,7 +105,10 @@ abstract class TypeParser[A] {
       case None => ()
       case Some((vars, in)) =>
         return forAll + Doc.intercalate(commaSpace,
-          vars.map(Doc.text(_))) +
+          vars.map {
+            case (a, None) => Doc.text(a)
+            case (a, Some(k)) => Doc.text(a) + TypeParser.colonSpace + k.toDoc
+          }) +
           Doc.char('.') + Doc.space + toDoc(in)
     }
 
@@ -114,6 +122,7 @@ object TypeParser {
   private val forAll = Doc.text("forall ")
   private val spaceArrow = Doc.text(" -> ")
   private val commaSpace = Doc.text(", ")
+  private val colonSpace = Doc.text(": ")
   private val commaPar = Doc.text(",)")
   private val unitDoc = Doc.text("()")
   private def par(d: Doc): Doc = Doc.char('(') + d + Doc.char(')')

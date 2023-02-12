@@ -481,12 +481,9 @@ object TypedExpr {
         case Some(metas) =>
           val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
           val aligned = Type.alignBinders(metas, used)
-          // TODO Kind: we need to infer the correct Kinds for these metas
-          val typeArgs: NonEmptyList[(Type.Var.Bound, Kind)] =
-            aligned.map { case (_, b) => (b, Kind.Type) }
-          val bound = aligned.traverse_ { case (m, n) => writeFn(m, n) }
+          val bound = aligned.traverse { case (m, n) => writeFn(m, n).as((n, m.kind)) }
           // we only need to zonk after doing a write:
-          (bound *> zonkMeta(rho)(zFn)).map(forAll(typeArgs, _))
+          (bound, zonkMeta(rho)(zFn)).mapN { (typeArgs, r) => forAll(typeArgs, r) }
       }
 
     type Name = (Option[PackageName], Identifier)

@@ -484,9 +484,11 @@ object Type {
     def makeFn(in: Type, out: Type) = Type.Fun(in, out)
     def applyTypes(left: Type, args: NonEmptyList[Type]) = applyAll(left, args.toList)
 
-    def universal(vs: NonEmptyList[String], on: Type) =
-      // TODO support parsing Kinds
-      Type.forAll(vs.toList.map { s => (Type.Var.Bound(s), Kind.Type) }, on) 
+    def universal(vs: NonEmptyList[(String, Option[Kind])], on: Type) =
+      Type.forAll(vs.toList.map {
+        case (s, None) => (Type.Var.Bound(s), Kind.Type)
+        case (s, Some(k)) => (Type.Var.Bound(s), k)
+      }, on) 
 
     def makeTuple(lst: List[Type]) = Type.Tuple(lst)
 
@@ -513,11 +515,12 @@ object Type {
         case _ => None
       }
 
-    def unapplyUniversal(a: Type): Option[(List[String], Type)] =
+    def unapplyUniversal(a: Type): Option[(List[(String, Option[Kind])], Type)] =
       a match {
         case ForAll(vs, arg) =>
-          // TODO: support Kind
-          Some((vs.map(_._1.name).toList, arg))
+          Some((vs.map { 
+            case (v, k) => (v.name, Some(k))
+          }.toList, arg))
         case _ => None
       }
 

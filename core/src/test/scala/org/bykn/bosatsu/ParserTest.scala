@@ -426,9 +426,10 @@ class ParserTest extends ParserTestBase {
     parseTestAll(TypeRef.parser, "foo", TypeRef.TypeVar("foo"))
     parseTestAll(TypeRef.parser, "Foo", trName("Foo"))
 
-    parseTestAll(TypeRef.parser, "forall a. a", TypeRef.TypeLambda(NonEmptyList.of(TypeRef.TypeVar("a")), TypeRef.TypeVar("a")))
+    parseTestAll(TypeRef.parser, "forall a. a",
+      TypeRef.TypeLambda(NonEmptyList.of((TypeRef.TypeVar("a"), None)), TypeRef.TypeVar("a")))
     parseTestAll(TypeRef.parser, "forall a, b. f[a] -> f[b]",
-      TypeRef.TypeLambda(NonEmptyList.of(TypeRef.TypeVar("a"), TypeRef.TypeVar("b")),
+      TypeRef.TypeLambda(NonEmptyList.of((TypeRef.TypeVar("a"), None), (TypeRef.TypeVar("b"), None)),
         TypeRef.TypeArrow(
           TypeRef.TypeApply(TypeRef.TypeVar("f"), NonEmptyList.of(TypeRef.TypeVar("a"))),
           TypeRef.TypeApply(TypeRef.TypeVar("f"), NonEmptyList.of(TypeRef.TypeVar("b"))))))
