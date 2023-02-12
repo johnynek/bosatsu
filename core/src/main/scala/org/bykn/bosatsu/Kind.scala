@@ -71,6 +71,79 @@ object Kind {
   def apply(args: Arg*): Kind =
     args.foldRight(Type: Kind)(_.returns(_))
 
+  /** Ignoring variances do these two Kinds have the same shape
+    */
+  def shapeMatch(k1: Kind, k2: Kind): Boolean =
+    (k1, k2) match {
+      case (Type, Type) => true
+      case (Cons(Arg(_, a), b), Cons(Arg(_, c), d)) =>
+        shapeMatch(a, c) && shapeMatch(b, d)
+      case _ => false
+    }
+
+  // Can we use the right Kind in place of a left
+  // put another way, can we "widen" k2 into k1
+  def leftSubsumesRight(k1: Kind, k2: Kind): Boolean =
+    (k1, k2) match {
+      case (Type, Type)                                   => true
+      case (Cons(Arg(v1, a1), b1), Cons(Arg(v2, a2), b2)) =>
+        // since kind itself is contravariant in the argument to the function
+        // we switch the order of the check in the a2 and a1
+        ((v1 + v2) == v1) && leftSubsumesRight(a2, a1) && leftSubsumesRight(
+          b1,
+          b2
+        )
+      case _ => false
+    }
+
+  // allSubKinds(k).forall(leftSubsumesRight(k, _))
+  def allSubKinds(k: Kind): LazyList[Kind] =
+    k match {
+      case Type => Type #:: LazyList.empty[Kind]
+      case Cons(Arg(v, a), b) =>
+        for {
+          a1 <- allSuperKinds(a)
+          b1 <- allSubKinds(b)
+          v1 <- Variance.all
+          if (v + v1) == v
+        } yield Cons(Arg(v1, a1), b1)
+    }
+
+  // allSuperKinds(k).forall(leftSubsumesRight(_, k))
+  def allSuperKinds(k: Kind): LazyList[Kind] =
+    k match {
+      case Type => Type #:: LazyList.empty[Kind]
+      case Cons(Arg(v, a), b) =>
+        for {
+          a1 <- allSubKinds(a)
+          b1 <- allSuperKinds(b)
+          v1 <- Variance.all
+          if (v + v1) == v1
+        } yield Cons(Arg(v1, a1), b1)
+    }
+
+  def allKinds: LazyList[Kind] = {
+    // (0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0), (0, 3), (1, 2), (2, 1), (3, 0), ...
+    def diagonal[A](items: LazyList[A]): LazyList[(A, A)] =
+      LazyList
+        .from(1)
+        .flatMap { diag =>
+          // get O(1) indexing into this chunk
+          val thisDiag = items.take(diag).to(scala.collection.mutable.Buffer)
+          (0 until diag).iterator.map { i =>
+            (thisDiag(i), thisDiag(diag - 1 - i))
+          }
+        }
+
+    // don't make the outer a lazy val or it can never be GC
+    lazy val res: LazyList[Kind] = Type #:: (for {
+      (k1, k2) <- diagonal(res)
+      v <- Variance.all
+    } yield Cons(Arg(v, k1), k2))
+
+    res
+  }
+
   private[this] val phantomStr = "👻"
   private[this] val ghostDoc = Doc.text(phantomStr)
   private def varDoc(v: Variance): Doc =

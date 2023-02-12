@@ -66,13 +66,13 @@ object NTypeGen {
   val genKind: Gen[Kind] = {
     val recurse = Gen.lzy(genKind)
     Gen.frequency(
-      (2, Gen.const(Kind.Type)),
       (
         1,
         Gen.zip(genVariance, recurse, recurse).map { case (v, a, b) =>
           Kind.Cons(a.withVar(v), b)
         }
-      )
+      ),
+      (10, Gen.oneOf(Kind.allKinds.take(1000)))
     )
   }
 

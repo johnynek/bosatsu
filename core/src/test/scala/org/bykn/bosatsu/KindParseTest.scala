@@ -13,6 +13,7 @@ class KindParseTest extends ParserTestBase {
     PropertyCheckConfiguration(minSuccessful =
       if (Platform.isScalaJvm) 5000 else 100
     )
+
   test("we can parse everything we generate") {
     forAll(genKind) { law(Kind.parser) }
   }
@@ -99,5 +100,139 @@ class KindParseTest extends ParserTestBase {
 
     check("(* -> *) -> *", 2)
     check("(* -> *) -> (* -> *) -> *", 2)
+  }
+
+  test("Kind.shapeMatch(a, b) == Kind.shapeMatch(b, a)") {
+    forAll(genKind, genKind) { (a, b) =>
+      val m = Kind.shapeMatch(a, b)
+      assert(m === Kind.shapeMatch(b, a))
+      if (m) {
+        assert(a.order === b.order)
+      }
+      assert(Kind.shapeMatch(a, a))
+    }
+  }
+  test("if Kind.leftSubsumesRight(a, b) then shapeMatch(a, b)") {
+    forAll(genKind, genKind) { (a, b) =>
+      if (Kind.leftSubsumesRight(a, b)) {
+        assert(Kind.shapeMatch(a, b))
+      }
+
+      assert(Kind.leftSubsumesRight(a, a))
+    }
+  }
+
+  test("Kind.allSubkinds(k).forall(Kind.leftSubsumesRight(k, _))") {
+    forAll(genKind, genKind) { (k1, k2) =>
+      val subs = Kind.allSubKinds(k1)
+      if (Kind.leftSubsumesRight(k1, k2)) {
+        assert(subs.indexOf(k2) >= 0)
+      }
+      assert(subs.indexOf(k1) >= 0)
+      subs.foreach { k =>
+        assert(Kind.leftSubsumesRight(k1, k))
+        assert(Kind.shapeMatch(k, k1))
+        assert(Kind.shapeMatch(k1, k))
+        assert(k.order === k1.order)
+      }
+    }
+  }
+
+  test("Kind.allSuperkinds(k).forall(Kind.leftSubsumesRight(_, k))") {
+    forAll(genKind, genKind) { (k1, k2) =>
+      val sups = Kind.allSuperKinds(k1)
+      if (Kind.leftSubsumesRight(k2, k1)) {
+        assert(sups.indexOf(k2) >= 0)
+      }
+      assert(sups.indexOf(k1) >= 0)
+      sups.foreach { k =>
+        assert(Kind.leftSubsumesRight(k, k1))
+        assert(Kind.shapeMatch(k, k1))
+        assert(Kind.shapeMatch(k1, k))
+        assert(k.order === k1.order)
+      }
+    }
+  }
+
+  test("some subsume examples") {
+    def check(str1: String, str2: String, matches: Boolean = true) = {
+      (Kind.parser.parseAll(str1), Kind.parser.parseAll(str2)) match {
+        case (Right(k1), Right(k2)) =>
+          assert(Kind.leftSubsumesRight(k1, k2) === matches)
+        case err => fail(err.toString)
+      }
+    }
+
+    check("* -> *", "+* -> *")
+    check("* -> *", "-* -> *")
+    check("* -> *", Kind(Kind.Type.phantom).toDoc.render(80))
+
+    check("+* -> *", Kind(Kind.Type.phantom).toDoc.render(80))
+    check("-* -> *", Kind(Kind.Type.phantom).toDoc.render(80))
+    // this is tricky:
+    // if left is like trait Foo[G[+_]]
+    // and right is like trait Bar[G[_]]
+    // can we use the kind of Bar where we require kind of Foo?
+    // yes, because we will only pass covariant G's to Bar, but Bar
+    // doesn't care if they are covariant.
+    check("(+* -> *) -> *", "(* -> *) -> *")
+
+    check("(* -> *) -> *", "(+* -> *) -> *", false)
+    check("(* -> *) -> *", "(-* -> *) -> *", false)
+
+    check("+* -> *", "-* -> *", false)
+    check("-* -> *", "+* -> *", false)
+    // Some scala agreement
+    // if we try to pass a kind, it has to be a subkind to accept
+    // (+* -> *) -> *
+    trait CoMonad[F[+_]]
+    // (-* -> *) -> *
+    trait ContraMonad[F[-_]]
+    // (* -> *) -> *
+    trait Monad[F[_]]
+    // ((+* -> *) -> *) -> *
+    trait CoMonadTrans[F[_[+_]]]
+    trait ContraMonadTrans[F[_[-_]]]
+    // ((* -> *) -> *) -> *
+    trait MonadTrans[F[_[_]]]
+
+    new MonadTrans[Monad] {}
+
+    // this does not compile
+    // new MonadTrans[CoMonad] {}
+    check("(* -> *) -> *", "(+* -> *) -> *", false)
+    // this does not compile
+    // new MonadTrans[ContraMonad] {}
+    check("(* -> *) -> *", "(-* -> *) -> *", false)
+
+    new CoMonadTrans[CoMonad] {}
+    // CoMonadTrans accepts Monad
+    new CoMonadTrans[Monad] {}
+    check("(+* -> *) -> *", "(* -> *) -> *")
+    new ContraMonadTrans[Monad] {}
+    check("(-* -> *) -> *", "(* -> *) -> *")
+    new ContraMonadTrans[ContraMonad] {}
+    check("(-* -> *) -> *", "(-* -> *) -> *")
+    // this does not compile
+    // new CoMonadTrans[ContraMonad] {}
+    check("(+* -> *) -> *", "(-* -> *) -> *", false)
+  }
+
+  test("we can find all kinds in the allKinds list") {
+    // cache this
+    val all = Kind.allKinds
+
+    // if order gets too crazy we will blow up the memory
+    assert(all.take(10000).toSet.size == 10000)
+
+    def check(k: Kind) = assert(all.indexOf(k) >= 0)
+
+    import Kind.Type
+    check(Kind())
+    check(Kind(Type.withVar(Variance.phantom)))
+    check(Kind(Type.withVar(Variance.co)))
+    check(Kind(Type.withVar(Variance.contra)))
+    check(Kind(Type.withVar(Variance.in)))
+    check(Kind(Type.withVar(Variance.co), Type.withVar(Variance.co)))
   }
 }
