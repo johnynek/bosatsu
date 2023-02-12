@@ -146,13 +146,6 @@ object Kind {
 
   private[this] val phantomStr = "👻"
   private[this] val ghostDoc = Doc.text(phantomStr)
-  private def varDoc(v: Variance): Doc =
-    v match {
-      case Variance.Covariant     => Doc.char('+')
-      case Variance.Contravariant => Doc.char('-')
-      case Variance.Invariant     => Doc.empty
-      case Variance.Phantom       => ghostDoc
-    }
 
   private[this] val arrow = Doc.text(" -> ")
   private[this] def par(d: Doc): Doc =
@@ -170,29 +163,40 @@ object Kind {
   implicit val documentKind: Document[Kind] =
     Document(toDoc(_))
 
-  val parser: P[Kind] = P.recursive[Kind] { recurse =>
-    val varianceParser: P[Variance] =
-      P.fromStringMap(
-        Map(
-          "+" -> Variance.co,
-          "-" -> Variance.contra,
-          phantomStr -> Variance.phantom
-        )
+  def varDoc(v: Variance): Doc =
+    v match {
+      case Variance.Covariant     => Doc.char('+')
+      case Variance.Contravariant => Doc.char('-')
+      case Variance.Invariant     => Doc.empty
+      case Variance.Phantom       => ghostDoc
+    }
+
+  val varianceParser: P[Variance] =
+    P.fromStringMap(
+      Map(
+        "+" -> Variance.co,
+        "-" -> Variance.contra,
+        phantomStr -> Variance.phantom
       )
+    )
+
+  val parser: P[Kind] = P.recursive[Kind] { recurse =>
 
     val ws: P0[Unit] = Parser.maybeSpacesAndLines
 
     val pType: P[Type.type] = P.char('*').as(Type)
-    val parens: P[Kind] = P.char('(') *> (ws *> recurse <* ws <* P.char(')'))
 
     // a -> b -> c needs to be parsed as a -> (b -> c)
-    val arg = pType | parens
-    val rhs = P.string("->") *> (ws *> recurse)
+    val arg = pType | Parser.parens(recurse, ws)
 
     // if we see variance, we know we have a Cons
+    val kindArg: P[Arg] =
+      (varianceParser ~ arg).map { case (v, i) => Arg(v, i) }
+
+    val rhs = P.string("->") *> (ws *> recurse)
     val varCase: P[Cons] =
-      (varianceParser ~ (arg ~ (ws *> rhs))).map { case (v, (i, o)) =>
-        Cons(Arg(v, i), o)
+      (kindArg ~ (ws *> rhs)).map { case (a, o) =>
+        Cons(a, o)
       }
     // with no var, we optionally have -> after
     val noVar: P[Kind] = (arg ~ (ws.soft *> rhs).?).map {
