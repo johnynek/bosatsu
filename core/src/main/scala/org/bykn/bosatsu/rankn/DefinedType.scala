@@ -99,6 +99,10 @@ final case class DefinedType[+A](
     val typeArgs = annotatedTypeParams.map { case (b, ka) => (b, ev(ka).kind) }
     Type.forAll(typeArgs, resT)
   }
+
+  def kindOf(implicit ev: A <:< Kind.Arg): Kind = {
+    Kind(annotatedTypeParams.map { case (_, ka) => ev(ka) }: _*)
+  }
 }
 
 object DefinedType {
