@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 package rankn
 
 import cats.data.NonEmptyList
-import org.scalacheck.Gen
+import org.scalacheck.{Gen, Shrink}
 
 object NTypeGen {
   val lower: Gen[Char] = Gen.oneOf('a' to 'z')
@@ -72,8 +72,19 @@ object NTypeGen {
           Kind.Cons(a.withVar(v), b)
         }
       ),
-      (10, Gen.oneOf(Kind.allKinds.take(1000)))
+      (15, Gen.oneOf(Kind.allKinds.take(100)))
     )
+  }
+
+  implicit val shrinkKind: Shrink[Kind] = {
+    def shrink(k: Kind): Stream[Kind] =
+      k match {
+        case Kind.Type => Stream.empty
+        case Kind.Cons(Kind.Arg(_, a), b) =>
+          a #:: b #:: Stream.empty
+      }
+
+    Shrink(shrink(_))
   }
 
   val genKindArg: Gen[Kind.Arg] =

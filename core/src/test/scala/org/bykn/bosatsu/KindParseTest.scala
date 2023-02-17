@@ -6,13 +6,15 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
   PropertyCheckConfiguration
 }
 
-import rankn.NTypeGen.{genKind, genKindArg => genArg}
+import rankn.NTypeGen.{genKind, genKindArg => genArg, shrinkKind}
 
 class KindParseTest extends ParserTestBase {
   override def config: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful =
       if (Platform.isScalaJvm) 5000 else 100
     )
+
+  def show(k: Kind): String = Kind.toDoc(k).render(80)
 
   test("we can parse everything we generate") {
     forAll(genKind) { law(Kind.parser) }
@@ -150,6 +152,96 @@ class KindParseTest extends ParserTestBase {
         assert(Kind.shapeMatch(k, k1))
         assert(Kind.shapeMatch(k1, k))
         assert(k.order === k1.order)
+      }
+    }
+  }
+  test("Kind.allSubKinds(k).size == allSubKindsSize(k)") {
+    forAll(genKind) { k =>
+      assert(Kind.allSubKindsSize(k) === Kind.allSubKinds(k).size.toLong)
+    }
+  }
+
+  test("Kind.allSuperKinds(k).size == allSuperKindsSize(k)") {
+    forAll(genKind) { k =>
+      assert(Kind.allSuperKindsSize(k) === Kind.allSuperKinds(k).size.toLong)
+    }
+  }
+
+  test("we enumerate from most to superkinds") {
+    def law(k: Kind) = {
+      val ks = Kind.allSuperKinds(k).take(20).toList
+      ks.sliding(2).foreach {
+        case Seq(k1, k2) =>
+          assert(
+            Kind.allSuperKindsSize(k1) >= Kind.allSuperKindsSize(k2),
+            s"\n\nk = ${show(k)}\nk1 = ${show(k1)}\nk2 = ${show(k2)}\nsups = ${ks
+                .map(show)}\nidx = ${ks.indexOf(k1)}"
+          )
+        case _ => ()
+      }
+    }
+
+    val regressions = {
+      import Variance._
+      import Kind._
+
+      // -* -> (?* -> *)
+      Cons(Arg(Contravariant, Type), Cons(Arg(Phantom, Type), Type)) ::
+        Nil
+    }
+
+    regressions.foreach(law(_))
+    forAll(genKind)(law(_))
+  }
+
+  test("we enumerate from most to subkinds") {
+    def law(k: Kind) = {
+      val ks = Kind.allSubKinds(k).take(20).toList
+      ks.sliding(2).foreach {
+        case Seq(k1, k2) =>
+          assert(
+            Kind.allSubKindsSize(k1) >= Kind.allSubKindsSize(k2),
+            s"\n\nk = ${show(k)}\nk1 = ${show(k1)}\nk2 = ${show(k2)}\nsubs = ${ks
+                .map(show)}\nidx = ${ks.indexOf(k1)}"
+          )
+        case _ => ()
+      }
+    }
+
+    val regressions =
+      Nil
+
+    regressions.foreach(law(_))
+    forAll(genKind)(law(_))
+  }
+
+  test("product sort test") {
+    def prodSort(l1: LazyList[Short], l2: LazyList[Short]): LazyList[Long] =
+      // we know that a1, a2, ...
+      // and b1, b2 ...
+      // with a2 <= a1 and b2 <= b1
+      // we know a1 * b1 <= a2 * b2 but we don't know if a1 * b2 <= a2 * b1 or not
+      (l1, l2) match {
+        case (a1 #:: as, b1 #:: bs) =>
+          val aL = a1.toLong
+          val bL = b1.toLong
+          val prod = aL * bL
+          val uppers = bs.map(_.toLong * aL)
+          val lowers = as.map(_.toLong * bL)
+          val square = prodSort(as, bs)
+          prod #:: Kind.sortMerge(uppers, Kind.sortMerge(lowers, square))
+        case _ =>
+          // at least one is empty
+          LazyList.empty
+      }
+
+    forAll { (l1: List[Short], l2: List[Short]) =>
+      prodSort(
+        l1.filter(_ >= 0).sorted.to(LazyList),
+        l2.filter(_ >= 0).sorted.to(LazyList)
+      ).sliding(2).foreach {
+        case Seq(a, b) => assert(a <= b)
+        case _         => ()
       }
     }
   }
