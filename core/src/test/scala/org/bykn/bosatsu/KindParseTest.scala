@@ -234,9 +234,16 @@ class KindParseTest extends ParserTestBase {
 
   test("test sortmerge") {
     forAll { (l1: List[Int], l2: List[Int]) =>
-      val ll1 = l1.sorted.to(LazyList) 
-      val ll2 = l2.sorted.to(LazyList) 
+      val ll1 = l1.sorted.to(LazyList)
+      val ll2 = l2.sorted.to(LazyList)
       assert(Kind.sortMerge(ll1, ll2).toList === (l1 ::: l2).sorted)
+    }
+  }
+
+  test("sortMerge is lazy and doesn't blow the stack") {
+    val pairs = Kind.sortMerge(LazyList.from(0), LazyList.from(0))
+    forAll(Gen.choose(0, 1000000)) { idx =>
+      assert(pairs.drop(idx).head == (idx / 2))
     }
   }
 

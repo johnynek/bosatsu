@@ -142,21 +142,14 @@ object Kind {
   private def varsSize(v: Variance, sub: Boolean): Long =
     varMapSize((v, sub))
 
-  def sortMerge[A: Ordering](l1: LazyList[A], l2: LazyList[A]): LazyList[A] = {
-    val i1 = l1.iterator.buffered
-    val i2 = l2.iterator.buffered
-    val i3 = new Iterator[A] {
-      def hasNext = i1.hasNext || i2.hasNext
-      def next(): A = {
-        if (!i2.hasNext) i1.next()
-        else if (!i1.hasNext) i2.next()
-        else if (implicitly[Ordering[A]].lteq(i1.head, i2.head)) i1.next()
-        else i2.next()
-      }
+  def sortMerge[A: Ordering](l1: LazyList[A], l2: LazyList[A]): LazyList[A] =
+    (l1, l2) match {
+      case (a #:: as, b #:: bs) =>
+        if (implicitly[Ordering[A]].lteq(a, b)) a #:: sortMerge(as, l2)
+        else b #:: sortMerge(l1, bs)
+      case _ =>
+        if (l1.isEmpty) l2 else l1
     }
-
-    i3.to(LazyList)
-  }
 
   // (0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0), (0, 3), (1, 2), (2, 1), (3, 0), ...
   // returns all pairs such that the (idxLeft + idxRight) of the result is < len(items)
