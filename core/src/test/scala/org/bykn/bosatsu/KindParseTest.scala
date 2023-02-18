@@ -215,6 +215,23 @@ class KindParseTest extends ParserTestBase {
     forAll(genKind)(law(_))
   }
 
+  test("test diagonal utility function") {
+    forAll { (lst: List[Int]) =>
+      val diags = Kind.diagonal(lst.to(LazyList)).toList
+      val lenLst = lst.length
+      val expectSize = lenLst * (lenLst + 1) / 2
+      assert(diags.length === expectSize)
+      // expensive version
+      val lstIdx = lst.zipWithIndex
+      val prod = for {
+        (a, aidx) <- lstIdx
+        (b, bidx) <- lstIdx
+        if aidx + bidx < lenLst
+      } yield (a, b)
+      assert(diags.sorted === prod.sorted)
+    }
+  }
+
   test("product sort test") {
     def prodSort(l1: LazyList[Short], l2: LazyList[Short]): LazyList[Long] =
       // we know that a1, a2, ...

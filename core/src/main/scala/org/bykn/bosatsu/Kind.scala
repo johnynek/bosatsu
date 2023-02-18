@@ -158,6 +158,15 @@ object Kind {
     i3.to(LazyList)
   }
 
+  // (0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0), (0, 3), (1, 2), (2, 1), (3, 0), ...
+  // returns all pairs such that the (idxLeft + idxRight) of the result is < len(items)
+  def diagonal[A](items: LazyList[A]): LazyList[(A, A)] =
+    items
+      .scanLeft(Vector.empty[A])(_ :+ _)
+      .flatMap { group =>
+        group.iterator.zip(group.reverseIterator)
+      }
+
   private val subOrder: Ordering[Kind] =
     Ordering.by[Kind, Long](kindSize(_, true)).reverse
   private[this] val supOrder: Ordering[Kind] =
@@ -232,18 +241,6 @@ object Kind {
     kindSize(k, false)
 
   def allKinds: LazyList[Kind] = {
-    // (0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0), (0, 3), (1, 2), (2, 1), (3, 0), ...
-    def diagonal[A](items: LazyList[A]): LazyList[(A, A)] =
-      LazyList
-        .from(1)
-        .flatMap { diag =>
-          // get O(1) indexing into this chunk
-          val thisDiag = items.take(diag).to(scala.collection.mutable.Buffer)
-          (0 until diag).iterator.map { i =>
-            (thisDiag(i), thisDiag(diag - 1 - i))
-          }
-        }
-
     // don't make the outer a lazy val or it can never be GC
     lazy val res: LazyList[Kind] = Type #:: (for {
       (k1, k2) <- diagonal(res)
