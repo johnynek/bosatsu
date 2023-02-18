@@ -232,6 +232,14 @@ class KindParseTest extends ParserTestBase {
     }
   }
 
+  test("test sortmerge") {
+    forAll { (l1: List[Int], l2: List[Int]) =>
+      val ll1 = l1.sorted.to(LazyList) 
+      val ll2 = l2.sorted.to(LazyList) 
+      assert(Kind.sortMerge(ll1, ll2).toList === (l1 ::: l2).sorted)
+    }
+  }
+
   test("product sort test") {
     def prodSort(l1: LazyList[Short], l2: LazyList[Short]): LazyList[Long] =
       // we know that a1, a2, ...
