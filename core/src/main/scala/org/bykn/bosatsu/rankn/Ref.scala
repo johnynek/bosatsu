@@ -89,6 +89,7 @@ object RefSpace {
         fa.flatMap(fn)
     }
 
+  val unit: RefSpace[Unit] = pure(())
 
   // a counter that starts at 0
   val allocCounter: RefSpace[RefSpace[Long]] =
