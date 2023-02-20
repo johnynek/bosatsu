@@ -72,6 +72,19 @@ struct K3[f, a: +*](x: f[a])
     )
   }
 
+  /*
+  test("test list covariance") {
+    testKind(
+      """#
+enum Lst: Empty, Cons(head: a, tail: Lst[a])
+""",
+      Map(
+        "Lst" -> "+* -> *"
+      )
+    )
+  }
+  */
+
   test("test error on illegal structs") {
     testIllKinded("""#
 struct Foo(x: f[a], y: a[f])

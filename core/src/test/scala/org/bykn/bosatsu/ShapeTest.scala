@@ -30,7 +30,7 @@ class ShapeTest extends AnyFunSuite {
             case Right(k) => Shape.ShapeOf(k)
             case Left(e)  => fail(s"parse error: $e")
           }
-          assert(Shape.ShapeOf(dt) === shape)
+          assert(Shape.ShapeOf(dt) === shape, s"name: $n")
         }
       case Left(errs) =>
         fail(errs.toString)
@@ -67,6 +67,36 @@ struct K3[f, a: *](x: f[a])
         "K3" -> "(* -> *) -> * -> *"
       )
     )
+  }
+
+  test("test list covariance") {
+    testShape(
+      """#
+enum Lst: Empty, Cons(head: a, tail: Lst[a])
+""",
+      Map(
+        "Lst" -> "+* -> *"
+      )
+    )
+  }
+
+  test("test higher kinded covariance") {
+    testShape(
+      """#
+enum Lst[f, a]: Empty, Cons(head: a, tail: f[Lst[f, a]])
+""",
+      Map(
+        "Lst" -> "(* -> *) -> * -> *"
+      )
+    )
+    // this is an infinite loop
+    // need to have robust protection against that:
+    /*
+    testIllShaped(
+      """#
+enum Lst: Empty, Cons(head: a, tail: f[Lst[f, a]])
+""")
+     */
   }
 
   test("test error on illegal structs") {

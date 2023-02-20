@@ -21,6 +21,13 @@ object Shape {
   sealed abstract class KnownShape extends Shape
 
   case object Type extends KnownShape
+
+  def cons(arg: Shape, res: Shape): Shape =
+    (arg, res) match {
+      case (ksa: KnownShape, kres: KnownShape) => KnownCons(ksa, kres)
+      case _                                   => Cons(arg, res)
+    }
+
   case class KnownCons(arg: KnownShape, res: KnownShape) extends KnownShape
 
   case class Cons(arg: Shape, res: Shape) extends Shape {
@@ -213,13 +220,22 @@ object Shape {
           case (v, Left(s))   => (v, s)
         }.toMap
 
+      val thisShape: Shape =
+        lst.foldRight(Shape.Type: Shape) {
+          case ((_, Right(k)), res) =>
+            Shape.cons(ShapeOf(k), res)
+          case ((_, Left(s)), res) =>
+            Shape.Cons(s, res)
+        }
+
       { (t: Type) =>
         cache.getOrElseUpdate(
           t, {
             t match {
               case rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) => smap.get(v)
               case rankn.Type.TyConst(const) =>
-                IsShapeEnv[E].getShape(imports, const)
+                if (const == dt.toTypeConst) Some(thisShape)
+                else IsShapeEnv[E].getShape(imports, const)
               case _ =>
                 // nothing else is in-scope
                 None
@@ -345,18 +361,20 @@ object Shape {
         case Unknown(_, ref1) =>
           s2 match {
             case Unknown(_, ref2) =>
-              (ref1.get, ref2.get).flatMapN {
-                case (None, None) =>
-                  // both are unset, link them
-                  // maybe we just link the one with the smaller bound? idk
-                  ref1.set(Some(s2)) *> ref1.set(Some(s1)).as(validUnit)
-                case (someA, None) =>
-                  ref2.set(someA).as(validUnit)
-                case (None, someB) =>
-                  ref1.set(someB).as(validUnit)
-                case (Some(a), Some(b)) =>
-                  unifyShape(cfn, a, b)
-              }
+              if (ref1 == ref2) pureUnit
+              else
+                (ref1.get, ref2.get).flatMapN {
+                  case (None, None) =>
+                    // both are unset, link them
+                    // maybe we just link the one with the smaller bound? idk
+                    ref1.set(Some(s2)) *> ref2.set(Some(s1)).as(validUnit)
+                  case (someA, None) =>
+                    ref2.set(someA).as(validUnit)
+                  case (None, someB) =>
+                    ref1.set(someB).as(validUnit)
+                  case (Some(a), Some(b)) =>
+                    unifyShape(cfn, a, b)
+                }
             case _ =>
               ref1.get.flatMap {
                 case None =>
