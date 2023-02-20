@@ -44,7 +44,6 @@ class KindFormulaTest extends AnyFunSuite {
     assert(makeTE(teStr).left.map(_ => ()) == Left(()))
 
   test("test some basic structs") {
-    /*
     testKind(
       """#
 struct Foo(a)
@@ -58,7 +57,7 @@ struct Foo[a](x: a, y: a)
 """,
       Map("Foo" -> "+* -> *")
     )
-     */
+
     testKind(
       """#
 struct K1[f, a](x: f[a])
