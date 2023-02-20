@@ -18,4 +18,24 @@ object ListOrdering {
           case (Nil, _ :: _) => -1
         }
     }
+
+  def byIterator[C <: Iterable[A], A: Ordering]: Ordering[C] =
+    new Ordering[C] {
+      val ordA = implicitly[Ordering[A]]
+      def compare(a: C, b: C): Int = {
+        val itA = a.iterator
+        val itB = b.iterator
+        while (true) {
+          if (!itA.hasNext) {
+            return (if (itB.hasNext) -1 else 0)
+          } else if (!itB.hasNext) {
+            return 1
+          } else {
+            val c = ordA.compare(itA.next(), itB.next())
+            if (c != 0) return c
+          }
+        }
+        return 0
+      }
+    }
 }
