@@ -7,9 +7,12 @@ import cats.syntax.all._
 
 class ShapeTest extends AnyFunSuite {
 
-  def makeTE(teStr: String): Either[Any, TypeEnv[Either[Shape.KnownShape, Kind.Arg]]] = {
+  def makeTE(
+      teStr: String
+  ): Either[Any, TypeEnv[Either[Shape.KnownShape, Kind.Arg]]] = {
     val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)
-    Shape.solveAll((), te.allDefinedTypes)
+    Shape
+      .solveAll((), te.allDefinedTypes)
       .fold(Left(_), Right(_), (a, _) => Left(a))
       .map(TypeEnv.fromDefinitions(_))
   }
@@ -19,7 +22,10 @@ class ShapeTest extends AnyFunSuite {
       case Right(te) =>
         shapes.foreach { case (n, vs) =>
           val dt =
-            te.getType(PackageName.PredefName, TypeName(Identifier.Constructor(n))).get
+            te.getType(
+              PackageName.PredefName,
+              TypeName(Identifier.Constructor(n))
+            ).get
           val shape = Kind.parser.parseAll(vs) match {
             case Right(k) => Shape.ShapeOf(k)
             case Left(e)  => fail(s"parse error: $e")
@@ -64,13 +70,11 @@ struct K3[f, a: *](x: f[a])
   }
 
   test("test error on illegal structs") {
-    testIllShaped(
-      """#
+    testIllShaped("""#
 struct Foo(x: f[a], y: a[f])
 """)
 
-    testIllShaped(
-      """#
+    testIllShaped("""#
 struct Foo(x: f[a], y: f)
 """)
   }

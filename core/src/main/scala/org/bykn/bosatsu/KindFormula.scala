@@ -258,7 +258,8 @@ object KindFormula {
       dts: List[DefinedType[Option[Kind.Arg]]]
   ): IorNec[Error, List[DefinedType[Kind.Arg]]] = {
     implicit val shapeEnv = IsTypeEnv[E].toShapeEnv
-    Shape.solveAll(imports, dts)
+    Shape
+      .solveAll(imports, dts)
       .leftMap(_.map(Error.FromShapeError(_)))
       .flatMap(solveAll(imports, _))
   }
@@ -287,7 +288,7 @@ object KindFormula {
       dtFormula <- dt.zipWithIndex.traverse {
         case (Left(ks), _) => state.shapeToArg(Direction.PhantomUp, ks)
         case (Right(ka), idx) =>
-          state.kindArgToArg(Direction.PhantomUp, ka) { ka =>
+          state.kindArgToArg(ka) { ka =>
             Constraint.DeclaredParam(idx, ka)
           }
       }
@@ -380,8 +381,12 @@ object KindFormula {
         // already invalid cases
         def varsFor(l: Long): LazyList[Variance] =
           directions(l).variances.to(LazyList).filter { v =>
-            cons(l).forall { c =>
-              c.satisfied(existing, v) != Sat.No
+            // some values are unconstrained
+            val e1 = existing.updated(l, v)
+            cons.get(l) match {
+              case Some(cs) =>
+                cs.forall(_.satisfied(e1, v) != Sat.No)
+              case None => true
             }
           }
 
@@ -401,8 +406,11 @@ object KindFormula {
         def isValid(lm: LongMap[Variance]): Boolean =
           subgraph.forall { id =>
             val value = lm(id)
-            cons(id).forall { c =>
-              c.satisfied(existing, value) == Sat.Yes
+            // some values are unconstrained
+            cons.get(id) match {
+              case Some(cs) =>
+                cs.forall(_.satisfied(existing, value) == Sat.Yes)
+              case None => true
             }
           }
 
@@ -517,6 +525,7 @@ object KindFormula {
           constraint: Constraint
       ): RefSpace[Unit] =
         cons.get.flatMap { cs =>
+          // println(s"addCons(v = $v, $constraint)")
           val next = cs.get(v.id) match {
             case Some(nel) => constraint :: nel
             case None      => NonEmptyList(constraint, Nil)
@@ -526,26 +535,26 @@ object KindFormula {
         }
 
       def kindToFormula(
-          dir: Direction,
           kind: Kind
       )(fn: Kind.Arg => Constraint): RefSpace[KindFormula] =
         kind match {
           case Kind.Type => RefSpace.pure(Type)
           case Kind.Cons(ka, b) =>
             for {
-              a1 <- kindArgToArg(dir.reverse, ka)(fn)
-              b1 <- kindToFormula(dir, b)(fn)
+              a1 <- kindArgToArg(ka)(fn)
+              b1 <- kindToFormula(b)(fn)
             } yield Cons(a1, b1)
         }
 
       def kindArgToArg(
-          dir: Direction,
           ka: Kind.Arg
       )(fn: Kind.Arg => Constraint): RefSpace[Arg] =
         for {
-          v <- nextVar(dir)
+          v <- nextVar(
+            Direction.PhantomUp
+          ) // We know exactly which value this is, so direction doesn't matter
           _ <- addCons(v, fn(ka))
-          form <- kindToFormula(dir, ka.kind)(fn)
+          form <- kindToFormula(ka.kind)(fn)
         } yield Arg(v, form)
 
       def unifyKind(
@@ -564,7 +573,7 @@ object KindFormula {
           // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
           case _ =>
             sys.error(
-              s"invariant violation: shape violation: left = $kind right = $kf"
+              s"invariant violation: $cfn, idx = $cfnIdx, tpe=$tpe shape violation: left = $kind right = $kf"
             )
           // $COVERAGE-ON$
         }
@@ -579,14 +588,18 @@ object KindFormula {
         (left, right) match {
           case (Type, Type) => RefSpace.unit
           case (Cons(Arg(vl, il), rl), Cons(Arg(vr, ir), rr)) =>
-            addCons(vl, Constraint.UnifyVar(cfn, cfnIdx, tpe, vr)) *>
-              addCons(vr, Constraint.UnifyVar(cfn, cfnIdx, tpe, vl)) *>
+            val vs = if (vl != vr) {
+              addCons(vl, Constraint.UnifyVar(cfn, cfnIdx, tpe, vr)) *>
+                addCons(vr, Constraint.UnifyVar(cfn, cfnIdx, tpe, vl))
+            } else RefSpace.unit
+
+            vs *>
               unifyKindFormula(cfn, cfnIdx, tpe, il, ir) *>
               unifyKindFormula(cfn, cfnIdx, tpe, rl, rr)
           // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
           case _ =>
             sys.error(
-              s"invariant violation: shape violation: left = $left right = $right"
+              s"invariant violation: $cfn, idx = $cfnIdx, tpe=$tpe shape violation: left = $left right = $right"
             )
           // $COVERAGE-ON$
         }
@@ -653,10 +666,7 @@ object KindFormula {
                       case Some(thisDt) =>
                         // we reset direct direction for a constant type
                         for {
-                          kf <- kindToFormula(
-                            Direction.PhantomUp,
-                            thisDt.kindOf
-                          )(
+                          kf <- kindToFormula(thisDt.kindOf)(
                             Constraint.ImportedConst(
                               cfn,
                               idx,
@@ -682,7 +692,7 @@ object KindFormula {
               case Some(BoundState.IsArg(a))     => RefSpace.pure(a.kind)
               case Some(BoundState.IsFormula(f)) => RefSpace.pure(f)
               case Some(BoundState.IsKind(k, fa, b)) =>
-                kindToFormula(direction, k)(
+                kindToFormula(k)(
                   Constraint.DeclaredType(cfn, idx, fa, b, _)
                 )
               // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
@@ -709,7 +719,8 @@ object KindFormula {
           tpe: rankn.Type,
           tpeKind: KindFormula,
           kinds: Map[rankn.Type.Var.Bound, BoundState]
-      ): RefSpace[Unit] =
+      ): RefSpace[Unit] = {
+        // println(s"addTypeConstraints(\ndir=$dir\nthisKind=$thisKind\ncfn=$cfn\nidx=$idx\nview=$view\ntpe=$tpe\ntpeKind=$tpeKind\nkinds=$kinds\n)")
         tpe match {
           case fa @ rankn.Type.ForAll(vs, t) =>
             val newKindMap = kinds ++ vs.toList.iterator.map { case (b, k) =>
@@ -730,7 +741,7 @@ object KindFormula {
             // arg must have kind k
             // an invariant is that shapes match
             kindOfType(dir.reverse, thisKind, cfn, idx, on, kinds).flatMap {
-              case Cons(Arg(v, leftKf), res) =>
+              case onKind @ Cons(Arg(v, leftKf), res) =>
                 for {
                   argKf <- kindOfType(dir, thisKind, cfn, idx, arg, kinds)
                   // views are never unconstrained
@@ -744,16 +755,6 @@ object KindFormula {
                     argKf
                   )
                   _ <- addTypeConstraints(
-                    dir.reverse,
-                    thisKind,
-                    cfn,
-                    idx,
-                    view,
-                    on,
-                    leftKf,
-                    kinds
-                  )
-                  _ <- addTypeConstraints(
                     dir,
                     thisKind,
                     cfn,
@@ -763,7 +764,17 @@ object KindFormula {
                     argKf,
                     kinds
                   )
-                  _ <- unifyKindFormula(cfn, idx, tpe, res, tpeKind)
+                  _ <- addTypeConstraints(
+                    dir.reverse,
+                    thisKind,
+                    cfn,
+                    idx,
+                    view,
+                    on,
+                    onKind,
+                    kinds
+                  )
+                  _ <- leftSubsumesRightKindFormula(cfn, idx, tpe, res, tpeKind)
                 } yield ()
               // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
               case Type =>
@@ -771,7 +782,6 @@ object KindFormula {
                   s"invariant violation: shape violation found * expected k1 -> k2 in dt=$dt, cfn=$cfn, tpe=$tpe"
                 )
               // $COVERAGE-ON$
-
             }
           case tpe @ rankn.Type.TyConst(c) =>
             if ((tpe: rankn.Type) === dt.toTypeTyConst) {
@@ -814,6 +824,7 @@ object KindFormula {
             )
           // $COVERAGE-ON$
         }
+      }
 
       def addConstraints(
           thisKind: KindFormula,
