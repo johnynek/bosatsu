@@ -1,7 +1,14 @@
 package org.bykn.bosatsu
 
-import cats.Semigroup
-import cats.data.{NonEmptyLazyList, NonEmptyList, EitherNec, ValidatedNec}
+import cats.{Foldable, Semigroup}
+import cats.data.{
+  Ior,
+  IorNec,
+  NonEmptyLazyList,
+  NonEmptyList,
+  EitherNec,
+  ValidatedNec
+}
 import org.bykn.bosatsu.rankn.{
   ConstructorFn,
   Ref,
@@ -9,6 +16,7 @@ import org.bykn.bosatsu.rankn.{
   TypeEnv,
   DefinedType
 }
+import org.bykn.bosatsu.graph.Dag
 import org.bykn.bosatsu.Shape.KnownShape
 import scala.collection.immutable.{LongMap, SortedSet}
 
@@ -147,8 +155,8 @@ object KindFormula {
       def depends = variance :: Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
         known.get(variance.id) match {
-            case Some(v) => Sat(v == value)
-            case None => Sat.Maybe
+          case Some(v) => Sat(v == value)
+          case None    => Sat.Maybe
         }
     }
 
@@ -162,8 +170,8 @@ object KindFormula {
       def depends = variance :: Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
         known.get(variance.id) match {
-            case Some(v) => Sat((value + v) == value)
-            case None => Sat.Maybe
+          case Some(v) => Sat((value + v) == value)
+          case None    => Sat.Maybe
         }
     }
 
@@ -175,15 +183,83 @@ object KindFormula {
       def depends = view :: argVariance :: Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
         (known.get(view.id), known.get(argVariance.id)) match {
-            case (Some(v1), Some(v2)) =>
-                Sat((v1 * v2) == value)
-            case _ => Sat.Maybe
+          case (Some(v1), Some(v2)) =>
+            Sat((v1 * v2) == value)
+          case _ => Sat.Maybe
         }
     }
   }
 
-  def solveKind(
-      imports: TypeEnv[Kind.Arg],
+  sealed abstract class IsTypeEnv[E] {
+    def getDefinedType(
+        env: E,
+        tc: rankn.Type.Const
+    ): Option[DefinedType[Kind.Arg]]
+  }
+
+  object IsTypeEnv {
+    def apply[E](implicit ite: IsTypeEnv[E]): IsTypeEnv[E] = ite
+
+    implicit val typeEnvIsTypeEnv: IsTypeEnv[TypeEnv[Kind.Arg]] =
+      new IsTypeEnv[TypeEnv[Kind.Arg]] {
+        def getDefinedType(
+            env: TypeEnv[Kind.Arg],
+            tc: rankn.Type.Const
+        ): Option[DefinedType[Kind.Arg]] =
+          env.toDefinedType(tc)
+      }
+
+    implicit def tuple2TypeEnv[A: IsTypeEnv, B: IsTypeEnv]: IsTypeEnv[(A, B)] =
+      new IsTypeEnv[(A, B)] {
+        def getDefinedType(
+            env: (A, B),
+            tc: rankn.Type.Const
+        ): Option[DefinedType[Kind.Arg]] =
+          IsTypeEnv[A]
+            .getDefinedType(env._1, tc)
+            .orElse(IsTypeEnv[B].getDefinedType(env._2, tc))
+      }
+
+    implicit val singleTypeEnv: IsTypeEnv[DefinedType[Kind.Arg]] =
+      new IsTypeEnv[DefinedType[Kind.Arg]] {
+        def getDefinedType(
+            dt: DefinedType[Kind.Arg],
+            tc: rankn.Type.Const
+        ) =
+          if (dt.toTypeConst == tc) Some(dt)
+          else None
+      }
+
+    implicit def foldableTypeEnv[F[_]: Foldable, E: IsTypeEnv]
+        : IsTypeEnv[F[E]] =
+      new IsTypeEnv[F[E]] {
+        def getDefinedType(env: F[E], tc: rankn.Type.Const) =
+          env.collectFirstSomeM[cats.Id, DefinedType[Kind.Arg]](
+            IsTypeEnv[E].getDefinedType(_, tc)
+          )
+      }
+
+    implicit val emptyTypeEnv: IsTypeEnv[Unit] =
+      new IsTypeEnv[Unit] {
+        def getDefinedType(env: Unit, tc: rankn.Type.Const) = None
+      }
+  }
+
+  def solveAll[E: IsTypeEnv](
+      imports: E,
+      dts: List[DefinedType[Either[KnownShape, Kind.Arg]]]
+  ): IorNec[Error, List[DefinedType[Kind.Arg]]] =
+    dts
+      .foldM(List.empty[DefinedType[Kind.Arg]]) { (acc, dt) =>
+        solveKind((imports, acc), dt) match {
+          case Validated.Valid(good)   => Ior.Right(good :: acc)
+          case Validated.Invalid(errs) => Ior.Both(errs, acc)
+        }
+      }
+      .map(_.reverse)
+
+  def solveKind[Env: IsTypeEnv](
+      imports: Env,
       dt: DefinedType[Either[KnownShape, Kind.Arg]]
   ): ValidatedNec[Error, DefinedType[Kind.Arg]] = {
     import Impl._
@@ -208,7 +284,9 @@ object KindFormula {
       }
       constraints <- state.getConstraints
       dirs <- state.getDirections
-      topo = Impl.combineTopo(constraints)
+      // we have allocated all variance variables now, we can see how many
+      varCount <- state.nextId
+      topo = Impl.combineTopo(varCount, constraints)
       maybeRes = Impl.go(constraints, dirs, topo).map { vars =>
         dtFormula.map(Impl.unformula(_, vars))
       }
@@ -253,7 +331,20 @@ object KindFormula {
           y.foldLeft(x) { case (x, (k, v)) => x.updated(k, v) }
       }
     // dagify the constraint graph, and then topologically sort it
-    def combineTopo(cons: Cons): List[NonEmptyList[SortedSet[Long]]] = ???
+    def combineTopo(
+        varCount: Long,
+        cons: Cons
+    ): Vector[NonEmptyList[SortedSet[Long]]] = {
+      val nextFn: Long => Iterator[Long] = { l =>
+        cons.get(l) match {
+          case Some(consNel) =>
+            consNel.toList.iterator.flatMap(_.depends).map(_.id)
+          case None => Iterator.empty
+        }
+      }
+      val (_, dag) = Dag.dagify(0L until varCount)(nextFn)
+      dag.toToposorted.layers
+    }
 
     // Report Errors, or enumerate possibilities for subgraph
     // invariant: all subgraph values must be valid keys in the result
@@ -318,10 +409,10 @@ object KindFormula {
         .map(KindFormula.mergeCrossProduct(_))
         .toEither
 
-    def go(
+    def go[F[_]: Foldable](
         cons: Cons,
         directions: LongMap[Direction],
-        topo: List[NonEmptyList[SortedSet[Long]]]
+        topo: F[NonEmptyList[SortedSet[Long]]]
     ): ValidatedNec[Error, LongMap[Variance]] =
       topo.foldM(NonEmptyLazyList(LongMap.empty[Variance])) {
         (sols, subgraph) =>
@@ -345,10 +436,10 @@ object KindFormula {
         case Left(errs) => Validated.invalid(errs)
       }
 
-    def newState(
-        imports: TypeEnv[Kind.Arg],
+    def newState[E: IsTypeEnv](
+        imports: E,
         dt: DefinedType[Either[KnownShape, Kind.Arg]]
-    ): RefSpace[State] =
+    ): RefSpace[State[E]] =
       (
         RefSpace.allocCounter,
         RefSpace.newRef(LongMap.empty[NonEmptyList[Constraint]]),
@@ -368,10 +459,10 @@ object KindFormula {
     def unformula(a: Arg, vars: LongMap[Variance]): Kind.Arg =
       Kind.Arg(vars(a.variance.id), unformulaKind(a.kind, vars))
 
-    class State(
-        imports: TypeEnv[Kind.Arg],
+    class State[E: IsTypeEnv](
+        imports: E,
         dt: DefinedType[Either[KnownShape, Kind.Arg]],
-        nextId: RefSpace[Long],
+        val nextId: RefSpace[Long],
         cons: Ref[Cons],
         constFormulas: Ref[Map[rankn.Type.Const, KindFormula]],
         directions: Ref[LongMap[Direction]]
@@ -540,7 +631,7 @@ object KindFormula {
                 consts.get(c) match {
                   case Some(kf) => RefSpace.pure(kf)
                   case None =>
-                    imports.toDefinedType(c) match {
+                    IsTypeEnv[E].getDefinedType(imports, c) match {
                       case Some(thisDt) =>
                         // we reset direct direction for a constant type
                         for {
@@ -670,7 +761,7 @@ object KindFormula {
                 unifyKindFormula(cfn, idx, tpe, thisKind, tpeKind)
             } else {
               // Has to be in the imports
-              imports.toDefinedType(c) match {
+              IsTypeEnv[E].getDefinedType(imports, c) match {
                 case Some(thisDt) =>
                   unifyKind(cfn, idx, tpe, thisDt.kindOf, tpeKind)
                 // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
