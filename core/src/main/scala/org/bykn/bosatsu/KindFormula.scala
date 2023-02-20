@@ -586,7 +586,7 @@ object KindFormula {
           right: KindFormula
       ): RefSpace[Unit] =
         (left, right) match {
-          case (Type, Type) => RefSpace.unit
+          case (a, b) if a == b => RefSpace.unit
           case (Cons(Arg(vl, il), rl), Cons(Arg(vr, ir), rr)) =>
             val vs = if (vl != vr) {
               addCons(vl, Constraint.UnifyVar(cfn, cfnIdx, tpe, vr)) *>
@@ -612,10 +612,15 @@ object KindFormula {
           right: KindFormula
       ): RefSpace[Unit] =
         (left, right) match {
-          case (Type, Type)                                   => RefSpace.unit
+          case (a, b) if a == b                               => RefSpace.unit
           case (Cons(Arg(vl, il), rl), Cons(Arg(vr, ir), rr)) =>
             // we know vl + vr == vl
-            addCons(vl, Constraint.VarSubsumes(cfn, cfnIdx, tpe, vr)) *>
+            val vs =
+              if (vl != vr)
+                addCons(vl, Constraint.VarSubsumes(cfn, cfnIdx, tpe, vr))
+              else RefSpace.unit
+
+            vs *>
               // we switch the order here
               leftSubsumesRightKindFormula(cfn, cfnIdx, tpe, ir, il) *>
               leftSubsumesRightKindFormula(cfn, cfnIdx, tpe, rl, rr)
