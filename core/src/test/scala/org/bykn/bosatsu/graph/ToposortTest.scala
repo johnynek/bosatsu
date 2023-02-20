@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.graph
 
 import cats.Order
+import cats.data.NonEmptyList
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 
@@ -24,7 +25,7 @@ class ToposortTest extends AnyFunSuite {
       assert(res.isSuccess)
       assert(res.isFailure == res.loopNodes.nonEmpty)
       assert(res.toSuccess == Some(res.layers))
-      assert(res == Toposort.Success(items.toVector.sorted(Order[A].toOrdering).map(_ :: Nil)))
+      assert(res.layers == items.toVector.sorted(Order[A].toOrdering).map(NonEmptyList(_, Nil)))
       assert(res.layersAreTotalOrder)
     }
 
@@ -35,10 +36,10 @@ class ToposortTest extends AnyFunSuite {
   /*
    * There can't be any edges from layer x into layer y if y >= x
    */
-  def noEdgesToLater[A](layers: Vector[List[A]])(fn: A => List[A]) = {
+  def noEdgesToLater[A](layers: Vector[NonEmptyList[A]])(fn: A => List[A]) = {
     layers.zipWithIndex.foreach { case (layer, id) =>
       // we can't point to any nodes in our layer or later
-      layer.foreach { n =>
+      layer.foldMap { n =>
         val nset = fn(n).toSet
         if (nset.nonEmpty) {
           (id until layers.size).foreach { id1 =>
@@ -49,7 +50,7 @@ class ToposortTest extends AnyFunSuite {
     }
   }
 
-  def layersAreSorted[A: Ordering](layers: Vector[List[A]]) =
+  def layersAreSorted[A: Order](layers: Vector[NonEmptyList[A]]) =
     layers.foreach { layer => assert(layer.sorted == layer) }
 
   test("we can sort general dags") {
@@ -64,8 +65,8 @@ class ToposortTest extends AnyFunSuite {
     val genDag = Gen.mapOf(pair).map(Dag(_))
     forAll(genDag) { case Dag(graph) =>
       val allNodes = graph.flatMap { case (h, t) => h :: t }.toSet
-      val Toposort.Success(sorted) = Toposort.sort(allNodes)(graph.getOrElse(_, Nil))
-      assert(sorted.flatten.sorted == allNodes.toList.sorted)
+      val Toposort.Success(sorted, _) = Toposort.sort(allNodes)(graph.getOrElse(_, Nil))
+      assert(sorted.flatMap(_.toList).sorted == allNodes.toList.sorted)
       noEdgesToLater(sorted)(n => graph.getOrElse(n, Nil))
       layersAreSorted(sorted)
     }
@@ -85,7 +86,7 @@ class ToposortTest extends AnyFunSuite {
       noEdgesToLater(layers)(fn)
       layersAreSorted(layers)
       // all the nodes is the same set:
-      val goodNodes = layers.flatten
+      val goodNodes = layers.flatMap(_.toList)
       assert((goodNodes.toList ::: res.loopNodes).sorted == allNodes.toList.sorted)
       // good nodes are distinct
       assert(goodNodes == goodNodes.distinct)
