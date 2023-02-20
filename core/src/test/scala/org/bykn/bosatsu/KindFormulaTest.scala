@@ -3,53 +3,53 @@ package org.bykn.bosatsu
 import org.bykn.bosatsu.rankn.TypeEnv
 import org.scalatest.funsuite.AnyFunSuite
 
-import cats.syntax.all._
+class KindFormulaTest extends AnyFunSuite {
 
-class ShapeTest extends AnyFunSuite {
-
-  def makeTE(teStr: String): Either[Any, TypeEnv[Either[Shape.KnownShape, Kind.Arg]]] = {
+  def makeTE(teStr: String): Either[Any, TypeEnv[Kind.Arg]] = {
     val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)
-    Shape.solveAll((), te.allDefinedTypes)
-      .fold(Left(_), Right(_), (a, _) => Left(a))
-      .map(TypeEnv.fromDefinitions(_))
+    KindFormula.solveShapesAndKinds(
+        (), te.allDefinedTypes
+    )
+    .fold(Left(_), Right(_), (a, _) => Left(a))
+    .map(TypeEnv.fromDefinitions(_))
   }
 
-  def testShape(teStr: String, shapes: Map[String, String]) = {
+  def testKind(teStr: String, shapes: Map[String, String]) = {
     makeTE(teStr) match {
       case Right(te) =>
         shapes.foreach { case (n, vs) =>
           val dt =
-            te.getType(PackageName.PredefName, TypeName(Identifier.Constructor(n))).get
-          val shape = Kind.parser.parseAll(vs) match {
-            case Right(k) => Shape.ShapeOf(k)
+            te.getType(PackageName.PredefName, TypeName(Identifier.Constructor(n)))
+          val kind = Kind.parser.parseAll(vs) match {
+            case Right(k) => k
             case Left(e)  => fail(s"parse error: $e")
           }
-          assert(Shape.ShapeOf(dt) === shape)
+          assert(dt.get.kindOf == kind)
         }
       case Left(errs) =>
         fail(errs.toString)
     }
   }
 
-  def testIllShaped(teStr: String) =
+  def testIllKinded(teStr: String) =
     assert(makeTE(teStr).left.map(_ => ()) == Left(()))
 
   test("test some basic structs") {
-    testShape(
+    testKind(
       """#
 struct Foo(a)
 """,
       Map("Foo" -> "* -> *")
     )
 
-    testShape(
+    testKind(
       """#
 struct Foo[a](x: a, y: a)
 """,
       Map("Foo" -> "* -> *")
     )
 
-    testShape(
+    testKind(
       """#
 struct K1[f, a](x: f[a])
 struct K2[f: +* -> *, a: +*](x: f[a])
@@ -64,12 +64,12 @@ struct K3[f, a: *](x: f[a])
   }
 
   test("test error on illegal structs") {
-    testIllShaped(
+    testIllKinded(
       """#
 struct Foo(x: f[a], y: a[f])
 """)
 
-    testIllShaped(
+    testIllKinded(
       """#
 struct Foo(x: f[a], y: f)
 """)

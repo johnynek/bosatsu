@@ -40,6 +40,8 @@ object KindFormula {
         existing: LongMap[Variance],
         unknowns: SortedSet[Long]
     ) extends Error
+
+    case class FromShapeError(shapeError: Shape.Error) extends Error
   }
 
   sealed abstract class Sat
@@ -190,11 +192,17 @@ object KindFormula {
     }
   }
 
-  sealed abstract class IsTypeEnv[E] {
+  trait IsTypeEnv[E] {
     def getDefinedType(
         env: E,
         tc: rankn.Type.Const
     ): Option[DefinedType[Kind.Arg]]
+
+    final def toShapeEnv: Shape.IsShapeEnv[E] =
+      new Shape.IsShapeEnv[E] {
+        def getShape(e: E, tc: rankn.Type.Const): Option[Shape.KnownShape] =
+          getDefinedType(e, tc).map(Shape.ShapeOf(_))
+      }
   }
 
   object IsTypeEnv {
@@ -243,6 +251,16 @@ object KindFormula {
       new IsTypeEnv[Unit] {
         def getDefinedType(env: Unit, tc: rankn.Type.Const) = None
       }
+  }
+
+  def solveShapesAndKinds[E: IsTypeEnv](
+      imports: E,
+      dts: List[DefinedType[Option[Kind.Arg]]]
+  ): IorNec[Error, List[DefinedType[Kind.Arg]]] = {
+    implicit val shapeEnv = IsTypeEnv[E].toShapeEnv
+    Shape.solveAll(imports, dts)
+      .leftMap(_.map(Error.FromShapeError(_)))
+      .flatMap(solveAll(imports, _))
   }
 
   def solveAll[E: IsTypeEnv](

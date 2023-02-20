@@ -131,7 +131,7 @@ object Shape {
       s.shape(a)
   }
 
-  sealed abstract class IsShapeEnv[E] {
+  trait IsShapeEnv[E] {
     def getShape(env: E, tc: rankn.Type.Const): Option[KnownShape]
   }
 
