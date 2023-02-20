@@ -147,8 +147,8 @@ object KindFormula {
       def depends = variance :: Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
         known.get(variance.id) match {
-            case Some(v) => Sat(v == value)
-            case None => Sat.Maybe
+          case Some(v) => Sat(v == value)
+          case None    => Sat.Maybe
         }
     }
 
@@ -162,8 +162,8 @@ object KindFormula {
       def depends = variance :: Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
         known.get(variance.id) match {
-            case Some(v) => Sat((value + v) == value)
-            case None => Sat.Maybe
+          case Some(v) => Sat((value + v) == value)
+          case None    => Sat.Maybe
         }
     }
 
@@ -175,9 +175,9 @@ object KindFormula {
       def depends = view :: argVariance :: Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
         (known.get(view.id), known.get(argVariance.id)) match {
-            case (Some(v1), Some(v2)) =>
-                Sat((v1 * v2) == value)
-            case _ => Sat.Maybe
+          case (Some(v1), Some(v2)) =>
+            Sat((v1 * v2) == value)
+          case _ => Sat.Maybe
         }
     }
   }

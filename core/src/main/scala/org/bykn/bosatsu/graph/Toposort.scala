@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.graph
 
-import cats.implicits._
+import cats.data.NonEmptyList
+import cats.syntax.all._
 
 object Toposort {
 
@@ -12,9 +13,9 @@ object Toposort {
     // these are the nodes which depend on a cyclic subgraph
     def loopNodes: List[A]
     // This returns the dag portion of the graph
-    def layers: Vector[List[A]]
+    def layers: Vector[NonEmptyList[A]]
     // if this is success, return Some with the layers
-    def toSuccess: Option[Vector[List[A]]] =
+    def toSuccess: Option[Vector[NonEmptyList[A]]] =
       this match {
         case Success(res) => Some(res)
         case Failure(_, _) => None
@@ -22,7 +23,7 @@ object Toposort {
 
     // true if each layer has exactly one item in it
     def layersAreTotalOrder: Boolean =
-      layers.forall(_.lengthCompare(1) == 0)
+      layers.forall(_.tail.isEmpty)
 
     def isSuccess: Boolean =
       this match {
@@ -32,10 +33,10 @@ object Toposort {
 
     def isFailure: Boolean = !isSuccess
   }
-  final case class Success[A](layers: Vector[List[A]]) extends Result[A] {
+  final case class Success[A](layers: Vector[NonEmptyList[A]]) extends Result[A] {
     def loopNodes = Nil
   }
-  final case class Failure[A](loopNodes: List[A], layers: Vector[List[A]]) extends Result[A]
+  final case class Failure[A](loopNodes: List[A], layers: Vector[NonEmptyList[A]]) extends Result[A]
 
   /**
    * Build a deterministic topological sort
@@ -86,7 +87,10 @@ object Toposort {
           }
 
           // the items are already sorted since we added them in sorted order
-          ary.iterator.map(_.result()).toVector
+          ary.iterator.map { bldr =>
+            // We know each layer must have at least 1 item
+            NonEmptyList.fromListUnsafe(bldr.result())
+          }.toVector
         }
       }
       if (bad) Failure(res.collect { case Left(n) => n }, goodRes)
