@@ -26,8 +26,24 @@ object KindFormula {
   case class Cons(arg: Arg, result: KindFormula) extends KindFormula
 
   sealed abstract class Error
+  object Error {
+    case class Unsatisfiable(
+        constraints: LongMap[NonEmptyList[Constraint]],
+        existing: LongMap[Variance],
+        unknowns: SortedSet[Long]
+    ) extends Error
+  }
 
-  sealed abstract class Constraint
+  sealed abstract class Sat
+  object Sat {
+    case object No extends Sat
+    case object Yes extends Sat
+    case object Maybe extends Sat
+  }
+
+  sealed abstract class Constraint {
+    def satisfied(known: LongMap[Variance], value: Variance): Sat = ???
+  }
   object Constraint {
     case class DeclaredParam(
         idx: Int,
@@ -156,6 +172,11 @@ object KindFormula {
       }
     }
 
+    implicit def longMapSemi[V]: Semigroup[LongMap[V]] =
+      new Semigroup[LongMap[V]] {
+        def combine(x: LongMap[V], y: LongMap[V]): LongMap[V] =
+          y.foldLeft(x) { case (x, (k, v)) => x.updated(k, v) }
+      }
     // dagify the constraint graph, and then topologically sort it
     def combineTopo(cons: Cons): List[NonEmptyList[SortedSet[Long]]] = ???
 
@@ -167,7 +188,49 @@ object KindFormula {
         existing: LongMap[Variance],
         directions: LongMap[Direction],
         subgraph: SortedSet[Long]
-    ): ValidatedNec[Error, NonEmptyLazyList[LongMap[Variance]]] = ???
+    ): ValidatedNec[Error, NonEmptyLazyList[LongMap[Variance]]] =
+      if (subgraph.isEmpty) Validated.valid(NonEmptyLazyList(existing))
+      else {
+
+        // go through in the correct direction, removing any
+        // already invalid cases
+        def varsFor(l: Long): LazyList[Variance] =
+          directions(l).variances.to(LazyList).filter { v =>
+            cons(l).forall { c =>
+              c.satisfied(existing, v) != Sat.No
+            }
+          }
+
+        // all possible choices enumerated in the correct directions
+        // excluding the existing variances
+        def allVariances(lst: List[Long]): LazyList[LongMap[Variance]] =
+          lst match {
+            case Nil => LongMap.empty[Variance] #:: LazyList.empty
+            case h :: tail =>
+              val hvs = varsFor(h)
+              val tails = allVariances(tail)
+              // Make sure not to re-evaluate the above
+              (hvs, tails).mapN { (v, tailMap) => tailMap.updated(h, v) }
+          }
+
+        // does this satisfy all constraints for the subgraph
+        def isValid(lm: LongMap[Variance]): Boolean =
+          subgraph.forall { id =>
+            val value = lm(id)
+            cons(id).forall { c =>
+              c.satisfied(existing, value) == Sat.Yes
+            }
+          }
+
+        val validVariances: LazyList[LongMap[Variance]] =
+          allVariances(subgraph.toList).map(existing ++ _).filter(isValid(_))
+
+        NonEmptyLazyList.fromLazyList(validVariances) match {
+          case Some(nel) => Validated.valid(nel)
+          case None =>
+            Validated.invalidNec(Error.Unsatisfiable(cons, existing, subgraph))
+        }
+      }
 
     def allSolutions(
         cons: Cons,
@@ -177,11 +240,7 @@ object KindFormula {
     ): EitherNec[Error, NonEmptyLazyList[LongMap[Variance]]] =
       subgraph
         .traverse(allSolutionChunk(cons, existing, directions, _))
-        .map(KindFormula.mergeCrossProduct(_)(new Semigroup[LongMap[Variance]] {
-          def combine(x: LongMap[Variance], y: LongMap[Variance])
-              : LongMap[Variance] =
-            y.foldLeft(x) { case (x, (k, v)) => x.updated(k, v) }
-        }))
+        .map(KindFormula.mergeCrossProduct(_))
         .toEither
 
     def go(
