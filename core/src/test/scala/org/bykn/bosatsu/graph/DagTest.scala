@@ -72,6 +72,10 @@ class DagTest extends AnyFunSuite {
       graph.keys.foreach { n =>
         assert(mapping(n).isDefined)
       }
+      // if we can't unsingleton, then there is at least one cluster with > 1
+      if (dag.unsingleton.isEmpty) {
+        assert(dag.nodes.exists(_.size > 1))
+      }
 
       dag.nodes.foreach { cluster =>
         dag.deps(cluster).foreach { thatCluster =>
@@ -94,13 +98,16 @@ class DagTest extends AnyFunSuite {
 
       // if we toposort a dag, we always succeed
       implicit val setOrd = ListOrdering.byIterator[SortedSet[Int], Int]
-      val sortRes = Toposort.sort(dag.nodes) { n => dag.deps(n).toList }
+      val sortRes @ Toposort.Success(_, _) = Toposort.sort(dag.nodes) { n =>
+        dag.deps(n).toList
+      }
       assert(sortRes.isSuccess)
       sortRes.layers.zipWithIndex.foreach { case (nodes, layer) =>
         nodes.toList.foreach { n =>
           assert(dag.layerOf(n) == layer)
         }
       }
+      assert(Dag.fromToposorted(sortRes) === dag)
 
       // if we dagify again we get singletons:
       val (_, dag1) = Dag.dagify(dag.nodes)(dag.deps(_))

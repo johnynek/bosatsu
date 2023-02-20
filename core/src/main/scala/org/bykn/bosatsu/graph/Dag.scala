@@ -9,15 +9,17 @@ sealed trait Dag[A] {
   def deps(a: A): SortedSet[A]
 
   private val layerCache: MMap[A, Int] = MMap.empty[A, Int]
-  
+
   // 0: no deps, 1: only depend on layer 0 and less, 2: layers 1 and less ...
   def layerOf(a: A): Int =
     // we know we can't infinitely loop on a dag, so this cache is safe
-    layerCache.getOrElseUpdate(a, {
-      val d = deps(a)
-      if (d.isEmpty) 0
-      else (d.iterator.map(layerOf(_)).max + 1)
-    })
+    layerCache.getOrElseUpdate(
+      a, {
+        val d = deps(a)
+        if (d.isEmpty) 0
+        else (d.iterator.map(layerOf(_)).max + 1)
+      }
+    )
 
   override def equals(that: Any) =
     that match {
