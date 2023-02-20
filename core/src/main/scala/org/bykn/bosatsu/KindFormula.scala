@@ -39,16 +39,25 @@ object KindFormula {
     case object No extends Sat
     case object Yes extends Sat
     case object Maybe extends Sat
+
+    def apply(bool: Boolean): Sat =
+      if (bool) Yes else No
   }
 
   sealed abstract class Constraint {
-    def satisfied(known: LongMap[Variance], value: Variance): Sat = ???
+    def depends: List[Var]
+    def satisfied(known: LongMap[Variance], value: Variance): Sat
   }
   object Constraint {
     case class DeclaredParam(
         idx: Int,
         kindArg: Kind.Arg
-    ) extends Constraint
+    ) extends Constraint {
+      def depends = Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        if (value == kindArg.variance) Sat.Yes
+        else Sat.No
+    }
 
     case class DeclaredType(
         cfn: ConstructorFn,
@@ -56,7 +65,12 @@ object KindFormula {
         forAll: rankn.Type.ForAll,
         bound: rankn.Type.Var.Bound,
         kindArg: Kind.Arg
-    ) extends Constraint
+    ) extends Constraint {
+      def depends = Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        if (value == kindArg.variance) Sat.Yes
+        else Sat.No
+    }
 
     case class ImportedConst(
         cfn: ConstructorFn,
@@ -64,33 +78,79 @@ object KindFormula {
         const: rankn.Type.Const,
         kind: Kind,
         kindArg: Kind.Arg
-    ) extends Constraint
+    ) extends Constraint {
+      def depends = Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        if (value == kindArg.variance) Sat.Yes
+        else Sat.No
+    }
 
     // arg idx of a given constructor function
-    case class Accessor(cfn: ConstructorFn, idx: Int) extends Constraint
+    case class Accessor(cfn: ConstructorFn, idx: Int) extends Constraint {
+      def depends = Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        if (value == Variance.co || value == Variance.in) Sat.Yes
+        else Sat.No
+    }
 
-    case class RecursiveView(cfn: ConstructorFn, idx: Int) extends Constraint
+    case class RecursiveView(cfn: ConstructorFn, idx: Int) extends Constraint {
+      def depends = Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        if (value == Variance.co) Sat.Yes
+        else Sat.No
+    }
 
     case class HasView(
         cfn: ConstructorFn,
         idx: Int,
         bound: rankn.Type.Var.Bound,
         view: Var
-    ) extends Constraint
+    ) extends Constraint {
+      def depends = view :: Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        known.get(view.id) match {
+          case Some(viewVariance) =>
+            value match {
+              case Variance.Invariant => Sat.Yes
+              case Variance.Covariant =>
+                Sat(
+                  (viewVariance == Variance.co) || (viewVariance == Variance.phantom)
+                )
+              case Variance.Contravariant =>
+                Sat(
+                  (viewVariance == Variance.contra) || (viewVariance == Variance.phantom)
+                )
+              case Variance.Phantom =>
+                Sat(viewVariance == Variance.phantom)
+            }
+          case None => Sat.Maybe
+        }
+    }
 
     case class UnifyVariance(
         cfn: ConstructorFn,
         idx: Int,
         inType: rankn.Type,
         variance: Variance
-    ) extends Constraint
+    ) extends Constraint {
+      def depends = Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        Sat(value == variance)
+    }
 
     case class UnifyVar(
         cfn: ConstructorFn,
         idx: Int,
         inType: rankn.Type,
         variance: Var
-    ) extends Constraint
+    ) extends Constraint {
+      def depends = variance :: Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        known.get(variance.id) match {
+            case Some(v) => Sat(v == value)
+            case None => Sat.Maybe
+        }
+    }
 
     // if constrainted by this v + variance == v
     case class VarSubsumes(
@@ -98,13 +158,28 @@ object KindFormula {
         idx: Int,
         inType: rankn.Type,
         variance: Var
-    ) extends Constraint
+    ) extends Constraint {
+      def depends = variance :: Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        known.get(variance.id) match {
+            case Some(v) => Sat((value + v) == value)
+            case None => Sat.Maybe
+        }
+    }
 
     case class IsProduct(
         view: Var,
         argVariance: Var,
         tapply: rankn.Type.TyApply
-    ) extends Constraint
+    ) extends Constraint {
+      def depends = view :: argVariance :: Nil
+      def satisfied(known: LongMap[Variance], value: Variance) =
+        (known.get(view.id), known.get(argVariance.id)) match {
+            case (Some(v1), Some(v2)) =>
+                Sat((v1 * v2) == value)
+            case _ => Sat.Maybe
+        }
+    }
   }
 
   def solveKind(
