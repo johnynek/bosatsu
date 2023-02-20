@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Semigroup
 import cats.data.{NonEmptyLazyList, NonEmptyList, EitherNec, ValidatedNec}
 import org.bykn.bosatsu.rankn.{
   ConstructorFn,
@@ -94,13 +95,14 @@ object KindFormula {
       imports: TypeEnv[Kind.Arg],
       dt: DefinedType[Either[KnownShape, Kind.Arg]]
   ): ValidatedNec[Error, DefinedType[Kind.Arg]] = {
+    import Impl._
 
     (for {
       state <- Impl.newState(imports, dt)
       dtFormula <- dt.zipWithIndex.traverse {
-        case (Left(ks), _) => state.shapeToArg(ks)
+        case (Left(ks), _) => state.shapeToArg(Direction.PhantomUp, ks)
         case (Right(ka), idx) =>
-          state.kindArgToArg(ka) { ka =>
+          state.kindArgToArg(Direction.PhantomUp, ka) { ka =>
             Constraint.DeclaredParam(idx, ka)
           }
       }
@@ -114,8 +116,9 @@ object KindFormula {
         state.addConstraints(thisKind, cfn, kindMap)
       }
       constraints <- state.getConstraints
+      dirs <- state.getDirections
       topo = Impl.combineTopo(constraints)
-      maybeRes = Impl.go(constraints, topo).map { vars =>
+      maybeRes = Impl.go(constraints, dirs, topo).map { vars =>
         dtFormula.map(Impl.unformula(_, vars))
       }
     } yield maybeRes).run.value
@@ -135,26 +138,61 @@ object KindFormula {
       case class IsArg(arg: Arg) extends BoundState
     }
 
+    sealed abstract class Direction(val variances: List[Variance]) {
+      def reverse: Direction
+    }
+    object Direction {
+      case object PhantomUp
+          extends Direction(
+            Variance.phantom :: Variance.contra :: Variance.co :: Variance.in :: Nil
+          ) {
+        def reverse: Direction = InvariantDown
+      }
+      case object InvariantDown
+          extends Direction(
+            Variance.in :: Variance.co :: Variance.contra :: Variance.phantom :: Nil
+          ) {
+        def reverse: Direction = PhantomUp
+      }
+    }
+
     // dagify the constraint graph, and then topologically sort it
-    def combineTopo(cons: Cons): List[List[SortedSet[Long]]] = ???
+    def combineTopo(cons: Cons): List[NonEmptyList[SortedSet[Long]]] = ???
 
     // Report Errors, or enumerate possibilities for subgraph
     // invariant: all subgraph values must be valid keys in the result
     // we can process the subgraph list in parallel. Those are all the indepentent next values
+    def allSolutionChunk(
+        cons: Cons,
+        existing: LongMap[Variance],
+        directions: LongMap[Direction],
+        subgraph: SortedSet[Long]
+    ): ValidatedNec[Error, NonEmptyLazyList[LongMap[Variance]]] = ???
+
     def allSolutions(
         cons: Cons,
         existing: LongMap[Variance],
-        subgraph: List[SortedSet[Long]]
-    ): EitherNec[Error, NonEmptyLazyList[LongMap[Variance]]] = ???
+        directions: LongMap[Direction],
+        subgraph: NonEmptyList[SortedSet[Long]]
+    ): EitherNec[Error, NonEmptyLazyList[LongMap[Variance]]] =
+      subgraph
+        .traverse(allSolutionChunk(cons, existing, directions, _))
+        .map(KindFormula.mergeCrossProduct(_)(new Semigroup[LongMap[Variance]] {
+          def combine(x: LongMap[Variance], y: LongMap[Variance])
+              : LongMap[Variance] =
+            y.foldLeft(x) { case (x, (k, v)) => x.updated(k, v) }
+        }))
+        .toEither
 
     def go(
         cons: Cons,
-        topo: List[List[SortedSet[Long]]]
+        directions: LongMap[Direction],
+        topo: List[NonEmptyList[SortedSet[Long]]]
     ): ValidatedNec[Error, LongMap[Variance]] =
       topo.foldM(NonEmptyLazyList(LongMap.empty[Variance])) {
         (sols, subgraph) =>
           // if there is at least one good solution, we can keep going
-          val next = sols.map(allSolutions(cons, _, subgraph))
+          val next = sols.map(allSolutions(cons, _, directions, subgraph))
           val nextPaths: LazyList[LongMap[Variance]] =
             next.toLazyList.flatMap {
               case Right(ll) => ll.toLazyList
@@ -180,10 +218,11 @@ object KindFormula {
       (
         RefSpace.allocCounter,
         RefSpace.newRef(LongMap.empty[NonEmptyList[Constraint]]),
-        RefSpace.newRef(Map.empty[rankn.Type.Const, KindFormula])
+        RefSpace.newRef(Map.empty[rankn.Type.Const, KindFormula]),
+        RefSpace.newRef(LongMap.empty[Direction])
       )
-        .mapN { (longCnt, cons, consts) =>
-          new State(imports, dt, longCnt.map(Var(_)), cons, consts)
+        .mapN { (longCnt, cons, consts, dirs) =>
+          new State(imports, dt, longCnt, cons, consts, dirs)
         }
 
     private def unformulaKind(k: KindFormula, vars: LongMap[Variance]): Kind =
@@ -198,26 +237,36 @@ object KindFormula {
     class State(
         imports: TypeEnv[Kind.Arg],
         dt: DefinedType[Either[KnownShape, Kind.Arg]],
-        nextVar: RefSpace[Var],
+        nextId: RefSpace[Long],
         cons: Ref[Cons],
-        constFormulas: Ref[Map[rankn.Type.Const, KindFormula]]
+        constFormulas: Ref[Map[rankn.Type.Const, KindFormula]],
+        directions: Ref[LongMap[Direction]]
     ) {
 
+      def nextVar(dir: Direction): RefSpace[Var] =
+        for {
+          id <- nextId
+          _ <- directions.update { dirs => (dirs.updated(id, dir), ()) }
+        } yield Var(id)
+
       def getConstraints: RefSpace[Cons] = cons.get
+      def getDirections: RefSpace[LongMap[Direction]] = directions.get
 
       def shapeToFormula(
+          dir: Direction,
           ks: KnownShape
       ): RefSpace[KindFormula] =
         ks match {
           case Shape.Type => RefSpace.pure(Type)
           case Shape.KnownCons(a, b) =>
-            (shapeToArg(a), shapeToFormula(b)).mapN(Cons(_, _))
+            (shapeToArg(dir.reverse, a), shapeToFormula(dir, b))
+              .mapN(Cons(_, _))
         }
 
-      def shapeToArg(ks: KnownShape): RefSpace[Arg] =
+      def shapeToArg(dir: Direction, ks: KnownShape): RefSpace[Arg] =
         for {
-          v <- nextVar
-          kf <- shapeToFormula(ks)
+          v <- nextVar(dir)
+          kf <- shapeToFormula(dir, ks)
         } yield Arg(v, kf)
 
       def addCons(
@@ -234,24 +283,26 @@ object KindFormula {
         }
 
       def kindToFormula(
+          dir: Direction,
           kind: Kind
       )(fn: Kind.Arg => Constraint): RefSpace[KindFormula] =
         kind match {
           case Kind.Type => RefSpace.pure(Type)
           case Kind.Cons(ka, b) =>
             for {
-              a1 <- kindArgToArg(ka)(fn)
-              b1 <- kindToFormula(b)(fn)
+              a1 <- kindArgToArg(dir.reverse, ka)(fn)
+              b1 <- kindToFormula(dir, b)(fn)
             } yield Cons(a1, b1)
         }
 
       def kindArgToArg(
+          dir: Direction,
           ka: Kind.Arg
       )(fn: Kind.Arg => Constraint): RefSpace[Arg] =
         for {
-          v <- nextVar
+          v <- nextVar(dir)
           _ <- addCons(v, fn(ka))
-          form <- kindToFormula(ka.kind)(fn)
+          form <- kindToFormula(dir, ka.kind)(fn)
         } yield Arg(v, form)
 
       def unifyKind(
@@ -321,6 +372,7 @@ object KindFormula {
         }
 
       def kindOfType(
+          direction: Direction,
           thisKind: KindFormula,
           cfn: ConstructorFn,
           idx: Int,
@@ -332,12 +384,12 @@ object KindFormula {
             val newKindMap = kinds ++ vs.toList.iterator.map { case (b, k) =>
               b -> BoundState.IsKind(k, fa, b)
             }
-            kindOfType(thisKind, cfn, idx, t, newKindMap)
+            kindOfType(direction, thisKind, cfn, idx, t, newKindMap)
 
           case rankn.Type.TyApply(on, _) =>
             // we don't need to unify here,
             // (k1 -> k2)[k1] == k2
-            kindOfType(thisKind, cfn, idx, on, kinds).map {
+            kindOfType(direction.reverse, thisKind, cfn, idx, on, kinds).map {
               case Cons(_, result) => result
               // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
               case Type =>
@@ -356,8 +408,12 @@ object KindFormula {
                   case None =>
                     imports.toDefinedType(c) match {
                       case Some(thisDt) =>
+                        // we reset direct direction for a constant type
                         for {
-                          kf <- kindToFormula(thisDt.kindOf)(
+                          kf <- kindToFormula(
+                            Direction.PhantomUp,
+                            thisDt.kindOf
+                          )(
                             Constraint.ImportedConst(
                               cfn,
                               idx,
@@ -383,7 +439,9 @@ object KindFormula {
               case Some(BoundState.IsArg(a))     => RefSpace.pure(a.kind)
               case Some(BoundState.IsFormula(f)) => RefSpace.pure(f)
               case Some(BoundState.IsKind(k, fa, b)) =>
-                kindToFormula(k)(Constraint.DeclaredType(cfn, idx, fa, b, _))
+                kindToFormula(direction, k)(
+                  Constraint.DeclaredType(cfn, idx, fa, b, _)
+                )
               // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
               case None =>
                 sys.error(
@@ -400,6 +458,7 @@ object KindFormula {
         }
 
       def addTypeConstraints(
+          dir: Direction,
           thisKind: KindFormula,
           cfn: ConstructorFn,
           idx: Int,
@@ -414,6 +473,7 @@ object KindFormula {
               b -> BoundState.IsKind(k, fa, b)
             }
             addTypeConstraints(
+              dir,
               thisKind,
               cfn,
               idx,
@@ -426,11 +486,12 @@ object KindFormula {
             // on must have kind k -> tpeKind
             // arg must have kind k
             // an invariant is that shapes match
-            kindOfType(thisKind, cfn, idx, on, kinds).flatMap {
+            kindOfType(dir.reverse, thisKind, cfn, idx, on, kinds).flatMap {
               case Cons(Arg(v, leftKf), res) =>
                 for {
-                  argKf <- kindOfType(thisKind, cfn, idx, arg, kinds)
-                  newView <- nextVar
+                  argKf <- kindOfType(dir, thisKind, cfn, idx, arg, kinds)
+                  // views are never unconstrained
+                  newView <- nextVar(Direction.PhantomUp)
                   _ <- addCons(newView, Constraint.IsProduct(view, v, ta))
                   _ <- leftSubsumesRightKindFormula(
                     cfn,
@@ -440,6 +501,7 @@ object KindFormula {
                     argKf
                   )
                   _ <- addTypeConstraints(
+                    dir.reverse,
                     thisKind,
                     cfn,
                     idx,
@@ -449,6 +511,7 @@ object KindFormula {
                     kinds
                   )
                   _ <- addTypeConstraints(
+                    dir,
                     thisKind,
                     cfn,
                     idx,
@@ -516,9 +579,10 @@ object KindFormula {
       ): RefSpace[Unit] =
         cfn.args.zipWithIndex.traverse_ { case ((_, tpe), idx) =>
           for {
-            v <- nextVar
+            v <- nextVar(Direction.PhantomUp)
             _ <- addCons(v, Constraint.Accessor(cfn, idx))
             _ <- addTypeConstraints(
+              Direction.PhantomUp,
               thisKind,
               cfn,
               idx,
@@ -532,4 +596,17 @@ object KindFormula {
 
     }
   }
+
+  @annotation.tailrec
+  final def mergeCrossProduct[A: Semigroup](
+      nel: NonEmptyList[NonEmptyLazyList[A]]
+  ): NonEmptyLazyList[A] =
+    nel.tail match {
+      case Nil      => nel.head
+      case th :: tt =>
+        // do the full cross of the first
+        mergeCrossProduct(
+          NonEmptyList((nel.head, th).mapN(Semigroup.combine(_, _)), tt)
+        )
+    }
 }
