@@ -107,7 +107,9 @@ class DagTest extends AnyFunSuite {
           assert(dag.layerOf(n) == layer)
         }
       }
+      assert(dag.layers == sortRes.layers.length)
       assert(Dag.fromToposorted(sortRes) === dag)
+      assert(sortRes.layers == dag.toToposorted.layers)
 
       // if we dagify again we get singletons:
       val (_, dag1) = Dag.dagify(dag.nodes)(dag.deps(_))

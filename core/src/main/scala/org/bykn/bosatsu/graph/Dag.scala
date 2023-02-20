@@ -1,5 +1,6 @@
 package org.bykn.bosatsu.graph
 
+import cats.data.NonEmptyList
 import scala.collection.immutable.SortedSet
 import scala.collection.mutable.{Map => MMap}
 import org.bykn.bosatsu.ListOrdering
@@ -20,6 +21,23 @@ sealed trait Dag[A] {
         else (d.iterator.map(layerOf(_)).max + 1)
       }
     )
+
+  // the exclusive upper bound of layerOf
+  lazy val layers: Int =
+    if (nodes.isEmpty) 0
+    else nodes.iterator.map(layerOf(_)).max + 1
+
+  def toToposorted: Toposort.Success[A] = {
+    val layerMap: Map[Int, SortedSet[A]] = nodes.groupBy(layerOf(_))
+    val ls = (0 until layers)
+      .iterator
+      .map { idx =>
+        // by construction all layers have at least 1 item
+        NonEmptyList.fromListUnsafe(layerMap(idx).toList)
+      }
+      .to(Vector)
+    Toposort.Success(ls, deps(_).toList)
+  }
 
   override def equals(that: Any) =
     that match {
@@ -54,16 +72,16 @@ object Dag {
   }
 
   def dagify[A: Ordering](nodes: Iterable[A])(
-      nfn: A => Iterable[A]
+      nfn: A => IterableOnce[A]
   ): (A => Option[SortedSet[A]], Dag[SortedSet[A]]) = {
 
-    val nodeVec: Vector[A] = nodes.to(Vector).sorted
-    def allReachable(nfn: A => Iterable[A]): Map[A, SortedSet[A]] = {
+    def allReachable(nfn: A => IterableOnce[A]): Map[A, SortedSet[A]] = {
       def step(m: Map[A, SortedSet[A]]): Map[A, SortedSet[A]] =
-        nodeVec.iterator
-          .map { a =>
-            val current = m(a)
-            val next = nfn(a).map(m).foldLeft(SortedSet.empty[A])(_ | _)
+        m.iterator
+          .map { case (a, current) =>
+            val next = nfn(a).iterator.foldLeft(SortedSet.empty[A]) { (s, a) =>
+              s | m(a)
+            }
             a -> (current | next)
           }
           .to(Map)
@@ -75,14 +93,14 @@ object Dag {
         else loop(m1)
       }
 
-      loop(nodeVec.iterator.map { a => (a, SortedSet.empty[A] + a) }.to(Map))
+      loop(nodes.iterator.map { a => (a, SortedSet.empty[A] + a) }.to(Map))
     }
 
     // two nodes are joined into one cluster if a can reach b and vice-versa
     // all edges are either within or between clusters
     val originalAR = allReachable(nfn)
-    val internalNfn: A => Iterable[A] = { a =>
-      nfn(a).filter { b =>
+    val internalNfn: A => IterableOnce[A] = { a =>
+      nfn(a).iterator.filter { b =>
         originalAR(a).contains(b) && originalAR(b).contains(a)
       }
     }
@@ -100,10 +118,7 @@ object Dag {
 
     val dag: Dag[SortedSet[A]] =
       new Dag[SortedSet[A]] {
-        val nodes =
-          clusterMap.iterator.foldLeft(SortedSet.empty[SortedSet[A]]) {
-            case (n, (_, v)) => n + v
-          }
+        val nodes = clusterMap.iterator.map(_._2).to(SortedSet)
         val depCache = MMap.empty[SortedSet[A], SortedSet[SortedSet[A]]]
         def deps(cluster: SortedSet[A]): SortedSet[SortedSet[A]] =
           depCache.getOrElseUpdate(
