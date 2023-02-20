@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import org.bykn.bosatsu.rankn.NTypeGen
-import cats.{Defer, Monad, Traverse}
+import cats.Traverse
 import cats.data.{NonEmptyList, StateT}
 import org.scalacheck.{Arbitrary, Gen, Shrink}
 import cats.implicits._
@@ -9,6 +9,8 @@ import cats.implicits._
 import rankn.NTypeGen.{consIdentGen, packageNameGen, lowerIdent, typeNameGen}
 
 import Declaration.NonBinding
+
+import MonadGen.genMonad
 
 object Generators {
   val lower: Gen[Char] = Gen.oneOf('a' to 'z')
@@ -1017,24 +1019,6 @@ object Generators {
       Gen.oneOf(genGeneric, ann, lam, localGen, globalGen, app, let, lit, matchGen)
     }
   }
-
-  private implicit val genMonad: Monad[Gen] with Defer[Gen] =
-    new Monad[Gen] with Defer[Gen] {
-      def pure[A](a: A): Gen[A] = Gen.const(a)
-      def defer[A](ga: => Gen[A]): Gen[A] = Gen.lzy(ga)
-      override def product[A, B](ga: Gen[A], gb: Gen[B]) = Gen.zip(ga, gb)
-      def flatMap[A, B](ga: Gen[A])(fn: A => Gen[B]) = ga.flatMap(fn)
-      override def map[A, B](ga: Gen[A])(fn: A => B): Gen[B] = ga.map(fn)
-      def tailRecM[A, B](a: A)(fn: A => Gen[Either[A, B]]): Gen[B] =
-        fn(a).flatMap {
-          case Left(a) =>
-            // TODO in the latest scalacheck, there is native tailRecM
-            // but we can't implement a safe one without using private details
-            tailRecM(a)(fn)
-          case Right(b) =>
-            Gen.const(b)
-        }
-    }
 
   def traverseGen[F[_]: Traverse, A, B](fa: F[A])(fn: A => Gen[B]): Gen[F[B]] =
     fa.traverse(fn)

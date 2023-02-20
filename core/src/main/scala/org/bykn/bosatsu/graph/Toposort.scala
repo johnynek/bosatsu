@@ -17,7 +17,7 @@ object Toposort {
     // if this is success, return Some with the layers
     def toSuccess: Option[Vector[NonEmptyList[A]]] =
       this match {
-        case Success(res) => Some(res)
+        case Success(res, _) => Some(res)
         case Failure(_, _) => None
       }
 
@@ -27,13 +27,13 @@ object Toposort {
 
     def isSuccess: Boolean =
       this match {
-        case Success(_) => true
+        case Success(_, _) => true
         case Failure(_, _) => false
       }
 
     def isFailure: Boolean = !isSuccess
   }
-  final case class Success[A](layers: Vector[NonEmptyList[A]]) extends Result[A] {
+  final case class Success[A](layers: Vector[NonEmptyList[A]], nfn: A => List[A]) extends Result[A] {
     def loopNodes = Nil
   }
   final case class Failure[A](loopNodes: List[A], layers: Vector[NonEmptyList[A]]) extends Result[A]
@@ -46,7 +46,7 @@ object Toposort {
    * return a result which tells us the layers of the dag, and the non-dag nodes
    */
   def sort[A: Ordering](n: Iterable[A])(fn: A => List[A]): Result[A] =
-    if (n.isEmpty) Success(Vector.empty)
+    if (n.isEmpty) Success(Vector.empty, fn)
     else {
       // save this to avoid some realloations
       val someZero: Option[Int] = Some(0)
@@ -94,6 +94,6 @@ object Toposort {
         }
       }
       if (bad) Failure(res.collect { case Left(n) => n }, goodRes)
-      else Success(goodRes)
+      else Success(goodRes, fn)
     }
 }
