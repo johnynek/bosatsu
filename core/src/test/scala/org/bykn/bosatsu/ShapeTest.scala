@@ -10,9 +10,9 @@ class ShapeTest extends AnyFunSuite {
   def makeTE(
       teStr: String
   ): Either[Any, TypeEnv[Either[Shape.KnownShape, Kind.Arg]]] = {
-    val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)
+    val te = TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
     Shape
-      .solveAll((), te.allDefinedTypes)
+      .solveAll((), te.allDefinedTypes.reverse)
       .fold(Left(_), Right(_), (a, _) => Left(a))
       .map(TypeEnv.fromDefinitions(_))
   }
@@ -41,10 +41,13 @@ class ShapeTest extends AnyFunSuite {
     makeTE(teStr) match {
       case Left(_) => assert(true)
       case Right(te) =>
-        fail(te.allDefinedTypes.map { dt =>
-          s"${dt.name} => ${Shape.ShapeOf(dt)}"
-        }
-        .mkString("\n"))
+        fail(
+          te.allDefinedTypes
+            .map { dt =>
+              s"${dt.name} => ${Shape.ShapeOf(dt)}"
+            }
+            .mkString("\n")
+        )
     }
 
   test("test some basic structs") {
@@ -96,10 +99,47 @@ enum Lst[f, a]: Empty, Cons(head: a, tail: f[Lst[f, a]])
         "Lst" -> "(* -> *) -> * -> *"
       )
     )
-    testIllShaped(
-      """#
+    testIllShaped("""#
 enum Lst: Empty, Cons(head: a, tail: f[Lst[f, a]])
 """)
+  }
+
+  test("a unit type") {
+    testShape(
+      """#
+struct U
+""",
+      Map(
+        "U" -> "*"
+      )
+    )
+  }
+
+  test("test contravariance") {
+    testShape(
+      """#
+struct Funk[a: -*, b: +*]
+struct U
+
+struct Inv[a](fn: Funk[a, U], value: a)
+""",
+      Map(
+        "U" -> "*",
+        "Funk" -> "* -> * -> *",
+        "Inv" -> "* -> *"
+      )
+    )
+  }
+
+  test("test phantom shape") {
+    testShape(
+      """#
+struct Phantom[a]
+""",
+      Map(
+        "Phantom" -> "* -> *"
+      )
+    )
   }
 
   test("test error on illegal structs") {

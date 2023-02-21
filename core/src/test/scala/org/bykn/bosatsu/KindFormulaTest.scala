@@ -6,11 +6,11 @@ import org.scalatest.funsuite.AnyFunSuite
 class KindFormulaTest extends AnyFunSuite {
 
   def makeTE(teStr: String): Either[Any, TypeEnv[Kind.Arg]] = {
-    val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)
+    val te = TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
     KindFormula
       .solveShapesAndKinds(
         (),
-        te.allDefinedTypes
+        te.allDefinedTypes.reverse
       )
       .fold(Left(_), Right(_), (a, _) => Left(a))
       .map(TypeEnv.fromDefinitions(_))
@@ -72,8 +72,35 @@ struct K3[f, a: +*](x: f[a])
     )
   }
 
-  /*
+  test("test phantom") {
+    testKind(
+      """#
+struct Phantom[a]
+""",
+      Map(
+        "Phantom" -> "👻* -> *"
+      )
+    )
+  }
+
+  test("test contravariance") {
+    testKind(
+      """#
+struct Funk[a: -*, b: +*]
+struct U
+
+struct Inv[a](fn: Funk[a, U], value: a)
+""",
+      Map(
+        "U" -> "*",
+        "Funk" -> "-* -> +* -> *",
+        "Inv" -> "* -> *"
+      )
+    )
+  }
+
   test("test list covariance") {
+    /*
     testKind(
       """#
 enum Lst: Empty, Cons(head: a, tail: Lst[a])
@@ -82,8 +109,8 @@ enum Lst: Empty, Cons(head: a, tail: Lst[a])
         "Lst" -> "+* -> *"
       )
     )
+    */
   }
-  */
 
   test("test error on illegal structs") {
     testIllKinded("""#

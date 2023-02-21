@@ -10,7 +10,7 @@ import IorMethods.IorExtension
 
 object TestUtils {
 
-  def typeEnvOf(pack: PackageName, str: String): TypeEnv[Option[Kind.Arg]] = {
+  def parsedTypeEnvOf(pack: PackageName, str: String): ParsedTypeEnv[Option[Kind.Arg]] = {
 
     val stmt = statementsOf(str)
     val prog = SourceConverter.toProgram(pack, Nil, stmt) match {
@@ -18,8 +18,11 @@ object TestUtils {
       case Ior.Both(_, prog) => prog
       case Ior.Left(err) => sys.error(err.toString)
     }
-    TypeEnv.fromParsed(prog.types._2)
+    prog.types._2
   }
+
+  def typeEnvOf(pack: PackageName, str: String): TypeEnv[Option[Kind.Arg]] =
+    TypeEnv.fromParsed(parsedTypeEnvOf(pack, str))
 
   def statementsOf(str: String): List[Statement] =
     Parser.unsafeParse(Statement.parser, str)

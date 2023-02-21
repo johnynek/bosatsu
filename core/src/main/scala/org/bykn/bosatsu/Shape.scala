@@ -284,41 +284,88 @@ object Shape {
             case ks: KnownShape     => RefSpace.pure(Some(ks))
             case not: NotKnownShape => maybeKnown(not :: Nil, checked)
           }
-      // if any of these can be solved
+
       def maybeKnown(
           s: List[NotKnownShape],
           checked: Set[Shape]
       ): RefSpace[Option[KnownShape]] =
         s match {
           case h :: tail if checked(h) => maybeKnown(tail, checked)
-          case Cons(a, s) :: tail =>
-            (maybeKnownShape(a, checked), maybeKnownShape(s, checked))
+          case (cons @ Cons(a, s)) :: tail =>
+            val c1 = checked + cons
+            (maybeKnownShape(a, c1), maybeKnownShape(s, c1))
               .flatMapN { (oa, os) =>
                 val cons = (oa, os).mapN(KnownCons(_, _))
                 if (cons.isDefined) RefSpace.pure(cons)
-                else maybeKnown(tail, checked + a + s)
+                else maybeKnown(tail, c1 + a + s)
               }
           case (u @ Unknown(_, ref)) :: rest =>
             ref.get.flatMap {
-              case UnknownState.Free     => RefSpace.pure(Some(Type))
+              case UnknownState.Free =>
+                RefSpace.pure(Some(Type))
               case UnknownState.Fixed(f) => RefSpace.pure(Some(f))
               case UnknownState.Linked(ls) =>
                 maybeKnown(ls.toList ::: rest, checked + u)
             }
           case Nil => RefSpace.pure(None)
         }
-      // TODO: this is too simplistic...
-      // we probably need a Set of constraints on Unknown, not an option
-      // then when we go to known, we Dagify and go top to bottom,
-      // turning unconstrained unknowns into Type and then proceed
-      maybeKnownShape(s, Set.empty).flatMap {
-        case Some(known) =>
-          unifyShape(known, s)(FinishFailure(dt, _, _))
-            .map(_.as(known))
-        case None =>
-          // should this be an error?
-          unifyShape(Type, s)(FinishFailure(dt, _, _))
-            .map(_.as(Type))
+      def generalizeOnNotKnown(
+          s: Shape,
+          checked: Set[Shape],
+          bound: KnownShape
+      ): RefSpace[KnownShape] =
+        s match {
+          case ks: KnownShape     => RefSpace.pure(ks)
+          case not: NotKnownShape => generalize(not :: Nil, checked, bound)
+        }
+
+      def generalize(
+          s: List[NotKnownShape],
+          checked: Set[Shape],
+          shape: KnownShape
+      ): RefSpace[KnownShape] =
+        s match {
+          case h :: tail if checked(h)  => generalize(tail, checked, shape)
+          case (c @ Cons(a, s)) :: tail =>
+            // we have to be wide enough to handle * -> *
+            val (in, out) = shape match {
+              case Type            => (Type, Type)
+              case KnownCons(i, o) => (i, o)
+            }
+            (
+              generalizeOnNotKnown(a, checked, in),
+              generalizeOnNotKnown(s, checked, out)
+            )
+              .flatMapN { (oa, os) =>
+                generalize(tail, checked + c + a + s, KnownCons(oa, os))
+              }
+          case (u @ Unknown(_, ref)) :: rest =>
+            ref.get.flatMap {
+              case UnknownState.Free =>
+                generalize(rest, checked + u, shape)
+              case UnknownState.Fixed(f) =>
+                RefSpace.pure(f)
+              case UnknownState.Linked(ls) =>
+                generalize(ls.toList ::: rest, checked + u, shape)
+            }
+          case Nil => RefSpace.pure(shape)
+        }
+      s match {
+        case ks: KnownShape =>
+          RefSpace.pure(Validated.valid(ks))
+        case not: NotKnownShape =>
+          // TODO: this mayb be too simplistic...
+          maybeKnownShape(not, Set.empty).flatMap {
+            case Some(known) =>
+              unifyShape(known, not)(FinishFailure(dt, _, _))
+                .map(_.as(known))
+            case None =>
+              generalize(not :: Nil, Set.empty, Type)
+                .flatMap { known =>
+                  unifyShape(known, s)(FinishFailure(dt, _, _))
+                    .map(_.as(known))
+                }
+          }
       }
     }
 
