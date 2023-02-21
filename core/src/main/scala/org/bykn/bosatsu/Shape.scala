@@ -19,6 +19,7 @@ sealed abstract class Shape
 
 object Shape {
   sealed abstract class KnownShape extends Shape
+  sealed abstract class NotKnownShape extends Shape
 
   case object Type extends KnownShape
 
@@ -30,16 +31,26 @@ object Shape {
 
   case class KnownCons(arg: KnownShape, res: KnownShape) extends KnownShape
 
-  case class Cons(arg: Shape, res: Shape) extends Shape {
+  case class Cons(arg: Shape, res: Shape) extends NotKnownShape {
     require(
       !(arg.isInstanceOf[KnownShape] && res.isInstanceOf[KnownShape]),
       s"cons must have one unknown: $this"
     )
   }
+
+  sealed abstract class UnknownState
+  object UnknownState {
+    case object Free extends UnknownState
+    case class Fixed(toKnown: KnownShape) extends UnknownState
+    case class Linked(notKnowns: Set[NotKnownShape]) extends UnknownState
+
+    def free: UnknownState = Free
+  }
+
   case class Unknown(
       bound: Either[rankn.Type.TyApply, rankn.Type.Var.Bound],
-      ref: Ref[Option[Shape]]
-  ) extends Shape {
+      ref: Ref[UnknownState]
+  ) extends NotKnownShape {
     def compare(that: Unknown): Int =
       (bound, that.bound) match {
         case (Left(_), Right(_))    => 1
@@ -81,6 +92,12 @@ object Shape {
   case class UnificationError(
       dt: DefinedType[Option[Kind.Arg]],
       cfn: ConstructorFn,
+      left: Shape,
+      right: Shape
+  ) extends Error
+
+  case class FinishFailure(
+      dt: DefinedType[Option[Kind.Arg]],
       left: Shape,
       right: Shape
   ) extends Error
@@ -253,67 +270,64 @@ object Shape {
       }
     }
 
+    val validUnit = Validated.valid(())
+    val pureUnit = RefSpace.pure(validUnit)
+
     def shapeToKnown(s: Shape): RefSpace[ValidatedNec[Error, KnownShape]] = {
+      def maybeKnownShape(
+          s: Shape,
+          checked: Set[Shape]
+      ): RefSpace[Option[KnownShape]] =
+        if (checked(s)) RefSpace.pure(None)
+        else
+          s match {
+            case ks: KnownShape     => RefSpace.pure(Some(ks))
+            case not: NotKnownShape => maybeKnown(not :: Nil, checked)
+          }
+      // if any of these can be solved
+      def maybeKnown(
+          s: List[NotKnownShape],
+          checked: Set[Shape]
+      ): RefSpace[Option[KnownShape]] =
+        s match {
+          case h :: tail if checked(h) => maybeKnown(tail, checked)
+          case Cons(a, s) :: tail =>
+            (maybeKnownShape(a, checked), maybeKnownShape(s, checked))
+              .flatMapN { (oa, os) =>
+                val cons = (oa, os).mapN(KnownCons(_, _))
+                if (cons.isDefined) RefSpace.pure(cons)
+                else maybeKnown(tail, checked + a + s)
+              }
+          case (u @ Unknown(_, ref)) :: rest =>
+            ref.get.flatMap {
+              case UnknownState.Free     => RefSpace.pure(Some(Type))
+              case UnknownState.Fixed(f) => RefSpace.pure(Some(f))
+              case UnknownState.Linked(ls) =>
+                maybeKnown(ls.toList ::: rest, checked + u)
+            }
+          case Nil => RefSpace.pure(None)
+        }
       // TODO: this is too simplistic...
       // we probably need a Set of constraints on Unknown, not an option
       // then when we go to known, we Dagify and go top to bottom,
       // turning unconstrained unknowns into Type and then proceed
-      def toKnown(
-          s: Shape,
-          path: Set[Shape],
-          allUK: Boolean
-      ): RefSpace[ValidatedNec[Error, KnownShape]] =
-        s match {
-          case ks: KnownShape => RefSpace.pure(Validated.valid(ks))
-          case Cons(s1, s2) =>
-            for {
-              k1 <- toKnown(s1, path + s, false)
-              k2 <- toKnown(s2, path + s, false)
-            } yield (k1, k2).mapN(KnownCons(_, _))
-          case u @ Unknown(b, ref) =>
-            @inline def finish: RefSpace[ValidatedNec[Error, KnownShape]] =
-              ref.set(Some(Type)).as(Validated.valid(Type))
-
-            ref.get.flatMap {
-              case None =>
-                // this is an unconstrained shape, so we assume Type because we don't have Kind polymorphism
-                finish
-              case Some(s) =>
-                val nextPath = path + u
-                if (nextPath(s)) {
-                  // we have a loop
-                  if (allUK) {
-                    // we have already reached this node, so it is unconstrained, all these types are *
-                    finish
-                  } else {
-                    // we have a fixed point kind
-                    RefSpace.pure(
-                      Validated.invalidNec(ShapeLoop(dt, b, nextPath))
-                    )
-                  }
-                } else {
-                  toKnown(s, nextPath, allUK).flatMap {
-                    case v @ Validated.Valid(ks) =>
-                      ref.set(Some(ks)).as(v)
-                    case invalid => RefSpace.pure(invalid)
-                  }
-                }
-            }
-        }
-
-      toKnown(s, Set.empty, true)
+      maybeKnownShape(s, Set.empty).flatMap {
+        case Some(known) =>
+          unifyShape(known, s)(FinishFailure(dt, _, _))
+            .map(_.as(known))
+        case None =>
+          // should this be an error?
+          unifyShape(Type, s)(FinishFailure(dt, _, _))
+            .map(_.as(Type))
+      }
     }
 
-    val validUnit = Validated.valid(())
-    val pureUnit = RefSpace.pure(validUnit)
-
     def unifyShape(
-        cfn: ConstructorFn,
         s1: Shape,
         s2: Shape
-    ): RefSpace[ValidatedNec[Error, Unit]] = {
+    )(mkErr: (Shape, Shape) => Error): RefSpace[ValidatedNec[Error, Unit]] = {
       @inline def error =
-        RefSpace.pure(Validated.invalidNec(UnificationError(dt, cfn, s1, s2)))
+        RefSpace.pure(Validated.invalidNec(mkErr(s1, s2)))
 
       @inline def unifyCons(
           a: Shape,
@@ -323,6 +337,30 @@ object Shape {
           visited: Set[(Shape, Shape)]
       ): RefSpace[ValidatedNec[Error, Unit]] =
         (loop(a, c, visited), loop(b, d, visited)).mapN(_ *> _)
+
+      def unifyKnown(
+          ks: KnownShape,
+          u: Unknown,
+          visited: Set[(Shape, Shape)]
+      ): RefSpace[ValidatedNec[Error, Unit]] =
+        u.ref.get.flatMap {
+          case UnknownState.Free =>
+            // we can update
+            u.ref.set(UnknownState.Fixed(ks)).as(validUnit)
+          case UnknownState.Fixed(ks1) =>
+            loop(ks, ks1, visited)
+          case UnknownState.Linked(notKnown) =>
+            // all these unknowns must unify with ks
+            notKnown.toList
+              .traverse(loop(ks, _, visited))
+              .map(combineError(_))
+              .flatMap {
+                case v @ Validated.Valid(_) =>
+                  // we now this is value
+                  u.ref.set(UnknownState.Fixed(ks)).map(_ => v)
+                case invalid => RefSpace.pure(invalid)
+              }
+        }
 
       def loop(
           s1: Shape,
@@ -338,16 +376,20 @@ object Shape {
                 case Type            => pureUnit
                 case Cons(_, _)      => error
                 case KnownCons(_, _) => error
-                case Unknown(_, ref) =>
-                  ref.get.flatMap {
-                    case None =>
-                      // we can update
-                      ref.set(Some(Type)).as(validUnit)
-                    case Some(s) =>
-                      loop(s1, s, visited)
-                  }
+                case u @ Unknown(_, _) =>
+                  unifyKnown(Type, u, visited)
               }
-            case Cons(a, b) =>
+            case kc @ KnownCons(a, b) =>
+              s2 match {
+                case Type => error
+                case Cons(c, d) =>
+                  unifyCons(a, b, c, d, visited)
+                case KnownCons(c, d) =>
+                  unifyCons(a, b, c, d, visited)
+                case u @ Unknown(_, _) =>
+                  unifyKnown(kc, u, visited)
+              }
+            case c @ Cons(a, b) =>
               s2 match {
                 case Type => error
                 case Cons(c, d) =>
@@ -356,56 +398,51 @@ object Shape {
                   unifyCons(a, b, c, d, visited)
                 case Unknown(_, ref) =>
                   ref.get.flatMap {
-                    case None =>
+                    case UnknownState.Free =>
                       // we can update
-                      ref.set(Some(s1)).as(validUnit)
-                    case Some(s) =>
-                      loop(s1, s, visited)
+                      ref.set(UnknownState.Linked(Set(c))).as(validUnit)
+                    case UnknownState.Fixed(ks) =>
+                      loop(ks, c, visited)
+                    case UnknownState.Linked(us) =>
+                      ref.set(UnknownState.Linked(us + c)).as(validUnit)
                   }
               }
-            case KnownCons(a, b) =>
+            case u1 @ Unknown(_, ref1) =>
               s2 match {
-                case Type => error
-                case Cons(c, d) =>
-                  unifyCons(a, b, c, d, visited)
-                case KnownCons(c, d) =>
-                  unifyCons(a, b, c, d, visited)
-                case Unknown(_, ref) =>
-                  ref.get.flatMap {
-                    case None =>
-                      // we can update
-                      ref.set(Some(s1)).as(validUnit)
-                    case Some(s) =>
-                      loop(s1, s, visited)
-                  }
-              }
-            case Unknown(_, ref1) =>
-              s2 match {
-                case Unknown(_, ref2) =>
+                case ks: KnownShape =>
+                  unifyKnown(ks, u1, visited)
+                case cons @ Cons(_, _) =>
+                  // reverse
+                  loop(cons, u1, visited)
+                case u2 @ Unknown(_, ref2) =>
                   if (ref1 == ref2) pureUnit
                   else
-                    (ref1.get, ref2.get).flatMapN {
-                      case (None, None) =>
-                        // both are unset, link them
-                        // maybe we just link the one with the smaller bound? idk
-                        val set = ref1.set(Some(s2)) *> ref2.set(Some(s1))
-                        set.as(validUnit)
-                      case (someA, None) =>
-                        ref2.set(someA).as(validUnit)
-                      case (None, someB) =>
-                        ref1.set(someB).as(validUnit)
-                      case (Some(a), Some(b)) =>
-                        loop(a, b, visited)
+                    ref1.get.flatMap {
+                      case UnknownState.Free =>
+                        ref2.get.flatMap {
+                          case UnknownState.Free =>
+                            // both are unset, link them
+                            val set = ref1.set(UnknownState.Linked(Set(u2))) *>
+                              ref2.set(UnknownState.Linked(Set(u1)))
+                            set.as(validUnit)
+                          case notFree =>
+                            ref1.set(notFree).as(validUnit)
+                        }
+                      case UnknownState.Fixed(f1) =>
+                        loop(f1, u2, visited)
+                      case linked @ UnknownState.Linked(l1) =>
+                        ref2.get.flatMap {
+                          case UnknownState.Free =>
+                            ref2.set(linked).as(validUnit)
+                          case UnknownState.Fixed(f2) =>
+                            loop(u1, f2, visited)
+                          case UnknownState.Linked(l2) =>
+                            // both are unset, link them
+                            val set = ref1.set(UnknownState.Linked(l1 + u2)) *>
+                              ref2.set(UnknownState.Linked(l2 + u1))
+                            set.as(validUnit)
+                        }
                     }
-                case _ =>
-                  // s1 is unknown, but s2 is not an unknown
-                  ref1.get.flatMap {
-                    case None =>
-                      // we can update because we know s2 != s1
-                      ref1.set(Some(s2)).as(validUnit)
-                    case Some(s1Next) =>
-                      loop(s1Next, s2, visited)
-                  }
               }
           }
         }
@@ -416,11 +453,13 @@ object Shape {
     // we can only apply s1(s2) if s1 is (k1 -> k2)k1
     def applyShape(
         cfn: ConstructorFn,
-        outer: rankn.Type, 
+        outer: rankn.Type,
         inner: rankn.Type.TyApply, // has unknown shape
         s1: Shape,
         s2: Shape
-    ): RefSpace[ValidatedNec[Error, Shape]] =
+    ): RefSpace[ValidatedNec[Error, Shape]] = {
+
+      val mkErr = (s1: Shape, s2: Shape) => UnificationError(dt, cfn, s1, s2)
       s1 match {
         case Type =>
           // kind mismatch
@@ -430,20 +469,21 @@ object Shape {
         case Cons(arg, res) =>
           // s1 == (arg -> res)
           // s1(s2) => res
-          unifyShape(cfn, arg, s2).map(_.as(res))
+          unifyShape(arg, s2)(mkErr).map(_.as(res))
         case KnownCons(arg, res) =>
           // s1 == (arg -> res)
           // s1(s2) => res
-          unifyShape(cfn, arg, s2).map(_.as(res))
+          unifyShape(arg, s2)(mkErr).map(_.as(res))
         case u1 @ Unknown(_, _) =>
           // we allocate a new unknown u, and unify s1 with s2 -> u and return u
           RefSpace
-            .newRef(Option.empty[Shape])
+            .newRef(UnknownState.free)
             .flatMap { ref =>
               val u = Unknown(Left(inner), ref)
-              unifyShape(cfn, u1, Cons(s2, u)).map(_.as(u))
+              unifyShape(u1, Cons(s2, u))(mkErr).map(_.as(u))
             }
       }
+    }
 
     def shapeOfType(
         cfn: ConstructorFn,
@@ -522,7 +562,9 @@ object Shape {
             case Validated.Valid(shapeList) =>
               // all the args to a function arg kind Type
               shapeList
-                .traverse(unifyShape(cfn, _, Type))
+                .traverse(unifyShape(_, Type) { (s1, s2) =>
+                  UnificationError(dt, cfn, s1, s2)
+                })
                 .map(combineError(_))
             case Validated.Invalid(errs) =>
               // we are changing the right type here from List[Shape] to Unit
@@ -539,7 +581,7 @@ object Shape {
       shapes <- dt.annotatedTypeParams.traverse {
         case (v, None) =>
           RefSpace
-            .newRef(Option.empty[Shape])
+            .newRef(UnknownState.free)
             .map { ref => (v, Left(Unknown(Right(v), ref): Shape)) }
         case (v, Some(ka)) =>
           RefSpace.pure((v, Right(ka)))
