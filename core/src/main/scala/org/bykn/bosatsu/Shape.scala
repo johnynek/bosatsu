@@ -39,7 +39,15 @@ object Shape {
   case class Unknown(
       bound: Either[rankn.Type.TyApply, rankn.Type.Var.Bound],
       ref: Ref[Option[Shape]]
-  ) extends Shape
+  ) extends Shape {
+    def compare(that: Unknown): Int =
+      (bound, that.bound) match {
+        case (Left(_), Right(_))    => 1
+        case (Right(_), Left(_))    => -1
+        case (Left(t1), Left(t2))   => Ordering[rankn.Type].compare(t1, t2)
+        case (Right(v1), Right(v2)) => Ordering[rankn.Type.Var].compare(v1, v2)
+      }
+  }
 
   def shapeDoc(s: Shape): Doc =
     s match {
@@ -246,6 +254,10 @@ object Shape {
     }
 
     def shapeToKnown(s: Shape): RefSpace[ValidatedNec[Error, KnownShape]] = {
+      // TODO: this is too simplistic...
+      // we probably need a Set of constraints on Unknown, not an option
+      // then when we go to known, we Dagify and go top to bottom,
+      // turning unconstrained unknowns into Type and then proceed
       def toKnown(
           s: Shape,
           path: Set[Shape],
@@ -295,15 +307,6 @@ object Shape {
     val validUnit = Validated.valid(())
     val pureUnit = RefSpace.pure(validUnit)
 
-    def unifyCons(
-        cfn: ConstructorFn,
-        a: Shape,
-        b: Shape,
-        c: Shape,
-        d: Shape
-    ): RefSpace[ValidatedNec[Error, Unit]] =
-      (unifyShape(cfn, a, c), unifyShape(cfn, b, d)).mapN(_ *> _)
-
     def unifyShape(
         cfn: ConstructorFn,
         s1: Shape,
@@ -311,87 +314,110 @@ object Shape {
     ): RefSpace[ValidatedNec[Error, Unit]] = {
       @inline def error =
         RefSpace.pure(Validated.invalidNec(UnificationError(dt, cfn, s1, s2)))
-      s1 match {
-        case Type =>
-          s2 match {
-            case Type            => pureUnit
-            case Cons(_, _)      => error
-            case KnownCons(_, _) => error
-            case Unknown(_, ref) =>
-              ref.get.flatMap {
-                case None =>
-                  // we can update
-                  ref.set(Some(Type)).as(validUnit)
-                case Some(s) =>
-                  unifyShape(cfn, s1, s)
+
+      @inline def unifyCons(
+          a: Shape,
+          b: Shape,
+          c: Shape,
+          d: Shape,
+          visited: Set[(Shape, Shape)]
+      ): RefSpace[ValidatedNec[Error, Unit]] =
+        (loop(a, c, visited), loop(b, d, visited)).mapN(_ *> _)
+
+      def loop(
+          s1: Shape,
+          s2: Shape,
+          visited0: Set[(Shape, Shape)]
+      ): RefSpace[ValidatedNec[Error, Unit]] =
+        if (visited0((s1, s2))) pureUnit
+        else {
+          val visited = visited0 + ((s1, s2))
+          s1 match {
+            case Type =>
+              s2 match {
+                case Type            => pureUnit
+                case Cons(_, _)      => error
+                case KnownCons(_, _) => error
+                case Unknown(_, ref) =>
+                  ref.get.flatMap {
+                    case None =>
+                      // we can update
+                      ref.set(Some(Type)).as(validUnit)
+                    case Some(s) =>
+                      loop(s1, s, visited)
+                  }
+              }
+            case Cons(a, b) =>
+              s2 match {
+                case Type => error
+                case Cons(c, d) =>
+                  unifyCons(a, b, c, d, visited)
+                case KnownCons(c, d) =>
+                  unifyCons(a, b, c, d, visited)
+                case Unknown(_, ref) =>
+                  ref.get.flatMap {
+                    case None =>
+                      // we can update
+                      ref.set(Some(s1)).as(validUnit)
+                    case Some(s) =>
+                      loop(s1, s, visited)
+                  }
+              }
+            case KnownCons(a, b) =>
+              s2 match {
+                case Type => error
+                case Cons(c, d) =>
+                  unifyCons(a, b, c, d, visited)
+                case KnownCons(c, d) =>
+                  unifyCons(a, b, c, d, visited)
+                case Unknown(_, ref) =>
+                  ref.get.flatMap {
+                    case None =>
+                      // we can update
+                      ref.set(Some(s1)).as(validUnit)
+                    case Some(s) =>
+                      loop(s1, s, visited)
+                  }
+              }
+            case Unknown(_, ref1) =>
+              s2 match {
+                case Unknown(_, ref2) =>
+                  if (ref1 == ref2) pureUnit
+                  else
+                    (ref1.get, ref2.get).flatMapN {
+                      case (None, None) =>
+                        // both are unset, link them
+                        // maybe we just link the one with the smaller bound? idk
+                        val set = ref1.set(Some(s2)) *> ref2.set(Some(s1))
+                        set.as(validUnit)
+                      case (someA, None) =>
+                        ref2.set(someA).as(validUnit)
+                      case (None, someB) =>
+                        ref1.set(someB).as(validUnit)
+                      case (Some(a), Some(b)) =>
+                        loop(a, b, visited)
+                    }
+                case _ =>
+                  // s1 is unknown, but s2 is not an unknown
+                  ref1.get.flatMap {
+                    case None =>
+                      // we can update because we know s2 != s1
+                      ref1.set(Some(s2)).as(validUnit)
+                    case Some(s1Next) =>
+                      loop(s1Next, s2, visited)
+                  }
               }
           }
-        case Cons(a, b) =>
-          s2 match {
-            case Type => error
-            case Cons(c, d) =>
-              unifyCons(cfn, a, b, c, d)
-            case KnownCons(c, d) =>
-              unifyCons(cfn, a, b, c, d)
-            case Unknown(_, ref) =>
-              ref.get.flatMap {
-                case None =>
-                  // we can update
-                  ref.set(Some(s1)).as(validUnit)
-                case Some(s) =>
-                  unifyShape(cfn, s1, s)
-              }
-          }
-        case KnownCons(a, b) =>
-          s2 match {
-            case Type => error
-            case Cons(c, d) =>
-              unifyCons(cfn, a, b, c, d)
-            case KnownCons(c, d) =>
-              unifyCons(cfn, a, b, c, d)
-            case Unknown(_, ref) =>
-              ref.get.flatMap {
-                case None =>
-                  // we can update
-                  ref.set(Some(s1)).as(validUnit)
-                case Some(s) =>
-                  unifyShape(cfn, s1, s)
-              }
-          }
-        case Unknown(_, ref1) =>
-          s2 match {
-            case Unknown(_, ref2) =>
-              if (ref1 == ref2) pureUnit
-              else
-                (ref1.get, ref2.get).flatMapN {
-                  case (None, None) =>
-                    // both are unset, link them
-                    // maybe we just link the one with the smaller bound? idk
-                    ref1.set(Some(s2)) *> ref2.set(Some(s1)).as(validUnit)
-                  case (someA, None) =>
-                    ref2.set(someA).as(validUnit)
-                  case (None, someB) =>
-                    ref1.set(someB).as(validUnit)
-                  case (Some(a), Some(b)) =>
-                    unifyShape(cfn, a, b)
-                }
-            case _ =>
-              ref1.get.flatMap {
-                case None =>
-                  // we can update
-                  ref1.set(Some(s2)).as(validUnit)
-                case Some(s1) =>
-                  unifyShape(cfn, s1, s2)
-              }
-          }
-      }
+        }
+
+      loop(s1, s2, Set.empty)
     }
 
     // we can only apply s1(s2) if s1 is (k1 -> k2)k1
     def applyShape(
         cfn: ConstructorFn,
-        outer: rankn.Type,
-        inner: rankn.Type.TyApply,
+        outer: rankn.Type, 
+        inner: rankn.Type.TyApply, // has unknown shape
         s1: Shape,
         s2: Shape
     ): RefSpace[ValidatedNec[Error, Shape]] =
@@ -422,10 +448,10 @@ object Shape {
     def shapeOfType(
         cfn: ConstructorFn,
         scope: Env,
-        tpe: rankn.Type
+        tpe: rankn.Type // has Kind = Type which will be unified later
     ): RefSpace[ValidatedNec[Error, Shape]] = {
       def loop(
-          inner: rankn.Type,
+          inner: rankn.Type, // has unknown Kind
           local: Map[rankn.Type.Var.Bound, Kind]
       ): RefSpace[ValidatedNec[Error, Shape]] =
         inner match {

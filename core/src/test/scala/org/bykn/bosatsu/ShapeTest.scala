@@ -38,7 +38,14 @@ class ShapeTest extends AnyFunSuite {
   }
 
   def testIllShaped(teStr: String) =
-    assert(makeTE(teStr).left.map(_ => ()) == Left(()))
+    makeTE(teStr) match {
+      case Left(_) => assert(true)
+      case Right(te) =>
+        fail(te.allDefinedTypes.map { dt =>
+          s"${dt.name} => ${Shape.ShapeOf(dt)}"
+        }
+        .mkString("\n"))
+    }
 
   test("test some basic structs") {
     testShape(
@@ -89,14 +96,10 @@ enum Lst[f, a]: Empty, Cons(head: a, tail: f[Lst[f, a]])
         "Lst" -> "(* -> *) -> * -> *"
       )
     )
-    // this is an infinite loop
-    // need to have robust protection against that:
-    /*
     testIllShaped(
       """#
 enum Lst: Empty, Cons(head: a, tail: f[Lst[f, a]])
 """)
-     */
   }
 
   test("test error on illegal structs") {
