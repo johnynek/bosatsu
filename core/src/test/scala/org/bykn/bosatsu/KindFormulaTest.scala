@@ -63,11 +63,13 @@ struct Foo[a](x: a, y: a)
 struct K1[f, a](x: f[a])
 struct K2[f: +* -> *, a: +*](x: f[a])
 struct K3[f, a: +*](x: f[a])
+struct K4[f, a: -*](x: f[a])
 """,
       Map(
         "K1" -> "+(* -> *) -> * -> *",
         "K2" -> "(+* -> *) -> +* -> *",
-        "K3" -> "+(+* -> *) -> +* -> *"
+        "K3" -> "+(+* -> *) -> +* -> *",
+        "K4" -> "+(-* -> *) -> -* -> *"
       )
     )
   }
@@ -100,16 +102,40 @@ struct Inv[a](fn: Funk[a, U], value: a)
   }
 
   test("test list covariance") {
-    /*
     testKind(
       """#
-enum Lst: Empty, Cons(head: a, tail: Lst[a])
+enum Lst[a]: Empty, Cons(head: a, tail: Lst[a])
 """,
       Map(
         "Lst" -> "+* -> *"
       )
     )
-    */
+  }
+
+  test("test kind1 covariance") {
+    testKind(
+      """#
+enum Tree[f, a]: Empty, Branch(head: a, tail: f[Tree[f, a]])
+enum Tree1[f, a, phantom]: Empty, Branch(head: a, tail: f[Tree1[f, a, phantom]])
+""",
+      Map(
+        "Tree" -> "+(+* -> *) -> +* -> *",
+        "Tree1" -> "+(+* -> *) -> +* -> 👻* -> *"
+      )
+    )
+  }
+
+  test("test monad") {
+    testKind(
+      """#
+struct Fn[a: -*, b: +*]
+
+struct Monad(pure: forall a. a -> f[a], flatten: forall a. f[f[a]] -> f[a])
+""",
+      Map(
+        "Monad" -> "(* -> *) -> *"
+      )
+    )
   }
 
   test("test error on illegal structs") {
@@ -119,6 +145,13 @@ struct Foo(x: f[a], y: a[f])
 
     testIllKinded("""#
 struct Foo(x: f[a], y: f)
+""")
+
+    testIllKinded("""#
+struct Foo[a: -*](x: a)
+""")
+    testIllKinded("""#
+struct Foo[a: 👻*](x: a)
 """)
   }
 }

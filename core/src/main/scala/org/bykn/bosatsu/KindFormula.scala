@@ -120,19 +120,7 @@ object KindFormula {
       def satisfied(known: LongMap[Variance], value: Variance) =
         known.get(view.id) match {
           case Some(viewVariance) =>
-            value match {
-              case Variance.Invariant => Sat.Yes
-              case Variance.Covariant =>
-                Sat(
-                  (viewVariance == Variance.co) || (viewVariance == Variance.phantom)
-                )
-              case Variance.Contravariant =>
-                Sat(
-                  (viewVariance == Variance.contra) || (viewVariance == Variance.phantom)
-                )
-              case Variance.Phantom =>
-                Sat(viewVariance == Variance.phantom)
-            }
+            Sat((viewVariance + value) == value)
           case None => Sat.Maybe
         }
     }
@@ -403,16 +391,25 @@ object KindFormula {
           }
 
         // does this satisfy all constraints for the subgraph
-        def isValid(lm: LongMap[Variance]): Boolean =
+        def isValid(lm: LongMap[Variance]): Boolean = {
+          // println(s"trying: $lm")
           subgraph.forall { id =>
             val value = lm(id)
             // some values are unconstrained
             cons.get(id) match {
               case Some(cs) =>
-                cs.forall(_.satisfied(existing, value) == Sat.Yes)
-              case None => true
+                // println(s"constraints for $id = $value")
+                cs.forall { c =>
+                  val res = c.satisfied(lm, value)
+                  // println(s"constraint: $c == $res")
+                  res == Sat.Yes
+                }
+              case None =>
+                // println(s"no constraints for $id = $value")
+                true
             }
           }
+        }
 
         val validVariances: LazyList[LongMap[Variance]] =
           allVariances(subgraph.toList).map(existing ++ _).filter(isValid(_))
