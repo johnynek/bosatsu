@@ -413,6 +413,7 @@ final class SourceConverter(
             val newPattern = convertPattern(binding, decl.region)
             (newPattern, resExpr, loop(in)).mapN { (pat, res, in) =>
               val foldFn = Expr.Lambda(dictSymbol,
+                None,
                 Expr.buildPatternLambda(
                   NonEmptyList(pat, Nil),
                   res,

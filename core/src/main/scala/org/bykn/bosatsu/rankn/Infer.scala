@@ -651,7 +651,7 @@ object Infer {
              typedArg <- checkSigma(arg, argT)
              coerce <- instSigma(resT, expect, region(term))
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
-        case Lambda(name, result, tag) =>
+        case Lambda(name, None, result, tag) =>
           expect match {
             case Expected.Check((expTy, rr)) =>
               for {
@@ -672,7 +672,7 @@ object Infer {
                 _ <- infer.set((Type.Fun(varT, bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
           }
-        case AnnotatedLambda(name, tpe, result, tag) =>
+        case Lambda(name, Some(tpe), result, tag) =>
           expect match {
             case Expected.Check((expTy, rr)) =>
               for {
