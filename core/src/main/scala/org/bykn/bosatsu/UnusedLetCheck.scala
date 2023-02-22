@@ -25,9 +25,7 @@ object UnusedLetCheck {
     e match {
       case Annotation(expr, _, _) =>
         loop(expr)
-      case AnnotatedLambda(arg, _, expr, _) =>
-        checkArg(arg, HasRegion.region(e), loop(expr))
-      case Lambda(arg, expr, _) =>
+      case Lambda(arg, _, expr, _) =>
         checkArg(arg, HasRegion.region(e), loop(expr))
       case Let(arg, expr, in, rec, _) =>
         val exprCheck = loop(expr)

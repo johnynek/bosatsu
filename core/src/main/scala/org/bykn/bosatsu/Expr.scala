@@ -21,11 +21,10 @@ object Expr {
   sealed abstract class Name[T] extends Expr[T]
 
   case class Annotation[T](expr: Expr[T], tpe: Type, tag: T) extends Expr[T]
-  case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: Expr[T], tag: T) extends Expr[T]
   case class Local[T](name: Bindable, tag: T) extends Name[T]
   case class Global[T](pack: PackageName, name: Identifier, tag: T) extends Name[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
-  case class Lambda[T](arg: Bindable, expr: Expr[T], tag: T) extends Expr[T]
+  case class Lambda[T](arg: Bindable, tpe: Option[Type], expr: Expr[T], tag: T) extends Expr[T]
   case class Let[T](arg: Bindable, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], Expr[T])], tag: T) extends Expr[T]
@@ -39,11 +38,10 @@ object Expr {
   final def allNames[A](expr: Expr[A]): SortedSet[Bindable] =
     expr match {
       case Annotation(e, _, _) => allNames(e)
-      case AnnotatedLambda(arg, _, expr, _) => allNames(expr) + arg
       case Local(name, _) => SortedSet(name)
       case Global(_, _, _) => SortedSet.empty
       case App(fn, a, _) => allNames(fn) | allNames(a)
-      case Lambda(arg, e, _) => allNames(e) + arg
+      case Lambda(arg, _, e, _) => allNames(e) + arg
       case Let(arg, expr, in, _, _) => allNames(expr) | allNames(in) + arg
       case Literal(_, _) => SortedSet.empty
       case Match(exp, branches, _) =>
@@ -81,13 +79,11 @@ object Expr {
     expr match {
       case Annotation(e, tpe, a) =>
         (traverseType(e, fn), fn(tpe)).mapN(Annotation(_, _, a))
-      case AnnotatedLambda(arg, tpe, expr, a) =>
-        (fn(tpe), traverseType(expr, fn)).mapN(AnnotatedLambda(arg, _, _, a))
       case v: Name[T] => F.pure(v)
       case App(f, a, t) =>
         (traverseType(f, fn), traverseType(a, fn)).mapN(App(_, _, t))
-      case Lambda(arg, expr, t) =>
-        traverseType(expr, fn).map(Lambda(arg, _, t))
+      case Lambda(arg, optT, expr, t) =>
+        (optT.traverse(fn), traverseType(expr, fn)).mapN(Lambda(arg, _, _, t))
       case Let(arg, exp, in, rec, tag) =>
         (traverseType(exp, fn), traverseType(in, fn)).mapN(Let(arg, _, _, rec, tag))
       case l@Literal(_, _) => F.pure(l)
@@ -162,8 +158,6 @@ object Expr {
         fa match {
           case Annotation(e, tpe, a) =>
             (e.traverse(f), f(a)).mapN(Annotation(_, tpe, _))
-          case AnnotatedLambda(arg, tpe, expr, a) =>
-            (expr.traverse(f), f(a)).mapN(AnnotatedLambda(arg, tpe, _, _))
           case Local(s, t) =>
             f(t).map(Local(s, _))
           case Global(p, s, t) =>
@@ -172,9 +166,9 @@ object Expr {
             (fn.traverse(f), a.traverse(f), f(t)).mapN { (fn1, a1, b) =>
               App(fn1, a1, b)
             }
-          case Lambda(arg, expr, t) =>
+          case Lambda(arg, tpe, expr, t) =>
             (expr.traverse(f), f(t)).mapN { (e1, t1) =>
-              Lambda(arg, e1, t1)
+              Lambda(arg, tpe, e1, t1)
             }
           case Let(arg, exp, in, rec, tag) =>
             (exp.traverse(f), in.traverse(f), f(tag)).mapN { (e1, i1, t1) =>
@@ -195,15 +189,12 @@ object Expr {
           case Annotation(e, _, tag) =>
             val b1 = foldLeft(e, b)(f)
             f(b1, tag)
-          case AnnotatedLambda(_, _, e, tag) =>
-            val b1 = foldLeft(e, b)(f)
-            f(b1, tag)
           case n: Name[A] => f(b, n.tag)
           case App(fn, a, tag) =>
             val b1 = foldLeft(fn, b)(f)
             val b2 = foldLeft(a, b1)(f)
             f(b2, tag)
-          case Lambda(_, expr, tag) =>
+          case Lambda(_, _, expr, tag) =>
             val b1 = foldLeft(expr, b)(f)
             f(b1, tag)
           case Let(_, exp, in, _, tag) =>
@@ -223,15 +214,12 @@ object Expr {
           case Annotation(e, _, tag) =>
             val lb1 = foldRight(e, lb)(f)
             f(tag, lb1)
-          case AnnotatedLambda(_, _, e, tag) =>
-            val lb1 = foldRight(e, lb)(f)
-            f(tag, lb1)
           case n: Name[A] => f(n.tag, lb)
           case App(fn, a, tag) =>
             val b1 = f(tag, lb)
             val b2 = foldRight(a, b1)(f)
             foldRight(fn, b2)(f)
-          case Lambda(_, expr, tag) =>
+          case Lambda(_, _, expr, tag) =>
             val b1 = f(tag, lb)
             foldRight(expr, b1)(f)
           case Let(_, exp, in, _, tag) =>
@@ -283,10 +271,10 @@ object Expr {
       args match {
         case NonEmptyList(Pattern.Annotation(pat, tpe), Nil) =>
           val (arg, newBody) = makeBindBody(pat)
-          Expr.AnnotatedLambda(arg, tpe, newBody, outer)
+          Expr.Lambda(arg, Some(tpe), newBody, outer)
         case NonEmptyList(matchPat, Nil) =>
           val (arg, newBody) = makeBindBody(matchPat)
-          Expr.Lambda(arg, newBody, outer)
+          Expr.Lambda(arg, None, newBody, outer)
         case NonEmptyList(arg, h :: tail) =>
           val body1 = loop(NonEmptyList(h, tail), body)
           loop(NonEmptyList.of(arg), body1)
