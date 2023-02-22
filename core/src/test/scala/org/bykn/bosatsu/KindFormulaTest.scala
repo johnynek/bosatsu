@@ -16,8 +16,24 @@ class KindFormulaTest extends AnyFunSuite {
       .map(TypeEnv.fromDefinitions(_))
   }
 
-  def testKind(teStr: String, shapes: Map[String, String]) = {
-    makeTE(teStr) match {
+  def testPredef(shapes: Map[String, String]) = {
+    val te = TestUtils.predefParsedTypeEnv
+    val eitherTE = KindFormula
+      .solveShapesAndKinds(
+        (),
+        te.allDefinedTypes.reverse
+      )
+      .fold(Left(_), Right(_), (a, _) => Left(a))
+      .map(TypeEnv.fromDefinitions(_))
+
+    testKindEither(eitherTE, shapes)
+  }
+
+  def testKind(teStr: String, shapes: Map[String, String]) =
+    testKindEither(makeTE(teStr), shapes)
+
+  def testKindEither(te: Either[Any, TypeEnv[Kind.Arg]], shapes: Map[String, String]) =
+    te match {
       case Right(te) =>
         shapes.foreach { case (n, vs) =>
           val dt =
@@ -38,7 +54,6 @@ class KindFormulaTest extends AnyFunSuite {
       case Left(errs) =>
         fail(errs.toString)
     }
-  }
 
   def testIllKinded(teStr: String) =
     assert(makeTE(teStr).left.map(_ => ()) == Left(()))
@@ -138,6 +153,19 @@ struct Monad(pure: forall a. a -> f[a], flatten: forall a. f[f[a]] -> f[a])
     )
   }
 
+  test("test leibniz") {
+    testKind(
+      """#
+struct Fn[a: -*, b: +*]
+
+struct Leib[a, b](cast: forall f: * -> *. f[a] -> f[b])
+""",
+      Map(
+        "Leib" -> "* -> * -> *"
+      )
+    )
+  }
+
   test("test error on illegal structs") {
     testIllKinded("""#
 struct Foo(x: f[a], y: a[f])
@@ -153,5 +181,17 @@ struct Foo[a: -*](x: a)
     testIllKinded("""#
 struct Foo[a: 👻*](x: a)
 """)
+    testIllKinded("""#
+struct Fn[a: -*, b: +*]
+
+# missing kind on f
+struct Leib[a, b](cast: forall f. f[a] -> f[b])
+""")
   }
+
+  /*
+  test("we can find all the kinds in predef") {
+    testPredef(Map.empty)
+  }
+  */
 }

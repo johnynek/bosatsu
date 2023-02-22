@@ -21,6 +21,16 @@ object TestUtils {
     prog.types._2
   }
 
+  def predefParsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]] = {
+    val p = Package.predefPackage
+    val prog = SourceConverter.toProgram(p.name, Nil, p.program) match {
+      case Ior.Right(prog) => prog
+      case Ior.Both(_, prog) => prog
+      case Ior.Left(err) => sys.error(err.toString)
+    }
+    prog.types._2
+  }
+
   def typeEnvOf(pack: PackageName, str: String): TypeEnv[Option[Kind.Arg]] =
     TypeEnv.fromParsed(parsedTypeEnvOf(pack, str))
 
