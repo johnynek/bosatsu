@@ -189,9 +189,17 @@ struct Leib[a, b](cast: forall f. f[a] -> f[b])
 """)
   }
 
-  /*
   test("we can find all the kinds in predef") {
-    testPredef(Map.empty)
+    testPredef(
+      Map(
+        "List" -> "+* -> *",
+        "Order" -> "-* -> *",
+        "Option" -> "+* -> *",
+        "Tree" -> "+* -> *",
+        // TODO: we could make this * -> +* -> * if we were more careful
+        // that would allow some recursions we don't currently
+        "Dict" -> "* -> * -> *"
+      )
+    )
   }
-  */
 }

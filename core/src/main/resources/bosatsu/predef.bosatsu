@@ -52,6 +52,8 @@ struct TupleCons(first, second)
 enum Bool:
   False, True
 
+external struct Fn[a: -*, b: +*]
+
 #############
 # Support for built-in lists
 #############
