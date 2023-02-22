@@ -66,13 +66,42 @@ object Infer {
     uniq: Ref[Long],
     vars: Map[Name, Type],
     typeCons: Map[(PackageName, Constructor), Cons],
-    variances: Map[Type.Const.Defined, List[Kind.Arg]]) {
+    variances: Map[Type.Const.Defined, Kind]) { //List[Kind.Arg]]) {
 
     def addVars(vt: List[(Name, Type)]): Env =
       copy(vars = vars ++ vt)
 
-    def getKind(t: Type, region: Region): Either[Error, Kind] =
-      Right(Kind.Type)
+    def getKind(t: Type, region: Option[Region]): Either[Error, Kind] = {
+      def loop(item: Type, locals: Map[Type.Var.Bound, Kind]): Either[Error, Kind] =
+        item match {
+          case Type.ForAll(bound, t) =>
+            loop(t, locals ++ bound.toList)
+          case Type.TyConst(const) =>
+            val d = const.toDefined
+            // some tests rely on syntax without importing
+            variances.get(d).orElse(Type.builtInKinds.get(item)) match {
+              case Some(ks) => Right(ks)
+              case None => Left(Error.UnknownDefined(d, region))
+            }
+          case Type.TyApply(left, _) =>
+            loop(left, locals) match {
+              case Right(Kind.Cons(_, res)) => Right(res)
+              case other =>
+                Left(Error.KindInvariantViolation(item, region,
+                  s"expected Right(Con(_, _)) got $other"))
+            }
+          case Type.TyVar(b @ Type.Var.Bound(_)) =>
+            locals.get(b) match {
+              case Some(k) => Right(k)
+              case None => 
+                Left(Error.KindInvariantViolation(t, region, s"unbound var: $b"))
+            }
+          case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
+          case Type.TyMeta(Type.Meta(kind, _, _)) => Right(kind)
+        }
+
+      loop(t, Map.empty)
+    }
   }
 
   object Env {
@@ -80,11 +109,10 @@ object Infer {
       vars: Map[Name, Type],
       typeCons: Map[(PackageName, Constructor), Cons]): Env = {
 
-      // TODO Kind we probably want to remove these
       val variances = typeCons
         .iterator
         .map { case (_, (vs, _, c)) =>
-          (c, vs.map(_._2))
+          (c, Kind(vs.map(_._2): _*))
         }
         .toMap
 
@@ -136,6 +164,13 @@ object Infer {
       def message = {
         def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
+      }
+    }
+
+    case class UnknownDefined(tpe: Type.Const.Defined, region: Option[Region]) extends TypeError {
+      def message = {
+        def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
+        s"${tStr(Type.TyConst(tpe))} ($region) is an unknown type"
       }
     }
 
@@ -196,6 +231,8 @@ object Infer {
     case class ExpectedRho(tpe: Type, context: String) extends InternalError {
       def message = s"expected $tpe to be a Type.Rho, at $context"
     }
+
+    case class KindInvariantViolation(tpe: Type, region: Option[Region], message: String) extends InternalError
   }
 
 
@@ -249,11 +286,8 @@ object Infer {
           })
     }
 
-    case object GetVarianceMap extends Infer[Map[Type.Const.Defined, List[Kind.Arg]]] {
-      def run(env: Env) = RefSpace.pure(Right(env.variances))
-    }
-
-    case class GetKind(tpe: Type, r: Region) extends Infer[Kind] {
+    // TODO: we should always have a Region here
+    case class GetKind(tpe: Type, r: Option[Region]) extends Infer[Kind] {
       def run(env: Env) = RefSpace.pure(env.getKind(tpe, r))
     }
 
@@ -275,39 +309,24 @@ object Infer {
 
     def nextId: Infer[Long] = NextId
 
-    def kindOf(t: Type, r: Region): Infer[Kind] = GetKind(t, r)
-    def varianceOf(t: Type): Infer[Option[Variance]] = {
-      import Type._
-      def variances(vs: Map[Type.Const.Defined, List[Kind.Arg]], t: Type): Option[List[Variance]] =
-        t match {
-          case FnType => Some(Variance.contra :: Variance.co :: Nil)
-          case TyApply(left, _) =>
-            variances(vs, left).map(_.drop(1))
-          case TyConst(defined@Const.Defined(_, _)) =>
-            // TODO: don't ignore Kind
-            vs.get(defined).map(_.map(_.variance))
-          case TyVar(_) => None
-          case TyMeta(_) =>
-            // this is almost certainly a bug in this approach.
-            // we will probably need a meta var for Variance as well
-            // since inorder to infer this TyMeta, we may need to use
-            // the variance
-            None
-          case ForAll(_, r) => variances(vs, r)
-        }
+    def kindOf(t: Type, r: Region): Infer[Kind] =
+      GetKind(t, Some(r))
 
-      for {
-        vs <- GetVarianceMap
-        t1 <- zonkType(t) // fill in any known variances
-      } yield (variances(vs, t1).flatMap(_.headOption))
-    }
+    // on t[a] we know t: k -> *, what is the variance
+    // in the arg a
+    // TODO we need a region here to report an ill kinded type
+    def varianceOfCons(t: Type): Infer[Variance] =
+      GetKind(t, None)
+        .flatMap(varianceOfConsKind(t, _))
 
-    // For two types that unify, check both variances
-    def varianceOf2(t1: Type, t2: Type): Infer[Option[Variance]] =
-      varianceOf(t1).flatMap {
-        case s@Some(_) => pure(s)
-        case None => varianceOf(t2)
+    def varianceOfConsKind(t: Type, k: Kind): Infer[Variance] =
+      k match {
+        case Kind.Cons(Kind.Arg(v, _), _) => pure(v)
+        case unexpected =>
+          fail(Error.KindInvariantViolation(t, None, s"expected * -> *, but found: $unexpected in $t"))
       }
+
+
     /**
      * Skolemize on a function just recurses on the result type.
      *
@@ -333,10 +352,10 @@ object Infer {
         case Type.TyApply(left, right) =>
           // Rule PRFUN
           // we know the kind of left is k -> x, and right has kind k
-          varianceOf(left)
+          varianceOfCons(left)
             .product(skolemize(left))
             .flatMap {
-              case (Some(Variance.Covariant), (sksl, sl)) =>
+              case (Variance.Covariant, (sksl, sl)) =>
                 for {
                   skr <- skolemize(right)
                   (sksr, sr) = skr
@@ -465,19 +484,18 @@ object Infer {
           (kindOf(l2, right), kindOf(r2, right))
             .tupled
             .flatMap { case (kl, kr) =>
+              // TODO Kind I think we should unify l1 and kl kinds
               unifyTyApp(rho1, kl, kr, left, right).flatMap {
                 case (l1, r1) =>
-                  // TODO Kind I think we should unify l1 and kl kinds
-                  // and check the variance
-                  val check2 = varianceOf2(l1, l2).flatMap {
-                    case Some(Variance.Covariant) =>
+                  val check2 = varianceOfConsKind(l2, kl).flatMap {
+                    case Variance.Covariant =>
                       subsCheck(r1, r2, left, right).void
-                    case Some(Variance.Contravariant) =>
+                    case Variance.Contravariant =>
                       subsCheck(r2, r1, right, left).void
-                    case Some(Variance.Phantom) =>
+                    case Variance.Phantom =>
                       // this doesn't matter
                       unit
-                    case None | Some(Variance.Invariant) =>
+                    case Variance.Invariant =>
                       unifyType(r1, r2, left, right)
                   }
                   // should we coerce to t2? Seems like... but copying previous code
@@ -488,19 +506,18 @@ object Infer {
           (kindOf(l1, left), kindOf(r1, left))
             .tupled
             .flatMap { case (kl, kr) =>
+              // TODO Kind I think we should unify l1 and kl kinds
               unifyTyApp(rho2, kl, kr, left, right).flatMap {
                 case (l2, r2) =>
-                  // TODO Kind I think we should unify l1 and kl kinds
-                  // and check the variance
-                  val check2 = varianceOf2(l1, l2).flatMap {
-                    case Some(Variance.Covariant) =>
+                  val check2 = varianceOfConsKind(l1, kl).flatMap {
+                    case Variance.Covariant =>
                       subsCheck(r1, r2, left, right).void
-                    case Some(Variance.Contravariant) =>
+                    case Variance.Contravariant =>
                       subsCheck(r2, r1, right, left).void
-                    case Some(Variance.Phantom) =>
+                    case Variance.Phantom =>
                       // this doesn't matter
                       unit
-                    case None | Some(Variance.Invariant) =>
+                    case Variance.Invariant =>
                       unifyType(r1, r2, left, right)
                   }
                   // should we coerce to t2? Seems like... but copying previous code
@@ -538,6 +555,7 @@ object Infer {
           } yield (argT, resT)
       }
 
+    // TODO: Kind make sure lKind: (k1 -> k2) and rKind: k1 and apType: k2
     def unifyTyApp(apType: Type.Rho, lKind: Kind, rKind: Kind, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
       apType match {
         case Type.TyApply(left, right) =>

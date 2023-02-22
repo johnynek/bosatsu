@@ -21,7 +21,7 @@ object TestUtils {
     prog.types._2
   }
 
-  def predefParsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]] = {
+  val predefParsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]] = {
     val p = Package.predefPackage
     val prog = SourceConverter.toProgram(p.name, Nil, p.program) match {
       case Ior.Right(prog) => prog

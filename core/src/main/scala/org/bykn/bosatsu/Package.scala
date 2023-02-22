@@ -215,12 +215,12 @@ object Package {
     optProg.flatMap {
       case Program((importedTypeEnv, parsedTypeEnv), lets, extDefs, _) =>
         val inferVarianceParsed: Ior[NonEmptyList[PackageError], ParsedTypeEnv[Kind.Arg]] =
-          VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes) match {
-            case Right(infDTs) =>
-              Ior.right(ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs))
-            case Left(err) =>
-              Ior.left(NonEmptyList.one(PackageError.VarianceInferenceFailure(p, err)))
-          }
+          KindFormula.solveShapesAndKinds(importedTypeEnv, parsedTypeEnv.allDefinedTypes.reverse)
+            .bimap({ necError =>
+              necError.map(PackageError.KindInferenceError(p, _)).toNonEmptyList
+            }, { infDTs =>
+              ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs)
+            })
 
         inferVarianceParsed.flatMap { parsedTypeEnv =>
           /*
@@ -724,6 +724,13 @@ object PackageError {
         }
 
       Doc.intercalate(Doc.line, dupMessages).render(80)
+    }
+  }
+
+  case class KindInferenceError(pack: PackageName, kindError: KindFormula.Error) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
+      // TODO actually make this look sane
+      s"in package ${pack.asString}: KindError: $kindError"
     }
   }
 }

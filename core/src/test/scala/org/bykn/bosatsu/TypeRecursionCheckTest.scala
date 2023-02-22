@@ -1,29 +1,43 @@
 package org.bykn.bosatsu
 
-import cats.data.Validated
+import cats.data.{Validated, Ior}
 import org.bykn.bosatsu.rankn.TypeEnv
 import org.scalatest.funsuite.AnyFunSuite
 
 class TypeRecursionCheckTest extends AnyFunSuite {
 
+  val predefTE: TypeEnv[Kind.Arg] = {
+    val te = TestUtils.predefParsedTypeEnv
+    KindFormula
+      .solveShapesAndKinds(
+        (),
+        te.allDefinedTypes.reverse
+      )
+      .fold(Left(_), Right(_), (a, _) => Left(a))
+      .map(TypeEnv.fromDefinitions(_)) match {
+        case Right(res) => res
+        case Left(err) => sys.error(err.toString)
+      }
+  }
+
   def allowed(teStr: String) = {
-    val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)
-    VarianceFormula.solve(TypeEnv.empty, te.allDefinedTypes) match {
-      case Left(errs) => fail(s"couldn't solve: $errs")
-      case Right(teVar) =>
+    val te = TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
+    KindFormula.solveShapesAndKinds(predefTE, te.allDefinedTypes.reverse) match {
+      case Ior.Right(teVar) =>
         assert(
           TypeRecursionCheck.checkLegitRecursion(TypeEnv.empty, teVar) ==
             Validated.valid(()))
+      case errs => fail(s"couldn't solve: $errs")
     }
   }
 
   def disallowed(teStr: String) = {
-    val te = TestUtils.typeEnvOf(PackageName.PredefName, teStr)
-    VarianceFormula.solve(TypeEnv.empty, te.allDefinedTypes) match {
-      case Left(errs) => fail(s"couldn't solve: $errs")
-      case Right(teVar) =>
-        assert(
-          TypeRecursionCheck.checkLegitRecursion(TypeEnv.empty, teVar).isInvalid)
+    val te = TestUtils.parsedTypeEnvOf(PackageName.PredefName, teStr)
+    KindFormula.solveShapesAndKinds(predefTE, te.allDefinedTypes.reverse) match {
+      case Ior.Right(teVar) => fail(s"expected to fail: $teVar")
+      case _ =>
+        // we disallow in in solving now
+        ()
     }
   }
 
@@ -53,9 +67,9 @@ enum Path:
 
   test("cont is allowed with Tree") {
     allowed("""#
-struct Cont(fn: (a -> b) -> b)
+struct Cont[a, b](fn: (a -> b) -> b)
 
-struct Tree(root: a, children: Cont[Tree[a], b])
+struct Tree[a, b](root: a, children: Cont[Tree[a, b], b])
 """)
 
     disallowed("""#

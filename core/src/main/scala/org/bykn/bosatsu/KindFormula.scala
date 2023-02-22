@@ -656,7 +656,7 @@ object KindFormula {
                 )
               // $COVERAGE-ON$
             }
-          case rankn.Type.TyConst(c) =>
+          case const @ rankn.Type.TyConst(c) =>
             if ((tpe: rankn.Type) === dt.toTypeTyConst) RefSpace.pure(thisKind)
             else {
               // Has to be in the imports
@@ -664,28 +664,33 @@ object KindFormula {
                 consts.get(c) match {
                   case Some(kf) => RefSpace.pure(kf)
                   case None =>
-                    IsTypeEnv[E].getDefinedType(imports, c) match {
-                      case Some(thisDt) =>
-                        // we reset direct direction for a constant type
-                        for {
-                          kf <- kindToFormula(thisDt.kindOf)(
-                            Constraint.ImportedConst(
-                              cfn,
-                              idx,
-                              c,
-                              thisDt.kindOf,
-                              _
+                    val kind = IsTypeEnv[E].getDefinedType(imports, c) match {
+                      case Some(thisDt) => thisDt.kindOf
+                      case None         =>
+                        // some test code relies on syntax but doesn't import predef
+                        rankn.Type.builtInKinds.get(const) match {
+                          case Some(kind) => kind
+                          // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
+                          case None =>
+                            sys.error(
+                              s"invariant violation: unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
                             )
-                          )
-                          _ <- constFormulas.set(consts.updated(c, kf))
-                        } yield kf
-                      // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
-                      case None =>
-                        sys.error(
-                          s"invariant violation: unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
-                        )
+                        }
                       // $COVERAGE-ON$
                     }
+                    // we reset direct direction for a constant type
+                    for {
+                      kf <- kindToFormula(kind)(
+                        Constraint.ImportedConst(
+                          cfn,
+                          idx,
+                          c,
+                          kind,
+                          _
+                        )
+                      )
+                      _ <- constFormulas.set(consts.updated(c, kf))
+                    } yield kf
                 }
               }
             }
@@ -791,16 +796,21 @@ object KindFormula {
                 unifyKindFormula(cfn, idx, tpe, thisKind, tpeKind)
             } else {
               // Has to be in the imports
-              IsTypeEnv[E].getDefinedType(imports, c) match {
-                case Some(thisDt) =>
-                  unifyKind(cfn, idx, tpe, thisDt.kindOf, tpeKind)
+              val kind = IsTypeEnv[E].getDefinedType(imports, c) match {
+                case Some(thisDt) => thisDt.kindOf
                 // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
                 case None =>
-                  sys.error(
-                    s"invariant violation: unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
-                  )
+                  // some test code relies on syntax but doesn't import predef
+                  if (tpe == rankn.Type.FnType) Kind.FnKind
+                  else if (tpe == rankn.Type.StrType) Kind.StrKind
+                  else if (tpe == rankn.Type.IntType) Kind.IntKind
+                  else
+                    sys.error(
+                      s"invariant violation: unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
+                    )
                 // $COVERAGE-ON$
               }
+              unifyKind(cfn, idx, tpe, kind, tpeKind)
             }
           case rankn.Type.TyVar(b @ rankn.Type.Var.Bound(_)) =>
             kinds.get(b) match {

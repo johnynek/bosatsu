@@ -23,6 +23,7 @@ class RankNInferTest extends AnyFunSuite {
     str.asString match {
       case "Int" => Type.Const.predef("Int")
       case "String" => Type.Const.predef("String")
+      case "List" => Type.Const.predef("List")
       case _ => Type.Const.Defined(testPackage, TypeName(str))
     }
 
@@ -42,8 +43,10 @@ class RankNInferTest extends AnyFunSuite {
       .runFully(Map.empty, Map.empty)
   }
 
-  def assertTypesUnify(left: String, right: String) =
-    assert(runUnify(left, right).isRight, s"$left does not unify with $right")
+  def assertTypesUnify(left: String, right: String) = {
+    val res = runUnify(left, right)
+    assert(res.isRight, s"$left does not unify with $right\n\n$res")
+  }
 
   def assertTypesDisjoint(left: String, right: String) =
     assert(runUnify(left, right).isLeft, s"$left unexpectedly unifies with $right")
@@ -52,6 +55,7 @@ class RankNInferTest extends AnyFunSuite {
     Type.Const.Defined(testPackage, TypeName(Identifier.Constructor(n)))
 
   def b(a: String) = (Type.Var.Bound(a), Kind.Type)
+  def b1(a: String) = (Type.Var.Bound(a), Kind(Kind.Type.in))
 
   val withBools: Map[Infer.Name, Type] =
     Map(
@@ -166,7 +170,10 @@ class RankNInferTest extends AnyFunSuite {
     assertTypesUnify("forall a, b. a -> b", "forall b, c. b -> (c -> Int)")
     // assertTypesUnify("(forall a. a)[Int]", "Int")
     // assertTypesUnify("(forall a. Int)[b]", "Int")
-    assertTypesUnify("forall a, f. f[a]", "forall x. List[x]")
+    assertTypesUnify("forall a, f: * -> *. f[a]", "forall x. List[x]")
+    assertTypesUnify("forall a, f: +* -> *. f[a]", "forall x. List[x]")
+    // TODO: this should fail
+    assertTypesUnify("forall a, f: -* -> *. f[a]", "forall x. List[x]")
     //assertTypesUnify("(forall a, b. a -> b)[x, y]", "z -> w")
 
     assertTypesDisjoint("Int", "String")
@@ -347,14 +354,14 @@ class RankNInferTest extends AnyFunSuite {
      * struct Pure(pure: forall a. a -> f[a])
      */
     val defined = Map(
-      ((pn, Constructor("Pure")), (List((Type.Var.Bound("f"), Kind.Type.in)),
+      ((pn, Constructor("Pure")), (List((Type.Var.Bound("f"), Kind(Kind.Type.in).in)),
         List(Type.ForAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
       ((pn, Constructor("Some")), (List((Type.Var.Bound("a"), Kind.Type.co)), List(tv("a")), optName)),
       ((pn, Constructor("None")), (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, optName)))
 
     val constructors = Map(
-      (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b("f")),
+      (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b1("f")),
         Type.Fun(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))),
           Type.TyApply(Type.TyConst(pureName), tv("f")) ))),
       (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
@@ -523,7 +530,9 @@ def opt_bind(opt, bind_fn):
 
 option_monad = Monad(Some, opt_bind)
 
-def use_bind(m: Monad[f], a, b, c):
+# todo support syntax
+#def use_bind[f: * -> *](m: Monad[f], a, b, c):
+def use_bind(m, a, b, c):
   Monad { pure, bind } = m
   a1 = bind(a, pure)
   b1 = bind(b, pure)
@@ -552,7 +561,9 @@ def opt_bind(opt, bind_fn):
 
 option_monad = Monad(Some, opt_bind)
 
-def use_bind(a, b, c, m: Monad[f]):
+# TODO support
+#def use_bind[f: * -> *](a, b, c, m: Monad[f]):
+def use_bind(a, b, c, m):
   Monad { pure, bind } = m
   a1 = bind(a, pure)
   b1 = bind(b, pure)

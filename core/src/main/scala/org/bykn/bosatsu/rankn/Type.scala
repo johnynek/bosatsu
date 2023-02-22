@@ -229,6 +229,16 @@ object Type {
   val TupleConsType = TyConst(Type.Const.predef("TupleCons"))
   val UnitType = TyConst(Type.Const.predef("Unit"))
 
+  val builtInKinds: Map[Type, Kind] =
+    Map(
+      BoolType -> Kind.Type,
+      DictType -> Kind.DictKind,
+      FnType -> Kind.FnKind,
+      IntType -> Kind.Type,
+      ListType -> Kind.ListKind,
+      StrType -> Kind.Type
+    )
+
   def const(pn: PackageName, name: TypeName): Type =
     TyConst(Type.Const.Defined(pn, name))
 
