@@ -106,6 +106,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     import Expr._
     expr match {
       case Annotation(e, _, _) => checkExpr(e)
+      case Generic(_, e) => checkExpr(e)
       case Lambda(_, _, e, _) => checkExpr(e)
       case Global(_, _, _) | Local(_, _) | Literal(_, _) => Validated.valid(())
       case App(fn, arg, _) => checkExpr(fn) *> checkExpr(arg)

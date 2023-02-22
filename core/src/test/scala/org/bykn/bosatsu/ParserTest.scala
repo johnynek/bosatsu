@@ -576,7 +576,7 @@ foo"""
     parseTestAll(
       Declaration.parser(""),
       defWithComment,
-      Declaration.DefFn(DefStatement(Identifier.Name("foo"), NonEmptyList.of(Pattern.Var(Identifier.Name("a"))), None,
+      Declaration.DefFn(DefStatement(Identifier.Name("foo"), None, NonEmptyList.of(Pattern.Var(Identifier.Name("a"))), None,
         (OptIndent.paddedIndented(1, 2, Declaration.CommentNB(CommentStatement(NonEmptyList.of(" comment here"),
           Padding(0, mkVar("a"))))),
          Padding(0, mkVar("foo"))))))

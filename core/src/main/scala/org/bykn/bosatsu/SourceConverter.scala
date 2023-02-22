@@ -152,7 +152,7 @@ final class SourceConverter(
         loop(decl).map(_.as(decl))
       case CommentNB(CommentStatement(_, Padding(_, decl))) =>
         loop(decl).map(_.as(decl))
-      case DefFn(defstmt@DefStatement(_, _, _, _)) =>
+      case DefFn(defstmt@DefStatement(_, _, _, _, _)) =>
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
         }
@@ -1094,7 +1094,7 @@ final class SourceConverter(
           val r = apply(decl, Set.empty, topBound).map((nm, RecursionKind.NonRecursive, _) :: Nil)
           (topBound + nm, r)
 
-        case Right(Left(d @ Def(defstmt@DefStatement(_, pat, _, _)))) =>
+        case Right(Left(d @ Def(defstmt@DefStatement(_, _, pat, _, _)))) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
 
           val boundName = defstmt.name

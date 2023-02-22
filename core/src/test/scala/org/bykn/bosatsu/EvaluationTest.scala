@@ -2633,4 +2633,18 @@ x = bar
       ()
     }
   }
+
+  test("test def with type params") {
+    runBosatsuTest(List("""
+package Foo
+
+def foo[a](a: a) -> a:
+  x: a = a
+  def again(x: a): x
+  def and_again[b](x: b): x
+  and_again(again(x))
+  
+test = Assertion(foo(True), "")
+"""), "Foo", 1)
+  }
 }
