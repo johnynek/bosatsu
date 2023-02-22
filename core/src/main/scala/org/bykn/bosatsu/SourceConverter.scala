@@ -601,8 +601,14 @@ final class SourceConverter(
           }
         }
       case ExternalStruct(nm, targs) =>
-        // TODO make a real check here
-        success(rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), Some(Kind.Type.in)) }, Nil))
+        // TODO make a real check here of allowed kinds
+        success(
+          rankn.DefinedType(
+            pname,
+            TypeName(nm),
+            targs.map { case (TypeRef.TypeVar(v), optK) => (Type.Var.Bound(v), optK) },
+            Nil)
+          )
     }
   }
 

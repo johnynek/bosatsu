@@ -793,12 +793,11 @@ object Generators {
   val constructorGen: Gen[(Identifier.Constructor, List[(Identifier.Bindable, Option[TypeRef])])] =
     for {
       name <- consIdentGen
-      argc <- Gen.choose(0, 5)
-      args <- Gen.listOfN(argc, argGen)
+      args <- smallList(argGen)
     } yield (name, args)
 
   val genTypeArgs: Gen[List[(TypeRef.TypeVar, Option[Kind.Arg])]] =
-    Gen.listOf(Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKindArg))).map(_.distinctBy(_._1))
+    smallList(Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKindArg))).map(_.distinctBy(_._1))
 
   val genStruct: Gen[Statement] =
     Gen.zip(constructorGen, genTypeArgs)
@@ -809,8 +808,7 @@ object Generators {
   val genExternalStruct: Gen[Statement] =
     for {
       name <- consIdentGen
-      argc <- Gen.choose(0, 5)
-      args <- Gen.listOfN(argc, typeRefVarGen)
+      args <- genTypeArgs
     } yield Statement.ExternalStruct(name, args)(emptyRegion)
 
   val genExternalDef: Gen[Statement] =
