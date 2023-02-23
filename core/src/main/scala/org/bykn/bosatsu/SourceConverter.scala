@@ -91,19 +91,33 @@ final class SourceConverter(
     val unTypedBody = resultExpr(result)
     val bodyExp =
       retType.fold(unTypedBody) { t =>
-        (unTypedBody, toType(t, region), tag).mapN(Expr.Annotation(_, _, _))
+        (unTypedBody, toType(t, region), tag).parMapN(Expr.Annotation(_, _, _))
       }
 
-    (args.traverse(convertPattern(_, region)), bodyExp, tag).mapN { (as, b, t) =>
+    (args.traverse(convertPattern(_, region)), bodyExp, tag).parMapN { (as, b, t) =>
       val lambda = Expr.buildPatternLambda(as, b, t)
       typeArgs match {
-        case None => lambda
+        case None => success(lambda)
         case Some(args) =>
-          // TODO: we need to make sure all bs are actually free in lambda
-          val bs = args.map { case TypeRef.TypeVar(b) => rankn.Type.Var.Bound(b) }
-          Expr.Generic(bs, lambda)
+          val bs = args.map(_.toBoundVar)
+          val gen = Expr.Generic(bs, lambda)
+          val freeVarsList = Expr.freeBoundTyVars(lambda)
+          val freeVars = freeVarsList.toSet
+          val notFreeDecl = bs.toList.filterNot(freeVars)
+          if (notFreeDecl.nonEmpty) {
+            // we have a lint that fails if declTV is not
+            // a superset of what you would derive from the args
+            // the purpose here is to control the *order* of
+            // and to allow introducing phantom parameters, not
+            // it is confusing if some are explicit, but some are not
+            SourceConverter.partial(
+              SourceConverter.InvalidDefTypeParameters(bs, freeVarsList, ds, region),
+              gen)
+          }
+          else success(gen)
       }
     }
+    .flatten
   }
   private def resolveToVar[A](ident: Identifier, decl: A, bound: Set[Bindable], topBound: Set[Bindable]): Expr[A] =
     ident match {
@@ -134,13 +148,13 @@ final class SourceConverter(
 
     decl match {
       case Annotation(term, tpe) =>
-        (loop(term), toType(tpe, decl.region)).mapN(Expr.Annotation(_, _, decl))
+        (loop(term), toType(tpe, decl.region)).parMapN(Expr.Annotation(_, _, decl))
       case Apply(fn, args, _) =>
         (loop(fn), args.toList.traverse(loop(_)))
-          .mapN { Expr.buildApp(_, _, decl) }
+          .parMapN { Expr.buildApp(_, _, decl) }
       case ao@ApplyOp(left, op, right) =>
         val opVar: Expr[Declaration] = resolveToVar(op, ao.opVar, bound, topBound)
-        (loop(left), loop(right)).mapN { (l, r) =>
+        (loop(left), loop(right)).parMapN { (l, r) =>
           Expr.buildApp(opVar, l :: r :: Nil, decl)
         }
       case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
@@ -149,7 +163,7 @@ final class SourceConverter(
         def solvePat(pat: Pattern.Parsed, rrhs: Result[Expr[Declaration]]): Result[Expr[Declaration]] =
           pat match {
             case Pattern.Var(arg) =>
-              (erest, rrhs).mapN { (e, rhs) =>
+              (erest, rrhs).parMapN { (e, rhs) =>
                 Expr.Let(arg, rhs, e, RecursionKind.NonRecursive, decl)
               }
             case Pattern.Annotation(pat, tpe) =>
@@ -160,12 +174,12 @@ final class SourceConverter(
               }
             case Pattern.Named(nm, p) =>
                // this is the same as creating a let nm = value first
-              (solvePat(p, rrhs), rrhs).mapN { (inner, rhs) =>
+              (solvePat(p, rrhs), rrhs).parMapN { (inner, rhs) =>
                 Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
               }
             case pat =>
               // TODO: we need the region on the pattern...
-              (convertPattern(pat, decl.region), erest, rrhs).mapN { (newPattern, e, rhs) =>
+              (convertPattern(pat, decl.region), erest, rrhs).parMapN { (newPattern, e, rhs) =>
                 val expBranches = NonEmptyList.of((newPattern, e))
                 Expr.Match(rhs, expBranches, decl)
               }
@@ -184,7 +198,7 @@ final class SourceConverter(
         // TODO
         val lambda = toLambdaExpr(defstmt, decl.region, success(decl))({ res => withBound(res._1.get, newBindings) })
 
-        (inExpr, lambda).mapN { (in, lam) =>
+        (inExpr, lambda).parMapN { (in, lam) =>
           // We rely on DefRecursionCheck to rule out bad recursions
           val boundName = defstmt.name
           val rec =
@@ -206,13 +220,13 @@ final class SourceConverter(
         }
         val else1 = loop(elseCase.get)
 
-        (if1, else1).mapN(loop0(_, _))
+        (if1, else1).parMapN(loop0(_, _))
       case tern@Ternary(t, c, f) =>
         loop(IfElse(NonEmptyList((c, OptIndent.same(t)), Nil), OptIndent.same(f))(tern.region))
       case Lambda(args, body) =>
         val argsRes = args.traverse(convertPattern(_, decl.region))
         val bodyRes = withBound(body, args.patternNames)
-        (argsRes, bodyRes).mapN { (args, body) =>
+        (argsRes, bodyRes).parMapN { (args, body) =>
           Expr.buildPatternLambda(args, body, decl)
         }
       case la@LeftApply(_, _, _, _) =>
@@ -233,7 +247,7 @@ final class SourceConverter(
           val newPattern = convertPattern(pat, decl.region)
           newPattern.product(withBound(decl, pat.names))
         }
-        (loop(arg), expBranches).mapN(Expr.Match(_, _, decl))
+        (loop(arg), expBranches).parMapN(Expr.Match(_, _, decl))
       case m@Matches(a, p) =>
         // x matches p ==
         // match x:
@@ -1419,6 +1433,22 @@ object SourceConverter {
       val decl = tstr(declaredParams.toList)
       val disc = tstr(discoveredTypes)
       s"${statement.name.asString} found declared: $decl, not a superset of $disc"
+    }
+  }
+
+  final case class InvalidDefTypeParameters[B](
+    declaredParams: NonEmptyList[Type.Var.Bound],
+    free: List[Type.Var.Bound],
+    defstmt: DefStatement[Pattern.Parsed, B],
+    region: Region) extends Error {
+
+    def message = {
+      def tstr(l: List[Type.Var.Bound]): String =
+        l.iterator.map(_.name).mkString("[", ", ", "]")
+
+      val decl = tstr(declaredParams.toList)
+      val freeStr = tstr(free)
+      s"${defstmt.name.asString} found declared types: $decl, not a subset of $freeStr"
     }
   }
 
