@@ -81,6 +81,30 @@ final class SourceConverter(
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     })
 
+  /*
+   * This ignores the name completely and just returns the lambda expression here
+   */
+  private def toLambdaExpr[B](
+    ds: DefStatement[Pattern.Parsed, B], region: Region, tag: Result[Declaration])(
+      resultExpr: B => Result[Expr[Declaration]]): Result[Expr[Declaration]] = {
+    import ds._
+    val unTypedBody = resultExpr(result)
+    val bodyExp =
+      retType.fold(unTypedBody) { t =>
+        (unTypedBody, toType(t, region), tag).mapN(Expr.Annotation(_, _, _))
+      }
+
+    (args.traverse(convertPattern(_, region)), bodyExp, tag).mapN { (as, b, t) =>
+      val lambda = Expr.buildPatternLambda(as, b, t)
+      typeArgs match {
+        case None => lambda
+        case Some(args) =>
+          // TODO: we need to make sure all bs are actually free in lambda
+          val bs = args.map { case TypeRef.TypeVar(b) => rankn.Type.Var.Bound(b) }
+          Expr.Generic(bs, lambda)
+      }
+    }
+  }
   private def resolveToVar[A](ident: Identifier, decl: A, bound: Set[Bindable], topBound: Set[Bindable]): Expr[A] =
     ident match {
       case c@Constructor(_) =>
@@ -158,8 +182,8 @@ final class SourceConverter(
         }
         val newBindings = defstmt.name :: defstmt.args.patternNames
         // TODO
-        val lambda = defstmt.toLambdaExpr({ res => withBound(res._1.get, newBindings) }, success(decl))(
-          convertPattern(_, decl.region), { t => toType(t, decl.region) })
+        val lambda = toLambdaExpr(defstmt, decl.region, success(decl))({ res => withBound(res._1.get, newBindings) })
+
         (inExpr, lambda).mapN { (in, lam) =>
           // We rely on DefRecursionCheck to rule out bad recursions
           val boundName = defstmt.name
@@ -1101,13 +1125,14 @@ final class SourceConverter(
           // defs are in scope for their body
           val topBound1 = topBound + boundName
 
-          val lam = defstmt.toLambdaExpr(
-            { res => apply(res.get, pat.iterator.flatMap(_.names).toSet + boundName, topBound1) },
-            success(defstmt.result.get))(
-              convertPattern(_, defstmt.result.get.region),
-              { t => toType(t, d.region) })
+          val lam: Result[Expr[Declaration]] =
+            toLambdaExpr[OptIndent[Declaration]](
+              defstmt,
+              d.region,
+              success(defstmt.result.get))(
+                { (res: OptIndent[Declaration]) => apply(res.get, pat.iterator.flatMap(_.names).toSet + boundName, topBound1) })
 
-          val r = lam.map { l =>
+          val r = lam.map { (l: Expr[Declaration]) =>
             // We rely on DefRecursionCheck to rule out bad recursions
             val rec =
               if (UnusedLetCheck.freeBound(l).contains(boundName)) RecursionKind.Recursive
