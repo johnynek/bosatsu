@@ -22,6 +22,9 @@ object Expr {
 
   case class Annotation[T](expr: Expr[T], tpe: Type, tag: T) extends Expr[T]
   case class Local[T](name: Bindable, tag: T) extends Name[T]
+  case class Generic[T](typeVars: NonEmptyList[Type.Var.Bound], in: Expr[T]) extends Expr[T] {
+    def tag = in.tag
+  }
   case class Global[T](pack: PackageName, name: Identifier, tag: T) extends Name[T]
   case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
   case class Lambda[T](arg: Bindable, tpe: Option[Type], expr: Expr[T], tag: T) extends Expr[T]
@@ -39,6 +42,7 @@ object Expr {
     expr match {
       case Annotation(e, _, _) => allNames(e)
       case Local(name, _) => SortedSet(name)
+      case Generic(_, in) => allNames(in)
       case Global(_, _, _) => SortedSet.empty
       case App(fn, a, _) => allNames(fn) | allNames(a)
       case Lambda(arg, _, e, _) => allNames(e) + arg
@@ -75,13 +79,24 @@ object Expr {
         buildApp(App(fn, h, appTag), tail, appTag)
     }
 
-  def traverseType[T, F[_]](expr: Expr[T], fn: Type => F[Type])(implicit F: Applicative[F]): F[Expr[T]] =
+  // Traverse all non-bound vars
+  private def traverseType[T, F[_]](expr: Expr[T], fn: Type => F[Type])(implicit F: Applicative[F]): F[Expr[T]] =
     expr match {
       case Annotation(e, tpe, a) =>
         (traverseType(e, fn), fn(tpe)).mapN(Annotation(_, _, a))
       case v: Name[T] => F.pure(v)
       case App(f, a, t) =>
         (traverseType(f, fn), traverseType(a, fn)).mapN(App(_, _, t))
+      case Generic(bs, in) =>
+        // Seems dangerous since we are hiding from fn that the Type.TyVar inside
+        // matching these are not unbound
+        val boundSet = bs.toList.toSet[Type.Var]
+        val fn1: Type => F[Type] =
+          {
+            case t @ Type.TyVar(b) if boundSet(b) => F.pure(t)
+            case notBound => fn(notBound)
+          }
+        traverseType(in, fn1).map(Generic(bs, _))
       case Lambda(arg, optT, expr, t) =>
         (optT.traverse(fn), traverseType(expr, fn)).mapN(Lambda(arg, _, _, t))
       case Let(arg, exp, in, rec, tag) =>
@@ -102,9 +117,16 @@ object Expr {
 
   def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: Expr[A]): Expr[A] = {
     val fn = Type.substTy(keys, vals)
-    Expr.traverseType[A, cats.Id](expr, fn)
+    traverseType[A, cats.Id](expr, fn)
   }
 
+  def freeBoundTyVars[A](expr: Expr[A]): List[Type.Var.Bound] = {
+    val w = traverseType(expr, { t =>
+      val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
+      Writer(frees, t)
+    })
+    w.written.iterator.toList.distinct
+  }
   /**
    * Here we substitute any free bound variables with skolem variables
    *
@@ -123,19 +145,19 @@ object Expr {
    * variable.
    */
   def skolemizeFreeVars[F[_]: Applicative, A](expr: Expr[A])(newSkolemTyVar: Type.Var.Bound => F[Type.Var.Skolem]): Option[F[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
-    val w = Expr.traverseType(expr, { t =>
-      val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
-      Writer(frees, t)
-    })
-    val frees = w.written.iterator.toList.distinct
+    val frees = freeBoundTyVars(expr)
     NonEmptyList.fromList(frees)
       .map { tvs =>
-        tvs.traverse(newSkolemTyVar)
-          .map { skVs =>
-            val sksT = skVs.map(Type.TyVar(_))
-            val expr1 = substExpr(tvs, sksT, expr)
-            (skVs, expr1)
-          }
+        skolemizeVars[F, A](tvs, expr)(newSkolemTyVar)
+      }
+  }
+
+  def skolemizeVars[F[_]: Applicative, A](vs: NonEmptyList[Type.Var.Bound], expr: Expr[A])(newSkolemTyVar: Type.Var.Bound => F[Type.Var.Skolem]): F[(NonEmptyList[Type.Var.Skolem], Expr[A])] = {
+    vs.traverse(newSkolemTyVar)
+      .map { skVs =>
+        val sksT = skVs.map(Type.TyVar(_))
+        val expr1 = substExpr(vs, sksT, expr)
+        (skVs, expr1)
       }
   }
 
@@ -162,6 +184,8 @@ object Expr {
             f(t).map(Local(s, _))
           case Global(p, s, t) =>
             f(t).map(Global(p, s, _))
+          case Generic(bs, e) =>
+            traverse(e)(f).map(Generic(bs, _))
           case App(fn, a, t) =>
             (fn.traverse(f), a.traverse(f), f(t)).mapN { (fn1, a1, b) =>
               App(fn1, a1, b)
@@ -194,6 +218,7 @@ object Expr {
             val b1 = foldLeft(fn, b)(f)
             val b2 = foldLeft(a, b1)(f)
             f(b2, tag)
+          case Generic(_, in) => foldLeft(in, b)(f)
           case Lambda(_, _, expr, tag) =>
             val b1 = foldLeft(expr, b)(f)
             f(b1, tag)
@@ -219,6 +244,7 @@ object Expr {
             val b1 = f(tag, lb)
             val b2 = foldRight(a, b1)(f)
             foldRight(fn, b2)(f)
+          case Generic(_, in) => foldRight(in, lb)(f)
           case Lambda(_, _, expr, tag) =>
             val b1 = f(tag, lb)
             foldRight(expr, b1)(f)

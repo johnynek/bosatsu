@@ -550,7 +550,6 @@ object Infer {
           fail(Error.UnexpectedBound(b, t2, r1, r2))
         case (_, Type.TyVar(b@Type.Var.Bound(_))) =>
           fail(Error.UnexpectedBound(b, t1, r2, r1))
-        // the only vars that should appear are skolem variables, we check here
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => unit
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (Type.TyMeta(m), tpe) => unifyVar(m, tpe, r1, r2)
@@ -651,6 +650,15 @@ object Infer {
              typedArg <- checkSigma(arg, argT)
              coerce <- instSigma(resT, expect, region(term))
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
+        case Generic(tpes, in) =>
+            for {
+              (skols, t1) <- Expr.skolemizeVars(tpes, in)(newSkolemTyVar)
+              sigmaT <- inferSigma(t1)
+              z <- zonkTypedExpr(sigmaT)
+              unSkol = unskolemize(skols)(z)
+              // unSkol is not a Rho type, we need instantiate it
+              coerce <- instSigma(unSkol.getType, expect, region(term))
+            } yield coerce(unSkol)
         case Lambda(name, None, result, tag) =>
           expect match {
             case Expected.Check((expTy, rr)) =>

@@ -7,7 +7,7 @@ import org.bykn.bosatsu.rankn.Type
 import org.bykn.bosatsu.{TypeName => Name}
 import org.typelevel.paiges.{ Doc, Document }
 
-import Parser.maybeSpace
+import Parser.{lowerIdent, maybeSpace, Combinators}
 
 /**
  * This AST is the syntactic version of Type
@@ -145,5 +145,16 @@ object TypeRef {
 
   val annotationParser: P[TypeRef] =
     maybeSpace.with1.soft *> P.char(':') *> maybeSpace *> parser
+
+  def docTypeArgs(targs: List[TypeRef.TypeVar]): Doc =
+    targs match {
+      case Nil => Doc.empty
+      case nonEmpty =>
+        val params = nonEmpty.map { case TypeRef.TypeVar(v) => Doc.text(v) }
+        Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
+    }
+
+  val typeParams: P[NonEmptyList[TypeRef.TypeVar]] =
+    lowerIdent.nonEmptyListSyntax.map { nel => nel.map { s => TypeRef.TypeVar(s.intern) } }
 }
 
