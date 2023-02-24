@@ -29,11 +29,17 @@ sealed abstract class Infer[+A] {
   final def flatMap[B](fn: A => Infer[B]): Infer[B] =
     Infer.Impl.FlatMap(this, fn)
 
-  final def runVar(v: Map[Infer.Name, Type], tpes: Map[(PackageName, Constructor), Infer.Cons]): RefSpace[Either[Error, A]] =
-    Infer.Env.init(v, tpes).flatMap(run(_))
+  final def runVar(
+    v: Map[Infer.Name, Type],
+    tpes: Map[(PackageName, Constructor), Infer.Cons],
+    kinds: Map[Type.Const.Defined, Kind]): RefSpace[Either[Error, A]] =
+    Infer.Env.init(v, tpes, kinds).flatMap(run(_))
 
-  final def runFully(v: Map[Infer.Name, Type], tpes: Map[(PackageName, Constructor), Infer.Cons]): Either[Error, A] =
-    runVar(v, tpes).run.value
+  final def runFully(
+    v: Map[Infer.Name, Type],
+    tpes: Map[(PackageName, Constructor), Infer.Cons],
+    kinds: Map[Type.Const.Defined, Kind]): Either[Error, A] =
+    runVar(v, tpes, kinds).run.value
 }
 
 object Infer {
@@ -71,7 +77,7 @@ object Infer {
     def addVars(vt: List[(Name, Type)]): Env =
       copy(vars = vars ++ vt)
 
-    def getKind(t: Type, region: Option[Region]): Either[Error, Kind] = {
+    def getKind(t: Type, region: Region): Either[Error, Kind] = {
       def loop(item: Type, locals: Map[Type.Var.Bound, Kind]): Either[Error, Kind] =
         item match {
           case Type.ForAll(bound, t) =>
@@ -79,7 +85,8 @@ object Infer {
           case Type.TyConst(const) =>
             val d = const.toDefined
             // some tests rely on syntax without importing
-            variances.get(d).orElse(Type.builtInKinds.get(item)) match {
+            // TODO remove this
+            variances.get(d).orElse(Type.builtInKinds.get(d)) match {
               case Some(ks) => Right(ks)
               case None => Left(Error.UnknownDefined(d, region))
             }
@@ -105,23 +112,11 @@ object Infer {
   }
 
   object Env {
-    def apply(uniq: Ref[Long],
+    def init(
       vars: Map[Name, Type],
-      typeCons: Map[(PackageName, Constructor), Cons]): Env = {
-
-      val variances = typeCons
-        .iterator
-        .map { case (_, (vs, _, c)) =>
-          (c, Kind(vs.map(_._2): _*))
-        }
-        .toMap
-
-        // TODO, the typeCons don't require all these variances to match
-      Env(uniq, vars, typeCons, variances)
-    }
-
-    def init(vars: Map[Name, Type], tpes: Map[(PackageName, Constructor), Cons]): RefSpace[Env] =
-      RefSpace.newRef(0L).map(Env(_, vars, tpes))
+      tpes: Map[(PackageName, Constructor), Cons],
+      kinds: Map[Type.Const.Defined, Kind]): RefSpace[Env] =
+      RefSpace.newRef(0L).map(Env(_, vars, tpes, kinds))
   }
 
   def getEnv: Infer[Map[Name, Type]] = GetEnv
@@ -167,7 +162,7 @@ object Infer {
       }
     }
 
-    case class UnknownDefined(tpe: Type.Const.Defined, region: Option[Region]) extends TypeError {
+    case class UnknownDefined(tpe: Type.Const.Defined, region: Region) extends TypeError {
       def message = {
         def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"${tStr(Type.TyConst(tpe))} ($region) is an unknown type"
@@ -232,7 +227,9 @@ object Infer {
       def message = s"expected $tpe to be a Type.Rho, at $context"
     }
 
-    case class KindInvariantViolation(tpe: Type, region: Option[Region], message: String) extends InternalError
+    case class KindInvariantViolation(tpe: Type, region: Region, mess: String) extends InternalError {
+      def message = s"for type $tpe $mess at $region"
+    }
   }
 
 
@@ -286,9 +283,8 @@ object Infer {
           })
     }
 
-    // TODO: we should always have a Region here
-    case class GetKind(tpe: Type, r: Option[Region]) extends Infer[Kind] {
-      def run(env: Env) = RefSpace.pure(env.getKind(tpe, r))
+    case class GetKind(tpe: Type, region: Region) extends Infer[Kind] {
+      def run(env: Env) = RefSpace.pure(env.getKind(tpe, region))
     }
 
     case class ExtendEnvs[A](vt: List[(Name, Type)], in: Infer[A]) extends Infer[A] {
@@ -310,20 +306,19 @@ object Infer {
     def nextId: Infer[Long] = NextId
 
     def kindOf(t: Type, r: Region): Infer[Kind] =
-      GetKind(t, Some(r))
+      GetKind(t, r)
 
     // on t[a] we know t: k -> *, what is the variance
     // in the arg a
-    // TODO we need a region here to report an ill kinded type
-    def varianceOfCons(t: Type): Infer[Variance] =
-      GetKind(t, None)
-        .flatMap(varianceOfConsKind(t, _))
+    def varianceOfCons(t: Type, region: Region): Infer[Variance] =
+      GetKind(t, region)
+        .flatMap(varianceOfConsKind(t, _, region))
 
-    def varianceOfConsKind(t: Type, k: Kind): Infer[Variance] =
+    def varianceOfConsKind(t: Type, k: Kind, region: Region): Infer[Variance] =
       k match {
         case Kind.Cons(Kind.Arg(v, _), _) => pure(v)
         case unexpected =>
-          fail(Error.KindInvariantViolation(t, None, s"expected * -> *, but found: $unexpected in $t"))
+          fail(Error.KindInvariantViolation(t, region, s"expected * -> *, but found: $unexpected"))
       }
 
 
@@ -338,25 +333,25 @@ object Infer {
      * The returned type is in weak-prenex form: all ForAlls have
      * been floated up over covariant parameters
      */
-    def skolemize(t: Type): Infer[(List[Type.Var.Skolem], Type.Rho)] =
+    def skolemize(t: Type, region: Region): Infer[(List[Type.Var.Skolem], Type.Rho)] =
       t match {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
           for {
             sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
             sksT = sks1.map(Type.TyVar(_))
-            sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty))
+            sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty), region)
             (sks2, ty2) = sks2ty
           } yield (sks1.toList ::: sks2, ty2)
         case Type.TyApply(left, right) =>
           // Rule PRFUN
           // we know the kind of left is k -> x, and right has kind k
-          varianceOfCons(left)
-            .product(skolemize(left))
+          varianceOfCons(left, region)
+            .product(skolemize(left, region))
             .flatMap {
               case (Variance.Covariant, (sksl, sl)) =>
                 for {
-                  skr <- skolemize(right)
+                  skr <- skolemize(right, region)
                   (sksr, sr) = skr
                 } yield (sksl ::: sksr, Type.TyApply(sl, sr))
               case (_, (sksl, sl)) =>
@@ -427,8 +422,6 @@ object Infer {
     def instantiate(t: Type): Infer[Type.Rho] =
       t match {
         case Type.ForAll(vars, ty) =>
-          // TODO Kind we know the kinds of these type variables but
-          // we are ignoring it
           vars.traverse { case (_, k) => newMetaType(k) }
             .map { vars1T =>
               substTyRho(vars.map(_._1), vars1T)(ty)
@@ -486,7 +479,7 @@ object Infer {
               // TODO Kind I think we should unify l1 and kl kinds
               unifyTyApp(rho1, kl, kr, left, right).flatMap {
                 case (l1, r1) =>
-                  val check2 = varianceOfConsKind(l2, kl).flatMap {
+                  val check2 = varianceOfConsKind(l2, kl, right).flatMap {
                     case Variance.Covariant =>
                       subsCheck(r1, r2, left, right).void
                     case Variance.Contravariant =>
@@ -508,7 +501,7 @@ object Infer {
               // TODO Kind I think we should unify l1 and kl kinds
               unifyTyApp(rho2, kl, kr, left, right).flatMap {
                 case (l2, r2) =>
-                  val check2 = varianceOfConsKind(l1, kl).flatMap {
+                  val check2 = varianceOfConsKind(l1, kl, left).flatMap {
                     case Variance.Covariant =>
                       subsCheck(r1, r2, left, right).void
                     case Variance.Contravariant =>
@@ -651,7 +644,7 @@ object Infer {
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       for {
-        skolRho <- skolemize(declared)
+        skolRho <- skolemize(declared, right)
         (skolTvs, rho2) = skolRho
         // note: we need rho2 in weak prenex form, but skolemize does this
         coerce <- subsCheckRho(inferred, rho2, left, right)
@@ -1050,7 +1043,7 @@ object Infer {
 
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
       for {
-        skolRho <- skolemize(tpe)
+        skolRho <- skolemize(tpe, region(t))
         (skols, rho) = skolRho
         // we need rho in weak-prenex form, but skolemize does this
         te <- checkRho(t, rho)

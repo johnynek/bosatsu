@@ -40,7 +40,7 @@ class RankNInferTest extends AnyFunSuite {
     val t2 = typeFrom(right)
 
     Infer.substitutionCheck(t1, t2, emptyRegion, emptyRegion)
-      .runFully(Map.empty, Map.empty)
+      .runFully(Map.empty, Map.empty, Type.builtInKinds)
   }
 
   def assertTypesUnify(left: String, right: String) = {
@@ -67,14 +67,14 @@ class RankNInferTest extends AnyFunSuite {
       ((PackageName.PredefName, Constructor("False")), (Nil, Nil, Type.Const.predef("Bool"))))
 
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
-    Infer.typeCheck(term).runFully(withBools, boolTypes) match {
+    Infer.typeCheck(term).runFully(withBools, boolTypes, Map.empty) match {
       case Left(err) => assert(false, err)
       case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
     Infer.typeCheckLets(testPackage, terms.map { case (k, v, _) => (Identifier.Name(k), RecursionKind.NonRecursive, v) })
-      .runFully(withBools, boolTypes) match {
+      .runFully(withBools, boolTypes, Type.builtInKinds) match {
         case Left(err) => assert(false, err)
         case Right(tpes) =>
           assert(tpes.size == terms.size)
@@ -256,15 +256,22 @@ class RankNInferTest extends AnyFunSuite {
     val constructors = Map(
       (Identifier.unsafe("Some"), Type.Fun(Type.IntType, optType))
     )
+    val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOption ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(
+        withBools ++ asFullyQualified(constructors),
+        definedOption ++ boolTypes,
+        kinds) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOption ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(
+        withBools ++ asFullyQualified(constructors),
+        definedOption ++ boolTypes,
+        kinds) match {
         case Left(_) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -294,6 +301,8 @@ class RankNInferTest extends AnyFunSuite {
 
     import OptionTypes._
 
+    val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
+
     val constructors = Map(
       (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
       (Identifier.unsafe("None"), Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
@@ -304,13 +313,17 @@ class RankNInferTest extends AnyFunSuite {
         .typeCheck(term)
         .runFully(
           withBools ++ asFullyQualified(constructors),
-          definedOptionGen ++ boolTypes) match {
+          definedOptionGen ++ boolTypes,
+          kinds) match {
             case Left(err) => assert(false, err)
             case Right(tpe) => assert(tpe.getType == ty, term.toString)
           }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOptionGen ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(
+        withBools ++ asFullyQualified(constructors),
+        definedOptionGen ++ boolTypes,
+        kinds) match {
         case Left(_) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -369,7 +382,10 @@ class RankNInferTest extends AnyFunSuite {
     )
 
     def testWithTypes[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), defined ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(
+        withBools ++ asFullyQualified(constructors),
+        defined ++ boolTypes,
+        Type.builtInKinds) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }

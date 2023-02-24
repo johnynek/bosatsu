@@ -218,19 +218,19 @@ object Type {
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals
    */
-  val BoolType: Type = TyConst(Const.predef("Bool"))
-  val DictType: Type = TyConst(Const.predef("Dict"))
-  val FnType: Type = TyConst(Const.predef("Fn"))
-  val IntType: Type = TyConst(Const.predef("Int"))
-  val ListType: Type = TyConst(Const.predef("List"))
-  val OptionType: Type = TyConst(Const.predef("Option"))
-  val StrType: Type = TyConst(Const.predef("String"))
-  val TestType: Type = TyConst(Const.predef("Test"))
-  val TupleConsType = TyConst(Type.Const.predef("TupleCons"))
-  val UnitType = TyConst(Type.Const.predef("Unit"))
+  val BoolType: Type.TyConst = TyConst(Const.predef("Bool"))
+  val DictType: Type.TyConst = TyConst(Const.predef("Dict"))
+  val FnType: Type.TyConst = TyConst(Const.predef("Fn"))
+  val IntType: Type.TyConst = TyConst(Const.predef("Int"))
+  val ListType: Type.TyConst = TyConst(Const.predef("List"))
+  val OptionType: Type.TyConst = TyConst(Const.predef("Option"))
+  val StrType: Type.TyConst = TyConst(Const.predef("String"))
+  val TestType: Type.TyConst = TyConst(Const.predef("Test"))
+  val TupleConsType: Type.TyConst = TyConst(Type.Const.predef("TupleCons"))
+  val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
 
-  val builtInKinds: Map[Type, Kind] =
-    Map(
+  val builtInKinds: Map[Type.Const.Defined, Kind] =
+    List(
       BoolType -> Kind.Type,
       DictType -> Kind.DictKind,
       FnType -> Kind.FnKind,
@@ -238,6 +238,8 @@ object Type {
       ListType -> Kind.ListKind,
       StrType -> Kind.Type
     )
+    .map { case (t, k) => (t.tpe.toDefined, k) }
+    .toMap
 
   def const(pn: PackageName, name: TypeName): Type =
     TyConst(Type.Const.Defined(pn, name))

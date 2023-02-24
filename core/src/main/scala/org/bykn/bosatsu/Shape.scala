@@ -228,7 +228,7 @@ object Shape {
       .map(_.reverse)
 
 
-  private[this] val builtIns: Map[Type, Shape] =
+  private[this] val builtIns: Map[rankn.Type.Const.Defined, Shape] =
     rankn.Type.builtInKinds.map { case (t, k) => (t, ShapeOf(k)) }
 
   def solveShape[E: IsShapeEnv](
@@ -561,7 +561,8 @@ object Shape {
             } yield res
           case const @ rankn.Type.TyConst(c) =>
             // some tests work without imports, but need Fn
-            scope(const).orElse(builtIns.get(const)) match {
+            // TODO remove the built ins here
+            scope(const).orElse(builtIns.get(c.toDefined)) match {
               case Some(shape) =>
                 RefSpace.pure(Validated.valid(shape))
               case None =>

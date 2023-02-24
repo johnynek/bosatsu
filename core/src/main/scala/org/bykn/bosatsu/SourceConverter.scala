@@ -88,16 +88,15 @@ final class SourceConverter(
   private def toLambdaExpr[B](
     ds: DefStatement[Pattern.Parsed, B], region: Region, tag: Result[Declaration])(
       resultExpr: B => Result[Expr[Declaration]]): Result[Expr[Declaration]] = {
-    import ds._
-    val unTypedBody = resultExpr(result)
+    val unTypedBody = resultExpr(ds.result)
     val bodyExp =
-      retType.fold(unTypedBody) { t =>
+      ds.retType.fold(unTypedBody) { t =>
         (unTypedBody, toType(t, region), tag).parMapN(Expr.Annotation(_, _, _))
       }
 
-    (args.traverse(convertPattern(_, region)), bodyExp, tag).parMapN { (as, b, t) =>
+    (ds.args.traverse(convertPattern(_, region)), bodyExp, tag).parMapN { (as, b, t) =>
       val lambda = Expr.buildPatternLambda(as, b, t)
-      typeArgs match {
+      ds.typeArgs match {
         case None => success(lambda)
         case Some(args) =>
           val bs = args.map {

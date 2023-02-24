@@ -1628,8 +1628,8 @@ tests = TestSuite("test triple",
 """), "A", 3)
   }
 
+  // TODO: make this compile with fixed kinds
   /*
-  TODO: re-enable when defs can put kind annotations
   test("regression from a map_List/list comprehension example from snoble") {
     runBosatsuTest(
       List("""
@@ -1656,14 +1656,14 @@ struct RecordSet[shape](
   record_to_list: forall w: * -> *. shape[RecordRowEntry[w]] -> List[RowEntry[w]]
 )
 
-def get(sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t]) -> t:
+def get[shape: (* -> *) -> *](sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t]) -> t:
   RecordValue(result) = sh.getter
   result
 
-def create_field(rf: RecordField[t], fn: shape[RecordValue] -> t):
+def create_field[shape: (* -> *) -> *](rf: RecordField[t], fn: shape[RecordValue] -> t):
  RecordGetter(\_ -> rf, \sh -> RecordValue(fn(sh)))
 
-def list_of_rows(RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
+def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
   def getter_to_row_entry(row: shape[RecordValue]):
     (result_fn: forall tt. RecordGetter[shape, tt] -> RecordRowEntry[RecordValue, tt]) = \RecordGetter(get_field, get_value) ->
       RecordField(_, to_entry) = get_field(fields)
@@ -1680,14 +1680,17 @@ struct RestructureOutput[shape1, shape2](
   traverse: forall w1: * -> *, w2: * -> *. shape2[w1] -> (forall ss. w1[ss] -> w2[ss]) -> shape2[w2],
   record_to_list: forall w: * -> *. shape2[RecordRowEntry[w]] -> List[RowEntry[w]]
 )
-def restructure(RecordSet(fields, rows, getters, _, _): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> RestructureOutput[shape1, shape2]) -> RecordSet[shape2]:
+def restructure[
+    shape1: (* -> *) -> *,
+    shape2: (* -> *) -> *
+  ](RecordSet(fields, rows, getters, _, _): RecordSet[shape1], f: shape1[RecordGetter[shape1]] -> RestructureOutput[shape1, shape2]) -> RecordSet[shape2]:
   RestructureOutput(reshaperF, reshaperV, new_getters, traverse, record_to_list) = f(getters)
   RecordSet(reshaperF(fields), rows.map_List(reshaperV), new_getters, traverse, record_to_list)
 
 def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), more_rows):
   RecordSet(fields, rows.concat(more_rows), getters, traverse, record_to_list)
 
-struct NilShape[w]
+struct NilShape[w: * -> *]
 struct PS[t,rest,w](left: w[t], right: rest[w])
 
 new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, \NilShape -> [])
@@ -1700,7 +1703,10 @@ new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, \Ni
   \_ -> []
 )
 
-def ps(
+def ps[
+    shape1: (* -> *) -> *,
+    shape2: (* -> *) -> *
+](
   RecordGetter(fF, fV): RecordGetter[shape1, t],
   RestructureOutput(reshaper1F, reshaper1V, getters1, traverse1, record_to_list1): RestructureOutput[shape1, shape2]):
   getters2 = getters1.traverse1(\RecordGetter(f1, v1) -> RecordGetter(\PS(_, sh2) -> f1(sh2), \PS(_, sh2) -> v1(sh2)))
@@ -1712,9 +1718,9 @@ def ps(
     \PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
   )
 
-def string_field(name, fn: shape[RecordValue] -> String): RecordField(name, REString).create_field(fn)
-def int_field(name, fn: shape[RecordValue] -> Int): RecordField(name, REInt).create_field(fn)
-def bool_field(name, fn: shape[RecordValue] -> Bool): RecordField(name, REBool).create_field(fn)
+def string_field[shape: (* -> *) -> *](name, fn: shape[RecordValue] -> String): RecordField(name, REString).create_field(fn)
+def int_field[shape: (* -> *) -> *](name, fn: shape[RecordValue] -> Int): RecordField(name, REInt).create_field(fn)
+def bool_field[shape: (* -> *) -> *](name, fn: shape[RecordValue] -> Bool): RecordField(name, REBool).create_field(fn)
 
 ##################################################
 

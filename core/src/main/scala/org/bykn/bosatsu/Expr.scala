@@ -80,51 +80,65 @@ object Expr {
     }
 
   // Traverse all non-bound vars
-  private def traverseType[T, F[_]](expr: Expr[T], fn: Type => F[Type])(implicit F: Applicative[F]): F[Expr[T]] =
+  private def traverseType[T, F[_]](expr: Expr[T], bound: Set[Type.Var.Bound])(fn: (Type, Set[Type.Var.Bound]) => F[Type])(implicit F: Applicative[F]): F[Expr[T]] =
     expr match {
       case Annotation(e, tpe, a) =>
-        (traverseType(e, fn), fn(tpe)).mapN(Annotation(_, _, a))
+        (traverseType(e, bound)(fn), fn(tpe, bound)).mapN(Annotation(_, _, a))
       case v: Name[T] => F.pure(v)
       case App(f, a, t) =>
-        (traverseType(f, fn), traverseType(a, fn)).mapN(App(_, _, t))
+        (traverseType(f, bound)(fn), traverseType(a, bound)(fn)).mapN(App(_, _, t))
       case Generic(bs, in) =>
         // Seems dangerous since we are hiding from fn that the Type.TyVar inside
         // matching these are not unbound
-        val boundSet = bs.toList.iterator.map(_._1).toSet[Type.Var]
-        val fn1: Type => F[Type] =
-          {
-            case t @ Type.TyVar(b) if boundSet(b) => F.pure(t)
-            case notBound => fn(notBound)
-          }
-        traverseType(in, fn1).map(Generic(bs, _))
+        val bound1 = bound ++ bs.toList.iterator.map(_._1)
+        traverseType(in, bound1)(fn).map(Generic(bs, _))
       case Lambda(arg, optT, expr, t) =>
-        (optT.traverse(fn), traverseType(expr, fn)).mapN(Lambda(arg, _, _, t))
+        (optT.traverse(fn(_, bound)), traverseType(expr, bound)(fn)).mapN(Lambda(arg, _, _, t))
       case Let(arg, exp, in, rec, tag) =>
-        (traverseType(exp, fn), traverseType(in, fn)).mapN(Let(arg, _, _, rec, tag))
+        (traverseType(exp, bound)(fn), traverseType(in, bound)(fn)).mapN(Let(arg, _, _, rec, tag))
       case l@Literal(_, _) => F.pure(l)
       case Match(arg, branches, tag) =>
-        val argB = traverseType(arg, fn)
+        val argB = traverseType(arg, bound)(fn)
         type B = (Pattern[(PackageName, Constructor), Type], Expr[T])
         def branchFn(b: B): F[B] =
           b match {
             case (pat, expr) =>
-              pat.traverseType(fn)
-                .product(traverseType(expr, fn))
+              pat.traverseType(fn(_, bound))
+                .product(traverseType(expr, bound)(fn))
           }
         val branchB = branches.traverse(branchFn _)
         (argB, branchB).mapN(Match(_, _, tag))
     }
 
-  def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: Expr[A]): Expr[A] = {
+  private def substExpr[A](keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho], expr: Expr[A]): Expr[A] = {
     val fn = Type.substTy(keys, vals)
-    traverseType[A, cats.Id](expr, fn)
+    traverseType[A, cats.Id](expr, Set.empty) { (t, bound) =>
+      // we have to remove any of the keys that are bound 
+      val isBound: Type.Var => Boolean =
+        {
+          case b @ Type.Var.Bound(_) => bound(b)
+          case _ => false
+        }
+
+      if (keys.exists(isBound)) {
+        val kv1 = keys.zip(vals).toList.filter { case (b, _) => !isBound(b) }
+        NonEmptyList.fromList(kv1) match {
+          case Some(kv1Nel) =>
+            val (k1, v1) = kv1Nel.unzip
+            Type.substTy(k1, v1)(t)
+          case None =>
+            t
+        }
+      }
+      else fn(t)
+    }
   }
 
   def freeBoundTyVars[A](expr: Expr[A]): List[Type.Var.Bound] = {
-    val w = traverseType(expr, { t =>
+    val w = traverseType(expr, Set.empty) { (t, bound) =>
       val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
-      Writer(frees, t)
-    })
+      Writer(frees.filterNot(bound), t)
+    }
     w.written.iterator.toList.distinct
   }
   /**

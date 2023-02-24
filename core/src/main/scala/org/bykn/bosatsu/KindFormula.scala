@@ -656,7 +656,7 @@ object KindFormula {
                 )
               // $COVERAGE-ON$
             }
-          case const @ rankn.Type.TyConst(c) =>
+          case rankn.Type.TyConst(c) =>
             if ((tpe: rankn.Type) === dt.toTypeTyConst) RefSpace.pure(thisKind)
             else {
               // Has to be in the imports
@@ -668,7 +668,8 @@ object KindFormula {
                       case Some(thisDt) => thisDt.kindOf
                       case None         =>
                         // some test code relies on syntax but doesn't import predef
-                        rankn.Type.builtInKinds.get(const) match {
+                        // TODO remove the built ins here
+                        rankn.Type.builtInKinds.get(c.toDefined) match {
                           case Some(kind) => kind
                           // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
                           case None =>

@@ -198,6 +198,23 @@ object Package {
             TypedExprNormalization.normalizeProgram(p, fullTypeEnv, prog)
         }
 
+  private def kindMap(
+    imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
+    typeEnv: TypeEnv[Kind.Arg]): Map[Type.Const.Defined, Kind] = {
+
+    val importedDts =
+      for {
+        imp <- imps.iterator
+        names <- imp.items.toList.iterator
+        dt <- names.tag.collect { case Referant.DefinedT(dt) => dt }
+      } yield dt
+    
+    (importedDts ++ typeEnv.allDefinedTypes.iterator)
+      .map { dt =>
+        (dt.toTypeConst.toDefined, dt.kindOf)
+      }
+      .toMap
+  }
   /**
    * Infer the types but do not optimize/normalize the lets
    */
@@ -270,7 +287,8 @@ object Package {
 
           val inferenceEither = Infer.typeCheckLets(p, lets)
             .runFully(withFQN,
-              Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
+              Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
+              kindMap(imps, typeEnv)
             )
             .map { lets =>
               (fullTypeEnv, Program(typeEnv, lets, extDefs, stmts))
