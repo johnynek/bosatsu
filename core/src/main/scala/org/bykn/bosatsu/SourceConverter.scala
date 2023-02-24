@@ -82,6 +82,50 @@ final class SourceConverter(
       else resolveImportedCons.getOrElse(c, (thisPackage, c))
     })
 
+  /*
+   * This ignores the name completely and just returns the lambda expression here
+   */
+  private def toLambdaExpr[B](
+    ds: DefStatement[Pattern.Parsed, B], region: Region, tag: Result[Declaration])(
+      resultExpr: B => Result[Expr[Declaration]]): Result[Expr[Declaration]] = {
+    import ds._
+    val unTypedBody = resultExpr(result)
+    val bodyExp =
+      retType.fold(unTypedBody) { t =>
+        (unTypedBody, toType(t, region), tag).parMapN(Expr.Annotation(_, _, _))
+      }
+
+    (args.traverse(convertPattern(_, region)), bodyExp, tag).parMapN { (as, b, t) =>
+      val lambda = Expr.buildPatternLambda(as, b, t)
+      typeArgs match {
+        case None => success(lambda)
+        case Some(args) =>
+          val bs = args.map {
+            case (tr, optK) =>
+              (tr.toBoundVar, optK match {
+                case None => Kind.Type
+                case Some(k) => k
+              })
+            }
+          val gen = Expr.Generic(bs, lambda)
+          val freeVarsList = Expr.freeBoundTyVars(lambda)
+          val freeVars = freeVarsList.toSet
+          val notFreeDecl = bs.exists { case (a, _) => !freeVars(a) }
+          if (notFreeDecl) {
+            // we have a lint that fails if declTV is not
+            // a superset of what you would derive from the args
+            // the purpose here is to control the *order* of
+            // and to allow introducing phantom parameters, not
+            // it is confusing if some are explicit, but some are not
+            SourceConverter.partial(
+              SourceConverter.InvalidDefTypeParameters(args, freeVarsList, ds, region),
+              gen)
+          }
+          else success(gen)
+      }
+    }
+    .flatten
+  }
   private def resolveToVar[A](ident: Identifier, decl: A, bound: Set[Bindable], topBound: Set[Bindable]): Expr[A] =
     ident match {
       case c@Constructor(_) =>
@@ -111,13 +155,13 @@ final class SourceConverter(
 
     decl match {
       case Annotation(term, tpe) =>
-        (loop(term), toType(tpe, decl.region)).mapN(Expr.Annotation(_, _, decl))
+        (loop(term), toType(tpe, decl.region)).parMapN(Expr.Annotation(_, _, decl))
       case Apply(fn, args, _) =>
         (loop(fn), args.toList.traverse(loop(_)))
-          .mapN { Expr.buildApp(_, _, decl) }
+          .parMapN { Expr.buildApp(_, _, decl) }
       case ao@ApplyOp(left, op, right) =>
         val opVar: Expr[Declaration] = resolveToVar(op, ao.opVar, bound, topBound)
-        (loop(left), loop(right)).mapN { (l, r) =>
+        (loop(left), loop(right)).parMapN { (l, r) =>
           Expr.buildApp(opVar, l :: r :: Nil, decl)
         }
       case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
@@ -126,7 +170,7 @@ final class SourceConverter(
         def solvePat(pat: Pattern.Parsed, rrhs: Result[Expr[Declaration]]): Result[Expr[Declaration]] =
           pat match {
             case Pattern.Var(arg) =>
-              (erest, rrhs).mapN { (e, rhs) =>
+              (erest, rrhs).parMapN { (e, rhs) =>
                 Expr.Let(arg, rhs, e, RecursionKind.NonRecursive, decl)
               }
             case Pattern.Annotation(pat, tpe) =>
@@ -137,12 +181,12 @@ final class SourceConverter(
               }
             case Pattern.Named(nm, p) =>
                // this is the same as creating a let nm = value first
-              (solvePat(p, rrhs), rrhs).mapN { (inner, rhs) =>
+              (solvePat(p, rrhs), rrhs).parMapN { (inner, rhs) =>
                 Expr.Let(nm, rhs, inner, RecursionKind.NonRecursive, decl)
               }
             case pat =>
               // TODO: we need the region on the pattern...
-              (convertPattern(pat, decl.region), erest, rrhs).mapN { (newPattern, e, rhs) =>
+              (convertPattern(pat, decl.region), erest, rrhs).parMapN { (newPattern, e, rhs) =>
                 val expBranches = NonEmptyList.of((newPattern, e))
                 Expr.Match(rhs, expBranches, decl)
               }
@@ -153,15 +197,15 @@ final class SourceConverter(
         loop(decl).map(_.as(decl))
       case CommentNB(CommentStatement(_, Padding(_, decl))) =>
         loop(decl).map(_.as(decl))
-      case DefFn(defstmt@DefStatement(_, _, _, _)) =>
+      case DefFn(defstmt@DefStatement(_, _, _, _, _)) =>
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
         }
         val newBindings = defstmt.name :: defstmt.args.patternNames
         // TODO
-        val lambda = defstmt.toLambdaExpr({ res => withBound(res._1.get, newBindings) }, success(decl))(
-          convertPattern(_, decl.region), { t => toType(t, decl.region) })
-        (inExpr, lambda).mapN { (in, lam) =>
+        val lambda = toLambdaExpr(defstmt, decl.region, success(decl))({ res => withBound(res._1.get, newBindings) })
+
+        (inExpr, lambda).parMapN { (in, lam) =>
           // We rely on DefRecursionCheck to rule out bad recursions
           val boundName = defstmt.name
           val rec =
@@ -183,13 +227,13 @@ final class SourceConverter(
         }
         val else1 = loop(elseCase.get)
 
-        (if1, else1).mapN(loop0(_, _))
+        (if1, else1).parMapN(loop0(_, _))
       case tern@Ternary(t, c, f) =>
         loop(IfElse(NonEmptyList((c, OptIndent.same(t)), Nil), OptIndent.same(f))(tern.region))
       case Lambda(args, body) =>
         val argsRes = args.traverse(convertPattern(_, decl.region))
         val bodyRes = withBound(body, args.patternNames)
-        (argsRes, bodyRes).mapN { (args, body) =>
+        (argsRes, bodyRes).parMapN { (args, body) =>
           Expr.buildPatternLambda(args, body, decl)
         }
       case la@LeftApply(_, _, _, _) =>
@@ -210,7 +254,7 @@ final class SourceConverter(
           val newPattern = convertPattern(pat, decl.region)
           newPattern.product(withBound(decl, pat.names))
         }
-        (loop(arg), expBranches).mapN(Expr.Match(_, _, decl))
+        (loop(arg), expBranches).parMapN(Expr.Match(_, _, decl))
       case m@Matches(a, p) =>
         // x matches p ==
         // match x:
@@ -414,6 +458,7 @@ final class SourceConverter(
             val newPattern = convertPattern(binding, decl.region)
             (newPattern, resExpr, loop(in)).mapN { (pat, res, in) =>
               val foldFn = Expr.Lambda(dictSymbol,
+                None,
                 Expr.buildPatternLambda(
                   NonEmptyList(pat, Nil),
                   res,
@@ -535,7 +580,7 @@ final class SourceConverter(
               // and to allow introducing phantom parameters, not
               // it is confusing if some are explicit, but some are not
               SourceConverter.partial(
-                SourceConverter.InvalidTypeParameters(neBound.map(_._1), typeParams0, tds),
+                SourceConverter.InvalidTypeParameters(decl, typeParams0, tds),
                 bestEffort)
             }
             else success(neBound.toList ::: missingFromDecl.map((_, None)))
@@ -1099,20 +1144,21 @@ final class SourceConverter(
           val r = apply(decl, Set.empty, topBound).map((nm, RecursionKind.NonRecursive, _) :: Nil)
           (topBound + nm, r)
 
-        case Right(Left(d @ Def(defstmt@DefStatement(_, pat, _, _)))) =>
+        case Right(Left(d @ Def(defstmt@DefStatement(_, _, pat, _, _)))) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
 
           val boundName = defstmt.name
           // defs are in scope for their body
           val topBound1 = topBound + boundName
 
-          val lam = defstmt.toLambdaExpr(
-            { res => apply(res.get, pat.iterator.flatMap(_.names).toSet + boundName, topBound1) },
-            success(defstmt.result.get))(
-              convertPattern(_, defstmt.result.get.region),
-              { t => toType(t, d.region) })
+          val lam: Result[Expr[Declaration]] =
+            toLambdaExpr[OptIndent[Declaration]](
+              defstmt,
+              d.region,
+              success(defstmt.result.get))(
+                { (res: OptIndent[Declaration]) => apply(res.get, pat.iterator.flatMap(_.names).toSet + boundName, topBound1) })
 
-          val r = lam.map { l =>
+          val r = lam.map { (l: Expr[Declaration]) =>
             // We rely on DefRecursionCheck to rule out bad recursions
             val rec =
               if (UnusedLetCheck.freeBound(l).contains(boundName)) RecursionKind.Recursive
@@ -1388,7 +1434,7 @@ object SourceConverter {
   }
 
   final case class InvalidTypeParameters(
-    declaredParams: NonEmptyList[Type.Var.Bound],
+    declaredParams: NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])],
     discoveredTypes: List[Type.Var.Bound],
     statement: TypeDefinitionStatement) extends Error {
 
@@ -1397,9 +1443,33 @@ object SourceConverter {
       def tstr(l: List[Type.Var.Bound]): String =
         l.iterator.map(_.name).mkString("[", ", ", "]")
 
-      val decl = tstr(declaredParams.toList)
+      val decl =
+        TypeRef.docTypeArgs(declaredParams.toList) {
+          case None => Doc.empty
+          case Some(ka) => Doc.text(": ") + Kind.argDoc(ka)
+        }.renderTrim(80)
       val disc = tstr(discoveredTypes)
       s"${statement.name.asString} found declared: $decl, not a superset of $disc"
+    }
+  }
+
+  final case class InvalidDefTypeParameters[B](
+    declaredParams: NonEmptyList[(TypeRef.TypeVar, Option[Kind])],
+    free: List[Type.Var.Bound],
+    defstmt: DefStatement[Pattern.Parsed, B],
+    region: Region) extends Error {
+
+    def message = {
+      def tstr(l: List[Type.Var.Bound]): String =
+        l.iterator.map(_.name).mkString("[", ", ", "]")
+
+      val decl = TypeRef.docTypeArgs(declaredParams.toList) {
+        case None => Doc.empty
+        case Some(k) => Doc.text(": ") + Kind.toDoc(k)
+      }.renderTrim(80)
+
+      val freeStr = tstr(free)
+      s"${defstmt.name.asString} found declared types: $decl, not a subset of $freeStr"
     }
   }
 

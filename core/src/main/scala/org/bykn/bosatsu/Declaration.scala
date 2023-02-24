@@ -552,7 +552,7 @@ object Declaration {
             .map { p1 =>
               Comment(CommentStatement(c.message, p1))(decl.region)
             }
-        case DefFn(DefStatement(nm, args, rtype, (body, rest))) =>
+        case DefFn(DefStatement(nm, ta, args, rtype, (body, rest))) =>
           def go(scope: List[Bindable], d0: Declaration): Option[Declaration] =
             if (scope.exists(masks)) None
             else if (scope.exists(shadows)) Some(d0)
@@ -563,7 +563,7 @@ object Declaration {
 
           (body.traverse(go(bodyScope, _)), rest.traverse(go(restScope, _)))
             .mapN { (b, r) =>
-              DefFn(DefStatement(nm, args, rtype, (b, r)))(decl.region)
+              DefFn(DefStatement(nm, ta, args, rtype, (b, r)))(decl.region)
             }
         case LeftApply(n, r, v, in) =>
           val thisNames = n.names

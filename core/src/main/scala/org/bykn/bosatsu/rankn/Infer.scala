@@ -343,7 +343,6 @@ object Infer {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
           for {
-            // TODO Kind
             sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
             sksT = sks1.map(Type.TyVar(_))
             sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty))
@@ -598,7 +597,6 @@ object Infer {
           fail(Error.UnexpectedBound(b, t2, r1, r2))
         case (_, Type.TyVar(b@Type.Var.Bound(_))) =>
           fail(Error.UnexpectedBound(b, t1, r2, r1))
-        // the only vars that should appear are skolem variables, we check here
         case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => unit
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (Type.TyMeta(m), tpe) => unifyVar(m, tpe, r1, r2)
@@ -700,7 +698,16 @@ object Infer {
              typedArg <- checkSigma(arg, argT)
              coerce <- instSigma(resT, expect, region(term))
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
-        case Lambda(name, result, tag) =>
+        case Generic(tpes, in) =>
+            for {
+              (skols, t1) <- Expr.skolemizeVars(tpes, in)(newSkolemTyVar(_, _))
+              sigmaT <- inferSigma(t1)
+              z <- zonkTypedExpr(sigmaT)
+              unSkol = unskolemize(skols)(z)
+              // unSkol is not a Rho type, we need instantiate it
+              coerce <- instSigma(unSkol.getType, expect, region(term))
+            } yield coerce(unSkol)
+        case Lambda(name, None, result, tag) =>
           expect match {
             case Expected.Check((expTy, rr)) =>
               for {
@@ -721,7 +728,7 @@ object Infer {
                 _ <- infer.set((Type.Fun(varT, bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
           }
-        case AnnotatedLambda(name, tpe, result, tag) =>
+        case Lambda(name, Some(tpe), result, tag) =>
           expect match {
             case Expected.Check((expTy, rr)) =>
               for {
@@ -1122,7 +1129,7 @@ object Infer {
      * 
      * TODO Kind we need to know the kinds of these skolems
      */
-    Expr.skolemizeFreeVars(t)(newSkolemTyVar(_, Kind.Type)) match {
+    Expr.skolemizeFreeVars(t)(newSkolemTyVar(_, _)) match {
       case None => run(t)
       case Some(replace) =>
         for {

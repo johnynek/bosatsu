@@ -2639,4 +2639,32 @@ x = bar
       ()
     }
   }
+
+  test("test def with type params") {
+    runBosatsuTest(List("""
+package Foo
+
+def foo[a](a: a) -> a:
+  x: a = a
+  def again(x: a): x
+  def and_again[b](x: b): x
+  and_again(again(x))
+  
+test = Assertion(foo(True), "")
+"""), "Foo", 1)
+
+    evalFail(List("""
+package Foo
+
+def foo[a](a: a) -> a:
+  x: a = a
+  def again(x: a): x
+  def and_again[b](x: a): x
+  and_again(again(x))
+
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, and_again found declared types: [b], not a subset of [a]\nRegion(71,118)")
+      ()
+    }
+  }
 }

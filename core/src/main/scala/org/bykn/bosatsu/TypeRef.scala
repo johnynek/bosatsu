@@ -2,12 +2,12 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import cats.implicits._
-import cats.parse.{Parser => P}
+import cats.parse.{Parser => P, Parser0}
 import org.bykn.bosatsu.rankn.Type
 import org.bykn.bosatsu.{TypeName => Name}
 import org.typelevel.paiges.{ Doc, Document }
 
-import Parser.maybeSpace
+import Parser.{lowerIdent, maybeSpace, Combinators}
 
 /**
  * This AST is the syntactic version of Type
@@ -150,5 +150,18 @@ object TypeRef {
 
   val annotationParser: P[TypeRef] =
     maybeSpace.with1.soft *> P.char(':') *> maybeSpace *> parser
+
+  def docTypeArgs[A](targs: List[(TypeRef.TypeVar, A)])(aDoc: A => Doc): Doc =
+    targs match {
+      case Nil => Doc.empty
+      case nonEmpty =>
+        val params = nonEmpty.map { case (TypeRef.TypeVar(v), a) => Doc.text(v) + aDoc(a) }
+        Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
+    }
+
+  def typeParams[A](next: Parser0[A]): P[NonEmptyList[(TypeRef.TypeVar, A)]] =
+    (lowerIdent ~ next).nonEmptyListSyntax.map { nel =>
+      nel.map { case (s, a) => (TypeRef.TypeVar(s.intern), a) }
+    }
 }
 

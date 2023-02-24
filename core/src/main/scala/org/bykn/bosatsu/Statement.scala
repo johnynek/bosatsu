@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, Indy, lowerIdent, maybeSpace, keySpace, toEOL }
+import Parser.{ Combinators, Indy, maybeSpace, keySpace, toEOL }
 import cats.data.NonEmptyList
 import cats.implicits._
 import cats.parse.{Parser0 => P0, Parser => P}
@@ -161,8 +161,8 @@ object Statement {
      val defBody = maybeSpace.with1 *> OptIndent.indy(Declaration.parser).run("")
      val defP: P[Statement] =
       DefStatement.parser(Pattern.bindParser, defBody <* toEOL).region
-        .map { case (region, DefStatement(nm, args, ret, body)) =>
-          Def(DefStatement(nm, args, ret, body))(region)
+        .map { case (region, DefStatement(nm, ta, args, ret, body)) =>
+          Def(DefStatement(nm, ta, args, ret, body))(region)
         }
 
      val argParser: P[(Bindable, Option[TypeRef])] =
@@ -174,10 +174,7 @@ object Statement {
        val kindAnnot: P[Kind.Arg] =
          (maybeSpace.soft.with1 *> (P.char(':') *> maybeSpace *> Kind.paramKindParser))
 
-       val item: P[(TypeRef.TypeVar, Option[Kind.Arg])] =
-         (lowerIdent.map { s => TypeRef.TypeVar(s.intern) } ~ kindAnnot.?)
-       
-       item.nonEmptyListSyntax
+        TypeRef.typeParams(kindAnnot.?)
      }
      val external = {
        val externalStruct =
@@ -261,18 +258,14 @@ object Statement {
       else Doc.empty)
 
   private val colonSpace = Doc.text(": ")
-  private def docTypeArgs(targs: List[(TypeRef.TypeVar, Option[Kind.Arg])]): Doc =
-    targs match {
-      case Nil => Doc.empty
-      case nonEmpty =>
-        val params = nonEmpty.map {
-          case (TypeRef.TypeVar(v), None) => Doc.text(v)
-          case (TypeRef.TypeVar(v), Some(k)) => Doc.text(v) + (colonSpace + Kind.argDoc(k))
-        }
-        Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
-    }
 
   private implicit val dunit: Document[Unit] = Document.instance[Unit](_ => Doc.empty)
+
+  private val optKindArgs: Document[Option[Kind.Arg]] =
+    Document {
+      case None => Doc.empty
+      case Some(ka) => colonSpace + Kind.argDoc(ka)
+    }
 
   implicit lazy val document: Document[Statement] = {
     val db = Document[BindingStatement[Pattern.Parsed, Declaration.NonBinding, Unit]]
@@ -303,7 +296,7 @@ object Statement {
       case Struct(nm, typeArgs, args) =>
         val taDoc = typeArgs match {
           case None => Doc.empty
-          case Some(ta) => docTypeArgs(ta.toList)
+          case Some(ta) => TypeRef.docTypeArgs(ta.toList)(optKindArgs.document)
         }
         Doc.text("struct ") + constructor(nm, taDoc, args) + Doc.line
       case Enum(nm, typeArgs, parts) =>
@@ -322,7 +315,7 @@ object Statement {
 
         val taDoc = typeArgs match {
           case None => Doc.empty
-          case Some(ta) => docTypeArgs(ta.toList)
+          case Some(ta) => TypeRef.docTypeArgs(ta.toList)(optKindArgs.document)
         }
 
         Doc.text("enum ") + Document[Constructor].document(nm) + taDoc + Doc.char(':') +
@@ -338,9 +331,13 @@ object Statement {
           Doc.char('(') + da + Doc.char(')')
         }
         Doc.text("external def ") + Document[Bindable].document(name) + argDoc + Doc.text(" -> ") + res.toDoc + Doc.line
-      case ExternalStruct(nm, targs) =>
-        val argsDoc = docTypeArgs(targs)
-        Doc.text("external struct ") + Document[Constructor].document(nm) + argsDoc + Doc.line
+      case ExternalStruct(nm, typeArgs) =>
+        val taDoc =
+          TypeRef.docTypeArgs(typeArgs.toList) {
+            case None => Doc.empty
+            case Some(ka) => Doc.text(": ") + Kind.argDoc(ka)
+          }
+        Doc.text("external struct ") + Document[Constructor].document(nm) + taDoc + Doc.line
     }
   }
 
