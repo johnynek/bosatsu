@@ -9,7 +9,8 @@ object VarianceGen {
     Variance.Phantom,
     Variance.Contravariant,
     Variance.Covariant,
-    Variance.Invariant)
+    Variance.Invariant
+  )
 
   implicit val arbVar: Arbitrary[Variance] = Arbitrary(gen)
 }
@@ -27,7 +28,9 @@ class VarianceTest extends AnyFunSuite {
 
   test("variance combine is associative") {
     forAll { (v1: Variance, v2: Variance, v3: Variance) =>
-      assert(V.combine(v1, V.combine(v2, v3)) == V.combine(V.combine(v1, v2), v3))
+      assert(
+        V.combine(v1, V.combine(v2, v3)) == V.combine(V.combine(v1, v2), v3)
+      )
     }
   }
 
@@ -45,7 +48,7 @@ class VarianceTest extends AnyFunSuite {
 
   test("variance is distributive") {
     forAll { (v1: Variance, v2: Variance, v3: Variance) =>
-      val left =  v1 * (v2 + v3)
+      val left = v1 * (v2 + v3)
       val right = (v1 * v2) + (v1 * v3)
       assert(left == right, s"$left != $right")
     }
@@ -56,7 +59,7 @@ class VarianceTest extends AnyFunSuite {
       val v2 = Variance.phantom
       val v3 = Variance.co
 
-      val left =  v1 * (v2 + v3)
+      val left = v1 * (v2 + v3)
       val right = (v1 * v2) + (v1 * v3)
       assert(left == right, s"$left != $right")
     }
@@ -112,7 +115,12 @@ class VarianceTest extends AnyFunSuite {
   }
 
   test("covariant combines to get either covariant or invariant") {
-    assert(V.combine(Variance.Covariant, Variance.Contravariant) == Variance.Invariant)
+    assert(
+      V.combine(
+        Variance.Covariant,
+        Variance.Contravariant
+      ) == Variance.Invariant
+    )
     val results = Set(Variance.co, Variance.in)
     forAll { (v1: Variance) =>
       assert(results(V.combine(v1, Variance.Covariant)))
@@ -120,7 +128,12 @@ class VarianceTest extends AnyFunSuite {
   }
 
   test("contravariant combines to get either contravariant or invariant") {
-    assert(V.combine(Variance.Covariant, Variance.Contravariant) == Variance.Invariant)
+    assert(
+      V.combine(
+        Variance.Covariant,
+        Variance.Contravariant
+      ) == Variance.Invariant
+    )
     val results = Set(Variance.contra, Variance.in)
     forAll { (v1: Variance) =>
       assert(results(V.combine(v1, Variance.Contravariant)))

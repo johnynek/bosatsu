@@ -13,7 +13,8 @@ class TypeRecursionCheckTest extends AnyFunSuite {
       case Right(teVar) =>
         assert(
           TypeRecursionCheck.checkLegitRecursion(TypeEnv.empty, teVar) ==
-            Validated.valid(()))
+            Validated.valid(())
+        )
     }
   }
 
@@ -23,7 +24,8 @@ class TypeRecursionCheckTest extends AnyFunSuite {
       case Left(errs) => fail(s"couldn't solve: $errs")
       case Right(teVar) =>
         assert(
-          TypeRecursionCheck.checkLegitRecursion(TypeEnv.empty, teVar).isInvalid)
+          TypeRecursionCheck.checkLegitRecursion(TypeEnv.empty, teVar).isInvalid
+        )
     }
   }
 

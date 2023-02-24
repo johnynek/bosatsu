@@ -12,7 +12,8 @@ class VarianceFormulaTest extends AnyFunSuite {
       case Right(teVar) =>
         val teMap = DefinedType.listToMap(teVar)
         variances.foreach { case (n, vs) =>
-          val dt = teMap((PackageName.PredefName, TypeName(Identifier.Constructor(n))))
+          val dt =
+            teMap((PackageName.PredefName, TypeName(Identifier.Constructor(n))))
           assert(dt.annotatedTypeParams.map(_._2) == vs)
         }
     }
@@ -20,122 +21,182 @@ class VarianceFormulaTest extends AnyFunSuite {
 
   test("test some basic structs") {
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(a)
-""", Map("Foo" -> List(Variance.co)))
+""",
+      Map("Foo" -> List(Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(a, b)
-""", Map("Foo" -> List(Variance.co, Variance.co)))
+""",
+      Map("Foo" -> List(Variance.co, Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(a: x, b: x)
-""", Map("Foo" -> List(Variance.co)))
+""",
+      Map("Foo" -> List(Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(a: x -> y)
-""", Map("Foo" -> List(Variance.contra, Variance.co)))
+""",
+      Map("Foo" -> List(Variance.contra, Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(a: x -> x)
-""", Map("Foo" -> List(Variance.in)))
+""",
+      Map("Foo" -> List(Variance.in))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(a: x -> y, b: z)
-""", Map("Foo" -> List(Variance.contra, Variance.co, Variance.co)))
+""",
+      Map("Foo" -> List(Variance.contra, Variance.co, Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(a: x -> y, b: x)
-""", Map("Foo" -> List(Variance.in, Variance.co)))
+""",
+      Map("Foo" -> List(Variance.in, Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 enum Opt: None, Some(a)
-""", Map("Opt" -> List(Variance.co)))
+""",
+      Map("Opt" -> List(Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 enum Lst: E, NE(head: a, tail: Lst[a])
-""", Map("Lst" -> List(Variance.co)))
+""",
+      Map("Lst" -> List(Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 enum EitherFn: LeftFn(fn: a -> b), RightV(a: a)
-""", Map("EitherFn" -> List(Variance.in, Variance.co)))
+""",
+      Map("EitherFn" -> List(Variance.in, Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(produceB: forall a. a -> b)
-""", Map("Foo" -> List(Variance.co)))
+""",
+      Map("Foo" -> List(Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(produceB: (forall a. a) -> b)
-""", Map("Foo" -> List(Variance.co)))
+""",
+      Map("Foo" -> List(Variance.co))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct F(fn: a -> b)
 struct Foo(produceB: (forall a. F[a])[b])
-""", Map("Foo" -> List(Variance.co)))
+""",
+      Map("Foo" -> List(Variance.co))
+    )
   }
 
   test("test cases with references to other types") {
-    testVariance("""#
+    testVariance(
+      """#
 enum Opt: N, S(a)
 
 struct Pair(fst, snd)
 
 struct Lst(m: Opt[Pair[a, Lst[a]]])
-""", Map(
-  "Lst" -> List(Variance.co),
-  "Pair" -> List(Variance.co, Variance.co),
-  "Opt" -> List(Variance.co)))
+""",
+      Map(
+        "Lst" -> List(Variance.co),
+        "Pair" -> List(Variance.co, Variance.co),
+        "Opt" -> List(Variance.co)
+      )
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 enum Lst: E, NE(head: a, tail: Lst[a])
 
 struct Tree(root: a, children: Lst[Tree[a]])
-""", Map(
-  "Lst" -> List(Variance.co),
-  "Tree" -> List(Variance.co)))
+""",
+      Map("Lst" -> List(Variance.co), "Tree" -> List(Variance.co))
+    )
   }
 
   test("test with higher-kinder vars (always invariant now)") {
-    testVariance("""#
+    testVariance(
+      """#
 enum Lst: E, NE(head: a, tail: f[Lst[a]])
-""", Map("Lst" -> List(Variance.in, Variance.in)))
+""",
+      Map("Lst" -> List(Variance.in, Variance.in))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 enum Lst: E, NE(head: a, tail: Lst[f[a]])
-""", Map("Lst" -> List(Variance.in, Variance.in)))
+""",
+      Map("Lst" -> List(Variance.in, Variance.in))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Foo(a: f[a])
-""", Map("Foo" -> List(Variance.in, Variance.in)))
+""",
+      Map("Foo" -> List(Variance.in, Variance.in))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 struct Leibniz(view: forall f. f[a] -> f[b])
-""", Map("Leibniz" -> List(Variance.in, Variance.in)))
+""",
+      Map("Leibniz" -> List(Variance.in, Variance.in))
+    )
   }
 
   test("test mutual recursion in data types") {
-    testVariance("""#
+    testVariance(
+      """#
 enum Opt: N, S(as: NEList[a])
 
 struct NEList(head: a, tail: Opt[a])
-""", Map(
-  "NEList" -> List(Variance.co),
-  "Opt" -> List(Variance.co)))
+""",
+      Map("NEList" -> List(Variance.co), "Opt" -> List(Variance.co))
+    )
 
   }
 
   test("test with external structs") {
-    testVariance("""#
+    testVariance(
+      """#
 external struct Lst[a]
-""", Map(
-  "Lst" -> List(Variance.in)))
+""",
+      Map("Lst" -> List(Variance.in))
+    )
 
-    testVariance("""#
+    testVariance(
+      """#
 external struct Lst[a]
 
 struct Tree(root: a, children: Lst[Tree[a]])
-""", Map(
-  "Lst" -> List(Variance.in),
-  "Tree" -> List(Variance.in)))
+""",
+      Map("Lst" -> List(Variance.in), "Tree" -> List(Variance.in))
+    )
   }
 }

@@ -19,7 +19,7 @@ class DefRecursionCheckTest extends AnyFunSuite {
   def disallowed(teStr: String) = {
     val stmt = TestUtils.statementsOf(teStr)
     stmt.traverse_(DefRecursionCheck.checkStatement(_)) match {
-      case Validated.Valid(_) => fail("expected failure")
+      case Validated.Valid(_)   => fail("expected failure")
       case Validated.Invalid(_) => succeed
     }
   }
@@ -376,7 +376,7 @@ def nest(lst):
   }
 
   test("we can't use an outer def recursively") {
-disallowed("""#
+    disallowed("""#
 def foo(x):
   def bar(y):
     foo(y)
@@ -385,7 +385,7 @@ def foo(x):
   }
 
   test("we can make a recursive def in another recursive def") {
-allowed("""#
+    allowed("""#
 def len(lst):
   # this is doing nothing, but is a nested recursion
   def len0(lst):
@@ -400,7 +400,7 @@ def len(lst):
   }
 
   test("we can call a non-outer function in a recur branch") {
-allowed("""#
+    allowed("""#
 def id(x): x
 
 def len(lst):
