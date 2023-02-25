@@ -196,10 +196,29 @@ struct Leib[a, b](cast: forall f. f[a] -> f[b])
         "Order" -> "-* -> *",
         "Option" -> "+* -> *",
         "Tree" -> "+* -> *",
+        "Unit" -> "*",
+        "TupleCons" -> "+* -> +* -> *",
         // TODO: we could make this * -> +* -> * if we were more careful
         // that would allow some recursions we don't currently
         "Dict" -> "* -> * -> *"
       )
     )
+  }
+  
+  test("test Applicative example") {
+  testKind("""#
+# Represents the Applicative typeclass
+struct Fn[a: -*, b: +*]
+struct Unit
+struct TupleCons(first, second)
+
+struct Applicative(
+  pure: forall a. a -> f[a],
+  map: forall a, b. (a -> b) -> f[a] -> f[b],
+  ap: forall a, b. f[a -> b] -> f[a] -> f[b],
+  map2: forall a, b, c. f[a] -> f[b] -> (a -> b -> c) -> f[c],
+  product: forall a, b. f[a] -> f[b] -> f[(a, b)])
+
+""", Map("Applicative" -> "(* -> *) -> *"))
   }
 }

@@ -613,6 +613,15 @@ object PackageError {
           val doc = Doc.text("unknown constructor ") + Doc.text(n.asString) +
             Doc.text(nearStr) + Doc.hardLine + context
           doc.render(80)
+        case Infer.Error.KindInvariantViolation(tpe, right, region, mess) =>
+          val applied = Type.TyApply(tpe, right)
+          val tmap = showTypes(pack, applied :: Nil)
+          val context =
+            lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region)) // we should highlight the whole region
+          val doc = Doc.text("kind error: ") + Doc.text(mess) + Doc.text(" for type the left of") + tmap(applied) + Doc.hardLine +
+            context
+
+          doc.render(80)
         case err => err.message
       }
       // TODO use the sourceMap/regiouns in Infer.Error
