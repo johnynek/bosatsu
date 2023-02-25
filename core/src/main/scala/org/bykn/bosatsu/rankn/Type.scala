@@ -232,11 +232,14 @@ object Type {
   val builtInKinds: Map[Type.Const.Defined, Kind] =
     List(
       BoolType -> Kind.Type,
-      DictType -> Kind.DictKind,
-      FnType -> Kind.FnKind,
+      DictType -> Kind(Kind.Type.in, Kind.Type.in),
+      FnType -> Kind(Kind.Type.contra, Kind.Type.co),
       IntType -> Kind.Type,
-      ListType -> Kind.ListKind,
-      StrType -> Kind.Type
+      ListType -> Kind(Kind.Type.co),
+      StrType -> Kind.Type,
+      UnitType -> Kind.Type,
+      TupleConsType -> Kind(Kind.Type.co, Kind.Type.co),
+
     )
     .map { case (t, k) => (t.tpe.toDefined, k) }
     .toMap

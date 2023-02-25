@@ -198,23 +198,19 @@ object Package {
             TypedExprNormalization.normalizeProgram(p, fullTypeEnv, prog)
         }
 
-  private def kindMap(
-    imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
-    typeEnv: TypeEnv[Kind.Arg]): Map[Type.Const.Defined, Kind] = {
+  def importedTypes(imp: Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]): List[DefinedType[Kind.Arg]] =
+    for {
+      names <- imp.items.toList
+      dt <- names.tag.iterator.collect { case Referant.DefinedT(dt) => dt }
+    } yield dt
 
-    val importedDts =
-      for {
-        imp <- imps.iterator
-        names <- imp.items.toList.iterator
-        dt <- names.tag.collect { case Referant.DefinedT(dt) => dt }
-      } yield dt
-    
-    (importedDts ++ typeEnv.allDefinedTypes.iterator)
-      .map { dt =>
-        (dt.toTypeConst.toDefined, dt.kindOf)
-      }
-      .toMap
-  }
+  def kindMap(
+    imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
+    typeEnv: TypeEnv[Kind.Arg]): Map[Type.Const.Defined, Kind] =
+    DefinedType.toKindMap(
+      Chain.fromSeq(imps.flatMap(importedTypes)) ++ Chain.fromSeq(typeEnv.allDefinedTypes)
+    )
+
   /**
    * Infer the types but do not optimize/normalize the lets
    */
@@ -240,14 +236,6 @@ object Package {
             })
 
         inferVarianceParsed.flatMap { parsedTypeEnv =>
-          /*
-           * Check that the types defined here are not circular.
-           */
-          val circularCheck: ValidatedNel[PackageError, Unit] =
-            TypeRecursionCheck.checkLegitRecursion(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
-              .leftMap { badPaths =>
-                badPaths.map(PackageError.CircularType(p, _))
-              }
           /*
            * Check that all recursion is allowable
            */
@@ -310,7 +298,7 @@ object Package {
            * error accumulation
            */
           val checks = List(
-              defRecursionCheck, circularCheck, checkUnusedLets, totalityCheck
+              defRecursionCheck, checkUnusedLets, totalityCheck
             )
             .sequence_
 

@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
 
-import cats.{Applicative, Eval, Traverse}
+import cats.{Applicative, Eval, Foldable, Traverse}
 import org.bykn.bosatsu.{Kind, TypeName, PackageName, Identifier}
 import scala.collection.immutable.SortedMap
 
@@ -111,6 +111,12 @@ object DefinedType {
 
   def listToMap[A](dts: List[DefinedType[A]]): SortedMap[(PackageName, TypeName), DefinedType[A]] =
     SortedMap(dts.map { dt => (dt.packageName, dt.name) -> dt }: _*)
+
+  def toKindMap[F[_]: Foldable](dts: F[DefinedType[Kind.Arg]]): Map[Type.Const.Defined, Kind] =
+    dts.foldLeft(
+      Map.newBuilder[Type.Const.Defined, Kind]
+    ) { (b, dt) => b += ((dt.toTypeConst.toDefined, dt.kindOf)) }
+    .result()
 
   implicit val definedTypeTraverse: Traverse[DefinedType] =
     new Traverse[DefinedType] {

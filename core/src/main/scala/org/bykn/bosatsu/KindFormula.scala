@@ -797,18 +797,16 @@ object KindFormula {
                 unifyKindFormula(cfn, idx, tpe, thisKind, tpeKind)
             } else {
               // Has to be in the imports
-              val kind = IsTypeEnv[E].getDefinedType(imports, c) match {
-                case Some(thisDt) => thisDt.kindOf
+              val kind = IsTypeEnv[E]
+                .getDefinedType(imports, c)
+                .map(_.kindOf)
+                .orElse(rankn.Type.builtInKinds.get(c.toDefined)) match {
+                case Some(k) => k
                 // $COVERAGE-OFF$ this should be unreachable due to shapechecking happening first
                 case None =>
-                  // some test code relies on syntax but doesn't import predef
-                  if (tpe == rankn.Type.FnType) Kind.FnKind
-                  else if (tpe == rankn.Type.StrType) Kind.StrKind
-                  else if (tpe == rankn.Type.IntType) Kind.IntKind
-                  else
-                    sys.error(
-                      s"invariant violation: unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
-                    )
+                  sys.error(
+                    s"invariant violation: unknown const $c in dt=$dt, cfn=$cfn, tpe=$tpe"
+                  )
                 // $COVERAGE-ON$
               }
               unifyKind(cfn, idx, tpe, kind, tpeKind)

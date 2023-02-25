@@ -6,11 +6,9 @@ import org.bykn.bosatsu.rankn.{
   ConstructorFn,
   DefinedType,
   Type,
-  TypeEnv,
   Ref,
   RefSpace
 }
-import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
 
@@ -50,16 +48,10 @@ object Shape {
   case class Unknown(
       bound: Either[rankn.Type.TyApply, rankn.Type.Var.Bound],
       ref: Ref[UnknownState]
-  ) extends NotKnownShape {
-    def compare(that: Unknown): Int =
-      (bound, that.bound) match {
-        case (Left(_), Right(_))    => 1
-        case (Right(_), Left(_))    => -1
-        case (Left(t1), Left(t2))   => Ordering[rankn.Type].compare(t1, t2)
-        case (Right(v1), Right(v2)) => Ordering[rankn.Type.Var].compare(v1, v2)
-      }
-  }
+  ) extends NotKnownShape
 
+  /*
+   Maybe useful for debugging, or showing nice errors when we do that.
   def shapeDoc(s: Shape): Doc =
     s match {
       case Type           => Doc.char('*')
@@ -81,6 +73,7 @@ object Shape {
         val tdoc = rankn.Type.fullyResolvedDocument.document(tpe)
         Doc.text("kind(") + tdoc + Doc.char(')')
     }
+    */
 
   sealed abstract class Error
   case class ShapeLoop(
@@ -170,15 +163,6 @@ object Shape {
   object IsShapeEnv {
     def apply[E](implicit ise: IsShapeEnv[E]): IsShapeEnv[E] = ise
 
-    implicit def typeEnvIsShapeEnv[S: ShapeOf]: IsShapeEnv[TypeEnv[S]] =
-      new IsShapeEnv[TypeEnv[S]] {
-        def getShape(
-            env: TypeEnv[S],
-            tc: rankn.Type.Const
-        ): Option[KnownShape] =
-          env.toDefinedType(tc).map { dt => ShapeOf(dt) }
-      }
-
     implicit def tuple2IsShapeEnv[A: IsShapeEnv, B: IsShapeEnv]
         : IsShapeEnv[(A, B)] =
       new IsShapeEnv[(A, B)] {
@@ -254,7 +238,7 @@ object Shape {
           case ((_, Right(k)), res) =>
             Shape.cons(ShapeOf(k), res)
           case ((_, Left(s)), res) =>
-            Shape.Cons(s, res)
+            Shape.cons(s, res)
         }
 
       { (t: Type) =>

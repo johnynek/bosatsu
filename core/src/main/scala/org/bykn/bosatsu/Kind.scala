@@ -77,13 +77,6 @@ object Kind {
   def apply(args: Arg*): Kind =
     args.foldRight(Type: Kind)(_.returns(_))
 
-  // The kind of Bosatsu.Predef::Fn
-  val FnKind: Kind = Kind(Type.contra, Type.co)
-  val DictKind: Kind = Kind(Type.in, Type.in)
-  val ListKind: Kind = Kind(Type.co)
-  val IntKind: Kind = Type
-  val StrKind: Kind = Type
-
   /** Ignoring variances do these two Kinds have the same shape
     */
   def shapeMatch(k1: Kind, k2: Kind): Boolean =

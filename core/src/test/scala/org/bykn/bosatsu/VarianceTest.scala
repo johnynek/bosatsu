@@ -126,4 +126,10 @@ class VarianceTest extends AnyFunSuite {
       assert(results(V.combine(v1, Variance.Contravariant)))
     }
   }
+
+  test("ordering is lawful") {
+    forAll { (v1: Variance, v2: Variance, v3: Variance) =>
+      OrderingLaws.forOrder(v1, v2, v3)
+    }
+  }
 }

@@ -369,4 +369,8 @@ class KindParseTest extends ParserTestBase {
       }
     }
   }
+
+  test("Kind order is lawful") {
+    forAll(genKind, genKind, genKind)(OrderingLaws.forOrder(_, _, _))
+  }
 }
