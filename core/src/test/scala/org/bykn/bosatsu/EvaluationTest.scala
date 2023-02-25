@@ -1629,7 +1629,6 @@ tests = TestSuite("test triple",
   }
 
   // TODO: make this compile with fixed kinds
-  /*
   test("regression from a map_List/list comprehension example from snoble") {
     runBosatsuTest(
       List("""
@@ -1771,7 +1770,6 @@ tests = TestSuite("reordering",
 )
 """), "RecordSet/Library", 1)
   }
-  */
 
   test("record patterns") {
     runBosatsuTest(

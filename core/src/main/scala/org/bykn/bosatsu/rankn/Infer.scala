@@ -333,17 +333,17 @@ object Infer {
 
     // on t[a] we know t: k -> *, what is the variance
     // in the arg a
-    def varianceOfCons(t: Type, right: Type, region: Region, context: String): Infer[Variance] =
+    def varianceOfCons(t: Type, right: Type, region: Region): Infer[Variance] =
       GetKind(t, region)
-        .flatMap(varianceOfConsKind(t, _, right, region, context))
+        .flatMap(varianceOfConsKind(t, _, right, region))
 
-    def varianceOfConsKind(t: Type, k: Kind, right: Type, region: Region, context: String): Infer[Variance] =
+    def varianceOfConsKind(t: Type, k: Kind, right: Type, region: Region): Infer[Variance] =
       k match {
         case Kind.Cons(Kind.Arg(v, _), _) => pure(v)
         case Kind.Type =>
           getNotes(t)
             .flatMap { notes =>
-              fail(Error.KindInvariantViolation(t, right, region, s"expected k1 -> k2, but found *. $context. notes = $notes"))
+              fail(Error.KindInvariantViolation(t, right, region, s"expected k1 -> k2, but found *. notes = $notes"))
             }
       }
 
@@ -359,25 +359,25 @@ object Infer {
      * The returned type is in weak-prenex form: all ForAlls have
      * been floated up over covariant parameters
      */
-    private def skolemize(t: Type, region: Region, context: String): Infer[(List[Type.Var.Skolem], Type.Rho)] =
+    private def skolemize(t: Type, region: Region): Infer[(List[Type.Var.Skolem], Type.Rho)] =
       t match {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
           for {
             sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
             sksT = sks1.map(Type.TyVar(_))
-            sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty), region, s"$context -> $t")
+            sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty), region)
             (sks2, ty2) = sks2ty
           } yield (sks1.toList ::: sks2, ty2)
         case Type.TyApply(left, right) =>
           // Rule PRFUN
           // we know the kind of left is k -> x, and right has kind k
-          varianceOfCons(left, right, region, s"skolemize: $context")
-            .product(skolemize(left, region, s"$context -> $left"))
+          varianceOfCons(left, right, region)
+            .product(skolemize(left, region))
             .flatMap {
               case (Variance.Covariant, (sksl, sl)) =>
                 for {
-                  skr <- skolemize(right, region, s"$context -> $right")
+                  skr <- skolemize(right, region)
                   (sksr, sr) = skr
                 } yield (sksl ::: sksr, Type.TyApply(sl, sr))
               case (_, (sksl, sl)) =>
@@ -445,10 +445,10 @@ object Infer {
      * Return a Rho type (not a Forall), by assigning
      * new meta variables for each of the outer ForAll variables
      */
-    def instantiate(t: Type, context: String): Infer[Type.Rho] =
+    def instantiate(t: Type): Infer[Type.Rho] =
       t match {
         case Type.ForAll(vars, ty) =>
-          vars.traverse { case (b, k) => newMetaType(k, s"in instantiate($t, $context) $b of kind $k") }
+          vars.traverse { case (_, k) => newMetaType(k) }
             .map { vars1T =>
               substTyRho(vars.map(_._1), vars1T)(ty)
             }
@@ -477,7 +477,7 @@ object Infer {
       (t, rho) match {
         case (fa@Type.ForAll(_, _), rho) =>
           // Rule SPEC
-          instantiate(fa, s"subsCheckRho($t, $rho, $left, $right)").flatMap(subsCheckRho(_, rho, left, right))
+          instantiate(fa).flatMap(subsCheckRho(_, rho, left, right))
         case (rho1: Type.Rho, Type.Fun(a2, r2)) =>
           // Rule FUN
           for {
@@ -505,7 +505,7 @@ object Infer {
               // TODO Kind I think we should unify l1 and kl kinds
               unifyTyApp(rho1, kl, kr, left, right).flatMap {
                 case (l1, r1) =>
-                  val check2 = varianceOfConsKind(l2, kl, r2, right, s"right apply subsCheckRho($t, $rho, $left, $right)").flatMap {
+                  val check2 = varianceOfConsKind(l2, kl, r2, right).flatMap {
                     case Variance.Covariant =>
                       subsCheck(r1, r2, left, right).void
                     case Variance.Contravariant =>
@@ -527,7 +527,7 @@ object Infer {
               // TODO Kind I think we should unify l1 and kl kinds
               unifyTyApp(rho2, kl, kr, left, right).flatMap {
                 case (l2, r2) =>
-                  val check2 = varianceOfConsKind(l1, kl, r1, left, s"left apply subsCheckRho($t, $rho, $left, $right)").flatMap {
+                  val check2 = varianceOfConsKind(l1, kl, r1, left).flatMap {
                     case Variance.Covariant =>
                       subsCheck(r1, r2, left, right).void
                     case Variance.Contravariant =>
@@ -550,14 +550,14 @@ object Infer {
     /*
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
      */
-    def instSigma(sigma: Type, expect: Expected[(Type.Rho, Region)], r: Region, context: String): Infer[TypedExpr.Coerce] =
+    def instSigma(sigma: Type, expect: Expected[(Type.Rho, Region)], r: Region): Infer[TypedExpr.Coerce] =
       expect match {
         case Expected.Check((t, tr)) =>
           // note t is in weak-prenex form
           subsCheckRho(sigma, t, r, tr)
         case infer@Expected.Inf(_) =>
           for {
-            rho <- instantiate(sigma, s"instSigma($sigma, Inf(_), $r, context = $context)")
+            rho <- instantiate(sigma)
             _ <- infer.set((rho, r))
           } yield TypedExpr.coerceRho(rho)
       }
@@ -567,8 +567,8 @@ object Infer {
         case Type.Fun(arg, res) => pure((arg, res))
         case tau =>
           for {
-            argT <- newMetaType(Kind.Type, s"argT for unifyFn($tau) at $fnRegion with $evidenceRegion")
-            resT <- newMetaType(Kind.Type, s"resT for unifyFn($tau) at $fnRegion with $evidenceRegion")
+            argT <- newMetaType(Kind.Type)
+            resT <- newMetaType(Kind.Type)
             _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
           } yield (argT, resT)
       }
@@ -581,8 +581,8 @@ object Infer {
           pure((left, right))
         case notApply =>
           for {
-            leftT <- newMetaType(lKind, s"leftT of kind $lKind unifyTyApp($notApply)")
-            rightT <- newMetaType(rKind, s"rightT of kind $rKind unifyTyApp($notApply)")
+            leftT <- newMetaType(lKind)
+            rightT <- newMetaType(rKind)
             _ <- unify(notApply, Type.TyApply(leftT, rightT), apRegion, evidenceRegion)
           } yield (leftT, rightT)
       }
@@ -643,13 +643,11 @@ object Infer {
      * Allocate a new Meta variable which
      * will point to a Tau (no forall anywhere) type
      */
-    def newMetaType(kind: Kind, note: String): Infer[Type.TyMeta] =
+    def newMetaType(kind: Kind): Infer[Type.TyMeta] =
       for {
         id <- nextId
-        env <- GetEnv
         ref <- lift(RefSpace.newRef[Option[Type.Tau]](None))
         meta = Type.Meta(kind, id, ref)
-        _ <- lift(env.addNote(meta, note))
       } yield Type.TyMeta(meta)
 
     private def getNotes(t: Type): Infer[Option[List[String]]] =
@@ -682,7 +680,7 @@ object Infer {
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       for {
-        skolRho <- skolemize(declared, right, s"subsCheck($inferred, $declared, $left, $right)")
+        skolRho <- skolemize(declared, right)
         (skolTvs, rho2) = skolRho
         // note: we need rho2 in weak prenex form, but skolemize does this
         coerce <- subsCheckRho(inferred, rho2, left, right)
@@ -708,16 +706,16 @@ object Infer {
       term match {
         case Literal(lit, t) =>
           val tpe = Type.getTypeOf(lit)
-          instSigma(tpe, expect, region(term), s"typeCheckRho(lit = $lit, $expect)").map(_(TypedExpr.Literal(lit, tpe, t)))
+          instSigma(tpe, expect, region(term)).map(_(TypedExpr.Literal(lit, tpe, t)))
         case Local(name, tag) =>
           for {
             vSigma <- lookupVarType((None, name), region(term))
-            coerce <- instSigma(vSigma, expect, region(term), s"typeCheckRho(name = $name, $expect)")
+            coerce <- instSigma(vSigma, expect, region(term))
            } yield coerce(TypedExpr.Local(name, vSigma, tag))
         case Global(pack, name, tag) =>
           for {
             vSigma <- lookupVarType((Some(pack), name), region(term))
-            coerce <- instSigma(vSigma, expect, region(term), s"typeCheckRho(pack = $pack, name = $name, $expect)")
+            coerce <- instSigma(vSigma, expect, region(term))
            } yield coerce(TypedExpr.Global(pack, name, vSigma, tag))
         case App(fn, arg, tag) =>
            for {
@@ -727,7 +725,7 @@ object Infer {
              argRes <- unifyFn(fnTRho, region(fn), region(term))
              (argT, resT) = argRes
              typedArg <- checkSigma(arg, argT)
-             coerce <- instSigma(resT, expect, region(term), s"typeCheckRho(App($fn, $arg), $expect)")
+             coerce <- instSigma(resT, expect, region(term))
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
         case Generic(tpes, in) =>
             for {
@@ -736,7 +734,7 @@ object Infer {
               z <- zonkTypedExpr(sigmaT)
               unSkol = unskolemize(skols)(z)
               // unSkol is not a Rho type, we need instantiate it
-              coerce <- instSigma(unSkol.getType, expect, region(term), s"typeCheckRho(Generic($tpes, $in))")
+              coerce <- instSigma(unSkol.getType, expect, region(term))
             } yield coerce(unSkol)
         case Lambda(name, None, result, tag) =>
           expect match {
@@ -753,7 +751,7 @@ object Infer {
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
             case infer@Expected.Inf(_) =>
               for {
-                varT <- newMetaType(Kind.Type, s"infer on $term") // the kind of a fn arg is a Type
+                varT <- newMetaType(Kind.Type) // the kind of a fn arg is a Type
                 typedBody <- extendEnv(name, varT)(inferRho(result))
                 bodyT = typedBody.getType
                 _ <- infer.set((Type.Fun(varT, bodyT), region(term)))
@@ -798,7 +796,7 @@ object Infer {
             // After we typecheck we see if this is truly recursive so
             // compilers/evaluation can possibly optimize non-recursive
             // cases differently
-            newMetaType(Kind.Type, s"type for recursive $name = $rhs") // the kind of a let value is a Type
+            newMetaType(Kind.Type) // the kind of a let value is a Type
               .flatMap { rhsTpe =>
                 extendEnv(name, rhsTpe) {
                   for {
@@ -830,7 +828,7 @@ object Infer {
         case Annotation(term, tpe, tag) =>
           for {
             typedTerm <- checkSigma(term, tpe)
-            coerce <- instSigma(tpe, expect, region(term), s"typeCheckRho(Annotation($term, $tpe), $expect)")
+            coerce <- instSigma(tpe, expect, region(term))
           } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
         case Match(term, branches, tag) =>
           // all of the branches must return the same type:
@@ -966,7 +964,7 @@ object Infer {
                   checkPat(p, inner, reg).map { case (p, l) => (ListPart.Item(p), l) }
               }
           for {
-            tpeA <- newMetaType(Kind.Type, s"type inside list pattern: $items") // lists +* -> *
+            tpeA <- newMetaType(Kind.Type) // lists +* -> *
             listA = Type.TyApply(Type.ListType, tpeA)
             _ <- instPatSigma(listA, sigma, reg)
             inners <- items.traverse(checkItem(tpeA, listA, _))
@@ -1048,7 +1046,7 @@ object Infer {
           Infer.pure((consParams, Type.TyConst(tpeName)))
         case (v0 :: vs, consParams, tpeName) =>
           val vars = NonEmptyList(v0, vs)
-          vars.traverse { case (b, kindArg) => newMetaType(kindArg.kind, s"in constructor $consName: $b: $kindArg") }
+          vars.traverse { case (_, kindArg) => newMetaType(kindArg.kind) }
             .map { vars1T =>
               val params1 = consParams.map(Type.substTy(vars.map(_._1), vars1T))
               val res = vars1T.foldLeft(Type.TyConst(tpeName): Type.Tau)(Type.TyApply(_, _))
@@ -1081,7 +1079,7 @@ object Infer {
 
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
       for {
-        skolRho <- skolemize(tpe, region(t), s"checkSigma($t, $tpe)")
+        skolRho <- skolemize(tpe, region(t))
         (skols, rho) = skolRho
         // we need rho in weak-prenex form, but skolemize does this
         te <- checkRho(t, rho)
@@ -1120,7 +1118,7 @@ object Infer {
 
   def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
     // values are of kind Type
-    newMetaType(Kind.Type, s"recursiveTypeCheck($name, $expr)").flatMap { tpe =>
+    newMetaType(Kind.Type).flatMap { tpe =>
       extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))
     }
 
