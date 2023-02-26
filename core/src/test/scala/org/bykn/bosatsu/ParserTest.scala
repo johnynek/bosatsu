@@ -426,9 +426,10 @@ class ParserTest extends ParserTestBase {
     parseTestAll(TypeRef.parser, "foo", TypeRef.TypeVar("foo"))
     parseTestAll(TypeRef.parser, "Foo", trName("Foo"))
 
-    parseTestAll(TypeRef.parser, "forall a. a", TypeRef.TypeLambda(NonEmptyList.of(TypeRef.TypeVar("a")), TypeRef.TypeVar("a")))
+    parseTestAll(TypeRef.parser, "forall a. a",
+      TypeRef.TypeLambda(NonEmptyList.of((TypeRef.TypeVar("a"), None)), TypeRef.TypeVar("a")))
     parseTestAll(TypeRef.parser, "forall a, b. f[a] -> f[b]",
-      TypeRef.TypeLambda(NonEmptyList.of(TypeRef.TypeVar("a"), TypeRef.TypeVar("b")),
+      TypeRef.TypeLambda(NonEmptyList.of((TypeRef.TypeVar("a"), None), (TypeRef.TypeVar("b"), None)),
         TypeRef.TypeArrow(
           TypeRef.TypeApply(TypeRef.TypeVar("f"), NonEmptyList.of(TypeRef.TypeVar("a"))),
           TypeRef.TypeApply(TypeRef.TypeVar("f"), NonEmptyList.of(TypeRef.TypeVar("b"))))))
@@ -460,8 +461,8 @@ class ParserTest extends ParserTestBase {
     check("a", varA)
     check("Foo/Bar::Bar", FooBarBar)
     check("a -> Foo/Bar::Bar", Fun(varA, FooBarBar))
-    check("forall a, b. Foo/Bar::Bar[a, b]", Type.forAll(List(Var.Bound("a"), Var.Bound("b")), TyApply(TyApply(FooBarBar, varA), varB)))
-    check("forall a. forall b. Foo/Bar::Bar[a, b]", Type.forAll(List(Var.Bound("a"), Var.Bound("b")), TyApply(TyApply(FooBarBar, varA), varB)))
+    check("forall a, b. Foo/Bar::Bar[a, b]", Type.forAll(List((Var.Bound("a"), Kind.Type), (Var.Bound("b"), Kind.Type)), TyApply(TyApply(FooBarBar, varA), varB)))
+    check("forall a. forall b. Foo/Bar::Bar[a, b]", Type.forAll(List((Var.Bound("a"), Kind.Type), (Var.Bound("b"), Kind.Type)), TyApply(TyApply(FooBarBar, varA), varB)))
     check("(a)", varA)
     check("(a, b)", Tuple(List(varA, varB)))
   }

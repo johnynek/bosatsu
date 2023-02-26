@@ -55,7 +55,7 @@ final case class Package[A, B, C, +D](
 }
 
 object Package {
-  type Interface = Package[Nothing, Nothing, Referant[Variance], Unit]
+  type Interface = Package[Nothing, Nothing, Referant[Kind.Arg], Unit]
   /**
    * This is a package whose import type is Either:
    * 1 a package of the same kind
@@ -68,9 +68,9 @@ object Package {
   type Resolved = FixPackage[Unit, Unit, (List[Statement], ImportMap[PackageName, Unit])]
   type Typed[T] = Package[
     Interface,
-    NonEmptyList[Referant[Variance]],
-    Referant[Variance],
-    Program[TypeEnv[Variance], TypedExpr[T], Any]]
+    NonEmptyList[Referant[Kind.Arg]],
+    Referant[Kind.Arg],
+    Program[TypeEnv[Kind.Arg], TypedExpr[T], Any]]
   type Inferred = Typed[Declaration]
 
   val typedFunctor: Functor[Typed] =
@@ -189,10 +189,10 @@ object Package {
    */
   def inferBody(
     p: PackageName,
-    imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
+    imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
     stmts: List[Statement]):
       Ior[NonEmptyList[PackageError],
-      Program[TypeEnv[Variance], TypedExpr[Declaration], List[Statement]]] =
+      Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]]] =
         inferBodyUnopt(p, imps, stmts).map {
           case (fullTypeEnv, prog) =>
             TypedExprNormalization.normalizeProgram(p, fullTypeEnv, prog)
@@ -203,10 +203,10 @@ object Package {
    */
   def inferBodyUnopt(
     p: PackageName,
-    imps: List[Import[Package.Interface, NonEmptyList[Referant[Variance]]]],
+    imps: List[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]],
     stmts: List[Statement]):
       Ior[NonEmptyList[PackageError],
-      (TypeEnv[Variance], Program[TypeEnv[Variance], TypedExpr[Declaration], List[Statement]])] = {
+      (TypeEnv[Kind.Arg], Program[TypeEnv[Kind.Arg], TypedExpr[Declaration], List[Statement]])] = {
 
     // here we make a pass to get all the local names
     val optProg = SourceConverter.toProgram(p, imps.map { i => i.copy(pack = i.pack.name) }, stmts)
@@ -214,23 +214,15 @@ object Package {
 
     optProg.flatMap {
       case Program((importedTypeEnv, parsedTypeEnv), lets, extDefs, _) =>
-        val inferVarianceParsed: Ior[NonEmptyList[PackageError], ParsedTypeEnv[Variance]] =
-          VarianceFormula.solve(importedTypeEnv, parsedTypeEnv.allDefinedTypes) match {
-            case Right(infDTs) =>
-              Ior.right(ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs))
-            case Left(err) =>
-              Ior.left(NonEmptyList.one(PackageError.VarianceInferenceFailure(p, err)))
-          }
+        val inferVarianceParsed: Ior[NonEmptyList[PackageError], ParsedTypeEnv[Kind.Arg]] =
+          KindFormula.solveShapesAndKinds(importedTypeEnv, parsedTypeEnv.allDefinedTypes.reverse)
+            .bimap({ necError =>
+              necError.map(PackageError.KindInferenceError(p, _)).toNonEmptyList
+            }, { infDTs =>
+              ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs)
+            })
 
         inferVarianceParsed.flatMap { parsedTypeEnv =>
-          /*
-           * Check that the types defined here are not circular.
-           */
-          val circularCheck: ValidatedNel[PackageError, Unit] =
-            TypeRecursionCheck.checkLegitRecursion(importedTypeEnv, parsedTypeEnv.allDefinedTypes)
-              .leftMap { badPaths =>
-                badPaths.map(PackageError.CircularType(p, _))
-              }
           /*
            * Check that all recursion is allowable
            */
@@ -240,7 +232,7 @@ object Package {
                 badRecursions.map(PackageError.RecursionError(p, _))
               }
 
-          val typeEnv = TypeEnv.fromParsed(parsedTypeEnv)
+          val typeEnv: TypeEnv[Kind.Arg] = TypeEnv.fromParsed(parsedTypeEnv)
 
           /*
           * These are values, including all constructor functions
@@ -270,7 +262,8 @@ object Package {
 
           val inferenceEither = Infer.typeCheckLets(p, lets)
             .runFully(withFQN,
-              Referant.typeConstructors(imps) ++ typeEnv.typeConstructors
+              Referant.typeConstructors(imps) ++ typeEnv.typeConstructors,
+              fullTypeEnv.toKindMap
             )
             .map { lets =>
               (fullTypeEnv, Program(typeEnv, lets, extDefs, stmts))
@@ -292,7 +285,7 @@ object Package {
            * error accumulation
            */
           val checks = List(
-              defRecursionCheck, circularCheck, checkUnusedLets, totalityCheck
+              defRecursionCheck, checkUnusedLets, totalityCheck
             )
             .sequence_
 
@@ -304,8 +297,8 @@ object Package {
     }
   }
 
-  def checkValuesHaveExportedTypes(pn: PackageName, exports: List[ExportedName[Referant[Variance]]]): List[PackageError] = {
-    val exportedTypes: List[DefinedType[Variance]] = exports
+  def checkValuesHaveExportedTypes[V](pn: PackageName, exports: List[ExportedName[Referant[V]]]): List[PackageError] = {
+    val exportedTypes: List[DefinedType[V]] = exports
       .iterator
       .map(_.tag)
       .collect {
@@ -317,7 +310,7 @@ object Package {
 
     val exportedTE = TypeEnv.fromDefinitions(exportedTypes)
 
-    type Exp = ExportedName[Referant[Variance]]
+    type Exp = ExportedName[Referant[V]]
     val usedTypes: Iterator[(Type.Const, Exp, Type)] = exports
       .iterator
       .flatMap { n =>
@@ -595,6 +588,15 @@ object PackageError {
           val doc = Doc.text("unknown constructor ") + Doc.text(n.asString) +
             Doc.text(nearStr) + Doc.hardLine + context
           doc.render(80)
+        case Infer.Error.KindInvariantViolation(tpe, right, region, mess) =>
+          val applied = Type.TyApply(tpe, right)
+          val tmap = showTypes(pack, applied :: Nil)
+          val context =
+            lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region)) // we should highlight the whole region
+          val doc = Doc.text("kind error: ") + Doc.text(mess) + Doc.text(" for type the left of") + tmap(applied) + Doc.hardLine +
+            context
+
+          doc.render(80)
         case err => err.message
       }
       // TODO use the sourceMap/regiouns in Infer.Error
@@ -724,6 +726,13 @@ object PackageError {
         }
 
       Doc.intercalate(Doc.line, dupMessages).render(80)
+    }
+  }
+
+  case class KindInferenceError(pack: PackageName, kindError: KindFormula.Error) extends PackageError {
+    def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
+      // TODO actually make this look sane
+      s"in package ${pack.asString}: KindError: $kindError"
     }
   }
 }

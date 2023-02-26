@@ -25,7 +25,7 @@ import SourceConverter.{success, Result}
  */
 final class SourceConverter(
   thisPackage: PackageName,
-  imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
+  imports: List[Import[PackageName, NonEmptyList[Referant[Kind.Arg]]]],
   localDefs: List[TypeDefinitionStatement]) {
   /*
    * We should probably error for non-predef name collisions.
@@ -47,7 +47,8 @@ final class SourceConverter(
   private val importedNames: Map[Identifier, (PackageName, Identifier)] =
     imports.iterator.flatMap(_.resolveToGlobal).toMap
 
-  val importedTypeEnv = Referant.importedTypeEnv(imports)(identity)
+  val importedTypeEnv: TypeEnv[Kind.Arg] =
+    Referant.importedTypeEnv(imports)(identity)
 
   private def nameToType(c: Constructor, region: Region): Result[rankn.Type.Const] =
     typeCache.get(c) match {
@@ -87,31 +88,36 @@ final class SourceConverter(
   private def toLambdaExpr[B](
     ds: DefStatement[Pattern.Parsed, B], region: Region, tag: Result[Declaration])(
       resultExpr: B => Result[Expr[Declaration]]): Result[Expr[Declaration]] = {
-    import ds._
-    val unTypedBody = resultExpr(result)
+    val unTypedBody = resultExpr(ds.result)
     val bodyExp =
-      retType.fold(unTypedBody) { t =>
+      ds.retType.fold(unTypedBody) { t =>
         (unTypedBody, toType(t, region), tag).parMapN(Expr.Annotation(_, _, _))
       }
 
-    (args.traverse(convertPattern(_, region)), bodyExp, tag).parMapN { (as, b, t) =>
+    (ds.args.traverse(convertPattern(_, region)), bodyExp, tag).parMapN { (as, b, t) =>
       val lambda = Expr.buildPatternLambda(as, b, t)
-      typeArgs match {
+      ds.typeArgs match {
         case None => success(lambda)
         case Some(args) =>
-          val bs = args.map(_.toBoundVar)
+          val bs = args.map {
+            case (tr, optK) =>
+              (tr.toBoundVar, optK match {
+                case None => Kind.Type
+                case Some(k) => k
+              })
+            }
           val gen = Expr.Generic(bs, lambda)
           val freeVarsList = Expr.freeBoundTyVars(lambda)
           val freeVars = freeVarsList.toSet
-          val notFreeDecl = bs.toList.filterNot(freeVars)
-          if (notFreeDecl.nonEmpty) {
+          val notFreeDecl = bs.exists { case (a, _) => !freeVars(a) }
+          if (notFreeDecl) {
             // we have a lint that fails if declTV is not
             // a superset of what you would derive from the args
             // the purpose here is to control the *order* of
             // and to allow introducing phantom parameters, not
             // it is confusing if some are explicit, but some are not
             SourceConverter.partial(
-              SourceConverter.InvalidDefTypeParameters(bs, freeVarsList, ds, region),
+              SourceConverter.InvalidDefTypeParameters(args, freeVarsList, ds, region),
               gen)
           }
           else success(gen)
@@ -516,7 +522,7 @@ final class SourceConverter(
   private def toType(t: TypeRef, region: Region): Result[Type] =
     TypeRefConverter[Result](t)(nameToType(_, region))
 
-  def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): Result[rankn.DefinedType[Unit]] = {
+  def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): Result[rankn.DefinedType[Option[Kind.Arg]]] = {
     import Statement._
 
     def typeVar(i: Long): Type.TyVar =
@@ -557,27 +563,26 @@ final class SourceConverter(
     val deep = Traverse[List].compose(Traverse[(Bindable, *)]).compose(Traverse[Option])
 
     def updateInferedWithDecl(
-      typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
-      typeParams0: List[Type.Var.Bound]): Result[List[Type.Var.Bound]] =
+      typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])]],
+      typeParams0: List[Type.Var.Bound]): Result[List[(Type.Var.Bound, Option[Kind.Arg])]] =
         typeArgs match {
-          case None => success(typeParams0)
+          case None => success(typeParams0.map((_, None)))
           case Some(decl) =>
-            val neBound = decl.map(_.toBoundVar)
-            val declTV: List[Type.Var.Bound] = neBound.toList
-            val declSet = declTV.toSet
+            val neBound = decl.map { case (v, k) => (v.toBoundVar, k) }
+            val declSet = neBound.toList.iterator.map(_._1).toSet
             val missingFromDecl = typeParams0.filterNot(declSet)
-            val bestEffort = declTV.distinct ::: missingFromDecl
-            if ((declSet.size != declTV.size) || missingFromDecl.nonEmpty) {
+            if ((declSet.size != neBound.size) || missingFromDecl.nonEmpty) {
+              val bestEffort = neBound.toList.distinctBy(_._1) ::: missingFromDecl.map((_, None))
               // we have a lint that fails if declTV is not
               // a superset of what you would derive from the args
               // the purpose here is to control the *order* of
               // and to allow introducing phantom parameters, not
               // it is confusing if some are explicit, but some are not
               SourceConverter.partial(
-                SourceConverter.InvalidTypeParameters(neBound, typeParams0, tds),
+                SourceConverter.InvalidTypeParameters(decl, typeParams0, tds),
                 bestEffort)
             }
-            else success(bestEffort)
+            else success(neBound.toList ::: missingFromDecl.map((_, None)))
         }
 
     tds match {
@@ -604,7 +609,7 @@ final class SourceConverter(
 
               rankn.DefinedType(pname,
                 tname,
-                typeParams.map((_, ())),
+                typeParams,
                 consFn :: Nil)
             }
           }
@@ -636,12 +641,18 @@ final class SourceConverter(
             val finalCons = constructors.toList.map { case (c, params) =>
               rankn.ConstructorFn(c, params)
             }
-            rankn.DefinedType(pname, TypeName(nm), typeParams.map((_, ())), finalCons)
+            rankn.DefinedType(pname, TypeName(nm), typeParams, finalCons)
           }
         }
       case ExternalStruct(nm, targs) =>
-        // TODO make a real check here
-        success(rankn.DefinedType(pname, TypeName(nm), targs.map { case TypeRef.TypeVar(v) => (Type.Var.Bound(v), ()) }, Nil))
+        // TODO make a real check here of allowed kinds
+        success(
+          rankn.DefinedType(
+            pname,
+            TypeName(nm),
+            targs.map { case (TypeRef.TypeVar(v), optK) => (Type.Var.Bound(v), optK) },
+            Nil)
+          )
     }
   }
 
@@ -849,7 +860,7 @@ final class SourceConverter(
       { items => items.map(unlistPattern) }
     )(SourceConverter.parallelIor) // use the parallel, not the default Applicative which is Monadic
 
-  private lazy val toTypeEnv: Result[ParsedTypeEnv[Unit]] = {
+  private lazy val toTypeEnv: Result[ParsedTypeEnv[Option[Kind.Arg]]] = {
     val sunit = success(())
 
     val dupTypes = localDefs.groupByNel(_.name)
@@ -882,7 +893,7 @@ final class SourceConverter(
       }
 
     val pd = localDefs
-      .foldM(ParsedTypeEnv.empty[Unit]) { (te, d) =>
+      .foldM(ParsedTypeEnv.empty[Option[Kind.Arg]]) { (te, d) =>
         toDefinition(thisPackage, d)
           .map(te.addDefinedType(_))
       }
@@ -1161,7 +1172,7 @@ final class SourceConverter(
     .map(_.flatten)
   }
 
-  def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] = {
+  def toProgram(ss: List[Statement]): Result[Program[(TypeEnv[Kind.Arg], ParsedTypeEnv[Option[Kind.Arg]]), Expr[Declaration], List[Statement]]] = {
     val stmts = Statement.valuesOf(ss).toList
     stmts.collect {
       case ed@Statement.ExternalDef(name, params, result) =>
@@ -1180,12 +1191,13 @@ final class SourceConverter(
             // these vars were parsed so they are never skolem vars
             val freeBound = freeVars.map {
               case b@rankn.Type.Var.Bound(_) => b
-              case s@rankn.Type.Var.Skolem(_, _) =>
+              case s@rankn.Type.Var.Skolem(_, _, _) =>
                 // $COVERAGE-OFF$ this should be unreachable
                 sys.error(s"invariant violation: parsed a skolem var: $s")
                 // $COVERAGE-ON$
             }
-            val maybeForAll = rankn.Type.forAll(freeBound, tpe)
+            // TODO: Kind support parsing kinds
+            val maybeForAll = rankn.Type.forAll(freeBound.map { n => (n, Kind.Type) }, tpe)
             (name, maybeForAll)
           }
     }
@@ -1222,8 +1234,8 @@ object SourceConverter {
 
   def toProgram( 
     thisPackage: PackageName,
-    imports: List[Import[PackageName, NonEmptyList[Referant[Variance]]]],
-    stmts: List[Statement]): Result[Program[(TypeEnv[Variance], ParsedTypeEnv[Unit]), Expr[Declaration], List[Statement]]] =
+    imports: List[Import[PackageName, NonEmptyList[Referant[Kind.Arg]]]],
+    stmts: List[Statement]): Result[Program[(TypeEnv[Kind.Arg], ParsedTypeEnv[Option[Kind.Arg]]), Expr[Declaration], List[Statement]]] =
       (new SourceConverter(thisPackage, imports, Statement.definitionsOf(stmts).toList)).toProgram(stmts)
 
   private def concat[A](ls: List[A], tail: NonEmptyList[A]): NonEmptyList[A] =
@@ -1421,7 +1433,7 @@ object SourceConverter {
   }
 
   final case class InvalidTypeParameters(
-    declaredParams: NonEmptyList[Type.Var.Bound],
+    declaredParams: NonEmptyList[(TypeRef.TypeVar, Option[Kind.Arg])],
     discoveredTypes: List[Type.Var.Bound],
     statement: TypeDefinitionStatement) extends Error {
 
@@ -1430,14 +1442,18 @@ object SourceConverter {
       def tstr(l: List[Type.Var.Bound]): String =
         l.iterator.map(_.name).mkString("[", ", ", "]")
 
-      val decl = tstr(declaredParams.toList)
+      val decl =
+        TypeRef.docTypeArgs(declaredParams.toList) {
+          case None => Doc.empty
+          case Some(ka) => Doc.text(": ") + Kind.argDoc(ka)
+        }.renderTrim(80)
       val disc = tstr(discoveredTypes)
       s"${statement.name.asString} found declared: $decl, not a superset of $disc"
     }
   }
 
   final case class InvalidDefTypeParameters[B](
-    declaredParams: NonEmptyList[Type.Var.Bound],
+    declaredParams: NonEmptyList[(TypeRef.TypeVar, Option[Kind])],
     free: List[Type.Var.Bound],
     defstmt: DefStatement[Pattern.Parsed, B],
     region: Region) extends Error {
@@ -1446,7 +1462,11 @@ object SourceConverter {
       def tstr(l: List[Type.Var.Bound]): String =
         l.iterator.map(_.name).mkString("[", ", ", "]")
 
-      val decl = tstr(declaredParams.toList)
+      val decl = TypeRef.docTypeArgs(declaredParams.toList) {
+        case None => Doc.empty
+        case Some(k) => Doc.text(": ") + Kind.toDoc(k)
+      }.renderTrim(80)
+
       val freeStr = tstr(free)
       s"${defstmt.name.asString} found declared types: $decl, not a subset of $freeStr"
     }

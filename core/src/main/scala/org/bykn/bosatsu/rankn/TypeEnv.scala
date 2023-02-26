@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
 
-import org.bykn.bosatsu.{TypeName, PackageName, Identifier, Variance}
+import org.bykn.bosatsu.{TypeName, PackageName, Identifier, Kind}
 import org.bykn.bosatsu.Identifier.{Bindable, Constructor}
 import scala.collection.immutable.SortedMap
 
@@ -48,7 +48,7 @@ class TypeEnv[+A] private (
     values.get((p, n))
 
   // when we have resolved, we can get the types of constructors out
-  def getValue(p: PackageName, n: Identifier)(implicit ev: A <:< Variance): Option[Type] =
+  def getValue(p: PackageName, n: Identifier)(implicit ev: A <:< Kind.Arg): Option[Type] =
     n match {
       case c @ Constructor(_) =>
         // constructors are never external defs
@@ -57,7 +57,7 @@ class TypeEnv[+A] private (
     }
 
   // when we have resolved, we can get the types of constructors out
-  def localValuesOf(p: PackageName)(implicit ev: A <:< Variance): SortedMap[Identifier, Type] = {
+  def localValuesOf(p: PackageName)(implicit ev: A <:< Kind.Arg): SortedMap[Identifier, Type] = {
     val bldr = SortedMap.newBuilder[Identifier, Type]
     // add externals
     bldr ++= values.iterator.collect { case ((pn, n), v) if pn == p => (n, v) }
@@ -130,6 +130,12 @@ class TypeEnv[+A] private (
     new TypeEnv(values ++ that.values,
       constructors ++ that.constructors,
       definedTypes ++ that.definedTypes)
+
+  def toKindMap(implicit ev: A <:< Kind.Arg): Map[Type.Const.Defined, Kind] = {
+    type F[+Z] = List[DefinedType[Z]]
+    val dts: List[DefinedType[Kind.Arg]] = ev.substituteCo[F](allDefinedTypes)
+    DefinedType.toKindMap(dts)
+  }
 }
 
 object TypeEnv {

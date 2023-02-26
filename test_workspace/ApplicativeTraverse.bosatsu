@@ -13,7 +13,7 @@ struct Applicative(
   product: forall a, b. f[a] -> f[b] -> f[(a, b)])
 
 # Build an applicative from pure, map, and product
-def applicative_from_pure_map_product(
+def applicative_from_pure_map_product[f: * -> *](
   pure: forall a. a -> f[a],
   map: forall a, b. (a -> b) -> f[a] -> f[b],
   product: forall a, b. f[a] -> f[b] -> f[(a, b)]) -> Applicative[f]:
@@ -33,7 +33,7 @@ def applicative_from_pure_map_product(
   }
 
 # Build an applicative from pure, ap
-def applicative_from_pure_ap(
+def applicative_from_pure_ap[f: * -> *](
   pure: forall a. a -> f[a],
   ap: forall a, b. f[a -> b] -> f[a] -> f[b]) -> Applicative[f]:
 
@@ -57,7 +57,7 @@ def applicative_from_pure_ap(
 
 # Represents the Traverse typeclass
 struct Traverse(
-  traverse: forall a, b, f. Applicative[f] -> (a -> f[b]) -> g[a] -> f[g[b]])
+  traverse: forall a, b, f: * -> *. Applicative[f] -> (a -> f[b]) -> g[a] -> f[g[b]])
 
 applicative_Option: Applicative[Option] = applicative_from_pure_map_product(
     \a -> Some(a),
@@ -70,7 +70,7 @@ applicative_Option: Applicative[Option] = applicative_from_pure_map_product(
         _: None
   )
 
-def trav_l(app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[List[b]]:
+def trav_l[f: * -> *](app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[List[b]]:
   Applicative { pure, map, product, ... } = app
 
   def loop(lst: List[a], ftail: f[List[b]]) -> f[List[b]]:

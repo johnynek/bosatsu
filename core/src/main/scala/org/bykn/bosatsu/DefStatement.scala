@@ -11,7 +11,7 @@ import cats.syntax.all._
 
 case class DefStatement[A, B](
     name: Bindable,
-    typeArgs: Option[NonEmptyList[TypeRef.TypeVar]],
+    typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind])]],
     args: NonEmptyList[A],
     retType: Option[TypeRef],
     result: B
@@ -21,6 +21,7 @@ object DefStatement {
   private[this] val defDoc = Doc.text("def ")
   private[this] val arrow = Doc.text(" -> ")
   private[this] val commaSpace = Doc.text(", ")
+  private[this] val colonSpace = Doc.text(": ")
 
   implicit def document[A: Document, B: Document]
       : Document[DefStatement[A, B]] =
@@ -29,7 +30,10 @@ object DefStatement {
       val res = retType.fold(Doc.empty) { t => arrow + t.toDoc }
       val taDoc = typeArgs match {
         case None     => Doc.empty
-        case Some(ta) => TypeRef.docTypeArgs(ta.toList)
+        case Some(ta) => TypeRef.docTypeArgs(ta.toList) {
+          case None => Doc.empty
+          case Some(k) => colonSpace + Kind.toDoc(k) 
+        }
       }
       val argDoc =
         Doc.char('(') +
@@ -53,10 +57,13 @@ object DefStatement {
   ): P[DefStatement[A, B]] = {
     val args = argParser.parensLines1Cut
     val result = (P.string("->") *> maybeSpace *> TypeRef.parser).?
+    val kindAnnot: P[Kind] =
+      (maybeSpace.soft.with1 *> (P.char(':') *> maybeSpace *> Kind.parser))
+
     (
       Parser.keySpace(
         "def"
-      ) *> (Identifier.bindableParser ~ TypeRef.typeParams.? ~ args) <* maybeSpace,
+      ) *> (Identifier.bindableParser ~ TypeRef.typeParams(kindAnnot.?).? ~ args) <* maybeSpace,
       result.with1 <* (maybeSpace.with1 ~ P.char(':')),
       resultTParser
     )

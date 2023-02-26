@@ -26,7 +26,13 @@ object TypeRefConverter {
         (toType(a), bs.toList.traverse(toType)).mapN(Type.applyAll(_, _))
       case TypeLambda(pars, e) =>
         toType(e).map { te =>
-          Type.forAll(pars.map { case TypeVar(v) => Type.Var.Bound(v) }.toList, te)
+          Type.forAll(pars.map { case (TypeVar(v), optK) =>
+            val k = optK match {
+              case None => Kind.Type
+              case Some(k) => k
+            }
+            (Type.Var.Bound(v), k)
+          }.toList, te)
         }
       case TypeTuple(ts) =>
         ts.traverse(toType).map(Type.Tuple(_))
@@ -45,7 +51,10 @@ object TypeRefConverter {
 
     tpe match {
       case ForAll(vs, in) =>
-        val args = vs.map { case Type.Var.Bound(b) => TypeVar(b) }
+        val args = vs.map { case (Type.Var.Bound(b), k) =>
+          val k1 = if (k.isType) None else Some(k)
+          (TypeVar(b), k1)
+        }
         loop(in).map(TypeLambda(args, _))
       case Type.Tuple(ts) =>
         // this needs to be above TyConst
@@ -66,10 +75,10 @@ object TypeRefConverter {
         tv match {
           case Type.Var.Bound(v) =>
             Applicative[F].pure(TypeVar(v))
-          case sk@Type.Var.Skolem(_, _) =>
+          case sk: Type.Var.Skolem =>
             onSkolem(sk)
         }
-      case TyMeta(Type.Meta(id, _)) =>
+      case TyMeta(Type.Meta(_, id, _)) =>
         onMeta(id)
       // $COVERAGE-OFF$
       case other =>

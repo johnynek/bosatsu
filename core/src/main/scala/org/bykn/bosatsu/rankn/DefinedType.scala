@@ -1,7 +1,7 @@
 package org.bykn.bosatsu.rankn
 
-import cats.{Applicative, Eval, Traverse}
-import org.bykn.bosatsu.{TypeName, PackageName, Identifier, Variance}
+import cats.{Applicative, Eval, Foldable, Traverse}
+import org.bykn.bosatsu.{Kind, TypeName, PackageName, Identifier}
 import scala.collection.immutable.SortedMap
 
 import Identifier.Constructor
@@ -80,7 +80,7 @@ final case class DefinedType[+A](
       case _ => DataFamily.Enum
   }
 
-  def fnTypeOf(cf: ConstructorFn)(implicit ev: A <:< Variance): Type = {
+  def fnTypeOf(cf: ConstructorFn)(implicit ev: A <:< Kind.Arg): Type = {
     // evidence to prove that we only ask for this after inference
     val tc: Type = Type.const(packageName, name)
 
@@ -96,7 +96,12 @@ final case class DefinedType[+A](
        }
 
     val resT = loop(cf.args.map(_._2))
-    Type.forAll(dtTypeParams, resT)
+    val typeArgs = annotatedTypeParams.map { case (b, ka) => (b, ev(ka).kind) }
+    Type.forAll(typeArgs, resT)
+  }
+
+  def kindOf(implicit ev: A <:< Kind.Arg): Kind = {
+    Kind(annotatedTypeParams.map { case (_, ka) => ev(ka) }: _*)
   }
 }
 
@@ -106,6 +111,12 @@ object DefinedType {
 
   def listToMap[A](dts: List[DefinedType[A]]): SortedMap[(PackageName, TypeName), DefinedType[A]] =
     SortedMap(dts.map { dt => (dt.packageName, dt.name) -> dt }: _*)
+
+  def toKindMap[F[_]: Foldable](dts: F[DefinedType[Kind.Arg]]): Map[Type.Const.Defined, Kind] =
+    dts.foldLeft(
+      Map.newBuilder[Type.Const.Defined, Kind]
+    ) { (b, dt) => b += ((dt.toTypeConst.toDefined, dt.kindOf)) }
+    .result()
 
   implicit val definedTypeTraverse: Traverse[DefinedType] =
     new Traverse[DefinedType] {

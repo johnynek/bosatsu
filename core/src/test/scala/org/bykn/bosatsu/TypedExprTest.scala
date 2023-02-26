@@ -569,7 +569,7 @@ foo = \_ -> 1
       // All the vars that are used in bounds
       val bounds: Set[Type.Var] = te.traverseType { (t: Type) =>
         t match {
-          case Type.ForAll(ps, _) => Writer(SortedSet[Type.Var](ps.toList: _*), t)
+          case Type.ForAll(ps, _) => Writer(SortedSet[Type.Var](ps.toList.map(_._1): _*), t)
           case _ => Writer(SortedSet[Type.Var](), t)
         }
       }.run._1.toSet[Type.Var]

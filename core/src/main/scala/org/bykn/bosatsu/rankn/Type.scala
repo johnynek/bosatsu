@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
 import cats.{Applicative, Eq, Order}
 import org.typelevel.paiges.{Doc, Document}
-import org.bykn.bosatsu.{PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
+import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import scala.collection.immutable.SortedSet
 
 import cats.implicits._
@@ -18,7 +18,7 @@ object Type {
   sealed abstract class Rho extends Type
   type Tau = Rho // no forall anywhere
 
-  case class ForAll(vars: NonEmptyList[Var.Bound], in: Rho) extends Type
+  case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho) extends Type
   case class TyConst(tpe: Const) extends Rho
   case class TyVar(toVar: Var) extends Rho
   case class TyMeta(toMeta: Meta) extends Rho
@@ -29,7 +29,9 @@ object Type {
       val boundOrd: Ordering[Var.Bound] =
         Ordering[String].on[Var.Bound] { case Var.Bound(v) => v }
 
-      val list = org.bykn.bosatsu.ListOrdering.onType(boundOrd)
+      val list = org.bykn.bosatsu.ListOrdering.onType(
+        Ordering.Tuple2(boundOrd, Kind.orderingKind)
+      )
 
       def compare(a: Type, b: Type): Int =
         (a, b) match {
@@ -46,7 +48,7 @@ object Type {
             Ordering[Var].compare(v0, v1)
           case (TyVar(_), ForAll(_, _) | TyConst(_)) => 1
           case (TyVar(_), _) => -1
-          case (TyMeta(Meta(i0, _)), TyMeta(Meta(i1, _))) =>
+          case (TyMeta(Meta(_, i0, _)), TyMeta(Meta(_, i1, _))) =>
             java.lang.Long.compare(i0, i1)
           case (TyMeta(_), TyApply(_, _)) => -1
           case (TyMeta(_), _) => 1
@@ -94,7 +96,7 @@ object Type {
       case fa@ForAll(_, _) => freeTyVars(fa :: Nil).isEmpty
     }
 
-  final def forAll(vars: List[Var.Bound], in: Type): Type =
+  final def forAll(vars: List[(Var.Bound, Kind)], in: Type): Type =
     NonEmptyList.fromList(vars) match {
       case None => in
       case Some(ne) =>
@@ -154,7 +156,7 @@ object Type {
       case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
       case v@TyVar(n) => env.getOrElse(n, v)
       case ForAll(ns, rho) =>
-        val boundSet: Set[Var] = ns.toList.toSet
+        val boundSet: Set[Var] = ns.toList.iterator.map(_._1).toSet
         val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
         forAll(ns.toList, substituteVar(rho, env1))
       case m@TyMeta(_) => m
@@ -188,13 +190,13 @@ object Type {
           val isBound =
             tv match {
               case b@Type.Var.Bound(_) => bound(b)
-              case Type.Var.Skolem(_, _) => false
+              case Type.Var.Skolem(_, _, _) => false
             }
           if (isBound) go(rest, bound, acc)
           else go(rest, bound, tv :: acc)
         case Type.TyApply(a, b) :: rest => go(a :: b :: rest, bound, acc)
         case Type.ForAll(tvs, ty) :: rest =>
-          val acc1 = cheat(ty :: Nil, bound ++ tvs.toList, acc)
+          val acc1 = cheat(ty :: Nil, bound ++ tvs.toList.iterator.map(_._1), acc)
           // note, tvs ARE NOT bound in rest
           go(rest, bound, acc1)
         case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
@@ -216,16 +218,31 @@ object Type {
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals
    */
-  val BoolType: Type = TyConst(Const.predef("Bool"))
-  val DictType: Type = TyConst(Const.predef("Dict"))
-  val FnType: Type = TyConst(Const.predef("Fn"))
-  val IntType: Type = TyConst(Const.predef("Int"))
-  val ListType: Type = TyConst(Const.predef("List"))
-  val OptionType: Type = TyConst(Const.predef("Option"))
-  val StrType: Type = TyConst(Const.predef("String"))
-  val TestType: Type = TyConst(Const.predef("Test"))
-  val TupleConsType = TyConst(Type.Const.predef("TupleCons"))
-  val UnitType = TyConst(Type.Const.predef("Unit"))
+  val BoolType: Type.TyConst = TyConst(Const.predef("Bool"))
+  val DictType: Type.TyConst = TyConst(Const.predef("Dict"))
+  val FnType: Type.TyConst = TyConst(Const.predef("Fn"))
+  val IntType: Type.TyConst = TyConst(Const.predef("Int"))
+  val ListType: Type.TyConst = TyConst(Const.predef("List"))
+  val OptionType: Type.TyConst = TyConst(Const.predef("Option"))
+  val StrType: Type.TyConst = TyConst(Const.predef("String"))
+  val TestType: Type.TyConst = TyConst(Const.predef("Test"))
+  val TupleConsType: Type.TyConst = TyConst(Type.Const.predef("TupleCons"))
+  val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
+
+  val builtInKinds: Map[Type.Const.Defined, Kind] =
+    List(
+      BoolType -> Kind.Type,
+      DictType -> Kind(Kind.Type.in, Kind.Type.in),
+      FnType -> Kind(Kind.Type.contra, Kind.Type.co),
+      IntType -> Kind.Type,
+      ListType -> Kind(Kind.Type.co),
+      StrType -> Kind.Type,
+      UnitType -> Kind.Type,
+      TupleConsType -> Kind(Kind.Type.co, Kind.Type.co),
+
+    )
+    .map { case (t, k) => (t.tpe.toDefined, k) }
+    .toMap
 
   def const(pn: PackageName, name: TypeName): Type =
     TyConst(Type.Const.Defined(pn, name))
@@ -331,7 +348,7 @@ object Type {
   }
   object Var {
     case class Bound(name: String) extends Var
-    case class Skolem(name: String, id: Long) extends Var
+    case class Skolem(name: String, kind: Kind, id: Long) extends Var
 
     object Bound {
       private[this] val cache: Array[Bound] =
@@ -354,10 +371,15 @@ object Type {
           (a, b) match {
             case (Bound(a), Bound(b)) => a.compareTo(b)
             case (Bound(_), _) => -1
-            case (Skolem(n0, i0), Skolem(n1, i1)) =>
+            case (Skolem(n0, k0, i0), Skolem(n1, k1, i1)) =>
               val c = java.lang.Long.compare(i0, i1)
-              if (c == 0) n0.compareTo(n1) else c
-            case (Skolem(_, _), _) => 1
+              if (c != 0) c
+              else {
+                val cn = n0.compareTo(n1)
+                if (cn != 0) cn
+                else Order[Kind].compare(k0, k1)
+              }
+            case (Skolem(_, _, _), _) => 1
           }
       }
   }
@@ -381,7 +403,7 @@ object Type {
     NonEmptyList((items.head, bs.head), items.tail.zip(bs.tail))
   }
 
-  case class Meta(id: Long, ref: Ref[Option[Type.Tau]])
+  case class Meta(kind: Kind, id: Long, ref: Ref[Option[Type.Tau]])
 
   object Meta {
     implicit val orderingMeta: Ordering[Meta] =
@@ -414,7 +436,7 @@ object Type {
       tpes match {
         case Nil => acc
         case Type.ForAll(tvs, _) :: rest =>
-          loop(rest, acc ++ tvs.toList)
+          loop(rest, acc ++ tvs.toList.iterator.map(_._1))
         case Type.TyApply(arg, res) :: rest =>
           loop(arg :: res :: rest, acc)
         case _ :: rest => loop(rest, acc)
@@ -460,14 +482,16 @@ object Type {
         }
       }
       val skolem = (P.char('$') *> Parser.lowerIdent, P.char('$') *> longParser)
-        .mapN(Var.Skolem(_, _))
+        // TODO Kind
+        .mapN(Var.Skolem(_, Kind.Type, _))
         .map(TyVar(_))
 
       // this null is bad, but we have no way to reallocate this
       // and won't parse before type inference anyway
       // the ideal solution is to better static type information
       // to have fully inferred types with no skolems or metas
-      val meta = (P.char('?') *> longParser).map { l => TyMeta(Meta(l, null)) }
+      // TODO Kind
+      val meta = (P.char('?') *> longParser).map { l => TyMeta(Meta(Kind.Type, l, null)) }
 
       tvar.orElse(name).orElse(skolem).orElse(meta)
     }
@@ -475,8 +499,11 @@ object Type {
     def makeFn(in: Type, out: Type) = Type.Fun(in, out)
     def applyTypes(left: Type, args: NonEmptyList[Type]) = applyAll(left, args.toList)
 
-    def universal(vs: NonEmptyList[String], on: Type) =
-      Type.forAll(vs.toList.map { s => Type.Var.Bound(s) }, on) 
+    def universal(vs: NonEmptyList[(String, Option[Kind])], on: Type) =
+      Type.forAll(vs.toList.map {
+        case (s, None) => (Type.Var.Bound(s), Kind.Type)
+        case (s, Some(k)) => (Type.Var.Bound(s), k)
+      }, on) 
 
     def makeTuple(lst: List[Type]) = Type.Tuple(lst)
 
@@ -487,10 +514,12 @@ object Type {
         case TyConst(Const.Defined(p, n)) =>
           Some(Document[PackageName].document(p) + coloncolon + Document[Identifier].document(n.ident))
         case TyVar(Var.Bound(s)) => Some(Doc.text(s))
-        case TyVar(Var.Skolem(n, i)) =>
+        case TyVar(Var.Skolem(n, _, i)) =>
+          // TODO Kind
           val dol = "$"
           Some(Doc.text(dol + n + dol + i.toString))
-        case TyMeta(Meta(i, _)) =>
+        case TyMeta(Meta(_, i, _)) =>
+          // TODO Kind
           Some(Doc.text("?" + i.toString))
         case _ => None
       }
@@ -501,9 +530,12 @@ object Type {
         case _ => None
       }
 
-    def unapplyUniversal(a: Type): Option[(List[String], Type)] =
+    def unapplyUniversal(a: Type): Option[(List[(String, Option[Kind])], Type)] =
       a match {
-        case ForAll(vs, arg) => Some((vs.map(_.name).toList, arg))
+        case ForAll(vs, arg) =>
+          Some((vs.map { 
+            case (v, k) => (v.name, Some(k))
+          }.toList, arg))
         case _ => None
       }
 

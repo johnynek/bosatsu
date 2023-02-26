@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Order
 import org.scalatest.Assertions._
 
 object OrderingLaws {
@@ -31,5 +32,9 @@ object OrderingLaws {
     assert(!ord.lt(c, c))
 
     ()
+  }
+
+  def forOrder[A: Order](a: A, b: A, c: A) = {
+    law(a, b, c)(Order[A].toOrdering)
   }
 }

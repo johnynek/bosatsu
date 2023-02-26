@@ -130,7 +130,7 @@ object ProtoConverter {
   class DecodeState private (
     strings: Array[String],
     types: Array[Type],
-    dts: Array[DefinedType[Variance]],
+    dts: Array[DefinedType[Kind.Arg]],
     patterns: Array[Pattern[(PackageName, Constructor), Type]],
     expr: Array[TypedExpr[Unit]]) {
     def getString(idx: Int): Option[String] =
@@ -153,18 +153,18 @@ object ProtoConverter {
       if ((0 <= idx) && (idx < patterns.length)) Success(patterns(idx))
       else Failure(new Exception(msg))
 
-    def getDt(idx: Int): Option[DefinedType[Variance]] =
+    def getDt(idx: Int): Option[DefinedType[Kind.Arg]] =
       if ((0 <= idx) && (idx < dts.length)) Some(dts(idx))
       else None
 
-    def getDefinedTypes: List[DefinedType[Variance]] =
+    def getDefinedTypes: List[DefinedType[Kind.Arg]] =
       dts.toList
 
     def getExpr(idx: Int): Option[TypedExpr[Unit]] =
       if ((0 <= idx) && (idx < expr.length)) Some(expr(idx))
       else None
 
-    def withDefinedTypes(vdts: Seq[DefinedType[Variance]]): DecodeState =
+    def withDefinedTypes(vdts: Seq[DefinedType[Kind.Arg]]): DecodeState =
       new DecodeState(strings, types, vdts.toArray, patterns, expr)
 
     def withTypes(ary: Array[Type]): DecodeState =
@@ -198,7 +198,7 @@ object ProtoConverter {
   private def lookupType(idx: Int, context: => String): DTab[Type] =
     find(idx, context)(_.getType(_))
 
-  private def lookupDts(idx: Int, context: => String): DTab[DefinedType[Variance]] =
+  private def lookupDts(idx: Int, context: => String): DTab[DefinedType[Kind.Arg]] =
     find(idx, context)(_.getDt(_))
 
   private def lookupExpr(idx: Int, context: => String): DTab[TypedExpr[Unit]] =
@@ -251,11 +251,15 @@ object ProtoConverter {
               }
           case Value.TypeVar(tv) =>
             str(tv.varName).map { n => Type.TyVar(Type.Var.Bound(n)) }
-          case Value.TypeForAll(TypeForAll(args, in, _)) =>
-            for {
-              inT <- tpe(in)
-              args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
-            } yield Type.forAll(args, inT)
+          case Value.TypeForAll(TypeForAll(args, kinds, in, _)) =>
+            if (args.length != kinds.length)
+              Failure(new Exception(s"args and kinds len mismatch: $p"))
+            else
+              for {
+                inT <- tpe(in)
+                args <- args.toList.traverse(str(_).map(Type.Var.Bound(_)))
+                kinds <- kinds.traverse { k => kindFromProto(Some(k)) }
+              } yield Type.forAll(args.zip(kinds), inT)
 
           case Value.TypeApply(TypeApply(left, right, _)) =>
             (tpe(left), tpe(right)).mapN(Type.TyApply(_, _))
@@ -366,16 +370,21 @@ object ProtoConverter {
 
         ex.value match {
           case Value.Empty => Failure(new Exception("invalid empty TypedExpr"))
-          case Value.GenericExpr(proto.GenericExpr(typeParams, expr, _)) =>
-            NonEmptyList.fromList(typeParams.toList) match {
-              case Some(nel) =>
-                (nel.traverse(str), exprOf(expr))
-                  .mapN { (strs, expr) =>
-                    val bs = strs.map(Type.Var.Bound(_))
-                    TypedExpr.Generic(bs, expr)
-                  }
-              case None => Failure(new Exception(s"invalid empty type params in generic: $ex"))
-            }
+          case ge @ Value.GenericExpr(proto.GenericExpr(typeParams, kinds, expr, _)) =>
+            if (typeParams.length != kinds.length)
+              Failure(new Exception(s"bound and kinds length mismatch in $ge"))
+            else
+              NonEmptyList.fromList(typeParams.toList) match {
+                case Some(nel) =>
+                  (nel.traverse(str), kinds.traverse { k => kindFromProto(Some(k)) }, exprOf(expr))
+                    .mapN { (strs, kindsSeq, expr) =>
+                      // we know the length is the same as the params NEL
+                      val kinds = NonEmptyList.fromListUnsafe(kindsSeq.toList)
+                      val bs = strs.map(Type.Var.Bound(_))
+                      TypedExpr.Generic(bs.zip(kinds), expr)
+                    }
+                case None => Failure(new Exception(s"invalid empty type params in generic($ge): $ex"))
+              }
           case Value.AnnotationExpr(proto.AnnotationExpr(expr, tpe, _)) =>
             (exprOf(expr), typeOf(tpe))
               .mapN(TypedExpr.Annotation(_, _, ()))
@@ -476,9 +485,10 @@ object ProtoConverter {
             case Type.ForAll(bs, t) =>
               typeToProto(t).flatMap { idx =>
                 bs.toList
-                  .traverse { b => getId(b.name) }
+                  .traverse { case (b, _) => getId(b.name) }
                   .flatMap { ids =>
-                    getTypeId(p, proto.Type(Value.TypeForAll(TypeForAll(ids, idx))))
+                    lazy val ks = bs.map { case (_, k) => kindToProto(k) }
+                    getTypeId(p, proto.Type(Value.TypeForAll(TypeForAll(ids, ks.toList, idx))))
                   }
               }
             case Type.TyApply(on, arg) =>
@@ -496,7 +506,7 @@ object ProtoConverter {
               getId(n).flatMap { id =>
                 getTypeId(p, proto.Type(Value.TypeVar(TypeVar(id))))
               }
-            case Type.TyVar(Type.Var.Skolem(_, _)) | Type.TyMeta(_) =>
+            case Type.TyVar(Type.Var.Skolem(_, _, _)) | Type.TyMeta(_) =>
               tabFail(new Exception(s"invalid type to serialize: $p"))
           }
       }
@@ -624,10 +634,11 @@ object ProtoConverter {
           import TypedExpr._
           te match {
             case g@Generic(tvars, expr) =>
-              tvars.toList.traverse { v => getId(v.name) }
+              tvars.toList.traverse { case (v, _) => getId(v.name) }
                 .product(typedExprToProto(expr))
                 .flatMap { case (tparams, exid) =>
-                  val ex = proto.GenericExpr(tparams, exid)
+                  val ks = tvars.map { case (_, k) => kindToProto(k) }
+                  val ex = proto.GenericExpr(tparams, ks.toList, exid)
                   writeExpr(g, proto.TypedExpr(proto.TypedExpr.Value.GenericExpr(ex)))
                 }
             case a@Annotation(term, tpe, _) =>
@@ -709,7 +720,7 @@ object ProtoConverter {
       case Variance.Contravariant => proto.Variance.Contravariant
       case Variance.Invariant => proto.Variance.Invariant
     }
-
+  
   def varianceFromProto(p: proto.Variance): Try[Variance] =
     p match {
       case proto.Variance.Phantom => Success(Variance.Phantom)
@@ -719,12 +730,35 @@ object ProtoConverter {
       case proto.Variance.Unrecognized(value) => Failure(new Exception(s"unrecognized value for variance: $value"))
     }
 
-  def definedTypeToProto(d: DefinedType[Variance]): Tab[proto.DefinedType] =
+  def kindToProto(kind: Kind): proto.Kind =
+    kind match {
+      case Kind.Type => proto.Kind(proto.Kind.Value.Type(proto.TypeKind()))
+      case Kind.Cons(Kind.Arg(v, i), o) =>
+        val vp = varianceToProto(v)
+        val ip = kindToProto(i)
+        val op = kindToProto(o)
+        proto.Kind(proto.Kind.Value.Cons(proto.ConsKind(vp, Some(ip), Some(op))))
+    }
+  def kindFromProto(kp: Option[proto.Kind]): Try[Kind] =
+    kp match {
+      case None | Some(proto.Kind(proto.Kind.Value.Empty, _)) =>
+        Failure(new Exception("missing Kind"))
+      case Some(proto.Kind(proto.Kind.Value.Type(proto.TypeKind(_)), _)) => Success(Kind.Type)
+      case Some(proto.Kind(proto.Kind.Value.Cons(proto.ConsKind(v, i, o, _)), _)) =>
+        for {
+          variance <- varianceFromProto(v)
+          kindI <- kindFromProto(i)
+          kindO <- kindFromProto(o)
+        } yield Kind.Cons(Kind.Arg(variance, kindI), kindO)
+    }
+
+  def definedTypeToProto(d: DefinedType[Kind.Arg]): Tab[proto.DefinedType] =
     typeConstToProto(d.toTypeConst).flatMap { tc =>
-      def paramToProto(tv: (Type.Var.Bound, Variance)): Tab[proto.TypeParam] =
+      def paramToProto(tv: (Type.Var.Bound, Kind.Arg)): Tab[proto.TypeParam] =
         typeVarBoundToProto(tv._1)
           .map { tvb =>
-            proto.TypeParam(Some(tvb), varianceToProto(tv._2))
+            val Kind.Arg(variance, kind) = tv._2
+            proto.TypeParam(Some(tvb), varianceToProto(variance), Some(kindToProto(kind)))
           }
 
       val protoTypeParams: Tab[List[proto.TypeParam]] =
@@ -752,13 +786,18 @@ object ProtoConverter {
         .mapN(proto.DefinedType(Some(tc), _, _))
     }
 
-  def definedTypeFromProto(pdt: proto.DefinedType): DTab[DefinedType[Variance]] = {
-    def paramFromProto(tp: proto.TypeParam): DTab[(Type.Var.Bound, Variance)] =
+  def definedTypeFromProto(pdt: proto.DefinedType): DTab[DefinedType[Kind.Arg]] = {
+    def paramFromProto(tp: proto.TypeParam): DTab[(Type.Var.Bound, Kind.Arg)] =
       tp.typeVar match {
         case None => ReaderT.liftF(Failure(new Exception(s"expected type variable in $tp")))
         case Some(tv) =>
+          val ka = for {
+            v <- varianceFromProto(tp.variance)
+            k <- kindFromProto(tp.kind)
+          } yield Kind.Arg(v, k)
+
           typeVarBoundFromProto(tv)
-            .product(ReaderT.liftF(varianceFromProto(tp.variance)))
+            .product(ReaderT.liftF(ka))
       }
 
     def fnParamFromProto(p: proto.FnParam): DTab[(Bindable, Type)] =
@@ -792,7 +831,7 @@ object ProtoConverter {
     }
   }
 
-  def referantToProto(allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)], r: Referant[Variance]): Tab[proto.Referant] =
+  def referantToProto[V](allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)], r: Referant[V]): Tab[proto.Referant] =
     r match {
       case Referant.Value(t) =>
         typeToProto(t).map { tpeId =>
@@ -843,7 +882,7 @@ object ProtoConverter {
         }
     }
 
-  def expNameToProto(allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)], e: ExportedName[Referant[Variance]]): Tab[proto.ExportedName] = {
+  def expNameToProto[V](allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)], e: ExportedName[Referant[V]]): Tab[proto.ExportedName] = {
     val protoRef: Tab[proto.Referant] = referantToProto(allDts, e.tag)
     val exKind: Tab[(Int, proto.ExportKind)] = e match {
       case ExportedName.Binding(b, _) =>
@@ -909,7 +948,7 @@ object ProtoConverter {
     }
   }
 
-  private def referantFromProto(loadDT: Type.Const => Try[DefinedType[Variance]], ref: proto.Referant): DTab[Referant[Variance]] =
+  private def referantFromProto(loadDT: Type.Const => Try[DefinedType[Kind.Arg]], ref: proto.Referant): DTab[Referant[Kind.Arg]] =
     ref.referant match {
       case proto.Referant.Referant.Value(t) =>
         lookupType(t, s"invalid type in $ref").map(Referant.Value(_))
@@ -960,9 +999,9 @@ object ProtoConverter {
     }
 
   private def exportedNameFromProto(
-    loadDT: Type.Const => Try[DefinedType[Variance]],
-    en: proto.ExportedName): DTab[ExportedName[Referant[Variance]]] = {
-    val tryRef: DTab[Referant[Variance]] = en.referant match {
+    loadDT: Type.Const => Try[DefinedType[Kind.Arg]],
+    en: proto.ExportedName): DTab[ExportedName[Referant[Kind.Arg]]] = {
+    val tryRef: DTab[Referant[Kind.Arg]] = en.referant match {
       case Some(r) => referantFromProto(loadDT, r)
       case None => ReaderT.liftF(Failure(new Exception(s"missing referant in $en")))
     }
@@ -1006,7 +1045,7 @@ object ProtoConverter {
       s.foldRight(dtab)(_.finish(_))
   }
 
-  private def interfaceFromProto0(loadDT: Type.Const => Try[DefinedType[Variance]], protoIface: proto.Interface): Try[Package.Interface] = {
+  private def interfaceFromProto0(loadDT: Type.Const => Try[DefinedType[Kind.Arg]], protoIface: proto.Interface): Try[Package.Interface] = {
     val tab: DTab[Package.Interface] =
       for {
         packageName <- lookup(protoIface.packageName, protoIface.toString)
@@ -1087,7 +1126,7 @@ object ProtoConverter {
 
   def importedNameToProto(
     allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
-    in: ImportedName[NonEmptyList[Referant[Variance]]]): Tab[proto.ImportedName] = {
+    in: ImportedName[NonEmptyList[Referant[Kind.Arg]]]): Tab[proto.ImportedName] = {
 
     val locName =
       in match {
@@ -1103,7 +1142,7 @@ object ProtoConverter {
 
   def importToProto(
     allDts: Map[(PackageName, TypeName), (DefinedType[Any], Int)],
-    i: Import[Package.Interface, NonEmptyList[Referant[Variance]]]): Tab[proto.Imports] =
+    i: Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]): Tab[proto.Imports] =
     for {
       nm <- getId(i.pack.name.asString)
       imps <- i.items.toList.traverse(importedNameToProto(allDts, _))
@@ -1125,9 +1164,9 @@ object ProtoConverter {
 
   def packageToProto[A](cpack: Package.Typed[A]): Try[proto.Package] = {
     // the Int is in index in the list of definedTypes:
-    val allDts: SortedMap[(PackageName, TypeName), (DefinedType[Variance], Int)] =
+    val allDts: SortedMap[(PackageName, TypeName), (DefinedType[Kind.Arg], Int)] =
       cpack.program.types.definedTypes.mapWithIndex { (dt, idx) => (dt, idx) }
-    val dtVect: Vector[DefinedType[Variance]] =
+    val dtVect: Vector[DefinedType[Kind.Arg]] =
       allDts.values.iterator.map(_._1).toVector
     val tab =
       for {
@@ -1176,8 +1215,8 @@ object ProtoConverter {
     lookup(idx, context).flatMapF(toIdent)
 
   def importedNameFromProto(
-    loadDT: Type.Const => Try[DefinedType[Variance]],
-    iname: proto.ImportedName): DTab[ImportedName[NonEmptyList[Referant[Variance]]]] = {
+    loadDT: Type.Const => Try[DefinedType[Kind.Arg]],
+    iname: proto.ImportedName): DTab[ImportedName[NonEmptyList[Referant[Kind.Arg]]]] = {
     def build[A](orig: Identifier, ref: A): DTab[ImportedName[A]] =
       if (iname.localName == 0) {
         ReaderT.pure(ImportedName.OriginalName(originalName = orig, ref))
@@ -1200,7 +1239,7 @@ object ProtoConverter {
 
   def importsFromProto(imp: proto.Imports,
     lookupIface: PackageName => Try[Package.Interface],
-    loadDT: Type.Const => Try[DefinedType[Variance]]): DTab[Import[Package.Interface, NonEmptyList[Referant[Variance]]]] =
+    loadDT: Type.Const => Try[DefinedType[Kind.Arg]]): DTab[Import[Package.Interface, NonEmptyList[Referant[Kind.Arg]]]] =
     NonEmptyList.fromList(imp.names.toList) match {
       case None => ReaderT.liftF(Failure(new Exception(s"expected non-empty import names in: $imp")))
       case Some(nei) =>
@@ -1224,12 +1263,12 @@ object ProtoConverter {
   def buildProgram(
     pack: PackageName,
     lets: List[(Bindable, RecursionKind, TypedExpr[Unit])],
-    exts: List[(Bindable, Type)]): DTab[Program[TypeEnv[Variance], TypedExpr[Unit], Unit]] =
+    exts: List[(Bindable, Type)]): DTab[Program[TypeEnv[Kind.Arg], TypedExpr[Unit], Unit]] =
     ReaderT.ask[Try, DecodeState]
       .map { ds =>
         // this adds all the types and contructors
         // from the given defined types
-        val te0: TypeEnv[Variance] =
+        val te0: TypeEnv[Kind.Arg] =
           TypeEnv.fromDefinitions(ds.getDefinedTypes)
         // we need to also add all the external defs
         val te = exts.foldLeft(te0) { case (te, (b, t)) =>
@@ -1315,8 +1354,8 @@ object ProtoConverter {
     }
     else {
       def makeLoadDT(
-        load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]
-      ): Type.Const => Try[DefinedType[Variance]] = { case tc@Type.Const.Defined(p, _) =>
+        load: String => Try[Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Typed[Unit]]]
+      ): Type.Const => Try[DefinedType[Kind.Arg]] = { case tc@Type.Const.Defined(p, _) =>
         val res = load(p.asString).map {
           case Left((_, dt)) =>
             dt.toDefinedType(tc)
@@ -1339,7 +1378,7 @@ object ProtoConverter {
 
       def packFromProtoUncached(
         pack: proto.Package,
-        load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]
+        load: String => Try[Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Typed[Unit]]]
       ): Try[Package.Typed[Unit]] = {
         val loadIface: PackageName => Try[Package.Interface] = { p =>
           load(p.asString).map {
@@ -1377,8 +1416,8 @@ object ProtoConverter {
         (iface, ExportedName.typeEnvFromExports(iface.name, iface.exports))
       }
 
-      val load: String => Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]] =
-        Memoize.memoizeDagHashed[String, Try[Either[(Package.Interface, TypeEnv[Variance]), Package.Typed[Unit]]]] { (pack, rec) =>
+      val load: String => Try[Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Typed[Unit]]] =
+        Memoize.memoizeDagHashed[String, Try[Either[(Package.Interface, TypeEnv[Kind.Arg]), Package.Typed[Unit]]]] { (pack, rec) =>
           nodeMap.get(pack) match {
             case Some(Left(iface) :: Nil) =>
               interfaceFromProto0(makeLoadDT(rec), iface)

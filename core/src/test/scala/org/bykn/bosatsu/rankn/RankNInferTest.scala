@@ -23,6 +23,7 @@ class RankNInferTest extends AnyFunSuite {
     str.asString match {
       case "Int" => Type.Const.predef("Int")
       case "String" => Type.Const.predef("String")
+      case "List" => Type.Const.predef("List")
       case _ => Type.Const.Defined(testPackage, TypeName(str))
     }
 
@@ -39,17 +40,22 @@ class RankNInferTest extends AnyFunSuite {
     val t2 = typeFrom(right)
 
     Infer.substitutionCheck(t1, t2, emptyRegion, emptyRegion)
-      .runFully(Map.empty, Map.empty)
+      .runFully(Map.empty, Map.empty, Type.builtInKinds)
   }
 
-  def assertTypesUnify(left: String, right: String) =
-    assert(runUnify(left, right).isRight, s"$left does not unify with $right")
+  def assertTypesUnify(left: String, right: String) = {
+    val res = runUnify(left, right)
+    assert(res.isRight, s"$left does not unify with $right\n\n$res")
+  }
 
   def assertTypesDisjoint(left: String, right: String) =
     assert(runUnify(left, right).isLeft, s"$left unexpectedly unifies with $right")
 
   def defType(n: String): Type.Const.Defined =
     Type.Const.Defined(testPackage, TypeName(Identifier.Constructor(n)))
+
+  def b(a: String) = (Type.Var.Bound(a), Kind.Type)
+  def b1(a: String) = (Type.Var.Bound(a), Kind(Kind.Type.in))
 
   val withBools: Map[Infer.Name, Type] =
     Map(
@@ -61,14 +67,14 @@ class RankNInferTest extends AnyFunSuite {
       ((PackageName.PredefName, Constructor("False")), (Nil, Nil, Type.Const.predef("Bool"))))
 
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
-    Infer.typeCheck(term).runFully(withBools, boolTypes) match {
+    Infer.typeCheck(term).runFully(withBools, boolTypes, Map.empty) match {
       case Left(err) => assert(false, err)
       case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
     Infer.typeCheckLets(testPackage, terms.map { case (k, v, _) => (Identifier.Name(k), RecursionKind.NonRecursive, v) })
-      .runFully(withBools, boolTypes) match {
+      .runFully(withBools, boolTypes, Type.builtInKinds) match {
         case Left(err) => assert(false, err)
         case Right(tpes) =>
           assert(tpes.size == terms.size)
@@ -115,7 +121,7 @@ class RankNInferTest extends AnyFunSuite {
 
       val te = te0 // TypedExprNormalization.normalize(te0).getOrElse(te0)
       te.traverseType[cats.Id] {
-        case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
+        case t@Type.TyVar(Type.Var.Skolem(_, _, _)) =>
           fail(s"illegate skolem ($t) escape in $te")
           t
         case t@Type.TyMeta(_) =>
@@ -164,7 +170,10 @@ class RankNInferTest extends AnyFunSuite {
     assertTypesUnify("forall a, b. a -> b", "forall b, c. b -> (c -> Int)")
     // assertTypesUnify("(forall a. a)[Int]", "Int")
     // assertTypesUnify("(forall a. Int)[b]", "Int")
-    assertTypesUnify("forall a, f. f[a]", "forall x. List[x]")
+    assertTypesUnify("forall a, f: * -> *. f[a]", "forall x. List[x]")
+    assertTypesUnify("forall a, f: +* -> *. f[a]", "forall x. List[x]")
+    // TODO: this should fail
+    assertTypesUnify("forall a, f: -* -> *. f[a]", "forall x. List[x]")
     //assertTypesUnify("(forall a, b. a -> b)[x, y]", "z -> w")
 
     assertTypesDisjoint("Int", "String")
@@ -178,10 +187,10 @@ class RankNInferTest extends AnyFunSuite {
     testType(lit(100), Type.IntType)
     testType(let("x", lambda("y", v("y")), lit(100)), Type.IntType)
     testType(lambda("y", v("y")),
-      ForAll(NonEmptyList.of(Bound("a")),
+      ForAll(NonEmptyList.of(b("a")),
         Type.Fun(Type.TyVar(Bound("a")),Type.TyVar(Bound("a")))))
     testType(lambda("y", lambda("z", v("y"))),
-      ForAll(NonEmptyList.of(Bound("a"), Bound("b")),
+      ForAll(NonEmptyList.of(b("a"), b("b")),
         Type.Fun(Type.TyVar(Bound("a")),
           Type.Fun(Type.TyVar(Bound("b")),Type.TyVar(Bound("a"))))))
 
@@ -194,7 +203,7 @@ class RankNInferTest extends AnyFunSuite {
     testType(let("x", lit(0), ife(lit(true), v("x"), lit(1))), Type.IntType)
 
     val identFnType =
-      ForAll(NonEmptyList.of(Bound("a")),
+      ForAll(NonEmptyList.of(b("a")),
         Type.Fun(Type.TyVar(Bound("a")), Type.TyVar(Bound("a"))))
     testType(let("x", lambda("y", v("y")),
       ife(lit(true), v("x"),
@@ -237,8 +246,8 @@ class RankNInferTest extends AnyFunSuite {
       ((pn, Constructor("None")), (Nil, Nil, optName)))
 
     val definedOptionGen = Map(
-      ((pn, Constructor("Some")), (List((Bound("a"), Variance.co)), List(Type.TyVar(Bound("a"))), optName)),
-      ((pn, Constructor("None")), (List((Bound("a"), Variance.co)), Nil, optName)))
+      ((pn, Constructor("Some")), (List((Bound("a"), Kind.Type.co)), List(Type.TyVar(Bound("a"))), optName)),
+      ((pn, Constructor("None")), (List((Bound("a"), Kind.Type.co)), Nil, optName)))
   }
 
   test("match with custom non-generic types") {
@@ -247,15 +256,22 @@ class RankNInferTest extends AnyFunSuite {
     val constructors = Map(
       (Identifier.unsafe("Some"), Type.Fun(Type.IntType, optType))
     )
+    val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOption ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(
+        withBools ++ asFullyQualified(constructors),
+        definedOption ++ boolTypes,
+        kinds) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOption ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(
+        withBools ++ asFullyQualified(constructors),
+        definedOption ++ boolTypes,
+        kinds) match {
         case Left(_) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -281,10 +297,11 @@ class RankNInferTest extends AnyFunSuite {
   }
 
   test("match with custom generic types") {
-    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
-    def tv(a: String): Type = Type.TyVar(b(a))
+    def tv(a: String): Type = Type.TyVar(Type.Var.Bound(a))
 
     import OptionTypes._
+
+    val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
 
     val constructors = Map(
       (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
@@ -292,13 +309,21 @@ class RankNInferTest extends AnyFunSuite {
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOptionGen ++ boolTypes) match {
-        case Left(err) => assert(false, err)
-        case Right(tpe) => assert(tpe.getType == ty, term.toString)
-      }
+      Infer
+        .typeCheck(term)
+        .runFully(
+          withBools ++ asFullyQualified(constructors),
+          definedOptionGen ++ boolTypes,
+          kinds) match {
+            case Left(err) => assert(false, err)
+            case Right(tpe) => assert(tpe.getType == ty, term.toString)
+          }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), definedOptionGen ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(
+        withBools ++ asFullyQualified(constructors),
+        definedOptionGen ++ boolTypes,
+        kinds) match {
         case Left(_) => assert(true)
         case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
       }
@@ -331,8 +356,7 @@ class RankNInferTest extends AnyFunSuite {
   }
 
   test("Test a constructor with ForAll") {
-    def b(a: String): Type.Var.Bound = Type.Var.Bound(a)
-    def tv(a: String): Type = Type.TyVar(b(a))
+    def tv(a: String): Type = Type.TyVar(Type.Var.Bound(a))
 
     val pureName = defType("Pure")
     val optName = defType("Option")
@@ -343,14 +367,14 @@ class RankNInferTest extends AnyFunSuite {
      * struct Pure(pure: forall a. a -> f[a])
      */
     val defined = Map(
-      ((pn, Constructor("Pure")), (List((b("f"), Variance.in)),
-        List(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
+      ((pn, Constructor("Pure")), (List((Type.Var.Bound("f"), Kind(Kind.Type.in).in)),
+        List(Type.ForAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
-      ((pn, Constructor("Some")), (List((b("a"), Variance.co)), List(tv("a")), optName)),
-      ((pn, Constructor("None")), (List((b("a"), Variance.co)), Nil, optName)))
+      ((pn, Constructor("Some")), (List((Type.Var.Bound("a"), Kind.Type.co)), List(tv("a")), optName)),
+      ((pn, Constructor("None")), (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, optName)))
 
     val constructors = Map(
-      (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b("f")),
+      (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b1("f")),
         Type.Fun(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))),
           Type.TyApply(Type.TyConst(pureName), tv("f")) ))),
       (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
@@ -358,7 +382,10 @@ class RankNInferTest extends AnyFunSuite {
     )
 
     def testWithTypes[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(withBools ++ asFullyQualified(constructors), defined ++ boolTypes) match {
+      Infer.typeCheck(term).runFully(
+        withBools ++ asFullyQualified(constructors),
+        defined ++ boolTypes,
+        Type.builtInKinds) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
@@ -519,7 +546,9 @@ def opt_bind(opt, bind_fn):
 
 option_monad = Monad(Some, opt_bind)
 
-def use_bind(m: Monad[f], a, b, c):
+# todo support syntax
+#def use_bind[f: * -> *](m: Monad[f], a, b, c):
+def use_bind(m, a, b, c):
   Monad { pure, bind } = m
   a1 = bind(a, pure)
   b1 = bind(b, pure)
@@ -548,7 +577,9 @@ def opt_bind(opt, bind_fn):
 
 option_monad = Monad(Some, opt_bind)
 
-def use_bind(a, b, c, m: Monad[f]):
+# TODO support
+#def use_bind[f: * -> *](a, b, c, m: Monad[f]):
+def use_bind(a, b, c, m):
   Monad { pure, bind } = m
   a1 = bind(a, pure)
   b1 = bind(b, pure)

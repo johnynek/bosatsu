@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.kernel.BoundedSemilattice
+import cats.kernel.{BoundedSemilattice, Order}
 
 sealed abstract class Variance {
   import Variance._
@@ -12,6 +12,7 @@ sealed abstract class Variance {
       case topOrBottom => topOrBottom
     }
 
+  // if you have f[x] the variance of the result is the arg of f times variance of x
   def *(that: Variance): Variance =
     (this, that) match {
       case (Phantom, _) => Phantom
@@ -57,5 +58,26 @@ object Variance {
       override def empty = Phantom
       override def combine(a: Variance, b: Variance): Variance =
         a + b
+    }
+
+  implicit val orderVariance: Order[Variance] =
+    new Order[Variance] {
+      def compare(left: Variance, right: Variance): Int =
+        left match {
+          case Phantom => if (right == Phantom) 0 else -1
+          case Covariant =>
+            right match {
+              case Phantom => 1
+              case Covariant => 0
+              case Contravariant | Invariant => -1
+            }
+          case Contravariant => 
+            right match {
+              case Phantom | Covariant => 1
+              case Contravariant => 0
+              case Invariant => -1
+            }
+          case Invariant => if (right == Invariant) 0 else 1
+        }
     }
 }

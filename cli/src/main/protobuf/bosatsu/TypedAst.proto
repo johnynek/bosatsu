@@ -2,6 +2,30 @@ syntax = "proto3";
 
 package bosatsu;
 
+enum Variance {
+  Phantom = 0;
+  Covariant = 1;
+  Contravariant = 2;
+  Invariant = 3;
+}
+
+message TypeKind {
+
+}
+
+message ConsKind {
+  Variance variance = 1;
+  Kind input = 2;
+  Kind output = 3;
+}
+
+message Kind {
+  oneof value {
+    TypeKind type = 1;
+    ConsKind cons = 2;
+  }
+}
+
 message TypeConst {
   int32 packageName = 1;
   int32 typeName = 2;
@@ -13,7 +37,8 @@ message TypeVar {
 
 message TypeForAll {
   repeated int32 varNames = 1;
-  int32 typeValue = 2;
+  repeated Kind kinds = 2;
+  int32 typeValue = 3;
 }
 
 // represents left[right] type application
@@ -31,16 +56,10 @@ message Type {
   }
 }
 
-enum Variance {
-  Phantom = 0;
-  Covariant = 1;
-  Contravariant = 2;
-  Invariant = 3;
-}
-
 message TypeParam {
   TypeVar typeVar = 1;
   Variance variance = 2;
+  Kind kind = 3;
 }
 
 message FnParam {
@@ -136,7 +155,8 @@ enum RecursionKind {
 
 message GenericExpr {
   repeated int32 varNames = 1;
-  int32 expr = 2;
+  repeated Kind kinds = 2;
+  int32 expr = 3;
 }
 
 message AnnotationExpr {

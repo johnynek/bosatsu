@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 package rankn
 
 import cats.data.NonEmptyList
-import org.scalacheck.Gen
+import org.scalacheck.{Gen, Shrink}
 
 object NTypeGen {
   val lower: Gen[Char] = Gen.oneOf('a' to 'z')
@@ -60,6 +60,36 @@ object NTypeGen {
     }
   }
 
+  val genVariance =
+    Gen.oneOf(Variance.co, Variance.in, Variance.contra, Variance.phantom)
+
+  val genKind: Gen[Kind] = {
+    val recurse = Gen.lzy(genKind)
+    Gen.frequency(
+      (
+        1,
+        Gen.zip(genVariance, recurse, recurse).map { case (v, a, b) =>
+          Kind.Cons(a.withVar(v), b)
+        }
+      ),
+      (15, Gen.oneOf(Kind.allKinds.take(100)))
+    )
+  }
+
+  implicit val shrinkKind: Shrink[Kind] = {
+    def shrink(k: Kind): Stream[Kind] =
+      k match {
+        case Kind.Type => Stream.empty
+        case Kind.Cons(Kind.Arg(_, a), b) =>
+          a #:: b #:: Stream.empty
+      }
+
+    Shrink(shrink(_))
+  }
+
+  val genKindArg: Gen[Kind.Arg] =
+    Gen.zip(genVariance, genKind).map { case (v, k) => Kind.Arg(v, k) }
+
   val genPredefType: Gen[Type] = {
     import Type._
 
@@ -106,7 +136,8 @@ object NTypeGen {
       val genForAll =
         for {
           c <- Gen.choose(1, 5)
-          as <- Gen.listOfN(c, genBound)
+          ks = NTypeGen.genKind
+          as <- Gen.listOfN(c, Gen.zip(genBound, ks))
           in <- recurse
         } yield Type.forAll(as, in)
 

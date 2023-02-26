@@ -80,7 +80,7 @@ object ExportedName {
     nm: PackageName,
     exports: List[ExportedName[E]],
     typeEnv: rankn.TypeEnv[V],
-    lets: List[(Identifier.Bindable, R, TypedExpr[D])])(implicit ev: V <:< Variance): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
+    lets: List[(Identifier.Bindable, R, TypedExpr[D])])(implicit ev: V <:< Kind.Arg): ValidatedNel[ExportedName[E], List[ExportedName[Referant[V]]]] = {
 
      val letMap = lets.iterator.map { case (n, _, t) => (n, t) }.toMap
 

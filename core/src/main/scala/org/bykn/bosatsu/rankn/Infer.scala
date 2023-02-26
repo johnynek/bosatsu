@@ -4,11 +4,13 @@ import cats.Monad
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
+import scala.collection.immutable.LongMap
 
 import org.bykn.bosatsu.{
   Expr,
   HasRegion,
   Identifier,
+  Kind,
   PackageName,
   Pattern => GenPattern,
   Region,
@@ -28,11 +30,17 @@ sealed abstract class Infer[+A] {
   final def flatMap[B](fn: A => Infer[B]): Infer[B] =
     Infer.Impl.FlatMap(this, fn)
 
-  final def runVar(v: Map[Infer.Name, Type], tpes: Map[(PackageName, Constructor), Infer.Cons]): RefSpace[Either[Error, A]] =
-    Infer.Env.init(v, tpes).flatMap(run(_))
+  final def runVar(
+    v: Map[Infer.Name, Type],
+    tpes: Map[(PackageName, Constructor), Infer.Cons],
+    kinds: Map[Type.Const.Defined, Kind]): RefSpace[Either[Error, A]] =
+    Infer.Env.init(v, tpes, kinds).flatMap(run(_))
 
-  final def runFully(v: Map[Infer.Name, Type], tpes: Map[(PackageName, Constructor), Infer.Cons]): Either[Error, A] =
-    runVar(v, tpes).run.value
+  final def runFully(
+    v: Map[Infer.Name, Type],
+    tpes: Map[(PackageName, Constructor), Infer.Cons],
+    kinds: Map[Type.Const.Defined, Kind]): Either[Error, A] =
+    runVar(v, tpes, kinds).run.value
 }
 
 object Infer {
@@ -58,39 +66,61 @@ object Infer {
    * the next are the types of the args of the constructor
    * the final is the defined type this creates
    */
-  type Cons = (List[(Type.Var, Variance)], List[Type], Type.Const.Defined)
+  type Cons = (List[(Type.Var, Kind.Arg)], List[Type], Type.Const.Defined)
   type Name = (Option[PackageName], Identifier)
 
-  case class Env(
-    uniq: Ref[Long],
-    vars: Map[Name, Type],
-    typeCons: Map[(PackageName, Constructor), Cons],
-    variances: Map[Type.Const.Defined, List[Variance]]) {
+  class Env(
+    val uniq: Ref[Long],
+    val vars: Map[Name, Type],
+    val typeCons: Map[(PackageName, Constructor), Cons],
+    val variances: Map[Type.Const.Defined, Kind]) {
 
     def addVars(vt: List[(Name, Type)]): Env =
-      copy(vars = vt.foldLeft(vars)(_ + _))
+      new Env(uniq, vars = vars ++ vt, typeCons, variances)
+
+    def getKind(t: Type, region: Region): Either[Error, Kind] = {
+      def loop(item: Type, locals: Map[Type.Var.Bound, Kind]): Either[Error, Kind] =
+        item match {
+          case Type.ForAll(bound, t) =>
+            loop(t, locals ++ bound.toList)
+          case Type.TyConst(const) =>
+            val d = const.toDefined
+            // some tests rely on syntax without importing
+            // TODO remove this
+            variances.get(d).orElse(Type.builtInKinds.get(d)) match {
+              case Some(ks) => Right(ks)
+              case None => Left(Error.UnknownDefined(d, region))
+            }
+          case Type.TyApply(left, right) =>
+            loop(left, locals) match {
+              case Right(Kind.Cons(_, res)) => Right(res)
+              case Right(Kind.Type) =>
+                Left(Error.KindInvariantViolation(item, right, region, "expected (k1 -> k2), found * in getKind"))
+              case Left(err) => Left(err)
+            }
+          case Type.TyVar(b @ Type.Var.Bound(_)) =>
+            locals.get(b) match {
+              case Some(k) => Right(k)
+              case None => 
+                Left(Error.UnknownKindOfVar(t, region, s"unbound var: $b"))
+            }
+          case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
+          case Type.TyMeta(Type.Meta(kind, _, _)) => Right(kind)
+        }
+
+      loop(t, Map.empty)
+    }
   }
 
   object Env {
-    def apply(uniq: Ref[Long],
+    def init(
       vars: Map[Name, Type],
-      typeCons: Map[(PackageName, Constructor), Cons]): Env = {
-
-      val variances = typeCons
-        .iterator
-        .map { case (_, (vs, _, c)) =>
-          (c, vs.map(_._2))
-        }
-        .toMap
-        // TODO, the typeCons don't require all these variances to match
-      Env(uniq, vars, typeCons, variances)
-    }
-
-    def init(vars: Map[Name, Type], tpes: Map[(PackageName, Constructor), Cons]): RefSpace[Env] =
-      RefSpace.newRef(0L).map(Env(_, vars, tpes))
+      tpes: Map[(PackageName, Constructor), Cons],
+      kinds: Map[Type.Const.Defined, Kind]): RefSpace[Env] =
+      RefSpace.newRef(0L).map(new Env(_, vars, tpes, kinds))
   }
 
-  def getEnv: Infer[Map[Name, Type]] = GetEnv
+  def getEnv: Infer[Map[Name, Type]] = GetEnv.map(_.vars)
 
   def lift[A](rs: RefSpace[A]): Infer[A] =
     Lift(rs.map(Right(_)))
@@ -130,6 +160,13 @@ object Infer {
       def message = {
         def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
+      }
+    }
+
+    case class UnknownDefined(tpe: Type.Const.Defined, region: Region) extends TypeError {
+      def message = {
+        def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
+        s"${tStr(Type.TyConst(tpe))} ($region) is an unknown type"
       }
     }
 
@@ -190,6 +227,14 @@ object Infer {
     case class ExpectedRho(tpe: Type, context: String) extends InternalError {
       def message = s"expected $tpe to be a Type.Rho, at $context"
     }
+
+    case class KindInvariantViolation(tpe: Type, right: Type, region: Region, mess: String) extends InternalError {
+      def message = s"for type ${Type.TyApply(tpe, right)}: $mess at $region"
+    }
+
+    case class UnknownKindOfVar(tpe: Type, region: Region, mess: String) extends InternalError {
+      def message = s"unknown var in $tpe: $mess at $region"
+    }
   }
 
 
@@ -228,8 +273,8 @@ object Infer {
       }
     }
 
-    case object GetEnv extends Infer[Map[Name, Type]] {
-      def run(env: Env) = RefSpace.pure(Right(env.vars))
+    case object GetEnv extends Infer[Env] {
+      def run(env: Env) = RefSpace.pure(Right(env))
     }
 
     case class GetDataCons(fqn: (PackageName, Constructor), reg: Region) extends Infer[Cons] {
@@ -243,8 +288,8 @@ object Infer {
           })
     }
 
-    case object GetVarianceMap extends Infer[Map[Type.Const.Defined, List[Variance]]] {
-      def run(env: Env) = RefSpace.pure(Right(env.variances))
+    case class GetKind(tpe: Type, region: Region) extends Infer[Kind] {
+      def run(env: Env) = RefSpace.pure(env.getKind(tpe, region))
     }
 
     case class ExtendEnvs[A](vt: List[(Name, Type)], in: Infer[A]) extends Infer[A] {
@@ -265,37 +310,23 @@ object Infer {
 
     def nextId: Infer[Long] = NextId
 
-    def varianceOf(t: Type): Infer[Option[Variance]] = {
-      import Type._
-      def variances(vs: Map[Type.Const.Defined, List[Variance]], t: Type): Option[List[Variance]] =
-        t match {
-          case FnType => Some(Variance.in :: Variance.co :: Nil)
-          case TyApply(left, _) =>
-            variances(vs, left).map(_.drop(1))
-          case TyConst(defined@Const.Defined(_, _)) =>
-            vs.get(defined)
-          case TyVar(_) => None
-          case TyMeta(_) =>
-            // this is almost certainly a bug in this approach.
-            // we will probably need a meta var for Variance as well
-            // since inorder to infer this TyMeta, we may need to use
-            // the variance
-            None
-          case ForAll(_, r) => variances(vs, r)
-        }
+    def kindOf(t: Type, r: Region): Infer[Kind] =
+      GetKind(t, r)
 
-      for {
-        vs <- GetVarianceMap
-        t1 <- zonkType(t) // fill in any known variances
-      } yield (variances(vs, t1).flatMap(_.headOption))
-    }
+    // on t[a] we know t: k -> *, what is the variance
+    // in the arg a
+    def varianceOfCons(t: Type, right: Type, region: Region): Infer[Variance] =
+      GetKind(t, region)
+        .flatMap(varianceOfConsKind(t, _, right, region))
 
-    // For two types that unify, check both variances
-    def varianceOf2(t1: Type, t2: Type): Infer[Option[Variance]] =
-      varianceOf(t1).flatMap {
-        case s@Some(_) => pure(s)
-        case None => varianceOf(t2)
+    def varianceOfConsKind(t: Type, k: Kind, right: Type, region: Region): Infer[Variance] =
+      k match {
+        case Kind.Cons(Kind.Arg(v, _), _) => pure(v)
+        case Kind.Type =>
+          fail(Error.KindInvariantViolation(t, right, region, s"expected k1 -> k2, but found *."))
       }
+
+
     /**
      * Skolemize on a function just recurses on the result type.
      *
@@ -307,24 +338,25 @@ object Infer {
      * The returned type is in weak-prenex form: all ForAlls have
      * been floated up over covariant parameters
      */
-    def skolemize(t: Type): Infer[(List[Type.Var.Skolem], Type.Rho)] =
+    private def skolemize(t: Type, region: Region): Infer[(List[Type.Var.Skolem], Type.Rho)] =
       t match {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
           for {
-            sks1 <- tvs.traverse(newSkolemTyVar)
+            sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
             sksT = sks1.map(Type.TyVar(_))
-            sks2ty <- skolemize(substTyRho(tvs, sksT)(ty))
+            sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty), region)
             (sks2, ty2) = sks2ty
           } yield (sks1.toList ::: sks2, ty2)
         case Type.TyApply(left, right) =>
           // Rule PRFUN
-          varianceOf(left)
-            .product(skolemize(left))
+          // we know the kind of left is k -> x, and right has kind k
+          varianceOfCons(left, right, region)
+            .product(skolemize(left, region))
             .flatMap {
-              case (Some(Variance.Covariant), (sksl, sl)) =>
+              case (Variance.Covariant, (sksl, sl)) =>
                 for {
-                  skr <- skolemize(right)
+                  skr <- skolemize(right, region)
                   (sksr, sr) = skr
                 } yield (sksl ::: sksr, Type.TyApply(sl, sr))
               case (_, (sksl, sl)) =>
@@ -395,9 +427,9 @@ object Infer {
     def instantiate(t: Type): Infer[Type.Rho] =
       t match {
         case Type.ForAll(vars, ty) =>
-          vars.traverse(_ => newMetaType)
+          vars.traverse { case (_, k) => newMetaType(k) }
             .map { vars1T =>
-              substTyRho(vars, vars1T)(ty)
+              substTyRho(vars.map(_._1), vars1T)(ty)
             }
         case rho: Type.Rho => pure(rho)
       }
@@ -446,39 +478,49 @@ object Infer {
             coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
           } yield coerce
         case (rho1: Type.Rho, Type.TyApply(l2, r2)) =>
-          unifyTyApp(rho1, left, right).flatMap {
-            case (l1, r1) =>
-              val check2 = varianceOf2(l1, l2).flatMap {
-                case Some(Variance.Covariant) =>
-                  subsCheck(r1, r2, left, right).void
-                case Some(Variance.Contravariant) =>
-                  subsCheck(r2, r1, right, left).void
-                case Some(Variance.Phantom) =>
-                  // this doesn't matter
-                  unit
-                case None | Some(Variance.Invariant) =>
-                  unifyType(r1, r2, left, right)
+          (kindOf(l2, right), kindOf(r2, right))
+            .tupled
+            .flatMap { case (kl, kr) =>
+              // TODO Kind I think we should unify l1 and kl kinds
+              unifyTyApp(rho1, kl, kr, left, right).flatMap {
+                case (l1, r1) =>
+                  val check2 = varianceOfConsKind(l2, kl, r2, right).flatMap {
+                    case Variance.Covariant =>
+                      subsCheck(r1, r2, left, right).void
+                    case Variance.Contravariant =>
+                      subsCheck(r2, r1, right, left).void
+                    case Variance.Phantom =>
+                      // this doesn't matter
+                      unit
+                    case Variance.Invariant =>
+                      unifyType(r1, r2, left, right)
+                  }
+                  // should we coerce to t2? Seems like... but copying previous code
+                  (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(rho1))
               }
-              // should we coerce to t2? Seems like... but copying previous code
-              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(rho1))
-          }
+            }
         case (ta@Type.TyApply(l1, r1), rho2) =>
-          unifyTyApp(rho2, left, right).flatMap {
-            case (l2, r2) =>
-              val check2 = varianceOf2(l1, l2).flatMap {
-                case Some(Variance.Covariant) =>
-                  subsCheck(r1, r2, left, right).void
-                case Some(Variance.Contravariant) =>
-                  subsCheck(r2, r1, right, left).void
-                case Some(Variance.Phantom) =>
-                  // this doesn't matter
-                  unit
-                case None | Some(Variance.Invariant) =>
-                  unifyType(r1, r2, left, right)
+          (kindOf(l1, left), kindOf(r1, left))
+            .tupled
+            .flatMap { case (kl, kr) =>
+              // TODO Kind I think we should unify l1 and kl kinds
+              unifyTyApp(rho2, kl, kr, left, right).flatMap {
+                case (l2, r2) =>
+                  val check2 = varianceOfConsKind(l1, kl, r1, left).flatMap {
+                    case Variance.Covariant =>
+                      subsCheck(r1, r2, left, right).void
+                    case Variance.Contravariant =>
+                      subsCheck(r2, r1, right, left).void
+                    case Variance.Phantom =>
+                      // this doesn't matter
+                      unit
+                    case Variance.Invariant =>
+                      unifyType(r1, r2, left, right)
+                  }
+                  // should we coerce to t2? Seems like... but copying previous code
+                  (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(ta))
               }
-              // should we coerce to t2? Seems like... but copying previous code
-              (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(ta))
-          }
+            }
         case (t1: Type.Rho, t2) =>
           // rule: MONO
           unify(t1, t2, left, right).as(TypedExpr.coerceRho(t1)) // TODO this coerce seems right, since we have unified
@@ -504,19 +546,22 @@ object Infer {
         case Type.Fun(arg, res) => pure((arg, res))
         case tau =>
           for {
-            argT <- newMetaType
-            resT <- newMetaType
+            argT <- newMetaType(Kind.Type)
+            resT <- newMetaType(Kind.Type)
             _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
           } yield (argT, resT)
       }
 
-    def unifyTyApp(apType: Type.Rho, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
+    // TODO: Kind make sure lKind: (k1 -> k2) and rKind: k1 and apType: k2
+    def unifyTyApp(apType: Type.Rho, lKind: Kind, rKind: Kind, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
       apType match {
-        case Type.TyApply(left, right) => pure((left, right))
+        case Type.TyApply(left, right) =>
+          // TODO Kind makes sure kindOf(left) unifies with lKind and kindOf(right) unifies with rKind
+          pure((left, right))
         case notApply =>
           for {
-            leftT <- newMetaType
-            rightT <- newMetaType
+            leftT <- newMetaType(lKind)
+            rightT <- newMetaType(rKind)
             _ <- unify(notApply, Type.TyApply(leftT, rightT), apRegion, evidenceRegion)
           } yield (leftT, rightT)
       }
@@ -577,14 +622,16 @@ object Infer {
      * Allocate a new Meta variable which
      * will point to a Tau (no forall anywhere) type
      */
-    def newMetaType: Infer[Type.TyMeta] =
+    def newMetaType(kind: Kind): Infer[Type.TyMeta] =
       for {
         id <- nextId
         ref <- lift(RefSpace.newRef[Option[Type.Tau]](None))
-      } yield Type.TyMeta(Type.Meta(id, ref))
+        meta = Type.Meta(kind, id, ref)
+      } yield Type.TyMeta(meta)
 
-    def newSkolemTyVar(tv: Type.Var.Bound): Infer[Type.Var.Skolem] =
-      nextId.map(Type.Var.Skolem(tv.name, _))
+    // TODO: it would be nice to support kind inference on skolem variables
+    def newSkolemTyVar(tv: Type.Var.Bound, kind: Kind): Infer[Type.Var.Skolem] =
+      nextId.map(Type.Var.Skolem(tv.name, kind, _))
 
     /**
      * See if the meta variable has been set with a Tau
@@ -603,7 +650,7 @@ object Infer {
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       for {
-        skolRho <- skolemize(declared)
+        skolRho <- skolemize(declared, right)
         (skolTvs, rho2) = skolRho
         // note: we need rho2 in weak prenex form, but skolemize does this
         coerce <- subsCheckRho(inferred, rho2, left, right)
@@ -652,7 +699,7 @@ object Infer {
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
         case Generic(tpes, in) =>
             for {
-              (skols, t1) <- Expr.skolemizeVars(tpes, in)(newSkolemTyVar)
+              (skols, t1) <- Expr.skolemizeVars(tpes, in)(newSkolemTyVar(_, _))
               sigmaT <- inferSigma(t1)
               z <- zonkTypedExpr(sigmaT)
               unSkol = unskolemize(skols)(z)
@@ -674,7 +721,7 @@ object Infer {
               } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
             case infer@Expected.Inf(_) =>
               for {
-                varT <- newMetaType
+                varT <- newMetaType(Kind.Type) // the kind of a fn arg is a Type
                 typedBody <- extendEnv(name, varT)(inferRho(result))
                 bodyT = typedBody.getType
                 _ <- infer.set((Type.Fun(varT, bodyT), region(term)))
@@ -719,7 +766,7 @@ object Infer {
             // After we typecheck we see if this is truly recursive so
             // compilers/evaluation can possibly optimize non-recursive
             // cases differently
-            newMetaType
+            newMetaType(Kind.Type) // the kind of a let value is a Type
               .flatMap { rhsTpe =>
                 extendEnv(name, rhsTpe) {
                   for {
@@ -887,7 +934,7 @@ object Infer {
                   checkPat(p, inner, reg).map { case (p, l) => (ListPart.Item(p), l) }
               }
           for {
-            tpeA <- newMetaType
+            tpeA <- newMetaType(Kind.Type) // lists +* -> *
             listA = Type.TyApply(Type.ListType, tpeA)
             _ <- instPatSigma(listA, sigma, reg)
             inners <- items.traverse(checkItem(tpeA, listA, _))
@@ -968,11 +1015,10 @@ object Infer {
         case (Nil, consParams, tpeName) =>
           Infer.pure((consParams, Type.TyConst(tpeName)))
         case (v0 :: vs, consParams, tpeName) =>
-          val vars0 = NonEmptyList(v0, vs)
-          val vars = vars0.map(_._1) // TODO actually use the variance
-          vars.traverse(_ => newMetaType)
+          val vars = NonEmptyList(v0, vs)
+          vars.traverse { case (_, kindArg) => newMetaType(kindArg.kind) }
             .map { vars1T =>
-              val params1 = consParams.map(Type.substTy(vars, vars1T))
+              val params1 = consParams.map(Type.substTy(vars.map(_._1), vars1T))
               val res = vars1T.foldLeft(Type.TyConst(tpeName): Type.Tau)(Type.TyApply(_, _))
               (params1, res)
             }
@@ -1003,7 +1049,7 @@ object Infer {
 
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
       for {
-        skolRho <- skolemize(tpe)
+        skolRho <- skolemize(tpe, region(t))
         (skols, rho) = skolRho
         // we need rho in weak-prenex form, but skolemize does this
         te <- checkRho(t, rho)
@@ -1041,7 +1087,8 @@ object Infer {
   }
 
   def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
-    newMetaType.flatMap { tpe =>
+    // values are of kind Type
+    newMetaType(Kind.Type).flatMap { tpe =>
       extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))
     }
 
@@ -1055,9 +1102,9 @@ object Infer {
         // now replace the skols with generics
         val used = Type.tyVarBinders(te.getType :: Nil)
         val aligned = Type.alignBinders(skols, used)
-        val newVars = aligned.map(_._2)
-        val te2 = substTyExpr(skols, newVars.map(Type.TyVar(_)), te)
-        TypedExpr.forAll(newVars, te2)
+        val te2 = substTyExpr(skols, aligned.map { case (_, b) => Type.TyVar(b) }, te)
+        // TODO: we have to not forget the skolem kinds
+        TypedExpr.forAll(aligned.map { case (s, b) => (b, s.kind) }, te2)
       }
     }
 
@@ -1077,8 +1124,10 @@ object Infer {
      * We handle this by converting a to a skolem variable,
      * running inference, then quantifying over that skolem
      * variable.
+     * 
+     * TODO Kind we need to know the kinds of these skolems
      */
-    Expr.skolemizeFreeVars(t)(newSkolemTyVar) match {
+    Expr.skolemizeFreeVars(t)(newSkolemTyVar(_, _)) match {
       case None => run(t)
       case Some(replace) =>
         for {

@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import cats.implicits._
-import cats.parse.{Parser => P}
+import cats.parse.{Parser => P, Parser0}
 import org.bykn.bosatsu.rankn.Type
 import org.bykn.bosatsu.{TypeName => Name}
 import org.typelevel.paiges.{ Doc, Document }
@@ -34,7 +34,11 @@ sealed abstract class TypeRef {
         // we normalize to lifting all the foralls to the outside
         TypeLambda(pars0 ::: pars1, e).normalizeForAll
       case TypeLambda(pars, e) =>
-        TypeLambda(pars, e.normalizeForAll)
+        // Remove `Some(Type)` since that's the default
+        TypeLambda(pars.map {
+          case (v, Some(Kind.Type)) => (v, None)
+          case other => other
+        }, e.normalizeForAll)
       case TypeTuple(ts) =>
         TypeTuple(ts.map(_.normalizeForAll))
     }
@@ -57,12 +61,13 @@ object TypeRef {
   case class TypeArrow(from: TypeRef, to: TypeRef) extends TypeRef
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
-  case class TypeLambda(params: NonEmptyList[TypeVar], in: TypeRef) extends TypeRef
+  case class TypeLambda(params: NonEmptyList[(TypeVar, Option[Kind])], in: TypeRef) extends TypeRef
   case class TypeTuple(params: List[TypeRef]) extends TypeRef
 
   implicit val typeRefOrdering: Ordering[TypeRef] =
     new Ordering[TypeRef] {
       val list = ListOrdering.onType(this)
+      val listKind = ListOrdering.onType(Ordering.Tuple2(this, implicitly[Ordering[Option[Kind]]]))
 
       def compare(a: TypeRef, b: TypeRef): Int =
         (a, b) match {
@@ -84,7 +89,7 @@ object TypeRef {
           case (TypeApply(_, _), _) => -1
           case (TypeLambda(p0, in0), TypeLambda(p1, in1)) =>
             // TODO, we could normalize the parmeters here
-            val c = list.compare(p0.toList, p1.toList)
+            val c = listKind.compare(p0.toList, p1.toList)
             if (c == 0) compare(in0, in1) else c
           case (TypeLambda(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)) => 1
           case (TypeLambda(_, _), _) => -1
@@ -103,8 +108,8 @@ object TypeRef {
     def makeFn(in: TypeRef, out: TypeRef) = TypeArrow(in, out)
 
     def applyTypes(cons: TypeRef, args: NonEmptyList[TypeRef]) = TypeApply(cons, args)
-    def universal(vars: NonEmptyList[String], in: TypeRef) =
-      TypeLambda(vars.map(TypeVar(_)), in)
+    def universal(vars: NonEmptyList[(String, Option[Kind])], in: TypeRef) =
+      TypeLambda(vars.map { case (s, k) => (TypeVar(s), k) }, in)
 
     def makeTuple(items: List[TypeRef]) = TypeTuple(items)
 
@@ -121,9 +126,9 @@ object TypeRef {
         case _ => None
       }
 
-    def unapplyUniversal(a: TypeRef): Option[(List[String], TypeRef)] =
+    def unapplyUniversal(a: TypeRef): Option[(List[(String, Option[Kind])], TypeRef)] =
       a match {
-        case TypeLambda(vs, a) => Some((vs.map(_.asString).toList, a))
+        case TypeLambda(vs, a) => Some(((vs.map { case (v, k) => (v.asString, k) }).toList, a))
         case _ => None
       }
 
@@ -146,15 +151,17 @@ object TypeRef {
   val annotationParser: P[TypeRef] =
     maybeSpace.with1.soft *> P.char(':') *> maybeSpace *> parser
 
-  def docTypeArgs(targs: List[TypeRef.TypeVar]): Doc =
+  def docTypeArgs[A](targs: List[(TypeRef.TypeVar, A)])(aDoc: A => Doc): Doc =
     targs match {
       case Nil => Doc.empty
       case nonEmpty =>
-        val params = nonEmpty.map { case TypeRef.TypeVar(v) => Doc.text(v) }
+        val params = nonEmpty.map { case (TypeRef.TypeVar(v), a) => Doc.text(v) + aDoc(a) }
         Doc.char('[') + Doc.intercalate(Doc.text(", "), params) + Doc.char(']')
     }
 
-  val typeParams: P[NonEmptyList[TypeRef.TypeVar]] =
-    lowerIdent.nonEmptyListSyntax.map { nel => nel.map { s => TypeRef.TypeVar(s.intern) } }
+  def typeParams[A](next: Parser0[A]): P[NonEmptyList[(TypeRef.TypeVar, A)]] =
+    (lowerIdent ~ next).nonEmptyListSyntax.map { nel =>
+      nel.map { case (s, a) => (TypeRef.TypeVar(s.intern), a) }
+    }
 }
 

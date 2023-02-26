@@ -10,7 +10,7 @@ import IorMethods.IorExtension
 
 object TestUtils {
 
-  def typeEnvOf(pack: PackageName, str: String): TypeEnv[Unit] = {
+  def parsedTypeEnvOf(pack: PackageName, str: String): ParsedTypeEnv[Option[Kind.Arg]] = {
 
     val stmt = statementsOf(str)
     val prog = SourceConverter.toProgram(pack, Nil, stmt) match {
@@ -18,8 +18,21 @@ object TestUtils {
       case Ior.Both(_, prog) => prog
       case Ior.Left(err) => sys.error(err.toString)
     }
-    TypeEnv.fromParsed(prog.types._2)
+    prog.types._2
   }
+
+  val predefParsedTypeEnv: ParsedTypeEnv[Option[Kind.Arg]] = {
+    val p = Package.predefPackage
+    val prog = SourceConverter.toProgram(p.name, Nil, p.program) match {
+      case Ior.Right(prog) => prog
+      case Ior.Both(_, prog) => prog
+      case Ior.Left(err) => sys.error(err.toString)
+    }
+    prog.types._2
+  }
+
+  def typeEnvOf(pack: PackageName, str: String): TypeEnv[Option[Kind.Arg]] =
+    TypeEnv.fromParsed(parsedTypeEnvOf(pack, str))
 
   def statementsOf(str: String): List[Statement] =
     Parser.unsafeParse(Statement.parser, str)
@@ -30,7 +43,7 @@ object TestUtils {
   def assertValid[A](te: TypedExpr[A]): Unit = {
     def checkType(t: Type): Type =
       t match {
-        case t@Type.TyVar(Type.Var.Skolem(_, _)) =>
+        case t@Type.TyVar(Type.Var.Skolem(_, _, _)) =>
           sys.error(s"illegal skolem ($t) escape in ${te.repr}")
         case Type.TyVar(Type.Var.Bound(_)) => t
         case t@Type.TyMeta(_) =>

@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Order
 import cats.parse.{Parser => P, Parser0 => P0}
 import org.typelevel.paiges.{Doc, Document}
 import scala.annotation.tailrec
@@ -19,7 +20,11 @@ sealed abstract class Kind {
     loop(this, Nil)
   }
 
-  def withVar(v: Variance): Kind.Arg = Kind.Arg(v, this)
+  def withVar(v: Variance): Kind.Arg = {
+    if (isType && (v == Variance.in)) Kind.invariantTypeArg
+    else Kind.Arg(v, this)
+  }
+
   def in: Kind.Arg = withVar(Variance.in)
   def co: Kind.Arg = withVar(Variance.co)
   def contra: Kind.Arg = withVar(Variance.contra)
@@ -67,6 +72,8 @@ object Kind {
   // Function[-A, +B] => -* -> +* -> *
   case class Cons(arg: Arg, result: Kind) extends Kind
 
+  val invariantTypeArg: Arg = Arg(Variance.in, Type)
+
   def apply(args: Arg*): Kind =
     args.foldRight(Type: Kind)(_.returns(_))
 
@@ -95,45 +102,138 @@ object Kind {
       case _ => false
     }
 
-  // allSubKinds(k).forall(leftSubsumesRight(k, _))
-  def allSubKinds(k: Kind): LazyList[Kind] =
+  private val varMap: Map[(Variance, Boolean), List[Variance]] = {
+    import Variance._
+    Map(
+      (in, true) ->
+        List(in, co, contra, phantom),
+      (in, false) ->
+        List(in),
+      (co, true) ->
+        List(co, phantom),
+      (co, false) ->
+        List(co, in),
+      (contra, true) ->
+        List(contra, phantom),
+      (contra, false) ->
+        List(contra, in),
+      (phantom, true) ->
+        List(phantom),
+      (phantom, false) ->
+        List(phantom, contra, co, in)
+    )
+  }
+  private def vars(v: Variance, sub: Boolean): List[Variance] =
+    varMap((v, sub))
+
+  private val varMapSize: Map[(Variance, Boolean), Long] = {
+    import Variance._
+    Map(
+      (in, true) -> 4L,
+      (in, false) -> 1L,
+      (co, true) -> 2L,
+      (co, false) -> 2L,
+      (contra, true) -> 2L,
+      (contra, false) -> 2L,
+      (phantom, true) -> 1L,
+      (phantom, false) -> 4L
+    )
+  }
+  private def varsSize(v: Variance, sub: Boolean): Long =
+    varMapSize((v, sub))
+
+  def sortMerge[A: Ordering](l1: LazyList[A], l2: LazyList[A]): LazyList[A] =
+    (l1, l2) match {
+      case (a #:: as, b #:: bs) =>
+        if (implicitly[Ordering[A]].lteq(a, b)) a #:: sortMerge(as, l2)
+        else b #:: sortMerge(l1, bs)
+      case _ =>
+        if (l1.isEmpty) l2 else l1
+    }
+
+  // (0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0), (0, 3), (1, 2), (2, 1), (3, 0), ...
+  // returns all pairs such that the (idxLeft + idxRight) of the result is < len(items)
+  def diagonal[A](items: LazyList[A]): LazyList[(A, A)] =
+    items
+      .scanLeft(Vector.empty[A])(_ :+ _)
+      .flatMap { group =>
+        group.iterator.zip(group.reverseIterator)
+      }
+
+  private val subOrder: Ordering[Kind] =
+    Ordering.by[Kind, Long](kindSize(_, true)).reverse
+  private[this] val supOrder: Ordering[Kind] =
+    Ordering.by[Kind, Long](kindSize(_, false)).reverse
+  private[this] def kindSizeOrder(sub: Boolean): Ordering[Kind] =
+    if (sub) subOrder else supOrder
+
+  private def kinds(
+      k: Kind,
+      sub: Boolean,
+      ord: Ordering[Kind]
+  ): LazyList[Kind] =
     k match {
       case Type => Type #:: LazyList.empty[Kind]
       case Cons(Arg(v, a), b) =>
-        for {
-          a1 <- allSuperKinds(a)
-          b1 <- allSubKinds(b)
-          v1 <- Variance.all
-          if (v + v1) == v
-        } yield Cons(Arg(v1, a1), b1)
+        def sortCombine(
+            v: Variance,
+            as: LazyList[Kind],
+            bs: LazyList[Kind]
+        ): LazyList[Kind] =
+          (as, bs) match {
+            case (a0 #:: at, b0 #:: bt) =>
+              val a0L = a0 #:: LazyList.empty
+              val b0L = b0 #:: LazyList.empty
+
+              val head = Cons(Arg(v, a0), b0) #:: LazyList.empty
+
+              val line1 = sortCombine(v, a0L, bt)
+              val line2 = sortCombine(v, at, b0L)
+
+              val rest = sortCombine(v, at, bt)
+
+              sortMerge(
+                sortMerge(line1, line2)(ord),
+                sortMerge(head, rest)(ord)
+              )(ord)
+            case _ =>
+              // at least one is empty
+              LazyList.empty
+          }
+
+        val k1 = kinds(a, !sub, subOrder)
+        val k2 = kinds(b, sub, subOrder)
+        val streams: List[LazyList[Kind]] =
+          vars(v, sub).map(sortCombine(_, k1, k2))
+
+        streams.reduce(sortMerge(_, _)(ord))
     }
+  // allSubKinds(k).forall(leftSubsumesRight(k, _))
+  def allSubKinds(k: Kind): LazyList[Kind] =
+    kinds(k, true, kindSizeOrder(true))
 
   // allSuperKinds(k).forall(leftSubsumesRight(_, k))
   def allSuperKinds(k: Kind): LazyList[Kind] =
+    kinds(k, false, kindSizeOrder(false))
+
+  private def kindSize(k: Kind, sub: Boolean): Long =
     k match {
-      case Type => Type #:: LazyList.empty[Kind]
+      case Type => 1L
       case Cons(Arg(v, a), b) =>
-        for {
-          a1 <- allSubKinds(a)
-          b1 <- allSuperKinds(b)
-          v1 <- Variance.all
-          if (v + v1) == v1
-        } yield Cons(Arg(v1, a1), b1)
+        varsSize(v, sub) *
+          kindSize(a, !sub) *
+          kindSize(b, sub)
     }
 
-  def allKinds: LazyList[Kind] = {
-    // (0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0), (0, 3), (1, 2), (2, 1), (3, 0), ...
-    def diagonal[A](items: LazyList[A]): LazyList[(A, A)] =
-      LazyList
-        .from(1)
-        .flatMap { diag =>
-          // get O(1) indexing into this chunk
-          val thisDiag = items.take(diag).to(scala.collection.mutable.Buffer)
-          (0 until diag).iterator.map { i =>
-            (thisDiag(i), thisDiag(diag - 1 - i))
-          }
-        }
+  // allSubKinds(k).map(_ = 1L).sum but faster
+  def allSubKindsSize(k: Kind): Long =
+    kindSize(k, true)
 
+  // allSuperKinds(k).map(_ = 1L).sum but faster
+  def allSuperKindsSize(k: Kind): Long =
+    kindSize(k, false)
+
+  def allKinds: LazyList[Kind] = {
     // don't make the outer a lazy val or it can never be GC
     lazy val res: LazyList[Kind] = Type #:: (for {
       (k1, k2) <- diagonal(res)
@@ -145,17 +245,19 @@ object Kind {
 
   private[this] val phantomStr = "👻"
   private[this] val ghostDoc = Doc.text(phantomStr)
-  private def varDoc(v: Variance): Doc =
-    v match {
-      case Variance.Covariant     => Doc.char('+')
-      case Variance.Contravariant => Doc.char('-')
-      case Variance.Invariant     => Doc.empty
-      case Variance.Phantom       => ghostDoc
-    }
 
   private[this] val arrow = Doc.text(" -> ")
   private[this] def par(d: Doc): Doc =
     Doc.char('(') + (d + Doc.char(')'))
+
+  def argDoc(a: Arg): Doc =
+    varDoc(a.variance) + (a.kind match {
+      case Type => toDoc(Type)
+      case cons =>
+        // to get associativity right, need parens
+        val inner = toDoc(cons)
+        if (a.variance != Variance.in) par(inner) else inner
+    })
 
   def toDoc(k: Kind): Doc =
     k match {
@@ -169,29 +271,39 @@ object Kind {
   implicit val documentKind: Document[Kind] =
     Document(toDoc(_))
 
-  val parser: P[Kind] = P.recursive[Kind] { recurse =>
-    val varianceParser: P[Variance] =
-      P.fromStringMap(
-        Map(
-          "+" -> Variance.co,
-          "-" -> Variance.contra,
-          phantomStr -> Variance.phantom
-        )
-      )
+  def varDoc(v: Variance): Doc =
+    v match {
+      case Variance.Covariant     => Doc.char('+')
+      case Variance.Contravariant => Doc.char('-')
+      case Variance.Invariant     => Doc.empty
+      case Variance.Phantom       => ghostDoc
+    }
 
+  val varianceParser: P[Variance] =
+    P.fromStringMap(
+      Map(
+        "+" -> Variance.co,
+        "-" -> Variance.contra,
+        phantomStr -> Variance.phantom
+      )
+    )
+
+  val parser: P[Kind] = P.recursive[Kind] { recurse =>
     val ws: P0[Unit] = Parser.maybeSpacesAndLines
 
     val pType: P[Type.type] = P.char('*').as(Type)
-    val parens: P[Kind] = P.char('(') *> (ws *> recurse <* ws <* P.char(')'))
 
     // a -> b -> c needs to be parsed as a -> (b -> c)
-    val arg = pType | parens
-    val rhs = P.string("->") *> (ws *> recurse)
+    val arg = pType | Parser.parens(recurse, ws)
 
     // if we see variance, we know we have a Cons
+    val kindArg: P[Arg] =
+      (varianceParser ~ arg).map { case (v, i) => Arg(v, i) }
+
+    val rhs = P.string("->") *> (ws *> recurse)
     val varCase: P[Cons] =
-      (varianceParser ~ (arg ~ (ws *> rhs))).map { case (v, (i, o)) =>
-        Cons(Arg(v, i), o)
+      (kindArg ~ (ws *> rhs)).map { case (a, o) =>
+        Cons(a, o)
       }
     // with no var, we optionally have -> after
     val noVar: P[Kind] = (arg ~ (ws.soft *> rhs).?).map {
@@ -202,4 +314,43 @@ object Kind {
     varCase | noVar
   }
 
+  // When a kind appears in a struct/enum type parameter list we allow an outer variance
+  val paramKindParser: P[Kind.Arg] = {
+    // a -> b -> c needs to be parsed as a -> (b -> c)
+    val ws = Parser.maybeSpacesAndLines
+    val arg = P.char('*').as(Type) | Parser.parens(parser, ws)
+
+    // variance binds tighter than ->
+    val kindArg: P[Arg] =
+      (varianceParser.orElse(P.pure(Variance.in)).with1 ~ arg).map {
+        case (v, i) => Arg(v, i)
+      }
+
+    val rhs = P.string("->") *> (ws *> parser)
+    (kindArg ~ (ws.soft *> rhs).?).map {
+      case (k, None)    => k
+      case (i, Some(o)) => Arg(Variance.in, Cons(i, o))
+    }
+  }
+
+  implicit val orderKind: Order[Kind] =
+    new Order[Kind] {
+      val ordVar = Order[Variance]
+      def compare(left: Kind, right: Kind): Int =
+        (left, right) match {
+          case (Type, Type)       => 0
+          case (Type, _)          => -1
+          case (Cons(_, _), Type) => 1
+          case (Cons(al, kl), Cons(ar, kr)) =>
+            val cv = ordVar.compare(al.variance, ar.variance)
+            if (cv != 0) cv
+            else {
+              val ca = compare(al.kind, ar.kind)
+              if (ca != 0) ca
+              else compare(kl, kr)
+            }
+        }
+    }
+
+  implicit val orderingKind: Ordering[Kind] = orderKind.toOrdering
 }

@@ -12,6 +12,12 @@ sealed trait Ref[A] {
   def get: RefSpace[A]
   def set(a: A): RefSpace[Unit]
   def reset: RefSpace[Unit]
+  def update[B](fn: A => (A, B)): RefSpace[B] =
+    for {
+      a <- get
+      (a1, b) = fn(a)
+      _ <- set(a1)
+    } yield b
 }
 
 sealed abstract class RefSpace[+A] {
@@ -89,6 +95,7 @@ object RefSpace {
         fa.flatMap(fn)
     }
 
+  val unit: RefSpace[Unit] = pure(())
 
   // a counter that starts at 0
   val allocCounter: RefSpace[RefSpace[Long]] =

@@ -1,6 +1,7 @@
 package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
+import org.bykn.bosatsu.Kind
 import org.scalacheck.Gen
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.funsuite.AnyFunSuite
@@ -67,8 +68,8 @@ class TypeTest extends AnyFunSuite {
       val tpe = parse(str)
       law(tpe)
       tpe match {
-        case Type.TyVar(Type.Var.Skolem(b1, i1)) =>
-          assert((b1, i1) == (b, id))
+        case Type.TyVar(Type.Var.Skolem(b1, k1, i1)) =>
+          assert((b1, k1, i1) === (b, Kind.Type ,id))
         case other => fail(other.toString)
       }
     }
@@ -87,8 +88,8 @@ class TypeTest extends AnyFunSuite {
     forAll(Gen.listOf(NTypeGen.lowerIdent), NTypeGen.genDepth03) { (vs, t) =>
       val vsD = vs.distinct
       val bs = vsD.map(Type.Var.Bound(_))
-      val fa = Type.forAll(bs, t)
-      val binders = Type.tyVarBinders(List(fa))
+      val fa = Type.forAll(bs.map((_, Kind.Type)), t)
+      val binders = Type.tyVarBinders(fa :: Nil)
       assert(bs.toSet.subsetOf(binders))
     }
   }
@@ -104,7 +105,7 @@ class TypeTest extends AnyFunSuite {
       t match {
         case f@Type.ForAll(bounds, in) =>
           // filter bounds out, since they are shadowed
-          val boundSet = bounds.toList.toSet[Type.Var]
+          val boundSet = bounds.toList.iterator.map(_._1).toSet[Type.Var]
           f :: (allTypesIn(in).filterNot { it =>
             val frees = Type.freeTyVars(it :: Nil).toSet
             // if we intersect, this is not a legit type to consider
@@ -126,9 +127,9 @@ class TypeTest extends AnyFunSuite {
 
     val pastFails =
       List(
-        Type.ForAll(NonEmptyList.of(Type.Var.Bound("x"), Type.Var.Bound("ogtumm"), Type.Var.Bound("t")),
+        Type.ForAll(NonEmptyList.of((Type.Var.Bound("x"), Kind.Type), (Type.Var.Bound("ogtumm"), Kind.Type), (Type.Var.Bound("t"), Kind.Type)),
           Type.TyVar(Type.Var.Bound("x"))),
-        Type.ForAll(NonEmptyList.of(Type.Var.Bound("a")),Type.TyVar(Type.Var.Bound("a")))
+        Type.ForAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)),Type.TyVar(Type.Var.Bound("a")))
         )
 
     pastFails.foreach(law)

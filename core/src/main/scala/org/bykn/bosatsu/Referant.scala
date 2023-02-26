@@ -57,7 +57,7 @@ object Referant {
    * Fully qualified original names
    */
   def fullyQualifiedImportedValues[A, B](
-    imps: List[Import[A, NonEmptyList[Referant[B]]]])(nameOf: A => PackageName)(implicit ev: B <:< Variance): Map[(PackageName, Identifier), Type] =
+    imps: List[Import[A, NonEmptyList[Referant[B]]]])(nameOf: A => PackageName)(implicit ev: B <:< Kind.Arg): Map[(PackageName, Identifier), Type] =
     imps.iterator.flatMap { item =>
       val pn = nameOf(item.pack)
       item.items.toList.iterator.flatMap { i =>
