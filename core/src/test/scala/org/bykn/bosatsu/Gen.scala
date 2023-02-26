@@ -39,13 +39,13 @@ object Generators {
   val typeRefVarGen: Gen[TypeRef.TypeVar] =
     lowerIdent.map(TypeRef.TypeVar(_))
 
-  val typeRefLambdaGen: Gen[TypeRef.TypeLambda] =
+  val typeRefLambdaGen: Gen[TypeRef.TypeForAll] =
     for {
       e <- Gen.lzy(typeRefGen)
       cnt <- Gen.choose(1, 3)
       args <- Gen.listOfN(cnt, Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKind)))
       nel = NonEmptyList.fromListUnsafe(args)
-    } yield TypeRef.TypeLambda(nel, e)
+    } yield TypeRef.TypeForAll(nel, e)
 
   val opGen: Gen[Identifier.Operator] = {
     val sing = Gen.oneOf(Operators.singleToks).map(Identifier.Operator(_))
@@ -107,7 +107,7 @@ object Generators {
           case TypeVar(_) | TypeName(_) => Stream.empty
           case TypeArrow(l, r) => Stream(l, r)
           case TypeApply(of, args) => of #:: args.toList.toStream
-          case TypeLambda(_, expr) => expr #:: Stream.empty
+          case TypeForAll(_, expr) => expr #:: Stream.empty
           case TypeTuple(ts) =>
             def drop(as: List[TypeRef]): Stream[TypeTuple] =
               as match {

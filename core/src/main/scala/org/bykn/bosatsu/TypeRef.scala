@@ -22,7 +22,7 @@ sealed abstract class TypeRef {
     TypeRef.document.document(this)
 
   /**
-   * Nested TypeLambda can be combined, and should be generally
+   * Nested TypeForAll can be combined, and should be generally
    */
   def normalizeForAll: TypeRef =
     this match {
@@ -30,12 +30,12 @@ sealed abstract class TypeRef {
       case TypeArrow(a, b) => TypeArrow(a.normalizeForAll, b.normalizeForAll)
       case TypeApply(a, bs) =>
         TypeApply(a.normalizeForAll, bs.map(_.normalizeForAll))
-      case TypeLambda(pars0, TypeLambda(pars1, e)) =>
+      case TypeForAll(pars0, TypeForAll(pars1, e)) =>
         // we normalize to lifting all the foralls to the outside
-        TypeLambda(pars0 ::: pars1, e).normalizeForAll
-      case TypeLambda(pars, e) =>
+        TypeForAll(pars0 ::: pars1, e).normalizeForAll
+      case TypeForAll(pars, e) =>
         // Remove `Some(Type)` since that's the default
-        TypeLambda(pars.map {
+        TypeForAll(pars.map {
           case (v, Some(Kind.Type)) => (v, None)
           case other => other
         }, e.normalizeForAll)
@@ -61,7 +61,7 @@ object TypeRef {
   case class TypeArrow(from: TypeRef, to: TypeRef) extends TypeRef
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
-  case class TypeLambda(params: NonEmptyList[(TypeVar, Option[Kind])], in: TypeRef) extends TypeRef
+  case class TypeForAll(params: NonEmptyList[(TypeVar, Option[Kind])], in: TypeRef) extends TypeRef
   case class TypeTuple(params: List[TypeRef]) extends TypeRef
 
   implicit val typeRefOrdering: Ordering[TypeRef] =
@@ -87,12 +87,12 @@ object TypeRef {
             else list.compare(a0.toList, a1.toList)
           case (TypeApply(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _)) => 1
           case (TypeApply(_, _), _) => -1
-          case (TypeLambda(p0, in0), TypeLambda(p1, in1)) =>
+          case (TypeForAll(p0, in0), TypeForAll(p1, in1)) =>
             // TODO, we could normalize the parmeters here
             val c = listKind.compare(p0.toList, p1.toList)
             if (c == 0) compare(in0, in1) else c
-          case (TypeLambda(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)) => 1
-          case (TypeLambda(_, _), _) => -1
+          case (TypeForAll(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)) => 1
+          case (TypeForAll(_, _), _) => -1
           case (TypeTuple(t0), TypeTuple(t1)) => list.compare(t0, t1)
           case (TypeTuple(_), _) => 1
         }
@@ -109,7 +109,7 @@ object TypeRef {
 
     def applyTypes(cons: TypeRef, args: NonEmptyList[TypeRef]) = TypeApply(cons, args)
     def universal(vars: NonEmptyList[(String, Option[Kind])], in: TypeRef) =
-      TypeLambda(vars.map { case (s, k) => (TypeVar(s), k) }, in)
+      TypeForAll(vars.map { case (s, k) => (TypeVar(s), k) }, in)
 
     def makeTuple(items: List[TypeRef]) = TypeTuple(items)
 
@@ -128,7 +128,7 @@ object TypeRef {
 
     def unapplyUniversal(a: TypeRef): Option[(List[(String, Option[Kind])], TypeRef)] =
       a match {
-        case TypeLambda(vs, a) => Some(((vs.map { case (v, k) => (v.asString, k) }).toList, a))
+        case TypeForAll(vs, a) => Some(((vs.map { case (v, k) => (v.asString, k) }).toList, a))
         case _ => None
       }
 
