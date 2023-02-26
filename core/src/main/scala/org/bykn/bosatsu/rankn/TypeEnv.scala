@@ -130,6 +130,12 @@ class TypeEnv[+A] private (
     new TypeEnv(values ++ that.values,
       constructors ++ that.constructors,
       definedTypes ++ that.definedTypes)
+
+  def toKindMap(implicit ev: A <:< Kind.Arg): Map[Type.Const.Defined, Kind] = {
+    type F[+Z] = List[DefinedType[Z]]
+    val dts: List[DefinedType[Kind.Arg]] = ev.substituteCo[F](allDefinedTypes)
+    DefinedType.toKindMap(dts)
+  }
 }
 
 object TypeEnv {
