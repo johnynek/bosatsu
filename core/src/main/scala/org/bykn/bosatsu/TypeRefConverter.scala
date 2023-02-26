@@ -24,7 +24,7 @@ object TypeRefConverter {
       case TypeArrow(a, b) => (toType(a), toType(b)).mapN(Fun(_, _))
       case TypeApply(a, bs) =>
         (toType(a), bs.toList.traverse(toType)).mapN(Type.applyAll(_, _))
-      case TypeLambda(pars, e) =>
+      case TypeForAll(pars, e) =>
         toType(e).map { te =>
           Type.forAll(pars.map { case (TypeVar(v), optK) =>
             val k = optK match {
@@ -55,7 +55,7 @@ object TypeRefConverter {
           val k1 = if (k.isType) None else Some(k)
           (TypeVar(b), k1)
         }
-        loop(in).map(TypeLambda(args, _))
+        loop(in).map(TypeForAll(args, _))
       case Type.Tuple(ts) =>
         // this needs to be above TyConst
         ts.traverse(loop(_)).map(TypeTuple(_))
