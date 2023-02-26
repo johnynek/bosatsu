@@ -2671,4 +2671,23 @@ def foo[a](a: a) -> a:
       ()
     }
   }
+  test("ill-kinded functions fail to compile") {
+
+    evalFail(List("""
+package Foo
+
+struct RecordValue[t](value: t)
+struct RecordGetter[shape, t](
+  value: shape[RecordValue] -> RecordValue[t]
+)
+
+# shape is (* -> *) -> *
+def get[shape](sh: shape[RecordValue], RecordGetter(getter): RecordGetter[shape, t]) -> t:
+  RecordValue(result) = sh.getter
+  result
+""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, and_again found declared types: [b], not a subset of [a]\nRegion(71,118)")
+      ()
+    }
+  }
 }
