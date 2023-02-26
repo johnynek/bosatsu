@@ -385,7 +385,7 @@ class RankNInferTest extends AnyFunSuite {
       Infer.typeCheck(term).runFully(
         withBools ++ asFullyQualified(constructors),
         defined ++ boolTypes,
-        Type.builtInKinds) match {
+        Type.builtInKinds.updated(optName, Kind(Kind.Type.co))) match {
         case Left(err) => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }

@@ -85,7 +85,7 @@ object PackageMap {
               case Some(iface) =>
                 Validated.valid(Import(Left(iface), i.items))
               case None =>
-                Validated.invalidNel(PackageError.UnknownImportPackage(i.pack, from))
+                Validated.invalidNel(PackageError.UnknownImportPackage(i.pack, from.name))
             }
         }
 
@@ -98,7 +98,7 @@ object PackageMap {
       val edeps = ReaderT.ask[Either[NonEmptyList[PackageError], *], List[PackageName]]
         .flatMapF {
           case nonE@(h :: tail) if nonE.contains(p.name) =>
-            Left(NonEmptyList.of(PackageError.CircularDependency(p, NonEmptyList(h, tail))))
+            Left(NonEmptyList.of(PackageError.CircularDependency(p.name, NonEmptyList(h, tail))))
           case _ =>
             val deps = p.imports.traverse(getPackage(_, p)) // the packages p depends on
             deps.toEither
@@ -192,7 +192,10 @@ object PackageMap {
     val nuEr: Ior[NonEmptyList[PackageError], Unit] =
       NonEmptyMap.fromMap(nonUnique) match {
         case Some(nenu) =>
-          Ior.left(NonEmptyList.one[PackageError](PackageError.DuplicatedPackageError[A](nenu, Show[A].show(_))))
+          val paths = nenu.map { case ((a, _), rest) =>
+            (a.show, rest.map(_._1.show))  
+          }
+          Ior.left(NonEmptyList.one[PackageError](PackageError.DuplicatedPackageError(paths)))
         case None =>
           Ior.right(())
       }
@@ -231,7 +234,14 @@ object PackageMap {
               case None =>
                 Ior.left(NonEmptyList.one(
                   PackageError.UnknownImportName(
-                    nm, packF, i,
+                    nm,
+                    packF.name,
+                    packF
+                      .program
+                      .lets
+                      .iterator
+                      .map { case (n, _, _) => (n: Identifier, ()) }.toMap,
+                    i,
                     exMap.iterator.flatMap(_._2.toList).toList)))
               case Some(exps) =>
                 val bs = exps.map(_.tag)
@@ -245,7 +255,7 @@ object PackageMap {
               case None =>
                 Ior.left(NonEmptyList.one(
                   PackageError.UnknownImportFromInterface(
-                    nm, packF, i,
+                    nm, packF.name, packF.exports.map(_.name), i,
                     exMap.iterator.flatMap(_._2.toList).toList)))
               case Some(exps) =>
                 val bs = exps.map(_.tag)

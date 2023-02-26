@@ -58,7 +58,7 @@ struct PS[t,rest,w](left: w[t], right: rest[w])
 
 new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, \NilShape -> [])
 
-(ps_end: forall t. RestructureOutput[t, NilShape]) = RestructureOutput(
+(ps_end: forall t: (* -> *) -> *. RestructureOutput[t, NilShape]) = RestructureOutput(
   \_ -> NilShape,
   \_ -> NilShape,
   NilShape,

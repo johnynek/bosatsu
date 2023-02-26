@@ -95,10 +95,9 @@ object Kind {
       case (Cons(Arg(v1, a1), b1), Cons(Arg(v2, a2), b2)) =>
         // since kind itself is contravariant in the argument to the function
         // we switch the order of the check in the a2 and a1
-        ((v1 + v2) == v1) && leftSubsumesRight(a2, a1) && leftSubsumesRight(
-          b1,
-          b2
-        )
+        ((v1 + v2) == v1) &&
+          leftSubsumesRight(a2, a1) &&
+          leftSubsumesRight(b1, b2)
       case _ => false
     }
 
