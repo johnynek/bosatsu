@@ -78,8 +78,7 @@ object KindFormula {
     ) extends Constraint {
       def depends = Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
-        if (value == kindArg.variance) Sat.Yes
-        else Sat.No
+        Sat(value == kindArg.variance)
     }
 
     case class ImportedConst(
@@ -91,23 +90,20 @@ object KindFormula {
     ) extends Constraint {
       def depends = Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
-        if (value == kindArg.variance) Sat.Yes
-        else Sat.No
+        Sat(value == kindArg.variance)
     }
 
     // arg idx of a given constructor function
     case class Accessor(cfn: ConstructorFn, idx: Int) extends Constraint {
       def depends = Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
-        if (value == Variance.co || value == Variance.in) Sat.Yes
-        else Sat.No
+        Sat(value == Variance.co || value == Variance.in)
     }
 
     case class RecursiveView(cfn: ConstructorFn, idx: Int) extends Constraint {
       def depends = Nil
       def satisfied(known: LongMap[Variance], value: Variance) =
-        if (value == Variance.co) Sat.Yes
-        else Sat.No
+        Sat(value == Variance.co)
     }
 
     case class HasView(

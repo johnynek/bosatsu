@@ -2,13 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Foldable
 import cats.data.{Validated, ValidatedNec, Ior, IorNec}
-import org.bykn.bosatsu.rankn.{
-  ConstructorFn,
-  DefinedType,
-  Type,
-  Ref,
-  RefSpace
-}
+import org.bykn.bosatsu.rankn.{ConstructorFn, DefinedType, Type, Ref, RefSpace}
 
 import cats.syntax.all._
 
@@ -73,7 +67,7 @@ object Shape {
         val tdoc = rankn.Type.fullyResolvedDocument.document(tpe)
         Doc.text("kind(") + tdoc + Doc.char(')')
     }
-    */
+   */
 
   sealed abstract class Error
   case class ShapeLoop(
@@ -210,7 +204,6 @@ object Shape {
           }
       }
       .map(_.reverse)
-
 
   private[this] val builtIns: Map[rankn.Type.Const.Defined, Shape] =
     rankn.Type.builtInKinds.map { case (t, k) => (t, ShapeOf(k)) }
@@ -408,9 +401,8 @@ object Shape {
           s1 match {
             case Type =>
               s2 match {
-                case Type            => pureUnit
-                case Cons(_, _)      => error
-                case KnownCons(_, _) => error
+                case Type                         => pureUnit
+                case Cons(_, _) | KnownCons(_, _) => error
                 case u @ Unknown(_, _) =>
                   unifyKnown(Type, u, visited)
               }

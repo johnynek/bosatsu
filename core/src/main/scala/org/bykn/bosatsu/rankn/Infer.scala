@@ -71,30 +71,12 @@ object Infer {
 
   class Env(
     val uniq: Ref[Long],
-    metaInfo: Ref[LongMap[NonEmptyList[String]]],
     val vars: Map[Name, Type],
     val typeCons: Map[(PackageName, Constructor), Cons],
     val variances: Map[Type.Const.Defined, Kind]) {
 
     def addVars(vt: List[(Name, Type)]): Env =
-      new Env(uniq, metaInfo, vars = vars ++ vt, typeCons, variances)
-
-    def addNote(m: Type.Meta, note: String): RefSpace[Unit] =
-      metaInfo.update { info =>
-        val v1 = info.get(m.id) match {
-          case Some(ls) => ls.toList
-          case None => Nil
-        }
-        (info.updated(m.id, NonEmptyList(note, v1)), ())
-      }
-
-    def getNotes(m: Type.Meta): RefSpace[List[String]] =
-      metaInfo.get.map { info =>
-        info.get(m.id) match {
-          case Some(ns) => ns.toList
-          case None => Nil
-        }
-      }
+      new Env(uniq, vars = vars ++ vt, typeCons, variances)
 
     def getKind(t: Type, region: Region): Either[Error, Kind] = {
       def loop(item: Type, locals: Map[Type.Var.Bound, Kind]): Either[Error, Kind] =
@@ -135,7 +117,7 @@ object Infer {
       vars: Map[Name, Type],
       tpes: Map[(PackageName, Constructor), Cons],
       kinds: Map[Type.Const.Defined, Kind]): RefSpace[Env] =
-      (RefSpace.newRef(0L), RefSpace.newRef(LongMap.empty[NonEmptyList[String]])).mapN(new Env(_, _, vars, tpes, kinds))
+      RefSpace.newRef(0L).map(new Env(_, vars, tpes, kinds))
   }
 
   def getEnv: Infer[Map[Name, Type]] = GetEnv.map(_.vars)
@@ -341,10 +323,7 @@ object Infer {
       k match {
         case Kind.Cons(Kind.Arg(v, _), _) => pure(v)
         case Kind.Type =>
-          getNotes(t)
-            .flatMap { notes =>
-              fail(Error.KindInvariantViolation(t, right, region, s"expected k1 -> k2, but found *. notes = $notes"))
-            }
+          fail(Error.KindInvariantViolation(t, right, region, s"expected k1 -> k2, but found *."))
       }
 
 
@@ -649,15 +628,6 @@ object Infer {
         ref <- lift(RefSpace.newRef[Option[Type.Tau]](None))
         meta = Type.Meta(kind, id, ref)
       } yield Type.TyMeta(meta)
-
-    private def getNotes(t: Type): Infer[Option[List[String]]] =
-      t match {
-        case Type.TyMeta(m) =>
-          GetEnv.flatMap { env => lift(env.getNotes(m)) }
-            .map(Some(_))
-        case _ =>
-          pure(None)
-      }
 
     // TODO: it would be nice to support kind inference on skolem variables
     def newSkolemTyVar(tv: Type.Var.Bound, kind: Kind): Infer[Type.Var.Skolem] =
