@@ -4,7 +4,6 @@ import cats.Monad
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
 import cats.implicits._
-import scala.collection.immutable.LongMap
 
 import org.bykn.bosatsu.{
   Expr,
@@ -17,6 +16,8 @@ import org.bykn.bosatsu.{
   RecursionKind,
   TypedExpr,
   Variance}
+
+import org.typelevel.paiges.Doc
 
 import HasRegion.region
 
@@ -92,12 +93,17 @@ object Infer {
               case None => Left(Error.UnknownDefined(d, region))
             }
           case Type.TyApply(left, right) =>
-            loop(left, locals) match {
-              case Right(Kind.Cons(_, res)) => Right(res)
-              case Right(Kind.Type) =>
-                Left(Error.KindInvariantViolation(item, right, region, "expected (k1 -> k2), found * in getKind"))
-              case Left(err) => Left(err)
-            }
+            loop(left, locals)
+              .product(loop(right, locals))
+              .flatMap {
+                case (Kind.Cons(Kind.Arg(_, lhs), res), rhs) =>
+                  if (Kind.leftSubsumesRight(lhs, rhs)) Right(res)
+                  else Left(
+                    Error.KindSubsumptionCheckFailure(lhs, left, rhs, right, region, region)
+                  )
+                case (Kind.Type, _) =>
+                  Left(Error.KindInvariantViolation(item, right, region, "expected (k1 -> k2), found * in getKind"))
+              }
           case Type.TyVar(b @ Type.Var.Bound(_)) =>
             locals.get(b) match {
               case Some(k) => Right(k)
@@ -160,6 +166,30 @@ object Infer {
       def message = {
         def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
+      }
+    }
+
+    case class KindNotUnifiable(leftK: Kind, leftT: Type, rightK: Kind, rightT: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
+      def message = {
+        def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
+
+        val doc = Doc.text("kind mismatch error: ") +
+          tStr(leftT) + Doc.text(": ") + Kind.toDoc(leftK) + Doc.text(" cannot be unified with kind: ") +
+          tStr(rightT) + Doc.text(": ") + Kind.toDoc(rightK)
+
+        doc.render(80)
+      }
+    }
+
+    case class KindSubsumptionCheckFailure(leftK: Kind, leftT: Type, rightK: Kind, rightT: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
+      def message = {
+        def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
+
+        val doc = Doc.text("subkind error: ") +
+          tStr(leftT) + Doc.text(": ") + Kind.toDoc(leftK) + Doc.text(" does not subsume: ") +
+          tStr(rightT) + Doc.text(": ") + Kind.toDoc(rightK)
+
+        doc.render(80)
       }
     }
 
@@ -457,7 +487,15 @@ object Infer {
         case (fa@Type.ForAll(_, _), rho) =>
           // Rule SPEC
           instantiate(fa).flatMap(subsCheckRho(_, rho, left, right))
-        case (rho1: Type.Rho, Type.Fun(a2, r2)) =>
+        case (rhot: Type.Rho, rho) =>
+          subsCheckRho2(rhot, rho, left, right)
+      }
+
+    def subsCheckRho2(t: Type.Rho, rho: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
+      // get the kinds to make sure they are well kindinded
+      kindOf(t, left).product(kindOf(rho, right)) *>
+      ((t, rho) match {
+        case (rho1, Type.Fun(a2, r2)) =>
           // Rule FUN
           for {
             a1r1 <- unifyFn(rho1, left, right)
@@ -477,54 +515,50 @@ object Infer {
             rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 471")
             coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
           } yield coerce
-        case (rho1: Type.Rho, Type.TyApply(l2, r2)) =>
-          (kindOf(l2, right), kindOf(r2, right))
-            .tupled
-            .flatMap { case (kl, kr) =>
-              // TODO Kind I think we should unify l1 and kl kinds
-              unifyTyApp(rho1, kl, kr, left, right).flatMap {
-                case (l1, r1) =>
-                  val check2 = varianceOfConsKind(l2, kl, r2, right).flatMap {
-                    case Variance.Covariant =>
-                      subsCheck(r1, r2, left, right).void
-                    case Variance.Contravariant =>
-                      subsCheck(r2, r1, right, left).void
-                    case Variance.Phantom =>
-                      // this doesn't matter
-                      unit
-                    case Variance.Invariant =>
-                      unifyType(r1, r2, left, right)
-                  }
-                  // should we coerce to t2? Seems like... but copying previous code
-                  (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(rho1))
-              }
+        case (rho1, Type.TyApply(l2, r2)) =>
+          for {
+            kl <- kindOf(l2, right) 
+            kr <- kindOf(r2, right)
+            l1r1 <- unifyTyApp(rho1, kl, kr, left, right)
+            (l1, r1) = l1r1
+            _ <- varianceOfConsKind(l2, kl, r2, right).flatMap {
+              case Variance.Covariant =>
+                subsCheck(r1, r2, left, right).void
+              case Variance.Contravariant =>
+                subsCheck(r2, r1, right, left).void
+              case Variance.Phantom =>
+                // this doesn't matter
+                unit
+              case Variance.Invariant =>
+                unifyType(r1, r2, left, right)
             }
+            // should we coerce to t2? Seems like... but copying previous code
+            _ <- subsCheck(l1, l2, left, right)
+          } yield TypedExpr.coerceRho(rho1)
         case (ta@Type.TyApply(l1, r1), rho2) =>
-          (kindOf(l1, left), kindOf(r1, left))
-            .tupled
-            .flatMap { case (kl, kr) =>
-              // TODO Kind I think we should unify l1 and kl kinds
-              unifyTyApp(rho2, kl, kr, left, right).flatMap {
-                case (l2, r2) =>
-                  val check2 = varianceOfConsKind(l1, kl, r1, left).flatMap {
-                    case Variance.Covariant =>
-                      subsCheck(r1, r2, left, right).void
-                    case Variance.Contravariant =>
-                      subsCheck(r2, r1, right, left).void
-                    case Variance.Phantom =>
-                      // this doesn't matter
-                      unit
-                    case Variance.Invariant =>
-                      unifyType(r1, r2, left, right)
-                  }
-                  // should we coerce to t2? Seems like... but copying previous code
-                  (subsCheck(l1, l2, left, right) *> check2).as(TypedExpr.coerceRho(ta))
-              }
+          for {
+            kl <- kindOf(l1, left)
+            kr <- kindOf(r1, left)
+            l2r2 <- unifyTyApp(rho2, kl, kr, left, right)
+            (l2, r2) = l2r2
+            _ <- varianceOfConsKind(l1, kl, r1, left).flatMap {
+              case Variance.Covariant =>
+                subsCheck(r1, r2, left, right).void
+              case Variance.Contravariant =>
+                subsCheck(r2, r1, right, left).void
+              case Variance.Phantom =>
+                // this doesn't matter
+                unit
+              case Variance.Invariant =>
+                unifyType(r1, r2, left, right)
             }
-        case (t1: Type.Rho, t2) =>
+            _ <- subsCheck(l1, l2, left, right)
+            // should we coerce to t2? Seems like... but copying previous code
+          } yield TypedExpr.coerceRho(ta)
+        case (t1, t2) =>
           // rule: MONO
           unify(t1, t2, left, right).as(TypedExpr.coerceRho(t1)) // TODO this coerce seems right, since we have unified
-      }
+      })
 
     /*
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
@@ -552,12 +586,14 @@ object Infer {
           } yield (argT, resT)
       }
 
-    // TODO: Kind make sure lKind: (k1 -> k2) and rKind: k1 and apType: k2
+    def unifyKind(kind1: Kind, tpe1: Type, kind2: Kind, tpe2: Type, region1: Region, region2: Region): Infer[Unit] =
+      // we may need to be tracking kinds and widen them...
+      if (Kind.leftSubsumesRight(kind1, kind2) || Kind.leftSubsumesRight(kind2, kind2)) unit
+      else fail(Error.KindNotUnifiable(kind1, tpe1, kind2, tpe2, region1, region2))
+
     def unifyTyApp(apType: Type.Rho, lKind: Kind, rKind: Kind, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
       apType match {
-        case Type.TyApply(left, right) =>
-          // TODO Kind makes sure kindOf(left) unifies with lKind and kindOf(right) unifies with rKind
-          pure((left, right))
+        case Type.TyApply(left, right) => pure((left, right))
         case notApply =>
           for {
             leftT <- newMetaType(lKind)
@@ -611,12 +647,16 @@ object Infer {
      * direction
      */
     def unifyType(t1: Type, t2: Type, r1: Region, r2: Region): Infer[Unit] =
-      (t1, t2) match {
+      ((t1, t2) match {
         case (rho1: Type.Rho, rho2: Type.Rho) =>
           unify(rho1, rho2, r1, r2)
         case (t1, t2) =>
           subsCheck(t1, t2, r1, r2) *> subsCheck(t2, t1, r2, r1).void
-      }
+      }) *> (for {
+        k1 <- kindOf(t1, r1)
+        k2 <- kindOf(t2, r2)
+        _ <- unifyKind(k1, t1, k2, t2, r1, r2)
+      } yield ())
 
     /**
      * Allocate a new Meta variable which

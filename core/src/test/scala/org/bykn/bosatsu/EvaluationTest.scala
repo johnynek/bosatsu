@@ -1391,7 +1391,7 @@ package B
 
 from A import a
 
-main = a""")) { case PackageError.UnknownImportName(_, _, _, _) => () }
+main = a""")) { case PackageError.UnknownImportName(_, _, _, _, _) => () }
 
     evalFail(
       List("""
@@ -1582,7 +1582,7 @@ package B
 from A import fooz
 
 baz = fooz
-""")) { case te@PackageError.UnknownImportName(_, _, _, _) =>
+""")) { case te@PackageError.UnknownImportName(_, _, _, _, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in <unknown source> package: A does not have name fooz. Nearest: foo")
       ()
     }
@@ -1600,7 +1600,7 @@ package B
 from A import bar
 
 baz = bar
-""")) { case te@PackageError.UnknownImportName(_, _, _, _) =>
+""")) { case te@PackageError.UnknownImportName(_, _, _, _, _) =>
       assert(te.message(Map.empty, Colorize.None) == "in <unknown source> package: A has bar but it is not exported. Add to exports")
       ()
     }
@@ -1694,7 +1694,7 @@ struct PS[t,rest,w](left: w[t], right: rest[w])
 
 new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, \NilShape -> [])
 
-(ps_end: forall t: * -> *. RestructureOutput[t, NilShape]) = RestructureOutput(
+(ps_end: forall t: (* -> *) -> *. RestructureOutput[t, NilShape]) = RestructureOutput(
   \_ -> NilShape,
   \_ -> NilShape,
   NilShape,
@@ -2267,7 +2267,7 @@ main = 1
         |main = 1
         |""".stripMargin
 
-    evalFail(List(pack, pack)) { case sce@PackageError.DuplicatedPackageError(_, _) =>
+    evalFail(List(pack, pack)) { case sce@PackageError.DuplicatedPackageError(_) =>
       assert(sce.message(Map.empty, Colorize.None) == "package Err duplicated in 0, 1")
       ()
     }
@@ -2685,9 +2685,7 @@ struct RecordGetter[shape, t](
 def get[shape](sh: shape[RecordValue], RecordGetter(getter): RecordGetter[shape, t]) -> t:
   RecordValue(result) = sh.getter
   result
-""")) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Foo, and_again found declared types: [b], not a subset of [a]\nRegion(71,118)")
-      ()
+""")) { case tpe@PackageError.TypeErrorIn(_, _) => () //rankn.Infer.Error.KindNotUnifiable(_, _, _, _, _, _), _) => ()
     }
   }
 }

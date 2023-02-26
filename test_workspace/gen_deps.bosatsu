@@ -1,7 +1,7 @@
 package GenDeps
 
 from BazelDepsApi import (
-  Config, Artifact, Replacement, default_options_with_scala, merge_dep_List, scala_dep,
+  Config, Artifact, Replacement, Options, default_options_with_scala, merge_dep_List, scala_dep,
   scala_dep_modules, standard_scala_replacements
   )
 
