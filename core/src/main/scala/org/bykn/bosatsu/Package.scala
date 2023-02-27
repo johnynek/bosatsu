@@ -211,12 +211,19 @@ object Package {
     val optProg = SourceConverter.toProgram(p, imps.map { i => i.copy(pack = i.pack.name) }, stmts)
       .leftMap(_.map(PackageError.SourceConverterErrorIn(_, p): PackageError).toNonEmptyList)
 
+    lazy val typeDefRegions: Map[Type.Const.Defined, Region] =
+      stmts.iterator.collect {
+        case tds: TypeDefinitionStatement =>
+          Type.Const.Defined(p, TypeName(tds.name)) -> tds.region
+      }
+      .toMap
+
     optProg.flatMap {
       case Program((importedTypeEnv, parsedTypeEnv), lets, extDefs, _) =>
         val inferVarianceParsed: Ior[NonEmptyList[PackageError], ParsedTypeEnv[Kind.Arg]] =
           KindFormula.solveShapesAndKinds(importedTypeEnv, parsedTypeEnv.allDefinedTypes.reverse)
             .bimap({ necError =>
-              necError.map(PackageError.KindInferenceError(p, _)).toNonEmptyList
+              necError.map(PackageError.KindInferenceError(p, _, typeDefRegions)).toNonEmptyList
             }, { infDTs =>
               ParsedTypeEnv(infDTs, parsedTypeEnv.externalDefs)
             })

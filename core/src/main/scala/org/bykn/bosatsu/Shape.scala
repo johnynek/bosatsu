@@ -3,6 +3,7 @@ package org.bykn.bosatsu
 import cats.Foldable
 import cats.data.{Validated, ValidatedNec, Ior, IorNec}
 import org.bykn.bosatsu.rankn.{ConstructorFn, DefinedType, Type, Ref, RefSpace}
+import org.typelevel.paiges.Doc
 
 import cats.syntax.all._
 
@@ -44,8 +45,6 @@ object Shape {
       ref: Ref[UnknownState]
   ) extends NotKnownShape
 
-  /*
-   Maybe useful for debugging, or showing nice errors when we do that.
   def shapeDoc(s: Shape): Doc =
     s match {
       case Type           => Doc.char('*')
@@ -67,7 +66,6 @@ object Shape {
         val tdoc = rankn.Type.fullyResolvedDocument.document(tpe)
         Doc.text("kind(") + tdoc + Doc.char(')')
     }
-   */
 
   sealed abstract class Error
   case class ShapeLoop(
@@ -106,7 +104,6 @@ object Shape {
       cfn: ConstructorFn,
       outer: rankn.Type,
       tapply: rankn.Type.TyApply,
-      leftShape: Shape,
       rightShape: Shape
   ) extends Error
 
@@ -491,7 +488,7 @@ object Shape {
         case Type =>
           // kind mismatch
           RefSpace.pure(
-            Validated.invalidNec(ShapeMismatch(dt, cfn, outer, inner, s1, s2))
+            Validated.invalidNec(ShapeMismatch(dt, cfn, outer, inner, s2))
           )
         case Cons(arg, res) =>
           // s1 == (arg -> res)

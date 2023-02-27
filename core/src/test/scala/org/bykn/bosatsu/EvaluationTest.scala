@@ -600,8 +600,7 @@ fac = trace("made fac", y(\f, i -> 1 if ltEqZero(i) else f(i).times(i)))
 
 main = fac(6)
 """)) {
-    case PackageError.CircularType(_, _) => ()
-    case PackageError.KindInferenceError(_, _) => ()
+    case PackageError.KindInferenceError(_, _, _) => ()
   }
   }
 
@@ -2685,7 +2684,7 @@ struct RecordGetter[shape, t](
 def get[shape](sh: shape[RecordValue], RecordGetter(getter): RecordGetter[shape, t]) -> t:
   RecordValue(result) = sh.getter
   result
-""")) { case PackageError.TypeErrorIn(_, _) => () //rankn.Infer.Error.KindNotUnifiable(_, _, _, _, _, _), _) => ()
+""")) { case PackageError.TypeErrorIn(_, _) => ()
     }
   }
 
@@ -2724,5 +2723,32 @@ comp = \x -> f(g(x))
   
 test = Assertion(True, "")
 """), "Foo", 1)
+  }
+
+  test("ill-kinded structs point to the right region") {
+
+    evalFail(List("""
+package Foo
+
+struct Foo(a: f[a], b: f)
+""")) { case kie@PackageError.KindInferenceError(_, _, _) =>
+      assert(kie.message(Map.empty, Colorize.None) ==
+        """shape error: expected kind(f) and * to match in the constructor Foo
+
+Region(14,39)""")
+      ()
+    }
+
+    evalFail(List("""
+package Foo
+
+struct Foo[a: *](a: a[Int])
+""")) { case kie@PackageError.KindInferenceError(_, _, _) =>
+      assert(kie.message(Map.empty, Colorize.None) ==
+        """shape error: expected * -> ? but found * in the constructor Foo inside type a[Bosatsu/Predef::Int]
+
+Region(14,41)""")
+      ()
+    }
   }
 }
