@@ -1065,6 +1065,9 @@ object Infer {
                 _ <- unifyKind(k.kind, Type.TyVar(v0), rk, right, reg, sigmaRegion)
                 rest <- loop(vs, Kind.Cons(k, leftKind), left)
               } yield rest.updated(v0, right)
+            case (_, fa@Type.ForAll(_, _)) =>
+              // we have to instantiate a rho type
+              instantiate(fa).flatMap(loop(revArgs, leftKind, _))
             case ((v0, k) :: rest, _) =>
               // (k -> leftKind)(k)
               for {
@@ -1089,6 +1092,10 @@ object Infer {
               pushDownCovariant(args, params.toList reverse_::: revForAlls, over)
             case ((_, Kind.Arg(Variance.Covariant, _)) :: rest,
               Type.TyApply(left, rightArg @ Type.TyVar(arg: Type.Var.Bound))) =>
+                // TODO it seems like actually we want to partition:
+                // all the frees in the right side that don't appear in the
+                // left can be pushed down only on the right, where
+                // we can recurse
                 val leftFree = Type.freeBoundTyVars(left :: Nil)
                 revForAlls.collectFirst { case (leftA, k) if leftA == arg && !leftFree.contains(arg) => k } match {
                   case Some(k) =>
