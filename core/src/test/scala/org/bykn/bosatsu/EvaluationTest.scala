@@ -1995,6 +1995,17 @@ ListWrapper([*_], r) = w
 
 tests = Assertion(r, "match with total list pattern")
 """), "A", 1)
+
+    runBosatsuTest(List("""package A
+
+struct ListWrapper2(items: List[a], others: List[b], b: Bool)
+
+w = ListWrapper2([], [], True)
+
+ListWrapper2(_, _, r) = w
+
+tests = Assertion(r, "match with total list pattern")
+"""), "A", 1)
   }
 
   test("test scoping bug (issue #311)") {
@@ -2750,5 +2761,19 @@ struct Foo[a: *](a: a[Int])
 Region(14,41)""")
       ()
     }
+  }
+
+  test("example from issue #264") {
+    runBosatsuTest("""
+package SubsumeTest
+
+def lengths(l1: List[Int], l2: List[String], maybeFn: Option[forall tt. List[tt] -> Int]):
+  match maybeFn:
+    Some(fn: forall t. List[t] -> Int):
+      fn(l1).add(fn(l2))
+    None: 0
+
+test = Assertion(lengths([], [], None) matches 0, "test")
+    """ :: Nil, "SubsumeTest", 1)
   }
 }

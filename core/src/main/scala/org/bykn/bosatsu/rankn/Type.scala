@@ -145,7 +145,7 @@ object Type {
   /**
    * This form is often useful in Infer
    */
-  def substTy(keys: NonEmptyList[Var], vals: NonEmptyList[Rho]): Type => Type = {
+  def substTy(keys: NonEmptyList[Var], vals: NonEmptyList[Type]): Type => Type = {
     val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
 
     { t => substituteVar(t, env) }
