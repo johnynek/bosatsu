@@ -457,6 +457,12 @@ object Infer {
     def instantiate(t: Type): Infer[Type.Rho] =
       t match {
         case Type.ForAll(vars, ty) =>
+          // TODO: by following the pushdownCovariant
+          // we can probably typecheck more code by
+          // pushing down as much as possible so we don't
+          // need to allocate metas for everything.
+          // we want to defer metas as long as possible
+          // since they can only hold tau types
           vars.traverse { case (_, k) => newMetaType(k) }
             .map { vars1T =>
               substTyRho(vars.map(_._1), vars1T)(ty)
