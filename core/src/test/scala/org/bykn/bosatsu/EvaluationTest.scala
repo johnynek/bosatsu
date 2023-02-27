@@ -2769,8 +2769,7 @@ package SubsumeTest
 
 def lengths(l1: List[Int], l2: List[String], maybeFn: Option[forall tt. List[tt] -> Int]):
   match maybeFn:
-    Some(fn: forall t. List[t] -> Int):
-      fn(l1).add(fn(l2))
+    Some(fn): fn(l1).add(fn(l2))
     None: 0
 
 test = Assertion(lengths([], [], None) matches 0, "test")
