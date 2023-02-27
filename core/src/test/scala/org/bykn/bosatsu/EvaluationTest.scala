@@ -2685,7 +2685,44 @@ struct RecordGetter[shape, t](
 def get[shape](sh: shape[RecordValue], RecordGetter(getter): RecordGetter[shape, t]) -> t:
   RecordValue(result) = sh.getter
   result
-""")) { case tpe@PackageError.TypeErrorIn(_, _) => () //rankn.Infer.Error.KindNotUnifiable(_, _, _, _, _, _), _) => ()
+""")) { case PackageError.TypeErrorIn(_, _) => () //rankn.Infer.Error.KindNotUnifiable(_, _, _, _, _, _), _) => ()
     }
+  }
+
+  test("test quicklook example") {
+    runBosatsuTest(List("""
+package Foo
+
+def f(fn: forall a. List[a] -> List[a]) -> Int:
+  fn([1]).foldLeft(0)(\x, _ -> x.add(1))
+
+def g(b: Bool) -> (forall a. List[a] -> List[a]):
+  match b:
+    case True: \x -> x
+    case False: \_ -> []
+
+def id(a): a
+def single(a): [a]    
+
+def foo1(fn) -> Int:
+  fn.foldLeft(0)(\x, _ -> x.add(1))
+
+def foo2(fn: List[forall a. a -> a]) -> Int:
+  fn.foldLeft(0)(\x, _ -> x.add(1))
+
+count = foo1(single(id))
+count = foo2(single(id))
+
+single_id1: forall a. List[a -> a] = single(id)
+single_id2: List[forall a. a -> a] = single(id)
+
+struct Pair1(fst: a, snd: a)
+
+pair = Pair1(single_id1, single_id2)
+
+comp = \x -> f(g(x))
+  
+test = Assertion(True, "")
+"""), "Foo", 1)
   }
 }
