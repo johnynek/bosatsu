@@ -37,6 +37,9 @@ sealed abstract class Infer[+A] {
   def peek: Infer[Either[Error, A]] =
     Infer.Impl.Peek(this)
 
+  final def mapEither[B](fn: A => Either[Error, B]): Infer[B] =
+    Infer.Impl.MapEither(this, fn)
+
   final def runVar(
     v: Map[Infer.Name, Type],
     tpes: Map[(PackageName, Constructor), Infer.Cons],
@@ -96,7 +99,9 @@ object Infer {
             locals.get(b) match {
               case Some(k) => Right(k)
               case None => 
-                 Left({ region => Error.UnknownKindOfVar(t, region, s"unbound var: $b") })
+                // $COVERAGE-OFF$ this should be unreachable because all vars should have a known kind
+                Left({ region => Error.UnknownKindOfVar(t, region, s"unbound var: $b") })
+                // $COVERAGE-ON$ this should be unreachable
             }
           case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
           case Type.TyMeta(Type.Meta(kind, _, _)) => Right(kind)
@@ -184,13 +189,16 @@ object Infer {
     sealed abstract class TypeError extends Error
 
     case class NotUnifiable(left: Type, right: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
       }
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class KindNotUnifiable(leftK: Kind, leftT: Type, rightK: Kind, rightT: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
 
@@ -200,9 +208,11 @@ object Infer {
 
         doc.render(80)
       }
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class KindInvalidApply(typeApply: Type.TyApply, leftK: Kind.Cons, rightK: Kind, region: Region) extends TypeError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
 
@@ -212,9 +222,11 @@ object Infer {
 
         doc.render(80)
       }
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class KindMetaMismatch(meta: Type.TyMeta, inferred: Type.Tau, inferredKind: Kind, metaRegion: Region, inferredRegion: Region) extends TypeError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
 
@@ -226,29 +238,42 @@ object Infer {
 
         doc.render(80)
       }
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
+    }
+
+    case class KindCannotTyApply(ap: Type.TyApply, region: Region) extends TypeError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
+      def message = s"for type ${ap}, left kind is *, cannot apply at $region"
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class UnknownDefined(tpe: Type.Const.Defined, region: Region) extends TypeError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"${tStr(Type.TyConst(tpe))} ($region) is an unknown type"
       }
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type.Var.Skolem], reg: Region) extends TypeError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         val bads = badTvs.map(Type.TyVar(_))
         def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"type ${tStr(tpe)} not polymorphic enough in $in, bad type variables: ${bads.map(tStr).toList.mkString(", ")}, at $reg"
       }
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type.Var]) extends TypeError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = {
         val bads = badTvs.map(Type.TyVar(_))
         def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
         s"subsumption check failed: ${tStr(inferred)} ${tStr(declared)}, bad types: ${bads.map(tStr).toList.mkString(", ")}"
       }
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     /**
@@ -259,22 +284,30 @@ object Infer {
 
     // This could be a user error if we don't check scoping before typing
     case class VarNotInScope(varName: Name, vars: Map[Name, Type], region: Region) extends NameError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"$varName not in scope: ${vars.keys.toList.sorted}"
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     // This could be a user error if we don't check scoping before typing
     case class UnexpectedBound(v: Type.Var.Bound, in: Type, rb: Region, rt: Region) extends NameError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"unexpected bound ${v.name} at $rb in unification with $in at $rt"
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class UnknownConstructor(name: (PackageName, Constructor), region: Region, env: Env) extends NameError {
       def knownConstructors: List[(PackageName, Constructor)] = env.typeCons.keys.toList.sorted
 
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"unknown Constructor $name. Known: $knownConstructors"
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class UnionPatternBindMismatch(pattern: Pattern, names: List[List[Identifier.Bindable]]) extends NameError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"$pattern doesn't bind the same names in all union branches: $names"
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     /**
@@ -282,23 +315,27 @@ object Infer {
      */
     sealed abstract class InternalError extends Error
     case class UnexpectedMeta(m: Type.Meta, in: Type, left: Region, right: Region) extends InternalError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"meta $m at $left occurs in $in at $right and should not. This implies an infinite type."
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     // This is a logic error which should never happen
     case class InferIncomplete(method: String, term: Expr[_]) extends InternalError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"$method not complete for $term"
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
     case class ExpectedRho(tpe: Type, context: String) extends InternalError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"expected $tpe to be a Type.Rho, at $context"
-    }
-
-    case class KindCannotTyApply(ap: Type.TyApply, region: Region) extends InternalError {
-      def message = s"for type ${ap}, left kind is *, cannot apply at $region"
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
     case class UnknownKindOfVar(tpe: Type, region: Region, mess: String) extends InternalError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"unknown var in $tpe: $mess at $region"
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
   }
 
@@ -329,9 +366,20 @@ object Infer {
       def run(env: Env) =
         fa.run(env).resetOnLeft(Left[Either[Error, A], Nothing](_)).map {
           case Left(res) => Right(res)
+          // $COVERAGE-OFF$ this should be unreachable
           case Right(unreach) => unreach
+          // $COVERAGE-ON$ this should be unreachable
         }
     }
+    case class MapEither[A, B](fa: Infer[A], fn: A => Either[Error, B]) extends Infer[B] {
+      def run(env: Env) =
+        fa.run(env).flatMap {
+          case Left(msg) => RefSpace.pure(Left(msg))
+          case Right(a) => RefSpace.pure(fn(a))
+        }
+    }
+
+    // $COVERAGE-OFF$ needed for Monad, but not actually used
     case class TailRecM[A, B](init: A, fn: A => Infer[Either[A, B]]) extends Infer[B] {
       def run(env: Env) = {
         // RefSpace uses Eval so this is fine, if not maybe the fastest thing ever
@@ -344,25 +392,21 @@ object Infer {
         loop(init)
       }
     }
+    // $COVERAGE-ON$
 
     case object GetEnv extends Infer[Env] {
       def run(env: Env) = RefSpace.pure(Right(env))
     }
 
-    case class GetDataCons(fqn: (PackageName, Constructor), reg: Region) extends Infer[Cons] {
-      def run(env: Env) =
-        RefSpace.pure(
-          env.typeCons.get(fqn) match {
-            case None =>
-              Left(Error.UnknownConstructor(fqn, reg, env))
-            case Some(res) =>
-              Right(res)
-          })
-    }
-
-    case class GetKind(tpe: Type, region: Region) extends Infer[Kind] {
-      def run(env: Env) = RefSpace.pure(env.getKind(tpe, region))
-    }
+    def GetDataCons(fqn: (PackageName, Constructor), reg: Region): Infer[Cons] =
+      GetEnv.mapEither { env =>
+        env.typeCons.get(fqn) match {
+          case None =>
+            Left(Error.UnknownConstructor(fqn, reg, env))
+          case Some(res) =>
+            Right(res)
+        }
+      }
 
     case class ExtendEnvs[A](vt: List[(Name, Type)], in: Infer[A]) extends Infer[A] {
       def run(env: Env) = in.run(env.addVars(vt))
@@ -372,23 +416,25 @@ object Infer {
       def run(env: Env) = res
     }
 
-    case object NextId extends Infer[Long] {
-      def run(env: Env) =
-        for {
-          thisId <- env.uniq.get
-          _ <- env.uniq.set(thisId + 1L)
-        } yield Right(thisId)
-    }
-
-    def nextId: Infer[Long] = NextId
+    val nextId: Infer[Long] =
+      GetEnv.flatMap { env =>
+        Lift(
+          for {
+            thisId <- env.uniq.get
+            _ <- env.uniq.set(thisId + 1L)
+          } yield Right(thisId)
+        )
+      }
 
     def kindOf(t: Type, r: Region): Infer[Kind] =
-      GetKind(t, r)
+      GetEnv.mapEither { env =>
+        env.getKind(t, r)
+      }
 
     // on t[a] we know t: k -> *, what is the variance
     // in the arg a
     def varianceOfCons(ta: Type.TyApply, region: Region): Infer[Variance] =
-      GetKind(ta.on, region)
+      kindOf(ta.on, region)
         .flatMap(varianceOfConsKind(ta, _, region))
 
     def varianceOfConsKind(ta: Type.TyApply, k: Kind, region: Region): Infer[Variance] =
@@ -491,7 +537,9 @@ object Infer {
     def assertRho(t: Type, context: => String): Infer[Type.Rho] =
       t match {
         case r: Type.Rho => pure(r)
+        // $COVERAGE-OFF$ this should be unreachable
         case _ => fail(Error.ExpectedRho(t, context))
+        // $COVERAGE-ON$ this should be unreachable
       }
 
     /*
@@ -705,17 +753,17 @@ object Infer {
 
     def unify(t1: Type.Tau, t2: Type.Tau, r1: Region, r2: Region): Infer[Unit] =
       (t1, t2) match {
-        case (Type.TyVar(b@Type.Var.Bound(_)), _) =>
-          fail(Error.UnexpectedBound(b, t2, r1, r2))
-        case (_, Type.TyVar(b@Type.Var.Bound(_))) =>
-          fail(Error.UnexpectedBound(b, t1, r2, r1))
-        case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => unit
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (Type.TyMeta(m), tpe) => unifyVar(m, tpe, r1, r2)
         case (tpe, Type.TyMeta(m)) => unifyVar(m, tpe, r2, r1)
         case (Type.TyApply(a1, b1), Type.TyApply(a2, b2)) =>
           unifyType(a1, a2, r1, r2) *> unifyType(b1, b2, r1, r2)
         case (Type.TyConst(c1), Type.TyConst(c2)) if c1 == c2 => unit
+        case (Type.TyVar(v1), Type.TyVar(v2)) if v1 == v2 => unit
+        case (Type.TyVar(b@Type.Var.Bound(_)), _) =>
+          fail(Error.UnexpectedBound(b, t2, r1, r2))
+        case (_, Type.TyVar(b@Type.Var.Bound(_))) =>
+          fail(Error.UnexpectedBound(b, t1, r2, r1))
         case (left, right) =>
           fail(Error.NotUnifiable(left, right, r1, r2))
       }
@@ -725,16 +773,12 @@ object Infer {
      * direction
      */
     def unifyType(t1: Type, t2: Type, r1: Region, r2: Region): Infer[Unit] =
-      ((t1, t2) match {
+      (t1, t2) match {
         case (rho1: Type.Rho, rho2: Type.Rho) =>
           unify(rho1, rho2, r1, r2)
         case (t1, t2) =>
           subsCheck(t1, t2, r1, r2) *> subsCheck(t2, t1, r2, r1).void
-      }) *> (for {
-        k1 <- kindOf(t1, r1)
-        k2 <- kindOf(t2, r2)
-        _ <- unifyKind(k1, t1, k2, t2, r1, r2)
-      } yield ())
+      }
 
     /**
      * Allocate a new Meta variable which
