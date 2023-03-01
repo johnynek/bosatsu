@@ -73,7 +73,7 @@ object Referant {
 
   def typeConstructors[A, B](
     imps: List[Import[A, NonEmptyList[Referant[B]]]]):
-      Map[(PackageName, ConstructorName), (List[(Type.Var, B)], List[Type], Type.Const.Defined)] = {
+      Map[(PackageName, ConstructorName), (List[(Type.Var.Bound, B)], List[Type], Type.Const.Defined)] = {
     val refs: Iterator[Referant[B]] = imps.iterator.flatMap(_.items.toList.iterator.flatMap(_.tag.toList))
     refs.collect { case Constructor(dt, fn) =>
       ((dt.packageName, fn.name), (dt.annotatedTypeParams, fn.args.map(_._2), dt.toTypeConst))

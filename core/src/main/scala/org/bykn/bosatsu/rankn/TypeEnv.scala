@@ -110,7 +110,7 @@ class TypeEnv[+A] private (
       definedTypes = definedTypes,
       values = values.updated((pack, name), t))
 
-  lazy val typeConstructors: SortedMap[(PackageName, Constructor), (List[(Type.Var, A)], List[Type], Type.Const.Defined)] =
+  lazy val typeConstructors: SortedMap[(PackageName, Constructor), (List[(Type.Var.Bound, A)], List[Type], Type.Const.Defined)] =
     constructors.map { case (pc, (dt, cf)) =>
       (pc,
         (dt.annotatedTypeParams,

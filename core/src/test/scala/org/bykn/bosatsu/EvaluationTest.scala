@@ -2010,6 +2010,17 @@ ListWrapper2(_, _, r) = w
 
 tests = Assertion(r, "match with total list pattern")
 """), "A", 1)
+
+    runBosatsuTest(List("""package A
+
+struct ListWrapper(items: List[(a, b)], b: Bool)
+
+w = ListWrapper([], True)
+
+ListWrapper(_, r) = w
+
+tests = Assertion(r, "match with total list pattern")
+"""), "A", 1)
   }
 
   test("test scoping bug (issue #311)") {
@@ -2772,6 +2783,11 @@ Region(14,41)""")
 package SubsumeTest
 
 def lengths(l1: List[Int], l2: List[String], maybeFn: Option[forall tt. List[tt] -> Int]):
+  match maybeFn:
+    Some(fn): fn(l1).add(fn(l2))
+    None: 0
+
+def lengths2(l1: List[Int], l2: List[String], maybeFn: forall tt. Option[List[tt] -> Int]):
   match maybeFn:
     Some(fn): fn(l1).add(fn(l2))
     None: 0

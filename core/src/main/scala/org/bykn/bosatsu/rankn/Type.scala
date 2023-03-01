@@ -558,4 +558,5 @@ object Type {
    */
   def fullyResolvedParser: P[Type] = FullResolved.parser
   def fullyResolvedDocument: Document[Type] = FullResolved.document
+  def typeParser: TypeParser[Type] = FullResolved
 }

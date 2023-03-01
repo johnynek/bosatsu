@@ -73,7 +73,7 @@ object Infer {
    * the next are the types of the args of the constructor
    * the final is the defined type this creates
    */
-  type Cons = (List[(Type.Var, Kind.Arg)], List[Type], Type.Const.Defined)
+  type Cons = (List[(Type.Var.Bound, Kind.Arg)], List[Type], Type.Const.Defined)
   type Name = (Option[PackageName], Identifier)
 
   class Env(
@@ -885,11 +885,18 @@ object Infer {
           //
           // It feels like there should be another inference rule, which we
           // are missing here.
-
+          def debug(any: Any) = {
+            term match {
+              case Local(b: Bindable, _) if b.asString == "maybeFn" =>
+                println(s"$b == $any")
+              case _ => ()
+            }
+          }
           expect match {
             case Expected.Check((resT, _)) =>
               for {
                 tsigma <- inferSigma(term)
+                _ = debug(Type.typeParser.render(tsigma.getType))
                 tbranches <- branches.traverse { case (p, r) =>
                   // note, resT is in weak-prenex form, so this call is permitted
                   checkBranch(p, Expected.Check((tsigma.getType, region(term))), r, resT)
@@ -898,6 +905,7 @@ object Infer {
             case infer@Expected.Inf(_) =>
               for {
                 tsigma <- inferSigma(term)
+                _ = debug(Type.typeParser.render(tsigma.getType))
                 tbranches <- branches.traverse { case (p, r) =>
                   inferBranch(p, Expected.Check((tsigma.getType, region(term))), r)
                 }
@@ -1149,7 +1157,7 @@ object Infer {
     def instDataCon(consName: (PackageName, Constructor), sigma: Type, reg: Region, sigmaRegion: Region): Infer[List[Type]] =
       GetDataCons(consName, reg).flatMap { case (args, consParams, tpeName) =>
         val thisTpe = Type.TyConst(tpeName)
-        def loop(revArgs: List[(Type.Var, Kind.Arg)], leftKind: Kind, sigma: Type): Infer[Map[Type.Var, Type]] =
+        def loop(revArgs: List[(Type.Var.Bound, Kind.Arg)], leftKind: Kind, sigma: Type): Infer[Map[Type.Var, Type]] =
           (revArgs, sigma) match {
             case (Nil, tpe) =>
               for {
@@ -1182,36 +1190,52 @@ object Infer {
         // so we push the forall down to avoid allocating a metaVar which can only
         // hold a monotype
         def pushDownCovariant(
-          args: List[(Type.Var, Kind.Arg)],
+          revArgs: List[(Type.Var.Bound, Kind.Arg)],
           revForAlls: List[(Type.Var.Bound, Kind)],
           sigma: Type): Type = {
-          (args, sigma)  match {
+          (revArgs, sigma)  match {
             case (_, Type.ForAll(params, over)) =>
-              pushDownCovariant(args, params.toList reverse_::: revForAlls, over)
-            case ((_, Kind.Arg(Variance.Covariant, _)) :: rest,
-              Type.TyApply(left, rightArg @ Type.TyVar(arg: Type.Var.Bound))) =>
-                // TODO it seems like actually we want to partition:
-                // all the frees in the right side that don't appear in the
-                // left can be pushed down only on the right, where
-                // we can recurse
-                val leftFree = Type.freeBoundTyVars(left :: Nil)
-                revForAlls.collectFirst { case (leftA, k) if leftA == arg && !leftFree.contains(arg) => k } match {
-                  case Some(k) =>
-                    // it is safe to push it down
-                    val revFA1 = revForAlls.toList.filterNot(_._1 == arg)
-                    Type.TyApply(
-                      pushDownCovariant(rest, revFA1, left), 
-                      Type.ForAll(NonEmptyList((arg, k), Nil), rightArg))
-                  case None =>
-                    Type.forAll(revForAlls.reverse, sigma)
+              pushDownCovariant(revArgs, params.toList reverse_::: revForAlls, over)
+            case ((_, Kind.Arg(Variance.Covariant, _)) :: rest, Type.TyApply(left, right)) =>
+                // TODO Phantom variance has some special rules too. I guess we
+                // can push into phantom as well (though that's rare)
+                val leftFree = Type.freeBoundTyVars(left :: Nil).toSet
+                val rightFree = Type.freeBoundTyVars(right :: Nil).toSet
+                
+                val (nextRFA, nextRight) =
+                  revForAlls.filter { case (leftA, _) => rightFree(leftA) && !leftFree(leftA) } match {
+                    case Nil => (revForAlls, right)
+                    case pushed =>
+                      // it is safe to push it down
+                      val pushedSet = pushed.iterator.map(_._1).toSet
+                      val revFA1 = revForAlls.toList.filterNot { case (b, _) => pushedSet(b) }
+                      val pushedRight = Type.forAll(pushed.reverse, right)
+                      (revFA1, pushedRight)
+                  }
+                pushDownCovariant(rest, nextRFA, left) match {
+                  case Type.ForAll(bs, l) =>
+                    Type.forAll(bs, Type.TyApply(l, nextRight))
+                  case rho: Type.Rho =>
+                    Type.TyApply(rho, nextRight)
+                }
+            case (_ :: rest, Type.TyApply(left, right)) =>
+                val rightFree = Type.freeBoundTyVars(right :: Nil).toSet
+                val (keptRight, lefts) =
+                  revForAlls.partition { case (leftA, _) => rightFree(leftA) }
+
+                Type.forAll(keptRight.reverse, pushDownCovariant(rest, lefts, left)) match {
+                  case Type.ForAll(bs, l) =>
+                    Type.forAll(bs, Type.TyApply(l, right))
+                  case rho: Type.Rho =>
+                    Type.TyApply(rho, right)
                 }
             case _ =>
-              // TODO: this is only covering the most basic cases
-              // we could handle more cases, but should add tests to exercise them
               Type.forAll(revForAlls.reverse, sigma)
           }
         }
-        loop(args.reverse, Kind.Type, pushDownCovariant(args, Nil, sigma))
+        val revArgs = args.reverse
+        val pushedTpe = pushDownCovariant(revArgs, Nil, sigma)
+        loop(revArgs, Kind.Type, pushedTpe)
           .map { env =>
             consParams.map(Type.substituteVar(_, env))
           }
