@@ -449,6 +449,8 @@ object Infer {
         case Some(ty) =>
           Type.zonkRhoMeta(ty)(zonk(_)).flatMap { ty1 =>
             // short out multiple hops (I guess an optimization?)
+            // note: this meta was already written, so we know
+            // the kind must match
             writeMeta(m, ty1).as(Some(ty1))
           }
       }
@@ -667,7 +669,10 @@ object Infer {
           readMeta(m2).flatMap {
             case Some(ty2) => unify(Type.TyMeta(m), ty2, left, right)
             case None =>
-              if (Kind.leftSubsumesRight(m.kind, m2.kind)) writeMeta(m, ty2)
+              if (Kind.leftSubsumesRight(m.kind, m2.kind)) {
+                // we have to check that the kind matches before writing to a meta
+                writeMeta(m, ty2)
+              }
               else {
                 fail(Error.KindMetaMismatch(Type.TyMeta(m), meta2, m2.kind, left, right))
               }
@@ -680,7 +685,10 @@ object Infer {
               else {
                 kindOf(nonMeta, right)
                   .flatMap { nmk =>
-                    if (Kind.leftSubsumesRight(m.kind, nmk)) writeMeta(m, nonMeta)
+                    if (Kind.leftSubsumesRight(m.kind, nmk)) {
+                      // we have to check that the kind matches before writing to a meta
+                      writeMeta(m, nonMeta)
+                    }
                     else {
                       fail(Error.KindMetaMismatch(Type.TyMeta(m), nonMeta, nmk, left, right))
                     }
@@ -753,7 +761,7 @@ object Infer {
     /**
      * Set the meta variable to point to a Tau type
      */
-    def writeMeta(m: Type.Meta, v: Type.Tau): Infer[Unit] =
+    private def writeMeta(m: Type.Meta, v: Type.Tau): Infer[Unit] =
       lift(m.ref.set(Some(v)))
 
     // DEEP-SKOL rule
@@ -1290,7 +1298,10 @@ object Infer {
         expTy = rho.getType
         expTyRho <- assertRho(expTy, s"must be rho since $rho is a TypedExpr.Rho")
         envTys <- unifySelf(expTyRho)
-        q <- TypedExpr.quantify(envTys, rho, zonk(_), { (m, n) => writeMeta(m, Type.TyVar(n)) })
+        q <- TypedExpr.quantify(envTys, rho, zonk(_), { (m, n) =>
+          // quantify guarantees that the kind of n matches m
+          writeMeta(m, Type.TyVar(n))
+        })
       } yield q
     }
 

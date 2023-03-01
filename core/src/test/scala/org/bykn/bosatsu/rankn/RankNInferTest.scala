@@ -172,14 +172,13 @@ class RankNInferTest extends AnyFunSuite {
     // assertTypesUnify("(forall a. Int)[b]", "Int")
     assertTypesUnify("forall a, f: * -> *. f[a]", "forall x. List[x]")
     assertTypesUnify("forall a, f: +* -> *. f[a]", "forall x. List[x]")
-    // TODO: this should fail
-    assertTypesUnify("forall a, f: -* -> *. f[a]", "forall x. List[x]")
+    assertTypesDisjoint("forall a, f: -* -> *. f[a]", "forall x. List[x]")
     //assertTypesUnify("(forall a, b. a -> b)[x, y]", "z -> w")
 
     assertTypesDisjoint("Int", "String")
     assertTypesDisjoint("Int -> Unit", "String")
     assertTypesDisjoint("Int -> Unit", "String -> a")
-    //assertTypesDisjoint("forall a. Int", "Int") // the type on the left has * -> * but the right is *
+    assertTypesUnify("forall a. Int", "Int")
   }
 
   test("Basic inferences") {
