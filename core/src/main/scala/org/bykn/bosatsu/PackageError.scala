@@ -244,7 +244,7 @@ object PackageError {
             context
 
           doc.render(80)
-        case Infer.Error.KindSubsumptionCheckFailure(applied, leftK, rightK, region) =>
+        case Infer.Error.KindInvalidApply(applied, leftK, rightK, region) =>
           val leftT = applied.on
           val rightT = applied.arg
           val tmap = showTypes(pack, applied :: leftT :: rightT :: Nil)
@@ -256,6 +256,30 @@ object PackageError {
             Doc.text(s" but left cannot accept the kind of the right:") +
             Doc.hardLine +
             context
+
+          doc.render(80)
+        case Infer.Error.KindMetaMismatch(meta, rightT, rightK, metaR, rightR) =>
+          val tmap = showTypes(pack, meta :: rightT :: Nil)
+          val context0 =
+              lm.showRegion(metaR, 2, errColor).getOrElse(Doc.str(metaR)) // we should highlight the whole region
+          val context1 = {
+            if (metaR != rightR) {
+              Doc.text(" at: ") + Doc.hardLine +
+              lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR)) + // we should highlight the whole region
+              Doc.hardLine
+            }
+            else {
+              Doc.empty
+            }
+          }
+
+          val doc = Doc.text("kind error: ") + Doc.text("the type: ") + tmap(meta) +
+            Doc.text(" of kind: ") + Kind.toDoc(meta.toMeta.kind) + Doc.text(" at: ") + Doc.hardLine +
+            context0 + Doc.hardLine + Doc.hardLine +
+            Doc.text("cannot be unified with the type ") + tmap(rightT) +
+            Doc.text(" of kind: ") + Kind.toDoc(rightK) + context1 +
+            Doc.hardLine +
+            Doc.text("because the first kind does not subsume the second.")
 
           doc.render(80)
         case err => err.message

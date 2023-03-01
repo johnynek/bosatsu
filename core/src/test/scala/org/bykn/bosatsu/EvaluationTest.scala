@@ -2810,12 +2810,34 @@ struct Foo[t: (* -> *) -> *, a: (* -> *)](value: t[a])
 
 struct Id(a)
 # this code could run if we ignored kinds
+def makeFoo(v: Int): Foo(Id(v))
+
+""")) { case kie@PackageError.TypeErrorIn(_, _) =>
+      assert(kie.message(Map.empty, Colorize.None) ==
+      """in file: <unknown source>, package Foo, kind error: the type: ?1 of kind: * -> * at: 
+Region(183,188)
+
+cannot be unified with the type Bosatsu/Predef::Int of kind: *
+because the first kind does not subsume the second."""
+      )
+      ()
+    }
+
+    evalFail(List("""
+package Foo
+
+# this is an higher kinded apply
+struct Foo[t: (* -> *) -> *, a: (* -> *)](value: t[a])
+
+struct Id(a)
+# this code could run if we ignored kinds
 def makeFoo(v: Int) -> Foo[Id, Int]: Foo(Id(v))
 
 """)) { case kie@PackageError.TypeErrorIn(_, _) =>
       assert(kie.message(Map.empty, Colorize.None) ==
-        """in file: <unknown source>, package Foo, kind error: the type: Foo::Foo[Foo::Id] is invalid because the left Foo::Foo has kind ((* -> *) -> *) -> (* -> *) -> * and the right Foo::Id has kind +* -> * but left cannot accept the kind of the right:
-Region(195,205)""")
+      """in file: <unknown source>, package Foo, kind error: the type: Foo::Foo[Foo::Id] is invalid because the left Foo::Foo has kind ((* -> *) -> *) -> (* -> *) -> * and the right Foo::Id has kind +* -> * but left cannot accept the kind of the right:
+Region(195,205)"""
+      )
       ()
     }
  

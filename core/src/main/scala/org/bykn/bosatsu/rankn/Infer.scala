@@ -123,7 +123,7 @@ object Infer {
                             Error.KindCannotTyApply(ap, region)
                           }) { cons =>
                           { region =>
-                            Error.KindSubsumptionCheckFailure(ap, cons, rhs, region)
+                            Error.KindInvalidApply(ap, cons, rhs, region)
                           }
                         }
                     }
@@ -202,13 +202,27 @@ object Infer {
       }
     }
 
-    case class KindSubsumptionCheckFailure(typeApply: Type.TyApply, leftK: Kind.Cons, rightK: Kind, region: Region) extends TypeError {
+    case class KindInvalidApply(typeApply: Type.TyApply, leftK: Kind.Cons, rightK: Kind, region: Region) extends TypeError {
       def message = {
         def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
 
         val doc = Doc.text("invalid type apply: ") +
           tStr(typeApply) + Doc.text(": left side kind: ") + Kind.toDoc(leftK) + Doc.text(" cannot apply to right side kind: ") +
           Kind.toDoc(rightK)
+
+        doc.render(80)
+      }
+    }
+
+    case class KindMetaMismatch(meta: Type.TyMeta, inferred: Type.Tau, inferredKind: Kind, metaRegion: Region, inferredRegion: Region) extends TypeError {
+      def message = {
+        def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
+
+        val metaKind = meta.toMeta.kind
+        val doc = Doc.text("inferred kind mismatch: ") +
+          tStr(meta) + Doc.text(": left side kind: ") + Kind.toDoc(metaKind) + Doc.text(" does not subsume ") +
+          tStr(inferred) + Doc.text(": right side kind: ") +
+          Kind.toDoc(inferredKind)
 
         doc.render(80)
       }
@@ -625,7 +639,7 @@ object Infer {
     private def checkApply[A](apType: Type.TyApply, lKind: Kind, rKind: Kind, apRegion: Region)(next: Infer[A]): Infer[A] =
       Kind.validApply[Error](lKind, rKind,
         Error.KindCannotTyApply(apType, apRegion)) { cons =>
-          Error.KindSubsumptionCheckFailure(apType, cons, rKind, apRegion)
+          Error.KindInvalidApply(apType, cons, rKind, apRegion)
         } match {
           case Right(_) => next
           case Left(err) => fail(err)
@@ -649,17 +663,29 @@ object Infer {
     // invariant the flexible type variable tv1 is not bound
     def unifyUnboundVar(m: Type.Meta, ty2: Type.Tau, left: Region, right: Region): Infer[Unit] =
       ty2 match {
-        case Type.TyMeta(m2) =>
+        case meta2@Type.TyMeta(m2) =>
           readMeta(m2).flatMap {
             case Some(ty2) => unify(Type.TyMeta(m), ty2, left, right)
-            case None => writeMeta(m, ty2)
+            case None =>
+              if (Kind.leftSubsumesRight(m.kind, m2.kind)) writeMeta(m, ty2)
+              else {
+                fail(Error.KindMetaMismatch(Type.TyMeta(m), meta2, m2.kind, left, right))
+              }
           }
         case nonMeta =>
           zonkType(nonMeta)
             .flatMap { nm2 =>
               val tvs2 = Type.metaTvs(nm2 :: Nil)
               if (tvs2(m)) fail(Error.UnexpectedMeta(m, nonMeta, left, right))
-              else writeMeta(m, nonMeta)
+              else {
+                kindOf(nonMeta, right)
+                  .flatMap { nmk =>
+                    if (Kind.leftSubsumesRight(m.kind, nmk)) writeMeta(m, nonMeta)
+                    else {
+                      fail(Error.KindMetaMismatch(Type.TyMeta(m), nonMeta, nmk, left, right))
+                    }
+                  }
+                }
             }
       }
 
@@ -1375,11 +1401,11 @@ object Infer {
   def typeCheckLets[A: HasRegion](pack: PackageName, ls: List[(Bindable, RecursionKind, Expr[A])]): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] =
     ls match {
       case Nil => Infer.pure(Nil)
-      case (nm, rec, expr) :: tail =>
+      case (name, rec, expr) :: tail =>
         for {
-          te <- if (rec.isRecursive) recursiveTypeCheck(nm, expr) else typeCheck(expr)
-          rest <- extendEnvPack(pack, nm, te.getType)(typeCheckLets(pack, tail))
-        } yield (nm, rec, te) :: rest
+          te <- if (rec.isRecursive) recursiveTypeCheck(name, expr) else typeCheck(expr)
+          rest <- extendEnvPack(pack, name, te.getType)(typeCheckLets(pack, tail))
+        } yield (name, rec, te) :: rest
     }
 
   /**
