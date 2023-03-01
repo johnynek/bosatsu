@@ -1756,7 +1756,11 @@ equal_rows = equal_List(equal_RowEntry)
 
 ##################################################
 
-rs_empty = new_record_set.restructure(\_ -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), ps("Bool field".bool_field(\_ -> True), ps_end))))
+rs_empty = new_record_set.restructure(
+  \_ -> ps("String field".string_field(\_ -> ""),
+  ps("Int field".int_field(\_ -> 0),
+  ps("Bool field".bool_field(\_ -> True),
+  ps_end))))
 
 rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 

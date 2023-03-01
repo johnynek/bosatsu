@@ -99,11 +99,13 @@ object Type {
   final def forAll(vars: List[(Var.Bound, Kind)], in: Type): Type =
     NonEmptyList.fromList(vars) match {
       case None => in
-      case Some(ne) =>
-        in match {
-          case rho: Rho => Type.ForAll(ne, rho)
-          case Type.ForAll(ne1, rho) => Type.ForAll(ne ::: ne1, rho)
-        }
+      case Some(ne) => forAll(ne, in)
+    }
+
+  final def forAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Type): Type =
+    in match {
+      case rho: Rho => Type.ForAll(vars, rho)
+      case Type.ForAll(ne1, rho) => Type.ForAll(vars ::: ne1, rho)
     }
 
   implicit val typeEq: Eq[Type] =
@@ -500,7 +502,7 @@ object Type {
     def applyTypes(left: Type, args: NonEmptyList[Type]) = applyAll(left, args.toList)
 
     def universal(vs: NonEmptyList[(String, Option[Kind])], on: Type) =
-      Type.forAll(vs.toList.map {
+      Type.forAll(vs.map {
         case (s, None) => (Type.Var.Bound(s), Kind.Type)
         case (s, Some(k)) => (Type.Var.Bound(s), k)
       }, on) 

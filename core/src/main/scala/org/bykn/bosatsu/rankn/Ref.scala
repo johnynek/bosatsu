@@ -31,6 +31,9 @@ sealed abstract class RefSpace[+A] {
 
   def flatMap[B](fn: A => RefSpace[B]): RefSpace[B] =
     RefSpace.FlatMap(this, fn)
+
+  def resetOnLeft[B, C](fn: A => Either[B, C]): RefSpace[Either[B, C]] =
+    RefSpace.ResetOnLeft(this, fn)
 }
 
 object RefSpace {
@@ -77,6 +80,25 @@ object RefSpace {
         .flatMap { a =>
           fn(a).runState(al, state)
         }
+  }
+
+  private case class ResetOnLeft[A, B, C](init: RefSpace[A], fn: A => Either[B, C]) extends RefSpace[Either[B, C]] {
+    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[Either[B, C]] = {
+      val state0 = state.iterator.toMap
+      init.runState(al, state)
+        .map { a =>
+          fn(a) match {
+            case r@Right(_) => r
+            case l@Left(_) =>
+              // restore the state    
+              state.clear()
+              state ++= state0.iterator
+              l
+          }
+        }
+        .memoize
+      
+    }
   }
 
   def pure[A](a: A): RefSpace[A] = liftEval(Eval.now(a))
