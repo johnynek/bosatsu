@@ -113,19 +113,19 @@ object Infer {
               item match {
                 case Type.ForAll(bound, t) =>
                   loop(t, locals ++ bound.toList)
-                case Type.TyApply(left, right) =>
+                case ap@Type.TyApply(left, right) =>
                   loop(left, locals)
                     .product(loop(right, locals))
                     .flatMap {
-                      case (leftKind@Kind.Cons(Kind.Arg(_, lhs), res), rhs) =>
-                        if (Kind.leftSubsumesRight(lhs, rhs)) Right(res)
-                        else Left(
-                          { region => Error.KindSubsumptionCheckFailure(leftKind, left, rhs, right, region, region) }
-                        )
-                      case (Kind.Type, _) =>
-                        Left({ region =>
-                          Error.KindInvariantViolation(item, right, region, "expected (k1 -> k2), found * in getKind")
-                        })
+                      case (leftKind, rhs) =>
+                        Kind.validApply[Region => Error](leftKind, rhs,
+                          { region =>
+                            Error.KindCannotTyApply(ap, region)
+                          }) { cons =>
+                          { region =>
+                            Error.KindSubsumptionCheckFailure(ap, cons, rhs, region)
+                          }
+                        }
                     }
                 // $COVERAGE-OFF$ this should be unreachable because we handle Var above
                 case _ =>
@@ -202,13 +202,13 @@ object Infer {
       }
     }
 
-    case class KindSubsumptionCheckFailure(leftK: Kind, leftT: Type, rightK: Kind, rightT: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
+    case class KindSubsumptionCheckFailure(typeApply: Type.TyApply, leftK: Kind.Cons, rightK: Kind, region: Region) extends TypeError {
       def message = {
         def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
 
-        val doc = Doc.text("subkind error: ") +
-          tStr(leftT) + Doc.text(": ") + Kind.toDoc(leftK) + Doc.text(" does not subsume: ") +
-          tStr(rightT) + Doc.text(": ") + Kind.toDoc(rightK)
+        val doc = Doc.text("invalid type apply: ") +
+          tStr(typeApply) + Doc.text(": left side kind: ") + Kind.toDoc(leftK) + Doc.text(" cannot apply to right side kind: ") +
+          Kind.toDoc(rightK)
 
         doc.render(80)
       }
@@ -279,8 +279,8 @@ object Infer {
       def message = s"expected $tpe to be a Type.Rho, at $context"
     }
 
-    case class KindInvariantViolation(tpe: Type, right: Type, region: Region, mess: String) extends InternalError {
-      def message = s"for type ${Type.TyApply(tpe, right)}: $mess at $region"
+    case class KindCannotTyApply(ap: Type.TyApply, region: Region) extends InternalError {
+      def message = s"for type ${ap}, left kind is *, cannot apply at $region"
     }
 
     case class UnknownKindOfVar(tpe: Type, region: Region, mess: String) extends InternalError {
@@ -373,15 +373,15 @@ object Infer {
 
     // on t[a] we know t: k -> *, what is the variance
     // in the arg a
-    def varianceOfCons(t: Type, right: Type, region: Region): Infer[Variance] =
-      GetKind(t, region)
-        .flatMap(varianceOfConsKind(t, _, right, region))
+    def varianceOfCons(ta: Type.TyApply, region: Region): Infer[Variance] =
+      GetKind(ta.on, region)
+        .flatMap(varianceOfConsKind(ta, _, region))
 
-    def varianceOfConsKind(t: Type, k: Kind, right: Type, region: Region): Infer[Variance] =
+    def varianceOfConsKind(ta: Type.TyApply, k: Kind, region: Region): Infer[Variance] =
       k match {
         case Kind.Cons(Kind.Arg(v, _), _) => pure(v)
         case Kind.Type =>
-          fail(Error.KindInvariantViolation(t, right, region, s"expected k1 -> k2, but found *."))
+          fail(Error.KindCannotTyApply(ta, region))
       }
 
 
@@ -406,10 +406,10 @@ object Infer {
             sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty), region)
             (sks2, ty2) = sks2ty
           } yield (sks1.toList ::: sks2, ty2)
-        case Type.TyApply(left, right) =>
+        case ta@Type.TyApply(left, right) =>
           // Rule PRFUN
           // we know the kind of left is k -> x, and right has kind k
-          varianceOfCons(left, right, region)
+          varianceOfCons(ta, region)
             .product(skolemize(left, region))
             .flatMap {
               case (Variance.Covariant, (sksl, sl)) =>
@@ -546,13 +546,13 @@ object Infer {
             rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 471")
             coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
           } yield coerce
-        case (rho1, Type.TyApply(l2, r2)) =>
+        case (rho1, ta@Type.TyApply(l2, r2)) =>
           for {
             kl <- kindOf(l2, right) 
             kr <- kindOf(r2, right)
             l1r1 <- unifyTyApp(rho1, kl, kr, left, right)
             (l1, r1) = l1r1
-            _ <- varianceOfConsKind(l2, kl, r2, right).flatMap {
+            _ <- varianceOfConsKind(ta, kl, right).flatMap {
               case Variance.Covariant =>
                 subsCheck(r1, r2, left, right).void
               case Variance.Contravariant =>
@@ -572,7 +572,7 @@ object Infer {
             kr <- kindOf(r1, left)
             l2r2 <- unifyTyApp(rho2, kl, kr, left, right)
             (l2, r2) = l2r2
-            _ <- varianceOfConsKind(l1, kl, r1, left).flatMap {
+            _ <- varianceOfConsKind(ta, kl, left).flatMap {
               case Variance.Covariant =>
                 subsCheck(r1, r2, left, right).void
               case Variance.Contravariant =>
@@ -622,14 +622,27 @@ object Infer {
       if (Kind.leftSubsumesRight(kind1, kind2) || Kind.leftSubsumesRight(kind2, kind2)) unit
       else fail(Error.KindNotUnifiable(kind1, tpe1, kind2, tpe2, region1, region2))
 
+    private def checkApply[A](apType: Type.TyApply, lKind: Kind, rKind: Kind, apRegion: Region)(next: Infer[A]): Infer[A] =
+      Kind.validApply[Error](lKind, rKind,
+        Error.KindCannotTyApply(apType, apRegion)) { cons =>
+          Error.KindSubsumptionCheckFailure(apType, cons, rKind, apRegion)
+        } match {
+          case Right(_) => next
+          case Left(err) => fail(err)
+        }
+
     def unifyTyApp(apType: Type.Rho, lKind: Kind, rKind: Kind, apRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
       apType match {
-        case Type.TyApply(left, right) => pure((left, right))
+        case ap@Type.TyApply(left, right) =>
+          checkApply(ap, lKind, rKind, apRegion)(pure((left, right)))
         case notApply =>
           for {
             leftT <- newMetaType(lKind)
             rightT <- newMetaType(rKind)
-            _ <- unify(notApply, Type.TyApply(leftT, rightT), apRegion, evidenceRegion)
+            ap = Type.TyApply(leftT, rightT)
+            _ <- checkApply(ap, lKind, rKind, apRegion) {
+              unify(notApply, ap, apRegion, evidenceRegion)
+            }
           } yield (leftT, rightT)
       }
 

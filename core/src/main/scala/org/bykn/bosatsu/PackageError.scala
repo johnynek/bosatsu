@@ -5,7 +5,6 @@ import org.typelevel.paiges.{Doc, Document}
 
 import rankn._
 import LocationMap.Colorize
-import org.bykn.bosatsu.KindFormula.Error.Unsatisfiable
 
 sealed abstract class PackageError {
   def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize): String
@@ -236,30 +235,25 @@ object PackageError {
           val doc = Doc.text("unknown constructor ") + Doc.text(n.asString) +
             Doc.text(nearStr) + Doc.hardLine + context
           doc.render(80)
-        case Infer.Error.KindInvariantViolation(tpe, right, region, mess) =>
-          val applied = Type.TyApply(tpe, right)
+        case Infer.Error.KindCannotTyApply(applied, region) =>
           val tmap = showTypes(pack, applied :: Nil)
           val context =
             lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region)) // we should highlight the whole region
-          val doc = Doc.text("kind error: ") + Doc.text(mess) + Doc.text(" for type the left of ") +
-            tmap(applied) + Doc.hardLine +
+          val doc = Doc.text("kind error: for kind of the left of ") +
+            tmap(applied) + Doc.text(" is *. Cannot apply to kind *.") + Doc.hardLine +
             context
 
           doc.render(80)
-        case Infer.Error.KindSubsumptionCheckFailure(leftK, leftT, rightK, rightT, leftR, rightR) =>
-          val applied = Type.TyApply(leftT, rightT)
+        case Infer.Error.KindSubsumptionCheckFailure(applied, leftK, rightK, region) =>
+          val leftT = applied.on
+          val rightT = applied.arg
           val tmap = showTypes(pack, applied :: leftT :: rightT :: Nil)
           val context =
-            if (leftR == rightR)
-              lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR)) // we should highlight the whole region
-            else { 
-              lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR)) + Doc.hardLine + Doc.hardLine + // we should highlight the whole region
-                lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR))
-            }
+              lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
           val doc = Doc.text("kind error: ") + Doc.text("the type: ") + tmap(applied) +
             Doc.text(" is invalid because the left ") + tmap(leftT) + Doc.text(" has kind ") + Kind.toDoc(leftK) +
             Doc.text(" and the right ") + tmap(rightT) + Doc.text(" has kind ") + Kind.toDoc(rightK) +
-            Doc.text(s" but left does not subsume right:") +
+            Doc.text(s" but left cannot accept the kind of the right:") +
             Doc.hardLine +
             context
 
@@ -398,16 +392,17 @@ object PackageError {
   case class KindInferenceError(pack: PackageName, kindError: KindFormula.Error, regions: Map[Type.Const.Defined, Region]) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
       val (lm, sourceName) = getMapSrc(sourceMap, pack)
+      val prefix = Doc.text(s"in file: $sourceName, package ${pack.asString}")
       kindError match {
         case KindFormula.Error.Unsatisfiable(cons, solved, unknowns) => 
-          s"in package ${pack.asString}: KindError: $kindError"
+          (prefix + Doc.text(s": $kindError")).render(80)
         case KindFormula.Error.FromShapeError(se) =>
           se match {
             case Shape.UnificationError(dt, cons, left, right) =>
               val region = regions(dt.toTypeConst)
               val ctx = lm.showRegion(region, 2, errColor)
                 .getOrElse(Doc.str(region)) // we should highlight the whole region
-              (Doc.text("shape error: expected ") + Shape.shapeDoc(left) + Doc.text(" and ") + Shape.shapeDoc(right) +
+              (prefix + Doc.text(" shape error: expected ") + Shape.shapeDoc(left) + Doc.text(" and ") + Shape.shapeDoc(right) +
                 Doc.text(s" to match in the constructor ${cons.name.sourceCodeRepr}") + Doc.hardLine + Doc.hardLine +
                 ctx).render(80)
             case Shape.ShapeMismatch(dt, cons, outer, tyApp, right) =>
@@ -419,13 +414,13 @@ object PackageError {
                 if (outer != tyApp) (tmap(outer) + Doc.text(" at application ") + tmap(tyApp))
                 else tmap(outer)
 
-              (Doc.text("shape error: expected ") + Shape.shapeDoc(right) + Doc.text(" -> ?") + Doc.text(" but found * ") +
+              (prefix + Doc.text(" shape error: expected ") + Shape.shapeDoc(right) + Doc.text(" -> ?") + Doc.text(" but found * ") +
                 Doc.text(s"in the constructor ${cons.name.sourceCodeRepr} inside type ") +
                 typeDoc + 
                 Doc.hardLine + Doc.hardLine +
                 ctx).render(80)
             case _ =>
-              s"in package ${pack.asString}: KindError: $kindError"
+              (prefix + Doc.text(s": $kindError")).render(80)
           }
       }
     }
