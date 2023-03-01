@@ -30,7 +30,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
   lazy val getType: Type =
     this match {
       case Generic(params, expr) =>
-        Type.forAll(params.toList, expr.getType)
+        Type.forAll(params, expr.getType)
       case Annotation(_, tpe, _) =>
         tpe
       case AnnotatedLambda(_, tpe, res, _) =>

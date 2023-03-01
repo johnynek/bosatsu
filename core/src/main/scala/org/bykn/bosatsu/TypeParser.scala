@@ -115,6 +115,8 @@ abstract class TypeParser[A] {
     Doc.text(s"<nothing matched: $a>")
   }
 
+  def render(a: A): String = toDoc(a).renderTrim(80)
+
   final val document: Document[A] = Document.instance(toDoc(_))
 }
 

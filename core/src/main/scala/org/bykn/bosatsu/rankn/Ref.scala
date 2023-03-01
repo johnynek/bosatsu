@@ -22,20 +22,23 @@ sealed trait Ref[A] {
 
 sealed abstract class RefSpace[+A] {
   final def run: Eval[A] =
-    runState(new AtomicLong(0L), new MutableMap)
+    runState(new AtomicLong(0L), RefSpace.State.newEmpty())
 
-  protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[A]
+  protected def runState(al: AtomicLong, state: RefSpace.State): Eval[A]
 
   def map[B](fn: A => B): RefSpace[B] =
     RefSpace.Map(this, fn)
 
   def flatMap[B](fn: A => RefSpace[B]): RefSpace[B] =
     RefSpace.FlatMap(this, fn)
+
+  def resetOnLeft[B, C](fn: A => Either[B, C]): RefSpace[Either[B, C]] =
+    RefSpace.ResetOnLeft(this, fn)
 }
 
 object RefSpace {
   private case class Pure[A](value: Eval[A]) extends RefSpace[A] {
-    protected def runState(al: AtomicLong, state: MutableMap[Any]) =
+    protected def runState(al: AtomicLong, state: State) =
       value
   }
   private case class AllocRef[A](handle: Long, init: A) extends RefSpace[A] with Ref[A] {
@@ -43,7 +46,7 @@ object RefSpace {
     def set(a: A) = SetRef(handle, a)
     val reset = Reset(handle)
 
-    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[A] =
+    protected def runState(al: AtomicLong, state: State): Eval[A] =
       Eval.now {
         state.get(handle) match {
           case Some(res) =>
@@ -54,29 +57,86 @@ object RefSpace {
       }
   }
   private case class SetRef(handle: Long, value: Any) extends RefSpace[Unit] {
-    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[Unit] =
+    protected def runState(al: AtomicLong, state: State): Eval[Unit] =
       { state.put(handle, value); Eval.Unit }
   }
   private case class Reset(handle: Long) extends RefSpace[Unit] {
-    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[Unit] =
+    protected def runState(al: AtomicLong, state: State): Eval[Unit] =
       { state.remove(handle); Eval.Unit }
   }
   private case class Alloc[A](init: A) extends RefSpace[Ref[A]] {
-    protected def runState(al: AtomicLong, state: MutableMap[Any]) =
+    protected def runState(al: AtomicLong, state: State) =
       Eval.now(AllocRef(al.getAndIncrement, init))
   }
 
   private case class Map[A, B](init: RefSpace[A], fn: A => B) extends RefSpace[B] {
-    protected def runState(al: AtomicLong, state: MutableMap[Any]) =
+    protected def runState(al: AtomicLong, state: State) =
       Eval.defer(init.runState(al, state)).map(fn)
   }
 
   private case class FlatMap[A, B](init: RefSpace[A], fn: A => RefSpace[B]) extends RefSpace[B] {
-    protected def runState(al: AtomicLong, state: MutableMap[Any]): Eval[B] =
+    protected def runState(al: AtomicLong, state: State): Eval[B] =
       Eval.defer(init.runState(al, state))
         .flatMap { a =>
           fn(a).runState(al, state)
         }
+  }
+
+  sealed abstract class State {
+    def put(key: Long, value: Any): Unit
+    def get(key: Long): Option[Any]
+    def remove(key: Long): Unit
+  }
+  object State {
+    // just to bypass discard warning. I assume this is inlined
+    @inline private[this] def discard[A](a: A): Unit = ()
+
+    private[RefSpace] class FromMMap(map: MutableMap[Any]) extends State {
+      def put(key: Long, value: Any): Unit =
+        discard(map.put(key, value))
+      def get(key: Long): Option[Any] = map.get(key)
+      def remove(key: Long): Unit = 
+        discard(map.remove(key))
+    }
+
+    private[RefSpace] class Fork(under: State, over: MutableMap[Option[Any]]) extends State {
+      def put(key: Long, value: Any): Unit = discard(over.put(key, Some(value)))
+      def get(key: Long): Option[Any] =
+        over.get(key) match {
+          case Some(s) => s
+          case None => under.get(key)
+        }
+      def remove(key: Long): Unit = discard(over.put(key, None))
+
+      def flush(): Unit = {
+        over.foreach {
+          case (k, Some(v)) => under.put(k, v)
+          case (k, None) => under.remove(k)
+        }
+      }
+
+      def reset: State = under
+    }
+
+    def newEmpty(): State = new FromMMap(MutableMap.empty[Any])
+    def fork(state: State): Fork = new Fork(state, MutableMap.empty)
+  }
+
+  private case class ResetOnLeft[A, B, C](init: RefSpace[A], fn: A => Either[B, C]) extends RefSpace[Either[B, C]] {
+    protected def runState(al: AtomicLong, state: State): Eval[Either[B, C]] = {
+      val forked = State.fork(state)
+      init.runState(al, forked)
+        .map { a =>
+          fn(a) match {
+            case r@Right(_) =>
+              forked.flush()
+              r
+            case l@Left(_) =>
+              // just let the forked state disappear
+              l
+          }
+        }
+    }
   }
 
   def pure[A](a: A): RefSpace[A] = liftEval(Eval.now(a))

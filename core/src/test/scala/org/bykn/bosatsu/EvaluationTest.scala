@@ -1756,7 +1756,11 @@ equal_rows = equal_List(equal_RowEntry)
 
 ##################################################
 
-rs_empty = new_record_set.restructure(\_ -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), ps("Bool field".bool_field(\_ -> True), ps_end))))
+rs_empty = new_record_set.restructure(
+  \_ -> ps("String field".string_field(\_ -> ""),
+  ps("Int field".int_field(\_ -> 0),
+  ps("Bool field".bool_field(\_ -> True),
+  ps_end))))
 
 rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 
@@ -1992,6 +1996,28 @@ struct ListWrapper(items: List[a], b: Bool)
 w = ListWrapper([], True)
 
 ListWrapper([*_], r) = w
+
+tests = Assertion(r, "match with total list pattern")
+"""), "A", 1)
+
+    runBosatsuTest(List("""package A
+
+struct ListWrapper2(items: List[a], others: List[b], b: Bool)
+
+w = ListWrapper2([], [], True)
+
+ListWrapper2(_, _, r) = w
+
+tests = Assertion(r, "match with total list pattern")
+"""), "A", 1)
+
+    runBosatsuTest(List("""package A
+
+struct ListWrapper(items: List[(a, b)], b: Bool)
+
+w = ListWrapper([], True)
+
+ListWrapper(_, r) = w
 
 tests = Assertion(r, "match with total list pattern")
 """), "A", 1)
@@ -2750,5 +2776,28 @@ struct Foo[a: *](a: a[Int])
 Region(14,41)""")
       ()
     }
+  }
+
+  test("example from issue #264") {
+    runBosatsuTest("""
+package SubsumeTest
+
+def lengths(l1: List[Int], l2: List[String], maybeFn: Option[forall tt. List[tt] -> Int]):
+  match maybeFn:
+    Some(fn): fn(l1).add(fn(l2))
+    None: 0
+
+def lengths2(l1: List[Int], l2: List[String], maybeFn: forall tt. Option[List[tt] -> Int]):
+  match maybeFn:
+    Some(fn): fn(l1).add(fn(l2))
+    None: 0
+
+# this is a test that doesn't forget that we have the empty list:
+x = match []:
+      case []: 0
+      case [h, *_]: (h: forall a. a)
+
+test = Assertion(lengths([], [], None) matches 0, "test")
+    """ :: Nil, "SubsumeTest", 1)
   }
 }

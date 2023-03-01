@@ -3,6 +3,7 @@ package org.bykn.bosatsu.rankn
 import cats.Monad
 import cats.arrow.FunctionK
 import cats.data.NonEmptyList
+
 import cats.implicits._
 
 import org.bykn.bosatsu.{
@@ -18,6 +19,7 @@ import org.bykn.bosatsu.{
   Variance}
 
 import org.typelevel.paiges.Doc
+import scala.collection.mutable.{Map => MMap}
 
 import HasRegion.region
 
@@ -30,6 +32,10 @@ sealed abstract class Infer[+A] {
 
   final def flatMap[B](fn: A => Infer[B]): Infer[B] =
     Infer.Impl.FlatMap(this, fn)
+
+  // Run but don't change any state
+  def peek: Infer[Either[Error, A]] =
+    Infer.Impl.Peek(this)
 
   final def runVar(
     v: Map[Infer.Name, Type],
@@ -67,7 +73,7 @@ object Infer {
    * the next are the types of the args of the constructor
    * the final is the defined type this creates
    */
-  type Cons = (List[(Type.Var, Kind.Arg)], List[Type], Type.Const.Defined)
+  type Cons = (List[(Type.Var.Bound, Kind.Arg)], List[Type], Type.Const.Defined)
   type Name = (Option[PackageName], Identifier)
 
   class Env(
@@ -79,42 +85,57 @@ object Infer {
     def addVars(vt: List[(Name, Type)]): Env =
       new Env(uniq, vars = vars ++ vt, typeCons, variances)
 
+    private[this] val kindCache: MMap[(Type, Map[Type.Var.Bound, Kind]), Either[Region => Error, Kind]] =
+      MMap()
+
     def getKind(t: Type, region: Region): Either[Error, Kind] = {
-      def loop(item: Type, locals: Map[Type.Var.Bound, Kind]): Either[Error, Kind] =
+      def loop(item: Type, locals: Map[Type.Var.Bound, Kind]): Either[Region => Error, Kind] =
         item match {
-          case Type.ForAll(bound, t) =>
-            loop(t, locals ++ bound.toList)
+          case Type.TyVar(b @ Type.Var.Bound(_)) =>
+            // don't cache locals, there is no point
+            locals.get(b) match {
+              case Some(k) => Right(k)
+              case None => 
+                 Left({ region => Error.UnknownKindOfVar(t, region, s"unbound var: $b") })
+            }
+          case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
+          case Type.TyMeta(Type.Meta(kind, _, _)) => Right(kind)
           case Type.TyConst(const) =>
             val d = const.toDefined
             // some tests rely on syntax without importing
             // TODO remove this
             variances.get(d).orElse(Type.builtInKinds.get(d)) match {
               case Some(ks) => Right(ks)
-              case None => Left(Error.UnknownDefined(d, region))
+              case None => Left({region => Error.UnknownDefined(d, region) })
             }
-          case Type.TyApply(left, right) =>
-            loop(left, locals)
-              .product(loop(right, locals))
-              .flatMap {
-                case (Kind.Cons(Kind.Arg(_, lhs), res), rhs) =>
-                  if (Kind.leftSubsumesRight(lhs, rhs)) Right(res)
-                  else Left(
-                    Error.KindSubsumptionCheckFailure(lhs, left, rhs, right, region, region)
-                  )
-                case (Kind.Type, _) =>
-                  Left(Error.KindInvariantViolation(item, right, region, "expected (k1 -> k2), found * in getKind"))
+          case _ =>
+            kindCache.getOrElseUpdate((item, locals),
+              item match {
+                case Type.ForAll(bound, t) =>
+                  loop(t, locals ++ bound.toList)
+                case Type.TyApply(left, right) =>
+                  loop(left, locals)
+                    .product(loop(right, locals))
+                    .flatMap {
+                      case (leftKind@Kind.Cons(Kind.Arg(_, lhs), res), rhs) =>
+                        if (Kind.leftSubsumesRight(lhs, rhs)) Right(res)
+                        else Left(
+                          { region => Error.KindSubsumptionCheckFailure(leftKind, left, rhs, right, region, region) }
+                        )
+                      case (Kind.Type, _) =>
+                        Left({ region =>
+                          Error.KindInvariantViolation(item, right, region, "expected (k1 -> k2), found * in getKind")
+                        })
+                    }
+                // $COVERAGE-OFF$ this should be unreachable because we handle Var above
+                case _ =>
+                  sys.error(s"reached unreachble: $item")
+                // $COVERAGE-ON$
               }
-          case Type.TyVar(b @ Type.Var.Bound(_)) =>
-            locals.get(b) match {
-              case Some(k) => Right(k)
-              case None => 
-                Left(Error.UnknownKindOfVar(t, region, s"unbound var: $b"))
-            }
-          case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
-          case Type.TyMeta(Type.Meta(kind, _, _)) => Right(kind)
+            )
         }
 
-      loop(t, Map.empty)
+      loop(t, Map.empty).leftMap(_(region))
     }
   }
 
@@ -290,6 +311,13 @@ object Infer {
           case Right(a) => fn(a).run(env)
         }
     }
+    case class Peek[A](fa: Infer[A]) extends Infer[Either[Error, A]] {
+      def run(env: Env) =
+        fa.run(env).resetOnLeft(Left[Either[Error, A], Nothing](_)).map {
+          case Left(res) => Right(res)
+          case Right(unreach) => unreach
+        }
+    }
     case class TailRecM[A, B](init: A, fn: A => Infer[Either[A, B]]) extends Infer[B] {
       def run(env: Env) = {
         // RefSpace uses Eval so this is fine, if not maybe the fastest thing ever
@@ -454,12 +482,15 @@ object Infer {
      * Return a Rho type (not a Forall), by assigning
      * new meta variables for each of the outer ForAll variables
      */
-    def instantiate(t: Type): Infer[Type.Rho] =
+    def instantiate(t: Type, region: Region): Infer[Type.Rho] =
       t match {
-        case Type.ForAll(vars, ty) =>
+        case Type.ForAll(vars, rho) =>
+          // TODO: it may be possible to improve type checking
+          // by pushing foralls into covariant constructors
+          // but it's not trivial
           vars.traverse { case (_, k) => newMetaType(k) }
             .map { vars1T =>
-              substTyRho(vars.map(_._1), vars1T)(ty)
+              substTyRho(vars.map(_._1), vars1T)(rho)
             }
         case rho: Type.Rho => pure(rho)
       }
@@ -486,7 +517,7 @@ object Infer {
       (t, rho) match {
         case (fa@Type.ForAll(_, _), rho) =>
           // Rule SPEC
-          instantiate(fa).flatMap(subsCheckRho(_, rho, left, right))
+          instantiate(fa, left).flatMap(subsCheckRho(_, rho, left, right))
         case (rhot: Type.Rho, rho) =>
           subsCheckRho2(rhot, rho, left, right)
       }
@@ -570,7 +601,7 @@ object Infer {
           subsCheckRho(sigma, t, r, tr)
         case infer@Expected.Inf(_) =>
           for {
-            rho <- instantiate(sigma)
+            rho <- instantiate(sigma, r)
             _ <- infer.set((rho, r))
           } yield TypedExpr.coerceRho(rho)
       }
@@ -854,7 +885,6 @@ object Infer {
           //
           // It feels like there should be another inference rule, which we
           // are missing here.
-
           expect match {
             case Expected.Check((resT, _)) =>
               for {
@@ -870,25 +900,78 @@ object Infer {
                 tbranches <- branches.traverse { case (p, r) =>
                   inferBranch(p, Expected.Check((tsigma.getType, region(term))), r)
                 }
-                resT = tbranches.map { case (_, te) => (te.getType, region(te)) }
-                _ <- resT.flatMap { t0 => resT.map((t0, _)) }.traverse_ {
-                  case (t0, t1) if t0 eq t1 => Infer.unit
-                  // TODO
-                  // we do N^2 subsCheck, which to coerce with, composed?
-                  case ((t0, r0), (t1, r1)) => subsCheck(t0, t1, r0, r1)
-                }
-                // inferBranch returns TypedExpr.Rho, so this should be a rho type
-                resTRho <- assertRho(resT.head._1, s"infer on match ${tbranches.head}")
-                _ <- infer.set((resTRho, resT.head._2))
-              } yield TypedExpr.Match(tsigma, tbranches, tag)
+                (rho, regRho, resBranches) <- narrowBranches(tbranches)
+                _ <- infer.set((rho, regRho))
+              } yield TypedExpr.Match(tsigma, resBranches, tag)
           }
       }
+    }
+
+    def narrowBranches[A: HasRegion](branches: NonEmptyList[(Pattern, TypedExpr.Rho[A])]): Infer[(Type.Rho, Region, NonEmptyList[(Pattern, TypedExpr.Rho[A])])] = {
+
+      def minBy[M[_]: Monad, B](head: B, tail: List[B])(lteq: (B, B) => M[Boolean]): M[B] =
+        tail match {
+          case Nil => Monad[M].pure(head)
+          case h :: tail =>
+            lteq(head, h)
+              .flatMap { keep =>
+                val next = if (keep) head else h
+                minBy(next, tail)(lteq)
+              }
+            }
+
+      def ltEq[K](left: (TypedExpr[A], K), right: (TypedExpr[A], K)): Infer[Boolean] = {
+        val leftTE = left._1
+        val rightTE = right._1
+        val lt = leftTE.getType
+        val lr = region(leftTE)
+        val rt = rightTE.getType
+        val rr = region(rightTE)
+        // right <= left if left subsumes right
+        subsCheck(lt, rt, lr, rr)
+          .peek
+          .flatMap {
+            case Right(_) => pure(true)
+            case Left(_) =>
+              // maybe the other way around
+              subsCheck(rt, lt, rr, lr)
+                .peek
+                .flatMap {
+                  case Right(_) =>
+                    // okay, we see right > left
+                    pure(false)
+                  case Left(err) =>
+                    // this is a real unification error
+                    fail(err)
+                }
+          }
+      }
+
+      val withIdx = branches.zipWithIndex.map { case ((p, te), idx) => (te, (p, idx)) }
+
+      for {
+        (minRes, (minPat, minIdx)) <- minBy(withIdx.head, withIdx.tail)(ltEq(_, _))
+        resTpe = minRes.getType
+        // inferBranch returns TypedExpr.Rho, so this should be a rho type
+        resTRho <- assertRho(resTpe, s"infer on match $minRes")
+        resRegion = region(minRes)
+        resBranches <- withIdx.traverse { case (te, (p, idx)) =>
+          if (idx != minIdx) {
+            // unfortunately we have to check each branch again to get the correct coerce
+            subsCheck(resTRho, te.getType, resRegion, region(te))
+              .map { coerce =>
+                (p, coerce(te)) 
+              }
+          }
+          else pure((p, te))
+        }
+      } yield (resTRho, resRegion, resBranches)
     }
 
     /*
      * we require resT in weak prenex form because we call checkRho with it
      */
-    def checkBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A], resT: Type.Rho): Infer[(Pattern, TypedExpr[A])] =
+    def checkBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A], resT: Type.Rho): Infer[(Pattern, TypedExpr.Rho[A])] =
       for {
         patBind <- typeCheckPattern(p, sigma, region(res))
         (pattern, bindings) = patBind
@@ -973,10 +1056,24 @@ object Infer {
                   // This is a non-splice
                   checkPat(p, inner, reg).map { case (p, l) => (ListPart.Item(p), l) }
               }
+          val tpeOfList: Infer[Type] =
+            sigma.value match {
+              case (Type.TyApply(Type.ListType, item), _) =>
+                pure(item)
+              case (Type.ForAll(b@NonEmptyList(_, Nil), Type.TyApply(Type.ListType, item)), _) =>
+                // list is covariant so we can push down
+                pure(Type.forAll(b, item))
+              case (_, reg) =>
+                for {
+                  tpeA <- newMetaType(Kind.Type) // lists +* -> *
+                  listA = Type.TyApply(Type.ListType, tpeA)
+                  _ <- checkPatSigma(listA, sigma, reg)
+                } yield tpeA
+            }
+
           for {
-            tpeA <- newMetaType(Kind.Type) // lists +* -> *
+            tpeA <- tpeOfList
             listA = Type.TyApply(Type.ListType, tpeA)
-            _ <- instPatSigma(listA, sigma, reg)
             inners <- items.traverse(checkItem(tpeA, listA, _))
             innerPat = inners.map(_._1)
             innerBinds = inners.flatMap(_._2)
@@ -989,12 +1086,11 @@ object Infer {
           for {
             patBind <- checkPat(p, tpe, reg)
             (p1, binds) = patBind
-            _ <- instPatSigma(tpe, sigma, reg)
+            _ <- checkPatSigma(tpe, sigma, reg)
           } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
-            paramRes <- instDataCon(nm, reg)
-            (params, res) = paramRes
+            params <- instDataCon(nm, sigma.value._1, reg, sigma.value._2)
             // we need to do a pattern linting phase and probably error
             // if the pattern arity does not match the arity of the constructor
             // but we don't want to error type-checking since we want to show
@@ -1002,7 +1098,6 @@ object Infer {
             envs <- args.zip(params).traverse { case (p, t) => checkPat(p, t, reg) }
             pats = envs.map(_._1)
             bindings = envs.map(_._2)
-            _ <- instPatSigma(res, sigma, reg)
           } yield (GenPattern.PositionalStruct(nm, pats), bindings.flatten)
         case u@GenPattern.Union(h, t) =>
           (typeCheckPattern(h, sigma, reg), t.traverse(typeCheckPattern(_, sigma, reg)))
@@ -1039,9 +1134,9 @@ object Infer {
     def checkPat(pat: Pattern, sigma: Type, reg: Region): Infer[(Pattern, List[(Bindable, Type)])] =
       typeCheckPattern(pat, Expected.Check((sigma, reg)), reg)
 
-    def instPatSigma(sigma: Type, exp: Expected.Check[(Type, Region)], sRegion: Region): Infer[Unit] =
+    def checkPatSigma(tpe: Type, exp: Expected.Check[(Type, Region)], sRegion: Region): Infer[Unit] =
       exp match {
-        case Expected.Check((texp, tr)) => subsCheck(texp, sigma, tr, sRegion).void // this unit does not seem right
+        case Expected.Check((texp, tr)) => subsCheck(texp, tpe, tr, sRegion).void // this unit does not seem right
       }
 
     /**
@@ -1050,18 +1145,91 @@ object Infer {
      *
      * Instantiation fills in all
      */
-    def instDataCon(consName: (PackageName, Constructor), reg: Region): Infer[(List[Type], Type.Tau)] =
-      GetDataCons(consName, reg).flatMap {
-        case (Nil, consParams, tpeName) =>
-          Infer.pure((consParams, Type.TyConst(tpeName)))
-        case (v0 :: vs, consParams, tpeName) =>
-          val vars = NonEmptyList(v0, vs)
-          vars.traverse { case (_, kindArg) => newMetaType(kindArg.kind) }
-            .map { vars1T =>
-              val params1 = consParams.map(Type.substTy(vars.map(_._1), vars1T))
-              val res = vars1T.foldLeft(Type.TyConst(tpeName): Type.Tau)(Type.TyApply(_, _))
-              (params1, res)
-            }
+    def instDataCon(consName: (PackageName, Constructor), sigma: Type, reg: Region, sigmaRegion: Region): Infer[List[Type]] =
+      GetDataCons(consName, reg).flatMap { case (args, consParams, tpeName) =>
+        val thisTpe = Type.TyConst(tpeName)
+        def loop(revArgs: List[(Type.Var.Bound, Kind.Arg)], leftKind: Kind, sigma: Type): Infer[Map[Type.Var, Type]] =
+          (revArgs, sigma) match {
+            case (Nil, tpe) =>
+              for {
+                lk <- kindOf(tpe, sigmaRegion)
+                _ <- unifyKind(leftKind, thisTpe, lk, tpe, reg, sigmaRegion)
+                _ <- unifyType(thisTpe, tpe, reg, sigmaRegion)
+              } yield Map.empty
+            case ((v0, k) :: vs, Type.TyApply(left, right)) =>
+              for {
+                rk <- kindOf(right, sigmaRegion)
+                _ <- unifyKind(k.kind, Type.TyVar(v0), rk, right, reg, sigmaRegion)
+                rest <- loop(vs, Kind.Cons(k, leftKind), left)
+              } yield rest.updated(v0, right)
+            case (_, fa@Type.ForAll(_, _)) =>
+              // we have to instantiate a rho type
+              instantiate(fa, sigmaRegion).flatMap(loop(revArgs, leftKind, _))
+            case ((v0, k) :: rest, _) =>
+              // (k -> leftKind)(k)
+              for {
+                left <- newMetaType(Kind.Cons(k, leftKind))
+                right <- newMetaType(k.kind)
+                _ <- unifyType(Type.TyApply(left, right), sigma, reg, sigmaRegion)
+                sigmaKind <- kindOf(sigma, sigmaRegion)
+                _ <- unifyKind(leftKind, Type.TyVar(v0), sigmaKind, sigma, reg, sigmaRegion)
+                nextKind = Kind.Cons(k, leftKind)
+                rest <- loop(rest, nextKind, left)
+              } yield rest.updated(v0, right)
+          }
+        // for a covariant type, forall a. t[a] == t[forall a. a]
+        // so we push the forall down to avoid allocating a metaVar which can only
+        // hold a monotype
+        def pushDownCovariant(
+          revArgs: List[(Type.Var.Bound, Kind.Arg)],
+          revForAlls: List[(Type.Var.Bound, Kind)],
+          sigma: Type): Type = {
+          (revArgs, sigma)  match {
+            case (_, Type.ForAll(params, over)) =>
+              pushDownCovariant(revArgs, params.toList reverse_::: revForAlls, over)
+            case ((_, Kind.Arg(Variance.Covariant, _)) :: rest, Type.TyApply(left, right)) =>
+                // TODO Phantom variance has some special rules too. I guess we
+                // can push into phantom as well (though that's rare)
+                val leftFree = Type.freeBoundTyVars(left :: Nil).toSet
+                val rightFree = Type.freeBoundTyVars(right :: Nil).toSet
+                
+                val (nextRFA, nextRight) =
+                  revForAlls.filter { case (leftA, _) => rightFree(leftA) && !leftFree(leftA) } match {
+                    case Nil => (revForAlls, right)
+                    case pushed =>
+                      // it is safe to push it down
+                      val pushedSet = pushed.iterator.map(_._1).toSet
+                      val revFA1 = revForAlls.toList.filterNot { case (b, _) => pushedSet(b) }
+                      val pushedRight = Type.forAll(pushed.reverse, right)
+                      (revFA1, pushedRight)
+                  }
+                pushDownCovariant(rest, nextRFA, left) match {
+                  case Type.ForAll(bs, l) =>
+                    Type.forAll(bs, Type.TyApply(l, nextRight))
+                  case rho: Type.Rho =>
+                    Type.TyApply(rho, nextRight)
+                }
+            case (_ :: rest, Type.TyApply(left, right)) =>
+                val rightFree = Type.freeBoundTyVars(right :: Nil).toSet
+                val (keptRight, lefts) =
+                  revForAlls.partition { case (leftA, _) => rightFree(leftA) }
+
+                Type.forAll(keptRight.reverse, pushDownCovariant(rest, lefts, left)) match {
+                  case Type.ForAll(bs, l) =>
+                    Type.forAll(bs, Type.TyApply(l, right))
+                  case rho: Type.Rho =>
+                    Type.TyApply(rho, right)
+                }
+            case _ =>
+              Type.forAll(revForAlls.reverse, sigma)
+          }
+        }
+        val revArgs = args.reverse
+        val pushedTpe = pushDownCovariant(revArgs, Nil, sigma)
+        loop(revArgs, Kind.Type, pushedTpe)
+          .map { env =>
+            consParams.map(Type.substituteVar(_, env))
+          }
       }
 
     def inferSigma[A: HasRegion](e: Expr[A]): Infer[TypedExpr[A]] =
