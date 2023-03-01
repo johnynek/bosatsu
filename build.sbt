@@ -131,7 +131,11 @@ lazy val cli = (project in file("cli"))
      scalapb.gen() -> (Compile / sourceManaged).value
     ),
     PB.protocVersion := "3.19.1",
-    nativeImageOptions ++= Seq("--static", "--no-fallback", "--verbose", "--initialize-at-build-time"),
+    nativeImageOptions ++= {
+      val common = List("--no-fallback", "--verbose", "--initialize-at-build-time")
+      if (Option(System.getProperty("os.name")).exists(_.contains("Mac OS"))) common
+      else ("--static" :: common)
+    },
     nativeImageVersion := "22.3.0"
    )
   .dependsOn(coreJVM % "compile->compile;test->test")
