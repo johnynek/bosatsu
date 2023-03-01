@@ -885,18 +885,10 @@ object Infer {
           //
           // It feels like there should be another inference rule, which we
           // are missing here.
-          def debug(any: Any) = {
-            term match {
-              case Local(b: Bindable, _) if b.asString == "maybeFn" =>
-                println(s"$b == $any")
-              case _ => ()
-            }
-          }
           expect match {
             case Expected.Check((resT, _)) =>
               for {
                 tsigma <- inferSigma(term)
-                _ = debug(Type.typeParser.render(tsigma.getType))
                 tbranches <- branches.traverse { case (p, r) =>
                   // note, resT is in weak-prenex form, so this call is permitted
                   checkBranch(p, Expected.Check((tsigma.getType, region(term))), r, resT)
@@ -905,7 +897,6 @@ object Infer {
             case infer@Expected.Inf(_) =>
               for {
                 tsigma <- inferSigma(term)
-                _ = debug(Type.typeParser.render(tsigma.getType))
                 tbranches <- branches.traverse { case (p, r) =>
                   inferBranch(p, Expected.Check((tsigma.getType, region(term))), r)
                 }
