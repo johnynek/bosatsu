@@ -2776,6 +2776,11 @@ def lengths(l1: List[Int], l2: List[String], maybeFn: Option[forall tt. List[tt]
     Some(fn): fn(l1).add(fn(l2))
     None: 0
 
+# this is a test that doesn't forget that we have the empty list:
+x = match []:
+      case []: 0
+      case [h, *_]: (h: forall a. a)
+
 test = Assertion(lengths([], [], None) matches 0, "test")
     """ :: Nil, "SubsumeTest", 1)
   }
