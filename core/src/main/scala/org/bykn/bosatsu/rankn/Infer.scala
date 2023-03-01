@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.Monad
 import cats.arrow.FunctionK
-import cats.data.{Chain, NonEmptyChain, NonEmptyList}
+import cats.data.NonEmptyList
 
 import cats.implicits._
 
@@ -910,26 +910,16 @@ object Infer {
 
     def narrowBranches[A: HasRegion](branches: NonEmptyList[(Pattern, TypedExpr.Rho[A])]): Infer[(Type.Rho, Region, NonEmptyList[(Pattern, TypedExpr.Rho[A])])] = {
 
-      // we use Chain because it has O(1) ++ rather than O(N)
-      def qsort[M[_]: Monad, B](bs: Chain[B])(lteq: (B, B) => M[Boolean]): M[Chain[B]] =
-        bs.uncons match {
-          case None => Monad[M].pure(Chain.empty)
-          case Some((pivot, next)) =>
-            if (next.isEmpty) Monad[M].pure(Chain.one(pivot))
-            else
-              for {
-                withComp <- next.traverse { b => lteq(b, pivot).map((_, b)) }
-                lhs = withComp.collect { case (true, b) => b }
-                lhsSorted <- qsort(lhs)(lteq)
-                rhs = withComp.collect { case (false, b) => b }
-                rhsSorted <- qsort(rhs)(lteq)
-              } yield (lhsSorted ++ (pivot +: rhsSorted))
-        }
-
-      def qsort1[M[_]: Monad, B](bs: NonEmptyList[B])(lteq: (B, B) => M[Boolean]): M[NonEmptyList[B]] =
-        qsort(Chain.fromSeq(bs.toList))(lteq).map { c =>
-          NonEmptyList.fromListUnsafe(c.toList)
-        }
+      def minBy[M[_]: Monad, B](head: B, tail: List[B])(lteq: (B, B) => M[Boolean]): M[B] =
+        tail match {
+          case Nil => Monad[M].pure(head)
+          case h :: tail =>
+            lteq(head, h)
+              .flatMap { keep =>
+                val next = if (keep) head else h
+                minBy(next, tail)(lteq)
+              }
+            }
 
       def ltEq[K](left: (TypedExpr[A], K), right: (TypedExpr[A], K)): Infer[Boolean] = {
         val leftTE = left._1
@@ -961,20 +951,21 @@ object Infer {
       val withIdx = branches.zipWithIndex.map { case ((p, te), idx) => (te, (p, idx)) }
 
       for {
-        sorted <- qsort1(withIdx)(ltEq(_, _))
-        resTpe = sorted.head._1.getType
+        (minRes, (minPat, minIdx)) <- minBy(withIdx.head, withIdx.tail)(ltEq(_, _))
+        resTpe = minRes.getType
         // inferBranch returns TypedExpr.Rho, so this should be a rho type
-        resTRho <- assertRho(resTpe, s"infer on match ${sorted.head}")
-        resRegion = region(sorted.head._1)
-        tails <- sorted.tail.traverse { case (te, pidx) =>
-          // unfortunately we have to check each branch again to get the correct coerce
-          subsCheck(resTRho, te.getType, resRegion, region(te))
-            .map { coerce =>
-              (coerce(te), pidx) 
-            }
+        resTRho <- assertRho(resTpe, s"infer on match $minRes")
+        resRegion = region(minRes)
+        resBranches <- withIdx.traverse { case (te, (p, idx)) =>
+          if (idx != minIdx) {
+            // unfortunately we have to check each branch again to get the correct coerce
+            subsCheck(resTRho, te.getType, resRegion, region(te))
+              .map { coerce =>
+                (p, coerce(te)) 
+              }
+          }
+          else pure((p, te))
         }
-        inOrder = NonEmptyList(sorted.head, tails).sortBy { case (_, (_, idx)) => idx }
-        resBranches = inOrder.map { case (te, (p, _)) => (p, te) }
       } yield (resTRho, resRegion, resBranches)
     }
 
