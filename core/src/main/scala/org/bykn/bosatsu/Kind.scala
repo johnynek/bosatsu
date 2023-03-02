@@ -101,6 +101,14 @@ object Kind {
       case _ => false
     }
 
+  def validApply[A](left: Kind, right: Kind, onTypeErr: => A)(onSubsumeFail: Cons => A): Either[A, Kind] =
+    left match {
+      case cons@Cons(Kind.Arg(_, lhs), res) =>
+        if (leftSubsumesRight(lhs, right)) Right(res)
+        else Left(onSubsumeFail(cons))
+      case Kind.Type => Left(onTypeErr)
+    }
+
   private val varMap: Map[(Variance, Boolean), List[Variance]] = {
     import Variance._
     Map(

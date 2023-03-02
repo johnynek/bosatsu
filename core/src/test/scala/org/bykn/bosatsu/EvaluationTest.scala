@@ -2759,7 +2759,7 @@ package Foo
 struct Foo(a: f[a], b: f)
 """)) { case kie@PackageError.KindInferenceError(_, _, _) =>
       assert(kie.message(Map.empty, Colorize.None) ==
-        """shape error: expected kind(f) and * to match in the constructor Foo
+        """in file: <unknown source>, package Foo shape error: expected kind(f) and * to match in the constructor Foo
 
 Region(14,39)""")
       ()
@@ -2771,7 +2771,7 @@ package Foo
 struct Foo[a: *](a: a[Int])
 """)) { case kie@PackageError.KindInferenceError(_, _, _) =>
       assert(kie.message(Map.empty, Colorize.None) ==
-        """shape error: expected * -> ? but found * in the constructor Foo inside type a[Bosatsu/Predef::Int]
+        """in file: <unknown source>, package Foo shape error: expected * -> ? but found * in the constructor Foo inside type a[Bosatsu/Predef::Int]
 
 Region(14,41)""")
       ()
@@ -2799,5 +2799,47 @@ x = match []:
 
 test = Assertion(lengths([], [], None) matches 0, "test")
     """ :: Nil, "SubsumeTest", 1)
+  }
+
+  test("ill kinded code examples") {
+    evalFail(List("""
+package Foo
+
+# this is an higher kinded apply
+struct Foo[t: (* -> *) -> *, a: (* -> *)](value: t[a])
+
+struct Id(a)
+# this code could run if we ignored kinds
+def makeFoo(v: Int): Foo(Id(v))
+
+""")) { case kie@PackageError.TypeErrorIn(_, _) =>
+      assert(kie.message(Map.empty, Colorize.None) ==
+      """in file: <unknown source>, package Foo, kind error: the type: ?1 of kind: * -> * at: 
+Region(183,188)
+
+cannot be unified with the type Bosatsu/Predef::Int of kind: *
+because the first kind does not subsume the second."""
+      )
+      ()
+    }
+
+    evalFail(List("""
+package Foo
+
+# this is an higher kinded apply
+struct Foo[t: (* -> *) -> *, a: (* -> *)](value: t[a])
+
+struct Id(a)
+# this code could run if we ignored kinds
+def makeFoo(v: Int) -> Foo[Id, Int]: Foo(Id(v))
+
+""")) { case kie@PackageError.TypeErrorIn(_, _) =>
+      assert(kie.message(Map.empty, Colorize.None) ==
+      """in file: <unknown source>, package Foo, kind error: the type: Foo::Foo[Foo::Id] is invalid because the left Foo::Foo has kind ((* -> *) -> *) -> (* -> *) -> * and the right Foo::Id has kind +* -> * but left cannot accept the kind of the right:
+Region(195,205)"""
+      )
+      ()
+    }
+ 
   }
 }

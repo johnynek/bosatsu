@@ -184,7 +184,7 @@ object TestUtils {
     val parsedPaths = parsed match {
       case Validated.Valid(vs) => vs
       case Validated.Invalid(errs) =>
-        sys.error(errs.toString)
+        sys.error(s"parse fail: ${errs}")
     }
 
     // use parallelism to typecheck
