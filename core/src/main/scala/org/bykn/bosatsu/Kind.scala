@@ -96,8 +96,8 @@ object Kind {
         // since kind itself is contravariant in the argument to the function
         // we switch the order of the check in the a2 and a1
         ((v1 + v2) == v1) &&
-          leftSubsumesRight(a2, a1) &&
-          leftSubsumesRight(b1, b2)
+        leftSubsumesRight(a2, a1) &&
+        leftSubsumesRight(b1, b2)
       case _ => false
     }
 
@@ -141,14 +141,47 @@ object Kind {
   private def varsSize(v: Variance, sub: Boolean): Long =
     varMapSize((v, sub))
 
-  def sortMerge[A: Ordering](l1: LazyList[A], l2: LazyList[A]): LazyList[A] =
-    (l1, l2) match {
-      case (a #:: as, b #:: bs) =>
-        if (implicitly[Ordering[A]].lteq(a, b)) a #:: sortMerge(as, l2)
-        else b #:: sortMerge(l1, bs)
-      case _ =>
-        if (l1.isEmpty) l2 else l1
+  def sortMergeIt[A: Ordering](l1: Iterator[A], l2: Iterator[A]): Iterator[A] =
+    if (!l1.hasNext) l2
+    else if (!l2.hasNext) l1
+    else {
+      val b1 = l1.buffered
+      val b2 = l2.buffered
+      val ord = implicitly[Ordering[A]]
+      new Iterator[A] {
+        def hasNext = b1.hasNext | b2.hasNext
+        def next() = {
+          if (!b1.hasNext) b2.next()
+          else if (!b2.hasNext) b1.next()
+          else if (ord.lteq(b1.head, b2.head)) b1.next()
+          else b2.next()
+        }
+      }
     }
+
+  def sortMerge[A: Ordering](l1: LazyList[A], l2: LazyList[A]): LazyList[A] =
+    sortMergeIt(l1.iterator, l2.iterator).to(LazyList)
+
+  private def insertSortedIt[A: Ordering](
+      item: A,
+      as: Iterator[A]
+  ): Iterator[A] = {
+    val ord = implicitly[Ordering[A]]
+    val bas = as.buffered
+    new Iterator[A] {
+      var emitted = false
+      def hasNext = (!emitted) || bas.hasNext
+      def next() = {
+        if (emitted) bas.next()
+        else if (!bas.hasNext || ord.lteq(item, bas.head)) {
+          emitted = true
+          item
+        } else {
+          bas.next()
+        }
+      }
+    }
+  }
 
   // (0, 0), (0, 1), (1, 0), (0, 2), (1, 1), (2, 0), (0, 3), (1, 2), (2, 1), (3, 0), ...
   // returns all pairs such that the (idxLeft + idxRight) of the result is < len(items)
@@ -178,34 +211,48 @@ object Kind {
             v: Variance,
             as: LazyList[Kind],
             bs: LazyList[Kind]
-        ): LazyList[Kind] =
+        ): Iterator[Kind] =
           (as, bs) match {
             case (a0 #:: at, b0 #:: bt) =>
               val a0L = a0 #:: LazyList.empty
               val b0L = b0 #:: LazyList.empty
 
-              val head = Cons(Arg(v, a0), b0) #:: LazyList.empty
+              val head = Cons(Arg(v, a0), b0)
 
               val line1 = sortCombine(v, a0L, bt)
               val line2 = sortCombine(v, at, b0L)
 
               val rest = sortCombine(v, at, bt)
 
-              sortMerge(
-                sortMerge(line1, line2)(ord),
-                sortMerge(head, rest)(ord)
+              sortMergeIt(
+                sortMergeIt(line1, line2)(ord),
+                insertSortedIt(head, rest)(ord)
               )(ord)
             case _ =>
               // at least one is empty
-              LazyList.empty
+              Iterator.empty
           }
 
         val k1 = kinds(a, !sub, subOrder)
         val k2 = kinds(b, sub, subOrder)
-        val streams: List[LazyList[Kind]] =
+        val streams: List[Iterator[Kind]] =
           vars(v, sub).map(sortCombine(_, k1, k2))
 
-        streams.reduce(sortMerge(_, _)(ord))
+        // make a tree here to make the depth smaller
+        def reduce[A: Ordering](
+            len: Int,
+            list: List[Iterator[A]]
+        ): Iterator[A] =
+          if (len == 0) Iterator.empty
+          else if (len == 1) list.head
+          else {
+            val half = len / 2
+            val left = reduce(half, list.take(half))
+            val right = reduce(len - half, list.drop(half))
+            sortMergeIt(left, right)
+          }
+
+        reduce(streams.size, streams)(ord).to(LazyList)
     }
   // allSubKinds(k).forall(leftSubsumesRight(k, _))
   def allSubKinds(k: Kind): LazyList[Kind] =
