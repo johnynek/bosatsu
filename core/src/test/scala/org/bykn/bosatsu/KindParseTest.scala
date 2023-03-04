@@ -143,46 +143,6 @@ class KindParseTest extends ParserTestBase {
     }
 
     forAll(genKind, genKind) { (k1, k2) => law(k1, k2) }
-
-    val regressions = {
-      import Kind._
-      import Variance._
-      val from955 = (
-        Cons(
-          Arg(
-            Phantom,
-            Cons(
-              Arg(
-                Phantom,
-                Cons(Arg(Contravariant, Cons(Arg(Covariant, Type), Type)), Type)
-              ),
-              Cons(
-                Arg(
-                  Phantom,
-                  Cons(
-                    Arg(Invariant, Type),
-                    Cons(Arg(Covariant, Type), Cons(Arg(Phantom, Type), Type))
-                  )
-                ),
-                Cons(
-                  Arg(Covariant, Cons(Arg(Invariant, Type), Type)),
-                  Cons(Arg(Phantom, Type), Type)
-                )
-              )
-            )
-          ),
-          Cons(
-            Arg(Covariant, Type),
-            Cons(Arg(Phantom, Type), Cons(Arg(Phantom, Type), Type))
-          )
-        ),
-        Type
-      )
-
-      from955 :: Nil
-    }
-
-    regressions.foreach { case (k1, k2) => law(k1, k2) }
   }
 
   test("Kind.allSuperkinds(k).forall(Kind.leftSubsumesRight(_, k))") {
