@@ -101,45 +101,53 @@ object Kind {
       case _ => false
     }
 
-  private val varMap: Map[(Variance, Boolean), List[Variance]] = {
+  private val varSubMap: Map[Variance, List[Variance]] = {
     import Variance._
+    val pList = phantom :: Nil
+    val contraP = contra :: pList
     Map(
-      (in, true) ->
-        List(in, co, contra, phantom),
-      (in, false) ->
-        List(in),
-      (co, true) ->
-        List(co, phantom),
-      (co, false) ->
-        List(co, in),
-      (contra, true) ->
-        List(contra, phantom),
-      (contra, false) ->
-        List(contra, in),
-      (phantom, true) ->
-        List(phantom),
-      (phantom, false) ->
-        List(phantom, contra, co, in)
+      in -> (in :: co :: contraP),
+      co -> (co :: pList),
+      contra -> contraP,
+      phantom -> pList
+    )
+  }
+  private val varSupMap: Map[Variance, List[Variance]] = {
+    import Variance._
+    val iList = in :: Nil
+    val coI = co :: iList
+    Map(
+      in -> iList,
+      co -> coI,
+      contra -> (contra :: iList),
+      phantom -> (phantom :: contra :: coI)
     )
   }
   private def vars(v: Variance, sub: Boolean): List[Variance] =
-    varMap((v, sub))
+    if (sub) varSubMap(v) else varSupMap(v)
 
-  private val varMapSize: Map[(Variance, Boolean), Long] = {
+  private val varSubMapSize: Map[Variance, Long] = {
     import Variance._
     Map(
-      (in, true) -> 4L,
-      (in, false) -> 1L,
-      (co, true) -> 2L,
-      (co, false) -> 2L,
-      (contra, true) -> 2L,
-      (contra, false) -> 2L,
-      (phantom, true) -> 1L,
-      (phantom, false) -> 4L
+      in -> 4L,
+      co -> 2L,
+      contra -> 2L,
+      phantom -> 1L
     )
   }
+
+  private val varSupMapSize: Map[Variance, Long] = {
+    import Variance._
+    Map(
+      in -> 1L,
+      co -> 2L,
+      contra -> 2L,
+      phantom -> 4L
+    )
+  }
+
   private def varsSize(v: Variance, sub: Boolean): Long =
-    varMapSize((v, sub))
+    if (sub) varSubMapSize(v) else varSupMapSize(v)
 
   def sortMergeIt[A: Ordering](l1: Iterator[A], l2: Iterator[A]): Iterator[A] =
     if (!l1.hasNext) l2
@@ -196,17 +204,17 @@ object Kind {
     Ordering.by[Kind, Long](kindSize(_, true)).reverse
   private[this] val supOrder: Ordering[Kind] =
     Ordering.by[Kind, Long](kindSize(_, false)).reverse
-  private[this] def kindSizeOrder(sub: Boolean): Ordering[Kind] =
+  @inline private[this] def kindSizeOrder(sub: Boolean): Ordering[Kind] =
     if (sub) subOrder else supOrder
 
   private def kinds(
       k: Kind,
-      sub: Boolean,
-      ord: Ordering[Kind]
+      sub: Boolean
   ): LazyList[Kind] =
     k match {
       case Type => Type #:: LazyList.empty[Kind]
       case Cons(Arg(v, a), b) =>
+        val ord = kindSizeOrder(sub)
         def sortCombine(
             v: Variance,
             as: LazyList[Kind],
@@ -233,34 +241,23 @@ object Kind {
               Iterator.empty
           }
 
-        val k1 = kinds(a, !sub, subOrder)
-        val k2 = kinds(b, sub, subOrder)
-        val streams: List[Iterator[Kind]] =
-          vars(v, sub).map(sortCombine(_, k1, k2))
+        val k1 = kinds(a, !sub)
+        val k2 = kinds(b, sub)
 
-        // make a tree here to make the depth smaller
-        def reduce[A: Ordering](
-            len: Int,
-            list: List[Iterator[A]]
-        ): Iterator[A] =
-          if (len == 0) Iterator.empty
-          else if (len == 1) list.head
-          else {
-            val half = len / 2
-            val left = reduce(half, list.take(half))
-            val right = reduce(len - half, list.drop(half))
-            sortMergeIt(left, right)
-          }
-
-        reduce(streams.size, streams)(ord).to(LazyList)
+        vars(v, sub)
+          .map(sortCombine(_, k1, k2))
+          // there is at least one item in vars(v, sub) so reduce is safe
+          .reduce(sortMergeIt(_, _)(ord))
+          .to(LazyList)
     }
+
   // allSubKinds(k).forall(leftSubsumesRight(k, _))
   def allSubKinds(k: Kind): LazyList[Kind] =
-    kinds(k, true, kindSizeOrder(true))
+    kinds(k, true)
 
   // allSuperKinds(k).forall(leftSubsumesRight(_, k))
   def allSuperKinds(k: Kind): LazyList[Kind] =
-    kinds(k, false, kindSizeOrder(false))
+    kinds(k, false)
 
   private def kindSize(k: Kind, sub: Boolean): Long =
     k match {
