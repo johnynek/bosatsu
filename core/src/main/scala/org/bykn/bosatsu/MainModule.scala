@@ -92,7 +92,14 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
     case class TranspileOut(outs: List[(NonEmptyList[String], Doc)], base: Path) extends Output
   }
 
-  sealed abstract class MainCommand {
+  sealed abstract class MainException extends Exception {
+    def command: MainCommand
+  }
+  object MainException {
+    case class NoInputs(command: MainCommand) extends MainException
+  }
+
+  sealed abstract class MainCommand(val name: String) {
     type Result <: Output
     def run: IO[Result]
   }
@@ -532,7 +539,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       generator: Transpiler,
       outDir: Path,
       exts: List[Path],
-      evals: List[Path]) extends MainCommand {
+      evals: List[Path]) extends MainCommand("transpile") {
 
       //case class TranspileOut(outs: Map[PackageName, (List[String], Doc)], base: Path) extends Output
       type Result = Output.TranspileOut
@@ -556,7 +563,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       mainPackage: MainIdentifier,
       deps: PathGen,
       errColor: Colorize,
-      packRes: PackageResolver) extends MainCommand {
+      packRes: PackageResolver) extends MainCommand("eval") {
 
       type Result = Output.EvaluationResult
 
@@ -612,7 +619,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       mainPackage: MainIdentifier,
       outputOpt: Option[Path],
       errColor: Colorize,
-      packRes: PackageResolver) extends MainCommand {
+      packRes: PackageResolver) extends MainCommand("json") {
 
       type Result = Output.JsonOutput
 
@@ -723,18 +730,27 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       output: Option[Path],
       ifout: Option[Path],
       errColor: Colorize,
-      packRes: PackageResolver) extends MainCommand {
+      packRes: PackageResolver) extends MainCommand("type-check") {
 
     type Result = Output.CompileOut
+
+    def inNel: IO[NonEmptyList[Path]] =
+      inputs
+        .read
+        .flatMap { ins =>
+          NonEmptyList.fromList(ins) match {
+            case Some(nel) => moduleIOMonad.pure(nel)
+            case None => moduleIOMonad.raiseError(MainException.NoInputs(this))
+          }
+        }
 
     def run =
       withEC { implicit ec =>
         for {
-          ins <- inputs.read
           ifpaths <- ifaces.read
           ifs <- readInterfaces(ifpaths)
-          ins1 <- NonEmptyList.fromList(ins).fold(moduleIOMonad.raiseError[NonEmptyList[Path]](new Exception("no source files found")))(moduleIOMonad.pure(_))
-          packPath <- typeCheck(ins1, ifs, errColor, packRes)
+          ins <- inNel
+          packPath <- typeCheck(ins, ifs, errColor, packRes)
           packs = packPath._1
           packList =
               packs.toMap
@@ -754,7 +770,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
       testPacks: List[MainIdentifier],
       dependencies: PathGen,
       errColor: Colorize,
-      packRes: PackageResolver) extends MainCommand {
+      packRes: PackageResolver) extends MainCommand("test") {
 
       type Result = Output.TestOutput
 
@@ -764,7 +780,7 @@ abstract class MainModule[IO[_]](implicit val moduleIOMonad: MonadError[IO, Thro
           .flatMap { case (testPaths, dependencies) =>
             val tests1 = MainIdentifier.addAnyAbsent(testPacks, testPaths)
               if (tests1.isEmpty && dependencies.isEmpty) {
-                moduleIOMonad.raiseError(new Exception("no test sources or test dependencies"))
+                moduleIOMonad.raiseError(MainException.NoInputs(this))
               }
               else {
                 val typeChecked = buildPackMap(tests1, dependencies, errColor, packRes)
