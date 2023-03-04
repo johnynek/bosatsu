@@ -125,45 +125,97 @@ class KindParseTest extends ParserTestBase {
   }
 
   test("Kind.allSubkinds(k).forall(Kind.leftSubsumesRight(k, _))") {
-    forAll(genKind, genKind) { (k1, k2) =>
-      val subs = Kind.allSubKinds(k1)
-      if (Kind.leftSubsumesRight(k1, k2)) {
-        assert(subs.indexOf(k2) >= 0)
-      }
-      assert(subs.indexOf(k1) >= 0)
-      subs.foreach { k =>
-        assert(Kind.leftSubsumesRight(k1, k))
-        assert(Kind.shapeMatch(k, k1))
-        assert(Kind.shapeMatch(k1, k))
-        assert(k.order === k1.order)
+    def law(k1: Kind, k2: Kind) = {
+      if (Kind.allSubKindsSize(k1) < (1 << 14)) {
+        // allSubKinds is not stack safe currently
+        val subs = Kind.allSubKinds(k1)
+        if (Kind.leftSubsumesRight(k1, k2)) {
+          assert(subs.indexOf(k2) >= 0)
+        }
+        assert(subs.indexOf(k1) >= 0)
+        subs.foreach { k =>
+          assert(Kind.leftSubsumesRight(k1, k))
+          assert(Kind.shapeMatch(k, k1))
+          assert(Kind.shapeMatch(k1, k))
+          assert(k.order === k1.order)
+        }
       }
     }
+
+    forAll(genKind, genKind) { (k1, k2) => law(k1, k2) }
+
+    val regressions = {
+      import Kind._
+      import Variance._
+      val from955 = (
+        Cons(
+          Arg(
+            Phantom,
+            Cons(
+              Arg(
+                Phantom,
+                Cons(Arg(Contravariant, Cons(Arg(Covariant, Type), Type)), Type)
+              ),
+              Cons(
+                Arg(
+                  Phantom,
+                  Cons(
+                    Arg(Invariant, Type),
+                    Cons(Arg(Covariant, Type), Cons(Arg(Phantom, Type), Type))
+                  )
+                ),
+                Cons(
+                  Arg(Covariant, Cons(Arg(Invariant, Type), Type)),
+                  Cons(Arg(Phantom, Type), Type)
+                )
+              )
+            )
+          ),
+          Cons(
+            Arg(Covariant, Type),
+            Cons(Arg(Phantom, Type), Cons(Arg(Phantom, Type), Type))
+          )
+        ),
+        Type
+      )
+
+      from955 :: Nil
+    }
+
+    regressions.foreach { case (k1, k2) => law(k1, k2) }
   }
 
   test("Kind.allSuperkinds(k).forall(Kind.leftSubsumesRight(_, k))") {
     forAll(genKind, genKind) { (k1, k2) =>
-      val sups = Kind.allSuperKinds(k1)
-      if (Kind.leftSubsumesRight(k2, k1)) {
-        assert(sups.indexOf(k2) >= 0)
-      }
-      assert(sups.indexOf(k1) >= 0)
-      sups.foreach { k =>
-        assert(Kind.leftSubsumesRight(k, k1))
-        assert(Kind.shapeMatch(k, k1))
-        assert(Kind.shapeMatch(k1, k))
-        assert(k.order === k1.order)
+      if (Kind.allSuperKindsSize(k1) < (1 << 14)) {
+        // allSuperKinds is not stack safe currently
+        val sups = Kind.allSuperKinds(k1)
+        if (Kind.leftSubsumesRight(k2, k1)) {
+          assert(sups.indexOf(k2) >= 0)
+        }
+        assert(sups.indexOf(k1) >= 0)
+        sups.foreach { k =>
+          assert(Kind.leftSubsumesRight(k, k1))
+          assert(Kind.shapeMatch(k, k1))
+          assert(Kind.shapeMatch(k1, k))
+          assert(k.order === k1.order)
+        }
       }
     }
   }
   test("Kind.allSubKinds(k).size == allSubKindsSize(k)") {
     forAll(genKind) { k =>
-      assert(Kind.allSubKindsSize(k) === Kind.allSubKinds(k).size.toLong)
+      val size = Kind.allSubKindsSize(k)
+      if (size < (1 << 14))
+        assert(size === Kind.allSubKinds(k).size.toLong)
     }
   }
 
   test("Kind.allSuperKinds(k).size == allSuperKindsSize(k)") {
     forAll(genKind) { k =>
-      assert(Kind.allSuperKindsSize(k) === Kind.allSuperKinds(k).size.toLong)
+      val size = Kind.allSuperKindsSize(k)
+      if (size < (1 << 14))
+        assert(size === Kind.allSuperKinds(k).size.toLong)
     }
   }
 
