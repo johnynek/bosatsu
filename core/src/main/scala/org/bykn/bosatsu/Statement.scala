@@ -139,13 +139,20 @@ object Statement {
 
   // Parse a single item
   final val parser1: P[Statement] = {
+    import Declaration.NonBinding  
 
+    val bindingLike: Indy[(Pattern.Parsed, OptIndent[NonBinding])] = {
+      val pat = Pattern.bindParser
+      val patPart = pat <* (maybeSpace *> Declaration.eqP *> maybeSpace)
+
+      // allow = to be like a block, we can continue on the next line indented
+      OptIndent.blockLike(Indy.lift(patPart), Declaration.nonBindingParser, P.unit)
+    }
      val bindingP: P[Statement] =
-       (Declaration
-         .bindingLike(Pattern.bindParser, Declaration.nonBindingParser, Declaration.eqP, cutPattern = true)("") <* toEOL)
+       (bindingLike("") <* toEOL)
          .region
-         .map { case (region, (pat, _, _, value)) =>
-            Bind(BindingStatement(pat, value, ()))(region)
+         .map { case (region, (pat, value)) =>
+            Bind(BindingStatement(pat, value.get, ()))(region)
          }
 
      val paddingSP: P[Statement] =

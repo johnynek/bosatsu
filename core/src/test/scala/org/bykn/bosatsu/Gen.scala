@@ -55,7 +55,7 @@ object Generators {
         multiGen = Gen.oneOf(Operators.multiToks)
         ms <- Gen.listOfN(c, multiGen)
         asStr = ms.mkString
-        res <- (if (asStr != "<-") Gen.const(Identifier.Operator(asStr)) else multi)
+        res <- (if ((asStr != "<-") && (asStr != "->")) Gen.const(Identifier.Operator(asStr)) else multi)
       } yield res
 
     Gen.frequency((4, sing), (1, multi))

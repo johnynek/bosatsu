@@ -69,7 +69,7 @@ object Operators {
     val singles = from(singleToks)
 
     // write this in a way to avoid backtracking
-    (((P.string("<-") | P.char('=')) ~ multiToksP.rep).void |
+    (((P.string("<-") | P.char('=') | P.string("->")) ~ multiToksP.rep).void |
       (singles ~ multiToksP.rep0).void |
       multiToksP.rep(min = 2).void)
       .string

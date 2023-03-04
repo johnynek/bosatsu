@@ -824,20 +824,11 @@ object Declaration {
       case _ => None
     }
 
-  def bindingLike[B, S](pat: P[B], parser: Indy[NonBinding], sym: P[S], cutPattern: Boolean): Indy[(B, Region, S, NonBinding)] = {
-    val patPart = pat.region ~ (maybeSpace *> sym <* maybeSpace)
-    val cutOrNot = if (cutPattern) patPart else patPart.backtrack
-
-    // allow = to be like a block, we can continue on the next line indented
-    OptIndent.blockLike(Indy.lift(cutOrNot), parser, P.unit)
-      .map { case (((reg, pat), s), value) =>
-        (pat, reg, s, value.get)
-      }
-  }
-
   val eqP: P[Unit] = P.char('=') <* (!Operators.multiToksP)
   val leftApplyFnP: P[Unit] = P.string("<-") <* (!Operators.multiToksP)
-  val bindOp: P[Unit] = eqP | leftApplyFnP
+  val rightArrow: P[Unit] = P.string("->") <* (!Operators.multiToksP)
+
+  def bindOp: P[PatternBindKind] = PatternBindKind.parser
 
   private def restP(parser: Indy[Declaration]): Indy[Padding[Declaration]] =
     parser.indentBefore.mapF(Padding.parser(_))
@@ -935,9 +926,33 @@ object Declaration {
   def lambdaP(parser: Indy[Declaration]): Indy[Lambda] = {
     val params = Indy.lift(P.char('\\') *> maybeSpace *> Pattern.bindParser.nonEmptyList)
 
-    OptIndent.blockLike(params, parser, maybeSpace.with1 *> P.string("->"))
+    val withSlash = OptIndent.blockLike(params, parser, maybeSpace.with1 *> rightArrow)
       .region
       .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
+
+    val noSlashParamsArrow =
+      // patterns are ambiguous with expressions wo se need backtracking
+      MaybeTupleOrParens.parser(Pattern.bindParser) <* (maybeSpace *> ((!Operators.operatorToken) *> rightArrow))
+      
+    val noSlash = OptIndent.blockLike(Indy.lift(noSlashParamsArrow.backtrack), parser, P.unit)
+      .region
+      .map { case (r, (rawPat, body)) =>
+        val args = rawPat match {
+          case MaybeTupleOrParens.Bare(b) =>
+            NonEmptyList(b, Nil)
+          case MaybeTupleOrParens.Parens(p) =>
+            NonEmptyList(p, Nil)
+          case MaybeTupleOrParens.Tuple(Nil) =>
+            // consider this the same as the pattern ()
+            NonEmptyList(Pattern.tuple(Nil), Nil) 
+          case MaybeTupleOrParens.Tuple(h :: tail) =>
+            // we consider a top level non-empty tuple to be a list:
+            NonEmptyList(h, tail)
+        }
+        Lambda(args, body.get)(r)
+      }
+
+    withSlash <+> noSlash
   }
 
   def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
@@ -1002,6 +1017,7 @@ object Declaration {
 
   sealed abstract class PatternBindKind
   object PatternBindKind {
+
     case object Equals extends PatternBindKind
     case object LeftApplyFn extends PatternBindKind
     
@@ -1010,19 +1026,24 @@ object Declaration {
   }
 
   private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] = {
+    val pat = MaybeTupleOrParens.parser(Pattern.bindParser)
+    val patPart = pat.region ~ (maybeSpace *> PatternBindKind.parser <* maybeSpace)
+    val parser = nonBindingParser <* Indy.lift(toEOL1)
     // we can't cut the pattern here because we have some ambiguity in declarations
-    bindingLike(MaybeTupleOrParens.parser(Pattern.bindParser), nonBindingParser <* Indy.lift(toEOL1), PatternBindKind.parser, cutPattern = false)
+    // allow = to be like a block, we can continue on the next line indented
+    OptIndent.blockLike(Indy.lift(patPart.backtrack), parser, P.unit)
       .cutThen(restP(decl))
       .region
-      .map { case (region, ((rawPat, preg, pbk, value), decl)) =>
+      .map { case (region, ((((preg, rawPat), pbk), value), decl)) =>
         pbk match {
           case PatternBindKind.Equals =>
             // TODO: we should keep the pattern region
             val pat = Pattern.fromMaybeTupleOrParens(rawPat)
-            Binding(BindingStatement(pat, value, decl))(region)
+            Binding(BindingStatement(pat, value.get, decl))(region)
           case PatternBindKind.LeftApplyFn =>
             val pat = Pattern.fromMaybeTupleOrParens(rawPat)
-            LeftApply(pat, preg, value, decl)
+            LeftApply(pat, preg, value.get, decl)
+            
         }
       }
   }

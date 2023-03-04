@@ -498,7 +498,7 @@ class ParserTest extends ParserTestBase {
     val allLen3 = (allLen2, withEq).mapN(_ + _)
 
     (singleToks ::: allLen2 ::: allLen3).foreach { opStr =>
-      if (opStr != "<-") {
+      if ((opStr != "<-") && (opStr != "->")) {
         roundTrip(Operators.operatorToken, opStr)
       }
     }
@@ -636,6 +636,11 @@ x""")
 
     parseTestAll(parser(""),
       "((\\x -> x)(f))",
+      Parens(Apply(Parens(Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x"))), NonEmptyList.of(mkVar("f")), AParens)))
+
+    // bare lambda
+    parseTestAll(parser(""),
+      "((x -> x)(f))",
       Parens(Apply(Parens(Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x"))), NonEmptyList.of(mkVar("f")), AParens)))
 
     val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x")))), NonEmptyList.of(mkVar("f")), AParens)
