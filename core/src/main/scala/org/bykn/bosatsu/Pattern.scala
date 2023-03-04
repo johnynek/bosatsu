@@ -981,6 +981,12 @@ object Pattern {
   def tuple(args: List[Parsed]): Parsed =
     PositionalStruct(StructKind.Tuple, args)
 
+  def isNonUnitTuple(arg: Parsed): Boolean =
+    arg match {
+      case PositionalStruct(StructKind.Tuple, args) => args.nonEmpty
+      case _ => false
+    }
+
   def fromTupleOrParens(e: Either[Parsed, List[Parsed]]): Parsed =
     e match {
       case Right(tup) => tuple(tup)

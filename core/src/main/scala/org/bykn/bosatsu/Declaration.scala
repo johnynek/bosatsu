@@ -90,7 +90,22 @@ sealed abstract class Declaration {
         Doc.intercalate(Doc.space,
           trueCase.toDoc :: Doc.text("if") :: cond.toDoc :: Doc.text("else") :: falseCase.toDoc :: Nil)
       case Lambda(args, body) =>
-        Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Pattern.Parsed].document(_))) + Doc.text(" -> ") + body.toDoc
+        // slash style:
+        //val argDoc = Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Pattern.Parsed].document(_)))
+        // bare style:
+        val argDoc = args match {
+          case NonEmptyList(one, Nil) =>
+            val od = Document[Pattern.Parsed].document(one)
+            if (Pattern.isNonUnitTuple(one)) {
+              // wrap with parens
+              Doc.char('(') + od + Doc.char(')')
+            } 
+            else od
+          case args =>
+            // more than one must wrap in ()
+            Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Pattern.Parsed].document(_))) + Doc.char(')')
+        }
+        argDoc + Doc.text(" -> ") + body.toDoc
       case Literal(lit) => Document[Lit].document(lit)
       case Match(kind, typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
