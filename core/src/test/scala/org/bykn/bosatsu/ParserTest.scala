@@ -654,6 +654,13 @@ x""")
 
   }
 
+  test("bare style lambdas work") {
+    roundTrip(Declaration.parser(""), "() -> 1")
+    roundTrip(Declaration.parser(""), "(x, y) -> x.add(y)")
+    roundTrip(Declaration.parser(""), "Foo(x, y) -> x.add(y)")
+    roundTrip(Declaration.parser(""), "((x: Int, y: Int)) -> x.add(y)")
+  }
+
   test("we can parse patterns") {
     roundTrip(Pattern.matchParser, "Foo([])")
     roundTrip(Pattern.matchParser, "Foo([], bar)")
