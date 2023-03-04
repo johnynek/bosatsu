@@ -340,22 +340,22 @@ final class SourceConverter(
           case ListLang.Comprehension(res, binding, in, filter) =>
             /*
              * [x for y in z] ==
-             * z.map_List(\y ->
+             * z.map_List(y ->
              *   x)
              *
              * [x for y in z if w] =
-             * z.flat_map_List(\y ->
+             * z.flat_map_List(y ->
              *   if w: [x]
              *   else: []
              * )
              *
              * [*x for y in z] =
-             * z.flat_map_List(\y ->
+             * z.flat_map_List(y ->
              *   x
              * )
              *
              * [*x for y in z if w] =
-             * z.flat_map_List(\y ->
+             * z.flat_map_List(y ->
              *   if w: x
              *   else: []
              * )

@@ -1142,7 +1142,7 @@ object Declaration {
         .region
         .map { case (r, fn) => fn(r) }
 
-      // since \x -> y: t will parse like \x -> (y: t)
+      // since x -> y: t will parse like x -> (y: t)
       // if we are in a branch arg, we can't parse annotations on the body of the lambda
       val lambBody = if (pm == ParseMode.BranchArg) recArgIndy.asInstanceOf[Indy[Declaration]] else recIndy
       val ternaryElseP = if (pm == ParseMode.BranchArg) recArg else recNonBind

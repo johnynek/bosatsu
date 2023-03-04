@@ -236,7 +236,7 @@ object TypedExpr {
       case Generic(_, in) => callKind(n, arity, in)
       case Annotation(te, _, _) => callKind(n, arity, te)
       case AnnotatedLambda(b, _, body, _) =>
-        // let fn = \x -> fn(x) in fn(1)
+        // let fn = x -> fn(x) in fn(1)
         // is a tail-call
         if (n == b) {
           //shadow
@@ -936,7 +936,7 @@ object TypedExpr {
              */
             val free = freeVarsSet(expr :: Nil)
             val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next()
-            // \name -> (expr((name: arg)): result)
+            // name -> (expr((name: arg)): result)
             // TODO: why do we need coarg when we already know the type (arg)?
             val result1 = cores(App(expr, coarg(Local(name, arg, expr.tag)), result, expr.tag))
             AnnotatedLambda(name, arg, result1, expr.tag)

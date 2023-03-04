@@ -244,7 +244,7 @@ def inner_match(x):
     case Tup2(a, _): Tup2(a, x)
 """, """#
 struct Tup2(a, b)
-inner_match = \x -> Tup2(1, x)
+inner_match = x -> Tup2(1, x)
 """)
 
     normSame("""#
@@ -264,8 +264,8 @@ enum Eith: L(left), R(right)
 
 def run(y):
   match y:
-    case L(a): \x -> Tup2(a, x)
-    case R(b): \x -> Tup2(x, b)
+    case L(a): x -> Tup2(a, x)
+    case R(b): x -> Tup2(x, b)
 """)
   }
 
@@ -314,7 +314,7 @@ def foo(_):
     case 42: 0
     case x: x
 """, """#
-foo = \_ -> 21
+foo = _ -> 21
 """)
 
     /*
@@ -331,7 +331,7 @@ def foo(_):
     case Tup2(1, 1): 1
     case _: 2
 """, """#
-foo = \_ -> 1
+foo = _ -> 1
 """)
     */
   }
@@ -471,14 +471,14 @@ foo = \_ -> 1
                varTE("w", intTpe), intTpe)))))
   }
 
-  test("\\x -> f(x) == f") {
+  test("x -> f(x) == f") {
     val f = varTE("f", Type.Fun(intTpe, intTpe))
     val left = lam("x", intTpe, app(f, varTE("x", intTpe), intTpe))
     
     assert(TypedExprNormalization.normalize(left) == Some(f))
   }
 
-  test("(\\x -> f(x, z))(y) == f(y, z)") {
+  test("(x -> f(x, z))(y) == f(y, z)") {
     val int2int = Type.Fun(intTpe, intTpe)
     val f = varTE("f", Type.Fun(intTpe, int2int))
     val z = varTE("z", intTpe)
@@ -612,7 +612,7 @@ foo = \_ -> 1
   test("test match removed from some examples") {
     checkLast(
       """
-x = \_ -> 1
+x = _ -> 1
 """) { te => assert(countMatch(te) == 0) }
 
     checkLast(

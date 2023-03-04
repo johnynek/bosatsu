@@ -33,7 +33,7 @@ def divides(denom, num):
 
 factors = range(10)
 
-def keep(n): for_all(factors, \f -> (f + 1).divides(n))
+def keep(n): for_all(factors, f -> (f + 1).divides(n))
 
 div_all = int_loop_up(bound, 0, \i, _ ->
   cand = i.add(1)

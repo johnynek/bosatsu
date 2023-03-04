@@ -30,7 +30,7 @@ x = match 1: case x: x
 package Foo
 
 # exercise calling directly a lambda
-x = (\y -> y)("hello")
+x = (y -> y)("hello")
 """), "Foo", Str("hello"))
 
     runBosatsuTest(
@@ -320,7 +320,7 @@ def sum(ls):
   ls.foldLeft(0, add)
 
 sum0 = sum(three)
-sum1 = three.foldLeft(0, \x, y -> add(x, y))
+sum1 = three.foldLeft(0, (x, y) -> add(x, y))
 
 same = sum0.eq_Int(sum1)
 """), "Foo", True)
@@ -390,7 +390,7 @@ def same_items(items, eq):
     (a, b) = p
     eq(a, b)
 
-  items.foldLeft(True, \res, t -> and(res, test(t)))
+  items.foldLeft(True, (res, t) -> and(res, test(t)))
 
 def eq_list(a, b, fn):
   same_items(zip(a, b), fn)
@@ -427,14 +427,14 @@ evalTest(
   List("""
 package Foo
 
-main = range_fold(0, 10, 0, \_, y -> y)
+main = range_fold(0, 10, 0, (_, y) -> y)
 """), "Foo", VInt(9))
 
 evalTest(
   List("""
 package Foo
 
-main = range_fold(0, 10, 100, \x, _ -> x)
+main = range_fold(0, 10, 100, (x, _) -> x)
 """), "Foo", VInt(100))
   }
 
@@ -590,7 +590,7 @@ def call(w0, w1):
     case W(fn): trace("fn(w1)", fn(w1))
 
 def y(f):
-  g = \w -> \a -> trace("calling f", f(call(w, w), a))
+  g = w -> a -> trace("calling f", f(call(w, w), a))
   g(W(g))
 
 def ltEqZero(i):
@@ -682,7 +682,7 @@ def coerce(a, leib):
   b
 
 # there is really only one (polymorphic) value of Leib
-refl = Leib(\x -> x)
+refl = Leib(x -> x)
 
 enum StringOrInt:
   IsStr(s: String, leib: Leib[String, a])
@@ -708,7 +708,7 @@ package A
 struct Leib(subst: forall f. f[a] -> f[b])
 
 # there is really only one (polymorphic) value of Leib
-refl = Leib(\x -> x)
+refl = Leib(x -> x)
 
 enum StringOrInt:
   IsStr(s: String, leib: Leib[String, a])
@@ -808,7 +808,7 @@ package A
 
 big_list = range(3_000)
 
-main = big_list.foldLeft(0, \x, y -> x.add(y))
+main = big_list.foldLeft(0, add)
 """), "A", VInt((0 until 3000).sum))
 
   def sumFn(n: Int): Int = if (n <= 0) 0 else { sumFn(n-1) + n }
@@ -1306,8 +1306,8 @@ package A
 # you can't write \x: Int -> x.add(1)
 # since Int -> looks like a type
 # you need to protect it in a ( )
-inc: Int -> Int = \x -> x.add(1)
-inc2: Int -> Int = \(x: Int) -> x.add(1)
+inc: Int -> Int = x -> x.add(1)
+inc2: Int -> Int = (x: Int) -> x.add(1)
 
 test = Assertion(inc(1).eq_Int(inc2(1)), "inc(1) == 2")
 """), "A", 1)
@@ -1325,24 +1325,24 @@ package A
 
 struct Foo(v)
 
-inc = \Foo(x) -> x.add(1)
+inc = Foo(x) -> x.add(1)
 
 test0 = Assertion(inc(Foo(1)).eq_Int(2), "inc(Foo(1)) == 2")
 
 enum FooBar: F(x), B(x)
 
-inc2 = \F(x) | B(x), Foo(y) -> x.add(y)
+inc2 = (F(x) | B(x), Foo(y)) -> x.add(y)
 test1 = Assertion(inc2(F(1), Foo(1)).eq_Int(2), "inc2(F(1), Foo(1)) == 2")
 test2 = Assertion(inc2(B(1), Foo(1)).eq_Int(2), "inc2(B(1), Foo(1)) == 2")
 
 # with an outer tuple wrapping
-inc3 = \(F(x) | B(x), Foo(y)) -> x.add(y)
+inc3 = ((F(x) | B(x), Foo(y))) -> x.add(y)
 test3 = Assertion(inc3((F(1), Foo(1))).eq_Int(2), "inc3((F(1), Foo(1))) == 2")
 test4 = Assertion(inc3((B(1), Foo(1))).eq_Int(2), "inc3((B(1), Foo(1))) == 2")
 
 # with a custom struct
 struct Pair(x, y)
-inc4 = \Pair(F(x) | B(x), Foo(y)) -> x.add(y)
+inc4 = Pair(F(x) | B(x), Foo(y)) -> x.add(y)
 test5 = Assertion(inc4(Pair(F(1), Foo(1))).eq_Int(2), "inc4(Pair(F(1), Foo(1))) == 2")
 test6 = Assertion(inc4(Pair(B(1), Foo(1))).eq_Int(2), "inc4(Pair(B(1), Foo(1))) == 2")
 
@@ -1659,7 +1659,7 @@ def get[shape: (* -> *) -> *](sh: shape[RecordValue], RecordGetter(_, getter): R
   result
 
 def create_field[shape: (* -> *) -> *](rf: RecordField[t], fn: shape[RecordValue] -> t):
- RecordGetter(\_ -> rf, \sh -> RecordValue(fn(sh)))
+ RecordGetter(_ -> rf, sh -> RecordValue(fn(sh)))
 
 def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
   def getter_to_row_entry(row: shape[RecordValue]):
@@ -1668,7 +1668,7 @@ def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse
       RecordRowEntry(to_entry(get_value(row)))
     result_fn
   # This code should work the same if, map_List or list comprehension, but didn't previously
-  #rows.map_List(\row -> record_to_list(getters.traverse(getter_to_row_entry(row))))
+  #rows.map_List(row -> record_to_list(getters.traverse(getter_to_row_entry(row))))
   [record_to_list(getters.traverse(getter_to_row_entry(row))) for row in rows]
 
 struct RestructureOutput[shape1, shape2](
@@ -1691,14 +1691,14 @@ def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), m
 struct NilShape[w: * -> *]
 struct PS[t,rest,w](left: w[t], right: rest[w])
 
-new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, \NilShape -> [])
+new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, NilShape -> [])
 
 (ps_end: forall t: (* -> *) -> *. RestructureOutput[t, NilShape]) = RestructureOutput(
-  \_ -> NilShape,
-  \_ -> NilShape,
+  _ -> NilShape,
+  _ -> NilShape,
   NilShape,
   \_, _ -> NilShape,
-  \_ -> []
+  _ -> []
 )
 
 def ps[
@@ -1757,14 +1757,14 @@ equal_rows = equal_List(equal_RowEntry)
 ##################################################
 
 rs_empty = new_record_set.restructure(
-  \_ -> ps("String field".string_field(\_ -> ""),
-  ps("Int field".int_field(\_ -> 0),
-  ps("Bool field".bool_field(\_ -> True),
+  _ -> ps("String field".string_field(_ -> ""),
+  ps("Int field".int_field(_ -> 0),
+  ps("Bool field".bool_field(_ -> True),
   ps_end))))
 
 rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 
-rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( \r -> r.get(b).add(2) ), ps_end)))))
+rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( r -> r.get(b).add(2) ), ps_end)))))
 
 tests = TestSuite("reordering",
   [
@@ -1813,7 +1813,7 @@ package A
 
 struct Pair(first, second)
 
-get = \Pair { first, ...} -> first
+get = Pair { first, ...} -> first
 
 res = get(Pair(1, "two"))
 
@@ -1829,7 +1829,7 @@ package A
 
 struct Pair(first, second)
 
-get = \Pair { first: f, ...} -> f
+get = Pair { first: f, ...} -> f
 
 res = get(Pair(1, "two"))
 
@@ -1845,7 +1845,7 @@ package A
 
 struct Pair(first, second)
 
-get = \Pair(first, ...) -> first
+get = Pair(first, ...) -> first
 
 res = get(Pair(1, "two"))
 
@@ -1861,7 +1861,7 @@ package A
 
 struct Pair(first, second)
 
-get = \Pair(first, ...) -> first
+get = Pair(first, ...) -> first
 
 res = get(Pair { first: 1, second: "two" })
 
@@ -1877,7 +1877,7 @@ package A
 
 struct Pair(first, second)
 
-get = \Pair(first, ...) -> first
+get = Pair(first, ...) -> first
 
 first = 1
 
@@ -1895,7 +1895,7 @@ package A
 
 struct Pair(first, second)
 
-get = \Pair(first, ...) -> first
+get = Pair(first, ...) -> first
 
 # missing second
 first = 1
@@ -1908,7 +1908,7 @@ package A
 
 struct Pair(first, second)
 
-get = \Pair(first, ...) -> first
+get = Pair(first, ...) -> first
 
 # third is unknown
 first = 1
@@ -1922,7 +1922,7 @@ package A
 
 struct Pair(first, second)
 
-get = \Pair { first } -> first
+get = Pair { first } -> first
 
 res = get(Pair(1, "two"))
 """)) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
@@ -1934,7 +1934,7 @@ package A
 struct Pair(first, second)
 
 # Pair has two fields
-get = \Pair(first) -> first
+get = Pair(first) -> first
 
 res = get(Pair(1, "two"))
 """)) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
@@ -1958,7 +1958,7 @@ package A
 struct Pair(first, second)
 
 # Pair does not have a field called sec
-get = \Pair { first, sec: _, ... } -> first
+get = Pair { first, sec: _, ... } -> first
 
 res = get(Pair(1, "two"))
 """)) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
@@ -1970,7 +1970,7 @@ package A
 struct Pair(first, second)
 
 # Pair has two fields, not three
-get = \Pair(first, _, _) -> first
+get = Pair(first, _, _) -> first
 
 res = get(Pair(1, "two"))
 """)) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
@@ -1982,7 +1982,7 @@ package A
 struct Pair(first, second)
 
 # Pair has two fields, not three
-get = \Pair(first, _, _, ...) -> first
+get = Pair(first, _, _, ...) -> first
 
 res = get(Pair(1, "two"))
 """)) { case s@PackageError.SourceConverterErrorIn(_, _) => s.message(Map.empty, Colorize.None); () }
@@ -2125,7 +2125,7 @@ one = 1
 
 two = one.add(1)
 
-incA = \one -> one.add(1)
+incA = one -> one.add(1)
 def incB(one): one.add(1)
 
 one = "one"
@@ -2369,7 +2369,7 @@ package A
 
 enum MyBool: T, F
 main = match T:
-  case T: (\x -> x)(True)
+  case T: (x -> x)(True)
   case F: False
 
 tests = Assertion(main, "t1")
@@ -2378,9 +2378,9 @@ tests = Assertion(main, "t1")
     runBosatsuTest(List("""
 package A
 
-f = \_ -> True
+f = _ -> True
 
-fn = \x -> f(x)
+fn = x -> f(x)
 
 # trigger an optimization to remove y
 tests = Assertion(fn((y = 1
@@ -2435,7 +2435,7 @@ test = Assertion(Queue([1], [2]).fold_Queue(0, add).eq_Int(3), "foldQueue")
 package A
 
 three = (x = 1
-\y -> x.add(y))(2)
+y -> x.add(y))(2)
 
 test = Assertion(three.eq_Int(3), "let inside apply")
 """), "A", 1)
@@ -2457,7 +2457,7 @@ test = Assertion(substitute.eq_Int(42), "basis substitution")
   runBosatsuTest(List("""
 package A
 
-three = 2.(\x -> add(x, 1))
+three = 2.(x -> add(x, 1))
 
 test = Assertion(three.eq_Int(3), "let inside apply")
 """), "A", 1)
@@ -2723,8 +2723,8 @@ def f(fn: forall a. List[a] -> List[a]) -> Int:
 
 def g(b: Bool) -> (forall a. List[a] -> List[a]):
   match b:
-    case True: \x -> x
-    case False: \_ -> []
+    case True: x -> x
+    case False: _ -> []
 
 def id(a): a
 def single(a): [a]    
@@ -2745,7 +2745,7 @@ struct Pair1(fst: a, snd: a)
 
 pair = Pair1(single_id1, single_id2)
 
-comp = \x -> f(g(x))
+comp = x -> f(g(x))
   
 test = Assertion(True, "")
 """), "Foo", 1)

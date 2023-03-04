@@ -286,7 +286,7 @@ object Generators {
   def applyOpGen(arg: Gen[NonBinding]): Gen[Declaration.ApplyOp] =
     Gen.zip(arg, opGen, arg).map { case (l, op, r) =>
       // a few types of things should be in raw ApplyOp, since
-      // \x -> x + y is parsed as \x -> (x + y), for instance
+      // x -> x + y is parsed as x -> (x + y), for instance
       // also, parsing knows about precedence, but randomly
       // making expressions doesn't, so we have to wrap ApplyOp
       import Declaration._

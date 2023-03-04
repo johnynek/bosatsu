@@ -2,7 +2,7 @@ package Parser
 
 struct Parser[a](parse: String -> Option[(String, a)])
 
-empty = Parser(\_ -> None)
+empty = Parser(_ -> None)
 
 def parse(p: Parser[a], str: String) -> Option[a]:
     Parser(fn) = p
@@ -10,7 +10,7 @@ def parse(p: Parser[a], str: String) -> Option[a]:
         Some((_, a)): Some(a)
         None: None
 
-def pure(item: a) -> Parser[a]: Parser(\s -> Some((s, item)))
+def pure(item: a) -> Parser[a]: Parser(s -> Some((s, item)))
 
 def expect(str: String) -> Parser[Unit]:
     def p(s): match s.partition_String(str):
@@ -21,7 +21,7 @@ def expect(str: String) -> Parser[Unit]:
 
 def map(p, fn):
     Parser(pfn) = p
-    Parser(\s -> match pfn(s):
+    Parser(s -> match pfn(s):
         Some((rest, a)): Some((rest, fn(a)))
         None: None)
 
@@ -63,7 +63,7 @@ def then_parse(pa: Parser[a], pb: Parser[b]) -> Parser[(a, b)]:
     Parser(parse)
 
 def expect_int(i: Int) -> Parser[Int]:
-  expect(int_to_String(i)).map(\_ -> i)
+  expect(int_to_String(i)).map(_ -> i)
 
 digit = one_of([expect_int(i) for i in range(10)])
 
@@ -99,7 +99,7 @@ def digits_n(at_most: Int) -> Parser[Int]:
     # We add 1 because we want to go beyond the digit
     # and see that we have fully parsed
     parseFn = recur_max(S(to_Nat(at_most)), loop)
-    Parser(\s ->
+    Parser(s ->
         match parseFn((s, -1)):
             Some(Some(a)): Some(a)
             Some(None) | None: None)

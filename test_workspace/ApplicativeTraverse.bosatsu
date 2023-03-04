@@ -40,7 +40,7 @@ def applicative_from_pure_ap[f: * -> *](
   def map(fn, fa): ap(pure(fn), fa)
 
   def product(fa, fb):
-    make_tup = map(\a -> \b -> (a, b), fa)
+    make_tup = map(a -> b -> (a, b), fa)
     ap(make_tup, fb)
 
   def map2(fa, fb, fn):
@@ -60,7 +60,7 @@ struct Traverse(
   traverse: forall a, b, f: * -> *. Applicative[f] -> (a -> f[b]) -> g[a] -> f[g[b]])
 
 applicative_Option: Applicative[Option] = applicative_from_pure_map_product(
-    \a -> Some(a),
+    a -> Some(a),
     \fn, opt -> match opt:
       Some(a): Some(fn(a))
       None: None,
@@ -96,8 +96,8 @@ operator == = eq_opt_list_int
 
 test = TestSuite("applicative/traverse tests",
   [
-    Assertion(trav_list_opt(\x -> Some(2.times(x)), [1, 2, 3]) == Some([2, 4, 6]), "double"),
-    Assertion(trav_list_opt(\_ -> None, [1, 2, 3]) == None, "all to None"),
-    Assertion(trav_list_opt(\x -> None if x.eq_Int(3) else Some(x), [1, 2, 3]) == None, "3 to None"),
-    Assertion(trav_list_opt(\x -> None if x.eq_Int(3) else Some(x), []) == Some([]), "empty to Some"),
+    Assertion(trav_list_opt(x -> Some(2.times(x)), [1, 2, 3]) == Some([2, 4, 6]), "double"),
+    Assertion(trav_list_opt(_ -> None, [1, 2, 3]) == None, "all to None"),
+    Assertion(trav_list_opt(x -> None if x.eq_Int(3) else Some(x), [1, 2, 3]) == None, "3 to None"),
+    Assertion(trav_list_opt(x -> None if x.eq_Int(3) else Some(x), []) == Some([]), "empty to Some"),
   ])

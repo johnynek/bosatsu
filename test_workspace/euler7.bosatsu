@@ -28,7 +28,7 @@ def is_prime(x):
       _: (x, False)).not
 
 def none_divide(primes, x):
-  for_all(primes, \p -> not(p.divides(x)))
+  for_all(primes, p -> not(p.divides(x)))
 
 # the gap between primes might be as small as (log N)^2, so
 # even if the gap is O(N), clearly false, we would only have

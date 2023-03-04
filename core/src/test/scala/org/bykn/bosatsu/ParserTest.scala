@@ -1394,14 +1394,14 @@ y
     roundTrip(Package.parser(None),
 """package Foo
 
-x = \z ->
+x = z ->
   z
 """, lax = true)
 
     roundTrip(Package.parser(None),
 """package Foo
 
-x = \z ->
+x = z ->
   # we can comment here
   z
 """, lax = true)

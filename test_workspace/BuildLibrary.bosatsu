@@ -3,7 +3,7 @@ package BuildLibrary
 export File(), Library(), LibArgs(), build, Build, file, files, build_all, library, empty
 
 struct Leibniz[a, b](cast: forall f: * -> *. f[a] -> f[b])
-(refl: forall a. Leibniz[a, a]) = Leibniz(\x -> x)
+(refl: forall a. Leibniz[a, a]) = Leibniz(x -> x)
 
 # In Bosatsu, like System F, the type exists a. P can be encoded as forall b. (forall a. P -> b) -> b
 # We encode Mapped in this way, we want: Mapped(to_tuple: exists b. (Build[b], b -> a))
@@ -20,10 +20,10 @@ enum Build[a]:
   BuildLib(files: Build[List[File]], deps: Build[List[Library]], is_lib: Leibniz[a, Library])
 
 def map_Build(b: Build[a], fn: a -> b) -> Build[b]:
-  Mapped(\cb -> cb((b, fn)))
+  Mapped(cb -> cb((b, fn)))
 
 def map2_Build(ba: Build[a], bb: Build[b], fn: a -> b -> c) -> Build[c]:
-  Map2(\cb -> cb((ba, bb, fn)))
+  Map2(cb -> cb((ba, bb, fn)))
 
 def file(s: String) -> Build[File]:
     LoadFile(s, refl)
