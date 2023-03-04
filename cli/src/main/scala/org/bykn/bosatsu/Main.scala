@@ -6,10 +6,19 @@ object Main extends IOApp {
   def run(args: List[String]): IO[ExitCode] =
     PathModule.run(args) match {
       case Right(getOutput) =>
-        for {
-          out <- getOutput
-          _ <- PathModule.reportOutput(out)
-        } yield ExitCode.Success
+        getOutput
+          .attempt
+          .flatMap {
+            case Right(out) =>
+              PathModule.reportOutput(out).as(ExitCode.Success)
+            case Left(PathModule.MainException.NoInputs(cmd)) =>
+              val name = cmd.name
+              IO.consoleForIO.errorln(s"no inputs given to $name")
+                .as(ExitCode.Error)
+            case Left(err) =>
+              IO.consoleForIO.errorln("unknown error:\n") *>
+                IO(err.printStackTrace(System.err)).as(ExitCode.Error)
+          }
       case Left(help) =>
         IO {
           System.err.println(help.toString)
