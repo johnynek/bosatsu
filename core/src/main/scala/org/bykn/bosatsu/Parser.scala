@@ -398,4 +398,18 @@ object Parser {
         val idx = err.failedAtOffset
         sys.error(s"failed to parse: $str: at $idx: (${str.substring(idx)}) with errors: ${err.expected}")
     }
+
+  sealed abstract class MaybeTupleOrParens[A]
+  object MaybeTupleOrParens {
+    sealed abstract class NotBare[A] extends MaybeTupleOrParens[A]
+    case class Bare[A](bare: A) extends MaybeTupleOrParens[A]
+    case class Tuple[A](bare: List[A]) extends NotBare[A]
+    case class Parens[A](bare: A) extends NotBare[A]
+
+    def parser[A](p: P[A]): P[MaybeTupleOrParens[A]] =
+      p.tupleOrParens.map {
+        case Right(tup) => Tuple(tup)
+        case Left(parens) => Parens(parens)
+      } | p.map(Bare(_))
+  }
 }

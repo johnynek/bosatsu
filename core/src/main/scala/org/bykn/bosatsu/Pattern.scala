@@ -6,7 +6,7 @@ import cats.parse.{Parser0 => P0, Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 import org.bykn.bosatsu.pattern.{NamedSeqPattern, SeqPattern, SeqPart}
 
-import Parser.{ Combinators, maybeSpace }
+import Parser.{ Combinators, maybeSpace, MaybeTupleOrParens }
 import cats.implicits._
 
 import Identifier.{Bindable, Constructor}
@@ -978,6 +978,22 @@ object Pattern {
       }
   }
 
+  def tuple(args: List[Parsed]): Parsed =
+    PositionalStruct(StructKind.Tuple, args)
+
+  def fromTupleOrParens(e: Either[Parsed, List[Parsed]]): Parsed =
+    e match {
+      case Right(tup) => tuple(tup)
+      case Left(parens) => parens
+    }
+
+  def fromMaybeTupleOrParens(p: MaybeTupleOrParens[Parsed]): Parsed =
+    p match {
+      case MaybeTupleOrParens.Bare(b) => b
+      case MaybeTupleOrParens.Parens(p) => p
+      case MaybeTupleOrParens.Tuple(p) => tuple(p)
+    }
+
   private def matchOrNot(isMatch: Boolean): P[Parsed] = {
     val recurse = P.defer(bindParser)
 
@@ -989,10 +1005,7 @@ object Pattern {
           case (n, Some(fn)) => fn(n)
         }
 
-    val tupleOrParens = recurse.tupleOrParens.map {
-      case Left(parens) => parens
-      case Right(tup) => PositionalStruct(StructKind.Tuple, tup)
-    }
+    val tupleOrParens = recurse.tupleOrParens.map(fromTupleOrParens)
 
     val listItem: P[ListPart[Parsed]] = {
       val maybeNamed: P[ListPart[Parsed]] =

@@ -142,7 +142,7 @@ object Statement {
 
      val bindingP: P[Statement] =
        (Declaration
-         .bindingLike(Declaration.nonBindingParser, Declaration.eqP, cutPattern = true)("") <* toEOL)
+         .bindingLike(Pattern.bindParser, Declaration.nonBindingParser, Declaration.eqP, cutPattern = true)("") <* toEOL)
          .region
          .map { case (region, (pat, _, _, value)) =>
             Bind(BindingStatement(pat, value, ()))(region)

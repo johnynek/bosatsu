@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, Indy, maybeSpace, maybeSpacesAndLines, spaces, toEOL1, keySpace }
+import Parser.{ Combinators, Indy, maybeSpace, maybeSpacesAndLines, spaces, toEOL1, keySpace, MaybeTupleOrParens }
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.graph.Memoize
 import cats.parse.{Parser0 => P0, Parser => P}
@@ -824,8 +824,8 @@ object Declaration {
       case _ => None
     }
 
-  def bindingLike[S](parser: Indy[NonBinding], sym: P[S], cutPattern: Boolean): Indy[(Pattern.Parsed, Region, S, NonBinding)] = {
-    val patPart = Pattern.bindParser.region ~ (maybeSpace *> sym <* maybeSpace)
+  def bindingLike[B, S](pat: P[B], parser: Indy[NonBinding], sym: P[S], cutPattern: Boolean): Indy[(B, Region, S, NonBinding)] = {
+    val patPart = pat.region ~ (maybeSpace *> sym <* maybeSpace)
     val cutOrNot = if (cutPattern) patPart else patPart.backtrack
 
     // allow = to be like a block, we can continue on the next line indented
@@ -1000,17 +1000,30 @@ object Declaration {
       }
   }
 
+  sealed abstract class PatternBindKind
+  object PatternBindKind {
+    case object Equals extends PatternBindKind
+    case object LeftApplyFn extends PatternBindKind
+    
+    val parser: P[PatternBindKind] =
+      eqP.as(Equals) | leftApplyFnP.as(LeftApplyFn)
+  }
+
   private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] = {
-    val op = eqP.as(true) | leftApplyFnP.as(false)
     // we can't cut the pattern here because we have some ambiguity in declarations
-    bindingLike(nonBindingParser <* Indy.lift(toEOL1), op, cutPattern = false)
+    bindingLike(MaybeTupleOrParens.parser(Pattern.bindParser), nonBindingParser <* Indy.lift(toEOL1), PatternBindKind.parser, cutPattern = false)
       .cutThen(restP(decl))
       .region
-      .map { case (region, ((pat, preg, isEq, value), decl)) =>
-        if (isEq)
-          Binding(BindingStatement(pat, value, decl))(region)
-        else 
-          LeftApply(pat, preg, value, decl)
+      .map { case (region, ((rawPat, preg, pbk, value), decl)) =>
+        pbk match {
+          case PatternBindKind.Equals =>
+            // TODO: we should keep the pattern region
+            val pat = Pattern.fromMaybeTupleOrParens(rawPat)
+            Binding(BindingStatement(pat, value, decl))(region)
+          case PatternBindKind.LeftApplyFn =>
+            val pat = Pattern.fromMaybeTupleOrParens(rawPat)
+            LeftApply(pat, preg, value, decl)
+        }
       }
   }
 
