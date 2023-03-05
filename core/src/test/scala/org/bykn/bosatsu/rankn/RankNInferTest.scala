@@ -395,7 +395,7 @@ class RankNInferTest extends AnyFunSuite {
 
   test("test inference of basic expressions") {
     parseProgram("""#
-main = (\x -> x)(1)
+main = (x -> x)(1)
 """, "Int")
 
     parseProgram("""#
@@ -409,7 +409,7 @@ main = y
     parseProgram("""#
 
 ident: forall a. a -> a =
-  \x -> x
+  x -> x
 
 main = ident(1)
 """, "Int")
@@ -487,12 +487,12 @@ main = Some
 """, "forall a. a -> Option[a]")
 
     parseProgram("""#
-id = \x -> x
+id = x -> x
 main = id
 """, "forall a. a -> a")
 
     parseProgram("""#
-id = \x -> x
+id = x -> x
 main = id(1)
 """, "Int")
 
@@ -552,7 +552,7 @@ def use_bind(m, a, b, c):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  bind(a1)(\_ -> bind(b1)(\_ -> c1))
+  bind(a1)(_ -> bind(b1)(_ -> c1))
 
 main = use_bind(option_monad, None, None, None)
 """, "forall a. Opt[a]")
@@ -583,7 +583,7 @@ def use_bind(a, b, c, m):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  bind(a1)(\_ -> bind(b1)(\_ -> c1))
+  bind(a1)(_ -> bind(b1)(_ -> c1))
 
 main = use_bind(None, None, None, option_monad)
 """, "forall a. Opt[a]")
@@ -614,7 +614,7 @@ main = fst
   test("substition works correctly") {
 
     parseProgram("""#
-(id: forall a. a -> a) = \x -> x
+(id: forall a. a -> a) = x -> x
 
 struct Foo
 
@@ -624,7 +624,7 @@ main = apply(id, Foo)
 """, "Foo")
 
     parseProgram("""#
-(id: forall a. a -> a) = \x -> x
+(id: forall a. a -> a) = x -> x
 
 struct Foo
 
@@ -639,7 +639,7 @@ main = apply(id, Foo)
 
 struct FnWrapper(fn: a -> a)
 
-(id: forall a. FnWrapper[a]) = FnWrapper(\x -> x)
+(id: forall a. FnWrapper[a]) = FnWrapper(x -> x)
 
 struct Foo
 
@@ -654,11 +654,11 @@ main = apply(id, Foo)
 
     parseProgram("""#
 struct Foo
-(id: forall a. a -> Foo) = \_ -> Foo
+(id: forall a. a -> Foo) = _ -> Foo
 
 (idFoo: Foo -> Foo) = id
 
-(id2: Foo -> Foo) = \x -> x
+(id2: Foo -> Foo) = x -> x
 (idGen2: (forall a. a) -> Foo) = id2
 
 main = Foo
@@ -667,7 +667,7 @@ main = Foo
     parseProgramIllTyped("""#
 
 struct Foo
-(idFooRet: forall a. a -> Foo) = \_ -> Foo
+(idFooRet: forall a. a -> Foo) = _ -> Foo
 
 (id: forall a. a -> a) = idFooRet
 
@@ -677,12 +677,12 @@ main = Foo
     parseProgram("""#
 enum Foo: Bar, Baz
 
-(bar1: forall a. (Foo -> a) -> a) = \fn -> fn(Bar)
-(baz1: forall a. (Foo -> a) -> a) = \fn -> fn(Baz)
-(bar2: forall a. (a -> Foo) -> Foo) = \_ -> Bar
-(baz2: forall a. (a -> Foo) -> Foo) = \_ -> Baz
-(bar3: ((forall a. a) -> Foo) -> Foo) = \_ -> Bar
-(baz3: ((forall a. a) -> Foo) -> Foo) = \_ -> Baz
+(bar1: forall a. (Foo -> a) -> a) = fn -> fn(Bar)
+(baz1: forall a. (Foo -> a) -> a) = fn -> fn(Baz)
+(bar2: forall a. (a -> Foo) -> Foo) = _ -> Bar
+(baz2: forall a. (a -> Foo) -> Foo) = _ -> Baz
+(bar3: ((forall a. a) -> Foo) -> Foo) = _ -> Bar
+(baz3: ((forall a. a) -> Foo) -> Foo) = _ -> Baz
 
 (bar41: (Foo -> Foo) -> Foo) = bar1
 (bar42: (Foo -> Foo) -> Foo) = bar2
@@ -692,7 +692,7 @@ enum Foo: Bar, Baz
 (baz43: (Foo -> Foo) -> Foo) = baz3
 (baz43: (Foo -> Foo) -> Foo) = baz3
 
-(producer: Foo -> (forall a. (Foo -> a) -> a)) = \_ -> bar1
+(producer: Foo -> (forall a. (Foo -> a) -> a)) = _ -> bar1
 # in the covariant position, we can substitute
 (producer1: Foo -> ((Foo -> Foo) -> Foo)) = producer
 
@@ -703,12 +703,12 @@ enum Foo: Bar, Baz
 
 struct Cont(cont: (b -> a) -> a)
 
-(bar1: forall a. Cont[Foo, a]) = Cont(\fn -> fn(Bar))
-(baz1: forall a. Cont[Foo, a]) = Cont(\fn -> fn(Baz))
-(bar2: forall a. Cont[a, Foo]) = Cont(\_ -> Bar)
-(baz2: forall a. Cont[a, Foo]) = Cont(\_ -> Baz)
-(bar3: Cont[forall a. a, Foo]) = Cont(\_ -> Bar)
-(baz3: Cont[forall a. a, Foo]) = Cont(\_ -> Baz)
+(bar1: forall a. Cont[Foo, a]) = Cont(fn -> fn(Bar))
+(baz1: forall a. Cont[Foo, a]) = Cont(fn -> fn(Baz))
+(bar2: forall a. Cont[a, Foo]) = Cont(_ -> Bar)
+(baz2: forall a. Cont[a, Foo]) = Cont(_ -> Baz)
+(bar3: Cont[forall a. a, Foo]) = Cont(_ -> Bar)
+(baz3: Cont[forall a. a, Foo]) = Cont(_ -> Baz)
 
 (bar41: Cont[Foo, Foo]) = bar1
 (bar42: Cont[Foo, Foo]) = bar2
@@ -718,7 +718,7 @@ struct Cont(cont: (b -> a) -> a)
 (baz43: Cont[Foo, Foo]) = baz3
 (baz43: Cont[Foo, Foo]) = baz3
 
-(producer: Foo -> (forall a. Cont[Foo, a])) = \_ -> bar1
+(producer: Foo -> (forall a. Cont[Foo, a])) = _ -> bar1
 # in the covariant position, we can substitute
 (producer1: Foo -> Cont[Foo, Foo]) = producer
 
@@ -730,7 +730,7 @@ enum Foo: Bar, Baz
 
 struct Cont(cont: (b -> a) -> a)
 
-(consumer: (forall a. Cont[Foo, a]) -> Foo) = \x -> Bar
+(consumer: (forall a. Cont[Foo, a]) -> Foo) = x -> Bar
 # in the contravariant position, we cannot substitute
 (consumer1: Cont[Foo, Foo] -> Foo) = consumer
 
@@ -741,12 +741,12 @@ main = Bar
 struct Foo
 enum Opt: Nope, Yep(a)
 
-(producer: Foo -> forall a. Opt[a]) = \_ -> Nope
+(producer: Foo -> forall a. Opt[a]) = _ -> Nope
 # in the covariant position, we can substitute
 (producer1: Foo -> Opt[Foo]) = producer
-(consumer: Opt[Foo]-> Foo) = \_ -> Foo
+(consumer: Opt[Foo]-> Foo) = _ -> Foo
 # in the contravariant position, we can generalize
-(consumer1: (forall a. Opt[a])  -> Foo) = consumer
+(consumer1: (forall a. Opt[a]) -> Foo) = consumer
 
 main = Foo
 """, "Foo")
@@ -755,7 +755,7 @@ main = Foo
 struct Foo
 enum Opt: Nope, Yep(a)
 
-(consumer: (forall a. Opt[a]) -> Foo) = \x -> Foo
+(consumer: (forall a. Opt[a]) -> Foo) = x -> Foo
 # in the contravariant position, we cannot substitute
 (consumer1: Opt[Foo] -> Foo) = consumer
 
@@ -765,7 +765,7 @@ main = Foo
 struct Foo
 enum Opt: Nope, Yep(a)
 
-(producer: Foo -> Opt[Foo]) = \x -> Nope
+(producer: Foo -> Opt[Foo]) = x -> Nope
 # the variance forbid generalizing in this direction
 (producer1: Foo -> forall a. Opt[a]) = producer
 
@@ -778,10 +778,10 @@ enum Opt: Nope, Yep(a)
 
 struct FnWrapper(fn: a -> b)
 
-(producer: FnWrapper[Foo, forall a. Opt[a]]) = FnWrapper(\_ -> Nope)
+(producer: FnWrapper[Foo, forall a. Opt[a]]) = FnWrapper(_ -> Nope)
 # in the covariant position, we can substitute
 (producer1: FnWrapper[Foo, Opt[Foo]]) = producer
-(consumer: FnWrapper[Opt[Foo], Foo]) = FnWrapper(\_ -> Foo)
+(consumer: FnWrapper[Opt[Foo], Foo]) = FnWrapper(_ -> Foo)
 # in the contravariant position, we can generalize
 (consumer1: FnWrapper[forall a. Opt[a], Foo]) = consumer
 
@@ -794,7 +794,7 @@ enum Opt: Nope, Yep(a)
 
 struct FnWrapper(fn: a -> b)
 
-(consumer: FnWrapper[forall a. Opt[a], Foo]) = FnWrapper(\x -> Foo)
+(consumer: FnWrapper[forall a. Opt[a], Foo]) = FnWrapper(x -> Foo)
 # in the contravariant position, we cannot substitute
 (consumer1: FnWrapper[Opt[Foo], Foo]) = consumer
 
@@ -806,7 +806,7 @@ enum Opt: Nope, Yep(a)
 
 struct FnWrapper(fn: a -> b)
 
-(producer: FnWrapper[Foo, Opt[Foo]]) = FnWrapper(\x -> Nope)
+(producer: FnWrapper[Foo, Opt[Foo]]) = FnWrapper(x -> Nope)
 # in the covariant position, we can't generalize
 (producer1: FnWrapper[Foo, forall a. Opt[a]]) = producer
 
@@ -927,8 +927,8 @@ main = bar(5)
 struct Foo
 struct Bar
 
-(fn: forall a. a -> Bar) = \_ -> Bar
-#(fn: Bar -> Bar) = \x -> Bar
+(fn: forall a. a -> Bar) = _ -> Bar
+#(fn: Bar -> Bar) = x -> Bar
 
 #dontCall = \(fn: forall a. a -> Bar) -> Foo
 #dontCall = \(fn: Bar -> Bar) -> Foo

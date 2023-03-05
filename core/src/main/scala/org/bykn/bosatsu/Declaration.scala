@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import Parser.{ Combinators, Indy, maybeSpace, maybeSpacesAndLines, spaces, toEOL1, keySpace }
+import Parser.{ Combinators, Indy, maybeSpace, maybeSpacesAndLines, spaces, toEOL1, keySpace, MaybeTupleOrParens }
 import cats.data.NonEmptyList
 import org.bykn.bosatsu.graph.Memoize
 import cats.parse.{Parser0 => P0, Parser => P}
@@ -90,7 +90,22 @@ sealed abstract class Declaration {
         Doc.intercalate(Doc.space,
           trueCase.toDoc :: Doc.text("if") :: cond.toDoc :: Doc.text("else") :: falseCase.toDoc :: Nil)
       case Lambda(args, body) =>
-        Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Pattern.Parsed].document(_))) + Doc.text(" -> ") + body.toDoc
+        // slash style:
+        //val argDoc = Doc.char('\\') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Pattern.Parsed].document(_)))
+        // bare style:
+        val argDoc = args match {
+          case NonEmptyList(one, Nil) =>
+            val od = Document[Pattern.Parsed].document(one)
+            if (Pattern.isNonUnitTuple(one)) {
+              // wrap with parens
+              Doc.char('(') + od + Doc.char(')')
+            } 
+            else od
+          case args =>
+            // more than one must wrap in ()
+            Doc.char('(') + Doc.intercalate(Doc.text(", "), args.toList.map(Document[Pattern.Parsed].document(_))) + Doc.char(')')
+        }
+        argDoc + Doc.text(" -> ") + body.toDoc
       case Literal(lit) => Document[Lit].document(lit)
       case Match(kind, typeName, args) =>
         val pid = Document[OptIndent[Declaration]]
@@ -824,20 +839,11 @@ object Declaration {
       case _ => None
     }
 
-  def bindingLike[S](parser: Indy[NonBinding], sym: P[S], cutPattern: Boolean): Indy[(Pattern.Parsed, Region, S, NonBinding)] = {
-    val patPart = Pattern.bindParser.region ~ (maybeSpace *> sym <* maybeSpace)
-    val cutOrNot = if (cutPattern) patPart else patPart.backtrack
-
-    // allow = to be like a block, we can continue on the next line indented
-    OptIndent.blockLike(Indy.lift(cutOrNot), parser, P.unit)
-      .map { case (((reg, pat), s), value) =>
-        (pat, reg, s, value.get)
-      }
-  }
-
   val eqP: P[Unit] = P.char('=') <* (!Operators.multiToksP)
   val leftApplyFnP: P[Unit] = P.string("<-") <* (!Operators.multiToksP)
-  val bindOp: P[Unit] = eqP | leftApplyFnP
+  val rightArrow: P[Unit] = P.string("->") <* (!Operators.multiToksP)
+
+  def bindOp: P[PatternBindKind] = PatternBindKind.parser
 
   private def restP(parser: Indy[Declaration]): Indy[Padding[Declaration]] =
     parser.indentBefore.mapF(Padding.parser(_))
@@ -935,9 +941,33 @@ object Declaration {
   def lambdaP(parser: Indy[Declaration]): Indy[Lambda] = {
     val params = Indy.lift(P.char('\\') *> maybeSpace *> Pattern.bindParser.nonEmptyList)
 
-    OptIndent.blockLike(params, parser, maybeSpace.with1 *> P.string("->"))
+    val withSlash = OptIndent.blockLike(params, parser, maybeSpace.with1 *> rightArrow)
       .region
       .map { case (r, (args, body)) => Lambda(args, body.get)(r) }
+
+    val noSlashParamsArrow =
+      // patterns are ambiguous with expressions wo se need backtracking
+      MaybeTupleOrParens.parser(Pattern.bindParser) <* (maybeSpace *> ((!Operators.operatorToken) *> rightArrow))
+      
+    val noSlash = OptIndent.blockLike(Indy.lift(noSlashParamsArrow.backtrack), parser, P.unit)
+      .region
+      .map { case (r, (rawPat, body)) =>
+        val args = rawPat match {
+          case MaybeTupleOrParens.Bare(b) =>
+            NonEmptyList(b, Nil)
+          case MaybeTupleOrParens.Parens(p) =>
+            NonEmptyList(p, Nil)
+          case MaybeTupleOrParens.Tuple(Nil) =>
+            // consider this the same as the pattern ()
+            NonEmptyList(Pattern.tuple(Nil), Nil) 
+          case MaybeTupleOrParens.Tuple(h :: tail) =>
+            // we consider a top level non-empty tuple to be a list:
+            NonEmptyList(h, tail)
+        }
+        Lambda(args, body.get)(r)
+      }
+
+    withSlash <+> noSlash
   }
 
   def matchP(arg: Indy[NonBinding], expr: Indy[Declaration]): Indy[Match] = {
@@ -1000,17 +1030,36 @@ object Declaration {
       }
   }
 
+  sealed abstract class PatternBindKind
+  object PatternBindKind {
+
+    case object Equals extends PatternBindKind
+    case object LeftApplyFn extends PatternBindKind
+    
+    val parser: P[PatternBindKind] =
+      eqP.as(Equals) | leftApplyFnP.as(LeftApplyFn)
+  }
+
   private def patternBind(nonBindingParser: Indy[NonBinding], decl: Indy[Declaration]): Indy[Declaration] = {
-    val op = eqP.as(true) | leftApplyFnP.as(false)
+    val pat = MaybeTupleOrParens.parser(Pattern.bindParser)
+    val patPart = pat.region ~ (maybeSpace *> PatternBindKind.parser <* maybeSpace)
+    val parser = nonBindingParser <* Indy.lift(toEOL1)
     // we can't cut the pattern here because we have some ambiguity in declarations
-    bindingLike(nonBindingParser <* Indy.lift(toEOL1), op, cutPattern = false)
+    // allow = to be like a block, we can continue on the next line indented
+    OptIndent.blockLike(Indy.lift(patPart.backtrack), parser, P.unit)
       .cutThen(restP(decl))
       .region
-      .map { case (region, ((pat, preg, isEq, value), decl)) =>
-        if (isEq)
-          Binding(BindingStatement(pat, value, decl))(region)
-        else 
-          LeftApply(pat, preg, value, decl)
+      .map { case (region, ((((preg, rawPat), pbk), value), decl)) =>
+        pbk match {
+          case PatternBindKind.Equals =>
+            // TODO: we should keep the pattern region
+            val pat = Pattern.fromMaybeTupleOrParens(rawPat)
+            Binding(BindingStatement(pat, value.get, decl))(region)
+          case PatternBindKind.LeftApplyFn =>
+            val pat = Pattern.fromMaybeTupleOrParens(rawPat)
+            LeftApply(pat, preg, value.get, decl)
+            
+        }
       }
   }
 
@@ -1093,7 +1142,7 @@ object Declaration {
         .region
         .map { case (r, fn) => fn(r) }
 
-      // since \x -> y: t will parse like \x -> (y: t)
+      // since x -> y: t will parse like x -> (y: t)
       // if we are in a branch arg, we can't parse annotations on the body of the lambda
       val lambBody = if (pm == ParseMode.BranchArg) recArgIndy.asInstanceOf[Indy[Declaration]] else recIndy
       val ternaryElseP = if (pm == ParseMode.BranchArg) recArg else recNonBind

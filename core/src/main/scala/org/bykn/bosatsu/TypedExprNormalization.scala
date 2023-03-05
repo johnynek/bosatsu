@@ -116,8 +116,8 @@ object TypedExprNormalization {
 
       case AnnotatedLambda(arg, tpe, expr, tag) =>
         // we can normalize the arg to the smallest non-free var
-        // \x -> f(x) == f (eta conversion)
-        // \x -> generic(g) = generic(\x -> g) if the type of x doesn't have free types with vars
+        // x -> f(x) == f (eta conversion)
+        // x -> generic(g) = generic(x -> g) if the type of x doesn't have free types with vars
         val e1 = normalize1(None, expr, scope, typeEnv).get
         e1 match {
           case App(fn, Local(ident, _, _), _, _) if ident === arg && fn.notFree(ident) =>
@@ -130,12 +130,12 @@ object TypedExprNormalization {
             scope,
             typeEnv)
           case Let(arg1, ex, in, rec, tag1) if ex.notFree(arg) =>
-            // \x ->
+            // x ->
             //   y = z
             //   f(y)
             //same as:
             //y = z
-            //\x -> f(y)
+            //x -> f(y)
             //avoid recomputing y
             //TODO: we could reorder Lets if we have several in a row
             normalize1(None, Let(arg1, ex, AnnotatedLambda(arg, tpe, in, tag), rec, tag1), scope, typeEnv)
@@ -180,7 +180,7 @@ object TypedExprNormalization {
         val ws = Impl.WithScope(scope)
         f1 match {
           case ws.ResolveToLambda(b, ltpe, expr, ltag) =>
-            // (\y -> z)(x) = let y = x in z
+            // (y -> z)(x) = let y = x in z
             val a2 = if (ltpe != arg.getType) Annotation(arg, ltpe, ltag) else arg
             val expr2 = if (tpe != expr.getType) Annotation(expr, tpe, expr.tag) else expr
             val l = Let(b, a2, expr2, RecursionKind.NonRecursive, tag)
@@ -388,7 +388,7 @@ object TypedExprNormalization {
         case Generic(_, t) => isSimple(t, lambdaSimple)
         case AnnotatedLambda(_, _, _, _) =>
           // maybe inline lambdas so we can possibly
-          // apply (\x -> f)(g) => let x = g in f
+          // apply (x -> f)(g) => let x = g in f
           lambdaSimple
         case _ => false
       }

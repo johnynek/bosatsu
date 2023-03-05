@@ -498,7 +498,7 @@ class ParserTest extends ParserTestBase {
     val allLen3 = (allLen2, withEq).mapN(_ + _)
 
     (singleToks ::: allLen2 ::: allLen3).foreach { opStr =>
-      if (opStr != "<-") {
+      if ((opStr != "<-") && (opStr != "->")) {
         roundTrip(Operators.operatorToken, opStr)
       }
     }
@@ -638,6 +638,11 @@ x""")
       "((\\x -> x)(f))",
       Parens(Apply(Parens(Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x"))), NonEmptyList.of(mkVar("f")), AParens)))
 
+    // bare lambda
+    parseTestAll(parser(""),
+      "((x -> x)(f))",
+      Parens(Apply(Parens(Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x"))), NonEmptyList.of(mkVar("f")), AParens)))
+
     val expected = Apply(Parens(Parens(Lambda(NonEmptyList.of(Pattern.Var(Identifier.Name("x"))), mkVar("x")))), NonEmptyList.of(mkVar("f")), AParens)
     parseTestAll(parser(""),
       "((\\x -> x))(f)",
@@ -647,6 +652,13 @@ x""")
       expected.toDoc.render(80),
       expected)
 
+  }
+
+  test("bare style lambdas work") {
+    roundTrip(Declaration.parser(""), "() -> 1")
+    roundTrip(Declaration.parser(""), "(x, y) -> x.add(y)")
+    roundTrip(Declaration.parser(""), "Foo(x, y) -> x.add(y)")
+    roundTrip(Declaration.parser(""), "((x: Int, y: Int)) -> x.add(y)")
   }
 
   test("we can parse patterns") {
@@ -1382,14 +1394,14 @@ y
     roundTrip(Package.parser(None),
 """package Foo
 
-x = \z ->
+x = z ->
   z
 """, lax = true)
 
     roundTrip(Package.parser(None),
 """package Foo
 
-x = \z ->
+x = z ->
   # we can comment here
   z
 """, lax = true)

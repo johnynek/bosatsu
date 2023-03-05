@@ -26,7 +26,7 @@ def get[shape: (* -> *) -> *](sh: shape[RecordValue], RecordGetter(_, getter): R
   result
 
 def create_field[shape: (* -> *) -> *](rf: RecordField[t], fn: shape[RecordValue] -> t):
-  RecordGetter(\_ -> rf, \sh -> RecordValue(fn(sh)))
+  RecordGetter(_ -> rf, sh -> RecordValue(fn(sh)))
 
 def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
   def getter_to_row_entry(row: shape[RecordValue]):
@@ -56,14 +56,14 @@ def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), m
 struct NilShape[w: * -> *]
 struct PS[t,rest,w](left: w[t], right: rest[w])
 
-new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, \NilShape -> [])
+new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, NilShape -> [])
 
 (ps_end: forall t: (* -> *) -> *. RestructureOutput[t, NilShape]) = RestructureOutput(
-  \_ -> NilShape,
-  \_ -> NilShape,
+  _ -> NilShape,
+  _ -> NilShape,
   NilShape,
   \_, _ -> NilShape,
-  \_ -> []
+  _ -> []
 )
 
 def ps[
@@ -123,11 +123,11 @@ equal_rows = equal_List(equal_RowEntry)
 
 ##################################################
 
-rs_empty = new_record_set.restructure(\_ -> ps("String field".string_field(\_ -> ""), ps("Int field".int_field(\_ -> 0), ps("Bool field".bool_field(\_ -> True), ps_end))))
+rs_empty = new_record_set.restructure(_ -> ps("String field".string_field(_ -> ""), ps("Int field".int_field(_ -> 0), ps("Bool field".bool_field(_ -> True), ps_end))))
 
 rs = rs_empty.concat_records([PS(RecordValue("a"), PS(RecordValue(1), PS(RecordValue(False), NilShape)))])
 
-rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( \r -> r.get(b).add(2) ), ps_end)))))
+rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".int_field( r -> r.get(b).add(2) ), ps_end)))))
 
 tests = TestSuite("reordering",
   [

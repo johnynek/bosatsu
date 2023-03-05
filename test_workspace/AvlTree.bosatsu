@@ -174,7 +174,7 @@ def module(ord: Order[a]) -> Module[a]:
     Module {
         order: ord,
         add: add_item(ord),
-        single: \a -> add_item(ord, Empty, a),
+        single: a -> add_item(ord, Empty, a),
         contains: contains(ord),
         remove: remove_item(ord),
         fold_left: fold_left_Tree,

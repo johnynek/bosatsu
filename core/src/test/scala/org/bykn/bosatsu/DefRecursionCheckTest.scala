@@ -59,7 +59,7 @@ foo = (
   test("shadowing defs is never okay") {
     disallowed("""#
 def foo(x):
-  foo = \x -> 1
+  foo = x -> 1
   foo(x)
 """)
     disallowed("""#
@@ -110,7 +110,7 @@ def len(lst):
     case []: 0
     case [_, *tail]:
       # we can't trivially see this is okay
-      fn = \arg -> arg(tail)
+      fn = arg -> arg(tail)
       fn(len)
 """)
   }
@@ -120,7 +120,7 @@ def len(lst):
 def len(lst):
   recur lst:
     case []:
-      len = \x -> 0
+      len = x -> 0
       len(lst)
     case [_, *tail]: len(tail)
 """)
@@ -146,7 +146,7 @@ def len(lst):
     case []: 0
     case [_, *tail]:
       # shadowing len is not okay
-      fn = \len -> len(tail)
+      fn = len -> len(tail)
       fn(len)
 """)
     disallowed("""#

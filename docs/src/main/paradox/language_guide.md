@@ -145,7 +145,7 @@ add_with_three = \x, y -> add_Int(add_Int(x, y), 3)
 or even
 
 ```
-add_with_three = \x -> \y -> add_Int(add_Int(x, y), 3)
+add_with_three = x -> y -> add_Int(add_Int(x, y), 3)
 ```
 Think of `\` ans an ASCII version of `λ`.
 
