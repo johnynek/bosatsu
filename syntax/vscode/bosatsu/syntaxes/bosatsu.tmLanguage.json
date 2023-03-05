@@ -1,0 +1,147 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "bosatsu",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#double_quote_strings"
+		},
+		{
+			"include": "#single_quote_strings"
+		},
+		{
+			"include": "#comment_line"
+		},
+		{
+			"include": "#def_name"
+		},
+		{
+			"include": "#def_op"
+		},
+		{
+			"match": "\\b([1-9]+[0-9]*|0)",
+			"name": "constant.numeric.integer.decimal.bosatsu"
+		},
+		{ "include": "#struct" },
+		{ "include": "#enum" }
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [
+				{
+					"match": "\\b(for)\\b(?:(?!in).)*\\b(in)",
+					"captures": {
+						"1": {
+					      "name": "keyword.control.repeat.bosatsu"
+						},
+						"2": {
+					      "name": "keyword.control.repeat.bosatsu"
+						}
+					}
+			    },
+				{
+					"name": "keyword.other.bosatsu",
+					"match": "\\b(import|package|from|export)\\b"
+			    },
+				{
+					"comment": "keywords that delimit flow conditionals",
+					"name": "keyword.control.conditional.bosatsu",
+					"match": "\\b(if|elif|else|match|recur|case|matches)\\b"
+				}
+		    ]
+		},
+		"double_quote_strings": {
+			"name": "string.quoted.double.bosatsu",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.bosatsu",
+					"match": "\\\\."
+				}
+			]
+		},
+		"single_quote_strings": {
+			"name": "string.quoted.single.bosatsu",
+			"begin": "'",
+			"end": "'",
+			"patterns": [
+				{
+					"name": "constant.character.escape.bosatsu",
+					"match": "\\\\."
+				}
+			]
+		},
+		"comment_line": {
+			"name": "comment.line.number-sign.bosatsu",
+			"begin": "#",
+			"end": "\\n",
+			"contentName": "punctuation.definition.comment.python"
+		},
+		"def_name": {
+			"name": "meta.function.bosatsu",
+			"begin": "^\\s*(def)\\s+(?!operator)([^(]*)\\(",
+			"beginCaptures": {
+				"1": {
+					"name": "storage.type.function.bosatsu"
+				},
+				"3": {
+                    "name": "entity.name.function.bosatsu"
+				}
+			},
+			"end": "\\)(\\s*->.*)?(:\\s*)",
+			"endCaptures": {
+				"2": {
+					"name": "punctuation.definition.parameters.begin.bosatsu"
+				}
+			}
+		},
+		"def_op": {
+			"name": "meta.function.bosatsu",
+			"begin": "^\\s*(def\\s+operator)\\s+([^(]*)\\s*\\(",
+			"beginCaptures": {
+				"1": {
+					"name": "storage.type.function.bosatsu"
+				},
+				"2": {
+                    "name": "entity.name.function.bosatsu"
+				}
+			},
+			"end": "\\)(\\s*->.*)?(:\\s*)",
+			"endCaptures": {
+				"2": {
+					"name": "punctuation.definition.parameters.begin.bosatsu"
+				}
+			}
+		},
+		"struct": {
+			"name": "meta.class.bosatsu",
+			"begin": "^\\s*(struct)\\s+([^\\s\\(]*)\\s*\\(",
+			"beginCaptures": {
+				"1": {
+					"name": "storage.type.class.bosatsu"
+				},
+				"2": {
+                    "name": "entity.name.class.bosatsu"
+				}
+			},
+			"end": "\\)\\s*\\n"
+		},
+		"enum": {
+			"name": "meta.class.bosatsu",
+			"begin": "^\\s*(enum)\\s+([^\\s:]*)\\s*(?:)",
+			"beginCaptures": {
+				"1": {
+					"name": "storage.type.class.bosatsu"
+				},
+				"2": {
+                    "name": "entity.name.class.bosatsu"
+				}
+			},
+			"end": ":"
+		}
+	},
+	"scopeName": "source.bosatsu"
+}
