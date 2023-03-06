@@ -15,6 +15,12 @@ object Main extends IOApp {
               val name = cmd.name
               IO.consoleForIO.errorln(s"no inputs given to $name")
                 .as(ExitCode.Error)
+            case Left(pe @ PathModule.MainException.ParseErrors(_, _, _)) =>
+              IO.consoleForIO.errorln(pe.messages.mkString("\n"))
+                .as(ExitCode.Error)
+            case Left(pe @ PathModule.MainException.PackageErrors(_, _, _, _)) =>
+              IO.consoleForIO.errorln(pe.messages.mkString("\n"))
+                .as(ExitCode.Error)
             case Left(err) =>
               IO.consoleForIO.errorln("unknown error:\n") *>
                 IO(err.printStackTrace(System.err)).as(ExitCode.Error)
