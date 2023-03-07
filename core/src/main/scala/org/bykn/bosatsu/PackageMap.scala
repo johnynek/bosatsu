@@ -62,6 +62,8 @@ object PackageMap {
       Any
     ]
   ]
+  
+  type SourceMap = Map[PackageName, (LocationMap, String)]
 
   // convenience for type inference
   def toAnyTyped[A](p: Typed[A]): Typed[Any] = p
