@@ -1,0 +1,19 @@
+def quick_sort0(cmp, left, right):
+  recur left:
+    case []: right
+    case [pivot, *tail]:
+      if right matches ([] | [_]): right
+      else:
+        smaller = [x for x in right if cmp(x, pivot) matches (LT | EQ)]
+        bigger = [x for x in right if cmp(x, pivot) matches GT]
+        smalls = quick_sort0(cmp, tail, smaller)
+        bigs = quick_sort0(cmp, tail, bigger)
+        [*smalls, *bigs]
+
+def quick_sort(list, cmp): quick_sort0(cmp, list, list)
+
+test = TestSuite("quicksort", [
+    Assertion(quick_sort([3, 2, 1], cmp_Int) matches [1, 2, 3], "3, 2, 1"),
+    Assertion(quick_sort([2, 3, 1], cmp_Int) matches [1, 2, 3], "2, 3, 1"),
+    Assertion(quick_sort([2, 2, 1], cmp_Int) matches [1, 2, 2], "2, 2, 1"),
+])
