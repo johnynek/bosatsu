@@ -276,6 +276,13 @@ object Infer {
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
 
+    case class UnexpectedMeta(m: Type.Meta, in: Type, left: Region, right: Region) extends TypeError {
+      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
+      def message = s"meta $m at $left occurs in $in at $right and should not. This implies an infinite type."
+      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
+    }
+
+
     /**
      * These are errors that prevent typing due to unknown names,
      * They could be caught in a phase that collects all the naming errors
@@ -314,12 +321,6 @@ object Infer {
      * These can only happen if the compiler has bugs at some point
      */
     sealed abstract class InternalError extends Error
-    case class UnexpectedMeta(m: Type.Meta, in: Type, left: Region, right: Region) extends InternalError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"meta $m at $left occurs in $in at $right and should not. This implies an infinite type."
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
     // This is a logic error which should never happen
     case class InferIncomplete(method: String, term: Expr[_]) extends InternalError {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
@@ -976,25 +977,28 @@ object Infer {
           //
           // It feels like there should be another inference rule, which we
           // are missing here.
-          expect match {
-            case Expected.Check((resT, _)) =>
-              for {
-                tsigma <- inferSigma(term)
-                tbranches <- branches.traverse { case (p, r) =>
-                  // note, resT is in weak-prenex form, so this call is permitted
-                  checkBranch(p, Expected.Check((tsigma.getType, region(term))), r, resT)
-                }
-              } yield TypedExpr.Match(tsigma, tbranches, tag)
-            case infer@Expected.Inf(_) =>
-              for {
-                tsigma <- inferSigma(term)
-                tbranches <- branches.traverse { case (p, r) =>
-                  inferBranch(p, Expected.Check((tsigma.getType, region(term))), r)
-                }
-                (rho, regRho, resBranches) <- narrowBranches(tbranches)
-                _ <- infer.set((rho, regRho))
-              } yield TypedExpr.Match(tsigma, resBranches, tag)
-          }
+          inferSigma(term)
+            .flatMap { tsigma =>
+              val check = Expected.Check((tsigma.getType, region(term)))
+
+              expect match {
+                case Expected.Check((resT, _)) =>
+                  for {
+                    tbranches <- branches.traverse { case (p, r) =>
+                      // note, resT is in weak-prenex form, so this call is permitted
+                      checkBranch(p, check, r, resT)
+                    }
+                  } yield TypedExpr.Match(tsigma, tbranches, tag)
+                case infer@Expected.Inf(_) =>
+                  for {
+                    tbranches <- branches.traverse { case (p, r) =>
+                      inferBranch(p, check, r)
+                    }
+                    (rho, regRho, resBranches) <- narrowBranches(tbranches)
+                    _ <- infer.set((rho, regRho))
+                  } yield TypedExpr.Match(tsigma, resBranches, tag)
+              }
+            }
       }
     }
 

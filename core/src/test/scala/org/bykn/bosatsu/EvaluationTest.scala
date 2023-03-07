@@ -2842,4 +2842,32 @@ Region(195,205)"""
     }
  
   }
+  test("print a decent message when there is an unknown meta") {
+   evalFail(List("""
+package QS
+
+def quick_sort0(cmp, left, right):
+  recur left:
+    case []: right
+    case [pivot, *tail]:
+      if right matches ([] | [_]): right
+      else:
+        smaller = [x for x in right if cmp(x, pivot) matches (LT | EQ)]
+        bigger = [x for x in right if cmp(x, pivot) matches GT]
+        smalls = quick_sort0(cmp, tail, smaller)
+        # we accidentally omit bigger below
+        bigs = quick_sort0(cmp, tail)
+        [*smalls, *bigs]
+""")) { case kie@PackageError.TypeErrorIn(_, _) =>
+      assert(kie.message(Map.empty, Colorize.None) ==
+      """in file: <unknown source>, package QS, Unexpected unknown: the type: ?50 of kind: * at: 
+Region(396,450)
+
+inside the type ?51[?52]
+this sometimes happens when a function arg has been omitted, or an illegal recursive type or function."""
+      )
+      ()
+    }
+ 
+  }
 }

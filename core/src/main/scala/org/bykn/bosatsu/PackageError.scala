@@ -282,6 +282,30 @@ object PackageError {
             Doc.text("because the first kind does not subsume the second.")
 
           doc.render(80)
+        case Infer.Error.UnexpectedMeta(meta, in, metaR, rightR) =>
+          val tymeta = Type.TyMeta(meta)
+          val tmap = showTypes(pack, tymeta :: in :: Nil)
+          val context0 =
+              lm.showRegion(metaR, 2, errColor).getOrElse(Doc.str(metaR)) // we should highlight the whole region
+          val context1 = {
+            if (metaR != rightR) {
+              Doc.text(" at: ") + Doc.hardLine +
+              lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR)) + // we should highlight the whole region
+              Doc.hardLine
+            }
+            else {
+              Doc.empty
+            }
+          }
+
+          val doc = Doc.text("Unexpected unknown: the type: ") + tmap(tymeta) +
+            Doc.text(" of kind: ") + Kind.toDoc(meta.kind) + Doc.text(" at: ") + Doc.hardLine +
+            context0 + Doc.hardLine + Doc.hardLine +
+            Doc.text("inside the type ") + tmap(in) + context1 +
+            Doc.hardLine +
+            Doc.text("this sometimes happens when a function arg has been omitted, or an illegal recursive type or function.")
+
+          doc.render(80)
         case err => err.message
       }
       // TODO use the sourceMap/regiouns in Infer.Error
