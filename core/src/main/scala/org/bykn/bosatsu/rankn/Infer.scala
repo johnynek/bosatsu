@@ -18,7 +18,6 @@ import org.bykn.bosatsu.{
   TypedExpr,
   Variance}
 
-import org.typelevel.paiges.Doc
 import scala.collection.mutable.{Map => MMap}
 
 import HasRegion.region
@@ -177,9 +176,8 @@ object Infer {
       }
     }
 
-  sealed abstract class Error {
-    def message: String
-  }
+  sealed abstract class Error
+
   object Error {
 
     /**
@@ -188,100 +186,16 @@ object Infer {
      */
     sealed abstract class TypeError extends Error
 
-    case class NotUnifiable(left: Type, right: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = {
-        def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
-        s"${tStr(left)} ($leftRegion) cannot be unified with ${tStr(right)} ($rightRegion)"
-      }
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
-    case class KindNotUnifiable(leftK: Kind, leftT: Type, rightK: Kind, rightT: Type, leftRegion: Region, rightRegion: Region) extends TypeError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = {
-        def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
-
-        val doc = Doc.text("kind mismatch error: ") +
-          tStr(leftT) + Doc.text(": ") + Kind.toDoc(leftK) + Doc.text(" cannot be unified with kind: ") +
-          tStr(rightT) + Doc.text(": ") + Kind.toDoc(rightK)
-
-        doc.render(80)
-      }
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
-    case class KindInvalidApply(typeApply: Type.TyApply, leftK: Kind.Cons, rightK: Kind, region: Region) extends TypeError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = {
-        def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
-
-        val doc = Doc.text("invalid type apply: ") +
-          tStr(typeApply) + Doc.text(": left side kind: ") + Kind.toDoc(leftK) + Doc.text(" cannot apply to right side kind: ") +
-          Kind.toDoc(rightK)
-
-        doc.render(80)
-      }
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
-    case class KindMetaMismatch(meta: Type.TyMeta, inferred: Type.Tau, inferredKind: Kind, metaRegion: Region, inferredRegion: Region) extends TypeError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = {
-        def tStr(t: Type): Doc = Type.fullyResolvedDocument.document(t)
-
-        val metaKind = meta.toMeta.kind
-        val doc = Doc.text("inferred kind mismatch: ") +
-          tStr(meta) + Doc.text(": left side kind: ") + Kind.toDoc(metaKind) + Doc.text(" does not subsume ") +
-          tStr(inferred) + Doc.text(": right side kind: ") +
-          Kind.toDoc(inferredKind)
-
-        doc.render(80)
-      }
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
-    case class KindCannotTyApply(ap: Type.TyApply, region: Region) extends TypeError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"for type ${ap}, left kind is *, cannot apply at $region"
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
-    case class UnknownDefined(tpe: Type.Const.Defined, region: Region) extends TypeError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = {
-        def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
-        s"${tStr(Type.TyConst(tpe))} ($region) is an unknown type"
-      }
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
-    case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type.Var.Skolem], reg: Region) extends TypeError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = {
-        val bads = badTvs.map(Type.TyVar(_))
-        def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
-        s"type ${tStr(tpe)} not polymorphic enough in $in, bad type variables: ${bads.map(tStr).toList.mkString(", ")}, at $reg"
-      }
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
-    case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type.Var]) extends TypeError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = {
-        val bads = badTvs.map(Type.TyVar(_))
-        def tStr(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
-        s"subsumption check failed: ${tStr(inferred)} ${tStr(declared)}, bad types: ${bads.map(tStr).toList.mkString(", ")}"
-      }
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
-    case class UnexpectedMeta(m: Type.Meta, in: Type, left: Region, right: Region) extends TypeError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"meta $m at $left occurs in $in at $right and should not. This implies an infinite type."
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
+    case class NotUnifiable(left: Type, right: Type, leftRegion: Region, rightRegion: Region) extends TypeError
+    case class KindNotUnifiable(leftK: Kind, leftT: Type, rightK: Kind, rightT: Type, leftRegion: Region, rightRegion: Region) extends TypeError
+    case class KindInvalidApply(typeApply: Type.TyApply, leftK: Kind.Cons, rightK: Kind, region: Region) extends TypeError
+    case class KindMetaMismatch(meta: Type.TyMeta, inferred: Type.Tau, inferredKind: Kind, metaRegion: Region, inferredRegion: Region) extends TypeError
+    case class KindCannotTyApply(ap: Type.TyApply, region: Region) extends TypeError
+    case class UnknownDefined(tpe: Type.Const.Defined, region: Region) extends TypeError
+    case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type.Var.Skolem], reg: Region) extends TypeError
+    case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type.Var]) extends TypeError
+    // this sounds internal but can be due to an infinite type attempted to be defined
+    case class UnexpectedMeta(m: Type.Meta, in: Type, left: Region, right: Region) extends TypeError
 
     /**
      * These are errors that prevent typing due to unknown names,
@@ -290,44 +204,28 @@ object Infer {
     sealed abstract class NameError extends Error
 
     // This could be a user error if we don't check scoping before typing
-    case class VarNotInScope(varName: Name, vars: Map[Name, Type], region: Region) extends NameError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"$varName not in scope: ${vars.keys.toList.sorted}"
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
+    case class VarNotInScope(varName: Name, vars: Map[Name, Type], region: Region) extends NameError
     // This could be a user error if we don't check scoping before typing
-    case class UnexpectedBound(v: Type.Var.Bound, in: Type, rb: Region, rt: Region) extends NameError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"unexpected bound ${v.name} at $rb in unification with $in at $rt"
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
-
+    case class UnexpectedBound(v: Type.Var.Bound, in: Type, rb: Region, rt: Region) extends NameError
     case class UnknownConstructor(name: (PackageName, Constructor), region: Region, env: Env) extends NameError {
       def knownConstructors: List[(PackageName, Constructor)] = env.typeCons.keys.toList.sorted
-
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"unknown Constructor $name. Known: $knownConstructors"
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
-
-    case class UnionPatternBindMismatch(pattern: Pattern, names: List[List[Identifier.Bindable]]) extends NameError {
-      // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"$pattern doesn't bind the same names in all union branches: $names"
-      // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
-    }
+    case class UnionPatternBindMismatch(pattern: Pattern, names: NonEmptyList[List[Identifier.Bindable]], region: Region) extends NameError
 
     /**
      * These can only happen if the compiler has bugs at some point
      */
-    sealed abstract class InternalError extends Error
+    sealed abstract class InternalError extends Error {
+      def message: String
+      def region: Region
+    }
     // This is a logic error which should never happen
-    case class InferIncomplete(method: String, term: Expr[_]) extends InternalError {
+    case class InferIncomplete(method: String, term: Expr[_], region: Region) extends InternalError {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"$method not complete for $term"
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
-    case class ExpectedRho(tpe: Type, context: String) extends InternalError {
+    case class ExpectedRho(tpe: Type, context: String, region: Region) extends InternalError {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"expected $tpe to be a Type.Rho, at $context"
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
@@ -535,11 +433,11 @@ object Infer {
      * new meta variables for each bound variable in ForAll or skolemize
      * which replaces the ForAll variables with skolem variables
      */
-    def assertRho(t: Type, context: => String): Infer[Type.Rho] =
+    def assertRho(t: Type, context: => String, region: Region): Infer[Type.Rho] =
       t match {
         case r: Type.Rho => pure(r)
         // $COVERAGE-OFF$ this should be unreachable
-        case _ => fail(Error.ExpectedRho(t, context))
+        case _ => fail(Error.ExpectedRho(t, context, region))
         // $COVERAGE-ON$ this should be unreachable
       }
 
@@ -598,7 +496,7 @@ object Infer {
             (a1, r1) = a1r1
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form and a rho type
-            rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 462")
+            rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 462", right)
             coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
           } yield coerce
         case (Type.Fun(a1, r1), rho2) =>
@@ -608,7 +506,7 @@ object Infer {
             (a2, r2) = a2r2
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form
-            rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 471")
+            rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 471", right)
             coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
           } yield coerce
         case (rho1, ta@Type.TyApply(l2, r2)) =>
@@ -854,7 +752,7 @@ object Infer {
            for {
              typedFn <- inferRho(fn)
              fnT = typedFn.getType
-             fnTRho <- assertRho(fnT, s"must be rho since we inferRho($fn): on $typedFn")
+             fnTRho <- assertRho(fnT, s"must be rho since we inferRho($fn): on $typedFn", region(fn))
              argRes <- unifyFn(fnTRho, region(fn), region(term))
              (argT, resT) = argRes
              typedArg <- checkSigma(arg, argT)
@@ -877,7 +775,7 @@ object Infer {
                 // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
                 // in weak prenex form
                 (varT, bodyT) = vb
-                bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr")
+                bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr", region(result))
                 typedBody <- extendEnv(name, varT) {
                     checkRho(result, bodyTRho)
                   }
@@ -898,7 +796,7 @@ object Infer {
                 // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
                 // in weak prenex form
                 (varT, bodyT) = vb
-                bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr")
+                bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr", region(result))
                 typedBody <- extendEnv(name, varT) {
                     // TODO we are ignoring the result of subsCheck here
                     // should we be coercing a var?
@@ -1048,7 +946,7 @@ object Infer {
         (minRes, (minPat, minIdx)) <- minBy(withIdx.head, withIdx.tail)(ltEq(_, _))
         resTpe = minRes.getType
         // inferBranch returns TypedExpr.Rho, so this should be a rho type
-        resTRho <- assertRho(resTpe, s"infer on match $minRes")
+        resTRho <- assertRho(resTpe, s"infer on match $minRes", region(branches.toList(minIdx)._2))
         resRegion = region(minRes)
         resBranches <- withIdx.traverse { case (te, (p, idx)) =>
           if (idx != minIdx) {
@@ -1207,7 +1105,7 @@ object Infer {
     // Unions have to have identical bindings in all branches
     def identicalBinds(u: Pattern, binds: NonEmptyList[List[(Bindable, Type)]], reg: Region): Infer[Unit] =
       binds.map(_.map(_._1)) match {
-        case NonEmptyList(h, t) =>
+        case nel @ NonEmptyList(h, t) =>
           val bs = h.toSet
           val rest = t.map(_.toSet)
           if (rest.forall(_ == bs)) {
@@ -1222,7 +1120,7 @@ object Infer {
               }
             }
           }
-          else fail(Error.UnionPatternBindMismatch(u, h :: t))
+          else fail(Error.UnionPatternBindMismatch(u, nel, reg))
       }
 
     // TODO: we should be able to derive a region for any pattern
@@ -1344,7 +1242,7 @@ object Infer {
       for {
         rho <- inferRho(e)
         expTy = rho.getType
-        expTyRho <- assertRho(expTy, s"must be rho since $rho is a TypedExpr.Rho")
+        expTyRho <- assertRho(expTy, s"must be rho since $rho is a TypedExpr.Rho", region(e))
         envTys <- unifySelf(expTyRho)
         q <- TypedExpr.quantify(envTys, rho, zonk(_), { (m, n) =>
           // quantify guarantees that the kind of n matches m
@@ -1386,7 +1284,7 @@ object Infer {
      */
     def inferRho[A: HasRegion](t: Expr[A]): Infer[TypedExpr.Rho[A]] =
       for {
-        ref <- initRef[(Type.Rho, Region)](Error.InferIncomplete("inferRho", t))
+        ref <- initRef[(Type.Rho, Region)](Error.InferIncomplete("inferRho", t, region(t)))
         expr <- typeCheckRho(t, Expected.Inf(ref))
         _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
       } yield expr
