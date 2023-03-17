@@ -47,8 +47,12 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
       .map { case (r, c) =>
         val lines = lineRange(r - previousLines, r)
 
-        val maxLine = lines.iterator.map(_._1).max
-        val toLineStr = LocationMap.lineNumberToString(maxLine)
+        val toLineStr = lines match {
+          case Nil => { (i: Int) => Doc.str(i) }
+          case notEmpty =>
+            val maxLine = notEmpty.iterator.map(_._1).max
+            LocationMap.lineNumberToString(maxLine)
+        }
 
         // here is how much extra we need for the pointer
         val pointerPad = Doc.spaces(toLineStr(r).render(0).length)
@@ -63,8 +67,12 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
     (toLineCol(region.start), toLineCol(region.end - 1))
       .mapN { case ((l0, c0), (l1, c1)) =>
         val lines = lineRange(l0 - previousLines, l1)
-        val maxLine = lines.iterator.map(_._1).max
-        val toLineStr = LocationMap.lineNumberToString(maxLine)
+        val toLineStr = lines match {
+          case Nil => { (i: Int) => Doc.str(i) }
+          case notEmpty =>
+            val maxLine = notEmpty.iterator.map(_._1).max
+            LocationMap.lineNumberToString(maxLine)
+        }
 
         if (l0 == l1) {
           // same line

@@ -1,7 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.Applicative
-import cats.data.{Chain, Validated, ValidatedNec, Writer, NonEmptyChain}
+import cats.data.{Chain, NonEmptyList, Validated, ValidatedNec, Writer, NonEmptyChain}
 import cats.implicits._
 
 import Expr._
@@ -34,7 +34,15 @@ object UnusedLetCheck {
           // if it is recursive, it is definitely used, because
           // that is automatically applied in source conversions
           if (rec.isRecursive) exprCheck.map(_ - arg) else exprCheck
-        val inCheck = checkArg(arg, HasRegion.region(e), loop(in))
+        // the region of the let isn't directly tracked, but
+        // it would start with the whole region starts and end at expr
+        val inCheck = checkArg(arg, 
+          {
+            val wholeRegion = HasRegion.region(e)
+            val endRegion = HasRegion.region(expr)
+            val bindRegion = wholeRegion.copy(end = endRegion.end)
+            bindRegion
+          }, loop(in))
         (exprRes, inCheck).mapN(_ ++ _)
       case Local(name, _) =>
         // this is a free variable:
@@ -43,10 +51,17 @@ object UnusedLetCheck {
       case App(fn, arg, _) =>
         (loop(fn), loop(arg)).mapN(_ ++ _)
       case Match(arg, branches, _) =>
-        // TODO: patterns need their own region
         val argCheck = loop(arg)
-        val bcheck = branches.traverse { case (pat, expr) =>
-          val region = HasRegion.region(expr)
+        // TODO: patterns need their own region
+        val branchRegions =
+          NonEmptyList.fromListUnsafe(
+            branches.toList.scanLeft((HasRegion.region(arg), Option.empty[Region])) { case ((prev, _), (_, caseExpr)) =>
+              // between the previous expression and the case is the pattern
+              (HasRegion.region(caseExpr), Some(Region(prev.end, HasRegion.region(caseExpr).start)))
+            }
+            .collect { case (_, Some(r)) => r }
+          )
+        val bcheck = branchRegions.zip(branches).traverse { case (region, (pat, expr)) =>
           loop(expr).flatMap { frees =>
             val thisPatNames = pat.names
             val unused = thisPatNames.filterNot(frees)
