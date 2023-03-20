@@ -10,7 +10,7 @@ object Main extends IOApp {
           .attempt
           .flatMap {
             case Right(out) =>
-              PathModule.reportOutput(out).as(ExitCode.Success)
+              PathModule.reportOutput(out)
             case Left(PathModule.MainException.NoInputs(cmd)) =>
               val name = cmd.name
               IO.consoleForIO.errorln(s"no inputs given to $name")

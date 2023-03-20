@@ -7,6 +7,7 @@ import org.typelevel.paiges.Doc
 import java.nio.file.{Path => JPath}
 
 import cats.implicits._
+import cats.effect.ExitCode
 
 object PathModule extends MainModule[IO] {
   type Path = JPath
@@ -67,7 +68,7 @@ object PathModule extends MainModule[IO] {
 
   def delay[A](a: => A): IO[A] = IO(a)
 
-  def reportOutput(out: Output): IO[Unit] =
+  def reportOutput(out: Output): IO[ExitCode] =
     out match {
       case Output.TestOutput(resMap, color) =>
         val noTests = resMap.collect { case (p, None) => p }.toList
@@ -86,7 +87,7 @@ object PathModule extends MainModule[IO] {
             }) + suffix
 
 
-        if (success) print(docRes.render(80))
+        if (success) print(docRes.render(80)).as(ExitCode.Success)
         else {
           val missingDoc =
             if (noTests.isEmpty) Nil
@@ -110,21 +111,19 @@ object PathModule extends MainModule[IO] {
             }
             else failureStr
 
-          print(fullOut.render(80)) *> IO.raiseError(new Exception(excepMessage))
+          print((fullOut + Doc.hardLine + Doc.hardLine + Doc.text(excepMessage)).render(80))
+            .as(ExitCode.Error)
         }
       case Output.EvaluationResult(_, tpe, resDoc) =>
-        IO.defer {
-          val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
-
-          val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
-          print(doc.render(100))
-        }
+        val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
+        val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
+        print(doc.render(100)).as(ExitCode.Success)
       case Output.JsonOutput(json, pathOpt) =>
         val jdoc = json.toDoc
-        pathOpt match {
+        (pathOpt match {
           case Some(path) => CodeGenWrite.writeDoc(path, jdoc)
           case None => IO(println(jdoc.renderTrim(80)))
-        }
+        }).as(ExitCode.Success)
 
       case Output.TranspileOut(outs, base) =>
         def path(p: List[String]): Path =
@@ -135,6 +134,7 @@ object PathModule extends MainModule[IO] {
         }
         .sortBy(_._1)
         .traverse_ { case (_, w) => w }
+        .as(ExitCode.Success)
 
       case Output.CompileOut(packList, ifout, output) =>
         val ifres = ifout match {
@@ -146,7 +146,7 @@ object PathModule extends MainModule[IO] {
         }
         val out = output.fold(IO.unit)(writePackages(packList, _))
 
-        (ifres *> out)
+        (ifres *> out).as(ExitCode.Success)
     }
 
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {
