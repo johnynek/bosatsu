@@ -330,6 +330,14 @@ object Infer {
         env.getKind(t, r)
       }
 
+    private val checkedKinds: Infer[Type => Option[Kind]] = {
+      val emptyRegion = Region(0, 0)
+      GetEnv.map { env =>
+
+        { tpe => env.getKind(tpe, emptyRegion).toOption }  
+      }
+    }
+
     // on t[a] we know t: k -> *, what is the variance
     // in the arg a
     def varianceOfCons(ta: Type.TyApply, region: Region): Infer[Variance] =
@@ -467,7 +475,8 @@ object Infer {
         coarg <- subsCheck(a2, a1, left, right)
         // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right)
-      } yield TypedExpr.coerceFn(a1, r2, coarg, cores)
+        ks <- checkedKinds
+      } yield TypedExpr.coerceFn(a1, r2, coarg, cores, ks)
 
     /*
      * invariant: second argument is in weak prenex form, which means that all
@@ -528,7 +537,8 @@ object Infer {
             }
             // should we coerce to t2? Seems like... but copying previous code
             _ <- subsCheck(l1, l2, left, right)
-          } yield TypedExpr.coerceRho(rho1)
+            ks <- checkedKinds
+          } yield TypedExpr.coerceRho(rho1, ks)
         case (ta@Type.TyApply(l1, r1), rho2) =>
           for {
             kl <- kindOf(l1, left)
@@ -547,11 +557,12 @@ object Infer {
                 unifyType(r1, r2, left, right)
             }
             _ <- subsCheck(l1, l2, left, right)
+            ks <- checkedKinds
             // should we coerce to t2? Seems like... but copying previous code
-          } yield TypedExpr.coerceRho(ta)
+          } yield TypedExpr.coerceRho(ta, ks)
         case (t1, t2) =>
           // rule: MONO
-          unify(t1, t2, left, right).as(TypedExpr.coerceRho(t1)) // TODO this coerce seems right, since we have unified
+          unify(t1, t2, left, right) *> checkedKinds.map(TypedExpr.coerceRho(t1, _)) // TODO this coerce seems right, since we have unified
       })
 
     /*
@@ -566,7 +577,8 @@ object Infer {
           for {
             rho <- instantiate(sigma, r)
             _ <- infer.set((rho, r))
-          } yield TypedExpr.coerceRho(rho)
+            ks <- checkedKinds
+          } yield TypedExpr.coerceRho(rho, ks)
       }
 
     def unifyFn(fnType: Type.Rho, fnRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
@@ -859,8 +871,8 @@ object Infer {
         case Annotation(term, tpe, tag) =>
           for {
             typedTerm <- checkSigma(term, tpe)
-            coerce <- instSigma(tpe, expect, region(term))
-          } yield coerce(TypedExpr.Annotation(typedTerm, tpe, tag))
+            coerce <- instSigma(tpe, expect, region(tag))
+          } yield coerce(typedTerm)
         case Match(term, branches, tag) =>
           // all of the branches must return the same type:
 

@@ -179,6 +179,8 @@ object TypedExpr {
   case class Generic[T](typeVars: NonEmptyList[(Type.Var.Bound, Kind)], in: TypedExpr[T]) extends TypedExpr[T] {
     def tag: T = in.tag
   }
+  // Annotation really means "widen", the term has a type that is a subtype of coerce, so we are widening
+  // to the given type. This happens on Locals/Globals also in their tpe
   case class Annotation[T](term: TypedExpr[T], coerce: Type, tag: T) extends TypedExpr[T]
   case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Local[T](name: Bindable, tpe: Type, tag: T) extends Name[T]
@@ -703,52 +705,160 @@ object TypedExpr {
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
 
-  def coerceRho(tpe: Type.Rho): Coerce =
+  // We know initTpe <:< instTpe, we may be able to simply
+  // fix some of the universally quantified variables
+  private def instantiateTo[A](gen: Generic[A], instTpe: Type.Rho, kinds: Type => Option[Kind]): Option[TypedExpr[A]] =
+    gen.getType match {
+      case Type.ForAll(bs, in) =>
+        import Type._
+        def solve(left: Type, right: Type, state: Map[Type.Var, Type], solveSet: Set[Type.Var]): Option[Map[Type.Var, Type]] =
+          (left, right) match {
+            case (TyVar(v), right) if solveSet(v) =>
+              Some(state.updated(v, right))
+            case (ForAll(b, i), r) =>
+              // this will mask solving for the inside values:
+              solve(i, r, state, solveSet -- b.toList.iterator.map(_._1))
+            case (_, ForAll(_, _)) =>
+              // TODO:
+              // if cons is covariant, all the free params of arg
+              // not in cons can pushed into arg
+              None
+            case (TyApply(on, arg), TyApply(on2, arg2)) =>
+              for {
+                s1 <- solve(on, on2, state, solveSet)
+                s2 <- solve(arg, arg2, s1, solveSet)
+              } yield s2
+            case (TyConst(_) | TyMeta(_) | TyVar(_), _) =>
+              if (left == right) {
+                // can't recurse further into left
+                Some(state)
+              }
+              else None
+            case (TyApply(_, _), _) => None
+          }
+
+        val solveSet: Set[Var] = bs.toList.iterator.map(_._1).toSet
+        solve(in, instTpe, Map.empty, solveSet)
+          .flatMap { subs =>
+            if (subs.keySet == solveSet) Some(substituteTypeVar(gen.in, subs))
+            else None
+          }
+      case _ => None
+    }
+
+  private def allPatternTypes[N](p: Pattern[N, Type]): SortedSet[Type] =
+    p.traverseType { t => Writer[SortedSet[Type], Type](SortedSet(t), t) }.run._1
+
+  private def pushGeneric[A](g: Generic[A]): Option[TypedExpr[A]] =
+    g match {
+      case Generic(typeVars, AnnotatedLambda(b, argTpe, body, a)) =>
+        val argFree = Type.freeBoundTyVars(argTpe :: Nil).toSet
+        if (typeVars.exists { case (b, _) => argFree(b) }) {
+          None
+        }
+        else {
+          val gbody = Generic(typeVars, body)
+          val pushedBody = pushGeneric(gbody).getOrElse(gbody)
+          Some(AnnotatedLambda(b, argTpe, pushedBody, a))
+        }
+      // we can do the same thing on Match
+      case Generic(typeVars, Match(arg, branches, tag)) =>
+        val preTypes = arg.allTypes | branches.foldLeft(arg.allTypes) { case (ts, (p, _)) => ts | allPatternTypes(p) }    
+        val argFree = Type.freeBoundTyVars(preTypes.toList).toSet
+        if (typeVars.exists { case (b, _) => argFree(b) }) {
+          None
+        }
+        else {
+          // the only the branches have generics
+          val b1 = branches.map { case (p, b) =>
+            val gb = Generic(typeVars, b)  
+            val gb1 = pushGeneric(gb).getOrElse(gb)
+            (p, gb1)
+          }
+          Some(Match(arg, b1, tag))
+        }
+      case Generic(typeVars, Let(b, v, in, rec, tag)) =>
+        val argFree = Type.freeBoundTyVars(v.getType :: Nil).toSet
+        if (typeVars.exists { case (b, _) => argFree(b) }) {
+          None
+        }
+        else {
+          val gin = Generic(typeVars, in)
+          val gin1 = pushGeneric(gin).getOrElse(gin)
+          Some(Let(b, v, gin1, rec, tag))
+        }
+      case _ => None
+    }
+
+  // This can assume that the coercion is safe, since it will
+  // only matter when type-checking succeeds. It does not need to
+  // type-check again
+  def coerceRho(tpe: Type.Rho, kinds: Type => Option[Kind]): Coerce =
     tpe match {
-      case Type.Fun(a: Type.Rho, b: Type.Rho) =>
-        coerceFn(a, b, coerceRho(a), coerceRho(b))
+      case Type.Fun(a: Type, b: Type.Rho) =>
+        val cb = coerceRho(b, kinds)
+        val ca = a match {
+          case aRho: Type.Rho => Some(coerceRho(aRho, kinds))
+          case _ => None
+        }
+
+        coerceFn1(a, b, ca, cb, kinds)
       case _ =>
         new FunctionK[TypedExpr, TypedExpr] { self =>
           def apply[A](expr: TypedExpr[A]) =
             expr match {
+              case _ if expr.getType == tpe => expr
               case Annotation(t, _, _) => self(t)
-              case Generic(_, expr) =>
-                // a Generic type is not a rho type,
-                // so we discard the outer forAll and continue on
-                self(expr)
-              case Local(name, _, t) => Local(name, tpe, t)
-              case Global(p, name, _, t) => Global(p, name, tpe, t)
-              case AnnotatedLambda(_, _, _, _) =>
-                // only some coercions would make sense here
-                // how to handle?
-                // one way out could be to return a type to Annotation
-                // and just wrap it in this case, could it be that simple?
+              case Local(_, _, _) | Global(_, _, _, _) | AnnotatedLambda(_, _, _, _)| Literal(_, _, _) =>
+                // All of these are widened. The lambda seems like we should be able to do
+                // better, but the type isn't a Fun(Type, Type.Rho)... this is probably unreachable for
+                // the AnnotatedLambda
                 Annotation(expr, tpe, expr.tag)
+              case gen@Generic(_, _) =>
+                pushGeneric(gen) match {
+                  case Some(e1) => self(e1)
+                  case None =>
+                    instantiateTo(gen, tpe, kinds) match {
+                      case Some(res) => res
+                      case None =>
+                        // TODO: this is basically giving up
+                        Annotation(gen, tpe, gen.tag)
+                    }
+                }
               case App(fn, arg, _, tag) =>
-                fn.getType match {
-                  case Type.Fun(ta: Type.Rho, _) =>
-                    //case Type.Fun(ta: Type.Rho, tr) =>
-                    // we know that we should coerce arg with ta, and narrow tr to tpe
-                    // this makes an infinite loop:
-                    //val cfn = coerceRho(Type.Fun(ta, tpe))
-                    //val fn1 = cfn(fn)
-                    val carg = coerceRho(ta)
-                    App(fn, carg(arg), tpe, tag)
+                fn match {
+                  case AnnotatedLambda(argName, argTpe, body, _) =>
+                    //(\x - res)(y) == let x = y in res
+                    val arg1 = argTpe match {
+                      case rho: Type.Rho => coerceRho(rho, kinds)(arg)
+                      case _ => arg
+                    }
+                    Let(argName, arg1, self(body), RecursionKind.NonRecursive, tag)
                   case _ =>
-                    // TODO, what should we do here?
-                    // It is currently certainly wrong
-                    // we have learned that the type is tpe
-                    // but that implies something for fn and arg
-                    // but we are ignoring that, which
-                    // leaves them with potentially skolems or metavars
-                    App(fn, arg, tpe, tag)
+                    fn.getType match {
+                      case Type.Fun(ta: Type.Rho, _) =>
+                        val carg = coerceRho(ta, kinds)
+                        val fn1 = coerceFn(ta, tpe, carg, self, kinds)(fn)
+                        App(fn1, carg(arg), tpe, tag)
+                      case Type.Fun(ta, _) =>
+                        val fn1 = coerceFn1(ta, tpe, None, self, kinds)(fn)
+                        App(fn1, arg, tpe, tag)
+                      case _ =>
+                        // TODO, what should we do here?
+                        // It is currently certainly wrong
+                        // we have learned that the type is tpe
+                        // but that implies something for fn and arg
+                        // but we are ignoring that, which
+                        // leaves them with potentially skolems or metavars
+                        Annotation(expr, tpe, expr.tag)
+                    }
                 }
               case Let(arg, argE, in, rec, tag) =>
                 Let(arg, argE, self(in), rec, tag)
-              case Literal(l, _, tag) => Literal(l, tpe, tag)
               case Match(arg, branches, tag) =>
-                // TODO: this is wrong. We are leaving metas in the types
-                // embedded in patterns
+                // TODO: this may be wrong. e.g. we could leaving meta in the types
+                // embedded in patterns, this does not seem to happen since we would
+                // error if metas escape typechecking
                 Match(arg, branches.map { case (p, expr) => (p, self(expr)) }, tag)
             }
         }
@@ -916,29 +1026,42 @@ object TypedExpr {
    * TODO this seems pretty expensive to blindly apply: we are deoptimizing
    * the nodes pretty heavily
    */
-  def coerceFn(arg: Type, result: Type.Rho, coarg: Coerce, cores: Coerce): Coerce =
+  def coerceFn(arg: Type, result: Type.Rho, coarg: Coerce, cores: Coerce, kinds: Type => Option[Kind]): Coerce =
+    coerceFn1(arg, result, Some(coarg), cores, kinds)
+
+  private def coerceFn1(arg: Type, result: Type.Rho, coargOpt: Option[Coerce], cores: Coerce, kinds: Type => Option[Kind]): Coerce =
     new FunctionK[TypedExpr, TypedExpr] { self =>
+      val fntpe = Type.Fun(arg, result)
+
       def apply[A](expr: TypedExpr[A]) = {
         expr match {
+          case _ if expr.getType == fntpe => expr
           case Annotation(t, _, _) => self(t)
           case AnnotatedLambda(name, _, res, tag) =>
             // note, Var(None, name, originalType, tag)
             // is hanging out in res, or it is unused
             AnnotatedLambda(name, arg, cores(replaceVarType(res, name, arg)), tag)
-          case Generic(_, in) => self(in)
+          case gen@Generic(_, _) =>
+            pushGeneric(gen) match {
+              case Some(e1) => self(e1)
+              case None =>
+                instantiateTo(gen, fntpe, kinds) match {
+                  case Some(res) => res
+                  case None => Annotation(gen, fntpe, gen.tag)
+                }
+              }
           case Local(n, _, tag) =>
-            Local(n, Type.Fun(arg, result), tag)
+            Local(n, fntpe, tag)
           case Global(p, n, _, tag) =>
-            Global(p, n, Type.Fun(arg, result), tag)
+            Global(p, n, fntpe, tag)
           case _ =>
             /*
-             * We have to be careful not to collide with the free vars in expr
-             */
+            * We have to be careful not to collide with the free vars in expr
+            */
             val free = freeVarsSet(expr :: Nil)
             val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next()
             // name -> (expr((name: arg)): result)
-            // TODO: why do we need coarg when we already know the type (arg)?
-            val result1 = cores(App(expr, coarg(Local(name, arg, expr.tag)), result, expr.tag))
+            val result1 = cores(App(expr, Local(name, arg, expr.tag), result, expr.tag))
             AnnotatedLambda(name, arg, result1, expr.tag)
         }
       }
