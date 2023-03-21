@@ -750,40 +750,40 @@ object TypedExpr {
     p.traverseType { t => Writer[SortedSet[Type], Type](SortedSet(t), t) }.run._1
 
   private def pushGeneric[A](g: Generic[A]): Option[TypedExpr[A]] =
-    g match {
-      case Generic(typeVars, AnnotatedLambda(b, argTpe, body, a)) =>
+    g.in match {
+      case AnnotatedLambda(b, argTpe, body, a) =>
         val argFree = Type.freeBoundTyVars(argTpe :: Nil).toSet
-        if (typeVars.exists { case (b, _) => argFree(b) }) {
+        if (g.typeVars.exists { case (b, _) => argFree(b) }) {
           None
         }
         else {
-          val gbody = Generic(typeVars, body)
+          val gbody = Generic(g.typeVars, body)
           val pushedBody = pushGeneric(gbody).getOrElse(gbody)
           Some(AnnotatedLambda(b, argTpe, pushedBody, a))
         }
       // we can do the same thing on Match
-      case Generic(typeVars, Match(arg, branches, tag)) =>
+      case Match(arg, branches, tag) =>
         val preTypes = arg.allTypes | branches.foldLeft(arg.allTypes) { case (ts, (p, _)) => ts | allPatternTypes(p) }    
         val argFree = Type.freeBoundTyVars(preTypes.toList).toSet
-        if (typeVars.exists { case (b, _) => argFree(b) }) {
+        if (g.typeVars.exists { case (b, _) => argFree(b) }) {
           None
         }
         else {
           // the only the branches have generics
           val b1 = branches.map { case (p, b) =>
-            val gb = Generic(typeVars, b)  
+            val gb = Generic(g.typeVars, b)  
             val gb1 = pushGeneric(gb).getOrElse(gb)
             (p, gb1)
           }
           Some(Match(arg, b1, tag))
         }
-      case Generic(typeVars, Let(b, v, in, rec, tag)) =>
+      case Let(b, v, in, rec, tag) =>
         val argFree = Type.freeBoundTyVars(v.getType :: Nil).toSet
-        if (typeVars.exists { case (b, _) => argFree(b) }) {
+        if (g.typeVars.exists { case (b, _) => argFree(b) }) {
           None
         }
         else {
-          val gin = Generic(typeVars, in)
+          val gin = Generic(g.typeVars, in)
           val gin1 = pushGeneric(gin).getOrElse(gin)
           Some(Let(b, v, gin1, rec, tag))
         }
@@ -1050,13 +1050,28 @@ object TypedExpr {
                   case None => Annotation(gen, fntpe, gen.tag)
                 }
               }
-          case Local(n, _, tag) =>
-            Local(n, fntpe, tag)
-          case Global(p, n, _, tag) =>
-            Global(p, n, fntpe, tag)
-          case _ =>
+          case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
+            Annotation(expr, fntpe, expr.tag)
+          case Let(arg, argE, in, rec, tag) =>
+            Let(arg, argE, self(in), rec, tag)
+          case Match(arg, branches, tag) =>
+            // TODO: this may be wrong. e.g. we could leaving meta in the types
+            // embedded in patterns, this does not seem to happen since we would
+            // error if metas escape typechecking
+            Match(arg, branches.map { case (p, expr) => (p, self(expr)) }, tag)
+          case App(AnnotatedLambda(argName, argTpe, body, _), arg, _, tag) =>
+            //(\x - res)(y) == let x = y in res
+            val arg1 = argTpe match {
+              case rho: Type.Rho => coerceRho(rho, kinds)(arg)
+              case _ => arg
+            }
+            Let(argName, arg1, self(body), RecursionKind.NonRecursive, tag)
+          case App(_, _, _, _) =>
             /*
             * We have to be careful not to collide with the free vars in expr
+            * TODO: it is unclear why we are doing this... it may have just been
+            * a cute trick in the original rankn types paper, but I'm not
+            * sure what is buying us.
             */
             val free = freeVarsSet(expr :: Nil)
             val name = Type.allBinders.iterator.map { v => Identifier.Name(v.name) }.filterNot(free).next()
