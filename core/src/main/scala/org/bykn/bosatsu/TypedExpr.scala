@@ -1098,8 +1098,10 @@ object TypedExpr {
         Generic(params, expr)
     }
 
-  def lambda[A](arg: Bindable, tpe: Type, expr: TypedExpr[A], tag: A): TypedExpr[A] =
+  private def lambda[A](arg: Bindable, tpe: Type, expr: TypedExpr[A], tag: A): TypedExpr[A] =
     expr match {
+      // TODO: this branch is never exercised. There is probably some reason for that
+      // that the types/invariants are losing
       case Generic(ps, ex0) =>
         // due to covariance in the return type, we can always lift
         // generics on the return value out of the lambda
