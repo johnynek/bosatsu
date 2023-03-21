@@ -988,8 +988,8 @@ object Generators {
           .map { case (vs, t) => TypedExpr.Generic(vs, t) }
 
       val ann =
-        Gen.zip(recurse, typeGen, genTag)
-          .map { case (te, tpe, tag) => TypedExpr.Annotation(te, tpe, tag) }
+        Gen.zip(recurse, typeGen)
+          .map { case (te, tpe) => TypedExpr.Annotation(te, tpe) }
 
       val lam =
         Gen.zip(bindIdentGen, typeGen, recurse, genTag)

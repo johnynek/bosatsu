@@ -387,7 +387,7 @@ object ProtoConverter {
               }
           case Value.AnnotationExpr(proto.AnnotationExpr(expr, tpe, _)) =>
             (exprOf(expr), typeOf(tpe))
-              .mapN(TypedExpr.Annotation(_, _, ()))
+              .mapN(TypedExpr.Annotation(_, _))
           case Value.LambdaExpr(proto.LambdaExpr(varName, varTpe, expr, _)) =>
             (bindable(varName), typeOf(varTpe), exprOf(expr))
               .mapN(TypedExpr.AnnotatedLambda(_, _, _, ()))
@@ -641,7 +641,7 @@ object ProtoConverter {
                   val ex = proto.GenericExpr(tparams, ks.toList, exid)
                   writeExpr(g, proto.TypedExpr(proto.TypedExpr.Value.GenericExpr(ex)))
                 }
-            case a@Annotation(term, tpe, _) =>
+            case a@Annotation(term, tpe) =>
               typedExprToProto(term)
                 .product(typeToProto(tpe))
                 .flatMap { case (term, tpe) =>

@@ -101,7 +101,7 @@ object TypedExprNormalization {
                 Some(Generic(nonEmpty, notGen))
             }
         }
-      case Annotation(term, tpe, tag) =>
+      case Annotation(term, tpe) =>
         // if we annotate twice, we can ignore the inner annotation
         // we should have type annotation where we normalize type parameters
         val e1 = normalize1(namerec, term, scope, typeEnv).get
@@ -111,7 +111,7 @@ object TypedExprNormalization {
             Some(e1)
           case notSameTpe =>
             if (notSameTpe eq term) None
-            else Some(Annotation(notSameTpe, tpe, tag))
+            else Some(Annotation(notSameTpe, tpe))
         }
 
       case AnnotatedLambda(arg, tpe, expr, tag) =>
@@ -125,7 +125,7 @@ object TypedExprNormalization {
             val tetpe = te.getType
             normalize1(None, {
               if (fn.getType == tetpe) fn
-              else Annotation(fn, tetpe, te.tag)
+              else Annotation(fn, tetpe)
             },
             scope,
             typeEnv)
@@ -179,10 +179,10 @@ object TypedExprNormalization {
         lazy val a1 = normalize1(None, arg, scope, typeEnv).get
         val ws = Impl.WithScope(scope)
         f1 match {
-          case ws.ResolveToLambda(b, ltpe, expr, ltag) =>
+          case ws.ResolveToLambda(b, ltpe, expr, _) =>
             // (y -> z)(x) = let y = x in z
-            val a2 = if (ltpe != arg.getType) Annotation(arg, ltpe, ltag) else arg
-            val expr2 = if (tpe != expr.getType) Annotation(expr, tpe, expr.tag) else expr
+            val a2 = if (ltpe != arg.getType) Annotation(arg, ltpe) else arg
+            val expr2 = if (tpe != expr.getType) Annotation(expr, tpe) else expr
             val l = Let(b, a2, expr2, RecursionKind.NonRecursive, tag)
             normalize1(namerec, l, scope, typeEnv)
           case Let(arg1, ex, in, rec, tag1) if a1.notFree(arg1) =>
@@ -384,7 +384,7 @@ object TypedExprNormalization {
     final def isSimple[A](ex: TypedExpr[A], lambdaSimple: Boolean): Boolean =
       ex match {
         case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
-        case Annotation(t, _, _) => isSimple(t, lambdaSimple)
+        case Annotation(t, _) => isSimple(t, lambdaSimple)
         case Generic(_, t) => isSimple(t, lambdaSimple)
         case AnnotatedLambda(_, _, _, _) =>
           // maybe inline lambdas so we can possibly
@@ -447,7 +447,7 @@ object TypedExprNormalization {
         case Generic(_, in) =>
           // if we can evaluate, we are okay
           evaluate(in, scope)
-        case Annotation(te, _, _) =>
+        case Annotation(te, _) =>
           evaluate(te, scope)
         case _ =>
           None
