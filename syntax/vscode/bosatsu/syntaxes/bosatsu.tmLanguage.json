@@ -18,13 +18,11 @@
 			"include": "#def_name"
 		},
 		{
-			"include": "#def_op"
-		},
-		{
 			"match": "\\b([1-9]+[0-9]*|0)",
 			"name": "constant.numeric.integer.decimal.bosatsu"
 		},
 		{ "include": "#struct" },
+		{ "include": "#unit_struct" },
 		{ "include": "#enum" }
 	],
 	"repository": {
@@ -82,43 +80,42 @@
 		},
 		"def_name": {
 			"name": "meta.function.bosatsu",
-			"begin": "^\\s*(def)\\s+(?!operator)([^(]*)\\(",
+			"begin": "^\\s*\\b(def)\\b",
 			"beginCaptures": {
 				"1": {
 					"name": "storage.type.function.bosatsu"
+				}
+			},
+			"patterns": [
+              {
+			    "begin": "(?<=def\\b)\\s+(?!operator)([^(\\[]+)",
+				"beginCaptures": {
+					"1": {
+						"name": "entity.name.function.bosatsu"
+					}
 				},
+				"end": "[(\\[]"
+			  },
+			  {
+				"begin": "(?<=def\\b)\\s+(operator)\\s+([^(]*)",
+				"beginCaptures": {
+					"1": {
+						"name": "entity.name.function.bosatsu"
+					}
+				},
+				"end": "[(\\[]"
+			  }
+			],
+			"end": "(?<=\\))(\\s*->.?*)?(:\\s*)",
+			"endCaptures": {
 				"3": {
-                    "name": "entity.name.function.bosatsu"
-				}
-			},
-			"end": "\\)(\\s*->.*)?(:\\s*)",
-			"endCaptures": {
-				"2": {
-					"name": "punctuation.definition.parameters.begin.bosatsu"
-				}
-			}
-		},
-		"def_op": {
-			"name": "meta.function.bosatsu",
-			"begin": "^\\s*(def\\s+operator)\\s+([^(]*)\\s*\\(",
-			"beginCaptures": {
-				"1": {
-					"name": "storage.type.function.bosatsu"
-				},
-				"2": {
-                    "name": "entity.name.function.bosatsu"
-				}
-			},
-			"end": "\\)(\\s*->.*)?(:\\s*)",
-			"endCaptures": {
-				"2": {
 					"name": "punctuation.definition.parameters.begin.bosatsu"
 				}
 			}
 		},
 		"struct": {
 			"name": "meta.class.bosatsu",
-			"begin": "^\\s*(struct)\\s+([^\\s\\(]*)\\s*\\(",
+			"begin": "^\\s*(struct)\\s+([^\\s\\(\\[]*)(\\[[^\\]]*\\])?\\s*\\(",
 			"beginCaptures": {
 				"1": {
 					"name": "storage.type.class.bosatsu"
@@ -129,9 +126,22 @@
 			},
 			"end": "\\)\\s*\\n"
 		},
+		"unit_struct": {
+			"name": "meta.class.bosatsu",
+			"begin": "^\\s*(struct)\\s+([^\\s\\(\\[]*)(\\[[^\\]]*\\])?[\\t\\0x20]*",
+			"beginCaptures": {
+				"1": {
+					"name": "storage.type.class.bosatsu"
+				},
+				"2": {
+                    "name": "entity.name.class.bosatsu"
+				}
+			},
+			"end": "\\n"
+		},
 		"enum": {
 			"name": "meta.class.bosatsu",
-			"begin": "^\\s*(enum)\\s+([^\\s:]*)\\s*(?:)",
+			"begin": "^\\s*(enum)\\s+([^\\s:\\[]*)(\\[[^\\]]*\\])?\\s*(?:)",
 			"beginCaptures": {
 				"1": {
 					"name": "storage.type.class.bosatsu"
