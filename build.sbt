@@ -197,8 +197,41 @@ lazy val bench = project
   .settings(
     publish := {},
     publishLocal := {},
-    libraryDependencies ++=
-      Seq(),
-    publishArtifact := false)
-  .settings(coverageEnabled := false)
+    libraryDependencies ++= Seq(),
+    publishArtifact := false,
+    coverageEnabled := false
+  )
   .enablePlugins(JmhPlugin)
+
+lazy val pathToTruffleDsl = taskKey[String]("Path to truffle-dsl")
+
+lazy val truffle = project
+  .dependsOn(core.jvm, cli)
+  .settings(moduleName := "bosatsu-truffle")
+  .settings(commonSettings)
+  .settings(
+    pathToTruffleDsl := {
+      val classpath = (Compile / dependencyClasspath).value
+      val myLibraryDependency = classpath.find(_.data.getName.contains("truffle-dsl-processor")).getOrElse(
+        throw new RuntimeException("truffle-dsl-processor dependency not found")
+      )
+      println(myLibraryDependency.data.getAbsolutePath())
+      myLibraryDependency.data.getAbsolutePath
+    },
+    javacOptions ++= Seq(
+      "-processorpath",
+      pathToTruffleDsl.value,
+      "-Xlint:processing"
+    ),
+    libraryDependencies ++= Seq(
+      "org.graalvm.truffle" % "truffle-api" % "22.3.1",
+      "org.graalvm.truffle" % "truffle-dsl-processor" % "22.3.1",
+      "org.scalameta" %% "munit" % "0.7.29" % Test
+    ),
+    run / fork := true,
+    javaOptions ++= Seq("-ea",
+      "--add-exports", "org.graalvm.truffle/com.oracle.truffle.api=ALL-UNNAMED",
+      "--add-exports", "org.graalvm.truffle/com.oracle.truffle.api.nodes=ALL-UNNAMED",
+      "--add-exports", "org.graalvm.truffle/com.oracle.truffle.api.staticobject=ALL-UNNAMED"
+    )
+  )
