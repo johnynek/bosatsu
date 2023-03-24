@@ -203,32 +203,48 @@ lazy val bench = project
   )
   .enablePlugins(JmhPlugin)
 
-lazy val pathToTruffleDsl = taskKey[String]("Path to truffle-dsl")
+def failIfNonZeroExitStatus(command: String, message: => String, log: Logger) {
+  import sys.process._
+  val result = command !
+
+  if (result != 0) {
+    log.error(message)
+    sys.error("Failed running command: " + command)
+  }
+}
 
 lazy val truffle = project
   .dependsOn(core.jvm, cli)
   .settings(moduleName := "bosatsu-truffle")
   .settings(commonSettings)
   .settings(
-    pathToTruffleDsl := {
-      val classpath = (Compile / dependencyClasspath).value
-      val myLibraryDependency = classpath.find(_.data.getName.contains("truffle-dsl-processor")).getOrElse(
-        throw new RuntimeException("truffle-dsl-processor dependency not found")
-      )
-      println(myLibraryDependency.data.getAbsolutePath())
-      myLibraryDependency.data.getAbsolutePath
-    },
-    javacOptions ++= Seq(
-      "-processorpath",
-      pathToTruffleDsl.value,
-      "-Xlint:processing"
-    ),
+    (Compile / sourceGenerators) += Def.task {
+      val log = streams.value.log
+
+      log.info("Processing annotations ...")
+
+      val classpath = (Compile / dependencyClasspath).value.files.mkString(":")
+      val inputs = ((baseDirectory.value / "src" / "main" / "java") ** "*.java").get().mkString(" ")
+      val outDir = (Compile / sourceManaged).value
+      IO.delete((outDir ** "*").get)
+      IO.createDirectory(outDir)
+
+      val command = s"javac -cp $classpath -proc:only -s $outDir $inputs"
+
+      failIfNonZeroExitStatus(command, "Failed to process annotations.", log)
+
+      log.info("Done processing annotations.")
+      (outDir ** "*.java").get()
+    }.taskValue,
+    javacOptions ++= Seq("-proc:none"),
     libraryDependencies ++= Seq(
       "org.graalvm.truffle" % "truffle-api" % "22.3.1",
       "org.graalvm.truffle" % "truffle-dsl-processor" % "22.3.1",
       "org.scalameta" %% "munit" % "0.7.29" % Test
     ),
     run / fork := true,
+    Test / fork := true,
+    //compileOrder := CompileOrder.JavaThenScala,
     javaOptions ++= Seq("-ea",
       "--add-exports", "org.graalvm.truffle/com.oracle.truffle.api=ALL-UNNAMED",
       "--add-exports", "org.graalvm.truffle/com.oracle.truffle.api.nodes=ALL-UNNAMED",

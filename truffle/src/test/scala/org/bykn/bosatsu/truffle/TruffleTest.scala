@@ -10,6 +10,6 @@ class TruffleTest extends munit.FunSuite {
 
     val result = callTarget.call()
 
-    assertEquals(46, result);
+    assertEquals(Integer.valueOf(46): AnyRef, result);
   }
 }
