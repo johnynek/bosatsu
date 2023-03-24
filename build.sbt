@@ -218,25 +218,6 @@ lazy val truffle = project
   .settings(moduleName := "bosatsu-truffle")
   .settings(commonSettings)
   .settings(
-    (Compile / sourceGenerators) += Def.task {
-      val log = streams.value.log
-
-      log.info("Processing annotations ...")
-
-      val classpath = (Compile / dependencyClasspath).value.files.mkString(":")
-      val inputs = ((baseDirectory.value / "src" / "main" / "java") ** "*.java").get().mkString(" ")
-      val outDir = (Compile / sourceManaged).value
-      IO.delete((outDir ** "*").get)
-      IO.createDirectory(outDir)
-
-      val command = s"javac -cp $classpath -proc:only -s $outDir $inputs"
-
-      failIfNonZeroExitStatus(command, "Failed to process annotations.", log)
-
-      log.info("Done processing annotations.")
-      (outDir ** "*.java").get()
-    }.taskValue,
-    javacOptions ++= Seq("-proc:none"),
     libraryDependencies ++= Seq(
       "org.graalvm.truffle" % "truffle-api" % "22.3.1",
       "org.graalvm.truffle" % "truffle-dsl-processor" % "22.3.1",
@@ -244,7 +225,6 @@ lazy val truffle = project
     ),
     run / fork := true,
     Test / fork := true,
-    //compileOrder := CompileOrder.JavaThenScala,
     javaOptions ++= Seq("-ea",
       "--add-exports", "org.graalvm.truffle/com.oracle.truffle.api=ALL-UNNAMED",
       "--add-exports", "org.graalvm.truffle/com.oracle.truffle.api.nodes=ALL-UNNAMED",
