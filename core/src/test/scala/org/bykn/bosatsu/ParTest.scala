@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import org.scalatest.{BeforeAndAfterAll, Suite }
+import org.scalatest.{BeforeAndAfterAll, Suite}
 
 trait ParTest extends BeforeAndAfterAll { self: Suite =>
 

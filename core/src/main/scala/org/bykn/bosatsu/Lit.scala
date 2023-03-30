@@ -10,7 +10,7 @@ sealed abstract class Lit {
   def repr: String =
     this match {
       case Lit.Integer(i) => i.toString
-      case Lit.Str(s) => "\"" + escape('"', s) + "\""
+      case Lit.Str(s)     => "\"" + escape('"', s) + "\""
     }
 
   def unboxToAny: Any
@@ -31,7 +31,9 @@ object Lit {
   def apply(str: String): Lit = Str(str)
 
   val integerParser: P[Integer] =
-    Parser.integerString.map { str => Integer(new BigInteger(str.filterNot(_ == '_'))) }
+    Parser.integerString.map { str =>
+      Integer(new BigInteger(str.filterNot(_ == '_')))
+    }
 
   val stringParser: P[Str] = {
     val q1 = '\''
@@ -47,9 +49,9 @@ object Lit {
       def compare(a: Lit, b: Lit): Int =
         (a, b) match {
           case (Integer(a), Integer(b)) => a.compareTo(b)
-          case (Integer(_), Str(_)) => -1
-          case (Str(_), Integer(_)) => 1
-          case (Str(a), Str(b)) => a.compareTo(b)
+          case (Integer(_), Str(_))     => -1
+          case (Str(_), Integer(_))     => 1
+          case (Str(a), Str(b))         => a.compareTo(b)
         }
     }
 
@@ -64,4 +66,3 @@ object Lit {
         Doc.char(q) + Doc.text(escape(q, str)) + Doc.char(q)
     }
 }
-

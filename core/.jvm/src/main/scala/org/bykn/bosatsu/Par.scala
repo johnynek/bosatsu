@@ -4,12 +4,11 @@ import java.util.concurrent.Executors
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.concurrent.duration.Duration
 
-/**
- * This is an abstraction to handle parallel computation, not effectful
- * computation. It is used in places where we have parallelism in expensive
- * operations. Since scalajs cannot handle this, we use conditional build
- * to replace the scalajs with just running directly
- */
+/** This is an abstraction to handle parallel computation, not effectful
+  * computation. It is used in places where we have parallelism in expensive
+  * operations. Since scalajs cannot handle this, we use conditional build to
+  * replace the scalajs with just running directly
+  */
 object Par {
   type F[A] = Future[A]
   type P[A] = Promise[A]
@@ -22,7 +21,8 @@ object Par {
   def shutdownService(es: ExecutionService): Unit =
     es.shutdown()
 
-  def ecFromService(es: ExecutionService): EC = ExecutionContext.fromExecutor(es)
+  def ecFromService(es: ExecutionService): EC =
+    ExecutionContext.fromExecutor(es)
 
   @inline def start[A](a: => A)(implicit ec: EC): F[A] =
     Future(a)
@@ -39,4 +39,3 @@ object Par {
 
   @inline def toF[A](pa: P[A]): F[A] = pa.future
 }
-
