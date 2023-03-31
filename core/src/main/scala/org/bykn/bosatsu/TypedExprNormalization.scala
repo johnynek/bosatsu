@@ -74,7 +74,9 @@ object TypedExprNormalization {
    */
   def normalizeLetOpt[A, V](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[V]): Option[TypedExpr[A]] =
     te match {
-      case Generic(vars, in) =>
+      case g@Generic(_, Annotation(term, _)) if g.getType.sameAs(term.getType) =>
+        normalize1(namerec, term, scope, typeEnv)
+      case g@Generic(vars, in) =>
         // normalize the inside, then get all the freeBoundTyVars and
         // and if we can reallocate typevars to be the a, b, ... do so,
         // if they are the same, return none
@@ -97,6 +99,8 @@ object TypedExprNormalization {
               case Some(gen@Generic(_, _)) =>
                 // in1 could be a generic in a
                 Some(forAll(nonEmpty, gen))
+              case Some(Annotation(term, _)) if g.getType.sameAs(term.getType) =>
+                Some(term)
               case Some(notGen) =>
                 Some(Generic(nonEmpty, notGen))
             }
@@ -106,7 +110,7 @@ object TypedExprNormalization {
         // we should have type annotation where we normalize type parameters
         val e1 = normalize1(namerec, term, scope, typeEnv).get
         e1 match {
-          case _ if e1.getType == tpe =>
+          case _ if e1.getType.sameAs(tpe) =>
             // the type is already right
             Some(e1)
           case notSameTpe =>
@@ -124,7 +128,7 @@ object TypedExprNormalization {
             // if ident is not free in fn we can return fn
             val tetpe = te.getType
             normalize1(None, {
-              if (fn.getType == tetpe) fn
+              if (fn.getType.sameAs(tetpe)) fn
               else Annotation(fn, tetpe)
             },
             scope,
@@ -181,8 +185,8 @@ object TypedExprNormalization {
         f1 match {
           case ws.ResolveToLambda(b, ltpe, expr, _) =>
             // (y -> z)(x) = let y = x in z
-            val a2 = if (ltpe != arg.getType) Annotation(arg, ltpe) else arg
-            val expr2 = if (tpe != expr.getType) Annotation(expr, tpe) else expr
+            val a2 = if (!ltpe.sameAs(arg.getType)) Annotation(arg, ltpe) else arg
+            val expr2 = if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe) else expr
             val l = Let(b, a2, expr2, RecursionKind.NonRecursive, tag)
             normalize1(namerec, l, scope, typeEnv)
           case Let(arg1, ex, in, rec, tag1) if a1.notFree(arg1) =>

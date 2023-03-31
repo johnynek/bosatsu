@@ -794,7 +794,7 @@ object TypedExpr {
         new FunctionK[TypedExpr, TypedExpr] { self =>
           def apply[A](expr: TypedExpr[A]) =
             expr match {
-              case _ if expr.getType == tpe => expr
+              case _ if expr.getType.sameAs(tpe) => expr
               case Annotation(t, _) => self(t)
               case Local(_, _, _) | Global(_, _, _, _) | AnnotatedLambda(_, _, _, _)| Literal(_, _, _) =>
                 // All of these are widened. The lambda seems like we should be able to do
@@ -1021,7 +1021,7 @@ object TypedExpr {
 
       def apply[A](expr: TypedExpr[A]) = {
         expr match {
-          case _ if expr.getType == fntpe => expr
+          case _ if expr.getType.sameAs(fntpe) => expr
           case Annotation(t, _) => self(t)
           case AnnotatedLambda(name, _, res, tag) =>
             // note, Var(None, name, originalType, tag)
@@ -1075,14 +1075,21 @@ object TypedExpr {
         // implies that those params weren't free, because
         // they have already been quantified by ps, so
         // they can be removed
-        val newParams = params.toList.filterNot(ps.toList.toSet)
+        val innerSet = ps.toList.iterator.map(_._1).toSet
+        val newParams = params.toList.filterNot { case (v, _) => innerSet(v) }
         val ps1 = NonEmptyList.fromList(newParams) match {
           case None => ps
           case Some(nep) => nep ::: ps
         }
-        Generic(ps1, ex0)
+        forAll(ps1, ex0)
       case expr =>
-        Generic(params, expr)
+        val g = Generic(params, expr)
+        expr match {
+          // we not uncommonly add an annotation just to make a generic wrapper to get back where
+          // we were
+          case Annotation(term, _) if g.getType.sameAs(term.getType) => term
+          case _ => g
+        }
     }
 
   private def lambda[A](arg: Bindable, tpe: Type, expr: TypedExpr[A], tag: A): TypedExpr[A] =

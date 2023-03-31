@@ -9,7 +9,9 @@ import scala.collection.immutable.SortedSet
 
 import cats.implicits._
 
-sealed abstract class Type
+sealed abstract class Type {
+  def sameAs(that: Type): Boolean = Type.sameType(this, that)
+}
 
 object Type {
   /**
@@ -23,6 +25,18 @@ object Type {
   case class TyVar(toVar: Var) extends Rho
   case class TyMeta(toMeta: Meta) extends Rho
   case class TyApply(on: Type, arg: Type) extends Rho
+
+  def sameType(left: Type, right: Type): Boolean =
+    (left == right) || ((left, right) match {
+      case (ForAll(vl, il), ForAll(vr, ir)) =>
+        val kindMatch = 
+          vl.toList.iterator.zip(vr.toList.iterator).forall { case ((_, k1), (_, k2)) => k1 == k2 }
+        kindMatch && {
+          val s = substTy(vl.map(_._1), vr.map { case (b, _) => TyVar(b) })
+          sameType(s(il), ir)
+        }
+      case _ => false
+    })
 
   implicit val typeOrder: Order[Type] =
     new Order[Type] {
@@ -108,7 +122,7 @@ object Type {
       case Type.ForAll(ne1, rho) => Type.ForAll(vars ::: ne1, rho)
     }
 
-  implicit val typeEq: Eq[Type] =
+  val typeEq: Eq[Type] =
     new Eq[Type] {
       def eqv(left: Type, right: Type): Boolean =
         left == right

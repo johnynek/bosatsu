@@ -469,6 +469,7 @@ foo = _ -> 1
              app(app(app(varTE("x", intTpe), varTE("y", intTpe), intTpe),
                varTE("y", intTpe), intTpe),
                varTE("w", intTpe), intTpe)))))
+
   }
 
   test("x -> f(x) == f") {
@@ -476,6 +477,29 @@ foo = _ -> 1
     val left = lam("x", intTpe, app(f, varTE("x", intTpe), intTpe))
     
     assert(TypedExprNormalization.normalize(left) == Some(f))
+
+    checkLast("""
+struct Foo(a)
+x = (y) -> Foo(y)
+g = a -> x(a)
+    """) { te1 =>
+      checkLast("""
+struct Foo(a)
+x = Foo
+      """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+
+    checkLast("""
+struct Foo(a)
+x = Foo
+    """) {
+      case TypedExpr.Global(_, Identifier.Constructor("Foo"), _, _) =>
+        assert(true)
+      case notNorm =>
+        fail(notNorm.repr)
+    }
   }
 
   test("(x -> f(x, z))(y) == f(y, z)") {
