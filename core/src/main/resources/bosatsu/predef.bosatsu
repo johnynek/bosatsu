@@ -60,6 +60,19 @@ external struct Fn[a: -*, b: +*]
 enum List:
   EmptyList, NonEmptyList(head: a, tail: List[a])
 
+def build_List[a](fn: forall b. (a -> b -> b) -> b -> b) -> List[a]:
+    fn(NonEmptyList, [])
+
+def foldr_List(list: List[a], fn: a -> b -> b, acc: b) -> b:
+    def loop(list: List[a]) -> b:
+        recur list:
+            case []: acc
+            case [h, *t]: fn(h, loop(t))
+    loop(list)
+
+# we can rewrite: foldr_List(build_List(g), f, x) => g(f, x)
+# see "A Shortcut to Deforestation" by Gill et. al.
+
 def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
   # make the loop function as small as possible
   def loop(lst, item):
