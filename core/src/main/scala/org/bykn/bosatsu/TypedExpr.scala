@@ -344,19 +344,6 @@ object TypedExpr {
     }
 
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
-    def updatedTag(t: A): TypedExpr[A] =
-      self match {
-        case Generic(ts, te) => Generic(ts, te.updatedTag(t))
-        case Annotation(e, tpe) => Annotation(e.updatedTag(t), tpe)
-        case al@AnnotatedLambda(_, _, _, _) => al.copy(tag=t)
-        case v@Local(_, _, _) => v.copy(tag=t)
-        case g@Global(_, _, _, _) => g.copy(tag=t)
-        case a@App(_, _, _, _) => a.copy(tag=t)
-        case let@Let(_, _, _, _, _) => let.copy(tag=t)
-        case lit@Literal(_, _, _) => lit.copy(tag=t)
-        case m@Match(_, _, _) => m.copy(tag=t)
-      }
-
     def allTypes: SortedSet[Type] =
       traverseType { t => Writer[SortedSet[Type], Type](SortedSet(t), t) }.run._1
 
