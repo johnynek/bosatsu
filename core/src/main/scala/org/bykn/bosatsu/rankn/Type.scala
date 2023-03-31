@@ -234,7 +234,7 @@ object Type {
   val builtInKinds: Map[Type.Const.Defined, Kind] =
     List(
       BoolType -> Kind.Type,
-      DictType -> Kind(Kind.Type.in, Kind.Type.in),
+      DictType -> Kind(Kind.Type.in, Kind.Type.co),
       FnType -> Kind(Kind.Type.contra, Kind.Type.co),
       IntType -> Kind.Type,
       ListType -> Kind(Kind.Type.co),

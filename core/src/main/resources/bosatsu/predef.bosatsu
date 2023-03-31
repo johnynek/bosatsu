@@ -318,7 +318,7 @@ def fold_right_Tree(t: Tree[a], right_v: b, fn: a -> b -> b) -> b:
 # Standard dictionaries
 #############
 
-struct Dict[k, v](order: Order[(k, v)], tree: Tree[(k, v)])
+struct Dict[k, v: +*](order: forall a. Order[(k, a)], tree: Tree[(k, v)])
 
 def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]:
     Order(fn) = comp
