@@ -463,13 +463,12 @@ object Type {
     t match {
       case Type.TyApply(on, arg) =>
         (zonkMeta(on)(mfn), zonkMeta(arg)(mfn)).mapN(Type.TyApply(_, _))
-      case c@Type.TyConst(_) => Applicative[F].pure(c)
-      case v@Type.TyVar(_) => Applicative[F].pure(v)
       case t@Type.TyMeta(m) =>
         mfn(m).map {
           case None => t
           case Some(rho) => rho
         }
+      case (Type.TyConst(_) | Type.TyVar(_)) => Applicative[F].pure(t)
     }
 
   private object FullResolved extends TypeParser[Type] {
