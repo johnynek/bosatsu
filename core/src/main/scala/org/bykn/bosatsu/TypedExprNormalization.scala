@@ -114,11 +114,16 @@ object TypedExprNormalization {
             // the type is already right
             Some(e1)
           case notSameTpe =>
-            if (notSameTpe eq term) None
-            else Some(Annotation(notSameTpe, tpe))
+            val nt = Type.normalize(tpe)
+            if (notSameTpe eq term) {
+              if (nt == tpe) None
+              else Some(Annotation(term, nt))
+            }
+            else Some(Annotation(notSameTpe, nt))
         }
 
-      case AnnotatedLambda(arg, tpe, expr, tag) =>
+      case AnnotatedLambda(arg, tpe0, expr, tag) =>
+        val tpe = Type.normalize(tpe0)
         // we can normalize the arg to the smallest non-free var
         // x -> f(x) == f (eta conversion)
         // x -> generic(g) = generic(x -> g) if the type of x doesn't have free types with vars
@@ -151,34 +156,44 @@ object TypedExprNormalization {
               }
               b1 match {
                 case None =>
-                  if (m eq expr) None
+                  if ((m eq expr) && (tpe == tpe0)) None
                   else Some(AnnotatedLambda(arg, tpe, m, tag))
                 case Some(bs) =>
                   val m1 = Match(arg1, bs, tag1)
                   normalize1(namerec, m1, scope, typeEnv)
               }
           case notApp =>
-            if (notApp eq expr) None
+            if ((notApp eq expr) && (tpe == tpe0)) None
             else Some(AnnotatedLambda(arg, tpe, notApp, tag))
         }
-      case Global(_, _: Constructor, _, _) | Literal(_, _, _) =>
+      case Global(p, n: Constructor, tpe0, tag) =>
+        val tpe = Type.normalize(tpe0)
+        if (tpe == tpe0) None
+        else Some(Global(p, n, tpe, tag))
+      case Literal(_, _, _) =>
         // these are fundamental
         None
-      case Global(p, n: Bindable, _, _) =>
+      case Global(p, n: Bindable, tpe0, tag) =>
         scope.getGlobal(p, n).flatMap {
           case (RecursionKind.NonRecursive, te, _) if Impl.isSimple(te, lambdaSimple = false) =>
             // for a reason I don't understand, inlining lambdas here causes a stack overflow
             // there is probably something somewhat unsound about this substitution that I don't understand
             Some(te)
-          case _ => None
+          case _ =>
+            val tpe = Type.normalize(tpe0)
+            if (tpe == tpe0) None
+            else Some(Global(p, n, tpe, tag))
         }
-      case Local(_, _, _) =>
+      case Local(n, tpe0, tag) =>
         // TODO we could look in the scope
         // and potentially simplify, but maybe it
         // is too late here, we want to do that when
         // we have another potential optimization?
-        None
-      case App(fn, arg, tpe, tag) =>
+        val tpe = Type.normalize(tpe0)
+        if (tpe == tpe0) None
+        else Some(Local(n, tpe, tag))
+      case App(fn, arg, tpe0, tag) =>
+        val tpe = Type.normalize(tpe0)
         val f1 = normalize1(None, fn, scope, typeEnv).get
         lazy val a1 = normalize1(None, arg, scope, typeEnv).get
         val ws = Impl.WithScope(scope)
@@ -193,7 +208,7 @@ object TypedExprNormalization {
               // (app (let x y z) w) == (let x y (app z w)) if w does not have x free
               normalize1(namerec, Let(arg1, ex, App(in, a1, tpe, tag), rec, tag1), scope, typeEnv)
           case _ =>
-            if ((f1 eq fn) && (a1 eq arg)) None
+            if ((f1 eq fn) && (a1 eq arg) && (tpe == tpe0)) None
             else Some(App(f1, a1, tpe, tag))
         }
       case Let(arg, ex, in, rec, tag) =>

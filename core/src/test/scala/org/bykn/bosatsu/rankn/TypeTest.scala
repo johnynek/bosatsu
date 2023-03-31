@@ -54,6 +54,12 @@ class TypeTest extends AnyFunSuite {
     }
   }
 
+  test("normalization never throws") {
+    forAll(NTypeGen.genDepth03) { t =>
+      assert(t.sameAs(Type.normalize(t)))
+    }
+  }
+
   test("we can parse types") {
     def law(t: Type) = {
       val str = Type.fullyResolvedDocument.document(t).render(80)

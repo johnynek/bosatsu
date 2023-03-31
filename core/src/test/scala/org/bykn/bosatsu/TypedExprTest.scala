@@ -513,6 +513,20 @@ x = Foo
     val res = TypedExprNormalization.normalize(left)
 
     assert(res == Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
+
+    checkLast("""
+f = (_, y) -> y
+z = 1
+res = y -> (x -> f(x, z))(y)
+""") { te1 =>
+  
+      checkLast("""
+f = (_, y) -> y
+res = y -> f(y, 1)
+      """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
   }
 
   def gen[A](g: Gen[A]): Gen[TypedExpr[A]] =

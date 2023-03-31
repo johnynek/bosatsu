@@ -27,16 +27,7 @@ object Type {
   case class TyApply(on: Type, arg: Type) extends Rho
 
   def sameType(left: Type, right: Type): Boolean =
-    (left == right) || ((left, right) match {
-      case (ForAll(vl, il), ForAll(vr, ir)) =>
-        val kindMatch = 
-          vl.toList.iterator.zip(vr.toList.iterator).forall { case ((_, k1), (_, k2)) => k1 == k2 }
-        kindMatch && {
-          val s = substTy(vl.map(_._1), vr.map { case (b, _) => TyVar(b) })
-          sameType(s(il), ir)
-        }
-      case _ => false
-    })
+    normalize(left) == normalize(right)
 
   implicit val typeOrder: Order[Type] =
     new Order[Type] {
@@ -230,6 +221,41 @@ object Type {
   def freeBoundTyVars(ts: List[Type]): List[Type.Var.Bound] =
     freeTyVars(ts).collect { case b@Type.Var.Bound(_) => b }
 
+  def normalize(tpe: Type): Type =
+    tpe match {
+      case ForAll(vars0: NonEmptyList[(Var.Bound, Kind)], in) =>
+        val inFree = freeBoundTyVars(in :: Nil)
+        val inFreeSet = inFree.toSet
+        val vars1 = vars0.filter { case (b, _) => inFreeSet(b) }
+
+        NonEmptyList.fromList(vars1) match {
+          case Some(vars2) =>
+            val vars =
+              if (vars2.tail.isEmpty) {
+                // already sorted
+                vars2
+              }
+              else {
+                // sort the quantification by the order of appearance
+                val order = inFree.iterator.zipWithIndex.toMap
+                vars2.sortBy { case (b, _) => order(b) }
+              }
+            val frees = freeBoundTyVars(tpe :: Nil).toSet
+            val bs = alignBinders(vars, frees)
+            val subMap = bs.toList.map { case ((bold, _), bnew) =>
+              bold -> TyVar(bnew)
+            }
+            .toMap[Type.Var, Type.Rho]
+
+            forAll(
+              bs.toList.map { case ((_, k), b) => (b, k) },
+              normalize(substituteRhoVar(in, subMap)))
+          case None => normalize(in)
+        }
+
+      case TyApply(on, arg) => TyApply(normalize(on), normalize(arg))
+      case _ => tpe
+    }
   /**
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals
