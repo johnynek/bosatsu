@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
-import cats.{Applicative, Eq, Order}
+import cats.{Applicative, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import scala.collection.immutable.SortedSet
@@ -18,16 +18,22 @@ object Type {
    * A type with no top level ForAll
    */
   sealed abstract class Rho extends Type
+  sealed abstract class Leaf extends Rho
   type Tau = Rho // no forall anywhere
 
   case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho) extends Type
-  case class TyConst(tpe: Const) extends Rho
-  case class TyVar(toVar: Var) extends Rho
-  case class TyMeta(toMeta: Meta) extends Rho
   case class TyApply(on: Type, arg: Type) extends Rho
+  case class TyConst(tpe: Const) extends Leaf
+  case class TyVar(toVar: Var) extends Leaf
+  case class TyMeta(toMeta: Meta) extends Leaf
 
   def sameType(left: Type, right: Type): Boolean =
-    normalize(left) == normalize(right)
+    if (left.isInstanceOf[Leaf] && right.isInstanceOf[Leaf]) {
+      left == right
+    }
+    else {
+      normalize(left) == normalize(right)
+    }
 
   implicit val typeOrder: Order[Type] =
     new Order[Type] {
@@ -111,12 +117,6 @@ object Type {
     in match {
       case rho: Rho => Type.ForAll(vars, rho)
       case Type.ForAll(ne1, rho) => Type.ForAll(vars ::: ne1, rho)
-    }
-
-  val typeEq: Eq[Type] =
-    new Eq[Type] {
-      def eqv(left: Type, right: Type): Boolean =
-        left == right
     }
 
   def getTypeOf(lit: Lit): Type =
@@ -223,7 +223,7 @@ object Type {
 
   def normalize(tpe: Type): Type =
     tpe match {
-      case ForAll(vars0: NonEmptyList[(Var.Bound, Kind)], in) =>
+      case ForAll(vars0, in) =>
         val inFree = freeBoundTyVars(in :: Nil)
         val inFreeSet = inFree.toSet
         val vars1 = vars0.filter { case (b, _) => inFreeSet(b) }
