@@ -525,23 +525,16 @@ final class SourceConverter(
   def toDefinition(pname: PackageName, tds: TypeDefinitionStatement): Result[rankn.DefinedType[Option[Kind.Arg]]] = {
     import Statement._
 
-    def typeVar(i: Long): Type.TyVar =
-      Type.TyVar(Type.Var.Bound(s"anon$i"))
-
-    type StT = ((Set[Type.TyVar], List[Type.TyVar]), Long)
+    type StT = ((Set[Type.TyVar], List[Type.TyVar]), LazyList[Type.TyVar])
     type VarState[A] = State[StT, A]
 
-    def add(t: Type.TyVar): VarState[Type.TyVar] =
-      State.modify[StT] { case ((ss, sl), i) => ((ss + t, t :: sl), i) }.as(t)
-
-    lazy val nextVar: VarState[Type.TyVar] =
-      for {
-        vsid <- State.get[StT]
-        ((existing, _), id) = vsid
-        _ <- State.modify[StT] { case (s, id) => (s, id + 1L) }
-        candidate = typeVar(id)
-        tv <- if (existing(candidate)) nextVar else add(candidate)
-      } yield tv
+    val nextVar: VarState[Type.TyVar] =
+      State[StT, Type.TyVar] { case ((set, lst), vs) =>
+        val vs1 = vs.dropWhile(set)
+        val v = vs1.head
+        val vs2 = vs1.tail
+        (((set + v, v :: lst), vs2), v)
+      }
 
     def buildParam(p: (Bindable, Option[Type])): VarState[(Bindable, Type)] =
       p match {
@@ -589,8 +582,9 @@ final class SourceConverter(
       case Struct(nm, typeArgs, args) =>
         deep.traverse(args)(toType(_, tds.region))
           .flatMap { argsType =>
+            val declVars = typeArgs.iterator.flatMap(_.toList).map { p => Type.TyVar(p._1.toBoundVar) }
             val initVars = existingVars(argsType)
-            val initState = ((initVars.toSet, initVars.reverse), 0L)
+            val initState = ((initVars.toSet ++ declVars, initVars.reverse), Type.allBinders.map(Type.TyVar))
             val (((_, typeVars), _), params) = buildParams(argsType).run(initState).value
             // we reverse to make sure we see in traversal order
             val typeParams0 = reverseMap(typeVars) { tv =>
@@ -625,8 +619,9 @@ final class SourceConverter(
               (nm, params)
             }
           }
+          val declVars = typeArgs.iterator.flatMap(_.toList).map { p => Type.TyVar(p._1.toBoundVar) }
           val initVars = existingVars(conArgs.toList.flatMap(_._2))
-          val initState = ((initVars.toSet, initVars.reverse), 0L)
+          val initState = ((initVars.toSet ++ declVars, initVars.reverse), Type.allBinders.map(Type.TyVar))
           val (((_, typeVars), _), constructors) = constructorsS.run(initState).value
           // we reverse to make sure we see in traversal order
           val typeParams0 = reverseMap(typeVars) { tv =>
