@@ -201,9 +201,7 @@ struct Leib[a, b](cast: forall f. f[a] -> f[b])
         "Tree" -> "+* -> *",
         "Unit" -> "*",
         "TupleCons" -> "+* -> +* -> *",
-        // TODO: we could make this * -> +* -> * if we were more careful
-        // that would allow some recursions we don't currently
-        "Dict" -> "* -> * -> *"
+        "Dict" -> "* -> +* -> *"
       )
     )
   }

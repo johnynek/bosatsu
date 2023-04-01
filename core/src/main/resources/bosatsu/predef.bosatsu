@@ -60,6 +60,19 @@ external struct Fn[a: -*, b: +*]
 enum List:
   EmptyList, NonEmptyList(head: a, tail: List[a])
 
+def build_List[a](fn: forall b. (a -> b -> b) -> b -> b) -> List[a]:
+    fn(NonEmptyList, [])
+
+def foldr_List(list: List[a], fn: a -> b -> b, acc: b) -> b:
+    def loop(list: List[a]) -> b:
+        recur list:
+            case []: acc
+            case [h, *t]: fn(h, loop(t))
+    loop(list)
+
+# we can rewrite: foldr_List(build_List(g), f, x) => g(f, x)
+# see "A Shortcut to Deforestation" by Gill et. al.
+
 def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
   # make the loop function as small as possible
   def loop(lst, item):
@@ -318,7 +331,7 @@ def fold_right_Tree(t: Tree[a], right_v: b, fn: a -> b -> b) -> b:
 # Standard dictionaries
 #############
 
-struct Dict[k, v](order: Order[(k, v)], tree: Tree[(k, v)])
+struct Dict[k, v: +*](order: forall a. Order[(k, a)], tree: Tree[(k, v)])
 
 def empty_Dict(comp: Order[k]) -> forall v. Dict[k, v]:
     Order(fn) = comp
