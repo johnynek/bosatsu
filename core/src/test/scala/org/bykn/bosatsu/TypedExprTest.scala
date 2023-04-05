@@ -529,6 +529,50 @@ res = y -> f(y, 1)
     }
   }
 
+  test("lift let above lambda") {
+    checkLast("""
+enum FooBar: Foo, Bar
+
+z = Foo
+fn = (
+  x -> (
+    y = z
+    match y:
+      case Foo: x
+      case Bar: y
+  )
+)
+""") { te1 =>
+    checkLast("""
+enum FooBar: Foo, Bar
+
+fn = (x: FooBar) -> x
+    """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+  }
+
+  test("we destructure known structs") {
+    checkLast("""
+struct Data(a, b, c)
+enum FooBar: Foo, Bar
+
+x = (
+  Data(_, _, c) = Data(Foo, Bar, Foo)
+  c
+)
+""") { te1 =>
+    checkLast("""
+enum FooBar: Foo, Bar
+
+x = Foo
+    """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+  }
+
   def gen[A](g: Gen[A]): Gen[TypedExpr[A]] =
     Generators.genTypedExpr(g, 3, NTypeGen.genDepth03)
 
