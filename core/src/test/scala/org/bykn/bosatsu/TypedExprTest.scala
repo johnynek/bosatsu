@@ -469,6 +469,7 @@ foo = _ -> 1
              app(app(app(varTE("x", intTpe), varTE("y", intTpe), intTpe),
                varTE("y", intTpe), intTpe),
                varTE("w", intTpe), intTpe)))))
+
   }
 
   test("x -> f(x) == f") {
@@ -476,6 +477,29 @@ foo = _ -> 1
     val left = lam("x", intTpe, app(f, varTE("x", intTpe), intTpe))
     
     assert(TypedExprNormalization.normalize(left) == Some(f))
+
+    checkLast("""
+struct Foo(a)
+x = (y) -> Foo(y)
+g = a -> x(a)
+    """) { te1 =>
+      checkLast("""
+struct Foo(a)
+x = Foo
+      """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+
+    checkLast("""
+struct Foo(a)
+x = Foo
+    """) {
+      case TypedExpr.Global(_, Identifier.Constructor("Foo"), _, _) =>
+        assert(true)
+      case notNorm =>
+        fail(notNorm.repr)
+    }
   }
 
   test("(x -> f(x, z))(y) == f(y, z)") {
@@ -489,6 +513,64 @@ foo = _ -> 1
     val res = TypedExprNormalization.normalize(left)
 
     assert(res == Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
+
+    checkLast("""
+f = (_, y) -> y
+z = 1
+res = y -> (x -> f(x, z))(y)
+""") { te1 =>
+  
+      checkLast("""
+f = (_, y) -> y
+res = y -> f(y, 1)
+      """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+  }
+
+  test("lift let above lambda") {
+    checkLast("""
+enum FooBar: Foo, Bar
+
+z = Foo
+fn = (
+  x -> (
+    y = z
+    match y:
+      case Foo: x
+      case Bar: y
+  )
+)
+""") { te1 =>
+    checkLast("""
+enum FooBar: Foo, Bar
+
+fn = (x: FooBar) -> x
+    """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+  }
+
+  test("we destructure known structs") {
+    checkLast("""
+struct Data(a, b, c)
+enum FooBar: Foo, Bar
+
+x = (
+  Data(_, _, c) = Data(Foo, Bar, Foo)
+  c
+)
+""") { te1 =>
+    checkLast("""
+enum FooBar: Foo, Bar
+
+x = Foo
+    """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
   }
 
   def gen[A](g: Gen[A]): Gen[TypedExpr[A]] =
