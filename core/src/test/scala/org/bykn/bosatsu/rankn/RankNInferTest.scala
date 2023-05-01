@@ -138,7 +138,7 @@ class RankNInferTest extends AnyFunSuite {
 
       assert(Type.metaTvs(tp :: Nil).isEmpty,
         s"illegal inferred type: $teStr")
-      assert(te.getType == typeFrom(tpe))
+      assert(te.getType.sameAs(typeFrom(tpe)))
     }
 
   // this could be used to test the string representation of expressions

@@ -2227,7 +2227,7 @@ struct Foo[a](a)
 
 main = Foo(1, "2")
 """)) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [anon0]\nRegion(14,30)")
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err\nFoo found declared: [a], not a superset of [b]\nRegion(14,30)")
       ()
     }
 
@@ -2251,7 +2251,7 @@ enum Enum[a]: Foo(a)
 
 main = Foo(1, "2")
 """)) { case sce@PackageError.SourceConverterErrorIn(_, _) =>
-      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err\nEnum found declared: [a], not a superset of [anon0]\nRegion(14,34)")
+      assert(sce.message(Map.empty, Colorize.None) == "in file: <unknown source>, package Err\nEnum found declared: [a], not a superset of [b]\nRegion(14,34)")
       ()
     }
 

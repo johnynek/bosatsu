@@ -2,27 +2,38 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
-import cats.{Applicative, Eq, Order}
+import cats.{Applicative, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import scala.collection.immutable.SortedSet
 
 import cats.implicits._
 
-sealed abstract class Type
+sealed abstract class Type {
+  def sameAs(that: Type): Boolean = Type.sameType(this, that)
+}
 
 object Type {
   /**
    * A type with no top level ForAll
    */
   sealed abstract class Rho extends Type
+  sealed abstract class Leaf extends Rho
   type Tau = Rho // no forall anywhere
 
   case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho) extends Type
-  case class TyConst(tpe: Const) extends Rho
-  case class TyVar(toVar: Var) extends Rho
-  case class TyMeta(toMeta: Meta) extends Rho
   case class TyApply(on: Type, arg: Type) extends Rho
+  case class TyConst(tpe: Const) extends Leaf
+  case class TyVar(toVar: Var) extends Leaf
+  case class TyMeta(toMeta: Meta) extends Leaf
+
+  def sameType(left: Type, right: Type): Boolean =
+    if (left.isInstanceOf[Leaf] && right.isInstanceOf[Leaf]) {
+      left == right
+    }
+    else {
+      normalize(left) == normalize(right)
+    }
 
   implicit val typeOrder: Order[Type] =
     new Order[Type] {
@@ -106,12 +117,6 @@ object Type {
     in match {
       case rho: Rho => Type.ForAll(vars, rho)
       case Type.ForAll(ne1, rho) => Type.ForAll(vars ::: ne1, rho)
-    }
-
-  implicit val typeEq: Eq[Type] =
-    new Eq[Type] {
-      def eqv(left: Type, right: Type): Boolean =
-        left == right
     }
 
   def getTypeOf(lit: Lit): Type =
@@ -216,6 +221,41 @@ object Type {
   def freeBoundTyVars(ts: List[Type]): List[Type.Var.Bound] =
     freeTyVars(ts).collect { case b@Type.Var.Bound(_) => b }
 
+  def normalize(tpe: Type): Type =
+    tpe match {
+      case ForAll(vars0, in) =>
+        val inFree = freeBoundTyVars(in :: Nil)
+        val inFreeSet = inFree.toSet
+        val vars1 = vars0.filter { case (b, _) => inFreeSet(b) }
+
+        NonEmptyList.fromList(vars1) match {
+          case Some(vars2) =>
+            val vars =
+              if (vars2.tail.isEmpty) {
+                // already sorted
+                vars2
+              }
+              else {
+                // sort the quantification by the order of appearance
+                val order = inFree.iterator.zipWithIndex.toMap
+                vars2.sortBy { case (b, _) => order(b) }
+              }
+            val frees = freeBoundTyVars(tpe :: Nil).toSet
+            val bs = alignBinders(vars, frees)
+            val subMap = bs.toList.map { case ((bold, _), bnew) =>
+              bold -> TyVar(bnew)
+            }
+            .toMap[Type.Var, Type.Rho]
+
+            forAll(
+              bs.toList.map { case ((_, k), b) => (b, k) },
+              normalize(substituteRhoVar(in, subMap)))
+          case None => normalize(in)
+        }
+
+      case TyApply(on, arg) => TyApply(normalize(on), normalize(arg))
+      case _ => tpe
+    }
   /**
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals
