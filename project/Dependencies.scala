@@ -15,5 +15,5 @@ object Dependencies {
     Def.setting("org.scalacheck" %%% "scalacheck" % "1.17.0")
   lazy val scalaTest = Def.setting("org.scalatest" %%% "scalatest" % "3.2.16")
   lazy val scalaTestPlusScalacheck =
-    Def.setting("org.scalatestplus" %%% "scalacheck-1-17" % "3.2.15.0")
+    Def.setting("org.scalatestplus" %%% "scalacheck-1-17" % "3.2.16.0")
 }
