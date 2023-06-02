@@ -6,11 +6,13 @@ import scala.collection.immutable.SortedMap
 
 object Memoize {
 
-  /**
-   * This memoizes using a sorted map (not a hashMap) in a non-threadsafe manner
-   * returning None, means we cannot compute this function because it loops forever
-   */
-  def memoizeSorted[A: Ordering, B](fn: (A, A => Option[B]) => Option[B]): A => Option[B] = {
+  /** This memoizes using a sorted map (not a hashMap) in a non-threadsafe
+    * manner returning None, means we cannot compute this function because it
+    * loops forever
+    */
+  def memoizeSorted[A: Ordering, B](
+      fn: (A, A => Option[B]) => Option[B]
+  ): A => Option[B] = {
     var cache = SortedMap.empty[A, Option[B]]
 
     new Function[A, Option[B]] { self =>
@@ -29,10 +31,9 @@ object Memoize {
     }
   }
 
-  /**
-   * This memoizes using a hash map in a non-threadsafe manner
-   * this throws if you don't have a dag
-   */
+  /** This memoizes using a hash map in a non-threadsafe manner this throws if
+    * you don't have a dag
+    */
   def memoizeDagHashed[A, B](fn: (A, A => B) => B): A => B = {
     var cache = Map.empty[A, Option[B]]
 
@@ -48,15 +49,14 @@ object Memoize {
             cache = cache.updated(a, Some(b))
             b
           case Some(Some(b)) => b
-          case Some(None) => sys.error(s"loop found evaluating $a")
+          case Some(None)    => sys.error(s"loop found evaluating $a")
         }
     }
   }
 
-  /**
-   * This memoizes using a hash map in a threadsafe manner
-   * it may loop forever and stack overflow if you don't have a DAG
-   */
+  /** This memoizes using a hash map in a threadsafe manner it may loop forever
+    * and stack overflow if you don't have a DAG
+    */
   def memoizeDagHashedConcurrent[A, B](fn: (A, A => B) => B): A => B = {
     val cache: ConcurrentHashMap[A, B] = new ConcurrentHashMap[A, B]()
 
@@ -77,12 +77,14 @@ object Memoize {
     }
   }
 
-  /**
-   * This memoizes using a hash map in a threadsafe manner
-   * if the dependencies do not form a dag, you will deadlock
-   */
-  def memoizeDagFuture[A, B](fn: (A, A => Par.F[B]) => Par.F[B]): A => Par.F[B] = {
-    val cache: ConcurrentHashMap[A, Par.P[B]] = new ConcurrentHashMap[A, Par.P[B]]()
+  /** This memoizes using a hash map in a threadsafe manner if the dependencies
+    * do not form a dag, you will deadlock
+    */
+  def memoizeDagFuture[A, B](
+      fn: (A, A => Par.F[B]) => Par.F[B]
+  ): A => Par.F[B] = {
+    val cache: ConcurrentHashMap[A, Par.P[B]] =
+      new ConcurrentHashMap[A, Par.P[B]]()
 
     new Function[A, Par.F[B]] { self =>
       def apply(a: A) = {
@@ -93,8 +95,7 @@ object Memoize {
           val resFut = fn(a, self)
           Par.complete(prom, resFut)
           resFut
-        }
-        else {
+        } else {
           // someone else is already working:
           Par.toF(prevProm)
         }

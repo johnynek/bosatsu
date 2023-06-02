@@ -5,9 +5,8 @@ import cats.{StackSafeMonad, Eval}
 import scala.collection.mutable.{LongMap => MutableMap}
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * This gives a mutable reference in a monadic context
- */
+/** This gives a mutable reference in a monadic context
+  */
 sealed trait Ref[A] {
   def get: RefSpace[A]
   def set(a: A): RefSpace[Unit]
@@ -41,7 +40,9 @@ object RefSpace {
     protected def runState(al: AtomicLong, state: State) =
       value
   }
-  private case class AllocRef[A](handle: Long, init: A) extends RefSpace[A] with Ref[A] {
+  private case class AllocRef[A](handle: Long, init: A)
+      extends RefSpace[A]
+      with Ref[A] {
     def get = this
     def set(a: A) = SetRef(handle, a)
     val reset = Reset(handle)
@@ -57,26 +58,31 @@ object RefSpace {
       }
   }
   private case class SetRef(handle: Long, value: Any) extends RefSpace[Unit] {
-    protected def runState(al: AtomicLong, state: State): Eval[Unit] =
-      { state.put(handle, value); Eval.Unit }
+    protected def runState(al: AtomicLong, state: State): Eval[Unit] = {
+      state.put(handle, value); Eval.Unit
+    }
   }
   private case class Reset(handle: Long) extends RefSpace[Unit] {
-    protected def runState(al: AtomicLong, state: State): Eval[Unit] =
-      { state.remove(handle); Eval.Unit }
+    protected def runState(al: AtomicLong, state: State): Eval[Unit] = {
+      state.remove(handle); Eval.Unit
+    }
   }
   private case class Alloc[A](init: A) extends RefSpace[Ref[A]] {
     protected def runState(al: AtomicLong, state: State) =
       Eval.now(AllocRef(al.getAndIncrement, init))
   }
 
-  private case class Map[A, B](init: RefSpace[A], fn: A => B) extends RefSpace[B] {
+  private case class Map[A, B](init: RefSpace[A], fn: A => B)
+      extends RefSpace[B] {
     protected def runState(al: AtomicLong, state: State) =
       Eval.defer(init.runState(al, state)).map(fn)
   }
 
-  private case class FlatMap[A, B](init: RefSpace[A], fn: A => RefSpace[B]) extends RefSpace[B] {
+  private case class FlatMap[A, B](init: RefSpace[A], fn: A => RefSpace[B])
+      extends RefSpace[B] {
     protected def runState(al: AtomicLong, state: State): Eval[B] =
-      Eval.defer(init.runState(al, state))
+      Eval
+        .defer(init.runState(al, state))
         .flatMap { a =>
           fn(a).runState(al, state)
         }
@@ -95,23 +101,24 @@ object RefSpace {
       def put(key: Long, value: Any): Unit =
         discard(map.put(key, value))
       def get(key: Long): Option[Any] = map.get(key)
-      def remove(key: Long): Unit = 
+      def remove(key: Long): Unit =
         discard(map.remove(key))
     }
 
-    private[RefSpace] class Fork(under: State, over: MutableMap[Option[Any]]) extends State {
+    private[RefSpace] class Fork(under: State, over: MutableMap[Option[Any]])
+        extends State {
       def put(key: Long, value: Any): Unit = discard(over.put(key, Some(value)))
       def get(key: Long): Option[Any] =
         over.get(key) match {
           case Some(s) => s
-          case None => under.get(key)
+          case None    => under.get(key)
         }
       def remove(key: Long): Unit = discard(over.put(key, None))
 
       def flush(): Unit = {
         over.foreach {
           case (k, Some(v)) => under.put(k, v)
-          case (k, None) => under.remove(k)
+          case (k, None)    => under.remove(k)
         }
       }
 
@@ -122,16 +129,20 @@ object RefSpace {
     def fork(state: State): Fork = new Fork(state, MutableMap.empty)
   }
 
-  private case class ResetOnLeft[A, B, C](init: RefSpace[A], fn: A => Either[B, C]) extends RefSpace[Either[B, C]] {
+  private case class ResetOnLeft[A, B, C](
+      init: RefSpace[A],
+      fn: A => Either[B, C]
+  ) extends RefSpace[Either[B, C]] {
     protected def runState(al: AtomicLong, state: State): Eval[Either[B, C]] = {
       val forked = State.fork(state)
-      init.runState(al, forked)
+      init
+        .runState(al, forked)
         .map { a =>
           fn(a) match {
-            case r@Right(_) =>
+            case r @ Right(_) =>
               forked.flush()
               r
-            case l@Left(_) =>
+            case l @ Left(_) =>
               // just let the forked state disappear
               l
           }
@@ -159,7 +170,8 @@ object RefSpace {
 
   // a counter that starts at 0
   val allocCounter: RefSpace[RefSpace[Long]] =
-    RefSpace.newRef(0L)
+    RefSpace
+      .newRef(0L)
       .map { ref =>
         for {
           a <- ref.get

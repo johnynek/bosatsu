@@ -8,8 +8,8 @@ sealed abstract class Test {
 
   def failures: Option[Test] =
     this match {
-      case Test.Assertion(true, _) => None
-      case f@Test.Assertion(false, _) => Some(f)
+      case Test.Assertion(true, _)      => None
+      case f @ Test.Assertion(false, _) => Some(f)
       case Test.Suite(nm, ts) => {
         val innerFails = ts.flatMap(_.failures.toList)
         if (innerFails.isEmpty) None
@@ -59,7 +59,13 @@ object Test {
       loop(t, None, 0, 0, Doc.empty)
 
     @annotation.tailrec
-    def loop(ts: List[Test], lastSuite: Option[(Int, Int)], passes: Int, fails: Int, front: Doc): (Int, Int, Doc) =
+    def loop(
+        ts: List[Test],
+        lastSuite: Option[(Int, Int)],
+        passes: Int,
+        fails: Int,
+        front: Doc
+    ): (Int, Int, Doc) =
       ts match {
         case Nil =>
           val sumDoc =
@@ -72,10 +78,18 @@ object Test {
         case Assertion(true, _) :: rest =>
           loop(rest, lastSuite, passes + 1, fails, front)
         case Assertion(false, label) :: rest =>
-          loop(rest, lastSuite, passes, fails + 1, front + (Doc.line + Doc.text(label) + colonSpace + failDoc))
+          loop(
+            rest,
+            lastSuite,
+            passes,
+            fails + 1,
+            front + (Doc.line + Doc.text(label) + colonSpace + failDoc)
+          )
         case Suite(label, rest) :: tail =>
           val (p, f, d) = init(rest)
-          val res = Doc.line + Doc.text(label) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
+          val res = Doc.line + Doc.text(label) + Doc.char(
+            ':'
+          ) + (Doc.lineOrSpace + d).nested(2)
           loop(tail, Some((p, f)), passes + p, fails + f, front + res)
       }
 
@@ -93,8 +107,8 @@ object Test {
         case other =>
           // $COVERAGE-OFF$
           sys.error(s"expected test value: $other")
-          // $COVERAGE-ON$
-    }
+        // $COVERAGE-ON$
+      }
     def toSuite(a: ProductValue): Test =
       a match {
         case ConsValue(Str(name), ConsValue(VList(tests), UnitValue)) =>
@@ -102,7 +116,7 @@ object Test {
         case other =>
           // $COVERAGE-OFF$
           sys.error(s"expected test value: $other")
-          // $COVERAGE-ON$
+        // $COVERAGE-ON$
       }
 
     def toTest(a: Value): Test =
@@ -118,9 +132,9 @@ object Test {
         case unexpected =>
           // $COVERAGE-OFF$
           sys.error(s"unreachable if compilation has worked: $unexpected")
-          // $COVERAGE-ON$
+        // $COVERAGE-ON$
 
-          }
+      }
     toTest(value)
   }
 }
