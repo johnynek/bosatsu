@@ -176,12 +176,12 @@ lazy val core =
         scalaTest.value % Test,
         scalaTestPlusScalacheck.value % Test,
         // needed for acyclic which we run periodically, not all the time
-        "com.lihaoyi" % "acyclic_2.13.10" % "0.3.6" % "provided"
+        "com.lihaoyi" % "acyclic_2.13.10" % "0.3.8" % "provided"
       )
     // periodically we use acyclic to ban cyclic dependencies and make compilation faster
     ,
     autoCompilerPlugins := true,
-    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.10" % "0.3.6"),
+    addCompilerPlugin("com.lihaoyi" % "acyclic_2.13.10" % "0.3.8"),
     scalacOptions += "-P:acyclic:force"
   ).dependsOn(base)
     .jsSettings(commonJsSettings)
