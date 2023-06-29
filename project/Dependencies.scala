@@ -5,7 +5,7 @@ object Dependencies {
   lazy val cats = Def.setting("org.typelevel" %%% "cats-core" % "2.9.0")
   lazy val catsEffect =
     Def.setting("org.typelevel" %%% "cats-effect" % "3.5.0")
-  lazy val catsParse = Def.setting("org.typelevel" %%% "cats-parse" % "0.3.9")
+  lazy val catsParse = Def.setting("org.typelevel" %%% "cats-parse" % "0.3.10")
   lazy val decline = Def.setting("com.monovore" %%% "decline" % "2.4.1")
   lazy val jawnParser = Def.setting("org.typelevel" %%% "jawn-parser" % "1.5.1")
   lazy val jawnAst = Def.setting("org.typelevel" %%% "jawn-ast" % "1.5.1")
