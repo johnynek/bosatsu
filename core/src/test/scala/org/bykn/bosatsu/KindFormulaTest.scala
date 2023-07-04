@@ -32,7 +32,10 @@ class KindFormulaTest extends AnyFunSuite {
   def testKind(teStr: String, shapes: Map[String, String]) =
     testKindEither(makeTE(teStr), shapes)
 
-  def testKindEither(te: Either[Any, TypeEnv[Kind.Arg]], shapes: Map[String, String]) =
+  def testKindEither(
+      te: Either[Any, TypeEnv[Kind.Arg]],
+      shapes: Map[String, String]
+  ) =
     te match {
       case Right(te) =>
         shapes.foreach { case (n, vs) =>
@@ -205,9 +208,10 @@ struct Leib[a, b](cast: forall f. f[a] -> f[b])
       )
     )
   }
-  
+
   test("test Applicative example") {
-  testKind("""#
+    testKind(
+      """#
 # Represents the Applicative typeclass
 struct Fn[a: -*, b: +*]
 struct Unit
@@ -220,7 +224,9 @@ struct Applicative(
   map2: forall a, b, c. f[a] -> f[b] -> (a -> b -> c) -> f[c],
   product: forall a, b. f[a] -> f[b] -> f[(a, b)])
 
-""", Map("Applicative" -> "(* -> *) -> *"))
+""",
+      Map("Applicative" -> "(* -> *) -> *")
+    )
   }
 
   test("linked list is allowed") {
