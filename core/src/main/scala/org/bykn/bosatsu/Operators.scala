@@ -11,7 +11,7 @@ object Operators {
       val leftDone = left.length <= idx
       val rightDone = right.length <= idx
       (leftDone, rightDone) match {
-        case (true, true) => 0
+        case (true, true)  => 0
         case (true, false) => 1
         case (false, true) => -1
         case (false, false) =>
@@ -21,7 +21,8 @@ object Operators {
           else {
             Integer.compare(
               priorityMap.getOrElse(lc, Int.MaxValue),
-              priorityMap.getOrElse(rc, Int.MaxValue))
+              priorityMap.getOrElse(rc, Int.MaxValue)
+            )
           }
       }
     }
@@ -30,26 +31,19 @@ object Operators {
     else loop(0)
   }
 
-  /**
-   * strings for operators allowed in single character
-   * operators (excludes = and .)
-   */
+  /** strings for operators allowed in single character operators (excludes =
+    * and .)
+    */
   val singleToks =
-    List(
-      "/", "%", "*",
-      "-", "+",
-      "<", ">",
-      "!", "$",
-      "&", "^", "|",
-      "?", "~").map(_.intern)
+    List("/", "%", "*", "-", "+", "<", ">", "!", "$", "&", "^", "|", "?", "~")
+      .map(_.intern)
 
   private def from(strs: Iterable[String]): P[Unit] =
     P.stringIn(strs).void
 
-  /**
-   * strings for operators allowed in single character
-   * operators includes singleToks and . and =
-   */
+  /** strings for operators allowed in single character operators includes
+    * singleToks and . and =
+    */
   val multiToks: List[String] =
     ".".intern :: singleToks ::: List("=".intern)
 
@@ -57,22 +51,17 @@ object Operators {
     from(multiToks)
 
   private val priorityMap: Map[String, Int] =
-    multiToks
-      .iterator
-      .zipWithIndex
-      .toMap
+    multiToks.iterator.zipWithIndex.toMap
 
-  /**
-   * Here are a list of operators we allow
-   */
+  /** Here are a list of operators we allow
+    */
   val operatorToken: P[String] = {
     val singles = from(singleToks)
 
     // write this in a way to avoid backtracking
     (((P.string("<-") | P.char('=') | P.string("->")) ~ multiToksP.rep).void |
       (singles ~ multiToksP.rep0).void |
-      multiToksP.rep(min = 2).void)
-      .string
+      multiToksP.rep(min = 2).void).string
       .map(_.intern)
   }
 
@@ -87,17 +76,19 @@ object Operators {
 
   object Formula {
     case class Sym[A](value: A) extends Formula[A]
-    case class Op[A](left: Formula[A], op: String, right: Formula[A]) extends Formula[A]
+    case class Op[A](left: Formula[A], op: String, right: Formula[A])
+        extends Formula[A]
 
-    /**
-     * 1 * 2 + 3 => (1 * 2) + 3
-     * 1 * 2 * 3 => ((1 * 2) * 3)
-     */
-    def toFormula[A](init: Formula[A], rest: List[(String, Formula[A])]): Formula[A] =
+    /** 1 * 2 + 3 => (1 * 2) + 3 1 * 2 * 3 => ((1 * 2) * 3)
+      */
+    def toFormula[A](
+        init: Formula[A],
+        rest: List[(String, Formula[A])]
+    ): Formula[A] =
       rest match {
-        case Nil => init
+        case Nil               => init
         case (op, next) :: Nil => Op(init, op, next)
-        case (op1, next1) :: (right@((op2, next2) :: tail)) =>
+        case (op1, next1) :: (right @ ((op2, next2) :: tail)) =>
           val c = compareOperator(op1, op2)
           if (c > 0) {
             // right binds tighter
@@ -106,36 +97,35 @@ object Operators {
             // in this example, then starting again
             val f2 = Op(next1, op2, next2)
             toFormula(init, (op1, f2) :: tail)
-          }
-          else {
+          } else {
             // 1 + 2 + 3 => (1 + 2) + 3
             // 1 * 2 + 3 => (1 * 2) + 3
             toFormula(Op(init, op1, next1), right)
           }
       }
 
-    /**
-     * Parse a chain of at least 1 operator being applied
-     * with the operator precedence handled by the formula
-     */
+    /** Parse a chain of at least 1 operator being applied with the operator
+      * precedence handled by the formula
+      */
     def infixOps1[A](p: P[A]): P[A => Formula[A]] = {
       val opA = operatorToken ~ (Parser.maybeSpacesAndLines.with1 *> p)
       val chain: P[NonEmptyList[(String, A)]] =
         P.repSep(opA, min = 1, sep = Parser.maybeSpace)
 
       chain.map { rest =>
-
-        { (a: A) => toFormula(Sym(a), rest.toList.map { case (o, s) => (o, Sym(s)) }) }
+        { (a: A) =>
+          toFormula(Sym(a), rest.toList.map { case (o, s) => (o, Sym(s)) })
+        }
       }
     }
-    /**
-     * An a formula is a series of A's separated by spaces, with
-     * the correct parenthesis
-     */
+
+    /** An a formula is a series of A's separated by spaces, with the correct
+      * parenthesis
+      */
     def parser[A](p: P[A]): P[Formula[A]] =
       (p ~ (Parser.maybeSpace.with1 *> infixOps1(p)).?)
         .map {
-          case (a, None) => Sym(a)
+          case (a, None)    => Sym(a)
           case (a, Some(f)) => f(a)
         }
   }

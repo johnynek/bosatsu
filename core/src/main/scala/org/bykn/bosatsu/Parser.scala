@@ -8,12 +8,10 @@ import scala.collection.immutable.SortedMap
 import cats.implicits._
 
 object Parser {
-  /**
-   * This is an indentation aware
-   * parser, the input is the string that
-   * should be parsed after a new-line to
-   * continue the current indentation block
-   */
+
+  /** This is an indentation aware parser, the input is the string that should
+    * be parsed after a new-line to continue the current indentation block
+    */
   type Indy[A] = Kleisli[P, String, A]
 
   object Indy {
@@ -23,9 +21,8 @@ object Parser {
     def lift[A](p: P[A]): Indy[A] =
       Kleisli.liftF(p)
 
-    /**
-     * Parse spaces, end of line, then the next indentation
-     */
+    /** Parse spaces, end of line, then the next indentation
+      */
     val toEOLIndent: Indy[Unit] =
       apply { indent =>
         toEOL1 *> P.string0(indent)
@@ -35,10 +32,8 @@ object Parser {
       def region: Indy[(Region, A)] =
         toKleisli.mapF(_.region)
 
-      /**
-       * Parse exactly the current indentation
-       * starting now
-       */
+      /** Parse exactly the current indentation starting now
+        */
       def indentBefore: Indy[A] =
         apply(indent => P.string0(indent).with1 *> toKleisli.run(indent))
 
@@ -64,16 +59,13 @@ object Parser {
           toKleisli(indent) *> that(indent)
         }
 
-      /**
-       * This optionally allows extra indentation that starts now
-       */
+      /** This optionally allows extra indentation that starts now
+        */
       def maybeMore: Parser.Indy[A] =
         Indy { indent =>
           // run this one time, not each spaces are parsed
           val noIndent = toKleisli.run(indent)
-          val someIndent: P[A] = Parser
-            .spaces
-            .string
+          val someIndent: P[A] = Parser.spaces.string
             .flatMap { thisIndent =>
               toKleisli.run(indent + thisIndent)
             }
@@ -92,25 +84,35 @@ object Parser {
   }
 
   object Error {
-    case class ParseFailure(position: Int, locations: LocationMap, expected: NonEmptyList[P.Expectation]) extends Error
+    case class ParseFailure(
+        position: Int,
+        locations: LocationMap,
+        expected: NonEmptyList[P.Expectation]
+    ) extends Error
 
-    def showExpectations(locations: LocationMap, expected: NonEmptyList[P.Expectation], errColor: LocationMap.Colorize): Doc = {
-      val errs: SortedMap[Int, NonEmptyList[P.Expectation]] = expected.groupBy(_.offset)
+    def showExpectations(
+        locations: LocationMap,
+        expected: NonEmptyList[P.Expectation],
+        errColor: LocationMap.Colorize
+    ): Doc = {
+      val errs: SortedMap[Int, NonEmptyList[P.Expectation]] =
+        expected.groupBy(_.offset)
 
       def show(s: String): Doc = {
         val q = '\''
         if (s.forall(_.isWhitespace)) {
           val chars = s.length
           val plural = if (chars == 1) "char" else "chars"
-          Doc.text(s"$chars whitespace $plural \"") + Doc.intercalate(Doc.empty,
+          Doc.text(s"$chars whitespace $plural \"") + Doc.intercalate(
+            Doc.empty,
             s.map {
               case '\t' => Doc.text("\\t")
               case '\n' => Doc.text("\\n")
               case '\r' => Doc.text("\\r")
-              case c => Doc.char(c)
-            }) + Doc.char('"')
-        }
-        else {
+              case c    => Doc.char(c)
+            }
+          ) + Doc.char('"')
+        } else {
           Doc.char(q) + Doc.text(escape(q, s)) + Doc.char(q)
         }
       }
@@ -122,22 +124,30 @@ object Parser {
               case one :: Nil =>
                 Doc.text("expected ") + show(one)
               case _ =>
-                Doc.text("expected one of: ") + Doc.intercalate(Doc.line, strs.map(show)).grouped.nested(4)
+                Doc.text("expected one of: ") + Doc
+                  .intercalate(Doc.line, strs.map(show))
+                  .grouped
+                  .nested(4)
             }
           case P.Expectation.InRange(_, lower, upper) =>
             if (lower == upper) {
               Doc.text("expected char: ") + show(lower.toString)
+            } else {
+              Doc.text("expected char in range: [") + show(lower.toString) + Doc
+                .text(", ") + show(upper.toString) + Doc.text("]")
             }
-            else {
-              Doc.text("expected char in range: [") + show(lower.toString) + Doc.text(", ") + show(upper.toString) + Doc.text("]")
-            }
-          case P.Expectation.StartOfString(_) => Doc.text("expected start of the file")
+          case P.Expectation.StartOfString(_) =>
+            Doc.text("expected start of the file")
           case P.Expectation.EndOfString(_, length) =>
             Doc.text(s"expected end of file but $length characters remaining")
           case P.Expectation.Length(_, expected, actual) =>
-            Doc.text(s"expected $expected more characters but only $actual remaining")
+            Doc.text(
+              s"expected $expected more characters but only $actual remaining"
+            )
           case P.Expectation.ExpectedFailureAt(_, matched) =>
-            Doc.text("expected failure but the parser matched: ") + show(matched)
+            Doc.text("expected failure but the parser matched: ") + show(
+              matched
+            )
           case P.Expectation.Fail(_) =>
             Doc.text("failed")
           case P.Expectation.FailWith(_, message) =>
@@ -146,10 +156,14 @@ object Parser {
             expToDoc(expect)
         }
 
-      Doc.intercalate(Doc.hardLine, errs.map { case (pos, xs) =>
-        locations.showContext(pos, 2, errColor).get + (
-          Doc.hardLine + Doc.intercalate(Doc.comma + Doc.line, xs.toList.map(expToDoc)).grouped).nested(4)
-      })
+      Doc.intercalate(
+        Doc.hardLine,
+        errs.map { case (pos, xs) =>
+          locations.showContext(pos, 2, errColor).get + (Doc.hardLine + Doc
+            .intercalate(Doc.comma + Doc.line, xs.toList.map(expToDoc))
+            .grouped).nested(4)
+        }
+      )
     }
   }
 
@@ -165,14 +179,16 @@ object Parser {
   }
 
   val identifierCharsP: P0[String] =
-    P.charIn('_' :: ('a' to 'z').toList ::: ('A' to 'Z').toList ::: ('0' to '9').toList).repAs0
+    P.charIn(
+      '_' :: ('a' to 'z').toList ::: ('A' to 'Z').toList ::: ('0' to '9').toList
+    ).repAs0
 
   // parse one or more space characters
   val spaces: P[Unit] = P.charIn(Set(' ', '\t')).rep.void
   val maybeSpace: P0[Unit] = spaces.?.void
 
   /** prefer to parse Right, then Left
-   */
+    */
   def either[A, B](pb: P0[B], pa: P0[A]): P0[Either[B, A]] =
     pa.map(Right(_)).orElse(pb.map(Left(_)))
 
@@ -192,7 +208,9 @@ object Parser {
     (P.charIn('A' to 'Z') ~ identifierCharsP).string
 
   val py2Ident: P[String] =
-    (P.charIn('_' :: ('A' to 'Z').toList ::: ('a' to 'z').toList) ~ identifierCharsP).string
+    (P.charIn(
+      '_' :: ('A' to 'Z').toList ::: ('a' to 'z').toList
+    ) ~ identifierCharsP).string
 
   // parse a keyword and some space or backtrack
   def keySpace(str: String): P[Unit] =
@@ -200,16 +218,13 @@ object Parser {
 
   val digit19: P[Char] = P.charIn('1' to '9')
   val digit09: P[Char] = P.charIn('0' to '9')
-  /**
-   * This parser allows _ between any two digits to allow
-   * literals such as:
-   * 1_000_000
-   *
-   * It will also parse terrible examples like:
-   * 1_0_0_0_0_0_0
-   * but I think banning things like that shouldn't
-   * be done by the parser
-   */
+
+  /** This parser allows _ between any two digits to allow literals such as:
+    * 1_000_000
+    *
+    * It will also parse terrible examples like: 1_0_0_0_0_0_0 but I think
+    * banning things like that shouldn't be done by the parser
+    */
   val integerString: P[String] = {
 
     val rest = (P.char('_').?.with1 ~ digit09).rep0
@@ -220,19 +235,13 @@ object Parser {
   }
 
   object JsonNumber {
-    /**
-     *  from: https://tools.ietf.org/html/rfc4627
-     *     number = [ minus ] int [ frac ] [ exp ]
-     *     decimal-point = %x2E       ; .
-     *     digit1-9 = %x31-39         ; 1-9
-     *     e = %x65 / %x45            ; e E
-     *     exp = e [ minus / plus ] 1*DIGIT
-     *     frac = decimal-point 1*DIGIT
-     *     int = zero / ( digit1-9 *DIGIT )
-     *     minus = %x2D               ; -
-     *     plus = %x2B                ; +
-     *     zero = %x30                ; 0
-     */
+
+    /** from: https://tools.ietf.org/html/rfc4627 number = [ minus ] int [ frac
+      * ] [ exp ] decimal-point = %x2E ; . digit1-9 = %x31-39 ; 1-9 e = %x65 /
+      * %x45 ; e E exp = e [ minus / plus ] 1*DIGIT frac = decimal-point 1*DIGIT
+      * int = zero / ( digit1-9 *DIGIT ) minus = %x2D ; - plus = %x2B ; + zero =
+      * %x30 ; 0
+      */
     val digits: P0[Unit] = digit09.rep0.void
     val digits1: P[Unit] = digit09.rep.void
     val int: P[Unit] = P.char('0') <+> (digit19 ~ digits).void
@@ -243,7 +252,12 @@ object Parser {
       (P.char('-').?.with1 ~ int ~ frac.? ~ exp.?).string
 
     // this gives you the individual parts of a floating point string
-    case class Parts(negative: Boolean, leftOfPoint: String, floatingPart: String, exp: String) {
+    case class Parts(
+        negative: Boolean,
+        leftOfPoint: String,
+        floatingPart: String,
+        exp: String
+    ) {
       def asString: String = {
         val neg = if (negative) "-" else ""
         s"$neg$leftOfPoint$floatingPart$exp"
@@ -268,14 +282,13 @@ object Parser {
 
   def nonEmptyListToList[T](p: P0[NonEmptyList[T]]): P0[List[T]] =
     p.?.map {
-      case None => Nil
+      case None     => Nil
       case Some(ne) => ne.toList
     }
 
-  /**
-   * Parse python-like dicts: delimited by curlies "{" "}" and
-   * keys separated by colon
-   */
+  /** Parse python-like dicts: delimited by curlies "{" "}" and keys separated
+    * by colon
+    */
   def dictLikeParser[K, V](pkey: P[K], pvalue: P[V]): P[List[(K, V)]] = {
     val ws = maybeSpacesAndLines
     val kv = (pkey ~ ((ws ~ P.char(':') ~ ws).with1 *> pvalue))
@@ -295,11 +308,15 @@ object Parser {
     def maybeAp(fn: P0[T => T]): P[T] =
       (item ~ fn.?)
         .map {
-          case (a, None) => a
+          case (a, None)    => a
           case (a, Some(f)) => f(a)
         }
 
-    def nonEmptyListOfWsSep(ws: P0[Unit], sep: P0[Unit], allowTrailing: Boolean): P[NonEmptyList[T]] = {
+    def nonEmptyListOfWsSep(
+        ws: P0[Unit],
+        sep: P0[Unit],
+        allowTrailing: Boolean
+    ): P[NonEmptyList[T]] = {
       val wsSep = (ws.soft ~ sep ~ ws).void
       val trail =
         if (allowTrailing) (ws.soft ~ sep).?.void
@@ -332,31 +349,26 @@ object Parser {
       parens(item)
 
     def parensLines1Cut: P[NonEmptyList[T]] =
-      item.nonEmptyListOfWs(maybeSpacesAndLines)
-        .parensCut
+      item.nonEmptyListOfWs(maybeSpacesAndLines).parensCut
 
-    /**
-     * either: a, b, c, ..
-     * or (a, b, c, ) where we allow newlines:
-     * return true if we do have parens
-     */
+    /** either: a, b, c, .. or (a, b, c, ) where we allow newlines: return true
+      * if we do have parens
+      */
     def itemsMaybeParens: P[(Boolean, NonEmptyList[T])] = {
       val withP = item.parensLines1Cut.map((true, _))
       val noP = item.nonEmptyListOfWs(maybeSpace).map((false, _))
       withP.orElse(noP)
     }
 
-    /**
-     * Parse a python-like tuple or a parens
-     */
+    /** Parse a python-like tuple or a parens
+      */
     def tupleOrParens: P[Either[T, List[T]]] =
       parens {
-        tupleOrParens0.?
-          .map {
-            case None => Right(Nil)
-            case Some(Left(t)) => Left(t)
-            case Some(Right(l)) => Right(l.toList)
-          }
+        tupleOrParens0.?.map {
+          case None           => Right(Nil)
+          case Some(Left(t))  => Left(t)
+          case Some(Right(l)) => Right(l.toList)
+        }
       }
 
     def tupleOrParens0: P[Either[T, NonEmptyList[T]]] = {
@@ -396,7 +408,8 @@ object Parser {
       case Right(a) => a
       case Left(err) =>
         val idx = err.failedAtOffset
-        sys.error(s"failed to parse: $str: at $idx: (${str.substring(idx)}) with errors: ${err.expected}")
+        sys.error(s"failed to parse: $str: at $idx: (${str
+            .substring(idx)}) with errors: ${err.expected}")
     }
 
   sealed abstract class MaybeTupleOrParens[A]
@@ -408,7 +421,7 @@ object Parser {
 
     def parser[A](p: P[A]): P[MaybeTupleOrParens[A]] =
       p.tupleOrParens.map {
-        case Right(tup) => Tuple(tup)
+        case Right(tup)   => Tuple(tup)
         case Left(parens) => Parens(parens)
       } | p.map(Bare(_))
   }

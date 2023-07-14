@@ -1,9 +1,7 @@
 package org.bykn.bosatsu.rankn
 
-/**
- * How is a non-external data type
- * represented
- */
+/** How is a non-external data type represented
+  */
 
 sealed abstract class DataRepr
 
@@ -13,7 +11,8 @@ object DataRepr {
   case object ZeroNat extends Nat(true)
   case object SuccNat extends Nat(false)
 
-  case class Enum(variant: Int, arity: Int, familyArities: List[Int]) extends DataRepr
+  case class Enum(variant: Int, arity: Int, familyArities: List[Int])
+      extends DataRepr
   // a struct with arity 1 can be elided, and is called a new-type
   case class Struct(arity: Int) extends DataRepr {
     require(arity != 1)

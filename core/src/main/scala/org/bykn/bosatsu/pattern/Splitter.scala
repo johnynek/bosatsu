@@ -24,22 +24,29 @@ abstract class Splitter[-Elem, Item, Sequence, R] {
 }
 
 object Splitter {
-  def stringSplitter[R](fn: Char => R)(implicit m: Monoid[R]): Splitter[Char, Char, String, R] =
+  def stringSplitter[R](
+      fn: Char => R
+  )(implicit m: Monoid[R]): Splitter[Char, Char, String, R] =
     new Splitter[Char, Char, String, R] {
       val matcher =
         Matcher.charMatcher
           .mapWithInput { (s, _) => fn(s) }
 
       val monoidResult = m
-      def positions(c: Char): String => LazyList[(String, Char, R, String)] = { str =>
-        def loop(init: Int): LazyList[(String, Char, R, String)] =
-          if (init >= str.length) LazyList.empty
-          else if (str.charAt(init) == c) {
-            (str.substring(0, init), c, fn(c), str.substring(init + 1)) #:: loop(init + 1)
-          }
-          else loop(init + 1)
+      def positions(c: Char): String => LazyList[(String, Char, R, String)] = {
+        str =>
+          def loop(init: Int): LazyList[(String, Char, R, String)] =
+            if (init >= str.length) LazyList.empty
+            else if (str.charAt(init) == c) {
+              (
+                str.substring(0, init),
+                c,
+                fn(c),
+                str.substring(init + 1)
+              ) #:: loop(init + 1)
+            } else loop(init + 1)
 
-        loop(0)
+          loop(0)
       }
 
       def anySplits(str: String): LazyList[(String, Char, R, String)] =
@@ -74,12 +81,15 @@ object Splitter {
       val matchFn = matcher(c)
 
       { (str: List[V]) =>
-        def loop(tail: List[V], acc: List[V]): LazyList[(List[V], V, R, List[V])] =
+        def loop(
+            tail: List[V],
+            acc: List[V]
+        ): LazyList[(List[V], V, R, List[V])] =
           tail match {
             case Nil => LazyList.empty
             case h :: t =>
               matchFn(h) match {
-                case None => loop(t, h :: acc)
+                case None    => loop(t, h :: acc)
                 case Some(r) => (acc.reverse, h, r, t) #:: loop(t, h :: acc)
               }
           }
@@ -92,7 +102,8 @@ object Splitter {
       def loop(str: List[V], acc: List[V]): LazyList[(List[V], V, R, List[V])] =
         str match {
           case Nil => LazyList.empty
-          case h :: t => (acc.reverse, h, monoidResult.empty, t) #:: loop(t, h :: acc)
+          case h :: t =>
+            (acc.reverse, h, monoidResult.empty, t) #:: loop(t, h :: acc)
         }
       loop(str, Nil)
     }
@@ -111,7 +122,9 @@ object Splitter {
     final override def fromList(cs: List[V]) = cs
   }
 
-  def listSplitter[P, V, R](m: Matcher[P, V, R])(implicit mon: Monoid[R]): Splitter[P, V, List[V], R] =
+  def listSplitter[P, V, R](
+      m: Matcher[P, V, R]
+  )(implicit mon: Monoid[R]): Splitter[P, V, List[V], R] =
     new ListSplitter[P, V, R] {
       val matcher = m
       val monoidResult = mon
