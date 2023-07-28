@@ -10,7 +10,7 @@ sealed trait NamedSeqPattern[+A] {
     def loop(n: NamedSeqPattern[A], right: List[SeqPart[A]]): List[SeqPart[A]] =
       n match {
         case Bind(_, n) => loop(n, right)
-        case NEmpty => right
+        case NEmpty     => right
         case NCat(first, second) =>
           val r2 = loop(second, right)
           loop(first, r2)
@@ -29,10 +29,10 @@ sealed trait NamedSeqPattern[+A] {
   // we are renderable if all Wild/AnyElem are named
   def isRenderable: Boolean =
     this match {
-      case NEmpty => true
-      case Bind(_, _) => true
+      case NEmpty           => true
+      case Bind(_, _)       => true
       case NSeqPart(Lit(_)) => true
-      case NSeqPart(_) => false
+      case NSeqPart(_)      => false
       case NCat(l, r) =>
         l.isRenderable && r.isRenderable
     }
@@ -42,14 +42,15 @@ sealed trait NamedSeqPattern[+A] {
 
     def loop(n: NamedSeqPattern[A], right: S): Option[S] =
       n match {
-        case NEmpty => Some(right)
+        case NEmpty      => Some(right)
         case Bind(nm, r) =>
           // since we have this name, we don't need to recurse
-          names.get(nm)
+          names
+            .get(nm)
             .map { seq => ms.combine(seq, right) }
             .orElse(loop(r, right))
         case NSeqPart(SeqPart.Lit(c)) => Some(ms.combine(fn(c), right))
-        case NSeqPart(_) => None
+        case NSeqPart(_)              => None
         case NCat(l, r) =>
           loop(r, right)
             .flatMap { right =>
@@ -62,9 +63,9 @@ sealed trait NamedSeqPattern[+A] {
 
   def names: List[String] =
     this match {
-      case Bind(name, nsp) => name :: nsp.names
+      case Bind(name, nsp)      => name :: nsp.names
       case NEmpty | NSeqPart(_) => Nil
-      case NCat(h, t) => h.names ::: t.names
+      case NCat(h, t)           => h.names ::: t.names
     }
 }
 
@@ -77,15 +78,19 @@ object NamedSeqPattern {
   val Wild: NamedSeqPattern[Nothing] = NSeqPart(SeqPart.Wildcard)
   val Any: NamedSeqPattern[Nothing] = NSeqPart(SeqPart.AnyElem)
 
-  case class Bind[A](name: String, p: NamedSeqPattern[A]) extends NamedSeqPattern[A]
+  case class Bind[A](name: String, p: NamedSeqPattern[A])
+      extends NamedSeqPattern[A]
   case object NEmpty extends NamedSeqPattern[Nothing]
   case class NSeqPart[A](part: SeqPart[A]) extends NamedSeqPattern[A]
-  case class NCat[A](first: NamedSeqPattern[A], second: NamedSeqPattern[A]) extends NamedSeqPattern[A]
+  case class NCat[A](first: NamedSeqPattern[A], second: NamedSeqPattern[A])
+      extends NamedSeqPattern[A]
 
   def fromLit[A](a: A): NamedSeqPattern[A] =
     NSeqPart(SeqPart.Lit(a))
 
-  def matcher[E, I, S, R](split: Splitter[E, I, S, R]): Matcher[NamedSeqPattern[E], S, (R, Map[String, S])] =
+  def matcher[E, I, S, R](
+      split: Splitter[E, I, S, R]
+  ): Matcher[NamedSeqPattern[E], S, (R, Map[String, S])] =
     new Matcher[NamedSeqPattern[E], S, (R, Map[String, S])] {
       def apply(nsp: NamedSeqPattern[E]): S => Option[(R, Map[String, S])] = {
         val machine = Impl.toMachine(nsp, Nil)
@@ -95,7 +100,10 @@ object NamedSeqPattern {
     }
 
   private[this] object Impl {
-    def toMachine[A](n: NamedSeqPattern[A], right: List[Machine[A]]): List[Machine[A]] =
+    def toMachine[A](
+        n: NamedSeqPattern[A],
+        right: List[Machine[A]]
+    ): List[Machine[A]] =
       n match {
         case NEmpty => right
         case Bind(name, n) =>
@@ -112,31 +120,32 @@ object NamedSeqPattern {
 
     def hasWildLeft(m: List[Machine[Any]]): Boolean =
       m match {
-        case Nil => false
+        case Nil                             => false
         case MSeqPart(SeqPart.Wildcard) :: _ => true
-        case MSeqPart(_) :: _ => false
-        case _ :: tail => hasWildLeft(tail)
+        case MSeqPart(_) :: _                => false
+        case _ :: tail                       => hasWildLeft(tail)
       }
 
     import SeqPart.{AnyElem, Lit, SeqPart1, Wildcard}
 
-    def capture[S](empty: S, capturing: List[String], res: Map[String, S])(fn: S => S): Map[String, S] =
+    def capture[S](empty: S, capturing: List[String], res: Map[String, S])(
+        fn: S => S
+    ): Map[String, S] =
       capturing.foldLeft(res) { (mapB, n) =>
         val right = mapB.get(n) match {
-          case None => empty
+          case None     => empty
           case Some(bv) => bv
         }
         mapB.updated(n, fn(right))
       }
 
     def matches[E, I, S, R](
-      split: Splitter[E, I, S, R],
-      m: List[Machine[E]],
-      capturing: List[String]): S => Option[(R, Map[String, S])] =
-
+        split: Splitter[E, I, S, R],
+        m: List[Machine[E]],
+        capturing: List[String]
+    ): S => Option[(R, Map[String, S])] =
       m match {
         case Nil =>
-
           val res = Some((split.monoidResult.empty, Map.empty[String, S]))
 
           { (str: S) =>
@@ -150,7 +159,7 @@ object NamedSeqPattern {
             case Nil =>
               // $COVERAGE-OFF$
               sys.error("illegal End with no capturing")
-              // $COVERAGE-ON$
+            // $COVERAGE-ON$
             case n :: cap =>
               // if n captured nothing, we need
               // to add an empty list
@@ -169,13 +178,11 @@ object NamedSeqPattern {
           if (hasWildLeft(tail)) {
             // two adjacent wilds means this one matches nothing
             matches(split, tail, capturing)
-          }
-          else {
+          } else {
             val me = matchEnd(split, tail, capturing)
 
             me.andThen { stream =>
-              stream
-                .headOption
+              stream.headOption
                 .map { case (prefix, (rightR, rightBind)) =>
                   // now merge the prefix result
                   val resMatched = capturing.foldLeft(rightBind) { (st, n) =>
@@ -195,13 +202,11 @@ object NamedSeqPattern {
           val headm: I => Option[R] =
             p1 match {
               case AnyElem => { (_: I) => someEmpty }
-              case Lit(c) => split.matcher(c)
+              case Lit(c)  => split.matcher(c)
             }
 
           val tailm: S => Option[(R, Map[String, S])] =
-            matches(split,
-              tail,
-              capturing)
+            matches(split, tail, capturing)
 
           { (str: S) =>
             for {
@@ -210,14 +215,18 @@ object NamedSeqPattern {
               rh <- headm(h)
               rt <- tailm(t)
               (tailr, tailm) = rt
-            } yield (split.monoidResult.combine(rh, tailr), capture(split.emptySeq, capturing, tailm)(split.cons(h, _)))
+            } yield (
+              split.monoidResult.combine(rh, tailr),
+              capture(split.emptySeq, capturing, tailm)(split.cons(h, _))
+            )
           }
       }
 
     def matchEnd[E, I, S, R](
-      split: Splitter[E, I, S, R],
-      m: List[Machine[E]],
-      capturing: List[String]): S => LazyList[(S, (R, Map[String, S]))] =
+        split: Splitter[E, I, S, R],
+        m: List[Machine[E]],
+        capturing: List[String]
+    ): S => LazyList[(S, (R, Map[String, S]))] =
       m match {
         case Nil =>
           // we always match the end
@@ -233,7 +242,7 @@ object NamedSeqPattern {
             case Nil =>
               // $COVERAGE-OFF$
               sys.error("illegal End with no capturing")
-              // $COVERAGE-ON$
+            // $COVERAGE-ON$
             case n :: cap =>
               // if n captured nothing, we need
               // to add an empty list
@@ -254,24 +263,24 @@ object NamedSeqPattern {
           val mtail = matches(split, tail, capturing)
 
           val splits = p1 match {
-            case Lit(c) => split.positions(c)
+            case Lit(c)  => split.positions(c)
             case AnyElem => split.anySplits(_: S)
           }
 
-
           { (s: S) =>
-            splits(s).map { case (pre, i, r, post) =>
-              mtail(post)
-                .map { case (rp, mapRes) =>
-                  val res1 = split.monoidResult.combine(r, rp)
-                  val res2 = capture(split.emptySeq, capturing, mapRes)(split.cons(i, _))
-                  (pre, (res1, res2))
-                }
-            }
-            .collect { case Some(res) => res }
+            splits(s)
+              .map { case (pre, i, r, post) =>
+                mtail(post)
+                  .map { case (rp, mapRes) =>
+                    val res1 = split.monoidResult.combine(r, rp)
+                    val res2 = capture(split.emptySeq, capturing, mapRes)(
+                      split.cons(i, _)
+                    )
+                    (pre, (res1, res2))
+                  }
+              }
+              .collect { case Some(res) => res }
           }
       }
   }
 }
-
-

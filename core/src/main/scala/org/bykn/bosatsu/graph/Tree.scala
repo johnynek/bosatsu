@@ -13,25 +13,31 @@ object Tree {
 
     val mapToTree: Map[A, Tree[A]] = toMap(t)
 
-
     { (a: A) => mapToTree.get(a).fold(List.empty[A])(_.children.map(_.item)) }
   }
 
-  /**
-   * either return a tree representation of this dag or all cycles
-   *
-   * Note, this could run in a monadic context if we needed that:
-   * nfn: A => F[List[A]] for some monad F[_]
-   */
-  def dagToTree[A](node: A)(nfn: A => List[A]): ValidatedNel[NonEmptyList[A], Tree[A]] = {
-    def treeOf(path: NonEmptyList[A], visited: Set[A]): ValidatedNel[NonEmptyList[A], Tree[A]] = {
+  /** either return a tree representation of this dag or all cycles
+    *
+    * Note, this could run in a monadic context if we needed that: nfn: A =>
+    * F[List[A]] for some monad F[_]
+    */
+  def dagToTree[A](
+      node: A
+  )(nfn: A => List[A]): ValidatedNel[NonEmptyList[A], Tree[A]] = {
+    def treeOf(
+        path: NonEmptyList[A],
+        visited: Set[A]
+    ): ValidatedNel[NonEmptyList[A], Tree[A]] = {
       val children = nfn(path.head)
-      def assumeValid(children: List[A]): ValidatedNel[NonEmptyList[A], Tree[A]] =
-        children.traverse { a =>
-          // we grow the path out here
-          treeOf(a :: path, visited + a)
-        }
-        .map(Tree(path.head, _))
+      def assumeValid(
+          children: List[A]
+      ): ValidatedNel[NonEmptyList[A], Tree[A]] =
+        children
+          .traverse { a =>
+            // we grow the path out here
+            treeOf(a :: path, visited + a)
+          }
+          .map(Tree(path.head, _))
 
       NonEmptyList.fromList(children.filter(visited)) match {
         case Some(loops) =>
@@ -66,8 +72,7 @@ object Tree {
 
   def distinctBy[A, B](nel: List[A])(fn: A => B): List[A] =
     NonEmptyList.fromList(nel) match {
-      case None => Nil
+      case None      => Nil
       case Some(nel) => distinctBy(nel)(fn).toList
     }
 }
-
