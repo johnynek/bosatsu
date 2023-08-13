@@ -9,10 +9,16 @@ class Macro(val c: Context) {
   import c._, universe._
   def loadFileInCompileImpl(file: c.Expr[String]): c.Expr[String] = {
 
-    def loadPath(s: String): c.Expr[String] =
+    def loadPath(s: String): Option[c.Expr[String]] =
       try {
-        val res = Source.fromFile(s, "UTF-8").getLines().mkString("\n")
-        c.Expr[String](q"$res")
+        val f = new File(s)
+        if (f.exists()) {
+          val res = Source.fromFile(s, "UTF-8").getLines().mkString("\n")
+          Some(c.Expr[String](q"$res"))
+        }
+        else {
+          None
+        }
       }
       catch {
         case NonFatal(err) =>
@@ -21,20 +27,15 @@ class Macro(val c: Context) {
 
     file.tree match {
       case Literal(Constant(s: String)) =>
-        val normal = new File(s)
-        if (normal.exists()) {
-          loadPath(s)
-        }
-        else {
-          val bazelPath = s"external/org_bykn_bosatsu/$s"
-          val bazelFile = new File(bazelPath)
-          if (bazelFile.exists()) {
-            loadPath(bazelPath)
+        loadPath(s)
+          .orElse {
+            loadPath(s"external/org_bykn_bosatsu/$s")
           }
-          else {
-            c.abort(c.enclosingPosition, s"no file found at: $s. working directory is ${System.getProperty("user.dir")}")
+          .getOrElse {
+            c.abort(
+              c.enclosingPosition,
+              s"no file found at: $s. working directory is ${System.getProperty("user.dir")}")
           }
-        }
       case otherTree =>
         c.abort(c.enclosingPosition, s"expected string literal, found: $otherTree")
     }
