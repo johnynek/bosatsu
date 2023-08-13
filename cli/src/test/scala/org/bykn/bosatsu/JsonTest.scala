@@ -8,7 +8,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class JsonJawnTest extends AnyFunSuite {
 
-  implicit val generatorDrivenConfig =
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful = 500)
 
   def matches(j1: Json, j2: JValue): Unit = {
