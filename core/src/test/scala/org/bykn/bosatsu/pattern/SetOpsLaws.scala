@@ -346,7 +346,7 @@ object Predicate {
 
 class SetOpsTests extends AnyFunSuite {
 
-  implicit val generatorDrivenConfig =
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     //PropertyCheckConfiguration(minSuccessful = 50000)
     //PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 500)

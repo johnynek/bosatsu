@@ -5,7 +5,7 @@ import org.bykn.bosatsu.rankn.Type
 import org.scalatest.funsuite.AnyFunSuite
 
 class TypeRefTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig =
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     //PropertyCheckConfiguration(minSuccessful = 500000)
     PropertyCheckConfiguration(minSuccessful = 5000)
 

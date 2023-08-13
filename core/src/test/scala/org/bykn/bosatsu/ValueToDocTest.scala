@@ -9,7 +9,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class ValueToDocTest extends AnyFunSuite {
 
-  implicit val generatorDrivenConfig =
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
   test("never throw when converting to doc") {

@@ -5,7 +5,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import org.scalatest.funsuite.AnyFunSuite
 
 class LocationMapTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig =
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 50000 else 100)
 
   test("single line locations") {

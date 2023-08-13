@@ -5,7 +5,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import org.scalatest.funsuite.AnyFunSuite
 
 class FreeVarTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig =
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful = 1000)
     //PropertyCheckConfiguration(minSuccessful = 300)
     //PropertyCheckConfiguration(minSuccessful = 5)
