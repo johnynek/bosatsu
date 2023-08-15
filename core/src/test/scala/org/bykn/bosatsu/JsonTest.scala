@@ -13,7 +13,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class JsonTest extends AnyFunSuite {
 
-  implicit val generatorDrivenConfig =
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
   def law(j: Json) =

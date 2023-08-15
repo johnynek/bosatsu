@@ -6,7 +6,8 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCh
 import org.scalatest.funsuite.AnyFunSuite
 
 class PatternTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = 300)
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+    PropertyCheckConfiguration(minSuccessful = 300)
 
   val patGen = Gen.choose(0, 5).flatMap(Generators.genPattern(_))
 

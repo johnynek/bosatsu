@@ -46,7 +46,7 @@ object PathModule extends MainModule[IO] {
     ProtoConverter.writePackages(packages, path)
 
   def unfoldDir: Option[Path => IO[Option[IO[List[Path]]]]] = Some {
-    { path: Path =>
+    { (path: Path) =>
       IO {
         val f = path.toFile
 
@@ -61,7 +61,7 @@ object PathModule extends MainModule[IO] {
   }
 
   def hasExtension(str: String): Path => Boolean =
-    { path: Path => path.toString.endsWith(str) }
+    { (path: Path) => path.toString.endsWith(str) }
 
   def print(str: => String): IO[Unit] =
     IO(println(str))

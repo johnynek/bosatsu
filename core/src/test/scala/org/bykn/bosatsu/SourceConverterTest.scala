@@ -9,7 +9,8 @@ import cats.implicits._
 import org.scalatest.funsuite.AnyFunSuite
 
 class SourceConverterTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 3000 else 20)
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 3000 else 20)
 
   val genRec = Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive)
 

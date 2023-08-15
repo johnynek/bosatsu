@@ -9,7 +9,7 @@ object Predef {
    * external files into strings. This lets us avoid resources
    * which compilicate matters for scalajs.
    */
-  private[bosatsu] def loadFileInCompile(file: String): String = macro Macro.smac
+  private[bosatsu] def loadFileInCompile(file: String): String = macro Macro.loadFileInCompileImpl
 
   /**
    * String representation of the predef

@@ -20,7 +20,7 @@ import cats.implicits._
 class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
   type Pat = Pattern[(PackageName, Constructor), Type]
 
-  implicit val generatorDrivenConfig =
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     //PropertyCheckConfiguration(minSuccessful = 50000)
     PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 50000 else 100)
     //PropertyCheckConfiguration(minSuccessful = 50)

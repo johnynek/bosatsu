@@ -11,7 +11,8 @@ import cats.implicits._
 import org.scalatest.funsuite.AnyFunSuite
 
 class MatchlessTest extends AnyFunSuite {
-  implicit val generatorDrivenConfig = PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
+    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
 
   type Fn = (PackageName, Constructor) => Option[DataRepr]
 

@@ -110,7 +110,7 @@ abstract class ParserTestBase extends AnyFunSuite with ParseFns {
 }
 
 class ParserTest extends ParserTestBase {
-  implicit val generatorDrivenConfig = config
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration = config
 
   test("we can parse integers") {
     forAll { (b: BigInt) =>
@@ -520,7 +520,7 @@ class ParserTest extends ParserTestBase {
  */
 class SyntaxParseTest extends ParserTestBase {
 
-  implicit val generatorDrivenConfig = config
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration = config
 
   def mkVar(n: String): Declaration.Var =
     Declaration.Var(Identifier.Name(n))

@@ -29,7 +29,7 @@ object JythonBarrier {
 
 class PythonGenTest extends AnyFunSuite {
 
-  implicit val generatorDrivenConfig =
+  implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     // these tests are slow
     PropertyCheckConfiguration(minSuccessful = 500)
 
