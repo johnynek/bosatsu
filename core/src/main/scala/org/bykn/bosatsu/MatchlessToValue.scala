@@ -15,7 +15,9 @@ object MatchlessToValue {
   import Matchless._
 
   // reuse some cache structures across a number of calls
-  def traverse[F[_]: Functor](me: F[Expr])(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
+  def traverse[F[_]: Functor](
+      me: F[Expr]
+  )(resolve: (PackageName, Identifier) => Eval[Value]): F[Eval[Value]] = {
     val env = new Impl.Env(resolve)
     val fns = Functor[F].map(me) { expr =>
       env.loop(expr)
@@ -42,8 +44,7 @@ object MatchlessToValue {
         if (arity == 0) SumValue(variant, UnitValue)
         else if (arity == 1) {
           FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
-        }
-        else
+        } else
           FnValue.curry(arity) { args =>
             val prod = ProductValue.fromList(args)
             SumValue(variant, prod)
@@ -61,9 +62,10 @@ object MatchlessToValue {
     val uninit: Value = ExternalValue(Uninitialized)
 
     final case class Scope(
-      locals: Map[Bindable, Eval[Value]],
-      anon: LongMap[Value],
-      muts: MLongMap[Value]) {
+        locals: Map[Bindable, Eval[Value]],
+        anon: LongMap[Value],
+        muts: MLongMap[Value]
+    ) {
 
       def let(b: Bindable, v: Eval[Value]): Scope =
         copy(locals = locals.updated(b, v))
@@ -78,13 +80,17 @@ object MatchlessToValue {
         def loc(b: Bindable): Eval[Value] =
           locals.get(b) match {
             case Some(v) => v
-            case None => sys.error(s"couldn't find: $b in ${locals.keys.map(_.asString).toList}")
+            case None =>
+              sys.error(
+                s"couldn't find: $b in ${locals.keys.map(_.asString).toList}"
+              )
           }
 
         Scope(
           it.iterator.map { b => (b, loc(b)) }.toMap,
-            LongMap.empty,
-            MLongMap())
+          LongMap.empty,
+          MLongMap()
+        )
       }
     }
 
@@ -95,7 +101,9 @@ object MatchlessToValue {
     sealed abstract class Scoped[A] {
       def apply(s: Scope): A
       def map[B](fn: A => B): Scoped[B]
-      def and(that: Scoped[Boolean])(implicit ev: Is[A, Boolean]): Scoped[Boolean] = {
+      def and(
+          that: Scoped[Boolean]
+      )(implicit ev: Is[A, Boolean]): Scoped[Boolean] = {
         // boolean conditions are generally never static, so we can't easily exercise
         // this code if we specialize it. So, we assume it is dynamic here
         val thisBool = ev.substitute[Scoped](this)
@@ -128,7 +136,9 @@ object MatchlessToValue {
           def pure[A](a: A): Scoped[A] = Static(a)
           override def map[A, B](aa: Scoped[A])(fn: A => B): Scoped[B] =
             aa.map(fn)
-          override def map2[A, B, C](aa: Scoped[A], ab: Scoped[B])(fn: (A, B) => C): Scoped[C] =
+          override def map2[A, B, C](aa: Scoped[A], ab: Scoped[B])(
+              fn: (A, B) => C
+          ): Scoped[C] =
             (aa, ab) match {
               case (Static(a), Static(b)) => Static(fn(a, b))
               case (Static(a), db) =>
@@ -150,7 +160,6 @@ object MatchlessToValue {
       private def boolExpr(ix: BoolExpr): Scoped[Boolean] =
         ix match {
           case EqualsLit(expr, lit) =>
-
             val litAny = lit.unboxToAny
 
             loop(expr).map { e =>
@@ -193,7 +202,9 @@ object MatchlessToValue {
                   matchString(arg, pat, 0) != null
                 }
               case _ =>
-                val bary = binds.iterator.collect { case LocalAnonMut(id) => id }.toArray
+                val bary = binds.iterator.collect { case LocalAnonMut(id) =>
+                  id
+                }.toArray
 
                 // this may be static
                 val matchScope = loop(str).map { str =>
@@ -210,8 +221,7 @@ object MatchlessToValue {
                       idx = idx + 1
                     }
                     true
-                  }
-                  else false
+                  } else false
                 }
             }
 
@@ -231,19 +241,24 @@ object MatchlessToValue {
               var res = false
               while (currentList ne null) {
                 currentList match {
-                  case nonempty@VList.Cons(_, tail) =>
+                  case nonempty @ VList.Cons(_, tail) =>
                     scope.updateMut(mutV, nonempty)
                     res = checkF(scope)
                     if (res) { currentList = null }
                     else { currentList = tail }
                   case _ =>
                     currentList = null
-                    // we don't match empty lists
+                  // we don't match empty lists
                 }
               }
               res
             }
-          case SearchList(LocalAnonMut(mutV), init, check, Some(LocalAnonMut(left))) =>
+          case SearchList(
+                LocalAnonMut(mutV),
+                init,
+                check,
+                Some(LocalAnonMut(left))
+              ) =>
             val initF = loop(init)
             val checkF = boolExpr(check)
 
@@ -254,7 +269,7 @@ object MatchlessToValue {
               var leftList = VList.VNil
               while (currentList ne null) {
                 currentList match {
-                  case nonempty@VList.Cons(head, tail) =>
+                  case nonempty @ VList.Cons(head, tail) =>
                     scope.updateMut(mutV, nonempty)
                     scope.updateMut(left, leftList)
                     res = checkF(scope)
@@ -265,14 +280,20 @@ object MatchlessToValue {
                     }
                   case _ =>
                     currentList = null
-                    // we don't match empty lists
+                  // we don't match empty lists
                 }
               }
               res
             }
         }
 
-      def buildLoop(caps: List[Bindable], fnName: Bindable, arg0: Bindable, rest: List[Bindable], body: Scoped[Value]): Scoped[Value] = {
+      def buildLoop(
+          caps: List[Bindable],
+          fnName: Bindable,
+          arg0: Bindable,
+          rest: List[Bindable],
+          body: Scoped[Value]
+      ): Scoped[Value] = {
         val argCount = rest.length + 1
         val argNames: Array[Bindable] = (arg0 :: rest).toArray
         if ((caps.lengthCompare(1) == 0) && (caps.head == fnName)) {
@@ -312,8 +333,7 @@ object MatchlessToValue {
           }
 
           Static(fn)
-        }
-        else {
+        } else {
           Dynamic { scope =>
             // TODO this maybe isn't helpful
             // it doesn't matter if the scope
@@ -372,8 +392,7 @@ object MatchlessToValue {
                 resFn(scope2)
               }
               Static(fn)
-            }
-            else {
+            } else {
               Dynamic { scope =>
                 val scope1 = scope.capture(caps)
                 // hopefully optimization/normalization has lifted anything
@@ -394,8 +413,8 @@ object MatchlessToValue {
             // this has to be lazy because it could be
             // in this package, which isn't complete yet
             Dynamic { (_: Scope) => res.value }
-          case Local(b) => Dynamic(_.locals(b).value)
-          case LocalAnon(a) => Dynamic(_.anon(a))
+          case Local(b)        => Dynamic(_.locals(b).value)
+          case LocalAnon(a)    => Dynamic(_.anon(a))
           case LocalAnonMut(m) => Dynamic(_.muts(m))
           case App(expr, args) =>
             // TODO: App(LoopFn(..
@@ -409,7 +428,8 @@ object MatchlessToValue {
             Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
               fn.applyAll(args)
             }
-          case Let(Right((n1, r)), loopFn@LoopFn(_, n2, _, _, _), Local(n3)) if (n1 === n3) && (n1 === n2) && r.isRecursive =>
+          case Let(Right((n1, r)), loopFn @ LoopFn(_, n2, _, _, _), Local(n3))
+              if (n1 === n3) && (n1 === n2) && r.isRecursive =>
             // LoopFn already correctly handles recursion
             loop(loopFn)
           case Let(localOrBind, value, in) =>
@@ -431,8 +451,7 @@ object MatchlessToValue {
 
                     scope1
                   }
-                }
-                else {
+                } else {
                   inF.withScope { (scope: Scope) =>
                     val vv = Eval.now(valueF(scope))
                     scope.let(b, vv)
@@ -446,7 +465,7 @@ object MatchlessToValue {
             }
           case LetMut(LocalAnonMut(l), in) =>
             loop(in) match {
-              case s@Static(_) => s
+              case s @ Static(_) => s
               case Dynamic(inF) =>
                 Dynamic { (scope: Scope) =>
                   // we make sure there is
@@ -499,8 +518,7 @@ object MatchlessToValue {
             if (sz == 1) {
               // this is a newtype
               loopFn
-            }
-            else {
+            } else {
               loop(expr).map { p =>
                 p.asProduct.get(idx)
               }
@@ -521,17 +539,30 @@ object MatchlessToValue {
 
       private[this] val emptyStringArray: Array[String] = new Array[String](0)
 
-      def matchString(str: String, pat: List[Matchless.StrPart], binds: Int): Array[String] = {
+      def matchString(
+          str: String,
+          pat: List[Matchless.StrPart],
+          binds: Int
+      ): Array[String] = {
         import Matchless.StrPart._
 
-        val results = if (binds > 0) new Array[String](binds) else emptyStringArray
+        val results =
+          if (binds > 0) new Array[String](binds) else emptyStringArray
 
-        def loop(offset: Int, pat: List[Matchless.StrPart], next: Int): Boolean =
+        def loop(
+            offset: Int,
+            pat: List[Matchless.StrPart],
+            next: Int
+        ): Boolean =
           pat match {
             case Nil => offset == str.length
             case LitStr(expect) :: tail =>
               val len = expect.length
-              str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
+              str.regionMatches(offset, expect, 0, len) && loop(
+                offset + len,
+                tail,
+                next
+              )
             case (h: Glob) :: tail =>
               tail match {
                 case Nil =>
@@ -557,13 +588,11 @@ object MatchlessToValue {
                         }
                         result = true
                         start = -1
-                      }
-                      else {
+                      } else {
                         // we couldn't match here, try just after candidate
                         start = candidate + 1
                       }
-                    }
-                    else {
+                    } else {
                       // no more candidates
                       start = -1
                     }

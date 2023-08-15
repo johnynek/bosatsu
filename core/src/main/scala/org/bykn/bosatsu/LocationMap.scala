@@ -7,15 +7,13 @@ import cats.implicits._
 
 import LocationMap.Colorize
 
-/**
- * Build a cache of the rows and columns in a given
- * string. This is for showing error messages to users
- */
+/** Build a cache of the rows and columns in a given string. This is for showing
+  * error messages to users
+  */
 case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
 
   private def lineRange(start: Int, end: Int): List[(Int, String)] =
-    (start to end)
-      .iterator
+    (start to end).iterator
       .filter(_ >= 0)
       .map { r =>
         val liner = getLine(r).get // should never throw
@@ -24,10 +22,9 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
       }
       .toList
 
-  /**
-   * convert tab to tab, but otherwise space
-   * return the white space before this column
-   */
+  /** convert tab to tab, but otherwise space return the white space before this
+    * column
+    */
   private def spaceOf(row: Int, col: Int): Option[String] =
     getLine(row)
       .map { line =>
@@ -42,7 +39,11 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
         bldr.toString()
       }
 
-  def showContext(offset: Int, previousLines: Int, color: Colorize): Option[Doc] =
+  def showContext(
+      offset: Int,
+      previousLines: Int,
+      color: Colorize
+  ): Option[Doc] =
     toLineCol(offset)
       .map { case (r, c) =>
         val lines = lineRange(r - previousLines, r)
@@ -60,10 +61,17 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
         val ctx = Doc.intercalate(Doc.hardLine, lineDocs)
         // convert to spaces
         val colPad = spaceOf(r, c).get
-        ctx + Doc.hardLine + pointerPad + LocationMap.pointerTo(colPad, color) + Doc.hardLine
+        ctx + Doc.hardLine + pointerPad + LocationMap.pointerTo(
+          colPad,
+          color
+        ) + Doc.hardLine
       }
 
-  def showRegion(region: Region, previousLines: Int, color: Colorize): Option[Doc] =
+  def showRegion(
+      region: Region,
+      previousLines: Int,
+      color: Colorize
+  ): Option[Doc] =
     (toLineCol(region.start), toLineCol(region.end - 1))
       .mapN { case ((l0, c0), (l1, c1)) =>
         val lines = lineRange(l0 - previousLines, l1)
@@ -78,14 +86,19 @@ case class LocationMap(fromString: String) extends CPLocationMap(fromString) {
           // same line
           // here is how much extra we need for the pointer
           val pointerPad = Doc.spaces(toLineStr(l0).render(0).length)
-          val lineDocs = lines.map { case (no, l) => toLineStr(no) + Doc.text(l) }
+          val lineDocs = lines.map { case (no, l) =>
+            toLineStr(no) + Doc.text(l)
+          }
           val ctx = Doc.intercalate(Doc.hardLine, lineDocs)
           val c0Pad = spaceOf(l0, c0).get
           // we go one more to cover the column
           val c1Pad = spaceOf(l0, c1 + 1).get
-          ctx + Doc.hardLine + pointerPad + LocationMap.pointerRange(c0Pad, c1Pad, color) + Doc.hardLine
-        }
-        else {
+          ctx + Doc.hardLine + pointerPad + LocationMap.pointerRange(
+            c0Pad,
+            c1Pad,
+            color
+          ) + Doc.hardLine
+        } else {
           // we span multiple lines, show the start and the end:
           val newPrev = l1 - l0
           showContext(region.start, previousLines, color).get +
@@ -110,26 +123,32 @@ object LocationMap {
 
     object Console extends Colorize {
       def red(d: Doc) =
-        Doc.zeroWidth(scala.Console.RED) + d.unzero + Doc.zeroWidth(scala.Console.RESET)
+        Doc.zeroWidth(scala.Console.RED) + d.unzero + Doc.zeroWidth(
+          scala.Console.RESET
+        )
 
       def green(d: Doc) =
-        Doc.zeroWidth(scala.Console.GREEN) + d.unzero + Doc.zeroWidth(scala.Console.RESET)
+        Doc.zeroWidth(scala.Console.GREEN) + d.unzero + Doc.zeroWidth(
+          scala.Console.RESET
+        )
     }
 
     object HmtlFont extends Colorize {
       def red(d: Doc) =
-        Doc.zeroWidth("<font color=\"red\">") + d.unzero + Doc.zeroWidth("</font>")
+        Doc.zeroWidth("<font color=\"red\">") + d.unzero + Doc.zeroWidth(
+          "</font>"
+        )
 
       def green(d: Doc) =
-        Doc.zeroWidth("<font color=\"green\">") + d.unzero + Doc.zeroWidth("</font>")
+        Doc.zeroWidth("<font color=\"green\">") + d.unzero + Doc.zeroWidth(
+          "</font>"
+        )
     }
   }
 
-  /**
-   * Provide a string that points with a carat to a given column
-   * with 0 based indexing:
-   * e.g. pointerTo(2) == "  ^"
-   */
+  /** Provide a string that points with a carat to a given column with 0 based
+    * indexing: e.g. pointerTo(2) == " ^"
+    */
   def pointerTo(colStr: String, color: Colorize): Doc = {
     val col = Doc.text(colStr)
     val pointer = Doc.char('^')
@@ -141,7 +160,7 @@ object LocationMap {
     // just use tab for any tabs
     val pointerStr = endPad.drop(startPad.length).map {
       case '\t' => '\t'
-      case _ => '^'
+      case _    => '^'
     }
     val pointer = Doc.text(pointerStr)
     col + color.red(pointer)
