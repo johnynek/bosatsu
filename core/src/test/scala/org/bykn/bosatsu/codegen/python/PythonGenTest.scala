@@ -2,17 +2,14 @@ package org.bykn.bosatsu.codegen.python
 
 import org.bykn.bosatsu.Identifier.{Bindable, unsafeBindable}
 import org.bykn.bosatsu.Generators.bindIdentGen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
-  forAll,
-  PropertyCheckConfiguration
-}
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
 import org.scalatest.funsuite.AnyFunSuite
 
 class PythonGenTest extends AnyFunSuite {
   implicit val generatorDrivenConfig =
-    // PropertyCheckConfiguration(minSuccessful = 50000)
+    //PropertyCheckConfiguration(minSuccessful = 50000)
     PropertyCheckConfiguration(minSuccessful = 5000)
-  // PropertyCheckConfiguration(minSuccessful = 500)
+    //PropertyCheckConfiguration(minSuccessful = 500)
 
   test("PythonGen.escape round trips") {
 
@@ -20,14 +17,16 @@ class PythonGenTest extends AnyFunSuite {
       val ident = PythonGen.escape(b)
       PythonGen.unescape(ident) match {
         case Some(b1) => assert(b1.asString == b.asString)
-        case None     => assert(false, s"$b => $ident could not round trip")
+        case None => assert(false, s"$b => $ident could not round trip")
       }
     }
 
     forAll(bindIdentGen)(law(_))
 
     val examples: List[Bindable] =
-      List("`12 =_=`", "`N`").map(unsafeBindable)
+      List(
+        "`12 =_=`",
+        "`N`").map(unsafeBindable)
 
     examples.foreach(law(_))
 
@@ -39,10 +38,7 @@ class PythonGenTest extends AnyFunSuite {
     forAll(bindIdentGen) { b =>
       val str = PythonGen.escape(b).name
 
-      assert(
-        PythonName.matcher(str).matches(),
-        s"escaped: ${b.sourceCodeRepr} to $str"
-      )
+      assert(PythonName.matcher(str).matches(), s"escaped: ${b.sourceCodeRepr} to $str")
     }
   }
 

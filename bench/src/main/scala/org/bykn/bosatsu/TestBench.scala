@@ -12,10 +12,7 @@ class TestBench {
   // don't use threads in the benchmark which will complicate matters
   import DirectEC.directEC
 
-  private def prepPackages(
-      packages: List[String],
-      mainPackS: String
-  ): (PackageMap.Inferred, PackageName) = {
+  private def prepPackages(packages: List[String], mainPackS: String): (PackageMap.Inferred, PackageName) = {
     val mainPack = PackageName.parse(mainPackS).get
 
     val parsed = packages.zipWithIndex.traverse { case (pack, i) =>
@@ -31,18 +28,11 @@ class TestBench {
           val d = p.showContext(LocationMap.Colorize.None)
           System.err.println(d.render(100))
         }
-        sys.error("failed to parse") // errs.toString)
+        sys.error("failed to parse") //errs.toString)
     }
 
-    implicit val show: Show[(String, LocationMap)] = Show.show { case (s, _) =>
-      s
-    }
-    PackageMap
-      .resolveThenInfer(
-        PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths),
-        Nil
-      )
-      .strictToValidated match {
+    implicit val show: Show[(String, LocationMap)] = Show.show { case (s, _) => s }
+    PackageMap.resolveThenInfer(PackageMap.withPredefA(("predef", LocationMap("")), parsedPaths), Nil).strictToValidated match {
       case Validated.Valid(packMap) =>
         (packMap, mainPack)
       case other => sys.error(s"expected clean compilation: $other")
@@ -50,13 +40,11 @@ class TestBench {
   }
 
   def gauss(n: Int) = prepPackages(
-    List(s"""
+      List(s"""
 package Gauss
 
 gauss$n = range($n).foldLeft(0, add)
-"""),
-    "Gauss"
-  )
+"""), "Gauss")
 
   val compiled0: (PackageMap.Inferred, PackageName) =
     gauss(10)
@@ -81,8 +69,7 @@ gauss$n = range($n).foldLeft(0, add)
   }
 
   val compiled2 =
-    prepPackages(
-      List("""
+    prepPackages(List("""
 package Euler4
 
 def operator >(a, b):
@@ -145,9 +132,7 @@ max_pal_opt = max_of(99, \n1 -> first_of(99, product_palindrome(n1)))
 max_pal = match max_pal_opt:
   Some(m): m
   None: 0
-"""),
-      "Euler4"
-    )
+"""), "Euler4")
 
   @Benchmark def bench2(): Unit = {
     val c = compiled2
