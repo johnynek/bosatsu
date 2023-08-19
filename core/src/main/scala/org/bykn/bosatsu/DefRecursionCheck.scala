@@ -53,7 +53,7 @@ object DefRecursionCheck {
   }
   case class RecursionNotSubstructural(fnname: Bindable, recurPat: Pattern.Parsed, arg: Declaration.Var) extends RecursionError {
     def region = arg.region
-    def message = s"recursion is ${fnname.sourceCodeRepr} not substructual"
+    def message = s"recursion in ${fnname.sourceCodeRepr} not substructual"
   }
   case class RecursiveDefNoRecur(defstmt: DefStatement[Pattern.Parsed, Declaration], recur: Declaration.Match) extends RecursionError {
     def region = recur.region
