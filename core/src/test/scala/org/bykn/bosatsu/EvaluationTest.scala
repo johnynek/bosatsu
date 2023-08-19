@@ -852,6 +852,52 @@ main = sum(Succ(Succ(Succ(Zero))))
 """), "A", VInt(sumFn(3)))
   }
 
+  test("structual recursion on covariant function args is allowed") {
+    evalTest(
+      List("""
+package A
+
+enum Box[a: +*]:
+  Item(a: a)
+  Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
+
+def map[a, b](box: Box[a], fn: a -> b) -> Box[b]:
+  Next(cont -> cont((box, fn)))
+
+b = Item(1)
+
+v = match b:
+  case Item(x): x
+  case Next(_): -1
+
+main = v
+"""), "A", VInt(1))
+
+    evalTest(
+      List("""
+package A
+
+enum Box[a: +*]:
+  Item(a: a)
+  Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
+
+def map[a, b](box: Box[a], fn: a -> b) -> Box[b]:
+  Next(cont -> cont((b, fn)))
+
+b = Item(1)
+
+def loop[a](box: Box[a]) -> a:
+  recur box:
+    case Item(a): a
+    case Next(cont): cont((box, fn) -> fn(loop(box)))
+
+v = loop(b)
+
+main = v
+"""), "A", VInt(1))
+  }
+
+
   test("we can mix literal and enum forms of List") {
   evalTest(
     List("""

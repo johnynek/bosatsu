@@ -95,6 +95,10 @@ object TestUtils {
         assert(gv == expected, s"${gotDoc.value.render(80)}\n\n$gv != $expected")
       case Right(other) =>
         fail(s"got an unexpected success: $other")
+      case Left(err: module.MainException.ParseErrors) =>
+        fail(s"parse errors: ${err.messages.mkString("\n")}")
+      case Left(err: module.MainException.PackageErrors) =>
+        fail(s"package errors: ${err.errors.toList.map(_.message(Map.empty, LocationMap.Colorize.None)).mkString("\n")}")
       case Left(err) =>
         fail(s"got an exception: $err")
     }
