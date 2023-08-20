@@ -37,10 +37,10 @@ sealed abstract class Pattern[+N, +T] {
           if (seen(v)) loop(p :: tail, seen, acc)
           else loop(p :: tail, seen + v, v :: acc)
         case Pattern.StrPat(items) :: tail =>
-          val names = items.collect { case Pattern.StrPart.NamedStr(n) => n }.filterNot(seen)
+          val names = items.collect { case Pattern.StrPart.NamedStr(n) if !seen(n) => n }
           loop(tail, seen ++ names, names reverse_::: acc)
         case Pattern.ListPat(items) :: tail =>
-          val globs = items.collect { case Pattern.ListPart.NamedList(glob) => glob }.filterNot(seen)
+          val globs = items.collect { case Pattern.ListPart.NamedList(glob) if !seen(glob) => glob }
           val next = items.collect { case Pattern.ListPart.Item(inner) => inner }
           loop(next ::: tail, seen ++ globs, globs reverse_::: acc)
         case Pattern.Annotation(p, _) :: tail => loop(p :: tail, seen, acc)

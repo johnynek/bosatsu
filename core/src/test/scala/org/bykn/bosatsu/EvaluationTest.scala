@@ -882,14 +882,17 @@ enum Box[a: +*]:
   Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
 
 def map[a, b](box: Box[a], fn: a -> b) -> Box[b]:
-  Next(cont -> cont((b, fn)))
+  Next(cont -> cont((box, fn)))
 
 b = Item(1)
 
 def loop[a](box: Box[a]) -> a:
   recur box:
     case Item(a): a
-    case Next(cont): cont(((inner, fn)) -> fn(loop(inner)))
+    case Next(cont):
+      # this is polymorphic recursion, since we need to recur on `loop[b](inner)`
+      # but we only have monomorphic recursion currently.
+      cont(((inner, fn)) -> (fn(loop(inner))))
 
 v = loop(b)
 
