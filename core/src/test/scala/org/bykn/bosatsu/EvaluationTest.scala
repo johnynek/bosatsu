@@ -857,47 +857,51 @@ main = sum(Succ(Succ(Succ(Zero))))
       List("""
 package A
 
-enum Box[a: +*]:
-  Item(a: a)
-  Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
 
-def map[a, b](box: Box[a], fn: a -> b) -> Box[b]:
-  Next(cont -> cont((box, fn)))
+def map(ca: Cont, fn: Int -> Int) -> Cont:
+  Next(cont -> fn(cont(ca)))
 
-b = Item(1)
+b = Item(1).map(x -> x.add(1))
 
-v = match b:
-  case Item(x): x
-  case Next(_): -1
-
-main = v
-"""), "A", VInt(1))
-
-    evalTest(
-      List("""
-package A
-
-enum Box[a: +*]:
-  Item(a: a)
-  Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
-
-def map[a, b](box: Box[a], fn: a -> b) -> Box[b]:
-  Next(cont -> cont((box, fn)))
-
-b = Item(1)
-
-def loop[a](box: Box[a]) -> a:
+def loop(box: Cont) -> Int:
   recur box:
     case Item(a): a
-    case Next(cont):
-      # this is polymorphic recursion, since we need to recur on `loop[b](inner)`
-      # but we only have monomorphic recursion currently.
-      cont(((inner, fn)) -> (fn(loop(inner))))
+    case Next(cont_fn):
+      cont_fn(cont -> loop(cont))
 
 v = loop(b)
 
 main = v
-"""), "A", VInt(1))
+"""), "A", VInt(2))
+
+    // Generic version
+    evalTest(
+      List("""
+package A
+
+enum Cont[a: *]:
+  Item(a: a)
+  Next(use: (Cont[a] -> a) -> a)
+
+def map[a](ca: Cont[a], fn: a -> a) -> Cont[a]:
+  Next(cont -> fn(cont(ca)))
+
+# this fails if we write loop[a]
+#def loop[a](box: Cont[a]) -> a:
+def loop(box: Cont[a]) -> a:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      cont_fn(cont -> loop(cont))
+
+loopgen: forall a. Cont[a] -> a = loop
+
+b: Cont[Int] = Item(1).map(x -> x.add(1))
+main: Int = loop(b)
+"""), "A", VInt(2))
   }
 
 
