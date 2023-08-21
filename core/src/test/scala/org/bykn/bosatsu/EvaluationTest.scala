@@ -902,8 +902,26 @@ loopgen: forall a. Cont[a] -> a = loop
 b: Cont[Int] = Item(1).map(x -> x.add(1))
 main: Int = loop(b)
 """), "A", VInt(2))
-  }
 
+/*
+ It would be great for this to be allowed, but
+ we would have to see that foldLeft doesn't increase
+ the size
+    evalTest(
+      List("""
+package A
+
+struct Tree[a](item: a, children: List[Tree[a]])
+
+def reduce(t: Tree[a], fn: a -> a -> a) -> a:
+  recur t:
+    case Tree(item, many):
+      many.foldLeft(item)((acc, tree) -> fn(acc, reduce(tree, fn)))
+
+main = Tree(0, [Tree(1, []), Tree(1, [])]).reduce((a, b) -> a.add(b))
+"""), "A", VInt(2))
+*/
+  }
 
   test("we can mix literal and enum forms of List") {
   evalTest(

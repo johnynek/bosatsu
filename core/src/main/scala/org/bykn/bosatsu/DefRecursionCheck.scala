@@ -154,6 +154,19 @@ object DefRecursionCheck {
       branch: Pattern.Parsed,
       applyState: Option[ApplyState]) extends  InDefState {
         def incRecCount: InRecurBranch = copy(inRec = inRec.incRecCount)
+
+        def newApplyState(nm: Bindable): InRecurBranch = {
+          val (v, args) = applyState match {
+            case Some(p) => (p.variance, p.args)
+            case None => (Variance.co, Map.empty[Bindable, Variance])
+          }
+
+          val args1: Map[Bindable, Variance] =
+            args ++ branch.names.iterator.map(_ -> Variance.co)
+          val as1 = ApplyState(applyState, nm, v, args1)
+
+          copy(applyState = Some(as1))
+        }
     }
 
     /*
@@ -298,14 +311,17 @@ object DefRecursionCheck {
                   setSt(irb.incRecCount) // we have recurred again
             }
           }
+          else if (irb.defNamesContain(nm)) {
+            failSt(InvalidRecursion(nm, region))
+          }
           else if (branch.names.contains(nm)) {
             // we are calling a function referenced by the recur variable
-            val newIrb = irb.copy(applyState = Some(ApplyState(None, nm, Variance.co, Map.empty)))
             for {
-              _ <- setSt(newIrb)
+              _ <- setSt(irb.newApplyState(nm))
               _ <- args.traverse_(checkDecl)
               _ <- getSt.flatMap {
                 case irb1@InRecurBranch(_, _, _) =>
+                  // We have to maintain the recursion count
                   setSt(irb1.copy(applyState = irb.applyState))
                 case other =>
                   // $COVERAGE-OFF$ this should be unreachable
@@ -313,9 +329,6 @@ object DefRecursionCheck {
                   // $COVERAGE-ON$
               }
             } yield ()
-          }
-          else if (irb.defNamesContain(nm)) {
-            failSt(InvalidRecursion(nm, region))
           }
           else {
             // not a recursive call
@@ -341,6 +354,8 @@ object DefRecursionCheck {
         case ApplyOp(left, op, right) =>
           checkApply(op, NonEmptyList(left, right :: Nil), decl.region)
         case Binding(BindingStatement(pat, thisDecl, next)) =>
+          // inside a recur branch we should be tracking the bindings
+          // to make sure we don't shadow a pattern binding
           checkForIllegalBindsSt(pat.names, decl) *>
               checkDecl(thisDecl) *>
               checkDecl(next.padded)
