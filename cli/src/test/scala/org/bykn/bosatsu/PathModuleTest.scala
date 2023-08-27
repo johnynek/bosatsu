@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.effect.IO
 import cats.data.NonEmptyList
 import java.nio.file.{Path, Paths}
 import org.scalacheck.{Arbitrary, Gen}
@@ -79,11 +80,13 @@ class PathModuleTest extends AnyFunSuite {
     PathModule.run(args.toList) match {
       case Left(h) => fail(s"got help: $h on command: ${args.toList}")
       case Right(io) =>
-        val output = io.unsafeRunSync()
-        // This is a cheat, but at least we call the code so
-        // we see it doesn't crash or infinite loop or something
-        PathModule.reportOutput(output)
-        output
+        io.attempt.flatMap {
+          case Right(out) =>
+            PathModule.reportOutput(out).as(out)
+          case Left(err) =>
+            PathModule.reportException(err) *> IO.raiseError(err)
+        }
+        .unsafeRunSync()
     }
 
   test("test direct run of a file") {

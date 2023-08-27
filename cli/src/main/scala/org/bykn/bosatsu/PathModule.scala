@@ -68,6 +68,12 @@ object PathModule extends MainModule[IO] {
 
   def delay[A](a: => A): IO[A] = IO(a)
 
+  def report(io: IO[Output]): IO[ExitCode] =
+    io.attempt.flatMap {
+      case Right(out) => reportOutput(out)
+      case Left(err) => reportException(err).as(ExitCode.Error)
+    }
+
   def reportOutput(out: Output): IO[ExitCode] =
     out match {
       case Output.TestOutput(resMap, color) =>
@@ -147,6 +153,20 @@ object PathModule extends MainModule[IO] {
         val out = output.fold(IO.unit)(writePackages(packList, _))
 
         (ifres *> out).as(ExitCode.Success)
+    }
+
+  def reportException(ex: Throwable): IO[Unit] =
+    ex match {
+      case PathModule.MainException.NoInputs(cmd) =>
+        val name = cmd.name
+        IO.consoleForIO.errorln(s"no inputs given to $name")
+      case pe @ PathModule.MainException.ParseErrors(_, _, _) =>
+        IO.consoleForIO.errorln(pe.messages.mkString("\n"))
+      case pe @ PathModule.MainException.PackageErrors(_, _, _, _) =>
+        IO.consoleForIO.errorln(pe.messages.mkString("\n"))
+      case err =>
+        IO.consoleForIO.errorln("unknown error:\n") *>
+          IO(err.printStackTrace(System.err))
     }
 
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {

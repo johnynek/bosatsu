@@ -133,7 +133,7 @@ object Infer {
                     }
                 // $COVERAGE-OFF$ this should be unreachable because we handle Var above
                 case _ =>
-                  sys.error(s"reached unreachble: $item")
+                  sys.error(s"reached unreachable: $item")
                 // $COVERAGE-ON$
               }
             )
@@ -1302,7 +1302,7 @@ object Infer {
       } yield expr
   }
 
-  def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
+  private def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
     // values are of kind Type
     newMetaType(Kind.Type).flatMap { tpe =>
       extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))
@@ -1343,7 +1343,29 @@ object Infer {
      * 
      * TODO Kind we need to know the kinds of these skolems
      */
-    Expr.skolemizeFreeVars(t)(newSkolemTyVar(_, _)) match {
+    val optSkols = t match {
+      case Expr.Generic(vs, e) =>
+        Some(for {
+          skolsE1 <- Expr.skolemizeVars(vs, e)(newSkolemTyVar(_, _))
+          (skols, e1) = skolsE1
+          /*
+           * This is a bit weird, but for top-level defs, the type parameters
+           * only need to be a superset of free variables. You don't need
+           * to declare them all. On inner variables of a def we assume
+           * it is free in the top level def unless you declare it generic.
+           * Maybe worth revisiting and require ALL free variables declared
+           * or none of them...
+           */
+          optMore = Expr.skolemizeFreeVars(e1)(newSkolemTyVar(_, _))
+          res <- optMore.fold(pure(skolsE1)) { restSkols =>
+            restSkols.map { case (sM, eM) => (skols ::: sM, eM) }
+          }
+        } yield res)
+      case notGeneric =>
+        Expr.skolemizeFreeVars(notGeneric)(newSkolemTyVar(_, _))
+    }
+
+    optSkols match {
       case None => run(t)
       case Some(replace) =>
         for {
