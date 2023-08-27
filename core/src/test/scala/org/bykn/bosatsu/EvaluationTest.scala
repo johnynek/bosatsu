@@ -1725,11 +1725,11 @@ struct RecordSet[shape](
   record_to_list: forall w: * -> *. shape[RecordRowEntry[w]] -> List[RowEntry[w]]
 )
 
-def get[shape: (* -> *) -> *](sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t]) -> t:
+def get[shape: (* -> *) -> *, t](sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t]) -> t:
   RecordValue(result) = sh.getter
   result
 
-def create_field[shape: (* -> *) -> *](rf: RecordField[t], fn: shape[RecordValue] -> t):
+def create_field[shape: (* -> *) -> *, t](rf: RecordField[t], fn: shape[RecordValue] -> t):
  RecordGetter(_ -> rf, sh -> RecordValue(fn(sh)))
 
 def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse, record_to_list): RecordSet[shape]):
@@ -1774,7 +1774,8 @@ new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, Nil
 
 def ps[
     shape1: (* -> *) -> *,
-    shape2: (* -> *) -> *
+    shape2: (* -> *) -> *,
+    t
 ](
   RecordGetter(fF, fV): RecordGetter[shape1, t],
   RestructureOutput(reshaper1F, reshaper1V, getters1, traverse1, record_to_list1): RestructureOutput[shape1, shape2]):
@@ -2944,5 +2945,67 @@ this sometimes happens when a function arg has been omitted, or an illegal recur
       ()
     }
  
+  }
+
+  test("declaring a generic parameter works fine") {
+    runBosatsuTest(List("""
+package Generic
+
+enum NEList[a: +*]:
+  One(head: a)
+  Many(head: a, tail: NEList[a])  
+
+def head(nel: NEList[a]) -> a:
+  match nel:
+    case One(a) | Many(a, _): a
+
+test = Assertion(head(One(True)), "")
+"""), "Generic", 1)
+
+    runBosatsuTest(List("""
+package Generic
+
+enum NEList[a: +*]:
+  One(head: a)
+  Many(head: a, tail: NEList[a])  
+
+def head[a](nel: NEList[a]) -> a:
+  match nel:
+    case One(a) | Many(a, _): a
+
+test = Assertion(head(One(True)), "")
+"""), "Generic", 1)
+
+    // With recursion
+    runBosatsuTest(List("""
+package Generic
+
+enum NEList[a: +*]:
+  One(head: a)
+  Many(head: a, tail: NEList[a])  
+
+def last(nel: NEList[a]) -> a:
+  recur nel:
+    case One(a): a
+    case Many(_, tail): last(tail)
+
+test = Assertion(last(One(True)), "")
+"""), "Generic", 1)
+
+    // With recursion
+    runBosatsuTest(List("""
+package Generic
+
+enum NEList[a: +*]:
+  One(head: a)
+  Many(head: a, tail: NEList[a])  
+
+def last[a](nel: NEList[a]) -> a:
+  recur nel:
+    case One(a): a
+    case Many(_, tail): last(tail)
+
+test = Assertion(last(One(True)), "")
+"""), "Generic", 1)
   }
 }
