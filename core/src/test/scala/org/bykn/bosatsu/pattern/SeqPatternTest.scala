@@ -1,7 +1,10 @@
 package org.bykn.bosatsu.pattern
 
 import org.scalacheck.{Arbitrary, Gen, Shrink}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 
 import SeqPattern.{Cat, Empty}
 import SeqPart.{Wildcard, AnyElem, Lit}
@@ -28,7 +31,8 @@ object StringSeqPatternGen {
     Gen.frequency(
       (15, Gen.oneOf(Lit('0'), Lit('1'))),
       (2, Gen.const(AnyElem)),
-      (1, Gen.const(Wildcard)))
+      (1, Gen.const(Wildcard))
+    )
   }
 
   val genPat: Gen[SeqPattern[Char]] = {
@@ -38,9 +42,7 @@ object StringSeqPatternGen {
       t <- genPat
     } yield Cat(h, t)
 
-    Gen.frequency(
-      (1, Gen.const(Empty)),
-      (5, cat))
+    Gen.frequency((1, Gen.const(Empty)), (5, cat))
   }
 
   implicit val arbPattern: Arbitrary[SeqPattern[Char]] = Arbitrary(genPat)
@@ -54,7 +56,10 @@ object StringSeqPatternGen {
         t #:: shrinkPat.shrink(t)
     }
 
-  def genNamedFn[A](gp: Gen[SeqPart[A]], nextId: Int): Gen[(Int, NamedSeqPattern[A])] = {
+  def genNamedFn[A](
+      gp: Gen[SeqPart[A]],
+      nextId: Int
+  ): Gen[(Int, NamedSeqPattern[A])] = {
     lazy val recur = Gen.lzy(res)
 
     lazy val genNm: Gen[(Int, Named.Bind[A])] =
@@ -68,13 +73,17 @@ object StringSeqPatternGen {
     // L = (4/9) / (1 - (2/3 + 1/9)) = 4 / (9 - 5) = 1
     lazy val res: Gen[(Int, NamedSeqPattern[A])] =
       Gen.frequency(
-        (3, for {
-          (i0, n0) <- recur
-          (i1, n1) <- genNamedFn(gp, i0)
-        } yield (i1, NamedSeqPattern.NCat(n0, n1))),
+        (
+          3,
+          for {
+            (i0, n0) <- recur
+            (i1, n1) <- genNamedFn(gp, i0)
+          } yield (i1, NamedSeqPattern.NCat(n0, n1))
+        ),
         (1, genNm),
         (1, Gen.const((nextId, NamedSeqPattern.NEmpty))),
-        (4, gp.map { p => (nextId, NamedSeqPattern.NSeqPart(p)) }))
+        (4, gp.map { p => (nextId, NamedSeqPattern.NSeqPart(p)) })
+      )
 
     res
   }
@@ -85,7 +94,9 @@ object StringSeqPatternGen {
   implicit val arbNamed: Arbitrary[NamedSeqPattern[Char]] = Arbitrary(genNamed)
 
   def interleave[A](s1: Stream[A], s2: Stream[A]): Stream[A] =
-    if (s1.isEmpty) s2 else if (s2.isEmpty) s1 else {
+    if (s1.isEmpty) s2
+    else if (s2.isEmpty) s1
+    else {
       s1.head #:: interleave(s2, s1.tail)
     }
 
@@ -102,32 +113,34 @@ object StringSeqPatternGen {
 
         val sp = p match {
           case Wildcard => AnyElem #:: tail
-          case AnyElem => tail
-          case Lit(_) => Stream.Empty
+          case AnyElem  => tail
+          case Lit(_)   => Stream.Empty
         }
         sp.map(NamedSeqPattern.NSeqPart(_))
       case NamedSeqPattern.NCat(fst, snd) =>
         val s1 = shrinkNamedSeqPattern.shrink(fst)
         val s2 = shrinkNamedSeqPattern.shrink(snd)
-        interleave(s1, s2).iterator.sliding(2).map {
-          case Seq(a, b) => NamedSeqPattern.NCat(a, b)
-          case _ => NamedSeqPattern.NEmpty
-        }
-        .toStream
+        interleave(s1, s2).iterator
+          .sliding(2)
+          .map {
+            case Seq(a, b) => NamedSeqPattern.NCat(a, b)
+            case _         => NamedSeqPattern.NEmpty
+          }
+          .toStream
     }
 
   def unany[A](p: SeqPattern[A]): SeqPattern[A] =
     p match {
-      case Empty => Empty
+      case Empty           => Empty
       case Cat(AnyElem, t) => unany(t)
-      case Cat(h, t) => Cat(h, unany(t))
+      case Cat(h, t)       => Cat(h, unany(t))
     }
 
   def unwild[A](p: SeqPattern[A]): SeqPattern[A] =
     p match {
-      case Empty => Empty
+      case Empty            => Empty
       case Cat(Wildcard, t) => unwild(t)
-      case Cat(h, t) => Cat(h, unwild(t))
+      case Cat(h, t)        => Cat(h, unwild(t))
     }
 
   implicit val arbString: Arbitrary[String] = Arbitrary(genBitString)
@@ -149,9 +162,9 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
   val Named = NamedSeqPattern
 
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 50000)
+    // PropertyCheckConfiguration(minSuccessful = 50000)
     PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 50)
+  // PropertyCheckConfiguration(minSuccessful = 50)
 
   def genPattern: Gen[Pattern]
   def genNamed: Gen[Named]
@@ -174,8 +187,8 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
     val together = intersect.exists(matches(_, x))
 
     assert(together == sep, s"n1: $n1, n2: $n2, intersection: $intersect")
-    //if (together != sep) sys.error(s"n1: $n1, n2: $n2, intersection: $intersect")
-    //else succeed
+    // if (together != sep) sys.error(s"n1: $n1, n2: $n2, intersection: $intersect")
+    // else succeed
   }
 
   def namedMatchesPatternLaw(n: Named, str: S) = {
@@ -208,7 +221,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
     if (p2.matchesAny) assert(diff == Nil)
 
     // the law we wish we had:
-    //if (p2.matches(s) && p1.matches(s)) assert(!diffmatch)
+    // if (p2.matches(s) && p1.matches(s)) assert(!diffmatch)
   }
 
   test("reverse is idempotent") {
@@ -220,8 +233,8 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
   test("cat.reverse == cat.reverseCat") {
     forAll(genPattern) { p =>
       p match {
-        case Empty => assert(p.reverse == Empty)
-        case c@Cat(_, _) => assert(c.reverseCat == c.reverse)
+        case Empty         => assert(p.reverse == Empty)
+        case c @ Cat(_, _) => assert(c.reverseCat == c.reverse)
       }
     }
   }
@@ -229,16 +242,19 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
   test("reverse matches the reverse string") {
     forAll(genPattern, genSeq) { (p: Pattern, str: S) =>
       val rstr = splitter.fromList(splitter.toList(str).reverse)
-      assert(matches(p, str) == matches(p.reverse, rstr), s"p.reverse = ${p.reverse}")
+      assert(
+        matches(p, str) == matches(p.reverse, rstr),
+        s"p.reverse = ${p.reverse}"
+      )
     }
   }
 
   test("unlit patterns match everything") {
     def unlit(p: Pattern): Pattern =
       p match {
-        case Empty => Empty
+        case Empty                    => Empty
         case Cat(Lit(_) | AnyElem, t) => unlit(t)
-        case Cat(h, t) => Cat(h, unlit(t))
+        case Cat(h, t)                => Cat(h, unlit(t))
       }
 
     forAll(genPattern, genSeq) { (p0, str) =>
@@ -258,7 +274,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
     forAll(genPattern) { p0 =>
       val list = p0.normalize.toList
       list.sliding(2).foreach {
-        case bad@Seq(Wildcard, Wildcard) =>
+        case bad @ Seq(Wildcard, Wildcard) =>
           fail(s"saw adjacent: $bad in ${p0.normalize}")
         case _ => ()
       }
@@ -318,13 +334,17 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
   }
 
   test("if subset(a, b) then matching a implies matching b") {
-    forAll(genPattern, genPattern, genSeq)(subsetConsistentWithMatchLaw(_, _, _))
+    forAll(genPattern, genPattern, genSeq)(
+      subsetConsistentWithMatchLaw(_, _, _)
+    )
   }
 
   def diffUBRegressions: List[(Pattern, Pattern, S)] = Nil
 
   test("difference is an upper bound") {
-    forAll(genPattern, genPattern, genSeq) { case (p1, p2, s) => differenceUBLaw(p1, p2, s) }
+    forAll(genPattern, genPattern, genSeq) { case (p1, p2, s) =>
+      differenceUBLaw(p1, p2, s)
+    }
 
     diffUBRegressions.foreach { case (p1, p2, s) =>
       differenceUBLaw(p1, p2, s)
@@ -332,10 +352,11 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
   }
 
   test("p + q match (s + t) if p.matches(s) && q.matches(t)") {
-    forAll(genPattern, genPattern, genSeq, genSeq) { (p: Pattern, q: Pattern, s: S, t: S) =>
-      if (matches(p, s) && matches(q, t)) {
-        assert(matches(p + q, splitter.catSeqs(s :: t :: Nil)))
-      }
+    forAll(genPattern, genPattern, genSeq, genSeq) {
+      (p: Pattern, q: Pattern, s: S, t: S) =>
+        if (matches(p, s) && matches(q, t)) {
+          assert(matches(p + q, splitter.catSeqs(s :: t :: Nil)))
+        }
     }
   }
 
@@ -343,7 +364,7 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
     forAll(genNamed, genSeq)(namedMatchesPatternLaw(_, _))
   }
 
-/*
+  /*
   test("if x - y is empty, (x + z) - (y + z) is empty") {
     forAll { (x0: Pattern, y0: Pattern, z0: Pattern) =>
       val x = Pattern.fromList(x0.toList.take(3))
@@ -354,10 +375,11 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
       }
     }
   }
-*/
+   */
 }
 
-class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Boolean], Unit] {
+class BoolSeqPatternTest
+    extends SeqPatternLaws[Set[Boolean], Boolean, List[Boolean], Unit] {
 
   implicit lazy val shrinkPat: Shrink[SeqPattern[Set[Boolean]]] =
     Shrink {
@@ -365,7 +387,10 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
       case Cat(Wildcard, t) =>
         (Cat(AnyElem, t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
       case Cat(AnyElem, t) =>
-        (Cat(Lit(Set(false)), t) #:: Cat(Lit(Set(true)), t) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
+        (Cat(Lit(Set(false)), t) #:: Cat(
+          Lit(Set(true)),
+          t
+        ) #:: t #:: Stream.empty).flatMap(shrinkPat.shrink)
       case Cat(_, t) =>
         t #:: shrinkPat.shrink(t)
     }
@@ -383,7 +408,8 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
     Gen.frequency(
       (15, genSetBool.map(Lit(_))),
       (2, Gen.const(AnyElem)),
-      (1, Gen.const(Wildcard)))
+      (1, Gen.const(Wildcard))
+    )
   }
 
   val genNamed: Gen[NamedSeqPattern[Set[Boolean]]] =
@@ -393,29 +419,42 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
     val sp = Gen.frequency(
       (1, SeqPart.Wildcard),
       (2, SeqPart.AnyElem),
-      (8, genSetBool.map(SeqPart.Lit(_))))
+      (8, genSetBool.map(SeqPart.Lit(_)))
+    )
 
     Gen.frequency(
       (1, Gen.const(SeqPattern.Empty)),
-      (5, Gen.zip(sp, Gen.lzy(genPattern)).map { case (h, t) => SeqPattern.Cat(h, t) })
+      (
+        5,
+        Gen.zip(sp, Gen.lzy(genPattern)).map { case (h, t) =>
+          SeqPattern.Cat(h, t)
+        }
+      )
     )
   }
   def genSeq: Gen[List[Boolean]] =
     Gen.choose(0, 20).flatMap(Gen.listOfN(_, genBool))
 
-  val splitter = Splitter.listSplitter(Matcher.fnMatch[Boolean]: Matcher[Set[Boolean], Boolean, Unit])
+  val splitter = Splitter.listSplitter(
+    Matcher.fnMatch[Boolean]: Matcher[Set[Boolean], Boolean, Unit]
+  )
   val pmatcher = SeqPattern.matcher(splitter)
 
-  def matches(p: SeqPattern[Set[Boolean]], s: List[Boolean]): Boolean = pmatcher(p)(s).isDefined
-  def namedMatches(p: NamedSeqPattern[Set[Boolean]], s: List[Boolean]): Boolean =
+  def matches(p: SeqPattern[Set[Boolean]], s: List[Boolean]): Boolean =
+    pmatcher(p)(s).isDefined
+  def namedMatches(
+      p: NamedSeqPattern[Set[Boolean]],
+      s: List[Boolean]
+  ): Boolean =
     NamedSeqPattern.matcher(splitter)(p)(s).isDefined
 
-  implicit val setOpsBool: SetOps[Set[Boolean]] = SetOps.fromFinite(List(true, false))
+  implicit val setOpsBool: SetOps[Set[Boolean]] =
+    SetOps.fromFinite(List(true, false))
   implicit val ordSet: Ordering[Set[Boolean]] =
     Ordering[List[Boolean]].on { (s: Set[Boolean]) => s.toList.sorted }
 
-  val setOps: SetOps[SeqPattern[Set[Boolean]]] = SeqPattern.seqPatternSetOps[Set[Boolean]]
-
+  val setOps: SetOps[SeqPattern[Set[Boolean]]] =
+    SeqPattern.seqPatternSetOps[Set[Boolean]]
 
   // we can sometimes enumerate a finite LazyList of matches
   def enumerate(sp: SeqPattern[Set[Boolean]]): Option[LazyList[List[Boolean]]] =
@@ -427,7 +466,7 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
             val rests = loop(rest)
             val heads = hsp match {
               case Lit(s) if s.size == 1 => s.head :: Nil
-              case _ =>
+              case _                     =>
                 // we assume any because there
                 // are no wilds
                 List(false, true)
@@ -444,8 +483,14 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
 
   override def diffUBRegressions =
     List({
-      val p1 = Cat(Wildcard,Empty)
-      val p2 = Cat(Lit(Set(true)),Cat(Wildcard,Cat(Lit(Set(true, false)),Cat(Lit(Set(true)),Cat(Wildcard, Empty)))))
+      val p1 = Cat(Wildcard, Empty)
+      val p2 = Cat(
+        Lit(Set(true)),
+        Cat(
+          Wildcard,
+          Cat(Lit(Set(true, false)), Cat(Lit(Set(true)), Cat(Wildcard, Empty)))
+        )
+      )
       val s = List(true, false, false)
 
       (p1, p2, s)
@@ -458,7 +503,8 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
         SeqPattern.fromList(Wildcard :: Lit(Set(true)) :: Wildcard :: Nil),
         SeqPattern.fromList(Lit(Set(false)) :: Wildcard :: Nil),
         SeqPattern.fromList(Nil)
-      ))
+      )
+    )
 
     assert(missing == Nil)
   }
@@ -477,8 +523,7 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
               assert(matches(p1, s), s"p1: $s")
               assert(matches(p2, s), s"p2: $s")
             }
-          }
-          else {
+          } else {
             // difference is an upper-bound
             // so truediff <= diff
             // if ms does not match diff, then it must
@@ -539,26 +584,82 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
     val subsets: List[(Pattern, Pattern, Boolean)] =
       List(
         {
-          val p0 = Cat(Wildcard,Cat(Lit(Set(false)),Cat(Lit(Set(true, false)),Cat(Lit(Set(true, false)),Empty))))
-          val p1 = Cat(Wildcard,Cat(Lit(Set(true, false)),Empty))
+          val p0 = Cat(
+            Wildcard,
+            Cat(
+              Lit(Set(false)),
+              Cat(Lit(Set(true, false)), Cat(Lit(Set(true, false)), Empty))
+            )
+          )
+          val p1 = Cat(Wildcard, Cat(Lit(Set(true, false)), Empty))
           (p0, p1, true)
         }
       )
 
-    subsets.foreach { case (p1, p2, res) => assert(setOps.subset(p1, p2) == res) }
+    subsets.foreach { case (p1, p2, res) =>
+      assert(setOps.subset(p1, p2) == res)
+    }
 
     val regressions: List[(Pattern, Pattern, List[List[Boolean]])] =
       List(
         {
-          val p0 = Cat(Lit(Set(false)),Cat(Lit(Set(false)),Cat(Lit(Set(false)),Cat(Lit(Set(true)),Cat(AnyElem,Cat(Lit(Set(false)),Cat(Lit(Set(false)),Cat(Lit(Set(false)),Cat(Lit(Set(true, false)),Cat(Lit(Set(true)),Empty))))))))))
-          val p1 = Cat(Wildcard,Cat(Lit(Set(true, false)),Cat(Lit(Set(true)),Cat(Lit(Set(false)),Cat(Lit(Set(true, false)),Cat(Wildcard,Cat(Lit(Set(true, false)),Cat(Lit(Set(true, false)),Empty))))))))
+          val p0 = Cat(
+            Lit(Set(false)),
+            Cat(
+              Lit(Set(false)),
+              Cat(
+                Lit(Set(false)),
+                Cat(
+                  Lit(Set(true)),
+                  Cat(
+                    AnyElem,
+                    Cat(
+                      Lit(Set(false)),
+                      Cat(
+                        Lit(Set(false)),
+                        Cat(
+                          Lit(Set(false)),
+                          Cat(Lit(Set(true, false)), Cat(Lit(Set(true)), Empty))
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+          val p1 = Cat(
+            Wildcard,
+            Cat(
+              Lit(Set(true, false)),
+              Cat(
+                Lit(Set(true)),
+                Cat(
+                  Lit(Set(false)),
+                  Cat(
+                    Lit(Set(true, false)),
+                    Cat(
+                      Wildcard,
+                      Cat(
+                        Lit(Set(true, false)),
+                        Cat(Lit(Set(true, false)), Empty)
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
 
           val matchp0 = Nil
           (p0, p1, matchp0)
-        },
-        {
-          val p0 = Cat(Lit(Set(true)),Cat(AnyElem,Cat(Lit(Set(false)),Empty)))
-          val p1 = Cat(Wildcard,Cat(Lit(Set(true)),Cat(Lit(Set(false)),Cat(Wildcard,Empty))))
+        }, {
+          val p0 =
+            Cat(Lit(Set(true)), Cat(AnyElem, Cat(Lit(Set(false)), Empty)))
+          val p1 = Cat(
+            Wildcard,
+            Cat(Lit(Set(true)), Cat(Lit(Set(false)), Cat(Wildcard, Empty)))
+          )
 
           val matchp0 = Nil
           (p0, p1, matchp0)
@@ -570,11 +671,23 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
   }
 
   test("test some missing branches") {
-    assert(setOps.missingBranches(Cat(Wildcard, Empty) :: Nil, Pattern.fromList(List(Wildcard, AnyElem, Wildcard)) :: Nil) ==
-      Pattern.fromList(Nil) :: Nil)
+    assert(
+      setOps.missingBranches(
+        Cat(Wildcard, Empty) :: Nil,
+        Pattern.fromList(List(Wildcard, AnyElem, Wildcard)) :: Nil
+      ) ==
+        Pattern.fromList(Nil) :: Nil
+    )
 
-    assert(setOps.missingBranches(Cat(Wildcard, Empty) :: Nil, Pattern.fromList(List(Wildcard, Lit(Set(true)), Wildcard)) :: Nil) ==
-      Pattern.fromList(Nil) :: Pattern.fromList(Lit(Set(false)) :: Wildcard :: Nil) :: Nil)
+    assert(
+      setOps.missingBranches(
+        Cat(Wildcard, Empty) :: Nil,
+        Pattern.fromList(List(Wildcard, Lit(Set(true)), Wildcard)) :: Nil
+      ) ==
+        Pattern.fromList(Nil) :: Pattern.fromList(
+          Lit(Set(false)) :: Wildcard :: Nil
+        ) :: Nil
+    )
   }
 }
 
@@ -609,23 +722,30 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
 
   override def diffUBRegressions =
     List({
-      val p1 = Cat(AnyElem,Cat(Wildcard,Empty))
-      val p2 = Cat(Wildcard,Cat(AnyElem,Cat(Lit('0'),Cat(Lit('1'),Cat(Wildcard, Empty)))))
+      val p1 = Cat(AnyElem, Cat(Wildcard, Empty))
+      val p2 = Cat(
+        Wildcard,
+        Cat(AnyElem, Cat(Lit('0'), Cat(Lit('1'), Cat(Wildcard, Empty))))
+      )
       (p1, p2, "11")
     })
 
   test("some matching examples") {
-   val ms: List[(Pattern, String)] =
+    val ms: List[(Pattern, String)] =
       (Pattern.Wild + Pattern.Any + Pattern.Any + toPattern("1"), "111") ::
-      (toPattern("1") + Pattern.Any + toPattern("1"), "111") ::
-      Nil
+        (toPattern("1") + Pattern.Any + toPattern("1"), "111") ::
+        Nil
 
     ms.foreach { case (p, s) => assert(matches(p, s), s"matches($p, $s)") }
   }
 
   test("wildcard on either side is the same as contains") {
     forAll { (ps: String, s: String) =>
-      assert(matches(Pattern.Wild + toPattern(ps) + Pattern.Wild, s) == s.contains(ps))
+      assert(
+        matches(Pattern.Wild + toPattern(ps) + Pattern.Wild, s) == s.contains(
+          ps
+        )
+      )
     }
   }
   test("wildcard on front side is the same as endsWith") {
@@ -639,18 +759,38 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
     }
   }
 
-  test("intersection(p1, p2).matches(x) == p1.matches(x) && p2.matches(x) regressions") {
+  test(
+    "intersection(p1, p2).matches(x) == p1.matches(x) && p2.matches(x) regressions"
+  ) {
     val regressions: List[(Pattern, Pattern, String)] =
-      (toPattern("0") + Pattern.Any + Pattern.Wild, Pattern.Any + toPattern("01") + Pattern.Any, "001") ::
-      (Pattern.Wild + Pattern.Any + Pattern.Any + toPattern("1"), toPattern("1") + Pattern.Any + toPattern("1"), "111") ::
-      Nil
+      (
+        toPattern("0") + Pattern.Any + Pattern.Wild,
+        Pattern.Any + toPattern("01") + Pattern.Any,
+        "001"
+      ) ::
+        (
+          Pattern.Wild + Pattern.Any + Pattern.Any + toPattern("1"),
+          toPattern("1") + Pattern.Any + toPattern("1"),
+          "111"
+        ) ::
+        Nil
 
     regressions.foreach { case (p1, p2, s) => intersectionMatchLaw(p1, p2, s) }
   }
 
   test("subset is consistent with match regressions") {
-    assert(setOps.subset(toPattern("00") + Pattern.Wild, toPattern("0") + Pattern.Wild))
-    assert(setOps.subset(toPattern("00") + Pattern.Any + Pattern.Wild, toPattern("0") + Pattern.Any + Pattern.Wild))
+    assert(
+      setOps.subset(
+        toPattern("00") + Pattern.Wild,
+        toPattern("0") + Pattern.Wild
+      )
+    )
+    assert(
+      setOps.subset(
+        toPattern("00") + Pattern.Any + Pattern.Wild,
+        toPattern("0") + Pattern.Any + Pattern.Wild
+      )
+    )
   }
 
   test("if y - x is empty, (yz - xz) for all strings is empty") {
@@ -667,13 +807,14 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
   }
 
   test("if y - x is empty, (zy - zx) for all strings is empty") {
-    forAll(genPattern, genPattern, genSeq) { (x0: Pattern, y0: Pattern, str: String) =>
-      val x = Pattern.fromList(x0.toList.take(5))
-      val y = Pattern.fromList(y0.toList.take(5))
-      if (setOps.difference(y, x) == Nil) {
-        val left = toPattern(str) + y
-        assert(setOps.difference(left, toPattern(str) + x) == Nil)
-      }
+    forAll(genPattern, genPattern, genSeq) {
+      (x0: Pattern, y0: Pattern, str: String) =>
+        val x = Pattern.fromList(x0.toList.take(5))
+        val y = Pattern.fromList(y0.toList.take(5))
+        if (setOps.difference(y, x) == Nil) {
+          val left = toPattern(str) + y
+          assert(setOps.difference(left, toPattern(str) + x) == Nil)
+        }
     }
   }
 
@@ -682,7 +823,7 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
       namedMatch(n, str).foreach { m =>
         n.render(m)(_.toString) match {
           case Some(s0) => assert(s0 == str, s"m = $m")
-          case None =>
+          case None     =>
             // this can only happen if we have unnamed Wild/AnyElem
             assert(n.isRenderable == false, s"m = $m")
         }
@@ -695,8 +836,11 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
     import SeqPart.Wildcard
 
     val regressions: List[(Named, String)] =
-      (NCat(Bind("0",NSeqPart(Wildcard)),Bind("1",NSeqPart(Wildcard))), "") ::
-      Nil
+      (
+        NCat(Bind("0", NSeqPart(Wildcard)), Bind("1", NSeqPart(Wildcard))),
+        ""
+      ) ::
+        Nil
 
     regressions.foreach { case (n, s) => law(n, s) }
   }
@@ -708,17 +852,22 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
 
     import Named._
     val regressions: List[(Named, String)] =
-      (NCat(NEmpty,NCat(NSeqPart(Lit('1')),NSeqPart(Wildcard))), "1") ::
-      (NCat(NSeqPart(Lit('1')),NSeqPart(Wildcard)), "1") ::
-      (NSeqPart(Lit('1')), "1") ::
-      Nil
+      (NCat(NEmpty, NCat(NSeqPart(Lit('1')), NSeqPart(Wildcard))), "1") ::
+        (NCat(NSeqPart(Lit('1')), NSeqPart(Wildcard)), "1") ::
+        (NSeqPart(Lit('1')), "1") ::
+        Nil
 
     regressions.foreach { case (n, s) => namedMatchesPatternLaw(n, s) }
   }
 
   test("Test some examples of Named matching") {
     // foo@("bar" baz@(*"baz"))
-    val p1 = (named("bar") + (Named.Wild + named("baz")).name("baz")).name("foo")
-    assert(namedMatch(p1, "bar and baz") == Some(Map("foo" -> "bar and baz", "baz" -> " and baz")))
+    val p1 =
+      (named("bar") + (Named.Wild + named("baz")).name("baz")).name("foo")
+    assert(
+      namedMatch(p1, "bar and baz") == Some(
+        Map("foo" -> "bar and baz", "baz" -> " and baz")
+      )
+    )
   }
 }

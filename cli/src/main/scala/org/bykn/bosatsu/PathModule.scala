@@ -39,7 +39,10 @@ object PathModule extends MainModule[IO] {
   def readInterfaces(paths: List[Path]): IO[List[Package.Interface]] =
     ProtoConverter.readInterfaces(paths)
 
-  def writeInterfaces(interfaces: List[Package.Interface], path: Path): IO[Unit] =
+  def writeInterfaces(
+      interfaces: List[Package.Interface],
+      path: Path
+  ): IO[Unit] =
     ProtoConverter.writeInterfaces(interfaces, path)
 
   def writePackages[A](packages: List[Package.Typed[A]], path: Path): IO[Unit] =
@@ -54,14 +57,14 @@ object PathModule extends MainModule[IO] {
           Some(IO {
             f.listFiles.iterator.map(_.toPath).toList
           })
-        }
-        else None
+        } else None
       }
     }
   }
 
-  def hasExtension(str: String): Path => Boolean =
-    { (path: Path) => path.toString.endsWith(str) }
+  def hasExtension(str: String): Path => Boolean = { (path: Path) =>
+    path.toString.endsWith(str)
+  }
 
   def print(str: => String): IO[Unit] =
     IO(println(str))
@@ -71,27 +74,37 @@ object PathModule extends MainModule[IO] {
   def report(io: IO[Output]): IO[ExitCode] =
     io.attempt.flatMap {
       case Right(out) => reportOutput(out)
-      case Left(err) => reportException(err).as(ExitCode.Error)
+      case Left(err)  => reportException(err).as(ExitCode.Error)
     }
 
   def reportOutput(out: Output): IO[ExitCode] =
     out match {
       case Output.TestOutput(resMap, color) =>
         val noTests = resMap.collect { case (p, None) => p }.toList
-        val results = resMap.collect { case (p, Some(t)) => (p, Test.report(t.value, color)) }.toList.sortBy(_._1)
+        val results = resMap
+          .collect { case (p, Some(t)) => (p, Test.report(t.value, color)) }
+          .toList
+          .sortBy(_._1)
 
         val successes = results.iterator.map { case (_, (s, _, _)) => s }.sum
         val failures = results.iterator.map { case (_, (_, f, _)) => f }.sum
         val success = noTests.isEmpty && (failures == 0)
         val suffix =
-          if (results.lengthCompare(1) > 0) (Doc.hardLine + Doc.hardLine + Test.summary(successes, failures, color))
+          if (results.lengthCompare(1) > 0)
+            (Doc.hardLine + Doc.hardLine + Test.summary(
+              successes,
+              failures,
+              color
+            ))
           else Doc.empty
         val docRes: Doc =
-          Doc.intercalate(Doc.hardLine + Doc.hardLine,
+          Doc.intercalate(
+            Doc.hardLine + Doc.hardLine,
             results.map { case (p, (_, _, d)) =>
-              Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d).nested(2)
-            }) + suffix
-
+              Doc.text(p.asString) + Doc.char(':') + (Doc.lineOrSpace + d)
+                .nested(2)
+            }
+          ) + suffix
 
         if (success) print(docRes.render(80)).as(ExitCode.Success)
         else {
@@ -99,11 +112,17 @@ object PathModule extends MainModule[IO] {
             if (noTests.isEmpty) Nil
             else {
               val prefix = Doc.text("packages with missing tests: ")
-              val missingDoc = Doc.intercalate(Doc.comma + Doc.lineOrSpace, noTests.sorted.map { p => Doc.text(p.asString) })
+              val missingDoc = Doc.intercalate(
+                Doc.comma + Doc.lineOrSpace,
+                noTests.sorted.map { p => Doc.text(p.asString) }
+              )
               (prefix + missingDoc.nested(2)) :: Nil
             }
 
-          val fullOut = Doc.intercalate(Doc.hardLine + Doc.hardLine + (Doc.char('#') * 80) + Doc.line, docRes :: missingDoc)
+          val fullOut = Doc.intercalate(
+            Doc.hardLine + Doc.hardLine + (Doc.char('#') * 80) + Doc.line,
+            docRes :: missingDoc
+          )
 
           val failureStr =
             if (failures == 1) "1 test failure"
@@ -114,33 +133,37 @@ object PathModule extends MainModule[IO] {
             if (missingCount > 0) {
               val packString = if (missingCount == 1) "package" else "packages"
               s"$failureStr and $missingCount $packString with no tests found"
-            }
-            else failureStr
+            } else failureStr
 
-          print((fullOut + Doc.hardLine + Doc.hardLine + Doc.text(excepMessage)).render(80))
+          print(
+            (fullOut + Doc.hardLine + Doc.hardLine + Doc.text(excepMessage))
+              .render(80)
+          )
             .as(ExitCode.Error)
         }
       case Output.EvaluationResult(_, tpe, resDoc) =>
         val tDoc = rankn.Type.fullyResolvedDocument.document(tpe)
-        val doc = resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
+        val doc =
+          resDoc.value + (Doc.lineOrEmpty + Doc.text(": ") + tDoc).nested(4)
         print(doc.render(100)).as(ExitCode.Success)
       case Output.JsonOutput(json, pathOpt) =>
         val jdoc = json.toDoc
         (pathOpt match {
           case Some(path) => CodeGenWrite.writeDoc(path, jdoc)
-          case None => IO(println(jdoc.renderTrim(80)))
+          case None       => IO(println(jdoc.renderTrim(80)))
         }).as(ExitCode.Success)
 
       case Output.TranspileOut(outs, base) =>
         def path(p: List[String]): Path =
           p.foldLeft(base)(_.resolve(_))
 
-        outs.toList.map { case (p, d) =>
-          (p, CodeGenWrite.writeDoc(path(p.toList), d))
-        }
-        .sortBy(_._1)
-        .traverse_ { case (_, w) => w }
-        .as(ExitCode.Success)
+        outs.toList
+          .map { case (p, d) =>
+            (p, CodeGenWrite.writeDoc(path(p.toList), d))
+          }
+          .sortBy(_._1)
+          .traverse_ { case (_, w) => w }
+          .as(ExitCode.Success)
 
       case Output.CompileOut(packList, ifout, output) =>
         val ifres = ifout match {
@@ -173,7 +196,8 @@ object PathModule extends MainModule[IO] {
     import scala.jdk.CollectionConverters._
 
     def getP(p: Path): Option[PackageName] = {
-      val subPath = p.relativize(packFile)
+      val subPath = p
+        .relativize(packFile)
         .asScala
         .map { part =>
           part.toString.toLowerCase.capitalize
@@ -183,7 +207,7 @@ object PathModule extends MainModule[IO] {
       val dropExtension = """(.*)\.[^.]*$""".r
       val toParse = subPath match {
         case dropExtension(prefix) => prefix
-        case _ => subPath
+        case _                     => subPath
       }
       PackageName.parse(toParse)
     }
@@ -191,9 +215,9 @@ object PathModule extends MainModule[IO] {
     @annotation.tailrec
     def loop(roots: List[Path]): Option[PackageName] =
       roots match {
-        case Nil => None
+        case Nil                              => None
         case h :: _ if packFile.startsWith(h) => getP(h)
-        case _ :: t => loop(t)
+        case _ :: t                           => loop(t)
       }
 
     if (packFile.toString.isEmpty) None

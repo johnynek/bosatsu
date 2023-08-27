@@ -49,7 +49,8 @@ object FfiCall {
         case rankn.Type.Fun(a, b) if top =>
           loop(a, false) match {
             case at :: Nil => at :: loop(b, top)
-            case function => sys.error(s"unsupported function type $function in $t")
+            case function =>
+              sys.error(s"unsupported function type $function in $t")
           }
         case rankn.Type.ForAll(_, t) =>
           loop(t, top)
@@ -59,4 +60,3 @@ object FfiCall {
     loop(t, true)
   }
 }
-
