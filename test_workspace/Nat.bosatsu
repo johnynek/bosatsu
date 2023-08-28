@@ -58,17 +58,17 @@ def operator ==(i0: Int, i1: Int):
     cmp_Int(i0, i1) matches EQ
 
 def addLaw(n1: Nat, n2: Nat, label: String) -> Test:
-  Assertion(add(n1, n2).to_Int == (n1.to_Int + n2.to_Int), label)
+  Assertion(add(n1, n2).to_Int() == (n1.to_Int() + n2.to_Int()), label)
 
 def multLaw(n1: Nat, n2: Nat, label: String) -> Test:
-  Assertion(mult(n1, n2).to_Int == (n1.to_Int * n2.to_Int), label)
+  Assertion(mult(n1, n2).to_Int() == (n1.to_Int() * n2.to_Int()), label)
 
 def from_to_law(i: Int, message: String) -> Test:
-    Assertion(i.to_Nat.to_Int == i, message)
+    Assertion(i.to_Nat().to_Int() == i, message)
 
 from_to_suite = TestSuite("to_Nat/to_Int tests", [
-        Assertion(-1.to_Nat.to_Int == 0, "-1 -> 0"),
-        Assertion(-42.to_Nat.to_Int == 0, "-42 -> 0"),
+        Assertion(-1.to_Nat().to_Int() == 0, "-1 -> 0"),
+        Assertion(-42.to_Nat().to_Int() == 0, "-42 -> 0"),
         from_to_law(0, "0"),
         from_to_law(1, "1"),
         from_to_law(10, "10"),

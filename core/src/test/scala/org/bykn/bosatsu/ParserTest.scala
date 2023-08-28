@@ -619,11 +619,11 @@ x""")
       Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), AParens))
 
     parseTestAll(parser(""),
-      "f.x",
+      "f.x()",
       Apply(mkVar("x"), NonEmptyList.of(mkVar("f")), ADot))
 
     parseTestAll(parser(""),
-      "f(foo).x",
+      "f(foo).x()",
       Apply(mkVar("x"), NonEmptyList.of(Apply(mkVar("f"), NonEmptyList.of(mkVar("foo")), AParens)), ADot))
 
     parseTestAll(parser(""),

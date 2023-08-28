@@ -129,7 +129,7 @@ sortTest = (
 tests = TestSuite("List tests", [
   Assertion([1, 2, 3] =*= [1, 2, 3], "list [1, 2, 3]"),
   Assertion(not([1, 2, 3] =*= [1, 2]), "list [1, 2, 3] != [1, 2]"),
-  Assertion(range(6).sum.eq_Int(15), "range(6).sum == 1 + 2 + 3 + 4 + 5 = 15"),
+  Assertion(range(6).sum().eq_Int(15), "range(6).sum == 1 + 2 + 3 + 4 + 5 = 15"),
   Assertion(range(6).exists(v -> v.eq_Int(5)), "range(6) does have 5"),
   Assertion(not(range(6).exists(v -> v.eq_Int(6))), "range(6) does not have 6"),
   headTest,

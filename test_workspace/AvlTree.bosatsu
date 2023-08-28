@@ -92,10 +92,10 @@ def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
                     EQ: Branch(s, h, item, left, right)
                     LT:
                         left = loop(left)
-                        branch(s.add(1), item0, left, right).balance
+                        branch(s.add(1), item0, left, right).balance()
                     GT:
                         right = loop(right)
-                        branch(s.add(1), item0, left, right).balance
+                        branch(s.add(1), item0, left, right).balance()
 
     loop(tree)
 
@@ -133,13 +133,13 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
                             Empty: left
                             _:
                                 right = loop(right)
-                                branch(size.sub(1), key, left, right).balance
+                                branch(size.sub(1), key, left, right).balance()
                     LT:
                         left = loop(left)
-                        branch(size.sub(1), key, left, right).balance
+                        branch(size.sub(1), key, left, right).balance()
                     GT:
                         right = loop(right)
-                        branch(size.sub(1), key, left, right).balance
+                        branch(size.sub(1), key, left, right).balance()
 
     loop(tree)
 
@@ -265,7 +265,7 @@ size_tests = (
     TestSuite('size tests', [
       add_increases_size(Empty, 1, "Empty.add(1)"),
       add_increases_size(single_i(1), 2, "single(1).add(2)"),
-      Assertion(single_i(1).size.eq_i(single_i(1).add_i(1).size), "single(1) + 1 has same size"),
+      Assertion(single_i(1).size().eq_i(single_i(1).add_i(1).size()), "single(1) + 1 has same size"),
       rem_decreases_size(single_i(1), 1, "single(1) - 1"),
       rem_decreases_size(single_i(2).add_i(3), 2, "single(2) + 3 - 2"),
     ])

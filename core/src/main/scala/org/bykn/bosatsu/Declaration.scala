@@ -44,11 +44,7 @@ sealed abstract class Declaration {
               (args.head.toDoc + Doc.char('.') + fnDoc, args.tail)
           }
 
-        body match {
-          case Nil => prefix
-          case notEmpty =>
-            prefix + Doc.char('(') + Doc.intercalate(Doc.text(", "), notEmpty.map(_.toDoc)) + Doc.char(')')
-        }
+        prefix + Doc.char('(') + Doc.intercalate(Doc.text(", "), body.map(_.toDoc)) + Doc.char(')')
       case ApplyOp(left, Identifier.Operator(opStr), right) =>
         left.toDoc space Doc.text(opStr) space right.toDoc
       case Binding(b) =>
@@ -1169,23 +1165,25 @@ object Declaration {
        * This is where we parse application, either direct, or dot-style
        */
       val applied: P[NonBinding] = {
-        val params = recNonBind.parensLines1Cut
         // here we are using . syntax foo.bar(1, 2)
         // we also allow foo.(anyExpression)(1, 2)
         val fn = varP.orElse(recNonBind.parensCut)
         val slashcontinuation = ((maybeSpace ~ P.char('\\') ~ toEOL1).backtrack ~ Parser.maybeSpacesAndLines).?.void
+        // 0 or more args
+        val params0 = recNonBind.parensLines0Cut
         val dotApply: P[NonBinding => NonBinding] =
-          (slashcontinuation.with1 *> P.char('.') *> (fn ~ params.?))
+          (slashcontinuation.with1 *> P.char('.') *> (fn ~ params0))
             .region
-            .map { case (r2, (fn, argsOpt)) =>
-              val args = argsOpt.fold(List.empty[NonBinding])(_.toList)
+            .map { case (r2, (fn, args)) =>
 
               { (head: NonBinding) => Apply(fn, NonEmptyList(head, args), ApplyKind.Dot)(head.region + r2) }
             }
 
+        // 1 or more args
+        val params1 = recNonBind.parensLines1Cut
         // here we directly call a function foo(1, 2)
         val applySuffix: P[NonBinding => NonBinding] =
-          params
+          params1
             .region
             .map { case (r, args) =>
               { (fn: NonBinding) => Apply(fn, args, ApplyKind.Parens)(fn.region + r) }

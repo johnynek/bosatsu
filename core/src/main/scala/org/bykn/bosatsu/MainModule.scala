@@ -116,7 +116,7 @@ abstract class MainModule[IO[_]](implicit
             val (r, c) = pf.locations.toLineCol(pf.position).get
             val ctx = pf.showContext(color)
             List(
-              s"failed to parse $path at line ${r + 1}, column ${c + 1}",
+              s"failed to parse $path:${r + 1}:${c + 1}",
               ctx.render(80)
             )
           case MainCommand.ParseError.FileError(path, err) =>
