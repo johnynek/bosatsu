@@ -406,10 +406,13 @@ object Parser {
     case class Tuple[A](bare: List[A]) extends NotBare[A]
     case class Parens[A](bare: A) extends NotBare[A]
 
-    def parser[A](p: P[A]): P[MaybeTupleOrParens[A]] =
+    def tupleOrParens[A](p: P[A]): P[NotBare[A]] =
       p.tupleOrParens.map {
         case Right(tup) => Tuple(tup)
         case Left(parens) => Parens(parens)
-      } | p.map(Bare(_))
+      }
+
+    def parser[A](p: P[A]): P[MaybeTupleOrParens[A]] =
+      tupleOrParens(p) | p.map(Bare(_))
   }
 }

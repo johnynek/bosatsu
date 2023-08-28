@@ -4,7 +4,7 @@ import cats.data.NonEmptyList
 import cats.parse.{Parser => P}
 import org.typelevel.paiges.{ Doc, Document }
 
-import Parser.{ Combinators, lowerIdent, maybeSpace, maybeSpacesAndLines, keySpace }
+import Parser.{ Combinators, MaybeTupleOrParens, lowerIdent, maybeSpace, maybeSpacesAndLines, keySpace }
 
 abstract class TypeParser[A] {
   /*
@@ -32,32 +32,56 @@ abstract class TypeParser[A] {
         (maybeSpacesAndLines.soft.with1 *> (P.char(':') *> maybeSpacesAndLines *> Kind.parser))
       lowerIdent ~ kindP.?
     }
-    val lambda =
+    val lambda: P[MaybeTupleOrParens[A]] =
       (keySpace("forall") *> univItem.nonEmptyListOfWs(maybeSpacesAndLines) ~ (maybeSpacesAndLines *> P.char('.') *> maybeSpacesAndLines *> recurse))
-        .map { case (args, e) => universal(args, e) }
+        .map { case (args, e) => MaybeTupleOrParens.Bare(universal(args, e)) }
 
-    val tupleOrParens: P[A] =
-      recurse.tupleOrParens.map {
-        case Left(par) => par
-        case Right(tup) => makeTuple(tup)
+    val tupleOrParens: P[MaybeTupleOrParens[A]] =
+      MaybeTupleOrParens.tupleOrParens(recurse)
+
+    def nonArrow(mtp: MaybeTupleOrParens[A]): A =
+      mtp match {
+        case MaybeTupleOrParens.Bare(a) => a
+        case MaybeTupleOrParens.Parens(a) => a
+        case MaybeTupleOrParens.Tuple(as) => makeTuple(as)
       }
 
-    val appP: P[A => A] =
+    val appP: P[MaybeTupleOrParens[A] => MaybeTupleOrParens[A]] =
       (P.char('[') *> maybeSpacesAndLines *> recurse.nonEmptyListOfWs(maybeSpacesAndLines) <* maybeSpacesAndLines <* P.char(']'))
-        .map { args => applyTypes(_, args) }
+        .map { args =>
 
-    val arrowP: P[A => A] =
+          { left =>
+            MaybeTupleOrParens.Bare(applyTypes(nonArrow(left), args))
+          }
+        }
+
+    val arrowP: P[MaybeTupleOrParens[A] => MaybeTupleOrParens[A]] =
       ((maybeSpace.with1.soft ~ P.string("->") ~ maybeSpacesAndLines) *> recurse)
-        .map { right => makeFn(_, right) }
+        // TODO remove the flatMap when we support FunctionN
+        .map { right =>
+          {
+            case MaybeTupleOrParens.Bare(a) =>
+              MaybeTupleOrParens.Bare(makeFn(a, right))
+            case MaybeTupleOrParens.Parens(a) =>
+              MaybeTupleOrParens.Bare(makeFn(a, right))
+            case MaybeTupleOrParens.Tuple(items) =>
+              // TODO: this will become a functionN
+              // for now, make it a -> b -> c ...
+              // since we can't easily fail parsing here
+              MaybeTupleOrParens.Bare(items.foldRight(right)(makeFn))
+          }
+        }
 
-    P.oneOf(lambda :: parseRoot :: tupleOrParens :: Nil)
+    P.oneOf(lambda :: parseRoot.map(MaybeTupleOrParens.Bare(_)) :: tupleOrParens :: Nil)
       .maybeAp(appP)
       .maybeAp(arrowP)
+      .map(nonArrow)
   }
 
   final def toDoc(a: A): Doc = {
     import TypeParser._
 
+    def p(d: Doc): Doc = Doc.char('(') + (d + Doc.char(')'))
     /*
      * Tuples and functions have syntax that is distinct
      * from their internal representation. We have to check
@@ -70,7 +94,7 @@ abstract class TypeParser[A] {
           case Nil => unitDoc
           case h :: Nil => Doc.char('(') + toDoc(h) + commaPar
           case twoAndMore =>
-            Doc.char('(') + Doc.intercalate(commaSpace, twoAndMore.map(toDoc)) + Doc.char(')')
+            p(Doc.intercalate(commaSpace, twoAndMore.map(toDoc)))
         }
     }
 
@@ -79,7 +103,7 @@ abstract class TypeParser[A] {
       case Some((in, out)) =>
         val din = toDoc(in)
         val dout = spaceArrow + toDoc(out)
-        return unapplyFn(in).orElse(unapplyUniversal(in)) match {
+        return unapplyFn(in).orElse(unapplyUniversal(in)).orElse(unapplyTuple(in)) match {
           case Some(_) => par(din) + dout
           case None => din + dout
         }
