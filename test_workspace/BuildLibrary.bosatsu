@@ -15,8 +15,8 @@ struct Library
 enum Build[a]:
   LoadFile(name: String, is_file: Leibniz[a, File])
   Pure(value: a)
-  Mapped(consume: forall b. (forall c. (Build[c], c -> a) -> b) -> b)
-  Map2(consume: forall b. (forall c, d. (Build[c], Build[d], c -> d -> a) -> b) -> b)
+  Mapped(consume: forall b. (forall c. ((Build[c], c -> a)) -> b) -> b)
+  Map2(consume: forall b. (forall c, d. ((Build[c], Build[d], c -> d -> a)) -> b) -> b)
   BuildLib(files: Build[List[File]], deps: Build[List[Library]], is_lib: Leibniz[a, Library])
 
 def map_Build(b: Build[a], fn: a -> b) -> Build[b]:
