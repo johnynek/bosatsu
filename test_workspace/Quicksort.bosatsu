@@ -28,5 +28,5 @@ test = TestSuite("quicksort", [
     Assertion(quick_sort([2, 3, 1], cmp_Int) matches [1, 2, 3], "2, 3, 1"),
     Assertion(quick_sort([2, 2, 1], cmp_Int) matches [1, 2, 2], "2, 2, 1"),
     Assertion(quick_sort([2, 2, 1], cmp_Int) matches [1, 2, 2], "2, 2, 1"),
-    Assertion(quick_sort(range(100).reverse, cmp_Int).eq_List(range(100)), "range(100).reverse"),
+    Assertion(quick_sort(range(100).reverse(), cmp_Int).eq_List(range(100)), "range(100).reverse"),
 ])

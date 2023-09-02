@@ -335,6 +335,8 @@ object Parser {
       item.nonEmptyListOfWs(maybeSpacesAndLines)
         .parensCut
 
+    def parensLines0Cut: P[List[T]] =
+      parens(nonEmptyListToList(item.nonEmptyListOfWs(maybeSpacesAndLines)))
     /**
      * either: a, b, c, ..
      * or (a, b, c, ) where we allow newlines:

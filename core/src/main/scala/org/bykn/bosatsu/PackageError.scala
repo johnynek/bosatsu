@@ -70,7 +70,7 @@ object PackageError {
       val candidates =
         nearest(ex.name, candidateMap, 3)
           .map { case (n, r) =>
-            val pos = lm.toLineCol(r.start).map { case (l, c) => s" at line: ${l + 1}, column: ${c + 1}" }.getOrElse("")
+            val pos = lm.toLineCol(r.start).map { case (l, c) => s":${l + 1}:${c + 1}" }.getOrElse("")
             s"${n.asString}$pos"
           }
       val candstr = candidates.mkString("\n\t", "\n\t", "\n")

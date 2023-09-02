@@ -5,7 +5,7 @@ import Value._
 import LocationMap.Colorize
 import org.scalatest.funsuite.AnyFunSuite
 
-class EvalationTest extends AnyFunSuite with ParTest {
+class EvaluationTest extends AnyFunSuite with ParTest {
 
   import TestUtils._
 
@@ -1078,7 +1078,7 @@ package A
 
 e = empty_Dict(string_Order)
 
-e1 = e.clear_Dict.add_key("hello2", "world2")
+e1 = e.clear_Dict().add_key("hello2", "world2")
 
 main = e1.get_key("hello")
 """), "A", VOption.none)
@@ -1099,7 +1099,7 @@ package A
 
 e1 = empty_Dict(string_Order)
 e2 = e1.add_key("hello", "world").add_key("hello1", "world1")
-lst = e2.items
+lst = e2.items()
 
 main = match lst:
   case [("hello", "world"), ("hello1", "world1")]: "good"
@@ -1111,7 +1111,7 @@ package A
 
 e1 = {}
 e2 = e1.add_key("hello", "world").add_key("hello1", "world1")
-lst = e2.items
+lst = e2.items()
 
 main = match lst:
   case [("hello", "world"), ("hello1", "world1")]: "good"
@@ -1125,7 +1125,7 @@ e = {
       "hello": "world",
       "hello1":
         "world1" }
-lst = e.items
+lst = e.items()
 
 main = match lst:
   case [("hello", "world"), ("hello1", "world1")]: "good"
@@ -1138,7 +1138,7 @@ package A
 pairs = [("hello", "world"), ("hello1", "world1")]
 
 e = { k: v for (k, v) in pairs }
-lst = e.items
+lst = e.items()
 
 main = match lst:
   case [("hello", "world"), ("hello1", "world1")]: "good"
@@ -1156,7 +1156,7 @@ def is_hello(s):
     case _: False
 
 e = { k: v for (k, v) in pairs if is_hello(k) }
-lst = e.items
+lst = e.items()
 
 main = match lst:
   case [("hello", res)]: res
@@ -1655,7 +1655,7 @@ struct RecordSet[shape](
 )
 
 def get[shape: (* -> *) -> *, t](sh: shape[RecordValue], RecordGetter(_, getter): RecordGetter[shape, t]) -> t:
-  RecordValue(result) = sh.getter
+  RecordValue(result) = sh.getter()
   result
 
 def create_field[shape: (* -> *) -> *, t](rf: RecordField[t], fn: shape[RecordValue] -> t):
@@ -1769,7 +1769,7 @@ rs0 = rs.restructure(\PS(a, PS(b, PS(c, _))) -> ps(c, ps(b, ps(a, ps("Plus 2".in
 
 tests = TestSuite("reordering",
   [
-    Assertion(equal_rows.equal_List(rs0.list_of_rows, [[REBool(RecordValue(False)), REInt(RecordValue(1)), REString(RecordValue("a")), REInt(RecordValue(3))]]), "swap")
+    Assertion(equal_rows.equal_List(rs0.list_of_rows(), [[REBool(RecordValue(False)), REInt(RecordValue(1)), REString(RecordValue("a")), REInt(RecordValue(3))]]), "swap")
   ]
 )
 """), "RecordSet/Library", 1)
@@ -2427,7 +2427,7 @@ struct Queue[a](front: List[a], back: List[a])
 
 def fold_Queue(Queue(f, b): Queue[a], binit: b, fold_fn: b -> a -> b) -> b:
   front = f.foldLeft(binit, fold_fn)
-  b.reverse.foldLeft(front, fold_fn)
+  b.reverse().foldLeft(front, fold_fn)
 
 test = Assertion(Queue([1], [2]).fold_Queue(0, add).eq_Int(3), "foldQueue")
 """), "QueueTest", 1)
@@ -2458,7 +2458,7 @@ test = Assertion(substitute.eq_Int(42), "basis substitution")
   runBosatsuTest(List("""
 package A
 
-three = 2.(x -> add(x, 1))
+three = 2.(x -> add(x, 1))()
 
 test = Assertion(three.eq_Int(3), "let inside apply")
 """), "A", 1)
@@ -2709,7 +2709,7 @@ struct RecordGetter[shape, t](
 
 # shape is (* -> *) -> *
 def get[shape](sh: shape[RecordValue], RecordGetter(getter): RecordGetter[shape, t]) -> t:
-  RecordValue(result) = sh.getter
+  RecordValue(result) = sh.getter()
   result
 """)) { case PackageError.TypeErrorIn(_, _) => ()
     }

@@ -80,7 +80,7 @@ def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
   item
 
 def from_List(list: List[a]) -> TreeList[a]:
-  list.reverse.foldLeft(empty, \lst, h -> cons(h, lst))
+  list.reverse().foldLeft(empty, \lst, h -> cons(h, lst))
 
 def fold(TreeList(trees): TreeList[a], init: b, fn: b -> a -> b) -> b:
   def loop(trees, init):
@@ -91,12 +91,12 @@ def fold(TreeList(trees): TreeList[a], init: b, fn: b -> a -> b) -> b:
   loop(trees, init)
 
 def to_List(list: TreeList[a]) -> List[a]:
-  fold(list, [], \l, h -> [h, *l]).reverse
+  fold(list, [], \l, h -> [h, *l]).reverse()
 
 def eq_TreeList(fn, a, b):
   (res, _) = a.fold((True, b), \(current, b), h ->
     if current:
-      match b.decons:
+      match decons(b):
         None: (False, empty)
         Some((hb, tb)):
           if fn(h, hb): (True, tb)

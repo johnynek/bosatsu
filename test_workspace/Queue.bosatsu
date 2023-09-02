@@ -23,7 +23,7 @@ def unpush(queue: Queue[a]) -> Option[(a, Queue[a])]:
   match queue:
     Queue([h, *t], b): Some((h, Queue(t, b)))
     Queue([], b):
-      match b.reverse:
+      match b.reverse():
         []: None
         [h, *t]: Some((h, Queue(t, [])))
 
@@ -40,10 +40,10 @@ def pop(queue: Queue[a]) -> Queue[a]:
 
 def fold_Queue(Queue(f, b): Queue[a], init: b, fold_fn: b -> a -> b) -> b:
   front = f.foldLeft(init, fold_fn)
-  b.reverse.foldLeft(front, fold_fn)
+  b.reverse().foldLeft(front, fold_fn)
 
 def reverse_Queue(Queue(f, b): Queue[a]) -> Queue[a]:
-  Queue(b.reverse, f.reverse)
+  Queue(b.reverse(), f.reverse())
 
 def eq_Queue(eq_fn: a -> a -> Bool, left: Queue[a], right: Queue[a]) -> Bool:
   res = left.fold_Queue((True, right), \(g, right), al ->
@@ -60,7 +60,7 @@ def eq_Queue(eq_fn: a -> a -> Bool, left: Queue[a], right: Queue[a]) -> Bool:
     _: False
 
 def to_List(Queue(f, b): Queue[a]) -> List[a]:
-  f.concat(b.reverse)
+  f.concat(b.reverse())
 
 ########
 ## TestSuites below
@@ -79,16 +79,16 @@ eq_li = eq_List(eq_Int)
 q12 = empty.push(1).push(2)
 
 tests = TestSuite("queue tests", [
-  Assertion(eq_oi(q12.pop_value, Some(1)), "1"),
+  Assertion(eq_oi(q12.pop_value(), Some(1)), "1"),
   Assertion(q12.fold_Queue(0,add).eq_Int(3), "fold_Queue add"),
   Assertion(q12.fold_Queue(0,\_, x -> x).eq_Int(2), "take the second"),
   Assertion(q12.fold_Queue(0,\x, _ -> x).eq_Int(0), "take the first"),
-  Assertion(q12.reverse_Queue.reverse_Queue.eq_qi(q12), "reverse is idempotent"),
+  Assertion(q12.reverse_Queue().reverse_Queue().eq_qi(q12), "reverse is idempotent"),
   Assertion(q12.eq_qi(from_List([1, 2])), "from list [1, 2]"),
   Assertion(q12.push(3).eq_qi(from_List([1, 2, 3])), "from list [1, 2, 3]"),
   Assertion(empty_Queue.eq_qi(from_List([])), "empty_Queue == from_List([])"),
   Assertion(q12.eq_qi(from_List([1, 2])), "from list [1, 2]"),
-  Assertion(from_List([1, 2, 3]).pop.pop.pop.eq_qi(empty), "pop to empty"),
-  Assertion(empty.pop.eq_qi(empty), "pop empty is okay"),
+  Assertion(from_List([1, 2, 3]).pop().pop().pop().eq_qi(empty), "pop to empty"),
+  Assertion(empty.pop().eq_qi(empty), "pop empty is okay"),
   Assertion(to_List(from_List([1, 1, 2, 2, 3, 3])).eq_li([1, 1, 2, 2, 3, 3]), "to/from List"),
 ])

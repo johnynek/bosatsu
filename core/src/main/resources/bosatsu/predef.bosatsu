@@ -93,10 +93,10 @@ def concat(front: List[a], back: List[a]) -> List[a]:
     case _: reverse_concat(reverse(front), back)
 
 def map_List(lst: List[a], fn: a -> b) -> List[b]:
-  lst.foldLeft([], \t, a -> [fn(a), *t]).reverse
+  lst.foldLeft([], \t, a -> [fn(a), *t]).reverse()
 
 def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
-  lst.foldLeft([], \t, a -> fn(a).reverse_concat(t)).reverse
+  lst.foldLeft([], \t, a -> fn(a).reverse_concat(t)).reverse()
 
 #############
 # Some utilities for dealing with functions
@@ -274,10 +274,10 @@ def add_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
                     case EQ: Branch(s, h, item, left, right)
                     case LT:
                         left = loop(left)
-                        branch(s.add(1), item0, left, right).balance
+                        branch(s.add(1), item0, left, right).balance()
                     case GT:
                         right = loop(right)
-                        branch(s.add(1), item0, left, right).balance
+                        branch(s.add(1), item0, left, right).balance()
 
     loop(tree)
 
@@ -308,13 +308,13 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
                             case Empty: left
                             case _:
                                 right = loop(right)
-                                branch(size.sub(1), key, left, right).balance
+                                branch(size.sub(1), key, left, right).balance()
                     case LT:
                         left = loop(left)
-                        branch(size.sub(1), key, left, right).balance
+                        branch(size.sub(1), key, left, right).balance()
                     case GT:
                         right = loop(right)
-                        branch(size.sub(1), key, left, right).balance
+                        branch(size.sub(1), key, left, right).balance()
 
     loop(tree)
 
