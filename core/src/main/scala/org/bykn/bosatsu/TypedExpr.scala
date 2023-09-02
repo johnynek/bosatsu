@@ -184,10 +184,10 @@ object TypedExpr {
   case class Annotation[T](term: TypedExpr[T], coerce: Type) extends TypedExpr[T] {
     def tag: T = term.tag
   }
-  case class AnnotatedLambda[T](arg: Bindable, tpe: Type, expr: TypedExpr[T], tag: T) extends TypedExpr[T]
+  case class AnnotatedLambda[T](args: NonEmptyList[(Bindable, Type)], expr: TypedExpr[T], tag: T) extends TypedExpr[T]
   case class Local[T](name: Bindable, tpe: Type, tag: T) extends Name[T]
   case class Global[T](pack: PackageName, name: Identifier, tpe: Type, tag: T) extends Name[T]
-  case class App[T](fn: TypedExpr[T], arg: TypedExpr[T], result: Type, tag: T) extends TypedExpr[T]
+  case class App[T](fn: TypedExpr[T], args: NonEmptyList[TypedExpr[T]], result: Type, tag: T) extends TypedExpr[T]
   case class Let[T](arg: Bindable, expr: TypedExpr[T], in: TypedExpr[T], recursive: RecursionKind, tag: T) extends TypedExpr[T]
   // TODO, this shouldn't have a type, we know the type from Lit currently
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]

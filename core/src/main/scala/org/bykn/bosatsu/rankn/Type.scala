@@ -262,7 +262,44 @@ object Type {
    */
   val BoolType: Type.TyConst = TyConst(Const.predef("Bool"))
   val DictType: Type.TyConst = TyConst(Const.predef("Dict"))
-  val FnType: Type.TyConst = TyConst(Const.predef("Fn"))
+
+  object FnType {
+    final val MaxSize = 8
+
+    private val tpes = (1 to MaxSize).map { n => TyConst(Const.predef(s"Fn$n")) }
+
+    def apply(n: Int): Type.TyConst = {
+      require((0 < n) && (n <= MaxSize), s"invalid FnType arity = $n, must be 0 < n <= $MaxSize")
+      tpes(n)
+    }
+
+    def unapply(tpe: Type): Option[(Type.TyConst, Int)] = {
+      tpe match {
+        case Type.TyConst(Const.Predef(cons)) if (cons.asString.startsWith("Fn")) =>
+          var idx = 0
+          while (idx < MaxSize) {
+            val thisTpe = tpes(idx)
+            if (thisTpe == tpe) return Some((thisTpe, idx + 1))
+            idx = idx + 1
+          }
+          None
+        case _ => None
+      }
+    }
+
+    // FnType -> Kind(Kind.Type.contra, Kind.Type.co),
+    val FnKinds: List[(Type.TyConst, Kind)] = {
+      // -* -> -* ... -> +* -> *
+      def kindSize(n: Int): Kind =
+        Kind((Vector.fill(n)(Kind.Type.contra) :+ Kind.Type.co): _*)
+
+      tpes
+        .iterator
+        .zipWithIndex
+        .map { case (t, n1) => (t, kindSize(n1 + 1)) }
+        .toList
+    }
+  }
   val IntType: Type.TyConst = TyConst(Const.predef("Int"))
   val ListType: Type.TyConst = TyConst(Const.predef("List"))
   val OptionType: Type.TyConst = TyConst(Const.predef("Option"))
@@ -272,17 +309,15 @@ object Type {
   val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
 
   val builtInKinds: Map[Type.Const.Defined, Kind] =
-    List(
+    (FnType.FnKinds ::: List(
       BoolType -> Kind.Type,
       DictType -> Kind(Kind.Type.in, Kind.Type.co),
-      FnType -> Kind(Kind.Type.contra, Kind.Type.co),
       IntType -> Kind.Type,
       ListType -> Kind(Kind.Type.co),
       StrType -> Kind.Type,
       UnitType -> Kind.Type,
       TupleConsType -> Kind(Kind.Type.co, Kind.Type.co),
-
-    )
+    ))
     .map { case (t, k) => (t.tpe.toDefined, k) }
     .toMap
 
@@ -290,14 +325,35 @@ object Type {
     TyConst(Type.Const.Defined(pn, name))
 
   object Fun {
-    def unapply(t: Type): Option[(Type, Type)] =
-      t match {
-        case TyApply(TyApply(FnType, from), to) =>
-          Some((from, to))
-        case _ => None
-      }
+    def ifValid(from: NonEmptyList[Type], to: Type): Option[Type.Rho] = {
+      val len = from.length
+      if (len <= FnType.MaxSize)
+        Some(TyApply(from.foldLeft(FnType(len): Type)(TyApply(_, _)), to))
+      else None
+    }
 
-    def apply(from: Type, to: Type): Type.Rho =
+    def unapply(t: Type): Option[(NonEmptyList[Type], Type)] = {
+      def check(n: Int, t: Type, applied: List[Type]): Option[(NonEmptyList[Type], Type)] =
+        t match {
+          case TyApply(inner, arg) =>
+            check(n + 1, inner, arg :: applied)
+          case FnType((_, arity)) =>
+            // we need arity types and 1 result type
+            if (n == (arity + 1)) {
+              // we know applied has length == n and arity in [1, MaxSize]
+              val res = applied.head
+              val args = NonEmptyList.fromListUnsafe(applied.tail.reverse)
+              Some((args, res))
+            }
+            else None
+        }
+
+      check(0, t, Nil)
+    }
+
+    /*
+
+    def apply(from: NonEmptyList[Type], to: Type): Type.Rho =
       TyApply(TyApply(FnType, from), to)
 
     def arity(t: Type): Int =
@@ -326,6 +382,7 @@ object Type {
         case NonEmptyList(h1, h2 :: tail) =>
           Fun(h1, curry(NonEmptyList(h2, tail), res))
       }
+      */
   }
 
   object Tuple {
@@ -383,6 +440,14 @@ object Type {
 
     def predef(name: String): Defined =
       Defined(PackageName.PredefName, TypeName(Identifier.Constructor(name)))
+
+    object Predef {
+      def unapply(c: Const): Option[Identifier.Constructor] =
+        c match {
+          case Defined(PackageName.PredefName, TypeName(cons)) => Some(cons)
+          case _ => None
+        }
+    }
   }
 
   sealed abstract class Var {
@@ -537,7 +602,22 @@ object Type {
       tvar.orElse(name).orElse(skolem).orElse(meta)
     }
 
-    def makeFn(in: Type, out: Type) = Type.Fun(in, out)
+    def makeFn(in: NonEmptyList[Type], out: Type) =
+      // This isn't used in real syntax, but at this stage we can't convert to a generic
+      // function type for all arg sizes. Instead we curry if have too many args
+      Type.Fun.ifValid(in, out) match {
+        case Some(res) => res
+        case None =>
+          // Take the first N args, and curry the rest
+          val left = NonEmptyList(in.head, in.tail.take(FnType.MaxSize - 1))
+          val right = in.toList.drop(FnType.MaxSize)
+          val out1 = NonEmptyList.fromList(right) match {
+            case None => out
+            case Some(rest) => makeFn(rest, out)
+          }
+          makeFn(left, out1)
+      }
+
     def applyTypes(left: Type, args: NonEmptyList[Type]) = applyAll(left, args.toList)
 
     def universal(vs: NonEmptyList[(String, Option[Kind])], on: Type) =
@@ -565,9 +645,9 @@ object Type {
         case _ => None
       }
 
-    def unapplyFn(a: Type): Option[(Type, Type)] =
+    def unapplyFn(a: Type): Option[(NonEmptyList[Type], Type)] =
       a match {
-        case Fun(a, b) => Some((a, b))
+        case Fun(as, b) => Some((as, b))
         case _ => None
       }
 

@@ -1377,7 +1377,7 @@ object Infer {
   }
 
   def extendEnv[A](varName: Bindable, tpe: Type)(of: Infer[A]): Infer[A] =
-    extendEnvList(List((varName, tpe)))(of)
+    extendEnvList((varName, tpe) :: Nil)(of)
 
   def extendEnvList[A](bindings: List[(Bindable, Type)])(of: Infer[A]): Infer[A] =
     Infer.Impl.ExtendEnvs(bindings.map { case (n, t) => ((None, n), t) }, of)

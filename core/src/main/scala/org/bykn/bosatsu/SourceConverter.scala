@@ -383,8 +383,8 @@ final class SourceConverter(
                       // here we lift the result into a a singleton list
                       withBound(r, newBound).map { ritem =>
                         Expr.App(
-                          Expr.App(Expr.Global(pn, Identifier.Constructor("NonEmptyList"), rdec), ritem, rdec),
-                          empty,
+                          Expr.Global(pn, Identifier.Constructor("NonEmptyList"), rdec),
+                          NonEmptyList(ritem, empty :: Nil),
                           rdec)
                       }
                     case SpliceOrItem.Splice(r) => withBound(r, newBound)
@@ -407,7 +407,7 @@ final class SourceConverter(
         def mkN(n: String): Expr[Declaration] =
           Expr.Global(pn, Identifier.Name(n), l)
         val empty: Expr[Declaration] =
-          Expr.App(mkN("empty_Dict"), mkN("string_Order"), l)
+          Expr.App(mkN("empty_Dict"), NonEmptyList(mkN("string_Order"), Nil), l)
 
         def add(dict: Expr[Declaration], k: Expr[Declaration], v: Expr[Declaration]): Expr[Declaration] = {
           val fn = mkN("add_key")
@@ -456,13 +456,11 @@ final class SourceConverter(
             }
             val newPattern = convertPattern(binding, decl.region)
             (newPattern, resExpr, loop(in)).mapN { (pat, res, in) =>
-              val foldFn = Expr.Lambda(dictSymbol,
-                None,
+              val foldFn =
                 Expr.buildPatternLambda(
-                  NonEmptyList(pat, Nil),
+                  NonEmptyList(Pattern.Var(dictSymbol), pat :: Nil),
                   res,
-                  l),
-                l)
+                  l)
               Expr.buildApp(opExpr, in :: empty :: foldFn :: Nil, l)
             }
           }
@@ -1172,16 +1170,18 @@ final class SourceConverter(
     stmts.collect {
       case ed@Statement.ExternalDef(name, params, result) =>
         (params.traverse { p => toType(p._2, ed.region) }, toType(result, ed.region))
-          .mapN { (paramTypes, resType) =>
-            val tpe: rankn.Type = {
-              def buildType(ts: List[rankn.Type]): rankn.Type =
-                ts match {
-                  case Nil => resType
-                  case h :: tail => rankn.Type.Fun(h, buildType(tail))
+          .flatMapN { (paramTypes, resType) =>
+            NonEmptyList.fromList(paramTypes) match {
+              case None => success(resType)
+              case Some(nel) =>
+                rankn.Type.Fun.ifValid(nel, resType) match {
+                  case Some(t) => success(t)
+                  case None =>
+                    SourceConverter.failure(SourceConverter.InvalidExternalDefArity(nel.length, ed.region))
                 }
-              buildType(paramTypes)
             }
-
+          }
+          .map { (tpe: rankn.Type) =>
             val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
             // these vars were parsed so they are never skolem vars
             val freeBound = freeVars.map {
@@ -1469,5 +1469,9 @@ object SourceConverter {
 
   final case class UnknownTypeName(tpe: Constructor, region: Region) extends Error {
     def message = s"unknown type: ${tpe.asString}"
+  }
+
+  final case class InvalidExternalDefArity(size: Int, region: Region) extends Error {
+    def message = s"invalid external def arity of $size, maximum = ${rankn.Type.FnType.MaxSize}"
   }
 }
