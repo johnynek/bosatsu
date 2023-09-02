@@ -1172,32 +1172,37 @@ final class SourceConverter(
         (params.traverse { p => toType(p._2, ed.region) }, toType(result, ed.region))
           .flatMapN { (paramTypes, resType) =>
             NonEmptyList.fromList(paramTypes) match {
-              case None => success(resType)
+              case None => success(Some(resType))
               case Some(nel) =>
                 rankn.Type.Fun.ifValid(nel, resType) match {
-                  case Some(t) => success(t)
+                  case Some(t) => success(Some(t))
                   case None =>
-                    SourceConverter.failure(SourceConverter.InvalidExternalDefArity(nel.length, ed.region))
+                    SourceConverter
+                      .partial(SourceConverter.InvalidExternalDefArity(nel.length, ed.region), None)
                 }
             }
           }
-          .map { (tpe: rankn.Type) =>
-            val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
-            // these vars were parsed so they are never skolem vars
-            val freeBound = freeVars.map {
-              case b@rankn.Type.Var.Bound(_) => b
-              case s@rankn.Type.Var.Skolem(_, _, _) =>
-                // $COVERAGE-OFF$ this should be unreachable
-                sys.error(s"invariant violation: parsed a skolem var: $s")
-                // $COVERAGE-ON$
+          .map { opt =>
+            opt.map { (tpe: rankn.Type) =>
+              val freeVars = rankn.Type.freeTyVars(tpe :: Nil)
+              // these vars were parsed so they are never skolem vars
+              val freeBound = freeVars.map {
+                case b@rankn.Type.Var.Bound(_) => b
+                case s@rankn.Type.Var.Skolem(_, _, _) =>
+                  // $COVERAGE-OFF$ this should be unreachable
+                  sys.error(s"invariant violation: parsed a skolem var: $s")
+                  // $COVERAGE-ON$
+              }
+              // TODO: Kind support parsing kinds
+              val maybeForAll = rankn.Type.forAll(freeBound.map { n => (n, Kind.Type) }, tpe)
+              (name, maybeForAll)
             }
-            // TODO: Kind support parsing kinds
-            val maybeForAll = rankn.Type.forAll(freeBound.map { n => (n, Kind.Type) }, tpe)
-            (name, maybeForAll)
           }
     }
     .sequence
-    .flatMap { exts =>
+    .flatMap { exts0 =>
+      // we just ignore None externals we get from partial failures
+      val exts = exts0.flatten
       val pte1 = toTypeEnv.map { p =>
         exts.foldLeft(p) { case (pte, (name, tpe)) =>
           pte.addExternalValue(thisPackage, name, tpe)

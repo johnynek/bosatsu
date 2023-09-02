@@ -266,12 +266,20 @@ object Type {
   object FnType {
     final val MaxSize = 8
 
-    private val tpes = (1 to MaxSize).map { n => TyConst(Const.predef(s"Fn$n")) }
+    private def predefFn(n: Int) = TyConst(Const.predef(s"Fn$n")) 
+    private val tpes = (1 to MaxSize).map(predefFn)
 
     def apply(n: Int): Type.TyConst = {
       require((0 < n) && (n <= MaxSize), s"invalid FnType arity = $n, must be 0 < n <= $MaxSize")
       tpes(n)
     }
+
+    def maybeFakeName(n: Int): Type.TyConst =
+      if (n <= MaxSize) apply(n)
+      else {
+        // This type doesn't exist but we will catch it in typechecking etc...
+        predefFn(n)
+      }
 
     def unapply(tpe: Type): Option[(Type.TyConst, Int)] = {
       tpe match {
@@ -330,6 +338,11 @@ object Type {
       if (len <= FnType.MaxSize)
         Some(TyApply(from.foldLeft(FnType(len): Type)(TyApply(_, _)), to))
       else None
+    }
+
+    def maybeFakeName(from: NonEmptyList[Type], to: Type): Type.Rho = {
+      val len = from.length
+      TyApply(from.foldLeft(FnType.maybeFakeName(len): Type)(TyApply(_, _)), to)
     }
 
     def unapply(t: Type): Option[(NonEmptyList[Type], Type)] = {

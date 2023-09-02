@@ -27,7 +27,7 @@ sealed abstract class TypeRef {
   def normalizeForAll: TypeRef =
     this match {
       case TypeVar(_) | TypeName(_) => this
-      case TypeArrow(a, b) => TypeArrow(a.normalizeForAll, b.normalizeForAll)
+      case TypeArrow(a, b) => TypeArrow(a.map(_.normalizeForAll), b.normalizeForAll)
       case TypeApply(a, bs) =>
         TypeApply(a.normalizeForAll, bs.map(_.normalizeForAll))
       case TypeForAll(pars0, TypeForAll(pars1, e)) =>
@@ -58,7 +58,7 @@ object TypeRef {
     def toBoundVar: Type.Var.Bound = Type.Var.Bound(asString)
   }
   case class TypeName(name: Name) extends TypeRef
-  case class TypeArrow(from: TypeRef, to: TypeRef) extends TypeRef
+  case class TypeArrow(from: NonEmptyList[TypeRef], to: TypeRef) extends TypeRef
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
   case class TypeForAll(params: NonEmptyList[(TypeVar, Option[Kind])], in: TypeRef) extends TypeRef
@@ -77,7 +77,7 @@ object TypeRef {
           case (TypeName(_), TypeVar(_)) => 1
           case (TypeName(_), _) => -1
           case (TypeArrow(a0, b0), TypeArrow(a1, b1)) =>
-            val c = compare(a0, a1)
+            val c = list.compare(a0.toList, a1.toList)
             if (c == 0) compare(b0, b1) else c
           case (TypeArrow(_, _), TypeVar(_) | TypeName(_)) => 1
           case (TypeArrow(_, _), _) => -1
@@ -105,7 +105,7 @@ object TypeRef {
 
       tvar.orElse(tname)
     }
-    def makeFn(in: TypeRef, out: TypeRef) = TypeArrow(in, out)
+    def makeFn(in: NonEmptyList[TypeRef], out: TypeRef) = TypeArrow(in, out)
 
     def applyTypes(cons: TypeRef, args: NonEmptyList[TypeRef]) = TypeApply(cons, args)
     def universal(vars: NonEmptyList[(String, Option[Kind])], in: TypeRef) =
@@ -120,7 +120,7 @@ object TypeRef {
         case _ => None
       }
 
-    def unapplyFn(a: TypeRef): Option[(TypeRef, TypeRef)] =
+    def unapplyFn(a: TypeRef): Option[(NonEmptyList[TypeRef], TypeRef)] =
       a match {
         case TypeArrow(a, b) => Some((a, b))
         case _ => None

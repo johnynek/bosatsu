@@ -21,7 +21,9 @@ object TypeRefConverter {
     t match {
       case TypeVar(v) => Applicative[F].pure(TyVar(Type.Var.Bound(v)))
       case TypeName(n) => nameToType(n.ident).map(TyConst(_))
-      case TypeArrow(a, b) => (toType(a), toType(b)).mapN(Fun(_, _))
+      case TypeArrow(as, b) => (as.traverse(toType(_)), toType(b)).mapN { (args, res) =>
+        Fun.maybeFakeName(args, res)
+      }
       case TypeApply(a, bs) =>
         (toType(a), bs.toList.traverse(toType)).mapN(Type.applyAll(_, _))
       case TypeForAll(pars, e) =>
@@ -61,8 +63,8 @@ object TypeRefConverter {
         ts.traverse(loop(_)).map(TypeTuple(_))
       case TyConst(defined@Type.Const.Defined(_, _)) =>
         onConst(defined)
-      case Type.Fun(from, to) =>
-        (loop(from), loop(to)).mapN { (ftr, ttr) =>
+      case Type.Fun(args, to) =>
+        (args.traverse(loop), loop(to)).mapN { (ftr, ttr) =>
           TypeArrow(ftr, ttr)
         }
       case ta@TyApply(_, _) =>
