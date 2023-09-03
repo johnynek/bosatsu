@@ -58,8 +58,8 @@ external struct Fn3[a: -*, b: -*, c: -*, z: +*]
 external struct Fn4[a: -*, b: -*, c: -*, d: -*, z: +*]
 external struct Fn5[a: -*, b: -*, c: -*, d: -*, e: -*, z: +*]
 external struct Fn6[a: -*, b: -*, c: -*, d: -*, e: -*, f: -*, z: +*]
-external struct Fn7[a: -*, b: -*, c: -*, d: -*, e: -*, f: -*, e: -*, z: +*]
-external struct Fn8[a: -*, b: -*, c: -*, d: -*, e: -*, f: -*, e: -*, g: -*, z: +*]
+external struct Fn7[a: -*, b: -*, c: -*, d: -*, e: -*, f: -*, g: -*, z: +*]
+external struct Fn8[a: -*, b: -*, c: -*, d: -*, e: -*, f: -*, g: -*, h: -*, z: +*]
 
 #############
 # Support for built-in lists
@@ -67,10 +67,10 @@ external struct Fn8[a: -*, b: -*, c: -*, d: -*, e: -*, f: -*, e: -*, g: -*, z: +
 enum List:
   EmptyList, NonEmptyList(head: a, tail: List[a])
 
-def build_List[a](fn: forall b. (a -> b -> b) -> b -> b) -> List[a]:
+def build_List[a](fn: forall b. (((a, b) -> b), b) -> b) -> List[a]:
     fn(NonEmptyList, [])
 
-def foldr_List(list: List[a], fn: a -> b -> b, acc: b) -> b:
+def foldr_List(list: List[a], fn: (a, b) -> b, acc: b) -> b:
     def loop(list: List[a]) -> b:
         recur list:
             case []: acc
@@ -80,7 +80,7 @@ def foldr_List(list: List[a], fn: a -> b -> b, acc: b) -> b:
 # we can rewrite: foldr_List(build_List(g), f, x) => g(f, x)
 # see "A Shortcut to Deforestation" by Gill et. al.
 
-def foldLeft(lst: List[a], item: b, fn: b -> a -> b) -> b:
+def foldLeft(lst: List[a], item: b, fn: (b, a) -> b) -> b:
   # make the loop function as small as possible
   def loop(lst, item):
     recur lst:
@@ -100,20 +100,20 @@ def concat(front: List[a], back: List[a]) -> List[a]:
     case _: reverse_concat(reverse(front), back)
 
 def map_List(lst: List[a], fn: a -> b) -> List[b]:
-  lst.foldLeft([], \t, a -> [fn(a), *t]).reverse()
+  lst.foldLeft([], (t, a) -> [fn(a), *t]).reverse()
 
 def flat_map_List(lst: List[a], fn: a -> List[b]) -> List[b]:
-  lst.foldLeft([], \t, a -> fn(a).reverse_concat(t)).reverse()
+  lst.foldLeft([], (t, a) -> fn(a).reverse_concat(t)).reverse()
 
 #############
 # Some utilities for dealing with functions
 #############
 
-def uncurry2(f: t1 -> t2 -> r) -> ((t1, t2)) -> r:
-  \(x1, x2) -> f(x1, x2)
+def uncurry2(f: t1 -> t2 -> r) -> (t1, t2) -> r:
+  (x1, x2) -> f(x1, x2)
 
-def uncurry3(f: t1 -> t2 -> t3 -> r) -> ((t1, t2, t3)) -> r:
-  \(x1, x2, x3) -> f(x1, x2, x3)
+def uncurry3(f: t1 -> t2 -> t3 -> r) -> (t1, t2, t3) -> r:
+  (x1, x2, x3) -> f(x1, x2, x3)
 
 #############
 # Standardize notion of ordering
@@ -121,7 +121,7 @@ def uncurry3(f: t1 -> t2 -> t3 -> r) -> ((t1, t2, t3)) -> r:
 enum Comparison:
     LT, EQ, GT
 
-struct Order(to_Fn: a -> a -> Comparison)
+struct Order(to_Fn: (a, a) -> Comparison)
 
 enum Option:
   None, Some(v)
@@ -142,14 +142,14 @@ external def mod_Int(a: Int, mod: Int) -> Int
 
 
 # this loops until the returned Int is <= 0 or the returned Int is >= intValue
-external def int_loop(intValue: Int, state: a, fn: Int -> a -> (Int, a)) -> a
+external def int_loop(intValue: Int, state: a, fn: (Int, a) -> (Int, a)) -> a
 
 def range(exclusiveUpper: Int) -> List[Int]:
   int_loop(exclusiveUpper, [], \i, tail ->
     inext = i.sub(1)
     (inext, [inext, *tail]))
 
-def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: a -> Int -> a) -> a:
+def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -> a) -> a:
   diff = exclusiveUpper.sub(inclusiveLower)
   int_loop(diff, init, \diff0, a ->
     idx = exclusiveUpper.sub(diff0)
@@ -325,7 +325,7 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
 
     loop(tree)
 
-def fold_right_Tree(t: Tree[a], right_v: b, fn: a -> b -> b) -> b:
+def fold_right_Tree(t: Tree[a], right_v: b, fn: (a, b) -> b) -> b:
     recur t:
         case Empty: right_v
         case Branch { key, left, right, ... }:

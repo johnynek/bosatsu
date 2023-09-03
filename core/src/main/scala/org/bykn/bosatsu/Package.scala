@@ -332,12 +332,7 @@ object Package {
     def errorFor(t: (Type.Const, Exp, Type)): List[PackageError] =
       exportedTE.toDefinedType(t._1) match {
         case None =>
-          if (Type.TyConst(t._1) != Type.FnType)
-            PackageError.PrivateTypeEscape(t._2, t._3, pn, t._1) :: Nil
-          else {
-            // Fn is kind of a virtual type that is not defined as data or external
-            Nil
-          }
+          PackageError.PrivateTypeEscape(t._2, t._3, pn, t._1) :: Nil
         case Some(_) => Nil
       }
 
@@ -347,12 +342,15 @@ object Package {
   /**
    * The parsed representation of the predef.
    */
-  val predefPackage: Package.Parsed =
+  lazy val predefPackage: Package.Parsed =
     parser(None).parse(Predef.predefString) match {
       case Right((_, pack)) => pack
       case Left(err) =>
         val idx = err.failedAtOffset
         val lm = LocationMap(Predef.predefString)
-        sys.error(s"couldn't parse predef: ${lm.showContext(idx, 2, LocationMap.Colorize.None)} with errs: ${err}")
+        val errorMsg =
+          s"couldn't parse predef:\n\n${lm.showContext(idx, 2, LocationMap.Colorize.None)}\n\nwith errs: ${err}"
+        System.err.println(errorMsg)
+        sys.error(errorMsg)
     }
 }

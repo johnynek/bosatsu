@@ -271,12 +271,12 @@ object Type {
 
     object ValidArity {
       def unapply(n: Int): Boolean =
-        (0 <= n) && (n <= MaxSize)
+        (1 <= n) && (n <= MaxSize)
     }
 
     def apply(n: Int): Type.TyConst = {
       require(ValidArity.unapply(n), s"invalid FnType arity = $n, must be 0 < n <= $MaxSize")
-      tpes(n)
+      tpes(n - 1)
     }
 
     def maybeFakeName(n: Int): Type.TyConst =

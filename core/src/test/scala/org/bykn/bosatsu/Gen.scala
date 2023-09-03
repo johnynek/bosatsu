@@ -91,9 +91,9 @@ object Generators {
       .map(TypeRef.TypeTuple(_))
 
     Gen.frequency(
-      (4, tvar),
-      (4, tname),
-      (1, Gen.zip(Gen.lzy(smallNonEmptyList(typeRefGen)), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
+      (5, tvar),
+      (5, tname),
+      (1, Gen.zip(Gen.lzy(smallNonEmptyList(typeRefGen, 4)), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
       (1, tLambda),
       (1, tTup),
       (1, tApply))
@@ -900,15 +900,16 @@ object Generators {
       consIdentGen.map(ExportedName.Constructor(_, ())))
 
   def smallList[A](g: Gen[A]): Gen[List[A]] =
+
     Gen.choose(0, 8).flatMap(Gen.listOfN(_, g))
 
-  def smallNonEmptyList[A](g: Gen[A]): Gen[NonEmptyList[A]] =
+  def smallNonEmptyList[A](g: Gen[A], maxLen: Int): Gen[NonEmptyList[A]] =
     // bias to small numbers
     Gen.geometric(2.0)
       .flatMap {
-        case n if n <= 0 => smallNonEmptyList(g)
+        case n if n <= 0 => g.map(NonEmptyList.one)
         case n =>
-          Gen.zip(g, Gen.listOfN(n - 1, g))
+          Gen.zip(g, Gen.listOfN((n - 1) max (maxLen - 1), g))
             .map { case (h, t) => NonEmptyList(h, t) }
       }
 
@@ -1003,7 +1004,7 @@ object Generators {
           .map { case (te, tpe) => TypedExpr.Annotation(te, tpe) }
 
       val lam =
-        Gen.zip(smallNonEmptyList(Gen.zip(bindIdentGen, typeGen)), recurse, genTag)
+        Gen.zip(smallNonEmptyList(Gen.zip(bindIdentGen, typeGen), 8), recurse, genTag)
           .map { case (args, res, tag) => TypedExpr.AnnotatedLambda(args, res, tag) }
 
       val localGen =
@@ -1015,7 +1016,7 @@ object Generators {
           .map { case (p, n, t, tag) => TypedExpr.Global(p, n, t, tag) }
 
       val app =
-        Gen.zip(recurse, smallNonEmptyList(recurse), typeGen, genTag)
+        Gen.zip(recurse, smallNonEmptyList(recurse, 8), typeGen, genTag)
           .map { case (fn, args, tpe, tag) => TypedExpr.App(fn, args, tpe, tag) }
 
       val let =
