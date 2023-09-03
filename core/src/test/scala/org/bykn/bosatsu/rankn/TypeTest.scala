@@ -155,7 +155,7 @@ class TypeTest extends AnyFunSuite {
 
     val ta = Type.TyVar(ba)
     val tb = Type.TyVar(bb)
-    val fb = Type.Fun(ta, tb)
+    val fb = Type.Fun(NonEmptyList(ta, Nil), tb)
     assert(Type.freeTyVars(fb :: ta :: Nil) == List(ba, bb))
     assert(Type.freeTyVars(fb :: tb :: Nil) == List(ba, bb))
   }
@@ -223,30 +223,5 @@ class TypeTest extends AnyFunSuite {
     }
 
     forAll(NTypeGen.genDepth03, genSubs(3))(law _)
-  }
-
-  test("test Fun.uncurry") {
-    def b(s: String) = Type.TyVar(Type.Var.Bound(s))
-
-    import Type.Fun.{uncurry, curry}
-    assert(uncurry(b("a")) == None)
-
-    assert(uncurry(Type.Fun(b("a"), b("b"))) == Some((NonEmptyList.of(b("a")), b("b"))))
-    assert(curry(NonEmptyList.of(b("a")), b("b")) == Type.Fun(b("a"), b("b")))
-
-    assert(uncurry(Type.Fun(b("a"), Type.Fun(b("b"), b("c")))) == Some((NonEmptyList.of(b("a"), b("b")), b("c"))))
-    assert(curry(NonEmptyList.of(b("a"), b("b")), b("c")) == Type.Fun(b("a"), Type.Fun(b("b"), b("c"))))
-
-    forAll(NTypeGen.genDepth03) { t =>
-      assert(Type.Fun.arity(t) >= 0)
-
-      uncurry(t) match {
-        case Some((a, r)) =>
-          assert(Type.Fun.arity(t) == a.length)
-          assert(curry(a, r) == t)
-        case None =>
-          ()
-      }
-    }
   }
 }

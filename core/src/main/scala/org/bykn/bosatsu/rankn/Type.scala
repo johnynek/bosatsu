@@ -372,6 +372,8 @@ object Type {
       val withArgs = from.foldLeft(arityFn: Type)(TyApply(_, _))
       TyApply(withArgs, to)
     }
+    def apply(from: Type, to: Type): Type.Rho =
+      apply(NonEmptyList(from, Nil), to)
 
     def arity(t: Type): Int =
       t match {
@@ -379,27 +381,6 @@ object Type {
         case Fun(args, _) => args.length
         case _ => 0
       }
-    /*
-    /**
-     * a -> b -> c .. -> d to [a, b, c, ..] -> d
-     */
-    def uncurry(t: Type): Option[(NonEmptyList[Type], Type)] =
-      t match {
-        case Fun(a, b) =>
-          uncurry(b) match {
-            case Some((ne1, t)) => Some((ne1.prepend(a), t))
-            case None => Some((NonEmptyList(a, Nil), b))
-          }
-        case _ => None
-      }
-
-    def curry(args: NonEmptyList[Type], res: Type): Type.Rho =
-      args match {
-        case NonEmptyList(h, Nil) => Fun(h, res)
-        case NonEmptyList(h1, h2 :: tail) =>
-          Fun(h1, curry(NonEmptyList(h2, tail), res))
-      }
-      */
   }
 
   object Tuple {

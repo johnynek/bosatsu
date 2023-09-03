@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.data.NonEmptyList
 import org.scalacheck.{Arbitrary, Cogen, Gen}
 import Value._
 
@@ -28,7 +29,11 @@ object GenValue {
         Arbitrary.arbitrary[String].map(Str(_)))
 
     val genFn: Gen[FnValue] = {
-      val fn: Gen[Value => Value] = Gen.function1(recur)(cogenValue)
+      val fn: Gen[NonEmptyList[Value] => Value] = Gen.function1(recur)(
+        Cogen[Long].contramap[NonEmptyList[Value]] { vs =>
+          vs.map(_.hashCode.toLong).reduceLeft(_ * Int.MaxValue.toLong + _)
+        }
+      )
 
       fn.map(FnValue(_))
     }

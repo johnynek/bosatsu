@@ -92,7 +92,7 @@ class RankNInferTest extends AnyFunSuite {
   def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] =
     Let(Identifier.Name(n), expr, in, RecursionKind.NonRecursive, ())
   def lambda(arg: String, result: Expr[Unit]): Expr[Unit] =
-    Lambda(Identifier.Name(arg), None, result, ())
+    Lambda(NonEmptyList.one((Identifier.Name(arg), None)), result, ())
   def v(name: String): Expr[Unit] =
     Identifier.unsafe(name) match {
       case c@Identifier.Constructor(_) => Global(testPackage, c, ())
@@ -100,9 +100,9 @@ class RankNInferTest extends AnyFunSuite {
     }
   def ann(expr: Expr[Unit], t: Type): Expr[Unit] = Annotation(expr, t, ())
 
-  def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, arg, ())
+  def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, NonEmptyList.one(arg), ())
   def alam(arg: String, tpe: Type, res: Expr[Unit]): Expr[Unit] =
-    Lambda(Identifier.Name(arg), Some(tpe), res, ())
+    Lambda(NonEmptyList.one((Identifier.Name(arg), Some(tpe))), res, ())
 
   def ife(cond: Expr[Unit], ift: Expr[Unit], iff: Expr[Unit]): Expr[Unit] = Expr.ifExpr(cond, ift, iff, ())
   def matche(arg: Expr[Unit], branches: NonEmptyList[(Pattern[String, Type], Expr[Unit])]): Expr[Unit] =

@@ -93,7 +93,7 @@ object Generators {
     Gen.frequency(
       (4, tvar),
       (4, tname),
-      (1, Gen.zip(Gen.lzy(typeRefGen), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
+      (1, Gen.zip(Gen.lzy(smallNonEmptyList(typeRefGen)), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
       (1, tLambda),
       (1, tTup),
       (1, tApply))
@@ -105,7 +105,8 @@ object Generators {
         import TypeRef._
         tr match {
           case TypeVar(_) | TypeName(_) => Stream.empty
-          case TypeArrow(l, r) => Stream(l, r)
+          case TypeArrow(l, r) =>
+            r #:: l.toList.toStream
           case TypeApply(of, args) => of #:: args.toList.toStream
           case TypeForAll(_, expr) => expr #:: Stream.empty
           case TypeTuple(ts) =>
@@ -901,6 +902,16 @@ object Generators {
   def smallList[A](g: Gen[A]): Gen[List[A]] =
     Gen.choose(0, 8).flatMap(Gen.listOfN(_, g))
 
+  def smallNonEmptyList[A](g: Gen[A]): Gen[NonEmptyList[A]] =
+    // bias to small numbers
+    Gen.geometric(2.0)
+      .flatMap {
+        case n if n <= 0 => smallNonEmptyList(g)
+        case n =>
+          Gen.zip(g, Gen.listOfN(n - 1, g))
+            .map { case (h, t) => NonEmptyList(h, t) }
+      }
+
   def smallDistinctByList[A, B](g: Gen[A])(fn: A => B): Gen[List[A]] =
     Gen.choose(0, 8)
       .flatMap(Gen.listOfN(_, g))
@@ -992,8 +1003,8 @@ object Generators {
           .map { case (te, tpe) => TypedExpr.Annotation(te, tpe) }
 
       val lam =
-        Gen.zip(bindIdentGen, typeGen, recurse, genTag)
-          .map { case (n, tpe, res, tag) => TypedExpr.AnnotatedLambda(n, tpe, res, tag) }
+        Gen.zip(smallNonEmptyList(Gen.zip(bindIdentGen, typeGen)), recurse, genTag)
+          .map { case (args, res, tag) => TypedExpr.AnnotatedLambda(args, res, tag) }
 
       val localGen =
         Gen.zip(bindIdentGen, typeGen, genTag)
@@ -1004,8 +1015,8 @@ object Generators {
           .map { case (p, n, t, tag) => TypedExpr.Global(p, n, t, tag) }
 
       val app =
-        Gen.zip(recurse, recurse, typeGen, genTag)
-          .map { case (fn, arg, tpe, tag) => TypedExpr.App(fn, arg, tpe, tag) }
+        Gen.zip(recurse, smallNonEmptyList(recurse), typeGen, genTag)
+          .map { case (fn, args, tpe, tag) => TypedExpr.App(fn, args, tpe, tag) }
 
       val let =
         Gen.zip(bindIdentGen, recurse, recurse, Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive), genTag)

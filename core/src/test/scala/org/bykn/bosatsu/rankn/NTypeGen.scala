@@ -104,7 +104,7 @@ object NTypeGen {
     )
 
     val t1 = List(ListType, OptionType)
-    val t2 = List(FnType, TupleConsType, DictType)
+    val t2 = List(FnType(1), TupleConsType, DictType)
 
     lazy val tupleTypes: Gen[Type] = {
       val recTup = Gen.lzy(tupleTypes)

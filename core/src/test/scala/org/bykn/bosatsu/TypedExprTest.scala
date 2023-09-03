@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.{State, Writer}
+import cats.data.{NonEmptyList, State, Writer}
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.funsuite.AnyFunSuite
@@ -354,10 +354,10 @@ foo = _ -> 1
     TypedExpr.Let(Identifier.Name(n), ex1, ex2, RecursionKind.Recursive, ())
 
   def app(fn: TypedExpr[Unit], arg: TypedExpr[Unit], tpe: Type): TypedExpr[Unit] =
-    TypedExpr.App(fn, arg, tpe, ())
+    TypedExpr.App(fn, NonEmptyList.one(arg), tpe, ())
 
   def lam(n: String, nt: Type, res: TypedExpr[Unit]): TypedExpr[Unit] = 
-    TypedExpr.AnnotatedLambda(Identifier.Name(n), nt, res, ())
+    TypedExpr.AnnotatedLambda(NonEmptyList.one((Identifier.Name(n), nt)), res, ())
 
   test("test let substitution") {
     {
@@ -829,7 +829,10 @@ def list_len(list):
     forAll(genTypedExprChar, arbitrary[Char => String])(law(_)(_))
 
     val lamconst: TypedExpr[String] = 
-      TypedExpr.AnnotatedLambda(Identifier.Name("x"), intTpe, int(1).as("a"), "b")
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((Identifier.Name("x"), intTpe)),
+        int(1).as("a"),
+        "b")
 
     assert(lamconst.foldMap(identity) == "ab")
     assert(lamconst.traverse { a => Const[String, Unit](a) }.getConst == "ab")

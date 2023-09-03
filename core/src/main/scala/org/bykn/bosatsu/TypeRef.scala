@@ -59,6 +59,13 @@ object TypeRef {
   }
   case class TypeName(name: Name) extends TypeRef
   case class TypeArrow(from: NonEmptyList[TypeRef], to: TypeRef) extends TypeRef
+
+  object TypeArrow {
+    // the common case of Fn1
+    def apply(arg: TypeRef, to: TypeRef): TypeArrow =
+      TypeArrow(NonEmptyList(arg, Nil), to)
+  }
+
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
   case class TypeForAll(params: NonEmptyList[(TypeVar, Option[Kind])], in: TypeRef) extends TypeRef
