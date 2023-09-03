@@ -26,8 +26,10 @@ object UnusedLetCheck {
       case Annotation(expr, _, _) =>
         loop(expr)
       case Generic(_, in) => loop(in)
-      case Lambda(arg, _, expr, _) =>
-        checkArg(arg, HasRegion.region(e), loop(expr))
+      case Lambda(args, expr, _) =>
+        args.toList.foldRight(loop(expr)) { (arg, res) =>
+          checkArg(arg._1, HasRegion.region(e), res)  
+        }
       case Let(arg, expr, in, rec, _) =>
         val exprCheck = loop(expr)
         val exprRes =
@@ -48,8 +50,8 @@ object UnusedLetCheck {
         // this is a free variable:
         ap.pure(Set(name))
       case Global(_, _, _) | Literal(_, _) => empty
-      case App(fn, arg, _) =>
-        (loop(fn), loop(arg)).mapN(_ ++ _)
+      case App(fn, args, _) =>
+        (loop(fn), args.traverse(loop(_))).mapN(_ ++ _.reduce)
       case Match(arg, branches, _) =>
         val argCheck = loop(arg)
         // TODO: patterns need their own region

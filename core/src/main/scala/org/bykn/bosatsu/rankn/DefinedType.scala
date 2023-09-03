@@ -7,6 +7,7 @@ import scala.collection.immutable.SortedMap
 import Identifier.Constructor
 
 import cats.implicits._
+import cats.data.NonEmptyList
 
 final case class DefinedType[+A](
   packageName: PackageName,
@@ -85,17 +86,13 @@ final case class DefinedType[+A](
     val tc: Type = Type.const(packageName, name)
 
     val dtTypeParams = annotatedTypeParams.map(_._1)
-    def loop(params: List[Type]): Type =
-       params match {
-         case Nil =>
-           dtTypeParams.foldLeft(tc) { (res, v) =>
-             Type.TyApply(res, Type.TyVar(v))
-           }
-         case h :: tail =>
-           Type.Fun(h, loop(tail))
-       }
-
-    val resT = loop(cf.args.map(_._2))
+    val res = dtTypeParams.foldLeft(tc) { (res, v) =>
+        Type.TyApply(res, Type.TyVar(v))
+      }
+    val resT = NonEmptyList.fromList(cf.args.map(_._2)) match {
+      case None => res
+      case Some(nel) => Type.Fun.maybeFakeName(nel, res)
+    }
     val typeArgs = annotatedTypeParams.map { case (b, ka) => (b, ev(ka).kind) }
     Type.forAll(typeArgs, resT)
   }

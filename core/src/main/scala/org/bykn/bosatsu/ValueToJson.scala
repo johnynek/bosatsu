@@ -557,23 +557,8 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
    * if it is not a function, we consider it a function of 0-arity
    */
   def valueFnToJsonFn(t: Type): Either[UnsupportedType, (Int, Value => Either[DataError, Json.JArray => Either[DataError, Json]])] =
-    Type.Fun.uncurry(t) match {
-      case None =>
-        // this isn't a function at all
-        toJson(t).map { (fn: (Value) => Either[DataError, Json]) =>
-
-          (0, fn.andThen { either =>
-            either.map { result =>
-
-              { (args: Json.JArray) =>
-                if (args.toVector.isEmpty) Right(result)
-                else Left(IllTypedJson(Nil, t, args))
-              }
-            }
-          })
-
-        }
-      case Some((args, res)) =>
+    t match {
+      case Type.Fun((args, res)) =>
         (args.traverse(toValue(_)), toJson(res)).mapN { (argsFn, resFn) =>
           // if we get in here, we can convert all the args and results
 
@@ -618,6 +603,21 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
               Right(jsonFn)
             case notFn => Left(IllTyped(Nil, t, notFn))
           })
+        }
+      case _ =>
+        // this isn't a function at all
+        toJson(t).map { (fn: (Value) => Either[DataError, Json]) =>
+
+          (0, fn.andThen { either =>
+            either.map { result =>
+
+              { (args: Json.JArray) =>
+                if (args.toVector.isEmpty) Right(result)
+                else Left(IllTypedJson(Nil, t, args))
+              }
+            }
+          })
+
         }
     }
 }

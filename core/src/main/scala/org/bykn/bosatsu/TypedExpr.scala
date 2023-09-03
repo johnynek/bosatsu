@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Eval, Monad, Traverse}
+import cats.{Applicative, Eval, Monad, Traverse, Semigroup}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
@@ -33,8 +33,8 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         Type.forAll(params, expr.getType)
       case Annotation(_, tpe) =>
         tpe
-      case AnnotatedLambda(_, tpe, res, _) =>
-        Type.Fun(tpe, res.getType)
+      case AnnotatedLambda(args, res, _) =>
+        Type.Fun.maybeFakeName(args.map(_._2), res.getType)
       case Local(_, tpe, _) => tpe
       case Global(_, _, tpe, _) => tpe
       case App(_, _, tpe, _) => tpe
@@ -62,15 +62,20 @@ sealed abstract class TypedExpr[+T] { self: Product =>
           (Doc.text("(generic") + Doc.lineOrSpace + Doc.char('[') + pstr + Doc.char(']') + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
         case Annotation(expr, tpe) =>
           (Doc.text("(ann") + Doc.lineOrSpace + rept(tpe) + Doc.lineOrSpace + loop(expr) + Doc.char(')')).nested(4)
-        case AnnotatedLambda(arg, tpe, res, _) =>
-          (Doc.text("(lambda") + Doc.lineOrSpace + Doc.text(arg.sourceCodeRepr) + Doc.lineOrSpace + rept(tpe) + Doc.lineOrSpace + loop(res) + Doc.char(')')).nested(4)
+        case AnnotatedLambda(args, res, _) =>
+          (Doc.text("(lambda") + Doc.lineOrSpace + (
+              Doc.char('[') + Doc.intercalate(Doc.lineOrSpace, args.toList.map { case (arg, tpe) =>
+                Doc.text(arg.sourceCodeRepr) + Doc.lineOrSpace + rept(tpe)
+              }) + Doc.char(']')
+            ) + Doc.lineOrSpace + loop(res) + Doc.char(')')).nested(4)
         case Local(v, tpe, _) =>
           (Doc.text("(var") + Doc.lineOrSpace + Doc.text(v.sourceCodeRepr) + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
         case Global(p, v, tpe, _) =>
           val pstr = Doc.text(p.asString + "::" + v.sourceCodeRepr)
           (Doc.text("(var") + Doc.lineOrSpace + pstr + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
-        case App(fn, arg, tpe, _) =>
-          (Doc.text("(ap") + Doc.lineOrSpace + loop(fn) + Doc.lineOrSpace + loop(arg) + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
+        case App(fn, args, tpe, _) =>
+          val argsDoc = Doc.intercalate(Doc.lineOrSpace, args.toList.map(loop))
+          (Doc.text("(ap") + Doc.lineOrSpace + loop(fn) + Doc.lineOrSpace + argsDoc + Doc.lineOrSpace + rept(tpe) + Doc.char(')')).nested(4)
         case Let(n, b, in, rec, _) =>
           val nm = if (rec.isRecursive) Doc.text("(letrec") else Doc.text("(let")
           (nm + Doc.lineOrSpace + Doc.text(n.sourceCodeRepr) + Doc.lineOrSpace + loop(b) + Doc.lineOrSpace + loop(in) + Doc.char(')')).nested(4)
@@ -107,10 +112,11 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         ident :: Nil
       case Global(_, _, _, _) =>
         Nil
-      case AnnotatedLambda(arg, _, res, _) =>
-        TypedExpr.filterNot(res.freeVarsDup)(_ === arg)
-      case App(fn, arg, _, _) =>
-        fn.freeVarsDup ::: arg.freeVarsDup
+      case AnnotatedLambda(args, res, _) =>
+        val nameSet = args.toList.iterator.map(_._1).toSet
+        TypedExpr.filterNot(res.freeVarsDup)(nameSet)
+      case App(fn, args, _, _) =>
+        fn.freeVarsDup ::: args.reduceMap(_.freeVarsDup)
       case Let(arg, argE, in, rec, _) =>
         val argFree0 = argE.freeVarsDup
         val argFree =
@@ -193,14 +199,6 @@ object TypedExpr {
   case class Literal[T](lit: Lit, tpe: Type, tag: T) extends TypedExpr[T]
   case class Match[T](arg: TypedExpr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], TypedExpr[T])], tag: T) extends TypedExpr[T]
 
-  /**
-   * For a recursive binding, what kind of call do we have?
-   */
-  def selfCallKind[A](nm: Bindable, expr: TypedExpr[A]): SelfCallKind = {
-    val arity = Type.Fun.arity(expr.getType)
-    callKind(nm, arity, expr)
-  }
-
   sealed abstract class SelfCallKind {
     import SelfCallKind._
 
@@ -233,31 +231,46 @@ object TypedExpr {
     case object NoCall extends SelfCallKind
     case object TailCall extends SelfCallKind
     case object NonTailCall extends SelfCallKind
+    
+    val branchSemigroup: Semigroup[SelfCallKind] =
+      Semigroup.instance(_.merge(_))
+
+    val ifNoCallSemigroup: Semigroup[SelfCallKind] =
+      Semigroup.instance(_.ifNoCallThen(_))
   }
 
-  private def callKind[A](n: Bindable, arity: Int, te: TypedExpr[A]): SelfCallKind =
+  /**
+   * assuming expr is bound to nm, what kind of self call does it contain?
+   */
+  def selfCallKind[A](n: Bindable, te: TypedExpr[A]): SelfCallKind =
     te match {
-      case Generic(_, in) => callKind(n, arity, in)
-      case Annotation(te, _) => callKind(n, arity, te)
-      case AnnotatedLambda(b, _, body, _) =>
+      case Generic(_, in) => selfCallKind(n, in)
+      case Annotation(te, _) => selfCallKind(n, te)
+      case AnnotatedLambda(as, body, _) =>
         // let fn = x -> fn(x) in fn(1)
         // is a tail-call
-        if (n == b) {
+        if (as.exists(_._1 == n)) {
           //shadow
           SelfCallKind.NoCall
         }
         else {
-          callKind(n, arity, body)
+          selfCallKind(n, body)
         }
       case Global(_, _, _, _) => SelfCallKind.NoCall
       case Local(vn, _, _)  =>
         if (vn != n) SelfCallKind.NoCall
-        else if (arity == 0) SelfCallKind.TailCall
         else SelfCallKind.NonTailCall
-      case App(fn, arg, _, _) =>
-        callKind(n, arity, arg)
-          .callNotTail
-          .ifNoCallThen(callKind(n, arity - 1, fn))
+      case App(fn, args, _, _) =>
+        val argsCall = args.map(selfCallKind(n, _).callNotTail)
+          .reduce(SelfCallKind.ifNoCallSemigroup)
+
+        argsCall.ifNoCallThen(
+          fn match {
+            case Local(vn, _, _) if vn == n =>
+              SelfCallKind.TailCall
+            case _ => selfCallKind(n, fn).callNotTail
+          }
+        )
       case Let(arg, ex, in, rec, _) =>
         if (arg == n) {
           // shadow
@@ -267,22 +280,22 @@ object TypedExpr {
           }
           else {
             // ex isn't in tail position, so if there is a call, we aren't tail
-            callKind(n, arity, ex).callNotTail
+            selfCallKind(n, ex).callNotTail
           }
         }
         else {
-          callKind(n, arity, ex)
+          selfCallKind(n, ex)
             .callNotTail
-            .merge(callKind(n, arity, in))
+            .merge(selfCallKind(n, in))
         }
       case Literal(_, _, _) => SelfCallKind.NoCall
       case Match(arg, branches, _) =>
-        callKind(n, arity, arg)
+        selfCallKind(n, arg)
           .callNotTail
           .ifNoCallThen {
             // then we check all the branches
             branches.foldLeft(SelfCallKind.NoCall: SelfCallKind) { case (acc, (_, b)) =>
-              acc.merge(callKind(n, arity, b))
+              acc.merge(selfCallKind(n, b))
             }
           }
     }
@@ -297,9 +310,12 @@ object TypedExpr {
         Some((Nil, expr))
       case Generic(_, e) => toArgsBody(arity, e)
       case Annotation(e, _) => toArgsBody(arity, e)
-      case AnnotatedLambda(name, tpe, expr, _) =>
-        toArgsBody(arity - 1, expr).map { case (args0, body) =>
-          ((name, tpe) :: args0, body)
+      case AnnotatedLambda(args, expr, _) =>
+        if (args.length == arity) {
+          Some((args.toList, expr))
+        }
+        else {
+          None
         }
       case Let(arg, e, in, r, t) =>
         toArgsBody(arity, in).flatMap { case (args, body) =>
@@ -366,16 +382,17 @@ object TypedExpr {
             .map(Generic(params, _))
         case Annotation(of, tpe) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _))
-        case lam@AnnotatedLambda(arg, tpe, res, tag) =>
-          fn(lam.getType) *> (fn(tpe), res.traverseType(fn)).mapN {
-            AnnotatedLambda(arg, _, _, tag)
+        case lam@AnnotatedLambda(args, res, tag) =>
+          val a1 = args.traverse { case (n, t) => fn(t).map(n -> _) }
+          fn(lam.getType) *> (a1, res.traverseType(fn)).mapN {
+            AnnotatedLambda( _, _, tag)
           }
         case Local(v, tpe, tag) =>
           fn(tpe).map(Local(v, _, tag))
         case Global(p, v, tpe, tag) =>
           fn(tpe).map(Global(p, v, _, tag))
-        case App(f, arg, tpe, tag) =>
-          (f.traverseType(fn), arg.traverseType(fn), fn(tpe)).mapN {
+        case App(f, args, tpe, tag) =>
+          (f.traverseType(fn), args.traverse(_.traverseType(fn)), fn(tpe)).mapN {
             App(_, _, _, tag)
           }
         case Let(v, exp, in, rec, tag) =>
@@ -410,14 +427,14 @@ object TypedExpr {
           loop(of).flatMap { o2 =>
             fn(Annotation(o2, tpe))
           }
-        case AnnotatedLambda(arg, tpe, res, tag) =>
+        case AnnotatedLambda(args, res, tag) =>
           loop(res).flatMap { res1 =>
-            fn(AnnotatedLambda(arg, tpe, res1, tag))
+            fn(AnnotatedLambda(args, res1, tag))
           }
         case v@(Global(_, _, _, _) | Local(_, _, _) | Literal(_, _, _)) =>
             fn(v)
-        case App(f, arg, tpe, tag) =>
-          (loop(f), loop(arg))
+        case App(f, args, tpe, tag) =>
+          (loop(f), args.traverse(loop(_)))
             .mapN(App(_, _, tpe, tag))
             .flatMap(fn)
         case Let(v, exp, in, rec, tag) =>
@@ -512,10 +529,11 @@ object TypedExpr {
           deepQuantify(env, term).map { t1 =>
             Annotation(t1, coerce)
           }
-        case AnnotatedLambda(arg, tpe, expr, tag) =>
-          deepQuantify(env.updated(((None, arg)), tpe), expr)
+        case AnnotatedLambda(args, expr, tag) =>
+          val env1 = env ++ args.iterator.map { case (arg, tpe) => ((None, arg)) -> tpe }
+          deepQuantify(env1, expr)
             .map { e1 =>
-              lambda(arg, tpe, e1, tag)
+              lambda(args, e1, tag)
             }
         case Let(arg, expr, in, rec, tag) =>
           // this introduces something into the env
@@ -525,8 +543,8 @@ object TypedExpr {
             .mapN { (e1, i1) =>
               Let(arg, e1, i1, rec, tag)
             }
-        case App(fn, arg, tpe, tag) =>
-          (deepQuantify(env, fn), deepQuantify(env, arg))
+        case App(fn, args, tpe, tag) =>
+          (deepQuantify(env, fn), args.traverse(deepQuantify(env, _)))
             .mapN { (f1, a1) =>
               App(f1, a1, tpe, tag)
             }
@@ -599,16 +617,16 @@ object TypedExpr {
           expr.traverse(fn).map(Generic(params, _))
         case Annotation(of, tpe) =>
           of.traverse(fn).map(Annotation(_, tpe))
-        case AnnotatedLambda(arg, tpe, res, tag) =>
+        case AnnotatedLambda(args, res, tag) =>
           (res.traverse(fn), fn(tag)).mapN {
-            AnnotatedLambda(arg, tpe, _, _)
+            AnnotatedLambda(args, _, _)
           }
         case Local(v, tpe, tag) =>
           fn(tag).map(Local(v, tpe, _))
         case Global(p, v, tpe, tag) =>
           fn(tag).map(Global(p, v, tpe, _))
-        case App(f, arg, tpe, tag) =>
-          (f.traverse(fn), arg.traverse(fn), fn(tag)).mapN {
+        case App(f, args, tpe, tag) =>
+          (f.traverse(fn), args.traverse(_.traverse(fn)), fn(tag)).mapN {
             App(_, _, tpe, _)
           }
         case Let(v, exp, in, rec, tag) =>
@@ -631,13 +649,13 @@ object TypedExpr {
         foldLeft(e, b)(f)
       case Annotation(e, _) =>
         foldLeft(e, b)(f)
-      case AnnotatedLambda(_, _, e, tag) =>
+      case AnnotatedLambda(_, e, tag) =>
         val b1 = foldLeft(e, b)(f)
         f(b1, tag)
       case n: Name[A] => f(b, n.tag)
-      case App(fn, a, _, tag) =>
+      case App(fn, args, _, tag) =>
         val b1 = foldLeft(fn, b)(f)
-        val b2 = foldLeft(a, b1)(f)
+        val b2 = args.foldLeft(b1)((b1, a) => foldLeft(a, b1)(f))
         f(b2, tag)
       case Let(_, exp, in, _, tag) =>
         val b1 = foldLeft(exp, b)(f)
@@ -656,13 +674,13 @@ object TypedExpr {
         foldRight(e, lb)(f)
       case Annotation(e, _) =>
         foldRight(e, lb)(f)
-      case AnnotatedLambda(_, _, e, tag) =>
+      case AnnotatedLambda(_, e, tag) =>
         val lb1 = f(tag, lb)
         foldRight(e, lb1)(f)
       case n: Name[A] => f(n.tag, lb)
-      case App(fn, a, _, tag) =>
+      case App(fn, args, _, tag) =>
         val b1 = f(tag, lb)
-        val b2 = foldRight(a, b1)(f)
+        val b2 = args.toList.foldRight(b1)((a, b1) => foldRight(a, b1)(f))
         foldRight(fn, b2)(f)
       case Let(_, exp, in, _, tag) =>
         val b1 = f(tag, lb)
@@ -679,10 +697,10 @@ object TypedExpr {
     override def map[A, B](te: TypedExpr[A])(fn: A => B): TypedExpr[B] = te match {
       case Generic(tv, in) => Generic(tv, map(in)(fn))
       case Annotation(term, tpe) => Annotation(map(term)(fn), tpe)
-      case AnnotatedLambda(b, tpe, expr, tag) => AnnotatedLambda(b, tpe, map(expr)(fn), fn(tag))
+      case AnnotatedLambda(args, expr, tag) => AnnotatedLambda(args, map(expr)(fn), fn(tag))
       case l@Local(_, _, _) => l.copy(tag = fn(l.tag))
       case g@Global(_, _, _, _) => g.copy(tag = fn(g.tag))
-      case App(fnT, arg, tpe, tag) => App(map(fnT)(fn), map(arg)(fn), tpe, fn(tag))
+      case App(fnT, args, tpe, tag) => App(map(fnT)(fn), args.map(map(_)(fn)), tpe, fn(tag))
       case Let(b, e, in, r, t) => Let(b, map(e)(fn), map(in)(fn), r, fn(t))
       case lit@Literal(_, _, _) => lit.copy(tag = fn(lit.tag))
       case Match(arg, branches, tag) =>
@@ -738,15 +756,15 @@ object TypedExpr {
 
   private def pushGeneric[A](g: Generic[A]): Option[TypedExpr[A]] =
     g.in match {
-      case AnnotatedLambda(b, argTpe, body, a) =>
-        val argFree = Type.freeBoundTyVars(argTpe :: Nil).toSet
+      case AnnotatedLambda(args, body, a) =>
+        val argFree = Type.freeBoundTyVars(args.toList.map(_._2)).toSet
         if (g.typeVars.exists { case (b, _) => argFree(b) }) {
           None
         }
         else {
           val gbody = Generic(g.typeVars, body)
           val pushedBody = pushGeneric(gbody).getOrElse(gbody)
-          Some(AnnotatedLambda(b, argTpe, pushedBody, a))
+          Some(AnnotatedLambda(args, pushedBody, a))
         }
       // we can do the same thing on Match
       case Match(arg, branches, tag) =>
@@ -796,7 +814,7 @@ object TypedExpr {
             expr match {
               case _ if expr.getType.sameAs(tpe) => expr
               case Annotation(t, _) => self(t)
-              case Local(_, _, _) | Global(_, _, _, _) | AnnotatedLambda(_, _, _, _)| Literal(_, _, _) =>
+              case Local(_, _, _) | Global(_, _, _, _) | AnnotatedLambda(_, _, _)| Literal(_, _, _) =>
                 // All of these are widened. The lambda seems like we should be able to do
                 // better, but the type isn't a Fun(Type, Type.Rho)... this is probably unreachable for
                 // the AnnotatedLambda
@@ -812,15 +830,18 @@ object TypedExpr {
                         Annotation(gen, tpe)
                     }
                 }
-              case App(fn, arg, _, tag) =>
+              case App(fn, aargs, _, tag) =>
                 fn match {
-                  case AnnotatedLambda(argName, argTpe, body, _) =>
-                    //(\x - res)(y) == let x = y in res
+                  case AnnotatedLambda(lamArgs, body, _) =>
+                    //(\xs - res)(ys) == let x1 = y1 in let x2 = y2 in ... res
+                    /*
                     val arg1 = argTpe match {
                       case rho: Type.Rho => coerceRho(rho, kinds)(arg)
                       case _ => arg
                     }
                     Let(argName, arg1, self(body), RecursionKind.NonRecursive, tag)
+                    */
+                    ???
                   case _ =>
                     fn.getType match {
                       case Type.Fun(ta: Type.Rho, _) =>
@@ -1012,10 +1033,10 @@ object TypedExpr {
    * TODO this seems pretty expensive to blindly apply: we are deoptimizing
    * the nodes pretty heavily
    */
-  def coerceFn(arg: Type, result: Type.Rho, coarg: Coerce, cores: Coerce, kinds: Type => Option[Kind]): Coerce =
-    coerceFn1(arg, result, Some(coarg), cores, kinds)
+  def coerceFn(args: NonEmptyList[Type], result: Type.Rho, coarg: NonEmptyList[Coerce], cores: Coerce, kinds: Type => Option[Kind]): Coerce =
+    coerceFn1(args, result, coarg.map(Some(_)), cores, kinds)
 
-  private def coerceFn1(arg: Type, result: Type.Rho, coargOpt: Option[Coerce], cores: Coerce, kinds: Type => Option[Kind]): Coerce =
+  private def coerceFn1(arg: NonEmptyList[Type], result: Type.Rho, coargOpt: NonEmptyList[Option[Coerce]], cores: Coerce, kinds: Type => Option[Kind]): Coerce =
     new FunctionK[TypedExpr, TypedExpr] { self =>
       val fntpe = Type.Fun(arg, result)
 
@@ -1092,18 +1113,18 @@ object TypedExpr {
         }
     }
 
-  private def lambda[A](arg: Bindable, tpe: Type, expr: TypedExpr[A], tag: A): TypedExpr[A] =
+  private def lambda[A](args: NonEmptyList[(Bindable, Type)], expr: TypedExpr[A], tag: A): TypedExpr[A] =
     expr match {
       // TODO: this branch is never exercised. There is probably some reason for that
       // that the types/invariants are losing
       case Generic(ps, ex0) =>
         // due to covariance in the return type, we can always lift
         // generics on the return value out of the lambda
-        val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
+        val frees = Type.freeBoundTyVars(args.toList.map(_._2)).toSet
         val quants = ps.toList.iterator.map(_._1).toSet
         val collisions = frees.intersect(quants)
         if (collisions.isEmpty) {
-          Generic(ps, AnnotatedLambda(arg, tpe, ex0, tag))
+          Generic(ps, AnnotatedLambda(args, ex0, tag))
         }
         else {
             // don't replace with any existing type variable or any of the free variables
@@ -1119,10 +1140,10 @@ object TypedExpr {
             repMap.iterator.map { case (k, v) => (k, Type.TyVar(v)) }.toMap
           val ex1 = substituteTypeVar(ex0, typeMap)
           Generic(ps1,
-            AnnotatedLambda(arg, tpe, ex1, tag))
+            AnnotatedLambda(args, ex1, tag))
         }
       case notGen =>
-        AnnotatedLambda(arg, tpe, notGen, tag)
+        AnnotatedLambda(args, notGen, tag)
     }
 
   implicit def typedExprHasRegion[T: HasRegion]: HasRegion[TypedExpr[T]] =

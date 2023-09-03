@@ -469,14 +469,15 @@ object Infer {
     /*
      * Invariant: r2 needs to be in weak prenex form
      */
-    def subsCheckFn(a1: Type, r1: Type, a2: Type, r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
+    def subsCheckFn(a1s: NonEmptyList[Type], r1: Type, a2s: NonEmptyList[Type], r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       // note due to contravariance in input, we reverse the order there
       for {
-        coarg <- subsCheck(a2, a1, left, right)
+        // TODO: check that both a1 and a2 have the same length
+        coarg <- a2s.zip(a1s).traverse { case (a2, a1) => subsCheck(a2, a1, left, right) }
         // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right)
         ks <- checkedKinds
-      } yield TypedExpr.coerceFn(a1, r2, coarg, cores, ks)
+      } yield TypedExpr.coerceFn(a1s, r2, coarg, cores, ks)
 
     /*
      * invariant: second argument is in weak prenex form, which means that all
@@ -501,7 +502,7 @@ object Infer {
         case (rho1, Type.Fun(a2, r2)) =>
           // Rule FUN
           for {
-            a1r1 <- unifyFn(rho1, left, right)
+            a1r1 <- unifyFn(a2.length, rho1, left, right)
             (a1, r1) = a1r1
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form and a rho type
@@ -511,7 +512,7 @@ object Infer {
         case (Type.Fun(a1, r1), rho2) =>
           // Rule FUN
           for {
-            a2r2 <- unifyFn(rho2, right, left)
+            a2r2 <- unifyFn(a1.length, rho2, right, left)
             (a2, r2) = a2r2
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form
@@ -581,12 +582,23 @@ object Infer {
           } yield TypedExpr.coerceRho(rho, ks)
       }
 
-    def unifyFn(fnType: Type.Rho, fnRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
+    def unifyFn(arity: Int, fnType: Type.Rho, fnRegion: Region, evidenceRegion: Region): Infer[(NonEmptyList[Type], Type)] =
       fnType match {
-        case Type.Fun(arg, res) => pure((arg, res))
+        case Type.Fun(arg, res) =>
+          if (arg.length == arity) pure((arg, res))
+          else ??? // TODO Error expected arity
         case tau =>
+          val args =
+            if (Type.FnType.ValidArity.unapply(arity)) {
+              pure(NonEmptyList.fromListUnsafe((1 to arity).toList))
+            }
+            else {
+              // TODO fail invalid arity
+              ???
+            }
           for {
-            argT <- newMetaType(Kind.Type)
+            sized <- args
+            argT <- sized.traverse(_ => newMetaType(Kind.Type))
             resT <- newMetaType(Kind.Type)
             _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
           } yield (argT, resT)
@@ -760,14 +772,14 @@ object Infer {
             vSigma <- lookupVarType((Some(pack), name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
            } yield coerce(TypedExpr.Global(pack, name, vSigma, tag))
-        case App(fn, arg, tag) =>
+        case App(fn, args, tag) =>
            for {
              typedFn <- inferRho(fn)
              fnT = typedFn.getType
              fnTRho <- assertRho(fnT, s"must be rho since we inferRho($fn): on $typedFn", region(fn))
-             argRes <- unifyFn(fnTRho, region(fn), region(term))
+             argRes <- unifyFn(args.length, fnTRho, region(fn), region(term))
              (argT, resT) = argRes
-             typedArg <- checkSigma(arg, argT)
+             typedArg <- args.zip(argT).traverse { case (arg, argT) => checkSigma(arg, argT) }
              coerce <- instSigma(resT, expect, region(term))
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
         case Generic(tpes, in) =>

@@ -65,7 +65,12 @@ abstract class TypeParser[A] {
             case MaybeTupleOrParens.Parens(a) =>
               MaybeTupleOrParens.Bare(makeFn(NonEmptyList(a, Nil), right))
             case MaybeTupleOrParens.Tuple(items) =>
-              MaybeTupleOrParens.Bare(makeFn(NonEmptyList.fromListUnsafe(items), right))
+              val args = NonEmptyList.fromList(items) match {
+                case None => NonEmptyList(makeTuple(Nil), Nil)
+                case Some(nel) => nel
+              }
+              // We know th
+              MaybeTupleOrParens.Bare(makeFn(args, right))
           }
         }
 

@@ -269,8 +269,13 @@ object Type {
     private def predefFn(n: Int) = TyConst(Const.predef(s"Fn$n")) 
     private val tpes = (1 to MaxSize).map(predefFn)
 
+    object ValidArity {
+      def unapply(n: Int): Boolean =
+        (0 <= n) && (n <= MaxSize)
+    }
+
     def apply(n: Int): Type.TyConst = {
-      require((0 < n) && (n <= MaxSize), s"invalid FnType arity = $n, must be 0 < n <= $MaxSize")
+      require(ValidArity.unapply(n), s"invalid FnType arity = $n, must be 0 < n <= $MaxSize")
       tpes(n)
     }
 
@@ -364,11 +369,13 @@ object Type {
       check(0, t, Nil)
     }
 
+    def apply(from: NonEmptyList[Type], to: Type): Type.Rho = {
+      val arityFn = FnType.maybeFakeName(from.length)
+      val withArgs = from.foldLeft(arityFn: Type)(TyApply(_, _))
+      TyApply(withArgs, to)
+    }
+
     /*
-
-    def apply(from: NonEmptyList[Type], to: Type): Type.Rho =
-      TyApply(TyApply(FnType, from), to)
-
     def arity(t: Type): Int =
       t match {
         case ForAll(_, t) => arity(t)
