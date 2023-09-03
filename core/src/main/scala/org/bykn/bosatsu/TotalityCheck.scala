@@ -107,9 +107,9 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
     expr match {
       case Annotation(e, _, _) => checkExpr(e)
       case Generic(_, e) => checkExpr(e)
-      case Lambda(_, _, e, _) => checkExpr(e)
+      case Lambda(_, e, _) => checkExpr(e)
       case Global(_, _, _) | Local(_, _) | Literal(_, _) => Validated.valid(())
-      case App(fn, arg, _) => checkExpr(fn) *> checkExpr(arg)
+      case App(fn, args, _) => checkExpr(fn) *> args.traverse_(checkExpr)
       case Let(_, e1, e2, _, _) => checkExpr(e1) *> checkExpr(e2)
       case m@Match(arg, branches, _) =>
         val patterns = branches.toList.map(_._1)

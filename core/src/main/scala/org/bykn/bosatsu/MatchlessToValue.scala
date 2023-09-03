@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
-import cats.{Eval, Functor, Applicative}
+import cats.{Eval, Foldable, Functor, Applicative}
+import cats.data.NonEmptyList
 import cats.evidence.Is
 import java.math.BigInteger
 import scala.collection.immutable.LongMap
@@ -33,7 +34,7 @@ object MatchlessToValue {
       val bi = v.asExternal.toAny.asInstanceOf[BigInteger]
       ExternalValue(bi.add(BigInteger.ONE))
     }
-    FnValue(inc(_))
+    FnValue { case NonEmptyList(a, _) => inc(a) }
   }
 
   def makeCons(c: ConsExpr): Value =
@@ -41,17 +42,20 @@ object MatchlessToValue {
       case MakeEnum(variant, arity, _) =>
         if (arity == 0) SumValue(variant, UnitValue)
         else if (arity == 1) {
-          FnValue { v => SumValue(variant, ConsValue(v, UnitValue)) }
+          FnValue { case NonEmptyList(v, _) => SumValue(variant, ConsValue(v, UnitValue)) }
         }
         else
-          FnValue.curry(arity) { args =>
-            val prod = ProductValue.fromList(args)
+          // arity > 1
+          FnValue { args =>
+            val prod = ProductValue.fromList(args.toList.take(arity))
             SumValue(variant, prod)
           }
       case MakeStruct(arity) =>
         if (arity == 0) UnitValue
         else if (arity == 1) FnValue.identity
-        else FnValue.curry(arity)(ProductValue.fromList(_))
+        else FnValue { args =>
+          ProductValue.fromList(args.toList.take(arity))
+        }
       case ZeroNat => zeroNat
       case SuccNat => succNat
     }
@@ -67,6 +71,9 @@ object MatchlessToValue {
 
       def let(b: Bindable, v: Eval[Value]): Scope =
         copy(locals = locals.updated(b, v))
+
+      def letAll[F[_]: Foldable](bs: F[(Bindable, Value)]): Scope =
+        copy(locals = bs.foldLeft(locals) { case (locals, (b, v)) => locals.updated(b, Eval.now(v)) })
 
       def updateMut(mutIdx: Long, v: Value): Unit = {
         assert(muts.contains(mutIdx))
@@ -272,19 +279,19 @@ object MatchlessToValue {
             }
         }
 
-      def buildLoop(caps: List[Bindable], fnName: Bindable, arg0: Bindable, rest: List[Bindable], body: Scoped[Value]): Scoped[Value] = {
-        val argCount = rest.length + 1
-        val argNames: Array[Bindable] = (arg0 :: rest).toArray
+      def buildLoop(caps: List[Bindable], fnName: Bindable, args: NonEmptyList[Bindable], body: Scoped[Value]): Scoped[Value] = {
+        val argCount = args.length
+        val argNames: Array[Bindable] = args.toList.toArray
         if ((caps.lengthCompare(1) == 0) && (caps.head == fnName)) {
           // We only capture ourself and we put that in below
           val scope1 = Scope.empty()
-          val fn = FnValue.curry(argCount) { allArgs =>
-            var registers: List[Value] = allArgs
+          val fn = FnValue { allArgs =>
+            var registers: NonEmptyList[Value] = allArgs
 
             // the registers are set up
             // when we recur, that is a continue on the loop,
             // we just update the registers and return null
-            val continueFn = FnValue.curry(argCount) { continueArgs =>
+            val continueFn = FnValue { continueArgs =>
               registers = continueArgs
               null
             }
@@ -296,7 +303,7 @@ object MatchlessToValue {
             while (res eq null) {
               // read the registers into the environment
               var idx = 0
-              var reg: List[Value] = registers
+              var reg: List[Value] = registers.toList
               var s: Scope = scope2
               while (idx < argCount) {
                 val b = argNames(idx)
@@ -323,13 +330,13 @@ object MatchlessToValue {
             // or if we can GC things sooner.
             val scope1 = scope.capture(caps)
 
-            FnValue.curry(argCount) { allArgs =>
-              var registers: List[Value] = allArgs
+            FnValue { allArgs =>
+              var registers: NonEmptyList[Value] = allArgs
 
               // the registers are set up
               // when we recur, that is a continue on the loop,
               // we just update the registers and return null
-              val continueFn = FnValue.curry(argCount) { continueArgs =>
+              val continueFn = FnValue { continueArgs =>
                 registers = continueArgs
                 null
               }
@@ -341,7 +348,7 @@ object MatchlessToValue {
               while (res eq null) {
                 // read the registers into the environment
                 var idx = 0
-                var reg: List[Value] = registers
+                var reg: List[Value] = registers.toList
                 var s: Scope = scope2
                 while (idx < argCount) {
                   val b = argNames(idx)
@@ -361,14 +368,14 @@ object MatchlessToValue {
       // the locals can be recusive, so we box into Eval for laziness
       def loop(me: Expr): Scoped[Value] =
         me match {
-          case Lambda(caps, arg, res) =>
+          case Lambda(caps, args, res) =>
             val resFn = loop(res)
 
             if (caps.isEmpty) {
               // we can allocate once if there is no closure
               val scope1 = Scope.empty()
               val fn = FnValue { argV =>
-                val scope2 = scope1.let(arg, Eval.now(argV))
+                val scope2 = scope1.letAll(args.zip(argV))
                 resFn(scope2)
               }
               Static(fn)
@@ -379,15 +386,15 @@ object MatchlessToValue {
                 // hopefully optimization/normalization has lifted anything
                 // that doesn't depend on argV above this lambda
                 FnValue { argV =>
-                  val scope2 = scope1.let(arg, Eval.now(argV))
+                  val scope2 = scope1.letAll(args.zip(argV))
                   resFn(scope2)
                 }
               }
             }
-          case LoopFn(caps, thisName, argshead, argstail, body) =>
+          case LoopFn(caps, thisName, args, body) =>
             val bodyFn = loop(body)
 
-            buildLoop(caps, thisName, argshead, argstail, bodyFn)
+            buildLoop(caps, thisName, args, bodyFn)
           case Global(p, n) =>
             val res = resolve(p, n)
 
@@ -409,7 +416,7 @@ object MatchlessToValue {
             Applicative[Scoped].map2(exprFn, argsFn) { (fn, args) =>
               fn.applyAll(args)
             }
-          case Let(Right((n1, r)), loopFn@LoopFn(_, n2, _, _, _), Local(n3)) if (n1 === n3) && (n1 === n2) && r.isRecursive =>
+          case Let(Right((n1, r)), loopFn@LoopFn(_, n2, _, _), Local(n3)) if (n1 === n3) && (n1 === n2) && r.isRecursive =>
             // LoopFn already correctly handles recursion
             loop(loopFn)
           case Let(localOrBind, value, in) =>

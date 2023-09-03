@@ -355,15 +355,13 @@ object Type {
         t match {
           case TyApply(inner, arg) =>
             check(n + 1, inner, arg :: applied)
-          case FnType((_, arity)) =>
+          case FnType((_, arity)) if n == (arity + 1) =>
             // we need arity types and 1 result type
-            if (n == (arity + 1)) {
-              // we know applied has length == n and arity in [1, MaxSize]
-              val res = applied.head
-              val args = NonEmptyList.fromListUnsafe(applied.tail.reverse)
-              Some((args, res))
-            }
-            else None
+            // we know applied has length == n and arity in [1, MaxSize]
+            val res = applied.head
+            val args = NonEmptyList.fromListUnsafe(applied.tail.reverse)
+            Some((args, res))
+          case _ => None
         }
 
       check(0, t, Nil)
@@ -375,14 +373,13 @@ object Type {
       TyApply(withArgs, to)
     }
 
-    /*
     def arity(t: Type): Int =
       t match {
         case ForAll(_, t) => arity(t)
-        case fn@Fun(_, _) =>
-          uncurry(fn).fold(0)(_._1.length)
+        case Fun(args, _) => args.length
         case _ => 0
       }
+    /*
     /**
      * a -> b -> c .. -> d to [a, b, c, ..] -> d
      */

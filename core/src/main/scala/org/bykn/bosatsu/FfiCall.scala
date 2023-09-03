@@ -1,5 +1,7 @@
 package org.bykn.bosatsu
 
+import cats.data.NonEmptyList
+
 sealed abstract class FfiCall {
   def call(t: rankn.Type): Value
 }
@@ -8,7 +10,7 @@ object FfiCall {
   final case class Fn1(fn: Value => Value) extends FfiCall {
     import Value.FnValue
 
-    private[this] val evalFn: FnValue = FnValue(fn)
+    private[this] val evalFn: FnValue = FnValue { case NonEmptyList(a, _) => fn(a) }
 
     def call(t: rankn.Type): Value = evalFn
   }
@@ -16,10 +18,8 @@ object FfiCall {
     import Value.FnValue
 
     private[this] val evalFn: FnValue =
-      FnValue { e1 =>
-        FnValue { e2 =>
-          fn(e1, e2)
-        }
+      FnValue { case NonEmptyList(e1, e2 :: _) =>
+        fn(e1, e2)
       }
 
     def call(t: rankn.Type): Value = evalFn
@@ -28,12 +28,8 @@ object FfiCall {
     import Value.FnValue
 
     private[this] val evalFn: FnValue =
-      FnValue { e1 =>
-        FnValue { e2 =>
-          FnValue { e3 =>
-            fn(e1, e2, e3)
-          }
-        }
+      FnValue { case NonEmptyList(e1, e2 :: e3 :: _) =>
+        fn(e1, e2, e3)
       }
 
     def call(t: rankn.Type): Value = evalFn
@@ -44,13 +40,27 @@ object FfiCall {
   }
 
   def getJavaType(t: rankn.Type): List[Class[_]] = {
+    def one(t: rankn.Type): Option[Class[_]] =
+      loop(t, false) match {
+        case c :: Nil => Some(c)
+        case _ => None
+      }
+
     def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
       t match {
-        case rankn.Type.Fun(a, b) if top =>
-          loop(a, false) match {
-            case at :: Nil => at :: loop(b, top)
-            case function => sys.error(s"unsupported function type $function in $t")
+        case rankn.Type.Fun(as, b) if top =>
+          val ats = as.map { a =>
+            one(a) match {
+              case Some(at) => at
+              case function => sys.error(s"unsupported function type $function in $t")
+            }
           }
+          val res =
+            one(b) match {
+              case Some(at) => at
+              case function => sys.error(s"unsupported function type $function in $t")
+            }
+          ats.toList ::: res :: Nil
         case rankn.Type.ForAll(_, t) =>
           loop(t, top)
         case _ => classOf[Value] :: Nil

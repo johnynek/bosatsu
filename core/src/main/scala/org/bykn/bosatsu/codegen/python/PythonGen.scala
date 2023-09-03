@@ -314,21 +314,8 @@ object PythonGen {
           }
       }
 
-    def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Code.Def =
-      Code.Def(defName, arg :: Nil, toReturn(v))
-
-    def makeCurriedDef(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] =
-      args match {
-        case NonEmptyList(a, Nil) =>
-          //  base case
-          Monad[Env].pure(makeDef(name, a, body))
-        case NonEmptyList(a, h :: t) =>
-          for {
-            newName <- Env.newAssignableVar
-            fn <- makeCurriedDef(newName, NonEmptyList(h, t), body)
-          } yield Code.Def(name, a :: Nil, fn :+ Code.Return(newName))
-      }
-
+    def makeDef(defName: Code.Ident, arg: NonEmptyList[Code.Ident], v: ValueLike): Code.Def =
+      Code.Def(defName, arg.toList, toReturn(v))
 
     def replaceTailCallWithAssign(name: Ident, argSize: Int, body: ValueLike)(onArgs: List[Expression] => Statement): Env[ValueLike] = {
       val initBody = body
@@ -424,8 +411,7 @@ object PythonGen {
         setRes = res := body1
         loop = While(cont, Assign(cont, Const.False) +: setRes)
         newBody = (ac +: ar +: loop).withValue(res)
-        curried <- makeCurriedDef(selfName, fnArgs, newBody)
-      } yield curried
+      } yield makeDef(selfName, fnArgs, newBody)
     }
 
   }
@@ -1363,9 +1349,8 @@ object PythonGen {
 
       def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] =
         expr match {
-          case LoopFn(_, _, h, t, b) =>
+          case LoopFn(_, _, args, b) =>
             // note, name is already bound
-            val args = NonEmptyList(h, t)
             val boundA = args.traverse(Env.bind)
             val subsA = args.traverse { a =>
               for {
@@ -1387,15 +1372,15 @@ object PythonGen {
               _ <- unbindA
             } yield loopRes
 
-          case Lambda(_, arg, body) =>
+          case Lambda(_, args, body) =>
             // TODO: we could look up all the captured
             // names and allocate tuple and generate a static function
             // that accesses the closure from the tuple, but since
             // python supports closures, it seems like a lot of work for nothing
-            (Env.bind(arg), loop(body))
+            (args.traverse(Env.bind(_)), loop(body))
               .mapN(Env.makeDef(name, _, _))
               .flatMap { d =>
-                Env.unbind(arg).as(d)
+                args.traverse_(Env.unbind(_)).as(d)
               }
           case _ =>
             Monad[Env].pure(name := v)
@@ -1403,26 +1388,25 @@ object PythonGen {
 
       def loop(expr: Expr): Env[ValueLike] =
         expr match {
-          case Lambda(_, arg, res) =>
+          case Lambda(_, args, res) =>
             // python closures work the same so we don't
             // need to worry about what we capture
-            (Env.bind(arg), loop(res)).mapN { (arg, res) =>
+            (args.traverse(Env.bind(_)), loop(res)).mapN { (args, res) =>
               res match {
                 case x: Expression =>
-                  Monad[Env].pure(Code.Lambda(arg :: Nil, x))
+                  Monad[Env].pure(Code.Lambda(args.toList, x))
                 case v =>
                   for {
                     defName <- Env.newAssignableVar
-                    defn = Env.makeDef(defName, arg, v)
+                    defn = Env.makeDef(defName, args, v)
                   } yield defn.withValue(defName)
               }
             }
-            .flatMap(_ <* Env.unbind(arg))
-          case LoopFn(_, thisName, argshead, argstail, body) =>
+            .flatMap(_ <* args.traverse_(Env.unbind(_)))
+          case LoopFn(_, thisName, args, body) =>
             // note, thisName is already bound because LoopFn
             // is a lambda, not a def
             // closures capture the same in python, we can ignore captures
-            val args = NonEmptyList(argshead, argstail)
 
             val boundA = args.traverse(Env.bind)
             val subsA = args.traverse { a =>

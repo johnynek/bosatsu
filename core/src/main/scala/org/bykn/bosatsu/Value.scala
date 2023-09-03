@@ -14,7 +14,7 @@ import scala.collection.immutable.SortedMap
 sealed abstract class Value {
   import Value._
 
-  def asFn: Value => Value =
+  def asFn: NonEmptyList[Value] => Value =
     this match {
       case FnValue(f) => f
       case other =>
@@ -50,16 +50,8 @@ sealed abstract class Value {
         // $COVERAGE-ON$
     }
 
-  final def applyAll(args: NonEmptyList[Value]): Value = {
-    @annotation.tailrec
-    def loop(toFn: Value => Value, args: NonEmptyList[Value]): Value =
-      args.tail match {
-        case h :: tail => loop(toFn(args.head).asFn, NonEmptyList(h, tail))
-        case Nil => toFn(args.head)
-      }
-
-    loop(this.asFn, args)
-  }
+  final def applyAll(args: NonEmptyList[Value]): Value =
+    asFn(args)
 }
 
 object Value {
@@ -126,31 +118,18 @@ object Value {
 
   object FnValue {
     trait Arg {
-      def toFn: Value => Value
+      def toFn: NonEmptyList[Value] => Value
     }
 
-    case class SimpleFnValue(toFn: Value => Value) extends Arg
+    case class SimpleFnValue(toFn: NonEmptyList[Value] => Value) extends Arg
 
 
-    def apply(toFn: Value => Value): FnValue =
+    def apply(toFn: NonEmptyList[Value] => Value): FnValue =
       new FnValue(SimpleFnValue(toFn))
 
-    def unapply(fnValue: FnValue): Some[Value => Value] = Some(fnValue.arg.toFn)
+    def unapply(fnValue: FnValue): Some[NonEmptyList[Value] => Value] = Some(fnValue.arg.toFn)
 
-    val identity: FnValue = FnValue(v => v)
-
-    def curry(arity: Int)(vs: List[Value] => Value): Value = {
-      // TODO: this is a obviously terrible
-      // the encoding is inefficient, the implementation is inefficient
-      def loop(param: Int, args: List[Value]): Value =
-        if (param == 0) vs(args.reverse)
-        else FnValue { ea =>
-          loop(param - 1, ea :: args)
-        }
-
-      loop(arity, Nil)
-    }
-
+    val identity: FnValue = FnValue(vs => vs.head)
   }
 
   case class ExternalValue(toAny: Any) extends Value
@@ -295,9 +274,12 @@ object Value {
         def compare(v1: Value, v2: Value): Int = {
           // these Values are keys, but we need to convert them
           // back to tuples where the values are ignored for scala
-          val v = fn
-            .asFn(Tuple.fromList(v1 :: null :: Nil))
-            .asFn(Tuple.fromList(v2 :: null :: Nil))
+          val v =
+            fn.applyAll(
+              NonEmptyList(
+                Tuple.fromList(v1 :: null :: Nil), 
+                Tuple.fromList(v2 :: null :: Nil) :: Nil)
+            )
             .asSum
             .variant
           if (v == 0) -1
@@ -344,8 +326,8 @@ object Value {
       }
 
     val strOrdFn: FnValue =
-      FnValue { tup1 =>
-        FnValue { tup2 =>
+      FnValue {
+        case NonEmptyList(tup1, tup2 :: Nil) =>
           (tup1, tup2) match {
             case (Tuple(ExternalValue(k1: String) :: _), Tuple(ExternalValue(k2: String) :: _)) =>
               Comparison.fromInt(k1.compareTo(k2))
@@ -355,7 +337,6 @@ object Value {
               // $COVERAGE-ON$
             }
         }
-      }
 
     def fromStringKeys(kvs: List[(String, Value)]): Value = {
       val allItems: Array[(String, Value)] = kvs.toMap.toArray
