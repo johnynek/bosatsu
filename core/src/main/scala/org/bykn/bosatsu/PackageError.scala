@@ -356,6 +356,27 @@ object PackageError {
               lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
 
           (Doc.text("the type ") + tmap(tpe) + Doc.text(" is not polymorphic enough") + Doc.hardLine + context, Some(region))
+        case Infer.Error.ArityMismatch(leftA, leftR, rightA, rightR) => 
+          val context0 =
+              lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR))
+          val context1 = {
+            if (leftR != rightR) {
+              Doc.text(" at: ") + Doc.hardLine +
+              lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR))
+            }
+            else {
+              Doc.empty
+            }
+          }
+
+          (Doc.text(s"function arity ${leftA} at:") + Doc.hardLine + context0 +
+            Doc.text(s" does not match arity ${rightA}") + context1, Some(leftR))
+        case Infer.Error.ArityTooLarge(found, max, region) =>
+          val context =
+              lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
+
+          (Doc.text(s"function arity = $found too large. Maximum function arity is $max.") + Doc.hardLine + context,
+            Some(region))
         case Infer.Error.UnexpectedBound(bound, _, reg, _) =>
           val tyvar = Type.TyVar(bound)
           val tmap = showTypes(pack, tyvar :: Nil)
