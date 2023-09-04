@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.{Applicative, Eval, Monad, Traverse, Semigroup}
+import cats.{Applicative, Eval, Monad, Traverse}
 import cats.arrow.FunctionK
 import cats.data.{NonEmptyList, Writer}
 import cats.implicits._
@@ -207,107 +207,6 @@ object TypedExpr {
     val (n, ne) = binds.head
     Let(n, ne, in1, RecursionKind.NonRecursive, tag)
   }
-
-  sealed abstract class SelfCallKind {
-    import SelfCallKind._
-
-    // if you have two branches in match what is the result
-    def merge(that: => SelfCallKind): SelfCallKind =
-      this match {
-        case NonTailCall => NonTailCall
-        case NoCall => that
-        case TailCall =>
-          that match {
-            case NonTailCall => NonTailCall
-            case TailCall | NoCall => TailCall
-          }
-      }
-
-    def callNotTail: SelfCallKind =
-      this match {
-        case NoCall => NoCall
-        case NonTailCall | TailCall => NonTailCall
-      }
-
-    def ifNoCallThen(sc: => SelfCallKind): SelfCallKind =
-      this match {
-        case NoCall => sc
-        case other => other
-      }
-  }
-
-  object SelfCallKind {
-    case object NoCall extends SelfCallKind
-    case object TailCall extends SelfCallKind
-    case object NonTailCall extends SelfCallKind
-    
-    val branchSemigroup: Semigroup[SelfCallKind] =
-      Semigroup.instance(_.merge(_))
-
-    val ifNoCallSemigroup: Semigroup[SelfCallKind] =
-      Semigroup.instance(_.ifNoCallThen(_))
-  }
-
-  /**
-   * assuming expr is bound to nm, what kind of self call does it contain?
-   */
-  def selfCallKind[A](n: Bindable, te: TypedExpr[A]): SelfCallKind =
-    te match {
-      case Generic(_, in) => selfCallKind(n, in)
-      case Annotation(te, _) => selfCallKind(n, te)
-      case AnnotatedLambda(as, body, _) =>
-        // let fn = x -> fn(x) in fn(1)
-        // is a tail-call
-        if (as.exists(_._1 == n)) {
-          //shadow
-          SelfCallKind.NoCall
-        }
-        else {
-          selfCallKind(n, body)
-        }
-      case Global(_, _, _, _) => SelfCallKind.NoCall
-      case Local(vn, _, _)  =>
-        if (vn != n) SelfCallKind.NoCall
-        else SelfCallKind.NonTailCall
-      case App(fn, args, _, _) =>
-        val argsCall = args.map(selfCallKind(n, _).callNotTail)
-          .reduce(SelfCallKind.ifNoCallSemigroup)
-
-        argsCall.ifNoCallThen(
-          fn match {
-            case Local(vn, _, _) if vn == n =>
-              SelfCallKind.TailCall
-            case _ => selfCallKind(n, fn).callNotTail
-          }
-        )
-      case Let(arg, ex, in, rec, _) =>
-        if (arg == n) {
-          // shadow
-          if (rec.isRecursive) {
-            // shadow still in scope in ex
-            SelfCallKind.NoCall
-          }
-          else {
-            // ex isn't in tail position, so if there is a call, we aren't tail
-            selfCallKind(n, ex).callNotTail
-          }
-        }
-        else {
-          selfCallKind(n, ex)
-            .callNotTail
-            .merge(selfCallKind(n, in))
-        }
-      case Literal(_, _, _) => SelfCallKind.NoCall
-      case Match(arg, branches, _) =>
-        selfCallKind(n, arg)
-          .callNotTail
-          .ifNoCallThen {
-            // then we check all the branches
-            branches.foldLeft(SelfCallKind.NoCall: SelfCallKind) { case (acc, (_, b)) =>
-              acc.merge(selfCallKind(n, b))
-            }
-          }
-    }
 
   /**
    * If we expect expr to be a lambda of the given arity, return

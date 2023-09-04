@@ -8,7 +8,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import scala.collection.immutable.SortedSet
 
 import Arbitrary.arbitrary
-import Identifier.{Bindable, Name}
+import Identifier.Bindable
 import TestUtils.checkLast
 import rankn.{Type, NTypeGen}
 
@@ -607,36 +607,6 @@ x = Foo
     }
   }
 
-  test("TypedExpr.Let.selfCallKind terminates and doesn't throw") {
-    // pretty weak test, but just to make sure nothing ever blows up
-    forAll(Generators.bindIdentGen, genTypedExpr) { (b, te) =>
-      assert(TypedExpr.selfCallKind(b, te) ne null)
-    }
-  }
-
-  test("SelfCallKind forms a lattice") {
-    import TypedExpr.SelfCallKind._
-    val scs = List(NoCall, TailCall, NonTailCall)
-
-    for {
-      a <- scs
-      b <- scs
-      c <- scs
-    } {
-      assert(a.merge(b) == b.merge(a))
-      assert(a.merge(b.merge(c)) == a.merge(b).merge(c))
-    }
-
-    scs.foreach { a =>
-      assert(a.merge(a) == a)
-      assert((a.ifNoCallThen(null) eq null) == (a == NoCall))
-      assert(NoCall.merge(a) == a)
-      assert(NonTailCall.merge(a) == NonTailCall)
-      assert(a.callNotTail != TailCall)
-      assert((a.callNotTail == NoCall) == (a == NoCall))
-    }
-  }
-
   test("TypedExpr.substituteTypeVar is not an identity function") {
     // if we replace all the current types with some bound types, things won't be the same
     forAll(genTypedExpr) { te =>
@@ -736,43 +706,6 @@ foo = (
       // this is a pretty weak test.
       assert(TypedExpr.toArgsBody(arity, te) ne null)
     }
-  }
-
-  test("test selfCallKind") {
-    import TypedExpr.SelfCallKind.{NoCall, NonTailCall, TailCall}
-
-    checkLast(
-      """
-enum List[a]: E, NE(head: a, tail: List[a])
-enum N: Z, S(prev: N)
-
-def list_len(list, acc):
-  recur list:
-    case E: acc
-    case NE(_, t): list_len(t, S(acc))
-""") { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == TailCall) }
-
-    checkLast(
-      """
-enum List[a]: E, NE(head: a, tail: List[a])
-enum N: Z, S(prev: N)
-
-def list_len(list):
-  recur list:
-    case E: Z
-    case NE(_, t): S(list_len(t))
-""") { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NonTailCall) }
-
-    checkLast(
-      """
-enum List[a]: E, NE(head: a, tail: List[a])
-
-def list_len(list):
-  match list:
-    case E: 0
-    case NE(_, _): 1
-""") { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NoCall) }
-
   }
 
   test("TypedExpr.fold matches traverse") {

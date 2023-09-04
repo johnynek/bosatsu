@@ -201,7 +201,7 @@ object Matchless {
             Let(Right((name, RecursionKind.Recursive)), e, Local(name))
 
           // this could be tail recursive
-          if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
+          if (SelfCallKind(name, e) == SelfCallKind.TailCall) {
             val arity = Type.Fun.arity(e.getType)
             // we know that arity > 0 because, otherwise we can't have a total
             // self recursive loop, but property checks send in ill-typed
