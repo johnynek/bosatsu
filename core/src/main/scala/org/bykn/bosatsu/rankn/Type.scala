@@ -341,13 +341,8 @@ object Type {
     def ifValid(from: NonEmptyList[Type], to: Type): Option[Type.Rho] = {
       val len = from.length
       if (len <= FnType.MaxSize)
-        Some(TyApply(from.foldLeft(FnType(len): Type)(TyApply(_, _)), to))
+        Some(apply(from, to))
       else None
-    }
-
-    def maybeFakeName(from: NonEmptyList[Type], to: Type): Type.Rho = {
-      val len = from.length
-      TyApply(from.foldLeft(FnType.maybeFakeName(len): Type)(TyApply(_, _)), to)
     }
 
     def unapply(t: Type): Option[(NonEmptyList[Type], Type)] = {
@@ -358,8 +353,8 @@ object Type {
           case FnType((_, arity)) if n == (arity + 1) =>
             // we need arity types and 1 result type
             // we know applied has length == n and arity in [1, MaxSize]
-            val res = applied.head
-            val args = NonEmptyList.fromListUnsafe(applied.tail.reverse)
+            val res = applied.last
+            val args = NonEmptyList.fromListUnsafe(applied.init)
             Some((args, res))
           case _ => None
         }

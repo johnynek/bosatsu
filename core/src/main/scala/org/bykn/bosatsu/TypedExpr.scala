@@ -34,7 +34,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
       case Annotation(_, tpe) =>
         tpe
       case AnnotatedLambda(args, res, _) =>
-        Type.Fun.maybeFakeName(args.map(_._2), res.getType)
+        Type.Fun(args.map(_._2), res.getType)
       case Local(_, tpe, _) => tpe
       case Global(_, _, tpe, _) => tpe
       case App(_, _, tpe, _) => tpe

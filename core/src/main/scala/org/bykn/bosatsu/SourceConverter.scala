@@ -576,6 +576,8 @@ final class SourceConverter(
             else success(neBound.toList ::: missingFromDecl.map((_, None)))
         }
 
+    // TODO we have to make sure we don't have more than 8 arguments to a struct
+    // or the constructor Fn won't be a valid function
     tds match {
       case Struct(nm, typeArgs, args) =>
         deep.traverse(args)(toType(_, tds.region))
@@ -1177,7 +1179,7 @@ final class SourceConverter(
                 rankn.Type.Fun.ifValid(nel, resType) match {
                   case Some(t) => success(t)
                   case None =>
-                    val invalid = rankn.Type.Fun.maybeFakeName(nel, resType)
+                    val invalid = rankn.Type.Fun(nel, resType)
                     SourceConverter
                       .partial(SourceConverter.InvalidArity(nel.length, ed.region), invalid)
                 }

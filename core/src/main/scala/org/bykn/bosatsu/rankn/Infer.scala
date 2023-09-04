@@ -474,7 +474,7 @@ object Infer {
     def subsCheckFn(a1s: NonEmptyList[Type], r1: Type, a2s: NonEmptyList[Type], r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       // note due to contravariance in input, we reverse the order there
       for {
-        // TODO: check that both a1 and a2 have the same length
+        // we know that they have the same length because we have already called unifyFn
         coarg <- a2s.zip(a1s).traverse { case (a2, a1) => subsCheck(a2, a1, left, right) }
         // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right)

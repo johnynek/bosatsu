@@ -70,7 +70,12 @@ object TestUtils {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     Package.inferBody(testPackage, Nil, stmts).strictToValidated match {
       case Validated.Invalid(errs) =>
-        fail("inference failure: " + errs.toList.map(_.message(Map.empty, LocationMap.Colorize.None)).mkString("\n"))
+        val lm = LocationMap(statement)
+        val packMap = Map((testPackage, (lm, statement)))
+        val msg = errs.toList.map { err =>
+          err.message(packMap, LocationMap.Colorize.None)
+        }.mkString("\n==========\n")
+        fail("inference failure: " + msg)
       case Validated.Valid(program) =>
         // make sure all the TypedExpr are valid
         program.lets.foreach { case (_, _, te) => assertValid(te) }

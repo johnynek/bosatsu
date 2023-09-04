@@ -224,4 +224,23 @@ class TypeTest extends AnyFunSuite {
 
     forAll(NTypeGen.genDepth03, genSubs(3))(law _)
   }
+
+  test("Fun(ts, r) and Fun.unapply are inverses") {
+    val genArgs = for {
+      cnt <- Gen.choose(0, 7)
+      head <- NTypeGen.genDepth03
+      tail <- Gen.listOfN(cnt, NTypeGen.genDepth03)
+    } yield NonEmptyList(head, tail)
+
+    forAll(genArgs, NTypeGen.genDepth03) { (args, res) =>
+      val fnType = Type.Fun(args, res)  
+      fnType match {
+        case Type.Fun(args1, res1) =>
+          assert(args1 == args)
+          assert(res1 == res)
+        case _ =>
+          fail(s"fnType didn't match Fun")
+      }
+    }
+  }
 }
