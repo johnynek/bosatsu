@@ -778,7 +778,8 @@ object Infer {
            for {
              typedFn <- inferRho(fn)
              fnTRho <- assertRho(typedFn.getType, s"must be rho since we inferRho($fn): on $typedFn", region(fn))
-             argRes <- unifyFn(args.length, fnTRho, region(fn), region(term))
+             argsRegion = args.reduceMap(region[Expr[A]](_))
+             argRes <- unifyFn(args.length, fnTRho, region(fn), argsRegion)
              (argT, resT) = argRes
              typedArg <- args.zip(argT).traverse { case (arg, argT) => checkSigma(arg, argT) }
              coerce <- instSigma(resT, expect, region(term))

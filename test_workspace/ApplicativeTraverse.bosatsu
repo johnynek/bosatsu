@@ -7,22 +7,22 @@ export Applicative(), Traverse(), traverse_List, applicative_Option
 # Represents the Applicative typeclass
 struct Applicative(
   pure: forall a. a -> f[a],
-  map: forall a, b. (a -> b) -> f[a] -> f[b],
-  ap: forall a, b. f[a -> b] -> f[a] -> f[b],
-  map2: forall a, b, c. f[a] -> f[b] -> (a -> b -> c) -> f[c],
-  product: forall a, b. f[a] -> f[b] -> f[(a, b)])
+  map: forall a, b. (a -> b, f[a]) -> f[b],
+  ap: forall a, b. (f[a -> b], f[a]) -> f[b],
+  map2: forall a, b, c. (f[a], f[b], (a, b) -> c) -> f[c],
+  product: forall a, b. (f[a], f[b]) -> f[(a, b)])
 
 # Build an applicative from pure, map, and product
 def applicative_from_pure_map_product[f: * -> *](
   pure: forall a. a -> f[a],
-  map: forall a, b. (a -> b) -> f[a] -> f[b],
-  product: forall a, b. f[a] -> f[b] -> f[(a, b)]) -> Applicative[f]:
+  map: forall a, b. (a -> b, f[a]) -> f[b],
+  product: forall a, b. (f[a], f[b]) -> f[(a, b)]) -> Applicative[f]:
 
   def ap(fn, fa):
-    map(\(fn, a) -> fn(a), product(fn, fa))
+    map(((fn, a)) -> fn(a), product(fn, fa))
 
   def map2(fa, fb, fn):
-    map(\(a, b) -> fn(a, b), product(fa, fb))
+    map(((a, b)) -> fn(a, b), product(fa, fb))
 
   Applicative {
     pure,
@@ -35,7 +35,7 @@ def applicative_from_pure_map_product[f: * -> *](
 # Build an applicative from pure, ap
 def applicative_from_pure_ap[f: * -> *](
   pure: forall a. a -> f[a],
-  ap: forall a, b. f[a -> b] -> f[a] -> f[b]) -> Applicative[f]:
+  ap: forall a, b. (f[a -> b], f[a]) -> f[b]) -> Applicative[f]:
 
   def map(fn, fa): ap(pure(fn), fa)
 
@@ -44,7 +44,7 @@ def applicative_from_pure_ap[f: * -> *](
     ap(make_tup, fb)
 
   def map2(fa, fb, fn):
-    make_c = map(fn, fa)
+    make_c = map(a -> b -> fn(a, b), fa)
     ap(make_c, fb)
 
   Applicative {
@@ -57,7 +57,7 @@ def applicative_from_pure_ap[f: * -> *](
 
 # Represents the Traverse typeclass
 struct Traverse(
-  traverse: forall a, b, f: * -> *. Applicative[f] -> (a -> f[b]) -> g[a] -> f[g[b]])
+  traverse: forall a, b, f: * -> *. (Applicative[f], a -> f[b], g[a]) -> f[g[b]])
 
 applicative_Option: Applicative[Option] = applicative_from_pure_map_product(
     a -> Some(a),
@@ -87,10 +87,10 @@ def trav_l[f: * -> *](app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[Lis
 # Below here we have the tests
 #########
 
-trav_list_opt = trav_l(applicative_Option)
+trav_list_opt = (fn, lst) -> trav_l(applicative_Option, fn, lst)
 
 # Here is equality on Option[List[Int]]
-eq_opt_list_int = eq_Option(eq_List(eq_Int))
+eq_opt_list_int = (a, b) -> eq_Option((l1, l2) -> eq_List(eq_Int, l1, l2), a, b)
 
 operator == = eq_opt_list_int
 

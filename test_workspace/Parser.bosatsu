@@ -98,7 +98,7 @@ def digits_n(at_most: Int) -> Parser[Int]:
 
     # We add 1 because we want to go beyond the digit
     # and see that we have fully parsed
-    parseFn = recur_max(S(to_Nat(at_most)), loop)
+    parseFn = in -> recur_max(S(to_Nat(at_most)), loop, in)
     Parser(s ->
         match parseFn((s, -1)):
             Some(Some(a)): Some(a)

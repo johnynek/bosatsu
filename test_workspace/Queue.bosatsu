@@ -38,14 +38,14 @@ def pop(queue: Queue[a]) -> Queue[a]:
     Some((_, queue)): queue
     None: empty
 
-def fold_Queue(Queue(f, b): Queue[a], init: b, fold_fn: b -> a -> b) -> b:
+def fold_Queue(Queue(f, b): Queue[a], init: b, fold_fn: (b, a) -> b) -> b:
   front = f.foldLeft(init, fold_fn)
   b.reverse().foldLeft(front, fold_fn)
 
 def reverse_Queue(Queue(f, b): Queue[a]) -> Queue[a]:
   Queue(b.reverse(), f.reverse())
 
-def eq_Queue(eq_fn: a -> a -> Bool, left: Queue[a], right: Queue[a]) -> Bool:
+def eq_Queue(eq_fn: (a, a) -> Bool, left: Queue[a], right: Queue[a]) -> Bool:
   res = left.fold_Queue((True, right), \(g, right), al ->
     if g:
         match unpush(right):
@@ -66,15 +66,15 @@ def to_List(Queue(f, b): Queue[a]) -> List[a]:
 ## TestSuites below
 ########
 
-def eq_Opt(eq_inner, a, b):
-  match (a, b):
-    (Some(a), Some(b)): eq_inner(a, b)
-    (None, None): True
-    _: False
+def eq_Opt(eq_inner):
+    (a, b) -> match (a, b):
+        (Some(a), Some(b)): eq_inner(a, b)
+        (None, None): True
+        _: False
 
 eq_oi = eq_Opt(eq_Int)
-eq_qi = eq_Queue(eq_Int)
-eq_li = eq_List(eq_Int)
+eq_qi = (q1, q2) -> eq_Queue(eq_Int, q1, q2)
+eq_li = (l1, l2) -> eq_List(eq_Int, l1, l2)
 
 q12 = empty.push(1).push(2)
 

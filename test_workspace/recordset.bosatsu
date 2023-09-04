@@ -34,7 +34,7 @@ def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse
       RecordField(_, to_entry) = get_field(fields)
       RecordRowEntry(to_entry(get_value(row)))
     result_fn
-  [record_to_list(getters.traverse(getter_to_row_entry(row))) for row in rows]
+  [record_to_list(getters.traverse()(getter_to_row_entry(row))) for row in rows]
 
 struct RestructureOutput[shape1, shape2](
   reshaperFields: shape1[RecordField] -> shape2[RecordField],
@@ -56,13 +56,13 @@ def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), m
 struct NilShape[w: * -> *]
 struct PS[t,rest,w](left: w[t], right: rest[w])
 
-new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, NilShape -> [])
+new_record_set = RecordSet(NilShape, [], NilShape, NilShape -> _ -> NilShape, NilShape -> [])
 
 (ps_end: forall t: (* -> *) -> *. RestructureOutput[t, NilShape]) = RestructureOutput(
   _ -> NilShape,
   _ -> NilShape,
   NilShape,
-  \_, _ -> NilShape,
+  _ -> _ -> NilShape,
   _ -> []
 )
 
@@ -73,13 +73,13 @@ def ps[
 ](
   RecordGetter(fF, fV): RecordGetter[shape1, t],
   RestructureOutput(reshaper1F, reshaper1V, getters1, traverse1, record_to_list1): RestructureOutput[shape1, shape2]):
-  getters2 = getters1.traverse1(\RecordGetter(f1, v1) -> RecordGetter(\PS(_, sh2) -> f1(sh2), \PS(_, sh2) -> v1(sh2)))
+  getters2 = getters1.traverse1()(\RecordGetter(f1, v1) -> RecordGetter(\PS(_, sh2) -> f1(sh2), \PS(_, sh2) -> v1(sh2)))
   RestructureOutput(
-    \sh1 -> PS(fF(sh1), reshaper1F(sh1)),
-    \sh1 -> PS(fV(sh1), reshaper1V(sh1)),
-    PS(RecordGetter(\PS(x,_) -> x, \PS(x,_) -> x), getters2),
-    \PS(x, sh2), g -> PS(g(x), sh2.traverse1(g)),
-    \PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
+    sh1 -> PS(fF(sh1), reshaper1F(sh1)),
+    sh1 -> PS(fV(sh1), reshaper1V(sh1)),
+    PS(RecordGetter(PS(x,_) -> x, PS(x,_) -> x), getters2),
+    PS(x, sh2) -> g -> PS(g(x), sh2.traverse1()(g)),
+    PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
   )
 
 def string_field[shape: (* -> *) -> *](name, fn: shape[RecordValue] -> String): RecordField(name, REString).create_field(fn)
@@ -120,7 +120,7 @@ def equal_RowEntry(re1, re2):
     (REString(RecordValue(x1)), REString(RecordValue(x2))): string_Order_fn.equals(x1, x2)
     _: False
 
-equal_rows = equal_List(equal_RowEntry)
+equal_rows = (a, b) -> equal_List(equal_RowEntry, a, b)
 
 ##################################################
 

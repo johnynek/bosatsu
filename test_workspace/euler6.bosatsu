@@ -35,10 +35,10 @@ def sum(fn, n):
     (i, r + fn(i)))
 
 # keeping n curried here, note diff is a function
-diff = sum(x ->
+diff = n -> sum((x ->
   x1 = x + 1
   x2 = x1 * x1
-  x * x2)
+  x * x2), n)
 
 test0 = Assertion(diff(10) == 2640, "matched problem")
 test1 = Assertion(diff(100) == 25164150, "matched problem")

@@ -58,7 +58,7 @@ def digit_list(n):
   reverse(rev_list)
 
 def is_palindrome(eq_fn, lst):
-  eq_List(eq_fn)(lst, reverse(lst))
+  eq_List(eq_fn, lst, reverse(lst))
 
 def num_is_palindrome(n):
   digits = digit_list(n)
@@ -69,7 +69,7 @@ def product_palindrome(n1, n2):
   if num_is_palindrome(prod): Some(prod)
   else: None
 
-max_pal_opt = max_of(99, \n1 -> first_of(99, product_palindrome(n1)))
+max_pal_opt = max_of(99, n1 -> first_of(99, n2 -> product_palindrome(n1, n2)))
 
 max_pal = match max_pal_opt:
               Some(m): m

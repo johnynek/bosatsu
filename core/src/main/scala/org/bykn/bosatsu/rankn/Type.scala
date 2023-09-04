@@ -139,6 +139,11 @@ object Type {
       case TyApply(left, _) => rootConst(left)
     }
 
+  object RootConst {
+    def unapply(t: Type): Option[Type.TyConst] =
+      rootConst(t)
+  }
+
   def applicationArgs(t: Type): (Type, List[Type]) = {
     @annotation.tailrec
     def loop(t: Type, tail: List[Type]): (Type, List[Type]) =
