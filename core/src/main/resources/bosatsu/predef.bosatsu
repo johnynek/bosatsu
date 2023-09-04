@@ -372,7 +372,7 @@ def remove_key(dict: Dict[k, v], key: k) -> Dict[k, v]:
 
 def items(dict: Dict[k, v]) -> List[(k, v)]:
     Dict(_, tree) = dict
-    tree.fold_right_Tree([], \kv, tail -> [kv, *tail])
+    tree.fold_right_Tree([], (kv, tail) -> [kv, *tail])
 
 def clear_Dict(dict: Dict[k, v]) -> Dict[k, v]:
     Dict(ord, _) = dict

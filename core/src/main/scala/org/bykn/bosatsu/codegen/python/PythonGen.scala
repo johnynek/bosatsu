@@ -1057,11 +1057,12 @@ object PythonGen {
             // $COVERAGE-ON$
           }
           else {
-            // add an arg to the right
+            // this is the case where we are using the constructor like a function
+            assert(args.isEmpty)
             for {
-              v <- Env.newAssignableVar
-              body <- makeLam(cnt - 1, args :+ v)
-              res <- Env.onLast(body)(Code.Lambda(v :: Nil, _))
+              vs <- (1 to cnt).toList.traverse(_ => Env.newAssignableVar)
+              body <- applyAll(vs)
+              res <- Env.onLast(body)(Code.Lambda(vs, _))
             } yield res
           }
 
