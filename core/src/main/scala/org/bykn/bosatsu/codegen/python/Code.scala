@@ -443,6 +443,7 @@ object Code {
     def simplify = Lambda(args, result.simplify)
   }
   case class Apply(fn: Expression, args: List[Expression]) extends Expression {
+    /*
     def uncurry: (Expression, List[List[Expression]]) =
       fn match {
         case a@Apply(_, _) =>
@@ -451,6 +452,7 @@ object Code {
         case _ =>
           (fn, args :: Nil)
       }
+      */
 
     def simplify = Apply(fn.simplify, args.map(_.simplify))
   }

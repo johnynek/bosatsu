@@ -135,8 +135,8 @@ class PythonGenTest extends AnyFunSuite {
       val fn = intr.get("mult", classOf[PyFunction])
 
       forAll(Gen.choose(0, 100), Gen.choose(0, 100)) { (i1, i2) =>
-        val m1 = fn.__call__(new PyInteger(i1)).asInstanceOf[PyFunction]
-        assert(m1.__call__(new PyInteger(i2)) == new PyInteger(i1 * i2))
+        val m1 = fn.__call__(new PyInteger(i1), new PyInteger(i2))
+        assert(m1 == new PyInteger(i1 * i2))
       }
     }
   }

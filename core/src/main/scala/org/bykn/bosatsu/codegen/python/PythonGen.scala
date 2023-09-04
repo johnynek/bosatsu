@@ -227,7 +227,7 @@ object PythonGen {
     def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
       onLastM(c)(fn.andThen(Monad[Env].pure(_)))
 
-    def onLast2(c1: ValueLike, c2: ValueLike)(fn: (Expression, Expression)=> ValueLike): Env[ValueLike] =
+    def onLast2(c1: ValueLike, c2: ValueLike)(fn: (Expression, Expression) => ValueLike): Env[ValueLike] =
       onLasts(c1 :: c2 :: Nil) {
         case x1 :: x2 :: Nil => fn(x1, x2)
         case other =>
@@ -321,13 +321,10 @@ object PythonGen {
       val initBody = body
       def loop(body: ValueLike): Env[ValueLike] =
         body match {
-          case a@Apply(_, _) =>
-            // we have recurried the args by this point:
-            val (fn0, args0) = a.uncurry
+          case a@Apply(fn0, args0) =>
             if (fn0 == name) {
-              val flatArgs = args0.flatten
-              if (flatArgs.length == argSize) {
-                val all = onArgs(flatArgs)
+              if (args0.length == argSize) {
+                val all = onArgs(args0)
                 // set all the values and return the empty tuple
                 Monad[Env].pure(all.withValue(Code.Const.Unit))
               }
@@ -843,7 +840,7 @@ object PythonGen {
                   }
                   .flatten
             }, 2)),
-            //external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+            //external def int_loop(intValue: Int, state: a, fn: (Int, a) -> TupleCons[Int, TupleCons[a, Unit]]) -> a
             // def int_loop(i, a, fn):
             //   if i <= 0: a
             //   else:
@@ -857,7 +854,7 @@ object PythonGen {
             //   _i = i
             //   _a = a
             //   while cont:
-            //     res = fn(_i)(_a)
+            //     res = fn(_i, _a)
             //     tmp_i = res[0]
             //     _a = res[1][0]
             //     cont = (0 < tmp_i) and (tmp_i < _i)
@@ -878,7 +875,7 @@ object PythonGen {
                           _a := a,
                           Code.While(cont,
                             Code.block(
-                              res := fn(_i)(_a),
+                              res := fn(_i, _a),
                               tmp_i := res.get(0),
                               _a := res.get(1).get(0),
                               cont := Code.Op(Code.Op(Code.fromInt(0), Code.Const.Lt, tmp_i),
@@ -1010,21 +1007,11 @@ object PythonGen {
         }
 
       def makeLambda(arity: Int)(fn: List[ValueLike] => Env[ValueLike]): Env[ValueLike] =
-        if (arity <= 0) fn(Nil)
-        else if (arity == 1)
-          for {
-            arg <- Env.newAssignableVar
-            body <- fn(arg :: Nil)
-            res <- Env.onLast(body)(Code.Lambda(arg :: Nil, _))
-          } yield res
-        else {
-          for {
-            arg <- Env.newAssignableVar
-            body <- makeLambda(arity - 1) { args => fn(arg :: args) }
-            res <- Env.onLast(body)(Code.Lambda(arg :: Nil, _))
-          } yield res
-        }
-
+        for {
+          vars <- (1 to arity).toList.traverse(_ => Env.newAssignableVar)
+          body <- fn(vars)
+          res <- Env.onLast(body)(Code.Lambda(vars, _))
+        } yield res
     }
 
     class Ops(packName: PackageName, remap: (PackageName, Bindable) => Env[Option[ValueLike]]) {
@@ -1449,7 +1436,7 @@ object PythonGen {
           case Local(b) => Env.deref(b)
           case LocalAnon(a) => Env.nameForAnon(a)
           case LocalAnonMut(m) => Env.nameForAnon(m)
-          case App(PredefExternal((fn, arity)), args) if args.length == arity =>
+          case App(PredefExternal((fn, _)), args) =>
             args
               .toList
               .traverse(loop)
@@ -1460,12 +1447,7 @@ object PythonGen {
             (loop(expr), args.traverse(loop))
               .mapN { (fn, args) =>
                 Env.onLasts(fn :: args.toList) {
-                  case fn :: ah :: atail =>
-                    // all functions are curried, a future
-                    // optimization would improve that
-                    atail.foldLeft(Code.Apply(fn, ah :: Nil)) { (left, arg) =>
-                      Code.Apply(left, arg :: Nil)
-                    }
+                  case fn :: args => Code.Apply(fn, args)
                   case other =>
                     // $COVERAGE-OFF$
                     throw new IllegalStateException(s"got $other, expected to match $expr")
