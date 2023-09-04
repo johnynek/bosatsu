@@ -346,20 +346,23 @@ object Type {
     }
 
     def unapply(t: Type): Option[(NonEmptyList[Type], Type)] = {
-      def check(n: Int, t: Type, applied: List[Type]): Option[(NonEmptyList[Type], Type)] =
+      def check(n: Int, t: Type, applied: List[Type], last: Type): Option[(NonEmptyList[Type], Type)] =
         t match {
           case TyApply(inner, arg) =>
-            check(n + 1, inner, arg :: applied)
+            check(n + 1, inner, arg :: applied, last)
           case FnType((_, arity)) if n == (arity + 1) =>
             // we need arity types and 1 result type
             // we know applied has length == n and arity in [1, MaxSize]
-            val res = applied.last
-            val args = NonEmptyList.fromListUnsafe(applied.init)
-            Some((args, res))
+            val args = NonEmptyList.fromListUnsafe(applied)
+            Some((args, last))
           case _ => None
         }
 
-      check(0, t, Nil)
+      t match {
+        case TyApply(inner, last) =>
+          check(1, inner, Nil, last)
+        case _ => None
+      }
     }
 
     def apply(from: NonEmptyList[Type], to: Type): Type.Rho = {
