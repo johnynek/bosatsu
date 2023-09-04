@@ -909,7 +909,7 @@ object Generators {
       .flatMap {
         case n if n <= 0 => g.map(NonEmptyList.one)
         case n =>
-          Gen.zip(g, Gen.listOfN((n - 1) max (maxLen - 1), g))
+          Gen.zip(g, Gen.listOfN((n - 1) min (maxLen - 1), g))
             .map { case (h, t) => NonEmptyList(h, t) }
       }
 
