@@ -135,8 +135,8 @@ object TypedExprNormalization {
           !lamArgs.exists { case (n, _) => n === b }
         
         def matchesArgs(nel: NonEmptyList[TypedExpr[A]]): Boolean =
-          lamArgs.iterator.zip(nel.iterator).forall {
-            case ((lamN, _), Local(argN, _, _)) => lamN == argN
+          (nel.length == lamArgs.length) && lamArgs.iterator.zip(nel.iterator).forall {
+            case ((lamN, _), Local(argN, _, _)) => lamN === argN
             case _ => false
           }
 

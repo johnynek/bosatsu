@@ -101,7 +101,10 @@ object TestUtils {
       case Right(other) =>
         fail(s"got an unexpected success: $other")
       case Left(err) =>
-        fail(s"got an exception: $err")
+        module.mainExceptionToString(err) match {
+          case Some(msg) => fail(msg)
+          case None => fail(s"got an exception: $err")
+        }
     }
   }
 

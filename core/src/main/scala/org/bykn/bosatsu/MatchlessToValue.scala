@@ -85,7 +85,7 @@ object MatchlessToValue {
         def loc(b: Bindable): Eval[Value] =
           locals.get(b) match {
             case Some(v) => v
-            case None => sys.error(s"couldn't find: $b in ${locals.keys.map(_.asString).toList}")
+            case None => sys.error(s"couldn't find: $b in ${locals.keys.map(_.asString).toList} capturing: ${it.toList}")
           }
 
         Scope(
@@ -375,6 +375,8 @@ object MatchlessToValue {
               // we can allocate once if there is no closure
               val scope1 = Scope.empty()
               val fn = FnValue { argV =>
+                // TODO remove when tests are passing
+                assert(argV.length == args.length)
                 val scope2 = scope1.letAll(args.zip(argV))
                 resFn(scope2)
               }
@@ -386,6 +388,8 @@ object MatchlessToValue {
                 // hopefully optimization/normalization has lifted anything
                 // that doesn't depend on argV above this lambda
                 FnValue { argV =>
+                  // TODO remove when tests are passing
+                  assert(argV.length == args.length)
                   val scope2 = scope1.letAll(args.zip(argV))
                   resFn(scope2)
                 }

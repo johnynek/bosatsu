@@ -146,6 +146,22 @@ abstract class MainModule[IO[_]](implicit
     }
   }
 
+  def mainExceptionToString(ex: Throwable): Option[String] =
+    ex match {
+      case me: MainException =>
+        me match {
+          case MainException.NoInputs(cmd) =>
+            val name = cmd.name
+            Some(s"no inputs given to $name")
+          case pe @ MainException.ParseErrors(_, _, _) =>
+            Some(pe.messages.mkString("\n"))
+          case pe @ MainException.PackageErrors(_, _, _, _) =>
+            Some(pe.messages.mkString("\n"))
+        }
+      case _ =>
+        None
+    }
+
   sealed abstract class MainCommand(val name: String) {
     type Result <: Output
     def run: IO[Result]

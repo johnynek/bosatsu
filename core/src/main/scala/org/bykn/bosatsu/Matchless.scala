@@ -210,7 +210,7 @@ object Matchless {
               case Some((params, body)) =>
                 // we know params is non-empty because arity > 0
                 val args = params.map(_._1)
-                val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toList.toSet)
+                val captures = TypedExpr.freeVars(e :: Nil)
                 loop(body).map { v => letrec(LoopFn(captures, name, args, v)) }
               case _ =>
                 // TODO: I don't think this case should ever happen in real code
@@ -231,8 +231,7 @@ object Matchless {
         case TypedExpr.Generic(_, expr) => loop(expr)
         case TypedExpr.Annotation(term, _) => loop(term)
         case TypedExpr.AnnotatedLambda(args, res, _) =>
-          val argBinds = args.iterator.map(_._1).toSet[Bindable]
-          val captures = TypedExpr.freeVars(res :: Nil).filterNot(argBinds)
+          val captures = TypedExpr.freeVars(te :: Nil)
           loop(res).map(Lambda(captures, args.map(_._1), _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {

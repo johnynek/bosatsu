@@ -51,7 +51,7 @@ test = Assertion(eq_String("hello", foo), "checking equality")
       List("""
 package Foo
 
-def let(arg, in): in(arg)
+def let(arg): in -> in(arg)
 
 foo = (
   x <- let(3)
@@ -395,7 +395,7 @@ def same_items(items, eq):
 def eq_list(a, b, fn):
   same_items(zip(a, b), fn)
 
-same = eq_list(three, threer)(eq_Int)
+same = eq_list(three, threer, eq_Int)
 """), "Foo", True)
 
 evalTest(
@@ -1039,8 +1039,7 @@ package A
 
 struct TwoVar(one, two)
 
-tuple = (1, "two")
-constructed = uncurry2(TwoVar, tuple)
+constructed = uncurry2(x -> y -> TwoVar(x, y))(1, "two")
 
 main = match constructed:
   case TwoVar(1, "two"): "good"
@@ -1053,8 +1052,7 @@ package A
 
 struct ThreeVar(one, two, three)
 
-tuple = (1, "two", 3)
-constructed = uncurry3(ThreeVar, tuple)
+constructed = uncurry3(x -> y -> z -> ThreeVar(x, y, z))(1, "two", 3)
 
 main = match constructed:
   case ThreeVar(1, "two", 3): "good"
@@ -1565,7 +1563,7 @@ def fn(x, y):
 
 main = fn(0, 1, 2)
 """)) { case te@PackageError.TypeErrorIn(_, _) =>
-      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\ntype error: expected type Bosatsu/Predef::Int to be the same as type ?2 -> ?3\nhint: this often happens when you apply the wrong number of arguments to a function.\nRegion(73,84)")
+      assert(te.message(Map.empty, Colorize.None).contains("does not match arity 3"))
       ()
     }
 
@@ -1627,7 +1625,6 @@ tests = TestSuite("test triple",
 """), "A", 3)
   }
 
-  // TODO: make this compile with fixed kinds
   test("regression from a map_List/list comprehension example from snoble") {
     runBosatsuTest(
       List("""
@@ -1669,7 +1666,7 @@ def list_of_rows[shape: (* -> *) -> *](RecordSet(fields, rows, getters, traverse
     result_fn
   # This code should work the same if, map_List or list comprehension, but didn't previously
   #rows.map_List(row -> record_to_list(getters.traverse(getter_to_row_entry(row))))
-  [record_to_list(getters.traverse(getter_to_row_entry(row))) for row in rows]
+  [record_to_list(getters.traverse()(getter_to_row_entry(row))) for row in rows]
 
 struct RestructureOutput[shape1, shape2](
   reshaperFields: shape1[RecordField] -> shape2[RecordField],
@@ -1691,13 +1688,13 @@ def concat_records(RecordSet(fields, rows, getters, traverse, record_to_list), m
 struct NilShape[w: * -> *]
 struct PS[t,rest,w](left: w[t], right: rest[w])
 
-new_record_set = RecordSet(NilShape, [], NilShape, \NilShape, _ -> NilShape, NilShape -> [])
+new_record_set = RecordSet(NilShape, [], NilShape, NilShape -> _ -> NilShape, NilShape -> [])
 
 (ps_end: forall t: (* -> *) -> *. RestructureOutput[t, NilShape]) = RestructureOutput(
   _ -> NilShape,
   _ -> NilShape,
   NilShape,
-  \_, _ -> NilShape,
+  _ -> _ -> NilShape,
   _ -> []
 )
 
@@ -1708,12 +1705,12 @@ def ps[
 ](
   RecordGetter(fF, fV): RecordGetter[shape1, t],
   RestructureOutput(reshaper1F, reshaper1V, getters1, traverse1, record_to_list1): RestructureOutput[shape1, shape2]):
-  getters2 = getters1.traverse1(\RecordGetter(f1, v1) -> RecordGetter(\PS(_, sh2) -> f1(sh2), \PS(_, sh2) -> v1(sh2)))
+  getters2 = getters1.traverse1()(RecordGetter(f1, v1) -> RecordGetter(\PS(_, sh2) -> f1(sh2), \PS(_, sh2) -> v1(sh2)))
   RestructureOutput(
     \sh1 -> PS(fF(sh1), reshaper1F(sh1)),
     \sh1 -> PS(fV(sh1), reshaper1V(sh1)),
     PS(RecordGetter(\PS(x,_) -> x, \PS(x,_) -> x), getters2),
-    \PS(x, sh2), g -> PS(g(x), sh2.traverse1(g)),
+    \PS(x, sh2) -> g -> PS(g(x), sh2.traverse1()(g)),
     \PS(RecordRowEntry(row_entry), sh2) -> [row_entry].concat(record_to_list1(sh2))
   )
 
@@ -1753,7 +1750,7 @@ def equal_RowEntry(re1, re2):
     case (REString(RecordValue(x1)), REString(RecordValue(x2))): string_Order_fn.equals(x1, x2)
     case _: False
 
-equal_rows = equal_List(equal_RowEntry)
+equal_rows = (a, b) -> equal_List(equal_RowEntry, a, b)
 
 ##################################################
 
@@ -2425,7 +2422,7 @@ package QueueTest
 
 struct Queue[a](front: List[a], back: List[a])
 
-def fold_Queue(Queue(f, b): Queue[a], binit: b, fold_fn: b -> a -> b) -> b:
+def fold_Queue(Queue(f, b): Queue[a], binit: b, fold_fn: (b, a) -> b) -> b:
   front = f.foldLeft(binit, fold_fn)
   b.reverse().foldLeft(front, fold_fn)
 
@@ -2720,7 +2717,7 @@ def get[shape](sh: shape[RecordValue], RecordGetter(getter): RecordGetter[shape,
 package Foo
 
 def f(fn: forall a. List[a] -> List[a]) -> Int:
-  fn([1]).foldLeft(0)(\x, _ -> x.add(1))
+  fn([1]).foldLeft(0, (x, _) -> x.add(1))
 
 def g(b: Bool) -> (forall a. List[a] -> List[a]):
   match b:
@@ -2731,10 +2728,10 @@ def id(a): a
 def single(a): [a]    
 
 def foo1(fn) -> Int:
-  fn.foldLeft(0)(\x, _ -> x.add(1))
+  fn.foldLeft(0, (x, _) -> x.add(1))
 
 def foo2(fn: List[forall a. a -> a]) -> Int:
-  fn.foldLeft(0)(\x, _ -> x.add(1))
+  fn.foldLeft(0, (x, _) -> x.add(1))
 
 count = foo1(single(id))
 count = foo2(single(id))
@@ -2846,7 +2843,8 @@ Region(195,205)"""
     }
  
   }
-  test("print a decent message when there is an unknown meta") {
+  test("print a decent message when arguments are omitted") {
+    // TODO we could do better by detecting arity mismatch type errors
    evalFail(List("""
 package QS
 
@@ -2865,12 +2863,8 @@ def quick_sort0(cmp, left, right):
 """)) { case kie@PackageError.TypeErrorIn(_, _) =>
       assert(kie.message(Map.empty, Colorize.None) ==
       """in file: <unknown source>, package QS
-Unexpected unknown: the type: ?50 of kind: * at: 
-Region(396,450)
-
-inside the type ?51[?52]
-this sometimes happens when a function arg has been omitted, or an illegal recursive type or function."""
-      )
+type error: expected type Bosatsu/Predef::Fn3[(?39, ?37) -> Bosatsu/Predef::Comparison] to be the same as type Bosatsu/Predef::Fn2
+Region(396,450)""")
       ()
     }
  

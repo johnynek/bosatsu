@@ -522,7 +522,7 @@ main = match x:
 enum Opt:
   None, Some(a)
 
-struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
 
 def optBind(opt, bindFn):
   match opt:
@@ -536,7 +536,7 @@ main = Monad(Some, optBind)
 enum Opt:
   None, Some(a)
 
-struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
 
 def opt_bind(opt, bind_fn):
   match opt:
@@ -552,7 +552,7 @@ def use_bind(m, a, b, c):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  bind(a1)(_ -> bind(b1)(_ -> c1))
+  a1.bind(_ -> b1.bind(_ -> c1))
 
 main = use_bind(option_monad, None, None, None)
 """, "forall a. Opt[a]")
@@ -567,7 +567,7 @@ main = use_bind(option_monad, None, None, None)
 enum Opt:
   None, Some(a)
 
-struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
 
 def opt_bind(opt, bind_fn):
   match opt:
@@ -583,7 +583,7 @@ def use_bind(a, b, c, m):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  bind(a1)(_ -> bind(b1)(_ -> c1))
+  a1.bind(_ -> b1.bind(_ -> c1))
 
 main = use_bind(None, None, None, option_monad)
 """, "forall a. Opt[a]")

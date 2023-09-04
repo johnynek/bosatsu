@@ -328,7 +328,7 @@ object TypedExpr {
         toArgsBody(arity, in).flatMap { case (args, body) =>
           // if args0 don't shadow arg, we can push
           // it down
-          if (args.exists(_._1 == arg)) {
+          if (args.exists(_._1 === arg)) {
             // this we shadow, so we
             // can't lift, we could alpha-rename to
             // deal with this case
