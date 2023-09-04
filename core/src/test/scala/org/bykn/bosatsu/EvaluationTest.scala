@@ -1563,7 +1563,7 @@ def fn(x, y):
 
 main = fn(0, 1, 2)
 """)) { case te@PackageError.TypeErrorIn(_, _) =>
-      assert(te.message(Map.empty, Colorize.None).contains("does not match arity 3"))
+      assert(te.message(Map.empty, Colorize.None).contains("does not match function with 3 arguments at:"))
       ()
     }
 
@@ -2864,6 +2864,7 @@ def quick_sort0(cmp, left, right):
       assert(kie.message(Map.empty, Colorize.None) ==
       """in file: <unknown source>, package QS
 type error: expected type Bosatsu/Predef::Fn3[(?39, ?37) -> Bosatsu/Predef::Comparison] to be the same as type Bosatsu/Predef::Fn2
+hint: the first type is a function with 3 arguments and the second is a function with 2 arguments.
 Region(396,450)""")
       ()
     }
