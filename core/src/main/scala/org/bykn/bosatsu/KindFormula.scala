@@ -521,7 +521,7 @@ object KindFormula {
           // println(s"addCons(v = $v, $constraint)")
           val next = cs.get(v.id) match {
             case Some(nel) => constraint :: nel
-            case None      => NonEmptyList(constraint, Nil)
+            case None      => NonEmptyList.one(constraint)
           }
 
           cons.set(cs.updated(v.id, next))

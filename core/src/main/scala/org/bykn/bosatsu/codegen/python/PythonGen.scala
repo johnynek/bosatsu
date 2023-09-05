@@ -245,7 +245,7 @@ object PythonGen {
             case (tx: Expression, elseX: Expression) =>
               Monad[Env].pure(Ternary(tx, cx, elseX).simplify)
             case _ =>
-              Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
+              Monad[Env].pure(IfElse(NonEmptyList.one((cx, t)), elseV))
           }
         case NonEmptyList((cx: Expression, t), rh :: rt) =>
           val head = (cx, t)
@@ -258,10 +258,10 @@ object PythonGen {
                 case tx: Expression =>
                   Ternary(tx, cx, nestX).simplify
                 case _ =>
-                  IfElse(NonEmptyList(head, Nil), nestX)
+                  IfElse(NonEmptyList.one(head), nestX)
               }
             case nest =>
-              IfElse(NonEmptyList(head, Nil), nest)
+              IfElse(NonEmptyList.one(head), nest)
           }
         case NonEmptyList((cx, t), rest) =>
           for {
@@ -275,7 +275,7 @@ object PythonGen {
 
     def ifElseS(cond: ValueLike, thenS: Statement, elseS: Statement): Env[Statement] =
       cond match {
-        case x: Expression => Monad[Env].pure(ifStatement(NonEmptyList((x, thenS), Nil), Some(elseS)))
+        case x: Expression => Monad[Env].pure(ifStatement(NonEmptyList.one((x, thenS)), Some(elseS)))
         case WithValue(stmt, vl) =>
           ifElseS(vl, thenS, elseS).map(stmt +: _)
         case v =>
@@ -285,7 +285,7 @@ object PythonGen {
             .map { tmp =>
               Code.block(
                 tmp := v,
-                ifStatement(NonEmptyList((tmp, thenS), Nil), Some(elseS))
+                ifStatement(NonEmptyList.one((tmp, thenS)), Some(elseS))
               )
             }
       }
@@ -348,7 +348,7 @@ object PythonGen {
             // both results are in the tail position
             (loop(ifTrue), loop(ifFalse))
               .mapN { (t, f) =>
-                ifElse(NonEmptyList((cond, t), Nil), f)
+                ifElse(NonEmptyList.one((cond, t)), f)
               }
               .flatten
           case WithValue(stmt, v) =>
@@ -579,7 +579,7 @@ object PythonGen {
     //   def test_all(self):
     //     # iterate through making assertions
     //
-    (Env.importLiteral(NonEmptyList(Code.Ident("unittest"), Nil)),
+    (Env.importLiteral(NonEmptyList.one(Code.Ident("unittest"))),
       Env.newAssignableVar,
       Env.topLevelName(name)
       )
@@ -612,7 +612,7 @@ object PythonGen {
 
         val loopBody: Code.Statement =
           Code.IfStatement(
-            NonEmptyList((isAssertion, testAssertion), Nil),
+            NonEmptyList.one((isAssertion, testAssertion)),
             Some(testSuite))
 
         val recTest =
@@ -726,7 +726,7 @@ object PythonGen {
               case NonEmptyList(h, Nil) =>
                 val Code.Ident(m) = escapeModule(h)
 
-                NonEmptyList(Code.Ident(m + ".py"), Nil)
+                NonEmptyList.one(Code.Ident(m + ".py"))
               case NonEmptyList(h, t1 :: t2) =>
                 escapeModule(h) :: modName(NonEmptyList(t1, t2))
             }
@@ -949,7 +949,7 @@ object PythonGen {
                     (res := str.dot(Code.Ident("partition"))(sep))
                       .withValue(Code.Ternary(success, s1, fail))
 
-                  Code.IfElse(NonEmptyList((sep, nonEmpty), Nil), fail)
+                  Code.IfElse(NonEmptyList.one((sep, nonEmpty)), fail)
                 }
               }
           }, 2)),
@@ -974,7 +974,7 @@ object PythonGen {
                     (res := str.dot(Code.Ident("rpartition"))(sep))
                       .withValue(Code.Ternary(success, s1, fail))
 
-                  Code.IfElse(NonEmptyList((sep, nonEmpty), Nil), fail)
+                  Code.IfElse(NonEmptyList.one((sep, nonEmpty)), fail)
                 }
               }
           }, 2)),
@@ -1010,6 +1010,9 @@ object PythonGen {
         for {
           vars <- (1 to arity).toList.traverse(_ => Env.newAssignableVar)
           body <- fn(vars)
+          // TODO: if body isn't an expression, how can just adding a lambda
+          // at the end be correct? the arguments will be below points that used it.
+          // the onLast has to handle Code.Lambda specially
           res <- Env.onLast(body)(Code.Lambda(vars, _))
         } yield res
     }
@@ -1062,6 +1065,9 @@ object PythonGen {
             for {
               vs <- (1 to cnt).toList.traverse(_ => Env.newAssignableVar)
               body <- applyAll(vs)
+              // TODO: if body isn't an expression, how can just adding a lambda
+              // at the end be correct? the arguments will be below points that used it.
+              // the onLast has to handle Code.Lambda specially
               res <- Env.onLast(body)(Code.Lambda(vs, _))
             } yield res
           }

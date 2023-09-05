@@ -155,7 +155,7 @@ class TypeTest extends AnyFunSuite {
 
     val ta = Type.TyVar(ba)
     val tb = Type.TyVar(bb)
-    val fb = Type.Fun(NonEmptyList(ta, Nil), tb)
+    val fb = Type.Fun(NonEmptyList.one(ta), tb)
     assert(Type.freeTyVars(fb :: ta :: Nil) == List(ba, bb))
     assert(Type.freeTyVars(fb :: tb :: Nil) == List(ba, bb))
   }
@@ -227,7 +227,7 @@ class TypeTest extends AnyFunSuite {
 
   test("Fun(ts, r) and Fun.unapply are inverses") {
     val genArgs = for {
-      cnt <- Gen.choose(0, 7)
+      cnt <- Gen.choose(0, Type.FnType.MaxSize - 1)
       head <- NTypeGen.genDepth03
       tail <- Gen.listOfN(cnt, NTypeGen.genDepth03)
     } yield NonEmptyList(head, tail)

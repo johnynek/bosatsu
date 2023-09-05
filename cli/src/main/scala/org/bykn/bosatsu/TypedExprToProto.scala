@@ -669,12 +669,12 @@ object ProtoConverter {
                   writeExpr(a, proto.TypedExpr(proto.TypedExpr.Value.AnnotationExpr(ex)))
                 }
             case al@AnnotatedLambda(args, res, _) =>
-              args.traverse { case (n, tpe) =>
+              args.toList.traverse { case (n, tpe) =>
                 getId(n.sourceCodeRepr).product(typeToProto(tpe))
               }
               .product(typedExprToProto(res))
               .flatMap { case (args, resid) =>
-                val ex = proto.LambdaExpr(args.toList.map(_._1), args.toList.map(_._2), resid)
+                val ex = proto.LambdaExpr(args.map(_._1), args.map(_._2), resid)
                 writeExpr(al, proto.TypedExpr(proto.TypedExpr.Value.LambdaExpr(ex)))
               }
             case l@Local(nm, tpe, _) =>

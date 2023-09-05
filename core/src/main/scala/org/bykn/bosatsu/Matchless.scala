@@ -406,7 +406,7 @@ object Matchless {
                           val (resLet, leftOpt, resBind) =
                             optAnonLeft match {
                               case Some((anonLeft, ln)) =>
-                                val revList = App(reverseFn, NonEmptyList(anonLeft, Nil))
+                                val revList = App(reverseFn, NonEmptyList.one(anonLeft))
                                 (anonLeft :: letTail, Some(anonLeft), (ln, revList) :: binds)
                               case None =>
                                 (letTail, None, binds)

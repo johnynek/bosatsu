@@ -47,14 +47,14 @@ object MatchlessToValue {
         else
           // arity > 1
           FnValue { args =>
-            val prod = ProductValue.fromList(args.toList.take(arity))
+            val prod = ProductValue.fromList(args.toList)
             SumValue(variant, prod)
           }
       case MakeStruct(arity) =>
         if (arity == 0) UnitValue
         else if (arity == 1) FnValue.identity
         else FnValue { args =>
-          ProductValue.fromList(args.toList.take(arity))
+          ProductValue.fromList(args.toList)
         }
       case ZeroNat => zeroNat
       case SuccNat => succNat
@@ -388,8 +388,6 @@ object MatchlessToValue {
                 // hopefully optimization/normalization has lifted anything
                 // that doesn't depend on argV above this lambda
                 FnValue { argV =>
-                  // TODO remove when tests are passing
-                  assert(argV.length == args.length)
                   val scope2 = scope1.letAll(args.zip(argV))
                   resFn(scope2)
                 }

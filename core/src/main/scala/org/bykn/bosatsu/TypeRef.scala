@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.Order
 import cats.data.NonEmptyList
 import cats.implicits._
 import cats.parse.{Parser => P, Parser0}
@@ -63,7 +64,7 @@ object TypeRef {
   object TypeArrow {
     // the common case of Fn1
     def apply(arg: TypeRef, to: TypeRef): TypeArrow =
-      TypeArrow(NonEmptyList(arg, Nil), to)
+      TypeArrow(NonEmptyList.one(arg), to)
   }
 
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
@@ -72,9 +73,11 @@ object TypeRef {
   case class TypeTuple(params: List[TypeRef]) extends TypeRef
 
   implicit val typeRefOrdering: Ordering[TypeRef] =
-    new Ordering[TypeRef] {
+    new Ordering[TypeRef] { self =>
       val list = ListOrdering.onType(this)
-      val listKind = ListOrdering.onType(Ordering.Tuple2(this, implicitly[Ordering[Option[Kind]]]))
+      implicit val typeRefOrder: Order[TypeRef] = Order.fromOrdering(self)
+      val nelistKind = implicitly[Order[NonEmptyList[(TypeRef, Option[Kind])]]]
+      val nelTR = implicitly[Order[NonEmptyList[TypeRef]]]
 
       def compare(a: TypeRef, b: TypeRef): Int =
         (a, b) match {
@@ -84,7 +87,7 @@ object TypeRef {
           case (TypeName(_), TypeVar(_)) => 1
           case (TypeName(_), _) => -1
           case (TypeArrow(a0, b0), TypeArrow(a1, b1)) =>
-            val c = list.compare(a0.toList, a1.toList)
+            val c = nelTR.compare(a0, a1)
             if (c == 0) compare(b0, b1) else c
           case (TypeArrow(_, _), TypeVar(_) | TypeName(_)) => 1
           case (TypeArrow(_, _), _) => -1
@@ -96,7 +99,7 @@ object TypeRef {
           case (TypeApply(_, _), _) => -1
           case (TypeForAll(p0, in0), TypeForAll(p1, in1)) =>
             // TODO, we could normalize the parmeters here
-            val c = listKind.compare(p0.toList, p1.toList)
+            val c = nelistKind.compare(p0, p1)
             if (c == 0) compare(in0, in1) else c
           case (TypeForAll(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)) => 1
           case (TypeForAll(_, _), _) => -1

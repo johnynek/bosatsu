@@ -561,7 +561,7 @@ object TypedExprNormalization {
                         Let(b, a, tr, RecursionKind.NonRecursive, m.tag)
                       case _ =>
                         // This will get simplified later
-                        Match(a, NonEmptyList((p, tr), Nil), m.tag)
+                        Match(a, NonEmptyList.one((p, tr)), m.tag)
                     }
                 }
 

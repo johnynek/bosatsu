@@ -2844,7 +2844,6 @@ Region(195,205)"""
  
   }
   test("print a decent message when arguments are omitted") {
-    // TODO we could do better by detecting arity mismatch type errors
    evalFail(List("""
 package QS
 

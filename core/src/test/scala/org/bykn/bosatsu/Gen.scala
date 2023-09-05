@@ -279,7 +279,7 @@ object Generators {
       fn <- fnGen
       dotApply <- dotApplyGen
       useDot = dotApply && isVar(fn) // f.bar needs the fn to be a var
-      argsGen = if (useDot) arg.map(NonEmptyList(_, Nil)) else nonEmpty(arg)
+      argsGen = if (useDot) arg.map(NonEmptyList.one(_)) else nonEmpty(arg)
       args <- argsGen
     } yield Apply(fn, args, ApplyKind.Parens)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
@@ -390,7 +390,7 @@ object Generators {
           }
 
         lazy val args = tail.foldLeft(toArg(h)
-          .map { h => NonEmptyList(h, Nil) }) { case (args, a) =>
+          .map(NonEmptyList.one)) { case (args, a) =>
             Gen.zip(args, toArg(a)).map { case (args, a) => NonEmptyList(a, args.toList) }
           }
           .map(_.reverse)

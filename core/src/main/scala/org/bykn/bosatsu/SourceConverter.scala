@@ -219,7 +219,7 @@ final class SourceConverter(
               Expr.ifExpr(cond, ifTrue, elseC, decl)
             case NonEmptyList(ifTrue, h :: tail) =>
               val elseC1 = loop0(NonEmptyList(h, tail), elseC)
-              loop0(NonEmptyList.of(ifTrue), elseC1)
+              loop0(NonEmptyList.one(ifTrue), elseC1)
           }
         val if1 = ifCases.traverse { case (d0, d1) =>
           loop(d0).product(loop(d1.get))
@@ -228,7 +228,7 @@ final class SourceConverter(
 
         (if1, else1).parMapN(loop0(_, _))
       case tern@Ternary(t, c, f) =>
-        loop(IfElse(NonEmptyList((c, OptIndent.same(t)), Nil), OptIndent.same(f))(tern.region))
+        loop(IfElse(NonEmptyList.one((c, OptIndent.same(t))), OptIndent.same(f))(tern.region))
       case Lambda(args, body) =>
         val argsRes = args.traverse(convertPattern(_, decl.region))
         val bodyRes = withBound(body, args.patternNames)
@@ -407,7 +407,7 @@ final class SourceConverter(
         def mkN(n: String): Expr[Declaration] =
           Expr.Global(pn, Identifier.Name(n), l)
         val empty: Expr[Declaration] =
-          Expr.App(mkN("empty_Dict"), NonEmptyList(mkN("string_Order"), Nil), l)
+          Expr.App(mkN("empty_Dict"), NonEmptyList.one(mkN("string_Order")), l)
 
         def add(dict: Expr[Declaration], k: Expr[Declaration], v: Expr[Declaration]): Expr[Declaration] = {
           val fn = mkN("add_key")
@@ -576,11 +576,17 @@ final class SourceConverter(
             else success(neBound.toList ::: missingFromDecl.map((_, None)))
         }
 
+    def validateArgCount(nm: Constructor, args: Int, region: Region): Result[Unit] =
+      if (args <= Type.FnType.MaxSize) SourceConverter.successUnit
+      else SourceConverter.partial(
+        SourceConverter.TooManyConstructorArgs(nm, args, Type.FnType.MaxSize, region), ())
+
     // TODO we have to make sure we don't have more than 8 arguments to a struct
     // or the constructor Fn won't be a valid function
     tds match {
       case Struct(nm, typeArgs, args) =>
-        deep.traverse(args)(toType(_, tds.region))
+        validateArgCount(nm, args.length, tds.region) *>
+          deep.traverse(args)(toType(_, tds.region))
           .flatMap { argsType =>
             val declVars = typeArgs.iterator.flatMap(_.toList).map { p => Type.TyVar(p._1.toBoundVar) }
             val initVars = existingVars(argsType)
@@ -609,7 +615,8 @@ final class SourceConverter(
           }
       case Enum(nm, typeArgs, items) =>
         items.get.traverse { case (nm, args) =>
-          deep.traverse(args)(toType(_, tds.region))
+          validateArgCount(nm, args.length, tds.region) *>
+            deep.traverse(args)(toType(_, tds.region))
             .map((nm, _))
         }
         .flatMap { conArgs =>
@@ -973,7 +980,7 @@ final class SourceConverter(
     decl: Declaration)(alloc: () => Bindable): NonEmptyList[(Bindable, Declaration)] =
     b match {
       case Pattern.Var(nm) =>
-        NonEmptyList((nm, decl), Nil)
+        NonEmptyList.one((nm, decl))
       case Pattern.Annotation(p, tpe) =>
         // we can just move the annotation to the expr:
         bindingsDecl(p, Annotation(decl.toNonBinding, tpe)(decl.region))(alloc)
@@ -983,7 +990,7 @@ final class SourceConverter(
         // _ = x
         // just rewrite to an anonymous variable
         val ident = alloc()
-        NonEmptyList((ident, decl), Nil)
+        NonEmptyList.one((ident, decl))
       case complex =>
         // TODO, flattening the pattern (a, b, c, d) = (1, 2, 3, 4) might be nice...
         // that is not done yet, it will allocate the tuple, just to destructure it
@@ -1005,7 +1012,7 @@ final class SourceConverter(
           Match(
             RecursionKind.NonRecursive,
             rhsNB,
-            OptIndent.same(NonEmptyList((pat, resOI), Nil)))(decl.region)
+            OptIndent.same(NonEmptyList.one((pat, resOI))))(decl.region)
         }
 
         val tail: List[(Bindable, Declaration)] =
@@ -1024,7 +1031,7 @@ final class SourceConverter(
             val unitDecl = TupleCons(Nil)(decl.region)
             val matchD = makeMatch(pat, unitDecl)
             val shapeMatch = (dummy, matchD)
-            SourceConverter.concat(prefix, NonEmptyList(shapeMatch, Nil))
+            SourceConverter.concat(prefix, NonEmptyList.one(shapeMatch))
         }
     }
 
@@ -1223,6 +1230,7 @@ object SourceConverter {
   type Result[+A] = Ior[NonEmptyChain[Error], A]
 
   def success[A](a: A): Result[A] = Ior.Right(a)
+  val successUnit: Result[Unit] = success(())
   def partial[A](err: Error, a: A): Result[A] = Ior.Both(NonEmptyChain.one(err), a)
   def failure[A](err: Error): Result[A] = Ior.Left(NonEmptyChain.one(err))
 
@@ -1478,6 +1486,11 @@ object SourceConverter {
   }
 
   final case class InvalidArity(size: Int, region: Region) extends Error {
-    def message = s"invalid arity of $size, maximum = ${rankn.Type.FnType.MaxSize}"
+    def message = s"invalid function arguments = $size, maximum = ${rankn.Type.FnType.MaxSize}"
+  }
+
+  final case class TooManyConstructorArgs(name: Constructor, argCount: Int, max: Int, region: Region) extends Error {
+    def message =
+      Doc.text(s"invalid argument count in constructor for ${name.asString} found $argCount maximum allowed $max").render(80)
   }
 }

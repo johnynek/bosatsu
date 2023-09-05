@@ -61,12 +61,12 @@ abstract class TypeParser[A] {
         .map { right =>
           {
             case MaybeTupleOrParens.Bare(a) =>
-              MaybeTupleOrParens.Bare(makeFn(NonEmptyList(a, Nil), right))
+              MaybeTupleOrParens.Bare(makeFn(NonEmptyList.one(a), right))
             case MaybeTupleOrParens.Parens(a) =>
-              MaybeTupleOrParens.Bare(makeFn(NonEmptyList(a, Nil), right))
+              MaybeTupleOrParens.Bare(makeFn(NonEmptyList.one(a), right))
             case MaybeTupleOrParens.Tuple(items) =>
               val args = NonEmptyList.fromList(items) match {
-                case None => NonEmptyList(makeTuple(Nil), Nil)
+                case None => NonEmptyList.one(makeTuple(Nil))
                 case Some(nel) => nel
               }
               // We know th

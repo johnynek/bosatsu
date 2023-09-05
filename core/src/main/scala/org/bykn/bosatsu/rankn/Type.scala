@@ -376,7 +376,7 @@ object Type {
       TyApply(withArgs, to)
     }
     def apply(from: Type, to: Type): Type.Rho =
-      apply(NonEmptyList(from, Nil), to)
+      apply(NonEmptyList.one(from), to)
 
     def arity(t: Type): Int =
       t match {
@@ -604,20 +604,8 @@ object Type {
     }
 
     def makeFn(in: NonEmptyList[Type], out: Type) =
-      // This isn't used in real syntax, but at this stage we can't convert to a generic
-      // function type for all arg sizes. Instead we curry if have too many args
-      Type.Fun.ifValid(in, out) match {
-        case Some(res) => res
-        case None =>
-          // Take the first N args, and curry the rest
-          val left = NonEmptyList(in.head, in.tail.take(FnType.MaxSize - 1))
-          val right = in.toList.drop(FnType.MaxSize)
-          val out1 = NonEmptyList.fromList(right) match {
-            case None => out
-            case Some(rest) => makeFn(rest, out)
-          }
-          makeFn(left, out1)
-      }
+      // this may be an invalid function, but typechecking verifies that.
+      Type.Fun(in, out)
 
     def applyTypes(left: Type, args: NonEmptyList[Type]) = applyAll(left, args.toList)
 

@@ -42,7 +42,7 @@ object Tree {
         case None => assumeValid(children)
       }
     }
-    treeOf(NonEmptyList(node, Nil), Set(node))
+    treeOf(NonEmptyList.one(node), Set(node))
       .leftMap { nelnel =>
         // remove depulicate paths
         val withSet = nelnel.map { nel => (nel, nel.toList.toSet) }

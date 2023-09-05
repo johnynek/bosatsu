@@ -707,8 +707,8 @@ object Declaration {
   case class LeftApply(arg: Pattern.Parsed, argRegion: Region, fn: NonBinding, result: Padding[Declaration]) extends Declaration {
     def region: Region = argRegion + result.padded.region
     def rewrite: NonBinding = {
-      val lam = Lambda(NonEmptyList(arg, Nil), result.padded)(argRegion + result.padded.region)
-      Apply(fn, NonEmptyList(lam, Nil), ApplyKind.Parens)(region)
+      val lam = Lambda(NonEmptyList.one(arg), result.padded)(argRegion + result.padded.region)
+      Apply(fn, NonEmptyList.one(lam), ApplyKind.Parens)(region)
     }
   }
 
@@ -950,12 +950,12 @@ object Declaration {
       .map { case (r, (rawPat, body)) =>
         val args = rawPat match {
           case MaybeTupleOrParens.Bare(b) =>
-            NonEmptyList(b, Nil)
+            NonEmptyList.one(b)
           case MaybeTupleOrParens.Parens(p) =>
-            NonEmptyList(p, Nil)
+            NonEmptyList.one(p)
           case MaybeTupleOrParens.Tuple(Nil) =>
             // consider this the same as the pattern ()
-            NonEmptyList(Pattern.tuple(Nil), Nil) 
+            NonEmptyList.one(Pattern.tuple(Nil)) 
           case MaybeTupleOrParens.Tuple(h :: tail) =>
             // we consider a top level non-empty tuple to be a list:
             NonEmptyList(h, tail)
