@@ -776,8 +776,8 @@ object Infer {
            } yield coerce(TypedExpr.Global(pack, name, vSigma, tag))
         case App(fn, args, tag) =>
            for {
-             typedFn <- inferRho(fn)
-             fnTRho <- assertRho(typedFn.getType, s"must be rho since we inferRho($fn): on $typedFn", region(fn))
+             typedFnTpe <- inferRho(fn)
+             (typedFn, fnTRho) = typedFnTpe
              argsRegion = args.reduceMap(region[Expr[A]](_))
              argRes <- unifyFn(args.length, fnTRho, region(fn), argsRegion)
              (argT, resT) = argRes
@@ -830,8 +830,8 @@ object Infer {
                     // all functions args of kind type
                     newMetaType(Kind.Type).map((n, _))
                 }
-                typedBody <- extendEnvList(nameVarsT.toList)(inferRho(result))
-                bodyT = typedBody.getType
+                typedBodyTpe <- extendEnvList(nameVarsT.toList)(inferRho(result))
+                (typedBody, bodyT) = typedBodyTpe
                 _ <- infer.set((Type.Fun(nameVarsT.map(_._2), bodyT), region(term)))
               } yield TypedExpr.AnnotatedLambda(nameVarsT, typedBody, tag)
             }
@@ -919,7 +919,7 @@ object Infer {
       }
     }
 
-    def narrowBranches[A: HasRegion](branches: NonEmptyList[(Pattern, TypedExpr.Rho[A])]): Infer[(Type.Rho, Region, NonEmptyList[(Pattern, TypedExpr.Rho[A])])] = {
+    def narrowBranches[A: HasRegion](branches: NonEmptyList[(Pattern, (TypedExpr.Rho[A], Type.Rho))]): Infer[(Type.Rho, Region, NonEmptyList[(Pattern, TypedExpr.Rho[A])])] = {
 
       def minBy[M[_]: Monad, B](head: B, tail: List[B])(lteq: (B, B) => M[Boolean]): M[B] =
         tail match {
@@ -959,18 +959,15 @@ object Infer {
           }
       }
 
-      val withIdx = branches.zipWithIndex.map { case ((p, te), idx) => (te, (p, idx)) }
+      val withIdx = branches.zipWithIndex.map { case ((p, (te, tpe)), idx) => (te, (p, tpe, idx)) }
 
       for {
-        (minRes, (minPat, minIdx)) <- minBy(withIdx.head, withIdx.tail)(ltEq(_, _))
-        resTpe = minRes.getType
-        // inferBranch returns TypedExpr.Rho, so this should be a rho type
-        resTRho <- assertRho(resTpe, s"infer on match $minRes", region(branches.toList(minIdx)._2))
+        (minRes, (minPat, resTRho, minIdx)) <- minBy(withIdx.head, withIdx.tail)((a, b) => ltEq(a, b))
         resRegion = region(minRes)
-        resBranches <- withIdx.traverse { case (te, (p, idx)) =>
+        resBranches <- withIdx.traverse { case (te, (p, tpe, idx)) =>
           if (idx != minIdx) {
             // unfortunately we have to check each branch again to get the correct coerce
-            subsCheck(resTRho, te.getType, resRegion, region(te))
+            subsCheckRho2(resTRho, tpe, resRegion, region(te))
               .map { coerce =>
                 (p, coerce(te)) 
               }
@@ -990,7 +987,7 @@ object Infer {
         tres <- extendEnvList(bindings)(checkRho(res, resT))
       } yield (pattern, tres)
 
-    def inferBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A]): Infer[(Pattern, TypedExpr.Rho[A])] =
+    def inferBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A]): Infer[(Pattern, (TypedExpr.Rho[A], Type.Rho))] =
       for {
         patBind <- typeCheckPattern(p, sigma, region(res))
         (pattern, bindings) = patBind
@@ -1258,10 +1255,32 @@ object Infer {
             }
         }
 
+        /**
+          * if meta is Some, it is because it recursive, but those are almost
+          * always functions, so we can at least fix the arity of the function.
+          */
+        val init: Infer[Unit] = 
+          meta match {
+            case Some((_, tpe, rtpe)) =>
+              def maybeUnified(e: Expr[A]): Infer[Unit] =
+                e match {
+                  case Expr.Annotation(e1, t, _) =>
+                    unifyType(tpe, t, rtpe, region(e)) *> maybeUnified(e1)
+                  case Expr.Lambda(args, res, _) =>
+                    unifyFn(args.length, tpe, rtpe, region(e) - region(res)).void
+                  case _ =>
+                    // we just have to wait to infer
+                    unit
+                }
+
+              maybeUnified(e)
+            case None => unit
+          }
+
       for {
-        rho <- inferRho(e)
-        expTy = rho.getType
-        expTyRho <- assertRho(expTy, s"must be rho since $rho is a TypedExpr.Rho", region(e))
+        _ <- init
+        rhoT <- inferRho(e)
+        (rho, expTyRho) = rhoT
         envTys <- unifySelf(expTyRho)
         q <- TypedExpr.quantify(envTys, rho, zonk(_), { (m, n) =>
           // quantify guarantees that the kind of n matches m
@@ -1301,12 +1320,17 @@ object Infer {
     /**
      * recall a rho type never has a top level Forall
      */
-    def inferRho[A: HasRegion](t: Expr[A]): Infer[TypedExpr.Rho[A]] =
+    def inferRho[A: HasRegion](t: Expr[A]): Infer[(TypedExpr.Rho[A], Type.Rho)] =
       for {
         ref <- initRef[(Type.Rho, Region)](Error.InferIncomplete("inferRho", t, region(t)))
         expr <- typeCheckRho(t, Expected.Inf(ref))
-        _ <- lift(ref.reset) // we don't need this ref, and it does not escape, so reset
-      } yield expr
+        // we don't need this ref, and it does not escape, so reset
+        eitherTpe <- lift(ref.get <* ref.reset)
+        tpe <- eitherTpe match {
+          case Right(rho) => pure(rho._1)
+          case Left(err) => fail(err)
+        }
+      } yield (expr, tpe)
   }
 
   private def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =

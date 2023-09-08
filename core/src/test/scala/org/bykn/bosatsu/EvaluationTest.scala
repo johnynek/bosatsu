@@ -1567,6 +1567,27 @@ main = fn(0, 1, 2)
       ()
     }
 
+    // we should have the region set inside
+      val code1571 = """
+package A
+
+def fn(x):
+  recur x:
+    case []: 0
+    case [_, *y]: fn(y, 1)
+
+main = fn([1, 2])
+"""
+    evalFail(code1571 :: Nil) { case te@PackageError.TypeErrorIn(_, _) =>
+      // Make sure we point at the function directly
+      assert(code1571.substring(67, 69) == "fn")
+      assert(te.message(Map.empty, Colorize.None)
+        .contains("the first type is a function with one argument and the second is a function with 2 arguments"))
+      assert(te.message(Map.empty, Colorize.None)
+        .contains("Region(67,69)"))
+      ()
+    }
+
     evalFail(
       List("""
 package A
@@ -2862,7 +2883,7 @@ def quick_sort0(cmp, left, right):
 """)) { case kie@PackageError.TypeErrorIn(_, _) =>
       assert(kie.message(Map.empty, Colorize.None) ==
       """in file: <unknown source>, package QS
-type error: expected type Bosatsu/Predef::Fn3[(?39, ?37) -> Bosatsu/Predef::Comparison] to be the same as type Bosatsu/Predef::Fn2
+type error: expected type Bosatsu/Predef::Fn3[(?43, ?41) -> Bosatsu/Predef::Comparison] to be the same as type Bosatsu/Predef::Fn2
 hint: the first type is a function with 3 arguments and the second is a function with 2 arguments.
 Region(396,450)""")
       ()

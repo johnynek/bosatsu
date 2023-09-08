@@ -5,6 +5,10 @@ import cats.{Order, Semigroup}
 case class Region(start: Int, end: Int) {
   def +(that: Region): Region =
     Region(start, that.end)
+
+  def -(that: Region): Region =
+    if (start < that.start && that.start <= end) Region(start, that.start - 1)
+    else this
 }
 
 object Region {
