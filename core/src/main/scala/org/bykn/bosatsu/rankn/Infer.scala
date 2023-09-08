@@ -967,7 +967,7 @@ object Infer {
         resBranches <- withIdx.traverse { case (te, (p, tpe, idx)) =>
           if (idx != minIdx) {
             // unfortunately we have to check each branch again to get the correct coerce
-            subsCheck(resTRho, tpe, resRegion, region(te))
+            subsCheckRho2(resTRho, tpe, resRegion, region(te))
               .map { coerce =>
                 (p, coerce(te)) 
               }
