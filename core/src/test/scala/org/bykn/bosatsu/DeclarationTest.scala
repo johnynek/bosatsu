@@ -2,7 +2,10 @@ package org.bykn.bosatsu
 
 import cats.data.NonEmptyList
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 
 import Identifier.Bindable
 
@@ -14,27 +17,32 @@ class DeclarationTest extends AnyFunSuite {
   import Generators.shrinkDecl
 
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
-    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 200 else 20)
-    //PropertyCheckConfiguration(minSuccessful = 50)
+    // PropertyCheckConfiguration(minSuccessful = 5000)
+    PropertyCheckConfiguration(minSuccessful =
+      if (Platform.isScalaJvm) 200 else 20
+    )
+  // PropertyCheckConfiguration(minSuccessful = 50)
 
   implicit val emptyRegion: Region = Region(0, 0)
 
   val genDecl = Generators.genDeclaration(depth = 4)
 
   lazy val genNonFree: Gen[Declaration.NonBinding] =
-   genDecl.flatMap {
-     case decl: Declaration.NonBinding if decl.freeVars.isEmpty => Gen.const(decl)
-     case _ => genNonFree
-   }
-
+    genDecl.flatMap {
+      case decl: Declaration.NonBinding if decl.freeVars.isEmpty =>
+        Gen.const(decl)
+      case _ => genNonFree
+    }
 
   test("freeVarsSet is a subset of allVars") {
     forAll(genDecl) { decl =>
       val frees = decl.freeVars
       val av = decl.allNames
       val missing = frees -- av
-      assert(missing.isEmpty, s"expression:\n\n${decl}\n\nallVars: $av\n\nfrees: $frees")
+      assert(
+        missing.isEmpty,
+        s"expression:\n\n${decl}\n\nallVars: $av\n\nfrees: $frees"
+      )
     }
   }
 
@@ -53,8 +61,10 @@ class DeclarationTest extends AnyFunSuite {
               val d1Str = d1.toDoc.render(80)
               val dSubStr = d0sub.toDoc.render(80)
 
-              assert(!d0sub.freeVars.contains(b),
-                s"subs:\n\n$d0Str\n\n===============\n\n$d1Str===============\n\n$dSubStr")
+              assert(
+                !d0sub.freeVars.contains(b),
+                s"subs:\n\n$d0Str\n\n===============\n\n$d1Str===============\n\n$dSubStr"
+              )
           }
       }
     }
@@ -67,11 +77,11 @@ class DeclarationTest extends AnyFunSuite {
         lazy val notFree: Gen[Bindable] =
           Generators.bindIdentGen.flatMap {
             case b if frees(b) => notFree
-            case b => Gen.const(b)
+            case b             => Gen.const(b)
           }
 
         notFree.map((decl, _))
-     }
+      }
 
     def law(b: Bindable, d1: Declaration.NonBinding, d0: Declaration) = {
       val frees = d0.freeVars
@@ -90,8 +100,7 @@ class DeclarationTest extends AnyFunSuite {
 
               // there must be some diff
               val diffPos =
-                left
-                  .iterator
+                left.iterator
                   .zip(right.iterator)
                   .zipWithIndex
                   .dropWhile { case ((a, b), _) => a == b }
@@ -102,7 +111,8 @@ class DeclarationTest extends AnyFunSuite {
               val leftAt = left.drop(diffPos).take(50)
               val rightAt = right.drop(diffPos).take(50)
               val diff = s"offset: $diffPos$line$leftAt\n\n$line$rightAt"
-              val msg = s"left$line${left}\n\nright$line$right\n\ndiff$line$diff"
+              val msg =
+                s"left$line${left}\n\nright$line$right\n\ndiff$line$diff"
               assert(false, msg)
           }
         }
@@ -123,10 +133,68 @@ class DeclarationTest extends AnyFunSuite {
           val b = Identifier.Backticked("")
           val d1 = Literal(Lit.fromInt(0))
           val d0 = DefFn(
-            DefStatement(Name("mfLjwok"),None, NonEmptyList.of(Pattern.Var(Name("foo"))),None,
-              (NotSameLine(Padding(10,Indented(10,Var(Backticked(""))))),
-                Padding(10,Binding(BindingStatement(
-                  Pattern.Var(Backticked("")),Var(Constructor("Rgt")),Padding(1,DefFn(DefStatement(Backticked(""),None,NonEmptyList.of(Pattern.Var(Name("bar"))),None,(NotSameLine(Padding(2,Indented(4,Literal(Lit.fromInt(42))))),Padding(2,DefFn(DefStatement(Name("gkxAckqpatu"),None, NonEmptyList.of(Pattern.Var(Name("quux"))),Some(TypeRef.TypeName(TypeName(Constructor("Y")))),(NotSameLine(Padding(6,Indented(8,Literal(Lit("oimsu"))))),Padding(2,Var(Name("j")))))))))))))))))
+            DefStatement(
+              Name("mfLjwok"),
+              None,
+              NonEmptyList.of(Pattern.Var(Name("foo"))),
+              None,
+              (
+                NotSameLine(Padding(10, Indented(10, Var(Backticked(""))))),
+                Padding(
+                  10,
+                  Binding(
+                    BindingStatement(
+                      Pattern.Var(Backticked("")),
+                      Var(Constructor("Rgt")),
+                      Padding(
+                        1,
+                        DefFn(
+                          DefStatement(
+                            Backticked(""),
+                            None,
+                            NonEmptyList.of(Pattern.Var(Name("bar"))),
+                            None,
+                            (
+                              NotSameLine(
+                                Padding(
+                                  2,
+                                  Indented(4, Literal(Lit.fromInt(42)))
+                                )
+                              ),
+                              Padding(
+                                2,
+                                DefFn(
+                                  DefStatement(
+                                    Name("gkxAckqpatu"),
+                                    None,
+                                    NonEmptyList.of(Pattern.Var(Name("quux"))),
+                                    Some(
+                                      TypeRef.TypeName(
+                                        TypeName(Constructor("Y"))
+                                      )
+                                    ),
+                                    (
+                                      NotSameLine(
+                                        Padding(
+                                          6,
+                                          Indented(8, Literal(Lit("oimsu")))
+                                        )
+                                      ),
+                                      Padding(2, Var(Name("j")))
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
 
           (b, d1, d0)
         }
@@ -141,7 +209,7 @@ class DeclarationTest extends AnyFunSuite {
       genDecl.flatMap { decl =>
         val frees = decl.freeVars.toList
         frees match {
-          case Nil => genFrees
+          case Nil      => genFrees
           case nonEmpty => Gen.oneOf(nonEmpty).map((decl, _))
         }
       }
@@ -178,13 +246,17 @@ class DeclarationTest extends AnyFunSuite {
       val resD = res.map(unsafeParse(Declaration.parser(""), _))
       val b = unsafeParse(Identifier.bindableParser, bStr)
 
-
       assert(Declaration.substitute(b, d1.toNonBinding, d0) == resD)
     }
 
-    law("b", "12", """x = b
-x""", Some("""x = 12
-x"""))
+    law(
+      "b",
+      "12",
+      """x = b
+x""",
+      Some("""x = 12
+x""")
+    )
 
     law("b", "12", """[x for b in y]""", Some("""[x for b in y]"""))
     law("b", "12", """[b for z in y]""", Some("""[12 for z in y]"""))
@@ -209,8 +281,16 @@ x"""))
     law("[a for b in c if b]", List("a", "c"), List("a", "b", "c"))
     law("[b for b in c if d]", List("c", "d"), List("b", "c", "d"))
     law("[b for b in c if b]", List("c"), List("b", "c"))
-    law("{ k: a for b in c if d}", List("k", "a", "c", "d"), List("k", "a", "b", "c", "d"))
-    law("{ k: a for b in c if b}", List("k", "a", "c"), List("k", "a", "b", "c"))
+    law(
+      "{ k: a for b in c if d}",
+      List("k", "a", "c", "d"),
+      List("k", "a", "b", "c", "d")
+    )
+    law(
+      "{ k: a for b in c if b}",
+      List("k", "a", "c"),
+      List("k", "a", "b", "c")
+    )
     law("Foo { a }", List("a"), List("a"))
     law("Foo { a: b }", List("b"), List("b"))
   }
