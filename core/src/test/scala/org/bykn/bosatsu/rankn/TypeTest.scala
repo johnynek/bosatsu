@@ -155,7 +155,7 @@ class TypeTest extends AnyFunSuite {
 
     val ta = Type.TyVar(ba)
     val tb = Type.TyVar(bb)
-    val fb = Type.Fun(ta, tb)
+    val fb = Type.Fun(NonEmptyList.one(ta), tb)
     assert(Type.freeTyVars(fb :: ta :: Nil) == List(ba, bb))
     assert(Type.freeTyVars(fb :: tb :: Nil) == List(ba, bb))
   }
@@ -225,27 +225,21 @@ class TypeTest extends AnyFunSuite {
     forAll(NTypeGen.genDepth03, genSubs(3))(law _)
   }
 
-  test("test Fun.uncurry") {
-    def b(s: String) = Type.TyVar(Type.Var.Bound(s))
+  test("Fun(ts, r) and Fun.unapply are inverses") {
+    val genArgs = for {
+      cnt <- Gen.choose(0, Type.FnType.MaxSize - 1)
+      head <- NTypeGen.genDepth03
+      tail <- Gen.listOfN(cnt, NTypeGen.genDepth03)
+    } yield NonEmptyList(head, tail)
 
-    import Type.Fun.{uncurry, curry}
-    assert(uncurry(b("a")) == None)
-
-    assert(uncurry(Type.Fun(b("a"), b("b"))) == Some((NonEmptyList.of(b("a")), b("b"))))
-    assert(curry(NonEmptyList.of(b("a")), b("b")) == Type.Fun(b("a"), b("b")))
-
-    assert(uncurry(Type.Fun(b("a"), Type.Fun(b("b"), b("c")))) == Some((NonEmptyList.of(b("a"), b("b")), b("c"))))
-    assert(curry(NonEmptyList.of(b("a"), b("b")), b("c")) == Type.Fun(b("a"), Type.Fun(b("b"), b("c"))))
-
-    forAll(NTypeGen.genDepth03) { t =>
-      assert(Type.Fun.arity(t) >= 0)
-
-      uncurry(t) match {
-        case Some((a, r)) =>
-          assert(Type.Fun.arity(t) == a.length)
-          assert(curry(a, r) == t)
-        case None =>
-          ()
+    forAll(genArgs, NTypeGen.genDepth03) { (args, res) =>
+      val fnType = Type.Fun(args, res)  
+      fnType match {
+        case Type.Fun(args1, res1) =>
+          assert(args1 == args)
+          assert(res1 == res)
+        case _ =>
+          fail(s"fnType didn't match Fun")
       }
     }
   }

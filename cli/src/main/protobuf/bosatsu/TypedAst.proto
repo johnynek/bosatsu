@@ -165,8 +165,8 @@ message AnnotationExpr {
 }
 
 message LambdaExpr {
-  int32 varName = 1;
-  int32 typeOfVar = 2;
+  repeated int32 varName = 1;
+  repeated int32 typeOfVar = 2;
   int32 resultExpr = 3;
 }
 
@@ -178,7 +178,7 @@ message VarExpr {
 
 message AppExpr {
   int32 fnExpr = 1;
-  int32 argExpr = 2;
+  repeated int32 argExpr = 2;
   int32 resultType = 3;
 }
 

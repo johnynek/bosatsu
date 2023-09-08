@@ -156,17 +156,12 @@ object PathModule extends MainModule[IO] {
     }
 
   def reportException(ex: Throwable): IO[Unit] =
-    ex match {
-      case PathModule.MainException.NoInputs(cmd) =>
-        val name = cmd.name
-        IO.consoleForIO.errorln(s"no inputs given to $name")
-      case pe @ PathModule.MainException.ParseErrors(_, _, _) =>
-        IO.consoleForIO.errorln(pe.messages.mkString("\n"))
-      case pe @ PathModule.MainException.PackageErrors(_, _, _, _) =>
-        IO.consoleForIO.errorln(pe.messages.mkString("\n"))
-      case err =>
+    mainExceptionToString(ex) match {
+      case Some(msg) =>
+        IO.consoleForIO.errorln(msg)
+      case None =>
         IO.consoleForIO.errorln("unknown error:\n") *>
-          IO(err.printStackTrace(System.err))
+          IO(ex.printStackTrace(System.err))
     }
 
   def pathPackage(roots: List[Path], packFile: Path): Option[PackageName] = {

@@ -118,7 +118,7 @@ def times_BinNat(left: BinNat, right: BinNat) -> BinNat:
 
 # fold(fn, a, Zero) = a
 # fold(fn, a, n) = fold(fn, fn(a, n - 1), n - 1)
-def fold_left_BinNat(fn: a -> BinNat -> a, init: a, cnt: BinNat) -> a:
+def fold_left_BinNat(fn: (a, BinNat) -> a, init: a, cnt: BinNat) -> a:
   # use the Nat as a trick to prove termination
   def loop(init: a, cnt: BinNat, cnt_Nat: Nat) -> a:
     recur cnt_Nat:

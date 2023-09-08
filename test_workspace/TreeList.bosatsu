@@ -9,7 +9,7 @@ enum Tree:
   Single(a: a)
   Branch(size: Int, head: a, left: Tree[a], right: Tree[a])
 
-def foldTree(t: Tree[a], init: b, fn: b -> a -> b) -> b:
+def foldTree(t: Tree[a], init: b, fn: (b, a) -> b) -> b:
   # performance is better if we minimize the scope.
   # this is a good candidate for optimization to fix
   # this issue...
@@ -82,7 +82,7 @@ def get(TreeList(trees): TreeList[a], idx: Int) -> Option[a]:
 def from_List(list: List[a]) -> TreeList[a]:
   list.reverse().foldLeft(empty, \lst, h -> cons(h, lst))
 
-def fold(TreeList(trees): TreeList[a], init: b, fn: b -> a -> b) -> b:
+def fold(TreeList(trees): TreeList[a], init: b, fn: (b, a) -> b) -> b:
   def loop(trees, init):
     recur trees:
       []: init
@@ -111,9 +111,9 @@ def eq_Opt(fn, a, b):
     (None, None): True
     _: False
 
-eq_oi = eq_Opt(eq_Int)
-eq_ti = eq_TreeList(eq_Int)
-eq_li = eq_List(eq_Int)
+eq_oi = (a, b) -> eq_Opt(eq_Int, a, b)
+eq_ti = (a, b) -> eq_TreeList(eq_Int, a, b)
+eq_li = (a, b) -> eq_List(eq_Int, a, b)
 
 operator +/ = cons
 

@@ -26,11 +26,11 @@ sealed abstract class ExportedName[+T] { self: Product =>
      this match {
        case ExportedName.Binding(n, _) =>
          letValue.map { tpe =>
-           NonEmptyList(ExportedName.Binding(n, Referant.Value(tpe)), Nil)
+           NonEmptyList.one(ExportedName.Binding(n, Referant.Value(tpe)))
          }
        case ExportedName.TypeName(nm, _) =>
          definedType.map { dt =>
-           NonEmptyList(ExportedName.TypeName(nm, Referant.DefinedT(dt)), Nil)
+           NonEmptyList.one(ExportedName.TypeName(nm, Referant.DefinedT(dt)))
          }
        case ExportedName.Constructor(nm, _) =>
          // export the type and all constructors

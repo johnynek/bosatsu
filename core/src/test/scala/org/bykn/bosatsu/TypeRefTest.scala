@@ -30,7 +30,7 @@ class TypeRefTest extends AnyFunSuite {
           case _ => None
         })
 
-      assert(tr1 == Some(tr.normalizeForAll))
+      assert(tr1 == Some(tr.normalizeForAll), s"tpe = $tpe")
     }
   }
 }

@@ -69,6 +69,9 @@ object TypedExprNormalization {
       case s@Some(_) => s
     }
 
+  private def setType[A](expr: TypedExpr[A], tpe: Type): TypedExpr[A] =
+    if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe) else expr
+
   /**
    * if the te is not in normal form, transform it into normal form
    */
@@ -122,23 +125,29 @@ object TypedExprNormalization {
             else Some(Annotation(notSameTpe, nt))
         }
 
-      case AnnotatedLambda(arg, tpe0, expr, tag) =>
-        val tpe = Type.normalize(tpe0)
+      case AnnotatedLambda(lamArgs0, expr, tag) =>
+        val lamArgs = lamArgs0.map { case (n, tpe0) => n -> Type.normalize(tpe0) }
+        def doesntUseArgs(te: TypedExpr[A]): Boolean =
+          lamArgs.forall { case (n, _) => te.notFree(n) }
+
+        // assuming b is bound below lamArgs, return true if it doesn't shadow an arg
+        def doesntShadow(b: Bindable): Boolean =
+          !lamArgs.exists { case (n, _) => n === b }
+        
+        def matchesArgs(nel: NonEmptyList[TypedExpr[A]]): Boolean =
+          (nel.length == lamArgs.length) && lamArgs.iterator.zip(nel.iterator).forall {
+            case ((lamN, _), Local(argN, _, _)) => lamN === argN
+            case _ => false
+          }
+
         // we can normalize the arg to the smallest non-free var
         // x -> f(x) == f (eta conversion)
         // x -> generic(g) = generic(x -> g) if the type of x doesn't have free types with vars
         val e1 = normalize1(None, expr, scope, typeEnv).get
         e1 match {
-          case App(fn, Local(ident, _, _), _, _) if ident === arg && fn.notFree(ident) =>
-            // if ident is not free in fn we can return fn
-            val tetpe = te.getType
-            normalize1(None, {
-              if (fn.getType.sameAs(tetpe)) fn
-              else Annotation(fn, tetpe)
-            },
-            scope,
-            typeEnv)
-          case Let(arg1, ex, in, rec, tag1) if ex.notFree(arg) =>
+          case App(fn, aargs, _, _) if matchesArgs(aargs) && doesntUseArgs(fn) =>
+            normalize1(None, setType(fn, te.getType), scope, typeEnv)
+          case Let(arg1, ex, in, rec, tag1) if doesntUseArgs(ex) && doesntShadow(arg1) =>
             // x ->
             //   y = z
             //   f(y)
@@ -147,24 +156,26 @@ object TypedExprNormalization {
             //x -> f(y)
             //avoid recomputing y
             //TODO: we could reorder Lets if we have several in a row
-            normalize1(None, Let(arg1, ex, AnnotatedLambda(arg, tpe, in, tag), rec, tag1), scope, typeEnv)
-          case m@Match(arg1, branches, tag1) if arg1.notFree(arg) =>
+            normalize1(None, Let(arg1, ex, AnnotatedLambda(lamArgs, in, tag), rec, tag1), scope, typeEnv)
+          case m@Match(arg1, branches, tag1) if lamArgs.forall { case (arg, _) => arg1.notFree(arg) } =>
             // same as above: if match does not depend on lambda arg, lift it out
               val b1 = branches.traverse { case (p, b) =>
-                if (!p.names.contains(arg)) Some((p, AnnotatedLambda(arg, tpe, b, tag)))
+                if (!lamArgs.exists { case (arg, _) => p.names.contains(arg) }) {
+                  Some((p, AnnotatedLambda(lamArgs, b, tag)))
+                }
                 else None
               }
               b1 match {
                 case None =>
-                  if ((m eq expr) && (tpe == tpe0)) None
-                  else Some(AnnotatedLambda(arg, tpe, m, tag))
+                  if ((m eq expr) && (lamArgs === lamArgs0)) None
+                  else Some(AnnotatedLambda(lamArgs, m, tag))
                 case Some(bs) =>
                   val m1 = Match(arg1, bs, tag1)
                   normalize1(namerec, m1, scope, typeEnv)
               }
           case notApp =>
-            if ((notApp eq expr) && (tpe == tpe0)) None
-            else Some(AnnotatedLambda(arg, tpe, notApp, tag))
+            if ((notApp eq expr) && (lamArgs === lamArgs0)) None
+            else Some(AnnotatedLambda(lamArgs, notApp, tag))
         }
       case Global(p, n: Constructor, tpe0, tag) =>
         val tpe = Type.normalize(tpe0)
@@ -176,7 +187,7 @@ object TypedExprNormalization {
       case Global(p, n: Bindable, tpe0, tag) =>
         scope.getGlobal(p, n).flatMap {
           case (RecursionKind.NonRecursive, te, _) if Impl.isSimple(te, lambdaSimple = false) =>
-            // for a reason I don't understand, inlining lambdas here causes a stack overflow
+            // TODO for a reason I don't understand, inlining lambdas here causes a stack overflow
             // there is probably something somewhat unsound about this substitution that I don't understand
             Some(te)
           case _ =>
@@ -192,23 +203,27 @@ object TypedExprNormalization {
         val tpe = Type.normalize(tpe0)
         if (tpe == tpe0) None
         else Some(Local(n, tpe, tag))
-      case App(fn, arg, tpe0, tag) =>
+      case App(fn, args, tpe0, tag) =>
         val tpe = Type.normalize(tpe0)
         val f1 = normalize1(None, fn, scope, typeEnv).get
-        lazy val a1 = normalize1(None, arg, scope, typeEnv).get
+        // the second and third branches use this but the first doesn't
+        // make it lazy so we don't recurse more than needed
+        lazy val a1 = args.map(normalize1(None, _, scope, typeEnv).get)
         val ws = Impl.WithScope(scope)
         f1 match {
-          case ws.ResolveToLambda(b, ltpe, expr, _) =>
+          case ws.ResolveToLambda(lamArgs, expr, _) =>
             // (y -> z)(x) = let y = x in z
-            val a2 = if (!ltpe.sameAs(arg.getType)) Annotation(arg, ltpe) else arg
-            val expr2 = if (!tpe.sameAs(expr.getType)) Annotation(expr, tpe) else expr
-            val l = Let(b, a2, expr2, RecursionKind.NonRecursive, tag)
+            val lets = lamArgs.zip(args).map {
+              case ((n, ltpe), arg) => (n, setType(arg, ltpe))
+            }
+            val expr2 = setType(expr, tpe)
+            val l = TypedExpr.letAllNonRec(lets, expr2, tag)
             normalize1(namerec, l, scope, typeEnv)
-          case Let(arg1, ex, in, rec, tag1) if a1.notFree(arg1) =>
+          case Let(arg1, ex, in, rec, tag1) if a1.forall(_.notFree(arg1)) =>
               // (app (let x y z) w) == (let x y (app z w)) if w does not have x free
               normalize1(namerec, Let(arg1, ex, App(in, a1, tpe, tag), rec, tag1), scope, typeEnv)
           case _ =>
-            if ((f1 eq fn) && (a1 eq arg) && (tpe == tpe0)) None
+            if ((f1 eq fn) && (a1 == args) && (tpe == tpe0)) None
             else Some(App(f1, a1, tpe, tag))
         }
       case Let(arg, ex, in, rec, tag) =>
@@ -361,19 +376,21 @@ object TypedExprNormalization {
 
     case class WithScope[A](scope: Scope[A]) {
       object ResolveToLambda {
-        def unapply(te: TypedExpr[A]): Option[(Bindable, Type, TypedExpr[A], A)] =
+        def unapply(te: TypedExpr[A]): Option[(NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
           te match {
-            case AnnotatedLambda(b, ltpe, expr, ltag) => Some((b, ltpe, expr, ltag))
+            case AnnotatedLambda(args, expr, ltag) => Some((args, expr, ltag))
             case Global(p, n: Bindable, _, _) =>
               scope.getGlobal(p, n).flatMap {
                 case (RecursionKind.NonRecursive, te, scope1) =>
                   val s1 = WithScope(scope1)
                   te match {
-                    case s1.ResolveToLambda(b0, ltpe, expr, ltag) =>
+                    case s1.ResolveToLambda(args, expr, ltag) =>
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
-                      if (scopeMatches(expr.freeVarsDup.toSet - b0, scope, scope1)) Some((b0, ltpe, expr, ltag))
+                      if (scopeMatches(expr.freeVarsDup.toSet -- args.iterator.map(_._1), scope, scope1)) {
+                        Some((args, expr, ltag))
+                      }
                       else None
                     case _ => None
                   }
@@ -384,11 +401,13 @@ object TypedExprNormalization {
                 case (RecursionKind.NonRecursive, te, scope1) =>
                   val s1 = WithScope(scope1)
                   te match {
-                    case s1.ResolveToLambda(b0, ltpe, expr, ltag) =>
+                    case s1.ResolveToLambda(args, expr, ltag) =>
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
-                      if (scopeMatches(expr.freeVarsDup.toSet - b0, scope, scope1)) Some((b0, ltpe, expr, ltag))
+                      if (scopeMatches(expr.freeVarsDup.toSet -- args.iterator.map(_._1), scope, scope1)) {
+                        Some((args, expr, ltag))
+                      }
                       else None
                     case _ => None
                   }
@@ -405,7 +424,7 @@ object TypedExprNormalization {
         case Literal(_, _, _) | Local(_, _, _) | Global(_, _, _, _) => true
         case Annotation(t, _) => isSimple(t, lambdaSimple)
         case Generic(_, t) => isSimple(t, lambdaSimple)
-        case AnnotatedLambda(_, _, _, _) =>
+        case AnnotatedLambda(_, _, _) =>
           // maybe inline lambdas so we can possibly
           // apply (x -> f)(g) => let x = g in f
           lambdaSimple
@@ -421,13 +440,7 @@ object TypedExprNormalization {
     object FnArgs {
       def unapply[A](te: TypedExpr[A]): Option[(TypedExpr[A], NonEmptyList[TypedExpr[A]])] =
         te match {
-          case App(fn, arg, _, _) =>
-            unapply(fn) match {
-              case None =>
-                Some((fn, NonEmptyList(arg, Nil)))
-              case Some((fn0, args)) =>
-                Some((fn0, args :+ arg))
-            }
+          case App(fn, args, _, _) => Some((fn, args))
           case _ => None
         }
     }
@@ -548,7 +561,7 @@ object TypedExprNormalization {
                         Let(b, a, tr, RecursionKind.NonRecursive, m.tag)
                       case _ =>
                         // This will get simplified later
-                        Match(a, NonEmptyList((p, tr), Nil), m.tag)
+                        Match(a, NonEmptyList.one((p, tr)), m.tag)
                     }
                 }
 

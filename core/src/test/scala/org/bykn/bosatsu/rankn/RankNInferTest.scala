@@ -92,7 +92,7 @@ class RankNInferTest extends AnyFunSuite {
   def let(n: String, expr: Expr[Unit], in: Expr[Unit]): Expr[Unit] =
     Let(Identifier.Name(n), expr, in, RecursionKind.NonRecursive, ())
   def lambda(arg: String, result: Expr[Unit]): Expr[Unit] =
-    Lambda(Identifier.Name(arg), None, result, ())
+    Lambda(NonEmptyList.one((Identifier.Name(arg), None)), result, ())
   def v(name: String): Expr[Unit] =
     Identifier.unsafe(name) match {
       case c@Identifier.Constructor(_) => Global(testPackage, c, ())
@@ -100,9 +100,9 @@ class RankNInferTest extends AnyFunSuite {
     }
   def ann(expr: Expr[Unit], t: Type): Expr[Unit] = Annotation(expr, t, ())
 
-  def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, arg, ())
+  def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, NonEmptyList.one(arg), ())
   def alam(arg: String, tpe: Type, res: Expr[Unit]): Expr[Unit] =
-    Lambda(Identifier.Name(arg), Some(tpe), res, ())
+    Lambda(NonEmptyList.one((Identifier.Name(arg), Some(tpe))), res, ())
 
   def ife(cond: Expr[Unit], ift: Expr[Unit], iff: Expr[Unit]): Expr[Unit] = Expr.ifExpr(cond, ift, iff, ())
   def matche(arg: Expr[Unit], branches: NonEmptyList[(Pattern[String, Type], Expr[Unit])]): Expr[Unit] =
@@ -522,7 +522,7 @@ main = match x:
 enum Opt:
   None, Some(a)
 
-struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
 
 def optBind(opt, bindFn):
   match opt:
@@ -536,7 +536,7 @@ main = Monad(Some, optBind)
 enum Opt:
   None, Some(a)
 
-struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
 
 def opt_bind(opt, bind_fn):
   match opt:
@@ -552,7 +552,7 @@ def use_bind(m, a, b, c):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  bind(a1)(_ -> bind(b1)(_ -> c1))
+  a1.bind(_ -> b1.bind(_ -> c1))
 
 main = use_bind(option_monad, None, None, None)
 """, "forall a. Opt[a]")
@@ -567,7 +567,7 @@ main = use_bind(option_monad, None, None, None)
 enum Opt:
   None, Some(a)
 
-struct Monad(pure: forall a. a -> f[a], bind: forall a, b. f[a] -> (a -> f[b]) -> f[b])
+struct Monad(pure: forall a. a -> f[a], bind: forall a, b. (f[a], a -> f[b]) -> f[b])
 
 def opt_bind(opt, bind_fn):
   match opt:
@@ -583,7 +583,7 @@ def use_bind(a, b, c, m):
   a1 = bind(a, pure)
   b1 = bind(b, pure)
   c1 = bind(c, pure)
-  bind(a1)(_ -> bind(b1)(_ -> c1))
+  a1.bind(_ -> b1.bind(_ -> c1))
 
 main = use_bind(None, None, None, option_monad)
 """, "forall a. Opt[a]")

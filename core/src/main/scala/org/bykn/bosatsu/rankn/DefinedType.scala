@@ -7,6 +7,7 @@ import scala.collection.immutable.SortedMap
 import Identifier.Constructor
 
 import cats.implicits._
+import cats.data.NonEmptyList
 
 final case class DefinedType[+A](
   packageName: PackageName,
@@ -80,29 +81,28 @@ final case class DefinedType[+A](
       case _ => DataFamily.Enum
   }
 
+  private def toAnnotatedKinds(implicit ev: A <:< Kind.Arg): List[(Type.Var.Bound, Kind.Arg)] = {
+    type L[+X] = List[(Type.Var.Bound, X)]
+    ev.substituteCo[L](annotatedTypeParams)
+  }
+
   def fnTypeOf(cf: ConstructorFn)(implicit ev: A <:< Kind.Arg): Type = {
     // evidence to prove that we only ask for this after inference
     val tc: Type = Type.const(packageName, name)
 
-    val dtTypeParams = annotatedTypeParams.map(_._1)
-    def loop(params: List[Type]): Type =
-       params match {
-         case Nil =>
-           dtTypeParams.foldLeft(tc) { (res, v) =>
-             Type.TyApply(res, Type.TyVar(v))
-           }
-         case h :: tail =>
-           Type.Fun(h, loop(tail))
-       }
-
-    val resT = loop(cf.args.map(_._2))
-    val typeArgs = annotatedTypeParams.map { case (b, ka) => (b, ev(ka).kind) }
+    val res = typeParams.foldLeft(tc) { (res, v) =>
+        Type.TyApply(res, Type.TyVar(v))
+      }
+    val resT = NonEmptyList.fromList(cf.args.map(_._2)) match {
+      case Some(nel) => Type.Fun(nel, res)
+      case None => res
+    }
+    val typeArgs = toAnnotatedKinds.map { case (b, ka) => (b, ka.kind) }
     Type.forAll(typeArgs, resT)
   }
 
-  def kindOf(implicit ev: A <:< Kind.Arg): Kind = {
-    Kind(annotatedTypeParams.map { case (_, ka) => ev(ka) }: _*)
-  }
+  def kindOf(implicit ev: A <:< Kind.Arg): Kind =
+    Kind(toAnnotatedKinds.map(_._2): _*)
 }
 
 object DefinedType {

@@ -26,8 +26,8 @@ object Expr {
     def tag = in.tag
   }
   case class Global[T](pack: PackageName, name: Identifier, tag: T) extends Name[T]
-  case class App[T](fn: Expr[T], arg: Expr[T], tag: T) extends Expr[T]
-  case class Lambda[T](arg: Bindable, tpe: Option[Type], expr: Expr[T], tag: T) extends Expr[T]
+  case class App[T](fn: Expr[T], args: NonEmptyList[Expr[T]], tag: T) extends Expr[T]
+  case class Lambda[T](args: NonEmptyList[(Bindable, Option[Type])], expr: Expr[T], tag: T) extends Expr[T]
   case class Let[T](arg: Bindable, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], Expr[T])], tag: T) extends Expr[T]
@@ -44,8 +44,8 @@ object Expr {
       case Local(name, _) => SortedSet(name)
       case Generic(_, in) => allNames(in)
       case Global(_, _, _) => SortedSet.empty
-      case App(fn, a, _) => allNames(fn) | allNames(a)
-      case Lambda(arg, _, e, _) => allNames(e) + arg
+      case App(fn, args, _) => args.foldLeft(allNames(fn))((bs, e) => bs | allNames(e))
+      case Lambda(args, e, _) => allNames(e) ++ args.toList.iterator.map(_._1)
       case Let(arg, expr, in, _, _) => allNames(expr) | allNames(in) + arg
       case Literal(_, _) => SortedSet.empty
       case Match(exp, branches, _) =>
@@ -71,12 +71,10 @@ object Expr {
   /**
    * Build an apply expression by appling these args left to right
    */
-  @annotation.tailrec
   def buildApp[A](fn: Expr[A], args: List[Expr[A]], appTag: A): Expr[A] =
     args match {
+      case head :: tail => App(fn, NonEmptyList(head, tail), appTag)
       case Nil => fn
-      case h :: tail =>
-        buildApp(App(fn, h, appTag), tail, appTag)
     }
 
   // Traverse all non-bound vars
@@ -85,15 +83,16 @@ object Expr {
       case Annotation(e, tpe, a) =>
         (traverseType(e, bound)(fn), fn(tpe, bound)).mapN(Annotation(_, _, a))
       case v: Name[T] => F.pure(v)
-      case App(f, a, t) =>
-        (traverseType(f, bound)(fn), traverseType(a, bound)(fn)).mapN(App(_, _, t))
+      case App(f, args, t) =>
+        (traverseType(f, bound)(fn), args.traverse(traverseType(_, bound)(fn))).mapN(App(_, _, t))
       case Generic(bs, in) =>
         // Seems dangerous since we are hiding from fn that the Type.TyVar inside
         // matching these are not unbound
         val bound1 = bound ++ bs.toList.iterator.map(_._1)
         traverseType(in, bound1)(fn).map(Generic(bs, _))
-      case Lambda(arg, optT, expr, t) =>
-        (optT.traverse(fn(_, bound)), traverseType(expr, bound)(fn)).mapN(Lambda(arg, _, _, t))
+      case Lambda(args, expr, t) =>
+        (args.traverse { case (n, optT) => optT.traverse(fn(_, bound)).map((n, _)) },
+          traverseType(expr, bound)(fn)).mapN(Lambda(_, _, t))
       case Let(arg, exp, in, rec, tag) =>
         (traverseType(exp, bound)(fn), traverseType(in, bound)(fn)).mapN(Let(arg, _, _, rec, tag))
       case l@Literal(_, _) => F.pure(l)
@@ -200,13 +199,13 @@ object Expr {
             f(t).map(Global(p, s, _))
           case Generic(bs, e) =>
             traverse(e)(f).map(Generic(bs, _))
-          case App(fn, a, t) =>
-            (fn.traverse(f), a.traverse(f), f(t)).mapN { (fn1, a1, b) =>
+          case App(fn, args, t) =>
+            (fn.traverse(f), args.traverse(_.traverse(f)), f(t)).mapN { (fn1, a1, b) =>
               App(fn1, a1, b)
             }
-          case Lambda(arg, tpe, expr, t) =>
+          case Lambda(args, expr, t) =>
             (expr.traverse(f), f(t)).mapN { (e1, t1) =>
-              Lambda(arg, tpe, e1, t1)
+              Lambda(args, e1, t1)
             }
           case Let(arg, exp, in, rec, tag) =>
             (exp.traverse(f), in.traverse(f), f(tag)).mapN { (e1, i1, t1) =>
@@ -228,12 +227,12 @@ object Expr {
             val b1 = foldLeft(e, b)(f)
             f(b1, tag)
           case n: Name[A] => f(b, n.tag)
-          case App(fn, a, tag) =>
+          case App(fn, args, tag) =>
             val b1 = foldLeft(fn, b)(f)
-            val b2 = foldLeft(a, b1)(f)
+            val b2 = args.foldLeft(b1) { (b1, x) => foldLeft(x, b1)(f) }
             f(b2, tag)
           case Generic(_, in) => foldLeft(in, b)(f)
-          case Lambda(_, _, expr, tag) =>
+          case Lambda(_, expr, tag) =>
             val b1 = foldLeft(expr, b)(f)
             f(b1, tag)
           case Let(_, exp, in, _, tag) =>
@@ -254,12 +253,12 @@ object Expr {
             val lb1 = foldRight(e, lb)(f)
             f(tag, lb1)
           case n: Name[A] => f(n.tag, lb)
-          case App(fn, a, tag) =>
+          case App(fn, args, tag) =>
             val b1 = f(tag, lb)
-            val b2 = foldRight(a, b1)(f)
+            val b2 = args.foldRight(b1)((a, b1) => foldRight(a, b1)(f))
             foldRight(fn, b2)(f)
           case Generic(_, in) => foldRight(in, lb)(f)
-          case Lambda(_, _, expr, tag) =>
+          case Lambda(_, expr, tag) =>
             val b1 = f(tag, lb)
             foldRight(expr, b1)(f)
           case Let(_, exp, in, _, tag) =>
@@ -291,37 +290,27 @@ object Expr {
       .map(Identifier.Name(_))
       .filterNot(allNames(body) ++ args.patternNames)
 
-    def loop(
-      args: NonEmptyList[Pattern[(PackageName, Constructor), Type]],
-      body: Expr[A]): Expr[A] = {
-
-      def makeBindBody(matchPat: Pattern[(PackageName, Constructor), Type]): (Bindable, Expr[A]) =
-        // We don't need to worry about shadowing here
-        // because we immediately match the pattern but still this is ugly
-        matchPat match {
-          case Pattern.Var(arg) =>
-            (arg, body)
-          case _ =>
-            val anonBind: Bindable = anons.next()
-            val matchBody: Expr[A] =
-              Match(Local(anonBind, outer), NonEmptyList.of((matchPat, body)), outer)
-            (anonBind, matchBody)
-        }
-
-      args match {
-        case NonEmptyList(Pattern.Annotation(pat, tpe), Nil) =>
-          val (arg, newBody) = makeBindBody(pat)
-          Expr.Lambda(arg, Some(tpe), newBody, outer)
-        case NonEmptyList(matchPat, Nil) =>
-          val (arg, newBody) = makeBindBody(matchPat)
-          Expr.Lambda(arg, None, newBody, outer)
-        case NonEmptyList(arg, h :: tail) =>
-          val body1 = loop(NonEmptyList(h, tail), body)
-          loop(NonEmptyList.of(arg), body1)
+    type P = Pattern[(PackageName, Constructor), Type]
+    def patToArg(p: P): ((Bindable, Option[Type]), Option[P]) =
+      p match {
+        case Pattern.Annotation(pat, tpe) =>
+          val ((b, _), p) = patToArg(pat)
+          ((b, Some(tpe)), p)
+        case Pattern.Var(arg) =>
+          ((arg, None), None)
+        case notSimple =>
+          val anonBind: Bindable = anons.next()
+          ((anonBind, None), Some(notSimple))
       }
-    }
 
-    loop(args, body)
+    val bindArgsWithP = args.map(patToArg)
+    val justArgs = bindArgsWithP.map(_._1)
+    val lambdaResult = bindArgsWithP.toList.foldRight(body) {
+      case (((_, _), None), body) => body
+      case (((name, _), Some(matchPat)), body) =>
+        Match(Local(name, outer), NonEmptyList.of((matchPat, body)), outer)
+    }
+    Lambda(justArgs, lambdaResult, outer)
   }
 }
 

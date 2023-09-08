@@ -310,7 +310,7 @@ object Pattern {
   def flatten[N, T](p: Pattern[N, T]): NonEmptyList[Pattern[N, T]] =
     p match {
       case Union(h, t) => NonEmptyList(h, t.toList).flatMap(flatten(_))
-      case nonU => NonEmptyList(nonU, Nil)
+      case nonU => NonEmptyList.one(nonU)
     }
 
   /**
@@ -485,7 +485,7 @@ object Pattern {
 
   object StrPat {
     val Empty: StrPat = fromLitStr("")
-    val Wild: StrPat = StrPat(NonEmptyList(StrPart.WildStr, Nil))
+    val Wild: StrPat = StrPat(NonEmptyList.one(StrPart.WildStr))
 
     def fromSeqPattern(sp: SeqPattern[Char]): StrPat = {
       def lit(rev: List[Char]): List[StrPart.LitStr] =
@@ -546,7 +546,7 @@ object Pattern {
     }
 
     def fromLitStr(s: String): StrPat =
-      StrPat(NonEmptyList(StrPart.LitStr(s), Nil))
+      StrPat(NonEmptyList.one(StrPart.LitStr(s)))
   }
 
   /**

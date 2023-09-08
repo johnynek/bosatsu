@@ -1,5 +1,6 @@
 package org.bykn.bosatsu
 
+import cats.data.NonEmptyList
 import java.math.BigInteger
 import language.experimental.macros
 
@@ -122,8 +123,7 @@ object PredefImpl {
     def loop(biValue: Value, bi: BigInteger, state: Value): Value =
       if (bi.compareTo(BigInteger.ZERO) <= 0) state
       else {
-        val fn0 = fnT(biValue).asFn
-        fn0(state) match {
+        fnT(NonEmptyList(biValue, state :: Nil)) match {
           case ConsValue(nextI, ConsValue(ConsValue(nextA, _), _)) =>
             val n = i(nextI)
             if (n.compareTo(bi) >= 0) {

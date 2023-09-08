@@ -11,7 +11,7 @@ abstract class TypeParser[A] {
    * These are the construction methods to allow parsing
    */
   protected def parseRoot: P[A]
-  protected def makeFn(in: A, out: A): A
+  protected def makeFn(in: NonEmptyList[A], out: A): A
   protected def universal(vars: NonEmptyList[(String, Option[Kind])], in: A): A
   protected def applyTypes(cons: A, args: NonEmptyList[A]): A
   protected def makeTuple(items: List[A]): A
@@ -20,7 +20,7 @@ abstract class TypeParser[A] {
    * These are deconstruction methods to allow converting to Doc
    */
   protected def unapplyRoot(a: A): Option[Doc]
-  protected def unapplyFn(a: A): Option[(A, A)]
+  protected def unapplyFn(a: A): Option[(NonEmptyList[A], A)]
   protected def unapplyUniversal(a: A): Option[(List[(String, Option[Kind])], A)]
   protected def unapplyTypeApply(a: A): Option[(A, List[A])]
   protected def unapplyTuple(a: A): Option[List[A]]
@@ -61,14 +61,16 @@ abstract class TypeParser[A] {
         .map { right =>
           {
             case MaybeTupleOrParens.Bare(a) =>
-              MaybeTupleOrParens.Bare(makeFn(a, right))
+              MaybeTupleOrParens.Bare(makeFn(NonEmptyList.one(a), right))
             case MaybeTupleOrParens.Parens(a) =>
-              MaybeTupleOrParens.Bare(makeFn(a, right))
+              MaybeTupleOrParens.Bare(makeFn(NonEmptyList.one(a), right))
             case MaybeTupleOrParens.Tuple(items) =>
-              // TODO: this will become a functionN
-              // for now, make it a -> b -> c ...
-              // since we can't easily fail parsing here
-              MaybeTupleOrParens.Bare(items.foldRight(right)(makeFn))
+              val args = NonEmptyList.fromList(items) match {
+                case None => NonEmptyList.one(makeTuple(Nil))
+                case Some(nel) => nel
+              }
+              // We know th
+              MaybeTupleOrParens.Bare(makeFn(args, right))
           }
         }
 
@@ -100,13 +102,21 @@ abstract class TypeParser[A] {
 
     unapplyFn(a) match {
       case None => ()
-      case Some((in, out)) =>
-        val din = toDoc(in)
-        val dout = spaceArrow + toDoc(out)
-        return unapplyFn(in).orElse(unapplyUniversal(in)).orElse(unapplyTuple(in)) match {
-          case Some(_) => par(din) + dout
-          case None => din + dout
+      case Some((ins, out)) =>
+        val args = if (ins.tail.isEmpty) {
+          val in0 = ins.head
+          val din = toDoc(in0)
+          unapplyFn(in0).orElse(unapplyUniversal(in0)).orElse(unapplyTuple(in0)) match {
+            case Some(_) => par(din)
+            case None => din
+          }
         }
+        else {
+          // there is more than 1 arg so parens are always used: (a, b) -> c
+          par(Doc.intercalate(commaSpace, ins.toList.map(toDoc)))
+           
+        }
+        return (args + (spaceArrow + toDoc(out)))
     }
 
     unapplyRoot(a) match {

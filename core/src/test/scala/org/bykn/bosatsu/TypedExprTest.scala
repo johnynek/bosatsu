@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.data.{State, Writer}
+import cats.data.{NonEmptyList, State, Writer}
 import cats.implicits._
 import org.scalacheck.{Arbitrary, Gen}
 import org.scalatest.funsuite.AnyFunSuite
@@ -8,7 +8,7 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import scala.collection.immutable.SortedSet
 
 import Arbitrary.arbitrary
-import Identifier.{Bindable, Name}
+import Identifier.Bindable
 import TestUtils.checkLast
 import rankn.{Type, NTypeGen}
 
@@ -354,10 +354,10 @@ foo = _ -> 1
     TypedExpr.Let(Identifier.Name(n), ex1, ex2, RecursionKind.Recursive, ())
 
   def app(fn: TypedExpr[Unit], arg: TypedExpr[Unit], tpe: Type): TypedExpr[Unit] =
-    TypedExpr.App(fn, arg, tpe, ())
+    TypedExpr.App(fn, NonEmptyList.one(arg), tpe, ())
 
   def lam(n: String, nt: Type, res: TypedExpr[Unit]): TypedExpr[Unit] = 
-    TypedExpr.AnnotatedLambda(Identifier.Name(n), nt, res, ())
+    TypedExpr.AnnotatedLambda(NonEmptyList.one((Identifier.Name(n), nt)), res, ())
 
   test("test let substitution") {
     {
@@ -607,36 +607,6 @@ x = Foo
     }
   }
 
-  test("TypedExpr.Let.selfCallKind terminates and doesn't throw") {
-    // pretty weak test, but just to make sure nothing ever blows up
-    forAll(Generators.bindIdentGen, genTypedExpr) { (b, te) =>
-      assert(TypedExpr.selfCallKind(b, te) ne null)
-    }
-  }
-
-  test("SelfCallKind forms a lattice") {
-    import TypedExpr.SelfCallKind._
-    val scs = List(NoCall, TailCall, NonTailCall)
-
-    for {
-      a <- scs
-      b <- scs
-      c <- scs
-    } {
-      assert(a.merge(b) == b.merge(a))
-      assert(a.merge(b.merge(c)) == a.merge(b).merge(c))
-    }
-
-    scs.foreach { a =>
-      assert(a.merge(a) == a)
-      assert((a.ifNoCallThen(null) eq null) == (a == NoCall))
-      assert(NoCall.merge(a) == a)
-      assert(NonTailCall.merge(a) == NonTailCall)
-      assert(a.callNotTail != TailCall)
-      assert((a.callNotTail == NoCall) == (a == NoCall))
-    }
-  }
-
   test("TypedExpr.substituteTypeVar is not an identity function") {
     // if we replace all the current types with some bound types, things won't be the same
     forAll(genTypedExpr) { te =>
@@ -738,43 +708,6 @@ foo = (
     }
   }
 
-  test("test selfCallKind") {
-    import TypedExpr.SelfCallKind.{NoCall, NonTailCall, TailCall}
-
-    checkLast(
-      """
-enum List[a]: E, NE(head: a, tail: List[a])
-enum N: Z, S(prev: N)
-
-def list_len(list, acc):
-  recur list:
-    case E: acc
-    case NE(_, t): list_len(t, S(acc))
-""") { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == TailCall) }
-
-    checkLast(
-      """
-enum List[a]: E, NE(head: a, tail: List[a])
-enum N: Z, S(prev: N)
-
-def list_len(list):
-  recur list:
-    case E: Z
-    case NE(_, t): S(list_len(t))
-""") { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NonTailCall) }
-
-    checkLast(
-      """
-enum List[a]: E, NE(head: a, tail: List[a])
-
-def list_len(list):
-  match list:
-    case E: 0
-    case NE(_, _): 1
-""") { te => assert(TypedExpr.selfCallKind(Name("list_len"), te) == NoCall) }
-
-  }
-
   test("TypedExpr.fold matches traverse") {
     def law[A, B](init: A, te: TypedExpr[B])(fn: (A, B) => A) = {
       val viaFold = te.foldLeft(init)(fn)
@@ -829,7 +762,10 @@ def list_len(list):
     forAll(genTypedExprChar, arbitrary[Char => String])(law(_)(_))
 
     val lamconst: TypedExpr[String] = 
-      TypedExpr.AnnotatedLambda(Identifier.Name("x"), intTpe, int(1).as("a"), "b")
+      TypedExpr.AnnotatedLambda(
+        NonEmptyList.one((Identifier.Name("x"), intTpe)),
+        int(1).as("a"),
+        "b")
 
     assert(lamconst.foldMap(identity) == "ab")
     assert(lamconst.traverse { a => Const[String, Unit](a) }.getConst == "ab")

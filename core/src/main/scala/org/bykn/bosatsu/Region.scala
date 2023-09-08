@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.Order
+import cats.{Order, Semigroup}
 
 case class Region(start: Int, end: Int) {
   def +(that: Region): Region =
@@ -13,6 +13,9 @@ object Region {
 
   implicit val regionOrder: Order[Region] =
     Order.fromOrdering(ordering)
+
+  implicit val regionSemigroup: Semigroup[Region] =
+    Semigroup.instance(_ + _)
 }
 
 trait HasRegion[T] {

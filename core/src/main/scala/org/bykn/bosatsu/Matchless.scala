@@ -9,13 +9,7 @@ import Identifier.{Bindable, Constructor}
 import cats.implicits._
 
 object Matchless {
-  sealed abstract class Expr {
-    def apply(expr: Expr): App =
-      this match {
-        case App(fn, a) => App(fn, a :+ expr)
-        case notApp => App(notApp, NonEmptyList(expr, Nil))
-      }
-  }
+  sealed abstract class Expr
   // these hold bindings either in the code, or temporary
   // local ones, note CheapExpr never trigger a side effect
   sealed trait CheapExpr extends Expr
@@ -32,13 +26,13 @@ object Matchless {
   // we should probably allocate static slots for each bindable,
   // and replace the local with an integer offset slot access for
   // the closure state
-  case class Lambda(captures: List[Bindable], arg: Bindable, expr: Expr) extends FnExpr
+  case class Lambda(captures: List[Bindable], args: NonEmptyList[Bindable], expr: Expr) extends FnExpr
 
   // this is a tail recursive function that should be compiled into a loop
   // when a call to name is done inside body, that should restart the loop
   // the type of this Expr a function with the arity of args that returns
   // the type of body
-  case class LoopFn(captures: List[Bindable], name: Bindable, argshead: Bindable, argstail: List[Bindable], body: Expr) extends FnExpr
+  case class LoopFn(captures: List[Bindable], name: Bindable, arg: NonEmptyList[Bindable], body: Expr) extends FnExpr
 
   case class Global(pack: PackageName, name: Bindable) extends CheapExpr
 
@@ -207,19 +201,17 @@ object Matchless {
             Let(Right((name, RecursionKind.Recursive)), e, Local(name))
 
           // this could be tail recursive
-          if (TypedExpr.selfCallKind(name, e) == TypedExpr.SelfCallKind.TailCall) {
+          if (SelfCallKind(name, e) == SelfCallKind.TailCall) {
             val arity = Type.Fun.arity(e.getType)
             // we know that arity > 0 because, otherwise we can't have a total
             // self recursive loop, but property checks send in ill-typed
             // e and so we handle that by checking for arity > 0
             TypedExpr.toArgsBody(arity, e) match {
-              case Some((params, body)) if arity > 0 =>
+              case Some((params, body)) =>
                 // we know params is non-empty because arity > 0
                 val args = params.map(_._1)
-                val argshead = args.head
-                val argstail = args.tail
-                val captures = TypedExpr.freeVars(body :: Nil).filterNot(args.toSet)
-                loop(body).map { v => letrec(LoopFn(captures, name, argshead, argstail, v)) }
+                val captures = TypedExpr.freeVars(e :: Nil)
+                loop(body).map { v => letrec(LoopFn(captures, name, args, v)) }
               case _ =>
                 // TODO: I don't think this case should ever happen in real code
                 // but it definitely does in fuzz tests
@@ -238,9 +230,9 @@ object Matchless {
       te match {
         case TypedExpr.Generic(_, expr) => loop(expr)
         case TypedExpr.Annotation(term, _) => loop(term)
-        case TypedExpr.AnnotatedLambda(arg, _, res, _) =>
-          val captures = TypedExpr.freeVars(res :: Nil).filterNot(_ === arg)
-          loop(res).map(Lambda(captures, arg, _))
+        case TypedExpr.AnnotatedLambda(args, res, _) =>
+          val captures = TypedExpr.freeVars(te :: Nil)
+          loop(res).map(Lambda(captures, args.map(_._1), _))
         case TypedExpr.Global(pack, cons@Constructor(_), _, _) =>
           Monad[F].pure(variantOf(pack, cons) match {
             case Some(dr) =>
@@ -260,8 +252,8 @@ object Matchless {
           Monad[F].pure(Global(pack, notCons))
         case TypedExpr.Local(bind, _, _) =>
           Monad[F].pure(Local(bind))
-        case TypedExpr.App(fn, a, _, _) =>
-          (loop(fn), loop(a)).mapN(_(_))
+        case TypedExpr.App(fn, as, _, _) =>
+          (loop(fn), as.traverse(loop)).mapN(App(_, _))
         case TypedExpr.Let(a, e, in, r, _) =>
           (loopLetVal(a, e, r), loop(in)).mapN(Let(Right((a, r)), _, _))
         case TypedExpr.Literal(lit, _, _) => Monad[F].pure(Literal(lit))
@@ -414,7 +406,7 @@ object Matchless {
                           val (resLet, leftOpt, resBind) =
                             optAnonLeft match {
                               case Some((anonLeft, ln)) =>
-                                val revList = reverseFn(anonLeft)
+                                val revList = App(reverseFn, NonEmptyList.one(anonLeft))
                                 (anonLeft :: letTail, Some(anonLeft), (ln, revList) :: binds)
                               case None =>
                                 (letTail, None, binds)

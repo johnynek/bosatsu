@@ -60,7 +60,7 @@ object Code {
     def statements: NonEmptyList[Statement] =
       this match {
         case Block(ss) => ss
-        case notBlock => NonEmptyList(notBlock, Nil)
+        case notBlock => NonEmptyList.one(notBlock)
       }
 
     def +:(stmt: Statement): Statement =
@@ -262,7 +262,7 @@ object Code {
             }
         }
 
-      loop(left, NonEmptyList((op, right), Nil))
+      loop(left, NonEmptyList.one((op, right)))
     }
 
     // prefer constants on the right
@@ -443,15 +443,6 @@ object Code {
     def simplify = Lambda(args, result.simplify)
   }
   case class Apply(fn: Expression, args: List[Expression]) extends Expression {
-    def uncurry: (Expression, List[List[Expression]]) =
-      fn match {
-        case a@Apply(_, _) =>
-          val (fn0, args0) = a.uncurry
-          (fn0, args0 :+ args)
-        case _ =>
-          (fn, args :: Nil)
-      }
-
     def simplify = Apply(fn.simplify, args.map(_.simplify))
   }
   case class DotSelect(ex: Expression, ident: Ident) extends Expression {

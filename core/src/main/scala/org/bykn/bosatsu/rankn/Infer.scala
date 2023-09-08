@@ -196,6 +196,8 @@ object Infer {
     case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type.Var]) extends TypeError
     // this sounds internal but can be due to an infinite type attempted to be defined
     case class UnexpectedMeta(m: Type.Meta, in: Type, left: Region, right: Region) extends TypeError
+    case class ArityMismatch(leftArity: Int, leftRegion: Region, rightArity: Int, rightRegion: Region) extends TypeError
+    case class ArityTooLarge(arity: Int, maxArity: Int, region: Region) extends TypeError
 
     /**
      * These are errors that prevent typing due to unknown names,
@@ -469,14 +471,15 @@ object Infer {
     /*
      * Invariant: r2 needs to be in weak prenex form
      */
-    def subsCheckFn(a1: Type, r1: Type, a2: Type, r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
+    def subsCheckFn(a1s: NonEmptyList[Type], r1: Type, a2s: NonEmptyList[Type], r2: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       // note due to contravariance in input, we reverse the order there
       for {
-        coarg <- subsCheck(a2, a1, left, right)
+        // we know that they have the same length because we have already called unifyFn
+        coarg <- a2s.zip(a1s).traverse { case (a2, a1) => subsCheck(a2, a1, left, right) }
         // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right)
         ks <- checkedKinds
-      } yield TypedExpr.coerceFn(a1, r2, coarg, cores, ks)
+      } yield TypedExpr.coerceFn(a1s, r2, coarg, cores, ks)
 
     /*
      * invariant: second argument is in weak prenex form, which means that all
@@ -501,7 +504,7 @@ object Infer {
         case (rho1, Type.Fun(a2, r2)) =>
           // Rule FUN
           for {
-            a1r1 <- unifyFn(rho1, left, right)
+            a1r1 <- unifyFn(a2.length, rho1, left, right)
             (a1, r1) = a1r1
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form and a rho type
@@ -511,7 +514,7 @@ object Infer {
         case (Type.Fun(a1, r1), rho2) =>
           // Rule FUN
           for {
-            a2r2 <- unifyFn(rho2, right, left)
+            a2r2 <- unifyFn(a1.length, rho2, right, left)
             (a2, r2) = a2r2
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form
@@ -581,12 +584,23 @@ object Infer {
           } yield TypedExpr.coerceRho(rho, ks)
       }
 
-    def unifyFn(fnType: Type.Rho, fnRegion: Region, evidenceRegion: Region): Infer[(Type, Type)] =
+    def unifyFn(arity: Int, fnType: Type.Rho, fnRegion: Region, evidenceRegion: Region): Infer[(NonEmptyList[Type], Type)] =
       fnType match {
-        case Type.Fun(arg, res) => pure((arg, res))
+        case Type.Fun(arg, res) =>
+          val fnArity = arg.length
+          if (fnArity == arity) pure((arg, res))
+          else fail(Error.ArityMismatch(fnArity, fnRegion, arity, evidenceRegion))
         case tau =>
+          val args =
+            if (Type.FnType.ValidArity.unapply(arity)) {
+              pure(NonEmptyList.fromListUnsafe((1 to arity).toList))
+            }
+            else {
+              fail(Error.ArityTooLarge(arity, Type.FnType.MaxSize, evidenceRegion))
+            }
           for {
-            argT <- newMetaType(Kind.Type)
+            sized <- args
+            argT <- sized.traverse(_ => newMetaType(Kind.Type))
             resT <- newMetaType(Kind.Type)
             _ <- unify(tau, Type.Fun(argT, resT), fnRegion, evidenceRegion)
           } yield (argT, resT)
@@ -760,14 +774,14 @@ object Infer {
             vSigma <- lookupVarType((Some(pack), name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
            } yield coerce(TypedExpr.Global(pack, name, vSigma, tag))
-        case App(fn, arg, tag) =>
+        case App(fn, args, tag) =>
            for {
              typedFn <- inferRho(fn)
-             fnT = typedFn.getType
-             fnTRho <- assertRho(fnT, s"must be rho since we inferRho($fn): on $typedFn", region(fn))
-             argRes <- unifyFn(fnTRho, region(fn), region(term))
+             fnTRho <- assertRho(typedFn.getType, s"must be rho since we inferRho($fn): on $typedFn", region(fn))
+             argsRegion = args.reduceMap(region[Expr[A]](_))
+             argRes <- unifyFn(args.length, fnTRho, region(fn), argsRegion)
              (argT, resT) = argRes
-             typedArg <- checkSigma(arg, argT)
+             typedArg <- args.zip(argT).traverse { case (arg, argT) => checkSigma(arg, argT) }
              coerce <- instSigma(resT, expect, region(term))
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
         case Generic(tpes, in) =>
@@ -779,55 +793,48 @@ object Infer {
               // unSkol is not a Rho type, we need instantiate it
               coerce <- instSigma(unSkol.getType, expect, region(term))
             } yield coerce(unSkol)
-        case Lambda(name, None, result, tag) =>
+        case Lambda(args, result, tag) =>
           expect match {
             case Expected.Check((expTy, rr)) =>
               for {
-                vb <- unifyFn(expTy, rr, region(term))
+                vb <- unifyFn(args.length, expTy, rr, region(term))
                 // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
                 // in weak prenex form
-                (varT, bodyT) = vb
+                (varsT, bodyT) = vb
                 bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr", region(result))
-                typedBody <- extendEnv(name, varT) {
-                    checkRho(result, bodyTRho)
-                  }
-              } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
-            case infer@Expected.Inf(_) =>
-              for {
-                varT <- newMetaType(Kind.Type) // the kind of a fn arg is a Type
-                typedBody <- extendEnv(name, varT)(inferRho(result))
-                bodyT = typedBody.getType
-                _ <- infer.set((Type.Fun(varT, bodyT), region(term)))
-              } yield TypedExpr.AnnotatedLambda(name, varT, typedBody, tag)
-          }
-        case Lambda(name, Some(tpe), result, tag) =>
-          expect match {
-            case Expected.Check((expTy, rr)) =>
-              for {
-                vb <- unifyFn(expTy, rr, region(term))
-                // we know expTy is in weak-prenex form, and since Fn is covariant, bodyT must be
-                // in weak prenex form
-                (varT, bodyT) = vb
-                bodyTRho <- assertRho(bodyT, s"expect a rho type in $vb from $expTy at $rr", region(result))
-                typedBody <- extendEnv(name, varT) {
+                // the length of args and varsT must be the same because of unifyFn
+                zipped = args.zip(varsT)
+                namesVarsT = zipped.map { case ((n, _), t) => (n, t) }
+                typedBody <- extendEnvList(namesVarsT.toList) {
                     // TODO we are ignoring the result of subsCheck here
                     // should we be coercing a var?
                     //
                     // this comes from page 54 of the paper, but I can't seem to find examples
                     // where this will fail if we reverse (as we had for a long time), which
                     // indicates the testing coverage is incomplete
-                    subsCheck(varT, tpe, region(term), rr) *>
-                      // bodyTRho is in reach prenex form due to above
-                      checkRho(result, bodyTRho)
+                    zipped.traverse_ {
+                      case ((_, Some(tpe)), varT) =>
+                        subsCheck(varT, tpe, region(term), rr)
+                      case ((_, None), _) => unit
+                    } *>
+                    checkRho(result, bodyTRho)
                   }
-              } yield TypedExpr.AnnotatedLambda(name, varT /* or tpe? */, typedBody, tag)
+              } yield TypedExpr.AnnotatedLambda(namesVarsT, typedBody, tag)
             case infer@Expected.Inf(_) =>
-              for { // TODO do we need to narrow or instantiate tpe?
-                typedBody <- extendEnv(name, tpe)(inferRho(result))
+              for {
+                nameVarsT <- args.traverse {
+                  case (n, Some(tpe)) =>
+                    // TODO do we need to narrow or instantiate tpe?
+                    pure((n, tpe))
+                  case (n, None) =>
+                    // all functions args of kind type
+                    newMetaType(Kind.Type).map((n, _))
+                }
+                typedBody <- extendEnvList(nameVarsT.toList)(inferRho(result))
                 bodyT = typedBody.getType
-                _ <- infer.set((Type.Fun(tpe, bodyT), region(term)))
-              } yield TypedExpr.AnnotatedLambda(name, tpe, typedBody, tag)
-          }
+                _ <- infer.set((Type.Fun(nameVarsT.map(_._2), bodyT), region(term)))
+              } yield TypedExpr.AnnotatedLambda(nameVarsT, typedBody, tag)
+            }
         case Let(name, rhs, body, isRecursive, tag) =>
           if (isRecursive.isRecursive) {
             // all defs are marked at potentially recursive.
@@ -1377,7 +1384,7 @@ object Infer {
   }
 
   def extendEnv[A](varName: Bindable, tpe: Type)(of: Infer[A]): Infer[A] =
-    extendEnvList(List((varName, tpe)))(of)
+    extendEnvList((varName, tpe) :: Nil)(of)
 
   def extendEnvList[A](bindings: List[(Bindable, Type)])(of: Infer[A]): Infer[A] =
     Infer.Impl.ExtendEnvs(bindings.map { case (n, t) => ((None, n), t) }, of)

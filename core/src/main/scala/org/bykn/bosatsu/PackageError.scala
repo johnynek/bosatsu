@@ -201,9 +201,11 @@ object PackageError {
 
           val fnHint =
             (t0, t1) match {
-              case (Type.Fun(_, _), Type.Fun(_, _)) =>
+              case (Type.RootConst(Type.FnType(_, leftSize)),
+                    Type.RootConst(Type.FnType(_, rightSize))) =>
                 // both are functions
-                Doc.empty
+                def args(n: Int) = if (n == 1) "one argument" else s"$n arguments"
+                Doc.text(s"hint: the first type is a function with ${args(leftSize)} and the second is a function with ${args(rightSize)}.") + Doc.hardLine
               case (Type.Fun(_, _), _) | (_, Type.Fun(_, _)) =>
                 Doc.text("hint: this often happens when you apply the wrong number of arguments to a function.") + Doc.hardLine
               case _ =>
@@ -356,6 +358,30 @@ object PackageError {
               lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
 
           (Doc.text("the type ") + tmap(tpe) + Doc.text(" is not polymorphic enough") + Doc.hardLine + context, Some(region))
+        case Infer.Error.ArityMismatch(leftA, leftR, rightA, rightR) => 
+          val context0 =
+              lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR))
+          val context1 = {
+            if (leftR != rightR) {
+              Doc.text(" at: ") + Doc.hardLine +
+              lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR))
+            }
+            else {
+              Doc.empty
+            }
+          }
+
+          def args(n: Int) =
+            if (n == 1) "one argument" else s"$n arguments"
+
+          (Doc.text(s"function with ${args(leftA)} at:") + Doc.hardLine + context0 +
+            Doc.text(s" does not match function with ${args(rightA)}") + context1, Some(leftR))
+        case Infer.Error.ArityTooLarge(found, max, region) =>
+          val context =
+              lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
+
+          (Doc.text(s"function with $found arguments is too large. Maximum function argument count is $max.") + Doc.hardLine + context,
+            Some(region))
         case Infer.Error.UnexpectedBound(bound, _, reg, _) =>
           val tyvar = Type.TyVar(bound)
           val tmap = showTypes(pack, tyvar :: Nil)

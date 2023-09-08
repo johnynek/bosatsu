@@ -143,7 +143,7 @@ def remove_item(ord: Order[a], tree: Tree[a], item: a) -> Tree[a]:
 
     loop(tree)
 
-def fold_left_Tree(t: Tree[a], left_v: b, fn: b -> a -> b) -> b:
+def fold_left_Tree(t: Tree[a], left_v: b, fn: (b, a) -> b) -> b:
     recur t:
         Empty: left_v
         Branch { key, left, right, ... }:
@@ -151,7 +151,7 @@ def fold_left_Tree(t: Tree[a], left_v: b, fn: b -> a -> b) -> b:
             v2 = fn(v1, key)
             fold_left_Tree(right, v2, fn)
 
-def fold_right_Tree(t: Tree[a], right_v: b, fn: a -> b -> b) -> b:
+def fold_right_Tree(t: Tree[a], right_v: b, fn: (a, b) -> b) -> b:
     recur t:
         Empty: right_v
         Branch { key, left, right, ... }:
@@ -162,21 +162,21 @@ def fold_right_Tree(t: Tree[a], right_v: b, fn: a -> b -> b) -> b:
 # Module pattern to associate some methods with a typeclass (Order)
 struct Module[a](
     order: Order[a],
-    add: Tree[a] -> a -> Tree[a],
+    add: (Tree[a], a) -> Tree[a],
     single: a -> Tree[a],
-    contains: Tree[a] -> a -> Option[a],
-    remove: Tree[a] -> a -> Tree[a],
-    fold_left: forall b. Tree[a] -> b -> (b -> a -> b) -> b,
-    fold_right: forall b. Tree[a] -> b -> (a -> b -> b) -> b,
+    contains: (Tree[a], a) -> Option[a],
+    remove: (Tree[a], a) -> Tree[a],
+    fold_left: forall b. (Tree[a], b, ((b, a) -> b)) -> b,
+    fold_right: forall b. (Tree[a], b, ((a, b) -> b)) -> b,
 )
 
 def module(ord: Order[a]) -> Module[a]:
     Module {
         order: ord,
-        add: add_item(ord),
+        add: (t, a) -> add_item(ord, t, a),
         single: a -> add_item(ord, Empty, a),
-        contains: contains(ord),
-        remove: remove_item(ord),
+        contains: (t, a) -> contains(ord, t, a),
+        remove: (t, a) -> remove_item(ord, t, a),
         fold_left: fold_left_Tree,
         fold_right: fold_right_Tree,
     }
@@ -276,7 +276,7 @@ def log2(i):
         rr = n.div(2)
         (rr, cnt.add(1)))
 
-def all_n(n): range(n).foldLeft(Empty)(add_i)
+def all_n(n): range(n).foldLeft(Empty, add_i)
 
 height_tests =(
     # h < c log_2(n + 2) + b, c ~= 1.44, b ~= -1.33

@@ -557,8 +557,34 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
    * if it is not a function, we consider it a function of 0-arity
    */
   def valueFnToJsonFn(t: Type): Either[UnsupportedType, (Int, Value => Either[DataError, Json.JArray => Either[DataError, Json]])] =
-    Type.Fun.uncurry(t) match {
-      case None =>
+    t match {
+      case Type.Fun((args, res)) =>
+        (args.traverse(toValue(_)), toJson(res)).mapN { (argsFn, resFn) =>
+          // if we get in here, we can convert all the args and results
+
+          val arity = argsFn.size
+          val argsFnVector = argsFn.toList.toVector
+
+          (arity, {
+            case Value.FnValue(fn) =>
+
+              val jsonFn = { (inputs: Json.JArray) =>
+                if (inputs.toVector.size != arity) Left(IllTypedJson(Nil, t, inputs))
+                else {
+                  // we know arity >= 1 because it is a function, so the fromListUnsafe will succeed
+                  inputs.toVector
+                    .zip(argsFnVector)
+                    .traverse { case (a, fn) => fn(a) }
+                    .map { vect => fn(NonEmptyList.fromListUnsafe(vect.toList)) }
+                    .flatMap(resFn)
+                }
+              }
+
+              Right(jsonFn)
+            case notFn => Left(IllTyped(Nil, t, notFn))
+          })
+        }
+      case _ =>
         // this isn't a function at all
         toJson(t).map { (fn: (Value) => Either[DataError, Json]) =>
 
@@ -572,52 +598,6 @@ case class ValueToJson(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             }
           })
 
-        }
-      case Some((args, res)) =>
-        (args.traverse(toValue(_)), toJson(res)).mapN { (argsFn, resFn) =>
-          // if we get in here, we can convert all the args and results
-
-          val arity = argsFn.size
-          val argsFnVector = argsFn.toList.toVector
-
-          (arity, {
-            case Value.FnValue(fn) =>
-
-              // if we get into here, we know the inputs have
-              // the right size and type, but we don't verify
-              // locally (but in the type checked code) that
-              // the type matches the FnValue, so here we
-              // still pass it along if we see it
-              def applyAll(fn: Value => Value, args: NonEmptyList[Value]): Either[DataError, Value] = {
-                val nextValue = fn(args.head)
-                args.tail match {
-                  case Nil => Right(nextValue)
-                  case h :: tail =>
-                    nextValue match {
-                      case Value.FnValue(nextFn) =>
-                        applyAll(nextFn, NonEmptyList(h, tail))
-                      case other =>
-                        // TODO: we could propagate the type we expect this to be
-                        Left(IllTyped(Nil, t, other))
-                    }
-                }
-              }
-
-              val jsonFn = { (inputs: Json.JArray) =>
-                if (inputs.toVector.size != arity) Left(IllTypedJson(Nil, t, inputs))
-                else {
-                  // we know arity >= 1 because it is a function, so the fromListUnsafe will succeed
-                  inputs.toVector
-                    .zip(argsFnVector)
-                    .traverse { case (a, fn) => fn(a) }
-                    .flatMap { vect => applyAll(fn, NonEmptyList.fromListUnsafe(vect.toList)) }
-                    .flatMap(resFn)
-                }
-              }
-
-              Right(jsonFn)
-            case notFn => Left(IllTyped(Nil, t, notFn))
-          })
         }
     }
 }

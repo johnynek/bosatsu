@@ -227,7 +227,7 @@ object PythonGen {
     def onLast(c: ValueLike)(fn: Expression => ValueLike): Env[ValueLike] =
       onLastM(c)(fn.andThen(Monad[Env].pure(_)))
 
-    def onLast2(c1: ValueLike, c2: ValueLike)(fn: (Expression, Expression)=> ValueLike): Env[ValueLike] =
+    def onLast2(c1: ValueLike, c2: ValueLike)(fn: (Expression, Expression) => ValueLike): Env[ValueLike] =
       onLasts(c1 :: c2 :: Nil) {
         case x1 :: x2 :: Nil => fn(x1, x2)
         case other =>
@@ -245,7 +245,7 @@ object PythonGen {
             case (tx: Expression, elseX: Expression) =>
               Monad[Env].pure(Ternary(tx, cx, elseX).simplify)
             case _ =>
-              Monad[Env].pure(IfElse(NonEmptyList((cx, t), Nil), elseV))
+              Monad[Env].pure(IfElse(NonEmptyList.one((cx, t)), elseV))
           }
         case NonEmptyList((cx: Expression, t), rh :: rt) =>
           val head = (cx, t)
@@ -258,10 +258,10 @@ object PythonGen {
                 case tx: Expression =>
                   Ternary(tx, cx, nestX).simplify
                 case _ =>
-                  IfElse(NonEmptyList(head, Nil), nestX)
+                  IfElse(NonEmptyList.one(head), nestX)
               }
             case nest =>
-              IfElse(NonEmptyList(head, Nil), nest)
+              IfElse(NonEmptyList.one(head), nest)
           }
         case NonEmptyList((cx, t), rest) =>
           for {
@@ -275,7 +275,7 @@ object PythonGen {
 
     def ifElseS(cond: ValueLike, thenS: Statement, elseS: Statement): Env[Statement] =
       cond match {
-        case x: Expression => Monad[Env].pure(ifStatement(NonEmptyList((x, thenS), Nil), Some(elseS)))
+        case x: Expression => Monad[Env].pure(ifStatement(NonEmptyList.one((x, thenS)), Some(elseS)))
         case WithValue(stmt, vl) =>
           ifElseS(vl, thenS, elseS).map(stmt +: _)
         case v =>
@@ -285,7 +285,7 @@ object PythonGen {
             .map { tmp =>
               Code.block(
                 tmp := v,
-                ifStatement(NonEmptyList((tmp, thenS), Nil), Some(elseS))
+                ifStatement(NonEmptyList.one((tmp, thenS)), Some(elseS))
               )
             }
       }
@@ -314,33 +314,17 @@ object PythonGen {
           }
       }
 
-    def makeDef(defName: Code.Ident, arg: Code.Ident, v: ValueLike): Code.Def =
-      Code.Def(defName, arg :: Nil, toReturn(v))
-
-    def makeCurriedDef(name: Ident, args: NonEmptyList[Ident], body: ValueLike): Env[Statement] =
-      args match {
-        case NonEmptyList(a, Nil) =>
-          //  base case
-          Monad[Env].pure(makeDef(name, a, body))
-        case NonEmptyList(a, h :: t) =>
-          for {
-            newName <- Env.newAssignableVar
-            fn <- makeCurriedDef(newName, NonEmptyList(h, t), body)
-          } yield Code.Def(name, a :: Nil, fn :+ Code.Return(newName))
-      }
-
+    def makeDef(defName: Code.Ident, arg: NonEmptyList[Code.Ident], v: ValueLike): Code.Def =
+      Code.Def(defName, arg.toList, toReturn(v))
 
     def replaceTailCallWithAssign(name: Ident, argSize: Int, body: ValueLike)(onArgs: List[Expression] => Statement): Env[ValueLike] = {
       val initBody = body
       def loop(body: ValueLike): Env[ValueLike] =
         body match {
-          case a@Apply(_, _) =>
-            // we have recurried the args by this point:
-            val (fn0, args0) = a.uncurry
+          case a@Apply(fn0, args0) =>
             if (fn0 == name) {
-              val flatArgs = args0.flatten
-              if (flatArgs.length == argSize) {
-                val all = onArgs(flatArgs)
+              if (args0.length == argSize) {
+                val all = onArgs(args0)
                 // set all the values and return the empty tuple
                 Monad[Env].pure(all.withValue(Code.Const.Unit))
               }
@@ -364,7 +348,7 @@ object PythonGen {
             // both results are in the tail position
             (loop(ifTrue), loop(ifFalse))
               .mapN { (t, f) =>
-                ifElse(NonEmptyList((cond, t), Nil), f)
+                ifElse(NonEmptyList.one((cond, t)), f)
               }
               .flatten
           case WithValue(stmt, v) =>
@@ -424,8 +408,7 @@ object PythonGen {
         setRes = res := body1
         loop = While(cont, Assign(cont, Const.False) +: setRes)
         newBody = (ac +: ar +: loop).withValue(res)
-        curried <- makeCurriedDef(selfName, fnArgs, newBody)
-      } yield curried
+      } yield makeDef(selfName, fnArgs, newBody)
     }
 
   }
@@ -596,7 +579,7 @@ object PythonGen {
     //   def test_all(self):
     //     # iterate through making assertions
     //
-    (Env.importLiteral(NonEmptyList(Code.Ident("unittest"), Nil)),
+    (Env.importLiteral(NonEmptyList.one(Code.Ident("unittest"))),
       Env.newAssignableVar,
       Env.topLevelName(name)
       )
@@ -629,7 +612,7 @@ object PythonGen {
 
         val loopBody: Code.Statement =
           Code.IfStatement(
-            NonEmptyList((isAssertion, testAssertion), Nil),
+            NonEmptyList.one((isAssertion, testAssertion)),
             Some(testSuite))
 
         val recTest =
@@ -743,7 +726,7 @@ object PythonGen {
               case NonEmptyList(h, Nil) =>
                 val Code.Ident(m) = escapeModule(h)
 
-                NonEmptyList(Code.Ident(m + ".py"), Nil)
+                NonEmptyList.one(Code.Ident(m + ".py"))
               case NonEmptyList(h, t1 :: t2) =>
                 escapeModule(h) :: modName(NonEmptyList(t1, t2))
             }
@@ -857,7 +840,7 @@ object PythonGen {
                   }
                   .flatten
             }, 2)),
-            //external def int_loop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+            //external def int_loop(intValue: Int, state: a, fn: (Int, a) -> TupleCons[Int, TupleCons[a, Unit]]) -> a
             // def int_loop(i, a, fn):
             //   if i <= 0: a
             //   else:
@@ -871,7 +854,7 @@ object PythonGen {
             //   _i = i
             //   _a = a
             //   while cont:
-            //     res = fn(_i)(_a)
+            //     res = fn(_i, _a)
             //     tmp_i = res[0]
             //     _a = res[1][0]
             //     cont = (0 < tmp_i) and (tmp_i < _i)
@@ -892,7 +875,7 @@ object PythonGen {
                           _a := a,
                           Code.While(cont,
                             Code.block(
-                              res := fn(_i)(_a),
+                              res := fn(_i, _a),
                               tmp_i := res.get(0),
                               _a := res.get(1).get(0),
                               cont := Code.Op(Code.Op(Code.fromInt(0), Code.Const.Lt, tmp_i),
@@ -966,7 +949,7 @@ object PythonGen {
                     (res := str.dot(Code.Ident("partition"))(sep))
                       .withValue(Code.Ternary(success, s1, fail))
 
-                  Code.IfElse(NonEmptyList((sep, nonEmpty), Nil), fail)
+                  Code.IfElse(NonEmptyList.one((sep, nonEmpty)), fail)
                 }
               }
           }, 2)),
@@ -991,7 +974,7 @@ object PythonGen {
                     (res := str.dot(Code.Ident("rpartition"))(sep))
                       .withValue(Code.Ternary(success, s1, fail))
 
-                  Code.IfElse(NonEmptyList((sep, nonEmpty), Nil), fail)
+                  Code.IfElse(NonEmptyList.one((sep, nonEmpty)), fail)
                 }
               }
           }, 2)),
@@ -1024,21 +1007,14 @@ object PythonGen {
         }
 
       def makeLambda(arity: Int)(fn: List[ValueLike] => Env[ValueLike]): Env[ValueLike] =
-        if (arity <= 0) fn(Nil)
-        else if (arity == 1)
-          for {
-            arg <- Env.newAssignableVar
-            body <- fn(arg :: Nil)
-            res <- Env.onLast(body)(Code.Lambda(arg :: Nil, _))
-          } yield res
-        else {
-          for {
-            arg <- Env.newAssignableVar
-            body <- makeLambda(arity - 1) { args => fn(arg :: args) }
-            res <- Env.onLast(body)(Code.Lambda(arg :: Nil, _))
-          } yield res
-        }
-
+        for {
+          vars <- (1 to arity).toList.traverse(_ => Env.newAssignableVar)
+          body <- fn(vars)
+          // TODO: if body isn't an expression, how can just adding a lambda
+          // at the end be correct? the arguments will be below points that used it.
+          // the onLast has to handle Code.Lambda specially
+          res <- Env.onLast(body)(Code.Lambda(vars, _))
+        } yield res
     }
 
     class Ops(packName: PackageName, remap: (PackageName, Bindable) => Env[Option[ValueLike]]) {
@@ -1084,11 +1060,15 @@ object PythonGen {
             // $COVERAGE-ON$
           }
           else {
-            // add an arg to the right
+            // this is the case where we are using the constructor like a function
+            assert(args.isEmpty)
             for {
-              v <- Env.newAssignableVar
-              body <- makeLam(cnt - 1, args :+ v)
-              res <- Env.onLast(body)(Code.Lambda(v :: Nil, _))
+              vs <- (1 to cnt).toList.traverse(_ => Env.newAssignableVar)
+              body <- applyAll(vs)
+              // TODO: if body isn't an expression, how can just adding a lambda
+              // at the end be correct? the arguments will be below points that used it.
+              // the onLast has to handle Code.Lambda specially
+              res <- Env.onLast(body)(Code.Lambda(vs, _))
             } yield res
           }
 
@@ -1363,9 +1343,8 @@ object PythonGen {
 
       def topLet(name: Code.Ident, expr: Expr, v: ValueLike): Env[Statement] =
         expr match {
-          case LoopFn(_, _, h, t, b) =>
+          case LoopFn(_, _, args, b) =>
             // note, name is already bound
-            val args = NonEmptyList(h, t)
             val boundA = args.traverse(Env.bind)
             val subsA = args.traverse { a =>
               for {
@@ -1387,15 +1366,15 @@ object PythonGen {
               _ <- unbindA
             } yield loopRes
 
-          case Lambda(_, arg, body) =>
+          case Lambda(_, args, body) =>
             // TODO: we could look up all the captured
             // names and allocate tuple and generate a static function
             // that accesses the closure from the tuple, but since
             // python supports closures, it seems like a lot of work for nothing
-            (Env.bind(arg), loop(body))
+            (args.traverse(Env.bind(_)), loop(body))
               .mapN(Env.makeDef(name, _, _))
               .flatMap { d =>
-                Env.unbind(arg).as(d)
+                args.traverse_(Env.unbind(_)).as(d)
               }
           case _ =>
             Monad[Env].pure(name := v)
@@ -1403,26 +1382,25 @@ object PythonGen {
 
       def loop(expr: Expr): Env[ValueLike] =
         expr match {
-          case Lambda(_, arg, res) =>
+          case Lambda(_, args, res) =>
             // python closures work the same so we don't
             // need to worry about what we capture
-            (Env.bind(arg), loop(res)).mapN { (arg, res) =>
+            (args.traverse(Env.bind(_)), loop(res)).mapN { (args, res) =>
               res match {
                 case x: Expression =>
-                  Monad[Env].pure(Code.Lambda(arg :: Nil, x))
+                  Monad[Env].pure(Code.Lambda(args.toList, x))
                 case v =>
                   for {
                     defName <- Env.newAssignableVar
-                    defn = Env.makeDef(defName, arg, v)
+                    defn = Env.makeDef(defName, args, v)
                   } yield defn.withValue(defName)
               }
             }
-            .flatMap(_ <* Env.unbind(arg))
-          case LoopFn(_, thisName, argshead, argstail, body) =>
+            .flatMap(_ <* args.traverse_(Env.unbind(_)))
+          case LoopFn(_, thisName, args, body) =>
             // note, thisName is already bound because LoopFn
             // is a lambda, not a def
             // closures capture the same in python, we can ignore captures
-            val args = NonEmptyList(argshead, argstail)
 
             val boundA = args.traverse(Env.bind)
             val subsA = args.traverse { a =>
@@ -1465,7 +1443,7 @@ object PythonGen {
           case Local(b) => Env.deref(b)
           case LocalAnon(a) => Env.nameForAnon(a)
           case LocalAnonMut(m) => Env.nameForAnon(m)
-          case App(PredefExternal((fn, arity)), args) if args.length == arity =>
+          case App(PredefExternal((fn, _)), args) =>
             args
               .toList
               .traverse(loop)
@@ -1476,12 +1454,7 @@ object PythonGen {
             (loop(expr), args.traverse(loop))
               .mapN { (fn, args) =>
                 Env.onLasts(fn :: args.toList) {
-                  case fn :: ah :: atail =>
-                    // all functions are curried, a future
-                    // optimization would improve that
-                    atail.foldLeft(Code.Apply(fn, ah :: Nil)) { (left, arg) =>
-                      Code.Apply(left, arg :: Nil)
-                    }
+                  case fn :: args => Code.Apply(fn, args)
                   case other =>
                     // $COVERAGE-OFF$
                     throw new IllegalStateException(s"got $other, expected to match $expr")

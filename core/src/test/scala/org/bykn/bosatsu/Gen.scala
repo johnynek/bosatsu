@@ -91,9 +91,9 @@ object Generators {
       .map(TypeRef.TypeTuple(_))
 
     Gen.frequency(
-      (4, tvar),
-      (4, tname),
-      (1, Gen.zip(Gen.lzy(typeRefGen), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
+      (5, tvar),
+      (5, tname),
+      (1, Gen.zip(Gen.lzy(smallNonEmptyList(typeRefGen, 4)), Gen.lzy(typeRefGen)).map { case (a, b) => TypeArrow(a, b) }),
       (1, tLambda),
       (1, tTup),
       (1, tApply))
@@ -105,7 +105,8 @@ object Generators {
         import TypeRef._
         tr match {
           case TypeVar(_) | TypeName(_) => Stream.empty
-          case TypeArrow(l, r) => Stream(l, r)
+          case TypeArrow(l, r) =>
+            r #:: l.toList.toStream
           case TypeApply(of, args) => of #:: args.toList.toStream
           case TypeForAll(_, expr) => expr #:: Stream.empty
           case TypeTuple(ts) =>
@@ -278,7 +279,7 @@ object Generators {
       fn <- fnGen
       dotApply <- dotApplyGen
       useDot = dotApply && isVar(fn) // f.bar needs the fn to be a var
-      argsGen = if (useDot) arg.map(NonEmptyList(_, Nil)) else nonEmpty(arg)
+      argsGen = if (useDot) arg.map(NonEmptyList.one(_)) else nonEmpty(arg)
       args <- argsGen
     } yield Apply(fn, args, ApplyKind.Parens)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
@@ -389,7 +390,7 @@ object Generators {
           }
 
         lazy val args = tail.foldLeft(toArg(h)
-          .map { h => NonEmptyList(h, Nil) }) { case (args, a) =>
+          .map(NonEmptyList.one)) { case (args, a) =>
             Gen.zip(args, toArg(a)).map { case (args, a) => NonEmptyList(a, args.toList) }
           }
           .map(_.reverse)
@@ -899,7 +900,18 @@ object Generators {
       consIdentGen.map(ExportedName.Constructor(_, ())))
 
   def smallList[A](g: Gen[A]): Gen[List[A]] =
+
     Gen.choose(0, 8).flatMap(Gen.listOfN(_, g))
+
+  def smallNonEmptyList[A](g: Gen[A], maxLen: Int): Gen[NonEmptyList[A]] =
+    // bias to small numbers
+    Gen.geometric(2.0)
+      .flatMap {
+        case n if n <= 0 => g.map(NonEmptyList.one)
+        case n =>
+          Gen.zip(g, Gen.listOfN((n - 1) min (maxLen - 1), g))
+            .map { case (h, t) => NonEmptyList(h, t) }
+      }
 
   def smallDistinctByList[A, B](g: Gen[A])(fn: A => B): Gen[List[A]] =
     Gen.choose(0, 8)
@@ -992,8 +1004,8 @@ object Generators {
           .map { case (te, tpe) => TypedExpr.Annotation(te, tpe) }
 
       val lam =
-        Gen.zip(bindIdentGen, typeGen, recurse, genTag)
-          .map { case (n, tpe, res, tag) => TypedExpr.AnnotatedLambda(n, tpe, res, tag) }
+        Gen.zip(smallNonEmptyList(Gen.zip(bindIdentGen, typeGen), 8), recurse, genTag)
+          .map { case (args, res, tag) => TypedExpr.AnnotatedLambda(args, res, tag) }
 
       val localGen =
         Gen.zip(bindIdentGen, typeGen, genTag)
@@ -1004,8 +1016,8 @@ object Generators {
           .map { case (p, n, t, tag) => TypedExpr.Global(p, n, t, tag) }
 
       val app =
-        Gen.zip(recurse, recurse, typeGen, genTag)
-          .map { case (fn, arg, tpe, tag) => TypedExpr.App(fn, arg, tpe, tag) }
+        Gen.zip(recurse, smallNonEmptyList(recurse, 8), typeGen, genTag)
+          .map { case (fn, args, tpe, tag) => TypedExpr.App(fn, args, tpe, tag) }
 
       val let =
         Gen.zip(bindIdentGen, recurse, recurse, Gen.oneOf(RecursionKind.NonRecursive, RecursionKind.Recursive), genTag)

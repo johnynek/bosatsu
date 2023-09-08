@@ -388,9 +388,22 @@ object ProtoConverter {
           case Value.AnnotationExpr(proto.AnnotationExpr(expr, tpe, _)) =>
             (exprOf(expr), typeOf(tpe))
               .mapN(TypedExpr.Annotation(_, _))
-          case Value.LambdaExpr(proto.LambdaExpr(varName, varTpe, expr, _)) =>
-            (bindable(varName), typeOf(varTpe), exprOf(expr))
-              .mapN(TypedExpr.AnnotatedLambda(_, _, _, ()))
+          case Value.LambdaExpr(proto.LambdaExpr(varsName, varsTpe, expr, _)) =>
+            (varsName.traverse(bindable(_)), varsTpe.traverse(typeOf(_)), exprOf(expr))
+              .flatMapN { (vs, ts, e) =>
+                val vsLen = vs.length
+                if (vsLen <= 0) {
+                  Failure(new Exception(s"no bind names in this lambda: $ex"))
+                }
+                else if (vsLen == ts.length) {
+                  // we know length > 0 and they match
+                  val args = NonEmptyList.fromListUnsafe(vs.iterator.zip(ts.iterator).toList)
+                  Success(TypedExpr.AnnotatedLambda(args, e, ()))
+                }
+                else {
+                  Failure(new Exception(s"type list length didn't match bind name length in $ex"))
+                }
+              }
           case Value.VarExpr(proto.VarExpr(pack, varname, tpe, _)) =>
             val tryPack =
               if (pack == 0) Success(None)
@@ -407,9 +420,16 @@ object ProtoConverter {
                 case (Some(p), tpe) =>
                   ident(varname).map(TypedExpr.Global(p, _, tpe, ()))
               }
-          case Value.AppExpr(proto.AppExpr(fn, arg, resTpe, _)) =>
-            (exprOf(fn), exprOf(arg), typeOf(resTpe))
-              .mapN(TypedExpr.App(_, _, _, ()))
+          case Value.AppExpr(proto.AppExpr(fn, args, resTpe, _)) =>
+            (exprOf(fn), args.traverse(exprOf(_)), typeOf(resTpe))
+              .flatMapN { case (fn, args, res) =>
+                NonEmptyList.fromList(args.toList) match {
+                  case Some(args) =>
+                    Success(TypedExpr.App(fn, args, res, ()))
+                  case None =>
+                    Failure(new Exception(s"no arguments to apply: $ex"))
+                }
+              }
           case Value.LetExpr(proto.LetExpr(nm, nmexpr, inexpr, rec, _)) =>
             val tryRec = recursionKindFromProto(rec, ex.toString)
             (bindable(nm), exprOf(nmexpr), exprOf(inexpr), tryRec)
@@ -648,14 +668,15 @@ object ProtoConverter {
                   val ex = proto.AnnotationExpr(term, tpe)
                   writeExpr(a, proto.TypedExpr(proto.TypedExpr.Value.AnnotationExpr(ex)))
                 }
-            case al@AnnotatedLambda(n, tpe, res, _) =>
-              getId(n.sourceCodeRepr)
-                .product(typeToProto(tpe))
-                .product(typedExprToProto(res))
-                .flatMap { case ((vid, tid), resid) =>
-                  val ex = proto.LambdaExpr(vid, tid, resid)
-                  writeExpr(al, proto.TypedExpr(proto.TypedExpr.Value.LambdaExpr(ex)))
-                }
+            case al@AnnotatedLambda(args, res, _) =>
+              args.toList.traverse { case (n, tpe) =>
+                getId(n.sourceCodeRepr).product(typeToProto(tpe))
+              }
+              .product(typedExprToProto(res))
+              .flatMap { case (args, resid) =>
+                val ex = proto.LambdaExpr(args.map(_._1), args.map(_._2), resid)
+                writeExpr(al, proto.TypedExpr(proto.TypedExpr.Value.LambdaExpr(ex)))
+              }
             case l@Local(nm, tpe, _) =>
               getId(nm.sourceCodeRepr)
                 .product(typeToProto(tpe))
@@ -672,12 +693,12 @@ object ProtoConverter {
                   val ex = proto.VarExpr(packId, varId, tpeId)
                   writeExpr(g, proto.TypedExpr(proto.TypedExpr.Value.VarExpr(ex)))
                 }
-            case a@App(fn, arg, resTpe, _) =>
+            case a@App(fn, args, resTpe, _) =>
               typedExprToProto(fn)
-                .product(typedExprToProto(arg))
+                .product(args.traverse(typedExprToProto(_)))
                 .product(typeToProto(resTpe))
-                .flatMap { case ((fn, arg), resTpe) =>
-                  val ex = proto.AppExpr(fn, arg, resTpe)
+                .flatMap { case ((fn, args), resTpe) =>
+                  val ex = proto.AppExpr(fn, args.toList, resTpe)
                   writeExpr(a, proto.TypedExpr(proto.TypedExpr.Value.AppExpr(ex)))
                 }
             case let@Let(nm, nmexpr, inexpr, rec, _) =>
