@@ -146,7 +146,7 @@ object Generators {
   def defGen[T](dec: Gen[T]): Gen[DefStatement[Pattern.Parsed, T]] =
     for {
       name <- bindIdentGen
-      args <- nonEmpty(nonEmpty(argGen))
+      args <- smallNonEmptyList(smallNonEmptyList(argGen, 8), 20)
       tpes <- smallList(Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKind)))
       retType <- Gen.option(typeRefGen)
       body <- dec
@@ -279,7 +279,7 @@ object Generators {
       fn <- fnGen
       dotApply <- dotApplyGen
       useDot = dotApply && isVar(fn) // f.bar needs the fn to be a var
-      argsGen = if (useDot) arg.map(NonEmptyList.one(_)) else nonEmpty(arg)
+      argsGen = if (useDot) arg.map(NonEmptyList.one(_)) else smallNonEmptyList(arg, 8)
       args <- argsGen
     } yield Apply(fn, args, ApplyKind.Parens)(emptyRegion)) // TODO this should pass if we use `foo.bar(a, b)` syntax
   }
