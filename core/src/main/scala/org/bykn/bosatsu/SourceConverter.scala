@@ -2,7 +2,6 @@ package org.bykn.bosatsu
 
 import cats.{Applicative, Traverse}
 import cats.data.{ Chain, Ior, NonEmptyChain, NonEmptyList, State }
-import cats.implicits._
 import org.bykn.bosatsu.rankn.{ParsedTypeEnv, Type, TypeEnv}
 import scala.collection.immutable.SortedSet
 import scala.collection.mutable.{Map => MMap}
@@ -10,6 +9,8 @@ import org.typelevel.paiges.{Doc, Document}
 
 // this is used to make slightly nicer syntax on Error creation
 import scala.language.implicitConversions
+
+import cats.syntax.all._
 
 import ListLang.{KVPair, SpliceOrItem}
 
@@ -89,17 +90,37 @@ final class SourceConverter(
     ds: DefStatement[Pattern.Parsed, B], region: Region, tag: Result[Declaration])(
       resultExpr: B => Result[Expr[Declaration]]): Result[Expr[Declaration]] = {
     val unTypedBody = resultExpr(ds.result)
-    val bodyExp =
-      ds.retType.fold(unTypedBody) { t =>
-        (unTypedBody, toType(t, region), tag).parMapN(Expr.Annotation(_, _, _))
+
+    val bodyType: Option[Result[Type]] = ds.retType.map(toType(_, region))
+
+    val bodyExp: Result[Expr[Declaration]] =
+      bodyType.fold(unTypedBody) { t =>
+        (unTypedBody, t, tag).parMapN(Expr.Annotation(_, _, _))
       }
 
-    (Traverse[NonEmptyList]
-      .compose[NonEmptyList]
-      .traverse(ds.args)(convertPattern(_, region)),
+    val travNE2 = Traverse[NonEmptyList].compose[NonEmptyList]
+
+    type Pat = Pattern[(PackageName, Constructor), Type]
+    val convertedArgs: Result[NonEmptyList[NonEmptyList[Pat]]] =
+        travNE2.traverse(ds.args)(convertPattern(_, region))
+
+    // If we have the full type of the lambda, apply it. This
+    // helps in recursive cases since we can see at the call site
+    // rather than the final recursive let binding that an application
+    // was incorrect. Without this, type errors become very non-specific.
+    val maybeFullyTyped: Result[Option[Type]] =
+      (convertedArgs, bodyType.sequence).parMapN { case (args, optResTpe) =>
+        (travNE2.traverse(args)((p: Pat) => p.simpleTypeOf), optResTpe).mapN { case (argsTpe, resTpe) =>
+          argsTpe.toList.foldRight(resTpe) { (args, res) => rankn.Type.Fun(args, res) }
+        }
+      }
+
+    (convertedArgs,
       bodyExp,
-      tag).parMapN { (groups, b, t) =>
-      val lambda = groups.toList.foldRight(b) { case (as, b) => Expr.buildPatternLambda(as, b, t) }
+      tag,
+      maybeFullyTyped).parMapN { (groups, b, t, fullType) =>
+      val lambda0 = groups.toList.foldRight(b) { case (as, b) => Expr.buildPatternLambda(as, b, t) }
+      val lambda = fullType.fold(lambda0)(Expr.Annotation(lambda0, _, t))
       ds.typeArgs match {
         case None => success(lambda)
         case Some(args) =>
@@ -189,7 +210,7 @@ final class SourceConverter(
               }
             case pat =>
               // TODO: we need the region on the pattern...
-              (convertPattern(pat, decl.region), erest, rrhs).parMapN { (newPattern, e, rhs) =>
+              (convertPattern(pat, decl.region - value.region), erest, rrhs).parMapN { (newPattern, e, rhs) =>
                 val expBranches = NonEmptyList.of((newPattern, e))
                 Expr.Match(rhs, expBranches, decl)
               }
@@ -996,8 +1017,10 @@ final class SourceConverter(
         val ident = alloc()
         NonEmptyList.one((ident, decl))
       case complex =>
-        // TODO, flattening the pattern (a, b, c, d) = (1, 2, 3, 4) might be nice...
+        // flattening the pattern (a, b, c, d) = (1, 2, 3, 4) might be nice...
         // that is not done yet, it will allocate the tuple, just to destructure it
+        // but that optimization is done later since it is allocation and deallocation
+        // of a struct
         val (prefix, rightHandSide) =
           if (decl.isCheap) {
             // no need to make a new var to point to a var
