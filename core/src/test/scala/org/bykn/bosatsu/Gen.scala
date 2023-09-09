@@ -146,11 +146,11 @@ object Generators {
   def defGen[T](dec: Gen[T]): Gen[DefStatement[Pattern.Parsed, T]] =
     for {
       name <- bindIdentGen
-      args <- nonEmpty(argGen)
+      args <- nonEmpty(nonEmpty(argGen))
       tpes <- smallList(Gen.zip(typeRefVarGen, Gen.option(NTypeGen.genKind)))
       retType <- Gen.option(typeRefGen)
       body <- dec
-    } yield DefStatement(name, NonEmptyList.fromList(tpes), args.map(argToPat), retType, body)
+    } yield DefStatement(name, NonEmptyList.fromList(tpes), args.map(_.map(argToPat)), retType, body)
 
   def genSpliceOrItem[A](spliceGen: Gen[A], itemGen: Gen[A]): Gen[ListLang.SpliceOrItem[A]] =
     Gen.oneOf(spliceGen.map(ListLang.SpliceOrItem.Splice(_)),

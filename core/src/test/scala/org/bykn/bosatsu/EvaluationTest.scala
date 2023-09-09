@@ -1486,7 +1486,7 @@ def fn(x):
 
 main = fn
 """)) { case te@PackageError.RecursionError(_, _) =>
-      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: x\nRegion(25,43)\n")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,43)\n")
       ()
     }
 
@@ -1500,7 +1500,7 @@ def fn(x):
 
 main = fn
 """)) { case te@PackageError.RecursionError(_, _) =>
-      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: x\nRegion(25,42)\n")
+      assert(te.message(Map.empty, Colorize.None) == "in file: <unknown source>, package A\nrecur not on an argument to the def of fn, args: (x)\nRegion(25,42)\n")
       ()
     }
 
@@ -2577,7 +2577,7 @@ def bar(y, _: String, x):
 
 test = Assertion(True, "")
 """)) { case re@PackageError.RecursionError(_, _) =>
-      assert(re.message(Map.empty, Colorize.None) == "in file: <unknown source>, package S\nrecur not on an argument to the def of bar, args: y, _: String, x\nRegion(107,165)\n")
+      assert(re.message(Map.empty, Colorize.None) == "in file: <unknown source>, package S\nrecur not on an argument to the def of bar, args: (y, _: String, x)\nRegion(107,165)\n")
       ()
     }
   }
