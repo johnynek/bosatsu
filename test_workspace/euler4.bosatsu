@@ -58,7 +58,7 @@ def digit_list(n):
   reverse(rev_list)
 
 def is_palindrome(eq_fn, lst):
-  eq_List(eq_fn, lst, reverse(lst))
+  eq_List(eq_fn)(lst, reverse(lst))
 
 def num_is_palindrome(n):
   digits = digit_list(n)

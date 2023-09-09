@@ -34,14 +34,14 @@ def head(xs: List[a]) -> Option[a]:
         []: None
         [h, *_]: Some(h)
 
-def eq_List(fn: (a, a) -> Bool, a: List[a], b: List[a]) -> Bool:
+def eq_List(fn: (a, a) -> Bool)(a: List[a], b: List[a]) -> Bool:
   recur a:
     []: b matches []
     [ah, *at]:
       match b:
         []: False
         [bh, *bt]:
-          eq_List(fn, at, bt) if fn(ah, bh) else False
+          eq_List(fn)(at, bt) if fn(ah, bh) else False
 
 def zip(left: List[a], right: List[b]) -> List[(a, b)]:
     recur left:
@@ -83,7 +83,7 @@ def sort(ord: Order[a], list: List[a]) -> List[a]:
 # Test code below
 ##########################
 
-operator =*= = (x, y) -> eq_List(eq_Int, x, y)
+operator =*= = eq_List(eq_Int)
 
 def not(x): False if x else True
 

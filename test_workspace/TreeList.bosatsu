@@ -93,7 +93,7 @@ def fold(TreeList(trees): TreeList[a], init: b, fn: (b, a) -> b) -> b:
 def to_List(list: TreeList[a]) -> List[a]:
   fold(list, [], \l, h -> [h, *l]).reverse()
 
-def eq_TreeList(fn, a, b):
+def eq_TreeList(fn)(a, b):
   (res, _) = a.fold((True, b), \(current, b), h ->
     if current:
       match decons(b):
@@ -105,15 +105,15 @@ def eq_TreeList(fn, a, b):
   )
   res
 
-def eq_Opt(fn, a, b):
+def eq_Opt(fn)(a, b):
   match (a, b):
     (Some(a), Some(b)): fn(a, b)
     (None, None): True
     _: False
 
-eq_oi = (a, b) -> eq_Opt(eq_Int, a, b)
-eq_ti = (a, b) -> eq_TreeList(eq_Int, a, b)
-eq_li = (a, b) -> eq_List(eq_Int, a, b)
+eq_oi = eq_Opt(eq_Int)
+eq_ti = eq_TreeList(eq_Int)
+eq_li = eq_List(eq_Int)
 
 operator +/ = cons
 

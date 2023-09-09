@@ -198,7 +198,7 @@ sealed abstract class Declaration {
           // may or may not be recursive
 
           val boundRest = bound + d.name
-          val boundBody = boundRest ++ d.args.patternNames
+          val boundBody = boundRest ++ d.args.toList.flatMap(_.patternNames)
 
           val acc1 = loop(body.get, boundBody, acc)
           loop(rest.padded, boundRest, acc1)
@@ -311,7 +311,7 @@ sealed abstract class Declaration {
         case DefFn(d) =>
           // def sets up a binding to itself, which
           // may or may not be recursive
-          val acc1 = (acc + d.name) ++ d.args.patternNames
+          val acc1 = (acc + d.name) ++ d.args.toList.flatMap(_.patternNames)
           val (body, rest) = d.result
           val acc2 = loop(body.get, acc1)
           loop(rest.padded, acc2)
@@ -569,7 +569,7 @@ object Declaration {
             else if (scope.exists(shadows)) Some(d0)
             else loopDec(d0)
 
-          val bodyScope = nm :: args.patternNames
+          val bodyScope = nm :: args.toList.flatMap(_.patternNames)
           val restScope = nm :: Nil
 
           (body.traverse(go(bodyScope, _)), rest.traverse(go(restScope, _)))

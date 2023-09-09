@@ -90,7 +90,7 @@ def trav_l[f: * -> *](app: Applicative[f], fn: a -> f[b], lst: List[a]) -> f[Lis
 trav_list_opt = (fn, lst) -> trav_l(applicative_Option, fn, lst)
 
 # Here is equality on Option[List[Int]]
-eq_opt_list_int = (a, b) -> eq_Option((l1, l2) -> eq_List(eq_Int, l1, l2), a, b)
+eq_opt_list_int = eq_Option(eq_List(eq_Int))
 
 operator == = eq_opt_list_int
 

@@ -94,8 +94,12 @@ final class SourceConverter(
         (unTypedBody, toType(t, region), tag).parMapN(Expr.Annotation(_, _, _))
       }
 
-    (ds.args.traverse(convertPattern(_, region)), bodyExp, tag).parMapN { (as, b, t) =>
-      val lambda = Expr.buildPatternLambda(as, b, t)
+    (Traverse[NonEmptyList]
+      .compose[NonEmptyList]
+      .traverse(ds.args)(convertPattern(_, region)),
+      bodyExp,
+      tag).parMapN { (groups, b, t) =>
+      val lambda = groups.toList.foldRight(b) { case (as, b) => Expr.buildPatternLambda(as, b, t) }
       ds.typeArgs match {
         case None => success(lambda)
         case Some(args) =>
@@ -200,7 +204,7 @@ final class SourceConverter(
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
         }
-        val newBindings = defstmt.name :: defstmt.args.patternNames
+        val newBindings = defstmt.name :: defstmt.args.toList.flatMap(_.patternNames)
         // TODO
         val lambda = toLambdaExpr(defstmt, decl.region, success(decl))({ res => withBound(res._1.get, newBindings) })
 
@@ -1100,7 +1104,7 @@ final class SourceConverter(
             case Left(d@Def(dstmt)) =>
               val d1 = if (dstmt.name === bind) dstmt.copy(name = newNameV) else dstmt
               val res =
-                if (dstmt.args.iterator.flatMap(_.names).exists(_ == bind)) {
+                if (dstmt.args.flatten.iterator.flatMap(_.names).exists(_ == bind)) {
                   // the args are shadowing the binding, so we don't need to substitute
                   dstmt.result
                 }
@@ -1145,7 +1149,7 @@ final class SourceConverter(
           val r = apply(decl, Set.empty, topBound).map((nm, RecursionKind.NonRecursive, _) :: Nil)
           (topBound + nm, r)
 
-        case Right(Left(d @ Def(defstmt@DefStatement(_, _, pat, _, _)))) =>
+        case Right(Left(d @ Def(defstmt@DefStatement(_, _, argGroups, _, _)))) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
 
           val boundName = defstmt.name
@@ -1157,7 +1161,9 @@ final class SourceConverter(
               defstmt,
               d.region,
               success(defstmt.result.get))(
-                { (res: OptIndent[Declaration]) => apply(res.get, pat.iterator.flatMap(_.names).toSet + boundName, topBound1) })
+                { (res: OptIndent[Declaration]) =>
+                  apply(res.get, argGroups.flatten.iterator.flatMap(_.names).toSet + boundName, topBound1)
+                })
 
           val r = lam.map { (l: Expr[Declaration]) =>
             // We rely on DefRecursionCheck to rule out bad recursions
