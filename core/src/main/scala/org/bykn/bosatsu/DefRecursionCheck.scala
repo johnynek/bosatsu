@@ -257,10 +257,6 @@ object DefRecursionCheck {
         case _ => None
       }
     def checkApply(fn: Declaration, args: NonEmptyList[Declaration], region: Region): St[Unit] =
-        // case Apply(Var(nm: Bindable), args, _) =>
-        //   checkApply(nm, args, decl.region)
-        // case Apply(fn, args, _) =>
-        //   checkDecl(fn) *> args.traverse_(checkDecl)
       getSt.flatMap {
         case TopLevel =>
           // without any recursion, normal typechecking will detect bad states:
