@@ -213,6 +213,18 @@ sealed abstract class Pattern[+N, +T] {
 
     loop(this)._2.distinct.sorted
   }
+
+  /**
+    * @return the type if we can directly see it
+    */
+  def simpleTypeOf: Option[T] =
+    this match {
+      case Pattern.Named(_, p) => p.simpleTypeOf
+      case Pattern.Annotation(_, t) => Some(t)
+      case Pattern.Union(_, _) | Pattern.ListPat(_) | Pattern.Literal(_) |
+        Pattern.WildCard | Pattern.Var(_) | Pattern.StrPat(_) |
+        Pattern.PositionalStruct(_, _) => None
+    }
 }
 
 object Pattern {
