@@ -12,7 +12,7 @@ import cats.syntax.all._
 case class DefStatement[A, B](
     name: Bindable,
     typeArgs: Option[NonEmptyList[(TypeRef.TypeVar, Option[Kind])]],
-    args: NonEmptyList[A],
+    args: NonEmptyList[NonEmptyList[A]],
     retType: Option[TypeRef],
     result: B
 )
@@ -36,12 +36,16 @@ object DefStatement {
         }
       }
       val argDoc =
-        Doc.char('(') +
-          Doc.intercalate(
-            commaSpace,
-            args.map(Document[A].document(_)).toList
-          ) +
-          Doc.char(')')
+        Doc.intercalate(Doc.empty,
+          args.toList.map { args =>
+            Doc.char('(') +
+              Doc.intercalate(
+                commaSpace,
+                args.map(Document[A].document(_)).toList
+              ) +
+              Doc.char(')')
+          }
+        )
       val line0 =
         defDoc + Document[Bindable].document(name) + taDoc + argDoc + res + Doc
           .char(':')
@@ -63,7 +67,7 @@ object DefStatement {
     (
       Parser.keySpace(
         "def"
-      ) *> (Identifier.bindableParser ~ TypeRef.typeParams(kindAnnot.?).? ~ args) <* maybeSpace,
+      ) *> (Identifier.bindableParser ~ TypeRef.typeParams(kindAnnot.?).? ~ args.rep) <* maybeSpace,
       result.with1 <* (maybeSpace.with1 ~ P.char(':')),
       resultTParser
     )

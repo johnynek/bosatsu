@@ -1,6 +1,7 @@
 package org.bykn.bosatsu
 
 import cats.data.{NonEmptyList, Validated, ValidatedNel, StateT}
+import org.typelevel.paiges.Doc
 
 import cats.implicits._
 
@@ -40,10 +41,22 @@ object DefRecursionCheck {
     def region = decl.region
     def message = "unexpected recur: may only appear unnested inside a def"
   }
-  case class RecurNotOnArg(decl: Declaration.Match, fnname: Bindable, args: NonEmptyList[Pattern.Parsed]) extends RecursionError {
+  case class RecurNotOnArg(decl: Declaration.Match,
+    fnname: Bindable,
+    args: NonEmptyList[NonEmptyList[Pattern.Parsed]]) extends RecursionError {
+
     def region = decl.region
     def message = {
-      val argStr = args.iterator.map { pat => Pattern.document[TypeRef].document(pat).render(80) }.mkString(", ")
+      val argsDoc =
+        Doc.intercalate(Doc.empty,
+          args.toList.map { group =>
+            (Doc.char('(') +
+              Doc.intercalate(Doc.comma + Doc.line,
+              group.toList.map { pat => Pattern.document[TypeRef].document(pat) }) +
+              Doc.char(')')).grouped
+          }
+        )
+      val argStr = argsDoc.render(80)
       s"recur not on an argument to the def of ${fnname.sourceCodeRepr}, args: $argStr"
     }
   }
@@ -98,7 +111,7 @@ object DefRecursionCheck {
         this match {
           case TopLevel => Nil
           case InDef(outer, n, _, _) => n :: outer.outerDefNames
-          case InDefRecurred(id, _, _, _) => id.outerDefNames
+          case InDefRecurred(id, _, _, _, _) => id.outerDefNames
           case InRecurBranch(ir, _) => ir.outerDefNames
         }
 
@@ -106,31 +119,31 @@ object DefRecursionCheck {
         this match {
           case TopLevel => false
           case InDef(outer, dn, _, _) => (dn == n) || outer.defNamesContain(n)
-          case InDefRecurred(id, _, _, _) => id.defNamesContain(n)
+          case InDefRecurred(id, _, _, _, _) => id.defNamesContain(n)
           case InRecurBranch(ir, _) => ir.defNamesContain(n)
         }
 
-      def inDef(fnname: Bindable, args: NonEmptyList[Pattern.Parsed]): InDef =
+      def inDef(fnname: Bindable, args: NonEmptyList[NonEmptyList[Pattern.Parsed]]): InDef =
         InDef(this, fnname, args, Set.empty)
     }
     sealed abstract class InDefState extends State {
       final def defname: Bindable =
         this match {
           case InDef(_, defname, _, _) => defname
-          case InDefRecurred(ir, _, _, _) => ir.defname
-          case InRecurBranch(InDefRecurred(ir, _, _, _), _) => ir.defname
+          case InDefRecurred(ir, _, _, _, _) => ir.defname
+          case InRecurBranch(InDefRecurred(ir, _, _, _, _), _) => ir.defname
         }
     }
     case object TopLevel extends State
-    case class InDef(outer: State, fnname: Bindable, args: NonEmptyList[Pattern.Parsed], localScope: Set[Bindable]) extends InDefState {
+    case class InDef(outer: State, fnname: Bindable, args: NonEmptyList[NonEmptyList[Pattern.Parsed]], localScope: Set[Bindable]) extends InDefState {
 
       def addLocal(b: Bindable): InDef =
         InDef(outer, fnname, args, localScope + b)
 
-      def setRecur(index: Int, m: Declaration.Match): InDefRecurred =
-        InDefRecurred(this, index, m, 0)
+      def setRecur(index: (Int, Int), m: Declaration.Match): InDefRecurred =
+        InDefRecurred(this, index._1, index._2, m, 0)
     }
-    case class InDefRecurred(inRec: InDef, index: Int, recur: Declaration.Match, recCount: Int) extends InDefState {
+    case class InDefRecurred(inRec: InDef, group: Int, index: Int, recur: Declaration.Match, recCount: Int) extends InDefState {
       def incRecCount: InDefRecurred = copy(recCount = recCount + 1)
     }
     case class InRecurBranch(inRec: InDefRecurred, branch: Pattern.Parsed) extends InDefState {
@@ -142,9 +155,9 @@ object DefRecursionCheck {
      */
     def getRecurIndex(
       fnname: Bindable,
-      args: NonEmptyList[Pattern.Parsed],
+      args: NonEmptyList[NonEmptyList[Pattern.Parsed]],
       m: Declaration.Match,
-      locals: Set[Bindable]): ValidatedNel[RecursionError, Int] = {
+      locals: Set[Bindable]): ValidatedNel[RecursionError, (Int, Int)] = {
       import Declaration._
       m.arg match {
         case Var(v) =>
@@ -152,9 +165,15 @@ object DefRecursionCheck {
             case b: Bindable if locals(b) =>
               Validated.invalidNel(RecurNotOnArg(m, fnname, args))
             case _ =>
-              val idx = args.toList.indexWhere { p => p.topNames.contains(v) }
-              if (idx < 0) Validated.invalidNel(RecurNotOnArg(m, fnname, args))
-              else Validated.valid(idx)
+              val idxes = for {
+                (group, gidx) <- args.iterator.zipWithIndex
+                (item, idx) <- group.iterator.zipWithIndex
+                if item.topNames.contains(v)
+              } yield (gidx, idx)
+
+
+              if (idxes.hasNext) Validated.valid(idxes.next())
+              else Validated.invalidNel(RecurNotOnArg(m, fnname, args))
           }
         case _ =>
           Validated.invalidNel(RecurNotOnArg(m, fnname, args))
@@ -229,37 +248,54 @@ object DefRecursionCheck {
           })
         } yield ()
 
-    def checkApply(nm: Bindable, args: NonEmptyList[Declaration], region: Region): St[Unit] =
+    private def argsOnDefName(fn: Declaration,
+      groups: NonEmptyList[NonEmptyList[Declaration]]): Option[(Bindable, NonEmptyList[NonEmptyList[Declaration]])] =
+      fn match {
+        case Declaration.Var(nm: Bindable) => Some((nm, groups))
+        case Declaration.Apply(fn1, args, _) =>
+          argsOnDefName(fn1, args :: groups)
+        case _ => None
+      }
+    def checkApply(fn: Declaration, args: NonEmptyList[Declaration], region: Region): St[Unit] =
       getSt.flatMap {
         case TopLevel =>
           // without any recursion, normal typechecking will detect bad states:
-          args.traverse_(checkDecl)
+          checkDecl(fn) *> args.traverse_(checkDecl)
         case irb@InRecurBranch(inrec, branch) =>
-          val idx = inrec.index
-          // here we are calling our recursive function
-          // make sure we do so on a substructural match
-          if (nm == irb.defname) {
-            args.get(idx.toLong) match {
-              case None =>
-                // not enough args to check recursion
+
+          argsOnDefName(fn, NonEmptyList.one(args)) match {
+            case Some((nm, groups)) =>
+              if (nm == irb.defname) {
+                val group = inrec.group
+                val idx = inrec.index
+                groups.get(group.toLong).flatMap(_.get(idx.toLong)) match {
+                  case None =>
+                    // not enough args to check recursion
+                    failSt(InvalidRecursion(nm, region))
+                  case Some(arg) =>
+                    toSt(strictSubstructure(irb.defname, branch, arg)) *>
+                      setSt(irb.incRecCount) // we have recurred again
+                }
+              }
+              else if (irb.defNamesContain(nm)) {
                 failSt(InvalidRecursion(nm, region))
-              case Some(arg) =>
-                toSt(strictSubstructure(irb.defname, branch, arg)) *>
-                  setSt(irb.incRecCount) // we have recurred again
-            }
-          }
-          else if (irb.defNamesContain(nm)) {
-            failSt(InvalidRecursion(nm, region))
-          }
-          else {
-            // not a recursive call
-            args.traverse_(checkDecl)
+              }
+              else {
+                // not a recursive call
+                args.traverse_(checkDecl)
+              }
+            case None =>
+              // this isn't a recursive call
+            checkDecl(fn) *> args.traverse_(checkDecl)
           }
         case ir: InDefState =>
           // we have either not yet, or already done the recursion
-          if (ir.defNamesContain(nm)) failSt(InvalidRecursion(nm, region))
-          else args.traverse_(checkDecl)
+          argsOnDefName(fn, NonEmptyList.one(args)) match {
+            case Some((nm, _)) if ir.defNamesContain(nm) => failSt(InvalidRecursion(nm, region))
+            case _ =>
+            checkDecl(fn) *> args.traverse_(checkDecl)
         }
+      }
     /*
      * With the given state, check the given Declaration to see if
      * we have valid recursion
@@ -268,12 +304,10 @@ object DefRecursionCheck {
       import Declaration._
       decl match {
         case Annotation(t, _) => checkDecl(t)
-        case Apply(Var(nm: Bindable), args, _) =>
-          checkApply(nm, args, decl.region)
         case Apply(fn, args, _) =>
-          checkDecl(fn) *> args.traverse_(checkDecl)
+           checkApply(fn, args, decl.region)
         case ApplyOp(left, op, right) =>
-          checkApply(op, NonEmptyList(left, right :: Nil), decl.region)
+          checkApply(Var(op)(decl.region), NonEmptyList(left, right :: Nil), decl.region)
         case Binding(BindingStatement(pat, thisDecl, next)) =>
           checkForIllegalBindsSt(pat.names, decl) *>
               checkDecl(thisDecl) *>
@@ -315,7 +349,7 @@ object DefRecursionCheck {
         case recur@Match(RecursionKind.Recursive, _, cases) =>
           // this is a state change
           getSt.flatMap {
-            case TopLevel | InRecurBranch(_, _) | InDefRecurred(_, _, _, _) =>
+            case TopLevel | InRecurBranch(_, _) | InDefRecurred(_, _, _, _, _) =>
               failSt(UnexpectedRecur(recur))
             case InDef(_, defname, args, locals) =>
               toSt(getRecurIndex(defname, args, recur, locals)).flatMap { idx =>
@@ -326,7 +360,7 @@ object DefRecursionCheck {
                     case ir@InDef(_, _, _, _) =>
                       val rec = ir.setRecur(idx, recur)
                       setSt(rec) *> beginBranch(pat)
-                    case irr@InDefRecurred(_, _, _, _) =>
+                    case irr@InDefRecurred(_, _, _, _, _) =>
                       setSt(InRecurBranch(irr, pat))
                     case illegal =>
                       // $COVERAGE-OFF$ this should be unreachable
@@ -418,17 +452,17 @@ object DefRecursionCheck {
      */
     def checkDef[A](state: State, defstmt: DefStatement[Pattern.Parsed, (OptIndent[Declaration], A)]): Res = {
       val body = defstmt.result._1.get
-      val nameArgs = defstmt.args.patternNames
+      val nameArgs = defstmt.args.toList.flatMap(_.patternNames)
       val state1 = state.inDef(defstmt.name, defstmt.args)
       checkForIllegalBinds(state, defstmt.name :: nameArgs, body) {
         val st = setSt(state1) *> checkDecl(body) *> (getSt.flatMap {
           case InDef(_, _, _, _) =>
             // we never hit a recur
             unitSt
-          case InDefRecurred(_, _, _, cnt) if cnt > 0 =>
+          case InDefRecurred(_, _, _, _, cnt) if cnt > 0 =>
             // we did hit a recur
             unitSt
-          case InDefRecurred(_, _, recur, 0) =>
+          case InDefRecurred(_, _, _, recur, 0) =>
             // we hit a recur, but we didn't recurse
             failSt[Unit](RecursiveDefNoRecur(defstmt.copy(result = defstmt.result._1.get), recur))
           case unreachable =>
