@@ -269,7 +269,7 @@ object Type {
   val DictType: Type.TyConst = TyConst(Const.predef("Dict"))
 
   object FnType {
-    final val MaxSize = 8
+    final val MaxSize = 32
 
     private def predefFn(n: Int) = TyConst(Const.predef(s"Fn$n")) 
     private val tpes = (1 to MaxSize).map(predefFn)
