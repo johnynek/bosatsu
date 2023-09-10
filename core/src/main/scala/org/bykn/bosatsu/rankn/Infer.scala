@@ -1357,43 +1357,11 @@ object Infer {
 
   private def typeCheckMeta[A: HasRegion](t: Expr[A], optMeta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] = {
     def run(t: Expr[A]) = inferSigmaMeta(t, optMeta).flatMap(zonkTypedExpr _)
-    /*
-     * This is a deviation from the paper.
-     * We are allowing a syntax like:
-     *
-     * def identity(x: a) -> a:
-     *   x
-     *
-     * or:
-     *
-     * def foo(x: a): x
-     *
-     * We handle this by converting a to a skolem variable,
-     * running inference, then quantifying over that skolem
-     * variable.
-     * 
-     * TODO Kind we need to know the kinds of these skolems
-     */
+
     val optSkols = t match {
       case Expr.Generic(vs, e) =>
-        Some(for {
-          skolsE1 <- Expr.skolemizeVars(vs, e)(newSkolemTyVar(_, _))
-          (skols, e1) = skolsE1
-          /*
-           * This is a bit weird, but for top-level defs, the type parameters
-           * only need to be a superset of free variables. You don't need
-           * to declare them all. On inner variables of a def we assume
-           * it is free in the top level def unless you declare it generic.
-           * Maybe worth revisiting and require ALL free variables declared
-           * or none of them...
-           */
-          optMore = Expr.skolemizeFreeVars(e1)(newSkolemTyVar(_, _))
-          res <- optMore.fold(pure(skolsE1)) { restSkols =>
-            restSkols.map { case (sM, eM) => (skols ::: sM, eM) }
-          }
-        } yield res)
-      case notGeneric =>
-        Expr.skolemizeFreeVars(notGeneric)(newSkolemTyVar(_, _))
+        Some(Expr.skolemizeVars(vs, e)(newSkolemTyVar(_, _)))
+      case _ => None
     }
 
     optSkols match {

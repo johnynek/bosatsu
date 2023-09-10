@@ -226,7 +226,6 @@ final class SourceConverter(
           case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
         }
         val newBindings = defstmt.name :: defstmt.args.toList.flatMap(_.patternNames)
-        // TODO
         val lambda = toLambdaExpr(defstmt, decl.region, success(decl))({ res => withBound(res._1.get, newBindings) })
 
         (inExpr, lambda).parMapN { (in, lam) =>
@@ -1170,7 +1169,11 @@ final class SourceConverter(
         case Right(Right((nm, decl))) =>
 
           val r = apply(decl, Set.empty, topBound).map((nm, RecursionKind.NonRecursive, _) :: Nil)
-          (topBound + nm, r)
+          // make sure all the free types are Generic
+          // we have to do this at the top level because in Declaration => Expr
+          // we allow closing over type variables defined at a higher level
+          val r1 = r.map { exs => exs.map { case (n, r, e) => (n, r, Expr.quantifyFrees(e)) } }
+          (topBound + nm, r1)
 
         case Right(Left(d @ Def(defstmt@DefStatement(_, _, argGroups, _, _)))) =>
           // using body for the outer here is a bummer, but not really a good outer otherwise
@@ -1193,7 +1196,11 @@ final class SourceConverter(
             val rec =
               if (UnusedLetCheck.freeBound(l).contains(boundName)) RecursionKind.Recursive
               else RecursionKind.NonRecursive
-            (boundName, rec, l) :: Nil
+            // make sure all the free types are Generic
+            // we have to do this at the top level because in Declaration => Expr
+            // we allow closing over type variables defined at a higher level
+            val l1 = Expr.quantifyFrees(l)
+            (boundName, rec, l1) :: Nil
           }
           (topBound1, r)
         case Left(ExternalDef(n, _, _)) =>
