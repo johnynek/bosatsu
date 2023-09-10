@@ -29,12 +29,11 @@ object DefStatement {
       import defs._
       val res = retType.fold(Doc.empty) { t => arrow + t.toDoc }
       val taDoc = typeArgs match {
-        case None => Doc.empty
-        case Some(ta) =>
-          TypeRef.docTypeArgs(ta.toList) {
-            case None    => Doc.empty
-            case Some(k) => colonSpace + Kind.toDoc(k)
-          }
+        case None     => Doc.empty
+        case Some(ta) => TypeRef.docTypeArgs(ta.toList) {
+          case None => Doc.empty
+          case Some(k) => colonSpace + Kind.toDoc(k) 
+        }
       }
       val argDoc =
         Doc.char('(') +
@@ -64,9 +63,7 @@ object DefStatement {
     (
       Parser.keySpace(
         "def"
-      ) *> (Identifier.bindableParser ~ TypeRef
-        .typeParams(kindAnnot.?)
-        .? ~ args) <* maybeSpace,
+      ) *> (Identifier.bindableParser ~ TypeRef.typeParams(kindAnnot.?).? ~ args) <* maybeSpace,
       result.with1 <* (maybeSpace.with1 ~ P.char(':')),
       resultTParser
     )
