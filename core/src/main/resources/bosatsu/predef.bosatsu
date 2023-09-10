@@ -12,7 +12,6 @@ export (
   Order(),
   Unit(),
   Dict,
-  Fn1, Fn2, Fn3, Fn4, Fn5, Fn6, Fn7, Fn8,
   add,
   add_key,
   cmp_Int,
@@ -52,15 +51,6 @@ struct TupleCons(first, second)
 
 enum Bool:
   False, True
-
-external struct Fn1[a: -*, z: +*]
-external struct Fn2[a: -*, b: -*, z: +*]
-external struct Fn3[a: -*, b: -*, c: -*, z: +*]
-external struct Fn4[a: -*, b: -*, c: -*, d: -*, z: +*]
-external struct Fn5[a: -*, b: -*, c: -*, d: -*, e: -*, z: +*]
-external struct Fn6[a: -*, b: -*, c: -*, d: -*, e: -*, f: -*, z: +*]
-external struct Fn7[a: -*, b: -*, c: -*, d: -*, e: -*, f: -*, g: -*, z: +*]
-external struct Fn8[a: -*, b: -*, c: -*, d: -*, e: -*, f: -*, g: -*, h: -*, z: +*]
 
 #############
 # Support for built-in lists

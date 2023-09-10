@@ -344,7 +344,24 @@ object Package {
    */
   lazy val predefPackage: Package.Parsed =
     parser(None).parse(Predef.predefString) match {
-      case Right((_, pack)) => pack
+      case Right((_, pack)) =>
+        // Make function defs:
+        def paramType(n: Int) = (TypeRef.TypeVar(s"i$n"), Some(Kind.Arg(Variance.contra, Kind.Type)))
+        def makeFns(n: Int,
+          typeArgs: List[(TypeRef.TypeVar, Option[Kind.Arg])],
+          acc: List[Statement.ExternalStruct]): List[Statement.ExternalStruct] =
+          if (n > Type.FnType.MaxSize) acc
+          else {
+            val fn = Statement.ExternalStruct(Identifier.Constructor(s"Fn$n"), typeArgs)(Region(0, 1))
+            val acc1 = fn :: acc
+            makeFns(n + 1, paramType(n) :: typeArgs, acc1)
+          }
+
+        val out = (TypeRef.TypeVar("z"), Some(Kind.Arg(Variance.co, Kind.Type)))
+        val allFns = makeFns(1, paramType(0) :: out :: Nil, Nil).reverse
+        val exported = allFns.map { extstr => ExportedName.TypeName(extstr.name, ()) }
+        // Add functions into the predef
+        pack.copy(exports = exported ::: pack.exports, program = allFns ::: pack.program)
       case Left(err) =>
         val idx = err.failedAtOffset
         val lm = LocationMap(Predef.predefString)
