@@ -14,7 +14,7 @@ sealed abstract class OptIndent[A] {
 
   def sepDoc: Doc =
     this match {
-      case OptIndent.SameLine(_) => Doc.space
+      case OptIndent.SameLine(_)    => Doc.space
       case OptIndent.NotSameLine(_) => Doc.empty
     }
 
@@ -43,7 +43,8 @@ object OptIndent {
     NotSameLine(toPadIndent)
 
   case class SameLine[A](get: A) extends OptIndent[A]
-  case class NotSameLine[A](toPadIndent: Padding[Indented[A]]) extends OptIndent[A] {
+  case class NotSameLine[A](toPadIndent: Padding[Indented[A]])
+      extends OptIndent[A] {
     def get: A = toPadIndent.padded.value
   }
 
@@ -56,7 +57,7 @@ object OptIndent {
     val dpi = Document[Padding[Indented[A]]]
 
     Document.instance[OptIndent[A]] {
-      case SameLine(a) => da.document(a)
+      case SameLine(a)    => da.document(a)
       case NotSameLine(p) => dpi.document(p)
     }
   }
@@ -64,20 +65,23 @@ object OptIndent {
   def indy[A](p: Indy[A]): Indy[OptIndent[A]] = {
     val ind = Indented.indy(p)
     // we need to read at least 1 new line here
-    val not = ind.mapF { p => Padding.parser1(p).map(notSame[A](_)): P[OptIndent[A]] }
+    val not = ind.mapF { p =>
+      Padding.parser1(p).map(notSame[A](_)): P[OptIndent[A]]
+    }
     val sm = p.map(same[A](_))
     not <+> sm
   }
 
-  /**
-   * A: B or
-   * A:
-   *   B
-   */
+  /** A: B or A: B
+    */
   def block[A, B](first: Indy[A], next: Indy[B]): Indy[(A, OptIndent[B])] =
     blockLike(first, next, (maybeSpace ~ P.char(':')).void)
 
-  def blockLike[A, B](first: Indy[A], next: Indy[B], sep: P0[Unit]): Indy[(A, OptIndent[B])] =
+  def blockLike[A, B](
+      first: Indy[A],
+      next: Indy[B],
+      sep: P0[Unit]
+  ): Indy[(A, OptIndent[B])] =
     first
       .cutLeftP(sep ~ maybeSpace)
       .cutThen(OptIndent.indy(next))

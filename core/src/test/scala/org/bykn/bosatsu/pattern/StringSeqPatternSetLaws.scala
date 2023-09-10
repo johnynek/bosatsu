@@ -11,9 +11,9 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
   val Pattern = SeqPattern
 
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 50000)
+    // PropertyCheckConfiguration(minSuccessful = 50000)
     PropertyCheckConfiguration(minSuccessful = 5000)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  // PropertyCheckConfiguration(minSuccessful = 5)
 
   // if there are too many wildcards the intersections will blow up
   def genItem: Gen[Pattern] = StringSeqPatternGen.genPat.map { p =>
@@ -45,22 +45,31 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
     import SeqPart.Lit
 
     val regressions: List[(SeqPattern[Char], SeqPattern[Char])] =
-      (Cat(Lit('1'),Cat(Lit('1'),Cat(Lit('1'),Cat(Lit('1'),Empty)))),
-        Cat(Lit('0'),Cat(Lit('1'),Cat(Lit('1'),Empty)))) ::
-      (Cat(Lit('1'),Cat(Lit('0'),Cat(Lit('1'),Cat(Lit('0'),Empty)))),
-        Cat(Lit('0'),Cat(Lit('1'),Empty))) ::
-      Nil
+      (
+        Cat(Lit('1'), Cat(Lit('1'), Cat(Lit('1'), Cat(Lit('1'), Empty)))),
+        Cat(Lit('0'), Cat(Lit('1'), Cat(Lit('1'), Empty)))
+      ) ::
+        (
+          Cat(Lit('1'), Cat(Lit('0'), Cat(Lit('1'), Cat(Lit('0'), Empty)))),
+          Cat(Lit('0'), Cat(Lit('1'), Empty))
+        ) ::
+        Nil
 
-    regressions.foreach { case (a, b) => subsetConsistencyLaw(a, b, Eq.fromUniversalEquals) }
+    regressions.foreach { case (a, b) =>
+      subsetConsistencyLaw(a, b, Eq.fromUniversalEquals)
+    }
   }
 
   test("*x* problems") {
     import SeqPattern.{Cat, Empty}
     import SeqPart.{Lit, Wildcard}
 
-    val x = Cat(Wildcard,Cat(Lit('q'),Cat(Wildcard,Cat(Lit('p'),Cat(Wildcard,Empty)))))
-    val y = Cat(Wildcard,Cat(Lit('p'),Cat(Wildcard,Empty)))
-    val z = Cat(Wildcard,Cat(Lit('q'),Cat(Wildcard,Empty)))
+    val x = Cat(
+      Wildcard,
+      Cat(Lit('q'), Cat(Wildcard, Cat(Lit('p'), Cat(Wildcard, Empty))))
+    )
+    val y = Cat(Wildcard, Cat(Lit('p'), Cat(Wildcard, Empty)))
+    val z = Cat(Wildcard, Cat(Lit('q'), Cat(Wildcard, Empty)))
     // note y and z are clearly bigger than x because they are prefix/suffix that end/start with
     // Wildcard
     assert(setOps.difference(x, y).isEmpty)
@@ -71,27 +80,34 @@ class StringSeqPatternSetLaws extends SetOpsLaws[SeqPattern[Char]] {
     import SeqPattern.{Cat, Empty}
     import SeqPart.{AnyElem, Lit, Wildcard}
 
-    val regressions: List[(SeqPattern[Char], SeqPattern[Char], SeqPattern[Char])] =
-      (Cat(Wildcard, Empty),
-        Cat(AnyElem,Cat(Lit('1'),Cat(AnyElem,Empty))),
-        Cat(AnyElem,Cat(Lit('1'),Cat(Lit('0'),Empty)))) ::
-      (Cat(Wildcard,Cat(Lit('0'),Empty)),
-        Cat(AnyElem,Cat(Lit('1'),Cat(AnyElem,Cat(Lit('0'),Empty)))),
-        Cat(AnyElem,Cat(Lit('1'),Cat(Lit('0'),Cat(Lit('0'),Empty))))) ::
-      (Cat(Wildcard, Cat(Lit('q'), Cat(Wildcard, Empty))),
+    val regressions
+        : List[(SeqPattern[Char], SeqPattern[Char], SeqPattern[Char])] =
+      (
         Cat(Wildcard, Empty),
-        Cat(Wildcard, Cat(Lit('p'), Cat(Wildcard, Empty)))) ::
-      /*
-       * This fails currently
-       * see: https://github.com/johnynek/bosatsu/issues/486
+        Cat(AnyElem, Cat(Lit('1'), Cat(AnyElem, Empty))),
+        Cat(AnyElem, Cat(Lit('1'), Cat(Lit('0'), Empty)))
+      ) ::
+        (
+          Cat(Wildcard, Cat(Lit('0'), Empty)),
+          Cat(AnyElem, Cat(Lit('1'), Cat(AnyElem, Cat(Lit('0'), Empty)))),
+          Cat(AnyElem, Cat(Lit('1'), Cat(Lit('0'), Cat(Lit('0'), Empty))))
+        ) ::
+        (
+          Cat(Wildcard, Cat(Lit('q'), Cat(Wildcard, Empty))),
+          Cat(Wildcard, Empty),
+          Cat(Wildcard, Cat(Lit('p'), Cat(Wildcard, Empty)))
+        ) ::
+        /*
+         * This fails currently
+         * see: https://github.com/johnynek/bosatsu/issues/486
       {
         val p1 = Cat(Wildcard,Cat(Lit('1'),Cat(Lit('0'),Cat(Lit('0'),Empty))))
         val p2  = Cat(AnyElem,Cat(Lit('1'),Cat(Wildcard,Cat(Lit('0'),Empty))))
         val p3 = Cat(Lit('1'),Cat(Lit('1'),Cat(Wildcard,Cat(Lit('0'),Empty))))
         (p1, p2, p3)
       } ::
-      */
-      Nil
+         */
+        Nil
 
     regressions.foreach { case (a, b, c) => diffIntersectionLaw(a, b, c) }
   }
