@@ -131,7 +131,7 @@ final class SourceConverter(
                 case Some(k) => k
               })
             }
-          val gen = Expr.Generic(bs, lambda)
+          val gen = Expr.forAll(bs.toList, lambda)
           val freeVarsList = Expr.freeBoundTyVars(lambda)
           val freeVars = freeVarsList.toSet
           val notFreeDecl = bs.exists { case (a, _) => !freeVars(a) }

@@ -1335,8 +1335,13 @@ object Infer {
 
   private def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
     // values are of kind Type
-    newMetaType(Kind.Type).flatMap { tpe =>
-      extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))
+    expr match {
+      case Expr.Annotation(e, tpe, _) =>
+        extendEnv(name, tpe)(checkSigma(e, tpe))
+      case _ =>
+        newMetaType(Kind.Type).flatMap { tpe =>
+          extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))
+        }
     }
 
 
