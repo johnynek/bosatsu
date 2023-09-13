@@ -2,7 +2,7 @@ package org.bykn.bosatsu
 
 import cats.Functor
 import cats.parse.{Parser0 => P0, Parser => P}
-import org.typelevel.paiges.{ Doc, Document }
+import org.typelevel.paiges.{Doc, Document}
 
 import Parser.maybeSpace
 
@@ -20,9 +20,8 @@ object Padding {
       Doc.line.repeat(padding.lines) + Document[T].document(padding.padded)
     }
 
-  /**
-   * This allows an empty padding
-   */
+  /** This allows an empty padding
+    */
   def parser[T](p: P[T]): P[Padding[T]] = {
     val spacing = (maybeSpace.with1.soft ~ Parser.newline).void.rep0
 
@@ -30,17 +29,14 @@ object Padding {
       .map { case (vec, t) => Padding(vec.size, t) }
   }
 
-  /**
-   * Parses a padding of length 1 or more, then p
-   */
+  /** Parses a padding of length 1 or more, then p
+    */
   def parser1[T](p: P0[T]): P[Padding[T]] =
     ((maybeSpace.with1.soft ~ Parser.newline).void.rep ~ p)
       .map { case (vec, t) => Padding(vec.size, t) }
 
-  /**
-   * This is parser1 by itself, with the padded value being ()
-   */
+  /** This is parser1 by itself, with the padded value being ()
+    */
   val nonEmptyParser: P[Padding[Unit]] =
     parser1(P.unit)
 }
-

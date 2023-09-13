@@ -14,7 +14,7 @@ case class PackageName(parts: NonEmptyList[String]) {
 object PackageName {
 
   def parts(first: String, rest: String*): PackageName =
-    PackageName(NonEmptyList.of(first, rest :_*))
+    PackageName(NonEmptyList.of(first, rest: _*))
 
   implicit val document: Document[PackageName] =
     Document.instance[PackageName] { pn => Doc.text(pn.asString) }
@@ -28,7 +28,7 @@ object PackageName {
   def parse(s: String): Option[PackageName] =
     parser.parse(s) match {
       case Right(("", pn)) => Some(pn)
-      case _ => None
+      case _               => None
     }
 
   implicit val order: Order[PackageName] =
@@ -40,4 +40,3 @@ object PackageName {
   val PredefName: PackageName =
     PackageName(NonEmptyList.of("Bosatsu", "Predef"))
 }
-

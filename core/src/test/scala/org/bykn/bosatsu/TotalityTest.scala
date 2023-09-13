@@ -2,7 +2,10 @@ package org.bykn.bosatsu
 
 import cats.Eq
 import cats.data.NonEmptyList
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import org.scalacheck.Gen
 
 import org.bykn.bosatsu.pattern.{SetOps, SetOpsLaws}
@@ -17,13 +20,16 @@ import Identifier.Constructor
 
 import cats.implicits._
 
-class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
+class TotalityTest
+    extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
   type Pat = Pattern[(PackageName, Constructor), Type]
 
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 50000)
-    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 50000 else 100)
-    //PropertyCheckConfiguration(minSuccessful = 50)
+    // PropertyCheckConfiguration(minSuccessful = 50000)
+    PropertyCheckConfiguration(minSuccessful =
+      if (Platform.isScalaJvm) 50000 else 100
+    )
+  // PropertyCheckConfiguration(minSuccessful = 50)
 
   val genPattern: Gen[Pattern[(PackageName, Constructor), Type]] =
     Generators.genCompiledPattern(5, useAnnotation = false)
@@ -32,9 +38,8 @@ class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]]
     Generators.genCompiledPattern(5, useUnion = false, useAnnotation = false)
 
   def showPat(pat: Pattern[(PackageName, Constructor), Type]): String = {
-    val pat0 = pat.mapName {
-      case (_, n) =>
-        Pattern.StructKind.Named(n, Pattern.StructKind.Style.TupleLike)
+    val pat0 = pat.mapName { case (_, n) =>
+      Pattern.StructKind.Named(n, Pattern.StructKind.Style.TupleLike)
     }
 
     implicit val tdoc = Type.fullyResolvedDocument
@@ -70,62 +75,76 @@ enum Bool: False, True
     new Eq[List[Pattern[(PackageName, Constructor), Type]]] {
       val e1 = TotalityCheck(predefTE).eqPat
 
-      def eqv(a: List[Pattern[(PackageName, Constructor), Type]],
-        b: List[Pattern[(PackageName, Constructor), Type]]) =
-          (NonEmptyList.fromList(a), NonEmptyList.fromList(b)) match {
-            case (oa, ob) if oa == ob => true
-            case (Some(a), Some(b)) =>
-              e1.eqv(Pattern.union(a.head, a.tail), Pattern.union(b.head, b.tail))
-            case _ => false
-          }
+      def eqv(
+          a: List[Pattern[(PackageName, Constructor), Type]],
+          b: List[Pattern[(PackageName, Constructor), Type]]
+      ) =
+        (NonEmptyList.fromList(a), NonEmptyList.fromList(b)) match {
+          case (oa, ob) if oa == ob => true
+          case (Some(a), Some(b)) =>
+            e1.eqv(Pattern.union(a.head, a.tail), Pattern.union(b.head, b.tail))
+          case _ => false
+        }
     }
 
   def eqUnion: Gen[Eq[List[Pattern[(PackageName, Constructor), Type]]]] =
     Gen.const(eqPatterns)
 
   def patterns(str: String): List[Pattern[(PackageName, Constructor), Type]] = {
-    val nameToCons: Constructor => (PackageName, Constructor) =
-      { cons => (PackageName.PredefName, cons) }
+    val nameToCons: Constructor => (PackageName, Constructor) = { cons =>
+      (PackageName.PredefName, cons)
+    }
 
-    /**
-     * This is sufficient for these tests, but is not
-     * a full features pattern compiler.
-     */
-    def parsedToExpr(pat: Pattern.Parsed): Pattern[(PackageName, Constructor), rankn.Type] =
-      pat.mapStruct[(PackageName, Constructor)] {
-        case (Pattern.StructKind.Tuple, args) =>
-          // this is a tuple pattern
-          def loop(args: List[Pattern[(PackageName, Constructor), TypeRef]]): Pattern[(PackageName, Constructor), TypeRef] =
-            args match {
-              case Nil =>
-                // ()
-                Pattern.PositionalStruct(
-                  (PackageName.PredefName, Constructor("Unit")),
-                  Nil)
-              case h :: tail =>
-                val tailP = loop(tail)
-                Pattern.PositionalStruct(
-                  (PackageName.PredefName, Constructor("TupleCons")),
-                  h :: tailP :: Nil)
-            }
+    /** This is sufficient for these tests, but is not a full features pattern
+      * compiler.
+      */
+    def parsedToExpr(
+        pat: Pattern.Parsed
+    ): Pattern[(PackageName, Constructor), rankn.Type] =
+      pat
+        .mapStruct[(PackageName, Constructor)] {
+          case (Pattern.StructKind.Tuple, args) =>
+            // this is a tuple pattern
+            def loop(
+                args: List[Pattern[(PackageName, Constructor), TypeRef]]
+            ): Pattern[(PackageName, Constructor), TypeRef] =
+              args match {
+                case Nil =>
+                  // ()
+                  Pattern.PositionalStruct(
+                    (PackageName.PredefName, Constructor("Unit")),
+                    Nil
+                  )
+                case h :: tail =>
+                  val tailP = loop(tail)
+                  Pattern.PositionalStruct(
+                    (PackageName.PredefName, Constructor("TupleCons")),
+                    h :: tailP :: Nil
+                  )
+              }
 
-          loop(args)
-        case (Pattern.StructKind.Named(nm, _), args) =>
-          Pattern.PositionalStruct(nameToCons(nm), args)
-        case (Pattern.StructKind.NamedPartial(nm, _), args) =>
-          Pattern.PositionalStruct(nameToCons(nm), args)
-      }
-      .mapType { tref =>
-        TypeRefConverter[cats.Id](tref) { tpe =>
-          Type.Const.Defined(PackageName.PredefName, TypeName(tpe))
+            loop(args)
+          case (Pattern.StructKind.Named(nm, _), args) =>
+            Pattern.PositionalStruct(nameToCons(nm), args)
+          case (Pattern.StructKind.NamedPartial(nm, _), args) =>
+            Pattern.PositionalStruct(nameToCons(nm), args)
         }
-      }
+        .mapType { tref =>
+          TypeRefConverter[cats.Id](tref) { tpe =>
+            Type.Const.Defined(PackageName.PredefName, TypeName(tpe))
+          }
+        }
 
-    Parser.unsafeParse(Pattern.matchParser.listSyntax, str)
+    Parser
+      .unsafeParse(Pattern.matchParser.listSyntax, str)
       .map(parsedToExpr _)
   }
 
-  def notTotal(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], testMissing: Boolean = true): Unit = {
+  def notTotal(
+      te: TypeEnv[Any],
+      pats: List[Pattern[(PackageName, Constructor), Type]],
+      testMissing: Boolean = true
+  ): Unit = {
     val res = TotalityCheck(te).isTotal(pats)
     assert(!res, pats.toString)
 
@@ -143,7 +162,11 @@ enum Bool: False, True
     }
   }
 
-  def testTotality(te: TypeEnv[Any], pats: List[Pattern[(PackageName, Constructor), Type]], tight: Boolean = false) = {
+  def testTotality(
+      te: TypeEnv[Any],
+      pats: List[Pattern[(PackageName, Constructor), Type]],
+      tight: Boolean = false
+  ) = {
     val res = TotalityCheck(te).missingBranches(pats)
     val asStr = res.map(showPat)
     assert(asStr == Nil, showPats(pats))
@@ -151,7 +174,7 @@ enum Bool: False, True
     // any missing pattern shouldn't be total:
     def allButOne[A](head: A, tail: List[A]): List[List[A]] =
       tail match {
-        case Nil => Nil
+        case Nil       => Nil
         case h :: rest =>
           // we can either delete the head or one from the tail:
           val keepHead = allButOne(h, rest).map(head :: _)
@@ -160,7 +183,9 @@ enum Bool: False, True
 
     pats match {
       case h :: tail if tight =>
-        allButOne(h, tail).foreach(notTotal(te, _, testMissing = false)) // don't make an infinite loop here
+        allButOne(h, tail).foreach(
+          notTotal(te, _, testMissing = false)
+        ) // don't make an infinite loop here
       case _ => ()
     }
   }
@@ -178,7 +203,6 @@ struct Unit
     val pats = patterns("[Unit]")
     testTotality(te, pats)
 
-
     val te1 = typeEnvOf("""#
 struct TupleCons(a, b)
 """)
@@ -195,7 +219,11 @@ enum Option: None, Some(get)
     testTotality(te, patterns("[Some(_) | None]"), tight = true)
     testTotality(te, patterns("[Some(_), _]"))
     testTotality(te, patterns("[Some(1), Some(x), None]"))
-    testTotality(te, patterns("[Some(Some(_)), Some(None), None]"), tight = true)
+    testTotality(
+      te,
+      patterns("[Some(Some(_)), Some(None), None]"),
+      tight = true
+    )
     testTotality(te, patterns("[Some(Some(_) | None), None]"), tight = true)
 
     notTotal(te, patterns("[Some(_)]"))
@@ -210,13 +238,19 @@ enum Option: None, Some(get)
 enum Either: Left(l), Right(r)
 """)
     testTotality(te, patterns("[Left(_), Right(_)]"))
-    testTotality(te,
-      patterns("[Left(Right(_)), Left(Left(_)), Right(Left(_)), Right(Right(_))]"),
-      tight = true)
+    testTotality(
+      te,
+      patterns(
+        "[Left(Right(_)), Left(Left(_)), Right(Left(_)), Right(Right(_))]"
+      ),
+      tight = true
+    )
 
-    testTotality(te,
+    testTotality(
+      te,
       patterns("[Left(Right(_) | Left(_)), Right(Left(_) | Right(_))]"),
-      tight = true)
+      tight = true
+    )
 
     notTotal(te, patterns("[Left(_)]"))
     notTotal(te, patterns("[Right(_)]"))
@@ -226,10 +260,22 @@ enum Either: Left(l), Right(r)
 
   test("test List matching") {
     testTotality(predefTE, patterns("[[], [h, *tail]]"), tight = true)
-    testTotality(predefTE, patterns("[[], [h, *tail], [h0, h1, *tail]]"), tight = true)
+    testTotality(
+      predefTE,
+      patterns("[[], [h, *tail], [h0, h1, *tail]]"),
+      tight = true
+    )
     testTotality(predefTE, patterns("[[], [*tail, _]]"), tight = true)
-    testTotality(predefTE, patterns("[[*_, True, *_], [], [False, *_]]"), tight = true)
-    testTotality(predefTE, patterns("[[*_, True, *_], [] | [False, *_]]"), tight = true)
+    testTotality(
+      predefTE,
+      patterns("[[*_, True, *_], [], [False, *_]]"),
+      tight = true
+    )
+    testTotality(
+      predefTE,
+      patterns("[[*_, True, *_], [] | [False, *_]]"),
+      tight = true
+    )
 
     notTotal(predefTE, patterns("[[], [h, *tail, _]]"))
   }
@@ -241,33 +287,56 @@ enum Option: None, Some(get)
 struct TupleCons(fst, snd)
 """)
 
-    testTotality(te, patterns("[None, Some(Left(_)), Some(Right(_))]"), tight = true)
+    testTotality(
+      te,
+      patterns("[None, Some(Left(_)), Some(Right(_))]"),
+      tight = true
+    )
     testTotality(te, patterns("[None, Some(Left(_) | Right(_))]"), tight = true)
-    testTotality(te, patterns("[None, Some(TupleCons(Left(_), _)), Some(TupleCons(_, Right(_))), Some(TupleCons(Right(_), Left(_)))]"), tight = true)
-    testTotality(te, patterns("[None, Some(TupleCons(Left(_), _) | TupleCons(_, Right(_))), Some(TupleCons(Right(_), Left(_)))]"), tight = true)
+    testTotality(
+      te,
+      patterns(
+        "[None, Some(TupleCons(Left(_), _)), Some(TupleCons(_, Right(_))), Some(TupleCons(Right(_), Left(_)))]"
+      ),
+      tight = true
+    )
+    testTotality(
+      te,
+      patterns(
+        "[None, Some(TupleCons(Left(_), _) | TupleCons(_, Right(_))), Some(TupleCons(Right(_), Left(_)))]"
+      ),
+      tight = true
+    )
   }
 
   test("compose List with structs") {
     val te = typeEnvOf("""#
 enum Either: Left(l), Right(r)
 """)
-    testTotality(te, patterns("[[Left(_), *_], [Right(_), *_], [], [_, _, *_]]"), tight = true)
-    testTotality(te, patterns("[Left([]), Left([h, *_]), Right([]), Right([h, *_])]"), tight = true)
+    testTotality(
+      te,
+      patterns("[[Left(_), *_], [Right(_), *_], [], [_, _, *_]]"),
+      tight = true
+    )
+    testTotality(
+      te,
+      patterns("[Left([]), Left([h, *_]), Right([]), Right([h, *_])]"),
+      tight = true
+    )
   }
-
 
   test("test intersection") {
     val p0 :: p1 :: p1norm :: Nil = patterns("[[*_], [*_, _], [_, *_]]")
-      TotalityCheck(predefTE).intersection(p0, p1) match {
-        case List(intr) => assert(intr == p1norm)
-        case other => fail(s"expected exactly one intersection: $other")
-      }
+    TotalityCheck(predefTE).intersection(p0, p1) match {
+      case List(intr) => assert(intr == p1norm)
+      case other      => fail(s"expected exactly one intersection: $other")
+    }
 
     val p2 :: p3 :: Nil = patterns("[[*_], [_, _]]")
-      TotalityCheck(predefTE).intersection(p2, p3) match {
-        case List(intr) => assert(p3 == intr)
-        case other => fail(s"expected exactly one intersection: $other")
-      }
+    TotalityCheck(predefTE).intersection(p2, p3) match {
+      case List(intr) => assert(p3 == intr)
+      case other      => fail(s"expected exactly one intersection: $other")
+    }
   }
 
   test("test some difference examples") {
@@ -297,7 +366,7 @@ enum Either: Left(l), Right(r)
       val p0 :: p1 :: Nil = patterns("[[*_, _], [_, *_]]")
       TotalityCheck(predefTE).intersection(p0, p1) match {
         case List(res) if res == p0 || res == p1 => succeed
-        case Nil => fail("these do overlap")
+        case Nil                                 => fail("these do overlap")
         case nonUnified => fail(s"didn't unify to one: $nonUnified")
       }
     }
@@ -310,13 +379,52 @@ enum Either: Left(l), Right(r)
     import Identifier.Name
 
     val regressions: List[(Pat, Pat, Pat)] =
-      (Named(Name("hTt"), StrPat(NonEmptyList.of(NamedStr(Name("rfb")), LitStr("q"), NamedStr(Name("ngkrx"))))),
+      (
+        Named(
+          Name("hTt"),
+          StrPat(
+            NonEmptyList
+              .of(NamedStr(Name("rfb")), LitStr("q"), NamedStr(Name("ngkrx")))
+          )
+        ),
         WildCard,
-        Named(Name("hjbmtklh"),StrPat(NonEmptyList.of(NamedStr(Name("qz8lcT")), WildStr, LitStr("p7"), NamedStr(Name("hqxprG")))))) ::
-      (WildCard,
-        ListPat(List(NamedList(Name("nv6")), Item(Literal(Lit.fromInt(-17))), Item(WildCard))),
-        ListPat(List(Item(StrPat(NonEmptyList.of(WildStr))), Item(StrPat(NonEmptyList.of(NamedStr(Name("eejhh")), LitStr("jbuzfcwsumP"), WildStr)))))) ::
-      Nil
+        Named(
+          Name("hjbmtklh"),
+          StrPat(
+            NonEmptyList.of(
+              NamedStr(Name("qz8lcT")),
+              WildStr,
+              LitStr("p7"),
+              NamedStr(Name("hqxprG"))
+            )
+          )
+        )
+      ) ::
+        (
+          WildCard,
+          ListPat(
+            List(
+              NamedList(Name("nv6")),
+              Item(Literal(Lit.fromInt(-17))),
+              Item(WildCard)
+            )
+          ),
+          ListPat(
+            List(
+              Item(StrPat(NonEmptyList.of(WildStr))),
+              Item(
+                StrPat(
+                  NonEmptyList.of(
+                    NamedStr(Name("eejhh")),
+                    LitStr("jbuzfcwsumP"),
+                    WildStr
+                  )
+                )
+              )
+            )
+          )
+        ) ::
+        Nil
 
     regressions.foreach { case (a, b, c) =>
       diffIntersectionLaw(a, b, c)
@@ -330,23 +438,27 @@ enum Either: Left(l), Right(r)
     }
 
     val regressions: List[(Pat, Pat)] =
-      List(
-        {
-          val struct = Pattern.PositionalStruct((PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")), Nil)
-          val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
-          (struct, lst)
-        })
+      List({
+        val struct = Pattern.PositionalStruct(
+          (PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")),
+          Nil
+        )
+        val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
+        (struct, lst)
+      })
 
     regressions.foreach { case (a, b) => law(a, b) }
   }
 
   test("subset consistency regressions") {
-    val regressions: List[(Pat, Pat)] =
-      {
-        val struct = Pattern.PositionalStruct((PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")), Nil)
-        val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
-        (struct, lst)
-      } ::
+    val regressions: List[(Pat, Pat)] = {
+      val struct = Pattern.PositionalStruct(
+        (PackageName(NonEmptyList.of("Pack")), Identifier.Constructor("Foo")),
+        Nil
+      )
+      val lst = Pattern.ListPat(List(Pattern.ListPart.WildList))
+      (struct, lst)
+    } ::
       Nil
 
     regressions.foreach { case (a, b) =>
@@ -361,14 +473,23 @@ enum Either: Left(l), Right(r)
     import StrPart.WildStr
 
     val regressions: List[(Pat, Pat)] =
-      List(
-        {
-          val left = ListPat(List(Item(WildCard), WildList))
-          val right = ListPat(List(Item(Var(Name("bey6ct"))), Item(Literal(Lit.fromInt(42))), Item(StrPat(NonEmptyList.of(WildStr))), Item(Literal(Lit("agfn"))), Item(WildCard)))
-          (left, right)
-        })
+      List({
+        val left = ListPat(List(Item(WildCard), WildList))
+        val right = ListPat(
+          List(
+            Item(Var(Name("bey6ct"))),
+            Item(Literal(Lit.fromInt(42))),
+            Item(StrPat(NonEmptyList.of(WildStr))),
+            Item(Literal(Lit("agfn"))),
+            Item(WildCard)
+          )
+        )
+        (left, right)
+      })
 
-    regressions.foreach { case (a, b) => differenceIsIdempotent(a, b, eqPatterns) }
+    regressions.foreach { case (a, b) =>
+      differenceIsIdempotent(a, b, eqPatterns)
+    }
   }
 
   test("if a n b = 0 then a - b = a regressions") {
@@ -382,16 +503,27 @@ enum Either: Left(l), Right(r)
       List(
         {
           val left = ListPat(List(Item(WildCard), WildList))
-          val right = ListPat(List(Item(Var(Name("bey6ct"))), Item(Literal(Lit.fromInt(42))), Item(StrPat(NonEmptyList.of(WildStr))), Item(Literal(Lit("agfn"))), Item(WildCard)))
+          val right = ListPat(
+            List(
+              Item(Var(Name("bey6ct"))),
+              Item(Literal(Lit.fromInt(42))),
+              Item(StrPat(NonEmptyList.of(WildStr))),
+              Item(Literal(Lit("agfn"))),
+              Item(WildCard)
+            )
+          )
           (left, right)
-        },
-        {
-          val left = ListPat(List(NamedList(Name("a")), Item(WildCard), Item(Var(Name("b")))))
+        }, {
+          val left = ListPat(
+            List(NamedList(Name("a")), Item(WildCard), Item(Var(Name("b"))))
+          )
           val right = ListPat(List())
           (left, right)
         }
       )
 
-    regressions.foreach { case (a, b) => emptyIntersectionMeansDiffIdent(a, b, eqPatterns) }
+    regressions.foreach { case (a, b) =>
+      emptyIntersectionMeansDiffIdent(a, b, eqPatterns)
+    }
   }
 }
