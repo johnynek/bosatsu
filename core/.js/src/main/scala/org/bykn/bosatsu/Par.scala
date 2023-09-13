@@ -1,10 +1,11 @@
 package org.bykn.bosatsu
 
-/** This is an abstraction to handle parallel computation, not effectful
-  * computation. It is used in places where we have parallelism in expensive
-  * operations. Since scalajs cannot handle this, we use conditional build to
-  * replace the scalajs with just running directly
-  */
+/**
+ * This is an abstraction to handle parallel computation, not effectful
+ * computation. It is used in places where we have parallelism in expensive
+ * operations. Since scalajs cannot handle this, we use conditional build
+ * to replace the scalajs with just running directly
+ */
 object Par {
   class Box[A] {
     private[this] var value: A = _
@@ -33,3 +34,4 @@ object Par {
 
   @inline def toF[A](pa: P[A]): F[A] = pa.get
 }
+

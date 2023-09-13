@@ -5,16 +5,16 @@ import java.math.BigInteger
 import language.experimental.macros
 
 object Predef {
+  /**
+   * Loads a file *at compile time* as a means of embedding
+   * external files into strings. This lets us avoid resources
+   * which compilicate matters for scalajs.
+   */
+  private[bosatsu] def loadFileInCompile(file: String): String = macro Macro.loadFileInCompileImpl
 
-  /** Loads a file *at compile time* as a means of embedding external files into
-    * strings. This lets us avoid resources which compilicate matters for
-    * scalajs.
-    */
-  private[bosatsu] def loadFileInCompile(file: String): String =
-    macro Macro.loadFileInCompileImpl
-
-  /** String representation of the predef
-    */
+  /**
+   * String representation of the predef
+   */
   val predefString: String =
     loadFileInCompile("core/src/main/resources/bosatsu/predef.bosatsu")
 
@@ -22,7 +22,8 @@ object Predef {
     PackageName.PredefName
 
   val jvmExternals: Externals =
-    Externals.empty
+    Externals
+      .empty
       .add(packageName, "add", FfiCall.Fn2(PredefImpl.add(_, _)))
       .add(packageName, "div", FfiCall.Fn2(PredefImpl.div(_, _)))
       .add(packageName, "sub", FfiCall.Fn2(PredefImpl.sub(_, _)))
@@ -32,32 +33,12 @@ object Predef {
       .add(packageName, "gcd_Int", FfiCall.Fn2(PredefImpl.gcd_Int(_, _)))
       .add(packageName, "mod_Int", FfiCall.Fn2(PredefImpl.mod_Int(_, _)))
       .add(packageName, "int_loop", FfiCall.Fn3(PredefImpl.intLoop(_, _, _)))
-      .add(
-        packageName,
-        "int_to_String",
-        FfiCall.Fn1(PredefImpl.int_to_String(_))
-      )
+      .add(packageName, "int_to_String", FfiCall.Fn1(PredefImpl.int_to_String(_)))
       .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
-      .add(
-        packageName,
-        "string_Order_fn",
-        FfiCall.Fn2(PredefImpl.string_Order_Fn(_, _))
-      )
-      .add(
-        packageName,
-        "concat_String",
-        FfiCall.Fn1(PredefImpl.concat_String(_))
-      )
-      .add(
-        packageName,
-        "partition_String",
-        FfiCall.Fn2(PredefImpl.partitionString(_, _))
-      )
-      .add(
-        packageName,
-        "rpartition_String",
-        FfiCall.Fn2(PredefImpl.rightPartitionString(_, _))
-      )
+      .add(packageName, "string_Order_fn", FfiCall.Fn2(PredefImpl.string_Order_Fn(_, _)))
+      .add(packageName, "concat_String", FfiCall.Fn1(PredefImpl.concat_String(_)))
+      .add(packageName, "partition_String", FfiCall.Fn2(PredefImpl.partitionString(_, _)))
+      .add(packageName, "rpartition_String", FfiCall.Fn2(PredefImpl.rightPartitionString(_, _)))
 }
 
 object PredefImpl {
@@ -67,7 +48,7 @@ object PredefImpl {
   private def i(a: Value): BigInteger =
     a match {
       case VInt(bi) => bi
-      case _        => sys.error(s"expected integer: $a")
+      case _ => sys.error(s"expected integer: $a")
     }
 
   def add(a: Value, b: Value): Value =
@@ -134,7 +115,7 @@ object PredefImpl {
   def gcd_Int(a: Value, b: Value): Value =
     VInt(gcdBigInteger(i(a), i(b)))
 
-  // def intLoop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
+  //def intLoop(intValue: Int, state: a, fn: Int -> a -> TupleCons[Int, TupleCons[a, Unit]]) -> a
   final def intLoop(intValue: Value, state: Value, fn: Value): Value = {
     val fnT = fn.asFn
 
@@ -148,9 +129,9 @@ object PredefImpl {
             if (n.compareTo(bi) >= 0) {
               // we are done in this case
               nextA
-            } else loop(nextI, n, nextA)
-          case other =>
-            sys.error(s"unexpected ill-typed value: at $bi, $state, $other")
+            }
+            else loop(nextI, n, nextA)
+          case other => sys.error(s"unexpected ill-typed value: at $bi, $state, $other")
         }
       }
 
@@ -178,16 +159,17 @@ object PredefImpl {
       case Value.VList(parts) =>
         Value.Str(parts.iterator.map {
           case Value.Str(s) => s
-          case other        =>
-            // $COVERAGE-OFF$
+          case other =>
+            //$COVERAGE-OFF$
             sys.error(s"type error: $other")
-          // $COVERAGE-ON$
-        }.mkString)
+            //$COVERAGE-ON$
+        }
+        .mkString)
 
       case other =>
-        // $COVERAGE-OFF$
+        //$COVERAGE-OFF$
         sys.error(s"type error: $other")
-      // $COVERAGE-ON$
+        //$COVERAGE-ON$
     }
 
   // return an Option[(String, String)]
@@ -200,12 +182,11 @@ object PredefImpl {
 
       val idx = argS.indexOf(sepS)
       if (idx < 0) Value.VOption.none
-      else
-        Value.VOption.some {
-          val left = argS.substring(0, idx)
-          val right = argS.substring(idx + sepS.length)
-          Value.Tuple(Value.ExternalValue(left), Value.ExternalValue(right))
-        }
+      else Value.VOption.some {
+        val left = argS.substring(0, idx)
+        val right = argS.substring(idx + sepS.length)
+        Value.Tuple(Value.ExternalValue(left), Value.ExternalValue(right))
+      }
     }
   }
 
@@ -217,12 +198,12 @@ object PredefImpl {
       val argS = arg.asExternal.toAny.asInstanceOf[String]
       val idx = argS.lastIndexOf(sepS)
       if (idx < 0) Value.VOption.none
-      else
-        Value.VOption.some {
-          val left = argS.substring(0, idx)
-          val right = argS.substring(idx + sepS.length)
-          Value.Tuple(Value.ExternalValue(left), Value.ExternalValue(right))
-        }
+      else Value.VOption.some {
+        val left = argS.substring(0, idx)
+        val right = argS.substring(idx + sepS.length)
+        Value.Tuple(Value.ExternalValue(left), Value.ExternalValue(right))
+      }
     }
   }
 }
+
