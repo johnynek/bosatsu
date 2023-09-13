@@ -33,6 +33,20 @@ object Expr {
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], Expr[T])], tag: T) extends Expr[T]
 
 
+  def forAll[A](tpeArgs: List[(Type.Var.Bound, Kind)], expr: Expr[A]): Expr[A] =
+    NonEmptyList.fromList(tpeArgs) match {
+      case None => expr
+      case Some(nel) =>
+        expr match {
+          case Generic(typeVars, in) =>
+            Generic(nel ::: typeVars, in)
+          case notAnn => Generic(nel, notAnn)
+        } 
+    }
+
+  def quantifyFrees[A](expr: Expr[A]): Expr[A] =
+    forAll(freeBoundTyVars(expr).map((_, Kind.Type)), expr)
+
   /**
    * Report all the Bindable names refered to in the given Expr.
    * this can be used to allocate names that can never shadow
@@ -133,6 +147,8 @@ object Expr {
     }
   }
 
+  // Returns a distinct list of free bound type variables
+  // in the order they were encountered in traversal
   def freeBoundTyVars[A](expr: Expr[A]): List[Type.Var.Bound] = {
     val w = traverseType(expr, Set.empty) { (t, bound) =>
       val frees = Chain.fromSeq(Type.freeBoundTyVars(t :: Nil))
@@ -140,6 +156,7 @@ object Expr {
     }
     w.written.iterator.toList.distinct
   }
+
   /**
    * Here we substitute any free bound variables with skolem variables
    *
@@ -157,14 +174,6 @@ object Expr {
    * running inference, then quantifying over that skolem
    * variable.
    */
-  def skolemizeFreeVars[F[_]: Applicative, A](expr: Expr[A])(newSkolemTyVar: (Type.Var.Bound, Kind) => F[Type.Var.Skolem]): Option[F[(NonEmptyList[Type.Var.Skolem], Expr[A])]] = {
-    val frees = freeBoundTyVars(expr)
-    NonEmptyList.fromList(frees)
-      .map { tvs =>
-        skolemizeVars[F, A](tvs.map { b => (b, Kind.Type) }, expr)(newSkolemTyVar)
-      }
-  }
-
   def skolemizeVars[F[_]: Applicative, A](vs: NonEmptyList[(Type.Var.Bound, Kind)], expr: Expr[A])(newSkolemTyVar: (Type.Var.Bound, Kind) => F[Type.Var.Skolem]): F[(NonEmptyList[Type.Var.Skolem], Expr[A])] = {
     vs.traverse { case (b, k) => newSkolemTyVar(b, k) }
       .map { skVs =>
