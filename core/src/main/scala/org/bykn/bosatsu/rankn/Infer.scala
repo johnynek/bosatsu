@@ -846,24 +846,35 @@ object Infer {
             // After we typecheck we see if this is truly recursive so
             // compilers/evaluation can possibly optimize non-recursive
             // cases differently
-            newMetaType(Kind.Type) // the kind of a let value is a Type
-              .flatMap { rhsTpe =>
-                extendEnv(name, rhsTpe) {
-                  for {
-                    // the type variable needs to be unified with varT
-                    // note, varT could be a sigma type, it is not a Tau or Rho
-                    typedRhs <- inferSigmaMeta(rhs, Some((name, rhsTpe, region(rhs))))
-                    varT = typedRhs.getType
-                    // we need to overwrite the metavariable now with the full type
-                    typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
-                    // TODO: a more efficient algorithm would do this top down
-                    // for each top level TypedExpr and build it bottom up.
-                    // we could do this after all typechecking is done
-                    frees = TypedExpr.freeVars(typedRhs :: Nil)
-                    isRecursive = RecursionKind.recursive(frees.contains(name))
-                  } yield TypedExpr.Let(name, typedRhs, typedBody, isRecursive, tag)
-                }
+            val rhsBody = rhs match {
+              case Annotation(expr, tpe, tag) => 
+                  extendEnv(name, tpe) {
+                    checkSigma(expr, tpe).product(typeCheckRho(body, expect))
+                  }
+              case _ =>
+                newMetaType(Kind.Type) // the kind of a let value is a Type
+                  .flatMap { rhsTpe =>
+                    extendEnv(name, rhsTpe) {
+                      for {
+                        // the type variable needs to be unified with varT
+                        // note, varT could be a sigma type, it is not a Tau or Rho
+                        typedRhs <- inferSigmaMeta(rhs, Some((name, rhsTpe, region(rhs))))
+                        varT = typedRhs.getType
+                        // we need to overwrite the metavariable now with the full type
+                        typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
+                      } yield (typedRhs, typedBody)
+                    }
+                  }
               }
+            
+            rhsBody.map { case (rhs, body) =>
+              // TODO: a more efficient algorithm would do this top down
+              // for each top level TypedExpr and build it bottom up.
+              // we could do this after all typechecking is done
+              val frees = TypedExpr.freeVars(rhs :: Nil)
+              val isRecursive = RecursionKind.recursive(frees.contains(name))
+              TypedExpr.Let(name, rhs, body, isRecursive, tag)
+            }
           }
           else {
             // In this branch, we typecheck the rhs *without* name in the environment
@@ -1335,8 +1346,13 @@ object Infer {
 
   private def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
     // values are of kind Type
-    newMetaType(Kind.Type).flatMap { tpe =>
-      extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))
+    expr match {
+      case Expr.Annotation(e, tpe, _) =>
+        extendEnv(name, tpe)(checkSigma(e, tpe))
+      case _ =>
+        newMetaType(Kind.Type).flatMap { tpe =>
+          extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))
+        }
     }
 
 

@@ -131,7 +131,7 @@ final class SourceConverter(
                 case Some(k) => k
               })
             }
-          val gen = Expr.Generic(bs, lambda)
+          val gen = Expr.forAll(bs.toList, lambda)
           val freeVarsList = Expr.freeBoundTyVars(lambda)
           val freeVars = freeVarsList.toSet
           val notFreeDecl = bs.exists { case (a, _) => !freeVars(a) }
@@ -172,10 +172,10 @@ final class SourceConverter(
         }
     }
 
-  private def apply(decl: Declaration, bound: Set[Bindable], topBound: Set[Bindable]): Result[Expr[Declaration]] = {
+  private def fromDecl(decl: Declaration, bound: Set[Bindable], topBound: Set[Bindable]): Result[Expr[Declaration]] = {
     implicit val parAp = SourceConverter.parallelIor
-    def loop(decl: Declaration) = apply(decl, bound, topBound)
-    def withBound(decl: Declaration, newB: Iterable[Bindable]) = apply(decl, bound ++ newB, topBound)
+    def loop(decl: Declaration) = fromDecl(decl, bound, topBound)
+    def withBound(decl: Declaration, newB: Iterable[Bindable]) = fromDecl(decl, bound ++ newB, topBound)
 
     decl match {
       case Annotation(term, tpe) =>
@@ -1168,7 +1168,7 @@ final class SourceConverter(
       stmt match {
         case Right(Right((nm, decl))) =>
 
-          val r = apply(decl, Set.empty, topBound).map((nm, RecursionKind.NonRecursive, _) :: Nil)
+          val r = fromDecl(decl, Set.empty, topBound).map((nm, RecursionKind.NonRecursive, _) :: Nil)
           // make sure all the free types are Generic
           // we have to do this at the top level because in Declaration => Expr
           // we allow closing over type variables defined at a higher level
@@ -1188,7 +1188,7 @@ final class SourceConverter(
               d.region,
               success(defstmt.result.get))(
                 { (res: OptIndent[Declaration]) =>
-                  apply(res.get, argGroups.flatten.iterator.flatMap(_.names).toSet + boundName, topBound1)
+                  fromDecl(res.get, argGroups.flatten.iterator.flatMap(_.names).toSet + boundName, topBound1)
                 })
 
           val r = lam.map { (l: Expr[Declaration]) =>
