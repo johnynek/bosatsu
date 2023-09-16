@@ -3016,4 +3016,72 @@ test = Assertion(True, "")
 """)
     , "PolyRec", 1)
   }
+
+  test("recursion on continuations") {
+    evalTest(
+      List("""
+package A
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def map(ca: Cont, fn: Int -> Int) -> Cont:
+  Next(cont -> fn(cont(ca)))
+
+b = Item(1).map(x -> x.add(1))
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      cont_fn(cont -> loop(cont))
+
+v = loop(b)
+main = v
+"""), "A", VInt(2))
+
+    // Generic version
+    evalTest(
+      List("""
+package A
+enum Cont[a: *]:
+  Item(a: a)
+  Next(use: (Cont[a] -> a) -> a)
+
+def map[a](ca: Cont[a], fn: a -> a) -> Cont[a]:
+  Next(cont -> fn(cont(ca)))
+
+def loop[a](box: Cont[a]) -> a:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      cont_fn(cont -> loop(cont))
+
+loopgen: forall a. Cont[a] -> a = loop
+b: Cont[Int] = Item(1).map(x -> x.add(1))
+main: Int = loop(b)
+"""), "A", VInt(2))
+
+  // this example also exercises polymorphic recursion
+  evalTest(
+      List("""
+package A
+enum Box[a: +*]:
+  Item(a: a)
+  Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
+
+def map[a, b](box: Box[a], fn: a -> b) -> Box[b]:
+  Next(cont -> cont(box, fn))
+
+b = Item(1)
+
+def loop[a](box: Box[a]) -> a:
+  recur box:
+    case Item(a): a
+    case Next(cont): cont((box, fn) -> fn(loop(box)))
+
+v = loop(b)
+main = v
+"""), "A", VInt(1))
+  }
 }

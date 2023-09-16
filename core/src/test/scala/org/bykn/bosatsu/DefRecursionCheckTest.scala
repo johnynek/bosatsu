@@ -409,4 +409,29 @@ def len(lst):
     case [_, *t]: id(len(t))
 """)
   }
+
+  test("tree example") {
+    allowed("""#
+struct Tree(x: Int, items: List[Tree])
+
+def sum_all(t):
+  recur t:
+    case []: 0
+    case [Tree(x, children), *tail]: x + sum_all(children) + sum_all(tail)
+""")
+  }
+
+  test("we can recur on cont") {
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      cont_fn(cont -> loop(cont))
+    """)
+  }
 }
