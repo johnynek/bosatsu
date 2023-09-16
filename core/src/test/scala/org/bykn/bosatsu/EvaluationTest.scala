@@ -2992,5 +2992,28 @@ def poly_rec(count: Nat, a: a) -> a:
 test = Assertion(True, "")         
 """)
     , "PolyRec", 1)
+
+    runBosatsuTest(
+      List("""
+package PolyRec
+
+enum Nat: NZero, NSucc(n: Nat)
+
+def call(a):
+    # TODO it's weird that removing the [a] breaks this
+    # if a type isn't mentioned in an outer scope, we should assume it's local
+    def poly_rec[a](count: Nat, a: a) -> a:
+        recur count:
+            case NZero: a
+            case NSucc(prev):
+              # make a call with a different type
+              (_, b) = poly_rec(prev, ("foo", a))
+              b
+    # call a polymorphic recursion internally to exercise different code paths
+    poly_rec(NZero, a)
+
+test = Assertion(True, "")         
+""")
+    , "PolyRec", 1)
   }
 }
