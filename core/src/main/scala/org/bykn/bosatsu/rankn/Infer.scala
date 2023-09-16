@@ -846,15 +846,10 @@ object Infer {
             // After we typecheck we see if this is truly recursive so
             // compilers/evaluation can possibly optimize non-recursive
             // cases differently
-            rhs match {
+            val rhsBody = rhs match {
               case Annotation(expr, tpe, tag) => 
                   extendEnv(name, tpe) {
-                    for {
-                      typedRhs <- checkSigma(expr, tpe)
-                      typedBody <- typeCheckRho(body, expect)
-                      frees = TypedExpr.freeVars(typedRhs :: Nil)
-                      isRecursive = RecursionKind.recursive(frees.contains(name))
-                    } yield TypedExpr.Let(name, typedRhs, typedBody, isRecursive, tag)
+                    checkSigma(expr, tpe).product(typeCheckRho(body, expect))
                   }
               case _ =>
                 newMetaType(Kind.Type) // the kind of a let value is a Type
@@ -865,16 +860,20 @@ object Infer {
                         // note, varT could be a sigma type, it is not a Tau or Rho
                         typedRhs <- inferSigmaMeta(rhs, Some((name, rhsTpe, region(rhs))))
                         varT = typedRhs.getType
-                      // we need to overwrite the metavariable now with the full type
-                      typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
-                      // TODO: a more efficient algorithm would do this top down
-                      // for each top level TypedExpr and build it bottom up.
-                      // we could do this after all typechecking is done
-                      frees = TypedExpr.freeVars(typedRhs :: Nil)
-                      isRecursive = RecursionKind.recursive(frees.contains(name))
-                    } yield TypedExpr.Let(name, typedRhs, typedBody, isRecursive, tag)
+                        // we need to overwrite the metavariable now with the full type
+                        typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
+                      } yield (typedRhs, typedBody)
+                    }
                   }
-                }
+              }
+            
+            rhsBody.map { case (rhs, body) =>
+              // TODO: a more efficient algorithm would do this top down
+              // for each top level TypedExpr and build it bottom up.
+              // we could do this after all typechecking is done
+              val frees = TypedExpr.freeVars(rhs :: Nil)
+              val isRecursive = RecursionKind.recursive(frees.contains(name))
+              TypedExpr.Let(name, rhs, body, isRecursive, tag)
             }
           }
           else {
