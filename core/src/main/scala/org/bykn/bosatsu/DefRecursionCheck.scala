@@ -66,7 +66,7 @@ object DefRecursionCheck {
   }
   case class RecursionNotSubstructural(fnname: Bindable, recurPat: Pattern.Parsed, arg: Declaration.Var) extends RecursionError {
     def region = arg.region
-    def message = s"recursion is ${fnname.sourceCodeRepr} not substructual"
+    def message = s"recursion in ${fnname.sourceCodeRepr} not substructual"
   }
   case class RecursiveDefNoRecur(defstmt: DefStatement[Pattern.Parsed, Declaration], recur: Declaration.Match) extends RecursionError {
     def region = recur.region
@@ -308,6 +308,19 @@ object DefRecursionCheck {
           sys.error(s"called setNames on $notRecur with names: $newNames")
       }
 
+    private def filterNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
+      getSt.flatMap {
+        case start @ InRecurBranch(inrec, branch, names) =>
+          (setSt(InRecurBranch(inrec, branch, names -- newNames)) *> in, getSt)
+            .flatMapN {
+              case (a, InRecurBranch(ir1, b1, _)) =>
+                setSt(InRecurBranch(ir1, b1, names)).as(a)
+              case (_, unexpected) =>
+                sys.error(s"invariant violation expected InRecurBranch: start = $start, end = $unexpected")
+            }
+        case _ => in
+      }
+
     def checkApply(fn: Declaration, args: NonEmptyList[Declaration], region: Region): St[Unit] =
       getSt.flatMap {
         case TopLevel =>
@@ -377,7 +390,7 @@ object DefRecursionCheck {
         case Binding(BindingStatement(pat, thisDecl, next)) =>
           checkForIllegalBindsSt(pat.names, decl) *>
               checkDecl(thisDecl) *>
-              checkDecl(next.padded)
+              filterNames(pat.names)(checkDecl(next.padded))
         case Comment(cs) =>
           checkDecl(cs.on.padded)
         case CommentNB(cs) =>
@@ -401,7 +414,7 @@ object DefRecursionCheck {
           checkDecl(t) *> checkDecl(c) *> checkDecl(f)
         case Lambda(args, body) =>
           // these args create new bindings:
-          checkForIllegalBindsSt(args.patternNames, decl) *> checkDecl(body)
+          checkForIllegalBindsSt(args.patternNames, decl) *> filterNames(args.patternNames)(checkDecl(body))
         case Literal(_) =>
           unitSt
         case Match(RecursionKind.NonRecursive, arg, cases) =>
@@ -409,7 +422,7 @@ object DefRecursionCheck {
           val argRes = checkDecl(arg)
           val optRes = cases.get.traverse_ { case (pat, next) =>
             checkForIllegalBindsSt(pat.names, decl) *>
-              checkDecl(next.get)
+              filterNames(pat.names)(checkDecl(next.get))
           }
           argRes *> optRes
         case recur@Match(RecursionKind.Recursive, _, cases) =>

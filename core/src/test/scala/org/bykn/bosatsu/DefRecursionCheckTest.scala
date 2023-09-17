@@ -477,6 +477,20 @@ def anything0[a, b](box: Box[a]) -> b:
 bottom: forall a. a = anything0(Box(1)) 
 
 """)
+
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      recur Box(b):
+        b: anything0(b)
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
   }
 
   test("we can't trick the checker with a lambda-let shadow") {
@@ -488,6 +502,23 @@ def anything0[a, b](box: Box[a]) -> b:
     case Box(b):
       # shadow to trick
       (b -> anything0(b))(Box(b))
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
+  }
+
+  test("we can't trick the checker with a def-let shadow") {
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      def trick(b): anything0(b)
+
+      trick(Box(b))
 
 bottom: forall a. a = anything0(Box(1)) 
 
