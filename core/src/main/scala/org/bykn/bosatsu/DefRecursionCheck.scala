@@ -6,7 +6,6 @@ import org.typelevel.paiges.Doc
 import cats.implicits._
 
 import Identifier.Bindable
-import org.bykn.bosatsu.Declaration.Lambda
 
 /**
  * Recursion in bosatsu is only allowed on a substructural match
@@ -128,13 +127,16 @@ object DefRecursionCheck {
         InDef(this, fnname, args, Set.empty)
     }
     sealed abstract class InDefState extends State {
-      final def defname: Bindable =
+      final def inDef: InDef =
         this match {
-          case InDef(_, defname, _, _) => defname
-          case InDefRecurred(ir, _, _, _, _) => ir.defname
-          case InRecurBranch(InDefRecurred(ir, _, _, _, _), _, _) => ir.defname
+          case id@ InDef(_, _, _, _) => id
+          case InDefRecurred(ir, _, _, _, _) => ir.inDef
+          case InRecurBranch(InDefRecurred(ir, _, _, _, _), _, _) => ir.inDef
         }
+
+      final def defname: Bindable = inDef.fnname
     }
+
     case object TopLevel extends State
     case class InDef(outer: State, fnname: Bindable, args: NonEmptyList[NonEmptyList[Pattern.Parsed]], localScope: Set[Bindable]) extends InDefState {
 
@@ -143,6 +145,40 @@ object DefRecursionCheck {
 
       def setRecur(index: (Int, Int), m: Declaration.Match): InDefRecurred =
         InDefRecurred(this, index._1, index._2, m, 0)
+
+      // This is eta-expansion of the function name as a lambda so we can check using the lambda rule
+      def asLambda(region: Region): Declaration.Lambda = {
+        val allNames = Iterator.iterate(0)(_ + 1).map { idx => Identifier.Name(s"a$idx") }.filterNot(_ == fnname)
+        
+        val func = cats.Functor[NonEmptyList].compose[NonEmptyList]
+        // we allocate the names first. There is only one name inside: fnname
+        val argsB = func.map(args)(_ => allNames.next())
+
+        val argsV: NonEmptyList[NonEmptyList[Declaration.NonBinding]] =
+          func.map(argsB)(
+            n => Declaration.Var(n)(region)
+          )
+
+        val argsP: NonEmptyList[NonEmptyList[Pattern.Parsed]] =
+          func.map(argsB)(
+            n => Pattern.Var(n)
+          )
+
+          // fn == (x, y) -> z -> f(x, y)(z)
+        val body = argsV.toList.foldLeft(Declaration.Var(fnname)(region): Declaration.NonBinding) { (called, group) =>
+            Declaration.Apply(called, group, Declaration.ApplyKind.Parens)(region)
+        }
+
+        def lambdify(args: NonEmptyList[NonEmptyList[Pattern.Parsed]], body: Declaration): Declaration.Lambda = {
+          val body1 = args.tail match { 
+            case Nil => body
+            case h :: tail => lambdify(NonEmptyList(h, tail), body)
+          }
+          Declaration.Lambda(args.head, body1)(region)
+        }
+
+        lambdify(argsP, body)
+      }
     }
     case class InDefRecurred(inRec: InDef, group: Int, index: Int, recur: Declaration.Match, recCount: Int) extends InDefState {
       def incRecCount: InDefRecurred = copy(recCount = recCount + 1)
@@ -258,10 +294,10 @@ object DefRecursionCheck {
         case _ => None
       }
 
-    private def setNames[A](newNames: Set[Bindable])(in: St[A]): St[A] =
+    private def unionNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
       getSt.flatMap {
         case start @ InRecurBranch(inrec, branch, names) =>
-          (setSt(InRecurBranch(inrec, branch, newNames)) *> in, getSt)
+          (setSt(InRecurBranch(inrec, branch, names ++ newNames)) *> in, getSt)
             .flatMapN {
               case (a, InRecurBranch(ir1, b1, _)) =>
                 setSt(InRecurBranch(ir1, b1, names)).as(a)
@@ -299,13 +335,18 @@ object DefRecursionCheck {
               else if (names.contains(nm)) {
                 // we are calling a reachable function. Any lambda args are new names:
                 args.traverse_[St, Unit] {
-                  case Lambda(args, body) =>
-                    val names1 = names ++ args.toList.iterator.flatMap(_.names)
-                    setNames(names1)(checkDecl(body))
+                  case Declaration.Lambda(args, body) =>
+                    val names1 = args.toList.flatMap(_.names)
+                    unionNames(names1)(checkDecl(body))
+                  case v@Declaration.Var(fn: Bindable) if irb.defname == fn =>
+                    val Declaration.Lambda(args, body) = irb.inDef.asLambda(v.region)
+                    val names1 = args.toList.flatMap(_.names)
+                    unionNames(names1)(checkDecl(body))
                   case notLambda => checkDecl(notLambda)
                 }
               }
               else {
+                // traverse converting Var(name) to the lambda version to use the above check
                 // not a recursive call
                 args.traverse_(checkDecl)
               }

@@ -3054,8 +3054,7 @@ def map[a](ca: Cont[a], fn: a -> a) -> Cont[a]:
 def loop[a](box: Cont[a]) -> a:
   recur box:
     case Item(a): a
-    case Next(cont_fn):
-      cont_fn(cont -> loop(cont))
+    case Next(cont_fn): cont_fn(loop)
 
 loopgen: forall a. Cont[a] -> a = loop
 b: Cont[Int] = Item(1).map(x -> x.add(1))

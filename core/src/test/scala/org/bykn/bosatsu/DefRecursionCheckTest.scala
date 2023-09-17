@@ -433,5 +433,17 @@ def loop(box: Cont) -> Int:
     case Next(cont_fn):
       cont_fn(cont -> loop(cont))
     """)
+
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      cont_fn(loop)
+    """)
   }
 }
