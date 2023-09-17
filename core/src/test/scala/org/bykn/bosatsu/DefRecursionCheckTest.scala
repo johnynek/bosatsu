@@ -446,4 +446,51 @@ def loop(box: Cont) -> Int:
       cont_fn(loop)
     """)
   }
+
+  test("we can't trick the checker with a let shadow") {
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      b = Box(b)
+      anything0(b)
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
+  }
+
+  test("we can't trick the checker with a match shadow") {
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      match Box(b):
+        b: anything0(b)
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
+  }
+
+  test("we can't trick the checker with a lambda-let shadow") {
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      (b -> anything0(b))(Box(b))
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
+  }
 }
