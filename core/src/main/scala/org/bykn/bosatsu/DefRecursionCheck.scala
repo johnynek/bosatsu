@@ -107,20 +107,21 @@ object DefRecursionCheck {
      * 3. we are checking the branches of the recur match
      */
     sealed abstract class State {
-      final def outerDefNames: List[Bindable] =
+      final def outerDefNames: Set[Bindable] =
         this match {
-          case TopLevel => Nil
-          case InDef(outer, n, _, _) => n :: outer.outerDefNames
-          case InDefRecurred(id, _, _, _, _) => id.outerDefNames
-          case InRecurBranch(ir, _, _) => ir.outerDefNames
+          case TopLevel => Set.empty
+          case ids: InDefState =>
+            val InDef(outer, n, _, _) = ids.inDef
+            outer.outerDefNames + n
         }
 
+      @annotation.tailrec
       final def defNamesContain(n: Bindable): Boolean =
         this match {
           case TopLevel => false
-          case InDef(outer, dn, _, _) => (dn == n) || outer.defNamesContain(n)
-          case InDefRecurred(id, _, _, _, _) => id.defNamesContain(n)
-          case InRecurBranch(ir, _, _) => ir.defNamesContain(n)
+          case ids: InDefState =>
+            val InDef(outer, dn, _, _) = ids.inDef
+            (dn == n) || outer.defNamesContain(n)
         }
 
       def inDef(fnname: Bindable, args: NonEmptyList[NonEmptyList[Pattern.Parsed]]): InDef =
@@ -129,7 +130,7 @@ object DefRecursionCheck {
     sealed abstract class InDefState extends State {
       final def inDef: InDef =
         this match {
-          case id@ InDef(_, _, _, _) => id
+          case id @ InDef(_, _, _, _) => id
           case InDefRecurred(ir, _, _, _, _) => ir.inDef
           case InRecurBranch(InDefRecurred(ir, _, _, _, _), _, _) => ir.inDef
         }
@@ -241,15 +242,16 @@ object DefRecursionCheck {
     def checkForIllegalBinds[A](
       state: State,
       bs: Iterable[Bindable],
-      decl: Declaration)(next: ValidatedNel[RecursionError, A]): ValidatedNel[RecursionError, A] =
-      state.outerDefNames match {
-        case Nil=> next
-        case nonEmpty =>
-          NonEmptyList.fromList(bs.filter(nonEmpty.toSet).toList.sorted) match {
+      decl: Declaration)(next: ValidatedNel[RecursionError, A]): ValidatedNel[RecursionError, A] = {
+        val outerSet = state.outerDefNames
+        if (outerSet.isEmpty) next
+        else {
+          NonEmptyList.fromList(bs.iterator.filter(outerSet).toList.sorted) match {
             case Some(nel) =>
               Validated.invalid(nel.map(IllegalShadow(_, decl)))
             case None =>
               next
+          }
         }
       }
 
