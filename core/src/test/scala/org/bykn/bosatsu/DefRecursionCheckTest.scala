@@ -409,4 +409,119 @@ def len(lst):
     case [_, *t]: id(len(t))
 """)
   }
+
+  test("tree example") {
+    allowed("""#
+struct Tree(x: Int, items: List[Tree])
+
+def sum_all(t):
+  recur t:
+    case []: 0
+    case [Tree(x, children), *tail]: x + sum_all(children) + sum_all(tail)
+""")
+  }
+
+  test("we can recur on cont") {
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      cont_fn(cont -> loop(cont))
+    """)
+
+    allowed("""#
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      cont_fn(loop)
+    """)
+  }
+
+  test("we can't trick the checker with a let shadow") {
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      b = Box(b)
+      anything0(b)
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
+  }
+
+  test("we can't trick the checker with a match shadow") {
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      match Box(b):
+        b: anything0(b)
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
+
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      recur Box(b):
+        b: anything0(b)
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
+  }
+
+  test("we can't trick the checker with a lambda-let shadow") {
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      (b -> anything0(b))(Box(b))
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
+  }
+
+  test("we can't trick the checker with a def-let shadow") {
+    disallowed("""#
+struct Box(a)
+
+def anything0[a, b](box: Box[a]) -> b:
+  recur box:
+    case Box(b):
+      # shadow to trick
+      def trick(b): anything0(b)
+
+      trick(Box(b))
+
+bottom: forall a. a = anything0(Box(1)) 
+
+""")
+  }
 }
