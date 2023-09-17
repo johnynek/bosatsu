@@ -303,11 +303,13 @@ object DefRecursionCheck {
             .flatMapN {
               case (a, InRecurBranch(ir1, b1, _)) =>
                 setSt(InRecurBranch(ir1, b1, names)).as(a)
+        // $COVERAGE-OFF$ this should be unreachable
               case (_, unexpected) =>
                 sys.error(s"invariant violation expected InRecurBranch: start = $start, end = $unexpected")
             }
         case notRecur =>
           sys.error(s"called setNames on $notRecur with names: $newNames")
+        // $COVERAGE-ON$ this should be unreachable
       }
 
     private def filterNames[A](newNames: Iterable[Bindable])(in: St[A]): St[A] =
@@ -317,8 +319,10 @@ object DefRecursionCheck {
             .flatMapN {
               case (a, InRecurBranch(ir1, b1, _)) =>
                 setSt(InRecurBranch(ir1, b1, names)).as(a)
+              // $COVERAGE-OFF$ this should be unreachable
               case (_, unexpected) =>
                 sys.error(s"invariant violation expected InRecurBranch: start = $start, end = $unexpected")
+              // $COVERAGE-ON$ this should be unreachable
             }
         case _ => in
       }
