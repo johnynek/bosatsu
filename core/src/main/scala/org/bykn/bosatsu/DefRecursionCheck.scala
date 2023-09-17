@@ -420,7 +420,9 @@ object DefRecursionCheck {
           checkDecl(t) *> checkDecl(c) *> checkDecl(f)
         case Lambda(args, body) =>
           // these args create new bindings:
-          checkForIllegalBindsSt(args.patternNames, decl) *> filterNames(args.patternNames)(checkDecl(body))
+          val newBinds = args.patternNames
+          checkForIllegalBindsSt(newBinds, decl) *>
+            filterNames(newBinds)(checkDecl(body))
         case Literal(_) =>
           unitSt
         case Match(RecursionKind.NonRecursive, arg, cases) =>
