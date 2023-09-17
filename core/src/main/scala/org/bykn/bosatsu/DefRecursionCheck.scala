@@ -6,7 +6,6 @@ import org.typelevel.paiges.Doc
 import cats.implicits._
 
 import Identifier.Bindable
-import cats.Applicative
 
 /**
  * Recursion in bosatsu is only allowed on a substructural match
@@ -268,44 +267,30 @@ object DefRecursionCheck {
     implicit val parallelSt: cats.Parallel[St] = {
       val m = cats.Monad[St]
 
-      new cats.Parallel[St] {
-        type F[A] = St[A]
-        def parallel = new cats.arrow.FunctionK[St, F] {
-          def apply[A](st: St[A]) = st
-        }
-        def sequential = new cats.arrow.FunctionK[F, St] {
-          def apply[A](st: St[A]) = st
-        }
+      new ParallelViaProduct[St] {
         def monad = m
-        def applicative: Applicative[F] =
-          new Applicative[F] {
-            def pure[A](a: A) = m.pure(a)
-            def ap[A, B](ff: F[A => B])(fa: F[A]): F[B] =
-              map(product(ff, fa)) { case (fn, a) => fn(a) }
+        def parallelProduct[A, B](fa: St[A], fb: St[B]) = {
+          type E[+X] = Either[NonEmptyList[RecursionError], X]
+          val fna: E[State => E[(State, A)]] = fa.runF
+          val fnb: E[State => E[(State, B)]] = fb.runF
 
-            override def product[A, B](fa: F[A], fb: F[B]): F[(A, B)] = {
-              type E[+X] = Either[NonEmptyList[RecursionError], X]
-              val fna: E[State => E[(State, A)]] = fa.runF
-              val fnb: E[State => E[(State, B)]] = fb.runF
-
-              new cats.data.IndexedStateT((fna, fnb).parMapN { (fn1, fn2) =>
-                { (state: State) =>
-                  fn1(state) match {
-                    case Right((s2, a)) => fn2(s2).map { case (st, b) => (st, (a, b)) }
-                    case Left(nel1) =>
-                      // just skip and merge
-                      fn2(state) match {
-                        case Right(_) => Left(nel1)
-                        case Left(nel2) => Left(nel1 ::: nel2)
-                      }
+          new cats.data.IndexedStateT((fna, fnb).parMapN { (fn1, fn2) =>
+            { (state: State) =>
+              fn1(state) match {
+                case Right((s2, a)) => fn2(s2).map { case (st, b) => (st, (a, b)) }
+                case Left(nel1) =>
+                  // just skip and merge
+                  fn2(state) match {
+                    case Right(_) => Left(nel1)
+                    case Left(nel2) => Left(nel1 ::: nel2)
                   }
-                }  
-              })
-            }
-            override def map[A, B](fa: F[A])(fn: A => B) = m.map(fa)(fn)
-          }
+              }
+            }  
+          })
+        }
       }
     }
+
     // Scala has trouble infering types like St, we we make these typed
     // helper functions to use below
     def failSt[A](err: RecursionError): St[A] =
