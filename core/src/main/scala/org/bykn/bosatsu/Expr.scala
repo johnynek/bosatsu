@@ -38,6 +38,11 @@ object Expr {
       case None => expr
       case Some(nel) =>
         expr match {
+          case Annotation(expr, tpe, tag) =>
+            val tpeFrees = Type.freeBoundTyVars(tpe :: Nil).toSet
+            // these are the frees that are also in tpeArgs
+            val freeArgs = tpeArgs.filter { case (n, _) => tpeFrees(n) }
+            Annotation(forAll(tpeArgs, expr), Type.forAll(freeArgs, tpe), tag)
           case Generic(typeVars, in) =>
             Generic(nel ::: typeVars, in)
           case notAnn => Generic(nel, notAnn)

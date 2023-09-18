@@ -2973,4 +2973,114 @@ def last[a](nel: NEList[a]) -> a:
 test = Assertion(last(One(True)), "")
 """), "Generic", 1)
   }
+
+  test("support polymorphic recursion") {
+    runBosatsuTest(
+      List("""
+package PolyRec
+
+enum Nat: NZero, NSucc(n: Nat)
+
+def poly_rec(count: Nat, a: a) -> a:
+    recur count:
+        case NZero: a
+        case NSucc(prev):
+          # make a call with a different type
+          (_, b) = poly_rec(prev, ("foo", a))
+          b
+
+test = Assertion(True, "")         
+""")
+    , "PolyRec", 1)
+
+    runBosatsuTest(
+      List("""
+package PolyRec
+
+enum Nat: NZero, NSucc(n: Nat)
+
+def call(a):
+    # TODO it's weird that removing the [a] breaks this
+    # if a type isn't mentioned in an outer scope, we should assume it's local
+    def poly_rec[a](count: Nat, a: a) -> a:
+        recur count:
+            case NZero: a
+            case NSucc(prev):
+              # make a call with a different type
+              (_, b) = poly_rec(prev, ("foo", a))
+              b
+    # call a polymorphic recursion internally to exercise different code paths
+    poly_rec(NZero, a)
+
+test = Assertion(True, "")         
+""")
+    , "PolyRec", 1)
+  }
+
+  test("recursion on continuations") {
+    evalTest(
+      List("""
+package A
+enum Cont:
+  Item(a: Int)
+  Next(use: (Cont -> Int) -> Int)
+
+def map(ca: Cont, fn: Int -> Int) -> Cont:
+  Next(cont -> fn(cont(ca)))
+
+b = Item(1).map(x -> x.add(1))
+
+def loop(box: Cont) -> Int:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn):
+      cont_fn(cont -> loop(cont))
+
+v = loop(b)
+main = v
+"""), "A", VInt(2))
+
+    // Generic version
+    evalTest(
+      List("""
+package A
+enum Cont[a: *]:
+  Item(a: a)
+  Next(use: (Cont[a] -> a) -> a)
+
+def map[a](ca: Cont[a], fn: a -> a) -> Cont[a]:
+  Next(cont -> fn(cont(ca)))
+
+def loop[a](box: Cont[a]) -> a:
+  recur box:
+    case Item(a): a
+    case Next(cont_fn): cont_fn(loop)
+
+loopgen: forall a. Cont[a] -> a = loop
+b: Cont[Int] = Item(1).map(x -> x.add(1))
+main: Int = loop(b)
+"""), "A", VInt(2))
+
+  // this example also exercises polymorphic recursion
+  evalTest(
+      List("""
+package A
+enum Box[a: +*]:
+  Item(a: a)
+  Next(fn: forall res. (forall b. (Box[b], b -> a) -> res) -> res)
+
+def map[a, b](box: Box[a], fn: a -> b) -> Box[b]:
+  Next(cont -> cont(box, fn))
+
+b = Item(1)
+
+def loop[a](box: Box[a]) -> a:
+  recur box:
+    case Item(a): a
+    case Next(cont): cont((box, fn) -> fn(loop(box)))
+
+v = loop(b)
+main = v
+"""), "A", VInt(1))
+  }
 }
