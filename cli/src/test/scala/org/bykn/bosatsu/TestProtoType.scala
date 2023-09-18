@@ -5,7 +5,10 @@ import cats.Eq
 import cats.effect.{IO, Resource}
 import org.bykn.bosatsu.rankn.Type
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import scala.util.{Failure, Success, Try}
 import cats.implicits._
 
@@ -17,9 +20,9 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class TestProtoType extends AnyFunSuite with ParTest {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
+    // PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 100)
-    //PropertyCheckConfiguration(minSuccessful = 5)
+  // PropertyCheckConfiguration(minSuccessful = 5)
 
   def law[A: Eq, B](a: A, fn: A => Try[B], gn: B => Try[A]) = {
     val maybeProto = fn(a)
@@ -39,12 +42,16 @@ class TestProtoType extends AnyFunSuite with ParTest {
         .zip(orig.toString)
         .zipWithIndex
         .dropWhile { case ((a, b), _) => a == b }
-        .headOption.map(_._2)
+        .headOption
+        .map(_._2)
         .getOrElse(0)
 
     val context = 100
-    assert(Eq[A].eqv(a, orig), s"${a.toString.drop(diffIdx - context/2).take(context)} != ${orig.toString.drop(diffIdx - context/2).take(context)}")
-    //assert(Eq[A].eqv(a, orig), s"$a\n\n!=\n\n$orig")
+    assert(
+      Eq[A].eqv(a, orig),
+      s"${a.toString.drop(diffIdx - context / 2).take(context)} != ${orig.toString.drop(diffIdx - context / 2).take(context)}"
+    )
+    // assert(Eq[A].eqv(a, orig), s"$a\n\n!=\n\n$orig")
   }
 
   def testWithTempFile(fn: Path => IO[Unit]): Unit = {
@@ -63,7 +70,9 @@ class TestProtoType extends AnyFunSuite with ParTest {
     tempRes.use(fn).unsafeRunSync()
   }
 
-  def tabLaw[A: Eq, B](f: A => ProtoConverter.Tab[B])(g: (ProtoConverter.SerState, B) => ProtoConverter.DTab[A]) = { (a: A) =>
+  def tabLaw[A: Eq, B](
+      f: A => ProtoConverter.Tab[B]
+  )(g: (ProtoConverter.SerState, B) => ProtoConverter.DTab[A]) = { (a: A) =>
     f(a).run(ProtoConverter.SerState.empty) match {
       case Success((ss, b)) =>
         val ds = ProtoConverter.DecodeState.init(ss.strings.inOrder)
@@ -87,10 +96,14 @@ class TestProtoType extends AnyFunSuite with ParTest {
   }
 
   test("we can roundtrip patterns through proto") {
-    val testFn = tabLaw(ProtoConverter.patternToProto(_: Pattern[(PackageName, Constructor), Type])) { (ss, idx) =>
+    val testFn = tabLaw(
+      ProtoConverter.patternToProto(
+        _: Pattern[(PackageName, Constructor), Type]
+      )
+    ) { (ss, idx) =>
       for {
         tps <- ProtoConverter.buildTypes(ss.types.inOrder)
-        pats  = ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
+        pats = ProtoConverter.buildPatterns(ss.patterns.inOrder).map(_(idx - 1))
         res <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
       } yield res
     }(Eq.fromUniversalEquals)
@@ -99,22 +112,33 @@ class TestProtoType extends AnyFunSuite with ParTest {
   }
 
   test("we can roundtrip TypedExpr through proto") {
-    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) { (ss, idx) =>
-      for {
-        tps <- ProtoConverter.buildTypes(ss.types.inOrder)
-        pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
-        patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
-        expr  = ProtoConverter.buildExprs(ss.expressions.inOrder).map(_(idx - 1))
-        res <- expr.local[ProtoConverter.DecodeState](_.withTypes(tps).withPatterns(patTab))
-      } yield res
+    val testFn = tabLaw(ProtoConverter.typedExprToProto(_: TypedExpr[Unit])) {
+      (ss, idx) =>
+        for {
+          tps <- ProtoConverter.buildTypes(ss.types.inOrder)
+          pats = ProtoConverter.buildPatterns(ss.patterns.inOrder)
+          patTab <- pats.local[ProtoConverter.DecodeState](_.withTypes(tps))
+          expr = ProtoConverter
+            .buildExprs(ss.expressions.inOrder)
+            .map(_(idx - 1))
+          res <- expr.local[ProtoConverter.DecodeState](
+            _.withTypes(tps).withPatterns(patTab)
+          )
+        } yield res
     }(Eq.fromUniversalEquals)
 
-    forAll(Generators.genTypedExpr(Gen.const(()), 4, rankn.NTypeGen.genDepth03))(testFn)
+    forAll(
+      Generators.genTypedExpr(Gen.const(()), 4, rankn.NTypeGen.genDepth03)
+    )(testFn)
   }
 
   test("we can roundtrip interface through proto") {
     forAll(Generators.interfaceGen) { iface =>
-      law(iface, ProtoConverter.interfaceToProto _, ProtoConverter.interfaceFromProto _)(Eq.fromUniversalEquals)
+      law(
+        iface,
+        ProtoConverter.interfaceToProto _,
+        ProtoConverter.interfaceFromProto _
+      )(Eq.fromUniversalEquals)
     }
   }
 
@@ -127,49 +151,71 @@ class TestProtoType extends AnyFunSuite with ParTest {
     }
 
   test("we can roundtrip interfaces through proto") {
-    forAll(Generators.smallDistinctByList(Generators.interfaceGen)(_.name)) { ifaces =>
-      law(ifaces, ProtoConverter.interfacesToProto[List] _, ProtoConverter.interfacesFromProto _)(sortedEq)
+    forAll(Generators.smallDistinctByList(Generators.interfaceGen)(_.name)) {
+      ifaces =>
+        law(
+          ifaces,
+          ProtoConverter.interfacesToProto[List] _,
+          ProtoConverter.interfacesFromProto _
+        )(sortedEq)
     }
   }
 
   test("we can roundtrip interfaces from full packages through proto") {
     forAll(Generators.genPackage(Gen.const(()), 10)) { packMap =>
-      val ifaces = packMap.iterator.map { case (_, p) => Package.interfaceOf(p) }.toList
-      law(ifaces, ProtoConverter.interfacesToProto[List] _, ProtoConverter.interfacesFromProto _)(sortedEq)
+      val ifaces = packMap.iterator.map { case (_, p) =>
+        Package.interfaceOf(p)
+      }.toList
+      law(
+        ifaces,
+        ProtoConverter.interfacesToProto[List] _,
+        ProtoConverter.interfacesFromProto _
+      )(sortedEq)
     }
   }
 
   test("we can roundtrip interfaces through file") {
-    forAll(Generators.smallDistinctByList(Generators.interfaceGen)(_.name)) { ifaces =>
-      testWithTempFile { path =>
-        for {
-          _ <- ProtoConverter.writeInterfaces(ifaces, path)
-          ifaces1 <- ProtoConverter.readInterfaces(path :: Nil)
-          _ = assert(sortedEq.eqv(ifaces, ifaces1))
-        } yield ()
-      }
+    forAll(Generators.smallDistinctByList(Generators.interfaceGen)(_.name)) {
+      ifaces =>
+        testWithTempFile { path =>
+          for {
+            _ <- ProtoConverter.writeInterfaces(ifaces, path)
+            ifaces1 <- ProtoConverter.readInterfaces(path :: Nil)
+            _ = assert(sortedEq.eqv(ifaces, ifaces1))
+          } yield ()
+        }
     }
   }
 
   test("test some hand written packages") {
-      def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
-        p.traverse(ProtoConverter.packageToProto)
-      def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
-        ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) => p.sortBy(_.name) }
+    def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
+      p.traverse(ProtoConverter.packageToProto)
+    def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
+      ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) =>
+        p.sortBy(_.name)
+      }
 
     val tf = Package.typedFunctor
-    TestUtils.testInferred(List(
-"""package Foo
+    TestUtils.testInferred(
+      List(
+        """package Foo
 
 export bar
 
 bar = 1
 """
-      ), "Foo", { (packs, _) =>
-      law(packs.toMap.values.toList.sortBy(_.name).map { pt => Package.setProgramFrom(tf.void(pt), ()) },
-        ser _,
-        deser _)(Eq.fromUniversalEquals)
-    })
+      ),
+      "Foo",
+      { (packs, _) =>
+        law(
+          packs.toMap.values.toList.sortBy(_.name).map { pt =>
+            Package.setProgramFrom(tf.void(pt), ())
+          },
+          ser _,
+          deser _
+        )(Eq.fromUniversalEquals)
+      }
+    )
   }
 
   test("we can roundtrip packages through proto") {
@@ -177,7 +223,9 @@ bar = 1
       def ser(p: List[Package.Typed[Unit]]): Try[List[proto.Package]] =
         p.traverse(ProtoConverter.packageToProto)
       def deser(ps: List[proto.Package]): Try[List[Package.Typed[Unit]]] =
-        ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) => p.sortBy(_.name) }
+        ProtoConverter.packagesFromProto(Nil, ps).map { case (_, p) =>
+          p.sortBy(_.name)
+        }
 
       val packList = packMap.toList.sortBy(_._1).map(_._2)
       law(packList, ser _, deser _)(Eq.fromUniversalEquals)

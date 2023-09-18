@@ -1,7 +1,10 @@
 package org.bykn.bosatsu
 
 import org.scalacheck.{Arbitrary, Gen}
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import Value._
 import org.scalatest.funsuite.AnyFunSuite
 
@@ -9,7 +12,7 @@ class ValueTest extends AnyFunSuite {
   import GenValue.genValue
 
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
+    // PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 500)
 
   test("SumValue.toString is what we expect") {
@@ -29,7 +32,7 @@ class ValueTest extends AnyFunSuite {
     forAll(genValue) { v =>
       VOption.some(v) match {
         case VOption(Some(v1)) => assert(v1 == v)
-        case other => fail(s"expected Some($v) got $other")
+        case other             => fail(s"expected Some($v) got $other")
       }
     }
 
@@ -50,7 +53,7 @@ class ValueTest extends AnyFunSuite {
     forAll(Gen.listOf(genValue)) { vs =>
       VList(vs) match {
         case VList(vs1) => assert(vs1 == vs)
-        case other => fail(s"expected VList($vs) got $other")
+        case other      => fail(s"expected VList($vs) got $other")
       }
     }
 
