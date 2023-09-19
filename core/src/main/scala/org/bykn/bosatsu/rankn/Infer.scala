@@ -887,9 +887,9 @@ object Infer {
             // compilers/evaluation can possibly optimize non-recursive
             // cases differently
             val rhsBody = rhs match {
-              case Annotation(expr, tpe, _) => 
+              case Expr.Annotated(tpe) =>
                   extendEnv(name, tpe) {
-                    checkSigma(expr, tpe).parProduct(typeCheckRho(body, expect))
+                    checkSigma(rhs, tpe).parProduct(typeCheckRho(body, expect))
                   }
               case _ =>
                 newMetaType(Kind.Type) // the kind of a let value is a Type
@@ -921,9 +921,9 @@ object Infer {
             // so any recursion in this case won't typecheck, and shadowing rules are
             // in place
             val rhsBody = rhs match {
-              case Annotation(expr, tpe, _) => 
+              case Expr.Annotated(tpe) => 
                   // check in parallel so we collect more errors
-                  checkSigma(expr, tpe)
+                  checkSigma(rhs, tpe)
                     .parProduct(
                       extendEnv(name, tpe) { typeCheckRho(body, expect) }
                     )
@@ -1400,8 +1400,8 @@ object Infer {
   private def recursiveTypeCheck[A: HasRegion](name: Bindable, expr: Expr[A]): Infer[TypedExpr[A]] =
     // values are of kind Type
     expr match {
-      case Expr.Annotation(e, tpe, _) =>
-        extendEnv(name, tpe)(checkSigma(e, tpe))
+      case Expr.Annotated(tpe) =>
+        extendEnv(name, tpe)(checkSigma(expr, tpe))
       case _ =>
         newMetaType(Kind.Type).flatMap { tpe =>
           extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))

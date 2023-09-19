@@ -1233,4 +1233,38 @@ object Generators {
 
   def genPackage[A](genA: Gen[A], maxSize: Int): Gen[Map[PackageName, Package.Typed[A]]] =
     genPackagesSt(genA, maxSize).runS(Map.empty)
+
+  object Exprs {
+    def gen[A](genA: Gen[A], depth: Int): Gen[Expr[A]] = {
+      import Expr._
+
+      val roots: Gen[Expr[A]] =
+        Gen.frequency(
+          (1, Gen.zip(genLit, genA).map { case (l, t) => Literal(l, t) }),
+          (1, Gen.zip(bindIdentGen, genA).map { case (b, t) => Local(b, t) }),
+          (1, Gen.zip(NTypeGen.packageNameGen, identifierGen, genA).map { case (p, i, t) => Global(p, i, t) })
+        )
+
+      if (depth <= 0) roots
+      else {
+        val recur = Gen.lzy(gen(genA, depth - 1))
+        Gen.frequency(
+          (1, roots),
+          (1, Gen.zip(recur, NTypeGen.genDepth03, genA).map { case (e, t, tag) => Annotation(e, t, tag) } ),
+          (1, Gen.zip(smallNonEmptyList(Gen.zip(NTypeGen.genBound, NTypeGen.genKind), 4), recur).map { case (ts, in) =>
+            Generic(ts, in)  
+          }),
+          (2, Gen.zip(recur, smallNonEmptyList(recur, 5), genA).map { case (fn, as, t) => App(fn, as, t) }),
+          (2, Gen.zip(smallNonEmptyList(Gen.zip(bindIdentGen, Gen.option(NTypeGen.genDepth03)), 4), recur, genA).map { case (as, e, t) =>
+            Lambda(as, e, t)  
+          }),
+          (4, Gen.zip(bindIdentGen, recur, recur, Gen.oneOf(RecursionKind.Recursive, RecursionKind.NonRecursive), genA)
+            .map { case (a, e, in, r, t) => Let(a, e, in, r, t) }),
+          (1, Gen.zip(recur,
+            smallNonEmptyList(Gen.zip(genCompiledPattern(4), recur), 3),
+            genA).map { case (a, bs, t) => Match(a, bs, t)})
+        )
+      }
+    }
+  }
 }

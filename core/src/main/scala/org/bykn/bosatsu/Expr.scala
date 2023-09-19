@@ -81,7 +81,6 @@ sealed abstract class Expr[T] {
 
   lazy val globals: Set[Expr.Global[T]] = {
     import Expr._
-    // nearly identical code to TypedExpr.freeVarsDup, bugs should be fixed in both places
     this match {
       case Generic(_, expr) =>
         expr.globals
@@ -103,7 +102,7 @@ sealed abstract class Expr[T] {
   def replaceTag(t: T): Expr[T] = {
     import Expr._
     this match {
-      case Generic(_, _) => this
+      case g@Generic(_, e) => g.copy(in = e.replaceTag(t))
       case a@Annotation(_, _, _) => a.copy(tag = t)
       case l@Local(_, _) => l.copy(tag = t)
       case g @ Global(_, _, _) => g.copy(tag = t)
@@ -130,10 +129,52 @@ object Expr {
   case class Global[T](pack: PackageName, name: Identifier, tag: T) extends Name[T]
   case class App[T](fn: Expr[T], args: NonEmptyList[Expr[T]], tag: T) extends Expr[T]
   case class Lambda[T](args: NonEmptyList[(Bindable, Option[Type])], expr: Expr[T], tag: T) extends Expr[T]
-  case class Let[T](arg: Bindable, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T]
+  case class Let[T](arg: Bindable, expr: Expr[T], in: Expr[T], recursive: RecursionKind, tag: T) extends Expr[T] {
+    def flatten: (NonEmptyList[(Bindable, RecursionKind, Expr[T], T)], Expr[T]) = {
+      val thisLet = (arg, recursive, expr, tag)
+
+      in match {
+        case let@Let(_, _, _, _, _) => 
+          val (lets, finalIn) = let.flatten
+          (thisLet :: lets, finalIn)
+        case _ =>
+          // this is the final let
+          (NonEmptyList.one(thisLet), in)
+      }
+    }
+  }
   case class Literal[T](lit: Lit, tag: T) extends Expr[T]
   case class Match[T](arg: Expr[T], branches: NonEmptyList[(Pattern[(PackageName, Constructor), Type], Expr[T])], tag: T) extends Expr[T]
 
+  // Inverse of `Let.flatten`
+  def lets[T](binds: List[(Bindable, RecursionKind, Expr[T], T)], in: Expr[T]): Expr[T] =
+    binds match {
+      case Nil => in
+      case (b, r, e, t) :: tail =>
+        val res = lets(tail, in)
+        Let(b, e, res, r, t)
+    }
+
+  object Annotated {
+    def unapply[A](expr: Expr[A]): Option[Type] =
+      expr match {
+        case Annotation(_, tpe, _) => Some(tpe)
+        case Lambda(args, Annotated(res), _) =>
+          args.traverse { case (_, ot) => ot }
+            .map { argTpes =>
+              Type.Fun(argTpes, res)
+            }
+        case Literal(lit, _) => Some(Type.getTypeOf(lit))
+        case Let(_, _, Annotated(t), _, _) => Some(t)
+        case Match(_, branches, _) =>
+          branches.traverse { case (_, expr) => unapply(expr) }
+            .flatMap { allAnnotated =>
+              if (allAnnotated.tail.forall(_ === allAnnotated.head)) Some(allAnnotated.head)  
+              else None
+            }
+        case _ => None
+      }
+  }
 
   def forAll[A](tpeArgs: List[(Type.Var.Bound, Kind)], expr: Expr[A]): Expr[A] =
     NonEmptyList.fromList(tpeArgs) match {
