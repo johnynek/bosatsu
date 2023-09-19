@@ -188,233 +188,243 @@ object PackageError {
   case class TypeErrorIn(tpeErr: Infer.Error, pack: PackageName) extends PackageError {
     def message(sourceMap: Map[PackageName, (LocationMap, String)], errColor: Colorize) = {
       val (lm, _) = sourceMap.getMapSrc(pack)
-      val (teMessage, region) = tpeErr match {
-        case Infer.Error.NotUnifiable(t0, t1, r0, r1) =>
-          val context0 =
-            if (r0 == r1) Doc.space // sometimes the region of the error is the same on right and left
-            else {
-              val m = lm.showRegion(r0, 2, errColor).getOrElse(Doc.str(r0)) // we should highlight the whole region
-              Doc.hardLine + m + Doc.hardLine
-            }
-          val context1 =
-            lm.showRegion(r1, 2, errColor).getOrElse(Doc.str(r1)) // we should highlight the whole region
+      def singleToDoc(tpeErr: Infer.Error.Single): Doc = {
+        val (teMessage, region) = tpeErr match {
+          case Infer.Error.NotUnifiable(t0, t1, r0, r1) =>
+            val context0 =
+              if (r0 == r1) Doc.space // sometimes the region of the error is the same on right and left
+              else {
+                val m = lm.showRegion(r0, 2, errColor).getOrElse(Doc.str(r0)) // we should highlight the whole region
+                Doc.hardLine + m + Doc.hardLine
+              }
+            val context1 =
+              lm.showRegion(r1, 2, errColor).getOrElse(Doc.str(r1)) // we should highlight the whole region
 
-          val fnHint =
-            (t0, t1) match {
-              case (Type.RootConst(Type.FnType(_, leftSize)),
-                    Type.RootConst(Type.FnType(_, rightSize))) =>
-                // both are functions
-                def args(n: Int) = if (n == 1) "one argument" else s"$n arguments"
-                Doc.text(s"hint: the first type is a function with ${args(leftSize)} and the second is a function with ${args(rightSize)}.") + Doc.hardLine
-              case (Type.Fun(_, _), _) | (_, Type.Fun(_, _)) =>
-                Doc.text("hint: this often happens when you apply the wrong number of arguments to a function.") + Doc.hardLine
-              case _ =>
-                Doc.empty
-            }
+            val fnHint =
+              (t0, t1) match {
+                case (Type.RootConst(Type.FnType(_, leftSize)),
+                      Type.RootConst(Type.FnType(_, rightSize))) =>
+                  // both are functions
+                  def args(n: Int) = if (n == 1) "one argument" else s"$n arguments"
+                  Doc.text(s"hint: the first type is a function with ${args(leftSize)} and the second is a function with ${args(rightSize)}.") + Doc.hardLine
+                case (Type.Fun(_, _), _) | (_, Type.Fun(_, _)) =>
+                  Doc.text("hint: this often happens when you apply the wrong number of arguments to a function.") + Doc.hardLine
+                case _ =>
+                  Doc.empty
+              }
 
-          val tmap = showTypes(pack, List(t0, t1))
-          val doc = Doc.text("type error: expected type ") + tmap(t0) +
-            context0 + Doc.text("to be the same as type ") + tmap(t1) +
-            Doc.hardLine + fnHint + context1
+            val tmap = showTypes(pack, List(t0, t1))
+            val doc = Doc.text("type error: expected type ") + tmap(t0) +
+              context0 + Doc.text("to be the same as type ") + tmap(t1) +
+              Doc.hardLine + fnHint + context1
 
-          (doc, Some(r0))
-        case Infer.Error.VarNotInScope((_, name), scope, region) =>
-          val ctx = lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
-          val candidates: List[String] =
-            nearest(name, scope.map { case ((_, n), _) => (n, ()) }, 3)
+            (doc, Some(r0))
+          case Infer.Error.VarNotInScope((_, name), scope, region) =>
+            val ctx = lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
+            val candidates: List[String] =
+              nearest(name, scope.map { case ((_, n), _) => (n, ()) }, 3)
+                .map { case (n, _) => n.asString }
+
+            val cmessage =
+              if (candidates.nonEmpty) candidates.mkString("\nClosest: ", ", ", ".\n")
+              else ""
+            val qname = "\"" + name.sourceCodeRepr + "\""
+            (Doc.text("name ") + Doc.text(qname) + Doc.text(" unknown.") + Doc.text(cmessage) + Doc.hardLine +
+              ctx, Some(region))
+          case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _) =>
+            val context0 =
+              if (r0 == r1) Doc.space // sometimes the region of the error is the same on right and left
+              else {
+                val m = lm.showRegion(r0, 2, errColor).getOrElse(Doc.str(r0)) // we should highlight the whole region
+                Doc.hardLine + m + Doc.hardLine
+              }
+            val context1 =
+              lm.showRegion(r1, 2, errColor).getOrElse(Doc.str(r1)) // we should highlight the whole region
+
+            val tmap = showTypes(pack, List(t0, t1))
+            val doc = Doc.text("type ") + tmap(t0) + context0 +
+              Doc.text("does not subsume type ") + tmap(t1) + Doc.hardLine +
+              context1
+
+            (doc, Some(r0))
+          case uc@Infer.Error.UnknownConstructor((_, n), region, _) =>
+            val near = nearest(n, uc.knownConstructors.map { case (_, n) => (n, ()) }.toMap, 3)
               .map { case (n, _) => n.asString }
 
-          val cmessage =
-            if (candidates.nonEmpty) candidates.mkString("\nClosest: ", ", ", ".\n")
-            else ""
-          val qname = "\"" + name.sourceCodeRepr + "\""
-          (Doc.text("name ") + Doc.text(qname) + Doc.text(" unknown.") + Doc.text(cmessage) + Doc.hardLine +
-            ctx, Some(region))
-        case Infer.Error.SubsumptionCheckFailure(t0, t1, r0, r1, _) =>
-          val context0 =
-            if (r0 == r1) Doc.space // sometimes the region of the error is the same on right and left
-            else {
-              val m = lm.showRegion(r0, 2, errColor).getOrElse(Doc.str(r0)) // we should highlight the whole region
-              Doc.hardLine + m + Doc.hardLine
+            val nearStr =
+              if (near.isEmpty) ""
+              else near.mkString(", nearest: ", ", ", "")
+
+            val context =
+              lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region)) // we should highlight the whole region
+
+            val doc = Doc.text("unknown constructor ") + Doc.text(n.asString) +
+              Doc.text(nearStr) + Doc.hardLine + context
+            (doc, Some(region))
+          case Infer.Error.KindCannotTyApply(applied, region) =>
+            val tmap = showTypes(pack, applied :: Nil)
+            val context =
+              lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region)) // we should highlight the whole region
+            val doc = Doc.text("kind error: for kind of the left of ") +
+              tmap(applied) + Doc.text(" is *. Cannot apply to kind *.") + Doc.hardLine +
+              context
+
+            (doc, Some(region))
+          case Infer.Error.KindInvalidApply(applied, leftK, rightK, region) =>
+            val leftT = applied.on
+            val rightT = applied.arg
+            val tmap = showTypes(pack, applied :: leftT :: rightT :: Nil)
+            val context =
+                lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
+            val doc = Doc.text("kind error: ") + Doc.text("the type: ") + tmap(applied) +
+              Doc.text(" is invalid because the left ") + tmap(leftT) + Doc.text(" has kind ") + Kind.toDoc(leftK) +
+              Doc.text(" and the right ") + tmap(rightT) + Doc.text(" has kind ") + Kind.toDoc(rightK) +
+              Doc.text(s" but left cannot accept the kind of the right:") +
+              Doc.hardLine +
+              context
+
+            (doc, Some(region))
+          case Infer.Error.KindMetaMismatch(meta, rightT, rightK, metaR, rightR) =>
+            val tmap = showTypes(pack, meta :: rightT :: Nil)
+            val context0 =
+                lm.showRegion(metaR, 2, errColor).getOrElse(Doc.str(metaR)) // we should highlight the whole region
+            val context1 = {
+              if (metaR != rightR) {
+                Doc.text(" at: ") + Doc.hardLine +
+                lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR)) + // we should highlight the whole region
+                Doc.hardLine
+              }
+              else {
+                Doc.empty
+              }
             }
-          val context1 =
-            lm.showRegion(r1, 2, errColor).getOrElse(Doc.str(r1)) // we should highlight the whole region
 
-          val tmap = showTypes(pack, List(t0, t1))
-          val doc = Doc.text("type ") + tmap(t0) + context0 +
-            Doc.text("does not subsume type ") + tmap(t1) + Doc.hardLine +
-            context1
+            val doc = Doc.text("kind error: ") + Doc.text("the type: ") + tmap(meta) +
+              Doc.text(" of kind: ") + Kind.toDoc(meta.toMeta.kind) + Doc.text(" at: ") + Doc.hardLine +
+              context0 + Doc.hardLine + Doc.hardLine +
+              Doc.text("cannot be unified with the type ") + tmap(rightT) +
+              Doc.text(" of kind: ") + Kind.toDoc(rightK) + context1 +
+              Doc.hardLine +
+              Doc.text("because the first kind does not subsume the second.")
 
-          (doc, Some(r0))
-        case uc@Infer.Error.UnknownConstructor((_, n), region, _) =>
-          val near = nearest(n, uc.knownConstructors.map { case (_, n) => (n, ()) }.toMap, 3)
-            .map { case (n, _) => n.asString }
-
-          val nearStr =
-            if (near.isEmpty) ""
-            else near.mkString(", nearest: ", ", ", "")
-
-          val context =
-            lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region)) // we should highlight the whole region
-
-          val doc = Doc.text("unknown constructor ") + Doc.text(n.asString) +
-            Doc.text(nearStr) + Doc.hardLine + context
-          (doc, Some(region))
-        case Infer.Error.KindCannotTyApply(applied, region) =>
-          val tmap = showTypes(pack, applied :: Nil)
-          val context =
-            lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region)) // we should highlight the whole region
-          val doc = Doc.text("kind error: for kind of the left of ") +
-            tmap(applied) + Doc.text(" is *. Cannot apply to kind *.") + Doc.hardLine +
-            context
-
-          (doc, Some(region))
-        case Infer.Error.KindInvalidApply(applied, leftK, rightK, region) =>
-          val leftT = applied.on
-          val rightT = applied.arg
-          val tmap = showTypes(pack, applied :: leftT :: rightT :: Nil)
-          val context =
-              lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
-          val doc = Doc.text("kind error: ") + Doc.text("the type: ") + tmap(applied) +
-            Doc.text(" is invalid because the left ") + tmap(leftT) + Doc.text(" has kind ") + Kind.toDoc(leftK) +
-            Doc.text(" and the right ") + tmap(rightT) + Doc.text(" has kind ") + Kind.toDoc(rightK) +
-            Doc.text(s" but left cannot accept the kind of the right:") +
-            Doc.hardLine +
-            context
-
-          (doc, Some(region))
-        case Infer.Error.KindMetaMismatch(meta, rightT, rightK, metaR, rightR) =>
-          val tmap = showTypes(pack, meta :: rightT :: Nil)
-          val context0 =
-              lm.showRegion(metaR, 2, errColor).getOrElse(Doc.str(metaR)) // we should highlight the whole region
-          val context1 = {
-            if (metaR != rightR) {
-              Doc.text(" at: ") + Doc.hardLine +
-              lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR)) + // we should highlight the whole region
-              Doc.hardLine
+            (doc, Some(metaR))
+          case Infer.Error.UnexpectedMeta(meta, in, metaR, rightR) =>
+            val tymeta = Type.TyMeta(meta)
+            val tmap = showTypes(pack, tymeta :: in :: Nil)
+            val context0 =
+                lm.showRegion(metaR, 2, errColor).getOrElse(Doc.str(metaR)) // we should highlight the whole region
+            val context1 = {
+              if (metaR != rightR) {
+                Doc.text(" at: ") + Doc.hardLine +
+                lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR)) + // we should highlight the whole region
+                Doc.hardLine
+              }
+              else {
+                Doc.empty
+              }
             }
-            else {
-              Doc.empty
+
+            val doc = Doc.text("Unexpected unknown: the type: ") + tmap(tymeta) +
+              Doc.text(" of kind: ") + Kind.toDoc(meta.kind) + Doc.text(" at: ") + Doc.hardLine +
+              context0 + Doc.hardLine + Doc.hardLine +
+              Doc.text("inside the type ") + tmap(in) + context1 +
+              Doc.hardLine +
+              Doc.text("this sometimes happens when a function arg has been omitted, or an illegal recursive type or function.")
+
+            (doc, Some(metaR))
+          case Infer.Error.KindNotUnifiable(leftK, leftT, rightK, rightT, leftR, rightR) =>
+            val tStr = showTypes(pack, leftT :: rightT :: Nil)
+
+            val context0 =
+                lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR))
+            val context1 = {
+              if (leftR != rightR) {
+                Doc.text(" at: ") + Doc.hardLine +
+                lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR))
+              }
+              else {
+                Doc.empty
+              }
             }
-          }
 
-          val doc = Doc.text("kind error: ") + Doc.text("the type: ") + tmap(meta) +
-            Doc.text(" of kind: ") + Kind.toDoc(meta.toMeta.kind) + Doc.text(" at: ") + Doc.hardLine +
-            context0 + Doc.hardLine + Doc.hardLine +
-            Doc.text("cannot be unified with the type ") + tmap(rightT) +
-            Doc.text(" of kind: ") + Kind.toDoc(rightK) + context1 +
-            Doc.hardLine +
-            Doc.text("because the first kind does not subsume the second.")
+            val doc = Doc.text("kind mismatch error: ") +
+              tStr(leftT) + Doc.text(": ") + Kind.toDoc(leftK) + Doc.text(" at:") + Doc.hardLine + context0 +
+              Doc.text(" cannot be unified with kind: ") +
+              tStr(rightT) + Doc.text(": ") + Kind.toDoc(rightK) + context1
 
-          (doc, Some(metaR))
-        case Infer.Error.UnexpectedMeta(meta, in, metaR, rightR) =>
-          val tymeta = Type.TyMeta(meta)
-          val tmap = showTypes(pack, tymeta :: in :: Nil)
-          val context0 =
-              lm.showRegion(metaR, 2, errColor).getOrElse(Doc.str(metaR)) // we should highlight the whole region
-          val context1 = {
-            if (metaR != rightR) {
-              Doc.text(" at: ") + Doc.hardLine +
-              lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR)) + // we should highlight the whole region
-              Doc.hardLine
+            (doc, Some(leftR))
+          case Infer.Error.NotPolymorphicEnough(tpe, _, _, region) => 
+            val tmap = showTypes(pack, tpe :: Nil)
+            val context =
+                lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
+
+            (Doc.text("the type ") + tmap(tpe) + Doc.text(" is not polymorphic enough") + Doc.hardLine + context, Some(region))
+          case Infer.Error.ArityMismatch(leftA, leftR, rightA, rightR) => 
+            val context0 =
+                lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR))
+            val context1 = {
+              if (leftR != rightR) {
+                Doc.text(" at: ") + Doc.hardLine +
+                lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR))
+              }
+              else {
+                Doc.empty
+              }
             }
-            else {
-              Doc.empty
-            }
-          }
 
-          val doc = Doc.text("Unexpected unknown: the type: ") + tmap(tymeta) +
-            Doc.text(" of kind: ") + Kind.toDoc(meta.kind) + Doc.text(" at: ") + Doc.hardLine +
-            context0 + Doc.hardLine + Doc.hardLine +
-            Doc.text("inside the type ") + tmap(in) + context1 +
-            Doc.hardLine +
-            Doc.text("this sometimes happens when a function arg has been omitted, or an illegal recursive type or function.")
+            def args(n: Int) =
+              if (n == 1) "one argument" else s"$n arguments"
 
-          (doc, Some(metaR))
-        case Infer.Error.KindNotUnifiable(leftK, leftT, rightK, rightT, leftR, rightR) =>
-          val tStr = showTypes(pack, leftT :: rightT :: Nil)
+            (Doc.text(s"function with ${args(leftA)} at:") + Doc.hardLine + context0 +
+              Doc.text(s" does not match function with ${args(rightA)}") + context1, Some(leftR))
+          case Infer.Error.ArityTooLarge(found, max, region) =>
+            val context =
+                lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
 
-          val context0 =
-              lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR))
-          val context1 = {
-            if (leftR != rightR) {
-              Doc.text(" at: ") + Doc.hardLine +
-              lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR))
-            }
-            else {
-              Doc.empty
-            }
-          }
+            (Doc.text(s"function with $found arguments is too large. Maximum function argument count is $max.") + Doc.hardLine + context,
+              Some(region))
+          case Infer.Error.UnexpectedBound(bound, _, reg, _) =>
+            val tyvar = Type.TyVar(bound)
+            val tmap = showTypes(pack, tyvar :: Nil)
+            val context =
+                lm.showRegion(reg, 2, errColor).getOrElse(Doc.str(reg))
 
-          val doc = Doc.text("kind mismatch error: ") +
-            tStr(leftT) + Doc.text(": ") + Kind.toDoc(leftK) + Doc.text(" at:") + Doc.hardLine + context0 +
-            Doc.text(" cannot be unified with kind: ") +
-            tStr(rightT) + Doc.text(": ") + Kind.toDoc(rightK) + context1
+            (Doc.text("unexpected bound: ") + tmap(tyvar) + Doc.hardLine + context, Some(reg))
+          case Infer.Error.UnionPatternBindMismatch(_, names, region) =>
+            val context =
+                lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
 
-          (doc, Some(leftR))
-        case Infer.Error.NotPolymorphicEnough(tpe, _, _, region) => 
-          val tmap = showTypes(pack, tpe :: Nil)
-          val context =
-              lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
+            val uniqueSets = graph.Tree.distinctBy(names)(_.toSet)
+            val uniqs = Doc.intercalate(Doc.char(',') + Doc.line,
+              uniqueSets.toList.map { names =>
+                Doc.text(names.iterator.map(_.sourceCodeRepr).mkString("[", ", ", "]"))
+              }
+            )
+            (Doc.text("not all union elements bind the same names: ") +
+              (Doc.line + uniqs + context).nested(4).grouped,
+              Some(region))
+          case Infer.Error.UnknownDefined(const, reg) =>
+            val tpe = Type.TyConst(const)
+            val tmap = showTypes(pack, tpe :: Nil)
+            val context =
+                lm.showRegion(reg, 2, errColor).getOrElse(Doc.str(reg))
 
-          (Doc.text("the type ") + tmap(tpe) + Doc.text(" is not polymorphic enough") + Doc.hardLine + context, Some(region))
-        case Infer.Error.ArityMismatch(leftA, leftR, rightA, rightR) => 
-          val context0 =
-              lm.showRegion(leftR, 2, errColor).getOrElse(Doc.str(leftR))
-          val context1 = {
-            if (leftR != rightR) {
-              Doc.text(" at: ") + Doc.hardLine +
-              lm.showRegion(rightR, 2, errColor).getOrElse(Doc.str(rightR))
-            }
-            else {
-              Doc.empty
-            }
-          }
+            (Doc.text("unknown type: ") + tmap(tpe) + Doc.hardLine + context, Some(reg))
+          case ie: Infer.Error.InternalError =>
+            (Doc.text(ie.message), Some(ie.region))
 
-          def args(n: Int) =
-            if (n == 1) "one argument" else s"$n arguments"
-
-          (Doc.text(s"function with ${args(leftA)} at:") + Doc.hardLine + context0 +
-            Doc.text(s" does not match function with ${args(rightA)}") + context1, Some(leftR))
-        case Infer.Error.ArityTooLarge(found, max, region) =>
-          val context =
-              lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
-
-          (Doc.text(s"function with $found arguments is too large. Maximum function argument count is $max.") + Doc.hardLine + context,
-            Some(region))
-        case Infer.Error.UnexpectedBound(bound, _, reg, _) =>
-          val tyvar = Type.TyVar(bound)
-          val tmap = showTypes(pack, tyvar :: Nil)
-          val context =
-              lm.showRegion(reg, 2, errColor).getOrElse(Doc.str(reg))
-
-          (Doc.text("unexpected bound: ") + tmap(tyvar) + Doc.hardLine + context, Some(reg))
-        case Infer.Error.UnionPatternBindMismatch(_, names, region) =>
-          val context =
-              lm.showRegion(region, 2, errColor).getOrElse(Doc.str(region))
-
-          val uniqueSets = graph.Tree.distinctBy(names)(_.toSet)
-          val uniqs = Doc.intercalate(Doc.char(',') + Doc.line,
-            uniqueSets.toList.map { names =>
-              Doc.text(names.iterator.map(_.sourceCodeRepr).mkString("[", ", ", "]"))
-            }
-          )
-          (Doc.text("not all union elements bind the same names: ") +
-            (Doc.line + uniqs + context).nested(4).grouped,
-            Some(region))
-        case Infer.Error.UnknownDefined(const, reg) =>
-          val tpe = Type.TyConst(const)
-          val tmap = showTypes(pack, tpe :: Nil)
-          val context =
-              lm.showRegion(reg, 2, errColor).getOrElse(Doc.str(reg))
-
-          (Doc.text("unknown type: ") + tmap(tpe) + Doc.hardLine + context, Some(reg))
-        case ie: Infer.Error.InternalError =>
-          (Doc.text(ie.message), Some(ie.region))
-
+        }
+        val h = sourceMap.headLine(pack, region) 
+        (h + Doc.hardLine + teMessage)
       }
-      val h = sourceMap.headLine(pack, region) 
-      (h + Doc.hardLine + teMessage).render(80)
+      
+      val finalDoc = tpeErr match {
+        case s: Infer.Error.Single => singleToDoc(s)
+        case c@Infer.Error.Combine(_, _) =>
+          val twoLines = Doc.hardLine + Doc.hardLine
+          c.flatten.iterator.map(singleToDoc).reduce((a, b) => a + (twoLines + b))
+      }
+      finalDoc.render(80)
     }
   }
 

@@ -103,6 +103,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
    * they appear)
    */
   lazy val freeVarsDup: List[Bindable] =
+    // nearly identical code to Expr.freeVarsDup, bugs should be fixed in both places
     this match {
       case Generic(_, expr) =>
         expr.freeVarsDup
@@ -114,18 +115,18 @@ sealed abstract class TypedExpr[+T] { self: Product =>
         Nil
       case AnnotatedLambda(args, res, _) =>
         val nameSet = args.toList.iterator.map(_._1).toSet
-        TypedExpr.filterNot(res.freeVarsDup)(nameSet)
+        ListUtil.filterNot(res.freeVarsDup)(nameSet)
       case App(fn, args, _, _) =>
         fn.freeVarsDup ::: args.reduceMap(_.freeVarsDup)
       case Let(arg, argE, in, rec, _) =>
         val argFree0 = argE.freeVarsDup
         val argFree =
           if (rec.isRecursive) {
-            TypedExpr.filterNot(argFree0)(_ === arg)
+            ListUtil.filterNot(argFree0)(_ === arg)
           }
           else argFree0
 
-        argFree ::: (TypedExpr.filterNot(in.freeVarsDup)(_ === arg))
+        argFree ::: (ListUtil.filterNot(in.freeVarsDup)(_ === arg))
       case Literal(_, _, _) =>
         Nil
       case Match(arg, branches, _) =>
@@ -136,7 +137,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
           val newBinds = p.names.toSet
           val bfree = b.freeVarsDup
           if (newBinds.isEmpty) bfree
-          else TypedExpr.filterNot(bfree)(newBinds)
+          else ListUtil.filterNot(bfree)(newBinds)
         }
         // we can only take one branch, so count the max on each branch:
         val branchFreeMax = branchFrees
@@ -162,17 +163,6 @@ sealed abstract class TypedExpr[+T] { self: Product =>
 }
 
 object TypedExpr {
-
-  // filter b from a pretty short lst but try to conserve lst if possible
-  private def filterNot[A](lst: List[A])(b: A => Boolean): List[A] =
-    lst match {
-      case Nil => lst
-      case h :: tail =>
-        val t1 = filterNot(tail)(b)
-        if (b(h)) t1
-        else if (t1 eq tail) lst
-        else (h :: t1) // we only allocate here
-    }
 
   type Rho[A] = TypedExpr[A] // an expression with a Rho type (no top level forall)
 

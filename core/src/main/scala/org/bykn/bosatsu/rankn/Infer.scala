@@ -2,16 +2,18 @@ package org.bykn.bosatsu.rankn
 
 import cats.Monad
 import cats.arrow.FunctionK
-import cats.data.NonEmptyList
+import cats.data.{Chain, NonEmptyChain, NonEmptyList}
 
-import cats.implicits._
+import cats.syntax.all._
 
 import org.bykn.bosatsu.{
   Expr,
   HasRegion,
   Identifier,
   Kind,
+  ListUtil,
   PackageName,
+  ParallelViaProduct,
   Pattern => GenPattern,
   Region,
   RecursionKind,
@@ -67,6 +69,12 @@ object Infer {
       def tailRecM[A, B](a: A)(fn: A => Infer[Either[A, B]]): Infer[B] =
         TailRecM(a, fn)
     }
+
+    implicit val inferParallel: cats.Parallel[Infer] =
+      new ParallelViaProduct[Infer] {
+        def monad = inferMonad
+        def parallelProduct[A, B](fa: Infer[A], fb: Infer[B]): Infer[(A, B)] = ParallelProduct(fa, fb)
+      }
 
 
   /**
@@ -179,12 +187,12 @@ object Infer {
   sealed abstract class Error
 
   object Error {
-
+    sealed abstract class Single extends Error
     /**
      * These are errors in the ability to type the code
      * Generally these cannot be caught by other phases
      */
-    sealed abstract class TypeError extends Error
+    sealed abstract class TypeError extends Single
 
     case class NotUnifiable(left: Type, right: Type, leftRegion: Region, rightRegion: Region) extends TypeError
     case class KindNotUnifiable(leftK: Kind, leftT: Type, rightK: Kind, rightT: Type, leftRegion: Region, rightRegion: Region) extends TypeError
@@ -203,7 +211,7 @@ object Infer {
      * These are errors that prevent typing due to unknown names,
      * They could be caught in a phase that collects all the naming errors
      */
-    sealed abstract class NameError extends Error
+    sealed abstract class NameError extends Single
 
     // This could be a user error if we don't check scoping before typing
     case class VarNotInScope(varName: Name, vars: Map[Name, Type], region: Region) extends NameError
@@ -217,7 +225,7 @@ object Infer {
     /**
      * These can only happen if the compiler has bugs at some point
      */
-    sealed abstract class InternalError extends Error {
+    sealed abstract class InternalError extends Single {
       def message: String
       def region: Region
     }
@@ -237,6 +245,22 @@ object Infer {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
       def message = s"unknown var in $tpe: $mess at $region"
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
+    }
+
+    // here is when we have more than one error
+    case class Combine(left: Error, right: Error) extends Error {
+      private def flatten(errs: NonEmptyList[Error], acc: Chain[Single]): NonEmptyChain[Single] =
+        errs match {
+          case NonEmptyList(s: Single, tail) =>
+            tail match {
+              case Nil => NonEmptyChain.fromChainAppend(acc, s)
+              case h :: t => flatten(NonEmptyList(h, t), acc :+ s)
+            }
+          case NonEmptyList(Combine(a, b), tail) =>
+            flatten(NonEmptyList(a, b :: tail), acc)
+        }
+
+      lazy val flatten: NonEmptyChain[Single] = flatten(NonEmptyList(left, right :: Nil), Chain.empty)
     }
   }
 
@@ -263,6 +287,22 @@ object Infer {
           case Right(a) => fn(a).run(env)
         }
     }
+
+    case class ParallelProduct[A, B](fa: Infer[A], fb: Infer[B]) extends Infer[(A, B)] {
+      def run(env: Env) =
+        fa.run(env).flatMap {
+          case Left(errA) =>
+            fb.run(env).map {
+              case Right(_) => Left(errA)
+              case Left(errB) => Left(Error.Combine(errA, errB))
+            }  
+          case Right(a) => fb.run(env).map {
+            case Left(err) => Left(err)
+            case Right(b) => Right((a, b))
+          }
+        }
+    }
+
     case class Peek[A](fa: Infer[A]) extends Infer[Either[Error, A]] {
       def run(env: Env) =
         fa.run(env).resetOnLeft(Left[Either[Error, A], Nothing](_)).map {
@@ -475,7 +515,7 @@ object Infer {
       // note due to contravariance in input, we reverse the order there
       for {
         // we know that they have the same length because we have already called unifyFn
-        coarg <- a2s.zip(a1s).traverse { case (a2, a1) => subsCheck(a2, a1, left, right) }
+        coarg <- a2s.zip(a1s).parTraverse { case (a2, a1) => subsCheck(a2, a1, left, right) }
         // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right)
         ks <- checkedKinds
@@ -781,7 +821,7 @@ object Infer {
              argsRegion = args.reduceMap(region[Expr[A]](_))
              argRes <- unifyFn(args.length, fnTRho, region(fn), argsRegion)
              (argT, resT) = argRes
-             typedArg <- args.zip(argT).traverse { case (arg, argT) => checkSigma(arg, argT) }
+             typedArg <- args.zip(argT).parTraverse { case (arg, argT) => checkSigma(arg, argT) }
              coerce <- instSigma(resT, expect, region(term))
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
         case Generic(tpes, in) =>
@@ -812,7 +852,7 @@ object Infer {
                     // this comes from page 54 of the paper, but I can't seem to find examples
                     // where this will fail if we reverse (as we had for a long time), which
                     // indicates the testing coverage is incomplete
-                    zipped.traverse_ {
+                    zipped.parTraverse_ {
                       case ((_, Some(tpe)), varT) =>
                         subsCheck(varT, tpe, region(term), rr)
                       case ((_, None), _) => unit
@@ -822,7 +862,7 @@ object Infer {
               } yield TypedExpr.AnnotatedLambda(namesVarsT, typedBody, tag)
             case infer@Expected.Inf(_) =>
               for {
-                nameVarsT <- args.traverse {
+                nameVarsT <- args.parTraverse {
                   case (n, Some(tpe)) =>
                     // TODO do we need to narrow or instantiate tpe?
                     pure((n, tpe))
@@ -847,9 +887,9 @@ object Infer {
             // compilers/evaluation can possibly optimize non-recursive
             // cases differently
             val rhsBody = rhs match {
-              case Annotation(expr, tpe, tag) => 
+              case Annotation(expr, tpe, _) => 
                   extendEnv(name, tpe) {
-                    checkSigma(expr, tpe).product(typeCheckRho(body, expect))
+                    checkSigma(expr, tpe).parProduct(typeCheckRho(body, expect))
                   }
               case _ =>
                 newMetaType(Kind.Type) // the kind of a let value is a Type
@@ -880,17 +920,30 @@ object Infer {
             // In this branch, we typecheck the rhs *without* name in the environment
             // so any recursion in this case won't typecheck, and shadowing rules are
             // in place
-            for {
-              typedRhs <- inferSigma(rhs)
-              varT = typedRhs.getType
-              typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
-            } yield TypedExpr.Let(name, typedRhs, typedBody, isRecursive, tag)
+            val rhsBody = rhs match {
+              case Annotation(expr, tpe, _) => 
+                  // check in parallel so we collect more errors
+                  checkSigma(expr, tpe)
+                    .parProduct(
+                      extendEnv(name, tpe) { typeCheckRho(body, expect) }
+                    )
+              case _ =>
+                // we don't know the type of rhs, so we have to infer then check the body
+                for {
+                  typedRhs <- inferSigma(rhs)
+                  typedBody <- extendEnv(name, typedRhs.getType)(typeCheckRho(body, expect))
+                } yield (typedRhs, typedBody)
+              }
+
+            rhsBody.map { case (rhs, body) =>
+              TypedExpr.Let(name, rhs, body, isRecursive, tag)
+            }
           }
         case Annotation(term, tpe, tag) =>
-          for {
-            typedTerm <- checkSigma(term, tpe)
-            coerce <- instSigma(tpe, expect, region(tag))
-          } yield coerce(typedTerm)
+          (checkSigma(term, tpe), instSigma(tpe, expect, region(tag)))
+            .parMapN { (typedTerm, coerce) =>
+              coerce(typedTerm)  
+            }
         case Match(term, branches, tag) =>
           // all of the branches must return the same type:
 
@@ -912,14 +965,14 @@ object Infer {
               expect match {
                 case Expected.Check((resT, _)) =>
                   for {
-                    tbranches <- branches.traverse { case (p, r) =>
+                    tbranches <- branches.parTraverse { case (p, r) =>
                       // note, resT is in weak-prenex form, so this call is permitted
                       checkBranch(p, check, r, resT)
                     }
                   } yield TypedExpr.Match(tsigma, tbranches, tag)
                 case infer@Expected.Inf(_) =>
                   for {
-                    tbranches <- branches.traverse { case (p, r) =>
+                    tbranches <- branches.parTraverse { case (p, r) =>
                       inferBranch(p, check, r)
                     }
                     (rho, regRho, resBranches) <- narrowBranches(tbranches)
@@ -975,7 +1028,7 @@ object Infer {
       for {
         (minRes, (minPat, resTRho, minIdx)) <- minBy(withIdx.head, withIdx.tail)((a, b) => ltEq(a, b))
         resRegion = region(minRes)
-        resBranches <- withIdx.traverse { case (te, (p, tpe, idx)) =>
+        resBranches <- withIdx.parTraverse { case (te, (p, tpe, idx)) =>
           if (idx != minIdx) {
             // unfortunately we have to check each branch again to get the correct coerce
             subsCheckRho2(resTRho, tpe, resRegion, region(te))
@@ -1094,7 +1147,7 @@ object Infer {
           for {
             tpeA <- tpeOfList
             listA = Type.TyApply(Type.ListType, tpeA)
-            inners <- items.traverse(checkItem(tpeA, listA, _))
+            inners <- items.parTraverse(checkItem(tpeA, listA, _))
             innerPat = inners.map(_._1)
             innerBinds = inners.flatMap(_._2)
           } yield (GenPattern.Annotation(GenPattern.ListPat(innerPat), listA), innerBinds)
@@ -1115,13 +1168,13 @@ object Infer {
             // if the pattern arity does not match the arity of the constructor
             // but we don't want to error type-checking since we want to show
             // the maximimum number of errors to the user
-            envs <- args.zip(params).traverse { case (p, t) => checkPat(p, t, reg) }
+            envs <- args.zip(params).parTraverse { case (p, t) => checkPat(p, t, reg) }
             pats = envs.map(_._1)
             bindings = envs.map(_._2)
           } yield (GenPattern.PositionalStruct(nm, pats), bindings.flatten)
         case u@GenPattern.Union(h, t) =>
-          (typeCheckPattern(h, sigma, reg), t.traverse(typeCheckPattern(_, sigma, reg)))
-            .mapN { case ((h, binds), neList) =>
+          (typeCheckPattern(h, sigma, reg), t.parTraverse(typeCheckPattern(_, sigma, reg)))
+            .parMapN { case ((h, binds), neList) =>
               val pat = GenPattern.Union(h, neList.map(_._1))
               val allBinds = NonEmptyList(binds, (neList.map(_._2).toList))
               identicalBinds(u, allBinds, reg).as((pat, binds))
@@ -1137,11 +1190,11 @@ object Infer {
           val rest = t.map(_.toSet)
           if (rest.forall(_ == bs)) {
             val bm = binds.map(_.toMap)
-            bs.toList.traverse_ { v =>
+            bs.toList.parTraverse_ { v =>
               val bmh = bm.head
               val bmt = bm.tail
               val tpe = bmh(v)
-              bmt.traverse_ { m2 =>
+              bmt.parTraverse_ { m2 =>
                 val tpe2 = m2(v)
                 unifyType(tpe, tpe2, reg, reg)
               }
@@ -1397,22 +1450,47 @@ object Infer {
   def extendEnvList[A](bindings: List[(Bindable, Type)])(of: Infer[A]): Infer[A] =
     Infer.Impl.ExtendEnvs(bindings.map { case (n, t) => ((None, n), t) }, of)
 
-  private def extendEnvPack[A](pack: PackageName, name: Bindable, tpe: Type)(of: Infer[A]): Infer[A] =
-    Infer.Impl.ExtendEnvs(((Some(pack), name), tpe) :: Nil, of)
+  private def extendEnvListPack[A](pack: PackageName, nameTpe: List[(Bindable, Type)])(of: Infer[A]): Infer[A] =
+    Infer.Impl.ExtendEnvs(nameTpe.map { case (name, tpe) => ((Some(pack), name), tpe) }, of)
 
   /**
    * Packages are generally just lists of lets, this allows you to infer
    * the scheme for each in the context of the list
    */
-  def typeCheckLets[A: HasRegion](pack: PackageName, ls: List[(Bindable, RecursionKind, Expr[A])]): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] =
-    ls match {
-      case Nil => Infer.pure(Nil)
-      case (name, rec, expr) :: tail =>
-        for {
-          te <- if (rec.isRecursive) recursiveTypeCheck(name, expr) else typeCheck(expr)
-          rest <- extendEnvPack(pack, name, te.getType)(typeCheckLets(pack, tail))
-        } yield (name, rec, te) :: rest
-    }
+  def typeCheckLets[A: HasRegion](pack: PackageName, ls: List[(Bindable, RecursionKind, Expr[A])]): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] = {
+    // Group together lets that don't include each other to get more type errors
+    // if we can
+    type G = NonEmptyChain[(Bindable, RecursionKind, Expr[A])]
+
+    def run(groups: List[G]): Infer[List[(Bindable, RecursionKind, TypedExpr[A])]] = 
+      groups match {
+        case Nil => Infer.pure(Nil)
+        case group :: tail =>
+          group.parTraverse { case (name, rec, expr) =>
+            (if (rec.isRecursive) recursiveTypeCheck(name, expr) else typeCheck(expr))
+              .map { te => (name, rec, te) }
+          }
+          .flatMap { groupChain =>
+            val glist = groupChain.toList
+            extendEnvListPack(pack, glist.map { case (b, _, te) => (b, te.getType) }) {
+              run(tail)
+            }  
+            .map(glist ::: _)
+          }
+        }
+
+    val groups: List[G] =
+      ListUtil.greedyGroup(ls)({ item => NonEmptyChain.one(item) }) { case (bs, item @ (_, _, expr)) =>
+        val dependsOnGroup =
+          expr.globals.iterator.exists {
+            case Expr.Global(p, n1, _) => (p == pack) && bs.exists(_._1 == n1)
+          }
+        if (dependsOnGroup) None // we can't run in parallel
+        else Some(bs :+ item)
+      }
+
+    run(groups)
+  }
 
   /**
    * This is useful to testing purposes.

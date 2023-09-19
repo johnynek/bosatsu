@@ -191,6 +191,7 @@ final class SourceConverter(
       case Binding(BindingStatement(pat, value, Padding(_, rest))) =>
         val erest = withBound(rest, pat.names)
 
+        val assignRegion = decl.region - value.region
         def solvePat(pat: Pattern.Parsed, rrhs: Result[Expr[Declaration]]): Result[Expr[Declaration]] =
           pat match {
             case Pattern.Var(arg) =>
@@ -198,9 +199,11 @@ final class SourceConverter(
                 Expr.Let(arg, rhs, e, RecursionKind.NonRecursive, decl)
               }
             case Pattern.Annotation(pat, tpe) =>
-              toType(tpe, decl.region).flatMap { realTpe =>
+              toType(tpe, assignRegion).flatMap { realTpe =>
                 // move the annotation to the right
-                val newRhs = rrhs.map(Expr.Annotation(_, realTpe, decl))
+                // it's not ideal to use the Declaration of rhs, but it's better
+                // than the entire let
+                val newRhs = rrhs.map { r => Expr.Annotation(r, realTpe, r.tag) }
                 solvePat(pat, newRhs)
               }
             case Pattern.Named(nm, p) =>
@@ -210,7 +213,7 @@ final class SourceConverter(
               }
             case pat =>
               // TODO: we need the region on the pattern...
-              (convertPattern(pat, decl.region - value.region), erest, rrhs).parMapN { (newPattern, e, rhs) =>
+              (convertPattern(pat, assignRegion), erest, rrhs).parMapN { (newPattern, e, rhs) =>
                 val expBranches = NonEmptyList.of((newPattern, e))
                 Expr.Match(rhs, expBranches, decl)
               }
@@ -218,9 +221,9 @@ final class SourceConverter(
 
         solvePat(pat, loop(value))
       case Comment(CommentStatement(_, Padding(_, decl))) =>
-        loop(decl).map(_.as(decl))
+        loop(decl).map(_.replaceTag(decl))
       case CommentNB(CommentStatement(_, Padding(_, decl))) =>
-        loop(decl).map(_.as(decl))
+        loop(decl).map(_.replaceTag(decl))
       case DefFn(defstmt@DefStatement(_, _, _, _, _)) =>
         val inExpr = defstmt.result match {
           case (_, Padding(_, in)) => withBound(in, defstmt.name :: Nil)
@@ -260,11 +263,11 @@ final class SourceConverter(
           Expr.buildPatternLambda(args, body, decl)
         }
       case la@LeftApply(_, _, _, _) =>
-        loop(la.rewrite).map(_.as(decl))
+        loop(la.rewrite).map(_.replaceTag(decl))
       case Literal(lit) =>
         success(Expr.Literal(lit, decl))
       case Parens(p) =>
-        loop(p).map(_.as(decl))
+        loop(p).map(_.replaceTag(decl))
       case Var(ident) =>
         success(resolveToVar(ident, decl, bound, topBound))
       case Match(_, arg, branches) =>
@@ -325,7 +328,7 @@ final class SourceConverter(
               val fnName: Expr[Declaration] =
                 Expr.Global(PackageName.PredefName, Identifier.Name("concat_String"), s)
 
-              Expr.buildApp(fnName, listExpr.as(s: Declaration) :: Nil, s)
+              Expr.buildApp(fnName, listExpr.replaceTag(s: Declaration) :: Nil, s)
             }
         }
       case l@ListDecl(list) =>
