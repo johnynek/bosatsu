@@ -1,0 +1,51 @@
+package Eval
+
+from Bosatsu/Nat import Nat, Zero, Succ, to_Nat
+
+export Eval, done, map, flat_map, bind, eval
+# port of cats.Eval to bosatsu
+
+enum Eval[a]:
+    Pure(a: a)
+    FlatMap(use: forall x. (forall y. (Eval[y], y -> Eval[a]) -> x) -> x)
+
+def done(a: a) -> Eval[a]: Pure(a)
+
+def flat_map[a, b](e: Eval[a], fn: a -> Eval[b]) -> Eval[b]:
+    FlatMap(cb -> cb(e, fn))
+
+def bind(e)(fn): flat_map(e, fn)
+
+def map[a, b](e: Eval[a], fn: a -> b) -> Eval[b]:
+    x <- e.bind()
+    Pure(fn(x))
+
+enum Stack[a, b]:
+    Done(fn: a -> b)
+    More(use: forall x. (forall y. (a -> Eval[y], Stack[y, b]) -> x) -> x)
+
+def push_stack[a, b, c](fn: a -> Eval[b], stack: Stack[b, c]) -> Stack[a, c]:
+   More(use -> use(fn, stack))  
+
+enum Loop[a, b]:
+    RunStack(a: a, stack: Stack[a, b])
+    RunEval(e: Eval[a], stack: Stack[a, b])
+
+def run[a, b](budget: Nat, arg: Loop[a, b]) -> Option[b]:
+  recur budget:
+      case Zero: None
+      case Succ(balance):
+          match arg:
+              case RunStack(a, Done(fn)): Some(fn(a))
+              case RunEval(Pure(a), stack):
+                  run(balance, RunStack(a, stack))
+              case RunEval(FlatMap(use), stack):
+                  use((prev, fn) -> run(balance, RunEval(prev, push_stack(fn, stack)))) 
+              case RunStack(a, More(use)):
+                use((fn, stack) -> (
+                  evalb = fn(a)
+                  run(balance, RunEval(evalb, stack))
+                ))
+
+def eval[a](budget: Int, ea: Eval[a]) -> Option[a]:
+    run(to_Nat(budget), RunEval(ea, Done(a -> a)))
