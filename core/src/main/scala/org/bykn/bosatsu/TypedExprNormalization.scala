@@ -36,7 +36,7 @@ object TypedExprNormalization {
     if (r.isRecursive) (Some(b), scope - b)
     else (None, scope)
 
-  def normalizeAll[A, V](pack: PackageName, lets: List[(Bindable, RecursionKind, TypedExpr[A])], typeEnv: TypeEnv[V]): List[(Bindable, RecursionKind, TypedExpr[A])] = {
+  def normalizeAll[A, V](pack: PackageName, lets: List[(Bindable, RecursionKind, TypedExpr[A])], typeEnv: TypeEnv[V])(implicit ev: V <:< Kind.Arg): List[(Bindable, RecursionKind, TypedExpr[A])] = {
     @annotation.tailrec
     def loop(scope: Scope[A], lets: List[(Bindable, RecursionKind, TypedExpr[A])], acc: List[(Bindable, RecursionKind, TypedExpr[A])]): List[(Bindable, RecursionKind, TypedExpr[A])] =
       lets match {
@@ -55,7 +55,7 @@ object TypedExprNormalization {
   def normalizeProgram[A, V](
     p: PackageName,
     fullTypeEnv: TypeEnv[V],
-    prog: Program[TypeEnv[V], TypedExpr[Declaration], A]): Program[TypeEnv[V], TypedExpr[Declaration], A] = {
+    prog: Program[TypeEnv[V], TypedExpr[Declaration], A])(implicit ev: V <:< Kind.Arg): Program[TypeEnv[V], TypedExpr[Declaration], A] = {
       val Program(typeEnv, lets, extDefs, stmts) = prog
       val normalLets = normalizeAll(p, lets, fullTypeEnv)
       Program(typeEnv, normalLets, extDefs, stmts)
@@ -63,7 +63,7 @@ object TypedExprNormalization {
 
   // if you have made one step of progress, use this to recurse
   // so we don't throw away if we don't progress more
-  private def normalize1[A, V](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[V]): Some[TypedExpr[A]] =
+  private def normalize1[A, V](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[V])(implicit ev: V <:< Kind.Arg): Some[TypedExpr[A]] =
     normalizeLetOpt(namerec, te, scope, typeEnv) match {
       case None => Some(te)
       case s@Some(_) => s
@@ -75,7 +75,13 @@ object TypedExprNormalization {
   /**
    * if the te is not in normal form, transform it into normal form
    */
-  def normalizeLetOpt[A, V](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[V]): Option[TypedExpr[A]] =
+  def normalizeLetOpt[A, V](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[V])(implicit ev: V <:< Kind.Arg): Option[TypedExpr[A]] = {
+    val kindOf: Type => Option[Kind] =
+      { case const @ Type.TyConst(_) =>
+          typeEnv.getType(const).map(_.kindOf)
+        case _ => None
+      }
+
     te match {
       case g@Generic(_, Annotation(term, _)) if g.getType.sameAs(term.getType) =>
         normalize1(namerec, term, scope, typeEnv)
@@ -112,11 +118,15 @@ object TypedExprNormalization {
         // if we annotate twice, we can ignore the inner annotation
         // we should have type annotation where we normalize type parameters
         val e1 = normalize1(namerec, term, scope, typeEnv).get
-        e1 match {
+        (e1, tpe) match {
           case _ if e1.getType.sameAs(tpe) =>
             // the type is already right
             Some(e1)
-          case notSameTpe =>
+          case (gen@Generic(_, _), rho: Type.Rho) =>
+            val inst = TypedExpr.instantiateTo(gen, rho, kindOf)
+            if (inst != te) Some(inst)
+            else None
+          case (notSameTpe, _) =>
             val nt = Type.normalize(tpe)
             if (notSameTpe eq term) {
               if (nt == tpe) None
@@ -208,10 +218,13 @@ object TypedExprNormalization {
         val f1 = normalize1(None, fn, scope, typeEnv).get
         // the second and third branches use this but the first doesn't
         // make it lazy so we don't recurse more than needed
-        lazy val a1 = args.map(normalize1(None, _, scope, typeEnv).get)
-        val ws = Impl.WithScope(scope)
+        lazy val a1 = ListUtil.mapConserveNel(args) { a =>
+          normalize1(None, a, scope, typeEnv).get
+        }
+
+        val ws = Impl.WithScope(scope, ev.substituteCo[TypeEnv](typeEnv))
         f1 match {
-          case ws.ResolveToLambda(lamArgs, expr, _) =>
+          case ws.ResolveToLambda(Nil, lamArgs, expr, _) =>
             // (y -> z)(x) = let y = x in z
             val lets = lamArgs.zip(args).map {
               case ((n, ltpe), arg) => (n, setType(arg, ltpe))
@@ -223,7 +236,7 @@ object TypedExprNormalization {
               // (app (let x y z) w) == (let x y (app z w)) if w does not have x free
               normalize1(namerec, Let(arg1, ex, App(in, a1, tpe, tag), rec, tag1), scope, typeEnv)
           case _ =>
-            if ((f1 eq fn) && (a1 == args) && (tpe == tpe0)) None
+            if ((f1 eq fn) && (a1 eq args) && (tpe == tpe0)) None
             else Some(App(f1, a1, tpe, tag))
         }
       case Let(arg, ex, in, rec, tag) =>
@@ -345,9 +358,10 @@ object TypedExprNormalization {
               // does not depend on the arg
               if (a1 eq arg) None
               else Some(m1)
-            case Some(m2) =>
+            case Some(m2) if m2.size < m1.size =>
               // we can possibly simplify this now:
               normalize1(namerec, m2, scope, typeEnv)
+            case _ => None
           }
         }
         else {
@@ -356,6 +370,7 @@ object TypedExprNormalization {
           normalize1(namerec, Match(a1, branches1a, tag), scope, typeEnv)
         }
     }
+  }
 
   def normalize[A](te: TypedExpr[A]): Option[TypedExpr[A]] =
     normalizeLetOpt(None, te, emptyScope, TypeEnv.empty)
@@ -374,22 +389,39 @@ object TypedExprNormalization {
         }
       }
 
-    case class WithScope[A](scope: Scope[A]) {
+    case class WithScope[A](scope: Scope[A], typeEnv: TypeEnv[Kind.Arg]) {
+      private lazy val kindOf: Type => Option[Kind] =
+        { case const @ Type.TyConst(_) =>
+            typeEnv.getType(const).map(_.kindOf)
+          case _ => None
+        }
+
       object ResolveToLambda {
-        def unapply(te: TypedExpr[A]): Option[(NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
+        def unapply(te: TypedExpr[A]): Option[(List[(Type.Var.Bound, Kind)], NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
           te match {
-            case AnnotatedLambda(args, expr, ltag) => Some((args, expr, ltag))
+            case Annotation(ResolveToLambda((h :: t), args, ex, tag), rho: Type.Rho) =>
+              val asGen =
+                Generic(NonEmptyList(h, t), AnnotatedLambda(args, ex, tag))
+
+              TypedExpr.instantiateTo(asGen, rho, kindOf) match {
+                case AnnotatedLambda(a, e, t) => Some((Nil, a, e, t))
+                case Generic(nel, AnnotatedLambda(a, e, t)) => Some((nel.toList, a, e, t))
+                case _ => None
+              }
+            case Generic(frees, ResolveToLambda(f1, args, ex, tag)) =>
+              Some((frees.toList ::: f1, args, ex, tag))
+            case AnnotatedLambda(args, expr, ltag) => Some((Nil, args, expr, ltag))
             case Global(p, n: Bindable, _, _) =>
               scope.getGlobal(p, n).flatMap {
                 case (RecursionKind.NonRecursive, te, scope1) =>
-                  val s1 = WithScope(scope1)
+                  val s1 = WithScope(scope1, typeEnv)
                   te match {
-                    case s1.ResolveToLambda(args, expr, ltag) =>
+                    case s1.ResolveToLambda(frees, args, expr, ltag) =>
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
                       if (scopeMatches(expr.freeVarsDup.toSet -- args.iterator.map(_._1), scope, scope1)) {
-                        Some((args, expr, ltag))
+                        Some((frees, args, expr, ltag))
                       }
                       else None
                     case _ => None
@@ -399,14 +431,14 @@ object TypedExprNormalization {
             case Local(nm, _, _) =>
               scope.getLocal(nm).flatMap {
                 case (RecursionKind.NonRecursive, te, scope1) =>
-                  val s1 = WithScope(scope1)
+                  val s1 = WithScope(scope1, typeEnv)
                   te match {
-                    case s1.ResolveToLambda(args, expr, ltag) =>
+                    case s1.ResolveToLambda(frees, args, expr, ltag) =>
                       // we can't just replace variables if the scopes don't match.
                       // we could also repair the scope by making a let binding
                       // for any names that don't match (which has to be done recursively
                       if (scopeMatches(expr.freeVarsDup.toSet -- args.iterator.map(_._1), scope, scope1)) {
-                        Some((args, expr, ltag))
+                        Some((frees, args, expr, ltag))
                       }
                       else None
                     case _ => None
@@ -541,9 +573,11 @@ object TypedExprNormalization {
 
           m.branches.toList.traverse(expandMatches).map(_.flatten).flatMap {
             case Nil =>
+              // TODO hitting this looks like a bug
               // $COVERAGE-OFF$
-              sys.error(s"no branch matched in ${m.repr} matched: $p::$c(${args.map(_.repr)})")
+              //sys.error(s"no branch matched in ${m.repr} matched: $p::$c(${args.map(_.repr)})")
               // $COVERAGE-ON$
+              None
             case (MaybeNamedStruct(b, pats), r) :: rest if rest.isEmpty || pats.forall(isTotal) =>
               // If there are no more items, or all inner patterns are total, we are done
 

@@ -522,7 +522,8 @@ res = y -> (x -> f(x, z))(y)
   
       checkLast("""
 f = (_, y) -> y
-res = y -> f(y, 1)
+#res = y -> f(y, 1)
+res = _ -> 1
       """) { te2 =>
         assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
       }

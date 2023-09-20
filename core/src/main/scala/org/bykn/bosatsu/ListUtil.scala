@@ -38,4 +38,10 @@ private[bosatsu] object ListUtil {
       case Some(nel) => greedyGroup(nel)(one)(combine).toList
     }
 
+  def mapConserveNel[A <: AnyRef](nel: NonEmptyList[A])(f: A => A): NonEmptyList[A] = {
+    val as = nel.toList
+    val bs = as.mapConserve(f)
+    if (bs eq as) nel
+    else NonEmptyList.fromListUnsafe(bs)
+  }
 }

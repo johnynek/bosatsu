@@ -113,7 +113,7 @@ object Type {
       case Some(ne) => forAll(ne, in)
     }
 
-  final def forAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Type): Type =
+  final def forAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Type): Type.ForAll =
     in match {
       case rho: Rho => Type.ForAll(vars, rho)
       case Type.ForAll(ne1, rho) => Type.ForAll(vars ::: ne1, rho)

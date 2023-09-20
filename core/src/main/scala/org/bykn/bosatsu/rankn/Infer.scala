@@ -442,13 +442,16 @@ object Infer {
       readMeta(m).flatMap {
         case None => pure(None)
         case Some(ty) =>
-          Type.zonkRhoMeta(ty)(zonk(_)).flatMap { ty1 =>
+          zonkRho(ty).flatMap { ty1 =>
             // short out multiple hops (I guess an optimization?)
             // note: this meta was already written, so we know
             // the kind must match
             writeMeta(m, ty1).as(Some(ty1))
           }
       }
+
+    def zonkRho(rho: Type.Rho): Infer[Type.Rho] =
+      Type.zonkRhoMeta(rho)(zonk(_))
 
     /**
      * This fills in any meta vars that have been
@@ -605,7 +608,10 @@ object Infer {
           } yield TypedExpr.coerceRho(ta, ks)
         case (t1, t2) =>
           // rule: MONO
-          unify(t1, t2, left, right) *> checkedKinds.map(TypedExpr.coerceRho(t1, _)) // TODO this coerce seems right, since we have unified
+          for {
+            _ <- unify(t1, t2, left, right)
+            ck <- checkedKinds
+          } yield TypedExpr.coerceRho(t1, ck) // TODO this coerce seems right, since we have unified
       })
 
     /*
@@ -621,6 +627,7 @@ object Infer {
             rho <- instantiate(sigma, r)
             _ <- infer.set((rho, r))
             ks <- checkedKinds
+            // there is no point in zonking here, we just instantiated rho
           } yield TypedExpr.coerceRho(rho, ks)
       }
 
