@@ -2881,11 +2881,12 @@ def quick_sort0(cmp, left, right):
         bigs = quick_sort0(cmp, tail)
         [*smalls, *bigs]
 """)) { case kie@PackageError.TypeErrorIn(_, _) =>
-      assert(kie.message(Map.empty, Colorize.None) ==
-      """in file: <unknown source>, package QS
-type error: expected type Bosatsu/Predef::Fn3[(?43, ?41) -> Bosatsu/Predef::Comparison] to be the same as type Bosatsu/Predef::Fn2
+      assert(kie.message(Map.empty, Colorize.None) == """in file: <unknown source>, package QS
+type error: expected type Bosatsu/Predef::Fn3[(?43, ?41) -> Bosatsu/Predef::Comparison]
+Region(403,414)
+to be the same as type Bosatsu/Predef::Fn2
 hint: the first type is a function with 3 arguments and the second is a function with 2 arguments.
-Region(396,450)""")
+Region(415,424)""")
       ()
     }
  
@@ -3082,5 +3083,44 @@ def loop[a](box: Box[a]) -> a:
 v = loop(b)
 main = v
 """), "A", VInt(1))
+  }
+
+  test("we get error messages from multiple type errors top level") {
+    val testCode = """
+package ErrorCheck
+
+x: Int = "1"
+y: String = 1
+
+"""
+   evalFail(List(testCode)) { case kie@PackageError.TypeErrorIn(_, _) =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Region(30,33)"))
+      assert(testCode.substring(30, 33) == "\"1\"")
+      assert(message.contains("Region(46,47)"))
+      assert(testCode.substring(46, 47) == "1")
+      ()
+    }
+  }
+
+  test("we get error messages from multiple type errors top nested") {
+    val testCode = """
+package ErrorCheck
+
+z = (
+  x: Int = "1"
+  y: String = 1
+  (x, y)
+)
+
+"""
+   evalFail(List(testCode)) { case kie@PackageError.TypeErrorIn(_, _) =>
+      val message = kie.message(Map.empty, Colorize.None)
+      assert(message.contains("Region(38,41)"))
+      assert(testCode.substring(38, 41) == "\"1\"")
+      assert(message.contains("Region(56,57)"))
+      assert(testCode.substring(56, 57) == "1")
+      ()
+    }
   }
 }
