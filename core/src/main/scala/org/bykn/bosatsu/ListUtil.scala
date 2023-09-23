@@ -44,4 +44,14 @@ private[bosatsu] object ListUtil {
     if (bs eq as) nel
     else NonEmptyList.fromListUnsafe(bs)
   }
+
+  @annotation.tailrec
+  def find[X, Y](ls: List[X])(fn: X => Option[Y]): Option[Y] =
+    ls match {
+      case Nil => None
+      case h :: t => fn(h) match {
+        case None => find(t)(fn)
+        case some => some
+      }
+    }
 }
