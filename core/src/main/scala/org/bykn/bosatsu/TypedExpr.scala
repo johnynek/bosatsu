@@ -627,7 +627,10 @@ object TypedExpr {
         val (cons, cargs) = Type.unapplyAll(in)
         kinds(cons) match {
           case None =>
-            sys.error(s"unknown kind of $cons in $tpe")
+            // this can happen because the cons is some kind of type variable
+            // we have lost track of (we need to track the type variables in
+            // recursions)
+            tpe
           case Some(kind) =>
 
             val kindArgs = kind.toArgs
@@ -673,16 +676,30 @@ object TypedExpr {
   def instantiateTo[A](gen: Generic[A], instTpe: Type.Rho, kinds: Type => Option[Kind]): TypedExpr[A] = {
     import Type._
 
-    def solve(left: Type, right: Type, state: Map[Type.Var, Type], solveSet: Set[Type.Var]): Option[Map[Type.Var, Type]] =
+    def solve(left: Type,
+      right: Type,
+      state: Map[Type.Var, Type],
+      solveSet: Set[Type.Var],
+      varKinds: Map[Type.Var, Kind]): Option[Map[Type.Var, Type]] =
       (left, right) match {
         case (TyVar(v), right) if solveSet(v) =>
           Some(state.updated(v, right))
         case (ForAll(b, i), r) =>
           // this will mask solving for the inside values:
-          solve(i, r, state, solveSet -- b.toList.iterator.map(_._1))
+          solve(i,
+            r,
+            state,
+            solveSet -- b.toList.iterator.map(_._1),
+            varKinds ++ b.toList
+            )
         case (_, fa@ForAll(_, _)) =>
-          val fa1 = pushDownCovariant(fa, kinds)
-          if (fa1 != fa) solve(left, fa1, state, solveSet)
+          val kindsWithVars: Type => Option[Kind] =
+            {
+              case v: Type.Var => varKinds.get(v)
+              case t => kinds(t)
+            }
+          val fa1 = pushDownCovariant(fa, kindsWithVars)
+          if (fa1 != fa) solve(left, fa1, state, solveSet, varKinds)
           else {
             // not clear what to do here,
             // the examples that come up look like un-unified
@@ -692,8 +709,8 @@ object TypedExpr {
           }
         case (TyApply(on, arg), TyApply(on2, arg2)) =>
           for {
-            s1 <- solve(on, on2, state, solveSet)
-            s2 <- solve(arg, arg2, s1, solveSet)
+            s1 <- solve(on, on2, state, solveSet, varKinds)
+            s2 <- solve(arg, arg2, s1, solveSet, varKinds)
           } yield s2
         case (TyConst(_) | TyMeta(_) | TyVar(_), _) =>
           if (left == right) {
@@ -708,7 +725,7 @@ object TypedExpr {
     val solveSet: Set[Var] = bs.toList.iterator.map(_._1).toSet
 
     val result =
-      solve(in, instTpe, Map.empty, solveSet)
+      solve(in, instTpe, Map.empty, solveSet, bs.toList.toMap)
         .map { subs =>
           val freeVars = solveSet -- subs.keySet
           val subBody = substituteTypeVar(gen.in, subs)

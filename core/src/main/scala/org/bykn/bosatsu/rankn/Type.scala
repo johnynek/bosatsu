@@ -261,6 +261,26 @@ object Type {
       case TyApply(on, arg) => TyApply(normalize(on), normalize(arg))
       case _ => tpe
     }
+
+  def kindOf(t: Type)(cons: TyConst => Option[Kind]): Option[Kind] = {
+    def loop(t: Type, vars: Map[Type.Var.Bound, Kind]): Option[Kind] =
+      t match {
+        case TyApply(on, _) =>
+          // assume the kind matches a[x] applies one arg
+          loop(on, vars) match {
+            case Some(k) => Some(Kind(k.toArgs.drop(1): _*))
+            case None => None
+          }
+        case TyVar(b @ Type.Var.Bound(_)) => vars.get(b)
+        case TyVar(Type.Var.Skolem(_, k, _)) => Some(k)
+        case ForAll(ns, rho) =>
+          loop(rho, vars ++ ns.toList)
+        case TyMeta(Meta(k, _, _)) => Some(k)
+        case c@TyConst(_) => cons(c)
+      }
+
+    loop(t, Map.empty)
+  }
   /**
    * These are upper-case to leverage scala's pattern
    * matching on upper-cased vals

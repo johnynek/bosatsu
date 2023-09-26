@@ -77,10 +77,7 @@ object TypedExprNormalization {
    */
   private def normalizeLetOpt[A, V](namerec: Option[Bindable], te: TypedExpr[A], scope: Scope[A], typeEnv: TypeEnv[V])(implicit ev: V <:< Kind.Arg): Option[TypedExpr[A]] = {
     val kindOf: Type => Option[Kind] =
-      { case const @ Type.TyConst(_) =>
-          typeEnv.getType(const).map(_.kindOf)
-        case _ => None
-      }
+      Type.kindOf(_) { case const @ Type.TyConst(_) => typeEnv.getType(const).map(_.kindOf) }
 
     te match {
       case g@Generic(_, Annotation(term, _)) if g.getType.sameAs(term.getType) =>
