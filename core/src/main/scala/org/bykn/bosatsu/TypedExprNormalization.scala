@@ -49,21 +49,7 @@ object TypedExprNormalization {
           loop(scope1, tail, (b, r, normTE) :: acc)
       }
 
-    val res = loop(emptyScope, lets, Nil)
-    if (pack == PackageName.parts("Bosatsu", "List")) {
-      lets.zip(res).foreach { case ((b, _, in), (_, _, out)) =>
-        val same = in == out
-        println(s"$b was ${if (same) "not " else ""} changed")
-        println("=======init========")
-        println(in.repr)
-        if (!same) {
-          println("======final========")
-          println(out.repr)
-        }
-        println("===================")
-      }
-    }
-    res
+    loop(emptyScope, lets, Nil)
   }
 
   def normalizeProgram[A, V](
@@ -199,6 +185,7 @@ object TypedExprNormalization {
           case App(fn, aargs, _, _) if matchesArgs(aargs) && doesntUseArgs(fn) =>
             // x -> f(x) == f (eta conversion)
             normalize1(None, setType(fn, te.getType), scope, typeEnv)
+            /*
           case App(ws.ResolveToLambda(Nil, args1, body, ftag), aargs, resT, tag) =>
             // args -> (args1 -> e1)(...)
             // this is inlining, which we do only when nested directly inside another lambda
@@ -206,6 +193,7 @@ object TypedExprNormalization {
             normalize1(namerec,
               AnnotatedLambda(lamArgs, App(fn1, aargs, resT, tag), tag),
               scope, typeEnv)
+              */
           case Let(arg1, ex, in, rec, tag1) if doesntUseArgs(ex) && doesntShadow(arg1) =>
             // x ->
             //   y = z
@@ -448,6 +436,8 @@ object TypedExprNormalization {
         }
 
       object ResolveToLambda {
+        // TODO: don't we need to worry about the type environment for locals? They
+        // can also capture type references to outer Generics
         def unapply(te: TypedExpr[A]): Option[(List[(Type.Var.Bound, Kind)], NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
           te match {
             case Annotation(ResolveToLambda((h :: t), args, ex, tag), rho: Type.Rho) =>
@@ -627,6 +617,8 @@ object TypedExprNormalization {
                   Some((n :: ns, pats))
                 case Pattern.PositionalStruct(_, pats) =>
                   Some((Nil, pats))
+                case Pattern.WildCard => Some((Nil, args.as(Pattern.WildCard)))
+                case Pattern.Var(n) => Some((n :: Nil, args.as(Pattern.WildCard)))
                 case _ =>
                   None
               }

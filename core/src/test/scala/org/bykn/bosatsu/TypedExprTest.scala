@@ -515,6 +515,22 @@ x = Foo
     assert(res == Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
 
     checkLast("""
+res = (
+  f = (_, y) -> y
+  z = 1
+  y -> (x -> f(x, z))(y)
+)
+""") { te1 =>
+  
+      checkLast("""
+res = _ -> 1
+      """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+
+    /*
+    checkLast("""
 f = (_, y) -> y
 z = 1
 res = y -> (x -> f(x, z))(y)
@@ -527,7 +543,7 @@ res = _ -> 1
       """) { te2 =>
         assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
       }
-    }
+    } */
   }
 
   test("lift let above lambda") {

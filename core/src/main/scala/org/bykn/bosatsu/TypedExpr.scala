@@ -673,11 +673,6 @@ object TypedExpr {
   def instantiateTo[A](gen: Generic[A], instTpe: Type.Rho, kinds: Type => Option[Kind]): TypedExpr[A] = {
     import Type._
 
-    /*
-    def show(t: Type): String =
-      Type.fullyResolvedDocument.document(t).render(80)
-    */
-
     def solve(left: Type, right: Type, state: Map[Type.Var, Type], solveSet: Set[Type.Var]): Option[Map[Type.Var, Type]] =
       (left, right) match {
         case (TyVar(v), right) if solveSet(v) =>
@@ -693,8 +688,6 @@ object TypedExpr {
             // the examples that come up look like un-unified
             // types, as if coerceRho is called before we have
             // finished unifying
-            //
-            //println(s"could not pushDown: ${show(fa)}")
             None
           }
         case (TyApply(on, arg), TyApply(on2, arg2)) =>
@@ -727,7 +720,6 @@ object TypedExpr {
               pushGeneric(newGen) match {
                 case badOpt @ (None | Some(Generic(_, _)))=>
                   // just wrap
-                  //println(s"could not push frees instantiate: ${show(gen.getType)} to ${show(instTpe)}\n\n${badOpt.map(_.repr)}")
                   Annotation(badOpt.getOrElse(newGen), instTpe)
                 case Some(notGen) => notGen
               }
@@ -747,7 +739,6 @@ object TypedExpr {
         // but those two types aren't the same. It seems like we have to later
         // learn that ?338 == $k$303, but we don't seem to know that yet
 
-        //println(s"could not solve instantiate: ${show(gen.getType)} to ${show(instTpe)}")
         // just add an annotation:
         Annotation(gen, instTpe)
       case Some(res) => res
