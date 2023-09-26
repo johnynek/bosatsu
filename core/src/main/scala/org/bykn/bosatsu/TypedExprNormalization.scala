@@ -427,10 +427,7 @@ object TypedExprNormalization {
 
     case class WithScope[A](scope: Scope[A], typeEnv: TypeEnv[Kind.Arg]) {
       private lazy val kindOf: Type => Option[Kind] =
-        { case const @ Type.TyConst(_) =>
-            typeEnv.getType(const).map(_.kindOf)
-          case _ => None
-        }
+        Type.kindOf(_) { case const @ Type.TyConst(_) => typeEnv.getType(const).map(_.kindOf) }
 
       object ResolveToLambda {
         // TODO: don't we need to worry about the type environment for locals? They
