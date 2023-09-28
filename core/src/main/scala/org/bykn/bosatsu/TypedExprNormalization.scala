@@ -209,7 +209,8 @@ object TypedExprNormalization {
               }
               else {
                 // inlining will make the code larger that it was originally
-                Some(AnnotatedLambda(lamArgs, e1, tag))
+                if ((e1 eq expr) && (lamArgs === lamArgs0)) None
+                else Some(AnnotatedLambda(lamArgs, e1, tag))
               }
             }
             else {
@@ -704,7 +705,7 @@ object TypedExprNormalization {
               // $COVERAGE-ON$
             }
 
-          ListUtil.find[Branch[A], TypedExpr[A]](m.branches.toList) { case (p, r) =>
+          ListUtil.find[Branch[A], TypedExpr[A]](m.branches) { case (p, r) =>
             makeLet(p).map { names =>
               val lit = Literal[A](li, Type.getTypeOf(li), m.tag)
               // all these names are bound to the lit

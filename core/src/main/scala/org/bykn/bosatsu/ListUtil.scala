@@ -38,20 +38,26 @@ private[bosatsu] object ListUtil {
       case Some(nel) => greedyGroup(nel)(one)(combine).toList
     }
 
-  def mapConserveNel[A <: AnyRef](nel: NonEmptyList[A])(f: A => A): NonEmptyList[A] = {
+  def mapConserveNel[A <: AnyRef, B >: A <: AnyRef](nel: NonEmptyList[A])(f: A => B): NonEmptyList[B] = {
     val as = nel.toList
     val bs = as.mapConserve(f)
     if (bs eq as) nel
     else NonEmptyList.fromListUnsafe(bs)
   }
 
-  @annotation.tailrec
-  def find[X, Y](ls: List[X])(fn: X => Option[Y]): Option[Y] =
-    ls match {
-      case Nil => None
-      case h :: t => fn(h) match {
-        case None => find(t)(fn)
-        case some => some
+  def find[X, Y](ls: NonEmptyList[X])(fn: X => Option[Y]): Option[Y] = {
+    @annotation.tailrec
+    def loop(head: X, tail: List[X]): Option[Y] = {
+      val h = fn(head)
+      if (h.isDefined) h
+      else {
+        tail match {
+          case Nil => None
+          case head :: next => loop(head, next)
+        }
       }
     }
+
+    loop(ls.head, ls.tail)
+  }
 }
