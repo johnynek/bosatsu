@@ -141,7 +141,8 @@ object TypedExprNormalization {
         lazy val anons: Iterator[Bindable] = Expr.nameIterator()
           .filterNot(expr.freeVarsDup.toSet)
 
-        val e1 = normalize1(None, expr, scope -- lamArgs0.toList.map(_._1), typeEnv).get
+        val bodyScope = scope -- lamArgs0.toList.map(_._1)
+        val e1 = normalize1(None, expr, bodyScope, typeEnv).get
 
         var changed = false
         val lamArgs = lamArgs0.map { case (n, t) =>
@@ -193,9 +194,28 @@ object TypedExprNormalization {
             // or remove inlining from here unless it can hever hurt and put inlining at a
             // different phase.
             val fn1 = AnnotatedLambda(args1, body, ftag)
-            normalize1(namerec,
-              AnnotatedLambda(lamArgs, App(fn1, aargs, resT, atag), tag),
-              scope, typeEnv)
+            val e2 = App(fn1, aargs, resT, atag)
+            if (e1 != e2) {
+              // in this case we have inlined, vs there already being
+              // a literal lambda being applied
+              // by normalizing this, it will become a let binding
+              val e3 = normalize1(None, e2, bodyScope, typeEnv).get
+              
+              if (e3.size <= expr.size) {
+                // we haven't made the code larger
+                normalize1(namerec,
+                  AnnotatedLambda(lamArgs, e3, tag),
+                  scope, typeEnv)
+              }
+              else {
+                // inlining will make the code larger that it was originally
+                Some(AnnotatedLambda(lamArgs, e1, tag))
+              }
+            }
+            else {
+              if ((e1 eq expr) && (lamArgs === lamArgs0)) None
+              else Some(AnnotatedLambda(lamArgs, e1, tag))
+            }
           case Let(arg1, ex, in, rec, tag1) if doesntUseArgs(ex) && doesntShadow(arg1) =>
             // x ->
             //   y = z

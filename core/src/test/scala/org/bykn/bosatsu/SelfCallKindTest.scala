@@ -55,6 +55,22 @@ def list_len(list):
 
   }
 
+  test("for_all example") {
+    checkLast(
+      """
+enum List[a]: E, NE(head: a, tail: List[a])
+enum B: T, F
+
+def for_all(xs: List[a], fn: a -> B) -> B:
+  recur xs:
+    case E: T
+    case NE(head, tail):
+      match fn(head):
+        case T: for_all(tail, fn)
+        case F: F
+""") { te => assert(SelfCallKind(Name("for_all"), te) == SelfCallKind.TailCall, s"${te.repr}") }
+  }
+
   test("TypedExpr.Let.selfCallKind terminates and doesn't throw") {
     // pretty weak test, but just to make sure nothing ever blows up
     forAll(Generators.bindIdentGen, genTypedExpr) { (b, te) =>
