@@ -144,10 +144,13 @@ sealed abstract class Pattern[+N, +T] {
         else inner
       case Pattern.StrPat(items) =>
         Pattern.StrPat(items.map {
-          case wl@(Pattern.StrPart.WildStr | Pattern.StrPart.LitStr(_)) => wl
+          case wl@(Pattern.StrPart.WildStr | Pattern.StrPart.WildChar | Pattern.StrPart.LitStr(_)) => wl
           case in@Pattern.StrPart.NamedStr(n) =>
             if (keep(n)) in
             else Pattern.StrPart.WildStr
+          case in@Pattern.StrPart.NamedChar(n) =>
+            if (keep(n)) in
+            else Pattern.StrPart.WildChar
         })
       case Pattern.ListPat(items) =>
         Pattern.ListPat(items.map {
@@ -182,8 +185,11 @@ sealed abstract class Pattern[+N, +T] {
           else (s1 + v, l1)
         case Pattern.StrPat(items) =>
           items.foldLeft((Set.empty[Bindable], List.empty[Bindable])) {
-            case (res, Pattern.StrPart.WildStr | Pattern.StrPart.LitStr(_)) => res
+            case (res, Pattern.StrPart.WildStr | Pattern.StrPart.WildChar | Pattern.StrPart.LitStr(_)) => res
             case ((s1, l1), Pattern.StrPart.NamedStr(v)) =>
+              if (s1(v)) (s1, v :: l1)
+              else (s1 + v, l1)
+            case ((s1, l1), Pattern.StrPart.NamedChar(v)) =>
               if (s1(v)) (s1, v :: l1)
               else (s1 + v, l1)
           }
@@ -274,18 +280,24 @@ object Pattern {
   object StrPart {
     final case object WildStr extends StrPart
     final case class NamedStr(name: Bindable) extends StrPart
+    final case object WildChar extends StrPart
+    final case class NamedChar(name: Bindable) extends StrPart
     final case class LitStr(asString: String) extends StrPart
 
     // this is to circumvent scala warnings because these bosatsu
     // patterns like right.
     private[this] val dollar = "$"
     private[this] val wildDoc = Doc.text(s"$dollar{_}")
+    private[this] val wildCharDoc = Doc.text(s"${dollar}.{_}")
     private[this] val prefix = Doc.text(s"$dollar{")
+    private[this] val prefixChar = Doc.text(s"${dollar}.{")
 
     def document(q: Char): Document[StrPart] =
       Document.instance {
         case WildStr => wildDoc
+        case WildChar => wildCharDoc
         case NamedStr(b) => prefix + Document[Bindable].document(b) + Doc.char('}')
+        case NamedChar(b) => prefixChar + Document[Bindable].document(b) + Doc.char('}')
         case LitStr(s) => Doc.text(StringUtil.escape(q, s))
       }
   }
@@ -535,7 +547,10 @@ object Pattern {
         s match {
           case StrPart.NamedStr(n) =>
             NamedSeqPattern.Bind(n.sourceCodeRepr, NamedSeqPattern.Wild)
+          case StrPart.NamedChar(n) =>
+            NamedSeqPattern.Bind(n.sourceCodeRepr, NamedSeqPattern.Any)
           case StrPart.WildStr => NamedSeqPattern.Wild
+          case StrPart.WildChar => NamedSeqPattern.Any
           case StrPart.LitStr(s) =>
             // reverse so we can build right associated
             s.toList.reverse match {
@@ -615,9 +630,15 @@ object Pattern {
           (a, b) match {
             case (WildStr, WildStr) => 0
             case (WildStr, _) => -1
-            case (LitStr(_), WildStr) => 1
+            case (WildChar, WildStr) => 1
+            case (WildChar, WildChar) => 0
+            case (WildChar, _) => -1
+            case (LitStr(_), WildStr | WildChar) => 1
             case (LitStr(sa), LitStr(sb)) => sa.compareTo(sb)
-            case (LitStr(_), NamedStr(_)) => -1
+            case (LitStr(_), NamedStr(_) | NamedChar(_)) => -1
+            case (NamedChar(_), WildStr | WildChar | LitStr(_)) => 1
+            case (NamedChar(na), NamedChar(nb)) => ordBin.compare(na, nb)
+            case (NamedChar(_), NamedStr(_)) => -1
             case (NamedStr(na), NamedStr(nb)) => ordBin.compare(na, nb)
             case (NamedStr(_), _) => 1
           }
@@ -906,14 +927,21 @@ object Pattern {
   private[this] val pwild = P.char('_').as(WildCard)
   private[this] val plit: P[Pattern[Nothing, Nothing]] = {
     val intp = Lit.integerParser.map(Literal(_))
-    val start = P.string("${")
+    val startStr = P.string("${").as { (opt: Option[Bindable]) =>
+      opt.fold(StrPart.WildStr: StrPart)(StrPart.NamedStr(_)) 
+    }
+    val startChar = P.string("$.{").as { (opt: Option[Bindable]) =>
+      opt.fold(StrPart.WildChar: StrPart)(StrPart.NamedChar(_)) 
+    }
+    val start = startStr | startChar
     val end = P.char('}')
 
-    val pwild = P.char('_').as(StrPart.WildStr)
-    val pname = Identifier.bindableParser.map(StrPart.NamedStr(_))
+    val pwild = P.char('_').as(None)
+    val pname = Identifier.bindableParser.map(Some(_))
+    val part: P[Option[Bindable]] = pwild | pname
 
     def strp(q: Char): P[List[StrPart]] =
-      StringUtil.interpolatedString(q, start, pwild.orElse(pname), end)
+      StringUtil.interpolatedString(q, start, part, end)
         .map(_.map {
           case Left(p) => p
           case Right((_, str)) => StrPart.LitStr(str)

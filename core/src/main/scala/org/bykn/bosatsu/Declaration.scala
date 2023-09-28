@@ -913,7 +913,7 @@ object Declaration {
   }
 
   def stringDeclOrLit(inner: Indy[NonBinding]): Indy[NonBinding] = {
-    val start = P.string("${")
+    val start = P.string("${").as((a: NonBinding) => a)
     val end = P.char('}')
     val q1 = '\''
     val q2 = '"'

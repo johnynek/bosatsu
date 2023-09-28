@@ -213,7 +213,7 @@ class ParserTest extends ParserTestBase {
     def singleq(str1: String, res: List[Either[Json, String]]) =
       parseTestAll(
         StringUtil
-          .interpolatedString('\'', P.string("${"), Json.parser, P.char('}'))
+          .interpolatedString('\'', P.string("${").as((j: Json) => j), Json.parser, P.char('}'))
           .map(_.map {
             case Right((_, str)) => Right(str)
             case Left(l) => Left(l)

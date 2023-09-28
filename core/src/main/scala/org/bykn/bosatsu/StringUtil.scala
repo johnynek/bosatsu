@@ -49,13 +49,13 @@ abstract class GenericStringUtil {
     end *> undelimitedString1(end).orElse(P.pure("")) <* end
   }
 
-  def interpolatedString[A](quoteChar: Char, istart: P[Unit], interp: P0[A], iend: P[Unit]): P[List[Either[A, (Region, String)]]] = {
+  def interpolatedString[A, B](quoteChar: Char, istart: P[A => B], interp: P0[A], iend: P[Unit]): P[List[Either[B, (Region, String)]]] = {
     val strQuote = P.char(quoteChar)
 
-    val strLit: P[String] = undelimitedString1(strQuote.orElse(istart))
-    val notStr: P[A] = (istart ~ interp ~ iend).map { case ((_, a), _) => a }
+    val strLit: P[String] = undelimitedString1(strQuote.orElse(istart.void))
+    val notStr: P[B] = (istart ~ interp ~ iend).map { case ((fn, a), _) => fn(a) }
 
-    val either: P[Either[A, (Region, String)]] =
+    val either: P[Either[B, (Region, String)]] =
       ((P.index.with1 ~ strLit ~ P.index).map { case ((s, str), l) => Right((Region(s, l), str)) })
         .orElse(notStr.map(Left(_)))
 
