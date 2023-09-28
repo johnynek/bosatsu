@@ -718,6 +718,44 @@ foo = (
 """) { te => assert(countLet(te) == 0) }
   }
 
+  test("test normalization let shadowing bug in lambda") {
+    checkLast("""
+enum L[a]: E, NE(head: a, tail: L[a])
+
+x = (
+  def go(y, z):
+    def loop(z):
+      recur z:
+        case E: y
+        case NE(_, t): loop(t)
+
+    loop(z)
+
+  fn1 = z -> go(1, z)
+  fn1(NE(1, NE(2, E)))
+)
+""") { te1 =>
+    checkLast("""
+enum L[a]: E, NE(head: a, tail: L[a])
+
+x = (
+  def go(y, z):
+    def loop(z):
+      recur z:
+        case E: y
+        case NE(_, t): loop(t)
+
+    loop(z)
+
+  fn1 = z0 -> go(1, z0)
+  fn1(NE(1, NE(2, E)))
+)
+    """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+  }
+
   test("toArgsBody always terminates") {
     forAll(Gen.choose(0, 10), genTypedExpr) { (arity, te) =>
       // this is a pretty weak test.
