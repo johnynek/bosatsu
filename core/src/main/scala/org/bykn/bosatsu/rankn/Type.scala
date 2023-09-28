@@ -5,6 +5,7 @@ import cats.parse.{Parser => P, Numbers}
 import cats.{Applicative, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
+import org.bykn.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
 import scala.collection.immutable.SortedSet
 
 import cats.implicits._
@@ -261,25 +262,52 @@ object Type {
       case TyApply(on, arg) => TyApply(normalize(on), normalize(arg))
       case _ => tpe
     }
+  
+  def kindOfOption(
+    cons: TyConst => Option[Kind]
+  ): Type => Option[Kind] = {
+    val unknown: Either[Unit, Kind] = Left(())
+    val consE = (tc: TyConst) => cons(tc).fold(unknown)(Right(_))
+    val fn = kindOf[Unit](_ => (), _ => (), (_, _, _) => (), consE)
+    
+    fn.andThen {
+      case Right(kind) => Some(kind)
+      case Left(_) => None
+    }
+  }
 
-  def kindOf(t: Type)(cons: TyConst => Option[Kind]): Option[Kind] = {
-    def loop(t: Type, vars: Map[Type.Var.Bound, Kind]): Option[Kind] =
-      t match {
-        case TyApply(on, _) =>
-          // assume the kind matches a[x] applies one arg
-          loop(on, vars) match {
-            case Some(k) => Some(Kind(k.toArgs.drop(1): _*))
-            case None => None
+  def kindOf[A](
+    unknownVar: Var.Bound => A,
+    invalidApply: TyApply => A,
+    kindSubsumeError: (TyApply, Kind.Cons, Kind) => A,
+    cons: TyConst => Either[A, Kind],
+  ): Type => Either[A, Kind] = {
+
+    val fn = memoizeDagHashedConcurrent[(Type, Map[Var.Bound, Kind]), Either[A, Kind]] { case ((tpe, locals), rec) =>
+      tpe match {
+        case Type.TyVar(b @ Type.Var.Bound(_)) =>
+          locals.get(b) match {
+            case Some(k) => Right(k)
+            // $COVERAGE-OFF$ this should be unreachable because all vars should have a known kind
+            case None => Left(unknownVar(b))
+            // $COVERAGE-ON$ this should be unreachable
           }
-        case TyVar(b @ Type.Var.Bound(_)) => vars.get(b)
-        case TyVar(Type.Var.Skolem(_, k, _)) => Some(k)
-        case ForAll(ns, rho) =>
-          loop(rho, vars ++ ns.toList)
-        case TyMeta(Meta(k, _, _)) => Some(k)
-        case c@TyConst(_) => cons(c)
-      }
+        case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
+        case Type.TyMeta(Type.Meta(kind, _, _)) => Right(kind)
+        case tc@Type.TyConst(_) => cons(tc)
+        case Type.ForAll(bound, t) =>
+          rec((t, locals ++ bound.toList))
+        case ap@Type.TyApply(left, right) =>
+          rec((left, locals))
+            .product(rec((right, locals)))
+            .flatMap {
+              case (leftKind, rhs) =>
+                Kind.validApply[A](leftKind, rhs, invalidApply(ap))(kindSubsumeError(ap, _, rhs))
+            }
+        }
+    }
 
-    loop(t, Map.empty)
+    { t => fn((t, Map.empty)) }
   }
   /**
    * These are upper-case to leverage scala's pattern

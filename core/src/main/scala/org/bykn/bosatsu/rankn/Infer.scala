@@ -20,8 +20,6 @@ import org.bykn.bosatsu.{
   TypedExpr,
   Variance}
 
-import scala.collection.mutable.{Map => MMap}
-
 import HasRegion.region
 
 import Identifier.{Bindable, Constructor}
@@ -95,60 +93,29 @@ object Infer {
     def addVars(vt: List[(Name, Type)]): Env =
       new Env(uniq, vars = vars ++ vt, typeCons, variances)
 
-    private[this] val kindCache: MMap[(Type, Map[Type.Var.Bound, Kind]), Either[Region => Error, Kind]] =
-      MMap()
-
-    def getKind(t: Type, region: Region): Either[Error, Kind] = {
-      def loop(item: Type, locals: Map[Type.Var.Bound, Kind]): Either[Region => Error, Kind] =
-        item match {
-          case Type.TyVar(b @ Type.Var.Bound(_)) =>
-            // don't cache locals, there is no point
-            locals.get(b) match {
-              case Some(k) => Right(k)
-              case None => 
-                // $COVERAGE-OFF$ this should be unreachable because all vars should have a known kind
-                Left({ region => Error.UnknownKindOfVar(t, region, s"unbound var: $b") })
-                // $COVERAGE-ON$ this should be unreachable
-            }
-          case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
-          case Type.TyMeta(Type.Meta(kind, _, _)) => Right(kind)
-          case Type.TyConst(const) =>
+    private[this] val kindCache: Type => Either[Region => Error, Kind] =
+      Type.kindOf[Region => Error](
+        b => { region => Error.UnknownKindOfVar(Type.TyVar(b), region, s"unbound var: $b") },
+        ap => { region =>
+          Error.KindCannotTyApply(ap, region)
+        },
+        (ap, cons, rhs) => { region =>
+          Error.KindInvalidApply(ap, cons, rhs, region)
+        },
+        { case Type.TyConst(const) =>
             val d = const.toDefined
             // some tests rely on syntax without importing
             // TODO remove this
             variances.get(d).orElse(Type.builtInKinds.get(d)) match {
               case Some(ks) => Right(ks)
-              case None => Left({region => Error.UnknownDefined(d, region) })
+              case None => Left({ region => Error.UnknownDefined(d, region) })
             }
-          case _ =>
-            kindCache.getOrElseUpdate((item, locals),
-              item match {
-                case Type.ForAll(bound, t) =>
-                  loop(t, locals ++ bound.toList)
-                case ap@Type.TyApply(left, right) =>
-                  loop(left, locals)
-                    .product(loop(right, locals))
-                    .flatMap {
-                      case (leftKind, rhs) =>
-                        Kind.validApply[Region => Error](leftKind, rhs,
-                          { region =>
-                            Error.KindCannotTyApply(ap, region)
-                          }) { cons =>
-                          { region =>
-                            Error.KindInvalidApply(ap, cons, rhs, region)
-                          }
-                        }
-                    }
-                // $COVERAGE-OFF$ this should be unreachable because we handle Var above
-                case _ =>
-                  sys.error(s"reached unreachable: $item")
-                // $COVERAGE-ON$
-              }
-            )
-        }
+          }
+      )
 
-      loop(t, Map.empty).leftMap(_(region))
-    }
+    
+    def getKind(t: Type, region: Region): Either[Error, Kind] =
+      kindCache(t).leftMap(_(region))
   }
 
   object Env {
