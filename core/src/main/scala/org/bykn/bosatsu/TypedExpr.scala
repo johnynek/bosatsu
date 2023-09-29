@@ -684,9 +684,10 @@ object TypedExpr {
       (left, right) match {
         case (TyVar(v), right) if solveSet(v) =>
           Some(state.updated(v, right))
-        case (ForAll(b, i), r) =>
+        case (fa @ ForAll(b, i), r) =>
+          if (fa.sameAs(r)) Some(state)
           // this will mask solving for the inside values:
-          solve(i,
+          else solve(i,
             r,
             state,
             solveSet -- b.toList.iterator.map(_._1),

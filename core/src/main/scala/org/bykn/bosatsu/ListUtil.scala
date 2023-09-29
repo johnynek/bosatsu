@@ -44,20 +44,4 @@ private[bosatsu] object ListUtil {
     if (bs eq as) nel
     else NonEmptyList.fromListUnsafe(bs)
   }
-
-  def find[X, Y](ls: NonEmptyList[X])(fn: X => Option[Y]): Option[Y] = {
-    @annotation.tailrec
-    def loop(head: X, tail: List[X]): Option[Y] = {
-      val h = fn(head)
-      if (h.isDefined) h
-      else {
-        tail match {
-          case Nil => None
-          case head :: next => loop(head, next)
-        }
-      }
-    }
-
-    loop(ls.head, ls.tail)
-  }
 }

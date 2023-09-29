@@ -1,10 +1,12 @@
 package org.bykn.bosatsu
 
+import cats.Foldable
 import cats.data.NonEmptyList
-import cats.implicits._
 import org.bykn.bosatsu.rankn.{Type, TypeEnv}
 
 import Identifier.{Bindable, Constructor}
+
+import cats.syntax.all._
 
 object TypedExprNormalization {
   import TypedExpr._
@@ -705,15 +707,16 @@ object TypedExprNormalization {
               // $COVERAGE-ON$
             }
 
-          ListUtil.find[Branch[A], TypedExpr[A]](m.branches) { case (p, r) =>
-            makeLet(p).map { names =>
-              val lit = Literal[A](li, Type.getTypeOf(li), m.tag)
-              // all these names are bound to the lit
-              names.distinct.foldLeft(r) { case (r, n) =>
-                Let(n, lit, r, RecursionKind.NonRecursive, m.tag)
+          Foldable[NonEmptyList]
+            .collectFirstSome[Branch[A], TypedExpr[A]](m.branches) { case (p, r) =>
+              makeLet(p).map { names =>
+                val lit = Literal[A](li, Type.getTypeOf(li), m.tag)
+                // all these names are bound to the lit
+                names.distinct.foldLeft(r) { case (r, n) =>
+                  Let(n, lit, r, RecursionKind.NonRecursive, m.tag)
+                }
               }
             }
-          }
         case EvalResult.Constant(Lit.Str(_)) =>
           None
       }
