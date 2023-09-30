@@ -331,6 +331,14 @@ object Expr {
       }
   }
 
+  private[bosatsu] def nameIterator(): Iterator[Bindable] =
+    Type
+      .allBinders
+      .iterator
+      .map(_.name)
+      .map(Identifier.Name(_))
+
+
   def buildPatternLambda[A](
     args: NonEmptyList[Pattern[(PackageName, Constructor), Type]],
     body: Expr[A],
@@ -340,11 +348,7 @@ object Expr {
      * compute this once if needed, which is why it is lazy.
      * we don't want to traverse body if it is never needed
      */
-    lazy val anons = Type
-      .allBinders
-      .iterator
-      .map(_.name)
-      .map(Identifier.Name(_))
+    lazy val anons = nameIterator()
       .filterNot(allNames(body) ++ args.patternNames)
 
     type P = Pattern[(PackageName, Constructor), Type]
