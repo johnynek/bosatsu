@@ -543,6 +543,33 @@ res = _ -> 1
     }
   }
 
+  test("let de-nesting") {
+    checkLast("""
+struct Tup(a, b)
+def f(x): x
+res = (
+   x = (
+    y = f(1)
+    Tup(y, y)
+   ) 
+   Tup(x, x)
+)
+""") { te1 =>
+  
+      checkLast("""
+struct Tup(a, b)
+def f(x): x
+res = (
+   y = f(1)
+   x = Tup(y, y)
+   Tup(x, x)
+)
+      """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+  }
+
   test("lift let above lambda") {
     checkLast("""
 enum FooBar: Foo, Bar
