@@ -42,6 +42,13 @@ object SelfCallKind {
   val ifNoCallSemigroup: Semigroup[SelfCallKind] =
     Semigroup.instance(_.ifNoCallThen(_))
 
+  private def isFn[A](n: Bindable, te: TypedExpr[A]): Boolean =
+    te match {
+      case TypedExpr.Generic(_, in) => isFn(n, in)
+      case TypedExpr.Annotation(te, _) => isFn(n, te)
+      case TypedExpr.Local(vn, _, _) => vn == n
+      case _ => false
+    }
   /** assuming expr is bound to nm, what kind of self call does it contain?
     */
   def apply[A](n: Bindable, te: TypedExpr[A]): SelfCallKind =
@@ -67,11 +74,8 @@ object SelfCallKind {
           .reduce(SelfCallKind.ifNoCallSemigroup)
 
         argsCall.ifNoCallThen(
-          fn match {
-            case TypedExpr.Local(vn, _, _) if vn == n =>
-              SelfCallKind.TailCall
-            case _ => apply(n, fn).callNotTail
-          }
+          if (isFn(n, fn)) SelfCallKind.TailCall
+          else apply(n, fn).callNotTail
         )
       case TypedExpr.Let(arg, ex, in, rec, _) =>
         if (arg == n) {
