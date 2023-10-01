@@ -105,10 +105,8 @@ object SeqPattern {
   }
 
   def fromList[A](ps: List[SeqPart[A]]): SeqPattern[A] =
-    ps match {
-      case h :: tail =>
-        Cat(h, fromList(tail))
-      case Nil => Empty
+    ps.foldRight(Empty: SeqPattern[A]) { (h, tail) =>
+      Cat(h, tail)  
     }
 
   val Wild: SeqPattern[Nothing] = Cat(SeqPart.Wildcard, Empty)

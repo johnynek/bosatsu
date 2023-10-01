@@ -2349,7 +2349,7 @@ main = match x:
 """)) { case sce@PackageError.TotalityCheckError(_, _) =>
       val dollar = '$'
       assert(sce.message(Map.empty, Colorize.None) ==
-        s"in file: <unknown source>, package Err\nRegion(36,91)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent bindings aren't allowed)")
+        s"in file: <unknown source>, package Err\nRegion(36,91)\ninvalid string pattern: '$dollar{_}$dollar{_}' (adjacent string bindings aren't allowed)")
       ()
     }
   }
@@ -3143,7 +3143,13 @@ good2 = match "$.{just_x}":
 
 test2 = Assertion(good2, "interpolation match")
 
-all = TestSuite("chars", [test1, test2])
-"""), "Foo", 2)
+def last(str) -> Option[Char]:
+  match str:
+    case "": None
+    case "${_}$.{c}": Some(c)
+
+test3 = Assertion(last("foo") matches Some(.'o'), "last test")   
+all = TestSuite("chars", [test1, test2, test3])
+"""), "Foo", 3)
   }
 }

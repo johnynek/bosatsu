@@ -28,7 +28,7 @@ object Lit {
     lazy val asStr: String =
       (new java.lang.StringBuilder).appendCodePoint(toCodePoint).toString
 
-    def unboxToAny: Any = toCodePoint
+    def unboxToAny: Any = asStr
   }
 
   val EmptyStr: Str = Str("")

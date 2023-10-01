@@ -343,6 +343,12 @@ abstract class SeqPatternLaws[E, I, S, R] extends AnyFunSuite {
     forAll(genNamed, genSeq)(namedMatchesPatternLaw(_, _))
   }
 
+  test("* - [] - [_, *] == empty") {
+    val diff1 = setOps.difference(Cat(Wildcard, Empty), Empty)
+    assert(diff1.flatMap(setOps.difference(_, Cat(AnyElem, Cat(Wildcard, Empty)))) == Nil)
+    assert(diff1.flatMap(setOps.difference(_, Cat(Wildcard, Cat(AnyElem, Empty)))) == Nil)
+  }
+
 /*
   test("if x - y is empty, (x + z) - (y + z) is empty") {
     forAll { (x0: Pattern, y0: Pattern, z0: Pattern) =>

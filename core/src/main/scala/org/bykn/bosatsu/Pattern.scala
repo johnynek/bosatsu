@@ -525,7 +525,9 @@ object Pattern {
           case SeqPart.Lit(c) :: tail =>
             loop(tail, c :: front)
           case SeqPart.AnyElem :: tail =>
-            loop(tail, Nil).prepend(StrPart.WildChar)
+            loop(tail, Nil)
+              .prepend(StrPart.WildChar)
+              .prependList(lit(front))
           case SeqPart.Wildcard :: SeqPart.AnyElem :: tail =>
             // *_, _ is the same as _, *_
             loop(SeqPart.AnyElem :: SeqPart.Wildcard :: tail, front)
@@ -542,6 +544,8 @@ object Pattern {
     }
 
     def toNamedSeqPattern(sp: StrPat): NamedSeqPattern[Char] = {
+      val empty: NamedSeqPattern[Char] = NamedSeqPattern.NEmpty
+
       def partToNsp(s: StrPart): NamedSeqPattern[Char] =
         s match {
           case StrPart.NamedStr(n) =>
@@ -551,24 +555,15 @@ object Pattern {
           case StrPart.WildStr => NamedSeqPattern.Wild
           case StrPart.WildChar => NamedSeqPattern.Any
           case StrPart.LitStr(s) =>
-            // reverse so we can build right associated
-            s.toList.reverse match {
-              case Nil => NamedSeqPattern.NEmpty
-              case h :: tail =>
-                tail.foldLeft(NamedSeqPattern.fromLit(h)) { (right, head) =>
-                  NamedSeqPattern.NCat(NamedSeqPattern.fromLit(head), right)
-                }
+            if (s.isEmpty) empty
+            else s.toList.foldRight(empty) { (c, tail) =>
+              NamedSeqPattern.NCat(NamedSeqPattern.fromLit(c), tail)
             }
         }
 
-      def loop(sp: List[StrPart]): NamedSeqPattern[Char] =
-        sp match {
-          case Nil => NamedSeqPattern.NEmpty
-          case h :: t =>
-            NamedSeqPattern.NCat(partToNsp(h), loop(t))
-        }
-
-      loop(sp.parts.toList)
+      sp.parts.toList.foldRight(empty) { (h, t) =>
+        NamedSeqPattern.NCat(partToNsp(h), t)  
+      }
     }
 
     def fromLitStr(s: String): StrPat =

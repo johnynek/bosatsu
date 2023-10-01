@@ -15,8 +15,6 @@ import org.typelevel.paiges.Document
 
 import Identifier.Constructor
 
-import cats.implicits._
-
 class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
   type Pat = Pattern[(PackageName, Constructor), Type]
 
@@ -404,5 +402,20 @@ enum Either: Left(l), Right(r)
     }
 
     check("""["${foo}$.{_}", "$.{bar}$.{_}$.{_}"]""")
+  }
+  test("string match totality") {
+    val tc = TotalityCheck(predefTE)
+
+    //val ps = patterns("""["", "${_}$.{_}"]""")
+    //val ps = patterns("""[""]""")
+    val ps = patterns("""["${_}$.{_}", ""]""")
+    val diff = tc.missingBranches(ps)
+    assert(diff == Nil)
+
+    /*
+    val ps1 = patterns("""["", "$.{_}${_}"]""")
+    val diff1 = tc.missingBranches(ps1)
+    assert(diff1 == Nil)
+    */
   }
 }
