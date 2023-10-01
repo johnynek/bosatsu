@@ -14,11 +14,11 @@ abstract class GenericStringUtil {
       s"\\u$strPad$strHex"
    }.toArray
 
-  val escapedToken: P[Char] = {
-    def parseIntStr(p: P[Any], base: Int): P[Char] =
-      p.string.map(Integer.parseInt(_, base).toChar)
+  val escapedToken: P[Int] = {
+    def parseIntStr(p: P[Any], base: Int): P[Int] =
+      p.string.map(java.lang.Integer.parseInt(_, base))
 
-    val escapes = P.charIn(decodeTable.keys.toSeq).map(decodeTable(_))
+    val escapes = P.charIn(decodeTable.keys.toSeq).map(decodeTable(_).toInt)
 
     val oct = P.charIn('0' to '7')
     val octP = P.char('o') *> parseIntStr(oct ~ oct, 8)
@@ -37,12 +37,41 @@ abstract class GenericStringUtil {
     P.char('\\') *> after
   }
 
+  val singleUtf16Codepoint: P[Char] =
+    P.charWhere { c =>
+      val ci = c.toInt
+
+      ci < 0xd800 || ci >= 0xdc00
+    }
+
   /**
    * String content without the delimiter
    */
-  def undelimitedString1(endP: P[Unit]): P[String] =
-    escapedToken.orElse((!endP).with1 *> P.anyChar)
+  def undelimitedString1(endP: P[Unit]): P[String] = {
+    import cats.parse.{Accumulator, Appender}
+
+    implicit val codePointAccumulator: Accumulator[Int, String] =
+      new Accumulator[Int, String] {
+        def newAppender(first: Int): Appender[Int,String] =
+          new Appender[Int, String] {
+            val strbuilder = new java.lang.StringBuilder
+            strbuilder.appendCodePoint(first)
+
+            def append(item: Int) = {
+              strbuilder.appendCodePoint(item)
+              this
+            }
+            def finish(): String = strbuilder.toString
+          }
+      }
+    escapedToken.orElse((!endP).with1 *> singleUtf16Codepoint.map(_.toInt))
       .repAs
+  }
+
+  def codepoint(startP: P[Any], endP: P[Any]): P[Int] =
+    startP *>
+      escapedToken.orElse((!endP).with1 *> singleUtf16Codepoint.map(_.toInt)) <*
+      endP
 
   def escapedString(q: Char): P[String] = {
     val end: P[Unit] = P.char(q)

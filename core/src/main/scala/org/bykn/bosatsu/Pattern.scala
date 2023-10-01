@@ -37,7 +37,10 @@ sealed abstract class Pattern[+N, +T] {
           if (seen(v)) loop(p :: tail, seen, acc)
           else loop(p :: tail, seen + v, v :: acc)
         case Pattern.StrPat(items) :: tail =>
-          val names = items.collect { case Pattern.StrPart.NamedStr(n) => n }.filterNot(seen)
+          val names = items.collect {
+            case Pattern.StrPart.NamedStr(n) => n
+            case Pattern.StrPart.NamedChar(n) => n
+          }.filterNot(seen)
           loop(tail, seen ++ names, names reverse_::: acc)
         case Pattern.ListPat(items) :: tail =>
           val globs = items.collect { case Pattern.ListPart.NamedList(glob) => glob }.filterNot(seen)
@@ -522,11 +525,7 @@ object Pattern {
           case SeqPart.Lit(c) :: tail =>
             loop(tail, c :: front)
           case SeqPart.AnyElem :: tail =>
-            // TODO, it would be nice to support AnyElem directly
-            // in our string pattern language, but for now, we add wild
-            val tailRes = loop(tail, Nil)
-            if (tailRes.head == StrPart.WildStr) tailRes
-            else tailRes.prepend(StrPart.WildStr)
+            loop(tail, Nil).prepend(StrPart.WildChar)
           case SeqPart.Wildcard :: SeqPart.AnyElem :: tail =>
             // *_, _ is the same as _, *_
             loop(SeqPart.AnyElem :: SeqPart.Wildcard :: tail, front)
@@ -926,7 +925,7 @@ object Pattern {
 
   private[this] val pwild = P.char('_').as(WildCard)
   private[this] val plit: P[Pattern[Nothing, Nothing]] = {
-    val intp = Lit.integerParser.map(Literal(_))
+    val intp = (Lit.integerParser | Lit.codePointParser).map(Literal(_))
     val startStr = P.string("${").as { (opt: Option[Bindable]) =>
       opt.fold(StrPart.WildStr: StrPart)(StrPart.NamedStr(_)) 
     }

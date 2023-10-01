@@ -2,6 +2,7 @@ package Bosatsu/Predef
 
 export (
   Bool(),
+  Char,
   Comparison(),
   Int,
   Option(),
@@ -14,6 +15,7 @@ export (
   Dict,
   add,
   add_key,
+  char_to_String,
   cmp_Int,
   concat,
   concat_String,
@@ -151,7 +153,9 @@ def range_fold(inclusiveLower: Int, exclusiveUpper: Int, init: a, fn: (a, Int) -
 # String functions
 #############
 external struct String
+external struct Char
 
+external def char_to_String(c: Char) -> String
 external def string_Order_fn(str0: String, str1: String) -> Comparison
 string_Order = Order(string_Order_fn)
 external def concat_String(items: List[String]) -> String

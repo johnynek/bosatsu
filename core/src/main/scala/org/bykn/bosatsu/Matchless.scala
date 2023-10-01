@@ -18,8 +18,11 @@ object Matchless {
   sealed abstract class StrPart
   object StrPart {
     sealed abstract class Glob(val capture: Boolean) extends StrPart
+    sealed abstract class CharPart(val capture: Boolean) extends StrPart
     case object WildStr extends Glob(false)
     case object IndexStr extends Glob(true)
+    case object WildChar extends CharPart(false)
+    case object IndexChar extends CharPart(true)
     case class LitStr(asString: String) extends StrPart
   }
 
@@ -341,13 +344,16 @@ object Matchless {
                 // that each name is distinct
                 // should be checked in the SourceConverter/TotalityChecking code
                 case Pattern.StrPart.NamedStr(n) => n
+                case Pattern.StrPart.NamedChar(n) => n
               }
 
           val muts = sbinds.traverse { b => makeAnon.map(LocalAnonMut(_)).map((b, _)) }
 
           val pat = items.toList.map {
               case Pattern.StrPart.NamedStr(_) => StrPart.IndexStr
+              case Pattern.StrPart.NamedChar(_) => StrPart.IndexChar
               case Pattern.StrPart.WildStr => StrPart.WildStr
+              case Pattern.StrPart.WildChar => StrPart.WildChar
               case Pattern.StrPart.LitStr(s) => StrPart.LitStr(s)
             }
 

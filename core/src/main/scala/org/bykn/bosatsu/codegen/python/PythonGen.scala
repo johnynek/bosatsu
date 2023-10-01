@@ -1139,7 +1139,7 @@ object PythonGen {
         }
 
       def matchString(strEx: Expression, pat: List[StrPart], binds: List[Code.Ident]): Env[ValueLike] = {
-        import StrPart.{LitStr, Glob}
+        import StrPart.{LitStr, Glob, CharPart}
         val bindArray = binds.toArray
         // return a value like expression that contains the boolean result
         // and assigns all the bindings along the way
@@ -1163,6 +1163,7 @@ object PythonGen {
 
                   Env.andCode(regionMatches, rest)
                 }
+            case (c: CharPart) :: tail => ???
             case (h: Glob) :: tail =>
               tail match {
                 case Nil =>
@@ -1270,6 +1271,7 @@ object PythonGen {
                         .withValue(result))
                     }
                     .flatten
+                case (c: CharPart) :: tail2 => ???
                 case (_: Glob) :: _ =>
                   // $COVERAGE-OFF$
                   throw new IllegalArgumentException(s"pattern: $pat should have been prevented: adjacent globs are not permitted (one is always empty)")

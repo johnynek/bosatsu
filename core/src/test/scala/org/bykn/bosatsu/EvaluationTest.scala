@@ -3123,4 +3123,27 @@ z = (
       ()
     }
   }
+
+  test("test character literals") {
+    runBosatsuTest(
+      List("""
+package Foo
+
+good1 = match .'x':
+  case .'y': False
+  case .'x': True
+  case _: False
+
+test1 = Assertion(good1, "simple match")
+
+just_x = .'x'
+good2 = match "$.{just_x}":
+  case "$.{x}": x matches .'x'
+  case _: False
+
+test2 = Assertion(good2, "interpolation match")
+
+all = TestSuite("chars", [test1, test2])
+"""), "Foo", 2)
+  }
 }

@@ -394,4 +394,15 @@ enum Either: Left(l), Right(r)
 
     regressions.foreach { case (a, b) => emptyIntersectionMeansDiffIdent(a, b, eqPatterns) }
   }
+
+  test("difference returns distinct regressions") {
+    def check(str: String) = {
+      val List(p1, p2) = patterns(str)
+      val tc = TotalityCheck(predefTE)
+      val diff = tc.difference(p1, p2)
+      assert(diff == diff.distinct)
+    }
+
+    check("""["${foo}$.{_}", "$.{bar}$.{_}$.{_}"]""")
+  }
 }

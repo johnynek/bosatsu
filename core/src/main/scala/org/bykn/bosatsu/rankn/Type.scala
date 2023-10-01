@@ -124,6 +124,7 @@ object Type {
     lit match {
       case Lit.Integer(_) => Type.IntType
       case Lit.Str(_) => Type.StrType
+      case Lit.Chr(_) => Type.CharType
     }
 
   /**
@@ -370,6 +371,7 @@ object Type {
   val ListType: Type.TyConst = TyConst(Const.predef("List"))
   val OptionType: Type.TyConst = TyConst(Const.predef("Option"))
   val StrType: Type.TyConst = TyConst(Const.predef("String"))
+  val CharType: Type.TyConst = TyConst(Const.predef("Char"))
   val TestType: Type.TyConst = TyConst(Const.predef("Test"))
   val TupleConsType: Type.TyConst = TyConst(Type.Const.predef("TupleCons"))
   val UnitType: Type.TyConst = TyConst(Type.Const.predef("Unit"))
@@ -381,6 +383,7 @@ object Type {
       IntType -> Kind.Type,
       ListType -> Kind(Kind.Type.co),
       StrType -> Kind.Type,
+      CharType -> Kind.Type,
       UnitType -> Kind.Type,
       TupleConsType -> Kind(Kind.Type.co, Kind.Type.co),
     ))

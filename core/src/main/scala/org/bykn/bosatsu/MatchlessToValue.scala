@@ -541,6 +541,7 @@ object MatchlessToValue {
             case LitStr(expect) :: tail =>
               val len = expect.length
               str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
+            case (c: CharPart) :: tail => ???
             case (h: Glob) :: tail =>
               tail match {
                 case Nil =>
@@ -549,6 +550,7 @@ object MatchlessToValue {
                     results(next) = str.substring(offset)
                   }
                   true
+                case (c: CharPart) :: tail2 => ???
                 case LitStr(expect) :: tail2 =>
                   val next1 = if (h.capture) next + 1 else next
 

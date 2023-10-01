@@ -610,6 +610,7 @@ object Code {
     lit match {
       case Lit.Str(s) => PyString(s)
       case Lit.Integer(bi) => PyInt(bi)
+      case Lit.Chr(_) => ???
     }
 
   def fromInt(i: Int): Expression =

@@ -187,6 +187,7 @@ object Value {
     l match {
       case Lit.Str(s) => ExternalValue(s)
       case Lit.Integer(i) => ExternalValue(i)
+      case c @ Lit.Chr(_) => ExternalValue(c.asStr)
     }
 
   object VInt {

@@ -680,6 +680,7 @@ x""")
     roundTrip(Pattern.matchParser, "_ as foo")
     roundTrip(Pattern.matchParser, "Some(_) as foo | None")
     roundTrip(Pattern.matchParser, "Bar | Some(_) as foo | None")
+    roundTrip(Pattern.matchParser, """"foo${bar}$.{codepoint}"""")
     roundTrip(Pattern.bindParser, "x: Int")
 
     implicit def docList[A: Document]: Document[NonEmptyList[A]] =
