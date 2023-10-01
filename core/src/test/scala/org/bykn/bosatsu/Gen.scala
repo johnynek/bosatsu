@@ -570,7 +570,7 @@ object Generators {
       str <- lowerIdent // TODO
     } yield Lit.Str(str)
 
-    val char = Gen.choose(0, 0xd7ff).map { i => Lit.Chr(i) }
+    val char = Gen.choose(0, 0xd7ff).map { i => Lit.Chr.fromCodePoint(i) }
 
     val bi = Arbitrary.arbitrary[BigInt].map { bi => Lit.Integer(bi.bigInteger) }
     Gen.oneOf(str, bi, char)

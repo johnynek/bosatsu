@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 => P0, Parser => P, Accumulator, Appender}
 
 abstract class GenericStringUtil {
   protected def decodeTable: Map[Char, Char]
@@ -37,40 +37,56 @@ abstract class GenericStringUtil {
     P.char('\\') *> after
   }
 
-  val singleUtf16Codepoint: P[Char] =
-    P.charWhere { c =>
+  val utf16Codepoint: P[Int] = {
+    // see: https://en.wikipedia.org/wiki/UTF-16
+    val first = P.anyChar.map { c =>
       val ci = c.toInt
-
-      ci < 0xd800 || ci >= 0xdc00
+      if (ci < 0xd800 || ci >= 0xe000) Right(ci)
+      else Left(ci)
     }
 
+    val second: P[Int => Int] =
+      P.charWhere { c =>
+        val ci = c.toInt
+        (0xdc00 <= ci) && (ci <= 0xdfff)
+      }
+      .map { low =>
+        val lowOff = low - 0xdc00 + 0x10000
+
+        { high => 
+          val highPart = (high - 0xd800) * 0x400
+          highPart + lowOff
+        }
+      }
+
+    P.select(first)(second)
+  }
+
+  val codePointAccumulator: Accumulator[Int, String] =
+    new Accumulator[Int, String] {
+      def newAppender(first: Int): Appender[Int,String] =
+        new Appender[Int, String] {
+          val strbuilder = new java.lang.StringBuilder
+          strbuilder.appendCodePoint(first)
+
+          def append(item: Int) = {
+            strbuilder.appendCodePoint(item)
+            this
+          }
+          def finish(): String = strbuilder.toString
+        }
+    }
   /**
    * String content without the delimiter
    */
   def undelimitedString1(endP: P[Unit]): P[String] = {
-    import cats.parse.{Accumulator, Appender}
-
-    implicit val codePointAccumulator: Accumulator[Int, String] =
-      new Accumulator[Int, String] {
-        def newAppender(first: Int): Appender[Int,String] =
-          new Appender[Int, String] {
-            val strbuilder = new java.lang.StringBuilder
-            strbuilder.appendCodePoint(first)
-
-            def append(item: Int) = {
-              strbuilder.appendCodePoint(item)
-              this
-            }
-            def finish(): String = strbuilder.toString
-          }
-      }
-    escapedToken.orElse((!endP).with1 *> singleUtf16Codepoint.map(_.toInt))
-      .repAs
+    escapedToken.orElse((!endP).with1 *> utf16Codepoint)
+      .repAs(codePointAccumulator)
   }
 
   def codepoint(startP: P[Any], endP: P[Any]): P[Int] =
     startP *>
-      escapedToken.orElse((!endP).with1 *> singleUtf16Codepoint.map(_.toInt)) <*
+      escapedToken.orElse((!endP).with1 *> utf16Codepoint) <*
       endP
 
   def escapedString(q: Char): P[String] = {

@@ -24,11 +24,13 @@ object Lit {
   case class Str(toStr: String) extends Lit {
     def unboxToAny: Any = toStr
   }
-  case class Chr(toCodePoint: Int) extends Lit {
-    lazy val asStr: String =
-      (new java.lang.StringBuilder).appendCodePoint(toCodePoint).toString
-
+  case class Chr(asStr: String) extends Lit {
+    def toCodePoint: Int = asStr.codePointAt(0)
     def unboxToAny: Any = asStr
+  }
+  object Chr {
+    def fromCodePoint(cp: Int): Chr =
+      Chr((new java.lang.StringBuilder).appendCodePoint(cp).toString)
   }
 
   val EmptyStr: Str = Str("")
@@ -37,8 +39,8 @@ object Lit {
   def fromChar(c: Char): Lit =
     if (c >= 0xd800 && c < 0xdc00)
       throw new IllegalArgumentException(s"utf-16 character int=${c.toInt} is not a valid single codepoint")
-    else Chr(c.toInt)
-  def fromCodePoint(cp: Int): Lit = Chr(cp)
+    else Chr.fromCodePoint(c.toInt)
+  def fromCodePoint(cp: Int): Lit = Chr.fromCodePoint(cp)
 
   def apply(i: Long): Lit = apply(BigInteger.valueOf(i))
   def apply(bi: BigInteger): Lit = Integer(bi)
@@ -58,7 +60,7 @@ object Lit {
 
   val codePointParser: P[Chr] = {
     (StringUtil.codepoint(P.string(".\""), P.char('"')) |
-      StringUtil.codepoint(P.string(".'"), P.char('\''))).map(Chr(_))
+      StringUtil.codepoint(P.string(".'"), P.char('\''))).map(Chr.fromCodePoint(_))
   }
 
   implicit val litOrdering: Ordering[Lit] =
@@ -68,7 +70,7 @@ object Lit {
           case (Integer(a), Integer(b)) => a.compareTo(b)
           case (Integer(_), Str(_) | Chr(_)) => -1
           case (Chr(_), Integer(_)) => 1
-          case (Chr(a), Chr(b)) => java.lang.Integer.compare(a, b)
+          case (Chr(a), Chr(b)) => a.compareTo(b)
           case (Chr(_), Str(_)) => -1
           case (Str(_), Integer(_)| Chr(_)) => 1
           case (Str(a), Str(b)) => a.compareTo(b)

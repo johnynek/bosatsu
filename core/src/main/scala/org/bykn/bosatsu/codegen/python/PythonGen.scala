@@ -919,6 +919,9 @@ object PythonGen {
               case i => Code.Apply(Code.DotSelect(i, Code.Ident("__str__")), Nil)
             }
           }, 1)),
+        (Identifier.unsafeBindable("char_to_String"),
+          // we encode chars as strings so this is just identity
+          ({ input => Env.envMonad.pure(input.head) }, 1)),
         (Identifier.unsafeBindable("trace"),
           ({
             input => Env.onLast2(input.head, input.tail.head) { (msg, i) =>

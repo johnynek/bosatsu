@@ -233,6 +233,26 @@ class ParserTest extends ParserTestBase {
     singleq(s"'$dollar{42}bar'", List(Left(Json.JNumberStr("42")), Right("bar")))
   }
 
+  test("we can decode any utf16") {
+    val p = StringUtil.utf16Codepoint.repAs(StringUtil.codePointAccumulator) | P.pure("")
+    val genCodePoints: Gen[Int] =
+      Gen.frequency(
+        (10, Gen.choose(0, 0xd7ff)),
+        (1, Gen.choose(0, 0x10ffff).filterNot { cp =>
+          (0xD800 <= cp && cp <= 0xDFFF)
+        })
+      )
+    forAll(Gen.listOf(genCodePoints)) { cps =>
+      val strbuilder = new java.lang.StringBuilder
+      cps.foreach(strbuilder.appendCodePoint(_))
+      val str = strbuilder.toString
+      val hex = cps.map(_.toHexString)
+
+      assert(p.parseAll(str).map(_.codePoints.toArray.toList) == Right(cps),
+        s"hex = $hex, str = ${str.codePoints.toArray.toList} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}")
+    }
+  }
+
   test("Identifier round trips") {
     forAll(Generators.identifierGen)(law(Identifier.parser))
 
