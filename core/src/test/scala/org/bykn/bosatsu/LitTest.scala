@@ -20,10 +20,16 @@ class LitTest extends AnyFunSuite {
     )
 
   test("we can convert from Char to Lit") {
-    forAll { (c: Char) =>
-      if (0xd800 <= c && c < 0xe000) {
+    forAll(Gen.choose(Char.MinValue, Char.MaxValue)) { (c: Char) =>
+      try {
         val chr = Lit.fromChar(c)
         assert(chr.asInstanceOf[Lit.Chr].asStr == c.toString)
+      }
+      catch {
+        case _: IllegalArgumentException =>
+          // there are at least 1million valid codepoints
+          val cp = c.toInt
+          assert((0xd800 <= cp && cp < 0xe000))
       }
     }
   }
