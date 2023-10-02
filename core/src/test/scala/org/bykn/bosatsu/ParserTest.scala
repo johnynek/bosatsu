@@ -242,6 +242,12 @@ class ParserTest extends ParserTestBase {
           (0xD800 <= cp && cp <= 0xDFFF)
         })
       )
+
+    // .codePoints isn't available in scalajs
+    def jsCompatCodepoints(s: String): List[Int] =
+      if (s.isEmpty) Nil
+      else (s.codePointAt(0) :: jsCompatCodepoints(s.substring(s.offsetByCodePoints(0, 1))))
+
     forAll(Gen.listOf(genCodePoints)) { cps =>
       val strbuilder = new java.lang.StringBuilder
       cps.foreach(strbuilder.appendCodePoint(_))
@@ -251,11 +257,8 @@ class ParserTest extends ParserTestBase {
       val parsed = p.parseAll(str)
       assert(parsed == Right(str))
 
-      if (Platform.isScalaJvm) {
-        // codePoints isn't available in scalajs
-        assert(parsed.map(_.codePoints.toArray.toList) == Right(cps),
-          s"hex = $hex, str = ${str.codePoints.toArray.toList} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}")
-      }
+      assert(parsed.map(jsCompatCodepoints) == Right(cps),
+        s"hex = $hex, str = ${jsCompatCodepoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}")
     }
   }
 
