@@ -1166,7 +1166,21 @@ object PythonGen {
 
                   Env.andCode(regionMatches, rest)
                 }
-            case (c: CharPart) :: tail => ???
+            case (c: CharPart) :: tail =>
+              val n1 = if (c.capture) (next + 1) else next
+              for {
+                tailRes <- loop(offsetIdent, tail, n1)
+                matches = Code.Op(offsetIdent, Code.Const.Lt, strEx.dot(Code.Ident("__len__"))())
+                stmt =
+                  if (c.capture) {
+                    // b = str[offset:]
+                    (bindArray(next) := Code.SelectItem(strEx, offsetIdent))
+                      .withValue(Code.Const.True)
+                  }
+                  else Code.Const.True
+                and2 <- Env.andCode(stmt, tailRes)
+                and1 <- Env.andCode(matches, and2)
+              } yield and1
             case (h: Glob) :: tail =>
               tail match {
                 case Nil =>
@@ -1274,19 +1288,20 @@ object PythonGen {
                         .withValue(result))
                     }
                     .flatten
-                case (c: CharPart) :: tail2 => ???
+                case (c: CharPart) :: tail2 =>
+                  // TODO convert the MatchlessToValue code to python like above
+                  ???
+                // $COVERAGE-OFF$
                 case (_: Glob) :: _ =>
-                  // $COVERAGE-OFF$
                   throw new IllegalArgumentException(s"pattern: $pat should have been prevented: adjacent globs are not permitted (one is always empty)")
-                  // $COVERAGE-ON$
+                // $COVERAGE-ON$
               }
           }
 
-        Env.newAssignableVar
-          .flatMap { offsetIdent =>
-            loop(offsetIdent, pat, 0)
-              .map { res => (offsetIdent := Code.fromInt(0)).withValue(res) }
-          }
+        for {
+          offsetIdent <- Env.newAssignableVar
+          res <- loop(offsetIdent, pat, 0)
+        } yield (offsetIdent := Code.fromInt(0)).withValue(res)
       }
 
       def searchList(locMut: LocalAnonMut, initVL: ValueLike, checkVL: ValueLike, optLeft: Option[LocalAnonMut]): Env[ValueLike] = {

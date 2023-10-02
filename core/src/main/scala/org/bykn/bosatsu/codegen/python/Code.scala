@@ -407,16 +407,20 @@ object Code {
         case exprS => Parens(exprS)
       }
   }
-  case class SelectItem(arg: Expression, position: Int) extends Expression {
+  case class SelectItem(arg: Expression, position: Expression) extends Expression {
     def simplify: Expression =
-      arg.simplify match {
-        case MakeTuple(items) if items.lengthCompare(position) > 0 =>
-          items(position)
-        case MakeList(items) if items.lengthCompare(position) > 0 =>
-          items(position)
-        case simp =>
-          SelectItem(simp, position)
+      (arg.simplify, position.simplify) match {
+        case (MakeTuple(items), PyInt(bi)) if items.lengthCompare(bi.intValue()) > 0 =>
+          items(bi.intValue())
+        case (MakeList(items), PyInt(bi)) if items.lengthCompare(bi.intValue()) > 0 =>
+          items(bi.intValue())
+        case (simp, spos) =>
+          SelectItem(simp, spos)
       }
+  }
+  object SelectItem {
+    def apply(arg: Expression, position: Int): SelectItem =
+      SelectItem(arg, Code.fromInt(position))
   }
   // foo[a:b]
   case class SelectRange(arg: Expression, start: Option[Expression], end: Option[Expression]) extends Expression {
@@ -610,7 +614,7 @@ object Code {
     lit match {
       case Lit.Str(s) => PyString(s)
       case Lit.Integer(bi) => PyInt(bi)
-      case Lit.Chr(_) => ???
+      case Lit.Chr(s) => PyString(s)
     }
 
   def fromInt(i: Int): Expression =
