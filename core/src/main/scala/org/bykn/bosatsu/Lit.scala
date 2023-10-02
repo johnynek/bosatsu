@@ -29,6 +29,9 @@ object Lit {
     def unboxToAny: Any = asStr
   }
   object Chr {
+    /**
+      * @throws IllegalArgumentException on a bad codepoint
+      */
     def fromCodePoint(cp: Int): Chr =
       Chr((new java.lang.StringBuilder).appendCodePoint(cp).toString)
   }
@@ -36,10 +39,12 @@ object Lit {
   val EmptyStr: Str = Str("")
 
   def fromInt(i: Int): Lit = Integer(BigInteger.valueOf(i.toLong))
+
   def fromChar(c: Char): Lit =
-    if (c >= 0xd800 && c < 0xdc00)
+    if (0xd800 <= c && c < 0xe000)
       throw new IllegalArgumentException(s"utf-16 character int=${c.toInt} is not a valid single codepoint")
     else Chr.fromCodePoint(c.toInt)
+
   def fromCodePoint(cp: Int): Lit = Chr.fromCodePoint(cp)
 
   def apply(i: Long): Lit = apply(BigInteger.valueOf(i))
