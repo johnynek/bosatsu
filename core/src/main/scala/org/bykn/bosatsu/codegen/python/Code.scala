@@ -127,7 +127,7 @@ object Code {
       case Parens(inner@Parens(_)) => exprToDoc(inner)
       case Parens(p) => par(exprToDoc(p))
       case SelectItem(x, i) =>
-        maybePar(x) + Doc.char('[') + Doc.str(i) + Doc.char(']')
+        maybePar(x) + Doc.char('[') + exprToDoc(i) + Doc.char(']')
       case SelectRange(x, os, oe) =>
         val middle = os.fold(Doc.empty)(exprToDoc) + Doc.char(':') + oe.fold(Doc.empty)(exprToDoc)
         maybePar(x) + (Doc.char('[') + middle + Doc.char(']')).nested(4)
