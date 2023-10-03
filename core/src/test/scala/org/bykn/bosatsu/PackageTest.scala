@@ -8,9 +8,12 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class PackageTest extends AnyFunSuite with ParTest {
 
-  def resolveThenInfer(ps: Iterable[Package.Parsed]): ValidatedNel[PackageError, PackageMap.Inferred] = {
+  def resolveThenInfer(
+      ps: Iterable[Package.Parsed]
+  ): ValidatedNel[PackageError, PackageMap.Inferred] = {
     implicit val showInt: Show[Int] = Show.fromToString
-    PackageMap.resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil)
+    PackageMap
+      .resolveThenInfer(ps.toList.zipWithIndex.map(_.swap), Nil)
       .strictToValidated
   }
 
@@ -22,7 +25,7 @@ class PackageTest extends AnyFunSuite with ParTest {
 
   def valid[A, B](v: Validated[A, B]) =
     v match {
-      case Validated.Valid(_) => succeed
+      case Validated.Valid(_)     => succeed
       case Validated.Invalid(err) => fail(err.toString)
     }
 
@@ -33,15 +36,13 @@ class PackageTest extends AnyFunSuite with ParTest {
     }
 
   test("simple package resolves") {
-    val p1 = parse(
-"""
+    val p1 = parse("""
 package Foo
 export main
 
 main = 1
 """)
-    val p2 = parse(
-"""
+    val p2 = parse("""
 package Foo2
 from Foo import main as mainFoo
 export main,
@@ -49,8 +50,7 @@ export main,
 main = mainFoo
 """)
 
-    val p3 = parse(
-"""
+    val p3 = parse("""
 package Foo
 from Foo2 import main as mainFoo
 
@@ -61,8 +61,7 @@ main = 1
     valid(resolveThenInfer(List(p1, p2)))
     invalid(resolveThenInfer(List(p2, p3))) // loop here
 
-    val p4 = parse(
-"""
+    val p4 = parse("""
 package P4
 from Foo2 import main as one
 
@@ -72,8 +71,7 @@ main = add(one, 42)
 """)
     valid(resolveThenInfer(List(p1, p2, p4)))
 
-    val p5 = parse(
-"""
+    val p5 = parse("""
 package P5
 
 export Option(), List(), head, tail
@@ -99,8 +97,7 @@ def tail(list):
     case NonEmpty(_, t): Some(t)
 """)
 
-    val p6 = parse(
-"""
+    val p6 = parse("""
 package P6
 from P5 import Option, List, NonEmpty, Empty, head,  tail
 export data
@@ -111,8 +108,7 @@ main = head(data)
 """)
     valid(resolveThenInfer(List(p5, p6)))
 
-    val p7 = parse(
-"""
+    val p7 = parse("""
 package P7
 from P6 import data as p6_data
 from P5 import Option, List, NonEmpty as Cons, Empty as Nil, head,  tail
@@ -129,8 +125,7 @@ main = head(data1)
 
     assert(Package.predefPackage != null)
 
-    val p = parse(
-"""
+    val p = parse("""
 package UsePredef
 
 def maybeOne(x):
@@ -146,8 +141,7 @@ main = maybeOne(42)
 
   test("test using a renamed type") {
 
-  val p1 = parse(
-"""
+    val p1 = parse("""
 package R1
 
 export Foo(), mkFoo, takeFoo
@@ -161,8 +155,7 @@ def takeFoo(foo):
       0
 """)
 
-  val p2 = parse(
-"""
+    val p2 = parse("""
 package R2
 from R1 import Foo as Bar, mkFoo, takeFoo
 

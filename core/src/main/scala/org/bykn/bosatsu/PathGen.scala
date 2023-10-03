@@ -12,14 +12,20 @@ object PathGen {
     def read(implicit m: Monad[IO]): IO[List[Path]] =
       m.pure(path :: Nil)
   }
-  final case class ChildrenOfDir[IO[_], Path](dir: Path, select: Path => Boolean, recurse: Boolean, unfold: Path => IO[Option[IO[List[Path]]]]) extends PathGen[IO, Path] {
+  final case class ChildrenOfDir[IO[_], Path](
+      dir: Path,
+      select: Path => Boolean,
+      recurse: Boolean,
+      unfold: Path => IO[Option[IO[List[Path]]]]
+  ) extends PathGen[IO, Path] {
     def read(implicit m: Monad[IO]): IO[List[Path]] = {
 
       val pureEmpty: IO[List[Path]] = m.pure(Nil)
 
       lazy val rec: List[Path] => IO[List[Path]] =
-        if (recurse) { (children: List[Path]) => children.traverse(step).map(_.flatten) }
-        else { (_: List[Path]) => pureEmpty }
+        if (recurse) { (children: List[Path]) =>
+          children.traverse(step).map(_.flatten)
+        } else { (_: List[Path]) => pureEmpty }
 
       def step(path: Path): IO[List[Path]] =
         unfold(path).flatMap {
@@ -35,7 +41,8 @@ object PathGen {
       step(dir)
     }
   }
-  final case class Combine[IO[_], Path](gens: List[PathGen[IO, Path]]) extends PathGen[IO, Path] {
+  final case class Combine[IO[_], Path](gens: List[PathGen[IO, Path]])
+      extends PathGen[IO, Path] {
     def read(implicit m: Monad[IO]): IO[List[Path]] =
       gens.traverse(_.read).map(_.flatten)
   }
@@ -45,12 +52,12 @@ object PathGen {
       val empty: PathGen[IO, Path] = Combine(Nil)
       def combine(a: PathGen[IO, Path], b: PathGen[IO, Path]) =
         (a, b) match {
-          case (Combine(Nil), b) => b
-          case (a, Combine(Nil)) => a
+          case (Combine(Nil), b)          => b
+          case (a, Combine(Nil))          => a
           case (Combine(as), Combine(bs)) => Combine(as ::: bs)
-          case (Combine(as), b) => Combine(as :+ b)
-          case (a, Combine(bs)) => Combine(a :: bs)
-          case (a, b) => Combine(a :: b :: Nil)
+          case (Combine(as), b)           => Combine(as :+ b)
+          case (a, Combine(bs))           => Combine(a :: bs)
+          case (a, b)                     => Combine(a :: b :: Nil)
         }
     }
 }

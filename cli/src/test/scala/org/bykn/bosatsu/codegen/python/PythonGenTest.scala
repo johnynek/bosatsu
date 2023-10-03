@@ -5,9 +5,19 @@ import cats.data.NonEmptyList
 import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.file.{Paths, Files}
 import java.util.concurrent.Semaphore
-import org.bykn.bosatsu.{PackageMap, MatchlessFromTypedExpr, Parser, Package, LocationMap, PackageName}
+import org.bykn.bosatsu.{
+  PackageMap,
+  MatchlessFromTypedExpr,
+  Parser,
+  Package,
+  LocationMap,
+  PackageName
+}
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import org.python.util.PythonInterpreter
 import org.python.core.{PyInteger, PyFunction, PyObject, PyTuple}
 
@@ -58,13 +68,21 @@ class PythonGenTest extends AnyFunSuite {
     tup.getArray()(0) match {
       case x if x == zero =>
         // True == one in our encoding
-        assert(tup.getArray()(1) == one, prefix + "/" + tup.getArray()(2).toString)
+        assert(
+          tup.getArray()(1) == one,
+          prefix + "/" + tup.getArray()(2).toString
+        )
         ()
       case x if x == one =>
         val suite = tup.getArray()(1).toString
-        foreachList(tup.getArray()(2)) { t => checkTest(t, prefix + "/" + suite); () }
+        foreachList(tup.getArray()(2)) { t =>
+          checkTest(t, prefix + "/" + suite); ()
+        }
       case other =>
-        assert(false, s"expected a Test to have 0 or 1 in first tuple entry: $tup, $other")
+        assert(
+          false,
+          s"expected a Test to have 0 or 1 in first tuple entry: $tup, $other"
+        )
         ()
     }
   }
@@ -72,7 +90,6 @@ class PythonGenTest extends AnyFunSuite {
   def compileFile(path: String, rest: String*): PackageMap.Typed[Any] = {
     def toS(s: String): String =
       new String(Files.readAllBytes(Paths.get(s)), "UTF-8")
-
 
     val packNEL =
       NonEmptyList(path, rest.toList)
@@ -85,7 +102,7 @@ class PythonGenTest extends AnyFunSuite {
     val res = PackageMap.typeCheckParsed(packNEL, Nil, "")
     res.left match {
       case Some(err) => sys.error(err.toString)
-      case None => ()
+      case None      => ()
     }
 
     res.right.get
@@ -102,7 +119,8 @@ class PythonGenTest extends AnyFunSuite {
     val bosatsuPM = compileFile(natPathBosatu)
     val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
 
-    val packMap = PythonGen.renderAll(matchless, Map.empty, Map.empty, Map.empty)
+    val packMap =
+      PythonGen.renderAll(matchless, Map.empty, Map.empty, Map.empty)
     val natDoc = packMap(PackageName.parts("Bosatsu", "Nat"))._2
 
     JythonBarrier.run {
@@ -121,8 +139,7 @@ class PythonGenTest extends AnyFunSuite {
         val res = fn.__call__(arg)
         if (i <= 0) {
           assert(res == new PyInteger(0))
-        }
-        else {
+        } else {
           assert(fn.__call__(arg) == arg)
         }
       }
@@ -143,48 +160,52 @@ class PythonGenTest extends AnyFunSuite {
 
   JythonBarrier.run(intr.close())
 
-  def runBoTests(path: String, pn: PackageName, testName: String) = JythonBarrier.run {
-    val intr = new PythonInterpreter()
+  def runBoTests(path: String, pn: PackageName, testName: String) =
+    JythonBarrier.run {
+      val intr = new PythonInterpreter()
 
-    val bosatsuPM = compileFile(path)
-    val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
+      val bosatsuPM = compileFile(path)
+      val matchless = MatchlessFromTypedExpr.compile(bosatsuPM)
 
-    val packMap = PythonGen.renderAll(matchless, Map.empty, Map.empty, Map.empty)
-    val doc = packMap(pn)._2
+      val packMap =
+        PythonGen.renderAll(matchless, Map.empty, Map.empty, Map.empty)
+      val doc = packMap(pn)._2
 
-    intr.execfile(isfromString(doc.renderTrim(80)), "test.py")
-    checkTest(intr.get(testName), pn.asString)
+      intr.execfile(isfromString(doc.renderTrim(80)), "test.py")
+      checkTest(intr.get(testName), pn.asString)
 
-    intr.close()
-  }
-
+      intr.close()
+    }
 
   test("we can compile StrConcatExample") {
     runBoTests(
       "test_workspace/StrConcatExample.bosatsu",
       PackageName.parts("StrConcatExample"),
-      "test")
+      "test"
+    )
   }
-
 
   test("test some list pattern matches") {
     runBoTests(
       "test_workspace/ListPat.bosatsu",
       PackageName.parts("ListPat"),
-      "tests")
+      "tests"
+    )
   }
 
   test("test euler6") {
     runBoTests(
       "test_workspace/euler6.bosatsu",
       PackageName.parts("Euler", "P6"),
-      "tests")
+      "tests"
+    )
   }
 
   test("test PredefTests") {
     runBoTests(
       "test_workspace/PredefTests.bosatsu",
       PackageName.parts("PredefTests"),
-      "test")
+      "test"
+    )
   }
 }
