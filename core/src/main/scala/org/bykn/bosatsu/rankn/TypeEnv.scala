@@ -44,6 +44,11 @@ class TypeEnv[+A] private (
   def getType(p: PackageName, t: TypeName): Option[DefinedType[A]] =
     definedTypes.get((p, t))
 
+  def getType(t: Type.TyConst): Option[DefinedType[A]] = {
+    val d = t.tpe.toDefined
+    getType(d.packageName, d.name)
+  }
+
   def getExternalValue(p: PackageName, n: Identifier): Option[Type] =
     values.get((p, n))
 

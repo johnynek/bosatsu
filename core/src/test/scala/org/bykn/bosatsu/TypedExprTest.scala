@@ -515,14 +515,55 @@ x = Foo
     assert(res == Some(right), s"${res.map(_.repr)} != Some(${right.repr}")
 
     checkLast("""
+res = (
+  f = (_, y) -> y
+  z = 1
+  y -> (x -> f(x, z))(y)
+)
+""") { te1 =>
+  
+      checkLast("""
+res = _ -> 1
+      """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+
+    checkLast("""
 f = (_, y) -> y
 z = 1
 res = y -> (x -> f(x, z))(y)
 """) { te1 =>
   
       checkLast("""
-f = (_, y) -> y
-res = y -> f(y, 1)
+res = _ -> 1
+      """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
+  }
+
+  test("let de-nesting") {
+    checkLast("""
+struct Tup(a, b)
+def f(x): x
+res = (
+   x = (
+    y = f(1)
+    Tup(y, y)
+   ) 
+   Tup(x, x)
+)
+""") { te1 =>
+  
+      checkLast("""
+struct Tup(a, b)
+def f(x): x
+res = (
+   y = f(1)
+   x = Tup(y, y)
+   Tup(x, x)
+)
       """) { te2 =>
         assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
       }
@@ -699,6 +740,44 @@ foo = (
   42
 )
 """) { te => assert(countLet(te) == 0) }
+  }
+
+  test("test normalization let shadowing bug in lambda") {
+    checkLast("""
+enum L[a]: E, NE(head: a, tail: L[a])
+
+x = (
+  def go(y, z):
+    def loop(z):
+      recur z:
+        case E: y
+        case NE(_, t): loop(t)
+
+    loop(z)
+
+  fn1 = z -> go(1, z)
+  fn1(NE(1, NE(2, E)))
+)
+""") { te1 =>
+    checkLast("""
+enum L[a]: E, NE(head: a, tail: L[a])
+
+x = (
+  def go(y, z):
+    def loop(z):
+      recur z:
+        case E: y
+        case NE(_, t): loop(t)
+
+    loop(z)
+
+  fn1 = z0 -> go(1, z0)
+  fn1(NE(1, NE(2, E)))
+)
+    """) { te2 =>
+        assert(te1.void == te2.void, s"${te1.repr} != ${te2.repr}")
+      }
+    }
   }
 
   test("toArgsBody always terminates") {
