@@ -39,10 +39,10 @@ object Code {
     def eval(op: Operator, x: Expression): Expression =
       Op(this, op, x).simplify
 
-    def >(that: Expression): Expression =
+    def :>(that: Expression): Expression =
       Code.Op(this, Code.Const.Gt, that)
 
-    def <(that: Expression): Expression =
+    def :<(that: Expression): Expression =
       Code.Op(this, Code.Const.Lt, that)
 
     def =:=(that: Expression): Expression =
@@ -535,6 +535,9 @@ object Code {
   }
   def if1(cond: Expression, stmt: Statement): Statement =
     ifStatement(NonEmptyList.one((cond, stmt)), None)
+
+  def ifElseS(cond: Expression, ifCase: Statement, elseCase: Statement): Statement =
+    ifStatement(NonEmptyList.one((cond, ifCase)), Some(elseCase))
 
   /*
    * if __name__ == "__main__":
