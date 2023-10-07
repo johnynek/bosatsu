@@ -591,7 +591,7 @@ object PythonGen {
         val selfName = Code.Ident("self")
 
         val isAssertion: Code.Expression =
-          Code.Op(argName.get(0), Code.Const.Eq, Code.fromInt(0))
+          argName.get(0) =:= 0
 
         // Assertion(bool, msg)
         val testAssertion: Code.Statement =
@@ -763,16 +763,11 @@ object PythonGen {
       private val cmpFn: List[ValueLike] => Env[ValueLike] = {
         input =>
           Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
-              // 0 if arg0 < arg1 else (
-              //     1 if arg0 == arg1 else 2
-              //   )
               Code.Ternary(
-                Code.fromInt(0),
-                Code.Op(arg0, Code.Const.Lt, arg1),
-                Code.Ternary(
-                  Code.fromInt(1),
-                  Code.Op(arg0, Code.Const.Eq, arg1),
-                  Code.fromInt(2))).simplify
+                0,
+                arg0 < arg1,
+                Code.Ternary(1, arg0 =:= arg1, 2)
+              ).simplify
           }
       }
 
@@ -796,7 +791,7 @@ object PythonGen {
                 Code.Ternary(
                   Code.Op(a, Code.Const.Div, b),
                   b, // 0 is false in python
-                  Code.fromInt(0)
+                  0
                 ).simplify
               }
             }, 2)),
@@ -878,12 +873,10 @@ object PythonGen {
                               res := fn(_i, _a),
                               tmp_i := res.get(0),
                               _a := res.get(1).get(0),
-                              cont := Code.Op(Code.Op(Code.fromInt(0), Code.Const.Lt, tmp_i),
-                                Code.Const.And,
-                                Code.Op(tmp_i, Code.Const.Lt, _i)),
+                              cont := (0 < tmp_i).evalAnd(tmp_i < _i),
                               _i := tmp_i
-                              )
-                           )
+                            )
+                          )
                         )
                         .withValue(_a)
                       case other =>
@@ -1082,18 +1075,14 @@ object PythonGen {
         ix match {
           case EqualsLit(expr, lit) =>
             val literal = Code.litToExpr(lit)
-            loop(expr).flatMap(Env.onLast(_) { ex => Code.Op(ex, Code.Const.Eq, literal) })
+            loop(expr).flatMap(Env.onLast(_) { ex => ex =:= literal })
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)
 
             if (zeroOrSucc.isZero)
-              natF.flatMap(Env.onLast(_) { x =>
-                Code.Op(x, Code.Const.Eq, Code.Const.Zero)
-              })
+              natF.flatMap(Env.onLast(_)(_ =:= 0))
             else
-              natF.flatMap(Env.onLast(_) { x =>
-                Code.Op(x, Code.Const.Gt, Code.Const.Zero)
-              })
+              natF.flatMap(Env.onLast(_)(_ > 0))
 
           case TrueConst => Monad[Env].pure(Code.Const.True)
           case And(ix1, ix2) =>
@@ -1106,15 +1095,14 @@ object PythonGen {
             // otherwise, we use tuples with the first
             // item being the variant
             val useInts = famArities.forall(_ == 0)
-            val idxExpr = Code.fromInt(idx)
             loop(enumV).flatMap { tup =>
               Env.onLast(tup) { t =>
                 if (useInts) {
                   // this is represented as an integer
-                  Code.Op(t, Code.Const.Eq, idxExpr)
+                  t =:= idx
                 }
                 else
-                  Code.Op(t.get(0), Code.Const.Eq, idxExpr)
+                  t.get(0) =:= idx
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>
@@ -1150,7 +1138,7 @@ object PythonGen {
           pat match {
             case Nil =>
               //offset == str.length
-              Monad[Env].pure(Code.Op(offsetIdent, Code.Const.Eq, strEx.dot(Code.Ident("__len__"))()))
+              Monad[Env].pure(offsetIdent =:= strEx.len())
             case LitStr(expect) :: tail =>
               //val len = expect.length
               //str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
@@ -1158,26 +1146,26 @@ object PythonGen {
               // strEx.startswith(expect, offsetIdent)
               loop(offsetIdent, tail, next)
                 .flatMap { loopRes =>
-                  val regionMatches = strEx.dot(Code.Ident("startswith"))(Code.PyString(expect), offsetIdent)
+                  val regionMatches = strEx.dot(Code.Ident("startswith"))(expect, offsetIdent)
                   val rest =
                     (
-                      offsetIdent := (offsetIdent.evalPlus(Code.fromInt(expect.length)))
+                      offsetIdent := offsetIdent + expect.length
                     ).withValue(loopRes)
 
                   Env.andCode(regionMatches, rest)
                 }
             case (c: CharPart) :: tail =>
+              val matches = offsetIdent < strEx.len()
               val n1 = if (c.capture) (next + 1) else next
+              val stmt =
+                if (c.capture) {
+                  // b = str[offset:]
+                  (bindArray(next) := Code.SelectItem(strEx, offsetIdent))
+                    .withValue(true)
+                }
+                else Code.Const.True
               for {
                 tailRes <- loop(offsetIdent, tail, n1)
-                matches = Code.Op(offsetIdent, Code.Const.Lt, strEx.dot(Code.Ident("__len__"))())
-                stmt =
-                  if (c.capture) {
-                    // b = str[offset:]
-                    (bindArray(next) := Code.SelectItem(strEx, offsetIdent))
-                      .withValue(Code.Const.True)
-                  }
-                  else Code.Const.True
                 and2 <- Env.andCode(stmt, tailRes)
                 and1 <- Env.andCode(matches, and2)
               } yield and1
@@ -1189,7 +1177,7 @@ object PythonGen {
                     if (h.capture) {
                       // b = str[offset:]
                       (bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), None))
-                        .withValue(Code.Const.True)
+                        .withValue(true)
                     }
                     else Code.Const.True
                   )
@@ -1243,31 +1231,28 @@ object PythonGen {
                             val capture = if (h.capture) (bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), Some(candidate))) else Code.Pass
                             Code.block(
                               capture,
-                              result := Code.Const.True,
-                              start := Code.fromInt(-1)
+                              result := true,
+                              start := -1
                             )
                           },
                           {
                             // we couldn't match at start, advance just after the
                             // candidate
-                            start := candidate.evalPlus(Code.fromInt(1))
+                            start := candidate + 1
                           })
 
                       def findBranch(search: ValueLike): Env[Statement] =
                         onSearch(search)
                           .flatMap { onS =>
                             Env.ifElseS(
-                              Code.Op(candidate, Code.Const.Gt, Code.fromInt(-1)),
-                              {
-                                // update candidate and search
-                                Code.block(
-                                  candOffset := Code.Op(candidate, Code.Const.Plus, Code.fromInt(expect.length)),
-                                  onS)
-                              },
-                              {
-                                // else no more candidates
-                                start := Code.fromInt(-1)
-                              }
+                              candidate > -1,
+                              // update candidate and search
+                              Code.block(
+                                candOffset := candidate + expect.length,
+                                onS)
+                              ,
+                              // else no more candidates
+                              start := -1
                             )
                           }
 
@@ -1277,10 +1262,10 @@ object PythonGen {
                       } yield
                         (Code.block(
                           start := offsetIdent,
-                          result := Code.Const.False,
-                          Code.While(Code.Op(start, Code.Const.Gt, Code.fromInt(-1)),
+                          result := false,
+                          Code.While((start > -1),
                             Code.block(
-                              candidate := strEx.dot(Code.Ident("find"))(Code.PyString(expect), start),
+                              candidate := strEx.dot(Code.Ident("find"))(expect, start),
                               find
                             )
                           )
@@ -1288,9 +1273,34 @@ object PythonGen {
                         .withValue(result))
                     }
                     .flatten
-                case (c: CharPart) :: tail2 =>
-                  // TODO convert the MatchlessToValue code to python like above
-                  ???
+                case (_: CharPart) :: _ =>
+                  val next1 = if (h.capture) (next + 1) else next
+                  (Env.newAssignableVar, Env.newAssignableVar)
+                    .flatMapN { (matched, off1) =>
+                      for {
+                        tailMatched <- loop(off1, tail, next1)    
+
+                        matchStmt = Code.block(
+                          matched := false,
+                          off1 := offsetIdent,
+                          Code.While((!matched).evalAnd(off1 < strEx.len()),
+                            Code.block(
+                              matched := tailMatched,
+                              Code.if1(!matched, off1 := (off1 + 1))
+                            )
+                          )
+                        ).withValue(matched)  
+
+                        capture = Code.block(
+                          bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), Some(off1))
+                        ).withValue(true)
+
+                        fullMatch <-
+                          if (!h.capture) Monad[Env].pure(matchStmt)
+                          else Env.andCode(matchStmt, capture)
+
+                      } yield fullMatch
+                    }
                 // $COVERAGE-OFF$
                 case (_: Glob) :: _ =>
                   throw new IllegalArgumentException(s"pattern: $pat should have been prevented: adjacent globs are not permitted (one is always empty)")
@@ -1344,9 +1354,9 @@ object PythonGen {
                       currentList := tmpList,
                       res := checkVL,
                       Code.ifStatement(
-                        NonEmptyList(
-                          (res, (tmpList := emptyList)),
-                          Nil),
+                        NonEmptyList.one(
+                          (res, (tmpList := emptyList))
+                        ),
                         Some {
                           Code.block(
                             tmpList := tailList(tmpList),

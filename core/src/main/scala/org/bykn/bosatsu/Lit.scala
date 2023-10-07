@@ -29,11 +29,17 @@ object Lit {
     def unboxToAny: Any = asStr
   }
   object Chr {
+    private def build(cp: Int): Chr =
+      Chr((new java.lang.StringBuilder).appendCodePoint(cp).toString)
+
+    private[this] val cache: Array[Chr] =
+      (0 until 256).map(build).toArray
     /**
       * @throws IllegalArgumentException on a bad codepoint
       */
     def fromCodePoint(cp: Int): Chr =
-      Chr((new java.lang.StringBuilder).appendCodePoint(cp).toString)
+      if ((0 <= cp) && (cp < 256)) cache(cp)
+      else build(cp)
   }
 
   val EmptyStr: Str = Str("")
