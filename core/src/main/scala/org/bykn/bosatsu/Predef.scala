@@ -37,6 +37,7 @@ object Predef {
       .add(packageName, "trace", FfiCall.Fn2(PredefImpl.trace(_, _)))
       .add(packageName, "string_Order_fn", FfiCall.Fn2(PredefImpl.string_Order_Fn(_, _)))
       .add(packageName, "concat_String", FfiCall.Fn1(PredefImpl.concat_String(_)))
+      .add(packageName, "char_to_String", FfiCall.Fn1(PredefImpl.char_to_String(_)))
       .add(packageName, "partition_String", FfiCall.Fn2(PredefImpl.partitionString(_, _)))
       .add(packageName, "rpartition_String", FfiCall.Fn2(PredefImpl.rightPartitionString(_, _)))
 }
@@ -153,6 +154,9 @@ object PredefImpl {
         Value.Comparison.fromInt(sa.compareTo(sb))
       case other => sys.error(s"type error: $other")
     }
+
+  // we represent chars as single code-point strings
+  def char_to_String(item: Value): Value = item
 
   def concat_String(items: Value): Value =
     items match {

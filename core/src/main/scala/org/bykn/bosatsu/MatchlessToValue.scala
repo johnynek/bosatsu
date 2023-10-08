@@ -533,14 +533,30 @@ object MatchlessToValue {
       def matchString(str: String, pat: List[Matchless.StrPart], binds: Int): Array[String] = {
         import Matchless.StrPart._
 
+        val strLen = str.length()
         val results = if (binds > 0) new Array[String](binds) else emptyStringArray
 
         def loop(offset: Int, pat: List[Matchless.StrPart], next: Int): Boolean =
           pat match {
-            case Nil => offset == str.length
+            case Nil => offset == strLen
             case LitStr(expect) :: tail =>
               val len = expect.length
               str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
+            case (c: CharPart) :: tail =>
+              try {
+                val nextOffset = str.offsetByCodePoints(offset, 1)
+                val n =
+                  if (c.capture) {
+                    results(next) = str.substring(offset, nextOffset)
+                    next + 1
+                  }
+                  else next
+
+                loop(nextOffset, tail, n)
+              }
+              catch {
+                case _: IndexOutOfBoundsException => false
+              }
             case (h: Glob) :: tail =>
               tail match {
                 case Nil =>
@@ -549,6 +565,28 @@ object MatchlessToValue {
                     results(next) = str.substring(offset)
                   }
                   true
+                case rest @ ((_: CharPart) :: _) =>
+                  // (.*)(.)tail2
+                  // this is a naive algorithm that just
+                  // checks at all possible later offsets
+                  // a smarter algorithm could see if there
+                  // are Lit parts that can match or not
+                  var matched = false
+                  var off1 = offset
+                  val n1 = if (h.capture) (next + 1) else next
+                  while (!matched && (off1 < strLen)) {
+                    matched = loop(off1, rest, n1)
+                    if (!matched) {
+                      off1 = off1 + 1
+                    }
+                  }
+
+                  matched && {
+                    if (h.capture) {
+                      results(next) = str.substring(offset, off1)
+                    }
+                    true 
+                  }
                 case LitStr(expect) :: tail2 =>
                   val next1 = if (h.capture) next + 1 else next
 

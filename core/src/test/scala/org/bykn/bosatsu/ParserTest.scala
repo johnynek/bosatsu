@@ -213,7 +213,7 @@ class ParserTest extends ParserTestBase {
     def singleq(str1: String, res: List[Either[Json, String]]) =
       parseTestAll(
         StringUtil
-          .interpolatedString('\'', P.string("${"), Json.parser, P.char('}'))
+          .interpolatedString('\'', P.string("${").as((j: Json) => j), Json.parser, P.char('}'))
           .map(_.map {
             case Right((_, str)) => Right(str)
             case Left(l) => Left(l)
@@ -231,6 +231,35 @@ class ParserTest extends ParserTestBase {
     singleq(s"'foo$dollar{42}'", List(Right("foo"), Left(Json.JNumberStr("42"))))
     singleq(s"'$dollar{42}'", List(Left(Json.JNumberStr("42"))))
     singleq(s"'$dollar{42}bar'", List(Left(Json.JNumberStr("42")), Right("bar")))
+  }
+
+  test("we can decode any utf16") {
+    val p = StringUtil.utf16Codepoint.repAs(StringUtil.codePointAccumulator) | P.pure("")
+    val genCodePoints: Gen[Int] =
+      Gen.frequency(
+        (10, Gen.choose(0, 0xd7ff)),
+        (1, Gen.choose(0, 0x10ffff).filterNot { cp =>
+          (0xD800 <= cp && cp <= 0xDFFF)
+        })
+      )
+
+    // .codePoints isn't available in scalajs
+    def jsCompatCodepoints(s: String): List[Int] =
+      if (s.isEmpty) Nil
+      else (s.codePointAt(0) :: jsCompatCodepoints(s.substring(s.offsetByCodePoints(0, 1))))
+
+    forAll(Gen.listOf(genCodePoints)) { cps =>
+      val strbuilder = new java.lang.StringBuilder
+      cps.foreach(strbuilder.appendCodePoint(_))
+      val str = strbuilder.toString
+      val hex = cps.map(_.toHexString)
+
+      val parsed = p.parseAll(str)
+      assert(parsed == Right(str))
+
+      assert(parsed.map(jsCompatCodepoints) == Right(cps),
+        s"hex = $hex, str = ${jsCompatCodepoints(str)} utf16 = ${str.toCharArray().toList.map(_.toInt.toHexString)}")
+    }
   }
 
   test("Identifier round trips") {
@@ -680,6 +709,7 @@ x""")
     roundTrip(Pattern.matchParser, "_ as foo")
     roundTrip(Pattern.matchParser, "Some(_) as foo | None")
     roundTrip(Pattern.matchParser, "Bar | Some(_) as foo | None")
+    roundTrip(Pattern.matchParser, """"foo${bar}$.{codepoint}"""")
     roundTrip(Pattern.bindParser, "x: Int")
 
     implicit def docList[A: Document]: Document[NonEmptyList[A]] =

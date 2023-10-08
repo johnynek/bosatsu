@@ -306,6 +306,8 @@ object ProtoConverter {
                 case proto.StrPart.Value.LiteralStr(idx) => str(idx).map(Pattern.StrPart.LitStr(_))
                 case proto.StrPart.Value.UnnamedStr(_) => Success(Pattern.StrPart.WildStr)
                 case proto.StrPart.Value.NamedStr(idx) => bindable(idx).map { n => Pattern.StrPart.NamedStr(n) }
+                case proto.StrPart.Value.UnnamedChar(_) => Success(Pattern.StrPart.WildChar)
+                case proto.StrPart.Value.NamedChar(idx) => bindable(idx).map { n => Pattern.StrPart.NamedChar(n) }
               }
 
             items.toList match {
@@ -542,6 +544,8 @@ object ProtoConverter {
           case _: ArithmeticException =>
             proto.Literal.Value.IntValueAsString(i.toString)
         }
+      case c @ Lit.Chr(_) =>
+        proto.Literal.Value.CharValue(c.toCodePoint)
       case Lit.Str(str) =>
         proto.Literal.Value.StringValue(str)
     }
@@ -554,6 +558,8 @@ object ProtoConverter {
         Failure(new Exception("unexpected unset Literal value in pattern"))
       case proto.Literal.Value.StringValue(s) =>
         Success(Lit.Str(s))
+      case proto.Literal.Value.CharValue(cp) =>
+        Success(Lit.Chr.fromCodePoint(cp))
       case proto.Literal.Value.IntValueAs64(l) =>
         Success(Lit(l))
       case proto.Literal.Value.IntValueAsString(s) =>
@@ -587,9 +593,15 @@ object ProtoConverter {
               parts.traverse {
                 case Pattern.StrPart.WildStr =>
                   tabPure(proto.StrPart(proto.StrPart.Value.UnnamedStr(proto.WildCardPat())))
+                case Pattern.StrPart.WildChar =>
+                  tabPure(proto.StrPart(proto.StrPart.Value.UnnamedChar(proto.WildCardPat())))
                 case Pattern.StrPart.NamedStr(n) =>
                   getId(n.sourceCodeRepr).map { idx =>
                     proto.StrPart(proto.StrPart.Value.NamedStr(idx))
+                  }
+                case Pattern.StrPart.NamedChar(n) =>
+                  getId(n.sourceCodeRepr).map { idx =>
+                    proto.StrPart(proto.StrPart.Value.NamedChar(idx))
                   }
                 case Pattern.StrPart.LitStr(s) =>
                   getId(s).map { idx =>

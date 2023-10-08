@@ -15,8 +15,6 @@ import org.typelevel.paiges.Document
 
 import Identifier.Constructor
 
-import cats.implicits._
-
 class TotalityTest extends SetOpsLaws[Pattern[(PackageName, Constructor), Type]] {
   type Pat = Pattern[(PackageName, Constructor), Type]
 
@@ -393,5 +391,27 @@ enum Either: Left(l), Right(r)
       )
 
     regressions.foreach { case (a, b) => emptyIntersectionMeansDiffIdent(a, b, eqPatterns) }
+  }
+
+  test("difference returns distinct regressions") {
+    def check(str: String) = {
+      val List(p1, p2) = patterns(str)
+      val tc = TotalityCheck(predefTE)
+      val diff = tc.difference(p1, p2)
+      assert(diff == diff.distinct)
+    }
+
+    check("""["${foo}$.{_}", "$.{bar}$.{_}$.{_}"]""")
+  }
+  test("string match totality") {
+    val tc = TotalityCheck(predefTE)
+
+    val ps = patterns("""["${_}$.{_}", ""]""")
+    val diff = tc.missingBranches(ps)
+    assert(diff == Nil)
+
+    val ps1 = patterns("""["", "$.{_}${_}"]""")
+    val diff1 = tc.missingBranches(ps1)
+    assert(diff1 == Nil)
   }
 }

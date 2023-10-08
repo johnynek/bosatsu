@@ -86,7 +86,17 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
       case sp@StrPat(_) =>
         val simp = sp.toSeqPattern
-        if (simp.normalize == simp) validUnit
+        def hasAdjacentWild[A](seq: SeqPattern[A]): Boolean =
+          seq match {
+            case SeqPattern.Empty => false
+            case SeqPattern.Cat(SeqPart.Wildcard, tail) =>
+              tail match {
+                case SeqPattern.Cat(SeqPart.Wildcard, _) => true
+                case notStartWild => hasAdjacentWild(notStartWild)
+              }
+            case SeqPattern.Cat(_, tail) => hasAdjacentWild(tail)
+          }
+        if (!hasAdjacentWild(simp)) validUnit
         else Left(NonEmptyList(InvalidStrPat(sp, inEnv), Nil))
 
       case PositionalStruct(name, args) =>
@@ -315,6 +325,8 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
           case (WildCard, right@StrPat(_)) =>
             // _ is the same as "${_}" for well typed expressions
             strPatternSetOps.difference(StrPat(NonEmptyList(StrPart.WildStr, Nil)), right)
+          case (WildCard, Literal(Lit.Str(str))) =>
+            difference(WildCard, StrPat.fromLitStr(str))
           case (Var(v), right@StrPat(_)) =>
             // v is the same as "${v}" for well typed expressions
             strPatternSetOps.difference(StrPat(NonEmptyList(StrPart.NamedStr(v), Nil)), right)
