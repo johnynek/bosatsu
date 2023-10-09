@@ -631,15 +631,12 @@ object MatchlessToValue {
                   }
                 }
                 result
+              // $COVERAGE-OFF$
               case (_: Glob) :: _ =>
-                val n1 = if (h.capture) {
-                  // this index gets the empty string
-                  results(next) = ""
-                  // we match the right side first, so this wild gets nothing
-                  next + 1
-                } else next
-
-                loop(offset, tail, n1)
+                // this should be an error at compile time since it
+                // is never meaningful to have two adjacent globs
+                sys.error(s"invariant violation, adjacent globs: $pat")
+              // $COVERAGE-ON$
             }
         }
 
