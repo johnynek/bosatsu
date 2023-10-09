@@ -1291,13 +1291,14 @@ object PythonGen {
                       )
                     ).withValue(matched)  
 
-                    capture = Code.block(
-                      bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), Some(off1))
-                    ).withValue(true)
-
                     fullMatch <-
                       if (!h.capture) Monad[Env].pure(matchStmt)
-                      else Env.andCode(matchStmt, capture)
+                      else {
+                        val capture = Code.block(
+                          bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), Some(off1))
+                         ).withValue(true)
+                        Env.andCode(matchStmt, capture)
+                      }
 
                   } yield fullMatch
                 // $COVERAGE-OFF$
