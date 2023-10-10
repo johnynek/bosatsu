@@ -602,6 +602,21 @@ main = fac(6)
 """)) {
     case PackageError.KindInferenceError(_, _, _) => ()
   }
+
+    evalFail(
+      List("""
+package Y
+struct W(wf: f[a, b] -> a -> b)
+
+def apply(w):
+  W(fn) = w
+  fn(w)
+""")) {
+    case err@PackageError.TypeErrorIn(_, _) =>
+      val message = err.message(Map.empty, Colorize.None)
+      assert(message.contains("illegal recursive type or function"))
+      ()
+  } 
   }
 
   test("check type aligned enum") {
