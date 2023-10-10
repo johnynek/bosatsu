@@ -10,6 +10,8 @@ str_to_char_tests = TestSuite("string_to_Char",
     Assertion(string_to_Char("s") matches Some(.'s'), "s"),
     Assertion(string_to_Char("") matches None, "empty"),
     Assertion(string_to_Char("foo") matches None, "foo"),
+    # test a 2 word character
+    Assertion(string_to_Char("👋") matches Some(.'👋'), "foo"),
   ]
 )
 
@@ -26,6 +28,7 @@ len_test = TestSuite("len tests",
     Assertion(length_String("") matches 0, "empty"),
     Assertion(length_String("x") matches 1, "x"),
     Assertion(length_String("hello") matches 5, "hello"),
+    Assertion(length_String("👋") matches 1, "👋"),
   ]
 )
 
@@ -40,13 +43,26 @@ last_tests = TestSuite(
     Assertion(last_String("") matches None, "empty"),
     Assertion(last_String("x") matches Some(.'x'), "x"),
     Assertion(last_String("1234") matches Some(.'4'), "1234"),
+    Assertion(last_String("👋") matches Some(.'👋'), "👋"),
   ]
 )
+
+match_tests = TestSuite("match tests",
+  [
+    Assertion("👋👋👋" matches "👋$.{_}👋", "test matching 1"),
+    Assertion("abc👋👋👋" matches "${_}👋$.{_}👋", "test matching 2"),
+    Assertion("abc👋👋👋" matches "abc$.{_}👋${_}", "test matching 2.5"),
+    Assertion("abc👋👋👋" matches "abc👋${_}", "test matching 3"),
+    Assertion("abc👋👋👋" matches "${_}c👋${_}", "test matching 4"),
+    Assertion("abc👋👋👋" matches "${_}c👋${_}$.{_}", "test matching 5"),
+    Assertion("abc👋👋👋" matches "${_}👋", "test matching 6"),
+  ])
 
 tests = TestSuite("Char tests",
   [
     str_to_char_tests,
     len_test,
     last_tests,
+    match_tests,
   ]
 )

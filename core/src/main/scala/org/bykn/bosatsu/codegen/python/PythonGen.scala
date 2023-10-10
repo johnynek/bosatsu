@@ -1149,7 +1149,7 @@ object PythonGen {
                   val regionMatches = strEx.dot(Code.Ident("startswith"))(expect, offsetIdent)
                   val rest =
                     (
-                      offsetIdent := offsetIdent + expect.length
+                      offsetIdent := offsetIdent + expect.codePointCount(0, expect.length)
                     ).withValue(loopRes)
 
                   Env.andCode(regionMatches, rest)
@@ -1251,7 +1251,7 @@ object PythonGen {
                               candidate :> -1,
                               // update candidate and search
                               Code.block(
-                                candOffset := candidate + expect.length,
+                                candOffset := candidate + expect.codePointCount(0, expect.length),
                                 onS)
                               ,
                               // else no more candidates
@@ -1291,13 +1291,14 @@ object PythonGen {
                       )
                     ).withValue(matched)  
 
-                    capture = Code.block(
-                      bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), Some(off1))
-                    ).withValue(true)
-
                     fullMatch <-
                       if (!h.capture) Monad[Env].pure(matchStmt)
-                      else Env.andCode(matchStmt, capture)
+                      else {
+                        val capture = Code.block(
+                          bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), Some(off1))
+                         ).withValue(true)
+                        Env.andCode(matchStmt, capture)
+                      }
 
                   } yield fullMatch
                 // $COVERAGE-OFF$
