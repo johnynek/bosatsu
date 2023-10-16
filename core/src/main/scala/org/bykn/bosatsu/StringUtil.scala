@@ -1,6 +1,6 @@
 package org.bykn.bosatsu
 
-import cats.parse.{Parser0 => P0, Parser => P}
+import cats.parse.{Parser0 => P0, Parser => P, Accumulator, Appender}
 
 abstract class GenericStringUtil {
   protected def decodeTable: Map[Char, Char]
@@ -14,11 +14,11 @@ abstract class GenericStringUtil {
       s"\\u$strPad$strHex"
    }.toArray
 
-  val escapedToken: P[Char] = {
-    def parseIntStr(p: P[Any], base: Int): P[Char] =
-      p.string.map(Integer.parseInt(_, base).toChar)
+  val escapedToken: P[Int] = {
+    def parseIntStr(p: P[Any], base: Int): P[Int] =
+      p.string.map(java.lang.Integer.parseInt(_, base))
 
-    val escapes = P.charIn(decodeTable.keys.toSeq).map(decodeTable(_))
+    val escapes = P.charIn(decodeTable.keys.toSeq).map(decodeTable(_).toInt)
 
     val oct = P.charIn('0' to '7')
     val octP = P.char('o') *> parseIntStr(oct ~ oct, 8)
@@ -37,25 +37,70 @@ abstract class GenericStringUtil {
     P.char('\\') *> after
   }
 
+  val utf16Codepoint: P[Int] = {
+    // see: https://en.wikipedia.org/wiki/UTF-16
+    val first = P.anyChar.map { c =>
+      val ci = c.toInt
+      if (ci < 0xd800 || ci >= 0xe000) Right(ci)
+      else Left(ci)
+    }
+
+    val second: P[Int => Int] =
+      P.charWhere { c =>
+        val ci = c.toInt
+        (0xdc00 <= ci) && (ci <= 0xdfff)
+      }
+      .map { low =>
+        val lowOff = low - 0xdc00 + 0x10000
+
+        { high => 
+          val highPart = (high - 0xd800) * 0x400
+          highPart + lowOff
+        }
+      }
+
+    P.select(first)(second)
+  }
+
+  val codePointAccumulator: Accumulator[Int, String] =
+    new Accumulator[Int, String] {
+      def newAppender(first: Int): Appender[Int,String] =
+        new Appender[Int, String] {
+          val strbuilder = new java.lang.StringBuilder
+          strbuilder.appendCodePoint(first)
+
+          def append(item: Int) = {
+            strbuilder.appendCodePoint(item)
+            this
+          }
+          def finish(): String = strbuilder.toString
+        }
+    }
   /**
    * String content without the delimiter
    */
-  def undelimitedString1(endP: P[Unit]): P[String] =
-    escapedToken.orElse((!endP).with1 *> P.anyChar)
-      .repAs
+  def undelimitedString1(endP: P[Unit]): P[String] = {
+    escapedToken.orElse((!endP).with1 *> utf16Codepoint)
+      .repAs(codePointAccumulator)
+  }
+
+  def codepoint(startP: P[Any], endP: P[Any]): P[Int] =
+    startP *>
+      escapedToken.orElse((!endP).with1 *> utf16Codepoint) <*
+      endP
 
   def escapedString(q: Char): P[String] = {
     val end: P[Unit] = P.char(q)
     end *> undelimitedString1(end).orElse(P.pure("")) <* end
   }
 
-  def interpolatedString[A](quoteChar: Char, istart: P[Unit], interp: P0[A], iend: P[Unit]): P[List[Either[A, (Region, String)]]] = {
+  def interpolatedString[A, B](quoteChar: Char, istart: P[A => B], interp: P0[A], iend: P[Unit]): P[List[Either[B, (Region, String)]]] = {
     val strQuote = P.char(quoteChar)
 
-    val strLit: P[String] = undelimitedString1(strQuote.orElse(istart))
-    val notStr: P[A] = (istart ~ interp ~ iend).map { case ((_, a), _) => a }
+    val strLit: P[String] = undelimitedString1(strQuote.orElse(istart.void))
+    val notStr: P[B] = (istart ~ interp ~ iend).map { case ((fn, a), _) => fn(a) }
 
-    val either: P[Either[A, (Region, String)]] =
+    val either: P[Either[B, (Region, String)]] =
       ((P.index.with1 ~ strLit ~ P.index).map { case ((s, str), l) => Right((Region(s, l), str)) })
         .orElse(notStr.map(Left(_)))
 

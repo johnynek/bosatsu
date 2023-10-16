@@ -522,8 +522,9 @@ object DefRecursionCheck {
           }
         case StringDecl(parts) =>
           parts.parTraverse_ {
-            case Left(nb) => checkDecl(nb)
-            case Right(_) => unitSt
+            case StringDecl.CharExpr(nb) => checkDecl(nb)
+            case StringDecl.StrExpr(nb) => checkDecl(nb)
+            case StringDecl.Literal(_, _) => unitSt
           }
         case ListDecl(ll) =>
           ll match {

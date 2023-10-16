@@ -485,7 +485,7 @@ object PackageError {
             case InvalidStrPat(pat, _) =>
               Doc.text(s"invalid string pattern: ") +
                 Document[Pattern.Parsed].document(pat) +
-                Doc.text(" (adjacent bindings aren't allowed)")
+                Doc.text(" (adjacent string bindings aren't allowed)")
             case MultipleSplicesInPattern(_, _) =>
               // TODO: get printing of compiled patterns working well
               //val docp = Document[Pattern.Parsed].document(Pattern.ListPat(pat)) +

@@ -311,25 +311,37 @@ final class SourceConverter(
         // a single string item should be converted
         // to that thing,
         // two or more should be converted this to concat_String([items])
-        val decls = parts.map {
-          case Right((r, str)) => Literal(Lit(str))(r)
-          case Left(decl) => decl
+
+        def charToString(expr: Expr[Declaration]): Expr[Declaration] = {
+          val fnName: Expr[Declaration] =
+            Expr.Global(PackageName.PredefName, Identifier.Name("char_to_String"), expr.tag)
+
+          Expr.buildApp(fnName, expr :: Nil, expr.tag)
         }
 
-        decls match {
-          case NonEmptyList(one, Nil) =>
-            loop(one)
+        val decls = parts.parTraverse {
+          case StringDecl.Literal(r, str) => loop(Literal(Lit(str))(r))
+          case StringDecl.CharExpr(decl) => loop(decl).map(charToString)
+          case StringDecl.StrExpr(decl) => loop(decl)
+        }
+
+        decls.map {
+          case NonEmptyList(one, Nil) => one
           case twoOrMore =>
-            val lldecl =
-              ListDecl(ListLang.Cons(twoOrMore.toList.map(SpliceOrItem.Item(_))))(s.region)
+            def listOf(expr: List[Expr[Declaration]], restDecl: Declaration): Expr[Declaration] =
+              expr match {
+                case Nil =>
+                  Expr.Global(PackageName.PredefName, Identifier.Constructor("EmptyList"), restDecl)
+                case h :: tail =>
+                  val cons = Expr.Global(PackageName.PredefName, Identifier.Constructor("NonEmptyList"), restDecl)
+                  val tailExpr = listOf(tail, h.tag)
+                  Expr.buildApp(cons, h :: tailExpr :: Nil, restDecl)
+              }
 
-            loop(lldecl).map { listExpr =>
+            val fnName: Expr[Declaration] =
+              Expr.Global(PackageName.PredefName, Identifier.Name("concat_String"), s)
 
-              val fnName: Expr[Declaration] =
-                Expr.Global(PackageName.PredefName, Identifier.Name("concat_String"), s)
-
-              Expr.buildApp(fnName, listExpr.replaceTag(s: Declaration) :: Nil, s)
-            }
+            Expr.buildApp(fnName, listOf(twoOrMore.toList, s) :: Nil, s)
         }
       case l@ListDecl(list) =>
         list match {

@@ -717,7 +717,8 @@ object TypedExprNormalization {
                 }
               }
             }
-        case EvalResult.Constant(Lit.Str(_)) =>
+        case EvalResult.Constant(Lit.Str(_) | Lit.Chr(_)) =>
+          // TODO, we can match some of these statically
           None
       }
   }

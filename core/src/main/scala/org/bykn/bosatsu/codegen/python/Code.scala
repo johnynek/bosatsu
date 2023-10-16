@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import java.math.BigInteger
 import org.bykn.bosatsu.{Lit, PredefImpl, StringUtil}
 import org.typelevel.paiges.Doc
+import scala.language.implicitConversions
 
 // Structs are represented as tuples
 // Enums are represented as tuples with an additional first field holding
@@ -38,20 +39,40 @@ object Code {
     def eval(op: Operator, x: Expression): Expression =
       Op(this, op, x).simplify
 
+    def :>(that: Expression): Expression =
+      Code.Op(this, Code.Const.Gt, that)
+
+    def :<(that: Expression): Expression =
+      Code.Op(this, Code.Const.Lt, that)
+
+    def =:=(that: Expression): Expression =
+      Code.Op(this, Code.Const.Eq, that)
+
     def evalAnd(that: Expression): Expression =
       eval(Const.And, that)
 
     def evalPlus(that: Expression): Expression =
       eval(Const.Plus, that)
 
+    def +(that: Expression): Expression =
+      evalPlus(that)
+
+    def unary_! : Expression =
+      Code.Ident("not")(this)
+
     def evalMinus(that: Expression): Expression =
       eval(Const.Minus, that)
+    
+    def -(that: Expression): Expression = evalMinus(that)
 
     def evalTimes(that: Expression): Expression =
       eval(Const.Times, that)
 
     def :=(vl: ValueLike): Statement =
       addAssign(this, vl)
+
+    def len(): Expression =
+      dot(Code.Ident("__len__"))()
 
     def simplify: Expression
   }
@@ -127,7 +148,7 @@ object Code {
       case Parens(inner@Parens(_)) => exprToDoc(inner)
       case Parens(p) => par(exprToDoc(p))
       case SelectItem(x, i) =>
-        maybePar(x) + Doc.char('[') + Doc.str(i) + Doc.char(']')
+        maybePar(x) + Doc.char('[') + exprToDoc(i) + Doc.char(']')
       case SelectRange(x, os, oe) =>
         val middle = os.fold(Doc.empty)(exprToDoc) + Doc.char(':') + oe.fold(Doc.empty)(exprToDoc)
         maybePar(x) + (Doc.char('[') + middle + Doc.char(']')).nested(4)
@@ -407,16 +428,20 @@ object Code {
         case exprS => Parens(exprS)
       }
   }
-  case class SelectItem(arg: Expression, position: Int) extends Expression {
+  case class SelectItem(arg: Expression, position: Expression) extends Expression {
     def simplify: Expression =
-      arg.simplify match {
-        case MakeTuple(items) if items.lengthCompare(position) > 0 =>
-          items(position)
-        case MakeList(items) if items.lengthCompare(position) > 0 =>
-          items(position)
-        case simp =>
-          SelectItem(simp, position)
+      (arg.simplify, position.simplify) match {
+        case (MakeTuple(items), PyInt(bi)) if items.lengthCompare(bi.intValue()) > 0 =>
+          items(bi.intValue())
+        case (MakeList(items), PyInt(bi)) if items.lengthCompare(bi.intValue()) > 0 =>
+          items(bi.intValue())
+        case (simp, spos) =>
+          SelectItem(simp, spos)
       }
+  }
+  object SelectItem {
+    def apply(arg: Expression, position: Int): SelectItem =
+      SelectItem(arg, Code.fromInt(position))
   }
   // foo[a:b]
   case class SelectRange(arg: Expression, start: Option[Expression], end: Option[Expression]) extends Expression {
@@ -508,6 +533,11 @@ object Code {
         last
     }
   }
+  def if1(cond: Expression, stmt: Statement): Statement =
+    ifStatement(NonEmptyList.one((cond, stmt)), None)
+
+  def ifElseS(cond: Expression, ifCase: Statement, elseCase: Statement): Statement =
+    ifStatement(NonEmptyList.one((cond, ifCase)), Some(elseCase))
 
   /*
    * if __name__ == "__main__":
@@ -610,18 +640,22 @@ object Code {
     lit match {
       case Lit.Str(s) => PyString(s)
       case Lit.Integer(bi) => PyInt(bi)
+      case Lit.Chr(s) => PyString(s)
     }
 
-  def fromInt(i: Int): Expression =
+  implicit def fromInt(i: Int): Expression =
     fromLong(i.toLong)
 
-  def fromLong(i: Long): Expression =
+  implicit def fromString(str: String): Expression =
+    PyString(str)
+
+  implicit def fromLong(i: Long): Expression =
     if (i == 0L) Const.Zero
     else if (i == 1L) Const.One
     else PyInt(BigInteger.valueOf(i))
 
 
-  def fromBoolean(b: Boolean): Expression =
+  implicit def fromBoolean(b: Boolean): Expression =
     if (b) Code.Const.True else Code.Const.False
 
   sealed abstract class Operator(val name: String) {

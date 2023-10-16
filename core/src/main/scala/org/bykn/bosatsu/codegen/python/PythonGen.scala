@@ -275,7 +275,7 @@ object PythonGen {
 
     def ifElseS(cond: ValueLike, thenS: Statement, elseS: Statement): Env[Statement] =
       cond match {
-        case x: Expression => Monad[Env].pure(ifStatement(NonEmptyList.one((x, thenS)), Some(elseS)))
+        case x: Expression => Monad[Env].pure(Code.ifElseS(x, thenS, elseS))
         case WithValue(stmt, vl) =>
           ifElseS(vl, thenS, elseS).map(stmt +: _)
         case v =>
@@ -285,7 +285,7 @@ object PythonGen {
             .map { tmp =>
               Code.block(
                 tmp := v,
-                ifStatement(NonEmptyList.one((tmp, thenS)), Some(elseS))
+                Code.ifElseS(tmp, thenS, elseS)
               )
             }
       }
@@ -403,10 +403,10 @@ object PythonGen {
         cont <- Env.newAssignableVar
         ac = assignMut(cont)(fnArgs.toList)
         res <- Env.newAssignableVar
-        ar = Assign(res, Code.Const.Unit)
+        ar = (res := Code.Const.Unit)
         body1 <- replaceTailCallWithAssign(selfName, mutArgs.length, body)(assignMut(cont))
         setRes = res := body1
-        loop = While(cont, Assign(cont, Const.False) +: setRes)
+        loop = While(cont, (cont := false) +: setRes)
         newBody = (ac +: ar +: loop).withValue(res)
       } yield makeDef(selfName, fnArgs, newBody)
     }
@@ -591,7 +591,7 @@ object PythonGen {
         val selfName = Code.Ident("self")
 
         val isAssertion: Code.Expression =
-          Code.Op(argName.get(0), Code.Const.Eq, Code.fromInt(0))
+          argName.get(0) =:= 0
 
         // Assertion(bool, msg)
         val testAssertion: Code.Statement =
@@ -763,16 +763,11 @@ object PythonGen {
       private val cmpFn: List[ValueLike] => Env[ValueLike] = {
         input =>
           Env.onLast2(input.head, input.tail.head) { (arg0, arg1) =>
-              // 0 if arg0 < arg1 else (
-              //     1 if arg0 == arg1 else 2
-              //   )
               Code.Ternary(
-                Code.fromInt(0),
-                Code.Op(arg0, Code.Const.Lt, arg1),
-                Code.Ternary(
-                  Code.fromInt(1),
-                  Code.Op(arg0, Code.Const.Eq, arg1),
-                  Code.fromInt(2))).simplify
+                0,
+                arg0 :< arg1,
+                Code.Ternary(1, arg0 =:= arg1, 2)
+              ).simplify
           }
       }
 
@@ -796,7 +791,7 @@ object PythonGen {
                 Code.Ternary(
                   Code.Op(a, Code.Const.Div, b),
                   b, // 0 is false in python
-                  Code.fromInt(0)
+                  0
                 ).simplify
               }
             }, 2)),
@@ -869,7 +864,7 @@ object PythonGen {
                     Env.onLasts(input) {
                       case i :: a :: fn :: Nil =>
                         Code.block(
-                          cont := Code.Op(Code.fromInt(0), Code.Const.Lt, i),
+                          cont := (Code.fromInt(0) :< i),
                           res := a,
                           _i := i,
                           _a := a,
@@ -878,12 +873,10 @@ object PythonGen {
                               res := fn(_i, _a),
                               tmp_i := res.get(0),
                               _a := res.get(1).get(0),
-                              cont := Code.Op(Code.Op(Code.fromInt(0), Code.Const.Lt, tmp_i),
-                                Code.Const.And,
-                                Code.Op(tmp_i, Code.Const.Lt, _i)),
+                              cont := (Code.fromInt(0) :< tmp_i).evalAnd(tmp_i :< _i),
                               _i := tmp_i
-                              )
-                           )
+                            )
+                          )
                         )
                         .withValue(_a)
                       case other =>
@@ -919,6 +912,9 @@ object PythonGen {
               case i => Code.Apply(Code.DotSelect(i, Code.Ident("__str__")), Nil)
             }
           }, 1)),
+        (Identifier.unsafeBindable("char_to_String"),
+          // we encode chars as strings so this is just identity
+          ({ input => Env.envMonad.pure(input.head) }, 1)),
         (Identifier.unsafeBindable("trace"),
           ({
             input => Env.onLast2(input.head, input.tail.head) { (msg, i) =>
@@ -1079,18 +1075,14 @@ object PythonGen {
         ix match {
           case EqualsLit(expr, lit) =>
             val literal = Code.litToExpr(lit)
-            loop(expr).flatMap(Env.onLast(_) { ex => Code.Op(ex, Code.Const.Eq, literal) })
+            loop(expr).flatMap(Env.onLast(_) { ex => ex =:= literal })
           case EqualsNat(nat, zeroOrSucc) =>
             val natF = loop(nat)
 
             if (zeroOrSucc.isZero)
-              natF.flatMap(Env.onLast(_) { x =>
-                Code.Op(x, Code.Const.Eq, Code.Const.Zero)
-              })
+              natF.flatMap(Env.onLast(_)(_ =:= 0))
             else
-              natF.flatMap(Env.onLast(_) { x =>
-                Code.Op(x, Code.Const.Gt, Code.Const.Zero)
-              })
+              natF.flatMap(Env.onLast(_)(_ :> 0))
 
           case TrueConst => Monad[Env].pure(Code.Const.True)
           case And(ix1, ix2) =>
@@ -1103,15 +1095,14 @@ object PythonGen {
             // otherwise, we use tuples with the first
             // item being the variant
             val useInts = famArities.forall(_ == 0)
-            val idxExpr = Code.fromInt(idx)
             loop(enumV).flatMap { tup =>
               Env.onLast(tup) { t =>
                 if (useInts) {
                   // this is represented as an integer
-                  Code.Op(t, Code.Const.Eq, idxExpr)
+                  t =:= idx
                 }
                 else
-                  Code.Op(t.get(0), Code.Const.Eq, idxExpr)
+                  t.get(0) =:= idx
               }
             }
           case SetMut(LocalAnonMut(mut), expr) =>
@@ -1139,7 +1130,7 @@ object PythonGen {
         }
 
       def matchString(strEx: Expression, pat: List[StrPart], binds: List[Code.Ident]): Env[ValueLike] = {
-        import StrPart.{LitStr, Glob}
+        import StrPart.{LitStr, Glob, CharPart}
         val bindArray = binds.toArray
         // return a value like expression that contains the boolean result
         // and assigns all the bindings along the way
@@ -1147,7 +1138,7 @@ object PythonGen {
           pat match {
             case Nil =>
               //offset == str.length
-              Monad[Env].pure(Code.Op(offsetIdent, Code.Const.Eq, strEx.dot(Code.Ident("__len__"))()))
+              Monad[Env].pure(offsetIdent =:= strEx.len())
             case LitStr(expect) :: tail =>
               //val len = expect.length
               //str.regionMatches(offset, expect, 0, len) && loop(offset + len, tail, next)
@@ -1155,14 +1146,32 @@ object PythonGen {
               // strEx.startswith(expect, offsetIdent)
               loop(offsetIdent, tail, next)
                 .flatMap { loopRes =>
-                  val regionMatches = strEx.dot(Code.Ident("startswith"))(Code.PyString(expect), offsetIdent)
+                  val regionMatches = strEx.dot(Code.Ident("startswith"))(expect, offsetIdent)
                   val rest =
                     (
-                      offsetIdent := (offsetIdent.evalPlus(Code.fromInt(expect.length)))
+                      offsetIdent := offsetIdent + expect.codePointCount(0, expect.length)
                     ).withValue(loopRes)
 
                   Env.andCode(regionMatches, rest)
                 }
+            case (c: CharPart) :: tail =>
+              val matches = offsetIdent :< strEx.len()
+              val n1 = if (c.capture) (next + 1) else next
+              val stmt =
+                if (c.capture) {
+                  // b = str[offset]
+                  Code.block(
+                    bindArray(next) := Code.SelectItem(strEx, offsetIdent),
+                    offsetIdent := offsetIdent + 1
+                  )
+                  .withValue(true)
+                }
+                else (offsetIdent := offsetIdent + 1).withValue(true)
+              for {
+                tailRes <- loop(offsetIdent, tail, n1)
+                and2 <- Env.andCode(stmt, tailRes)
+                and1 <- Env.andCode(matches, and2)
+              } yield and1
             case (h: Glob) :: tail =>
               tail match {
                 case Nil =>
@@ -1171,7 +1180,7 @@ object PythonGen {
                     if (h.capture) {
                       // b = str[offset:]
                       (bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), None))
-                        .withValue(Code.Const.True)
+                        .withValue(true)
                     }
                     else Code.Const.True
                   )
@@ -1225,31 +1234,28 @@ object PythonGen {
                             val capture = if (h.capture) (bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), Some(candidate))) else Code.Pass
                             Code.block(
                               capture,
-                              result := Code.Const.True,
-                              start := Code.fromInt(-1)
+                              result := true,
+                              start := -1
                             )
                           },
                           {
                             // we couldn't match at start, advance just after the
                             // candidate
-                            start := candidate.evalPlus(Code.fromInt(1))
+                            start := candidate + 1
                           })
 
                       def findBranch(search: ValueLike): Env[Statement] =
                         onSearch(search)
                           .flatMap { onS =>
                             Env.ifElseS(
-                              Code.Op(candidate, Code.Const.Gt, Code.fromInt(-1)),
-                              {
-                                // update candidate and search
-                                Code.block(
-                                  candOffset := Code.Op(candidate, Code.Const.Plus, Code.fromInt(expect.length)),
-                                  onS)
-                              },
-                              {
-                                // else no more candidates
-                                start := Code.fromInt(-1)
-                              }
+                              candidate :> -1,
+                              // update candidate and search
+                              Code.block(
+                                candOffset := candidate + expect.codePointCount(0, expect.length),
+                                onS)
+                              ,
+                              // else no more candidates
+                              start := -1
                             )
                           }
 
@@ -1259,10 +1265,10 @@ object PythonGen {
                       } yield
                         (Code.block(
                           start := offsetIdent,
-                          result := Code.Const.False,
-                          Code.While(Code.Op(start, Code.Const.Gt, Code.fromInt(-1)),
+                          result := false,
+                          Code.While((start :> -1),
                             Code.block(
-                              candidate := strEx.dot(Code.Ident("find"))(Code.PyString(expect), start),
+                              candidate := strEx.dot(Code.Ident("find"))(expect, start),
                               find
                             )
                           )
@@ -1270,18 +1276,42 @@ object PythonGen {
                         .withValue(result))
                     }
                     .flatten
+                case (_: CharPart) :: _ =>
+                  val next1 = if (h.capture) (next + 1) else next
+                  for {
+                    matched <- Env.newAssignableVar
+                    off1 <- Env.newAssignableVar
+                    tailMatched <- loop(off1, tail, next1)    
+
+                    matchStmt = Code.block(
+                      matched := false,
+                      off1 := offsetIdent,
+                      Code.While((!matched).evalAnd(off1 :< strEx.len()),
+                        matched := tailMatched // the tail match increments the 
+                      )
+                    ).withValue(matched)  
+
+                    fullMatch <-
+                      if (!h.capture) Monad[Env].pure(matchStmt)
+                      else {
+                        val capture = Code.block(
+                          bindArray(next) := Code.SelectRange(strEx, Some(offsetIdent), Some(off1))
+                         ).withValue(true)
+                        Env.andCode(matchStmt, capture)
+                      }
+
+                  } yield fullMatch
+                // $COVERAGE-OFF$
                 case (_: Glob) :: _ =>
-                  // $COVERAGE-OFF$
                   throw new IllegalArgumentException(s"pattern: $pat should have been prevented: adjacent globs are not permitted (one is always empty)")
-                  // $COVERAGE-ON$
+                // $COVERAGE-ON$
               }
           }
 
-        Env.newAssignableVar
-          .flatMap { offsetIdent =>
-            loop(offsetIdent, pat, 0)
-              .map { res => (offsetIdent := Code.fromInt(0)).withValue(res) }
-          }
+        for {
+          offsetIdent <- Env.newAssignableVar
+          res <- loop(offsetIdent, pat, 0)
+        } yield (offsetIdent := 0).withValue(res)
       }
 
       def searchList(locMut: LocalAnonMut, initVL: ValueLike, checkVL: ValueLike, optLeft: Option[LocalAnonMut]): Env[ValueLike] = {
@@ -1323,11 +1353,10 @@ object PythonGen {
                   Code.block(
                       currentList := tmpList,
                       res := checkVL,
-                      Code.ifStatement(
-                        NonEmptyList(
-                          (res, (tmpList := emptyList)),
-                          Nil),
-                        Some {
+                      Code.ifElseS(
+                        res,
+                        tmpList := emptyList,
+                        {
                           Code.block(
                             tmpList := tailList(tmpList),
                             optLeft.fold(Code.pass) { left =>

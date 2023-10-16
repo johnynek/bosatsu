@@ -1077,6 +1077,7 @@ object Infer {
           }
           val names = items.collect {
             case GenPattern.StrPart.NamedStr(n) => (n, tpe)
+            case GenPattern.StrPart.NamedChar(n) => (n, Type.CharType)
           }
           // we need to apply the type so the names are well typed
           val anpat = GenPattern.Annotation(pat, tpe)

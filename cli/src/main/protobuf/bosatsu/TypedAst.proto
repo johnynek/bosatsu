@@ -194,6 +194,7 @@ message Literal {
     string stringValue = 1;
     int64 intValueAs64 = 2;
     string intValueAsString = 3;
+    int32 charValue = 4;
   }
 }
 
@@ -221,6 +222,8 @@ message StrPart {
     WildCardPat unnamedStr = 1;
     int32 namedStr = 2;
     int32 literalStr = 3;
+    WildCardPat unnamedChar = 4;
+    int32 namedChar = 5;
   }
 }
 

@@ -146,14 +146,15 @@ sealed abstract class Declaration {
 
       case StringDecl(parts) =>
         val useDouble = parts.exists {
-          case Right((_, str)) => str.contains('\'') && !str.contains('"')
-          case Left(_) => false
+          case StringDecl.Literal(_, str) => str.contains('\'') && !str.contains('"')
+          case _ => false
         }
         val q = if (useDouble) '"' else '\''
         val inner = Doc.intercalate(Doc.empty,
           parts.toList.map {
-            case Right((_, str)) => Doc.text(StringUtil.escape(q, str))
-            case Left(decl) => Doc.text("${") + decl.toDoc + Doc.char('}')
+            case StringDecl.Literal(_, str) => Doc.text(StringUtil.escape(q, str))
+            case StringDecl.StrExpr(decl) => Doc.text("${") + decl.toDoc + Doc.char('}')
+            case StringDecl.CharExpr(decl) => Doc.text("$.{") + decl.toDoc + Doc.char('}')
           })
         Doc.char(q) + inner + Doc.char(q)
 
@@ -233,7 +234,8 @@ sealed abstract class Declaration {
         case Var(_) => acc
         case StringDecl(items) =>
           items.foldLeft(acc) {
-            case (acc, Left(nb)) => loop(nb, bound, acc)
+            case (acc, StringDecl.StrExpr(nb)) => loop(nb, bound, acc)
+            case (acc, StringDecl.CharExpr(nb)) => loop(nb, bound, acc)
             case (acc, _) => acc
           }
         case ListDecl(ListLang.Cons(items)) =>
@@ -345,8 +347,9 @@ sealed abstract class Declaration {
         case Var(_) => acc
         case StringDecl(nel) =>
           nel.foldLeft(acc) {
-            case (acc0, Left(decl)) => loop(decl, acc0)
-            case (acc0, Right(_)) => acc0
+            case (acc0, StringDecl.StrExpr(decl)) => loop(decl, acc0)
+            case (acc0, StringDecl.CharExpr(decl)) => loop(decl, acc0)
+            case (acc0, _) => acc0
           }
         case ListDecl(ListLang.Cons(items)) =>
           items.foldLeft(acc) { (acc0, sori) =>
@@ -523,8 +526,9 @@ object Declaration {
         case StringDecl(nel) =>
           nel
             .traverse {
-              case Left(nb) => loop(nb).map(Left(_))
-              case right => Some(right)
+              case StringDecl.StrExpr(nb) => loop(nb).map(StringDecl.StrExpr(_))
+              case StringDecl.CharExpr(nb) => loop(nb).map(StringDecl.CharExpr(_))
+              case lit => Some(lit)
             }
             .map(StringDecl(_)(decl.region))
         case ListDecl(ll) =>
@@ -669,8 +673,9 @@ object Declaration {
         case Var(b) => Var(b)(r)
         case StringDecl(nel) =>
           val ne1 = nel.map {
-            case Right((_, s)) => Right((r, s))
-            case Left(e) => Left(e.replaceRegionsNB(r))
+            case StringDecl.Literal(_, s) => StringDecl.Literal(r, s)
+            case StringDecl.CharExpr(e) => StringDecl.CharExpr(e.replaceRegionsNB(r))
+            case StringDecl.StrExpr(e) => StringDecl.StrExpr(e.replaceRegionsNB(r))
           }
           StringDecl(ne1)(r)
         case ListDecl(ListLang.Cons(items)) =>
@@ -756,7 +761,13 @@ object Declaration {
   /**
    * This represents interpolated strings
    */
-  case class StringDecl(items: NonEmptyList[Either[NonBinding, (Region, String)]])(implicit val region: Region) extends NonBinding
+  case class StringDecl(items: NonEmptyList[StringDecl.Part])(implicit val region: Region) extends NonBinding
+  object StringDecl {
+    sealed abstract class Part
+    case class Literal(region: Region, toStr: String) extends Part
+    case class StrExpr(nonBinding: NonBinding) extends Part
+    case class CharExpr(nonBinding: NonBinding) extends Part
+  }
   /**
    * This represents the list construction language
    */
@@ -788,13 +799,14 @@ object Declaration {
           Pattern.StructKind.Named(nm, Pattern.StructKind.Style.TupleLike), Nil))
       case Var(v: Bindable) => Some(Pattern.Var(v))
       case Literal(lit) => Some(Pattern.Literal(lit))
-      case StringDecl(NonEmptyList(Right((_, s)), Nil)) =>
+      case StringDecl(NonEmptyList(StringDecl.Literal(_, s), Nil)) =>
         Some(Pattern.Literal(Lit.Str(s)))
       case StringDecl(items) =>
-        def toStrPart(p: Either[NonBinding, (Region, String)]): Option[Pattern.StrPart] =
+        def toStrPart(p: StringDecl.Part): Option[Pattern.StrPart] =
           p match {
-            case Right((_, str)) => Some(Pattern.StrPart.LitStr(str))
-            case Left(Var(v: Bindable)) => Some(Pattern.StrPart.NamedStr(v))
+            case StringDecl.Literal(_, str) => Some(Pattern.StrPart.LitStr(str))
+            case StringDecl.StrExpr(Var(v: Bindable)) => Some(Pattern.StrPart.NamedStr(v))
+            case StringDecl.CharExpr(Var(v: Bindable)) => Some(Pattern.StrPart.NamedChar(v))
             case _ => None
           }
         items.traverse(toStrPart).map(Pattern.StrPat(_))
@@ -913,7 +925,8 @@ object Declaration {
   }
 
   def stringDeclOrLit(inner: Indy[NonBinding]): Indy[NonBinding] = {
-    val start = P.string("${")
+    val start = P.string("${").as((a: NonBinding) => StringDecl.StrExpr(a)) |
+      P.string("$.{").as((a: NonBinding) => StringDecl.CharExpr(a))
     val end = P.char('}')
     val q1 = '\''
     val q2 = '"'
@@ -929,7 +942,10 @@ object Declaration {
         case (r, Right((_, str)) :: Nil) =>
           Literal(Lit.Str(str))(r)
         case (r, h :: tail) =>
-          StringDecl(NonEmptyList(h, tail))(r)
+          StringDecl(NonEmptyList(h, tail).map {
+            case Right((region, str)) => StringDecl.Literal(region, str)
+            case Left(expr) => expr
+          })(r)
         }
     }
   }
@@ -1069,7 +1085,8 @@ object Declaration {
       .region
       .map { case (r, l) => DictDecl(l)(r) }
 
-  val lits: P[Literal] = Lit.integerParser.region.map { case (r, l) => Literal(l)(r) }
+  val lits: P[Literal] =
+    (Lit.integerParser | Lit.codePointParser).region.map { case (r, l) => Literal(l)(r) }
 
   private sealed abstract class ParseMode
   private object ParseMode {
@@ -1171,8 +1188,9 @@ object Declaration {
         val slashcontinuation = ((maybeSpace ~ P.char('\\') ~ toEOL1).backtrack ~ Parser.maybeSpacesAndLines).?.void
         // 0 or more args
         val params0 = recNonBind.parensLines0Cut
+        val justDot = P.not(P.string(".\"") | P.string(".'")).with1 *> P.char('.')
         val dotApply: P[NonBinding => NonBinding] =
-          (slashcontinuation.with1 *> P.char('.') *> (fn ~ params0))
+          (slashcontinuation.with1 *> justDot *> (fn ~ params0))
             .region
             .map { case (r2, (fn, args)) =>
 

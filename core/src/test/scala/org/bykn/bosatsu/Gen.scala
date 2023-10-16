@@ -169,10 +169,14 @@ object Generators {
   }
 
   def genStringDecl(dec0: Gen[NonBinding]): Gen[Declaration.StringDecl] = {
+    import Declaration.StringDecl
+
     val item =
       Gen.oneOf(
-        Arbitrary.arbitrary[String].filter(_.length > 1).map { s => Right((emptyRegion, s)) },
-        dec0.map(Left(_)))
+        Arbitrary.arbitrary[String].filter(_.length > 1).map { s => StringDecl.Literal(emptyRegion, s) },
+        dec0.map(StringDecl.StrExpr(_)),
+        dec0.map(StringDecl.CharExpr(_)),
+        )
 
     def removeAdj[A](nea: NonEmptyList[A])(fn: (A, A) => Boolean): NonEmptyList[A] =
       nea match {
@@ -186,11 +190,14 @@ object Generators {
       lst <- Gen.listOfN(sz, item)
       nel = NonEmptyList.fromListUnsafe(lst)
       // make sure we don't have two adjacent strings
-      nel1 = removeAdj(nel) { (a1, a2) => a1.isRight && a2.isRight }
+      nel1 = removeAdj(nel) {
+         case (StringDecl.Literal(_, _), StringDecl.Literal(_, _)) => true
+         case _ => false
+      }
     } yield Declaration.StringDecl(nel1)(emptyRegion)
 
     res.filter {
-      case Declaration.StringDecl(NonEmptyList(Right(_), Nil)) =>
+      case Declaration.StringDecl(NonEmptyList(StringDecl.Literal(_, _), Nil)) =>
         false
       case _ => true
     }
@@ -437,11 +444,15 @@ object Generators {
           Gen.oneOf(
             lowerIdent.map(Pattern.StrPart.LitStr(_)),
             bindIdentGen.map(Pattern.StrPart.NamedStr(_)),
-            Gen.const(Pattern.StrPart.WildStr))
+            bindIdentGen.map(Pattern.StrPart.NamedChar(_)),
+            Gen.const(Pattern.StrPart.WildStr),
+            Gen.const(Pattern.StrPart.WildChar))
 
         def isWild(p: Pattern.StrPart): Boolean =
           p match {
-            case Pattern.StrPart.LitStr(_) => false
+            case Pattern.StrPart.LitStr(_) |
+              Pattern.StrPart.NamedChar(_) |
+              Pattern.StrPart.WildChar => false
             case _ => true
           }
 
@@ -559,8 +570,10 @@ object Generators {
       str <- lowerIdent // TODO
     } yield Lit.Str(str)
 
+    val char = Gen.choose(0, 0xd7ff).map { i => Lit.Chr.fromCodePoint(i) }
+
     val bi = Arbitrary.arbitrary[BigInt].map { bi => Lit.Integer(bi.bigInteger) }
-    Gen.oneOf(str, bi)
+    Gen.oneOf(str, bi, char)
   }
 
   val identifierGen: Gen[Identifier] =
@@ -742,8 +755,9 @@ object Generators {
           case Var(_) => Stream.empty
           case StringDecl(parts) =>
             parts.toList.toStream.map {
-              case Left(nb) => nb
-              case Right((r, str)) => Literal(Lit.Str(str))(r)
+              case StringDecl.StrExpr(nb) => nb
+              case StringDecl.CharExpr(nb) => nb
+              case StringDecl.Literal(r, str) => Literal(Lit.Str(str))(r)
             }
           case ListDecl(ListLang.Cons(items)) =>
             items.map(_.value).toStream
