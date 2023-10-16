@@ -15,14 +15,15 @@ class Macro(val c: Context) {
         if (f.exists()) {
           val res = Source.fromFile(s, "UTF-8").getLines().mkString("\n")
           Some(c.Expr[String](q"$res"))
-        }
-        else {
+        } else {
           None
         }
-      }
-      catch {
+      } catch {
         case NonFatal(err) =>
-          c.abort(c.enclosingPosition, s"could not read existing file: $s. Exception: $err")
+          c.abort(
+            c.enclosingPosition,
+            s"could not read existing file: $s. Exception: $err"
+          )
       }
 
     file.tree match {
@@ -34,11 +35,14 @@ class Macro(val c: Context) {
           .getOrElse {
             c.abort(
               c.enclosingPosition,
-              s"no file found at: $s. working directory is ${System.getProperty("user.dir")}")
+              s"no file found at: $s. working directory is ${System.getProperty("user.dir")}"
+            )
           }
       case otherTree =>
-        c.abort(c.enclosingPosition, s"expected string literal, found: $otherTree")
+        c.abort(
+          c.enclosingPosition,
+          s"expected string literal, found: $otherTree"
+        )
     }
   }
 }
-

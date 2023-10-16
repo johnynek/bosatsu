@@ -14,15 +14,14 @@ import JsonEncodingError.IllTyped
 
 case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
-  /**
-   * Convert a typechecked value to a Document representation
-   *
-   * Note, we statically build the conversion function if it is possible at
-   * all, after that, only value errors can occur
-   *
-   * this code ASSUMES the type is correct. If not, we may return
-   * incorrect data if it is not clearly illtyped
-   */
+  /** Convert a typechecked value to a Document representation
+    *
+    * Note, we statically build the conversion function if it is possible at
+    * all, after that, only value errors can occur
+    *
+    * this code ASSUMES the type is correct. If not, we may return incorrect
+    * data if it is not clearly illtyped
+    */
   def toDoc(tpe: Type): Value => Either[IllTyped, Doc] = {
 
     type Fn = Value => Either[IllTyped, Doc]
@@ -39,33 +38,31 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
         case Some(fn) => fn
         case None =>
           val res: Eval[Fn] = Eval.later(tpe match {
-            case Type.IntType =>
-              {
-                case ExternalValue(v: BigInteger) =>
-                  Right(Doc.str(v))
-                case other =>
-                  // $COVERAGE-OFF$this should be unreachable
-                  Left(IllTyped(revPath.reverse, tpe, other))
-                  // $COVERAGE-ON$
-              }
-            case Type.StrType =>
-              {
-                case ExternalValue(v: String) =>
-                  Right(Document[Lit].document(Lit.Str(v)))
-                case other =>
-                  // $COVERAGE-OFF$this should be unreachable
-                  Left(IllTyped(revPath.reverse, tpe, other))
-                  // $COVERAGE-ON$
-              }
+            case Type.IntType => {
+              case ExternalValue(v: BigInteger) =>
+                Right(Doc.str(v))
+              case other =>
+                // $COVERAGE-OFF$this should be unreachable
+                Left(IllTyped(revPath.reverse, tpe, other))
+              // $COVERAGE-ON$
+            }
+            case Type.StrType => {
+              case ExternalValue(v: String) =>
+                Right(Document[Lit].document(Lit.Str(v)))
+              case other =>
+                // $COVERAGE-OFF$this should be unreachable
+                Left(IllTyped(revPath.reverse, tpe, other))
+              // $COVERAGE-ON$
+            }
             case Type.UnitType =>
               // encode this as null
               {
                 case UnitValue => Right(Doc.text("()"))
-                case other =>
+                case other     =>
                   // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))
-                  // $COVERAGE-ON$
-                }
+                // $COVERAGE-ON$
+              }
             case Type.ListT(t1) =>
               lazy val inner = loop(t1, tpe :: revPath).value
 
@@ -73,12 +70,14 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case VList(vs) =>
                   vs.traverse(inner)
                     .map { inners =>
-                      Doc.char('[') + (Doc.lineOrEmpty + commaBlock(inners) + Doc.lineOrEmpty).aligned + Doc.char(']')
+                      Doc.char('[') + (Doc.lineOrEmpty + commaBlock(
+                        inners
+                      ) + Doc.lineOrEmpty).aligned + Doc.char(']')
                     }
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))
-                  // $COVERAGE-ON$
+                // $COVERAGE-ON$
               }
             case Type.DictT(Type.StrType, vt) =>
               lazy val inner = loop(vt, tpe :: revPath).value
@@ -86,25 +85,30 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
 
               {
                 case VDict(d) =>
-                  d.toList.traverse { case (k, v) =>
-                    k match {
-                      case Str(kstr) =>
-                        inner(v).map { vdoc =>
-                          (docStr.document(Lit.Str(kstr)) + (Doc.char(':') + Doc.line + vdoc).nested(4)).grouped
-                        }
-                      case other =>
-                        // $COVERAGE-OFF$this should be unreachable
-                        Left(IllTyped(revPath.reverse, tpe, other))
+                  d.toList
+                    .traverse { case (k, v) =>
+                      k match {
+                        case Str(kstr) =>
+                          inner(v).map { vdoc =>
+                            (docStr.document(Lit.Str(kstr)) + (Doc.char(
+                              ':'
+                            ) + Doc.line + vdoc).nested(4)).grouped
+                          }
+                        case other =>
+                          // $COVERAGE-OFF$this should be unreachable
+                          Left(IllTyped(revPath.reverse, tpe, other))
                         // $COVERAGE-ON$
+                      }
                     }
-                  }
-                  .map { kvs =>
-                    Doc.char('{') + (Doc.lineOrEmpty + commaBlock(kvs) + Doc.lineOrEmpty).aligned + Doc.char('}')
-                  }
+                    .map { kvs =>
+                      Doc.char('{') + (Doc.lineOrEmpty + commaBlock(
+                        kvs
+                      ) + Doc.lineOrEmpty).aligned + Doc.char('}')
+                    }
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))
-                  // $COVERAGE-ON$
+                // $COVERAGE-ON$
               }
             case Type.Tuple(ts) =>
               val p1 = tpe :: revPath
@@ -117,12 +121,13 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                     .toVector
                     .traverse { case (a, fn) => fn(a) }
                     .map { items =>
-                      Doc.char('(') + (Doc.lineOrEmpty + commaBlock(items) + Doc.char(',') + Doc.lineOrEmpty).aligned + Doc.char(')')
+                      Doc.char('(') + (Doc.lineOrEmpty + commaBlock(items) + Doc
+                        .char(',') + Doc.lineOrEmpty).aligned + Doc.char(')')
                     }
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))
-                  // $COVERAGE-ON$
+                // $COVERAGE-ON$
               }
 
             case Type.ForAll(_, inner) =>
@@ -131,7 +136,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
             case Type.TyVar(_) =>
               // we don't really know what to do with
               { _ => Right(Doc.text("<unknown>")) }
-            case fn@Type.Fun(_, _) =>
+            case fn @ Type.Fun(_, _) =>
               def arity(fn: Type): Int =
                 fn match {
                   case Type.Fun(_, dest) =>
@@ -147,7 +152,7 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case other =>
                   // $COVERAGE-OFF$this should be unreachable
                   Left(IllTyped(revPath.reverse, tpe, other))
-                  // $COVERAGE-ON$
+                // $COVERAGE-ON$
               }
             case _ =>
               // We can have complicated recursion here, we
@@ -168,9 +173,11 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                 case Some(dt) =>
                   val cons = dt.constructors
                   val (_, targs) = Type.applicationArgs(tpe)
-                  val replaceMap = dt.typeParams.zip(targs).toMap[Type.Var, Type]
+                  val replaceMap =
+                    dt.typeParams.zip(targs).toMap[Type.Var, Type]
 
-                  lazy val resInner: Map[Int, (Constructor, List[(String, Fn)])] =
+                  lazy val resInner
+                      : Map[Int, (Constructor, List[(String, Fn)])] =
                     cons.zipWithIndex
                       .traverse { case (cf, idx) =>
                         val rec = cf.args.traverse { case (field, t) =>
@@ -183,7 +190,11 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                       .map(_.toMap)
                       .value
 
-                  def params(variant: Int, params: List[Value], src: Value): Either[IllTyped, Doc] =
+                  def params(
+                      variant: Int,
+                      params: List[Value],
+                      src: Value
+                  ): Either[IllTyped, Doc] =
                     resInner.get(variant) match {
                       case None =>
                         Left(IllTyped(revPath.reverse, tpe, src))
@@ -193,42 +204,43 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                             .zip(fields)
                             .traverse { case (v, (nm, fn)) =>
                               fn(v).map { vdoc =>
-                                (Doc.text(nm) + Doc.char(':') + Doc.lineOrSpace + vdoc).nested(4)
+                                (Doc.text(nm) + Doc.char(
+                                  ':'
+                                ) + Doc.lineOrSpace + vdoc).nested(4)
                               }
                             }
                             .map { paramsDoc =>
                               val nm = Doc.text(name.asString)
                               if (paramsDoc.isEmpty) nm
                               else {
-                                nm  + Doc.space +
-                                  (Doc.char('{') + (Doc.line + commaBlock(paramsDoc)).nested(4) + Doc.line + Doc.char('}')).grouped
+                                nm + Doc.space +
+                                  (Doc.char('{') + (Doc.line + commaBlock(
+                                    paramsDoc
+                                  )).nested(4) + Doc.line + Doc
+                                    .char('}')).grouped
                               }
                             }
-                        }
-                        else Left(IllTyped(revPath.reverse, tpe, src))
+                        } else Left(IllTyped(revPath.reverse, tpe, src))
                     }
-
 
                   dt.dataFamily match {
                     case DataFamily.NewType =>
                       // the outer wrapping is so we add it back
 
                       { v => params(0, v :: Nil, v) }
-                    case DataFamily.Struct =>
-                      {
-                        case prod: ProductValue =>
-                          params(0, prod.toList, prod)
+                    case DataFamily.Struct => {
+                      case prod: ProductValue =>
+                        params(0, prod.toList, prod)
 
-                        case other =>
-                          Left(IllTyped(revPath.reverse, tpe, other))
-                      }
-                    case DataFamily.Enum =>
-                      {
-                        case s: SumValue =>
-                          params(s.variant, s.value.toList, s)
-                        case a =>
-                          Left(IllTyped(revPath.reverse, tpe, a))
-                       }
+                      case other =>
+                        Left(IllTyped(revPath.reverse, tpe, other))
+                    }
+                    case DataFamily.Enum => {
+                      case s: SumValue =>
+                        params(s.variant, s.value.toList, s)
+                      case a =>
+                        Left(IllTyped(revPath.reverse, tpe, a))
+                    }
                     case DataFamily.Nat =>
                       // this is nat-like
                       // TODO, maybe give a warning
@@ -239,8 +251,8 @@ case class ValueToDoc(getDefinedType: Type.Const => Option[DefinedType[Any]]) {
                           Left(IllTyped(revPath.reverse, tpe, other))
                       }
                   }
-                }
-            })
+              }
+          })
           // put the result in the cache before we compute it
           // so we can recurse
           successCache.put(tpe, res)

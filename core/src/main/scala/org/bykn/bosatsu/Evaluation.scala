@@ -9,9 +9,9 @@ import cats.implicits._
 import Identifier.Bindable
 
 case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
-  /**
-   * Holds the final value of the environment for each Package
-   */
+
+  /** Holds the final value of the environment for each Package
+    */
   private[this] val envCache: MMap[PackageName, Map[Identifier, Eval[Value]]] =
     MMap.empty
 
@@ -20,46 +20,46 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     externalNames.iterator.map { n =>
       val tpe = p.program.types.getValue(p.name, n) match {
         case Some(t) => t
-        case None =>
+        case None    =>
           // $COVERAGE-OFF$
           // should never happen due to typechecking
           sys.error(s"from ${p.name} import unknown external def: $n")
-          // $COVERAGE-ON$
+        // $COVERAGE-ON$
       }
       externals.toMap.get((p.name, n.asString)) match {
         case Some(ext) => (n, Eval.later(ext.call(tpe)))
-        case None =>
+        case None      =>
           // $COVERAGE-OFF$
           // should never happen due to typechecking
           sys.error(s"from ${p.name} no External for external def: $n")
-          // $COVERAGE-ON$
+        // $COVERAGE-ON$
       }
-    }
-    .toMap
+    }.toMap
   }
 
   private[this] lazy val gdr = pm.getDataRepr
 
-  private def evalLets(thisPack: PackageName, lets: List[(Bindable, RecursionKind, TypedExpr[T])]): List[(Bindable, Eval[Value])] = {
+  private def evalLets(
+      thisPack: PackageName,
+      lets: List[(Bindable, RecursionKind, TypedExpr[T])]
+  ): List[(Bindable, Eval[Value])] = {
     val exprs: List[(Bindable, Matchless.Expr)] =
-      rankn.RefSpace
-        .allocCounter
+      rankn.RefSpace.allocCounter
         .flatMap { c =>
           lets
-            .traverse {
-              case (name, rec, te) =>
-                Matchless.fromLet(name, rec, te, gdr, c)
-                 .map((name, _))
+            .traverse { case (name, rec, te) =>
+              Matchless
+                .fromLet(name, rec, te, gdr, c)
+                .map((name, _))
             }
-      }
-      .run
-      .value
+        }
+        .run
+        .value
 
-    val evalFn: (PackageName, Identifier) => Eval[Value] =
-      { (p, i) =>
-        if (p == thisPack) Eval.defer(evaluate(p)(i))
-        else evaluate(p)(i)
-      }
+    val evalFn: (PackageName, Identifier) => Eval[Value] = { (p, i) =>
+      if (p == thisPack) Eval.defer(evaluate(p)(i))
+      else evaluate(p)(i)
+    }
 
     type F[A] = List[(Bindable, A)]
     val ffunc = cats.Functor[List].compose(cats.Functor[(Bindable, *)])
@@ -67,10 +67,12 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
   }
 
   private def evaluate(packName: PackageName): Map[Identifier, Eval[Value]] =
-    envCache.getOrElseUpdate(packName, {
-      val pack = pm.toMap(packName)
-      externalEnv(pack) ++ evalLets(packName, pack.program.lets)
-    })
+    envCache.getOrElseUpdate(
+      packName, {
+        val pack = pm.toMap(packName)
+        externalEnv(pack) ++ evalLets(packName, pack.program.lets)
+      }
+    )
 
   def evaluateLast(p: PackageName): Option[(Eval[Value], Type)] =
     for {
@@ -80,18 +82,21 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     } yield (value, tpe.getType)
 
   // TODO: this only works for lets, not externals
-  def evaluateName(p: PackageName, name: Bindable): Option[(Eval[Value], Type)] =
+  def evaluateName(
+      p: PackageName,
+      name: Bindable
+  ): Option[(Eval[Value], Type)] =
     for {
       pack <- pm.toMap.get(p)
-      (_, _, tpe) <- pack.program.lets.filter { case (n, _, _) => n == name }.lastOption
+      (_, _, tpe) <- pack.program.lets.filter { case (n, _, _) =>
+        n == name
+      }.lastOption
       value <- evaluate(p).get(name)
     } yield (value, tpe.getType)
 
-  /**
-   * Return the last test, if any, in the package.
-   * this is the test that is run when we test
-   * the package
-   */
+  /** Return the last test, if any, in the package. this is the test that is run
+    * when we test the package
+    */
   def lastTest(p: PackageName): Option[Eval[Value]] =
     for {
       pack <- pm.toMap.get(p)
@@ -115,36 +120,30 @@ case class Evaluation[T](pm: PackageMap.Typed[T], externals: Externals) {
     Doc.intercalate(Doc.lineOrSpace, packs).render(80)
   }
 
-  */
+   */
 
   def evalTest(ps: PackageName): Option[Eval[Test]] =
     lastTest(ps).map { ea =>
       ea.map(Test.fromValue(_))
     }
 
-  /**
-   * Convert a typechecked value to Json
-   * this code ASSUMES the type is correct. If not, we may throw or return
-   * incorrect data.
-   */
-  val valueToJson: ValueToJson = ValueToJson({
-    case Type.Const.Defined(pn, t) =>
-      for {
-        pack <- pm.toMap.get(pn)
-        dt <- pack.program.types.getType(pn, t)
-      } yield dt
+  /** Convert a typechecked value to Json this code ASSUMES the type is correct.
+    * If not, we may throw or return incorrect data.
+    */
+  val valueToJson: ValueToJson = ValueToJson({ case Type.Const.Defined(pn, t) =>
+    for {
+      pack <- pm.toMap.get(pn)
+      dt <- pack.program.types.getType(pn, t)
+    } yield dt
   })
 
-  /**
-   * Convert a typechecked value to Doc
-   * this code ASSUMES the type is correct. If not, we may throw or return
-   * incorrect data.
-   */
-  val valueToDoc: ValueToDoc = ValueToDoc({
-    case Type.Const.Defined(pn, t) =>
-      for {
-        pack <- pm.toMap.get(pn)
-        dt <- pack.program.types.getType(pn, t)
-      } yield dt
+  /** Convert a typechecked value to Doc this code ASSUMES the type is correct.
+    * If not, we may throw or return incorrect data.
+    */
+  val valueToDoc: ValueToDoc = ValueToDoc({ case Type.Const.Defined(pn, t) =>
+    for {
+      pack <- pm.toMap.get(pn)
+      dt <- pack.program.types.getType(pn, t)
+    } yield dt
   })
 }
