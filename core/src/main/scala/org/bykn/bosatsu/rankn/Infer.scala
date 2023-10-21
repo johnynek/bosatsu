@@ -465,7 +465,7 @@ object Infer {
      * Return a Rho type (not a Forall), by assigning
      * new meta variables for each of the outer ForAll variables
      */
-    def instantiate(t: Type, region: Region): Infer[Type.Rho] =
+    def instantiate(t: Type): Infer[Type.Rho] =
       t match {
         case Type.ForAll(vars, rho) =>
           // TODO: it may be possible to improve type checking
@@ -502,13 +502,13 @@ object Infer {
       (t, rho) match {
         case (fa@Type.ForAll(_, _), rho) =>
           // Rule SPEC
-          instantiate(fa, left).flatMap(subsCheckRho(_, rho, left, right))
+          instantiate(fa).flatMap(subsCheckRho2(_, rho, left, right))
         case (rhot: Type.Rho, rho) =>
           subsCheckRho2(rhot, rho, left, right)
       }
 
     def subsCheckRho2(t: Type.Rho, rho: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
-      // get the kinds to make sure they are well kindinded
+      // get the kinds to make sure they are well kinded
       kindOf(t, left).product(kindOf(rho, right)) *>
       ((t, rho) match {
         case (rho1, Type.Fun(a2, r2)) =>
@@ -518,7 +518,7 @@ object Infer {
             (a1, r1) = a1r1
             // since rho is in weak prenex form, and Fun is covariant on r2, we know
             // r2 is in weak-prenex form and a rho type
-            rhor2 <- assertRho(r2, s"subsCheckRho($t, $rho, $left, $right), line 462", right)
+            rhor2 <- assertRho(r2, s"subsCheckRho2($t, $rho, $left, $right), line 521", right)
             coerce <- subsCheckFn(a1, r1, a2, rhor2, left, right)
           } yield coerce
         case (Type.Fun(a1, r1), rho2) =>
@@ -591,7 +591,7 @@ object Infer {
           subsCheckRho(sigma, t, r, tr)
         case infer@Expected.Inf(_) =>
           for {
-            rho <- instantiate(sigma, r)
+            rho <- instantiate(sigma)
             _ <- infer.set((rho, r))
             ks <- checkedKinds
             // there is no point in zonking here, we just instantiated rho
@@ -1212,7 +1212,7 @@ object Infer {
               } yield rest.updated(v0, right)
             case (_, fa@Type.ForAll(_, _)) =>
               // we have to instantiate a rho type
-              instantiate(fa, sigmaRegion).flatMap(loop(revArgs, leftKind, _))
+              instantiate(fa).flatMap(loop(revArgs, leftKind, _))
             case ((v0, k) :: rest, _) =>
               // (k -> leftKind)(k)
               for {
