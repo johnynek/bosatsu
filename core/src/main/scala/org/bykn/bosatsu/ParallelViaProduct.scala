@@ -7,13 +7,15 @@ import cats.{Parallel, Applicative}
 abstract class ParallelViaProduct[G[_]] extends Parallel[G] { self =>
 
   type F[A] = G[A]
-  val parallel = new FunctionK[G, F] {
-    def apply[A](ga: G[A]) = ga
-  }
+  val parallel: FunctionK[G, F] =
+    new FunctionK[G, F] {
+      def apply[A](ga: G[A]) = ga
+    }
 
-  val sequential = new FunctionK[F, G] {
-    def apply[A](fa: F[A]) = fa
-  }
+  val sequential: FunctionK[F, G] =
+    new FunctionK[F, G] {
+      def apply[A](fa: F[A]) = fa
+    }
 
   def parallelProduct[A, B](fa: F[A], fb: F[B]): F[(A, B)]
 

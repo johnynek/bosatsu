@@ -44,7 +44,7 @@ object SeqPart {
           case Some(topA) => setOpsA.difference(topA, a).map(toPart1)
         }
 
-      val top = Some(AnyElem)
+      val top: Option[SeqPart1[A]] = Some(AnyElem)
       def isTop(c: SeqPart1[A]) =
         c match {
           case AnyElem => true

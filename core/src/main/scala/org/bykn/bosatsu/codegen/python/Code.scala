@@ -227,16 +227,16 @@ object Code {
   /////////////////////////
 
   case class PyInt(toBigInteger: BigInteger) extends Expression {
-    def simplify = this
+    def simplify: Expression = this
   }
   case class PyString(content: String) extends Expression {
-    def simplify = this
+    def simplify: Expression = this
   }
   case class PyBool(toBoolean: Boolean) extends Expression {
-    def simplify = this
+    def simplify: Expression = this
   }
   case class Ident(name: String) extends Expression {
-    def simplify = this
+    def simplify: Expression = this
   }
   // Binary operator used for +, -, and, == etc...
   case class Op(left: Expression, op: Operator, right: Expression) extends Expression {
@@ -445,7 +445,7 @@ object Code {
   }
   // foo[a:b]
   case class SelectRange(arg: Expression, start: Option[Expression], end: Option[Expression]) extends Expression {
-    def simplify = SelectRange(arg, start.map(_.simplify), end.map(_.simplify))
+    def simplify: Expression = SelectRange(arg, start.map(_.simplify), end.map(_.simplify))
   }
   case class Ternary(ifTrue: Expression, cond: Expression, ifFalse: Expression) extends Expression {
     def simplify: Expression =
@@ -459,19 +459,19 @@ object Code {
       }
   }
   case class MakeTuple(args: List[Expression]) extends Expression {
-    def simplify = MakeTuple(args.map(_.simplify))
+    def simplify: Expression = MakeTuple(args.map(_.simplify))
   }
   case class MakeList(args: List[Expression]) extends Expression {
-    def simplify = MakeList(args.map(_.simplify))
+    def simplify: Expression = MakeList(args.map(_.simplify))
   }
   case class Lambda(args: List[Ident], result: Expression) extends Expression {
-    def simplify = Lambda(args, result.simplify)
+    def simplify: Expression = Lambda(args, result.simplify)
   }
   case class Apply(fn: Expression, args: List[Expression]) extends Expression {
-    def simplify = Apply(fn.simplify, args.map(_.simplify))
+    def simplify: Expression = Apply(fn.simplify, args.map(_.simplify))
   }
   case class DotSelect(ex: Expression, ident: Ident) extends Expression {
-    def simplify = DotSelect(ex.simplify, ident)
+    def simplify: Expression = DotSelect(ex.simplify, ident)
   }
 
   /////////////////////////

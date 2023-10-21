@@ -131,7 +131,7 @@ object SeqPattern {
     new SetOps[SeqPattern[A]] {
       import SeqPart.{SeqPart1, AnyElem, Wildcard}
 
-      lazy val top = Some(Wild)
+      val top: Option[SeqPattern[A]] = Some(Wild)
       def isTop(p: SeqPattern[A]) = p.matchesAny
 
       // Try to unify lists according to the rules:

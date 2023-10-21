@@ -629,7 +629,7 @@ object Type {
     }
 
   private object FullResolved extends TypeParser[Type] {
-    lazy val parseRoot = {
+    lazy val parseRoot: P[Type] = {
       val tvar = Parser.lowerIdent.map { s => Type.TyVar(Type.Var.Bound(s)) }
       val name = ((PackageName.parser <* P.string("::")) ~ Identifier.consParser)
         .map { case (p, n) => Type.TyConst(Type.Const.Defined(p, TypeName(n))) }
@@ -654,13 +654,13 @@ object Type {
       tvar.orElse(name).orElse(skolem).orElse(meta)
     }
 
-    def makeFn(in: NonEmptyList[Type], out: Type) =
+    def makeFn(in: NonEmptyList[Type], out: Type): Type =
       // this may be an invalid function, but typechecking verifies that.
       Type.Fun(in, out)
 
     def applyTypes(left: Type, args: NonEmptyList[Type]) = applyAll(left, args.toList)
 
-    def universal(vs: NonEmptyList[(String, Option[Kind])], on: Type) =
+    def universal(vs: NonEmptyList[(String, Option[Kind])], on: Type): Type =
       Type.forAll(vs.map {
         case (s, None) => (Type.Var.Bound(s), Kind.Type)
         case (s, Some(k)) => (Type.Var.Bound(s), k)

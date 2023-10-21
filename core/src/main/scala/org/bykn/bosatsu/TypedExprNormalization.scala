@@ -703,7 +703,7 @@ object TypedExprNormalization {
               case Pattern.Union(h, t) =>
                 (h :: t).toList.iterator.map(makeLet).reduce(_.orElse(_))
               // $COVERAGE-OFF$ this is ill-typed so should be unreachable
-              case Pattern.PositionalStruct(_, _) | Pattern.ListPat(_) | Pattern.StrPat(_) | Pattern.Literal(Lit.Str(_)) => None
+              case Pattern.PositionalStruct(_, _) | Pattern.ListPat(_) | Pattern.StrPat(_) | Pattern.Literal(Lit.Str(_) | Lit.Chr(_)) => None
               // $COVERAGE-ON$
             }
 

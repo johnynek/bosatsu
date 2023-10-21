@@ -42,9 +42,9 @@ object RefSpace {
       value
   }
   private case class AllocRef[A](handle: Long, init: A) extends RefSpace[A] with Ref[A] {
-    def get = this
-    def set(a: A) = SetRef(handle, a)
-    val reset = Reset(handle)
+    def get: RefSpace[A] = this
+    def set(a: A): RefSpace[Unit] = SetRef(handle, a)
+    val reset: RefSpace[Unit] = Reset(handle)
 
     protected def runState(al: AtomicLong, state: State): Eval[A] =
       Eval.now {
@@ -65,7 +65,7 @@ object RefSpace {
       { state.remove(handle); Eval.Unit }
   }
   private case class Alloc[A](init: A) extends RefSpace[Ref[A]] {
-    protected def runState(al: AtomicLong, state: State) =
+    protected def runState(al: AtomicLong, state: State): Eval[Ref[A]] =
       Eval.now(AllocRef(al.getAndIncrement, init))
   }
 
