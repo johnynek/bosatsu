@@ -55,7 +55,7 @@ object Variance {
 
   implicit val varianceBoundedSemilattice: BoundedSemilattice[Variance] =
     new BoundedSemilattice[Variance] {
-      override def empty = Phantom
+      override def empty = phantom
       override def combine(a: Variance, b: Variance): Variance =
         a + b
     }

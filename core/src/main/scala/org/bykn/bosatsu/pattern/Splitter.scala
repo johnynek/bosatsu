@@ -105,7 +105,7 @@ object Splitter {
 
     final def cons(c: V, s: List[V]) = c :: s
 
-    final def emptySeq = Nil
+    final def emptySeq = List.empty[V]
     final def catSeqs(s: List[List[V]]) = s.flatten
     final override def toList(s: List[V]) = s
     final override def fromList(cs: List[V]) = cs

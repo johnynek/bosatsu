@@ -34,7 +34,7 @@ object Toposort {
     def isFailure: Boolean = !isSuccess
   }
   final case class Success[A](layers: Vector[NonEmptyList[A]], nfn: A => List[A]) extends Result[A] {
-    def loopNodes = Nil
+    def loopNodes = List.empty[A]
   }
   final case class Failure[A](loopNodes: List[A], layers: Vector[NonEmptyList[A]]) extends Result[A]
 

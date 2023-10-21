@@ -303,7 +303,7 @@ object Infer {
     // $COVERAGE-ON$
 
     case object GetEnv extends Infer[Env] {
-      def run(env: Env) = RefSpace.pure(Right(env))
+      def run(env: Env): RefSpace[Either[Error, Env]] = RefSpace.pure(Right(env))
     }
 
     def GetDataCons(fqn: (PackageName, Constructor), reg: Region): Infer[Cons] =

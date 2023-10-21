@@ -448,7 +448,7 @@ class BoolSeqPatternTest extends SeqPatternLaws[Set[Boolean], Boolean, List[Bool
       Some(loop(sp))
     }
 
-  override def diffUBRegressions =
+  override def diffUBRegressions: List[(Pattern, Pattern, List[Boolean])] =
     List({
       val p1 = Cat(Wildcard,Empty)
       val p2 = Cat(Lit(Set(true)),Cat(Wildcard,Cat(Lit(Set(true, false)),Cat(Lit(Set(true)),Cat(Wildcard, Empty)))))
@@ -613,7 +613,8 @@ class SeqPatternTest extends SeqPatternLaws[Char, Char, String, Unit] {
       Pattern.Cat(Lit(c), r)
     }
 
-  override def diffUBRegressions =
+
+  override def diffUBRegressions: List[(SeqPattern[Char], SeqPattern[Char], String)] =
     List({
       val p1 = Cat(AnyElem,Cat(Wildcard,Empty))
       val p2 = Cat(Wildcard,Cat(AnyElem,Cat(Lit('0'),Cat(Lit('1'),Cat(Wildcard, Empty)))))

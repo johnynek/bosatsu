@@ -6,6 +6,6 @@ object DirectEC {
   implicit val directEC: ExecutionContext =
     new ExecutionContext {
       def execute(r: Runnable) = r.run()
-      def reportFailure(t: Throwable) = throw t
+      def reportFailure(t: Throwable): Unit = throw t
     }
 }

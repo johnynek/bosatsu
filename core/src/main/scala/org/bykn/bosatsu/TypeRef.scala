@@ -109,19 +109,19 @@ object TypeRef {
     }
 
   private object TypeRefParser extends TypeParser[TypeRef] {
-    lazy val parseRoot = {
+    lazy val parseRoot: P[TypeRef] = {
       val tvar = Parser.lowerIdent.map(TypeVar(_))
       val tname = Identifier.consParser.map { cn => TypeName(Name(cn)) }
 
       tvar.orElse(tname)
     }
-    def makeFn(in: NonEmptyList[TypeRef], out: TypeRef) = TypeArrow(in, out)
+    def makeFn(in: NonEmptyList[TypeRef], out: TypeRef): TypeRef = TypeArrow(in, out)
 
-    def applyTypes(cons: TypeRef, args: NonEmptyList[TypeRef]) = TypeApply(cons, args)
-    def universal(vars: NonEmptyList[(String, Option[Kind])], in: TypeRef) =
+    def applyTypes(cons: TypeRef, args: NonEmptyList[TypeRef]): TypeRef = TypeApply(cons, args)
+    def universal(vars: NonEmptyList[(String, Option[Kind])], in: TypeRef): TypeRef =
       TypeForAll(vars.map { case (s, k) => (TypeVar(s), k) }, in)
 
-    def makeTuple(items: List[TypeRef]) = TypeTuple(items)
+    def makeTuple(items: List[TypeRef]): TypeRef = TypeTuple(items)
 
     def unapplyRoot(a: TypeRef): Option[Doc] =
       a match {

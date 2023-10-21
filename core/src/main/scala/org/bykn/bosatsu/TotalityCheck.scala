@@ -228,7 +228,7 @@ case class TotalityCheck(inEnv: TypeEnv[Any]) {
 
   lazy val patternSetOps: SetOps[Pattern[Cons, Type]] =
     new SetOps[Pattern[Cons, Type]] { self =>
-      val top = Some(WildCard)
+      val top: Option[Pattern[Cons, Type]] = Some(WildCard)
 
       def intersection(
         left: Pattern[Cons, Type],

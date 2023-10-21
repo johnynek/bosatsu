@@ -63,7 +63,7 @@ object KindFormula {
         idx: Int,
         kindArg: Kind.Arg
     ) extends Constraint {
-      def depends = Nil
+      def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         if (value == kindArg.variance) Sat.Yes
         else Sat.No
@@ -76,7 +76,7 @@ object KindFormula {
         bound: rankn.Type.Var.Bound,
         kindArg: Kind.Arg
     ) extends Constraint {
-      def depends = Nil
+      def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == kindArg.variance)
     }
@@ -88,20 +88,20 @@ object KindFormula {
         kind: Kind,
         kindArg: Kind.Arg
     ) extends Constraint {
-      def depends = Nil
+      def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == kindArg.variance)
     }
 
     // arg idx of a given constructor function
     case class Accessor(cfn: ConstructorFn, idx: Int) extends Constraint {
-      def depends = Nil
+      def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == Variance.co || value == Variance.in)
     }
 
     case class RecursiveView(cfn: ConstructorFn, idx: Int) extends Constraint {
-      def depends = Nil
+      def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == Variance.co)
     }
@@ -127,7 +127,7 @@ object KindFormula {
         inType: rankn.Type,
         variance: Variance
     ) extends Constraint {
-      def depends = Nil
+      def depends = List.empty[Var]
       def satisfied(known: LongMap[Variance], value: Variance) =
         Sat(value == variance)
     }
@@ -233,7 +233,8 @@ object KindFormula {
 
     implicit val emptyTypeEnv: IsTypeEnv[Unit] =
       new IsTypeEnv[Unit] {
-        def getDefinedType(env: Unit, tc: rankn.Type.Const) = None
+        def getDefinedType(env: Unit, tc: rankn.Type.Const) =
+          Option.empty[DefinedType[Kind.Arg]]
       }
   }
 

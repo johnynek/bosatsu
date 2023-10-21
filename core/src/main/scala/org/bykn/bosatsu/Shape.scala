@@ -184,7 +184,7 @@ object Shape {
 
     implicit val emptyShapeEnv: IsShapeEnv[Unit] =
       new IsShapeEnv[Unit] {
-        def getShape(env: Unit, tc: rankn.Type.Const) = None
+        def getShape(env: Unit, tc: rankn.Type.Const) = Option.empty[KnownShape]
       }
   }
 
