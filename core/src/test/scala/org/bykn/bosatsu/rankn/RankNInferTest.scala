@@ -216,6 +216,10 @@ class RankNInferTest extends AnyFunSuite {
     assertTypesDisjoint("Int -> Unit", "String")
     assertTypesDisjoint("Int -> Unit", "String -> a")
     assertTypesUnify("forall a. Int", "Int")
+    
+    // Test unbound vars
+    assertTypesDisjoint("a", "Int")
+    assertTypesDisjoint("Int", "a")
   }
 
   test("Basic inferences") {
@@ -1138,4 +1142,39 @@ foo = (
 
 """, "Foo")
   }
+
+  test("widening inside a match") {
+    parseProgram("""#
+enum B: True, False
+
+def not(b):
+  match b:
+    case True: False
+    case False: True
+
+def branch(x):
+  match x:
+    case True: (x -> x): forall a. a -> a    
+    case False: i -> not(i)
+
+res = branch(True)(True)
+""", "B")
+
+    parseProgramIllTyped("""#
+enum B: True, False
+
+def not(b):
+  match b:
+    case True: False
+    case False: True
+
+def branch[a](x: B) -> (a -> a):
+  match x:
+    case True: (x -> x): forall a. a -> a    
+    case False: i -> not(i)
+
+res = branch(True)(True)
+""")
+  }
+
 }

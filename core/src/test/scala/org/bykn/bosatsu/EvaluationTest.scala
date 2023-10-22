@@ -3167,4 +3167,19 @@ test3 = Assertion(last("foo") matches Some(.'o'), "last test")
 all = TestSuite("chars", [test1, test2, test3])
 """), "Foo", 3)
   }
+
+  test("test universal quantified list match") {
+    runBosatsuTest(List("""
+package Foo
+
+empty: (forall a. List[a]) = []
+
+res = match empty:
+  case []: 0
+  case [_, *_]: 1
+
+test = Assertion(res matches 0, "one")
+"""), "Foo", 1)
+
+  }
 }
