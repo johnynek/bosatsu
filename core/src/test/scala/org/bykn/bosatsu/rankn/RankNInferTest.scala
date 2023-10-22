@@ -1155,5 +1155,21 @@ def branch(x):
 
 res = branch(True)(True)
 """, "B")
+
+    parseProgramIllTyped("""#
+enum B: True, False
+
+def not(b):
+  match b:
+    case True: False
+    case False: True
+
+def branch[a](x: B) -> (a -> a):
+  match x:
+    case True: (x -> x): forall a. a -> a    
+    case False: i -> not(i)
+
+res = branch(True)(True)
+""")
   }
 }
