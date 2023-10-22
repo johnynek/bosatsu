@@ -216,6 +216,10 @@ class RankNInferTest extends AnyFunSuite {
     assertTypesDisjoint("Int -> Unit", "String")
     assertTypesDisjoint("Int -> Unit", "String -> a")
     assertTypesUnify("forall a. Int", "Int")
+    
+    // Test unbound vars
+    assertTypesDisjoint("a", "Int")
+    assertTypesDisjoint("Int", "a")
   }
 
   test("Basic inferences") {
@@ -1172,4 +1176,5 @@ def branch[a](x: B) -> (a -> a):
 res = branch(True)(True)
 """)
   }
+
 }
