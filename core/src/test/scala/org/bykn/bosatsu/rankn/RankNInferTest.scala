@@ -1138,4 +1138,22 @@ foo = (
 
 """, "Foo")
   }
+
+  test("widening inside a match") {
+    parseProgram("""#
+enum B: True, False
+
+def not(b):
+  match b:
+    case True: False
+    case False: True
+
+def branch(x):
+  match x:
+    case True: (x -> x): forall a. a -> a    
+    case False: i -> not(i)
+
+res = branch(True)(True)
+""", "B")
+  }
 }

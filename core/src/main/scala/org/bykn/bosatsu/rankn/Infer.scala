@@ -866,14 +866,14 @@ object Infer {
                   extendEnv(name, tpe) {
                     checkSigma(rhs, tpe).parProduct(typeCheckRho(body, expect))
                   }
-              case _ =>
+              case notAnnotated =>
                 newMetaType(Kind.Type) // the kind of a let value is a Type
                   .flatMap { rhsTpe =>
                     extendEnv(name, rhsTpe) {
                       for {
                         // the type variable needs to be unified with varT
                         // note, varT could be a sigma type, it is not a Tau or Rho
-                        typedRhs <- inferSigmaMeta(rhs, Some((name, rhsTpe, region(rhs))))
+                        typedRhs <- inferSigmaMeta(notAnnotated, Some((name, rhsTpe, region(notAnnotated))))
                         varT = typedRhs.getType
                         // we need to overwrite the metavariable now with the full type
                         typedBody <- extendEnv(name, varT)(typeCheckRho(body, expect))
@@ -1284,6 +1284,7 @@ object Infer {
     def inferSigma[A: HasRegion](e: Expr[A]): Infer[TypedExpr[A]] =
       inferSigmaMeta(e, None)
 
+    // invariant: if meta.isDefined then e is not Expr.Annotated
     def inferSigmaMeta[A: HasRegion](e: Expr[A], meta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] = {
       def unifySelf(tpe: Type.Rho): Infer[Map[Name, Type]] =
         meta match {
@@ -1304,8 +1305,6 @@ object Infer {
             case Some((_, tpe, rtpe)) =>
               def maybeUnified(e: Expr[A]): Infer[Unit] =
                 e match {
-                  case Expr.Annotation(e1, t, _) =>
-                    unifyType(tpe, t, rtpe, region(e)) *> maybeUnified(e1)
                   case Expr.Lambda(args, res, _) =>
                     unifyFn(args.length, tpe, rtpe, region(e) - region(res)).void
                   case _ =>
@@ -1378,9 +1377,9 @@ object Infer {
     expr match {
       case Expr.Annotated(tpe) =>
         extendEnv(name, tpe)(checkSigma(expr, tpe))
-      case _ =>
+      case notAnnotated =>
         newMetaType(Kind.Type).flatMap { tpe =>
-          extendEnv(name, tpe)(typeCheckMeta(expr, Some((name, tpe, region(expr)))))
+          extendEnv(name, tpe)(typeCheckMeta(notAnnotated, Some((name, tpe, region(notAnnotated)))))
         }
     }
 
@@ -1400,6 +1399,7 @@ object Infer {
       }
     }
 
+  // Invariant: if optMeta.isDefined then t is not Expr.Annotated
   private def typeCheckMeta[A: HasRegion](t: Expr[A], optMeta: Option[(Identifier, Type.TyMeta, Region)]): Infer[TypedExpr[A]] = {
     def run(t: Expr[A]) = inferSigmaMeta(t, optMeta).flatMap(zonkTypedExpr _)
 
