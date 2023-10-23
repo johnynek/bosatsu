@@ -1001,12 +1001,12 @@ object Infer {
       val withIdx = branches.zipWithIndex.map { case ((p, (te, tpe)), idx) => (te, (p, tpe, idx)) }
 
       for {
-        (minRes, (minPat, resTRho, minIdx)) <- maxBy(withIdx.head, withIdx.tail)((a, b) => gtEq(a, b))
-        resRegion = region(minRes)
+        (maxRes, (maxPat, resTRho, maxIdx)) <- maxBy(withIdx.head, withIdx.tail)((a, b) => gtEq(a, b))
+        resRegion = region(maxRes)
         resBranches <- withIdx.parTraverse { case (te, (p, tpe, idx)) =>
-          if (idx != minIdx) {
+          if (idx != maxIdx) {
             // unfortunately we have to check each branch again to get the correct coerce
-            subsCheckRho2(resTRho, tpe, resRegion, region(te))
+            subsCheckRho2(tpe, resTRho, region(te), resRegion)
               .map { coerce =>
                 (p, coerce(te)) 
               }
@@ -1116,7 +1116,7 @@ object Infer {
                 for {
                   tpeA <- newMetaType(Kind.Type) // lists +* -> *
                   listA = Type.TyApply(Type.ListType, tpeA)
-                  _ <- checkPatSigma(listA, sigma, reg)
+                  _ <- unifyType(listA, sigma.value._1, reg, sigma.value._2)
                 } yield tpeA
             }
 
@@ -1135,7 +1135,8 @@ object Infer {
           for {
             patBind <- checkPat(p, tpe, reg)
             (p1, binds) = patBind
-            _ <- checkPatSigma(tpe, sigma, reg)
+            // we need to be able to widen sigma into tpe
+            _ <- subsCheck(sigma.value._1, tpe, sigma.value._2, reg)
           } yield (p1, binds)
         case GenPattern.PositionalStruct(nm, args) =>
           for {
@@ -1182,11 +1183,6 @@ object Infer {
     // TODO: we should be able to derive a region for any pattern
     def checkPat(pat: Pattern, sigma: Type, reg: Region): Infer[(Pattern, List[(Bindable, Type)])] =
       typeCheckPattern(pat, Expected.Check((sigma, reg)), reg)
-
-    def checkPatSigma(tpe: Type, exp: Expected.Check[(Type, Region)], sRegion: Region): Infer[Unit] =
-      exp match {
-        case Expected.Check((texp, tr)) => subsCheck(texp, tpe, tr, sRegion).void // this unit does not seem right
-      }
 
     /**
      * To do this, Infer will need to know the names of the type
