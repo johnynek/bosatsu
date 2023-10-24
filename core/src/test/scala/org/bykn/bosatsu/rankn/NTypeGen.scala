@@ -24,16 +24,29 @@ object NTypeGen {
     consIdentGen.map(TypeName(_))
 
   val keyWords = Set(
-    "if", "ffi", "match", "struct", "enum", "else", "elif",
-    "def", "external", "package", "import", "export", "forall",
-    "recur", "recursive")
+    "if",
+    "ffi",
+    "match",
+    "struct",
+    "enum",
+    "else",
+    "elif",
+    "def",
+    "external",
+    "package",
+    "import",
+    "export",
+    "forall",
+    "recur",
+    "recursive"
+  )
 
   val lowerIdent: Gen[String] =
     (for {
       c <- lower
       cnt <- Gen.choose(0, 10)
       rest <- Gen.listOfN(cnt, identC)
-    } yield (c :: rest).mkString).filter { s=> !keyWords(s) }
+    } yield (c :: rest).mkString).filter { s => !keyWords(s) }
 
   val packageNameGen: Gen[PackageName] =
     for {
@@ -45,7 +58,8 @@ object NTypeGen {
     } yield PackageName(NonEmptyList(h, tail))
 
   val genConst: Gen[Type.Const] =
-    Gen.zip(packageNameGen, typeNameGen)
+    Gen
+      .zip(packageNameGen, typeNameGen)
       .map { case (p, n) => Type.Const.Defined(p, n) }
 
   val genBound: Gen[Type.Var.Bound] =
@@ -112,21 +126,31 @@ object NTypeGen {
       // either Unit, TupleConsType(a, tuple)
       Gen.oneOf(
         Gen.const(UnitType),
-        Gen.zip(recurse, recTup).map { case (h, t) => Type.TyApply(Type.TyApply(TupleConsType, h), t) })
+        Gen.zip(recurse, recTup).map { case (h, t) =>
+          Type.TyApply(Type.TyApply(TupleConsType, h), t)
+        }
+      )
     }
 
     Gen.frequency(
       (6, Gen.oneOf(t0)),
-      (2, for {
-        cons <- Gen.oneOf(t1)
-        param <- recurse
-      } yield TyApply(cons, param)),
+      (
+        2,
+        for {
+          cons <- Gen.oneOf(t1)
+          param <- recurse
+        } yield TyApply(cons, param)
+      ),
       (1, tupleTypes),
-      (1, for {
-        cons <- Gen.oneOf(t2)
-        param1 <- recurse
-        param2 <- recurse
-      } yield TyApply(TyApply(cons, param1), param2)))
+      (
+        1,
+        for {
+          cons <- Gen.oneOf(t2)
+          param1 <- recurse
+          param2 <- recurse
+        } yield TyApply(TyApply(cons, param1), param2)
+      )
+    )
   }
 
   def genDepth(d: Int, genC: Option[Gen[Type.Const]]): Gen[Type] =
@@ -141,11 +165,12 @@ object NTypeGen {
           in <- recurse
         } yield Type.forAll(as, in)
 
-      val genApply = Gen.zip(recurse, recurse).map { case (a, b) => Type.TyApply(a, b) }
+      val genApply =
+        Gen.zip(recurse, recurse).map { case (a, b) => Type.TyApply(a, b) }
 
       Gen.oneOf(recurse, genApply, genForAll)
     }
 
-
-  val genDepth03: Gen[Type] = Gen.choose(0, 3).flatMap(genDepth(_, Some(genConst)))
+  val genDepth03: Gen[Type] =
+    Gen.choose(0, 3).flatMap(genDepth(_, Some(genConst)))
 }

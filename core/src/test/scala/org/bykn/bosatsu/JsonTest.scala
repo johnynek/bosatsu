@@ -3,7 +3,10 @@ package org.bykn.bosatsu
 import cats.Eq
 import cats.implicits._
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import TestUtils.typeEnvOf
 
 import rankn.{NTypeGen, Type, TypeEnv}
@@ -14,7 +17,9 @@ import org.scalatest.funsuite.AnyFunSuite
 class JsonTest extends AnyFunSuite {
 
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    PropertyCheckConfiguration(minSuccessful = if (Platform.isScalaJvm) 1000 else 20)
+    PropertyCheckConfiguration(minSuccessful =
+      if (Platform.isScalaJvm) 1000 else 20
+    )
 
   def law(j: Json) =
     assert(Parser.unsafeParse(Json.parser, j.render) == j)
@@ -25,7 +30,10 @@ class JsonTest extends AnyFunSuite {
       .flatMap { te =>
         val tyconsts =
           te.allDefinedTypes.map(_.toTypeConst)
-        val theseTypes = NTypeGen.genDepth(4, if (tyconsts.isEmpty) None else Some(Gen.oneOf(tyconsts)))
+        val theseTypes = NTypeGen.genDepth(
+          4,
+          if (tyconsts.isEmpty) None else Some(Gen.oneOf(tyconsts))
+        )
 
         theseTypes.map((te, _))
       }
@@ -37,10 +45,19 @@ class JsonTest extends AnyFunSuite {
       optTE = if (none) None else Some(te)
     } yield (optTE, tpe)
 
-
   test("test some example escapes") {
-    assert(Parser.unsafeParse(JsonStringUtil.escapedToken.string, "\\u0000") == "\\u0000")
-    assert(Parser.unsafeParse(JsonStringUtil.escapedString('\''), "'\\u0000'") == 0.toChar.toString)
+    assert(
+      Parser.unsafeParse(
+        JsonStringUtil.escapedToken.string,
+        "\\u0000"
+      ) == "\\u0000"
+    )
+    assert(
+      Parser.unsafeParse(
+        JsonStringUtil.escapedString('\''),
+        "'\\u0000'"
+      ) == 0.toChar.toString
+    )
   }
 
   test("we can parse all the json we generate") {
@@ -51,13 +68,12 @@ class JsonTest extends AnyFunSuite {
     forAll(genJsonNumber)(law(_))
 
     forAll(genJsonNumber) { num =>
-      val parts = Parser.unsafeParse(Parser.JsonNumber.partsParser, num.asString)
+      val parts =
+        Parser.unsafeParse(Parser.JsonNumber.partsParser, num.asString)
       assert(parts.asString == num.asString)
     }
 
-    val regressions = List(
-      Json.JNumberStr("2E9"),
-      Json.JNumberStr("-9E+19"))
+    val regressions = List(Json.JNumberStr("2E9"), Json.JNumberStr("-9E+19"))
 
     regressions.foreach { n =>
       law(n)
@@ -68,7 +84,7 @@ class JsonTest extends AnyFunSuite {
 
     def law(te: Option[TypeEnv[Any]], t: Type, j: Json) = {
       val jsonCodec = te match {
-        case None => ValueToJson(_ => None)
+        case None     => ValueToJson(_ => None)
         case Some(te) => ValueToJson(te.toDefinedType(_))
       }
       val toJson = jsonCodec.toJson(t)
@@ -84,13 +100,17 @@ class JsonTest extends AnyFunSuite {
 
       ej1 match {
         case Right(j1) => assert(Eq[Json].eqv(j1, j), s"$j1 != $j")
-        case Left(_) => ()
+        case Left(_)   => ()
       }
     }
 
-    forAll(optTE, GenJson.arbJson.arbitrary) { case ((ote, tpe), json) => law(ote, tpe, json) }
+    forAll(optTE, GenJson.arbJson.arbitrary) { case ((ote, tpe), json) =>
+      law(ote, tpe, json)
+    }
 
-    val regressions = List((None, Type.TyApply(Type.OptionType, Type.BoolType), Json.JBool.False))
+    val regressions = List(
+      (None, Type.TyApply(Type.OptionType, Type.BoolType), Json.JBool.False)
+    )
 
     regressions.foreach { case (te, t, j) => law(te, t, j) }
   }
@@ -114,7 +134,7 @@ class JsonTest extends AnyFunSuite {
 
     def law(ote: Option[TypeEnv[Unit]], t: Type, v: Value) = {
       val jsonCodec = ote match {
-        case None => ValueToJson(_ => None)
+        case None     => ValueToJson(_ => None)
         case Some(te) => ValueToJson(te.toDefinedType(_))
       }
       val toJson = jsonCodec.toJson(t)
@@ -130,7 +150,7 @@ class JsonTest extends AnyFunSuite {
 
       ej1 match {
         case Right(v1) => assert(v1 == v, s"$v1 != $v")
-        case Left(_) => ()
+        case Left(_)   => ()
       }
     }
 
@@ -143,7 +163,9 @@ class JsonTest extends AnyFunSuite {
   }
 
   test("some hand written cases round trip") {
-    val te = typeEnvOf(PackageName.parts("Test"), """
+    val te = typeEnvOf(
+      PackageName.parts("Test"),
+      """
 
 struct MyUnit
 # wrappers are removed
@@ -153,19 +175,21 @@ struct MyPair(fst, snd)
 enum MyEither: L(left), R(right)
 
 enum MyNat: Z, S(prev: MyNat)
-""")
+"""
+    )
     val jsonConv = ValueToJson(te.toDefinedType(_))
 
     def stringToType(t: String): Type = {
       val tr = Parser.unsafeParse(TypeRef.parser, t)
 
       TypeRefConverter[cats.Id](tr) { cons =>
-        te.referencedPackages.toList.flatMap { pack =>
-          val const = Type.Const.Defined(pack, TypeName(cons))
-          te.toDefinedType(const).map(_ => const)
-        }
-        .headOption
-        .getOrElse(Type.Const.predef(cons.asString))
+        te.referencedPackages.toList
+          .flatMap { pack =>
+            val const = Type.Const.Defined(pack, TypeName(cons))
+            te.toDefinedType(const).map(_ => const)
+          }
+          .headOption
+          .getOrElse(Type.Const.predef(cons.asString))
       }
     }
 
@@ -186,9 +210,11 @@ enum MyNat: Z, S(prev: MyNat)
                 case Right(j1) => assert(Eq[Json].eqv(j1, j), s"$j1 != $j")
                 case Left(err) => fail(err.toString)
               }
-            case Left(err) => fail(s"could not handle to Json: $tpe, $t, $toV, $err")
+            case Left(err) =>
+              fail(s"could not handle to Json: $tpe, $t, $toV, $err")
           }
-        case Left(err) => fail(s"could not handle to Value: $tpe, $t, $toJ, $err")
+        case Left(err) =>
+          fail(s"could not handle to Value: $tpe, $t, $toJ, $err")
       }
     }
 
@@ -196,7 +222,7 @@ enum MyNat: Z, S(prev: MyNat)
       val t = stringToType(tpe)
       jsonConv.supported(t) match {
         case Right(_) => fail(s"expected $tpe to be unsupported")
-        case Left(_) => succeed
+        case Left(_)  => succeed
       }
     }
 
@@ -210,7 +236,7 @@ enum MyNat: Z, S(prev: MyNat)
           assert(toJ.isRight)
           val j = stringToJson(json)
           toV(j) match {
-            case Left(_) => succeed
+            case Left(_)  => succeed
             case Right(v) => fail(s"expected $json to be ill-typed: $v")
           }
         case Left(err) => fail(s"could not handle to Value: $tpe, $t, $err")
