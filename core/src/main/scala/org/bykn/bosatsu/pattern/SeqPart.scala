@@ -9,17 +9,19 @@ object SeqPart {
     override def notWild: Boolean = true
   }
 
-  implicit def partOrdering[E](implicit elemOrdering: Ordering[E]): Ordering[SeqPart[E]] =
+  implicit def partOrdering[E](implicit
+      elemOrdering: Ordering[E]
+  ): Ordering[SeqPart[E]] =
     new Ordering[SeqPart[E]] {
       def compare(a: SeqPart[E], b: SeqPart[E]) =
         (a, b) match {
           case (Lit(i1), Lit(i2)) =>
             elemOrdering.compare(i1, i2)
-          case (Lit(_), _) => -1
-          case (_, Lit(_)) => 1
-          case (AnyElem, AnyElem) => 0
-          case (AnyElem, Wildcard) => -1
-          case (Wildcard, AnyElem) => 1
+          case (Lit(_), _)          => -1
+          case (_, Lit(_))          => 1
+          case (AnyElem, AnyElem)   => 0
+          case (AnyElem, Wildcard)  => -1
+          case (Wildcard, AnyElem)  => 1
           case (Wildcard, Wildcard) => 0
         }
     }
@@ -29,7 +31,9 @@ object SeqPart {
   // 0 or more characters
   case object Wildcard extends SeqPart[Nothing]
 
-  implicit def part1SetOps[A](implicit setOpsA: SetOps[A]): SetOps[SeqPart1[A]] =
+  implicit def part1SetOps[A](implicit
+      setOpsA: SetOps[A]
+  ): SetOps[SeqPart1[A]] =
     new SetOps[SeqPart1[A]] {
 
       private val anyList = AnyElem :: Nil
@@ -40,7 +44,7 @@ object SeqPart {
 
       def anyDiff(a: A) =
         setOpsA.top match {
-          case None => anyList
+          case None       => anyList
           case Some(topA) => setOpsA.difference(topA, a).map(toPart1)
         }
 
@@ -48,13 +52,14 @@ object SeqPart {
       def isTop(c: SeqPart1[A]) =
         c match {
           case AnyElem => true
-          case Lit(a) => setOpsA.isTop(a)
+          case Lit(a)  => setOpsA.isTop(a)
         }
 
       def intersection(p1: SeqPart1[A], p2: SeqPart1[A]): List[SeqPart1[A]] =
         (p1, p2) match {
           case (Lit(c1), Lit(c2)) =>
-            setOpsA.intersection(c1, c2)
+            setOpsA
+              .intersection(c1, c2)
               .map(toPart1(_))
           case (AnyElem, _) =>
             if (isTop(p2)) AnyElem :: Nil
@@ -92,18 +97,15 @@ object SeqPart {
         def litOpt(u: List[SeqPart1[A]], acc: List[A]): Option[List[Lit[A]]] =
           u match {
             case Nil => Some(setOpsA.unifyUnion(acc.reverse).map(Lit(_)))
-            case AnyElem :: _ => None
+            case AnyElem :: _                    => None
             case Lit(a) :: _ if setOpsA.isTop(a) => None
-            case Lit(a) :: tail => litOpt(tail, a :: acc)
+            case Lit(a) :: tail                  => litOpt(tail, a :: acc)
           }
 
-
         litOpt(u, Nil) match {
-          case None => AnyElem :: Nil
+          case None    => AnyElem :: Nil
           case Some(u) => u
         }
       }
     }
 }
-
-
