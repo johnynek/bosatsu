@@ -5,16 +5,14 @@ import cats.parse.{Parser0 => P0, Parser => P, Accumulator, Appender}
 abstract class GenericStringUtil {
   protected def decodeTable: Map[Char, Char]
 
-  private val encodeTable = decodeTable.iterator.map { case (v, k) =>
-    (k, s"\\$v")
-  }.toMap
+  private val encodeTable = decodeTable.iterator.map { case (v, k) => (k, s"\\$v") }.toMap
 
   private val nonPrintEscape: Array[String] =
     (0 until 32).map { c =>
       val strHex = c.toHexString
       val strPad = List.fill(4 - strHex.length)('0').mkString
       s"\\u$strPad$strHex"
-    }.toArray
+   }.toArray
 
   val escapedToken: P[Int] = {
     def parseIntStr(p: P[Any], base: Int): P[Int] =
@@ -51,10 +49,11 @@ abstract class GenericStringUtil {
       P.charWhere { c =>
         val ci = c.toInt
         (0xdc00 <= ci) && (ci <= 0xdfff)
-      }.map { low =>
+      }
+      .map { low =>
         val lowOff = low - 0xdc00 + 0x10000
 
-        { high =>
+        { high => 
           val highPart = (high - 0xd800) * 0x400
           highPart + lowOff
         }
@@ -65,7 +64,7 @@ abstract class GenericStringUtil {
 
   val codePointAccumulator: Accumulator[Int, String] =
     new Accumulator[Int, String] {
-      def newAppender(first: Int): Appender[Int, String] =
+      def newAppender(first: Int): Appender[Int,String] =
         new Appender[Int, String] {
           val strbuilder = new java.lang.StringBuilder
           strbuilder.appendCodePoint(first)
@@ -77,12 +76,11 @@ abstract class GenericStringUtil {
           def finish(): String = strbuilder.toString
         }
     }
-
-  /** String content without the delimiter
-    */
+  /**
+   * String content without the delimiter
+   */
   def undelimitedString1(endP: P[Unit]): P[String] = {
-    escapedToken
-      .orElse((!endP).with1 *> utf16Codepoint)
+    escapedToken.orElse((!endP).with1 *> utf16Codepoint)
       .repAs(codePointAccumulator)
   }
 
@@ -96,22 +94,14 @@ abstract class GenericStringUtil {
     end *> undelimitedString1(end).orElse(P.pure("")) <* end
   }
 
-  def interpolatedString[A, B](
-      quoteChar: Char,
-      istart: P[A => B],
-      interp: P0[A],
-      iend: P[Unit]
-  ): P[List[Either[B, (Region, String)]]] = {
+  def interpolatedString[A, B](quoteChar: Char, istart: P[A => B], interp: P0[A], iend: P[Unit]): P[List[Either[B, (Region, String)]]] = {
     val strQuote = P.char(quoteChar)
 
     val strLit: P[String] = undelimitedString1(strQuote.orElse(istart.void))
-    val notStr: P[B] = (istart ~ interp ~ iend).map { case ((fn, a), _) =>
-      fn(a)
-    }
+    val notStr: P[B] = (istart ~ interp ~ iend).map { case ((fn, a), _) => fn(a) }
 
     val either: P[Either[B, (Region, String)]] =
-      ((P.index.with1 ~ strLit ~ P.index)
-        .map { case ((s, str), l) => Right((Region(s, l), str)) })
+      ((P.index.with1 ~ strLit ~ P.index).map { case ((s, str), l) => Right((Region(s, l), str)) })
         .orElse(notStr.map(Left(_)))
 
     (strQuote ~ either.rep0 ~ strQuote).map { case ((_, lst), _) => lst }
@@ -120,17 +110,15 @@ abstract class GenericStringUtil {
   def escape(quoteChar: Char, str: String): String = {
     // We can ignore escaping the opposite character used for the string
     // x isn't escaped anyway and is kind of a hack here
-    val ignoreEscape =
-      if (quoteChar == '\'') '"' else if (quoteChar == '"') '\'' else 'x'
+    val ignoreEscape = if (quoteChar == '\'') '"' else if (quoteChar == '"') '\'' else 'x'
     str.flatMap { c =>
       if (c == ignoreEscape) c.toString
-      else
-        encodeTable.get(c) match {
-          case None =>
-            if (c < ' ') nonPrintEscape(c.toInt)
-            else c.toString
-          case Some(esc) => esc
-        }
+      else encodeTable.get(c) match {
+        case None =>
+          if (c < ' ') nonPrintEscape(c.toInt)
+          else c.toString
+        case Some(esc) => esc
+      }
     }
   }
 
@@ -152,21 +140,25 @@ abstract class GenericStringUtil {
       if (idx >= str.length) {
         // done
         idx
-      } else if (idx < 0) {
+      }
+      else if (idx < 0) {
         // error from decodeNum
         idx
-      } else {
+      }
+      else {
         val c0 = str.charAt(idx)
         if (c0 != '\\') {
           sb.append(c0)
           loop(idx + 1)
-        } else {
+        }
+        else {
           // str(idx) == \
           val nextIdx = idx + 1
           if (nextIdx >= str.length) {
             // error we expect there to be a character after \
             ~idx
-          } else {
+          }
+          else {
             val c = str.charAt(nextIdx)
             decodeTable.get(c) match {
               case Some(d) =>
@@ -174,10 +166,10 @@ abstract class GenericStringUtil {
                 loop(idx + 2)
               case None =>
                 c match {
-                  case 'o'   => loop(decodeNum(idx + 2, 2, 8))
-                  case 'x'   => loop(decodeNum(idx + 2, 2, 16))
-                  case 'u'   => loop(decodeNum(idx + 2, 4, 16))
-                  case 'U'   => loop(decodeNum(idx + 2, 8, 16))
+                  case 'o' => loop(decodeNum(idx + 2, 2, 8))
+                  case 'x' => loop(decodeNum(idx + 2, 2, 16))
+                  case 'u' => loop(decodeNum(idx + 2, 4, 16))
+                  case 'U' => loop(decodeNum(idx + 2, 8, 16))
                   case other =>
                     // \c is interpretted as just \c, if the character isn't escaped
                     sb.append('\\')
@@ -210,8 +202,7 @@ object StringUtil extends GenericStringUtil {
       ('n', '\n'),
       ('r', '\r'),
       ('t', '\t'),
-      ('v', 11.toChar)
-    ) // vertical tab
+      ('v', 11.toChar)) // vertical tab
 }
 
 object JsonStringUtil extends GenericStringUtil {
@@ -225,6 +216,5 @@ object JsonStringUtil extends GenericStringUtil {
       ('f', 12.toChar), // form-feed
       ('n', '\n'),
       ('r', '\r'),
-      ('t', '\t')
-    )
+      ('t', '\t'))
 }
