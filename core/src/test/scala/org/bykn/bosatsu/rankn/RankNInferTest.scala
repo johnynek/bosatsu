@@ -197,6 +197,9 @@ class RankNInferTest extends AnyFunSuite {
     assertTypesUnify("forall a, b. a -> b", "forall a. a -> (forall b. b)")
     assertTypesUnify("forall a. List[a]", "List[forall a. a]")
 
+    // exists a. a is a top type
+    //assert_:<:("Int", "exists a. a")
+
     assert_:<:("forall a. a -> Int", "(forall a. a) -> Int")
     assert_:<:("List[forall a. a -> Int]", "List[(forall a. a) -> Int]")
 

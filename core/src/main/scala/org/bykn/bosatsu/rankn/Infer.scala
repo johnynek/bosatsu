@@ -197,9 +197,9 @@ object Infer {
       def region: Region
     }
     // This is a logic error which should never happen
-    case class InferIncomplete(method: String, term: Expr[_], region: Region) extends InternalError {
+    case class InferIncomplete(term: Expr[_], region: Region) extends InternalError {
       // $COVERAGE-OFF$ we don't test these messages, maybe they should be removed
-      def message = s"$method not complete for $term"
+      def message = s"inferRho not complete for $term"
       // $COVERAGE-ON$ we don't test these messages, maybe they should be removed
     }
     case class ExpectedRho(tpe: Type, context: String, region: Region) extends InternalError {
@@ -240,10 +240,7 @@ object Infer {
   private object Impl {
     sealed abstract class Expected[A]
     object Expected {
-      case class Inf[A](ref: Ref[Either[Error, A]]) extends Expected[A] {
-        def set(a: A): Infer[Unit] =
-          Infer.lift(ref.set(Right(a)))
-      }
+      case class Inf[A](ref: Ref[Either[Error.InferIncomplete, A]]) extends Expected[A]
       case class Check[A](value: A) extends Expected[A]
     }
 
@@ -434,8 +431,10 @@ object Infer {
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
       TypedExpr.zonkMeta(e)(zonk(_))
 
-    def initRef[A](err: Error): Infer[Ref[Either[Error, A]]] =
-      lift(RefSpace.newRef[Either[Error, A]](Left(err)))
+    def initRef[E: HasRegion, A](t: Expr[E]): Infer[Ref[Either[Error.InferIncomplete, A]]] =
+      lift(RefSpace.newRef[Either[Error.InferIncomplete, A]](
+        Left(Error.InferIncomplete(t, region(t))))
+      )
 
     def substTyRho(keys: NonEmptyList[Type.Var], vals: NonEmptyList[Type.Rho]): Type.Rho => Type.Rho = {
       val env = keys.toList.iterator.zip(vals.toList.iterator).toMap
@@ -586,6 +585,13 @@ object Infer {
           } yield TypedExpr.coerceRho(t1, ck) // TODO this coerce seems right, since we have unified
       })
 
+    def setInf(inf: Expected.Inf[(Type.Rho, Region)], rho: Type.Rho, r: Region): Infer[Unit] =
+      lift(inf.ref.update[Infer[Unit]] {
+        case Left(_) => (Right((rho, r)), unit)
+        case right@Right((rho1, r1)) => (right, unify(rho1, rho, r1, r))
+      })
+      .flatten
+
     /*
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
      */
@@ -597,7 +603,7 @@ object Infer {
         case infer@Expected.Inf(_) =>
           for {
             rho <- instantiate(sigma)
-            _ <- infer.set((rho, r))
+            _ <- setInf(infer, rho, r)
             ks <- checkedKinds
             // there is no point in zonking here, we just instantiated rho
           } yield TypedExpr.coerceRho(rho, ks)
@@ -779,6 +785,8 @@ object Infer {
         res <- NonEmptyList.fromList(skolTvs) match {
           case None => pure(coerce)
           case Some(nel) =>
+             // TODO: why do we not check the env.values here for escaped tyvars?
+             // tests seem to pass if we do or not
              getFreeTyVars(inferred :: declared :: Nil).flatMap { escTvs =>
                NonEmptyList.fromList(skolTvs.filter(escTvs)) match {
                  case None => pure(coerce.andThen(unskolemize(nel)))
@@ -866,7 +874,7 @@ object Infer {
                 }
                 typedBodyTpe <- extendEnvList(nameVarsT.toList)(inferRho(result))
                 (typedBody, bodyT) = typedBodyTpe
-                _ <- infer.set((Type.Fun(nameVarsT.map(_._2), bodyT), region(term)))
+                _ <- setInf(infer, Type.Fun(nameVarsT.map(_._2), bodyT), region(term))
               } yield TypedExpr.AnnotatedLambda(nameVarsT, typedBody, tag)
             }
         case Let(name, rhs, body, isRecursive, tag) =>
@@ -970,7 +978,7 @@ object Infer {
                       inferBranch(p, check, r)
                     }
                     (rho, regRho, resBranches) <- widenBranches(tbranches)
-                    _ <- infer.set((rho, regRho))
+                    _ <- setInf(infer, rho, regRho)
                   } yield TypedExpr.Match(tsigma, resBranches, tag)
               }
             }
@@ -1335,13 +1343,15 @@ object Infer {
         _ <- init
         rhoT <- inferRho(e)
         (rho, expTyRho) = rhoT
-        envTys <- unifySelf(expTyRho)
-        q <- TypedExpr.quantify(envTys, rho, zonk(_), { (m, n) =>
-          // quantify guarantees that the kind of n matches m
-          writeMeta(m, Type.TyVar(n))
-        })
+        q <- quantify(unifySelf(expTyRho), rho)
       } yield q
     }
+
+    def quantify[A](env: Infer[Map[Name, Type]], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
+      env.flatMap(TypedExpr.quantify(_, rho, zonk(_), { (m, n) =>
+        // quantify guarantees that the kind of n matches m
+        writeMeta(m, Type.TyVar(n))
+      }))
 
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
       for {
@@ -1376,7 +1386,7 @@ object Infer {
      */
     def inferRho[A: HasRegion](t: Expr[A]): Infer[(TypedExpr.Rho[A], Type.Rho)] =
       for {
-        ref <- initRef[(Type.Rho, Region)](Error.InferIncomplete("inferRho", t, region(t)))
+        ref <- initRef[A, (Type.Rho, Region)](t)
         expr <- typeCheckRho(t, Expected.Inf(ref))
         // we don't need this ref, and it does not escape, so reset
         eitherTpe <- lift(ref.get <* ref.reset)
@@ -1409,7 +1419,6 @@ object Infer {
         val used = Type.tyVarBinders(te.getType :: Nil)
         val aligned = Type.alignBinders(skols, used)
         val te2 = substTyExpr(skols, aligned.map { case (_, b) => Type.TyVar(b) }, te)
-        // TODO: we have to not forget the skolem kinds
         TypedExpr.forAll(aligned.map { case (s, b) => (b, s.kind) }, te2)
       }
     }
