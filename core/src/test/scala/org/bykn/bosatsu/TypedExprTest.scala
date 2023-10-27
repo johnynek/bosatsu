@@ -653,6 +653,7 @@ x = Foo
     forAll(genTypedExpr) { te =>
       val tpes: Set[Type.Var] = te.allTypes.iterator.collect { case Type.TyVar(b) => b }.toSet
 
+      
       implicit def setM[A: Ordering]: cats.Monoid[SortedSet[A]] =
         new cats.Monoid[SortedSet[A]] {
           def empty = SortedSet.empty
@@ -662,7 +663,7 @@ x = Foo
       // All the vars that are used in bounds
       val bounds: Set[Type.Var] = te.traverseType { (t: Type) =>
         t match {
-          case Type.ForAll(ps, _) => Writer(SortedSet[Type.Var](ps.toList.map(_._1): _*), t)
+          case q: Type.Quantified => Writer(SortedSet[Type.Var](q.vars.toList.map(_._1): _*), t)
           case _ => Writer(SortedSet[Type.Var](), t)
         }
       }.run._1.toSet[Type.Var]

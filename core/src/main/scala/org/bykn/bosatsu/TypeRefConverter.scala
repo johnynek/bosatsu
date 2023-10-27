@@ -33,7 +33,17 @@ object TypeRefConverter {
               case Some(k) => k
             }
             (Type.Var.Bound(v), k)
-          }.toList, te)
+          }, te)
+        }
+      case TypeExists(pars, e) =>
+        toType(e).map { te =>
+          Type.exists(pars.map { case (TypeVar(v), optK) =>
+            val k = optK match {
+              case None => Kind.Type
+              case Some(k) => k
+            }
+            (Type.Var.Bound(v), k)
+          }, te)
         }
       case TypeTuple(ts) =>
         ts.traverse(toType).map(Type.Tuple(_))

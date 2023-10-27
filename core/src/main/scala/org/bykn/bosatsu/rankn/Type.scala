@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
-import cats.{Applicative, Order}
+import cats.{Applicative, Functor, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import org.bykn.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
@@ -16,13 +16,121 @@ sealed abstract class Type {
 
 object Type {
   /**
-   * A type with no top level ForAll
+   * A type with no top level quantification
    */
   sealed abstract class Rho extends Type
-  sealed abstract class Leaf extends Rho
-  type Tau = Rho // no forall anywhere
+  
+  object Rho {
+    implicit val orderRho: Order[Rho] =
+      new Order[Rho] {
+        def compare(a: Rho, b: Rho): Int =
+          (a, b) match {
+            case (TyConst(Const.Defined(p0, n0)), TyConst(Const.Defined(p1, n1))) =>
+              val c = Ordering[PackageName].compare(p0, p1)
+              if (c == 0) Ordering[TypeName].compare(n0, n1) else c
+            case (TyConst(_), _) => -1
+            case (TyVar(v0), TyVar(v1)) =>
+              Ordering[Var].compare(v0, v1)
+            case (TyVar(_), TyConst(_)) => 1
+            case (TyVar(_), _) => -1
+            case (TyMeta(Meta(_, i0, _)), TyMeta(Meta(_, i1, _))) =>
+              java.lang.Long.compare(i0, i1)
+            case (TyMeta(_), TyApply(_, _)) => -1
+            case (TyMeta(_), _) => 1
+            case (TyApply(a0, b0), TyApply(a1, b1)) =>
+              val c = Type.typeOrder.compare(a0, a1)
+              if (c == 0) Type.typeOrder.compare(b0, b1) else c
+            case (TyApply(_, _), _) => 1
+        }
+      }
 
-  case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho) extends Type
+    implicit val orderingRho: Ordering[Rho] = orderRho.toOrdering
+  }
+
+  sealed abstract class Leaf extends Rho
+  type Tau = Rho // no forall or exists anywhere
+
+  sealed abstract class Quantified extends Type {
+    def in: Rho
+    def vars: NonEmptyList[(Var.Bound, Kind)]
+    def withBound[F[_]: Functor](fn: (Set[Var], Rho) => F[Type]): F[Quantified]
+    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A
+    def withQuants[A](fn: (List[(Var.Bound, Kind)], List[(Var.Bound, Kind)], Type.Rho) => A): A =
+      this match {
+        case ForAll(forall, in) => fn(forall.toList, Nil, in)
+        case Exists(exists, in) => fn(Nil, exists.toList, in)
+        case DualQuant(forall, exists, in) => fn(forall.toList, exists.toList, in)
+      }
+  }
+
+  object Quantified {
+    implicit val quantifiedOrder: Order[Quantified] =
+      new Order[Quantified] {
+        val nelist = Order[NonEmptyList[(Var.Bound, Kind)]]
+
+        def compare(a: Quantified, b: Quantified): Int =
+          (a, b) match {
+            case (ForAll(v0, i0), ForAll(v1, i1)) =>
+              val c = nelist.compare(v0, v1)
+              if (c == 0) Rho.orderRho.compare(i0, i1) else c
+            case (ForAll(_, _), _) => -1
+            case (Exists(_, _), ForAll(_, _)) => 1
+            case (Exists(v0, i0), Exists(v1, i1)) =>
+              val c = nelist.compare(v0, v1)
+              if (c == 0) Rho.orderRho.compare(i0, i1) else c
+            case (Exists(_, _), _) => -1
+            case (DualQuant(fa0, ex0, in0), DualQuant(fa1, ex1, in1)) =>
+              val c1 = nelist.compare(fa0, fa1)
+              if (c1 != 0) c1
+              else {
+                val c2 = nelist.compare(ex0, ex1)
+                if (c2 != 0) c2
+                else Rho.orderRho.compare(in0, in1)
+              }
+            case (DualQuant(_, _, _), _) => 1
+          }
+        }
+  }
+
+  case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho) extends Quantified {
+    def withBound[F[_]: Functor](fn: (Set[Var], Rho) => F[Type]): F[Quantified] = {
+      val boundSet: Set[Var] = vars.toList.iterator.map(_._1).toSet
+      fn(boundSet, in).map(Type.forAll(vars, _))
+    }
+    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A =
+      fn(vars.toList, in)
+  }
+  case class Exists(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho) extends Quantified {
+    def withBound[F[_]: Functor](fn: (Set[Var], Rho) => F[Type]): F[Quantified] = {
+      val boundSet: Set[Var] = vars.toList.iterator.map(_._1).toSet
+      fn(boundSet, in).map(Type.exists(vars, _))
+    }
+
+    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A =
+      fn(Nil.toList, this)
+  }
+  case class DualQuant(
+    forall: NonEmptyList[(Var.Bound, Kind)],
+    exists: NonEmptyList[(Var.Bound, Kind)],
+    in: Rho) extends Quantified {
+
+    lazy val vars = forall ::: exists
+
+    def withBound[F[_]: Functor](fn: (Set[Var], Rho) => F[Type]): F[Quantified] = {
+      val boundSet: Set[Var] =
+        forall.toList.iterator.map(_._1).toSet |
+        exists.toList.iterator.map(_._1).toSet
+
+      fn(boundSet, in)
+        .map { rho1 =>
+          Type.forAll(forall, Type.exists(exists, rho1))
+        }
+    }
+
+    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A =
+      fn(forall.toList, Type.exists(exists, in))
+  }
+
   case class TyApply(on: Type, arg: Type) extends Rho
   case class TyConst(tpe: Const) extends Leaf
   case class TyVar(toVar: Var) extends Leaf
@@ -38,36 +146,14 @@ object Type {
 
   implicit val typeOrder: Order[Type] =
     new Order[Type] {
-      val boundOrd: Ordering[Var.Bound] =
-        Ordering[String].on[Var.Bound] { case Var.Bound(v) => v }
-
-      val list = org.bykn.bosatsu.ListOrdering.onType(
-        Ordering.Tuple2(boundOrd, Kind.orderingKind)
-      )
-
       def compare(a: Type, b: Type): Int =
         (a, b) match {
-          case (ForAll(v0, i0), ForAll(v1, i1)) =>
-            val c = list.compare(v0.toList, v1.toList)
-            if (c == 0) compare(i0, i1) else c
-          case (ForAll(_, _), _) => -1
-          case (TyConst(Const.Defined(p0, n0)), TyConst(Const.Defined(p1, n1))) =>
-            val c = Ordering[PackageName].compare(p0, p1)
-            if (c == 0) Ordering[TypeName].compare(n0, n1) else c
-          case (TyConst(_), ForAll(_, _)) => 1
-          case (TyConst(_), _) => -1
-          case (TyVar(v0), TyVar(v1)) =>
-            Ordering[Var].compare(v0, v1)
-          case (TyVar(_), ForAll(_, _) | TyConst(_)) => 1
-          case (TyVar(_), _) => -1
-          case (TyMeta(Meta(_, i0, _)), TyMeta(Meta(_, i1, _))) =>
-            java.lang.Long.compare(i0, i1)
-          case (TyMeta(_), TyApply(_, _)) => -1
-          case (TyMeta(_), _) => 1
-          case (TyApply(a0, b0), TyApply(a1, b1)) =>
-            val c = compare(a0, a1)
-            if (c == 0) compare(b0, b1) else c
-          case (TyApply(_, _), _) => 1
+          case (arho: Rho, brho: Rho) =>
+            Rho.orderRho.compare(arho, brho)
+          case (_: Rho, _) => -1
+          case (aq: Quantified, bq: Quantified) =>
+            Quantified.quantifiedOrder.compare(aq, bq)
+          case (_: Quantified, _) => 1
         }
     }
 
@@ -95,6 +181,8 @@ object Type {
   def constantsOf(t: Type): List[Const] =
     t match {
       case ForAll(_, t) => constantsOf(t)
+      case Exists(_, t) => constantsOf(t)
+      case DualQuant(_, _, t) => constantsOf(t)
       case TyApply(on, arg) => constantsOf(on) ::: constantsOf(arg)
       case TyConst(c) => c :: Nil
       case TyVar(_) | TyMeta(_) => Nil
@@ -105,7 +193,7 @@ object Type {
       case TyConst(_) => true
       case TyVar(_) | TyMeta(_) => false
       case TyApply(on, arg) => hasNoVars(on) && hasNoVars(arg)
-      case fa@ForAll(_, _) => freeTyVars(fa :: Nil).isEmpty
+      case q: Quantified => freeTyVars(q :: Nil).isEmpty
     }
 
   final def forAll(vars: List[(Var.Bound, Kind)], in: Type): Type =
@@ -114,10 +202,32 @@ object Type {
       case Some(ne) => forAll(ne, in)
     }
 
-  final def forAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Type): Type.ForAll =
+  final def forAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Type): Type.Quantified =
     in match {
       case rho: Rho => Type.ForAll(vars, rho)
-      case Type.ForAll(ne1, rho) => Type.ForAll(vars ::: ne1, rho)
+      case Type.ForAll(ne1, rho) =>
+        Type.ForAll(vars ::: ne1, rho)
+      case Type.Exists(ne1, rho) =>
+        Type.DualQuant(forall = vars, exists = ne1, rho)
+      case Type.DualQuant(fa0, e, rho) =>
+        Type.DualQuant(forall = vars ::: fa0, exists = e, rho)
+    }
+
+  final def exists(vars: NonEmptyList[(Var.Bound, Kind)], in: Type): Type.Quantified =
+    in match {
+      case rho: Rho => Type.Exists(vars, rho)
+      case Type.Exists(ne1, rho) =>
+        Type.Exists(vars ::: ne1, rho)
+      case Type.DualQuant(fa, e, rho) =>
+        Type.DualQuant(forall = fa, exists = vars ::: e, rho)
+      case Type.ForAll(fa, rho) =>
+        Type.DualQuant(forall = fa, exists = vars, rho)
+    }
+
+  final def exists(vars: List[(Var.Bound, Kind)], in: Type): Type =
+    vars match {
+      case h :: t => exists(NonEmptyList(h, t), in)
+      case Nil => in
     }
 
   def getTypeOf(lit: Lit): Type =
@@ -137,8 +247,8 @@ object Type {
     t match {
       case tyc@TyConst(_) => Some(tyc)
       case TyVar(_) | TyMeta(_) => None
-      case ForAll(_, r) => rootConst(r)
       case TyApply(left, _) => rootConst(left)
+      case q: Quantified => rootConst(q.in)
     }
 
   object RootConst {
@@ -168,19 +278,28 @@ object Type {
   def substituteVar(t: Type, env: Map[Type.Var, Type]): Type =
     t match {
       case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
-      case v@TyVar(n) => env.getOrElse(n, v)
-      case ForAll(ns, rho) =>
-        val boundSet: Set[Var] = ns.toList.iterator.map(_._1).toSet
-        val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
-        forAll(ns.toList, substituteVar(rho, env1))
+      case v@TyVar(n) =>
+        env.get(n) match {
+          case Some(rho) => rho
+          case None => v
+        }
       case m@TyMeta(_) => m
       case c@TyConst(_) => c
+      case q: Quantified =>
+        q.withBound[cats.Id] { (boundSet, rho) =>
+          val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
+          substituteVar(rho, env1)
+        }
     }
 
   def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
     t match {
       case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
-      case v@TyVar(n) => env.getOrElse(n, v)
+      case v@TyVar(n) =>
+        env.get(n) match {
+          case Some(rho) => rho
+          case None => v
+        }
       case m@TyMeta(_) => m
       case c@TyConst(_) => c
     }
@@ -209,11 +328,11 @@ object Type {
           if (isBound) go(rest, bound, acc)
           else go(rest, bound, tv :: acc)
         case Type.TyApply(a, b) :: rest => go(a :: b :: rest, bound, acc)
-        case Type.ForAll(tvs, ty) :: rest =>
-          val acc1 = cheat(ty :: Nil, bound ++ tvs.toList.iterator.map(_._1), acc)
-          // note, tvs ARE NOT bound in rest
-          go(rest, bound, acc1)
         case (Type.TyMeta(_) | Type.TyConst(_)) :: rest => go(rest, bound, acc)
+        case (q: Quantified) :: rest =>
+          val acc1 = cheat(q.in :: Nil, bound ++ q.vars.toList.iterator.map(_._1), acc)
+          // note, q.vars ARE NOT bound in rest
+          go(rest, bound, acc1)
       }
 
     go(ts, Set.empty, Nil)
@@ -230,36 +349,36 @@ object Type {
 
   def normalize(tpe: Type): Type =
     tpe match {
-      case ForAll(vars0, in) =>
-        val inFree = freeBoundTyVars(in :: Nil)
-        val inFreeSet = inFree.toSet
-        val vars1 = vars0.filter { case (b, _) => inFreeSet(b) }
+      case q: Quantified =>
+        q.withQuants { (foralls, exists, in) =>
+          
+          val inFree = freeBoundTyVars(in :: Nil)
+          // sort the quantification by the order of appearance
+          val order = inFree.iterator.zipWithIndex.toMap
+          val inFreeSet = inFree.toSet
+          val fa1 = foralls
+            .filter { case (b, _) => inFreeSet(b) }
+            .sortBy { case (b, _) => order(b) }
 
-        NonEmptyList.fromList(vars1) match {
-          case Some(vars2) =>
-            val vars =
-              if (vars2.tail.isEmpty) {
-                // already sorted
-                vars2
-              }
-              else {
-                // sort the quantification by the order of appearance
-                val order = inFree.iterator.zipWithIndex.toMap
-                vars2.sortBy { case (b, _) => order(b) }
-              }
-            val frees = freeBoundTyVars(tpe :: Nil).toSet
-            val bs = alignBinders(vars, frees)
-            val subMap = bs.toList.map { case ((bold, _), bnew) =>
+          val ex1 = exists
+            .filter { case (b, _) => inFreeSet(b) }
+            .sortBy { case (b, _) => order(b) }
+
+          val frees = freeBoundTyVars(tpe :: Nil).toSet
+          val bs = alignBinders(fa1 ::: ex1, frees)
+          val subMap =
+            bs.map { case ((bold, _), bnew) =>
               bold -> TyVar(bnew)
             }
             .toMap[Type.Var, Type.Rho]
 
-            forAll(
-              bs.toList.map { case ((_, k), b) => (b, k) },
-              normalize(substituteRhoVar(in, subMap)))
-          case None => normalize(in)
+          val newVars = bs.map { case ((_, k), b) => (b, k) }
+          val normin = normalize(substituteRhoVar(in, subMap))
+          val forAllSize = fa1.size
+          val normfas = newVars.take(forAllSize)
+          val normexs = newVars.drop(forAllSize)
+          forAll(normfas, Type.exists(normexs, normin))
         }
-
       case TyApply(on, arg) => TyApply(normalize(on), normalize(arg))
       case _ => tpe
     }
@@ -296,8 +415,6 @@ object Type {
         case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
         case Type.TyMeta(Type.Meta(kind, _, _)) => Right(kind)
         case tc@Type.TyConst(_) => cons(tc)
-        case Type.ForAll(bound, t) =>
-          rec((t, locals ++ bound.toList))
         case ap@Type.TyApply(left, right) =>
           rec((left, locals))
             .product(rec((right, locals)))
@@ -305,7 +422,9 @@ object Type {
               case (leftKind, rhs) =>
                 Kind.validApply[A](leftKind, rhs, invalidApply(ap))(kindSubsumeError(ap, _, rhs))
             }
-        }
+        case q: Quantified =>
+          rec((q.in, locals ++ q.vars.toList))
+      }
     }
 
     { t => fn((t, Map.empty)) }
@@ -522,6 +641,9 @@ object Type {
           else new Bound(str)
         }
         else new Bound(str)
+
+      implicit val orderBound: Order[Bound] =
+        Order.by[Bound, String](_.name)
     }
 
     implicit val varOrdering: Ordering[Var] =
@@ -562,6 +684,12 @@ object Type {
     NonEmptyList((items.head, bs.head), items.tail.zip(bs.tail))
   }
 
+  def alignBinders[A](items: List[A], avoid: Set[Var.Bound]): List[(A, Var.Bound)] =
+    NonEmptyList.fromList(items).map(alignBinders(_, avoid)) match {
+      case Some(nel) => nel.toList
+      case None => Nil
+    }
+
   case class Meta(kind: Kind, id: Long, ref: Ref[Option[Type.Tau]])
 
   object Meta {
@@ -594,8 +722,8 @@ object Type {
     def loop(tpes: List[Type], acc: Set[Type.Var.Bound]): Set[Type.Var.Bound] =
       tpes match {
         case Nil => acc
-        case Type.ForAll(tvs, _) :: rest =>
-          loop(rest, acc ++ tvs.toList.iterator.map(_._1))
+        case (q: Quantified) :: rest =>
+          loop(rest, acc ++ q.vars.iterator.map(_._1))
         case Type.TyApply(arg, res) :: rest =>
           loop(arg :: res :: rest, acc)
         case _ :: rest => loop(rest, acc)
@@ -609,8 +737,8 @@ object Type {
   def zonkMeta[F[_]: Applicative](t: Type)(m: Meta => F[Option[Type.Rho]]): F[Type] =
     t match {
       case rho: Rho => zonkRhoMeta(rho)(m).widen
-      case ForAll(ns, ty) =>
-        zonkRhoMeta(ty)(m).map(Type.ForAll(ns, _))
+      case q: Quantified =>
+        q.withBound[F]((_, in) => zonkRhoMeta(in)(m).widen).widen
     }
 
   /**
@@ -666,6 +794,12 @@ object Type {
         case (s, Some(k)) => (Type.Var.Bound(s), k)
       }, on) 
 
+    def existential(vs: NonEmptyList[(String, Option[Kind])], on: Type): Type =
+      Type.exists(vs.map {
+        case (s, None) => (Type.Var.Bound(s), Kind.Type)
+        case (s, Some(k)) => (Type.Var.Bound(s), k)
+      }, on) 
+
     def makeTuple(lst: List[Type]) = Type.Tuple(lst)
 
     private[this] val coloncolon = Doc.text("::")
@@ -697,6 +831,23 @@ object Type {
           Some((vs.map { 
             case (v, k) => (v.name, Some(k))
           }.toList, arg))
+        case DualQuant(forall, ex, in) =>
+          Some((forall.map { 
+            case (v, k) => (v.name, Some(k))
+          }.toList, exists(ex, in)))
+        case _ => None
+      }
+
+    def unapplyExistential(a: Type): Option[(List[(String, Option[Kind])], Type)] =
+      a match {
+        case Exists(vs, arg) =>
+          Some((vs.map { 
+            case (v, k) => (v.name, Some(k))
+          }.toList, arg))
+        case DualQuant(forall, exists, in) =>
+          Some((exists.map { 
+            case (v, k) => (v.name, Some(k))
+          }.toList, forAll(forall, in)))
         case _ => None
       }
 

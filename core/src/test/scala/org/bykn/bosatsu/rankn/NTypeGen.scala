@@ -25,7 +25,7 @@ object NTypeGen {
 
   val keyWords = Set(
     "if", "ffi", "match", "struct", "enum", "else", "elif",
-    "def", "external", "package", "import", "export", "forall",
+    "def", "external", "package", "import", "export", "forall", "exists",
     "recur", "recursive")
 
   val lowerIdent: Gen[String] =
@@ -87,6 +87,23 @@ object NTypeGen {
     Shrink(shrink(_))
   }
 
+  implicit val shrinkType: Shrink[Type] = {
+    import Type._
+    def shrink(t: Type): Stream[Type] =
+      t match {
+        case ForAll(items, in) =>
+          shrink(in).map(Type.forAll(items.tail, _))
+        case Exists(items, in) =>
+          shrink(in).map(Type.exists(items.tail, _))
+        case DualQuant(fa, ex, in) =>
+          in #:: ForAll(fa, in) #:: Exists(ex, in) #:: Stream.empty
+        case _: Leaf => Stream.empty
+        case TyApply(on, arg) =>
+          on #:: arg #:: shrink(on).map(TyApply(_, arg)) #::: shrink(arg).map(TyApply(on, _))
+      }
+    Shrink(shrink(_))
+  }
+
   val genKindArg: Gen[Kind.Arg] =
     Gen.zip(genVariance, genKind).map { case (v, k) => Kind.Arg(v, k) }
 
@@ -141,9 +158,17 @@ object NTypeGen {
           in <- recurse
         } yield Type.forAll(as, in)
 
+      val genExists =
+        for {
+          c <- Gen.choose(1, 5)
+          ks = NTypeGen.genKind
+          as <- Gen.listOfN(c, Gen.zip(genBound, ks))
+          in <- recurse
+        } yield Type.exists(as, in)
+
       val genApply = Gen.zip(recurse, recurse).map { case (a, b) => Type.TyApply(a, b) }
 
-      Gen.oneOf(recurse, genApply, genForAll)
+      Gen.oneOf(recurse, genApply, genForAll, genExists)
     }
 
 

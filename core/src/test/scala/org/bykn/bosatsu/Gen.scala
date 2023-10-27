@@ -109,6 +109,7 @@ object Generators {
             r #:: l.toList.toStream
           case TypeApply(of, args) => of #:: args.toList.toStream
           case TypeForAll(_, expr) => expr #:: Stream.empty
+          case TypeExists(_, expr) => expr #:: Stream.empty
           case TypeTuple(ts) =>
             def drop(as: List[TypeRef]): Stream[TypeTuple] =
               as match {

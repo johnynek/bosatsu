@@ -7,6 +7,8 @@ import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyC
 import org.scalatest.funsuite.AnyFunSuite
 
 class TypeTest extends AnyFunSuite {
+  import NTypeGen.shrinkType
+
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
     //PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 500)
@@ -96,7 +98,7 @@ class TypeTest extends AnyFunSuite {
       val bs = vsD.map(Type.Var.Bound(_))
       val fa = Type.forAll(bs.map((_, Kind.Type)), t)
       val binders = Type.tyVarBinders(fa :: Nil)
-      assert(bs.toSet.subsetOf(binders))
+      assert(bs.toSet.subsetOf(binders), s"bs = $bs, binders = $binders")
     }
   }
 

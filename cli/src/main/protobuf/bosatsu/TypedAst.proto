@@ -41,6 +41,12 @@ message TypeForAll {
   int32 typeValue = 3;
 }
 
+message TypeExists {
+  repeated int32 varNames = 1;
+  repeated Kind kinds = 2;
+  int32 typeValue = 3;
+}
+
 // represents left[right] type application
 message TypeApply {
   int32 left = 1;
@@ -53,6 +59,7 @@ message Type {
     TypeVar typeVar = 2;
     TypeForAll typeForAll = 3;
     TypeApply typeApply = 4;
+    TypeExists typeExists = 5;
   }
 }
 

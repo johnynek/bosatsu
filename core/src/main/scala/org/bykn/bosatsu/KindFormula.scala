@@ -72,7 +72,7 @@ object KindFormula {
     case class DeclaredType(
         cfn: ConstructorFn,
         constructorIdx: Int,
-        forAll: rankn.Type.ForAll,
+        quantified: rankn.Type.Quantified,
         bound: rankn.Type.Var.Bound,
         kindArg: Kind.Arg
     ) extends Constraint {
@@ -304,7 +304,7 @@ object KindFormula {
     object BoundState {
       case class IsKind(
           kind: Kind,
-          forAll: rankn.Type.ForAll,
+          quant: rankn.Type.Quantified,
           bound: rankn.Type.Var.Bound
       ) extends BoundState
       case class IsFormula(formula: KindFormula) extends BoundState
@@ -635,11 +635,11 @@ object KindFormula {
           kinds: Map[rankn.Type.Var.Bound, BoundState]
       ): RefSpace[KindFormula] =
         tpe match {
-          case fa @ rankn.Type.ForAll(vs, t) =>
-            val newKindMap = kinds ++ vs.toList.iterator.map { case (b, k) =>
+          case fa: rankn.Type.Quantified =>
+            val newKindMap = kinds ++ fa.vars.toList.iterator.map { case (b, k) =>
               b -> BoundState.IsKind(k, fa, b)
             }
-            kindOfType(direction, thisKind, cfn, idx, t, newKindMap)
+            kindOfType(direction, thisKind, cfn, idx, fa.in, newKindMap)
 
           case rankn.Type.TyApply(on, _) =>
             // we don't need to unify here,
@@ -727,8 +727,8 @@ object KindFormula {
       ): RefSpace[Unit] = {
         // println(s"addTypeConstraints(\ndir=$dir\nthisKind=$thisKind\ncfn=$cfn\nidx=$idx\nview=$view\ntpe=$tpe\ntpeKind=$tpeKind\nkinds=$kinds\n)")
         tpe match {
-          case fa @ rankn.Type.ForAll(vs, t) =>
-            val newKindMap = kinds ++ vs.toList.iterator.map { case (b, k) =>
+          case fa: rankn.Type.Quantified =>
+            val newKindMap = kinds ++ fa.vars.toList.iterator.map { case (b, k) =>
               b -> BoundState.IsKind(k, fa, b)
             }
             addTypeConstraints(
@@ -737,7 +737,7 @@ object KindFormula {
               cfn,
               idx,
               view,
-              t,
+              fa.in,
               tpeKind,
               newKindMap
             )

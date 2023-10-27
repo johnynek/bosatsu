@@ -29,7 +29,7 @@ sealed abstract class TypedExpr[+T] { self: Product =>
    */
   lazy val getType: Type =
     this match {
-      case g@Generic(_, _) => g.forAllType
+      case g@Generic(_, _) => g.quantType
       case Annotation(_, tpe) =>
         tpe
       case AnnotatedLambda(args, res, _) =>
@@ -187,7 +187,7 @@ object TypedExpr {
   case class Generic[T](typeVars: NonEmptyList[(Type.Var.Bound, Kind)], in: TypedExpr[T]) extends TypedExpr[T] {
     def tag: T = in.tag
 
-    lazy val forAllType: Type.ForAll = Type.forAll(typeVars, in.getType)
+    lazy val quantType: Type.Quantified = Type.forAll(typeVars, in.getType)
   }
   // Annotation really means "widen", the term has a type that is a subtype of coerce, so we are widening
   // to the given type. This happens on Locals/Globals also in their tpe
@@ -620,56 +620,51 @@ object TypedExpr {
 
   type Coerce = FunctionK[TypedExpr, TypedExpr]
 
-  private def pushDownCovariant(tpe: Type, kinds: Type => Option[Kind]): Type = {
-    import Type._
-    tpe match {
-      case ForAll(targs, in) =>
-        val (cons, cargs) = Type.unapplyAll(in)
-        kinds(cons) match {
-          case None =>
-            // this can happen because the cons is some kind of type variable
-            // we have lost track of (we need to track the type variables in
-            // recursions)
-            tpe
-          case Some(kind) =>
+  private def pushDownCovariant(tpe: Type.Quantified, kinds: Type => Option[Kind]): Type =
+    tpe.withUniversal { (targs, in) =>
+      val (cons, cargs) = Type.unapplyAll(in)
+      kinds(cons) match {
+        case None =>
+          // this can happen because the cons is some kind of type variable
+          // we have lost track of (we need to track the type variables in
+          // recursions)
+          tpe
+        case Some(kind) =>
 
-            val kindArgs = kind.toArgs
-            val kindArgsWithArgs = kindArgs.zip(cargs).map { case (ka, a) => (Some(ka), a) } :::
-              cargs.drop(kindArgs.length).map((None, _))
+          val kindArgs = kind.toArgs
+          val kindArgsWithArgs = kindArgs.zip(cargs).map { case (ka, a) => (Some(ka), a) } :::
+            cargs.drop(kindArgs.length).map((None, _))
 
-            val argsVectorIdx = kindArgsWithArgs
-              .iterator
-              .zipWithIndex
-              .map { case ((optKA, tpe), idx) =>
-                (Type.freeBoundTyVars(tpe :: Nil).toSet, optKA, tpe, idx)
-              }
-              .toVector
+          val argsVectorIdx = kindArgsWithArgs
+            .iterator
+            .zipWithIndex
+            .map { case ((optKA, tpe), idx) =>
+              (Type.freeBoundTyVars(tpe :: Nil).toSet, optKA, tpe, idx)
+            }
+            .toVector
 
-            // if an arg is covariant, it can pull all it's unique freeVars
-            def uniqueFreeVars(idx: Int): Set[Type.Var.Bound] = {
-              val (justIdx, optKA, _, _) = argsVectorIdx(idx)
-              if (optKA.exists(_.variance == Variance.co)) {
-                argsVectorIdx.iterator.filter(_._4 != idx)
-                  .foldLeft(justIdx) { case (acc, (s, _, _, _)) => acc -- s }
-              }
-              else Set.empty
+          // if an arg is covariant, it can pull all it's unique freeVars
+          def uniqueFreeVars(idx: Int): Set[Type.Var.Bound] = {
+            val (justIdx, optKA, _, _) = argsVectorIdx(idx)
+            if (optKA.exists(_.variance == Variance.co)) {
+              argsVectorIdx.iterator.filter(_._4 != idx)
+                .foldLeft(justIdx) { case (acc, (s, _, _, _)) => acc -- s }
             }
-            val withPulled = argsVectorIdx.map { case rec@(_, _, _, idx) =>
-              (rec, uniqueFreeVars(idx))
-            }
-            val allPulled: Set[Type.Var.Bound] = withPulled.foldMap(_._2)
-            val nonpulled = targs.filterNot { case (v, _) => allPulled(v) }
-            val pulledArgs = withPulled.iterator.map { case ((_, _, tpe, _), uniques) =>
-              val keep: Type.Var.Bound => Boolean = uniques
-              Type.forAll(targs.filter { case (t, _) => keep(t) }, tpe)
-            }
-            .toList
-            Type.forAll(nonpulled, Type.applyAll(cons, pulledArgs))
+            else Set.empty
           }
-        
-      case _ => tpe
+          val withPulled = argsVectorIdx.map { case rec@(_, _, _, idx) =>
+            (rec, uniqueFreeVars(idx))
+          }
+          val allPulled: Set[Type.Var.Bound] = withPulled.foldMap(_._2)
+          val nonpulled = targs.filterNot { case (v, _) => allPulled(v) }
+          val pulledArgs = withPulled.iterator.map { case ((_, _, tpe, _), uniques) =>
+            val keep: Type.Var.Bound => Boolean = uniques
+            Type.forAll(targs.filter { case (t, _) => keep(t) }, tpe)
+          }
+          .toList
+          Type.forAll(nonpulled, Type.applyAll(cons, pulledArgs))
+        }
     }
-  }
 
   // We know initTpe <:< instTpe, we may be able to simply
   // fix some of the universally quantified variables
@@ -684,19 +679,22 @@ object TypedExpr {
       (left, right) match {
         case (TyVar(v), right) if solveSet(v) =>
           Some(state.updated(v, right))
-        case (fa @ ForAll(b, i), r) =>
+        case (fa: Type.Quantified, r) =>
           if (fa.sameAs(r)) Some(state)
           // this will mask solving for the inside values:
-          else solve(i,
-            r,
-            state,
-            solveSet -- b.toList.iterator.map(_._1),
-            varKinds ++ b.toList
-            )
-        case (_, fa@ForAll(_, _)) =>
+          else {
+            val vlist = fa.vars.toList
+
+            solve(fa.in,
+              r,
+              state,
+              solveSet -- vlist.iterator.map(_._1),
+              varKinds ++ vlist)
+          }
+        case (_, fa: Type.Quantified) =>
           val kindsWithVars: Type => Option[Kind] =
             {
-              case v: Type.Var => varKinds.get(v)
+              case v: Type.TyVar => varKinds.get(v.toVar)
               case t => kinds(t)
             }
           val fa1 = pushDownCovariant(fa, kindsWithVars)
@@ -722,8 +720,14 @@ object TypedExpr {
         case (TyApply(_, _), _) => None
       }
 
-    val Type.ForAll(bs, in) = gen.forAllType
-    val solveSet: Set[Var] = bs.toList.iterator.map(_._1).toSet
+    val (bs, in) = gen.quantType match {
+      case Type.ForAll(bs, in) => (bs.toList, in)
+      case ex @ Type.Exists(_, _) => (Nil, ex)
+      case Type.DualQuant(fa, ex, in) =>
+        (fa.toList, Type.Exists(ex, in))
+    }
+
+    val solveSet: Set[Var] = bs.iterator.map(_._1).toSet
 
     val result =
       solve(in, instTpe, Map.empty, solveSet, bs.toList.toMap)
@@ -774,7 +778,7 @@ object TypedExpr {
         NonEmptyList.fromList(inner).map { inner =>
           val gbody = Generic(inner, body)
           val pushedBody = pushGeneric(gbody).getOrElse(gbody)
-          val lam = AnnotatedLambda(args, gbody, a)
+          val lam = AnnotatedLambda(args, pushedBody, a)
           NonEmptyList.fromList(outer) match {
             case None => lam
             case Some(outer) => forAll(outer, lam)

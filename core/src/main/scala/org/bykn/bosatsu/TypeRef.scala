@@ -40,6 +40,12 @@ sealed abstract class TypeRef {
           case (v, Some(Kind.Type)) => (v, None)
           case other => other
         }, e.normalizeForAll)
+      case TypeExists(pars, e) =>
+        // Remove `Some(Type)` since that's the default
+        TypeExists(pars.map {
+          case (v, Some(Kind.Type)) => (v, None)
+          case other => other
+        }, e.normalizeForAll)
       case TypeTuple(ts) =>
         TypeTuple(ts.map(_.normalizeForAll))
     }
@@ -70,6 +76,7 @@ object TypeRef {
   case class TypeApply(of: TypeRef, args: NonEmptyList[TypeRef]) extends TypeRef
 
   case class TypeForAll(params: NonEmptyList[(TypeVar, Option[Kind])], in: TypeRef) extends TypeRef
+  case class TypeExists(params: NonEmptyList[(TypeVar, Option[Kind])], in: TypeRef) extends TypeRef
   case class TypeTuple(params: List[TypeRef]) extends TypeRef
 
   implicit val typeRefOrdering: Ordering[TypeRef] =
@@ -102,7 +109,13 @@ object TypeRef {
             val c = nelistKind.compare(p0, p1)
             if (c == 0) compare(in0, in1) else c
           case (TypeForAll(_, _), TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)) => 1
-          case (TypeForAll(_, _), _) => -1
+          case (TypeForAll(_, _), TypeTuple(_) | TypeExists(_, _)) => -1
+          case (TypeExists(p0, in0), TypeExists(p1, in1)) =>
+            // TODO, we could normalize the parmeters here
+            val c = nelistKind.compare(p0, p1)
+            if (c == 0) compare(in0, in1) else c
+          case (TypeExists(_, _), TypeForAll(_, _) | TypeVar(_) | TypeName(_) | TypeArrow(_, _) | TypeApply(_, _)) => 1
+          case (TypeExists(_, _), _) => -1
           case (TypeTuple(t0), TypeTuple(t1)) => list.compare(t0, t1)
           case (TypeTuple(_), _) => 1
         }
@@ -120,6 +133,9 @@ object TypeRef {
     def applyTypes(cons: TypeRef, args: NonEmptyList[TypeRef]): TypeRef = TypeApply(cons, args)
     def universal(vars: NonEmptyList[(String, Option[Kind])], in: TypeRef): TypeRef =
       TypeForAll(vars.map { case (s, k) => (TypeVar(s), k) }, in)
+
+    def existential(vars: NonEmptyList[(String, Option[Kind])], in: TypeRef): TypeRef =
+      TypeExists(vars.map { case (s, k) => (TypeVar(s), k) }, in)
 
     def makeTuple(items: List[TypeRef]): TypeRef = TypeTuple(items)
 
@@ -139,6 +155,12 @@ object TypeRef {
     def unapplyUniversal(a: TypeRef): Option[(List[(String, Option[Kind])], TypeRef)] =
       a match {
         case TypeForAll(vs, a) => Some(((vs.map { case (v, k) => (v.asString, k) }).toList, a))
+        case _ => None
+      }
+
+    def unapplyExistential(a: TypeRef): Option[(List[(String, Option[Kind])], TypeRef)] =
+      a match {
+        case TypeExists(vs, a) => Some(((vs.map { case (v, k) => (v.asString, k) }).toList, a))
         case _ => None
       }
 
