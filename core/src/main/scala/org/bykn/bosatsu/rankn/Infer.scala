@@ -507,6 +507,9 @@ object Infer {
         case (fa@Type.ForAll(_, _), rho) =>
           // Rule SPEC
           instantiate(fa).flatMap(subsCheckRho2(_, rho, left, right))
+        // for existential lower bounds, we skolemize the existentials
+        // then verify they don't escape after inference and unskolemize
+        // them (if they are free in the resulting type)
         case (rhot: Type.Rho, rho) =>
           subsCheckRho2(rhot, rho, left, right)
       }
@@ -777,6 +780,11 @@ object Infer {
     // note, this is identical to subsCheckRho when declared is a Rho type
     def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       for {
+        // we can't just skolemize with existentials,
+        // we need to make new metas for existentials, and then
+        // reset them back to existential variables somewhat like quantify
+        // does now. It feels like we need better type signatures to encapsulate
+        // what we do after inference rather than just returning a list of skolems
         skolRho <- skolemize(declared, right)
         (skolTvs, rho2) = skolRho
         // note: we need rho2 in weak prenex form, but skolemize does this
