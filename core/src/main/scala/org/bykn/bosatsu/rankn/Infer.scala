@@ -494,7 +494,7 @@ object Infer {
       // note due to contravariance in input, we reverse the order there
       for {
         // we know that they have the same length because we have already called unifyFn
-        coarg <- a2s.zip(a1s).parTraverse { case (a2, a1) => subsCheck(a2, a1, left, right) }
+        coarg <- a2s.zip(a1s).parTraverse { case (a2, a1) => subsCheck(a2, a1, right, left) }
         // r2 is already in weak-prenex form
         cores <- subsCheckRho(r1, r2, left, right)
         ks <- checkedKinds
