@@ -1,6 +1,6 @@
 package org.bykn.bosatsu.rankn
 
-import cats.Monad
+import cats.{Functor, Monad}
 import cats.arrow.FunctionK
 import cats.data.{Chain, NonEmptyChain, NonEmptyList}
 
@@ -431,6 +431,11 @@ object Infer {
     def zonkTypedExpr[A](e: TypedExpr[A]): Infer[TypedExpr[A]] =
       TypedExpr.zonkMeta(e)(zonk(_))
 
+    val zonkTypeExprK: FunctionK[TypedExpr.Rho, Lambda[x => Infer[TypedExpr[x]]]] =
+      new FunctionK[TypedExpr.Rho, Lambda[x => Infer[TypedExpr[x]]]] {
+        def apply[A](fa: TypedExpr[A]): Infer[TypedExpr[A]] = zonkTypedExpr(fa)
+      }
+
     def initRef[E: HasRegion, A](t: Expr[E]): Infer[Ref[Either[Error.InferIncomplete, A]]] =
       lift(RefSpace.newRef[Either[Error.InferIncomplete, A]](
         Left(Error.InferIncomplete(t, region(t))))
@@ -776,33 +781,63 @@ object Infer {
     private def writeMeta(m: Type.Meta, v: Type.Tau): Infer[Unit] =
       lift(m.ref.set(Some(v)))
 
-    // DEEP-SKOL rule
-    // note, this is identical to subsCheckRho when declared is a Rho type
-    def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
+    implicit class AndThenMap[F[_], G[_], J[_]](private val fk: FunctionK[F, Lambda[x => G[J[x]]]]) extends AnyVal {
+      def andThenMap[H[_]](fn2: FunctionK[J, H])(implicit G: Functor[G]): FunctionK[F, Lambda[x => G[H[x]]]] =
+        new FunctionK[F, Lambda[x => G[H[x]]]] {
+          def apply[A](fa: F[A]): G[H[A]] =
+            fk(fa).map(fn2(_))
+        }
+
+      def andThenFlatMap[H[_]](fn2: FunctionK[J, Lambda[x => G[H[x]]]])(implicit G: Monad[G]): FunctionK[F, Lambda[x => G[H[x]]]] =
+        new FunctionK[F, Lambda[x => G[H[x]]]] {
+          def apply[A](fa: F[A]): G[H[A]] =
+            fk(fa).flatMap(fn2(_))
+        }
+    }
+
+    def subsUpper[F[_], G[_]: Functor](
+      declared: Type,
+      region: Region,
+      envTpes: Infer[List[Type]])(
+        fn: Type.Rho => Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]])(
+        onErr: NonEmptyList[Type.Var.Skolem] => Error): Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]] =
       for {
-        // we can't just skolemize with existentials,
-        // we need to make new metas for existentials, and then
-        // reset them back to existential variables somewhat like quantify
-        // does now. It feels like we need better type signatures to encapsulate
-        // what we do after inference rather than just returning a list of skolems
-        skolRho <- skolemize(declared, right)
+        skolRho <- skolemize(declared, region)
         (skolTvs, rho2) = skolRho
-        // note: we need rho2 in weak prenex form, but skolemize does this
-        coerce <- subsCheckRho(inferred, rho2, left, right)
+        coerce <- fn(rho2)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
         res <- NonEmptyList.fromList(skolTvs) match {
           case None => pure(coerce)
           case Some(nel) =>
-             // TODO: why do we not check the env.values here for escaped tyvars?
-             // tests seem to pass if we do or not
-             getFreeTyVars(inferred :: declared :: Nil).flatMap { escTvs =>
-               NonEmptyList.fromList(skolTvs.filter(escTvs)) match {
-                 case None => pure(coerce.andThen(unskolemize(nel)))
-                 case Some(badTvs) => fail(Error.SubsumptionCheckFailure(inferred, declared, left, right, badTvs))
-               }
-             }
+            envTpes
+              .flatMap { tail => getFreeTyVars(declared :: tail) }
+              .flatMap { escTvs =>
+                // if the escaped set is empty, then filter(Set.empty) == Nil
+                val badList = if (escTvs.isEmpty) Nil else skolTvs.filter(escTvs)
+
+                NonEmptyList.fromList(badList) match {
+                  case None => pure(coerce.andThenMap(unskolemize(nel)))
+                  case Some(badTvs) => fail(onErr(badTvs))
+                }
+              }
           }
       } yield res
+
+    // DEEP-SKOL rule
+    // note, this is identical to subsCheckRho when declared is a Rho type
+    def subsCheck(inferred: Type, declared: Type, left: Region, right: Region): Infer[TypedExpr.Coerce] =
+      subsUpper[TypedExpr, cats.Id](declared, right, pure(inferred :: Nil)) {
+        subsCheckRho(inferred, _, left, right)
+      } {
+        Error.SubsumptionCheckFailure(inferred, declared, left, right, _)
+      }
+
+    def inferForAll[A: HasRegion](tpes: NonEmptyList[(Type.Var.Bound, Kind)], expr: Expr[A]): Infer[TypedExpr[A]] =
+      for {
+        (skols, t1) <- Expr.skolemizeVars(tpes, expr)(newSkolemTyVar(_, _))
+        sigmaT <- inferSigma(t1)
+        z <- zonkTypedExpr(sigmaT)
+      } yield unskolemize(skols)(z)
 
     /**
      * Invariant: if the second argument is (Check rho) then rho is in weak prenex form
@@ -836,10 +871,7 @@ object Infer {
            } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
         case Generic(tpes, in) =>
             for {
-              (skols, t1) <- Expr.skolemizeVars(tpes, in)(newSkolemTyVar(_, _))
-              sigmaT <- inferSigma(t1)
-              z <- zonkTypedExpr(sigmaT)
-              unSkol = unskolemize(skols)(z)
+              unSkol <- inferForAll(tpes, in)
               // unSkol is not a Rho type, we need instantiate it
               coerce <- instSigma(unSkol.getType, expect, region(term))
             } yield coerce(unSkol)
@@ -1361,27 +1393,27 @@ object Infer {
         writeMeta(m, Type.TyVar(n))
       }))
 
-    def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] =
+    // allocate this once and reuse
+    private val envTail = getEnv.map(_.values.toList)
+
+    def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] = {
+      val regionT = region(t)
       for {
-        skolRho <- skolemize(tpe, region(t))
-        (skols, rho) = skolRho
-        // we need rho in weak-prenex form, but skolemize does this
-        te <- checkRho(t, rho)
-        te1 <- NonEmptyList.fromList(skols) match {
-          case None =>
-            // if skols.isEmpty, skols.filter(fn).isEmpty, so we can skip the rest
-            pure(te)
-          case Some(neskols) =>
-            for {
-              envTys <- getEnv
-              escTvs <- getFreeTyVars(tpe :: envTys.values.toList)
-              badTvs = skols.filter(escTvs)
-              _ <- require(badTvs.isEmpty, Error.NotPolymorphicEnough(tpe, t, NonEmptyList.fromListUnsafe(badTvs), region(t)))
-              // we need to zonk before we unskolemize because some of the metas could be skolems
-              zte <- zonkTypedExpr(te)
-            } yield unskolemize(neskols)(zte)
+        checkRho <- subsUpper[Lambda[x => (Expr[x], HasRegion[x])], Infer](tpe, regionT, envTail) { rho =>
+          if (rho == tpe) {
+            // we don't need to zonk here
+            pure(checkRhoK(rho))
+          }
+          else {
+            // we need to zonk before we unskolemize because some of the metas could be skolems
+            pure(checkRhoK(rho).andThenFlatMap[TypedExpr](zonkTypeExprK))
+          }
+        } { badTvs =>
+          Error.NotPolymorphicEnough(tpe, t, badTvs, regionT)
         }
-      } yield te1 // should be fine since the everything after te is just checking
+        te <- checkRho((t, implicitly[HasRegion[A]]))
+      } yield te
+    }
 
     /**
      * invariant: rho needs to be in weak-prenex form
@@ -1389,6 +1421,12 @@ object Infer {
     def checkRho[A: HasRegion](t: Expr[A], rho: Type.Rho): Infer[TypedExpr.Rho[A]] =
       typeCheckRho(t, Expected.Check((rho, region(t))))
 
+    // same as checkRho but as a FunctionK
+    def checkRhoK(rho: Type.Rho): FunctionK[Lambda[x => (Expr[x], HasRegion[x])], Lambda[x => Infer[TypedExpr.Rho[x]]]] =
+      new FunctionK[Lambda[x => (Expr[x], HasRegion[x])], Lambda[x => Infer[TypedExpr.Rho[x]]]] {
+        def apply[A](fa: (Expr[A], HasRegion[A])): Infer[TypedExpr[A]] = 
+          checkRho(fa._1, rho)(fa._2)
+      }
     /**
      * recall a rho type never has a top level Forall
      */
