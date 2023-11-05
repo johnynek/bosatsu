@@ -358,6 +358,48 @@ object Infer {
       }
 
 
+    sealed trait Skolemization {
+      def rho: Type.Rho
+      def prepend(sks: List[Type.Var.Skolem]): Skolemization
+      def prepend(sks: NonEmptyList[Type.Var.Skolem]): Skolemization.WithSkols
+      def tyApply(that: Skolemization): Skolemization
+      def tyApply(that: Type): Skolemization
+    }
+    object Skolemization {
+      case class Empty(rho: Type.Rho) extends Skolemization {
+        def prepend(sks: List[Type.Var.Skolem]) =
+          NonEmptyList.fromList(sks) match {
+            case None => this
+            case Some(nel) => WithSkols(nel, rho)
+          }
+        def prepend(sks: NonEmptyList[Type.Var.Skolem]): WithSkols =
+          WithSkols(sks, rho)
+        def tyApply(that: Skolemization): Skolemization =
+          that match {
+            case Empty(thatrho) => Empty(Type.TyApply(rho, thatrho))
+            case WithSkols(skols, thatrho) =>
+              WithSkols(skols, Type.TyApply(rho, thatrho))
+          }
+        def tyApply(that: Type): Skolemization = Empty(Type.TyApply(rho, that))
+      }
+      case class WithSkols(skols: NonEmptyList[Type.Var.Skolem], rho: Type.Rho) extends Skolemization {
+        def prepend(sks: List[Type.Var.Skolem]) =
+          if (sks.isEmpty) this
+          else WithSkols(skols.prependList(sks), rho)
+
+        def prepend(sks: NonEmptyList[Type.Var.Skolem]): WithSkols =
+          WithSkols(sks ::: skols, rho)
+
+        def tyApply(that: Skolemization): Skolemization =
+          that match {
+            case Empty(thatrho) => WithSkols(skols, Type.TyApply(rho, thatrho))
+            case WithSkols(thatskols, thatrho) =>
+              WithSkols(skols ::: thatskols, Type.TyApply(rho, thatrho))
+          }
+        def tyApply(that: Type): Skolemization =
+          WithSkols(skols, Type.TyApply(rho, that))
+      }
+    }
     /**
      * Skolemize on a function just recurses on the result type.
      *
@@ -369,7 +411,7 @@ object Infer {
      * The returned type is in weak-prenex form: all ForAlls have
      * been floated up over covariant parameters
      */
-    private def skolemize(t: Type, region: Region): Infer[(List[Type.Var.Skolem], Type.Rho)] =
+    private def skolemize(t: Type, region: Region): Infer[Skolemization] =
       t match {
         case Type.ForAll(tvs, ty) =>
           // Rule PRPOLY
@@ -377,26 +419,24 @@ object Infer {
             sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
             sksT = sks1.map(Type.TyVar(_))
             sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty), region)
-            (sks2, ty2) = sks2ty
-          } yield (sks1.toList ::: sks2, ty2)
+          } yield sks2ty.prepend(sks1)
         case ta@Type.TyApply(left, right) =>
           // Rule PRFUN
           // we know the kind of left is k -> x, and right has kind k
           varianceOfCons(ta, region)
             .product(skolemize(left, region))
             .flatMap {
-              case (Variance.Covariant, (sksl, sl)) =>
+              case (Variance.Covariant, skl) =>
                 for {
                   skr <- skolemize(right, region)
-                  (sksr, sr) = skr
-                } yield (sksl ::: sksr, Type.TyApply(sl, sr))
-              case (_, (sksl, sl)) =>
+                } yield skl.tyApply(skr)
+              case (_, skl) =>
                 // otherwise, we don't skolemize the right
-                pure((sksl, Type.TyApply(sl, right)))
+                pure(skl.tyApply(right))
             }
         case other: Type.Rho =>
           // Rule PRMONO
-          pure((Nil, other))
+          pure(Skolemization.Empty(other))
       }
 
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
@@ -802,18 +842,17 @@ object Infer {
         fn: Type.Rho => Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]])(
         onErr: NonEmptyList[Type.Var.Skolem] => Error): Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]] =
       for {
-        skolRho <- skolemize(declared, region)
-        (skolTvs, rho2) = skolRho
-        coerce <- fn(rho2)
+        skol <- skolemize(declared, region)
+        coerce <- fn(skol.rho)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
-        res <- NonEmptyList.fromList(skolTvs) match {
-          case None => pure(coerce)
-          case Some(nel) =>
+        res <- skol match {
+          case Skolemization.Empty(_) => pure(coerce)
+          case Skolemization.WithSkols(nel, _) =>
             envTpes
               .flatMap { tail => getFreeTyVars(declared :: tail) }
               .flatMap { escTvs =>
                 // if the escaped set is empty, then filter(Set.empty) == Nil
-                val badList = if (escTvs.isEmpty) Nil else skolTvs.filter(escTvs)
+                val badList = if (escTvs.isEmpty) Nil else nel.filter(escTvs)
 
                 NonEmptyList.fromList(badList) match {
                   case None => pure(coerce.andThenMap(unskolemize(nel)))
