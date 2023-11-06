@@ -44,11 +44,12 @@ object SelfCallKind {
 
   private def isFn[A](n: Bindable, te: TypedExpr[A]): Boolean =
     te match {
-      case TypedExpr.Generic(_, in) => isFn(n, in)
+      case TypedExpr.Generic(_, in)    => isFn(n, in)
       case TypedExpr.Annotation(te, _) => isFn(n, te)
-      case TypedExpr.Local(vn, _, _) => vn == n
-      case _ => false
+      case TypedExpr.Local(vn, _, _)   => vn == n
+      case _                           => false
     }
+
   /** assuming expr is bound to nm, what kind of self call does it contain?
     */
   def apply[A](n: Bindable, te: TypedExpr[A]): SelfCallKind =

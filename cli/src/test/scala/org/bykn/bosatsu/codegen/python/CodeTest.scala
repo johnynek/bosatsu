@@ -3,14 +3,17 @@ package org.bykn.bosatsu.codegen.python
 import cats.data.NonEmptyList
 import java.math.BigInteger
 import org.scalacheck.Gen
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import org.python.core.{ParserFacade => JythonParserFacade}
 import org.scalatest.funsuite.AnyFunSuite
 
 class CodeTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 50000)
-    //PropertyCheckConfiguration(minSuccessful = 5000)
+    // PropertyCheckConfiguration(minSuccessful = 50000)
+    // PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 500)
 
   lazy val genPy2Name: Gen[String] = {
@@ -38,10 +41,15 @@ class CodeTest extends AnyFunSuite {
       Gen.oneOf(
         Gen.identifier.map(Code.PyString),
         genIdent,
-        Gen.oneOf(Code.Const.Zero, Code.Const.One, Code.Const.True, Code.Const.False),
+        Gen.oneOf(
+          Code.Const.Zero,
+          Code.Const.One,
+          Code.Const.True,
+          Code.Const.False
+        ),
         genDotselect,
-        Gen.choose(-1024, 1024).map(Code.fromInt))
-
+        Gen.choose(-1024, 1024).map(Code.fromInt)
+      )
 
     if (depth <= 0) genZero
     else {
@@ -57,9 +65,11 @@ class CodeTest extends AnyFunSuite {
         Code.Const.Eq,
         Code.Const.Neq,
         Code.Const.Gt,
-        Code.Const.Lt)
+        Code.Const.Lt
+      )
 
-      val genOp = Gen.zip(rec, opName, rec).map { case (a, b, c) => Code.Op(a, b, c) }
+      val genOp =
+        Gen.zip(rec, opName, rec).map { case (a, b, c) => Code.Op(a, b, c) }
 
       val genTup =
         for {
@@ -88,9 +98,19 @@ class CodeTest extends AnyFunSuite {
         (1, genOp),
         (2, rec.map(Code.Parens(_))),
         (2, Gen.zip(rec, Gen.choose(0, 100)).map { case (a, p) => a.get(p) }),
-        (1, Gen.zip(rec, Gen.option(rec), Gen.option(rec)).map { case (a, s, e) => Code.SelectRange(a, s, e) }),
+        (
+          1,
+          Gen.zip(rec, Gen.option(rec), Gen.option(rec)).map { case (a, s, e) =>
+            Code.SelectRange(a, s, e)
+          }
+        ),
         (1, Gen.oneOf(genTup, genList)), // these can really blow things up
-        (2, Gen.zip(Gen.listOf(genIdent), rec).map { case (args, x) => Code.Lambda(args, x) }),
+        (
+          2,
+          Gen.zip(Gen.listOf(genIdent), rec).map { case (args, x) =>
+            Code.Lambda(args, x)
+          }
+        ),
         (1, genApp),
         (1, genTern)
       )
@@ -108,7 +128,12 @@ class CodeTest extends AnyFunSuite {
       Gen.frequency(
         (10, recX),
         (1, Gen.zip(recS, rec).map { case (s, r) => s.withValue(r) }),
-        (1, Gen.zip(genNel(4, cond), rec).map { case (conds, e) => Code.IfElse(conds, e) })
+        (
+          1,
+          Gen.zip(genNel(4, cond), rec).map { case (conds, e) =>
+            Code.IfElse(conds, e)
+          }
+        )
       )
     }
 
@@ -118,11 +143,12 @@ class CodeTest extends AnyFunSuite {
       lst <- Gen.listOfN(cnt, genA)
     } yield NonEmptyList.fromListUnsafe(lst)
 
-
   def genStatement(depth: Int): Gen[Code.Statement] = {
     val genZero = {
       val gp = Gen.const(Code.Pass)
-      val genImp = Gen.zip(genPy2Name, Gen.option(genIdent)).map { case (m, a) => Code.Import(m, a) }
+      val genImp = Gen.zip(genPy2Name, Gen.option(genIdent)).map {
+        case (m, a) => Code.Import(m, a)
+      }
 
       Gen.oneOf(gp, genImp)
     }
@@ -151,8 +177,10 @@ class CodeTest extends AnyFunSuite {
       val genBlock = genNel(5, recStmt).map(Code.Block(_))
       val genRet = recVL.map(Code.toReturn(_))
       val genAlways = recVL.map(Code.always(_))
-      val genAssign = Gen.zip(genIdent, recVL).map { case (v, e) => Code.addAssign(v, e) }
-      val genWhile = Gen.zip(recExpr, recStmt).map { case (c, b) => Code.While(c, b) }
+      val genAssign =
+        Gen.zip(genIdent, recVL).map { case (v, e) => Code.addAssign(v, e) }
+      val genWhile =
+        Gen.zip(recExpr, recStmt).map { case (c, b) => Code.While(c, b) }
       val genIf =
         for {
           conds <- genNel(4, Gen.zip(recExpr, recStmt))
@@ -160,11 +188,11 @@ class CodeTest extends AnyFunSuite {
         } yield Code.ifStatement(conds, elseCond)
 
       val genDef =
-       for {
-         name <- genIdent
-         args <- Gen.listOf(genIdent)
-         body <- recStmt
-       } yield Code.Def(name, args, body)
+        for {
+          name <- genIdent
+          args <- Gen.listOf(genIdent)
+          body <- recStmt
+        } yield Code.Def(name, args, body)
 
       Gen.frequency(
         (20, genZero),
@@ -183,10 +211,15 @@ class CodeTest extends AnyFunSuite {
 
   def assertParse(str: String) = {
     try {
-      val mod = JythonBarrier.run(JythonParserFacade.parseExpressionOrModule(new java.io.StringReader(str), "filename.py", new org.python.core.CompilerFlags()))
+      val mod = JythonBarrier.run(
+        JythonParserFacade.parseExpressionOrModule(
+          new java.io.StringReader(str),
+          "filename.py",
+          new org.python.core.CompilerFlags()
+        )
+      )
       assert(mod != null)
-    }
-    catch {
+    } catch {
       case _: Throwable =>
         val msg = "\n\n" + ("=" * 80) + "\n\n" + str + "\n\n" + ("=" * 80)
         assert(false, msg)
@@ -219,19 +252,26 @@ else:
   test("test some Operator examples") {
     import Code._
 
-    val apbpc = Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Plus, Ident("c")))
+    val apbpc =
+      Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Plus, Ident("c")))
 
     assert(toDoc(apbpc).renderTrim(80) == """a + b + c""")
 
-    val apbmc = Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Minus, Ident("c")))
+    val apbmc =
+      Op(Ident("a"), Const.Plus, Op(Ident("b"), Const.Minus, Ident("c")))
 
     assert(toDoc(apbmc).renderTrim(80) == """a + b - c""")
 
-    val ambmc = Op(Ident("a"), Const.Minus, Op(Ident("b"), Const.Minus, Ident("c")))
+    val ambmc =
+      Op(Ident("a"), Const.Minus, Op(Ident("b"), Const.Minus, Ident("c")))
 
     assert(toDoc(ambmc).renderTrim(80) == """a - (b - c)""")
 
-    val amzmbmc = Op(Op(Ident("a"), Const.Minus, Ident("z")), Const.Minus, Op(Ident("b"), Const.Minus, Ident("c")))
+    val amzmbmc = Op(
+      Op(Ident("a"), Const.Minus, Ident("z")),
+      Const.Minus,
+      Op(Ident("b"), Const.Minus, Ident("c"))
+    )
 
     assert(toDoc(amzmbmc).renderTrim(80) == """(a - z) - (b - c)""")
   }
@@ -250,11 +290,9 @@ else:
 
       if (cmp == 0) {
         assert(p1.eval(Code.Const.Eq, p2) == Code.Const.True)
-      }
-      else if (cmp < 0) {
+      } else if (cmp < 0) {
         assert(p1.eval(Code.Const.Lt, p2) == Code.Const.True)
-      }
-      else {
+      } else {
         assert(p1.eval(Code.Const.Gt, p2) == Code.Const.True)
       }
     }
@@ -302,17 +340,39 @@ else:
 
     val gop = Gen.oneOf(Code.Const.Plus, Code.Const.Minus, Code.Const.Times)
     forAll(gi, gi, gi, gop, gop) { (a, b, c, op1, op2) =>
-      val left = Code.Op(Code.Op(Code.fromLong(a), op1, Code.fromLong(b)), op2, Code.fromLong(c))
-      assert(left.simplify == Code.PyInt(op2(op1(BigInteger.valueOf(a), BigInteger.valueOf(b)), BigInteger.valueOf(c))))
+      val left = Code.Op(
+        Code.Op(Code.fromLong(a), op1, Code.fromLong(b)),
+        op2,
+        Code.fromLong(c)
+      )
+      assert(
+        left.simplify == Code.PyInt(
+          op2(
+            op1(BigInteger.valueOf(a), BigInteger.valueOf(b)),
+            BigInteger.valueOf(c)
+          )
+        )
+      )
 
-      val right = Code.Op(Code.fromLong(a), op1, Code.Op(Code.fromLong(b), op2, Code.fromLong(c)))
-      assert(right.simplify == Code.PyInt(op1(BigInteger.valueOf(a), op2(BigInteger.valueOf(b), BigInteger.valueOf(c)))))
+      val right = Code.Op(
+        Code.fromLong(a),
+        op1,
+        Code.Op(Code.fromLong(b), op2, Code.fromLong(c))
+      )
+      assert(
+        right.simplify == Code.PyInt(
+          op1(
+            BigInteger.valueOf(a),
+            op2(BigInteger.valueOf(b), BigInteger.valueOf(c))
+          )
+        )
+      )
     }
   }
 
   def runAll(op: Code.Expression): Option[Code.PyInt] =
     op match {
-      case pi@Code.PyInt(_) => Some(pi)
+      case pi @ Code.PyInt(_) => Some(pi)
       case Code.Op(left, op: Code.IntOp, right) =>
         for {
           l <- runAll(left)
@@ -321,7 +381,11 @@ else:
       case _ => None
     }
 
-  def genOp(depth: Int, go: Gen[Code.IntOp], gen0: Gen[Code.Expression]): Gen[Code.Expression] =
+  def genOp(
+      depth: Int,
+      go: Gen[Code.IntOp],
+      gen0: Gen[Code.Expression]
+  ): Gen[Code.Expression] =
     if (depth <= 0) gen0
     else {
       val rec = Gen.lzy(genIntOp(depth - 1, go))
@@ -334,14 +398,22 @@ else:
   def genIntOp(depth: Int, go: Gen[Code.IntOp]): Gen[Code.Expression] =
     genOp(depth, go, Gen.choose(-1024, 1024).map(Code.fromInt))
 
-
   test("any sequence of IntOps is optimized") {
-    forAll(genIntOp(5, Gen.oneOf(Code.Const.Plus, Code.Const.Minus, Code.Const.Times))) { op =>
+    forAll(
+      genIntOp(
+        5,
+        Gen.oneOf(Code.Const.Plus, Code.Const.Minus, Code.Const.Times)
+      )
+    ) { op =>
       // adding zero collapses to an Int
       assert(Some(op.evalPlus(Code.fromInt(0))) == runAll(op))
       assert(Some(Code.fromInt(0).evalPlus(op)) == runAll(op))
       assert(Some(op.evalMinus(Code.fromInt(0))) == runAll(op))
-      assert(Some(Code.fromInt(0).evalMinus(op)) == runAll(op.evalTimes(Code.fromInt(-1))))
+      assert(
+        Some(Code.fromInt(0).evalMinus(op)) == runAll(
+          op.evalTimes(Code.fromInt(-1))
+        )
+      )
       assert(Some(Code.fromInt(1).evalTimes(op)) == runAll(op))
     }
   }
@@ -350,13 +422,21 @@ else:
     val gen = genOp(
       5,
       Gen.oneOf(Code.Const.Plus, Code.Const.Minus),
-      Gen.oneOf(Gen.choose(-1024, 1024).map(Code.fromInt), Gen.identifier.map(Code.Ident(_))))
+      Gen.oneOf(
+        Gen.choose(-1024, 1024).map(Code.fromInt),
+        Gen.identifier.map(Code.Ident(_))
+      )
+    )
 
     forAll(gen) { op =>
       val simpOp = op.simplify
-      def assertGood(x: Code.Expression, isRight: Boolean): org.scalatest.Assertion =
+      def assertGood(
+          x: Code.Expression,
+          isRight: Boolean
+      ): org.scalatest.Assertion =
         x match {
-          case Code.PyInt(_) => assert(isRight, s"found: $x on the left inside of $simpOp")
+          case Code.PyInt(_) =>
+            assert(isRight, s"found: $x on the left inside of $simpOp")
           case Code.Op(left, _, right) =>
             assertGood(left, false)
             assertGood(right, isRight)
@@ -376,20 +456,20 @@ else:
     assert(block(Pass, Pass) == Pass)
 
     forAll(genNel(4, genStatement(3))) { case NonEmptyList(h, t) =>
-      val stmt = block(h, t :_*)
+      val stmt = block(h, t: _*)
 
       def passCount(s: Statement): Int =
         s match {
-          case Pass => 1
+          case Pass     => 1
           case Block(s) => s.toList.map(passCount).sum
-          case _ => 0
+          case _        => 0
         }
 
       def notPassCount(s: Statement): Int =
         s match {
-          case Pass => 0
+          case Pass     => 0
           case Block(s) => s.toList.map(notPassCount).sum
-          case _ => 1
+          case _        => 1
         }
 
       val pc = passCount(stmt)
@@ -410,7 +490,14 @@ else:
 
     val regressions: List[Code.Expression] =
       List(
-        Code.SelectItem(Code.Ternary(Code.fromInt(0), Code.fromInt(0), Code.MakeTuple(List(Code.fromInt(42)))), 0)
+        Code.SelectItem(
+          Code.Ternary(
+            Code.fromInt(0),
+            Code.fromInt(0),
+            Code.MakeTuple(List(Code.fromInt(42)))
+          ),
+          0
+        )
       )
 
     regressions.foreach { expr =>
@@ -425,15 +512,13 @@ else:
         case Code.PyBool(b) =>
           if (b) {
             assert(tern == t.simplify)
-          }
-          else {
+          } else {
             assert(tern == f.simplify)
           }
         case Code.PyInt(i) =>
           if (i != BigInteger.ZERO) {
             assert(tern == t.simplify)
-          }
-          else {
+          } else {
             assert(tern == f.simplify)
           }
         case whoKnows =>
@@ -446,7 +531,7 @@ else:
     forAll(genExpr(4)) { expr =>
       expr.identOrParens match {
         case Code.Ident(_) | Code.Parens(_) => assert(true)
-        case other => assert(false, other.toString)
+        case other                          => assert(false, other.toString)
       }
     }
   }
@@ -457,6 +542,10 @@ else:
     val and = left.evalAnd(right)
 
     assert(Code.toDoc(and).renderTrim(80) == "(a == b) and (b == c)")
-    assert(Code.toDoc(Code.Ident("z").evalAnd(and)).renderTrim(80) == "z and (a == b) and (b == c)")
+    assert(
+      Code
+        .toDoc(Code.Ident("z").evalAnd(and))
+        .renderTrim(80) == "z and (a == b) and (b == c)"
+    )
   }
 }

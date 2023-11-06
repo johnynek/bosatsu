@@ -19,17 +19,20 @@ class RankNInferTest extends AnyFunSuite {
 
   val emptyRegion: Region = Region(0, 0)
 
-  implicit val unitRegion: HasRegion[Unit] = HasRegion.instance(_ => emptyRegion)
+  implicit val unitRegion: HasRegion[Unit] =
+    HasRegion.instance(_ => emptyRegion)
 
   private def strToConst(str: Identifier.Constructor): Type.Const =
     str.asString match {
-      case "Int" => Type.Const.predef("Int")
+      case "Int"    => Type.Const.predef("Int")
       case "String" => Type.Const.predef("String")
-      case "List" => Type.Const.predef("List")
-      case _ => Type.Const.Defined(testPackage, TypeName(str))
+      case "List"   => Type.Const.predef("List")
+      case _        => Type.Const.Defined(testPackage, TypeName(str))
     }
 
-  def asFullyQualified(ns: Iterable[(Identifier, Type)]): Map[Infer.Name, Type] =
+  def asFullyQualified(
+      ns: Iterable[(Identifier, Type)]
+  ): Map[Infer.Name, Type] =
     ns.iterator.map { case (n, t) => ((Some(testPackage), n), t) }.toMap
 
   def typeFrom(str: String): Type = {
@@ -56,11 +59,13 @@ class RankNInferTest extends AnyFunSuite {
     val t1 = typeFrom(left)
     val t2 = typeFrom(right)
 
-    val res1 = Infer.substitutionCheck(t1, t2, emptyRegion, emptyRegion)
+    val res1 = Infer
+      .substitutionCheck(t1, t2, emptyRegion, emptyRegion)
       .runFully(Map.empty, Map.empty, Type.builtInKinds)
     assert(res1.isRight, s"$left is not :<: $right\n\n$res1")
 
-    val res2 = Infer.substitutionCheck(t2, t1, emptyRegion, emptyRegion)
+    val res2 = Infer
+      .substitutionCheck(t2, t1, emptyRegion, emptyRegion)
       .runFully(Map.empty, Map.empty, Type.builtInKinds)
     assert(res2.isLeft, s"$left is unexpectedly = $right\n\n$res2")
   }
@@ -69,9 +74,11 @@ class RankNInferTest extends AnyFunSuite {
     val t1 = typeFrom(left)
     val t2 = typeFrom(right)
 
-    val res1 = Infer.substitutionCheck(t1, t2, emptyRegion, emptyRegion)
+    val res1 = Infer
+      .substitutionCheck(t1, t2, emptyRegion, emptyRegion)
       .runFully(Map.empty, Map.empty, Type.builtInKinds)
-    val res2 = Infer.substitutionCheck(t2, t1, emptyRegion, emptyRegion)
+    val res2 = Infer
+      .substitutionCheck(t2, t1, emptyRegion, emptyRegion)
       .runFully(Map.empty, Map.empty, Type.builtInKinds)
 
     assert(res1.isLeft, s"$left is unexpectedly :<: $right\n\n$res1")
@@ -86,31 +93,53 @@ class RankNInferTest extends AnyFunSuite {
 
   val withBools: Map[Infer.Name, Type] =
     Map(
-      (Some(PackageName.PredefName), Identifier.unsafe("True")) -> Type.BoolType,
-      (Some(PackageName.PredefName), Identifier.unsafe("False")) -> Type.BoolType)
+      (
+        Some(PackageName.PredefName),
+        Identifier.unsafe("True")
+      ) -> Type.BoolType,
+      (
+        Some(PackageName.PredefName),
+        Identifier.unsafe("False")
+      ) -> Type.BoolType
+    )
   val boolTypes: Map[(PackageName, Constructor), Infer.Cons] =
     Map(
-      ((PackageName.PredefName, Constructor("True")), (Nil, Nil, Type.Const.predef("Bool"))),
-      ((PackageName.PredefName, Constructor("False")), (Nil, Nil, Type.Const.predef("Bool"))))
+      (
+        (PackageName.PredefName, Constructor("True")),
+        (Nil, Nil, Type.Const.predef("Bool"))
+      ),
+      (
+        (PackageName.PredefName, Constructor("False")),
+        (Nil, Nil, Type.Const.predef("Bool"))
+      )
+    )
 
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
     Infer.typeCheck(term).runFully(withBools, boolTypes, Map.empty) match {
-      case Left(err) => assert(false, err)
+      case Left(err)  => assert(false, err)
       case Right(tpe) => assert(tpe.getType == ty, term.toString)
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
-    Infer.typeCheckLets(testPackage, terms.map { case (k, v, _) => (Identifier.Name(k), RecursionKind.NonRecursive, v) })
+    Infer
+      .typeCheckLets(
+        testPackage,
+        terms.map { case (k, v, _) =>
+          (Identifier.Name(k), RecursionKind.NonRecursive, v)
+        }
+      )
       .runFully(withBools, boolTypes, Type.builtInKinds) match {
-        case Left(err) => assert(false, err)
-        case Right(tpes) =>
-          assert(tpes.size == terms.size)
-          terms.zip(tpes).foreach { case ((n, exp, expt), (n1, _, te)) =>
-            assert(n == n1.asString, s"the name changed: $n != $n1")
-            assert(te.getType == expt, s"$n = $exp failed to typecheck to $expt, got ${te.getType}")
-          }
-      }
-
+      case Left(err) => assert(false, err)
+      case Right(tpes) =>
+        assert(tpes.size == terms.size)
+        terms.zip(tpes).foreach { case ((n, exp, expt), (n1, _, te)) =>
+          assert(n == n1.asString, s"the name changed: $n != $n1")
+          assert(
+            te.getType == expt,
+            s"$n = $exp failed to typecheck to $expt, got ${te.getType}"
+          )
+        }
+    }
 
   def lit(i: Int): Expr[Unit] = Literal(Lit(i.toLong), ())
   def lit(b: Boolean): Expr[Unit] =
@@ -122,36 +151,41 @@ class RankNInferTest extends AnyFunSuite {
     Lambda(NonEmptyList.one((Identifier.Name(arg), None)), result, ())
   def v(name: String): Expr[Unit] =
     Identifier.unsafe(name) match {
-      case c@Identifier.Constructor(_) => Global(testPackage, c, ())
-      case b: Identifier.Bindable => Local(b, ())
+      case c @ Identifier.Constructor(_) => Global(testPackage, c, ())
+      case b: Identifier.Bindable        => Local(b, ())
     }
   def ann(expr: Expr[Unit], t: Type): Expr[Unit] = Annotation(expr, t, ())
 
-  def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] = App(fn, NonEmptyList.one(arg), ())
+  def app(fn: Expr[Unit], arg: Expr[Unit]): Expr[Unit] =
+    App(fn, NonEmptyList.one(arg), ())
   def alam(arg: String, tpe: Type, res: Expr[Unit]): Expr[Unit] =
     Lambda(NonEmptyList.one((Identifier.Name(arg), Some(tpe))), res, ())
 
-  def ife(cond: Expr[Unit], ift: Expr[Unit], iff: Expr[Unit]): Expr[Unit] = Expr.ifExpr(cond, ift, iff, ())
-  def matche(arg: Expr[Unit], branches: NonEmptyList[(Pattern[String, Type], Expr[Unit])]): Expr[Unit] =
-    Match(arg,
+  def ife(cond: Expr[Unit], ift: Expr[Unit], iff: Expr[Unit]): Expr[Unit] =
+    Expr.ifExpr(cond, ift, iff, ())
+  def matche(
+      arg: Expr[Unit],
+      branches: NonEmptyList[(Pattern[String, Type], Expr[Unit])]
+  ): Expr[Unit] =
+    Match(
+      arg,
       branches.map { case (p, e) =>
         val p1 = p.mapName { n => (testPackage, Constructor(n)) }
         (p1, e)
       },
-      ())
+      ()
+    )
 
-  /**
-   * Check that a no import program has a given type
-   */
+  /** Check that a no import program has a given type
+    */
   def parseProgram(statement: String, tpe: String) =
     checkLast(statement) { te0 =>
-
       val te = te0 // TypedExprNormalization.normalize(te0).getOrElse(te0)
       te.traverseType[cats.Id] {
-        case t@Type.TyVar(Type.Var.Skolem(_, _, _)) =>
+        case t @ Type.TyVar(Type.Var.Skolem(_, _, _)) =>
           fail(s"illegate skolem ($t) escape in $te")
           t
-        case t@Type.TyMeta(_) =>
+        case t @ Type.TyMeta(_) =>
           fail(s"illegate meta ($t) escape in $te")
           t
         case good =>
@@ -161,10 +195,12 @@ class RankNInferTest extends AnyFunSuite {
       val rendered = te.repr
       val tp = te.getType
       lazy val teStr = Type.fullyResolvedDocument.document(tp).render(80)
-      assert(Type.freeTyVars(tp :: Nil).isEmpty, s"illegal inferred type: $teStr, in: $rendered")
+      assert(
+        Type.freeTyVars(tp :: Nil).isEmpty,
+        s"illegal inferred type: $teStr, in: $rendered"
+      )
 
-      assert(Type.metaTvs(tp :: Nil).isEmpty,
-        s"illegal inferred type: $teStr")
+      assert(Type.metaTvs(tp :: Nil).isEmpty, s"illegal inferred type: $teStr")
       assert(te.getType.sameAs(typeFrom(tpe)))
     }
 
@@ -172,9 +208,8 @@ class RankNInferTest extends AnyFunSuite {
   def checkTERepr(statement: String, repr: String) =
     checkLast(statement) { te => assert(te.repr == repr) }
 
-  /**
-   * Test that a program is ill-typed
-   */
+  /** Test that a program is ill-typed
+    */
   def parseProgramIllTyped(statement: String) = {
     val stmts = Parser.unsafeParse(Statement.parser, statement)
     Package.inferBody(testPackage, Nil, stmts) match {
@@ -198,17 +233,27 @@ class RankNInferTest extends AnyFunSuite {
     assertTypesUnify("forall a. List[a]", "List[forall a. a]")
 
     assert_:<:("forall a. a -> Int", "(forall a. a) -> Int")
-    assert_:<:(
-      "((forall a. a) -> Int) -> Int",
-      "forall a. (a -> Int) -> Int")
+    assert_:<:("((forall a. a) -> Int) -> Int", "forall a. (a -> Int) -> Int")
     assert_:<:("List[forall a. a -> Int]", "List[(forall a. a) -> Int]")
 
-    assertTypesUnify("forall f: +* -> *. f[forall a. a]", "forall a. forall f: +* -> *. f[a]")
-    assertTypesDisjoint("forall f: * -> *. f[forall a. a]", "forall a. forall f: * -> *. f[a]")
-    assert_:<:("forall a. forall f: -* -> *. f[a]", "forall f: -* -> *. f[forall a. a]")
+    assertTypesUnify(
+      "forall f: +* -> *. f[forall a. a]",
+      "forall a. forall f: +* -> *. f[a]"
+    )
+    assertTypesDisjoint(
+      "forall f: * -> *. f[forall a. a]",
+      "forall a. forall f: * -> *. f[a]"
+    )
+    assert_:<:(
+      "forall a. forall f: -* -> *. f[a]",
+      "forall f: -* -> *. f[forall a. a]"
+    )
 
     assertTypesUnify("(forall a. a) -> Int", "(forall a. a) -> Int")
-    assertTypesUnify("(forall a. a -> Int) -> Int", "(forall a. a -> Int) -> Int")
+    assertTypesUnify(
+      "(forall a. a -> Int) -> Int",
+      "(forall a. a -> Int) -> Int"
+    )
     assert_:<:("forall a, b. a -> b -> b", "forall a. a -> a -> a")
     assert_:<:("forall a, b. a -> b", "forall b, c. b -> (c -> Int)")
     assert_:<:("forall a, f: * -> *. f[a]", "forall x. List[x]")
@@ -219,7 +264,7 @@ class RankNInferTest extends AnyFunSuite {
     assertTypesDisjoint("Int -> Unit", "String")
     assertTypesDisjoint("Int -> Unit", "String -> a")
     assertTypesUnify("forall a. Int", "Int")
-    
+
     // Test unbound vars
     assertTypesDisjoint("a", "Int")
     assertTypesDisjoint("Int", "a")
@@ -229,16 +274,29 @@ class RankNInferTest extends AnyFunSuite {
 
     testType(lit(100), Type.IntType)
     testType(let("x", lambda("y", v("y")), lit(100)), Type.IntType)
-    testType(lambda("y", v("y")),
-      ForAll(NonEmptyList.of(b("a")),
-        Type.Fun(Type.TyVar(Bound("a")),Type.TyVar(Bound("a")))))
-    testType(lambda("y", lambda("z", v("y"))),
-      ForAll(NonEmptyList.of(b("a"), b("b")),
-        Type.Fun(Type.TyVar(Bound("a")),
-          Type.Fun(Type.TyVar(Bound("b")),Type.TyVar(Bound("a"))))))
+    testType(
+      lambda("y", v("y")),
+      ForAll(
+        NonEmptyList.of(b("a")),
+        Type.Fun(Type.TyVar(Bound("a")), Type.TyVar(Bound("a")))
+      )
+    )
+    testType(
+      lambda("y", lambda("z", v("y"))),
+      ForAll(
+        NonEmptyList.of(b("a"), b("b")),
+        Type.Fun(
+          Type.TyVar(Bound("a")),
+          Type.Fun(Type.TyVar(Bound("b")), Type.TyVar(Bound("a")))
+        )
+      )
+    )
 
     testType(app(lambda("x", v("x")), lit(100)), Type.IntType)
-    testType(ann(app(lambda("x", v("x")), lit(100)), Type.IntType), Type.IntType)
+    testType(
+      ann(app(lambda("x", v("x")), lit(100)), Type.IntType),
+      Type.IntType
+    )
     testType(app(alam("x", Type.IntType, v("x")), lit(100)), Type.IntType)
 
     // test branches
@@ -246,37 +304,58 @@ class RankNInferTest extends AnyFunSuite {
     testType(let("x", lit(0), ife(lit(true), v("x"), lit(1))), Type.IntType)
 
     val identFnType =
-      ForAll(NonEmptyList.of(b("a")),
-        Type.Fun(Type.TyVar(Bound("a")), Type.TyVar(Bound("a"))))
-    testType(let("x", lambda("y", v("y")),
-      ife(lit(true), v("x"),
-        ann(lambda("x", v("x")), identFnType))), identFnType)
+      ForAll(
+        NonEmptyList.of(b("a")),
+        Type.Fun(Type.TyVar(Bound("a")), Type.TyVar(Bound("a")))
+      )
+    testType(
+      let(
+        "x",
+        lambda("y", v("y")),
+        ife(lit(true), v("x"), ann(lambda("x", v("x")), identFnType))
+      ),
+      identFnType
+    )
 
     // test some lets
     testLetTypes(
       List(
         ("x", lit(100), Type.IntType),
-        ("y", Expr.Global(testPackage, Identifier.Name("x"), ()), Type.IntType)))
+        ("y", Expr.Global(testPackage, Identifier.Name("x"), ()), Type.IntType)
+      )
+    )
   }
 
   test("match inference") {
     testType(
-      matche(lit(10),
+      matche(
+        lit(10),
         NonEmptyList.of(
           (Pattern.WildCard, lit(0))
-          )), Type.IntType)
+        )
+      ),
+      Type.IntType
+    )
 
     testType(
-      matche(lit(true),
+      matche(
+        lit(true),
         NonEmptyList.of(
           (Pattern.WildCard, lit(0))
-          )), Type.IntType)
+        )
+      ),
+      Type.IntType
+    )
 
     testType(
-      matche(lit(true),
+      matche(
+        lit(true),
         NonEmptyList.of(
           (Pattern.Annotation(Pattern.WildCard, Type.BoolType), lit(0))
-          )), Type.IntType)
+        )
+      ),
+      Type.IntType
+    )
   }
 
   object OptionTypes {
@@ -286,11 +365,23 @@ class RankNInferTest extends AnyFunSuite {
     val pn = testPackage
     val definedOption = Map(
       ((pn, Constructor("Some")), (Nil, List(Type.IntType), optName)),
-      ((pn, Constructor("None")), (Nil, Nil, optName)))
+      ((pn, Constructor("None")), (Nil, Nil, optName))
+    )
 
     val definedOptionGen = Map(
-      ((pn, Constructor("Some")), (List((Bound("a"), Kind.Type.co)), List(Type.TyVar(Bound("a"))), optName)),
-      ((pn, Constructor("None")), (List((Bound("a"), Kind.Type.co)), Nil, optName)))
+      (
+        (pn, Constructor("Some")),
+        (
+          List((Bound("a"), Kind.Type.co)),
+          List(Type.TyVar(Bound("a"))),
+          optName
+        )
+      ),
+      (
+        (pn, Constructor("None")),
+        (List((Bound("a"), Kind.Type.co)), Nil, optName)
+      )
+    )
   }
 
   test("match with custom non-generic types") {
@@ -302,41 +393,65 @@ class RankNInferTest extends AnyFunSuite {
     val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(
-        withBools ++ asFullyQualified(constructors),
-        definedOption ++ boolTypes,
-        kinds) match {
-        case Left(err) => assert(false, err)
+      Infer
+        .typeCheck(term)
+        .runFully(
+          withBools ++ asFullyQualified(constructors),
+          definedOption ++ boolTypes,
+          kinds
+        ) match {
+        case Left(err)  => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(
-        withBools ++ asFullyQualified(constructors),
-        definedOption ++ boolTypes,
-        kinds) match {
+      Infer
+        .typeCheck(term)
+        .runFully(
+          withBools ++ asFullyQualified(constructors),
+          definedOption ++ boolTypes,
+          kinds
+        ) match {
         case Left(_) => assert(true)
-        case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
+        case Right(tpe) =>
+          assert(false, s"expected to fail, but inferred type $tpe")
       }
 
     testWithOpt(
-      matche(app(v("Some"), lit(1)),
+      matche(
+        app(v("Some"), lit(1)),
         NonEmptyList.of(
           (Pattern.WildCard, lit(0))
-          )), Type.IntType)
+        )
+      ),
+      Type.IntType
+    )
 
     testWithOpt(
-      matche(app(v("Some"), lit(1)),
+      matche(
+        app(v("Some"), lit(1)),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var(Identifier.Name("a")))), v("a")),
+          (
+            Pattern.PositionalStruct(
+              "Some",
+              List(Pattern.Var(Identifier.Name("a")))
+            ),
+            v("a")
+          ),
           (Pattern.PositionalStruct("None", Nil), lit(42))
-          )), Type.IntType)
+        )
+      ),
+      Type.IntType
+    )
 
     failWithOpt(
-      matche(app(v("Some"), lit(1)),
+      matche(
+        app(v("Some"), lit(1)),
         NonEmptyList.of(
           (Pattern.PositionalStruct("Foo", List(Pattern.WildCard)), lit(0))
-          )))
+        )
+      )
+    )
   }
 
   test("match with custom generic types") {
@@ -347,8 +462,17 @@ class RankNInferTest extends AnyFunSuite {
     val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
 
     val constructors = Map(
-      (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
-      (Identifier.unsafe("None"), Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
+      (
+        Identifier.unsafe("Some"),
+        Type.ForAll(
+          NonEmptyList.of(b("a")),
+          Type.Fun(tv("a"), Type.TyApply(optType, tv("a")))
+        )
+      ),
+      (
+        Identifier.unsafe("None"),
+        Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a")))
+      )
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
@@ -357,45 +481,77 @@ class RankNInferTest extends AnyFunSuite {
         .runFully(
           withBools ++ asFullyQualified(constructors),
           definedOptionGen ++ boolTypes,
-          kinds) match {
-            case Left(err) => assert(false, err)
-            case Right(tpe) => assert(tpe.getType == ty, term.toString)
-          }
+          kinds
+        ) match {
+        case Left(err)  => assert(false, err)
+        case Right(tpe) => assert(tpe.getType == ty, term.toString)
+      }
 
     def failWithOpt[A: HasRegion](term: Expr[A]) =
-      Infer.typeCheck(term).runFully(
-        withBools ++ asFullyQualified(constructors),
-        definedOptionGen ++ boolTypes,
-        kinds) match {
+      Infer
+        .typeCheck(term)
+        .runFully(
+          withBools ++ asFullyQualified(constructors),
+          definedOptionGen ++ boolTypes,
+          kinds
+        ) match {
         case Left(_) => assert(true)
-        case Right(tpe) => assert(false, s"expected to fail, but inferred type $tpe")
+        case Right(tpe) =>
+          assert(false, s"expected to fail, but inferred type $tpe")
       }
 
     testWithOpt(
-      matche(app(v("Some"), lit(1)),
+      matche(
+        app(v("Some"), lit(1)),
         NonEmptyList.of(
           (Pattern.WildCard, lit(0))
-          )), Type.IntType)
+        )
+      ),
+      Type.IntType
+    )
 
     testWithOpt(
-      matche(app(v("Some"), lit(1)),
+      matche(
+        app(v("Some"), lit(1)),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var(Identifier.Name("a")))), v("a")),
+          (
+            Pattern.PositionalStruct(
+              "Some",
+              List(Pattern.Var(Identifier.Name("a")))
+            ),
+            v("a")
+          ),
           (Pattern.PositionalStruct("None", Nil), lit(42))
-          )), Type.IntType)
+        )
+      ),
+      Type.IntType
+    )
 
     // Nested Some
     testWithOpt(
-      matche(app(v("Some"), app(v("Some"), lit(1))),
+      matche(
+        app(v("Some"), app(v("Some"), lit(1))),
         NonEmptyList.of(
-          (Pattern.PositionalStruct("Some", List(Pattern.Var(Identifier.Name("a")))), v("a"))
-          )), Type.TyApply(optType, Type.IntType))
+          (
+            Pattern.PositionalStruct(
+              "Some",
+              List(Pattern.Var(Identifier.Name("a")))
+            ),
+            v("a")
+          )
+        )
+      ),
+      Type.TyApply(optType, Type.IntType)
+    )
 
     failWithOpt(
-      matche(app(v("Some"), lit(1)),
+      matche(
+        app(v("Some"), lit(1)),
         NonEmptyList.of(
           (Pattern.PositionalStruct("Foo", List(Pattern.WildCard)), lit(0))
-          )))
+        )
+      )
+    )
   }
 
   test("Test a constructor with ForAll") {
@@ -406,73 +562,130 @@ class RankNInferTest extends AnyFunSuite {
     val optType: Type.Tau = Type.TyConst(optName)
 
     val pn = testPackage
-    /**
-     * struct Pure(pure: forall a. a -> f[a])
-     */
+
+    /** struct Pure(pure: forall a. a -> f[a])
+      */
     val defined = Map(
-      ((pn, Constructor("Pure")), (List((Type.Var.Bound("f"), Kind(Kind.Type.in).in)),
-        List(Type.ForAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
-        pureName)),
-      ((pn, Constructor("Some")), (List((Type.Var.Bound("a"), Kind.Type.co)), List(tv("a")), optName)),
-      ((pn, Constructor("None")), (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, optName)))
+      (
+        (pn, Constructor("Pure")),
+        (
+          List((Type.Var.Bound("f"), Kind(Kind.Type.in).in)),
+          List(
+            Type.ForAll(
+              NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)),
+              Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))
+            )
+          ),
+          pureName
+        )
+      ),
+      (
+        (pn, Constructor("Some")),
+        (List((Type.Var.Bound("a"), Kind.Type.co)), List(tv("a")), optName)
+      ),
+      (
+        (pn, Constructor("None")),
+        (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, optName)
+      )
+    )
 
     val constructors = Map(
-      (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b1("f")),
-        Type.Fun(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))),
-          Type.TyApply(Type.TyConst(pureName), tv("f")) ))),
-      (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
-      (Identifier.unsafe("None"), Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
+      (
+        Identifier.unsafe("Pure"),
+        Type.ForAll(
+          NonEmptyList.of(b1("f")),
+          Type.Fun(
+            Type.ForAll(
+              NonEmptyList.of(b("a")),
+              Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))
+            ),
+            Type.TyApply(Type.TyConst(pureName), tv("f"))
+          )
+        )
+      ),
+      (
+        Identifier.unsafe("Some"),
+        Type.ForAll(
+          NonEmptyList.of(b("a")),
+          Type.Fun(tv("a"), Type.TyApply(optType, tv("a")))
+        )
+      ),
+      (
+        Identifier.unsafe("None"),
+        Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a")))
+      )
     )
 
     def testWithTypes[A: HasRegion](term: Expr[A], ty: Type) =
-      Infer.typeCheck(term).runFully(
-        withBools ++ asFullyQualified(constructors),
-        defined ++ boolTypes,
-        Type.builtInKinds.updated(optName, Kind(Kind.Type.co))) match {
-        case Left(err) => assert(false, err)
+      Infer
+        .typeCheck(term)
+        .runFully(
+          withBools ++ asFullyQualified(constructors),
+          defined ++ boolTypes,
+          Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
+        ) match {
+        case Left(err)  => assert(false, err)
         case Right(tpe) => assert(tpe.getType == ty, term.toString)
       }
 
     testWithTypes(
-      app(v("Pure"), v("Some")), Type.TyApply(Type.TyConst(pureName), optType))
+      app(v("Pure"), v("Some")),
+      Type.TyApply(Type.TyConst(pureName), optType)
+    )
   }
 
   test("test inference of basic expressions") {
-    parseProgram("""#
+    parseProgram(
+      """#
 main = (x -> x)(1)
-""", "Int")
+""",
+      "Int"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 x = 1
 y = x
 main = y
-""", "Int")
+""",
+      "Int"
+    )
   }
 
   test("test inference with partial def annotation") {
-    parseProgram("""#
+    parseProgram(
+      """#
 
 ident: forall a. a -> a =
   x -> x
 
 main = ident(1)
-""", "Int")
+""",
+      "Int"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 
 def ident(x: a): x
 
 main = ident(1)
-""", "Int")
+""",
+      "Int"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 
 def ident(x) -> a: x
 
 main = ident(1)
-""", "Int")
+""",
+      "Int"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 
 enum MyBool: T, F
 struct Pair(fst, snd)
@@ -488,10 +701,12 @@ res = (
 )
 
 main = res
-""", "Int")
+""",
+      "Int"
+    )
 
-
-    parseProgram("""#
+    parseProgram(
+      """#
 
 struct Pair(fst: a, snd: a)
 
@@ -504,43 +719,61 @@ fst = (
 )
 
 main = fst
-""", "Int")
+""",
+      "Int"
+    )
   }
 
   test("test inference with some defined types") {
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Unit
 
 main = Unit
-""", "Unit")
+""",
+      "Unit"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 enum Option:
   None
   Some(a)
 
 main = Some(1)
-""", "Option[Int]")
+""",
+      "Option[Int]"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 enum Option:
   None
   Some(a)
 
 main = Some
-""", "forall a. a -> Option[a]")
+""",
+      "forall a. a -> Option[a]"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 id = x -> x
 main = id
-""", "forall a. a -> a")
+""",
+      "forall a. a -> a"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 id = x -> x
 main = id(1)
-""", "Int")
+""",
+      "Int"
+    )
 
-   parseProgram("""#
+    parseProgram(
+      """#
 enum Option:
   None
   Some(a)
@@ -549,9 +782,12 @@ x = Some(1)
 main = match x:
   case None: 0
   case Some(y): y
-""", "Int")
+""",
+      "Int"
+    )
 
-   parseProgram("""#
+    parseProgram(
+      """#
 enum List:
   Empty
   NonEmpty(a: a, tail: b)
@@ -560,9 +796,12 @@ x = NonEmpty(1, Empty)
 main = match x:
   case Empty: 0
   case NonEmpty(y, _): y
-""", "Int")
+""",
+      "Int"
+    )
 
-   parseProgram("""#
+    parseProgram(
+      """#
 enum Opt:
   None, Some(a)
 
@@ -574,9 +813,12 @@ def optBind(opt, bindFn):
     case Some(a): bindFn(a)
 
 main = Monad(Some, optBind)
-""", "Monad[Opt]")
+""",
+      "Monad[Opt]"
+    )
 
-   parseProgram("""#
+    parseProgram(
+      """#
 enum Opt:
   None, Some(a)
 
@@ -599,15 +841,18 @@ def use_bind(m, a, b, c):
   a1.bind(_ -> b1.bind(_ -> c1))
 
 main = use_bind(option_monad, None, None, None)
-""", "forall a. Opt[a]")
+""",
+      "forall a. Opt[a]"
+    )
 
-   // TODO:
-   // The challenge here is that the naive curried form of the
-   // def will not see the forall until the final parameter
-   // we need to bubble up the forall on the whole function.
-   //
-   // same as the above with a different order in use_bind
-   parseProgram("""#
+    // TODO:
+    // The challenge here is that the naive curried form of the
+    // def will not see the forall until the final parameter
+    // we need to bubble up the forall on the whole function.
+    //
+    // same as the above with a different order in use_bind
+    parseProgram(
+      """#
 enum Opt:
   None, Some(a)
 
@@ -630,20 +875,26 @@ def use_bind(a, b, c, m):
   a1.bind(_ -> b1.bind(_ -> c1))
 
 main = use_bind(None, None, None, option_monad)
-""", "forall a. Opt[a]")
+""",
+      "forall a. Opt[a]"
+    )
   }
 
   test("test zero arg defs") {
-   parseProgram("""#
+    parseProgram(
+      """#
 
 struct Foo
 
 fst: Foo = Foo
 
 main = fst
-""", "Foo")
+""",
+      "Foo"
+    )
 
-   parseProgram("""#
+    parseProgram(
+      """#
 
 enum Foo:
   Bar, Baz(a)
@@ -651,13 +902,15 @@ enum Foo:
 fst: Foo[a] = Bar
 
 main = fst
-""", "forall a. Foo[a]")
+""",
+      "forall a. Foo[a]"
+    )
   }
-
 
   test("substition works correctly") {
 
-    parseProgram("""#
+    parseProgram(
+      """#
 (id: forall a. a -> a) = x -> x
 
 struct Foo
@@ -665,9 +918,12 @@ struct Foo
 def apply(fn, arg: Foo): fn(arg)
 
 main = apply(id, Foo)
-""", "Foo")
+""",
+      "Foo"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 (id: forall a. a -> a) = x -> x
 
 struct Foo
@@ -677,9 +933,12 @@ struct Foo
 def apply(fn, arg: Foo): fn(arg)
 
 main = apply(id, Foo)
-""", "Foo")
+""",
+      "Foo"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 
 struct FnWrapper(fn: a -> a)
 
@@ -694,9 +953,12 @@ def apply(fn, arg: Foo):
   f(arg)
 
 main = apply(id, Foo)
-""", "Foo")
+""",
+      "Foo"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 (id: forall a. a -> Foo) = _ -> Foo
 
@@ -706,7 +968,9 @@ struct Foo
 (idGen2: (forall a. a) -> Foo) = id2
 
 main = Foo
-""", "Foo")
+""",
+      "Foo"
+    )
 
     parseProgramIllTyped("""#
 
@@ -718,7 +982,8 @@ struct Foo
 main = Foo
 """)
 
-    parseProgram("""#
+    parseProgram(
+      """#
 enum Foo: Bar, Baz
 
 (bar1: forall a. (Foo -> a) -> a) = fn -> fn(Bar)
@@ -741,8 +1006,11 @@ enum Foo: Bar, Baz
 (producer1: Foo -> ((Foo -> Foo) -> Foo)) = producer
 
 main = Bar
-""", "Foo")
-    parseProgram("""#
+""",
+      "Foo"
+    )
+    parseProgram(
+      """#
 enum Foo: Bar, Baz
 
 struct Cont(cont: (b -> a) -> a)
@@ -767,7 +1035,9 @@ struct Cont(cont: (b -> a) -> a)
 (producer1: Foo -> Cont[Foo, Foo]) = producer
 
 main = Bar
-""", "Foo")
+""",
+      "Foo"
+    )
 
     parseProgramIllTyped("""#
 enum Foo: Bar, Baz
@@ -781,7 +1051,8 @@ struct Cont(cont: (b -> a) -> a)
 main = Bar
 """)
 
-     parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 enum Opt: Nope, Yep(a)
 
@@ -793,9 +1064,11 @@ enum Opt: Nope, Yep(a)
 (consumer1: (forall a. Opt[a]) -> Foo) = consumer
 
 main = Foo
-""", "Foo")
+""",
+      "Foo"
+    )
 
-     parseProgramIllTyped("""#
+    parseProgramIllTyped("""#
 struct Foo
 enum Opt: Nope, Yep(a)
 
@@ -805,7 +1078,7 @@ enum Opt: Nope, Yep(a)
 
 main = Foo
 """)
-     parseProgramIllTyped("""#
+    parseProgramIllTyped("""#
 struct Foo
 enum Opt: Nope, Yep(a)
 
@@ -816,7 +1089,8 @@ enum Opt: Nope, Yep(a)
 main = Foo
 """)
 
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 enum Opt: Nope, Yep(a)
 
@@ -830,7 +1104,9 @@ struct FnWrapper(fn: a -> b)
 (consumer1: FnWrapper[forall a. Opt[a], Foo]) = consumer
 
 main = Foo
-""", "Foo")
+""",
+      "Foo"
+    )
 
     parseProgramIllTyped("""#
 struct Foo
@@ -860,7 +1136,8 @@ main = Foo
   }
 
   test("def with type annotation and use the types inside") {
-   parseProgram("""#
+    parseProgram(
+      """#
 
 struct Pair(fst, snd)
 
@@ -869,11 +1146,13 @@ def fst(p: Pair[a, b]) -> a:
   f
 
 main = fst(Pair(1, "1"))
-""", "Int")
+""",
+      "Int"
+    )
   }
 
   test("test that we see some ill typed programs") {
-  parseProgramIllTyped("""#
+    parseProgramIllTyped("""#
 
 def foo(i: Int): i
 
@@ -883,7 +1162,7 @@ main = foo("Not an Int")
 
   test("using a literal the wrong type is ill-typed") {
 
-  parseProgramIllTyped("""#
+    parseProgramIllTyped("""#
 
 x = "foo"
 
@@ -892,7 +1171,7 @@ main = match x:
   case y: y
 """)
 
-  parseProgramIllTyped("""#
+    parseProgramIllTyped("""#
 
 x = 1
 
@@ -923,7 +1202,8 @@ main = 1
   }
 
   test("structural recursion can be typed") {
-    parseProgram("""#
+    parseProgram(
+      """#
 
 enum Nat: Zero, Succ(prev: Nat)
 
@@ -933,9 +1213,12 @@ def len(l):
     case Succ(p): len(p)
 
 main = len(Succ(Succ(Zero)))
-""", "Int")
+""",
+      "Int"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 
 enum Nat: Zero, Succ(prev: Nat)
 
@@ -947,12 +1230,15 @@ def len(l):
   len0(l)
 
 main = len(Succ(Succ(Zero)))
-""", "Int")
+""",
+      "Int"
+    )
   }
 
   test("nested def example") {
 
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Pair(first, second)
 
 def bar(x):
@@ -962,12 +1248,15 @@ def bar(x):
   baz(10)
 
 main = bar(5)
-""", "Pair[Int, Int]")
+""",
+      "Pair[Int, Int]"
+    )
   }
 
   test("test checkRho on annotated lambda") {
 
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 struct Bar
 
@@ -979,10 +1268,13 @@ struct Bar
 dontCall = \(_: (forall a. a) -> Bar) -> Foo
 
 (main: Foo) = dontCall(fn)
-""", "Foo")
+""",
+      "Foo"
+    )
   }
   test("ForAll as function arg") {
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Wrap[bbbb](y1: bbbb)
 struct Foo[cccc](y2: cccc)
 struct Nil
@@ -998,11 +1290,14 @@ def foo(cra_fn: Wrap[(forall ssss. Foo[ssss]) -> Nil]):
   match cra_fn:
     case (_: Wrap[(forall x. Foo[x]) -> Nil]): Nil
 main = foo
-""", "Wrap[(forall ssss. Foo[ssss]) -> Nil] -> Nil")
+""",
+      "Wrap[(forall ssss. Foo[ssss]) -> Nil] -> Nil"
+    )
   }
 
   test("use a type annotation inside a def") {
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 struct Bar
 def ignore(_): Foo
@@ -1010,9 +1305,12 @@ def add(x):
   (y: Foo) = x
   _ = ignore(y)
   Bar
-""", "Foo -> Bar")
+""",
+      "Foo -> Bar"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 struct Bar(f: Foo)
 def ignore(_): Foo
@@ -1020,7 +1318,9 @@ def add(x):
   ((y: Foo) as b) = x
   _ = ignore(y)
   Bar(b)
-""", "Foo -> Bar")
+""",
+      "Foo -> Bar"
+    )
   }
 
   test("top level matches don't introduce colliding bindings") {
@@ -1081,7 +1381,8 @@ struct Bar
 x: Bar = Foo
 """)
 
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 struct Bar
 
@@ -1089,9 +1390,12 @@ x = (
   f = Foo
   f: Foo
 )
-""", "Foo")
+""",
+      "Foo"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 struct Bar
 
@@ -1099,8 +1403,11 @@ x = (
   f: Foo = Foo
   f
 )
-""", "Foo")
-    parseProgram("""#
+""",
+      "Foo"
+    )
+    parseProgram(
+      """#
 struct Pair(a, b)
 struct Foo
 
@@ -1111,9 +1418,12 @@ x = (
   _ = ignore(g)
   f
 )
-""", "Foo")
+""",
+      "Foo"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Pair(a, b)
 struct Foo
 
@@ -1121,17 +1431,23 @@ x = (
   Pair(f, _) = Pair(Foo: Foo, Foo)
   f
 )
-""", "Foo")
+""",
+      "Foo"
+    )
 
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 
 x: Foo = Foo
-""", "Foo")
+""",
+      "Foo"
+    )
   }
 
   test("test inner quantification") {
-    parseProgram("""#
+    parseProgram(
+      """#
 struct Foo
 
 # this should just be: type Foo
@@ -1143,11 +1459,14 @@ foo = (
   ident(Foo)
 )
 
-""", "Foo")
+""",
+      "Foo"
+    )
   }
 
   test("widening inside a match") {
-    parseProgram("""#
+    parseProgram(
+      """#
 enum B: True, False
 
 def not(b):
@@ -1161,7 +1480,9 @@ def branch(x):
     case False: i -> not(i)
 
 res = branch(True)(True)
-""", "B")
+""",
+      "B"
+    )
 
     parseProgramIllTyped("""#
 enum B: True, False

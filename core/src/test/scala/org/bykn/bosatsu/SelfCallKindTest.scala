@@ -2,14 +2,17 @@ package org.bykn.bosatsu
 
 import org.scalacheck.Gen
 import org.scalatest.funsuite.AnyFunSuite
-import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{ forAll, PropertyCheckConfiguration }
+import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.{
+  forAll,
+  PropertyCheckConfiguration
+}
 import org.bykn.bosatsu.rankn.NTypeGen
 import org.bykn.bosatsu.TestUtils.checkLast
 import org.bykn.bosatsu.Identifier.Name
 
 class SelfCallKindTest extends AnyFunSuite {
   implicit val generatorDrivenConfig: PropertyCheckConfiguration =
-    //PropertyCheckConfiguration(minSuccessful = 5000)
+    // PropertyCheckConfiguration(minSuccessful = 5000)
     PropertyCheckConfiguration(minSuccessful = 500)
 
   def gen[A](g: Gen[A]): Gen[TypedExpr[A]] =
@@ -21,8 +24,7 @@ class SelfCallKindTest extends AnyFunSuite {
   test("test selfCallKind") {
     import SelfCallKind.{NoCall, NonTailCall, TailCall, apply => selfCallKind}
 
-    checkLast(
-      """
+    checkLast("""
 enum List[a]: E, NE(head: a, tail: List[a])
 enum N: Z, S(prev: N)
 
@@ -32,8 +34,7 @@ def list_len(list, acc):
     case NE(_, t): list_len(t, S(acc))
 """) { te => assert(selfCallKind(Name("list_len"), te) == TailCall) }
 
-    checkLast(
-      """
+    checkLast("""
 enum List[a]: E, NE(head: a, tail: List[a])
 enum N: Z, S(prev: N)
 
@@ -43,8 +44,7 @@ def list_len(list):
     case NE(_, t): S(list_len(t))
 """) { te => assert(selfCallKind(Name("list_len"), te) == NonTailCall) }
 
-    checkLast(
-      """
+    checkLast("""
 enum List[a]: E, NE(head: a, tail: List[a])
 
 def list_len(list):
@@ -56,8 +56,7 @@ def list_len(list):
   }
 
   test("for_all example") {
-    checkLast(
-      """
+    checkLast("""
 enum List[a]: E, NE(head: a, tail: List[a])
 enum B: T, F
 
@@ -68,7 +67,12 @@ def for_all(xs: List[a], fn: a -> B) -> B:
       match fn(head):
         case T: for_all(tail, fn)
         case F: F
-""") { te => assert(SelfCallKind(Name("for_all"), te) == SelfCallKind.TailCall, s"${te.repr}") }
+""") { te =>
+      assert(
+        SelfCallKind(Name("for_all"), te) == SelfCallKind.TailCall,
+        s"${te.repr}"
+      )
+    }
   }
 
   test("TypedExpr.Let.selfCallKind terminates and doesn't throw") {

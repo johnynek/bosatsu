@@ -29,8 +29,7 @@ sealed trait Dag[A] {
 
   def toToposorted: Toposort.Success[A] = {
     val layerMap: Map[Int, SortedSet[A]] = nodes.groupBy(layerOf(_))
-    val ls = (0 until layers)
-      .iterator
+    val ls = (0 until layers).iterator
       .map { idx =>
         // by construction all layers have at least 1 item
         NonEmptyList.fromListUnsafe(layerMap(idx).toList)

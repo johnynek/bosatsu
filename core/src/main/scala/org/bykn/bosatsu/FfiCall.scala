@@ -10,7 +10,9 @@ object FfiCall {
   final case class Fn1(fn: Value => Value) extends FfiCall {
     import Value.FnValue
 
-    private[this] val evalFn: FnValue = FnValue { case NonEmptyList(a, _) => fn(a) }
+    private[this] val evalFn: FnValue = FnValue { case NonEmptyList(a, _) =>
+      fn(a)
+    }
 
     def call(t: rankn.Type): Value = evalFn
   }
@@ -43,7 +45,7 @@ object FfiCall {
     def one(t: rankn.Type): Option[Class[_]] =
       loop(t, false) match {
         case c :: Nil => Some(c)
-        case _ => None
+        case _        => None
       }
 
     def loop(t: rankn.Type, top: Boolean): List[Class[_]] = {
@@ -52,13 +54,15 @@ object FfiCall {
           val ats = as.map { a =>
             one(a) match {
               case Some(at) => at
-              case function => sys.error(s"unsupported function type $function in $t")
+              case function =>
+                sys.error(s"unsupported function type $function in $t")
             }
           }
           val res =
             one(b) match {
               case Some(at) => at
-              case function => sys.error(s"unsupported function type $function in $t")
+              case function =>
+                sys.error(s"unsupported function type $function in $t")
             }
           ats.toList ::: res :: Nil
         case rankn.Type.ForAll(_, t) =>
@@ -69,4 +73,3 @@ object FfiCall {
     loop(t, true)
   }
 }
-
