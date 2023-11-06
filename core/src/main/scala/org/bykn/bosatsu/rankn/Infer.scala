@@ -360,45 +360,10 @@ object Infer {
 
     sealed trait Skolemization {
       def rho: Type.Rho
-      def prepend(sks: List[Type.Var.Skolem]): Skolemization
-      def prepend(sks: NonEmptyList[Type.Var.Skolem]): Skolemization.WithSkols
-      def tyApply(that: Skolemization): Skolemization
-      def tyApply(that: Type): Skolemization
     }
     object Skolemization {
-      case class Empty(rho: Type.Rho) extends Skolemization {
-        def prepend(sks: List[Type.Var.Skolem]) =
-          NonEmptyList.fromList(sks) match {
-            case None => this
-            case Some(nel) => WithSkols(nel, rho)
-          }
-        def prepend(sks: NonEmptyList[Type.Var.Skolem]): WithSkols =
-          WithSkols(sks, rho)
-        def tyApply(that: Skolemization): Skolemization =
-          that match {
-            case Empty(thatrho) => Empty(Type.TyApply(rho, thatrho))
-            case WithSkols(skols, thatrho) =>
-              WithSkols(skols, Type.TyApply(rho, thatrho))
-          }
-        def tyApply(that: Type): Skolemization = Empty(Type.TyApply(rho, that))
-      }
-      case class WithSkols(skols: NonEmptyList[Type.Var.Skolem], rho: Type.Rho) extends Skolemization {
-        def prepend(sks: List[Type.Var.Skolem]) =
-          if (sks.isEmpty) this
-          else WithSkols(skols.prependList(sks), rho)
-
-        def prepend(sks: NonEmptyList[Type.Var.Skolem]): WithSkols =
-          WithSkols(sks ::: skols, rho)
-
-        def tyApply(that: Skolemization): Skolemization =
-          that match {
-            case Empty(thatrho) => WithSkols(skols, Type.TyApply(rho, thatrho))
-            case WithSkols(thatskols, thatrho) =>
-              WithSkols(skols ::: thatskols, Type.TyApply(rho, thatrho))
-          }
-        def tyApply(that: Type): Skolemization =
-          WithSkols(skols, Type.TyApply(rho, that))
-      }
+      case class Empty(rho: Type.Rho) extends Skolemization
+      case class WithSkols(skols: NonEmptyList[Type.Var.Skolem], rho: Type.Rho) extends Skolemization
     }
     /**
      * Skolemize on a function just recurses on the result type.
@@ -410,34 +375,63 @@ object Infer {
      *
      * The returned type is in weak-prenex form: all ForAlls have
      * been floated up over covariant parameters
+     * 
+     * see: https://www.csd.uwo.ca/~lkari/prenex.pdf
+     * It seems that if C[x] is covariant, then
+     *   C[forall x. D[x]] == forall x. C[D[x]]
+     * 
+     * this is always true for existential quantification I think, but
+     * for universal, we need that C is covariant which roughtly
+     * means C[x] either has x in a return position of a function, or
+     * not at all, which then gives us that
+     * (forall x. (A(x) u B(x))) == (forall x A(x)) u (forall x B(x))
+     * where A(x) and B(x) represent the union branches of the type C
      */
-    private def skolemize(t: Type, region: Region): Infer[Skolemization] =
-      t match {
-        case Type.ForAll(tvs, ty) =>
-          // Rule PRPOLY
-          for {
-            sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
-            sksT = sks1.map(Type.TyVar(_))
-            sks2ty <- skolemize(substTyRho(tvs.map(_._1), sksT)(ty), region)
-          } yield sks2ty.prepend(sks1)
-        case ta@Type.TyApply(left, right) =>
-          // Rule PRFUN
-          // we know the kind of left is k -> x, and right has kind k
-          varianceOfCons(ta, region)
-            .product(skolemize(left, region))
-            .flatMap {
-              case (Variance.Covariant, skl) =>
-                for {
-                  skr <- skolemize(right, region)
-                } yield skl.tyApply(skr)
-              case (_, skl) =>
-                // otherwise, we don't skolemize the right
-                pure(skl.tyApply(right))
+    private def skolemize(
+      t: Type,
+      region: Region): Infer[Skolemization] = {
+      
+      def loop(t: Type, path: Variance): Infer[(List[Type.Var.Skolem], Type)] = 
+        t match {
+          case Type.ForAll(tvs, ty) =>
+            if (path == Variance.co) {
+              // Rule PRPOLY
+              for {
+                sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
+                sksT = sks1.map(Type.TyVar(_))
+                (sks, ty) <- loop(substTyRho(tvs.map(_._1), sksT)(ty), Variance.co)
+              } yield (sks1.toList ::: sks, ty)
             }
-        case other: Type.Rho =>
-          // Rule PRMONO
-          pure(Skolemization.Empty(other))
+            else pure((Nil, t))
+
+          case ta@Type.TyApply(left, right) =>
+            // Rule PRFUN
+            // we know the kind of left is k -> x, and right has kind k
+            (varianceOfCons(ta, region), loop(left, path))
+              .flatMapN {
+                case (consVar, (sksl, ltpe)) =>
+                  val rightPath = consVar * path
+                  loop(right, rightPath)
+                    .map { case (sksr, rtpe) =>
+                      (sksl ::: sksr, Type.TyApply(ltpe, rtpe)) 
+                    }
+              }
+          case other: Type.Rho =>
+            // Rule PRMONO
+            pure((Nil, other))
+        }
+
+      loop(t, Variance.co).map {
+        case (Nil, rho: Type.Rho) =>
+          Skolemization.Empty(rho)
+        case (h :: t, rho: Type.Rho) =>
+          Skolemization.WithSkols(NonEmptyList(h, t), rho)
+        // $COVERAGE-OFF$ this should be unreachable
+        // because we only return ForAll on paths nested inside noncovariant path in TyApply
+        case (sks, notRho) => sys.error(s"type = $t, sks = $sks, notRho = $notRho")
+        // $COVERAGE-ON$ this should be unreachable
       }
+    }
 
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
       ts.traverse(zonkType).map(Type.freeTyVars(_).toSet)
@@ -684,7 +678,7 @@ object Infer {
       if (Kind.leftSubsumesRight(kind1, kind2) || Kind.leftSubsumesRight(kind2, kind2)) unit
       else fail(Error.KindNotUnifiable(kind1, tpe1, kind2, tpe2, region1, region2))
 
-    private def checkApply[A](apType: Type.TyApply, lKind: Kind, rKind: Kind, apRegion: Region)(next: Infer[A]): Infer[A] =
+    private def checkApply[A](apType: Type.TyApply, lKind: Kind, rKind: Kind, apRegion: Region)(next: => Infer[A]): Infer[A] =
       Kind.validApply[Error](lKind, rKind,
         Error.KindCannotTyApply(apType, apRegion)) { cons =>
           Error.KindInvalidApply(apType, cons, rKind, apRegion)

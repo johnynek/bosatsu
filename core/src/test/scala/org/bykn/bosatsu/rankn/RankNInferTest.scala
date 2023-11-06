@@ -194,6 +194,7 @@ class RankNInferTest extends AnyFunSuite {
     assert_:<:("forall a, b. a -> b", "forall a. a -> (forall b. b -> b)")
 
     // forall commutes with covariant types
+    assertTypesUnify("forall b. Int -> b", "Int -> (forall b. b)")
     assertTypesUnify("forall a, b. a -> b", "forall a. a -> (forall b. b)")
     assertTypesUnify("forall a. List[a]", "List[forall a. a]")
 
@@ -201,7 +202,7 @@ class RankNInferTest extends AnyFunSuite {
     //assert_:<:("Int", "exists a. a")
 
     assert_:<:("forall a. a -> Int", "(forall a. a) -> Int")
-    assert_:<:(
+    assertTypesUnify(
       "((forall a. a) -> Int) -> Int",
       "forall a. (a -> Int) -> Int")
     assert_:<:("List[forall a. a -> Int]", "List[(forall a. a) -> Int]")
