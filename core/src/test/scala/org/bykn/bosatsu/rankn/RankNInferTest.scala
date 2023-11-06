@@ -198,6 +198,9 @@ class RankNInferTest extends AnyFunSuite {
     assertTypesUnify("forall a. List[a]", "List[forall a. a]")
 
     assert_:<:("forall a. a -> Int", "(forall a. a) -> Int")
+    assert_:<:(
+      "((forall a. a) -> Int) -> Int",
+      "forall a. (a -> Int) -> Int")
     assert_:<:("List[forall a. a -> Int]", "List[(forall a. a) -> Int]")
 
     assertTypesUnify("forall f: +* -> *. f[forall a. a]", "forall a. forall f: +* -> *. f[a]")

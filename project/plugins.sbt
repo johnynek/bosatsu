@@ -1,4 +1,4 @@
-addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.1.3")
+addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "2.1.4")
 addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "0.11.0")
 addSbtPlugin("com.lightbend.paradox" % "sbt-paradox" % "0.10.5")
 addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.6")
