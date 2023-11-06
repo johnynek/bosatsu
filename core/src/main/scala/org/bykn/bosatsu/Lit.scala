@@ -34,9 +34,8 @@ object Lit {
 
     private[this] val cache: Array[Chr] =
       (0 until 256).map(build).toArray
-
-    /** @throws IllegalArgumentException
-      *   on a bad codepoint
+    /**
+      * @throws IllegalArgumentException on a bad codepoint
       */
     def fromCodePoint(cp: Int): Chr =
       if ((0 <= cp) && (cp < 256)) cache(cp)
@@ -49,9 +48,7 @@ object Lit {
 
   def fromChar(c: Char): Lit =
     if (0xd800 <= c && c < 0xe000)
-      throw new IllegalArgumentException(
-        s"utf-16 character int=${c.toInt} is not a valid single codepoint"
-      )
+      throw new IllegalArgumentException(s"utf-16 character int=${c.toInt} is not a valid single codepoint")
     else Chr.fromCodePoint(c.toInt)
 
   def fromCodePoint(cp: Int): Lit = Chr.fromCodePoint(cp)
@@ -61,9 +58,7 @@ object Lit {
   def apply(str: String): Lit = Str(str)
 
   val integerParser: P[Integer] =
-    Parser.integerString.map { str =>
-      Integer(new BigInteger(str.filterNot(_ == '_')))
-    }
+    Parser.integerString.map { str => Integer(new BigInteger(str.filterNot(_ == '_'))) }
 
   val stringParser: P[Str] = {
     val q1 = '\''
@@ -76,21 +71,20 @@ object Lit {
 
   val codePointParser: P[Chr] = {
     (StringUtil.codepoint(P.string(".\""), P.char('"')) |
-      StringUtil.codepoint(P.string(".'"), P.char('\'')))
-      .map(Chr.fromCodePoint(_))
+      StringUtil.codepoint(P.string(".'"), P.char('\''))).map(Chr.fromCodePoint(_))
   }
 
   implicit val litOrdering: Ordering[Lit] =
     new Ordering[Lit] {
       def compare(a: Lit, b: Lit): Int =
         (a, b) match {
-          case (Integer(a), Integer(b))      => a.compareTo(b)
+          case (Integer(a), Integer(b)) => a.compareTo(b)
           case (Integer(_), Str(_) | Chr(_)) => -1
-          case (Chr(_), Integer(_))          => 1
-          case (Chr(a), Chr(b))              => a.compareTo(b)
-          case (Chr(_), Str(_))              => -1
-          case (Str(_), Integer(_) | Chr(_)) => 1
-          case (Str(a), Str(b))              => a.compareTo(b)
+          case (Chr(_), Integer(_)) => 1
+          case (Chr(a), Chr(b)) => a.compareTo(b)
+          case (Chr(_), Str(_)) => -1
+          case (Str(_), Integer(_)| Chr(_)) => 1
+          case (Str(a), Str(b)) => a.compareTo(b)
         }
     }
 
@@ -103,7 +97,7 @@ object Lit {
       case Str(str) =>
         val q = if (str.contains('\'') && !str.contains('"')) '"' else '\''
         Doc.char(q) + Doc.text(escape(q, str)) + Doc.char(q)
-      case c @ Chr(_) =>
+      case c @ Chr(_) => 
         val str = c.asStr
         val (start, end) =
           if (str.contains('\'') && !str.contains('"')) (".\"", '"')
@@ -111,3 +105,4 @@ object Lit {
         Doc.text(start) + Doc.text(escape(end, str)) + Doc.char(end)
     }
 }
+
