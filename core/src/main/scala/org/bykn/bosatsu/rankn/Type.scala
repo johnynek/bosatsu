@@ -33,7 +33,7 @@ object Type {
               Ordering[Var].compare(v0, v1)
             case (TyVar(_), TyConst(_)) => 1
             case (TyVar(_), _) => -1
-            case (TyMeta(Meta(_, i0, _)), TyMeta(Meta(_, i1, _))) =>
+            case (TyMeta(Meta(_, i0, _, _)), TyMeta(Meta(_, i1, _, _))) =>
               java.lang.Long.compare(i0, i1)
             case (TyMeta(_), TyApply(_, _)) => -1
             case (TyMeta(_), _) => 1
@@ -276,7 +276,8 @@ object Type {
   }
 
   def substituteVar(t: Type, env: Map[Type.Var, Type]): Type =
-    t match {
+    if (env.isEmpty) t
+    else (t match {
       case TyApply(on, arg) => TyApply(substituteVar(on, env), substituteVar(arg, env))
       case v@TyVar(n) =>
         env.get(n) match {
@@ -290,7 +291,7 @@ object Type {
           val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
           substituteVar(rho, env1)
         }
-    }
+    })
 
   def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
     t match {
@@ -413,7 +414,7 @@ object Type {
             // $COVERAGE-ON$ this should be unreachable
           }
         case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
-        case Type.TyMeta(Type.Meta(kind, _, _)) => Right(kind)
+        case Type.TyMeta(Type.Meta(kind, _, _, _)) => Right(kind)
         case tc@Type.TyConst(_) => cons(tc)
         case ap@Type.TyApply(left, right) =>
           rec((left, locals))
@@ -690,7 +691,7 @@ object Type {
       case None => Nil
     }
 
-  case class Meta(kind: Kind, id: Long, ref: Ref[Option[Type.Tau]])
+  case class Meta(kind: Kind, id: Long, existential: Boolean, ref: Ref[Option[Type.Tau]])
 
   object Meta {
     implicit val orderingMeta: Ordering[Meta] =
@@ -777,7 +778,7 @@ object Type {
       // the ideal solution is to better static type information
       // to have fully inferred types with no skolems or metas
       // TODO Kind
-      val meta = (P.char('?') *> longParser).map { l => TyMeta(Meta(Kind.Type, l, null)) }
+      val meta = (P.char('?') *> longParser).map { l => TyMeta(Meta(Kind.Type, l, false, null)) }
 
       tvar.orElse(name).orElse(skolem).orElse(meta)
     }
@@ -813,8 +814,8 @@ object Type {
           // TODO Kind
           val dol = "$"
           Some(Doc.text(dol + n + dol + i.toString))
-        case TyMeta(Meta(_, i, _)) =>
-          // TODO Kind
+        case TyMeta(Meta(_, i, _, _)) =>
+          // TODO Kind and if it is existential
           Some(Doc.text("?" + i.toString))
         case _ => None
       }

@@ -89,7 +89,7 @@ object TypeRefConverter {
           case sk: Type.Var.Skolem =>
             onSkolem(sk)
         }
-      case TyMeta(Type.Meta(_, id, _)) =>
+      case TyMeta(Type.Meta(_, id, _, _)) =>
         onMeta(id)
       // $COVERAGE-OFF$
       case other =>

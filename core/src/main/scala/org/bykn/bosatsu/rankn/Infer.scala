@@ -357,14 +357,6 @@ object Infer {
           fail(Error.KindCannotTyApply(ta, region))
       }
 
-
-    sealed trait Skolemization {
-      def rho: Type.Rho
-    }
-    object Skolemization {
-      case class Empty(rho: Type.Rho) extends Skolemization
-      case class WithSkols(skols: NonEmptyList[Type.Var.Skolem], rho: Type.Rho) extends Skolemization
-    }
     /**
      * Skolemize on a function just recurses on the result type.
      *
@@ -389,46 +381,64 @@ object Infer {
      */
     private def skolemize(
       t: Type,
-      region: Region): Infer[Skolemization] = {
+      region: Region): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
       
-      def loop(t: Type, path: Variance): Infer[(List[Type.Var.Skolem], Type)] = 
+      def loop(t: Type, path: Variance, top: Boolean): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] = 
         t match {
-          case Type.ForAll(tvs, ty) =>
-            if (path == Variance.co) {
-              // Rule PRPOLY
-              for {
-                sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
-                sksT = sks1.map(Type.TyVar(_))
-                (sks, ty) <- loop(substTyRho(tvs.map(_._1), sksT)(ty), Variance.co)
-              } yield (sks1.toList ::: sks, ty)
+          case q: Type.Quantified =>
+            q.withQuants { (univ, exists, ty) =>
+              if (top) {
+                for {
+                  ms <- exists.traverse { case (_, k) => newExistential(k) }  
+                  sks1 <- univ.traverse { case (b, k) => newSkolemTyVar(b, k) }
+                  sksT = sks1.map(Type.TyVar(_))
+                  ty1 = Type.substituteRhoVar(
+                    ty,
+                    (exists.map(_._1).iterator.zip(ms) ++
+                      univ.map(_._1).iterator.zip(sksT.iterator))
+                      .toMap)
+                  (sks2, ms2, ty) <- loop(ty1, path, top)
+                } yield (sks1 ::: sks2, ms ::: ms2, ty)
+              }
+              else if (path == Variance.co) {
+                // Rule PRPOLY
+                NonEmptyList.fromList(univ) match {
+                  case Some(tvs) =>
+                    for {
+                      sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
+                      sksT = sks1.map(Type.TyVar(_))
+                      (sks, ms, ty) <- loop(substTyRho(tvs.map(_._1), sksT)(ty), Variance.co, top)
+                    } yield (sks1.toList ::: sks, ms, ty)
+                  case None =>
+                    pure((Nil, Nil, t))
+                }
+              }
+              else pure((Nil, Nil, t))
             }
-            else pure((Nil, t))
 
           case ta@Type.TyApply(left, right) =>
             // Rule PRFUN
             // we know the kind of left is k -> x, and right has kind k
-            (varianceOfCons(ta, region), loop(left, path))
+            (varianceOfCons(ta, region), loop(left, path, top))
               .flatMapN {
-                case (consVar, (sksl, ltpe)) =>
+                case (consVar, (sksl, el, ltpe)) =>
                   val rightPath = consVar * path
-                  loop(right, rightPath)
-                    .map { case (sksr, rtpe) =>
-                      (sksl ::: sksr, Type.TyApply(ltpe, rtpe)) 
+                  loop(right, rightPath, top = false)
+                    .map { case (sksr, er, rtpe) =>
+                      (sksl ::: sksr, el ::: er, Type.TyApply(ltpe, rtpe)) 
                     }
               }
           case other: Type.Rho =>
             // Rule PRMONO
-            pure((Nil, other))
+            pure((Nil, Nil, other))
         }
 
-      loop(t, Variance.co).map {
-        case (Nil, rho: Type.Rho) =>
-          Skolemization.Empty(rho)
-        case (h :: t, rho: Type.Rho) =>
-          Skolemization.WithSkols(NonEmptyList(h, t), rho)
+      loop(t, Variance.co, top = true).map {
+        case (skols, metas, rho: Type.Rho) =>
+          (skols, metas, rho)
         // $COVERAGE-OFF$ this should be unreachable
         // because we only return ForAll on paths nested inside noncovariant path in TyApply
-        case (sks, notRho) => sys.error(s"type = $t, sks = $sks, notRho = $notRho")
+        case (sks, metas, notRho) => sys.error(s"type = $t, sks = $sks, metas = $metas notRho = $notRho")
         // $COVERAGE-ON$ this should be unreachable
       }
     }
@@ -509,14 +519,37 @@ object Infer {
      */
     def instantiate(t: Type): Infer[Type.Rho] =
       t match {
-        case Type.ForAll(vars, rho) =>
+        case q: Type.Quantified =>
           // TODO: it may be possible to improve type checking
           // by pushing foralls into covariant constructors
           // but it's not trivial
-          vars.traverse { case (_, k) => newMetaType(k) }
-            .map { vars1T =>
-              substTyRho(vars.map(_._1), vars1T)(rho)
+          q.withQuants { (univs, exists, rho) =>
+            val univRho =
+              NonEmptyList.fromList(univs) match {
+                case Some(vars) =>
+                  vars.traverse { case (_, k) => newMetaType(k) }
+                    .map { vars1T =>
+                      substTyRho(vars.map(_._1), vars1T)(rho)
+                    }
+                case None => pure(rho)
+              }
+
+            univRho.flatMap { rho =>
+              // TODO: we need to unskolemize this back to existentials
+              // at the end if they appear in the result and verify
+              // they don't escape into the environment as it done for
+              // universals on the rhs of a subs check
+              for {
+                skols <- exists.traverse { case (b, k) => newSkolemTyVar(b, k) }  
+                env = exists
+                  .iterator
+                  .map(_._1)
+                  .zip(skols.iterator.map(Type.TyVar))
+                  .toMap[Type.Var, Type.TyVar]
+                rho1 = Type.substituteRhoVar(rho, env)
+              } yield rho1
             }
+          }
         case rho: Type.Rho => pure(rho)
       }
 
@@ -543,7 +576,7 @@ object Infer {
      */
     def subsCheckRho(t: Type, rho: Type.Rho, left: Region, right: Region): Infer[TypedExpr.Coerce] =
       (t, rho) match {
-        case (fa@Type.ForAll(_, _), rho) =>
+        case (fa: Type.Quantified, rho) =>
           // Rule SPEC
           instantiate(fa).flatMap(subsCheckRho2(_, rho, left, right))
         // for existential lower bounds, we skolemize the existentials
@@ -791,12 +824,18 @@ object Infer {
      * Allocate a new Meta variable which
      * will point to a Tau (no forall anywhere) type
      */
-    def newMetaType(kind: Kind): Infer[Type.TyMeta] =
+    def newMetaType0(kind: Kind, existential: Boolean): Infer[Type.TyMeta] =
       for {
         id <- nextId
         ref <- lift(RefSpace.newRef[Option[Type.Tau]](None))
-        meta = Type.Meta(kind, id, ref)
+        meta = Type.Meta(kind, id, existential, ref)
       } yield Type.TyMeta(meta)
+
+    def newMetaType(kind: Kind): Infer[Type.TyMeta] =
+      newMetaType0(kind, existential = false)
+
+    def newExistential(kind: Kind): Infer[Type.TyMeta] =
+      newMetaType0(kind, existential = true)
 
     // TODO: it would be nice to support kind inference on skolem variables
     def newSkolemTyVar(tv: Type.Var.Bound, kind: Kind): Infer[Type.Var.Skolem] =
@@ -836,12 +875,14 @@ object Infer {
         fn: Type.Rho => Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]])(
         onErr: NonEmptyList[Type.Var.Skolem] => Error): Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]] =
       for {
-        skol <- skolemize(declared, region)
-        coerce <- fn(skol.rho)
+        (skols, metas, rho) <- skolemize(declared, region)
+        // TODO: we have to existentially quantify all the metas
+        _ = scala.Predef.require(metas.isEmpty)
+        coerce <- fn(rho)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
-        res <- skol match {
-          case Skolemization.Empty(_) => pure(coerce)
-          case Skolemization.WithSkols(nel, _) =>
+        res <- skols match {
+          case Nil => pure(coerce)
+          case nel @ (h :: t) =>
             envTpes
               .flatMap { tail => getFreeTyVars(declared :: tail) }
               .flatMap { escTvs =>
@@ -849,7 +890,8 @@ object Infer {
                 val badList = if (escTvs.isEmpty) Nil else nel.filter(escTvs)
 
                 NonEmptyList.fromList(badList) match {
-                  case None => pure(coerce.andThenMap(unskolemize(nel)))
+                  case None =>
+                    pure(coerce.andThenMap(unskolemize(NonEmptyList(h, t))))
                   case Some(badTvs) => fail(onErr(badTvs))
                 }
               }
@@ -1307,7 +1349,7 @@ object Infer {
                 _ <- unifyKind(k.kind, Type.TyVar(v0), rk, right, reg, sigmaRegion)
                 rest <- loop(vs, Kind.Cons(k, leftKind), left)
               } yield rest.updated(v0, right)
-            case (_, fa@Type.ForAll(_, _)) =>
+            case (_, fa: Type.Quantified) =>
               // we have to instantiate a rho type
               instantiate(fa).flatMap(loop(revArgs, leftKind, _))
             case ((v0, k) :: rest, _) =>
