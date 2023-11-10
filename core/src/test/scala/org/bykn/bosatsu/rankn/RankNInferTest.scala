@@ -186,7 +186,9 @@ class RankNInferTest extends AnyFunSuite {
 
   test("assert some basic unifications") {
     assertTypesUnify("forall a. a", "forall b. b")
+    assertTypesUnify("exists a. a", "exists b. b")
     assert_:<:("forall a. a", "Int")
+    assert_:<:("forall a. a", "exists a. a")
     // function is contravariant in first arg test that against the above
     assert_:<:("Int -> Int", "(forall a. a) -> Int")
 
@@ -199,7 +201,9 @@ class RankNInferTest extends AnyFunSuite {
     assertTypesUnify("forall a. List[a]", "List[forall a. a]")
 
     // exists a. a is a top type
-    //assert_:<:("Int", "exists a. a")
+    assert_:<:("Int", "exists a. a")
+    assert_:<:("(exists a. a) -> Int", "exists a. (a -> Int)")
+    assertTypesUnify("exists a. List[a]", "List[exists a. a]")
 
     assert_:<:("forall a. a -> Int", "(forall a. a) -> Int")
     assertTypesUnify(

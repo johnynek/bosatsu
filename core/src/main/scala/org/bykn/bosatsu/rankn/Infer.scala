@@ -452,7 +452,7 @@ object Infer {
       readMeta(m).flatMap {
         case None => pureNone
         case sty @ Some(ty) =>
-          zonkRho(ty).flatMap { ty1 =>
+          lazy val cont = zonkRho(ty).flatMap { ty1 =>
             if ((ty1: Type) === ty) pure(sty)
             else {
               // we were able to resolve more of the inner metas
@@ -460,6 +460,16 @@ object Infer {
               writeMeta(m, ty1).as(Some(ty1))
             }
           }
+
+          if (!m.existential) {
+            ty match {
+              case Type.TyMeta(m2) if m2.existential =>
+                // Don't zonk across existential boundary
+                pureNone
+              case _ => cont
+            }
+          }
+          else cont
       }
 
     def zonkRho(rho: Type.Rho): Infer[Type.Rho] =
@@ -740,27 +750,43 @@ object Infer {
       ty2 match {
         case meta2@Type.TyMeta(m2) =>
           val m = ty1.toMeta
-          if (m2.id == m.id) unit
-          else (readMeta(m2).flatMap {
-            case Some(ty2) => unify(ty1, ty2, left, right)
-            case None =>
-              // we have to check that the kind matches before writing to a meta
-              if (Kind.leftSubsumesRight(m.kind, m2.kind)) {
-                // Both m and m2 are not set. We just point one at the other
-                // by convention point to the smaller item which
-                // definitely prevents cycles.
-                if (m.id > m2.id) writeMeta(m, meta2)
-                else {
-                  // since we checked above we know that
-                  // m.id != m2.id, so it is safe to write without
-                  // creating a self-loop here
-                  writeMeta(m2, ty1)
+          // we have to check that the kind matches before writing to a meta
+          if (m.kind == m2.kind) {
+            val cmp = Ordering[Type.Meta].compare(m, m2)
+            if (cmp == 0) unit
+            else (readMeta(m2).flatMap {
+              case Some(ty2) =>
+                // we know that m2 is set, but m is not because ty1 is unbound
+                if (m.existential == m2.existential) {
+                  // we unify here because ty2 could possibly be ty1
+                  unify(ty1, ty2, left, right)
                 }
-              }
-              else {
-                fail(Error.KindMetaMismatch(ty1, meta2, m2.kind, left, right))
-              }
-          })
+                else if (m.existential) {
+                  // m2.existential == false
+                  // we need to point m2 at m
+                  writeMeta(m, ty2) *> writeMeta(m2, ty1)
+                }
+                else {
+                  // m.existential == false && m2.existential == true
+                  // we need to point m at m2
+                  writeMeta(m, meta2)
+                }
+              case None =>
+                  // Both m and m2 are not set. We just point one at the other
+                  // by convention point to the smaller item which
+                  // definitely prevents cycles.
+                  if (cmp > 0) writeMeta(m, meta2)
+                  else {
+                    // since we checked above we know that
+                    // m.id != m2.id, so it is safe to write without
+                    // creating a self-loop here
+                    writeMeta(m2, ty1)
+                  }
+                })
+            }
+            else {
+              fail(Error.KindMetaMismatch(ty1, meta2, m2.kind, left, right))
+            }
         case nonMeta =>
           // we have a non-meta, but inside of it (TyApply) we may have
           // metas. Let's go ahead and zonk them now to minimize nesting
@@ -875,9 +901,9 @@ object Infer {
         fn: Type.Rho => Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]])(
         onErr: NonEmptyList[Type.Var.Skolem] => Error): Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]] =
       for {
+        // TODO: we aren't doing anything with the metas here, but maybe
+        // we don't need to, maybe the normal quantify process handles them
         (skols, metas, rho) <- skolemize(declared, region)
-        // TODO: we have to existentially quantify all the metas
-        _ = scala.Predef.require(metas.isEmpty)
         coerce <- fn(rho)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
         res <- skols match {
@@ -1462,6 +1488,7 @@ object Infer {
       } yield q
     }
 
+    // TODO: we need to update TypedExpr.quantify to deal with existential quantification
     def quantify[A](env: Infer[Map[Name, Type]], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
       env.flatMap(TypedExpr.quantify(_, rho, zonk(_), { (m, n) =>
         // quantify guarantees that the kind of n matches m

@@ -33,8 +33,8 @@ object Type {
               Ordering[Var].compare(v0, v1)
             case (TyVar(_), TyConst(_)) => 1
             case (TyVar(_), _) => -1
-            case (TyMeta(Meta(_, i0, _, _)), TyMeta(Meta(_, i1, _, _))) =>
-              java.lang.Long.compare(i0, i1)
+            case (TyMeta(m0), TyMeta(m1)) =>
+              Meta.orderingMeta.compare(m0, m1)
             case (TyMeta(_), TyApply(_, _)) => -1
             case (TyMeta(_), _) => 1
             case (TyApply(a0, b0), TyApply(a1, b1)) =>
@@ -695,7 +695,17 @@ object Type {
 
   object Meta {
     implicit val orderingMeta: Ordering[Meta] =
-      Ordering.by { (m: Meta) => m.id }
+      new Ordering[Meta] {
+        def compare(x: Meta, y: Meta): Int =
+          if (x.existential) {
+            if (y.existential) java.lang.Long.compare(x.id, y.id)
+            else -1
+          }
+          else {
+            if (!y.existential) java.lang.Long.compare(x.id, y.id)
+            else 1
+          }
+      }
   }
 
   /**
