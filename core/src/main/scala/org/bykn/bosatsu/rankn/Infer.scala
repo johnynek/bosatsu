@@ -20,6 +20,8 @@ import org.bykn.bosatsu.{
   TypedExpr,
   Variance}
 
+import scala.collection.immutable.SortedSet
+
 import HasRegion.region
 
 import Identifier.{Bindable, Constructor}
@@ -167,8 +169,8 @@ object Infer {
     case class KindMetaMismatch(meta: Type.TyMeta, inferred: Type.Tau, inferredKind: Kind, metaRegion: Region, inferredRegion: Region) extends TypeError
     case class KindCannotTyApply(ap: Type.TyApply, region: Region) extends TypeError
     case class UnknownDefined(tpe: Type.Const.Defined, region: Region) extends TypeError
-    case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type.Var.Skolem], reg: Region) extends TypeError
-    case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type.Var]) extends TypeError
+    case class NotPolymorphicEnough(tpe: Type, in: Expr[_], badTvs: NonEmptyList[Type], reg: Region) extends TypeError
+    case class SubsumptionCheckFailure(inferred: Type, declared: Type, infRegion: Region, decRegion: Region, badTvs: NonEmptyList[Type]) extends TypeError
     // this sounds internal but can be due to an infinite type attempted to be defined
     case class UnexpectedMeta(m: Type.Meta, in: Type, left: Region, right: Region) extends TypeError
     case class ArityMismatch(leftArity: Int, leftRegion: Region, rightArity: Int, rightRegion: Region) extends TypeError
@@ -383,11 +385,12 @@ object Infer {
       t: Type,
       region: Region): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type.Rho)] = {
       
-      def loop(t: Type, path: Variance, top: Boolean): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] = 
+      def loop(t: Type, path: Variance): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] = 
         t match {
           case q: Type.Quantified =>
             q.withQuants { (univ, exists, ty) =>
-              if (top) {
+              if (path == Variance.co) {
+                // Rule PRPOLY
                 for {
                   ms <- exists.traverse { case (_, k) => newExistential(k) }  
                   sks1 <- univ.traverse { case (b, k) => newSkolemTyVar(b, k) }
@@ -397,21 +400,8 @@ object Infer {
                     (exists.map(_._1).iterator.zip(ms) ++
                       univ.map(_._1).iterator.zip(sksT.iterator))
                       .toMap)
-                  (sks2, ms2, ty) <- loop(ty1, path, top)
+                  (sks2, ms2, ty) <- loop(ty1, path)
                 } yield (sks1 ::: sks2, ms ::: ms2, ty)
-              }
-              else if (path == Variance.co) {
-                // Rule PRPOLY
-                NonEmptyList.fromList(univ) match {
-                  case Some(tvs) =>
-                    for {
-                      sks1 <- tvs.traverse { case (b, k) => newSkolemTyVar(b, k) }
-                      sksT = sks1.map(Type.TyVar(_))
-                      (sks, ms, ty) <- loop(substTyRho(tvs.map(_._1), sksT)(ty), Variance.co, top)
-                    } yield (sks1.toList ::: sks, ms, ty)
-                  case None =>
-                    pure((Nil, Nil, t))
-                }
               }
               else pure((Nil, Nil, t))
             }
@@ -419,11 +409,11 @@ object Infer {
           case ta@Type.TyApply(left, right) =>
             // Rule PRFUN
             // we know the kind of left is k -> x, and right has kind k
-            (varianceOfCons(ta, region), loop(left, path, top))
+            (varianceOfCons(ta, region), loop(left, path))
               .flatMapN {
                 case (consVar, (sksl, el, ltpe)) =>
                   val rightPath = consVar * path
-                  loop(right, rightPath, top = false)
+                  loop(right, rightPath)
                     .map { case (sksr, er, rtpe) =>
                       (sksl ::: sksr, el ::: er, Type.TyApply(ltpe, rtpe)) 
                     }
@@ -433,7 +423,7 @@ object Infer {
             pure((Nil, Nil, other))
         }
 
-      loop(t, Variance.co, top = true).map {
+      loop(t, Variance.co).map {
         case (skols, metas, rho: Type.Rho) =>
           (skols, metas, rho)
         // $COVERAGE-OFF$ this should be unreachable
@@ -445,6 +435,26 @@ object Infer {
 
     def getFreeTyVars(ts: List[Type]): Infer[Set[Type.Var]] =
       ts.traverse(zonkType).map(Type.freeTyVars(_).toSet)
+
+    def getExistentialMetas(ts: List[Type]): Infer[SortedSet[Type.Meta]] = {
+      val pureEmpty = pure(SortedSet.empty[Type.Meta])
+
+      def existentialsOf(tm: Type.Meta): Infer[SortedSet[Type.Meta]] = {
+        val parents = readMeta(tm).flatMap {
+          case Some(Type.TyMeta(m2)) => existentialsOf(m2)
+          case _ => pureEmpty
+        }
+
+        if (tm.existential) parents.map(_ + tm)
+        else parents
+      }
+
+      for {
+        zonked <- ts.traverse(zonkType)
+        metas = Type.metaTvs(zonked)
+        metaSet <- metas.toList.traverse(existentialsOf)
+      } yield metaSet.foldLeft(SortedSet.empty[Type.Meta])(_ | _)
+    }
 
     private val pureNone: Infer[None.type] = pure(None)
 
@@ -894,34 +904,81 @@ object Infer {
         }
     }
 
+    def checkEscapeSkols[A](
+      skols: List[Type.Var.Skolem],
+      declared: Type,
+      envTpes: Infer[List[Type]],
+      a: A,
+      onErr: NonEmptyList[Type] => Error)(
+      fn: (A, NonEmptyList[Type.Var.Skolem]) => A
+    ): Infer[A] =
+      skols match {
+        case Nil => pure(a)
+        case nel @ (h :: t) =>
+          envTpes
+            .flatMap { tail => getFreeTyVars(declared :: tail) }
+            .flatMap { escTvs =>
+              // if the escaped set is empty, then filter(Set.empty) == Nil
+              val badList = if (escTvs.isEmpty) Nil else nel.filter(escTvs)
+
+              NonEmptyList.fromList(badList) match {
+                case None =>
+                  pure(fn(a, NonEmptyList(h, t)))
+                case Some(badTvs) => fail(onErr(badTvs.map(Type.TyVar(_))))
+              }
+            }
+        }
+
+    def checkEscapeMetas[A](
+      metas: List[Type.TyMeta],
+      declared: Type,
+      envTpes: Infer[List[Type]],
+      a: A,
+      onErr: NonEmptyList[Type] => Error)(
+      fn: (A, NonEmptyList[Type.TyMeta]) => A
+    ): Infer[A] =
+      metas match {
+        case Nil => pure(a)
+        case nel @ (h :: t) =>
+          envTpes
+            .flatMap { tail => getExistentialMetas(declared :: tail) }
+            .flatMap { escTvs =>
+              // if the escaped set is empty, then filter(Set.empty) == Nil
+              val badList =
+                if (escTvs.isEmpty) Nil
+                else nel.filter { tm => escTvs(tm.toMeta) }
+
+              NonEmptyList.fromList(badList) match {
+                case None =>
+                  pure(fn(a, NonEmptyList(h, t)))
+                case Some(badTvs) => fail(onErr(badTvs))
+              }
+            }
+        }
+
     def subsUpper[F[_], G[_]: Functor](
       declared: Type,
       region: Region,
       envTpes: Infer[List[Type]])(
         fn: Type.Rho => Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]])(
-        onErr: NonEmptyList[Type.Var.Skolem] => Error): Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]] =
+        onErr: NonEmptyList[Type] => Error): Infer[FunctionK[F, Lambda[x => G[TypedExpr[x]]]]] =
       for {
-        // TODO: we aren't doing anything with the metas here, but maybe
-        // we don't need to, maybe the normal quantify process handles them
         (skols, metas, rho) <- skolemize(declared, region)
         coerce <- fn(rho)
         // if there are no skolem variables, we can shortcut here, because empty.filter(fn) == empty
-        res <- skols match {
-          case Nil => pure(coerce)
-          case nel @ (h :: t) =>
-            envTpes
-              .flatMap { tail => getFreeTyVars(declared :: tail) }
-              .flatMap { escTvs =>
-                // if the escaped set is empty, then filter(Set.empty) == Nil
-                val badList = if (escTvs.isEmpty) Nil else nel.filter(escTvs)
-
-                NonEmptyList.fromList(badList) match {
-                  case None =>
-                    pure(coerce.andThenMap(unskolemize(NonEmptyList(h, t))))
-                  case Some(badTvs) => fail(onErr(badTvs))
-                }
-              }
-          }
+        resSkols <- checkEscapeSkols(
+          skols,
+          declared,
+          envTpes,
+          coerce,
+          onErr) { (coerce, nel) => coerce.andThenMap(unskolemize(nel)) }
+        res <- checkEscapeMetas(
+          metas,
+          declared,
+          envTpes,
+          resSkols,
+          // TODO maybe this function should go ahead and quantify
+          onErr) { (coerce, _) => coerce }
       } yield res
 
     // DEEP-SKOL rule
