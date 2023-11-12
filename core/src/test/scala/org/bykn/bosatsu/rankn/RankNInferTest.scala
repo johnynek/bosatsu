@@ -5,7 +5,7 @@ import org.bykn.bosatsu._
 
 import Expr._
 import Type.Var.Bound
-import Type.ForAll
+import Type.forAll
 
 import TestUtils.{checkLast, testPackage}
 
@@ -239,10 +239,10 @@ class RankNInferTest extends AnyFunSuite {
     testType(lit(100), Type.IntType)
     testType(let("x", lambda("y", v("y")), lit(100)), Type.IntType)
     testType(lambda("y", v("y")),
-      ForAll(NonEmptyList.of(b("a")),
+      forAll(NonEmptyList.of(b("a")),
         Type.Fun(Type.TyVar(Bound("a")),Type.TyVar(Bound("a")))))
     testType(lambda("y", lambda("z", v("y"))),
-      ForAll(NonEmptyList.of(b("a"), b("b")),
+      forAll(NonEmptyList.of(b("a"), b("b")),
         Type.Fun(Type.TyVar(Bound("a")),
           Type.Fun(Type.TyVar(Bound("b")),Type.TyVar(Bound("a"))))))
 
@@ -255,7 +255,7 @@ class RankNInferTest extends AnyFunSuite {
     testType(let("x", lit(0), ife(lit(true), v("x"), lit(1))), Type.IntType)
 
     val identFnType =
-      ForAll(NonEmptyList.of(b("a")),
+      forAll(NonEmptyList.of(b("a")),
         Type.Fun(Type.TyVar(Bound("a")), Type.TyVar(Bound("a"))))
     testType(let("x", lambda("y", v("y")),
       ife(lit(true), v("x"),
@@ -356,8 +356,8 @@ class RankNInferTest extends AnyFunSuite {
     val kinds = Type.builtInKinds.updated(optName, Kind(Kind.Type.co))
 
     val constructors = Map(
-      (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
-      (Identifier.unsafe("None"), Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
+      (Identifier.unsafe("Some"), Type.forAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
+      (Identifier.unsafe("None"), Type.forAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
     def testWithOpt[A: HasRegion](term: Expr[A], ty: Type) =
@@ -420,17 +420,17 @@ class RankNInferTest extends AnyFunSuite {
      */
     val defined = Map(
       ((pn, Constructor("Pure")), (List((Type.Var.Bound("f"), Kind(Kind.Type.in).in)),
-        List(Type.ForAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
+        List(Type.forAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a"))))),
         pureName)),
       ((pn, Constructor("Some")), (List((Type.Var.Bound("a"), Kind.Type.co)), List(tv("a")), optName)),
       ((pn, Constructor("None")), (List((Type.Var.Bound("a"), Kind.Type.co)), Nil, optName)))
 
     val constructors = Map(
-      (Identifier.unsafe("Pure"), Type.ForAll(NonEmptyList.of(b1("f")),
-        Type.Fun(Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))),
+      (Identifier.unsafe("Pure"), Type.forAll(NonEmptyList.of(b1("f")),
+        Type.Fun(Type.forAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(tv("f"), tv("a")))),
           Type.TyApply(Type.TyConst(pureName), tv("f")) ))),
-      (Identifier.unsafe("Some"), Type.ForAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
-      (Identifier.unsafe("None"), Type.ForAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
+      (Identifier.unsafe("Some"), Type.forAll(NonEmptyList.of(b("a")), Type.Fun(tv("a"), Type.TyApply(optType, tv("a"))))),
+      (Identifier.unsafe("None"), Type.forAll(NonEmptyList.of(b("a")), Type.TyApply(optType, tv("a"))))
     )
 
     def testWithTypes[A: HasRegion](term: Expr[A], ty: Type) =

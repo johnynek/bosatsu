@@ -51,9 +51,7 @@ object TestUtils {
         case Type.TyApply(left, right) =>
           Type.TyApply(checkType(left), checkType(right))
         case q: Type.Quantified =>
-          q.withBound[cats.Id] { (_, in) =>
-            checkType(in).asInstanceOf[Type.Rho]
-          }
+          q.copy(in = checkType(q.in).asInstanceOf[Type.Rho])
         case Type.TyConst(_) => t
       }
     te.traverseType[cats.Id](checkType)

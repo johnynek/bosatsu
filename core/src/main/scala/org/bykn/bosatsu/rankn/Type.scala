@@ -2,13 +2,14 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
-import cats.{Applicative, Functor, Order}
+import cats.{Applicative, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import org.bykn.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
 import scala.collection.immutable.SortedSet
 
 import cats.implicits._
+import org.bykn.bosatsu.rankn.Type.Quantification.Dual
 
 sealed abstract class Type {
   def sameAs(that: Type): Boolean = Type.sameType(this, that)
@@ -50,85 +51,101 @@ object Type {
   sealed abstract class Leaf extends Rho
   type Tau = Rho // no forall or exists anywhere
 
-  sealed abstract class Quantified extends Type {
-    def in: Rho
+  sealed abstract class Quantification {
     def vars: NonEmptyList[(Var.Bound, Kind)]
-    def withBound[F[_]: Functor](fn: (Set[Var], Rho) => F[Type]): F[Quantified]
-    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A
-    def withQuants[A](fn: (List[(Var.Bound, Kind)], List[(Var.Bound, Kind)], Type.Rho) => A): A =
-      this match {
-        case ForAll(forall, in) => fn(forall.toList, Nil, in)
-        case Exists(exists, in) => fn(Nil, exists.toList, in)
-        case DualQuant(forall, exists, in) => fn(forall.toList, exists.toList, in)
+    def existList: List[(Var.Bound, Kind)]
+    def forallList: List[(Var.Bound, Kind)]
+    def concat(that: Quantification): Quantification
+  }
+
+  object Quantification {
+    case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)]) extends Quantification {
+      def existList: List[(Var.Bound, Kind)] = Nil
+      def forallList: List[(Var.Bound, Kind)] = vars.toList
+      def concat(that: Quantification): Quantification =
+        that match {
+          case ForAll(vars1) => ForAll(vars ::: vars1)
+          case Exists(evars) => Dual(vars, evars)
+          case Dual(f, e) => Dual(vars ::: f, e)
+        }
+    }
+    case class Exists(vars: NonEmptyList[(Var.Bound, Kind)]) extends Quantification {
+      def existList: List[(Var.Bound, Kind)] = vars.toList
+      def forallList: List[(Var.Bound, Kind)] = Nil
+      def concat(that: Quantification): Quantification =
+        that match {
+          case ForAll(vars1) => Dual(vars1, vars)
+          case Exists(evars) => Exists(vars ::: evars)
+          case Dual(f, e) => Dual(f, vars ::: e)
+        }
+    }
+    case class Dual(
+      foralls: NonEmptyList[(Var.Bound, Kind)],
+      exists: NonEmptyList[(Var.Bound, Kind)]) extends Quantification {
+
+      lazy val vars = foralls ::: exists
+      def existList: List[(Var.Bound, Kind)] = exists.toList
+      def forallList: List[(Var.Bound, Kind)] = foralls.toList
+      def concat(that: Quantification): Quantification =
+        that match {
+          case ForAll(vars1) => Dual(foralls ::: vars1, exists)
+          case Exists(evars) => Dual(foralls, exists ::: evars)
+          case Dual(f, e) => Dual(foralls ::: f, exists ::: e)
+        }
+    }
+
+    implicit val quantificationOrder: Order[Quantification] =
+      new Order[Quantification] {
+        val nelist = Order[NonEmptyList[(Var.Bound, Kind)]]
+
+        def compare(a: Quantification, b: Quantification): Int =
+          (a, b) match {
+            case (ForAll(v0), ForAll(v1)) => nelist.compare(v0, v1)
+            case (ForAll(_), _) => -1
+            case (Exists(_), ForAll(_)) => 1
+            case (Exists(v0), Exists(v1)) => nelist.compare(v0, v1)
+            case (Exists(_), _) => -1
+            case (Dual(fa0, ex0), Dual(fa1, ex1)) =>
+              val c1 = nelist.compare(fa0, fa1)
+              if (c1 != 0) c1
+              else nelist.compare(ex0, ex1)
+            case (Dual(_, _), _) => 1
+          }
+        }
+
+    def fromLists(forallList: List[(Var.Bound, Kind)], existList: List[(Var.Bound, Kind)]): Option[Quantification] =
+      forallList match {
+        case Nil =>
+          NonEmptyList.fromList(existList).map(Exists(_))
+        case head :: tail => 
+          Some(existList match {
+            case Nil => ForAll(NonEmptyList(head, tail))
+            case eh :: et => Dual(NonEmptyList(head, tail), NonEmptyList(eh, et))
+          })
       }
+  }
+
+  case class Quantified(quant: Quantification, in: Rho) extends Type {
+    def vars: NonEmptyList[(Var.Bound, Kind)] = quant.vars
+    def existList: List[(Var.Bound, Kind)] = quant.existList
+    def forallList: List[(Var.Bound, Kind)] = quant.forallList
+
+    def withQuants[A](fn: (List[(Var.Bound, Kind)], List[(Var.Bound, Kind)], Type.Rho) => A): A =
+      fn(quant.forallList, quant.existList, in)
+
+    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A =
+      fn(forallList, exists(existList, in))
   }
 
   object Quantified {
     implicit val quantifiedOrder: Order[Quantified] =
       new Order[Quantified] {
-        val nelist = Order[NonEmptyList[(Var.Bound, Kind)]]
-
-        def compare(a: Quantified, b: Quantified): Int =
-          (a, b) match {
-            case (ForAll(v0, i0), ForAll(v1, i1)) =>
-              val c = nelist.compare(v0, v1)
-              if (c == 0) Rho.orderRho.compare(i0, i1) else c
-            case (ForAll(_, _), _) => -1
-            case (Exists(_, _), ForAll(_, _)) => 1
-            case (Exists(v0, i0), Exists(v1, i1)) =>
-              val c = nelist.compare(v0, v1)
-              if (c == 0) Rho.orderRho.compare(i0, i1) else c
-            case (Exists(_, _), _) => -1
-            case (DualQuant(fa0, ex0, in0), DualQuant(fa1, ex1, in1)) =>
-              val c1 = nelist.compare(fa0, fa1)
-              if (c1 != 0) c1
-              else {
-                val c2 = nelist.compare(ex0, ex1)
-                if (c2 != 0) c2
-                else Rho.orderRho.compare(in0, in1)
-              }
-            case (DualQuant(_, _, _), _) => 1
-          }
+        def compare(a: Quantified, b: Quantified): Int = {
+          val c = Order[Quantification].compare(a.quant, b.quant)
+          if (c == 0) Order[Type].compare(a.in, b.in)
+          else c
         }
-  }
-
-  case class ForAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho) extends Quantified {
-    def withBound[F[_]: Functor](fn: (Set[Var], Rho) => F[Type]): F[Quantified] = {
-      val boundSet: Set[Var] = vars.toList.iterator.map(_._1).toSet
-      fn(boundSet, in).map(Type.forAll(vars, _))
-    }
-    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A =
-      fn(vars.toList, in)
-  }
-  case class Exists(vars: NonEmptyList[(Var.Bound, Kind)], in: Rho) extends Quantified {
-    def withBound[F[_]: Functor](fn: (Set[Var], Rho) => F[Type]): F[Quantified] = {
-      val boundSet: Set[Var] = vars.toList.iterator.map(_._1).toSet
-      fn(boundSet, in).map(Type.exists(vars, _))
-    }
-
-    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A =
-      fn(Nil.toList, this)
-  }
-  case class DualQuant(
-    forall: NonEmptyList[(Var.Bound, Kind)],
-    exists: NonEmptyList[(Var.Bound, Kind)],
-    in: Rho) extends Quantified {
-
-    lazy val vars = forall ::: exists
-
-    def withBound[F[_]: Functor](fn: (Set[Var], Rho) => F[Type]): F[Quantified] = {
-      val boundSet: Set[Var] =
-        forall.toList.iterator.map(_._1).toSet |
-        exists.toList.iterator.map(_._1).toSet
-
-      fn(boundSet, in)
-        .map { rho1 =>
-          Type.forAll(forall, Type.exists(exists, rho1))
-        }
-    }
-
-    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A =
-      fn(forall.toList, Type.exists(exists, in))
+      }
   }
 
   case class TyApply(on: Type, arg: Type) extends Rho
@@ -178,11 +195,35 @@ object Type {
     loop(fn, Nil)
   }
 
+  object ForAll {
+    def unapply(t: Type): Option[(NonEmptyList[(Type.Var.Bound, Kind)], Type)] =
+      t match {
+        case _: Rho => None
+        case q: Quantified =>
+          q.quant match {
+            case Quantification.ForAll(vars) => Some((vars, q.in))
+            case Dual(foralls, existsNel) => Some((foralls, exists(existsNel, q.in)))
+            case _ => None
+          }
+      }
+  }
+
+  object Exists {
+    def unapply(t: Type): Option[(NonEmptyList[(Type.Var.Bound, Kind)], Type)] =
+      t match {
+        case _: Rho => None
+        case q: Quantified =>
+          q.quant match {
+            case Quantification.Exists(vars) => Some((vars, q.in))
+            case Dual(foralls, existsNel) => Some((existsNel, forAll(foralls, q.in)))
+            case _ => None
+          }
+      }
+  }
+
   def constantsOf(t: Type): List[Const] =
     t match {
-      case ForAll(_, t) => constantsOf(t)
-      case Exists(_, t) => constantsOf(t)
-      case DualQuant(_, _, t) => constantsOf(t)
+      case Quantified(_, t) => constantsOf(t)
       case TyApply(on, arg) => constantsOf(on) ::: constantsOf(arg)
       case TyConst(c) => c :: Nil
       case TyVar(_) | TyMeta(_) => Nil
@@ -204,30 +245,51 @@ object Type {
 
   final def forAll(vars: NonEmptyList[(Var.Bound, Kind)], in: Type): Type.Quantified =
     in match {
-      case rho: Rho => Type.ForAll(vars, rho)
-      case Type.ForAll(ne1, rho) =>
-        Type.ForAll(vars ::: ne1, rho)
-      case Type.Exists(ne1, rho) =>
-        Type.DualQuant(forall = vars, exists = ne1, rho)
-      case Type.DualQuant(fa0, e, rho) =>
-        Type.DualQuant(forall = vars ::: fa0, exists = e, rho)
+      case rho: Rho =>
+        Quantified(Quantification.ForAll(vars), rho)
+      case q: Quantified =>
+        q.quant match {
+          case Quantification.ForAll(ne1) =>
+            Quantified(Quantification.ForAll(vars ::: ne1), q.in)
+          case Quantification.Exists(ne1) =>
+            Quantified(Quantification.Dual(foralls = vars, exists = ne1), q.in)
+          case Quantification.Dual(fa0, e) =>
+            Quantified(Quantification.Dual(foralls = vars ::: fa0, exists = e), q.in)
+        }
     }
 
   final def exists(vars: NonEmptyList[(Var.Bound, Kind)], in: Type): Type.Quantified =
     in match {
-      case rho: Rho => Type.Exists(vars, rho)
-      case Type.Exists(ne1, rho) =>
-        Type.Exists(vars ::: ne1, rho)
-      case Type.DualQuant(fa, e, rho) =>
-        Type.DualQuant(forall = fa, exists = vars ::: e, rho)
-      case Type.ForAll(fa, rho) =>
-        Type.DualQuant(forall = fa, exists = vars, rho)
+      case rho: Rho =>
+        Quantified(Quantification.Exists(vars), rho)
+      case q: Quantified =>
+        q.quant match {
+          case Quantification.Exists(ne1) =>
+            Quantified(Quantification.Exists(vars ::: ne1), q.in)
+          case Quantification.ForAll(ne1) =>
+            Quantified(Quantification.Dual(foralls = ne1, exists = vars), q.in)
+          case Quantification.Dual(fa0, e) =>
+            Quantified(Quantification.Dual(foralls = fa0, exists = vars ::: e), q.in)
+        }
     }
 
   final def exists(vars: List[(Var.Bound, Kind)], in: Type): Type =
     vars match {
       case h :: t => exists(NonEmptyList(h, t), in)
       case Nil => in
+    }
+
+  final def quantify(forallList: List[(Var.Bound, Kind)], existList: List[(Var.Bound, Kind)], in: Type): Type =
+    Quantification.fromLists(forallList = forallList, existList = existList) match {
+      case Some(q) => quantify(q, in)
+      case None => in
+    }
+
+  final def quantify(quantification: Quantification, tpe: Type): Type.Quantified =
+    quantification match {
+      case Quantification.ForAll(vars) => forAll(vars, tpe)
+      case Quantification.Exists(vars) => exists(vars, tpe)
+      case Quantification.Dual(fa, ex) => forAll(fa, exists(ex, tpe))
     }
 
   def getTypeOf(lit: Lit): Type =
@@ -287,10 +349,10 @@ object Type {
       case m@TyMeta(_) => m
       case c@TyConst(_) => c
       case q: Quantified =>
-        q.withBound[cats.Id] { (boundSet, rho) =>
-          val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
-          substituteVar(rho, env1)
-        }
+        val boundSet = q.vars.iterator.map(_._1).toSet[Type.Var]
+        val env1 = env.iterator.filter { case (v, _) => !boundSet(v) }.toMap
+        val subin = substituteVar(q.in, env1)
+        forAll(q.forallList, exists(q.existList, subin))
     })
 
   def substituteRhoVar(t: Type.Rho, env: Map[Type.Var, Type.Rho]): Type.Rho =
@@ -551,7 +613,7 @@ object Type {
 
     def arity(t: Type): Int =
       t match {
-        case ForAll(_, t) => arity(t)
+        case Quantified(_, t) => arity(t)
         case Fun(args, _) => args.length
         case _ => 0
       }
@@ -716,7 +778,7 @@ object Type {
     def go(check: List[Type], acc: SortedSet[Meta]): SortedSet[Meta] =
       check match {
         case Nil => acc
-        case ForAll(_, r) :: tail => go(r :: tail, acc)
+        case Quantified(_, r) :: tail => go(r :: tail, acc)
         case TyApply(a, r) :: tail => go(a :: r :: tail, acc)
         case TyMeta(m) :: tail => go(tail, acc + m)
         case _ :: tail => go(tail, acc)
@@ -749,7 +811,9 @@ object Type {
     t match {
       case rho: Rho => zonkRhoMeta(rho)(m).widen
       case q: Quantified =>
-        q.withBound[F]((_, in) => zonkRhoMeta(in)(m).widen).widen
+        zonkRhoMeta(q.in)(m).map { tpe =>
+          forAll(q.forallList, exists(q.existList, tpe))  
+        }
     }
 
   /**
@@ -838,28 +902,36 @@ object Type {
 
     def unapplyUniversal(a: Type): Option[(List[(String, Option[Kind])], Type)] =
       a match {
-        case ForAll(vs, arg) =>
-          Some((vs.map { 
-            case (v, k) => (v.name, Some(k))
-          }.toList, arg))
-        case DualQuant(forall, ex, in) =>
-          Some((forall.map { 
-            case (v, k) => (v.name, Some(k))
-          }.toList, exists(ex, in)))
-        case _ => None
+        case _: Rho => None
+        case q: Quantified =>
+          q.quant match {
+            case Quantification.ForAll(vs) =>
+              Some((vs.map { 
+                case (v, k) => (v.name, Some(k))
+              }.toList, q.in))
+            case Quantification.Dual(forall, ex) =>
+              Some((forall.map { 
+                case (v, k) => (v.name, Some(k))
+              }.toList, exists(ex, q.in)))
+            case _ => None
+          }
       }
 
     def unapplyExistential(a: Type): Option[(List[(String, Option[Kind])], Type)] =
       a match {
-        case Exists(vs, arg) =>
-          Some((vs.map { 
-            case (v, k) => (v.name, Some(k))
-          }.toList, arg))
-        case DualQuant(forall, exists, in) =>
-          Some((exists.map { 
-            case (v, k) => (v.name, Some(k))
-          }.toList, forAll(forall, in)))
-        case _ => None
+        case _: Rho => None
+        case q: Quantified =>
+          q.quant match {
+            case Quantification.Exists(vs) =>
+              Some((vs.map { 
+                case (v, k) => (v.name, Some(k))
+              }.toList, q.in))
+            case Quantification.Dual(forall, exists) =>
+              Some((exists.map { 
+                case (v, k) => (v.name, Some(k))
+              }.toList, forAll(forall, q.in)))
+            case _ => None
+          }
       }
 
     def unapplyTypeApply(a: Type): Option[(Type, List[Type])] =

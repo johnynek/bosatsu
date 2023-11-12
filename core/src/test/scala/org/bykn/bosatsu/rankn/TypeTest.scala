@@ -135,9 +135,9 @@ class TypeTest extends AnyFunSuite {
 
     val pastFails =
       List(
-        Type.ForAll(NonEmptyList.of((Type.Var.Bound("x"), Kind.Type), (Type.Var.Bound("ogtumm"), Kind.Type), (Type.Var.Bound("t"), Kind.Type)),
+        Type.forAll(NonEmptyList.of((Type.Var.Bound("x"), Kind.Type), (Type.Var.Bound("ogtumm"), Kind.Type), (Type.Var.Bound("t"), Kind.Type)),
           Type.TyVar(Type.Var.Bound("x"))),
-        Type.ForAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)),Type.TyVar(Type.Var.Bound("a")))
+        Type.forAll(NonEmptyList.of((Type.Var.Bound("a"), Kind.Type)),Type.TyVar(Type.Var.Bound("a")))
         )
 
     pastFails.foreach(law)

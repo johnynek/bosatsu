@@ -87,7 +87,7 @@ object TypedExprNormalization {
     te match {
       case g@Generic(_, Annotation(term, _)) if g.getType.sameAs(term.getType) =>
         normalize1(namerec, term, scope, typeEnv)
-      case g@Generic(vars, in) =>
+      case Generic(quant, in) =>
         // normalize the inside, then get all the freeBoundTyVars and
         // and if we can reallocate typevars to be the a, b, ... do so,
         // if they are the same, return none
@@ -96,25 +96,43 @@ object TypedExprNormalization {
         // Generic(vs, te, _) but vs are not bound in te, we can remove Generic
 
         // if tpe has no Var.Bound in common,
-        // then we don't need the forall
+        // then we don't need the Generic
         val tpe = in.getType
         val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
-        val freeVars = vars.toList.filter { case (t, _) => frees(t) }
-        NonEmptyList.fromList(freeVars) match {
-          case None => normalize1(namerec, in, scope, typeEnv)
-          case Some(nonEmpty) =>
-            normalizeLetOpt(namerec, in, scope, typeEnv) match {
-              case None =>
-                if (freeVars == vars.toList) None
-                else Some(Generic(nonEmpty, in))
-              case Some(gen@Generic(_, _)) =>
-                // in1 could be a generic in a
-                Some(forAll(nonEmpty, gen))
-              case Some(Annotation(term, _)) if g.getType.sameAs(term.getType) =>
-                Some(term)
-              case Some(notGen) =>
-                Some(Generic(nonEmpty, notGen))
-            }
+        val forAlls = quant.forallList
+        val exists = quant.existList
+        val freeForAlls = forAlls.filter { case (t, _) => frees(t) }
+        val freeExists = exists.filter { case (t, _) => frees(t) }
+        if (freeForAlls.isEmpty && freeExists.isEmpty) {
+          normalize1(namerec, in, scope, typeEnv)
+        }
+        else {
+          // both aren't empty, so we can quantify:
+          lazy val tpe = Type.quantify(
+              forallList = freeForAlls,
+              existList = freeExists,
+              in.getType
+            )
+            .asInstanceOf[Type.Quantified]
+
+          // at least one of them are free
+          normalizeLetOpt(namerec, in, scope, typeEnv) match {
+            case None =>
+              if ((freeForAlls == forAlls) && (freeExists == exists)) None
+              else {
+                Some(TypedExpr.quantVars(
+                  forallList = freeForAlls,
+                  existList = freeExists,
+                  in))
+              }
+            case Some(Annotation(term, _)) if tpe.sameAs(term.getType) =>
+              Some(term)
+            case Some(notGen) =>
+              Some(TypedExpr.quantVars(
+                forallList = freeForAlls,
+                existList = freeExists,
+                notGen))
+          }
         }
       case Annotation(term, tpe) =>
         // if we annotate twice, we can ignore the inner annotation
@@ -463,15 +481,17 @@ object TypedExprNormalization {
         def unapply(te: TypedExpr[A]): Option[(List[(Type.Var.Bound, Kind)], NonEmptyList[(Bindable, Type)], TypedExpr[A], A)] =
           te match {
             case Annotation(ResolveToLambda((h :: t), args, ex, tag), rho: Type.Rho) =>
-              val asGen =
-                Generic(NonEmptyList(h, t), AnnotatedLambda(args, ex, tag))
+              val body = AnnotatedLambda(args, ex, tag)
+              val quant = Type.Quantification.ForAll(NonEmptyList(h, t))
+              val asGen = Generic(quant, body)
 
               TypedExpr.instantiateTo(asGen, rho, kindOf) match {
                 case AnnotatedLambda(a, e, t) => Some((Nil, a, e, t))
-                case Generic(nel, AnnotatedLambda(a, e, t)) => Some((nel.toList, a, e, t))
+                case Generic(Type.Quantification.ForAll(nel), AnnotatedLambda(a, e, t)) =>
+                  Some((nel.toList, a, e, t))
                 case _ => None
               }
-            case Generic(frees, ResolveToLambda(f1, args, ex, tag)) =>
+            case Generic(Type.Quantification.ForAll(frees), ResolveToLambda(f1, args, ex, tag)) =>
               Some((frees.toList ::: f1, args, ex, tag))
             case AnnotatedLambda(args, expr, ltag) => Some((Nil, args, expr, ltag))
             case Global(p, n: Bindable, _, _) =>

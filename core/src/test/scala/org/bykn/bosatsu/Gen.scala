@@ -1012,7 +1012,7 @@ object Generators {
     else {
       val genGeneric =
         Gen.zip(Generators.nonEmpty(Gen.zip(NTypeGen.genBound, NTypeGen.genKind)), recurse)
-          .map { case (vs, t) => TypedExpr.Generic(vs, t) }
+          .map { case (vs, t) => TypedExpr.forAll(vs, t) }
 
       val ann =
         Gen.zip(recurse, typeGen)

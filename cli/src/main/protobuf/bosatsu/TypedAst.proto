@@ -160,9 +160,14 @@ enum RecursionKind {
   IsRec = 1;
 }
 
+message VarKind {
+  int32 varName = 1;
+  Kind kind = 2;
+}
+
 message GenericExpr {
-  repeated int32 varNames = 1;
-  repeated Kind kinds = 2;
+  repeated VarKind forAlls = 1;
+  repeated VarKind exists = 2;
   int32 expr = 3;
 }
 

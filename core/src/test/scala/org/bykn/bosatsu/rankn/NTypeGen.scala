@@ -95,8 +95,6 @@ object NTypeGen {
           shrink(in).map(Type.forAll(items.tail, _))
         case Exists(items, in) =>
           shrink(in).map(Type.exists(items.tail, _))
-        case DualQuant(fa, ex, in) =>
-          in #:: ForAll(fa, in) #:: Exists(ex, in) #:: Stream.empty
         case _: Leaf => Stream.empty
         case TyApply(on, arg) =>
           on #:: arg #:: shrink(on).map(TyApply(_, arg)) #::: shrink(arg).map(TyApply(on, _))
