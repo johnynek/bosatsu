@@ -131,7 +131,7 @@ object Type {
     def forallList: List[(Var.Bound, Kind)] = quant.forallList
 
     def withQuants[A](fn: (List[(Var.Bound, Kind)], List[(Var.Bound, Kind)], Type.Rho) => A): A =
-      fn(quant.forallList, quant.existList, in)
+      fn(forallList, existList, in)
 
     def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A =
       fn(forallList, exists(existList, in))
@@ -386,7 +386,7 @@ object Type {
           val isBound =
             tv match {
               case b@Type.Var.Bound(_) => bound(b)
-              case Type.Var.Skolem(_, _, _) => false
+              case _: Type.Var.Skolem => false
             }
           if (isBound) go(rest, bound, acc)
           else go(rest, bound, tv :: acc)
@@ -475,7 +475,7 @@ object Type {
             case None => Left(unknownVar(b))
             // $COVERAGE-ON$ this should be unreachable
           }
-        case Type.TyVar(Type.Var.Skolem(_, kind, _)) => Right(kind)
+        case Type.TyVar(Type.Var.Skolem(_, kind, _, _)) => Right(kind)
         case Type.TyMeta(Type.Meta(kind, _, _, _)) => Right(kind)
         case tc@Type.TyConst(_) => cons(tc)
         case ap@Type.TyApply(left, right) =>
@@ -689,7 +689,7 @@ object Type {
   }
   object Var {
     case class Bound(name: String) extends Var
-    case class Skolem(name: String, kind: Kind, id: Long) extends Var
+    case class Skolem(name: String, kind: Kind, existential: Boolean, id: Long) extends Var
 
     object Bound {
       private[this] val cache: Array[Bound] =
@@ -715,15 +715,19 @@ object Type {
           (a, b) match {
             case (Bound(a), Bound(b)) => a.compareTo(b)
             case (Bound(_), _) => -1
-            case (Skolem(n0, k0, i0), Skolem(n1, k1, i1)) =>
+            case (Skolem(n0, k0, ex0, i0), Skolem(n1, k1, ex1, i1)) =>
               val c = java.lang.Long.compare(i0, i1)
               if (c != 0) c
               else {
                 val cn = n0.compareTo(n1)
                 if (cn != 0) cn
-                else Order[Kind].compare(k0, k1)
+                else {
+                  val c = java.lang.Boolean.compare(ex0, ex1)
+                  if (c != 0) c
+                  else Order[Kind].compare(k0, k1)
+                }
               }
-            case (Skolem(_, _, _), _) => 1
+            case (Skolem(_, _, _, _), _) => 1
           }
       }
   }
@@ -812,7 +816,7 @@ object Type {
       case rho: Rho => zonkRhoMeta(rho)(m).widen
       case q: Quantified =>
         zonkRhoMeta(q.in)(m).map { tpe =>
-          forAll(q.forallList, exists(q.existList, tpe))  
+          quantify(q.quant, tpe)
         }
     }
 
@@ -843,8 +847,8 @@ object Type {
         }
       }
       val skolem = (P.char('$') *> Parser.lowerIdent, P.char('$') *> longParser)
-        // TODO Kind
-        .mapN(Var.Skolem(_, Kind.Type, _))
+        // TODO Kind/existential
+        .mapN(Var.Skolem(_, Kind.Type, true, _))
         .map(TyVar(_))
 
       // this null is bad, but we have no way to reallocate this
@@ -884,7 +888,7 @@ object Type {
         case TyConst(Const.Defined(p, n)) =>
           Some(Document[PackageName].document(p) + coloncolon + Document[Identifier].document(n.ident))
         case TyVar(Var.Bound(s)) => Some(Doc.text(s))
-        case TyVar(Var.Skolem(n, _, i)) =>
+        case TyVar(Var.Skolem(n, _, _, i)) =>
           // TODO Kind
           val dol = "$"
           Some(Doc.text(dol + n + dol + i.toString))

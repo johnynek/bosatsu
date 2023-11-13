@@ -10,6 +10,7 @@ import scala.collection.immutable.SortedSet
 import scala.util.hashing.MurmurHash3
 
 import Identifier.{Bindable, Constructor}
+import org.bykn.bosatsu.rankn.Type.Var.Skolem
 
 sealed abstract class TypedExpr[+T] { self: Product =>
   import TypedExpr._
@@ -387,35 +388,76 @@ object TypedExpr {
 
     // we need to zonk before we get going because
     // some of the meta-variables may point to the same values
-    def getMetaTyVars(tpes: List[Type]): F[SortedSet[Type.Meta]] =
-      tpes.traverse(Type.zonkMeta(_)(zFn)).map(Type.metaTvs(_))
+    def getMetaTyVars(tpes: List[Type]): F[SortedSet[Type.Meta]] = {
+      tpes.traverse(Type.zonkMeta(_)(zFn)).map { zonked =>
+        Type.metaTvs(zonked)
+      }
+    }
 
-    def quantify0(forAlls: List[Type.Meta], rho: TypedExpr.Rho[A]): F[TypedExpr[A]] =
+    def quantify0(forAlls: List[Type.Meta], rho: TypedExpr[A]): F[TypedExpr[A]] =
       NonEmptyList.fromList(forAlls) match {
         case None => Applicative[F].pure(rho)
         case Some(metas) =>
           val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
           val aligned = Type.alignBinders(metas, used)
-          val bound = aligned.traverse { case (m, n) => writeFn(m, n).as((n, m.kind)) }
+          val bound = aligned.traverse { case (m, n) => writeFn(m, n).as(((n, m.kind), m.existential)) }
           // we only need to zonk after doing a write:
-          (bound, zonkMeta(rho)(zFn)).mapN { (typeArgs, r) => forAll(typeArgs, r) }
+          (bound, zonkMeta(rho)(zFn))
+            .mapN { (typeArgs, r) =>
+              val forAlls = typeArgs.collect { case (nk, false) => nk }
+              val exists = typeArgs.collect { case (nk, true) => nk }
+              quantVars(forallList = forAlls, existList = exists, r)
+            }
       }
 
     type Name = (Option[PackageName], Identifier)
 
-    def quantifyMetas(env: Map[Name, Type], metas: SortedSet[Type.Meta], te: TypedExpr[A]): F[TypedExpr[A]] =
+    def quantifyMetas(envList: => List[Type], metas: SortedSet[Type.Meta], te: TypedExpr[A]): F[TypedExpr[A]] =
       if (metas.isEmpty) Applicative[F].pure(te)
       else {
         for {
-          envTypeVars <- getMetaTyVars(env.values.toList)
+          envTypeVars <- getMetaTyVars(envList)
           forAllTvs = metas -- envTypeVars
           q <- quantify0(forAllTvs.toList, te)
         } yield q
       }
 
-    def quantifyFree(env: Map[Name, Type], te: TypedExpr[A]): F[TypedExpr[A]] =
+    def quantifyFree(env: Map[Name, Type], te: TypedExpr[A]): F[TypedExpr[A]] = {
+      // this is lazy because we only evaluate it if there is an existential skolem
+      lazy val envList = env.values.toList
+      lazy val envExistSkols = Type.freeTyVars(envList)
+        .collect {
+          case ex @ Skolem(_, _, true, _) => ex
+        }
+        .toSet[Type.Var.Skolem]
+
+      val tyVars = Type.freeTyVars(te.getType :: Nil)
+      val teSkols = tyVars
+        .collect {
+          case ex @ Skolem(_, _, true, _) if !envExistSkols(ex) => ex
+        }
+      
+      val te1 = NonEmptyList.fromList(teSkols) match {
+        case None => te
+        case Some(nel) =>
+          val used: Set[Type.Var.Bound] = tyVars.iterator.collect {
+            case b @ Type.Var.Bound(_) => b
+          }.toSet
+
+          val names = Type.alignBinders(nel, used)
+          val aligned = names.iterator.map {
+            case (v, b) => (v, Type.TyVar(b))
+          }
+          .toMap[Type.Var, Type]
+
+          quantVars(Nil,
+            names.toList.map { case (sk, b) => (b, sk.kind) },
+            substituteTypeVar(te, aligned))
+      }
+
       getMetaTyVars(te.getType :: Nil)
-        .flatMap(quantifyMetas(env, _, te))
+        .flatMap(quantifyMetas(envList, _, te1))
+    }
 
     /*
      * By only quantifying the outside
@@ -430,10 +472,7 @@ object TypedExpr {
       quantifyFree(env, te).flatMap {
         case Generic(quant, in) =>
           deepQuantify(env, in).map { in1 =>
-            // TODO support existential quantification
-            require(quant.existList.isEmpty)
-
-            forAll(quant.vars, in1)
+            quantVars(quant.forallList, quant.existList, in1)
           }
         case Annotation(term, coerce) =>
           deepQuantify(env, term).map { t1 =>
@@ -495,7 +534,7 @@ object TypedExpr {
           val noArg = for {
             br1 <- branches.traverse(handleBranch(_))
             ms <- allMatchMetas
-            quant <- quantifyMetas(env, ms, Match(arg, br1, tag))
+            quant <- quantifyMetas(env.values.toList, ms, Match(arg, br1, tag))
           } yield quant
 
           def finish(te: TypedExpr[A]): F[TypedExpr[A]] =
@@ -504,9 +543,7 @@ object TypedExpr {
                 // we still need to recurse on arg
                 deepQuantify(env, arg).map(Match(_, branches, tag))
               case Generic(quants, expr) =>
-                // TODO: support existentials
-                require(quants.existList.isEmpty)
-                finish(expr).map(forAll(quants.vars, _))
+                finish(expr).map(quantVars(quants.forallList, quants.existList, _))
               case unreach =>
                 // $COVERAGE-OFF$
                 sys.error(s"Match quantification yielded neither Generic nor Match: $unreach")

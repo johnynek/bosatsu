@@ -392,8 +392,8 @@ object Infer {
               if (path == Variance.co) {
                 // Rule PRPOLY
                 for {
+                  sks1 <- univ.traverse { case (b, k) => newSkolemTyVar(b, k, existential = false) }
                   ms <- exists.traverse { case (_, k) => newExistential(k) }  
-                  sks1 <- univ.traverse { case (b, k) => newSkolemTyVar(b, k) }
                   sksT = sks1.map(Type.TyVar(_))
                   ty1 = Type.substituteRhoVar(
                     ty,
@@ -459,10 +459,12 @@ object Infer {
     private val pureNone: Infer[None.type] = pure(None)
 
     def zonk(m: Type.Meta): Infer[Option[Type.Rho]] =
-      readMeta(m).flatMap {
+      if (m.existential) pureNone
+      else readMeta(m).flatMap {
         case None => pureNone
+        case (sm @ Some(tm: Type.TyMeta)) if tm.toMeta.existential => pure(sm)
         case sty @ Some(ty) =>
-          lazy val cont = zonkRho(ty).flatMap { ty1 =>
+          zonkRho(ty).flatMap { ty1 =>
             if ((ty1: Type) === ty) pure(sty)
             else {
               // we were able to resolve more of the inner metas
@@ -470,16 +472,6 @@ object Infer {
               writeMeta(m, ty1).as(Some(ty1))
             }
           }
-
-          if (!m.existential) {
-            ty match {
-              case Type.TyMeta(m2) if m2.existential =>
-                // Don't zonk across existential boundary
-                pureNone
-              case _ => cont
-            }
-          }
-          else cont
       }
 
     def zonkRho(rho: Type.Rho): Infer[Type.Rho] =
@@ -555,12 +547,8 @@ object Infer {
               }
 
             univRho.flatMap { rho =>
-              // TODO: we need to unskolemize this back to existentials
-              // at the end if they appear in the result and verify
-              // they don't escape into the environment as it done for
-              // universals on the rhs of a subs check
               for {
-                skols <- exists.traverse { case (b, k) => newSkolemTyVar(b, k) }  
+                skols <- exists.traverse { case (b, k) => newSkolemTyVar(b, k, existential = true) }  
                 env = exists
                   .iterator
                   .map(_._1)
@@ -874,8 +862,8 @@ object Infer {
       newMetaType0(kind, existential = true)
 
     // TODO: it would be nice to support kind inference on skolem variables
-    def newSkolemTyVar(tv: Type.Var.Bound, kind: Kind): Infer[Type.Var.Skolem] =
-      nextId.map(Type.Var.Skolem(tv.name, kind, _))
+    def newSkolemTyVar(tv: Type.Var.Bound, kind: Kind, existential: Boolean): Infer[Type.Var.Skolem] =
+      nextId.map(Type.Var.Skolem(tv.name, kind, existential, _))
 
     /**
      * See if the meta variable has been set with a Tau
@@ -992,7 +980,7 @@ object Infer {
 
     def inferForAll[A: HasRegion](tpes: NonEmptyList[(Type.Var.Bound, Kind)], expr: Expr[A]): Infer[TypedExpr[A]] =
       for {
-        (skols, t1) <- Expr.skolemizeVars(tpes, expr)(newSkolemTyVar(_, _))
+        (skols, t1) <- Expr.skolemizeVars(tpes, expr)(newSkolemTyVar(_, _, existential = false))
         sigmaT <- inferSigma(t1)
         z <- zonkTypedExpr(sigmaT)
       } yield unskolemize(skols)(z)
@@ -1545,7 +1533,6 @@ object Infer {
       } yield q
     }
 
-    // TODO: we need to update TypedExpr.quantify to deal with existential quantification
     def quantify[A](env: Infer[Map[Name, Type]], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
       env.flatMap(TypedExpr.quantify(_, rho, zonk(_), { (m, n) =>
         // quantify guarantees that the kind of n matches m
@@ -1634,7 +1621,7 @@ object Infer {
 
     val optSkols = t match {
       case Expr.Generic(vs, e) =>
-        Some(Expr.skolemizeVars(vs, e)(newSkolemTyVar(_, _)))
+        Some(Expr.skolemizeVars(vs, e)(newSkolemTyVar(_, _, existential = false)))
       case _ => None
     }
 

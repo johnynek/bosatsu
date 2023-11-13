@@ -76,7 +76,7 @@ class TypeTest extends AnyFunSuite {
       val tpe = parse(str)
       law(tpe)
       tpe match {
-        case Type.TyVar(Type.Var.Skolem(b1, k1, i1)) =>
+        case Type.TyVar(Type.Var.Skolem(b1, k1, _, i1)) =>
           assert((b1, k1, i1) === (b, Kind.Type ,id))
         case other => fail(other.toString)
       }

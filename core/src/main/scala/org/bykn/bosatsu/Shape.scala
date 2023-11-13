@@ -546,7 +546,7 @@ object Shape {
                   )
                 )
             }
-          case rankn.Type.TyVar(rankn.Type.Var.Skolem(_, k, _)) =>
+          case rankn.Type.TyVar(rankn.Type.Var.Skolem(_, k, _, _)) =>
             RefSpace.pure(Validated.valid(shapeOf(k)))
           case tv @ rankn.Type.TyVar(v @ rankn.Type.Var.Bound(_)) =>
             local.get(v) match {

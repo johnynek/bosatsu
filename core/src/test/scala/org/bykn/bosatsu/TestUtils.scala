@@ -43,7 +43,7 @@ object TestUtils {
   def assertValid[A](te: TypedExpr[A]): Unit = {
     def checkType(t: Type): Type =
       t match {
-        case t@Type.TyVar(Type.Var.Skolem(_, _, _)) =>
+        case t@Type.TyVar(Type.Var.Skolem(_, _, _, _)) =>
           sys.error(s"illegal skolem ($t) escape in ${te.repr}")
         case Type.TyVar(Type.Var.Bound(_)) => t
         case t@Type.TyMeta(_) =>
