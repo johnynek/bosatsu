@@ -456,23 +456,8 @@ object Infer {
       } yield metaSet.foldLeft(SortedSet.empty[Type.Meta])(_ | _)
     }
 
-    private val pureNone: Infer[None.type] = pure(None)
-
-    def zonk(m: Type.Meta): Infer[Option[Type.Rho]] =
-      if (m.existential) pureNone
-      else readMeta(m).flatMap {
-        case None => pureNone
-        case (sm @ Some(tm: Type.TyMeta)) if tm.toMeta.existential => pure(sm)
-        case sty @ Some(ty) =>
-          zonkRho(ty).flatMap { ty1 =>
-            if ((ty1: Type) === ty) pure(sty)
-            else {
-              // we were able to resolve more of the inner metas
-              // inside ty, so update the state
-              writeMeta(m, ty1).as(Some(ty1))
-            }
-          }
-      }
+    val zonk: Type.Meta => Infer[Option[Type.Rho]] =
+      Type.zonk[Infer](SortedSet.empty, readMeta _, writeMeta _)
 
     def zonkRho(rho: Type.Rho): Infer[Type.Rho] =
       Type.zonkRhoMeta(rho)(zonk(_))
@@ -1534,10 +1519,7 @@ object Infer {
     }
 
     def quantify[A](env: Infer[Map[Name, Type]], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
-      env.flatMap(TypedExpr.quantify(_, rho, zonk(_), { (m, n) =>
-        // quantify guarantees that the kind of n matches m
-        writeMeta(m, Type.TyVar(n))
-      }))
+      env.flatMap(TypedExpr.quantify(_, rho, readMeta _, writeMeta _))
 
     // allocate this once and reuse
     private val envTail = getEnv.map(_.values.toList)

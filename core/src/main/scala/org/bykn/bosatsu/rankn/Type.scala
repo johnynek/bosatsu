@@ -2,7 +2,7 @@ package org.bykn.bosatsu.rankn
 
 import cats.data.NonEmptyList
 import cats.parse.{Parser => P, Numbers}
-import cats.{Applicative, Order}
+import cats.{Applicative, Monad, Order}
 import org.typelevel.paiges.{Doc, Document}
 import org.bykn.bosatsu.{Kind, PackageName, Lit, TypeName, Identifier, Parser, TypeParser}
 import org.bykn.bosatsu.graph.Memoize.memoizeDagHashedConcurrent
@@ -808,6 +808,35 @@ object Type {
     loop(tpes, Set.empty)
   }
 
+  def zonk[F[_]: Monad](
+    transparent: SortedSet[Meta],
+    readMeta: Meta => F[Option[Rho]],
+    writeMeta: (Meta, Type.Rho) => F[Unit]): Meta => F[Option[Rho]] = {
+
+    val pureNone = Monad[F].pure(Option.empty[Rho])
+
+    lazy val fn: Meta => F[Option[Rho]] = { (m: Meta) =>
+      if (m.existential && !transparent(m)) pureNone
+      else readMeta(m).flatMap {
+        case None => pureNone
+        case (sm @ Some(tm: Type.TyMeta)) if tm.toMeta.existential && !transparent(tm.toMeta) =>
+          // don't zonk from non-existential past existential or we forget
+          // that this variable is existential and can see through it
+          Monad[F].pure(sm)
+        case sty @ Some(ty) =>
+          zonkRhoMeta(ty)(fn).flatMap { ty1 =>
+            if ((ty1: Type) === ty) Monad[F].pure(sty)
+            else {
+              // we were able to resolve more of the inner metas
+              // inside ty, so update the state
+              writeMeta(m, ty1).as(Some(ty1))
+            }
+          }
+      }
+    }
+
+    fn
+  }
   /**
    * Transform meta variables in some way
    */

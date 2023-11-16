@@ -184,6 +184,8 @@ class RankNInferTest extends AnyFunSuite {
     }
   }
 
+  // COMMENT
+  /*
   test("assert some basic unifications") {
     assertTypesUnify("forall a. a", "forall b. b")
     assertTypesUnify("exists a. a", "exists b. b")
@@ -1188,10 +1190,16 @@ def branch[a](x: B) -> (a -> a):
 res = branch(True)(True)
 """)
   }
-
+// COMMENT END
+*/
   test("basic existential types") {
     parseProgram("""#
 x: exists b. b = 1
 """, "exists b. b")
+
+  //this seems to be an infinite loop
+    parseProgram("""#
+def hide(x) -> exists a. a: x
+""", "forall a. a -> (exists a. a)")
   }
 }

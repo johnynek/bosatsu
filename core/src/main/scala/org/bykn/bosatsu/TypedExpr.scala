@@ -383,9 +383,10 @@ object TypedExpr {
   def quantify[F[_]: Monad, A](
     env: Map[(Option[PackageName], Identifier), Type],
     rho: TypedExpr.Rho[A],
-    zFn: Type.Meta => F[Option[Type.Rho]],
-    writeFn: (Type.Meta, Type.Var) => F[Unit]): F[TypedExpr[A]] = {
+    readFn: Type.Meta => F[Option[Type.Rho]],
+    writeFn: (Type.Meta, Type.Rho) => F[Unit]): F[TypedExpr[A]] = {
 
+    val zFn = Type.zonk(SortedSet.empty, readFn, writeFn)
     // we need to zonk before we get going because
     // some of the meta-variables may point to the same values
     def getMetaTyVars(tpes: List[Type]): F[SortedSet[Type.Meta]] = {
@@ -394,18 +395,26 @@ object TypedExpr {
       }
     }
 
-    def quantify0(forAlls: List[Type.Meta], rho: TypedExpr[A]): F[TypedExpr[A]] =
-      NonEmptyList.fromList(forAlls) match {
+    def quantify0(metaList: List[Type.Meta], rho: TypedExpr[A]): F[TypedExpr[A]] =
+      NonEmptyList.fromList(metaList) match {
         case None => Applicative[F].pure(rho)
         case Some(metas) =>
           val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
           val aligned = Type.alignBinders(metas, used)
-          val bound = aligned.traverse { case (m, n) => writeFn(m, n).as(((n, m.kind), m.existential)) }
+          val bound = aligned.traverse { case (m, n) => writeFn(m, Type.TyVar(n)).as(((n, m.kind), m.existential)) }
           // we only need to zonk after doing a write:
+          // it isnot clear that zonkMeta correctly here because the existentials
+          // here have been realized to Type.Var now, and and meta pointing at them should
+          // become visible (no longer hidden)
+          val zFn = Type.zonk(
+            metas.iterator.filter(_.existential).to(SortedSet),
+            readFn,
+            writeFn)
           (bound, zonkMeta(rho)(zFn))
             .mapN { (typeArgs, r) =>
               val forAlls = typeArgs.collect { case (nk, false) => nk }
               val exists = typeArgs.collect { case (nk, true) => nk }
+              println(s"forAlls = $forAlls exists = $exists ${r.repr}")
               quantVars(forallList = forAlls, existList = exists, r)
             }
       }
@@ -417,8 +426,9 @@ object TypedExpr {
       else {
         for {
           envTypeVars <- getMetaTyVars(envList)
-          forAllTvs = metas -- envTypeVars
-          q <- quantify0(forAllTvs.toList, te)
+          localMetas = metas -- envTypeVars
+          _ = println(s"localMetas = $localMetas in ${te.repr}")
+          q <- quantify0(localMetas.toList, te)
         } yield q
       }
 
@@ -457,6 +467,10 @@ object TypedExpr {
 
       getMetaTyVars(te.getType :: Nil)
         .flatMap(quantifyMetas(envList, _, te1))
+        .map { res =>
+          println(s"quantifyFree ${te.repr} => ${te1.repr} => ${res.repr}")
+          res
+        }
     }
 
     /*
@@ -471,6 +485,7 @@ object TypedExpr {
     def deepQuantify(env: Map[Name, Type], te: TypedExpr[A]): F[TypedExpr[A]] =
       quantifyFree(env, te).flatMap {
         case Generic(quant, in) =>
+          assert(te != in, s"${te.repr} quantifyFree => ${in.repr}")
           deepQuantify(env, in).map { in1 =>
             quantVars(quant.forallList, quant.existList, in1)
           }
