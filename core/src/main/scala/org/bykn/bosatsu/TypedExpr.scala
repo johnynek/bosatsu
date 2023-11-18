@@ -415,8 +415,9 @@ object TypedExpr {
             .mapN { (typeArgs, r) =>
               val forAlls = typeArgs.collect { case (nk, false) => nk }
               val exists = typeArgs.collect { case (nk, true) => nk }
-              println(s"forAlls = $forAlls exists = $exists ${r.repr}")
-              quantVars(forallList = forAlls, existList = exists, r)
+              val q = quantVars(forallList = forAlls, existList = exists, r)
+              println(s"forAlls = $forAlls exists = $exists ${r.repr} quantVars = ${q.repr}")
+              q
             }
       }
 
@@ -433,9 +434,9 @@ object TypedExpr {
         } yield q
       }
 
-    def quantifyFree(env: Map[Name, Type], te: TypedExpr[A]): F[TypedExpr[A]] = {
+    def quantifyFree(env: Set[Type], te: TypedExpr[A]): F[TypedExpr[A]] = {
       // this is lazy because we only evaluate it if there is an existential skolem
-      lazy val envList = env.values.toList
+      lazy val envList = env.toList
       lazy val envExistSkols = Type.freeTyVars(envList)
         .collect {
           case ex @ Skolem(_, _, true, _) => ex
@@ -466,10 +467,10 @@ object TypedExpr {
             substituteTypeVar(te, aligned))
       }
 
-      getMetaTyVars(te.getType :: Nil)
+      getMetaTyVars(te1.allTypes.toList)
         .flatMap(quantifyMetas(envList, _, te1))
         .map { res =>
-          println(s"quantifyFree ${te.repr} => ${te1.repr} => ${res.repr}")
+          println(s"quantifyFree, teSkols=${teSkols} ${te.repr} => ${te1.repr} => ${res.repr}")
           res
         }
     }
@@ -483,33 +484,34 @@ object TypedExpr {
      * because we have to do work linear in depth at each
      * level.
      */
-    def deepQuantify(env: Map[Name, Type], te: TypedExpr[A]): F[TypedExpr[A]] =
+    def deepQuantify(env: Set[Type], te: TypedExpr[A]): F[TypedExpr[A]] =
       quantifyFree(env, te).flatMap {
         case Generic(quant, in) =>
           assert(te != in, s"${te.repr} quantifyFree => ${in.repr}")
-          deepQuantify(env, in).map { in1 =>
+          deepQuantify(env + te.getType, in).map { in1 =>
             quantVars(quant.forallList, quant.existList, in1)
           }
         case Annotation(term, coerce) =>
-          deepQuantify(env, term).map { t1 =>
+          deepQuantify(env + coerce, term).map { t1 =>
             ann(t1, coerce)
           }
         case AnnotatedLambda(args, expr, tag) =>
-          val env1 = env ++ args.iterator.map { case (arg, tpe) => ((None, arg)) -> tpe }
-          deepQuantify(env1, expr)
+          val env1 = env ++ args.iterator.map(_._2)
+          deepQuantify(env1 + te.getType, expr)
             .map { e1 =>
               lambda(args, e1, tag)
             }
         case Let(arg, expr, in, rec, tag) =>
           // this introduces something into the env
-          val inEnv = env.updated((None, arg), expr.getType)
+          val inEnv = env + expr.getType
           val exprEnv = if (rec.isRecursive) inEnv else env
-          (deepQuantify(exprEnv, expr), deepQuantify(inEnv, in))
+          (deepQuantify(exprEnv + te.getType, expr), deepQuantify(inEnv + te.getType, in))
             .mapN { (e1, i1) =>
               Let(arg, e1, i1, rec, tag)
             }
         case App(fn, args, tpe, tag) =>
-          (deepQuantify(env, fn), args.traverse(deepQuantify(env, _)))
+          val env1 = env + te.getType
+          (deepQuantify(env1, fn), args.traverse(deepQuantify(env1, _)))
             .mapN { (f1, a1) =>
               App(f1, a1, tpe, tag)
             }
@@ -538,23 +540,24 @@ object TypedExpr {
           val allMatchMetas: F[SortedSet[Type.Meta]] =
             getMetaTyVars(arg.getType :: branches.foldMap { case (p, _) => allPatternTypes(p) }.toList)
 
+          val env1 = env + te.getType
           def handleBranch(br: Branch): F[Branch] = {
             val (p, expr) = br
-            val branchEnv = Pattern.envOf(p, env) { ident => (None, ident) }
+            val branchEnv = env1 ++ Pattern.envOf(p, Map.empty) { ident => (None, ident) }.values
             deepQuantify(branchEnv, expr).map((p, _))
           }
 
           val noArg = for {
             br1 <- branches.traverse(handleBranch(_))
             ms <- allMatchMetas
-            quant <- quantifyMetas(env.values.toList, ms, Match(arg, br1, tag))
+            quant <- quantifyMetas(env1.toList, ms, Match(arg, br1, tag))
           } yield quant
 
           def finish(te: TypedExpr[A]): F[TypedExpr[A]] =
             te match {
               case Match(arg, branches, tag) =>
                 // we still need to recurse on arg
-                deepQuantify(env, arg).map(Match(_, branches, tag))
+                deepQuantify(env1, arg).map(Match(_, branches, tag))
               case Generic(quants, expr) =>
                 finish(expr).map(quantVars(quants.forallList, quants.existList, _))
               case unreach =>
@@ -569,7 +572,7 @@ object TypedExpr {
           Applicative[F].pure(nonest)
       }
 
-    deepQuantify(env, rho)
+    deepQuantify(env.values.toSet, rho)
   }
 
   implicit val traverseTypedExpr: Traverse[TypedExpr] = new Traverse[TypedExpr] {
@@ -1192,8 +1195,7 @@ object TypedExpr {
     existList: List[(Type.Var.Bound, Kind)],
     expr: TypedExpr[A]): TypedExpr[A] = {
 
-    val et = expr.getType
-    val frees = Type.freeBoundTyVars(et :: Nil).toSet
+    val frees = Type.freeBoundTyVars(expr.allTypes.toList).toSet
 
     val fa = forallList.filter { case (b, _) => frees(b) }
     val ex = existList.filter { case (b, _) => frees(b) }
@@ -1204,7 +1206,7 @@ object TypedExpr {
         expr match {
           case Generic(oldQuant, ex0) =>
             Generic(q.concat(oldQuant), ex0)
-          case Annotation(term, _) if Type.quantify(q, et).sameAs(term.getType) =>
+          case Annotation(term, _) if Type.quantify(q, expr.getType).sameAs(term.getType) =>
             // we not uncommonly add an annotation just to make a generic wrapper to get back where
             term
           case _ => Generic(q, expr)

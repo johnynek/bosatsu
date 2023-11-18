@@ -808,6 +808,11 @@ object Type {
     loop(tpes, Set.empty)
   }
 
+  /**
+    * strange name, but the idea is to replace a Meta with a resolved Rho
+    * value. I think the name resolve might be better, but the paper I started
+    * from used zonk  
+    */
   def zonk[F[_]: Monad](
     transparent: SortedSet[Meta],
     readMeta: Meta => F[Option[Rho]],
@@ -838,7 +843,7 @@ object Type {
     fn
   }
   /**
-   * Transform meta variables in some way
+   * Resolve known meta variables nested inside t
    */
   def zonkMeta[F[_]: Applicative](t: Type)(m: Meta => F[Option[Type.Rho]]): F[Type] =
     t match {
@@ -850,7 +855,7 @@ object Type {
     }
 
   /**
-   * Transform meta variables in some way
+   * Resolve known meta variables nested inside t
    */
   def zonkRhoMeta[F[_]: Applicative](t: Type.Rho)(mfn: Meta => F[Option[Type.Rho]]): F[Type.Rho] =
     t match {
@@ -885,7 +890,9 @@ object Type {
       // the ideal solution is to better static type information
       // to have fully inferred types with no skolems or metas
       // TODO Kind
-      val meta = (P.char('?') *> longParser).map { l => TyMeta(Meta(Kind.Type, l, false, null)) }
+      val existential = P.char('e').?
+      val meta = (P.char('?') *> (existential ~ longParser))
+        .map { case (opt, l) => TyMeta(Meta(Kind.Type, l, opt.isDefined, null)) }
 
       tvar.orElse(name).orElse(skolem).orElse(meta)
     }
@@ -921,9 +928,10 @@ object Type {
           // TODO Kind
           val dol = "$"
           Some(Doc.text(dol + n + dol + i.toString))
-        case TyMeta(Meta(_, i, _, _)) =>
+        case TyMeta(Meta(_, i, ex, _)) =>
           // TODO Kind and if it is existential
-          Some(Doc.text("?" + i.toString))
+          val exstr = if (ex) "e" else ""
+          Some(Doc.text(s"?$exstr$i"))
         case _ => None
       }
 

@@ -1226,6 +1226,6 @@ def makeTup[a, b](x: a, y: b) -> Tup[a, b]: Tup(x, y)
 x = hide(1)
 y = hide("1")
 z = makeTup(x, y)
-""", "Tup[exists a. a, exists a. a]")
+""", "exists a, b. Tup[a, b]")
   }
 }

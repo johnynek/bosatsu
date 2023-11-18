@@ -1531,7 +1531,11 @@ object Infer {
     }
 
     def quantify[A](env: Infer[Map[Name, Type]], rho: TypedExpr.Rho[A]): Infer[TypedExpr[A]] =
-      env.flatMap(TypedExpr.quantify(_, rho, readMeta _, writeMeta _))
+      for {
+        e <- env
+        zrho <- zonkTypedExpr(rho)
+        q <- TypedExpr.quantify(e, zrho, readMeta _, writeMeta _)
+      } yield q
 
     // allocate this once and reuse
     private val envTail = getEnv.map(_.values.toList)
