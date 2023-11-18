@@ -285,8 +285,9 @@ object TypedExpr {
             case notShadowed => fn(notShadowed)
           }
 
-          val paramsF = params.traverse_ { v => fn(Type.TyVar(v._1)) }
-          (paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
+          //val paramsF = params.traverse_ { v => fn(Type.TyVar(v._1)) }
+          //(paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
+          (fn(gen.getType) *> expr.traverseType(shadowFn))
             .map(Generic(quant, _))
         case Annotation(of, tpe) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _))
@@ -387,7 +388,7 @@ object TypedExpr {
     writeFn: (Type.Meta, Type.Rho) => F[Unit]): F[TypedExpr[A]] = {
 
     val zFn = Type.zonk(SortedSet.empty, readFn, writeFn)
-    // we need to zonk before we get going because
+    // we need to zonk before so any known metas are removed
     // some of the meta-variables may point to the same values
     def getMetaTyVars(tpes: List[Type]): F[SortedSet[Type.Meta]] = {
       tpes.traverse(Type.zonkMeta(_)(zFn)).map { zonked =>
@@ -399,7 +400,7 @@ object TypedExpr {
       NonEmptyList.fromList(metaList) match {
         case None => Applicative[F].pure(rho)
         case Some(metas) =>
-          val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.getType :: Nil)
+          val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.allTypes.toList)
           val aligned = Type.alignBinders(metas, used)
           val bound = aligned.traverse { case (m, n) => writeFn(m, Type.TyVar(n)).as(((n, m.kind), m.existential)) }
           // we only need to zonk after doing a write:
@@ -441,7 +442,7 @@ object TypedExpr {
         }
         .toSet[Type.Var.Skolem]
 
-      val tyVars = Type.freeTyVars(te.getType :: Nil)
+      val tyVars = Type.freeTyVars(te.allTypes.toList)
       val teSkols = tyVars
         .collect {
           case ex @ Skolem(_, _, true, _) if !envExistSkols(ex) => ex
@@ -491,7 +492,7 @@ object TypedExpr {
           }
         case Annotation(term, coerce) =>
           deepQuantify(env, term).map { t1 =>
-            Annotation(t1, coerce)
+            ann(t1, coerce)
           }
         case AnnotatedLambda(args, expr, tag) =>
           val env1 = env ++ args.iterator.map { case (arg, tpe) => ((None, arg)) -> tpe }
@@ -534,11 +535,8 @@ object TypedExpr {
            */
           type Branch = (Pattern[(PackageName, Constructor), Type], TypedExpr[A])
 
-          def allTypes[X](p: Pattern[X, Type]): SortedSet[Type] =
-            p.traverseType { t => Writer[SortedSet[Type], Type](SortedSet(t), t) }.run._1
-
           val allMatchMetas: F[SortedSet[Type.Meta]] =
-            getMetaTyVars(arg.getType :: branches.foldMap { case (p, _) => allTypes(p) }.toList)
+            getMetaTyVars(arg.getType :: branches.foldMap { case (p, _) => allPatternTypes(p) }.toList)
 
           def handleBranch(br: Branch): F[Branch] = {
             val (p, expr) = br
@@ -797,7 +795,7 @@ object TypedExpr {
               pushGeneric(newGen) match {
                 case badOpt @ (None | Some(Generic(_, _)))=>
                   // just wrap
-                  Annotation(badOpt.getOrElse(newGen), instTpe)
+                  ann(badOpt.getOrElse(newGen), instTpe)
                 case Some(notGen) => notGen
               }
             }
@@ -817,7 +815,7 @@ object TypedExpr {
         // learn that ?338 == $k$303, but we don't seem to know that yet
 
         // just add an annotation:
-        Annotation(gen, instTpe)
+        ann(gen, instTpe)
       case Some(res) => res
     }
   }
@@ -943,7 +941,7 @@ object TypedExpr {
                         // but that implies something for fn and arg
                         // but we are ignoring that, which
                         // leaves them with potentially skolems or metavars
-                        Annotation(expr, tpe)
+                        ann(expr, tpe)
                     }
                 }
               case Let(arg, argE, in, rec, tag) =>
@@ -1115,6 +1113,10 @@ object TypedExpr {
     }
   }
 
+  private def ann[A](te: TypedExpr[A], tpe: Type): TypedExpr[A] =
+    if (te.getType.sameAs(tpe)) te
+    else Annotation(te, tpe)
+
   /**
    * TODO this seems pretty expensive to blindly apply: we are deoptimizing
    * the nodes pretty heavily
@@ -1150,7 +1152,7 @@ object TypedExpr {
                 instantiateTo(gen, fntpe, kinds)
               }
           case Local(_, _, _) | Global(_, _, _, _) | Literal(_, _, _) =>
-            Annotation(expr, fntpe)
+            ann(expr, fntpe)
           case Let(arg, argE, in, rec, tag) =>
             Let(arg, argE, self(in), rec, tag)
           case Match(arg, branches, tag) =>

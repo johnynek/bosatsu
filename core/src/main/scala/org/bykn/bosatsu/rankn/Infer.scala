@@ -514,7 +514,7 @@ object Infer {
      * Return a Rho type (not a Forall), by assigning
      * new meta variables for each of the outer ForAll variables
      */
-    def instantiate(t: Type): Infer[Type.Rho] =
+    def instantiate(t: Type): Infer[(List[Type.Var.Skolem], Type.Rho)] =
       t match {
         case q: Type.Quantified =>
           // TODO: it may be possible to improve type checking
@@ -540,10 +540,10 @@ object Infer {
                   .zip(skols.iterator.map(Type.TyVar))
                   .toMap[Type.Var, Type.TyVar]
                 rho1 = Type.substituteRhoVar(rho, env)
-              } yield rho1
+              } yield (skols, rho1)
             }
           }
-        case rho: Type.Rho => pure(rho)
+        case rho: Type.Rho => pure((Nil, rho))
       }
 
     /*
@@ -571,7 +571,11 @@ object Infer {
       (t, rho) match {
         case (fa: Type.Quantified, rho) =>
           // Rule SPEC
-          instantiate(fa).flatMap(subsCheckRho2(_, rho, left, right))
+          for {
+            (exSkols, faRho) <- instantiate(fa)
+            unskol = unskolemizeExists(exSkols)
+            coerce <- subsCheckRho2(faRho, rho, left, right)
+          } yield coerce.andThen(unskol)
         // for existential lower bounds, we skolemize the existentials
         // then verify they don't escape after inference and unskolemize
         // them (if they are free in the resulting type)
@@ -670,11 +674,11 @@ object Infer {
           subsCheckRho(sigma, t, r, tr)
         case infer@Expected.Inf(_) =>
           for {
-            rho <- instantiate(sigma)
+            (exSkols, rho) <- instantiate(sigma)
             _ <- setInf(infer, rho, r)
             ks <- checkedKinds
-            // there is no point in zonking here, we just instantiated rho
-          } yield TypedExpr.coerceRho(rho, ks)
+            coerce = TypedExpr.coerceRho(rho, ks)
+          } yield coerce.andThen(unskolemizeExists(exSkols))
       }
 
     def unifyFn(arity: Int, fnType: Type.Rho, fnRegion: Region, evidenceRegion: Region): Infer[(NonEmptyList[Type], Type)] =
@@ -984,12 +988,15 @@ object Infer {
           for {
             vSigma <- lookupVarType((None, name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
-           } yield coerce(TypedExpr.Local(name, vSigma, tag))
+            res0 = TypedExpr.Local(name, vSigma, tag)
+            res <- zonkTypedExpr(res0)
+           } yield coerce(res)
         case Global(pack, name, tag) =>
           for {
             vSigma <- lookupVarType((Some(pack), name), region(term))
             coerce <- instSigma(vSigma, expect, region(term))
-           } yield coerce(TypedExpr.Global(pack, name, vSigma, tag))
+            res <- zonkTypedExpr(TypedExpr.Global(pack, name, vSigma, tag))
+           } yield coerce(res)
         case App(fn, args, tag) =>
            for {
              typedFnTpe <- inferRho(fn)
@@ -999,7 +1006,8 @@ object Infer {
              (argT, resT) = argRes
              typedArg <- args.zip(argT).parTraverse { case (arg, argT) => checkSigma(arg, argT) }
              coerce <- instSigma(resT, expect, region(term))
-           } yield coerce(TypedExpr.App(typedFn, typedArg, resT, tag))
+             res <- zonkTypedExpr(TypedExpr.App(typedFn, typedArg, resT, tag))
+           } yield coerce(res)
         case Generic(tpes, in) =>
             for {
               unSkol <- inferForAll(tpes, in)
@@ -1114,8 +1122,8 @@ object Infer {
           }
         case Annotation(term, tpe, tag) =>
           (checkSigma(term, tpe), instSigma(tpe, expect, region(tag)))
-            .parMapN { (typedTerm, coerce) =>
-              coerce(typedTerm)  
+            .parFlatMapN { (typedTerm, coerce) =>
+              zonkTypedExpr(typedTerm).map(coerce(_))
             }
         case Match(term, branches, tag) =>
           // all of the branches must return the same type:
@@ -1407,7 +1415,11 @@ object Infer {
               } yield rest.updated(v0, right)
             case (_, fa: Type.Quantified) =>
               // we have to instantiate a rho type
-              instantiate(fa).flatMap(loop(revArgs, leftKind, _))
+              instantiate(fa)
+              .flatMap { case (exSkols, faRho) =>
+                assert(exSkols.isEmpty, s"TODO: skols found in pattern: $consName $sigma")
+                loop(revArgs, leftKind, faRho)
+              }
             case ((v0, k) :: rest, _) =>
               // (k -> leftKind)(k)
               for {
@@ -1595,6 +1607,24 @@ object Infer {
         val te2 = substTyExpr(skols, aligned.map { case (_, b) => Type.TyVar(b) }, te)
         TypedExpr.forAll(aligned.map { case (s, b) => (b, s.kind) }, te2)
       }
+    }
+
+  private def unskolemizeExists(skols: List[Type.Var.Skolem]): TypedExpr.Coerce =
+    NonEmptyList.fromList(skols) match {
+      case None => FunctionK.id[TypedExpr]
+      case Some(skols) =>
+        new FunctionK[TypedExpr, TypedExpr] {
+          def apply[A](te: TypedExpr[A]) = {
+            // now replace the skols with generics
+            val used = Type.tyVarBinders(te.getType :: Nil)
+            val aligned = Type.alignBinders(skols, used)
+            val te2 = substTyExpr(skols, aligned.map { case (_, b) => Type.TyVar(b) }, te)
+            TypedExpr.quantVars(
+              forallList = Nil,
+              existList = aligned.toList.map { case (s, b) => (b, s.kind) },
+              te2)
+          }
+    }
     }
 
   // Invariant: if optMeta.isDefined then t is not Expr.Annotated

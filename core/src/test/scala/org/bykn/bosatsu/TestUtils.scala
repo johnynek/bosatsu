@@ -41,20 +41,22 @@ object TestUtils {
    * Make sure no illegal final types escaped into a TypedExpr
    */
   def assertValid[A](te: TypedExpr[A]): Unit = {
-    def checkType(t: Type): Type =
+    def checkType(t: Type, bound: Set[Type.Var.Bound]): Type =
       t match {
         case t@Type.TyVar(Type.Var.Skolem(_, _, _, _)) =>
           sys.error(s"illegal skolem ($t) escape in ${te.repr}")
-        case Type.TyVar(Type.Var.Bound(_)) => t
+        case Type.TyVar(b@Type.Var.Bound(_)) =>
+          if (bound(b)) t
+          else sys.error(s"unbound var: $b in ${te.repr}")
         case t@Type.TyMeta(_) =>
           sys.error(s"illegal meta ($t) escape in ${te.repr}")
         case Type.TyApply(left, right) =>
-          Type.TyApply(checkType(left), checkType(right))
+          Type.TyApply(checkType(left, bound), checkType(right, bound))
         case q: Type.Quantified =>
-          q.copy(in = checkType(q.in).asInstanceOf[Type.Rho])
+          q.copy(in = checkType(q.in, bound ++ q.vars.toList.map(_._1)).asInstanceOf[Type.Rho])
         case Type.TyConst(_) => t
       }
-    te.traverseType[cats.Id](checkType)
+    te.traverseType[cats.Id](checkType(_, Set.empty))
     val tp = te.getType
     lazy val teStr = Type.fullyResolvedDocument.document(tp).render(80)
     scala.Predef.require(Type.freeTyVars(tp :: Nil).isEmpty,

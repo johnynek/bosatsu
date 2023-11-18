@@ -1197,9 +1197,35 @@ res = branch(True)(True)
 x: exists b. b = 1
 """, "exists b. b")
 
-  //this seems to be an infinite loop
     parseProgram("""#
-def hide(x) -> exists a. a: x
+def hide[b](x: b) -> exists a. a: x
 """, "forall a. a -> (exists a. a)")
+
+    parseProgram("""#
+def hide[b](x: b) -> exists a. a: x
+x = hide(1)
+""", "exists a. a")
+
+    parseProgram("""#
+def hide[b](x: b) -> exists a. a: x
+y: exists x. x = 1
+x = hide(y)
+""", "exists a. a")
+
+    parseProgram("""#
+def hide[b](x: b) -> exists a. a: x
+y = hide(1)
+x = hide(y)
+""", "exists a. a")
+
+    parseProgram("""#
+struct Tup(a, b)
+
+def hide[b](x: b) -> exists a. a: x
+def makeTup[a, b](x: a, y: b) -> Tup[a, b]: Tup(x, y)
+x = hide(1)
+y = hide("1")
+z = makeTup(x, y)
+""", "Tup[exists a. a, exists a. a]")
   }
 }
