@@ -416,20 +416,18 @@ object TypedExpr {
               val forAlls = typeArgs.collect { case (nk, false) => nk }
               val exists = typeArgs.collect { case (nk, true) => nk }
               val q = quantVars(forallList = forAlls, existList = exists, r)
-              println(s"forAlls = $forAlls exists = $exists ${r.repr} quantVars = ${q.repr}")
+              //println(s"forAlls = $forAlls exists = $exists ${r.repr} quantVars = ${q.repr}")
               q
             }
       }
-
-    type Name = (Option[PackageName], Identifier)
 
     def quantifyMetas(envList: => List[Type], metas: SortedSet[Type.Meta], te: TypedExpr[A]): F[TypedExpr[A]] =
       if (metas.isEmpty) Applicative[F].pure(te)
       else {
         for {
           envTypeVars <- getMetaTyVars(envList)
-          localMetas = metas -- envTypeVars
-          _ = println(s"localMetas = $localMetas in ${te.repr}")
+          localMetas = metas.diff(envTypeVars)
+          //_ = println(s"localMetas = $localMetas in ${te.repr}")
           q <- quantify0(localMetas.toList, te)
         } yield q
       }
@@ -469,10 +467,12 @@ object TypedExpr {
 
       getMetaTyVars(te1.allTypes.toList)
         .flatMap(quantifyMetas(envList, _, te1))
+        /*
         .map { res =>
           println(s"quantifyFree, teSkols=${teSkols} ${te.repr} => ${te1.repr} => ${res.repr}")
           res
         }
+        */
     }
 
     /*
@@ -487,7 +487,7 @@ object TypedExpr {
     def deepQuantify(env: Set[Type], te: TypedExpr[A]): F[TypedExpr[A]] =
       quantifyFree(env, te).flatMap {
         case Generic(quant, in) =>
-          assert(te != in, s"${te.repr} quantifyFree => ${in.repr}")
+          //assert(te != in, s"${te.repr} quantifyFree => ${in.repr}")
           deepQuantify(env + te.getType, in).map { in1 =>
             quantVars(quant.forallList, quant.existList, in1)
           }
@@ -1191,7 +1191,8 @@ object TypedExpr {
   def forAll[A](params: NonEmptyList[(Type.Var.Bound, Kind)], expr: TypedExpr[A]): TypedExpr[A] =
     quantVars(forallList = params.toList, Nil, expr)
 
-  def quantVars[A](forallList: List[(Type.Var.Bound, Kind)],
+  def quantVars[A](
+    forallList: List[(Type.Var.Bound, Kind)],
     existList: List[(Type.Var.Bound, Kind)],
     expr: TypedExpr[A]): TypedExpr[A] = {
 

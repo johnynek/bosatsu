@@ -96,7 +96,7 @@ class RankNInferTest extends AnyFunSuite {
   def testType[A: HasRegion](term: Expr[A], ty: Type) =
     Infer.typeCheck(term).runFully(withBools, boolTypes, Map.empty) match {
       case Left(err) => assert(false, err)
-      case Right(tpe) => assert(tpe.getType == ty, term.toString)
+      case Right(tpe) => assert(tpe.getType.sameAs(ty), term.toString)
     }
 
   def testLetTypes[A: HasRegion](terms: List[(String, Expr[A], Type)]) =
@@ -165,7 +165,7 @@ class RankNInferTest extends AnyFunSuite {
 
       assert(Type.metaTvs(tp :: Nil).isEmpty,
         s"illegal inferred type: $teStr")
-      assert(te.getType.sameAs(typeFrom(tpe)))
+      assert(te.getType.sameAs(typeFrom(tpe)), s"found: ${te.repr}")
     }
 
   // this could be used to test the string representation of expressions
@@ -180,12 +180,12 @@ class RankNInferTest extends AnyFunSuite {
     Package.inferBody(testPackage, Nil, stmts) match {
       case Ior.Left(_) | Ior.Both(_, _) => assert(true)
       case Ior.Right(program) =>
-        fail("expected an invalid program, but got: " + program.lets.toString)
+        fail("expected an invalid program, but got:\n\n" + program.lets.map { case (b, r, t) =>
+          s"$b: $r = ${t.repr}" 
+        }.mkString("\n\n"))
     }
   }
 
-  // COMMENT
-  /*
   test("assert some basic unifications") {
     assertTypesUnify("forall a. a", "forall b. b")
     assertTypesUnify("exists a. a", "exists b. b")
@@ -1190,8 +1190,7 @@ def branch[a](x: B) -> (a -> a):
 res = branch(True)(True)
 """)
   }
-// COMMENT END
-*/
+
   test("basic existential types") {
     parseProgram("""#
 x: exists b. b = 1
@@ -1227,5 +1226,55 @@ x = hide(1)
 y = hide("1")
 z = makeTup(x, y)
 """, "exists a, b. Tup[a, b]")
+  }
+
+  test("we can use existentials in branches") {
+    parseProgram("""#
+enum MyBool: T, F
+
+def branch(b) -> exists a. a:
+  match b:
+    case T: 1
+    case F: "1"
+
+x = branch(T)
+""", "exists a. a")
+
+    parseProgram("""#
+struct MyTup(a, b)
+enum MyBool: T, F
+
+b = T
+
+x = MyTup((match b:
+  case T: F
+  case F: T), (x: MyBool) -> x): exists a. MyTup[a, a -> MyBool]
+""", "exists a. MyTup[a, a -> MyBool]")
+
+    parseProgramIllTyped("""#
+struct MyTup(a, b)
+enum MyBool: T, F
+
+b = T
+
+x = MyTup((match b:
+  case T: F
+  case F: 1), (x: MyBool) -> x): exists a. MyTup[a, a -> MyBool]
+""")
+  }
+
+  test("we can use existentials to delay calls") {
+    parseProgram("""#
+struct MyTup(a, b)
+
+def delay[a, b](fn: a -> b, a: a) -> exists c. MyTup[c -> b, c]:
+  MyTup(fn, a)
+
+def call[a](tup: exists c. MyTup[c -> a, c]) -> a:
+  MyTup(fn, arg) = tup
+  fn(arg)
+
+x = call(delay(x -> x, 1))
+""", "Int")
   }
 }

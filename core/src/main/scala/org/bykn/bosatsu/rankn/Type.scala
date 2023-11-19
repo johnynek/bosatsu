@@ -486,7 +486,9 @@ object Type {
                 Kind.validApply[A](leftKind, rhs, invalidApply(ap))(kindSubsumeError(ap, _, rhs))
             }
         case q: Quantified =>
-          rec((q.in, locals ++ q.vars.toList))
+          val varList = q.vars.toList
+          require(varList.size == varList.toMap.size, s"invalid q: $q")
+          rec((q.in, locals ++ varList))
       }
     }
 
