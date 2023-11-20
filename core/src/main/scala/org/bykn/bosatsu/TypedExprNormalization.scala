@@ -87,53 +87,14 @@ object TypedExprNormalization {
     te match {
       case g@Generic(_, Annotation(term, _)) if g.getType.sameAs(term.getType) =>
         normalize1(namerec, term, scope, typeEnv)
+      case Generic(q0, Generic(q1, in)) =>
+        val term = Generic(q0.concat(q1), in)
+        normalize1(namerec, term, scope, typeEnv)
       case Generic(quant, in) =>
-        // normalize the inside, then get all the freeBoundTyVars and
-        // and if we can reallocate typevars to be the a, b, ... do so,
-        // if they are the same, return none
-        //
-        // Also, Generic(Generic(...)) => Generic
-        // Generic(vs, te, _) but vs are not bound in te, we can remove Generic
-
-        // if tpe has no Var.Bound in common,
-        // then we don't need the Generic
-        val tpe = in.getType
-        val frees = Type.freeBoundTyVars(tpe :: Nil).toSet
-        val forAlls = quant.forallList
-        val exists = quant.existList
-        val freeForAlls = forAlls.filter { case (t, _) => frees(t) }
-        val freeExists = exists.filter { case (t, _) => frees(t) }
-        if (freeForAlls.isEmpty && freeExists.isEmpty) {
-          normalize1(namerec, in, scope, typeEnv)
-        }
-        else {
-          // both aren't empty, so we can quantify:
-          lazy val tpe = Type.quantify(
-              forallList = freeForAlls,
-              existList = freeExists,
-              in.getType
-            )
-            .asInstanceOf[Type.Quantified]
-
-          // at least one of them are free
-          normalizeLetOpt(namerec, in, scope, typeEnv) match {
-            case None =>
-              if ((freeForAlls == forAlls) && (freeExists == exists)) None
-              else {
-                Some(TypedExpr.quantVars(
-                  forallList = freeForAlls,
-                  existList = freeExists,
-                  in))
-              }
-            case Some(Annotation(term, _)) if tpe.sameAs(term.getType) =>
-              Some(term)
-            case Some(notGen) =>
-              Some(TypedExpr.quantVars(
-                forallList = freeForAlls,
-                existList = freeExists,
-                notGen))
-          }
-        }
+        val sin = normalize1(namerec, in, scope, typeEnv).get
+        val g1 = TypedExpr.quantVars(quant.forallList, quant.existList, sin)
+        if (g1 == te) None
+        else Some(g1)
       case Annotation(term, tpe) =>
         // if we annotate twice, we can ignore the inner annotation
         // we should have type annotation where we normalize type parameters
@@ -372,7 +333,10 @@ object TypedExprNormalization {
                       normalize1(namerec, il, scope, typeEnv)
                     case None =>
                       if ((in1 eq in) && (ex1 eq ex)) None
-                      else normalize1(namerec, Let(arg, ex1, in1, rec, tag), scope, typeEnv)
+                      else {
+                        val step = Let(arg, ex1, in1, rec, tag)
+                        normalize1(namerec, step, scope, typeEnv)
+                      }
                   }
                 }
                 else {

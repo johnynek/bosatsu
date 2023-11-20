@@ -270,12 +270,45 @@ object TypedExpr {
     def allTypes: SortedSet[Type] =
       traverseType { t => Writer[SortedSet[Type], Type](SortedSet(t), t) }.run._1
 
+    def freeTyVars: List[Type.Var] = {
+      def loop(self: TypedExpr[A]): Set[Type.Var] =
+      self match {
+        case Generic(quant, expr) =>
+          loop(expr) -- quant.vars.iterator.map(_._1)
+        case Annotation(of, tpe) =>
+          loop(of) ++ Type.freeTyVars(tpe :: Nil)
+        case AnnotatedLambda(args, res, _) =>
+          loop(res) ++ Type.freeTyVars(args.toList.map { case (_, t) => t })
+        case Local(_, tpe, _) =>
+          Type.freeTyVars(tpe :: Nil).toSet
+        case Global(_, _, tpe, _) =>
+          // this shouldn't happen but does in generated tests
+          Type.freeTyVars(tpe :: Nil).toSet
+        case App(f, args, tpe, _) =>
+          args.foldLeft(loop(f))(_ | loop(_)) ++
+            Type.freeTyVars(tpe :: Nil)
+        case Let(_, exp, in, _, _) =>
+          loop(exp) | loop(in)
+        case Literal(_, tpe, _) =>
+          // this shouldn't happen but does in generated tests
+          Type.freeTyVars(tpe :: Nil).toSet
+        case Match(expr, branches, _) =>
+          // all branches have the same type:
+          branches.foldLeft(loop(expr)) { case (acc, (p, t)) =>
+              (acc | loop(t)) ++ allPatternTypes(p).iterator.collect {
+                case Type.TyVar(v) => v
+              }
+          }
+      }
+
+      loop(self).toList.sorted
+    }
     /**
      * Traverse all the *non-shadowed* types inside the TypedExpr
      */
     def traverseType[F[_]: Applicative](fn: Type => F[Type]): F[TypedExpr[A]] =
       self match {
-        case gen@Generic(quant, expr) =>
+        case gen @ Generic(quant, expr) =>
           // params shadow below, so they are not free values
           // and can easily create bugs if passed into fn
           val params = quant.vars
@@ -285,9 +318,8 @@ object TypedExpr {
             case notShadowed => fn(notShadowed)
           }
 
-          //val paramsF = params.traverse_ { v => fn(Type.TyVar(v._1)) }
-          //(paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
-          (fn(gen.getType) *> expr.traverseType(shadowFn))
+          val paramsF = params.traverse_ { v => fn(Type.TyVar(v._1)) }
+          (paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
             .map(Generic(quant, _))
         case Annotation(of, tpe) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _))
@@ -441,7 +473,7 @@ object TypedExpr {
         }
         .toSet[Type.Var.Skolem]
 
-      val tyVars = Type.freeTyVars(te.allTypes.toList)
+      val tyVars = te.freeTyVars
       val teSkols = tyVars
         .collect {
           case ex @ Skolem(_, _, true, _) if !envExistSkols(ex) => ex
@@ -1030,7 +1062,8 @@ object TypedExpr {
   }
 
   def substituteTypeVar[A](typedExpr: TypedExpr[A], env: Map[Type.Var, Type]): TypedExpr[A] =
-    typedExpr match {
+    if (env.isEmpty) typedExpr
+    else typedExpr match {
       case Generic(quant, expr) =>
         // we need to remove the params which are shadowed below
         val paramSet: Set[Type.Var] = quant.vars.toList.iterator.map(_._1).toSet
@@ -1191,27 +1224,69 @@ object TypedExpr {
   def forAll[A](params: NonEmptyList[(Type.Var.Bound, Kind)], expr: TypedExpr[A]): TypedExpr[A] =
     quantVars(forallList = params.toList, Nil, expr)
 
+  private def normalizeQuantVars[A](q: Type.Quantification, expr: TypedExpr[A]): TypedExpr[A] =
+    expr match {
+      case Generic(oldQuant, ex0) =>
+        normalizeQuantVars(q.concat(oldQuant), ex0)
+      case Annotation(term, _) if Type.quantify(q, expr.getType).sameAs(term.getType) =>
+        // we not uncommonly add an annotation just to make a generic wrapper to get back where
+        term
+      case _ =>
+        import Type.Quantification._
+        // We cannot rebind to any used typed inside of expr, but we can reuse
+        // any that are q
+        val varSet = q.vars.iterator.map { case (b, _) => b }.toSet
+        val frees: SortedSet[Type.Var.Bound] =
+          expr.allTypes.collect {
+            case Type.TyVar(b: Type.Var.Bound) if !varSet(b) => b
+          }
+
+        q match {
+          case ForAll(vars) =>
+            val fa1 = Type.alignBinders(vars, frees)
+            val subs = fa1.iterator.collect { case ((b, _), b1) if b != b1 =>
+              (b, Type.TyVar(b1))  
+            }
+            .toMap[Type.Var, Type]
+
+            Generic(
+              ForAll(fa1.map { case ((_, k), b) => (b, k)}),
+              substituteTypeVar(expr, subs))    
+          case Exists(vars) => 
+            val ex1 = Type.alignBinders(vars, frees)
+            val subs = ex1.iterator.collect { case ((b, _), b1) if b != b1 =>
+              (b, Type.TyVar(b1))  
+            }
+            .toMap[Type.Var, Type]
+
+            Generic(
+              Exists(ex1.map { case ((_, k), b) => (b, k)}),
+              substituteTypeVar(expr, subs))    
+          case Dual(foralls, exists) => 
+            val fa1 = Type.alignBinders(foralls, frees)
+            val ex1 = Type.alignBinders(exists, frees ++ fa1.iterator.map(_._2))
+            val subs = (fa1.iterator ++ ex1.iterator).collect { case ((b, _), b1) if b != b1 =>
+              (b, Type.TyVar(b1))  
+            }
+            .toMap[Type.Var, Type]
+
+            Generic(
+              Dual(
+                fa1.map { case ((_, k), b) => (b, k)},
+                ex1.map { case ((_, k), b) => (b, k)}
+              ),
+              substituteTypeVar(expr, subs))    
+        }
+    }
+
   def quantVars[A](
     forallList: List[(Type.Var.Bound, Kind)],
     existList: List[(Type.Var.Bound, Kind)],
     expr: TypedExpr[A]): TypedExpr[A] = {
 
-    val frees = Type.freeBoundTyVars(expr.allTypes.toList).toSet
-
-    val fa = forallList.filter { case (b, _) => frees(b) }
-    val ex = existList.filter { case (b, _) => frees(b) }
-
-    Type.Quantification.fromLists(forallList = fa, existList = ex) match {
+    Type.Quantification.fromLists(forallList = forallList, existList = existList) match {
+      case Some(q) => normalizeQuantVars(q, expr)
       case None => expr
-      case Some(q) =>
-        expr match {
-          case Generic(oldQuant, ex0) =>
-            Generic(q.concat(oldQuant), ex0)
-          case Annotation(term, _) if Type.quantify(q, expr.getType).sameAs(term.getType) =>
-            // we not uncommonly add an annotation just to make a generic wrapper to get back where
-            term
-          case _ => Generic(q, expr)
-        }
     }
   }
 

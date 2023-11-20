@@ -746,16 +746,16 @@ object Type {
     letters.map { c => Var.Bound(c.toString) } #::: lettersWithNumber
   }
 
-  def alignBinders[A](items: NonEmptyList[A], avoid: Set[Var.Bound]): NonEmptyList[(A, Var.Bound)] = {
+  def alignBinders[A](items: NonEmptyList[A], avoid: Var.Bound => Boolean): NonEmptyList[(A, Var.Bound)] = {
     val sz = items.size
     // for some reason on 2.11 we need to do .iterator or this will be an infinite loop
     val bs = NonEmptyList.fromListUnsafe(allBinders.iterator.filterNot(avoid).take(sz).toList)
     NonEmptyList((items.head, bs.head), items.tail.zip(bs.tail))
   }
 
-  def alignBinders[A](items: List[A], avoid: Set[Var.Bound]): List[(A, Var.Bound)] =
-    NonEmptyList.fromList(items).map(alignBinders(_, avoid)) match {
-      case Some(nel) => nel.toList
+  def alignBinders[A](items: List[A], avoid: Var.Bound => Boolean): List[(A, Var.Bound)] =
+    NonEmptyList.fromList(items) match {
+      case Some(nel) => alignBinders(nel, avoid).toList
       case None => Nil
     }
 
