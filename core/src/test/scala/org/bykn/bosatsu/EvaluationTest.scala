@@ -3182,4 +3182,29 @@ test = Assertion(res matches 0, "one")
 """), "Foo", 1)
 
   }
+
+  test("existential quantification in a match") {
+    runBosatsuTest(List("""
+package Foo
+
+enum FreeF[a]:
+  Pure(a: a)
+  Mapped(tup: exists b. (FreeF[b], b -> a))
+
+def pure(a: a) -> FreeF[a]: Pure(a)
+def map[a, b](f: FreeF[a], fn: a -> b) -> FreeF[b]:
+  tup: exists x. (FreeF[x], x -> b) = (f, fn)
+  Mapped(tup)
+
+def run[a](fa: FreeF[a]) -> a:
+  recur fa:
+    case Pure(a): a
+    case Mapped((prev, fn)):
+      fn(run(prev))
+
+res = run(pure(0).map(x -> x.add(1)))
+test = Assertion(res matches 1, "one")
+"""), "Foo", 1)
+
+  }
 }
