@@ -42,18 +42,6 @@ sealed abstract class Infer[+A] {
   final def mapEither[B](fn: A => Either[Error, B]): Infer[B] =
     Infer.Impl.MapEither(this, fn)
 
-  // $COVERAGE-OFF$ useful for debugging
-  final def debugError(fn: Error => Unit): Infer[A] =
-    peek.mapEither { err =>
-      err match {
-        case Left(err) => println(fn(err))
-        case _ => ()
-      }
-
-      err
-    }
-  // $COVERAGE-ON$
-
   final def runVar(
     v: Map[Infer.Name, Type],
     tpes: Map[(PackageName, Constructor), Infer.Cons],
@@ -296,8 +284,8 @@ object Infer {
     case class MapEither[A, B](fa: Infer[A], fn: A => Either[Error, B]) extends Infer[B] {
       def run(env: Env) =
         fa.run(env).flatMap {
-          case Left(msg) => RefSpace.pure(Left(msg))
           case Right(a) => RefSpace.pure(fn(a))
+          case Left(msg) => RefSpace.pure(Left(msg))
         }
     }
 
@@ -350,10 +338,7 @@ object Infer {
 
     def kindOf(t: Type, r: Region): Infer[Kind] =
       GetEnv.mapEither { env =>
-        env.getKind(t, r).leftMap { err =>
-          //println(s"kindOf($t, $r) failed => $err")
-          err  
-        }
+        env.getKind(t, r)
       }
 
     private val checkedKinds: Infer[Type => Option[Kind]] = {
@@ -406,23 +391,24 @@ object Infer {
       def loop(t: Type, path: Variance): Infer[(List[Type.Var.Skolem], List[Type.TyMeta], Type)] = 
         t match {
           case q: Type.Quantified =>
-            q.withQuants { (univ, exists, ty) =>
-              if (path == Variance.co) {
-                // Rule PRPOLY
-                for {
-                  sks1 <- univ.traverse { case (b, k) => newSkolemTyVar(b, k, existential = false) }
-                  ms <- exists.traverse { case (_, k) => newExistential(k) }  
-                  sksT = sks1.map(Type.TyVar(_))
-                  ty1 = Type.substituteRhoVar(
-                    ty,
-                    (exists.map(_._1).iterator.zip(ms) ++
-                      univ.map(_._1).iterator.zip(sksT.iterator))
-                      .toMap)
-                  (sks2, ms2, ty) <- loop(ty1, path)
-                } yield (sks1 ::: sks2, ms ::: ms2, ty)
-              }
-              else pure((Nil, Nil, t))
+            if (path == Variance.co) {
+              val univ = q.forallList
+              val exists = q.existList
+              val ty = q.in
+              // Rule PRPOLY
+              for {
+                sks1 <- univ.traverse { case (b, k) => newSkolemTyVar(b, k, existential = false) }
+                ms <- exists.traverse { case (_, k) => newExistential(k) }  
+                sksT = sks1.map(Type.TyVar(_))
+                ty1 = Type.substituteRhoVar(
+                  ty,
+                  (exists.map(_._1).iterator.zip(ms) ++
+                    univ.map(_._1).iterator.zip(sksT.iterator))
+                    .toMap)
+                (sks2, ms2, ty) <- loop(ty1, path)
+              } yield (sks1 ::: sks2, ms ::: ms2, ty)
             }
+            else pure((Nil, Nil, t))
 
           case ta@Type.TyApply(left, right) =>
             // Rule PRFUN
@@ -476,9 +462,6 @@ object Infer {
 
     val zonk: Type.Meta => Infer[Option[Type.Rho]] =
       Type.zonk[Infer](SortedSet.empty, readMeta _, writeMeta _)
-
-    def zonkRho(rho: Type.Rho): Infer[Type.Rho] =
-      Type.zonkRhoMeta(rho)(zonk(_))
 
     /**
      * This fills in any meta vars that have been
@@ -538,18 +521,20 @@ object Infer {
           // TODO: it may be possible to improve type checking
           // by pushing foralls into covariant constructors
           // but it's not trivial
-          q.withQuants { (univs, exists, rho) =>
-            val univRho =
-              NonEmptyList.fromList(univs) match {
-                case Some(vars) =>
-                  vars.traverse { case (_, k) => newMetaType(k) }
-                    .map { vars1T =>
-                      substTyRho(vars.map(_._1), vars1T)(rho)
-                    }
-                case None => pure(rho)
-              }
+          val univs = q.forallList
+          val rho = q.in
+          val univRho =
+            NonEmptyList.fromList(univs) match {
+              case Some(vars) =>
+                vars.traverse { case (_, k) => newMetaType(k) }
+                  .map { vars1T =>
+                    substTyRho(vars.map(_._1), vars1T)(rho)
+                  }
+              case None => pure(rho)
+            }
 
             univRho.flatMap { rho =>
+              val exists = q.existList
               for {
                 skols <- exists.traverse { case (b, k) => newSkolemTyVar(b, k, existential = true) }  
                 env = exists
@@ -560,7 +545,6 @@ object Infer {
                 rho1 = Type.substituteRhoVar(rho, env)
               } yield (skols, rho1)
             }
-          }
         case rho: Type.Rho => pure((Nil, rho))
       }
 
@@ -722,6 +706,8 @@ object Infer {
       }
 
     def unifyKind(kind1: Kind, tpe1: Type, kind2: Kind, tpe2: Type, region1: Region, region2: Region): Infer[Unit] =
+      // TODO this is very fishy that we are checking that one or the other subsumes
+      // seems like we don't want unify, we want to do a subsCheck
       // we may need to be tracking kinds and widen them...
       if (Kind.leftSubsumesRight(kind1, kind2) || Kind.leftSubsumesRight(kind2, kind2)) unit
       else fail(Error.KindNotUnifiable(kind1, tpe1, kind2, tpe2, region1, region2))
@@ -825,7 +811,6 @@ object Infer {
     def show(t: Type): String = Type.fullyResolvedDocument.document(t).render(80)
 
     def unify(t1: Type.Tau, t2: Type.Tau, r1: Region, r2: Region): Infer[Unit] = {
-      //println(s"unify(${show(t1)}, ${show(t2)})")
       (t1, t2) match {
         case (Type.TyMeta(m1), Type.TyMeta(m2)) if m1.id == m2.id => unit
         case (meta@Type.TyMeta(_), tpe) => unifyVar(meta, tpe, r1, r2)
@@ -1021,7 +1006,6 @@ object Infer {
         readMeta(m).flatMap {
           case Some(tau) =>
             // reset this meta
-            //println(s"reseting: ${show(Type.TyMeta(m))} from ${show(tau)}")
             clearMeta(m).as(Some((m, tau)))
           case None => pureNone
         }
@@ -1031,13 +1015,11 @@ object Infer {
     def unifyExistential(m: Type.Meta, values: List[(Type.Rho, Region)]): Infer[Unit] = {
       def loop(values: List[(Type.Rho, Region)]): Infer[Unit] =
         values match {
-          case Nil => unit
           case (Type.TyMeta(m1), r1) :: tail =>
             readMeta(m1).flatMap {
               case Some(rho1) => loop((rho1, r1) :: tail)
               case None => loop(tail)
             }
-          case (h, _) :: Nil => writeMeta(m, h)
           case (h1, _) :: (t1 @ ((h2, _) :: _)) =>
             if (h1 == h2) loop(t1)
             else {
@@ -1048,7 +1030,8 @@ object Infer {
                 writeMeta(m, tpe)
               }
             }
-
+          case (h, _) :: Nil => writeMeta(m, h)
+          case Nil => unit
         }
 
       loop(values)
@@ -1080,13 +1063,7 @@ object Infer {
      */
     def typeCheckRho[A: HasRegion](term: Expr[A], expect: Expected[(Type.Rho, Region)]): Infer[TypedExpr.Rho[A]] = {
       import Expr._
-
-      /*
-      println("=" * 80)
-      println(s"starting typecheckRho(${term.replaceTag(null.asInstanceOf[A])})")
-      println("=" * 80)
-      */
-      val res = term match {
+      term match {
         case Literal(lit, t) =>
           val tpe = Type.getTypeOf(lit)
           instSigma(tpe, expect, region(term)).map(_(TypedExpr.Literal(lit, tpe, t)))
@@ -1117,14 +1094,8 @@ object Infer {
         case Generic(tpes, in) =>
             for {
               unSkol <- inferForAll(tpes, in)
-              expectStr = expect match {
-                case Expected.Inf(_) => "inf"
-                case Expected.Check((t, _)) => show(t)
-              }
-              //_ = println(s"generic inferred: ${unSkol.repr} expecting: $expectStr")
               // unSkol is not a Rho type, we need instantiate it
               coerce <- instSigma(unSkol.getType, expect, region(term))
-              //_ = println(s"instantiated ${show(unSkol.getType)}")
             } yield coerce(unSkol)
         case Lambda(args, result, tag) =>
           expect match {
@@ -1282,9 +1253,7 @@ object Infer {
                         .product(solvedExistentitals(unknownExs).map((_, region(r))))
                     }
                     _ <- unifyBranchExistentials(unknownExs, tbranches.map(_._2))
-                    res = TypedExpr.Match(tsigma, tbranches.map(_._1), tag)
-                    //_ = println(s"done with check: ${res.repr}")
-                  } yield res
+                  } yield TypedExpr.Match(tsigma, tbranches.map(_._1), tag)
                 case infer@Expected.Inf(_) =>
                   for {
                     tbranches <- branches.parTraverse { case (p, r) =>
@@ -1295,15 +1264,6 @@ object Infer {
                   } yield TypedExpr.Match(tsigma, resBranches, tag)
               }
             }
-      }
-
-      res.map { r =>
-        /*
-        println("~" * 80)
-        println(s"ending typecheckRho(${term.replaceTag(null.asInstanceOf[A])})")
-        println("~" * 80)
-        */
-        r
       }
     }
 
@@ -1374,10 +1334,7 @@ object Infer {
     def checkBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A], resT: Type.Rho): Infer[(Pattern, TypedExpr.Rho[A])] =
       for {
         (pattern, bindings) <- typeCheckPattern(p, sigma, region(res))
-        //_ = println(s"typeCheckPattern($p, $sigma) = ($pattern, $bindings)")
-        //_ = println(s"about to checkRho($res, $resT)")
         tres <- extendEnvList(bindings)(checkRho(res, resT))
-        //_ = println(s"checkRho(${res.replaceTag(null.asInstanceOf[A])}, $resT) = ${tres.repr}")
       } yield (pattern, tres)
 
     def inferBranch[A: HasRegion](p: Pattern, sigma: Expected.Check[(Type, Region)], res: Expr[A]): Infer[(Pattern, (TypedExpr.Rho[A], Type.Rho))] =
@@ -1723,16 +1680,13 @@ object Infer {
                 writeMeta)
               (bound, TypedExpr.zonkMeta(fa)(zFn))
                 .mapN { (typeArgs, r) =>
-                  val q = TypedExpr.quantVars(forallList = Nil, existList = typeArgs, r)
-                  //println(s"quantifyMetas: exists = $typeArgs ${r.repr} quantVars = ${q.repr}")
-                  q
+                  TypedExpr.quantVars(forallList = Nil, existList = typeArgs, r)
                 }
             }
           }
       }
 
     def checkSigma[A: HasRegion](t: Expr[A], tpe: Type): Infer[TypedExpr[A]] = {
-      //println(s"checkSigma($t): $tpe")
       val regionT = region(t)
       for {
         checkRho <- subsUpper[Lambda[x => (Expr[x], HasRegion[x])], Infer](tpe, regionT, envTail) { (metas, rho) =>
@@ -1751,15 +1705,7 @@ object Infer {
           Error.NotPolymorphicEnough(tpe, t, badTvs, regionT)
         }
         te <- checkRho((t, implicitly[HasRegion[A]]))
-        // TODO: seems we should quantify here
-        /*
-        quant <- quantify(getEnv, te)
-        _ = if (quant != te) {
-          //println(s"checkSigma ${te.repr} => ${quant.repr}")
-        } else ()
-        */
       } yield te
-      //} yield quant
     }
 
     /**
@@ -1819,9 +1765,7 @@ object Infer {
         val used = te.allBound
         val aligned = Type.alignBinders(skols, used)
         val te2 = substTyExpr(skols, aligned.map { case (_, b) => Type.TyVar(b) }, te)
-        val fa = TypedExpr.forAll(aligned.map { case (s, b) => (b, s.kind) }, te2)
-        //println(s"unskolemize(${te.repr})\n\n${fa.repr}\n")
-        fa
+        TypedExpr.forAll(aligned.map { case (s, b) => (b, s.kind) }, te2)
       }
     }
 

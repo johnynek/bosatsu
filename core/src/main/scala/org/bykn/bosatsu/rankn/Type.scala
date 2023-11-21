@@ -133,12 +133,6 @@ object Type {
     def vars: NonEmptyList[(Var.Bound, Kind)] = quant.vars
     def existList: List[(Var.Bound, Kind)] = quant.existList
     def forallList: List[(Var.Bound, Kind)] = quant.forallList
-
-    def withQuants[A](fn: (List[(Var.Bound, Kind)], List[(Var.Bound, Kind)], Type.Rho) => A): A =
-      fn(forallList, existList, in)
-
-    def withUniversal[A](fn: (List[(Var.Bound, Kind)], Type) => A): A =
-      fn(forallList, exists(existList, in))
   }
 
   object Quantified {
@@ -417,35 +411,36 @@ object Type {
   def normalize(tpe: Type): Type =
     tpe match {
       case q: Quantified =>
-        q.withQuants { (foralls, exists, in) =>
+        val foralls = q.forallList
+        val exists = q.existList
+        val in = q.in
           
-          val inFree = freeBoundTyVars(in :: Nil)
-          // sort the quantification by the order of appearance
-          val order = inFree.iterator.zipWithIndex.toMap
-          val inFreeSet = inFree.toSet
-          val fa1 = foralls
-            .filter { case (b, _) => inFreeSet(b) }
-            .sortBy { case (b, _) => order(b) }
+        val inFree = freeBoundTyVars(in :: Nil)
+        // sort the quantification by the order of appearance
+        val order = inFree.iterator.zipWithIndex.toMap
+        val inFreeSet = inFree.toSet
+        val fa1 = foralls
+          .filter { case (b, _) => inFreeSet(b) }
+          .sortBy { case (b, _) => order(b) }
 
-          val ex1 = exists
-            .filter { case (b, _) => inFreeSet(b) }
-            .sortBy { case (b, _) => order(b) }
+        val ex1 = exists
+          .filter { case (b, _) => inFreeSet(b) }
+          .sortBy { case (b, _) => order(b) }
 
-          val frees = freeBoundTyVars(tpe :: Nil).toSet
-          val bs = alignBinders(fa1 ::: ex1, frees)
-          val subMap =
-            bs.map { case ((bold, _), bnew) =>
-              bold -> TyVar(bnew)
-            }
-            .toMap[Type.Var, Type.Rho]
+        val frees = freeBoundTyVars(tpe :: Nil).toSet
+        val bs = alignBinders(fa1 ::: ex1, frees)
+        val subMap =
+          bs.map { case ((bold, _), bnew) =>
+            bold -> TyVar(bnew)
+          }
+          .toMap[Type.Var, Type.Rho]
 
-          val newVars = bs.map { case ((_, k), b) => (b, k) }
-          val normin = normalize(substituteRhoVar(in, subMap))
-          val forAllSize = fa1.size
-          val normfas = newVars.take(forAllSize)
-          val normexs = newVars.drop(forAllSize)
-          forAll(normfas, Type.exists(normexs, normin))
-        }
+        val newVars = bs.map { case ((_, k), b) => (b, k) }
+        val normin = normalize(substituteRhoVar(in, subMap))
+        val forAllSize = fa1.size
+        val normfas = newVars.take(forAllSize)
+        val normexs = newVars.drop(forAllSize)
+        forAll(normfas, Type.exists(normexs, normin))
       case TyApply(on, arg) => TyApply(normalize(on), normalize(arg))
       case _ => tpe
     }

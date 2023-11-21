@@ -518,32 +518,33 @@ object ProtoConverter {
         case None =>
           p match {
             case q: Type.Quantified =>
-              q.withQuants { (foralls, exs, in) =>
-                (foralls.traverse { case (b, _) => getId(b.name) },
-                  exs.traverse { case (b, _) => getId(b.name) },
-                  typeToProto(in))
-                    .flatMapN { (faids, exids, idx) =>
-                      val ft0 =
-                        if (exs.nonEmpty) {
-                          val eks = exs.map { case (_, k) => kindToProto(k) }
-                          val withEx = Type.exists(exs, in)
-                          getTypeId(withEx,
-                            proto.Type(
-                              Value.TypeExists(TypeExists(exids, eks, idx))))
-                        }
-                        else tabPure(idx)
-
-                      ft0.flatMap { t0 =>
-                        if (foralls.nonEmpty) {
-                          val fks = foralls.map { case (_, k) => kindToProto(k) }
-                          getTypeId(p,
-                            proto.Type(
-                              Value.TypeForAll(TypeForAll(faids, fks, t0))))
-                        }
-                        else tabPure(t0)
+              val foralls = q.forallList
+              val exs = q.existList
+              val in = q.in
+              (foralls.traverse { case (b, _) => getId(b.name) },
+                exs.traverse { case (b, _) => getId(b.name) },
+                typeToProto(in))
+                  .flatMapN { (faids, exids, idx) =>
+                    val ft0 =
+                      if (exs.nonEmpty) {
+                        val eks = exs.map { case (_, k) => kindToProto(k) }
+                        val withEx = Type.exists(exs, in)
+                        getTypeId(withEx,
+                          proto.Type(
+                            Value.TypeExists(TypeExists(exids, eks, idx))))
                       }
+                      else tabPure(idx)
+
+                    ft0.flatMap { t0 =>
+                      if (foralls.nonEmpty) {
+                        val fks = foralls.map { case (_, k) => kindToProto(k) }
+                        getTypeId(p,
+                          proto.Type(
+                            Value.TypeForAll(TypeForAll(faids, fks, t0))))
+                      }
+                      else tabPure(t0)
                     }
-              }
+                  }
             case Type.TyApply(on, arg) =>
               typeToProto(on)
                 .product(typeToProto(arg))
