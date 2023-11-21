@@ -67,6 +67,12 @@ object TypeRefConverter {
           (TypeVar(b), k1)
         }
         loop(in).map(TypeForAll(args, _))
+      case Exists(vs, in) =>
+        val args = vs.map { case (Type.Var.Bound(b), k) =>
+          val k1 = if (k.isType) None else Some(k)
+          (TypeVar(b), k1)
+        }
+        loop(in).map(TypeExists(args, _))
       case Type.Tuple(ts) =>
         // this needs to be above TyConst
         ts.traverse(loop(_)).map(TypeTuple(_))

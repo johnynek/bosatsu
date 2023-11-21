@@ -31,21 +31,32 @@ sealed abstract class TypeRef {
       case TypeArrow(a, b) => TypeArrow(a.map(_.normalizeForAll), b.normalizeForAll)
       case TypeApply(a, bs) =>
         TypeApply(a.normalizeForAll, bs.map(_.normalizeForAll))
-      case TypeForAll(pars0, TypeForAll(pars1, e)) =>
-        // we normalize to lifting all the foralls to the outside
-        TypeForAll(pars0 ::: pars1, e).normalizeForAll
       case TypeForAll(pars, e) =>
         // Remove `Some(Type)` since that's the default
-        TypeForAll(pars.map {
+        val normPars = pars.map {
           case (v, Some(Kind.Type)) => (v, None)
           case other => other
-        }, e.normalizeForAll)
+        }
+        // we normalize to lifting all the foralls to the outside
+        e.normalizeForAll match {
+          case TypeForAll(p1, in) => TypeForAll(normPars ::: p1, in)
+          case notForAll => TypeForAll(normPars, notForAll)
+        }
       case TypeExists(pars, e) =>
         // Remove `Some(Type)` since that's the default
-        TypeExists(pars.map {
+        val normPars = pars.map {
           case (v, Some(Kind.Type)) => (v, None)
           case other => other
-        }, e.normalizeForAll)
+        }
+        // we normalize to lifting all the foralls to the outside
+        e.normalizeForAll match {
+          case TypeForAll(p1, in) =>
+            // Put foralls first
+            TypeForAll(p1, TypeExists(normPars, in).normalizeForAll)
+          case TypeExists(p1, in) =>
+            TypeExists(normPars ::: p1, in)
+          case notForAll => TypeExists(normPars, notForAll)
+        }
       case TypeTuple(ts) =>
         TypeTuple(ts.map(_.normalizeForAll))
     }
