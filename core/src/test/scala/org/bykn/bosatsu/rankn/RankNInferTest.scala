@@ -186,8 +186,6 @@ class RankNInferTest extends AnyFunSuite {
     }
   }
 
-  // COMMENT
-  /*
   test("assert some basic unifications") {
     assertTypesUnify("forall a. a", "forall b. b")
     assertTypesUnify("exists a. a", "exists b. b")
@@ -1279,8 +1277,6 @@ x = MyTup((match b:
 """)
   }
 
-  // COMMENT
-  */
   test("use existentials in ADTs") {
     parseProgram("""#
 struct Tup(a, b)
@@ -1298,12 +1294,10 @@ def branch[a](b: FreeF[a]) -> exists b. Opt[Tup[FreeF[b], b -> a]]:
     case Mapped(x): Some(x)
     case _: None
 
-""", "exists a. Opt[a]")
+""", "forall a. FreeF[a] -> exists b. Opt[Tup[FreeF[b], b -> a]]")
 
   }
 
-  // COMMENT
-  /*
   test("we can use existentials to delay calls") {
     parseProgram("""#
 struct MyTup(a, b)
@@ -1318,5 +1312,4 @@ def call[a](tup: exists c. MyTup[c -> a, c]) -> a:
 x = call(delay(x -> x, 1))
 """, "Int")
   }
-  */
 }

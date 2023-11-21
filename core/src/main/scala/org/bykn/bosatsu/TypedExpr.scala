@@ -266,9 +266,20 @@ object TypedExpr {
       case _ => None
     }
 
+  private[this] var emptyBound: SortedSet[Type.Var.Bound] =
+    SortedSet.empty
+
   implicit class InvariantTypedExpr[A](val self: TypedExpr[A]) extends AnyVal {
     def allTypes: SortedSet[Type] =
       traverseType { t => Writer[SortedSet[Type], Type](SortedSet(t), t) }.run._1
+
+    def allBound: SortedSet[Type.Var.Bound] =
+      traverseType {
+        case t @ Type.TyVar(b: Type.Var.Bound) =>
+          Writer[SortedSet[Type.Var.Bound], Type](SortedSet(b), t)
+        case t =>
+          Writer[SortedSet[Type.Var.Bound], Type](emptyBound, t)
+      }.run._1
 
     def freeTyVars: List[Type.Var] = {
       def loop(self: TypedExpr[A]): Set[Type.Var] =
@@ -320,7 +331,6 @@ object TypedExpr {
 
           val paramsF = params.traverse_ { v => fn(Type.TyVar(v._1)) }
           (paramsF *> fn(gen.getType) *> expr.traverseType(shadowFn))
-          (fn(gen.getType) *> expr.traverseType(shadowFn))
             .map(Generic(quant, _))
         case Annotation(of, tpe) =>
           (of.traverseType(fn), fn(tpe)).mapN(Annotation(_, _))
@@ -433,7 +443,7 @@ object TypedExpr {
       NonEmptyList.fromList(metaList) match {
         case None => Applicative[F].pure(rho)
         case Some(metas) =>
-          val used: Set[Type.Var.Bound] = Type.tyVarBinders(rho.allTypes.toList)
+          val used: Set[Type.Var.Bound] = rho.allBound
           val aligned = Type.alignBinders(metas, used)
           val bound = aligned.traverse { case (m, n) => writeFn(m, Type.TyVar(n)).as(((n, m.kind), m.existential)) }
           // we only need to zonk after doing a write:
