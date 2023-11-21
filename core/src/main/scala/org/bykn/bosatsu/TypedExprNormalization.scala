@@ -92,7 +92,7 @@ object TypedExprNormalization {
         normalize1(namerec, term, scope, typeEnv)
       case Generic(quant, in) =>
         val sin = normalize1(namerec, in, scope, typeEnv).get
-        val g1 = TypedExpr.quantVars(quant.forallList, quant.existList, sin)
+        val g1 = TypedExpr.normalizeQuantVars(quant, sin)
         if (g1 == te) None
         else Some(g1)
       case Annotation(term, tpe) =>

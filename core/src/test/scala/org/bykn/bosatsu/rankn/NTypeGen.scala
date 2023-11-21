@@ -144,6 +144,23 @@ object NTypeGen {
       } yield TyApply(TyApply(cons, param1), param2)))
   }
 
+  val genQuantArgs: Gen[List[(Type.Var.Bound, Kind)]] =
+    for {
+      c <- Gen.choose(0, 5)
+      ks = NTypeGen.genKind
+      as <- Gen.listOfN(c, Gen.zip(genBound, ks))
+    } yield as
+
+  lazy val genQuant: Gen[Type.Quantification] =
+    Gen.zip(genQuantArgs, genQuantArgs)
+      .flatMap { case (fa, ex) =>
+        Type.Quantification.fromLists(fa, ex) match {
+          case Some(q) => Gen.const(q)
+          case None => genQuant
+        }  
+      }
+
+
   def genDepth(d: Int, genC: Option[Gen[Type.Const]]): Gen[Type] =
     if (d <= 0) genRootType(genC)
     else {
@@ -164,11 +181,17 @@ object NTypeGen {
           in <- recurse
         } yield Type.exists(as, in)
 
+      val genQ = Gen.zip(NTypeGen.genQuant, recurse).map { case (q, t) =>
+        Type.quantify(q, t)  
+      }
+
       val genApply = Gen.zip(recurse, recurse).map { case (a, b) => Type.TyApply(a, b) }
 
-      Gen.oneOf(recurse, genApply, genForAll, genExists)
+      Gen.frequency(
+        (2, recurse),
+        (1, genApply),
+        (1, Gen.oneOf(genForAll, genExists, genQ)))
     }
-
 
   val genDepth03: Gen[Type] = Gen.choose(0, 3).flatMap(genDepth(_, Some(genConst)))
 }

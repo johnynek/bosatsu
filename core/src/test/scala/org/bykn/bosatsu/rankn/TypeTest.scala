@@ -245,4 +245,50 @@ class TypeTest extends AnyFunSuite {
       }
     }
   }
+
+  test("Quantification.concat is associative") {
+    forAll(NTypeGen.genQuant, NTypeGen.genQuant, NTypeGen.genQuant) { (a, b, c) =>
+      assert(a.concat(b).concat(c) == a.concat(b.concat(c)))  
+    }
+  }
+
+  test("Quantification.toLists/fromList identity") {
+    forAll(NTypeGen.genQuant) { q =>
+      assert(Type.Quantification.fromLists(q.forallList, q.existList) == Some(q))  
+    }
+  }
+
+  test("unexists/exists | unforall/forall iso") {
+    forAll(NTypeGen.genDepth03) {
+      case t@Type.Exists(ps, in) =>
+        assert(Type.exists(ps, in) == t)
+      case t@Type.ForAll(ps, in) =>
+        assert(Type.forAll(ps, in) == t)
+      case _ => ()
+    }
+  }
+  test("exists -> unexists") {
+    forAll(NTypeGen.genQuantArgs, NTypeGen.genRootType(None)) { (args, t) =>
+      Type.exists(args, t) match {
+        case Type.Exists(ps, in) =>
+          assert(ps.toList == args)
+          assert(in == t)
+        case notExists =>
+          assert(args.isEmpty)
+          assert(notExists == t)
+      }
+    }
+  }
+  test("forall -> unforall") {
+    forAll(NTypeGen.genQuantArgs, NTypeGen.genRootType(None)) { (args, t) =>
+      Type.forAll(args, t) match {
+        case Type.ForAll(ps, in) =>
+          assert(ps.toList == args)
+          assert(in == t)
+        case notExists =>
+          assert(args.isEmpty)
+          assert(notExists == t)
+      }
+    }
+  }
 }

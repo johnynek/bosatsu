@@ -1235,11 +1235,11 @@ object TypedExpr {
   def forAll[A](params: NonEmptyList[(Type.Var.Bound, Kind)], expr: TypedExpr[A]): TypedExpr[A] =
     quantVars(forallList = params.toList, Nil, expr)
 
-  private def normalizeQuantVars[A](q: Type.Quantification, expr: TypedExpr[A]): TypedExpr[A] =
+  def normalizeQuantVars[A](q: Type.Quantification, expr: TypedExpr[A]): TypedExpr[A] =
     expr match {
       case Generic(oldQuant, ex0) =>
         normalizeQuantVars(q.concat(oldQuant), ex0)
-      case Annotation(term, _) if Type.quantify(q, expr.getType).sameAs(term.getType) =>
+      case Annotation(term, tpe) if Type.quantify(q, tpe).sameAs(term.getType) =>
         // we not uncommonly add an annotation just to make a generic wrapper to get back where
         term
       case _ =>
@@ -1257,10 +1257,8 @@ object TypedExpr {
           case Some(q) =>
             val varSet = q.vars.iterator.map { case (b, _) => b }.toSet
 
-            val avoid: SortedSet[Type.Var.Bound] =
-              expr.allTypes.collect {
-                case Type.TyVar(b: Type.Var.Bound) if !varSet(b) => b
-              }
+            val avoid: Set[Type.Var.Bound] =
+              expr.allBound.diff(varSet)
 
             q match {
               case ForAll(vars) =>
@@ -1304,13 +1302,11 @@ object TypedExpr {
   def quantVars[A](
     forallList: List[(Type.Var.Bound, Kind)],
     existList: List[(Type.Var.Bound, Kind)],
-    expr: TypedExpr[A]): TypedExpr[A] = {
-
+    expr: TypedExpr[A]): TypedExpr[A] =
     Type.Quantification.fromLists(forallList = forallList, existList = existList) match {
-      case Some(q) => normalizeQuantVars(q, expr)
+      case Some(q) => Generic(q, expr)
       case None => expr
     }
-  }
 
   private def lambda[A](args: NonEmptyList[(Bindable, Type)], expr: TypedExpr[A], tag: A): TypedExpr[A] =
     AnnotatedLambda(args, expr, tag)
